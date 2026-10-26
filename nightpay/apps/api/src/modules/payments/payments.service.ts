@@ -37,6 +37,7 @@ import {
 import type { RequestContext } from '../../common/context/request-context';
 import { inVenue } from '../../common/context/in-venue';
 import { QR_EXPIRE_QUEUE, ORPHAN_RECONCILE_QUEUE } from '../queues/queue-tokens';
+import { enqueueOrphanReconcile } from '../queues/orphan-enqueue';
 import { GatewayRegistry } from '../gateways/gateway.registry';
 import { isTransientGatewayError } from '../gateways/gateway-errors';
 import { PeanpeAdapter } from '../gateways/peanpe.adapter';
@@ -99,6 +100,13 @@ import { closeLinkedSaldo } from './cobro-link';
 
 const POS_AUTH_CODE_REUSED =
   'Ese código de autorización ya se usó en otro cobro de este datáfono. Revisa el ticket.';
+/**
+ * Confirmar un cobro del datáfono pasado su plazo (30 min). Normalmente ya lo
+ * ha caducado su trabajo; si ese trabajo no llegó a correr, tampoco se da por
+ * pagado (antes sí, con el código que se tecleara y la hora de ahora).
+ */
+export const POS_PAYMENT_EXPIRED =
+  'Este cobro ha caducado y ya no se puede confirmar: que la chica cree otro. Si ya pasaste la tarjeta, avisa al encargado.';
 /** Un código de autorización no confirma dos cobros del mismo datáfono en este tiempo. */
 const POS_AUTH_CODE_WINDOW_MS = 24 * 3600 * 1000;
 
@@ -370,7 +378,7 @@ export class PaymentsService implements OnApplicationBootstrap {
    * paralelas a Redsys.restTrataPeticion por cada pago atascado.
    *
    * Idempotente extra: el `jobId: orphan-<paymentId>` lo deduplica con
-   * cualquier job ya en cola.
+   * cualquier job ya en cola (uno fallido se quita antes: orphan-enqueue.ts).
    */
   async onApplicationBootstrap(): Promise<void> {
     // Lock distribuido — TTL 5 min cubre boot lento y previene zombie locks
@@ -407,18 +415,9 @@ export class PaymentsService implements OnApplicationBootstrap {
 
       this.logger.log(`Boot sweep: re-queueing ${stuck.length} stuck AUTHORIZING payments`);
       for (const p of stuck) {
-        await this.orphanReconcileQueue.add(
-          'orphan-reconcile',
-          { paymentId: p.id, tenantId: p.tenantId },
-          {
-            jobId: `orphan-${p.id}`,
-            delay: 5000, // disparo inminente al boot
-            attempts: 5,
-            backoff: { type: 'exponential', delay: 30_000 },
-            removeOnComplete: true,
-            removeOnFail: 100,
-          },
-        );
+        // Disparo inminente al boot. Si su trabajo anterior agotó los
+        // reintentos, se quita antes (si no, add() con el mismo id no hace nada).
+        await enqueueOrphanReconcile(this.orphanReconcileQueue, this.logger, { paymentId: p.id, tenantId: p.tenantId }, 5000);
       }
     } catch (err) {
       // ERROR, no warn — si el sweep falla los pagos quedan atascados.
@@ -494,7 +493,10 @@ export class PaymentsService implements OnApplicationBootstrap {
       throw err;
     }
 
-    // 4. Encolar job de expiración (id determinista → idempotente al encolar)
+    // 4. Encolar job de expiración (id determinista → idempotente al encolar).
+    //    Con reintentos: un fallo pasajero (base ocupada) no deja el cobro
+    //    CREATED. Si ni así (o Redis falló aquí y el reintento del cliente
+    //    devuelve el cobro sin volver a encolar), lo caduca QrExpireSweepService.
     await this.qrExpireQueue.add(
       'qr-expire',
       { paymentId: payment.id, tenantId },
@@ -504,6 +506,8 @@ export class PaymentsService implements OnApplicationBootstrap {
         // antes era siempre QR_TTL_SECONDS → POS expiraba a los 5min con el
         // camarero todavía en camino al datáfono.
         delay: draft.ttlSeconds * 1000,
+        attempts: 3,
+        backoff: { type: 'exponential', delay: 10_000 },
         removeOnComplete: true,
         removeOnFail: 100,
       },
@@ -1917,6 +1921,7 @@ export class PaymentsService implements OnApplicationBootstrap {
         `Payment está en ${payment.status} — solo se puede confirmar CREATED`,
       );
     }
+    if (payment.qrExpiresAt <= new Date()) throw new ConflictException(POS_PAYMENT_EXPIRED);
     // Anti auto-confirm: la chica no se confirma sus propios POS (camarero sí).
     if (actor.role === 'OPERATOR' && payment.createdByUserId === actor.userId) {
       throw new ForbiddenException(
@@ -2136,18 +2141,13 @@ export class PaymentsService implements OnApplicationBootstrap {
     // 3) Encolar orphan-reconcile (se autocancela si llega webhook antes)
     // Attempts + backoff: si la pasarela devuelve UNKNOWN reintenta 5 veces.
     // Tras agotar, el processor transiciona el pago a ORPHAN (visible en
-    // admin para reconciliación manual).
-    await this.orphanReconcileQueue.add(
-      'orphan-reconcile',
+    // admin para reconciliación manual). Un trabajo anterior de este cobro que
+    // agotó los reintentos por un error se quita antes (orphan-enqueue.ts).
+    await enqueueOrphanReconcile(
+      this.orphanReconcileQueue,
+      this.logger,
       { paymentId: payment.id, tenantId: payment.tenantId },
-      {
-        jobId: `orphan-${payment.id}`,
-        delay: ORPHAN_RECONCILE_DELAY_MS,
-        attempts: 5,
-        backoff: { type: 'exponential', delay: 30_000 },
-        removeOnComplete: true,
-        removeOnFail: 100,
-      },
+      ORPHAN_RECONCILE_DELAY_MS,
     );
 
     this.logger.log(

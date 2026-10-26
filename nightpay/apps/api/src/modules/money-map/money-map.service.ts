@@ -7,7 +7,7 @@ import { lastNightCutoff } from '../../common/time/madrid';
 import { cashFromRows, zStart } from '../nights/night-rules';
 import { parseReportPeriod, type TimeWindow } from '../reports/report-period';
 import { MAX_EXPORT_ROWS, ReportsService } from '../reports/reports.service';
-import { PAID_STATUSES_SQL, cashTopUpCount, linesJson, paymentAt, paymentRecordedAt, refundAt } from '../reports/reporting-sql';
+import { PAID_STATUSES_SQL, REPORT_TX, cashTopUpCount, linesJson, paymentAt, paymentRecordedAt, refundAt } from '../reports/reporting-sql';
 import {
   buildMoneyMap,
   frozenMoneyMapOf,
@@ -183,10 +183,10 @@ export class MoneyMapService {
     const consumed = activeConsumptions(tenantId, window, asOf);
     const [venue, sales, money, cash, live] = await Promise.all([
       this.prisma.asSystem((tx) => tx.venue.findUnique({ where: { id: tenantId }, select: { platformCommissionBps: true } })),
-      this.prisma.withTenant(tenantId, (tx) => this.salesRows(tx, paid, consumed)),
-      this.prisma.withTenant(tenantId, (tx) => this.moneyRows(tx, tenantId, window, asOf, paid, consumed)),
+      this.prisma.withTenant(tenantId, (tx) => this.salesRows(tx, paid, consumed), REPORT_TX),
+      this.prisma.withTenant(tenantId, (tx) => this.moneyRows(tx, tenantId, window, asOf, paid, consumed), REPORT_TX),
       opts.cash ? Promise.resolve(opts.cash) : this.cashOf(tenantId, window, asOf, opts.openingFloatCents),
-      opts.withLiveBalances ? this.prisma.withTenant(tenantId, (tx) => liveBalances(tx, tenantId)) : Promise.resolve(null),
+      opts.withLiveBalances ? this.prisma.withTenant(tenantId, (tx) => liveBalances(tx, tenantId), REPORT_TX) : Promise.resolve(null),
     ]);
     if (!venue) throw new NotFoundException('Local no encontrado');
     const saleRows: SaleRow[] = [

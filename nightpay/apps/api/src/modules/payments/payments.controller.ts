@@ -137,17 +137,23 @@ export class PaymentsController {
   }
 
   /**
-   * Cliente confirma "voy a pagar" desde la pantalla del QR.
-   * Mueve FSM a AUTHORIZING y dispara la pasarela.
-   * Publico — la seguridad viene del qrToken unico.
+   * Retirado (410 Gone). Era el «voy a pagar» del web-client antiguo, que
+   * desde el 15-oct-2026 (89bd484) redirige a la página del API: ninguna app
+   * lo llama. Abría el pago en la pasarela sin la página de pago: sin propina
+   * ni método, con el intento sin la marca del navegador que paga (la página
+   * «Pagado» de una recarga no reconocía a nadie) y, a quien lo llamara con el
+   * enlace del QR antes que el cliente, le dejaba el cobro en AUTHORIZING. El
+   * pago va por POST /pay/{token} (PublicPayController), con la elección del
+   * cliente. Sigue pública para que quien la llame reciba el 410 y no un 401.
    */
   @Public()
   @Post('public/:token/start-authorization')
-  @HttpCode(202)
-  async startAuthorization(
-    @Param('token') token: string,
-  ): Promise<{ status: string; providerTxId?: string }> {
-    return this.payments.startAuthorization(token);
+  startAuthorization(@Param('token') _token: string): never {
+    throw new GoneException({
+      message: 'Endpoint retirado',
+      hint: 'El cliente paga en GET /pay/{token} (sin el prefijo /v1): la página envía POST /pay/{token} con su elección.',
+      migratedAt: '2026-10-26',
+    });
   }
 
   /**

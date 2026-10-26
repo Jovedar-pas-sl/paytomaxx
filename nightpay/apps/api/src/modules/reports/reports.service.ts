@@ -14,6 +14,7 @@ import type {
 import { venueSectionLabeler } from './export-rows';
 import type { TimeWindow } from './report-period';
 import {
+  REPORT_TX,
   PAID_EVENTS_SQL,
   PAID_STATUSES_SQL,
   afterPayoutDebt,
@@ -210,7 +211,7 @@ export class ReportsService {
          ${recorded}
        ORDER BY ct."createdAt" ASC
        LIMIT ${MAX_EXPORT_ROWS + 1}
-    `));
+    `, REPORT_TX));
   }
 
   /** Pagos al personal hechos en el periodo (a las chicas y, si tienen parte de las invitaciones, a los camareros). */
@@ -237,7 +238,7 @@ export class ReportsService {
          AND po."createdAt" < ${p.to}
        ORDER BY po."createdAt" ASC
        LIMIT ${MAX_EXPORT_ROWS + 1}
-    `));
+    `, REPORT_TX));
   }
 
   /** Cobros pagados del local que cumplen `where` (alias p). */
@@ -303,7 +304,7 @@ export class ReportsService {
          AND ${where}
        ORDER BY "paidAt" ASC
        LIMIT ${MAX_EXPORT_ROWS + 1}
-    `);
+    `, REPORT_TX);
   }
 
   /** Consumos del saldo del local que cumplen `where` (alias c), con la parte de la chica si la hay. */
@@ -340,7 +341,7 @@ export class ReportsService {
          AND ${where}
        ORDER BY c."createdAt" ASC
        LIMIT ${MAX_EXPORT_ROWS + 1}
-    `);
+    `, REPORT_TX);
   }
 
   /** Devoluciones hechas del local que cumplen `where` (alias r), con lo descontado a la chica. */
@@ -397,7 +398,7 @@ export class ReportsService {
          AND ${where}
        ORDER BY "refundedAt" ASC
        LIMIT ${MAX_EXPORT_ROWS + 1}
-    `);
+    `, REPORT_TX);
   }
 }
 

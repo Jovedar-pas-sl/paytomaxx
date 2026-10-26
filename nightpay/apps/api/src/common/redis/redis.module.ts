@@ -1,4 +1,4 @@
-import { Global, Inject, Logger, Module, type OnModuleDestroy } from '@nestjs/common';
+import { Global, Inject, Logger, Module, type OnApplicationShutdown } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { Redis } from 'ioredis';
 
@@ -36,7 +36,7 @@ export const REDIS_CLIENT = Symbol('REDIS_CLIENT');
   ],
   exports: [REDIS_CLIENT],
 })
-export class RedisModule implements OnModuleDestroy {
+export class RedisModule implements OnApplicationShutdown {
   private readonly client: Pick<Redis, 'quit' | 'disconnect'>;
 
   constructor(@Inject(REDIS_CLIENT) client: Redis) {
@@ -44,10 +44,12 @@ export class RedisModule implements OnModuleDestroy {
   }
 
   /**
-   * Al apagar (SIGTERM con enableShutdownHooks): cierra la conexión para que
-   * el proceso termine sin esperar al socket. Si Redis no contesta, se corta.
+   * Al final del apagado (después de cerrar el HTTP y los workers: main.ts →
+   * shutdown.ts): cierra la conexión para que el proceso termine sin esperar
+   * al socket. Si Redis no contesta, se corta. No en onModuleDestroy: Nest lo
+   * corre antes de cerrar el servidor y lo que estaba en vuelo perdía Redis.
    */
-  async onModuleDestroy(): Promise<void> {
+  async onApplicationShutdown(): Promise<void> {
     try {
       await this.client.quit();
     } catch {

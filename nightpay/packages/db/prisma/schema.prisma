@@ -444,6 +444,12 @@ model Payment {
   @@index([tenantId, createdByUserId, createdAt(sort: Desc)])
   @@index([providerTxId])
   @@index([qrExpiresAt])
+  // CHECK solo en SQL (20261029400100_check_dinero): amountCents > 0 y los dos
+  // % (platformCommissionBps, operatorCommissionBps) NULL o de 0 a 10000.
+  // Solo en SQL (20261029400000_indices_informes; Prisma no los compara):
+  // payments_tenant_paid_at_idx (tenantId, COALESCE(authorizedAt, createdAt)),
+  // el «momento del cobro» de los informes; y payments_open_qr_expires_idx
+  // (qrExpiresAt) de los CREATED/AWAITING_CAPTURE, para el barrido de caducados.
   @@index([walletId])
   @@index([tipBeneficiaryUserId])
   @@unique([posTerminalId, posOperationNumber])
@@ -807,6 +813,8 @@ model PaymentEvent {
 
   @@index([paymentId])
   @@index([tenantId, occurredAt(sort: Desc)])
+  // Bandeja de incidencias y ajustes del Z, por tipo (20261029400000_indices_informes).
+  @@index([tenantId, eventType, occurredAt])
   @@index([traceId])
   @@map("payment_events")
 }
@@ -846,6 +854,7 @@ model Refund {
   payment   Payment           @relation(fields: [paymentId], references: [id])
   reversals EarningReversal[]
 
+  // CHECK solo en SQL (20261029400100_check_dinero): amountCents > 0.
   @@index([tenantId, paymentId])
   @@unique([tenantId, idempotencyKey])
   @@map("refunds")
@@ -893,6 +902,8 @@ model OperatorEarning {
   payout      OperatorPayout?    @relation("EarningPayout", fields: [payoutId], references: [id])
   reversals   EarningReversal[]
 
+  // CHECK solo en SQL (20261029400100_check_dinero): commissionCents >= 0 y
+  // commissionBps de 0 a 10000 (además de los de tipCents y reversedCents).
   @@unique([paymentId, operatorId])
   @@unique([consumptionId, operatorId])
   @@index([paymentId])
@@ -961,6 +972,11 @@ model OperatorPayout {
   // veces) y la huella de quién y qué pidió: otra petición con la misma, 409.
   idempotencyKey       String?
   idempotencyHash      String?
+
+  // La dirección de cobro que tenía la persona al apuntar el pago
+  // (20261029400200): la verificación on-chain compara con esta, no con la de
+  // ahora. NULL = pago de antes (se compara con la actual); '' = no tenía.
+  paidToAddress        String?
 
   venue        Venue             @relation(fields: [tenantId], references: [id])
   operator     User              @relation("OperatorPayouts", fields: [operatorId], references: [id])
@@ -1290,6 +1306,8 @@ model WalletConsumption {
   @@index([tenantId, providedByUserId, createdAt(sort: Desc)])
   @@index([tenantId, category])
   @@index([walletId, createdAt])
+  // Consumos del Z y de los informes por fecha (20261029400000_indices_informes).
+  @@index([tenantId, createdAt])
   @@map("wallet_consumptions")
 }
 

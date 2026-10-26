@@ -88,6 +88,24 @@ function linkIdOf(p: PaytefWebhookPayload): string | null {
   return fromData ?? fromRoot;
 }
 
+/**
+ * Estado del link en un aviso sin txnKey, para su id: lo que decide qué hace
+ * el aviso (mapWebhookToFsmEvent) y nada más (ni importe ni tarjeta), así un
+ * reintento idéntico de Paytef da el mismo id. «open»: sin nada de eso.
+ */
+function noticeStateOf(data: PaytefPaymentLink | undefined): string {
+  const r = data?.lastResult;
+  const code = r?.resultCode?.replace(/[^A-Za-z0-9]/g, '').slice(0, 16);
+  const result = !r ? null : r.isApproved === true ? 'approved' : r.isApproved === false ? 'denied' : 'result';
+  const parts = [
+    result && code && result !== 'approved' ? `${result}${code}` : result,
+    data?.isCanceled ? 'canceled' : null,
+    data?.isExpired ? 'expired' : null,
+    data?.isFinished ? 'finished' : null,
+  ].filter((x): x is string => x !== null);
+  return parts.length > 0 ? parts.join('-') : 'open';
+}
+
 @Injectable()
 export class PaytefAdapter implements GatewayAdapter {
   readonly provider = 'PAYTEF' as const;
@@ -402,9 +420,13 @@ export class PaytefAdapter implements GatewayAdapter {
     }
 
     // externalEventId = paymentID + last txnKey si está, para idempotency.
+    // Sin txnKey, + el estado del link que trae: con solo el id del link, un
+    // aviso de ciclo de vida dejaba ese id como procesado y uno posterior
+    // distinto (aprobado, cancelado) se contestaba «duplicado» sin procesarlo.
+    // El mismo aviso repetido trae el mismo estado: sigue siendo duplicado.
     const externalEventId = parsed.data?.lastResult?.txnKey
       ? `${paymentID}_${parsed.data.lastResult.txnKey}`
-      : paymentID;
+      : `${paymentID}_${noticeStateOf(parsed.data)}`;
 
     return { valid: true, externalEventId, paymentRef };
   }

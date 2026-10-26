@@ -5,7 +5,15 @@ import { LATE_CARD_APPROVAL_EVENTS } from '../payments/late-card-approval';
 import { buildMetrics, buildPeriodZ, type ZCategoryRow, type ZGroupRow, type ZOperatorRow } from './period-reports';
 import { totalsFromRow, type PeriodTotals, type PeriodTotalsRow } from './period-totals';
 import type { TimeWindow } from './report-period';
-import { PAID_STATUSES_SQL, afterPayoutDebt, cashTopUpCount, paymentAt, refundAt, refundTipPart } from './reporting-sql';
+import {
+  PAID_STATUSES_SQL,
+  REPORT_TX,
+  afterPayoutDebt,
+  cashTopUpCount,
+  paymentAt,
+  refundAt,
+  refundTipPart,
+} from './reporting-sql';
 import { madridQuarter, madridRecentDaysWindow, madridTodayWindow } from './reporting-window';
 import { buildVat303, vatExempt } from './vat-303';
 
@@ -108,7 +116,7 @@ export class PeriodReportsService {
            AND ct."createdAt" >= ${w.from} AND ct."createdAt" < ${w.to}
       )
       SELECT * FROM cobros, devoluciones, saldo, efectivo
-    `);
+    `, REPORT_TX);
     return totalsFromRow(rows[0]);
   }
 
@@ -223,7 +231,7 @@ export class PeriodReportsService {
        WHERE ct."tenantId" = ${tenantId}::uuid
          AND ct."createdAt" >= ${w.from} AND ct."createdAt" < ${w.to}
       HAVING COUNT(*) > 0
-    `);
+    `, REPORT_TX);
   }
 
   /**
@@ -246,7 +254,7 @@ export class PeriodReportsService {
            OR (c."reversedAt" IS NULL AND c."createdAt" >= ${w.from} AND c."createdAt" < ${w.to})
          )
        GROUP BY e."operatorId", u."displayName", u.email
-    `);
+    `, REPORT_TX);
   }
 
   private async operatorPayouts(
@@ -258,7 +266,7 @@ export class PeriodReportsService {
         FROM operator_payouts po
        WHERE po."tenantId" = ${tenantId}::uuid
          AND po."createdAt" >= ${w.from} AND po."createdAt" < ${w.to}
-    `);
+    `, REPORT_TX);
   }
 
   /** Consumos del saldo del trimestre (informativo en el 303). */
@@ -269,7 +277,7 @@ export class PeriodReportsService {
        WHERE c."tenantId" = ${tenantId}::uuid
          AND c."reversedAt" IS NULL
          AND c."createdAt" >= ${w.from} AND c."createdAt" < ${w.to}
-    `);
+    `, REPORT_TX);
     return { count: Number(rows[0]?.count ?? 0), cents: Number(rows[0]?.cents ?? 0) };
   }
 }

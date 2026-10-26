@@ -114,7 +114,7 @@ function makeService(setup: Setup = {}) {
   const authorize: (input: Row) => Promise<Row> =
     setup.authorize ?? (async () => ({ providerTxId: '2610170130A1', checkoutForm: REDSYS_FORM }));
   const adapter = { authorize: vi.fn(authorize) };
-  const orphanQueue = { add: vi.fn(async () => ({})) };
+  const orphanQueue = { getJob: vi.fn(async () => undefined), add: vi.fn(async () => ({})) };
   const logger = { log: vi.fn(), warn: vi.fn(), error: vi.fn() };
   const service = new PaymentsService(
     prisma as never,

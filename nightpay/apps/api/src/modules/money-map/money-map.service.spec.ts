@@ -3,6 +3,7 @@ import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@nightpay/db';
 import { MoneyMapService } from './money-map.service';
 import { buildMoneyMap } from './money-map-rules';
+import { REPORT_TX } from '../reports/reporting-sql';
 
 const TENANT = '11111111-1111-4111-8111-111111111111';
 const NIGHT = '22222222-2222-4222-8222-222222222222';
@@ -84,7 +85,7 @@ function makeService(fake: Fake = {}, opts: { bankFeeBps?: number } = {}) {
     liquidaciones: vi.fn().mockResolvedValue([{ externalRail: 'MANUAL_CASH', totalCents: 200 }]),
   };
   const config = { get: vi.fn((k: string) => (k === 'BANK_CARD_FEE_BPS' ? opts.bankFeeBps : undefined)) };
-  return { svc: new MoneyMapService(prisma as never, reports as never, config as never), queries, reports, tx };
+  return { svc: new MoneyMapService(prisma as never, reports as never, config as never), queries, reports, tx, prisma };
 }
 
 /** Cada tabla leída va filtrada por el local, con el local como parámetro (nada del middleware). */
@@ -253,5 +254,14 @@ describe('local que no existe', () => {
     const { svc, tx } = makeService();
     tx.venue.findUnique.mockResolvedValueOnce(null);
     await expect(svc.forQuery(TENANT, {}, NOW)).rejects.toBeInstanceOf(NotFoundException);
+  });
+});
+
+describe('transacciones del mapa del dinero: tope explícito (DI-02)', () => {
+  it('las del cálculo llevan REPORT_TX (el Z congela el mapa al cerrar)', async () => {
+    const { svc, prisma } = makeService();
+    await svc.forQuery(TENANT, { from: '2026-10-01', to: '2026-10-02' }, NOW);
+    expect(prisma.withTenant.mock.calls.length).toBeGreaterThanOrEqual(2);
+    for (const call of prisma.withTenant.mock.calls) expect((call as unknown[])[2]).toBe(REPORT_TX);
   });
 });

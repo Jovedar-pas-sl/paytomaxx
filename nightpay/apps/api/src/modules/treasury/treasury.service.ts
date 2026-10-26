@@ -149,16 +149,19 @@ export class TreasuryService {
       // Admin debe llamar /confirm-manual aparte si quiere marcarlo MANUAL_OK.
       return { matched: false, status: 'UNRECONCILED', occurredAt: null, actualAmountCents: null, reason: 'manual_required' };
     }
-    if (!payout.operator.payoutAddress) {
+    const address = paidToAddressOf(payout);
+    if (!address) {
       throw new BadRequestException(
-        'La operadora no tiene payoutAddress configurada — no se puede verificar on-chain',
+        payout.paidToAddress === ''
+          ? 'La operadora no tenía dirección de cobro al pagarle: no se puede verificar on-chain (confírmalo a mano)'
+          : 'La operadora no tiene payoutAddress configurada — no se puede verificar on-chain',
       );
     }
     const verifier = this.verifierFactory.forMethod(req.externalRail);
     // FX snapshot persistido al crear el payout (Sprint 2026-05-13 fix #15).
     const result = await verifier.verify({
       externalTxId: req.externalTxId,
-      expectedToAddress: payout.operator.payoutAddress,
+      expectedToAddress: address,
       expectedAmountCents: payout.totalCents,
       expectedAmountUsdt: payout.expectedAmountUsdt ? Number(payout.expectedAmountUsdt.toString()) : undefined,
     });
@@ -416,9 +419,10 @@ export class TreasuryService {
     externalRail: string | null;
     externalTxId: string | null;
     expectedAmountUsdt: { toString(): string } | null;
+    paidToAddress?: string | null;
     operator: { payoutAddress: string | null };
   }): Promise<boolean> {
-    const addr = p.operator.payoutAddress;
+    const addr = paidToAddressOf(p);
     const rail = p.externalRail as PayoutMethod | null;
     const txId = p.externalTxId?.trim();
     if (!addr || !rail || !txId) return false;
@@ -445,4 +449,15 @@ export class TreasuryService {
     );
     return true;
   }
+}
+
+/**
+ * La dirección contra la que se verifica on-chain un pago: la que tenía la
+ * persona al apuntarlo (paidToAddress, 20261029400200), no la de ahora (si
+ * no, cambiarla después cambiaba el resultado). '' = no tenía: null (no se
+ * verifica on-chain). Pagos de antes de guardarla (NULL): la actual.
+ */
+export function paidToAddressOf(p: { paidToAddress?: string | null; operator: { payoutAddress: string | null } }): string | null {
+  if (p.paidToAddress === null || p.paidToAddress === undefined) return p.operator.payoutAddress;
+  return p.paidToAddress.trim() || null;
 }

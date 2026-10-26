@@ -1,4 +1,4 @@
-import { Inject, Injectable, Logger, OnModuleDestroy, OnModuleInit, Optional } from '@nestjs/common';
+import { Inject, Injectable, Logger, OnApplicationShutdown, OnModuleInit, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { ClsService } from 'nestjs-cls';
 import { Prisma, PrismaClient } from '@nightpay/db';
@@ -39,11 +39,17 @@ export class RlsOutsideTransactionError extends Error {
 const UNSCOPED_LOG_EVERY_MS = 10 * 60 * 1000;
 
 type BatchOptions = { isolationLevel?: Prisma.TransactionIsolationLevel };
-type ItxOptions = BatchOptions & { maxWait?: number; timeout?: number };
+/**
+ * Tiempos de una transacción interactiva: cuánto esperar a una conexión del
+ * pool (maxWait) y cuánto puede durar (timeout). Sin ellos, los de Prisma
+ * (2 s y 5 s); los informes piden más (reports/reporting-sql.ts REPORT_TX).
+ */
+export type TxTimeouts = { maxWait?: number; timeout?: number };
+type ItxOptions = BatchOptions & TxTimeouts;
 type UnwrapTuple<P extends readonly unknown[]> = { [K in keyof P]: Awaited<P[K]> };
 
 @Injectable()
-export class PrismaService extends PrismaClient implements OnModuleInit, OnModuleDestroy {
+export class PrismaService extends PrismaClient implements OnModuleInit, OnApplicationShutdown {
   private readonly logger = new Logger(PrismaService.name);
   private readonly cls: ClsService<{ ctx: RequestContext }>;
   private readonly config?: ConfigService;
@@ -116,7 +122,12 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
     }
   }
 
-  async onModuleDestroy(): Promise<void> {
+  /**
+   * Al final del apagado (onApplicationShutdown, después de cerrar el HTTP y
+   * los workers: main.ts → shutdown.ts), no en onModuleDestroy, que Nest corre
+   * ANTES de cerrar el servidor: las peticiones en vuelo se quedaban sin base.
+   */
+  async onApplicationShutdown(): Promise<void> {
     await this.$disconnect();
   }
 
@@ -155,9 +166,9 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
    * middleware también filtra por él. Para el panel y la app de las chicas, y
    * para trabajos que saben de qué local son.
    */
-  async withTenant<T>(tenantId: string, fn: (tx: TransactionalClient) => Promise<T>): Promise<T> {
+  async withTenant<T>(tenantId: string, fn: (tx: TransactionalClient) => Promise<T>, options?: TxTimeouts): Promise<T> {
     if (!tenantId) throw new Error('withTenant necesita un local');
-    return this.withContext({ tenantId, system: false, acrossVenues: false }, () => this.$transaction(fn));
+    return this.withContext({ tenantId, system: false, acrossVenues: false }, () => this.$transaction(fn, options));
   }
 
   /**
@@ -167,12 +178,12 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
    * como "de sistema" a propósito (no cuenta como consulta sin local).
    * SQL literal — sin input externo, no injection-prone.
    */
-  async asSystem<T>(fn: (tx: TransactionalClient) => Promise<T>): Promise<T> {
+  async asSystem<T>(fn: (tx: TransactionalClient) => Promise<T>, options?: TxTimeouts): Promise<T> {
     return this.withContext({ system: true }, () =>
       this.$transaction(async (tx) => {
         await tx.$executeRawUnsafe(`SET LOCAL app.bypass_rls = 'on'`);
         return fn(tx);
-      }),
+      }, options),
     );
   }
 

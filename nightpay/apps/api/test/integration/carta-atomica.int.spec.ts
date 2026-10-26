@@ -20,7 +20,7 @@ afterAll(async () => {
     await tx.serviceItem.deleteMany({ where: { tenantId: { in: venues } } });
     await tx.venue.deleteMany({ where: { id: { in: venues } } });
   });
-  await prisma.onModuleDestroy();
+  await prisma.onApplicationShutdown();
 });
 
 async function venue(sections?: Record<string, unknown>) {

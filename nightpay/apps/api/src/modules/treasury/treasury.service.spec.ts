@@ -193,6 +193,28 @@ describe('TreasuryService.verifyPayout — un hash on-chain verifica un solo pag
     );
   });
 
+  it('se compara con la dirección a la que se pagó (guardada al pagarle), no con la que tenga ahora la chica (DIN-6)', async () => {
+    const paidTo = 'TPaidAddrAtPayoutTimeXXXXXXXXXXXXX';
+    const { svc, verifier } = makeVerify({
+      payout: { paidToAddress: paidTo, operator: { id: 'op-1', email: 'c@x.es', tenantId: 't-1', payoutMethod: 'USDT_TRC20', payoutAddress: TRON_TO } },
+    });
+    await svc.verifyPayout('t-1', 'po-1', 'u-owner', dto);
+    expect(verifier.verify).toHaveBeenCalledWith(expect.objectContaining({ expectedToAddress: paidTo }));
+  });
+
+  it('un pago de antes de guardar la dirección (NULL): con la de ahora, como hasta ahora', async () => {
+    const { svc, verifier } = makeVerify({ payout: { paidToAddress: null } });
+    await svc.verifyPayout('t-1', 'po-1', 'u-owner', dto);
+    expect(verifier.verify).toHaveBeenCalledWith(expect.objectContaining({ expectedToAddress: TRON_TO }));
+  });
+
+  it('la chica no tenía dirección de cobro al pagarle: no se verifica on-chain con la que ponga después', async () => {
+    const { svc, verifier, tx } = makeVerify({ payout: { paidToAddress: '' } });
+    await expect(svc.verifyPayout('t-1', 'po-1', 'u-owner', dto)).rejects.toThrow(/no tenía dirección de cobro/);
+    expect(verifier.verify).not.toHaveBeenCalled();
+    expect(tx.operatorPayout.update).not.toHaveBeenCalled();
+  });
+
   it('transacción de más de 24 h antes del pago → MISMATCH con el motivo', async () => {
     const { svc, tx } = makeVerify({
       verifierResult: {

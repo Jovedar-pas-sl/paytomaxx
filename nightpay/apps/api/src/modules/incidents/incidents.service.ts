@@ -44,6 +44,7 @@ import {
   type NightPendingRow,
   type StuckRow,
 } from './incident-rules';
+import { runLimited } from './run-limited';
 
 /** Hasta dónde se mira atrás, y cuántas de cada tipo como mucho. */
 const LOOKBACK_DAYS = 60;
@@ -52,6 +53,12 @@ const PER_KIND_LIMIT = 100;
 const STUCK_MINUTES = 15;
 /** Un cobro del datáfono debería salir en un cuadre de ese datáfono en este tiempo. */
 const RECONCILE_WITHIN_HOURS = 24;
+/**
+ * Consultas de la bandeja a la vez. Eran las 17 en un Promise.all: 17
+ * conexiones del pool de Prisma en cada carga del panel y en cada vuelta de
+ * 5 min de las alertas por local, y los cobros esperaban conexión.
+ */
+export const INCIDENT_QUERY_CONCURRENCY = 4;
 
 /**
  * Bandeja de incidencias (Fase 1E). Se calcula al vuelo para un local;
@@ -101,8 +108,8 @@ export class IncidentsService {
       posVoidedPaid,
       unprovenSales,
       unassignedTopUps,
-    ] = await Promise.all([
-      this.prisma.$queryRaw<StuckRow[]>`
+    ] = await runLimited([
+      () => this.prisma.$queryRaw<StuckRow[]>`
         SELECT id, status::text AS status, "amountCents", "updatedAt"
           FROM payments
          WHERE "tenantId" = ${tenantId}::uuid
@@ -112,7 +119,7 @@ export class IncidentsService {
          ORDER BY "updatedAt" DESC
          LIMIT ${PER_KIND_LIMIT}
       `,
-      this.prisma.$queryRaw<EventRow[]>`
+      () => this.prisma.$queryRaw<EventRow[]>`
         SELECT e.id::text AS id, e."paymentId", (p."amountCents" + p."tipCents")::int AS "amountCents",
                e."occurredAt", e.payload
           FROM payment_events e
@@ -130,7 +137,7 @@ export class IncidentsService {
          ORDER BY e."occurredAt" DESC
          LIMIT ${PER_KIND_LIMIT}
       `,
-      this.prisma.$queryRaw<Array<EventRow & { action: string; actorName: string | null }>>`
+      () => this.prisma.$queryRaw<Array<EventRow & { action: string; actorName: string | null }>>`
         SELECT a.id::text AS id, a.action, a."targetId" AS "paymentId",
                CASE WHEN jsonb_typeof(a.payload -> 'amountCents') = 'number'
                     THEN (a.payload ->> 'amountCents')::int END AS "amountCents",
@@ -151,7 +158,7 @@ export class IncidentsService {
          ORDER BY a."occurredAt" DESC
          LIMIT ${PER_KIND_LIMIT}
       `,
-      this.prisma.$queryRaw<NightPendingRow[]>`
+      () => this.prisma.$queryRaw<NightPendingRow[]>`
         SELECT id, "closedAt", "pendingAtClose", "autoClosed"
           FROM venue_nights
          WHERE "tenantId" = ${tenantId}::uuid
@@ -164,10 +171,10 @@ export class IncidentsService {
          ORDER BY "closedAt" DESC
          LIMIT ${PER_KIND_LIMIT}
       `,
-      this.prisma.$queryRaw<Array<{ kind: string; refId: string }>>`
+      () => this.prisma.$queryRaw<Array<{ kind: string; refId: string }>>`
         SELECT kind, "refId" FROM incident_acks WHERE "tenantId" = ${tenantId}::uuid
       `,
-      this.prisma.$queryRaw<EventRow[]>`
+      () => this.prisma.$queryRaw<EventRow[]>`
         SELECT e.id::text AS id, e."paymentId", NULL::int AS "amountCents", e."occurredAt", e.payload
           FROM payment_events e
          WHERE e."tenantId" = ${tenantId}::uuid
@@ -182,7 +189,7 @@ export class IncidentsService {
          ORDER BY e."occurredAt" DESC
          LIMIT ${PER_KIND_LIMIT}
       `,
-      this.prisma.$queryRaw<EventRow[]>`
+      () => this.prisma.$queryRaw<EventRow[]>`
         SELECT o.id::text AS id, NULL::uuid AS "paymentId", o."amountCents",
                COALESCE(o."occurredAt", o."reportedAt") AS "occurredAt",
                jsonb_build_object('operationNumber', o."operationNumber") AS payload
@@ -198,7 +205,7 @@ export class IncidentsService {
          ORDER BY o."reportedAt" DESC
          LIMIT ${PER_KIND_LIMIT}
       `,
-      this.prisma.$queryRaw<EventRow[]>`
+      () => this.prisma.$queryRaw<EventRow[]>`
         SELECT p.id::text AS id, p.id AS "paymentId", (p."amountCents" + p."tipCents")::int AS "amountCents",
                p."authorizedAt" AS "occurredAt",
                jsonb_build_object('operationNumber', p."posOperationNumber") AS payload
@@ -216,7 +223,7 @@ export class IncidentsService {
          LIMIT ${PER_KIND_LIMIT}
       `,
       // client_wallets tiene FORCE RLS: se lee con bypass y se filtra por local aquí.
-      this.prisma.asSystem((tx) => tx.$queryRaw<WalletBalanceRow[]>`
+      () => this.prisma.asSystem((tx) => tx.$queryRaw<WalletBalanceRow[]>`
         SELECT id, "shortCode", "balanceCents", "closeRequestedAt" AS "occurredAt"
           FROM client_wallets
          WHERE "tenantId" = ${tenantId}::uuid
@@ -227,7 +234,7 @@ export class IncidentsService {
          LIMIT ${PER_KIND_LIMIT}
       `),
       // Saldo con dinero que no se ha movido desde antes de las últimas 08:00.
-      this.prisma.asSystem((tx) => tx.$queryRaw<WalletBalanceRow[]>`
+      () => this.prisma.asSystem((tx) => tx.$queryRaw<WalletBalanceRow[]>`
         SELECT id, "shortCode", "balanceCents", "updatedAt" AS "occurredAt"
           FROM client_wallets
          WHERE "tenantId" = ${tenantId}::uuid
@@ -242,7 +249,7 @@ export class IncidentsService {
       `),
       // Cuadre con el banco: lo que no cuadra (si un fichero posterior cubre
       // ese día, deja de contar; "cobrado y aquí sin pagar" se quita al resolverlo).
-      this.prisma.$queryRaw<BankItemRow[]>`
+      () => this.prisma.$queryRaw<BankItemRow[]>`
         SELECT i.id, i.status, i.kind, s.source, i."bankAmountCents", i."oursAmountCents", i.reference,
                i."authCode", i."paymentId", i."occurredAt" AS "operationAt",
                COALESCE(i."occurredAt", i."createdAt") AS "occurredAt"
@@ -261,7 +268,7 @@ export class IncidentsService {
       `,
       // Avisos de cobro aprobado que no se dieron por buenos (webhook-ingest).
       // "Sin comprobar" se quita sola cuando el cobro se resuelve.
-      this.prisma.$queryRaw<PaymentAnomalyRow[]>`
+      () => this.prisma.$queryRaw<PaymentAnomalyRow[]>`
         SELECT e.id::text AS id, e."eventType", e."paymentId",
                (p."amountCents" + p."tipCents")::int AS "amountCents", e."occurredAt", e.payload
           FROM payment_events e
@@ -280,7 +287,7 @@ export class IncidentsService {
       // Devoluciones por la pasarela sin confirmar (refund.outcome_unknown) o
       // hechas y sin apuntar (refund.settle_failed). Sin límite de antigüedad:
       // mientras sigan PENDING reservan importe del cobro. Se quitan al resolverlas.
-      this.prisma.$queryRaw<PendingRefundRow[]>`
+      () => this.prisma.$queryRaw<PendingRefundRow[]>`
         SELECT r.id::text AS id, r."paymentId"::text AS "paymentId", r."amountCents",
                (p."amountCents" + p."tipCents")::int AS "paymentAmountCents",
                p.provider::text AS provider, p."providerTxId", r."createdAt",
@@ -300,7 +307,7 @@ export class IncidentsService {
       `,
       // «Por aprobar» sin decidir desde hace más de 30 min (y sin caducar).
       // approval_requests tiene FORCE RLS: con bypass y filtrando por local aquí.
-      this.prisma.asSystem((tx) => tx.$queryRaw<PendingApprovalRow[]>`
+      () => this.prisma.asSystem((tx) => tx.$queryRaw<PendingApprovalRow[]>`
         SELECT a.id::text AS id, a.kind::text AS kind, a."amountCents", a."requestedAt",
                COALESCE(NULLIF(btrim(u."displayName"), ''), split_part(u.email, '@', 1)) AS requester,
                a.payload ->> 'operatorName' AS "operatorName"
@@ -315,7 +322,7 @@ export class IncidentsService {
       `),
       // Venta anulada en el datáfono que era la que pagó el cobro, y el cobro
       // sigue pagado (sin devolver del todo): aquí nada lo deshizo.
-      this.prisma.$queryRaw<EventRow[]>`
+      () => this.prisma.$queryRaw<EventRow[]>`
         SELECT v.id::text AS id, v."paymentId", (p."amountCents" + p."tipCents")::int AS "amountCents",
                v."occurredAt", v.payload
           FROM payment_events v
@@ -334,7 +341,7 @@ export class IncidentsService {
       `,
       // Cobros de las chicas dados por pagados sin la prueba de Paytef (el
       // datáfono lo dice), uno por noche; se quitan al cuadrarlos con el banco.
-      this.prisma.$queryRaw<UnprovenSalesRow[]>`
+      () => this.prisma.$queryRaw<UnprovenSalesRow[]>`
         SELECT to_char(((e."occurredAt" AT TIME ZONE 'Europe/Madrid') - interval '8 hours')::date, 'YYYY-MM-DD') AS night,
                COUNT(*)::int AS count, SUM(p."amountCents" + p."tipCents")::int AS "amountCents",
                MAX(e."occurredAt") AS "lastAt"
@@ -352,7 +359,7 @@ export class IncidentsService {
       `,
       // Recargas cobradas sin el NFC del cliente que siguen sin su saldo (tras
       // unos minutos: lo normal es asignarla al momento). FORCE RLS: con bypass.
-      this.prisma.asSystem((tx) => tx.$queryRaw<PendingTopUpRow[]>`
+      () => this.prisma.asSystem((tx) => tx.$queryRaw<PendingTopUpRow[]>`
         SELECT id, "balanceCents", "pendingAssignAt" AS "occurredAt"
           FROM client_wallets
          WHERE "tenantId" = ${tenantId}::uuid
@@ -364,7 +371,7 @@ export class IncidentsService {
          ORDER BY "pendingAssignAt" DESC
          LIMIT ${PER_KIND_LIMIT}
       `),
-    ]);
+    ] as const, INCIDENT_QUERY_CONCURRENCY);
 
     const all: Incident[] = [
       ...stuck.map(stuckIncident),

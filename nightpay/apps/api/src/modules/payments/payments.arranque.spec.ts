@@ -20,6 +20,8 @@ interface Opts {
   dbError?: Error;
   queueError?: Error;
   pending?: Array<Record<string, unknown>>;
+  /** Ids de cobro cuyo trabajo de conciliación agotó los reintentos (fallido en BullMQ). */
+  failedJobs?: string[];
 }
 
 function makeService(opts: Opts = {}) {
@@ -31,7 +33,13 @@ function makeService(opts: Opts = {}) {
     }),
     payment: { findMany: vi.fn(async () => opts.pending ?? []) },
   };
+  const removed: string[] = [];
   const orphanQueue = {
+    getJob: vi.fn(async (jobId: string) =>
+      opts.failedJobs?.some((id) => `orphan-${id}` === jobId)
+        ? { isFailed: async () => true, remove: async () => void removed.push(jobId) }
+        : undefined,
+    ),
     add: vi.fn(async () => {
       if (opts.queueError) throw opts.queueError;
       return {};
@@ -50,7 +58,7 @@ function makeService(opts: Opts = {}) {
     redis as never,
   );
   Object.assign(service, { logger });
-  return { service, prisma, redis, orphanQueue, logger };
+  return { service, prisma, redis, orphanQueue, logger, removed };
 }
 
 beforeEach(() => {
@@ -99,6 +107,22 @@ describe('onApplicationBootstrap — barrido de cobros atascados', () => {
         { paymentId: STUCK_B, tenantId: OTHER_TENANT },
         expect.objectContaining({ jobId: `orphan-${STUCK_B}`, ...jobOptions }),
       ],
+    ]);
+  });
+
+  it('un cobro cuyo trabajo agotó los reintentos (base caída) vuelve a la cola: se quita el fallido antes', async () => {
+    const { service, orphanQueue, removed } = makeService({
+      stuck: [
+        { id: STUCK_A, tenantId: TENANT },
+        { id: STUCK_B, tenantId: OTHER_TENANT },
+      ],
+      failedJobs: [STUCK_A],
+    });
+    await service.onApplicationBootstrap();
+    expect(removed).toEqual([`orphan-${STUCK_A}`]);
+    expect(orphanQueue.add.mock.calls.map((c) => (c as unknown as [string, unknown, { jobId: string }])[2].jobId)).toEqual([
+      `orphan-${STUCK_A}`,
+      `orphan-${STUCK_B}`,
     ]);
   });
 

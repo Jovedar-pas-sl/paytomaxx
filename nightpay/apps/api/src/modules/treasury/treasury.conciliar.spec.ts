@@ -277,6 +277,16 @@ describe('TreasuryService.reconcilePending — repaso automático', () => {
     });
   });
 
+  it('con la dirección guardada al pagar (DIN-6); sin ella al pagar (\'\'), se salta', async () => {
+    const paidTo = 'TPaidAddrAtPayoutTimeXXXXXXXXXXXXX';
+    const { svc, verifier } = makeService({
+      pending: [pendingPayout('po-1', { paidToAddress: paidTo }), pendingPayout('po-2', { paidToAddress: '' })],
+    });
+    expect(await svc.reconcilePending(TENANT)).toEqual({ checked: 2, matched: 1 });
+    expect(verifier.verify).toHaveBeenCalledTimes(1);
+    expect(verifier.verify).toHaveBeenCalledWith(expect.objectContaining({ externalTxId: 'hash-po-1', expectedToAddress: paidTo }));
+  });
+
   it('importe distinto → sigue pendiente', async () => {
     const { svc, tx } = makeService({
       pending: [pendingPayout('po-1')],

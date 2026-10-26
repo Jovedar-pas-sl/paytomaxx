@@ -228,11 +228,26 @@ describe('scopeToTenant — bordes de aislamiento', () => {
 });
 
 describe('PrismaService — ciclo de vida', () => {
-  it('onModuleDestroy desconecta', async () => {
+  it('onApplicationShutdown desconecta (al final del apagado, después del HTTP y los workers)', async () => {
     const { prisma } = await makePrisma();
     const disconnect = vi.fn().mockResolvedValue(undefined);
     (prisma as unknown as Record<string, unknown>).$disconnect = disconnect;
-    await prisma.onModuleDestroy();
+    await prisma.onApplicationShutdown();
     expect(disconnect).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('PrismaService — tiempos de la transacción (DI-02)', () => {
+  it('withTenant y asSystem pasan los tiempos pedidos a la transacción; sin ellos, los de Prisma', async () => {
+    const { prisma } = await makePrisma();
+    const seen: unknown[] = [];
+    (prisma as unknown as Record<string, unknown>).$transaction = async (fn: (tx: unknown) => unknown, options?: unknown) => {
+      seen.push(options);
+      return fn({ $executeRawUnsafe: vi.fn(), $executeRaw: vi.fn() });
+    };
+    await prisma.withTenant('t-1', async () => 1, { maxWait: 10_000, timeout: 30_000 });
+    await prisma.asSystem(async () => 1, { timeout: 30_000 });
+    await prisma.withTenant('t-1', async () => 1);
+    expect(seen).toEqual([{ maxWait: 10_000, timeout: 30_000 }, { timeout: 30_000 }, undefined]);
   });
 });

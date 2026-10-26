@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { ConflictException } from '@nestjs/common';
 import { Prisma } from '@nightpay/db';
-import { PaymentsService, type LockedPaymentRow } from './payments.service';
+import { PaymentsService, POS_PAYMENT_EXPIRED, type LockedPaymentRow } from './payments.service';
 import { InvalidTransitionError } from './payment.machine';
 import { isOtherOrder } from './second-approval';
 
@@ -174,6 +174,7 @@ describe('confirmPosPayment — el camarero confirma el cobro del datáfono (#13
     captureMethod: 'POS_EXTERNAL',
     status: 'CREATED',
     createdByUserId: 'op-1',
+    qrExpiresAt: new Date(Date.now() + 10 * 60_000),
   };
   const waiter = { userId: 'waiter-1', role: 'WAITER', tenantId: 'tenant-1' };
   const locked = {
@@ -215,6 +216,19 @@ describe('confirmPosPayment — el camarero confirma el cobro del datáfono (#13
     // Lo devolvible es solo el importe y la chica no se lleva la propina inventada.
     expect(updates('SET status')[0]!.values[1]).toBe(10_000);
     expect(earningInsert(executed)?.slice(-1)).toEqual([0]);
+  });
+
+  it('caducado (pasó su plazo y su trabajo de caducidad no llegó a correr) → 409 claro y no se marca pagado (DIN-8)', async () => {
+    const { service, tx, updates } = makeTransitionService({
+      locked,
+      payment: { ...posRow, qrExpiresAt: new Date(Date.now() - 60_000) },
+    });
+    const err = await service.confirmPosPayment(PAYMENT_ID, waiter, { posReceiptRef: 'AB12CD' }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ConflictException);
+    expect((err as ConflictException).message).toBe(POS_PAYMENT_EXPIRED);
+    expect(POS_PAYMENT_EXPIRED).toMatch(/caducado/);
+    expect(tx.payment.update).not.toHaveBeenCalled();
+    expect(updates('SET status')).toHaveLength(0);
   });
 
   it('código ya usado en otro cobro de este datáfono → 409 y no se marca pagado', async () => {

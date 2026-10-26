@@ -1,5 +1,6 @@
 import type { ExportSummary } from '../reports/export-csv';
 import type { Incident } from './incident-rules';
+import { scopeLabel, type SummaryScope } from './morning-summary';
 
 /**
  * Textos de Telegram (Fase 1E). Cortos y en texto plano: se leen en el móvil
@@ -20,7 +21,30 @@ export function incidentMessage(venueName: string, i: Incident, opts: { includeN
   return [`⚠️ ${venueName}: ${i.title}`, detail].join('\n');
 }
 
-/** Resumen de las 9:00: la noche anterior del local y lo que queda por mirar. */
+/**
+ * «Cobrado» por partes, como el panel (admin lib/cobrado.ts): ventas con
+ * tarjeta, propinas y recargas del saldo (con tarjeta y en efectivo). Un Z de
+ * antes del 23-oct-2026 no trae las recargas con tarjeta aparte: sin partes
+ * (mejor sin desglose que uno que no cuadre).
+ */
+function cobradoParts(s: ExportSummary): string | null {
+  if (s.walletCardTopUpsCents === undefined) return null;
+  const parts = [
+    [s.grossCents - s.walletCardTopUpsCents, 'de ventas'],
+    [s.tipsCents, 'de propinas'],
+    [s.walletCardTopUpsCents + (s.walletCashTopUpsCents ?? 0), 'de recargas'],
+  ] as const;
+  const shown = parts.filter(([cents]) => cents !== 0).map(([cents, what]) => `${eur(cents)} ${what}`);
+  return shown.length > 0 ? shown.join(' + ') : null;
+}
+
+/**
+ * Resumen de las 9:00: la noche anterior del local y lo que queda por mirar.
+ * «Cobrado» es lo del panel (ventas + propinas + recargas, también las de
+ * efectivo) con su desglose; «Con tarjeta», lo que pagaron con tarjeta (lo que
+ * verá en el banco, antes de comisiones). Antes ponía «N pagos con tarjeta ·
+ * cobrado X» y X llevaba las recargas en efectivo.
+ */
 export function morningSummaryMessage(
   venueName: string,
   s: ExportSummary,
@@ -29,14 +53,18 @@ export function morningSummaryMessage(
   bankFilePending = false,
   /** Diferencia de caja al cerrar (contado − esperado); null/0 = cuadró o no se contó. */
   cashDiffCents: number | null = null,
+  /** Qué tramo resume: el Z de la noche cerrada o, sin ella, de 08:00 a 08:00. */
+  scope: SummaryScope = { kind: 'window' },
 ): string {
+  const parts = cobradoParts(s);
   const lines = [
-    `☀️ ${venueName} — anoche`,
-    // Los pagos con tarjeta (también las recargas con tarjeta): lo pagado con
-    // el saldo no es dinero nuevo y no cuenta aquí.
-    `${s.count} ${s.count === 1 ? 'pago' : 'pagos'} con tarjeta · cobrado ${eur(s.chargedCents)}`,
+    `☀️ ${venueName} — ${scopeLabel(scope)}`,
+    parts ? `Cobrado: ${eur(s.chargedCents)} (${parts})` : `Cobrado: ${eur(s.chargedCents)}`,
+    // Los pagos con tarjeta (también las recargas con tarjeta) y sus propinas:
+    // lo pagado con el saldo no es dinero nuevo y no cuenta aquí.
+    `Con tarjeta: ${s.count} ${s.count === 1 ? 'pago' : 'pagos'} · ${eur(s.grossCents + s.tipsCents)}`,
   ];
-  if (s.tipsCents > 0) lines.push(`Propinas: ${eur(s.tipsCents)}`);
+  if (!parts && s.tipsCents > 0) lines.push(`Propinas: ${eur(s.tipsCents)}`);
   if (s.walletCardTopUpsCount) {
     lines.push(`Recargas con tarjeta: ${s.walletCardTopUpsCount} · ${eur(s.walletCardTopUpsCents ?? 0)}`);
   }

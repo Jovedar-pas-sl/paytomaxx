@@ -65,7 +65,7 @@ function makeService(opts: Opts = {}) {
   const authorize: (input: Row) => Promise<Row> =
     opts.authorize ?? (async () => ({ providerTxId: '2610170130A1', paymentLinkUrl: PAYTEF_URL }));
   const adapter = { authorize: vi.fn(authorize) };
-  const orphanQueue = { add: vi.fn(async () => ({})) };
+  const orphanQueue = { getJob: vi.fn(async () => undefined), add: vi.fn(async () => ({})) };
   const logger = { log: vi.fn(), warn: vi.fn(), error: vi.fn() };
   const service = new PaymentsService(
     prisma as never,
