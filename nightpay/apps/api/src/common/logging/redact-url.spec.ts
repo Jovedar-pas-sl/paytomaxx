@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { UNPREFIXED_ROUTES } from '../http/unprefixed-routes';
 import { redactSecretsInUrl, redactSecretsInText, redactWalletToken } from './redact-url';
 
 describe('redactWalletToken', () => {
@@ -62,5 +63,48 @@ describe('otras credenciales en la URL', () => {
     );
     expect(redactSecretsInText('GET /w/tok123/state')).toBe('GET /w/***/state');
     expect(redactSecretsInText('sin urls')).toBe('sin urls');
+  });
+});
+
+describe('todas las rutas públicas con un token (SEC-03)', () => {
+  it('ficha NFC, salida de recepción y QR del pase: el token entero, no el segmento fijo', () => {
+    expect(redactSecretsInUrl('/w/card/FiCha-123')).toBe('/w/card/***');
+    expect(redactSecretsInUrl('/w/card/FiCha-123/view/challenge')).toBe('/w/card/***/view/challenge');
+    expect(redactSecretsInUrl('/w/salida/SaL-9?lang=en')).toBe('/w/salida/***?lang=en');
+    expect(redactSecretsInUrl('/w/salida/SaL-9/confirm')).toBe('/w/salida/***/confirm');
+    expect(redactSecretsInUrl('/c/PaSe.abc_123')).toBe('/c/***');
+    expect(redactSecretsInUrl('https://api.example.com/c/PaSe.abc_123?x=1')).toBe('https://api.example.com/c/***?x=1');
+    expect(redactSecretsInText('GET /w/card/FiCha-123 404')).toBe('GET /w/card/*** 404');
+  });
+
+  it('las rutas fijas (letra, botón de Google Wallet, resultado del pago) quedan como están', () => {
+    expect(redactSecretsInUrl('/pay/assets/manrope.woff2')).toBe('/pay/assets/manrope.woff2');
+    expect(redactSecretsInUrl('/w/assets/google-wallet/es')).toBe('/w/assets/google-wallet/es');
+    expect(redactSecretsInUrl('/w/card')).toBe('/w/card');
+    expect(redactSecretsInUrl('/pay/result')).toBe('/pay/result');
+  });
+
+  it('el enlace a la app del personal desde el pase (?pase=<token>) tampoco sale', () => {
+    expect(redactSecretsInUrl('https://operator.example.com/?pase=PaSe.abc_123')).toBe('https://operator.example.com/?pase=***');
+  });
+
+  const withToken = UNPREFIXED_ROUTES.filter((r) => r.path.split('/').includes(':token'));
+
+  it('hay rutas con token (si cambia unprefixed-routes.ts, esta prueba lo ve)', () => {
+    expect(withToken.length).toBeGreaterThan(20);
+  });
+
+  it.each(withToken.map((r) => r.path))('%s: el token no sale (ruta, con /v1, URL completa y en un texto)', (path) => {
+    const secret = 'SeCrEtO-0123456789_abc';
+    const url = `/${path.replace(':token', secret)}`;
+    for (const value of [
+      redactSecretsInUrl(url),
+      redactSecretsInUrl(`/v1${url}`),
+      redactSecretsInUrl(`https://api.example.com${url}?lang=es`),
+      redactSecretsInText(`POST ${url} falló`),
+    ]) {
+      expect(value).not.toContain(secret);
+      expect(value).toContain('***');
+    }
   });
 });
