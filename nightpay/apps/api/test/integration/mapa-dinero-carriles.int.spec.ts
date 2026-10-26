@@ -62,7 +62,7 @@ const checks = new CloseCheckService(prisma, new IncidentsService(prisma, audit 
 const nights = new NightsService(prisma, reports, audit as never, checks, undefined, moneyMap);
 // La noche se abre «hace 2 h»: que el cierre automático de las 08:00 no se cruce con la prueba.
 vi.spyOn(nights as unknown as { safeAutoClose(t: string): Promise<void> }, 'safeAutoClose').mockResolvedValue(undefined);
-const operators = new OperatorsService(prisma, audit as never, audit as never, config as never, {} as never, {} as never);
+const operators = new OperatorsService(prisma, audit as never, audit as never, config as never, {} as never, {} as never, {} as never);
 const requests = new ApprovalRequestsService(prisma, audit as never, config as never, { enabled: () => false, requested: vi.fn() } as never);
 
 const inVenue = <T>(tenantId: string | undefined, fn: () => Promise<T>): Promise<T> =>

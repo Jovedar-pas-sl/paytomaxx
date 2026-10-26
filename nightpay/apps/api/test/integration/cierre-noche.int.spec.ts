@@ -30,7 +30,7 @@ const nights = new NightsService(prisma, reports, audit as never, checks);
 const autoClose = vi
   .spyOn(nights as unknown as { safeAutoClose(tenantId: string): Promise<void> }, 'safeAutoClose')
   .mockResolvedValue(undefined);
-const operators = new OperatorsService(prisma, audit as never, audit as never, config as never, {} as never, {} as never);
+const operators = new OperatorsService(prisma, audit as never, audit as never, config as never, {} as never, {} as never, {} as never);
 const charges = new WalletChargesService(prisma, audit as never, { get: () => null } as never);
 
 /** Una petición del panel de ese local (como tras AuthGuard). */

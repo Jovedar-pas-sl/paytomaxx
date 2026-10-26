@@ -101,6 +101,7 @@ function makeOps(holdDays: string | undefined) {
     config as never,
     {} as never,
     {} as never,
+    {} as never,
   );
   return { svc, prisma, queries, asSystem };
 }

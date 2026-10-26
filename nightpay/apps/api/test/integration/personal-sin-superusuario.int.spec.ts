@@ -43,7 +43,7 @@ const verifier = { verify: async () => ({ matched: true, status: 'MATCHED', occu
 const fx = { getEurToUsdtRateInfo: async () => ({ rate: 1.07, degraded: false }), forMethod: () => verifier };
 const gatewayMetrics = { gatewayDuration: { observe: vi.fn() }, circuitState: { set: vi.fn() } };
 
-const operators = new OperatorsService(prisma, audit as never, audit as never, config as never, {} as never, fx as never);
+const operators = new OperatorsService(prisma, audit as never, audit as never, config as never, {} as never, fx as never, {} as never);
 const treasury = new TreasuryService(prisma, audit as never, fx as never, config as never);
 const wallets = new WalletsService(prisma, audit as never);
 const charges = new WalletChargesService(prisma, audit as never, { get: () => null } as never);

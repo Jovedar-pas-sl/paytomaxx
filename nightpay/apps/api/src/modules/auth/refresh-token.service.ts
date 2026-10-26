@@ -1,8 +1,9 @@
-import { Inject, Injectable, Logger, UnauthorizedException } from '@nestjs/common';
+import { Inject, Injectable, Logger, Optional, UnauthorizedException } from '@nestjs/common';
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import type { Redis } from 'ioredis';
 import { REDIS_CLIENT } from '../../common/redis/redis.module';
 import { deriveKey, openText, sealText } from './aes-gcm';
+import { AccessRevocationService } from './access-revocation.service';
 
 export const REFRESH_TOKEN_TTL_SECONDS = 30 * 24 * 60 * 60; // 30d
 /**
@@ -116,14 +117,25 @@ export function passwordFingerprint(passwordHash: string): string {
  *   - después → se revoca la family entera (alguien tenía una copia: robo).
  * La huella de la contraseña viaja con la sesión: AuthService la compara al
  * refrescar y, si la contraseña cambió, revoca la family.
+ *
+ * Cerrar una sesión (revoke, revokeFamily, revokeAllForUser) corta también,
+ * al momento, los tokens de acceso que ya emitió (AccessRevocationService):
+ * antes seguían valiendo hasta caducar (1 h).
  */
 @Injectable()
 export class RefreshTokenService {
   private readonly logger = new Logger(RefreshTokenService.name);
   private readonly redis: Redis;
+  private readonly revocations: AccessRevocationService;
 
-  constructor(@Inject(REDIS_CLIENT) redis: Redis) {
+  constructor(
+    @Inject(REDIS_CLIENT) redis: Redis,
+    // En la app lo inyecta AuthModule (el mismo que escucha el tiempo real);
+    // sin él (pruebas que construyen el servicio a mano), uno sobre el mismo Redis.
+    @Optional() @Inject(AccessRevocationService) revocations?: AccessRevocationService,
+  ) {
     this.redis = redis;
+    this.revocations = revocations ?? new AccessRevocationService(redis);
   }
 
   /** Emite un refresh token nuevo y devuelve el string opaco al cliente. */
@@ -218,6 +230,8 @@ export class RefreshTokenService {
       if (!secretMatches(stored.secretHash, parsed.secret)) return null;
       await this.deleteJti(parsed.jti, stored);
       await this.forgetFamily(stored.family);
+      // Logout: el token de acceso de esta sesión deja de valer ya (no en 1 h).
+      await this.revocations.revokeSession(stored.family);
       return { userId: stored.userId, tenantId: stored.tenantId };
     }
 
@@ -236,10 +250,17 @@ export class RefreshTokenService {
     await this.redis.set(this.key(parsed.jti), JSON.stringify({ ...stored, pwdFp }), 'KEEPTTL', 'XX');
   }
 
-  /** Revoca todos los refresh tokens activos de un usuario (kill-switch para device theft). */
+  /**
+   * Revoca todas las sesiones de un usuario (kill-switch para device theft,
+   * baja, reset de contraseña o de 2FA): sus refresh tokens y, al momento,
+   * los tokens de acceso que ya tenía (la marca de la persona va primero:
+   * corta todo lo emitido hasta ahora aunque falle algo después).
+   */
   async revokeAllForUser(userId: string): Promise<number> {
+    await this.revocations.revokeUser(userId);
     const pattern = `nightpay:refresh:user:${userId}:*`;
     const keys = await this.scanKeys(pattern);
+    const families = new Set<string>();
     let count = 0;
     for (const k of keys) {
       const jti = k.split(':').pop();
@@ -248,17 +269,21 @@ export class RefreshTokenService {
       if (stored) {
         await this.deleteJti(jti, stored);
         await this.forgetFamily(stored.family);
+        families.add(stored.family);
         count += 1;
       } else {
         await this.redis.del(k);
       }
     }
+    // Y cada sesión por su sid, también para quien solo mire esa marca.
+    for (const family of families) await this.revocations.revokeSession(family);
     if (count > 0) this.logger.log(`Revoked ${count} refresh tokens for user ${userId}`);
     return count;
   }
 
-  /** Revoca toda una family (reuso detectado, contraseña cambiada). */
+  /** Revoca toda una family (reuso detectado, contraseña cambiada) y, al momento, sus tokens de acceso. */
   async revokeFamily(familyId: string): Promise<void> {
+    await this.revocations.revokeSession(familyId);
     const pattern = `nightpay:refresh:family:${familyId}:*`;
     const keys = await this.scanKeys(pattern);
     for (const k of keys) {

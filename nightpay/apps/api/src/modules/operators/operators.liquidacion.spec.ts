@@ -80,7 +80,7 @@ function makeService(opts: Opts = {}) {
   };
   const audit = { log: vi.fn().mockResolvedValue(undefined) };
   const config = { get: vi.fn().mockReturnValue(undefined) };
-  const svc = new OperatorsService(prisma as never, {} as never, audit as never, config as never, {} as never, fx as never);
+  const svc = new OperatorsService(prisma as never, {} as never, audit as never, config as never, {} as never, fx as never, {} as never);
   /** Lo que se escribió en operator_payouts. */
   const created = () => tx.operatorPayout.create.mock.calls[0]![0].data;
   return { svc, prisma, tx, fx, audit, queries, updates, created };

@@ -16,6 +16,7 @@ import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { PrismaService, type TransactionalClient } from '../../common/prisma/prisma.service';
 import { EmailService } from '../../common/email/email.service';
 import { AuditService } from '../audit/audit.service';
+import { RefreshTokenService } from '../auth/refresh-token.service';
 import { PayoutVerifierFactory } from '../treasury/payout-verifier.factory';
 import { isUniqueViolation, otherPayoutWithTx, txAlreadyUsed } from '../treasury/payout-tx-guard';
 import { isAutoVerifiable } from '../treasury/verifiers/payout-verifier.interface';
@@ -122,6 +123,7 @@ export class OperatorsService {
   private readonly config: ConfigService;
   private readonly jwt: JwtService;
   private readonly fxFactory: PayoutVerifierFactory;
+  private readonly sessions: RefreshTokenService;
 
   constructor(
     @Inject(PrismaService) prisma: PrismaService,
@@ -130,6 +132,7 @@ export class OperatorsService {
     @Inject(ConfigService) config: ConfigService,
     @Inject(JwtService) jwt: JwtService,
     @Inject(PayoutVerifierFactory) fxFactory: PayoutVerifierFactory,
+    @Inject(RefreshTokenService) sessions: RefreshTokenService,
   ) {
     this.prisma = prisma;
     this.email = email;
@@ -137,6 +140,7 @@ export class OperatorsService {
     this.config = config;
     this.jwt = jwt;
     this.fxFactory = fxFactory;
+    this.sessions = sessions;
   }
 
   /**
@@ -560,10 +564,9 @@ export class OperatorsService {
   //      → admin setea password directa O genera random, copia, envía WhatsApp.
   //      La chica debería cambiarla al loguear (TODO: forzar primer-login change).
   //
-  // Ambos endpoints invalidan todas las sesiones activas de la chica (no las
-  // implementamos aquí — la rotación del passwordHash basta para que los JWT
-  // existentes sigan siendo válidos hasta su expiración; el refresh tokens
-  // se revocan via /admin/users/:userId/revoke-sessions si hace falta).
+  // Resetear la contraseña cierra al momento todas sus sesiones (refresh y
+  // tokens de acceso ya emitidos: RefreshTokenService.revokeAllForUser). Antes
+  // los JWT seguían valiendo hasta caducar (1 h).
 
   /**
    * Genera un nuevo invite link para una operadora que aún no ha activado su
@@ -668,6 +671,8 @@ export class OperatorsService {
         inviteToken: null,
       },
     });
+    // Con la contraseña vieja no se sigue dentro: ni el refresh ni el token de acceso.
+    await this.sessions.revokeAllForUser(operator.id);
 
     await this.audit.log({
       action: 'operator.password.reset',
@@ -994,6 +999,8 @@ export class OperatorsService {
       where: { id: operatorId },
       data,
     });
+    // Baja: fuera al momento de la app (refresh y tokens de acceso ya emitidos).
+    if (dto.active === false) await this.sessions.revokeAllForUser(operatorId);
 
     const { totpCode: _code, ...changes } = dto;
     await this.audit.log({

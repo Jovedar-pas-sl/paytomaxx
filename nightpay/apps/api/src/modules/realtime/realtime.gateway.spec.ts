@@ -6,7 +6,10 @@ import {
   LEGACY_SUBSCRIBE_CLOSED_ERROR,
   LEGACY_SUBSCRIBE_WINDOW_MS,
   SESSION_EXPIRED_ERROR,
+  SESSION_REVOKED_ERROR,
 } from './realtime.gateway';
+import { AccessRevocationService } from '../auth/access-revocation.service';
+import { createFakeRedis } from '../auth/testing/fake-redis';
 
 /** Antes de la fecha de corte por defecto (martes 2026-11-17 12:00 de Madrid). */
 const BEFORE_CUTOFF = new Date('2026-10-20T12:00:00+02:00');
@@ -17,6 +20,7 @@ const PAY_A = '7d0f4f9e-0000-4000-8000-000000000001';
 const PAY_B = '7d0f4f9e-0000-4000-8000-000000000002';
 const PAY_OLD = '7d0f4f9e-0000-4000-8000-000000000003';
 
+const SID = '11111111-1111-4111-8111-111111111111';
 const STAFF = {
   sub: '7d0f4f9e-0000-4000-8000-0000000000cc',
   email: 'enc@local.es',
@@ -32,12 +36,13 @@ function makeClient(auth: Record<string, unknown> = {}, headers: Record<string, 
     handshake: { auth, headers },
     data: {} as Record<string, unknown>,
     rooms,
-    join: vi.fn(async (room: string) => {
-      rooms.add(room);
+    join: vi.fn(async (room: string | string[]) => {
+      for (const r of [room].flat()) rooms.add(r);
     }),
     leave: vi.fn(async (room: string) => {
       rooms.delete(room);
     }),
+    disconnect: vi.fn(),
   };
 }
 
@@ -55,13 +60,20 @@ function makeGateway(legacyUntil?: string) {
       if (token === 'buen-token') return Promise.resolve(STAFF);
       // Vale 1 min desde que se conecta (exp en segundos, como el JWT de verdad).
       if (token === 'token-de-1-min') return Promise.resolve({ ...STAFF, exp: Math.floor(Date.now() / 1000) + 60 });
+      if (token === 'token-con-sesion') return Promise.resolve({ ...STAFF, sid: SID, iat: Math.floor(Date.now() / 1000) - 60 });
       return Promise.reject(new Error('invalid signature'));
     }),
   };
   const metrics = { wsConnectionsActive: { inc: vi.fn(), dec: vi.fn() }, wsLegacySubscribes: { inc: vi.fn() } };
   const config = { get: vi.fn((key: string) => (key === 'REALTIME_LEGACY_SUBSCRIBE_UNTIL' ? legacyUntil : undefined)) };
-  const gateway = new RealtimeGateway(jwt as never, prisma as never, metrics as never, config as never);
-  return { gateway, findUnique, metrics };
+  const redis = createFakeRedis();
+  const revocations = new AccessRevocationService(redis as never);
+  const gateway = new RealtimeGateway(jwt as never, prisma as never, metrics as never, revocations, config as never);
+  // El servidor de socket.io: a quién se desconecta por sala.
+  const disconnectSockets = vi.fn();
+  const server = { in: vi.fn(() => ({ disconnectSockets })) };
+  gateway.server = server as never;
+  return { gateway, findUnique, metrics, revocations, redis, server, disconnectSockets };
 }
 
 describe('RealtimeGateway: suscripción a un cobro', () => {
@@ -120,7 +132,7 @@ describe('RealtimeGateway: suscripción a un cobro', () => {
     for (let i = 0; i < MAX_ROOMS_PER_SOCKET; i++) client.rooms.add(`payment:otro-${i}`);
     const res = await g.gateway.handleSubscribe({ paymentId: PAY_A }, client as never);
     expect(res.ok).toBe(false);
-    expect(client.join).not.toHaveBeenCalled();
+    expect(client.join).not.toHaveBeenCalledWith(`payment:${PAY_A}`);
   });
 
   it('sin sesión (apps antiguas): solo cobros recientes, y queda avisado', async () => {
@@ -249,5 +261,65 @@ describe('RealtimeGateway: la vía sin sesión se apaga sola (REALTIME_LEGACY_SU
   it('un valor que no es fecha con zona no arranca (lo frena también la validación del entorno)', () => {
     vi.setSystemTime(BEFORE_CUTOFF);
     expect(() => makeGateway('15/11/2026')).toThrow(/REALTIME_LEGACY_SUBSCRIBE_UNTIL/);
+  });
+});
+
+describe('RealtimeGateway: una sesión cerrada deja de recibir eventos', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it('al conectar con sesión, la conexión entra en la sala de su sesión y en la de la persona', async () => {
+    const g = makeGateway();
+    const client = makeClient({ token: 'token-con-sesion' });
+    await g.gateway.handleConnection(client as never);
+    expect(client.rooms.has(`session:${SID}`)).toBe(true);
+    expect(client.rooms.has(`user:${STAFF.sub}`)).toBe(true);
+  });
+
+  it('logout o revocar la sesión → se cierran YA las conexiones de esa sesión (en todos los nodos, por el adaptador)', async () => {
+    const g = makeGateway();
+    await g.revocations.revokeSession(SID);
+    expect(g.server.in).toHaveBeenCalledWith(`session:${SID}`);
+    expect(g.disconnectSockets).toHaveBeenCalledWith(true);
+  });
+
+  it('revocar todas las sesiones de la persona (móvil perdido, baja) → todas sus conexiones', async () => {
+    const g = makeGateway();
+    await g.revocations.revokeUser(STAFF.sub);
+    expect(g.server.in).toHaveBeenCalledWith(`user:${STAFF.sub}`);
+    expect(g.disconnectSockets).toHaveBeenCalledWith(true);
+  });
+
+  it('volver a conectar con un token de una sesión cerrada → desconectado, sin pasar a la vía sin sesión', async () => {
+    const g = makeGateway();
+    await g.revocations.revokeSession(SID);
+    const client = makeClient({ token: 'token-con-sesion' });
+    await g.gateway.handleConnection(client as never);
+    expect(client.disconnect).toHaveBeenCalledWith(true);
+    expect(client.data.staff).toBeUndefined();
+    expect(client.rooms.has(`session:${SID}`)).toBe(false);
+  });
+
+  it('subscribe con la conexión abierta tras revocar (aviso perdido) → rechazado y desconectado', async () => {
+    const g = makeGateway();
+    const client = makeClient({ token: 'token-con-sesion' });
+    await g.gateway.handleConnection(client as never);
+    expect((await g.gateway.handleSubscribe({ paymentId: PAY_A }, client as never)).ok).toBe(true);
+    await g.revocations.revokeSession(SID);
+    await expect(g.gateway.handleSubscribe({ paymentId: PAY_A }, client as never)).resolves.toEqual({
+      ok: false,
+      error: SESSION_REVOKED_ERROR,
+    });
+    expect(client.disconnect).toHaveBeenCalledWith(true);
+    expect(g.metrics.wsLegacySubscribes.inc).not.toHaveBeenCalled();
+  });
+
+  it('sin Redis no se puede comprobar la sesión → se desconecta (la app reconecta y, mientras, consulta el estado)', async () => {
+    vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+    const g = makeGateway();
+    vi.spyOn(g.redis, 'mget').mockRejectedValue(new Error('Connection is closed.'));
+    const client = makeClient({ token: 'token-con-sesion' });
+    await g.gateway.handleConnection(client as never);
+    expect(client.disconnect).toHaveBeenCalledWith(true);
+    expect(client.data.staff).toBeUndefined();
   });
 });

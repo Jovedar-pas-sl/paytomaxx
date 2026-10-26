@@ -63,7 +63,7 @@ const redis = createFakeRedis();
 redis.defineScript(CLAIM_STEP_LUA, claimStepScript);
 const totp = new TotpService(prisma, new TotpAttemptsService(new LockoutService(redis as never), redis as never));
 
-const operators = new OperatorsService(prisma, audit as never, audit as never, config as never, {} as never, fx as never);
+const operators = new OperatorsService(prisma, audit as never, audit as never, config as never, {} as never, fx as never, {} as never);
 const queue = { add: vi.fn(async () => undefined) };
 const payments = new PaymentsService(
   prisma,

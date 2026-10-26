@@ -23,6 +23,7 @@ import {
   type RotatedRefresh,
 } from './refresh-token.service';
 import { TotpService } from './totp.service';
+import { ACCESS_TOKEN_TTL_SECONDS } from './access-revocation.service';
 import { TotpEnrollmentService } from './totp-enrollment.service';
 import {
   LOGIN_ENROLL_TICKET_TTL_SECONDS,
@@ -42,9 +43,10 @@ import {
 } from '@nightpay/contracts';
 
 const BCRYPT_ROUNDS = 10;
-// 1 h: el refresco (automático en las apps) comprueba que el usuario sigue
-// activo, así que una baja o un cambio de contraseña cortan el acceso en 1 h.
-const ACCESS_TOKEN_TTL_SECONDS = 60 * 60;
+// El token de acceso dura 1 h (ACCESS_TOKEN_TTL_SECONDS) y el refresco
+// (automático en las apps) comprueba que el usuario sigue activo. Cerrar una
+// sesión (logout, revocar, baja, contraseña nueva) lo corta al momento:
+// AuthGuard mira AccessRevocationService en cada petición.
 /**
  * Hash bcrypt (coste 10) de un valor aleatorio que nadie conoce. Con un email
  * que no existe comparamos contra él: así tarda lo mismo que una contraseña

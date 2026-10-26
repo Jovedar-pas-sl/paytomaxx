@@ -76,6 +76,7 @@ function makeOps(opts: MakeOptions = {}) {
     ),
   };
   const fx = { getEurToUsdtRateInfo: vi.fn().mockResolvedValue({ rate: 1.07, degraded: false }) };
+  const sessions = { revokeAllForUser: vi.fn(async (_userId: string) => 2) };
   const svc = new OperatorsService(
     prisma as never,
     email as never,
@@ -83,9 +84,34 @@ function makeOps(opts: MakeOptions = {}) {
     config as never,
     jwt as never,
     fx as never,
+    sessions as never,
   );
-  return { svc, prisma, audit, jwt, email, updateInSystem };
+  return { svc, prisma, audit, jwt, email, updateInSystem, sessions };
 }
+
+describe('OperatorsService.updateOperator — dar de baja corta sus sesiones al momento', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('active=false → se guarda la baja y se cierran todas sus sesiones (refresh y tokens de acceso)', async () => {
+    const { svc, prisma, sessions } = makeOps();
+    await svc.updateOperator('t-1', 'op-1', 'u-owner', 'OWNER', { active: false });
+    expect(prisma.user.update).toHaveBeenCalledWith({
+      where: { id: 'op-1' },
+      data: expect.objectContaining({ deletedAt: expect.any(Date) }),
+    });
+    expect(sessions.revokeAllForUser).toHaveBeenCalledWith('op-1');
+    expect(prisma.user.update.mock.invocationCallOrder[0]!).toBeLessThan(
+      sessions.revokeAllForUser.mock.invocationCallOrder[0]!,
+    );
+  });
+
+  it('otros cambios (o volver a darla de alta) no tocan sus sesiones', async () => {
+    const { svc, sessions } = makeOps();
+    await svc.updateOperator('t-1', 'op-1', 'u-owner', 'OWNER', { displayName: 'Ana B.' });
+    await svc.updateOperator('t-1', 'op-1', 'u-owner', 'OWNER', { active: true });
+    expect(sessions.revokeAllForUser).not.toHaveBeenCalled();
+  });
+});
 
 describe('OperatorsService.updateOperator — dirección de cobro válida para su método', () => {
   beforeEach(() => vi.clearAllMocks());

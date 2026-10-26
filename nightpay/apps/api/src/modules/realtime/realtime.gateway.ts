@@ -16,6 +16,7 @@ import type { JwtPayload } from '@nightpay/contracts';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { legacySubscribeUntil } from '../../config/realtime-legacy';
 import { bearerToken, verifyStaffToken } from '../../common/guards/staff-token';
+import { AccessRevocationService, type AccessRevocation } from '../auth/access-revocation.service';
 import { MetricsService } from '../metrics/metrics.service';
 import type { PaymentMachineState } from '../payments/payment.machine';
 
@@ -27,6 +28,8 @@ export const LEGACY_SUBSCRIBE_WINDOW_MS = 30 * 60 * 1000;
 export const LEGACY_SUBSCRIBE_CLOSED_ERROR = 'Inicia sesión otra vez';
 /** La sesión del handshake caducó (la conexión sigue abierta): hay que reconectar con el token nuevo. */
 export const SESSION_EXPIRED_ERROR = 'Sesión caducada: vuelve a conectar';
+/** La sesión del handshake se cerró (logout, revocada, baja): se corta la conexión. */
+export const SESSION_REVOKED_ERROR = 'Sesión cerrada: vuelve a iniciar sesión';
 
 const SubscribeSchema = z.object({ paymentId: z.string().uuid() });
 
@@ -55,6 +58,13 @@ type LegacyResult = 'allowed' | 'denied' | 'closed';
  * Después se responde «Inicia sesión otra vez».
  * El id tiene que ser un UUID y hay un máximo de cobros por conexión.
  * Origen (CORS) restringido a CORS_ORIGINS en producción: ver realtime.adapter.ts.
+ *
+ * Sesión cerrada (logout, revocar sus sesiones, baja, contraseña nueva): al
+ * revocarla se desconectan YA sus conexiones (salas session:<sid> y
+ * user:<id>; con el adaptador de Redis, en todos los nodos), y un handshake
+ * o un subscribe con un token de esa sesión se corta (por si el aviso no
+ * llegó). Sin Redis para comprobarlo, se corta también (fail-closed); las
+ * apps reconectan y, mientras, consultan el estado del cobro.
  */
 @WebSocketGateway({ namespace: '/rt' })
 export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect {
@@ -62,6 +72,7 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
   private readonly jwt: JwtService;
   private readonly prisma: PrismaService;
   private readonly metrics: MetricsService;
+  private readonly revocations: AccessRevocationService;
   /** Hasta cuándo vale la vía sin sesión (null = apagada). */
   private readonly legacyUntil: Date | null;
 
@@ -72,12 +83,15 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
     @Inject(JwtService) jwt: JwtService,
     @Inject(PrismaService) prisma: PrismaService,
     @Inject(MetricsService) metrics: MetricsService,
+    @Inject(AccessRevocationService) revocations: AccessRevocationService,
     @Optional() @Inject(ConfigService) config?: ConfigService,
   ) {
     this.jwt = jwt;
     this.prisma = prisma;
     this.metrics = metrics;
+    this.revocations = revocations;
     this.legacyUntil = legacySubscribeUntil(config?.get<string>('REALTIME_LEGACY_SUBSCRIBE_UNTIL'));
+    revocations.onRevoked((revocation) => this.disconnectRevoked(revocation));
   }
 
   /** Al conectar: si trae la sesión del personal, se guarda (si no vale, como sin sesión). */
@@ -93,8 +107,19 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
     const token = handshakeToken(client);
     if (!token) return;
     const result = await verifyStaffToken(this.jwt, token);
-    if (result.ok) client.data.staff = result.payload;
-    else this.logger.debug(`socket ${client.id}: sesión rechazada (${result.reason})`);
+    if (!result.ok) {
+      this.logger.debug(`socket ${client.id}: sesión rechazada (${result.reason})`);
+      return;
+    }
+    // Token de una sesión cerrada: fuera (no baja a la vía sin sesión).
+    if (await this.sessionClosed(result.payload)) {
+      this.logger.debug(`socket ${client.id}: sesión cerrada, se desconecta`);
+      client.disconnect(true);
+      return;
+    }
+    client.data.staff = result.payload;
+    // Salas para cortar sus conexiones al revocar la sesión o a la persona.
+    await client.join(sessionRooms(result.payload));
   }
 
   handleDisconnect(): void {
@@ -111,6 +136,11 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
     await client.data.authReady;
     const staff = client.data.staff;
     if (staff && tokenExpired(staff)) return { ok: false, error: SESSION_EXPIRED_ERROR };
+    if (staff && (await this.sessionClosed(staff))) {
+      // La sesión se cerró con la conexión abierta (y el aviso no la cortó).
+      client.disconnect(true);
+      return { ok: false, error: SESSION_REVOKED_ERROR };
+    }
     if (!staff && !this.legacyOpen()) return this.rejectLegacy(client);
 
     const allowed = staff
@@ -160,6 +190,22 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
       tipCents,
       timestamp: new Date().toISOString(),
     });
+  }
+
+  /** ¿Se cerró la sesión de este token? Sin Redis para saberlo, se da por cerrada (fail-closed). */
+  private async sessionClosed(staff: JwtPayload): Promise<boolean> {
+    try {
+      return await this.revocations.isRevoked(staff);
+    } catch {
+      return true;
+    }
+  }
+
+  /** Revocada una sesión o una persona: se cortan ya sus conexiones (todos los nodos, por el adaptador). */
+  private disconnectRevoked(revocation: AccessRevocation): void {
+    if (!this.server) return;
+    const room = revocation.kind === 'session' ? sessionRoom(revocation.sid) : userRoom(revocation.userId);
+    this.server.in(room).disconnectSockets(true);
   }
 
   private async staffMaySubscribe(staff: JwtPayload, paymentId: string): Promise<boolean> {
@@ -216,6 +262,19 @@ function handshakeToken(client: Socket): string | null {
   const auth = client.handshake?.auth as { token?: unknown } | undefined;
   if (typeof auth?.token === 'string' && auth.token.length > 0) return auth.token.replace(/^Bearer\s+/i, '');
   return bearerToken(client.handshake?.headers?.authorization);
+}
+
+function sessionRoom(sid: string): string {
+  return `session:${sid}`;
+}
+
+function userRoom(userId: string): string {
+  return `user:${userId}`;
+}
+
+/** Las salas de la sesión del token y de su persona (sin sid, la de la persona). */
+function sessionRooms(staff: JwtPayload): string[] {
+  return staff.sid ? [sessionRoom(staff.sid), userRoom(staff.sub)] : [userRoom(staff.sub)];
 }
 
 /** `exp` del JWT (s) ya pasado. Los tokens de sesión siempre lo llevan (AuthService). */

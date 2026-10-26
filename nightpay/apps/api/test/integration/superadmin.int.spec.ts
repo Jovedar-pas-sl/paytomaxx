@@ -55,7 +55,7 @@ const venuesReal = new SuperAdminVenuesService(prisma, realStepUp, saAudit, conf
 const businesses = new SuperAdminBusinessesService(prisma, okStepUp, saAudit, venues);
 const charges = new WalletChargesService(prisma as never, audit as never, { get: () => null } as never);
 const customers = new SuperAdminCustomersService(prisma, okStepUp, saAudit, charges);
-const operators = new OperatorsService(prisma as never, email as never, audit as never, config as never, jwt, {} as never);
+const operators = new OperatorsService(prisma as never, email as never, audit as never, config as never, jwt, {} as never, {} as never);
 const staff = new SuperAdminStaffService(
   prisma,
   okStepUp,

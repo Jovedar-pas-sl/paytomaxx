@@ -63,7 +63,7 @@ const fichas = new StaffFichaService(prisma, moneyMap);
 const checks = new CloseCheckService(prisma, new IncidentsService(prisma, audit as never), config as never);
 const nights = new NightsService(prisma, reports, audit as never, checks, undefined, moneyMap);
 vi.spyOn(nights as unknown as { safeAutoClose(t: string): Promise<void> }, 'safeAutoClose').mockResolvedValue(undefined);
-const operators = new OperatorsService(prisma, audit as never, audit as never, config as never, {} as never, {} as never);
+const operators = new OperatorsService(prisma, audit as never, audit as never, config as never, {} as never, {} as never, {} as never);
 const gateways = { get: () => ({ refund: async () => ({ status: 'SUCCEEDED', providerRefundId: `DEV-${randomUUID().slice(0, 8)}` }) }) };
 const refunds = new RefundsService(prisma as never, cls as never, gateways as never, payments as never, {} as never, audit as never, metrics as never);
 

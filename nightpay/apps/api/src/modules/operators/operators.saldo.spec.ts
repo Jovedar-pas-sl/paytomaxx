@@ -66,6 +66,7 @@ function makeService(opts: Opts = {}) {
     config as never,
     {} as never,
     {} as never,
+    {} as never,
   );
   return { svc, prisma, queries };
 }

@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { JwtModule } from '@nestjs/jwt';
+import { AccessRevocationService } from './access-revocation.service';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { LockoutService } from './lockout.service';
@@ -28,6 +29,7 @@ import { TelegramService } from '../incidents/telegram.service';
     }),
   ],
   providers: [
+    AccessRevocationService,
     AuthService,
     TotpService,
     TotpAttemptsService,
@@ -40,6 +42,6 @@ import { TelegramService } from '../incidents/telegram.service';
     TelegramService,
   ],
   controllers: [AuthController, TotpController],
-  exports: [AuthService, TotpService, RefreshTokenService, JwtModule],
+  exports: [AuthService, TotpService, RefreshTokenService, AccessRevocationService, JwtModule],
 })
 export class AuthModule {}

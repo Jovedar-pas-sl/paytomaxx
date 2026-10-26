@@ -92,7 +92,16 @@ function makeService(opts: Opts = {}) {
     }),
   };
   const audit = { log: vi.fn().mockResolvedValue(undefined) };
-  const svc = new OperatorsService(prisma as never, {} as never, audit as never, config as never, jwt as never, {} as never);
+  const sessions = { revokeAllForUser: vi.fn(async (_userId: string) => 1) };
+  const svc = new OperatorsService(
+    prisma as never,
+    {} as never,
+    audit as never,
+    config as never,
+    jwt as never,
+    {} as never,
+    sessions as never,
+  );
 
   /** Invitación vigente: el token firmado y su hash guardado en la chica. */
   async function invite(payload: Record<string, unknown> = { sub: OPERATOR, tenantId: TENANT, purpose: 'operator-invite' }) {
@@ -100,7 +109,7 @@ function makeService(opts: Opts = {}) {
     row = { ...row!, inviteToken: sha256(token) };
     return token;
   }
-  return { svc, prisma, jwt, audit, invite, expire: (t: string) => expired.add(t), current: () => row! };
+  return { svc, prisma, jwt, audit, sessions, invite, expire: (t: string) => expired.add(t), current: () => row! };
 }
 
 beforeEach(() => {
@@ -239,9 +248,19 @@ describe('OperatorsService.resetPassword — el dueño le pone una contraseña n
   });
 
   it('contraseña elegida de menos de 8 → 400 sin guardar', async () => {
-    const { svc, prisma } = makeService();
+    const { svc, prisma, sessions } = makeService();
     await expect(svc.resetPassword(TENANT, OPERATOR, OWNER, 'corta1')).rejects.toBeInstanceOf(BadRequestException);
     expect(prisma.user.update).not.toHaveBeenCalled();
+    expect(sessions.revokeAllForUser).not.toHaveBeenCalled();
+  });
+
+  it('cierra al momento sus sesiones abiertas (refresh y tokens de acceso): tiene que entrar con la nueva', async () => {
+    const { svc, prisma, sessions } = makeService();
+    await svc.resetPassword(TENANT, OPERATOR, OWNER, 'Lucia.Bambu.26');
+    expect(sessions.revokeAllForUser).toHaveBeenCalledWith(OPERATOR);
+    expect(prisma.user.update.mock.invocationCallOrder[0]!).toBeLessThan(
+      sessions.revokeAllForUser.mock.invocationCallOrder[0]!,
+    );
   });
 
   it.each([

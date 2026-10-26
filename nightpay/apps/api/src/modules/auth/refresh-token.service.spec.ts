@@ -9,6 +9,7 @@ import {
   RefreshTokenService,
 } from './refresh-token.service';
 import { createFakeRedis, type FakeRedis } from './testing/fake-redis';
+import { AccessRevocationService } from './access-revocation.service';
 
 function makeService() {
   const redisMock = createFakeRedis();
@@ -355,4 +356,60 @@ describe('RefreshTokenService', () => {
   });
 
   afterEach(() => vi.useRealTimers());
+});
+
+describe('RefreshTokenService — cerrar sesiones corta también los tokens de acceso ya emitidos', () => {
+  function withRevocations() {
+    const redis = createFakeRedis();
+    const revocations = new AccessRevocationService(redis as never);
+    const svc = new RefreshTokenService(redis as never, revocations);
+    const access = (userId: string, sid: string) => ({ sub: userId, sid, iat: Math.floor(Date.now() / 1000) - 60 });
+    return { svc, revocations, access, redis };
+  }
+
+  it('logout (revoke): la sesión que se cierra, y solo esa', async () => {
+    const { svc, revocations, access } = withRevocations();
+    const a = await svc.issue('user-1', 'tenant-1');
+    const b = await svc.issue('user-1', 'tenant-1');
+    await svc.revoke(a.token);
+    await expect(revocations.isRevoked(access('user-1', a.family))).resolves.toBe(true);
+    await expect(revocations.isRevoked(access('user-1', b.family))).resolves.toBe(false);
+  });
+
+  it('logout con un refresh ya rotado (la app no guardó el nuevo) → la sesión entera', async () => {
+    const { svc, revocations, access } = withRevocations();
+    const issued = await svc.issue('user-1', 'tenant-1');
+    await svc.rotate(issued.token);
+    await svc.revoke(issued.token);
+    await expect(revocations.isRevoked(access('user-1', issued.family))).resolves.toBe(true);
+  });
+
+  it('revokeFamily (reuso del refresh, contraseña cambiada, 2FA quitada, 90 días)', async () => {
+    const { svc, revocations, access } = withRevocations();
+    const issued = await svc.issue('user-1', 'tenant-1');
+    await svc.revokeFamily(issued.family);
+    await expect(revocations.isRevoked(access('user-1', issued.family))).resolves.toBe(true);
+  });
+
+  it('revokeAllForUser (móvil perdido, baja, reset de contraseña o de 2FA): todas sus sesiones, y no las de otros', async () => {
+    const { svc, revocations, access } = withRevocations();
+    const a = await svc.issue('user-1', 'tenant-1');
+    const b = await svc.issue('user-1', 'tenant-1');
+    const other = await svc.issue('user-2', 'tenant-1');
+    await expect(svc.revokeAllForUser('user-1')).resolves.toBe(2);
+    await expect(revocations.isRevoked(access('user-1', a.family))).resolves.toBe(true);
+    await expect(revocations.isRevoked(access('user-1', b.family))).resolves.toBe(true);
+    // También un token suyo de una sesión que ya no tenía refresh (o sin sid).
+    await expect(revocations.isRevoked({ sub: 'user-1', iat: Math.floor(Date.now() / 1000) - 60 })).resolves.toBe(true);
+    await expect(revocations.isRevoked(access('user-2', other.family))).resolves.toBe(false);
+  });
+
+  it('sin el servicio inyectado (pruebas antiguas) marca igual en el mismo Redis', async () => {
+    const redis = createFakeRedis();
+    const svc = new RefreshTokenService(redis as never);
+    const issued = await svc.issue('user-1', 'tenant-1');
+    await svc.revoke(issued.token);
+    const revocations = new AccessRevocationService(redis as never);
+    await expect(revocations.isRevoked({ sub: 'user-1', sid: issued.family, iat: 1 })).resolves.toBe(true);
+  });
 });

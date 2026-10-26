@@ -584,9 +584,10 @@ export class AdminController {
   }
 
   /**
-   * Kill-switch: revoca todos los refresh tokens activos de un usuario del propio venue.
-   * Solo OWNER. Util cuando un manager pierde el movil — corta acceso futuro,
-   * el access token vivo se invalidara solo cuando expire (max 12h).
+   * Kill-switch: revoca todas las sesiones de un usuario del propio venue.
+   * Solo OWNER. Util cuando un manager pierde el movil — corta al momento sus
+   * refresh tokens, sus tokens de acceso ya emitidos (AuthGuard) y sus
+   * conexiones de tiempo real (RefreshTokenService.revokeAllForUser).
    *
    * El middleware de Prisma garantiza que el findUnique solo encuentre users
    * del tenant del caller — un OWNER de Luna VLC no puede revocar a un manager

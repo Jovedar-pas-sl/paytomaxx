@@ -60,6 +60,10 @@ export class FakeRedis {
     return this.alive(key)?.value ?? null;
   }
 
+  async mget(...keys: Array<string | string[]>): Promise<Array<string | null>> {
+    return keys.flat().map((k) => this.alive(k)?.value ?? null);
+  }
+
   async set(key: string, value: string | number, ...opts: Array<string | number>): Promise<'OK' | null> {
     const o = parseSetOptions(opts);
     const current = this.alive(key);
