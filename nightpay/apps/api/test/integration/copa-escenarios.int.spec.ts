@@ -395,6 +395,10 @@ describe('un local que da parte al camarero: la caja y el aviso de la mañana', 
     // Se les paga en efectivo a los dos.
     await inVenue(s.V, () => operators.createPayout(s.V, s.nerea, s.owner, undefined, { externalRail: 'MANUAL_CASH' }));
     await inVenue(s.V, () => operators.createPayout(s.V, s.carlos, s.owner, undefined, { externalRail: 'MANUAL_CASH' }));
+    // El cierre cuenta hasta «ahora» con el reloj del proceso y el pago lleva la hora de la base: en
+    // Windows, Date.now() puede ir unos milisegundos por detrás y dejar fuera un pago recién hecho.
+    const last = await sys((tx) => tx.operatorPayout.findFirstOrThrow({ where: { tenantId: s.V }, orderBy: { createdAt: 'desc' } }));
+    while (Date.now() <= last.createdAt.getTime()) await new Promise((done) => setTimeout(done, 5));
   });
 
   it('la caja separa los pagos en efectivo a la chica y al camarero (lo que sale, lo mismo); el aviso dice lo de cada uno', async () => {
