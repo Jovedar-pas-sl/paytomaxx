@@ -12,7 +12,7 @@ import {
   useWakeLock,
 } from '@nightpay/ui';
 import { formatEur } from '@/lib/money';
-import { nfcSupported, readCard } from '@/lib/nfc';
+import { nfcSupported, readCard, waitingListensNfc } from '@/lib/nfc';
 import { useHealthReport } from '@/lib/connection-health';
 import { useOpenCharge } from '@/lib/open-charges';
 import { advanceStatus } from '@/lib/payment-status';
@@ -23,15 +23,27 @@ import {
   cancelCard,
   cancelSaldo,
   fetchSaldoState,
-  isAlreadyPaid,
   lookupNfc,
   payByNfc,
   payByPin,
+  payFailureKind,
   type CobroCreado,
   type SaldoState,
 } from '@/lib/api-cobro';
-import { failReasonOf, paidAmounts, paidMeta, pinExpected, pinWarning, tipLine, waitingLiveText, type FailReason } from '@/lib/cobro-view';
+import {
+  CHECKING_TEXT,
+  NOT_CHARGED_RETRY_TEXT,
+  failReasonOf,
+  paidAmounts,
+  paidMeta,
+  pinExpected,
+  pinWarning,
+  tipLine,
+  waitingLiveText,
+  type FailReason,
+} from '@/lib/cobro-view';
 import { cobroOutcome } from '@/lib/cobro-state';
+import { useShown } from '../reception/desk/use-shown';
 import { StaffOutcome } from '../StaffOutcome';
 import { usePaymentLive } from '../use-payment-live';
 import { colorOf } from './cobrar-context';
@@ -112,9 +124,14 @@ export function Esperando({ cobro, onNew, onRetry, retrying = false, retryError 
   const [reading, setReading] = useState(false);
   const [nfcRound, setNfcRound] = useState(0);
   const [paidAt, setPaidAt] = useState<Date | null>(null);
+  // Pagó con el NFC o el PIN y la respuesta no llegó: no se sabe si se cobró;
+  // se sigue preguntando por el cobro y lo decide su estado (APP-02).
+  const [checking, setChecking] = useState(false);
 
   const chargeId = cobro.saldo?.chargeId ?? null;
   const nfcOn = Boolean(chargeId) && methods.nfc && methods.wallet && nfcSupported();
+  // ¿Se ve? Inicio sigue montado (oculto) al cambiar de pestaña.
+  const [shownRef, shown] = useShown();
 
   const outcome = cobroOutcome({
     card: cobro.card ? { status: cardStatus, tipCents: cardTip } : null,
@@ -137,7 +154,13 @@ export function Esperando({ cobro, onNew, onRetry, retrying = false, retryError 
       try {
         const fresh = await fetchSaldoState(chargeId, signal);
         setSaldo(fresh);
-        return fresh.status === 'PENDING' ? undefined : 'stop';
+        if (fresh.status !== 'PENDING') return 'stop';
+        if (checking) {
+          // Sigue pendiente: aquel pago no llegó a cobrarse. Se vuelve a escuchar el NFC.
+          setChecking(false);
+          setToast(NOT_CHARGED_RETRY_TEXT);
+        }
+        return undefined;
       } catch {
         return signal.aborted ? 'stop' : 'slow';
       }
@@ -196,8 +219,17 @@ export function Esperando({ cobro, onNew, onRetry, retrying = false, retryError 
   );
 
   async function failFrom(err: unknown, card: string, uid: string | null) {
-    if (isAlreadyPaid(err)) {
+    const kind = payFailureKind(err);
+    if (kind === 'already_paid') {
       setToast('Ya está pagado');
+      refreshSaldo();
+      return;
+    }
+    if (kind === 'ambiguous') {
+      // Sin respuesta o con el servidor caído: pudo cobrarse. Nada de «No se ha
+      // cobrado»: se pregunta por el cobro (el sondeo sigue) y decide su estado.
+      setChecking(true);
+      setToast(CHECKING_TEXT);
       refreshSaldo();
       return;
     }
@@ -211,9 +243,12 @@ export function Esperando({ cobro, onNew, onRetry, retrying = false, retryError 
     setLocalFail(failReasonOf(e ?? { message: (err as Error).message }, { totalCents: cobro.totalCents, wallet }));
   }
 
-  // El NFC, por detrás, mientras se espera (Android con Chrome).
+  // El NFC, por detrás, mientras se espera (Android con Chrome). Mientras se
+  // comprueba un pago sin respuesta, no se lee otro; con la pestaña oculta
+  // (Recepción, Saldo…), tampoco: la ficha que acercan allí no paga este cobro.
+  const listens = waitingListensNfc({ nfcOn, waiting, pinOpen: pin !== null, checking, shown });
   useEffect(() => {
-    if (!nfcOn || !waiting || pin) return undefined;
+    if (!listens) return undefined;
     const ctrl = new AbortController();
     void (async () => {
       try {
@@ -235,7 +270,7 @@ export function Esperando({ cobro, onNew, onRetry, retrying = false, retryError 
       }
     })();
     return () => ctrl.abort();
-  }, [nfcOn, waiting, pin, nfcRound, handleCard]);
+  }, [listens, nfcRound, handleCard]);
 
   async function cancel() {
     setCanceling(true);
@@ -383,8 +418,8 @@ export function Esperando({ cobro, onNew, onRetry, retrying = false, retryError 
   }
 
   return (
-    <div className={styles.overlay} data-charge-open="">
-      <Waiting cobro={cobro} nfcOn={nfcOn} reading={reading} toast={toast}>
+    <div className={styles.overlay} data-charge-open="" ref={shownRef}>
+      <Waiting cobro={cobro} nfcOn={nfcOn} reading={reading} checking={checking} toast={toast}>
         <button type="button" className={`${styles.btn} ${styles.ghost}`} onClick={() => void cancel()} disabled={canceling}>
           {canceling ? 'Cancelando…' : 'Cancelar cobro'}
         </button>
@@ -398,12 +433,15 @@ function Waiting({
   cobro,
   nfcOn,
   reading,
+  checking,
   toast,
   children,
 }: {
   cobro: CobroAbierto;
   nfcOn: boolean;
   reading: boolean;
+  /** Un pago con el NFC o el PIN se quedó sin respuesta: se comprueba si se cobró. */
+  checking: boolean;
   toast: string | null;
   children: ReactNode;
 }) {
@@ -436,7 +474,7 @@ function Waiting({
         {/* Viva: un punto que late y lo que pasa, también para el lector de pantalla (cambia solo al cambiar de fase). */}
         <p className={`${styles.live}${ending ? ` ${styles.liveEnding}` : ''}`} role="status" aria-live="polite">
           <i aria-hidden="true" />
-          {waitingLiveText(phase)}
+          {waitingLiveText(phase, checking)}
         </p>
         <h2 className={styles.waitTitle}>{nfcOn ? 'Acerca el NFC o escanea' : 'Escanea el QR con tu móvil'}</h2>
         <div className={styles.dual}>
@@ -455,8 +493,8 @@ function Waiting({
           ) : null}
           {nfcOn ? (
             <div className={styles.opt}>
-              <NfcCard reading={reading} />
-              {reading ? 'Leyendo…' : invite ? 'NFC, sin PIN' : 'Por detrás'}
+              <NfcCard reading={reading || checking} />
+              {checking ? 'Comprobando…' : reading ? 'Leyendo…' : invite ? 'NFC, sin PIN' : 'Por detrás'}
             </div>
           ) : null}
         </div>

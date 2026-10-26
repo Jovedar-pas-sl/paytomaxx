@@ -18,7 +18,7 @@ import {
 } from '@nightpay/contracts';
 import { authedFetch, parseOperatorApiError } from './api';
 import { formatEur } from './money';
-import { payProblem, type PayMethod, type Target } from './reception';
+import { payProblem, receptionWhat, type PayMethod, type Target } from './reception';
 
 export type { ReceptionDeskSaldo, ReceptionDeskView, ReceptionNumberView };
 export type NumberSaldo = Extract<ReceptionNumberView, { kind: 'saldo' }>;
@@ -158,6 +158,35 @@ export function deskTarget(view: ReceptionDeskView | null, nfc: { card: string; 
   const card = { walletId: view.walletId, codeHint: view.code, hasPin: view.hasPin, isHomeVenue: view.isHomeVenue };
   if (nfc) return { kind: 'card', card: nfc.card, uid: nfc.uid, view: card };
   return { kind: 'code', code: view.code, view: card };
+}
+
+/**
+ * Lo que se recarga, para la clave de idempotencia: importe, forma de pago y a
+ * qué saldo. Un saldo nuevo va con la ficha leída: dos clientes con ficha
+ * nueva, mismo importe y misma forma de pago no comparten clave (si no, el
+ * servidor devolvería la recarga del primero como si fuera la del segundo) (A2-04).
+ */
+export function deskRechargeWhat(
+  amountCents: number,
+  method: PayMethod,
+  read: { view: ReceptionDeskView | null; nfc: { card: string; uid: string | null } | null; number?: NumberSaldo },
+): string {
+  if (read.number) return `${amountCents}|${method}|numero:${read.number.printedNumber}`;
+  const target = deskTarget(read.view, read.nfc);
+  const what = receptionWhat(amountCents, method, target);
+  return target.kind === 'new' && read.nfc ? `${what}:ficha:${read.nfc.card}` : what;
+}
+
+/** Pasos donde se lee al cliente (su NFC, su código o su número): volver a uno es otro cliente (o empezar de nuevo). */
+const READ_STEPS: ReadonlySet<string> = new Set(['tap', 'code', 'number']);
+
+/**
+ * La clave de la recarga al cambiar de paso: al volver a leer (la flecha atrás
+ * hasta el NFC, otro cliente) se renueva; dentro de la misma recarga (importe,
+ * forma de pago, su QR) se conserva y repetir lo mismo no carga dos veces.
+ */
+export function attemptOnStep<A>(attempt: A | null, nextStep: string): A | null {
+  return READ_STEPS.has(nextStep) ? null : attempt;
 }
 
 /** Por qué este saldo no se recarga aquí (null: se puede). */

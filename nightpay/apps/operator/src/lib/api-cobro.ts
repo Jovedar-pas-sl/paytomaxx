@@ -11,7 +11,7 @@ import {
   type InvitableStaff,
   type InvitationRules,
 } from '@nightpay/contracts';
-import { parseProblemDetails } from '@nightpay/api-client';
+import { SessionExpiredError, parseProblemDetails } from '@nightpay/api-client';
 import {
   authedFetch,
   newIdempotencyKey,
@@ -193,4 +193,20 @@ export function fetchInvitationRules(): Promise<InvitationRules> {
 /** ¿La tarjeta ya lo pagó? (el NFC llegó tarde: «Ya está pagado»). */
 export function isAlreadyPaid(err: unknown): boolean {
   return err instanceof CobroApiError && err.code === ALREADY_PAID_CODE;
+}
+
+/**
+ * Un pago con el NFC o con el PIN que no devolvió el pagado: ¿se sabe que no
+ * se cobró? Solo si el API lo rechazó (4xx con su razón, o la sesión ya no
+ * vale). Sin respuesta (red, plazo agotado), con el servidor caído (5xx, 408)
+ * o con una respuesta ilegible, el servidor pudo cobrarlo: se comprueba el
+ * estado del cobro antes de decir nada (APP-02).
+ */
+export type PayFailure = 'already_paid' | 'ambiguous' | 'definitive';
+
+export function payFailureKind(err: unknown): PayFailure {
+  if (isAlreadyPaid(err)) return 'already_paid';
+  if (err instanceof SessionExpiredError) return 'definitive';
+  if (err instanceof CobroApiError) return err.status >= 500 || err.status === 408 ? 'ambiguous' : 'definitive';
+  return 'ambiguous';
 }

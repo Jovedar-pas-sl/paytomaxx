@@ -32,6 +32,7 @@ import { CartaRetry, CartaTile, serviceLabel, tileStyle, useCarta, type Carta } 
 import { InviteStep } from './InviteStep';
 import { STICKY_ACTION_BOTTOM } from './layout';
 import { PinPad } from './PinPad';
+import { useShown } from './reception/desk/use-shown';
 import { SectionPicker } from './SectionPicker';
 import { initialSection, offeredSections, sectionColor, useMySections } from '@/lib/sections';
 import { useSessionExpired } from './session-context';
@@ -435,6 +436,12 @@ function PinCodeStep({
 
   useEffect(() => setNfc(nfcSupported() && nfcOn), [nfcOn]);
   useEffect(() => () => reading?.abort(), [reading]);
+  // Saldo sigue montado (oculto) al cambiar de pestaña: un lector a medias se
+  // corta, para que no lea la ficha que acercan en otra pantalla (APP-03).
+  const [shownRef, shown] = useShown();
+  useEffect(() => {
+    if (!shown) reading?.abort();
+  }, [shown, reading]);
 
   async function find(e: FormEvent) {
     e.preventDefault();
@@ -483,7 +490,9 @@ function PinCodeStep({
 
   return (
     <Card style={cardStyle}>
-      <p style={{ ...kicker, textAlign: 'center' }}>Sin móvil: NFC, pase o código + PIN</p>
+      <p ref={shownRef} style={{ ...kicker, textAlign: 'center' }}>
+        Sin móvil: NFC, pase o código + PIN
+      </p>
       <p className="np-num" style={{ ...balanceStyle, textAlign: 'center' }}>
         {what}
       </p>

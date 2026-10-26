@@ -65,10 +65,20 @@ export function tipLine(amounts: PaidAmounts): { base: string; tip: string } | n
 }
 
 /**
- * La pastilla viva de «Esperando» (y lo que oye el lector de pantalla): cambia
- * solo al cambiar de fase, no cada segundo.
+ * Pagó con el NFC o el PIN y no llegó la respuesta (red, servidor caído): no
+ * se sabe si se cobró. Se sigue preguntando por el cobro y decide su estado.
  */
-export function waitingLiveText(phase: 'ok' | 'ending' | 'over'): string {
+export const CHECKING_TEXT = 'Comprobando si se ha cobrado…';
+/** Ya se sabe: el cobro sigue pendiente (no llegó a cobrarse). */
+export const NOT_CHARGED_RETRY_TEXT = 'No llegó a cobrarse: que vuelva a acercar el NFC o escanee el QR.';
+
+/**
+ * La pastilla viva de «Esperando» (y lo que oye el lector de pantalla): cambia
+ * solo al cambiar de fase, no cada segundo. Con `checking`, comprobando si el
+ * pago que se quedó sin respuesta se cobró.
+ */
+export function waitingLiveText(phase: 'ok' | 'ending' | 'over', checking = false): string {
+  if (checking) return CHECKING_TEXT;
   if (phase === 'over') return 'Comprobando…';
   if (phase === 'ending') return 'Queda menos de un minuto';
   return 'Esperando el pago…';

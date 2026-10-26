@@ -13,15 +13,20 @@ import {
   fetchPaxInfo,
   fetchPaxPending,
   flushPendingResults,
+  flushPendingVoids,
   getDeviceToken,
   getPendingResults,
+  getPendingVoids,
+  getSalesToReview,
   pairDevice,
   PaxApiError,
   reportPaxShift,
   type PaxCharge,
   type PaxInfo,
+  type SaleToReview,
   type ShiftSummary,
 } from '@/lib/pax-api';
+import { shiftSummaryText } from '@/lib/pax-flow';
 import { setVenueFeedback } from '@/lib/alert-sound';
 import { formatEur } from '@/lib/money';
 import { deviceBackend } from '@/lib/reception';
@@ -31,6 +36,7 @@ import { PrepareFichas } from '../reception/PrepareFichas';
 import { ReceptionFlow } from '../reception/ReceptionFlow';
 import { PaxChargeFlow } from './PaxChargeFlow';
 import { PaxSaldoFlow } from './PaxSaldoFlow';
+import { SalesToReview } from './SalesToReview';
 
 const POLL_MS = 3000;
 
@@ -61,13 +67,23 @@ function PaxScreenView({ onNight }: { onNight: (night: VenueNightSettings) => vo
   const [error, setError] = useState<string | null>(null);
   // Ventas aprobadas que aún no han llegado a OxioPay: mientras haya, no se cobra otra.
   const [unsent, setUnsent] = useState(0);
+  // Ventas cobradas en el lector que OxioPay no admitió: a anular o revisar (A2-02, A2-03).
+  const [review, setReview] = useState<SaleToReview[]>([]);
+  // Anulaciones hechas en el lector que aún no han llegado a OxioPay (A2-07).
+  const [voidsUnsent, setVoidsUnsent] = useState(0);
   // Lo que ofrece la recepción en este local (fichas, recargas). null: aún no se sabe (sale todo).
   const [desks, setDesks] = useState<ReceptionOptions | null>(null);
 
+  const readStored = useCallback(() => {
+    setUnsent(getPendingResults().length);
+    setReview(getSalesToReview());
+    setVoidsUnsent(getPendingVoids().length);
+  }, []);
+
   useEffect(() => {
     setPaired(Boolean(getDeviceToken()));
-    setUnsent(getPendingResults().length);
-  }, []);
+    readStored();
+  }, [readStored]);
 
   /** /me decide si sigue vinculado: si responde 401, el aparato se olvida y se vuelve a vincular. */
   const checkPairing = useCallback(async () => {
@@ -99,9 +115,10 @@ function PaxScreenView({ onNight }: { onNight: (night: VenueNightSettings) => vo
   // Sin solapes y en pausa con la pantalla apagada o durante un cobro.
   const refresh = usePolling(
     async (signal) => {
-      // Una venta aprobada que no llegó a OxioPay se reenvía antes que nada.
+      // Una venta aprobada que no llegó a OxioPay (y los avisos de anulación) se reenvían antes que nada.
       await flushPendingResults();
-      setUnsent(getPendingResults().length);
+      await flushPendingVoids();
+      readStored();
       try {
         setCharges(await fetchPaxPending(signal));
         setError(null);
@@ -160,6 +177,8 @@ function PaxScreenView({ onNight }: { onNight: (night: VenueNightSettings) => vo
   }
 
   const reader = hasReader();
+  // Un cobro con una venta del lector por anular o revisar no se vuelve a cobrar: el cliente ya pagó.
+  const onHold = new Set(review.filter((r) => r.kind !== 'voidUnknown').map((r) => r.paymentId));
   return (
     <main className="np-screen" style={mainStyle}>
       <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: '1rem' }}>
@@ -188,6 +207,13 @@ function PaxScreenView({ onNight }: { onNight: (night: VenueNightSettings) => vo
             Reenviar ahora
           </Button>
         </div>
+      ) : null}
+      <SalesToReview entries={review} reader={reader} onChanged={readStored} />
+      {voidsUnsent > 0 ? (
+        <p role="status" style={warnBox}>
+          {voidsUnsent === 1 ? 'Hay una anulación' : `Hay ${voidsUnsent} anulaciones`} hecha{voidsUnsent === 1 ? '' : 's'} en el
+          datáfono sin avisar a OxioPay: se reenvía{voidsUnsent === 1 ? '' : 'n'} sola{voidsUnsent === 1 ? '' : 's'}.
+        </p>
       ) : null}
       {error ? <p role="alert" style={{ color: 'var(--np-danger)', margin: 0 }}>{error}</p> : null}
 
@@ -221,7 +247,7 @@ function PaxScreenView({ onNight }: { onNight: (night: VenueNightSettings) => vo
             <button
               key={c.id}
               type="button"
-              disabled={!reader || unsent > 0}
+              disabled={!reader || unsent > 0 || onHold.has(c.id)}
               onClick={() => setSelected(c)}
               style={{ ...chargeBtn, borderColor: c.forThisTerminal ? 'var(--np-accent)' : 'var(--np-border-hi)' }}
             >
@@ -233,6 +259,9 @@ function PaxScreenView({ onNight }: { onNight: (night: VenueNightSettings) => vo
                 Código {c.code}
                 {c.zone ? ` · ${c.zone.toLowerCase()}` : ''} · hace {minutesAgo(c.createdAt)}
               </span>
+              {onHold.has(c.id) ? (
+                <span style={{ ...muted, color: 'var(--np-warning)' }}>Ya cobrado en el datáfono: revísalo arriba, no lo cobres otra vez.</span>
+              ) : null}
             </button>
           ))}
         </div>
@@ -314,11 +343,7 @@ function ShiftCheck() {
         Cuadrar con el datáfono
       </Button>
       {summary ? (
-        <p style={{ margin: 0 }}>
-          {summary.unmatched.length === 0
-            ? `Todo cuadra: ${summary.total} ventas del datáfono, todas en OxioPay.`
-            : `${summary.unmatched.length} de ${summary.total} ventas del datáfono no están en OxioPay. Salen en Incidencias del panel.`}
-        </p>
+        <p style={{ margin: 0, ...(summary.total === 0 ? { color: 'var(--np-warning)' } : {}) }}>{shiftSummaryText(summary)}</p>
       ) : null}
       {error ? <p role="alert" style={{ color: 'var(--np-danger)', margin: 0 }}>{error}</p> : null}
     </Card>

@@ -26,6 +26,19 @@ export function timeLabel(at: string | number | Date): string {
   return TIME_LABEL.format(new Date(at));
 }
 
+const PAYMENT_TIME = new Intl.DateTimeFormat('es-ES', {
+  timeZone: MADRID_TZ,
+  day: '2-digit',
+  month: 'short',
+  hour: '2-digit',
+  minute: '2-digit',
+});
+
+/** «13 oct, 00:40» de «Mis cobros» (hora de Madrid, como el resto; no la del móvil). */
+export function paymentTimeLabel(at: string | number | Date): string {
+  return PAYMENT_TIME.format(new Date(at));
+}
+
 /** La noche de un cobro, como «AAAA-MM-DD» del día en que empezó (un cobro a las 03:00 es de la noche anterior). */
 export function serviceNightKey(at: string): string {
   return DAY_KEY.format(new Date(Date.parse(at) - NIGHT_ROLLOVER_MS));
