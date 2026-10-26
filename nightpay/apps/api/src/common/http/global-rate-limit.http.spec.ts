@@ -77,6 +77,15 @@ describe('límite global con el plugin (SEC-02)', () => {
     expect(Number(res.headers['retry-after'])).toBeGreaterThan(0);
   });
 
+  it('una persona con la app en bucle se queda en su 429; el resto del local sigue', async () => {
+    const { call } = await server({ ip: 3, user: 4, venue: 10 });
+    const looping = await statuses(40, () => call(token(users[0]!)));
+    expect(looping.filter((s) => s === 200)).toHaveLength(4);
+    expect(await statuses(4, () => call(token(users[1]!)))).toEqual([200, 200, 200, 200]);
+    expect(await statuses(2, () => call(token(users[2]!)))).toEqual([200, 200]);
+    expect((await call(token(users[2]!))).statusCode).toBe(429);
+  });
+
   it('el sondeo público del cobro no gasta el cupo de los anónimos', async () => {
     const { call } = await server({ ip: 2, user: 50, venue: 100 });
     expect(await statuses(6, () => call(undefined, '/v1/payments/public/qr-1'))).toEqual([200, 200, 200, 200, 200, 200]);

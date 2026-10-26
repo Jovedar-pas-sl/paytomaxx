@@ -15,6 +15,12 @@ import { clientIp, normalizeIp, type ClientIpRequest } from './client-ip';
  *    (CF-Connecting-IP solo si de verdad viene de Cloudflare, client-ip.ts).
  * Un token inventado, caducado o de un solo uso cuenta como anónimo: no da
  * cupo propio. Lo sensible (login, PIN, códigos) tiene además su @IpRateLimit.
+ *
+ * Al local solo suma lo que cabe en el tope de cada persona: un móvil en bucle
+ * (o el token de alguien dado de baja, que aquí solo se mira la firma) se
+ * queda en su 429 sin dejar al resto del local sin cupo. Y un token que este
+ * nodo ya sabe revocado (AccessRevocationService.isKnownRevoked, sin ir a
+ * Redis) no suma al local nada.
  */
 export const GLOBAL_RATE_LIMIT_WINDOW_MS = 60_000;
 export const GLOBAL_LIMITS = Object.freeze({
@@ -71,7 +77,16 @@ export function anonymousRateLimitKey(req: LimitedRequest): string {
   return `ip:${clientIp(req) ?? 'desconocida'}`;
 }
 
-type Identity = { kind: 'user'; tenantId: string; venueFull: boolean } | { kind: 'ip' };
+type Identity =
+  | { kind: 'user'; userId: string; tenantId: string; revoked: boolean; venueFull: boolean }
+  | { kind: 'ip' };
+
+/** Lo del token que hace falta para saber si su sesión se cerró. */
+export interface RateLimitTokenRef {
+  sub: string;
+  sid?: string;
+  iat?: number;
+}
 
 export interface GlobalRateLimitDeps {
   /** El de las sesiones (JWT_SECRET): sin firma buena, la petición es anónima. */
@@ -80,16 +95,25 @@ export interface GlobalRateLimitDeps {
   now?: () => number;
   /** Cada 429 del límite global, por tope (para la métrica). */
   onLimited?: (kind: GlobalLimitKind) => void;
+  /** ¿Sabe ya este nodo que la sesión de este token se cerró? Síncrono: sin Redis. */
+  isKnownRevoked?: (token: RateLimitTokenRef) => boolean;
 }
 
-/** Ventana fija por local: cuántas peticiones lleva en este minuto. */
-class VenueWindows {
-  private readonly windows = new Map<string, { window: number; count: number }>();
+/**
+ * Ventana fija (de un minuto) por clave: cuántas peticiones lleva. Al cambiar
+ * de minuto se olvidan las claves del anterior (no crece sin fin).
+ */
+class FixedWindows {
+  private readonly windows = new Map<string, number>();
+  private window = Number.NaN;
 
-  hit(tenantId: string, window: number): number {
-    const current = this.windows.get(tenantId);
-    const count = current?.window === window ? current.count + 1 : 1;
-    this.windows.set(tenantId, { window, count });
+  hit(key: string, window: number): number {
+    if (window !== this.window) {
+      this.windows.clear();
+      this.window = window;
+    }
+    const count = (this.windows.get(key) ?? 0) + 1;
+    this.windows.set(key, count);
     return count;
   }
 }
@@ -104,17 +128,17 @@ export function createGlobalRateLimit(deps: GlobalRateLimitDeps) {
   const limits: GlobalLimits = { ...GLOBAL_LIMITS, ...deps.limits };
   const now = deps.now ?? Date.now;
   const jwt = new JwtService({ secret: deps.jwtSecret });
-  const venues = new VenueWindows();
+  const venues = new FixedWindows();
+  const users = new FixedWindows();
   const identities = new WeakMap<object, Identity>();
 
   const identify = async (req: LimitedRequest): Promise<{ key: string; identity: Identity }> => {
     const token = bearerToken(req.headers['authorization']);
     const verified = token ? await verifyStaffToken(jwt, token) : null;
     if (!verified?.ok) return { key: anonymousRateLimitKey(req), identity: { kind: 'ip' } };
-    return {
-      key: `user:${verified.payload.sub}`,
-      identity: { kind: 'user', tenantId: verified.payload.tenantId, venueFull: false },
-    };
+    const { sub, tenantId } = verified.payload;
+    const revoked = deps.isKnownRevoked?.(verified.payload) ?? false;
+    return { key: `user:${sub}`, identity: { kind: 'user', userId: sub, tenantId, revoked, venueFull: false } };
   };
 
   return {
@@ -124,12 +148,18 @@ export function createGlobalRateLimit(deps: GlobalRateLimitDeps) {
       identities.set(requestKey(req), identity);
       return key;
     },
-    /** Tope de esta petición. Con el local lleno, 0: el plugin responde 429 como con cualquier tope. */
+    /**
+     * Tope de esta petición. Con el local lleno, 0: el plugin responde 429
+     * como con cualquier tope. Al local solo suma lo que cabe en el tope de
+     * la persona (lo de más ya es su 429) y nada de un token revocado.
+     */
     max: (req: LimitedRequest, _key: string): number => {
       const identity = identities.get(requestKey(req));
       if (identity?.kind !== 'user') return limits.ip;
-      const count = venues.hit(identity.tenantId, Math.floor(now() / GLOBAL_RATE_LIMIT_WINDOW_MS));
-      identity.venueFull = count > limits.venue;
+      const window = Math.floor(now() / GLOBAL_RATE_LIMIT_WINDOW_MS);
+      const withinUser = users.hit(identity.userId, window) <= limits.user;
+      if (!withinUser || identity.revoked) return limits.user;
+      identity.venueFull = venues.hit(identity.tenantId, window) > limits.venue;
       return identity.venueFull ? 0 : limits.user;
     },
     onExceeded: (req: LimitedRequest, key: string): void => {
@@ -159,10 +189,15 @@ interface MetricsLike {
 }
 
 /** Las opciones de @fastify/rate-limit para main.ts. */
-export function globalRateLimitOptions(jwtSecret: string, metrics?: MetricsLike): RateLimitPluginOptions {
+export function globalRateLimitOptions(
+  jwtSecret: string,
+  metrics?: MetricsLike,
+  isKnownRevoked?: (token: RateLimitTokenRef) => boolean,
+): RateLimitPluginOptions {
   const rl = createGlobalRateLimit({
     jwtSecret,
     onLimited: (kind) => metrics?.rateLimited.inc({ limiter: 'global', kind }),
+    ...(isKnownRevoked ? { isKnownRevoked } : {}),
   });
   return {
     timeWindow: GLOBAL_RATE_LIMIT_WINDOW_MS,

@@ -99,6 +99,50 @@ describe('límite global: tope por local', () => {
     expect((await decide(ana)).max).toBe(GLOBAL_LIMITS.user);
   });
 
+  it('un solo token en bucle no llena el local: lo que pasa del tope de su persona no cuenta en el del local', async () => {
+    const { decide } = limiter({ user: 3, venue: 5 });
+    const ana = req(staffToken(ANA, VENUE_A));
+    // Ana manda 10: el plugin rechaza de la 4.ª en adelante (su tope), y esas no suman al local.
+    for (let i = 0; i < 10; i++) expect((await decide(ana)).max).toBe(3);
+    const luis = req(staffToken(LUIS, VENUE_A));
+    // Al local le quedan 2 (5 − las 3 de Ana): Luis trabaja.
+    expect((await decide(luis)).max).toBe(3);
+    expect((await decide(luis)).max).toBe(3);
+    expect((await decide(luis)).max).toBe(0);
+  });
+
+  it('el bucle de una persona tampoco le cuenta en el minuto siguiente más que su tope', async () => {
+    const { decide, advance } = limiter({ user: 2, venue: 3 });
+    const ana = req(staffToken(ANA, VENUE_A));
+    for (let i = 0; i < 50; i++) await decide(ana);
+    advance(60_000);
+    for (let i = 0; i < 50; i++) await decide(ana);
+    // 2 de Ana en este minuto: a Luis le queda 1.
+    const luis = req(staffToken(LUIS, VENUE_A));
+    expect((await decide(luis)).max).toBe(2);
+    expect((await decide(luis)).max).toBe(0);
+  });
+
+  it('un token ya revocado (lo sabe este nodo) tiene su cupo pero no cuenta en el del local', async () => {
+    const revoked = new Set([ANA]);
+    const rl = createGlobalRateLimit({
+      jwtSecret: SECRET,
+      limits: { user: 100, venue: 2 },
+      now: () => Date.UTC(2026, 9, 26, 22, 0, 0),
+      isKnownRevoked: (t) => revoked.has(t.sub),
+    });
+    const decide = async (r: ReturnType<typeof req>) => {
+      const key = await rl.keyGenerator(r as never);
+      return { key, max: await rl.max(r as never, key) };
+    };
+    const ana = req(staffToken(ANA, VENUE_A));
+    for (let i = 0; i < 20; i++) await expect(decide(ana)).resolves.toEqual({ key: `user:${ANA}`, max: 100 });
+    const luis = req(staffToken(LUIS, VENUE_A));
+    expect((await decide(luis)).max).toBe(100);
+    expect((await decide(luis)).max).toBe(100);
+    expect((await decide(luis)).max).toBe(0);
+  });
+
   it('al pasarse avisa de qué tope fue (métrica de 429)', async () => {
     const { rl, decide, onLimited } = limiter({ venue: 1 });
     const anon = req();

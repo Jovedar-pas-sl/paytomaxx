@@ -15,6 +15,8 @@ export const ACCESS_TOKEN_TTL_SECONDS = 60 * 60;
 export const ACCESS_REVOCATION_TTL_SECONDS = ACCESS_TOKEN_TTL_SECONDS + 5 * 60;
 /** Lo más que espera cada petición a Redis para saber si su sesión sigue viva. */
 export const ACCESS_CHECK_TIMEOUT_MS = 500;
+/** Marcas que recuerda cada nodo para el límite global (al pasar, se empieza de cero). */
+const MAX_KNOWN_MARKS = 10_000;
 
 /** 401: la sesión de este token se cerró (logout, revocada, baja, contraseña nueva). */
 export const SESSION_REVOKED_CODE = 'SESSION_REVOKED';
@@ -64,6 +66,14 @@ export class AccessRevocationService {
   private readonly logger = new Logger(AccessRevocationService.name);
   private readonly redis: Redis;
   private readonly listeners = new Set<RevocationListener>();
+  /**
+   * Las marcas que este nodo ya ha visto (las que puso o las que encontró en
+   * Redis al comprobar una petición): sid → hasta cuándo; persona → corte (s)
+   * y hasta cuándo. SOLO para el límite global (isKnownRevoked): el acceso lo
+   * decide siempre Redis (isRevoked).
+   */
+  private readonly knownSids = new Map<string, number>();
+  private readonly knownCutoffs = new Map<string, { cutoff: number; until: number }>();
 
   constructor(@Inject(REDIS_CLIENT) redis: Redis) {
     this.redis = redis;
@@ -72,6 +82,7 @@ export class AccessRevocationService {
   /** La sesión (family del refresh) se cerró: sus tokens de acceso dejan de valer. */
   async revokeSession(sid: string): Promise<void> {
     await this.redis.set(sidKey(sid), '1', 'EX', ACCESS_REVOCATION_TTL_SECONDS);
+    this.rememberSid(sid);
     this.notify({ kind: 'session', sid });
   }
 
@@ -82,7 +93,9 @@ export class AccessRevocationService {
    * marca cada una. Así un login justo después (en el mismo segundo) vale.
    */
   async revokeUser(userId: string, nowMs: number = Date.now()): Promise<void> {
-    await this.redis.set(userKey(userId), String(Math.floor(nowMs / 1000)), 'EX', ACCESS_REVOCATION_TTL_SECONDS);
+    const cutoff = Math.floor(nowMs / 1000);
+    await this.redis.set(userKey(userId), String(cutoff), 'EX', ACCESS_REVOCATION_TTL_SECONDS);
+    this.rememberCutoff(userId, cutoff);
     this.notify({ kind: 'user', userId });
   }
 
@@ -97,12 +110,28 @@ export class AccessRevocationService {
       throw new ServiceUnavailableException({ message: MSG_CHECK_UNAVAILABLE, code: SESSION_CHECK_UNAVAILABLE_CODE });
     }
     const [cutoff, sidMark] = values;
+    if (sidMark && token.sid) this.rememberSid(token.sid);
     if (sidMark) return true;
     if (cutoff === null || cutoff === undefined) return false;
     const cutoffSeconds = Number(cutoff);
     // Un valor raro o un token sin fecha de emisión: no se da por bueno.
     if (!Number.isFinite(cutoffSeconds) || typeof token.iat !== 'number') return true;
+    this.rememberCutoff(token.sub, cutoffSeconds);
     return token.iat < cutoffSeconds;
+  }
+
+  /**
+   * ¿Sabe ya ESTE nodo que la sesión de este token se cerró? Sin Redis ni
+   * esperas: lo usa el límite global para no contar en el cupo del local las
+   * peticiones de un token revocado. Puede decir «no» de uno revocado en otro
+   * nodo hasta que aquí llegue su primera petición; nunca decide un acceso.
+   */
+  isKnownRevoked(token: AccessTokenRef, nowMs: number = Date.now()): boolean {
+    const sidUntil = token.sid ? this.knownSids.get(token.sid) : undefined;
+    if (sidUntil !== undefined && sidUntil > nowMs) return true;
+    const known = this.knownCutoffs.get(token.sub);
+    if (!known || known.until <= nowMs) return false;
+    return typeof token.iat !== 'number' || token.iat < known.cutoff;
   }
 
   /** 401 SESSION_REVOKED si la sesión de este token se cerró. */
@@ -118,6 +147,16 @@ export class AccessRevocationService {
     return () => {
       this.listeners.delete(listener);
     };
+  }
+
+  private rememberSid(sid: string): void {
+    if (this.knownSids.size >= MAX_KNOWN_MARKS) this.knownSids.clear();
+    this.knownSids.set(sid, Date.now() + ACCESS_REVOCATION_TTL_SECONDS * 1000);
+  }
+
+  private rememberCutoff(userId: string, cutoff: number): void {
+    if (this.knownCutoffs.size >= MAX_KNOWN_MARKS) this.knownCutoffs.clear();
+    this.knownCutoffs.set(userId, { cutoff, until: Date.now() + ACCESS_REVOCATION_TTL_SECONDS * 1000 });
   }
 
   private notify(revocation: AccessRevocation): void {

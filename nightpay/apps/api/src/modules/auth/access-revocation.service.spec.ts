@@ -117,6 +117,45 @@ describe('AccessRevocationService — ¿sigue viva la sesión de este token?', (
   });
 });
 
+describe('AccessRevocationService — lo que este nodo ya sabe revocado (para el límite global, sin Redis)', () => {
+  it('nada visto → no se sabe revocado', () => {
+    const { svc } = make();
+    expect(svc.isKnownRevoked({ sub: USER, sid: SID_A, iat: sec(T0) })).toBe(false);
+  });
+
+  it('lo que revocó este nodo: la sesión, y los tokens de la persona emitidos antes', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(T0);
+    const { svc } = make();
+    await svc.revokeSession(SID_A);
+    expect(svc.isKnownRevoked({ sub: USER, sid: SID_A, iat: sec(T0) })).toBe(true);
+    expect(svc.isKnownRevoked({ sub: USER, sid: SID_B, iat: sec(T0) })).toBe(false);
+    await svc.revokeUser(USER);
+    expect(svc.isKnownRevoked({ sub: USER, sid: SID_B, iat: sec(T0) - 30 })).toBe(true);
+    // Un login después de revocar no se toca.
+    expect(svc.isKnownRevoked({ sub: USER, sid: SID_B, iat: sec(T0) + 5 })).toBe(false);
+  });
+
+  it('lo que otro nodo revocó, en cuanto una petición lo encuentra en Redis', async () => {
+    const other = make();
+    const svc = new AccessRevocationService(other.redis as never);
+    await other.svc.revokeSession(SID_A);
+    const token = { sub: USER, sid: SID_A, iat: sec(T0) };
+    expect(svc.isKnownRevoked(token)).toBe(false);
+    await expect(svc.isRevoked(token)).resolves.toBe(true);
+    expect(svc.isKnownRevoked(token)).toBe(true);
+  });
+
+  it('se olvida cuando caduca la marca', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(T0);
+    const { svc } = make();
+    await svc.revokeSession(SID_A);
+    vi.setSystemTime(new Date(T0.getTime() + ACCESS_REVOCATION_TTL_SECONDS * 1000 + 1_000));
+    expect(svc.isKnownRevoked({ sub: USER, sid: SID_A, iat: sec(T0) })).toBe(false);
+  });
+});
+
 describe('pnpm cli revoke-sessions escribe las mismas marcas (packages/db/scripts/cli.ts)', () => {
   it('mismas claves y mismo TTL que el API', async () => {
     const cli = readFileSync(join(__dirname, '../../../../../packages/db/scripts/cli.ts'), 'utf8');

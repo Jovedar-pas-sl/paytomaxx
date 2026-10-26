@@ -16,6 +16,7 @@ import { corsOrigin, parseCorsOrigins } from './common/http/cors';
 import { UNPREFIXED_ROUTES } from './common/http/unprefixed-routes';
 import { globalRateLimitOptions } from './common/http/global-rate-limit';
 import { MetricsService } from './modules/metrics/metrics.service';
+import { AccessRevocationService } from './modules/auth/access-revocation.service';
 import { AppModule } from './app.module';
 import { loadEnv } from './config/env';
 import { envWarnings } from './config/env-warnings';
@@ -120,7 +121,12 @@ async function bootstrap() {
   // Rate limit global: con la sesión del personal, por persona y por local;
   // sin ella, por IP de fiar (common/http/global-rate-limit.ts). Endpoints
   // sensibles (login, refresh, accept-invite) tienen además su @IpRateLimit.
-  await app.register(rateLimit, globalRateLimitOptions(env.JWT_SECRET, app.get(MetricsService)));
+  // Un token que este nodo ya sabe revocado no cuenta en el cupo del local.
+  const revocations = app.get(AccessRevocationService);
+  await app.register(
+    rateLimit,
+    globalRateLimitOptions(env.JWT_SECRET, app.get(MetricsService), (token) => revocations.isKnownRevoked(token)),
+  );
 
   // Las páginas del cliente (/pay, /w, /s) van fuera del prefijo /v1 para que
   // el QR apunte a https://api.dominio.com/pay/{token}, limpio. La lista (y
