@@ -65,8 +65,9 @@ describe('textos de los errores', () => {
       join('..', 'payments', 'public-pay.controller.ts'),
       join('..', '..', 'common', 'guards', 'ip-rate-limit.guard.ts'),
     ];
-    // Con su propio texto por motivo (TOPUP_<reason>) o el de las apps del personal.
-    const handledElsewhere = new Set(['WALLET_TOPUP_UNAVAILABLE']);
+    // Con su propio texto por motivo (TOPUP_<reason>) o el de las apps del personal
+    // (PAYOUT_AMOUNT_CHANGED: «Devolver saldo» del panel, que enseña el texto del API).
+    const handledElsewhere = new Set(['WALLET_TOPUP_UNAVAILABLE', 'PAYOUT_AMOUNT_CHANGED']);
     const codes = new Set<string>(['PIN_FORMAT', 'PIN_OBVIOUS', 'MERGE_NOT_ALLOWED']);
     for (const file of files) {
       const src = readFileSync(join(dir, file), 'utf8');
