@@ -23,6 +23,7 @@ interface Earning {
 
 interface Opts {
   payoutMethod?: string | null;
+  payoutAddress?: string | null;
   operatorInVenue?: boolean;
   pending?: Earning[];
   debts?: Array<{ id: string; reversedDeltaCents: number }>;
@@ -66,7 +67,11 @@ function makeService(opts: Opts = {}) {
       findFirst: vi.fn().mockResolvedValue(
         opts.operatorInVenue === false
           ? null
-          : { id: OPERATOR, payoutMethod: opts.payoutMethod === undefined ? 'MANUAL_CASH' : opts.payoutMethod },
+          : {
+              id: OPERATOR,
+              payoutMethod: opts.payoutMethod === undefined ? 'MANUAL_CASH' : opts.payoutMethod,
+              payoutAddress: opts.payoutAddress ?? null,
+            },
       ),
     },
     venue: { findUnique: vi.fn().mockResolvedValue({ payoutHoldDays: opts.venueHoldDays ?? null }) },
@@ -119,6 +124,17 @@ describe('OperatorsService.createPayout (dueño) — importe y enlaces', () => {
       notes: 'Liquidación semanal',
     });
     expect(res).toEqual({ id: PAYOUT_ID, totalCents: 10_500, earningCount: 2, createdAt: NOW.toISOString() });
+  });
+
+  it('guarda en el pago la dirección de cobro que tenía la chica al pagarle: se verifica contra esa (DIN-6)', async () => {
+    const tron = 'TQn9Y2khEsLJW1ChVWFMSMeRDow5KcbLSE';
+    const conDireccion = makeService({ payoutMethod: 'USDT_TRC20', payoutAddress: tron });
+    await conDireccion.svc.createPayout(TENANT, OPERATOR, OWNER);
+    expect(conDireccion.created()).toMatchObject({ paidToAddress: tron });
+    // Sin dirección guardada: '' («no tenía»), distinto de NULL (pagos de antes de guardarla).
+    const sinDireccion = makeService({ payoutMethod: 'MANUAL_CASH', payoutAddress: null });
+    await sinDireccion.svc.createPayout(TENANT, OPERATOR, OWNER);
+    expect(sinDireccion.created()).toMatchObject({ paidToAddress: '' });
   });
 
   it('las comisiones y las deudas quedan enlazadas a este pago', async () => {

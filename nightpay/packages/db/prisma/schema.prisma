@@ -973,6 +973,11 @@ model OperatorPayout {
   idempotencyKey       String?
   idempotencyHash      String?
 
+  // La dirección de cobro que tenía la persona al apuntar el pago
+  // (20261029400200): la verificación on-chain compara con esta, no con la de
+  // ahora. NULL = pago de antes (se compara con la actual); '' = no tenía.
+  paidToAddress        String?
+
   venue        Venue             @relation(fields: [tenantId], references: [id])
   operator     User              @relation("OperatorPayouts", fields: [operatorId], references: [id])
   paidBy       User              @relation("PayoutsPaid", fields: [paidByUserId], references: [id])

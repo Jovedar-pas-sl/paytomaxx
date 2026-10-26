@@ -1078,7 +1078,7 @@ export class OperatorsService {
     // Verificar pertenencia + leer payoutMethod por defecto (chica o camarero)
     const operator = await this.prisma.user.findFirst({
       where: { id: operatorId, tenantId, role: { in: [...PAYEE_ROLES] } },
-    }) as unknown as { id: string; payoutMethod: string | null } | null;
+    }) as unknown as { id: string; payoutMethod: string | null; payoutAddress?: string | null } | null;
     if (!operator) throw new NotFoundException('Operadora no encontrada');
     const holdDays = await this.holdDays(tenantId);
     // Rail efectivo: el del dto si viene, sino el preferido de la chica.
@@ -1115,7 +1115,16 @@ export class OperatorsService {
         throw payoutTotalChanged(totalCents, options.expectedTotalCents);
       }
 
-      const payoutData = await this.payoutData({ tenantId, operatorId, totalCents, paidByUserId, notes, rail, options });
+      const payoutData = await this.payoutData({
+        tenantId,
+        operatorId,
+        totalCents,
+        paidByUserId,
+        notes,
+        rail,
+        options,
+        paidToAddress: operator.payoutAddress ?? null,
+      });
       const payout = await tx.operatorPayout.create({ data: payoutData as never });
       await settleSelection(tx, payout.id, pending, debts);
       await options?.afterCreate?.(tx, payout.id);
@@ -1192,9 +1201,19 @@ export class OperatorsService {
     notes: string | undefined;
     rail: string | null;
     options: PayoutOptions | undefined;
+    /** La dirección de cobro de la persona al pagarle (null = no tiene). */
+    paidToAddress: string | null;
   }): Promise<Record<string, unknown>> {
     const { tenantId, operatorId, totalCents, paidByUserId, notes, rail, options } = input;
-    const data: Record<string, unknown> = { tenantId, operatorId, totalCents, paidByUserId, notes };
+    // Se verifica on-chain contra esta, no contra la que tenga después ('' = no tenía).
+    const data: Record<string, unknown> = {
+      tenantId,
+      operatorId,
+      totalCents,
+      paidByUserId,
+      notes,
+      paidToAddress: input.paidToAddress?.trim() ?? '',
+    };
     if (options?.idempotency) {
       data.idempotencyKey = options.idempotency.key;
       data.idempotencyHash = options.idempotency.hash;
