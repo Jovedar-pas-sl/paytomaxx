@@ -169,12 +169,19 @@ SET app.bypass_rls = 'on';
 SELECT concat_ws('; ',
   CASE WHEN EXISTS (SELECT 1 FROM client_wallets WHERE "balanceCents" < 0)
        THEN 'saldos negativos' END,
-  CASE WHEN EXISTS (SELECT 1 FROM payments WHERE "availableAmountCents" < 0 OR "availableAmountCents" > "amountCents" + "tipCents")
+  -- Lo cobrado = importe + propina + comisión del servicio. La comisión se lee
+  -- con to_jsonb para que valga también con copias de antes de esa columna.
+  CASE WHEN EXISTS (SELECT 1 FROM (SELECT x."availableAmountCents" AS available,
+                                          x."amountCents" + x."tipCents" + COALESCE((to_jsonb(x)->>'serviceFeeCents')::int, 0) AS charged
+                                     FROM payments x) p
+                     WHERE p.available < 0 OR p.available > p.charged)
        THEN 'cobros con más por devolver que lo cobrado' END,
-  CASE WHEN EXISTS (SELECT 1 FROM refunds r JOIN payments p ON p.id = r."paymentId"
+  CASE WHEN EXISTS (SELECT 1 FROM refunds r
+                      JOIN (SELECT x.id, x."amountCents" + x."tipCents" + COALESCE((to_jsonb(x)->>'serviceFeeCents')::int, 0) AS charged
+                              FROM payments x) p ON p.id = r."paymentId"
                      WHERE r.status = 'SUCCEEDED'
-                     GROUP BY p.id, p."amountCents", p."tipCents"
-                    HAVING SUM(r."amountCents") > p."amountCents" + p."tipCents")
+                     GROUP BY p.id, p.charged
+                    HAVING SUM(r."amountCents") > p.charged)
        THEN 'devoluciones hechas que superan su cobro' END,
   CASE WHEN EXISTS (SELECT 1 FROM refunds r WHERE NOT EXISTS (SELECT 1 FROM payments p WHERE p.id = r."paymentId"))
        THEN 'devoluciones sin su cobro' END
