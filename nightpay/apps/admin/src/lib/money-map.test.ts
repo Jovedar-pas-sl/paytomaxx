@@ -85,6 +85,15 @@ describe('cobros: devoluciones y filtros', () => {
     expect(paymentRowOf(row({ kind: 'SALDO' }))).toBeNull();
   });
 
+  it('lleva la comisión del servicio, la propina y si es una recarga (el aviso de lo que se devuelve de comisión)', () => {
+    const payment = { availableAmountCents: 3830, provider: 'REDSYS', providerTxId: 'X1', captureMethod: null, updatedAt: '2026-10-23T01:01:00.000Z',
+      authCode: null, cardLast4: null, cardBrand: null, payMethodCode: null, authorizedAt: null, attempts: [], terminal: { externalId: 'B1', label: 'Barra' } };
+    expect(paymentRowOf(row({ amountCents: 3300, tipCents: 200, serviceFeeCents: 330, payment }))).toMatchObject({ serviceFeeCents: 330, tipCents: 200, walletId: null });
+    expect(paymentRowOf(row({ isTopUp: true, serviceFeeCents: 600, wallet: { id: 'w-1', codeHint: 'K7Q-•••' }, payment }))).toMatchObject({ walletId: 'w-1' });
+    // Un API de antes no manda la comisión: 0.
+    expect(paymentRowOf(row({ payment }))?.serviceFeeCents).toBe(0);
+  });
+
   it('los filtros vacíos no se mandan', () => {
     expect(cobrosQuery({ operatorId: 'op', category: '', status: [], walletCode: 'K7Q-4M2' }, { limit: 50 })).toBe(
       'operatorId=op&walletCode=K7Q-4M2&limit=50',

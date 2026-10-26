@@ -75,6 +75,11 @@ export function paymentRowOf(row: CobroRow): PaymentRow | null {
     authorizedAt: p.authorizedAt,
     attempts: p.attempts,
     terminal: p.terminal,
+    // Para el aviso de qué parte de lo devuelto es comisión del servicio: en una
+    // recarga no se devuelve (lo que cuenta es que tenga saldo, no cuál).
+    serviceFeeCents: row.serviceFeeCents ?? 0,
+    tipCents: row.tipCents,
+    walletId: row.isTopUp ? (row.wallet?.id ?? row.id) : null,
   };
 }
 

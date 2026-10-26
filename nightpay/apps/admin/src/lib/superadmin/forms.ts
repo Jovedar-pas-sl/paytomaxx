@@ -371,7 +371,8 @@ export function serviceFeeWarning(form: RulesForm): string | null {
   const topUp = parseServiceFeePct(form.topUpServiceFeePct) === 0;
   if (!card && !topUp) return null;
   const which = card && topUp ? 'los pagos con tarjeta y las recargas' : card ? 'los pagos con tarjeta' : 'las recargas';
-  return `Con ${which} al 0 %, OxioPay no cobra nada en ellos: ni la comisión del servicio ni la de la plataforma (el local deja de pagarla).`;
+  const them = card ? 'ellos' : 'ellas';
+  return `Con ${which} al 0 %, OxioPay no cobra nada en ${them}: ni la comisión del servicio ni la de la plataforma (el local deja de pagarla).`;
 }
 
 export function rulesFormFrom(r: VenueRules): RulesForm {
