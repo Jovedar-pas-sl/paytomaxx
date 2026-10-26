@@ -32,6 +32,7 @@ import { PeanpeAdapter } from '../gateways/peanpe.adapter';
 import { WipayAdapter } from '../gateways/wipay.adapter';
 import { sealTokenizationData } from '../payments/tokenization-seal';
 import { RedsysAdapter } from '../gateways/redsys.adapter';
+import { boundedInput } from '../../common/pipes/input-limits';
 import { parseWebhookBody } from '../gateways/header-utils';
 import { WEBHOOKS_INGEST_QUEUE } from '../queues/queue-tokens';
 import { enqueueWebhookDelivery } from '../queues/webhook-enqueue';
@@ -60,8 +61,11 @@ const PeanpePostBodySchema = z
 // Wipay y Redsys envían form-urlencoded con muchos campos string-stringueables.
 // La validación real (firma HMAC, campos obligatorios) la hace cada adapter
 // en verifyWebhook — aquí solo necesitamos shape laxa para re-codificar a
-// rawBody form-urlencoded.
-const FormUrlencodedBodySchema = z.record(z.union([z.string(), z.number(), z.boolean(), z.null()]));
+// rawBody form-urlencoded. Ruta pública: con más de 100 campos ni se valida
+// (zod guardaba un error por campo: 1 MB de cuerpo, 20 s de CPU; SEC-05).
+const FormUrlencodedBodySchema = boundedInput(z.record(z.union([z.string(), z.number(), z.boolean(), z.null()])), {
+  maxObjectKeys: 100,
+});
 
 /** Secreto de la URL comparado en tiempo constante, sin delatar su longitud. */
 export function sameSecret(received: string, expected: string): boolean {
