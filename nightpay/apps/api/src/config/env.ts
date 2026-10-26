@@ -6,16 +6,25 @@ import { AUTH_BODY_REFRESH_UNTIL_HINT, isValidAuthBodyRefreshUntil } from './aut
 import { DEFAULT_GOOGLE_WALLET_CLASS_SUFFIX } from './google-wallet';
 
 /**
- * Secretos de ejemplo de .env.example. Valen en local; en producción
- * cualquiera podría firmar sesiones o descifrar credenciales con ellos.
+ * Secretos que en producción no pueden ser los de ejemplo: con ellos
+ * cualquiera podría firmar sesiones o descifrar credenciales. env.spec.ts
+ * comprueba que los de .env.example se rechazan.
  */
-export const DEV_PLACEHOLDER_SECRETS = {
+export const GUARDED_SECRETS = ['JWT_SECRET', 'COOKIE_SECRET', 'ENCRYPTION_KEK'] as const;
+type GuardedSecret = (typeof GUARDED_SECRETS)[number];
+
+/** Secretos de ejemplo de .env.example hasta el 2026-10-15. Valen en local. */
+export const DEV_PLACEHOLDER_SECRETS: Readonly<Record<GuardedSecret, string>> = {
   JWT_SECRET: 'dev_jwt_a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6_v1',
   COOKIE_SECRET: 'dev_cookie_a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6_v1',
   ENCRYPTION_KEK: 'dev_kek_a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6_v1',
-} as const;
-/** El relleno de esos ejemplos: un secreto que lo contiene es de ejemplo. */
-const PLACEHOLDER_FILLER = 'a1b2c3d4e5f6a1b2c3d4e5f6';
+};
+/**
+ * Lo que llevan los de ejemplo, los de antes (el relleno a1b2c3…) y los de
+ * ahora (dev-jwt-solo-local-no-vale-en-produccion-…): uno que lo contenga,
+ * aunque esté retocado, es de ejemplo. Ninguno sale de `openssl rand`.
+ */
+const EXAMPLE_SECRET_MARKERS = ['a1b2c3d4e5f6a1b2c3d4e5f6', 'solo-local', 'no-vale-en-produccion'] as const;
 
 const EnvSchema = z.object({
   // Sin NODE_ENV se asume producción: CORS, CSP, cookies Secure, endpoints de
@@ -304,7 +313,7 @@ const EnvSchema = z.object({
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['CORS_ORIGINS'], message: cors });
   }
   // Los secretos de ejemplo de .env.example no valen en producción.
-  for (const key of Object.keys(DEV_PLACEHOLDER_SECRETS) as Array<keyof typeof DEV_PLACEHOLDER_SECRETS>) {
+  for (const key of GUARDED_SECRETS) {
     if (isPlaceholderSecret(key, env[key])) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
@@ -351,8 +360,9 @@ function isPublicUrl(url: string | undefined): boolean {
   return Boolean(url) && !url!.includes('localhost') && !url!.includes('127.0.0.1');
 }
 
-function isPlaceholderSecret(key: keyof typeof DEV_PLACEHOLDER_SECRETS, value: string): boolean {
-  return value === DEV_PLACEHOLDER_SECRETS[key] || value.includes(PLACEHOLDER_FILLER);
+function isPlaceholderSecret(key: GuardedSecret, value: string): boolean {
+  const lower = value.toLowerCase();
+  return value === DEV_PLACEHOLDER_SECRETS[key] || EXAMPLE_SECRET_MARKERS.some((marker) => lower.includes(marker));
 }
 
 /** Entorno inválido: lleva los problemas por variable (sin valores). */

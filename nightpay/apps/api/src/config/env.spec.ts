@@ -1,6 +1,24 @@
 import { describe, it, expect } from 'vitest';
-import { DEV_PLACEHOLDER_SECRETS, InvalidEnvError, corsOriginsProblem, parseEnv, validateConfig } from './env';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import {
+  DEV_PLACEHOLDER_SECRETS,
+  GUARDED_SECRETS,
+  InvalidEnvError,
+  corsOriginsProblem,
+  parseEnv,
+  validateConfig,
+} from './env';
 import { DISABLE_FLAGS, envWarnings } from './env-warnings';
+
+/** Las variables con valor de nightpay/.env.example, tal cual. */
+const EXAMPLE: Record<string, string> = Object.fromEntries(
+  readFileSync(join(__dirname, '../../../../.env.example'), 'utf8')
+    .split(/\r?\n/)
+    .map((line) => /^([A-Z][A-Z0-9_]*)=(.*)$/.exec(line.trim()))
+    .filter((m): m is RegExpExecArray => m !== null)
+    .map((m) => [m[1]!, m[2]!.trim()]),
+);
 
 /** Lo mínimo para arrancar (valores de prueba, no los de .env.example). */
 const BASE: Record<string, string> = {
@@ -126,6 +144,47 @@ describe('entorno: secretos de ejemplo en producción', () => {
     expect(() =>
       parseEnv({ ...BASE, NODE_ENV: 'development', JWT_SECRET: DEV_PLACEHOLDER_SECRETS.JWT_SECRET }),
     ).not.toThrow();
+    const fromExample = Object.fromEntries(GUARDED_SECRETS.map((key) => [key, EXAMPLE[key]!]));
+    expect(() => parseEnv({ ...BASE, NODE_ENV: 'development', ...fromExample })).not.toThrow();
+  });
+
+  // Los de ahora de .env.example (dev-jwt-solo-local-…): la guarda solo
+  // conocía los de antes (dev_jwt_a1b2…) y producción arrancaba con estos.
+  it.each(GUARDED_SECRETS)('producción no arranca con el %s que trae hoy .env.example', (key) => {
+    expect(EXAMPLE[key], `${key} en .env.example`).toBeTruthy();
+    expect(() => parseEnv({ ...PROD, [key]: EXAMPLE[key] })).toThrow(new RegExp(key));
+  });
+
+  it('ni con uno que lleve las marcas de los de ejemplo (copiado y retocado)', () => {
+    for (const value of [
+      'mi-jwt-solo-local-no-vale-en-produccion-9876543210',
+      'otro-secreto-SOLO-LOCAL-0123456789abcdef0123',
+      'xx-no-vale-en-produccion-0123456789abcdef01234',
+    ]) {
+      expect(() => parseEnv({ ...PROD, JWT_SECRET: value })).toThrow(/JWT_SECRET/);
+    }
+  });
+
+  it('los de verdad (y los de la CI) siguen valiendo', () => {
+    expect(() =>
+      parseEnv({
+        ...PROD,
+        JWT_SECRET: 'ci-jwt-secret-solo-para-la-prueba-0123456789',
+        COOKIE_SECRET: '3f9c1e7a5b2d8064c1f3a9e7b5d2086f4c1a3e9b7d5f2086c4e1a3f9b7d5e20',
+        ENCRYPTION_KEK: 'Y2ktdW5hLWNsYXZlLWRlLTMyLWJ5dGVzLXBhcmEtcHJ1ZWJh',
+      }),
+    ).not.toThrow();
+  });
+
+  it('todo secreto con valor en .env.example está vigilado (o se dice por qué no)', () => {
+    const NOT_GUARDED: Record<string, string> = {
+      PEANPE_WEBHOOK_SECRET: 'env.ts la pide, pero el código no la usa para nada',
+    };
+    const secrets = Object.entries(EXAMPLE).filter(([key, value]) => /SECRET|KEK|TOKEN|PASSWORD|_KEY$/.test(key) && value);
+    expect(secrets.length).toBeGreaterThanOrEqual(3);
+    for (const [key] of secrets) {
+      expect((GUARDED_SECRETS as readonly string[]).includes(key) || key in NOT_GUARDED, key).toBe(true);
+    }
   });
 });
 
