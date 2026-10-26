@@ -355,8 +355,21 @@ export function clearSaleToReview(paymentId: string, operationNumber: string | n
 /** Una venta del lector, con lo necesario para anularla. */
 type Sale = Pick<PendingResult, 'paymentId' | 'result' | 'amountCents'>;
 
+/**
+ * Lo que cobró de verdad el lector: su importe más la propina pedida en el
+ * datáfono (el API las cuenta por separado y verifica con Paytef la suma). Es
+ * lo que hay que anular, aunque no coincida con el cobro (MISMATCH).
+ */
+export function readerChargedCents(result: PaytefResult): number | null {
+  const amount = result.requestedAmount;
+  if (typeof amount !== 'number' || !Number.isFinite(amount) || amount <= 0) return null;
+  const tip = typeof result.tipAmount === 'number' && Number.isFinite(result.tipAmount) && result.tipAmount > 0 ? result.tipAmount : 0;
+  return amount + tip;
+}
+
 function voidableOf(sale: Sale, operationNumber: string | null): SaleToReview['voidable'] {
-  const amountCents = sale.amountCents ?? sale.result.requestedAmount ?? null;
+  // Sin lo cobrado por el lector (resultados guardados antes), el importe del cobro.
+  const amountCents = readerChargedCents(sale.result) ?? sale.amountCents ?? null;
   if (!operationNumber || amountCents === null) return null;
   return { amountCents, reference: sale.result.transactionReference ?? '' };
 }

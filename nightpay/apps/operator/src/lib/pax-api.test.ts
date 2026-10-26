@@ -124,9 +124,16 @@ describe('reenvío solo', () => {
     expect(review.map((r) => r.kind)).toEqual(['void', 'void']);
     expect(review[0]!.title).toBe('Hay que anular esta operación');
     expect(review[0]!.message).toMatch(/ya estaba pagado/);
-    // Para anularla en el lector: su importe y su referencia.
+    // Para anularla en el lector: lo que cobró el lector (no el importe del cobro) y su referencia.
     expect(review[0]!.voidable).toEqual({ amountCents: 3000, reference: 'ref-1' });
-    expect(review[1]!.voidable).toEqual({ amountCents: 3000, reference: 'ref-2' });
+    expect(review[1]!.voidable).toEqual({ amountCents: 4000, reference: 'ref-2' });
+  });
+
+  it('se anula por lo que cobró el lector: importe más la propina pedida en el datáfono', async () => {
+    savePendingResult('A', { ...approved('1'), requestedAmount: 3000, tipAmount: 200 }, 3000);
+    vi.stubGlobal('fetch', vi.fn(async () => json(200, { status: 'DUPLICATE', operationNumber: '1', message: 'anula' })));
+    await flushPendingResults();
+    expect(getSalesToReview()[0]!.voidable).toEqual({ amountCents: 3200, reference: 'ref-1' });
   });
 
   it('un 4xx sobre una venta APROBADA no se olvida: «el cliente ya ha pagado», a revisar (A2-03)', async () => {

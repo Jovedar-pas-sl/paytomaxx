@@ -76,6 +76,8 @@ export function PaxChargeFlow({ charge, onDone, start, onPaid }: Props) {
   // otra vez (si la primera se aprobó, el cliente pagaría dos veces).
   const [recoverAnswered, setRecoverAnswered] = useState(false);
   const reference = useRef<string | null>(null);
+  /** Lo que hay que anular en el lector (lo que cobró él, no el importe del cobro). */
+  const voidable = useRef<{ amountCents: number; reference: string } | null>(null);
   const started = useRef(false);
   // La lista de fondo se refresca sola: la vuelta tras "Pagado" no puede
   // depender de que onDone sea siempre la misma función (antes nunca saltaba).
@@ -111,6 +113,7 @@ export function PaxChargeFlow({ charge, onDone, start, onPaid }: Props) {
       // «Anula esta operación»: también en la lista, por si se vuelve sin anularla (A2-02).
       const review = reviewOfOutcome(sale, outcome);
       if (review) saveSaleToReview(review);
+      voidable.current = review?.voidable ?? null;
       clearPendingResult(charge.id, result);
       setStep({ kind: 'outcome', outcome });
     } catch (err) {
@@ -124,6 +127,7 @@ export function PaxChargeFlow({ charge, onDone, start, onPaid }: Props) {
         // Cobrada y rechazada: se guarda para revisar/anular; nunca «Volver a intentar» (A2-03).
         const review = notAcceptedReview(sale, message);
         saveSaleToReview(review);
+        voidable.current = review.voidable;
         clearPendingResult(charge.id, result);
         setStep({ kind: 'notAccepted', message, operationNumber: review.operationNumber });
         return;
@@ -201,8 +205,8 @@ export function PaxChargeFlow({ charge, onDone, start, onPaid }: Props) {
     const out = await voidSaleOnReader({
       paymentId: charge.id,
       operationNumber,
-      amountCents: charge.amountCents,
-      reference: reference.current ?? '',
+      amountCents: voidable.current?.amountCents ?? charge.amountCents,
+      reference: reference.current ?? voidable.current?.reference ?? '',
     });
     setBusy(false);
     setStep({ kind: 'voided', message: out.message });
