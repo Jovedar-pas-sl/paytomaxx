@@ -444,6 +444,8 @@ model Payment {
   @@index([tenantId, createdByUserId, createdAt(sort: Desc)])
   @@index([providerTxId])
   @@index([qrExpiresAt])
+  // CHECK solo en SQL (20261029400100_check_dinero): amountCents > 0 y los dos
+  // % (platformCommissionBps, operatorCommissionBps) NULL o de 0 a 10000.
   // Solo en SQL (20261029400000_indices_informes; Prisma no los compara):
   // payments_tenant_paid_at_idx (tenantId, COALESCE(authorizedAt, createdAt)),
   // el «momento del cobro» de los informes; y payments_open_qr_expires_idx
@@ -852,6 +854,7 @@ model Refund {
   payment   Payment           @relation(fields: [paymentId], references: [id])
   reversals EarningReversal[]
 
+  // CHECK solo en SQL (20261029400100_check_dinero): amountCents > 0.
   @@index([tenantId, paymentId])
   @@unique([tenantId, idempotencyKey])
   @@map("refunds")
@@ -899,6 +902,8 @@ model OperatorEarning {
   payout      OperatorPayout?    @relation("EarningPayout", fields: [payoutId], references: [id])
   reversals   EarningReversal[]
 
+  // CHECK solo en SQL (20261029400100_check_dinero): commissionCents >= 0 y
+  // commissionBps de 0 a 10000 (además de los de tipCents y reversedCents).
   @@unique([paymentId, operatorId])
   @@unique([consumptionId, operatorId])
   @@index([paymentId])
