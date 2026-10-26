@@ -10,6 +10,7 @@ import { AuthGuard } from './common/guards/auth.guard';
 import { IpRateLimitGuard } from './common/guards/ip-rate-limit.guard';
 import { EmailModule } from './common/email/email.module';
 import { PrismaModule } from './common/prisma/prisma.module';
+import { startRequestTxGate } from './common/prisma/prisma.service';
 import { RedisModule } from './common/redis/redis.module';
 import { AdminModule } from './modules/admin/admin.module';
 import { ApprovalsModule } from './modules/approvals/approvals.module';
@@ -56,6 +57,9 @@ import { WebhooksModule } from './modules/webhooks/webhooks.module';
           // audit_events y se devuelve en los errores); si no, uno nuevo.
           const traceId = sanitizeTraceId(req?.headers?.['x-trace-id']) ?? cls.getId();
           cls.set('ctx', { traceId });
+          // Sus transacciones, de una en una: una petición no ocupa varias
+          // conexiones del pool a la vez (PrismaService, RequestTxGate).
+          startRequestTxGate(cls);
         },
       },
     }),

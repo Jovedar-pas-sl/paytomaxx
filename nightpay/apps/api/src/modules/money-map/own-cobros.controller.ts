@@ -19,11 +19,12 @@ export class OwnCobrosController {
   @Get('cobros')
   @Roles('OPERATOR', 'WAITER', 'MANAGER', 'OWNER')
   async list(@CurrentUser() user: JwtPayload, @Query(new ZodValidationPipe(OwnCobrosQuerySchema)) query: OwnCobrosQuery): Promise<OwnCobrosPage> {
-    const [page, night] = await Promise.all([
-      this.cobros.list(user.tenantId, { limit: query.limit, cursor: query.cursor, operatorId: user.sub }),
-      // La noche (para «Esta noche» en la app), solo con la primera página.
-      query.cursor ? Promise.resolve(null) : this.moneyMap.currentWindow(user.tenantId),
-    ]);
+    // Una detrás de otra (antes, a la vez): cada una es una transacción, y con
+    // muchas peticiones juntas de la misma persona dos conexiones por petición
+    // agotaban el pool (P2028, 500 en la prueba real).
+    const page = await this.cobros.list(user.tenantId, { limit: query.limit, cursor: query.cursor, operatorId: user.sub });
+    // La noche (para «Esta noche» en la app), solo con la primera página.
+    const night = query.cursor ? null : await this.moneyMap.currentWindow(user.tenantId);
     return {
       nextCursor: page.nextCursor,
       items: page.items.map((r) => ({

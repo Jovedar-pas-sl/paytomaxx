@@ -1,4 +1,5 @@
 import { Inject, Injectable, Logger, OnApplicationShutdown, OnModuleInit, Optional } from '@nestjs/common';
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { ConfigService } from '@nestjs/config';
 import { ClsService } from 'nestjs-cls';
 import { Prisma, PrismaClient } from '@nightpay/db';
@@ -48,10 +49,67 @@ export type TxTimeouts = { maxWait?: number; timeout?: number };
 type ItxOptions = BatchOptions & TxTimeouts;
 type UnwrapTuple<P extends readonly unknown[]> = { [K in keyof P]: Awaited<P[K]> };
 
+/** Clave en el contexto CLS de la petición de su RequestTxGate. */
+export const REQUEST_TX_GATE = 'txGate';
+
+/** Lo más que una transacción de la petición espera su turno; pasado, va sin esperar (y avisa). */
+export const REQUEST_TX_GATE_MAX_WAIT_MS = 2_000;
+
+/**
+ * Las transacciones de UNA petición HTTP, de una en una. Con `Promise.all` de
+ * varias (p. ej. «Mis cobros»: la lista y la noche), cada petición ocupaba
+ * dos o más conexiones del pool a la vez; con 60 peticiones juntas de la
+ * misma persona el pool se agotaba y Prisma cortaba con P2028 (500). Ahora
+ * cada petición ocupa como mucho una: las demás esperan su turno (son de
+ * milisegundos). Una transacción abierta DENTRO de otra no espera (iría
+ * contra sí misma). Si el turno no llega en REQUEST_TX_GATE_MAX_WAIT_MS (una
+ * transacción larga, o una que espera a otra de fuera), se sigue sin
+ * esperar, como antes, con un aviso: nunca se queda colgada. Los trabajos
+ * (sin petición) no cambian.
+ */
+export class RequestTxGate {
+  private static readonly logger = new Logger('RequestTxGate');
+  private tail: Promise<unknown> = Promise.resolve();
+  private readonly maxWaitMs: number;
+
+  constructor(maxWaitMs: number = REQUEST_TX_GATE_MAX_WAIT_MS) {
+    this.maxWaitMs = maxWaitMs;
+  }
+
+  run<T>(fn: () => Promise<T>): Promise<T> {
+    const result = this.turn(this.tail).then(fn);
+    this.tail = result.catch(() => undefined);
+    return result;
+  }
+
+  /** Espera a la anterior, como mucho maxWaitMs. */
+  private turn(previous: Promise<unknown>): Promise<void> {
+    return new Promise<void>((resolve) => {
+      const timer = setTimeout(() => {
+        RequestTxGate.logger.warn(`Una transacción de la petición esperó ${this.maxWaitMs} ms a la anterior: sigue sin esperar más`);
+        resolve();
+      }, this.maxWaitMs);
+      timer.unref?.();
+      void previous.then(() => {
+        clearTimeout(timer);
+        resolve();
+      });
+    });
+  }
+}
+
+/** Lo llama el middleware de CLS al empezar cada petición HTTP (app.module). */
+export function startRequestTxGate(cls: ClsService): void {
+  cls.set(REQUEST_TX_GATE, new RequestTxGate());
+}
+
+/** Marca de «dentro de una transacción de PrismaService» (para no esperar a la de fuera). */
+const insideTransaction = new AsyncLocalStorage<true>();
+
 @Injectable()
 export class PrismaService extends PrismaClient implements OnModuleInit, OnApplicationShutdown {
   private readonly logger = new Logger(PrismaService.name);
-  private readonly cls: ClsService<{ ctx: RequestContext }>;
+  private readonly cls: ClsService<{ ctx: RequestContext; [REQUEST_TX_GATE]?: RequestTxGate }>;
   private readonly config?: ConfigService;
   private readonly metrics?: MetricsService;
   private readonly lastUnscopedLog = new Map<string, number>();
@@ -137,7 +195,7 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnAppli
    * transacción (`app.current_tenant_id`, solo mientras dura): las políticas
    * de RLS de la base aíslan por local también en las tablas con FORCE RLS.
    * Cuesta una sentencia más por transacción. Sin local en el contexto, igual
-   * que antes.
+   * que antes. En una petición HTTP, de una en una (RequestTxGate).
    */
   override $transaction<P extends Prisma.PrismaPromise<unknown>[]>(
     arg: [...P],
@@ -145,18 +203,32 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnAppli
   ): Promise<UnwrapTuple<P>>;
   override $transaction<R>(fn: (tx: TransactionalClient) => Promise<R>, options?: ItxOptions): Promise<R>;
   override $transaction(arg: unknown, options?: ItxOptions): Promise<unknown> {
+    const gate = this.requestTxGate();
+    if (!gate || insideTransaction.getStore()) return this.runTransaction(arg, options);
+    return gate.run(() => this.runTransaction(arg, options));
+  }
+
+  private runTransaction(arg: unknown, options?: ItxOptions): Promise<unknown> {
     const tenantId = this.sessionTenant();
     if (typeof arg === 'function') {
       const fn = arg as (tx: TransactionalClient) => Promise<unknown>;
-      if (!tenantId) return super.$transaction(fn, options);
-      return super.$transaction(async (tx) => {
-        await tx.$executeRaw(tenantStatement(tenantId));
-        return fn(tx);
-      }, options);
+      return super.$transaction(
+        (tx) =>
+          insideTransaction.run(true, async () => {
+            if (tenantId) await tx.$executeRaw(tenantStatement(tenantId));
+            return fn(tx);
+          }),
+        options,
+      );
     }
     const ops = arg as Prisma.PrismaPromise<unknown>[];
     if (!tenantId) return super.$transaction(ops, options);
     return super.$transaction([this.$executeRaw(tenantStatement(tenantId)), ...ops], options).then(([, ...rest]) => rest);
+  }
+
+  /** El turno de las transacciones de la petición en curso (solo en peticiones HTTP). */
+  private requestTxGate(): RequestTxGate | undefined {
+    return this.cls.isActive() ? this.cls.get(REQUEST_TX_GATE) : undefined;
   }
 
   /**

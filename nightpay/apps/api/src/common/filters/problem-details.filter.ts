@@ -100,6 +100,16 @@ export class ProblemDetailsFilter implements ExceptionFilter {
       // framework, sin datos internos. Antes salían como 500.
       status = exception.statusCode;
       title = exception.message;
+    } else if (isDatabaseBusy(exception)) {
+      // Sin conexión libre en el pool a tiempo (P2028/P2024): pasajero, no un
+      // fallo. 503 con Retry-After y un texto que la app puede enseñar, en vez
+      // de un 500 a ciegas (prueba real: 60 peticiones a la vez).
+      status = HttpStatus.SERVICE_UNAVAILABLE;
+      title = 'Service Unavailable';
+      detail = DB_BUSY_MESSAGE;
+      httpExtra.code = DB_BUSY_CODE;
+      res.header?.('Retry-After', DB_BUSY_RETRY_AFTER_S);
+      this.logger.warn(`Base de datos sin conexión libre a tiempo (${exception.code}): 503 a ${redactSecretsInUrl(req.url)}`);
     } else if (exception instanceof Error) {
       // En prod NO exponemos message ni name al cliente (puede leak DB
       // internals tipo "column does not exist", paths de archivos, etc.).
@@ -150,6 +160,19 @@ export class ProblemDetailsFilter implements ExceptionFilter {
 
     res.status(status).type('application/problem+json').send(body);
   }
+}
+
+/** 503 cuando la base no tiene conexión libre a tiempo (pool agotado). */
+export const DB_BUSY_CODE = 'DB_BUSY';
+const DB_BUSY_MESSAGE = 'Hay mucha gente a la vez: vuelve a probar en unos segundos.';
+const DB_BUSY_RETRY_AFTER_S = 2;
+/** P2028: no se pudo empezar la transacción a tiempo; P2024: sin conexión del pool a tiempo. */
+const DB_BUSY_PRISMA_CODES: ReadonlySet<string> = new Set(['P2028', 'P2024']);
+
+function isDatabaseBusy(exception: unknown): exception is Error & { code: string } {
+  if (!(exception instanceof Error) || !exception.name.startsWith('PrismaClient')) return false;
+  const code = (exception as { code?: unknown }).code;
+  return typeof code === 'string' && DB_BUSY_PRISMA_CODES.has(code);
 }
 
 /** Campos que pone el filtro (o que Nest usa para el título y el detalle): no se copian del cuerpo de la excepción. */

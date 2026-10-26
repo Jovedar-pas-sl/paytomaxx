@@ -34,3 +34,20 @@ describe('consulta del historial propio', () => {
     }
   });
 });
+
+it('la lista y la noche, una detrás de otra: una petición no ocupa dos conexiones a la vez (P2028)', async () => {
+  let open = 0;
+  let maxOpen = 0;
+  const busy = async <T>(value: T): Promise<T> => {
+    open += 1;
+    maxOpen = Math.max(maxOpen, open);
+    await new Promise((r) => setTimeout(r, 5));
+    open -= 1;
+    return value;
+  };
+  const list = vi.fn(() => busy({ nextCursor: null, items: [] }));
+  const currentWindow = vi.fn(() => busy({ from: new Date('2026-10-21T19:00:00Z'), to: new Date(), nightId: 'n1', open: true, openingFloatCents: null }));
+  const controller = new OwnCobrosController({ list } as never, { currentWindow } as never);
+  await controller.list(user, { limit: 50 });
+  expect(maxOpen).toBe(1);
+});

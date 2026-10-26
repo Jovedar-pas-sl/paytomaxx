@@ -266,3 +266,41 @@ Unique constraint failed on the fields: (\`email\`)`,
     logError.mockRestore();
   });
 });
+
+describe('ProblemDetailsFilter — la base sin conexiones libres (P2028/P2024): 503 que se reintenta, no 500', () => {
+  function hostWithHeaders() {
+    const made = makeHost('/v1/staff/me/cobros');
+    const headers: Record<string, string | number> = {};
+    const res = made.host.switchToHttp().getResponse<Record<string, unknown>>();
+    res.header = (k: string, v: string | number) => {
+      headers[k] = v;
+      return res;
+    };
+    return { ...made, headers };
+  }
+
+  it.each([
+    ['P2028', 'Transaction API error: Unable to start a transaction in the given time.'],
+    ['P2024', 'Timed out fetching a new connection from the connection pool.'],
+  ])('%s → 503 DB_BUSY con Retry-After y un texto para la pantalla', (code, message) => {
+    const warn = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+    const logError = vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+    const { host, capture, headers } = hostWithHeaders();
+    new ProblemDetailsFilter(true).catch(new Prisma.PrismaClientKnownRequestError(message, { code, clientVersion: '5.22.0' }), host);
+    expect(capture.status).toBe(503);
+    expect(capture.body).toMatchObject({ status: 503, code: 'DB_BUSY', detail: expect.stringMatching(/unos segundos/) });
+    expect(headers['Retry-After']).toBe(2);
+    expect(JSON.stringify(warn.mock.calls)).toContain(code);
+    expect(logError).not.toHaveBeenCalled();
+    warn.mockRestore();
+    logError.mockRestore();
+  });
+
+  it('otros errores de Prisma siguen siendo 500', () => {
+    const logError = vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+    const { host, capture } = hostWithHeaders();
+    new ProblemDetailsFilter(true).catch(new Prisma.PrismaClientKnownRequestError('x', { code: 'P2025', clientVersion: '5.22.0' }), host);
+    expect(capture.status).toBe(500);
+    logError.mockRestore();
+  });
+});

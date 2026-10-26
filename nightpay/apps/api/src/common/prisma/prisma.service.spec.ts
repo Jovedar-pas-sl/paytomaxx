@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { AsyncLocalStorage } from 'node:async_hooks';
+import { Logger } from '@nestjs/common';
 import { ClsService } from 'nestjs-cls';
 import { Prisma } from '@nightpay/db';
 import {
@@ -7,6 +8,8 @@ import {
   RlsOutsideTransactionError,
   TENANT_SCOPED_MODELS,
   UnscopedTenantQueryError,
+  RequestTxGate,
+  startRequestTxGate,
 } from './prisma.service';
 import { TENANT_GUC } from './rls';
 
@@ -277,5 +280,99 @@ describe('el local en la sesión de la base ($transaction / withTenant)', () => 
     expect(out).toEqual(['r1', 'r2']);
     const plain = await prisma.$transaction([Promise.resolve('a')] as never);
     expect(plain).toEqual(['r0']);
+  });
+});
+
+describe('una petición no acapara varias conexiones del pool a la vez (P2028 en la prueba real)', () => {
+  let base: ReturnType<typeof vi.spyOn>;
+  let open = 0;
+  let maxOpen = 0;
+
+  beforeEach(() => {
+    open = 0;
+    maxOpen = 0;
+    const parent = Object.getPrototypeOf(PrismaService.prototype) as { $transaction: (...a: unknown[]) => unknown };
+    // Cada transacción ocupa una conexión mientras dura (unos ms).
+    base = vi.spyOn(parent, '$transaction').mockImplementation(async (arg: unknown) => {
+      open += 1;
+      maxOpen = Math.max(maxOpen, open);
+      try {
+        await new Promise((r) => setTimeout(r, 5));
+        const tx = { $executeRaw: vi.fn(), $executeRawUnsafe: vi.fn() };
+        return typeof arg === 'function' ? await (arg as (t: unknown) => unknown)(tx) : (arg as unknown[]).map(() => 1);
+      } finally {
+        open -= 1;
+      }
+    });
+  });
+  afterEach(() => base.mockRestore());
+
+  /** Como el middleware de CLS de app.module en cada petición HTTP. */
+  function inRequest<T>(cls: ClsService, fn: () => Promise<T>): Promise<T> {
+    return cls.run(async () => {
+      cls.set('ctx', { tenantId: 'tenant-A', traceId: 't-1' });
+      startRequestTxGate(cls);
+      return fn();
+    });
+  }
+
+  it('en una petición, las transacciones que se piden a la vez van una detrás de otra', async () => {
+    const { prisma, cls } = makePrisma();
+    const out = await inRequest(cls, () =>
+      Promise.all([
+        prisma.asSystem(async () => 'cobros'),
+        prisma.asSystem(async () => 'noche'),
+        prisma.withTenant('tenant-A', async () => 'mapa'),
+        prisma.$transaction([Promise.resolve('lote')] as never),
+      ]),
+    );
+    expect(out).toEqual(['cobros', 'noche', 'mapa', [1]]);
+    expect(maxOpen).toBe(1);
+  });
+
+  it('una transacción dentro de otra no espera a la de fuera (no se bloquea)', async () => {
+    const { prisma, cls } = makePrisma();
+    const seen = await inRequest(cls, () =>
+      prisma.asSystem(() => prisma.withTenant('tenant-B', async () => Promise.all([prisma.asSystem(async () => 1), prisma.asSystem(async () => 2)]))),
+    );
+    expect(seen).toEqual([1, 2]);
+  });
+
+  it('si una falla, las siguientes de la petición siguen', async () => {
+    const { prisma, cls } = makePrisma();
+    const out = await inRequest(cls, () =>
+      Promise.allSettled([prisma.asSystem(async () => Promise.reject(new Error('fallo'))), prisma.asSystem(async () => 'sigue')]),
+    );
+    expect(out.map((r) => r.status)).toEqual(['rejected', 'fulfilled']);
+  });
+
+  it('dos peticiones distintas no se esperan entre sí; fuera de una petición (trabajos), como antes', async () => {
+    const { prisma, cls } = makePrisma();
+    await Promise.all([inRequest(cls, () => prisma.asSystem(async () => 1)), inRequest(cls, () => prisma.asSystem(async () => 2))]);
+    expect(maxOpen).toBe(2);
+    maxOpen = 0;
+    await Promise.all([prisma.asSystem(async () => 1), prisma.asSystem(async () => 2)]);
+    expect(maxOpen).toBe(2);
+  });
+});
+
+describe('RequestTxGate: nunca se queda colgada', () => {
+  it('una transacción que espera a otra pedida después (de fuera) sigue pasado el tope, con aviso', async () => {
+    const warn = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+    const gate = new RequestTxGate(20);
+    let release: () => void = () => undefined;
+    const later = new Promise<void>((r) => (release = r));
+    // La primera tiene el turno y espera a algo que solo pasa cuando corre la segunda.
+    const first = gate.run(async () => {
+      await later;
+      return 'primera';
+    });
+    const second = gate.run(async () => {
+      release();
+      return 'segunda';
+    });
+    await expect(Promise.all([first, second])).resolves.toEqual(['primera', 'segunda']);
+    expect(JSON.stringify(warn.mock.calls)).toContain('sigue sin esperar');
+    warn.mockRestore();
   });
 });
