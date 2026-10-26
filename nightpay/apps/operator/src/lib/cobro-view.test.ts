@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { invitationRulesOf } from '@nightpay/contracts';
 import {
+  CHECKING_TEXT,
   failReasonOf,
   invitationSplit,
   methodLabel,
@@ -133,5 +134,12 @@ describe('la espera «viva»', () => {
     expect(waitingLiveText('ok')).toBe('Esperando el pago…');
     expect(waitingLiveText('ending')).toBe('Queda menos de un minuto');
     expect(waitingLiveText('over')).toBe('Comprobando…');
+  });
+
+  it('tras un fallo de red al pagar con el NFC o el PIN, «comprobando si se ha cobrado» (APP-02)', () => {
+    expect(waitingLiveText('ok', true)).toBe(CHECKING_TEXT);
+    expect(waitingLiveText('ending', true)).toBe(CHECKING_TEXT);
+    expect(CHECKING_TEXT).toMatch(/^Comprobando si se ha cobrado/);
+    expect(CHECKING_TEXT).not.toMatch(/No se ha cobrado/);
   });
 });
