@@ -29,3 +29,13 @@ export function advanceStatus(current: PaymentStatus | null, next: PaymentStatus
 export function isFinalStatus(status: PaymentStatus): boolean {
   return RANK[status] >= RANK.AUTHORIZED;
 }
+
+/**
+ * ¿La respuesta del sondeo (GET /v1/payments/public/:qrToken) es de este
+ * cobro? Se pregunta por su QR, que es solo suyo. El API no da el id hasta
+ * que está pagado (de él sale el código del «Pagado»): sin id, vale. Con id,
+ * tiene que ser el suyo.
+ */
+export function isPolledPayment(polled: { id?: string }, paymentId: string): boolean {
+  return polled.id === undefined || polled.id === paymentId;
+}

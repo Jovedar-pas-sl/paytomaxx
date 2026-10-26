@@ -297,7 +297,11 @@ export type CreatedPaymentResponse = z.infer<typeof CreatedPaymentResponseSchema
 
 // ─── Lookup público por QR token (cliente escanea) ───────────────────
 export const PublicPaymentViewSchema = z.object({
-  id: UuidSchema,
+  /**
+   * Solo ya pagado (AUTHORIZED, PARTIALLY_REFUNDED, REFUNDED): el código de
+   * confirmación del «Pagado» sale del id, y antes de pagar no se da.
+   */
+  id: UuidSchema.optional(),
   amountCents: z.number().int(),
   currency: z.string().length(3),
   status: PaymentStatusSchema,

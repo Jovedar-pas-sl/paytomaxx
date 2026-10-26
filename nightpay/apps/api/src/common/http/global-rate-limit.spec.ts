@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { globalRateLimitKey, isGlobalRateLimitExempt } from './global-rate-limit';
+import { anonymousRateLimitKey, isGlobalRateLimitExempt } from './global-rate-limit';
 
 function req(url: string, peer: string, headers: Record<string, string> = {}, method = 'GET') {
   return { method, url, headers, raw: { socket: { remoteAddress: peer } } };
@@ -38,8 +38,8 @@ describe('límite global de peticiones', () => {
 
   it('la clave es la IP de fiar, no la cabecera que mande el cliente', () => {
     const viaCloudflare = req('/v1/x', '10.0.1.7', { 'cf-connecting-ip': '81.0.0.7', 'x-forwarded-for': '162.158.1.1' });
-    expect(globalRateLimitKey(viaCloudflare)).toBe('81.0.0.7');
+    expect(anonymousRateLimitKey(viaCloudflare)).toBe('ip:81.0.0.7');
     const directo = req('/v1/x', '10.0.1.7', { 'cf-connecting-ip': '1.1.1.1', 'x-forwarded-for': '5.5.5.5, 81.0.0.9' });
-    expect(globalRateLimitKey(directo)).toBe('81.0.0.9');
+    expect(anonymousRateLimitKey(directo)).toBe('ip:81.0.0.9');
   });
 });

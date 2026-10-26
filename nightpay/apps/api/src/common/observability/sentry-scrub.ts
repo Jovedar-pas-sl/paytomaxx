@@ -12,21 +12,44 @@ type Bag = Record<string, unknown>;
 const REDACTED = '[REDACTED]';
 /** Cabeceras que nunca salen (en minúsculas). */
 const SECRET_HEADERS = new Set(['authorization', 'cookie', 'x-origin-auth', 'set-cookie']);
-/** Campos del cuerpo de la petición que nunca salen. */
-const SECRET_BODY_KEYS = [
+/**
+ * Campos del cuerpo de la petición que nunca salen, a cualquier profundidad
+ * (en minúsculas: se comparan sin distinguir mayúsculas).
+ */
+const SECRET_BODY_KEYS: ReadonlySet<string> = new Set([
   'password',
-  'passportLast4',
-  'payoutAddress',
+  'passportlast4',
+  'payoutaddress',
   'token',
-  'refreshToken',
-  'externalTxId',
+  'refreshtoken',
+  'externaltxid',
   'pin',
   'pin2',
   'secret',
-  'tokenizationData',
-  'Ds_MerchantParameters',
-  'Ds_Signature',
-];
+  'tokenizationdata',
+  'ds_merchantparameters',
+  'ds_signature',
+  // Login en dos pasos y 2FA: el ticket de la contraseña y el código.
+  'loginticket',
+  'ticket',
+  'totpcode',
+  'code',
+  // Llaves (passkeys): la respuesta firmada del móvil.
+  'response',
+  'credential',
+  'assertion',
+  'attestation',
+  // Lo que identifica un saldo sin el móvil del cliente: enlace, QR, ficha NFC.
+  'wallettoken',
+  'qrtoken',
+  'paytoken',
+  'card',
+  'uid',
+]);
+/** Y cualquiera que lo parezca: newPassword, accessToken, pinConfirm, clientSecret… */
+const SECRET_KEY_PATTERNS: ReadonlyArray<RegExp> = [/password/i, /secret/i, /token$/i, /^pin/i];
+/** Más hondo que esto no se mira: se tapa entero (un JSON de 1 MB puede anidar mucho). */
+const MAX_SCRUB_DEPTH = 32;
 /** Campos de datos (breadcrumbs, spans) con URL o query. */
 const URL_KEYS = ['url', 'http.url', 'url.full', 'http.target', 'url.path', 'server.address.url'];
 const QUERY_KEYS = ['http.query', 'url.query', 'query', 'http.fragment', 'url.fragment'];
@@ -63,9 +86,59 @@ function scrubHeaders(headers: unknown): unknown {
   );
 }
 
+function isSecretKey(key: string): boolean {
+  return SECRET_BODY_KEYS.has(key.toLowerCase()) || SECRET_KEY_PATTERNS.some((re) => re.test(key));
+}
+
+/** Copia sin los campos secretos, en todos los niveles (objetos y listas). */
+function scrubValue(value: unknown, depth: number, seen: WeakSet<object>): unknown {
+  if (typeof value !== 'object' || value === null) return value;
+  if (depth > MAX_SCRUB_DEPTH) return REDACTED;
+  if (seen.has(value)) return '[Circular]';
+  seen.add(value);
+  if (Array.isArray(value)) return value.map((item) => scrubValue(item, depth + 1, seen));
+  return Object.fromEntries(
+    Object.entries(value).map(([k, v]) => [k, isSecretKey(k) ? REDACTED : scrubValue(v, depth + 1, seen)]),
+  );
+}
+
+const FORM_BODY = /^[^=&\s]+=[^&]*(?:&[^=&\s]+=[^&]*)*$/;
+
+function decodeFormKey(key: string): string {
+  try {
+    return decodeURIComponent(key.replace(/\+/g, ' '));
+  } catch {
+    return key;
+  }
+}
+
+/**
+ * El SDK de Sentry guarda el cuerpo como texto: JSON → limpio por dentro;
+ * formulario (avisos de Redsys y Cecabank) → sin los valores sensibles; otra
+ * cosa → no se manda.
+ */
+function scrubBodyText(text: string): string {
+  const trimmed = text.trim();
+  if (trimmed === '') return text;
+  if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+    try {
+      return JSON.stringify(scrubValue(JSON.parse(trimmed), 0, new WeakSet()));
+    } catch {
+      return REDACTED;
+    }
+  }
+  if (!FORM_BODY.test(trimmed)) return REDACTED;
+  return trimmed
+    .split('&')
+    .map((pair) => {
+      const key = pair.slice(0, pair.indexOf('='));
+      return isSecretKey(decodeFormKey(key)) ? `${key}=${REDACTED}` : pair;
+    })
+    .join('&');
+}
+
 function scrubBody(data: unknown): unknown {
-  if (!isBag(data)) return data;
-  return Object.fromEntries(Object.entries(data).map(([k, v]) => [k, SECRET_BODY_KEYS.includes(k) ? REDACTED : v]));
+  return typeof data === 'string' ? scrubBodyText(data) : scrubValue(data, 0, new WeakSet());
 }
 
 function scrubRequestUrl(url: string): string {

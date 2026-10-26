@@ -112,9 +112,11 @@ export class ProblemDetailsFilter implements ExceptionFilter {
         title = exception.name;
         detail = exception.message;
       }
-      this.logger.error(`Unhandled: ${exception.message}`, exception.stack);
+      // Errores de Prisma: sin el mensaje (lleva los datos de la consulta).
+      const safe = loggableError(exception);
+      this.logger.error(`Unhandled: ${safe.message}`, safe.stack);
       // Sentry: solo reportar 5xx (errores no-HttpException son 500 por default).
-      reportError(exception, { tag: 'http.unhandled' });
+      reportError(safe === exception ? exception : safe, { tag: 'http.unhandled' });
     } else {
       this.logger.error(`Unhandled non-Error throw: ${JSON.stringify(exception)}`);
       reportError(new Error(`Non-Error throw: ${JSON.stringify(exception)}`), {
@@ -163,6 +165,26 @@ const RESERVED_BODY_KEYS: ReadonlySet<string> = new Set([
   'traceId',
   '_filterVersion',
 ]);
+
+/**
+ * El error tal cual, salvo los de Prisma: su mensaje (y la primera línea de
+ * la traza) llevan la consulta con sus datos (emails, hashes, lo que choca en
+ * un índice único). De esos, un error nuevo con su tipo, su código (P2002…),
+ * el modelo y solo las líneas `at …` de la traza.
+ */
+export function loggableError(err: Error): Error {
+  if (!err.name.startsWith('PrismaClient')) return err;
+  const { code, meta } = err as { code?: unknown; meta?: { modelName?: unknown } };
+  const parts = [
+    typeof code === 'string' ? code : null,
+    typeof meta?.modelName === 'string' ? `modelo ${meta.modelName}` : null,
+  ].filter(Boolean);
+  const safe = new Error(`${parts.join(' · ') || 'error de la base'} (los datos de la consulta no van al log)`);
+  safe.name = err.name;
+  const frames = (err.stack ?? '').split('\n').filter((line) => /^\s+at \S/.test(line));
+  safe.stack = [`${safe.name}: ${safe.message}`, ...frames].join('\n');
+  return safe;
+}
 
 type StatusError = Error & { statusCode: number };
 

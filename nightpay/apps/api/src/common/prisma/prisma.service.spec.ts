@@ -31,6 +31,8 @@ async function installMiddleware(prisma: PrismaService) {
   target._middlewares = [];
   target.$use = (fn: unknown) => (target._middlewares as unknown[]).push(fn);
   target.$connect = vi.fn();
+  // La comprobación del rol de la base al arrancar (sin base real: ningún rol).
+  target.$queryRaw = vi.fn(async () => []);
   target.$transaction = async (fn: (tx: unknown) => unknown) => fn({ $executeRawUnsafe: vi.fn() });
   await prisma.onModuleInit();
 }

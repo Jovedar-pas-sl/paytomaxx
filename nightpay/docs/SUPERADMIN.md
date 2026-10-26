@@ -40,7 +40,7 @@ Código: `apps/api/src/modules/superadmin/`. Migraciones:
   `superadmin.*`, quién (id, email, IP, navegador), el local afectado, antes y
   después y el motivo. Contraseñas, tokens y secretos 2FA no se guardan nunca;
   IBAN y cuentas van tapados (`ES12 •••• •••• 1234`, `T…9f2a`, `a•••@dominio`).
-- **Límites.** Además del global (100/min por IP): escrituras 30/min, ver una
+- **Límites.** Además del global (600/min por persona): escrituras 30/min, ver una
   cuenta de cobro entera 10/min, búsqueda de clientes 60/min.
 - **Validación.** Cuerpos y filtros con zod: 400 con `issues` si algo no vale.
 

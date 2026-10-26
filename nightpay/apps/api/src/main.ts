@@ -14,12 +14,8 @@ import { originAuthHook } from './common/http/origin-guard';
 import { trustInternalProxy } from './common/http/client-ip';
 import { corsOrigin, parseCorsOrigins } from './common/http/cors';
 import { UNPREFIXED_ROUTES } from './common/http/unprefixed-routes';
-import {
-  GLOBAL_RATE_LIMIT_MAX,
-  GLOBAL_RATE_LIMIT_WINDOW,
-  globalRateLimitKey,
-  isGlobalRateLimitExempt,
-} from './common/http/global-rate-limit';
+import { globalRateLimitOptions } from './common/http/global-rate-limit';
+import { MetricsService } from './modules/metrics/metrics.service';
 import { AppModule } from './app.module';
 import { loadEnv } from './config/env';
 import { envWarnings } from './config/env-warnings';
@@ -119,16 +115,10 @@ async function bootstrap() {
     app.getHttpAdapter().getInstance().addHook('onRequest', originAuthHook(env.ORIGIN_AUTH_SECRET));
   }
 
-  // Rate limit global por IP de fiar (common/http/client-ip.ts). Endpoints
+  // Rate limit global: con la sesión del personal, por persona y por local;
+  // sin ella, por IP de fiar (common/http/global-rate-limit.ts). Endpoints
   // sensibles (login, refresh, accept-invite) tienen además su @IpRateLimit.
-  // Exentos: el sondeo del saldo (con su propio límite) y el healthcheck del
-  // propio contenedor por loopback (ver global-rate-limit.ts).
-  await app.register(rateLimit, {
-    max: GLOBAL_RATE_LIMIT_MAX,
-    timeWindow: GLOBAL_RATE_LIMIT_WINDOW,
-    allowList: isGlobalRateLimitExempt,
-    keyGenerator: globalRateLimitKey,
-  });
+  await app.register(rateLimit, globalRateLimitOptions(env.JWT_SECRET, app.get(MetricsService)));
 
   // Las páginas del cliente (/pay, /w, /s) van fuera del prefijo /v1 para que
   // el QR apunte a https://api.dominio.com/pay/{token}, limpio. La lista (y

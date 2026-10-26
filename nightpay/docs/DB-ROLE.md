@@ -380,6 +380,13 @@ Funciona en el acto: `np` es superusuario y puede con todo aunque el dueño sea
   (`apps/api/src/common/prisma/rls-guard.spec.ts`) impide que entren en el
   código, y las pruebas de integración corren con `throw`.
 
+- Al arrancar, el API mira con qué rol entra. Si es superusuario o tiene
+  `BYPASSRLS` (como `np`), deja **un aviso** en el log («AVISO: el API entra
+  en la base de datos con el rol «np», que es superusuario: las políticas RLS
+  no aíslan los locales…») y pone `nightpay_db_role_bypasses_rls` a 1. Solo
+  avisa: el API arranca y funciona igual. Con `oxiopay_app` no sale el aviso
+  y la métrica queda a 0 (es la comprobación más rápida del Paso 5).
+
 ### `TENANCY_UNSCOPED_QUERIES=throw`
 
 Recomendado **una semana después** del cambio, si en esa semana

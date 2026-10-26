@@ -70,6 +70,10 @@ export function initSentry(env: {
     environment: env.NODE_ENV ?? 'development',
     release: env.GIT_SHA,
     tracesSampleRate: env.NODE_ENV === 'production' ? 0.1 : 1.0,
+    // Ni IP ni usuario del navegador en los eventos (el valor por defecto, dicho
+    // aquí para que no cambie con el SDK). El cuerpo de la petición sí va, limpio
+    // de secretos a cualquier profundidad (sentry-scrub.ts).
+    sendDefaultPii: false,
     integrations,
     beforeSend(event: Record<string, unknown>) {
       return scrubSensitive(event);

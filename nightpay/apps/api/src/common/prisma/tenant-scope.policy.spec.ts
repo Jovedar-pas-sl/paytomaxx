@@ -25,6 +25,8 @@ async function makePrisma(opts: { config?: Record<string, string | undefined> } 
   const mws: Middleware[] = [];
   target.$use = (fn: Middleware) => mws.push(fn);
   target.$connect = vi.fn();
+  // La comprobación del rol de la base al arrancar (sin base real: ningún rol).
+  target.$queryRaw = vi.fn(async () => []);
   target.$transaction = async (fn: (tx: unknown) => unknown) => fn({ $executeRawUnsafe: vi.fn(), $executeRaw: vi.fn() });
   await prisma.onModuleInit();
   const run = (params: Params) => {

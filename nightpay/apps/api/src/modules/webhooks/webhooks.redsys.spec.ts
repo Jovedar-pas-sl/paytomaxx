@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { BadRequestException } from '@nestjs/common';
+import { BadRequestException, UnauthorizedException } from '@nestjs/common';
 import type { FastifyRequest } from 'fastify';
 import { serializeAndSignJSONRequest } from 'redsys-easy';
 import { WebhooksController } from './webhooks.controller';
@@ -206,5 +206,19 @@ describe('receiveRedsys — captura del token de tarjeta', () => {
     const h = makeHarness();
     await h.controller.receiveRedsys(notice({ ...TOKEN_FIELDS, Ds_Response: '0190' }));
     expect(h.tx.$executeRaw).not.toHaveBeenCalled();
+  });
+});
+
+describe('receiveRedsys — cuerpos enormes (SEC-05, zod GHSA-mrhx-c7xc-m3w5)', () => {
+  it('100.000 campos que no son texto: se rechaza enseguida como aviso sin firma, sin validarlos uno a uno', async () => {
+    const h = makeHarness();
+    const body = Object.fromEntries(Array.from({ length: 100_000 }, (_, i) => [`k${i}`, {}]));
+    // performance.now: Date está congelado en estas pruebas.
+    const started = performance.now();
+    await expect(h.controller.receiveRedsys({ headers: {}, body } as unknown as FastifyRequest)).rejects.toBeInstanceOf(
+      UnauthorizedException,
+    );
+    expect(performance.now() - started).toBeLessThan(1_000);
+    expect(h.metrics.webhooksReceived.inc).toHaveBeenCalledWith({ provider: 'REDSYS', outcome: 'invalid' });
   });
 });

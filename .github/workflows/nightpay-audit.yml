@@ -1,0 +1,36 @@
+# Vulnerabilidades críticas/altas de las dependencias de producción de
+# OxioPay (nightpay/), cada día y a mano. El job `check` de nightpay-ci.yml ya
+# corta cada push con scripts/audit-gate.mjs, pero un aviso publicado después
+# del último push no se veía hasta el siguiente: main seguía en verde (undici
+# GHSA-xjj6-f33q-929c salió el 2026-10-23 por la noche, horas después del
+# último CI de main). Esto lo pone en rojo el mismo día.
+# `pnpm audit` solo lee pnpm-lock.yaml: no hace falta instalar nada.
+name: nightpay-audit
+
+on:
+  schedule:
+    - cron: '17 6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    working-directory: nightpay
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      # La versión de pnpm la fija "packageManager" del package.json de la raíz.
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version-file: nightpay/.nvmrc
+      - name: El corte corta de verdad (pruebas del script)
+        run: node --test scripts/audit-gate.test.mjs
+      - name: Vulnerabilidades críticas/altas (aceptadas solo las de .audit-allowlist.json, sin caducar)
+        run: node scripts/audit-gate.mjs

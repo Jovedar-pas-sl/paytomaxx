@@ -1,7 +1,8 @@
 # Comprobaciones de OxioPay (nightpay/) en cada push a main, fix/** y feat/**
 # y en cada PR (a cualquier rama):
 #   check       tipos de las 5 apps, tests del API (con cobertura mínima), del
-#               cliente común, del operador y del panel, y vulnerabilidades críticas/altas (scripts/audit-gate.mjs)
+#               cliente común, del operador y del panel, y vulnerabilidades críticas/altas (scripts/audit-gate.mjs;
+#               además cada día en nightpay-audit.yml: un aviso nuevo no espera al próximo push)
 #   lint        ESLint de la raíz; de momento NO bloquea (hay avisos viejos)
 #   integracion migraciones en un Postgres 16 vacío con un rol SIN superusuario
 #               (FORCE RLS de verdad), esquema = schema.prisma, las pruebas
@@ -66,6 +67,8 @@ jobs:
         run: pnpm --filter @nightpay/db exec prisma generate
       - name: Identidad automática del código construido
         run: node --test scripts/build-info.test.mjs
+      - name: El corte por vulnerabilidades corta de verdad (alta/crítica sin aceptar o caducada → rojo)
+        run: node --test scripts/audit-gate.test.mjs
       - name: Tipos (las 5 apps y el cliente común del API)
         run: |
           for app in apps/api apps/admin apps/operator apps/tpv apps/web-client packages/api-client; do

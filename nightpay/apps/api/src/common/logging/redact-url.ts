@@ -1,8 +1,12 @@
+import { WALLET_PASS_PARAM } from '@nightpay/contracts';
+import { UNPREFIXED_ROUTES, type UnprefixedRoute } from '../http/unprefixed-routes';
+
 /**
  * Credenciales que viajan en la URL y no deben acabar en logs ni en Sentry:
- *  - /w/<token>                         enlace del saldo del cliente
- *  - /s/<token>                         QR para pagar con el saldo
- *  - /pay/<token>                       QR del cobro (y /pay/result?op=<pedido>)
+ *  - las páginas del cliente fuera de /v1 con :token (UNPREFIXED_ROUTES):
+ *    /pay/<token>, /s/<token>, /w/<token>, /w/card/<token> (ficha NFC),
+ *    /w/salida/<token> (salida de recepción), /c/<token> (QR del pase de
+ *    Google Wallet)… y /pay/result?op=<pedido>
  *  - /v1/webhooks/paytef/<secreto>      URL secreta de los avisos de Paytef
  *  - /v1/operators/self-onboarding/<t>  enlace de alta de una chica (72 h)
  *  - /v1/payments/public/<token>, /v1/wallets/public/<token>
@@ -10,10 +14,43 @@
  *  - ?apikey= / ?api-key= / ?token= …   claves de exploradores, firmas de Redsys…
  * Vale para rutas (/w/…) y URLs completas (https://host/…).
  */
+
+const TOKEN_SEGMENT = ':token';
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * Un patrón por cada prefijo con :token de las rutas públicas (`w/card/:token`
+ * → /w/card/<token>), los más largos primero (/w/card antes que /w). En la
+ * posición del token no se tapan los segmentos fijos de otras rutas del mismo
+ * prefijo (/w/card, /w/assets, /pay/result…). Una ruta nueva con :token en
+ * unprefixed-routes.ts queda tapada sin tocar esto.
+ */
+export function tokenPathPatterns(routes: ReadonlyArray<UnprefixedRoute>): RegExp[] {
+  const segmentsOf = routes.map((r) => r.path.split('/'));
+  const prefixes = new Map<string, string[]>();
+  for (const segs of segmentsOf) {
+    const at = segs.indexOf(TOKEN_SEGMENT);
+    if (at > 0) prefixes.set(segs.slice(0, at).join('/'), segs.slice(0, at));
+  }
+  return [...prefixes.values()]
+    .sort((a, b) => b.length - a.length)
+    .map((prefix) => {
+      const fixed = new Set(
+        segmentsOf
+          .filter((segs) => segs.length > prefix.length && prefix.every((p, i) => segs[i] === p))
+          .map((segs) => segs[prefix.length]!)
+          .filter((seg) => !seg.startsWith(':')),
+      );
+      const notFixed = fixed.size > 0 ? `(?!(?:${[...fixed].map(escapeRegExp).join('|')})(?:[/?#]|$))` : '';
+      return new RegExp(`^(/(?:v1/)?${prefix.map(escapeRegExp).join('/')}/)${notFixed}[^/?#]+`);
+    });
+}
+
 const PATH_PATTERNS: ReadonlyArray<RegExp> = [
-  /^(\/(?:v1\/)?w\/)[^/?#]+/,
-  /^(\/(?:v1\/)?s\/)[^/?#]+/,
-  /^(\/(?:v1\/)?pay\/)(?!result(?:[/?#]|$))[^/?#]+/,
+  ...tokenPathPatterns(UNPREFIXED_ROUTES),
   /^(\/v1\/webhooks\/paytef\/)[^/?#]+/,
   /^(\/v1\/operators\/self-onboarding\/)[^/?#]+/,
   /^(\/v1\/payments\/public\/)[^/?#]+/,
@@ -35,6 +72,8 @@ const SENSITIVE_QUERY_KEYS = new Set([
   'pin',
   'ds_merchantparameters',
   'ds_signature',
+  // La app del personal abierta desde el QR del pase de Google Wallet (/c/<token>).
+  WALLET_PASS_PARAM,
 ]);
 
 const ORIGIN = /^[a-z][a-z0-9+.-]*:\/\/[^/?#]*/i;

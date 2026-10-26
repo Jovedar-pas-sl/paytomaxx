@@ -79,11 +79,15 @@ export class AuthController {
     this.sessions = sessions;
   }
 
-  /** App nueva (X-OxioPay-Client): Set-Cookie y sin refreshToken en el cuerpo. App antigua: en el cuerpo. */
+  /**
+   * App nueva (X-OxioPay-Client): Set-Cookie y sin refreshToken en el cuerpo. App antigua: en el cuerpo.
+   * Límite: 10/min por IP y cuenta y 30/min por IP (todo el local entra por la
+   * misma al abrir el turno). Además, el bloqueo por fallos (LockoutService).
+   */
   @Public()
   @Post('login')
   @HttpCode(200)
-  @IpRateLimit({ max: 10, windowSec: 60, scope: 'auth-login' })
+  @IpRateLimit({ max: 30, windowSec: 60, scope: 'auth-login', perAccount: { field: 'email', max: 10 } })
   async login(
     @Body(new ZodValidationPipe(LoginRequestSchema)) body: LoginRequest,
     @Req() req: FastifyRequest,

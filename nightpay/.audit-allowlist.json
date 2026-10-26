@@ -1,4 +1,11 @@
 {
   "_leeme": "Vulnerabilidades críticas o altas que se aceptan por ahora en las dependencias de producción (pnpm audit --prod). scripts/audit-gate.mjs hace fallar CI con cualquier otra, o con una de estas pasada su fecha (expires). Las del API (Nest/Fastify/middie/find-my-way) se fueron con Nest 11 y Fastify 5, y las de Next con Next 15; si una ya no sale, el script avisa para quitarla.",
-  "advisories": []
+  "advisories": [
+    {
+      "id": "GHSA-mrhx-c7xc-m3w5",
+      "package": "zod",
+      "reason": "zod 3.25.76 (contratos, API y apps): solo está arreglado en zod >= 4.6.6 y pasar a zod 4 es un cambio aparte. Aquí no se alcanza: todo lo que llega de fuera pasa por topes ANTES de zod (apps/api/src/common/pipes/input-limits.ts: listas <= 2000, objetos <= 500 campos, <= 200.000 valores, <= 32 niveles, en el ZodValidationPipe; los avisos form-urlencoded de Redsys y Cecabank, <= 100 campos); el resto de validaciones de datos de fuera son objetos de forma fija, sin listas ni registros. En las apps del navegador zod valida respuestas del propio API o lo que teclea quien la usa: no lo alcanza un tercero. Pruebas: input-limits.spec.ts y webhooks.redsys.spec.ts. Revisar al caducar: migrar a zod 4.",
+      "expires": "2026-12-25"
+    }
+  ]
 }
