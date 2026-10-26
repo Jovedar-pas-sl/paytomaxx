@@ -1,7 +1,8 @@
 'use client';
 
-import { useCallback, useEffect, useState, type CSSProperties } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { fetchServices, type ServiceItem } from '@/lib/api';
+import { CARTA_START, cartaArrived, cartaFailed, type CartaState } from '@/lib/carta-state';
 import { formatEur } from '@/lib/money';
 
 export interface Carta {
@@ -15,31 +16,31 @@ export interface Carta {
 
 /** La carta del local (lo que quien llama puede cobrar). */
 export function useCarta(): Carta {
-  const [services, setServices] = useState<ServiceItem[]>([]);
-  const [failed, setFailed] = useState(false);
-  const [loaded, setLoaded] = useState(false);
-  const [attempt, setAttempt] = useState(0);
+  // Un solo estado: un refetch que falla con la carta ya a la vista, o que trae
+  // la misma, deja el mismo objeto y no vuelve a pintar nada (lib/carta-state).
+  // Pedirla otra vez tampoco pinta: solo cuenta la última petición (una ref).
+  const [state, setState] = useState<CartaState>(CARTA_START);
+  const latest = useRef(0);
 
-  useEffect(() => {
-    let cancelled = false;
+  const retry = useCallback(() => {
+    latest.current += 1;
+    const mine = latest.current;
     fetchServices()
       .then((list) => {
-        if (cancelled) return;
-        setServices(list);
-        setFailed(false);
-        setLoaded(true);
+        if (latest.current === mine) setState((prev) => cartaArrived(prev, list));
       })
       .catch(() => {
-        if (cancelled) return;
-        setFailed(true);
-        setLoaded(true);
+        if (latest.current === mine) setState((prev) => cartaFailed(prev));
       });
-    return () => {
-      cancelled = true;
-    };
-  }, [attempt]);
+  }, []);
 
-  const retry = useCallback(() => setAttempt((n) => n + 1), []);
+  useEffect(() => {
+    retry();
+    // Al desmontar, ninguna respuesta pendiente llega ya a la pantalla.
+    return () => {
+      latest.current += 1;
+    };
+  }, [retry]);
   // Al volver desde el panel, volver a pedir la carta del puesto: puede haberse
   // configurado mientras esta pestaña seguía abierta con la lista vacía.
   useEffect(() => {
@@ -51,7 +52,8 @@ export function useCarta(): Carta {
       document.removeEventListener('visibilitychange', onVisible);
     };
   }, [retry]);
-  return { services, failed, loaded, retry };
+  const { services, failed, loaded } = state;
+  return useMemo(() => ({ services, failed, loaded, retry }), [services, failed, loaded, retry]);
 }
 
 /** Aviso pequeño cuando la carta no llegó (antes se tragaba el error en silencio). */

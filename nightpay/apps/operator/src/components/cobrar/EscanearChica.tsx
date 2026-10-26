@@ -70,6 +70,12 @@ export function EscanearChica({ ctx, who, title, priceCents, onChica, onList, on
   const [torch, setTorch] = useState(false);
   const [torchOk, setTorchOk] = useState(false);
   const supported = detectorCtor() !== null;
+  // La última onChica, sin que `take` (y con él la cámara) cambie en cada
+  // render del padre: si no, cada vez que se pinta CobrarFlow se reinicia la cámara (APP-04).
+  const onChicaRef = useRef(onChica);
+  useEffect(() => {
+    onChicaRef.current = onChica;
+  });
 
   useEffect(() => {
     alive.current = true;
@@ -101,7 +107,7 @@ export function EscanearChica({ ctx, who, title, priceCents, onChica, onList, on
         leaving.current = setTimeout(() => {
           leaving.current = null;
           if (!alive.current) return;
-          void onChica({ name: chica.name, token, id: chica.id }).then((opened) => {
+          void onChicaRef.current({ name: chica.name, token, id: chica.id }).then((opened) => {
             if (opened || !alive.current) return;
             // Sin cobro: se vuelve a leer (el error lo enseña el cobro), sin repetir este QR enseguida.
             rejected.current = rejectedQr(raw, 0, Date.now());
@@ -116,7 +122,8 @@ export function EscanearChica({ ctx, who, title, priceCents, onChica, onList, on
         done.current = false;
       }
     },
-    [onChica],
+    // Solo refs y setters: la misma función en todos los renders (la cámara no se reinicia).
+    [],
   );
 
   // Leído con la cámara del móvil (abre otra pestaña): llega aquí solo.
