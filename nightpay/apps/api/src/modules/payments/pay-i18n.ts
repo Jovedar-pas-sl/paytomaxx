@@ -67,6 +67,10 @@ export interface PayText {
   tipMax: (max: string) => string;
   tipToStaff: string;
   total: string;
+  /** Desglose con la «Comisión del servicio»: Consumo (o Recarga) · Comisión del servicio · Propina · Total. */
+  breakdown: { consumption: string; topUp: string; serviceFee: string; tip: string };
+  /** Cobro único: con el saldo no se paga la comisión del servicio. */
+  saldoNoFee: string;
   inAppWarning: (app: string) => string;
   statement: (name: string) => string;
   expiresIn: string;
@@ -83,6 +87,7 @@ export interface PayText {
   confirmedAt: (time: string) => string;
   paidFromBalanceAt: (time: string) => string;
   includesTip: (tip: string) => string;
+  includesServiceFee: (fee: string) => string;
   codeLabel: string;
   codeHint: string;
   clockLabel: string;
@@ -118,6 +123,9 @@ export interface PayText {
     title: string;
     date: string;
     amount: string;
+    /** Una recarga del saldo: el importe es «Recarga». */
+    topUp: string;
+    serviceFee: string;
     tip: string;
     total: string;
     method: string;
@@ -155,6 +163,8 @@ const ES: PayText = {
   tipMax: (max) => `Como mucho ${max}`,
   tipToStaff: 'Va entera para el personal',
   total: 'Total',
+  breakdown: { consumption: 'Consumo', topUp: 'Recarga', serviceFee: 'Comisión del servicio', tip: 'Propina' },
+  saldoNoFee: 'Con tu saldo OxioCard, sin comisión del servicio.',
   inAppWarning: (app) =>
     `Estás en el navegador de ${app}. Para pagar con Apple Pay o Google Pay, ábrelo en Safari o Chrome: toca ··· y «Abrir en el navegador». Con tarjeta puedes pagar aquí.`,
   statement: (name) => `En tu extracto: «${name}»`,
@@ -170,6 +180,7 @@ const ES: PayText = {
   confirmedAt: (time) => `Confirmado por el banco a las ${time}`,
   paidFromBalanceAt: (time) => `Pagado con tu saldo a las ${time}`,
   includesTip: (tip) => `Incluye ${tip} de propina. ¡Gracias!`,
+  includesServiceFee: (fee) => `Incluye ${fee} de comisión del servicio.`,
   codeLabel: 'Código',
   codeHint: 'El mismo que ve el personal',
   clockLabel: 'Hora actual',
@@ -288,6 +299,8 @@ const ES: PayText = {
     title: 'Justificante de pago',
     date: 'Fecha',
     amount: 'Importe',
+    topUp: 'Recarga',
+    serviceFee: 'Comisión del servicio',
     tip: 'Propina',
     total: 'Total cobrado',
     method: 'Método',
@@ -322,6 +335,8 @@ const EN: PayText = {
   tipMax: (max) => `Up to ${max}`,
   tipToStaff: '100% goes to the staff',
   total: 'Total',
+  breakdown: { consumption: 'Order', topUp: 'Top-up', serviceFee: 'Service fee', tip: 'Tip' },
+  saldoNoFee: 'With your OxioCard balance, no service fee.',
   inAppWarning: (app) =>
     `You are in the ${app} browser. To pay with Apple Pay or Google Pay, open this page in Safari or Chrome: tap ··· and "Open in browser". You can pay by card here.`,
   statement: (name) => `On your statement: "${name}"`,
@@ -337,6 +352,7 @@ const EN: PayText = {
   confirmedAt: (time) => `Confirmed by the bank at ${time}`,
   paidFromBalanceAt: (time) => `Paid from your balance at ${time}`,
   includesTip: (tip) => `Includes a ${tip} tip. Thank you!`,
+  includesServiceFee: (fee) => `Includes a ${fee} service fee.`,
   codeLabel: 'Code',
   codeHint: 'The same one the staff see',
   clockLabel: 'Current time',
@@ -453,6 +469,8 @@ const EN: PayText = {
     title: 'Payment receipt',
     date: 'Date',
     amount: 'Amount',
+    topUp: 'Top-up',
+    serviceFee: 'Service fee',
     tip: 'Tip',
     total: 'Total charged',
     method: 'Method',

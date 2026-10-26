@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { chargedCents, chargedParts, invoicedCents, netCents, totalsFromRow, type PeriodTotals } from './period-totals';
+import { chargedCents, chargedParts, invoicedCents, netCents, serviceFeeOwedCents, totalsFromRow, type PeriodTotals } from './period-totals';
 
 /**
  * Noche de ejemplo: un servicio de 100 € con 5 € de propina, una barra de
@@ -70,7 +70,8 @@ describe('totales de un periodo (mismas reglas en métricas, Z e IVA)', () => {
         walletCardTopUpCount: 1,
         walletCardTopUpCents: 20_000n,
       }),
-    ).toEqual(NIGHT);
+      // Sin «Comisión del servicio»: sus campos a 0.
+    ).toEqual({ ...NIGHT, serviceFeeCents: 0, walletCashTopUpFeeCents: 0, refundedServiceFeeCents: 0 });
     expect(netCents(totalsFromRow(undefined))).toBe(0);
   });
 
@@ -112,9 +113,58 @@ describe('«Hoy · cobrado», por partes (cada parte dice lo que suma)', () => {
       walletCashTopUpCount: 6,
       walletCashTopUpCents: 45_000,
     };
-    expect(chargedParts(demo)).toEqual({ salesCents: 53_300, tipCents: 2_600, topUpCents: 55_000 });
+    expect(chargedParts(demo)).toEqual({ salesCents: 53_300, tipCents: 2_600, topUpCents: 55_000, serviceFeeCents: 0 });
     expect(chargedCents(demo)).toBe(110_900);
     const p = chargedParts(demo);
     expect(p.salesCents + p.tipCents + p.topUpCents).toBe(chargedCents(demo));
+  });
+});
+
+describe('con la «Comisión del servicio»', () => {
+  // Pago directo de 33 € + 3,30 € de comisión + 2 € de propina; recarga con
+  // tarjeta de 50 € + 6 €; recarga en efectivo de 50 € + 6 €; se devuelve la
+  // mitad del pago directo (19,15 €: 1,65 € de comisión y 1 € de propina).
+  const FEE: PeriodTotals = {
+    ...NIGHT,
+    paymentCount: 2,
+    grossCents: 3300 + 5000,
+    tipCents: 200,
+    refundCount: 1,
+    refundedCents: 1915,
+    refundedTipCents: 100,
+    refundedServiceFeeCents: 165,
+    walletCashPayoutCount: 0,
+    walletCashPayoutCents: 0,
+    walletCashTopUpCount: 1,
+    walletCashTopUpCents: 5000,
+    walletCardTopUpCount: 1,
+    walletCardTopUpCents: 5000,
+    serviceFeeCents: 330 + 600,
+    walletCashTopUpFeeCents: 600,
+  };
+
+  it('lo cobrado incluye la comisión (con tarjeta y en efectivo) y el neto resta lo devuelto', () => {
+    expect(chargedCents(FEE)).toBe(3300 + 5000 + 200 + 5000 + 930 + 600);
+    expect(netCents(FEE)).toBe(chargedCents(FEE) - 1915);
+  });
+
+  it('por partes: ventas, propinas, recargas y la comisión del servicio suman lo cobrado', () => {
+    const parts = chargedParts(FEE);
+    expect(parts).toEqual({ salesCents: 3300, tipCents: 200, topUpCents: 10_000, serviceFeeCents: 1530 });
+    expect(parts.salesCents + parts.tipCents + parts.topUpCents + parts.serviceFeeCents).toBe(chargedCents(FEE));
+  });
+
+  it('lo facturado del local no lleva la comisión (es de OxioPay): ni la cobrada ni la devuelta', () => {
+    // 3300 + 5000 + 5000 − (1915 − 100 − 165) = 11.650
+    expect(invoicedCents(FEE)).toBe(13_300 - (1915 - 100 - 165));
+  });
+
+  it('lo que se debe a OxioPay: la cobrada − la devuelta', () => {
+    expect(serviceFeeOwedCents(FEE)).toBe(1530 - 165);
+    expect(serviceFeeOwedCents(NIGHT)).toBe(0);
+  });
+
+  it('una fila del SQL sin las columnas nuevas (Z de antes): 0', () => {
+    expect(totalsFromRow({ grossCents: 100n } as never)).toMatchObject({ serviceFeeCents: 0, walletCashTopUpFeeCents: 0, refundedServiceFeeCents: 0 });
   });
 });

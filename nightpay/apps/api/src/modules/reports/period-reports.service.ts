@@ -85,7 +85,8 @@ export class PeriodReportsService {
                COALESCE(SUM(p."amountCents"), 0)::bigint AS "grossCents",
                COALESCE(SUM(p."tipCents"), 0)::bigint AS "tipCents",
                COUNT(*) FILTER (WHERE p."walletId" IS NOT NULL)::int AS "walletCardTopUpCount",
-               COALESCE(SUM(p."amountCents") FILTER (WHERE p."walletId" IS NOT NULL), 0)::bigint AS "walletCardTopUpCents"
+               COALESCE(SUM(p."amountCents") FILTER (WHERE p."walletId" IS NOT NULL), 0)::bigint AS "walletCardTopUpCents",
+               COALESCE(SUM(p."serviceFeeCents"), 0)::bigint AS "serviceFeeCents"
           FROM payments p
          WHERE p."tenantId" = ${tenantId}::uuid
            AND p.status IN ${PAID_STATUSES_SQL}
@@ -93,7 +94,8 @@ export class PeriodReportsService {
       ), devoluciones AS (
         SELECT COUNT(*)::int AS "refundCount",
                COALESCE(SUM(r."amountCents"), 0)::bigint AS "refundedCents",
-               COALESCE(SUM(${refundTipPart('r', 'p')}), 0)::bigint AS "refundedTipCents"
+               COALESCE(SUM(${refundTipPart('r', 'p')}), 0)::bigint AS "refundedTipCents",
+               COALESCE(SUM(r."serviceFeeCents"), 0)::bigint AS "refundedServiceFeeCents"
           FROM refunds r
           JOIN payments p ON p.id = r."paymentId"
          WHERE r."tenantId" = ${tenantId}::uuid
@@ -110,7 +112,8 @@ export class PeriodReportsService {
            AND wp."createdAt" >= ${w.from} AND wp."createdAt" < ${w.to}
       ), efectivo AS (
         SELECT ${cashTopUpCount('ct')}::int AS "walletCashTopUpCount",
-               COALESCE(SUM(ct."amountCents"), 0)::bigint AS "walletCashTopUpCents"
+               COALESCE(SUM(ct."amountCents"), 0)::bigint AS "walletCashTopUpCents",
+               COALESCE(SUM(ct."serviceFeeCents"), 0)::bigint AS "walletCashTopUpFeeCents"
           FROM wallet_cash_topups ct
          WHERE ct."tenantId" = ${tenantId}::uuid
            AND ct."createdAt" >= ${w.from} AND ct."createdAt" < ${w.to}

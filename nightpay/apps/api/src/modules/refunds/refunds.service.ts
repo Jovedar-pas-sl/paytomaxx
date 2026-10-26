@@ -34,6 +34,7 @@ import {
   assertRefundFits,
   lockPaymentForRefund,
   settlePendingRefund,
+  stampRefundServiceFee,
 } from './refund-ledger';
 import { lockRefundsOf, refundTotalsOf, twoFactorReason } from './refund-two-factor';
 import { adjustedReason, bankRefundDate } from './bank-refund-date';
@@ -445,12 +446,15 @@ export class RefundsService {
     try {
       await this.payments.transition(payment.id, { type: 'REFUND_PARTIAL', amountCents }, actor.tenantId, {
         // La respuesta va con el paso a SUCCEEDED: si se pierde, el reintento la recupera.
-        prepare: (tx) =>
-          settlePendingRefund(tx, refundId, {
+        // Y, con el cobro bloqueado, la parte que era «Comisión del servicio».
+        prepare: async (tx, locked) => {
+          await settlePendingRefund(tx, refundId, {
             status: 'SUCCEEDED',
             providerRefundId,
             replayResponse: savedResponse(201, { id: refundId, paymentId: payment.id, amountCents, status: 'SUCCEEDED', providerRefundId }),
-          }),
+          });
+          await stampRefundServiceFee(tx, locked, refundId, amountCents);
+        },
       });
     } catch (err) {
       await this.flagSettleFailed(payment, refundId, amountCents, actor, err);
@@ -634,6 +638,8 @@ export class RefundsService {
                 bankRefundedAt: request.refundedAt,
               },
             });
+            // La parte que era «Comisión del servicio» (en una recarga, nada).
+            await stampRefundServiceFee(tx, locked, refundId, request.amountCents);
           },
         },
       );
@@ -698,7 +704,12 @@ export class RefundsService {
         refund.paymentId,
         { type: 'REFUND_PARTIAL', amountCents: refund.amountCents },
         actor.tenantId,
-        { prepare: (tx) => settlePendingRefund(tx, refund.id, { status: 'SUCCEEDED' }) },
+        {
+          prepare: async (tx, locked) => {
+            await settlePendingRefund(tx, refund.id, { status: 'SUCCEEDED' });
+            await stampRefundServiceFee(tx, locked, refund.id, refund.amountCents);
+          },
+        },
       );
     } catch (err) {
       if (err instanceof InvalidTransitionError) {

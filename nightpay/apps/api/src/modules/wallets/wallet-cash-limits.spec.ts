@@ -79,6 +79,8 @@ describe('la lectura: el saldo y los sumados a él, en una consulta', () => {
     await expect(walletCash({ $queryRaw } as never, 'w-1', now)).resolves.toEqual({
       inCents: 12_000,
       inWindowCents: 5_000,
+      // Sin la columna (lectura de antes): lo pagado es el saldo.
+      inWindowPaidCents: 5_000,
       outCents: 3_000,
       outWindowCents: 0,
     });
@@ -88,5 +90,15 @@ describe('la lectura: el saldo y los sumados a él, en una consulta', () => {
     expect(sql).toMatch(/FROM wallet_cash_topups[\s\S]*FROM wallet_payouts p[\s\S]*method = 'CASH' AND p\.status = 'DONE'/);
     expect(values[0]).toBe('w-1');
     expect(values).toContainEqual(new Date('2026-10-20T01:00:00Z'));
+  });
+});
+
+describe('tope legal del efectivo con la «Comisión del servicio»', () => {
+  it('cuenta lo que pagó el cliente (saldo + comisión), no solo el saldo', () => {
+    // 800 € de saldo + 96 € de comisión ya pagados: 100 € + 12 € más llegan a 1.008 €.
+    expect(cashTopUpOverLimit(11_200, { inWindowCents: 80_000, inWindowPaidCents: 89_600 })).toMatch(/89[6.,]+00 €/);
+    expect(cashTopUpOverLimit(10_300, { inWindowCents: 80_000, inWindowPaidCents: 89_600 })).toBeNull();
+    // Sin el campo, el saldo (como antes).
+    expect(cashTopUpOverLimit(11_200, { inWindowCents: 80_000 })).toBeNull();
   });
 });

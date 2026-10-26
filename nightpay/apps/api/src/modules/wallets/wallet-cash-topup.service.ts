@@ -7,6 +7,7 @@ import {
   MAX_CASH_TOP_UP_CENTS,
   STAFF_PERMISSION_DENIED_CODE,
   deviceCan,
+  serviceFeeQuote,
   staffPermissionsOf,
   type CashTopUpResult,
   type CashTopUpVoidResult,
@@ -29,6 +30,7 @@ import { cashIntentFingerprint, storedReceipt, type PrintedTopUpRef } from './wa
 import { liveWalletId, lockLiveWallet } from './wallet-merge-chain';
 import { formatWalletCode, normalizeWalletCode, sameWalletGroup } from './wallet-rules';
 import { topUpTarget } from './wallet-topup-target';
+import { VENUE_SERVICE_FEE_SELECT, venueServiceFeeOf } from '../payments/service-fee';
 
 /**
  * Quién cobra el efectivo: una persona de la app (con su rol, para el
@@ -38,10 +40,22 @@ import { topUpTarget } from './wallet-topup-target';
 export type CashTopUpBy = { userId: string; role: string } | { terminalId: string };
 
 export interface CashTopUpInput {
+  /** El saldo que se carga. */
   amountCents: number;
   idempotencyKey: string;
   /** Lo de la petición, o la ficha buscada por su número impreso (solo FichaNumbersService). */
   wallet: TopUpWalletDto | PrintedTopUpRef;
+  /**
+   * La «Comisión del servicio» que enseñó la pantalla (CashTopUpSchema). Sin
+   * ella (app anterior) y con la comisión encendida: 409, no se cobra.
+   */
+  serviceFeeCents?: number;
+}
+
+/** La comisión del servicio de una recarga en efectivo: el % y el importe del momento. */
+interface CashFee {
+  bps: number | null;
+  cents: number;
 }
 
 export type { PrintedTopUpRef };
@@ -61,6 +75,8 @@ export interface RecentCashTopUp {
   id: string;
   at: string;
   amountCents: number;
+  /** Su «Comisión del servicio» (al anularla, sale de la caja con el saldo). */
+  serviceFeeCents: number;
   /** K7Q-•••: para reconocer al cliente. */
   codeHint: string;
   voided: boolean;
@@ -116,8 +132,14 @@ export class CashTopUpService {
     // El saldo que ya existe se busca antes (código o ficha) y se vuelve a
     // seguir (sumado a otro) con él bloqueado; el nuevo se crea dentro.
     const target = 'create' in input.wallet ? null : await topUpTarget(this.prisma, venueId, input.wallet);
-    const venue = await this.prisma.venue.findUnique({ where: { id: venueId }, select: { walletGroup: true } });
+    const venue = await this.prisma.venue.findUnique({
+      where: { id: venueId },
+      select: { walletGroup: true, ...VENUE_SERVICE_FEE_SELECT },
+    });
     const walletGroup = venue?.walletGroup ?? null;
+    // «Comisión del servicio» de las recargas (el % del local ahora): la que
+    // enseñó la pantalla tiene que ser esta, y el total, menos de 1.000 €.
+    const fee = this.cashFee(venue, input);
     const newCard = newCardOf(input.wallet);
     let result: { topUpId: string; walletId: string; balanceCents: number; shortCode: string | null };
     try {
@@ -131,7 +153,7 @@ export class CashTopUpService {
         // El saldo nuevo con su ficha, en la misma operación: si la ficha no
         // se puede dar, no se carga nada (ni queda un saldo sin ficha).
         if (newCard) await attachCardInTx(tx, { walletId, venueId, card: newCard.card, uid: newCard.uid, by: cardByOf(by) });
-        return this.credit(tx, { venueId, walletGroup, walletId, by, input });
+        return this.credit(tx, { venueId, walletGroup, walletId, by, input, fee });
       });
     } catch (err) {
       // Dos peticiones a la vez con la misma clave: gana una y la otra la repite.
@@ -165,6 +187,7 @@ export class CashTopUpService {
       payload: {
         topUpId: result.topUpId,
         amountCents: input.amountCents,
+        ...(fee.cents > 0 ? { serviceFeeCents: fee.cents, serviceFeeBps: fee.bps } : {}),
         createdWallet,
         ...('terminalId' in by ? { terminalId: by.terminalId } : {}),
       },
@@ -175,11 +198,42 @@ export class CashTopUpService {
       walletId: result.walletId,
       code: formatWalletCode(result.shortCode ?? ''),
       amountCents: input.amountCents,
+      ...feeFields(input.amountCents, fee),
       balanceCents: result.balanceCents,
       createdWallet,
       replayed: false,
       ...(newCard ? { cardLinked: true } : {}),
     };
+  }
+
+  /**
+   * La «Comisión del servicio» de esta recarga (el % de las recargas del local
+   * ahora). 409 si la pantalla enseñó otra (cambió el %) o no sabe cobrarla
+   * (app anterior, sin el campo), y si saldo + comisión pasan del tope de una
+   * recarga en efectivo: así en la caja nunca se apunta lo que no se cobró.
+   */
+  private cashFee(venue: Parameters<typeof venueServiceFeeOf>[0], input: CashTopUpInput): CashFee {
+    const quote = serviceFeeQuote(venueServiceFeeOf(venue), 'topUp', input.amountCents);
+    if (input.serviceFeeCents === undefined && quote.feeCents > 0) {
+      throw new ConflictException({
+        message: 'Esta pantalla no cobra la comisión del servicio: recárgala para actualizarla y vuelve a cobrar.',
+        code: 'SERVICE_FEE_APP_OUTDATED',
+        serviceFeeCents: quote.feeCents,
+      });
+    }
+    if (input.serviceFeeCents !== undefined && input.serviceFeeCents !== quote.feeCents) {
+      throw new ConflictException({
+        message: `La comisión del servicio ha cambiado: ahora son ${eur(quote.feeCents)}. Vuelve a cobrar.`,
+        code: 'SERVICE_FEE_CHANGED',
+        serviceFeeCents: quote.feeCents,
+      });
+    }
+    if (quote.totalCents > MAX_CASH_TOP_UP_CENTS) {
+      throw new ConflictException(
+        `En efectivo, como mucho 999,99 € por pago (saldo + comisión del servicio): recarga como mucho ${eur(maxCashTopUpFor(quote.bps ?? 0))}. El resto, con tarjeta.`,
+      );
+    }
+    return { bps: quote.bps, cents: quote.feeCents };
   }
 
   /** ¿Se puede cobrar efectivo aquí y quién? (para enseñar o esconder la opción). null = sí. */
@@ -229,7 +283,7 @@ export class CashTopUpService {
    */
   private async credit(
     tx: TransactionalClient,
-    a: { venueId: string; walletGroup: string | null; walletId: string; by: CashTopUpBy; input: CashTopUpInput },
+    a: { venueId: string; walletGroup: string | null; walletId: string; by: CashTopUpBy; input: CashTopUpInput; fee: CashFee },
   ): Promise<{ topUpId: string; walletId: string; balanceCents: number; shortCode: string | null }> {
     const w = await lockLiveWallet(tx, a.walletId);
     if (!w || !sameWalletGroup(w, { id: a.venueId, walletGroup: a.walletGroup })) {
@@ -244,7 +298,8 @@ export class CashTopUpService {
     if (w.status !== 'ACTIVE' && w.status !== 'DEPLETED') {
       throw new ConflictException('Este saldo ya está cerrado (devuelto): haz un saldo nuevo');
     }
-    const over = cashTopUpOverLimit(a.input.amountCents, await walletCash(tx, w.id));
+    // El tope legal, por lo que paga el cliente: el saldo + la comisión del servicio.
+    const over = cashTopUpOverLimit(a.input.amountCents + a.fee.cents, await walletCash(tx, w.id));
     if (over) throw new ConflictException({ message: over, code: 'CASH_LIMIT' });
     const reopen = await reopenData(tx, w);
     await tx.clientWallet.update({
@@ -263,6 +318,9 @@ export class CashTopUpService {
         terminalId: 'terminalId' in a.by ? a.by.terminalId : null,
         idempotencyKey: a.input.idempotencyKey,
         intentFingerprint: cashIntentFingerprint(a.input),
+        // La comisión del servicio del momento: entra en la caja y se debe a OxioPay.
+        serviceFeeBps: a.fee.bps,
+        serviceFeeCents: a.fee.cents,
         // El recibo de esta recarga: un reintento lo devuelve igual aunque el
         // saldo se sume luego a otro o siga moviéndose.
         receipt: { code: formatWalletCode(shortCode ?? ''), balanceCents },
@@ -344,7 +402,13 @@ export class CashTopUpService {
       actorId: actor.userId,
       targetType: 'ClientWallet',
       targetId: out.walletId,
-      payload: { topUpId, voidId: out.voidId, amountCents: out.amountCents, reason: input.reason.trim() },
+      payload: {
+        topUpId,
+        voidId: out.voidId,
+        amountCents: out.amountCents,
+        ...(out.serviceFeeCents ? { serviceFeeCents: out.serviceFeeCents } : {}),
+        reason: input.reason.trim(),
+      },
     });
     this.logger.log(`Recarga en efectivo ${topUpId} anulada (−${out.amountCents}c) por ${actor.userId}`);
     return out;
@@ -358,7 +422,7 @@ export class CashTopUpService {
         where: { tenantId: venueId, voidOfId: null, createdAt: { gte: since } },
         orderBy: { createdAt: 'desc' },
         take: 50,
-        select: { id: true, createdAt: true, amountCents: true, walletId: true, voidedBy: { select: { id: true } } },
+        select: { id: true, createdAt: true, amountCents: true, serviceFeeCents: true, walletId: true, voidedBy: { select: { id: true } } },
       }),
     );
     const codes = await this.prisma.acrossVenues((tx) =>
@@ -369,6 +433,7 @@ export class CashTopUpService {
       id: r.id,
       at: r.createdAt.toISOString(),
       amountCents: r.amountCents,
+      serviceFeeCents: r.serviceFeeCents ?? 0,
       codeHint: `${(codeOf.get(r.walletId) ?? '').slice(0, 3)}-•••`,
       voided: r.voidedBy !== null,
     }));
@@ -381,8 +446,10 @@ export class CashTopUpService {
     topUpId: string,
     reason: string,
   ): Promise<CashTopUpVoidResult> {
-    const rows = await tx.$queryRaw<Array<{ id: string; walletId: string; amountCents: number; createdAt: Date }>>`
-      SELECT id::text AS id, "walletId"::text AS "walletId", "amountCents", "createdAt"
+    const rows = await tx.$queryRaw<
+      Array<{ id: string; walletId: string; amountCents: number; serviceFeeBps: number | null; serviceFeeCents: number; createdAt: Date }>
+    >`
+      SELECT id::text AS id, "walletId"::text AS "walletId", "amountCents", "serviceFeeBps", "serviceFeeCents", "createdAt"
         FROM wallet_cash_topups
        WHERE id = ${topUpId}::uuid AND "tenantId" = ${actor.tenantId}::uuid AND "voidOfId" IS NULL
        FOR UPDATE
@@ -417,10 +484,20 @@ export class CashTopUpService {
         idempotencyKey: `void:${topUp.id}`,
         voidOfId: topUp.id,
         reason,
+        // Anulada, la comisión del servicio también se devuelve (sale de la caja).
+        serviceFeeBps: topUp.serviceFeeBps ?? null,
+        serviceFeeCents: -(topUp.serviceFeeCents ?? 0),
       },
       select: { id: true },
     });
-    return { voidId: row.id, topUpId: topUp.id, walletId: w.id, amountCents: topUp.amountCents, balanceCents: left };
+    return {
+      voidId: row.id,
+      topUpId: topUp.id,
+      walletId: w.id,
+      amountCents: topUp.amountCents,
+      serviceFeeCents: topUp.serviceFeeCents ?? 0,
+      balanceCents: left,
+    };
   }
 
   /**
@@ -448,6 +525,7 @@ export class CashTopUpService {
       walletId: existing.walletId,
       code: receipt.code,
       amountCents: existing.amountCents,
+      ...feeFields(existing.amountCents, { bps: existing.serviceFeeBps ?? null, cents: existing.serviceFeeCents ?? 0 }),
       balanceCents: receipt.balanceCents,
       createdWallet: existing.createdWallet,
       replayed: true,
@@ -500,6 +578,20 @@ export class CashTopUpService {
 
 function eur(cents: number): string {
   return `${(cents / 100).toFixed(2).replace('.', ',')} €`;
+}
+
+/** Lo de la comisión del servicio en el recibo: el importe, su % y lo que pagó el cliente. */
+function feeFields(amountCents: number, fee: CashFee): Pick<CashTopUpResult, 'serviceFeeCents' | 'serviceFeeBps' | 'chargedCents'> {
+  return { serviceFeeCents: fee.cents, serviceFeeBps: fee.bps, chargedCents: amountCents + fee.cents };
+}
+
+/** La recarga en efectivo más grande con este % sin que saldo + comisión pasen del tope de un pago. */
+export function maxCashTopUpFor(bps: number): number {
+  let amount = Math.floor((MAX_CASH_TOP_UP_CENTS * 10_000) / (10_000 + Math.max(0, bps)));
+  while (amount > 0 && serviceFeeQuote({ enabled: true, cardBps: 0, topUpBps: bps }, 'topUp', amount).totalCents > MAX_CASH_TOP_UP_CENTS) {
+    amount -= 1;
+  }
+  return amount;
 }
 
 function isUniqueClash(err: unknown): boolean {

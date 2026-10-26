@@ -74,8 +74,11 @@ function setup(o: { venue?: Row; wallet?: Row | null; pacoPost?: string | null }
       }
       // El efectivo del saldo y de los sumados a él.
       const ids = new Set([String(values[0]), ...[...wallets.values()].filter((w) => w.mergedIntoId === values[0]).map((w) => String(w.id))]);
-      const sum = [...topUps.values()].filter((t) => ids.has(String(t.walletId))).reduce((a, t) => a + net(t), 0);
-      return [{ inCents: BigInt(sum), inWindowCents: BigInt(sum), outCents: 0n, outWindowCents: 0n }];
+      const mine = [...topUps.values()].filter((t) => ids.has(String(t.walletId)));
+      const sum = mine.reduce((a, t) => a + net(t), 0);
+      // Lo que pagó el cliente en efectivo (con la comisión del servicio): el tope legal.
+      const paid = mine.reduce((a, t) => a + net(t) + Number(t.serviceFeeCents ?? 0), 0);
+      return [{ inCents: BigInt(sum), inWindowCents: BigInt(sum), inWindowPaidCents: BigInt(paid), outCents: 0n, outWindowCents: 0n }];
     }
     if (text.includes('SELECT "mergedIntoId"')) {
       const w = wallets.get(String(values[0]));
@@ -527,5 +530,69 @@ describe('anular una recarga en efectivo mal tecleada', () => {
     topUps.set(top.topUpId, { ...topUps.get(top.topUpId)!, createdAt: new Date(NOW.getTime() - 3 * 60 * 60 * 1000) });
     await expect(svc.voidTopUp(manager, top.topUpId, { reason: 'mal', totpCode: '123456' })).rejects.toThrow(/últimas 2 h/);
     expect([...topUps.values()].filter((t) => t.voidOfId)).toHaveLength(0);
+  });
+});
+
+describe('recarga en efectivo con la «Comisión del servicio»', () => {
+  const FEE_ON = { serviceFeeEnabled: true, serviceFeeBps: 1000, topUpServiceFeeBps: 1200 };
+  const recarga = (amountCents: number, key: string, serviceFeeCents?: number) => ({
+    amountCents,
+    idempotencyKey: key,
+    wallet: { code: 'K7Q4M2' },
+    ...(serviceFeeCents !== undefined ? { serviceFeeCents } : {}),
+  });
+
+  it('al 12 %: 50 € de saldo + 6 € de comisión; el saldo sube 50 € y se apunta la comisión del momento', async () => {
+    const { svc, wallets, topUps } = setup({ venue: FEE_ON });
+    const out = await svc.topUp(SALA, javi, recarga(5_000, 'clave-fee-0001', 600));
+    expect(out).toMatchObject({ amountCents: 5_000, serviceFeeCents: 600, serviceFeeBps: 1200, chargedCents: 5_600, balanceCents: 7_000 });
+    expect(wallets.get(WALLET)).toMatchObject({ balanceCents: 7_000 });
+    expect([...topUps.values()][0]).toMatchObject({ amountCents: 5_000, serviceFeeBps: 1200, serviceFeeCents: 600 });
+    // El reintento devuelve lo mismo (con su comisión de entonces).
+    await expect(svc.topUp(SALA, javi, recarga(5_000, 'clave-fee-0001', 600))).resolves.toEqual({ ...out, replayed: true });
+  });
+
+  it('una pantalla que no sabe cobrarla (app anterior) no cobra: 409 y nada se carga', async () => {
+    const { svc, wallets, topUps } = setup({ venue: FEE_ON });
+    const err = await svc.topUp(SALA, javi, recarga(5_000, 'clave-fee-0002')).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ConflictException);
+    expect((err as ConflictException).getResponse()).toMatchObject({ code: 'SERVICE_FEE_APP_OUTDATED' });
+    expect(topUps.size).toBe(0);
+    expect(wallets.get(WALLET)).toMatchObject({ balanceCents: 2_000 });
+  });
+
+  it('si la pantalla enseñó otra comisión (cambió el %): 409 con la de ahora, nada se carga', async () => {
+    const { svc, topUps } = setup({ venue: FEE_ON });
+    const err = await svc.topUp(SALA, javi, recarga(5_000, 'clave-fee-0003', 500)).catch((e: unknown) => e);
+    expect((err as ConflictException).getResponse()).toMatchObject({ code: 'SERVICE_FEE_CHANGED', serviceFeeCents: 600 });
+    expect(topUps.size).toBe(0);
+  });
+
+  it('apagada: como siempre (sin comisión), también con la app anterior', async () => {
+    const { svc, topUps } = setup();
+    const out = await svc.topUp(SALA, javi, recarga(5_000, 'clave-fee-0004'));
+    expect(out).toMatchObject({ amountCents: 5_000, serviceFeeCents: 0, serviceFeeBps: null, chargedCents: 5_000 });
+    expect([...topUps.values()][0]).toMatchObject({ serviceFeeBps: null, serviceFeeCents: 0 });
+  });
+
+  it('el tope legal del efectivo cuenta lo que paga el cliente (saldo + comisión): 900 € + 12 % no cabe', async () => {
+    const { svc, topUps } = setup({ venue: FEE_ON });
+    const err = await svc.topUp(SALA, javi, recarga(90_000, 'clave-fee-0005', 10_800)).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ConflictException);
+    expect(String((err as Error).message)).toMatch(/999,99 €/);
+    expect(topUps.size).toBe(0);
+    // 800 € + 96 € = 896 €: cabe; otros 100 € + 12 € ya pasarían de 1.000 € en 24 h.
+    await svc.topUp(SALA, javi, recarga(80_000, 'clave-fee-0006', 9_600));
+    const over = await svc.topUp(SALA, javi, recarga(10_000, 'clave-fee-0007', 1_200)).catch((e: unknown) => e);
+    expect((over as ConflictException).getResponse()).toMatchObject({ code: 'CASH_LIMIT' });
+  });
+
+  it('anularla devuelve también su comisión: la fila negativa la lleva en negativo', async () => {
+    const { svc, topUps } = setup({ venue: FEE_ON });
+    const top = await svc.topUp(SALA, javi, recarga(5_000, 'clave-fee-0008', 600));
+    const manager = { userId: JAVI, role: 'MANAGER' as const, tenantId: SALA };
+    const out = await svc.voidTopUp(manager, top.topUpId, { reason: 'mal tecleada', totpCode: '123456' });
+    expect(out).toMatchObject({ amountCents: 5_000, serviceFeeCents: 600 });
+    expect([...topUps.values()].find((t) => t.voidOfId === top.topUpId)).toMatchObject({ amountCents: -5_000, serviceFeeCents: -600, serviceFeeBps: 1200 });
   });
 });

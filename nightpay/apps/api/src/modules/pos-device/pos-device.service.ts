@@ -18,6 +18,7 @@ import { InvalidTransitionError, type PaymentMachineState } from '../payments/pa
 import { PAID_STATES, confirmationCode } from '../payments/pay-redirect';
 import { PaymentsService } from '../payments/payments.service';
 import { maxTipCents, settleChargedTip } from '../payments/tip';
+import { chargedCentsOf, refundableFeeCents } from '../payments/service-fee';
 import type { PosDevice } from './device.guard';
 import {
   PAIRING_CODE_TTL_MS,
@@ -44,7 +45,12 @@ export const POS_DEVICE_UNPROVEN_EVENT = 'pos.device_unproven';
 
 export interface PendingPosCharge {
   id: string;
+  /** Lo que se cobra en el lector: el importe + la «Comisión del servicio» (sin propina). */
   amountCents: number;
+  /** El consumo (sin la comisión). */
+  baseAmountCents: number;
+  /** La «Comisión del servicio» (0 sin ella). */
+  serviceFeeCents: number;
   currency: string;
   createdAt: string;
   createdByName: string;
@@ -78,6 +84,9 @@ type PosPayment = {
   status: string;
   captureMethod: string | null;
   amountCents: number;
+  /** «Comisión del servicio» fijada al crear (0 sin ella): el lector cobra amountCents + esta. */
+  serviceFeeCents: number;
+  walletId: string | null;
   currency: string;
   qrExpiresAt: Date;
   posOperationNumber: string | null;
@@ -283,6 +292,7 @@ export class PosDeviceService {
         select: {
           id: true,
           amountCents: true,
+          serviceFeeCents: true,
           currency: true,
           createdAt: true,
           terminalId: true,
@@ -296,7 +306,11 @@ export class PosDeviceService {
     return rows
       .map((r) => ({
         id: r.id,
-        amountCents: r.amountCents,
+        // Lo que se pide al lector (con la comisión del servicio): una app
+        // anterior, que solo lee amountCents, cobra lo que toca.
+        amountCents: r.amountCents + r.serviceFeeCents,
+        baseAmountCents: r.amountCents,
+        serviceFeeCents: r.serviceFeeCents,
         currency: r.currency,
         createdAt: r.createdAt.toISOString(),
         createdByName: r.createdBy?.displayName ?? r.createdBy?.email ?? '—',
@@ -312,14 +326,21 @@ export class PosDeviceService {
   async start(
     device: PosDevice,
     paymentId: string,
-  ): Promise<{ reference: string; amountCents: number; currency: string }> {
+  ): Promise<{ reference: string; amountCents: number; baseAmountCents: number; serviceFeeCents: number; currency: string }> {
     const p = await this.paymentOf(device, paymentId);
     if (p.captureMethod !== 'POS_EXTERNAL' || p.status !== 'CREATED') {
       throw new ConflictException('Este cobro ya no está pendiente');
     }
     if (p.qrExpiresAt <= new Date()) throw new ConflictException('Este cobro ha caducado: hay que crear otro cobro');
     await this.event(p, 'pos.device_started', { terminalId: device.terminalId });
-    return { reference: posReference(p.id), amountCents: p.amountCents, currency: p.currency };
+    // Al lector, el total con la «Comisión del servicio» (la propina la pide él aparte).
+    return {
+      reference: posReference(p.id),
+      amountCents: saleCents(p),
+      baseAmountCents: p.amountCents,
+      serviceFeeCents: p.serviceFeeCents,
+      currency: p.currency,
+    };
   }
 
   /**
@@ -363,8 +384,10 @@ export class PosDeviceService {
     if (p.posOperationNumber === op && p.posTerminalId === device.terminalId && p.status === 'AUTHORIZING') {
       return pendingOutcome(op);
     }
-    if (r.requestedAmount !== p.amountCents) {
-      return this.mismatch(p, op, otherAmountText(r.requestedAmount, r.tipAmount ?? 0, p.amountCents));
+    // El lector tuvo que pedir el importe + la «Comisión del servicio» (la de
+    // este cobro, fijada al crearlo: 0 en los de antes).
+    if (r.requestedAmount !== saleCents(p)) {
+      return this.mismatch(p, op, otherAmountText(r.requestedAmount, r.tipAmount ?? 0, saleCents(p)));
     }
     if (PAID_STATES.has(p.status as PaymentMachineState)) return this.duplicate(p, op, device);
     if (!isDeviceSale(p.captureMethod) || p.status !== 'CREATED') {
@@ -393,10 +416,10 @@ export class PosDeviceService {
         terminalId: device.terminalId,
         operationNumber: op,
         reference: posReference(p.id),
-        amountCents: p.amountCents + tip,
+        amountCents: saleCents(p) + tip,
         authCode,
       }),
-      p.amountCents + tip,
+      saleCents(p) + tip,
     );
     if (verdict.kind === 'rejected') {
       return this.mismatch(p, op, 'Paytef no tiene esta venta aprobada por este importe: anula esta operación.');
@@ -421,6 +444,8 @@ export class PosDeviceService {
               tipCents: tip,
               tipGoesTo: locked.tipGoesTo,
               creatorRole: p.createdBy?.role ?? null,
+              // Devolvible: la comisión de una venta, sí; la de una recarga, no.
+              serviceFeeCents: refundableFeeCents(locked),
             });
             await tx.paymentEvent.create({
               data: {
@@ -588,11 +613,12 @@ export class PosDeviceService {
           posTerminalId: device.terminalId,
           posOperationNumber: { in: sales.map((s) => s.operationNumber) },
         },
-        select: { posOperationNumber: true, amountCents: true, tipCents: true },
+        select: { posOperationNumber: true, amountCents: true, serviceFeeCents: true, tipCents: true },
       }),
     );
-    // Cuadra si la operación está en NightPay por el mismo importe (con propina).
-    const charged = new Map(known.map((k) => [k.posOperationNumber, k.amountCents + k.tipCents]));
+    // Cuadra si la operación está en NightPay por el mismo importe (con la
+    // comisión del servicio y la propina).
+    const charged = new Map(known.map((k) => [k.posOperationNumber, chargedCentsOf(k)]));
     const unmatched = sales
       .filter((s) => {
         const amount = charged.get(s.operationNumber);
@@ -625,6 +651,8 @@ export class PosDeviceService {
           status: true,
           captureMethod: true,
           amountCents: true,
+          serviceFeeCents: true,
+          walletId: true,
           currency: true,
           qrExpiresAt: true,
           posOperationNumber: true,
@@ -692,6 +720,11 @@ export class PosDeviceService {
       },
     });
   }
+}
+
+/** Lo que pide el lector por un cobro: el importe + su «Comisión del servicio» (sin propina). */
+function saleCents(p: Pick<PosPayment, 'amountCents' | 'serviceFeeCents'>): number {
+  return p.amountCents + (p.serviceFeeCents ?? 0);
 }
 
 function pendingOutcome(operationNumber: string): SaleOutcome {

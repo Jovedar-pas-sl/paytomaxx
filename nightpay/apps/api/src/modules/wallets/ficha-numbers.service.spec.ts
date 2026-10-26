@@ -77,7 +77,7 @@ describe('recargar por número', () => {
   it('un saldo que ya existe: en efectivo, por la ficha encontrada, y sin enseñar su código', async () => {
     const { svc, cash } = setup();
     await expect(svc.topUp(actor, { printedNumber: '017', amountCents: 2_000, idempotencyKey: 'rec-12345678' })).resolves.toEqual({
-      topUpId: 't-1', codeHint: 'K7Q-•••', amountCents: 2_000, balanceCents: 10_000, replayed: false,
+      topUpId: 't-1', codeHint: 'K7Q-•••', amountCents: 2_000, serviceFeeCents: 0, balanceCents: 10_000, replayed: false,
     });
     expect(cash.topUp).toHaveBeenCalledWith(SALA, { userId: actor.userId, role: 'WAITER' }, { amountCents: 2_000, idempotencyKey: 'rec-12345678', wallet: { printed: { cardId: 'c-1' } } });
   });

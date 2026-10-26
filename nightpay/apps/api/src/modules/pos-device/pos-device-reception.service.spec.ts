@@ -79,7 +79,7 @@ describe('qué ofrece la recepción en este datáfono', () => {
   it('por defecto: tarjeta (datáfono + saldo) y fichas; el efectivo según el permiso de los datáfonos', async () => {
     const reason = 'El dueño no deja cobrar recargas en efectivo en el datáfono';
     const { svc, cash } = make({ cashReason: reason });
-    await expect(svc.options(device)).resolves.toEqual({ card: true, cash: false, cashBlockedReason: reason, nfc: true });
+    await expect(svc.options(device)).resolves.toEqual({ card: true, cash: false, cashBlockedReason: reason, nfc: true, serviceFee: { enabled: false, cardBps: 1000, topUpBps: 1000 } });
     expect(cash.cashBlockedReason).toHaveBeenCalledWith(SALA, { terminalId: 'term-recepcion' });
   });
 
@@ -102,7 +102,7 @@ describe('recargar en la recepción del datáfono', () => {
   it('con tarjeta, saldo nuevo: cobro de este datáfono, sin persona, empezado aquí; la referencia es la del lector', async () => {
     const { svc, payments, tx, audit } = make();
     const out = await svc.cardTopUp(device, { amountCents: 5_000, idempotencyKey: 'clave-0002', wallet: { create: true } });
-    expect(out).toEqual({ paymentId: PAY, reference: posReference(PAY), amountCents: 5_000, walletId: WALLET });
+    expect(out).toEqual({ paymentId: PAY, reference: posReference(PAY), amountCents: 5_000, topUpCents: 5_000, serviceFeeCents: 0, walletId: WALLET });
     expect(payments.create).toHaveBeenCalledWith(
       SALA,
       'reception:term-recepcion:clave-0002',
@@ -249,6 +249,7 @@ describe('el resultado de una recarga en este datáfono (datafono #6)', () => {
       paymentId: PAY,
       status: 'CREDITED',
       amountCents: 5_000,
+      serviceFeeCents: 0,
       walletId: WALLET,
       codeHint: 'K7Q-•••',
       balanceCents: 12_000,
@@ -269,5 +270,19 @@ describe('el resultado de una recarga en este datáfono (datafono #6)', () => {
     const gone = make({ sale: sale('EXPIRED') });
     await expect(gone.svc.topUpResult(device, PAY)).resolves.toMatchObject({ status: 'NOT_PAID' });
     await expect(make({ sale: null }).svc.topUpResult(device, PAY)).rejects.toBeInstanceOf(NotFoundException);
+  });
+});
+
+describe('recepción del datáfono con la «Comisión del servicio»', () => {
+  it('con tarjeta: el lector cobra saldo + comisión (56 €) y se dice qué es cada cosa', async () => {
+    const { svc, payments } = make();
+    payments.create.mockResolvedValueOnce({ id: PAY, amountCents: 5_000, serviceFeeCents: 600, walletId: WALLET, status: 'CREATED' });
+    const out = await svc.cardTopUp(device, { amountCents: 5_000, idempotencyKey: 'clave-fee-0001', wallet: { create: true } });
+    expect(out).toMatchObject({ amountCents: 5_600, topUpCents: 5_000, serviceFeeCents: 600 });
+  });
+
+  it('las opciones dicen la comisión del local (para «Cobra 56 €…»)', async () => {
+    const { svc } = make({ venue: { serviceFeeEnabled: true, serviceFeeBps: 1000, topUpServiceFeeBps: 1200 } });
+    await expect(svc.options(device)).resolves.toMatchObject({ serviceFee: { enabled: true, cardBps: 1000, topUpBps: 1200 } });
   });
 });

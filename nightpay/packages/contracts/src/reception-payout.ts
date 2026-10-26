@@ -111,6 +111,8 @@ export const ReceptionNumberTopUpSchema = z
     printedNumber: z.string().regex(/^[0-9]{1,12}$/, 'Escribe entre 1 y 12 cifras del número impreso'),
     amountCents: z.number().int().positive().max(MAX_CASH_TOP_UP_CENTS, 'En efectivo, como mucho 999,99 € por recarga'),
     idempotencyKey: IdempotencyKeySchema,
+    /** La «Comisión del servicio» que enseñó la pantalla (como CashTopUpSchema). */
+    serviceFeeCents: z.number().int().nonnegative().max(MAX_CASH_TOP_UP_CENTS).optional(),
   })
   .strict();
 export type ReceptionNumberTopUpDto = z.infer<typeof ReceptionNumberTopUpSchema>;
@@ -120,6 +122,8 @@ export interface ReceptionNumberTopUpResult {
   topUpId: string;
   codeHint: string;
   amountCents: number;
+  /** La «Comisión del servicio» cobrada encima (0 sin ella). Opcional: API anterior. */
+  serviceFeeCents?: number;
   balanceCents: number;
   replayed: boolean;
 }

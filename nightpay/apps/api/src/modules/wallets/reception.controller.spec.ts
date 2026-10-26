@@ -46,7 +46,7 @@ describe('recepción desde la app del personal', () => {
   it('opciones: con tarjeta es el QR de la recarga (tarjeta + saldo); el efectivo, según el permiso', async () => {
     const s = services();
     const ctrl = new ReceptionController(s.cash as never, s.cards as never, s.charges as never, s.prisma as never);
-    await expect(ctrl.options(user)).resolves.toEqual({ card: true, cash: true, cashBlockedReason: null, nfc: true });
+    await expect(ctrl.options(user)).resolves.toEqual({ card: true, cash: true, cashBlockedReason: null, nfc: true, serviceFee: { enabled: false, cardBps: 1000, topUpBps: 1000 } });
     expect(s.cash.cashBlockedReason).toHaveBeenCalledWith(SALA, { userId: 'u-1', role: 'WAITER' });
     const off = services({ paymentMethods: { card: false, nfc: false } });
     off.cash.cashBlockedReason.mockResolvedValue('El dueño del local no te deja cobrar recargas en efectivo.');

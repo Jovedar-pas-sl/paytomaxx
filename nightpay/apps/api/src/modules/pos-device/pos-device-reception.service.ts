@@ -21,6 +21,7 @@ import { topUpTarget } from '../wallets/wallet-topup-target';
 import { RECEPTION_LIMIT_ACTION } from './device-rate-limit.guard';
 import type { PosDevice } from './device.guard';
 import { posReference } from './paytef';
+import { VENUE_SERVICE_FEE_SELECT, venueServiceFeeOf } from '../payments/service-fee';
 import {
   RECEPTION_LIMIT_MESSAGES,
   RECEPTION_LIMIT_WINDOW_MS,
@@ -33,7 +34,15 @@ export interface ReceptionCardSale {
   paymentId: string;
   /** Referencia para la venta de Paytef (la que vuelve en el resultado). */
   reference: string;
+  /**
+   * Lo que se cobra en el lector: el saldo + la «Comisión del servicio» (así
+   * una app anterior, que manda amountCents al lector, cobra lo que toca).
+   */
   amountCents: number;
+  /** El saldo que se carga. */
+  topUpCents: number;
+  /** La «Comisión del servicio» (0 sin ella). */
+  serviceFeeCents: number;
   walletId: string;
 }
 
@@ -48,7 +57,10 @@ export interface ReceptionCardSale {
 export interface ReceptionTopUpView {
   paymentId: string;
   status: 'CREDITED' | 'PENDING' | 'OPEN' | 'NOT_PAID';
+  /** El saldo de la recarga. */
   amountCents: number;
+  /** Su «Comisión del servicio» (la cobró el lector encima). */
+  serviceFeeCents: number;
   walletId: string;
   /** «K7Q-•••»: el código entero solo sale en el saldo recién creado aquí. */
   codeHint: string;
@@ -116,7 +128,10 @@ export class PosDeviceReceptionService {
   /** Qué ofrece la recepción en este datáfono (lo apagado no sale en la pantalla). */
   async options(device: PosDevice): Promise<ReceptionOptions> {
     const venue = await this.prisma.asSystem((tx) =>
-      tx.venue.findUnique({ where: { id: device.tenantId }, select: { paymentMethods: true, ...VENUE_PAUSE_SELECT } }),
+      tx.venue.findUnique({
+        where: { id: device.tenantId },
+        select: { paymentMethods: true, ...VENUE_PAUSE_SELECT, ...VENUE_SERVICE_FEE_SELECT },
+      }),
     );
     const methods = paymentMethodsOf(venue?.paymentMethods);
     const open = venuePauseScope(venue) === null;
@@ -128,6 +143,8 @@ export class PosDeviceReceptionService {
       cash: cashBlockedReason === null,
       cashBlockedReason,
       nfc: methods.nfc,
+      // «Cobra 56 € (50 € de saldo + 6 € de comisión del servicio)».
+      serviceFee: venueServiceFeeOf(venue),
     };
   }
 
@@ -209,7 +226,15 @@ export class PosDeviceReceptionService {
       });
       this.logger.log(`Recarga ${created.id} de ${body.amountCents}c en la recepción del datáfono ${device.terminalId}`);
     }
-    return { paymentId: created.id, reference: posReference(created.id), amountCents: created.amountCents, walletId: created.walletId };
+    const fee = created.serviceFeeCents ?? 0;
+    return {
+      paymentId: created.id,
+      reference: posReference(created.id),
+      amountCents: created.amountCents + fee,
+      topUpCents: created.amountCents,
+      serviceFeeCents: fee,
+      walletId: created.walletId,
+    };
   }
 
   /**
@@ -228,7 +253,7 @@ export class PosDeviceReceptionService {
           captureMethod: 'WALLET_TOPUP',
           createdAt: { gte: new Date(Date.now() - TOP_UP_VIEW_MS) },
         },
-        select: { id: true, status: true, amountCents: true, walletId: true },
+        select: { id: true, status: true, amountCents: true, serviceFeeCents: true, walletId: true },
       }),
     );
     const walletId = p?.walletId;
@@ -244,6 +269,7 @@ export class PosDeviceReceptionService {
       paymentId: p.id,
       status,
       amountCents: p.amountCents,
+      serviceFeeCents: p.serviceFeeCents ?? 0,
       walletId,
       codeHint: codeHintOf(w?.shortCode ?? null),
       balanceCents: status === 'CREDITED' ? (w?.balanceCents ?? null) : null,

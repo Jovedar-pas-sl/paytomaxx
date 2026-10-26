@@ -176,6 +176,7 @@ describe('listPendingPos — panel del camarero', () => {
   it('vista: quién lo creó (nombre, si no email, si no «—»), zona, datáfono y código corto', async () => {
     const row = (o: Record<string, unknown>) => ({
       amountCents: 4_500,
+      serviceFeeCents: 0,
       currency: 'EUR',
       createdAt: at('2026-10-17T01:25:00+02:00'),
       qrExpiresAt: at('2026-10-17T01:55:00+02:00'),
@@ -198,7 +199,10 @@ describe('listPendingPos — panel del camarero', () => {
     const out = await service.listPendingPos(TENANT);
     expect(out[0]).toEqual({
       id: '7f1c2a9e-3b4d-4e5f-8a6b-1c2d3e4f5a6b',
+      // Lo que se cobra en el datáfono (con la comisión del servicio, aquí 0).
       amountCents: 4_500,
+      baseAmountCents: 4_500,
+      serviceFeeCents: 0,
       currency: 'EUR',
       createdAt: '2026-10-16T23:25:00.000Z',
       qrExpiresAt: '2026-10-16T23:55:00.000Z',

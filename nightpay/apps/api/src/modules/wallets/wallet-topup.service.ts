@@ -13,7 +13,8 @@ import { ConfigService } from '@nestjs/config';
 import { ModuleRef } from '@nestjs/core';
 import type { PublicKeyCredentialRequestOptionsJSON } from '@simplewebauthn/server';
 import type { Redis } from 'ioredis';
-import { methodsNeededForPayment, paymentMethodsOf, type CreatePaymentDto } from '@nightpay/contracts';
+import { methodsNeededForPayment, paymentMethodsOf, serviceFeeBpsFor, type CreatePaymentDto, type VenueServiceFee } from '@nightpay/contracts';
+import { VENUE_SERVICE_FEE_SELECT, venueServiceFeeOf } from '../payments/service-fee';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { REDIS_CLIENT } from '../../common/redis/redis.module';
 import { PaymentsService } from '../payments/payments.service';
@@ -53,6 +54,11 @@ export interface TopUpOptions {
   presetsCents: number[];
   minCents: number;
   maxCents: number;
+  /**
+   * % de la «Comisión del servicio» de las recargas (null = sin comisión): la
+   * página enseña «Recargas 50 € · Comisión del servicio 6 € · Pagas 56 €».
+   */
+  serviceFeeBps: number | null;
 }
 
 export interface TopUpStarted {
@@ -77,6 +83,8 @@ interface TopUpVenue {
   state: TopUpVenueState;
   raw: VenuePauseState & { paymentMethods: unknown };
   terminalExternalId: string | null;
+  /** «Comisión del servicio» del local del saldo. */
+  serviceFee: VenueServiceFee;
 }
 
 const OPEN_STATUSES = new Set(['CREATED', 'AUTHORIZING', 'AUTHORIZED']);
@@ -151,6 +159,7 @@ export class WalletTopUpService {
       presetsCents: [...SELF_TOPUP_PRESETS_CENTS],
       minCents: SELF_TOPUP_MIN_CENTS,
       maxCents: SELF_TOPUP_MAX_CENTS,
+      serviceFeeBps: serviceFeeBpsFor(venue.serviceFee, 'topUp'),
     };
   }
 
@@ -302,7 +311,7 @@ export class WalletTopUpService {
     return this.prisma.asSystem(async (tx) => {
       const venue = await tx.venue.findUnique({
         where: { id: wallet.tenantId },
-        select: { ...VENUE_PAUSE_SELECT, ...VENUE_METHODS_SELECT },
+        select: { ...VENUE_PAUSE_SELECT, ...VENUE_METHODS_SELECT, ...VENUE_SERVICE_FEE_SELECT },
       });
       const gateways = await tx.gatewayCredential.count({ where: { tenantId: wallet.tenantId, active: true } });
       const last = await tx.payment.findFirst({
@@ -329,6 +338,7 @@ export class WalletTopUpService {
         },
         raw: { pausedAt: venue?.pausedAt ?? null, business: venue?.business ?? null, paymentMethods: venue?.paymentMethods },
         terminalExternalId,
+        serviceFee: venueServiceFeeOf(venue),
       };
     });
   }

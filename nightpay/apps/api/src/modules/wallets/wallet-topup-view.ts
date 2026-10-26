@@ -32,6 +32,7 @@ export const TOPUP_CSS = `
 .teur input{width:7rem;min-height:3.25rem;font:inherit;font-size:1.6rem;font-weight:800;text-align:center;border-radius:14px;border:2px solid var(--line-hi);background:var(--surface-2);color:var(--fg)}
 .teur input:focus-visible{outline:3px solid var(--fg);outline-offset:2px}
 .teur span{font-size:1.4rem;font-weight:800}
+.tfee{font-weight:700;color:var(--fg)}
 .proof{position:relative;isolation:isolate;overflow:hidden;display:grid;grid-template-columns:auto 1fr;align-items:center;gap:.2rem .85rem;padding:1rem 1.1rem;border-radius:var(--r);background:radial-gradient(120% 120% at 20% 20%,var(--green-3) 0%,var(--green-2) 55%,var(--green-1) 100%);background-color:var(--green-2);color:var(--cream);box-shadow:0 0 0 1px var(--lime-edge)}
 .proof p,.proof a{color:inherit}
 .proof .band{position:absolute;top:-50%;left:-50%;width:200%;height:200%;z-index:-1;background:repeating-linear-gradient(-45deg,rgb(239 233 223/.05) 0 30px,rgb(239 233 223/0) 30px 60px);animation:np-band 8s linear infinite;will-change:transform}
@@ -77,6 +78,8 @@ export function topUpCard(lang: PayLanguage, options: TopUpOptions | null): stri
   const limits = options
     ? t.topUpLimits.replace('{min}', short(options.minCents, t.locale)).replace('{max}', short(options.maxCents, t.locale))
     : '';
+  // «Comisión del servicio» de las recargas: el desglose lo rellena el JS (topUpd).
+  const withFee = (options?.serviceFeeBps ?? 0) > 0;
   return `<section class="card topup" id="topupBox" hidden aria-labelledby="topupTitle">
 <h2 id="topupTitle">${h(t.topUpTitle)}</h2><p>${h(t.topUpWhy)}</p>
 <form id="topupForm" class="tform" autocomplete="off">
@@ -84,10 +87,11 @@ export function topUpCard(lang: PayLanguage, options: TopUpOptions | null): stri
 <div class="tother" id="otherBox" hidden><label for="otherIn">${h(t.topUpOtherLabel)}</label>
 <div class="teur"><input id="otherIn" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="3" autocomplete="off" aria-describedby="topupLimits"><span aria-hidden="true">€</span></div></div>
 <p class="small" id="topupLimits">${h(limits)}</p>
+${withFee ? '<p class="tfee num" id="topupFee" aria-live="polite"></p>' : ''}
 <p class="small" id="topupKey" hidden></p>
 <p class="err" id="topupErr" role="alert" hidden></p>
 <button class="btn" type="submit" id="topupGo">${h(t.topUp)}</button>
-<p class="small">${h(t.topUpMethods)}</p>
+<p class="small">${h(withFee ? t.topUpMethodsFee : t.topUpMethods)}</p>
 </form>
 </section>
 `;
@@ -149,8 +153,10 @@ function eurShort(c){return npMoney(c,C.locale,'EUR');}
 function topCents(){var r=$('topupForm').querySelector('input[name=amt]:checked');if(!r)return 0;
  if(r.value!=='other')return +r.value||0;return (parseInt($('otherIn').value.replace(/[^0-9]/g,'')||'0',10)||0)*100;}
 function topOk(c){return c>=TU.minCents&&c<=TU.maxCents&&c%100===0;}
-function topUpd(){var c=topCents(),b=$('topupGo'),label=topOk(c)?fill(T.topUpGo,'amount',eurShort(c)):T.topUp;
- $('otherBox').hidden=!$('amtOther').checked;b.setAttribute('data-label',label);if(!busy)b.textContent=label;}
+function topFee(c){var bps=TU.serviceFeeBps||0;return bps>0&&c>0?Math.round(c*bps/10000):0;}
+function topUpd(){var c=topCents(),b=$('topupGo'),label=topOk(c)?fill(T.topUpGo,'amount',eurShort(c)):T.topUp,fl=$('topupFee');
+ $('otherBox').hidden=!$('amtOther').checked;b.setAttribute('data-label',label);if(!busy)b.textContent=label;
+ if(fl){var f=topFee(c);fl.textContent=topOk(c)?fill(fill(fill(T.topUpFeeLine,'amount',eurShort(c)),'fee',eurShort(f)),'total',eurShort(c+f)):'';}}
 function topUsable(s){return (s.status==='ACTIVE'||(s.status==='DEPLETED'&&!s.merged))&&!s.refund&&!s.closeRequested;}
 function topCan(s){return topUsable(s)&&TU.allowed;}
 function topRender(s){var usable=topUsable(s),can=usable&&TU.allowed;

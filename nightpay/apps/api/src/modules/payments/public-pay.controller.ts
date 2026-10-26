@@ -281,6 +281,7 @@ export class PublicPayController {
             {
               amountCents: view.amountCents,
               tipCents: view.tipCents,
+              serviceFeeCents: view.serviceFeeCents ?? 0,
               currency: view.currency,
               code: confirmationCode(view.paymentId),
               authorizedAt: view.authorizedAt,

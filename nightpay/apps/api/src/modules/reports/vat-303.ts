@@ -1,4 +1,4 @@
-import { EMPTY_TOTALS, invoicedCents, netCents, type PeriodTotals } from './period-totals';
+import { EMPTY_TOTALS, invoicedCents, netCents, serviceFeeOwedCents, type PeriodTotals } from './period-totals';
 import type { QuarterWindow } from './reporting-window';
 
 /**
@@ -30,6 +30,8 @@ export interface VatMonthRow {
   walletCardPayoutCents: number;
   /** Recargas en efectivo del mes (facturadas al cargarlas, como las de tarjeta). */
   walletCashTopUpCents: number;
+  /** «Comisión del servicio» del mes (cobrada − devuelta): es de OxioPay, no entra en la base. */
+  serviceFeeCents: number;
   /** Lo facturado del mes = base + cuota (sin propinas). */
   facturadoCents: number;
 }
@@ -58,6 +60,8 @@ export interface Vat303Report extends VatHead {
     walletCashPayoutCents: number;
     walletCardPayoutCents: number;
     walletCashTopUpCents: number;
+    /** «Comisión del servicio» (cobrada − devuelta): se debe a OxioPay y no entra en la base del local. */
+    serviceFeeCents: number;
     facturadoCents: number;
   };
   walletInfo: { consumptionCount: number; consumptionCents: number; note: string };
@@ -73,6 +77,7 @@ const WALLET_NOTE =
 const DISCLAIMER =
   'Reporte automático sin auditoría fiscal. Verifica con tu asesor antes de presentar Modelo 303. ' +
   'Las propinas no entran en la base (van aparte en el desglose). ' +
+  'La comisión del servicio que paga el cliente se debe a OxioPay y no entra en la base del local (va aparte en el desglose). ' +
   'Recargo de equivalencia + facturas de gasto deducibles requieren tratamiento manual.';
 
 /** Importe con IVA incluido → base y cuota (redondeo simétrico al céntimo). */
@@ -119,6 +124,7 @@ export function buildVat303(args: {
       walletCashPayoutCents: total('walletCashPayoutCents'),
       walletCardPayoutCents: total('walletCardPayoutCents'),
       walletCashTopUpCents: total('walletCashTopUpCents'),
+      serviceFeeCents: total('serviceFeeCents'),
       facturadoCents: total('facturadoCents'),
     },
     walletInfo: { consumptionCount: args.consumptions.count, consumptionCents: args.consumptions.cents, note: WALLET_NOTE },
@@ -143,6 +149,7 @@ function vatMonth(month: string, t: PeriodTotals, vatBps: number): VatMonthRow {
     walletCashPayoutCents: t.walletCashPayoutCents,
     walletCardPayoutCents: t.walletCardPayoutCents,
     walletCashTopUpCents: t.walletCashTopUpCents,
+    serviceFeeCents: serviceFeeOwedCents(t),
     facturadoCents: facturado,
   };
 }

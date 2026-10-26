@@ -348,11 +348,16 @@ describe('WalletTopUpService.options / challenge / paidProof', () => {
       presetsCents: [2000, 5000, 10000],
       minCents: 1000,
       maxCents: 30000,
+      // Sin la «Comisión del servicio» encendida: nada encima.
+      serviceFeeBps: null,
     });
     await expect(make({ venue: { pausedAt: new Date() } }).service.options('w-tok')).resolves.toMatchObject({
       allowed: false,
       block: 'paused',
     });
+    // Encendida: el % de las recargas (la página enseña «Recargas · Comisión · Pagas»).
+    const on = make({ venue: { serviceFeeEnabled: true, serviceFeeBps: 1000, topUpServiceFeeBps: 1200 } });
+    await expect(on.service.options('w-tok')).resolves.toMatchObject({ serviceFeeBps: 1200 });
   });
 
   it('challenge: solo con Face ID y si se puede recargar; atado a este saldo', async () => {

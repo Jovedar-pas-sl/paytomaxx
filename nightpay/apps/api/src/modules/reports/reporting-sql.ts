@@ -71,10 +71,14 @@ export function paymentRecordedAt(p: string): Prisma.Sql {
   )`;
 }
 
-/** Parte de una devolución que era propina (proporcional a lo cobrado). */
+/**
+ * Parte de una devolución que era propina (proporcional a lo cobrado: importe
+ * + «Comisión del servicio» + propina; sin comisión, como siempre). La de la
+ * comisión se apunta en la devolución (refunds."serviceFeeCents").
+ */
 export function refundTipPart(r: string, p: string): Prisma.Sql {
   return Prisma.raw(
-    `ROUND(${r}."amountCents"::numeric * ${p}."tipCents" / NULLIF(${p}."amountCents" + ${p}."tipCents", 0))`,
+    `ROUND(${r}."amountCents"::numeric * ${p}."tipCents" / NULLIF(${p}."amountCents" + ${p}."serviceFeeCents" + ${p}."tipCents", 0))`,
   );
 }
 

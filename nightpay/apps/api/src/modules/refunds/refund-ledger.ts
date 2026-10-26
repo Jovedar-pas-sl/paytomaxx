@@ -1,7 +1,9 @@
 import { ConflictException } from '@nestjs/common';
+import { refundServiceFeePart } from '@nightpay/contracts';
 import type { Prisma } from '@nightpay/db';
 import type { TransactionalClient } from '../../common/prisma/prisma.service';
 import { pendingRefundApprovalCents } from '../approvals/approval-store';
+import { chargedCentsOf, refundableFeeCents } from '../payments/service-fee';
 
 /**
  * Piezas de las devoluciones que van DENTRO de una transacción con la fila
@@ -138,4 +140,44 @@ export async function settlePendingRefund(
   if (done.count !== 1) {
     throw new ConflictException('Esta devolución ya no está pendiente (la resolvió otra persona). Recarga la lista.');
   }
+}
+
+/** Lo del cobro que hace falta para repartir una devolución (la fila bloqueada de transition()). */
+export interface RefundedPaymentLike {
+  id: string;
+  amountCents: number;
+  serviceFeeCents?: number | null;
+  tipCents: number;
+  walletId: string | null;
+}
+
+/**
+ * La parte de una devolución ya hecha (SUCCEEDED) que es «Comisión del
+ * servicio»: en proporción a lo cobrado (importe + comisión + propina), por lo
+ * acumulado: con las devoluciones hechas antes, lo devuelto de la comisión es
+ * round(comisión × devuelto / cobrado) y esta lleva lo que falta. Se apunta en
+ * la devolución (refunds.serviceFeeCents) dentro de la transacción del cobro
+ * bloqueado, así dos devoluciones no se pisan. Deja de ser ingreso de OxioPay.
+ * En una recarga, nunca (se devuelve solo el saldo); sin comisión, ni se consulta.
+ */
+export async function stampRefundServiceFee(
+  tx: Pick<TransactionalClient, 'refund'>,
+  payment: RefundedPaymentLike,
+  refundId: string,
+  refundCents: number,
+): Promise<number> {
+  const feeCents = refundableFeeCents(payment);
+  if (feeCents <= 0) return 0;
+  const prior = await tx.refund.aggregate({
+    where: { paymentId: payment.id, status: 'SUCCEEDED', id: { not: refundId } },
+    _sum: { amountCents: true, serviceFeeCents: true },
+  });
+  const part = refundServiceFeePart({
+    feeCents,
+    chargedCents: chargedCentsOf(payment),
+    refundedAfterCents: (prior._sum.amountCents ?? 0) + refundCents,
+    feeRefundedBeforeCents: prior._sum.serviceFeeCents ?? 0,
+  });
+  if (part > 0) await tx.refund.update({ where: { id: refundId }, data: { serviceFeeCents: part } });
+  return part;
 }

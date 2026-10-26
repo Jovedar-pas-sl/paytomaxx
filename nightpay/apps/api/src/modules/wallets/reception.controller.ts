@@ -22,6 +22,7 @@ import { RolesGuard } from '../../common/guards/roles.guard';
 import { ZodValidationPipe } from '../../common/pipes/zod.pipe';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { assertVenueAcceptsMethods } from '../venues/venue-methods';
+import { VENUE_SERVICE_FEE_SELECT, venueServiceFeeOf } from '../payments/service-fee';
 import { venuePauseScope, VENUE_PAUSE_SELECT } from '../venues/venue-pause';
 import { CashTopUpService, type RecentCashTopUp } from './wallet-cash-topup.service';
 import { WalletCardsService } from './wallet-cards.service';
@@ -71,7 +72,10 @@ export class ReceptionController {
   @Roles('OPERATOR', 'WAITER', 'MANAGER', 'OWNER')
   async options(@CurrentUser() user: JwtPayload): Promise<ReceptionOptions> {
     const venue = await this.prisma.asSystem((tx) =>
-      tx.venue.findUnique({ where: { id: user.tenantId }, select: { paymentMethods: true, ...VENUE_PAUSE_SELECT } }),
+      tx.venue.findUnique({
+        where: { id: user.tenantId },
+        select: { paymentMethods: true, ...VENUE_PAUSE_SELECT, ...VENUE_SERVICE_FEE_SELECT },
+      }),
     );
     const methods = paymentMethodsOf(venue?.paymentMethods);
     const cashBlockedReason = await this.cash.cashBlockedReason(user.tenantId, { userId: user.sub, role: user.role });
@@ -81,6 +85,8 @@ export class ReceptionController {
       cash: cashBlockedReason === null,
       cashBlockedReason,
       nfc: methods.nfc,
+      // «Cobra 56 € (50 € de saldo + 6 € de comisión del servicio)».
+      serviceFee: venueServiceFeeOf(venue),
     };
   }
 

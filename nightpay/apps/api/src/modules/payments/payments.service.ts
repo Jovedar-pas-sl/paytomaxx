@@ -97,6 +97,8 @@ import { BRAND_NAME } from '../../common/brand';
 import { isOtherOrder, markAttemptApproved, recordSecondApproval } from './second-approval';
 import { sweepUnpaidTopUpWallet } from './topup-wallet-sweep';
 import { closeLinkedSaldo } from './cobro-link';
+import { serviceFeeQuote } from '@nightpay/contracts';
+import { VENUE_SERVICE_FEE_SELECT, refundableFeeCents, venueServiceFeeOf } from './service-fee';
 
 const POS_AUTH_CODE_REUSED =
   'Ese código de autorización ya se usó en otro cobro de este datáfono. Revisa el ticket.';
@@ -217,7 +219,13 @@ interface PaymentDraft {
   captureMethod: string | null;
   topUp: TopUpWallet | null;
   ttlSeconds: number;
+  /** % antiguo de OxioPay fijado al crear: 0 con la «Comisión del servicio» encendida. */
   platformCommissionBps: number;
+  /**
+   * «Comisión del servicio» del momento (service-fee.ts): el % (null = sin
+   * comisión, interruptor apagado) y el importe, encima de amountCents.
+   */
+  serviceFee: { bps: number | null; cents: number };
   /** % de la chica fijado al crear (#54); null si no lo crea una chica. */
   operatorCommissionBps: number | null;
   /** Cobro único: también se puede pagar con el saldo (cobro del saldo enlazado). */
@@ -315,6 +323,8 @@ export interface LockedPaymentRow {
   revenueCategory: string;
   /** % de la chica fijado al crear el cobro (null en cobros anteriores). */
   operatorCommissionBps?: number | null;
+  /** «Comisión del servicio» fijada al crear (0 sin ella o en cobros anteriores). */
+  serviceFeeCents?: number;
 }
 
 export interface TransitionOptions {
@@ -452,7 +462,7 @@ export class PaymentsService implements OnApplicationBootstrap {
     }
     const url = this.peanpe.buildPaymentUrl({
       identificadorLlamada: payment.peanpeCall.identificadorLlamada,
-      amountCents: payment.amountCents,
+      amountCents: payment.amountCents + payment.serviceFeeCents,
       concepto: `${BRAND_NAME} ${payment.id.slice(0, 8)}`,
       debug: process.env.NODE_ENV !== 'production',
     });
@@ -570,6 +580,7 @@ export class PaymentsService implements OnApplicationBootstrap {
           walletGroup: true,
           ...VENUE_PAUSE_SELECT,
           ...VENUE_METHODS_SELECT,
+          ...VENUE_SERVICE_FEE_SELECT,
         },
       }),
     );
@@ -607,6 +618,10 @@ export class PaymentsService implements OnApplicationBootstrap {
       throw new BadRequestException('No se puede recargar el saldo con un datáfono externo: usa el QR.');
     }
     const topUp = await this.resolveTopUp(tenantId, dto, venue.walletGroup);
+    // «Comisión del servicio» (interruptor del local): el pago directo con
+    // tarjeta o datáfono, al % de las tarjetas; la recarga, al de las recargas.
+    // Encendida, el local ya no paga el % antiguo de OxioPay sobre este cobro.
+    const fee = serviceFeeQuote(venueServiceFeeOf(venue), isWalletTopUp ? 'topUp' : 'card', amountCents);
     const commission = await this.operatorCommissionSnapshot({
       creator,
       isWalletTopUp,
@@ -625,7 +640,8 @@ export class PaymentsService implements OnApplicationBootstrap {
       // POS_EXTERNAL puede tardar más en confirmarse (camarero camina con el
       // datáfono) — TTL más generoso. Wallet topup y QR normal: 5 min default.
       ttlSeconds: byDatafono ? POS_QR_TTL_SECONDS : QR_TTL_SECONDS,
-      platformCommissionBps: venue.platformCommissionBps,
+      platformCommissionBps: fee.bps === null ? venue.platformCommissionBps : 0,
+      serviceFee: { bps: fee.bps, cents: fee.feeCents },
       operatorCommissionBps: commission.paymentBps,
       // Cobro único: con el saldo encendido en el local y quien cobra con
       // nombre (el cobro del saldo es suyo). Ni recargas ni datáfono.
@@ -798,6 +814,9 @@ export class PaymentsService implements OnApplicationBootstrap {
     const { tenantId, draft, dto } = input;
     const { tipCents, tipGoesTo, tipBeneficiaryUserId, ignoredCents } = draft.tip;
     const qrExpiresAt = new Date(Date.now() + draft.ttlSeconds * 1000);
+    const feeCents = draft.serviceFee.cents;
+    // La comisión de un pago directo se devuelve con él; la de una recarga, no.
+    const refundableFee = draft.topUp ? 0 : feeCents;
     return this.prisma.asSystem(async (tx) => {
       const walletId = await this.topUpWalletId(tx, tenantId, draft.topUp);
       // Referencia corta (C-0001): el contador del local queda bloqueado hasta el commit.
@@ -811,8 +830,11 @@ export class PaymentsService implements OnApplicationBootstrap {
           idempotencyKey: input.idempotencyKey,
           idempotencyHash: input.requestHash,
           amountCents: draft.amountCents,
-          // availableAmountCents incluye tip — refunds pueden cubrir todo.
-          availableAmountCents: draft.amountCents + tipCents,
+          // availableAmountCents incluye tip (y la comisión del servicio de un
+          // pago directo) — refunds pueden cubrir todo lo cobrado.
+          availableAmountCents: draft.amountCents + refundableFee + tipCents,
+          serviceFeeBps: draft.serviceFee.bps,
+          serviceFeeCents: feeCents,
           currency: dto.currency,
           status: 'CREATED',
           qrToken: randomUUID(),
@@ -862,6 +884,7 @@ export class PaymentsService implements OnApplicationBootstrap {
           payload: {
             amountCents: p.amountCents,
             tipCents,
+            ...(feeCents > 0 ? { serviceFeeCents: feeCents, serviceFeeBps: draft.serviceFee.bps } : {}),
             ...(ignoredCents > 0 ? { tipIgnoredCents: ignoredCents } : {}),
             terminal: dto.terminalExternalId,
             walletId,
@@ -1114,6 +1137,7 @@ export class PaymentsService implements OnApplicationBootstrap {
           status: true,
           provider: true,
           amountCents: true,
+          serviceFeeCents: true,
           tipCents: true,
           currency: true,
           qrExpiresAt: true,
@@ -1152,6 +1176,7 @@ export class PaymentsService implements OnApplicationBootstrap {
     return {
       ...rest,
       walletId,
+      topUp: Boolean(walletId),
       status: payment.status as PaymentMachineState,
       allowTip: provider === 'REDSYS' && walletId === null && methods.tips && creatorTips,
       tipPresets: { flatCents: methods.tipFlatCents, percents: methods.tipPercents },
@@ -1192,6 +1217,7 @@ export class PaymentsService implements OnApplicationBootstrap {
           id: true,
           status: true,
           amountCents: true,
+          serviceFeeCents: true,
           tipCents: true,
           currency: true,
           authorizedAt: true,
@@ -1221,6 +1247,7 @@ export class PaymentsService implements OnApplicationBootstrap {
       status: payment.status as PaymentMachineState,
       amountCents: payment.amountCents,
       tipCents: payment.tipCents,
+      serviceFeeCents: payment.serviceFeeCents,
       currency: payment.currency,
       authorizedAt: payment.authorizedAt,
       qrToken: payment.qrToken,
@@ -1244,12 +1271,14 @@ export class PaymentsService implements OnApplicationBootstrap {
           id: true,
           status: true,
           amountCents: true,
+          serviceFeeCents: true,
           tipCents: true,
           currency: true,
           authorizedAt: true,
           authCode: true,
           cardBrand: true,
           providerTxId: true,
+          walletId: true,
         },
       });
       if (!payment || !PAID_STATES.has(payment.status as PaymentMachineState)) return null;
@@ -1263,6 +1292,8 @@ export class PaymentsService implements OnApplicationBootstrap {
         paymentId: payment.id,
         amountCents: payment.amountCents,
         tipCents: payment.tipCents,
+        serviceFeeCents: payment.serviceFeeCents,
+        topUp: Boolean(payment.walletId),
         currency: payment.currency,
         authorizedAt: payment.authorizedAt,
         authCode: payment.authCode,
@@ -1320,6 +1351,8 @@ export class PaymentsService implements OnApplicationBootstrap {
     return {
       ...(paid ? { id: payment.id } : {}),
       amountCents: payment.amountCents,
+      // La fija el cobro al crearse (no cambia): el personal la enseña aparte.
+      serviceFeeCents: payment.serviceFeeCents,
       currency: payment.currency,
       status: payment.status,
       venueName: payment.venue.name,
@@ -1382,7 +1415,7 @@ export class PaymentsService implements OnApplicationBootstrap {
           SELECT id, "tenantId", status, "amountCents", "availableAmountCents",
                  "providerTxId", provider, "createdByUserId", "walletId",
                  "tipCents", "tipGoesTo", "tipBeneficiaryUserId",
-                 "revenueCategory", "operatorCommissionBps"
+                 "revenueCategory", "operatorCommissionBps", "serviceFeeCents"
             FROM payments
            WHERE id = ${paymentId}::uuid
            FOR UPDATE
@@ -1748,6 +1781,8 @@ export class PaymentsService implements OnApplicationBootstrap {
       availableAmountCents: number;
       tipCents: number;
       tipGoesTo: string | null;
+      walletId: string | null;
+      serviceFeeCents?: number;
     },
   >(tx: TransactionalClient, p: T, event: { provider: string; providerTxId: string }): Promise<T> {
     const charged = await readChargedTip(tx, p.id, event);
@@ -1756,6 +1791,7 @@ export class PaymentsService implements OnApplicationBootstrap {
       tipCents: charged?.tipCents ?? 0,
       tipGoesTo: p.tipGoesTo,
       creatorRole: charged?.creatorRole ?? null,
+      serviceFeeCents: refundableFeeCents(p),
     });
     const unchanged =
       settled.tipCents === p.tipCents &&
@@ -2003,7 +2039,8 @@ export class PaymentsService implements OnApplicationBootstrap {
     });
     if (reused) throw new ConflictException(POS_AUTH_CODE_REUSED);
 
-    const noTip = { tipCents: 0, availableAmountCents: locked.amountCents, tipGoesTo: null };
+    // Lo devolvible: importe + «Comisión del servicio» (un POS nunca es una recarga).
+    const noTip = { tipCents: 0, availableAmountCents: locked.amountCents + refundableFeeCents(locked), tipGoesTo: null };
     await tx.payment.update({
       where: { id: locked.id },
       data: { authCode, authorizedAt: new Date(), ...noTip },
@@ -2051,7 +2088,11 @@ export class PaymentsService implements OnApplicationBootstrap {
     });
     return rows.map((p) => ({
       id: p.id,
-      amountCents: p.amountCents,
+      // Lo que se cobra en el datáfono: el importe + la «Comisión del servicio»
+      // (así una app anterior, que enseña amountCents, cobra lo que toca).
+      amountCents: p.amountCents + p.serviceFeeCents,
+      baseAmountCents: p.amountCents,
+      serviceFeeCents: p.serviceFeeCents,
       currency: p.currency,
       createdAt: p.createdAt.toISOString(),
       qrExpiresAt: p.qrExpiresAt.toISOString(),
@@ -2184,14 +2225,16 @@ export class PaymentsService implements OnApplicationBootstrap {
    * pago o, sin página (endpoint antiguo), la que ya tuviera el cobro.
    */
   private async openCheckout(
-    payment: { id: string; tenantId: string; amountCents: number; tipCents: number; currency: string },
+    payment: { id: string; tenantId: string; amountCents: number; serviceFeeCents?: number; tipCents: number; currency: string },
     provider: Provider,
     choice?: CheckoutChoice,
   ): Promise<OpenedCheckout> {
     // Solo Redsys cobra y reparte la propina (la del aprobado pasa al cobro
     // en transition). Las demás pasarelas cobran el importe, como antes.
+    // Todas cobran también la «Comisión del servicio» fijada al crear (0 en
+    // los cobros de antes: siguen con su importe de siempre).
     const tipCents = provider === 'REDSYS' ? (choice?.tipCents ?? payment.tipCents) : null;
-    const chargeCents = payment.amountCents + (tipCents ?? 0);
+    const chargeCents = payment.amountCents + (payment.serviceFeeCents ?? 0) + (tipCents ?? 0);
     // El id del intento se elige aquí: con él nombran el pago Paytef (clientID)
     // y Cecabank (Num_operacion), que lo ve el cliente. Del id del cobro sale
     // el código de confirmación: no va a la pasarela entero.
@@ -2327,7 +2370,7 @@ export class PaymentsService implements OnApplicationBootstrap {
         }>
       >`
         SELECT e.id, e."tenantId", e."commissionBps", e."commissionCents", e."tipCents",
-               e."reversedCents", (p."amountCents" + p."tipCents") AS "chargedCents", e."payoutId"
+               e."reversedCents", (p."amountCents" + p."serviceFeeCents" + p."tipCents") AS "chargedCents", e."payoutId"
           FROM operator_earnings e
           JOIN payments p ON p.id = e."paymentId"
          WHERE e."paymentId" = ${paymentId}::uuid
@@ -2472,6 +2515,10 @@ export class PaymentsService implements OnApplicationBootstrap {
     return {
       id: p.id,
       amountCents: p.amountCents,
+      // «Comisión del servicio» de este cobro (la paga el cliente encima de
+      // amountCents si paga con tarjeta o datáfono; con el saldo, no).
+      serviceFeeCents: p.serviceFeeCents ?? 0,
+      serviceFeeBps: p.serviceFeeBps ?? null,
       currency: p.currency,
       status: p.status,
       qrToken: p.qrToken,

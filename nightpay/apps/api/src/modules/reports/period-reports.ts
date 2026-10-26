@@ -1,4 +1,4 @@
-import { chargedCents, netCents, type PeriodTotals } from './period-totals';
+import { chargedCents, netCents, serviceFeeCollectedCents, serviceFeeOwedCents, type PeriodTotals } from './period-totals';
 import type { TimeWindow } from './report-period';
 
 /**
@@ -24,7 +24,9 @@ export interface MetricsPeriod {
   walletCashTopUpCents: number;
   /** Recargas con tarjeta (ya en grossCents y count): grossCents − esto = ventas con tarjeta. */
   walletCardTopUpCents: number;
-  /** Cobrado (con propinas y recargas en efectivo) − devoluciones − saldo devuelto en efectivo. */
+  /** «Comisión del servicio» cobrada (ya en chargedCents): se debe a OxioPay. */
+  serviceFeeCents: number;
+  /** Cobrado (con propinas, recargas en efectivo y comisión) − devoluciones − saldo devuelto en efectivo. */
   netCents: number;
 }
 
@@ -38,6 +40,7 @@ export function metricsPeriod(t: PeriodTotals): MetricsPeriod {
     walletCashPayoutCents: t.walletCashPayoutCents,
     walletCashTopUpCents: t.walletCashTopUpCents,
     walletCardTopUpCents: t.walletCardTopUpCents,
+    serviceFeeCents: serviceFeeCollectedCents(t),
     netCents: netCents(t),
   };
 }
@@ -130,6 +133,10 @@ export function buildPeriodZ(args: {
       walletCashPayoutCents: t.walletCashPayoutCents,
       walletCashTopUpCount: t.walletCashTopUpCount,
       walletCashTopUpCents: t.walletCashTopUpCents,
+      // «Comisión del servicio»: cobrada (ya en chargedCents), devuelta y lo que se debe a OxioPay.
+      serviceFeeCents: serviceFeeCollectedCents(t),
+      refundedServiceFeeCents: t.refundedServiceFeeCents ?? 0,
+      serviceFeeOwedCents: serviceFeeOwedCents(t),
       netCents: netCents(t),
     },
     byCaptureMethod: groupBy(args.groups, (g) => g.captureMethod ?? 'QR').map(({ key, ...b }) => ({ method: key, ...b })),

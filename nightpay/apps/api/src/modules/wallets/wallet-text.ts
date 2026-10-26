@@ -98,6 +98,9 @@ export interface WalletText {
   topUpRange: string;
   topUpGo: string;
   topUpMethods: string;
+  /** Con la «Comisión del servicio» (`{amount}`, `{fee}` y `{total}` los rellena el JS). */
+  topUpFeeLine: string;
+  topUpMethodsFee: string;
   topUpFaceId: string;
   topUpNoKey: string;
   /** Elegir PIN o «Me voy» en un saldo con Face ID, desde un navegador que no puede usarlo. */
@@ -203,6 +206,8 @@ export const WALLET_TEXT: Record<PayLanguage, WalletText> = {
     topUpRange: 'Pon un importe de {min} a {max}, en euros enteros.',
     topUpGo: 'Recargar {amount}',
     topUpMethods: 'Sin propina: solo pagas lo que recargas.',
+    topUpFeeLine: 'Recargas {amount} · Comisión del servicio {fee} · Pagas {total}',
+    topUpMethodsFee: 'Sin propina. Tu saldo es lo que recargas; la comisión del servicio va aparte.',
     topUpFaceId: 'Para confirmarlo, desbloquea tu móvil como al pagar.',
     topUpNoKey: 'Este saldo tiene Face ID: recarga desde el móvil donde lo activaste.',
     faceIdNeeded: 'Este saldo tiene Face ID: hazlo desde el móvil donde lo activaste.',
@@ -303,6 +308,8 @@ export const WALLET_TEXT: Record<PayLanguage, WalletText> = {
     topUpRange: 'Enter an amount from {min} to {max}, in whole euros.',
     topUpGo: 'Top up {amount}',
     topUpMethods: 'No tip: you only pay what you top up.',
+    topUpFeeLine: 'Top-up {amount} · Service fee {fee} · You pay {total}',
+    topUpMethodsFee: 'No tip. Your balance is what you top up; the service fee is separate.',
     topUpFaceId: 'To confirm, unlock your phone as when you pay.',
     topUpNoKey: 'This balance uses Face ID: top up from the phone where you turned it on.',
     faceIdNeeded: 'This balance uses Face ID: do this from the phone where you turned it on.',

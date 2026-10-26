@@ -738,7 +738,7 @@ export class WalletChargesService {
         tx.user.findUnique({ where: { id: request.requestedByUserId }, select: { role: true, commissionBps: true } }),
         tx.venue.findUnique({
           where: { id: request.tenantId },
-          select: { operatorCommissionDefaults: true, nightSettings: true },
+          select: { operatorCommissionDefaults: true, nightSettings: true, serviceFeeEnabled: true },
         }),
         linesOf(tx, { walletChargeIds: [request.id] }),
       ]);
@@ -759,6 +759,10 @@ export class WalletChargesService {
           idempotencyKey: `charge-request:${request.id}`,
           authMethod: auth,
           ...(tipCents > 0 ? { tipCents, tipGoesTo: tipToChica ? 'operator' : 'venue' } : {}),
+          // Gastar del saldo no lleva «Comisión del servicio» (se cobró al
+          // recargar); con ella encendida, el local tampoco paga el % antiguo
+          // de OxioPay sobre este consumo. Apagada: null (el % del local, como siempre).
+          ...(venue?.serviceFeeEnabled ? { platformCommissionBps: 0 } : {}),
         },
       });
       if (provider?.role === 'OPERATOR') {

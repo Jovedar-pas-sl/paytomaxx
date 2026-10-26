@@ -25,6 +25,8 @@ function payment(o: Record<string, unknown> = {}) {
     status: 'CREATED',
     captureMethod: 'POS_EXTERNAL',
     amountCents: 10_000,
+    serviceFeeCents: 0,
+    walletId: null,
     currency: 'EUR',
     qrExpiresAt: new Date(Date.now() + 10 * 60_000),
     posOperationNumber: null,
@@ -283,6 +285,8 @@ describe('venta en el datáfono', () => {
     expect(await svc.start(device, PAYMENT_ID)).toEqual({
       reference: posReference(PAYMENT_ID),
       amountCents: 10_000,
+      baseAmountCents: 10_000,
+      serviceFeeCents: 0,
       currency: 'EUR',
     });
     expect(events(tx)).toEqual(['pos.device_started']);

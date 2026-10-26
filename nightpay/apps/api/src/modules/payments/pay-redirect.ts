@@ -45,6 +45,10 @@ export type PayRedirect =
       /** Página de pago: importe, propina y botones. Aún no hay nada en el banco. */
       kind: 'choose';
       amountCents: number;
+      /** «Comisión del servicio» encima del importe (0 sin ella): Consumo · Comisión · Propina · Total. */
+      serviceFeeCents?: number;
+      /** Una recarga del saldo: el importe es «Recarga», no «Consumo». */
+      topUp?: boolean;
       currency: string;
       /** Propinas con botón (0 = «Sin propina», que es la marcada). */
       tipOptionsCents: number[];
@@ -76,6 +80,8 @@ export type PayRedirect =
       paymentId: string;
       amountCents: number;
       tipCents: number;
+      /** «Comisión del servicio» que pagó (0 sin ella). */
+      serviceFeeCents?: number;
       currency: string;
       authorizedAt: Date | null;
       /** Recarga de saldo: enlace a la página del saldo del cliente. */
@@ -98,6 +104,8 @@ export interface PayResultView {
   status: PaymentMachineState;
   amountCents: number;
   tipCents: number;
+  /** «Comisión del servicio» del cobro (0 sin ella). */
+  serviceFeeCents?: number;
   currency: string;
   authorizedAt: Date | null;
   qrToken: string;
@@ -122,6 +130,10 @@ export interface PayReceiptView {
   paymentId: string;
   amountCents: number;
   tipCents: number;
+  /** «Comisión del servicio» que pagó (0 sin ella): una línea en el justificante. */
+  serviceFeeCents?: number;
+  /** Una recarga del saldo (el importe es «Recarga»). */
+  topUp?: boolean;
   currency: string;
   authorizedAt: Date | null;
   authCode: string | null;
@@ -217,6 +229,10 @@ export interface PayablePayment {
   status: PaymentMachineState;
   amountCents: number;
   tipCents: number;
+  /** «Comisión del servicio» fijada al crear el cobro (0 sin ella o en los de antes). */
+  serviceFeeCents?: number;
+  /** Una recarga del saldo. */
+  topUp?: boolean;
   currency: string;
   qrExpiresAt: Date;
   authorizedAt: Date | null;
@@ -264,6 +280,7 @@ export function settledPayView(p: PayablePayment, now: Date = new Date()): PayRe
       paymentId: p.id,
       amountCents: p.amountCents,
       tipCents: p.tipCents,
+      serviceFeeCents: p.serviceFeeCents ?? 0,
       currency: p.currency,
       authorizedAt: p.authorizedAt,
       walletToken: p.walletToken,
@@ -299,6 +316,8 @@ export function choosePayPage(p: PayablePayment, now: Date = new Date()): PayRed
   return {
     kind: 'choose',
     amountCents: p.amountCents,
+    serviceFeeCents: p.serviceFeeCents ?? 0,
+    topUp: p.topUp ?? false,
     currency: p.currency,
     tipOptionsCents: tipOptionsFor(p),
     tipMaxCents: p.allowTip ? maxTipCents(p.amountCents) : 0,

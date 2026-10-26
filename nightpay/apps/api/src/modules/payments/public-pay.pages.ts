@@ -146,7 +146,33 @@ legend{color:var(--mute);margin:0 auto .6rem;padding:0;font-weight:600}
 .methods{font-size:.85rem;color:var(--mute)}
 .paybar .saldo{min-height:3.25rem;font-size:1.05rem;margin-top:.15rem}
 .c.top:has(.saldo){padding-bottom:15rem}
+.brk{width:100%;margin:0;padding:0 1rem;text-align:left;border:1px solid var(--line);border-radius:var(--r);background:var(--surface)}
+.brk div{display:flex;justify-content:space-between;gap:1rem;padding:.55rem 0;border-bottom:1px solid var(--line)}
+.brk div:last-child{border-bottom:0}
+.brk dt{color:var(--mute)}
+.brk dd{margin:0;font-weight:700;font-variant-numeric:tabular-nums}
+.brk .tot dt{color:var(--fg);font-weight:700}
+.brk .tot dd{font-size:1.15rem;color:var(--fg)}
+.nofee{font-size:.85rem;color:var(--mute)}
 </style>`;
+
+/**
+ * Desglose con la «Comisión del servicio» (solo si la hay): Consumo (o
+ * Recarga) · Comisión del servicio · Propina (la que elija, la pone el JS) ·
+ * Total. Sin comisión, la página es la de siempre.
+ */
+function feeBreakdown(view: ChooseView, t: PayText): string {
+  const fee = view.serviceFeeCents ?? 0;
+  if (fee <= 0) return '';
+  const b = t.breakdown;
+  const money = (c: number): string => escapeHtml(formatAmount(c, view.currency, t));
+  return `<dl class="brk" aria-live="polite">
+<div><dt>${escapeHtml(view.topUp ? b.topUp : b.consumption)}</dt><dd class="num">${money(view.amountCents)}</dd></div>
+<div><dt>${escapeHtml(b.serviceFee)}</dt><dd class="num">${money(fee)}</dd></div>
+<div id="brkTip" hidden><dt>${escapeHtml(b.tip)}</dt><dd class="num" id="brkTipV"></dd></div>
+<div class="tot"><dt>${escapeHtml(t.total)}</dt><dd class="num" id="total">${money(view.amountCents + fee)}</dd></div>
+</dl>`;
+}
 
 function tipChoices(view: ChooseView, t: PayText): string {
   const presets = tipPresetsFor(view.amountCents, view.tipPresets);
@@ -178,8 +204,13 @@ ${
 <div class="eur"><input id="otherIn" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="4" autocomplete="off" aria-describedby="otherMax"><span aria-hidden="true">€</span></div>
 <p class="small" id="otherMax">${escapeHtml(t.tipMax(short(Math.floor(view.tipMaxCents / 100) * 100)))}</p></div>`
     : ''
-}${view.tipToStaff ? `<p class="tipnote">${escapeHtml(t.tipToStaff)}</p>` : ''}</fieldset>
-<p class="total" aria-live="polite">${escapeHtml(t.total)}: <b class="num" id="total">${escapeHtml(formatAmount(view.amountCents, view.currency, t))}</b></p>`;
+}${view.tipToStaff ? `<p class="tipnote">${escapeHtml(t.tipToStaff)}</p>` : ''}</fieldset>${
+    // Con la comisión del servicio, el total va en su desglose.
+    (view.serviceFeeCents ?? 0) > 0
+      ? ''
+      : `
+<p class="total" aria-live="polite">${escapeHtml(t.total)}: <b class="num" id="total">${escapeHtml(formatAmount(view.amountCents, view.currency, t))}</b></p>`
+  }`;
 }
 
 export function renderChoosePage(
@@ -188,6 +219,9 @@ export function renderChoosePage(
 ): string {
   const t = PAY_TEXT[ctx.lang];
   const withTips = (view.tipMaxCents ?? 0) > 0;
+  // Lo que paga sin propina: el importe + la «Comisión del servicio» (si la hay).
+  const fee = view.serviceFeeCents ?? 0;
+  const dueCents = view.amountCents + fee;
   // Un solo botón: el banco enseña Apple Pay, Google Pay y tarjeta (las marcas
   // no permiten botones de wallet hechos a mano ni traducidos). Dentro de
   // Instagram y similares, solo tarjeta (ahí Apple Pay / Google Pay no van).
@@ -196,6 +230,7 @@ export function renderChoosePage(
   const other = t.otherLanguage;
   const config = jsConfig({
     amount: view.amountCents,
+    fee,
     currency: view.currency,
     locale: t.locale,
     max: view.tipMaxCents ?? 0,
@@ -204,20 +239,22 @@ export function renderChoosePage(
   const body = `
 <header class="trust">
 ${view.venueName ? `<p class="venue">${escapeHtml(view.venueName)}</p>` : ''}
-<h1 class="amount num"><span class="sr">${escapeHtml(t.youPay)}: </span>${escapeHtml(formatAmount(view.amountCents, view.currency, t))}</h1>
+<h1 class="amount num"><span class="sr">${escapeHtml(t.youPay)}: </span>${escapeHtml(formatAmount(dueCents, view.currency, t))}</h1>
 ${view.concept ? `<p class="concept">${escapeHtml(view.concept)}</p>` : ''}
 ${ctx.statementName ? `<p class="stmt">${escapeHtml(t.statement(ctx.statementName))}</p>` : ''}
 </header>
 <form id="pay" method="POST" action="${escapeHtml(action)}" data-expires="${view.qrExpiresAt.getTime()}" data-now="${ctx.now.getTime()}">
 <input type="hidden" name="lang" value="${ctx.lang}">
 ${withTips ? tipChoices(view, t) : '<input type="hidden" name="tip" value="0">'}
+${feeBreakdown(view, t)}
 ${inApp ? `<p class="warn" role="note">${escapeHtml(t.inAppWarning(inApp))}</p>` : ''}
 <div class="paybar"><div>
 <input type="hidden" name="method" value="${inApp ? 'card' : wallet ? 'wallet' : ''}">
-<button class="btn" id="payBtn" type="submit">${escapeHtml(`${t.payPrefix} ${formatAmount(view.amountCents, view.currency, t)}`)}</button>
+<button class="btn" id="payBtn" type="submit">${escapeHtml(`${t.payPrefix} ${formatAmount(dueCents, view.currency, t)}`)}</button>
 <p class="methods">${escapeHtml(inApp ? t.methodsCard : wallet ? t.methodsWallet(wallet) : t.methods)}</p>
 ${!inApp && wallet ? `<button class="link" id="cardBtn" type="button">${escapeHtml(t.payByCard)}</button>` : ''}
 ${view.saldoPayToken ? `<a class="btn alt saldo" href="${escapeHtml(`/s/${encodeURIComponent(view.saldoPayToken)}?lang=${ctx.lang}`)}">${escapeHtml(t.payWithSaldo)}</a>` : ''}
+${view.saldoPayToken && fee > 0 ? `<p class="nofee">${escapeHtml(t.saldoNoFee)}</p>` : ''}
 </div></div>
 </form>
 <p class="small">${escapeHtml(t.expiresIn)} <b class="num" id="left"></b></p>
@@ -231,7 +268,8 @@ function money(c){return npMoney(c,C.locale,C.currency);}
 function otherCents(){var e=parseInt(inp.value.replace(/[^0-9]/g,'')||'0',10),max=Math.floor(C.max/100);if(e>max){e=max;inp.value=String(e);}return e*100;}
 function tip(){var r=f.querySelector('input[name=tip]:checked');return r?(+r.value||0):0;}
 function upd(){if(other){box.hidden=!other.checked;other.value=String(other.checked?otherCents():0);}
- var sum=C.amount+tip();if(!sent)btn.textContent=T.pay+' '+money(sum);if(tot)tot.textContent=money(sum);}
+ var tp=tip(),sum=C.amount+(C.fee||0)+tp;if(!sent)btn.textContent=T.pay+' '+money(sum);if(tot)tot.textContent=money(sum);
+ var br=document.getElementById('brkTip');if(br){br.hidden=tp<=0;document.getElementById('brkTipV').textContent=money(tp);}}
 if(other){document.getElementById('otherOpt').hidden=false;inp.addEventListener('input',upd);}
 f.addEventListener('change',function(e){upd();if(other&&e.target===other&&other.checked)inp.focus();});
 f.addEventListener('submit',function(e){if(sent){e.preventDefault();return;}upd();sent=true;
@@ -294,6 +332,8 @@ export function renderPaidPage(
   args: {
     amountCents: number;
     tipCents: number;
+    /** «Comisión del servicio» que pagó (0 sin ella): va dentro del total. */
+    serviceFeeCents?: number;
     currency: string;
     code: string;
     authorizedAt: Date | null;
@@ -313,11 +353,14 @@ export function renderPaidPage(
 ): string {
   const t = PAY_TEXT[lang];
   const now = args.now ?? new Date();
-  const lines =
-    args.tipCents > 0 ? [t.includesTip(formatAmount(args.tipCents, args.currency, t))] : [];
+  const fee = args.serviceFeeCents ?? 0;
+  const lines = [
+    ...(fee > 0 ? [t.includesServiceFee(formatAmount(fee, args.currency, t))] : []),
+    ...(args.tipCents > 0 ? [t.includesTip(formatAmount(args.tipCents, args.currency, t))] : []),
+  ];
   const screen = renderPaidScreen({
     t,
-    amount: formatAmount(args.amountCents + args.tipCents, args.currency, t),
+    amount: formatAmount(args.amountCents + fee + args.tipCents, args.currency, t),
     authorizedAt: args.authorizedAt,
     now,
     code: args.code,
@@ -438,6 +481,7 @@ export function renderResultView(
       {
         amountCents: view.amountCents,
         tipCents: view.tipCents,
+        serviceFeeCents: view.serviceFeeCents ?? 0,
         currency: view.currency,
         code: confirmationCode(view.paymentId),
         authorizedAt: view.authorizedAt,
@@ -478,9 +522,10 @@ export function renderReceiptPage(
     .join(' · ');
   const rows: Array<[string, string, boolean?]> = [
     ...(r.authorizedAt ? [[rt.date, formatDateTime(r.authorizedAt, t)] as [string, string]] : []),
-    [rt.amount, fmt(r.amountCents)],
+    [r.topUp ? rt.topUp : rt.amount, fmt(r.amountCents)],
+    ...((r.serviceFeeCents ?? 0) > 0 ? [[rt.serviceFee, fmt(r.serviceFeeCents ?? 0)] as [string, string]] : []),
     ...(r.tipCents > 0 ? [[rt.tip, fmt(r.tipCents)] as [string, string]] : []),
-    [rt.total, fmt(r.amountCents + r.tipCents), true],
+    [rt.total, fmt(r.amountCents + (r.serviceFeeCents ?? 0) + r.tipCents), true],
     ...(method ? [[rt.method, method] as [string, string]] : []),
     ...(r.authCode ? [[rt.authCode, r.authCode] as [string, string]] : []),
     ...(r.order ? [[rt.order, r.order] as [string, string]] : []),

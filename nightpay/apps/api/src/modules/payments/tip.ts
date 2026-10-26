@@ -134,20 +134,26 @@ export function tipDestinationAllowed(
   return tipGoesTo === 'operator' || tipGoesTo === 'venue';
 }
 
-/** Campos del cobro una vez se sabe qué propina cobró el banco. */
+/**
+ * Campos del cobro una vez se sabe qué propina cobró el banco. Lo devolvible:
+ * todo lo cobrado en la tarjeta, con la «Comisión del servicio» devolvible
+ * (`serviceFeeCents`: la de un pago directo; la de una recarga, nunca).
+ */
 export function settleChargedTip(args: {
   amountCents: number;
   tipCents: number;
   tipGoesTo: string | null;
   creatorRole: string | null;
+  serviceFeeCents?: number;
 }): { tipCents: number; availableAmountCents: number; tipGoesTo: string | null } {
+  const base = args.amountCents + Math.max(0, args.serviceFeeCents ?? 0);
   if (args.tipCents <= 0) {
-    return { tipCents: 0, availableAmountCents: args.amountCents, tipGoesTo: null };
+    return { tipCents: 0, availableAmountCents: base, tipGoesTo: null };
   }
   return {
     tipCents: args.tipCents,
     // Lo que se puede devolver: todo lo cobrado en la tarjeta.
-    availableAmountCents: args.amountCents + args.tipCents,
+    availableAmountCents: base + args.tipCents,
     tipGoesTo: args.tipGoesTo ?? defaultTipGoesTo(args.creatorRole),
   };
 }

@@ -98,7 +98,7 @@ describe('devoluciones en el mes en que se hacen', () => {
     expect(devoluciones).not.toContain('authorizedAt');
     // Propina devuelta = devuelto × propina / (importe + propina), redondeada.
     expect(devoluciones).toContain(
-      'ROUND(r."amountCents"::numeric * p."tipCents" / NULLIF(p."amountCents" + p."tipCents", 0))',
+      'ROUND(r."amountCents"::numeric * p."tipCents" / NULLIF(p."amountCents" + p."serviceFeeCents" + p."tipCents", 0))',
     );
     expect(sql).toContain('COALESCE(SUM(p."amountCents"), 0)::bigint AS "grossCents"');
     expect(sql).toContain('COALESCE(SUM(p."tipCents"), 0)::bigint AS "tipCents"');

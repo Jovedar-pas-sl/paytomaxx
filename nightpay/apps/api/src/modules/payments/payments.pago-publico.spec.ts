@@ -177,6 +177,8 @@ describe('getPayPage — lo que ve el cliente al escanear el QR', () => {
     await expect(service.getPayPage(QR)).resolves.toEqual({
       kind: 'choose',
       amountCents: 4_500,
+      serviceFeeCents: 0,
+      topUp: false,
       currency: 'EUR',
       // 45 €: 10 % y 15 % en euros enteros; «Otra» hasta el importe.
       tipOptionsCents: [0, 500, 700],

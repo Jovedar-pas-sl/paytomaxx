@@ -32,6 +32,16 @@ export interface PeriodTotals {
    */
   walletCardTopUpCount: number;
   walletCardTopUpCents: number;
+  /**
+   * «Comisión del servicio» (service-fee.ts) de los cobros pagados con tarjeta
+   * o datáfono (pagos directos y recargas): la pagó el cliente encima y se
+   * debe a OxioPay. Aparte de grossCents. Opcional: 0 sin ella.
+   */
+  serviceFeeCents?: number;
+  /** La de las recargas en efectivo (con sus anulaciones, en negativo): entra en la caja. */
+  walletCashTopUpFeeCents?: number;
+  /** Parte de lo devuelto que era comisión del servicio (refunds.serviceFeeCents): deja de ser de OxioPay. */
+  refundedServiceFeeCents?: number;
 }
 
 /** Fila del SQL de totales: las sumas llegan como bigint. */
@@ -52,6 +62,9 @@ export const EMPTY_TOTALS: PeriodTotals = {
   walletCardPayoutCents: 0,
   walletCardTopUpCount: 0,
   walletCardTopUpCents: 0,
+  serviceFeeCents: 0,
+  walletCashTopUpFeeCents: 0,
+  refundedServiceFeeCents: 0,
 };
 
 export function totalsFromRow(row: PeriodTotalsRow | undefined): PeriodTotals {
@@ -60,9 +73,19 @@ export function totalsFromRow(row: PeriodTotalsRow | undefined): PeriodTotals {
   return Object.fromEntries(keys.map((k) => [k, Number(row[k] ?? 0)])) as unknown as PeriodTotals;
 }
 
-/** Lo que pagaron los clientes: importe + propinas + recargas en efectivo. */
+/** La «Comisión del servicio» cobrada en el periodo: con tarjeta o datáfono y en efectivo (recargas). */
+export function serviceFeeCollectedCents(t: PeriodTotals): number {
+  return (t.serviceFeeCents ?? 0) + (t.walletCashTopUpFeeCents ?? 0);
+}
+
+/** Lo que se debe a OxioPay del periodo: la comisión del servicio cobrada − la devuelta. */
+export function serviceFeeOwedCents(t: PeriodTotals): number {
+  return serviceFeeCollectedCents(t) - (t.refundedServiceFeeCents ?? 0);
+}
+
+/** Lo que pagaron los clientes: importe + propinas + recargas en efectivo + la comisión del servicio. */
 export function chargedCents(t: PeriodTotals): number {
-  return t.grossCents + t.tipCents + t.walletCashTopUpCents;
+  return t.grossCents + t.tipCents + t.walletCashTopUpCents + serviceFeeCollectedCents(t);
 }
 
 /**
@@ -70,11 +93,12 @@ export function chargedCents(t: PeriodTotals): number {
  * tarjeta (sin propinas ni recargas), propinas y recargas del saldo (con
  * tarjeta y en efectivo: no son venta). Suman chargedCents.
  */
-export function chargedParts(t: PeriodTotals): { salesCents: number; tipCents: number; topUpCents: number } {
+export function chargedParts(t: PeriodTotals): { salesCents: number; tipCents: number; topUpCents: number; serviceFeeCents: number } {
   return {
     salesCents: t.grossCents - t.walletCardTopUpCents,
     tipCents: t.tipCents,
     topUpCents: t.walletCardTopUpCents + t.walletCashTopUpCents,
+    serviceFeeCents: serviceFeeCollectedCents(t),
   };
 }
 
@@ -87,8 +111,10 @@ export function netCents(t: PeriodTotals): number {
  * Lo facturado (base del IVA + IVA): sin propinas, ni lo devuelto de importe,
  * ni el saldo devuelto en efectivo (la recarga ya se contó al cobrarla). La
  * recarga en efectivo cuenta igual que la de tarjeta: el IVA va con la
- * recarga y los consumos del saldo no se facturan otra vez.
+ * recarga y los consumos del saldo no se facturan otra vez. Sin la «Comisión
+ * del servicio» (es de OxioPay: ni la cobrada ni la devuelta).
  */
 export function invoicedCents(t: PeriodTotals): number {
-  return t.grossCents + t.walletCashTopUpCents - (t.refundedCents - t.refundedTipCents) - t.walletCashPayoutCents;
+  const refundedAmount = t.refundedCents - t.refundedTipCents - (t.refundedServiceFeeCents ?? 0);
+  return t.grossCents + t.walletCashTopUpCents - refundedAmount - t.walletCashPayoutCents;
 }

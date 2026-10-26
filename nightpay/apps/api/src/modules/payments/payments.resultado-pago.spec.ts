@@ -42,6 +42,7 @@ function paymentRow(o: Row = {}): Row {
     provider: 'REDSYS',
     providerTxId: 'ORD-2',
     amountCents: 4_500,
+    serviceFeeCents: 0,
     tipCents: 500,
     currency: 'EUR',
     qrToken: QR,
@@ -254,6 +255,7 @@ describe('getResultView — el cliente vuelve del banco a /pay/result', () => {
       status: 'AUTHORIZED',
       amountCents: 4_500,
       tipCents: 500,
+      serviceFeeCents: 0,
       currency: 'EUR',
       authorizedAt: AUTHORIZED_AT,
       qrToken: QR,
@@ -322,6 +324,8 @@ describe('getReceipt — justificante del cliente', () => {
       paymentId: PAYMENT_ID,
       amountCents: 4_500,
       tipCents: 500,
+      serviceFeeCents: 0,
+      topUp: false,
       currency: 'EUR',
       authorizedAt: AUTHORIZED_AT,
       authCode: '012345',
@@ -349,6 +353,7 @@ describe('getByToken — consulta pública por el QR', () => {
     const { service } = makeService({ payment: { status: 'CREATED' } });
     await expect(service.getByToken(QR)).resolves.toEqual({
       amountCents: 4_500,
+      serviceFeeCents: 0,
       currency: 'EUR',
       status: 'CREATED',
       venueName: 'Sala Bambú (Madrid)',

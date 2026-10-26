@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import type { VenueServiceFee } from './service-fee';
 
 /**
  * Recepción (20261021100000): recargar el saldo del cliente con tarjeta (el
@@ -47,9 +48,19 @@ export const TopUpWalletSchema = z.union([
 export type TopUpWalletDto = z.infer<typeof TopUpWalletSchema>;
 
 export const CashTopUpSchema = z.object({
+  /** El saldo que se carga (sin la comisión del servicio). */
   amountCents: z.number().int().positive().max(MAX_CASH_TOP_UP_CENTS, 'En efectivo, como mucho 999,99 € por recarga'),
   idempotencyKey: IdempotencyKeySchema,
   wallet: TopUpWalletSchema,
+  /**
+   * La «Comisión del servicio» que enseñó la pantalla y se cobra encima del
+   * saldo («Cobra 56 € (50 € de saldo + 6 € de comisión del servicio)»). Si no
+   * es la del local ahora → 409 SERVICE_FEE_CHANGED (con la de ahora). Sin el
+   * campo (app anterior) y con la comisión encendida → 409
+   * SERVICE_FEE_APP_OUTDATED: así nunca se apunta en la caja una comisión que
+   * no se cobró. Apagada, no hace falta.
+   */
+  serviceFeeCents: z.number().int().nonnegative().max(MAX_CASH_TOP_UP_CENTS).optional(),
 });
 export type CashTopUpDto = z.infer<typeof CashTopUpSchema>;
 
@@ -65,8 +76,10 @@ export interface CashTopUpVoidResult {
   voidId: string;
   topUpId: string;
   walletId: string;
-  /** Lo anulado (positivo): sale de la caja. */
+  /** Lo anulado del saldo (positivo). */
   amountCents: number;
+  /** Su «Comisión del servicio» (positiva): también se devuelve. De la caja sale amountCents + esta. */
+  serviceFeeCents?: number;
   balanceCents: number;
 }
 
@@ -87,7 +100,14 @@ export interface CashTopUpResult {
   walletId: string;
   /** Código del saldo (K7Q-4M2): el cliente lo apunta. */
   code: string;
+  /** Lo cargado en el saldo. */
   amountCents: number;
+  /** La «Comisión del servicio» cobrada encima (0 sin ella). Opcional: API anterior. */
+  serviceFeeCents?: number;
+  /** Su % (bps); null = sin comisión. */
+  serviceFeeBps?: number | null;
+  /** Lo que pagó el cliente en efectivo: saldo + comisión. */
+  chargedCents?: number;
   balanceCents: number;
   /** Saldo nuevo (no tenía). */
   createdWallet: boolean;
@@ -107,6 +127,12 @@ export interface ReceptionOptions {
   cashBlockedReason: string | null;
   /** Fichas NFC encendidas. */
   nfc: boolean;
+  /**
+   * «Comisión del servicio» del local (el interruptor y los %): la recepción
+   * enseña «Cobra 56 € (50 € de saldo + 6 € de comisión del servicio)». Sin
+   * el campo (API anterior): apagada (serviceFeeOf).
+   */
+  serviceFee?: VenueServiceFee;
 }
 
 // ─── Recepción exprés (2026-10-24) ───────────────────────────────────────

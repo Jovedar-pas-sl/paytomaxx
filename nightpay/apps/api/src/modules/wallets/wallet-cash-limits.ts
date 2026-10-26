@@ -24,6 +24,12 @@ export interface WalletCash {
   inCents: number;
   /** …de eso, en las últimas 24 h. */
   inWindowCents: number;
+  /**
+   * Lo que PAGÓ el cliente en efectivo en las últimas 24 h: el saldo + la
+   * «Comisión del servicio» (el tope legal va por lo que se paga, no por el
+   * saldo). Sin el campo, el saldo (inWindowCents).
+   */
+  inWindowPaidCents?: number;
   /** Devuelto en efectivo (hecho) desde siempre. */
   outCents: number;
   /** …de eso, en las últimas 24 h. */
@@ -45,6 +51,8 @@ export async function walletCash(tx: RawTx, walletId: string, now: Date = new Da
         WHERE t."walletId" IN (SELECT id FROM chain))::bigint AS "inCents",
       (SELECT COALESCE(SUM(t."amountCents"), 0) FROM wallet_cash_topups t
         WHERE t."walletId" IN (SELECT id FROM chain) AND t."createdAt" >= ${since})::bigint AS "inWindowCents",
+      (SELECT COALESCE(SUM(t."amountCents" + t."serviceFeeCents"), 0) FROM wallet_cash_topups t
+        WHERE t."walletId" IN (SELECT id FROM chain) AND t."createdAt" >= ${since})::bigint AS "inWindowPaidCents",
       (SELECT COALESCE(SUM(p."amountCents"), 0) FROM wallet_payouts p
         WHERE p."walletId" IN (SELECT id FROM chain) AND p.method = 'CASH' AND p.status = 'DONE')::bigint AS "outCents",
       (SELECT COALESCE(SUM(p."amountCents"), 0) FROM wallet_payouts p
@@ -55,6 +63,7 @@ export async function walletCash(tx: RawTx, walletId: string, now: Date = new Da
   return {
     inCents: Number(r?.inCents ?? 0),
     inWindowCents: Number(r?.inWindowCents ?? 0),
+    inWindowPaidCents: Number(r?.inWindowPaidCents ?? r?.inWindowCents ?? 0),
     outCents: Number(r?.outCents ?? 0),
     outWindowCents: Number(r?.outWindowCents ?? 0),
   };
@@ -96,13 +105,21 @@ export function payoutAmounts(balanceCents: number, cash: WalletCash): PayoutAmo
   };
 }
 
-/** null si la recarga en efectivo cabe; si no, por qué no (el total de 24 h llegaría a 1.000 €). */
-export function cashTopUpOverLimit(amountCents: number, cash: Pick<WalletCash, 'inWindowCents'>): string | null {
-  if (cash.inWindowCents + amountCents < CASH_LIMIT_CENTS) return null;
-  const left = Math.max(0, CASH_LIMIT_CENTS - 1 - cash.inWindowCents);
+/**
+ * null si la recarga en efectivo cabe; si no, por qué no (el total de 24 h
+ * llegaría a 1.000 €). `paidCents`: lo que paga ahora el cliente (el saldo +
+ * la «Comisión del servicio», si la hay); lo de antes, también con su comisión.
+ */
+export function cashTopUpOverLimit(
+  paidCents: number,
+  cash: Pick<WalletCash, 'inWindowCents'> & Partial<Pick<WalletCash, 'inWindowPaidCents'>>,
+): string | null {
+  const before = cash.inWindowPaidCents ?? cash.inWindowCents;
+  if (before + paidCents < CASH_LIMIT_CENTS) return null;
+  const left = Math.max(0, CASH_LIMIT_CENTS - 1 - before);
   return left > 0
-    ? `En efectivo, este saldo ya lleva ${eur(cash.inWindowCents)} en 24 h: como mucho ${eur(left)} más (los pagos troceados suman). El resto, con tarjeta.`
-    : `En efectivo, este saldo ya lleva ${eur(cash.inWindowCents)} en 24 h y no puede llegar a 1.000 €: el resto, con tarjeta.`;
+    ? `En efectivo, este saldo ya lleva ${eur(before)} en 24 h: como mucho ${eur(left)} más (los pagos troceados suman). El resto, con tarjeta.`
+    : `En efectivo, este saldo ya lleva ${eur(before)} en 24 h y no puede llegar a 1.000 €: el resto, con tarjeta.`;
 }
 
 /** Por qué no se devuelve nada en efectivo (cap = 0). */

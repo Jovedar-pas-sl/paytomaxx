@@ -248,7 +248,16 @@ export type ConfirmPosPaymentDto = z.infer<typeof ConfirmPosPaymentSchema>;
 // ─── Respuesta de creación (TPV recibe esto) ─────────────────────────
 export const CreatedPaymentResponseSchema = z.object({
   id: UuidSchema,
+  /** El consumo o, en una recarga, el saldo (sin la comisión del servicio ni la propina). */
   amountCents: z.number().int(),
+  /**
+   * «Comisión del servicio» de este cobro (service-fee.ts): la paga el cliente
+   * encima de amountCents si paga con tarjeta o datáfono (con el saldo, no). 0
+   * sin ella. Opcional: el API anterior no la manda.
+   */
+  serviceFeeCents: z.number().int().nonnegative().optional(),
+  /** Su % (bps); null = sin comisión (interruptor apagado). */
+  serviceFeeBps: z.number().int().nullable().optional(),
   currency: z.string().length(3),
   status: PaymentStatusSchema,
   qrToken: z.string(),
@@ -316,6 +325,8 @@ export const PublicPaymentViewSchema = z.object({
    * apps viejas no la leen.
    */
   tipCents: z.number().int().nonnegative().optional(),
+  /** «Comisión del servicio» del cobro (encima de amountCents; 0 sin ella). Opcional: API anterior. */
+  serviceFeeCents: z.number().int().nonnegative().optional(),
 });
 export type PublicPaymentView = z.infer<typeof PublicPaymentViewSchema>;
 

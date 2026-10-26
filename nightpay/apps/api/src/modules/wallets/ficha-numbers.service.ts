@@ -68,8 +68,16 @@ export class FichaNumbersService {
       amountCents: input.amountCents,
       idempotencyKey: input.idempotencyKey,
       wallet: { printed: { cardId: found.cardId } },
+      ...(input.serviceFeeCents !== undefined ? { serviceFeeCents: input.serviceFeeCents } : {}),
     });
-    return { topUpId: out.topUpId, codeHint: maskedWalletCode(out.code), amountCents: out.amountCents, balanceCents: out.balanceCents, replayed: out.replayed };
+    return {
+      topUpId: out.topUpId,
+      codeHint: maskedWalletCode(out.code),
+      amountCents: out.amountCents,
+      serviceFeeCents: out.serviceFeeCents ?? 0,
+      balanceCents: out.balanceCents,
+      replayed: out.replayed,
+    };
   }
 
   /** Solo quien carga saldos (recepción, el encargado o el dueño), con las fichas NFC encendidas. */
