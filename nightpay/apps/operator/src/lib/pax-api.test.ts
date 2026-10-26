@@ -285,3 +285,11 @@ describe('recuperar el resultado del lector tras un corte', () => {
     expect(isResultForReference({ approved: true, transactionReference: 'R1' }, null)).toBe(false);
   });
 });
+
+describe('los errores del API llevan su código (p. ej. la comisión del servicio cambió)', () => {
+  it('PaxApiError guarda el code del cuerpo', async () => {
+    const { PaxApiError } = await import('./pax-api');
+    expect(new PaxApiError('x', 409, 'SERVICE_FEE_CHANGED').code).toBe('SERVICE_FEE_CHANGED');
+    expect(new PaxApiError('x', 409).code).toBeNull();
+  });
+});

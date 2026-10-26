@@ -14,6 +14,7 @@ import {
   type StockOutcome,
   type TopUpWalletDto,
 } from '@nightpay/contracts';
+import { ApiError } from '@nightpay/api-client';
 import { call } from './pax-api';
 import {
   fetchReceptionOptions,
@@ -178,6 +179,44 @@ export function topUpCharge(options: Pick<ReceptionOptions, 'serviceFee'> | null
     text: topUpChargeText(amountCents, quote.feeCents),
     body: quote.bps === null ? {} : { serviceFeeCents: quote.feeCents },
   };
+}
+
+/** Los 409 que dicen que la comisión del servicio que se enseñó ya no vale. */
+const SERVICE_FEE_STALE = new Set(['SERVICE_FEE_CHANGED', 'SERVICE_FEE_APP_OUTDATED']);
+
+/**
+ * ¿El servidor no apuntó la recarga porque la comisión del servicio cambió
+ * (o esta pantalla no la tenía)? Entonces hay que volver a pedir las opciones
+ * y enseñar el total nuevo antes de cobrar (no reenviar la vieja).
+ */
+export function serviceFeeStale(err: unknown): boolean {
+  const code = (err as { code?: unknown } | null)?.code;
+  return typeof code === 'string' && SERVICE_FEE_STALE.has(code);
+}
+
+/**
+ * Una recarga en efectivo que el servidor no apuntó porque la comisión del
+ * servicio cambió: se vuelven a pedir las opciones (la pantalla enseña ya el
+ * total nuevo) y sale un 409 con lo que hay que cobrar ahora. Al volver a
+ * pulsar, va la comisión nueva (antes se reenviaba la vieja hasta recargar).
+ */
+export async function cashWithFreshFee<T>(
+  send: () => Promise<T>,
+  fee: { refresh: () => Promise<ReceptionOptions>; onOptions: (o: ReceptionOptions) => void; amountCents: number },
+): Promise<T> {
+  try {
+    return await send();
+  } catch (err) {
+    if (!serviceFeeStale(err)) throw err;
+    const fresh = await fee.refresh();
+    fee.onOptions(fresh);
+    throw new ApiError(serviceFeeChangedText(fresh, fee.amountCents), 409, 'SERVICE_FEE_CHANGED');
+  }
+}
+
+/** «La comisión del servicio ha cambiado. Ahora: Cobra 57 € (…). Vuelve a cobrar.» */
+export function serviceFeeChangedText(options: Pick<ReceptionOptions, 'serviceFee'> | null | undefined, amountCents: number): string {
+  return `La comisión del servicio ha cambiado. Ahora: ${topUpCharge(options, amountCents).text}. Vuelve a cobrar.`;
 }
 
 // ─── Pasos de la recepción ───────────────────────────────────────────────

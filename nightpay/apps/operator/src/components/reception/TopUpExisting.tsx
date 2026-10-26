@@ -9,6 +9,7 @@ import { formatEur } from '@/lib/money';
 import {
   receptionAttempt,
   receptionWhat,
+  cashWithFreshFee,
   staffBackend,
   topUpCharge,
   walletOfTarget,
@@ -171,12 +172,16 @@ export function TopUpExisting({ onExit, onDone }: Props) {
     if (!qrSettled) await retire(payment);
     setStep({ kind: 'qr', found: f, amountCents, payment: null });
     const target = deskTarget(f.view, f.nfc);
-    const out = await staffBackend.cash({
-      amountCents,
-      idempotencyKey: keyFor(amountCents, 'cash', f),
-      wallet: walletOfTarget(target),
-      ...topUpCharge(options, amountCents).body,
-    });
+    const out = await cashWithFreshFee(
+      () =>
+        staffBackend.cash({
+          amountCents,
+          idempotencyKey: keyFor(amountCents, 'cash', f),
+          wallet: walletOfTarget(target),
+          ...topUpCharge(options, amountCents).body,
+        }),
+      { refresh: () => staffBackend.options(), onOptions: setOptions, amountCents },
+    );
     onDone();
     attempt.current = null;
     go({ kind: 'done', amountCents, method: 'cash', code: out.code, detail: `Saldo ${out.code} · tiene ${formatEur(out.balanceCents, { compact: true })}` });

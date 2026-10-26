@@ -20,7 +20,7 @@ import { confirmationCode } from '@nightpay/contracts';
 import { cancelPayment, type CreatedPayment } from '@/lib/api';
 import { useHealthReport } from '@/lib/connection-health';
 import { formatEur, formatEurAmount } from '@/lib/money';
-import { chargeWithFeeCents, paymentFeeLine } from '@/lib/cobro-view';
+import { chargeWithFeeCents, paymentFeeLine, posChargeLine } from '@/lib/cobro-view';
 import { useOpenCharge, type ChargeSpot } from '@/lib/open-charges';
 import { advanceStatus, isFinalStatus } from '@/lib/payment-status';
 import { NewWalletCard } from './NewWalletCard';
@@ -148,7 +148,8 @@ export function ActivePayment({
       <StaffOutcome
         key={outcome}
         kind={outcome}
-        amountCents={payment.amountCents}
+        // Con datáfono, lo que se cobró en él: el importe + la comisión del servicio.
+        amountCents={isPos ? chargeWithFeeCents(payment) : payment.amountCents}
         currency={payment.currency}
         message={outcome === 'failed' && !isPos ? 'Que el cliente pruebe con otra tarjeta.' : undefined}
         detail={
@@ -186,12 +187,18 @@ export function ActivePayment({
       <div style={{ textAlign: 'center' }}>
         <p style={kicker}>{isPos ? 'Cobro POS' : 'Importe'}</p>
         <p className="np-num" style={amountBig}>
-          {formatEurAmount(payment.amountCents)}{' '}
+          {/* Con datáfono, en grande lo que se cobra en él (con la comisión del servicio). */}
+          {formatEurAmount(isPos ? chargeWithFeeCents(payment) : payment.amountCents)}{' '}
           <span style={{ fontSize: '0.95rem', color: 'var(--np-text-mute)', fontWeight: 500 }}>{payment.currency}</span>
         </p>
         {label ? <p style={{ margin: '0.25rem 0 0', fontWeight: 700, fontSize: '1.0625rem' }}>{label}</p> : null}
         {/* Con la «Comisión del servicio»: lo que paga con tarjeta (o, en una recarga, lo que se cobra). */}
         {!isPos && paymentFeeLine(payment) ? <p style={{ ...hintStyle, margin: '0.25rem 0 0' }}>{paymentFeeLine(payment)}</p> : null}
+        {isPos && payment.serviceFeeCents ? (
+          <p style={{ ...hintStyle, margin: '0.25rem 0 0' }}>
+            {posChargeLine({ amountCents: chargeWithFeeCents(payment), baseAmountCents: payment.amountCents, serviceFeeCents: payment.serviceFeeCents })}
+          </p>
+        ) : null}
         {isPos ? (
           <p style={{ margin: '0.5rem 0 0', fontSize: '0.9375rem', color: 'var(--np-text-mute)' }}>
             Llama al camarero. Código: <strong style={refCodeStyle}>#{refCode}</strong>

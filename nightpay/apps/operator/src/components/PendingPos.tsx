@@ -13,7 +13,7 @@ import {
 } from '@/lib/api';
 import { isAlertSoundMuted, playAlertBeep, setAlertSoundMuted } from '@/lib/alert-sound';
 import { formatEur, formatEurAmount } from '@/lib/money';
-import { posChargeLine } from '@/lib/cobro-view';
+import { posChargeLine, posConfirmBody } from '@/lib/cobro-view';
 import { newArrivals } from '@/lib/pending-pos';
 import { usePolling } from '@/lib/use-polling';
 
@@ -284,10 +284,8 @@ function ConfirmForm({
     setError(null);
     try {
       if ('vibrate' in navigator) navigator.vibrate(10);
-      await confirmPosPayment(payment.id, {
-        posReceiptRef: ref,
-        posReceiptPhoto: photo ?? undefined,
-      });
+      // Lo cobrado (el total de la lista, con la comisión del servicio): sin ello, el API no confirma.
+      await confirmPosPayment(payment.id, posConfirmBody(payment, ref, photo));
       onConfirmed();
     } catch (err) {
       setError((err as Error).message);

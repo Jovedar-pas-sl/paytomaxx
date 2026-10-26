@@ -86,6 +86,20 @@ export function posChargeLine(p: { amountCents: number; baseAmountCents?: number
   return `Cobra ${formatEur(base + fee, { compact: true })} (${chargeBreakdownText({ baseCents: base, feeCents: fee, tipCents: 0 })})`;
 }
 
+/**
+ * Lo que se manda al confirmar un cobro del datáfono manual: el código del
+ * ticket y lo que se cobró, que es lo que enseña la lista (el API ya manda en
+ * `amountCents` el total con la comisión del servicio). Con la comisión, el
+ * API no confirma sin ello.
+ */
+export function posConfirmBody(
+  p: { amountCents: number; baseAmountCents?: number; serviceFeeCents?: number },
+  posReceiptRef: string,
+  photo?: string | null,
+): { posReceiptRef: string; chargedCents: number; posReceiptPhoto?: string } {
+  return { posReceiptRef, chargedCents: p.amountCents, ...(photo ? { posReceiptPhoto: photo } : {}) };
+}
+
 /** Lo que se cobra con tarjeta o datáfono: el importe + la comisión del servicio (sin la propina). */
 export function chargeWithFeeCents(p: { amountCents: number; serviceFeeCents?: number | null }): number {
   return p.amountCents + Math.max(0, p.serviceFeeCents ?? 0);

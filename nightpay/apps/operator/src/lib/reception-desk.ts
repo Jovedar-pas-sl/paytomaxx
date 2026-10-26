@@ -16,8 +16,7 @@ import {
   type ReceptionOptions,
   type SaldoRefDto,
 } from '@nightpay/contracts';
-import { ApiError } from '@nightpay/api-client';
-import { authedFetch, parseOperatorApiError } from './api';
+import { authedFetch, operatorApiError, parseOperatorApiError } from './api';
 import { formatEur } from './money';
 import { payProblem, receptionWhat, topUpCharge, walletOfTarget, type PayMethod, type Target } from './reception';
 import type { TopUpWalletDto } from '@nightpay/contracts';
@@ -47,7 +46,7 @@ export async function fetchFichaByNumber(printedNumber: string): Promise<Recepti
 /** Recargar en efectivo el saldo de la ficha buscada por su número (no una nueva). */
 export async function topUpByNumber(body: ReceptionNumberTopUpDto): Promise<ReceptionNumberTopUpResult> {
   const res = await authedFetch('/v1/reception/fichas/number-topup', { method: 'POST', body: JSON.stringify(body) });
-  if (!res.ok) throw new ApiError(await parseOperatorApiError(res, 'Ficha'), res.status);
+  if (!res.ok) throw await operatorApiError(res, 'Ficha');
   return res.json();
 }
 

@@ -21,10 +21,13 @@ const NO_CONNECTION_TEXT = 'Sin conexión con OxioPay. Revisa el wifi del datáf
 /** Error de la API con su código HTTP (401 = puede que el datáfono ya no esté vinculado). */
 export class PaxApiError extends Error {
   readonly status: number;
+  /** El `code` del API si lo manda (p. ej. SERVICE_FEE_CHANGED). */
+  readonly code: string | null;
 
-  constructor(message: string, status: number) {
+  constructor(message: string, status: number, code: string | null = null) {
     super(message);
     this.status = status;
+    this.code = code;
   }
 }
 
@@ -87,19 +90,21 @@ export function forgetDevice(): void {
   }
 }
 
-async function readMessage(res: Response): Promise<string> {
+async function readMessage(res: Response): Promise<{ message: string; code: string | null }> {
   const text = await res.text();
+  let code: string | null = null;
   try {
     const body = JSON.parse(text) as { detail?: unknown; message?: unknown; title?: unknown; code?: unknown };
     const msg = body.detail ?? body.message ?? body.title;
-    const known = codeErrorText(typeof body.code === 'string' ? body.code : null, typeof msg === 'string' ? msg : null);
-    if (known) return known;
-    if (typeof msg === 'string' && msg) return msg;
+    code = typeof body.code === 'string' ? body.code : null;
+    const known = codeErrorText(code, typeof msg === 'string' ? msg : null);
+    if (known) return { message: known, code };
+    if (typeof msg === 'string' && msg) return { message: msg, code };
   } catch {
     // no es JSON
   }
-  if (res.status === 401) return 'Este datáfono no está vinculado. Pide un código nuevo en el panel.';
-  return text || `Error ${res.status}`;
+  if (res.status === 401) return { message: 'Este datáfono no está vinculado. Pide un código nuevo en el panel.', code };
+  return { message: text || `Error ${res.status}`, code };
 }
 
 /** Petición al API con la credencial del datáfono (también la usa el cobro del saldo, pax-saldo.ts). */
@@ -116,7 +121,10 @@ export async function call<T>(path: string, init: RequestInit = {}): Promise<T> 
     throw new PaxApiError(NO_CONNECTION_TEXT, 0);
   }
   // Un 401 suelto (un proxy, un corte) no desvincula: eso lo decide /me.
-  if (!res.ok) throw new PaxApiError(await readMessage(res), res.status);
+  if (!res.ok) {
+    const { message, code } = await readMessage(res);
+    throw new PaxApiError(message, res.status, code);
+  }
   return res.json() as Promise<T>;
 }
 
@@ -131,7 +139,7 @@ export async function pairDevice(code: string): Promise<PaxInfo> {
   } catch {
     throw new Error(NO_CONNECTION_TEXT);
   }
-  if (!res.ok) throw new Error(await readMessage(res));
+  if (!res.ok) throw new Error((await readMessage(res)).message);
   const out = (await res.json()) as PaxInfo & { token: string };
   try {
     localStorage.setItem(DEVICE_TOKEN_KEY, out.token);

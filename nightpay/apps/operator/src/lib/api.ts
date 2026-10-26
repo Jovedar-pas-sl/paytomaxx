@@ -69,6 +69,13 @@ export async function parseOperatorApiError(res: Response, context: string): Pro
   return operatorErrorMessage(res.status, message ?? undefined, context, code);
 }
 
+/** Lo mismo, como ApiError con su código HTTP y el `code` del API (SERVICE_FEE_CHANGED…). */
+export async function operatorApiError(res: Response, context: string): Promise<ApiError> {
+  const text = await res.text().catch(() => '');
+  const { message, code } = parseProblemDetails(text);
+  return new ApiError(operatorErrorMessage(res.status, message ?? undefined, context, code), res.status, code);
+}
+
 /**
  * Error HTTP → frase concreta. El texto del servidor se enseña cuando es
  * corto y no técnico: los 403/409/422 de negocio dicen qué pasa ("El máximo
@@ -513,13 +520,13 @@ export async function fetchPendingPos(zone?: string, signal?: AbortSignal): Prom
 
 export async function confirmPosPayment(
   paymentId: string,
-  input: { posReceiptRef: string; posReceiptPhoto?: string; notes?: string },
+  input: { posReceiptRef: string; posReceiptPhoto?: string; notes?: string; chargedCents?: number },
 ): Promise<{ status: string }> {
   const res = await authedFetch(`/v1/payments/${paymentId}/confirm-pos`, {
     method: 'POST',
     body: JSON.stringify(input),
   });
-  if (!res.ok) throw new Error(await parseOperatorApiError(res, 'Confirmación POS'));
+  if (!res.ok) throw await operatorApiError(res, 'Confirmación POS');
   return res.json();
 }
 
@@ -934,7 +941,7 @@ export async function fetchReceptionOptions(): Promise<ReceptionOptions> {
 export async function receptionCashTopUp(body: CashTopUpDto): Promise<CashTopUpResult> {
   const res = await authedFetch('/v1/reception/cash', { method: 'POST', body: JSON.stringify(body) });
   // Con su código HTTP: la pantalla distingue «no se cargó» (4xx) de «no se sabe» (5xx).
-  if (!res.ok) throw new ApiError(await parseOperatorApiError(res, 'Recarga en efectivo'), res.status);
+  if (!res.ok) throw await operatorApiError(res, 'Recarga en efectivo');
   return res.json();
 }
 

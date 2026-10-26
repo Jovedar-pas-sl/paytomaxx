@@ -13,6 +13,9 @@ import {
   receptionDetail,
   receptionWhat,
   stockOutcomeLine,
+  cashWithFreshFee,
+  serviceFeeChangedText,
+  serviceFeeStale,
   topUpCharge,
   topUpCheck,
   walletAfterCash,
@@ -250,5 +253,48 @@ describe('recargas con la «Comisión del servicio» (la paga el cliente encima)
     for (const o of [OPTIONS, { ...OPTIONS, serviceFee: { enabled: false, cardBps: 1000, topUpBps: 1000 } }, null]) {
       expect(topUpCharge(o, 5_000)).toMatchObject({ feeCents: 0, totalCents: 5_000, body: {} });
     }
+  });
+});
+
+describe('la comisión del servicio cambió mientras la recepción estaba abierta (409)', () => {
+  const sp = (s: string) => s.replace(/\s/g, ' ');
+  it('SERVICE_FEE_CHANGED y SERVICE_FEE_APP_OUTDATED: hay que volver a pedir las opciones; otro 409, no', () => {
+    expect(serviceFeeStale({ status: 409, code: 'SERVICE_FEE_CHANGED' })).toBe(true);
+    expect(serviceFeeStale({ status: 409, code: 'SERVICE_FEE_APP_OUTDATED' })).toBe(true);
+    expect(serviceFeeStale({ status: 409, code: 'CASH_LIMIT' })).toBe(false);
+    expect(serviceFeeStale(new Error('red'))).toBe(false);
+    expect(serviceFeeStale(null)).toBe(false);
+  });
+
+  it('dice lo que hay que cobrar ahora (con las opciones nuevas)', () => {
+    const fresh = { ...OPTIONS, serviceFee: { enabled: true, cardBps: 1000, topUpBps: 1100 } };
+    expect(sp(serviceFeeChangedText(fresh, 5_000))).toBe(
+      'La comisión del servicio ha cambiado. Ahora: Cobra 55,50 € (50 € de saldo + 5,50 € de comisión del servicio). Vuelve a cobrar.',
+    );
+  });
+});
+
+describe('cobrar en efectivo cuando la comisión cambió: se piden las opciones otra vez', () => {
+  const fresh = { ...OPTIONS, serviceFee: { enabled: true, cardBps: 1000, topUpBps: 1100 } };
+
+  it('409 SERVICE_FEE_CHANGED: pide las opciones, las deja puestas y dice el total nuevo (409, no «no se sabe»)', async () => {
+    const refresh = vi.fn(async () => fresh);
+    const seen: unknown[] = [];
+    const stale = Object.assign(new Error('ha cambiado'), { status: 409, code: 'SERVICE_FEE_CHANGED' });
+    const err = await cashWithFreshFee(async () => Promise.reject(stale), { refresh, onOptions: (o) => seen.push(o), amountCents: 5_000 }).catch(
+      (e: unknown) => e,
+    );
+    expect(refresh).toHaveBeenCalledTimes(1);
+    expect(seen).toEqual([fresh]);
+    expect(err).toMatchObject({ status: 409, code: 'SERVICE_FEE_CHANGED' });
+    expect(String((err as Error).message).replace(/\s/g, ' ')).toContain('Cobra 55,50 €');
+  });
+
+  it('otro error, tal cual (sin pedir nada); bien, el resultado', async () => {
+    const refresh = vi.fn(async () => fresh);
+    const other = Object.assign(new Error('tope'), { status: 409, code: 'CASH_LIMIT' });
+    await expect(cashWithFreshFee(async () => Promise.reject(other), { refresh, onOptions: () => undefined, amountCents: 5_000 })).rejects.toBe(other);
+    await expect(cashWithFreshFee(async () => 'ok', { refresh, onOptions: () => undefined, amountCents: 5_000 })).resolves.toBe('ok');
+    expect(refresh).not.toHaveBeenCalled();
   });
 });

@@ -3,6 +3,7 @@ import { invitationRulesOf } from '@nightpay/contracts';
 import {
   CHECKING_TEXT,
   chargeWithFeeCents,
+  posConfirmBody,
   failReasonOf,
   paymentFeeLine,
   posChargeLine,
@@ -214,5 +215,19 @@ describe('el datáfono con la comisión del servicio (el API ya manda el total)'
     );
     // Un API de antes: amountCents es lo que se cobra.
     expect(sp(posChargeLine({ amountCents: 3300 }))).toBe('Cobra 33 €');
+  });
+});
+
+describe('confirmar el datáfono manual: se manda lo que se cobró (el total de la lista)', () => {
+  it('con la comisión, el total (36,30 €); sin ella, el importe', () => {
+    expect(posConfirmBody({ amountCents: 3630, baseAmountCents: 3300, serviceFeeCents: 330 }, 'AB12CD')).toEqual({
+      posReceiptRef: 'AB12CD',
+      chargedCents: 3630,
+    });
+    expect(posConfirmBody({ amountCents: 3300 }, 'AB12CD', 'data:image/jpeg;base64,x')).toEqual({
+      posReceiptRef: 'AB12CD',
+      chargedCents: 3300,
+      posReceiptPhoto: 'data:image/jpeg;base64,x',
+    });
   });
 });

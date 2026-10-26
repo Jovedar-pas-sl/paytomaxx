@@ -18,6 +18,7 @@ import {
   receptionDetail,
   receptionWhat,
   staffBackend,
+  cashWithFreshFee,
   topUpCharge,
   topUpCheck,
   walletAfterCash,
@@ -450,13 +451,17 @@ export function ReceptionFlow({ on, onDone }: Props) {
             onClick={() =>
               void run(async () => {
                 const target = step.target;
-                const out = await backend.cash({
-                  amountCents,
-                  idempotencyKey: keyFor('cash', target),
-                  wallet: walletOfTarget(target),
-                  // La «Comisión del servicio» que se ha dicho (si cambió, el servidor no la apunta).
-                  ...topUpCharge(options, amountCents).body,
-                });
+                const out = await cashWithFreshFee(
+                  () =>
+                    backend.cash({
+                      amountCents,
+                      idempotencyKey: keyFor('cash', target),
+                      wallet: walletOfTarget(target),
+                      // La «Comisión del servicio» que se ha dicho (si cambió, el servidor no la apunta).
+                      ...topUpCharge(options, amountCents).body,
+                    }),
+                  { refresh: () => backend.options(), onOptions: setOptions, amountCents },
+                );
                 if (target.kind === 'card') setStep(done(walletAfterCash(out, target.view), 'cash'));
                 else await paidThen(out.walletId, 'cash');
               })
