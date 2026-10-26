@@ -23,6 +23,16 @@ import { Prisma } from '@nightpay/db';
  *  - Días, meses y trimestres de Madrid (reporting-window.ts, report-period.ts).
  */
 
+/**
+ * Tiempos de las transacciones de los informes (Z al cerrar y su cierre
+ * automático de las 08:00, resumen de las 9:00, Z del periodo, CSV, mapa del
+ * dinero). Con los de Prisma (5 s) un local con mucho historial o la base
+ * ocupada cortaba la transacción (P2028): el cierre automático fallaba cada
+ * 10 min sin cerrar la noche y el panel daba 500. Con los índices de
+ * 20261029400000 tardan milisegundos: esto es el tope, no lo normal.
+ */
+export const REPORT_TX = { maxWait: 10_000, timeout: 30_000 } as const;
+
 /** Estados de un cobro que cuentan como cobrado. */
 export const PAID_STATUSES_SQL = Prisma.sql`('AUTHORIZED', 'PARTIALLY_REFUNDED', 'REFUNDED')`;
 

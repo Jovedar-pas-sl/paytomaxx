@@ -444,6 +444,10 @@ model Payment {
   @@index([tenantId, createdByUserId, createdAt(sort: Desc)])
   @@index([providerTxId])
   @@index([qrExpiresAt])
+  // Solo en SQL (20261029400000_indices_informes; Prisma no los compara):
+  // payments_tenant_paid_at_idx (tenantId, COALESCE(authorizedAt, createdAt)),
+  // el «momento del cobro» de los informes; y payments_open_qr_expires_idx
+  // (qrExpiresAt) de los CREATED/AWAITING_CAPTURE, para el barrido de caducados.
   @@index([walletId])
   @@index([tipBeneficiaryUserId])
   @@unique([posTerminalId, posOperationNumber])
@@ -807,6 +811,8 @@ model PaymentEvent {
 
   @@index([paymentId])
   @@index([tenantId, occurredAt(sort: Desc)])
+  // Bandeja de incidencias y ajustes del Z, por tipo (20261029400000_indices_informes).
+  @@index([tenantId, eventType, occurredAt])
   @@index([traceId])
   @@map("payment_events")
 }
@@ -1290,6 +1296,8 @@ model WalletConsumption {
   @@index([tenantId, providedByUserId, createdAt(sort: Desc)])
   @@index([tenantId, category])
   @@index([walletId, createdAt])
+  // Consumos del Z y de los informes por fecha (20261029400000_indices_informes).
+  @@index([tenantId, createdAt])
   @@map("wallet_consumptions")
 }
 

@@ -1,6 +1,6 @@
 import { afterEach, describe, it, expect, vi } from 'vitest';
 import { BadRequestException, NotFoundException } from '@nestjs/common';
-import { IncidentsService } from './incidents.service';
+import { INCIDENT_QUERY_CONCURRENCY, IncidentsService } from './incidents.service';
 import { AlertsService } from './alerts.service';
 import { TelegramService } from './telegram.service';
 import { REFUND_PENDING_MINUTES, type Incident, type PendingRefundRow } from './incident-rules';
@@ -613,5 +613,34 @@ describe('Telegram', () => {
     expect(t.isConfigured('-1001234567890')).toBe(true);
     expect(await t.send('hola', '-1001234567890')).toBe(true);
     expect(JSON.parse((fetchMock.mock.calls[0]! as [string, { body: string }])[1].body)).toMatchObject({ chat_id: '-1001234567890' });
+  });
+});
+
+describe('bandeja de incidencias — consultas a la base (DI-04)', () => {
+  it('como mucho 4 a la vez (antes las 17 a la vez: 17 conexiones del pool en cada vuelta de 5 min por local)', async () => {
+    let inFlight = 0;
+    let maxInFlight = 0;
+    let total = 0;
+    const query = vi.fn(async () => {
+      inFlight += 1;
+      total += 1;
+      maxInFlight = Math.max(maxInFlight, inFlight);
+      await new Promise((r) => setTimeout(r, 5));
+      inFlight -= 1;
+      return [];
+    });
+    const prisma = { $queryRaw: query, asSystem: vi.fn(async (fn: (tx: unknown) => unknown) => fn({ $queryRaw: query })) };
+    const svc = new IncidentsService(prisma as never, { log: vi.fn() } as never);
+    await expect(svc.list('t-1', at('2026-10-17T01:00:00Z'))).resolves.toEqual([]);
+    expect(total).toBe(17);
+    expect(maxInFlight).toBeLessThanOrEqual(INCIDENT_QUERY_CONCURRENCY);
+    expect(INCIDENT_QUERY_CONCURRENCY).toBe(4);
+  });
+
+  it('un fallo en una consulta hace fallar la bandeja (como antes): no se enseña una bandeja a medias', async () => {
+    const query = vi.fn().mockResolvedValue([]).mockRejectedValueOnce(new Error('connection terminated'));
+    const prisma = { $queryRaw: query, asSystem: vi.fn(async (fn: (tx: unknown) => unknown) => fn({ $queryRaw: query })) };
+    const svc = new IncidentsService(prisma as never, { log: vi.fn() } as never);
+    await expect(svc.list('t-1', at('2026-10-17T01:00:00Z'))).rejects.toThrow('connection terminated');
   });
 });

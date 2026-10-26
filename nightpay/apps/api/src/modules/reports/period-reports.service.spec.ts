@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { Prisma } from '@nightpay/db';
 import { PeriodReportsService } from './period-reports.service';
+import { REPORT_TX } from './reporting-sql';
 
 const TENANT = '11111111-1111-4111-8111-111111111111';
 
@@ -112,5 +113,25 @@ describe('IVA 303', () => {
     const r = await svc.vat303(TENANT, 'Q1-2026');
     expect(r).toMatchObject({ exento: true, quarter: 'Q1-2026' });
     expect(queries).toHaveLength(0);
+  });
+});
+
+describe('transacciones del Z del periodo: tope explícito (DI-02)', () => {
+  it('todas con REPORT_TX', async () => {
+    const queries: unknown[] = [];
+    const prisma = {
+      $queryRaw: vi.fn(async (strings: TemplateStringsArray, ...values: unknown[]) => {
+        const q = Prisma.sql(strings, ...values);
+        queries.push(q);
+        if (q.text.includes('WITH cobros')) return [TOTALS_ROW];
+        return [];
+      }),
+      venue: { findUniqueOrThrow: vi.fn().mockResolvedValue({ name: 'Local Centro', vatBps: 2100, vatRegime: 'GENERAL' }) },
+      withTenant: vi.fn(async (_tenantId: string, fn: (tx: unknown) => unknown) => fn(prisma)),
+    };
+    const svc = new PeriodReportsService(prisma as never);
+    await svc.periodZ(TENANT, { from: new Date('2026-10-01T00:00:00Z'), to: new Date('2026-10-02T00:00:00Z') });
+    expect(prisma.withTenant.mock.calls.length).toBeGreaterThanOrEqual(4);
+    for (const call of prisma.withTenant.mock.calls) expect((call as unknown[])[2]).toBe(REPORT_TX);
   });
 });

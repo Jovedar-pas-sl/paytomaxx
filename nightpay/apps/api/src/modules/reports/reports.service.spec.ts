@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { BadRequestException } from '@nestjs/common';
 import { Prisma } from '@nightpay/db';
 import { MAX_EXPORT_ROWS, ReportsService } from './reports.service';
+import { REPORT_TX } from './reporting-sql';
 
 /**
  * Lecturas del informe de la gestoría y del Z de la noche (SQL crudo). Se
@@ -251,5 +252,20 @@ describe('tope de filas por informe', () => {
     const pasado = makeService(() => new Array<unknown>(MAX_EXPORT_ROWS + 1).fill({ id: 'x' }));
     await expect(leer(pasado.svc)).rejects.toThrow(BadRequestException);
     await expect(leer(pasado.svc)).rejects.toThrow(/periodo/);
+  });
+});
+
+describe('transacciones de los informes: tope explícito (DI-02)', () => {
+  it('cobros, consumos, devoluciones, recargas en efectivo, pagos al personal y ajustes con REPORT_TX (30 s), no los 5 s de Prisma', async () => {
+    const { svc, prisma } = makeService();
+    await svc.cobros(TENANT, NIGHT);
+    await svc.consumos(TENANT, NIGHT);
+    await svc.devoluciones(TENANT, NIGHT);
+    await svc.recargasEfectivo(TENANT, NIGHT);
+    await svc.liquidaciones(TENANT, NIGHT);
+    await svc.ajustes(TENANT, { before: NIGHT.from, since: NIGHT.from, until: Z_AT });
+    expect(prisma.withTenant.mock.calls.length).toBeGreaterThanOrEqual(8);
+    for (const call of prisma.withTenant.mock.calls) expect((call as unknown[])[2]).toBe(REPORT_TX);
+    expect(REPORT_TX).toEqual({ maxWait: 10_000, timeout: 30_000 });
   });
 });
