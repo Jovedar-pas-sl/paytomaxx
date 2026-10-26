@@ -150,6 +150,16 @@ describe('IpRateLimitGuard', () => {
     await expect(intento('2.2.2.2')).rejects.toThrow(HttpException);
   });
 
+  it('IPv6: cambiar de dirección dentro del mismo /64 no se salta el tope', async () => {
+    const config: IpRateLimitConfig = { max: 2, windowSec: 60, scope: 'test' };
+    const guard = new IpRateLimitGuard(makeReflector(config), redis as never);
+    await guard.canActivate(makeCtx(config, '2001:db8:abcd:12::1'));
+    await guard.canActivate(makeCtx(config, '2001:db8:abcd:12::2'));
+    await expect(guard.canActivate(makeCtx(config, '2001:db8:abcd:12:ffff::3'))).rejects.toThrow(HttpException);
+    // Otro /64, su propio cupo.
+    await expect(guard.canActivate(makeCtx(config, '2001:db8:abcd:13::1'))).resolves.toBe(true);
+  });
+
   it('isolates IPs in different Redis keys', async () => {
     const config: IpRateLimitConfig = { max: 1, windowSec: 60, scope: 'test' };
     const guard = new IpRateLimitGuard(makeReflector(config), redis as never);

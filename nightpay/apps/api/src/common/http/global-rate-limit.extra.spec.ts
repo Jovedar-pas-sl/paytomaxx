@@ -45,9 +45,9 @@ describe('exención del límite global — bordes', () => {
 });
 
 describe('clave del límite global', () => {
-  it('cliente IPv6 detrás de Cloudflare → su IPv6', () => {
+  it('cliente IPv6 detrás de Cloudflare → su red /64', () => {
     const r = viaRaw('/v1/x', TRAEFIK, { 'cf-connecting-ip': '2a0c:5a80:1f02::1d', 'x-forwarded-for': '2606:4700:10::1' });
-    expect(anonymousRateLimitKey(r)).toBe('ip:2a0c:5a80:1f02::1d');
+    expect(anonymousRateLimitKey(r)).toBe('ip:2a0c:5a80:1f02:0::/64');
   });
 
   it('sin socket: la IP de Fastify; sin nada → "desconocida" (un único cubo compartido)', () => {

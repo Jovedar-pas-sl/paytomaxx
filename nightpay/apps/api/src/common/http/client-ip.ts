@@ -1,4 +1,4 @@
-import { BlockList, isIP } from 'node:net';
+import { BlockList, isIP, isIPv4, isIPv6 } from 'node:net';
 
 /**
  * La IP real del cliente, con la que se cuentan los límites de peticiones y
@@ -132,4 +132,36 @@ export function clientIp(req: ClientIpRequest): string | null {
   const viaCloudflare = isOriginVerified(req) || isCloudflareAddress(hop);
   const cf = viaCloudflare ? normalizeIp(headerValues(req.headers, 'cf-connecting-ip')[0]) : null;
   return cf ?? hop;
+}
+
+/**
+ * La clave de los límites por IP (global, @IpRateLimit, bloqueos del login).
+ * En IPv6 cualquier conexión tiene al menos una red /64 entera (2^64
+ * direcciones): si cada dirección contase por separado, rotando dentro de su
+ * /64 se saltarían todos los topes. Se agrupa por /64; IPv4, tal cual. La IP
+ * entera se sigue registrando donde se registra (logs, auditoría).
+ */
+export function rateLimitIpKey(ip: string): string {
+  if (ip.startsWith('::ffff:') && isIPv4(ip.slice(7))) return ip.slice(7);
+  const groups = ipv6Groups(ip.split('%')[0] ?? '');
+  if (!groups) return ip;
+  const prefix = groups.slice(0, 4).map((g) => parseInt(g, 16).toString(16));
+  return `${prefix.join(':')}::/64`;
+}
+
+/** Los 8 grupos de una IPv6 ('::' expandido), o null si no es IPv6. */
+function ipv6Groups(ip: string): string[] | null {
+  if (!isIPv6(ip)) return null;
+  const [head = '', tail] = ip.toLowerCase().split('::');
+  const left = splitGroups(head);
+  if (tail === undefined) return left;
+  const right = splitGroups(tail);
+  const zeros = Array.from({ length: 8 - left.length - right.length }, () => '0');
+  return [...left, ...zeros, ...right];
+}
+
+/** Una IPv4 al final (p. ej. 64:ff9b::1.2.3.4) ocupa dos grupos. */
+function splitGroups(part: string): string[] {
+  if (!part) return [];
+  return part.split(':').flatMap((g) => (g.includes('.') ? ['0', '0'] : [g]));
 }

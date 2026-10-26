@@ -36,6 +36,12 @@ describe('límite global de peticiones', () => {
     expect(isGlobalRateLimitExempt(req('/v1/pay/tok123', '10.0.1.7'))).toBe(false);
   });
 
+  it('IPv6: rotar de dirección dentro del mismo /64 no da cupo nuevo', () => {
+    const a = anonymousRateLimitKey(req('/v1/x', '2001:db8:abcd:12::1'));
+    expect(a).toBe('ip:2001:db8:abcd:12::/64');
+    expect(anonymousRateLimitKey(req('/v1/x', '2001:db8:abcd:12:9:8:7:6'))).toBe(a);
+  });
+
   it('la clave es la IP de fiar, no la cabecera que mande el cliente', () => {
     const viaCloudflare = req('/v1/x', '10.0.1.7', { 'cf-connecting-ip': '81.0.0.7', 'x-forwarded-for': '162.158.1.1' });
     expect(anonymousRateLimitKey(viaCloudflare)).toBe('ip:81.0.0.7');

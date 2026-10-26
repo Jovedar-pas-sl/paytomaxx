@@ -68,10 +68,10 @@ describe('IpRateLimitGuard — decorador real + Reflector real', () => {
     await expect(guard.canActivate(ctx('login', ip))).rejects.toThrow(HttpException);
   });
 
-  it('la clave lleva scope, IP y ventana', async () => {
+  it('la clave lleva scope, IP (en IPv6, su red /64) y ventana', async () => {
     await guard.canActivate(ctx('login', desde('2a0c:5a80:1f02::1d')));
     const bucket = Math.floor(Date.parse('2026-10-17T00:00:05Z') / 1000 / 60);
-    expect(redis.incr).toHaveBeenCalledWith(`nightpay:iprl:auth-login:2a0c:5a80:1f02::1d:${bucket}`);
+    expect(redis.incr).toHaveBeenCalledWith(`nightpay:iprl:auth-login:2a0c:5a80:1f02:0::/64:${bucket}`);
   });
 });
 

@@ -2,7 +2,7 @@ import { Logger } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import type { RateLimitPluginOptions } from '@fastify/rate-limit';
 import { bearerToken, verifyStaffToken } from '../guards/staff-token';
-import { clientIp, normalizeIp, type ClientIpRequest } from './client-ip';
+import { clientIp, normalizeIp, rateLimitIpKey, type ClientIpRequest } from './client-ip';
 
 /**
  * Límite global de peticiones (@fastify/rate-limit, main.ts), por minuto y
@@ -72,9 +72,10 @@ export function isGlobalRateLimitExempt(req: LimitedRequest): boolean {
   return peer !== null && LOOPBACK.has(peer) && HEALTH_PATHS.includes(path);
 }
 
-/** Sin sesión: la misma IP de fiar que el login y los @IpRateLimit (ver client-ip.ts). */
+/** Sin sesión: la misma IP de fiar que el login y los @IpRateLimit (en IPv6, su /64; ver client-ip.ts). */
 export function anonymousRateLimitKey(req: LimitedRequest): string {
-  return `ip:${clientIp(req) ?? 'desconocida'}`;
+  const ip = clientIp(req);
+  return `ip:${ip ? rateLimitIpKey(ip) : 'desconocida'}`;
 }
 
 type Identity =

@@ -12,7 +12,7 @@ import { Reflector } from '@nestjs/core';
 import { createHash } from 'node:crypto';
 import type { Redis } from 'ioredis';
 import { REDIS_CLIENT } from '../redis/redis.module';
-import { clientIp, type ClientIpRequest } from '../http/client-ip';
+import { clientIp, rateLimitIpKey, type ClientIpRequest } from '../http/client-ip';
 import { resolveLanguage, type PayLanguage } from '../../modules/payments/pay-i18n';
 
 /**
@@ -79,8 +79,9 @@ function requestLanguage(req: MinimalReq): PayLanguage {
 /**
  * Guard que lee el meta del handler y aplica fixed-window INCR en Redis.
  *
- * Clave Redis: nightpay:iprl:<scope>:<ip>:<windowBucket>
- * Si count > max al final del bucket → 429 Too Many Requests + Retry-After.
+ * Clave Redis: nightpay:iprl:<scope>:<ip>:<windowBucket> (en IPv6, su red
+ * /64: rateLimitIpKey). Si count > max al final del bucket → 429 Too Many
+ * Requests + Retry-After. El log lleva la IP entera.
  *
  * Importante: este guard es GLOBAL pero solo actúa cuando el meta está set;
  * sin meta es no-op, evitando overhead en endpoints normales.
@@ -112,11 +113,12 @@ export class IpRateLimitGuard implements CanActivate {
 
     // Fixed window: bucket = floor(now / windowSec). Reset implícito al cambiar bucket.
     const bucket = Math.floor(Date.now() / 1000 / config.windowSec);
+    const net = rateLimitIpKey(ip);
     const account = config.perAccount ? accountOf(req.body, config.perAccount.field) : null;
     const checks: Array<{ key: string; max: number; what: string }> = [
-      { key: `nightpay:iprl:${config.scope}:${ip}:${bucket}`, max: config.max, what: 'ip' },
+      { key: `nightpay:iprl:${config.scope}:${net}:${bucket}`, max: config.max, what: 'ip' },
       ...(config.perAccount && account
-        ? [{ key: `nightpay:iprl:${config.scope}:acct:${ip}:${account}:${bucket}`, max: config.perAccount.max, what: 'ip+cuenta' }]
+        ? [{ key: `nightpay:iprl:${config.scope}:acct:${net}:${account}:${bucket}`, max: config.perAccount.max, what: 'ip+cuenta' }]
         : []),
     ];
     for (const check of checks) {

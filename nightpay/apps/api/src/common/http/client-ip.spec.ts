@@ -5,6 +5,7 @@ import {
   isInternalAddress,
   markOriginVerified,
   normalizeIp,
+  rateLimitIpKey,
   trustInternalProxy,
 } from './client-ip';
 
@@ -89,5 +90,23 @@ describe('clientIp (la IP con la que se cuentan límites e intentos)', () => {
 
   it('acepta también la petición de Fastify con socket directo', () => {
     expect(clientIp({ headers: {}, socket: { remoteAddress: CLIENTE } })).toBe(CLIENTE);
+  });
+});
+
+describe('rateLimitIpKey (la clave de los límites por IP)', () => {
+  it('IPv4 tal cual (también la que llega como ::ffff:)', () => {
+    expect(rateLimitIpKey('203.0.113.7')).toBe('203.0.113.7');
+    expect(rateLimitIpKey('::ffff:203.0.113.7')).toBe('203.0.113.7');
+  });
+
+  it('IPv6: todo el /64 es una sola clave (cualquier conexión tiene 2^64 direcciones para rotar)', () => {
+    const a = rateLimitIpKey('2001:db8:abcd:12::1');
+    expect(a).toBe('2001:db8:abcd:12::/64');
+    expect(rateLimitIpKey('2001:0db8:abcd:0012:ffff:eeee:dddd:cccc')).toBe(a);
+    expect(rateLimitIpKey('2001:db8:abcd:13::1')).not.toBe(a);
+  });
+
+  it('lo que no es una IP, tal cual', () => {
+    expect(rateLimitIpKey('desconocida')).toBe('desconocida');
   });
 });
