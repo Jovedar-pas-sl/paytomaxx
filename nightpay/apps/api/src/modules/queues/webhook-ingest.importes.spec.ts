@@ -3,7 +3,7 @@ import type { Job } from 'bullmq';
 import { serializeAndSignJSONRequest } from 'redsys-easy';
 import { WebhookIngestProcessor } from './webhook-ingest.processor';
 import { RedsysAdapter } from '../gateways/redsys.adapter';
-import { WipayAdapter, numOperacionFromPaymentId, signWebhook } from '../gateways/wipay.adapter';
+import { WipayAdapter, numOperacionFromUuid, signWebhook } from '../gateways/wipay.adapter';
 
 // Credenciales PÚBLICAS de pruebas (documentación de Redsys y manual de Cecabank).
 const REDSYS = { merchant: '999008881', key: 'sq7HjrUOBfKmC576ILgskD5srU870gJ7' };
@@ -14,7 +14,7 @@ const CECA_CLAVE = '99888888';
 const PAYMENT_ID = '7f1c2a9e-3b4d-4e5f-8a6b-1c2d3e4f5a6b';
 const TENANT_ID = '0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d';
 const DS_ORDER = '2610170001AB';
-const NUM_OP = numOperacionFromPaymentId(PAYMENT_ID);
+const NUM_OP = numOperacionFromUuid(PAYMENT_ID);
 const NOW = new Date('2026-10-17T02:15:00Z');
 
 const CONFIG: Record<string, string | number> = {
@@ -248,6 +248,21 @@ describe('Redsys — el importe firmado por el banco decide (adapter real)', () 
 });
 
 describe('Wipay/Cecabank — el Importe firmado decide (adapter real)', () => {
+  it('operación nueva (Num_operacion = id del intento, FSD-02): el aviso firmado encuentra su cobro', async () => {
+    const ATTEMPT_ID = '0d4e7c21-58f3-4b19-8e02-9c7d6b5e4f30';
+    const op = numOperacionFromUuid(ATTEMPT_ID);
+    const m = makeProcessor({ provider: 'WIPAY', rawBody: wipayBody({ Num_operacion: op }) });
+    const payment = await m.tx.payment.findUnique();
+    m.tx.payment.findUnique.mockImplementation(async ({ where }: { where: { id: string } }) => (where.id === PAYMENT_ID ? payment : null));
+    Object.assign(m.tx.paymentAttempt, { findUnique: vi.fn(async () => ({ paymentId: PAYMENT_ID, provider: 'WIPAY' })) });
+    await m.run();
+    expect(m.payments.transition).toHaveBeenCalledWith(
+      PAYMENT_ID,
+      { type: 'AUTHORIZED', providerTxId: op, provider: 'WIPAY' },
+      TENANT_ID,
+    );
+  });
+
   it('Importe igual → AUTHORIZED de la operación', async () => {
     const m = makeProcessor({ provider: 'WIPAY', rawBody: wipayBody() });
     await m.run();
@@ -292,6 +307,7 @@ describe('Wipay/Cecabank — el Importe firmado decide (adapter real)', () => {
       currency: 'EUR',
       terminalExternalId: '',
       reference: PAYMENT_ID,
+      attemptId: '0d4e7c21-58f3-4b19-8e02-9c7d6b5e4f30',
     });
     const f = auth.checkoutForm!.fields;
     const forged = form({

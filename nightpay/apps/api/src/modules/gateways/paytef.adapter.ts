@@ -189,6 +189,10 @@ export class PaytefAdapter implements GatewayAdapter {
    * exponemos a través de extras para que NightPay la incluya en su QR.
    */
   private async doAuthorize(input: AuthorizeInput): Promise<AuthorizeResult> {
+    // El enlace (descripción y clientID) lo puede ver el cliente antes de
+    // pagar: nada del id del cobro, del que sale el código de confirmación
+    // (sus 3 últimos caracteres). clientID = el id del intento (al azar).
+    if (!input.attemptId) throw new Error('Paytef: falta el id del intento para la referencia del enlace');
     const baseUrl = this.baseUrl();
     const authHeader = this.authHeader();
 
@@ -209,8 +213,10 @@ export class PaytefAdapter implements GatewayAdapter {
         branchID,
         amountCents: input.amountCents,
         currency: input.currency,
-        description: `${BRAND_NAME} ${input.reference}`,
-        clientID: input.reference, // nuestro UUID payment como clientID Paytef
+        // Como en Redsys y Peanpe: los 8 primeros caracteres del cobro (para
+        // encontrarlo en el panel), que no dan el código de confirmación.
+        description: `${BRAND_NAME} ${input.reference.slice(0, 8)}`,
+        clientID: input.attemptId,
         // Paytef requiere userFullName + userEmail no vacíos (422). El cliente
         // real no los introduce porque pagamos directo sin formulario previo —
         // son placeholders que Paytef requiere por API pero no son visibles al
@@ -414,7 +420,8 @@ export class PaytefAdapter implements GatewayAdapter {
     // Id del link no vacío (y el mismo si viene dos veces): un providerTxId ''
     // dejaría el cobro sin pedido de Paytef y sin poder devolverlo.
     const paymentID = linkIdOf(parsed);
-    const paymentRef = parsed.data?.clientID; // nuestro UUID interno
+    // El id del intento (enlaces nuevos) o, en los de antes, el del cobro.
+    const paymentRef = parsed.data?.clientID;
     if (!paymentID || !paymentRef) {
       return { valid: false, reason: 'missing-paymentID-or-clientID' };
     }
@@ -440,6 +447,8 @@ export class PaytefAdapter implements GatewayAdapter {
     const linkId = linkIdOf(p);
     if (!linkId) return null;
 
+    // `paymentId` = clientID: el id del intento en los enlaces nuevos (el
+    // processor busca su cobro) o el del cobro en los de antes.
     // Aprobado → AUTHORIZED (antes que caducado: un link pagado que luego
     // caduca sigue estando pagado). El procesador lo comprueba con Paytef
     // (proveApproval) antes de darlo por pagado.
@@ -466,15 +475,18 @@ export class PaytefAdapter implements GatewayAdapter {
 
   /**
    * Prueba de la aprobación: el link tal como lo tiene Paytef. Tiene que estar
-   * aprobado, ser de este cobro (clientID) y traer importe. El aviso solo lo
-   * protege la URL secreta, así que de él no se usa nada más que el id.
+   * aprobado, ser de este cobro y traer importe. El aviso solo lo protege la
+   * URL secreta, así que de él no se usa nada más que el id. «De este cobro»:
+   * su clientID es el id del intento de ese pedido (enlaces nuevos) o el id
+   * del cobro (enlaces de antes de FSD-02).
    */
   async proveApproval(claim: ApprovalClaim): Promise<ApprovalProof> {
     const found = await this.fetchLink(claim.providerTxId);
     if (!found.ok) return { kind: 'unavailable', reason: found.reason };
     const link = found.link;
     if (!link) return { kind: 'rejected', reason: 'paytef-link-desconocido' };
-    if (link.clientID !== claim.paymentId) return { kind: 'rejected', reason: 'paytef-link-de-otro-cobro' };
+    const ours = link.clientID !== undefined && (link.clientID === claim.paymentId || link.clientID === claim.attemptId);
+    if (!ours) return { kind: 'rejected', reason: 'paytef-link-de-otro-cobro' };
     if (link.lastResult?.isApproved !== true) return { kind: 'rejected', reason: 'paytef-no-aprobado' };
     if (typeof link.amountCents !== 'number') return { kind: 'rejected', reason: 'paytef-sin-importe' };
     return { kind: 'confirmed', amountCents: link.amountCents, currency: link.currency ?? null };

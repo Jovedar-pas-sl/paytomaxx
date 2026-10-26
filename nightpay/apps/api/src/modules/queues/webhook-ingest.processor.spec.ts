@@ -283,3 +283,37 @@ describe('WebhookIngestProcessor — cobro único: la tarjeta aprobada después 
     expect(m.prisma.webhookDelivery.update).toHaveBeenCalled();
   });
 });
+
+describe('WebhookIngestProcessor — avisos que nombran el intento, no el cobro (Paytef clientID, Cecabank Num_operacion; FSD-02)', () => {
+  const ATTEMPT_ID = '0d4e7c21-58f3-4b19-8e02-9c7d6b5e4f30';
+
+  function namingAttempt(o: { attempt?: { paymentId: string; provider: string } | null } = {}) {
+    const m = makeProcessor({ provider: 'PAYTEF', paymentId: ATTEMPT_ID, attempt: { amountCents: 4850 } });
+    // Sin cobro con ese id: es el de un intento.
+    m.prisma.payment.findUnique.mockImplementation(async ({ where }: { where: { id: string } }) =>
+      where.id === PAYMENT_ID ? { id: PAYMENT_ID, tenantId: TENANT_ID, provider: 'PAYTEF', amountCents: 4850, currency: 'EUR' } : null,
+    );
+    const attempt = o.attempt === undefined ? { paymentId: PAYMENT_ID, provider: 'PAYTEF' } : o.attempt;
+    Object.assign(m.tx.paymentAttempt, { findUnique: vi.fn().mockResolvedValue(attempt) });
+    m.tx.paymentAttempt.findFirst.mockResolvedValue({ id: ATTEMPT_ID, amountCents: 4850 });
+    return m;
+  }
+
+  it('se resuelve a su cobro: la prueba lleva el intento y se apunta en el cobro', async () => {
+    const m = namingAttempt();
+    await m.processor.process(m.job);
+    expect(m.adapter.proveApproval).toHaveBeenCalledWith(
+      expect.objectContaining({ paymentId: PAYMENT_ID, providerTxId: 'abc123def456', attemptId: ATTEMPT_ID }),
+    );
+    expect(m.payments.transition).toHaveBeenCalledWith(PAYMENT_ID, expect.objectContaining({ type: 'AUTHORIZED' }), TENANT_ID);
+  });
+
+  it('un intento de otra pasarela no vale (ni un id que no es de nada)', async () => {
+    for (const attempt of [{ paymentId: PAYMENT_ID, provider: 'REDSYS' }, null]) {
+      const m = namingAttempt({ attempt });
+      await m.processor.process(m.job);
+      expect(m.payments.transition).not.toHaveBeenCalled();
+      expect(m.prisma.webhookDelivery.update).toHaveBeenCalled();
+    }
+  });
+});

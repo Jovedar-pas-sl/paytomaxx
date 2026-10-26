@@ -142,7 +142,11 @@ export class WipayAdapter implements GatewayAdapter {
    */
   private async doAuthorize(input: AuthorizeInput): Promise<AuthorizeResult> {
     const creds = this.requireCreds();
-    const numOp = numOperacionFromPaymentId(input.paymentId);
+    // El formulario lo ve el navegador del cliente: Num_operacion no puede
+    // ser el id del cobro (de él sale el código de confirmación). Es el id
+    // del intento (al azar), que el processor resuelve a su cobro.
+    if (!input.attemptId) throw new Error('Cecabank: falta el id del intento para Num_operacion');
+    const numOp = numOperacionFromUuid(input.attemptId);
     const importe = String(input.amountCents); // sin formatear, céntimos
     const tipoMoneda = currencyToCecabankCode(input.currency);
     const exponente = '2';
@@ -274,8 +278,8 @@ export class WipayAdapter implements GatewayAdapter {
 
     return {
       valid: true,
-      // externalEventId = Num_operacion (nuestro Payment.id en formato corto)
-      // + lo que dice el aviso: Cecabank deja reintentar con la misma
+      // externalEventId = Num_operacion (el id del intento, o del cobro en
+      // los de antes, sin guiones) + lo que dice el aviso: Cecabank deja reintentar con la misma
       // operación, así que una denegación y el OK posterior son avisos
       // distintos. Reenvíos del mismo aviso sí se deduplican.
       externalEventId: `${parsed.Num_operacion}-${wipayOutcome(parsed)}`,
@@ -287,7 +291,8 @@ export class WipayAdapter implements GatewayAdapter {
     const p = parsedPayload as CecabankWebhook;
     if (!p.Num_operacion) return null;
 
-    const paymentId = paymentIdFromNumOperacion(p.Num_operacion);
+    // El id del intento (o, en los cobros de antes, del cobro): el processor busca su cobro.
+    const paymentId = uuidFromNumOperacion(p.Num_operacion);
     const outcome = wipayOutcome(p);
     if (outcome === 'approved') {
       return {
@@ -388,15 +393,16 @@ export class WipayAdapter implements GatewayAdapter {
 // ─── funciones puras (testeables sin Nest/DI) ───────────────────────
 
 /**
- * Genera el `Num_operacion` Cecabank a partir del Payment.id UUID.
- * Cecabank limita Num_operacion a 50 chars alfanuméricos. UUIDs caben sin
- * problema pero los guiones a veces dan ruido — los quitamos.
+ * `Num_operacion` de Cecabank a partir de un UUID: el del intento (antes de
+ * FSD-02, el del cobro). Cecabank limita Num_operacion a 50 chars
+ * alfanuméricos. UUIDs caben sin problema pero los guiones a veces dan ruido —
+ * los quitamos.
  */
-export function numOperacionFromPaymentId(paymentId: string): string {
-  return paymentId.replace(/-/g, '').slice(0, 50);
+export function numOperacionFromUuid(id: string): string {
+  return id.replace(/-/g, '').slice(0, 50);
 }
 
-export function paymentIdFromNumOperacion(numOp: string): string {
+export function uuidFromNumOperacion(numOp: string): string {
   // Reconstruimos el UUID con guiones a las posiciones canónicas
   // (8-4-4-4-12). Si no es de 32 hex, devolvemos el string crudo y dejamos
   // que el lookup falle limpiamente en payments.service.

@@ -95,7 +95,7 @@ export class WebhookIngestProcessor extends WorkerHost {
     // Un aviso de una pasarela solo puede tocar cobros de esa pasarela: con el
     // secreto de la URL de Paytef (o un aviso de Peanpe) no se puede marcar
     // pagado un cobro de Redsys.
-    const target = await this.findTarget(fsmEvent.paymentId);
+    const target = await this.findTarget(fsmEvent.paymentId, delivery.provider as Provider);
     if (!target || target.provider !== delivery.provider) {
       this.logger.warn(
         `webhook ${deliveryId}: el cobro ${fsmEvent.paymentId} no es de ${delivery.provider} (es ${target?.provider ?? 'desconocido'}) — ignorado`,
@@ -123,9 +123,9 @@ export class WebhookIngestProcessor extends WorkerHost {
       // para que rechace payments que no pertenezcan a ese venue. El
       // externalEventId del payload del provider no debe poder mutar payments
       // de otro tenant.
-      await this.payments.transition(fsmEvent.paymentId, event, delivery.tenantId ?? undefined);
+      await this.payments.transition(target.id, event, delivery.tenantId ?? undefined);
       await this.markProcessed(deliveryId);
-      this.logger.log(`webhook ${deliveryId} → payment ${fsmEvent.paymentId} transitioned`);
+      this.logger.log(`webhook ${deliveryId} → payment ${target.id} transitioned`);
     } catch (err) {
       if (!(err instanceof InvalidTransitionError)) throw err;
       if (isIdempotentTransition(err)) {
@@ -167,23 +167,32 @@ export class WebhookIngestProcessor extends WorkerHost {
       // cruzado, carrera con otro flujo…). NO marcamos como procesado — dejamos
       // que BullMQ reintente y los reintentos agotados queden visibles.
       this.logger.error(
-        `webhook ${deliveryId}: transition INESPERADA — payment ${fsmEvent.paymentId} está en ${err.fromState}, evento ${err.eventType}. NO marcando processed, reintentos exhaustos quedarán visibles.`,
+        `webhook ${deliveryId}: transition INESPERADA — payment ${target.id} está en ${err.fromState}, evento ${err.eventType}. NO marcando processed, reintentos exhaustos quedarán visibles.`,
       );
       throw err;
     }
   }
 
-  private async findTarget(paymentId: string): Promise<TargetPayment | null> {
+  /**
+   * El cobro que nombra el aviso: por su id o por el de uno de sus intentos.
+   * Paytef (clientID) y Cecabank (Num_operacion) llevan el id del intento: la
+   * página del banco la ve el cliente, y del id del cobro sale el código de
+   * confirmación (FSD-02). Los avisos de antes nombran el cobro. Un intento
+   * de otra pasarela no cuenta.
+   */
+  private async findTarget(ref: string, provider: Provider): Promise<TargetPayment | null> {
     // Un id que no es UUID (aviso raro o manipulado) no es ningún cobro: sin
     // esto la consulta falla y el aviso se reintenta 5 veces para nada.
-    if (!UUID_RE.test(paymentId)) return null;
+    if (!UUID_RE.test(ref)) return null;
+    const select = { id: true, tenantId: true, provider: true, amountCents: true, currency: true } as const;
     // Sin local en el contexto (es un trabajo, no una petición): lectura de sistema.
-    return this.prisma.asSystem((tx) =>
-      tx.payment.findUnique({
-        where: { id: paymentId },
-        select: { id: true, tenantId: true, provider: true, amountCents: true, currency: true },
-      }),
-    );
+    return this.prisma.asSystem(async (tx) => {
+      const payment = await tx.payment.findUnique({ where: { id: ref }, select });
+      if (payment) return payment;
+      const attempt = await tx.paymentAttempt.findUnique({ where: { id: ref }, select: { paymentId: true, provider: true } });
+      if (!attempt || attempt.provider !== provider) return null;
+      return tx.payment.findUnique({ where: { id: attempt.paymentId }, select });
+    });
   }
 
   /**
@@ -196,16 +205,23 @@ export class WebhookIngestProcessor extends WorkerHost {
     providerTxId: string,
     payload: Record<string, unknown>,
   ): Promise<ApprovalVerdict> {
-    const proof = await adapter.proveApproval({ paymentId: target.id, providerTxId, payload });
-    if (proof.kind === 'unavailable') {
-      throw new Error(`no se pudo comprobar la aprobación con ${adapter.provider}: ${proof.reason}`);
-    }
+    // El intento de ese pedido: su importe (lo mandado al banco) y su id
+    // (Paytef lo lleva como clientID del enlace).
     const attempt = await this.prisma.asSystem((tx) =>
       tx.paymentAttempt.findFirst({
         where: { paymentId: target.id, provider: adapter.provider, providerTxId },
-        select: { amountCents: true },
+        select: { id: true, amountCents: true },
       }),
     );
+    const proof = await adapter.proveApproval({
+      paymentId: target.id,
+      providerTxId,
+      payload,
+      ...(attempt?.id ? { attemptId: attempt.id } : {}),
+    });
+    if (proof.kind === 'unavailable') {
+      throw new Error(`no se pudo comprobar la aprobación con ${adapter.provider}: ${proof.reason}`);
+    }
     return judgeApproval(proof, expectedCharge(target, attempt));
   }
 

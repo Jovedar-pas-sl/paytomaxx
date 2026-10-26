@@ -154,6 +154,8 @@ class CheckoutNotOpenedError extends Error {
 
 /** Lo que abrió la pasarela, para guardarlo con el intento. */
 interface OpenedCheckout {
+  /** Id del intento (al azar): la pasarela lo lleva como referencia nuestra (Paytef, Cecabank). */
+  attemptId: string;
   result: AuthorizeResult;
   chargeCents: number;
   tipCents: number | null;
@@ -2186,6 +2188,10 @@ export class PaymentsService implements OnApplicationBootstrap {
     // en transition). Las demás pasarelas cobran el importe, como antes.
     const tipCents = provider === 'REDSYS' ? (choice?.tipCents ?? payment.tipCents) : null;
     const chargeCents = payment.amountCents + (tipCents ?? 0);
+    // El id del intento se elige aquí: con él nombran el pago Paytef (clientID)
+    // y Cecabank (Num_operacion), que lo ve el cliente. Del id del cobro sale
+    // el código de confirmación: no va a la pasarela entero.
+    const attemptId = randomUUID();
     try {
       const result = await this.gateways.get(provider).authorize({
         tenantId: payment.tenantId,
@@ -2194,10 +2200,11 @@ export class PaymentsService implements OnApplicationBootstrap {
         currency: payment.currency,
         terminalExternalId: '',
         reference: payment.id,
+        attemptId,
         ...(provider === 'REDSYS' && choice?.method ? { payMethod: choice.method } : {}),
         ...(choice ? { language: choice.language } : {}),
       });
-      return { result, chargeCents, tipCents };
+      return { attemptId, result, chargeCents, tipCents };
     } catch (err) {
       throw new CheckoutNotOpenedError(err);
     }
@@ -2215,7 +2222,7 @@ export class PaymentsService implements OnApplicationBootstrap {
     opened: OpenedCheckout,
     choice?: CheckoutChoice,
   ): Promise<void> {
-    const { result, chargeCents, tipCents } = opened;
+    const { attemptId, result, chargeCents, tipCents } = opened;
     await tx.payment.update({
       where: { id: payment.id },
       data: {
@@ -2227,6 +2234,7 @@ export class PaymentsService implements OnApplicationBootstrap {
     });
     await tx.paymentAttempt.create({
       data: {
+        id: attemptId,
         paymentId: payment.id,
         tenantId: payment.tenantId,
         provider,

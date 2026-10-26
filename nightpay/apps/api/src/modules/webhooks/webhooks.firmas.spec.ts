@@ -275,6 +275,7 @@ describe('receiveWipay — firma de Cecabank', () => {
       currency: 'EUR',
       terminalExternalId: '',
       reference: PAYMENT_ID,
+      attemptId: '0d4e7c21-58f3-4b19-8e02-9c7d6b5e4f30',
     });
     const f = auth.checkoutForm!.fields;
     const forged = {

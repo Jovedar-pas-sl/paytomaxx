@@ -11,7 +11,9 @@ import type { PaymentEvent } from '../payments/payment.machine';
 
 /**
  * Evento FSM derivado de un webhook ya verificado.
- * `paymentId` es el ID interno NightPay (resuelto del paymentRef del webhook).
+ * `paymentId` es el ID interno NightPay (resuelto del paymentRef del webhook)
+ * o el del intento (payment_attempts.id) cuando el aviso nombra el intento
+ * (Paytef clientID, Cecabank Num_operacion): el processor busca su cobro.
  */
 export interface WebhookFsmEvent {
   paymentId: string;
@@ -28,6 +30,8 @@ export interface ApprovalClaim {
   providerTxId: string;
   /** El aviso tal cual se guardó en webhook_deliveries, ya parseado. */
   payload: Record<string, unknown>;
+  /** Id del intento de ese pedido (payment_attempts), si lo hay: Paytef lo lleva como clientID. */
+  attemptId?: string;
 }
 
 /**

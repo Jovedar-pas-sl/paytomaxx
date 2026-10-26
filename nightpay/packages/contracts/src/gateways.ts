@@ -32,6 +32,13 @@ export const AuthorizeInputSchema = z.object({
   payMethod: z.enum(['wallet', 'card']).optional(),
   /** Idioma de la página del banco. */
   language: z.enum(['es', 'en']).optional(),
+  /**
+   * Id del intento (payment_attempts.id) que abre esta llamada, al azar. Es
+   * la referencia nuestra que va a la pasarela cuando la ve el cliente
+   * (clientID de Paytef, Num_operacion de Cecabank): del id del cobro sale el
+   * código de confirmación, así que el id del cobro no va.
+   */
+  attemptId: z.string().uuid().optional(),
 });
 export type AuthorizeInput = z.infer<typeof AuthorizeInputSchema>;
 

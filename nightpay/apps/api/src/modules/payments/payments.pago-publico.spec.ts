@@ -285,6 +285,7 @@ describe('startCheckout — el cliente pulsa «Pagar»', () => {
     );
     expect(written).toEqual([
       {
+        id: expect.stringMatching(/^[0-9a-f-]{36}$/),
         paymentId: PAYMENT_ID,
         tenantId: TENANT,
         provider: 'REDSYS',

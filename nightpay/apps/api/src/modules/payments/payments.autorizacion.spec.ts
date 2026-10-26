@@ -156,6 +156,7 @@ describe('startAuthorization — lo que se cobra y se guarda', () => {
     expect(sent).not.toHaveProperty('language');
     expect(attempts).toEqual([
       {
+        id: sent.attemptId,
         paymentId: PAYMENT_ID,
         tenantId: TENANT,
         provider: 'REDSYS',
@@ -191,6 +192,16 @@ describe('startAuthorization — lo que se cobra y se guarda', () => {
     // Lo guarda el prepare de la transición (con la fila bloqueada), no antes.
     expect(db.payment.update).toHaveBeenCalledTimes(1);
     expect(db.paymentAttempt.create).toHaveBeenCalledTimes(1);
+  });
+
+  it('cada intento lleva a la pasarela su id, al azar (FSD-02): con él nombra Paytef el enlace y Cecabank la operación', async () => {
+    const { service, adapter, attempts } = makeService({ provider: 'PAYTEF' });
+    await service.startAuthorization(QR);
+    const sent = adapter.authorize.mock.calls[0]![0] as Row;
+    expect(sent.attemptId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+    expect(sent.attemptId).not.toBe(PAYMENT_ID);
+    // El intento se guarda con ese mismo id: el aviso de la pasarela lo encuentra.
+    expect(attempts[0]!.id).toBe(sent.attemptId);
   });
 
   it('Paytef: al banco solo el importe (no cobra propina) y se guarda su enlace', async () => {

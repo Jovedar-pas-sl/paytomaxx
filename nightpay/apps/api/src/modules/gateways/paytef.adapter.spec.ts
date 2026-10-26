@@ -64,6 +64,7 @@ describe('PaytefAdapter.authorize', () => {
       currency: 'EUR',
       terminalExternalId: '',
       reference: 'payment-uuid-1',
+      attemptId: '0d4e7c21-58f3-4b19-8e02-9c7d6b5e4f30',
     });
 
     expect(result.provider).toBe('PAYTEF');
@@ -89,6 +90,7 @@ describe('PaytefAdapter.authorize', () => {
         currency: 'EUR',
         terminalExternalId: '',
         reference: 'p1',
+        attemptId: '0d4e7c21-58f3-4b19-8e02-9c7d6b5e4f30',
       }),
     ).rejects.toThrow(/Paytef \/save failed/);
   });
@@ -107,6 +109,7 @@ describe('PaytefAdapter.authorize', () => {
         currency: 'EUR',
         terminalExternalId: '',
         reference: 'p1',
+        attemptId: '0d4e7c21-58f3-4b19-8e02-9c7d6b5e4f30',
       }),
     ).rejects.toThrow(/no paymentID/);
   });
@@ -134,6 +137,7 @@ describe('PaytefAdapter.authorize', () => {
       currency: 'EUR',
       terminalExternalId: '',
       reference: 'p1',
+      attemptId: '0d4e7c21-58f3-4b19-8e02-9c7d6b5e4f30',
     });
 
     const saveCall = fetchSpy.mock.calls[0];
@@ -150,6 +154,7 @@ describe('PaytefAdapter.authorize — fallos pasajeros y definitivos (el cobro s
     currency: 'EUR',
     terminalExternalId: '',
     reference: 'p1',
+    attemptId: '0d4e7c21-58f3-4b19-8e02-9c7d6b5e4f30',
   };
   let adapter: PaytefAdapter;
   let fetchSpy: ReturnType<typeof vi.fn>;
@@ -234,6 +239,7 @@ describe('Paytef modo test (#2)', () => {
       currency: 'EUR',
       terminalExternalId: '',
       reference: 'p1',
+      attemptId: '0d4e7c21-58f3-4b19-8e02-9c7d6b5e4f30',
     });
     return JSON.parse(String((fetchSpy.mock.calls[0]![1] as { body: string }).body)).data.isTest;
   }
@@ -510,5 +516,66 @@ describe('PaytefAdapter.proveApproval — se pregunta a Paytef, no al aviso (#2)
     expect(await makeAdapter().proveApproval(claim)).toMatchObject({ kind: 'unavailable', reason: 'paytef-http-503' });
     fetchSpy.mockRejectedValueOnce(new Error('timeout'));
     expect(await makeAdapter().proveApproval(claim)).toMatchObject({ kind: 'unavailable' });
+  });
+});
+
+describe('PaytefAdapter — el enlace no lleva nada de lo que sale el código de confirmación (FSD-02)', () => {
+  // El código de confirmación son los 3 últimos caracteres del id del cobro (A6B).
+  const PAYMENT_ID = '3f2a9c1e-7b4d-4e8f-9a6b-1c2d3e4f5a6b';
+  const ATTEMPT_ID = '0d4e7c21-58f3-4b19-8e02-9c7d6b5e4f30';
+  let fetchSpy: ReturnType<typeof vi.fn>;
+  beforeEach(() => {
+    fetchSpy = vi.fn();
+    (globalThis as any).fetch = fetchSpy;
+  });
+  const okSave = () => {
+    fetchSpy.mockResolvedValueOnce({ ok: true, json: async () => ({ success: true, paymentID: 'pl-9', paymentURL: 'https://link.paytef.es/pl-9' }), text: async () => '' });
+    fetchSpy.mockResolvedValueOnce({ ok: true, json: async () => ({}), text: async () => '' });
+  };
+  const input = (extra: Record<string, unknown> = {}) => ({
+    tenantId: 'venue-1',
+    paymentId: PAYMENT_ID,
+    amountCents: 5000,
+    currency: 'EUR',
+    terminalExternalId: '',
+    reference: PAYMENT_ID,
+    ...extra,
+  });
+
+  it('descripción con los 8 primeros caracteres del cobro y clientID = el id del intento (al azar)', async () => {
+    okSave();
+    await makeAdapter().authorize(input({ attemptId: ATTEMPT_ID }));
+    const body = JSON.parse(String(fetchSpy.mock.calls[0]![1].body)) as { data: { description: string; clientID: string } };
+    expect(body.data.description).toMatch(/ 3f2a9c1e$/);
+    expect(body.data.clientID).toBe(ATTEMPT_ID);
+    const sent = JSON.stringify(body);
+    expect(sent).not.toContain(PAYMENT_ID);
+    expect(sent).not.toContain('1c2d3e4f5a6b');
+    expect(sent.toLowerCase()).not.toContain('a6b');
+  });
+
+  it('sin id del intento no se crea el enlace (nunca con el id del cobro)', async () => {
+    await expect(makeAdapter().authorize(input())).rejects.toThrow(/intento/);
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('prueba de un enlace nuevo: su clientID es el del intento de ese pedido', async () => {
+    const link = (clientID: string) => ({ ok: true, json: async () => ({ data: { id: 'pl-9', clientID, amountCents: 5000, lastResult: { isApproved: true } } }) });
+    const claim = { paymentId: PAYMENT_ID, providerTxId: 'pl-9', payload: {}, attemptId: ATTEMPT_ID };
+    fetchSpy.mockResolvedValueOnce(link(ATTEMPT_ID));
+    await expect(makeAdapter().proveApproval(claim)).resolves.toMatchObject({ kind: 'confirmed', amountCents: 5000 });
+    // El de otro intento (u otro cobro) no vale.
+    fetchSpy.mockResolvedValueOnce(link('9e9e9e9e-1111-4222-8333-444455556666'));
+    await expect(makeAdapter().proveApproval(claim)).resolves.toMatchObject({ kind: 'rejected', reason: 'paytef-link-de-otro-cobro' });
+    // Sin intento conocido para ese pedido, un clientID cualquiera tampoco.
+    fetchSpy.mockResolvedValueOnce(link(ATTEMPT_ID));
+    await expect(makeAdapter().proveApproval({ ...claim, attemptId: undefined })).resolves.toMatchObject({ kind: 'rejected' });
+  });
+
+  it('enlaces de antes (clientID = id del cobro) siguen valiendo', async () => {
+    fetchSpy.mockResolvedValueOnce({ ok: true, json: async () => ({ data: { id: 'pl-1', clientID: PAYMENT_ID, amountCents: 5000, lastResult: { isApproved: true } } }) });
+    await expect(makeAdapter().proveApproval({ paymentId: PAYMENT_ID, providerTxId: 'pl-1', payload: {}, attemptId: ATTEMPT_ID })).resolves.toMatchObject({
+      kind: 'confirmed',
+    });
   });
 });

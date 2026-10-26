@@ -4,8 +4,8 @@ import {
   cecabankCodeToCurrency,
   signRequest,
   signWebhook,
-  numOperacionFromPaymentId,
-  paymentIdFromNumOperacion,
+  numOperacionFromUuid,
+  uuidFromNumOperacion,
   currencyToCecabankCode,
   parseFormUrlEncoded,
   wipayOutcome,
@@ -127,23 +127,58 @@ describe('signWebhook — firma del callback Cecabank', () => {
   });
 });
 
-describe('numOperacion <-> paymentId roundtrip', () => {
+describe('numOperacion <-> UUID (del intento; en los cobros de antes, del cobro)', () => {
   it('genera Num_operacion <= 50 chars sin guiones', () => {
-    const pid = 'aabbccdd-1122-3344-5566-778899aabbcc';
-    const op = numOperacionFromPaymentId(pid);
+    const id = 'aabbccdd-1122-3344-5566-778899aabbcc';
+    const op = numOperacionFromUuid(id);
     expect(op).toBe('aabbccdd112233445566778899aabbcc');
     expect(op.length).toBeLessThanOrEqual(50);
     expect(op.includes('-')).toBe(false);
   });
 
-  it('reconstruye el UUID original a partir del Num_operacion', () => {
-    const pid = 'aabbccdd-1122-3344-5566-778899aabbcc';
-    const op = numOperacionFromPaymentId(pid);
-    expect(paymentIdFromNumOperacion(op)).toBe(pid);
+  it('reconstruye el UUID a partir del Num_operacion', () => {
+    const id = 'aabbccdd-1122-3344-5566-778899aabbcc';
+    expect(uuidFromNumOperacion(numOperacionFromUuid(id))).toBe(id);
   });
 
   it('devuelve el string crudo si no parece UUID', () => {
-    expect(paymentIdFromNumOperacion('not-a-hex')).toBe('not-a-hex');
+    expect(uuidFromNumOperacion('not-a-hex')).toBe('not-a-hex');
+  });
+});
+
+describe('WipayAdapter — Num_operacion no sale del id del cobro (FSD-02)', () => {
+  // El código de confirmación son los 3 últimos caracteres del id del cobro.
+  const PAYMENT_ID = '3f2a9c1e-7b4d-4e8f-9a6b-1c2d3e4f5a6b';
+  const ATTEMPT_ID = '0d4e7c21-58f3-4b19-8e02-9c7d6b5e4f30';
+  const input = (extra: Record<string, unknown> = {}) => ({
+    tenantId: '00000000-0000-0000-0000-000000000000',
+    paymentId: PAYMENT_ID,
+    amountCents: 100,
+    currency: 'EUR',
+    terminalExternalId: '',
+    reference: PAYMENT_ID,
+    ...extra,
+  });
+
+  it('el formulario (lo ve el navegador del cliente) lleva el id del intento, no el del cobro', async () => {
+    const result = await makeAdapter().authorize(input({ attemptId: ATTEMPT_ID }));
+    const f = result.checkoutForm!.fields;
+    expect(f.Num_operacion).toBe('0d4e7c2158f34b198e029c7d6b5e4f30');
+    expect(result.providerTxId).toBe(f.Num_operacion);
+    const visible = JSON.stringify(result);
+    expect(visible).not.toContain('3f2a9c1e');
+    expect(visible).not.toContain('1c2d3e4f5a6b');
+  });
+
+  it('sin id del intento no se prepara el pago (nunca con el id del cobro)', async () => {
+    await expect(makeAdapter().authorize(input())).rejects.toThrow(/intento/);
+  });
+
+  it('el aviso nombra el intento (el processor busca su cobro); los de antes, el cobro', () => {
+    const adapter = makeAdapter();
+    const approved = (op: string) => adapter.mapWebhookToFsmEvent({ Num_operacion: op, Num_aut: '101010' });
+    expect(approved('0d4e7c2158f34b198e029c7d6b5e4f30')).toMatchObject({ paymentId: ATTEMPT_ID });
+    expect(approved('3f2a9c1e7b4d4e8f9a6b1c2d3e4f5a6b')).toMatchObject({ paymentId: PAYMENT_ID });
   });
 });
 
@@ -182,6 +217,7 @@ describe('WipayAdapter authorize() — Cecabank flow', () => {
       currency: 'EUR',
       terminalExternalId: '',
       reference: 'aabbccdd-1122-3344-5566-778899aabbcc',
+      attemptId: '0d4e7c21-58f3-4b19-8e02-9c7d6b5e4f30',
     });
     expect(result.provider).toBe('WIPAY');
     expect(result.status).toBe('PROCESSING');
