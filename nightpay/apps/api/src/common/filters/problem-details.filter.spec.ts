@@ -5,7 +5,9 @@ import {
   GoneException,
   NotFoundException,
 } from '@nestjs/common';
+import { z } from 'zod';
 import { ProblemDetailsFilter } from './problem-details.filter';
+import { ZodValidationPipe } from '../pipes/zod.pipe';
 
 vi.mock('../observability/sentry', () => ({
   reportError: vi.fn(),
@@ -174,5 +176,41 @@ describe('ProblemDetailsFilter — sin secretos ni ids inventados', () => {
     const malo = makeHost('/v1/x', { 'x-trace-id': '<img src=x>'.repeat(10) });
     filter.catch(new NotFoundException(), malo.host);
     expect(malo.capture.body.traceId).toBe('req-test');
+  });
+});
+
+describe('ProblemDetailsFilter — el código del cuerpo es el de la respuesta', () => {
+  it('un error de validación (ZodValidationPipe): HTTP 400 y "status": 400 en el cuerpo', () => {
+    const filter = new ProblemDetailsFilter(true);
+    const { host, capture } = makeHost();
+    const err = (() => {
+      try {
+        new ZodValidationPipe(z.object({ amountCents: z.number().int() })).transform({ amountCents: 'diez' });
+      } catch (e) {
+        return e;
+      }
+      throw new Error('el pipe tenía que fallar');
+    })();
+    filter.catch(err, host);
+    expect(capture.status).toBe(400);
+    expect(capture.body.status).toBe(400);
+    // Lo demás del cuerpo de validación sigue igual (lo leen las apps).
+    expect(capture.body.title).toBe('Validation failed');
+    expect(capture.body.detail).toBe('amountCents: Expected number, received string');
+    expect(capture.body.issues).toBeDefined();
+  });
+
+  it('una excepción que trae otro "status", "type" o "instance" en su cuerpo no los cambia', () => {
+    const filter = new ProblemDetailsFilter(true);
+    const { host, capture } = makeHost('/v1/x');
+    filter.catch(
+      new BadRequestException({ status: 418, type: 'https://otro', instance: '/otra', message: 'mal', hint: 'ok' }),
+      host,
+    );
+    expect(capture.status).toBe(400);
+    expect(capture.body.status).toBe(400);
+    expect(capture.body.type).toBe('about:blank');
+    expect(capture.body.instance).toBe('/v1/x');
+    expect(capture.body.hint).toBe('ok');
   });
 });

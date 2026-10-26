@@ -87,11 +87,11 @@ export class ProblemDetailsFilter implements ExceptionFilter {
         detail = (r.detail as string) || (r.message as string);
         // Pasa por extra los campos custom (issues de zod, hint, etc.) —
         // estos son CONTROLADOS por nuestro código, no leak. Se incluyen
-        // siempre (dev y prod).
+        // siempre (dev y prod). Los del propio ProblemDetails no: el cuerpo
+        // dice siempre el código de la respuesta HTTP (antes el ZodValidationPipe
+        // respondía 400 con "status": 422 en el cuerpo).
         for (const k of Object.keys(r)) {
-          if (!['statusCode', 'message', 'error', 'title', 'detail'].includes(k)) {
-            httpExtra[k] = r[k];
-          }
+          if (!RESERVED_BODY_KEYS.has(k)) httpExtra[k] = r[k];
         }
       }
     } else if (isClientStatusError(exception)) {
@@ -149,6 +149,20 @@ export class ProblemDetailsFilter implements ExceptionFilter {
     res.status(status).type('application/problem+json').send(body);
   }
 }
+
+/** Campos que pone el filtro (o que Nest usa para el título y el detalle): no se copian del cuerpo de la excepción. */
+const RESERVED_BODY_KEYS: ReadonlySet<string> = new Set([
+  'statusCode',
+  'message',
+  'error',
+  'title',
+  'detail',
+  'status',
+  'type',
+  'instance',
+  'traceId',
+  '_filterVersion',
+]);
 
 type StatusError = Error & { statusCode: number };
 
