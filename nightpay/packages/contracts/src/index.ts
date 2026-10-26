@@ -27,3 +27,4 @@ export * from './night-settings';
 export * from './pending-topups';
 export * from './money-map';
 export * from './wallet-activation';
+export * from './service-fee';

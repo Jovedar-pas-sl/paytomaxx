@@ -75,6 +75,14 @@ model Venue {
   // Ajustes de la noche (20261023200000, packages/contracts/src/night-settings.ts):
   // NFC sin PIN, teclado del PIN, recepción y avisos al cobrar. Null = de fábrica.
   nightSettings         Json?
+  // «Comisión del servicio» (20261030100000, packages/contracts/src/service-fee.ts):
+  // lo que paga el cliente ENCIMA del precio (ingreso de OxioPay). Solo con el
+  // interruptor encendido (lo enciende el super-admin con 2FA; apagado = todo
+  // como antes, también el % antiguo de la plataforma). Los dos % de 0 a 1200
+  // (CHECK en SQL): pagos directos con tarjeta o datáfono, y recargas del saldo.
+  serviceFeeEnabled     Boolean   @default(false)
+  serviceFeeBps         Int       @default(1000)
+  topUpServiceFeeBps    Int       @default(1000)
   createdAt             DateTime  @default(now()) @db.Timestamptz
   updatedAt             DateTime  @updatedAt @db.Timestamptz
   deletedAt             DateTime? @db.Timestamptz
@@ -126,6 +134,10 @@ model Business {
   pausedReason                 String?
   // Comisión de la plataforma para sus locales nuevos (null = la general del local).
   defaultPlatformCommissionBps Int?
+  // «Comisión del servicio» para sus locales nuevos (null = la de fábrica, 10 %).
+  // De 0 a 1200 (CHECK en SQL). El interruptor de cada local va aparte (apagado).
+  defaultServiceFeeBps         Int?
+  defaultTopUpServiceFeeBps    Int?
   createdAt                    DateTime       @default(now()) @db.Timestamptz
   updatedAt                    DateTime       @default(now()) @updatedAt @db.Timestamptz
 
@@ -369,6 +381,16 @@ model Payment {
   // o el del local para la categoría. Al pagarse se usa este, no el de ese
   // momento. Null = cobro anterior o que no es de una chica (se calcula al pagar).
   operatorCommissionBps Int?
+  // «Comisión del servicio» (20261030100000): el % fijado al crear el cobro
+  // (null = sin comisión: el interruptor del local apagado, o un cobro de antes)
+  // y su importe, ENCIMA de amountCents (que sigue siendo el consumo o, en una
+  // recarga, el saldo). Al banco o al datáfono va amountCents + serviceFeeCents
+  // + tipCents. En un pago directo es devolvible (availableAmountCents la
+  // incluye); en una recarga no («Devolver saldo» devuelve solo el saldo).
+  // Con la comisión, platformCommissionBps se fija a 0 (el local ya no paga el
+  // % antiguo). CHECK en SQL: % NULL o 0–1200 e importe ≥ 0.
+  serviceFeeBps         Int?
+  serviceFeeCents       Int     @default(0)
 
   // Propina opcional (cliente decide añadir). Campos:
   //  - tipCents: importe extra sobre amountCents (no entra en availableAmountCents
@@ -588,6 +610,11 @@ model WalletCashTopUp {
   voidOfId       String?  @unique @db.Uuid
   /// Por qué se anuló (solo en las anulaciones).
   reason         String?
+  /// «Comisión del servicio» de la recarga (20261030100000): el % del momento
+  /// (null = sin comisión) y su importe, ENCIMA de amountCents (el saldo). Entra
+  /// en la caja y se debe a OxioPay. En una anulación, negativa (la de la recarga).
+  serviceFeeBps   Int?
+  serviceFeeCents Int     @default(0)
 
   venue    Venue            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   wallet   ClientWallet     @relation(fields: [walletId], references: [id], onDelete: Cascade)
@@ -849,6 +876,10 @@ model Refund {
   // Fase 1C: hecha en el portal del banco y apuntada a mano en el panel.
   registeredManually Boolean     @default(false)
   bankRefundedAt     DateTime?   @db.Timestamptz
+  // La parte de esta devolución que es «Comisión del servicio» (20261030100000):
+  // en proporción a lo cobrado, por lo acumulado (sin céntimos sueltos). Se fija
+  // al darla por hecha, con el cobro bloqueado. 0 en las recargas y sin comisión.
+  serviceFeeCents    Int         @default(0)
   createdAt        DateTime     @default(now()) @db.Timestamptz
 
   payment   Payment           @relation(fields: [paymentId], references: [id])
@@ -1293,6 +1324,10 @@ model WalletConsumption {
   reversedByUserId String?   @db.Uuid
   // Cómo se autorizó: nfc_nopin | pin | passkey | staff (null: de antes). 20261023200000.
   authMethod       String?
+  // El % antiguo de OxioPay sobre este consumo (20261030100000): null = el del
+  // local, como siempre; 0 = con la «Comisión del servicio» encendida (se cobró
+  // al cliente en la recarga y el local no paga el % antiguo).
+  platformCommissionBps Int?
   createdAt        DateTime  @default(now()) @db.Timestamptz
 
   venue       Venue            @relation(fields: [tenantId], references: [id])
