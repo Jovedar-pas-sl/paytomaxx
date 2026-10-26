@@ -225,6 +225,28 @@ describe('apagado de una app Nest + Fastify de verdad', () => {
     expect(events).toEqual(['db:closed']);
   });
 
+  it('si cortar el tiempo real falla, igual se deja de aceptar y se espera a lo que está en vuelo', async () => {
+    const { app, port } = await startApp(ShutdownTestModule);
+    const inFlight = get(port, '/slow');
+    await sleep(50);
+    const log = logger();
+    await gracefulShutdown(
+      nestShutdownSteps(
+        app,
+        () => {
+          throw new Error('gateway sin iniciar');
+        },
+        log,
+      ),
+      log,
+      { httpDrainMs: 2_000, workersDrainMs: 1_000 },
+    );
+    await expect(inFlight).resolves.toMatchObject({ status: 200 });
+    await expect(get(port, '/slow')).rejects.toThrow();
+    expect(String(log.warn.mock.calls.find((c) => String(c[0]).includes('tiempo real'))?.[0])).toContain('gateway sin iniciar');
+    expect(events.indexOf('db:request')).toBeLessThan(events.indexOf('db:closed'));
+  });
+
   it('una conexión de tiempo real abierta (socket.io) no deja el apagado esperando hasta el tope', async () => {
     const { app, port } = await startApp(RealtimeTestModule, { realtime: true });
     // Handshake de engine.io por «polling» y una espera larga abierta (como las apps).

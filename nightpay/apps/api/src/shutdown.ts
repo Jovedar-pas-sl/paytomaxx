@@ -108,10 +108,19 @@ function bullWorkers(app: NestFastifyApplication): Array<{ close(): Promise<void
  * conexiones de tiempo real de esta réplica (socket.io): no terminan solas y
  * no dejarían cerrar el servidor; las apps reconectan solas, ya a la nueva.
  */
-export function nestShutdownSteps(app: NestFastifyApplication, disconnectRealtime: () => void = () => {}): ShutdownSteps {
+export function nestShutdownSteps(
+  app: NestFastifyApplication,
+  disconnectRealtime: () => void = () => {},
+  logger?: ShutdownLogger,
+): ShutdownSteps {
   return {
     stopAccepting: async () => {
-      disconnectRealtime();
+      // Si falla (p. ej. el gateway sin iniciar), se cierra el HTTP igual.
+      try {
+        disconnectRealtime();
+      } catch (err) {
+        logger?.warn(`Apagado: no se pudo cortar el tiempo real: ${(err as Error)?.message ?? String(err)}`);
+      }
       // Fastify: deja de aceptar conexiones, 503 a lo nuevo (return503OnClosing),
       // cierra las conexiones inactivas y espera a las que tienen una petición.
       await app.getHttpAdapter().close();
@@ -144,7 +153,7 @@ export function installGracefulShutdown(
       process.exit(1);
     }, SHUTDOWN_DEADLINE_MS);
     deadline.unref();
-    gracefulShutdown(nestShutdownSteps(app, disconnectRealtime), logger).then(
+    gracefulShutdown(nestShutdownSteps(app, disconnectRealtime, logger), logger).then(
       () => process.exit(0),
       (err: unknown) => {
         logger.error(`Apagado con error: ${(err as Error)?.message ?? String(err)}`);
