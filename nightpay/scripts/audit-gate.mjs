@@ -5,6 +5,7 @@
 //
 //   node scripts/audit-gate.mjs                 (lanza `pnpm audit --prod --json`)
 //   node scripts/audit-gate.mjs --input a.json  (evalúa un informe ya guardado)
+//   --allowlist otra.json                       (otra lista de aceptadas; las pruebas)
 //
 // Sale con 1 si hay alguna crítica/alta sin aceptar, o aceptada pero caducada.
 // Las moderadas y bajas solo se cuentan.
@@ -53,7 +54,7 @@ function loadReport() {
 }
 
 function loadAllowlist() {
-  const file = join(root, '.audit-allowlist.json');
+  const file = arg('--allowlist') ?? join(root, '.audit-allowlist.json');
   const entries = JSON.parse(readFileSync(file, 'utf8')).advisories ?? [];
   for (const e of entries) {
     if (!e.id || !e.package || !e.reason || !/^\d{4}-\d{2}-\d{2}$/.test(e.expires ?? '')) {
