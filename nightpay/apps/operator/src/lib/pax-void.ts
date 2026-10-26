@@ -5,6 +5,7 @@
 
 import { clearSaleToReview, saveSaleToReview, sendVoid, voidUnknownNotice, type VoidReport } from './pax-api';
 import { callReader } from './pax-bridge';
+import { formatEur } from './money';
 import { voidedMessage } from './pax-flow';
 
 export interface SaleToVoid {
@@ -44,4 +45,19 @@ export async function voidSaleOnReader(sale: SaleToVoid): Promise<VoidResult> {
     }
   }
   return { approved, report, message: voidedMessage(approved, report) };
+}
+
+/** Lo que se enseña tras «Anular en el datáfono»: se queda aunque la venta ya no esté en la lista. */
+export interface VoidNotice {
+  key: string;
+  ok: boolean;
+  text: string;
+}
+
+export function voidNoticeOf(sale: Pick<SaleToVoid, 'paymentId' | 'operationNumber' | 'amountCents'>, out: VoidResult): VoidNotice {
+  return {
+    key: `${sale.paymentId}:${sale.operationNumber}`,
+    ok: out.approved,
+    text: `Operación ${sale.operationNumber} · ${formatEur(sale.amountCents)}: ${out.message}`,
+  };
 }

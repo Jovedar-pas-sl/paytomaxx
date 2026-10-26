@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { getPendingVoids, getSalesToReview, saveSaleToReview } from './pax-api';
 import type { BridgeResponse } from './pax-bridge';
-import { voidSaleOnReader } from './pax-void';
+import { voidNoticeOf, voidSaleOnReader } from './pax-void';
 
 // «Anular en el datáfono» (en el cobro o desde la lista de /pax): el lector
 // anula y OxioPay se entera; si no se entera, se dice y se reintenta (A2-07).
@@ -99,5 +99,28 @@ describe('anular en el datáfono', () => {
     expect(out.message).toMatch(/^No se pudo anular/);
     expect(calls[0]?.body).toEqual({ operationNumber: '7', approved: false, resultText: 'Error del lector' });
     expect(getSalesToReview().map((r) => r.kind)).toEqual(['void']);
+  });
+});
+
+describe('lo que se ve tras «Anular en el datáfono» desde ventas por revisar', () => {
+  it('se queda en pantalla con su operación aunque la venta salga de la lista (antes desaparecía con ella)', async () => {
+    reader({ ok: true, result: { approved: true } });
+    api(() => json(200, { ok: true }));
+    const out = await voidSaleOnReader(sale);
+    const notice = voidNoticeOf(sale, out);
+    expect(notice.ok).toBe(true);
+    expect(notice.key).toBe(`${sale.paymentId}:7`);
+    expect(notice.text).toMatch(/^Operación 7 · /);
+    expect(notice.text).toContain('Operación anulada en el datáfono');
+    // Y la venta ya no está en la lista (la tarjeta se va; el aviso se queda).
+    expect(getSalesToReview()).toEqual([]);
+  });
+
+  it('si el lector no la anula, también se dice (y la venta sigue en la lista)', async () => {
+    reader({ ok: false, error: 'deviceError', message: 'Error del lector' });
+    api(() => json(200, { ok: true }));
+    const notice = voidNoticeOf(sale, await voidSaleOnReader(sale));
+    expect(notice.ok).toBe(false);
+    expect(notice.text).toContain('No se pudo anular');
   });
 });

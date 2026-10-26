@@ -3,7 +3,7 @@
 import { useState, type CSSProperties } from 'react';
 import { Button, Card } from '@nightpay/ui';
 import { clearSaleToReview, type SaleToReview } from '@/lib/pax-api';
-import { voidSaleOnReader } from '@/lib/pax-void';
+import { voidNoticeOf, voidSaleOnReader, type VoidNotice, type VoidResult } from '@/lib/pax-void';
 import { formatEur } from '@/lib/money';
 
 interface Props {
@@ -18,22 +18,55 @@ interface Props {
  * Ventas cobradas en el lector que OxioPay no admitió (doble cobro, otro
  * importe, un rechazo) o anulaciones que no tiene: arriba en /pax, con
  * «Anular en el datáfono», hasta que se resuelven (A2-02, A2-03). Antes el
- * reenvío las borraba sin avisar a nadie.
+ * reenvío las borraba sin avisar a nadie. Lo que dijo el lector al anular se
+ * queda aquí (con «Vale») aunque la venta salga de la lista: antes la tarjeta
+ * desaparecía con el resultado y el camarero no veía la confirmación.
  */
 export function SalesToReview({ entries, reader, onChanged }: Props) {
-  if (entries.length === 0) return null;
+  const [notices, setNotices] = useState<VoidNotice[]>([]);
+  if (entries.length === 0 && notices.length === 0) return null;
+
+  function voided(notice: VoidNotice): void {
+    setNotices((all) => [...all.filter((n) => n.key !== notice.key), notice]);
+    onChanged();
+  }
+
   return (
-    <div role="alert" style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-      {entries.map((e) => (
-        <ReviewCard key={`${e.paymentId}:${e.operationNumber ?? ''}`} entry={e} reader={reader} onChanged={onChanged} />
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+      {notices.map((n) => (
+        <Card key={n.key} style={{ ...cardStyle, border: `2px solid ${n.ok ? 'var(--np-success)' : 'var(--np-warning)'}` }}>
+          <p role="status" style={{ margin: 0, fontWeight: 600 }}>
+            {n.text}
+          </p>
+          <Button variant="ghost" onClick={() => setNotices((all) => all.filter((x) => x.key !== n.key))}>
+            Vale
+          </Button>
+        </Card>
       ))}
+      {entries.length > 0 ? (
+        <div role="alert" style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+          {entries.map((e) => (
+            <ReviewCard key={`${e.paymentId}:${e.operationNumber ?? ''}`} entry={e} reader={reader} onChanged={onChanged} onVoided={voided} />
+          ))}
+        </div>
+      ) : null}
     </div>
   );
 }
 
-function ReviewCard({ entry, reader, onChanged }: { entry: SaleToReview; reader: boolean; onChanged: () => void }) {
+function ReviewCard({
+  entry,
+  reader,
+  onChanged,
+  onVoided,
+}: {
+  entry: SaleToReview;
+  reader: boolean;
+  onChanged: () => void;
+  /** Lo que dijo el lector (se enseña arriba, también si la venta sale de la lista). */
+  onVoided: (notice: VoidNotice) => void;
+}) {
   const [busy, setBusy] = useState(false);
-  const [result, setResult] = useState<string | null>(null);
   // Quitar el aviso pide un segundo toque: solo si ya se anuló o lo ha visto el encargado.
   const [confirming, setConfirming] = useState(false);
   const { voidable, operationNumber } = entry;
@@ -41,10 +74,10 @@ function ReviewCard({ entry, reader, onChanged }: { entry: SaleToReview; reader:
   async function voidIt() {
     if (!voidable || !operationNumber) return;
     setBusy(true);
-    const out = await voidSaleOnReader({ paymentId: entry.paymentId, operationNumber, ...voidable });
+    const sale = { paymentId: entry.paymentId, operationNumber, ...voidable };
+    const out: VoidResult = await voidSaleOnReader(sale);
     setBusy(false);
-    setResult(out.message);
-    onChanged();
+    onVoided(voidNoticeOf(sale, out));
   }
 
   return (
@@ -55,7 +88,6 @@ function ReviewCard({ entry, reader, onChanged }: { entry: SaleToReview; reader:
         {operationNumber ? `Operación ${operationNumber}` : 'Sin número de operación'}
         {voidable ? ` · ${formatEur(voidable.amountCents)}` : ''}
       </p>
-      {result ? <p style={{ margin: 0 }}>{result}</p> : null}
       {voidable && operationNumber && reader ? (
         <Button loading={busy} onClick={() => void voidIt()}>
           Anular en el datáfono
