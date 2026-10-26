@@ -189,6 +189,15 @@ export class MetricsService implements OnModuleInit {
     registers: [this.registry],
   });
 
+  // 429 del límite global de peticiones (main.ts): por qué tope saltó (ip =
+  // anónimos de una IP, user = una persona, venue = un local entero).
+  readonly rateLimited = new Counter({
+    name: 'nightpay_rate_limited_total',
+    help: 'Peticiones cortadas con 429 por el límite global',
+    labelNames: ['limiter', 'kind'],
+    registers: [this.registry],
+  });
+
   // ─── WS / queues ──────────────────────────────────────────────────
   readonly wsConnectionsActive = new Gauge({
     name: 'nightpay_ws_connections_active',

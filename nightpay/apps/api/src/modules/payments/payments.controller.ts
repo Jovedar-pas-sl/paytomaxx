@@ -24,6 +24,7 @@ import { IdempotencyKey } from '../../common/decorators/idempotent.decorator';
 import { Public } from '../../common/decorators/public.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { Tenant } from '../../common/decorators/tenant.decorator';
+import { IpRateLimit } from '../../common/guards/ip-rate-limit.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { ZodValidationPipe } from '../../common/pipes/zod.pipe';
 import type { JwtPayload } from '@nightpay/contracts';
@@ -123,10 +124,14 @@ export class PaymentsController {
 
   /**
    * Lookup público por QR token — el cliente lo escanea sin auth.
-   * Sólo expone datos seguros (importe, venue, terminal).
+   * Sólo expone datos seguros (importe, venue, terminal; el id solo pagado).
+   * Lo sondean también las apps del personal (sin sesión, cada 4 s por cobro
+   * sin tiempo real, todas desde la IP del local): fuera del límite global,
+   * con el suyo.
    */
   @Public()
   @Get('public/:token')
+  @IpRateLimit({ max: 600, windowSec: 60, scope: 'payment-public' })
   async getPublic(@Param('token') token: string): Promise<PublicPaymentView> {
     return this.payments.getByToken(token);
   }

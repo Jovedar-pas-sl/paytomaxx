@@ -667,11 +667,14 @@ Tras un code review propio detallado, se resolvieron **11 items**:
 ### Rate-limit IP per-endpoint
 
 Redis-backed fixed-window INCR. Endpoints sensibles:
-- `POST /auth/login` → 10/min/IP
+- `POST /auth/login` → 10/min por IP y cuenta, 30/min por IP (2026-10-26)
 - `POST /auth/refresh` → 30/min/IP
 - `POST /operators/accept-invite` → 10/min/IP (token enumeration target)
 - `GET /operators/self-onboarding/:token` → 30/min/IP
-- Global default → 100/min/IP
+- Global (2026-10-26, `common/http/global-rate-limit.ts`): con la sesión del
+  personal, 600/min por persona y 6000/min por local; sin ella, 300/min por
+  IP. El sondeo `GET /v1/payments/public/:token` va aparte (600/min por IP).
+  Los 429 del global, en `nightpay_rate_limited_total{kind}`.
 
 ### Ejemplo: bloqueo brute-force
 

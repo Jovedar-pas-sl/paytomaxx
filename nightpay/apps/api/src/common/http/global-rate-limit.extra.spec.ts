@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { globalRateLimitKey, isGlobalRateLimitExempt } from './global-rate-limit';
+import { anonymousRateLimitKey, isGlobalRateLimitExempt } from './global-rate-limit';
 
 const TRAEFIK = '10.0.1.7';
 
@@ -47,11 +47,11 @@ describe('exención del límite global — bordes', () => {
 describe('clave del límite global', () => {
   it('cliente IPv6 detrás de Cloudflare → su IPv6', () => {
     const r = viaRaw('/v1/x', TRAEFIK, { 'cf-connecting-ip': '2a0c:5a80:1f02::1d', 'x-forwarded-for': '2606:4700:10::1' });
-    expect(globalRateLimitKey(r)).toBe('2a0c:5a80:1f02::1d');
+    expect(anonymousRateLimitKey(r)).toBe('ip:2a0c:5a80:1f02::1d');
   });
 
   it('sin socket: la IP de Fastify; sin nada → "desconocida" (un único cubo compartido)', () => {
-    expect(globalRateLimitKey({ method: 'GET', url: '/v1/x', headers: {}, ip: '83.45.120.7' })).toBe('83.45.120.7');
-    expect(globalRateLimitKey({ method: 'GET', url: '/v1/x', headers: {} })).toBe('desconocida');
+    expect(anonymousRateLimitKey({ method: 'GET', url: '/v1/x', headers: {}, ip: '83.45.120.7' })).toBe('ip:83.45.120.7');
+    expect(anonymousRateLimitKey({ method: 'GET', url: '/v1/x', headers: {} })).toBe('ip:desconocida');
   });
 });
