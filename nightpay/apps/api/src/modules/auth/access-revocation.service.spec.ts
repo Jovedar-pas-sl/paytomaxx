@@ -1,4 +1,6 @@
 import { afterEach, describe, it, expect, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { HttpStatus, Logger, ServiceUnavailableException } from '@nestjs/common';
 import {
   ACCESS_CHECK_TIMEOUT_MS,
@@ -111,5 +113,19 @@ describe('AccessRevocationService — ¿sigue viva la sesión de este token?', (
     });
     await expect(svc.revokeSession(SID_A)).resolves.toBeUndefined();
     await expect(svc.isRevoked({ sub: USER, sid: SID_A, iat: sec(T0) })).resolves.toBe(true);
+  });
+});
+
+describe('pnpm cli revoke-sessions escribe las mismas marcas (packages/db/scripts/cli.ts)', () => {
+  it('mismas claves y mismo TTL que el API', async () => {
+    const cli = readFileSync(join(__dirname, '../../../../../packages/db/scripts/cli.ts'), 'utf8');
+    expect(cli).toContain(`const ACCESS_REVOCATION_TTL_SECONDS = ${ACCESS_REVOCATION_TTL_SECONDS};`);
+    expect(cli).toContain('`nightpay:access:revoked-before:${userId}`');
+    expect(cli).toContain('`nightpay:access:revoked-sid:${sid}`');
+    // Y el API las lee con esos nombres.
+    const { svc, redis } = make();
+    await svc.revokeUser(USER);
+    await svc.revokeSession(SID_A);
+    expect(redis.keys().sort()).toEqual([`nightpay:access:revoked-before:${USER}`, `nightpay:access:revoked-sid:${SID_A}`]);
   });
 });

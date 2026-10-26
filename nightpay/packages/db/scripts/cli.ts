@@ -506,6 +506,16 @@ async function cmdCreateOperator(args: Args) {
 
 // ─── revoke-sessions: kill-switch para refresh tokens ───────────────
 
+/**
+ * Las mismas marcas que AccessRevocationService (apps/api/src/modules/auth/
+ * access-revocation.service.ts): con ellas el API corta al momento los tokens
+ * de acceso ya emitidos (AuthGuard las mira en cada petición). Si cambian
+ * allí, cambian aquí: lo comprueba access-revocation.service.spec.ts.
+ */
+const ACCESS_REVOCATION_TTL_SECONDS = 3900;
+const accessRevokedUserKey = (userId: string) => `nightpay:access:revoked-before:${userId}`;
+const accessRevokedSidKey = (sid: string) => `nightpay:access:revoked-sid:${sid}`;
+
 async function cmdRevokeSessions(args: Args) {
   const email = must(args, 'email');
 
@@ -522,6 +532,9 @@ async function cmdRevokeSessions(args: Args) {
   await redis.connect();
 
   try {
+    // Primero los tokens de acceso ya emitidos (los de hasta este segundo):
+    // así quedan cortados aunque luego falle algo.
+    await redis.set(accessRevokedUserKey(user.id), String(Math.floor(Date.now() / 1000)), 'EX', ACCESS_REVOCATION_TTL_SECONDS);
     const pattern = `nightpay:refresh:user:${user.id}:*`;
     let cursor = '0';
     const userKeys: string[] = [];
@@ -532,7 +545,7 @@ async function cmdRevokeSessions(args: Args) {
     } while (cursor !== '0');
 
     if (userKeys.length === 0) {
-      console.log(`[ok] no active sessions for ${email}`);
+      console.log(`[ok] no active sessions for ${email} (tokens de acceso cortados igualmente)`);
       return;
     }
 
@@ -548,7 +561,10 @@ async function cmdRevokeSessions(args: Args) {
       if (raw) {
         try {
           const parsed = JSON.parse(raw) as { family?: string };
-          if (parsed.family) familyKey = `nightpay:refresh:family:${parsed.family}:${jti}`;
+          if (parsed.family) {
+            familyKey = `nightpay:refresh:family:${parsed.family}:${jti}`;
+            await redis.set(accessRevokedSidKey(parsed.family), '1', 'EX', ACCESS_REVOCATION_TTL_SECONDS);
+          }
         } catch {
           /* ignore parse errors */
         }
@@ -559,7 +575,7 @@ async function cmdRevokeSessions(args: Args) {
       revoked += 1;
     }
     console.log(`[ok] revoked ${revoked} session(s) for ${email}`);
-    console.log('     los access tokens ya emitidos siguen valiendo hasta que caducan (máx. 1 h)');
+    console.log('     sus tokens de acceso ya emitidos dejan de valer al momento; el tiempo real, al reconectar o suscribirse');
   } finally {
     redis.disconnect();
   }
