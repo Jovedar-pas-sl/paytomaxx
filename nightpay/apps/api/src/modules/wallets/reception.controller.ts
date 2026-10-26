@@ -92,8 +92,8 @@ export class ReceptionController {
     @CurrentUser() user: JwtPayload,
     @Body(new ZodValidationPipe(CashTopUpSchema)) body: CashTopUpDto,
   ): Promise<CashTopUpResult> {
-    // Recargar la ficha acercada necesita «Fichas NFC» encendido (como lookup).
-    if ('card' in body.wallet) {
+    // Recargar la ficha acercada (o dar una nueva al saldo nuevo) necesita «Fichas NFC» encendido (como lookup).
+    if ('card' in body.wallet && body.wallet.card) {
       await this.prisma.asSystem((tx) => assertVenueAcceptsMethods(tx, user.tenantId, ['nfc']));
     }
     return this.cash.topUp(user.tenantId, { userId: user.sub, role: user.role }, body);

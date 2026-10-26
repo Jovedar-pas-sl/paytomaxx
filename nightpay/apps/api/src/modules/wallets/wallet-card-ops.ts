@@ -164,55 +164,64 @@ export async function attachCard(
   db: PrismaService,
   input: { walletId: string; venueId: string; card: string; uid: string | null; by: CardBy },
 ): Promise<number> {
+  return db.acrossVenues((tx) => attachCardInTx(tx, input));
+}
+
+/**
+ * attachCard dentro de una transacción ya abierta (con acrossVenues): la
+ * recarga en efectivo de un saldo nuevo da su ficha en la misma operación.
+ */
+export async function attachCardInTx(
+  tx: TransactionalClient,
+  input: { walletId: string; venueId: string; card: string; uid: string | null; by: CardBy },
+): Promise<number> {
   const uid = input.uid ? normalizeWalletCardUid(input.uid) : null;
-  return db.acrossVenues(async (tx) => {
-    await tx.$queryRaw`SELECT id FROM client_wallets WHERE id = ${input.walletId}::uuid FOR UPDATE`;
-    const card = await lockCard(tx, input.card);
-    if (!card || !(await cardInGroup(tx, card, input.venueId))) {
-      throw new BadRequestException('Esta ficha no es nuestra: grábala desde la app (Darle una ficha)');
-    }
-    const unusable = cardUnusableText(card.status);
-    if (unusable) throw new ConflictException(unusable);
-    if (card.uid && uid && card.uid !== uid) throw new ConflictException('Esta ficha no es la original (¿copiada?): usa otra');
-    const now = new Date();
-    const previousHolder = isIssuedCard(card) && card.walletId !== input.walletId ? card.walletId : null;
-    if (previousHolder) {
-      const other = await tx.clientWallet.findUnique({
-        where: { id: previousHolder },
-        select: { status: true, balanceCents: true },
-      });
-      if (other?.status === 'ACTIVE' && other.balanceCents > 0) {
-        throw new ConflictException('Esta ficha es de otro cliente que aún tiene saldo');
-      }
-    }
-    const replaced = await tx.walletCard.findMany({
-      where: { walletId: input.walletId, status: { in: ISSUED_CARD_STATUSES }, NOT: { id: card.id } },
-      select: { id: true },
+  await tx.$queryRaw`SELECT id FROM client_wallets WHERE id = ${input.walletId}::uuid FOR UPDATE`;
+  const card = await lockCard(tx, input.card);
+  if (!card || !(await cardInGroup(tx, card, input.venueId))) {
+    throw new BadRequestException('Esta ficha no es nuestra: grábala desde la app (Darle una ficha)');
+  }
+  const unusable = cardUnusableText(card.status);
+  if (unusable) throw new ConflictException(unusable);
+  if (card.uid && uid && card.uid !== uid) throw new ConflictException('Esta ficha no es la original (¿copiada?): usa otra');
+  const now = new Date();
+  const previousHolder = isIssuedCard(card) && card.walletId !== input.walletId ? card.walletId : null;
+  if (previousHolder) {
+    const other = await tx.clientWallet.findUnique({
+      where: { id: previousHolder },
+      select: { status: true, balanceCents: true },
     });
-    await replaceCards(tx, replaced.map((c) => c.id), input.walletId, input.venueId, now);
-    await tx.walletCard.update({
-      where: { id: card.id },
-      data: {
-        walletId: input.walletId,
-        status: 'ISSUED',
-        uid: card.uid ?? uid,
-        linkedById: input.by.userId,
-        linkedAt: now,
-        venueId: input.venueId,
-      },
-    });
-    const alreadyHers = isIssuedCard(card) && card.walletId === input.walletId;
-    await recordCardEvents(
-      tx,
-      [
-        // Era de un saldo ya gastado o cerrado: ha vuelto (está aquí) y sale otra vez.
-        ...(previousHolder ? [{ cardId: card.id, walletId: previousHolder, kind: 'RETURNED' as const }] : []),
-        ...(alreadyHers ? [] : [{ cardId: card.id, walletId: input.walletId, kind: 'ISSUED' as const }]),
-      ],
-      { venueId: input.venueId, by: input.by, now },
-    );
-    return replaced.length;
+    if (other?.status === 'ACTIVE' && other.balanceCents > 0) {
+      throw new ConflictException('Esta ficha es de otro cliente que aún tiene saldo');
+    }
+  }
+  const replaced = await tx.walletCard.findMany({
+    where: { walletId: input.walletId, status: { in: ISSUED_CARD_STATUSES }, NOT: { id: card.id } },
+    select: { id: true },
   });
+  await replaceCards(tx, replaced.map((c) => c.id), input.walletId, input.venueId, now);
+  await tx.walletCard.update({
+    where: { id: card.id },
+    data: {
+      walletId: input.walletId,
+      status: 'ISSUED',
+      uid: card.uid ?? uid,
+      linkedById: input.by.userId,
+      linkedAt: now,
+      venueId: input.venueId,
+    },
+  });
+  const alreadyHers = isIssuedCard(card) && card.walletId === input.walletId;
+  await recordCardEvents(
+    tx,
+    [
+      // Era de un saldo ya gastado o cerrado: ha vuelto (está aquí) y sale otra vez.
+      ...(previousHolder ? [{ cardId: card.id, walletId: previousHolder, kind: 'RETURNED' as const }] : []),
+      ...(alreadyHers ? [] : [{ cardId: card.id, walletId: input.walletId, kind: 'ISSUED' as const }]),
+    ],
+    { venueId: input.venueId, by: input.by, now },
+  );
+  return replaced.length;
 }
 
 /**

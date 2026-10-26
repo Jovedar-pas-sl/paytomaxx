@@ -133,3 +133,52 @@ describe('recepción exprés: el NFC acercado (Postgres real)', () => {
     expect(row).toEqual({ status: 'RETURNED', walletId: null });
   });
 });
+
+describe('recarga en efectivo a una ficha NUEVA: el saldo y la ficha, juntos (prueba real: respuesta perdida)', () => {
+  it('el saldo nuevo sale ya con su ficha: aunque la respuesta se pierda, el cliente no se va con la ficha vacía', async () => {
+    const nfc = await stockedCard();
+    const idempotencyKey = key();
+    const out = await inVenue(V, () =>
+      cash.topUp(V, recepcion(), { amountCents: 5_000, idempotencyKey, wallet: { create: true, card: nfc.card, uid: nfc.uid } }),
+    );
+    expect(out).toMatchObject({ createdWallet: true, cardLinked: true, balanceCents: 5_000, replayed: false });
+    // La respuesta se perdió y la pantalla lo pregunta otra vez con la misma clave: la misma recarga, con su ficha.
+    const again = await inVenue(V, () =>
+      cash.topUp(V, recepcion(), { amountCents: 5_000, idempotencyKey, wallet: { create: true, card: nfc.card, uid: nfc.uid } }),
+    );
+    expect(again).toMatchObject({ topUpId: out.topUpId, walletId: out.walletId, replayed: true, cardLinked: true });
+    await expect(inVenue(V, () => cards.desk(V, recepcion(), { card: nfc.card, uid: nfc.uid }))).resolves.toMatchObject({
+      kind: 'saldo',
+      walletId: out.walletId,
+      balanceCents: 5_000,
+      fichaNumber: nfc.number,
+    });
+    const topUps = await sys((tx) => tx.walletCashTopUp.count({ where: { tenantId: V, idempotencyKey } }));
+    expect(topUps).toBe(1);
+  });
+
+  it('si la ficha no se puede dar (es de otro cliente con saldo), no se carga nada: ni saldo nuevo ni efectivo', async () => {
+    const nfc = await stockedCard();
+    const first = await inVenue(V, () =>
+      cash.topUp(V, recepcion(), { amountCents: 2_000, idempotencyKey: key(), wallet: { create: true, card: nfc.card, uid: nfc.uid } }),
+    );
+    expect(first.cardLinked).toBe(true);
+    const wallets = await sys((tx) => tx.clientWallet.count({ where: { tenantId: V } }));
+    const idempotencyKey = key();
+    await expect(
+      inVenue(V, () => cash.topUp(V, recepcion(), { amountCents: 3_000, idempotencyKey, wallet: { create: true, card: nfc.card, uid: nfc.uid } })),
+    ).rejects.toThrow(/otro cliente/);
+    expect(await sys((tx) => tx.clientWallet.count({ where: { tenantId: V } }))).toBe(wallets);
+    expect(await sys((tx) => tx.walletCashTopUp.count({ where: { tenantId: V, idempotencyKey } }))).toBe(0);
+  });
+
+  it('la misma clave con otra ficha es otra recarga: no la devuelve como si fuera esa', async () => {
+    const a = await stockedCard();
+    const b = await stockedCard();
+    const idempotencyKey = key();
+    await inVenue(V, () => cash.topUp(V, recepcion(), { amountCents: 1_500, idempotencyKey, wallet: { create: true, card: a.card, uid: a.uid } }));
+    await expect(
+      inVenue(V, () => cash.topUp(V, recepcion(), { amountCents: 1_500, idempotencyKey, wallet: { create: true, card: b.card, uid: b.uid } })),
+    ).rejects.toThrow(/otros datos/);
+  });
+});

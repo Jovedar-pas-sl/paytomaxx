@@ -924,7 +924,8 @@ export async function fetchReceptionOptions(): Promise<ReceptionOptions> {
 /** Recarga en efectivo: sumada al momento (permiso «cobrar recargas en efectivo»). */
 export async function receptionCashTopUp(body: CashTopUpDto): Promise<CashTopUpResult> {
   const res = await authedFetch('/v1/reception/cash', { method: 'POST', body: JSON.stringify(body) });
-  if (!res.ok) throw new Error(await parseOperatorApiError(res, 'Recarga en efectivo'));
+  // Con su código HTTP: la pantalla distingue «no se cargó» (4xx) de «no se sabe» (5xx).
+  if (!res.ok) throw new ApiError(await parseOperatorApiError(res, 'Recarga en efectivo'), res.status);
   return res.json();
 }
 

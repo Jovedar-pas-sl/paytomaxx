@@ -22,6 +22,7 @@ import { assertCanHandleCash, chargeRightsFor } from '../venues/charge-rights';
 import { assertVenueAcceptsMethods } from '../venues/venue-methods';
 import { assertVenueAcceptsCharges } from '../venues/venue-pause';
 import { insertEmptyWallet } from './empty-wallet';
+import { attachCardInTx, type CardBy } from './wallet-card-ops';
 import { reopenData } from './wallet-activation';
 import { cashTopUpOverLimit, walletCash } from './wallet-cash-limits';
 import { cashIntentFingerprint, storedReceipt, type PrintedTopUpRef } from './wallet-cash-intent';
@@ -117,6 +118,7 @@ export class CashTopUpService {
     const target = 'create' in input.wallet ? null : await topUpTarget(this.prisma, venueId, input.wallet);
     const venue = await this.prisma.venue.findUnique({ where: { id: venueId }, select: { walletGroup: true } });
     const walletGroup = venue?.walletGroup ?? null;
+    const newCard = newCardOf(input.wallet);
     let result: { topUpId: string; walletId: string; balanceCents: number; shortCode: string | null };
     try {
       result = await this.prisma.acrossVenues(async (tx) => {
@@ -126,6 +128,9 @@ export class CashTopUpService {
             identifier: 'create' in input.wallet ? (input.wallet.identifier?.trim() || null) : null,
             walletGroup,
           }));
+        // El saldo nuevo con su ficha, en la misma operación: si la ficha no
+        // se puede dar, no se carga nada (ni queda un saldo sin ficha).
+        if (newCard) await attachCardInTx(tx, { walletId, venueId, card: newCard.card, uid: newCard.uid, by: cardByOf(by) });
         return this.credit(tx, { venueId, walletGroup, walletId, by, input });
       });
     } catch (err) {
@@ -141,6 +146,16 @@ export class CashTopUpService {
     }
     const createdWallet = target === null;
     if (createdWallet) await this.watchSplit(venueId, by, input.amountCents);
+    if (newCard) {
+      await this.audit.log({
+        action: 'wallet.card_linked',
+        tenantId: venueId,
+        actorId: 'userId' in by ? by.userId : null,
+        targetType: 'ClientWallet',
+        targetId: result.walletId,
+        payload: { replacedCards: 0, withUid: newCard.uid !== null, atTopUp: true, ...('terminalId' in by ? { terminalId: by.terminalId } : {}) },
+      });
+    }
     await this.audit.log({
       action: 'wallet.cash_topup',
       tenantId: venueId,
@@ -163,6 +178,7 @@ export class CashTopUpService {
       balanceCents: result.balanceCents,
       createdWallet,
       replayed: false,
+      ...(newCard ? { cardLinked: true } : {}),
     };
   }
 
@@ -426,6 +442,7 @@ export class CashTopUpService {
       : await this.legacyIntentMatches(existing, input.wallet);
     if (!sameIntent) throw new ConflictException(KEY_REUSED);
     const receipt = storedReceipt(existing.receipt) ?? (await this.currentReceipt(existing.walletId));
+    const newCard = newCardOf(input.wallet);
     return {
       topUpId: existing.id,
       walletId: existing.walletId,
@@ -434,7 +451,14 @@ export class CashTopUpService {
       balanceCents: receipt.balanceCents,
       createdWallet: existing.createdWallet,
       replayed: true,
+      ...(newCard ? { cardLinked: await this.cardIsIssuedTo(newCard.card, existing.walletId) } : {}),
     };
+  }
+
+  /** ¿Esta ficha está dada a este saldo? (la recarga repetida de un saldo nuevo con su ficha). */
+  private async cardIsIssuedTo(card: string, walletId: string): Promise<boolean> {
+    const row = await this.prisma.acrossVenues((tx) => tx.walletCard.findUnique({ where: { token: card }, select: { walletId: true, status: true } }));
+    return row?.walletId === walletId && row.status === 'ISSUED';
   }
 
   /**
@@ -480,4 +504,15 @@ function eur(cents: number): string {
 
 function isUniqueClash(err: unknown): boolean {
   return err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002';
+}
+
+/** La ficha nueva que va con el saldo nuevo (null: sin ficha, o no es un saldo nuevo). */
+function newCardOf(wallet: TopUpWalletDto | PrintedTopUpRef): { card: string; uid: string | null } | null {
+  if (!('create' in wallet) || !wallet.card) return null;
+  return { card: wallet.card, uid: wallet.uid ?? null };
+}
+
+/** Quién da la ficha: la persona o el datáfono de recepción. */
+function cardByOf(by: CashTopUpBy): CardBy {
+  return 'userId' in by ? { userId: by.userId } : { userId: null, terminalId: by.terminalId };
 }

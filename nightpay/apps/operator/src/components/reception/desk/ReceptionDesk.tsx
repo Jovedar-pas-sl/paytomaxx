@@ -10,13 +10,19 @@ import {
   receptionAttempt,
   staffBackend,
   stockOutcomeLine,
-  walletOfTarget,
   type PayMethod,
   type ReceptionAttempt,
   type ReceptionWallet,
 } from '@/lib/reception';
 import {
   attemptOnStep,
+  CASH_CHECK_DELAY_MS,
+  CASH_CHECK_TRIES,
+  CASH_UNSURE_LEAVE_TEXT,
+  CASH_UNSURE_LEFT_NOTICE,
+  cashTopUpUnsure,
+  cashTopUpWallet,
+  cashUnsureText,
   deskRechargeWhat,
   deskRow,
   deskTarget,
@@ -107,10 +113,14 @@ type Step =
   | { kind: 'managerPending'; exit: Exit; message: string }
   | { kind: 'exitNew'; view: ReceptionDeskNew; nfc: { card: string; uid: string | null } }
   | { kind: 'exitNumber'; view: NumberSaldo }
-  | { kind: 'refunded'; code: string; refundedCents: number; remainingCents: number };
+  | { kind: 'refunded'; code: string; refundedCents: number; remainingCents: number }
+  /** Efectivo sin respuesta: no se sabe si se cargó. Se comprueba con la misma clave antes de seguir. */
+  | { kind: 'cashUnsure'; read: Read; amountCents: number; checking: boolean; leaveArmed?: boolean };
 
 /** Desde que se cobra hasta el resultado: si la sesión caduca, se entra encima sin perderlo. */
-const CHARGING = new Set<Step['kind']>(['card', 'loaded', 'pin', 'exitPasskey', 'exitTotp', 'exitPin', 'managerPending', 'refunded']);
+const CHARGING = new Set<Step['kind']>(['card', 'loaded', 'pin', 'cashUnsure', 'exitPasskey', 'exitTotp', 'exitPin', 'managerPending', 'refunded']);
+
+const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
 const errText = (err: unknown) => (err as Error).message;
 const eur = (cents: number) => formatEur(cents, { compact: true });
@@ -147,6 +157,8 @@ export function ReceptionDesk({ user, active, footer }: Props) {
   // Una clave por recarga (importe, forma de pago y saldo): repetirla no carga dos veces.
   const attempt = useRef<ReceptionAttempt | null>(null);
   const retire = useRetirePayment();
+  // La comprobación en curso de una recarga sin respuesta (otra la anula).
+  const cashCheck = useRef(0);
 
   useEffect(() => {
     staffBackend
@@ -168,6 +180,7 @@ export function ReceptionDesk({ user, active, footer }: Props) {
 
   function restart(nextMode: Mode = mode, message: string | null = null): void {
     attempt.current = null;
+    cashCheck.current += 1;
     setCode('');
     setMode(nextMode);
     go({ kind: 'tap' });
@@ -239,13 +252,16 @@ export function ReceptionDesk({ user, active, footer }: Props) {
     return attempt.current.key;
   }
 
-  /** Cobrado: a un saldo nuevo se le da el NFC; después, CARGADO (4.4). */
-  async function finish(read: Read, amountCents: number, method: PayMethod, wallet: ReceptionWallet | null): Promise<void> {
-    let linked = read.view?.kind === 'saldo';
+  /**
+   * Cobrado: a un saldo nuevo se le da el NFC (si el servidor no lo dio ya
+   * con la recarga: `cardLinked`); después, CARGADO (4.4).
+   */
+  async function finish(read: Read, amountCents: number, method: PayMethod, wallet: ReceptionWallet | null, cardLinked = false): Promise<void> {
+    let linked = read.view?.kind === 'saldo' || cardLinked;
     let warn: string | null =
       wallet === null && read.view?.kind === 'new' ? 'Cobrado y sumado a su saldo nuevo. El NFC y el PIN, con el encargado.' : null;
     let w = wallet;
-    if (w && read.view?.kind === 'new' && read.nfc) {
+    if (w && read.view?.kind === 'new' && read.nfc && !cardLinked) {
       try {
         w = await staffBackend.link(w, read.nfc.card, read.nfc.uid);
         linked = true;
@@ -257,16 +273,56 @@ export function ReceptionDesk({ user, active, footer }: Props) {
     go({ kind: 'loaded', done: { read, amountCents, method, wallet: w, linked, warn } });
   }
 
-  async function payCash(read: Read, amountCents: number): Promise<void> {
+  /** La recarga en efectivo con la clave de este intento: repetirla no carga dos veces. */
+  async function sendCash(read: Read, amountCents: number): Promise<void> {
     if (read.number) {
       const out = await topUpByNumber({ printedNumber: read.number.printedNumber, amountCents, idempotencyKey: keyFor(amountCents, 'cash', read) });
       attempt.current = null;
       return go({ kind: 'loaded', done: { read, amountCents, method: 'cash', wallet: null, linked: true, warn: null, reference: out.codeHint } });
     }
     const target = deskTarget(read.view, read.nfc);
-    const out = await staffBackend.cash({ amountCents, idempotencyKey: keyFor(amountCents, 'cash', read), wallet: walletOfTarget(target) });
+    // Un saldo nuevo lleva ya su ficha: el servidor la da en la misma operación.
+    const out = await staffBackend.cash({ amountCents, idempotencyKey: keyFor(amountCents, 'cash', read), wallet: cashTopUpWallet(target, read.nfc) });
     const hasPin = read.view?.kind === 'saldo' && read.view.hasPin;
-    await finish(read, amountCents, 'cash', { walletId: out.walletId, code: out.code, balanceCents: out.balanceCents, hasPin, hasCard: read.nfc !== null });
+    const wallet = { walletId: out.walletId, code: out.code, balanceCents: out.balanceCents, hasPin, hasCard: read.nfc !== null };
+    await finish(read, amountCents, 'cash', wallet, out.cardLinked === true);
+  }
+
+  /**
+   * Efectivo. Sin respuesta (o con el servidor caído) no se sabe si se cargó:
+   * en vez de «vuelve a intentarlo» (y pasar al siguiente cliente con la
+   * ficha vacía), «Comprobando…» repitiéndola con la misma clave.
+   */
+  async function payCash(read: Read, amountCents: number): Promise<void> {
+    try {
+      await sendCash(read, amountCents);
+    } catch (err) {
+      if (!cashTopUpUnsure(err)) throw err;
+      void checkCash(read, amountCents, CASH_CHECK_TRIES);
+    }
+  }
+
+  /** Repite la recarga (misma clave) hasta saber qué pasó; si no hay manera, se pide comprobarlo a mano. */
+  async function checkCash(read: Read, amountCents: number, tries: number): Promise<void> {
+    const token = (cashCheck.current += 1);
+    for (let i = 0; i < tries; i += 1) {
+      go({ kind: 'cashUnsure', read, amountCents, checking: true });
+      await sleep(CASH_CHECK_DELAY_MS);
+      if (token !== cashCheck.current) return;
+      try {
+        await sendCash(read, amountCents);
+        return;
+      } catch (err) {
+        if (token !== cashCheck.current) return;
+        if (!cashTopUpUnsure(err)) {
+          // El servidor la rechazó: no se cargó.
+          go({ kind: 'method', read, amountCents });
+          setError(errText(err));
+          return;
+        }
+      }
+    }
+    go({ kind: 'cashUnsure', read, amountCents, checking: false });
   }
 
   async function newCardPayment(read: Read, amountCents: number): Promise<CreatedPayment> {
@@ -347,6 +403,8 @@ export function ReceptionDesk({ user, active, footer }: Props) {
   }
 
   if (step.kind === 'loaded') return renderLoaded(step.done);
+
+  if (step.kind === 'cashUnsure') return renderCashUnsure(step);
 
   if (step.kind === 'pin' && step.done.wallet) {
     const { done } = step;
@@ -553,6 +611,35 @@ export function ReceptionDesk({ user, active, footer }: Props) {
       ) : null}
     </div>
   );
+
+  /** Efectivo sin respuesta: se comprueba antes de pasar al siguiente cliente (sin flecha atrás). */
+  function renderCashUnsure(st: Extract<Step, { kind: 'cashUnsure' }>) {
+    const { read, amountCents, checking, leaveArmed } = st;
+    return (
+      <div className={s.screen}>
+        {head()}
+        <DeskRowView {...readRow(read)} />
+        {checking ? (
+          <p className={s.q} role="status">
+            Comprobando si se han cargado los {eur(amountCents)}…
+          </p>
+        ) : (
+          <p role="alert" className={s.error}>
+            {cashUnsureText(eur(amountCents))}
+          </p>
+        )}
+        <DeskBtn kind="pri" size="l" label={checking ? 'Comprobando…' : 'Comprobar otra vez'} busy={checking} onClick={() => void checkCash(read, amountCents, 1)} />
+        {checking ? null : leaveArmed ? (
+          <>
+            <p className={s.lbl}>{CASH_UNSURE_LEAVE_TEXT}</p>
+            <DeskBtn kind="gho" label="Salir sin saberlo" onClick={() => restart('entrada', CASH_UNSURE_LEFT_NOTICE)} />
+          </>
+        ) : (
+          <DeskBtn kind="gho" label="Siguiente cliente" onClick={() => setStep({ ...st, leaveArmed: true })} />
+        )}
+      </div>
+    );
+  }
 
   function renderLoaded(done: Loaded) {
     const money = loadedMoneyLine(done.method, done.amountCents);

@@ -31,9 +31,16 @@ export const IdempotencyKeySchema = z.string().trim().min(8).max(100);
 const CardTokenSchema = z.string().regex(/^[A-Za-z0-9_-]{16,64}$/, 'Esta ficha no es nuestra');
 const CardUidSchema = z.string().trim().max(64).optional();
 
-/** El saldo que se recarga: uno nuevo, el de su código o el de su ficha. */
+/**
+ * El saldo que se recarga: uno nuevo, el de su código o el de su ficha. Uno
+ * nuevo puede llevar ya la ficha NFC nueva que se le da (card/uid): el saldo y
+ * la ficha van en la misma operación, así una respuesta perdida no deja al
+ * cliente con la ficha vacía y su dinero en un saldo sin ficha.
+ */
 export const TopUpWalletSchema = z.union([
-  z.object({ create: z.literal(true), identifier: z.string().trim().max(60).optional() }).strict(),
+  z
+    .object({ create: z.literal(true), identifier: z.string().trim().max(60).optional(), card: CardTokenSchema.optional(), uid: CardUidSchema })
+    .strict(),
   z.object({ code: z.string().trim().min(6).max(10) }).strict(),
   z.object({ card: CardTokenSchema, uid: CardUidSchema }).strict(),
 ]);
@@ -86,6 +93,8 @@ export interface CashTopUpResult {
   createdWallet: boolean;
   /** La misma recarga pedida otra vez (mismo botón): no se ha cargado dos veces. */
   replayed: boolean;
+  /** Saldo nuevo con su ficha (wallet.create con card): la ficha quedó dada en la misma operación. */
+  cardLinked?: boolean;
 }
 
 /** Qué ofrece la recepción en este local y en este aparato. */

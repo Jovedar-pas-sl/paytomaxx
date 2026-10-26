@@ -1,9 +1,12 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import type { ReceptionDeskSaldo, ReceptionOptions } from '@nightpay/contracts';
+import { ApiError, ServerUnavailableError, SessionExpiredError } from '@nightpay/api-client';
 import { receptionAttempt } from './reception';
 import {
   attemptOnStep,
+  cashTopUpUnsure,
+  cashTopUpWallet,
   codeBoxes,
   codeInput,
   deskRechargeWhat,
@@ -222,5 +225,36 @@ describe('la recarga del datáfono y de «Recargar saldo» (ReceptionFlow), igua
     const desk = readFileSync(new URL('../components/reception/desk/ReceptionDesk.tsx', import.meta.url), 'utf8');
     expect(desk).toMatch(/attempt\.current = attemptOnStep\(attempt\.current, next\.kind\)/);
     expect(desk).not.toMatch(/setStep\(\{ kind: '(tap|code|number)' \}\)/);
+  });
+});
+
+describe('recarga en efectivo a una ficha nueva con la respuesta perdida (prueba real)', () => {
+  const NFC = { card: 'tok-AbCdEf0123456789', uid: '04A1B2C3D4E5F6' };
+
+  it('el saldo nuevo va con su ficha en la misma petición (el servidor la da al cargar)', () => {
+    expect(cashTopUpWallet(deskTarget({ kind: 'new', fichaNumber: 12 } as never, NFC), NFC)).toEqual({ create: true, card: NFC.card, uid: NFC.uid });
+    expect(cashTopUpWallet(deskTarget({ kind: 'new', fichaNumber: 12 } as never, { card: NFC.card, uid: null }), { card: NFC.card, uid: null })).toEqual({ create: true, card: NFC.card });
+    // Sin ficha (por el código, «saldo nuevo sin NFC»): como siempre.
+    expect(cashTopUpWallet(deskTarget(null, null), null)).toEqual({ create: true });
+    // Un saldo que ya existe: el de siempre.
+    const saldo = { kind: 'saldo', walletId: 'w1', code: 'K7Q-4M2', hasPin: true, isHomeVenue: true } as never;
+    expect(cashTopUpWallet(deskTarget(saldo, NFC), NFC)).toEqual({ card: NFC.card, uid: NFC.uid });
+  });
+
+  it('sin respuesta, con 5xx o 408 no se sabe si se cargó: se comprueba con la misma clave; un 4xx del API, no', () => {
+    expect(cashTopUpUnsure(new ServerUnavailableError('sin red', 0, 'network'))).toBe(true);
+    expect(cashTopUpUnsure(new ServerUnavailableError('tarda', 0, 'timeout'))).toBe(true);
+    expect(cashTopUpUnsure(new ApiError('El servidor está teniendo problemas', 503))).toBe(true);
+    expect(cashTopUpUnsure(new ApiError('Tarda', 408))).toBe(true);
+    expect(cashTopUpUnsure(new TypeError('Failed to fetch'))).toBe(true);
+    expect(cashTopUpUnsure(new SyntaxError('Unexpected end of JSON input'))).toBe(true);
+    // El datáfono: estado 0 = sin conexión.
+    expect(cashTopUpUnsure(Object.assign(new Error('No se pudo conectar'), { status: 0 }))).toBe(true);
+    // Rechazos del API (no se cargó): tope de efectivo, saldo bloqueado, demasiados intentos, sesión.
+    expect(cashTopUpUnsure(new ApiError('Tope de efectivo', 409, 'CASH_LIMIT'))).toBe(false);
+    expect(cashTopUpUnsure(new ApiError('Bloqueado', 403))).toBe(false);
+    expect(cashTopUpUnsure(new ServerUnavailableError('Demasiados intentos', 429, 'too-many'))).toBe(false);
+    expect(cashTopUpUnsure(new SessionExpiredError('Vuelve a entrar'))).toBe(false);
+    expect(cashTopUpUnsure(Object.assign(new Error('cancelado'), { name: 'AbortError' }))).toBe(false);
   });
 });

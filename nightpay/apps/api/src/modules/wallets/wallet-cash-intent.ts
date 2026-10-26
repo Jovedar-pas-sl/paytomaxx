@@ -28,7 +28,10 @@ export function cashIntentFingerprint(input: { amountCents: number; wallet: TopU
   const w = input.wallet;
   const target =
     'create' in w
-      ? ['create']
+      ? // Con su ficha nueva: otra ficha es otra recarga (sin ficha, como siempre).
+        w.card
+        ? ['create', 'card', w.card]
+        : ['create']
       : 'code' in w
         ? ['code', normalizeWalletCode(w.code)]
         : 'printed' in w

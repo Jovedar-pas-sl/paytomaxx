@@ -263,7 +263,8 @@ export class PosDeviceReceptionService {
 
   /** Recargar la ficha acercada necesita «Fichas NFC» encendido (409 si no). */
   private async assertNfcForCard(device: PosDevice, wallet: TopUpWalletDto): Promise<void> {
-    if (!('card' in wallet)) return;
+    // La ficha acercada, o la nueva que se da al saldo nuevo.
+    if (!('card' in wallet) || !wallet.card) return;
     await this.prisma.asSystem((tx) => assertVenueAcceptsMethods(tx, device.tenantId, ['nfc']));
   }
 

@@ -16,9 +16,11 @@ import {
   type ReceptionOptions,
   type SaldoRefDto,
 } from '@nightpay/contracts';
+import { ApiError } from '@nightpay/api-client';
 import { authedFetch, parseOperatorApiError } from './api';
 import { formatEur } from './money';
-import { payProblem, receptionWhat, type PayMethod, type Target } from './reception';
+import { payProblem, receptionWhat, walletOfTarget, type PayMethod, type Target } from './reception';
+import type { TopUpWalletDto } from '@nightpay/contracts';
 
 export type { ReceptionDeskSaldo, ReceptionDeskView, ReceptionNumberView };
 export type NumberSaldo = Extract<ReceptionNumberView, { kind: 'saldo' }>;
@@ -45,7 +47,7 @@ export async function fetchFichaByNumber(printedNumber: string): Promise<Recepti
 /** Recargar en efectivo el saldo de la ficha buscada por su número (no una nueva). */
 export async function topUpByNumber(body: ReceptionNumberTopUpDto): Promise<ReceptionNumberTopUpResult> {
   const res = await authedFetch('/v1/reception/fichas/number-topup', { method: 'POST', body: JSON.stringify(body) });
-  if (!res.ok) throw new Error(await parseOperatorApiError(res, 'Ficha'));
+  if (!res.ok) throw new ApiError(await parseOperatorApiError(res, 'Ficha'), res.status);
   return res.json();
 }
 
@@ -176,6 +178,48 @@ export function deskRechargeWhat(
   const what = receptionWhat(amountCents, method, target);
   return target.kind === 'new' && read.nfc ? `${what}:ficha:${read.nfc.card}` : what;
 }
+
+/**
+ * El saldo de la recarga en efectivo: uno nuevo va ya con la ficha NFC
+ * acercada (el servidor la da en la misma operación). Antes la ficha se daba
+ * después, en otra petición: si la respuesta de la recarga se perdía, el
+ * cliente se iba con la ficha vacía y su dinero en un saldo sin ficha.
+ */
+export function cashTopUpWallet(target: Target, nfc: { card: string; uid: string | null } | null): TopUpWalletDto {
+  if (target.kind !== 'new' || !nfc) return walletOfTarget(target);
+  return nfc.uid ? { create: true, card: nfc.card, uid: nfc.uid } : { create: true, card: nfc.card };
+}
+
+/**
+ * La recarga en efectivo falló: ¿pudo cargarse? Sin respuesta (red, plazo),
+ * con el servidor caído (5xx, 408) o con una respuesta ilegible, sí: se
+ * comprueba repitiéndola con la misma clave (no carga dos veces). Un rechazo
+ * del API (4xx: tope de efectivo, bloqueado, demasiados intentos, la sesión)
+ * dice que no se cargó.
+ */
+export function cashTopUpUnsure(err: unknown): boolean {
+  if (err instanceof Error && (err.name === 'AbortError' || err.name === 'SessionExpiredError')) return false;
+  const status = (err as { status?: unknown } | null)?.status;
+  if (typeof status !== 'number') return true;
+  return status === 0 || status === 408 || status >= 500;
+}
+
+/** Lo que se ve si, tras comprobarla, aún no se sabe si se cargó (sin conexión con el servidor). */
+export function cashUnsureText(amount: string): string {
+  return `No sabemos si se han cargado los ${amount}: se cortó la conexión. No pases al siguiente cliente: comprueba primero (no se cobra dos veces).`;
+}
+
+/** Al salir sin saberlo: lo que puede haber pasado. */
+export const CASH_UNSURE_LEAVE_TEXT =
+  'Puede que ya esté cargado (en su ficha, si se la acercaste). Si cobras otra vez a este cliente, se carga dos veces: compruébalo antes con el encargado.';
+
+/** El aviso al volver a la pantalla de inicio tras salir sin saberlo. */
+export const CASH_UNSURE_LEFT_NOTICE = 'Recarga sin comprobar: antes de cobrar otra vez a ese cliente, revisad sus recargas en efectivo con el encargado.';
+
+/** Veces que se comprueba sola una recarga sin respuesta antes de pedir que se compruebe a mano. */
+export const CASH_CHECK_TRIES = 3;
+/** Entre una comprobación y la siguiente. */
+export const CASH_CHECK_DELAY_MS = 1_500;
 
 /** Pasos donde se lee al cliente (su NFC, su código o su número): volver a uno es otro cliente (o empezar de nuevo). */
 const READ_STEPS: ReadonlySet<string> = new Set(['tap', 'code', 'number']);
