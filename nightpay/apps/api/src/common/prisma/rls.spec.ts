@@ -10,6 +10,8 @@ describe('tablas con FORCE RLS', () => {
       'earning_reversals',
       'operator_earnings',
       'operator_payouts',
+      'oxiopay_settlement_payments',
+      'oxiopay_settlements',
       'payment_lines',
       'peanpe_calls',
       'wallet_cash_topups',
@@ -22,6 +24,8 @@ describe('tablas con FORCE RLS', () => {
       'EarningReversal',
       'OperatorEarning',
       'OperatorPayout',
+      'OxioPaySettlement',
+      'OxioPaySettlementPayment',
       'PaymentLine',
       'PeanpeCall',
       'WalletCashTopUp',
@@ -38,6 +42,8 @@ describe('tablas con FORCE RLS', () => {
     expect(forcedTableIn('SELECT * FROM wallet_payouts')).toBeNull();
     expect(forcedTableIn('SELECT SUM("amountCents") FROM wallet_cash_topups ct')).toBe('wallet_cash_topups');
     expect(forcedTableIn('SELECT category FROM payment_lines l')).toBe('payment_lines');
+    expect(forcedTableIn('SELECT id FROM oxiopay_settlements WHERE id = $1 FOR UPDATE')).toBe('oxiopay_settlements');
+    expect(forcedTableIn('SELECT 1 FROM oxiopay_settlement_payments p')).toBe('oxiopay_settlement_payments');
     expect(forcedTableIn('INSERT INTO charge_ref_counters ("tenantId") VALUES ($1)')).toBe('charge_ref_counters');
   });
 });

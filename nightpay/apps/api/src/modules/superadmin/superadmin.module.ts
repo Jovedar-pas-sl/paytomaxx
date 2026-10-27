@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { AuthModule } from '../auth/auth.module';
 import { IncidentsService } from '../incidents/incidents.service';
 import { OperatorsModule } from '../operators/operators.module';
+import { OxioPaySettlementsModule } from '../oxiopay-settlements/oxiopay-settlements.module';
 import { WalletsModule } from '../wallets/wallets.module';
 import { SuperAdminAuditLogService } from './audit-log.service';
 import { SuperAdminBusinessesController } from './businesses.controller';
@@ -12,6 +13,8 @@ import { SuperAdminOverviewController } from './overview.controller';
 import { SuperAdminOverviewService } from './overview.service';
 import { SuperAdminPayoutAccountsController } from './payout-accounts.controller';
 import { SuperAdminPayoutAccountsService } from './payout-accounts.service';
+import { SuperAdminSettlementsController } from './settlements.controller';
+import { SuperAdminSettlementsService } from './settlements.service';
 import { SuperAdminStaffController } from './staff.controller';
 import { SuperAdminStaffService } from './staff.service';
 import { SuperAdminStepUpService } from './step-up.service';
@@ -26,7 +29,7 @@ import { SuperAdminVenuesService } from './venues.service';
  * ningún local) para contar las incidencias de cada local en la vista general.
  */
 @Module({
-  imports: [AuthModule, OperatorsModule, WalletsModule],
+  imports: [AuthModule, OperatorsModule, WalletsModule, OxioPaySettlementsModule],
   controllers: [
     SuperAdminOverviewController,
     SuperAdminBusinessesController,
@@ -34,6 +37,7 @@ import { SuperAdminVenuesService } from './venues.service';
     SuperAdminStaffController,
     SuperAdminPayoutAccountsController,
     SuperAdminCustomersController,
+    SuperAdminSettlementsController,
   ],
   providers: [
     SuperAdminGuard,
@@ -46,6 +50,7 @@ import { SuperAdminVenuesService } from './venues.service';
     SuperAdminPayoutAccountsService,
     SuperAdminCustomersService,
     SuperAdminAuditLogService,
+    SuperAdminSettlementsService,
     IncidentsService,
   ],
 })

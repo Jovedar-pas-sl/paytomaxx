@@ -31,6 +31,9 @@ export const FORCED_RLS_TABLES = [
   // El mapa del dinero (20261023100000): las líneas de cada cobro y el contador de su referencia.
   'payment_lines',
   'charge_ref_counters',
+  // «Liquidación OxioPay» (20261031100000): lo que cada local debe a OxioPay y lo que ha pagado.
+  'oxiopay_settlements',
+  'oxiopay_settlement_payments',
 ] as const;
 
 export const FORCED_RLS_MODELS: ReadonlySet<string> = new Set([
@@ -44,6 +47,8 @@ export const FORCED_RLS_MODELS: ReadonlySet<string> = new Set([
   'WalletCashTopUp',
   'PaymentLine',
   'ChargeRefCounter',
+  'OxioPaySettlement',
+  'OxioPaySettlementPayment',
 ]);
 
 const FORCED_TABLE_RE = new RegExp(`\\b(${FORCED_RLS_TABLES.join('|')})\\b`);
