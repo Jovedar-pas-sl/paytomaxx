@@ -309,6 +309,11 @@ export type OwnCobro = Pick<
   invitedName: string | null;
   /** Lo devuelto (importe + propina) de un cobro con tarjeta devuelto del todo o en parte; si no, 0. */
   refundedCents: number;
+  /**
+   * Cobrado dos veces (CobroRow.paidTwice): la fila del cobro con tarjeta lo
+   * dice, como en el panel. Opcional: el API anterior no lo trae (nada que decir).
+   */
+  paidTwice?: CobroPaidTwice | null;
 };
 export interface OwnCobrosPage {
   items: OwnCobro[];

@@ -3,6 +3,17 @@ import type { OperatorUser } from './api';
 export type StaffRole = OperatorUser['role'];
 export type TabKey = 'home' | 'wallet' | 'reception' | 'pos' | 'payments' | 'earnings';
 
+/**
+ * «Cobros»: la lista de /staff/me/cobros (la del panel: un cobro = una fila,
+ * el cobro único pagado con el saldo como pagado con saldo) para todos. Si
+ * deja cancelar ahí los cobros con tarjeta aún sin pagar y cada cuánto se
+ * refresca.
+ */
+export interface OwnHistory {
+  cancelPending: boolean;
+  pollMs: number;
+}
+
 export interface RoleAccess {
   /** Pestañas de abajo, en orden. */
   tabs: readonly TabKey[];
@@ -10,6 +21,8 @@ export interface RoleAccess {
   ownEarnings: boolean;
   /** Historial propio de los cobros que ha creado. */
   ownPayments: boolean;
+  /** Cómo es ese historial. */
+  history: OwnHistory;
   /** Cobros con datáfono que esperan que alguien los confirme (/payments/pending-pos). */
   posQueue: boolean;
 }
@@ -17,12 +30,15 @@ export interface RoleAccess {
 /**
  * Lo que ve cada rol. /operators/me/* y /nights/mine son solo de la chica
  * (OPERATOR): al camarero, al encargado o al dueño el API les da 403, así que
- * ni se piden. Su historial usa /staff/me/cobros. Ellos confirman los cobros con datáfono que crean las chicas.
+ * ni se piden. El historial de todos usa /staff/me/cobros. Ellos confirman los
+ * cobros con datáfono que crean las chicas. La chica, en «Cobros», cancela
+ * sus cobros sin pagar y lo ve al día cada 5 s, como en su lista de antes.
  */
 const OPERATOR_ACCESS: RoleAccess = {
   tabs: ['home', 'wallet', 'payments', 'earnings'],
   ownEarnings: true,
   ownPayments: true,
+  history: { cancelPending: true, pollMs: 5000 },
   posQueue: false,
 };
 
@@ -31,6 +47,7 @@ const STAFF_ACCESS: RoleAccess = {
   tabs: ['home', 'wallet', 'payments', 'reception', 'pos'],
   ownEarnings: false,
   ownPayments: true,
+  history: { cancelPending: false, pollMs: 15_000 },
   posQueue: true,
 };
 

@@ -34,7 +34,7 @@ const PAYMENT_TIME = new Intl.DateTimeFormat('es-ES', {
   minute: '2-digit',
 });
 
-/** «13 oct, 00:40» de «Mis cobros» (hora de Madrid, como el resto; no la del móvil). */
+/** «13 oct, 00:40» de «Cobros» (hora de Madrid, como el resto; no la del móvil). */
 export function paymentTimeLabel(at: string | number | Date): string {
   return PAYMENT_TIME.format(new Date(at));
 }

@@ -176,17 +176,6 @@ export interface MyEarning {
   createdAt: string;
 }
 
-export interface MyPayment {
-  id: string;
-  amountCents: number;
-  currency: string;
-  status: string;
-  provider: string | null;
-  createdAt: string;
-  qrToken: string;
-  qrExpiresAt: string;
-}
-
 export interface MyPayout {
   id: string;
   totalCents: number;
@@ -401,12 +390,6 @@ export async function fetchMyPayoutInfo(): Promise<MyPayoutInfo> {
 export async function fetchMyEarnings(): Promise<MyEarning[]> {
   const res = await authedFetch('/v1/operators/me/earnings');
   if (!res.ok) throw loadError(res, 'Error cargando ganancias');
-  return res.json();
-}
-
-export async function fetchMyPayments(signal?: AbortSignal): Promise<MyPayment[]> {
-  const res = await authedFetch('/v1/operators/me/payments', { signal });
-  if (!res.ok) throw loadError(res, 'Error cargando cobros');
   return res.json();
 }
 

@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { ForbiddenException, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@nightpay/db';
+import { NOT_SALDO_TWIN } from '../money-map/cobros.service';
 import { OperatorsService } from './operators.service';
 
 // Sala Bambú (Madrid) y Lucía Fernández, una de sus chicas.
@@ -32,6 +33,10 @@ interface Opts {
   operatorInVenue?: boolean;
   earnings?: unknown[];
   payouts?: unknown[];
+  /** Sus cobros con tarjeta (payment.findMany) y del saldo (walletChargeRequest.findMany). */
+  cards?: unknown[];
+  saldoCharges?: unknown[];
+  consumptions?: unknown[];
 }
 
 function makeService(opts: Opts = {}) {
@@ -54,10 +59,14 @@ function makeService(opts: Opts = {}) {
       findFirst: vi.fn().mockResolvedValue(opts.operatorInVenue === false ? null : { id: OPERATOR }),
       findMany: vi.fn().mockResolvedValue([]),
     },
-    payment: { findMany: vi.fn().mockResolvedValue([]) },
+    payment: { findMany: vi.fn().mockResolvedValue(opts.cards ?? []) },
+    walletChargeRequest: { findMany: vi.fn().mockResolvedValue(opts.saldoCharges ?? []) },
+    walletConsumption: { findMany: vi.fn().mockResolvedValue(opts.consumptions ?? []) },
     withTenant: vi.fn(),
+    asSystem: vi.fn(),
   };
   prisma.withTenant.mockImplementation(async (_tenantId: string, fn: (tx: unknown) => unknown) => fn(prisma));
+  prisma.asSystem.mockImplementation(async (fn: (tx: unknown) => unknown) => fn(prisma));
   const config = { get: vi.fn((k: string) => (k === 'PAYOUT_HOLD_DAYS' ? opts.envHoldDays : undefined)) };
   const svc = new OperatorsService(
     prisma as never,
@@ -210,12 +219,77 @@ describe('Autoservicio de la chica — nunca lee otro local', () => {
     expect(queries[0]!.values).toContain(50);
   });
 
-  it('sus cobros: solo los suyos y del local, los 50 últimos', async () => {
+  it('sus cobros (la lista de la app de antes): solo los suyos y del local, los 50 últimos, sin el cobro con tarjeta que pagó el saldo', async () => {
     const { svc, prisma } = makeService();
     await svc.getMyPayments(OPERATOR, TENANT);
     expect(prisma.payment.findMany).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { createdByUserId: OPERATOR, tenantId: TENANT }, take: 50, orderBy: { createdAt: 'desc' } }),
+      expect.objectContaining({
+        where: { AND: [{ createdByUserId: OPERATOR, tenantId: TENANT }, NOT_SALDO_TWIN] },
+        take: 50,
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      }),
     );
+    // Y sus cobros del saldo pagados, del local.
+    expect(prisma.walletChargeRequest.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { AND: [{ tenantId: TENANT, requestedByUserId: OPERATOR }, { status: 'ACCEPTED', consumptionId: { not: null } }] },
+        take: 50,
+      }),
+    );
+  });
+
+  it('sus cobros: un cobro = una fila; el del saldo, pagado («Pago completado» en la app de antes) o anulado («Reembolsado»)', async () => {
+    const card = {
+      id: 'c1',
+      amountCents: 4000,
+      currency: 'EUR',
+      status: 'AUTHORIZED',
+      provider: 'REDSYS',
+      createdAt: new Date('2026-10-17T01:00:00Z'),
+      qrToken: 'qr-1',
+      qrExpiresAt: new Date('2026-10-17T01:15:00Z'),
+    };
+    const saldo = (id: string, at: string, consumptionId: string) => ({
+      id,
+      tenantId: TENANT,
+      ref: 7,
+      createdAt: new Date(at),
+      amountCents: 12_000,
+      category: 'CHICA_SERVICE',
+      serviceName: '1 h',
+      status: 'ACCEPTED',
+      requestedByUserId: OPERATOR,
+      consumptionId,
+      wallet: { id: 'w1', shortCode: 'K7Q4M2' },
+      lines: [],
+    });
+    const { svc } = makeService({
+      cards: [card],
+      saldoCharges: [saldo('s2', '2026-10-17T02:00:00Z', 'k2'), saldo('s1', '2026-10-17T00:30:00Z', 'k1')],
+      consumptions: [
+        { id: 'k2', reversedAt: null, tipCents: 0, authMethod: 'pin' },
+        { id: 'k1', reversedAt: new Date('2026-10-17T00:40:00Z'), tipCents: 0, authMethod: 'pin' },
+      ],
+    });
+    const rows = await svc.getMyPayments(OPERATOR, TENANT);
+    expect(rows.map((r) => [r.kind, r.id, r.status])).toEqual([
+      ['SALDO', 's2', 'AUTHORIZED'],
+      ['PAYMENT', 'c1', 'AUTHORIZED'],
+      ['SALDO', 's1', 'REFUNDED'],
+    ]);
+    expect(rows[0]).toEqual({
+      kind: 'SALDO',
+      id: 's2',
+      amountCents: 12_000,
+      currency: 'EUR',
+      status: 'AUTHORIZED',
+      provider: null,
+      createdAt: new Date('2026-10-17T02:00:00Z'),
+      qrToken: null,
+      qrExpiresAt: null,
+    });
+    // El de tarjeta, como siempre (con su QR).
+    expect(rows[1]).toEqual({ kind: 'PAYMENT', ...card });
   });
 
   it('sus pagos: cuántas comisiones lleva cada uno y fechas en ISO, filtrados por el local', async () => {

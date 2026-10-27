@@ -17,6 +17,7 @@ import { PrismaService, type TransactionalClient } from '../../common/prisma/pri
 import { EmailService } from '../../common/email/email.service';
 import { AuditService } from '../audit/audit.service';
 import { RefreshTokenService } from '../auth/refresh-token.service';
+import { NOT_SALDO_TWIN, saldoCharges } from '../money-map/cobros.service';
 import { PayoutVerifierFactory } from '../treasury/payout-verifier.factory';
 import { isUniqueViolation, otherPayoutWithTx, txAlreadyUsed } from '../treasury/payout-tx-guard';
 import { isAutoVerifiable } from '../treasury/verifiers/payout-verifier.interface';
@@ -27,6 +28,7 @@ import {
   type PayoutIdempotency,
 } from './payout-idempotency';
 import { debtView, payoutAccountView, type DebtRow, type MyPayoutInfo } from './my-payout-info';
+import { myPaymentsPage, type MyPaymentRow } from './my-payments';
 import { availableCentsOf, payoutCutoff, payoutTotalCents } from './payout-math';
 import {
   exactSelection,
@@ -280,21 +282,31 @@ export class OperatorsService {
     }));
   }
 
-  async getMyPayments(operatorId: string, tenantId: string, limit = 50) {
-    return this.prisma.payment.findMany({
-      where: { createdByUserId: operatorId, tenantId },
-      orderBy: { createdAt: 'desc' },
-      take: limit,
-      select: {
-        id: true,
-        amountCents: true,
-        currency: true,
-        status: true,
-        provider: true,
-        createdAt: true,
-        qrToken: true,
-        qrExpiresAt: true,
-      },
+  /**
+   * «Mis cobros» de la app de la chica de antes (la de ahora usa
+   * /staff/me/cobros): los suyos del local, los `limit` últimos, un cobro =
+   * una fila (my-payments.ts). Dentro de una transacción con el local a mano:
+   * wallet_charge_requests y wallet_consumptions tienen FORCE RLS.
+   */
+  async getMyPayments(operatorId: string, tenantId: string, limit = 50): Promise<MyPaymentRow[]> {
+    return this.prisma.asSystem(async (tx) => {
+      const cards = await tx.payment.findMany({
+        where: { AND: [{ createdByUserId: operatorId, tenantId }, NOT_SALDO_TWIN] },
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        take: limit,
+        select: {
+          id: true,
+          amountCents: true,
+          currency: true,
+          status: true,
+          provider: true,
+          createdAt: true,
+          qrToken: true,
+          qrExpiresAt: true,
+        },
+      });
+      const saldo = await saldoCharges(tx, { tenantId, requestedByUserId: operatorId }, limit);
+      return myPaymentsPage(cards, saldo, limit);
     });
   }
 

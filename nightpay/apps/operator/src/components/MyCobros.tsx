@@ -3,12 +3,17 @@
 import { useEffect, useRef, useState } from 'react';
 import type { OwnCobro } from '@nightpay/contracts';
 import { Button, Card } from '@nightpay/ui';
+import { cancelPayment } from '@/lib/api';
+import { paymentTimeLabel, timeLabel } from '@/lib/earnings-view';
 import {
   createOwnCobrosFeed,
   fetchOwnCobros,
   ownChargedCents,
+  ownCobroCancelable,
   ownCobroState,
   ownNightTotals,
+  ownPaidTwiceNote,
+  ownCobrosPollMs,
   type OwnCobroIcon,
   type OwnCobrosSnapshot,
   type OwnNight,
@@ -17,18 +22,27 @@ import { formatEur } from '@/lib/money';
 import { usePolling } from '@/lib/use-polling';
 import styles from './my-cobros.module.css';
 
-const TZ = 'Europe/Madrid';
-const TIME = new Intl.DateTimeFormat('es-ES', { hour: '2-digit', minute: '2-digit', timeZone: TZ });
-const DAY_TIME = new Intl.DateTimeFormat('es-ES', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: TZ });
+interface Props {
+  /** Cancelar ahí los cobros con tarjeta aún sin pagar (la chica). */
+  cancelPending?: boolean;
+  /** Cada cuánto se refresca (roles.ts). */
+  pollMs?: number;
+}
 
 /**
- * «Cobros» del camarero: su historial (tarjeta y saldo, también las
- * invitaciones), para mirarlo de un vistazo a oscuras: arriba el total de la
- * noche y, en cada cobro, un chip de color con icono y palabra, la propina en
- * su línea y las recargas marcadas «no es venta». No autoriza devoluciones.
+ * «Cobros» del personal (la chica, el camarero…): su historial (tarjeta y
+ * saldo, también las invitaciones), el mismo que el panel: un cobro = una
+ * fila (el cobro único pagado con el saldo es el del saldo, pagado; el cobro
+ * con tarjeta que se canceló solo no sale). Para mirarlo de un vistazo a
+ * oscuras: arriba el total de la noche y, en cada cobro, un chip de color con
+ * icono y palabra, la propina en su línea, las recargas marcadas «no es
+ * venta» y el «cobrado dos veces» del panel. No autoriza devoluciones; con
+ * `cancelPending`, cancela los suyos aún sin pagar.
  */
-export function MyCobros() {
+export function MyCobros({ cancelPending = false, pollMs = 15_000 }: Props) {
   const [{ items, cursor, error, moreBusy, night }, setState] = useState<OwnCobrosSnapshot>({ items: null, cursor: null, error: null, moreBusy: false, night: null });
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [cancelError, setCancelError] = useState<string | null>(null);
   const feed = useRef<ReturnType<typeof createOwnCobrosFeed> | null>(null);
   useEffect(() => {
     const current = createOwnCobrosFeed(fetchOwnCobros, setState);
@@ -36,7 +50,29 @@ export function MyCobros() {
     return () => { current.dispose(); if (feed.current === current) feed.current = null; };
   }, []);
   // Revalida todo lo cargado (y la noche entera): puede ser más de una página.
-  const refresh = usePolling(async (signal) => (await feed.current?.refresh(signal)) ? undefined : 'slow', { intervalMs: 15_000, timeoutMs: 45_000 });
+  // Un «no se pudo cancelar» se va con el refresco siguiente, que ya trae cómo quedó el cobro.
+  const refresh = usePolling(
+    async (signal) => {
+      if (!(await feed.current?.refresh(signal))) return 'slow';
+      setCancelError(null);
+      return undefined;
+    },
+    { intervalMs: ownCobrosPollMs({ cancelPending, pollMs }, items), timeoutMs: 45_000 },
+  );
+
+  async function onCancel(id: string) {
+    setBusyId(id);
+    setCancelError(null);
+    try {
+      await cancelPayment(id);
+      refresh();
+    } catch (err) {
+      setCancelError((err as Error).message);
+    } finally {
+      setBusyId(null);
+    }
+  }
+
   return (
     <section className={styles.list} aria-label="Mis cobros">
       <h2 className={styles.title}>Mis cobros</h2>
@@ -47,9 +83,21 @@ export function MyCobros() {
           <Button variant="ghost" onClick={refresh}>Reintentar</Button>
         </Card>
       ) : null}
+      {cancelError ? (
+        <Card role="alert" style={{ padding: '0.875rem', borderColor: 'var(--np-danger)' }}>
+          <p style={{ color: 'var(--np-danger)', margin: 0 }}>{cancelError}</p>
+        </Card>
+      ) : null}
       {items === null && !error ? <p className={styles.note}>Cargando tu historial…</p> : null}
       {items?.length === 0 ? <p className={styles.note}>Aún no has hecho cobros.</p> : null}
-      {items?.map((r) => <CobroRow key={`${r.kind}-${r.id}`} row={r} night={night} />)}
+      {items?.map((r) => (
+        <CobroRow
+          key={`${r.kind}-${r.id}`}
+          row={r}
+          night={night}
+          cancel={cancelPending && ownCobroCancelable(r) ? { busy: busyId === r.id, run: () => void onCancel(r.id) } : null}
+        />
+      ))}
       {cursor ? (
         <Button variant="ghost" onClick={() => void feed.current?.loadMore()} loading={moreBusy} disabled={moreBusy}>
           Ver anteriores
@@ -69,7 +117,7 @@ function NightTotal({ items, night, cursor }: { items: readonly OwnCobro[]; nigh
   return (
     <div className={styles.night}>
       <span className={styles.kicker}>
-        {night.open ? 'Esta noche' : 'Desde el último cierre'} · desde las {TIME.format(new Date(night.from))}
+        {night.open ? 'Esta noche' : 'Desde el último cierre'} · desde las {timeLabel(night.from)}
       </span>
       <b className={`np-num ${styles.nightTotal}`}>{t.complete ? '' : 'Al menos '}{formatEur(t.salesCents, { compact: true })}</b>
       <span className={styles.nightLine}>
@@ -81,12 +129,18 @@ function NightTotal({ items, night, cursor }: { items: readonly OwnCobro[]; nigh
   );
 }
 
-function CobroRow({ row: r, night }: { row: OwnCobro; night: OwnNight | null }) {
+interface RowCancel {
+  busy: boolean;
+  run: () => void;
+}
+
+function CobroRow({ row: r, night, cancel }: { row: OwnCobro; night: OwnNight | null; cancel: RowCancel | null }) {
   const state = ownCobroState(r.status);
   const when = new Date(r.createdAt);
   const tonight = night ? r.createdAt >= night.from : false;
   const left = ownChargedCents(r);
   const meta = [r.ref, r.methodLabel, r.via].filter(Boolean).join(' · ');
+  const twice = ownPaidTwiceNote(r, (cents) => formatEur(cents, { compact: true }));
   return (
     <article className={styles.row} data-tone={state.tone}>
       <div className={styles.rowTop}>
@@ -94,11 +148,16 @@ function CobroRow({ row: r, night }: { row: OwnCobro; night: OwnNight | null }) 
           <StateIcon icon={state.icon} />
           {state.label}
         </span>
-        <time dateTime={r.createdAt} className={styles.time}>{tonight ? TIME.format(when) : DAY_TIME.format(when)}</time>
+        <time dateTime={r.createdAt} className={styles.time}>{tonight ? timeLabel(when) : paymentTimeLabel(when)}</time>
       </div>
       <b className={`np-num ${styles.amount}`} data-gone={(state.tone === 'bad' || (state.tone === 'void' && left === 0)) || undefined}>
         {formatEur(r.amountCents, { compact: true })}
       </b>
+      {twice ? (
+        <span className={styles.twice} data-refunded={r.paidTwice?.refunded || undefined} role="note">
+          {twice}
+        </span>
+      ) : null}
       {r.tipCents > 0 ? <span className={styles.tip}>+ {formatEur(r.tipCents, { compact: true })} de propina</span> : null}
       {r.refundedCents > 0 && r.status === 'PARTIALLY_REFUNDED' ? (
         <span className={styles.refund}>Devuelto {formatEur(r.refundedCents, { compact: true })} · quedan {formatEur(left, { compact: true })}</span>
@@ -109,6 +168,13 @@ function CobroRow({ row: r, night }: { row: OwnCobro; night: OwnNight | null }) 
       </span>
       {r.invitedName ? <span className={styles.invited}>Invitación a {r.invitedName}</span> : null}
       {meta ? <span className={styles.meta}>{meta}</span> : null}
+      {cancel ? (
+        <div className={styles.actions}>
+          <Button variant="ghost" size="md" onClick={cancel.run} loading={cancel.busy} disabled={cancel.busy}>
+            Cancelar
+          </Button>
+        </div>
+      ) : null}
     </article>
   );
 }
