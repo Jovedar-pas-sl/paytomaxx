@@ -62,6 +62,18 @@ async function seed(tag: string): Promise<{ tenantId: string; rows: Rows }> {
         data: { tenantId, paymentId: payment.id, category: 'CHICA_SERVICE', label: 'Servicio', unitCents: 1000, amountCents: 1000 },
       });
       await tx.chargeRefCounter.create({ data: { tenantId, lastRef: 1 } });
+      // «Liquidación OxioPay»: lo que el local debe a OxioPay y un pago apuntado.
+      const settlement = await tx.oxioPaySettlement.create({
+        data: {
+          tenantId, periodFrom: new Date('2026-10-26T07:00:00Z'), periodTo: new Date('2026-11-02T07:00:00Z'), isoYear: 2026, isoWeek: 44,
+          reference: `OXP-2026-S44-RLS-${tag}-${r}`.toUpperCase(), periodCents: 100, totalCents: 100, moneyMapCents: 100,
+          breakdown: { version: 1, party: { venueName: `RLS ${tag}`, venueSlug: `rls-${tag}-${r}`, businessName: null, businessTaxId: null }, platformBps: 1000, nights: [], adjustments: [] },
+          status: 'PARTIALLY_PAID', paidCents: 50,
+        },
+      });
+      const settlementPayment = await tx.oxioPaySettlementPayment.create({
+        data: { tenantId, settlementId: settlement.id, amountCents: 50, paidOn: new Date('2026-11-03T00:00:00Z'), bankReference: 'TRF', reason: 'A cuenta', recordedById: owner },
+      });
       return {
         tenantId,
         rows: {
@@ -75,6 +87,8 @@ async function seed(tag: string): Promise<{ tenantId: string; rows: Rows }> {
           wallet_cash_topups: cashTopUp.id,
           payment_lines: line.id,
           charge_ref_counters: tenantId,
+          oxiopay_settlements: settlement.id,
+          oxiopay_settlement_payments: settlementPayment.id,
         },
       };
     }),
