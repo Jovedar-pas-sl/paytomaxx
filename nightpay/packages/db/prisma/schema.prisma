@@ -107,6 +107,7 @@ model Venue {
   walletCardEvents   WalletCardEvent[]
   paymentLines       PaymentLine[]
   chargeRefCounter   ChargeRefCounter?
+  oxioPaySettlements OxioPaySettlement[]
 
   @@index([businessId])
   @@map("venues")
@@ -141,7 +142,8 @@ model Business {
   createdAt                    DateTime       @default(now()) @db.Timestamptz
   updatedAt                    DateTime       @default(now()) @updatedAt @db.Timestamptz
 
-  venues Venue[]
+  venues             Venue[]
+  oxioPaySettlements OxioPaySettlement[]
 
   @@map("businesses")
 }
@@ -1404,4 +1406,102 @@ model BankStatementItem {
   @@index([statementId])
   @@index([tenantId, status])
   @@map("bank_statement_items")
+}
+
+// ───────────────────────── Liquidación OxioPay ──────────────────────
+// (20261031100000) Lo que cada local debe a OxioPay por semana (lunes 08:00 →
+// lunes 08:00 de Madrid): lo que el mapa del dinero pone como de OxioPay en esa
+// ventana (comisión del servicio cobrada − devuelta + comisión de plataforma
+// donde no la hay). Se genera el lunes por la mañana y se congela (como el Z):
+// lo apuntado tarde con fecha de una semana ya liquidada va a la siguiente
+// como «ajustes de semanas anteriores» (desglose en `breakdown`). Una activa
+// (no anulada) por local y semana (índice parcial en SQL). El local la paga por
+// transferencia con su referencia; el super-admin apunta los pagos (2FA).
+// FORCE RLS (apps/api/src/common/prisma/rls.ts). CHECK de importes y estados en SQL.
+
+enum OxioPaySettlementStatus {
+  ISSUED
+  PARTIALLY_PAID
+  PAID
+  VOID
+}
+
+model OxioPaySettlement {
+  id               String                  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId         String                  @db.Uuid
+  // El negocio del local al emitirla (para filtrar en la consola).
+  businessId       String?                 @db.Uuid
+  periodFrom       DateTime                @db.Timestamptz
+  periodTo         DateTime                @db.Timestamptz
+  isoYear          Int
+  isoWeek          Int
+  // OXP-2026-S44-<SLUG> (con -2, -3… si se regenera tras anularla): la de la transferencia.
+  reference        String                  @unique
+  status           OxioPaySettlementStatus @default(ISSUED)
+  // Lo de la semana (las 7 noches) y lo de semanas anteriores apuntado tarde.
+  periodCents      Int
+  adjustmentsCents Int                     @default(0)
+  totalCents       Int
+  paidCents        Int                     @default(0)
+  // Lo que daba el mapa del dinero para esa ventana al emitirla (comprobación).
+  moneyMapCents    Int
+  // Desglose congelado: noches × conceptos, ajustes, local y negocio, % de plataforma usado.
+  breakdown        Json
+  // La generó el repaso del lunes (false: el super-admin a mano, con 2FA).
+  auto             Boolean                 @default(true)
+  generatedAt      DateTime                @default(now()) @db.Timestamptz
+  generatedById    String?                 @db.Uuid
+  // La anulada a la que sustituye (regenerada).
+  replacesId       String?                 @db.Uuid
+  paidAt           DateTime?               @db.Timestamptz
+  voidedAt         DateTime?               @db.Timestamptz
+  voidedById       String?                 @db.Uuid
+  voidReason       String?
+  updatedAt        DateTime                @default(now()) @updatedAt @db.Timestamptz
+
+  venue    Venue                      @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  business Business?                  @relation(fields: [businessId], references: [id], onDelete: SetNull)
+  payments OxioPaySettlementPayment[]
+
+  @@unique([id, tenantId])
+  @@index([tenantId, periodFrom(sort: Desc)])
+  @@index([status, generatedAt])
+  @@index([businessId])
+  @@map("oxiopay_settlements")
+}
+
+// Un pago apuntado (transferencia recibida). Solo de añadir (trigger en SQL).
+model OxioPaySettlementPayment {
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId      String   @db.Uuid
+  settlementId  String   @db.Uuid
+  amountCents   Int
+  // Día del abono en el banco.
+  paidOn        DateTime @db.Date
+  bankReference String
+  // Obligatorio si el importe no era lo pendiente (lo comprueba el API).
+  reason        String?
+  recordedById  String   @db.Uuid
+  recordedAt    DateTime @default(now()) @db.Timestamptz
+
+  // Con el local: un pago nunca apunta a la liquidación de otro local.
+  settlement OxioPaySettlement @relation(fields: [settlementId, tenantId], references: [id, tenantId], onDelete: Restrict)
+
+  @@index([settlementId])
+  @@index([tenantId])
+  @@map("oxiopay_settlement_payments")
+}
+
+// Cuenta de OxioPay para las transferencias (una sola fila, id = 1). Global:
+// solo con bypass (como businesses). La cambia el super-admin con 2FA.
+model OxioPayPayee {
+  id          Int      @id @default(1) @db.SmallInt
+  name        String
+  // Sin espacios y en mayúsculas, mod-97 (el API).
+  iban        String
+  holder      String
+  updatedAt   DateTime @default(now()) @updatedAt @db.Timestamptz
+  updatedById String?  @db.Uuid
+
+  @@map("oxiopay_payee")
 }
