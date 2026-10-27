@@ -16,6 +16,7 @@ describe('auditActionLabel', () => {
     expect(auditActionLabel('superadmin.settlement.paid_partially')).toBe('Liquidación OxioPay pagada en parte');
     expect(auditActionLabel('superadmin.settlement.voided')).toBe('Liquidación OxioPay anulada');
     expect(auditActionLabel('superadmin.settlement.payee_updated')).toBe('Cuenta de OxioPay cambiada');
+    expect(auditActionLabel('superadmin.settlement.start_week_updated')).toBe('Semana de inicio de las liquidaciones cambiada');
     expect(auditActionLabel('superadmin.settlement.otra')).toBe('Liquidación OxioPay: otra');
     expect(AUDIT_ACTION_FILTERS.some((f) => f.value === 'superadmin.settlement.')).toBe(true);
   });

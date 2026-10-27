@@ -87,7 +87,8 @@ export function SettlementView({ detail: d, audience, download, actions }: Props
 
       {d.status === 'VOID' ? (
         <Notice tone="neutral">
-          <strong>Anulada: no hay que pagarla.</strong> {d.voidReason}
+          <strong>Anulada: no hay que pagarla.</strong>{' '}
+          {audience === 'superadmin' && d.voidReason ? `Motivo (solo lo ve OxioPay): ${d.voidReason}` : 'OxioPay la ha anulado; si hace falta, emitirá otra.'}
           {d.voidedAt ? ` (${formatDateTime(d.voidedAt, MADRID_TIMEZONE)})` : ''}
         </Notice>
       ) : null}
@@ -193,6 +194,8 @@ function TransferCard({ detail: d, audience }: { detail: SettlementDetail; audie
       </Notice>
     );
   }
+  const changedAt = new Date(d.payee.updatedAt);
+  const recentlyChanged = Date.now() - changedAt.getTime() < PAYEE_RECENT_MS;
   const rows: Array<[string, string, boolean]> = [
     ['Titular', d.payee.holder, false],
     ['IBAN', formatIbanGroups(d.payee.iban), true],
@@ -205,6 +208,14 @@ function TransferCard({ detail: d, audience }: { detail: SettlementDetail; audie
       <p className="np-liq-help">
         Transferencia bancaria a la cuenta de {d.payee.name}, con la referencia como concepto: así se casa sola con esta liquidación.
       </p>
+      {recentlyChanged ? (
+        <Notice tone="warning">
+          La cuenta de OxioPay cambió el {formatDateTime(changedAt, MADRID_TIMEZONE, 'date')}. Si no te lo han avisado, pregunta a OxioPay antes de
+          transferir.
+        </Notice>
+      ) : (
+        <p className="np-liq-help">Cuenta de OxioPay puesta o cambiada el {formatDateTime(changedAt, MADRID_TIMEZONE, 'date')}.</p>
+      )}
       <dl className="np-liq-pay-rows">
         {rows.map(([label, value, mono]) => (
           <div key={label} className="np-liq-pay-row">
@@ -222,6 +233,8 @@ function TransferCard({ detail: d, audience }: { detail: SettlementDetail; audie
 }
 
 const COPIED_MS = 2000;
+/** Una cuenta de OxioPay cambiada hace menos de esto se avisa en grande (comprobarla antes de transferir). */
+const PAYEE_RECENT_MS = 14 * 24 * 60 * 60 * 1000;
 
 function CopyText({ text, label, ariaLabel }: { text: string; label: string; ariaLabel?: string }) {
   const [state, setState] = useState<'idle' | 'copied' | 'failed'>('idle');
@@ -252,22 +265,24 @@ function NightsCard({ detail: d }: { detail: SettlementDetail }) {
         <h3>Por noche</h3>
         <p className="np-liq-help">Cada noche, de 08:00 a 08:00 del día siguiente (hora de Madrid).</p>
         <div className="np-sa-scroll-x">
-          <table className="np-table">
+          <table className="np-table np-liq-nights">
             <thead>
               <tr>
-                <th>Noche</th>
+                <th scope="col">Noche</th>
                 {columns.map((c) => (
-                  <th key={c}>{SETTLEMENT_CONCEPT_LABELS[c]}</th>
+                  <th key={c} scope="col">
+                    {SETTLEMENT_CONCEPT_LABELS[c]}
+                  </th>
                 ))}
-                <th>Total</th>
+                <th scope="col">Total</th>
               </tr>
             </thead>
             <tbody>
               {busy.map((n) => (
                 <tr key={n.day}>
-                  <td data-label="Noche" data-card="title">
+                  <th scope="row" data-label="Noche" data-card="title">
                     {nightLabel(n.day)}
-                  </td>
+                  </th>
                   {columns.map((c) => (
                     <td key={c} data-label={SETTLEMENT_CONCEPT_LABELS[c]}>
                       <Amount cents={n.concepts[c]} />
@@ -351,8 +366,9 @@ function PaymentsCard({ detail: d, audience }: { detail: SettlementDetail; audie
                 <th scope="row">
                   {formatDateTime(`${p.paidOn}T12:00:00Z`, MADRID_TIMEZONE, 'date')} · <span className="np-liq-mono">{p.bankReference}</span>
                   <small>
-                    {p.reason ?? 'Lo pendiente entero'}
-                    {audience === 'superadmin' && p.recordedByEmail ? ` · lo apuntó ${p.recordedByEmail}` : ''}
+                    {audience === 'superadmin'
+                      ? `${p.reason ?? 'Lo pendiente entero'}${p.recordedByEmail ? ` · lo apuntó ${p.recordedByEmail}` : ''}`
+                      : 'Transferencia recibida por OxioPay'}
                   </small>
                 </th>
                 <td>

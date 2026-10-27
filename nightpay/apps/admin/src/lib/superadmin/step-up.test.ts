@@ -64,6 +64,7 @@ describe('qué acciones piden 2FA (como el API)', () => {
     expect(SA_ACTION_RULES['settlement.void']).toEqual({ totp: true, reason: 'required' });
     expect(SA_ACTION_RULES['settlement.generate']).toEqual({ totp: true, reason: 'optional' });
     expect(SA_ACTION_RULES['settlement.payee']).toEqual({ totp: true, reason: 'none' });
+    expect(SA_ACTION_RULES['settlement.startWeek']).toEqual({ totp: true, reason: 'required' });
     expect(SA_ACTION_RULES['user.revokeSessions'].reason).toBe('required');
   });
 

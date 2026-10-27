@@ -21,6 +21,7 @@ import {
   type SettlementListItem,
   type SettlementStatusFilter,
 } from '@nightpay/contracts';
+import { ApiError } from './api-errors';
 import { dayInZone, MADRID_TIMEZONE } from './dates';
 import { centsToInput, formatEur } from './money';
 import { toQueryString } from './superadmin/query';
@@ -92,7 +93,7 @@ export function paymentFormFor(d: Pick<SettlementDetail, 'pendingCents'>, today:
   return { amount: centsToInput(d.pendingCents), paidOn: today, bankReference: '', reason: '' };
 }
 
-export type PaymentPayload = { amountCents: number; paidOn: string; bankReference: string; reason?: string };
+export type PaymentPayload = { amountCents: number; paidOn: string; bankReference: string; reason?: string; confirmDuplicate?: boolean };
 
 /** ¿El importe tecleado es distinto de lo pendiente? (entonces el motivo es obligatorio). */
 export function paymentMismatch(form: PaymentForm, pendingCents: number): boolean {
@@ -100,7 +101,16 @@ export function paymentMismatch(form: PaymentForm, pendingCents: number): boolea
   return cents !== null && cents !== pendingCents;
 }
 
-export function paymentPayload(form: PaymentForm, pendingCents: number, today: string): { ok: true; value: PaymentPayload } | { ok: false; error: string } {
+/**
+ * El cuerpo de «Apuntar pago». `confirmDuplicate`: ya hay un pago con esa
+ * referencia del banco (409 SETTLEMENT_PAYMENT_DUPLICATE) y es otro abono.
+ */
+export function paymentPayload(
+  form: PaymentForm,
+  pendingCents: number,
+  today: string,
+  confirmDuplicate = false,
+): { ok: true; value: PaymentPayload } | { ok: false; error: string } {
   const amountCents = parseEuroCents(form.amount);
   if (amountCents === null) return { ok: false, error: 'Pon el importe recibido (por ejemplo 22,35).' };
   if (!/^\d{4}-\d{2}-\d{2}$/.test(form.paidOn)) return { ok: false, error: 'Pon el día del abono en el banco.' };
@@ -111,7 +121,10 @@ export function paymentPayload(form: PaymentForm, pendingCents: number, today: s
   const reason = form.reason.trim();
   const problem = settlementPaymentProblem({ pendingCents, amountCents, reason });
   if (problem) return { ok: false, error: problem };
-  return { ok: true, value: { amountCents, paidOn: form.paidOn, bankReference, ...(reason ? { reason } : {}) } };
+  return {
+    ok: true,
+    value: { amountCents, paidOn: form.paidOn, bankReference, ...(reason ? { reason } : {}), ...(confirmDuplicate ? { confirmDuplicate: true } : {}) },
+  };
 }
 
 /** Frase de confirmación del pago (antes del código 2FA). */
@@ -167,15 +180,36 @@ export function settlementFileName(reference: string, ext: 'html' | 'csv'): stri
 // ─── Generar una semana (consola) ────────────────────────────────────
 
 /** Por qué no vale el lunes elegido; null si vale (lunes y semana ya terminada). */
-export function weekStartProblem(day: string, today: string): string | null {
+export function weekStartProblem(day: string, today: string, startWeek: string | null = null): string | null {
+  const notMonday = mondayProblem(day);
+  if (notMonday) return notMonday;
+  const end = new Date(Date.parse(`${day}T00:00:00Z`) + 7 * 86_400_000).toISOString().slice(0, 10);
+  if (end > today) return 'Esa semana aún no ha terminado (acaba el lunes siguiente a las 08:00).';
+  if (startWeek && day < startWeek) return `Esa semana es anterior a la semana de inicio de las liquidaciones (lunes ${startWeek}): no se liquida.`;
+  return null;
+}
+
+/** AAAA-MM-DD que sea un lunes de verdad; null si vale. */
+export function mondayProblem(day: string): string | null {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return 'Elige el lunes en que empieza la semana.';
   const [y, m, d] = day.split('-').map(Number) as [number, number, number];
   const date = new Date(Date.UTC(y, m - 1, d));
   if (date.getUTCDate() !== d) return 'Elige el lunes en que empieza la semana.';
   if (date.getUTCDay() !== 1) return 'La semana de la liquidación empieza en lunes: elige un lunes.';
-  const end = new Date(date.getTime() + 7 * 86_400_000).toISOString().slice(0, 10);
-  if (end > today) return 'Esa semana aún no ha terminado (acaba el lunes siguiente a las 08:00).';
   return null;
+}
+
+/** La frase de confirmación al fijar o cambiar la semana de inicio. */
+export function startWeekSummary(next: string, current: string | null): string {
+  const tail = 'no se liquidará nada anterior a esa semana.';
+  return current
+    ? `Vas a cambiar la semana de inicio del lunes ${current} al lunes ${next}: ${tail}`
+    : `Vas a fijar la semana de inicio en el lunes ${next}: ${tail}`;
+}
+
+/** El API dice que esa referencia del banco ya está apuntada en esta liquidación (hay que confirmar que es otro abono). */
+export function isDuplicatePaymentError(err: unknown): boolean {
+  return err instanceof ApiError && err.code === 'SETTLEMENT_PAYMENT_DUPLICATE';
 }
 
 /** El lunes de la semana anterior a la de hoy (la última terminada), para empezar. */

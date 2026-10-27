@@ -39,6 +39,8 @@ const ACTION_LABELS: Readonly<Record<string, string>> = {
   'settlement.paid_partially': 'Liquidación OxioPay pagada en parte',
   'settlement.voided': 'Liquidación OxioPay anulada',
   'settlement.payee_updated': 'Cuenta de OxioPay cambiada',
+  'settlement.start_week_set': 'Semana de inicio de las liquidaciones fijada',
+  'settlement.start_week_updated': 'Semana de inicio de las liquidaciones cambiada',
 
   // Entradas y sesiones
   'auth.login.ok': 'Entró',

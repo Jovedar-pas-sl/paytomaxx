@@ -15,9 +15,13 @@ import {
   settlementStatusView,
   settlementsQuery,
   transferText,
+  isDuplicatePaymentError,
   lastMondayBefore,
+  mondayProblem,
+  startWeekSummary,
   weekStartProblem,
 } from './oxiopay-settlements';
+import { ApiError } from './api-errors';
 
 const TODAY = '2026-11-03';
 
@@ -109,6 +113,9 @@ describe('apuntar un pago', () => {
     expect(paymentPayload({ ...form, bankReference: '  ' }, 2_235, TODAY)).toMatchObject({ ok: false, error: expect.stringMatching(/referencia del banco/) });
     expect(paymentPayload({ ...form, paidOn: '2026-11-04' }, 2_235, TODAY)).toMatchObject({ ok: false, error: expect.stringMatching(/futuro/) });
     expect(paymentPayload({ ...form, amount: 'abc' }, 2_235, TODAY)).toMatchObject({ ok: false, error: expect.stringMatching(/importe/) });
+    // La misma referencia del banco ya apuntada: se manda confirmándolo.
+    expect(paymentPayload({ ...form, reason: 'Otro abono' }, 2_235, TODAY, true)).toMatchObject({ ok: true, value: { confirmDuplicate: true } });
+    expect(paymentPayload({ ...form, reason: 'Otro abono' }, 2_235, TODAY)).not.toMatchObject({ value: { confirmDuplicate: true } });
   });
 
   it('frase de confirmación: pagada entera o lo que queda', () => {
@@ -153,9 +160,40 @@ describe('generar una semana a mano', () => {
     expect(weekStartProblem('', '2026-11-03')).toMatch(/lunes/);
   });
 
+  it('nunca una semana anterior a la de inicio de las liquidaciones', () => {
+    expect(weekStartProblem('2026-10-19', '2026-11-03', '2026-10-26')).toMatch(/anterior a la semana de inicio .*2026-10-26/);
+    expect(weekStartProblem('2026-10-26', '2026-11-03', '2026-10-26')).toBeNull();
+    expect(weekStartProblem('2026-10-19', '2026-11-03', null)).toBeNull();
+  });
+
   it('para empezar, el lunes de la última semana terminada', () => {
     expect(lastMondayBefore('2026-11-03')).toBe('2026-10-26');
     expect(lastMondayBefore('2026-11-02')).toBe('2026-10-26');
     expect(lastMondayBefore('2026-11-08')).toBe('2026-10-26');
+  });
+});
+
+describe('semana de inicio de las liquidaciones', () => {
+  it('tiene que ser un lunes de verdad (puede ser uno que aún no ha llegado)', () => {
+    expect(mondayProblem('2026-11-02')).toBeNull();
+    expect(mondayProblem('2026-12-07')).toBeNull();
+    expect(mondayProblem('2026-11-03')).toMatch(/lunes/);
+    expect(mondayProblem('2026-02-30')).toMatch(/lunes/);
+    expect(mondayProblem('')).toMatch(/lunes/);
+  });
+
+  it('frase de lo que se va a hacer: desde cuándo se liquida', () => {
+    expect(startWeekSummary('2026-11-09', '2026-11-02')).toBe(
+      'Vas a cambiar la semana de inicio del lunes 2026-11-02 al lunes 2026-11-09: no se liquidará nada anterior a esa semana.',
+    );
+    expect(startWeekSummary('2026-11-09', null)).toBe('Vas a fijar la semana de inicio en el lunes 2026-11-09: no se liquidará nada anterior a esa semana.');
+  });
+});
+
+describe('apuntar pago con una referencia del banco ya apuntada', () => {
+  it('se reconoce el 409 del API para pedir confirmación', () => {
+    expect(isDuplicatePaymentError(new ApiError('Ya hay un pago con la referencia TRF-1', 409, 'SETTLEMENT_PAYMENT_DUPLICATE'))).toBe(true);
+    expect(isDuplicatePaymentError(new ApiError('Otra cosa', 409, 'SETTLEMENT_NOT_PAYABLE'))).toBe(false);
+    expect(isDuplicatePaymentError(new Error('SETTLEMENT_PAYMENT_DUPLICATE'))).toBe(false);
   });
 });

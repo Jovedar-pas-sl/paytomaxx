@@ -376,6 +376,24 @@
   .np-liq-actions .np-btn {
     flex: 1 1 10rem;
   }
+
+  /* La noche (th scope=row, para los lectores de pantalla) como el título de la tarjeta. */
+  .np-liq-nights tbody th[scope='row'] {
+    order: 1;
+    flex: 1 1 100%;
+    padding: 0 0 0.35rem;
+    border: 0;
+    font-size: 1.0625rem;
+    font-weight: 700;
+    text-align: left;
+    color: var(--np-text);
+  }
+}
+
+.np-liq-nights tbody th[scope='row'] {
+  font-weight: 600;
+  text-align: left;
+  white-space: nowrap;
 }
 
 @media (prefers-reduced-motion: reduce) {

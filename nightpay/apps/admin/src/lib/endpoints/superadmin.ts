@@ -292,6 +292,16 @@ export function generateSaSettlement(dto: GenerateSettlementDto): Promise<Settle
   return post('/oxiopay-settlements/generate', dto);
 }
 
+/** La semana de inicio de las liquidaciones (lunes AAAA-MM-DD; null si aún no está fijada). */
+export function fetchSaSettlementSettings(signal?: AbortSignal): Promise<{ startWeek: string | null }> {
+  return call('/oxiopay-settlements/settings', { signal });
+}
+
+/** Cambiarla (2FA y motivo). */
+export function setSaSettlementStart(input: { startWeek: string; reason: string; totpCode: string }): Promise<{ startWeek: string }> {
+  return put('/oxiopay-settlements/settings', input);
+}
+
 export async function fetchSaPayee(signal?: AbortSignal): Promise<OxioPayPayee | null> {
   return (await call<{ payee: OxioPayPayee | null }>('/oxiopay-settlements/payee', { signal })).payee;
 }

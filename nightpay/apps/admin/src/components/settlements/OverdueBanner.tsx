@@ -36,7 +36,7 @@ export function OverdueSettlementsBanner({ tenantId, onOpen }: { tenantId: strin
   const text = overdueNoticeText(notice);
   if (!text) return null;
   return (
-    <div role="alert" className="np-liq-banner">
+    <div role="status" className="np-liq-banner">
       <p>
         <strong>Liquidación OxioPay sin pagar.</strong> {text} Págala por transferencia con su referencia.
       </p>

@@ -38,7 +38,8 @@ export type SaAction =
   | 'settlement.pay'
   | 'settlement.void'
   | 'settlement.generate'
-  | 'settlement.payee';
+  | 'settlement.payee'
+  | 'settlement.startWeek';
 
 export type ReasonRule = 'required' | 'optional' | 'none';
 
@@ -91,6 +92,8 @@ export const SA_ACTION_RULES: Readonly<Record<SaAction, StepUpRule>> = {
   'settlement.void': rule(true, 'required'),
   'settlement.generate': rule(true, 'optional'),
   'settlement.payee': rule(true, 'none'),
+  // La semana de inicio cambia qué se liquida: con motivo.
+  'settlement.startWeek': rule(true, 'required'),
 };
 
 export function needsTotp(action: SaAction): boolean {

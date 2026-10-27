@@ -2,28 +2,39 @@
 
 import { useState } from 'react';
 import { Button, Card, Input, Select } from '@nightpay/ui';
-import { OXIOPAY_SETTLEMENTS_LABEL, formatIbanGroups, type OxioPayPayee, type SettlementDetail } from '@nightpay/contracts';
+import {
+  OXIOPAY_SETTLEMENTS_LABEL,
+  formatIbanGroups,
+  settlementNightLabel,
+  type OxioPayPayee,
+  type SettlementDetail,
+} from '@nightpay/contracts';
 import { madridToday } from '@/lib/dates';
 import {
   downloadSaSettlement,
   fetchSaPayee,
   fetchSaSettlement,
+  fetchSaSettlementSettings,
   fetchSaSettlements,
   generateSaSettlement,
   recordSaSettlementPayment,
   setSaPayee,
+  setSaSettlementStart,
   voidSaSettlement,
 } from '@/lib/endpoints/superadmin';
 import { formatEur } from '@/lib/money';
 import {
   EMPTY_SETTLEMENT_FILTERS,
   SETTLEMENT_STATUS_FILTERS,
+  isDuplicatePaymentError,
   lastMondayBefore,
+  mondayProblem,
   paymentFormFor,
   paymentMismatch,
   paymentPayload,
   paymentSummary,
   settlementsQuery,
+  startWeekSummary,
   weekStartProblem,
   type PaymentForm,
   type SettlementFilters,
@@ -35,8 +46,11 @@ import { SettlementRow } from '../OxioPaySettlementsPanel';
 import { SettlementView } from '../settlements/SettlementView';
 import { useSa } from './context';
 import { StepUpDialog } from './StepUpDialog';
-import { BackButton, Figure, LoadGate, MetaList, SectionHead, SmallButton } from './ui';
-import { useDebounced, useLoad } from './use-load';
+import { BackButton, CheckRow, Figure, LoadGate, MetaList, SectionHead, SmallButton } from './ui';
+import { useDebounced, useLoad, type Loaded } from './use-load';
+
+/** Los motivos de la consola no salen nunca al local (ni en su panel ni en el documento). */
+const INTERNAL_REASON_LABEL = 'Motivo (solo lo ve OxioPay; queda en el registro)';
 
 /**
  * «Liquidaciones OxioPay» de todos los locales: lo pendiente de cobrar, la
@@ -51,6 +65,7 @@ export function SettlementsSection() {
   const q = useDebounced(filters.q);
   const query = settlementsQuery({ ...filters, q });
   const list = useLoad((signal) => fetchSaSettlements(query, signal), [query]);
+  const settings = useLoad((signal) => fetchSaSettlementSettings(signal), []);
   const set = (key: keyof SettlementFilters) => (e: { target: { value: string } }) => setFilters({ ...filters, [key]: e.target.value });
 
   if (openId) {
@@ -133,9 +148,11 @@ export function SettlementsSection() {
           </>
         )}
       </LoadGate>
+      <StartWeekCard settings={settings} />
       <PayeeCard onSaved={list.reload} />
       {generating ? (
         <GenerateDialog
+          startWeek={settings.data?.startWeek ?? null}
           onClose={() => setGenerating(false)}
           onDone={(d) => {
             setGenerating(false);
@@ -205,11 +222,12 @@ function SettlementDetailView({ id, onBack, onOpen }: { id: string; onBack: () =
                 danger
                 intro={
                   <p className="np-sa-text">
-                    Solo se anula si no tiene pagos. Lo suyo vuelve a estar sin liquidar: se puede generar otra vez (con -2 en la referencia) o
-                    entra la semana siguiente como ajuste.
+                    Solo se anula si no tiene pagos. Lo suyo vuelve a estar sin liquidar: se puede generar otra vez (con /R2 al final de la
+                    referencia) o entra la semana siguiente como ajuste. El local ve que está anulada, no el motivo.
                   </p>
                 }
                 summary={`Vas a anular ${d.reference} (${formatEur(d.totalCents)}) de ${d.party.venueName}.`}
+                reasonLabel={INTERNAL_REASON_LABEL}
                 reasonPlaceholder="Por ejemplo: faltaba un cobro del viernes"
                 submitLabel="Anular"
                 onSubmit={async ({ totpCode, reason }) => {
@@ -224,6 +242,7 @@ function SettlementDetailView({ id, onBack, onOpen }: { id: string; onBack: () =
                 title="Generar otra vez"
                 action="settlement.generate"
                 summary={`Vas a generar otra vez la liquidación de ${d.party.venueName} de la semana ${d.isoWeek} de ${d.isoYear}, con las cifras de ahora.`}
+                reasonLabel={INTERNAL_REASON_LABEL}
                 reasonPlaceholder="Por ejemplo: corregido el cobro que faltaba"
                 submitLabel="Generar"
                 onSubmit={async ({ totpCode, reason }) => {
@@ -255,8 +274,15 @@ function PaymentDialog({ detail: d, onClose, onDone }: { detail: SettlementDetai
   const today = madridToday();
   const [form, setForm] = useState<PaymentForm>(() => paymentFormFor(d, today));
   const set = (key: keyof PaymentForm) => (e: { target: { value: string } }) => setForm({ ...form, [key]: e.target.value });
+  const [duplicate, setDuplicate] = useState(false);
+  const [otherTransfer, setOtherTransfer] = useState(false);
   const mismatch = paymentMismatch(form, d.pendingCents);
-  const parsed = paymentPayload(form, d.pendingCents, today);
+  const parsed = paymentPayload(form, d.pendingCents, today, duplicate && otherTransfer);
+  const setReference = (e: { target: { value: string } }) => {
+    setForm({ ...form, bankReference: e.target.value });
+    setDuplicate(false);
+    setOtherTransfer(false);
+  };
 
   return (
     <StepUpDialog
@@ -269,11 +295,19 @@ function PaymentDialog({ detail: d, onClose, onDone }: { detail: SettlementDetai
         </p>
       }
       summary={parsed.ok ? paymentSummary(d, parsed.value.amountCents) : 'Rellena el importe, el día y la referencia del banco.'}
-      validate={() => (parsed.ok ? null : parsed.error)}
+      validate={() => {
+        if (!parsed.ok) return parsed.error;
+        return duplicate && !otherTransfer ? 'Esa referencia del banco ya está apuntada: si es otro abono, márcalo; si no, no lo apuntes dos veces.' : null;
+      }}
       submitLabel="Apuntar pago"
       onSubmit={async ({ totpCode }) => {
         if (!parsed.ok) throw new Error(parsed.error);
-        onDone(await recordSaSettlementPayment(d.id, { ...parsed.value, totpCode }));
+        try {
+          onDone(await recordSaSettlementPayment(d.id, { ...parsed.value, totpCode }));
+        } catch (err) {
+          if (isDuplicatePaymentError(err)) setDuplicate(true);
+          throw err;
+        }
       }}
       onClose={onClose}
     >
@@ -284,14 +318,22 @@ function PaymentDialog({ detail: d, onClose, onDone }: { detail: SettlementDetai
       <Input
         label="Referencia del banco"
         value={form.bankReference}
-        onChange={set('bankReference')}
+        onChange={setReference}
         placeholder="La del movimiento en el extracto"
         maxLength={140}
         autoComplete="off"
         spellCheck={false}
       />
+      {duplicate ? (
+        <CheckRow
+          checked={otherTransfer}
+          onChange={setOtherTransfer}
+          label="Es otro abono con la misma referencia"
+          help="Márcalo solo si en el extracto hay dos movimientos distintos. Queda en el registro."
+        />
+      ) : null}
       <Input
-        label={mismatch ? 'Motivo (el importe no es lo pendiente)' : 'Motivo · solo si el importe no es lo pendiente'}
+        label={mismatch ? 'Motivo (el importe no es lo pendiente; solo lo ve OxioPay)' : 'Motivo · solo si el importe no es lo pendiente (solo lo ve OxioPay)'}
         value={form.reason}
         onChange={set('reason')}
         placeholder="Por ejemplo: pagó a cuenta, el resto la semana que viene"
@@ -302,7 +344,15 @@ function PaymentDialog({ detail: d, onClose, onDone }: { detail: SettlementDetai
   );
 }
 
-function GenerateDialog({ onClose, onDone }: { onClose: () => void; onDone: (d: SettlementDetail) => void }) {
+function GenerateDialog({
+  startWeek,
+  onClose,
+  onDone,
+}: {
+  startWeek: string | null;
+  onClose: () => void;
+  onDone: (d: SettlementDetail) => void;
+}) {
   const sa = useSa();
   const today = madridToday();
   const [venueId, setVenueId] = useState('');
@@ -320,7 +370,8 @@ function GenerateDialog({ onClose, onDone }: { onClose: () => void; onDone: (d: 
         </p>
       }
       summary={venue ? `Vas a generar la liquidación de ${venue.name} de la semana que empieza el ${week}.` : 'Elige el local y la semana.'}
-      validate={() => (!venueId ? 'Elige el local.' : weekStartProblem(week, today))}
+      validate={() => (!venueId ? 'Elige el local.' : weekStartProblem(week, today, startWeek))}
+      reasonLabel={INTERNAL_REASON_LABEL}
       reasonPlaceholder="Por ejemplo: el servidor estuvo parado el lunes"
       submitLabel="Generar"
       onSubmit={async ({ totpCode, reason }) => {
@@ -342,7 +393,88 @@ function GenerateDialog({ onClose, onDone }: { onClose: () => void; onDone: (d: 
         value={week}
         onChange={(e) => setWeek(e.target.value)}
         hint="De lunes 08:00 a lunes 08:00 (hora de Madrid)."
-        error={week ? (weekStartProblem(week, today) ?? undefined) : undefined}
+        error={week ? (weekStartProblem(week, today, startWeek) ?? undefined) : undefined}
+      />
+    </StepUpDialog>
+  );
+}
+
+/** «Lun 2 nov 2026»: el lunes a las 08:00 en que empieza a liquidarse. */
+function mondayLabel(day: string): string {
+  const label = settlementNightLabel(day);
+  return `${label.charAt(0).toUpperCase()}${label.slice(1)} ${day.slice(0, 4)}`;
+}
+
+function StartWeekCard({ settings }: { settings: Loaded<{ startWeek: string | null }> }) {
+  const [editing, setEditing] = useState(false);
+
+  return (
+    <Card>
+      <div className="np-sa-stack-sm">
+        <SectionHead
+          level={3}
+          title="Semana de inicio"
+          sub="La primera semana que se liquida. Nada anterior entra nunca, ni como ajuste de semanas anteriores."
+          actions={
+            <SmallButton variant="primary" onClick={() => setEditing(true)} disabled={!settings.data && !settings.error}>
+              Cambiar
+            </SmallButton>
+          }
+        />
+        <LoadGate loaded={settings} what="la semana de inicio">
+          {(s) =>
+            s.startWeek ? (
+              <MetaList items={[['Desde', `${mondayLabel(s.startWeek)}, 08:00 (hora de Madrid)`]]} />
+            ) : (
+              <p className="np-sa-text">Aún no está fijada: al arrancar, el servidor la pone en el próximo lunes.</p>
+            )
+          }
+        </LoadGate>
+      </div>
+      {editing ? (
+        <StartWeekDialog
+          current={settings.data?.startWeek ?? null}
+          onClose={() => setEditing(false)}
+          onSaved={(startWeek) => {
+            settings.setData({ startWeek });
+            setEditing(false);
+          }}
+        />
+      ) : null}
+    </Card>
+  );
+}
+
+function StartWeekDialog({ current, onClose, onSaved }: { current: string | null; onClose: () => void; onSaved: (startWeek: string) => void }) {
+  const [week, setWeek] = useState(current ?? '');
+  const problem = mondayProblem(week);
+
+  return (
+    <StepUpDialog
+      title="Semana de inicio"
+      action="settlement.startWeek"
+      intro={
+        <p className="np-sa-text">
+          El repaso del lunes no liquida ninguna semana anterior a esta, y lo de antes tampoco entra como ajuste. Las liquidaciones ya emitidas
+          no cambian.
+        </p>
+      }
+      summary={problem ? 'Elige un lunes.' : startWeekSummary(week, current)}
+      validate={() => problem ?? (week === current ? 'Es la misma semana de ahora.' : null)}
+      reasonPlaceholder="Por ejemplo: empezamos a cobrar la comisión esta semana"
+      submitLabel="Guardar"
+      onSubmit={async ({ totpCode, reason }) => {
+        onSaved((await setSaSettlementStart({ startWeek: week, reason, totpCode })).startWeek);
+      }}
+      onClose={onClose}
+    >
+      <Input
+        label="Lunes en que empieza"
+        type="date"
+        value={week}
+        onChange={(e) => setWeek(e.target.value)}
+        hint="Desde ese lunes a las 08:00 (hora de Madrid)."
+        error={week ? (problem ?? undefined) : undefined}
       />
     </StepUpDialog>
   );
