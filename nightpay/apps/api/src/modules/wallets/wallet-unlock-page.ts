@@ -1,4 +1,7 @@
-import { CLUB_BASE_CSS, brandWordmark, escapeHtml, jsConfig } from '../payments/club-ui';
+import { CLUB_BASE_CSS, escapeHtml, jsConfig } from '../payments/club-ui';
+import { CHROME_CSS, LANG_JS, topBar } from '../payments/customer-chrome';
+import { CUSTOMER_TEXT } from '../payments/i18n';
+import type { UnlockPageText } from '../payments/i18n/types';
 import type { PayLanguage } from '../payments/pay-i18n';
 import { PASSKEY_BROWSER_JS } from './passkey-browser';
 
@@ -18,60 +21,7 @@ export type WalletUnlockView =
   | { kind: 'blocked' }
   | { kind: 'unavailable' };
 
-const TEXT = {
-  es: {
-    title: 'Tu saldo', card: 'Tu saldo', other: 'EN', otherLabel: 'English',
-    heading: 'Consulta tu saldo',
-    intro: 'Desbloquea con Face ID, huella o el código de tu teléfono para ver tu saldo y movimientos.',
-    button: 'Ver mi saldo', waiting: 'Confirma en tu teléfono…',
-    security: 'El código lo pide tu teléfono. No lo escribas en esta página.',
-    newPhone: '¿Móvil nuevo? Tu saldo se abre con el móvil donde activaste Face ID. Si no lo tienes, pide ayuda en recepción.',
-    setupHeading: 'Activa tu saldo en el móvil',
-    setup: 'Para ver tu saldo en tu móvil, pide en recepción el QR de activación.',
-    setupWhere: 'Recepción',
-    setupHow: 'Escanéalo con la cámara y activa Face ID. Después, acerca tu NFC al móvil y verás tu saldo.',
-    setupFoot: 'Mientras tanto, tu NFC paga como siempre.',
-    blockedHeading: 'Este NFC está bloqueado',
-    blocked: 'Ya no paga. Si es tuyo, tu saldo sigue a salvo: en recepción te dan un NFC nuevo con tu código.',
-    unavailableHeading: 'Este NFC no está activo',
-    unavailableText: 'Ahora no está dado a ningún saldo. Si acabas de recargar, pregunta en recepción.',
-    code: 'Tu código',
-    unsupported: 'Este navegador no permite desbloquear tu saldo. Abre el enlace en Safari o Chrome en tu teléfono, con HTTPS.',
-    cancelled: 'Consulta cancelada. Puedes volver a intentarlo.',
-    wrong: 'Usa la passkey vinculada a este saldo. Desbloquear otro teléfono no da acceso.',
-    expired: 'La confirmación ha caducado. Vuelve a intentarlo.',
-    unavailable: 'No se puede consultar este NFC. Comprueba en recepción que siga activo.',
-    rateLimited: 'Demasiadas consultas seguidas. Espera un momento y vuelve a intentarlo.',
-    error: 'No se pudo abrir el saldo. Vuelve a intentarlo.',
-  },
-  en: {
-    title: 'Your balance', card: 'Your balance', other: 'ES', otherLabel: 'Español',
-    heading: 'Check your balance',
-    intro: 'Use Face ID, your fingerprint or your phone screen lock to view your balance and transactions.',
-    button: 'View my balance', waiting: 'Confirm on your phone…',
-    security: 'Your phone asks for its screen lock. Never type it on this page.',
-    newPhone: 'New phone? Your balance opens on the phone where you turned on Face ID. If you do not have it, ask reception for help.',
-    setupHeading: 'Set up your balance on your phone',
-    setup: 'To see your balance on your phone, ask reception for the activation QR.',
-    setupWhere: 'Reception',
-    setupHow: 'Scan it with your camera and turn on Face ID. Then hold your NFC to your phone to see your balance.',
-    setupFoot: 'Meanwhile, your NFC pays as usual.',
-    blockedHeading: 'This NFC is blocked',
-    blocked: 'It can no longer pay. If it is yours, your balance is safe: reception will give you a new NFC with your code.',
-    unavailableHeading: 'This NFC is not active',
-    unavailableText: 'It is not linked to any balance right now. If you just topped up, ask at reception.',
-    code: 'Your code',
-    unsupported: 'This browser cannot unlock your balance. Open the HTTPS link in Safari or Chrome on your phone.',
-    cancelled: 'Cancelled. You can try again.',
-    wrong: 'Use the passkey linked to this balance. Another phone cannot unlock it.',
-    expired: 'Confirmation expired. Try again.',
-    unavailable: 'This NFC cannot be checked. Ask reception to make sure it is still active.',
-    rateLimited: 'Too many requests. Wait a moment and try again.',
-    error: 'Could not open your balance. Try again.',
-  },
-} as const;
-
-type Text = (typeof TEXT)[PayLanguage];
+type Text = UnlockPageText;
 
 const ICON = {
   nfc: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5.5 10.5a2 2 0 0 1 0 3"/><path d="M9 8a6 6 0 0 1 0 8"/><path d="M12.5 5.5a9.5 9.5 0 0 1 0 13"/><path d="M16 3a13 13 0 0 1 0 18"/></svg>',
@@ -82,10 +32,7 @@ const ICON = {
 
 const UNLOCK_CSS = `
 main{max-width:28rem;min-height:100svh;margin:0 auto;padding:1rem 1rem calc(1.5rem + env(safe-area-inset-bottom));display:flex;flex-direction:column;gap:1.25rem}
-.top{display:flex;align-items:center;justify-content:space-between;gap:.5rem;min-height:3rem}
-.top .wm{height:1.3rem;max-width:60%;object-fit:contain}
-.lang{display:inline-flex;align-items:center;min-height:3rem;padding:0 .5rem;font-weight:700;color:var(--label);text-decoration:none}
-.lang:hover{color:var(--fg)}
+main>.top{padding-left:0;padding-right:0}
 svg{width:1.5rem;height:1.5rem;flex:none;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
 .ocard{position:relative;isolation:isolate;overflow:hidden;min-height:10.5rem;padding:1rem 1.15rem;border-radius:24px;display:flex;flex-direction:column;justify-content:space-between;gap:.5rem;color:var(--cream);background:var(--bits),linear-gradient(135deg,var(--green-1) 0%,var(--green-2) 55%,var(--green-3) 100%);box-shadow:0 0 0 1px var(--lime-edge),0 18px 40px -20px var(--lime-glow)}
 .ocard::after{content:'';position:absolute;inset:0;z-index:-1;background:linear-gradient(118deg,transparent 38%,var(--lime-soft) 50%,transparent 62%);pointer-events:none}
@@ -144,17 +91,18 @@ if(dest.origin!==window.location.origin||parts.length!==3||parts[1]!=='w'||!/^[A
 window.location.replace(dest.pathname+'?lang='+encodeURIComponent(C.lang)+(C.paid?'&pagado='+encodeURIComponent(C.paid):''));
 }).catch(function(err){message(pkCancelled(err)?C.t.cancelled:err.code==='FACE_ID_NOT_SET'?C.t.setup:err.code==='FACE_ID_WRONG'||err.code==='FACE_ID_UNKNOWN'?C.t.wrong:err.code==='FACE_ID_TIMEOUT'||err.code==='FACE_ID_USED'?C.t.expired:err.status===429?C.t.rateLimited:err.status===404||err.status===409?C.t.unavailable:C.t.error);
 }).then(function(){busy=false;b.disabled=false;l.textContent=C.t.button;prepared=pkPrepare(C.base+'/view/challenge');});});
-})();</script>`;
+})();
+${LANG_JS}</script>`;
 }
 
 export function renderWalletUnlockPage(base: string, lang: PayLanguage, view: WalletUnlockView = { kind: 'locked' }): string {
-  const t = TEXT[lang];
+  const t = CUSTOMER_TEXT[lang].unlockPage;
   const h = escapeHtml;
   const paid = view.kind === 'locked' && view.paidToken && /^[A-Za-z0-9_-]{16,64}$/.test(view.paidToken) ? view.paidToken : null;
-  const other = lang === 'es' ? 'en' : 'es';
-  const langHref = `${base}?lang=${other}${paid ? `&pagado=${paid}` : ''}`;
-  return `<!doctype html><html lang="${lang}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="robots" content="noindex,nofollow"><meta name="referrer" content="no-referrer"><meta name="theme-color" content="#0f1112"><title>${h(t.title)}</title><style>${CLUB_BASE_CSS}${UNLOCK_CSS}</style></head><body><main>`
-    + `<div class="top">${brandWordmark()}<a class="lang" href="${h(langHref)}" lang="${other}" hreflang="${other}" aria-label="${h(t.otherLabel)}">${h(t.other)}</a></div>`
+  // El selector de idioma conserva el «Pagado» que viene del banco (?pagado=).
+  const langHref = (l: PayLanguage): string => `${base}?lang=${l}${paid ? `&pagado=${paid}` : ''}`;
+  return `<!doctype html><html lang="${lang}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="robots" content="noindex,nofollow"><meta name="referrer" content="no-referrer"><meta name="theme-color" content="#0f1112"><title>${h(t.title)}</title><style>${CLUB_BASE_CSS}${CHROME_CSS}${UNLOCK_CSS}</style></head><body><main>`
+    + topBar(lang, langHref)
     + body(view, t)
     + `</main>${view.kind === 'locked' ? unlockScript(base, lang, t, paid) : ''}</body></html>`;
 }

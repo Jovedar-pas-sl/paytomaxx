@@ -1,0 +1,401 @@
+import type { PayLanguage } from '../customer-lang';
+import type { PayClosedReason } from '../pay-redirect';
+
+/**
+ * Lo que lee el cliente en sus páginas (/pay, /s, /w, /w/card, /w/salida y
+ * sus avisos), en los cuatro idiomas: cada idioma en su archivo (es.ts,
+ * en.ts, fr.ts, pt.ts), con la misma forma. i18n.spec.ts falla si falta una
+ * clave en algún idioma, si queda vacía, si cambia un {hueco} o si se cuela
+ * el vocabulario interno de la app del personal.
+ *
+ * Reglas de redacción: frases cortas de app de pagos, de usted en francés y
+ * portugués (de Portugal, con palabras que entiende también un brasileño:
+ * «telefone», «funcionário», «gorjeta», «recibo»…); «Apple Pay», «Google
+ * Pay», «Face ID» y «Google Wallet» nunca se traducen (normas de las marcas).
+ */
+
+export type PayErrorKey =
+  | 'expired'
+  | 'notFound'
+  | 'inProgress'
+  | 'gateway'
+  | 'gatewayFailed'
+  | 'gatewayFailedAfterAttempt'
+  | 'generic';
+
+/**
+ * Aviso que no asusta: qué ha pasado, «No se te ha cobrado nada» cuando es
+ * verdad, y UNA acción (un botón `retry` o una indicación `hint`).
+ */
+export interface PayNotice {
+  title: string;
+  body: string;
+  notCharged: boolean;
+  hint?: string;
+  /** Texto del botón para volver a la página del cobro. */
+  retry?: string;
+}
+
+/** Cómo se llama el desbloqueo del móvil en cada plataforma. */
+export interface UnlockText {
+  title: string;
+  button: string;
+  done: string;
+}
+
+export interface PayText {
+  htmlLang: PayLanguage;
+  locale: string;
+  secure: string;
+  /** El selector de idioma (su etiqueta para lectores de pantalla). */
+  languageMenu: string;
+  // Página de pago
+  youPay: string;
+  /** Encima del importe grande: lo que paga ahora (se pone al día con la propina). */
+  totalToPay: string;
+  payPrefix: string;
+  sending: string;
+  /** Mientras se abre el pago: «Abriendo Apple Pay…» / «Abriendo el pago…». */
+  openingWallet: (wallet: string) => string;
+  methods: string;
+  methodsCard: string;
+  /** El botón abre directamente la cartera del móvil (Apple Pay / Google Pay). */
+  methodsWallet: (wallet: string) => string;
+  payByCard: string;
+  /** Cobro único: pagar el mismo cobro con el saldo (Face ID), en otra página. */
+  payWithSaldo: string;
+  tipLegend: string;
+  noTip: string;
+  tipOther: string;
+  tipOtherLabel: string;
+  tipMax: (max: string) => string;
+  /** «Otra» elegida y sin importe. */
+  tipOtherEmpty: string;
+  /** «Otra» por encima del tope. */
+  tipOtherTooHigh: (max: string) => string;
+  tipToStaff: string;
+  total: string;
+  /** Desglose: Consumo (o Recarga) · Comisión del servicio · Propina · Total. */
+  breakdown: { consumption: string; topUp: string; serviceFee: string; tip: string };
+  /** «¿Qué es?» junto a la comisión del servicio. */
+  feeWhat: string;
+  /** Su explicación corta; `pct` = «10 %». */
+  feeExplain: (pct: string) => string;
+  /** Cobro único: con el saldo no se paga la comisión del servicio. */
+  saldoNoFee: string;
+  inAppWarning: (app: string) => string;
+  statement: (name: string) => string;
+  expiresIn: string;
+  // Hacia el banco
+  openingTitle: string;
+  openingHint: string;
+  continueToBank: string;
+  // Pagado
+  paidTitle: string;
+  alreadyPaidTitle: string;
+  agoPrefix: string;
+  agoSuffix: string;
+  /** Unidades de «hace 23 min», «hace 1 h 05 min», «hace 2 d». */
+  agoUnits: { min: string; h: string; d: string };
+  notNewPayment: string;
+  confirmedAt: (time: string) => string;
+  paidFromBalanceAt: (time: string) => string;
+  /** «¡Gracias por la propina!» (en el PAGADO, si dejó). */
+  thanksTip: string;
+  codeLabel: string;
+  codeHint: string;
+  clockLabel: string;
+  receiptLink: string;
+  walletReady: string;
+  walletOpen: string;
+  walletElsewhere: string;
+  // Recarga que creó el saldo: activar el pago desbloqueando el móvil
+  walletReadyTitle: string;
+  unlock: { ios: UnlockText; android: UnlockText; other: UnlockText };
+  unlockWhy: string;
+  unlockWaiting: string;
+  unlockAfter: string;
+  unlockUnsupported: string;
+  notNow: string;
+  notNowAfter: string;
+  mergeHint: string;
+  // Comprobando
+  processingTitle: string;
+  processingBody: string;
+  processingNewCharge: string;
+  // Muchos a la vez en la misma IP (wifi del local): la página espera y se recarga sola
+  busyTitle: string;
+  busyBody: string;
+  // Avisos
+  notCharged: string;
+  notFound: PayNotice;
+  denied: PayNotice;
+  closed: Record<PayClosedReason, PayNotice>;
+  errors: Record<PayErrorKey, PayNotice>;
+  // Justificante
+  receipt: {
+    title: string;
+    date: string;
+    amount: string;
+    /** Una recarga del saldo: el importe es «Recarga». */
+    topUp: string;
+    serviceFee: string;
+    tip: string;
+    total: string;
+    method: string;
+    wallet: string;
+    card: string;
+    authCode: string;
+    order: string;
+    code: string;
+    save: string;
+    back: string;
+    noPersonalData: string;
+  };
+}
+
+/**
+ * Página del saldo del cliente (/w/:token). Los de activar el desbloqueo del
+ * móvil (Face ID, huella…) son los de PayText (`unlock`). `{amount}`,
+ * `{cards}`… los rellena el JS.
+ */
+export interface WalletText {
+  htmlLang: PayLanguage;
+  locale: string;
+  title: string;
+  balance: string;
+  /** «Tu saldo · {venue}» en la tarjeta de arriba. */
+  balanceOf: string;
+  /** «Ficha nº {n}» en la tarjeta de arriba. */
+  fichaNo: string;
+  saveHint: string;
+  movements: string;
+  movementsHint: string;
+  noMovements: string;
+  /** Movimientos que pone el API (los consumos llevan lo que se pidió, tal cual). */
+  mv: { topUp: string; topUpCash: string; topUpCashVoid: string; payoutCash: string; payoutCard: string };
+  closed: string;
+  depleted: string;
+  merged: string;
+  error: string;
+  sending: string;
+  cancel: string;
+  more: string;
+  views: string;
+  pay: string;
+  scanTitle: string;
+  scanButton: string;
+  scanCamera: string;
+  scanAim: string;
+  scanStop: string;
+  scanWrong: string;
+  scanDenied: string;
+  scanFailed: string;
+  scanOpening: string;
+  payFaceWhy: string;
+  payFaceDone: string;
+  unlockUnsupported: string;
+  payEmpty: string;
+  codeTitle: string;
+  codeWithPin: string;
+  codeNoPin: string;
+  codeFicha: string;
+  pinRow: string;
+  pinRowHint: string;
+  pinTitle: string;
+  pinWhy: string;
+  pinLabel: string;
+  pinRepeat: string;
+  pinSave: string;
+  pinFormat: string;
+  pinMismatch: string;
+  pinDone: string;
+  mergeRow: string;
+  mergeRowHint: string;
+  mergeTitle: string;
+  mergeWhy: string;
+  mergeButton: string;
+  mergeDone: string;
+  leaveRow: string;
+  leaveRowHint: string;
+  leaveTitle: string;
+  leaveGo: string;
+  leaveWaysCards: string;
+  leaveWays: string;
+  leaveDone: string;
+  refundTitle: string;
+  steps: [string, string, string];
+  refundRequested: string;
+  refundRequestedCards: string;
+  refundApproved: string;
+  refundDoneCard: string;
+  refundDoneCash: string;
+  refundDoneMixed: string;
+  gwHint: string;
+  gwPreparing: string;
+  topUp: string;
+  topUpTitle: string;
+  topUpWhy: string;
+  topUpAmount: string;
+  topUpOther: string;
+  topUpOtherLabel: string;
+  topUpLimits: string;
+  topUpRange: string;
+  topUpGo: string;
+  topUpMethods: string;
+  /** Con la «Comisión del servicio»: el desglose (Recarga · Comisión · Total a pagar). */
+  topUpToBalance: string;
+  topUpMethodsFee: string;
+  topUpFaceId: string;
+  topUpNoKey: string;
+  faceIdNeeded: string;
+  topUpOpening: string;
+  topUpOff: string;
+  topUpBlocked: string;
+  proofWhat: string;
+  proofAdded: string;
+  lostButton: string;
+  lostTitle: string;
+  lostWhy: string;
+  lostSafe: string;
+  lostGo: string;
+  lostKeep: string;
+  lostDone: string;
+}
+
+/** /s/:token: pagar el cobro del QR del personal con el saldo (Face ID). */
+export interface SaldoText {
+  title: string;
+  youPay: string;
+  pay: string;
+  paying: string;
+  /** «Te quedan 38 €» debajo del PAGADO (`{amount}`). */
+  left: string;
+  expired: string;
+  notPending: string;
+  /** Cobro único: ya lo pagó con tarjeta. */
+  paidByCard: string;
+  notFromBalance: string;
+  askStaff: string;
+  unsupported: string;
+  unknown: string;
+  /** Mientras pregunta al servidor si se cobró. */
+  checking: string;
+  /** El servidor dice que sigue pendiente: se puede volver a pagar. */
+  stillPending: string;
+  reload: string;
+  expiresIn: string;
+}
+
+/** Antes de desbloquear el saldo (/w/card/<ficha> y el enlace privado con Face ID sin sesión). */
+export interface UnlockPageText {
+  title: string;
+  card: string;
+  heading: string;
+  intro: string;
+  button: string;
+  waiting: string;
+  security: string;
+  newPhone: string;
+  setupHeading: string;
+  setup: string;
+  setupWhere: string;
+  setupHow: string;
+  setupFoot: string;
+  blockedHeading: string;
+  blocked: string;
+  unavailableHeading: string;
+  unavailableText: string;
+  code: string;
+  unsupported: string;
+  cancelled: string;
+  wrong: string;
+  expired: string;
+  unavailable: string;
+  rateLimited: string;
+  error: string;
+}
+
+/** La salida de recepción confirmada con Face ID en el móvil del cliente (/w/salida/:token). */
+export interface PayoutText {
+  title: string;
+  gives: string;
+  inCash: string;
+  intro: string;
+  button: string;
+  waiting: string;
+  done: string;
+  gone: string;
+  unsupported: string;
+  cancelled: string;
+  wrong: string;
+  expired: string;
+  rateLimited: string;
+  error: string;
+  security: string;
+}
+
+/**
+ * Errores del API que ve el cliente, por su `code` (nunca el texto del API).
+ * `TOPUP_<motivo>`: el 409 WALLET_TOPUP_UNAVAILABLE con su `reason`.
+ */
+export const CLIENT_ERROR_KEYS = [
+  'generic',
+  'network',
+  'RATE_LIMITED',
+  'TRY_LATER',
+  'VENUE_PAUSED',
+  'PAYMENT_METHOD_DISABLED',
+  'WALLET_NOT_FOUND',
+  'WALLET_BLOCKED',
+  'WALLET_CLOSED',
+  'WALLET_VIEW_REQUIRED',
+  'WALLET_INSUFFICIENT',
+  'NOTHING_TO_REFUND',
+  'WALLET_TOPUP_TOO_MANY',
+  'WALLET_TOPUP_DAILY_LIMIT',
+  'WALLET_TOPUP_PENDING_LIMIT',
+  'WALLET_TOPUP_AMOUNT',
+  'WALLET_TOPUP_STALE',
+  'PAGE_STALE',
+  'TOPUP_blocked',
+  'TOPUP_merged',
+  'TOPUP_closed',
+  'TOPUP_leaving',
+  'TOPUP_venue',
+  'FACE_ID_REQUIRED',
+  'FACE_ID_WRONG',
+  'FACE_ID_UNKNOWN',
+  'FACE_ID_TIMEOUT',
+  'FACE_ID_FAILED',
+  'FACE_ID_USED',
+  'FACE_ID_EXISTS',
+  'FACE_ID_NOT_SET',
+  'WALLET_NO_CARD',
+  'PIN_FORMAT',
+  'PIN_MISMATCH',
+  'PIN_OBVIOUS',
+  'PIN_EXISTS',
+  'PAYER_ONLY',
+  'MERGE_BUSY',
+  'MERGE_NOT_ALLOWED',
+  'CHARGE_NOT_PENDING',
+  'CHARGE_EXPIRED',
+  'CHARGE_OTHER_VENUE',
+  'ALREADY_PAID',
+  'PAYOUT_QR_GONE',
+  'PAYOUT_CONFIRMED',
+] as const;
+
+export type ClientErrorKey = (typeof CLIENT_ERROR_KEYS)[number];
+export type ClientErrorTexts = Readonly<Record<ClientErrorKey, string>>;
+
+/** Todo lo de un idioma. */
+export interface CustomerTexts {
+  pay: PayText;
+  wallet: WalletText;
+  saldo: SaldoText;
+  unlockPage: UnlockPageText;
+  payout: PayoutText;
+  errors: ClientErrorTexts;
+}

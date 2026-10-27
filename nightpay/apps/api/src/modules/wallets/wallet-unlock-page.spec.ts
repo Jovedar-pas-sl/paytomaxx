@@ -56,7 +56,7 @@ describe('pantalla de consulta protegida', () => {
     const blocked = renderWalletUnlockPage('/w/card/t', 'es', { kind: 'blocked' });
     expect(blocked).toContain('Este NFC está bloqueado');
     expect(blocked).toContain('tu saldo sigue a salvo');
-    expect(renderWalletUnlockPage('/w/card/t', 'en', { kind: 'blocked' })).toContain('This NFC is blocked');
+    expect(renderWalletUnlockPage('/w/card/t', 'en', { kind: 'blocked' })).toContain('This NFC tag is blocked');
     const off = renderWalletUnlockPage('/w/card/t', 'es', { kind: 'unavailable' });
     expect(off).toContain('Este NFC no está activo');
     for (const html of [blocked, off]) {

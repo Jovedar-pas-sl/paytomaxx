@@ -30,8 +30,8 @@ export const AuthorizeInputSchema = z.object({
   reference: z.string(),
   /** Botón que pulsó el cliente (Fase 1B). Sin él, la pasarela ofrece todo. */
   payMethod: z.enum(['wallet', 'card']).optional(),
-  /** Idioma de la página del banco. */
-  language: z.enum(['es', 'en']).optional(),
+  /** Idioma de la página del banco (el de la página de pago del cliente). */
+  language: z.enum(['es', 'en', 'fr', 'pt']).optional(),
   /**
    * Id del intento (payment_attempts.id) que abre esta llamada, al azar. Es
    * la referencia nuestra que va a la pasarela cuando la ve el cliente

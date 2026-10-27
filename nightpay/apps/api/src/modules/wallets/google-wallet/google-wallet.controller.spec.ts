@@ -57,6 +57,10 @@ describe('GET /w/assets/google-wallet/:lang — el botón oficial desde nuestro 
     }
     expect(GOOGLE_WALLET_BUTTONS.es.file).toBe('esES_add_to_google_wallet_wallet-button.svg');
     expect(GOOGLE_WALLET_BUTTONS.es.alt).toBe('Añadir a Google Wallet');
+    // Francés y portugués: los oficiales del mismo zip (el de portugués es el único que da Google).
+    expect(GOOGLE_WALLET_BUTTONS.fr.file).toBe('frFR_add_to_google_wallet_wallet-button.svg');
+    expect(GOOGLE_WALLET_BUTTONS.fr.alt).toBe('Ajouter au Google Wallet');
+    expect(GOOGLE_WALLET_BUTTONS.pt.file).toBe('pt_add_to_google_wallet_wallet-button.svg');
   });
 
   it('se sirve como imagen SVG, con caché y sin poder ejecutar nada', () => {
@@ -70,8 +74,13 @@ describe('GET /w/assets/google-wallet/:lang — el botón oficial desde nuestro 
     expect(reply.body).toBe(GOOGLE_WALLET_BUTTONS.es.svg);
   });
 
-  it('otro idioma o Google Wallet sin configurar → 404', () => {
-    expect(() => new GoogleWalletController({ enabled: true } as never).button('fr', fakeReply() as never)).toThrow(
+  it('los cuatro idiomas del cliente; otro idioma o Google Wallet sin configurar → 404', () => {
+    for (const lang of ['es', 'en', 'fr', 'pt']) {
+      const reply = fakeReply();
+      new GoogleWalletController({ enabled: true } as never).button(lang, reply as never);
+      expect(reply.statusCode).toBe(200);
+    }
+    expect(() => new GoogleWalletController({ enabled: true } as never).button('de', fakeReply() as never)).toThrow(
       NotFoundException,
     );
     expect(() => new GoogleWalletController({ enabled: false } as never).button('es', fakeReply() as never)).toThrow(

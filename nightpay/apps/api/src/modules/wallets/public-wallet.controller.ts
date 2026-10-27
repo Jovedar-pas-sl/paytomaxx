@@ -18,7 +18,7 @@ import { ConfigService } from '@nestjs/config';
 import type { FastifyReply } from 'fastify';
 import { Public } from '../../common/decorators/public.decorator';
 import { IpRateLimit } from '../../common/guards/ip-rate-limit.guard';
-import { resolveLanguage } from '../payments/pay-i18n';
+import { customerLanguage, resolveLanguage } from '../payments/customer-lang';
 import { walletClaimSetCookie } from '../payments/wallet-claim';
 import { WalletChargesService, codeHintOf, type ClientWalletState } from './wallet-charges.service';
 import { WalletPasskeysService } from './wallet-passkeys.service';
@@ -189,10 +189,10 @@ export class PublicWalletController {
     @Param('token') token: string,
     @Body() body: { amountCents?: unknown; key?: unknown; response?: unknown; lang?: unknown } | undefined,
     @Headers('host') host: string | undefined,
-    @Headers('accept-language') acceptLanguage: string | undefined,
+    @Headers('cookie') cookies: string | undefined,
     @Res({ passthrough: true }) res: FastifyReply,
   ): Promise<{ payUrl: string }> {
-    const lang = resolveLanguage(typeof body?.lang === 'string' ? body.lang : undefined, acceptLanguage);
+    const lang = resolveLanguage(typeof body?.lang === 'string' ? body.lang : undefined, cookies);
     const started = await this.topUps.start(
       token,
       { amountCents: body?.amountCents, key: body?.key, response: body?.response, lang },
@@ -209,12 +209,13 @@ export class PublicWalletController {
   async page(
     @Param('token') token: string,
     @Query('lang') langQuery: string | undefined,
-    @Headers('accept-language') acceptLanguage: string | undefined,
     @Res() res: FastifyReply,
     @Query('pagado') paidToken?: string,
     @Headers('cookie') cookies?: string,
   ): Promise<void> {
-    const lang = resolveLanguage(langQuery, acceptLanguage);
+    // Español por defecto; el idioma que elige el cliente queda en su cookie.
+    const { lang, setCookie } = customerLanguage(langQuery, cookies);
+    if (setCookie) res.header('Set-Cookie', setCookie);
     const access = await this.viewAccess(token, cookies);
     if (!access.allowed) {
       const { shortCode } = await this.charges.walletRefByToken(token);
@@ -233,7 +234,7 @@ export class PublicWalletController {
       .header('Cache-Control', 'no-store')
       .header('Referrer-Policy', 'no-referrer')
       .send(
-        renderWalletPage(token, resolveLanguage(langQuery, acceptLanguage), state, {
+        renderWalletPage(token, lang, state, {
           googleWallet: this.gwallet.enabled,
           topUp,
           paid,

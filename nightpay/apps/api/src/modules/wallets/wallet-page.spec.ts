@@ -36,16 +36,25 @@ describe('página del saldo del cliente', () => {
   it('lleva el estado inicial, el idioma y las rutas del saldo', () => {
     const html = renderWalletPage('tok-1', 'es', state());
     expect(html).toContain('<html lang="es">');
-    expect(html).toContain('<title>Tu saldo OxioPay</title>');
+    expect(html).toContain('<title>Tu saldo</title>');
+    // El selector de idioma arriba (español por defecto, los cuatro idiomas).
+    expect(html).toContain('<details class="lang" id="langMenu">');
+    expect(html).toContain('aria-current="true">Español</a>');
     expect(html).toContain('\\"base\\":\\"/w/tok-1\\"');
     expect(html).toContain('K7Q-4M2');
     expect(html).toContain('noindex');
   });
 
+  it('los movimientos del API (recargas, devoluciones) en el idioma de la página; lo pedido, tal cual', () => {
+    const js = script(renderWalletPage('tok-1', 'fr', state()));
+    expect(js).toContain('a.textContent=m.labelKey&&T.mv[m.labelKey]?T.mv[m.labelKey]:m.label;');
+    expect(js).toContain('Remboursé en espèces');
+  });
+
   it('en inglés', () => {
     const html = renderWalletPage('tok-1', 'en', state());
     expect(html).toContain('<html lang="en">');
-    expect(html).toContain('Your OxioPay balance');
+    expect(html).toContain('<title>Your balance</title>');
     expect(html).toContain('>Pay</button>');
     expect(html).toContain('Scan the QR the staff show you');
   });
@@ -71,7 +80,7 @@ describe('página del saldo del cliente', () => {
   });
 
   it('sin QR del código (ya no se paga enseñándolo); con "Activar Face ID" y JS válido sin barras invertidas', () => {
-    for (const lang of ['es', 'en'] as const) {
+    for (const lang of ['es', 'en', 'fr', 'pt'] as const) {
       for (const options of [{}, { topUp, googleWallet: true }]) {
         const html = renderWalletPage('tok-1', lang, state(), options);
         expect(html).not.toContain('class="qr"');
@@ -91,7 +100,7 @@ describe('página del saldo del cliente', () => {
   });
 
   it('ya no hay cobros que aceptar o rechazar aquí: se paga con el QR de la chica o con el PIN', () => {
-    for (const lang of ['es', 'en'] as const) {
+    for (const lang of ['es', 'en', 'fr', 'pt'] as const) {
       const html = renderWalletPage('tok-1', lang, state());
       expect(html).not.toContain('id="pending"');
       expect(html).not.toContain('id="accept"');
@@ -107,7 +116,7 @@ describe('página del saldo del cliente', () => {
   });
 
   it('sin confirm() ni alert(): «Me voy», PIN y sumar se hacen en hojas dentro de la página', () => {
-    for (const lang of ['es', 'en'] as const) {
+    for (const lang of ['es', 'en', 'fr', 'pt'] as const) {
       const html = renderWalletPage('tok-1', lang, state());
       const js = script(html);
       expect(js).not.toContain('confirm(');
@@ -225,7 +234,7 @@ describe('«Pagar»: solo lo de pagar', () => {
     const html = renderWalletPage('tok-1', 'es', state({ hasCard: true }));
     expect(html).toContain('<p class="small" id="fichaHint" hidden>Con tu ficha: acércala al móvil del personal y pon tu PIN.</p>');
     expect(html).toContain('\\"hasCard\\":true');
-    expect(renderWalletPage('tok-1', 'en', state())).toContain('With your tag: hold it to the staff phone and enter your PIN.');
+    expect(renderWalletPage('tok-1', 'en', state())).toContain('With your NFC tag: hold it to the staff phone and enter your PIN.');
   });
 
   it('el saldo cerrado, a cero o con «Me voy» no enseña cómo pagar', () => {
@@ -280,7 +289,7 @@ describe('«Escanear QR» dentro de la página', () => {
     expect(js).toContain("if(to){scanStop();show('scanMsg',T.scanOpening);location.href=to+'?lang='+C.lang;return;}");
     expect(js).toContain("show('scanMsg',T.scanWrong)");
     expect(js).toContain("e&&e.name==='NotAllowedError'?T.scanDenied:T.scanFailed");
-    expect(WALLET_TEXT.es.scanWrong).toBe('Ese QR no es un cobro de OxioPay. Apunta al QR que te enseña el personal.');
+    expect(WALLET_TEXT.es.scanWrong).toBe('Ese QR no sirve para pagar con tu saldo. Apunta al QR que te enseña el personal.');
   });
 
   it('la cámara se apaga al cerrar, al esconder la página o al salir de ella', () => {
@@ -338,7 +347,7 @@ describe('«Añadir a Google Wallet» en «Pagar»', () => {
   });
 
   it('solo en Android, con el saldo activo, sin devolución en curso y sin sumar a otro', () => {
-    for (const lang of ['es', 'en'] as const) {
+    for (const lang of ['es', 'en', 'fr', 'pt'] as const) {
       const js = script(renderWalletPage('tok-1', lang, state(), { googleWallet: true }));
       expect(js).toContain("if(gw)gw.hidden=!(P==='android'&&active&&!r&&!s.merged);");
       expect(js).toContain("var gw=C.gw?$('gwCard'):null;");
@@ -379,7 +388,7 @@ describe('«Recargar»: solo lo de recargar', () => {
   });
 
   it('JS válido, sin barras invertidas, y solo va a nuestra página de pago', () => {
-    for (const lang of ['es', 'en'] as const) {
+    for (const lang of ['es', 'en', 'fr', 'pt'] as const) {
       const js = script(renderWalletPage('tok-1', lang, state(), { topUp, googleWallet: true }));
       expect(() => new Function(js)).not.toThrow();
       const top = js.slice(js.indexOf('var TU='), js.indexOf('render(S);'));
@@ -475,7 +484,7 @@ describe('textos de la página del saldo', () => {
   it('los dos idiomas tienen los mismos textos, ninguno vacío', () => {
     const keys = (o: object): string[] => Object.keys(o).sort();
     expect(keys(WALLET_TEXT.en)).toEqual(keys(WALLET_TEXT.es));
-    for (const lang of ['es', 'en'] as const) {
+    for (const lang of ['es', 'en', 'fr', 'pt'] as const) {
       for (const [k, v] of Object.entries(WALLET_TEXT[lang])) {
         if (typeof v === 'string') expect(v.trim(), `${lang}.${k}`).not.toBe('');
       }
@@ -490,7 +499,7 @@ describe('maqueta 5.1: tarjeta OxioCard y movimientos con su referencia', () => 
     expect(html).toContain('<span class="num" id="heroCode">K7Q-4M2</span><span id="heroFicha">Ficha nº 0417</span>');
     const en = renderWalletPage('tok-1', 'en', state({ venueName: 'Sala <b>', hasCard: true, fichaNumber: '0417' }));
     expect(en).toContain('Your balance · Sala &lt;b&gt;');
-    expect(en).toContain('NFC no. 0417');
+    expect(en).toContain('NFC tag no. 0417');
     // Sin NFC no hay número; sin local, «Saldo».
     const bare = renderWalletPage('tok-1', 'es', state({ fichaNumber: '0417' }));
     expect(bare).toContain('<span id="heroFicha"></span>');
@@ -508,7 +517,7 @@ describe('maqueta 5.1: tarjeta OxioCard y movimientos con su referencia', () => 
 
 describe('5.2 «He perdido mi NFC»', () => {
   it('botón rojo y hoja con Face ID, ES/EN; el JS sin barras invertidas', () => {
-    for (const lang of ['es', 'en'] as const) {
+    for (const lang of ['es', 'en', 'fr', 'pt'] as const) {
       const t = WALLET_TEXT[lang];
       const html = renderWalletPage('tok-1', lang, state({ hasCard: true, hasFaceId: true }));
       expect(html).toContain(`<button class="btn redo" type="button" id="lostOpen" hidden>`);
@@ -522,7 +531,7 @@ describe('5.2 «He perdido mi NFC»', () => {
       expect(() => new Function(js)).not.toThrow();
     }
     expect(WALLET_TEXT.es.lostTitle).toBe('¿Bloquear tu NFC?');
-    expect(WALLET_TEXT.en.lostButton).toBe('I lost my NFC');
+    expect(WALLET_TEXT.en.lostButton).toBe('I lost my NFC tag');
   });
 
   it('solo con NFC y Face ID en un saldo vivo; confirma con la passkey en /lost-nfc y pinta el saldo sin NFC', () => {

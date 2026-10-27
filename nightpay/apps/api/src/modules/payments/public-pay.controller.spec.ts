@@ -135,7 +135,11 @@ describe('GET /pay/result — el "Pagado" ya no se puede falsificar', () => {
     expect(html).toContain('aria-live="polite">Pagado</h1>');
     // Sin «,00» (como en el móvil del personal: decisión D4).
     expect(html).toMatch(/data-amount>6\s€</);
-    expect(html).toMatch(/Incluye 5\s€ de propina/);
+    // Su desglose: lo pedido y la propina (con las gracias).
+    expect(html).toMatch(/<dt>Propina<\/dt><dd class="num">5\s€<\/dd>/);
+    expect(html).toContain('¡Gracias por la propina!');
+    // El código, enorme, en su placa, y qué hacer con él.
+    expect(html).toContain('<div class="pcode" data-code><span class="plabel">Código de confirmación</span><b class="num">A6B</b><span class="phint">Enséñaselo al personal</span></div>');
     expect(html).toContain('A6B');
     expect(html).toContain('hace 0:12');
     // Hora del banco y reloj con segundos (hora de Madrid).
@@ -278,7 +282,7 @@ describe('GET /pay/:token — página de pago', () => {
     const { reply, sent } = fakeReply();
     await controller.payPage('qr-token-1', 'es', undefined, IPHONE, reply);
     expect(sent.body).toContain('href="/s/pay-tok_123?lang=es"');
-    expect(sent.body).toContain('Pagar con mi saldo OxioCard');
+    expect(sent.body).toContain('>Pagar con mi saldo</a>');
     const plain = fakeReply();
     await makeController({ page: CHOOSE }).controller.payPage('qr-token-1', 'en', undefined, IPHONE, plain.reply);
     expect(plain.sent.body).not.toContain('/s/');
@@ -290,7 +294,7 @@ describe('GET /pay/:token — página de pago', () => {
       IPHONE,
       en.reply,
     );
-    expect(en.sent.body).toContain('Pay with my OxioCard balance');
+    expect(en.sent.body).toContain('>Pay with my balance</a>');
   });
 
   it('cobro único con la propina que pidió al personal: sale ya marcada', async () => {
@@ -311,20 +315,21 @@ describe('GET /pay/:token — página de pago', () => {
     expect(sent.body).not.toContain('No se te ha cobrado nada');
   });
 
-  it('iPhone: un solo «Pagar 100 €» que abre Apple Pay (Redsys solo cartera), sin botón de Apple hecho a mano, y «Pagar con tarjeta»', async () => {
+  it('iPhone: «Pagar 100 €» que abre Apple Pay (Redsys solo cartera) como botón principal, sin botón de Apple hecho a mano, y «Pagar con tarjeta» de segunda opción', async () => {
     const { controller } = makeController({ page: CHOOSE });
     const { reply, sent } = fakeReply();
     await controller.payPage('qr-token-1', 'es', undefined, IPHONE, reply);
     const html = sent.body!;
     expect(html).not.toContain('Pagar con Apple Pay');
     expect(html).not.toContain('Pagar con Google Pay');
-    expect(html.match(/type="submit"/g)).toHaveLength(1);
-    expect(html).toMatch(/<button class="btn" id="payBtn" type="submit">Pagar 100\s€<\/button>/);
-    expect(html).toContain('<input type="hidden" name="method" value="wallet">');
+    // Dos botones del mismo formulario (funcionan sin JS): el principal y la tarjeta.
+    expect(html.match(/type="submit"/g)).toHaveLength(2);
+    expect(html).toMatch(/<button class="btn" id="payBtn" type="submit" name="method" value="wallet">Pagar 100\s€<\/button>/);
     expect(html).toContain('Se abre Apple Pay');
-    expect(html).toContain('<button class="link" id="cardBtn" type="button">Pagar con tarjeta</button>');
-    // El botón dice lo que hace mientras envía (no solo se apaga).
-    expect(html).toContain('Enviando…');
+    expect(html).toContain('<button class="btn alt" id="cardBtn" type="submit" name="method" value="card">Pagar con tarjeta</button>');
+    expect(html.indexOf('id="payBtn"')).toBeLessThan(html.indexOf('id="cardBtn"'));
+    // El botón dice lo que hace mientras abre el pago (no solo se apaga).
+    expect(html).toContain('Abriendo Apple Pay…');
   });
 
   it('PAY_DIRECT_WALLET=false (BBVA sin xpay): en el iPhone un solo botón hacia el banco, sin «Pagar con tarjeta»', async () => {
@@ -332,7 +337,7 @@ describe('GET /pay/:token — página de pago', () => {
     const { reply, sent } = fakeReply();
     await controller.payPage('qr-token-1', 'es', undefined, IPHONE, reply);
     const html = sent.body!;
-    expect(html).toContain('<input type="hidden" name="method" value="">');
+    expect(html).toContain('id="payBtn" type="submit" name="method" value="">');
     expect(html).toContain('Apple Pay · Google Pay · tarjeta');
     expect(html).not.toContain('id="cardBtn"');
     expect(html).not.toContain('Se abre Apple Pay');
@@ -343,7 +348,7 @@ describe('GET /pay/:token — página de pago', () => {
     const { reply, sent } = fakeReply();
     await controller.payPage('qr-token-1', 'es', undefined, 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/130 Safari/537.36', reply);
     const html = sent.body!;
-    expect(html).toContain('<input type="hidden" name="method" value="">');
+    expect(html).toContain('id="payBtn" type="submit" name="method" value="">');
     expect(html).toContain('Apple Pay · Google Pay · tarjeta');
     expect(html).not.toContain('id="cardBtn"');
   });
@@ -365,8 +370,8 @@ describe('GET /pay/:token — página de pago', () => {
     });
     const s = fakeReply();
     await small.controller.payPage('qr-token-1', 'es', undefined, IPHONE, s.reply);
-    expect(s.sent.body).toMatch(/value="200"><span><b class="num">\+2\s€<\/b>/);
-    expect(s.sent.body).toMatch(/value="500"><span><b class="num">\+5\s€<\/b>/);
+    expect(s.sent.body).toMatch(/value="200"><span class="num">\+2\s€<\/span>/);
+    expect(s.sent.body).toMatch(/value="500"><span class="num">\+5\s€<\/span>/);
     expect(s.sent.body).toMatch(/Como mucho 20\s€/);
 
     const big = makeController({
@@ -374,8 +379,8 @@ describe('GET /pay/:token — página de pago', () => {
     });
     const b = fakeReply();
     await big.controller.payPage('qr-token-1', 'es', undefined, IPHONE, b.reply);
-    expect(b.sent.body).toMatch(/value="700"><span><b>10\s%<\/b><small class="num">\+7\s€<\/small>/);
-    expect(b.sent.body).toMatch(/value="1000"><span><b>15\s%<\/b><small class="num">\+10\s€<\/small>/);
+    expect(b.sent.body).toMatch(/value="700"><span class="num">10\s%<small class="num">\+7\s€<\/small>/);
+    expect(b.sent.body).toMatch(/value="1000"><span class="num">15\s%<small class="num">\+10\s€<\/small>/);
     // «Otra» necesita JS: empieza oculta.
     expect(b.sent.body).toContain('<label id="otherOpt" hidden><input type="radio" name="tip" value="0" id="otherRadio">');
     expect(b.sent.body).toContain('id="otherIn" type="text" inputmode="numeric"');
@@ -430,15 +435,35 @@ describe('GET /pay/:token — página de pago', () => {
     expect(sent.body).toContain('value="card"');
   });
 
-  it('móvil en alemán → inglés; con botón para cambiar a español', async () => {
+  it('sin elegir idioma: español siempre (nunca el del móvil), con el selector de los cuatro idiomas arriba', async () => {
     const { controller } = makeController({ page: CHOOSE });
     const { reply, sent } = fakeReply();
-    await controller.payPage('qr-token-1', undefined, 'de-DE,de;q=0.9', IPHONE, reply);
-    expect(sent.body).toContain('You are paying');
-    expect(sent.body).toContain('Pay €100');
-    expect(sent.body).toContain('Opens Apple Pay');
-    expect(sent.body).toContain('Pay by card');
-    expect(sent.body).toContain('href="/pay/qr-token-1?lang=es"');
+    await controller.payPage('qr-token-1', undefined, undefined, IPHONE, reply);
+    expect(sent.body).toContain('<html lang="es">');
+    expect(sent.body).toContain('Pagar 100');
+    expect(sent.body).toContain('<details class="lang" id="langMenu"><summary aria-label="Idioma: Español">');
+    for (const [l, name] of [['es', 'Español'], ['en', 'English'], ['fr', 'Français'], ['pt', 'Português']]) {
+      expect(sent.body).toContain(`<a href="?lang=${l}" lang="${l}" hreflang="${l}" data-lang="${l}"`);
+      expect(sent.body).toContain(`>${name}</a>`);
+    }
+    expect(sent.body).toContain('aria-current="true">Español</a>');
+    expect(sent.headers['Set-Cookie']).toBeUndefined();
+  });
+
+  it('el idioma elegido se recuerda en la cookie y vale sin ?lang (también un QR nuevo)', async () => {
+    const { controller } = makeController({ page: CHOOSE });
+    const chosen = fakeReply();
+    await controller.payPage('qr-token-1', 'fr', undefined, IPHONE, chosen.reply);
+    expect(chosen.sent.body).toContain('<html lang="fr">');
+    expect(chosen.sent.body).toMatch(/Payer 100\s€/);
+    expect(chosen.sent.body).toContain('Apple Pay va s’ouvrir');
+    expect(chosen.sent.body).toContain('Payer par carte');
+    expect(chosen.sent.headers['Set-Cookie']).toMatch(/^np_lang=fr; Path=\/; Max-Age=31536000; SameSite=Lax/);
+    const later = fakeReply();
+    await controller.payPage('qr-token-2', undefined, 'np_lang=pt', IPHONE, later.reply);
+    expect(later.sent.body).toContain('<html lang="pt">');
+    expect(later.sent.body).toContain('Pagar com cartão');
+    expect(later.sent.headers['Set-Cookie']).toBeUndefined();
   });
 
   it('enseña el nombre del extracto si está configurado', async () => {

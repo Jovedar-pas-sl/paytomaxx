@@ -73,7 +73,7 @@ describe('/w/:token — la página sabe si Google Wallet está configurado', () 
       const { controller, charges } = makeController(enabled);
       charges.clientState.mockResolvedValueOnce(state);
       const reply = fakeReply();
-      await controller.page('tok', 'es', undefined, reply as never);
+      await controller.page('tok', 'es', reply as never);
       expect(reply.body.includes('id="gwCard"')).toBe(enabled);
     }
   });
@@ -179,7 +179,7 @@ describe('/w/:token/topup — «Recargar» desde el móvil', () => {
   it('crea la recarga y deja la cookie de vuelta en /pay (HttpOnly) para el cobro creado', async () => {
     const { controller, topUps } = makeController();
     const { reply, headers } = cookieReply();
-    const out = await controller.topUp('tok', { amountCents: 5000, key: 'k'.repeat(22), lang: 'en' }, 'api.x', 'es', reply as never);
+    const out = await controller.topUp('tok', { amountCents: 5000, key: 'k'.repeat(22), lang: 'en' }, 'api.x', 'np_lang=es', reply as never);
     expect(out).toEqual({ payUrl: '/pay/pay-tok-1?lang=es' });
     expect(topUps.start).toHaveBeenCalledWith(
       'tok',
@@ -189,10 +189,12 @@ describe('/w/:token/topup — «Recargar» desde el móvil', () => {
     expect(headers['Set-Cookie']).toMatch(/^npw_[A-Za-z0-9_-]{22}=c{43}; Path=\/pay; Max-Age=\d+; HttpOnly; /);
   });
 
-  it('sin idioma en el cuerpo, el del móvil; el reto del Face ID es del servicio', async () => {
+  it('sin idioma en el cuerpo, el que eligió (su cookie) o español; el reto del Face ID es del servicio', async () => {
     const { controller, topUps } = makeController();
-    await controller.topUp('tok', undefined, undefined, 'en-GB,en;q=0.9', cookieReply().reply as never);
-    expect(topUps.start).toHaveBeenCalledWith('tok', expect.objectContaining({ lang: 'en', amountCents: undefined }), undefined);
+    await controller.topUp('tok', undefined, undefined, 'np_lang=pt', cookieReply().reply as never);
+    expect(topUps.start).toHaveBeenCalledWith('tok', expect.objectContaining({ lang: 'pt', amountCents: undefined }), undefined);
+    await controller.topUp('tok', undefined, undefined, undefined, cookieReply().reply as never);
+    expect(topUps.start).toHaveBeenLastCalledWith('tok', expect.objectContaining({ lang: 'es' }), undefined);
     await expect(controller.topUpChallenge('tok', 'api.x')).resolves.toEqual({ challenge: 'topup-reto' });
     expect(topUps.challenge).toHaveBeenCalledWith('tok', 'api.x');
   });
@@ -222,7 +224,7 @@ describe('/w/:token/topup — «Recargar» desde el móvil', () => {
     });
     topUps.paidProof.mockResolvedValueOnce({ payToken: 'pay-1', amountCents: 5000, authorizedAt: new Date().toISOString(), code: '7F2' });
     const reply = fakeReply();
-    await controller.page('tok', 'es', undefined, reply as never, 'pay-1');
+    await controller.page('tok', 'es', reply as never, 'pay-1');
     expect(topUps.paidProof).toHaveBeenCalledWith('tok', 'pay-1');
     expect(topUps.options).toHaveBeenCalledWith('tok');
     expect(reply.body).toContain('id="proof"');
@@ -236,7 +238,7 @@ describe('saldo con passkey: consultar también exige el desbloqueo', () => {
     const { controller, charges, passkeys } = makeController();
     passkeys.hasPasskey.mockResolvedValue(true);
     const reply = fakeReply();
-    await controller.page('private-token', 'es', undefined, reply as never);
+    await controller.page('private-token', 'es', reply as never);
     expect(reply.body).toContain('Consulta tu saldo');
     expect(reply.body).not.toContain('K7Q-4M2');
     expect(charges.clientState).not.toHaveBeenCalled();

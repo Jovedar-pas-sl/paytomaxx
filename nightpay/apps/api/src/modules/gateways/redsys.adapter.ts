@@ -138,7 +138,7 @@ export class RedsysAdapter implements GatewayAdapter {
 
     const apiBase = this.config.get<string>('NEXT_PUBLIC_API_URL') ?? 'http://localhost:4100';
     // El cliente vuelve del banco en el idioma que eligió en la página de pago.
-    const langQs = input.language === 'en' ? '&lang=en' : '';
+    const langQs = input.language && input.language !== 'es' ? `&lang=${input.language}` : '';
     const urlOk = `${apiBase.replace(/\/+$/, '')}/pay/result?status=ok&op=${encodeURIComponent(dsOrder)}${langQs}`;
     const urlKo = `${apiBase.replace(/\/+$/, '')}/pay/result?status=ko&op=${encodeURIComponent(dsOrder)}${langQs}`;
     const merchantUrl = `${apiBase.replace(/\/+$/, '')}/v1/webhooks/redsys`;
@@ -781,7 +781,8 @@ export function checkRedsysReplayWindow(
 const REDSYS_PAYMETHOD: Record<'wallet' | 'card', string> = { wallet: 'xpay', card: 'C' };
 
 /** DS_MERCHANT_CONSUMERLANGUAGE: 001 castellano, 002 inglés. */
-const REDSYS_LANGUAGE: Record<'es' | 'en', string> = { es: '001', en: '002' };
+/** Ds_Merchant_ConsumerLanguage de Redsys: 001 castellano, 002 inglés, 004 francés, 009 portugués. */
+const REDSYS_LANGUAGE: Record<'es' | 'en' | 'fr' | 'pt', string> = { es: '001', en: '002', fr: '004', pt: '009' };
 
 export interface RedsysNotification {
   order: string;

@@ -3,6 +3,7 @@ import type { FastifyReply } from 'fastify';
 import { Public } from '../../../common/decorators/public.decorator';
 import { IpRateLimit } from '../../../common/guards/ip-rate-limit.guard';
 import { GOOGLE_WALLET_BUTTONS } from './google-wallet-button';
+import { isPayLanguage } from '../../payments/customer-lang';
 import { GoogleWalletService } from './google-wallet.service';
 import { WalletViewGuard } from '../wallet-view.guard';
 
@@ -42,7 +43,7 @@ export class GoogleWalletController {
   @Public()
   @Get('assets/google-wallet/:lang')
   button(@Param('lang') lang: string, @Res() res: FastifyReply): void {
-    if (!this.gwallet.enabled || (lang !== 'es' && lang !== 'en')) throw new NotFoundException();
+    if (!this.gwallet.enabled || !isPayLanguage(lang)) throw new NotFoundException();
     res
       .status(200)
       .header('Content-Type', 'image/svg+xml; charset=utf-8')

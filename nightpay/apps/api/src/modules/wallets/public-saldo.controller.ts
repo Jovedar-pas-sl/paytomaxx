@@ -15,7 +15,7 @@ import {
 import type { FastifyReply } from 'fastify';
 import { Public } from '../../common/decorators/public.decorator';
 import { IpRateLimit } from '../../common/guards/ip-rate-limit.guard';
-import { resolveLanguage } from '../payments/pay-i18n';
+import { customerLanguage } from '../payments/customer-lang';
 import { renderQrChargePage } from './qr-charge-page';
 import { WalletChargesService, type QrChargeClientView, type QrChargePaid } from './wallet-charges.service';
 import { WalletPasskeysService } from './wallet-passkeys.service';
@@ -48,15 +48,18 @@ export class PublicSaldoController {
   async page(
     @Param('token') token: string,
     @Query('lang') langQuery: string | undefined,
-    @Headers('accept-language') acceptLanguage: string | undefined,
+    @Headers('cookie') cookies: string | undefined,
     @Res() res: FastifyReply,
   ): Promise<void> {
     const view = await this.charges.qrChargeForClient(token);
+    // Español por defecto; el idioma que elige el cliente queda en su cookie.
+    const { lang, setCookie } = customerLanguage(langQuery, cookies);
+    if (setCookie) res.header('Set-Cookie', setCookie);
     res
       .status(200)
       .header('Content-Type', 'text/html; charset=utf-8')
       .header('Cache-Control', 'no-store')
-      .send(renderQrChargePage(token, resolveLanguage(langQuery, acceptLanguage), view));
+      .send(renderQrChargePage(token, lang, view));
   }
 
   /**

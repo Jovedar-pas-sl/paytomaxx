@@ -134,6 +134,17 @@ describe('RedsysAdapter.authorize() — flujo Redsys SIS', () => {
     expect(p.DS_MERCHANT_AMOUNT).toBe('10500');
   });
 
+  it('francés → 004 y portugués → 009 (página del banco en su idioma) y vuelta con su lang', async () => {
+    const fr = merchantParams((await makeAdapter().authorize({ ...base, language: 'fr' })).checkoutForm!.fields);
+    expect(fr.DS_MERCHANT_CONSUMERLANGUAGE).toBe('004');
+    expect(fr.DS_MERCHANT_URLOK).toContain('&lang=fr');
+    expect(fr.DS_MERCHANT_URLKO).toContain('&lang=fr');
+    const pt = merchantParams((await makeAdapter().authorize({ ...base, language: 'pt' })).checkoutForm!.fields);
+    expect(pt.DS_MERCHANT_CONSUMERLANGUAGE).toBe('009');
+    expect(pt.DS_MERCHANT_URLOK).toContain('&lang=pt');
+    expect(pt.DS_MERCHANT_AMOUNT).toBe('10500');
+  });
+
   it('concepto con la marca; nombre del comercio solo si se configura', async () => {
     const plain = merchantParams((await makeAdapter().authorize(base)).checkoutForm!.fields);
     expect(plain.DS_MERCHANT_PRODUCTDESCRIPTION).toBe('OxioPay aabbccdd');

@@ -7,8 +7,8 @@ const API_BASE = (process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4100').re
 /** Tokens de los QR: UUID (cobro) o base64url (saldo). Lo demás, enlace roto. */
 const TOKEN_RE = /^[A-Za-z0-9_-]{8,200}$/;
 
-/** Idiomas que entienden las páginas del API; sin ?lang eligen por el móvil. */
-const LANGUAGES: ReadonlySet<string> = new Set(['es', 'en']);
+/** Idiomas que entienden las páginas del API; sin ?lang, el que eligió el cliente (su cookie) o español. */
+const LANGUAGES: ReadonlySet<string> = new Set(['es', 'en', 'fr', 'pt']);
 
 export type CustomerPage = 'pay' | 'w';
 
