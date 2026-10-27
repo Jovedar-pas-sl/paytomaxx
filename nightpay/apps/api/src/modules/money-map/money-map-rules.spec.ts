@@ -3,6 +3,8 @@ import { MONEY_MAP_TIPS, venueSharePercent } from '@nightpay/contracts';
 import {
   buildMoneyMap,
   frozenMoneyMapOf,
+  oxioPayCentsOf,
+  oxioPayOwedOf,
   platformCommissionCents,
   saleMethodOf,
   saleSections,
@@ -272,5 +274,46 @@ describe('consumos del saldo: el % antiguo solo sobre lo cargado SIN comisión d
     expect(all.split.commissions.platformCents).toBe(0);
     const none = buildMoneyMap(input({ sales: [sale({ amountCents: 3_000, method: 'SALDO', platformBps: 1000 })] }));
     expect(none.split.commissions.platformCents).toBe(300);
+  });
+});
+
+describe('lo de OxioPay (la «Liquidación OxioPay»): la misma cuenta que el mapa', () => {
+  it('por concepto: comisión del servicio cobrada (pagos, recargas con tarjeta y en efectivo) − devuelta + plataforma (cobros y saldo)', () => {
+    const i = input({
+      sales: [
+        // Pago directo con la comisión encendida: 33 € + 3,30 €, sin el % antiguo.
+        sale({ amountCents: 3_300, tipCents: 200, method: 'CARD', platformBps: 0, serviceFeeCents: 330 }),
+        // Otro con el interruptor apagado: el 10 % antiguo (2 €).
+        sale({ amountCents: 2_000, method: 'POS', platformBps: 1000 }),
+        // Saldo: 30 € de los que 10 € se cargaron con comisión → 10 % de 20 € (2 €).
+        sale({ amountCents: 3_000, method: 'SALDO', platformBps: 1000, serviceFeeSaldoCents: 1_000 }),
+      ],
+      topUps: { cardCents: 5_000, cardCount: 1, cashCents: 10_000, cashCount: 1, cardFeeCents: 600, cashFeeCents: 1_200 },
+      cardRefunds: { cents: 1_100, count: 1, serviceFeeCents: 95 },
+    });
+    const owed = oxioPayOwedOf(i);
+    expect(owed).toEqual({
+      serviceFeeSales: 330,
+      serviceFeeCardTopUps: 600,
+      serviceFeeCashTopUps: 1_200,
+      serviceFeeRefunded: -95,
+      platformSales: 200,
+      platformSaldo: 200,
+    });
+    const m = buildMoneyMap(i);
+    // Suma de los conceptos = lo que el mapa pone como de OxioPay (comisión del servicio + plataforma).
+    expect(oxioPayCentsOf(m)).toBe(m.serviceFee!.owedCents + m.split.commissions.platformCents);
+    expect(Object.values(owed).reduce((a, b) => a + b, 0)).toBe(oxioPayCentsOf(m));
+    expect(owed.platformSales + owed.platformSaldo).toBe(platformCommissionCents(i.sales));
+  });
+
+  it('sin comisión del servicio: solo la de plataforma (el mapa de siempre, sin serviceFee)', () => {
+    const i = input();
+    const m = buildMoneyMap(i);
+    expect(m).not.toHaveProperty('serviceFee');
+    const owed = oxioPayOwedOf(i);
+    expect(owed.serviceFeeSales + owed.serviceFeeCardTopUps + owed.serviceFeeCashTopUps + owed.serviceFeeRefunded).toBe(0);
+    expect(owed.platformSales + owed.platformSaldo).toBe(m.split.commissions.platformCents);
+    expect(oxioPayCentsOf(m)).toBe(m.split.commissions.platformCents);
   });
 });

@@ -8,6 +8,7 @@ import {
   type MoneyMapScope,
   type MoneyMapSection,
   type MoneyMapServiceFee,
+  type SettlementConceptAmounts,
   withServiceFee,
 } from '@nightpay/contracts';
 import { chargeSections } from '../reports/charge-sections';
@@ -116,9 +117,14 @@ export function sectionsOf(sales: readonly SaleRow[]): MoneyMapSection[] {
   return [...SECTION_CODES.map(row), ...legacy, row(MONEY_MAP_TIPS)];
 }
 
+/** La comisión de plataforma de una venta: su % sobre el importe, sin la propina (ni lo pagado con saldo de la comisión del servicio). */
+function salePlatformCents(s: SaleRow): number {
+  return Math.round(((s.amountCents - Math.max(0, s.serviceFeeSaldoCents ?? 0)) * s.platformBps) / BPS);
+}
+
 /** La comisión de OxioPay: su % sobre lo vendido, sin las propinas (ni lo pagado con saldo de la comisión del servicio). */
 export function platformCommissionCents(sales: readonly SaleRow[]): number {
-  return sum(sales, (s) => Math.round(((s.amountCents - Math.max(0, s.serviceFeeSaldoCents ?? 0)) * s.platformBps) / BPS));
+  return sum(sales, salePlatformCents);
 }
 
 /**
@@ -140,6 +146,31 @@ export function serviceFeeOf(i: Pick<MoneyMapInput, 'sales' | 'topUps' | 'cardRe
     // La que entró por el banco (ventas con tarjeta y recargas con tarjeta).
     cardCents: salesCents + cardTopUps,
   };
+}
+
+/**
+ * Lo que el mapa pone como de OxioPay en el periodo, por concepto: la
+ * «Comisión del servicio» cobrada (pagos directos, recargas con tarjeta y en
+ * efectivo) menos la devuelta (serviceFeeOf → owedCents) y la comisión de
+ * plataforma (platformCommissionCents), en los cobros y en los consumos del
+ * saldo. La suma es owedCents + platformCents del mapa (oxioPayCentsOf): la
+ * «Liquidación OxioPay» se calcula con esto, con las mismas filas.
+ */
+export function oxioPayOwedOf(i: Pick<MoneyMapInput, 'sales' | 'topUps' | 'cardRefunds'>): SettlementConceptAmounts {
+  const fee = serviceFeeOf(i);
+  return {
+    serviceFeeSales: fee.salesCents,
+    serviceFeeCardTopUps: fee.topUpsCents - fee.cashCents,
+    serviceFeeCashTopUps: fee.cashCents,
+    serviceFeeRefunded: -fee.refundedCents,
+    platformSales: sum(i.sales.filter((s) => s.method !== 'SALDO'), salePlatformCents),
+    platformSaldo: sum(i.sales.filter((s) => s.method === 'SALDO'), salePlatformCents),
+  };
+}
+
+/** Lo de OxioPay de un mapa ya hecho: comisión del servicio que se le debe + comisión de plataforma. */
+export function oxioPayCentsOf(map: Pick<MoneyMap, 'serviceFee' | 'split'>): number {
+  return (map.serviceFee?.owedCents ?? 0) + map.split.commissions.platformCents;
 }
 
 export function buildMoneyMap(i: MoneyMapInput): MoneyMap {
