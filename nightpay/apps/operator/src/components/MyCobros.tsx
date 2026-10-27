@@ -13,6 +13,7 @@ import {
   ownCobroState,
   ownNightTotals,
   ownPaidTwiceNote,
+  ownCobrosPollMs,
   type OwnCobroIcon,
   type OwnCobrosSnapshot,
   type OwnNight,
@@ -56,7 +57,7 @@ export function MyCobros({ cancelPending = false, pollMs = 15_000 }: Props) {
       setCancelError(null);
       return undefined;
     },
-    { intervalMs: pollMs, timeoutMs: 45_000 },
+    { intervalMs: ownCobrosPollMs({ cancelPending, pollMs }, items), timeoutMs: 45_000 },
   );
 
   async function onCancel(id: string) {

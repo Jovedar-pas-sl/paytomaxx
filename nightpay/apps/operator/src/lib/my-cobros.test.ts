@@ -11,6 +11,7 @@ import {
   ownCobroStatus,
   ownNightTotals,
   ownPaidTwiceNote,
+  ownCobrosPollMs,
 } from './my-cobros';
 
 const row = (id: string, kind: OwnCobro['kind'], createdAt: string, status = 'AUTHORIZED'): OwnCobro => ({ id, kind, createdAt, status, ref: null, amountCents: 2000, tipCents: 0, methodLabel: kind === 'SALDO' ? 'Saldo' : 'Tarjeta', service: 'Copa con invitación', via: null, isTopUp: false, invitedName: 'Lola', refundedCents: 0 });
@@ -226,10 +227,23 @@ describe('lo que la chica tenía en su lista de antes, y el «cobrado dos veces�
       'Cobrado dos veces: la tarjeta se devolvió sola (120 €)',
     );
     expect(ownPaidTwiceNote({ ...card, paidTwice: { amountCents: 12_000, refunded: false } }, eur)).toBe(
-      'Cobrado dos veces: hay que devolver 120 € a la tarjeta (ya está en Incidencias)',
+      'Cobrado dos veces: hay que devolver 120 € a la tarjeta (avisa al encargado: está en Incidencias)',
     );
     expect(ownPaidTwiceNote({ ...card, paidTwice: null }, eur)).toBeNull();
     // Un API de antes no trae el campo: nada que decir.
     expect(ownPaidTwiceNote(card, eur)).toBeNull();
+  });
+});
+
+describe('cada cuánto se refresca «Cobros»', () => {
+  const chica = { cancelPending: true, pollMs: 5000 };
+  const resto = { cancelPending: false, pollMs: 15_000 };
+  it('la chica: cada 5 s solo mientras tenga un cobro con tarjeta esperando; si no, cada 15 s', () => {
+    expect(ownCobrosPollMs(chica, [{ kind: 'PAYMENT', status: 'CREATED' }, { kind: 'SALDO', status: 'ACCEPTED' }])).toBe(5000);
+    expect(ownCobrosPollMs(chica, [{ kind: 'PAYMENT', status: 'AUTHORIZED' }, { kind: 'SALDO', status: 'ACCEPTED' }])).toBe(15_000);
+    expect(ownCobrosPollMs(chica, null)).toBe(15_000);
+  });
+  it('el resto del personal, como siempre', () => {
+    expect(ownCobrosPollMs(resto, [{ kind: 'PAYMENT', status: 'CREATED' }])).toBe(15_000);
   });
 });
