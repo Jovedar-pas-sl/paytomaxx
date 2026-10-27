@@ -22,10 +22,12 @@ CREATE TABLE IF NOT EXISTS "oxiopay_settlement_settings" (
 );
 
 ALTER TABLE "oxiopay_settlement_settings" DROP CONSTRAINT IF EXISTS "oxiopay_settlement_settings_single_row";
-ALTER TABLE "oxiopay_settlement_settings" ADD CONSTRAINT "oxiopay_settlement_settings_single_row" CHECK ("id" = 1);
+ALTER TABLE "oxiopay_settlement_settings" ADD CONSTRAINT "oxiopay_settlement_settings_single_row" CHECK ("id" = 1) NOT VALID;
+ALTER TABLE "oxiopay_settlement_settings" VALIDATE CONSTRAINT "oxiopay_settlement_settings_single_row";
 ALTER TABLE "oxiopay_settlement_settings" DROP CONSTRAINT IF EXISTS "oxiopay_settlement_settings_start_monday";
 ALTER TABLE "oxiopay_settlement_settings" ADD CONSTRAINT "oxiopay_settlement_settings_start_monday"
-  CHECK (EXTRACT(ISODOW FROM "startWeek") = 1);
+  CHECK (EXTRACT(ISODOW FROM "startWeek") = 1) NOT VALID;
+ALTER TABLE "oxiopay_settlement_settings" VALIDATE CONSTRAINT "oxiopay_settlement_settings_start_monday";
 
 ALTER TABLE "oxiopay_settlement_settings" ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS oxiopay_settlement_settings_bypass_only ON "oxiopay_settlement_settings";
@@ -35,4 +37,5 @@ CREATE POLICY oxiopay_settlement_settings_bypass_only ON "oxiopay_settlement_set
 
 ALTER TABLE "oxiopay_settlements" DROP CONSTRAINT IF EXISTS "oxiopay_settlements_reference_format";
 ALTER TABLE "oxiopay_settlements" ADD CONSTRAINT "oxiopay_settlements_reference_format"
-  CHECK ("reference" ~ '^OXP-[0-9]{4}-S[0-9]{2}-[A-Z0-9-]+(/R[0-9]+)?$' AND length("reference") <= 140);
+  CHECK ("reference" ~ '^OXP-[0-9]{4}-S[0-9]{2}-[A-Z0-9-]+(/R[0-9]+)?$' AND length("reference") <= 140) NOT VALID;
+ALTER TABLE "oxiopay_settlements" VALIDATE CONSTRAINT "oxiopay_settlements_reference_format";

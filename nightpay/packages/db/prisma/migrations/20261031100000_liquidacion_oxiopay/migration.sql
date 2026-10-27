@@ -85,24 +85,30 @@ CREATE UNIQUE INDEX IF NOT EXISTS "oxiopay_settlements_one_active_per_week"
 -- ─── Reglas que la base asegura sola ─────────────────────────────────────
 ALTER TABLE "oxiopay_settlements" DROP CONSTRAINT IF EXISTS "oxiopay_settlements_period_order";
 ALTER TABLE "oxiopay_settlements" ADD CONSTRAINT "oxiopay_settlements_period_order"
-  CHECK ("periodTo" > "periodFrom");
+  CHECK ("periodTo" > "periodFrom") NOT VALID;
+ALTER TABLE "oxiopay_settlements" VALIDATE CONSTRAINT "oxiopay_settlements_period_order";
 ALTER TABLE "oxiopay_settlements" DROP CONSTRAINT IF EXISTS "oxiopay_settlements_iso_week_range";
 ALTER TABLE "oxiopay_settlements" ADD CONSTRAINT "oxiopay_settlements_iso_week_range"
-  CHECK ("isoWeek" BETWEEN 1 AND 53 AND "isoYear" BETWEEN 2000 AND 9999);
+  CHECK ("isoWeek" BETWEEN 1 AND 53 AND "isoYear" BETWEEN 2000 AND 9999) NOT VALID;
+ALTER TABLE "oxiopay_settlements" VALIDATE CONSTRAINT "oxiopay_settlements_iso_week_range";
 ALTER TABLE "oxiopay_settlements" DROP CONSTRAINT IF EXISTS "oxiopay_settlements_reference_format";
 ALTER TABLE "oxiopay_settlements" ADD CONSTRAINT "oxiopay_settlements_reference_format"
-  CHECK ("reference" ~ '^OXP-[0-9]{4}-S[0-9]{2}-[A-Z0-9-]+(/R[0-9]+)?$' AND length("reference") <= 140);
+  CHECK ("reference" ~ '^OXP-[0-9]{4}-S[0-9]{2}-[A-Z0-9-]+(/R[0-9]+)?$' AND length("reference") <= 140) NOT VALID;
+ALTER TABLE "oxiopay_settlements" VALIDATE CONSTRAINT "oxiopay_settlements_reference_format";
 -- Solo se emite con algo que pagar; el total es la semana más los ajustes.
 ALTER TABLE "oxiopay_settlements" DROP CONSTRAINT IF EXISTS "oxiopay_settlements_total_positive";
 ALTER TABLE "oxiopay_settlements" ADD CONSTRAINT "oxiopay_settlements_total_positive"
-  CHECK ("totalCents" > 0);
+  CHECK ("totalCents" > 0) NOT VALID;
+ALTER TABLE "oxiopay_settlements" VALIDATE CONSTRAINT "oxiopay_settlements_total_positive";
 ALTER TABLE "oxiopay_settlements" DROP CONSTRAINT IF EXISTS "oxiopay_settlements_total_sum";
 ALTER TABLE "oxiopay_settlements" ADD CONSTRAINT "oxiopay_settlements_total_sum"
-  CHECK ("totalCents" = "periodCents" + "adjustmentsCents");
+  CHECK ("totalCents" = "periodCents" + "adjustmentsCents") NOT VALID;
+ALTER TABLE "oxiopay_settlements" VALIDATE CONSTRAINT "oxiopay_settlements_total_sum";
 -- Nunca se apunta más de lo que se debe.
 ALTER TABLE "oxiopay_settlements" DROP CONSTRAINT IF EXISTS "oxiopay_settlements_paid_range";
 ALTER TABLE "oxiopay_settlements" ADD CONSTRAINT "oxiopay_settlements_paid_range"
-  CHECK ("paidCents" >= 0 AND "paidCents" <= "totalCents");
+  CHECK ("paidCents" >= 0 AND "paidCents" <= "totalCents") NOT VALID;
+ALTER TABLE "oxiopay_settlements" VALIDATE CONSTRAINT "oxiopay_settlements_paid_range";
 -- El estado casa con lo pagado: emitida = nada; en parte = algo; pagada = todo
 -- (con su fecha); anulada = sin pagos, con fecha, quién y motivo.
 ALTER TABLE "oxiopay_settlements" DROP CONSTRAINT IF EXISTS "oxiopay_settlements_status_consistent";
@@ -113,14 +119,17 @@ ALTER TABLE "oxiopay_settlements" ADD CONSTRAINT "oxiopay_settlements_status_con
     OR ("status" = 'PAID' AND "paidCents" = "totalCents" AND "paidAt" IS NOT NULL AND "voidedAt" IS NULL)
     OR ("status" = 'VOID' AND "paidCents" = 0 AND "paidAt" IS NULL AND "voidedAt" IS NOT NULL
         AND "voidedById" IS NOT NULL AND length(btrim(coalesce("voidReason", ''))) >= 3)
-  );
+  ) NOT VALID;
+ALTER TABLE "oxiopay_settlements" VALIDATE CONSTRAINT "oxiopay_settlements_status_consistent";
 ALTER TABLE "oxiopay_settlements" DROP CONSTRAINT IF EXISTS "oxiopay_settlements_breakdown_is_object";
 ALTER TABLE "oxiopay_settlements" ADD CONSTRAINT "oxiopay_settlements_breakdown_is_object"
-  CHECK (jsonb_typeof("breakdown") = 'object');
+  CHECK (jsonb_typeof("breakdown") = 'object') NOT VALID;
+ALTER TABLE "oxiopay_settlements" VALIDATE CONSTRAINT "oxiopay_settlements_breakdown_is_object";
 -- La generada a mano lleva quién (el repaso del lunes, no).
 ALTER TABLE "oxiopay_settlements" DROP CONSTRAINT IF EXISTS "oxiopay_settlements_manual_has_author";
 ALTER TABLE "oxiopay_settlements" ADD CONSTRAINT "oxiopay_settlements_manual_has_author"
-  CHECK ("auto" OR "generatedById" IS NOT NULL);
+  CHECK ("auto" OR "generatedById" IS NOT NULL) NOT VALID;
+ALTER TABLE "oxiopay_settlements" VALIDATE CONSTRAINT "oxiopay_settlements_manual_has_author";
 
 -- ─── oxiopay_settlement_payments ────────────────────────────────────────
 
@@ -152,13 +161,16 @@ CREATE INDEX IF NOT EXISTS "oxiopay_settlement_payments_tenantId_idx" ON "oxiopa
 
 ALTER TABLE "oxiopay_settlement_payments" DROP CONSTRAINT IF EXISTS "oxiopay_settlement_payments_amount_positive";
 ALTER TABLE "oxiopay_settlement_payments" ADD CONSTRAINT "oxiopay_settlement_payments_amount_positive"
-  CHECK ("amountCents" > 0);
+  CHECK ("amountCents" > 0) NOT VALID;
+ALTER TABLE "oxiopay_settlement_payments" VALIDATE CONSTRAINT "oxiopay_settlement_payments_amount_positive";
 ALTER TABLE "oxiopay_settlement_payments" DROP CONSTRAINT IF EXISTS "oxiopay_settlement_payments_reference_length";
 ALTER TABLE "oxiopay_settlement_payments" ADD CONSTRAINT "oxiopay_settlement_payments_reference_length"
-  CHECK (length(btrim("bankReference")) BETWEEN 1 AND 140);
+  CHECK (length(btrim("bankReference")) BETWEEN 1 AND 140) NOT VALID;
+ALTER TABLE "oxiopay_settlement_payments" VALIDATE CONSTRAINT "oxiopay_settlement_payments_reference_length";
 ALTER TABLE "oxiopay_settlement_payments" DROP CONSTRAINT IF EXISTS "oxiopay_settlement_payments_reason_length";
 ALTER TABLE "oxiopay_settlement_payments" ADD CONSTRAINT "oxiopay_settlement_payments_reason_length"
-  CHECK ("reason" IS NULL OR length(btrim("reason")) BETWEEN 3 AND 500);
+  CHECK ("reason" IS NULL OR length(btrim("reason")) BETWEEN 3 AND 500) NOT VALID;
+ALTER TABLE "oxiopay_settlement_payments" VALIDATE CONSTRAINT "oxiopay_settlement_payments_reason_length";
 
 -- Solo de añadir: un pago apuntado no se reescribe ni se borra (si estaba mal,
 -- se ve en el registro; la liquidación no se puede anular con pagos).
@@ -205,14 +217,17 @@ CREATE TABLE IF NOT EXISTS "oxiopay_payee" (
 );
 
 ALTER TABLE "oxiopay_payee" DROP CONSTRAINT IF EXISTS "oxiopay_payee_single_row";
-ALTER TABLE "oxiopay_payee" ADD CONSTRAINT "oxiopay_payee_single_row" CHECK ("id" = 1);
+ALTER TABLE "oxiopay_payee" ADD CONSTRAINT "oxiopay_payee_single_row" CHECK ("id" = 1) NOT VALID;
+ALTER TABLE "oxiopay_payee" VALIDATE CONSTRAINT "oxiopay_payee_single_row";
 -- Como lo guarda el API: sin espacios, en mayúsculas (el dígito de control, mod-97, en el API).
 ALTER TABLE "oxiopay_payee" DROP CONSTRAINT IF EXISTS "oxiopay_payee_iban_format";
 ALTER TABLE "oxiopay_payee" ADD CONSTRAINT "oxiopay_payee_iban_format"
-  CHECK ("iban" ~ '^[A-Z]{2}[0-9]{2}[A-Z0-9]{11,30}$');
+  CHECK ("iban" ~ '^[A-Z]{2}[0-9]{2}[A-Z0-9]{11,30}$') NOT VALID;
+ALTER TABLE "oxiopay_payee" VALIDATE CONSTRAINT "oxiopay_payee_iban_format";
 ALTER TABLE "oxiopay_payee" DROP CONSTRAINT IF EXISTS "oxiopay_payee_names_length";
 ALTER TABLE "oxiopay_payee" ADD CONSTRAINT "oxiopay_payee_names_length"
-  CHECK (length(btrim("name")) BETWEEN 2 AND 160 AND length(btrim("holder")) BETWEEN 2 AND 160);
+  CHECK (length(btrim("name")) BETWEEN 2 AND 160 AND length(btrim("holder")) BETWEEN 2 AND 160) NOT VALID;
+ALTER TABLE "oxiopay_payee" VALIDATE CONSTRAINT "oxiopay_payee_names_length";
 
 -- Global y solo del super-admin (y del API para enseñarla al dueño): sin bypass
 -- no se ve nada. Sin FORCE (como businesses).
