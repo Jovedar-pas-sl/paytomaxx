@@ -660,7 +660,7 @@ describe('permisos: el dueño solo lo suyo (y solo lectura); la consola, con 2FA
 
 // ─── El repaso del lunes con dos réplicas ───────────────────────────────
 
-/** El Redis compartido por las réplicas (SET NX/EX, EXISTS, DEL y el candado). */
+/** El Redis compartido por las réplicas (SET NX/EX, GET, EXISTS, DEL y el candado). */
 function sharedRedis() {
   const store = new Map<string, string>();
   return {
@@ -670,6 +670,7 @@ function sharedRedis() {
       store.set(key, value);
       return 'OK';
     }),
+    get: vi.fn(async (key: string) => store.get(key) ?? null),
     exists: vi.fn(async (key: string) => (store.has(key) ? 1 : 0)),
     del: vi.fn(async (key: string) => (store.delete(key) ? 1 : 0)),
     eval: vi.fn(async (script: string, _n: number, key: string, value: string) => {
@@ -710,9 +711,34 @@ describe('repaso del lunes: dos réplicas a la vez (candado SET NX) y sin candad
         [y.V, 200, 'ISSUED', true],
       ].sort(),
     );
-    expect(redis.store.get(`np:oxiopay-settlements:done:${W2020.monday}`)).toBe('1');
+    expect(redis.store.get(`np:oxiopay-settlements:done:${W2020.monday}`)).toBe('complete');
     const generated = await sys((tx) => tx.auditEvent.count({ where: { tenantId: { in: [x.V, y.V] }, action: 'superadmin.settlement.generated' } }));
     expect(generated).toBe(2);
+  });
+
+  it('adelantar el inicio recupera una semana con marca antigua sin duplicar liquidaciones', async () => {
+    const l = await local('cron-inicio', { fee: true, createdAt: OLD });
+    await pay(l, T('2020-02-25T21:00:00Z'), { amount: 1_100, fee: 110 });
+    const redis = sharedRedis();
+    const key = `np:oxiopay-settlements:done:${W2020.monday}`;
+    redis.store.set(key, '1');
+    const cron = new OxioPaySettlementsCron(settlements, redis as never, { isConfigured: () => false } as never);
+    try {
+      await setStart('2020-03-02');
+      await inVenue(undefined, () => cron.tick(MONDAY));
+      expect(await sys((tx) => tx.oxioPaySettlement.count({ where: { tenantId: l.V } }))).toBe(0);
+      expect(redis.store.get(key)).toBe('1');
+      await setStart(W2020.monday);
+      await inVenue(undefined, () => cron.tick(new Date(MONDAY.getTime() + 600_000)));
+      await inVenue(undefined, () => cron.tick(new Date(MONDAY.getTime() + 1_200_000)));
+      const rows = await sys((tx) => tx.oxioPaySettlement.findMany({ where: { tenantId: l.V } }));
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({ totalCents: 110, auto: true, status: 'ISSUED' });
+      expect(redis.store.get(key)).toBe('complete');
+      expect(await sys((tx) => tx.auditEvent.count({ where: { tenantId: l.V, action: 'superadmin.settlement.generated' } }))).toBe(1);
+    } finally {
+      await setStart(TEST_START);
+    }
   });
 
   it('sin candado (Redis vacío) y a la vez: la base no deja dos; la segunda devuelve la de la primera', async () => {
@@ -747,7 +773,7 @@ describe('aviso de 7 días sin pagar y la cuenta de OxioPay', () => {
     expect(page.items[0]).toMatchObject({ id, overdue: true, daysOpen: 8 });
     expect(page.totals.overdueCount).toBeGreaterThanOrEqual(1);
     const redis = sharedRedis();
-    redis.store.set(`np:oxiopay-settlements:done:2027-01-11`, '1');
+    redis.store.set(`np:oxiopay-settlements:done:2027-01-11`, 'complete');
     const telegram = { isConfigured: () => true, send: vi.fn(async () => true) };
     const cron = new OxioPaySettlementsCron(settlements, redis as never, telegram as never);
     await inVenue(undefined, () => cron.tick(later));
