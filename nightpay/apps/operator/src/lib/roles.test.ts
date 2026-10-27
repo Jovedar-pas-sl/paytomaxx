@@ -21,6 +21,14 @@ describe('qué ve cada rol', () => {
     },
   );
 
+  it('la chica, en «Cobros» (la lista del panel): cancela ahí sus cobros sin pagar y se refresca cada 5 s, como su lista de antes', () => {
+    expect(roleAccess('OPERATOR').history).toEqual({ cancelPending: true, pollMs: 5000 });
+  });
+
+  it.each(['WAITER', 'MANAGER', 'OWNER'] as const)('%s, en «Cobros»: la misma lista, solo para mirar, cada 15 s', (role) => {
+    expect(roleAccess(role).history).toEqual({ cancelPending: false, pollMs: 15_000 });
+  });
+
   it('una pestaña que el rol no tiene no se abre', () => {
     expect(canOpenTab('WAITER', 'earnings')).toBe(false);
     expect(canOpenTab('WAITER', 'payments')).toBe(true);

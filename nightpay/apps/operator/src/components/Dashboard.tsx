@@ -25,7 +25,6 @@ import { HomeTab } from './HomeTab';
 import { InvitationToast } from './InvitationToast';
 import { TAB_BAR_HEIGHT } from './layout';
 import { MyCobros } from './MyCobros';
-import { MyPayments } from './MyPayments';
 import { PassScanned } from './PassScanned';
 import { PendingPos } from './PendingPos';
 import { ReceptionTab } from './reception/ReceptionTab';
@@ -157,7 +156,10 @@ export function Dashboard({ user, onLogout }: Props) {
       {access.posQueue && showing('pos') ? (
         <PendingPos onConfirmed={refreshMoney} focusPaymentId={links.focusedPosId} onFocusConsumed={links.clearFocus} />
       ) : null}
-      {access.ownPayments && showing('payments') ? user.role === 'OPERATOR' ? <MyPayments /> : <MyCobros /> : null}
+      {/* La misma lista que el panel para todos (/staff/me/cobros); la chica, además, cancela ahí lo suyo sin pagar. */}
+      {access.ownPayments && showing('payments') ? (
+        <MyCobros cancelPending={access.history.cancelPending} pollMs={access.history.pollMs} />
+      ) : null}
       {access.ownEarnings && showing('earnings') ? (
         <Earnings night={night.night} balance={own.balance} nightError={night.error} />
       ) : null}

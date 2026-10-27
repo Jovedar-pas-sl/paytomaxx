@@ -157,6 +157,43 @@ export function ownCobroState(status: string): { label: string; tone: OwnCobroTo
 
 export const ownCobroStatus = (status: string): string => ownCobroState(status).label;
 
+/** Un cobro con tarjeta que aún nadie ha pagado (el QR o el datáfono esperando): se puede cancelar. */
+const CANCELABLE = new Set(['CREATED', 'AWAITING_CAPTURE']);
+
+/** ¿Se puede cancelar desde la lista? (POST /payments/:id/cancel: los suyos, sin pagar). */
+export function ownCobroCancelable(row: Pick<OwnCobro, 'kind' | 'status'>): boolean {
+  return row.kind === 'PAYMENT' && CANCELABLE.has(row.status);
+}
+
+/**
+ * Cobro único cobrado dos veces (lo pagó el saldo y después el banco aprobó
+ * también la tarjeta): lo que dice la fila de la tarjeta, como en el panel.
+ * Null si no pasó (o el API es de antes y no lo dice).
+ */
+export function ownPaidTwiceNote(row: Pick<OwnCobro, 'paidTwice'>, eur: (cents: number) => string): string | null {
+  const p = row.paidTwice;
+  if (!p) return null;
+  return p.refunded
+    ? `Cobrado dos veces: la tarjeta se devolvió sola (${eur(p.amountCents)})`
+    : `Cobrado dos veces: hay que devolver ${eur(p.amountCents)} a la tarjeta (avisa al encargado: está en Incidencias)`;
+}
+
+/** Sin un cobro suyo esperando, «Cobros» se refresca como el del resto del personal. */
+export const OWN_COBROS_IDLE_POLL_MS = 15_000;
+
+/**
+ * Cada cuánto se refresca «Cobros»: la chica, rápido solo mientras tenga un
+ * cobro con tarjeta esperando (para ver al momento si se paga o cancelarlo);
+ * si no, cada 15 s, porque cada refresco revalida toda la noche cargada.
+ */
+export function ownCobrosPollMs(
+  history: { cancelPending: boolean; pollMs: number },
+  items: ReadonlyArray<Pick<OwnCobro, 'kind' | 'status'>> | null,
+): number {
+  if (!history.cancelPending) return history.pollMs;
+  return items?.some(ownCobroCancelable) ? history.pollMs : Math.max(history.pollMs, OWN_COBROS_IDLE_POLL_MS);
+}
+
 const CHARGED = new Set(['AUTHORIZED', 'ACCEPTED', 'PARTIALLY_REFUNDED']);
 const PENDING = new Set(['CREATED', 'AWAITING_CAPTURE', 'AUTHORIZING', 'ORPHAN']);
 

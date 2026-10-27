@@ -6,9 +6,12 @@ import {
   mergeOwnCobros,
   mergeRefreshed,
   ownChargedCents,
+  ownCobroCancelable,
   ownCobroState,
   ownCobroStatus,
   ownNightTotals,
+  ownPaidTwiceNote,
+  ownCobrosPollMs,
 } from './my-cobros';
 
 const row = (id: string, kind: OwnCobro['kind'], createdAt: string, status = 'AUTHORIZED'): OwnCobro => ({ id, kind, createdAt, status, ref: null, amountCents: 2000, tipCents: 0, methodLabel: kind === 'SALDO' ? 'Saldo' : 'Tarjeta', service: 'Copa con invitación', via: null, isTopUp: false, invitedName: 'Lola', refundedCents: 0 });
@@ -204,4 +207,43 @@ it('refresco sin llegar al final (tope de páginas): lo más antiguo que lo refr
   expect(mergeRefreshed(previous, fresh, false).map((r) => r.id)).toEqual(['0006', '0005', '0003', '0002', '0001']);
   expect(mergeRefreshed(previous, fresh, true).map((r) => r.id)).toEqual(['0006', '0005', '0003']);
   expect(mergeRefreshed(previous, [], true)).toEqual([]);
+});
+
+describe('lo que la chica tenía en su lista de antes, y el «cobrado dos veces» del panel', () => {
+  const at = '2026-10-21T22:00:00.000Z';
+  it('se cancela un cobro con tarjeta sin pagar (o esperando el datáfono); uno en el banco, pagado, cerrado o del saldo, no', () => {
+    expect(ownCobroCancelable(row('a', 'PAYMENT', at, 'CREATED'))).toBe(true);
+    expect(ownCobroCancelable(row('b', 'PAYMENT', at, 'AWAITING_CAPTURE'))).toBe(true);
+    for (const status of ['AUTHORIZING', 'AUTHORIZED', 'CANCELED', 'EXPIRED', 'FAILED', 'REFUNDED']) {
+      expect(ownCobroCancelable(row('c', 'PAYMENT', at, status))).toBe(false);
+    }
+    expect(ownCobroCancelable(row('d', 'SALDO', at, 'ACCEPTED'))).toBe(false);
+  });
+
+  it('cobrado dos veces (el saldo y después la tarjeta): la fila de la tarjeta lo dice, como en el panel', () => {
+    const eur = (cents: number) => `${cents / 100} €`;
+    const card = row('t', 'PAYMENT', at, 'CANCELED');
+    expect(ownPaidTwiceNote({ ...card, paidTwice: { amountCents: 12_000, refunded: true } }, eur)).toBe(
+      'Cobrado dos veces: la tarjeta se devolvió sola (120 €)',
+    );
+    expect(ownPaidTwiceNote({ ...card, paidTwice: { amountCents: 12_000, refunded: false } }, eur)).toBe(
+      'Cobrado dos veces: hay que devolver 120 € a la tarjeta (avisa al encargado: está en Incidencias)',
+    );
+    expect(ownPaidTwiceNote({ ...card, paidTwice: null }, eur)).toBeNull();
+    // Un API de antes no trae el campo: nada que decir.
+    expect(ownPaidTwiceNote(card, eur)).toBeNull();
+  });
+});
+
+describe('cada cuánto se refresca «Cobros»', () => {
+  const chica = { cancelPending: true, pollMs: 5000 };
+  const resto = { cancelPending: false, pollMs: 15_000 };
+  it('la chica: cada 5 s solo mientras tenga un cobro con tarjeta esperando; si no, cada 15 s', () => {
+    expect(ownCobrosPollMs(chica, [{ kind: 'PAYMENT', status: 'CREATED' }, { kind: 'SALDO', status: 'ACCEPTED' }])).toBe(5000);
+    expect(ownCobrosPollMs(chica, [{ kind: 'PAYMENT', status: 'AUTHORIZED' }, { kind: 'SALDO', status: 'ACCEPTED' }])).toBe(15_000);
+    expect(ownCobrosPollMs(chica, null)).toBe(15_000);
+  });
+  it('el resto del personal, como siempre', () => {
+    expect(ownCobrosPollMs(resto, [{ kind: 'PAYMENT', status: 'CREATED' }])).toBe(15_000);
+  });
 });

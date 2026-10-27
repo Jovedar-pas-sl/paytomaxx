@@ -1,4 +1,4 @@
-/* «Cobros» del camarero: de un vistazo, a oscuras y con prisa. */
+/* «Cobros» del personal (la chica, el camarero…): de un vistazo, a oscuras y con prisa. */
 
 .list {
   display: grid;
@@ -174,6 +174,25 @@
   font-size: 0.9375rem;
   font-weight: 700;
   color: var(--np-text-label);
+}
+
+/* Cobrado dos veces (el saldo y después la tarjeta), como en el panel: en rojo hasta que se devuelve. */
+.twice {
+  font-size: 0.9375rem;
+  font-weight: 700;
+  line-height: 1.3;
+  color: var(--np-danger);
+}
+
+.twice[data-refunded] {
+  color: var(--np-text-label);
+}
+
+/* Cancelar un cobro aún sin pagar (la chica). */
+.actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 0.25rem;
 }
 
 .what {

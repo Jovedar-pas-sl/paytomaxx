@@ -31,6 +31,7 @@ export class OwnCobrosController {
         kind: r.kind, id: r.id, ref: r.ref, createdAt: r.createdAt, amountCents: r.amountCents,
         tipCents: r.tipCents, serviceFeeCents: r.serviceFeeCents ?? 0, status: r.status, methodLabel: r.methodLabel, via: r.via ?? null,
         service: r.service, isTopUp: r.isTopUp, invitedName: r.invited?.name ?? null, refundedCents: ownRefundedCents(r),
+        paidTwice: r.paidTwice ?? null,
       })),
       ...(night ? { night: { from: night.from.toISOString(), open: night.open } } : {}),
     };
