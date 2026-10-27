@@ -36,7 +36,8 @@ const pay: PayText = {
   tipToStaff: 'Reversé en totalité au personnel',
   total: 'Total',
   breakdown: { consumption: 'Consommation', topUp: 'Recharge', serviceFee: 'Frais de service', tip: 'Pourboire' },
-  feeWhat: 'Qu’est-ce que c’est ?',
+  // Court: que la ligne « Frais de service » ne se coupe pas sur un petit écran.
+  feeWhat: 'C’est quoi ?',
   feeExplain: (pct) =>
     `Des frais de ${pct} sur votre consommation, perçus par la plateforme de paiement pour le service. Ce n’est pas un pourboire.`,
   saldoNoFee: 'Avec votre solde, sans frais de service.',

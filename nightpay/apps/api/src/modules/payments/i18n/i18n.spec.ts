@@ -162,7 +162,7 @@ describe('traducciones de las páginas del cliente', () => {
     expect(frenchSpacing('Payer ? Oui ! « Autre » : non')).toBe(`Payer${NNBSP}? Oui${NNBSP}! «${NBSP}Autre${NBSP}»${NBSP}: non`);
     const fr = leaves(CUSTOMER_TEXT.fr);
     expect(fr.filter((l) => / [:;!?»]|« /.test(l.text)).map((l) => l.path)).toEqual([]);
-    expect(CUSTOMER_TEXT.fr.pay.feeWhat).toBe(`Qu’est-ce que c’est${NNBSP}?`);
+    expect(CUSTOMER_TEXT.fr.pay.feeWhat).toBe(`C’est quoi${NNBSP}?`);
     expect(CUSTOMER_TEXT.fr.pay.openingWallet('Apple Pay')).toBe('Ouverture d’Apple Pay…');
     expect(CUSTOMER_TEXT.fr.pay.openingWallet('Google Pay')).toBe('Ouverture de Google Pay…');
   });
