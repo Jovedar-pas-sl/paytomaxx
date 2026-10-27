@@ -22,6 +22,8 @@ case "$sql" in
   *restore-schema*) echo "${SCHEMA_OK:-t}" ;;
   *restore-migrations*) echo "${MISSING_MIGRATIONS:-}" ;;
   *restore-coherence*) echo "${INCOHERENT:-}" ;;
+  *restore-settlements-schema*) echo "${SETTLEMENTS_SCHEMA:-skip}" ;;
+  *restore-settlements-coherence*) echo "${SETTLEMENTS_INCOHERENT:-}" ;;
   *) echo '1 1 1 2026-10-21T00:00Z 0 migration_complete' ;;
 esac
 SH
@@ -77,6 +79,9 @@ check 'esquema incompleto aunque las tablas tengan filas' fail 'faltan columnas,
 check 'falta una migración anterior a la última restaurada' fail 'faltan migraciones anteriores a la última restaurada: 20260424082148_init' -- MISSING_MIGRATIONS=20260424082148_init
 check 'saldos o cobros incoherentes' fail 'la copia no es coherente: saldos negativos' -- 'INCOHERENT=saldos negativos'
 check 'faltan cobros' fail 'payments = 1 (mínimo 2)' -- MIN_PAYMENTS=2
+check 'liquidaciones OxioPay completas y coherentes' ok '' -- SETTLEMENTS_SCHEMA=ok
+check 'copia con la migración de las liquidaciones pero sin sus tablas' fail 'liquidaciones OxioPay' -- SETTLEMENTS_SCHEMA=missing
+check 'liquidaciones OxioPay incoherentes' fail 'la copia no es coherente: liquidaciones OxioPay con lo pagado distinto de sus pagos' -- SETTLEMENTS_SCHEMA=ok 'SETTLEMENTS_INCOHERENT=liquidaciones OxioPay con lo pagado distinto de sus pagos'
 check 'base de destino con tablas: no se restaura encima' fail 'no está vacía' -- EXISTING_TABLES=3
 if grep -q '^pg_restore' "$CALLS"; then echo 'FAIL la base con tablas llegó a pg_restore'; failed=$((failed + 1)); fi
 DUMP_FILE="$TEMP/backup.sql" check 'SQL plano completo' ok '' -- X=1

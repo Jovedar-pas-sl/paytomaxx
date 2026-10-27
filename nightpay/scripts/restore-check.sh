@@ -190,6 +190,58 @@ SQL
 )" || fail "no se pudo comprobar la coherencia de saldos y cobros"
 [ -z "$incoherent" ] || fail "la copia no es coherente: $incoherent"
 
+# 3b) Liquidaciones OxioPay (20261031100000 y 20261031110000): si la copia trae
+#     esas migraciones, sus tablas, restricciones e índice tienen que estar, y lo
+#     pagado tiene que ser la suma de sus pagos y el total, la semana + los
+#     ajustes. Una copia de antes de esas migraciones no se mira (skip).
+settlements_schema="$(run_psql -qtA <<'SQL'
+-- restore-settlements-schema
+SELECT CASE
+  WHEN NOT EXISTS (SELECT 1 FROM public._prisma_migrations
+                    WHERE migration_name = '20261031100000_liquidacion_oxiopay'
+                      AND finished_at IS NOT NULL AND rolled_back_at IS NULL)
+    THEN 'skip'
+  WHEN to_regclass('public.oxiopay_settlements') IS NOT NULL
+   AND to_regclass('public.oxiopay_settlement_payments') IS NOT NULL
+   AND to_regclass('public.oxiopay_payee') IS NOT NULL
+   AND (to_regclass('public.oxiopay_settlement_settings') IS NOT NULL
+        OR NOT EXISTS (SELECT 1 FROM public._prisma_migrations
+                        WHERE migration_name = '20261031110000_liquidacion_revision'
+                          AND finished_at IS NOT NULL AND rolled_back_at IS NULL))
+   AND NOT EXISTS (
+     SELECT 1 FROM (VALUES ('oxiopay_settlements_total_sum'), ('oxiopay_settlements_paid_range'),
+                           ('oxiopay_settlements_status_consistent'),
+                           ('oxiopay_settlement_payments_settlementId_tenantId_fkey')) AS required(c)
+      WHERE NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = required.c AND convalidated))
+   AND EXISTS (SELECT 1 FROM pg_index i JOIN pg_class x ON x.oid = i.indexrelid
+                WHERE x.relname = 'oxiopay_settlements_one_active_per_week' AND i.indisunique AND i.indisvalid)
+    THEN 'ok'
+  ELSE 'missing'
+END;
+SQL
+)" || fail "no se pudieron comprobar las tablas de las liquidaciones OxioPay"
+case "$settlements_schema" in
+  skip) echo "[restore-check] liquidaciones OxioPay: la copia es de antes de esas migraciones (no se miran)" ;;
+  ok)
+    settlements_incoherent="$(run_psql -qtA <<'SQL'
+-- restore-settlements-coherence
+SET app.bypass_rls = 'on';
+SELECT concat_ws('; ',
+  CASE WHEN EXISTS (SELECT 1 FROM oxiopay_settlements s
+                      LEFT JOIN (SELECT "settlementId", SUM("amountCents") AS paid
+                                   FROM oxiopay_settlement_payments GROUP BY 1) p ON p."settlementId" = s.id
+                     WHERE s."paidCents" <> COALESCE(p.paid, 0))
+       THEN 'liquidaciones OxioPay con lo pagado distinto de sus pagos' END,
+  CASE WHEN EXISTS (SELECT 1 FROM oxiopay_settlements WHERE "totalCents" <> "periodCents" + "adjustmentsCents")
+       THEN 'liquidaciones OxioPay con un total distinto de la semana + los ajustes' END
+);
+SQL
+)" || fail "no se pudo comprobar la coherencia de las liquidaciones OxioPay"
+    [ -z "$settlements_incoherent" ] || fail "la copia no es coherente: $settlements_incoherent"
+    ;;
+  *) fail "la copia trae la migración de las liquidaciones OxioPay pero le faltan sus tablas, restricciones o índices" ;;
+esac
+
 # 4) Datos: como superusuario/dueño y con el bypass de RLS puesto.
 counts="$(run_psql -qtA -F ' ' <<'SQL'
 SET app.bypass_rls = 'on';
