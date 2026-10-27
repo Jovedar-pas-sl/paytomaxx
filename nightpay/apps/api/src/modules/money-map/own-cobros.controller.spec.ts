@@ -26,6 +26,18 @@ it('la primera página trae la noche del local y lo devuelto de cada cobro con t
   expect(page.night).toEqual({ from: '2026-10-21T19:00:00.000Z', open: true });
   expect(page.items.map((r) => r.refundedCents)).toEqual([1000, 0]);
 });
+it('cobrado dos veces: la fila de la tarjeta lo trae, como en el panel (la del saldo y las demás, null)', async () => {
+  const card = { kind: 'PAYMENT', id: 'p1', ref: 'C-0003', createdAt: '2026-10-21T23:00:00Z', amountCents: 12_000, tipCents: 0, status: 'CANCELED', methodLabel: 'Tarjeta', via: null, service: '1 h', isTopUp: false, invited: null, payment: { availableAmountCents: 12_000 }, paidTwice: { amountCents: 12_000, refunded: false } };
+  const saldo = { ...card, kind: 'SALDO', id: 's1', status: 'ACCEPTED', methodLabel: 'Saldo K7Q-•••', payment: null, paidTwice: undefined };
+  const list = vi.fn().mockResolvedValue({ nextCursor: null, items: [card, saldo] });
+  const controller = new OwnCobrosController({ list } as never, { currentWindow: vi.fn() } as never);
+  const page = await controller.list(user, { limit: 50, cursor: 'cursor' });
+  expect(page.items.map((r) => [r.kind, r.paidTwice])).toEqual([
+    ['PAYMENT', { amountCents: 12_000, refunded: false }],
+    ['SALDO', null],
+  ]);
+});
+
 describe('consulta del historial propio', () => {
   it('solo admite paginación; no permite suplantar usuario, local ni consultar otro saldo', () => {
     expect(OwnCobrosQuerySchema.parse({})).toEqual({ limit: 50 });
