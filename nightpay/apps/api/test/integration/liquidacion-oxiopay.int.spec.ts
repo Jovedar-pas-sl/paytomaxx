@@ -82,8 +82,11 @@ interface Local {
 }
 
 /** Un local: dueño, chica, datáfono y un saldo con 1.000 € (para los consumos). */
-async function local(tag: string, o: { fee?: boolean; platformBps?: number; createdAt?: Date; business?: boolean } = {}): Promise<Local> {
-  const slug = `liq-${tag}-${r}`;
+async function local(
+  tag: string,
+  o: { fee?: boolean; platformBps?: number; createdAt?: Date; business?: boolean; slug?: string } = {},
+): Promise<Local> {
+  const slug = o.slug ?? `liq-${tag}-${r}`;
   return sys(async (tx) => {
     const business = o.business
       ? await tx.business.create({ data: { name: `Noches ${tag} S.L.`, taxId: `B${randomBytes(4).readUInt32BE(0).toString().padStart(10, '0').slice(0, 8)}` } })
@@ -225,7 +228,23 @@ beforeAll(async () => {
     SA_ACTOR.id = u.id;
     SA_ACTOR.email = u.email;
   });
+  await setStart(TEST_START);
 });
+
+/**
+ * La semana de inicio de la plataforma (una fila): las pruebas usan semanas de
+ * 2020 a 2027, así que empieza en enero de 2020 (la de la prueba de «vacía» se
+ * restaura al terminar).
+ */
+const TEST_START = '2020-01-06';
+const setStart = (monday: string) =>
+  sys((tx) =>
+    tx.oxioPaySettlementSettings.upsert({
+      where: { id: 1 },
+      create: { id: 1, startWeek: new Date(`${monday}T00:00:00.000Z`) },
+      update: { startWeek: new Date(`${monday}T00:00:00.000Z`) },
+    }),
+  );
 
 afterAll(async () => {
   await prisma.$disconnect();
@@ -234,6 +253,7 @@ afterAll(async () => {
 // ─── La migración ───────────────────────────────────────────────────────
 
 const MIGRATION = join(__dirname, '../../../../packages/db/prisma/migrations/20261031100000_liquidacion_oxiopay/migration.sql');
+const MIGRATION_2 = join(__dirname, '../../../../packages/db/prisma/migrations/20261031110000_liquidacion_revision/migration.sql');
 const CHECKS = [
   'oxiopay_settlements_period_order',
   'oxiopay_settlements_iso_week_range',
@@ -250,6 +270,8 @@ const CHECKS = [
   'oxiopay_payee_single_row',
   'oxiopay_payee_iban_format',
   'oxiopay_payee_names_length',
+  'oxiopay_settlement_settings_single_row',
+  'oxiopay_settlement_settings_start_monday',
 ];
 
 /** Lo que deja la migración (en una transacción de sistema: el SQL nombra tablas con FORCE RLS). */
@@ -264,7 +286,7 @@ async function schemaStateIn(tx: Parameters<Parameters<PrismaService['asSystem']
   );
   const tables = await tx.$queryRawUnsafe<Array<{ relname: string; rls: boolean; forced: boolean }>>(
     `SELECT relname, relrowsecurity AS rls, relforcerowsecurity AS forced FROM pg_class
-      WHERE relname IN ('oxiopay_settlements', 'oxiopay_settlement_payments', 'oxiopay_payee') ORDER BY relname`,
+      WHERE relname IN ('oxiopay_settlements', 'oxiopay_settlement_payments', 'oxiopay_payee', 'oxiopay_settlement_settings') ORDER BY relname`,
   );
   const indexes = await tx.$queryRawUnsafe<Array<{ def: string }>>(
     `SELECT indexdef AS def FROM pg_indexes WHERE indexname = 'oxiopay_settlements_one_active_per_week'`,
@@ -272,7 +294,7 @@ async function schemaStateIn(tx: Parameters<Parameters<PrismaService['asSystem']
   return { checks, tables, indexes };
 }
 
-describe('la migración 20261031100000_liquidacion_oxiopay', () => {
+describe('las migraciones 20261031100000_liquidacion_oxiopay y 20261031110000_liquidacion_revision', () => {
   it('CHECK de importes y estados validados, RLS (FORCE en las del local) y una activa por local y semana', async () => {
     const s = await schemaState();
     expect(s.checks.map((x) => x.name).sort()).toEqual([...CHECKS].sort());
@@ -280,21 +302,40 @@ describe('la migración 20261031100000_liquidacion_oxiopay', () => {
     expect(s.tables).toEqual([
       { relname: 'oxiopay_payee', rls: true, forced: false },
       { relname: 'oxiopay_settlement_payments', rls: true, forced: true },
+      { relname: 'oxiopay_settlement_settings', rls: true, forced: false },
       { relname: 'oxiopay_settlements', rls: true, forced: true },
     ]);
     expect(s.indexes[0]?.def).toMatch(/UNIQUE INDEX.*\("tenantId", "periodFrom"\) WHERE \(status <> 'VOID'/);
   });
 
-  it('se puede repetir: lo mismo, sin error', async () => {
+  it('se pueden repetir (las dos, en orden): lo mismo, sin error', async () => {
     const before = await schemaState();
     const cli = join(__dirname, '../../../../packages/db/node_modules/prisma/build/index.js');
-    const res = spawnSync(process.execPath, [cli, 'db', 'execute', '--url', String(process.env.DATABASE_URL), '--file', MIGRATION], {
-      encoding: 'utf8',
-      env: { ...process.env, PRISMA_HIDE_UPDATE_MESSAGE: '1' },
-    });
-    expect(res.status, `${res.stdout}\n${res.stderr}`).toBe(0);
+    for (const file of [MIGRATION, MIGRATION_2]) {
+      const res = spawnSync(process.execPath, [cli, 'db', 'execute', '--url', String(process.env.DATABASE_URL), '--file', file], {
+        encoding: 'utf8',
+        env: { ...process.env, PRISMA_HIDE_UPDATE_MESSAGE: '1' },
+      });
+      expect(res.status, `${res.stdout}\n${res.stderr}`).toBe(0);
+    }
     expect(await schemaState()).toEqual(before);
   }, 120_000);
+
+  it('la semana de inicio solo un lunes; la referencia admite /R2 y no -R2 ni minúsculas', async () => {
+    const asBypass = (sql: string) =>
+      prisma
+        .$transaction(async (tx) => {
+          await tx.$executeRawUnsafe(`SET LOCAL app.bypass_rls = 'on'`);
+          await tx.$executeRawUnsafe(sql);
+        })
+        .then(() => null, (e: unknown) => String((e as Error).message));
+    expect(await asBypass(`UPDATE oxiopay_settlement_settings SET "startWeek" = '2020-01-07'`)).toMatch(/oxiopay_settlement_settings_start_monday/);
+    expect(await asBypass(`INSERT INTO oxiopay_settlement_settings (id, "startWeek") VALUES (2, '2020-01-13')`)).toMatch(/single_row|23505/);
+    const bad = await asBypass(
+      `UPDATE oxiopay_settlements SET reference = reference || '-r2' WHERE id = (SELECT id FROM oxiopay_settlements LIMIT 1)`,
+    );
+    expect(bad === null || /oxiopay_settlements_reference_format/.test(bad)).toBe(true);
+  });
 });
 
 // ─── Una semana normal: tres locales ────────────────────────────────────
@@ -411,7 +452,7 @@ describe('semana normal: comisión del servicio encendida, apagada y saldo carga
     expect(events[1]).toMatchObject({ actorId: SA_ACTOR.id, tenantId: on.V, payload: expect.objectContaining({ reason: 'Pagó a cuenta', matchesPending: false }) });
   });
 
-  it('anulada (sin pagos, con motivo) y regenerada: -2, con las mismas cifras; la anulada sigue en el registro', async () => {
+  it('anulada (sin pagos, con motivo) y regenerada: /R2, con las mismas cifras; la anulada sigue en el registro', async () => {
     const old = ids[off.slug]!;
     const voided = await inVenue(undefined, () => sa.void(SA_ACTOR, old, { reason: 'Faltaba un cobro', totpCode: '123456' }));
     expect(voided).toMatchObject({ status: 'VOID', pendingCents: 0, voidReason: 'Faltaba un cobro' });
@@ -419,7 +460,7 @@ describe('semana normal: comisión del servicio encendida, apagada y saldo carga
     // El repaso automático no la regenera (si nadie lo hace, entra la semana siguiente como ajuste).
     expect(await generate(off, W42, AFTER_W42)).toMatchObject({ kind: 'voided', id: old });
     const fresh = await inVenue(undefined, () => sa.generate(SA_ACTOR, { venueId: off.V, week: '2026-10-12', reason: 'Rehecha', totpCode: '123456' }, AFTER_W42));
-    expect(fresh).toMatchObject({ reference: `OXP-2026-S42-${off.slug.toUpperCase()}-2`, totalCents: 830, replacesId: old, auto: false, status: 'ISSUED' });
+    expect(fresh).toMatchObject({ reference: `OXP-2026-S42-${off.slug.toUpperCase()}/R2`, totalCents: 830, replacesId: old, auto: false, status: 'ISSUED' });
     const err = await inVenue(undefined, () => sa.generate(SA_ACTOR, { venueId: off.V, week: '2026-10-12', totpCode: '123456' }, AFTER_W42)).catch((e: unknown) => e);
     expect(((err as ConflictException).getResponse() as { code: string }).code).toBe('SETTLEMENT_EXISTS');
     const actions = await sys((tx) => tx.auditEvent.findMany({ where: { tenantId: off.V, action: { startsWith: 'superadmin.settlement.' } }, orderBy: { id: 'asc' } }));
@@ -548,6 +589,9 @@ describe('devolución dentro de la semana y otra apuntada tarde con fecha de la 
       { weekFrom: '2026-11-02', isoYear: 2026, isoWeek: 45, reference: frozen.reference, day: '2026-11-06', concept: 'serviceFeeRefunded', amountCents: -95 },
     ]);
     expect(s46).toMatchObject({ adjustmentsCents: -95, totalCents: 330 - 47 - 95 });
+    // El resumen por concepto es solo de la semana (−0,47 €, no −0,47 − 0,95): el ajuste va aparte.
+    const s46Detail = await inVenue(undefined, () => settlements.detailForSuperAdmin(s46.id));
+    expect(s46Detail.byConcept).toEqual(c({ serviceFeeSales: 330, serviceFeeRefunded: -47 }));
     // Con el tiempo cuadra: lo liquidado de la 45 (235 − 95) es lo que da su mapa.
     expect(frozen.totalCents + s46.adjustmentsCents).toBe(await mapOxioPay(l, W45));
   });
@@ -731,6 +775,160 @@ describe('aviso de 7 días sin pagar y la cuenta de OxioPay', () => {
   });
 });
 
+// ─── Ronda de revisión ──────────────────────────────────────────────────
+
+describe('ronda de revisión: el % fijado en el consumo y lo congelado del libro', () => {
+  it('D3: el consumo guarda el % del local; cambiar el % después no cambia lo ya gastado (los de antes, sin él, siguen con el de ahora)', async () => {
+    const l = await local('d3', { platformBps: 1000 });
+    const W = weekStartingOn('2027-02-01');
+    // Como lo deja el API ahora (con su %), y uno de antes (sin %, null).
+    await sys((tx) =>
+      tx.walletConsumption.create({
+        data: { tenantId: l.V, walletId: l.wallet, amountCents: 3_000, providedByUserId: l.lola, category: 'VENUE_BAR', platformCommissionBps: 1000, createdAt: T('2027-02-02T21:00:00Z') },
+      }),
+    );
+    await consume(l, T('2027-02-03T21:00:00Z'), 2_000);
+    await sys((tx) => tx.venue.update({ where: { id: l.V }, data: { platformCommissionBps: 500 } }));
+    // El fijado: 10 % de 30 € = 3 €; el de antes: el 5 % de ahora de 20 € = 1 €.
+    expect(await mapOxioPay(l, W)).toBe(300 + 100);
+    const s = await created(await generate(l, W, T('2027-02-08T10:00:00Z')));
+    expect(s.byConcept.platformSaldo).toBe(400);
+  });
+
+  it('lo congelado del libro no se recalcula con el % de ahora: cambiar el % del local no da ajustes falsos', async () => {
+    const l = await local('libro', { platformBps: 1000 });
+    const W1 = weekStartingOn('2027-02-15');
+    const W2 = weekStartingOn('2027-02-22');
+    // Un consumo de antes (sin % fijado): la semana se liquida con el 10 % (2 €).
+    await consume(l, T('2027-02-16T21:00:00Z'), 2_000);
+    expect((await created(await generate(l, W1, T('2027-02-22T10:00:00Z')))).totalCents).toBe(200);
+    await sys((tx) => tx.venue.update({ where: { id: l.V }, data: { platformCommissionBps: 500 } }));
+    await consume(l, T('2027-02-23T21:00:00Z'), 2_000);
+    const s2 = await created(await generate(l, W2, T('2027-03-01T10:00:00Z')));
+    expect(s2.adjustments).toEqual([]);
+    expect(s2.totalCents).toBe(100);
+  });
+});
+
+describe('ronda de revisión: pagos y referencias', () => {
+  let l: Local;
+  let id: string;
+  const W = weekStartingOn('2027-03-08');
+
+  beforeAll(async () => {
+    l = await local('pagos', { fee: true });
+    await pay(l, T('2027-03-09T21:00:00Z'), { amount: 3_000, fee: 300 });
+    id = (await created(await generate(l, W, T('2027-03-15T10:00:00Z')))).id;
+  });
+
+  it('S1: si el registro no se puede escribir, el pago no se apunta (misma transacción)', async () => {
+    const dto = { amountCents: 100, paidOn: '2027-03-16', bankReference: 'TRF-S1', reason: 'A cuenta' };
+    await expect(
+      inVenue(undefined, () =>
+        settlements.recordPayment(SA_ACTOR, id, dto, T('2027-03-16T10:00:00Z'), async () => {
+          throw new Error('sin registro');
+        }),
+      ),
+    ).rejects.toThrow('sin registro');
+    const s = await inVenue(undefined, () => settlements.detailForSuperAdmin(id));
+    expect(s).toMatchObject({ paidCents: 0, status: 'ISSUED', payments: [] });
+  });
+
+  it('S3: la misma referencia del banco otra vez: 409 (sin gastar el 2FA); confirmándolo, se apunta', async () => {
+    const now = T('2027-03-17T10:00:00Z');
+    await inVenue(undefined, () => sa.recordPayment(SA_ACTOR, id, { amountCents: 100, paidOn: '2027-03-16', bankReference: 'TRF-9', reason: 'A cuenta', totpCode: '123456' }, now));
+    const err = await inVenue(undefined, () =>
+      sa.recordPayment(SA_ACTOR, id, { amountCents: 100, paidOn: '2027-03-16', bankReference: ' trf-9 ', reason: 'Otra vez', totpCode: '123456' }, now),
+    ).catch((e: unknown) => e);
+    expect(((err as ConflictException).getResponse() as { code: string }).code).toBe('SETTLEMENT_PAYMENT_DUPLICATE');
+    const ok = await inVenue(undefined, () =>
+      sa.recordPayment(SA_ACTOR, id, { amountCents: 100, paidOn: '2027-03-16', bankReference: 'TRF-9', reason: 'Otro abono', confirmDuplicate: true, totpCode: '123456' }, now),
+    );
+    expect(ok).toMatchObject({ paidCents: 200, status: 'PARTIALLY_PAID' });
+    // El dueño ve los pagos, sin las notas internas ni quién los apuntó.
+    const owner = await inVenue(l.V, () => settlements.detailForOwner(l.V, id));
+    expect(owner.payments.map((p) => [p.amountCents, p.reason, p.recordedByEmail])).toEqual([
+      [100, null, null],
+      [100, null, null],
+    ]);
+  });
+
+  it('D7: el local «x-2» y la regenerada de «x» no chocan (/R2)', async () => {
+    const base = `liq-d7-${r}`;
+    const x = await local('d7x', { fee: true, slug: base });
+    const x2 = await local('d7y', { fee: true, slug: `${base}-2` });
+    const Wd = weekStartingOn('2027-03-22');
+    for (const v of [x, x2]) await pay(v, T('2027-03-23T21:00:00Z'), { amount: 1_000, fee: 100 });
+    const first = await created(await generate(x, Wd, T('2027-03-29T10:00:00Z')));
+    await inVenue(undefined, () => sa.void(SA_ACTOR, first.id, { reason: 'Rehacer', totpCode: '123456' }));
+    const again = await inVenue(undefined, () => sa.generate(SA_ACTOR, { venueId: x.V, week: Wd.monday, totpCode: '123456' }, T('2027-03-29T11:00:00Z')));
+    const other = await created(await generate(x2, Wd, T('2027-03-29T10:00:00Z')));
+    expect(again.reference).toBe(`OXP-2027-S12-${base.toUpperCase()}/R2`);
+    expect(other.reference).toBe(`OXP-2027-S12-${base.toUpperCase()}-2`);
+  });
+});
+
+describe('ronda de revisión: semana de inicio', () => {
+  afterAll(async () => {
+    await setStart(TEST_START);
+  });
+
+  it('D1: nada anterior se liquida: el repaso no la genera, a mano 400 antes del 2FA y tampoco entra como ajuste', async () => {
+    await setStart('2027-05-03');
+    const l = await local('inicio', { fee: true });
+    await pay(l, T('2027-04-27T21:00:00Z'), { amount: 1_000, fee: 100 });
+    const err = await inVenue(undefined, () => sa.generate(SA_ACTOR, { venueId: l.V, week: '2027-04-26', totpCode: '123456' }, T('2027-05-03T10:00:00Z'))).catch(
+      (e: unknown) => e,
+    );
+    expect(err).toBeInstanceOf(BadRequestException);
+    expect((err as Error).message).toMatch(/anterior a la semana de inicio/);
+    expect(await inVenue(undefined, () => settlements.runDue(T('2027-05-03T09:30:00Z')))).toMatchObject({ beforeStart: true, created: [] });
+    expect(await sys((tx) => tx.oxioPaySettlement.count({ where: { tenantId: l.V } }))).toBe(0);
+    expect((await inVenue(undefined, () => sa.list({ venueId: l.V }))).startWeek).toBe('2027-05-03');
+    // La primera semana desde la de inicio: lo de antes tampoco entra como ajuste.
+    await pay(l, T('2027-05-04T21:00:00Z'), { amount: 2_000, fee: 200 });
+    const first = await created(await generate(l, weekStartingOn('2027-05-03'), T('2027-05-10T08:00:00Z')));
+    expect(first).toMatchObject({ periodCents: 200, adjustmentsCents: 0, adjustments: [], totalCents: 200 });
+  });
+
+  it('D1: vacía, la primera vez se fija al próximo lunes (al registro), y un cambio va con su motivo al registro', async () => {
+    await sys((tx) => tx.oxioPaySettlementSettings.deleteMany({}));
+    const week = await inVenue(undefined, () => settlements.ensureStartWeek(T('2026-11-04T12:00:00Z')));
+    expect(week.monday).toBe('2026-11-09');
+    const auto = await sys((tx) => tx.auditEvent.findFirst({ where: { action: 'superadmin.settlement.start_week_set' }, orderBy: { id: 'desc' } }));
+    expect(auto?.payload).toMatchObject({ auto: true, startWeek: '2026-11-09' });
+    await inVenue(undefined, () => sa.setStartWeek(SA_ACTOR, { startWeek: '2026-11-16', reason: 'Empezamos una semana después', totpCode: '123456' }));
+    const changed = await sys((tx) =>
+      tx.auditEvent.findFirst({ where: { action: 'superadmin.settlement.start_week_updated', actorId: SA_ACTOR.id }, orderBy: { id: 'desc' } }),
+    );
+    expect(changed?.payload).toMatchObject({ before: { startWeek: '2026-11-09' }, after: { startWeek: '2026-11-16' }, reason: 'Empezamos una semana después' });
+  });
+});
+
+describe('ronda de revisión: la comprobación acumulada (D4)', () => {
+  it('algo apuntado tarde fuera de las 12 semanas y un local dado de baja con algo sin pagar: se encuentran', async () => {
+    const start = weekStartingOn(TEST_START);
+    const l = await local('d4', { fee: true });
+    const A = weekStartingOn('2025-01-06');
+    const direct = await pay(l, T('2025-01-07T21:00:00Z'), { amount: 1_000, fee: 100 });
+    await created(await generate(l, A, T('2025-01-13T10:00:00Z')));
+    // Una devolución de BBVA con fecha de la semana A, apuntada 14 semanas después.
+    await refund(l, direct, T('2025-01-08T10:00:00Z'), 300, 30, T('2025-04-15T10:00:00Z'));
+    const late = weekStartingOn('2025-04-14');
+    const found = await inVenue(undefined, () => settlements.reconcile(late, start, [{ id: l.V, name: 'Sala d4' }]));
+    expect(found).toContainEqual({ venueId: l.V, venueName: 'Sala d4', kind: 'outside_window', cents: -30 });
+
+    const gone = await local('d4b', { fee: true });
+    const B = weekStartingOn('2025-02-03');
+    await pay(gone, T('2025-02-04T21:00:00Z'), { amount: 2_000, fee: 200 });
+    await created(await generate(gone, B, T('2025-02-10T10:00:00Z')));
+    await sys((tx) => tx.venue.update({ where: { id: gone.V }, data: { deletedAt: T('2025-02-11T10:00:00Z') } }));
+    const after = await inVenue(undefined, () => settlements.reconcile(weekStartingOn('2025-02-17'), start, []));
+    expect(after).toContainEqual({ venueId: gone.V, venueName: 'Sala d4b', kind: 'closed_pending', cents: 200 });
+    expect(after.filter((f) => f.venueId === gone.V && f.kind === 'closed_unsettled')).toEqual([]);
+  }, 120_000);
+});
+
 /** Los conceptos de una liquidación suman su total (nunca un céntimo suelto). */
 describe('cuadre interno', () => {
   it('en todas las liquidaciones de esta prueba: conceptos = total, noches + ajustes = total', async () => {
@@ -738,7 +936,9 @@ describe('cuadre interno', () => {
     expect(rows.length).toBeGreaterThan(5);
     for (const row of rows) {
       const s = await inVenue(undefined, () => settlements.detailForSuperAdmin(row.id));
-      expect(conceptsTotal(s.byConcept)).toBe(s.totalCents);
+      // Por concepto, solo la semana (los ajustes van aparte).
+      expect(conceptsTotal(s.byConcept)).toBe(s.periodCents);
+      expect(s.periodCents + s.adjustmentsCents).toBe(s.totalCents);
       expect(s.nights.reduce((a, n) => a + n.totalCents, 0) + s.adjustments.reduce((a, x) => a + x.amountCents, 0)).toBe(s.totalCents);
       // Lo pagado es la suma de sus pagos apuntados.
       expect(s.payments.reduce((a, p) => a + p.amountCents, 0)).toBe(s.paidCents);
