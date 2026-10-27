@@ -7,7 +7,7 @@
 -- super-admin apunta lo recibido (con 2FA).
 --
 --   oxiopay_settlements          una por local y semana (una activa: índice
---                                parcial; anulada se puede regenerar con -2…),
+--                                parcial; anulada se puede regenerar: /R2…),
 --                                cifras congeladas al emitirla y su desglose
 --   oxiopay_settlement_payments  pagos apuntados (solo de añadir: trigger)
 --   oxiopay_payee                la cuenta de OxioPay (una fila, id = 1)
@@ -91,7 +91,7 @@ ALTER TABLE "oxiopay_settlements" ADD CONSTRAINT "oxiopay_settlements_iso_week_r
   CHECK ("isoWeek" BETWEEN 1 AND 53 AND "isoYear" BETWEEN 2000 AND 9999);
 ALTER TABLE "oxiopay_settlements" DROP CONSTRAINT IF EXISTS "oxiopay_settlements_reference_format";
 ALTER TABLE "oxiopay_settlements" ADD CONSTRAINT "oxiopay_settlements_reference_format"
-  CHECK ("reference" ~ '^OXP-[0-9]{4}-S[0-9]{2}-[A-Z0-9-]+$' AND length("reference") <= 140);
+  CHECK ("reference" ~ '^OXP-[0-9]{4}-S[0-9]{2}-[A-Z0-9-]+(/R[0-9]+)?$' AND length("reference") <= 140);
 -- Solo se emite con algo que pagar; el total es la semana más los ajustes.
 ALTER TABLE "oxiopay_settlements" DROP CONSTRAINT IF EXISTS "oxiopay_settlements_total_positive";
 ALTER TABLE "oxiopay_settlements" ADD CONSTRAINT "oxiopay_settlements_total_positive"

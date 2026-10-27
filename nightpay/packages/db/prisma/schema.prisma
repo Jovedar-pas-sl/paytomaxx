@@ -1435,7 +1435,7 @@ model OxioPaySettlement {
   periodTo         DateTime                @db.Timestamptz
   isoYear          Int
   isoWeek          Int
-  // OXP-2026-S44-<SLUG> (con -2, -3… si se regenera tras anularla): la de la transferencia.
+  // OXP-2026-S44-<SLUG> (con /R2, /R3… si se regenera tras anularla): la de la transferencia.
   reference        String                  @unique
   status           OxioPaySettlementStatus @default(ISSUED)
   // Lo de la semana (las 7 noches) y lo de semanas anteriores apuntado tarde.
@@ -1504,4 +1504,16 @@ model OxioPayPayee {
   updatedById String?  @db.Uuid
 
   @@map("oxiopay_payee")
+}
+
+// Semana de inicio de las liquidaciones (20261031110000): un lunes, una fila
+// (id = 1). Nada anterior se liquida, se ajusta ni se genera a mano. Vacía, el
+// API la fija al arrancar con el próximo lunes. Global: solo con bypass.
+model OxioPaySettlementSettings {
+  id          Int      @id @default(1) @db.SmallInt
+  startWeek   DateTime @db.Date
+  updatedAt   DateTime @default(now()) @updatedAt @db.Timestamptz
+  updatedById String?  @db.Uuid
+
+  @@map("oxiopay_settlement_settings")
 }

@@ -92,6 +92,11 @@ const core = {
   generate: vi.fn(),
   payee: vi.fn(async () => null),
   setPayee: vi.fn(),
+  paymentPrecheck: vi.fn(async () => undefined),
+  voidPrecheck: vi.fn(async () => undefined),
+  generationStart: vi.fn(async () => undefined),
+  startWeek: vi.fn(async () => ({ monday: '2026-11-02' })),
+  setStartWeek: vi.fn(),
 };
 
 let app: NestFastifyApplication;
@@ -239,6 +244,26 @@ describe('consola: /v1/superadmin/oxiopay-settlements (solo el super-admin; escr
     expect(bad.json()).toMatchObject({ code: 'TOTP_INVALID' });
     expect(core.recordPayment).not.toHaveBeenCalled();
     expect(audit.log).toHaveBeenCalledWith(expect.objectContaining({ action: 'superadmin.step_up.failed', actorId: SUPER }));
+  });
+
+  it('la semana de inicio: se ve; cambiarla pide un lunes y el motivo (400 antes del 2FA) y con un código malo, 403', async () => {
+    const auth = await as(SUPER, 'OWNER');
+    expect((await call('GET', '/v1/superadmin/oxiopay-settlements/settings', auth)).json()).toEqual({ startWeek: '2026-11-02' });
+    expect((await call('PUT', '/v1/superadmin/oxiopay-settlements/settings', auth, { startWeek: '2026-11-03', reason: 'Empezamos', totpCode: '123456' })).statusCode).toBe(400);
+    expect((await call('PUT', '/v1/superadmin/oxiopay-settlements/settings', auth, { startWeek: '2026-11-09', totpCode: '123456' })).statusCode).toBe(400);
+    const bad = await call('PUT', '/v1/superadmin/oxiopay-settlements/settings', auth, { startWeek: '2026-11-09', reason: 'Empezamos', totpCode: '000000' });
+    expect(bad.statusCode).toBe(403);
+    expect(core.setStartWeek).not.toHaveBeenCalled();
+    // El dueño no la ve.
+    expect((await call('GET', '/v1/superadmin/oxiopay-settlements/settings', await as(OWNER, 'OWNER'))).statusCode).toBe(403);
+  });
+
+  it('una fecha que no existe (2026-02-31) es 400, no un 500, y sin gastar el código', async () => {
+    const auth = await as(SUPER, 'OWNER');
+    const res = await call('POST', `/v1/superadmin/oxiopay-settlements/${ID}/payments`, auth, { amountCents: 1, paidOn: '2026-02-31', bankReference: 'T', totpCode: '123456' });
+    expect(res.statusCode).toBe(400);
+    expect((await call('GET', '/v1/superadmin/oxiopay-settlements?from=2026-02-30', auth)).statusCode).toBe(400);
+    expect(core.paymentPrecheck).not.toHaveBeenCalled();
   });
 
   it('anular sin motivo, generar con un día que no es lunes y una cuenta con un IBAN malo: 400 antes del 2FA', async () => {

@@ -120,7 +120,7 @@ function adjustmentsHtml(d: SettlementDetail): string {
 
 function payHtml(d: SettlementDetail): string {
   if (d.status === 'VOID') {
-    return `<section class="pay void"><h2>Anulada</h2><p><strong>No hay que pagarla.</strong> ${e(d.voidReason ?? '')}</p></section>`;
+    return `<section class="pay void"><h2>Anulada</h2><p><strong>No hay que pagarla.</strong> OxioPay la ha anulado; si hace falta, emitirá otra.</p></section>`;
   }
   if (d.status === 'PAID') {
     return `<section class="pay"><h2>Pagada</h2><p>Recibido entero: ${eur(d.paidCents)}. Gracias.</p></section>`;
@@ -135,7 +135,7 @@ function payHtml(d: SettlementDetail): string {
 <div><dt>IBAN</dt><dd class="mono">${e(formatIbanGroups(d.payee.iban))}</dd></div>
 <div><dt>Concepto de la transferencia</dt><dd class="mono">${e(d.reference)}</dd></div>
 <div><dt>Importe</dt><dd><strong>${eur(d.pendingCents)}</strong></dd></div>
-</dl></section>`;
+</dl><p class="note">Cuenta de OxioPay puesta o cambiada el ${e(DATE_FMT.format(new Date(d.payee.updatedAt)))}. Si no te cuadra, pregunta a OxioPay antes de transferir.</p></section>`;
 }
 
 function paymentsHtml(d: SettlementDetail): string {
@@ -143,10 +143,10 @@ function paymentsHtml(d: SettlementDetail): string {
   const rows = d.payments
     .map(
       (p) =>
-        `<tr><td>${e(dmy(p.paidOn))}</td><td class="mono">${e(p.bankReference)}</td><td>${e(p.reason ?? '')}</td><td>${eur(p.amountCents)}</td></tr>`,
+        `<tr><td>${e(dmy(p.paidOn))}</td><td class="mono">${e(p.bankReference)}</td><td>${eur(p.amountCents)}</td></tr>`,
     )
     .join('');
-  return `<section><h2>Pagos recibidos</h2><table class="grid"><thead><tr><th scope="col">Día</th><th scope="col">Referencia del banco</th><th scope="col">Nota</th><th scope="col">Importe</th></tr></thead><tbody>${rows}</tbody></table></section>`;
+  return `<section><h2>Pagos recibidos</h2><table class="grid"><thead><tr><th scope="col">Día</th><th scope="col">Referencia del banco</th><th scope="col">Importe</th></tr></thead><tbody>${rows}</tbody></table></section>`;
 }
 
 const CSS = `

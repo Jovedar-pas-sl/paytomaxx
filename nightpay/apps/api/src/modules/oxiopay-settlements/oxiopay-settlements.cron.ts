@@ -6,7 +6,7 @@ import { REDIS_CLIENT } from '../../common/redis/redis.module';
 import { RELEASE_LOCK_LUA } from '../../common/redis/release-lock';
 import { madridAt, madridDay } from '../../common/time/madrid';
 import { TelegramService } from '../incidents/telegram.service';
-import { OxioPaySettlementsService } from './oxiopay-settlements.service';
+import { OxioPaySettlementsService, type RunResult, type SettlementFinding } from './oxiopay-settlements.service';
 import { dueWeek } from './settlement-week';
 
 /** Cada cuánto se mira si toca generar (el lunes desde las 10:00) o avisar. */
@@ -29,8 +29,44 @@ const ALERT_UNTIL_HOUR = 22;
 const ALERT_TTL_S = 2 * 24 * 60 * 60;
 const ALERT_MAX_LINES = 10;
 
+/** Al apagarse con una vuelta a medias: lo que se la espera antes de soltar el candado. */
+const SHUTDOWN_WAIT_MS = 15_000;
+
 export const doneKey = (monday: string): string => `np:oxiopay-settlements:done:${monday}`;
 export const alertKey = (day: string): string => `np:oxiopay-settlements:overdue:${day}`;
+/** Fallos al generar (p. ej. las noches no cuadran con el mapa): un aviso al día. */
+export const failedKey = (day: string): string => `np:oxiopay-settlements:failed:${day}`;
+/** La comprobación acumulada del lunes: un aviso por semana. */
+export const checkKey = (monday: string): string => `np:oxiopay-settlements:check:${monday}`;
+
+/** Locales que no se pudieron liquidar (no se emitió nada de ellos). */
+export function failedMessage(week: { isoWeek: number; isoYear: number }, failed: readonly string[]): string {
+  return [
+    `OxioPay · Liquidaciones de la semana ${week.isoWeek}/${week.isoYear} sin emitir en ${failed.length} ${failed.length === 1 ? 'local' : 'locales'}`,
+    ...failed.slice(0, ALERT_MAX_LINES).map((f) => `• ${f}`),
+    ...(failed.length > ALERT_MAX_LINES ? [`(y ${failed.length - ALERT_MAX_LINES} más)`] : []),
+    'Se reintenta cada 10 min; si sigue, mira el registro del API.',
+  ].join('\n');
+}
+
+const FINDING_TEXT: Readonly<Record<SettlementFinding['kind'], string>> = {
+  outside_window: 'apuntado tarde fuera de las 12 semanas (no entra solo en ninguna liquidación)',
+  closed_pending: 'local dado de baja con liquidaciones sin pagar',
+  closed_unsettled: 'local dado de baja con algo sin liquidar',
+  check_failed: 'no se pudo comprobar',
+};
+
+/** La comprobación acumulada desde la semana de inicio. */
+export function findingsMessage(week: { isoWeek: number; isoYear: number }, findings: readonly SettlementFinding[]): string {
+  return [
+    `OxioPay · Comprobación de las liquidaciones (semana ${week.isoWeek}/${week.isoYear})`,
+    ...findings
+      .slice(0, ALERT_MAX_LINES)
+      .map((f) => `• ${f.venueName}: ${f.kind === 'check_failed' ? (f.detail ?? '') : formatMoney(f.cents)} · ${FINDING_TEXT[f.kind]}`),
+    ...(findings.length > ALERT_MAX_LINES ? [`(y ${findings.length - ALERT_MAX_LINES} más)`] : []),
+    'Revísalo en la consola: no se liquida solo.',
+  ].join('\n');
+}
 
 export interface OverdueLine {
   reference: string;
@@ -70,6 +106,9 @@ export class OxioPaySettlementsCron implements OnModuleInit, OnModuleDestroy {
   private readonly telegram: TelegramService;
   private bootTimer: NodeJS.Timeout | null = null;
   private timer: NodeJS.Timeout | null = null;
+  /** La vuelta en curso y el candado que tiene (para esperarla o soltarlo al apagarse). */
+  private running: Promise<void> | null = null;
+  private heldLock: string | null = null;
 
   constructor(
     @Inject(OxioPaySettlementsService) settlements: OxioPaySettlementsService,
@@ -82,28 +121,63 @@ export class OxioPaySettlementsCron implements OnModuleInit, OnModuleDestroy {
   }
 
   onModuleInit(): void {
-    if (process.env.NODE_ENV === 'test' || process.env.NIGHTPAY_DISABLE_OXIOPAY_SETTLEMENTS === '1') return;
+    if (process.env.NODE_ENV === 'test') return;
+    // La semana de inicio, la primera vez que arranca con esta función (aunque
+    // el repaso esté apagado): el próximo lunes. Nunca se liquida nada anterior.
+    void this.settlements.ensureStartWeek(new Date()).catch((err: unknown) => {
+      this.logger.error(`Liquidaciones OxioPay: no se pudo fijar la semana de inicio: ${(err as Error).message}`);
+    });
+    if (process.env.NIGHTPAY_DISABLE_OXIOPAY_SETTLEMENTS === '1') return;
     this.bootTimer = setTimeout(() => void this.tick(), BOOT_DELAY_MS);
     this.bootTimer.unref();
     this.timer = setInterval(() => void this.tick(), TICK_EVERY_MS);
     this.timer.unref();
   }
 
-  onModuleDestroy(): void {
+  /**
+   * Al apagarse (despliegue start-first): espera a la vuelta en curso, como
+   * mucho SHUTDOWN_WAIT_MS, y si sigue, suelta su candado para que la réplica
+   * nueva no espere a que caduque (lo hecho no se duplica: la base lo impide).
+   */
+  async onModuleDestroy(waitMs: number = SHUTDOWN_WAIT_MS): Promise<void> {
     if (this.bootTimer) clearTimeout(this.bootTimer);
     if (this.timer) clearInterval(this.timer);
+    const running = this.running;
+    if (!running) return;
+    let timer: NodeJS.Timeout | undefined;
+    await Promise.race([running, new Promise<void>((resolve) => (timer = setTimeout(resolve, waitMs)))]);
+    if (timer) clearTimeout(timer);
+    const lock = this.heldLock;
+    if (lock) {
+      this.heldLock = null;
+      await this.redis.eval(RELEASE_LOCK_LUA, 1, LOCK_KEY, lock).catch(() => undefined);
+    }
   }
 
   /** Una vuelta, si esta réplica toma el candado; al terminar (también si falla), lo suelta. Nunca lanza. */
   async tick(now: Date = new Date()): Promise<void> {
+    const run = this.runTick(now);
+    this.running = run;
+    try {
+      await run;
+    } finally {
+      if (this.running === run) this.running = null;
+    }
+  }
+
+  private async runTick(now: Date): Promise<void> {
     const lock = randomUUID();
     try {
       if ((await this.redis.set(LOCK_KEY, lock, 'EX', LOCK_TTL_S, 'NX')) !== 'OK') return;
+      this.heldLock = lock;
       try {
         await this.generateDue(now);
         await this.alertOverdue(now);
       } finally {
-        await this.redis.eval(RELEASE_LOCK_LUA, 1, LOCK_KEY, lock);
+        if (this.heldLock === lock) {
+          this.heldLock = null;
+          await this.redis.eval(RELEASE_LOCK_LUA, 1, LOCK_KEY, lock);
+        }
       }
     } catch (err) {
       this.logger.error(`Liquidaciones OxioPay: fallo en el repaso: ${(err as Error).message}`);
@@ -119,12 +193,36 @@ export class OxioPaySettlementsCron implements OnModuleInit, OnModuleDestroy {
     if (result.created.length > 0) {
       this.logger.log(`Liquidaciones OxioPay de la semana ${week.isoWeek}/${week.isoYear}: ${result.created.length} emitidas`);
     }
+    await this.reportFindings(week, result);
     if (result.failed.length > 0) {
       // Sin la marca: la siguiente vuelta lo intenta otra vez (lo hecho no se duplica).
       this.logger.error(`Liquidaciones OxioPay con error en ${result.failed.length} locales (p. ej. ${result.failed[0]})`);
+      await this.sendOnce(failedKey(madridDay(now)), ALERT_TTL_S, () => failedMessage(week, result.failed));
       return;
     }
     await this.redis.set(doneKey(week.monday), '1', 'EX', DONE_TTL_S);
+  }
+
+  /** La comprobación acumulada: al registro y por Telegram una vez por semana. */
+  private async reportFindings(week: { monday: string; isoWeek: number; isoYear: number }, result: RunResult): Promise<void> {
+    if (result.findings.length === 0) return;
+    for (const f of result.findings) {
+      this.logger.warn(`Liquidaciones OxioPay, comprobación: ${f.venueName} (${f.venueId}) ${f.kind} ${f.cents}${f.detail ? ` ${f.detail}` : ''}`);
+    }
+    await this.sendOnce(checkKey(week.monday), DONE_TTL_S, () => findingsMessage(week, result.findings));
+  }
+
+  /** Un aviso por marca (SET NX); si Telegram falla, se quita para reintentar. */
+  private async sendOnce(key: string, ttlSeconds: number, message: () => string): Promise<boolean> {
+    if (!this.telegram.isConfigured()) return false;
+    if ((await this.redis.set(key, '1', 'EX', ttlSeconds, 'NX')) !== 'OK') return false;
+    let ok = false;
+    try {
+      ok = await this.telegram.send(message());
+    } finally {
+      if (!ok) await this.redis.del(key);
+    }
+    return ok;
   }
 
   /** Las que llevan más de 7 días sin pagar: un aviso al día como mucho (marca SET NX; si Telegram falla, se quita). */
@@ -136,13 +234,6 @@ export class OxioPaySettlementsCron implements OnModuleInit, OnModuleDestroy {
     if ((await this.redis.exists(key)) > 0) return false;
     const overdue = await this.settlements.overdueList(now);
     if (overdue.length === 0) return false;
-    if ((await this.redis.set(key, '1', 'EX', ALERT_TTL_S, 'NX')) !== 'OK') return false;
-    let ok = false;
-    try {
-      ok = await this.telegram.send(overdueMessage(overdue));
-    } finally {
-      if (!ok) await this.redis.del(key);
-    }
-    return ok;
+    return this.sendOnce(key, ALERT_TTL_S, () => overdueMessage(overdue));
   }
 }

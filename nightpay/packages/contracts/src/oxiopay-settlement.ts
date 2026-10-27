@@ -101,7 +101,26 @@ export function addConcepts(a: SettlementConceptAmounts, b: SettlementConceptAmo
   return Object.fromEntries(SETTLEMENT_CONCEPTS.map((c) => [c, a[c] + b[c]])) as SettlementConceptAmounts;
 }
 
-const Day = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Fecha en formato AAAA-MM-DD');
+/** ¿«AAAA-MM-DD» es un día que existe? (2026-02-31 no). */
+export function isRealDay(day: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return false;
+  const [y, m, d] = day.split('-').map(Number) as [number, number, number];
+  const date = new Date(Date.UTC(y, m - 1, d));
+  return date.getUTCFullYear() === y && date.getUTCMonth() === m - 1 && date.getUTCDate() === d;
+}
+
+/** ¿Es lunes? (el día en que empieza la semana de la liquidación). */
+export function isMondayDay(day: string): boolean {
+  if (!isRealDay(day)) return false;
+  const [y, m, d] = day.split('-').map(Number) as [number, number, number];
+  return new Date(Date.UTC(y, m - 1, d)).getUTCDay() === 1;
+}
+
+const Day = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/, 'Fecha en formato AAAA-MM-DD')
+  .refine(isRealDay, 'Esa fecha no existe');
+const MondayDay = Day.refine(isMondayDay, 'La semana de la liquidación empieza en lunes: elige un lunes');
 const IsoInstant = z.string().datetime();
 
 /** Una noche (08:00 → 08:00 de Madrid) de la semana: el día es el de las 08:00 en que empieza. */
@@ -188,7 +207,7 @@ export const SettlementDetailSchema = SettlementListItemSchema.extend({
   /** Las 7 noches de la semana, en orden. */
   nights: z.array(SettlementNightSchema),
   adjustments: z.array(SettlementAdjustmentSchema),
-  /** Semana + ajustes, por concepto. */
+  /** Lo de la semana (sus 7 noches) por concepto: suma «Total de la semana» (los ajustes van aparte). */
   byConcept: SettlementConceptAmountsSchema,
   /** Lo que el mapa del dinero daba para esta ventana al emitirla (comprobación). */
   moneyMapCents: z.number().int(),
@@ -216,8 +235,21 @@ export const SuperAdminSettlementPageSchema = z.object({
   totals: SettlementTotalsSchema,
   /** Sin datos de cobro de OxioPay: las liquidaciones salen sin IBAN (se avisa). */
   payeeMissing: z.boolean(),
+  /** Semana de inicio (lunes AAAA-MM-DD): no se liquida ni se ajusta nada anterior. */
+  startWeek: z.string().nullable(),
 });
 export type SuperAdminSettlementPage = z.infer<typeof SuperAdminSettlementPageSchema>;
+
+/**
+ * Cambiar la semana de inicio de las liquidaciones (2FA y motivo). Nada
+ * anterior se liquida ni entra como ajuste; la generación a mano la respeta.
+ */
+export const SetSettlementStartSchema = z.object({
+  startWeek: MondayDay,
+  reason: SuperAdminReasonSchema,
+  totpCode: SuperAdminTotpCodeSchema,
+});
+export type SetSettlementStartDto = z.infer<typeof SetSettlementStartSchema>;
 
 /** Lo que ve el dueño: las suyas, la cuenta de OxioPay y lo pendiente. */
 export const OwnerSettlementPageSchema = z.object({
@@ -261,9 +293,19 @@ export const RecordSettlementPaymentSchema = z.object({
   paidOn: Day,
   bankReference: BankReferenceSchema,
   reason: SuperAdminReasonSchema.optional(),
+  /**
+   * Ya hay un pago con esa referencia del banco en esta liquidación (409
+   * SETTLEMENT_PAYMENT_DUPLICATE) y quien apunta confirma que es otro abono.
+   */
+  confirmDuplicate: z.boolean().optional(),
   totpCode: SuperAdminTotpCodeSchema,
 });
 export type RecordSettlementPaymentDto = z.infer<typeof RecordSettlementPaymentSchema>;
+
+/** La referencia del banco como se compara (sin espacios de más ni mayúsculas). */
+export function normalizeBankReference(ref: string): string {
+  return ref.trim().replace(/\s+/g, ' ').toUpperCase();
+}
 
 export const VoidSettlementSchema = z.object({ reason: SuperAdminReasonSchema, totpCode: SuperAdminTotpCodeSchema });
 export type VoidSettlementDto = z.infer<typeof VoidSettlementSchema>;
@@ -272,7 +314,7 @@ export type VoidSettlementDto = z.infer<typeof VoidSettlementSchema>;
 export const GenerateSettlementSchema = z.object({
   venueId: UuidSchema,
   /** El lunes en que empieza la semana (AAAA-MM-DD). */
-  week: Day,
+  week: MondayDay,
   reason: SuperAdminReasonSchema.optional(),
   totpCode: SuperAdminTotpCodeSchema,
 });

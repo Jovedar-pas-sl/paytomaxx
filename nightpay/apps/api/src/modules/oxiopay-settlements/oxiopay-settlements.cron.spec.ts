@@ -1,6 +1,16 @@
 import { describe, expect, it, vi } from 'vitest';
 import { RELEASE_LOCK_LUA } from '../../common/redis/release-lock';
-import { OxioPaySettlementsCron, alertKey, doneKey, overdueMessage, type OverdueLine } from './oxiopay-settlements.cron';
+import {
+  OxioPaySettlementsCron,
+  alertKey,
+  checkKey,
+  doneKey,
+  failedKey,
+  failedMessage,
+  findingsMessage,
+  overdueMessage,
+  type OverdueLine,
+} from './oxiopay-settlements.cron';
 
 const LOCK = 'np:oxiopay-settlements:lock';
 /** Lunes 2-nov-2026 a las 10:30 de Madrid (09:30 UTC): toca la semana 44. */
@@ -32,7 +42,7 @@ function replica(
   opts: { runDue?: () => Promise<unknown>; overdue?: OverdueLine[]; telegramOk?: boolean; telegramOn?: boolean } = {},
 ) {
   const settlements = {
-    runDue: vi.fn(opts.runDue ?? (async () => ({ week: { monday: '2026-10-26' }, created: ['OXP-2026-S44-A'], failed: [] }))),
+    runDue: vi.fn(opts.runDue ?? (async () => ({ week: { monday: '2026-10-26' }, created: ['OXP-2026-S44-A'], failed: [], findings: [] }))),
     overdueList: vi.fn(async () => opts.overdue ?? []),
   };
   const telegram = {
@@ -52,7 +62,7 @@ describe('repaso del lunes con dos réplicas (start-first): candado SET NX', () 
     const a = replica(redis, {
       runDue: async () => {
         await slow;
-        return { week: { monday: '2026-10-26' }, created: ['OXP-2026-S44-A'], failed: [] };
+        return { week: { monday: '2026-10-26' }, created: ['OXP-2026-S44-A'], failed: [], findings: [] };
       },
     });
     const b = replica(redis);
@@ -74,7 +84,7 @@ describe('repaso del lunes con dos réplicas (start-first): candado SET NX', () 
     const early = replica(redis);
     await early.cron.tick(new Date('2026-11-02T08:59:00Z'));
     expect(early.settlements.runDue).not.toHaveBeenCalled();
-    const failing = replica(redis, { runDue: async () => ({ week: { monday: '2026-10-26' }, created: [], failed: ['v1: boom'] }) });
+    const failing = replica(redis, { runDue: async () => ({ week: { monday: '2026-10-26' }, created: [], failed: ['v1: boom'], findings: [] }) });
     await failing.cron.tick(MONDAY_1030);
     expect(failing.settlements.runDue).toHaveBeenCalledTimes(1);
     expect(redis.store.has(doneKey('2026-10-26'))).toBe(false);
@@ -136,5 +146,58 @@ describe('aviso de las que llevan más de 7 días sin pagar (Telegram del super-
     expect(text).toContain('• OXP-2026-S44-LUNA · Luna · 22,35\u00a0€ · 9 días');
     const many = overdueMessage(Array.from({ length: 12 }, (_, i) => ({ ...lines[0]!, reference: `OXP-${i}` })));
     expect(many).toContain('(y 2 más)');
+  });
+});
+
+describe('ronda de revisión: avisos de fallos y de la comprobación, y el apagado', () => {
+  it('si no se pudo emitir algún local (p. ej. las noches no cuadran), aviso una vez al día; la comprobación, una vez por semana', async () => {
+    const redis = sharedRedis();
+    const findings = [{ venueId: 'v', venueName: 'Luna', kind: 'outside_window' as const, cents: 95 }];
+    const r = replica(redis, { runDue: async () => ({ week: { monday: '2026-10-26', isoWeek: 44, isoYear: 2026 }, created: [], failed: ['Luna: no cuadra'], findings }) });
+    await r.cron.tick(MONDAY_1030);
+    await r.cron.tick(new Date(MONDAY_1030.getTime() + 10 * 60_000));
+    const texts = r.telegram.send.mock.calls.map((c) => String(c[0]));
+    expect(texts.filter((t) => t.includes('sin emitir'))).toHaveLength(1);
+    expect(texts.filter((t) => t.includes('Comprobación'))).toHaveLength(1);
+    expect(redis.store.has(failedKey('2026-11-02'))).toBe(true);
+    expect(redis.store.has(checkKey('2026-10-26'))).toBe(true);
+    expect(redis.store.has(doneKey('2026-10-26'))).toBe(false);
+  });
+
+  it('los mensajes', () => {
+    expect(failedMessage({ isoWeek: 44, isoYear: 2026 }, ['Luna: no cuadra'])).toContain('• Luna: no cuadra');
+    const text = findingsMessage({ isoWeek: 44, isoYear: 2026 }, [
+      { venueId: 'a', venueName: 'Luna', kind: 'outside_window', cents: -95 },
+      { venueId: 'b', venueName: 'Sol', kind: 'closed_pending', cents: 2_000 },
+      { venueId: 'c', venueName: 'Mar', kind: 'check_failed', cents: 0, detail: 'demasiados cobros' },
+    ]);
+    expect(text).toContain('Luna');
+    expect(text).toContain('fuera de las 12 semanas');
+    expect(text).toContain('dado de baja con liquidaciones sin pagar');
+    expect(text).toContain('demasiados cobros');
+  });
+
+  it('al apagarse con una vuelta a medias: la espera (con tope) y suelta el candado', async () => {
+    const redis = sharedRedis();
+    let release!: () => void;
+    const slow = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const r = replica(redis, {
+      runDue: async () => {
+        await slow;
+        return { week: { monday: '2026-10-26' }, created: [], failed: [], findings: [] };
+      },
+    });
+    const running = r.cron.tick(MONDAY_1030);
+    await vi.waitFor(() => expect(r.settlements.runDue).toHaveBeenCalled());
+    expect(redis.store.has(LOCK)).toBe(true);
+    await r.cron.onModuleDestroy(20);
+    // No terminó a tiempo: el candado se suelta (la réplica nueva no espera 30 min).
+    expect(redis.store.has(LOCK)).toBe(false);
+    release();
+    await running;
+    // Sin nada a medias, apagar no hace nada.
+    await expect(r.cron.onModuleDestroy(20)).resolves.toBeUndefined();
   });
 });

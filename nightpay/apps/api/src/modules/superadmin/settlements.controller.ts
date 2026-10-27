@@ -4,12 +4,14 @@ import {
   GenerateSettlementSchema,
   RecordSettlementPaymentSchema,
   SetOxioPayPayeeSchema,
+  SetSettlementStartSchema,
   SettlementListQuerySchema,
   VoidSettlementSchema,
   type GenerateSettlementDto,
   type OxioPayPayee,
   type RecordSettlementPaymentDto,
   type SetOxioPayPayeeDto,
+  type SetSettlementStartDto,
   type SettlementDetail,
   type SettlementListQuery,
   type SuperAdminSettlementPage,
@@ -49,6 +51,20 @@ export class SuperAdminSettlementsController {
     @Body(new ZodValidationPipe(SetOxioPayPayeeSchema)) dto: SetOxioPayPayeeDto,
   ): Promise<{ payee: OxioPayPayee }> {
     return { payee: await this.settlements.setPayee(actor, dto) };
+  }
+
+  @Get('settings')
+  async settings(): Promise<{ startWeek: string | null }> {
+    return this.settlements.settings();
+  }
+
+  @Put('settings')
+  @IpRateLimit(SUPERADMIN_WRITE_LIMIT)
+  async setSettings(
+    @CurrentSuperAdmin() actor: SuperAdminActor,
+    @Body(new ZodValidationPipe(SetSettlementStartSchema)) dto: SetSettlementStartDto,
+  ): Promise<{ startWeek: string }> {
+    return this.settlements.setStartWeek(actor, dto);
   }
 
   @Post('generate')

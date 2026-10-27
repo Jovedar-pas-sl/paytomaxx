@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { BadRequestException } from '@nestjs/common';
 import { Prisma } from '@nightpay/db';
 import { emptyConceptAmounts, type SettlementConceptAmounts } from '@nightpay/contracts';
-import { OxioPaySettlementsService } from './oxiopay-settlements.service';
+import { OxioPaySettlementsService, SettlementMapMismatchError } from './oxiopay-settlements.service';
 import { nightsOf, weekStartingOn, type SettlementWeek } from './settlement-week';
 import type { StoredBreakdown } from './settlement-rules';
 
@@ -34,7 +34,18 @@ function stored(week: SettlementWeek, perDay: Record<string, SettlementConceptAm
  * Lo del mapa del dinero por ventana: `owed[día]` por noche y la semana como
  * su suma (como el mapa de verdad). Lo demás, 0.
  */
-function makeService(o: { rows?: StoredRow[]; owed?: Record<string, SettlementConceptAmounts>; createImpl?: () => unknown; activeAtInsert?: Array<() => string[]> } = {}) {
+function makeService(
+  o: {
+    rows?: StoredRow[];
+    owed?: Record<string, SettlementConceptAmounts>;
+    createImpl?: () => unknown;
+    activeAtInsert?: Array<() => string[]>;
+    /** Semana de inicio (lunes); null = aún sin fijar. De entrada, enero de 2026. */
+    start?: string | null;
+    /** Lo que el mapa de la semana entera da de más (las noches no cuadran), vez a vez. */
+    weekExtra?: number[];
+  } = {},
+) {
   const rows = o.rows ?? [];
   const owed = o.owed ?? {};
   const dayOf = (d: Date) => nightsOf(weekStartingOn('2026-10-12')).concat(nightsOf(W43), nightsOf(W44)).find((n) => n.from.getTime() === d.getTime())?.day;
@@ -45,16 +56,24 @@ function makeService(o: { rows?: StoredRow[]; owed?: Record<string, SettlementCo
       // Una semana: la suma de sus noches.
       const week = [W44, W43].find((x) => x.from.getTime() === w.from.getTime());
       const days = week ? nightsOf(week).map((n) => n.day) : [];
-      return days.reduce(
+      const sum = days.reduce(
         (acc, d) => Object.fromEntries(Object.entries(acc).map(([k, v]) => [k, v + (owed[d]?.[k as keyof SettlementConceptAmounts] ?? 0)])) as SettlementConceptAmounts,
         c({}),
       );
+      const extra = week === W44 ? (o.weekExtra?.shift() ?? 0) : 0;
+      return { ...sum, platformSales: sum.platformSales + extra };
     }),
   };
   let insertCall = 0;
   const create = vi.fn(o.createImpl ?? (async ({ data }: { data: Record<string, unknown> }) => ({ id: 'new-id', ...data })));
+  const start = o.start === undefined ? '2026-01-05' : o.start;
   const tx = {
     $queryRaw: vi.fn(async () => [{ ok: 1 }]),
+    $executeRaw: vi.fn(async () => 1),
+    auditEvent: { create: vi.fn() },
+    oxioPaySettlementSettings: {
+      findUnique: vi.fn(async () => (start ? { id: 1, startWeek: new Date(`${start}T00:00:00.000Z`) } : null)),
+    },
     venue: {
       findUnique: vi.fn(async () => ({ id: VENUE, name: 'Luna', slug: 'luna', platformCommissionBps: 1000, businessId: null, business: null })),
     },
@@ -76,8 +95,8 @@ function makeService(o: { rows?: StoredRow[]; owed?: Record<string, SettlementCo
     acrossVenues: vi.fn(async (fn: (t: typeof tx) => unknown) => fn(tx)),
     asSystem: vi.fn(async (fn: (t: typeof tx) => unknown) => fn(tx)),
   };
-  const audit = { log: vi.fn(async () => undefined) };
-  return { svc: new OxioPaySettlementsService(prisma as never, moneyMap as never, audit as never), create, moneyMap, tx };
+  const audit = { log: vi.fn(async () => undefined), logInTx: vi.fn(async () => undefined) };
+  return { svc: new OxioPaySettlementsService(prisma as never, moneyMap as never, audit as never), create, moneyMap, tx, audit };
 }
 
 describe('generar la liquidación de una semana', () => {
@@ -92,10 +111,44 @@ describe('generar la liquidación de una semana', () => {
     expect(data.breakdown.adjustments).toEqual([]);
   });
 
-  it('se repasa desde la primera semana liquidada de ESE local (las de otros locales no cuentan)', async () => {
-    const { svc, tx } = makeService({ owed: { '2026-10-27': c({ platformSales: 300 }) } });
-    await svc.generate(VENUE, W44, { now: NOW, auto: true });
-    expect(tx.oxioPaySettlement.aggregate).toHaveBeenCalledWith({ where: { tenantId: VENUE }, _min: { periodFrom: true } });
+  it('la del repaso queda en el registro en la misma transacción; la de la consola, con su onWrite', async () => {
+    const auto = makeService({ owed: { '2026-10-27': c({ platformSales: 300 }) } });
+    await auto.svc.generate(VENUE, W44, { now: NOW, auto: true });
+    expect(auto.audit.logInTx).toHaveBeenCalledWith(auto.tx, expect.objectContaining({ action: 'superadmin.settlement.generated', tenantId: VENUE }));
+    expect(auto.audit.log).not.toHaveBeenCalled();
+    const manual = makeService({ owed: { '2026-10-27': c({ platformSales: 300 }) } });
+    const onWrite = vi.fn(async () => undefined);
+    await manual.svc.generate(VENUE, W44, { now: NOW, auto: false, actor: { id: 'sa', email: 'sa@x.es' }, onWrite });
+    expect(onWrite).toHaveBeenCalledWith(manual.tx, expect.objectContaining({ id: 'new-id', reference: 'OXP-2026-S44-LUNA' }));
+    expect(manual.audit.logInTx).not.toHaveBeenCalled();
+  });
+
+  it('semana de inicio: nada anterior se liquida ni entra como ajuste; a mano, 400', async () => {
+    const owed = { '2026-10-20': c({ platformSales: 500 }), '2026-10-27': c({ platformSales: 300 }) };
+    // La 43 sin liquidar y con algo: desde la 43, entra entera como ajuste; desde la 44, no.
+    const from43 = makeService({ owed, start: '2026-10-19' });
+    expect(await from43.svc.generate(VENUE, W44, { now: NOW, auto: true })).toMatchObject({ kind: 'created', totalCents: 800 });
+    const from44 = makeService({ owed, start: '2026-10-26' });
+    expect(await from44.svc.generate(VENUE, W44, { now: NOW, auto: true })).toMatchObject({ kind: 'created', totalCents: 300 });
+    await expect(from44.svc.generate(VENUE, W43, { now: NOW, auto: false, actor: { id: 'sa', email: 'x' } })).rejects.toThrow(/anterior a la semana de inicio/);
+  });
+
+  it('sin semana de inicio, se fija la primera vez: el próximo lunes (al registro); dos réplicas, la primera', async () => {
+    const { svc, tx, audit } = makeService({ start: null });
+    tx.oxioPaySettlementSettings.findUnique.mockResolvedValueOnce(null).mockResolvedValueOnce({ id: 1, startWeek: new Date('2026-11-09T00:00:00.000Z') });
+    const week = await svc.ensureStartWeek(new Date('2026-11-03T12:00:00Z'));
+    expect(week.monday).toBe('2026-11-09');
+    expect(String(tx.$executeRaw.mock.calls[0]![0])).toContain('ON CONFLICT (id) DO NOTHING');
+    expect(audit.logInTx).toHaveBeenCalledWith(tx, expect.objectContaining({ action: 'superadmin.settlement.start_week_set', payload: { auto: true, startWeek: '2026-11-09' } }));
+  });
+
+  it('las noches no cuadran con el mapa de la semana: se repite una vez; si sigue, no se emite', async () => {
+    const owed = { '2026-10-27': c({ platformSales: 300 }) };
+    const once = makeService({ owed, weekExtra: [1] });
+    expect(await once.svc.generate(VENUE, W44, { now: NOW, auto: true })).toMatchObject({ kind: 'created', totalCents: 300 });
+    const always = makeService({ owed, weekExtra: [1, 1] });
+    await expect(always.svc.generate(VENUE, W44, { now: NOW, auto: true })).rejects.toBeInstanceOf(SettlementMapMismatchError);
+    expect(always.create).not.toHaveBeenCalled();
   });
 
   it('ya hay una activa de esa semana: esa (no se duplica); a 0: no se crea', async () => {
@@ -142,7 +195,7 @@ describe('generar la liquidación de una semana', () => {
     const { svc } = makeService({ rows: [voided], owed: { '2026-10-27': c({ platformSales: 300 }) } });
     expect(await svc.generate(VENUE, W44, { now: NOW, auto: false, actor: { id: 'sa', email: 'sa@x.es' } })).toMatchObject({
       kind: 'created',
-      reference: 'OXP-2026-S44-LUNA-2',
+      reference: 'OXP-2026-S44-LUNA/R2',
       totalCents: 300,
       replacesId: 'void44',
     });

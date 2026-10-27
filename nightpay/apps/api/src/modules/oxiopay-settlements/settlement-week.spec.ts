@@ -4,11 +4,13 @@ import {
   dueWeek,
   isoWeekOf,
   lastCompletedWeek,
+  nextWeekAfter,
   nightsOf,
   previousWeeks,
   settlementReference,
   weekContaining,
   weekStartingOn,
+  weeksBetween,
 } from './settlement-week';
 
 const T = (iso: string) => new Date(iso);
@@ -99,11 +101,28 @@ describe('semana ISO y referencia de la transferencia', () => {
     expect(isoWeekOf('2027-03-22')).toEqual({ isoYear: 2027, isoWeek: 12 });
   });
 
-  it('OXP-2026-S44-<SLUG> (y -2, -3 al regenerarla); solo letras, cifras y guiones', () => {
+  it('OXP-2026-S44-<SLUG> (y /R2, /R3 al regenerarla, que no choca con ningún slug); SEPA: letras, cifras, guiones y /', () => {
     const w = weekStartingOn('2026-10-26');
     expect(settlementReference(w, 'luna-vlc')).toBe('OXP-2026-S44-LUNA-VLC');
-    expect(settlementReference(w, 'luna-vlc', 2)).toBe('OXP-2026-S44-LUNA-VLC-2');
+    expect(settlementReference(w, 'luna-vlc', 2)).toBe('OXP-2026-S44-LUNA-VLC/R2');
+    // El local «luna-2» y la regenerada de «luna» ya no se confunden.
+    expect(settlementReference(w, 'luna-2')).not.toBe(settlementReference(w, 'luna', 2));
+    expect(settlementReference(w, 'x'.repeat(300), 12)).toMatch(/\/R12$/);
     expect(settlementReference(weekStartingOn('2027-01-04'), 'Sala_ñ 1')).toBe('OXP-2027-S01-SALA-N-1');
     expect(settlementReference(w, 'x'.repeat(300)).length).toBeLessThanOrEqual(140);
+  });
+});
+
+describe('semana de inicio y tramos de semanas', () => {
+  it('la primera semana completa tras un instante: el lunes siguiente (aunque sea lunes 08:00 en punto)', () => {
+    expect(nextWeekAfter(T('2026-10-28T12:00:00Z')).monday).toBe('2026-11-02');
+    expect(nextWeekAfter(T('2026-11-02T07:00:00Z')).monday).toBe('2026-11-09');
+    expect(nextWeekAfter(T('2026-11-02T06:59:00Z')).monday).toBe('2026-11-02');
+  });
+
+  it('las semanas desde una hasta un instante (sin incluirlo), en orden', () => {
+    const start = weekStartingOn('2026-10-12');
+    expect(weeksBetween(start, weekStartingOn('2026-11-02').from).map((w) => w.monday)).toEqual(['2026-10-12', '2026-10-19', '2026-10-26']);
+    expect(weeksBetween(start, start.from)).toEqual([]);
   });
 });

@@ -41,7 +41,7 @@ function detail(o: Partial<SettlementDetail> = {}): SettlementDetail {
     adjustments: [
       { weekFrom: '2026-10-19', isoYear: 2026, isoWeek: 43, reference: 'OXP-2026-S43-LUNA', day: '2026-10-23', concept: 'serviceFeeRefunded', amountCents: -95 },
     ],
-    byConcept: { ...emptyConceptAmounts(), serviceFeeSales: 660, serviceFeeCardTopUps: 600, serviceFeeCashTopUps: 600, serviceFeeRefunded: -520, platformSaldo: 200 },
+    byConcept: { ...emptyConceptAmounts(), serviceFeeSales: 660, serviceFeeCardTopUps: 600, serviceFeeCashTopUps: 600, serviceFeeRefunded: -425, platformSaldo: 200 },
     moneyMapCents: 1_635,
     payments: [],
     voidedAt: null,
@@ -79,6 +79,19 @@ describe('documento imprimible de la «Liquidación OxioPay» (no es una factura
     expect(html).toMatch(/Concepto de la transferencia[\s\S]*OXP-2026-S44-LUNA/);
   });
 
+  it('el resumen por concepto es solo de la semana: cuadra con «Total de la semana» y con la tabla por noche', () => {
+    const html = settlementDocumentHtml(detail(), NOW);
+    const summary = html.slice(html.indexOf('<h2>Resumen</h2>'), html.indexOf('Total de la semana'));
+    // La devuelta de la semana (−4,25 €), no la de la semana + el ajuste (−5,20 €).
+    expect(summary).toContain('Comisión del servicio devuelta');
+    expect(summary).toContain('4,25');
+    expect(summary).not.toContain('5,20');
+  });
+
+  it('dice cuándo se puso o cambió la cuenta de OxioPay (para comprobarla antes de transferir)', () => {
+    expect(settlementDocumentHtml(detail(), NOW)).toContain('Cuenta de OxioPay puesta o cambiada el 27 de octubre de 2026');
+  });
+
   it('escapa lo escrito por personas (nombre del local)', () => {
     const html = settlementDocumentHtml(detail(), NOW);
     expect(html).not.toContain('Luna <Valencia>');
@@ -104,11 +117,14 @@ describe('documento imprimible de la «Liquidación OxioPay» (no es una factura
       NOW,
     );
     expect(partial).toContain('Pagada en parte');
+    // Las notas de los pagos son de OxioPay (su registro): el documento no las lleva.
+    expect(partial).not.toContain('Pagó a cuenta');
     expect(partial).toContain('TRF-889');
     expect(partial).toContain('5,40\u00a0€');
     const voided = settlementDocumentHtml(detail({ status: 'VOID', pendingCents: 0, voidedAt: NOW.toISOString(), voidReason: 'Cifras mal' }), NOW);
     expect(voided).toContain('Anulada');
     expect(voided).toContain('No hay que pagarla');
+    expect(voided).not.toContain('Cifras mal');
   });
 });
 

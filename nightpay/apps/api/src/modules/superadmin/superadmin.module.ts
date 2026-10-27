@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { AuthModule } from '../auth/auth.module';
 import { IncidentsService } from '../incidents/incidents.service';
+import { TelegramService } from '../incidents/telegram.service';
 import { OperatorsModule } from '../operators/operators.module';
 import { OxioPaySettlementsModule } from '../oxiopay-settlements/oxiopay-settlements.module';
 import { WalletsModule } from '../wallets/wallets.module';
@@ -51,6 +52,7 @@ import { SuperAdminVenuesService } from './venues.service';
     SuperAdminCustomersService,
     SuperAdminAuditLogService,
     SuperAdminSettlementsService,
+    TelegramService,
     IncidentsService,
   ],
 })

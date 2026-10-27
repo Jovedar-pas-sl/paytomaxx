@@ -96,6 +96,18 @@ export function previousWeeks(week: SettlementWeek, count: number): SettlementWe
   return Array.from({ length: count }, (_, i) => weekStartingOn(addDays(week.monday, -7 * (i + 1))));
 }
 
+/** La primera semana que empieza después de `now` (el lunes 08:00 siguiente): la semana de inicio al desplegar. */
+export function nextWeekAfter(now: Date): SettlementWeek {
+  return weekStartingOn(addDays(weekContaining(now).monday, 7));
+}
+
+/** Las semanas desde `start` (incluida) que empiezan antes de `before`, en orden. */
+export function weeksBetween(start: SettlementWeek, before: Date): SettlementWeek[] {
+  const out: SettlementWeek[] = [];
+  for (let w = start; w.from < before; w = weekStartingOn(addDays(w.monday, 7))) out.push(w);
+  return out;
+}
+
 /** Las 7 noches de la semana (08:00 → 08:00), en orden. */
 export function nightsOf(week: SettlementWeek): SettlementNightWindow[] {
   return Array.from({ length: 7 }, (_, i) => {
@@ -107,10 +119,15 @@ export function nightsOf(week: SettlementWeek): SettlementNightWindow[] {
 /** Tope de la referencia (lo que caben en el concepto de una transferencia SEPA). */
 const MAX_REFERENCE = 140;
 
-/** «OXP-2026-S44-LUNA-VLC» (y «-2», «-3»… si se regenera tras anularla). Solo A-Z, 0-9 y guiones. */
+/**
+ * «OXP-2026-S44-LUNA-VLC» y, si se regenera tras anularla, «…/R2», «…/R3».
+ * El slug solo deja A-Z, 0-9 y guiones: la barra del sufijo no puede salir de
+ * ningún slug (el local «luna-2» no choca con la regenerada de «luna»). Todo
+ * vale en el concepto de una transferencia SEPA (letras, cifras, - y /).
+ */
 export function settlementReference(week: Pick<SettlementWeek, 'isoYear' | 'isoWeek'>, slug: string, n = 1): string {
   const head = `OXP-${week.isoYear}-S${String(week.isoWeek).padStart(2, '0')}-`;
-  const tail = n > 1 ? `-${n}` : '';
+  const tail = n > 1 ? `/R${n}` : '';
   const clean =
     slug
       .normalize('NFD')
