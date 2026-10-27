@@ -10,6 +10,7 @@ import {
   paymentMismatch,
   paymentPayload,
   paymentSummary,
+  paymentFormSummary,
   settlementFileName,
   settlementPeriodText,
   settlementStatusView,
@@ -90,6 +91,21 @@ describe('estado y periodo de una liquidación', () => {
 });
 
 describe('apuntar un pago', () => {
+  it('explica el importe excesivo antes de pedir el código, sin decir que faltan datos', () => {
+    const parsed = paymentPayload({ amount: '30', paidOn: TODAY, bankReference: 'TRF-1', reason: 'A cuenta' }, 2_235, TODAY);
+    const summary = paymentFormSummary(detail(), parsed);
+    expect(summary).toMatch(/importe es mayor que lo pendiente/);
+    expect(summary).not.toMatch(/Rellena/);
+  });
+
+  it('rechaza un abono anterior a la semana y permite el primer día de Madrid', () => {
+    const form = { amount: '22,35', paidOn: '2026-10-25', bankReference: 'TRF-1', reason: '' };
+    expect(paymentPayload(form, 2_235, TODAY, false, detail().periodFrom)).toEqual({
+      ok: false, error: 'La fecha del pago es anterior a la semana de la liquidación',
+    });
+    expect(paymentPayload({ ...form, paidOn: '2026-10-26' }, 2_235, TODAY, false, detail().periodFrom)).toMatchObject({ ok: true });
+  });
+
   it('de entrada, lo pendiente y hoy; así se apunta sin motivo', () => {
     const form = paymentFormFor(detail(), TODAY);
     expect(form).toEqual({ amount: '22,35', paidOn: TODAY, bankReference: '', reason: '' });

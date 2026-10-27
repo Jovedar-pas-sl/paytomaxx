@@ -9,7 +9,7 @@ import {
   type OxioPayPayee,
   type SettlementDetail,
 } from '@nightpay/contracts';
-import { madridToday } from '@/lib/dates';
+import { dayInZone, MADRID_TIMEZONE, madridToday } from '@/lib/dates';
 import {
   downloadSaSettlement,
   fetchSaPayee,
@@ -32,7 +32,7 @@ import {
   paymentFormFor,
   paymentMismatch,
   paymentPayload,
-  paymentSummary,
+  paymentFormSummary,
   settlementsQuery,
   startWeekSummary,
   weekStartProblem,
@@ -277,7 +277,7 @@ function PaymentDialog({ detail: d, onClose, onDone }: { detail: SettlementDetai
   const [duplicate, setDuplicate] = useState(false);
   const [otherTransfer, setOtherTransfer] = useState(false);
   const mismatch = paymentMismatch(form, d.pendingCents);
-  const parsed = paymentPayload(form, d.pendingCents, today, duplicate && otherTransfer);
+  const parsed = paymentPayload(form, d.pendingCents, today, duplicate && otherTransfer, d.periodFrom);
   const setReference = (e: { target: { value: string } }) => {
     setForm({ ...form, bankReference: e.target.value });
     setDuplicate(false);
@@ -294,7 +294,7 @@ function PaymentDialog({ detail: d, onClose, onDone }: { detail: SettlementDetai
           lo que falta.
         </p>
       }
-      summary={parsed.ok ? paymentSummary(d, parsed.value.amountCents) : 'Rellena el importe, el día y la referencia del banco.'}
+      summary={paymentFormSummary(d, parsed)}
       validate={() => {
         if (!parsed.ok) return parsed.error;
         return duplicate && !otherTransfer ? 'Esa referencia del banco ya está apuntada: si es otro abono, márcalo; si no, no lo apuntes dos veces.' : null;
@@ -313,7 +313,7 @@ function PaymentDialog({ detail: d, onClose, onDone }: { detail: SettlementDetai
     >
       <div className="np-sa-grid-2">
         <Input label="Importe recibido" inputMode="decimal" value={form.amount} onChange={set('amount')} autoComplete="off" />
-        <Input label="Día del abono" type="date" value={form.paidOn} max={today} onChange={set('paidOn')} />
+        <Input label="Día del abono" type="date" value={form.paidOn} min={dayInZone(new Date(d.periodFrom), MADRID_TIMEZONE)} max={today} onChange={set('paidOn')} />
       </div>
       <Input
         label="Referencia del banco"

@@ -110,11 +110,15 @@ export function paymentPayload(
   pendingCents: number,
   today: string,
   confirmDuplicate = false,
+  periodFrom?: string,
 ): { ok: true; value: PaymentPayload } | { ok: false; error: string } {
   const amountCents = parseEuroCents(form.amount);
   if (amountCents === null) return { ok: false, error: 'Pon el importe recibido (por ejemplo 22,35).' };
   if (!/^\d{4}-\d{2}-\d{2}$/.test(form.paidOn)) return { ok: false, error: 'Pon el día del abono en el banco.' };
   if (form.paidOn > today) return { ok: false, error: 'El día del abono no puede ser futuro.' };
+  if (periodFrom && form.paidOn < dayInZone(new Date(periodFrom), MADRID_TIMEZONE)) {
+    return { ok: false, error: 'La fecha del pago es anterior a la semana de la liquidación' };
+  }
   const bankReference = form.bankReference.trim();
   if (!bankReference) return { ok: false, error: 'Pon la referencia del banco (la del movimiento).' };
   if (bankReference.length > 140) return { ok: false, error: 'La referencia del banco, como mucho 140 caracteres.' };
@@ -131,6 +135,14 @@ export function paymentPayload(
 export function paymentSummary(d: Pick<SettlementDetail, 'reference' | 'pendingCents'>, amountCents: number): string {
   if (amountCents === d.pendingCents) return `Vas a apuntar ${formatEur(amountCents)} recibidos de ${d.reference}: queda pagada entera.`;
   return `Vas a apuntar ${formatEur(amountCents)} recibidos de ${d.reference}: quedan ${formatEur(d.pendingCents - amountCents)} pendientes.`;
+}
+
+/** La confirmación muestra el problema concreto antes de pedir el código. */
+export function paymentFormSummary(
+  d: Pick<SettlementDetail, 'reference' | 'pendingCents'>,
+  parsed: ReturnType<typeof paymentPayload>,
+): string {
+  return parsed.ok ? paymentSummary(d, parsed.value.amountCents) : parsed.error;
 }
 
 // ─── Filtros de la consola ───────────────────────────────────────────

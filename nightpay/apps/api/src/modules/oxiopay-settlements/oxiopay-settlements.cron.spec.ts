@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { RELEASE_LOCK_LUA } from '../../common/redis/release-lock';
+import { OxioPaySettlementsService } from './oxiopay-settlements.service';
 import {
   OxioPaySettlementsCron,
   alertKey,
@@ -16,7 +17,7 @@ const LOCK = 'np:oxiopay-settlements:lock';
 /** Lunes 2-nov-2026 a las 10:30 de Madrid (09:30 UTC): toca la semana 44. */
 const MONDAY_1030 = new Date('2026-11-02T09:30:00Z');
 
-/** El Redis compartido por las réplicas: SET NX/EX, EXISTS, DEL y el borrado condicional del candado. */
+/** El Redis compartido por las réplicas: SET NX/EX, GET, EXISTS, DEL y el borrado condicional del candado. */
 function sharedRedis() {
   const store = new Map<string, string>();
   return {
@@ -26,6 +27,7 @@ function sharedRedis() {
       store.set(key, value);
       return 'OK';
     }),
+    get: vi.fn(async (key: string) => store.get(key) ?? null),
     exists: vi.fn(async (key: string) => (store.has(key) ? 1 : 0)),
     del: vi.fn(async (key: string) => (store.delete(key) ? 1 : 0)),
     eval: vi.fn(async (script: string, _n: number, key: string, value: string) => {
@@ -74,7 +76,7 @@ describe('repaso del lunes con dos réplicas (start-first): candado SET NX', () 
     await first;
     // El candado se soltó y la semana quedó marcada.
     expect(redis.store.has(LOCK)).toBe(false);
-    expect(redis.store.get(doneKey('2026-10-26'))).toBe('1');
+    expect(redis.store.get(doneKey('2026-10-26'))).toBe('complete');
     await b.cron.tick(new Date(MONDAY_1030.getTime() + 10 * 60_000));
     expect(b.settlements.runDue).not.toHaveBeenCalled();
   });
@@ -90,6 +92,55 @@ describe('repaso del lunes con dos réplicas (start-first): candado SET NX', () 
     expect(redis.store.has(doneKey('2026-10-26'))).toBe(false);
     await failing.cron.tick(new Date(MONDAY_1030.getTime() + 10 * 60_000));
     expect(failing.settlements.runDue).toHaveBeenCalledTimes(2);
+  });
+
+  it('si la primera vuelta es anterior al inicio, adelantarlo permite generar en la siguiente sin borrar Redis', async () => {
+    const redis = sharedRedis();
+    let startWeek = new Date('2026-11-09T00:00:00Z');
+    const tx = {
+      oxioPaySettlementSettings: {
+        findUnique: vi.fn(async () => ({ id: 1, startWeek })),
+        upsert: vi.fn(async ({ update }: { update: { startWeek: Date } }) => {
+          startWeek = update.startWeek;
+        }),
+      },
+      venue: { findMany: vi.fn(async () => [{ id: 'a', name: 'Luna' }]) },
+      oxioPayPayee: { findUnique: vi.fn(async () => ({ name: 'OxioPay', iban: 'ES9121000418450200051332', holder: 'OxioPay demo', updatedAt: MONDAY_1030 })) },
+    };
+    const query = async (fn: (client: typeof tx) => unknown) => fn(tx);
+    const service = new OxioPaySettlementsService({ asSystem: query, acrossVenues: query } as never, {} as never, {} as never);
+    const generate = vi.spyOn(service, 'generate').mockResolvedValue({
+      kind: 'created', id: 's1', reference: 'OXP-2026-S44-LUNA', totalCents: 100, replacesId: null,
+    });
+    vi.spyOn(service, 'reconcile').mockResolvedValue([]);
+    const telegram = { isConfigured: () => false };
+    const cron = new OxioPaySettlementsCron(service, redis as never, telegram as never);
+
+    await cron.tick(MONDAY_1030);
+    expect(generate).not.toHaveBeenCalled();
+    const markedBeforeStart = redis.store.has(doneKey('2026-10-26'));
+    await service.setStartWeek({ id: 'admin', email: 'admin@example.test' }, '2026-10-12');
+    await cron.tick(new Date(MONDAY_1030.getTime() + 10 * 60_000));
+
+    expect(generate).toHaveBeenCalledTimes(1);
+    expect(markedBeforeStart).toBe(false);
+    expect(redis.store.get(doneKey('2026-10-26'))).toBe('complete');
+    await cron.tick(new Date(MONDAY_1030.getTime() + 20 * 60_000));
+    expect(generate).toHaveBeenCalledTimes(1);
+  });
+
+  it('una marca antigua ambigua se repasa una vez solo para la semana que toca', async () => {
+    const redis = sharedRedis();
+    redis.store.set(doneKey('2026-10-19'), '1');
+    redis.store.set(doneKey('2026-10-26'), '1');
+    const r = replica(redis);
+
+    await r.cron.tick(MONDAY_1030);
+    expect(r.settlements.runDue).toHaveBeenCalledTimes(1);
+    expect(redis.store.get(doneKey('2026-10-26'))).toBe('complete');
+    expect(redis.store.get(doneKey('2026-10-19'))).toBe('1');
+    await r.cron.tick(new Date(MONDAY_1030.getTime() + 10 * 60_000));
+    expect(r.settlements.runDue).toHaveBeenCalledTimes(1);
   });
 
   it('un fallo inesperado no rompe la vuelta y suelta el candado', async () => {
@@ -110,7 +161,7 @@ describe('aviso de las que llevan más de 7 días sin pagar (Telegram del super-
 
   it('una vez al día como mucho, aunque haya varias vueltas y réplicas', async () => {
     const redis = sharedRedis();
-    redis.store.set(doneKey('2026-11-02'), '1');
+    redis.store.set(doneKey('2026-11-02'), 'complete');
     const a = replica(redis, { overdue: lines });
     const b = replica(redis, { overdue: lines });
     await a.cron.tick(TUESDAY_NOON);

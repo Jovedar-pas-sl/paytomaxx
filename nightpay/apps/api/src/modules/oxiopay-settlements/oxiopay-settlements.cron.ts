@@ -23,6 +23,8 @@ const LOCK_KEY = 'np:oxiopay-settlements:lock';
 const LOCK_TTL_S = 30 * 60;
 /** Semana generada en todos los locales sin fallos: no se vuelve a repasar (dura más que la semana). */
 const DONE_TTL_S = 8 * 24 * 60 * 60;
+/** Las marcas antiguas «1» podían ser anteriores al inicio: se repasan una vez, solo la semana que toca. */
+const DONE_VALUE = 'complete';
 /** El aviso de las que llevan más de 7 días sin pagar: una vez al día, de 10:00 a 22:00 de Madrid. */
 const ALERT_FROM_HOUR = 10;
 const ALERT_UNTIL_HOUR = 22;
@@ -188,8 +190,10 @@ export class OxioPaySettlementsCron implements OnModuleInit, OnModuleDestroy {
   async generateDue(now: Date): Promise<void> {
     const week = dueWeek(now);
     if (!week) return;
-    if ((await this.redis.exists(doneKey(week.monday))) > 0) return;
+    if ((await this.redis.get(doneKey(week.monday))) === DONE_VALUE) return;
     const result = await this.settlements.runDue(now);
+    // Adelantar la semana de inicio debe surtir efecto en la siguiente vuelta.
+    if (result.beforeStart) return;
     if (result.created.length > 0) {
       this.logger.log(`Liquidaciones OxioPay de la semana ${week.isoWeek}/${week.isoYear}: ${result.created.length} emitidas`);
     }
@@ -200,7 +204,7 @@ export class OxioPaySettlementsCron implements OnModuleInit, OnModuleDestroy {
       await this.sendOnce(failedKey(madridDay(now)), ALERT_TTL_S, () => failedMessage(week, result.failed));
       return;
     }
-    await this.redis.set(doneKey(week.monday), '1', 'EX', DONE_TTL_S);
+    await this.redis.set(doneKey(week.monday), DONE_VALUE, 'EX', DONE_TTL_S);
   }
 
   /** La comprobación acumulada: al registro y por Telegram una vez por semana. */
