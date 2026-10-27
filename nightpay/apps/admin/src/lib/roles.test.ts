@@ -31,7 +31,7 @@ describe('cinco secciones', () => {
     expect(sectionTabs({ role: 'OWNER' }, 'clientes')).toEqual(['wallets', 'fichas']);
     expect(sectionTabs({ role: 'MANAGER' }, 'clientes')).toEqual(['wallets', 'fichas']);
     expect(sectionOf('fichas')).toBe('clientes');
-    expect(sectionTabs({ role: 'OWNER' }, 'informes')).toEqual(['nights', 'reports', 'bank']);
+    expect(sectionTabs({ role: 'OWNER' }, 'informes')).toEqual(['nights', 'reports', 'bank', 'oxiopay']);
   });
 
   it('Ajustes del dueño: carta, secciones, datáfonos, reglas, formas de cobro, la noche, permisos, Telegram y seguridad; Super admin solo si lo es', () => {
@@ -51,12 +51,19 @@ describe('cinco secciones', () => {
 
   it('el encargado no ve lo que no puede usar: ni Banco, ni las reglas, permisos o Telegram; los informes, solo con permiso', () => {
     const tabs = keys({ role: 'MANAGER' });
-    for (const k of ['bank', 'reports', 'rules', 'methods', 'night', 'permissions', 'alerts', 'superadmin', 'sections'] as const) {
+    for (const k of ['bank', 'oxiopay', 'reports', 'rules', 'methods', 'night', 'permissions', 'alerts', 'superadmin', 'sections'] as const) {
       expect(tabs).not.toContain(k);
     }
     expect(sectionTabs({ role: 'MANAGER' }, 'ajustes')).toEqual(['carta', 'terminals', 'security']);
     expect(sectionTabs({ role: 'MANAGER' }, 'informes')).toEqual(['nights']);
     expect(sectionTabs({ role: 'MANAGER', canSeeReports: true }, 'informes')).toEqual(['nights', 'reports']);
+  });
+
+  it('«Liquidaciones OxioPay»: solo el dueño (ni el encargado con permiso de informes)', () => {
+    expect(keys({ role: 'OWNER' })).toContain('oxiopay');
+    expect(keys({ role: 'MANAGER', canSeeReports: true })).not.toContain('oxiopay');
+    expect(sectionOf('oxiopay')).toBe('informes');
+    expect(visibleTabs({ role: 'OWNER' }).find((t) => t.key === 'oxiopay')?.label).toBe('Liquidaciones OxioPay');
   });
 
   it('el mapa del dinero, como los informes: el encargado solo si el dueño le deja verlos', () => {

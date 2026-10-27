@@ -24,6 +24,7 @@ const TAB_SLUG: Readonly<Record<TabKey, string>> = {
   nights: 'noches',
   reports: 'informes',
   bank: 'banco',
+  oxiopay: 'liquidaciones-oxiopay',
   carta: 'carta',
   sections: 'secciones',
   terminals: 'datafonos',
