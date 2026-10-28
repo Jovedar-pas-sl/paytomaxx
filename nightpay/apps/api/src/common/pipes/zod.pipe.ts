@@ -30,7 +30,13 @@ export class ZodValidationPipe<S extends ZodTypeAny>
     if (!result.success) {
       // 400, como siempre (las apps lo esperan así: un 422 es, p. ej., «PIN
       // mal» en el datáfono). El filtro pone `status` en el cuerpo: el mismo.
-      const issues = result.error.issues;
+      const issues = result.error.issues.map((issue) => {
+        if (issue.code !== 'invalid_type' || !issue.message.startsWith('Invalid input: expected ')) return issue;
+        const message = issue.message.endsWith(', received undefined')
+          ? 'Required'
+          : issue.message.replace('Invalid input: expected ', 'Expected ');
+        return { ...issue, message };
+      });
       const shown = issues.slice(0, MAX_REPORTED_ISSUES);
       const more = issues.length - shown.length;
       throw new BadRequestException({
@@ -39,7 +45,7 @@ export class ZodValidationPipe<S extends ZodTypeAny>
           ...shown.map((i) => `${i.path.join('.') || '(root)'}: ${i.message}`),
           ...(more > 0 ? [`y ${more} más`] : []),
         ].join('; '),
-        issues: (more > 0 ? new ZodError(shown) : result.error).flatten(),
+        issues: new ZodError(shown).flatten(),
       });
     }
     return result.data;

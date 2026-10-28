@@ -60,16 +60,18 @@ describe('topes de entrada antes de zod', () => {
   });
 
   it('boundedInput: el esquema de siempre, pero un registro enorme no llega a zod', () => {
-    const record = z.record(z.union([z.string(), z.number(), z.boolean(), z.null()]));
-    const parse = vi.spyOn(record, '_parse');
+    const parse = vi.fn();
+    const record = z.record(z.string(), z.union([z.string(), z.number(), z.boolean(), z.null()])).superRefine(parse);
     const bounded = boundedInput(record, { maxObjectKeys: 100 });
     expect(bounded.safeParse({ Ds_Signature: 's', Ds_MerchantParameters: 'p' })).toEqual({
       success: true,
       data: { Ds_Signature: 's', Ds_MerchantParameters: 'p' },
     });
+    expect(parse).toHaveBeenCalled();
     parse.mockClear();
+    const input = hugeRecord();
     const started = Date.now();
-    expect(bounded.safeParse(hugeRecord()).success).toBe(false);
+    expect(bounded.safeParse(input).success).toBe(false);
     expect(Date.now() - started).toBeLessThan(500);
     expect(parse).not.toHaveBeenCalled();
   });

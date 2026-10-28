@@ -63,7 +63,7 @@ const PeanpePostBodySchema = z
 // en verifyWebhook — aquí solo necesitamos shape laxa para re-codificar a
 // rawBody form-urlencoded. Ruta pública: con más de 100 campos ni se valida
 // (zod guardaba un error por campo: 1 MB de cuerpo, 20 s de CPU; SEC-05).
-const FormUrlencodedBodySchema = boundedInput(z.record(z.union([z.string(), z.number(), z.boolean(), z.null()])), {
+const FormUrlencodedBodySchema = boundedInput(z.record(z.string(), z.union([z.string(), z.number(), z.boolean(), z.null()])), {
   maxObjectKeys: 100,
 });
 

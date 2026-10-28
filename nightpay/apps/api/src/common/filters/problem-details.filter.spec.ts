@@ -205,6 +205,22 @@ describe('ProblemDetailsFilter — el código del cuerpo es el de la respuesta',
     expect(capture.body.issues).toBeDefined();
   });
 
+  it('un campo obligatorio conserva el mensaje de validación anterior', () => {
+    const filter = new ProblemDetailsFilter(true);
+    const { host, capture } = makeHost();
+    let error: unknown;
+    try {
+      new ZodValidationPipe(z.object({ amountCents: z.number().int() })).transform({});
+    } catch (e) {
+      error = e;
+    }
+    expect(error).toBeDefined();
+    filter.catch(error, host);
+    expect(capture.status).toBe(400);
+    expect(capture.body.status).toBe(400);
+    expect(capture.body.detail).toBe('amountCents: Required');
+    expect(capture.body.issues.fieldErrors.amountCents).toEqual(['Required']);
+  });
   it('una excepción que trae otro "status", "type" o "instance" en su cuerpo no los cambia', () => {
     const filter = new ProblemDetailsFilter(true);
     const { host, capture } = makeHost('/v1/x');

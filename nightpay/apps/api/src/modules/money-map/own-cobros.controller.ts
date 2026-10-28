@@ -22,7 +22,7 @@ export class OwnCobrosController {
     // Una detrás de otra (antes, a la vez): cada una es una transacción, y con
     // muchas peticiones juntas de la misma persona dos conexiones por petición
     // agotaban el pool (P2028, 500 en la prueba real).
-    const page = await this.cobros.list(user.tenantId, { limit: query.limit, cursor: query.cursor, operatorId: user.sub });
+    const page = await this.cobros.list(user.tenantId, { limit: query.limit, cursor: query.cursor, operatorId: user.sub, status: undefined });
     // La noche (para «Esta noche» en la app), solo con la primera página.
     const night = query.cursor ? null : await this.moneyMap.currentWindow(user.tenantId);
     return {
