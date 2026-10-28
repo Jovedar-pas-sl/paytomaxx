@@ -55,7 +55,8 @@ function makeController(opts: {
     PAY_DIRECT_WALLET: opts.directWallet,
   };
   const config = { get: vi.fn((key: string) => settings[key]) };
-  return { controller: new PublicPayController(payments as never, config as never, {} as never, {} as never), payments };
+  const redsysReturn = { process: vi.fn().mockResolvedValue('enviado') };
+  return { controller: new PublicPayController(payments as never, config as never, {} as never, {} as never, redsysReturn as never), payments, redsysReturn };
 }
 
 function view(overrides: Partial<PayResultView>): PayResultView {
@@ -95,6 +96,30 @@ afterEach(() => {
 });
 
 describe('GET /pay/result — el "Pagado" ya no se puede falsificar', () => {
+  it('envía los parámetros de vuelta al verificador antes de leer el estado', async () => {
+    const { controller, payments, redsysReturn } = makeController({ view: view({ status: 'AUTHORIZING' }) });
+    const { reply } = fakeReply();
+    const query = { Ds_SignatureVersion: 'HMAC_SHA256_V1', Ds_MerchantParameters: 'abc', Ds_Signature: 'xyz' };
+    await controller.paymentResult('a1b2c3d4e5f6', 'es', undefined, reply, query);
+    expect(redsysReturn.process).toHaveBeenCalledWith('a1b2c3d4e5f6', query);
+    expect(redsysReturn.process.mock.invocationCallOrder[0]).toBeLessThan(payments.getResultView.mock.invocationCallOrder[0]!);
+  });
+
+  it('si falla el guardado conserva la firma para reintentar sin consultar la base', async () => {
+    const { controller, payments, redsysReturn } = makeController({ view: view({ status: 'AUTHORIZING' }) });
+    redsysReturn.process.mockResolvedValueOnce('error');
+    const { reply, sent } = fakeReply();
+    const query = { Ds_SignatureVersion: 'HMAC_SHA256_V1', Ds_MerchantParameters: 'a+b/c=', Ds_Signature: 'x+y/z=', extra: 'no-incluir' };
+    await controller.paymentResult('2610170002CD', 'es', undefined, reply, query);
+    expect(payments.getResultView).not.toHaveBeenCalled();
+    expect(sent.body).toContain('Comprobando el pago');
+    expect(sent.body).toContain('Ds_MerchantParameters=a%2Bb%2Fc%3D');
+    expect(sent.body).toContain('Ds_Signature=x%2By%2Fz%3D');
+    expect(sent.body).not.toContain('no-incluir');
+    expect(sent.headers['Referrer-Policy']).toBe('no-referrer');
+    expect(sent.headers['Cache-Control']).toBe('no-store');
+  });
+
   it('sin pedido conocido nunca dice "Pagado"', async () => {
     const { controller } = makeController({ view: null });
     const { reply, sent } = fakeReply();

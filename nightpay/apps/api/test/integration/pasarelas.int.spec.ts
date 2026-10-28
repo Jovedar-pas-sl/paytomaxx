@@ -11,6 +11,9 @@ import { RedsysAdapter } from '../../src/modules/gateways/redsys.adapter';
 import { IncidentsService } from '../../src/modules/incidents/incidents.service';
 import { WebhookIngestProcessor } from '../../src/modules/queues/webhook-ingest.processor';
 import { OrphanReconcileProcessor } from '../../src/modules/queues/orphan-reconcile.processor';
+import { WebhooksController } from '../../src/modules/webhooks/webhooks.controller';
+import { RedsysReturnService } from '../../src/modules/payments/redsys-return.service';
+import type { FastifyRequest } from 'fastify';
 
 const cls = new ClsService(new AsyncLocalStorage());
 const prisma = new PrismaService(cls as never);
@@ -77,6 +80,7 @@ async function payment(o: {
   amount: number;
   order: string;
   walletId?: string;
+  fee?: number;
   attempts?: Array<{ id?: string; order: string; amount: number; tip: number; status?: string; ago?: number }>;
 }): Promise<string> {
   return sys(async (tx) => {
@@ -87,6 +91,8 @@ async function payment(o: {
         createdByUserId: chica,
         idempotencyKey: `k-${randomUUID()}`,
         amountCents: o.amount,
+        serviceFeeCents: o.fee ?? 0,
+        serviceFeeBps: o.fee ? 1000 : null,
         availableAmountCents: o.amount,
         qrToken: `qr-${randomUUID()}`,
         qrExpiresAt: new Date(Date.now() + 3600_000),
@@ -267,5 +273,63 @@ describe('conciliación de huérfanos contra Postgres real (#6)', () => {
     const id = await payment({ status: 'AUTHORIZING', provider: 'REDSYS', amount: 1000, order: o, attempts: [{ order: o, amount: 1000, tip: 0 }] });
     await reconcile.process({ data: { paymentId: id, tenantId: A }, attemptsMade: 4, opts: { attempts: 5 } } as never);
     expect((await statusOf(id))?.status).toBe('ORPHAN');
+  });
+});
+
+describe('vuelta firmada por el mismo camino que el aviso (Postgres real)', () => {
+  function harness() {
+    const jobs: string[] = [];
+    const queue = {
+      getJob: async () => undefined,
+      add: async (_name: string, data: { deliveryId: string }) => { jobs.push(data.deliveryId); },
+    };
+    const metrics = { webhooksReceived: { inc: noop }, duplicateCharges: { inc: noop } };
+    const webhooks = new WebhooksController(
+      prisma as never, registry as never, queue as never, metrics as never, config as never,
+      {} as never, {} as never, {} as never, redsys,
+    );
+    return { jobs, webhooks, returns: new RedsysReturnService(redsys, webhooks) };
+  }
+
+  function bankFields(order: string, amount: number) {
+    const values = { Ds_Order: order, Ds_Merchant_Order: order, Ds_MerchantCode: MERCHANT,
+      Ds_Response: '0000', Ds_TransactionType: '0', Ds_Amount: String(amount), Ds_Currency: '978' };
+    return serializeAndSignJSONRequest(SECRET, values as never);
+  }
+
+  it('confirma una sola vez el total con comisión y propina si llega a la vez que el aviso', async () => {
+    const h = harness();
+    const order = `RR1${r}`;
+    const id = await payment({ status: 'AUTHORIZING', provider: 'REDSYS', amount: 3300, fee: 330, order,
+      attempts: [{ order, amount: 3830, tip: 200 }] });
+    const fields = bankFields(order, 3830);
+    const request = { headers: {}, body: fields } as unknown as FastifyRequest;
+    await Promise.all([h.returns.process(order, fields), h.webhooks.receiveRedsys(request)]);
+    expect(h.jobs.length).toBeGreaterThan(0);
+    expect(new Set(h.jobs).size).toBe(1);
+    const delivery = await prisma.webhookDelivery.findMany({ where: { provider: 'REDSYS', externalEventId: `${order}-0000` } });
+    expect(delivery).toHaveLength(1);
+    await processor.process({ data: { deliveryId: h.jobs[0]! } } as Job<{ deliveryId: string }>);
+    await h.returns.process(order, fields);
+    const p = await statusOf(id);
+    expect(p?.status).toBe('AUTHORIZED');
+    expect(p?.tipCents).toBe(200);
+    expect(p?.serviceFeeCents).toBe(330);
+    const earnings = await sys((tx) => tx.operatorEarning.findMany({ where: { paymentId: id } }));
+    expect(earnings).toHaveLength(1);
+    expect(await prisma.webhookDelivery.count({ where: { provider: 'REDSYS', externalEventId: `${order}-0000` } })).toBe(1);
+  });
+
+  it('si el importe firmado es distinto, deja incidencia y no marca el pago como cobrado', async () => {
+    const h = harness();
+    const order = `RR2${r}`;
+    const id = await payment({ status: 'AUTHORIZING', provider: 'REDSYS', amount: 3300, fee: 330, order,
+      attempts: [{ order, amount: 3830, tip: 200 }] });
+    expect(await h.returns.process(order, bankFields(order, 100))).toBe('enviado');
+    await processor.process({ data: { deliveryId: h.jobs[0]! } } as Job<{ deliveryId: string }>);
+    expect((await statusOf(id))?.status).toBe('AUTHORIZING');
+    const events = await eventsOf(id, 'payment.amount_mismatch');
+    expect(events).toHaveLength(1);
+    expect(events[0]!.payload).toMatchObject({ chargedCents: 100, expectedCents: 3830 });
   });
 });
