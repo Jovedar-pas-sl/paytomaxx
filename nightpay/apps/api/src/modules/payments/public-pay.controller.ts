@@ -43,6 +43,7 @@ import {
 } from './public-pay.pages';
 import { walletClaimCookieName, walletClaimSetCookie } from './wallet-claim';
 import { PayPageFilter } from './pay-page.filter';
+import { RedsysReturnService } from './redsys-return.service';
 
 /**
  * Páginas GET de /pay: fuera del límite global (global-rate-limit.ts) y con
@@ -91,17 +92,20 @@ export class PublicPayController {
   private readonly config: ConfigService;
   private readonly charges: WalletChargesService;
   private readonly passkeys: WalletPasskeysService;
+  private readonly redsysReturn: RedsysReturnService;
 
   constructor(
     @Inject(PaymentsService) payments: PaymentsService,
     @Inject(ConfigService) config: ConfigService,
     @Inject(WalletChargesService) charges: WalletChargesService,
     @Inject(WalletPasskeysService) passkeys: WalletPasskeysService,
+    @Inject(RedsysReturnService) redsysReturn: RedsysReturnService,
   ) {
     this.payments = payments;
     this.config = config;
     this.charges = charges;
     this.passkeys = passkeys;
+    this.redsysReturn = redsysReturn;
   }
 
   @Public()
@@ -113,8 +117,21 @@ export class PublicPayController {
     @Query('lang') langQuery: string | undefined,
     @Headers('cookie') cookies: string | undefined,
     @Res() res: FastifyReply,
+    @Query() query: Record<string, unknown> = {},
   ): Promise<void> {
+    const result = await this.redsysReturn.process(op, query);
     const lang = this.language(res, langQuery, cookies);
+    if (result === 'error') {
+      // La vuelta puede ser la única prueba: reintentarla hasta guardarla.
+      const retry = new URLSearchParams({ op: op ?? '', lang });
+      for (const name of ['Ds_SignatureVersion', 'Ds_MerchantParameters', 'Ds_Signature']) {
+        const value = query[name] ?? query[name.toLowerCase()];
+        if (typeof value === 'string') retry.set(name, value);
+      }
+      res.header('Referrer-Policy', 'no-referrer');
+      sendHtml(res, 200, renderProcessingPage(lang, `/pay/result?${retry}`));
+      return;
+    }
     const view = op ? await this.payments.getResultView(op) : null;
     // Recarga empezada en /w y pagada desde ese navegador: de vuelta a su saldo.
     if (

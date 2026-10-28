@@ -9,6 +9,7 @@ import { PeanpeDebugController } from './peanpe-debug.controller';
 import { PaymentsService } from './payments.service';
 import { QR_EXPIRE_QUEUE, ORPHAN_RECONCILE_QUEUE } from '../queues/queue-tokens';
 import { WalletsModule } from '../wallets/wallets.module';
+import { WebhooksModule } from '../webhooks/webhooks.module';
 
 @Module({
   imports: [
@@ -16,6 +17,7 @@ import { WalletsModule } from '../wallets/wallets.module';
       { name: QR_EXPIRE_QUEUE },
       { name: ORPHAN_RECONCILE_QUEUE },
     ),
+    WebhooksModule,
     WalletsModule, // Phase 1B — top-up flow credit on AUTHORIZED
   ],
   controllers: [
