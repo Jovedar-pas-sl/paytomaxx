@@ -51,6 +51,8 @@ describe('ConfigService con el entorno ya validado por zod', () => {
     const config = await configFor(REQUIRED);
     expect(config.get('REDSYS_API_URL')).toBe('https://sis-t.redsys.es:25443/sis/realizarPago');
     expect(config.get('PAYOUT_HOLD_DAYS')).toBe(7);
+    expect(config.getOrThrow('PAYOUT_HOLD_DAYS')).toBe(7);
+    expect(() => config.getOrThrow('OPERATOR_BASE_URL')).toThrow();
     expect(config.get('NODE_ENV')).toBe('production');
   });
 

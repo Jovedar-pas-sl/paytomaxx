@@ -64,7 +64,7 @@ export const AuthorizeResultSchema = z.object({
     .object({
       action: z.string().url(),
       method: z.literal('POST'),
-      fields: z.record(z.string()),
+      fields: z.record(z.string(), z.string()),
     })
     .optional(),
 });

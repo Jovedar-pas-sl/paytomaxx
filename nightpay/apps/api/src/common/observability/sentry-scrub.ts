@@ -216,6 +216,7 @@ export function scrubSensitive<T extends Bag>(event: T): T {
   return {
     ...event,
     ...('request' in event ? { request: scrubRequest(event.request) } : {}),
+    ...('extra' in event ? { extra: scrubValue(event.extra, 0, new WeakSet()) } : {}),
     ...(typeof event.transaction === 'string' ? { transaction: redactSecretsInText(event.transaction) } : {}),
     ...('breadcrumbs' in event ? { breadcrumbs: scrubBreadcrumbs(event.breadcrumbs) } : {}),
     ...(Array.isArray(event.spans) ? { spans: event.spans.map(scrubSpan) } : {}),
