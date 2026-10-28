@@ -1,5 +1,6 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { AuditService } from '../audit/audit.service';
+import type { TransactionalClient } from '../../common/prisma/prisma.service';
+import { AuditService, type AuditInput } from '../audit/audit.service';
 import { maskSensitive } from './masking';
 import type { SuperAdminActor } from './superadmin.guard';
 
@@ -33,7 +34,19 @@ export class SuperAdminAuditService {
   }
 
   async write(actor: SuperAdminActor, input: SuperAdminAuditInput): Promise<void> {
-    await this.audit.log({
+    await this.audit.log(this.rowFor(actor, input));
+  }
+
+  /**
+   * En la misma transacción que el cambio (pagos, cuenta de OxioPay): si el
+   * registro no se puede escribir, el cambio tampoco se hace.
+   */
+  async writeInTx(tx: Pick<TransactionalClient, 'auditEvent'>, actor: SuperAdminActor, input: SuperAdminAuditInput): Promise<void> {
+    await this.audit.logInTx(tx, this.rowFor(actor, input));
+  }
+
+  private rowFor(actor: SuperAdminActor, input: SuperAdminAuditInput): AuditInput {
+    return {
       action: `${SUPERADMIN_AUDIT_PREFIX}${input.action}`,
       tenantId: input.tenantId ?? null,
       actorId: actor.id,
@@ -48,6 +61,6 @@ export class SuperAdminAuditService {
         ...(input.reason ? { reason: input.reason } : {}),
         ...(input.extra ?? {}),
       }) as Record<string, unknown>,
-    });
+    };
   }
 }

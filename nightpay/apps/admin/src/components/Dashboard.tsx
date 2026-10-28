@@ -33,6 +33,7 @@ import { BankReconPanel } from './BankReconPanel';
 import { BottomNav } from './BottomNav';
 import { CartaPanel } from './CartaPanel';
 import { NightsPanel } from './NightsPanel';
+import { OxioPaySettlementsPanel } from './OxioPaySettlementsPanel';
 import { OperatorsPanel } from './OperatorsPanel';
 import { PaymentsPanel } from './PaymentsPanel';
 import { ReportsPanel } from './ReportsPanel';
@@ -52,6 +53,7 @@ import { FichasPanel } from './FichasPanel';
 import { FichasProvider } from './fichas/FichasProvider';
 import { MoneyMapPanel } from './money-map/MoneyMapPanel';
 import { SectionsPanel } from './settings/SectionsPanel';
+import { OverdueSettlementsBanner } from './settlements/OverdueBanner';
 
 interface Props {
   user: User;
@@ -173,6 +175,7 @@ export function Dashboard({ user, onLogout }: Props) {
             </header>
 
             {missing2fa ? <Missing2faBanner onEnable={() => goTo('security')} /> : null}
+            {isOwner ? <OverdueSettlementsBanner tenantId={user.tenantId} onOpen={() => goTo('oxiopay')} /> : null}
 
             <TabBar
               tabs={sections}
@@ -321,6 +324,8 @@ function ActivePanel(props: ActivePanelProps) {
       return <ReportsPanel isOwner={isOwner} />;
     case 'bank':
       return <BankReconPanel isOwner={isOwner} />;
+    case 'oxiopay':
+      return isOwner ? <OxioPaySettlementsPanel /> : null;
     case 'carta':
       return <CartaPanel />;
     case 'terminals':

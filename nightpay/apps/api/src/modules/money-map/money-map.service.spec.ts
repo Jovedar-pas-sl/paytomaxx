@@ -2,7 +2,8 @@ import { describe, it, expect, vi } from 'vitest';
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@nightpay/db';
 import { MoneyMapService } from './money-map.service';
-import { buildMoneyMap } from './money-map-rules';
+import { conceptsTotal } from '@nightpay/contracts';
+import { buildMoneyMap, oxioPayCentsOf } from './money-map-rules';
 import { REPORT_TX } from '../reports/reporting-sql';
 
 const TENANT = '11111111-1111-4111-8111-111111111111';
@@ -263,5 +264,27 @@ describe('transacciones del mapa del dinero: tope explícito (DI-02)', () => {
     await svc.forQuery(TENANT, { from: '2026-10-01', to: '2026-10-02' }, NOW);
     expect(prisma.withTenant.mock.calls.length).toBeGreaterThanOrEqual(2);
     for (const call of prisma.withTenant.mock.calls) expect((call as unknown[])[2]).toBe(REPORT_TX);
+  });
+});
+
+describe('lo de OxioPay de un periodo (oxioPayOwed, la «Liquidación OxioPay»)', () => {
+  const window = { from: T('2026-10-19T06:00:00Z'), to: T('2026-10-26T07:00:00Z') };
+  const period = { scope: { kind: 'period' } as const, now: NOW, openingFloatCents: null, withLiveBalances: false };
+
+  it('las mismas filas y cuentas que el mapa del mismo periodo: suma lo que el mapa pone como de OxioPay', async () => {
+    const { svc } = makeService();
+    const map = await svc.compute(TENANT, window, period);
+    const owed = await svc.oxioPayOwed(TENANT, window);
+    expect(conceptsTotal(owed)).toBe(oxioPayCentsOf(map));
+    // 10 % del local en el pack (150 €) y en el consumo (20 €); 5 % fijado en el datáfono (10 €).
+    expect(owed).toMatchObject({ platformSales: 1_500 + 50, platformSaldo: 200 });
+  });
+
+  it('con otro % del local (el de la semana ya liquidada) solo cambia lo que no lo lleva fijado', async () => {
+    const { svc } = makeService();
+    const owed = await svc.oxioPayOwed(TENANT, window, { platformBps: 800 });
+    expect(owed).toMatchObject({ platformSales: 1_200 + 50, platformSaldo: 160 });
+    const map = await svc.compute(TENANT, window, { ...period, platformBps: 800 });
+    expect(conceptsTotal(owed)).toBe(oxioPayCentsOf(map));
   });
 });

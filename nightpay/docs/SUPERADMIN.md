@@ -148,3 +148,112 @@ La CLI (`pnpm cli …`) sigue igual.
 | Método y ruta | Qué hace | 2FA | Registro |
 |---|---|---|---|
 | `GET /superadmin/audit?venueId=&actorId=&action=&from=&to=&cursor=&limit=` | `audit_events` de todos los locales, del más reciente al más antiguo. `action` es un prefijo (`superadmin.`, `auth.login`, `refund.`…). `from`/`to` en ISO; `cursor` = id de la última fila. El payload sale con lo secreto tapado. | — | — |
+
+## Liquidaciones OxioPay
+
+Lo que cada local debe a OxioPay por semana, **de lunes 08:00 a lunes 08:00
+de Madrid** (el corte de las noches; con el cambio de hora la semana dura 169
+o 167 h). Es lo que el mapa del dinero pone como de OxioPay en esa ventana —
+la comisión del servicio cobrada a los clientes (pagos directos y recargas,
+con tarjeta y en efectivo) menos la devuelta, y la comisión de plataforma de
+siempre donde no hay comisión del servicio (interruptor apagado, saldo cargado
+antes de encenderla) — con la misma cuenta (`MoneyMapService.oxioPayOwed`,
+`money-map-rules.oxioPayOwedOf`): **el total de la semana cuadra con el mapa
+del dinero de esa ventana**. Desglose por noche (08:00 → 08:00) y por concepto.
+Es un resumen, **no una factura**.
+
+Código: `apps/api/src/modules/oxiopay-settlements/` (generación, repaso, panel
+del dueño, documento y CSV) y `apps/api/src/modules/superadmin/settlements.*`
+(consola). Contratos: `packages/contracts/src/oxiopay-settlement.ts`. Migraciones:
+`20261031100000_liquidacion_oxiopay` y `20261031110000_liquidacion_revision`
+(semana de inicio y más CHECK).
+
+- **Semana de inicio.** Un ajuste de la plataforma en la base
+  (`oxiopay_settlement_settings`, una fila): la primera semana que se liquida.
+  Si está vacía, al arrancar el API se fija sola en la primera semana
+  **completa** siguiente (el próximo lunes 08:00 de Madrid; con dos réplicas,
+  la primera gana y queda en el registro como
+  `superadmin.settlement.start_week_set`): nunca se liquida nada anterior al
+  despliegue. El arrastre de semanas negativas y los ajustes cuentan desde
+  ella (no desde la liquidación más antigua del local) y generar a mano una
+  semana anterior da 400 (antes de gastar el 2FA). Solo el super-admin la
+  cambia, con 2FA y motivo. La consola la enseña encima de la cuenta de OxioPay.
+
+- **Repaso del lunes.** Cada 10 min se mira si toca: el lunes desde las 10:00
+  de Madrid (después del corte de las 08:00 y del resumen de las 9:00) se
+  genera la semana terminada de cada local; si el servidor estuvo parado, en
+  la siguiente vuelta. Candado `SET NX` (`np:oxiopay-settlements:lock`, con
+  valor propio y borrado condicional) para las dos réplicas de start-first;
+  semana hecha sin fallos → marca `np:oxiopay-settlements:done:<lunes>`. Una
+  activa (no anulada) por local y semana: lo asegura además la base (índice
+  parcial) y el candado de transacción del local. Con 0 € (o menos) no se crea.
+  Si las noches no suman lo que da el mapa del dinero para la semana entera,
+  se calcula otra vez; si sigue sin cuadrar, **no se emite** (409
+  `SETTLEMENT_MAP_MISMATCH`, log de error y Telegram). Los locales que fallan
+  se avisan por Telegram (marca `np:oxiopay-settlements:failed:<día>`, una vez
+  al día). Al apagarse, el API espera a la vuelta en curso (con tope) y suelta
+  el candado. `NIGHTPAY_DISABLE_OXIOPAY_SETTLEMENTS=1` lo apaga.
+- **Comprobación acumulada.** En cada repaso, desde la semana de inicio, el
+  libro de cada local se compara con lo liquidado: algo apuntado tarde más
+  allá de las 12 semanas (no entra solo como ajuste), un local dado de baja
+  con liquidaciones sin pagar o con algo sin liquidar, o un local que no se
+  pudo comprobar → Telegram una vez por semana (`np:oxiopay-settlements:check:<lunes>`)
+  y log.
+- **Congelada.** Al generarse, sus cifras (noches × conceptos) quedan guardadas.
+  Lo que se apunta después con fecha de una semana ya liquidada (una devolución
+  de BBVA con la fecha del banco, un aviso del banco que llega tarde, un consumo
+  anulado) entra en la siguiente como **«ajustes de semanas anteriores»**, con
+  su semana, su noche, su concepto y la referencia de entonces. Se repasan las
+  12 semanas anteriores, nunca antes de la semana de inicio. Lo congelado no se
+  recalcula: los ajustes son lo de ahora menos lo guardado, y el % de plataforma
+  de cada consumo del saldo queda fijado al gastarlo
+  (`wallet_consumptions.platformCommissionBps`, como ya hacían los cobros); los
+  consumos de antes (sin él) siguen con el % del local. En el resumen, cada
+  concepto es solo de la semana (cuadra con la tabla por noche); lo de antes va
+  aparte, en «ajustes de semanas anteriores». Una devolución hecha en
+  una semana cuenta en esa semana (como en el mapa y el Z), aunque el cobro sea
+  de otra: no es un ajuste.
+- **Estados.** Emitida → pagada en parte → pagada; anulada solo sin pagos (2FA y
+  motivo). Anulada, lo suyo vuelve a estar sin liquidar: se genera otra vez a
+  mano (referencia con `/R2`, `/R3`…) o entra la semana siguiente como ajuste. El
+  repaso automático nunca regenera una semana anulada.
+- **Motivos internos.** El motivo de una anulación y la nota de un pago solo
+  los ve OxioPay (consola y registro): el dueño ve «anulada» y «transferencia
+  recibida», y el documento no los imprime.
+- **Referencia.** `OXP-<año ISO>-S<semana ISO>-<SLUG DEL LOCAL>`, y `/R2`,
+  `/R3`… si se regenera (el slug solo lleva letras, números y guiones: `/` no
+  choca y vale en el concepto de una transferencia SEPA); es el concepto de la
+  transferencia. La base lo comprueba (CHECK).
+- **Aviso.** Más de 7 días sin pagarla entera: Telegram al chat de
+  `TELEGRAM_CHAT_ID` una vez al día como mucho (de 10:00 a 22:00, marca SET NX
+  `np:oxiopay-settlements:overdue:<día>`) y aviso arriba del panel del dueño.
+- **Cuenta de OxioPay.** Nombre, IBAN (mod-97) y titular, en la base
+  (`oxiopay_payee`, una fila). Sin ella las liquidaciones salen igual y lo avisan.
+  Cada cambio: al registro en la misma transacción (IBAN tapado) y aviso por
+  Telegram (IBAN tapado y quién). La ficha dice desde cuándo es esa cuenta; si
+  cambió hace menos de 14 días, el dueño ve un aviso para comprobarla antes de
+  transferir.
+- **Registro.** Pagos, anulaciones, generaciones, cuenta y semana de inicio se
+  escriben al registro **en la misma transacción** que el cambio: o las dos
+  cosas o ninguna. Las fechas tienen que existir (`2026-02-31` → 400) y todo se
+  comprueba antes de pedir el 2FA, así un error no gasta el código.
+
+| Método y ruta | Qué hace | 2FA | Registro |
+|---|---|---|---|
+| `GET /superadmin/oxiopay-settlements?venueId=&businessId=&status=&from=&to=&q=` | Lista (200 más recientes; `status` = `ISSUED`, `PARTIALLY_PAID`, `PAID`, `VOID` u `OPEN` = las pendientes; `from`/`to` = días de Madrid en que empiezan; `q` = referencia) y lo **pendiente de cobrar** de todos los locales (y lo que lleva más de 7 días). | — | — |
+| `GET /superadmin/oxiopay-settlements/:id` | Ficha: noches × conceptos, ajustes, pagos (con quién los apuntó), local y negocio congelados, lo que daba el mapa al emitirla y la cuenta de OxioPay. | — | — |
+| `GET /superadmin/oxiopay-settlements/:id/document` · `/csv` | Página para imprimir / guardar como PDF y CSV. | — | — |
+| `POST /superadmin/oxiopay-settlements/:id/payments` | Apunta lo recibido: `amountCents`, `paidOn` (día del abono, no futuro ni anterior a la semana), `bankReference`. Con lo pendiente → pagada; con menos → pagada en parte, con `reason` obligatorio; más que lo pendiente, no (400). La misma referencia del banco otra vez en esa liquidación (sin mirar mayúsculas ni espacios) → 409 `SETTLEMENT_PAYMENT_DUPLICATE`, salvo `confirmDuplicate: true` (la consola lo pide con una casilla y queda en el registro). Los pagos no se cambian ni se borran (trigger). | Sí | `settlement.paid` / `settlement.paid_partially` |
+| `POST /superadmin/oxiopay-settlements/:id/void` | Anula una sin pagos (409 si tiene). Motivo. | Sí | `settlement.voided` |
+| `POST /superadmin/oxiopay-settlements/generate` | `{ venueId, week (el lunes), reason? }`: genera la de una semana ya terminada (o la regenera tras anularla). 400 si es anterior a la semana de inicio; 409 `SETTLEMENT_EXISTS` si ya hay una activa; 409 `SETTLEMENT_NOTHING` si no hay nada que liquidar; 409 `SETTLEMENT_MAP_MISMATCH` si las noches no cuadran con el mapa. | Sí | `settlement.generated` / `settlement.regenerated` |
+| `GET /superadmin/oxiopay-settlements/payee` · `PUT …/payee` | La cuenta de OxioPay (`name`, `iban`, `holder`). | Sí (PUT) | `settlement.payee_updated` (IBAN tapado) |
+| `GET /superadmin/oxiopay-settlements/settings` · `PUT …/settings` | La semana de inicio (`{ startWeek }`, un lunes `AAAA-MM-DD`; `null` si aún no está fijada). El PUT pide `startWeek`, `reason` y el código. | Sí (PUT) | `settlement.start_week_updated` |
+
+Las que genera el repaso quedan en el registro como `superadmin.settlement.generated`
+con `auto: true` y sin persona.
+
+**Panel del dueño** (Informes → «Liquidaciones OxioPay», solo `OWNER`; ni el
+encargado ni el personal; cada local solo las suyas, también con RLS de la
+base): `GET /v1/admin/oxiopay-settlements` (lista, cuenta de OxioPay y lo
+pendiente), `…/notice` (las de más de 7 días, para el aviso), `…/:id`,
+`…/:id/document` y `…/:id/csv`. Solo lectura.

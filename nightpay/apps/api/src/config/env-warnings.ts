@@ -21,6 +21,8 @@ export const DISABLE_FLAGS = {
   NIGHTPAY_DISABLE_GOOGLE_WALLET_SYNC: 'la puesta al día de los pases de Google Wallet',
   NIGHTPAY_DISABLE_WEBHOOK_SWEEP: 'el repaso cada hora de los avisos de la pasarela que no se llegaron a procesar',
   NIGHTPAY_DISABLE_REFUND_SWEEP: 'el reintento del descuento a la chica de las devoluciones hechas',
+  NIGHTPAY_DISABLE_OXIOPAY_SETTLEMENTS:
+    'la «Liquidación OxioPay» del lunes (lo que cada local debe a OxioPay) y su aviso de las que llevan más de 7 días sin pagar',
 } as const satisfies Partial<Record<keyof Env, string>>;
 
 const DISABLE_CHECKS: ReadonlyArray<Check> = (Object.keys(DISABLE_FLAGS) as Array<keyof typeof DISABLE_FLAGS>).map(

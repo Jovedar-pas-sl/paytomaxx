@@ -371,7 +371,8 @@ describe('con la comisión del servicio ENCENDIDA (10 % tarjeta y datáfono, 12 
     expect((await paymentOf(c.id)).status).toBe('CANCELED');
     const consumption = await sys((tx) => tx.walletConsumption.findFirstOrThrow({ where: { walletId: cashWallet } }));
     // Saldo cargado con la comisión (la recarga en efectivo al 12 %): todo el consumo sin el % antiguo.
-    expect(consumption).toMatchObject({ amountCents: 3300, platformCommissionBps: null, serviceFeeSaldoCents: 3300 });
+    // El % del local va fijado en el consumo (liquidación OxioPay, D3), pero sobre 0 € (todo es de la comisión).
+    expect(consumption).toMatchObject({ amountCents: 3300, platformCommissionBps: 1000, serviceFeeSaldoCents: 3300 });
     // La chica, su 90 % del consumo.
     expect(await sys((tx) => tx.operatorEarning.findMany({ where: { consumptionId: consumption.id } }))).toMatchObject([{ commissionCents: 2970 }]);
   });
@@ -512,7 +513,8 @@ describe('con la comisión del servicio APAGADA: todo exactamente como hoy', () 
     const payToken = (await sys((tx) => tx.walletChargeRequest.findUniqueOrThrow({ where: { id: c.saldo!.chargeId } }))).payToken!;
     await inVenue(undefined, () => charges.payQrCharge(payToken, out.walletId));
     const consumption = await sys((tx) => tx.walletConsumption.findFirstOrThrow({ where: { walletId: out.walletId } }));
-    expect(consumption.platformCommissionBps).toBeNull();
+    // El % del local, fijado al gastar (cambiarlo después no cambia este consumo).
+    expect(consumption.platformCommissionBps).toBe(1000);
   });
 
   it('el mapa, el resumen y la caja: sin comisión del servicio y con el 10 % antiguo, como hoy', async () => {
@@ -623,14 +625,14 @@ describe('saldo cargado con y sin comisión del servicio (decisión del dueño):
     await cashIn(L, 5000, { code }, 600);
     expect(await walletOf(first.walletId)).toMatchObject({ balanceCents: 7000 });
     const a = await spend(L, first.walletId);
-    expect(a).toMatchObject({ serviceFeeSaldoCents: 1300, platformCommissionBps: null });
+    expect(a).toMatchObject({ serviceFeeSaldoCents: 1300, platformCommissionBps: 1000 });
     // El mapa del dinero: el 10 % antiguo solo de los 20 € cargados sin comisión.
     const m1 = await inVenue(L.V, () => moneyMap.forQuery(L.V, {}, soon()));
     expect(m1.split.commissions.platformCents).toBe(200);
     // Se apaga: lo que queda (37 €) se cargó con comisión → sin el % antiguo aunque esté apagada.
     await setSwitch(L, false);
     const b = await spend(L, first.walletId);
-    expect(b).toMatchObject({ serviceFeeSaldoCents: 3300, platformCommissionBps: null });
+    expect(b).toMatchObject({ serviceFeeSaldoCents: 3300, platformCommissionBps: 1000 });
     const m2 = await inVenue(L.V, () => moneyMap.forQuery(L.V, {}, soon()));
     expect(m2.split.commissions.platformCents).toBe(200);
     expect(await walletOf(first.walletId)).toMatchObject({ balanceCents: 400 });
@@ -640,7 +642,7 @@ describe('saldo cargado con y sin comisión del servicio (decisión del dueño):
     const L = await local('viejo', { enabled: false });
     const t = await cashIn(L, 5000, { create: true });
     await setSwitch(L, true);
-    expect(await spend(L, t.walletId)).toMatchObject({ serviceFeeSaldoCents: 0, platformCommissionBps: null });
+    expect(await spend(L, t.walletId)).toMatchObject({ serviceFeeSaldoCents: 0, platformCommissionBps: 1000 });
     const m = await inVenue(L.V, () => moneyMap.forQuery(L.V, {}, soon()));
     expect(m.split.commissions.platformCents).toBe(330);
   });

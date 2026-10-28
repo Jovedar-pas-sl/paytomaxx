@@ -35,6 +35,7 @@ import { PosDeviceModule } from './modules/pos-device/pos-device.module';
 import { SuperAdminModule } from './modules/superadmin/superadmin.module';
 import { VenuesModule } from './modules/venues/venues.module';
 import { MoneyMapModule } from './modules/money-map/money-map.module';
+import { OxioPaySettlementsModule } from './modules/oxiopay-settlements/oxiopay-settlements.module';
 import { WalletsModule } from './modules/wallets/wallets.module';
 import { WebhooksModule } from './modules/webhooks/webhooks.module';
 
@@ -87,6 +88,7 @@ import { WebhooksModule } from './modules/webhooks/webhooks.module';
     BankReconModule,
     PosDeviceModule,
     SuperAdminModule,
+    OxioPaySettlementsModule,
     ApprovalsModule,
     WalletsModule,
     WebhooksModule,

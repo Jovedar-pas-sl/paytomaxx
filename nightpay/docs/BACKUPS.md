@@ -118,7 +118,11 @@ se omiten a propósito dueños y permisos), si le faltan columnas, restricciones
 o índices únicos (una copia sin post-data), si falta alguna migración del
 repositorio anterior a la última restaurada, si el dinero no cuadra en lo
 mínimo (saldos negativos, más por devolver que lo cobrado, devoluciones que
-superan su cobro o sin él) o si alguna tabla está vacía. CI la prueba con una
+superan su cobro o sin él), si la copia trae las migraciones de la
+«Liquidación OxioPay» pero le faltan sus tablas, restricciones o índice, si lo
+pagado de una liquidación no es la suma de sus pagos o su total no es la semana
+más los ajustes (una copia de antes de esas migraciones no se mira) o si alguna
+tabla está vacía. CI la prueba con una
 copia completa (pasa) y otra sin post-data (falla). Para exigir además que la copia
 sea reciente: `MAX_LAST_PAYMENT_AGE_DAYS=2 nightpay/scripts/restore-check.sh …`.
 Sin Docker, contra una base vacía creada a mano: `… --url postgresql://…`

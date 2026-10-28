@@ -1,6 +1,13 @@
 import { BadRequestException, Inject, Injectable, NotFoundException, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import type { MoneyMap, MoneyMapPayoutGroup, MoneyMapQuery, MoneyMapScope, NightCash } from '@nightpay/contracts';
+import type {
+  MoneyMap,
+  MoneyMapPayoutGroup,
+  MoneyMapQuery,
+  MoneyMapScope,
+  NightCash,
+  SettlementConceptAmounts,
+} from '@nightpay/contracts';
 import { Prisma } from '@nightpay/db';
 import { PrismaService, type TransactionalClient } from '../../common/prisma/prisma.service';
 import { lastNightCutoff } from '../../common/time/madrid';
@@ -11,6 +18,7 @@ import { PAID_STATUSES_SQL, REPORT_TX, cashTopUpCount, linesJson, paymentAt, pay
 import {
   buildMoneyMap,
   frozenMoneyMapOf,
+  oxioPayOwedOf,
   saleMethodOf,
   type SaleLineLike,
   type SaleRow,
@@ -31,6 +39,12 @@ export interface MoneyMapOptions {
   withLiveBalances: boolean;
   /** Para congelarlo en el Z. */
   frozen?: boolean;
+  /**
+   * El % de plataforma del local para los cobros y consumos que no lo llevan
+   * fijado (sin él, el de ahora). La «Liquidación OxioPay» recalcula una
+   * semana ya liquidada con el que usó al emitirla.
+   */
+  platformBps?: number;
 }
 
 /** «Esta noche» en directo (currentWindow). */
@@ -186,41 +200,12 @@ export class MoneyMapService {
     const asOf = opts.recordedBefore;
     const paid = paidPayments(tenantId, window, asOf);
     const consumed = activeConsumptions(tenantId, window, asOf);
-    const [venue, sales, money, cash, live] = await Promise.all([
-      this.prisma.asSystem((tx) => tx.venue.findUnique({ where: { id: tenantId }, select: { platformCommissionBps: true } })),
-      this.prisma.withTenant(tenantId, (tx) => this.salesRows(tx, paid, consumed), REPORT_TX),
+    const [saleRows, money, cash, live] = await Promise.all([
+      this.saleRowsOf(tenantId, paid, consumed, opts.platformBps),
       this.prisma.withTenant(tenantId, (tx) => this.moneyRows(tx, tenantId, window, asOf, paid, consumed), REPORT_TX),
       opts.cash ? Promise.resolve(opts.cash) : this.cashOf(tenantId, window, asOf, opts.openingFloatCents),
       opts.withLiveBalances ? this.prisma.withTenant(tenantId, (tx) => liveBalances(tx, tenantId), REPORT_TX) : Promise.resolve(null),
     ]);
-    if (!venue) throw new NotFoundException('Local no encontrado');
-    const saleRows: SaleRow[] = [
-      ...sales.payments.map(
-        (p): SaleRow => ({
-          amountCents: p.amountCents,
-          tipCents: p.tipCents,
-          serviceFeeCents: n(p.serviceFeeCents),
-          category: p.category,
-          method: saleMethodOf(p),
-          platformBps: n(p.platformBps ?? venue.platformCommissionBps),
-          lines: p.lines ?? [],
-        }),
-      ),
-      ...sales.consumptions.map(
-        (c): SaleRow => ({
-          amountCents: c.amountCents,
-          tipCents: c.tipCents,
-          category: c.category,
-          method: 'SALDO',
-          // El % del local, solo sobre lo cargado SIN «Comisión del servicio»
-          // (lo cargado con ella ya la pagó al recargar). Los consumos de la
-          // primera versión de la rama llevaban 0 aquí.
-          platformBps: n(c.platformBps ?? venue.platformCommissionBps),
-          serviceFeeSaldoCents: n(c.serviceFeeSaldoCents),
-          lines: c.lines ?? [],
-        }),
-      ),
-    ];
     return buildMoneyMap({
       scope: opts.scope,
       window,
@@ -242,6 +227,68 @@ export class MoneyMapService {
       liveSaldoCents: live?.saldoCents ?? null,
       owed: live?.owed ?? null,
     });
+  }
+
+  /**
+   * Lo que el mapa de [from, to) pone como de OxioPay, por concepto (la
+   * «Liquidación OxioPay», modules/oxiopay-settlements): las mismas filas y
+   * las mismas cuentas que compute() (oxioPayOwedOf), sin la caja ni lo del
+   * personal.
+   */
+  async oxioPayOwed(
+    tenantId: string,
+    window: TimeWindow,
+    opts: Pick<MoneyMapOptions, 'platformBps'> = {},
+  ): Promise<SettlementConceptAmounts> {
+    const paid = paidPayments(tenantId, window, undefined);
+    const consumed = activeConsumptions(tenantId, window, undefined);
+    const [sales, totals] = await Promise.all([
+      this.saleRowsOf(tenantId, paid, consumed, opts.platformBps),
+      this.prisma.withTenant(tenantId, (tx) => this.flowTotals(tx, tenantId, window, undefined, paid), REPORT_TX),
+    ]);
+    return oxioPayOwedOf({ sales, topUps: totals.topUps, cardRefunds: totals.cardRefunds });
+  }
+
+  /** Las ventas del periodo como las cuenta el mapa: cobros con tarjeta (sin recargas) y consumos del saldo. */
+  private async saleRowsOf(
+    tenantId: string,
+    paid: Prisma.Sql,
+    consumed: Prisma.Sql,
+    platformBps: number | undefined,
+  ): Promise<SaleRow[]> {
+    const [venue, sales] = await Promise.all([
+      this.prisma.asSystem((tx) => tx.venue.findUnique({ where: { id: tenantId }, select: { platformCommissionBps: true } })),
+      this.prisma.withTenant(tenantId, (tx) => this.salesRows(tx, paid, consumed), REPORT_TX),
+    ]);
+    if (!venue) throw new NotFoundException('Local no encontrado');
+    const venueBps = platformBps ?? venue.platformCommissionBps;
+    return [
+      ...sales.payments.map(
+        (p): SaleRow => ({
+          amountCents: p.amountCents,
+          tipCents: p.tipCents,
+          serviceFeeCents: n(p.serviceFeeCents),
+          category: p.category,
+          method: saleMethodOf(p),
+          platformBps: n(p.platformBps ?? venueBps),
+          lines: p.lines ?? [],
+        }),
+      ),
+      ...sales.consumptions.map(
+        (c): SaleRow => ({
+          amountCents: c.amountCents,
+          tipCents: c.tipCents,
+          category: c.category,
+          method: 'SALDO',
+          // El % del local, solo sobre lo cargado SIN «Comisión del servicio»
+          // (lo cargado con ella ya la pagó al recargar). Los consumos de la
+          // primera versión de la rama llevaban 0 aquí.
+          platformBps: n(c.platformBps ?? venueBps),
+          serviceFeeSaldoCents: n(c.serviceFeeSaldoCents),
+          lines: c.lines ?? [],
+        }),
+      ),
+    ];
   }
 
   /** La caja con la misma cuenta que el arqueo del cierre (las mismas filas que el Z). */
@@ -304,33 +351,7 @@ export class MoneyMapService {
     consumed: Prisma.Sql,
   ) {
     const recordedRefund = asOf ? Prisma.sql`AND r."createdAt" < ${asOf}` : Prisma.empty;
-    const recordedCash = asOf ? Prisma.sql`AND ct."createdAt" < ${asOf}` : Prisma.empty;
-    const [totals] = await tx.$queryRaw<Array<Record<string, Num>>>`
-      WITH recargas AS (
-        SELECT COUNT(*)::int AS "cardCount", COALESCE(SUM(p."amountCents" + p."tipCents"), 0)::bigint AS "cardCents",
-               COALESCE(SUM(p."serviceFeeCents"), 0)::bigint AS "cardFeeCents"
-          FROM payments p WHERE ${paid} AND p."walletId" IS NOT NULL
-      ), efectivo AS (
-        SELECT ${cashTopUpCount('ct')}::int AS "cashCount", COALESCE(SUM(ct."amountCents"), 0)::bigint AS "cashCents",
-               COALESCE(SUM(ct."serviceFeeCents"), 0)::bigint AS "cashFeeCents"
-          FROM wallet_cash_topups ct
-         WHERE ct."tenantId" = ${tenantId}::uuid AND ct."createdAt" >= ${w.from} AND ct."createdAt" < ${w.to} ${recordedCash}
-      ), devoluciones AS (
-        SELECT COUNT(*)::int AS "refundCount", COALESCE(SUM(r."amountCents"), 0)::bigint AS "refundCents",
-               COALESCE(SUM(r."serviceFeeCents"), 0)::bigint AS "refundFeeCents"
-          FROM refunds r
-         WHERE r."tenantId" = ${tenantId}::uuid AND r.status = 'SUCCEEDED'
-           AND ${refundAt('r')} >= ${w.from} AND ${refundAt('r')} < ${w.to} ${recordedRefund}
-      ), saldo AS (
-        SELECT COUNT(*) FILTER (WHERE wp.method = 'CASH')::int AS "walletCashCount",
-               COALESCE(SUM(wp."amountCents") FILTER (WHERE wp.method = 'CASH'), 0)::bigint AS "walletCashCents",
-               COALESCE(SUM(wp."amountCents") FILTER (WHERE wp.method = 'CARD'), 0)::bigint AS "walletCardCents"
-          FROM wallet_payouts wp
-         WHERE wp."tenantId" = ${tenantId}::uuid AND wp.status = 'DONE'
-           AND wp."createdAt" >= ${w.from} AND wp."createdAt" < ${w.to}
-      )
-      SELECT * FROM recargas, efectivo, devoluciones, saldo
-    `;
+    const totals = await this.flowTotals(tx, tenantId, w, asOf, paid);
     // Lo del personal: su parte de lo vendido en el periodo (comisión y
     // propinas) menos lo que se le descontó por las devoluciones del periodo
     // (de un cobro de este periodo o de antes, como el Z): eso vuelve al
@@ -372,7 +393,6 @@ export class MoneyMapService {
        WHERE po."tenantId" = ${tenantId}::uuid AND po."createdAt" >= ${w.from} AND po."createdAt" < ${w.to}
        GROUP BY 1, 2
     `;
-    const t = totals ?? {};
     const share = (chica: boolean): StaffShare => {
       const row = staffRows.find((s) => s.chica === chica);
       return row ? { grossCents: n(row.gross), unpaidCents: n(row.unpaid) } : NO_STAFF;
@@ -383,6 +403,40 @@ export class MoneyMapService {
       count: n(p.count),
       cents: n(p.cents),
     }));
+    return { ...totals, staff: { chicas: share(true), camareros: share(false) }, payouts };
+  }
+
+  /** Recargas (con su comisión del servicio), devoluciones y saldo devuelto del periodo: una consulta. */
+  private async flowTotals(tx: TransactionalClient, tenantId: string, w: TimeWindow, asOf: Date | undefined, paid: Prisma.Sql) {
+    const recordedRefund = asOf ? Prisma.sql`AND r."createdAt" < ${asOf}` : Prisma.empty;
+    const recordedCash = asOf ? Prisma.sql`AND ct."createdAt" < ${asOf}` : Prisma.empty;
+    const [totals] = await tx.$queryRaw<Array<Record<string, Num>>>`
+      WITH recargas AS (
+        SELECT COUNT(*)::int AS "cardCount", COALESCE(SUM(p."amountCents" + p."tipCents"), 0)::bigint AS "cardCents",
+               COALESCE(SUM(p."serviceFeeCents"), 0)::bigint AS "cardFeeCents"
+          FROM payments p WHERE ${paid} AND p."walletId" IS NOT NULL
+      ), efectivo AS (
+        SELECT ${cashTopUpCount('ct')}::int AS "cashCount", COALESCE(SUM(ct."amountCents"), 0)::bigint AS "cashCents",
+               COALESCE(SUM(ct."serviceFeeCents"), 0)::bigint AS "cashFeeCents"
+          FROM wallet_cash_topups ct
+         WHERE ct."tenantId" = ${tenantId}::uuid AND ct."createdAt" >= ${w.from} AND ct."createdAt" < ${w.to} ${recordedCash}
+      ), devoluciones AS (
+        SELECT COUNT(*)::int AS "refundCount", COALESCE(SUM(r."amountCents"), 0)::bigint AS "refundCents",
+               COALESCE(SUM(r."serviceFeeCents"), 0)::bigint AS "refundFeeCents"
+          FROM refunds r
+         WHERE r."tenantId" = ${tenantId}::uuid AND r.status = 'SUCCEEDED'
+           AND ${refundAt('r')} >= ${w.from} AND ${refundAt('r')} < ${w.to} ${recordedRefund}
+      ), saldo AS (
+        SELECT COUNT(*) FILTER (WHERE wp.method = 'CASH')::int AS "walletCashCount",
+               COALESCE(SUM(wp."amountCents") FILTER (WHERE wp.method = 'CASH'), 0)::bigint AS "walletCashCents",
+               COALESCE(SUM(wp."amountCents") FILTER (WHERE wp.method = 'CARD'), 0)::bigint AS "walletCardCents"
+          FROM wallet_payouts wp
+         WHERE wp."tenantId" = ${tenantId}::uuid AND wp.status = 'DONE'
+           AND wp."createdAt" >= ${w.from} AND wp."createdAt" < ${w.to}
+      )
+      SELECT * FROM recargas, efectivo, devoluciones, saldo
+    `;
+    const t = totals ?? {};
     return {
       topUps: {
         cardCents: n(t.cardCents),
@@ -392,10 +446,8 @@ export class MoneyMapService {
         cardFeeCents: n(t.cardFeeCents),
         cashFeeCents: n(t.cashFeeCents),
       },
-      staff: { chicas: share(true), camareros: share(false) },
       cardRefunds: { cents: n(t.refundCents), count: n(t.refundCount), serviceFeeCents: n(t.refundFeeCents) },
       walletPayouts: { cashCents: n(t.walletCashCents), cashCount: n(t.walletCashCount), cardCents: n(t.walletCardCents) },
-      payouts,
     };
   }
 }

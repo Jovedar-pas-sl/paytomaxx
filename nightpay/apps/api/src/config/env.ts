@@ -296,6 +296,7 @@ const EnvSchema = z.object({
   NIGHTPAY_DISABLE_GOOGLE_WALLET_SYNC: z.string().optional(),
   NIGHTPAY_DISABLE_WEBHOOK_SWEEP: z.string().optional(),
   NIGHTPAY_DISABLE_REFUND_SWEEP: z.string().optional(),
+  NIGHTPAY_DISABLE_OXIOPAY_SETTLEMENTS: z.string().optional(),
 }).superRefine((env, ctx) => {
   if (env.NODE_ENV !== 'production') return;
   // NEXT_PUBLIC_API_URL no puede ser localhost (los webhooks de la pasarela

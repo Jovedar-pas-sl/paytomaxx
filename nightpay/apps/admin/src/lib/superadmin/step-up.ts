@@ -34,7 +34,12 @@ export type SaAction =
   | 'wallet.block'
   | 'wallet.unblock'
   | 'wallet.unlockPin'
-  | 'wallet.relink';
+  | 'wallet.relink'
+  | 'settlement.pay'
+  | 'settlement.void'
+  | 'settlement.generate'
+  | 'settlement.payee'
+  | 'settlement.startWeek';
 
 export type ReasonRule = 'required' | 'optional' | 'none';
 
@@ -82,6 +87,13 @@ export const SA_ACTION_RULES: Readonly<Record<SaAction, StepUpRule>> = {
   'wallet.unblock': rule(true, 'required'),
   'wallet.unlockPin': rule(true, 'required'),
   'wallet.relink': rule(true, 'required'),
+  // Liquidaciones OxioPay. El motivo del pago (si el importe no es lo pendiente) va en el propio formulario.
+  'settlement.pay': rule(true, 'none'),
+  'settlement.void': rule(true, 'required'),
+  'settlement.generate': rule(true, 'optional'),
+  'settlement.payee': rule(true, 'none'),
+  // La semana de inicio cambia qué se liquida: con motivo.
+  'settlement.startWeek': rule(true, 'required'),
 };
 
 export function needsTotp(action: SaAction): boolean {

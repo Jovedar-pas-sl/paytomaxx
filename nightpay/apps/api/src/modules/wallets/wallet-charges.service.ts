@@ -740,7 +740,7 @@ export class WalletChargesService {
         tx.user.findUnique({ where: { id: request.requestedByUserId }, select: { role: true, commissionBps: true } }),
         tx.venue.findUnique({
           where: { id: request.tenantId },
-          select: { operatorCommissionDefaults: true, nightSettings: true },
+          select: { operatorCommissionDefaults: true, nightSettings: true, platformCommissionBps: true },
         }),
         linesOf(tx, { walletChargeIds: [request.id] }),
       ]);
@@ -771,6 +771,11 @@ export class WalletChargesService {
           authMethod: auth,
           ...(tipCents > 0 ? { tipCents, tipGoesTo: tipToChica ? 'operator' : 'venue' } : {}),
           ...(feeSaldoCents > 0 ? { serviceFeeSaldoCents: feeSaldoCents } : {}),
+          // El % de plataforma del local de ahora, fijado en el consumo (como en
+          // los cobros): cambiarlo después no cambia lo ya gastado (mapa del
+          // dinero y «Liquidación OxioPay»). Va solo sobre lo cargado sin
+          // comisión del servicio (serviceFeeSaldoCents fuera).
+          ...(venue ? { platformCommissionBps: venue.platformCommissionBps } : {}),
         },
       });
       if (provider?.role === 'OPERATOR') {

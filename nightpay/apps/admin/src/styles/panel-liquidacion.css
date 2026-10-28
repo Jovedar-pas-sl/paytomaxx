@@ -1,0 +1,407 @@
+/* Panel (admin) · «Liquidación OxioPay»: la ficha (dueño y consola), la lista
+   y el aviso de arriba. Encima de @nightpay/ui/styles.css, con sus tokens
+   --np-*. El total a pagar en grande (Manrope 800, --np-font-num); el bloque
+   de la transferencia con el borde lima (es lo que hay que hacer). Solo se
+   anima opacity/transform, y nada con prefers-reduced-motion. Móvil = hasta
+   640px: una columna y las tablas como tarjetas (panel-tables.css). */
+
+.np-liq {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+  min-width: 0;
+  max-width: 64rem;
+}
+
+.np-liq-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 0.75rem 1.5rem;
+}
+
+.np-liq-kicker {
+  margin: 0;
+  font-size: var(--np-t-label);
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--np-text-label);
+}
+
+.np-liq-ref {
+  margin: 0.25rem 0 0;
+  font-family: var(--np-font-num);
+  font-size: clamp(1.35rem, 4.5vw, 2rem);
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  color: var(--np-text);
+  overflow-wrap: anywhere;
+}
+
+.np-liq-sub {
+  margin: 0.25rem 0 0;
+  color: var(--np-text-mute);
+  font-size: 0.9375rem;
+}
+
+/* Las tres cifras: el total grande y lo pendiente con su color. */
+.np-liq-figs {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) repeat(2, minmax(0, 1fr));
+  gap: 0;
+  margin: 0;
+  border: 1px solid var(--np-border);
+  border-radius: var(--np-r-md);
+  background: var(--np-surface);
+  overflow: hidden;
+}
+
+.np-liq-fig {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 1rem 1.25rem;
+  min-width: 0;
+  border-left: 1px solid var(--np-border);
+}
+
+.np-liq-fig:first-child {
+  border-left: 0;
+}
+
+.np-liq-fig dt {
+  font-size: var(--np-t-label);
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--np-text-label);
+}
+
+.np-liq-fig dd {
+  margin: 0;
+  font-family: var(--np-font-num);
+  font-size: 1.5rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  color: var(--np-text);
+}
+
+.np-liq-fig[data-hero] dd {
+  font-size: clamp(1.9rem, 6vw, 2.75rem);
+  letter-spacing: -0.02em;
+}
+
+.np-liq-fig[data-tone='danger'] dd {
+  color: var(--np-danger);
+}
+
+.np-liq-fig[data-tone='success'] dd {
+  color: var(--np-success);
+}
+
+.np-liq-fig-note {
+  font-size: 0.8125rem;
+  color: var(--np-text-dim);
+}
+
+/* La transferencia: lo que hay que copiar en el banco. */
+.np-liq-pay {
+  display: flex;
+  flex-direction: column;
+  gap: 0.875rem;
+  padding: 1.125rem 1.25rem;
+  border: 2px solid var(--np-accent);
+  border-radius: var(--np-r-md);
+  background: var(--np-surface);
+}
+
+.np-liq-pay h3,
+.np-liq-block h3 {
+  margin: 0;
+  font-size: var(--np-t-h3);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--np-text);
+}
+
+.np-liq-pay-rows {
+  display: grid;
+  gap: 0.5rem;
+  margin: 0;
+}
+
+.np-liq-pay-row {
+  display: grid;
+  grid-template-columns: 9rem minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.5rem 0;
+  border-bottom: 1px solid var(--np-border);
+}
+
+.np-liq-pay-row:last-child {
+  border-bottom: 0;
+}
+
+.np-liq-pay-row dt {
+  color: var(--np-text-mute);
+  font-size: 0.875rem;
+}
+
+.np-liq-pay-row dd {
+  margin: 0;
+  font-weight: 700;
+  color: var(--np-text);
+  overflow-wrap: anywhere;
+}
+
+.np-liq-mono {
+  font-family: var(--np-font-mono);
+  letter-spacing: 0.02em;
+}
+
+.np-liq-block {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  min-width: 0;
+}
+
+.np-liq-help {
+  margin: 0;
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  color: var(--np-text-dim);
+}
+
+.np-liq-concepts {
+  width: 100%;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+
+.np-liq-concepts th,
+.np-liq-concepts td {
+  padding: 0.6rem 0.25rem;
+  border-bottom: 1px solid var(--np-border);
+  text-align: right;
+  vertical-align: top;
+}
+
+.np-liq-concepts th {
+  text-align: left;
+  font-weight: 500;
+  color: var(--np-text);
+}
+
+.np-liq-concepts th small {
+  display: block;
+  margin-top: 0.15rem;
+  font-size: 0.78rem;
+  color: var(--np-text-dim);
+  font-weight: 400;
+}
+
+.np-liq-concepts tfoot th,
+.np-liq-concepts tfoot td {
+  border-bottom: 0;
+  font-weight: 600;
+}
+
+.np-liq-concepts tr[data-total] th,
+.np-liq-concepts tr[data-total] td {
+  border-top: 2px solid var(--np-text);
+  font-size: 1.0625rem;
+  font-weight: 800;
+}
+
+.np-liq-num {
+  font-family: var(--np-font-num);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.np-liq-neg {
+  color: var(--np-danger);
+}
+
+.np-liq-zero {
+  color: var(--np-text-dim);
+}
+
+.np-liq-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  color: var(--np-text-mute);
+  font-size: 0.875rem;
+}
+
+.np-liq-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+/* La lista: cada liquidación, una fila que se toca entera. */
+.np-liq-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.np-liq-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.5rem 1rem;
+  width: 100%;
+  padding: 0.875rem 1rem;
+  border: 1px solid var(--np-border);
+  border-radius: var(--np-r-md);
+  background: var(--np-surface);
+  color: var(--np-text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: transform var(--np-d-fast) var(--np-ease), border-color var(--np-d-fast) var(--np-ease);
+}
+
+.np-liq-item:hover {
+  border-color: var(--np-border-hi);
+}
+
+.np-liq-item:active {
+  transform: scale(0.995);
+}
+
+.np-liq-item:focus-visible {
+  outline: 2px solid var(--np-accent);
+  outline-offset: 2px;
+}
+
+.np-liq-item[data-overdue] {
+  border-color: var(--np-danger);
+}
+
+.np-liq-item-ref {
+  font-family: var(--np-font-num);
+  font-weight: 800;
+  overflow-wrap: anywhere;
+}
+
+.np-liq-item-meta {
+  display: block;
+  margin-top: 0.2rem;
+  font-size: 0.8125rem;
+  color: var(--np-text-mute);
+}
+
+.np-liq-item-amount {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.25rem;
+  font-family: var(--np-font-num);
+  font-weight: 800;
+  font-size: 1.125rem;
+  font-variant-numeric: tabular-nums;
+}
+
+/* El aviso de arriba del panel (dueño): liquidación sin pagar más de 7 días. */
+.np-liq-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem 1rem;
+  margin: 0 0 1rem;
+  padding: 0.875rem 1rem;
+  border: 1px solid var(--np-danger);
+  border-left-width: 4px;
+  border-radius: var(--np-r-md);
+  background: var(--np-pill-danger-bg);
+  color: var(--np-text);
+}
+
+.np-liq-banner p {
+  margin: 0;
+  flex: 1 1 18rem;
+  line-height: 1.45;
+}
+
+@media (max-width: 640px) {
+  .np-liq-figs {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .np-liq-fig[data-hero] {
+    grid-column: 1 / -1;
+  }
+
+  .np-liq-fig:nth-child(2) {
+    border-left: 0;
+  }
+
+  .np-liq-fig:not([data-hero]) {
+    border-top: 1px solid var(--np-border);
+  }
+
+  .np-liq-item {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .np-liq-item-amount {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .np-liq-pay-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .np-liq-pay-row dt {
+    grid-column: 1 / -1;
+  }
+
+  .np-liq-actions .np-btn {
+    flex: 1 1 10rem;
+  }
+
+  /* La noche (th scope=row, para los lectores de pantalla) como el título de la tarjeta. */
+  .np-liq-nights tbody th[scope='row'] {
+    order: 1;
+    flex: 1 1 100%;
+    padding: 0 0 0.35rem;
+    border: 0;
+    font-size: 1.0625rem;
+    font-weight: 700;
+    text-align: left;
+    color: var(--np-text);
+  }
+}
+
+.np-liq-nights tbody th[scope='row'] {
+  font-weight: 600;
+  text-align: left;
+  white-space: nowrap;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .np-liq-item {
+    transition: none;
+  }
+
+  .np-liq-item:active {
+    transform: none;
+  }
+}

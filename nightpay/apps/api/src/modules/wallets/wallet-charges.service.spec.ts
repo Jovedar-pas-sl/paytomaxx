@@ -291,6 +291,13 @@ describe('el cliente paga el QR con su Face ID', () => {
     });
   });
 
+  it('el consumo lleva fijado el % de plataforma del local de ahora (cambiarlo después no cambia lo gastado)', async () => {
+    const { svc, tx } = qrService();
+    tx.venue.findUnique.mockResolvedValue({ operatorCommissionDefaults: { CHICA_SERVICE: 9000 }, platformCommissionBps: 800 } as never);
+    await svc.payQrCharge('pay-tok', 'w-1');
+    expect(tx.walletConsumption.create.mock.calls[0]![0]).toMatchObject({ data: { platformCommissionBps: 800 } });
+  });
+
   it('lo que ve el cliente: pendiente sin hora de pago; pagado con su hora («Ya pagado · hace…»)', async () => {
     const pending = qrService();
     await expect(pending.svc.qrChargeForClient('pay-tok')).resolves.toMatchObject({ status: 'PENDING', paidAt: null });

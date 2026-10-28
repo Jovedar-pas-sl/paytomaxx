@@ -12,13 +12,19 @@ import type {
   CreateVenueDto,
   CustomerSearchResult,
   CustomerWalletDetail,
+  GenerateSettlementDto,
+  OxioPayPayee,
   PayoutAccountFull,
   PayoutAccountListItem,
   ResetStaffPasswordResponse,
+  RecordSettlementPaymentDto,
   RevokeSessionsResponse,
+  SetOxioPayPayeeDto,
+  SettlementDetail,
   StaffUserPage,
   StaffUserView,
   SuperAdminOverview,
+  SuperAdminSettlementPage,
   UpdateBusinessDto,
   VenueDetail,
   VenueListItem,
@@ -258,4 +264,55 @@ export async function relinkSaCustomer(
 ): Promise<{ url: string; removedPasskeys: number }> {
   const res = await post<{ path: string; removedPasskeys?: number }>(`/customers/${id(walletId)}/relink`, input);
   return { url: absoluteApiUrl(API_BASE, res.path), removedPasskeys: res.removedPasskeys ?? 0 };
+}
+
+// ─── Liquidaciones OxioPay ──────────────────────────────────────────
+
+/** `query` sale de settlementsQuery (lib/oxiopay-settlements). */
+export function fetchSaSettlements(query: string, signal?: AbortSignal): Promise<SuperAdminSettlementPage> {
+  return call(`/oxiopay-settlements${query}`, { signal });
+}
+
+export function fetchSaSettlement(settlementId: string, signal?: AbortSignal): Promise<SettlementDetail> {
+  return call(`/oxiopay-settlements/${id(settlementId)}`, { signal });
+}
+
+/** Lo recibido por transferencia (2FA; motivo si no es lo pendiente). */
+export function recordSaSettlementPayment(settlementId: string, dto: RecordSettlementPaymentDto): Promise<SettlementDetail> {
+  return post(`/oxiopay-settlements/${id(settlementId)}/payments`, dto);
+}
+
+/** Anular (solo sin pagos; 2FA y motivo). */
+export function voidSaSettlement(settlementId: string, input: StepUpInput): Promise<SettlementDetail> {
+  return post(`/oxiopay-settlements/${id(settlementId)}/void`, input);
+}
+
+/** Generar (o regenerar tras anularla) la de un local y una semana ya terminada. */
+export function generateSaSettlement(dto: GenerateSettlementDto): Promise<SettlementDetail> {
+  return post('/oxiopay-settlements/generate', dto);
+}
+
+/** La semana de inicio de las liquidaciones (lunes AAAA-MM-DD; null si aún no está fijada). */
+export function fetchSaSettlementSettings(signal?: AbortSignal): Promise<{ startWeek: string | null }> {
+  return call('/oxiopay-settlements/settings', { signal });
+}
+
+/** Cambiarla (2FA y motivo). */
+export function setSaSettlementStart(input: { startWeek: string; reason: string; totpCode: string }): Promise<{ startWeek: string }> {
+  return put('/oxiopay-settlements/settings', input);
+}
+
+export async function fetchSaPayee(signal?: AbortSignal): Promise<OxioPayPayee | null> {
+  return (await call<{ payee: OxioPayPayee | null }>('/oxiopay-settlements/payee', { signal })).payee;
+}
+
+export async function setSaPayee(dto: SetOxioPayPayeeDto): Promise<OxioPayPayee> {
+  return (await put<{ payee: OxioPayPayee }>('/oxiopay-settlements/payee', dto)).payee;
+}
+
+/** El documento (HTML para imprimir / PDF) o el CSV de una liquidación, como archivo. */
+export async function downloadSaSettlement(settlementId: string, kind: 'document' | 'csv'): Promise<Blob> {
+  const res = await authedFetch(`/v1/superadmin/oxiopay-settlements/${id(settlementId)}/${kind}`);
+  if (!res.ok) throw await totpAwareError(res);
+  return res.blob();
 }

@@ -33,6 +33,14 @@ const ACTION_LABELS: Readonly<Record<string, string>> = {
   'wallet.pin_unlocked': 'PIN del saldo desbloqueado',
   'wallet.relinked': 'Enlace nuevo del saldo',
   'step_up.failed': 'Código 2FA fallido',
+  'settlement.generated': 'Liquidación OxioPay emitida',
+  'settlement.regenerated': 'Liquidación OxioPay regenerada',
+  'settlement.paid': 'Liquidación OxioPay pagada',
+  'settlement.paid_partially': 'Liquidación OxioPay pagada en parte',
+  'settlement.voided': 'Liquidación OxioPay anulada',
+  'settlement.payee_updated': 'Cuenta de OxioPay cambiada',
+  'settlement.start_week_set': 'Semana de inicio de las liquidaciones fijada',
+  'settlement.start_week_updated': 'Semana de inicio de las liquidaciones cambiada',
 
   // Entradas y sesiones
   'auth.login.ok': 'Entró',
@@ -115,6 +123,7 @@ const AREA_LABELS: Readonly<Record<string, string>> = {
   carta: 'Carta',
   bank_statement: 'Banco',
   step_up: '2FA',
+  settlement: 'Liquidación OxioPay',
 };
 
 export function isSuperAdminAction(action: string): boolean {
@@ -138,6 +147,7 @@ export const AUDIT_ACTION_FILTERS: ReadonlyArray<{ value: string; label: string 
   { value: '', label: 'Todo' },
   { value: 'superadmin.', label: 'Cambios del super-admin' },
   { value: 'superadmin.step_up.failed', label: 'Códigos 2FA fallidos' },
+  { value: 'superadmin.settlement.', label: 'Liquidaciones OxioPay' },
   { value: 'auth.login', label: 'Entradas' },
   { value: 'auth.', label: 'Sesiones y 2FA' },
   { value: 'refund.', label: 'Devoluciones' },

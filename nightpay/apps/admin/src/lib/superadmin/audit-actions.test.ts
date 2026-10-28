@@ -11,6 +11,16 @@ describe('auditActionLabel', () => {
     expect(auditActionLabel('superadmin.step_up.failed')).toBe('Código 2FA fallido');
   });
 
+  it('las liquidaciones OxioPay (superadmin.settlement.*)', () => {
+    expect(auditActionLabel('superadmin.settlement.generated')).toBe('Liquidación OxioPay emitida');
+    expect(auditActionLabel('superadmin.settlement.paid_partially')).toBe('Liquidación OxioPay pagada en parte');
+    expect(auditActionLabel('superadmin.settlement.voided')).toBe('Liquidación OxioPay anulada');
+    expect(auditActionLabel('superadmin.settlement.payee_updated')).toBe('Cuenta de OxioPay cambiada');
+    expect(auditActionLabel('superadmin.settlement.start_week_updated')).toBe('Semana de inicio de las liquidaciones cambiada');
+    expect(auditActionLabel('superadmin.settlement.otra')).toBe('Liquidación OxioPay: otra');
+    expect(AUDIT_ACTION_FILTERS.some((f) => f.value === 'superadmin.settlement.')).toBe(true);
+  });
+
   it('las acciones de siempre del panel y las apps', () => {
     expect(auditActionLabel('auth.login.ok')).toBe('Entró');
     expect(auditActionLabel('auth.login.failed')).toBe('Intento de entrada fallido');

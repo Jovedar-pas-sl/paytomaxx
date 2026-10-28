@@ -24,6 +24,7 @@ export type TabKey =
   | 'nights'
   | 'reports'
   | 'bank'
+  | 'oxiopay'
   | 'carta'
   | 'sections'
   | 'terminals'
@@ -85,6 +86,8 @@ export const PANEL_TABS: readonly PanelTab[] = [
   { key: 'reports', label: 'Informes', section: 'informes', access: 'reports' },
   // /v1/bank-recon/*: solo OWNER.
   { key: 'bank', label: 'Banco', section: 'informes', access: 'owner' },
+  // Lo que el local debe a OxioPay cada semana (/v1/admin/oxiopay-settlements): solo el dueño, solo lectura.
+  { key: 'oxiopay', label: 'Liquidaciones OxioPay', section: 'informes', access: 'owner' },
   { key: 'carta', label: 'Carta', section: 'ajustes', access: 'staff' },
   // El mapa del dinero: nombre, color y si se usa cada sección (/v1/admin/venue/sections).
   { key: 'sections', label: 'Secciones', section: 'ajustes', access: 'owner' },
