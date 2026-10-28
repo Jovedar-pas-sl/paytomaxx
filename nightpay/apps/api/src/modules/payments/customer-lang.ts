@@ -3,7 +3,7 @@
  *
  *  - Español SIEMPRE por defecto: nunca el idioma del navegador (decisión del
  *    dueño). El cliente cambia con el selector de arriba a la derecha.
- *  - Lo que elige (?lang=) queda en la cookie `np_lang` (Path=/, un año): vale
+ *  - Lo que elige (?lang=) queda en la cookie `np_lang` (Path=/, 12 horas: esa noche): vale
  *    en todas sus páginas, también en un QR nuevo que no lleva ?lang y a la
  *    vuelta del banco. La página la escribe también desde su JS (y en
  *    localStorage, por si la cookie se pierde): customer-chrome.ts.
@@ -34,7 +34,7 @@ const LOCALES: Readonly<Record<PayLanguage, string>> = Object.freeze({
 });
 
 export const LANG_COOKIE = 'np_lang';
-export const LANG_COOKIE_MAX_AGE_S = 365 * 24 * 3600;
+export const LANG_COOKIE_MAX_AGE_S = 12 * 3600;
 
 export function isPayLanguage(value: unknown): value is PayLanguage {
   return typeof value === 'string' && (PAY_LANGUAGES as readonly string[]).includes(value);

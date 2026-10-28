@@ -59,16 +59,83 @@ describe('selector de idioma', () => {
     expect(() => run(throwing, { getItem: () => { throw new Error('x'); } }, { search: '' }, URLSearchParams)).not.toThrow();
   });
 
-  it('si la cookie se perdió pero el navegador recuerda el idioma, la página se vuelve a pedir en ese idioma', () => {
-    const replace = vi.fn();
-    const run = new Function('document', 'localStorage', 'location', 'URLSearchParams', LANG_JS);
-    const doc = { cookie: '', documentElement: { lang: 'es' }, getElementById: () => null, addEventListener: () => undefined };
-    run(doc, { getItem: () => 'fr', setItem: () => undefined }, { search: '?op=1', pathname: '/pay/result', replace, protocol: 'https:' }, URLSearchParams);
-    expect(replace).toHaveBeenCalledWith('/pay/result?op=1&lang=fr');
-    // Con la cookie (o con ?lang en la URL), manda lo que dice la página.
-    const again = vi.fn();
-    run({ ...doc, cookie: 'np_lang=es' }, { getItem: () => 'fr', setItem: () => undefined }, { search: '', pathname: '/w/x', replace: again }, URLSearchParams);
-    expect(again).not.toHaveBeenCalled();
+  function languagePage({ saved = null, cookie = '', lang = 'es', search = '', now = 1_700_000_000_000 }: {
+    saved?: string | null; cookie?: string; lang?: string; search?: string; now?: number;
+  } = {}) {
+    let value = saved;
+    let cookieValue = cookie;
+    const writes: string[] = [];
+    const handlers: Record<string, () => void> = {};
+    const storage = {
+      getItem: vi.fn(() => value),
+      setItem: vi.fn((_key: string, next: string) => { value = next; }),
+      removeItem: vi.fn(() => { value = null; }),
+    };
+    const links = ['es', 'en', 'fr', 'pt'].map((language) => ({
+      getAttribute: () => language,
+      addEventListener: (_event: string, handler: () => void) => { handlers[language] = handler; },
+    }));
+    const doc = {
+      get cookie() { return cookieValue; },
+      set cookie(next: string) { writes.push(next); cookieValue = next.split(';')[0]; },
+      documentElement: { lang },
+      getElementById: () => ({ querySelectorAll: () => links }),
+      addEventListener: () => undefined,
+    };
+    const location = { search, pathname: '/pay/result', protocol: 'https:', replace: vi.fn() };
+    const run = new Function('document', 'localStorage', 'location', 'URLSearchParams', 'Date', LANG_JS);
+    run(doc, storage, location, URLSearchParams, { now: () => now });
+    return { storage, location, handlers, writes, current: () => value };
+  }
+
+  it('recupera el idioma vigente sin cookie y conserva los demás parámetros', () => {
+    const now = 1_700_000_000_000;
+    const page = languagePage({ saved: `fr.${now + 60_000}`, search: '?op=1', now });
+    expect(page.location.replace).toHaveBeenCalledWith('/pay/result?op=1&lang=fr');
+    expect(page.storage.setItem).not.toHaveBeenCalled();
+  });
+
+  it('descarta un idioma caducado o del formato antiguo sin recuperarlo', () => {
+    const now = 1_700_000_000_000;
+    for (const saved of [`fr.${now}`, `fr.${now - 1}`, 'fr', 'fr.no-fecha', '']) {
+      const page = languagePage({ saved, now });
+      expect(page.location.replace).not.toHaveBeenCalled();
+      expect(page.storage.removeItem).toHaveBeenCalledWith('np_lang');
+      expect(page.current()).toBeNull();
+    }
+  });
+
+  it('al elegir un idioma guarda la cookie y el plazo de doce horas', () => {
+    const now = 1_700_000_000_000;
+    const page = languagePage({ now });
+    page.handlers.en();
+    expect(page.writes).toContain('np_lang=en; Path=/; Max-Age=43200; SameSite=Lax; Secure');
+    expect(page.current()).toBe(`en.${now + 43_200_000}`);
+  });
+
+  it('una elección nueva por URL fija el plazo, pero las visitas no lo alargan', () => {
+    const now = 1_700_000_000_000;
+    const chosen = languagePage({ saved: `en.${now + 5000}`, cookie: 'np_lang=fr', lang: 'fr', search: '?lang=fr', now });
+    expect(chosen.current()).toBe(`fr.${now + 43_200_000}`);
+    const until = now + 60_000;
+    const visit = languagePage({ saved: `fr.${until}`, cookie: 'np_lang=fr', lang: 'fr', now });
+    expect(visit.storage.setItem).not.toHaveBeenCalled();
+    expect(visit.current()).toBe(`fr.${until}`);
+  });
+
+  it('si se recupera sin cookie, la cookie nueva dura solo lo que faltaba', () => {
+    const now = 1_700_000_000_000;
+    const saved = `fr.${now + 60_000}`;
+    const page = languagePage({ saved, cookie: 'np_lang=fr', lang: 'fr', search: '?op=1&lang=fr', now });
+    expect(page.storage.setItem).not.toHaveBeenCalled();
+    expect(page.writes).toContain('np_lang=fr; Path=/; Max-Age=60; SameSite=Lax; Secure');
+  });
+
+  it('si queda un valor antiguo y su cookie antigua, vuelve a español', () => {
+    const page = languagePage({ saved: 'en', cookie: 'np_lang=en', lang: 'en' });
+    expect(page.storage.removeItem).toHaveBeenCalledWith('np_lang');
+    expect(page.writes.some((value) => value.includes('Max-Age=0'))).toBe(true);
+    expect(page.location.replace).toHaveBeenCalledWith('/pay/result');
   });
 
   it('todas las páginas de aviso lo llevan', () => {

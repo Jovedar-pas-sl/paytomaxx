@@ -458,7 +458,7 @@ describe('GET /pay/:token — página de pago', () => {
     expect(chosen.sent.body).toMatch(/Payer 100\s€/);
     expect(chosen.sent.body).toContain('Apple Pay va s’ouvrir');
     expect(chosen.sent.body).toContain('Payer par carte');
-    expect(chosen.sent.headers['Set-Cookie']).toMatch(/^np_lang=fr; Path=\/; Max-Age=31536000; SameSite=Lax/);
+    expect(chosen.sent.headers['Set-Cookie']).toMatch(/^np_lang=fr; Path=\/; Max-Age=43200; SameSite=Lax/);
     const later = fakeReply();
     await controller.payPage('qr-token-2', undefined, 'np_lang=pt', IPHONE, later.reply);
     expect(later.sent.body).toContain('<html lang="pt">');

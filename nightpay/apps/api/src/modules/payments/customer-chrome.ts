@@ -11,8 +11,8 @@ import { CUSTOMER_TEXT } from './i18n';
  *    elección en la cookie (customer-lang.ts).
  *  - Con JS, al elegir se guarda también aquí (cookie y localStorage, con
  *    try/catch: en privado o con los datos bloqueados puede fallar) y, si la
- *    cookie se perdió pero el navegador lo recuerda, la página se vuelve a
- *    pedir en ese idioma.
+ *    cookie se perdió pero el navegador lo recuerda durante 12 horas (esa
+ *    noche), la página se vuelve a pedir en ese idioma.
  *
  * Sin barras invertidas en el CSS y el JS (van dentro de plantillas).
  */
@@ -73,12 +73,17 @@ export function topBar(lang: PayLanguage, hrefFor: LangHref = defaultLangHref, o
  * con Escape o tocando fuera y recupera el idioma recordado si la cookie se perdió.
  */
 export const LANG_JS = `(function(){try{
-var K='${LANG_COOKIE}',M=document.getElementById('langMenu'),here=document.documentElement.lang;
-function keep(l){try{document.cookie=K+'='+l+'; Path=/; Max-Age=${LANG_COOKIE_MAX_AGE_S}; SameSite=Lax'+(location.protocol==='https:'?'; Secure':'');}catch(e){}
- try{localStorage.setItem(K,l);}catch(e){}}
-try{var saved=localStorage.getItem(K),has=document.cookie.split(';').some(function(c){return c.trim().indexOf(K+'=')===0;}),q=new URLSearchParams(location.search);
- if(!has&&!q.has('lang')&&/^(es|en|fr|pt)$/.test(saved||'')&&saved!==here){q.set('lang',saved);location.replace(location.pathname+'?'+q.toString());return;}
- if(has||q.has('lang'))localStorage.setItem(K,here);}catch(e){}
+var K='${LANG_COOKIE}',M=document.getElementById('langMenu'),here=document.documentElement.lang,ttl=${LANG_COOKIE_MAX_AGE_S};
+function cookie(l,age){try{document.cookie=K+'='+l+'; Path=/; Max-Age='+age+'; SameSite=Lax'+(location.protocol==='https:'?'; Secure':'');}catch(e){}}
+function keep(l){cookie(l,ttl);try{localStorage.setItem(K,l+'.'+(Date.now()+ttl*1000));}catch(e){}}
+try{var raw=localStorage.getItem(K),match=/^(es|en|fr|pt)[.]([0-9]+)$/.exec(raw||''),now=Date.now(),valid=match&&Number(match[2])>now;
+ var has=document.cookie.split(';').some(function(c){return c.trim().indexOf(K+'=')===0;}),q=new URLSearchParams(location.search),chosen=q.get('lang');
+ if(!/^(es|en|fr|pt)$/.test(chosen||''))chosen=null;
+ if(raw!==null&&!valid){localStorage.removeItem(K);if(has&&!chosen){cookie('',0);has=false;if(here!=='es'){var qs=q.toString();location.replace(location.pathname+(qs?'?'+qs:''));return;}}}
+ if(chosen===here&&(!valid||match[1]!==here)){localStorage.setItem(K,here+'.'+(now+ttl*1000));}
+ else if(valid&&match[1]===here&&chosen===here&&has){cookie(here,Math.floor((Number(match[2])-now)/1000));}
+ else if(!has&&!chosen&&valid&&match[1]!==here){q.set('lang',match[1]);location.replace(location.pathname+'?'+q.toString());return;}
+}catch(e){}
 if(!M)return;
 M.querySelectorAll('a[data-lang]').forEach(function(a){a.addEventListener('click',function(){keep(a.getAttribute('data-lang'));});});
 document.addEventListener('keydown',function(e){if(e.key==='Escape'&&M.open){M.open=false;M.querySelector('summary').focus();}});

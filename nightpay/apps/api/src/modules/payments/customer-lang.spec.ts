@@ -52,9 +52,9 @@ describe('idioma de las páginas del cliente', () => {
     expect(customerLanguage('zz', undefined)).toEqual({ lang: 'es', setCookie: null });
   });
 
-  it('la cookie vale para /pay, /s y /w (Path=/), un año, Lax y legible por la página', () => {
+  it('la cookie vale para /pay, /s y /w (Path=/), 12 horas, Lax y legible por la página', () => {
     const c = languageCookie('pt');
-    expect(c).toMatch(new RegExp(`^${LANG_COOKIE}=pt; Path=/; Max-Age=31536000; SameSite=Lax`));
+    expect(c).toMatch(new RegExp(`^${LANG_COOKIE}=pt; Path=/; Max-Age=43200; SameSite=Lax`));
     expect(c).not.toContain('HttpOnly');
   });
 
