@@ -67,6 +67,34 @@ export function serviceFeeSaldoCents(c: { amountCents: number; tipCents: number;
   return Math.max(0, Math.min(c.amountCents, part));
 }
 
+/** Un consumo del saldo anulado: lo que se descontó (importe y propina) vuelve al saldo. */
+export interface ReversedConsumption {
+  at: Date;
+  amountCents: number;
+  tipCents: number;
+  serviceFeeSaldoCents: number | null;
+}
+
+/**
+ * Lo que devuelve al saldo un consumo anulado, con el reparto con el que salió:
+ * el importe tal como se apuntó (`serviceFeeSaldoCents`) y la propina en la
+ * misma proporción (así se calculó al gastarlo). Vuelve como lo más reciente,
+ * primero lo de sin comisión (lo más antiguo al gastarlo) y luego lo de con ella.
+ */
+export function reversalCredits(rows: readonly ReversedConsumption[]): SaldoCredit[] {
+  return rows.flatMap((r) => {
+    const amount = Math.max(0, r.amountCents);
+    const tip = Math.max(0, r.tipCents);
+    const fromFee = Math.max(0, Math.min(amount, r.serviceFeeSaldoCents ?? 0));
+    const feeCents = amount > 0 && fromFee > 0 ? Math.min(amount + tip, fromFee + Math.round((tip * fromFee) / amount)) : 0;
+    const plainCents = amount + tip - feeCents;
+    return [
+      ...(plainCents > 0 ? [{ at: r.at, cents: plainCents, withServiceFee: false }] : []),
+      ...(feeCents > 0 ? [{ at: r.at, cents: feeCents, withServiceFee: true }] : []),
+    ];
+  });
+}
+
 type RawTx = Pick<Prisma.TransactionClient, '$queryRaw'>;
 
 /** Saltos de la cadena de saldos sumados que se siguen como mucho (como walletCash). */
@@ -75,9 +103,40 @@ const MAX_MERGE_HOPS = 10;
 /**
  * Las recargas del saldo y de los sumados a él: en efectivo (cada una con sus
  * anulaciones restadas) y con tarjeta (cobradas: también las devueltas, que
- * ya restaron del saldo). Con el saldo bloqueado y bypass de RLS (el grupo).
+ * ya restaron del saldo), y lo que devolvieron los consumos anulados (con su
+ * reparto: reversalCredits). Con el saldo bloqueado y bypass de RLS (el grupo).
  */
 export async function saldoCredits(tx: RawTx, walletId: string): Promise<SaldoCredit[]> {
+  // Una tras otra: es la misma transacción (el saldo bloqueado).
+  const loads = await loadCredits(tx, walletId);
+  const reversed = await reversedConsumptions(tx, walletId);
+  return [...loads, ...reversalCredits(reversed)];
+}
+
+async function reversedConsumptions(tx: RawTx, walletId: string): Promise<ReversedConsumption[]> {
+  const rows = await tx.$queryRaw<
+    Array<{ at: Date; amountCents: number | bigint; tipCents: number | bigint; serviceFeeSaldoCents: number | bigint | null }>
+  >`
+    WITH RECURSIVE chain AS (
+      SELECT id, 0 AS hops FROM client_wallets WHERE id = ${walletId}::uuid
+      UNION ALL
+      SELECT w.id, c.hops + 1 FROM client_wallets w JOIN chain c ON w."mergedIntoId" = c.id
+       WHERE c.hops < ${MAX_MERGE_HOPS}
+    )
+    SELECT c."reversedAt" AS at, c."amountCents", c."tipCents", c."serviceFeeSaldoCents"
+      FROM wallet_consumptions c
+     WHERE c."walletId" IN (SELECT id FROM chain) AND c."reversedAt" IS NOT NULL
+     ORDER BY c."reversedAt", c.id
+  `;
+  return rows.map((r) => ({
+    at: new Date(r.at),
+    amountCents: Number(r.amountCents),
+    tipCents: Number(r.tipCents),
+    serviceFeeSaldoCents: r.serviceFeeSaldoCents === null ? null : Number(r.serviceFeeSaldoCents),
+  }));
+}
+
+async function loadCredits(tx: RawTx, walletId: string): Promise<SaldoCredit[]> {
   const rows = await tx.$queryRaw<Array<{ at: Date; cents: number | bigint; withFee: boolean }>>`
     WITH RECURSIVE chain AS (
       SELECT id, 0 AS hops FROM client_wallets WHERE id = ${walletId}::uuid

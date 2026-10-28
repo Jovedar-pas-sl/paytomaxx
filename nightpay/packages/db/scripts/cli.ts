@@ -706,12 +706,24 @@ async function cmdSetRedsysActive(args: Args) {
  * Credenciales (apikey hex 64 chars, account_id numérico) vienen de env vars
  * globales — esta fila es solo el marcador de "qué adapter elige
  * payments.service para autorizar".
+ *
+ * Con la «Comisión del servicio» encendida y Peanpe en euros enteros
+ * (PEANPE_AMOUNT_FORMAT_VERIFIED=euros) no se cambia: Peanpe no cobra los
+ * céntimos de la comisión (33 € + 3,30 €) y fallarían todos los cobros. Es la
+ * misma regla que en la consola al encenderla (SERVICE_FEE_GATEWAY).
  */
 async function cmdSetPeanpeActive(args: Args) {
   const venueSlug = must(args, 'venue');
   await withBypass(async (tx) => {
     const venue = await tx.venue.findUnique({ where: { slug: venueSlug } });
     if (!venue) throw new Error(`venue not found: ${venueSlug}`);
+    if (venue.serviceFeeEnabled && process.env.PEANPE_AMOUNT_FORMAT_VERIFIED === 'euros') {
+      throw new Error(
+        `SERVICE_FEE_GATEWAY: el local ${venueSlug} tiene encendida la comisión del servicio y Peanpe cobra en euros enteros: ` +
+          'no podría cobrar sus céntimos (33 € + 3,30 €). Apaga antes la comisión en la consola, o verifica Peanpe en céntimos. ' +
+          'No se ha cambiado la pasarela.',
+      );
+    }
 
     const deactivated = await tx.gatewayCredential.updateMany({
       where: { tenantId: venue.id, active: true },

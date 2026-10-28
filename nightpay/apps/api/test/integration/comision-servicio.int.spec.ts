@@ -21,6 +21,7 @@ import type { MoneyMap } from '@nightpay/contracts';
 import { PrismaService } from '../../src/common/prisma/prisma.service';
 import { PaymentsService } from '../../src/modules/payments/payments.service';
 import { WalletChargesService } from '../../src/modules/wallets/wallet-charges.service';
+import { WalletsService } from '../../src/modules/wallets/wallets.service';
 import { CashTopUpService } from '../../src/modules/wallets/wallet-cash-topup.service';
 import { RedsysAdapter } from '../../src/modules/gateways/redsys.adapter';
 import { WebhookIngestProcessor } from '../../src/modules/queues/webhook-ingest.processor';
@@ -88,6 +89,7 @@ const refundGateway = { get: () => ({ refund: async () => ({ status: 'SUCCEEDED'
 const refunds = new RefundsService(prisma as never, cls as never, refundGateway as never, payments as never, {} as never, audit as never, metrics as never);
 const charges = new WalletChargesService(prisma as never, audit as never, { get: () => refunds } as never, totp as never);
 const cash = new CashTopUpService(prisma as never, audit as never, totp as never);
+const wallets = new WalletsService(prisma as never, audit as never, totp as never);
 // Paytef confirma lo que dice el datáfono.
 const prover = { prove: async (claim: { amountCents: number }) => ({ kind: 'confirmed' as const, amountCents: claim.amountCents, currency: 'EUR' }) };
 const pos = new PosDeviceService(prisma as never, payments as never, audit as never, cls as never, prover as never);
@@ -614,7 +616,39 @@ describe('la migración 20261030110000_comision_saldo', () => {
   });
 });
 
+describe('cambiar a Peanpe con la comisión activa', () => {
+  it('el comando rechaza euros enteros y conserva la pasarela existente', async () => {
+    const L = await local('peanpe-bloqueo', { enabled: true });
+    const venue = await sys(tx => tx.venue.findUniqueOrThrow({ where: { id: L.V }, select: { slug: true } }));
+    const tsx = join(__dirname, '../../../../packages/db/node_modules/tsx/dist/cli.mjs');
+    const cli = join(__dirname, '../../../../packages/db/scripts/cli.ts');
+    const result = spawnSync(process.execPath, [tsx, cli, 'set-peanpe-active', '--venue', venue.slug], {
+      env: { ...process.env, PEANPE_AMOUNT_FORMAT_VERIFIED: 'euros' }, encoding: 'utf8', timeout: 30000,
+    });
+    expect(result.status).not.toBe(0);
+    expect(result.stderr + result.stdout).toMatch(/SERVICE_FEE_GATEWAY/);
+    expect(result.stderr + result.stdout).toMatch(/Peanpe.*euros enteros/);
+    const active = await sys(tx => tx.gatewayCredential.findMany({ where: { tenantId: L.V, active: true }, select: { provider: true } }));
+    expect(active).toEqual([{ provider: 'REDSYS' }]);
+  });
+});
+
 describe('saldo cargado con y sin comisión del servicio (decisión del dueño): lo más antiguo primero', () => {
+  it('al anular un consumo mixto después de otro gasto devuelve el reparto original', async () => {
+    const L = await local('saldo-anulado', { enabled: false, topUpBps: 1200 });
+    const first = await cashIn(L, 2000, { create: true });
+    const code = (await walletOf(first.walletId)).shortCode!;
+    await setSwitch(L, true);
+    await cashIn(L, 5000, { code }, 600);
+    const original = await spend(L, first.walletId);
+    expect(original.serviceFeeSaldoCents).toBe(1300);
+    await spend(L, first.walletId);
+    await inVenue(L.V, () => wallets.reverseConsumption({ tenantId: L.V, walletId: first.walletId, consumptionId: original.id, actorUserId: L.owner, reason: 'prueba' }));
+    expect(await walletOf(first.walletId)).toMatchObject({ balanceCents: 3700 });
+    const repeated = await spend(L, first.walletId);
+    expect(repeated.serviceFeeSaldoCents).toBe(1300);
+  });
+
   it('20 € de antes de encenderla y 50 € con ella: 33 € del saldo = 20 € con el % antiguo + 13 € sin él; apagada, cuadra igual', async () => {
     const L = await local('saldo', { enabled: false, topUpBps: 1200 });
     // Con el interruptor apagado: 20 € sin comisión.

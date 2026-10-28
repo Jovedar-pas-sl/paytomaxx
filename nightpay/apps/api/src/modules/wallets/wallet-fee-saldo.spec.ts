@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { serviceFeeSaldoCents, serviceFeeSpendCents, type SaldoCredit } from './wallet-fee-saldo';
+import { reversalCredits, serviceFeeSaldoCents, serviceFeeSpendCents, type SaldoCredit } from './wallet-fee-saldo';
 
 /**
  * Lo que de un gasto del saldo sale de lo cargado CON «Comisión del servicio»
@@ -57,5 +57,39 @@ describe('la parte del consumo (sin la propina) pagada con saldo de la comisión
     expect(serviceFeeSaldoCents({ amountCents: 3_300, tipCents: 200, feeSpendCents: 1_750 })).toBe(1_650);
     expect(serviceFeeSaldoCents({ amountCents: 3_300, tipCents: 200, feeSpendCents: 3_500 })).toBe(3_300);
     expect(serviceFeeSaldoCents({ amountCents: 3_300, tipCents: 0, feeSpendCents: 0 })).toBe(0);
+  });
+});
+
+describe('un consumo anulado devuelve al saldo su reparto original', () => {
+  it('vuelve lo que salió de cada lado: primero lo de sin comisión, luego lo de con ella', () => {
+    // 33 € gastados: 20 € de antes de encenderla + 13 € con ella.
+    expect(reversalCredits([{ at: at(23), amountCents: 3_300, tipCents: 0, serviceFeeSaldoCents: 1_300 }])).toEqual([
+      plain(23, 2_000),
+      fee(23, 1_300),
+    ]);
+  });
+
+  it('la propina vuelve en la misma proporción que el importe', () => {
+    // 33 € + 2 € de propina, la mitad del importe con comisión → 17,50 € con ella.
+    expect(reversalCredits([{ at: at(23), amountCents: 3_300, tipCents: 200, serviceFeeSaldoCents: 1_650 }])).toEqual([
+      plain(23, 1_750),
+      fee(23, 1_750),
+    ]);
+  });
+
+  it('todo de un lado, de antes de la comisión (sin el campo) o solo propina: sin repartir', () => {
+    expect(reversalCredits([{ at: at(23), amountCents: 3_300, tipCents: 0, serviceFeeSaldoCents: 3_300 }])).toEqual([fee(23, 3_300)]);
+    expect(reversalCredits([{ at: at(23), amountCents: 3_300, tipCents: 0, serviceFeeSaldoCents: null }])).toEqual([plain(23, 3_300)]);
+    expect(reversalCredits([{ at: at(23), amountCents: 0, tipCents: 500, serviceFeeSaldoCents: 0 }])).toEqual([plain(23, 500)]);
+  });
+
+  it('anular después de otro gasto: volver a gastar sale como el reparto original', () => {
+    // 20 € sin comisión y 50 € con ella; se gastan 33 € (20 + 13) y otros 33 € (con ella): quedan 4 €.
+    const loads = [plain(20, 2_000), fee(21, 5_000)];
+    expect(serviceFeeSpendCents(loads, 7_000, 3_300)).toBe(1_300);
+    expect(serviceFeeSpendCents(loads, 3_700, 3_300)).toBe(3_300);
+    // Se anula el primero: vuelven 20 € sin y 13 € con; en el saldo, 37 €.
+    const credits = [...loads, ...reversalCredits([{ at: at(23), amountCents: 3_300, tipCents: 0, serviceFeeSaldoCents: 1_300 }])];
+    expect(serviceFeeSpendCents(credits, 3_700, 3_300)).toBe(1_300);
   });
 });
