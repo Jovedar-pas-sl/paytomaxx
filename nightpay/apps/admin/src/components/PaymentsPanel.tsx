@@ -193,7 +193,7 @@ export function PaymentsPanel({ user, onNavigate, focusPaymentId = null, onFocus
         <MetricTile title="Semana · neto" value={eurOrDash(metrics?.week.netCents)} />
       </section>
 
-      <section ref={listRef} style={{ display: 'flex', flexDirection: 'column', gap: '1rem', scrollMarginTop: '0.75rem' }}>
+      <section ref={listRef} style={{ display: 'flex', flexDirection: 'column', gap: '1rem', scrollMarginTop: '0.75rem', minWidth: 0 }}>
         <div style={{ display: 'flex', alignItems: 'flex-end', gap: '1rem', flexWrap: 'wrap' }}>
           <h2 style={sectionTitle}>Cobros</h2>
           <Button variant="ghost" onClick={refresh} style={{ marginLeft: 'auto' }}>
@@ -202,7 +202,7 @@ export function PaymentsPanel({ user, onNavigate, focusPaymentId = null, onFocus
         </div>
         <CobrosFiltersBar value={filter} onChange={changeFilter} />
 
-        <Card className="np-table-host" style={{ padding: 0, overflow: 'hidden' }}>
+        <Card className="np-table-host" style={{ padding: 0, overflow: 'hidden', minWidth: 0 }}>
           <CobrosTable
             rows={payments}
             showReferences
