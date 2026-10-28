@@ -24,7 +24,8 @@ import { WalletPasskeysService } from '../wallets/wallet-passkeys.service';
 import { IpRateLimit } from '../../common/guards/ip-rate-limit.guard';
 import { PAID_STATES, confirmationCode, type CheckoutChoice, type PayRedirect } from './pay-redirect';
 import { detectPayDevice, type PayDevice } from './pay-device';
-import { payErrorKeyOf, resolveLanguage, type PayLanguage } from './pay-i18n';
+import { payErrorKeyOf, type PayLanguage } from './pay-i18n';
+import { PAY_LANGUAGES, customerLanguage } from './customer-lang';
 import {
   payHref,
   receiptHref,
@@ -58,7 +59,7 @@ const CheckoutFormSchema = z.object({
     .enum(['wallet', 'card', ''])
     .optional()
     .transform((m) => (m === 'wallet' || m === 'card' ? m : null)),
-  lang: z.enum(['es', 'en']).optional(),
+  lang: z.enum(PAY_LANGUAGES as unknown as [PayLanguage, ...PayLanguage[]]).optional(),
 });
 
 export { walletClaimCookieName } from './wallet-claim';
@@ -79,8 +80,9 @@ export { walletClaimCookieName } from './wallet-claim';
  *                                URL se ignora (cualquiera puede escribirlo).
  *  - GET  /pay/:token/receipt  → justificante, solo si está pagado.
  *
- * Español o inglés (?lang= o idioma del móvil). Textos discretos, sin
- * nombres internos.
+ * En español, inglés, francés o portugués: español por defecto (nunca el
+ * idioma del móvil); el que elige el cliente (?lang=) queda en su cookie
+ * (customer-lang.ts). Textos discretos, sin nombres internos.
  */
 @Controller('pay')
 export class PublicPayController {
@@ -109,10 +111,10 @@ export class PublicPayController {
   async paymentResult(
     @Query('op') op: string | undefined,
     @Query('lang') langQuery: string | undefined,
-    @Headers('accept-language') acceptLanguage: string | undefined,
+    @Headers('cookie') cookies: string | undefined,
     @Res() res: FastifyReply,
   ): Promise<void> {
-    const lang = resolveLanguage(langQuery, acceptLanguage);
+    const lang = this.language(res, langQuery, cookies);
     const view = op ? await this.payments.getResultView(op) : null;
     // Recarga empezada en /w y pagada desde ese navegador: de vuelta a su saldo.
     if (
@@ -128,7 +130,8 @@ export class PublicPayController {
     const shown = hidden && view ? { ...view, walletToken: null } : view;
     // «Pagado» lima solo en el navegador del intento aprobado; en los demás, «Ya pagado».
     const viewerPaid = view ? this.hasWalletClaim(res, view.qrToken, view.approvedClaimHash ?? null) : false;
-    sendHtml(res, 200, renderResultView(shown, lang, refreshUrl, { walletElsewhere: hidden, viewerPaid }));
+    const topUp = Boolean(view?.walletToken || view?.walletReturnToken);
+    sendHtml(res, 200, renderResultView(shown, lang, refreshUrl, { walletElsewhere: hidden, viewerPaid, topUp }));
   }
 
   @Public()
@@ -138,10 +141,10 @@ export class PublicPayController {
   async receipt(
     @Param('token') token: string,
     @Query('lang') langQuery: string | undefined,
-    @Headers('accept-language') acceptLanguage: string | undefined,
+    @Headers('cookie') cookies: string | undefined,
     @Res() res: FastifyReply,
   ): Promise<void> {
-    const lang = resolveLanguage(langQuery, acceptLanguage);
+    const lang = this.language(res, langQuery, cookies);
     const receipt = await this.payments.getReceipt(token);
     if (!receipt) {
       sendHtml(res, 404, renderErrorPage('notFound', lang));
@@ -162,10 +165,10 @@ export class PublicPayController {
     @Param('token') token: string,
     @Query('op') op: string | undefined,
     @Query('lang') langQuery: string | undefined,
-    @Headers('accept-language') acceptLanguage: string | undefined,
+    @Headers('cookie') cookies: string | undefined,
     @Res() res: FastifyReply,
   ): Promise<void> {
-    const lang = resolveLanguage(langQuery, acceptLanguage);
+    const lang = this.language(res, langQuery, cookies);
     const form = op ? await this.payments.getCheckoutForm(token, op) : null;
     if (form?.kind !== 'form') {
       res.status(303).header('Location', payHref(token, lang)).header('Cache-Control', 'no-store').send();
@@ -181,11 +184,11 @@ export class PublicPayController {
   async payPage(
     @Param('token') token: string,
     @Query('lang') langQuery: string | undefined,
-    @Headers('accept-language') acceptLanguage: string | undefined,
+    @Headers('cookie') cookies: string | undefined,
     @Headers('user-agent') userAgent: string | undefined,
     @Res() res: FastifyReply,
   ): Promise<void> {
-    const lang = resolveLanguage(langQuery, acceptLanguage);
+    const lang = this.language(res, langQuery, cookies);
     try {
       const view = await this.payments.getPayPage(token);
       this.send(res, token, lang, view, userAgent);
@@ -200,11 +203,11 @@ export class PublicPayController {
   async startCheckout(
     @Param('token') token: string,
     @Body() body: unknown,
-    @Headers('accept-language') acceptLanguage: string | undefined,
+    @Headers('cookie') cookies: string | undefined,
     @Res() res: FastifyReply,
   ): Promise<void> {
     const parsed = CheckoutFormSchema.safeParse(body ?? {});
-    const lang = resolveLanguage(parsed.success ? parsed.data.lang : undefined, acceptLanguage);
+    const lang = this.language(res, parsed.success ? parsed.data.lang : undefined, cookies);
     if (!parsed.success) {
       sendHtml(res, 400, renderErrorPage('generic', lang));
       return;
@@ -292,6 +295,7 @@ export class PublicPayController {
               wallet: payer && view.walletCode ? { hasFaceId: view.walletHasFaceId, base: payBase(token) } : null,
               // Un /pay reenviado a otro móvil ve «Ya pagado» en gris, nunca el lima.
               viewerPaid: this.hasWalletClaim(res, token, view.approvedClaimHash ?? null),
+              topUp: Boolean(view.walletToken || view.walletReturnToken),
             },
             lang,
           ),
@@ -417,6 +421,13 @@ export class PublicPayController {
       throw new ForbiddenException({ message: 'Esto solo se puede hacer desde el móvil que pagó la recarga', code: 'PAYER_ONLY' });
     }
     return this.charges.walletRefByToken(view.walletToken);
+  }
+
+  /** El idioma de la página; si el cliente acaba de elegir otro (?lang=), se recuerda en su cookie. */
+  private language(res: FastifyReply, query: unknown, cookies: string | undefined): PayLanguage {
+    const { lang, setCookie } = customerLanguage(query, cookies);
+    if (setCookie) res.header('Set-Cookie', setCookie);
+    return lang;
   }
 
   private sendError(res: FastifyReply, token: string, lang: PayLanguage, err: unknown): void {

@@ -62,7 +62,7 @@ describe('textos del cliente sin datáfono', () => {
       expiresAt: new Date(now.getTime() + 300_000).toISOString(),
       paidAt: null,
     };
-    for (const lang of ['es', 'en'] as const) {
+    for (const lang of ['es', 'en', 'fr', 'pt'] as const) {
       const pages = [
         renderWalletPage('tok', lang, state, { topUp, paid, googleWallet: true }),
         renderQrChargePage('tok', lang, view, now),

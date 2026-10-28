@@ -4,11 +4,13 @@ import { PAY_TEXT } from './pay-i18n';
 
 const es = PAY_TEXT.es;
 const en = PAY_TEXT.en;
+const fr = PAY_TEXT.fr;
+const pt = PAY_TEXT.pt;
 
 /** El npAgo del navegador, sacado del JS de la página. */
 const npAgo = new Function(`${PAID_SCREEN_JS}; return npAgo;`)() as (
   ms: number,
-  t: { agoPrefix: string; agoSuffix: string },
+  t: { agoPrefix: string; agoSuffix: string; agoUnits: { min: string; h: string; d: string } },
 ) => string;
 
 describe('«hace 0:12» / «hace 23 min»', () => {
@@ -22,10 +24,18 @@ describe('«hace 0:12» / «hace 23 min»', () => {
     expect(formatAgo(-5_000, es)).toBe('hace 0:00');
   });
 
+  it('en francés y portugués, con sus unidades (« j » de jours)', () => {
+    expect(formatAgo(12_000, fr)).toBe('il y a 0:12');
+    expect(formatAgo(65 * 60_000, fr)).toBe('il y a 1 h 05 min');
+    expect(formatAgo(50 * 3_600_000, fr)).toBe('il y a 2 j');
+    expect(formatAgo(12_000, pt)).toBe('há 0:12');
+    expect(formatAgo(23 * 60_000, pt)).toBe('há 23 min');
+    expect(formatAgo(50 * 3_600_000, pt)).toBe('há 2 d');
+  });
+
   it('el JS del navegador dice lo mismo que el HTML del servidor', () => {
     for (const ms of [0, 12_000, 599_000, 600_000, 23 * 60_000, 65 * 60_000, 50 * 3_600_000]) {
-      expect(npAgo(ms, es)).toBe(formatAgo(ms, es));
-      expect(npAgo(ms, en)).toBe(formatAgo(ms, en));
+      for (const t of [es, en, fr, pt]) expect(npAgo(ms, t)).toBe(formatAgo(ms, t));
     }
   });
 });

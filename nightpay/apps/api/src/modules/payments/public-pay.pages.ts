@@ -1,8 +1,9 @@
 import { cardBrandLabel } from './card-brand';
-import { CLUB_BASE_CSS, MONEY_JS, brandBar, clientMoney, escapeHtml, jsConfig, jsString } from './club-ui';
+import { CLUB_BASE_CSS, clientMoney, escapeHtml, jsString } from './club-ui';
+import { CHROME_CSS, defaultLangHref, langHrefWith, langScript, topBar, type LangHref } from './customer-chrome';
+import { CHOOSE_CSS, LOCK_ICON, renderChooseBody, type ChooseContext } from './pay-choose-page';
 import { PAID_SCREEN_CSS, paidScreenScript, renderPaidScreen } from './paid-screen';
 import { WALLET_ASK_CSS, renderWalletAsk, type WalletBlock } from './paid-wallet-ask';
-import type { PayDevice } from './pay-device';
 import { PAY_TEXT, type PayErrorKey, type PayLanguage, type PayNotice, type PayText } from './pay-i18n';
 import {
   CLOSED_REASON,
@@ -13,23 +14,22 @@ import {
   type PayRedirect,
   type PayResultView,
 } from './pay-redirect';
-import { tipPresetsFor } from './tip';
 
 export type { WalletBlock } from './paid-wallet-ask';
 
 /**
  * Páginas del cliente en /pay/... (Fase 1B). Marca OxioCard (club-ui.ts):
- * noche + pill lima, «Pagado» en verde, letra grande, muy simple. HTML
+ * noche + pill lima, «Pagado» en verde, letra grande, muy simple. Arriba de
+ * todas, el logo y el selector de idioma (customer-chrome.ts). HTML
  * autocontenido (sin fuentes de fuera: la CSP del API no las permite y el
  * cliente puede tener mala red; la de la marca la sirve el propio API). Todo
- * el texto sale de pay-i18n.
+ * el texto sale de i18n/ (un archivo por idioma).
  */
 
 type ChooseView = Extract<PayRedirect, { kind: 'choose' }>;
 
 const PAGE_CSS = `
-.c{width:100%;max-width:26rem;margin:0 auto;min-height:100vh;min-height:100svh;padding:4.25rem 1rem 2rem;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:.8rem;text-align:center}
-.c.top{justify-content:flex-start;padding-top:4.25rem}
+.c{width:100%;max-width:26rem;margin:0 auto;min-height:calc(100vh - 3.5rem);min-height:calc(100svh - 3.5rem);padding:1rem 1rem 2rem;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:.8rem;text-align:center}
 .amount{font-size:clamp(3rem,16vw,4.25rem);font-weight:800;letter-spacing:-.03em;line-height:1;color:var(--fg)}
 .small{font-size:.9rem}
 .foot{margin-top:1.25rem}
@@ -37,7 +37,7 @@ const PAGE_CSS = `
 
 /**
  * Un importe en la pantalla del cliente: «65 €» (sin «,00», como en el móvil
- * del personal: decisión D4), «65,50 €», «1.109 €».
+ * del personal: decisión D4), «65,50 €», «1.109 €» (en inglés, «€65.50»).
  */
 function formatAmount(cents: number, currency: string, t: PayText): string {
   return clientMoney(cents, t.locale, currency);
@@ -86,204 +86,41 @@ export function receiptHref(token: string, lang: PayLanguage): string {
 }
 
 /**
- * Esqueleto común. `full`: el cuerpo va a todo el ancho (el «Pagado»);
- * `top`: columna arriba (página de pago); por defecto, columna centrada.
+ * Esqueleto común: la barra de arriba (logo e idioma) y el cuerpo. `full`:
+ * el cuerpo va a todo el ancho (el «Pagado», con la barra encima); `bare`:
+ * el cuerpo pone su propio <main> (la página de pago); por defecto, columna
+ * centrada con «Pago seguro» al pie.
  */
 function page(
   t: PayText,
   title: string,
   body: string,
-  opts: { head?: string; layout?: 'center' | 'top' | 'full' } = {},
+  opts: { head?: string; layout?: 'center' | 'full' | 'bare'; langHref?: LangHref } = {},
 ): string {
   const layout = opts.layout ?? 'center';
-  const footer = `<p class="foot">${escapeHtml(t.secure)}</p>`;
+  const hrefFor = opts.langHref ?? defaultLangHref;
+  const lang = t.htmlLang;
   const main =
     layout === 'full'
-      ? `<main>${body}</main>`
-      : `${brandBar()}\n<main class="c${layout === 'top' ? ' top' : ''}">${body}\n${footer}</main>`;
+      ? `${topBar(lang, hrefFor, { over: true })}\n<main>${body}</main>`
+      : layout === 'bare'
+        ? `${topBar(lang, hrefFor)}\n${body}`
+        : `${topBar(lang, hrefFor)}\n<main class="c">${body}\n<p class="foot">${escapeHtml(t.secure)}</p></main>`;
   return `<!DOCTYPE html>
-<html lang="${t.htmlLang}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<html lang="${lang}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="robots" content="noindex"><meta name="theme-color" content="#0f1112"><title>${escapeHtml(title)}</title>
-<style>${CLUB_BASE_CSS}${PAGE_CSS}</style>${opts.head ?? ''}
+<style>${CLUB_BASE_CSS}${CHROME_CSS}${PAGE_CSS}</style>${opts.head ?? ''}
 </head><body>
 ${main}
+${langScript()}
 </body></html>`;
 }
 
 // ─── Página de pago ─────────────────────────────────────────────────────
 
-const CHOOSE_CSS = `<style>
-.c.top{padding-bottom:11rem}
-.trust{width:100%;display:flex;flex-direction:column;align-items:center;gap:.45rem;padding-bottom:.5rem}
-.venue{font-size:.95rem;font-weight:700;color:var(--fg);letter-spacing:.02em}
-.concept{font-size:.95rem}
-.stmt{font-size:.85rem;color:var(--dim)}
-form{width:100%;display:flex;flex-direction:column;gap:.8rem}
-fieldset{border:0;margin:0;padding:0;min-width:0}
-legend{color:var(--mute);margin:0 auto .6rem;padding:0;font-weight:600}
-.tipgrid{display:grid;grid-template-columns:1fr 1fr;gap:.6rem}
-.tipgrid label{display:block;position:relative}
-.tipgrid input{position:absolute;opacity:0;width:1px;height:1px}
-.tipgrid span{position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:3.5rem;padding:.5rem 1.4rem;border:1px solid var(--line-hi);border-radius:999px;background:var(--surface-2);font-weight:800;color:var(--fg);cursor:pointer;transition:transform .15s var(--ease)}
-.tipgrid small{font-size:.8rem;font-weight:600;color:var(--mute)}
-.tipgrid input:checked+span{border-color:var(--fg);background:var(--fg);color:var(--ink-0)}
-.tipgrid input:checked+span::before{content:'✓';position:absolute;top:50%;left:1rem;transform:translateY(-50%);font-size:.9rem;font-weight:900}
-.tipgrid input:checked+span small{color:var(--ink-0)}
-.tipgrid input:focus-visible+span{outline:3px solid var(--fg);outline-offset:2px}
-.tipgrid span:active{transform:scale(.97)}
-.other{display:flex;flex-direction:column;align-items:center;gap:.35rem;margin-top:.7rem}
-.other label{font-weight:600;color:var(--mute)}
-.eur{display:flex;align-items:center;gap:.4rem}
-.eur input{width:7rem;min-height:3.25rem;font:inherit;font-size:1.6rem;font-weight:800;text-align:center;border-radius:14px;border:2px solid var(--line-hi);background:var(--surface-2);color:var(--fg)}
-.eur input:focus-visible{outline:3px solid var(--fg);outline-offset:2px}
-.eur span{font-size:1.4rem;font-weight:800}
-.tipnote{margin-top:.6rem;font-size:.9rem;color:var(--fg)}
-.total{color:var(--fg);font-size:1.05rem}
-.warn{border:1px solid rgb(255 176 32/.5);border-radius:18px;background:rgb(255 176 32/.12);padding:.75rem 1rem;color:var(--fg);text-align:left;font-size:.95rem}
-.paybar{position:fixed;left:0;right:0;bottom:0;z-index:5;padding:1.25rem 1rem calc(.75rem + env(safe-area-inset-bottom));background:linear-gradient(to top,var(--bg) 72%,rgb(15 17 18/0))}
-.paybar>div{max-width:26rem;margin:0 auto;display:flex;flex-direction:column;gap:.45rem;text-align:center}
-.paybar .btn{min-height:3.75rem;font-size:1.25rem}
-.methods{font-size:.85rem;color:var(--mute)}
-.paybar .saldo{min-height:3.25rem;font-size:1.05rem;margin-top:.15rem}
-.c.top:has(.saldo){padding-bottom:15rem}
-.brk{width:100%;margin:0;padding:0 1rem;text-align:left;border:1px solid var(--line);border-radius:var(--r);background:var(--surface)}
-.brk div{display:flex;justify-content:space-between;gap:1rem;padding:.55rem 0;border-bottom:1px solid var(--line)}
-.brk div:last-child{border-bottom:0}
-.brk dt{color:var(--mute)}
-.brk dd{margin:0;font-weight:700;font-variant-numeric:tabular-nums}
-.brk .tot dt{color:var(--fg);font-weight:700}
-.brk .tot dd{font-size:1.15rem;color:var(--fg)}
-.nofee{font-size:.85rem;color:var(--mute)}
-</style>`;
-
-/**
- * Desglose con la «Comisión del servicio» (solo si la hay): Consumo (o
- * Recarga) · Comisión del servicio · Propina (la que elija, la pone el JS) ·
- * Total. Sin comisión, la página es la de siempre.
- */
-function feeBreakdown(view: ChooseView, t: PayText): string {
-  const fee = view.serviceFeeCents ?? 0;
-  if (fee <= 0) return '';
-  const b = t.breakdown;
-  const money = (c: number): string => escapeHtml(formatAmount(c, view.currency, t));
-  return `<dl class="brk">
-<div><dt>${escapeHtml(view.topUp ? b.topUp : b.consumption)}</dt><dd class="num">${money(view.amountCents)}</dd></div>
-<div><dt>${escapeHtml(b.serviceFee)}</dt><dd class="num">${money(fee)}</dd></div>
-<div id="brkTip" hidden><dt>${escapeHtml(b.tip)}</dt><dd class="num" id="brkTipV"></dd></div>
-<div class="tot"><dt>${escapeHtml(t.total)}</dt><dd class="num" id="total" aria-live="polite">${money(view.amountCents + fee)}</dd></div>
-</dl>`;
-}
-
-function tipChoices(view: ChooseView, t: PayText): string {
-  const presets = tipPresetsFor(view.amountCents, view.tipPresets);
-  // La propina que pidió el cliente al personal (cobro único), ya marcada.
-  const preset = view.presetTipCents && view.tipOptionsCents.includes(view.presetTipCents) ? view.presetTipCents : 0;
-  const short = (c: number): string => formatAmount(c, view.currency, t);
-  const pct = (p: number): string => (p / 100).toLocaleString(t.locale, { style: 'percent' });
-  const options = view.tipOptionsCents
-    .filter((c) => c > 0)
-    .map((c) => {
-      const percent = presets.find((p) => p.cents === c)?.percent ?? null;
-      const label = percent
-        ? `<b>${escapeHtml(pct(percent))}</b><small class="num">+${escapeHtml(short(c))}</small>`
-        : `<b class="num">+${escapeHtml(short(c))}</b>`;
-      return `<label><input type="radio" name="tip" value="${c}"${c === preset ? ' checked' : ''}><span>${label}</span></label>`;
-    })
-    .join('');
-  // «Otra» necesita JS: empieza oculta y el JS la enseña.
-  const canOther = view.tipMaxCents >= 100;
-  return `<fieldset><legend>${escapeHtml(t.tipLegend)}</legend><div class="tipgrid">
-<label><input type="radio" name="tip" value="0"${preset === 0 ? ' checked' : ''}><span>${escapeHtml(t.noTip)}</span></label>${options}${
-    canOther
-      ? `<label id="otherOpt" hidden><input type="radio" name="tip" value="0" id="otherRadio"><span>${escapeHtml(t.tipOther)}</span></label>`
-      : ''
-  }</div>
-${
-  canOther
-    ? `<div class="other" id="otherBox" hidden><label for="otherIn">${escapeHtml(t.tipOtherLabel)}</label>
-<div class="eur"><input id="otherIn" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="4" autocomplete="off" aria-describedby="otherMax"><span aria-hidden="true">€</span></div>
-<p class="small" id="otherMax">${escapeHtml(t.tipMax(short(Math.floor(view.tipMaxCents / 100) * 100)))}</p></div>`
-    : ''
-}${view.tipToStaff ? `<p class="tipnote">${escapeHtml(t.tipToStaff)}</p>` : ''}</fieldset>${
-    // Con la comisión del servicio, el total va en su desglose.
-    (view.serviceFeeCents ?? 0) > 0
-      ? ''
-      : `
-<p class="total" aria-live="polite">${escapeHtml(t.total)}: <b class="num" id="total">${escapeHtml(formatAmount(view.amountCents, view.currency, t))}</b></p>`
-  }`;
-}
-
-export function renderChoosePage(
-  view: ChooseView,
-  ctx: { token: string; lang: PayLanguage; device: PayDevice; statementName: string | null; now: Date },
-): string {
+export function renderChoosePage(view: ChooseView, ctx: ChooseContext): string {
   const t = PAY_TEXT[ctx.lang];
-  const withTips = (view.tipMaxCents ?? 0) > 0;
-  // Lo que paga sin propina: el importe + la «Comisión del servicio» (si la hay).
-  const fee = view.serviceFeeCents ?? 0;
-  const dueCents = view.amountCents + fee;
-  // Un solo botón: el banco enseña Apple Pay, Google Pay y tarjeta (las marcas
-  // no permiten botones de wallet hechos a mano ni traducidos). Dentro de
-  // Instagram y similares, solo tarjeta (ahí Apple Pay / Google Pay no van).
-  const { inApp, wallet } = ctx.device;
-  const action = `/pay/${encodeURIComponent(ctx.token)}`;
-  const other = t.otherLanguage;
-  const config = jsConfig({
-    amount: view.amountCents,
-    fee,
-    currency: view.currency,
-    locale: t.locale,
-    max: view.tipMaxCents ?? 0,
-    text: { pay: t.payPrefix, sending: t.sending },
-  });
-  const body = `
-<header class="trust">
-${view.venueName ? `<p class="venue">${escapeHtml(view.venueName)}</p>` : ''}
-<h1 class="amount num"><span class="sr">${escapeHtml(t.youPay)}: </span>${escapeHtml(formatAmount(dueCents, view.currency, t))}</h1>
-${view.concept ? `<p class="concept">${escapeHtml(view.concept)}</p>` : ''}
-${ctx.statementName ? `<p class="stmt">${escapeHtml(t.statement(ctx.statementName))}</p>` : ''}
-</header>
-<form id="pay" method="POST" action="${escapeHtml(action)}" data-expires="${view.qrExpiresAt.getTime()}" data-now="${ctx.now.getTime()}">
-<input type="hidden" name="lang" value="${ctx.lang}">
-${withTips ? tipChoices(view, t) : '<input type="hidden" name="tip" value="0">'}
-${feeBreakdown(view, t)}
-${inApp ? `<p class="warn" role="note">${escapeHtml(t.inAppWarning(inApp))}</p>` : ''}
-<div class="paybar"><div>
-<input type="hidden" name="method" value="${inApp ? 'card' : wallet ? 'wallet' : ''}">
-<button class="btn" id="payBtn" type="submit">${escapeHtml(`${t.payPrefix} ${formatAmount(dueCents, view.currency, t)}`)}</button>
-<p class="methods">${escapeHtml(inApp ? t.methodsCard : wallet ? t.methodsWallet(wallet) : t.methods)}</p>
-${!inApp && wallet ? `<button class="link" id="cardBtn" type="button">${escapeHtml(t.payByCard)}</button>` : ''}
-${view.saldoPayToken ? `<a class="btn alt saldo" href="${escapeHtml(`/s/${encodeURIComponent(view.saldoPayToken)}?lang=${ctx.lang}`)}">${escapeHtml(t.payWithSaldo)}</a>` : ''}
-${view.saldoPayToken && fee > 0 ? `<p class="nofee">${escapeHtml(t.saldoNoFee)}</p>` : ''}
-</div></div>
-</form>
-<p class="small">${escapeHtml(t.expiresIn)} <b class="num" id="left"></b></p>
-<a class="link" href="${escapeHtml(`${action}?lang=${other.code}`)}" lang="${other.code}" hreflang="${other.code}">${escapeHtml(other.label)}</a>
-<script>
-(function(){
-var C=JSON.parse(${config}),T=C.text,f=document.getElementById('pay'),btn=document.getElementById('payBtn'),tot=document.getElementById('total'),
- other=document.getElementById('otherRadio'),box=document.getElementById('otherBox'),inp=document.getElementById('otherIn'),sent=false;
-${MONEY_JS}
-function money(c){return npMoney(c,C.locale,C.currency);}
-function otherCents(){var e=parseInt(inp.value.replace(/[^0-9]/g,'')||'0',10),max=Math.floor(C.max/100);if(e>max){e=max;inp.value=String(e);}return e*100;}
-function tip(){var r=f.querySelector('input[name=tip]:checked');return r?(+r.value||0):0;}
-function upd(){if(other){box.hidden=!other.checked;other.value=String(other.checked?otherCents():0);}
- var tp=tip(),sum=C.amount+(C.fee||0)+tp;if(!sent)btn.textContent=T.pay+' '+money(sum);if(tot)tot.textContent=money(sum);
- var br=document.getElementById('brkTip');if(br){br.hidden=tp<=0;document.getElementById('brkTipV').textContent=money(tp);}}
-if(other){document.getElementById('otherOpt').hidden=false;inp.addEventListener('input',upd);}
-f.addEventListener('change',function(e){upd();if(other&&e.target===other&&other.checked)inp.focus();});
-f.addEventListener('submit',function(e){if(sent){e.preventDefault();return;}upd();sent=true;
- btn.textContent=T.sending;btn.setAttribute('aria-disabled','true');f.setAttribute('aria-busy','true');});
-var cb=document.getElementById('cardBtn'),m0=f.elements.method.value;
-if(cb)cb.addEventListener('click',function(){if(sent)return;f.elements.method.value='card';if(f.requestSubmit)f.requestSubmit(btn);else{upd();sent=true;f.submit();}});
-window.addEventListener('pageshow',function(e){if(e.persisted){sent=false;f.elements.method.value=m0;btn.removeAttribute('aria-disabled');f.removeAttribute('aria-busy');upd();}});
-upd();
-var left=document.getElementById('left'),d=f.dataset,skew=+d.now-Date.now(),exp=+d.expires,iv;
-function tick(){var s=Math.max(0,Math.floor((exp-Date.now()-skew)/1000));left.textContent=Math.floor(s/60)+':'+('0'+s%60).slice(-2);if(s<=0){clearInterval(iv);setTimeout(function(){location.reload();},1500);}}
-iv=setInterval(tick,1000);tick();
-})();
-</script>`;
-  return page(t, t.youPay, body, { head: CHOOSE_CSS, layout: 'top' });
+  return page(t, t.youPay, renderChooseBody(view, ctx), { head: `<style>${CHOOSE_CSS}</style>`, layout: 'bare' });
 }
 
 // ─── Hacia el banco ─────────────────────────────────────────────────────
@@ -323,7 +160,9 @@ ${inputs}
 window.addEventListener('pageshow',function(e){if(e.persisted){location.replace(${jsString(backHref)});}});
 setTimeout(function(){document.getElementById('f').submit();},250);
 </script>`;
-  return page(t, t.openingTitle, body, { head: SPIN_CSS });
+  // Cambiar de idioma aquí vuelve a la página del cobro (este formulario ya está abierto en el banco).
+  const back = backHref.split('?')[0] ?? backHref;
+  return page(t, t.openingTitle, body, { head: SPIN_CSS, langHref: (l) => `${back}?lang=${l}` });
 }
 
 // ─── Pagado ─────────────────────────────────────────────────────────────
@@ -348,39 +187,58 @@ export function renderPaidPage(
     now?: Date;
     /** Este navegador hizo el pago aprobado (su cookie): solo él ve el «Pagado» lima. */
     viewerPaid?: boolean;
+    /** Una recarga del saldo: la primera línea del desglose es «Recarga». */
+    topUp?: boolean;
+    /** El selector de idioma de esta página (p. ej. /pay/result?op=…). */
+    langHref?: LangHref;
   },
   lang: PayLanguage,
 ): string {
   const t = PAY_TEXT[lang];
   const now = args.now ?? new Date();
   const fee = args.serviceFeeCents ?? 0;
-  const lines = [
-    ...(fee > 0 ? [t.includesServiceFee(formatAmount(fee, args.currency, t))] : []),
-    ...(args.tipCents > 0 ? [t.includesTip(formatAmount(args.tipCents, args.currency, t))] : []),
-  ];
+  const money = (c: number): string => formatAmount(c, args.currency, t);
+  // Con comisión o propina, el desglose: lo pedido, la comisión y la propina.
+  const rows: Array<readonly [string, string]> =
+    fee > 0 || args.tipCents > 0
+      ? [
+          [args.topUp ? t.breakdown.topUp : t.breakdown.consumption, money(args.amountCents)],
+          ...(fee > 0 ? [[t.breakdown.serviceFee, money(fee)] as const] : []),
+          ...(args.tipCents > 0 ? [[t.breakdown.tip, money(args.tipCents)] as const] : []),
+        ]
+      : [];
+  const receipt = args.receiptHref ? `<a class="link" href="${escapeHtml(args.receiptHref)}">${escapeHtml(t.receiptLink)}</a>` : '';
   const screen = renderPaidScreen({
     t,
-    amount: formatAmount(args.amountCents + fee + args.tipCents, args.currency, t),
+    amount: money(args.amountCents + fee + args.tipCents),
     authorizedAt: args.authorizedAt,
     now,
     code: args.code,
-    lines,
+    rows,
+    lines: args.tipCents > 0 ? [t.thanksTip] : [],
     viewerPaid: args.viewerPaid === true,
+    // Sin recarga que activar, el justificante va dentro del «Pagado» (se ve sin bajar).
+    footer: args.walletHref || args.walletElsewhere ? '' : receipt,
   });
   const walletLinks = args.walletHref
     ? `${args.wallet ? '' : `<p>${escapeHtml(t.walletReady)}</p>`}
 <a class="btn${args.wallet ? ' alt' : ''}" href="${escapeHtml(args.walletHref)}">${escapeHtml(t.walletOpen)}</a>
 ${args.wallet && !args.wallet.hasFaceId ? `<a class="link" id="fidMerge" href="${escapeHtml(`${args.walletHref}#sumar`)}">${escapeHtml(t.mergeHint)}</a>` : ''}`
     : '';
+  const withWallet = Boolean(args.walletHref || args.walletElsewhere);
   const next = `<section class="next">
 ${args.wallet ? renderWalletAsk(args.wallet, t) : ''}
 ${walletLinks}
 ${!args.walletHref && args.walletElsewhere ? `<p>${escapeHtml(t.walletElsewhere)}</p>` : ''}
-${args.receiptHref ? `<a class="link" href="${escapeHtml(args.receiptHref)}">${escapeHtml(t.receiptLink)}</a>` : ''}
-<p class="foot">${escapeHtml(t.secure)}</p>
+${withWallet ? receipt : ''}
+<p class="foot secure">${LOCK_ICON}${escapeHtml(t.secure)}</p>
 </section>`;
-  const head = `<style>${PAID_SCREEN_CSS}${WALLET_ASK_CSS}</style>`;
-  return page(t, t.paidTitle, `${screen}\n${next}\n${paidScreenScript(t)}`, { head, layout: 'full' });
+  const head = `<style>${PAID_SCREEN_CSS}${WALLET_ASK_CSS}.secure{display:flex;align-items:center;gap:.4rem}.secure svg{width:1rem;height:1rem;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}</style>`;
+  return page(t, t.paidTitle, `${screen}\n${next}\n${paidScreenScript(t)}`, {
+    head,
+    layout: 'full',
+    langHref: args.langHref,
+  });
 }
 
 // ─── Comprobando ────────────────────────────────────────────────────────
@@ -393,7 +251,14 @@ export function renderProcessingPage(lang: PayLanguage, refreshUrl: string, offe
 <h1 role="status">${escapeHtml(t.processingTitle)}</h1>
 <p>${escapeHtml(t.processingBody)}</p>
 ${offerNewCharge ? `<p class="small">${escapeHtml(t.processingNewCharge)}</p>` : ''}`;
-  return page(t, t.processingTitle, body, { head });
+  return page(t, t.processingTitle, body, { head, langHref: sameUrlOtherLang(refreshUrl) });
+}
+
+/** El mismo enlace (con sus parámetros, p. ej. ?op=) en otro idioma. */
+function sameUrlOtherLang(url: string): LangHref {
+  const [path, query = ''] = url.split('?');
+  const params = Object.fromEntries(new URLSearchParams(query));
+  return langHrefWith(path ?? url, params);
 }
 
 /**
@@ -407,7 +272,7 @@ export function renderBusyPage(lang: PayLanguage, againHref: string, seconds: nu
 <div class="spin" aria-hidden="true"></div>
 <h1 role="status">${escapeHtml(t.busyTitle)}</h1>
 <p>${escapeHtml(t.busyBody)}</p>`;
-  return page(t, t.busyTitle, body, { head });
+  return page(t, t.busyTitle, body, { head, langHref: sameUrlOtherLang(againHref) });
 }
 
 // ─── Avisos: qué pasó, si no se cobró nada y UNA acción ─────────────────
@@ -432,13 +297,15 @@ const NOTICE_ICON: Record<'error' | 'warn' | 'neutral', string> = {
 
 /**
  * Aviso al cliente. Si el aviso tiene botón (`retry`) y hay a dónde volver,
- * la acción es el botón; si no, la indicación (`hint`). Nunca las dos.
+ * la acción es el botón; si no, la indicación (`hint`). Nunca las dos. El
+ * botón vuelve a la página del cobro, donde sigue la propina elegida.
  */
 export function renderNoticePage(
   lang: PayLanguage,
   notice: PayNotice,
   tone: 'error' | 'warn' | 'neutral',
   retryHref?: string,
+  langHref?: LangHref,
 ): string {
   const t = PAY_TEXT[lang];
   const action =
@@ -453,17 +320,19 @@ export function renderNoticePage(
 ${notice.notCharged ? `<p class="safe" id="notCharged"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 13l4 4L19 7"/></svg>${escapeHtml(t.notCharged)}</p>` : ''}
 ${notice.body ? `<p>${escapeHtml(notice.body)}</p>` : ''}
 ${action}`;
-  return page(t, notice.title, body, { head: NOTICE_CSS });
+  return page(t, notice.title, body, { head: NOTICE_CSS, langHref });
 }
 
-export function renderClosedPage(reason: PayClosedReason, lang: PayLanguage): string {
+export function renderClosedPage(reason: PayClosedReason, lang: PayLanguage, langHref?: LangHref): string {
   const tone = reason === 'canceled' || reason === 'paid-with-saldo' ? 'neutral' : 'warn';
-  return renderNoticePage(lang, PAY_TEXT[lang].closed[reason], tone);
+  return renderNoticePage(lang, PAY_TEXT[lang].closed[reason], tone, undefined, langHref);
 }
 
 /** Error al abrir o empezar el cobro. Nunca enseña el detalle técnico ni códigos del banco. */
 export function renderErrorPage(key: PayErrorKey, lang: PayLanguage, retryHref?: string): string {
-  return renderNoticePage(lang, PAY_TEXT[lang].errors[key], 'warn', retryHref);
+  // Cambiar de idioma lleva a la página del cobro (la del aviso es la respuesta de un POST).
+  const back = retryHref?.split('?')[0];
+  return renderNoticePage(lang, PAY_TEXT[lang].errors[key], 'warn', retryHref, back ? (l) => `${back}?lang=${l}` : undefined);
 }
 
 /** /pay/result?op=… — estado REAL del pago; el `status` de la URL no cuenta. */
@@ -471,11 +340,12 @@ export function renderResultView(
   view: PayResultView | null,
   lang: PayLanguage,
   refreshUrl: string,
-  opts: { walletElsewhere?: boolean; viewerPaid?: boolean; now?: Date } = {},
+  opts: { walletElsewhere?: boolean; viewerPaid?: boolean; now?: Date; topUp?: boolean } = {},
 ): string {
-  const { walletElsewhere = false, viewerPaid = false, now = new Date() } = opts;
+  const { walletElsewhere = false, viewerPaid = false, now = new Date(), topUp = false } = opts;
   const t = PAY_TEXT[lang];
-  if (!view) return renderNoticePage(lang, t.notFound, 'warn');
+  const langHref = sameUrlOtherLang(refreshUrl);
+  if (!view) return renderNoticePage(lang, t.notFound, 'warn', undefined, langHref);
   if (PAID_STATES.has(view.status)) {
     return renderPaidPage(
       {
@@ -494,15 +364,17 @@ export function renderResultView(
             : null,
         now,
         viewerPaid,
+        topUp: topUp || Boolean(view.walletToken || view.walletReturnToken),
+        langHref,
       },
       lang,
     );
   }
   const closed = CLOSED_REASON[view.status];
-  if (closed) return renderClosedPage(closed, lang);
+  if (closed) return renderClosedPage(closed, lang, langHref);
   if (view.attemptStatus === 'DENIED') {
     // Mensaje genérico: nunca el código del banco (ni de fraude ni ningún otro).
-    return renderNoticePage(lang, t.denied, 'error', payHref(view.qrToken, lang));
+    return renderNoticePage(lang, t.denied, 'error', payHref(view.qrToken, lang), langHref);
   }
   return renderProcessingPage(lang, refreshUrl);
 }
@@ -537,6 +409,7 @@ dl div{display:flex;justify-content:space-between;gap:1rem;padding:.65rem 0;bord
 dl div:last-child{border-bottom:0}
 dt{color:var(--mute)}
 dd{margin:0;font-weight:700;font-variant-numeric:tabular-nums;text-align:right;overflow-wrap:anywhere}
+dl div.tot dt{color:var(--fg);font-weight:800}
 dl div.tot dd{color:var(--lime);font-size:1.25rem}
 @media print{body{background:#fff;color:#000}h1,dd{color:#000}dt,p{color:#333}dl{background:none}dl div.tot dd{color:#000}.noprint,.brand{display:none!important}}
 </style>`;

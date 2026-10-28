@@ -312,6 +312,11 @@ export interface ClientWalletState {
     kind: 'topup' | 'consumption' | 'payout';
     amountCents: number;
     label: string;
+    /**
+     * El texto de la fila en el idioma de la página (recargas y devoluciones:
+     * WalletText.mv); sin él, `label` tal cual (los consumos: lo que se pidió).
+     */
+    labelKey?: 'topUp' | 'topUpCash' | 'topUpCashVoid' | 'payoutCash' | 'payoutCard';
     venueName: string | null;
     at: string;
     /** Referencia del cobro (C-0001) en consumos y recargas con tarjeta; null en el resto y en los antiguos. */
@@ -628,6 +633,7 @@ export class WalletChargesService {
         kind: 'topup' as const,
         amountCents: t.amountCents,
         label: 'Recarga',
+        labelKey: 'topUp' as const,
         venueName: venueName(t.tenantId),
         at: (t.authorizedAt ?? t.createdAt).toISOString(),
         ref: formatChargeRef(t.ref),
@@ -638,6 +644,7 @@ export class WalletChargesService {
         amountCents: t.amountCents,
         // Una recarga mal tecleada que el encargado anuló: fila negativa.
         label: t.amountCents < 0 ? 'Recarga en efectivo anulada' : 'Recarga en efectivo',
+        labelKey: t.amountCents < 0 ? ('topUpCashVoid' as const) : ('topUpCash' as const),
         venueName: venueName(t.tenantId),
         at: t.createdAt.toISOString(),
         ref: null,
@@ -647,6 +654,7 @@ export class WalletChargesService {
         kind: 'payout' as const,
         amountCents: -p.amountCents,
         label: p.method === 'CASH' ? 'Devuelto en efectivo' : 'Devuelto a la tarjeta',
+        labelKey: p.method === 'CASH' ? ('payoutCash' as const) : ('payoutCard' as const),
         venueName: venueName(p.tenantId),
         at: p.createdAt.toISOString(),
         ref: null,

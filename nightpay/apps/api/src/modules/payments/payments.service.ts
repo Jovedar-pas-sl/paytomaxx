@@ -1172,6 +1172,7 @@ export class PaymentsService implements OnApplicationBootstrap {
           provider: true,
           amountCents: true,
           serviceFeeCents: true,
+          serviceFeeBps: true,
           tipCents: true,
           currency: true,
           qrExpiresAt: true,

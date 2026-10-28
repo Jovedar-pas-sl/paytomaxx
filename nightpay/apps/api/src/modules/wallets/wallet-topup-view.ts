@@ -1,4 +1,5 @@
 import { clientMoney, escapeHtml, jsConfig } from '../payments/club-ui';
+import { BREAKDOWN_CSS } from '../payments/pay-choose-page';
 import { PAY_TEXT, type PayLanguage } from '../payments/pay-i18n';
 import { PAID_FRESH_MS, PAID_SCREEN_JS, formatAgo, paidScreenJsText } from '../payments/paid-screen';
 import { receiptHref } from '../payments/public-pay.pages';
@@ -14,17 +15,18 @@ import type { TopUpOptions, TopUpProof } from './wallet-topup.service';
  * El JS va dentro de plantillas de TypeScript: sin barras invertidas.
  */
 
-export const TOPUP_CSS = `
+export const TOPUP_CSS = `${BREAKDOWN_CSS}
 .topup{text-align:center}
+.topup .brk{text-align:left}
 .tform{display:flex;flex-direction:column;gap:.8rem}
 .tform fieldset{border:0;margin:0;padding:0;min-width:0}
 .amts{display:grid;grid-template-columns:1fr 1fr;gap:.6rem}
 .amts label{display:block;position:relative}
 .amts input{position:absolute;opacity:0;width:1px;height:1px}
-.amts span{position:relative;display:flex;align-items:center;justify-content:center;min-height:3.5rem;padding:.5rem 1.4rem;border:1px solid var(--line-hi);border-radius:999px;background:var(--surface-2);font-size:1.2rem;font-weight:800;color:var(--fg);cursor:pointer;transition:transform .15s var(--ease)}
-.amts input:checked+span{border-color:var(--fg);background:var(--fg);color:var(--ink-0)}
-.amts input:checked+span::before{content:'✓';position:absolute;top:50%;left:1rem;transform:translateY(-50%);font-size:.9rem;font-weight:900}
-.amts input:focus-visible+span{outline:3px solid var(--fg);outline-offset:2px}
+.amts span{position:relative;display:flex;align-items:center;justify-content:center;min-height:3.5rem;padding:.5rem 1.9rem;border:1.5px solid var(--line-hi);border-radius:18px;background:var(--surface-2);font-family:var(--num);font-size:1.2rem;font-weight:800;color:var(--fg);cursor:pointer;transition:transform .15s var(--ease)}
+.amts input:checked+span{border-color:var(--cream);background:var(--cream);color:var(--ink)}
+.amts input:checked+span::before{content:'';position:absolute;top:50%;left:.85rem;width:1.15rem;height:1.15rem;margin-top:-.575rem;border-radius:50%;background:var(--ink) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23EFE9DF' stroke-width='3.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 13l4 4L19 7'/%3E%3C/svg%3E") center/70% no-repeat}
+.amts input:focus-visible+span{outline:3px solid var(--fg);outline-offset:3px}
 .amts span:active{transform:scale(.97)}
 .tother{display:flex;flex-direction:column;align-items:center;gap:.35rem}
 .tother label{font-weight:600;color:var(--mute)}
@@ -32,7 +34,6 @@ export const TOPUP_CSS = `
 .teur input{width:7rem;min-height:3.25rem;font:inherit;font-size:1.6rem;font-weight:800;text-align:center;border-radius:14px;border:2px solid var(--line-hi);background:var(--surface-2);color:var(--fg)}
 .teur input:focus-visible{outline:3px solid var(--fg);outline-offset:2px}
 .teur span{font-size:1.4rem;font-weight:800}
-.tfee{font-weight:700;color:var(--fg)}
 .proof{position:relative;isolation:isolate;overflow:hidden;display:grid;grid-template-columns:auto 1fr;align-items:center;gap:.2rem .85rem;padding:1rem 1.1rem;border-radius:var(--r);background:radial-gradient(120% 120% at 20% 20%,var(--green-3) 0%,var(--green-2) 55%,var(--green-1) 100%);background-color:var(--green-2);color:var(--cream);box-shadow:0 0 0 1px var(--lime-edge)}
 .proof p,.proof a{color:inherit}
 .proof .band{position:absolute;top:-50%;left:-50%;width:200%;height:200%;z-index:-1;background:repeating-linear-gradient(-45deg,rgb(239 233 223/.05) 0 30px,rgb(239 233 223/0) 30px 60px);animation:np-band 8s linear infinite;will-change:transform}
@@ -78,8 +79,18 @@ export function topUpCard(lang: PayLanguage, options: TopUpOptions | null): stri
   const limits = options
     ? t.topUpLimits.replace('{min}', short(options.minCents, t.locale)).replace('{max}', short(options.maxCents, t.locale))
     : '';
-  // «Comisión del servicio» de las recargas: el desglose lo rellena el JS (topUpd).
-  const withFee = (options?.serviceFeeBps ?? 0) > 0;
+  // «Comisión del servicio» de las recargas: el desglose (Recarga · Comisión · Total a pagar) lo rellena el JS (topUpd).
+  const feeBps = options?.serviceFeeBps ?? 0;
+  const withFee = feeBps > 0;
+  const p = PAY_TEXT[lang];
+  const pct = new Intl.NumberFormat(t.locale, { style: 'percent', maximumFractionDigits: 2 }).format(feeBps / 10_000);
+  const breakdown = withFee
+    ? `<dl class="brk" id="topupFee" aria-live="off">
+<div><dt>${h(t.topUpToBalance)}</dt><dd class="num" id="tbAmount"></dd></div>
+<div class="fee"><dt>${h(p.breakdown.serviceFee)} <button class="why" type="button" id="tWhyBtn" aria-expanded="true" aria-controls="tWhy">${h(p.feeWhat)}</button></dt><dd class="num" id="tbFee"></dd><dd class="whytext" id="tWhy">${h(p.feeExplain(pct))}</dd></div>
+<div class="tot"><dt>${h(p.totalToPay)}</dt><dd class="num" id="tbTotal"></dd></div>
+</dl>`
+    : '';
   return `<section class="card topup" id="topupBox" hidden aria-labelledby="topupTitle">
 <h2 id="topupTitle">${h(t.topUpTitle)}</h2><p>${h(t.topUpWhy)}</p>
 <form id="topupForm" class="tform" autocomplete="off">
@@ -87,7 +98,7 @@ export function topUpCard(lang: PayLanguage, options: TopUpOptions | null): stri
 <div class="tother" id="otherBox" hidden><label for="otherIn">${h(t.topUpOtherLabel)}</label>
 <div class="teur"><input id="otherIn" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="3" autocomplete="off" aria-describedby="topupLimits"><span aria-hidden="true">€</span></div></div>
 <p class="small" id="topupLimits">${h(limits)}</p>
-${withFee ? '<p class="tfee num" id="topupFee" aria-live="polite"></p>' : ''}
+${breakdown}
 <p class="small" id="topupKey" hidden></p>
 <p class="err" id="topupErr" role="alert" hidden></p>
 <button class="btn" type="submit" id="topupGo">${h(t.topUp)}</button>
@@ -156,7 +167,9 @@ function topOk(c){return c>=TU.minCents&&c<=TU.maxCents&&c%100===0;}
 function topFee(c){var bps=TU.serviceFeeBps||0;return bps>0&&c>0?Math.round(c*bps/10000):0;}
 function topUpd(){var c=topCents(),b=$('topupGo'),label=topOk(c)?fill(T.topUpGo,'amount',eurShort(c)):T.topUp,fl=$('topupFee');
  $('otherBox').hidden=!$('amtOther').checked;b.setAttribute('data-label',label);if(!busy)b.textContent=label;
- if(fl){var f=topFee(c);fl.textContent=topOk(c)?fill(fill(fill(T.topUpFeeLine,'amount',eurShort(c)),'fee',eurShort(f)),'total',eurShort(c+f)):'';}}
+ if(fl){var f=topFee(c),ok=topOk(c);fl.hidden=!ok;$('tbAmount').textContent=ok?eurShort(c):'';$('tbFee').textContent=ok?eurShort(f):'';$('tbTotal').textContent=ok?eurShort(c+f):'';}}
+var tw=$('tWhyBtn');if(tw){$('tWhy').hidden=true;tw.setAttribute('aria-expanded','false');
+ tw.addEventListener('click',function(){var o=tw.getAttribute('aria-expanded')!=='true';tw.setAttribute('aria-expanded',String(o));$('tWhy').hidden=!o;});}
 function topUsable(s){return (s.status==='ACTIVE'||(s.status==='DEPLETED'&&!s.merged))&&!s.refund&&!s.closeRequested;}
 function topCan(s){return topUsable(s)&&TU.allowed;}
 function topRender(s){var usable=topUsable(s),can=usable&&TU.allowed;

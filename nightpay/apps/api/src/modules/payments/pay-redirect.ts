@@ -1,3 +1,4 @@
+import type { PayLanguage } from './customer-lang';
 import type { PaymentMachineState } from './payment.machine';
 import { maxTipCents, tipOptionsFor, type TipPresetConfig } from './tip';
 
@@ -18,7 +19,7 @@ export type PayMethodChoice = 'wallet' | 'card';
 export interface CheckoutChoice {
   tipCents: number;
   method: PayMethodChoice | null;
-  language: 'es' | 'en';
+  language: PayLanguage;
   /** Huella de la cookie del navegador que abre el intento (enlace del saldo). */
   claimHash?: string | null;
 }
@@ -47,6 +48,8 @@ export type PayRedirect =
       amountCents: number;
       /** «Comisión del servicio» encima del importe (0 sin ella): Consumo · Comisión · Propina · Total. */
       serviceFeeCents?: number;
+      /** Su % (en bps) para «¿Qué es?» (el que se fijó al crear el cobro; null sin ella). */
+      serviceFeeBps?: number | null;
       /** Una recarga del saldo: el importe es «Recarga», no «Consumo». */
       topUp?: boolean;
       currency: string;
@@ -231,6 +234,8 @@ export interface PayablePayment {
   tipCents: number;
   /** «Comisión del servicio» fijada al crear el cobro (0 sin ella o en los de antes). */
   serviceFeeCents?: number;
+  /** Su % (bps) del momento del cobro: solo para explicarla en la página. */
+  serviceFeeBps?: number | null;
   /** Una recarga del saldo. */
   topUp?: boolean;
   currency: string;
@@ -317,6 +322,8 @@ export function choosePayPage(p: PayablePayment, now: Date = new Date()): PayRed
     kind: 'choose',
     amountCents: p.amountCents,
     serviceFeeCents: p.serviceFeeCents ?? 0,
+    // Su % (para «¿Qué es?»), solo si hay comisión.
+    ...((p.serviceFeeCents ?? 0) > 0 && p.serviceFeeBps ? { serviceFeeBps: p.serviceFeeBps } : {}),
     topUp: p.topUp ?? false,
     currency: p.currency,
     tipOptionsCents: tipOptionsFor(p),

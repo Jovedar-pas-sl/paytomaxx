@@ -1,5 +1,6 @@
 import { PAY_TEXT, type PayLanguage } from '../payments/pay-i18n';
-import { CLUB_BASE_CSS, MONEY_JS, brandWordmark, clientMoney, escapeHtml, jsConfig } from '../payments/club-ui';
+import { CLUB_BASE_CSS, MONEY_JS, clientMoney, escapeHtml, jsConfig } from '../payments/club-ui';
+import { CHROME_CSS, LANG_JS, topBar } from '../payments/customer-chrome';
 import type { ClientWalletState } from './wallet-charges.service';
 import { PASSKEY_BROWSER_JS } from './passkey-browser';
 import { CLIENT_ERROR_JS, clientErrorConfig } from './client-errors';
@@ -31,8 +32,7 @@ import { LOST_CSS, LOST_JS, lostButton, lostSheet } from './wallet-lost-view';
 
 const WALLET_CSS = `
 .w{max-width:26rem;margin:0 auto;padding:1rem 1rem calc(2rem + env(safe-area-inset-bottom));display:flex;flex-direction:column;gap:1rem}
-.top{display:flex;align-items:center;justify-content:space-between;gap:.5rem;min-height:3rem}
-.top .wm{height:1.3rem}
+.w>.top{padding:0}
 .hero{position:relative;isolation:isolate;overflow:hidden;min-height:10.5rem;padding:1rem 1.15rem;border-radius:24px;display:flex;flex-direction:column;justify-content:space-between;gap:.5rem;text-align:left;color:var(--cream);background:var(--bits),linear-gradient(135deg,var(--green-1) 0%,var(--green-2) 55%,var(--green-3) 100%);box-shadow:0 0 0 1px var(--lime-edge),0 18px 40px -20px var(--lime-glow)}
 .hero::before{content:'';position:absolute;top:1rem;right:1.1rem;width:1.5rem;height:1.5rem;background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23EFE9DF' stroke-width='2' stroke-linecap='round'%3E%3Cpath d='M5.5 10.5a2 2 0 0 1 0 3'/%3E%3Cpath d='M9 8a6 6 0 0 1 0 8'/%3E%3Cpath d='M12.5 5.5a9.5 9.5 0 0 1 0 13'/%3E%3Cpath d='M16 3a13 13 0 0 1 0 18'/%3E%3C/svg%3E") center/contain no-repeat}
 .hero::after{content:'';position:absolute;inset:0;z-index:-1;background:linear-gradient(118deg,transparent 38%,var(--lime-soft) 50%,transparent 62%);pointer-events:none}
@@ -263,8 +263,8 @@ export function renderWalletPage(
   return `<!DOCTYPE html>
 <html lang="${t.htmlLang}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="robots" content="noindex"><meta name="theme-color" content="#0f1112"><title>${h(t.title)}</title>
-<style>${CLUB_BASE_CSS}${WALLET_CSS}${SCAN_CSS}${TOPUP_CSS}${LOST_CSS}</style></head><body><main class="w">
-<div class="top"><p class="kick">${brandWordmark('')}<span class="sr">${h(t.title)}</span></p><a class="link" id="lang" href="${h(`${base}?lang=${t.other.code}`)}" lang="${t.other.code}" hreflang="${t.other.code}">${h(t.other.label)}</a></div>
+<style>${CLUB_BASE_CSS}${CHROME_CSS}${WALLET_CSS}${SCAN_CSS}${TOPUP_CSS}${LOST_CSS}</style></head><body><main class="w">
+${topBar(lang)}<h1 class="sr">${h(t.title)}</h1>
 <section class="hero" aria-labelledby="balanceLabel">
 <p id="balanceLabel">${h(state.venueName ? t.balanceOf.split('{venue}').join(state.venueName) : t.balance)}</p>
 <p class="balance num" id="balance" aria-live="polite">${h(eur(state.balanceCents, t.locale))}</p>
@@ -357,7 +357,7 @@ function render(s){S=s;S.cards=s.cards||[];
  if(!s.movements.length){var e=document.createElement('li');e.className='mv';e.textContent=T.noMovements;ul.appendChild(e);}
  s.movements.forEach(function(m){var li=document.createElement('li'),sw=document.createElement('i'),mt=document.createElement('div'),a=document.createElement('b'),sub=document.createElement('span'),b=document.createElement('span');li.className='mv';
   sw.className=m.color?'sw':'sw hold';sw.setAttribute('aria-hidden','true');if(m.color)sw.style.setProperty('--c',m.color);
-  mt.className='mt';a.textContent=m.label;sub.textContent=[m.ref,m.venueName,when(m.at)].filter(Boolean).join(' · ');mt.appendChild(a);mt.appendChild(sub);
+  mt.className='mt';a.textContent=m.labelKey&&T.mv[m.labelKey]?T.mv[m.labelKey]:m.label;sub.textContent=[m.ref,m.venueName,when(m.at)].filter(Boolean).join(' · ');mt.appendChild(a);mt.appendChild(sub);
   b.textContent=(m.amountCents>0?'+':'')+eur(m.amountCents);b.className=(m.amountCents>0?'plus':'minus')+' num';
   li.appendChild(sw);li.appendChild(mt);li.appendChild(b);ul.appendChild(li);});
  lostRender(s);
@@ -411,5 +411,6 @@ setInterval(function(){if(document.visibilityState==='visible')refresh();},3000)
 document.addEventListener('visibilitychange',function(){if(document.visibilityState==='visible')refresh();});
 })();
 ${proof ? paidProofScript(lang) : ''}
+${LANG_JS}
 </script></body></html>`;
 }

@@ -1,7 +1,7 @@
 import { Catch, HttpException, HttpStatus, type ArgumentsHost } from '@nestjs/common';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { ProblemDetailsFilter } from '../../common/filters/problem-details.filter';
-import { resolveLanguage } from './pay-i18n';
+import { resolveLanguage } from './customer-lang';
 import { renderBusyPage } from './public-pay.pages';
 
 /** Lo que espera la página antes de volver a cargarse sola (entre estos dos). */
@@ -27,8 +27,7 @@ export class PayPageFilter extends ProblemDetailsFilter {
     }
     const req = host.switchToHttp().getRequest<FastifyRequest>();
     const res = host.switchToHttp().getResponse<FastifyReply>();
-    const accept = req.headers['accept-language'];
-    const lang = resolveLanguage((req.query as { lang?: unknown } | undefined)?.lang, Array.isArray(accept) ? accept[0] : accept);
+    const lang = resolveLanguage((req.query as { lang?: unknown } | undefined)?.lang, req.headers.cookie);
     const wait = retryAfterOf(exception);
     // Solo nuestras páginas: se vuelve a la misma (ruta relativa, sin dominio).
     const again = typeof req.url === 'string' && req.url.startsWith('/pay/') ? req.url : '/';

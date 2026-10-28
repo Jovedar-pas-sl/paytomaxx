@@ -82,7 +82,7 @@ describe('IpRateLimitGuard', () => {
     await expect(guard.canActivate(makeCtx(config))).rejects.toThrow(HttpException);
   });
 
-  it('429 en el idioma de la página (?lang=, el lang del cuerpo o el del móvil) y con code estable', async () => {
+  it('429 en el idioma de la página (?lang=, el lang del cuerpo o su cookie; nunca el del móvil) y con code estable', async () => {
     const config: IpRateLimitConfig = { max: 0, windowSec: 60, scope: 'test' };
     const guard = new IpRateLimitGuard(makeReflector(config), redis as never);
     const responseOf = async (extra: Parameters<typeof makeCtx>[2]) =>
@@ -91,15 +91,21 @@ describe('IpRateLimitGuard', () => {
       code: 'RATE_LIMITED',
       message: 'Demasiados intentos seguidos: espera un momento y vuelve a probar.',
     });
+    // Un móvil en alemán o en inglés sin elegir idioma: español, como la página.
     await expect(responseOf({ headers: { 'accept-language': 'de-DE' } })).resolves.toMatchObject({
-      message: 'Too many attempts in a row: wait a moment and try again.',
+      message: expect.stringMatching(/^Demasiados/),
     });
-    // La página en inglés en un móvil en castellano: manda la página.
+    await expect(responseOf({ headers: { 'accept-language': 'en-GB' } })).resolves.toMatchObject({
+      message: expect.stringMatching(/^Demasiados/),
+    });
     await expect(responseOf({ headers: { 'accept-language': 'es-ES' }, query: { lang: 'en' } })).resolves.toMatchObject({
       message: expect.stringMatching(/^Too many/),
     });
-    await expect(responseOf({ headers: { 'accept-language': 'en-GB' }, body: { lang: 'es' } })).resolves.toMatchObject({
-      message: expect.stringMatching(/^Demasiados/),
+    await expect(responseOf({ headers: { cookie: 'np_lang=fr' } })).resolves.toMatchObject({
+      message: expect.stringMatching(/^Trop de tentatives/),
+    });
+    await expect(responseOf({ headers: { cookie: 'np_lang=fr' }, body: { lang: 'pt' } })).resolves.toMatchObject({
+      message: expect.stringMatching(/^Demasiadas tentativas/),
     });
   });
 

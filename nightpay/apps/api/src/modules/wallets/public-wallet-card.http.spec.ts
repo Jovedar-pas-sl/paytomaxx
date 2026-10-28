@@ -137,7 +137,7 @@ describe('consulta NFC HTTP: ninguna información antes de verificar la llave', 
       findUnique.mockResolvedValue(card);
       const r = await api.inject({ method: 'GET', url: `/w/card/${CARD}?lang=en` });
       expect(r.statusCode).toBe(200);
-      expect(r.body).toContain('This NFC is not active');
+      expect(r.body).toContain('This NFC tag is not active');
       expect(r.body).not.toContain('ABC-');
       expect(r.body).not.toContain('<button');
     }

@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from 'vitest';
 import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
 import { WalletChargesService } from './wallet-charges.service';
+import { WALLET_TEXT } from './wallet-text';
 import { hashPin, verifyPin } from './wallet-pin';
 
 /**
@@ -208,5 +209,13 @@ describe('la página del saldo del cliente', () => {
     expect(state.movements).toEqual([
       expect.objectContaining({ kind: 'topup', amountCents: 5_000, label: 'Recarga en efectivo', venueName: 'Sala Bambú' }),
     ]);
+  });
+
+  it('cada fila del API lleva su clave: la página la dice en el idioma del cliente', async () => {
+    const { svc } = setup();
+    const state = await svc.clientState('enlace-del-saldo');
+    expect(state.movements[0]).toMatchObject({ labelKey: 'topUpCash' });
+    expect(WALLET_TEXT.fr.mv.topUpCash).toBe('Recharge en espèces');
+    expect(WALLET_TEXT.pt.mv.topUpCash).toBe('Recarga em dinheiro');
   });
 });

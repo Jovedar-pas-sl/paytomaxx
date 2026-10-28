@@ -5,13 +5,16 @@ import { CLIENT_ERROR_JS, CLIENT_ERROR_TEXT, clientErrorConfig } from './client-
 
 /**
  * Errores del API en las páginas del cliente: el `code` se enseña en el
- * idioma de la página; sin `code` conocido, en inglés nunca sale castellano.
- * npErr es el JS de verdad de las páginas (ejecutado aquí).
+ * idioma de la página; sin `code` conocido, un texto genérico en su idioma:
+ * nunca el texto del API (es interno, en castellano y a veces con el
+ * vocabulario del personal). npErr es el JS de verdad de las páginas (ejecutado aquí).
  */
 type ErrLike = { status?: number; code?: string; reason?: string; message?: string; name?: string };
 const npErr = new Function(`${CLIENT_ERROR_JS}\nreturn npErr;`)() as (e: ErrLike | null, E: Record<string, unknown>) => string;
 const ES = clientErrorConfig('es');
 const EN = clientErrorConfig('en');
+const FR = clientErrorConfig('fr');
+const PT = clientErrorConfig('pt');
 
 describe('npErr — el error del API en el idioma de la página', () => {
   it('code conocido → su texto en el idioma de la página, aunque el API conteste en castellano', () => {
@@ -27,10 +30,14 @@ describe('npErr — el error del API en el idioma de la página', () => {
     expect(npErr({ status: 409, code: 'WALLET_TOPUP_UNAVAILABLE', reason: 'no-gateway' }, EN)).toBe(EN.TOPUP_venue);
   });
 
-  it('sin code: 429 → «demasiados intentos»; en castellano el texto del API; en inglés uno genérico', () => {
+  it('sin code: 429 → «demasiados intentos»; si no, uno genérico en su idioma (nunca el texto del API)', () => {
     expect(npErr({ status: 429, message: 'Too Many Requests' }, ES)).toBe(ES.RATE_LIMITED);
-    expect(npErr({ status: 409, message: 'Algo que dice el API' }, ES)).toBe('Algo que dice el API');
+    expect(npErr({ status: 409, message: 'Este cobro ha caducado: pide a la chica que lo repita' }, ES)).toBe(ES.generic);
     expect(npErr({ status: 409, message: 'Algo que dice el API' }, EN)).toBe(EN.generic);
+    expect(npErr({ status: 409, message: 'Algo que dice el API' }, FR)).toBe(FR.generic);
+    expect(npErr({ status: 409, code: 'CODIGO_NUEVO', message: 'Algo que dice el API' }, PT)).toBe(PT.generic);
+    expect(npErr({ status: 409, code: 'FACE_ID_TIMEOUT' }, FR)).toBe(FR.FACE_ID_TIMEOUT);
+    expect(npErr({ status: 409, code: 'WALLET_TOPUP_UNAVAILABLE', reason: 'closed' }, PT)).toBe(PT.TOPUP_closed);
     expect(npErr({ status: 500, message: 'Error' }, ES)).toBe(ES.generic);
     expect(npErr(null, EN)).toBe(EN.generic);
   });
@@ -42,9 +49,11 @@ describe('npErr — el error del API en el idioma de la página', () => {
 });
 
 describe('textos de los errores', () => {
-  it('los mismos codes en castellano y en inglés, ninguno vacío', () => {
-    expect(Object.keys(CLIENT_ERROR_TEXT.en).sort()).toEqual(Object.keys(CLIENT_ERROR_TEXT.es).sort());
-    for (const lang of ['es', 'en'] as const) {
+  it('los mismos codes en los cuatro idiomas, ninguno vacío', () => {
+    for (const lang of ['en', 'fr', 'pt'] as const) {
+      expect(Object.keys(CLIENT_ERROR_TEXT[lang]).sort()).toEqual(Object.keys(CLIENT_ERROR_TEXT.es).sort());
+    }
+    for (const lang of ['es', 'en', 'fr', 'pt'] as const) {
       for (const text of Object.values(CLIENT_ERROR_TEXT[lang])) expect(text.trim()).not.toBe('');
     }
   });
@@ -61,6 +70,11 @@ describe('textos de los errores', () => {
       'public-saldo.controller.ts',
       'client-pin.ts',
       'wallet-blocked.ts',
+      'wallet-lost-card.service.ts',
+      'reception-payout.service.ts',
+      'wallet-view.guard.ts',
+      'public-payout-confirm.controller.ts',
+      'public-wallet-lost-card.controller.ts',
       join('google-wallet', 'google-wallet.service.ts'),
       join('..', 'payments', 'public-pay.controller.ts'),
       join('..', '..', 'common', 'guards', 'ip-rate-limit.guard.ts'),
@@ -68,7 +82,18 @@ describe('textos de los errores', () => {
     // Con su propio texto por motivo (TOPUP_<reason>) o el de las apps del personal
     // (PAYOUT_AMOUNT_CHANGED: «Devolver saldo» del panel, que enseña el texto del API).
     const handledElsewhere = new Set(['WALLET_TOPUP_UNAVAILABLE', 'PAYOUT_AMOUNT_CHANGED']);
-    const codes = new Set<string>(['PIN_FORMAT', 'PIN_OBVIOUS', 'MERGE_NOT_ALLOWED']);
+    // Los que salen de constantes (venue-pause, venue-methods, contracts, link-pago…).
+    const codes = new Set<string>([
+      'PIN_FORMAT',
+      'PIN_OBVIOUS',
+      'MERGE_NOT_ALLOWED',
+      'MERGE_BUSY',
+      'VENUE_PAUSED',
+      'PAYMENT_METHOD_DISABLED',
+      'ALREADY_PAID',
+      'RATE_LIMITED',
+      'WALLET_BLOCKED',
+    ]);
     for (const file of files) {
       const src = readFileSync(join(dir, file), 'utf8');
       for (const m of src.matchAll(/code: '([A-Z][A-Z_]+)'/g)) codes.add(m[1]!);
@@ -76,7 +101,9 @@ describe('textos de los errores', () => {
       for (const m of src.matchAll(/^\s+'?[\w-]+'?: '([A-Z]+_[A-Z_]+)',\s*$/gm)) codes.add(m[1]!);
     }
     expect(codes.size).toBeGreaterThan(25);
-    const missing = [...codes].filter((c) => !handledElsewhere.has(c) && !(c in CLIENT_ERROR_TEXT.es));
-    expect(missing).toEqual([]);
+    for (const lang of ['es', 'en', 'fr', 'pt'] as const) {
+      const missing = [...codes].filter((c) => !handledElsewhere.has(c) && !(c in CLIENT_ERROR_TEXT[lang]));
+      expect(`${lang}: ${missing.join(', ')}`).toBe(`${lang}: `);
+    }
   });
 });

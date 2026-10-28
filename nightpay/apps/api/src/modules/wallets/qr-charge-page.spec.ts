@@ -18,7 +18,7 @@ describe('pagar con el saldo escaneando el QR del personal', () => {
   };
 
   it('importe, servicio y el botón; su JS es válido (si se rompe, el cliente no puede pagar)', () => {
-    for (const lang of ['es', 'en'] as const) {
+    for (const lang of ['es', 'en', 'fr', 'pt'] as const) {
       const html = renderQrChargePage('tok-1', lang, view, NOW);
       expect(html).toContain('id="pay"');
       for (const js of scripts(html)) expect(() => new Function(js)).not.toThrow();
@@ -61,7 +61,7 @@ describe('pagar con el saldo escaneando el QR del personal', () => {
     const paid = { ...view, status: 'ACCEPTED' as const, paidAt: new Date(NOW.getTime() - 60_000).toISOString() };
     const withCode = renderQrChargePage('tok-1', 'es', { ...paid, code: 'Z9Q' }, NOW);
     expect(withCode).toContain('<b class="num">Z9Q</b>');
-    expect(withCode).toContain('El mismo que ve el personal');
+    expect(withCode).toContain('Enséñaselo al personal');
     const without = renderQrChargePage('tok-1', 'es', { ...paid, code: null }, NOW);
     expect(without).not.toContain('class="pcode"');
   });
@@ -71,7 +71,7 @@ describe('pagar con el saldo escaneando el QR del personal', () => {
     const js = scripts(html).join('\n');
     expect(js).toContain('if(r.code)');
     expect(js).toContain("className='pcode'");
-    expect(html).toContain('El mismo que ve el personal');
+    expect(html).toContain('Enséñaselo al personal');
   });
 
   it('cobro ya pagado hace rato → «Ya pagado · hace 23 min» en gris, sin botón de pagar', () => {
@@ -158,7 +158,7 @@ describe('"Pagado" de la recarga que creó el saldo', () => {
   };
 
   it('sin Face ID: UNA pregunta (activar, con «Ahora no»), explicada antes; sin PIN en el mismo paso; JS válido', () => {
-    for (const lang of ['es', 'en'] as const) {
+    for (const lang of ['es', 'en', 'fr', 'pt'] as const) {
       const html = renderPaidPage({ ...base, wallet: { hasFaceId: false, base: '/pay/qr1' } }, lang);
       expect(html).toContain('id="fidOn"');
       expect(html).toContain('id="fidLater"');
