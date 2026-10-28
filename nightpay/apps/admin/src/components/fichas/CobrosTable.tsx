@@ -2,6 +2,7 @@
 
 import type { CSSProperties, ReactNode } from 'react';
 import type { CobroRow } from '@nightpay/contracts';
+import { Button } from '@nightpay/ui';
 import { cobroStatus } from '@/lib/cobro-status';
 import { formatDateTime } from '@/lib/dates';
 import { formatEur, formatMoney } from '@/lib/money';
@@ -20,6 +21,8 @@ interface Props {
   empty: string;
   /** En la ficha de la chica no hace falta su nombre en cada fila. */
   hidePerson?: boolean;
+  showReferences?: boolean;
+  onDetails?: (row: CobroRow) => void;
   /** Columnas de más a la derecha (p. ej. el local en la ficha del saldo). */
   extra?: { label: string; cell: (row: CobroRow) => ReactNode };
 }
@@ -29,11 +32,11 @@ interface Props {
  * pagó y lo que se vendió. En el móvil cada fila es una tarjeta (panel-tables.css).
  * Tocar a la chica o el saldo abre su ficha.
  */
-export function CobrosTable({ rows, actions, empty, hidePerson, extra }: Props) {
+export function CobrosTable({ rows, actions, empty, hidePerson, extra, showReferences, onDetails }: Props) {
   const tz = useVenueTimezone();
   const { sections } = useSections();
   const fichas = useFichas();
-  const colCount = 8 - (hidePerson ? 1 : 0) + (actions ? 1 : 0) + (extra ? 1 : 0);
+  const colCount = 8 - (hidePerson ? 1 : 0) + (actions ? 1 : 0) + (extra ? 1 : 0) + (showReferences ? 2 : 0);
   return (
     <div style={{ overflowX: 'auto' }}>
       <table className="np-table">
@@ -41,6 +44,7 @@ export function CobrosTable({ rows, actions, empty, hidePerson, extra }: Props) 
           <tr>
             <th>Hora</th>
             <th>Ref</th>
+            {showReferences ? <><th>Código</th><th>Ref. banco</th></> : null}
             <th style={{ textAlign: 'right' }}>Importe</th>
             <th>Estado</th>
             {hidePerson ? null : <th>Chica</th>}
@@ -61,6 +65,13 @@ export function CobrosTable({ rows, actions, empty, hidePerson, extra }: Props) 
               <td data-label="Ref" data-card="top" className="np-num" style={{ ...meta, ...oneLine, fontWeight: 700 }}>
                 {row.ref ?? '—'}
               </td>
+              {showReferences ? <>
+                <td data-label="Código" className="np-num">{row.confirmationCode ?? '—'}</td>
+                <td data-label="Ref. banco" style={meta}>
+                  {row.payment?.providerTxId ?? '—'}
+                  {row.payment?.authCode ? <span> · aut. {row.payment.authCode}</span> : null}
+                </td>
+              </> : null}
               <td data-label="Importe" data-card="amount" className="np-num" style={amountCell}>
                 {formatMoney(row.amountCents, row.currency)}
                 {/* La «Comisión del servicio» que pagó el cliente encima (se debe a OxioPay). */}
@@ -112,6 +123,7 @@ export function CobrosTable({ rows, actions, empty, hidePerson, extra }: Props) 
               ) : null}
               {actions ? (
                 <td data-label="Acciones" data-card="actions" style={{ textAlign: 'right' }}>
+                  {onDetails ? <Button type="button" variant="ghost" onClick={() => onDetails(row)}>Ver detalle</Button> : null}
                   {actions(row)}
                 </td>
               ) : null}

@@ -35,6 +35,17 @@ function setup() {
 }
 
 describe('vuelta firmada de Redsys', () => {
+  it('no registra una recarga de espera, pero sí una vuelta sin firma', async () => {
+    const log = vi.spyOn(Logger.prototype, 'log').mockImplementation(() => undefined);
+    try {
+      const h = setup();
+      await h.service.process(ORDER, { op: ORDER, lang: 'es' });
+      expect(log).not.toHaveBeenCalled();
+      await h.service.process(ORDER, { op: ORDER, status: 'ok' });
+      expect(log).toHaveBeenCalledWith(expect.stringContaining('firma=no resultado=sin-firma'));
+    } finally { log.mockRestore(); }
+  });
+
   it('registra firma=no cuando la firma es incorrecta, sin guardar los parámetros', async () => {
     const log = vi.spyOn(Logger.prototype, 'log').mockImplementation(() => undefined);
     try {

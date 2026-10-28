@@ -25,6 +25,7 @@ export interface CobrosFilters {
   category?: string;
   method?: ChargeMethod;
   walletCode?: string;
+  search?: string;
   walletId?: string;
   /** Las invitaciones a esta chica («Copa con invitación»). */
   invitedOperatorId?: string;

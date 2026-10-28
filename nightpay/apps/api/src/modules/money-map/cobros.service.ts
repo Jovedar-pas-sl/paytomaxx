@@ -59,6 +59,7 @@ interface Scope {
   tenantId: string;
   /** Saldos que se buscan (por su código o su id). Null = todos. */
   walletIds: string[] | null;
+  searchIds: string[] | null;
   from: Date | null;
   to: Date | null;
 }
@@ -113,6 +114,26 @@ export class CobrosService {
       walletIds = [...(walletIds ?? []), ...found.map((w) => w.id)];
       if (walletIds.length === 0) return null;
     }
+    let searchIds: string[] | null = null;
+    if (q.search) {
+      // También se busca fuera de la página cargada; el local se limita en SQL.
+      const term = q.search.toLowerCase();
+      const matches = await tx.$queryRaw<Array<{ id: string }>>`
+        SELECT p.id FROM payments p
+        LEFT JOIN LATERAL (
+          SELECT pa."providerTxId" FROM payment_attempts pa
+          WHERE pa."paymentId" = p.id AND pa.status = 'APPROVED'
+          ORDER BY pa."createdAt" ASC LIMIT 1
+        ) a ON true
+        WHERE p."tenantId" = ${tenantId}::uuid AND (
+          lower(right(p.id::text, 3)) = ${term}
+          OR position(${term} in lower(COALESCE(a."providerTxId", p."providerTxId", p."posOperationNumber", ''))) > 0
+          OR position(${term} in lower(COALESCE(p."authCode", ''))) > 0
+        )
+      `;
+      searchIds = matches.map((p) => p.id);
+      if (searchIds.length === 0) return null;
+    }
     let night: { openedAt: Date; closedAt: Date | null } | null = null;
     if (q.nightId) {
       night = await tx.venueNight.findFirst({ where: { id: q.nightId, tenantId }, select: { openedAt: true, closedAt: true } });
@@ -120,7 +141,7 @@ export class CobrosService {
     }
     const window = cobrosWindow(night, q);
     if (!window) return null;
-    return { tenantId, walletIds, ...window };
+    return { tenantId, walletIds, searchIds, ...window };
   }
 
   private async paymentRows(
@@ -134,6 +155,7 @@ export class CobrosService {
     if (statuses) and.push({ status: { in: statuses } });
     if (q.operatorId) and.push({ createdByUserId: q.operatorId });
     if (scope.walletIds) and.push({ walletId: { in: scope.walletIds } });
+    if (scope.searchIds) and.push({ id: { in: scope.searchIds } });
     const dates = dateWhere(scope, cursor);
     if (dates) and.push(dates);
     if (q.category) and.push(paymentCategoryWhere(q.category));
@@ -192,6 +214,7 @@ export class CobrosService {
     const wanted = SALDO_STATUSES_FOR(q.status);
     if (!wanted.accepted && !wanted.reversed) return [];
     const and: Prisma.WalletChargeRequestWhereInput[] = [{ tenantId: scope.tenantId }];
+    if (scope.searchIds) and.push({ linkedPaymentId: { in: scope.searchIds } });
     if (q.operatorId) and.push({ requestedByUserId: q.operatorId });
     if (scope.walletIds) and.push({ walletId: { in: scope.walletIds } });
     const dates = dateWhere(scope, cursor);
@@ -228,6 +251,7 @@ export async function saldoCharges(
       status: true,
       requestedByUserId: true,
       consumptionId: true,
+      linkedPaymentId: true,
       wallet: { select: { id: true, shortCode: true } },
       lines: { select: LINE_SELECT, orderBy: LINE_ORDER },
     },

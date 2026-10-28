@@ -18,7 +18,9 @@ export class RedsysReturnService {
   async process(order: string | undefined, query: Record<string, unknown> = {}): Promise<ReturnResult> {
     const safeOrder = typeof order === 'string' && /^[A-Za-z0-9]{1,12}$/.test(order) ? order : undefined;
     const finish = (signature: 'sí' | 'no', result: ReturnResult): ReturnResult => {
-      this.logger.log(`Redsys vuelta: pedido=${safeOrder ?? '-'} firma=${signature} resultado=${result}`);
+      if (Object.keys(query).some((key) => key.toLowerCase() === 'status' || key.toLowerCase().startsWith('ds_'))) {
+        this.logger.log(`Redsys vuelta: pedido=${safeOrder ?? '-'} firma=${signature} resultado=${result}`);
+      }
       return result;
     };
     const version = query.Ds_SignatureVersion ?? query.ds_signatureversion;

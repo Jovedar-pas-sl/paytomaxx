@@ -262,7 +262,7 @@ export class ReportsService {
              p."cardType",
              p."cardCountry",
              p."authCode",
-             p."providerTxId",
+             COALESCE(a."providerTxId", p."providerTxId", p."posOperationNumber") AS "providerTxId",
              p."walletId",
              u."displayName" AS "creatorName",
              u.email AS "creatorEmail",
@@ -292,7 +292,7 @@ export class ReportsService {
            WHERE rf."paymentId" = p.id AND rf.status = 'SUCCEEDED'
         ) r ON true
         LEFT JOIN LATERAL (
-          SELECT pa."payMethod"
+          SELECT pa."payMethod", pa."providerTxId"
             FROM payment_attempts pa
            WHERE pa."paymentId" = p.id AND pa.status = 'APPROVED'
            ORDER BY pa."createdAt" ASC

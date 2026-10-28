@@ -79,6 +79,14 @@ function closed(m: ReturnType<typeof makeProcessor>): boolean {
   return m.prisma.webhookDelivery.update.mock.calls.length + m.tx.webhookDelivery.update.mock.calls.length > 0;
 }
 
+describe('recuperación rápida de la cola de avisos', () => {
+  it('reintenta una conexión fallida en un segundo, manteniendo el orden de la cola', () => {
+    const options = Reflect.getMetadata('bullmq:worker_metadata', WebhookIngestProcessor) as { runRetryDelay?: number; concurrency?: number } | undefined;
+    expect(options?.runRetryDelay).toBe(1000);
+    expect(options?.concurrency ?? 1).toBe(1);
+  });
+});
+
 describe('WebhookIngestProcessor — formato del body persistido', () => {
   it('procesa body form-urlencoded (Redsys) sin intentar JSON.parse', async () => {
     const m = makeProcessor({
