@@ -38,8 +38,8 @@ export function CobrosTable({ rows, actions, empty, hidePerson, extra, showRefer
   const fichas = useFichas();
   const colCount = 8 - (hidePerson ? 1 : 0) + (actions ? 1 : 0) + (extra ? 1 : 0) + (showReferences ? 2 : 0);
   return (
-    <div style={{ overflowX: 'auto' }}>
-      <table className="np-table">
+    <div style={{ overflowX: 'auto', minWidth: 0, maxWidth: '100%' }}>
+      <table className={`np-table np-cobros-table${actions ? ' np-cobros-table--acciones' : ''}`} >
         <thead>
           <tr>
             <th>Hora</th>
