@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
-import { Button, Card } from '@nightpay/ui';
+import { Button, Card, Modal } from '@nightpay/ui';
 import type { CobroRow } from '@nightpay/contracts';
 import { fetchCobros, fetchMetrics, type CobrosFilters, type Metrics, type PaymentRow, type User } from '@/lib/api';
 import { cobradoNote, metricsCobradoParts } from '@/lib/cobrado';
@@ -16,6 +16,7 @@ import { usePolling } from '@/lib/use-polling';
 import { BankRefundModal } from './BankRefundModal';
 import { CobrosFiltersBar } from './fichas/CobrosFiltersBar';
 import { CobrosTable } from './fichas/CobrosTable';
+import { PaymentReferenceDetails } from './fichas/PaymentReferenceDetails';
 import { Notice } from './Notice';
 import { RefundModal, ResolveModal } from './PaymentModals';
 import { RefundsModal } from './RefundsModal';
@@ -57,6 +58,7 @@ export function PaymentsPanel({ user, onNavigate, focusPaymentId = null, onFocus
   const [filter, setFilter] = useState<CobrosFilters>(() => initialFilter ?? {});
   const [error, setError] = useState<string | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [detailFor, setDetailFor] = useState<CobroRow | null>(null);
   const [refundFor, setRefundFor] = useState<PaymentRow | null>(null);
   const [resolveFor, setResolveFor] = useState<PaymentRow | null>(null);
   const [refundsFor, setRefundsFor] = useState<PaymentRow | null>(null);
@@ -203,6 +205,8 @@ export function PaymentsPanel({ user, onNavigate, focusPaymentId = null, onFocus
         <Card className="np-table-host" style={{ padding: 0, overflow: 'hidden' }}>
           <CobrosTable
             rows={payments}
+            showReferences
+            onDetails={setDetailFor}
             empty={payments === null ? (error ? 'No se pudieron cargar los cobros.' : 'Cargando cobros…') : 'Sin cobros'}
             actions={(row) => {
               const p = paymentRowOf(row);
@@ -251,6 +255,10 @@ export function PaymentsPanel({ user, onNavigate, focusPaymentId = null, onFocus
           </div>
         ) : null}
       </section>
+
+      <Modal open={Boolean(detailFor)} onClose={() => setDetailFor(null)} title="Detalle del cobro">
+        {detailFor ? <PaymentReferenceDetails row={detailFor} /> : null}
+      </Modal>
 
       <ResolveModal
         payment={resolveFor}

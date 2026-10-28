@@ -50,7 +50,8 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
  * ya no se puede dar por pagado (caducado, cancelado…): nunca se pierde en
  * silencio ni se agota en reintentos.
  */
-@Processor(WEBHOOKS_INGEST_QUEUE)
+// Tras un error de Redis, no esperar los 15 s por defecto para reanudar la cola.
+@Processor(WEBHOOKS_INGEST_QUEUE, { runRetryDelay: 1000 })
 export class WebhookIngestProcessor extends WorkerHost {
   private readonly logger = new Logger(WebhookIngestProcessor.name);
   private readonly prisma: PrismaService;

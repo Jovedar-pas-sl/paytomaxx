@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, type CSSProperties, type FormEvent } from 'react';
-import { Input, Select } from '@nightpay/ui';
+import { Button, Input, Select } from '@nightpay/ui';
 import { CHARGE_METHOD_LABELS, LEGACY_SECTION_META, type ChargeMethod } from '@nightpay/contracts';
 import { fetchNights, fetchOperators, type CobrosFilters, type NightListItem, type Operator } from '@/lib/api';
 import { formatDateTime } from '@/lib/dates';
@@ -30,6 +30,7 @@ export function CobrosFiltersBar({ value, onChange }: { value: CobrosFilters; on
   const [operators, setOperators] = useState<Operator[]>([]);
   const [nights, setNights] = useState<NightListItem[]>([]);
   const [code, setCode] = useState(value.walletCode ?? '');
+  const [search, setSearch] = useState(value.search ?? '');
 
   useEffect(() => {
     fetchOperators()
@@ -52,7 +53,8 @@ export function CobrosFiltersBar({ value, onChange }: { value: CobrosFilters; on
   function applyCode(e?: FormEvent): void {
     e?.preventDefault();
     const clean = code.trim();
-    if ((value.walletCode ?? '') !== clean) set({ walletCode: clean || undefined });
+    const reference = search.trim();
+    if ((value.walletCode ?? '') !== clean || (value.search ?? '') !== reference) set({ walletCode: clean || undefined, search: reference || undefined });
   }
 
   return (
@@ -115,6 +117,13 @@ export function CobrosFiltersBar({ value, onChange }: { value: CobrosFilters; on
         ))}
       </Select>
       <Input
+        aria-label="Código o referencia del banco"
+        placeholder="Código o referencia del banco"
+        value={search}
+        onChange={(e) => setSearch(e.target.value)}
+        maxLength={128}
+      />
+      <Input
         aria-label="Código del saldo"
         placeholder="Saldo K7Q-4M2"
         value={code}
@@ -123,6 +132,7 @@ export function CobrosFiltersBar({ value, onChange }: { value: CobrosFilters; on
         maxLength={12}
         autoCapitalize="characters"
       />
+      <Button type="submit" variant="ghost">Buscar</Button>
     </form>
     </>
   );

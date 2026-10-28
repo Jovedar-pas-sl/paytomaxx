@@ -1,5 +1,6 @@
 import {
   CHARGE_METHOD_LABELS,
+  confirmationCode,
   formatChargeRef,
   type ChargeLineView,
   type ChargeMethod,
@@ -77,6 +78,7 @@ export interface PaymentFeedRow {
 
 export interface SaldoFeedRow {
   id: string;
+  linkedPaymentId?: string | null;
   ref: number | null;
   createdAt: Date;
   amountCents: number;
@@ -169,6 +171,7 @@ export function paymentCobroRow(p: PaymentFeedRow): CobroRow {
   return {
     kind: 'PAYMENT',
     id: p.id,
+    confirmationCode: confirmationCode(p.id),
     ref: formatChargeRef(p.ref),
     createdAt: p.createdAt.toISOString(),
     amountCents: p.amountCents,
@@ -189,7 +192,7 @@ export function paymentCobroRow(p: PaymentFeedRow): CobroRow {
     payment: {
       availableAmountCents: p.availableAmountCents,
       provider: p.provider,
-      providerTxId: p.providerTxId,
+      providerTxId: p.attempts.find((a) => a.status === 'APPROVED')?.providerTxId ?? p.providerTxId ?? p.posOperationNumber,
       captureMethod: p.captureMethod,
       updatedAt: p.updatedAt.toISOString(),
       authCode: p.authCode,
@@ -215,6 +218,7 @@ export function saldoCobroRow(s: SaldoFeedRow): CobroRow {
   return {
     kind: 'SALDO',
     id: s.id,
+    confirmationCode: s.linkedPaymentId ? confirmationCode(s.linkedPaymentId) : null,
     ref: formatChargeRef(s.ref),
     createdAt: s.createdAt.toISOString(),
     amountCents: s.amountCents,
