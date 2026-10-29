@@ -2,7 +2,8 @@ import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 
 /**
  * Sesión de consulta tras verificar la passkey del saldo; no autoriza pagos ni
- * cambios. Deslizante: cada consulta de la página (la refresca cada 3 s
+ * cambios. Deslizante: cada consulta de la página (la refresca tras cada
+ * aviso de cambio y, de respaldo, cada 20–30 s
  * mientras se ve) la alarga hasta WALLET_VIEW_IDLE_S sin actividad, y nunca
  * más allá de WALLET_VIEW_MAX_S desde que se desbloqueó; después, otra vez
  * Face ID.
@@ -14,7 +15,7 @@ import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
  */
 export const WALLET_VIEW_IDLE_S = 15 * 60;
 export const WALLET_VIEW_MAX_S = 60 * 60;
-/** La página consulta cada 3 s: la cookie se reescribe como mucho una vez por minuto. */
+/** La página consulta a menudo: la cookie se reescribe como mucho una vez por minuto. */
 export const WALLET_VIEW_RENEW_STEP_S = 60;
 
 export interface WalletRef {
@@ -83,8 +84,16 @@ export function hasWalletViewSession(secret: string, wallet: WalletRef, cookies:
  * falta reescribirla (se alargó hace menos de un minuto o ya está en el tope).
  */
 export function renewWalletViewCookies(secret: string, wallet: WalletRef, session: WalletViewSession, now = Date.now()): string[] | null {
-  const nowS = seconds(now);
-  const expiresAt = Math.min(nowS + WALLET_VIEW_IDLE_S, session.unlockedAt + WALLET_VIEW_MAX_S);
-  if (expiresAt - session.expiresAt < WALLET_VIEW_RENEW_STEP_S) return null;
-  return setCookies(secret, wallet, { unlockedAt: session.unlockedAt, expiresAt }, nowS);
+  const expiresAt = renewedWalletViewExpiry(session, now);
+  if (expiresAt === null) return null;
+  return setCookies(secret, wallet, { unlockedAt: session.unlockedAt, expiresAt }, seconds(now));
+}
+
+/**
+ * Hasta cuándo valdrá la sesión si ahora hay actividad (segundos Unix); null
+ * si no se reescribe (se alargó hace menos de un minuto o ya está en el tope).
+ */
+export function renewedWalletViewExpiry(session: WalletViewSession, now = Date.now()): number | null {
+  const expiresAt = Math.min(seconds(now) + WALLET_VIEW_IDLE_S, session.unlockedAt + WALLET_VIEW_MAX_S);
+  return expiresAt - session.expiresAt < WALLET_VIEW_RENEW_STEP_S ? null : expiresAt;
 }

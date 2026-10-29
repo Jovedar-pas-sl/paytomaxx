@@ -563,61 +563,69 @@ export class WalletChargesService {
 
   // ─── Cliente (página de su saldo, sin cuenta: el enlace es la credencial) ──
 
+  /**
+   * Lo que enseña la página del saldo (/w/:token y /w/:token/state). Todo en
+   * UNA transacción (antes, ~8 seguidas: la página lo pide tras cada aviso y
+   * de respaldo cada 20–30 s; H-1). Sin local: el saldo vale en el grupo.
+   */
   async clientState(qrToken: string): Promise<ClientWalletState> {
-    const wallet = await this.walletByToken(qrToken);
-    const [consumptions, topUps, allPayouts, cashTopUps, issuedCards] = await Promise.all([
-      this.prisma.asSystem((tx) =>
-        tx.walletConsumption.findMany({
-          where: { walletId: wallet.id, reversedAt: null },
-          orderBy: { createdAt: 'desc' },
-          take: 30,
-          select: { id: true, amountCents: true, tipCents: true, category: true, notes: true, tenantId: true, createdAt: true },
-        }),
-      ),
-      this.prisma.asSystem((tx) =>
-        tx.payment.findMany({
-          where: { walletId: wallet.id, status: { in: ['AUTHORIZED', 'PARTIALLY_REFUNDED', 'REFUNDED'] } },
-          orderBy: { createdAt: 'desc' },
-          take: 10,
-          select: { amountCents: true, tenantId: true, authorizedAt: true, createdAt: true, cardLast4: true, ref: true },
-        }),
-      ),
-      this.prisma.asSystem((tx) =>
-        tx.walletPayout.findMany({
-          // Hechas y la que se está apuntando a la tarjeta (paso «Aprobado» del «Me voy»).
-          where: { walletId: wallet.id, status: { in: ['DONE', 'PENDING'] } },
-          orderBy: { createdAt: 'desc' },
-          select: { amountCents: true, method: true, status: true, tenantId: true, createdAt: true },
-        }),
-      ),
+    const read = await this.prisma.acrossVenues(async (tx) => {
+      const wallet = await tx.clientWallet.findUnique({ where: { qrToken } });
+      if (!wallet) return null;
+      const consumptions = await tx.walletConsumption.findMany({
+        where: { walletId: wallet.id, reversedAt: null },
+        orderBy: { createdAt: 'desc' },
+        take: 30,
+        select: { id: true, amountCents: true, tipCents: true, category: true, notes: true, tenantId: true, createdAt: true },
+      });
+      const topUps = await tx.payment.findMany({
+        where: { walletId: wallet.id, status: { in: ['AUTHORIZED', 'PARTIALLY_REFUNDED', 'REFUNDED'] } },
+        orderBy: { createdAt: 'desc' },
+        take: 10,
+        select: { amountCents: true, tenantId: true, authorizedAt: true, createdAt: true, cardLast4: true, ref: true },
+      });
+      // Hechas y la que se está apuntando a la tarjeta (paso «Aprobado» del «Me voy»).
+      const allPayouts = await tx.walletPayout.findMany({
+        where: { walletId: wallet.id, status: { in: ['DONE', 'PENDING'] } },
+        orderBy: { createdAt: 'desc' },
+        take: 30,
+        select: { amountCents: true, method: true, status: true, tenantId: true, createdAt: true },
+      });
       // En efectivo en la recepción (no pasan por el banco).
-      this.prisma.asSystem((tx) =>
-        tx.walletCashTopUp.findMany({
-          where: { walletId: wallet.id },
-          orderBy: { createdAt: 'desc' },
-          take: 10,
-          select: { amountCents: true, tenantId: true, createdAt: true },
-        }),
-      ),
+      const cashTopUps = await tx.walletCashTopUp.findMany({
+        where: { walletId: wallet.id },
+        orderBy: { createdAt: 'desc' },
+        take: 10,
+        select: { amountCents: true, tenantId: true, createdAt: true },
+      });
       // Su ficha NFC (dada a este saldo): en «Pagar» se le dice que también paga con ella.
-      this.prisma.acrossVenues((tx) =>
-        tx.walletCard.findMany({
-          where: { walletId: wallet.id, status: { in: ISSUED_CARD_STATUSES } },
-          select: { number: true, printedNumber: true },
-        }),
-      ),
-    ]);
+      const issuedCards = await tx.walletCard.findMany({
+        where: { walletId: wallet.id, status: { in: ISSUED_CARD_STATUSES } },
+        select: { number: true, printedNumber: true },
+      });
+      const passkeys = await tx.walletPasskey.count({ where: { walletId: wallet.id } });
+      const venueIds = [...new Set([wallet.tenantId, ...[...consumptions, ...topUps, ...cashTopUps, ...allPayouts].map((m) => m.tenantId)])];
+      const venues = await tx.venue.findMany({ where: { id: { in: venueIds } }, select: { id: true, name: true, sections: true } });
+      // La referencia de cada consumo es la de su cobro (C-0001).
+      const refRows =
+        consumptions.length === 0
+          ? []
+          : await tx.walletChargeRequest.findMany({
+              where: { consumptionId: { in: consumptions.map((c) => c.id) }, ref: { not: null } },
+              select: { consumptionId: true, ref: true },
+            });
+      return { wallet, consumptions, topUps, allPayouts, cashTopUps, issuedCards, passkeys, venues, refRows };
+    });
+    if (!read) throw new NotFoundException({ message: 'Saldo no encontrado', code: 'WALLET_NOT_FOUND' });
+    const { wallet, consumptions, topUps, allPayouts, cashTopUps, issuedCards, venues } = read;
     // En movimientos, solo las hechas (una a la tarjeta a medias aún no es una devolución).
     const payouts = allPayouts.filter((p) => p.status === 'DONE');
-    const hasFaceId = (await this.prisma.walletPasskey.count({ where: { walletId: wallet.id } })) > 0;
-    const venueIds = [...new Set([wallet.tenantId, ...[...consumptions, ...topUps, ...cashTopUps, ...payouts].map((m) => m.tenantId)])];
-    const venues = await this.prisma.venue.findMany({ where: { id: { in: venueIds } }, select: { id: true, name: true, sections: true } });
+    const hasFaceId = read.passkeys > 0;
     const venueName = (id: string): string => venues.find((v) => v.id === id)?.name ?? '';
     // Cada sección con el nombre y el color que le dio el local del consumo (Ajustes → Secciones); los de fábrica si no los cambió.
     const sectionOfVenue = (id: string, category: string): { label: string; color: string } =>
       sectionMeta(sectionsOf(venues.find((v) => v.id === id)?.sections), category);
-    // La referencia de cada consumo es la de su cobro (C-0001).
-    const refs = await this.consumptionRefs(consumptions.map((c) => c.id));
+    const refs = new Map(read.refRows.flatMap((x) => (x.consumptionId && x.ref ? [[x.consumptionId, formatChargeRef(x.ref)!]] : [])));
 
     const movements: ClientWalletState['movements'] = [
       ...consumptions.map((c) => ({
@@ -678,18 +686,6 @@ export class WalletChargesService {
       cards: refundCards(topUps.map((t) => t.cardLast4)),
       movements,
     };
-  }
-
-  /** Consumo → referencia de su cobro (C-0001). Los antiguos, sin referencia. */
-  private async consumptionRefs(consumptionIds: string[]): Promise<Map<string, string>> {
-    if (consumptionIds.length === 0) return new Map();
-    const rows = await this.prisma.asSystem((tx) =>
-      tx.walletChargeRequest.findMany({
-        where: { consumptionId: { in: consumptionIds }, ref: { not: null } },
-        select: { consumptionId: true, ref: true },
-      }),
-    );
-    return new Map(rows.flatMap((r) => (r.consumptionId && r.ref ? [[r.consumptionId, formatChargeRef(r.ref)!]] : [])));
   }
 
   /**

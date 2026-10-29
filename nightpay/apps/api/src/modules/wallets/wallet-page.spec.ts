@@ -152,6 +152,28 @@ describe('página del saldo del cliente', () => {
     const html = renderWalletPage('a/b"c', 'es', state());
     expect(html).toContain('/w/a%2Fb%22c');
   });
+
+  it('al momento (H-1): escucha los avisos de su saldo y ya no pregunta cada 3 s; la franja «Reconectando…» (M-7)', () => {
+    for (const lang of ['es', 'en', 'fr', 'pt'] as const) {
+      const html = renderWalletPage('tok-1', lang, state());
+      const js = script(html);
+      expect(js).toContain('function npLive(o)');
+      expect(js).toContain('LV=npLive({base:C.base');
+      expect(js).toContain('LV.start();');
+      // Nada de setInterval cada 3 s.
+      expect(js).not.toContain('setInterval(');
+      expect(js).not.toMatch(/,3000\)/);
+      // La franja, debajo del saldo, y sus textos.
+      expect(html).toContain('<p class="live" id="liveBar" role="status" hidden></p>');
+      expect(html.indexOf('id="liveBar"')).toBeGreaterThan(html.indexOf('id="balance"'));
+      expect(js).toContain(JSON.stringify(WALLET_TEXT[lang].reconnecting).slice(1, -1));
+    }
+    expect(WALLET_TEXT.es.reconnecting).toBe('Reconectando…');
+    // 401 → al desbloqueo (como antes); 404 → «este enlace ya no vale».
+    const js = script(renderWalletPage('tok-1', 'es', state()));
+    expect(js).toContain("unauth:function(){busy=true;document.body.textContent=T.unlockWaiting;window.location.replace(C.base+'?lang='+C.lang);}");
+    expect(js).toContain("gone:function(){busy=true;show('notice',T.linkGone);}");
+  });
 });
 
 describe('dos opciones debajo del saldo: «Pagar» y «Recargar»', () => {

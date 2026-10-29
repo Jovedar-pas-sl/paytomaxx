@@ -32,10 +32,13 @@ import { WalletCardsService } from './wallet-cards.service';
 import { PendingTopUpsController } from './pending-topups.controller';
 import { PendingTopUpService } from './wallet-pending-topup.service';
 import { WalletViewGuard } from './wallet-view.guard';
+import { WalletEventsModule } from '../wallet-events/wallet-events.module';
+import { PublicWalletEventsController } from './public-wallet-events.controller';
 
 @Module({
   // AuthModule: TotpService (2FA del encargado al anular y al devolver en efectivo).
-  imports: [PrismaModule, AuditModule, AuthModule],
+  // WalletEventsModule: los avisos del saldo al momento (GET /w/:token/events).
+  imports: [PrismaModule, AuditModule, AuthModule, WalletEventsModule],
   // WalletTopUpService: «Recargar» desde /w (usa PaymentsService con ModuleRef).
   providers: [
     WalletViewGuard,
@@ -65,6 +68,8 @@ import { WalletViewGuard } from './wallet-view.guard';
     WalletChargesController,
     PublicWalletCardController,
     PublicWalletController,
+    // «Saldo al momento»: la página del saldo se entera de los cambios (SSE).
+    PublicWalletEventsController,
     PublicWalletLostCardController,
     PublicSaldoController,
     GoogleWalletController,

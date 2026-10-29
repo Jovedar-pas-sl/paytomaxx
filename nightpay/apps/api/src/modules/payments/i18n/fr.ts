@@ -303,6 +303,8 @@ export const FR: CustomerTexts = withFrenchSpacing<CustomerTexts>({
     lostGo: 'Bloquer avec Face ID',
     lostKeep: 'Non, je l’ai',
     lostDone: '✓ Badge NFC bloqué. Votre solde est toujours là.',
+    reconnecting: 'Reconnexion…',
+    linkGone: 'Ce lien n’est plus valable. Demandez-en un nouveau à l’accueil.',
   },
   saldo: {
     title: 'Payer avec votre solde',

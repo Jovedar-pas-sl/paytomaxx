@@ -295,6 +295,8 @@ export const PT: CustomerTexts = {
     lostGo: 'Bloquear com Face ID',
     lostKeep: 'Não, tenho-a comigo',
     lostDone: '✓ Tag NFC bloqueada. O seu saldo continua aqui.',
+    reconnecting: 'A restabelecer a ligação…',
+    linkGone: 'Esta ligação já não é válida. Peça uma nova na receção.',
   },
   saldo: {
     title: 'Pagar com o seu saldo',

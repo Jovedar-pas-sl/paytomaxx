@@ -261,6 +261,10 @@ export interface WalletText {
   lostGo: string;
   lostKeep: string;
   lostDone: string;
+  /** «Al momento»: la franja cuando la página no consigue ponerse al día (M-7). */
+  reconnecting: string;
+  /** El enlace ya no vale (el dueño dio otro): la página deja de preguntar. */
+  linkGone: string;
 }
 
 /** /s/:token: pagar el cobro del QR del personal con el saldo (Face ID). */

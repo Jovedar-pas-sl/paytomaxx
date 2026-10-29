@@ -290,6 +290,8 @@ export const ES: CustomerTexts = {
     lostGo: 'Bloquear con Face ID',
     lostKeep: 'No, lo tengo',
     lostDone: '✓ NFC bloqueado. Tu saldo sigue aquí.',
+    reconnecting: 'Reconectando…',
+    linkGone: 'Este enlace ya no vale. Pide uno nuevo en recepción.',
   },
   saldo: {
     title: 'Pagar con tu saldo',

@@ -288,6 +288,13 @@ const EnvSchema = z.object({
   // mapa del dinero. Sin definir, el mapa no la calcula (sale en el extracto de BBVA).
   BANK_CARD_FEE_BPS: z.coerce.number().int().min(0).max(1000).optional(),
 
+  // «Saldo al momento» (wallet-events/): la conexión que escucha los avisos de
+  // Postgres (LISTEN). Sin definir, DATABASE_URL. Hace falta otra solo si
+  // DATABASE_URL pasa por un PgBouncer en modo transacción (ahí LISTEN no va):
+  // entonces, una directa a Postgres. Con la base caída, sin URL o apagado
+  // (NIGHTPAY_DISABLE_WALLET_EVENTS=1), las páginas siguen con su sondeo.
+  WALLET_EVENTS_DATABASE_URL: z.string().url().optional(),
+
   // Apagar tareas programadas (solo desarrollo/pruebas): "1" = apagada. Los
   // servicios las leen de process.env; aquí quedan documentadas y, en
   // producción, el arranque avisa de cada una (env-warnings.ts, DISABLE_FLAGS).
@@ -297,6 +304,7 @@ const EnvSchema = z.object({
   NIGHTPAY_DISABLE_WEBHOOK_SWEEP: z.string().optional(),
   NIGHTPAY_DISABLE_REFUND_SWEEP: z.string().optional(),
   NIGHTPAY_DISABLE_OXIOPAY_SETTLEMENTS: z.string().optional(),
+  NIGHTPAY_DISABLE_WALLET_EVENTS: z.string().optional(),
 }).superRefine((env, ctx) => {
   if (env.NODE_ENV !== 'production') return;
   // NEXT_PUBLIC_API_URL no puede ser localhost (los webhooks de la pasarela

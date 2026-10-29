@@ -10,6 +10,7 @@ import type { TopUpOptions, TopUpProof } from './wallet-topup.service';
 import { TOPUP_CSS, TOPUP_JS, paidProofScript, paidProofSection, topUpCard, topUpOffNote } from './wallet-topup-view';
 import { SCAN_CSS, SCAN_JS, scanArea } from './wallet-scan';
 import { LOST_CSS, LOST_JS, lostButton, lostSheet } from './wallet-lost-view';
+import { WALLET_LIVE_JS } from './wallet-live';
 
 /**
  * Página del saldo del cliente (/w/:token). HTML autocontenido, marca
@@ -25,8 +26,11 @@ import { LOST_CSS, LOST_JS, lostButton, lostSheet } from './wallet-lost-view';
  *    Si el local no deja recargar, no hay opciones: solo «Pagar».
  * Debajo de las dos, «Más»: elegir PIN, juntar saldos, «Me voy» (en hojas
  * dentro de la página: nada de confirm()/alert()) y los movimientos. El
- * estado se refresca cada pocos segundos. Aquí no se cobra: se paga en la
- * página del cobro (/s/…) o con el PIN en el móvil del personal.
+ * estado se pone al día al momento: la página escucha los avisos de su saldo
+ * (GET /w/:token/events) y solo entonces pide /state; de respaldo, cada
+ * 20–30 s, y «Reconectando…» si no lo consigue (wallet-live.ts). Aquí no se
+ * cobra: se paga en la página del cobro (/s/…) o con el PIN en el móvil del
+ * personal.
  * Todo texto dinámico va con textContent (nada de HTML inyectado).
  */
 
@@ -96,6 +100,10 @@ dialog.sheet h2{font-size:1.4rem}
 .gwb img{display:block;height:3.5rem;width:auto;max-width:100%;object-fit:contain}
 .gwb:focus-visible{outline:3px solid var(--fg);outline-offset:3px}
 .gwb:disabled{cursor:progress}
+.live{align-self:center;display:flex;align-items:center;gap:.5rem;padding:.4rem .95rem;border-radius:999px;border:1px solid var(--line-hi);background:var(--surface-2);color:var(--fg);font-size:.9rem;font-weight:700}
+.live::before{content:'';width:.55rem;height:.55rem;border-radius:50%;background:var(--warn);animation:np-pulse 1.2s ease-in-out infinite}
+@keyframes np-pulse{50%{opacity:.25}}
+@media (prefers-reduced-motion:reduce){.live::before{animation:none}}
 .toast{position:fixed;left:1rem;right:1rem;bottom:calc(1rem + env(safe-area-inset-bottom));max-width:26rem;margin:0 auto;padding:.9rem 1rem;border-radius:999px;background:var(--fg);color:var(--ink);font-weight:700;text-align:center;z-index:10;animation:np-in .2s ease}
 `;
 
@@ -271,6 +279,7 @@ ${topBar(lang)}<h1 class="sr">${h(t.title)}</h1>
 <p class="status" id="notice" role="status" hidden></p>
 <div class="obot"><span class="num" id="heroCode">${h(state.code)}</span><span id="heroFicha">${state.hasCard && state.fichaNumber ? h(t.fichaNo.split('{n}').join(state.fichaNumber)) : ''}</span></div>
 </section>
+<p class="live" id="liveBar" role="status" hidden></p>
 ${topUpOffNote()}<section class="card main" id="refundCard" hidden aria-labelledby="refundTitle">
 <h2 id="refundTitle"></h2>
 <ol class="steps" id="steps">${t.steps.map((s, i) => `<li data-i="${i}">${h(s)}</li>`).join('')}</ol>
@@ -365,7 +374,12 @@ function render(s){S=s;S.cards=s.cards||[];
  $('payEmpty').hidden=!(can&&s.status==='DEPLETED');
  segShow(can||C.paid);}
 function post(path,body){return pkPost(C.base+path,body||{});}
-function refresh(){if(busy)return;fetch(C.base+'/state',{cache:'no-store'}).then(function(r){if(r.status===401){busy=true;document.body.textContent=T.unlockWaiting;window.location.replace(C.base+'?lang='+C.lang);return null;}return r.ok?r.json():null;}).then(function(s){if(s&&!busy)render(s);}).catch(function(){});}
+${WALLET_LIVE_JS}
+// Al momento: los avisos de su saldo y, de respaldo, cada 20–30 s (wallet-live.ts).
+var LV=npLive({base:C.base,busy:function(){return busy;},state:function(s){render(s);},bar:function(on){show('liveBar',on?T.reconnecting:'');},
+ unauth:function(){busy=true;document.body.textContent=T.unlockWaiting;window.location.replace(C.base+'?lang='+C.lang);},
+ gone:function(){busy=true;show('notice',T.linkGone);}});
+function refresh(){LV.refresh();}
 function msg(e){return npErr(e,C.errors);}
 // Saldo con Face ID: elegir PIN y «Me voy» piden desbloquear el móvil (reto atado a la acción).
 function withKey(path,body){if(!S.hasFaceId)return post(path,body);
@@ -407,8 +421,7 @@ if(!C.paid&&S.status==='DEPLETED'&&topCan(S))view='top';
 render(S);
 if(C.paid){try{history.replaceState(null,'',C.base+'?lang='+C.lang);}catch(e){}}
 if(location.hash==='#sumar'&&!$('mergeOpen').hidden)openSheet($('mergeSheet'));
-setInterval(function(){if(document.visibilityState==='visible')refresh();},3000);
-document.addEventListener('visibilitychange',function(){if(document.visibilityState==='visible')refresh();});
+LV.start();
 })();
 ${proof ? paidProofScript(lang) : ''}
 ${LANG_JS}

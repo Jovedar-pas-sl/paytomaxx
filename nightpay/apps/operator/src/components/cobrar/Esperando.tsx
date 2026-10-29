@@ -17,7 +17,7 @@ import { useHealthReport } from '@/lib/connection-health';
 import { useOpenCharge } from '@/lib/open-charges';
 import { advanceStatus } from '@/lib/payment-status';
 import { useVenueMethods, useVenueNight } from '@/lib/venue-methods';
-import { usePolling } from '@/lib/use-polling';
+import { useWalletChargeLive } from '../use-wallet-charge-live';
 import {
   CobroApiError,
   cancelCard,
@@ -98,7 +98,7 @@ interface Props {
   sectionLabel: (code: string) => string;
 }
 
-const SALDO_POLL_MS = 1500;
+/** Tras una consulta del cobro del saldo fallida (servidor caído, 429). */
 const SALDO_POLL_SLOW_MS = 4000;
 const TOAST_MS = 4000;
 
@@ -149,8 +149,10 @@ export function Esperando({ cobro, onNew, onRetry, retrying = false, retryError 
     if (update.tipCents !== undefined) setCardTip(update.tipCents);
   });
 
-  // Saldo: ¿lo pagó con su móvil (Face ID) o lo canceló la tarjeta?
-  const refreshSaldo = usePolling(
+  // Saldo: ¿lo pagó con su móvil (Face ID) o lo canceló la tarjeta? Al
+  // momento por el tiempo real (wallet-charge:update) y, de respaldo, cada 10 s.
+  const refreshSaldo = useWalletChargeLive(
+    chargeId,
     async (signal) => {
       if (!chargeId) return 'stop';
       try {
@@ -167,7 +169,7 @@ export function Esperando({ cobro, onNew, onRetry, retrying = false, retryError 
         return signal.aborted ? 'stop' : 'slow';
       }
     },
-    { intervalMs: SALDO_POLL_MS, slowIntervalMs: SALDO_POLL_SLOW_MS, initialDelayMs: SALDO_POLL_MS, enabled: Boolean(chargeId) && waiting },
+    { slowIntervalMs: SALDO_POLL_SLOW_MS, enabled: Boolean(chargeId) && waiting },
   );
 
   // La tarjeta se canceló con el saldo pendiente: lo acaba de pagar el saldo.

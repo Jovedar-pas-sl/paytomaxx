@@ -48,6 +48,8 @@ function makeService(
     walletChargeRequest: {
       findFirst: vi.fn().mockResolvedValue(null),
       findUnique: vi.fn().mockResolvedValue(null),
+      // La referencia (C-0001) de cada consumo en la página del saldo.
+      findMany: vi.fn().mockResolvedValue([]),
       create: vi.fn().mockImplementation(async ({ data }: { data: Record<string, unknown> }) => ({ id: 'req-new', status: 'PENDING', ...data })),
       update: vi.fn().mockResolvedValue({}),
       updateMany: vi.fn().mockResolvedValue({ count: 1 }),
@@ -80,7 +82,11 @@ function makeService(
       findUnique: vi.fn().mockResolvedValue({ role: 'OPERATOR', commissionBps: null, displayName: 'Lola' }),
       findFirst: vi.fn().mockResolvedValue({ post: null }),
     },
-    venue: { findUnique: vi.fn().mockResolvedValue({ operatorCommissionDefaults: { CHICA_SERVICE: 9000 } }) },
+    venue: {
+      findUnique: vi.fn().mockResolvedValue({ operatorCommissionDefaults: { CHICA_SERVICE: 9000 } }),
+      // La página del saldo lee los locales de sus movimientos en su transacción.
+      findMany: vi.fn().mockResolvedValue([{ id: 'other', name: 'Local Norte' }]),
+    },
     // La fila bloqueada (FOR UPDATE) refleja la wallet de la prueba.
     $queryRaw: vi
       .fn()

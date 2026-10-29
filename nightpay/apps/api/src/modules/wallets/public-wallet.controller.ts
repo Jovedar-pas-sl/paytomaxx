@@ -51,7 +51,8 @@ import { GoogleWalletService } from './google-wallet/google-wallet.service';
  * ID) o con el código o la ficha y el PIN en el móvil de la chica.
  *
  * Límites por IP holgados: en un local muchos clientes comparten el wifi y la
- * página consulta su estado cada pocos segundos. El token (144 bits) no se
+ * página consulta su estado tras cada aviso de cambio y, de respaldo, cada
+ * 20–30 s (GET /w/:token/events, PublicWalletEventsController). El token (144 bits) no se
  * puede adivinar; el límite es contra abusos, no contra fuerza bruta.
  */
 @Controller('w')
@@ -253,7 +254,7 @@ export class PublicWalletController {
   ): Promise<ClientWalletState> {
     const access = await this.viewAccess(token, cookies);
     if (!access.allowed) throw new UnauthorizedException({ message: 'Desbloquea tu saldo con tu teléfono.', code: 'WALLET_VIEW_REQUIRED' });
-    // La página lo pide cada 3 s mientras se ve: eso es actividad y alarga la sesión.
+    // La página lo pide tras cada aviso y cada 20–30 s mientras se ve: es actividad y alarga la sesión.
     if (access.renew) res.header('Set-Cookie', access.renew);
     return this.charges.clientState(token);
   }
