@@ -211,20 +211,14 @@ export function Esperando({ cobro, onNew, onRetry, retrying = false, retryError 
     return () => clearTimeout(t);
   }, [toast]);
 
-  // Sin confirmar por el banco se sigue mirando (si lo aprueba, PAGADO): pantalla encendida y aviso arriba.
+  // Sin confirmar por el banco se sigue mirando (si lo aprueba, PAGADO): pantalla encendida.
   const watching = waiting || outcome.kind === 'unconfirmed';
   useWakeLock(watching);
   useOpenCharge('cobro', true, watching);
-  useHealthReport(
-    `cobro:${cobro.card?.id ?? chargeId ?? 'x'}`,
-    watching
-      ? {
-          serverDown: !reachable,
-          bankWaitingSinceMs: cardStatus === 'AUTHORIZING' ? (authorizingSeenAt ?? Date.now()) : null,
-          orphan: cardStatus === 'ORPHAN',
-        }
-      : {},
-  );
+  // Arriba, solo «OxioPay no responde»: la espera del banco y el «sin confirmar»
+  // los dice esta pantalla (su franja y «El banco no lo ha confirmado»); la
+  // franja de arriba lo repetiría y taparía su título.
+  useHealthReport(`cobro:${cobro.card?.id ?? chargeId ?? 'x'}`, watching ? { serverDown: !reachable } : {});
 
   /** El NFC acercado: pagado (hasta el tope sin PIN), su PIN o la razón del NO PAGADO. */
   const handleCard = useCallback(
