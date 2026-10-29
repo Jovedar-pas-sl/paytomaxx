@@ -181,6 +181,27 @@ export class AlertsService implements OnModuleInit, OnModuleDestroy {
     return this.sendOnce(key, 2 * 24 * 60 * 60, () => bankHoldReminderMessage(venue.name, stale), settings.chatId);
   }
 
+  /**
+   * «Avisar al encargado» desde Esperando (cobro que el banco no ha
+   * confirmado): manda ya por Telegram la incidencia de ese cobro, la misma de
+   * la bandeja («Cobro sin confirmar por el banco», stuck_payment), con la
+   * misma marca que la vuelta de los avisos: al encargado le llega una sola
+   * vez. Con los avisos de cobros apagados (o sin chat), no se manda: sigue
+   * en Incidencias del panel. `sent`: le ha llegado (ahora o antes).
+   */
+  async notifyPaymentNow(venueId: string, paymentId: string, now: Date = new Date()): Promise<{ sent: boolean; telegram: boolean }> {
+    const venue = await this.prisma.venue.findUnique({ where: { id: venueId }, select: { id: true, name: true, alertSettings: true } });
+    if (!venue) return { sent: false, telegram: false };
+    const settings = alertSettingsOf(venue.alertSettings);
+    if (!this.telegram.isConfigured(settings.chatId)) return { sent: false, telegram: false };
+    const incident = (await this.incidents.list(venueId, now)).find((i) => i.kind === 'stuck_payment' && i.refId === paymentId);
+    if (!incident || !settings.kinds[alertKindForIncident(incident.kind)]) return { sent: false, telegram: true };
+    const key = `np:alert:${venue.id}:${incident.kind}:${incident.refId}`;
+    const message = () => incidentMessage(venue.name, incident, { includeNames: settings.includeNames });
+    if (await this.sendOnce(key, ALERT_SENT_TTL_S, message, settings.chatId)) return { sent: true, telegram: true };
+    return { sent: (await this.redis.exists(key)) > 0, telegram: true };
+  }
+
   /** Lo apuntado en el tramo, tal como está ahora (sin noche cerrada). */
   private async liveSummary(venueId: string, window: { from: Date; to: Date }): Promise<ExportSummary> {
     const [cobros, devoluciones, liquidaciones, consumos, pagosSaldo, recargasEfectivo] = await Promise.all([

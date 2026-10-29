@@ -1593,3 +1593,90 @@
   .tile:not(.tileBig) .tileName { font-size: 1rem; line-height: 1.1; }
   .tile:not(.tileBig) .price { font-size: 1.375rem; }
 }
+
+/* ─── Con tarjeta: la espera del banco (05-ui-ux §4.3) ───────────────── */
+
+/* Desde los 20 s: «El banco está tardando · No cobres otra vez». */
+.bankStrip {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+  margin: 0;
+  padding: 0.625rem 0.875rem;
+  border-radius: 1.125rem;
+  background: color-mix(in srgb, var(--np-warning) 14%, transparent);
+  border: 1px solid color-mix(in srgb, var(--np-warning) 55%, transparent);
+  font-size: 0.9375rem;
+  font-weight: 600;
+  text-align: center;
+}
+
+.bankStrip b {
+  font-weight: 800;
+  color: var(--np-warning);
+}
+
+/* «¿Cancelar? El cliente está pagando en su banco.» */
+.cancelAsk {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.cancelAsk p {
+  margin: 0;
+  font-weight: 700;
+  text-align: center;
+}
+
+/* El banco no lo ha confirmado (ORPHAN): ámbar, con la referencia y «Avisar al encargado». */
+.unconfirmed {
+  border-top: 6px solid var(--np-warning);
+}
+
+.unconfirmedBody {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 1.25rem 1rem;
+  text-align: center;
+}
+
+.unconfirmedKicker {
+  align-self: center;
+  margin: 0;
+  padding: 0.25rem 0.875rem;
+  border-radius: var(--np-r-pill);
+  background: color-mix(in srgb, var(--np-warning) 18%, transparent);
+  color: var(--np-warning);
+  font-size: 0.8125rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.unconfirmedRef {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.5rem 1.25rem;
+  margin: 0;
+}
+
+.unconfirmedRef div {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+}
+
+.unconfirmedRef dt {
+  font-size: 0.8125rem;
+  color: var(--np-text-label);
+}
+
+.unconfirmedRef dd {
+  margin: 0;
+  font: 800 1.25rem var(--np-font-num);
+  letter-spacing: 0.04em;
+}

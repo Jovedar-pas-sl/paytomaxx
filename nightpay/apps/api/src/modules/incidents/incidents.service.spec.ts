@@ -545,6 +545,46 @@ describe('alertas por Telegram', () => {
     });
   });
 
+  describe('«Avisar al encargado» desde Esperando (cobro que el banco no ha confirmado)', () => {
+    const stuck: Incident = {
+      kind: 'stuck_payment',
+      refId: 'pay-1',
+      title: 'Cobro sin confirmar por el banco',
+      detail: '38,30 €. Búscalo en el portal de BBVA y resuélvelo en Pagos → Resolver.',
+      occurredAt: '2026-10-13T22:00:00.000Z',
+      amountCents: 3_830,
+      paymentId: 'pay-1',
+      ackable: false,
+    };
+
+    it('manda ya la incidencia del cobro (la de la bandeja), una sola vez: la vuelta de los avisos no la repite', async () => {
+      const { svc, telegram, prisma } = makeAlerts([stuck]);
+      prisma.venue.findUnique.mockResolvedValue({ id: 't-1', name: 'Local Centro', alertSettings: null });
+      await expect(svc.notifyPaymentNow('t-1', 'pay-1')).resolves.toEqual({ sent: true, telegram: true });
+      expect(telegram.send).toHaveBeenCalledTimes(1);
+      expect(String(telegram.send.mock.calls[0]![0])).toContain('Local Centro: Cobro sin confirmar por el banco');
+      // Otra vez (doble toque) o la vuelta de 5 min: ya le llegó.
+      await expect(svc.notifyPaymentNow('t-1', 'pay-1')).resolves.toEqual({ sent: true, telegram: true });
+      await svc.tick(at('2026-10-13T22:10:00Z'));
+      expect(telegram.send).toHaveBeenCalledTimes(1);
+    });
+
+    it('sin chat de Telegram, con los avisos de cobros apagados o sin incidencia: no se manda (sigue en el panel)', async () => {
+      const noChat = makeAlerts([stuck]);
+      noChat.prisma.venue.findUnique.mockResolvedValue({ id: 't-1', name: 'Local Centro', alertSettings: { chatId: '@sin_bot_aqui' } });
+      await expect(noChat.svc.notifyPaymentNow('t-1', 'pay-1')).resolves.toEqual({ sent: false, telegram: false });
+
+      const off = makeAlerts([stuck]);
+      off.prisma.venue.findUnique.mockResolvedValue({ id: 't-1', name: 'Local Centro', alertSettings: { kinds: { payments: false } } });
+      await expect(off.svc.notifyPaymentNow('t-1', 'pay-1')).resolves.toEqual({ sent: false, telegram: true });
+
+      const other = makeAlerts([{ ...stuck, refId: 'pay-2', paymentId: 'pay-2' }]);
+      other.prisma.venue.findUnique.mockResolvedValue({ id: 't-1', name: 'Local Centro', alertSettings: null });
+      await expect(other.svc.notifyPaymentNow('t-1', 'pay-1')).resolves.toEqual({ sent: false, telegram: true });
+      expect([noChat, off, other].every((x) => x.telegram.send.mock.calls.length === 0)).toBe(true);
+    });
+  });
+
   describe('recordatorio de ventas por datáfono sin cuadrar (comisión retenida)', () => {
     const stale = [{ count: 2, chargedCents: 40_000n, shareCents: 36_000n, oldestAt: at('2026-10-12T23:00:00Z') }];
     const bankHold = (calls: unknown[][]) => calls.filter(([text]) => String(text).includes('sin cuadrar con el banco'));

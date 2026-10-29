@@ -4,6 +4,7 @@ import { ClsService } from 'nestjs-cls';
 import {
   BANK_HOLD_RELEASED_EVENT,
   BANK_RELEASE_CODES,
+  formatChargeRef,
   type BankHoldList,
   type BankHoldSale,
   type BankReleaseBlock,
@@ -58,11 +59,6 @@ export function releaseBlockOf(
   if (viewer.role !== 'OWNER') return 'not_owner';
   if (viewer.userId === sale.createdByUserId || viewer.userId === sale.confirmedByUserId) return 'own_sale';
   return null;
-}
-
-/** «C-0001» (como el resto del panel). */
-function chargeRef(ref: number | null): string | null {
-  return ref === null ? null : `C-${String(ref).padStart(4, '0')}`;
 }
 
 /**
@@ -136,7 +132,7 @@ export class BankHoldsService {
     `);
     const sales = rows.slice(0, LIST_LIMIT).map((r): BankHoldSale => ({
       paymentId: r.paymentId,
-      ref: chargeRef(r.ref),
+      ref: formatChargeRef(r.ref),
       chargedCents: r.chargedCents,
       shareCents: r.shareCents,
       at: r.at.toISOString(),

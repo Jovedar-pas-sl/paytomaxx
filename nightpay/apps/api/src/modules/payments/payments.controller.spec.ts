@@ -36,7 +36,7 @@ describe('cancelar un cobro: roles', () => {
 describe('POST /payments/public/:token/start-authorization — retirado (DIN-2)', () => {
   it('responde 410 Gone sin tocar el cobro: el pago va por POST /pay/:token (propina, idioma, método)', () => {
     const startAuthorization = vi.fn();
-    const controller = new PaymentsController({ startAuthorization } as never);
+    const controller = new PaymentsController({ startAuthorization } as never, {} as never);
     let thrown: unknown;
     try {
       controller.startAuthorization('qr-token-de-un-cobro');

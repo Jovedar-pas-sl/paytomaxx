@@ -11,6 +11,8 @@ export interface PolledPayment {
   status: PaymentStatus;
   /** Propina que dejó el cliente: solo si ya está pagado y el API es nuevo. */
   tipCents?: number;
+  /** Esperando al banco (AUTHORIZING) o sin su respuesta (ORPHAN): cuándo salió el intento. API nuevo. */
+  attemptStartedAt?: string | null;
 }
 
 /**
@@ -18,7 +20,14 @@ export interface PolledPayment {
  * da, la propina. Sin ella, no se inventa un 0 (la propina sigue sin saberse).
  * La de otro cobro no cuenta.
  */
-export function pollUpdate(current: PolledPayment, id: string): { status: PaymentStatus; tipCents?: number } | null {
+export function pollUpdate(
+  current: PolledPayment,
+  id: string,
+): { status: PaymentStatus; tipCents?: number; attemptStartedAt?: string } | null {
   if (!isPolledPayment(current, id)) return null;
-  return typeof current.tipCents === 'number' ? { status: current.status, tipCents: current.tipCents } : { status: current.status };
+  return {
+    status: current.status,
+    ...(typeof current.tipCents === 'number' ? { tipCents: current.tipCents } : {}),
+    ...(typeof current.attemptStartedAt === 'string' ? { attemptStartedAt: current.attemptStartedAt } : {}),
+  };
 }
