@@ -38,6 +38,18 @@ const SELECT = {
   linkedWalletCharge: { select: { payToken: true, status: true, expiresAt: true } },
 } as const;
 
+/** Las pasarelas que vuelven a /pay/result?op= (Redsys: Ds_Order; Cecabank/Wipay: Num_operacion). */
+export const RESULT_PAGE_PROVIDERS = ['REDSYS', 'WIPAY'] as const;
+
+/**
+ * Un token de QR (UUID) o un pedido del banco (12 o 32 caracteres) con buena
+ * pinta. Lo demás (una lista por `?op=a&op=b`, un NUL, algo larguísimo) es
+ * «no encontrado» sin tocar la base de datos: son rutas públicas.
+ */
+export function isPayLookupKey(value: unknown): value is string {
+  return typeof value === 'string' && /^[A-Za-z0-9_-]{4,64}$/.test(value);
+}
+
 /**
  * El estado del pago para la página «Comprobando el pago» (pay-status.ts),
  * por el QR (/pay/:token) o por el pedido del banco (/pay/result?op=). Sin
@@ -53,17 +65,24 @@ export class PayStatusService {
   }
 
   /** Por el QR. `viewerClaimHash`: la huella de la cookie de este navegador (null si no tiene). */
-  async byToken(qrToken: string, viewerClaimHash: string | null, now: Date = new Date()): Promise<PayStatusContext | null> {
+  async byToken(qrToken: unknown, viewerClaimHash: string | null, now: Date = new Date()): Promise<PayStatusContext | null> {
+    if (!isPayLookupKey(qrToken)) return null;
     const payment = await this.prisma.asSystem((tx) => tx.payment.findUnique({ where: { qrToken }, select: SELECT }));
     return payment ? contextOf(payment, { viewerClaimHash, now }) : null;
   }
 
-  /** Por el pedido del banco al que vuelve el cliente (Ds_Order): es su intento (nunca «otro paga»). */
-  async byOrder(order: string, now: Date = new Date()): Promise<PayStatusContext | null> {
-    if (!order) return null;
+  /**
+   * Por el pedido del banco al que vuelve el cliente (Ds_Order): es su intento
+   * (nunca «otro paga»). Solo de las pasarelas que vuelven a /pay/result: así
+   * la búsqueda va por el índice único (provider, providerTxId) y un `op` no
+   * casa con los identificadores de otras pasarelas.
+   */
+  async byOrder(order: unknown, now: Date = new Date()): Promise<PayStatusContext | null> {
+    if (!isPayLookupKey(order)) return null;
+    const provider = { in: [...RESULT_PAGE_PROVIDERS] };
     const payment = await this.prisma.asSystem(async (tx) => {
-      const attempt = await tx.paymentAttempt.findFirst({ where: { providerTxId: order }, select: { paymentId: true } });
-      return tx.payment.findFirst({ where: attempt ? { id: attempt.paymentId } : { providerTxId: order }, select: SELECT });
+      const attempt = await tx.paymentAttempt.findFirst({ where: { provider, providerTxId: order }, select: { paymentId: true } });
+      return tx.payment.findFirst({ where: attempt ? { id: attempt.paymentId } : { provider, providerTxId: order }, select: SELECT });
     });
     if (!payment) return null;
     const own = payment.attempts.find((a) => a.providerTxId === order);

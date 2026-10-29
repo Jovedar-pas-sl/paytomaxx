@@ -900,6 +900,17 @@ describe('«Comprobando el pago»: el estado en JSON y la página que se pone al
     expect(status.byToken).toHaveBeenLastCalledWith('qr-token-1', null);
   });
 
+  it('GET /pay/:token/status con un token raro: 404 sin leer cookies ni buscar el cobro', async () => {
+    const { controller, status } = makeController({ statusCtx: ctx() });
+    for (const token of ['x', 'con espacio', 'a'.repeat(200)]) {
+      const { reply, sent } = fakeReply(`${walletClaimCookieName('', token)}=${'m'.repeat(43)}`);
+      await controller.tokenStatus(token, reply);
+      expect(sent.status).toBe(404);
+      expect(sent.headers['Cache-Control']).toBe('no-store');
+    }
+    expect(status.byToken).not.toHaveBeenCalled();
+  });
+
   it('GET /pay/result/status?op=: por el pedido del banco; sin él o desconocido, 404 (la página va a la del servidor)', async () => {
     const { controller, status } = makeController({ statusCtx: ctx() });
     const ok = fakeReply();

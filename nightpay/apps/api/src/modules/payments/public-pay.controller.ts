@@ -45,7 +45,7 @@ import { walletClaimCookieName, walletClaimSetCookie } from './wallet-claim';
 import { PayPageFilter } from './pay-page.filter';
 import { RedsysReturnService } from './redsys-return.service';
 import { renderCheckingPage } from './pay-checking-page';
-import { PayStatusService, type PayStatusContext } from './pay-status.service';
+import { PayStatusService, isPayLookupKey, type PayStatusContext } from './pay-status.service';
 import { langHrefWith, type LangHref } from './customer-chrome';
 
 /**
@@ -146,7 +146,8 @@ export class PublicPayController {
   @Get(':token/status')
   @IpRateLimit(PAY_STATUS_BY_TOKEN)
   async tokenStatus(@Param('token') token: string, @Res() res: FastifyReply): Promise<void> {
-    const ctx = this.status ? await this.status.byToken(token, this.viewerClaimHash(res, token)) : null;
+    // Un token sin buena pinta: 404 sin leer cookies ni la base de datos.
+    const ctx = this.status && isPayLookupKey(token) ? await this.status.byToken(token, this.viewerClaimHash(res, token)) : null;
     sendJson(res, ctx ? 200 : 404, ctx ? ctx.view : { message: 'Pago no encontrado' });
   }
 

@@ -194,9 +194,11 @@ export class AlertsService implements OnModuleInit, OnModuleDestroy {
     if (!venue) return { sent: false, telegram: false };
     const settings = alertSettingsOf(venue.alertSettings);
     if (!this.telegram.isConfigured(settings.chatId)) return { sent: false, telegram: false };
+    // Ya avisado (por aquí o por la vuelta de los avisos): sin recalcular las incidencias del local.
+    const key = `np:alert:${venue.id}:stuck_payment:${paymentId}`;
+    if ((await this.redis.exists(key)) > 0) return { sent: true, telegram: true };
     const incident = (await this.incidents.list(venueId, now)).find((i) => i.kind === 'stuck_payment' && i.refId === paymentId);
     if (!incident || !settings.kinds[alertKindForIncident(incident.kind)]) return { sent: false, telegram: true };
-    const key = `np:alert:${venue.id}:${incident.kind}:${incident.refId}`;
     const message = () => incidentMessage(venue.name, incident, { includeNames: settings.includeNames });
     if (await this.sendOnce(key, ALERT_SENT_TTL_S, message, settings.chatId)) return { sent: true, telegram: true };
     return { sent: (await this.redis.exists(key)) > 0, telegram: true };

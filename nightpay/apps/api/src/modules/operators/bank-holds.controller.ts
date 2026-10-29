@@ -1,4 +1,5 @@
-import { Body, Controller, Get, HttpCode, Inject, Param, ParseUUIDPipe, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Inject, Param, ParseUUIDPipe, Post, Req, UseGuards } from '@nestjs/common';
+import type { FastifyRequest } from 'fastify';
 import {
   ReleaseBankHoldSchema,
   type BankHoldList,
@@ -9,9 +10,10 @@ import {
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { Tenant } from '../../common/decorators/tenant.decorator';
+import { clientIp } from '../../common/guards/ip-rate-limit.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { ZodValidationPipe } from '../../common/pipes/zod.pipe';
-import { BankHoldsService } from './bank-holds.service';
+import { BankHoldsService, type ReleaseMeta } from './bank-holds.service';
 import { OperatorsService } from './operators.service';
 
 /**
@@ -50,7 +52,20 @@ export class BankHoldsController {
     @CurrentUser() user: JwtPayload,
     @Param('id', new ParseUUIDPipe()) id: string,
     @Body(new ZodValidationPipe(ReleaseBankHoldSchema)) dto: ReleaseBankHoldDto,
+    @Req() req: FastifyRequest,
   ): Promise<BankReleaseResult> {
-    return this.holds.release({ userId: user.sub, role: user.role, tenantId }, id, dto);
+    return this.holds.release({ userId: user.sub, role: user.role, tenantId }, id, dto, releaseMeta(req));
   }
+}
+
+/** Navegador recortado, como en el registro de las sesiones. */
+const MAX_USER_AGENT_LENGTH = 512;
+
+/** La IP real y el navegador de quien libera, para el registro. */
+function releaseMeta(req: FastifyRequest): ReleaseMeta {
+  const ua = req.headers['user-agent'];
+  return {
+    ip: clientIp(req) ?? undefined,
+    userAgent: typeof ua === 'string' ? ua.slice(0, MAX_USER_AGENT_LENGTH) : undefined,
+  };
 }

@@ -6,6 +6,7 @@ const TENANT = 't-1';
 const CHICA = 'u-chica';
 const row = (o: Record<string, unknown> = {}) => ({
   ref: 12,
+  status: 'ORPHAN',
   createdByUserId: CHICA,
   providerTxId: 'ORD-OLD',
   attempts: [{ providerTxId: '000123ABC' }],
@@ -39,6 +40,16 @@ describe('la referencia del cobro para la pantalla «El banco no lo ha confirmad
       ref: null,
       order: null,
     });
+  });
+
+  it('el pedido del banco, solo mientras espera al banco o sin confirmar; después, solo la referencia corta', async () => {
+    const actor = { userId: CHICA, role: 'OPERATOR', tenantId: TENANT };
+    const waiting = prismaWith(row({ status: 'AUTHORIZING' }));
+    await expect(staffBankRef(waiting.prisma as never, 'p-1', actor)).resolves.toEqual({ ref: 'C-0012', order: '000123ABC' });
+    for (const status of ['AUTHORIZED', 'REFUNDED', 'CANCELED', 'EXPIRED', 'FAILED', 'CREATED']) {
+      const closed = prismaWith(row({ status }));
+      await expect(staffBankRef(closed.prisma as never, 'p-1', actor)).resolves.toEqual({ ref: 'C-0012', order: null });
+    }
   });
 
   it('la chica y el camarero, solo de sus cobros; el encargado y el dueño, de todo el local', async () => {

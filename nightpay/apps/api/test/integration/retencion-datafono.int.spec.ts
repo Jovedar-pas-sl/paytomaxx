@@ -8,6 +8,7 @@ import { HttpException } from '@nestjs/common';
 import { ClsService } from 'nestjs-cls';
 import type { CreatePayoutDto } from '@nightpay/contracts';
 import { PrismaService } from '../../src/common/prisma/prisma.service';
+import { AuditService } from '../../src/modules/audit/audit.service';
 import { OperatorsService } from '../../src/modules/operators/operators.service';
 import { BankHoldsService } from '../../src/modules/operators/bank-holds.service';
 import { PaymentsService } from '../../src/modules/payments/payments.service';
@@ -73,7 +74,8 @@ const refunds = new RefundsService(
   audit as never,
   { refundsCreated: { inc: vi.fn() }, earningReversalFailed: { inc: vi.fn() } } as never,
 );
-const holds = new BankHoldsService(prisma, totp, audit as never);
+// «Liberar» apunta su registro dentro de su transacción: aquí, en audit_events de verdad.
+const holds = new BankHoldsService(prisma, totp, new AuditService(prisma, cls as never));
 const incidents = new IncidentsService(prisma, audit as never);
 const closeChecks = new CloseCheckService(prisma, incidents, config as never);
 const treasury = new TreasuryService(prisma, audit as never, {} as never, config as never);
@@ -289,7 +291,8 @@ describe('comisión de ventas por datáfono sin cuadrar con el banco (Postgres r
     expect((await failure(asStaff(V, () => holds.release(ownerActor(owner), pos, { totpCode: '000000' })))).status).toBe(403);
     expect((await balanceOf(chica)).bankHeldCents).toBe(27_000);
 
-    const done = await asStaff(V, () => holds.release(ownerActor(owner), pos, { totpCode: codeOf(owner), note: 'Visto en el extracto' }));
+    const meta = { ip: '203.0.113.7', userAgent: 'Prueba/1.0 (retencion)' };
+    const done = await asStaff(V, () => holds.release(ownerActor(owner), pos, { totpCode: codeOf(owner), note: 'Visto en el extracto' }, meta));
     expect(done).toEqual({ paymentId: pos, status: 'RELEASED' });
     expect(await balanceOf(chica)).toMatchObject({ availableCents: 27_000, bankHeldCents: 0 });
     const events = await sys<Array<{ eventType: string; payload: unknown }>>((tx) =>
@@ -297,11 +300,21 @@ describe('comisión de ventas por datáfono sin cuadrar con el banco (Postgres r
     );
     expect(events).toHaveLength(1);
     expect(events[0]!.payload).toMatchObject({ releasedByUserId: owner, note: 'Visto en el extracto' });
-    expect(auditLog.filter((a) => a.action === 'pos.bank_hold_released' && a.targetId === pos)).toHaveLength(1);
+    const released = () =>
+      sys<Array<{ actorId: string | null; tenantId: string | null; ip: string | null; userAgent: string | null; payload: unknown }>>((tx) =>
+        tx.auditEvent.findMany({
+          where: { action: 'pos.bank_hold_released', targetId: pos },
+          select: { actorId: true, tenantId: true, ip: true, userAgent: true, payload: true },
+        }),
+      );
+    const rows = await released();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ actorId: owner, tenantId: V, ip: meta.ip, userAgent: meta.userAgent });
+    expect(rows[0]!.payload).toMatchObject({ chargedCents: 30_000, note: 'Visto en el extracto' });
 
     // Otra vez (doble toque): sin pedir otro código ni apuntar nada más.
     expect(await asStaff(V, () => holds.release(ownerActor(owner), pos, { totpCode: '123456' }))).toEqual({ paymentId: pos, status: 'ALREADY_RELEASED' });
-    expect(auditLog.filter((a) => a.action === 'pos.bank_hold_released' && a.targetId === pos)).toHaveLength(1);
+    expect(await released()).toHaveLength(1);
     expect(await pay(chica, owner, { expectedTotalCents: 27_000 })).toMatchObject({ totalCents: 27_000 });
   });
 

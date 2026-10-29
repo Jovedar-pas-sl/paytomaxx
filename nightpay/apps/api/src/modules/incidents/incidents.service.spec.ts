@@ -558,13 +558,14 @@ describe('alertas por Telegram', () => {
     };
 
     it('manda ya la incidencia del cobro (la de la bandeja), una sola vez: la vuelta de los avisos no la repite', async () => {
-      const { svc, telegram, prisma } = makeAlerts([stuck]);
+      const { svc, telegram, prisma, incidents } = makeAlerts([stuck]);
       prisma.venue.findUnique.mockResolvedValue({ id: 't-1', name: 'Local Centro', alertSettings: null });
       await expect(svc.notifyPaymentNow('t-1', 'pay-1')).resolves.toEqual({ sent: true, telegram: true });
       expect(telegram.send).toHaveBeenCalledTimes(1);
       expect(String(telegram.send.mock.calls[0]![0])).toContain('Local Centro: Cobro sin confirmar por el banco');
-      // Otra vez (doble toque) o la vuelta de 5 min: ya le llegó.
+      // Otra vez (doble toque) o la vuelta de 5 min: ya le llegó (sin recalcular las incidencias del local).
       await expect(svc.notifyPaymentNow('t-1', 'pay-1')).resolves.toEqual({ sent: true, telegram: true });
+      expect(incidents.list).toHaveBeenCalledTimes(1);
       await svc.tick(at('2026-10-13T22:10:00Z'));
       expect(telegram.send).toHaveBeenCalledTimes(1);
     });

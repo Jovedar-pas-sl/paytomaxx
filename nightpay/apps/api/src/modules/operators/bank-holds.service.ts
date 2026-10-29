@@ -23,6 +23,12 @@ const LIST_LIMIT = 100;
 type Viewer = { userId: string; role: Role };
 type Actor = Viewer & { tenantId: string };
 
+/** De la petición, para el registro de «Liberar»: la IP real y el navegador. */
+export interface ReleaseMeta {
+  ip?: string;
+  userAgent?: string;
+}
+
 interface HeldSaleRow {
   paymentId: string;
   ref: number | null;
@@ -149,8 +155,15 @@ export class BankHoldsService {
    * 2FA (obligatoria), nunca la suya (la apuntó o la confirmó él) y con
    * registro. Ya liberada o ya cuadrada con el banco: no se hace nada (ni se
    * pide el código). Dos a la vez: una la apunta y la otra ve que ya está.
+   * El registro va en la misma transacción que el evento: o quedan los dos o
+   * ninguno (sin registro, no se libera).
    */
-  async release(actor: Actor, paymentId: string, dto: { totpCode?: string; note?: string }): Promise<BankReleaseResult> {
+  async release(
+    actor: Actor,
+    paymentId: string,
+    dto: { totpCode?: string; note?: string },
+    meta: ReleaseMeta = {},
+  ): Promise<BankReleaseResult> {
     if (actor.role !== 'OWNER') {
       throw new ForbiddenException({ message: 'Solo el dueño puede liberar una venta por datáfono.', code: BANK_RELEASE_CODES.OWNER_ONLY });
     }
@@ -190,17 +203,19 @@ export class BankHoldsService {
           traceId: this.cls?.get('ctx')?.traceId ?? randomUUID(),
         },
       });
+      await this.audit.logInTx(tx, {
+        action: 'pos.bank_hold_released',
+        tenantId: actor.tenantId,
+        actorId: actor.userId,
+        targetType: 'Payment',
+        targetId: paymentId,
+        payload: { chargedCents: state.chargedCents, note },
+        ip: meta.ip,
+        userAgent: meta.userAgent,
+      });
       return true;
     });
     if (!released) return { paymentId, status: 'ALREADY_RELEASED' };
-    await this.audit.log({
-      action: 'pos.bank_hold_released',
-      tenantId: actor.tenantId,
-      actorId: actor.userId,
-      targetType: 'Payment',
-      targetId: paymentId,
-      payload: { chargedCents: state.chargedCents, note },
-    });
     this.logger.log(`Venta por datáfono ${paymentId} liberada a mano por ${actor.userId} (sin cuadrar con el banco)`);
     return { paymentId, status: 'RELEASED' };
   }
