@@ -48,3 +48,6 @@ scrapers/
 *.rar
 *.zip
 phase1-deploy.tgz
+
+# Ajustes locales de Claude Code (cada uno los suyos)
+.claude/
