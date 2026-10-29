@@ -105,6 +105,8 @@ export interface NightChicaPay {
   toPayCents: number;
   /** Ganado y aún en espera (días de espera del local). */
   heldCents: number;
+  /** Ventas por datáfono sin cuadrar con el banco: su parte no se paga hasta cuadrarlas. Opcional: API anterior. */
+  bankHeldCents?: number;
   /** Ganado desde el cierre anterior (pagado o no). */
   earnedTonightCents: number;
   /** Pagado desde el cierre anterior. */

@@ -1,6 +1,8 @@
 // Qué le pasa a la conexión, dicho en llano (en vez de un «Reconectando…»
 // que no explica nada). Puro: las señales las juntan las apps.
 
+import { BANK_SLOW_AFTER_MS } from '@nightpay/contracts';
+
 export type ConnectionIssueKind = 'offline' | 'server' | 'bank';
 
 export interface ConnectionIssue {
@@ -25,8 +27,8 @@ export interface ConnectionSignals {
 /** Aparato en el que se enseña: cambia la frase de «sin internet». */
 export type ConnectionDevice = 'phone' | 'register';
 
-/** A partir de cuánto esperando al banco se avisa. */
-export const BANK_SLOW_AFTER_MS = 20_000;
+/** A partir de cuánto esperando al banco se avisa: el mismo umbral que el cliente (@nightpay/contracts/pay-wait). */
+export { BANK_SLOW_AFTER_MS } from '@nightpay/contracts';
 
 /** Lo que tiene que pasar con el socket o el API caídos antes de avisar (un corte de 1 s no asusta). */
 export const SERVER_DOWN_GRACE_MS = 2_500;

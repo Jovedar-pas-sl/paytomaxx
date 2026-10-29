@@ -12,6 +12,7 @@ import { PrismaService } from '../../common/prisma/prisma.service';
 import { madridDay, madridStartOfDay } from '../../common/time/madrid';
 import { AuditService } from '../audit/audit.service';
 import { PayoutVerifierFactory } from './payout-verifier.factory';
+import { earningBankHeldSql, earningNetSql } from '../operators/bank-hold-sql';
 import { payableSummary, payoutCutoff } from '../operators/payout-math';
 import { venueHoldDays } from '../operators/venue-hold-days';
 import {
@@ -302,6 +303,7 @@ export class TreasuryService {
       pendingPayoutsCents: pending.payableCents,
       pendingOperatorCount: pending.operatorCount,
       heldPayoutsCents: pending.heldCents,
+      bankHeldPayoutsCents: pending.bankHeldCents,
       operatorDebtCents: pending.debtCents,
       payoutsThisMonthCount: Number(monthRows[0]?.count ?? 0),
       payoutsThisMonthCents: Number(monthRows[0]?.totalCents ?? 0),
@@ -322,22 +324,27 @@ export class TreasuryService {
     const holdDays = await venueHoldDays(this.prisma, this.config.get('PAYOUT_HOLD_DAYS'), tenantId);
     const cutoff = payoutCutoff(new Date(), holdDays);
     const rows = await this.prisma.withTenant(tenantId, (tx) => tx.$queryRaw<
-      Array<{ operatorId: string; unpaidCents: bigint; heldCents: bigint; debtCents: bigint }>
+      Array<{ operatorId: string; unpaidCents: bigint; heldCents: bigint; bankHeldCents: bigint; debtCents: bigint }>
     >`
       SELECT o."operatorId",
              COALESCE(u."unpaidCents", 0)::bigint AS "unpaidCents",
              COALESCE(u."heldCents", 0)::bigint AS "heldCents",
+             COALESCE(u."bankHeldCents", 0)::bigint AS "bankHeldCents",
              COALESCE(d."debtCents", 0)::bigint AS "debtCents"
         FROM (SELECT DISTINCT "operatorId" FROM operator_earnings WHERE "tenantId" = ${tenantId}::uuid) o
         LEFT JOIN (
-          SELECT "operatorId",
-                 SUM("commissionCents" + COALESCE("tipCents", 0) - "reversedCents") AS "unpaidCents",
-                 SUM(CASE WHEN "createdAt" > ${cutoff}
-                          THEN "commissionCents" + COALESCE("tipCents", 0) - "reversedCents" ELSE 0 END) AS "heldCents"
-            FROM operator_earnings
-           WHERE "tenantId" = ${tenantId}::uuid
-             AND "payoutId" IS NULL
-           GROUP BY "operatorId"
+          -- Lo retenido (venta por datáfono sin cuadrar, bank-hold-sql) va aparte de lo «en espera».
+          SELECT x."operatorId",
+                 SUM(x.net) AS "unpaidCents",
+                 SUM(CASE WHEN NOT x.bank AND x."createdAt" > ${cutoff} THEN x.net ELSE 0 END) AS "heldCents",
+                 SUM(CASE WHEN x.bank THEN x.net ELSE 0 END) AS "bankHeldCents"
+            FROM (
+              SELECT e."operatorId", e."createdAt", ${earningNetSql('e')} AS net, ${earningBankHeldSql('e')} AS bank
+                FROM operator_earnings e
+               WHERE e."tenantId" = ${tenantId}::uuid
+                 AND e."payoutId" IS NULL
+            ) x
+           GROUP BY x."operatorId"
         ) u ON u."operatorId" = o."operatorId"
         LEFT JOIN (
           SELECT e."operatorId", SUM(r."reversedDeltaCents") AS "debtCents"
@@ -352,6 +359,7 @@ export class TreasuryService {
     return rows.map((r) => ({
       unpaidCents: Number(r.unpaidCents),
       heldCents: Number(r.heldCents),
+      bankHeldCents: Number(r.bankHeldCents ?? 0),
       debtCents: Number(r.debtCents),
     }));
   }

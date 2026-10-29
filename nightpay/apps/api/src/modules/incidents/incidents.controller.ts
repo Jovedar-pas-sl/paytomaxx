@@ -1,11 +1,13 @@
-import { Body, Controller, Get, HttpCode, Inject, Post, UseGuards } from '@nestjs/common';
+import { Body, ConflictException, Controller, Get, HttpCode, Inject, Logger, NotFoundException, Post, UseGuards } from '@nestjs/common';
 import { z } from 'zod';
 import { alertSettingsOf, type JwtPayload } from '@nightpay/contracts';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
+import { IpRateLimit } from '../../common/guards/ip-rate-limit.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { ZodValidationPipe } from '../../common/pipes/zod.pipe';
+import { AlertsService } from './alerts.service';
 import { ACKABLE_KINDS, type Incident } from './incident-rules';
 import { IncidentsService } from './incidents.service';
 import { TelegramService } from './telegram.service';
@@ -20,27 +22,40 @@ const AckSchema = z.object({
 });
 type AckBody = z.infer<typeof AckSchema>;
 
+const NotifySchema = z.object({ paymentId: z.string().uuid() });
+type NotifyBody = z.infer<typeof NotifySchema>;
+
+/** Ven (y avisan de) los cobros de todo el local; el resto, solo de los suyos. */
+const VENUE_WIDE: ReadonlySet<string> = new Set(['OWNER', 'MANAGER']);
+/** Un cobro que espera al banco: el que se puede avisar al encargado. */
+const WAITING_BANK: ReadonlySet<string> = new Set(['ORPHAN', 'AUTHORIZING']);
+
 /**
  * Bandeja de incidencias (Fase 1E).
  *  - GET  /v1/incidents                → lo que hay que mirar (+ si Telegram está activo).
  *  - POST /v1/incidents/ack            → marcar como revisada (solo el dueño).
  *  - POST /v1/incidents/telegram-test  → mensaje de prueba al chat del local (Ajustes → Avisos).
+ *  - POST /v1/incidents/notify         → «Avisar al encargado» de un cobro que el banco no confirma.
  */
 @Controller('incidents')
 @UseGuards(RolesGuard)
 export class IncidentsController {
+  private readonly logger = new Logger(IncidentsController.name);
   private readonly incidents: IncidentsService;
   private readonly telegram: TelegramService;
   private readonly prisma: PrismaService;
+  private readonly alerts: AlertsService;
 
   constructor(
     @Inject(IncidentsService) incidents: IncidentsService,
     @Inject(TelegramService) telegram: TelegramService,
     @Inject(PrismaService) prisma: PrismaService,
+    @Inject(AlertsService) alerts: AlertsService,
   ) {
     this.incidents = incidents;
     this.telegram = telegram;
     this.prisma = prisma;
+    this.alerts = alerts;
   }
 
   @Get()
@@ -68,6 +83,34 @@ export class IncidentsController {
     // Al chat del local (Ajustes → Avisos) o, sin él, al de todos los locales.
     const chatId = await this.venueChatId(user.tenantId);
     return { sent: await this.telegram.send(`✅ ${BRAND_NAME}: las alertas de este local llegan a este chat.`, chatId) };
+  }
+
+  /**
+   * «Avisar al encargado» (Esperando, «El banco no lo ha confirmado»): la
+   * incidencia del cobro, ya en la bandeja, llega ahora por Telegram (una
+   * sola vez, AlertsService.notifyPaymentNow). Del local de quien avisa; la
+   * chica y el camarero, solo de sus cobros; y solo si sigue esperando al banco.
+   */
+  @Post('notify')
+  @HttpCode(200)
+  @Roles('OWNER', 'MANAGER', 'WAITER', 'OPERATOR')
+  @IpRateLimit({ max: 30, windowSec: 60, scope: 'incident-notify' })
+  async notify(
+    @CurrentUser() user: JwtPayload,
+    @Body(new ZodValidationPipe(NotifySchema)) body: NotifyBody,
+  ): Promise<{ notified: boolean; telegram: boolean }> {
+    const payment = await this.prisma.asSystem((tx) =>
+      tx.payment.findFirst({ where: { id: body.paymentId, tenantId: user.tenantId }, select: { createdByUserId: true, status: true } }),
+    );
+    if (!payment || (!VENUE_WIDE.has(user.role) && payment.createdByUserId !== user.sub)) {
+      throw new NotFoundException('Cobro no encontrado');
+    }
+    if (!WAITING_BANK.has(payment.status)) {
+      throw new ConflictException({ message: 'Este cobro ya no está esperando al banco.', code: 'PAYMENT_NOT_WAITING' });
+    }
+    const result = await this.alerts.notifyPaymentNow(user.tenantId, body.paymentId);
+    this.logger.log(`Aviso al encargado del cobro ${body.paymentId} (${payment.status}) por ${user.sub}: telegram=${result.telegram} enviado=${result.sent}`);
+    return { notified: result.sent, telegram: result.telegram };
   }
 
   /** Chat propio del local (null = el de TELEGRAM_CHAT_ID). */

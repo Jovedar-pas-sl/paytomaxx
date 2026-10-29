@@ -21,6 +21,8 @@ export interface PaymentUpdate {
    * (API nuevo, ya pagado). Sin ella (undefined), aún no se sabe: no es 0.
    */
   tipCents?: number;
+  /** Esperando al banco: cuándo salió el intento (solo el sondeo, API nuevo). */
+  attemptStartedAt?: string;
 }
 
 export interface PaymentLiveState {
@@ -116,7 +118,10 @@ export function usePaymentLive(
     socket.on('disconnect', goOffline);
     socket.on('connect_error', goOffline);
     socket.on('payment:update', (e: { paymentId: string; status: PaymentStatus }) => {
-      if (e.paymentId === id) emit({ status: e.status });
+      if (e.paymentId !== id) return;
+      emit({ status: e.status });
+      // Salió al banco (o se quedó sin su respuesta): el sondeo trae desde cuándo.
+      if (e.status === 'AUTHORIZING' || e.status === 'ORPHAN') poller.poke();
     });
     socket.on('payment:completed', (e: { paymentId: string; status: PaymentStatus; tipCents?: number }) => {
       if (e.paymentId === id) emit({ status: e.status, tipCents: e.tipCents ?? 0 });

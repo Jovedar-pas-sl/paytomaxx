@@ -22,6 +22,9 @@ export const UNPREFIXED_ROUTES: readonly UnprefixedRoute[] = Object.freeze([
   { path: 'pay/:token', method: RequestMethod.POST },
   { path: 'pay/:token/receipt', method: RequestMethod.GET },
   { path: 'pay/:token/checkout', method: RequestMethod.GET },
+  // «Comprobando el pago»: su estado en JSON (por el QR y por la vuelta del banco).
+  { path: 'pay/:token/status', method: RequestMethod.GET },
+  { path: 'pay/result/status', method: RequestMethod.GET },
   // La letra de la marca (Manrope) de las páginas del cliente.
   { path: 'pay/assets/manrope.woff2', method: RequestMethod.GET },
   // Recarga: el cliente activa Face ID, elige PIN o la suma a su saldo, en "Pagado".

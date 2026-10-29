@@ -625,12 +625,12 @@ export interface UnprovenSalesRow {
 }
 
 export function posUnprovenSalesIncident(r: UnprovenSalesRow): Incident {
-  const many = r.count === 1 ? '1 cobro' : `${r.count} cobros`;
+  const many = r.count === 1 ? '1 venta' : `${r.count} ventas`;
   return {
     kind: 'pos_unproven_sales',
     refId: r.night,
-    title: 'Cobros del datáfono sin comprobar con Paytef',
-    detail: `${many} (${eur(r.amountCents)}) de la noche del ${r.night} dados por pagados con lo que dice el datáfono: Paytef no deja comprobarlos desde aquí. Cuádralos con el fichero de Paytef o del banco (Banco) antes de pagar a las chicas.`,
+    title: 'Ventas por datáfono sin cuadrar con el banco',
+    detail: `${many} por datáfono (${eur(r.amountCents)}) de la noche del ${r.night} sin prueba del banco (las confirmó un camarero con el ticket o el datáfono sin poder comprobarlo con Paytef). La comisión de las chicas está retenida: se paga al cuadrarlas con el fichero del banco (Banco) o si las liberas en Personal → la chica (con tu 2FA).`,
     occurredAt: r.lastAt.toISOString(),
     amountCents: r.amountCents,
     paymentId: null,

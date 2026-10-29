@@ -29,6 +29,7 @@ import {
 } from './payout-idempotency';
 import { debtView, payoutAccountView, type DebtRow, type MyPayoutInfo } from './my-payout-info';
 import { myPaymentsPage, type MyPaymentRow } from './my-payments';
+import { earningBankHeldSql, earningNetSql } from './bank-hold-sql';
 import { availableCentsOf, payoutCutoff, payoutTotalCents } from './payout-math';
 import {
   exactSelection,
@@ -183,33 +184,46 @@ export class OperatorsService {
 
   async getBalance(operatorId: string, tenantId: string): Promise<OperatorBalance> {
     const cutoff = payoutCutoff(new Date(), await this.holdDays(tenantId));
+    // `bank`: sin pagar y de una venta por datáfono sin cuadrar con el banco
+    // (bank-hold-sql). Lo retenido va aparte de lo «en espera» (no se solapan).
     const rows = await this.prisma.withTenant(tenantId, (tx) => tx.$queryRaw<
       Array<{
         pendingCents: bigint;
         heldCents: bigint;
+        bankHeldCents: bigint;
+        bankHeldCount: bigint;
         paidCents: bigint;
         lifetimeGrossCents: bigint;
         count: bigint;
       }>
     >`
       SELECT
-        COALESCE(SUM(CASE WHEN "payoutId" IS NULL THEN "commissionCents" + COALESCE("tipCents",0) - "reversedCents" ELSE 0 END), 0)::bigint AS "pendingCents",
-        COALESCE(SUM(CASE WHEN "payoutId" IS NULL AND "createdAt" > ${cutoff} THEN "commissionCents" + COALESCE("tipCents",0) - "reversedCents" ELSE 0 END), 0)::bigint AS "heldCents",
-        COALESCE(SUM(CASE WHEN "payoutId" IS NOT NULL THEN "commissionCents" + COALESCE("tipCents",0) - "reversedCents" ELSE 0 END), 0)::bigint AS "paidCents",
-        COALESCE(SUM("paymentAmountCents"), 0)::bigint AS "lifetimeGrossCents",
+        COALESCE(SUM(CASE WHEN x."payoutId" IS NULL THEN x.net ELSE 0 END), 0)::bigint AS "pendingCents",
+        COALESCE(SUM(CASE WHEN x."payoutId" IS NULL AND NOT x.bank AND x."createdAt" > ${cutoff} THEN x.net ELSE 0 END), 0)::bigint AS "heldCents",
+        COALESCE(SUM(CASE WHEN x.bank THEN x.net ELSE 0 END), 0)::bigint AS "bankHeldCents",
+        COUNT(DISTINCT x."paymentId") FILTER (WHERE x.bank AND x.net > 0)::bigint AS "bankHeldCount",
+        COALESCE(SUM(CASE WHEN x."payoutId" IS NOT NULL THEN x.net ELSE 0 END), 0)::bigint AS "paidCents",
+        COALESCE(SUM(x."paymentAmountCents"), 0)::bigint AS "lifetimeGrossCents",
         COUNT(*)::bigint AS count
-      FROM operator_earnings
-      WHERE "operatorId" = ${operatorId}::uuid
-        AND "tenantId" = ${tenantId}::uuid
+      FROM (
+        SELECT e."payoutId", e."createdAt", e."paymentId", e."paymentAmountCents", ${earningNetSql('e')} AS net,
+               (e."payoutId" IS NULL AND ${earningBankHeldSql('e')}) AS bank
+          FROM operator_earnings e
+         WHERE e."operatorId" = ${operatorId}::uuid
+           AND e."tenantId" = ${tenantId}::uuid
+      ) x
     `);
     const r = rows[0]!;
     const debtCents = await this.openDebtCents(operatorId, tenantId);
     const unpaid = Number(r.pendingCents);
     const held = Math.max(0, Number(r.heldCents));
+    const bankHeld = Math.max(0, Number(r.bankHeldCents ?? 0));
     return {
       pendingCents: unpaid - debtCents,
-      availableCents: availableCentsOf({ unpaidCents: unpaid, heldCents: held, debtCents }),
+      availableCents: availableCentsOf({ unpaidCents: unpaid, heldCents: held, bankHeldCents: bankHeld, debtCents }),
       heldCents: held,
+      bankHeldCents: bankHeld,
+      bankHeldCount: Number(r.bankHeldCount ?? 0),
       debtCents,
       paidCents: Math.max(0, Number(r.paidCents)),
       lifetimeGrossCents: Number(r.lifetimeGrossCents),
@@ -253,13 +267,15 @@ export class OperatorsService {
         reversedCents: number;
         payoutId: string | null;
         paymentStatus: string | null;
+        bankHeld: boolean;
         createdAt: Date;
       }>
     >`
       SELECT e.id, e."paymentId", e."consumptionId", e."paymentAmountCents", e."commissionBps",
              e."commissionCents", COALESCE(e."tipCents",0) AS "tipCents",
              e."reversedCents", e."payoutId",
-             p.status::text AS "paymentStatus", e."createdAt"
+             p.status::text AS "paymentStatus", e."createdAt",
+             (e."payoutId" IS NULL AND ${earningBankHeldSql('e')}) AS "bankHeld"
         FROM operator_earnings e
         LEFT JOIN payments p ON p.id = e."paymentId"
        WHERE e."operatorId" = ${operatorId}::uuid
@@ -278,6 +294,7 @@ export class OperatorsService {
       netCents: r.commissionCents + r.tipCents - r.reversedCents,
       payoutId: r.payoutId,
       paymentStatus: r.paymentStatus,
+      bankHeld: r.bankHeld === true,
       createdAt: r.createdAt.toISOString(),
     }));
   }

@@ -80,7 +80,7 @@ describe('bandeja de incidencias — recarga pendiente de asignar', () => {
 });
 
 describe('bandeja de incidencias — datáfono sin la prueba de Paytef y topes de la recepción', () => {
-  it('cobros de chicas sin comprobar: uno por noche, marcable; tope de la recepción: marcable con su porqué', async () => {
+  it('ventas por datáfono sin cuadrar con el banco: una por noche, marcable; tope de la recepción: marcable con su porqué', async () => {
     const { svc } = makeIncidents({
       unprovenSales: [{ night: '2026-10-13', count: 3, amountCents: 45_000, lastAt: at('2026-10-14T02:00:00Z') }],
       audit: [
@@ -97,7 +97,11 @@ describe('bandeja de incidencias — datáfono sin la prueba de Paytef y topes d
     const items = await svc.list('t-1');
     const unproven = items.find((i) => i.kind === 'pos_unproven_sales')!;
     expect(unproven).toMatchObject({ refId: '2026-10-13', amountCents: 45_000, ackable: true, paymentId: null });
-    expect(unproven.detail).toContain('3 cobros (450,00 €)');
+    expect(unproven.title).toBe('Ventas por datáfono sin cuadrar con el banco');
+    expect(unproven.detail).toContain('3 ventas por datáfono (450,00 €)');
+    // Las del camarero también, y qué hacer: la comisión está retenida hasta cuadrarlas o liberarlas.
+    expect(unproven.detail).toContain('confirmó un camarero');
+    expect(unproven.detail).toContain('retenida');
     const limit = items.find((i) => i.kind === 'pos_reception_limit')!;
     expect(limit).toMatchObject({ refId: '31', ackable: true, paymentId: null });
     expect(limit.detail).toContain('«Recepción» ha pasado el tope de recargas del datáfono en 24 h (pedía 999,99 €)');
@@ -428,6 +432,8 @@ describe('alertas por Telegram', () => {
       },
       venueNight: { findMany: vi.fn().mockResolvedValue(cashNights) },
       bankStatement: { findFirst: vi.fn().mockResolvedValue(null) },
+      // Ventas por datáfono retenidas de más de 24 h (bank-hold-sql.staleBankHolds): ninguna.
+      $queryRaw: vi.fn().mockResolvedValue([{ count: 0, chargedCents: 0n, shareCents: 0n, oldestAt: null }]),
       asSystem: vi.fn(),
       acrossVenues: vi.fn(),
     };
@@ -536,6 +542,91 @@ describe('alertas por Telegram', () => {
     expect(reports.cobros).toHaveBeenCalledWith('t-1', {
       from: at('2026-10-13T06:00:00Z'),
       to: at('2026-10-14T06:00:00Z'),
+    });
+  });
+
+  describe('«Avisar al encargado» desde Esperando (cobro que el banco no ha confirmado)', () => {
+    const stuck: Incident = {
+      kind: 'stuck_payment',
+      refId: 'pay-1',
+      title: 'Cobro sin confirmar por el banco',
+      detail: '38,30 €. Búscalo en el portal de BBVA y resuélvelo en Pagos → Resolver.',
+      occurredAt: '2026-10-13T22:00:00.000Z',
+      amountCents: 3_830,
+      paymentId: 'pay-1',
+      ackable: false,
+    };
+
+    it('manda ya la incidencia del cobro (la de la bandeja), una sola vez: la vuelta de los avisos no la repite', async () => {
+      const { svc, telegram, prisma, incidents } = makeAlerts([stuck]);
+      prisma.venue.findUnique.mockResolvedValue({ id: 't-1', name: 'Local Centro', alertSettings: null });
+      await expect(svc.notifyPaymentNow('t-1', 'pay-1')).resolves.toEqual({ sent: true, telegram: true });
+      expect(telegram.send).toHaveBeenCalledTimes(1);
+      expect(String(telegram.send.mock.calls[0]![0])).toContain('Local Centro: Cobro sin confirmar por el banco');
+      // Otra vez (doble toque) o la vuelta de 5 min: ya le llegó (sin recalcular las incidencias del local).
+      await expect(svc.notifyPaymentNow('t-1', 'pay-1')).resolves.toEqual({ sent: true, telegram: true });
+      expect(incidents.list).toHaveBeenCalledTimes(1);
+      await svc.tick(at('2026-10-13T22:10:00Z'));
+      expect(telegram.send).toHaveBeenCalledTimes(1);
+    });
+
+    it('sin chat de Telegram, con los avisos de cobros apagados o sin incidencia: no se manda (sigue en el panel)', async () => {
+      const noChat = makeAlerts([stuck]);
+      noChat.prisma.venue.findUnique.mockResolvedValue({ id: 't-1', name: 'Local Centro', alertSettings: { chatId: '@sin_bot_aqui' } });
+      await expect(noChat.svc.notifyPaymentNow('t-1', 'pay-1')).resolves.toEqual({ sent: false, telegram: false });
+
+      const off = makeAlerts([stuck]);
+      off.prisma.venue.findUnique.mockResolvedValue({ id: 't-1', name: 'Local Centro', alertSettings: { kinds: { payments: false } } });
+      await expect(off.svc.notifyPaymentNow('t-1', 'pay-1')).resolves.toEqual({ sent: false, telegram: true });
+
+      const other = makeAlerts([{ ...stuck, refId: 'pay-2', paymentId: 'pay-2' }]);
+      other.prisma.venue.findUnique.mockResolvedValue({ id: 't-1', name: 'Local Centro', alertSettings: null });
+      await expect(other.svc.notifyPaymentNow('t-1', 'pay-1')).resolves.toEqual({ sent: false, telegram: true });
+      expect([noChat, off, other].every((x) => x.telegram.send.mock.calls.length === 0)).toBe(true);
+    });
+  });
+
+  describe('recordatorio de ventas por datáfono sin cuadrar (comisión retenida)', () => {
+    const stale = [{ count: 2, chargedCents: 40_000n, shareCents: 36_000n, oldestAt: at('2026-10-12T23:00:00Z') }];
+    const bankHold = (calls: unknown[][]) => calls.filter(([text]) => String(text).includes('sin cuadrar con el banco'));
+
+    it('una vez al día por local, desde las 9:00 de Madrid, con lo cobrado y lo retenido (sin nombres)', async () => {
+      const { svc, telegram, prisma, redis } = makeAlerts([]);
+      prisma.$queryRaw.mockResolvedValue(stale);
+      await svc.tick(at('2026-10-14T06:30:00Z')); // 08:30: aún no
+      expect(bankHold(telegram.send.mock.calls)).toHaveLength(0);
+      await svc.tick(at('2026-10-14T07:30:00Z')); // 09:30
+      await svc.tick(at('2026-10-14T12:30:00Z')); // y otra vuelta del mismo día
+      const sent = bankHold(telegram.send.mock.calls);
+      expect(sent).toHaveLength(1);
+      expect(String(sent[0]![0])).toContain('Local Centro: 2 ventas por datáfono sin cuadrar con el banco desde hace más de 24 h (400,00 € cobrados)');
+      expect(String(sent[0]![0])).toContain('(360,00 €) está retenida');
+      expect(redis.set).toHaveBeenCalledWith('np:bankhold:t-1:2026-10-14', '1', 'EX', expect.any(Number), 'NX');
+      // Las de más de 24 h: el corte va 24 h antes de la vuelta; ya enviado, la vuelta siguiente ni consulta.
+      expect(prisma.$queryRaw).toHaveBeenCalledTimes(1);
+      const before = prisma.$queryRaw.mock.calls.at(-1)!.slice(1).find((v: unknown) => v instanceof Date) as Date | undefined;
+      expect(before?.toISOString()).toBe('2026-10-13T07:30:00.000Z');
+      // Al día siguiente, otra vez.
+      await svc.tick(at('2026-10-15T07:30:00Z'));
+      expect(bankHold(telegram.send.mock.calls)).toHaveLength(2);
+    });
+
+    it('sin ventas retenidas de más de 24 h, o con los avisos del datáfono apagados, nada', async () => {
+      const quiet = makeAlerts([]);
+      await quiet.svc.tick(at('2026-10-14T07:30:00Z'));
+      expect(bankHold(quiet.telegram.send.mock.calls)).toHaveLength(0);
+
+      const off = makeAlerts([], [], [], { kinds: { pos: false } });
+      off.prisma.$queryRaw.mockResolvedValue(stale);
+      await off.svc.tick(at('2026-10-14T07:30:00Z'));
+      expect(bankHold(off.telegram.send.mock.calls)).toHaveLength(0);
+    });
+
+    it('si falla, el resumen de las 9:00 sale igual', async () => {
+      const { svc, telegram, prisma } = makeAlerts([incident('1')]);
+      prisma.$queryRaw.mockRejectedValue(new Error('base caída'));
+      await svc.tick(at('2026-10-14T07:30:00Z'));
+      expect(telegram.send.mock.calls.filter(([text]) => String(text).includes('anoche'))).toHaveLength(1);
     });
   });
 

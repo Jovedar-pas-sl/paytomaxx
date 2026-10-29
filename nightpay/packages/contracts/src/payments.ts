@@ -335,6 +335,12 @@ export const PublicPaymentViewSchema = z.object({
   tipCents: z.number().int().nonnegative().optional(),
   /** «Comisión del servicio» del cobro (encima de amountCents; 0 sin ella). Opcional: API anterior. */
   serviceFeeCents: z.number().int().nonnegative().optional(),
+  /**
+   * Esperando al banco (AUTHORIZING) o sin su respuesta (ORPHAN): cuándo salió
+   * el intento hacia el banco (la espera se cuenta desde ahí, pay-wait.ts).
+   * En los demás estados no va. Opcional: API anterior.
+   */
+  attemptStartedAt: z.string().datetime().nullable().optional(),
 });
 export type PublicPaymentView = z.infer<typeof PublicPaymentViewSchema>;
 

@@ -4,6 +4,8 @@ import type { FastifyReply } from 'fastify';
 import { ConflictException } from '@nestjs/common';
 import { PublicPayController, walletClaimCookieName } from './public-pay.controller';
 import type { PayReceiptView, PayRedirect, PayResultView } from './pay-redirect';
+import type { PayStatusContext } from './pay-status.service';
+import { IP_RATE_LIMIT_META } from '../../common/guards/ip-rate-limit.guard';
 
 const PAYMENT_ID = '7f1c2a9e-3b4d-4e5f-8a6b-1c2d3e4f5a6b';
 const IPHONE =
@@ -39,6 +41,8 @@ function makeController(opts: {
   checkoutForm?: PayRedirect | null;
   statementName?: string;
   directWallet?: string;
+  /** «Comprobando el pago»: lo que da PayStatusService (sin él, la página de antes). */
+  statusCtx?: PayStatusContext | null;
 }) {
   const payments = {
     getResultView: vi.fn().mockResolvedValue(opts.view ?? null),
@@ -56,7 +60,16 @@ function makeController(opts: {
   };
   const config = { get: vi.fn((key: string) => settings[key]) };
   const redsysReturn = { process: vi.fn().mockResolvedValue('enviado') };
-  return { controller: new PublicPayController(payments as never, config as never, {} as never, {} as never, redsysReturn as never), payments, redsysReturn };
+  const status = {
+    byToken: vi.fn().mockResolvedValue(opts.statusCtx ?? null),
+    byOrder: vi.fn().mockResolvedValue(opts.statusCtx ?? null),
+  };
+  return {
+    controller: new PublicPayController(payments as never, config as never, {} as never, {} as never, redsysReturn as never, status as never),
+    payments,
+    redsysReturn,
+    status,
+  };
 }
 
 function view(overrides: Partial<PayResultView>): PayResultView {
@@ -847,5 +860,128 @@ describe('«Recargar» desde /w: tras pagar, de vuelta al saldo (solo el navegad
     const { reply } = fakeReply(`${name}=${RETURN}`);
     await controller.startCheckout('qr-token-1', { tip: '0', method: 'wallet', lang: 'es' }, undefined, reply);
     expect(payments.startCheckout).toHaveBeenCalledWith('qr-token-1', expect.objectContaining({ claimHash: returnHash }));
+  });
+});
+
+describe('«Comprobando el pago»: el estado en JSON y la página que se pone al día sola', () => {
+  const NOW = Date.now();
+  const ctx = (o: Partial<PayStatusContext['view']> = {}): PayStatusContext => ({
+    view: {
+      state: 'processing',
+      attemptStartedAt: new Date(NOW - 5_000).toISOString(),
+      retryAt: new Date(NOW + 145_000).toISOString(),
+      qrExpiresAt: new Date(NOW + 600_000).toISOString(),
+      amountCents: 3_830,
+      venueName: 'Sala Aurora',
+      otherPayer: false,
+      now: new Date(NOW).toISOString(),
+      ...o,
+    },
+    qrToken: 'qr-token-1',
+    currency: 'EUR',
+    concept: 'Gin tonic',
+    ref: 'C-0012',
+    saldoPayToken: null,
+  });
+
+  it('GET /pay/:token/status: el estado, en JSON y sin caché; con la cookie de este navegador para «otro está pagando»', async () => {
+    const { controller, status } = makeController({ statusCtx: ctx({ otherPayer: true }) });
+    const mine = 'm'.repeat(43);
+    const { reply, sent } = fakeReply(`${walletClaimCookieName('', 'qr-token-1')}=${mine}`);
+    await controller.tokenStatus('qr-token-1', reply);
+    expect(sent.status).toBe(200);
+    expect(sent.headers['Cache-Control']).toBe('no-store');
+    expect(sent.headers['Content-Type']).toContain('application/json');
+    expect(JSON.parse(sent.body!)).toMatchObject({ state: 'processing', otherPayer: true, amountCents: 3_830, venueName: 'Sala Aurora' });
+    expect(status.byToken).toHaveBeenCalledWith('qr-token-1', createHash('sha256').update(mine).digest('hex'));
+    // Sin cookie: null (puede ser otra persona).
+    const anon = fakeReply();
+    await controller.tokenStatus('qr-token-1', anon.reply);
+    expect(status.byToken).toHaveBeenLastCalledWith('qr-token-1', null);
+  });
+
+  it('GET /pay/:token/status con un token raro: 404 sin leer cookies ni buscar el cobro', async () => {
+    const { controller, status } = makeController({ statusCtx: ctx() });
+    for (const token of ['x', 'con espacio', 'a'.repeat(200)]) {
+      const { reply, sent } = fakeReply(`${walletClaimCookieName('', token)}=${'m'.repeat(43)}`);
+      await controller.tokenStatus(token, reply);
+      expect(sent.status).toBe(404);
+      expect(sent.headers['Cache-Control']).toBe('no-store');
+    }
+    expect(status.byToken).not.toHaveBeenCalled();
+  });
+
+  it('GET /pay/result/status?op=: por el pedido del banco; sin él o desconocido, 404 (la página va a la del servidor)', async () => {
+    const { controller, status } = makeController({ statusCtx: ctx() });
+    const ok = fakeReply();
+    await controller.resultStatus('000123ABC', ok.reply);
+    expect(status.byOrder).toHaveBeenCalledWith('000123ABC');
+    expect(ok.sent.status).toBe(200);
+    expect(ok.sent.headers['Cache-Control']).toBe('no-store');
+    const none = makeController({ statusCtx: null });
+    const missing = fakeReply();
+    await none.controller.resultStatus('inventado', missing.reply);
+    expect(missing.sent.status).toBe(404);
+    const empty = fakeReply();
+    await none.controller.resultStatus(undefined, empty.reply);
+    expect(empty.sent.status).toBe(404);
+    expect(none.status.byOrder).toHaveBeenCalledTimes(1);
+  });
+
+  it('con su propio límite por IP y por cobro (el token o el pedido), que deja pasar si Redis no contesta', () => {
+    const byToken = Reflect.getMetadata(IP_RATE_LIMIT_META, PublicPayController.prototype.tokenStatus);
+    const byOrder = Reflect.getMetadata(IP_RATE_LIMIT_META, PublicPayController.prototype.resultStatus);
+    expect(byToken).toMatchObject({ scope: 'pay-status', failOpen: true, perKey: { param: 'token' } });
+    expect(byOrder).toMatchObject({ scope: 'pay-status', failOpen: true, perKey: { query: 'op' } });
+    // Más alto que el de las páginas (600/min por IP): 50 clientes tras el wifi del local caben.
+    expect(byToken.max).toBeGreaterThanOrEqual(50 * 20);
+    expect(byToken.perKey.max).toBeGreaterThanOrEqual(20);
+  });
+
+  it('la vuelta del banco esperando su aviso: la página nueva, que consulta /pay/result/status y vuelve a la del servidor', async () => {
+    const { controller } = makeController({ view: view({ status: 'AUTHORIZING' }), statusCtx: ctx() });
+    const { reply, sent } = fakeReply();
+    await controller.paymentResult('000123ABC', 'es', undefined, reply);
+    expect(sent.status).toBe(200);
+    expect(sent.body).toContain('id="ckCfg"');
+    expect(sent.body).toContain('"statusUrl":"/pay/result/status?op=000123ABC"');
+    expect(sent.body).toContain('"finalUrl":"/pay/result?op=000123ABC&lang=es"');
+    expect(sent.body).toContain('Sala Aurora');
+    expect(sent.body).not.toContain('class="paid');
+  });
+
+  it('el QR escaneado otra vez con el pago en el banco: la página nueva por el QR', async () => {
+    const { controller } = makeController({ page: { kind: 'processing' }, statusCtx: ctx() });
+    const { reply, sent } = fakeReply();
+    await controller.payPage('qr-token-1', 'es', undefined, IPHONE, reply);
+    expect(sent.status).toBe(200);
+    expect(sent.body).toContain('"statusUrl":"/pay/qr-token-1/status"');
+    expect(sent.body).toContain('"finalUrl":"/pay/qr-token-1?lang=es"');
+  });
+
+  it('«Sin confirmación del banco»: la misma plantilla, que se sigue comprobando (y pasa a «Pagado» si llega)', async () => {
+    const { controller } = makeController({ page: { kind: 'closed', reason: 'unconfirmed' }, statusCtx: ctx({ state: 'unconfirmed', retryAt: null }) });
+    const { reply, sent } = fakeReply();
+    await controller.payPage('qr-token-1', 'es', undefined, IPHONE, reply);
+    expect(sent.status).toBe(200);
+    expect(sent.body).toContain('data-mode="unconfirmed"');
+    expect(sent.body).toContain('Tu banco aún no lo ha confirmado');
+    // Los demás cierres, como siempre (409 con su aviso).
+    const expired = makeController({ page: { kind: 'closed', reason: 'expired' }, statusCtx: ctx() });
+    const e = fakeReply();
+    await expired.controller.payPage('qr-token-1', 'es', undefined, IPHONE, e.reply);
+    expect(e.sent.status).toBe(409);
+    expect(e.sent.body).toContain('Este cobro ha caducado');
+  });
+
+  it('el nombre del extracto para «¿Ves el cargo en tu app del banco?»: PAY_STATEMENT_NAME', async () => {
+    const { controller } = makeController({
+      page: { kind: 'processing' },
+      statementName: 'SALA AURORA MADRID',
+      statusCtx: ctx({ attemptStartedAt: new Date(NOW - 70_000).toISOString() }),
+    });
+    const { reply, sent } = fakeReply();
+    await controller.payPage('qr-token-1', 'es', undefined, IPHONE, reply);
+    expect(sent.body).toContain('Busca «SALA AURORA MADRID»');
   });
 });

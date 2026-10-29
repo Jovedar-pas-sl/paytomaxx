@@ -257,7 +257,7 @@ describe('el mapa del dinero de la noche, en directo: los carriles cuadran', () 
     expect(live.where.liveSaldoCents).toBe(10_000);
     const wallet = await sys((tx) => tx.clientWallet.findUnique({ where: { id: W } }));
     expect(wallet!.balanceCents).toBe(o.saldoCents);
-    expect(live.where.owed).toEqual({ chicasCents: 12_800, camarerosCents: 0 });
+    expect(live.where.owed).toEqual({ chicasCents: 12_800, camarerosCents: 0, bankHeldCents: 0 });
   });
 
   it('qué sale: lo pagado al camarero, lo pendiente de Lola, devoluciones y comisiones', () => {

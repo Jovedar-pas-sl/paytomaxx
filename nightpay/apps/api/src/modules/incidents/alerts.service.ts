@@ -6,7 +6,8 @@ import { REDIS_CLIENT } from '../../common/redis/redis.module';
 import { lastNightCutoff, madridAt, madridDay } from '../../common/time/madrid';
 import { summarize, type ExportSummary } from '../reports/export-csv';
 import { ReportsService } from '../reports/reports.service';
-import { incidentMessage, morningSummaryMessage } from './alert-messages';
+import { staleBankHolds } from '../operators/bank-hold-sql';
+import { bankHoldReminderMessage, incidentMessage, morningSummaryMessage } from './alert-messages';
 import { mergeSummaries, type SummaryScope } from './morning-summary';
 import { IncidentsService } from './incidents.service';
 import { TelegramService } from './telegram.service';
@@ -19,6 +20,10 @@ const MAX_ALERTS_PER_TICK = 10;
 /** Hora del resumen diario (Madrid) y hasta cuándo tiene sentido mandarlo. */
 const SUMMARY_HOUR = 9;
 const SUMMARY_LAST_HOUR = 14;
+/** Ventas por datáfono sin cuadrar con el banco: se recuerdan pasadas 24 h, una vez al día por local. */
+const BANK_HOLD_STALE_MS = 24 * 60 * 60 * 1000;
+/** El recordatorio sale desde esta hora de Madrid (no de madrugada, con la noche abierta). */
+const BANK_HOLD_REMINDER_HOUR = SUMMARY_HOUR;
 /**
  * Solo se avisa de lo reciente: al arrancar por primera vez (o si Redis se
  * vacía) no llegan de golpe las incidencias de hace semanas. Siguen en la bandeja.
@@ -116,6 +121,13 @@ export class AlertsService implements OnModuleInit, OnModuleDestroy {
       if (await this.sendOnce(key, ALERT_SENT_TTL_S, message, chatId)) sent += 1;
     }
 
+    // Un fallo del recordatorio no se lleva por delante el resumen de las 9:00.
+    try {
+      await this.bankHoldReminder(venue, settings, now);
+    } catch (err) {
+      this.logger.warn(`Recordatorio de ventas por datáfono sin cuadrar de ${venue.id}: ${(err as Error).message}`);
+    }
+
     if (!settings.kinds.summary) return;
     const today = madridDay(now);
     if (now < madridAt(today, SUMMARY_HOUR) || now >= madridAt(today, SUMMARY_LAST_HOUR)) return;
@@ -146,6 +158,50 @@ export class AlertsService implements OnModuleInit, OnModuleDestroy {
       () => morningSummaryMessage(venue.name, summary, open.length, bankFilePending, cashDiff, scope),
       chatId,
     );
+  }
+
+  /**
+   * Una vez al día por local (desde las 9:00 de Madrid): ventas por datáfono
+   * sin cuadrar con el banco de hace más de 24 h, con su comisión retenida.
+   * Va con los avisos del datáfono (Ajustes → Avisos: «pos»). La marca del día
+   * en Redis (SET NX, sendOnce): dos réplicas no lo mandan dos veces.
+   */
+  async bankHoldReminder(
+    venue: { id: string; name: string },
+    settings: VenueAlertSettings,
+    now: Date = new Date(),
+  ): Promise<boolean> {
+    if (!settings.kinds.pos) return false;
+    const today = madridDay(now);
+    if (now < madridAt(today, BANK_HOLD_REMINDER_HOUR)) return false;
+    const key = `np:bankhold:${venue.id}:${today}`;
+    if ((await this.redis.exists(key)) > 0) return false;
+    const stale = await this.prisma.asSystem((tx) => staleBankHolds(tx, venue.id, new Date(now.getTime() - BANK_HOLD_STALE_MS)));
+    if (stale.count === 0) return false;
+    return this.sendOnce(key, 2 * 24 * 60 * 60, () => bankHoldReminderMessage(venue.name, stale), settings.chatId);
+  }
+
+  /**
+   * «Avisar al encargado» desde Esperando (cobro que el banco no ha
+   * confirmado): manda ya por Telegram la incidencia de ese cobro, la misma de
+   * la bandeja («Cobro sin confirmar por el banco», stuck_payment), con la
+   * misma marca que la vuelta de los avisos: al encargado le llega una sola
+   * vez. Con los avisos de cobros apagados (o sin chat), no se manda: sigue
+   * en Incidencias del panel. `sent`: le ha llegado (ahora o antes).
+   */
+  async notifyPaymentNow(venueId: string, paymentId: string, now: Date = new Date()): Promise<{ sent: boolean; telegram: boolean }> {
+    const venue = await this.prisma.venue.findUnique({ where: { id: venueId }, select: { id: true, name: true, alertSettings: true } });
+    if (!venue) return { sent: false, telegram: false };
+    const settings = alertSettingsOf(venue.alertSettings);
+    if (!this.telegram.isConfigured(settings.chatId)) return { sent: false, telegram: false };
+    // Ya avisado (por aquí o por la vuelta de los avisos): sin recalcular las incidencias del local.
+    const key = `np:alert:${venue.id}:stuck_payment:${paymentId}`;
+    if ((await this.redis.exists(key)) > 0) return { sent: true, telegram: true };
+    const incident = (await this.incidents.list(venueId, now)).find((i) => i.kind === 'stuck_payment' && i.refId === paymentId);
+    if (!incident || !settings.kinds[alertKindForIncident(incident.kind)]) return { sent: false, telegram: true };
+    const message = () => incidentMessage(venue.name, incident, { includeNames: settings.includeNames });
+    if (await this.sendOnce(key, ALERT_SENT_TTL_S, message, settings.chatId)) return { sent: true, telegram: true };
+    return { sent: (await this.redis.exists(key)) > 0, telegram: true };
   }
 
   /** Lo apuntado en el tramo, tal como está ahora (sin noche cerrada). */

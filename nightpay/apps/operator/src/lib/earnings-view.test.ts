@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { MyDebt, MyEarning, MyNight, OperatorBalance } from './api';
 import {
+  bankHeldItems,
   dayLabel,
   earningDetail,
   groupByNight,
@@ -104,10 +105,20 @@ describe('las cifras de arriba', () => {
       tonightPaid: false,
       otherNightsCents: 6_000,
       heldCents: 0,
+      bankHeldCents: 0,
       debtCents: 2_500,
       nextPayoutCents: 8_000,
       owedAfterCents: 0,
     });
+  });
+
+  it('ventas por datáfono sin cuadrar con el banco: aparte, «Pendiente de cuadrar», y fuera del próximo pago', () => {
+    // El API ya las quita de lo disponible (availableCents) y las da aparte.
+    const s = moneySummary(OPEN_NIGHT, balance({ availableCents: 2_000, bankHeldCents: 18_000, bankHeldCount: 1 }));
+    expect(s.bankHeldCents).toBe(18_000);
+    expect(s.nextPayoutCents).toBe(2_000);
+    // Un API anterior sin el campo: 0.
+    expect(moneySummary(OPEN_NIGHT, balance()).bankHeldCents).toBe(0);
   });
 
   it('API antiguo sin el reparto: otras noches = lo pendiente (con la deuda sumada) menos esta noche', () => {
@@ -229,6 +240,17 @@ describe('las listas del detalle', () => {
     expect(heldUntil(items)).toBe('2026-10-15T22:30:00.000Z');
     expect(heldItems(EARNINGS, 0, NOW)).toEqual([]);
     expect(heldUntil([])).toBeNull();
+  });
+
+  it('pendiente de cuadrar: las suyas sin pagar retenidas (no salen «en espera»), de la más antigua a la más nueva', () => {
+    const withBank = [
+      ...EARNINGS,
+      earning({ id: 'pos-new', createdAt: '2026-10-13T23:00:00Z', netCents: 18_000, bankHeld: true }),
+      earning({ id: 'pos-old', createdAt: '2026-10-12T22:00:00Z', netCents: 9_000, bankHeld: true }),
+      earning({ id: 'pos-paid', createdAt: '2026-10-11T22:00:00Z', netCents: 5_000, bankHeld: true, payoutId: 'po-9' }),
+    ];
+    expect(bankHeldItems(withBank).map((e) => e.id)).toEqual(['pos-old', 'pos-new']);
+    expect(heldItems(withBank, 2, NOW).map((i) => i.earning.id)).toEqual(['early', 'late', 'tonight']);
   });
 
   it('deudas: las que se van a descontar y las ya descontadas', () => {

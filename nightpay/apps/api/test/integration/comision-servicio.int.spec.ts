@@ -143,6 +143,8 @@ async function local(name: string, fee: { enabled: boolean; cardBps?: number; to
           serviceFeeEnabled: fee.enabled,
           serviceFeeBps: fee.cardBps ?? 1000,
           topUpServiceFeeBps: fee.topUpBps ?? 1000,
+          // Cobra con datáfono: lo guardó encendido (de fábrica va apagado desde el 20-10-2026).
+          paymentMethods: { pos: true },
         },
       })
     ).id;

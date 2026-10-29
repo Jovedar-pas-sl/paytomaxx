@@ -50,6 +50,12 @@ const PAY_PAGES = /^\/pay\/[^/?]+(\/(checkout|receipt))?(\?|$)/;
  * abierto y desde la misma IP). Va con su propio @IpRateLimit.
  */
 const PAYMENT_PUBLIC_POLL = /^\/v1\/payments\/public\/[^/?]+(\?|$)/;
+/**
+ * El estado del pago de «Comprobando el pago» (/pay/:token/status y
+ * /pay/result/status?op=): lo consulta cada cliente cada pocos segundos, todos
+ * desde la IP del local. Va con su propio @IpRateLimit (por IP y por cobro).
+ */
+const PAY_STATUS_POLL = /^\/pay\/[^/?]+\/status(\?|$)/;
 const LOOPBACK = new Set(['127.0.0.1', '::1']);
 
 interface LimitedRequest extends ClientIpRequest {
@@ -64,7 +70,7 @@ interface LimitedRequest extends ClientIpRequest {
  * misma máquina (p. ej. un túnel de Cloudflare) no habría límite.
  */
 export function isGlobalRateLimitExempt(req: LimitedRequest): boolean {
-  if (req.method === 'GET' && [WALLET_STATE_POLL, PAY_PAGES, PAYMENT_PUBLIC_POLL].some((re) => re.test(req.url))) {
+  if (req.method === 'GET' && [WALLET_STATE_POLL, PAY_PAGES, PAYMENT_PUBLIC_POLL, PAY_STATUS_POLL].some((re) => re.test(req.url))) {
     return true;
   }
   const peer = normalizeIp(req.raw?.socket?.remoteAddress ?? req.socket?.remoteAddress);

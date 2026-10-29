@@ -3,6 +3,7 @@
 import type { CSSProperties, ReactNode } from 'react';
 import type { MyDebt, MyEarning, MyNight, MyPayoutInfo } from '@/lib/api';
 import {
+  bankHeldItems,
   dayLabel,
   earningDetail,
   groupByNight,
@@ -20,7 +21,7 @@ import {
 import { formatEur, formatSignedEur } from '@/lib/money';
 import styles from './money.module.css';
 
-export type DetailKind = 'tonight' | 'other' | 'held' | 'debts';
+export type DetailKind = 'tonight' | 'other' | 'held' | 'bank' | 'debts';
 
 interface Props {
   kind: DetailKind;
@@ -44,6 +45,7 @@ export function EarningsDetail(props: Props) {
       {kind === 'tonight' ? <TonightDetail {...props} /> : null}
       {kind === 'other' ? <OtherNightsDetail {...props} /> : null}
       {kind === 'held' ? <HeldDetail {...props} /> : null}
+      {kind === 'bank' ? <BankDetail {...props} /> : null}
       {kind === 'debts' ? <DebtsDetail {...props} /> : null}
     </section>
   );
@@ -123,6 +125,34 @@ function HeldDetail({ summary, earnings, holdDays }: Props) {
   );
 }
 
+/** Pendiente de cuadrar: cobros por datáfono que el local aún no ha cuadrado con el banco (H-1). */
+function BankDetail({ summary, earnings }: Props) {
+  const items = bankHeldItems(earnings ?? []);
+  return (
+    <>
+      <Head title="Pendiente de cuadrar" amount={formatEur(summary.bankHeldCents, { compact: true })} tone="warning">
+        Son cobros por datáfono que el local aún no ha cuadrado con el banco. No se pierden: se pagan en cuanto el local
+        los cuadre con el extracto (o el dueño los dé por buenos).
+      </Head>
+      {earnings === null ? <p style={emptyText}>Cargando…</p> : null}
+      {earnings !== null && items.length === 0 ? <p style={emptyText}>Nada pendiente de cuadrar.</p> : null}
+      {items.length > 0 ? (
+        <ul style={listStyle}>
+          {items.map((e) => (
+            <Item
+              key={e.id}
+              title={`Cobro del ${dayLabel(e.createdAt)} · ${timeLabel(e.createdAt)}`}
+              detail={`Por datáfono · ${earningDetail(e)}`}
+              amount={formatSignedEur(e.netCents, { compact: true })}
+              tone="warning"
+            />
+          ))}
+        </ul>
+      ) : null}
+    </>
+  );
+}
+
 function DebtsDetail({ summary, info }: Props) {
   const { open, settled } = splitDebts(info?.debts ?? []);
   const rest = unlistedCents(summary.debtCents, open.reduce((sum, d) => sum + d.cents, 0));
@@ -183,7 +213,7 @@ function EarningList({ earnings, items, empty }: { earnings: MyEarning[] | null;
       {items.map((e) => (
         <Item
           key={e.id}
-          title={`${timeLabel(e.createdAt)} · ${e.paymentId ? 'Cobro' : 'Del saldo'}${e.payoutId ? ' · pagado' : ''}`}
+          title={`${timeLabel(e.createdAt)} · ${e.paymentId ? 'Cobro' : 'Del saldo'}${e.payoutId ? ' · pagado' : e.bankHeld ? ' · pendiente de cuadrar' : ''}`}
           detail={earningDetail(e)}
           amount={formatSignedEur(e.netCents, { compact: true })}
           tone={e.netCents < 0 ? 'danger' : e.reversedCents > 0 ? 'warning' : 'text'}

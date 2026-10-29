@@ -391,6 +391,22 @@ describe('getByToken — consulta pública por el QR', () => {
     },
   );
 
+  it('esperando al banco o sin su respuesta: cuándo salió el intento (la espera del personal cuenta desde ahí)', async () => {
+    const sentAt = new Date('2026-10-17T01:29:10+02:00');
+    const waiting = makeService({ payment: { status: 'AUTHORIZING', attempts: [{ createdAt: sentAt }] } });
+    await expect(waiting.service.getByToken(QR)).resolves.toMatchObject({ status: 'AUTHORIZING', attemptStartedAt: sentAt.toISOString() });
+    const orphan = makeService({ payment: { status: 'ORPHAN', attempts: [{ createdAt: sentAt }] } });
+    await expect(orphan.service.getByToken(QR)).resolves.toMatchObject({ status: 'ORPHAN', attemptStartedAt: sentAt.toISOString() });
+    // Un cobro de antes de los intentos (Fase 0): desde que cambió de estado.
+    const legacy = makeService({ payment: { status: 'AUTHORIZING', attempts: [] } });
+    await expect(legacy.service.getByToken(QR)).resolves.toMatchObject({ attemptStartedAt: AUTHORIZED_AT.toISOString() });
+    // En los demás estados, nada.
+    for (const status of ['CREATED', 'AUTHORIZED', 'FAILED', 'EXPIRED']) {
+      const other = makeService({ payment: { status, attempts: [{ createdAt: sentAt }] } });
+      await expect(other.service.getByToken(QR)).resolves.not.toHaveProperty('attemptStartedAt');
+    }
+  });
+
   it.each(['AUTHORIZED', 'PARTIALLY_REFUNDED', 'REFUNDED'])(
     'pagado (%s): con el id, como antes (las apps del personal lo comparan en el sondeo)',
     async (status) => {

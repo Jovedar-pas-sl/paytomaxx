@@ -92,6 +92,8 @@ export interface ChicaBalanceRow {
   unpaidCents: number;
   /** De lo no pagado, lo que aún está en espera. */
   heldCents: number;
+  /** De lo no pagado, lo retenido por ventas por datáfono sin cuadrar con el banco (no está en heldCents). */
+  bankHeldCents?: number;
   earnedTonightCents: number;
   paidTonightCents: number;
   paidTonightCount: number;
@@ -316,7 +318,8 @@ export function efectivoStep(cash: NightCash): NightCloseStep {
 
 /** Lo que se le paga ya a una chica (como createPayout): lo liberado menos la deuda. */
 export function chicaPay(r: ChicaBalanceRow): NightChicaPay {
-  const available = availableCentsOf({ unpaidCents: r.unpaidCents, heldCents: r.heldCents, debtCents: r.debtCents });
+  const bankHeldCents = Math.max(0, r.bankHeldCents ?? 0);
+  const available = availableCentsOf({ unpaidCents: r.unpaidCents, heldCents: r.heldCents, bankHeldCents, debtCents: r.debtCents });
   return {
     operatorId: r.operatorId,
     name: r.name,
@@ -325,6 +328,7 @@ export function chicaPay(r: ChicaBalanceRow): NightChicaPay {
     payoutLabel: r.payoutLabel,
     toPayCents: Math.max(0, available),
     heldCents: Math.max(0, r.heldCents),
+    bankHeldCents,
     earnedTonightCents: r.earnedTonightCents,
     paidTonightCents: r.paidTonightCents,
     paidTonightCount: r.paidTonightCount,
@@ -336,14 +340,21 @@ export function chicasStep(chicas: ReadonlyArray<NightChicaPay>, holdDays: numbe
   const toPay = chicas.filter((c) => c.toPayCents > 0);
   const toPayCents = toPay.reduce((sum, c) => sum + c.toPayCents, 0);
   const heldCents = chicas.reduce((sum, c) => sum + c.heldCents, 0);
+  const bankHeldCents = chicas.reduce((sum, c) => sum + (c.bankHeldCents ?? 0), 0);
   const items = chicas.map((c): NightCloseItem => ({
     id: c.operatorId,
     status: c.toPayCents > 0 ? 'warn' : 'ok',
     label: chicaLabel(c, holdDays),
     amountCents: c.toPayCents,
   }));
-  const later =
+  const waiting =
     holdDays > 0 && heldCents > 0 ? ` ${eur(heldCents)} siguen en espera: se pagan pasados ${days(holdDays)}.` : '';
+  // Ventas por datáfono sin prueba del banco: su parte no se paga hasta cuadrarlas (o liberarlas el dueño).
+  const unmatched =
+    bankHeldCents > 0
+      ? ` ${eur(bankHeldCents)} pendientes de cuadrar con el banco: se pagan al cuadrar el fichero o si el dueño las libera.`
+      : '';
+  const later = `${waiting}${unmatched}`;
   const detail =
     toPay.length > 0
       ? `${toPay.length === 1 ? 'Queda 1 persona' : `Quedan ${toPay.length} personas`} por pagar: ${eur(toPayCents)}.${later}`
@@ -366,6 +377,7 @@ function chicaLabel(c: NightChicaPay, holdDays: number): string {
   const parts = [c.toPayCents > 0 ? `Págale ${eur(c.toPayCents)}` : 'Nada que pagar ya'];
   if (c.paidTonightCents > 0) parts.push(`pagado esta noche ${eur(c.paidTonightCents)}`);
   if (c.heldCents > 0 && holdDays > 0) parts.push(`${eur(c.heldCents)} en espera`);
+  if ((c.bankHeldCents ?? 0) > 0) parts.push(`${eur(c.bankHeldCents ?? 0)} pendientes de cuadrar con el banco`);
   if (c.debtCents > 0) parts.push(`debe ${eur(c.debtCents)} por devoluciones`);
   return `${c.name}: ${parts.join(' · ')}`;
 }

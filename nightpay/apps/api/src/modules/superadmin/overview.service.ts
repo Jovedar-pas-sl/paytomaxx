@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import type { OverviewBusiness, OverviewTotals, OverviewVenue, SuperAdminOverview } from '@nightpay/contracts';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { IncidentsService } from '../incidents/incidents.service';
+import { earningBankHeldSql, earningNetSql } from '../operators/bank-hold-sql';
 import { payableSummary, resolveHoldDays, type BalanceSums } from '../operators/payout-math';
 import { PAID_STATUSES_SQL, paymentAt, refundAt } from '../reports/reporting-sql';
 import { madridRecentDaysWindow, madridTodayWindow } from '../reports/reporting-window';
@@ -44,6 +45,8 @@ interface EarningRow {
   operatorId: string;
   unpaidCents: bigint;
   heldCents: bigint;
+  /** Lo retenido hasta cuadrarlo con el banco (opcional: las pruebas de antes no lo traen). */
+  bankHeldCents?: bigint;
 }
 
 interface DebtRow {
@@ -109,16 +112,22 @@ export class SuperAdminOverviewService {
       `,
       // Lo no pagado y lo que sigue en espera, con el corte de CADA local (sus
       // días o PAYOUT_HOLD_DAYS), en horas exactas como payoutCutoff.
+      // Lo retenido (venta por datáfono sin cuadrar con el banco, bank-hold-sql) va aparte de lo «en espera».
       earnings: await tx.$queryRaw<EarningRow[]>`
-        SELECT e."tenantId", e."operatorId",
-               SUM(e."commissionCents" + COALESCE(e."tipCents", 0) - e."reversedCents")::bigint AS "unpaidCents",
-               COALESCE(SUM(e."commissionCents" + COALESCE(e."tipCents", 0) - e."reversedCents")
-                 FILTER (WHERE e."createdAt" > ${now}::timestamptz
-                                - make_interval(hours => 24 * COALESCE(v."payoutHoldDays", ${envHoldDays}::int))), 0)::bigint AS "heldCents"
-          FROM operator_earnings e
-          JOIN venues v ON v.id = e."tenantId"
-         WHERE e."payoutId" IS NULL
-         GROUP BY e."tenantId", e."operatorId"
+        SELECT x."tenantId", x."operatorId",
+               SUM(x.net)::bigint AS "unpaidCents",
+               COALESCE(SUM(x.net)
+                 FILTER (WHERE NOT x.bank AND x."createdAt" > ${now}::timestamptz
+                                - make_interval(hours => 24 * COALESCE(x."payoutHoldDays", ${envHoldDays}::int))), 0)::bigint AS "heldCents",
+               COALESCE(SUM(x.net) FILTER (WHERE x.bank), 0)::bigint AS "bankHeldCents"
+          FROM (
+            SELECT e."tenantId", e."operatorId", e."createdAt", v."payoutHoldDays",
+                   ${earningNetSql('e')} AS net, ${earningBankHeldSql('e')} AS bank
+              FROM operator_earnings e
+              JOIN venues v ON v.id = e."tenantId"
+             WHERE e."payoutId" IS NULL
+          ) x
+         GROUP BY x."tenantId", x."operatorId"
       `,
       debts: await tx.$queryRaw<DebtRow[]>`
         SELECT e."tenantId", e."operatorId", SUM(r."reversedDeltaCents")::bigint AS "debtCents"
@@ -184,6 +193,7 @@ export class SuperAdminOverviewService {
           chargedWeekCents: Number(c?.chargedWeek ?? 0),
           pendingToChicasCents: payable.payableCents,
           heldForChicasCents: payable.heldCents,
+          bankHeldForChicasCents: payable.bankHeldCents,
           chicasDebtCents: payable.debtCents,
           liveCustomerBalanceCents: Number(w?.balance ?? 0),
           liveCustomerWallets: Number(w?.wallets ?? 0),
@@ -239,7 +249,7 @@ export function operatorBalancesByVenue(
   const byOperator = new Map<string, { tenantId: string; sums: BalanceSums }>();
   const slot = (tenantId: string, operatorId: string) => {
     const key = `${tenantId}:${operatorId}`;
-    const found = byOperator.get(key) ?? { tenantId, sums: { unpaidCents: 0, heldCents: 0, debtCents: 0 } };
+    const found = byOperator.get(key) ?? { tenantId, sums: { unpaidCents: 0, heldCents: 0, bankHeldCents: 0, debtCents: 0 } };
     byOperator.set(key, found);
     return found.sums;
   };
@@ -247,6 +257,7 @@ export function operatorBalancesByVenue(
     const s = slot(e.tenantId, e.operatorId);
     s.unpaidCents += Number(e.unpaidCents);
     s.heldCents += Number(e.heldCents);
+    s.bankHeldCents = (s.bankHeldCents ?? 0) + Number(e.bankHeldCents ?? 0);
   }
   for (const d of debts) slot(d.tenantId, d.operatorId).debtCents += Number(d.debtCents);
   const out = new Map<string, BalanceSums[]>();
@@ -278,6 +289,7 @@ function addVenue(t: OverviewTotals, v: OverviewVenue): OverviewTotals {
     chargedWeekCents: t.chargedWeekCents + v.chargedWeekCents,
     pendingToChicasCents: t.pendingToChicasCents + v.pendingToChicasCents,
     heldForChicasCents: t.heldForChicasCents + v.heldForChicasCents,
+    bankHeldForChicasCents: (t.bankHeldForChicasCents ?? 0) + (v.bankHeldForChicasCents ?? 0),
     chicasDebtCents: t.chicasDebtCents + v.chicasDebtCents,
     liveCustomerBalanceCents: t.liveCustomerBalanceCents + v.liveCustomerBalanceCents,
     liveCustomerWallets: t.liveCustomerWallets + v.liveCustomerWallets,

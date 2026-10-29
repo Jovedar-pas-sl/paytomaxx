@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { Prisma } from '@nightpay/db';
 import { TreasuryService } from './treasury.service';
 
 interface Opts {
@@ -14,9 +15,11 @@ function makeTreasury(opts: Opts = {}) {
   const prisma = {
     venue: { findUnique: vi.fn().mockResolvedValue({ payoutHoldDays: opts.venueHoldDays ?? null }) },
     $queryRaw: vi.fn().mockImplementation(async (strings: TemplateStringsArray, ...values: unknown[]) => {
-      const sql = strings.join('?');
+      // El SQL entero (con las piezas comunes como bank-hold-sql dentro) y sus parámetros.
+      const q = Prisma.sql(strings, ...values);
+      const sql = q.text;
       sqls.push(sql);
-      params.push(values);
+      params.push(q.values);
       if (sql.includes('operator_earnings')) return opts.balances ?? [];
       if (sql.includes('GROUP BY "externalRail"')) return [{ rail: 'USDT_TRC20', count: 2n }];
       if (sql.includes('GROUP BY "reconciliationStatus"')) return [{ status: 'MATCHED', count: 2n }];
@@ -66,7 +69,7 @@ describe('TreasuryService.getStats — pendiente a chicas = lo que hay que pagar
     await svc.getStats('t-1');
     const i = sqls.findIndex((s) => s.includes('operator_earnings'));
     const sql = sqls[i]!;
-    expect(sql).toMatch(/COALESCE\("tipCents", ?0\)/);
+    expect(sql).toMatch(/COALESCE\((e\.)?"tipCents", ?0\)/);
     expect(sql).toMatch(/"payoutId" IS NULL/);
     expect(sql).toMatch(/earning_reversals/);
     expect(sql).toMatch(/"afterPayout"/);
@@ -89,7 +92,7 @@ describe('TreasuryService.getStats — pendiente a chicas = lo que hay que pagar
     expect(sqls.length).toBeGreaterThan(0);
     expect(withTenant.mock.calls.map((c) => c[0])).toEqual(sqls.map(() => 't-1'));
     sqls.forEach((sql, i) => {
-      expect(sql).toMatch(/"tenantId" = \?/);
+      expect(sql).toMatch(/"tenantId" = \$\d+/);
       expect(params[i]).toContain('t-1');
     });
   });

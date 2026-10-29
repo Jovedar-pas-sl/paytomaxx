@@ -4,6 +4,7 @@ import { PrismaService } from '../../common/prisma/prisma.service';
 import { lastNightCutoff } from '../../common/time/madrid';
 import { AuditService } from '../audit/audit.service';
 import { BackupMonitorService } from '../db-backups/backup-monitor.service';
+import { paymentBankHeldSql } from '../operators/bank-hold-sql';
 import {
   SELF_RESOLVING,
   ackKey,
@@ -339,20 +340,24 @@ export class IncidentsService {
          ORDER BY v."occurredAt" DESC
          LIMIT ${PER_KIND_LIMIT}
       `,
-      // Cobros de las chicas dados por pagados sin la prueba de Paytef (el
-      // datáfono lo dice), uno por noche; se quitan al cuadrarlos con el banco.
+      // Ventas por datáfono sin prueba del banco, una incidencia por noche:
+      // las del PAX sin la consulta de Paytef y las que confirma un camarero
+      // tecleando el ticket. Su comisión está retenida (bank-hold-sql) y se
+      // quitan al cuadrarlas con el banco o al liberarlas el dueño.
       () => this.prisma.$queryRaw<UnprovenSalesRow[]>`
-        SELECT to_char(((e."occurredAt" AT TIME ZONE 'Europe/Madrid') - interval '8 hours')::date, 'YYYY-MM-DD') AS night,
-               COUNT(*)::int AS count, SUM(p."amountCents" + p."serviceFeeCents" + p."tipCents")::int AS "amountCents",
-               MAX(e."occurredAt") AS "lastAt"
-          FROM payment_events e
-          JOIN payments p ON p.id = e."paymentId"
-         WHERE e."tenantId" = ${tenantId}::uuid
-           AND e."eventType" = 'pos.device_unproven'
-           AND e."occurredAt" >= ${since}
-           AND p.status::text IN ('AUTHORIZED', 'PARTIALLY_REFUNDED')
-           AND NOT EXISTS (SELECT 1 FROM bank_statement_items i
-                            WHERE i."paymentId" = p.id AND i.status = 'MATCHED' AND i."supersededAt" IS NULL)
+        SELECT to_char(((x.at AT TIME ZONE 'Europe/Madrid') - interval '8 hours')::date, 'YYYY-MM-DD') AS night,
+               COUNT(*)::int AS count, SUM(x.cents)::int AS "amountCents", MAX(x.at) AS "lastAt"
+          FROM (
+            SELECT DISTINCT ON (p.id) p.id, e."occurredAt" AS at, (p."amountCents" + p."serviceFeeCents" + p."tipCents") AS cents
+              FROM payment_events e
+              JOIN payments p ON p.id = e."paymentId"
+             WHERE e."tenantId" = ${tenantId}::uuid
+               AND e."eventType" IN ('pos.device_unproven', 'pos.confirmed')
+               AND e."occurredAt" >= ${since}
+               AND p.status::text IN ('AUTHORIZED', 'PARTIALLY_REFUNDED')
+               AND ${paymentBankHeldSql('p')}
+             ORDER BY p.id, e."occurredAt"
+          ) x
          GROUP BY 1
          ORDER BY 1 DESC
          LIMIT ${PER_KIND_LIMIT}
