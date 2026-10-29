@@ -187,8 +187,14 @@ flowchart LR
 
 ### Seguridad
 
-- **Cada local ve solo lo suyo**: lo filtra el código en cada consulta. Además, la base tiene seguridad por filas (RLS con `FORCE`) en las tablas del dinero, que actúa en cuanto el API entra con un usuario sin superusuario. El cambio está preparado y probado: ver [`DB-ROLE.md`](nightpay/docs/DB-ROLE.md).
-- **2FA (TOTP)** para el dueño, el encargado y el super-admin en lo que mueve dinero.
+- **Cada local ve solo lo suyo**: hoy lo filtra el código en cada consulta. Además, la base tiene seguridad por filas (RLS):
+  - **con `FORCE`** en 12 tablas: saldos y sus consumos, ganancias y pagos de las chicas, «Por aprobar», efectivo, líneas de cada cobro y liquidación de OxioPay;
+  - **sin `FORCE`** de momento en `payments`, `payment_events`, `refunds`, `users` y `terminals`, entre otras.
+
+  La RLS solo actúa cuando el API entra con un usuario sin superusuario. El cambio está preparado y probado, pero aún no está activado: ver [`DB-ROLE.md`](nightpay/docs/DB-ROLE.md).
+- **2FA (TOTP)**:
+  - **obligatoria** para el super-admin, para aprobar en «Por aprobar», para que el encargado pague a una chica y en lo más delicado del efectivo (anular una recarga, devoluciones grandes en recepción, cambiar el fondo al cerrar la noche);
+  - **si la tiene activada**, en el resto de lo que mueve dinero del dueño: pagar a una chica, cambiar reglas del local o cuentas de cobro. Conviene activarla.
 - **Avisos de los bancos firmados** y comprobados antes de dar un pago por cobrado: nada se da por pagado sin prueba.
 - **Secretos fuera del repo** (`.env`), revisor de secretos antes de cada commit (`scripts/check-secrets.py`) y auditoría de dependencias en el CI.
 
