@@ -1,0 +1,6 @@
+{
+  "name": "oxiopay",
+  "private": true,
+  "description": "Solo para el CI: pnpm/action-setup lee aquí la versión de pnpm. El proyecto está en nightpay/.",
+  "packageManager": "pnpm@9.12.0+sha512.4abf725084d7bcbafbd728bfc7bee61f2f791f977fd87542b3579dcb23504d170d46337945e4c66485cd12d588a0c0e570ed9c477e7ccdd8507cf05f3f92eaca"
+}
