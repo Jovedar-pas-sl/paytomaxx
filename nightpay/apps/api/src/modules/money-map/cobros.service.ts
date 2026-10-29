@@ -33,6 +33,8 @@ const LINE_SELECT = {
 } as const;
 const LINE_ORDER = [{ createdAt: 'asc' as const }, { amountCents: 'desc' as const }, { id: 'asc' as const }];
 const PERSON_SELECT = { id: true, displayName: true, email: true, role: true } as const;
+/** Cobros que encuentra el buscador como mucho (los más recientes): un código de 3 se repite con los meses. */
+const SEARCH_MAX_MATCHES = 500;
 
 /**
  * Cobro único pagado con el saldo: el cobro con tarjeta se canceló solo
@@ -130,6 +132,8 @@ export class CobrosService {
           OR position(${term} in lower(COALESCE(a."providerTxId", p."providerTxId", p."posOperationNumber", ''))) > 0
           OR position(${term} in lower(COALESCE(p."authCode", ''))) > 0
         )
+        ORDER BY p."createdAt" DESC
+        LIMIT ${SEARCH_MAX_MATCHES}
       `;
       searchIds = matches.map((p) => p.id);
       if (searchIds.length === 0) return null;

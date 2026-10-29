@@ -25,4 +25,9 @@ describe('referencias de los cobros', () => {
   it('acepta la búsqueda del código o referencia bancaria', () => {
     expect(CobrosQuerySchema.parse({ search: '  A6B  ' }).search).toBe('A6B');
   });
+  it('pide al menos 3 caracteres: «1» encontraría casi todos los cobros del local', () => {
+    expect(CobrosQuerySchema.safeParse({ search: '1' }).success).toBe(false);
+    expect(CobrosQuerySchema.safeParse({ search: ' 12 ' }).success).toBe(false);
+    expect(CobrosQuerySchema.safeParse({ search: '123' }).success).toBe(true);
+  });
 });
