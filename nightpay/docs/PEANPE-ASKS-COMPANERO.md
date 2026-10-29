@@ -192,7 +192,7 @@ Cada item incluye: **pregunta literal** + **por qué lo necesitas** + **qué hac
 
 ## 🟢 P2 — NP Solución / futuro recurrente con PIN
 
-Estas preguntas son para la **Fase 2** del producto (cliente paga con PIN tras alta inicial — ver [nightpay/../np-solucion-poc/BRIEFING.md](../../np-solucion-poc/BRIEFING.md) si existe). **Solo preguntar si la conversación va bien y hay tiempo.**
+Estas preguntas son para la **Fase 2** del producto (cliente paga con PIN tras alta inicial — ver [NP-SOLUCION-POC-BRIEFING.md](NP-SOLUCION-POC-BRIEFING.md)). **Solo preguntar si la conversación va bien y hay tiempo.**
 
 ### 11. ¿`accion=suscribirse` funciona realmente?
 
