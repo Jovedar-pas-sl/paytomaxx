@@ -8,6 +8,7 @@ import { formatDateTime } from '@/lib/dates';
 import { enabledSections } from '@/lib/money-map';
 import { useSections } from '@/lib/use-sections';
 import { useVenueTimezone } from '@/lib/venue-context';
+import { nextSearch, SEARCH_MIN_CHARS } from '@/lib/cobros-search';
 
 const STATUS_FILTERS: Array<{ value: string; label: string }> = [
   { value: '', label: 'Todos los estados' },
@@ -53,7 +54,7 @@ export function CobrosFiltersBar({ value, onChange }: { value: CobrosFilters; on
   function applyCode(e?: FormEvent): void {
     e?.preventDefault();
     const clean = code.trim();
-    const reference = search.trim();
+    const reference = nextSearch(search, value.search);
     if ((value.walletCode ?? '') !== clean || (value.search ?? '') !== reference) set({ walletCode: clean || undefined, search: reference || undefined });
   }
 
@@ -117,10 +118,12 @@ export function CobrosFiltersBar({ value, onChange }: { value: CobrosFilters; on
         ))}
       </Select>
       <Input
-        aria-label="Código o referencia del banco"
+        aria-label="Código o referencia del banco (al menos 3 caracteres)"
         placeholder="Código o referencia del banco"
+        title="Al menos 3 letras o números"
         value={search}
         onChange={(e) => setSearch(e.target.value)}
+        minLength={SEARCH_MIN_CHARS}
         maxLength={128}
       />
       <Input

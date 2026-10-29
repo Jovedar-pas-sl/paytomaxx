@@ -131,8 +131,8 @@ export const CobrosQuerySchema = z.object({
   method: z.enum(CHARGE_METHODS).optional(),
   /** Código del saldo (K7Q-4M2, con o sin guion): sus cobros del saldo. */
   walletCode: z.string().trim().min(3).max(12).optional(),
-  /** Código de confirmación o referencia bancaria. */
-  search: z.string().trim().min(1).max(128).optional(),
+  /** Código de confirmación o referencia bancaria (al menos 3: el código tiene 3, y «1» lo encontraría casi todo). */
+  search: z.string().trim().min(3).max(128).optional(),
   walletId: UuidSchema.optional(),
   /** Las invitaciones a esta chica (cobradas por otra persona). */
   invitedOperatorId: UuidSchema.optional(),

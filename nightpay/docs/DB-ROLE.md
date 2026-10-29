@@ -7,12 +7,17 @@ de otro es el código del API.
 
 Con este cambio el API entra con `oxiopay_app`: un rol normal (sin
 superusuario) que es **dueño** de las tablas. Entonces la base aplica RLS en
-las tablas con `FORCE ROW LEVEL SECURITY` (`client_wallets`,
-`wallet_consumptions`, `operator_earnings`, `operator_payouts`,
-`earning_reversals`, `peanpe_calls`, desde «Por aprobar»
-`approval_requests` y, desde la recepción, `wallet_cash_topups`): aunque un fallo del código olvidara filtrar por local,
+las tablas con `FORCE ROW LEVEL SECURITY` (las 12 de `FORCED_RLS_TABLES` en
+`apps/api/src/common/prisma/rls.ts`: saldos, consumos, comisiones y pagos a
+las chicas, Peanpe, «Por aprobar», efectivo, líneas del mapa del dinero y la
+«Liquidación OxioPay»): aunque un fallo del código olvidara filtrar por local,
 la base no enseñaría filas de otro local. **No todas las tablas del dinero
 aíslan**: ver «Qué tablas aísla la base» justo debajo.
+
+> **Revisado y probado de nuevo el 29-10-2026** con `main` en `d6dcd73` (todas
+> las migraciones hasta la Liquidación) y la migración
+> `20261101090000_rls_politicas_una_vez`: ver «Velocidad con RLS» y «Cómo se
+> probó» al final.
 
 ### Qué tablas aísla la base
 
@@ -25,6 +30,9 @@ tiene `FORCE`. Sin `FORCE`, lo que separa los locales es solo el código del API
 | `client_wallets`, `wallet_consumptions`, `operator_earnings`, `operator_payouts`, `earning_reversals`, `peanpe_calls` | **Sí** | RLS con `FORCE`. |
 | `approval_requests` («Por aprobar») | **Sí** | RLS con `FORCE` (`20261016300000_aprobaciones`). |
 | `wallet_cash_topups` (efectivo que entra en los saldos: recepción y datáfono) | **Sí** | RLS con `FORCE` (`20261021200000_efectivo_fichas`). |
+| `payment_lines`, `charge_ref_counters` (líneas de cada cobro y su referencia C-0001) | **Sí** | RLS con `FORCE` (`20261023100000`, mapa del dinero). |
+| `oxiopay_settlements`, `oxiopay_settlement_payments` («Liquidación OxioPay») | **Sí** | RLS con `FORCE` (`20261031100000_liquidacion_oxiopay`). |
+| `oxiopay_payee`, `oxiopay_settlement_settings` (cuenta y semana de inicio de OxioPay) | **No es de ningún local** | Globales, como `businesses`: RLS sin `FORCE` que solo deja pasar el bypass. |
 | `wallet_payouts` (lo que se devuelve de un saldo) | **No** | RLS sin `FORCE`. |
 | `wallet_passes` (Google Wallet) | **No** | Sin RLS: cuelga del saldo por `walletId`, no lleva `tenantId`. |
 | `wallet_cards`, `wallet_card_events` (fichas NFC) | **No** | Sin RLS: la ficha se mueve entre locales del grupo y el local va siempre explícito en la consulta. |
@@ -49,10 +57,13 @@ sesión o el bypass.
 
 ## Antes de empezar
 
-1. **El API ya desplegado con la versión que trae este documento** (rama
-   `feat/f2-bd-tenant` en `main`), todavía con `np`. Esa versión funciona igual
-   con `np`; la anterior **no** funciona con un rol sin superusuario (los pagos
-   a las chicas, Peanpe… saldrían vacíos o fallarían).
+1. **El API ya desplegado con una versión que traiga la migración
+   `20261101090000_rls_politicas_una_vez`** (o posterior), todavía con `np`.
+   Esa versión funciona igual con `np` (con un superusuario RLS no se aplica y
+   la migración no cambia nada de lo que se ve). Sin ella, con `oxiopay_app`
+   los informes largos irían de 6 a 15 veces más lentos («Velocidad con RLS»).
+   Las versiones de antes de `feat/f2-bd-tenant` **no** funcionan con un rol
+   sin superusuario (los pagos a las chicas, Peanpe… saldrían vacíos).
 2. Con esa versión en marcha, mira la métrica nueva (apartado 5.4): tiene que
    estar a 0.
 3. Genera la contraseña del rol nuevo y guárdala en el gestor de contraseñas:
@@ -398,7 +409,76 @@ la variable y redespliega.
 
 ---
 
+## Velocidad con RLS
+
+Con `oxiopay_app` la base comprueba la política en cada fila de las tablas con
+`FORCE`. Las políticas comparan con `app_current_tenant()` y `app_rls_bypass()`
+(dos funciones plpgsql): escritas tal cual, Postgres las llamaba **en cada
+fila**. La migración `20261101090000_rls_politicas_una_vez` las envuelve en un
+`SELECT` y Postgres las calcula **una vez por consulta** (`InitPlan`); qué
+filas ve cada local no cambia. La prueba `rls-politicas.int.spec.ts` avisa si
+una migración nueva vuelve a escribir una política a la antigua: escríbelas con
+`(SELECT app_current_tenant())` y `(SELECT app_rls_bypass())`.
+
+Medido el 29-10-2026 en una copia como la de producción con datos inventados
+(3 locales; 750.000 pagos, 600.000 consumos del saldo, 450.000 comisiones,
+120.000 recargas en efectivo, 60.000 saldos, en un año), mediana de 7 vueltas,
+un local en la sesión:
+
+| Consulta | Sin RLS (`np`) | Con RLS, antes | Con RLS, con la migración |
+|---|---|---|---|
+| Z de la noche (consumos de 12 h) | 0,3 ms | 1,6 ms | 0,3 ms |
+| Semana de la liquidación (consumos de 7 días) | 3,8 ms | 23 ms | 3,9 ms |
+| Informe del mes (consumos de 30 días) | 12 ms | 86 ms | 12 ms |
+| Informe del año (consumos de 365 días) | 91 ms | 1.017 ms | 76 ms |
+| Lo de una chica (comisiones del año) | 3,2 ms | 21 ms | 3,3 ms |
+| Comisiones del local por chica (año) | 107 ms | 749 ms | 52 ms |
+| Recargas en efectivo (30 días) | 1,1 ms | 17 ms | 1,7 ms |
+| Saldo por su QR, lista de saldos, consumos de un saldo | < 0,1 ms | < 0,3 ms | < 0,1 ms |
+| Lista de cobros (`payments`, sin `FORCE`: control) | 0,1 ms | 0,1 ms | 0,1 ms |
+
+Con la migración, RLS no se nota (± 10 %, ruido de la medida). El guion de la
+medida y los datos de prueba: `np-handoff/herramientas/bd-sin-superusuario/`.
+
+---
+
 ## Cómo se probó
+
+### Segunda prueba, 29-10-2026 (`main` en `d6dcd73` + `20261101090000`)
+
+En un Postgres 16 embebido, con el superusuario `postgres` haciendo de `np` y
+la base creada por él (como en producción). Guiones en
+`np-handoff/herramientas/bd-sin-superusuario/`:
+
+1. Migraciones aplicadas **por el superusuario** hasta
+   `20261029400200_pago_direccion_cobro` (`db-heal`, `prisma migrate deploy`,
+   `db-heal`) y datos inventados con volumen: 3 locales, unos 2 millones de
+   filas (ver «Velocidad con RLS»).
+2. Pasos 1 y 2 **con el SQL sacado tal cual de este documento** (solo
+   `\password` cambiado por `ALTER ROLE … PASSWORD`, que en la prueba no hay
+   `psql`). Comprobación del paso 2: `0 rows`. Comprobación del paso 3:
+   `todas = 450000`, `las_de_un_local = 150000`, `sin_local = 0`.
+3. Arranque como `oxiopay_app`: aplicó **como él** las migraciones que
+   faltaban, que crean tablas con `FORCE`, políticas, CHECK con `NOT VALID` +
+   `VALIDATE` y columnas nuevas (`20261030100000_comision_servicio`,
+   `20261030110000_comision_saldo`, `20261031100000_liquidacion_oxiopay`,
+   `20261031110000_liquidacion_revision`) y después
+   `20261101090000_rls_politicas_una_vez`, sin errores. Lo creado es de
+   `oxiopay_app` (la comprobación del paso 2 sigue en `0 rows`) y se puede
+   repetir.
+4. Las **521 pruebas de integración** del API (53 ficheros) contra esa base,
+   como `oxiopay_app` y con `TENANCY_UNSCOPED_QUERIES=throw`: todas bien.
+5. Vuelta atrás (el API otra vez con el superusuario, sobre la base ya de
+   `oxiopay_app`): las pruebas de personal, comisión del servicio,
+   liquidación, saldos y cierre de la noche pasan (116); solo fallan las dos
+   que comprueban que **la base** aísla los locales (con un superusuario no
+   aísla: es lo esperado, como hoy).
+6. Velocidad: ver «Velocidad con RLS».
+
+No se ha encontrado nada en el código, en `scripts/cli.ts` ni en las 36
+migraciones desde la primera prueba que necesite superusuario.
+
+### Primera prueba (15-10-2026)
 
 En un Postgres 16 embebido, con el superusuario `postgres` haciendo de `np`:
 
