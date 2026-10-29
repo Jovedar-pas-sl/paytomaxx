@@ -1162,6 +1162,7 @@ model ClientWallet {
   passkeys       WalletPasskey[]
   cards          WalletCard[]
   passes         WalletPass[]
+  activationTokens WalletActivationToken[]
 
   @@index([tenantId, status])
   @@index([tenantId, identifier])
@@ -1243,6 +1244,40 @@ model WalletCardEvent {
   @@index([venueId, at])
   @@index([cardId])
   @@map("wallet_card_events")
+}
+
+/// QR de activación de un solo uso (20261102200000_activacion_un_uso, M-2): lo
+/// enseña recepción tras una recarga en efectivo (o el dueño al dar un enlace
+/// nuevo) para que el cliente active en SU móvil el primer Face ID o el primer
+/// PIN, sin enseñar nunca el enlace permanente del saldo (/w/<qrToken>). El
+/// enlace es /w/a/<token>; aquí solo su sha256 (el token no se guarda). Vale
+/// 10 min y una sola vez: el primer Face ID o PIN registrado con él lo gasta
+/// (usedAt) en la misma transacción. Emitir otro para el saldo anula los
+/// anteriores sin usar (revokedAt). Sin tenantId ni RLS, como wallet_passkeys:
+/// cuelga del saldo y se busca siempre por su hash o por el saldo.
+model WalletActivationToken {
+  id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  walletId   String    @db.Uuid
+  /// sha256 (hex) del token de /w/a/<token>.
+  tokenHash  String    @unique
+  /// Local donde se emitió (el de recepción, o el del saldo con un enlace nuevo).
+  venueId    String?   @db.Uuid
+  /// Quién lo emitió (recepción, encargado, dueño o super-admin).
+  issuedById String?   @db.Uuid
+  /// reception (QR de «Cargado») | relink (enlace nuevo del dueño o del super-admin).
+  via        String
+  createdAt  DateTime  @default(now()) @db.Timestamptz
+  expiresAt  DateTime  @db.Timestamptz
+  /// Gastado con el primer Face ID o PIN (usedFor: passkey | pin).
+  usedAt     DateTime? @db.Timestamptz
+  usedFor    String?
+  /// Anulado sin usar: se emitió otro para el mismo saldo.
+  revokedAt  DateTime? @db.Timestamptz
+
+  wallet ClientWallet @relation(fields: [walletId], references: [id], onDelete: Cascade)
+
+  @@index([walletId])
+  @@map("wallet_activation_tokens")
 }
 
 /// Llave del cliente para pagar con su saldo desbloqueando su móvil (Face ID,

@@ -164,25 +164,30 @@ async function auditRows(action: string, targetId: string) {
 }
 
 describe('QR de activación (recepción, Postgres real)', () => {
-  it('recepción, justo tras cobrar en efectivo: el enlace privado y hasta cuándo, en el registro sin el enlace', async () => {
+  it('recepción, justo tras cobrar en efectivo: un QR de activación de un solo uso (10 min), nunca el enlace del saldo; en el registro sin el enlace', async () => {
     const c = await client();
     const before = Date.now();
     const link = await inVenue(V, () => links.link(actor(rx, 'WAITER'), c.walletId));
-    expect(link.url).toBe(`${ORIGIN}/w/${c.qrToken}`);
+    // M-2: /w/a/<token> (24 bytes al azar), no /w/<qrToken>: quien fotografíe la pantalla no se queda con el saldo.
+    expect(link.url).toMatch(new RegExp(`^${ORIGIN}/w/a/[A-Za-z0-9_-]{32}$`));
+    expect(link.url).not.toContain(c.qrToken);
     const expires = new Date(link.expiresAt).getTime();
-    expect(expires).toBeGreaterThan(before + 14 * MIN);
-    expect(expires).toBeLessThanOrEqual(Date.now() + 15 * MIN);
+    expect(expires).toBeGreaterThan(before + 9 * MIN);
+    expect(expires).toBeLessThanOrEqual(Date.now() + 10 * MIN);
     const rows = await auditRows('wallet.activation_link', c.walletId);
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({ tenantId: V, actorId: rx, targetType: 'ClientWallet' });
-    expect(rows[0]!.payload).toMatchObject({ expiresAt: link.expiresAt });
+    expect(rows[0]!.payload).toMatchObject({ via: 'reception', expiresAt: link.expiresAt });
     expect(JSON.stringify(rows[0]!.payload)).not.toContain(c.qrToken);
+    expect(JSON.stringify(rows[0]!.payload)).not.toContain(link.url.split('/w/a/')[1]!);
   });
 
   it('el encargado y el dueño también; la barra y las chicas no (403, como recargar); otro grupo, 404', async () => {
     const c = await client();
     for (const who of [actor(manager, 'MANAGER'), actor(owner, 'OWNER')]) {
-      await expect(inVenue(V, () => links.link(who, c.walletId))).resolves.toMatchObject({ url: `${ORIGIN}/w/${c.qrToken}` });
+      const link = await inVenue(V, () => links.link(who, c.walletId));
+      expect(link.url).toMatch(new RegExp(`^${ORIGIN}/w/a/[A-Za-z0-9_-]{32}$`));
+      expect(link.url).not.toContain(c.qrToken);
     }
     for (const who of [actor(barra, 'WAITER'), actor(chica, 'OPERATOR')]) {
       await expect(inVenue(V, () => links.link(who, c.walletId))).rejects.toMatchObject({ status: 403, response: { code: 'TOP_UP_RECEPTION_ONLY' } });
@@ -301,9 +306,13 @@ describe('sesión de consulta deslizante (app Nest, Postgres real)', () => {
     expect((await get(`/w/${c.qrToken}/state`, cookie)).statusCode).toBe(200);
     const { path } = await inVenue(V, () => charges.relink(actor(owner, 'OWNER'), c.walletId));
     expect((await get(`/w/${c.qrToken}/state`, cookie)).statusCode).toBe(404);
+    // Al dueño solo le sale el QR de activación (M-2); el enlace nuevo, solo en la base.
+    const { qrToken: newToken } = await sys((tx) => tx.clientWallet.findUniqueOrThrow({ where: { id: c.walletId } }));
+    expect(path).toMatch(/^\/w\/a\/[A-Za-z0-9_-]{32}$/);
+    expect(path).not.toContain(newToken);
     // La firma iba atada al enlace anterior: con el nuevo no sirve (vuelve a pedir Face ID tras activarlo).
     const fresh = await activate(c.walletId);
-    expect((await get(`${path}/state`, cookie)).statusCode).toBe(401);
+    expect((await get(`/w/${newToken}/state`, cookie)).statusCode).toBe(401);
     expect(fresh).toBeDefined();
   });
 });

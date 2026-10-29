@@ -45,43 +45,56 @@ beforeAll(async () => {
 });
 afterAll(async () => { await app?.close(); });
 beforeEach(() => {
-  links.link.mockReset().mockResolvedValue({ url: 'https://api.paytomaxx.com/w/privateWalletToken_0123', expiresAt: '2026-10-27T01:13:00.000Z' });
+  links.link.mockReset().mockResolvedValue({ url: ACTIVATION_URL, expiresAt: '2026-10-27T01:13:00.000Z' });
 });
 
-describe('GET /v1/reception/wallets/:id/activation-link', () => {
+/** El QR de activación de un solo uso (M-2): /w/a/<token>, nunca el enlace del saldo. */
+const ACTIVATION_URL = 'https://api.paytomaxx.com/w/a/Ab3_kQ9-zXw2LmN8pR4tVy6uHs1oJe5c';
+
+describe('POST /v1/reception/wallets/:id/activation-link (emite uno nuevo; el GET de antes, igual)', () => {
   it.each(['WAITER', 'MANAGER', 'OWNER'])('%s: 200 con { url, expiresAt }, sin caché ni Referer', async (role) => {
-    const res = await app.inject({ method: 'GET', url: url(), headers: { 'x-test-role': role, 'x-forwarded-for': `10.0.0.${role.length}` } });
+    const res = await app.inject({ method: 'POST', url: url(), headers: { 'x-test-role': role, 'x-forwarded-for': `10.0.0.${role.length}` } });
     expect(res.statusCode).toBe(200);
-    expect(res.json()).toEqual({ url: 'https://api.paytomaxx.com/w/privateWalletToken_0123', expiresAt: '2026-10-27T01:13:00.000Z' });
+    expect(res.json()).toEqual({ url: ACTIVATION_URL, expiresAt: '2026-10-27T01:13:00.000Z' });
     expect(res.headers['cache-control']).toBe('no-store');
     expect(res.headers['referrer-policy']).toBe('no-referrer');
     expect(links.link).toHaveBeenCalledWith({ userId: 'rx-1', role, tenantId: 'venue-1' }, WALLET);
   });
 
+  it('el GET de antes (apps del personal aún sin actualizar) hace lo mismo', async () => {
+    const res = await app.inject({ method: 'GET', url: url(), headers: { 'x-test-role': 'WAITER', 'x-forwarded-for': '10.0.1.1' } });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ url: ACTIVATION_URL, expiresAt: '2026-10-27T01:13:00.000Z' });
+    expect(res.headers['cache-control']).toBe('no-store');
+    expect(links.link).toHaveBeenCalledWith({ userId: 'rx-1', role: 'WAITER', tenantId: 'venue-1' }, WALLET);
+  });
+
   it('las chicas (OPERATOR) y el super-admin no llegan al servicio; sin sesión, 401', async () => {
     for (const role of ['OPERATOR', 'SUPERADMIN']) {
-      expect((await app.inject({ method: 'GET', url: url(), headers: { 'x-test-role': role } })).statusCode).toBe(403);
+      for (const method of ['POST', 'GET'] as const) {
+        expect((await app.inject({ method, url: url(), headers: { 'x-test-role': role } })).statusCode).toBe(403);
+      }
     }
-    expect((await app.inject({ method: 'GET', url: url() })).statusCode).toBe(401);
+    expect((await app.inject({ method: 'POST', url: url() })).statusCode).toBe(401);
     expect(links.link).not.toHaveBeenCalled();
   });
 
   it('un id que no es un UUID: 400 sin llegar al servicio', async () => {
-    expect((await app.inject({ method: 'GET', url: url('no-es-un-uuid'), headers: { 'x-test-role': 'OWNER' } })).statusCode).toBe(400);
+    expect((await app.inject({ method: 'POST', url: url('no-es-un-uuid'), headers: { 'x-test-role': 'OWNER' } })).statusCode).toBe(400);
     expect(links.link).not.toHaveBeenCalled();
   });
 
   it('el 404 lleva el code y el motivo para la pantalla de recepción', async () => {
     links.link.mockRejectedValue(activationLinkUnavailable('FACE_ID_SET'));
-    const res = await app.inject({ method: 'GET', url: url(), headers: { 'x-test-role': 'WAITER' } });
+    const res = await app.inject({ method: 'POST', url: url(), headers: { 'x-test-role': 'WAITER' } });
     expect(res.statusCode).toBe(404);
     expect(res.json()).toMatchObject({ code: 'ACTIVATION_LINK_UNAVAILABLE', reason: 'FACE_ID_SET' });
   });
 
-  it('límite por IP: 30 por minuto y después 429', async () => {
+  it('límite por IP: 30 por minuto (POST y GET juntos) y después 429', async () => {
     const headers = { 'x-test-role': 'WAITER', 'x-forwarded-for': '10.9.9.9' };
     const codes: number[] = [];
-    for (let i = 0; i < 31; i++) codes.push((await app.inject({ method: 'GET', url: url(), headers })).statusCode);
+    for (let i = 0; i < 31; i++) codes.push((await app.inject({ method: i % 2 ? 'GET' : 'POST', url: url(), headers })).statusCode);
     expect(codes.slice(0, 30).every((c) => c === 200)).toBe(true);
     expect(codes[30]).toBe(429);
   });

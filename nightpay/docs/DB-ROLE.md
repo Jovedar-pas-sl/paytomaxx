@@ -35,6 +35,7 @@ tiene `FORCE`. Sin `FORCE`, lo que separa los locales es solo el código del API
 | `oxiopay_payee`, `oxiopay_settlement_settings` (cuenta y semana de inicio de OxioPay) | **No es de ningún local** | Globales, como `businesses`: RLS sin `FORCE` que solo deja pasar el bypass. |
 | `wallet_payouts` (lo que se devuelve de un saldo) | **No** | RLS sin `FORCE`. |
 | `wallet_passes` (Google Wallet) | **No** | Sin RLS: cuelga del saldo por `walletId`, no lleva `tenantId`. |
+| `wallet_activation_tokens` (QR de activación de un solo uso, `20261102200000_activacion_un_uso`) | **No** | Sin RLS: cuelga del saldo por `walletId`, no lleva `tenantId`; el API lo busca por el sha256 del token o por el saldo. |
 | `wallet_cards`, `wallet_card_events` (fichas NFC) | **No** | Sin RLS: la ficha se mueve entre locales del grupo y el local va siempre explícito en la consulta. |
 | `businesses` (negocios de la consola) | **No es de ningún local** | Global: RLS sin `FORCE` que solo deja pasar el bypass del super-admin; `oxiopay_app` (dueño) la ve entera. |
 | `payments`, `payment_events`, `refunds`, `reconciliations`, `users`, `terminals`, `gateway_credentials` | **No** | RLS sin `FORCE` desde `20260502000000_soften_rls_force`. |

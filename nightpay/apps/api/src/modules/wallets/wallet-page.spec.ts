@@ -96,7 +96,29 @@ describe('página del saldo del cliente', () => {
     const es = renderWalletPage('tok-1', 'es', state());
     expect(es).toContain('Activar Face ID');
     expect(es).toContain('Solo quien desbloquee este móvil puede gastar tu saldo');
-    expect(script(es)).toContain("pkCreate(C.base+'/passkey/options')");
+    // El primer Face ID ya no va por el enlace del saldo (M-2): solo por la vía del móvil que pagó.
+    expect(script(es)).toContain("pkCreate(C.payer+'/passkey/options')");
+    expect(script(es)).not.toContain("C.base+'/passkey");
+  });
+
+  it('sin Face ID (M-2): activarlo o elegir el primer PIN solo por la vía del móvil que pagó la recarga (/pay/<cobro>); si no, el QR de recepción', () => {
+    const none = renderWalletPage('tok-1', 'es', state());
+    expect(none).toContain('\\"payer\\":null');
+    const js = script(none);
+    // Sin esa vía: sin botón ni «Elegir un PIN», y dice que pida el QR de activación.
+    expect(js).toContain("$('faceOn').hidden=!C.payer;$('faceWhy').textContent=C.payer?T.payFaceWhy:T.activateAtReception;");
+    expect(js).toContain("$('pinOpen').hidden=!(active&&!r&&!s.hasPin&&(s.hasFaceId||C.payer));");
+    expect(js).toContain("show('codeHint',s.hasPin?T.codeWithPin:s.hasFaceId||C.payer?T.codeNoPin:'')");
+    expect(WALLET_TEXT.es.activateAtReception).toBe('Para activar el pago con tu móvil o elegir tu PIN, pide en recepción el QR de activación.');
+    // Con ella: activar y el PIN van a /pay/<cobro> (su cookie del pago); si el navegador no es el que pagó, se quita.
+    const payer = renderWalletPage('tok-1', 'es', state(), { payer: '/pay/cobro-1' });
+    expect(payer).toContain('\\"payer\\":\\"/pay/cobro-1\\"');
+    const pjs = script(payer);
+    expect(pjs).toContain("pkPost(C.payer+'/passkey',{response:k})");
+    expect(pjs).toContain("pkPost(C.payer+'/pin',{pin:a,pin2:c})");
+    expect(pjs).toContain("function notPayer(e){if(!e||e.code!=='PAYER_ONLY')return false;C.payer=null;");
+    // Activado: a desbloquear para ver el saldo (su sesión).
+    expect(pjs).toContain("window.location.replace(C.base+'?lang='+C.lang)");
   });
 
   it('ya no hay cobros que aceptar o rechazar aquí: se paga con el QR de la chica o con el PIN', () => {
@@ -246,13 +268,16 @@ describe('«Pagar»: solo lo de pagar', () => {
     expect(js).toContain('var setup=payable&&!s.hasFaceId&&canKey,scan=payable&&s.hasFaceId&&canKey;');
     expect(js).toContain("$('faceCard').hidden=!setup;$('scanArea').hidden=!scan;");
     expect(js).toContain("$('payTitle').textContent=setup?U.title:T.scanTitle;");
-    expect(js).toContain("show('howText',payable&&!canKey?(s.hasFaceId?T.faceIdNeeded:T.unlockUnsupported):'');");
+    // Sin poder activarlo aquí ni la vía del que pagó: el QR de activación de recepción (M-2).
+    expect(js).toContain("show('howText',payable&&!canKey?(s.hasFaceId?T.faceIdNeeded:C.payer?T.unlockUnsupported:T.activateAtReception):'');");
     expect(js).toContain("$('faceDone').textContent=scan?'✓ '+U.done+' '+T.payFaceDone:'';");
   });
 
   it('«Sin móvil»: con PIN, que lo teclee; sin PIN, que lo elija en «Más»; con ficha, que la acerque', () => {
     const js = script(renderWalletPage('tok-1', 'es', state({ hasCard: true })));
-    expect(js).toContain("$('codeHint').textContent=s.hasPin?T.codeWithPin:T.codeNoPin;$('fichaHint').hidden=!s.hasCard;");
+    // Sin PIN: que lo elija en «Más» si puede (Face ID o el móvil que pagó); si no, nada aquí: la
+    // tarjeta de pagar ya dice que pida el QR de activación en recepción (M-2), sin repetirlo.
+    expect(js).toContain("show('codeHint',s.hasPin?T.codeWithPin:s.hasFaceId||C.payer?T.codeNoPin:'');$('fichaHint').hidden=!s.hasCard;");
     const html = renderWalletPage('tok-1', 'es', state({ hasCard: true }));
     expect(html).toContain('<p class="small" id="fichaHint" hidden>Con tu ficha: acércala al móvil del personal y pon tu PIN.</p>');
     expect(html).toContain('\\"hasCard\\":true');

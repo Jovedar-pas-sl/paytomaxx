@@ -25,7 +25,7 @@ import {
   type Role,
 } from '@nightpay/contracts';
 import type { Prisma } from '@nightpay/db';
-import { PrismaService } from '../../common/prisma/prisma.service';
+import { PrismaService, type TransactionalClient } from '../../common/prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { resolveBpsForOperator, type RevenueCategory } from '../payments/commission';
 import { lineCommission, type DraftLine } from '../payments/charge-lines';
@@ -79,6 +79,7 @@ import { TotpService } from '../auth/totp.service';
 import { assertManagerTwoFactor, assertTwoFactorCode, cashApprovalThreshold } from './wallet-two-factor';
 import { receptionAskedManager } from './reception-payout-rules';
 import { WalletBlockedException } from './wallet-blocked';
+import { activationPath, issueActivationToken } from './wallet-activation-token';
 import { saldoCredits, serviceFeeSaldoCents, serviceFeeSpendCents } from './wallet-fee-saldo';
 import { passChargeSecret, passChargeTokenValid, passChargeWalletId } from './google-wallet/pass-charge-token';
 // Solo el TIPO: el valor se resuelve con ModuleRef (ciclo Wallets→Refunds→Payments→Wallets).
@@ -1746,6 +1747,30 @@ export class WalletChargesService {
     });
   }
 
+  /**
+   * El primer PIN con el QR de activación (/w/a/<token>, M-2): `inTx` gasta
+   * el QR en la MISMA transacción que guarda el PIN (si algo falla, ni PIN ni
+   * QR gastado). Lo elige el cliente en su móvil.
+   */
+  async setFirstPinWithActivation(
+    walletId: string,
+    pin: string,
+    inTx: (tx: TransactionalClient) => Promise<void>,
+  ): Promise<void> {
+    const wallet = await this.prisma.acrossVenues((tx) =>
+      tx.clientWallet.findUnique({ where: { id: walletId }, select: { tenantId: true } }),
+    );
+    if (!wallet) throw new NotFoundException('Saldo no encontrado');
+    await this.storeFirstPin(walletId, pin, null, inTx);
+    await this.audit.log({
+      action: 'wallet.pin_set',
+      tenantId: wallet.tenantId,
+      targetType: 'ClientWallet',
+      targetId: walletId,
+      payload: { where: 'activation-link' },
+    });
+  }
+
   /** Encargado o dueño: tras 5 PIN fallidos, vuelve a dejar probar. */
   async unlockPin(actor: Actor, walletId: string): Promise<{ ok: true }> {
     await this.managerWallet(actor, walletId);
@@ -1858,17 +1883,24 @@ export class WalletChargesService {
    * `setById`: el encargado que lo pone sin el cliente delante (null si lo
    * eligió el cliente: en su móvil o con la chica justo tras recargar).
    */
-  private async storeFirstPin(walletId: string, pin: string, setById: string | null): Promise<void> {
+  private async storeFirstPin(
+    walletId: string,
+    pin: string,
+    setById: string | null,
+    inTx?: (tx: TransactionalClient) => Promise<void>,
+  ): Promise<void> {
     const problem = pinProblem(pin);
     if (problem) throw new BadRequestException({ message: PIN_PROBLEM_TEXT[problem], code: `PIN_${problem.toUpperCase()}` });
     const pinHash = await hashPin(pin, pinPepper());
-    const res = await this.prisma.acrossVenues((tx) =>
-      tx.clientWallet.updateMany({
+    await this.prisma.acrossVenues(async (tx) => {
+      if (inTx) await inTx(tx);
+      const res = await tx.clientWallet.updateMany({
         where: { id: walletId, pinHash: null },
         data: { pinHash, pinFails: 0, pinFailedAt: null, pinLockedAt: null, pinSetById: setById },
-      }),
-    );
-    if (res.count === 0) throw new ConflictException({ message: 'Este saldo ya tiene PIN', code: 'PIN_EXISTS' });
+      });
+      // Dentro de la transacción: si ya tenía PIN, lo que hizo inTx (gastar el QR) se deshace.
+      if (res.count === 0) throw new ConflictException({ message: 'Este saldo ya tiene PIN', code: 'PIN_EXISTS' });
+    });
   }
 
   /**
@@ -2248,7 +2280,10 @@ export class WalletChargesService {
   /**
    * El cliente perdió el enlace de su saldo (pagó en otro navegador, borró la
    * página…). El dueño le da uno nuevo y el viejo deja de valer: quien lo
-   * hubiera visto ya no puede aceptar cobros con él.
+   * hubiera visto ya no puede aceptar cobros con él. Lo que se enseña al
+   * cliente (`path`) es un QR de activación de un solo uso (/w/a/<token>, 10
+   * min, M-2): con él activa Face ID (o elige PIN) en su móvil y va a su
+   * saldo. El enlace permanente nuevo no sale en la pantalla del dueño.
    */
   async relink(actor: Actor, walletId: string): Promise<{ path: string }> {
     if (actor.role !== 'OWNER') {
@@ -2263,9 +2298,12 @@ export class WalletChargesService {
     const qrToken = newWalletToken();
     // Enlace nuevo = el cliente perdió el suyo o el móvil: su llave (Face ID)
     // se borra y la activa otra vez desde el enlace nuevo.
-    const removedKeys = await this.prisma.acrossVenues(async (tx) => {
+    const { removedKeys, activation } = await this.prisma.acrossVenues(async (tx) => {
       await tx.clientWallet.update({ where: { id: walletId }, data: { qrToken } });
-      return (await tx.walletPasskey.deleteMany({ where: { walletId } })).count;
+      const removed = (await tx.walletPasskey.deleteMany({ where: { walletId } })).count;
+      // Sin llave ya: el primer Face ID (o PIN) del enlace nuevo, con un QR de un solo uso.
+      const issued = await issueActivationToken(tx, { walletId, venueId: actor.tenantId, issuedById: actor.userId, via: 'relink' });
+      return { removedKeys: removed, activation: issued };
     });
     await this.audit.log({
       action: 'wallet.relinked',
@@ -2273,9 +2311,17 @@ export class WalletChargesService {
       actorId: actor.userId,
       targetType: 'ClientWallet',
       targetId: walletId,
-      payload: { balanceCents: wallet.balanceCents, removedPasskeys: removedKeys },
+      payload: { balanceCents: wallet.balanceCents, removedPasskeys: removedKeys, activationExpiresAt: activation.expiresAt.toISOString() },
     });
-    return { path: `/w/${qrToken}` };
+    await this.audit.log({
+      action: 'wallet.activation_link',
+      tenantId: actor.tenantId,
+      actorId: actor.userId,
+      targetType: 'ClientWallet',
+      targetId: walletId,
+      payload: { via: 'relink', expiresAt: activation.expiresAt.toISOString() },
+    });
+    return { path: activationPath(activation.token) };
   }
 
   private async refundToCard(actor: Actor, walletId: string, amountCents: number, bankReference?: string): Promise<number> {

@@ -743,7 +743,12 @@ export const CustomerWalletDetailSchema = z.object({
 export type CustomerWalletDetail = z.infer<typeof CustomerWalletDetailSchema>;
 
 export const RelinkResponseSchema = z.object({
-  /** Enlace nuevo del saldo, relativo a la API ("/w/<token>"): es la credencial del cliente. */
+  /**
+   * QR de activación de un solo uso del enlace nuevo, relativo a la API
+   * ("/w/a/<token>", 10 min, M-2): con él el cliente activa Face ID (o elige
+   * su PIN) en su móvil y su móvil sigue a su saldo. El enlace permanente
+   * nuevo (/w/<qrToken>) no sale nunca en la pantalla del personal.
+   */
   path: z.string(),
   removedPasskeys: z.number().int().nonnegative().optional(),
 });

@@ -1,7 +1,10 @@
-// «Activar Face ID en su móvil» (CARGADO, 4.4): el enlace privado del saldo
-// recién cargado en efectivo, para que el cliente active Face ID. Lo da el API
+// QR de activación (CARGADO, 4.4): un enlace de activación de UN SOLO USO
+// (/w/a/<token>, 10 min) para que el cliente que recargó en efectivo active
+// Face ID (o elija su PIN) en su móvil. Nunca el enlace permanente del saldo
+// (M-2): quien fotografiara la pantalla se quedaba con el saldo. Lo da el API
 // solo a recepción, recién hecha la recarga aquí y si aún no tiene Face ID
-// (GET /v1/reception/wallets/:id/activation-link; si no, 404 y no sale nada).
+// (POST /v1/reception/wallets/:id/activation-link; si no, 404 y no sale nada).
+// Cada petición emite uno nuevo y anula el anterior sin usar.
 
 import { authedFetch } from './api';
 
@@ -10,10 +13,13 @@ export interface ActivationLink {
   expiresAt: string;
 }
 
+/** Solo /w/a/<token> (el token, base64url como los del API): ni /w/<enlace> ni sus acciones. */
+const ACTIVATION_PATH = /^\/w\/a\/[A-Za-z0-9_-]{16,128}$/;
+
 /** null: no toca (404), o no se pudo; nunca rompe CARGADO. */
 export async function fetchActivationLink(walletId: string): Promise<ActivationLink | null> {
   try {
-    const res = await authedFetch(`/v1/reception/wallets/${encodeURIComponent(walletId)}/activation-link`);
+    const res = await authedFetch(`/v1/reception/wallets/${encodeURIComponent(walletId)}/activation-link`, { method: 'POST' });
     if (!res.ok) return null;
     return activationLinkOf(await res.json());
   } catch {
@@ -21,7 +27,10 @@ export async function fetchActivationLink(walletId: string): Promise<ActivationL
   }
 }
 
-/** Solo un enlace http(s) nuestro a la página del saldo (/w/…) que aún no ha caducado. */
+/**
+ * Solo un enlace http(s) de activación (/w/a/<token>) que aún no ha caducado.
+ * El enlace del saldo (/w/<enlace>, que mandaba un API de antes) no se enseña.
+ */
 export function activationLinkOf(body: unknown, now: number = Date.now()): ActivationLink | null {
   if (!body || typeof body !== 'object') return null;
   const { url, expiresAt } = body as Record<string, unknown>;
@@ -32,7 +41,7 @@ export function activationLinkOf(body: unknown, now: number = Date.now()): Activ
   } catch {
     return null;
   }
-  if (!/^https?:$/.test(parsed.protocol) || !parsed.pathname.startsWith('/w/')) return null;
+  if (!/^https?:$/.test(parsed.protocol) || !ACTIVATION_PATH.test(parsed.pathname) || parsed.search || parsed.hash) return null;
   const until = Date.parse(expiresAt);
   if (!Number.isFinite(until) || until <= now) return null;
   return { url, expiresAt };

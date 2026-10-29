@@ -12,7 +12,7 @@ import {
 } from '@simplewebauthn/server';
 import { Prisma } from '@nightpay/db';
 import { BRAND_NAME } from '../../common/brand';
-import { PrismaService } from '../../common/prisma/prisma.service';
+import { PrismaService, type TransactionalClient } from '../../common/prisma/prisma.service';
 import { REDIS_CLIENT } from '../../common/redis/redis.module';
 import { currentRelyingParty } from './passkey-rp';
 import { formatWalletCode } from './wallet-rules';
@@ -66,8 +66,18 @@ export class WalletPasskeysService {
     return options;
   }
 
-  /** Activar Face ID, paso 2: comprueba la respuesta del móvil y guarda la clave pública. */
-  async register(walletId: string, host: string | undefined, response: unknown): Promise<void> {
+  /**
+   * Activar Face ID, paso 2: comprueba la respuesta del móvil y guarda la
+   * clave pública. `beforeInsert`: lo que tiene que ir en la MISMA
+   * transacción, con el saldo ya bloqueado y antes de mirar si ya tiene llave
+   * (el QR de activación se gasta aquí: si falla, no queda llave).
+   */
+  async register(
+    walletId: string,
+    host: string | undefined,
+    response: unknown,
+    opts: { beforeInsert?: (tx: TransactionalClient) => Promise<void> } = {},
+  ): Promise<void> {
     if (await this.hasPasskey(walletId)) throw new ConflictException({ message: 'Tu saldo ya tiene Face ID activado', code: 'FACE_ID_EXISTS' });
     const r = response as RegistrationResponseJSON | undefined;
     const challenge = challengeOf(r?.response?.clientDataJSON);
@@ -97,6 +107,7 @@ export class WalletPasskeysService {
         // Una llave por saldo: con el saldo bloqueado, dos activaciones a la
         // vez no dejan dos llaves.
         await tx.$queryRaw`SELECT id FROM client_wallets WHERE id = ${walletId}::uuid FOR UPDATE`;
+        if (opts.beforeInsert) await opts.beforeInsert(tx);
         const existing = await tx.walletPasskey.findFirst({ where: { walletId }, select: { credentialId: true } });
         if (existing) {
           if (existing.credentialId === c.id) return;

@@ -23,14 +23,15 @@ export type WalletUnlockView =
 
 type Text = UnlockPageText;
 
-const ICON = {
+/** Iconos (los reusa la página del QR de activación, wallet-activation-page.ts). */
+export const UNLOCK_ICON = {
   nfc: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5.5 10.5a2 2 0 0 1 0 3"/><path d="M9 8a6 6 0 0 1 0 8"/><path d="M12.5 5.5a9.5 9.5 0 0 1 0 13"/><path d="M16 3a13 13 0 0 1 0 18"/></svg>',
   lock: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>',
   face: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8V6a2 2 0 0 1 2-2h2M16 4h2a2 2 0 0 1 2 2v2M20 16v2a2 2 0 0 1-2 2h-2M8 20H6a2 2 0 0 1-2-2v-2"/><path d="M9 9.5v1M15 9.5v1M12 9.5v3.5h-1M9.5 16a4 4 0 0 0 5 0"/></svg>',
   pin: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21s-7-6.2-7-11.5a7 7 0 0 1 14 0C19 14.8 12 21 12 21z"/><circle cx="12" cy="9.5" r="2.5"/></svg>',
 };
 
-const UNLOCK_CSS = `
+export const UNLOCK_CSS = `
 main{max-width:28rem;min-height:100svh;margin:0 auto;padding:1rem 1rem calc(1.5rem + env(safe-area-inset-bottom));display:flex;flex-direction:column;gap:1.25rem}
 main>.top{padding-left:0;padding-right:0}
 svg{width:1.5rem;height:1.5rem;flex:none;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
@@ -55,21 +56,21 @@ h1{font-size:2rem}
 .foot{line-height:1.5}
 `;
 
-function card(t: Text, codeHint: string | null | undefined, off: boolean): string {
+export function unlockCard(t: Text, codeHint: string | null | undefined, off: boolean): string {
   const h = escapeHtml;
   const code = codeHint ? `<span class="num"><span class="sr">${h(t.code)}: </span>${h(codeHint)}</span>` : '<span></span>';
-  return `<section class="ocard${off ? ' off' : ''}" aria-label="${h(t.card)}"><div class="otop"><span class="kick">${h(t.card)}</span>${ICON.nfc}</div><span class="shut">${ICON.lock}</span><div class="obot">${code}</div></section>`;
+  return `<section class="ocard${off ? ' off' : ''}" aria-label="${h(t.card)}"><div class="otop"><span class="kick">${h(t.card)}</span>${UNLOCK_ICON.nfc}</div><span class="shut">${UNLOCK_ICON.lock}</span><div class="obot">${code}</div></section>`;
 }
 
 function body(view: WalletUnlockView, t: Text): string {
   const h = escapeHtml;
   switch (view.kind) {
     case 'locked':
-      return `${card(t, view.codeHint, false)}<section class="act"><h1>${h(t.heading)}</h1><p>${h(t.intro)}</p><button class="btn" id="unlock" type="button">${ICON.face}<span id="unlockLabel">${h(t.button)}</span></button><p id="error" class="err" role="alert" hidden></p><p class="foot">${h(t.security)}</p><p class="foot">${h(t.newPhone)}</p></section>`;
+      return `${unlockCard(t, view.codeHint, false)}<section class="act"><h1>${h(t.heading)}</h1><p>${h(t.intro)}</p><button class="btn" id="unlock" type="button">${UNLOCK_ICON.face}<span id="unlockLabel">${h(t.button)}</span></button><p id="error" class="err" role="alert" hidden></p><p class="foot">${h(t.security)}</p><p class="foot">${h(t.newPhone)}</p></section>`;
     case 'setup':
-      return `${card(t, view.codeHint, true)}<section class="act"><h1>${h(t.setupHeading)}</h1><p class="lead">${h(t.setup)}</p><div class="where">${ICON.pin}<div><b>${h(t.setupWhere)}</b><span>${h(t.setupHow)}</span></div></div><p class="foot">${h(t.setupFoot)}</p></section>`;
+      return `${unlockCard(t, view.codeHint, true)}<section class="act"><h1>${h(t.setupHeading)}</h1><p class="lead">${h(t.setup)}</p><div class="where">${UNLOCK_ICON.pin}<div><b>${h(t.setupWhere)}</b><span>${h(t.setupHow)}</span></div></div><p class="foot">${h(t.setupFoot)}</p></section>`;
     case 'blocked':
-      return `<section class="act"><span class="mark">${ICON.lock}</span><h1>${h(t.blockedHeading)}</h1><p class="lead">${h(t.blocked)}</p></section>`;
+      return `<section class="act"><span class="mark">${UNLOCK_ICON.lock}</span><h1>${h(t.blockedHeading)}</h1><p class="lead">${h(t.blocked)}</p></section>`;
     case 'unavailable':
       return `<section class="act"><h1>${h(t.unavailableHeading)}</h1><p class="lead">${h(t.unavailableText)}</p></section>`;
   }

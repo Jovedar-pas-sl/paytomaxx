@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { ACTIVATION_LINK_UNAVAILABLE_CODE, walletActivationLinkPath } from '@nightpay/contracts';
 import { WalletActivationLinkService, lastTopUpHere } from './wallet-activation-link.service';
+import { activationTokenHash } from './wallet-activation-token';
 
 const NOW = new Date('2026-10-27T01:00:00Z');
 const minutesAgo = (m: number) => new Date(NOW.getTime() - m * 60_000);
@@ -28,6 +29,7 @@ function make(o: Options = {}) {
     clientWallet: { findUnique: vi.fn(async () => wallet), findMany: vi.fn(async () => o.merged ?? []) },
     walletCashTopUp: { findFirst: vi.fn(async () => (o.cashAt ? { createdAt: o.cashAt } : null)) },
     payment: { findFirst: vi.fn(async () => (o.cardAt ? { authorizedAt: o.cardAt } : null)) },
+    walletActivationToken: { updateMany: vi.fn(async () => ({ count: 0 })), create: vi.fn(async () => ({})) },
   };
   const prisma = { asSystem: (fn: (t: unknown) => unknown) => fn(tx), acrossVenues: (fn: (t: unknown) => unknown) => fn(tx) };
   const audit = { log: vi.fn(async () => undefined) };
@@ -39,15 +41,25 @@ function make(o: Options = {}) {
 }
 
 describe('QR de activación del saldo (recepción)', () => {
-  it('recepción, justo tras recargar en efectivo: el enlace privado y hasta cuándo enseñarlo, registrado sin el enlace', async () => {
+  it('recepción, justo tras recargar en efectivo: un enlace de activación de un solo uso (nunca el del saldo), 10 min, registrado sin el token', async () => {
     const { service, audit, actor, tx } = make({ cashAt: minutesAgo(2) });
     const link = await service.link(actor, 'w1', NOW);
-    expect(link).toEqual({ url: 'https://api.paytomaxx.com/w/privateWalletToken_0123', expiresAt: '2026-10-27T01:13:00.000Z' });
+    expect(link.url).toMatch(/^https:[/][/]api[.]paytomaxx[.]com[/]w[/]a[/][A-Za-z0-9_-]{32}$/);
+    expect(link.url).not.toContain('privateWalletToken');
+    expect(link.expiresAt).toBe('2026-10-27T01:10:00.000Z');
+    const token = link.url.split('/w/a/')[1]!;
+    // Se anulan los anteriores sin usar y se guarda el nuevo: solo su hash.
+    expect(tx.walletActivationToken.updateMany).toHaveBeenCalledWith({ where: { walletId: 'w1', usedAt: null, revokedAt: null }, data: { revokedAt: NOW } });
+    expect(tx.walletActivationToken.create).toHaveBeenCalledWith({
+      data: { walletId: 'w1', tokenHash: activationTokenHash(token), venueId: 'venue-1', issuedById: 'rx-1', via: 'reception', createdAt: NOW, expiresAt: new Date('2026-10-27T01:10:00.000Z') },
+    });
+    expect(JSON.stringify(tx.walletActivationToken.create.mock.calls)).not.toContain(token);
     expect(audit.log).toHaveBeenCalledWith({
       action: 'wallet.activation_link', tenantId: 'venue-1', actorId: 'rx-1', targetType: 'ClientWallet', targetId: 'w1',
-      payload: { topUpAt: minutesAgo(2).toISOString(), expiresAt: '2026-10-27T01:13:00.000Z' },
+      payload: { via: 'reception', topUpAt: minutesAgo(2).toISOString(), expiresAt: '2026-10-27T01:10:00.000Z' },
     });
     expect(JSON.stringify(audit.log.mock.calls)).not.toContain('privateWalletToken');
+    expect(JSON.stringify(audit.log.mock.calls)).not.toContain(token);
     // Solo recargas de ESTE local, en la ventana, en efectivo sin anular o con tarjeta aprobada.
     // Las de número impreso no cuentan (no prueban que la ficha estuviera delante).
     expect(tx.walletCashTopUp.findFirst).toHaveBeenCalledWith(expect.objectContaining({
@@ -63,13 +75,14 @@ describe('QR de activación del saldo (recepción)', () => {
 
   it('la ventana cuenta desde la recarga más reciente (tarjeta o la sumada de una recarga pendiente)', async () => {
     const { service, actor, tx } = make({ cashAt: minutesAgo(14), cardAt: minutesAgo(1), merged: [{ id: 'provisional' }] });
-    await expect(service.link(actor, 'w1', NOW)).resolves.toMatchObject({ expiresAt: '2026-10-27T01:14:00.000Z' });
+    // Vale 10 min desde que se pide (la ventana de 15 min es para pedirlo).
+    await expect(service.link(actor, 'w1', NOW)).resolves.toMatchObject({ expiresAt: '2026-10-27T01:10:00.000Z' });
     expect(tx.payment.findFirst.mock.calls[0]![0].where.walletId).toEqual({ in: ['w1', 'provisional'] });
   });
 
   it.each([['MANAGER', null], ['OWNER', null], ['WAITER', 'RECEPCION']])('%s (%s) puede', async (role, post) => {
     const { service, actor } = make({ role, post, cashAt: minutesAgo(1) });
-    await expect(service.link(actor, 'w1', NOW)).resolves.toMatchObject({ url: expect.stringContaining('/w/') });
+    await expect(service.link(actor, 'w1', NOW)).resolves.toMatchObject({ url: expect.stringContaining('/w/a/') });
   });
 
   it.each([['WAITER', 'BARRA'], ['WAITER', null], ['OPERATOR', null]])('%s (%s): 403 como cualquier recarga, sin mirar el saldo', async (role, post) => {
@@ -113,7 +126,7 @@ describe('QR de activación del saldo (recepción)', () => {
   it('sin NEXT_PUBLIC_API_URL (en local), el API en su puerto; un valor roto, también', async () => {
     for (const apiUrl of [undefined, '', 'no es una url']) {
       const { service, actor } = make({ cashAt: minutesAgo(1), apiUrl });
-      await expect(service.link(actor, 'w1', NOW)).resolves.toMatchObject({ url: 'http://localhost:4100/w/privateWalletToken_0123' });
+      await expect(service.link(actor, 'w1', NOW)).resolves.toMatchObject({ url: expect.stringMatching(/^http:[/][/]localhost:4100[/]w[/]a[/][A-Za-z0-9_-]{32}$/) });
     }
   });
 

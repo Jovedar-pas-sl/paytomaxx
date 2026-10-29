@@ -136,6 +136,12 @@ export interface WalletPageOptions {
   paid?: TopUpProof | null;
   /** Hora del servidor (para el «Pagado»). */
   now?: Date;
+  /**
+   * Sin Face ID: la vía del móvil que pagó la recarga que creó el saldo
+   * (/pay/<cobro>: su cookie del pago) para activar Face ID o elegir el primer
+   * PIN. null: no la hay, y la página dice que pida el QR de activación (M-2).
+   */
+  payer?: string | null;
 }
 
 /**
@@ -266,6 +272,7 @@ export function renderWalletPage(
     gw,
     topUp,
     paid: proof !== null,
+    payer: options.payer ?? null,
   });
   const h = escapeHtml;
   return `<!DOCTYPE html>
@@ -347,9 +354,10 @@ function payRender(s,active,r){var canKey=pkSupported(),payable=active&&!r;
  var setup=payable&&!s.hasFaceId&&canKey,scan=payable&&s.hasFaceId&&canKey;
  $('payCard').hidden=!(setup||scan);$('payTitle').textContent=setup?U.title:T.scanTitle;
  $('faceCard').hidden=!setup;$('scanArea').hidden=!scan;if(!scan&&SC.on)scanStop();
+ $('faceOn').hidden=!C.payer;$('faceWhy').textContent=C.payer?T.payFaceWhy:T.activateAtReception;
  $('faceDone').textContent=scan?'✓ '+U.done+' '+T.payFaceDone:'';
- show('howText',payable&&!canKey?(s.hasFaceId?T.faceIdNeeded:T.unlockUnsupported):'');$('howCard').hidden=$('howText').hidden;
- $('codeCard').hidden=!active;$('codeHint').textContent=s.hasPin?T.codeWithPin:T.codeNoPin;$('fichaHint').hidden=!s.hasCard;
+ show('howText',payable&&!canKey?(s.hasFaceId?T.faceIdNeeded:C.payer?T.unlockUnsupported:T.activateAtReception):'');$('howCard').hidden=$('howText').hidden;
+ $('codeCard').hidden=!active;show('codeHint',s.hasPin?T.codeWithPin:s.hasFaceId||C.payer?T.codeNoPin:'');$('fichaHint').hidden=!s.hasCard;
  if(gw)gw.hidden=!(P==='android'&&active&&!r&&!s.merged);}
 function render(s){S=s;S.cards=s.cards||[];
  $('balance').textContent=eur(s.balanceCents);$('code').textContent=s.code;$('heroCode').textContent=s.code;
@@ -359,7 +367,7 @@ function render(s){S=s;S.cards=s.cards||[];
  show('notice',notice);
  $('refundCard').hidden=!r;if(r)refundView(r);
  payRender(s,active,r);
- $('pinOpen').hidden=!(active&&!r&&!s.hasPin);
+ $('pinOpen').hidden=!(active&&!r&&!s.hasPin&&(s.hasFaceId||C.payer));
  $('mergeOpen').hidden=!(active&&!r&&!s.hasFaceId&&!s.merged&&s.balanceCents>0);
  $('leaveOpen').hidden=!(active&&s.balanceCents>0&&!s.closeRequested);
  var ul=$('movements');ul.textContent='';
@@ -384,10 +392,14 @@ function msg(e){return npErr(e,C.errors);}
 // Saldo con Face ID: elegir PIN y «Me voy» piden desbloquear el móvil (reto atado a la acción).
 function withKey(path,body){if(!S.hasFaceId)return post(path,body);
  return pkGet(C.base+path+'/challenge').then(function(k){body.response=k;return post(path,body);});}
-$('faceOn').addEventListener('click',function(){var b=$('faceOn');if(busy)return;busy=true;busyBtn(b,true,T.unlockWaiting);show('faceErr','');
- pkCreate(C.base+'/passkey/options').then(function(k){return post('/passkey',{response:k});})
-  .then(function(s){render(s);toast('✓ '+U.done);}).catch(function(e){if(!pkCancelled(e))show('faceErr',msg(e));})
-  .then(function(){busy=false;busyBtn(b,false);});});
+// Sin Face ID, el primero solo por la vía del móvil que pagó la recarga (C.payer, M-2): con
+// el enlace del saldo solo, no. Si este navegador no es el que pagó, se quita y dice el QR.
+function notPayer(e){if(!e||e.code!=='PAYER_ONLY')return false;C.payer=null;render(Object.assign({},S));return true;}
+$('faceOn').addEventListener('click',function(){var b=$('faceOn');if(busy||!C.payer)return;busy=true;busyBtn(b,true,T.unlockWaiting);show('faceErr','');
+ pkCreate(C.payer+'/passkey/options').then(function(k){return pkPost(C.payer+'/passkey',{response:k});})
+  .then(function(){toast('✓ '+U.done);busy=true;window.location.replace(C.base+'?lang='+C.lang);})
+  .catch(function(e){busy=false;if(!pkCancelled(e)&&!notPayer(e))show('faceErr',msg(e));})
+  .then(function(){if(!busy)busyBtn(b,false);});});
 $('leaveOpen').addEventListener('click',function(){
  $('leaveTitle').textContent=fill(T.leaveTitle,'amount',eur(S.balanceCents));
  $('leaveHow').textContent=S.cards.length?fill(T.leaveWaysCards,'cards',cards()):T.leaveWays;
@@ -404,8 +416,9 @@ $('pinForm').addEventListener('submit',function(ev){ev.preventDefault();if(busy)
  if(a!==c){show('pinErr',T.pinMismatch);return;}
  if(S.hasFaceId&&!pkSupported()){show('pinErr',T.faceIdNeeded);return;}
  var b=$('pinGo');busy=true;busyBtn(b,true,S.hasFaceId?T.unlockWaiting:T.sending);
- withKey('/pin',{pin:a,pin2:c}).then(function(s){render(s);closeSheet($('pinSheet'));toast(T.pinDone);})
-  .catch(function(e){$('pin1').value='';$('pin2').value='';if(!pkCancelled(e))show('pinErr',msg(e));})
+ (S.hasFaceId?withKey('/pin',{pin:a,pin2:c}):pkPost(C.payer+'/pin',{pin:a,pin2:c}).then(function(){return Object.assign({},S,{hasPin:true});}))
+  .then(function(s){render(s);closeSheet($('pinSheet'));toast(T.pinDone);})
+  .catch(function(e){$('pin1').value='';$('pin2').value='';if(notPayer(e))closeSheet($('pinSheet'));else if(!pkCancelled(e))show('pinErr',msg(e));})
   .then(function(){busy=false;busyBtn(b,false);});});
 $('mergeOpen').addEventListener('click',function(){show('mergeErr','');openSheet($('mergeSheet'));});
 $('mergeGo').addEventListener('click',function(){var b=$('mergeGo');if(busy)return;busy=true;busyBtn(b,true,T.unlockWaiting);show('mergeErr','');

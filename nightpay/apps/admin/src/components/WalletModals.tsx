@@ -469,11 +469,12 @@ export function RelinkModal({ target, onClose }: { target: PayoutTarget; onClose
         {link ? (
           <>
             <p style={helpStyle}>
-              Que el cliente escanee este QR con su móvil y vuelva a activar Face ID en esa página. Es su saldo.
+              Que el cliente escanee este QR con su móvil y vuelva a activar Face ID (o elija su PIN) en esa página.
+              Vale una sola vez y 10 minutos: si caduca, crea otro enlace nuevo.
             </p>
             <img
               src={link.qrDataUrl}
-              alt="QR del enlace del saldo"
+              alt="QR de activación del saldo (un solo uso)"
               width={240}
               height={240}
               style={{ alignSelf: 'center', borderRadius: 'var(--np-r-md)' }}

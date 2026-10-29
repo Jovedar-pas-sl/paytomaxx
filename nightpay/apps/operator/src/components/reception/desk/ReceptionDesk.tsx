@@ -141,8 +141,8 @@ interface Props {
  * sabe sola si es nuevo o si ya tiene saldo; el importe (tocar uno ya sigue)
  * y cómo paga (la forma por defecto del local en grande): tres toques.
  * CARGADO en verde, con el efectivo a la caja, el NFC al cliente y, si pagó
- * en efectivo, el QR para activar Face ID en su móvil; el PIN, después y si
- * quiere. Salida: lo que le queda; «Guardar para la próxima» (de fábrica) o
+ * en efectivo, el QR de activación (un solo uso, 10 min) para activar Face ID
+ * en su móvil; el PIN, después y si quiere. Salida: lo que le queda; «Guardar para la próxima» (de fábrica) o
  * devolverlo en efectivo: antes del PIN se sabe si hace falta el encargado o
  * su Face ID, así el cliente teclea el PIN una sola vez.
  * Solo recepción carga saldos y cobra efectivo (el servidor lo exige igual).

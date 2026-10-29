@@ -24,6 +24,8 @@ import { FichaNumbersService } from './ficha-numbers.service';
 import { ReceptionFichaNumberController } from './reception-ficha-number.controller';
 import { ReceptionActivationLinkController } from './reception-activation-link.controller';
 import { WalletActivationLinkService } from './wallet-activation-link.service';
+import { WalletActivationUseService } from './wallet-activation-use.service';
+import { PublicWalletActivationController } from './public-wallet-activation.controller';
 import { PublicWalletLostCardController } from './public-wallet-lost-card.controller';
 import { WalletLostCardService } from './wallet-lost-card.service';
 import { CashTopUpService } from './wallet-cash-topup.service';
@@ -59,6 +61,8 @@ import { PublicWalletEventsController } from './public-wallet-events.controller'
     FichaNumbersService,
     // QR de activación de la pantalla «Cargado» de recepción.
     WalletActivationLinkService,
+    // Gastar ese QR (un solo uso, 10 min) al activar Face ID o el primer PIN (M-2).
+    WalletActivationUseService,
     // «He perdido mi NFC» desde la página del saldo.
     WalletLostCardService,
   ],
@@ -68,6 +72,8 @@ import { PublicWalletEventsController } from './public-wallet-events.controller'
     WalletChargesController,
     PublicWalletCardController,
     PublicWalletController,
+    // El QR de activación en el móvil del cliente (/w/a/:token).
+    PublicWalletActivationController,
     // «Saldo al momento»: la página del saldo se entera de los cambios (SSE).
     PublicWalletEventsController,
     PublicWalletLostCardController,

@@ -27,6 +27,7 @@ function makeController(googleWalletEnabled = false) {
     start: vi.fn().mockResolvedValue({ payToken: 'pay-tok-1', payUrl: '/pay/pay-tok-1?lang=es', claim: 'c'.repeat(43) }),
   };
   const config = { get: vi.fn(() => 'secreto-de-cookies-de-las-pruebas-0123456789') };
+  const activation = { payerBase: vi.fn().mockResolvedValue(null) };
   return {
     controller: new PublicWalletController(
       charges as never,
@@ -34,10 +35,12 @@ function makeController(googleWalletEnabled = false) {
       gwallet as never,
       topUps as never,
       config as never,
+      activation as never,
     ),
     charges,
     passkeys,
     topUps,
+    activation,
   };
 }
 
@@ -80,11 +83,14 @@ describe('/w/:token — la página sabe si Google Wallet está configurado', () 
 });
 
 describe('/w/:token — PIN y sumar a otro saldo (acciones secundarias de la página del saldo)', () => {
-  it('PIN: 4 cifras y repetido igual; se guarda en el saldo de este enlace', async () => {
+  it('PIN sin Face ID: el enlace permanente ya no pone el primer PIN (M-2: 403 ACTIVATION_REQUIRED, el QR de activación)', async () => {
     const { controller, charges } = makeController();
-    await expect(controller.pin('tok', { pin: '1234', pin2: '1234' }, 'pay.example')).resolves.toMatchObject({ hasPin: true });
+    await expect(controller.pin('tok', { pin: '1234', pin2: '1234' }, 'pay.example')).rejects.toMatchObject({
+      status: 403,
+      response: { code: 'ACTIVATION_REQUIRED', message: 'Para activarlo, pide en recepción el QR de activación.' },
+    });
     expect(charges.walletRefByToken).toHaveBeenCalledWith('tok');
-    expect(charges.setPinFromPayer).toHaveBeenCalledWith('w-1', '1234');
+    expect(charges.setPinFromPayer).not.toHaveBeenCalled();
   });
 
   it('PIN mal escrito o distinto → 400 sin tocar nada', async () => {
@@ -275,14 +281,35 @@ describe('saldo con passkey: consultar también exige el desbloqueo', () => {
     expect(passkeys.challenge).toHaveBeenCalledWith('view:w-1', 'api.example');
     expect(charges.clientState).not.toHaveBeenCalled();
   });
-  it('la primera activación desde el enlace privado deja la consulta autorizada', async () => {
+  it('el enlace permanente ya no registra el primer Face ID (M-2): 403 ACTIVATION_REQUIRED, sin llave ni cookie', async () => {
     const { controller, passkeys } = makeController();
-    Object.assign(passkeys, { register: vi.fn().mockResolvedValue(undefined) });
+    const register = vi.fn().mockResolvedValue(undefined);
+    const registrationOptions = vi.fn().mockResolvedValue({ challenge: 'r' });
+    Object.assign(passkeys, { register, registrationOptions });
     const { reply, headers } = cookieReply();
-    await controller.passkeyRegister('private-token', { response: {} }, 'api.example', reply as never);
-    const set = headers['Set-Cookie'] as string[];
-    expect(set).toHaveLength(2);
-    for (const c of set) expect(c).toContain('HttpOnly; SameSite=Strict');
-    expect(set[0]).toContain('Path=/w/private-token;');
+    await expect(controller.passkeyOptions('private-token', 'api.example')).rejects.toMatchObject({ status: 403, response: { code: 'ACTIVATION_REQUIRED' } });
+    await expect(controller.passkeyRegister('private-token', { response: {} }, 'api.example', reply as never)).rejects.toMatchObject({
+      status: 403,
+      response: { code: 'ACTIVATION_REQUIRED' },
+    });
+    expect(registrationOptions).not.toHaveBeenCalled();
+    expect(register).not.toHaveBeenCalled();
+    expect(headers['Set-Cookie']).toBeUndefined();
+  });
+
+  it('con Face ID ya activado, pedir otra llave sigue siendo «ya tiene Face ID» (409)', async () => {
+    const { controller, passkeys } = makeController();
+    passkeys.hasPasskey.mockResolvedValue(true);
+    Object.assign(passkeys, { registrationOptions: vi.fn().mockRejectedValue(new ConflictException({ code: 'FACE_ID_EXISTS' })) });
+    await expect(controller.passkeyOptions('private-token', 'api.example')).rejects.toBeInstanceOf(ConflictException);
+  });
+
+  it('la página sin Face ID: la vía de siempre del móvil que pagó la recarga (/pay/<cobro>), si la hay', async () => {
+    const { controller, activation } = makeController();
+    activation.payerBase.mockResolvedValueOnce('/pay/cobro-que-creo-el-saldo');
+    const reply = fakeReply();
+    await controller.page('tok', 'es', reply as never);
+    expect(activation.payerBase).toHaveBeenCalledWith('w-1');
+    expect(reply.body).toContain('/pay/cobro-que-creo-el-saldo');
   });
 });
