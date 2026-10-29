@@ -12,6 +12,7 @@ import {
 } from '@/lib/api';
 import { ApiError, needsTotpCode, totpLockedUntil } from '@/lib/api-errors';
 import { requestSummary } from '@/lib/approvals';
+import { payoutHoldNote } from '@/lib/bank-holds';
 import { payoutSummary } from '@/lib/confirm-summary';
 import { payoutAttempt, payoutFailure, payoutWhat, type PayoutAttempt } from '@/lib/payout-attempt';
 import { formatDecimal, formatEur } from '@/lib/money';
@@ -29,6 +30,8 @@ interface Props {
   /** Para la frase de confirmación ("… a Ana"). */
   operatorName: string;
   balanceCents: number;
+  /** Lo retenido por ventas por datáfono sin cuadrar con el banco: no entra en este pago (se dice). */
+  bankHeld?: { bankHeldCents?: number; bankHeldCount?: number };
   payoutMethod: PayoutMethod | null;
   payoutAddress: string | null;
   payoutLabel: string | null;
@@ -60,6 +63,7 @@ export function PayoutConfirmModal({
   operatorId,
   operatorName,
   balanceCents,
+  bankHeld,
   payoutMethod,
   payoutAddress,
   payoutLabel,
@@ -67,6 +71,7 @@ export function PayoutConfirmModal({
   onDone,
   mode = 'pay',
 }: Props) {
+  const holdNote = bankHeld ? payoutHoldNote(bankHeld) : null;
   const asking = mode === 'request';
   // Sin método guardado no se supone efectivo: hay que elegir cómo se pagó.
   const [rail, setRail] = useState<PayoutMethod | ''>(payoutMethod ?? '');
@@ -218,6 +223,7 @@ export function PayoutConfirmModal({
           Saldo pendiente a liquidar: <strong className="np-num">{formatEur(balanceCents)}</strong>
           {autoVerifiable ? <RateNote rate={rate} balanceCents={balanceCents} currency={currency} /> : null}
         </p>
+        {holdNote ? <Notice tone="warning">{holdNote}</Notice> : null}
 
         {payoutMethod ? (
           <div style={methodBox}>

@@ -29,3 +29,4 @@ export * from './money-map';
 export * from './wallet-activation';
 export * from './service-fee';
 export * from './oxiopay-settlement';
+export * from './bank-hold';

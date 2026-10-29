@@ -15,6 +15,8 @@ const NOW = new Date('2026-10-17T05:30:00+02:00');
 interface BalanceRow {
   pendingCents: bigint;
   heldCents: bigint;
+  bankHeldCents?: bigint;
+  bankHeldCount?: bigint;
   paidCents: bigint;
   lifetimeGrossCents: bigint;
   count: bigint;
@@ -113,11 +115,34 @@ describe('OperatorsService.getBalance — saldo de la chica', () => {
       pendingCents: 22_500,
       availableCents: 16_500,
       heldCents: 6_000,
+      bankHeldCents: 0,
+      bankHeldCount: 0,
       debtCents: 2_500,
       paidCents: 40_000,
       lifetimeGrossCents: 300_000,
       count: 12,
     });
+  });
+
+  it('lo retenido por ventas por datáfono sin cuadrar va aparte y no entra en lo disponible (H-1)', async () => {
+    const { svc, queries } = makeService({
+      balances: {
+        [OPERATOR]: { ...EMPTY_BALANCE, pendingCents: 30_000n, heldCents: 2_000n, bankHeldCents: 18_000n, bankHeldCount: 1n, count: 3n },
+      },
+      debts: { [OPERATOR]: 1_000n },
+    });
+    expect(await svc.getBalance(OPERATOR, TENANT)).toMatchObject({
+      pendingCents: 29_000,
+      availableCents: 9_000,
+      heldCents: 2_000,
+      bankHeldCents: 18_000,
+      bankHeldCount: 1,
+    });
+    // La consulta retiene con la regla común (bank-hold-sql) y no cuenta lo retenido como «en espera».
+    const sql = queries.find((x) => x.text.includes('AS "heldCents"'))!.text;
+    expect(sql).toContain('pos.device_unproven');
+    expect(sql).toContain('pos.bank_released');
+    expect(sql).toMatch(/NOT x\.bank AND x\."createdAt" >/);
   });
 
   it('un "en espera" negativo (devolución de algo aún retenido) cuenta 0 y no infla lo disponible', async () => {
@@ -151,6 +176,8 @@ describe('OperatorsService.getBalance — saldo de la chica', () => {
       pendingCents: 0,
       availableCents: 0,
       heldCents: 0,
+      bankHeldCents: 0,
+      bankHeldCount: 0,
       debtCents: 0,
       paidCents: 0,
       lifetimeGrossCents: 0,

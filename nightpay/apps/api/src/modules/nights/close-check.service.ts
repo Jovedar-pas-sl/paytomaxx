@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { expectedCashCents, withServiceFee, type NightCash, type NightChicaPay, type NightCloseCheck } from '@nightpay/contracts';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { IncidentsService } from '../incidents/incidents.service';
+import { earningBankHeldSql, earningNetSql } from '../operators/bank-hold-sql';
 import { payoutCutoff } from '../operators/payout-math';
 import { venueHoldDays } from '../operators/venue-hold-days';
 import { PAID_STATUSES_SQL, cashTopUpCount, paymentAt } from '../reports/reporting-sql';
@@ -306,22 +307,26 @@ export class CloseCheckService {
              u."payoutMethod", u."payoutAddress", u."payoutLabel",
              COALESCE(e.unpaid, 0)::int AS "unpaidCents",
              COALESCE(e.held, 0)::int AS "heldCents",
+             COALESCE(e.bank, 0)::int AS "bankHeldCents",
              COALESCE(e.tonight, 0)::int AS "earnedTonightCents",
              COALESCE(p.paid, 0)::int AS "paidTonightCents",
              COALESCE(p.n, 0)::int AS "paidTonightCount",
              COALESCE(d.debt, 0)::int AS "debtCents"
         FROM users u
         LEFT JOIN (
-          SELECT "operatorId",
-                 SUM("commissionCents" + COALESCE("tipCents", 0) - "reversedCents")
-                   FILTER (WHERE "payoutId" IS NULL) AS unpaid,
-                 SUM("commissionCents" + COALESCE("tipCents", 0) - "reversedCents")
-                   FILTER (WHERE "payoutId" IS NULL AND "createdAt" > ${cutoff}) AS held,
-                 SUM("commissionCents" + COALESCE("tipCents", 0) - "reversedCents")
-                   FILTER (WHERE "createdAt" >= ${window.from} AND "createdAt" < ${window.to}) AS tonight
-            FROM operator_earnings
-           WHERE "tenantId" = ${tenantId}::uuid
-           GROUP BY "operatorId"
+          -- Lo retenido (venta por datáfono sin cuadrar, bank-hold-sql) no es «en espera»: va aparte.
+          SELECT x."operatorId",
+                 SUM(x.net) FILTER (WHERE x."payoutId" IS NULL) AS unpaid,
+                 SUM(x.net) FILTER (WHERE x."payoutId" IS NULL AND NOT x.bank AND x."createdAt" > ${cutoff}) AS held,
+                 SUM(x.net) FILTER (WHERE x.bank) AS bank,
+                 SUM(x.net) FILTER (WHERE x."createdAt" >= ${window.from} AND x."createdAt" < ${window.to}) AS tonight
+            FROM (
+              SELECT e."operatorId", e."payoutId", e."createdAt", ${earningNetSql('e')} AS net,
+                     (e."payoutId" IS NULL AND ${earningBankHeldSql('e')}) AS bank
+                FROM operator_earnings e
+               WHERE e."tenantId" = ${tenantId}::uuid
+            ) x
+           GROUP BY x."operatorId"
         ) e ON e."operatorId" = u.id
         LEFT JOIN (
           SELECT "operatorId", SUM("totalCents") AS paid, COUNT(*) AS n

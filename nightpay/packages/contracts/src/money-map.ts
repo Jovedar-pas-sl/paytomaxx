@@ -112,7 +112,15 @@ export interface MoneyMapWhere {
   /** Saldo vivo de los clientes del local ahora (o al cerrar); null si no se sabe (periodo pasado). */
   liveSaldoCents: number | null;
   /** Lo que se debe al personal ahora (o al cerrar), de esta noche y de antes; null si no se sabe. */
-  owed: { chicasCents: number; camarerosCents: number } | null;
+  owed: {
+    chicasCents: number;
+    camarerosCents: number;
+    /**
+     * De lo debido, lo de ventas por datáfono sin cuadrar con el banco (bank-hold):
+     * no se paga hasta cuadrarlas o liberarlas. Mapas de antes: sin el campo.
+     */
+    bankHeldCents?: number;
+  } | null;
 }
 
 /** Un grupo de pagos al personal hechos en el periodo. */

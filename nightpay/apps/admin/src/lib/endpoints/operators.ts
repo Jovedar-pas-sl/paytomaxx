@@ -1,13 +1,16 @@
 // Operadoras: alta, edición, ganancias, liquidaciones y tesorería.
 
-import type { ApprovalRequestedResponse } from '@nightpay/contracts';
+import type { ApprovalRequestedResponse, BankHoldList, BankReleaseResult, ReleaseBankHoldDto } from '@nightpay/contracts';
 import { apiError, authedFetch, totpAwareError } from '../http';
 
 export interface OperatorBalance {
   pendingCents: number;
-  /** Lo que se pagaría ahora: comisiones pasados los días de espera, menos deuda. */
+  /** Lo que se pagaría ahora: comisiones pasados los días de espera, menos deuda (y sin lo retenido). */
   availableCents?: number;
   heldCents?: number;
+  /** API nuevo: ventas por datáfono sin cuadrar con el banco (su parte no se paga hasta cuadrarlas). */
+  bankHeldCents?: number;
+  bankHeldCount?: number;
   debtCents?: number;
   paidCents: number;
   lifetimeGrossCents: number;
@@ -117,6 +120,8 @@ export interface TreasuryStats {
   pendingOperatorCount: number;
   /** API nuevo: comisiones aún en espera (se pagarán más adelante). */
   heldPayoutsCents?: number;
+  /** API nuevo: ventas por datáfono sin cuadrar con el banco (se pagan al cuadrarlas o liberarlas). */
+  bankHeldPayoutsCents?: number;
   /** API nuevo: deuda de las chicas por devoluciones tras un pago. */
   operatorDebtCents?: number;
   payoutsThisMonthCount: number;
@@ -298,6 +303,22 @@ export async function createOperatorPayout(
     ...(idempotencyKey ? { headers: { 'Idempotency-Key': idempotencyKey } } : {}),
     body: JSON.stringify(body),
   });
+  if (!res.ok) throw await totpAwareError(res);
+  return res.json();
+}
+
+// ─── Ventas por datáfono sin cuadrar con el banco (H-1) ─────────────
+
+/** Lo retenido de esta persona: total, ventas y cada una (con si quien mira la puede liberar). */
+export async function fetchBankHolds(operatorId: string): Promise<BankHoldList> {
+  const res = await authedFetch(`/v1/admin/operators/${operatorId}/bank-holds`);
+  if (!res.ok) throw await apiError(res);
+  return res.json();
+}
+
+/** El dueño libera la comisión retenida de una venta por datáfono: 2FA siempre. */
+export async function releaseBankHold(paymentId: string, body: ReleaseBankHoldDto): Promise<BankReleaseResult> {
+  const res = await authedFetch(`/v1/admin/payments/${paymentId}/bank-release`, { method: 'POST', body: JSON.stringify(body) });
   if (!res.ok) throw await totpAwareError(res);
   return res.json();
 }

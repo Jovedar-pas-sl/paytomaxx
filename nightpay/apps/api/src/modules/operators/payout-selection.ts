@@ -1,5 +1,6 @@
 import { ConflictException } from '@nestjs/common';
 import type { TransactionalClient } from '../../common/prisma/prisma.service';
+import { earningBankHeldSql, earningNetSql } from './bank-hold-sql';
 import { payoutCutoff } from './payout-math';
 
 /**
@@ -31,7 +32,9 @@ export async function lockOperatorPayouts(tx: TransactionalClient, operatorId: s
 
 /**
  * Comisiones sin pagar de la chica creadas hasta `cutoff` (las que ya pasaron
- * los días de espera del local), bloqueadas. Incluye la propina.
+ * los días de espera del local), bloqueadas. Incluye la propina. Nunca las de
+ * una venta por datáfono sin cuadrar con el banco (bank-hold-sql): esas
+ * esperan al cuadre o a que el dueño las libere.
  */
 export async function lockPayableEarnings(
   tx: TransactionalClient,
@@ -40,15 +43,47 @@ export async function lockPayableEarnings(
   cutoff: Date,
 ): Promise<PayableEarningRow[]> {
   return tx.$queryRaw<PayableEarningRow[]>`
-    SELECT id, "commissionCents", "tipCents", "reversedCents"
-      FROM operator_earnings
-     WHERE "operatorId" = ${operatorId}::uuid
-       AND "tenantId" = ${tenantId}::uuid
-       AND "payoutId" IS NULL
-       AND "createdAt" <= ${cutoff}
-     ORDER BY id
-     FOR UPDATE
+    SELECT e.id, e."commissionCents", e."tipCents", e."reversedCents"
+      FROM operator_earnings e
+     WHERE e."operatorId" = ${operatorId}::uuid
+       AND e."tenantId" = ${tenantId}::uuid
+       AND e."payoutId" IS NULL
+       AND e."createdAt" <= ${cutoff}
+       AND NOT ${earningBankHeldSql('e')}
+     ORDER BY e.id
+     FOR UPDATE OF e
   `;
+}
+
+/** Lo que la chica tiene retenido (sin pagar) hasta cuadrarlo con el banco: importe y ventas. */
+export async function bankHeldTotals(
+  tx: TransactionalClient,
+  tenantId: string,
+  operatorId: string,
+): Promise<{ cents: number; sales: number }> {
+  const rows = await tx.$queryRaw<Array<{ cents: bigint | null; sales: bigint | null }>>`
+    SELECT COALESCE(SUM(${earningNetSql('e')}), 0)::bigint AS cents,
+           COUNT(DISTINCT e."paymentId") FILTER (WHERE ${earningNetSql('e')} > 0)::bigint AS sales
+      FROM operator_earnings e
+     WHERE e."operatorId" = ${operatorId}::uuid
+       AND e."tenantId" = ${tenantId}::uuid
+       AND e."payoutId" IS NULL
+       AND ${earningBankHeldSql('e')}
+  `;
+  return { cents: Number(rows[0]?.cents ?? 0), sales: Number(rows[0]?.sales ?? 0) };
+}
+
+/** De estas comisiones, las que están retenidas (venta por datáfono sin cuadrar). */
+async function bankHeldAmong(tx: TransactionalClient, tenantId: string, ids: readonly string[]): Promise<string[]> {
+  if (ids.length === 0) return [];
+  const rows = await tx.$queryRaw<Array<{ id: string }>>`
+    SELECT e.id
+      FROM operator_earnings e
+     WHERE e.id = ANY(${[...ids]}::uuid[])
+       AND e."tenantId" = ${tenantId}::uuid
+       AND ${earningBankHeldSql('e')}
+  `;
+  return rows.map((r) => r.id);
 }
 
 /** Estas comisiones de la chica, bloqueadas, digan lo que digan (para comprobar que siguen sin pagar). */
@@ -130,6 +165,12 @@ function eur(cents: number): string {
   return `${(cents / 100).toFixed(2).replace('.', ',')} €`;
 }
 
+/** No hay nada que pagar ya: solo hay comisiones retenidas por ventas por datáfono sin cuadrar. */
+export function bankHeldOnlyMessage(held: { cents: number; sales: number }): string {
+  const sales = held.sales === 1 ? '1 venta por datáfono' : `${held.sales} ventas por datáfono`;
+  return `No hay comisiones para liquidar: ${eur(held.cents)} están pendientes de cuadrar con el banco (${sales}). Se pagan al cuadrar el fichero del banco o si el dueño las libera.`;
+}
+
 /**
  * Lo pagable ya no es la cifra que vio quien paga (o quien lo pide): 409
  * PAYOUT_CHANGED. Lo usan el pago directo y la petición «Por aprobar».
@@ -152,6 +193,8 @@ export async function payableSelection(
   // dinero ya está abonado por el banco y una devolución temprana no deja deuda.
   const pending = await lockPayableEarnings(tx, tenantId, operatorId, payoutCutoff(now, holdDays));
   if (pending.length === 0) {
+    const held = await bankHeldTotals(tx, tenantId, operatorId);
+    if (held.cents > 0) throw new ConflictException(bankHeldOnlyMessage(held));
     throw new ConflictException(
       holdDays === 0
         ? 'No hay comisiones pendientes para liquidar.'
@@ -172,6 +215,11 @@ export async function exactSelection(
   const rows = await lockEarningsById(tx, tenantId, operatorId, exact.earningIds);
   if (exact.earningIds.length === 0 || rows.length !== exact.earningIds.length || rows.some((r) => r.paid)) {
     throw payoutChanged('Parte de esas comisiones ya se ha pagado desde que se pidió.');
+  }
+  // Una venta por datáfono que ya no casa con el banco (un fichero nuevo la
+  // descuadró) o una petición de antes de retenerlas: no se paga.
+  if ((await bankHeldAmong(tx, tenantId, exact.earningIds)).length > 0) {
+    throw payoutChanged('Parte de esas comisiones es de ventas por datáfono pendientes de cuadrar con el banco.');
   }
   const debts = await lockOpenDebts(tx, tenantId, operatorId, exact.debtIds);
   if (debts.length !== exact.debtIds.length) {

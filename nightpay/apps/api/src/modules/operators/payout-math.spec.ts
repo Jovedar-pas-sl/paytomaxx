@@ -71,6 +71,18 @@ describe('payout-math', () => {
       { unpaidCents: 1_000, heldCents: 0, debtCents: 9_000 }, // debe: 0
       { unpaidCents: 4_000, heldCents: 4_000, debtCents: 0 }, // todo en espera: 0
     ]);
-    expect(s).toEqual({ payableCents: 8_000, operatorCount: 1, heldCents: 7_000, debtCents: 10_000 });
+    expect(s).toEqual({ payableCents: 8_000, operatorCount: 1, heldCents: 7_000, bankHeldCents: 0, debtCents: 10_000 });
+  });
+
+  it('lo retenido por ventas por datáfono sin cuadrar no se paga ni tapa la deuda; va aparte (H-1)', () => {
+    expect(availableCentsOf({ unpaidCents: 30_000, heldCents: 2_000, bankHeldCents: 18_000, debtCents: 1_000 })).toBe(9_000);
+    // Solo retenido y con deuda: debe (negativo), lo retenido no lo compensa.
+    expect(availableCentsOf({ unpaidCents: 18_000, heldCents: 0, bankHeldCents: 18_000, debtCents: 5_000 })).toBe(-5_000);
+    const s = payableSummary([
+      { unpaidCents: 30_000, heldCents: 2_000, bankHeldCents: 18_000, debtCents: 1_000 },
+      { unpaidCents: 18_000, heldCents: 0, bankHeldCents: 18_000, debtCents: 0 },
+      { unpaidCents: 5_000, heldCents: 0, debtCents: 0 }, // cuentas de antes, sin el campo
+    ]);
+    expect(s).toEqual({ payableCents: 14_000, operatorCount: 2, heldCents: 2_000, bankHeldCents: 36_000, debtCents: 1_000 });
   });
 });

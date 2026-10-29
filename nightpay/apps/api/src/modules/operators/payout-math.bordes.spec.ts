@@ -32,7 +32,7 @@ describe('payout-math — casos límite del dinero de las chicas', () => {
   });
 
   it('tesorería sin chicas: todo a cero; un "en espera" negativo no resta del total en espera', () => {
-    expect(payableSummary([])).toEqual({ payableCents: 0, operatorCount: 0, heldCents: 0, debtCents: 0 });
+    expect(payableSummary([])).toEqual({ payableCents: 0, operatorCount: 0, heldCents: 0, bankHeldCents: 0, debtCents: 0 });
     expect(payableSummary([{ unpaidCents: 1_000, heldCents: -400, debtCents: 0 }]).heldCents).toBe(0);
   });
 });

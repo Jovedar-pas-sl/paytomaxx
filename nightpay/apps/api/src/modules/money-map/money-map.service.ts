@@ -9,6 +9,7 @@ import type {
   SettlementConceptAmounts,
 } from '@nightpay/contracts';
 import { Prisma } from '@nightpay/db';
+import { earningBankHeldSql, earningNetSql } from '../operators/bank-hold-sql';
 import { PrismaService, type TransactionalClient } from '../../common/prisma/prisma.service';
 import { lastNightCutoff } from '../../common/time/madrid';
 import { cashFromRows, zStart } from '../nights/night-rules';
@@ -471,7 +472,7 @@ function activeConsumptions(tenantId: string, w: TimeWindow, asOf: Date | undefi
 async function liveBalances(
   tx: TransactionalClient,
   tenantId: string,
-): Promise<{ saldoCents: number; owed: { chicasCents: number; camarerosCents: number } }> {
+): Promise<{ saldoCents: number; owed: { chicasCents: number; camarerosCents: number; bankHeldCents: number } }> {
   const [saldo] = await tx.$queryRaw<Array<{ cents: Num }>>`
     SELECT COALESCE(SUM("balanceCents"), 0)::bigint AS cents
       FROM client_wallets
@@ -493,6 +494,12 @@ async function liveBalances(
       ) x
      GROUP BY x.chica
   `;
+  // De lo debido, lo de ventas por datáfono sin cuadrar con el banco: no se paga hasta cuadrarlas (bank-hold-sql).
+  const [held] = await tx.$queryRaw<Array<{ cents: Num }>>`
+    SELECT COALESCE(SUM(${earningNetSql('e')}), 0)::bigint AS cents
+      FROM operator_earnings e
+     WHERE e."tenantId" = ${tenantId}::uuid AND e."payoutId" IS NULL AND ${earningBankHeldSql('e')}
+  `;
   const of = (chica: boolean) => n(owed.find((o) => o.chica === chica)?.cents);
-  return { saldoCents: n(saldo?.cents), owed: { chicasCents: of(true), camarerosCents: of(false) } };
+  return { saldoCents: n(saldo?.cents), owed: { chicasCents: of(true), camarerosCents: of(false), bankHeldCents: n(held?.cents) } };
 }

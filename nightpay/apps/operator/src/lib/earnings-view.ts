@@ -75,6 +75,8 @@ export interface MoneySummary {
   otherNightsCents: number;
   /** En espera (aún no entra en un pago). */
   heldCents: number;
+  /** Pendiente de cuadrar con el banco (ventas por datáfono): no entra en un pago hasta cuadrarlas. */
+  bankHeldCents: number;
   /** Devoluciones tras un pago: se descuentan del próximo. */
   debtCents: number;
   /** Lo que entra en el próximo pago (nunca negativo); null sin saldo cargado. */
@@ -92,6 +94,7 @@ export function moneySummary(night: MyNight | null, balance: OperatorBalance | n
   const tonight = night?.netCents ?? 0;
   const debt = Math.max(0, balance?.debtCents ?? 0);
   const held = Math.max(0, balance?.heldCents ?? 0);
+  const bankHeld = Math.max(0, balance?.bankHeldCents ?? 0);
   const tonightUnpaid = night?.unpaidCents ?? Math.max(0, tonight);
   const unpaidAll = balance ? balance.pendingCents + debt : null;
   const other = night?.otherUnpaidCents ?? (unpaidAll === null ? 0 : Math.max(0, unpaidAll - tonightUnpaid));
@@ -102,6 +105,7 @@ export function moneySummary(night: MyNight | null, balance: OperatorBalance | n
     tonightPaid: Boolean(night && night.to !== null && tonight > 0 && tonightUnpaid <= 0),
     otherNightsCents: other,
     heldCents: held,
+    bankHeldCents: bankHeld,
     debtCents: debt,
     nextPayoutCents: available === null ? null : Math.max(0, available),
     owedAfterCents: available === null ? 0 : Math.max(0, -available),
@@ -206,13 +210,24 @@ export interface HeldItem {
   releaseAt: string;
 }
 
-/** Lo que está en espera y el día en que deja de estarlo, del primero que sale al último. */
+/**
+ * Lo que está en espera y el día en que deja de estarlo, del primero que sale
+ * al último. Lo pendiente de cuadrar con el banco va aparte (bankHeldItems):
+ * no sale de ahí al pasar los días.
+ */
 export function heldItems(earnings: readonly MyEarning[], holdDays: number, now: number): HeldItem[] {
   if (holdDays <= 0) return [];
   return earnings
-    .filter((e) => e.payoutId === null && Date.parse(e.createdAt) + holdDays * DAY_MS > now)
+    .filter((e) => e.payoutId === null && !e.bankHeld && Date.parse(e.createdAt) + holdDays * DAY_MS > now)
     .map((e) => ({ earning: e, releaseAt: new Date(Date.parse(e.createdAt) + holdDays * DAY_MS).toISOString() }))
     .sort((a, b) => Date.parse(a.releaseAt) - Date.parse(b.releaseAt));
+}
+
+/** Pendiente de cuadrar con el banco: sus cobros por datáfono sin pagar retenidos, del más antiguo al más nuevo. */
+export function bankHeldItems(earnings: readonly MyEarning[]): MyEarning[] {
+  return earnings
+    .filter((e) => e.payoutId === null && e.bankHeld === true)
+    .sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt));
 }
 
 /** Hasta cuándo hay algo en espera (lo último que sale). */

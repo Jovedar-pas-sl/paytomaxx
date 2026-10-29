@@ -95,7 +95,7 @@ function TotalsBand({ totals }: { totals: OverviewTotals }) {
         <Figure
           label="Pendiente a chicas"
           value={formatEur(totals.pendingToChicasCents)}
-          note={totals.heldForChicasCents > 0 ? `+ ${formatEur(totals.heldForChicasCents)} en espera` : undefined}
+          note={heldNote(totals.heldForChicasCents, totals.bankHeldForChicasCents ?? 0)}
         />
         <Figure
           label="Saldo vivo de clientes"
@@ -199,4 +199,13 @@ function VenueFig({ label, value, hero }: { label: string; value: string; hero?:
       <span className="np-sa-venue-fig-value">{value}</span>
     </span>
   );
+}
+
+/** «+ 120 € en espera · + 180 € sin cuadrar con el banco» (lo que aún no se paga a las chicas). */
+function heldNote(heldCents: number, bankHeldCents: number): string | undefined {
+  const parts = [
+    heldCents > 0 ? `+ ${formatEur(heldCents)} en espera` : null,
+    bankHeldCents > 0 ? `+ ${formatEur(bankHeldCents)} sin cuadrar con el banco` : null,
+  ].filter(Boolean);
+  return parts.length > 0 ? parts.join(' · ') : undefined;
 }
