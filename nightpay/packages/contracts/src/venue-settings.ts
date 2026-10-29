@@ -21,7 +21,11 @@ export interface VenuePaymentMethods {
   wallet: boolean;
   /** Pago con la ficha NFC del saldo. */
   nfc: boolean;
-  /** Cobro con datáfono (PAX o el del bar). */
+  /**
+   * Cobro con datáfono (PAX o el del bar). Apagado de fábrica (decisión del
+   * dueño, 20-10-2026: «todo con móviles Android, sin PAX»): se enciende en
+   * Ajustes → Formas de cobro y lo guardado se conserva.
+   */
   pos: boolean;
   /**
    * Recargas del saldo en efectivo (recepción). Encendida por defecto: el
@@ -48,7 +52,7 @@ export const DEFAULT_PAYMENT_METHODS: Readonly<VenuePaymentMethods> = Object.fre
   card: true,
   wallet: true,
   nfc: true,
-  pos: true,
+  pos: false,
   cashTopUp: true,
   tips: true,
   tipFlatCents: [...DEFAULT_TIP_FLAT_CENTS],

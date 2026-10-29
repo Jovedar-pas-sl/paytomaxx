@@ -18,10 +18,10 @@ import type { TransactionalClient } from '../../common/prisma/prisma.service';
  */
 
 /**
- * Lo que se guarda al dar de alta un local: lo de siempre con el datáfono
- * apagado (casi ningún local nuevo lo usa; se enciende en Formas de cobro).
- * DEFAULT_PAYMENT_METHODS no cambia: un local de antes sin nada guardado
- * sigue con el datáfono encendido, como hasta ahora.
+ * Lo que se guarda al dar de alta un local: lo de fábrica, con el datáfono
+ * apagado (se enciende en Formas de cobro). Desde el 20-10-2026 (decisión del
+ * dueño) DEFAULT_PAYMENT_METHODS también lo trae apagado: un local de antes
+ * sin nada guardado ya no cobra con datáfono; el que lo guardó encendido, sí.
  */
 export function newVenuePaymentMethods(): VenuePaymentMethods {
   return { ...paymentMethodsOf(null), pos: false };

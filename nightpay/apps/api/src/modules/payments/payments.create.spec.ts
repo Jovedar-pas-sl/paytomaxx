@@ -64,7 +64,9 @@ function makeService(opts: Opts = {}) {
         walletGroup: null,
         pausedAt: opts.pausedAt ?? null,
         business: opts.businessStatus ? { status: opts.businessStatus } : null,
-        paymentMethods: opts.paymentMethods ?? null,
+        // Las pruebas cobran también por datáfono: el local lo guardó encendido
+        // (de fábrica va apagado desde el 20-10-2026). `null` explícito: sin nada guardado.
+        paymentMethods: opts.paymentMethods === undefined ? { pos: true } : opts.paymentMethods,
       }),
     },
     gatewayCredential: {
@@ -361,7 +363,7 @@ describe('create — formas de cobro del local (Ajustes → Formas de cobro)', (
     expect.objectContaining({ status: 409, response: expect.objectContaining({ code: 'PAYMENT_METHOD_DISABLED', method }) });
 
   it('QR con tarjeta apagado: 409 y no se guarda nada; el datáfono sigue', async () => {
-    const off = makeService({ paymentMethods: { card: false } });
+    const off = makeService({ paymentMethods: { card: false, pos: true } });
     await expect(off.service.create('tenant-1', 'idem-key-0400', dto(), owner)).rejects.toEqual(disabled('card'));
     expect(off.created).toHaveLength(0);
     await off.service.create('tenant-1', 'idem-key-0401', dto({ captureMethod: 'POS_EXTERNAL' }), owner);
@@ -393,10 +395,18 @@ describe('create — formas de cobro del local (Ajustes → Formas de cobro)', (
     expect(off.created).toHaveLength(1);
   });
 
-  it('sin ajustes guardados: todo encendido, como antes', async () => {
-    const all = makeService({ paymentMethods: null });
-    await all.service.create('tenant-1', 'idem-key-0406', dto({ tipCents: 500 }), operator);
-    await all.service.create('tenant-1', 'idem-key-0407', dto({ captureMethod: 'POS_EXTERNAL' }), owner);
-    expect(all.created).toHaveLength(2);
+  it('sin ajustes guardados: todo encendido menos el datáfono (apagado de fábrica desde el 20-10-2026)', async () => {
+    const unsaved = makeService({ paymentMethods: null });
+    await unsaved.service.create('tenant-1', 'idem-key-0406', dto({ tipCents: 500 }), operator);
+    await expect(unsaved.service.create('tenant-1', 'idem-key-0407', dto({ captureMethod: 'POS_EXTERNAL' }), owner)).rejects.toEqual(
+      disabled('pos'),
+    );
+    expect(unsaved.created).toHaveLength(1);
+  });
+
+  it('el datáfono guardado encendido: el cobro por datáfono se crea', async () => {
+    const on = makeService({ paymentMethods: { pos: true } });
+    await on.service.create('tenant-1', 'idem-key-0408', dto({ captureMethod: 'POS_EXTERNAL' }), owner);
+    expect(on.created).toHaveLength(1);
   });
 });

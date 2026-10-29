@@ -81,15 +81,28 @@ function createCharge(extra: Record<string, unknown> = {}) {
 }
 
 describe('formas de cobro: se guardan en el local y el API las aplica (Postgres real)', () => {
-  it('sin ajustes: todo encendido, como antes', async () => {
+  it('sin ajustes: todo encendido menos el datáfono (apagado de fábrica desde el 20-10-2026)', async () => {
     await expect(inVenue(A, () => settings.paymentMethods(ownerJwt()))).resolves.toMatchObject({
       card: true,
       wallet: true,
       nfc: true,
-      pos: true,
+      pos: false,
       tips: true,
     });
     await expect(createCharge()).resolves.toMatchObject({ amountCents: 5_000 });
+    // Un cobro por datáfono en un local que nunca guardó sus formas de cobro: 409.
+    await expect(createCharge({ captureMethod: 'POS_EXTERNAL' })).rejects.toMatchObject({
+      status: 409,
+      response: expect.objectContaining({ code: 'PAYMENT_METHOD_DISABLED', method: 'pos' }),
+    });
+  });
+
+  it('el dueño enciende el datáfono: queda guardado y el cobro por datáfono se crea; cambiar otra cosa no lo apaga', async () => {
+    await inVenue(A, () => settings.updatePaymentMethods(ownerJwt(), { pos: true }));
+    await expect(createCharge({ captureMethod: 'POS_EXTERNAL' })).resolves.toMatchObject({ amountCents: 5_000 });
+    await inVenue(A, () => settings.updatePaymentMethods(ownerJwt(), { tips: true }));
+    const stored = await sys((tx) => tx.venue.findUnique({ where: { id: A }, select: { paymentMethods: true } }));
+    expect(stored?.paymentMethods).toMatchObject({ pos: true });
   });
 
   it('QR con tarjeta apagado: 409 al cobrar con QR; el datáfono sigue; queda en el registro', async () => {

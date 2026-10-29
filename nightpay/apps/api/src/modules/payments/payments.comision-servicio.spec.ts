@@ -58,7 +58,8 @@ function makeService(fee: Fee) {
         walletGroup: null,
         pausedAt: null,
         business: null,
-        paymentMethods: null,
+        // Cobra también por datáfono: lo guardó encendido (de fábrica va apagado).
+        paymentMethods: { pos: true },
         serviceFeeEnabled: fee.enabled,
         serviceFeeBps: fee.cardBps ?? 1000,
         topUpServiceFeeBps: fee.topUpBps ?? 1000,
