@@ -272,6 +272,7 @@ export const ES: CustomerTexts = {
     topUpLimits: 'De {min} a {max}.',
     topUpRange: 'Pon un importe de {min} a {max}, en euros enteros.',
     topUpGo: 'Recargar {amount}',
+    topUpGoFee: 'Pagar {amount}',
     topUpMethods: 'Sin propina: solo pagas lo que recargas.',
     topUpToBalance: 'Recarga (a tu saldo)',
     topUpMethodsFee: 'Sin propina. A tu saldo va lo que recargas; la comisión del servicio va aparte.',

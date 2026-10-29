@@ -285,6 +285,7 @@ export const FR: CustomerTexts = withFrenchSpacing<CustomerTexts>({
     topUpLimits: 'De {min} à {max}.',
     topUpRange: 'Saisissez un montant de {min} à {max}, en euros entiers.',
     topUpGo: 'Recharger {amount}',
+    topUpGoFee: 'Payer {amount}',
     topUpMethods: 'Pas de pourboire : vous ne payez que ce que vous rechargez.',
     topUpToBalance: 'Recharge (sur votre solde)',
     topUpMethodsFee: 'Pas de pourboire. Votre solde reçoit ce que vous rechargez ; les frais de service sont en plus.',

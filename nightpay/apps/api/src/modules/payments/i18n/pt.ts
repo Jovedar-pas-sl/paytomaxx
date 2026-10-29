@@ -277,6 +277,7 @@ export const PT: CustomerTexts = {
     topUpLimits: 'De {min} a {max}.',
     topUpRange: 'Indique um valor de {min} a {max}, em euros inteiros.',
     topUpGo: 'Recarregar {amount}',
+    topUpGoFee: 'Pagar {amount}',
     topUpMethods: 'Sem gorjeta: só paga o que recarrega.',
     topUpToBalance: 'Recarga (para o seu saldo)',
     topUpMethodsFee: 'Sem gorjeta. O seu saldo recebe o que recarrega; a taxa de serviço é à parte.',

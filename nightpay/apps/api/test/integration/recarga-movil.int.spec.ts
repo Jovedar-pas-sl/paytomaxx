@@ -266,3 +266,39 @@ describe('«Recargar» desde /w (Postgres real)', () => {
     expect(z.byRevenueCategory).toEqual([]);
   });
 });
+
+describe('«Recargar» desde /w con la comisión del servicio (Postgres real, M-3)', () => {
+  let B: string;
+  beforeAll(async () => {
+    await sys(async (tx) => {
+      // Un % con medios céntimos (10,5 %) para que se note cualquier redondeo distinto.
+      B = (
+        await tx.venue.create({
+          data: { name: 'Sala Comisión', slug: `recf-${r}`, walletGroup: `grecf-${r}`, serviceFeeEnabled: true, serviceFeeBps: 1000, topUpServiceFeeBps: 1050 },
+        })
+      ).id;
+      await tx.terminal.create({ data: { tenantId: B, externalId: `TRECF-${r}`, label: 'Barra', zone: 'BARRA' } });
+      await tx.gatewayCredential.create({
+        data: { tenantId: B, provider: 'REDSYS', encKey: Buffer.from('k'), encNonce: Buffer.from('n'), encTag: Buffer.from('t'), kekVersion: 1 },
+      });
+    });
+  });
+
+  it('la comisión que enseña la página (y el total del botón) es la que cobra el servidor: 10, 33, 57, 299 y 300 €', async () => {
+    for (const euros of [10, 33, 57, 299, 300]) {
+      const w = await newWallet({ tenantId: B, walletGroup: `grecf-${r}` });
+      const opts = await pub(() => topUps.options(w.token));
+      const cents = euros * 100;
+      const fee = opts.feesCents![(cents - opts.minCents) / 100]!;
+      const out = await start(w.token, key(), cents);
+      const p = await paymentOf(out.payToken);
+      // Lo que crea el servidor: el saldo y su comisión, la misma que dijo la página.
+      expect({ euros, amountCents: p.amountCents, serviceFeeCents: p.serviceFeeCents }).toEqual({ euros, amountCents: cents, serviceFeeCents: fee });
+      // Y la página de pago pide ese mismo total.
+      await expect(pub(() => payments.getPayPage(out.payToken))).resolves.toMatchObject({ kind: 'choose', amountCents: cents, serviceFeeCents: fee, topUp: true });
+    }
+    // 33 € al 10,5 % = 3,465 € → 3,47 € (la mitad, hacia arriba): el botón dice «Pagar 36,47 €».
+    const w = await newWallet({ tenantId: B, walletGroup: `grecf-${r}` });
+    expect((await pub(() => topUps.options(w.token))).feesCents![23]).toBe(347);
+  });
+});

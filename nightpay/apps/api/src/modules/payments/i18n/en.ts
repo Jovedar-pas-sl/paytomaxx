@@ -270,6 +270,7 @@ export const EN: CustomerTexts = {
     topUpLimits: 'From {min} to {max}.',
     topUpRange: 'Enter an amount from {min} to {max}, in whole euros.',
     topUpGo: 'Top up {amount}',
+    topUpGoFee: 'Pay {amount}',
     topUpMethods: 'No tip: you only pay what you top up.',
     topUpToBalance: 'Top-up (to your balance)',
     topUpMethodsFee: 'No tip. Your balance gets what you top up; the service fee is separate.',

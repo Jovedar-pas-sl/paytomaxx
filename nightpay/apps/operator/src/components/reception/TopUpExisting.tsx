@@ -46,9 +46,10 @@ type Step =
   | { kind: 'qr'; found: Found; amountCents: number | null; payment: CreatedPayment | null }
   /** Plan B: cobrar primero (sin su NFC) y asignarla después. */
   | { kind: 'planB'; amountCents: number | null; payment: CreatedPayment | null }
-  | { kind: 'assign'; walletId: string; amountCents: number }
+  /** feeCents: la «Comisión del servicio» que pagó con la recarga (para su CARGADO). */
+  | { kind: 'assign'; walletId: string; amountCents: number; feeCents: number }
   | { kind: 'pending' }
-  | { kind: 'done'; amountCents: number; method: PayMethod; code: string; detail: string };
+  | { kind: 'done'; amountCents: number; feeCents: number; method: PayMethod; code: string; detail: string };
 
 interface Props {
   /** Volver a cobrar (sin él, no hay otra cosa que hacer en Inicio). */
@@ -184,7 +185,14 @@ export function TopUpExisting({ onExit, onDone }: Props) {
     );
     onDone();
     attempt.current = null;
-    go({ kind: 'done', amountCents, method: 'cash', code: out.code, detail: `Saldo ${out.code} · tiene ${formatEur(out.balanceCents, { compact: true })}` });
+    go({
+      kind: 'done',
+      amountCents,
+      feeCents: out.serviceFeeCents ?? 0,
+      method: 'cash',
+      code: out.code,
+      detail: `Saldo ${out.code} · tiene ${formatEur(out.balanceCents, { compact: true })}`,
+    });
   }
 
   /** Plan B: cobrar primero (tarjeta) una recarga pendiente de asignar. */
@@ -205,7 +213,7 @@ export function TopUpExisting({ onExit, onDone }: Props) {
         word="CARGADO"
         amountCents={step.amountCents}
         reference={step.code}
-        money={{ icon: step.method, ...loadedMoneyLine(step.method, step.amountCents) }}
+        money={{ icon: step.method, ...loadedMoneyLine(step.method, step.amountCents, step.feeCents) }}
         meta={step.detail}
         primary={{ label: 'Otra recarga', onClick: restart }}
         secondary={onExit ? { label: 'Volver a cobrar', onClick: onExit } : null}
@@ -219,7 +227,14 @@ export function TopUpExisting({ onExit, onDone }: Props) {
         walletId={step.walletId}
         amountCents={step.amountCents}
         onAssigned={(out) =>
-          go({ kind: 'done', amountCents: out.amountCents, method: 'card', code: out.codeHint, detail: `Saldo ${out.codeHint} · tiene ${formatEur(out.balanceCents, { compact: true })}` })
+          go({
+            kind: 'done',
+            amountCents: out.amountCents,
+            feeCents: step.feeCents,
+            method: 'card',
+            code: out.codeHint,
+            detail: `Saldo ${out.codeHint} · tiene ${formatEur(out.balanceCents, { compact: true })}`,
+          })
         }
         onLater={restart}
       />
@@ -261,6 +276,7 @@ export function TopUpExisting({ onExit, onDone }: Props) {
             go({
               kind: 'done',
               amountCents: paid.amountCents,
+              feeCents: paid.serviceFeeCents ?? 0,
               method: 'card',
               code: f.view.code,
               detail: `Saldo ${f.view.code} · tiene ${formatEur(f.view.balanceCents + paid.amountCents, { compact: true })}`,
@@ -307,7 +323,7 @@ export function TopUpExisting({ onExit, onDone }: Props) {
           onAmount={(cents) => void run(() => payFirst(cents, payment))}
           onPaid={(paid) => {
             onDone();
-            if (paid.walletId) go({ kind: 'assign', walletId: paid.walletId, amountCents: paid.amountCents });
+            if (paid.walletId) go({ kind: 'assign', walletId: paid.walletId, amountCents: paid.amountCents, feeCents: paid.serviceFeeCents ?? 0 });
           }}
           onRetry={() => {
             attempt.current = null;

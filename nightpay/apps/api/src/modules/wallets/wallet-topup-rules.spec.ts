@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { SERVICE_FEE_OFF, serviceFeeQuote } from '@nightpay/contracts';
 import {
   SELF_TOPUP_DAILY_MAX_CENTS,
   SELF_TOPUP_DAILY_MAX_PAID,
@@ -14,6 +15,7 @@ import {
   selfTopUpClaimHash,
   selfTopUpKey,
   topUpBlock,
+  topUpFeeTable,
   type TopUpVenueState,
   type TopUpWalletState,
 } from './wallet-topup-rules';
@@ -125,6 +127,27 @@ describe('«Recargar» desde /w: cuándo se puede', () => {
 
   it('cada motivo tiene su mensaje', () => {
     for (const msg of Object.values(TOPUP_BLOCK_MESSAGES)) expect(msg.length).toBeGreaterThan(10);
+  });
+});
+
+describe('«Recargar» desde /w: la comisión de cada importe la calcula el servidor (M-3)', () => {
+  it('apagada: no hay tabla (el botón dice «Recargar»)', () => {
+    expect(topUpFeeTable(SERVICE_FEE_OFF, SELF_TOPUP_MIN_CENTS, SELF_TOPUP_MAX_CENTS)).toBeNull();
+    expect(topUpFeeTable(null, SELF_TOPUP_MIN_CENTS, SELF_TOPUP_MAX_CENTS)).toBeNull();
+  });
+
+  it('encendida: una por euro entero de 10 € a 300 €, la misma que cobra el servidor (serviceFeeQuote)', () => {
+    const fee = { enabled: true, cardBps: 1000, topUpBps: 1050 };
+    const table = topUpFeeTable(fee, SELF_TOPUP_MIN_CENTS, SELF_TOPUP_MAX_CENTS)!;
+    expect(table).toHaveLength(291);
+    expect(table[0]).toBe(105); // 10 € al 10,5 %
+    expect(table[(33_00 - SELF_TOPUP_MIN_CENTS) / 100]).toBe(347); // 3,465 € → 3,47 € (la mitad, hacia arriba)
+    expect(table[290]).toBe(3150); // 300 €
+    table.forEach((feeCents, i) => expect(feeCents).toBe(serviceFeeQuote(fee, 'topUp', SELF_TOPUP_MIN_CENTS + i * 100).feeCents));
+  });
+
+  it('encendida al 0 %: ceros (nada encima)', () => {
+    expect(topUpFeeTable({ enabled: true, cardBps: 0, topUpBps: 0 }, 1000, 1300)).toEqual([0, 0, 0, 0]);
   });
 });
 

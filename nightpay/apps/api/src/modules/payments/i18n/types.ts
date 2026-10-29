@@ -242,6 +242,8 @@ export interface WalletText {
   topUpLimits: string;
   topUpRange: string;
   topUpGo: string;
+  /** Con la «Comisión del servicio»: el botón dice lo que paga, el total («Pagar 56 €»). */
+  topUpGoFee: string;
   topUpMethods: string;
   /** Con la «Comisión del servicio»: el desglose (Recarga · Comisión · Total a pagar). */
   topUpToBalance: string;
