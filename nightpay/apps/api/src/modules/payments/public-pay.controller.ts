@@ -44,6 +44,9 @@ import {
 import { walletClaimCookieName, walletClaimSetCookie } from './wallet-claim';
 import { PayPageFilter } from './pay-page.filter';
 import { RedsysReturnService } from './redsys-return.service';
+import { renderCheckingPage } from './pay-checking-page';
+import { PayStatusService, type PayStatusContext } from './pay-status.service';
+import { langHrefWith, type LangHref } from './customer-chrome';
 
 /**
  * Páginas GET de /pay: fuera del límite global (global-rate-limit.ts) y con
@@ -51,6 +54,22 @@ import { RedsysReturnService } from './redsys-return.service';
  * clientes comparten el wifi. Pasado, una página que espera (PayPageFilter).
  */
 const PAY_PAGE_LIMIT = { max: 600, windowSec: 60, scope: 'pay-page', failOpen: true } as const;
+
+/**
+ * El estado del pago de «Comprobando el pago» (JSON): fuera del límite global
+ * y del de las páginas. Cada cobro tiene su cupo desde la IP (perKey: unas 20
+ * consultas por minuto de una página abierta, con margen para dos pestañas y
+ * recargas) y la IP uno alto: 30–50 clientes tras el wifi del local caben de
+ * sobra. Pasado, un 429 en JSON (la página espera, no se va).
+ */
+const PAY_STATUS_BY_TOKEN = {
+  max: 3_000,
+  windowSec: 60,
+  scope: 'pay-status',
+  failOpen: true,
+  perKey: { param: 'token', max: 120 },
+} as const;
+const PAY_STATUS_BY_ORDER = { ...PAY_STATUS_BY_TOKEN, perKey: { query: 'op', max: 120 } } as const;
 import { checkedPin } from '../wallets/client-pin';
 
 /** Formulario de la página de pago. `method` vacío = sin preferencia. */
@@ -80,6 +99,8 @@ export { walletClaimCookieName } from './wallet-claim';
  *                                leído de la base de datos; el `status` de la
  *                                URL se ignora (cualquiera puede escribirlo).
  *  - GET  /pay/:token/receipt  → justificante, solo si está pagado.
+ *  - GET  /pay/:token/status   → el estado del pago en JSON para «Comprobando
+ *  - GET  /pay/result/status?op=…  el pago» (pay-status.ts; sin caché).
  *
  * En español, inglés, francés o portugués: español por defecto (nunca el
  * idioma del móvil); el que elige el cliente (?lang=) queda en su cookie
@@ -93,6 +114,7 @@ export class PublicPayController {
   private readonly charges: WalletChargesService;
   private readonly passkeys: WalletPasskeysService;
   private readonly redsysReturn: RedsysReturnService;
+  private readonly status: PayStatusService | null;
 
   constructor(
     @Inject(PaymentsService) payments: PaymentsService,
@@ -100,12 +122,32 @@ export class PublicPayController {
     @Inject(WalletChargesService) charges: WalletChargesService,
     @Inject(WalletPasskeysService) passkeys: WalletPasskeysService,
     @Inject(RedsysReturnService) redsysReturn: RedsysReturnService,
+    @Inject(PayStatusService) status?: PayStatusService,
   ) {
     this.payments = payments;
     this.config = config;
     this.charges = charges;
     this.passkeys = passkeys;
     this.redsysReturn = redsysReturn;
+    this.status = status ?? null;
+  }
+
+  /** «Comprobando el pago» por la vuelta del banco: el estado en JSON, sin caché. */
+  @Public()
+  @Get('result/status')
+  @IpRateLimit(PAY_STATUS_BY_ORDER)
+  async resultStatus(@Query('op') op: string | undefined, @Res() res: FastifyReply): Promise<void> {
+    const ctx = op && this.status ? await this.status.byOrder(op) : null;
+    sendJson(res, ctx ? 200 : 404, ctx ? ctx.view : { message: 'Pago no encontrado' });
+  }
+
+  /** «Comprobando el pago» por el QR: el estado en JSON (otherPayer con la cookie de este navegador), sin caché. */
+  @Public()
+  @Get(':token/status')
+  @IpRateLimit(PAY_STATUS_BY_TOKEN)
+  async tokenStatus(@Param('token') token: string, @Res() res: FastifyReply): Promise<void> {
+    const ctx = this.status ? await this.status.byToken(token, this.viewerClaimHash(res, token)) : null;
+    sendJson(res, ctx ? 200 : 404, ctx ? ctx.view : { message: 'Pago no encontrado' });
   }
 
   @Public()
@@ -143,6 +185,15 @@ export class PublicPayController {
       return;
     }
     const refreshUrl = `/pay/result?op=${encodeURIComponent(op ?? '')}&lang=${lang}`;
+    // Esperando al banco o sin su confirmación: «Comprobando el pago», que se pone al día sola.
+    if (op && view && !PAID_STATES.has(view.status) && view.attemptStatus !== 'DENIED') {
+      const ctx = this.status ? await this.status.byOrder(op) : null;
+      if (ctx && (ctx.view.state === 'processing' || ctx.view.state === 'unconfirmed')) {
+        const statusUrl = `/pay/result/status?op=${encodeURIComponent(op)}`;
+        sendHtml(res, 200, this.checkingPage(ctx, lang, statusUrl, refreshUrl, langHrefWith('/pay/result', { op })));
+        return;
+      }
+    }
     const hidden = Boolean(view?.walletToken) && !this.hasWalletClaim(res, view?.qrToken ?? '', view?.walletClaimHash ?? null);
     const shown = hidden && view ? { ...view, walletToken: null } : view;
     // «Pagado» lima solo en el navegador del intento aprobado; en los demás, «Ya pagado».
@@ -208,7 +259,7 @@ export class PublicPayController {
     const lang = this.language(res, langQuery, cookies);
     try {
       const view = await this.payments.getPayPage(token);
-      this.send(res, token, lang, view, userAgent);
+      await this.send(res, token, lang, view, userAgent);
     } catch (err) {
       this.sendError(res, token, lang, err);
     }
@@ -243,19 +294,19 @@ export class PublicPayController {
       if (view.kind === 'checkout' || view.kind === 'form' || view.kind === 'redirect') {
         this.setWalletClaim(res, token, claim);
       }
-      this.send(res, token, lang, view, undefined);
+      await this.send(res, token, lang, view, undefined);
     } catch (err) {
       this.sendError(res, token, lang, err);
     }
   }
 
-  private send(
+  private async send(
     res: FastifyReply,
     token: string,
     lang: PayLanguage,
     view: PayRedirect,
     userAgent: string | undefined,
-  ): void {
+  ): Promise<void> {
     switch (view.kind) {
       case 'choose':
         sendHtml(
@@ -320,11 +371,20 @@ export class PublicPayController {
         return;
       }
       case 'processing':
-        sendHtml(res, 200, renderProcessingPage(lang, payHref(token, lang), true));
+      case 'closed': {
+        // Esperando al banco o sin su confirmación: «Comprobando el pago», que se pone al día sola.
+        if (view.kind === 'processing' || view.reason === 'unconfirmed') {
+          const ctx = this.status ? await this.status.byToken(token, this.viewerClaimHash(res, token)) : null;
+          if (ctx && (ctx.view.state === 'processing' || ctx.view.state === 'unconfirmed')) {
+            const page = payHref(token, lang);
+            sendHtml(res, 200, this.checkingPage(ctx, lang, `/pay/${encodeURIComponent(token)}/status`, page, (l) => payHref(token, l)));
+            return;
+          }
+        }
+        if (view.kind === 'processing') sendHtml(res, 200, renderProcessingPage(lang, payHref(token, lang), true));
+        else sendHtml(res, 409, renderClosedPage(view.reason, lang));
         return;
-      case 'closed':
-        sendHtml(res, 409, renderClosedPage(view.reason, lang));
-        return;
+      }
     }
   }
 
@@ -440,6 +500,40 @@ export class PublicPayController {
     return this.charges.walletRefByToken(view.walletToken);
   }
 
+  /** «Comprobando el pago» con su estado de ahora (pay-checking-page.ts). */
+  private checkingPage(ctx: PayStatusContext, lang: PayLanguage, statusUrl: string, finalUrl: string, langHref: LangHref): string {
+    return renderCheckingPage({
+      mode: ctx.view.state === 'unconfirmed' ? 'unconfirmed' : 'processing',
+      view: ctx.view,
+      lang,
+      currency: ctx.currency,
+      concept: ctx.concept,
+      ref: ctx.ref,
+      statementName: this.bankStatementName(),
+      statusUrl,
+      finalUrl,
+      retryHref: payHref(ctx.qrToken, lang),
+      saldoHref: ctx.saldoPayToken ? `/s/${encodeURIComponent(ctx.saldoPayToken)}?lang=${lang}` : null,
+      langHref,
+    });
+  }
+
+  /** La huella de la cookie de este navegador para este cobro (null si no la tiene). */
+  private viewerClaimHash(res: FastifyReply, payToken: string): string | null {
+    const value = this.claimValue(res, payToken);
+    return value ? sha256(value) : null;
+  }
+
+  /**
+   * El nombre con el que el cliente busca el cargo en su app del banco: el del
+   * extracto (PAY_STATEMENT_NAME) o, si no está, el del comercio en la página
+   * de Redsys (REDSYS_MERCHANT_NAME). Sin ninguno, la frase sin nombre.
+   */
+  private bankStatementName(): string | null {
+    const merchant = this.config.get<string>('REDSYS_MERCHANT_NAME')?.trim();
+    return this.statementName() ?? (merchant ? merchant : null);
+  }
+
   /** El idioma de la página; si el cliente acaba de elegir otro (?lang=), se recuerda en su cookie. */
   private language(res: FastifyReply, query: unknown, cookies: string | undefined): PayLanguage {
     const { lang, setCookie } = customerLanguage(query, cookies);
@@ -511,6 +605,15 @@ function sha256(value: string): string {
 
 function redirectTo(res: FastifyReply, location: string): void {
   res.status(303).header('Location', location).header('Cache-Control', 'no-store').send();
+}
+
+/** JSON del estado del pago: nunca en caché (cambia cada pocos segundos). */
+function sendJson(res: FastifyReply, status: number, body: unknown): void {
+  res
+    .status(status)
+    .header('Content-Type', 'application/json; charset=utf-8')
+    .header('Cache-Control', 'no-store')
+    .send(JSON.stringify(body));
 }
 
 function sendHtml(res: FastifyReply, status: number, html: string): void {

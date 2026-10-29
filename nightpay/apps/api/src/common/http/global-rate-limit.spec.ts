@@ -36,6 +36,14 @@ describe('límite global de peticiones', () => {
     expect(isGlobalRateLimitExempt(req('/v1/pay/tok123', '10.0.1.7'))).toBe(false);
   });
 
+  it('el estado del pago de «Comprobando el pago» va con su propio límite (por IP y por cobro)', () => {
+    for (const url of ['/pay/tok123/status', '/pay/result/status?op=ORD1', '/pay/tok123/status?lang=en']) {
+      expect(isGlobalRateLimitExempt(req(url, '10.0.1.7'))).toBe(true);
+    }
+    expect(isGlobalRateLimitExempt(req('/pay/tok123/status', '10.0.1.7', {}, 'POST'))).toBe(false);
+    expect(isGlobalRateLimitExempt(req('/pay/tok123/status/x', '10.0.1.7'))).toBe(false);
+  });
+
   it('IPv6: rotar de dirección dentro del mismo /64 no da cupo nuevo', () => {
     const a = anonymousRateLimitKey(req('/v1/x', '2001:db8:abcd:12::1'));
     expect(a).toBe('ip:2001:db8:abcd:12::/64');

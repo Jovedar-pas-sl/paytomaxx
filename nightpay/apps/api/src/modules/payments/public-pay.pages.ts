@@ -1,6 +1,7 @@
 import { cardBrandLabel } from './card-brand';
-import { CLUB_BASE_CSS, clientMoney, escapeHtml, jsString } from './club-ui';
-import { CHROME_CSS, defaultLangHref, langHrefWith, langScript, topBar, type LangHref } from './customer-chrome';
+import { clientMoney, escapeHtml, jsString } from './club-ui';
+import { langHrefWith, type LangHref } from './customer-chrome';
+import { customerPage as page } from './customer-page';
 import { CHOOSE_CSS, LOCK_ICON, renderChooseBody, type ChooseContext } from './pay-choose-page';
 import { PAID_SCREEN_CSS, paidScreenScript, renderPaidScreen } from './paid-screen';
 import { WALLET_ASK_CSS, renderWalletAsk, type WalletBlock } from './paid-wallet-ask';
@@ -27,13 +28,6 @@ export type { WalletBlock } from './paid-wallet-ask';
  */
 
 type ChooseView = Extract<PayRedirect, { kind: 'choose' }>;
-
-const PAGE_CSS = `
-.c{width:100%;max-width:26rem;margin:0 auto;min-height:calc(100vh - 3.5rem);min-height:calc(100svh - 3.5rem);padding:1rem 1rem 2rem;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:.8rem;text-align:center}
-.amount{font-size:clamp(3rem,16vw,4.25rem);font-weight:800;letter-spacing:-.03em;line-height:1;color:var(--fg)}
-.small{font-size:.9rem}
-.foot{margin-top:1.25rem}
-`;
 
 /**
  * Un importe en la pantalla del cliente: «65 €» (sin «,00», como en el móvil
@@ -83,37 +77,6 @@ export function walletReturnHref(walletToken: string, payToken: string, lang: Pa
 
 export function receiptHref(token: string, lang: PayLanguage): string {
   return `/pay/${encodeURIComponent(token)}/receipt?lang=${lang}`;
-}
-
-/**
- * Esqueleto común: la barra de arriba (logo e idioma) y el cuerpo. `full`:
- * el cuerpo va a todo el ancho (el «Pagado», con la barra encima); `bare`:
- * el cuerpo pone su propio <main> (la página de pago); por defecto, columna
- * centrada con «Pago seguro» al pie.
- */
-function page(
-  t: PayText,
-  title: string,
-  body: string,
-  opts: { head?: string; layout?: 'center' | 'full' | 'bare'; langHref?: LangHref } = {},
-): string {
-  const layout = opts.layout ?? 'center';
-  const hrefFor = opts.langHref ?? defaultLangHref;
-  const lang = t.htmlLang;
-  const main =
-    layout === 'full'
-      ? `${topBar(lang, hrefFor, { over: true })}\n<main>${body}</main>`
-      : layout === 'bare'
-        ? `${topBar(lang, hrefFor)}\n${body}`
-        : `${topBar(lang, hrefFor)}\n<main class="c">${body}\n<p class="foot">${escapeHtml(t.secure)}</p></main>`;
-  return `<!DOCTYPE html>
-<html lang="${lang}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta name="robots" content="noindex"><meta name="theme-color" content="#0f1112"><title>${escapeHtml(title)}</title>
-<style>${CLUB_BASE_CSS}${CHROME_CSS}${PAGE_CSS}</style>${opts.head ?? ''}
-</head><body>
-${main}
-${langScript()}
-</body></html>`;
 }
 
 // ─── Página de pago ─────────────────────────────────────────────────────

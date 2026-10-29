@@ -7,6 +7,7 @@ import { PaytefDebugController } from './paytef-debug.controller';
 import { RedsysDebugController } from './redsys-debug.controller';
 import { PeanpeDebugController } from './peanpe-debug.controller';
 import { PaymentsService } from './payments.service';
+import { PayStatusService } from './pay-status.service';
 import { QR_EXPIRE_QUEUE, ORPHAN_RECONCILE_QUEUE } from '../queues/queue-tokens';
 import { WalletsModule } from '../wallets/wallets.module';
 import { WebhooksModule } from '../webhooks/webhooks.module';
@@ -29,7 +30,7 @@ import { WebhooksModule } from '../webhooks/webhooks.module';
     // La letra de la marca para las páginas del cliente (/pay/assets/manrope.woff2).
     BrandFontController,
   ],
-  providers: [PaymentsService],
+  providers: [PaymentsService, PayStatusService],
   exports: [PaymentsService],
 })
 export class PaymentsModule {}
