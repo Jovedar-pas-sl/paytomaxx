@@ -2,33 +2,41 @@
 
 import { useEffect, useState, type CSSProperties } from 'react';
 import { Button, Card } from '@nightpay/ui';
-import { checkWalletPass, payWalletChargeWithPin, type WalletPassCheck } from '@/lib/api';
+import { checkWalletPass, payWalletChargeWithPin, type WalletRef } from '@/lib/api';
+import { lookupCode } from '@/lib/api-cobro';
 import { clearFichaContext, readFichaContext, type FichaContext } from '@/lib/ficha-context';
 import { formatEur } from '@/lib/money';
 import { useOpenCharge } from '@/lib/open-charges';
+import { CODE_WITHOUT_CHARGE_TEXT, codeCheckProblem } from '@/lib/sin-movil';
 import { PASS_WITHOUT_CHARGE_TEXT, passCheckProblem } from '@/lib/wallet-pass';
 import { PinPad } from './PinPad';
 import { StaffOutcome } from './StaffOutcome';
 
 type Cobro = Extract<FichaContext, { kind: 'cobro' }>;
 
+/** Lo que leyó la cámara del móvil: el QR de su pase (?pase=) o el de la página de su saldo (?saldo=, su código). */
+export type ScannedLink = { kind: 'pass'; token: string } | { kind: 'code'; code: string };
+
 type View =
   | { kind: 'loading' }
-  | { kind: 'pin'; check: WalletPassCheck; ctx: Cobro }
+  | { kind: 'pin'; ref: WalletRef; hint: string; ctx: Cobro }
   | { kind: 'paid'; amountCents: number; serviceName: string | null; newBalanceCents: number | null }
-  /** info: qué hacer (sin cobro abierto); danger: no se puede pagar con este pase. */
+  /** info: qué hacer (sin cobro abierto); danger: no se puede pagar así. */
   | { kind: 'done'; text: string; tone: 'info' | 'danger' };
 
 /**
- * La app se abrió desde el QR del pase de Google Wallet del cliente
- * (?pase=…, leído con la cámara del móvil). Ese QR solo sirve para cobrar:
- * se paga el cobro que la chica tenía abierto en «Sin móvil», con el PIN del
- * cliente. No se ve su saldo ni su código entero, y nunca se abre su saldo.
+ * La app se abrió desde el QR del pase de Google Wallet del cliente (?pase=…)
+ * o desde el de la página de su saldo (?saldo=…, solo su código), leídos con
+ * la cámara del móvil. Se paga el cobro que se tenía abierto en Inicio (el
+ * contexto de ficha que guarda Esperando), con el PIN del cliente. No se ve su
+ * saldo (del pase, ni su código entero) y nunca se abre su saldo.
  */
-export function PassScanned({ token, userId, onClose }: { token: string; userId: string; onClose: () => void }) {
+export function PassScanned({ scan, userId, onClose }: { scan: ScannedLink; userId: string; onClose: () => void }) {
   const [view, setView] = useState<View>({ kind: 'loading' });
   // Abierta: si la sesión caduca, se entra encima sin perderla.
   useOpenCharge('ficha', true, view.kind === 'loading' || view.kind === 'pin');
+  // Lo leído, en una cadena: el objeto `scan` es nuevo en cada render del padre.
+  const scanKey = scan.kind === 'pass' ? `p:${scan.token}` : `c:${scan.code}`;
 
   useEffect(() => {
     const ctx = readFichaContext(userId);
@@ -36,15 +44,31 @@ export function PassScanned({ token, userId, onClose }: { token: string; userId:
     const show = (v: View) => {
       if (!stopped) setView(v);
     };
+    const pass = scanKey.startsWith('p:');
+    const value = scanKey.slice(2);
     if (ctx?.kind !== 'cobro') {
-      show({ kind: 'done', tone: 'info', text: PASS_WITHOUT_CHARGE_TEXT });
+      show({ kind: 'done', tone: 'info', text: pass ? PASS_WITHOUT_CHARGE_TEXT : CODE_WITHOUT_CHARGE_TEXT });
       return undefined;
     }
     (async () => {
       try {
-        const check = await checkWalletPass(ctx.chargeId, token);
-        const problem = passCheckProblem(check);
-        show(problem ? { kind: 'done', tone: 'danger', text: problem } : { kind: 'pin', check, ctx });
+        if (pass) {
+          const check = await checkWalletPass(ctx.chargeId, value);
+          const problem = passCheckProblem(check);
+          show(
+            problem
+              ? { kind: 'done', tone: 'danger', text: problem }
+              : { kind: 'pin', ref: { walletToken: value }, hint: `Saldo ${check.codeHint} · pase`, ctx },
+          );
+          return;
+        }
+        const w = await lookupCode(value);
+        const problem = codeCheckProblem(w, ctx.amountCents);
+        show(
+          problem
+            ? { kind: 'done', tone: 'danger', text: problem }
+            : { kind: 'pin', ref: { code: w.code }, hint: `Saldo ${w.code} · código`, ctx },
+        );
       } catch (err) {
         show({ kind: 'done', tone: 'danger', text: (err as Error).message });
       }
@@ -52,18 +76,18 @@ export function PassScanned({ token, userId, onClose }: { token: string; userId:
     return () => {
       stopped = true;
     };
-  }, [token, userId]);
+  }, [scanKey, userId]);
 
   if (view.kind === 'pin') {
-    const { ctx, check } = view;
+    const { ctx, ref, hint } = view;
     return (
       <PinPad
         mode="enter"
         title={`${formatEur(ctx.amountCents, { compact: true })}${ctx.serviceName ? ` · ${ctx.serviceName}` : ''}`}
-        hint={`Saldo ${check.codeHint} · pase`}
+        hint={hint}
         onCancel={onClose}
         onPin={async (pin) => {
-          const r = await payWalletChargeWithPin(ctx.chargeId, { walletToken: token }, pin);
+          const r = await payWalletChargeWithPin(ctx.chargeId, ref, pin);
           clearFichaContext((c) => c.kind === 'cobro' && c.chargeId === ctx.chargeId);
           setView(
             r.status === 'ACCEPTED'
@@ -97,8 +121,8 @@ export function PassScanned({ token, userId, onClose }: { token: string; userId:
 
   return (
     <Card style={cardStyle}>
-      <p style={kicker}>Pase de saldo</p>
-      {view.kind === 'loading' ? <p style={hintStyle}>Leyendo el pase…</p> : null}
+      <p style={kicker}>{scan.kind === 'pass' ? 'Pase de saldo' : 'Código de saldo'}</p>
+      {view.kind === 'loading' ? <p style={hintStyle}>{scan.kind === 'pass' ? 'Leyendo el pase…' : 'Buscando el saldo…'}</p> : null}
       {view.kind === 'done' ? (
         <p role="status" style={{ ...doneStyle, color: view.tone === 'danger' ? 'var(--np-danger)' : 'var(--np-text)' }}>
           {view.text}

@@ -11,7 +11,7 @@ import { createPoller, type PollOutcome } from './poller';
  *  - de respaldo, cada WALLET_CHARGE_POLL_LIVE_MS con el tiempo real y cada
  *    WALLET_CHARGE_POLL_OFFLINE_MS sin él (wifi del local, servidor
  *    reiniciando); con la pantalla oculta, nada hasta poke().
- * Lo usa useWalletChargeLive (Esperando y Cobrar del saldo).
+ * Lo usa useWalletChargeLive (Esperando, la pantalla de cobrar de Inicio).
  */
 
 /** Con el tiempo real conectado, el sondeo es solo una red de seguridad. */

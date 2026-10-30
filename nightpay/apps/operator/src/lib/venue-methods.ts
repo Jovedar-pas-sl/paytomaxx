@@ -34,13 +34,13 @@ export function cobroModeAllowed(mode: CobroMode, m: VenuePaymentMethods, canTop
 }
 
 /**
- * Pestañas de abajo sin las de formas de cobro apagadas (Saldo, Recepción y
- * Datáfono); Recepción, además, solo a quien carga saldos.
+ * Pestañas de abajo sin las de formas de cobro apagadas (Recepción y
+ * Datáfono); Recepción, además, solo a quien carga saldos. Cobrar con el
+ * saldo va en Inicio (con el saldo apagado, Inicio cobra solo con tarjeta).
  */
 export function visibleTabsFor(tabs: readonly TabKey[], m: VenuePaymentMethods, canTopUp = true): TabKey[] {
   return tabs.filter((t) => {
     if (t === 'reception') return m.wallet && canTopUp;
-    if (t === 'wallet') return m.wallet;
     return t === 'pos' ? m.pos : true;
   });
 }

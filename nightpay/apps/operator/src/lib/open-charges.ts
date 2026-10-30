@@ -2,14 +2,14 @@ import { useEffect, useId, useSyncExternalStore } from 'react';
 import type { TabKey } from './roles';
 
 /**
- * Cobros en pantalla: el QR de Inicio, el del saldo, la ficha NFC. Si la
+ * Cobros en pantalla: el QR de Inicio, la ficha NFC, la recarga de Recepción. Si la
  * sesión caduca con uno abierto, la app no se desmonta (se pide entrar otra
  * vez encima) para no perder el QR, su cuenta atrás y su «PAGADO».
  * Cada pantalla de cobro se apunta mientras está y se borra al cerrarse; cada
  * instancia por separado (el QR de una recarga dentro de Recepción no borra la
  * de Recepción al cerrarse).
  */
-export type ChargeSpot = 'cobro' | 'saldo' | 'ficha' | 'recepcion';
+export type ChargeSpot = 'cobro' | 'ficha' | 'recepcion';
 
 /** Lo que apunta una instancia: en qué pantalla está y si sigue esperando. */
 export interface ChargeEntry {
@@ -82,7 +82,7 @@ export function useOpenCharge(spot: ChargeSpot, active: boolean, pending: boolea
 }
 
 /** En qué pestaña vive cada cobro (la ficha sale encima de todas). */
-const SPOT_TAB: Partial<Record<ChargeSpot, TabKey>> = { cobro: 'home', saldo: 'wallet', recepcion: 'reception' };
+const SPOT_TAB: Partial<Record<ChargeSpot, TabKey>> = { cobro: 'home', recepcion: 'reception' };
 
 /**
  * La sesión caducó: si la pestaña que se ve no tiene el cobro abierto, a cuál

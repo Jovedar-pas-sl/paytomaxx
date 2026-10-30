@@ -157,12 +157,50 @@ export async function payByNfc(id: string, card: string, uid: string | null): Pr
   }
 }
 
-/** Su PIN, tecleado en este móvil, con el NFC que acercó. */
-export function payByPin(id: string, card: string, uid: string | null, pin: string): Promise<SaldoState> {
+/**
+ * De qué saldo es, sin su móvil: la ficha NFC que acercó, el código que dice
+ * (K7Q-4M2) o el QR de su pase de Google Wallet (solo el de cobrar, /c/<token>).
+ */
+export type SaldoRef = { card: string; uid: string | null } | { code: string } | { walletToken: string };
+
+/** El cuerpo de POST /v1/wallet-charges/:id/pin: el saldo (uno solo) y su PIN. */
+export function pinBody(ref: SaldoRef, pin: string): Record<string, string> {
+  if ('card' in ref) return { card: ref.card, ...(ref.uid ? { uid: ref.uid } : {}), pin };
+  if ('code' in ref) return { code: ref.code, pin };
+  return { walletToken: ref.walletToken, pin };
+}
+
+/** Su PIN, tecleado en este móvil, con su ficha, su código o su pase. */
+export function payByPin(id: string, ref: SaldoRef, pin: string): Promise<SaldoState> {
   return call<SaldoState>(
     `/v1/wallet-charges/${encodeURIComponent(id)}/pin`,
-    { method: 'POST', body: JSON.stringify({ card, ...(uid ? { uid } : {}), pin }) },
+    { method: 'POST', body: JSON.stringify(pinBody(ref, pin)) },
     'PIN del saldo',
+  );
+}
+
+/** Su código (K7Q-4M2): de quién es, si tiene PIN y lo que tiene (para el «No le llega»). */
+export function lookupCode(code: string): Promise<WalletLookup> {
+  return call<WalletLookup>(`/v1/wallet-charges/lookup/${encodeURIComponent(code)}`, {}, 'Código de saldo');
+}
+
+/** El pase de Google Wallet escaneado para este cobro: si tiene PIN y si le llega, sin enseñar su saldo. */
+export interface PassCheck {
+  /** «K7Q-•••». */
+  codeHint: string;
+  hasPin: boolean;
+  pinLocked: boolean;
+  /** El PIN lo puso quien cobra o quien hizo el cobro: lo tiene que cobrar otra persona. */
+  ownPin: boolean;
+  /** Le llega para este cobro. */
+  enough: boolean;
+}
+
+export function checkPass(chargeId: string, walletToken: string): Promise<PassCheck> {
+  return call<PassCheck>(
+    `/v1/wallet-charges/${encodeURIComponent(chargeId)}/pass`,
+    { method: 'POST', body: JSON.stringify({ walletToken }) },
+    'Pase del saldo',
   );
 }
 

@@ -1,36 +1,9 @@
-// «Noche fácil» en la app del personal: pagar con el NFC sin PIN y las
-// recargas pendientes de asignar (cobradas sin el NFC del cliente). La lógica
-// de las respuestas es pura y se prueba sola (api-noche.test.ts).
+// «Noche fácil» en la app del personal: las recargas pendientes de asignar
+// (cobradas sin el NFC del cliente). Pagar con el NFC sin PIN lo hace
+// Esperando (api-cobro payByNfc): la pantalla única de cobrar.
 
-import { PIN_REQUIRED_CODE, type AssignedTopUp, type PendingTopUpView, type SaldoRefDto } from '@nightpay/contracts';
-import { parseProblemDetails } from '@nightpay/api-client';
-import {
-  authedFetch,
-  operatorErrorMessage,
-  parseOperatorApiError,
-  type CreatedPayment,
-  type WalletChargeRequest,
-} from './api';
-
-/** Pagar con el NFC solo: pagado, o hace falta su PIN (el mismo cobro sigue libre para pagarlo con él). */
-export type NfcPayResult = { kind: 'paid'; charge: WalletChargeRequest } | { kind: 'pin'; message: string };
-
-/** La respuesta de un cobro con el NFC solo → pagado, «que ponga su PIN» o el error de siempre. */
-export function nfcPayResultOf(status: number, text: string): NfcPayResult {
-  if (status >= 200 && status < 300) return { kind: 'paid', charge: JSON.parse(text) as WalletChargeRequest };
-  const { message, code } = parseProblemDetails(text);
-  if (status === 409 && code === PIN_REQUIRED_CODE) return { kind: 'pin', message: message ?? '' };
-  throw new Error(operatorErrorMessage(status, message ?? undefined, 'Cobro', code));
-}
-
-/** El cliente acerca su NFC: hasta el tope del local se cobra sin PIN (POST /v1/wallet-charges/:id/nfc). */
-export async function payWalletChargeWithCard(id: string, card: string, uid: string | null): Promise<NfcPayResult> {
-  const res = await authedFetch(`/v1/wallet-charges/${encodeURIComponent(id)}/nfc`, {
-    method: 'POST',
-    body: JSON.stringify({ card, ...(uid ? { uid } : {}) }),
-  });
-  return nfcPayResultOf(res.status, await res.text().catch(() => ''));
-}
+import type { AssignedTopUp, PendingTopUpView, SaldoRefDto } from '@nightpay/contracts';
+import { authedFetch, parseOperatorApiError, type CreatedPayment } from './api';
 
 /** Cobrar primero, sin su NFC: recarga con tarjeta (el QR en su móvil) que queda pendiente de asignar. */
 export async function startPendingTopUp(amountCents: number, idempotencyKey: string): Promise<CreatedPayment> {

@@ -10,12 +10,16 @@ una app más vieja, «Cobrar con saldo» funciona igual con el código del clien
 
 ## Cómo cobra el personal
 
-1. **La chica hace el cobro** en su app, como siempre: *Cobrar del saldo* →
-   elige el servicio (o teclea el importe) → le sale un QR.
+1. **La chica hace el cobro** en su app, como siempre: en **Inicio** elige lo
+   que se cobra y pulsa **Cobrar** → le sale el QR del cobro. (La pestaña
+   «Saldo» ya no existe: Inicio es la única pantalla de cobrar.)
 2. **En el datáfono**, en la pantalla de cobros: **Cobrar con saldo**.
    - Sale la lista de cobros del saldo que hay pendientes en el local
-     (importe, chica y servicio): se toca el que es.
-   - O **Escanear QR del cobro**: se apunta la cámara al QR del móvil de la chica.
+     (importe, chica y servicio): se toca el que es. Ahí salen también los
+     cobros de Inicio.
+   - **Escanear QR del cobro** solo vale con el QR de un cobro solo de saldo
+     (el de un local que no cobra con tarjeta). Con el de un cobro normal
+     de Inicio (el que lleva a la página de pago), se elige de la lista.
 3. **De qué saldo es**. Vale cualquiera de estas tres formas:
    - **Acercar ficha**: el cliente acerca su ficha a la parte de atrás del datáfono.
    - **Escanear QR del cliente**: el QR de la página de su saldo o el de su

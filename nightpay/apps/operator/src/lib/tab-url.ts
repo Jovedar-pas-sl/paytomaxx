@@ -1,4 +1,4 @@
-// La pestaña de abajo vive en la URL (?t=saldo): recargar la página, o volver
+// La pestaña de abajo vive en la URL (?t=cobros): recargar la página, o volver
 // a entrar tras caducar la sesión, deja a la chica donde estaba, y el botón
 // «atrás» del móvil vuelve a la pestaña de antes. Inicio no lleva nada (la URL
 // limpia de siempre). Solo el nombre de la pestaña: nunca ids ni secretos.
@@ -13,18 +13,25 @@ export const HOME_TAB: TabKey = 'home';
 /** Cómo se escribe cada pestaña en la URL (en castellano, como la barra). */
 const TAB_SLUG: Readonly<Record<TabKey, string>> = {
   home: 'inicio',
-  wallet: 'saldo',
   reception: 'recepcion',
   pos: 'pos',
   payments: 'cobros',
   earnings: 'ganancias',
 };
 
-const SLUG_TAB: ReadonlyMap<string, TabKey> = new Map(
-  (Object.entries(TAB_SLUG) as Array<[TabKey, string]>).map(([tab, slug]) => [slug, tab]),
-);
+/**
+ * Pestañas que ya no existen y adónde llevan sus enlaces guardados (una
+ * pestaña abierta, un favorito, «atrás»): «Saldo» (?t=saldo) cobraba lo mismo
+ * que Inicio, que ahora es la única pantalla de cobrar.
+ */
+const RETIRED_SLUGS: ReadonlyMap<string, TabKey> = new Map([['saldo', HOME_TAB]]);
 
-/** La pestaña que pide la URL (`?t=saldo`); null si no pide ninguna o no existe. */
+const SLUG_TAB: ReadonlyMap<string, TabKey> = new Map([
+  ...(Object.entries(TAB_SLUG) as Array<[TabKey, string]>).map(([tab, slug]) => [slug, tab] as const),
+  ...RETIRED_SLUGS,
+]);
+
+/** La pestaña que pide la URL (`?t=cobros`; `?t=saldo`, Inicio); null si no pide ninguna o no existe. */
 export function parseTab(search: string): TabKey | null {
   const slug = new URLSearchParams(search).get(TAB_PARAM);
   return slug === null ? null : (SLUG_TAB.get(slug.trim().toLowerCase()) ?? null);
@@ -36,7 +43,7 @@ export function resolveTab(requested: TabKey | null, visible: readonly TabKey[])
 }
 
 /**
- * La query con esa pestaña (`?t=saldo`), sin tocar los otros parámetros.
+ * La query con esa pestaña (`?t=cobros`), sin tocar los otros parámetros.
  * Inicio la quita. Devuelve '' o '?…', listo para la URL.
  */
 export function tabSearch(search: string, tab: TabKey): string {

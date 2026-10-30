@@ -103,14 +103,14 @@ describe('cobros abiertos', () => {
   it('esperando si alguno espera', () => {
     const entries = new Map([
       ['a', { spot: 'cobro' as const, pending: false }],
-      ['b', { spot: 'saldo' as const, pending: true }],
+      ['b', { spot: 'recepcion' as const, pending: true }],
     ]);
     expect(summarizeCharges(entries).pending).toBe(true);
   });
 
   it('caducada: ir a la pestaña del cobro abierto si no se está en ella', () => {
-    expect(tabForOpenCharge(['saldo'], 'earnings')).toBe('wallet');
-    expect(tabForOpenCharge(['cobro', 'saldo'], 'wallet')).toBeNull();
+    expect(tabForOpenCharge(['cobro'], 'earnings')).toBe('home');
+    expect(tabForOpenCharge(['cobro', 'recepcion'], 'reception')).toBeNull();
     expect(tabForOpenCharge(['cobro'], 'payments')).toBe('home');
     // La recarga de Recepción, en su pestaña (no en Inicio).
     expect(tabForOpenCharge(['recepcion'], 'home')).toBe('reception');

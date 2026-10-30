@@ -747,43 +747,6 @@ export interface WalletChargeRequest {
   newBalanceCents: number | null;
 }
 
-export async function lookupWalletCode(code: string): Promise<WalletLookup> {
-  const res = await authedFetch(`/v1/wallet-charges/lookup/${encodeURIComponent(code)}`);
-  if (!res.ok) throw new Error(await parseOperatorApiError(res, 'Código de saldo'));
-  return res.json();
-}
-
-/** Cobro del saldo con QR: el cliente lo escanea y paga desbloqueando su móvil (Face ID). */
-export interface QrWalletCharge extends WalletChargeRequest {
-  payToken: string;
-  payUrl: string;
-  qrPngDataUrl: string;
-}
-
-export async function createQrWalletCharge(input: {
-  serviceItemId?: string;
-  amountCents?: number;
-  /** Sección del importe tecleado; sin ella, la del puesto. */
-  category?: SectionCode;
-  /** «Copa con invitación»: el QR de la chica invitada. */
-  invitedStaffToken?: string;
-}): Promise<QrWalletCharge> {
-  const res = await authedFetch('/v1/wallet-charges/qr', { method: 'POST', body: JSON.stringify(input) });
-  if (!res.ok) throw new Error(await parseOperatorApiError(res, 'Cobro del saldo'));
-  return res.json();
-}
-
-export async function fetchWalletCharge(id: string, signal?: AbortSignal): Promise<WalletChargeRequest> {
-  const res = await authedFetch(`/v1/wallet-charges/${encodeURIComponent(id)}`, { signal });
-  if (!res.ok) throw new Error(await parseOperatorApiError(res, 'Cobro del saldo'));
-  return res.json();
-}
-
-export async function cancelWalletCharge(id: string): Promise<void> {
-  const res = await authedFetch(`/v1/wallet-charges/${encodeURIComponent(id)}/cancel`, { method: 'POST' });
-  if (!res.ok) throw new Error(await parseOperatorApiError(res, 'Cancelar cobro'));
-}
-
 // ─── Public — Self-onboarding ─────────────────────────────────────
 
 /** Petición sin sesión (enlaces de alta e invitación): sin red, un mensaje claro. */

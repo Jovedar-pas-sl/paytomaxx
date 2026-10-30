@@ -247,7 +247,7 @@ function PickCharge({
       ) : null}
       {charges === null && !error ? <p style={muted}>Cargando…</p> : null}
       {charges !== null && charges.length === 0 ? (
-        <p style={{ ...muted, padding: '1rem 0' }}>No hay cobros del saldo esperando. Los hace la chica en «Cobrar del saldo».</p>
+        <p style={{ ...muted, padding: '1rem 0' }}>No hay cobros del saldo esperando. Se hacen en la app del personal, en Inicio («Cobrar»).</p>
       ) : null}
       {(charges ?? []).map((c) => (
         <button key={c.id} type="button" disabled={busy} onClick={() => onPicked(c)} style={chargeBtn}>
