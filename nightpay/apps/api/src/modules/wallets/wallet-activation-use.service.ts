@@ -1,4 +1,4 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { ConflictException, Inject, Injectable } from '@nestjs/common';
 import type { PublicKeyCredentialCreationOptionsJSON } from '@simplewebauthn/server';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
@@ -30,6 +30,13 @@ interface UsableWallet {
   qrToken: string;
   hasPin: boolean;
   via: ActivationVia;
+}
+
+/** «Tu saldo ya tiene Face ID activado» de WalletPasskeysService.register. */
+function isFaceIdExists(err: unknown): boolean {
+  if (!(err instanceof ConflictException)) return false;
+  const body = err.getResponse();
+  return typeof body === 'object' && body !== null && (body as { code?: unknown }).code === 'FACE_ID_EXISTS';
 }
 
 const ACTIVE_STATUSES = new Set(['ACTIVE', 'DEPLETED']);
@@ -85,9 +92,16 @@ export class WalletActivationUseService {
     response: unknown,
   ): Promise<{ walletId: string; qrToken: string; hadPin: boolean }> {
     const wallet = await this.usable(token);
-    await this.passkeys.register(wallet.id, host, response, {
-      beforeInsert: (tx) => this.spend(tx, token, wallet.id, 'passkey'),
-    });
+    try {
+      await this.passkeys.register(wallet.id, host, response, {
+        beforeInsert: (tx) => this.spend(tx, token, wallet.id, 'passkey'),
+      });
+    } catch (err) {
+      // Otro móvil activó Face ID con este mismo QR un instante antes: para este
+      // QR es lo mismo que gastado (un saldo con Face ID no tiene nada que activar).
+      if (isFaceIdExists(err)) throw activationError('used');
+      throw err;
+    }
     // El saldo ya tenía PIN (el cliente, la chica o el encargado): se le avisa por si no fue él.
     await this.logUse(wallet, 'passkey');
     return { walletId: wallet.id, qrToken: wallet.qrToken, hadPin: wallet.hasPin };
