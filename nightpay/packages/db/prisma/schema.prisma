@@ -83,6 +83,12 @@ model Venue {
   serviceFeeEnabled     Boolean   @default(false)
   serviceFeeBps         Int       @default(1000)
   topUpServiceFeeBps    Int       @default(1000)
+  // «Cargar saldo desde casa» (20261103100000, apps/api/src/modules/home-topup):
+  // el enlace público del local (/r/<código>) para cargar el saldo antes de
+  // llegar. Apagado de serie; el código es al azar (16 letras de base64url) y
+  // «Enlace nuevo» lo cambia. CHECK en SQL: encendido ⇒ con código.
+  homeTopUpEnabled      Boolean   @default(false)
+  homeTopUpCode         String?   @unique
   createdAt             DateTime  @default(now()) @db.Timestamptz
   updatedAt             DateTime  @updatedAt @db.Timestamptz
   deletedAt             DateTime? @db.Timestamptz

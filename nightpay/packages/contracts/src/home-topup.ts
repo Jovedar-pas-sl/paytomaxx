@@ -1,0 +1,136 @@
+import { z } from 'zod';
+import { UuidSchema } from './common';
+
+/**
+ * «Cargar saldo antes de llegar» (apps/api/src/modules/home-topup).
+ *
+ * El dueño enciende en Ajustes → Formas de cobro «Cargar saldo desde casa» y
+ * recibe el enlace del local, https://api…/r/<código>, y su QR. El código es
+ * al azar (nunca el id del local ni nada que se pueda adivinar) y «Enlace
+ * nuevo» lo cambia: el de antes da 404. Cualquiera con el enlace carga un
+ * saldo nuevo de ese local (decisión del dueño: el enlace se publica en
+ * Instagram, en la web o en WhatsApp) y lo paga como cualquier recarga con
+ * tarjeta: Apple Pay, Google Pay o tarjeta, con la comisión del servicio de
+ * las recargas si el local la tiene encendida.
+ *
+ *   GET   /v1/admin/venue/home-topup          → el interruptor, el enlace y su QR (dueño)
+ *   PATCH /v1/admin/venue/home-topup          → encender o apagar ({ enabled })
+ *   POST  /v1/admin/venue/home-topup/rotate   → «Enlace nuevo»
+ *
+ * Al llegar, en recepción le dan una ficha unida a ese saldo:
+ *
+ *   POST  /v1/reception/fichas/saldo          → dar ficha a un saldo que aún no tiene
+ *
+ * con el QR de su saldo (lo enseña su móvil: prueba que el saldo es suyo) o
+ * con su código y su PIN (el encargado y el dueño, sin PIN, como siempre).
+ */
+
+/** Las 16 letras del código del enlace (12 bytes al azar en base64url). */
+export const HOME_TOPUP_CODE_RE = /^[A-Za-z0-9_-]{16}$/;
+
+/** /r/<código>: lo que va en el enlace y en el QR (con el origen del API delante). */
+export const HOME_TOPUP_PATH_PREFIX = '/r/';
+
+/** Por qué el enlace, encendido, no deja cargar ahora (lo dice el panel). */
+export type HomeTopUpProblem = 'paused' | 'methods' | 'gateway' | 'terminal';
+
+export const HOME_TOPUP_PROBLEM_TEXT: Readonly<Record<HomeTopUpProblem, string>> = {
+  paused: 'El local está en pausa: el enlace no deja cargar hasta que se quite la pausa.',
+  methods: 'Para que funcione, enciende arriba «QR con tarjeta, Apple Pay o Google Pay» y «Pago con saldo».',
+  gateway: 'El local no tiene la pasarela de pago activa: el enlace no deja cargar hasta que la tenga.',
+  terminal: 'El local no tiene ningún terminal activo: el enlace no deja cargar hasta que tenga uno.',
+};
+
+/** Lo que ve el dueño en Ajustes. */
+export interface HomeTopUpSettings {
+  enabled: boolean;
+  /** El enlace del local (null: aún no tiene código, o el interruptor está apagado). */
+  url: string | null;
+  /** El QR del enlace (PNG en data URL) para descargarlo o imprimirlo; null sin enlace. */
+  qrPngDataUrl: string | null;
+  /** Encendido pero ahora no deja cargar (null: deja). */
+  problem: HomeTopUpProblem | null;
+  /** Lo que se puede cargar: euros enteros de minCents a maxCents (como «Recargar» en la página del saldo). */
+  minCents: number;
+  maxCents: number;
+  /** % de la comisión del servicio de las recargas (null: sin comisión). */
+  serviceFeeBps: number | null;
+}
+
+export const UpdateHomeTopUpSchema = z.object({ enabled: z.boolean() }).strict();
+export type UpdateHomeTopUpDto = z.infer<typeof UpdateHomeTopUpSchema>;
+
+// ─── La ficha en recepción ─────────────────────────────────────────────
+
+/**
+ * El QR de la ficha que enseña el saldo del cliente (su página, /w): su código
+ * y una prueba firmada por el servidor que solo ve quien tiene su saldo. Como
+ * enlace a la app del personal (…/?saldo=K7Q4M2&p=…), así el resto de lectores
+ * lo leen como su código. Sin la app del personal: «NPF:K7Q4M2:<prueba>».
+ */
+export const FICHA_QR_PROOF_RE = /^[A-Za-z0-9_-]{22}$/;
+const FICHA_QR_CODE_RE = /^[A-Z0-9]{6}$/;
+export const FICHA_QR_PROOF_PARAM = 'p';
+
+export interface FichaQr {
+  code: string;
+  proof: string;
+}
+
+/** El QR de la ficha leído (null si no es uno). Solo se mira el formato: nunca se navega. */
+export function parseFichaQr(raw: string): FichaQr | null {
+  const text = raw.trim();
+  if (!text || text.length > 512) return null;
+  const plain = /^NPF:([A-Z0-9]{6}):([A-Za-z0-9_-]{22})$/.exec(text);
+  if (plain) return { code: plain[1] ?? '', proof: plain[2] ?? '' };
+  let url: URL;
+  try {
+    url = new URL(text);
+  } catch {
+    return null;
+  }
+  if (url.protocol !== 'https:' && url.protocol !== 'http:') return null;
+  const code = (url.searchParams.get('saldo') ?? '').toUpperCase();
+  const proof = url.searchParams.get(FICHA_QR_PROOF_PARAM) ?? '';
+  return FICHA_QR_CODE_RE.test(code) && FICHA_QR_PROOF_RE.test(proof) ? { code, proof } : null;
+}
+
+/** Lo que lleva el QR de la ficha. */
+export function fichaQrContent(code: string, proof: string, operatorBase: string | null): string {
+  return operatorBase
+    ? `${operatorBase.replace(/\/+$/, '')}/?saldo=${code}&${FICHA_QR_PROOF_PARAM}=${proof}`
+    : `NPF:${code}:${proof}`;
+}
+
+/**
+ * Dar ficha a un saldo que no tiene: el saldo (de la búsqueda por código o
+ * por su QR), la ficha acercada y cómo prueba el cliente que el saldo es suyo
+ * (la prueba de su QR o su PIN). El encargado y el dueño no necesitan ninguna.
+ */
+export const GiveFichaSchema = z
+  .object({
+    walletId: UuidSchema,
+    card: z.string().regex(/^[A-Za-z0-9_-]{16,64}$/, 'Esta ficha no es nuestra'),
+    uid: z.string().trim().max(64).optional(),
+    proof: z.string().regex(FICHA_QR_PROOF_RE, 'Ese QR no es el de un saldo').optional(),
+    pin: z.string().regex(/^[0-9]{4}$/, 'El PIN son 4 cifras').optional(),
+  })
+  .strict();
+export type GiveFichaDto = z.infer<typeof GiveFichaSchema>;
+
+/** Cómo se dio: con su QR, con su PIN o lo hizo el encargado. */
+export type GiveFichaVia = 'qr' | 'pin' | 'manager';
+
+export interface GivenFicha {
+  walletId: string;
+  /** K7Q-4M2. */
+  code: string;
+  balanceCents: number;
+  /** El número de la ficha que se le ha dado. */
+  fichaNumber: number | null;
+  printedNumber?: string | null;
+  via: GiveFichaVia;
+}
+
+/** El 422 cuando falta la prueba (ni QR ni PIN): la app pide una de las dos. */
+export const FICHA_PROOF_REQUIRED_CODE = 'FICHA_PROOF_REQUIRED';
