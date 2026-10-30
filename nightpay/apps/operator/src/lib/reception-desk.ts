@@ -269,12 +269,19 @@ export function rechargeProblem(view: ReceptionDeskView | null): string | null {
   return null;
 }
 
-/** 4.4: lo que hace recepción con el dinero («Efectivo: 50 € a la caja»). */
-export function loadedMoneyLine(method: PayMethod, amountCents: number): { label: string; amount: string; tail: string } {
-  const amount = formatEur(amountCents, { compact: true });
+/**
+ * 4.4: lo que hace recepción con el dinero («Efectivo: 50 € a la caja»): lo
+ * que pagó el cliente. Con la «Comisión del servicio» (`feeCents`, la que
+ * cobró el servidor), saldo + comisión: «Efectivo: 56 € a la caja (con 6 € de
+ * comisión)»; antes decía 50 € y a la caja iban 56 €.
+ */
+export function loadedMoneyLine(method: PayMethod, amountCents: number, feeCents = 0): { label: string; amount: string; tail: string } {
+  const fee = feeCents > 0 ? feeCents : 0;
+  const amount = formatEur(amountCents + fee, { compact: true });
+  const withFee = fee > 0 ? ` (con ${formatEur(fee, { compact: true })} de comisión)` : '';
   return method === 'cash'
-    ? { label: 'Efectivo:', amount, tail: 'a la caja' }
-    : { label: 'Tarjeta:', amount, tail: 'en su móvil' };
+    ? { label: 'Efectivo:', amount, tail: `a la caja${withFee}` }
+    : { label: 'Tarjeta:', amount, tail: `en su móvil${withFee}` };
 }
 
 /** 4.4: qué hace con el NFC («Dale el NFC · ficha nº 0522»). */

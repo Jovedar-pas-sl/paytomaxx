@@ -148,6 +148,10 @@ npPaid(document.getElementById('proof'),JSON.parse(${jsConfig(paidScreenJsText(P
 /**
  * JS de «Recargar» (dentro del JS de la página: usa $, show, fill, post,
  * busy, busyBtn, msg, refresh, S, C, T).
+ *  - topFee(c): la comisión del servicio de ese importe, la que manda el
+ *    servidor ya calculada (TU.feesCents, M-3): el JS no la calcula.
+ *  - topLabel(c): con comisión, el botón dice lo que paga («Pagar 56 €»);
+ *    sin ella, «Recargar 50 €».
  *  - topCan(s): se puede recargar (saldo activo o a cero, sin devolución
  *    pedida y el local lo permite). Si no, la página no enseña «Recargar».
  *  - topRender(s): la tarjeta si se puede; si no, el aviso de por qué.
@@ -158,14 +162,15 @@ npPaid(document.getElementById('proof'),JSON.parse(${jsConfig(paidScreenJsText(P
  *  - Solo se va a una página de pago nuestra (/pay/...).
  */
 export const TOPUP_JS = `
-var TU=C.topUp||{allowed:false,block:null,presetsCents:[],minCents:0,maxCents:0},TK='';
+var TU=C.topUp||{allowed:false,block:null,presetsCents:[],minCents:0,maxCents:0,feesCents:null},TK='';
 function newKey(){var a=new Uint8Array(16);crypto.getRandomValues(a);TK=pkB64u(a.buffer);}
 function eurShort(c){return npMoney(c,C.locale,'EUR');}
 function topCents(){var r=$('topupForm').querySelector('input[name=amt]:checked');if(!r)return 0;
  if(r.value!=='other')return +r.value||0;return (parseInt($('otherIn').value.replace(/[^0-9]/g,'')||'0',10)||0)*100;}
 function topOk(c){return c>=TU.minCents&&c<=TU.maxCents&&c%100===0;}
-function topFee(c){var bps=TU.serviceFeeBps||0;return bps>0&&c>0?Math.round(c*bps/10000):0;}
-function topUpd(){var c=topCents(),b=$('topupGo'),label=topOk(c)?fill(T.topUpGo,'amount',eurShort(c)):T.topUp,fl=$('topupFee');
+function topFee(c){var t=TU.feesCents,f=t&&topOk(c)?t[(c-TU.minCents)/100]:0;return typeof f==='number'&&f>0?f:0;}
+function topLabel(c){if(!topOk(c))return T.topUp;var f=topFee(c);return f>0?fill(T.topUpGoFee,'amount',eurShort(c+f)):fill(T.topUpGo,'amount',eurShort(c));}
+function topUpd(){var c=topCents(),b=$('topupGo'),label=topLabel(c),fl=$('topupFee');
  $('otherBox').hidden=!$('amtOther').checked;b.setAttribute('data-label',label);if(!busy)b.textContent=label;
  if(fl){var f=topFee(c),ok=topOk(c);fl.hidden=!ok;$('tbAmount').textContent=ok?eurShort(c):'';$('tbFee').textContent=ok?eurShort(f):'';$('tbTotal').textContent=ok?eurShort(c+f):'';}}
 var tw=$('tWhyBtn');if(tw){$('tWhy').hidden=true;tw.setAttribute('aria-expanded','false');

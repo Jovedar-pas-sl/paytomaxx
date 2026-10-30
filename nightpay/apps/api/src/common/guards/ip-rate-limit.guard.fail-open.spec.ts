@@ -14,6 +14,7 @@ import { PublicWalletController } from '../../modules/wallets/public-wallet.cont
 import { PublicSaldoController } from '../../modules/wallets/public-saldo.controller';
 import { PublicWalletCardController } from '../../modules/wallets/public-wallet-card.controller';
 import { PublicPayoutConfirmController } from '../../modules/wallets/public-payout-confirm.controller';
+import { PublicWalletActivationController } from '../../modules/wallets/public-wallet-activation.controller';
 import { AuthController } from '../../modules/auth/auth.controller';
 
 /**
@@ -107,6 +108,7 @@ describe('qué límites dejan pasar sin Redis (las rutas de verdad)', () => {
       [PublicSaldoController.prototype, 'state'],
       [PublicWalletCardController.prototype, 'page'],
       [PublicPayoutConfirmController.prototype, 'page'],
+      [PublicWalletActivationController.prototype, 'page'],
     ];
     for (const [target, method] of open) expect({ method, failOpen: meta(target, method).failOpen }).toEqual({ method, failOpen: true });
   });
@@ -117,6 +119,10 @@ describe('qué límites dejan pasar sin Redis (las rutas de verdad)', () => {
       [PublicPayController.prototype, 'walletPin'],
       [PublicWalletController.prototype, 'pin'],
       [PublicSaldoController.prototype, 'pay'],
+      // El QR de activación (M-2): registrar el primer Face ID o PIN, nunca sin límite.
+      [PublicWalletActivationController.prototype, 'passkeyOptions'],
+      [PublicWalletActivationController.prototype, 'passkey'],
+      [PublicWalletActivationController.prototype, 'pin'],
     ];
     for (const [target, method] of closed) expect({ method, failOpen: meta(target, method).failOpen }).toEqual({ method, failOpen: undefined });
   });

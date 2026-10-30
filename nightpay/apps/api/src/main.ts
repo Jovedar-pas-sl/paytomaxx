@@ -24,6 +24,7 @@ import { initSentry } from './common/observability/sentry';
 import { deployedBuild } from './modules/health/build-info';
 import { RedisIoAdapter } from './modules/realtime/realtime.adapter';
 import { RealtimeGateway } from './modules/realtime/realtime.gateway';
+import { WalletStreamHub } from './modules/wallet-events/wallet-stream.hub';
 import { disconnectSocketIo, installGracefulShutdown } from './shutdown';
 import { ProblemDetailsFilter } from './common/filters/problem-details.filter';
 
@@ -156,7 +157,15 @@ async function bootstrap() {
   // se corta y las apps reconectan a la nueva) → parar los workers (terminan
   // su trabajo, tope 10 s) → temporizadores, colas y por último Prisma y
   // Redis. Todo dentro de los 30 s de stop grace.
-  installGracefulShutdown(app, logger, () => disconnectSocketIo(app.get(RealtimeGateway).server));
+  // Las páginas del saldo abiertas (SSE, /w/:token/events) también: no terminan
+  // solas; reciben «vuelve» y entran en la réplica nueva.
+  installGracefulShutdown(app, logger, () => {
+    try {
+      app.get(WalletStreamHub).closeAll();
+    } finally {
+      disconnectSocketIo(app.get(RealtimeGateway).server);
+    }
+  });
 
   await app.listen({ port: env.PORT, host: '0.0.0.0' });
   logger.log(`NightPay API escuchando en http://0.0.0.0:${env.PORT} (${env.NODE_ENV})`);

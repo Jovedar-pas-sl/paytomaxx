@@ -32,6 +32,12 @@ export const SESSION_EXPIRED_ERROR = 'Sesión caducada: vuelve a conectar';
 export const SESSION_REVOKED_ERROR = 'Sesión cerrada: vuelve a iniciar sesión';
 
 const SubscribeSchema = z.object({ paymentId: z.string().uuid() });
+const WalletChargeSubscribeSchema = z.object({ chargeId: z.string().uuid() });
+
+/** Sala de un cobro del saldo (wallet_charge_requests): la app del personal que lo espera. */
+export function walletChargeRoom(chargeId: string): string {
+  return `wallet-charge:${chargeId.toLowerCase()}`;
+}
 
 type SubscribeResult = { ok: true; room: string } | { ok: false; error: string };
 type StaffSocket = Socket & {
@@ -46,6 +52,12 @@ type LegacyResult = 'allowed' | 'denied' | 'closed';
  *   - cliente: payment:subscribe { paymentId } → server lo mete en room payment:<paymentId>
  *   - server → room: payment:update { paymentId, status, ... }
  *   - server → room: payment:completed { paymentId, status: AUTHORIZED|FAILED|EXPIRED, tipCents }
+ *   - cliente: wallet-charge:subscribe { chargeId } → room wallet-charge:<chargeId>
+ *     (un cobro del saldo: solo con sesión, quien lo hizo o el encargado/dueño
+ *     de su local, como GET /v1/wallet-charges/:id)
+ *   - server → room: wallet-charge:update { id, status } (solo el aviso: la
+ *     app vuelve a pedir el cobro). Lo manda cada réplica a SUS sockets
+ *     (`local`): todas reciben el aviso de Postgres (WalletEventsListener).
  *
  * Acceso: con la sesión del personal en el handshake (`auth: { token }` o
  * `Authorization: Bearer`), solo cobros de SU local y mientras ese token no
@@ -165,6 +177,56 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
     return { ok: true };
   }
 
+  /**
+   * Seguir un cobro del saldo (la chica espera a que el cliente pague con su
+   * Face ID, su NFC o su PIN). Sin vía antigua: las apps que lo piden ya
+   * conectan con su sesión.
+   */
+  @SubscribeMessage('wallet-charge:subscribe')
+  async handleWalletChargeSubscribe(@MessageBody() data: unknown, @ConnectedSocket() client: StaffSocket): Promise<SubscribeResult> {
+    const parsed = WalletChargeSubscribeSchema.safeParse(data);
+    if (!parsed.success) return { ok: false, error: 'chargeId inválido' };
+    if (subscribedRooms(client) >= MAX_ROOMS_PER_SOCKET) return { ok: false, error: 'Demasiadas suscripciones' };
+    await client.data.authReady;
+    const staff = client.data.staff;
+    if (!staff) return { ok: false, error: LEGACY_SUBSCRIBE_CLOSED_ERROR };
+    if (tokenExpired(staff)) return { ok: false, error: SESSION_EXPIRED_ERROR };
+    if (await this.sessionClosed(staff)) {
+      client.disconnect(true);
+      return { ok: false, error: SESSION_REVOKED_ERROR };
+    }
+    const chargeId = parsed.data.chargeId.toLowerCase();
+    if (!(await this.staffMayFollowCharge(staff, chargeId))) return { ok: false, error: 'Cobro no encontrado' };
+    const room = walletChargeRoom(chargeId);
+    await client.join(room);
+    return { ok: true, room };
+  }
+
+  @SubscribeMessage('wallet-charge:unsubscribe')
+  async handleWalletChargeUnsubscribe(
+    @MessageBody() data: unknown,
+    @ConnectedSocket() client: StaffSocket,
+  ): Promise<{ ok: boolean }> {
+    const parsed = WalletChargeSubscribeSchema.safeParse(data);
+    if (!parsed.success) return { ok: false };
+    await client.leave(walletChargeRoom(parsed.data.chargeId));
+    return { ok: true };
+  }
+
+  /**
+   * Un cobro del saldo cambió de estado (pagado, cancelado, caducado, pagado
+   * con tarjeta…): solo el aviso, a los sockets de ESTA réplica.
+   */
+  emitWalletChargeUpdate(chargeId: string, status: string): void {
+    if (!this.server) return;
+    this.server.local.to(walletChargeRoom(chargeId)).emit('wallet-charge:update', {
+      type: 'wallet-charge:update',
+      id: chargeId,
+      status,
+      timestamp: new Date().toISOString(),
+    });
+  }
+
   /** API publica para que PaymentsService emita updates. */
   emitPaymentUpdate(paymentId: string, status: PaymentMachineState, amountCents: number): void {
     this.server.to(`payment:${paymentId}`).emit('payment:update', {
@@ -220,6 +282,15 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
     const allowed = payment !== null && Date.now() - payment.createdAt.getTime() <= LEGACY_SUBSCRIBE_WINDOW_MS;
     this.countLegacy(allowed ? 'allowed' : 'denied');
     return allowed;
+  }
+
+  /** Las mismas reglas que GET /v1/wallet-charges/:id: de su local y suyo, o encargado/dueño. */
+  private async staffMayFollowCharge(staff: JwtPayload, chargeId: string): Promise<boolean> {
+    const charge = await this.prisma.asSystem((tx) =>
+      tx.walletChargeRequest.findUnique({ where: { id: chargeId }, select: { tenantId: true, requestedByUserId: true } }),
+    );
+    if (!charge || charge.tenantId !== staff.tenantId) return false;
+    return charge.requestedByUserId === staff.sub || staff.role === 'MANAGER' || staff.role === 'OWNER';
   }
 
   /** Consulta de sistema: el local se comprueba en quien llama, contra el de la sesión. */
@@ -282,7 +353,7 @@ function tokenExpired(staff: JwtPayload, now = Date.now()): boolean {
   return typeof staff.exp === 'number' && staff.exp * 1000 <= now;
 }
 
-/** Salas de cobro de la conexión (la sala propia del socket no cuenta). */
+/** Salas de cobro de la conexión, con tarjeta y del saldo (la sala propia del socket no cuenta). */
 function subscribedRooms(client: Socket): number {
-  return [...client.rooms].filter((room) => room.startsWith('payment:')).length;
+  return [...client.rooms].filter((room) => room.startsWith('payment:') || room.startsWith('wallet-charge:')).length;
 }

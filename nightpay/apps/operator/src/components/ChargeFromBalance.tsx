@@ -27,7 +27,7 @@ import { formatEur } from '@/lib/money';
 import { nfcSupported, readCard } from '@/lib/nfc';
 import { useOpenCharge } from '@/lib/open-charges';
 import { useVenueMethods } from '@/lib/venue-methods';
-import { usePolling } from '@/lib/use-polling';
+import { useWalletChargeLive } from './use-wallet-charge-live';
 import { CartaRetry, CartaTile, serviceLabel, tileStyle, useCarta, type Carta } from './carta';
 import { InviteStep } from './InviteStep';
 import { STICKY_ACTION_BOTTOM } from './layout';
@@ -50,8 +50,7 @@ type Stage =
   | { kind: 'qr'; charge: QrWalletCharge; input: ChargeInput }
   | { kind: 'done'; charge: QrWalletCharge; result: WalletChargeRequest; input: ChargeInput };
 
-const POLL_MS = 1000;
-/** Con el servidor caído o saturado (429), se pregunta menos. */
+/** Con el servidor caído o saturado (429): la siguiente consulta del cobro. */
 const POLL_SLOW_MS = 3000;
 
 /**
@@ -265,8 +264,10 @@ function QrStep({
   // Este estado pide la sesión de la chica: caducada, se para; al volver a entrar, sigue solo.
   const expired = useSessionExpired();
 
-  // ¿Ya ha pagado? Una pregunta por segundo, sin solapes; para al terminar.
-  usePolling(
+  // ¿Ya ha pagado? Al momento por el tiempo real (wallet-charge:update) y, de
+  // respaldo, cada 10 s, sin solapes; para al terminar.
+  useWalletChargeLive(
+    charge.id,
     async (signal) => {
       if (finished.current) return 'stop';
       try {
@@ -284,7 +285,7 @@ function QrStep({
         return err instanceof SessionExpiredError ? 'stop' : 'slow';
       }
     },
-    { intervalMs: POLL_MS, slowIntervalMs: POLL_SLOW_MS, initialDelayMs: POLL_MS, enabled: !expired },
+    { slowIntervalMs: POLL_SLOW_MS, enabled: !expired },
   );
 
   // iPhone: tras "Sin móvil", al acercar la ficha se abre otra pestaña

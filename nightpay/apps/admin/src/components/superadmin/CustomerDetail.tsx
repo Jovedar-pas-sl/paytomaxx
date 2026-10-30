@@ -125,13 +125,13 @@ export function CustomerDetailView({ walletId, onOpenWallet, onBack }: Props) {
               {link ? (
                 <ResultDialog title="Enlace nuevo del saldo" onClose={() => setLink(null)}>
                   <Notice tone="danger">
-                    <strong>Este enlace es la llave del saldo: quien lo tenga puede gastarlo.</strong> Dáselo solo al
-                    cliente, en persona o a su propio WhatsApp. El enlace de antes ya no vale.
+                    <strong>El primer móvil que active Face ID con él se queda con el saldo.</strong> Vale una sola vez y 10 minutos:
+                    dáselo solo al cliente, en persona o a su propio WhatsApp. El enlace de antes ya no vale.
                   </Notice>
                   <div className="np-sa-qr-wrap">
                     <QrCode value={link.url} label={`QR del enlace nuevo del saldo ${label}`} />
                   </div>
-                  <SecretBox label="Enlace del saldo" value={link.url} />
+                  <SecretBox label="Enlace de activación (un solo uso, 10 min)" value={link.url} />
                   {link.removedPasskeys > 0 ? (
                     <p className="np-sa-help">
                       Se borraron sus llaves de Face ID ({link.removedPasskeys}): las vuelve a activar desde el enlace.
@@ -226,7 +226,8 @@ function WalletActionDialog({
       intro={
         action === 'relink' ? (
           <p className="np-sa-text">
-            Para el cliente que perdió el móvil o su página del saldo. El enlace nuevo es su llave: se lo darás tú.
+            Para el cliente que perdió el móvil o su página del saldo. Sale un QR de activación de un solo uso (10
+            minutos): con él activa Face ID en su móvil y su móvil sigue a su saldo. Se lo darás tú.
           </p>
         ) : undefined
       }

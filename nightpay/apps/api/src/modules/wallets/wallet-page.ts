@@ -10,6 +10,7 @@ import type { TopUpOptions, TopUpProof } from './wallet-topup.service';
 import { TOPUP_CSS, TOPUP_JS, paidProofScript, paidProofSection, topUpCard, topUpOffNote } from './wallet-topup-view';
 import { SCAN_CSS, SCAN_JS, scanArea } from './wallet-scan';
 import { LOST_CSS, LOST_JS, lostButton, lostSheet } from './wallet-lost-view';
+import { WALLET_LIVE_JS } from './wallet-live';
 
 /**
  * Página del saldo del cliente (/w/:token). HTML autocontenido, marca
@@ -25,8 +26,11 @@ import { LOST_CSS, LOST_JS, lostButton, lostSheet } from './wallet-lost-view';
  *    Si el local no deja recargar, no hay opciones: solo «Pagar».
  * Debajo de las dos, «Más»: elegir PIN, juntar saldos, «Me voy» (en hojas
  * dentro de la página: nada de confirm()/alert()) y los movimientos. El
- * estado se refresca cada pocos segundos. Aquí no se cobra: se paga en la
- * página del cobro (/s/…) o con el PIN en el móvil del personal.
+ * estado se pone al día al momento: la página escucha los avisos de su saldo
+ * (GET /w/:token/events) y solo entonces pide /state; de respaldo, cada
+ * 20–30 s, y «Reconectando…» si no lo consigue (wallet-live.ts). Aquí no se
+ * cobra: se paga en la página del cobro (/s/…) o con el PIN en el móvil del
+ * personal.
  * Todo texto dinámico va con textContent (nada de HTML inyectado).
  */
 
@@ -96,6 +100,10 @@ dialog.sheet h2{font-size:1.4rem}
 .gwb img{display:block;height:3.5rem;width:auto;max-width:100%;object-fit:contain}
 .gwb:focus-visible{outline:3px solid var(--fg);outline-offset:3px}
 .gwb:disabled{cursor:progress}
+.live{align-self:center;display:flex;align-items:center;gap:.5rem;padding:.4rem .95rem;border-radius:999px;border:1px solid var(--line-hi);background:var(--surface-2);color:var(--fg);font-size:.9rem;font-weight:700}
+.live::before{content:'';width:.55rem;height:.55rem;border-radius:50%;background:var(--warn);animation:np-pulse 1.2s ease-in-out infinite}
+@keyframes np-pulse{50%{opacity:.25}}
+@media (prefers-reduced-motion:reduce){.live::before{animation:none}}
 .toast{position:fixed;left:1rem;right:1rem;bottom:calc(1rem + env(safe-area-inset-bottom));max-width:26rem;margin:0 auto;padding:.9rem 1rem;border-radius:999px;background:var(--fg);color:var(--ink);font-weight:700;text-align:center;z-index:10;animation:np-in .2s ease}
 `;
 
@@ -128,6 +136,12 @@ export interface WalletPageOptions {
   paid?: TopUpProof | null;
   /** Hora del servidor (para el «Pagado»). */
   now?: Date;
+  /**
+   * Sin Face ID: la vía del móvil que pagó la recarga que creó el saldo
+   * (/pay/<cobro>: su cookie del pago) para activar Face ID o elegir el primer
+   * PIN. null: no la hay, y la página dice que pida el QR de activación (M-2).
+   */
+  payer?: string | null;
 }
 
 /**
@@ -258,6 +272,7 @@ export function renderWalletPage(
     gw,
     topUp,
     paid: proof !== null,
+    payer: options.payer ?? null,
   });
   const h = escapeHtml;
   return `<!DOCTYPE html>
@@ -271,6 +286,7 @@ ${topBar(lang)}<h1 class="sr">${h(t.title)}</h1>
 <p class="status" id="notice" role="status" hidden></p>
 <div class="obot"><span class="num" id="heroCode">${h(state.code)}</span><span id="heroFicha">${state.hasCard && state.fichaNumber ? h(t.fichaNo.split('{n}').join(state.fichaNumber)) : ''}</span></div>
 </section>
+<p class="live" id="liveBar" role="status" hidden></p>
 ${topUpOffNote()}<section class="card main" id="refundCard" hidden aria-labelledby="refundTitle">
 <h2 id="refundTitle"></h2>
 <ol class="steps" id="steps">${t.steps.map((s, i) => `<li data-i="${i}">${h(s)}</li>`).join('')}</ol>
@@ -338,9 +354,10 @@ function payRender(s,active,r){var canKey=pkSupported(),payable=active&&!r;
  var setup=payable&&!s.hasFaceId&&canKey,scan=payable&&s.hasFaceId&&canKey;
  $('payCard').hidden=!(setup||scan);$('payTitle').textContent=setup?U.title:T.scanTitle;
  $('faceCard').hidden=!setup;$('scanArea').hidden=!scan;if(!scan&&SC.on)scanStop();
+ $('faceOn').hidden=!C.payer;$('faceWhy').textContent=C.payer?T.payFaceWhy:T.activateAtReception;
  $('faceDone').textContent=scan?'✓ '+U.done+' '+T.payFaceDone:'';
- show('howText',payable&&!canKey?(s.hasFaceId?T.faceIdNeeded:T.unlockUnsupported):'');$('howCard').hidden=$('howText').hidden;
- $('codeCard').hidden=!active;$('codeHint').textContent=s.hasPin?T.codeWithPin:T.codeNoPin;$('fichaHint').hidden=!s.hasCard;
+ show('howText',payable&&!canKey?(s.hasFaceId?T.faceIdNeeded:C.payer?T.unlockUnsupported:T.activateAtReception):'');$('howCard').hidden=$('howText').hidden;
+ $('codeCard').hidden=!active;show('codeHint',s.hasPin?T.codeWithPin:s.hasFaceId||C.payer?T.codeNoPin:'');$('fichaHint').hidden=!s.hasCard;
  if(gw)gw.hidden=!(P==='android'&&active&&!r&&!s.merged);}
 function render(s){S=s;S.cards=s.cards||[];
  $('balance').textContent=eur(s.balanceCents);$('code').textContent=s.code;$('heroCode').textContent=s.code;
@@ -350,7 +367,7 @@ function render(s){S=s;S.cards=s.cards||[];
  show('notice',notice);
  $('refundCard').hidden=!r;if(r)refundView(r);
  payRender(s,active,r);
- $('pinOpen').hidden=!(active&&!r&&!s.hasPin);
+ $('pinOpen').hidden=!(active&&!r&&!s.hasPin&&(s.hasFaceId||C.payer));
  $('mergeOpen').hidden=!(active&&!r&&!s.hasFaceId&&!s.merged&&s.balanceCents>0);
  $('leaveOpen').hidden=!(active&&s.balanceCents>0&&!s.closeRequested);
  var ul=$('movements');ul.textContent='';
@@ -365,15 +382,24 @@ function render(s){S=s;S.cards=s.cards||[];
  $('payEmpty').hidden=!(can&&s.status==='DEPLETED');
  segShow(can||C.paid);}
 function post(path,body){return pkPost(C.base+path,body||{});}
-function refresh(){if(busy)return;fetch(C.base+'/state',{cache:'no-store'}).then(function(r){if(r.status===401){busy=true;document.body.textContent=T.unlockWaiting;window.location.replace(C.base+'?lang='+C.lang);return null;}return r.ok?r.json():null;}).then(function(s){if(s&&!busy)render(s);}).catch(function(){});}
+${WALLET_LIVE_JS}
+// Al momento: los avisos de su saldo y, de respaldo, cada 20–30 s (wallet-live.ts).
+var LV=npLive({base:C.base,busy:function(){return busy;},state:function(s){render(s);},bar:function(on){show('liveBar',on?T.reconnecting:'');},
+ unauth:function(){busy=true;document.body.textContent=T.unlockWaiting;window.location.replace(C.base+'?lang='+C.lang);},
+ gone:function(){busy=true;show('notice',T.linkGone);}});
+function refresh(){LV.refresh();}
 function msg(e){return npErr(e,C.errors);}
 // Saldo con Face ID: elegir PIN y «Me voy» piden desbloquear el móvil (reto atado a la acción).
 function withKey(path,body){if(!S.hasFaceId)return post(path,body);
  return pkGet(C.base+path+'/challenge').then(function(k){body.response=k;return post(path,body);});}
-$('faceOn').addEventListener('click',function(){var b=$('faceOn');if(busy)return;busy=true;busyBtn(b,true,T.unlockWaiting);show('faceErr','');
- pkCreate(C.base+'/passkey/options').then(function(k){return post('/passkey',{response:k});})
-  .then(function(s){render(s);toast('✓ '+U.done);}).catch(function(e){if(!pkCancelled(e))show('faceErr',msg(e));})
-  .then(function(){busy=false;busyBtn(b,false);});});
+// Sin Face ID, el primero solo por la vía del móvil que pagó la recarga (C.payer, M-2): con
+// el enlace del saldo solo, no. Si este navegador no es el que pagó, se quita y dice el QR.
+function notPayer(e){if(!e||e.code!=='PAYER_ONLY')return false;C.payer=null;render(Object.assign({},S));return true;}
+$('faceOn').addEventListener('click',function(){var b=$('faceOn');if(busy||!C.payer)return;busy=true;busyBtn(b,true,T.unlockWaiting);show('faceErr','');
+ pkCreate(C.payer+'/passkey/options').then(function(k){return pkPost(C.payer+'/passkey',{response:k});})
+  .then(function(){toast('✓ '+U.done);busy=true;window.location.replace(C.base+'?lang='+C.lang);})
+  .catch(function(e){busy=false;if(!pkCancelled(e)&&!notPayer(e))show('faceErr',msg(e));})
+  .then(function(){if(!busy)busyBtn(b,false);});});
 $('leaveOpen').addEventListener('click',function(){
  $('leaveTitle').textContent=fill(T.leaveTitle,'amount',eur(S.balanceCents));
  $('leaveHow').textContent=S.cards.length?fill(T.leaveWaysCards,'cards',cards()):T.leaveWays;
@@ -390,8 +416,9 @@ $('pinForm').addEventListener('submit',function(ev){ev.preventDefault();if(busy)
  if(a!==c){show('pinErr',T.pinMismatch);return;}
  if(S.hasFaceId&&!pkSupported()){show('pinErr',T.faceIdNeeded);return;}
  var b=$('pinGo');busy=true;busyBtn(b,true,S.hasFaceId?T.unlockWaiting:T.sending);
- withKey('/pin',{pin:a,pin2:c}).then(function(s){render(s);closeSheet($('pinSheet'));toast(T.pinDone);})
-  .catch(function(e){$('pin1').value='';$('pin2').value='';if(!pkCancelled(e))show('pinErr',msg(e));})
+ (S.hasFaceId?withKey('/pin',{pin:a,pin2:c}):pkPost(C.payer+'/pin',{pin:a,pin2:c}).then(function(){return Object.assign({},S,{hasPin:true});}))
+  .then(function(s){render(s);closeSheet($('pinSheet'));toast(T.pinDone);})
+  .catch(function(e){$('pin1').value='';$('pin2').value='';if(notPayer(e))closeSheet($('pinSheet'));else if(!pkCancelled(e))show('pinErr',msg(e));})
   .then(function(){busy=false;busyBtn(b,false);});});
 $('mergeOpen').addEventListener('click',function(){show('mergeErr','');openSheet($('mergeSheet'));});
 $('mergeGo').addEventListener('click',function(){var b=$('mergeGo');if(busy)return;busy=true;busyBtn(b,true,T.unlockWaiting);show('mergeErr','');
@@ -407,8 +434,7 @@ if(!C.paid&&S.status==='DEPLETED'&&topCan(S))view='top';
 render(S);
 if(C.paid){try{history.replaceState(null,'',C.base+'?lang='+C.lang);}catch(e){}}
 if(location.hash==='#sumar'&&!$('mergeOpen').hidden)openSheet($('mergeSheet'));
-setInterval(function(){if(document.visibilityState==='visible')refresh();},3000);
-document.addEventListener('visibilitychange',function(){if(document.visibilityState==='visible')refresh();});
+LV.start();
 })();
 ${proof ? paidProofScript(lang) : ''}
 ${LANG_JS}

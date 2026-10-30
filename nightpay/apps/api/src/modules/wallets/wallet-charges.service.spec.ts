@@ -48,6 +48,8 @@ function makeService(
     walletChargeRequest: {
       findFirst: vi.fn().mockResolvedValue(null),
       findUnique: vi.fn().mockResolvedValue(null),
+      // La referencia (C-0001) de cada consumo en la página del saldo.
+      findMany: vi.fn().mockResolvedValue([]),
       create: vi.fn().mockImplementation(async ({ data }: { data: Record<string, unknown> }) => ({ id: 'req-new', status: 'PENDING', ...data })),
       update: vi.fn().mockResolvedValue({}),
       updateMany: vi.fn().mockResolvedValue({ count: 1 }),
@@ -74,13 +76,19 @@ function makeService(
       updateMany: vi.fn().mockResolvedValue({ count: 0 }),
     },
     walletCardEvent: { createMany: vi.fn().mockResolvedValue({ count: 0 }) },
+    // QR de activación de un solo uso (el enlace nuevo del dueño va por él).
+    walletActivationToken: { updateMany: vi.fn().mockResolvedValue({ count: 0 }), create: vi.fn().mockResolvedValue({}) },
     walletCashTopUp: { findMany: vi.fn().mockResolvedValue([]), findFirst: vi.fn().mockResolvedValue(null) },
     payment: { findMany: vi.fn().mockResolvedValue([]) },
     user: {
       findUnique: vi.fn().mockResolvedValue({ role: 'OPERATOR', commissionBps: null, displayName: 'Lola' }),
       findFirst: vi.fn().mockResolvedValue({ post: null }),
     },
-    venue: { findUnique: vi.fn().mockResolvedValue({ operatorCommissionDefaults: { CHICA_SERVICE: 9000 } }) },
+    venue: {
+      findUnique: vi.fn().mockResolvedValue({ operatorCommissionDefaults: { CHICA_SERVICE: 9000 } }),
+      // La página del saldo lee los locales de sus movimientos en su transacción.
+      findMany: vi.fn().mockResolvedValue([{ id: 'other', name: 'Local Norte' }]),
+    },
     // La fila bloqueada (FOR UPDATE) refleja la wallet de la prueba.
     $queryRaw: vi
       .fn()
@@ -500,14 +508,20 @@ describe('sumar una recarga al saldo de su Face ID', () => {
 });
 
 describe('el cliente perdió el enlace de su saldo', () => {
-  it('el dueño le da uno nuevo y el viejo deja de valer', async () => {
+  it('el dueño le da uno nuevo y el viejo deja de valer; lo que enseña es un QR de activación de un solo uso (M-2)', async () => {
     const { svc, tx, audit } = makeService();
     const out = await svc.relink(owner, 'w-1');
-    expect(out.path).toMatch(/^\/w\/[A-Za-z0-9_-]{24}$/);
     const data = tx.clientWallet.update.mock.calls[0]![0].data as { qrToken: string };
-    expect(out.path).toBe(`/w/${data.qrToken}`);
+    expect(data.qrToken).toMatch(/^[A-Za-z0-9_-]{24}$/);
     expect(data.qrToken).not.toBe('tok');
+    // Nunca el enlace permanente en la pantalla del dueño: /w/a/<token>, 10 min, una vez.
+    expect(out.path).toMatch(/^[/]w[/]a[/][A-Za-z0-9_-]{32}$/);
+    expect(out.path).not.toContain(data.qrToken);
+    expect(tx.walletActivationToken.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ walletId: 'w-1', via: 'relink', issuedById: owner.userId, venueId: owner.tenantId }),
+    });
     expect(audit.log).toHaveBeenCalledWith(expect.objectContaining({ action: 'wallet.relinked' }));
+    expect(JSON.stringify(audit.log.mock.calls)).not.toContain(out.path.slice(5));
   });
 
   it('solo el dueño, solo saldos abiertos de su grupo', async () => {

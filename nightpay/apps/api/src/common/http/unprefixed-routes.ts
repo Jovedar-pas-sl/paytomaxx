@@ -41,6 +41,8 @@ export const UNPREFIXED_ROUTES: readonly UnprefixedRoute[] = Object.freeze([
   // Saldo: página del cliente y sus acciones.
   { path: 'w/:token', method: RequestMethod.GET },
   { path: 'w/:token/state', method: RequestMethod.GET },
+  // «Saldo al momento»: avisos de que el saldo cambió (text/event-stream).
+  { path: 'w/:token/events', method: RequestMethod.GET },
   // Consulta desde la ficha NFC y desbloqueo del enlace privado de saldo.
   { path: 'w/card/:token', method: RequestMethod.GET },
   { path: 'w/card/:token/view/challenge', method: RequestMethod.POST },
@@ -65,6 +67,12 @@ export const UNPREFIXED_ROUTES: readonly UnprefixedRoute[] = Object.freeze([
   // Google Wallet: guardar el saldo (Android) y el botón oficial.
   { path: 'w/:token/google-wallet', method: RequestMethod.POST },
   { path: 'w/assets/google-wallet/:lang', method: RequestMethod.GET },
+  // QR de activación de un solo uso (M-2): la página no gasta nada; Face ID o el
+  // primer PIN lo gastan y dejan el móvil en su saldo.
+  { path: 'w/a/:token', method: RequestMethod.GET },
+  { path: 'w/a/:token/passkey/options', method: RequestMethod.POST },
+  { path: 'w/a/:token/passkey', method: RequestMethod.POST },
+  { path: 'w/a/:token/pin', method: RequestMethod.POST },
   // Salida de recepción de un saldo con Face ID: el cliente la confirma en su móvil.
   { path: 'w/salida/:token', method: RequestMethod.GET },
   { path: 'w/salida/:token/challenge', method: RequestMethod.POST },

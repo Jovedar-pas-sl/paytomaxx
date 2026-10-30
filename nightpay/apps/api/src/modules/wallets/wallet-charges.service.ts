@@ -25,7 +25,7 @@ import {
   type Role,
 } from '@nightpay/contracts';
 import type { Prisma } from '@nightpay/db';
-import { PrismaService } from '../../common/prisma/prisma.service';
+import { PrismaService, type TransactionalClient } from '../../common/prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { resolveBpsForOperator, type RevenueCategory } from '../payments/commission';
 import { lineCommission, type DraftLine } from '../payments/charge-lines';
@@ -79,6 +79,7 @@ import { TotpService } from '../auth/totp.service';
 import { assertManagerTwoFactor, assertTwoFactorCode, cashApprovalThreshold } from './wallet-two-factor';
 import { receptionAskedManager } from './reception-payout-rules';
 import { WalletBlockedException } from './wallet-blocked';
+import { activationPath, issueActivationToken } from './wallet-activation-token';
 import { saldoCredits, serviceFeeSaldoCents, serviceFeeSpendCents } from './wallet-fee-saldo';
 import { passChargeSecret, passChargeTokenValid, passChargeWalletId } from './google-wallet/pass-charge-token';
 // Solo el TIPO: el valor se resuelve con ModuleRef (ciclo Wallets→Refunds→Payments→Wallets).
@@ -563,61 +564,69 @@ export class WalletChargesService {
 
   // ─── Cliente (página de su saldo, sin cuenta: el enlace es la credencial) ──
 
+  /**
+   * Lo que enseña la página del saldo (/w/:token y /w/:token/state). Todo en
+   * UNA transacción (antes, ~8 seguidas: la página lo pide tras cada aviso y
+   * de respaldo cada 20–30 s; H-1). Sin local: el saldo vale en el grupo.
+   */
   async clientState(qrToken: string): Promise<ClientWalletState> {
-    const wallet = await this.walletByToken(qrToken);
-    const [consumptions, topUps, allPayouts, cashTopUps, issuedCards] = await Promise.all([
-      this.prisma.asSystem((tx) =>
-        tx.walletConsumption.findMany({
-          where: { walletId: wallet.id, reversedAt: null },
-          orderBy: { createdAt: 'desc' },
-          take: 30,
-          select: { id: true, amountCents: true, tipCents: true, category: true, notes: true, tenantId: true, createdAt: true },
-        }),
-      ),
-      this.prisma.asSystem((tx) =>
-        tx.payment.findMany({
-          where: { walletId: wallet.id, status: { in: ['AUTHORIZED', 'PARTIALLY_REFUNDED', 'REFUNDED'] } },
-          orderBy: { createdAt: 'desc' },
-          take: 10,
-          select: { amountCents: true, tenantId: true, authorizedAt: true, createdAt: true, cardLast4: true, ref: true },
-        }),
-      ),
-      this.prisma.asSystem((tx) =>
-        tx.walletPayout.findMany({
-          // Hechas y la que se está apuntando a la tarjeta (paso «Aprobado» del «Me voy»).
-          where: { walletId: wallet.id, status: { in: ['DONE', 'PENDING'] } },
-          orderBy: { createdAt: 'desc' },
-          select: { amountCents: true, method: true, status: true, tenantId: true, createdAt: true },
-        }),
-      ),
+    const read = await this.prisma.acrossVenues(async (tx) => {
+      const wallet = await tx.clientWallet.findUnique({ where: { qrToken } });
+      if (!wallet) return null;
+      const consumptions = await tx.walletConsumption.findMany({
+        where: { walletId: wallet.id, reversedAt: null },
+        orderBy: { createdAt: 'desc' },
+        take: 30,
+        select: { id: true, amountCents: true, tipCents: true, category: true, notes: true, tenantId: true, createdAt: true },
+      });
+      const topUps = await tx.payment.findMany({
+        where: { walletId: wallet.id, status: { in: ['AUTHORIZED', 'PARTIALLY_REFUNDED', 'REFUNDED'] } },
+        orderBy: { createdAt: 'desc' },
+        take: 10,
+        select: { amountCents: true, tenantId: true, authorizedAt: true, createdAt: true, cardLast4: true, ref: true },
+      });
+      // Hechas y la que se está apuntando a la tarjeta (paso «Aprobado» del «Me voy»).
+      const allPayouts = await tx.walletPayout.findMany({
+        where: { walletId: wallet.id, status: { in: ['DONE', 'PENDING'] } },
+        orderBy: { createdAt: 'desc' },
+        take: 30,
+        select: { amountCents: true, method: true, status: true, tenantId: true, createdAt: true },
+      });
       // En efectivo en la recepción (no pasan por el banco).
-      this.prisma.asSystem((tx) =>
-        tx.walletCashTopUp.findMany({
-          where: { walletId: wallet.id },
-          orderBy: { createdAt: 'desc' },
-          take: 10,
-          select: { amountCents: true, tenantId: true, createdAt: true },
-        }),
-      ),
+      const cashTopUps = await tx.walletCashTopUp.findMany({
+        where: { walletId: wallet.id },
+        orderBy: { createdAt: 'desc' },
+        take: 10,
+        select: { amountCents: true, tenantId: true, createdAt: true },
+      });
       // Su ficha NFC (dada a este saldo): en «Pagar» se le dice que también paga con ella.
-      this.prisma.acrossVenues((tx) =>
-        tx.walletCard.findMany({
-          where: { walletId: wallet.id, status: { in: ISSUED_CARD_STATUSES } },
-          select: { number: true, printedNumber: true },
-        }),
-      ),
-    ]);
+      const issuedCards = await tx.walletCard.findMany({
+        where: { walletId: wallet.id, status: { in: ISSUED_CARD_STATUSES } },
+        select: { number: true, printedNumber: true },
+      });
+      const passkeys = await tx.walletPasskey.count({ where: { walletId: wallet.id } });
+      const venueIds = [...new Set([wallet.tenantId, ...[...consumptions, ...topUps, ...cashTopUps, ...allPayouts].map((m) => m.tenantId)])];
+      const venues = await tx.venue.findMany({ where: { id: { in: venueIds } }, select: { id: true, name: true, sections: true } });
+      // La referencia de cada consumo es la de su cobro (C-0001).
+      const refRows =
+        consumptions.length === 0
+          ? []
+          : await tx.walletChargeRequest.findMany({
+              where: { consumptionId: { in: consumptions.map((c) => c.id) }, ref: { not: null } },
+              select: { consumptionId: true, ref: true },
+            });
+      return { wallet, consumptions, topUps, allPayouts, cashTopUps, issuedCards, passkeys, venues, refRows };
+    });
+    if (!read) throw new NotFoundException({ message: 'Saldo no encontrado', code: 'WALLET_NOT_FOUND' });
+    const { wallet, consumptions, topUps, allPayouts, cashTopUps, issuedCards, venues } = read;
     // En movimientos, solo las hechas (una a la tarjeta a medias aún no es una devolución).
     const payouts = allPayouts.filter((p) => p.status === 'DONE');
-    const hasFaceId = (await this.prisma.walletPasskey.count({ where: { walletId: wallet.id } })) > 0;
-    const venueIds = [...new Set([wallet.tenantId, ...[...consumptions, ...topUps, ...cashTopUps, ...payouts].map((m) => m.tenantId)])];
-    const venues = await this.prisma.venue.findMany({ where: { id: { in: venueIds } }, select: { id: true, name: true, sections: true } });
+    const hasFaceId = read.passkeys > 0;
     const venueName = (id: string): string => venues.find((v) => v.id === id)?.name ?? '';
     // Cada sección con el nombre y el color que le dio el local del consumo (Ajustes → Secciones); los de fábrica si no los cambió.
     const sectionOfVenue = (id: string, category: string): { label: string; color: string } =>
       sectionMeta(sectionsOf(venues.find((v) => v.id === id)?.sections), category);
-    // La referencia de cada consumo es la de su cobro (C-0001).
-    const refs = await this.consumptionRefs(consumptions.map((c) => c.id));
+    const refs = new Map(read.refRows.flatMap((x) => (x.consumptionId && x.ref ? [[x.consumptionId, formatChargeRef(x.ref)!]] : [])));
 
     const movements: ClientWalletState['movements'] = [
       ...consumptions.map((c) => ({
@@ -678,18 +687,6 @@ export class WalletChargesService {
       cards: refundCards(topUps.map((t) => t.cardLast4)),
       movements,
     };
-  }
-
-  /** Consumo → referencia de su cobro (C-0001). Los antiguos, sin referencia. */
-  private async consumptionRefs(consumptionIds: string[]): Promise<Map<string, string>> {
-    if (consumptionIds.length === 0) return new Map();
-    const rows = await this.prisma.asSystem((tx) =>
-      tx.walletChargeRequest.findMany({
-        where: { consumptionId: { in: consumptionIds }, ref: { not: null } },
-        select: { consumptionId: true, ref: true },
-      }),
-    );
-    return new Map(rows.flatMap((r) => (r.consumptionId && r.ref ? [[r.consumptionId, formatChargeRef(r.ref)!]] : [])));
   }
 
   /**
@@ -1750,6 +1747,30 @@ export class WalletChargesService {
     });
   }
 
+  /**
+   * El primer PIN con el QR de activación (/w/a/<token>, M-2): `inTx` gasta
+   * el QR en la MISMA transacción que guarda el PIN (si algo falla, ni PIN ni
+   * QR gastado). Lo elige el cliente en su móvil.
+   */
+  async setFirstPinWithActivation(
+    walletId: string,
+    pin: string,
+    inTx: (tx: TransactionalClient) => Promise<void>,
+  ): Promise<void> {
+    const wallet = await this.prisma.acrossVenues((tx) =>
+      tx.clientWallet.findUnique({ where: { id: walletId }, select: { tenantId: true } }),
+    );
+    if (!wallet) throw new NotFoundException('Saldo no encontrado');
+    await this.storeFirstPin(walletId, pin, null, inTx);
+    await this.audit.log({
+      action: 'wallet.pin_set',
+      tenantId: wallet.tenantId,
+      targetType: 'ClientWallet',
+      targetId: walletId,
+      payload: { where: 'activation-link' },
+    });
+  }
+
   /** Encargado o dueño: tras 5 PIN fallidos, vuelve a dejar probar. */
   async unlockPin(actor: Actor, walletId: string): Promise<{ ok: true }> {
     await this.managerWallet(actor, walletId);
@@ -1862,17 +1883,24 @@ export class WalletChargesService {
    * `setById`: el encargado que lo pone sin el cliente delante (null si lo
    * eligió el cliente: en su móvil o con la chica justo tras recargar).
    */
-  private async storeFirstPin(walletId: string, pin: string, setById: string | null): Promise<void> {
+  private async storeFirstPin(
+    walletId: string,
+    pin: string,
+    setById: string | null,
+    inTx?: (tx: TransactionalClient) => Promise<void>,
+  ): Promise<void> {
     const problem = pinProblem(pin);
     if (problem) throw new BadRequestException({ message: PIN_PROBLEM_TEXT[problem], code: `PIN_${problem.toUpperCase()}` });
     const pinHash = await hashPin(pin, pinPepper());
-    const res = await this.prisma.acrossVenues((tx) =>
-      tx.clientWallet.updateMany({
+    await this.prisma.acrossVenues(async (tx) => {
+      if (inTx) await inTx(tx);
+      const res = await tx.clientWallet.updateMany({
         where: { id: walletId, pinHash: null },
         data: { pinHash, pinFails: 0, pinFailedAt: null, pinLockedAt: null, pinSetById: setById },
-      }),
-    );
-    if (res.count === 0) throw new ConflictException({ message: 'Este saldo ya tiene PIN', code: 'PIN_EXISTS' });
+      });
+      // Dentro de la transacción: si ya tenía PIN, lo que hizo inTx (gastar el QR) se deshace.
+      if (res.count === 0) throw new ConflictException({ message: 'Este saldo ya tiene PIN', code: 'PIN_EXISTS' });
+    });
   }
 
   /**
@@ -2252,7 +2280,10 @@ export class WalletChargesService {
   /**
    * El cliente perdió el enlace de su saldo (pagó en otro navegador, borró la
    * página…). El dueño le da uno nuevo y el viejo deja de valer: quien lo
-   * hubiera visto ya no puede aceptar cobros con él.
+   * hubiera visto ya no puede aceptar cobros con él. Lo que se enseña al
+   * cliente (`path`) es un QR de activación de un solo uso (/w/a/<token>, 10
+   * min, M-2): con él activa Face ID (o elige PIN) en su móvil y va a su
+   * saldo. El enlace permanente nuevo no sale en la pantalla del dueño.
    */
   async relink(actor: Actor, walletId: string): Promise<{ path: string }> {
     if (actor.role !== 'OWNER') {
@@ -2267,9 +2298,12 @@ export class WalletChargesService {
     const qrToken = newWalletToken();
     // Enlace nuevo = el cliente perdió el suyo o el móvil: su llave (Face ID)
     // se borra y la activa otra vez desde el enlace nuevo.
-    const removedKeys = await this.prisma.acrossVenues(async (tx) => {
+    const { removedKeys, activation } = await this.prisma.acrossVenues(async (tx) => {
       await tx.clientWallet.update({ where: { id: walletId }, data: { qrToken } });
-      return (await tx.walletPasskey.deleteMany({ where: { walletId } })).count;
+      const removed = (await tx.walletPasskey.deleteMany({ where: { walletId } })).count;
+      // Sin llave ya: el primer Face ID (o PIN) del enlace nuevo, con un QR de un solo uso.
+      const issued = await issueActivationToken(tx, { walletId, venueId: actor.tenantId, issuedById: actor.userId, via: 'relink' });
+      return { removedKeys: removed, activation: issued };
     });
     await this.audit.log({
       action: 'wallet.relinked',
@@ -2277,9 +2311,17 @@ export class WalletChargesService {
       actorId: actor.userId,
       targetType: 'ClientWallet',
       targetId: walletId,
-      payload: { balanceCents: wallet.balanceCents, removedPasskeys: removedKeys },
+      payload: { balanceCents: wallet.balanceCents, removedPasskeys: removedKeys, activationExpiresAt: activation.expiresAt.toISOString() },
     });
-    return { path: `/w/${qrToken}` };
+    await this.audit.log({
+      action: 'wallet.activation_link',
+      tenantId: actor.tenantId,
+      actorId: actor.userId,
+      targetType: 'ClientWallet',
+      targetId: walletId,
+      payload: { via: 'relink', expiresAt: activation.expiresAt.toISOString() },
+    });
+    return { path: activationPath(activation.token) };
   }
 
   private async refundToCard(actor: Actor, walletId: string, amountCents: number, bankReference?: string): Promise<number> {

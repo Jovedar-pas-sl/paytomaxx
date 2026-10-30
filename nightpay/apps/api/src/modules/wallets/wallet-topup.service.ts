@@ -41,6 +41,7 @@ import {
   selfTopUpClaim,
   selfTopUpKey,
   topUpBlock,
+  topUpFeeTable,
   type SelfTopUpCapProblem,
   type TopUpBlock,
   type TopUpVenueState,
@@ -59,6 +60,13 @@ export interface TopUpOptions {
    * página enseña «Recargas 50 € · Comisión del servicio 6 € · Pagas 56 €».
    */
   serviceFeeBps: number | null;
+  /**
+   * Esa comisión ya calculada para cada importe que se puede elegir (euros
+   * enteros de minCents a maxCents; [i] = la de minCents + i euros), con la
+   * misma cuenta que al crear la recarga (topUpFeeTable): la página no la
+   * calcula, solo la enseña y pone el total en el botón. null = sin comisión.
+   */
+  feesCents: number[] | null;
 }
 
 export interface TopUpStarted {
@@ -160,6 +168,7 @@ export class WalletTopUpService {
       minCents: SELF_TOPUP_MIN_CENTS,
       maxCents: SELF_TOPUP_MAX_CENTS,
       serviceFeeBps: serviceFeeBpsFor(venue.serviceFee, 'topUp'),
+      feesCents: topUpFeeTable(venue.serviceFee, SELF_TOPUP_MIN_CENTS, SELF_TOPUP_MAX_CENTS),
     };
   }
 

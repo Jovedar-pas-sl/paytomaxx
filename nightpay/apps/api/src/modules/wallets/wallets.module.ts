@@ -24,6 +24,8 @@ import { FichaNumbersService } from './ficha-numbers.service';
 import { ReceptionFichaNumberController } from './reception-ficha-number.controller';
 import { ReceptionActivationLinkController } from './reception-activation-link.controller';
 import { WalletActivationLinkService } from './wallet-activation-link.service';
+import { WalletActivationUseService } from './wallet-activation-use.service';
+import { PublicWalletActivationController } from './public-wallet-activation.controller';
 import { PublicWalletLostCardController } from './public-wallet-lost-card.controller';
 import { WalletLostCardService } from './wallet-lost-card.service';
 import { CashTopUpService } from './wallet-cash-topup.service';
@@ -32,10 +34,13 @@ import { WalletCardsService } from './wallet-cards.service';
 import { PendingTopUpsController } from './pending-topups.controller';
 import { PendingTopUpService } from './wallet-pending-topup.service';
 import { WalletViewGuard } from './wallet-view.guard';
+import { WalletEventsModule } from '../wallet-events/wallet-events.module';
+import { PublicWalletEventsController } from './public-wallet-events.controller';
 
 @Module({
   // AuthModule: TotpService (2FA del encargado al anular y al devolver en efectivo).
-  imports: [PrismaModule, AuditModule, AuthModule],
+  // WalletEventsModule: los avisos del saldo al momento (GET /w/:token/events).
+  imports: [PrismaModule, AuditModule, AuthModule, WalletEventsModule],
   // WalletTopUpService: «Recargar» desde /w (usa PaymentsService con ModuleRef).
   providers: [
     WalletViewGuard,
@@ -56,6 +61,8 @@ import { WalletViewGuard } from './wallet-view.guard';
     FichaNumbersService,
     // QR de activación de la pantalla «Cargado» de recepción.
     WalletActivationLinkService,
+    // Gastar ese QR (un solo uso, 10 min) al activar Face ID o el primer PIN (M-2).
+    WalletActivationUseService,
     // «He perdido mi NFC» desde la página del saldo.
     WalletLostCardService,
   ],
@@ -65,6 +72,10 @@ import { WalletViewGuard } from './wallet-view.guard';
     WalletChargesController,
     PublicWalletCardController,
     PublicWalletController,
+    // El QR de activación en el móvil del cliente (/w/a/:token).
+    PublicWalletActivationController,
+    // «Saldo al momento»: la página del saldo se entera de los cambios (SSE).
+    PublicWalletEventsController,
     PublicWalletLostCardController,
     PublicSaldoController,
     GoogleWalletController,

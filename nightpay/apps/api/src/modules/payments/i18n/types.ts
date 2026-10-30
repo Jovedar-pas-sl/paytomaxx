@@ -283,6 +283,8 @@ export interface WalletText {
   topUpLimits: string;
   topUpRange: string;
   topUpGo: string;
+  /** Con la «Comisión del servicio»: el botón dice lo que paga, el total («Pagar 56 €»). */
+  topUpGoFee: string;
   topUpMethods: string;
   /** Con la «Comisión del servicio»: el desglose (Recarga · Comisión · Total a pagar). */
   topUpToBalance: string;
@@ -302,6 +304,32 @@ export interface WalletText {
   lostGo: string;
   lostKeep: string;
   lostDone: string;
+  /** «Al momento»: la franja cuando la página no consigue ponerse al día (M-7). */
+  reconnecting: string;
+  /** El enlace ya no vale (el dueño dio otro): la página deja de preguntar. */
+  linkGone: string;
+  /** Sin Face ID ni PIN y sin poder activarlo aquí (M-2): el QR de activación de recepción. */
+  activateAtReception: string;
+}
+
+/** /w/a/<token>: el QR de activación de un solo uso (el primer Face ID o el primer PIN, M-2). */
+export interface ActivationText {
+  title: string;
+  heading: string;
+  intro: string;
+  /** «Prefiero un PIN» (o el único camino si el móvil no puede activar el desbloqueo). */
+  pinOffer: string;
+  pinWhy: string;
+  done: string;
+  /** Activó Face ID y el saldo ya tenía un PIN: por si no lo eligió él. */
+  hadPin: string;
+  go: string;
+  usedHeading: string;
+  used: string;
+  expiredHeading: string;
+  expired: string;
+  unsupported: string;
+  cancelled: string;
 }
 
 /** /s/:token: pagar el cobro del QR del personal con el saldo (Face ID). */
@@ -426,6 +454,9 @@ export const CLIENT_ERROR_KEYS = [
   'ALREADY_PAID',
   'PAYOUT_QR_GONE',
   'PAYOUT_CONFIRMED',
+  'ACTIVATION_USED',
+  'ACTIVATION_EXPIRED',
+  'ACTIVATION_REQUIRED',
 ] as const;
 
 export type ClientErrorKey = (typeof CLIENT_ERROR_KEYS)[number];
@@ -438,5 +469,6 @@ export interface CustomerTexts {
   saldo: SaldoText;
   unlockPage: UnlockPageText;
   payout: PayoutText;
+  activation: ActivationText;
   errors: ClientErrorTexts;
 }

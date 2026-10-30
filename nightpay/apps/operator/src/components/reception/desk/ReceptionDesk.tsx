@@ -86,6 +86,8 @@ interface Read {
 interface Loaded {
   read: Read;
   amountCents: number;
+  /** La «Comisión del servicio» que pagó encima (la que cobró el servidor; 0 sin ella). */
+  feeCents: number;
   method: PayMethod;
   wallet: ReceptionWallet | null;
   linked: boolean;
@@ -141,8 +143,8 @@ interface Props {
  * sabe sola si es nuevo o si ya tiene saldo; el importe (tocar uno ya sigue)
  * y cómo paga (la forma por defecto del local en grande): tres toques.
  * CARGADO en verde, con el efectivo a la caja, el NFC al cliente y, si pagó
- * en efectivo, el QR para activar Face ID en su móvil; el PIN, después y si
- * quiere. Salida: lo que le queda; «Guardar para la próxima» (de fábrica) o
+ * en efectivo, el QR de activación (un solo uso, 10 min) para activar Face ID
+ * en su móvil; el PIN, después y si quiere. Salida: lo que le queda; «Guardar para la próxima» (de fábrica) o
  * devolverlo en efectivo: antes del PIN se sabe si hace falta el encargado o
  * su Face ID, así el cliente teclea el PIN una sola vez.
  * Solo recepción carga saldos y cobra efectivo (el servidor lo exige igual).
@@ -259,7 +261,14 @@ export function ReceptionDesk({ user, active, footer }: Props) {
    * Cobrado: a un saldo nuevo se le da el NFC (si el servidor no lo dio ya
    * con la recarga: `cardLinked`); después, CARGADO (4.4).
    */
-  async function finish(read: Read, amountCents: number, method: PayMethod, wallet: ReceptionWallet | null, cardLinked = false): Promise<void> {
+  async function finish(
+    read: Read,
+    amountCents: number,
+    method: PayMethod,
+    wallet: ReceptionWallet | null,
+    cardLinked = false,
+    feeCents = 0,
+  ): Promise<void> {
     let linked = read.view?.kind === 'saldo' || cardLinked;
     let warn: string | null =
       wallet === null && read.view?.kind === 'new' ? 'Cobrado y sumado a su saldo nuevo. El NFC y el PIN, con el encargado.' : null;
@@ -273,7 +282,7 @@ export function ReceptionDesk({ user, active, footer }: Props) {
       }
     }
     attempt.current = null;
-    go({ kind: 'loaded', done: { read, amountCents, method, wallet: w, linked, warn } });
+    go({ kind: 'loaded', done: { read, amountCents, feeCents, method, wallet: w, linked, warn } });
   }
 
   /** La recarga en efectivo con la clave de este intento: repetirla no carga dos veces. */
@@ -290,7 +299,10 @@ export function ReceptionDesk({ user, active, footer }: Props) {
         { refresh: () => staffBackend.options(), onOptions: setOptions, amountCents },
       );
       attempt.current = null;
-      return go({ kind: 'loaded', done: { read, amountCents, method: 'cash', wallet: null, linked: true, warn: null, reference: out.codeHint } });
+      return go({
+        kind: 'loaded',
+        done: { read, amountCents, feeCents: out.serviceFeeCents ?? 0, method: 'cash', wallet: null, linked: true, warn: null, reference: out.codeHint },
+      });
     }
     const target = deskTarget(read.view, read.nfc);
     // Un saldo nuevo lleva ya su ficha: el servidor la da en la misma operación.
@@ -307,7 +319,7 @@ export function ReceptionDesk({ user, active, footer }: Props) {
     );
     const hasPin = read.view?.kind === 'saldo' && read.view.hasPin;
     const wallet = { walletId: out.walletId, code: out.code, balanceCents: out.balanceCents, hasPin, hasCard: read.nfc !== null };
-    await finish(read, amountCents, 'cash', wallet, out.cardLinked === true);
+    await finish(read, amountCents, 'cash', wallet, out.cardLinked === true, out.serviceFeeCents ?? 0);
   }
 
   /**
@@ -371,11 +383,11 @@ export function ReceptionDesk({ user, active, footer }: Props) {
     const view = read.view;
     if (view?.kind === 'saldo') {
       const w = { walletId: view.walletId, code: view.code, balanceCents: view.balanceCents + payment.amountCents, hasPin: view.hasPin, hasCard: read.nfc !== null };
-      return finish(read, payment.amountCents, 'card', w);
+      return finish(read, payment.amountCents, 'card', w, false, payment.serviceFeeCents ?? 0);
     }
     // Saldo nuevo: su código para darle el NFC (y el PIN).
     const w = payment.walletId ? await staffBackend.wallet(payment.walletId).catch(() => null) : null;
-    return finish(read, payment.amountCents, 'card', w);
+    return finish(read, payment.amountCents, 'card', w, false, payment.serviceFeeCents ?? 0);
   }
 
   // ─── Salida (4.5) ───────────────────────────────────────────────────────
@@ -665,7 +677,7 @@ export function ReceptionDesk({ user, active, footer }: Props) {
   }
 
   function renderLoaded(done: Loaded) {
-    const money = loadedMoneyLine(done.method, done.amountCents);
+    const money = loadedMoneyLine(done.method, done.amountCents, done.feeCents);
     const canPin = done.wallet !== null && !done.wallet.hasPin;
     const meta = done.read.number ? `Devuélvele su ficha · ${fichaText(done.read.number.printedNumber)}` : handOverLine(done.read.view, done.linked);
     // Pagó en efectivo aquí: su enlace privado no le llega; con este QR activa Face ID en su móvil.

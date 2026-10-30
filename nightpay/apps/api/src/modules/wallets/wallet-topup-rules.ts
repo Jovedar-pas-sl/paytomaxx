@@ -1,4 +1,5 @@
 import { createHash, createHmac } from 'node:crypto';
+import { serviceFeeBpsFor, serviceFeeQuote, type VenueServiceFee } from '@nightpay/contracts';
 
 /**
  * «Recargar» desde la página del saldo (/w/:token): el cliente recarga SU
@@ -34,6 +35,20 @@ export const SELF_TOPUP_DAILY_WINDOW_MS = 24 * 60 * 60 * 1000;
 export const SELF_TOPUP_DAILY_MAX_CENTS = 600_00;
 export const SELF_TOPUP_DAILY_MAX_PAID = 4;
 export const SELF_TOPUP_MAX_UNRESOLVED = 3;
+
+/**
+ * La «Comisión del servicio» de cada importe que se puede recargar desde /w
+ * (euros enteros de `minCents` a `maxCents`): [i] es la de minCents + i euros.
+ * La calcula el servidor con serviceFeeQuote, lo mismo que cobra al crear la
+ * recarga, y la página solo la lee (M-3: antes el JS de la página la
+ * recalculaba con su propia copia de la fórmula). null: sin comisión.
+ */
+export function topUpFeeTable(fee: VenueServiceFee | null | undefined, minCents: number, maxCents: number): number[] | null {
+  if (serviceFeeBpsFor(fee, 'topUp') === null) return null;
+  const table: number[] = [];
+  for (let cents = minCents; cents <= maxCents; cents += 100) table.push(serviceFeeQuote(fee, 'topUp', cents).feeCents);
+  return table;
+}
 
 /** Una recarga desde /w del saldo, tal como la lee el tope (cobros con la clave `wtopup:`). */
 export interface SelfTopUpRow {

@@ -135,6 +135,16 @@ describe('CARGADO (4.4)', () => {
     expect(loadedMoneyLine('card', 5_000)).toMatchObject({ label: 'Tarjeta:', tail: 'en su móvil' });
   });
 
+  it('con la comisión del servicio: lo que pagó el cliente (saldo + comisión), no solo el saldo', () => {
+    // Antes: «Efectivo: 50 € a la caja» cuando el cliente había pagado 56 €.
+    const cash = loadedMoneyLine('cash', 5_000, 600);
+    expect({ ...cash, amount: eur(cash.amount), tail: eur(cash.tail) }).toEqual({ label: 'Efectivo:', amount: '56 €', tail: 'a la caja (con 6 € de comisión)' });
+    const card = loadedMoneyLine('card', 3_300, 347);
+    expect({ ...card, amount: eur(card.amount), tail: eur(card.tail) }).toEqual({ label: 'Tarjeta:', amount: '36,47 €', tail: 'en su móvil (con 3,47 € de comisión)' });
+    // Sin comisión (o a 0), como siempre.
+    expect(loadedMoneyLine('cash', 5_000, 0)).toEqual(loadedMoneyLine('cash', 5_000));
+  });
+
   it('y con el NFC: dárselo (nuevo), devolvérselo (el suyo) o el código si no tiene', () => {
     expect(handOverLine(NUEVO, true)).toBe('Dale el NFC · ficha nº 00736903');
     expect(handOverLine(saldo(), true)).toBe('Devuélvele su NFC · ficha nº 0388');

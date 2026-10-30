@@ -75,7 +75,7 @@ const SAME_EVERYWHERE = new Set([
 ]);
 
 /** Iguales en portugués y en castellano porque se dicen igual. */
-const SAME_IN_PT = new Set(['pay.receipt.total', 'wallet.mergeRow', 'wallet.pinDone', 'wallet.pinSave']);
+const SAME_IN_PT = new Set(['pay.receipt.total', 'wallet.mergeRow', 'wallet.pinDone', 'wallet.pinSave', 'wallet.topUpGoFee']);
 
 /** «hace » / « ago»: vacíos en algún idioma por cómo se dice. */
 const MAY_BE_EMPTY = new Set(['pay.agoPrefix', 'pay.agoSuffix']);
