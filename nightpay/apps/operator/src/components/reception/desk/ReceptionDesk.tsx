@@ -132,7 +132,7 @@ const eur = (cents: number) => formatEur(cents, { compact: true });
 
 interface Props {
   user: OperatorUser;
-  /** La pestaña se ve: solo entonces se escucha el NFC (en Saldo lo usa el cobro). */
+  /** La pestaña se ve: solo entonces se escucha el NFC (en Inicio lo usa el cobro). */
   active: boolean;
   /** Lo de siempre, debajo del primer paso: «Preparar fichas», «Pendientes de asignar (2)». */
   footer: ReactNode;

@@ -148,7 +148,7 @@ export function FichaTapped({ token, userId, onClose }: { token: string; userId:
             {view.wallet.code}
           </p>
           <p style={{ margin: 0 }}>Le quedan {formatEur(view.wallet.balanceCents, { compact: true })}</p>
-          <p style={hintStyle}>Para cobrarle: elige el servicio en «Saldo» y acerca otra vez la ficha.</p>
+          <p style={hintStyle}>Para cobrarle: haz el cobro en Inicio y, con el QR en pantalla, acerca otra vez la ficha.</p>
         </>
       ) : null}
       {view.kind === 'done' ? (

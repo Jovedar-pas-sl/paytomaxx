@@ -1,7 +1,11 @@
 import type { OperatorUser } from './api';
 
 export type StaffRole = OperatorUser['role'];
-export type TabKey = 'home' | 'wallet' | 'reception' | 'pos' | 'payments' | 'earnings';
+/**
+ * Pestañas de abajo. Ya no hay «Saldo» (wallet): Inicio es la única pantalla
+ * de cobrar (el QR, la ficha NFC y, discreto, su código o su pase con su PIN).
+ */
+export type TabKey = 'home' | 'reception' | 'pos' | 'payments' | 'earnings';
 
 /**
  * «Cobros»: la lista de /staff/me/cobros (la del panel: un cobro = una fila,
@@ -35,7 +39,7 @@ export interface RoleAccess {
  * sus cobros sin pagar y lo ve al día cada 5 s, como en su lista de antes.
  */
 const OPERATOR_ACCESS: RoleAccess = {
-  tabs: ['home', 'wallet', 'payments', 'earnings'],
+  tabs: ['home', 'payments', 'earnings'],
   ownEarnings: true,
   ownPayments: true,
   history: { cancelPending: true, pollMs: 5000 },
@@ -44,7 +48,7 @@ const OPERATOR_ACCESS: RoleAccess = {
 
 /** Camarero, encargado y dueño: además, la recepción (recargar saldo, ficha y PIN; preparar fichas). */
 const STAFF_ACCESS: RoleAccess = {
-  tabs: ['home', 'wallet', 'payments', 'reception', 'pos'],
+  tabs: ['home', 'payments', 'reception', 'pos'],
   ownEarnings: false,
   ownPayments: true,
   history: { cancelPending: false, pollMs: 15_000 },

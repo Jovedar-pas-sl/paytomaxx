@@ -286,7 +286,9 @@
 }
 
 .footFlat {
-  background: transparent;
+  /* Del color de la página: si la pantalla no cabe (un móvil bajo), lo de
+     abajo pasa por debajo del botón sin verse a través. */
+  background: var(--np-bg);
   border: 0;
 }
 
@@ -1679,4 +1681,52 @@
   margin: 0;
   font: 800 1.25rem var(--np-font-num);
   letter-spacing: 0.04em;
+}
+
+/* ─── «Sin móvil ni ficha» (antes, solo en la pestaña «Saldo») ─────────── */
+
+/* El botón discreto de Esperando: un enlace, sin competir con el QR ni con el NFC. 44 px de alto. */
+.altLink {
+  align-self: center;
+  min-height: 2.75rem;
+  padding: 0 0.75rem;
+  background: none;
+  border: none;
+  color: var(--np-text-label);
+  font: 700 0.9375rem/1.2 var(--np-font-sans);
+  text-decoration: underline;
+  text-underline-offset: 4px;
+  cursor: pointer;
+}
+
+.altLink:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Las dos formas (su código + PIN, su pase): botón grande con su explicación debajo. */
+.altOpt {
+  flex-direction: column;
+  gap: 0.25rem;
+  min-height: 4.75rem;
+  padding: 0.5rem 1.25rem;
+}
+
+.altOpt small {
+  font: 500 0.875rem/1.25 var(--np-font-sans);
+  color: var(--np-text-label);
+}
+
+.altHint {
+  margin: 0;
+  font-size: 0.9375rem;
+  line-height: 1.35;
+  color: var(--np-text-label);
+  text-align: center;
+}
+
+.altForm {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
 }

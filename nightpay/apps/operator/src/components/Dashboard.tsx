@@ -16,7 +16,6 @@ import {
   useVenueMethodsFeed,
   visibleTabsFor,
 } from '@/lib/venue-methods';
-import { ChargeFromBalance } from './ChargeFromBalance';
 import { ConnectionStatus } from './ConnectionStatus';
 import { useDeepLinks, useMyNight, useOwnBalance, type PollError } from './dashboard-hooks';
 import { Earnings } from './Earnings';
@@ -45,7 +44,7 @@ export function Dashboard({ user, onLogout }: Props) {
   const { methods, night: nightSettings, rights } = useVenueMethodsFeed(user.id);
   // Recepción (cargar saldos y el efectivo), solo a quien la hace por su puesto.
   const tabs = visibleTabsFor(access.tabs, methods, canTopUp(rights, user.role));
-  // La pestaña va en la URL (?t=saldo): recargar o volver a entrar deja donde se estaba.
+  // La pestaña va en la URL (?t=cobros): recargar o volver a entrar deja donde se estaba (?t=saldo, a Inicio).
   const [tab, setTab] = useUrlTab(tabs);
   const links = useDeepLinks(access.posQueue);
   // Sesión caducada con un cobro abierto: el saldo y la noche dejan de
@@ -84,7 +83,7 @@ export function Dashboard({ user, onLogout }: Props) {
     onLogout();
   }
 
-  const showing = (key: TabKey) => links.ficha === null && links.pass === null && tab === key;
+  const showing = (key: TabKey) => links.ficha === null && links.pass === null && links.code === null && tab === key;
   // Recepción enseña su propia cabecera (salvo «Preparar fichas» y las pendientes).
   const [deskHead, setDeskHead] = useState(true);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -126,24 +125,25 @@ export function Dashboard({ user, onLogout }: Props) {
             refreshMoney();
           }}
         />
-      ) : links.pass ? (
+      ) : links.pass || links.code ? (
+        // Su pase (?pase=) o el QR de la página de su saldo (?saldo=), leídos con la cámara del móvil.
         <PassScanned
-          token={links.pass}
+          scan={links.pass ? { kind: 'pass', token: links.pass } : { kind: 'code', code: links.code ?? '' }}
           userId={user.id}
           onClose={() => {
             links.clearPass();
+            links.clearCode();
             refreshMoney();
           }}
         />
       ) : null}
 
-      {/* Inicio y Saldo siguen montados al cambiar de pestaña: un cobro a medias
-          (su QR, el tiempo real, el sondeo) no se pierde ni queda huérfano. */}
+      {/* Inicio, la única pantalla de cobrar (QR, ficha NFC y, sin móvil ni
+          ficha, su código o su pase), sigue montado al cambiar de pestaña: un
+          cobro a medias (su QR, el tiempo real, el sondeo) no se pierde ni
+          queda huérfano. */}
       <TabPanel visible={showing('home')}>
         <HomeTab user={user} night={night.night} onCobroDone={refreshMoney} onLogout={logout} />
-      </TabPanel>
-      <TabPanel visible={showing('wallet')}>
-        <ChargeFromBalance onCharged={refreshMoney} />
       </TabPanel>
       {/* Recepción montada al cambiar de pestaña: una recarga a medias (su QR) no se pierde. */}
       {tabs.includes('reception') ? (
