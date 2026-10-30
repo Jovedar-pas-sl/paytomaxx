@@ -7,14 +7,14 @@ describe('formas de cobro del local en la app del personal', () => {
     const unsaved = paymentMethodsOf(null);
     expect((['qr', 'wallet'] as const).every((m) => cobroModeAllowed(m, unsaved))).toBe(true);
     expect(cobroModeAllowed('pos', unsaved)).toBe(false);
-    expect(visibleTabsFor(['home', 'wallet', 'reception', 'pos'], unsaved)).toEqual(['home', 'wallet', 'reception']);
+    expect(visibleTabsFor(['home', 'reception', 'pos'], unsaved)).toEqual(['home', 'reception']);
     expect(staffHomeHint(unsaved)).not.toMatch(/POS/);
   });
 
   it('el datáfono guardado encendido: su modo, su pestaña «POS» y el aviso de Inicio', () => {
     const all = paymentMethodsOf({ pos: true });
     expect((['qr', 'wallet', 'pos'] as const).every((m) => cobroModeAllowed(m, all))).toBe(true);
-    expect(visibleTabsFor(['home', 'wallet', 'pos'], all)).toEqual(['home', 'wallet', 'pos']);
+    expect(visibleTabsFor(['home', 'pos'], all)).toEqual(['home', 'pos']);
   });
 
   it('tarjeta apagada: sin QR; «Recargar saldo» solo en efectivo (si está encendido); el datáfono sigue', () => {
@@ -25,15 +25,15 @@ describe('formas de cobro del local en la app del personal', () => {
     expect(cobroModeAllowed('pos', m)).toBe(true);
   });
 
-  it('saldo o datáfono apagados: fuera su pestaña y su modo', () => {
+  it('saldo o datáfono apagados: fuera su pestaña y su modo (Inicio se queda: cobra con lo que haya)', () => {
     const m = paymentMethodsOf({ wallet: false, pos: false });
     expect(cobroModeAllowed('wallet', m)).toBe(false);
     expect(cobroModeAllowed('pos', m)).toBe(false);
-    expect(visibleTabsFor(['home', 'wallet', 'pos'], m)).toEqual(['home']);
+    expect(visibleTabsFor(['home', 'pos'], m)).toEqual(['home']);
     // Sin saldo, tampoco la recepción (recargar el saldo).
-    expect(visibleTabsFor(['home', 'wallet', 'reception', 'pos'], m)).toEqual(['home']);
-    expect(visibleTabsFor(['home', 'wallet', 'reception', 'pos'], paymentMethodsOf({ pos: false }))).toEqual(['home', 'wallet', 'reception']);
-    expect(visibleTabsFor(['home', 'wallet', 'payments', 'earnings'], m)).toEqual(['home', 'payments', 'earnings']);
+    expect(visibleTabsFor(['home', 'reception', 'pos'], m)).toEqual(['home']);
+    expect(visibleTabsFor(['home', 'reception', 'pos'], paymentMethodsOf({ pos: false }))).toEqual(['home', 'reception']);
+    expect(visibleTabsFor(['home', 'payments', 'earnings'], m)).toEqual(['home', 'payments', 'earnings']);
   });
 
   it('datáfono apagado: Inicio no habla de la cola «POS»', () => {
@@ -57,11 +57,11 @@ describe('solo recepción carga saldos (y cobra el efectivo)', () => {
 
   it('recepción, encargado y dueño ven «Recargar» y la pestaña Recepción; barra y la chica, no', () => {
     const all = paymentMethodsOf({ pos: true });
-    const staffTabs = ['home', 'wallet', 'reception', 'pos'] as const;
+    const staffTabs = ['home', 'reception', 'pos'] as const;
     expect(canTopUp(recepcion, 'WAITER')).toBe(true);
     expect(canTopUp(barra, 'WAITER')).toBe(false);
-    expect(visibleTabsFor(staffTabs, all, canTopUp(barra, 'WAITER'))).toEqual(['home', 'wallet', 'pos']);
-    expect(visibleTabsFor(staffTabs, all, canTopUp(recepcion, 'WAITER'))).toEqual(['home', 'wallet', 'reception', 'pos']);
+    expect(visibleTabsFor(staffTabs, all, canTopUp(barra, 'WAITER'))).toEqual(['home', 'pos']);
+    expect(visibleTabsFor(staffTabs, all, canTopUp(recepcion, 'WAITER'))).toEqual(['home', 'reception', 'pos']);
     expect(cobroModeAllowed('wallet', all, canTopUp(barra, 'WAITER'))).toBe(false);
     expect(cobroModeAllowed('wallet', all, canTopUp(recepcion, 'WAITER'))).toBe(true);
     // El QR y el datáfono no dependen de cargar saldos.

@@ -2,9 +2,9 @@ import { describe, expect, it } from 'vitest';
 import { canOpenTab, roleAccess } from './roles';
 
 describe('qué ve cada rol', () => {
-  it('la chica: su saldo y su noche, sus cobros y sus ganancias; sin cola POS', () => {
+  it('la chica: cobrar (Inicio, la única pantalla de cobrar), sus cobros y sus ganancias; sin cola POS', () => {
     const access = roleAccess('OPERATOR');
-    expect(access.tabs).toEqual(['home', 'wallet', 'payments', 'earnings']);
+    expect(access.tabs).toEqual(['home', 'payments', 'earnings']);
     expect(access.ownEarnings).toBe(true);
     expect(access.ownPayments).toBe(true);
     expect(access.posQueue).toBe(false);
@@ -14,7 +14,7 @@ describe('qué ve cada rol', () => {
     '%s: cobra y confirma el datáfono; historial propio; sin ganancias de chica ni /nights/mine',
     (role) => {
       const access = roleAccess(role);
-      expect(access.tabs).toEqual(['home', 'wallet', 'payments', 'reception', 'pos']);
+      expect(access.tabs).toEqual(['home', 'payments', 'reception', 'pos']);
       expect(access.ownEarnings).toBe(false);
       expect(access.ownPayments).toBe(true);
       expect(access.posQueue).toBe(true);

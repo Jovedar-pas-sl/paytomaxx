@@ -2,9 +2,9 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { waitingListensNfc } from './nfc';
 
-// APP-03: Inicio y Saldo siguen montados (con `hidden`) al cambiar de pestaña.
-// Una pantalla escondida no escucha el NFC: la ficha que se acerca en
-// Recepción no puede pagar el cobro que quedó abierto en Inicio.
+// APP-03: Inicio sigue montado (con `hidden`) al cambiar de pestaña. Una
+// pantalla escondida no escucha el NFC: la ficha que se acerca en Recepción
+// no puede pagar el cobro que quedó abierto en Inicio.
 
 const read = (rel: string): string => readFileSync(new URL(rel, import.meta.url), 'utf8').replace(/\r\n/g, '\n');
 
@@ -34,9 +34,7 @@ describe('las pantallas lo usan (como la recepción, con useShown)', () => {
     expect(src).toMatch(/waitingListensNfc\(\{[^}]*shown[^}]*\}\)/);
   });
 
-  it('el lector de «Cobrar del saldo» se corta al ocultar su pestaña', () => {
-    const src = read('../components/ChargeFromBalance.tsx');
-    expect(src).toMatch(/useShown\(\)/);
-    expect(src).toMatch(/if \(!shown\) reading\?\.abort\(\)/);
+  it('ya no hay pestaña «Saldo» que lea por su cuenta: Inicio es la única pantalla de cobrar', () => {
+    expect(() => read('../components/ChargeFromBalance.tsx')).toThrow();
   });
 });
