@@ -44,7 +44,17 @@ import {
   waitingLiveText,
   type FailReason,
 } from '@/lib/cobro-view';
-import { cobroOutcome } from '@/lib/cobro-state';
+import {
+  CANCEL_WHILE_PAYING_TEXT,
+  UNCONFIRMED_SENTENCE,
+  UNCONFIRMED_TITLE,
+  cardWait,
+  cardWaitParts,
+  cobroOutcome,
+  serverToLocalMs,
+  showsBankStrip,
+} from '@/lib/cobro-state';
+import { fetchBankRef, notifiedText, notifyManager, type BankRef } from '@/lib/api-bank-wait';
 import { useShown } from '../reception/desk/use-shown';
 import { StaffOutcome } from '../StaffOutcome';
 import { usePaymentLive } from '../use-payment-live';
@@ -129,6 +139,12 @@ export function Esperando({ cobro, onNew, onRetry, retrying = false, retryError 
   // Pagó con el NFC o el PIN y la respuesta no llegó: no se sabe si se cobró;
   // se sigue preguntando por el cobro y lo decide su estado (APP-02).
   const [checking, setChecking] = useState(false);
+  // Con tarjeta, en la página de su banco (AUTHORIZING): cuándo salió el
+  // intento según el servidor (el sondeo lo dice) y, mientras no llega, cuándo
+  // se vio aquí. La espera del banco cuenta desde ahí (05-ui-ux §4.3).
+  const [attemptIso, setAttemptIso] = useState<string | null>(null);
+  const [authorizingSeenAt, setAuthorizingSeenAt] = useState<number | null>(null);
+  const [confirmingCancel, setConfirmingCancel] = useState(false);
 
   const chargeId = cobro.saldo?.chargeId ?? null;
   const nfcOn = Boolean(chargeId) && methods.nfc && methods.wallet && nfcSupported();
@@ -147,7 +163,14 @@ export function Esperando({ cobro, onNew, onRetry, retrying = false, retryError 
   const { reachable } = usePaymentLive(cobro.card, (update) => {
     setCardStatus((current) => advanceStatus(current, update.status));
     if (update.tipCents !== undefined) setCardTip(update.tipCents);
+    if (update.attemptStartedAt) setAttemptIso(update.attemptStartedAt);
   });
+
+  // Salió al banco: desde cuándo (aquí) mientras el sondeo no trae la hora del servidor.
+  useEffect(() => {
+    if (cardStatus === 'AUTHORIZING') setAuthorizingSeenAt((seen) => seen ?? Date.now());
+    if (cardStatus !== 'AUTHORIZING') setConfirmingCancel(false);
+  }, [cardStatus]);
 
   // Saldo: ¿lo pagó con su móvil (Face ID) o lo canceló la tarjeta?
   const refreshSaldo = usePolling(
@@ -188,9 +211,14 @@ export function Esperando({ cobro, onNew, onRetry, retrying = false, retryError 
     return () => clearTimeout(t);
   }, [toast]);
 
-  useWakeLock(waiting);
-  useOpenCharge('cobro', true, waiting);
-  useHealthReport(`cobro:${cobro.card?.id ?? chargeId ?? 'x'}`, waiting ? { serverDown: !reachable } : {});
+  // Sin confirmar por el banco se sigue mirando (si lo aprueba, PAGADO): pantalla encendida.
+  const watching = waiting || outcome.kind === 'unconfirmed';
+  useWakeLock(watching);
+  useOpenCharge('cobro', true, watching);
+  // Arriba, solo «OxioPay no responde»: la espera del banco y el «sin confirmar»
+  // los dice esta pantalla (su franja y «El banco no lo ha confirmado»); la
+  // franja de arriba lo repetiría y taparía su título.
+  useHealthReport(`cobro:${cobro.card?.id ?? chargeId ?? 'x'}`, watching ? { serverDown: !reachable } : {});
 
   /** El NFC acercado: pagado (hasta el tope sin PIN), su PIN o la razón del NO PAGADO. */
   const handleCard = useCallback(
@@ -283,9 +311,14 @@ export function Esperando({ cobro, onNew, onRetry, retrying = false, retryError 
     } catch {
       // Ya no se podía cancelar: quizá lo acaba de pagar. Lo dice el estado.
       refreshSaldo();
-      setToast('No se ha podido cancelar: mira si ya está pagado.');
+      setToast(
+        cardStatus === 'AUTHORIZING'
+          ? 'No se puede cancelar mientras el cliente paga en su banco: espera su respuesta.'
+          : 'No se ha podido cancelar: mira si ya está pagado.',
+      );
     } finally {
       setCanceling(false);
+      setConfirmingCancel(false);
     }
   }
 
@@ -336,6 +369,10 @@ export function Esperando({ cobro, onNew, onRetry, retrying = false, retryError 
         primary={{ label: 'Nuevo cobro', onClick: onNew }}
       />
     );
+  }
+
+  if (outcome.kind === 'unconfirmed' && cobro.card) {
+    return <Unconfirmed cobro={cobro} paymentId={cobro.card.id} onLeave={onNew} />;
   }
 
   if (outcome.kind === 'failed') {
@@ -425,10 +462,35 @@ export function Esperando({ cobro, onNew, onRetry, retrying = false, retryError 
 
   return (
     <div className={styles.overlay} data-charge-open="" ref={shownRef}>
-      <Waiting cobro={cobro} nfcOn={nfcOn} reading={reading} checking={checking} toast={toast}>
-        <button type="button" className={`${styles.btn} ${styles.ghost}`} onClick={() => void cancel()} disabled={canceling}>
-          {canceling ? 'Cancelando…' : 'Cancelar cobro'}
-        </button>
+      <Waiting
+        cobro={cobro}
+        nfcOn={nfcOn}
+        reading={reading}
+        checking={checking}
+        toast={toast}
+        bank={{ status: cobro.card ? cardStatus : null, attemptIso, seenAt: authorizingSeenAt }}
+      >
+        {confirmingCancel ? (
+          <div className={styles.cancelAsk} role="alertdialog" aria-label={CANCEL_WHILE_PAYING_TEXT}>
+            <p>{CANCEL_WHILE_PAYING_TEXT}</p>
+            <button type="button" className={`${styles.btn} ${styles.ghost}`} onClick={() => setConfirmingCancel(false)} autoFocus>
+              No, seguir esperando
+            </button>
+            <button type="button" className={`${styles.btn} ${styles.ghost}`} onClick={() => void cancel()} disabled={canceling}>
+              {canceling ? 'Cancelando…' : 'Sí, cancelar'}
+            </button>
+          </div>
+        ) : (
+          <button
+            type="button"
+            className={`${styles.btn} ${styles.ghost}`}
+            // Con el cliente en la página de su banco, se confirma antes.
+            onClick={() => (cardStatus === 'AUTHORIZING' ? setConfirmingCancel(true) : void cancel())}
+            disabled={canceling}
+          >
+            {canceling ? 'Cancelando…' : 'Cancelar cobro'}
+          </button>
+        )}
       </Waiting>
     </div>
   );
@@ -441,6 +503,7 @@ function Waiting({
   reading,
   checking,
   toast,
+  bank,
   children,
 }: {
   cobro: CobroAbierto;
@@ -449,6 +512,8 @@ function Waiting({
   /** Un pago con el NFC o el PIN se quedó sin respuesta: se comprueba si se cobró. */
   checking: boolean;
   toast: string | null;
+  /** Con tarjeta: su estado y desde cuándo espera al banco (servidor o, si aún no lo dice, aquí). */
+  bank?: { status: PaymentStatus | null; attemptIso: string | null; seenAt: number | null };
   children: ReactNode;
 }) {
   const [receivedAt] = useState(() => Date.now());
@@ -465,6 +530,19 @@ function Waiting({
   const qr = cobro.card?.qrPngDataUrl ?? cobro.saldoQr ?? null;
   const colors = cobro.sections.slice(0, 2).map((s) => colorOf(s.section));
   const invite = Boolean(cobro.invitation);
+  // El cliente en la página de su banco: la hora del servidor pasada al reloj
+  // de este móvil con el plazo del QR (el mismo en los dos).
+  const serverExpires = cobro.card?.qrExpiresAt ? Date.parse(cobro.card.qrExpiresAt) : Number.NaN;
+  const anchor = deadline && Number.isFinite(serverExpires) ? { serverMs: serverExpires, localMs: deadline.endMs } : null;
+  const attemptMs = bank?.attemptIso ? serverToLocalMs(Date.parse(bank.attemptIso), anchor) : (bank?.seenAt ?? null);
+  const wait = cardWait({
+    status: bank?.status ?? null,
+    attemptStartedAtMs: Number.isFinite(attemptMs) ? attemptMs : null,
+    qrExpiresAtMs: deadline?.endMs ?? null,
+    nowMs: now,
+  });
+  const waitParts = checking ? null : cardWaitParts(wait);
+  const slowBank = showsBankStrip(wait);
 
   return (
     <div className={styles.screen}>
@@ -480,10 +558,31 @@ function Waiting({
         {/* Con la «Comisión del servicio»: con tarjeta paga más (con el saldo, no). */}
         {waitingFeeHint(cobro) ? <p className={styles.meta}>{waitingFeeHint(cobro)}</p> : null}
         {/* Viva: un punto que late y lo que pasa, también para el lector de pantalla (cambia solo al cambiar de fase). */}
-        <p className={`${styles.live}${ending ? ` ${styles.liveEnding}` : ''}`} role="status" aria-live="polite">
+        <p
+          className={`${styles.live}${ending || slowBank ? ` ${styles.liveEnding}` : ''}`}
+          role="status"
+          aria-live="polite"
+          data-bank-wait={wait.stage}
+        >
           <i aria-hidden="true" />
-          {waitingLiveText(phase, checking)}
+          {waitParts ? (
+            <>
+              {waitParts.label}
+              {/* El reloj, cada segundo, solo a la vista: el lector oye la fase. */}
+              {waitParts.clock ? <span aria-hidden="true">{` ${waitParts.clock}`}</span> : null}
+            </>
+          ) : (
+            waitingLiveText(phase, checking)
+          )}
         </p>
+        {slowBank ? (
+          <p className={styles.bankStrip}>
+            <b>{wait.stage === 'retry' ? 'El banco no ha contestado' : 'El banco está tardando'}</b>
+            {wait.stage === 'retry'
+              ? 'Si el cliente lo vuelve a intentar con el mismo QR, no cobres otra vez por tu lado.'
+              : 'No cobres otra vez: espera su respuesta. Si se cobra, sale aquí.'}
+          </p>
+        ) : null}
         <h2 className={styles.waitTitle}>{nfcOn ? 'Acerca el NFC o escanea' : 'Escanea el QR con tu móvil'}</h2>
         <div className={styles.dual}>
           {qr ? (
@@ -555,5 +654,84 @@ function PaidDetail({ cobro, newBalanceCents, meta }: { cobro: CobroAbierto; new
       ) : null}
       <p className={styles.meta}>{meta}</p>
     </>
+  );
+}
+
+/**
+ * El banco no contestó a tiempo (ORPHAN): pudo cobrarse. Pantalla ámbar con
+ * la referencia (la corta y el pedido del banco, si lo hay) y «Avisar al
+ * encargado» (la incidencia del cobro le llega ahora). Nunca «Otro QR»: si el
+ * banco lo aprueba después, aquí sale PAGADO solo.
+ */
+function Unconfirmed({ cobro, paymentId, onLeave }: { cobro: CobroAbierto; paymentId: string; onLeave: () => void }) {
+  const [ref, setRef] = useState<BankRef | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const ctrl = new AbortController();
+    fetchBankRef(paymentId, ctrl.signal)
+      .then(setRef)
+      .catch(() => setRef({ ref: cobro.ref, order: null }));
+    return () => ctrl.abort();
+  }, [paymentId, cobro.ref]);
+
+  async function notify(): Promise<void> {
+    setBusy(true);
+    setError(null);
+    try {
+      setNotice(notifiedText(await notifyManager(paymentId)));
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const shortRef = ref?.ref ?? cobro.ref;
+  return (
+    <div className={styles.overlay} data-charge-open="">
+      <div className={`${styles.screen} ${styles.unconfirmed}`} role="alert" aria-live="assertive">
+        <div className={styles.unconfirmedBody}>
+          <p className={styles.unconfirmedKicker}>Sin confirmar</p>
+          <h2 className={styles.waitTitle}>{UNCONFIRMED_TITLE}</h2>
+          <p className={styles.amountXl}>{formatEur(cobro.totalCents, { compact: true })}</p>
+          <p className={styles.meta}>{UNCONFIRMED_SENTENCE}</p>
+          <dl className={styles.unconfirmedRef}>
+            {shortRef ? (
+              <div>
+                <dt>Cobro</dt>
+                <dd>{shortRef}</dd>
+              </div>
+            ) : null}
+            {ref?.order ? (
+              <div>
+                <dt>Ref. del banco</dt>
+                <dd>{ref.order}</dd>
+              </div>
+            ) : null}
+          </dl>
+          {notice ? (
+            <p className={styles.toast} role="status">
+              {notice}
+            </p>
+          ) : null}
+          {error ? (
+            <p className={styles.error} role="alert">
+              {error}
+            </p>
+          ) : null}
+        </div>
+        <div className={`${styles.foot} ${styles.footFlat}`}>
+          <button type="button" className={`${styles.btn} ${styles.primary}`} onClick={() => void notify()} disabled={busy} aria-busy={busy}>
+            {busy ? 'Avisando…' : 'Avisar al encargado'}
+          </button>
+          <button type="button" className={`${styles.btn} ${styles.ghost}`} onClick={onLeave}>
+            Salir sin cobrar otra vez
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }

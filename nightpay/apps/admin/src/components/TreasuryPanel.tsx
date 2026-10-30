@@ -192,6 +192,7 @@ export function TreasuryPanel({ isOwner }: Props) {
 function pendingSubtitle(stats: TreasuryStats): string {
   const parts = [`${stats.pendingOperatorCount} chica${stats.pendingOperatorCount === 1 ? '' : 's'}`];
   if (stats.heldPayoutsCents) parts.push(`${formatEur(stats.heldPayoutsCents)} en espera`);
+  if (stats.bankHeldPayoutsCents) parts.push(`${formatEur(stats.bankHeldPayoutsCents)} pendientes de cuadrar con el banco`);
   if (stats.operatorDebtCents) parts.push(`deuda por devoluciones ${formatEur(stats.operatorDebtCents)}`);
   return parts.join(' · ');
 }

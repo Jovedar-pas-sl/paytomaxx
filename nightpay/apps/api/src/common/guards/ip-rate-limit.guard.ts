@@ -45,6 +45,14 @@ export interface IpRateLimitConfig {
    */
   perAccount?: { field: string; max: number };
   /**
+   * Además, un cupo por IP + recurso: el valor de la query (`query`, p. ej. el
+   * `op` de /pay/result/status) o de la ruta (`param`, p. ej. el `:token` de
+   * /pay/:token/status). Los clientes del wifi del local consultan cada uno su
+   * cobro: cada cobro tiene su cupo desde esa IP y la IP un tope más alto (que
+   * corta a quien recorre tokens). El valor se guarda como huella: es un secreto.
+   */
+  perKey?: { query?: string; param?: string; max: number };
+  /**
    * Si Redis no responde, dejar pasar (con aviso en el log) en vez de
    * fallar. Solo para las páginas y sondeos de LECTURA del cliente (pago,
    * estado del cobro, saldo): sin Redis daban 500 al cliente en pleno pago.
@@ -72,7 +80,8 @@ export const IpRateLimit = (config: IpRateLimitConfig) =>
   SetMetadata(META_KEY, config);
 
 type MinimalReq = ClientIpRequest & {
-  query?: { lang?: unknown };
+  query?: { lang?: unknown } & Record<string, unknown>;
+  params?: Record<string, unknown>;
   body?: ({ lang?: unknown } & Record<string, unknown>) | null;
   headers?: Record<string, string | string[] | undefined>;
 };
@@ -132,10 +141,14 @@ export class IpRateLimitGuard implements CanActivate {
     const bucket = Math.floor(Date.now() / 1000 / config.windowSec);
     const net = rateLimitIpKey(ip);
     const account = config.perAccount ? accountOf(req.body, config.perAccount.field) : null;
+    const resource = config.perKey ? resourceOf(req, config.perKey) : null;
     const checks: Array<{ key: string; max: number; what: string }> = [
       { key: `nightpay:iprl:${config.scope}:${net}:${bucket}`, max: config.max, what: 'ip' },
       ...(config.perAccount && account
         ? [{ key: `nightpay:iprl:${config.scope}:acct:${net}:${account}:${bucket}`, max: config.perAccount.max, what: 'ip+cuenta' }]
+        : []),
+      ...(config.perKey && resource
+        ? [{ key: `nightpay:iprl:${config.scope}:res:${net}:${resource}:${bucket}`, max: config.perKey.max, what: 'ip+recurso' }]
         : []),
     ];
     for (const check of checks) {
@@ -215,6 +228,13 @@ function accountOf(body: MinimalReq['body'], field: string): string | null {
   if (typeof raw !== 'string') return null;
   const account = raw.trim().toLowerCase().slice(0, MAX_ACCOUNT_CHARS);
   return account ? createHash('sha256').update(account).digest('hex').slice(0, 32) : null;
+}
+
+/** El recurso de la petición (query o ruta), como huella: un token o un pedido nunca en claro en Redis. */
+function resourceOf(req: MinimalReq, spec: { query?: string; param?: string }): string | null {
+  const raw = spec.query ? req.query?.[spec.query] : spec.param ? req.params?.[spec.param] : undefined;
+  if (typeof raw !== 'string' || raw.length === 0) return null;
+  return createHash('sha256').update(raw.slice(0, 512)).digest('hex').slice(0, 32);
 }
 
 function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {

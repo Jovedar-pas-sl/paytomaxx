@@ -20,6 +20,7 @@ import { safeHttpUrl } from '@/lib/urls';
 import { useApprovals } from '@/lib/use-approvals';
 import { useSections } from '@/lib/use-sections';
 import { useVenueTimezone } from '@/lib/venue-context';
+import { BankHoldsSection } from './BankHoldsSection';
 import { EditOperatorForm } from './EditOperatorForm';
 import { FichaSheet, SheetChip } from './fichas/FichaSheet';
 import { FichaTimeline } from './fichas/FichaTimeline';
@@ -160,6 +161,7 @@ export function OperatorDetailModal({
               operatorId={operator.id}
               operatorName={name}
               balanceCents={payable}
+              bankHeld={{ bankHeldCents: operator.balance.bankHeldCents, bankHeldCount: operator.balance.bankHeldCount }}
               payoutMethod={operator.payoutMethod ?? null}
               payoutAddress={operator.payoutAddress ?? null}
               payoutLabel={operator.payoutLabel ?? null}
@@ -211,6 +213,8 @@ export function OperatorDetailModal({
                   ))}
                 </ul>
               ) : null}
+              {/* Ventas por datáfono sin cuadrar con el banco: su parte, retenida (H-1). */}
+              <BankHoldsSection operatorId={operator.id} name={name} balance={operator.balance} onReleased={onChanged} />
               <FichaTimeline
                 rows={sheet.rows}
                 empty={camarero ? 'Esta noche aún no le toca nada de las invitaciones.' : 'Esta noche aún no ha cobrado nada.'}
@@ -271,6 +275,7 @@ function BalanceNote({ operator, payable }: { operator: Operator; payable: numbe
   if (b.availableCents === undefined) parts.push(`Se le debe ${formatEur(b.pendingCents)}`);
   else if (payable <= 0) parts.push('Nada que pagarle ahora');
   if (b.heldCents) parts.push(`en espera (días del local) ${formatEur(b.heldCents)}`);
+  if (b.bankHeldCents) parts.push(`pendiente de cuadrar con el banco ${formatEur(b.bankHeldCents)}`);
   if (b.debtCents) parts.push(`deuda por devoluciones ${formatEur(b.debtCents)}`);
   if (parts.length === 0) return null;
   return <p className="np-mm-note">{parts.join(' · ')}</p>;

@@ -90,7 +90,10 @@ let norte: Local;
 
 async function seedLocal(tag: string, group: string): Promise<Local> {
   return seed(async (tx) => {
-    const id = (await tx.venue.create({ data: { name: `Local ${tag}`, slug: `rf-${tag}-${r}`, walletGroup: group } })).id;
+    // Recarga con tarjeta en el lector: el local guardó el datáfono encendido (de fábrica va apagado desde el 20-10-2026).
+    const id = (
+      await tx.venue.create({ data: { name: `Local ${tag}`, slug: `rf-${tag}-${r}`, walletGroup: group, paymentMethods: { pos: true } } })
+    ).id;
     const user = (role: 'OWNER' | 'MANAGER' | 'WAITER') =>
       tx.user.create({ data: { tenantId: id, email: `${role.toLowerCase()}-${tag}-${r}@x.es`, passwordHash: 'x', role } as never });
     const owner = (await user('OWNER')).id;

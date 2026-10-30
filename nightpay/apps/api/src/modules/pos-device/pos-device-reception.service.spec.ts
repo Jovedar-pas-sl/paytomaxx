@@ -32,7 +32,8 @@ function make(
     sale?: Record<string, unknown> | null;
   } = {},
 ) {
-  const venue = { id: SALA, walletGroup: 'grupo', paymentMethods: null, pausedAt: null, business: null, ...o.venue };
+  // La recepción con datáfono: el local lo guardó encendido (de fábrica va apagado desde el 20-10-2026).
+  const venue = { id: SALA, walletGroup: 'grupo', paymentMethods: { pos: true } as Record<string, unknown> | null, pausedAt: null, business: null, ...o.venue };
   const used = o.used ?? { terminal: 0, wallet: 0 };
   const tx = {
     venue: { findUnique: vi.fn().mockResolvedValue(venue) },
@@ -85,9 +86,14 @@ describe('qué ofrece la recepción en este datáfono', () => {
 
   it('con el datáfono o el saldo apagados, sin tarjeta; en pausa, tampoco; sin fichas NFC, sin ficha', async () => {
     await expect(make({ venue: { paymentMethods: { pos: false } } }).svc.options(device)).resolves.toMatchObject({ card: false, cash: true });
-    await expect(make({ venue: { paymentMethods: { wallet: false } } }).svc.options(device)).resolves.toMatchObject({ card: false });
+    await expect(make({ venue: { paymentMethods: { pos: true, wallet: false } } }).svc.options(device)).resolves.toMatchObject({ card: false });
     await expect(make({ venue: { pausedAt: new Date() } }).svc.options(device)).resolves.toMatchObject({ card: false });
-    await expect(make({ venue: { paymentMethods: { nfc: false } } }).svc.options(device)).resolves.toMatchObject({ nfc: false, card: true });
+    await expect(make({ venue: { paymentMethods: { pos: true, nfc: false } } }).svc.options(device)).resolves.toMatchObject({ nfc: false, card: true });
+  });
+
+  it('un local sin «Formas de cobro» guardadas: sin tarjeta en el datáfono (apagado de fábrica); guardado encendido, con ella', async () => {
+    await expect(make({ venue: { paymentMethods: null } }).svc.options(device)).resolves.toMatchObject({ card: false, nfc: true });
+    await expect(make({ venue: { paymentMethods: { pos: true } } }).svc.options(device)).resolves.toMatchObject({ card: true });
   });
 });
 

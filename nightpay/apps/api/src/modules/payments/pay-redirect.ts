@@ -1,3 +1,4 @@
+import { RETRY_WAIT_MS } from '@nightpay/contracts';
 import type { PayLanguage } from './customer-lang';
 import type { PaymentMachineState } from './payment.machine';
 import { maxTipCents, tipOptionsFor, type TipPresetConfig } from './tip';
@@ -164,12 +165,13 @@ export const MAX_PAYMENT_ATTEMPTS = 3;
 
 /**
  * Tiempo que se espera al aviso del banco antes de dar por abandonado un
- * intento sin respuesta. Las denegaciones llegan al momento (y permiten
+ * intento sin respuesta (2:30). Las denegaciones llegan al momento (y permiten
  * reintentar ya); esto solo cuenta cuando no llega nada, y tiene que cubrir
  * a un cliente que sigue en la pantalla de 3D Secure de su banco para no
- * abrir un segundo pedido que también pudiera pagarse.
+ * abrir un segundo pedido que también pudiera pagarse. Vive en
+ * @nightpay/contracts (pay-wait): el personal cuenta con el mismo.
  */
-export const RETRY_WAIT_MS = 150_000;
+export { RETRY_WAIT_MS };
 
 export type RetryDecision = 'retry' | 'wait' | 'expired' | 'unconfirmed' | 'max-attempts';
 

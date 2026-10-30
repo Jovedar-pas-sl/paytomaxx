@@ -80,7 +80,10 @@ describe('formas de cobro: lo guardado con lo de siempre donde falte', () => {
       expect((err as ForbiddenException).getStatus()).toBe(409);
       expect((err as ForbiddenException).getResponse()).toMatchObject({ code: 'PAYMENT_METHOD_DISABLED', method: 'card' });
     }
-    expect(assertMethodsEnabled(null, ['card', 'wallet', 'nfc', 'pos'])).toEqual(DEFAULT_PAYMENT_METHODS);
+    expect(assertMethodsEnabled(null, ['card', 'wallet', 'nfc'])).toEqual(DEFAULT_PAYMENT_METHODS);
+    // El datáfono, apagado de fábrica (20-10-2026): sin nada guardado, 409; guardado encendido, vale.
+    expect(() => assertMethodsEnabled(null, ['pos'])).toThrow(/no cobra ahora con datáfono/);
+    expect(assertMethodsEnabled({ paymentMethods: { pos: true } }, ['pos']).pos).toBe(true);
   });
 });
 

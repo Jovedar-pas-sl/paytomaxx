@@ -27,14 +27,18 @@ import { Tenant } from '../../common/decorators/tenant.decorator';
 import { IpRateLimit } from '../../common/guards/ip-rate-limit.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { ZodValidationPipe } from '../../common/pipes/zod.pipe';
+import { PrismaService } from '../../common/prisma/prisma.service';
 import type { JwtPayload } from '@nightpay/contracts';
 import { PaymentsService } from './payments.service';
+import { staffBankRef, type StaffBankRef } from './staff-bank-ref';
 
 @Controller('payments')
 export class PaymentsController {
   private readonly payments: PaymentsService;
-  constructor(@Inject(PaymentsService) payments: PaymentsService) {
+  private readonly prisma: PrismaService;
+  constructor(@Inject(PaymentsService) payments: PaymentsService, @Inject(PrismaService) prisma: PrismaService) {
     this.payments = payments;
+    this.prisma = prisma;
   }
 
   /**
@@ -120,6 +124,18 @@ export class PaymentsController {
   @Roles('OWNER', 'MANAGER', 'WAITER')
   async findOne(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() _user: JwtPayload) {
     return this.payments.findById(id);
+  }
+
+  /**
+   * «El banco no lo ha confirmado» (Esperando, cobro ORPHAN): la referencia
+   * corta y el pedido del banco, para que el encargado lo busque en el portal.
+   * La chica y el camarero, solo de sus cobros (staff-bank-ref.ts).
+   */
+  @Get(':id/bank-ref')
+  @UseGuards(RolesGuard)
+  @Roles('OWNER', 'MANAGER', 'WAITER', 'OPERATOR')
+  async bankRef(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: JwtPayload): Promise<StaffBankRef> {
+    return staffBankRef(this.prisma, id, { userId: user.sub, role: user.role, tenantId: user.tenantId });
   }
 
   /**

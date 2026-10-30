@@ -52,6 +52,7 @@ function metaLine(c: NightChicaPay, holdDays: number): string {
     parts.push(`pagado ${formatEur(c.paidTonightCents)}${c.paidTonightCount > 1 ? ` (${c.paidTonightCount} pagos)` : ''}`);
   }
   if (c.heldCents > 0 && holdDays > 0) parts.push(`${formatEur(c.heldCents)} en espera (${holdDays} días)`);
+  if ((c.bankHeldCents ?? 0) > 0) parts.push(`${formatEur(c.bankHeldCents ?? 0)} pendientes de cuadrar con el banco`);
   if (c.debtCents > 0) parts.push(`debe ${formatEur(c.debtCents)} por devoluciones`);
   return parts.join(' · ');
 }

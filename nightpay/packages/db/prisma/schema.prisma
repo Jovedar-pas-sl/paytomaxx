@@ -1405,6 +1405,9 @@ model BankStatementItem {
 
   @@index([statementId])
   @@index([tenantId, status])
+  // Comisión retenida de las ventas por datáfono (20261102090000): «¿este cobro
+  // ya casa con el banco?» se pregunta por cobro en cada saldo y cada pago.
+  @@index([paymentId])
   @@map("bank_statement_items")
 }
 

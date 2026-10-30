@@ -1377,12 +1377,18 @@ export class PaymentsService implements OnApplicationBootstrap {
         include: {
           venue: { select: { name: true } },
           terminal: { select: { label: true } },
+          // El último intento: cuándo salió hacia el banco (la espera del personal).
+          attempts: { orderBy: { createdAt: 'desc' }, take: 1, select: { createdAt: true } },
         },
       }),
     );
     if (!payment) throw new NotFoundException('QR not found or expired');
 
     const paid = PAID_STATES.has(payment.status as PaymentMachineState);
+    // Esperando al banco o sin su respuesta: desde cuándo (sin intentos, cobros
+    // de antes de la Fase 0: desde que cambió de estado). No dice nada más del intento.
+    const waiting = payment.status === 'AUTHORIZING' || payment.status === 'ORPHAN';
+    const attemptAt = payment.attempts?.[0]?.createdAt ?? payment.updatedAt;
     return {
       ...(paid ? { id: payment.id } : {}),
       amountCents: payment.amountCents,
@@ -1396,6 +1402,7 @@ export class PaymentsService implements OnApplicationBootstrap {
       ref: formatChargeRef(payment.ref),
       // Ya pagado: la propina que dejó (el PAGADO del personal sin tiempo real la necesita).
       ...(paid ? { tipCents: payment.tipCents } : {}),
+      ...(waiting ? { attemptStartedAt: attemptAt.toISOString() } : {}),
     };
   }
 

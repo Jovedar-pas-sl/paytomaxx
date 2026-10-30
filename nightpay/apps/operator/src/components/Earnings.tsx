@@ -115,6 +115,7 @@ function MoneyRows({ summary, holdDays, earnings, night, onOpen }: RowsProps) {
   const showHeld = (holdDays ?? 0) > 0 || summary.heldCents > 0;
   const other = summary.otherNightsCents;
   const debt = summary.debtCents;
+  const bank = summary.bankHeldCents;
 
   return (
     <nav aria-label="Lo demás que te deben" className={styles.rows}>
@@ -132,6 +133,15 @@ function MoneyRows({ summary, holdDays, earnings, night, onOpen }: RowsProps) {
           amount={formatEur(summary.heldCents, { compact: true })}
           color={summary.heldCents > 0 ? 'var(--np-warning)' : 'var(--np-text-mute)'}
           onClick={() => onOpen('held')}
+        />
+      ) : null}
+      {bank > 0 ? (
+        <Row
+          label="Pendiente de cuadrar"
+          sub="Cobros por datáfono: se pagan cuando el local los cuadre con el banco"
+          amount={formatEur(bank, { compact: true })}
+          color="var(--np-warning)"
+          onClick={() => onOpen('bank')}
         />
       ) : null}
       <Row
@@ -162,13 +172,14 @@ function Row({ label, sub, amount, color, onClick }: { label: string; sub: strin
 
 /** Lo que entra en el próximo pago, si no es solo lo de esta noche. */
 function NextPayout({ summary }: { summary: MoneySummary }) {
-  const { nextPayoutCents, otherNightsCents, debtCents, heldCents, tonightUnpaidCents, owedAfterCents } = summary;
-  if (nextPayoutCents === null || (otherNightsCents <= 0 && debtCents <= 0 && heldCents <= 0)) return null;
+  const { nextPayoutCents, otherNightsCents, debtCents, heldCents, bankHeldCents, tonightUnpaidCents, owedAfterCents } = summary;
+  if (nextPayoutCents === null || (otherNightsCents <= 0 && debtCents <= 0 && heldCents <= 0 && bankHeldCents <= 0)) return null;
   const sources = [tonightUnpaidCents > 0 ? 'esta noche' : null, otherNightsCents > 0 ? 'otras noches' : null].filter(Boolean);
+  const without = [heldCents > 0 ? 'lo que está en espera' : null, bankHeldCents > 0 ? 'lo pendiente de cuadrar' : null].filter(Boolean);
   const explain = [
     sources.length > 0 ? sources.join(' + ') : null,
     debtCents > 0 ? '− deudas' : null,
-    heldCents > 0 ? '(sin lo que está en espera)' : null,
+    without.length > 0 ? `(sin ${without.join(' ni ')})` : null,
   ]
     .filter(Boolean)
     .join(' ');

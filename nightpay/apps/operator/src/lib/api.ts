@@ -152,6 +152,12 @@ export interface OperatorBalance {
   availableCents?: number;
   /** Comisiones recientes aún en espera. */
   heldCents?: number;
+  /**
+   * Ventas por datáfono sin cuadrar con el banco: su parte no se paga hasta
+   * que el local las cuadre (o el dueño las dé por buenas). API anterior: sin el campo.
+   */
+  bankHeldCents?: number;
+  bankHeldCount?: number;
   /** Devoluciones llegadas después de un pago, a descontar. */
   debtCents?: number;
   paidCents: number;
@@ -173,6 +179,8 @@ export interface MyEarning {
   netCents: number;
   payoutId: string | null;
   paymentStatus: string | null;
+  /** Sin pagar y de una venta por datáfono pendiente de cuadrar con el banco. */
+  bankHeld?: boolean;
   createdAt: string;
 }
 

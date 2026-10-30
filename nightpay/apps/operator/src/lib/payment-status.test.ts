@@ -33,6 +33,15 @@ describe('el sondeo de respaldo (sin tiempo real)', () => {
     expect(pollUpdate({ id: ID, status: 'AUTHORIZED', tipCents: 0 }, ID)).toEqual({ status: 'AUTHORIZED', tipCents: 0 });
   });
 
+  it('esperando al banco: cuándo salió el intento (la espera se cuenta desde ahí); un API viejo, sin él', () => {
+    expect(pollUpdate({ status: 'AUTHORIZING', attemptStartedAt: '2026-10-14T00:00:05.000Z' }, ID)).toEqual({
+      status: 'AUTHORIZING',
+      attemptStartedAt: '2026-10-14T00:00:05.000Z',
+    });
+    expect(pollUpdate({ status: 'ORPHAN', attemptStartedAt: '2026-10-14T00:00:05.000Z' }, ID)).toMatchObject({ attemptStartedAt: '2026-10-14T00:00:05.000Z' });
+    expect(pollUpdate({ status: 'AUTHORIZING' }, ID)).not.toHaveProperty('attemptStartedAt');
+  });
+
   it('un API viejo (sin propina) no la inventa: propina desconocida, no 0', () => {
     expect(pollUpdate({ id: ID, status: 'AUTHORIZED' }, ID)).toEqual({ status: 'AUTHORIZED' });
     expect(pollUpdate({ id: ID, status: 'AUTHORIZED' }, ID)).not.toHaveProperty('tipCents');

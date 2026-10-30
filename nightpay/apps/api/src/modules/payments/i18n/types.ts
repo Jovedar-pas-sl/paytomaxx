@@ -43,6 +43,45 @@ export interface UnlockText {
   done: string;
 }
 
+/** «Comprobando el pago» (pay-checking-page.ts): cada fase de la espera del banco. */
+export interface CheckingText {
+  /** 0–20 s. */
+  start: string;
+  /** Desde los 8 s. */
+  startBody: string;
+  /** Los tres pasos: enviado, el banco lo confirma, pagado. */
+  steps: readonly [string, string, string];
+  /** 20–60 s. */
+  slow: string;
+  slowBody: string;
+  /** 60 s–2:30. */
+  still: string;
+  /** «Podrás intentarlo otra vez en 1:27.» */
+  retryIn: (time: string) => string;
+  /** Pasados 2:30 sin respuesta (y el QR vigente). */
+  noAnswer: string;
+  noAnswerBody: string;
+  retry: string;
+  bankAppTitle: string;
+  /** «Busca «SALA AURORA» de 38,30 €: enséñaselo al camarero.» */
+  bankApp: (name: string, amount: string) => string;
+  bankAppNoName: (amount: string) => string;
+  /** Sin confirmación del banco: se sigue comprobando sola. */
+  unconfirmed: string;
+  unconfirmedBody: string;
+  /** Pasados 30 min ya no se comprueba sola. */
+  unconfirmedStopped: string;
+  offline: string;
+  otherPayer: string;
+  showStaff: string;
+  /** «Enviado a tu banco a las 23:41». */
+  sentAt: (time: string) => string;
+  reference: string;
+  amount: string;
+  plateHint: string;
+  close: string;
+}
+
 export interface PayText {
   htmlLang: PayLanguage;
   locale: string;
@@ -123,6 +162,8 @@ export interface PayText {
   processingTitle: string;
   processingBody: string;
   processingNewCharge: string;
+  /** «Comprobando el pago» con su estado en vivo (05-ui-ux §4.4). */
+  checking: CheckingText;
   // Muchos a la vez en la misma IP (wifi del local): la página espera y se recarga sola
   busyTitle: string;
   busyBody: string;

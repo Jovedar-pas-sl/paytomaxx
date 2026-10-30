@@ -181,6 +181,8 @@ export const OverviewVenueSchema = z.object({
   pendingToChicasCents: z.number().int(),
   /** Comisiones aún en espera. */
   heldForChicasCents: z.number().int(),
+  /** Ventas por datáfono sin cuadrar con el banco: su parte no se paga hasta cuadrarlas. Opcional: API anterior. */
+  bankHeldForChicasCents: z.number().int().optional(),
   /** Deuda de las chicas por devoluciones tras un pago. */
   chicasDebtCents: z.number().int(),
   /** Saldo vivo de clientes cargado en este local (ACTIVE). */
@@ -202,6 +204,7 @@ export const OverviewTotalsSchema = z.object({
   chargedWeekCents: z.number().int(),
   pendingToChicasCents: z.number().int(),
   heldForChicasCents: z.number().int(),
+  bankHeldForChicasCents: z.number().int().optional(),
   chicasDebtCents: z.number().int(),
   liveCustomerBalanceCents: z.number().int(),
   liveCustomerWallets: z.number().int(),

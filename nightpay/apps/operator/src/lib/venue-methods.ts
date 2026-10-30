@@ -2,8 +2,9 @@
 
 // Formas de cobro y ajustes de la noche del local (los pone el dueño en el
 // panel → Ajustes). Lo apagado no se enseña aquí; el API además lo rechaza
-// (409). Si no se pueden leer, se enseña todo y los ajustes de fábrica, como
-// antes (el API sigue mandando).
+// (409). Si no se pueden leer, los de fábrica (el API sigue mandando): todo a
+// la vista menos el datáfono, que de fábrica va apagado (decisión del dueño,
+// 20-10-2026); un local que lo tiene encendido lo ve en cuanto llegan.
 
 import { createContext, useContext, useEffect, useState } from 'react';
 import {
@@ -128,7 +129,7 @@ export function useVenueMethodsFeed(userId: string): VenueFeed {
         setFeed({ methods: paymentMethodsOf(venue.paymentMethods), night, rights: myRightsOf(venue.myPost, venue.myRights) });
       })
       .catch(() => {
-        // Sin respuesta: todo a la vista, como antes; el API rechaza lo apagado.
+        // Sin respuesta: lo de fábrica (sin datáfono); el API rechaza lo apagado.
       });
     return () => {
       cancelled = true;

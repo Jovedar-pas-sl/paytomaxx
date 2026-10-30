@@ -58,6 +58,8 @@ function makeService(opts: Opts = {}) {
         walletGroup: 'grupo-bambu',
         pausedAt: null,
         business: null,
+        // Cobra también por datáfono: lo guardó encendido (de fábrica va apagado desde el 20-10-2026).
+        paymentMethods: { pos: true },
       })),
     },
     gatewayCredential: { findFirst: vi.fn(async () => ({ provider: 'REDSYS' })) },

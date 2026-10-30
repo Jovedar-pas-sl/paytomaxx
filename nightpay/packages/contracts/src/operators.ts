@@ -355,8 +355,15 @@ export const OperatorBalanceSchema = z.object({
   pendingCents: z.number().int(),
   /** Parte de pendingCents que ya entra en el próximo pago (pasados los días de espera). */
   availableCents: z.number().int(),
-  /** Comisiones recientes aún en espera. */
+  /** Comisiones recientes aún en espera (sin las retenidas por el banco: van aparte). */
   heldCents: z.number().int().nonnegative(),
+  /**
+   * Ventas por datáfono sin cuadrar con el banco: su parte no se paga hasta
+   * cuadrarlas o que el dueño las libere (bank-hold.ts). Opcional: API anterior.
+   */
+  bankHeldCents: z.number().int().nonnegative().optional(),
+  /** Cuántas ventas por datáfono están retenidas. */
+  bankHeldCount: z.number().int().nonnegative().optional(),
   /** Devoluciones llegadas después de un pago, a descontar del siguiente. */
   debtCents: z.number().int().nonnegative(),
   paidCents: z.number().int().nonnegative(),
@@ -379,6 +386,8 @@ export const EarningViewSchema = z.object({
   netCents: z.number().int(),
   payoutId: UuidSchema.nullable(),
   paymentStatus: z.string().nullable(),
+  /** Sin pagar y de una venta por datáfono sin cuadrar con el banco (retenida). */
+  bankHeld: z.boolean().optional(),
   createdAt: z.string().datetime(),
 });
 export type EarningView = z.infer<typeof EarningViewSchema>;
@@ -495,6 +504,8 @@ export const TreasuryStatsSchema = z.object({
   pendingOperatorCount: z.number().int().nonnegative(),
   /** Comisiones aún en espera (PAYOUT_HOLD_DAYS): se pagarán más adelante. */
   heldPayoutsCents: z.number().int().nonnegative().optional(),
+  /** Ventas por datáfono sin cuadrar con el banco: su parte no se paga hasta cuadrarlas. */
+  bankHeldPayoutsCents: z.number().int().nonnegative().optional(),
   /** Deuda abierta de las chicas por devoluciones tras un pago (se descuenta de sus pagos). */
   operatorDebtCents: z.number().int().nonnegative().optional(),
   payoutsThisMonthCount: z.number().int().nonnegative(),

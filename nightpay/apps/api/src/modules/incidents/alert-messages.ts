@@ -14,6 +14,20 @@ function eur(cents: number): string {
 }
 
 /**
+ * Recordatorio diario (uno por local y día): ventas por datáfono sin cuadrar
+ * con el banco de hace más de 24 h. Su comisión está retenida: ni se paga ni
+ * se pierde. Sin nombres de las chicas.
+ */
+export function bankHoldReminderMessage(venueName: string, h: { count: number; chargedCents: number; shareCents: number }): string {
+  const sales = h.count === 1 ? '1 venta por datáfono' : `${h.count} ventas por datáfono`;
+  return [
+    `🏦 ${venueName}: ${sales} sin cuadrar con el banco desde hace más de 24 h (${eur(h.chargedCents)} cobrados).`,
+    `La comisión del personal de esas ventas (${eur(h.shareCents)}) está retenida: no se paga hasta cuadrarlas.`,
+    'Sube el fichero del banco en Banco o revísalas en la ficha de cada chica (Liberar, con tu 2FA).',
+  ].join('\n');
+}
+
+/**
  * Aviso de una incidencia. Sin nombres (lo de siempre): el detalle sin el
  * nombre de la chica; con `includeNames` (Ajustes → Avisos), tal cual.
  */

@@ -93,6 +93,8 @@ beforeAll(async () => {
           slug: `dpt-${r}`,
           walletGroup: `gdpt-${r}`,
           staffPermissions: { roles: { DEVICE: { cashTopUp: true } } },
+          // Cobra con datáfono: lo guardó encendido (de fábrica va apagado desde el 20-10-2026).
+          paymentMethods: { pos: true },
         },
       })
     ).id;
