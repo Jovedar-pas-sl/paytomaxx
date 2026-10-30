@@ -165,6 +165,16 @@ describe('Esperando, la única pantalla de cobrar, lo usa', () => {
   it('el PIN paga con la ficha, el código o el pase (el mismo teclado)', () => {
     expect(src).toMatch(/payByPin\(chargeId, pin\.ref, value\)/);
   });
+
+  it('«Sin móvil ni ficha», justo debajo del QR (antes que el aviso de la ficha en iPhone): a la vista también en un móvil pequeño', () => {
+    expect(src.indexOf('{onSinMovil ? (')).toBeGreaterThan(-1);
+    expect(src.indexOf('{onSinMovil ? (')).toBeLessThan(src.indexOf('{fichaHint ? <p'));
+  });
+
+  it('lo que no cabe pasa por debajo del pie sin verse a través: el pie, del color de la página', () => {
+    const css = readFileSync(new URL('../components/cobrar/cobrar.module.css', import.meta.url), 'utf8').replace(/\r\n/g, '\n');
+    expect(css).toMatch(/\.footFlat \{[^}]*\n\s*background: var\(--np-bg\);/);
+  });
 });
 
 describe('«Sin móvil ni ficha» (SinMovil)', () => {

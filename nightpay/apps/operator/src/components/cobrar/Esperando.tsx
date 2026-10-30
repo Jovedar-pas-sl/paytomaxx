@@ -668,13 +668,14 @@ function Waiting({
             </div>
           ) : null}
         </div>
-        {fichaHint ? <p className={styles.altHint}>{fichaHint}</p> : null}
-        {/* Lo raro (antes, solo en «Saldo»): sin móvil ni ficha, su código o su pase y su PIN aquí. */}
+        {/* Lo raro (antes, solo en «Saldo»): sin móvil ni ficha, su código o su pase y su PIN aquí.
+            Justo debajo del QR: a la vista también en un móvil bajo. */}
         {onSinMovil ? (
           <button type="button" className={styles.altLink} onClick={onSinMovil}>
             {SIN_MOVIL_LABEL}
           </button>
         ) : null}
+        {fichaHint ? <p className={styles.altHint}>{fichaHint}</p> : null}
         {nfcOn && pinExpected(cobro.totalCents, night) ? (
           <p className={`${styles.warnline} ${styles.waitPin}`}>
             <IconLock />

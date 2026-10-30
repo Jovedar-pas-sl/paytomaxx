@@ -286,7 +286,9 @@
 }
 
 .footFlat {
-  background: transparent;
+  /* Del color de la página: si la pantalla no cabe (un móvil bajo), lo de
+     abajo pasa por debajo del botón sin verse a través. */
+  background: var(--np-bg);
   border: 0;
 }
 
