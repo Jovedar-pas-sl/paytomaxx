@@ -213,7 +213,11 @@ describe('WalletTopUpService.start — tope de 24 h por saldo (en la base)', () 
     expect(ok.payments.create).toHaveBeenCalled();
     expect(ok.db.payment.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: expect.objectContaining({ walletId: WALLET, idempotencyKey: { startsWith: 'wtopup:' } }),
+        // Las de /w y la carga desde casa que creó el saldo (wcasa:): el tope es de lo que carga el cliente solo.
+        where: expect.objectContaining({
+          walletId: WALLET,
+          OR: [{ idempotencyKey: { startsWith: 'wtopup:' } }, { idempotencyKey: { startsWith: 'wcasa:' } }],
+        }),
         orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
       }),
     );

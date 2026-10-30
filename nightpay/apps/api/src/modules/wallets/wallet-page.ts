@@ -11,6 +11,7 @@ import { TOPUP_CSS, TOPUP_JS, paidProofScript, paidProofSection, topUpCard, topU
 import { SCAN_CSS, SCAN_JS, scanArea } from './wallet-scan';
 import { LOST_CSS, LOST_JS, lostButton, lostSheet } from './wallet-lost-view';
 import { WALLET_LIVE_JS } from './wallet-live';
+import { WELCOME_CSS, WELCOME_JS, fichaQrBlock, welcomeCard } from '../home-topup/wallet-welcome-view';
 
 /**
  * Página del saldo del cliente (/w/:token). HTML autocontenido, marca
@@ -142,6 +143,13 @@ export interface WalletPageOptions {
    * PIN. null: no la hay, y la página dice que pida el QR de activación (M-2).
    */
   payer?: string | null;
+  /**
+   * Saldo nuevo cargado desde casa (?nuevo=<cobro>, «Cargar saldo antes de
+   * llegar»): su «Pagado» arriba con la bienvenida, y la página en «Pagar».
+   */
+  welcome?: boolean;
+  /** El QR de la ficha (SVG): sin ficha aún, recepción lo escanea para darle una. */
+  fichaQr?: string | null;
 }
 
 /**
@@ -185,7 +193,7 @@ function viewTabs(lang: PayLanguage): string {
 }
 
 /** Vista «Pagar»: el QR del personal (o activar el desbloqueo), sin móvil y Google Wallet. */
-function payView(lang: PayLanguage, state: ClientWalletState, gw: boolean): string {
+function payView(lang: PayLanguage, state: ClientWalletState, gw: boolean, fichaQr: string | null): string {
   const t = WALLET_TEXT[lang];
   const h = escapeHtml;
   return `<section class="view" id="viewPay" aria-labelledby="tabPay">
@@ -198,14 +206,15 @@ ${scanArea(lang)}</section>
 <section class="card how" id="howCard" hidden><p class="how" id="howText"></p></section>
 <p class="how" id="payEmpty" hidden>${h(t.payEmpty)}</p>
 <section class="card" id="codeCard" aria-labelledby="codeTitle"><h2 class="sub" id="codeTitle">${h(t.codeTitle)}</h2><p class="code num" id="code">${h(state.code)}</p>
-<p class="small" id="codeHint"></p><p class="small" id="fichaHint" hidden>${h(t.codeFicha)}</p></section>
+<p class="small" id="codeHint"></p><p class="small" id="fichaHint" hidden>${h(t.codeFicha)}</p>${fichaQr ? fichaQrBlock(lang, fichaQr) : ''}</section>
 ${gw ? googleWalletSection(lang) : ''}</section>
 `;
 }
 
 /** Vista «Recargar»: el «Pagado» si vuelve del banco y cuánto recargar. */
 function topUpView(lang: PayLanguage, options: WalletPageOptions): string {
-  const proof = options.paid ?? null;
+  // La bienvenida del saldo cargado desde casa lleva su «Pagado» arriba, no aquí.
+  const proof = options.welcome ? null : (options.paid ?? null);
   return `<section class="view" id="viewTop" aria-labelledby="tabTop" hidden>
 ${proof ? paidProofSection(lang, proof, options.now ?? new Date()) : ''}${topUpCard(lang, options.topUp ?? null)}</section>
 `;
@@ -261,6 +270,7 @@ export function renderWalletPage(
   const base = `/w/${encodeURIComponent(token)}`;
   const gw = options.googleWallet === true;
   const proof = options.paid ?? null;
+  const welcome = options.welcome === true && proof !== null;
   const topUp = options.topUp ?? null;
   const config = jsConfig({
     base,
@@ -271,14 +281,15 @@ export function renderWalletPage(
     state,
     gw,
     topUp,
-    paid: proof !== null,
+    paid: proof !== null && !welcome,
+    welcome,
     payer: options.payer ?? null,
   });
   const h = escapeHtml;
   return `<!DOCTYPE html>
 <html lang="${t.htmlLang}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="robots" content="noindex"><meta name="theme-color" content="#0f1112"><title>${h(t.title)}</title>
-<style>${CLUB_BASE_CSS}${CHROME_CSS}${WALLET_CSS}${SCAN_CSS}${TOPUP_CSS}${LOST_CSS}</style></head><body><main class="w">
+<style>${CLUB_BASE_CSS}${CHROME_CSS}${WALLET_CSS}${SCAN_CSS}${TOPUP_CSS}${LOST_CSS}${WELCOME_CSS}</style></head><body><main class="w">
 ${topBar(lang)}<h1 class="sr">${h(t.title)}</h1>
 <section class="hero" aria-labelledby="balanceLabel">
 <p id="balanceLabel">${h(state.venueName ? t.balanceOf.split('{venue}').join(state.venueName) : t.balance)}</p>
@@ -287,12 +298,12 @@ ${topBar(lang)}<h1 class="sr">${h(t.title)}</h1>
 <div class="obot"><span class="num" id="heroCode">${h(state.code)}</span><span id="heroFicha">${state.hasCard && state.fichaNumber ? h(t.fichaNo.split('{n}').join(state.fichaNumber)) : ''}</span></div>
 </section>
 <p class="live" id="liveBar" role="status" hidden></p>
-${topUpOffNote()}<section class="card main" id="refundCard" hidden aria-labelledby="refundTitle">
+${welcome && proof ? `${paidProofSection(lang, proof, options.now ?? new Date())}${welcomeCard(lang, state.venueName)}` : ''}${topUpOffNote()}<section class="card main" id="refundCard" hidden aria-labelledby="refundTitle">
 <h2 id="refundTitle"></h2>
 <ol class="steps" id="steps">${t.steps.map((s, i) => `<li data-i="${i}">${h(s)}</li>`).join('')}</ol>
 <p id="refundHow"></p>
 </section>
-${viewTabs(lang)}${payView(lang, state, gw)}${topUpView(lang, options)}${moreList(lang)}<p class="small">${h(t.saveHint)}</p>
+${viewTabs(lang)}${payView(lang, state, gw, options.fichaQr ?? null)}${topUpView(lang, options)}${moreList(lang)}<p class="small">${h(t.saveHint)}</p>
 </main>
 ${lostSheet(lang)}<dialog class="sheet" id="leaveSheet" aria-labelledby="leaveTitle">
 <h2 id="leaveTitle"></h2><p id="leaveHow"></p>
@@ -377,7 +388,7 @@ function render(s){S=s;S.cards=s.cards||[];
   mt.className='mt';a.textContent=m.labelKey&&T.mv[m.labelKey]?T.mv[m.labelKey]:m.label;sub.textContent=[m.ref,m.venueName,when(m.at)].filter(Boolean).join(' · ');mt.appendChild(a);mt.appendChild(sub);
   b.textContent=(m.amountCents>0?'+':'')+eur(m.amountCents);b.className=(m.amountCents>0?'plus':'minus')+' num';
   li.appendChild(sw);li.appendChild(mt);li.appendChild(b);ul.appendChild(li);});
- lostRender(s);
+ lostRender(s);welcomeRender(s);
  var can=topRender(s);
  $('payEmpty').hidden=!(can&&s.status==='DEPLETED');
  segShow(can||C.paid);}
@@ -430,9 +441,11 @@ ${SCAN_JS}
 ${TOPUP_JS}
 ${LOST_JS}
 ${VIEWS_JS}
+${WELCOME_JS}
 if(!C.paid&&S.status==='DEPLETED'&&topCan(S))view='top';
+if(location.hash==='#recargar'&&topCan(S))view='top';
 render(S);
-if(C.paid){try{history.replaceState(null,'',C.base+'?lang='+C.lang);}catch(e){}}
+if(C.paid||C.welcome){try{history.replaceState(null,'',C.base+'?lang='+C.lang);}catch(e){}}
 if(location.hash==='#sumar'&&!$('mergeOpen').hidden)openSheet($('mergeSheet'));
 LV.start();
 })();

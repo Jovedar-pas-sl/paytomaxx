@@ -32,6 +32,7 @@ import { renderWalletUnlockPage } from './wallet-unlock-page';
 import { GoogleWalletService } from './google-wallet/google-wallet.service';
 import { activationRequired } from './wallet-activation-token';
 import { WalletActivationUseService } from './wallet-activation-use.service';
+import { WalletWelcomeService } from '../home-topup/wallet-welcome.service';
 
 /**
  * Saldo NightPay — páginas del cliente (fuera de /v1). Sin cuenta: el enlace
@@ -72,6 +73,7 @@ export class PublicWalletController {
   private readonly topUps: WalletTopUpService;
   private readonly config: ConfigService;
   private readonly activation: WalletActivationUseService | null;
+  private readonly welcome: WalletWelcomeService | null;
 
   constructor(
     @Inject(WalletChargesService) charges: WalletChargesService,
@@ -81,6 +83,8 @@ export class PublicWalletController {
     @Inject(ConfigService) config: ConfigService,
     // Solo para ofrecer la vía del móvil que pagó (/pay/<cobro>); en el API siempre está.
     @Optional() @Inject(WalletActivationUseService) activation?: WalletActivationUseService,
+    // «Cargar saldo antes de llegar»: el QR de la ficha y la cookie del enlace del local; en el API siempre está.
+    @Optional() @Inject(WalletWelcomeService) welcome?: WalletWelcomeService,
   ) {
     this.charges = charges;
     this.passkeys = passkeys;
@@ -88,6 +92,7 @@ export class PublicWalletController {
     this.topUps = topUps;
     this.config = config;
     this.activation = activation ?? null;
+    this.welcome = welcome ?? null;
   }
 
   /**
@@ -235,6 +240,7 @@ export class PublicWalletController {
     @Res() res: FastifyReply,
     @Query('pagado') paidToken?: string,
     @Headers('cookie') cookies?: string,
+    @Query('nuevo') newToken?: string,
   ): Promise<void> {
     // Español por defecto; el idioma que elige el cliente queda en su cookie.
     const { lang, setCookie } = customerLanguage(langQuery, cookies);
@@ -250,9 +256,15 @@ export class PublicWalletController {
     // Ya no hay QR del código: para pagar, el cliente escanea el QR de la
     // chica y desbloquea su móvil (Face ID).
     const state = await this.charges.clientState(token);
-    const [topUp, paid] = await Promise.all([this.topUps.options(token), this.topUps.paidProof(token, paidToken)]);
+    const walletId = (await this.charges.walletRefByToken(token)).id;
+    // Saldo nuevo cargado desde casa (?nuevo=<cobro>): su «Pagado» arriba, de bienvenida.
+    const [topUp, paid] = await Promise.all([this.topUps.options(token), this.topUps.paidProof(token, newToken ?? paidToken)]);
     // Sin Face ID: la vía del móvil que pagó la recarga que creó el saldo (si la hay).
-    const payer = !state.hasFaceId && this.activation ? await this.activation.payerBase((await this.charges.walletRefByToken(token)).id) : null;
+    const payer = !state.hasFaceId && this.activation ? await this.activation.payerBase(walletId) : null;
+    // «Cargar saldo antes de llegar»: el QR de la ficha (sin ficha aún) y que el enlace del local recuerde este saldo.
+    const fichaQr = this.welcome ? await this.welcome.fichaQr(token, state) : null;
+    const remember = this.welcome?.rememberCookie(walletId, cookies);
+    if (remember) res.header('Set-Cookie', remember);
     res
       .status(200)
       .header('Content-Type', 'text/html; charset=utf-8')
@@ -264,6 +276,8 @@ export class PublicWalletController {
           topUp,
           paid,
           payer,
+          welcome: Boolean(newToken) && paid !== null,
+          fichaQr,
         }),
       );
   }

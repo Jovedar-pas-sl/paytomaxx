@@ -1,0 +1,132 @@
+import { describe, expect, it } from 'vitest';
+import { serviceFeeBpsFor, serviceFeeQuote, type VenueServiceFee } from '@nightpay/contracts';
+import { PAY_LANGUAGES } from '../payments/customer-lang';
+import { SELF_TOPUP_MAX_CENTS, SELF_TOPUP_MIN_CENTS, SELF_TOPUP_PRESETS_CENTS, topUpFeeTable } from '../wallets/wallet-topup-rules';
+import { HOME_JS, renderHomeTopUpGone, renderHomeTopUpPage } from './home-topup-page';
+import { HOME_TOPUP_TEXT } from './home-topup-text';
+import type { HomeTopUpPageView } from './home-topup.service';
+
+const CODE = 'AbCdEfGhIjKlMnOp';
+
+function viewFor(fee: VenueServiceFee | null, extra: Partial<HomeTopUpPageView> = {}): HomeTopUpPageView {
+  return {
+    venueName: 'Sala Aurora',
+    problem: null,
+    presetsCents: [...SELF_TOPUP_PRESETS_CENTS],
+    minCents: SELF_TOPUP_MIN_CENTS,
+    maxCents: SELF_TOPUP_MAX_CENTS,
+    serviceFeeBps: fee ? serviceFeeBpsFor(fee, 'topUp') : null,
+    feesCents: fee ? topUpFeeTable(fee, SELF_TOPUP_MIN_CENTS, SELF_TOPUP_MAX_CENTS) : null,
+    mine: null,
+    ...extra,
+  };
+}
+
+/** Lo que va dentro de los <script> de la página. */
+function scripts(html: string): string {
+  return [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map((m) => m[1] ?? '').join('\n');
+}
+
+/** Una función del JS de la página tal cual (una línea: `function nombre(...){...}`). */
+function jsFunction(name: string): string {
+  const found = HOME_JS.split('\n').find((line) => line.startsWith(`function ${name}(`));
+  if (!found) throw new Error(`No está function ${name} en HOME_JS`);
+  return found;
+}
+
+/** El botón y el total con el JS de verdad de la página (el importe sale como «EUR<céntimos>»). */
+function pageSays(view: HomeTopUpPageView, cents: number): { label: string; total: number } {
+  const run = new Function(
+    'C',
+    'T',
+    'c',
+    `function fill(s,k,v){return s.split('{'+k+'}').join(v);}
+function eur(x){return 'EUR'+x;}
+${jsFunction('ok')}
+${jsFunction('fee')}
+${jsFunction('label')}
+return {label:label(c),total:c+fee(c)};`,
+  ) as (cfg: Record<string, unknown>, t: Record<string, string>, c: number) => { label: string; total: number };
+  return run({ min: view.minCents, max: view.maxCents, fees: view.feesCents }, { go: 'Cargar {amount}', goFee: 'Pagar {amount}', goPlain: 'Cargar saldo' }, cents);
+}
+
+describe('la página del enlace del local (/r/<código>)', () => {
+  it.each(PAY_LANGUAGES)('%s: el local, cuánto, el total, las condiciones y el botón hacia el pago', (lang) => {
+    const html = renderHomeTopUpPage(CODE, lang, viewFor({ enabled: true, cardBps: 1000, topUpBps: 1200 }));
+    const t = HOME_TOPUP_TEXT[lang];
+    expect(html).toContain(`<html lang="${lang}">`);
+    expect(html).toContain('<span>Sala Aurora</span>');
+    expect(html).toContain(t.noExpiry.replace(/'/g, '&#39;'));
+    expect(html).toContain('id="brk"');
+    expect(html).toContain(`"base":"/r/${CODE}"`.replace(/"/g, '\\"'));
+    expect(html).toContain('name="robots" content="noindex"');
+    // Sin el vocabulario del personal (lo que pinta la página, no solo los textos).
+    expect(html.replace(/<script>[\s\S]*?<\/script>/g, '')).not.toMatch(/dat[aá]fono|\bterminal\b|oxiopay|chica/i);
+  });
+
+  it('el JS de la página no lleva barras invertidas (va dentro de una plantilla) salvo los escapes del JSON', () => {
+    const html = renderHomeTopUpPage(CODE, 'es', viewFor({ enabled: true, cardBps: 1000, topUpBps: 1050 }));
+    expect(HOME_JS).not.toContain('\\');
+    // Fuera de la configuración en JSON (que sí escapa comillas), nada.
+    const js = scripts(html).replace(/JSON\.parse\("(?:[^"\\]|\\.)*"\)/g, 'JSON.parse(CFG)');
+    expect(js).not.toContain('\\');
+  });
+
+  it('con comisión: el botón dice lo que se paga y el total lo dice el servidor para cada importe (10–300 €, 0–12 %)', () => {
+    for (let bps = 0; bps <= 1200; bps += 25) {
+      const fee: VenueServiceFee = { enabled: true, cardBps: 1000, topUpBps: bps };
+      const view = viewFor(fee);
+      for (let cents = SELF_TOPUP_MIN_CENTS; cents <= SELF_TOPUP_MAX_CENTS; cents += 100) {
+        const quote = serviceFeeQuote(fee, 'topUp', cents);
+        const says = pageSays(view, cents);
+        expect(says.total).toBe(cents + quote.feeCents);
+        expect(says.label).toBe(quote.feeCents > 0 ? `Pagar EUR${cents + quote.feeCents}` : `Cargar EUR${cents}`);
+      }
+    }
+  });
+
+  it('sin comisión: «Cargar 50 €» y sin desglose; un importe que no vale, sin cifra', () => {
+    const view = viewFor(null);
+    const html = renderHomeTopUpPage(CODE, 'es', view);
+    expect(html).not.toContain('id="brk"');
+    expect(html).not.toContain(HOME_TOPUP_TEXT.es.refundFee);
+    expect(pageSays(view, 5000)).toEqual({ label: 'Cargar EUR5000', total: 5000 });
+    expect(pageSays(view, 900)).toEqual({ label: 'Cargar saldo', total: 900 });
+    expect(pageSays(view, 30_100)).toEqual({ label: 'Cargar saldo', total: 30_100 });
+    expect(pageSays(view, 5050)).toEqual({ label: 'Cargar saldo', total: 5050 });
+  });
+
+  it('con comisión, antes de pagar dice que la comisión no se devuelve', () => {
+    const html = renderHomeTopUpPage(CODE, 'es', viewFor({ enabled: true, cardBps: 1000, topUpBps: 1200 }));
+    expect(html).toContain(HOME_TOPUP_TEXT.es.refundFee);
+    expect(html).toContain('¿Qué es?');
+  });
+
+  it('este navegador ya tiene un saldo de aquí: «Recargar mi saldo» primero, con su código tapado', () => {
+    const html = renderHomeTopUpPage(CODE, 'es', viewFor(null, { mine: { codeHint: 'K7Q-•••' } }));
+    expect(html).toContain('Tu saldo K7Q-••• está en este móvil');
+    expect(html).toContain(`href="/r/${CODE}/mi-saldo?lang=es"`);
+    expect(html.indexOf('id="mineGo"')).toBeLessThan(html.indexOf('id="f"'));
+  });
+
+  it('el local no deja cargar ahora: el aviso, sin formulario ni JS de la carga', () => {
+    const html = renderHomeTopUpPage(CODE, 'en', viewFor(null, { problem: 'methods', mine: { codeHint: 'K7Q-•••' } }));
+    expect(html).toContain(HOME_TOPUP_TEXT.en.offTitle.replace(/'/g, '&#39;'));
+    expect(html).not.toContain('id="f"');
+    expect(html).not.toContain('id="mineGo"');
+    expect(html).not.toContain('pkPost(');
+  });
+
+  it('un nombre de local con HTML se pinta como texto', () => {
+    const html = renderHomeTopUpPage(CODE, 'es', viewFor(null, { venueName: '<img src=x onerror=alert(1)>' }));
+    expect(html).not.toContain('<img src=x');
+    expect(html).toContain('&lt;img src=x onerror=alert(1)&gt;');
+  });
+
+  it.each(PAY_LANGUAGES)('%s: el 404 sin pistas (ni local ni por qué)', (lang) => {
+    const html = renderHomeTopUpGone(lang);
+    expect(html).toContain(HOME_TOPUP_TEXT[lang].notFoundTitle.replace(/'/g, '&#39;'));
+    expect(html).not.toContain('Sala');
+    expect(html).not.toContain('pkPost(');
+  });
+});

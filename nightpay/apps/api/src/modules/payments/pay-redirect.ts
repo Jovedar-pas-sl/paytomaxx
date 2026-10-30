@@ -97,6 +97,8 @@ export type PayRedirect =
       walletHasPin: boolean;
       /** Recarga empezada en /w: a qué saldo vuelve el navegador que la empezó. */
       walletReturnToken?: string | null;
+      /** Saldo nuevo cargado desde casa: el navegador que pagó va a su saldo (con la bienvenida). */
+      walletFromHome?: boolean;
       /** Huella del navegador del intento aprobado (solo él ve el «Pagado» lima). */
       approvedClaimHash?: string | null;
     }
@@ -123,6 +125,8 @@ export interface PayResultView {
   walletHasPin: boolean;
   /** Recarga empezada en /w: a qué saldo vuelve (walletClaimHash = su cookie de vuelta). */
   walletReturnToken?: string | null;
+  /** Saldo nuevo cargado desde casa: el navegador que pagó va a su saldo (con la bienvenida). */
+  walletFromHome?: boolean;
   /** Estado del intento concreto por el que vuelve el cliente (PENDING/APPROVED/DENIED). */
   attemptStatus: string | null;
   /** Huella del navegador del intento aprobado (solo él ve el «Pagado» lima). */
@@ -267,6 +271,12 @@ export interface PayablePayment {
    * no da el código ni el Face ID a quien la paga.
    */
   walletReturnToken?: string | null;
+  /**
+   * La recarga que creó el saldo desde el enlace del local («Cargar saldo
+   * antes de llegar»): tras pagar, el navegador que pagó (walletClaimHash) va
+   * a la página de su saldo nuevo con la bienvenida, en vez del «Pagado».
+   */
+  walletFromHome?: boolean;
   /** Huella del navegador del intento aprobado (de cualquier cobro, con o sin saldo). */
   approvedClaimHash?: string | null;
   /**
@@ -296,6 +306,7 @@ export function settledPayView(p: PayablePayment, now: Date = new Date()): PayRe
       walletHasFaceId: p.walletHasFaceId,
       walletHasPin: p.walletHasPin,
       ...(p.walletReturnToken ? { walletReturnToken: p.walletReturnToken } : {}),
+      ...(p.walletFromHome ? { walletFromHome: true } : {}),
       approvedClaimHash: p.approvedClaimHash ?? null,
     };
   }

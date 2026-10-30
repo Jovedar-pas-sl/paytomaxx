@@ -24,6 +24,7 @@ import { VENUE_PAUSE_SELECT, assertVenueNotPaused, venuePauseScope, type VenuePa
 import { VENUE_METHODS_SELECT, assertMethodsEnabled } from '../venues/venue-methods';
 import { WalletPasskeysService } from './wallet-passkeys.service';
 import { eur } from './wallet-two-factor';
+import { HOME_TOPUP_KEY_PREFIX } from '../home-topup/home-topup-rules';
 import {
   SELF_TOPUP_DAILY_MAX_CENTS,
   SELF_TOPUP_DAILY_MAX_PAID,
@@ -256,12 +257,20 @@ export class WalletTopUpService {
 
   // ─── Tope de 24 h (en la base) ─────────────────────────────────────────
 
-  /** Las recargas desde /w de este saldo de las últimas 24 h, de la más antigua a la más nueva. */
+  /**
+   * Las recargas del cliente desde su móvil de este saldo de las últimas 24 h
+   * (desde /w y la carga desde casa que lo creó, `wcasa:`), de la más antigua
+   * a la más nueva: el tope es de lo que se carga sin el personal delante.
+   */
   private async recentSelfTopUps(walletId: string): Promise<RecentTopUp[]> {
     const since = new Date(Date.now() - SELF_TOPUP_DAILY_WINDOW_MS);
     return this.prisma.asSystem((tx) =>
       tx.payment.findMany({
-        where: { walletId, idempotencyKey: { startsWith: SELF_TOPUP_KEY_PREFIX }, createdAt: { gte: since } },
+        where: {
+          walletId,
+          OR: [{ idempotencyKey: { startsWith: SELF_TOPUP_KEY_PREFIX } }, { idempotencyKey: { startsWith: HOME_TOPUP_KEY_PREFIX } }],
+          createdAt: { gte: since },
+        },
         orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
         select: { id: true, idempotencyKey: true, amountCents: true, status: true, qrExpiresAt: true },
       }),

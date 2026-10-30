@@ -1,0 +1,44 @@
+import { Body, Controller, Get, HttpCode, Inject, Patch, Post, UseGuards } from '@nestjs/common';
+import { UpdateHomeTopUpSchema, type HomeTopUpSettings, type JwtPayload, type UpdateHomeTopUpDto } from '@nightpay/contracts';
+import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import { Roles } from '../../common/decorators/roles.decorator';
+import { IpRateLimit } from '../../common/guards/ip-rate-limit.guard';
+import { RolesGuard } from '../../common/guards/roles.guard';
+import { ZodValidationPipe } from '../../common/pipes/zod.pipe';
+import { HomeTopUpSettingsService } from './home-topup-settings.service';
+
+/**
+ * Ajustes → Formas de cobro → «Cargar saldo desde casa» (solo el dueño, como
+ * las demás formas de cobro):
+ *  - GET   /v1/admin/venue/home-topup         → interruptor, enlace y su QR.
+ *  - PATCH /v1/admin/venue/home-topup         → { enabled }.
+ *  - POST  /v1/admin/venue/home-topup/rotate  → «Enlace nuevo».
+ */
+@Controller('admin/venue/home-topup')
+@UseGuards(RolesGuard)
+export class HomeTopUpSettingsController {
+  constructor(@Inject(HomeTopUpSettingsService) private readonly settings: HomeTopUpSettingsService) {}
+
+  @Get()
+  @Roles('OWNER')
+  async view(@CurrentUser() user: JwtPayload): Promise<HomeTopUpSettings> {
+    return this.settings.view(user.tenantId);
+  }
+
+  @Patch()
+  @Roles('OWNER')
+  async update(
+    @CurrentUser() user: JwtPayload,
+    @Body(new ZodValidationPipe(UpdateHomeTopUpSchema)) dto: UpdateHomeTopUpDto,
+  ): Promise<HomeTopUpSettings> {
+    return this.settings.setEnabled({ userId: user.sub, email: user.email, tenantId: user.tenantId }, dto.enabled);
+  }
+
+  @Post('rotate')
+  @HttpCode(200)
+  @Roles('OWNER')
+  @IpRateLimit({ max: 10, windowSec: 60, scope: 'home-topup-rotate' })
+  async rotate(@CurrentUser() user: JwtPayload): Promise<HomeTopUpSettings> {
+    return this.settings.rotate({ userId: user.sub, email: user.email, tenantId: user.tenantId });
+  }
+}

@@ -47,6 +47,7 @@ import { RedsysReturnService } from './redsys-return.service';
 import { renderCheckingPage } from './pay-checking-page';
 import { PayStatusService, isPayLookupKey, type PayStatusContext } from './pay-status.service';
 import { langHrefWith, type LangHref } from './customer-chrome';
+import { walletWelcomeHref } from '../home-topup/home-topup-rules';
 
 /**
  * Páginas GET de /pay: fuera del límite global (global-rate-limit.ts) y con
@@ -183,6 +184,16 @@ export class PublicPayController {
       this.hasWalletClaim(res, view.qrToken, view.walletClaimHash)
     ) {
       redirectTo(res, walletReturnHref(view.walletReturnToken, view.qrToken, lang));
+      return;
+    }
+    // Saldo nuevo cargado desde casa, en el navegador que lo pagó: a su saldo, con la bienvenida.
+    if (
+      view?.walletFromHome &&
+      view.walletToken &&
+      PAID_STATES.has(view.status) &&
+      this.hasWalletClaim(res, view.qrToken, view.walletClaimHash)
+    ) {
+      redirectTo(res, walletWelcomeHref(view.walletToken, view.qrToken, lang));
       return;
     }
     const refreshUrl = `/pay/result?op=${encodeURIComponent(op ?? '')}&lang=${lang}`;
@@ -343,6 +354,11 @@ export class PublicPayController {
         // (con el «Pagado» allí); otro navegador ve solo el «Pagado».
         if (view.walletReturnToken && claimed) {
           redirectTo(res, walletReturnHref(view.walletReturnToken, token, lang));
+          return;
+        }
+        // Saldo nuevo cargado desde casa: el navegador que lo pagó va a su saldo (con la bienvenida).
+        if (view.walletFromHome && view.walletToken && claimed) {
+          redirectTo(res, walletWelcomeHref(view.walletToken, token, lang));
           return;
         }
         const payer = Boolean(view.walletToken) && claimed;

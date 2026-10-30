@@ -36,6 +36,7 @@ import { PendingTopUpService } from './wallet-pending-topup.service';
 import { WalletViewGuard } from './wallet-view.guard';
 import { WalletEventsModule } from '../wallet-events/wallet-events.module';
 import { PublicWalletEventsController } from './public-wallet-events.controller';
+import { WalletWelcomeService } from '../home-topup/wallet-welcome.service';
 
 @Module({
   // AuthModule: TotpService (2FA del encargado al anular y al devolver en efectivo).
@@ -65,6 +66,8 @@ import { PublicWalletEventsController } from './public-wallet-events.controller'
     WalletActivationUseService,
     // «He perdido mi NFC» desde la página del saldo.
     WalletLostCardService,
+    // «Cargar saldo antes de llegar» en la página del saldo: el QR de la ficha y la cookie del enlace del local.
+    WalletWelcomeService,
   ],
   controllers: [
     WalletsController,
