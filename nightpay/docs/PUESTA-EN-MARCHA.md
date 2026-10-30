@@ -80,8 +80,9 @@ Marca cada punto:
       `PAY_DIRECT_WALLET=false`: el botón principal lleva entonces a la página
       del banco (tarjeta) en vez de abrir la cartera del móvil.
 - [ ] **Saldo**: recarga de 2 € → el móvil que paga ve «Abrir mi saldo» →
-      la página del saldo enseña el QR → la chica pulsa «Escanear QR del
-      cliente» → pide 1 € → el cliente acepta en su móvil → le quedan 1 €.
+      la chica cobra 1 € en Inicio → el cliente escanea el QR, pulsa «Pagar
+      con mi saldo» y lo desbloquea (o, sin móvil: «Sin móvil ni ficha» →
+      su código + PIN) → le quedan 1 €.
 - [ ] **«Me voy»**: el cliente pulsa «Me voy» → sale en Incidencias →
       Wallets → Devolver saldo → efectivo (como encargado).
 - [ ] **Enlace nuevo**: Wallets → Enlace nuevo en otro saldo → el QR nuevo
