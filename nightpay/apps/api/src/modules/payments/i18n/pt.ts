@@ -22,6 +22,7 @@ const pay: PayText = {
   methodsCard: 'Com cartão',
   methodsWallet: (wallet) => `Abre o ${wallet}`,
   payByCard: 'Pagar com cartão',
+  or: 'ou',
   payWithSaldo: 'Pagar com o meu saldo',
   tipLegend: 'Quer deixar gorjeta?',
   noTip: 'Sem gorjeta',

@@ -1,6 +1,7 @@
 import { BadRequestException, Inject, Injectable } from '@nestjs/common';
 import { Prisma } from '@nightpay/db';
 import { PrismaService } from '../../common/prisma/prisma.service';
+import { isHomeTopUpPayment } from '../home-topup/home-topup-rules';
 import type {
   AdjustmentRows,
   CobroRow,
@@ -242,9 +243,9 @@ export class ReportsService {
     `, REPORT_TX));
   }
 
-  /** Cobros pagados del local que cumplen `where` (alias p). */
-  private cobrosWhere(tenantId: string, where: Prisma.Sql): Promise<CobroRow[]> {
-    return this.prisma.withTenant(tenantId, (tx) => tx.$queryRaw<CobroRow[]>`
+  /** Cobros pagados del local que cumplen `where` (alias p), con su origen (withOrigin). */
+  private async cobrosWhere(tenantId: string, where: Prisma.Sql): Promise<CobroRow[]> {
+    const rows = await this.prisma.withTenant(tenantId, (tx) => tx.$queryRaw<CobroDbRow[]>`
       SELECT p.id,
              ${paymentAt('p')} AS "paidAt",
              p.status::text AS status,
@@ -264,6 +265,9 @@ export class ReportsService {
              p."authCode",
              COALESCE(a."providerTxId", p."providerTxId", p."posOperationNumber") AS "providerTxId",
              p."walletId",
+             -- Solo para el origen («Desde casa»): withOrigin no los deja en la fila.
+             p."idempotencyKey",
+             p."createdByUserId",
              u."displayName" AS "creatorName",
              u.email AS "creatorEmail",
              eu."displayName" AS "earningOperatorName",
@@ -308,6 +312,7 @@ export class ReportsService {
        ORDER BY "paidAt" ASC
        LIMIT ${MAX_EXPORT_ROWS + 1}
     `, REPORT_TX);
+    return rows.map(withOrigin);
   }
 
   /** Consumos del saldo del local que cumplen `where` (alias c), con la parte de la chica si la hay. */
@@ -412,4 +417,16 @@ function capped<T>(rows: T[]): T[] {
     throw new BadRequestException('Demasiadas filas para un solo archivo: elige un periodo más corto');
   }
   return rows;
+}
+
+/** Un cobro tal como sale de la base: la clave y quién lo creó solo sirven para withOrigin. */
+type CobroDbRow = CobroRow & { idempotencyKey: string | null; createdByUserId: string | null };
+
+/**
+ * «Desde casa» (columna «Origen»): la carga que hizo el cliente con el enlace
+ * del local (isHomeTopUpPayment). La clave y quién creó el cobro no siguen en
+ * la fila: no llegan a ningún CSV ni al Z.
+ */
+function withOrigin({ idempotencyKey, createdByUserId, ...row }: CobroDbRow): CobroRow {
+  return isHomeTopUpPayment({ idempotencyKey, createdByUserId }) ? { ...row, fromHome: true } : row;
 }

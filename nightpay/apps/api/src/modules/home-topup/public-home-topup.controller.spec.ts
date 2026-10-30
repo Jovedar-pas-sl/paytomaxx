@@ -83,10 +83,12 @@ describe('PublicHomeTopUpController (/r/:code)', () => {
 
   it('«Cargar»: crea la carga y devuelve solo a dónde ir a pagar', async () => {
     const { controller, homeTopUps } = make();
-    await expect(controller.start(CODE, { amountCents: 5000, key: 'k1234567890abcdef', lang: 'fr' }, undefined)).resolves.toEqual({
+    // La IP de fiar, la del freno de las IP (aquí, sin proxy delante: la de la conexión).
+    const req = { headers: {}, raw: { socket: { remoteAddress: '203.0.113.7' } } };
+    await expect(controller.start(CODE, { amountCents: 5000, key: 'k1234567890abcdef', lang: 'fr' }, undefined, req as never)).resolves.toEqual({
       payUrl: '/pay/payTok?lang=fr',
     });
-    expect(homeTopUps.start).toHaveBeenCalledWith(CODE, { amountCents: 5000, key: 'k1234567890abcdef', lang: 'fr' });
+    expect(homeTopUps.start).toHaveBeenCalledWith(CODE, { amountCents: 5000, key: 'k1234567890abcdef', lang: 'fr', ip: '203.0.113.7' });
   });
 
   it('públicas y con su freno por IP (y por IP y local al cargar)', () => {

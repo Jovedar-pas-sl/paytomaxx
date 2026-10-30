@@ -31,6 +31,14 @@ export const HOME_TOPUP_CODE_RE = /^[A-Za-z0-9_-]{16}$/;
 /** /r/<código>: lo que va en el enlace y en el QR (con el origen del API delante). */
 export const HOME_TOPUP_PATH_PREFIX = '/r/';
 
+/**
+ * El nombre de una carga hecha con el enlace del local en el panel (Cobros:
+ * la fila y su detalle) y en el libro de cobros de la gestoría (columna
+ * «Origen»). Lo decide el API (CobroRow.fromHome): la Idempotency-Key de la
+ * carga no sale de él.
+ */
+export const HOME_TOPUP_ORIGIN_LABEL = 'Desde casa';
+
 /** Por qué el enlace, encendido, no deja cargar ahora (lo dice el panel). */
 export type HomeTopUpProblem = 'paused' | 'methods' | 'gateway' | 'terminal';
 

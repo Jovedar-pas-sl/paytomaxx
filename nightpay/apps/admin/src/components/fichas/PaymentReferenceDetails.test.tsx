@@ -19,6 +19,14 @@ describe('referencias visibles en el panel', () => {
     const html = renderToStaticMarkup(<PaymentReferenceDetails row={row} />);
     for (const text of ['A6B', 'BBVA123', '012345', 'BBVA456', 'Aprobado', 'Denegado', 'Copiar']) expect(html).toContain(text);
   });
+  it('una carga con el enlace del local: su origen, «Desde casa»; los demás cobros, sin él', () => {
+    vi.stubGlobal('React', React);
+    const casa = renderToStaticMarkup(<PaymentReferenceDetails row={{ ...row, fromHome: true }} />);
+    for (const text of ['Origen', 'Desde casa', 'enlace del local', 'A6B']) expect(casa).toContain(text);
+    const otro = renderToStaticMarkup(<PaymentReferenceDetails row={row} />);
+    expect(otro).not.toContain('Desde casa');
+    expect(otro).not.toContain('Origen');
+  });
   it('manda la búsqueda al servidor', () => {
     expect(cobrosQuery({search:'A6B'})).toBe('search=A6B');
   });

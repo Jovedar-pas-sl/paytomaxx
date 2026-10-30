@@ -13,6 +13,9 @@ import type { TopUpVenueState } from '../wallets/wallet-topup-rules';
  *  - por IP: HOME_TOPUP_START_LIMIT (Redis, IpRateLimit): como mucho 6 cargas
  *    empezadas cada 15 min desde una IP en un local (perKey: el código del
  *    enlace) y 30 en todos;
+ *  - por IP en 24 h: HOME_TOPUP_IP_VENUE_DAY_MAX cargas nuevas en un local y
+ *    HOME_TOPUP_IP_DAY_MAX sumando todos (Redis, en HomeTopUpService: solo
+ *    cuentan las cargas que de verdad empiezan; un doble toque no gasta);
  *  - por local: HOME_TOPUP_VENUE_MAX cargas empezadas cada 15 min (Redis, una
  *    clave por ventana; sin Redis no se carga: fail-closed, como «Recargar»);
  *  - y como mucho HOME_TOPUP_VENUE_MAX_UNRESOLVED en curso a la vez en el local
@@ -39,6 +42,38 @@ export const HOME_TOPUP_UNRESOLVED_WINDOW_MS = 60 * 60 * 1000;
 /** La clave del contador del local en esta ventana (si su caducidad fallara, la siguiente ventana es otra clave). */
 export function venueThrottleKey(venueId: string, nowMs: number = Date.now()): string {
   return `np:home-topup:venue:${venueId}:${Math.floor(nowMs / 1000 / HOME_TOPUP_VENUE_WINDOW_S)}`;
+}
+
+/**
+ * El tope de 24 h por IP (su red /64 en IPv6, como el freno de las IP): lo
+ * que la ventana de 15 min deja pasar, repartido a lo largo del día. Desde
+ * casa nadie crea más de un par de saldos al día; las operadoras de móvil
+ * reparten una IP entre muchos clientes, pero muy pocos cargan en el mismo
+ * local el mismo día. El wifi del local sí sería una sola IP: el enlace es
+ * para fuera (Instagram, la web, WhatsApp); dentro está recepción.
+ */
+export const HOME_TOPUP_IP_VENUE_DAY_MAX = 10;
+export const HOME_TOPUP_IP_DAY_MAX = 30;
+export const HOME_TOPUP_DAY_S = 24 * 3600;
+/**
+ * El «día» del tope empieza a las 10:00 UTC (las 11:00 o las 12:00 en
+ * España), cuando no hay noche: si empezara a medianoche, se podría gastar el
+ * cupo a las 23:59 y otro entero a las 00:01, en la misma noche.
+ */
+export const HOME_TOPUP_DAY_START_UTC_S = 10 * 3600;
+
+/** El número del «día» del tope (cambia a las 10:00 UTC). */
+export function homeTopUpDay(nowMs: number = Date.now()): number {
+  return Math.floor((nowMs / 1000 - HOME_TOPUP_DAY_START_UTC_S) / HOME_TOPUP_DAY_S);
+}
+
+/** Las claves del día de una IP (ya como rateLimitIpKey): en este local y en todos. */
+export function ipDayKeys(ipKey: string, venueId: string, nowMs: number = Date.now()): { venue: string; all: string } {
+  const day = homeTopUpDay(nowMs);
+  return {
+    venue: `np:home-topup:ip-venue:${venueId}:${ipKey}:${day}`,
+    all: `np:home-topup:ip:${ipKey}:${day}`,
+  };
 }
 
 /** El freno por IP de «Cargar» (POST /r/:code/topup). */
@@ -91,6 +126,16 @@ export function homeTopUpKey(secret: string, venueId: string, clientKey: string)
 /** ¿Es la carga de un saldo nuevo desde el enlace del local? */
 export function isHomeTopUpKey(key: string | null | undefined): boolean {
   return typeof key === 'string' && HOME_TOPUP_KEY_RE.test(key);
+}
+
+/**
+ * ¿Es este cobro una carga desde el enlace del local («Desde casa»)? Su clave
+ * `wcasa:` y, como en las cuentas del freno, sin persona del local: esa clave
+ * puesta por el personal no la hace del enlace. Para el panel (Cobros) y el
+ * libro de cobros (columna «Origen»): de aquí sale el sí o el no, nunca la clave.
+ */
+export function isHomeTopUpPayment(p: { idempotencyKey: string | null; createdByUserId: string | null }): boolean {
+  return p.createdByUserId === null && isHomeTopUpKey(p.idempotencyKey);
 }
 
 /**

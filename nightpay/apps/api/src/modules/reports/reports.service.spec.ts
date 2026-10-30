@@ -120,6 +120,22 @@ describe('cobros de un periodo', () => {
     // Lo devuelto: solo devoluciones hechas de ESE cobro.
     expect(sql).toContain(`WHERE rf."paymentId" = p.id AND rf.status = 'SUCCEEDED'`);
   });
+
+  it('el origen: «Desde casa» si es una carga con el enlace del local (su clave, sin persona); la clave no sigue en la fila', async () => {
+    const casa = { id: 'c-casa', idempotencyKey: `wcasa:${'a'.repeat(64)}`, createdByUserId: null };
+    // La misma forma de clave puesta por el personal no la hace del enlace.
+    const personal = { id: 'c-personal', idempotencyKey: `wcasa:${'b'.repeat(64)}`, createdByUserId: 'u-recepcion' };
+    const otra = { id: 'c-otra', idempotencyKey: 'k-barra-0001', createdByUserId: null };
+    const { svc, calls } = makeService(() => [casa, personal, otra]);
+    const rows = await svc.cobros(TENANT, NIGHT);
+    expect(rows).toEqual([{ id: 'c-casa', fromHome: true }, { id: 'c-personal' }, { id: 'c-otra' }]);
+    for (const row of rows) {
+      expect(row).not.toHaveProperty('idempotencyKey');
+      expect(row).not.toHaveProperty('createdByUserId');
+    }
+    expect(JSON.stringify(rows)).not.toContain('wcasa:');
+    expect(render(calls[0]!.q)).toContain('p."idempotencyKey", p."createdByUserId",');
+  });
 });
 
 describe('consumos del saldo', () => {

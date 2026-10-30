@@ -184,6 +184,14 @@ export interface CobroRow {
   /** Una sección (o varias: «Varias»). Recargas: vacía. */
   sections: SectionAmount[];
   isTopUp: boolean;
+  /**
+   * Recarga de un saldo nuevo que hizo el cliente con el enlace del local
+   * («Cargar saldo antes de llegar»), sin nadie del local: el panel la marca
+   * «Desde casa» (HOME_TOPUP_ORIGIN_LABEL). Lo decide el API, que nunca manda
+   * la Idempotency-Key. Solo va con true: sin el campo (el resto de cobros, o
+   * el API anterior), no es una de ellas.
+   */
+  fromHome?: boolean;
   method: ChargeMethod | null;
   /** «Tarjeta ••4242», «Saldo K7Q-•••»… */
   methodLabel: string;

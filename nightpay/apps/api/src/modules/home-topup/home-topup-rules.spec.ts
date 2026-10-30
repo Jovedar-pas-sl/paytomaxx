@@ -4,10 +4,13 @@ import {
   HOME_TOPUP_START_LIMIT,
   REMEMBER_COOKIE,
   REMEMBER_MAX_WALLETS,
+  homeTopUpDay,
   homeTopUpKey,
   homeTopUpProblem,
+  ipDayKeys,
   isHomeTopUpCode,
   isHomeTopUpKey,
+  isHomeTopUpPayment,
   newHomeTopUpCode,
   rememberSetCookie,
   rememberValid,
@@ -26,6 +29,26 @@ function sent(setCookie: string | null): string {
   if (!setCookie) throw new Error('sin cookie');
   return setCookie.split(';')[0] ?? '';
 }
+
+describe('el día del tope de 24 h por IP', () => {
+  const at = (iso: string) => homeTopUpDay(Date.parse(iso));
+
+  it('cambia a las 10:00 UTC (mediodía en España), no a medianoche: una noche entera es el mismo día', () => {
+    expect(at('2026-10-30T09:59:59Z')).not.toBe(at('2026-10-30T10:00:00Z'));
+    expect(at('2026-10-30T10:00:00Z')).toBe(at('2026-10-31T09:59:59Z'));
+    // 23:59 y 00:01, en UTC y en España (CET): la misma noche, el mismo día.
+    expect(at('2026-10-30T23:59:00Z')).toBe(at('2026-10-31T00:01:00Z'));
+    expect(at('2026-10-30T22:59:00Z')).toBe(at('2026-10-30T23:01:00Z'));
+  });
+
+  it('las claves: la IP (ya como rateLimitIpKey), el local y el día', () => {
+    const now = Date.parse('2026-10-30T21:00:00Z');
+    expect(ipDayKeys('203.0.113.7', 'v1', now)).toEqual({
+      venue: `np:home-topup:ip-venue:v1:203.0.113.7:${homeTopUpDay(now)}`,
+      all: `np:home-topup:ip:203.0.113.7:${homeTopUpDay(now)}`,
+    });
+  });
+});
 
 describe('código del enlace del local', () => {
   it('16 letras de base64url al azar (96 bits): nunca dos iguales y con la forma que exige la base', () => {
@@ -69,6 +92,16 @@ describe('Idempotency-Key de la carga', () => {
   it('solo las suyas: ni las de «Recargar» en /w ni las del personal ni una a medias', () => {
     for (const k of ['wtopup:' + 'a'.repeat(64), 'wcasa:' + 'a'.repeat(63), 'wcasa:' + 'A'.repeat(64), 'abcdefgh12345678', null, undefined]) {
       expect(isHomeTopUpKey(k)).toBe(false);
+    }
+  });
+
+  it('«Desde casa»: su clave y sin persona del local; con persona, o con otra clave, no', () => {
+    const k = homeTopUpKey(SECRET, 'venue-a', 'k1234567890123456');
+    expect(isHomeTopUpPayment({ idempotencyKey: k, createdByUserId: null })).toBe(true);
+    // La misma forma de clave en una petición del personal no la hace del enlace.
+    expect(isHomeTopUpPayment({ idempotencyKey: k, createdByUserId: W1 })).toBe(false);
+    for (const other of [`wtopup:${'a'.repeat(64)}`, `wcasa:${'a'.repeat(63)}`, 'k-personal-123', null]) {
+      expect(isHomeTopUpPayment({ idempotencyKey: other, createdByUserId: null })).toBe(false);
     }
   });
 

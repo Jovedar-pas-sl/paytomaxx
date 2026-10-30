@@ -1,6 +1,7 @@
 import { CLUB_BASE_CSS, MONEY_JS, clientMoney, escapeHtml, jsConfig } from '../payments/club-ui';
 import { CHROME_CSS, LANG_JS, topBar } from '../payments/customer-chrome';
 import { PAY_TEXT, type PayLanguage } from '../payments/pay-i18n';
+import { CARD_MARKS, LOCK_IC, PAY_MARKS_CSS } from '../payments/pay-marks';
 import { CLIENT_ERROR_JS, clientErrorConfig } from '../wallets/client-errors';
 import { PASSKEY_BROWSER_JS } from '../wallets/passkey-browser';
 import { WALLET_TEXT } from '../wallets/wallet-text';
@@ -46,7 +47,10 @@ const HOME_CSS = `${TOPUP_CSS}
 .terms li b{color:var(--fg)}
 .small{font-size:.85rem}
 .foot{text-align:center}
-`;
+.topup .paybar{position:sticky;bottom:0;z-index:5;display:flex;flex-direction:column;gap:.5rem;margin:0 -1.1rem -1.1rem;padding:.7rem 1.1rem calc(.85rem + env(safe-area-inset-bottom));border-radius:0 0 var(--r) var(--r);background:var(--surface);text-align:center}
+.topup .paybar::before{content:'';position:absolute;left:0;right:0;bottom:100%;height:.75rem;background:linear-gradient(to top,var(--surface),rgb(21 24 27/0));pointer-events:none}
+.topup .paybar .btn{font-size:1.125rem}
+${PAY_MARKS_CSS}`;
 
 /** Iconos de las condiciones (decorativos). */
 const ICON = {
@@ -76,7 +80,11 @@ function mineCard(lang: PayLanguage, base: string, codeHint: string): string {
 `;
 }
 
-/** Cuánto cargar: las sugeridas (la del medio, marcada), «Otra», los límites y el total. */
+/**
+ * Cuánto cargar: las sugeridas (la del medio, marcada), «Otra», los límites y
+ * el total. El botón va en una barra fija abajo, y el error dentro de ella,
+ * encima del botón: fuera de la barra quedaría tapado por ella.
+ */
 function amountCard(lang: PayLanguage, view: HomeTopUpPageView): string {
   const t = HOME_TOPUP_TEXT[lang];
   const w = WALLET_TEXT[lang];
@@ -108,9 +116,9 @@ function amountCard(lang: PayLanguage, view: HomeTopUpPageView): string {
 <div class="teur"><input id="otherIn" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="3" autocomplete="off" aria-describedby="limits"><span aria-hidden="true">€</span></div></div>
 <p class="small" id="limits">${h(limits)}</p>
 ${breakdown}
-<p class="err" id="err" role="alert" hidden></p>
-<button class="btn" type="submit" id="go"></button>
-<p class="small">${h(t.methods)}</p>
+<div class="paybar"><p class="err" id="err" role="alert" hidden></p>
+<button class="btn" type="submit" id="go">${LOCK_IC}<span id="goLbl"></span></button>
+<p class="small">${h(t.methods)}</p></div>
 </form>
 </section>
 `;
@@ -164,10 +172,11 @@ function cents(){var r=$('f').querySelector('input[name=amt]:checked');if(!r)ret
  if(r.value!=='other')return +r.value||0;return (parseInt($('otherIn').value.replace(/[^0-9]/g,'')||'0',10)||0)*100;}
 function ok(c){return c>=C.min&&c<=C.max&&c%100===0;}
 function fee(c){var t=C.fees,f=t&&ok(c)?t[(c-C.min)/100]:0;return typeof f==='number'&&f>0?f:0;}
-function label(c){if(!ok(c))return T.goPlain;var f=fee(c);return f>0?fill(T.goFee,'amount',eur(c+f)):fill(T.go,'amount',eur(c));}
+function label(c){if(!ok(c))return T.goPlain;var f=fee(c);return f>0?fill(T.goFee,'amount',eurP(c+f)):fill(T.go,'amount',eurP(c));}
+function setGo(text,on){var b=$('go');b.disabled=on;b.classList.toggle('busy',on);$('goLbl').textContent=text;}
 function upd(){var c=cents(),b=$('go'),l=label(c),bk=$('brk');$('otherBox').hidden=!$('amtOther').checked;
- b.setAttribute('data-label',l);if(!busy)b.textContent=l;
- if(bk){var f=fee(c),good=ok(c);bk.hidden=!good;$('bAmount').textContent=good?eur(c):'';$('bFee').textContent=good?eur(f):'';$('bTotal').textContent=good?eur(c+f):'';}}
+ b.setAttribute('data-label',l);if(!busy)$('goLbl').textContent=l;
+ if(bk){var f=fee(c),good=ok(c);bk.hidden=!good;$('bAmount').textContent=good?eurP(c):'';$('bFee').textContent=good?eurP(f):'';$('bTotal').textContent=good?eurP(c+f):'';}}
 var wb=$('whyBtn');if(wb){$('whyText').hidden=true;wb.setAttribute('aria-expanded','false');
  wb.addEventListener('click',function(){var o=wb.getAttribute('aria-expanded')!=='true';wb.setAttribute('aria-expanded',String(o));$('whyText').hidden=!o;});}
 $('f').addEventListener('change',function(e){upd();if(e.target===$('amtOther')&&e.target.checked)$('otherIn').focus();});
@@ -175,11 +184,11 @@ $('otherIn').addEventListener('input',upd);
 $('f').addEventListener('submit',function(ev){ev.preventDefault();if(busy)return;show('err','');
  var c=cents(),b=$('go');
  if(!ok(c)){show('err',fill(fill(T.range,'min',eur(C.min)),'max',eur(C.max)));return;}
- busy=true;b.disabled=true;b.textContent=T.opening;
+ busy=true;setGo(T.opening,true);
  pkPost(C.base+'/topup',{amountCents:c,key:K,lang:C.lang})
   .then(function(r){var u=r&&r.payUrl;if(typeof u==='string'&&u.indexOf('/pay/')===0){location.href=u;return;}throw new Error(T.error);})
-  .catch(function(e){newKey();busy=false;b.disabled=false;b.textContent=b.getAttribute('data-label');show('err',npErr(e,C.errors));});});
-window.addEventListener('pageshow',function(e){if(e.persisted){busy=false;newKey();var b=$('go');b.disabled=false;b.textContent=b.getAttribute('data-label');}});
+  .catch(function(e){newKey();busy=false;setGo(b.getAttribute('data-label'),false);show('err',npErr(e,C.errors));});});
+window.addEventListener('pageshow',function(e){if(e.persisted){busy=false;newKey();setGo($('go').getAttribute('data-label'),false);}});
 newKey();upd();`;
 
 export function renderHomeTopUpPage(code: string, lang: PayLanguage, view: HomeTopUpPageView): string {
@@ -212,7 +221,7 @@ ${topBar(lang)}
 <h1 id="hTitle">${heading}</h1>
 <p>${h(t.intro)}</p>
 </section>
-${canLoad && view.mine ? mineCard(lang, base, view.mine.codeHint) : ''}${canLoad ? amountCard(lang, view) : offCard(lang)}${termsCard(lang, withFee)}<p class="foot">${h(PAY_TEXT[lang].secure)}</p>
+${canLoad && view.mine ? mineCard(lang, base, view.mine.codeHint) : ''}${canLoad ? amountCard(lang, view) : offCard(lang)}${termsCard(lang, withFee)}<p class="foot trust">${h(PAY_TEXT[lang].secure)}${CARD_MARKS}</p>
 </main>
 ${
   canLoad
@@ -224,6 +233,7 @@ var C=JSON.parse(${config}),T=C.text,busy=false;
 function $(id){return document.getElementById(id);}
 ${MONEY_JS}
 function eur(c){return npMoney(c,C.locale,'EUR');}
+function eurP(c){return npMoney(c,C.locale,'EUR',true);}
 function fill(s,k,v){return s.split('{'+k+'}').join(v);}
 function show(id,text){$(id).textContent=text||'';$(id).hidden=!text;}
 ${HOME_JS}

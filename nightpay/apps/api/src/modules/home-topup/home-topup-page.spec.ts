@@ -42,6 +42,7 @@ function pageSays(view: HomeTopUpPageView, cents: number): { label: string; tota
     'c',
     `function fill(s,k,v){return s.split('{'+k+'}').join(v);}
 function eur(x){return 'EUR'+x;}
+function eurP(x){return 'EUR'+x;}
 ${jsFunction('ok')}
 ${jsFunction('fee')}
 ${jsFunction('label')}
@@ -94,6 +95,20 @@ describe('la página del enlace del local (/r/<código>)', () => {
     expect(pageSays(view, 900)).toEqual({ label: 'Cargar saldo', total: 900 });
     expect(pageSays(view, 30_100)).toEqual({ label: 'Cargar saldo', total: 30_100 });
     expect(pageSays(view, 5050)).toEqual({ label: 'Cargar saldo', total: 5050 });
+  });
+
+  it('el botón de pagar: fijo abajo con el total, candado y céntimos; «Pago seguro» con Visa y Mastercard', () => {
+    const html = renderHomeTopUpPage(CODE, 'es', viewFor({ enabled: true, cardBps: 1000, topUpBps: 1200 }));
+    // El error, dentro de la barra fija y encima del botón (fuera de ella quedaría tapado).
+    expect(html).toMatch(/<div class="paybar"><p class="err" id="err" role="alert" hidden><\/p>\n<button class="btn" type="submit" id="go"><svg class="ic"[^>]*>.*?<\/svg><span id="goLbl"><\/span><\/button>/);
+    expect(html).toContain('.topup .paybar{position:sticky;bottom:0');
+    expect(html).toContain('<p class="foot trust">Pago seguro<span class="marks" role="img" aria-label="Visa, Mastercard">');
+    // Lo que se cobra, con céntimos (el botón y el desglose); los límites, sin ellos.
+    expect(HOME_JS).toContain("fill(T.goFee,'amount',eurP(c+f))");
+    expect(HOME_JS).toContain("$('bTotal').textContent=good?eurP(c+f):''");
+    expect(scripts(html)).toContain("function eurP(c){return npMoney(c,C.locale,'EUR',true);}");
+    // Mientras abre el pago: su color con la ruedita, y no se pulsa dos veces.
+    expect(HOME_JS).toContain("b.classList.toggle('busy',on)");
   });
 
   it('con comisión, antes de pagar dice que la comisión no se devuelve', () => {

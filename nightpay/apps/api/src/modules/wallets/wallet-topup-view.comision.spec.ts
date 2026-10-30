@@ -27,6 +27,7 @@ function pageSays(tu: Record<string, unknown>, cents: number): { label: string; 
     'c',
     `function fill(s,k,v){return s.split('{'+k+'}').join(v);}
 function eurShort(x){return 'EUR'+x;}
+function eurPay(x){return 'EUR'+x;}
 ${jsFunction('topOk')}
 ${jsFunction('topFee')}
 ${jsFunction('topLabel')}
@@ -64,7 +65,7 @@ describe('/w «Recargar» con la comisión del servicio', () => {
     expect(TOPUP_JS).not.toContain('Math.round');
     expect(TOPUP_JS).not.toContain('/10000');
     expect(jsFunction('topFee')).toContain('TU.feesCents');
-    expect(TOPUP_JS).toContain("$('tbTotal').textContent=ok?eurShort(c+f):''");
+    expect(TOPUP_JS).toContain("$('tbTotal').textContent=ok?eurPay(c+f):''");
   });
 
   it('con comisión, el botón dice lo que paga (el total), no solo lo que recarga', () => {

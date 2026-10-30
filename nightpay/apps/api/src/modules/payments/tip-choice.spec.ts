@@ -125,9 +125,9 @@ describe('estado de la propina en la página', () => {
       saldo: { payToken: 's', status: 'PENDING', expiresAt: new Date(Date.now() + 60_000), enabled: true },
     });
     expect(html).toContain('value="200" checked>');
-    expect(html).toContain('<dd class="num" id="brkTipV">2 €</dd>');
+    expect(html).toContain('<dd class="num" id="brkTipV">2,00 €</dd>');
     expect(html).toContain('<dd class="num" id="total">38,30 €</dd>');
     expect(html).toContain('<span id="big">38,30 €</span>');
-    expect(html).toContain('Pagar 38,30 €</button>');
+    expect(html).toContain('Pagar 38,30 €</span></button>');
   });
 });

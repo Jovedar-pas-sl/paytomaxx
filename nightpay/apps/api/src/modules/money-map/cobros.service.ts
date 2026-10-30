@@ -198,6 +198,9 @@ export class CobrosService {
         },
         terminal: { select: { externalId: true, label: true } },
         createdBy: { select: PERSON_SELECT },
+        // Solo para «Desde casa» (fromHome): paymentCobroRow no los pasa a la fila.
+        idempotencyKey: true,
+        createdByUserId: true,
         wallet: { select: { id: true, shortCode: true } },
         lines: { select: LINE_SELECT, orderBy: LINE_ORDER },
         events: {

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { CobrosQuerySchema, confirmationCode } from '@nightpay/contracts';
+import { HOME_TOPUP_KEY_PREFIX, homeTopUpKey } from '../home-topup/home-topup-rules';
 import { paymentCobroRow, type PaymentFeedRow } from './cobros-rows';
 
 const payment: PaymentFeedRow = {
@@ -8,7 +9,7 @@ const payment: PaymentFeedRow = {
   provider: 'REDSYS', providerTxId: 'POSTERIOR', captureMethod: null, revenueCategory: 'VENUE_BAR',
   serviceName: null, walletId: null, posOperationNumber: null, authCode: '012345', cardLast4: '0001',
   cardBrand: null, payMethodCode: null, authorizedAt: new Date(), terminal: { externalId: 'T', label: 'Barra' },
-  createdBy: null, wallet: null, lines: [], attempts: [
+  createdBy: null, idempotencyKey: 'k-barra-0001', createdByUserId: null, wallet: null, lines: [], attempts: [
     { providerTxId: 'ACEPTADO', status: 'APPROVED', createdAt: new Date(), amountCents: 1000, tipCents: 0, payMethod: 'card' },
     { providerTxId: 'POSTERIOR', status: 'DENIED', createdAt: new Date(), amountCents: 1000, tipCents: 0, payMethod: 'card' },
   ],
@@ -29,5 +30,37 @@ describe('referencias de los cobros', () => {
     expect(CobrosQuerySchema.safeParse({ search: '1' }).success).toBe(false);
     expect(CobrosQuerySchema.safeParse({ search: ' 12 ' }).success).toBe(false);
     expect(CobrosQuerySchema.safeParse({ search: '123' }).success).toBe(true);
+  });
+});
+
+describe('origen del cobro: «Desde casa»', () => {
+  const HOME_KEY = homeTopUpKey('secreto', 'venue', 'k1234567890abcdef');
+  const WALLET = 'b2a1c0d9-0000-4000-8000-000000000001';
+  const RECEPCION = { id: '2a3b4c5d-6e7f-4a8b-9c0d-1e2f3a4b5c6d', displayName: 'Recepción', email: 'rec@local.es', role: 'WAITER' };
+  /** La carga con el enlace del local: recarga de un saldo nuevo, sin nadie del local. */
+  const casa: PaymentFeedRow = {
+    ...payment,
+    captureMethod: 'WALLET_TOPUP',
+    revenueCategory: 'EXTRA',
+    walletId: WALLET,
+    wallet: { id: WALLET, shortCode: 'K7Q4M2' },
+    idempotencyKey: HOME_KEY,
+    createdByUserId: null,
+  };
+
+  it('la carga con el enlace del local (su clave, sin persona) sale «Desde casa», sin la clave ni quién la creó', () => {
+    const row = paymentCobroRow(casa);
+    expect(row).toMatchObject({ isTopUp: true, person: null, fromHome: true });
+    expect(row).not.toHaveProperty('idempotencyKey');
+    expect(row).not.toHaveProperty('createdByUserId');
+    const json = JSON.stringify(row);
+    expect(json).not.toContain(HOME_TOPUP_KEY_PREFIX);
+    expect(json).not.toContain(HOME_KEY.slice(HOME_TOPUP_KEY_PREFIX.length));
+  });
+
+  it('esa clave con persona del local, otra clave o un cobro cualquiera: no (sin el campo)', () => {
+    expect(paymentCobroRow({ ...casa, createdByUserId: RECEPCION.id, createdBy: RECEPCION })).not.toHaveProperty('fromHome');
+    expect(paymentCobroRow({ ...casa, idempotencyKey: `wtopup:${'a'.repeat(64)}` })).not.toHaveProperty('fromHome');
+    expect(paymentCobroRow(payment)).not.toHaveProperty('fromHome');
   });
 });

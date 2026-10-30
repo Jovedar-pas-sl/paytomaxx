@@ -28,8 +28,18 @@ const BITS = `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' 
  */
 export const CLUB_TOKENS = `:root{--bg:#0f1112;--surface:#15181b;--surface-2:#1c2024;--line:#2a3036;--line-hi:#616c77;--fg:#f2efe9;--label:#cdd3d8;--mute:#c4cbd1;--dim:#a7b0b8;--lime:#c7d301;--lime-soft:rgb(199 211 1/.14);--lime-edge:rgb(199 211 1/.55);--lime-glow:rgb(199 211 1/.32);--lime-ring:rgb(199 211 1/.22);--ink:#1f2c36;--ink-0:#0f1112;--cream:#efe9df;--green-1:#003818;--green-2:#004820;--green-3:#0a6b34;--warn:#ffb020;--err:#ff7b7b;--bad:#ff5a5f;--ok:#5be38f;--stale:#2c3136;--scrim:rgb(8 16 24/.74);--bits:${BITS};--r:22px;--r-tile:20px;--ease:cubic-bezier(.16,1,.3,1);--sys:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;--num:'OxioManrope',var(--sys);color-scheme:dark}`;
 
-/** Base común: cuerpo, botones (≥48 px, en pill), enlaces, avisos y la barra con el logo. */
+/**
+ * Base común: cuerpo, botones, enlaces, avisos y la barra con el logo.
+ *
+ * Los botones, con forma de página de pago y no de cartel: 56 px de alto
+ * (≥48 px siempre), esquinas de 12 px (--r-btn, también las de los importes y
+ * propinas), letra firme sin ser gruesa y cifras tabulares (el importe del
+ * botón no baila al cambiar). Al pulsar se hunde un poco y se oscurece;
+ * desactivado, gris de verdad; ocupado (.busy), su color con una ruedita en
+ * vez del icono, que no se pulsa dos veces. Iconos de trazo: .ic.
+ */
 export const CLUB_BASE_CSS = `${BRAND_FONT_FACE}${CLUB_TOKENS}
+:root{--r-btn:12px}
 *{box-sizing:border-box}
 html{-webkit-text-size-adjust:100%}
 body{margin:0;background:var(--bg);color:var(--fg);font:18px/1.45 var(--sys)}
@@ -39,10 +49,18 @@ a{color:var(--fg)}
 .num{font-family:var(--num);font-variant-numeric:tabular-nums}
 .kick{font-size:.8rem;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--label)}
 .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
-.btn{display:flex;align-items:center;justify-content:center;gap:.5rem;width:100%;min-height:3.5rem;padding:.85rem 1.5rem;border-radius:999px;border:2px solid var(--lime);background:var(--lime);color:var(--ink);font:inherit;font-size:1.1rem;font-weight:800;line-height:1.2;text-align:center;text-decoration:none;cursor:pointer;box-shadow:0 10px 28px -12px var(--lime-glow);transition:transform .15s var(--ease)}
-.btn:active{transform:scale(.98)}
+.btn{display:flex;align-items:center;justify-content:center;gap:.55rem;width:100%;min-height:3.5rem;padding:.75rem 1.25rem;border-radius:var(--r-btn);border:1.5px solid var(--lime);background:var(--lime);color:var(--ink);font:inherit;font-size:1.0625rem;font-weight:700;letter-spacing:.005em;line-height:1.2;font-variant-numeric:tabular-nums;text-align:center;text-decoration:none;cursor:pointer;-webkit-tap-highlight-color:transparent;box-shadow:inset 0 1px 0 rgb(255 255 255/.3),0 1px 2px rgb(0 0 0/.35),0 10px 24px -14px var(--lime-glow);transition:transform .12s var(--ease),filter .12s var(--ease)}
+.ic{flex:none;width:1.15em;height:1.15em;fill:none;stroke:currentColor;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round}
+@media (hover:hover){.btn:hover{filter:brightness(1.06)}}
+.btn:active{transform:translateY(1px);filter:brightness(.93)}
 .btn.alt{background:transparent;color:var(--fg);border-color:var(--line-hi);box-shadow:none}
-.btn:disabled,.btn[aria-disabled=true]{background:var(--surface-2);border-color:var(--surface-2);color:var(--mute);box-shadow:none;cursor:progress}
+.btn.alt:active{background:var(--surface-2);filter:none}
+.btn:disabled:not(.busy),.btn[aria-disabled=true]:not(.busy){background:var(--surface-2);border-color:var(--line);color:var(--dim);box-shadow:none;filter:none;transform:none;cursor:not-allowed}
+.btn.busy{cursor:progress;transform:none;filter:none}
+.btn.busy .ic{display:none}
+.btn.busy::before{content:'';flex:none;width:1.1rem;height:1.1rem;border-radius:50%;border:3px solid currentColor;border-right-color:transparent;animation:np-spin .9s linear infinite}
+@keyframes np-spin{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){.btn.busy::before{animation:none;border-right-color:currentColor;opacity:.6}}
 .link{display:inline-flex;align-items:center;justify-content:center;min-height:3rem;padding:0 .75rem;border:0;background:none;color:var(--fg);font:inherit;font-weight:700;text-decoration:underline;text-underline-offset:.2em;cursor:pointer}
 .btn:focus-visible,.link:focus-visible,a:focus-visible{outline:3px solid var(--fg);outline-offset:3px}
 .done{color:var(--ok);font-weight:700}

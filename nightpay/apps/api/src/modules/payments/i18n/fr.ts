@@ -25,6 +25,7 @@ const pay: PayText = {
   methodsCard: 'Par carte',
   methodsWallet: (wallet) => `${wallet} va s’ouvrir`,
   payByCard: 'Payer par carte',
+  or: 'ou',
   payWithSaldo: 'Payer avec mon solde',
   tipLegend: 'Laisser un pourboire ?',
   noTip: 'Sans pourboire',

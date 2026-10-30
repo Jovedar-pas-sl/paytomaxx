@@ -1,7 +1,7 @@
 'use client';
 
 import type { CSSProperties, ReactNode } from 'react';
-import type { CobroRow } from '@nightpay/contracts';
+import { HOME_TOPUP_ORIGIN_LABEL, type CobroRow } from '@nightpay/contracts';
 import { Button } from '@nightpay/ui';
 import { cobroStatus } from '@/lib/cobro-status';
 import { formatDateTime } from '@/lib/dates';
@@ -28,8 +28,9 @@ interface Props {
 }
 
 /**
- * Cobros con su referencia, quién cobró, sección (color o «Varias»), cómo
- * pagó y lo que se vendió. En el móvil cada fila es una tarjeta (panel-tables.css).
+ * Cobros con su referencia, quién cobró («Desde casa» si lo cargó el cliente
+ * con el enlace del local), sección (color o «Varias»), cómo pagó y lo que se
+ * vendió. En el móvil cada fila es una tarjeta (panel-tables.css).
  * Tocar a la chica o el saldo abre su ficha.
  */
 export function CobrosTable({ rows, actions, empty, hidePerson, extra, showReferences, onDetails }: Props) {
@@ -95,6 +96,9 @@ export function CobrosTable({ rows, actions, empty, hidePerson, extra, showRefer
                     ) : (
                       row.person.name
                     )
+                  ) : row.fromHome ? (
+                    // Nadie del local: lo cargó el cliente con el enlace del local, antes de llegar.
+                    <Pill tone="info">{HOME_TOPUP_ORIGIN_LABEL}</Pill>
                   ) : (
                     '—'
                   )}

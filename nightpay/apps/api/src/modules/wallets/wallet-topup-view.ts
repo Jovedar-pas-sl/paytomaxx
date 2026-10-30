@@ -23,7 +23,7 @@ export const TOPUP_CSS = `${BREAKDOWN_CSS}
 .amts{display:grid;grid-template-columns:1fr 1fr;gap:.6rem}
 .amts label{display:block;position:relative}
 .amts input{position:absolute;opacity:0;width:1px;height:1px}
-.amts span{position:relative;display:flex;align-items:center;justify-content:center;min-height:3.5rem;padding:.5rem 1.9rem;border:1.5px solid var(--line-hi);border-radius:18px;background:var(--surface-2);font-family:var(--num);font-size:1.2rem;font-weight:800;color:var(--fg);cursor:pointer;transition:transform .15s var(--ease)}
+.amts span{position:relative;display:flex;align-items:center;justify-content:center;min-height:3.5rem;padding:.5rem 1.9rem;border:1.5px solid var(--line-hi);border-radius:var(--r-btn);background:var(--surface-2);font-family:var(--num);font-size:1.2rem;font-weight:800;color:var(--fg);cursor:pointer;transition:transform .15s var(--ease)}
 .amts input:checked+span{border-color:var(--cream);background:var(--cream);color:var(--ink)}
 .amts input:checked+span::before{content:'';position:absolute;top:50%;left:.85rem;width:1.15rem;height:1.15rem;margin-top:-.575rem;border-radius:50%;background:var(--ink) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23EFE9DF' stroke-width='3.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 13l4 4L19 7'/%3E%3C/svg%3E") center/70% no-repeat}
 .amts input:focus-visible+span{outline:3px solid var(--fg);outline-offset:3px}
@@ -31,7 +31,7 @@ export const TOPUP_CSS = `${BREAKDOWN_CSS}
 .tother{display:flex;flex-direction:column;align-items:center;gap:.35rem}
 .tother label{font-weight:600;color:var(--mute)}
 .teur{display:flex;align-items:center;gap:.4rem}
-.teur input{width:7rem;min-height:3.25rem;font:inherit;font-size:1.6rem;font-weight:800;text-align:center;border-radius:14px;border:2px solid var(--line-hi);background:var(--surface-2);color:var(--fg)}
+.teur input{width:7rem;min-height:3.25rem;font:inherit;font-size:1.6rem;font-weight:800;text-align:center;border-radius:var(--r-btn);border:2px solid var(--line-hi);background:var(--surface-2);color:var(--fg)}
 .teur input:focus-visible{outline:3px solid var(--fg);outline-offset:2px}
 .teur span{font-size:1.4rem;font-weight:800}
 .proof{position:relative;isolation:isolate;overflow:hidden;display:grid;grid-template-columns:auto 1fr;align-items:center;gap:.2rem .85rem;padding:1rem 1.1rem;border-radius:var(--r);background:radial-gradient(120% 120% at 20% 20%,var(--green-3) 0%,var(--green-2) 55%,var(--green-1) 100%);background-color:var(--green-2);color:var(--cream);box-shadow:0 0 0 1px var(--lime-edge)}
@@ -165,14 +165,15 @@ export const TOPUP_JS = `
 var TU=C.topUp||{allowed:false,block:null,presetsCents:[],minCents:0,maxCents:0,feesCents:null},TK='';
 function newKey(){var a=new Uint8Array(16);crypto.getRandomValues(a);TK=pkB64u(a.buffer);}
 function eurShort(c){return npMoney(c,C.locale,'EUR');}
+function eurPay(c){return npMoney(c,C.locale,'EUR',true);}
 function topCents(){var r=$('topupForm').querySelector('input[name=amt]:checked');if(!r)return 0;
  if(r.value!=='other')return +r.value||0;return (parseInt($('otherIn').value.replace(/[^0-9]/g,'')||'0',10)||0)*100;}
 function topOk(c){return c>=TU.minCents&&c<=TU.maxCents&&c%100===0;}
 function topFee(c){var t=TU.feesCents,f=t&&topOk(c)?t[(c-TU.minCents)/100]:0;return typeof f==='number'&&f>0?f:0;}
-function topLabel(c){if(!topOk(c))return T.topUp;var f=topFee(c);return f>0?fill(T.topUpGoFee,'amount',eurShort(c+f)):fill(T.topUpGo,'amount',eurShort(c));}
+function topLabel(c){if(!topOk(c))return T.topUp;var f=topFee(c);return f>0?fill(T.topUpGoFee,'amount',eurPay(c+f)):fill(T.topUpGo,'amount',eurPay(c));}
 function topUpd(){var c=topCents(),b=$('topupGo'),label=topLabel(c),fl=$('topupFee');
  $('otherBox').hidden=!$('amtOther').checked;b.setAttribute('data-label',label);if(!busy)b.textContent=label;
- if(fl){var f=topFee(c),ok=topOk(c);fl.hidden=!ok;$('tbAmount').textContent=ok?eurShort(c):'';$('tbFee').textContent=ok?eurShort(f):'';$('tbTotal').textContent=ok?eurShort(c+f):'';}}
+ if(fl){var f=topFee(c),ok=topOk(c);fl.hidden=!ok;$('tbAmount').textContent=ok?eurPay(c):'';$('tbFee').textContent=ok?eurPay(f):'';$('tbTotal').textContent=ok?eurPay(c+f):'';}}
 var tw=$('tWhyBtn');if(tw){$('tWhy').hidden=true;tw.setAttribute('aria-expanded','false');
  tw.addEventListener('click',function(){var o=tw.getAttribute('aria-expanded')!=='true';tw.setAttribute('aria-expanded',String(o));$('tWhy').hidden=!o;});}
 function topUsable(s){return (s.status==='ACTIVE'||(s.status==='DEPLETED'&&!s.merged))&&!s.refund&&!s.closeRequested;}
