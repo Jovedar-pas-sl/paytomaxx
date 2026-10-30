@@ -13,8 +13,9 @@ export const SIN_MOVIL_LABEL = 'Sin móvil ni ficha';
 /** Cuando no hay forma: lo cobra el encargado desde el panel. */
 export const NO_BATTERY_TEXT = '¿Sin batería y sin PIN? Avisa al encargado: lo cobra desde el panel.';
 
-/** Un QR leído que no es el del pase (otro QR, el enlace del saldo /w/…). */
-export const NOT_A_PASS_TEXT = 'Ese QR no es el de un pase de saldo: escanea el QR de su pase de Google Wallet.';
+/** Un QR leído que no es ni el del pase ni el de la página de su saldo (otro QR, el enlace del saldo /w/…). */
+export const NOT_A_PASS_TEXT =
+  'Ese QR no vale para cobrar: escanea el QR de su pase de Google Wallet o el de la página de su saldo.';
 
 /** iPhone (sin cámara que lea QR desde la app): la cámara del móvil abre la app con ?pase= y aquí pone su PIN. */
 export const PASS_WITH_PHONE_CAMERA_TEXT =
@@ -56,9 +57,62 @@ export function pinProblemOf(w: { hasPin: boolean; pinLocked: boolean }): string
   return null;
 }
 
+/**
+ * Su código leído con la cámara del móvil (?saldo=…), para el cobro abierto:
+ * lo del PIN y, antes de gastar un intento, si le llega (lo que paga ya lleva
+ * la propina de la cuenta). El API lo vuelve a mirar al pagar.
+ */
+export function codeCheckProblem(w: { hasPin: boolean; pinLocked: boolean; balanceCents: number }, amountCents: number): string | null {
+  return pinProblemOf(w) ?? (w.balanceCents < amountCents ? 'No le llega el saldo para este cobro.' : null);
+}
+
+/** Lo que se dice si se abre el QR de la página de su saldo sin un cobro abierto en Inicio. */
+export const CODE_WITHOUT_CHARGE_TEXT =
+  'Es el QR del saldo de un cliente. Para cobrarle: haz el cobro en Inicio y, con el QR en pantalla, vuelve a escanearlo con la cámara.';
+
 /** El token del pase leído con la cámara (…/c/<token> o …?pase=<token>); null si no es un pase. */
 export function scannedPassToken(raw: string): string | null {
   return passChargeTokenFromText(raw);
+}
+
+/** El código del cliente: 6 letras o cifras (K7Q-4M2 → K7Q4M2). */
+const WALLET_CODE = /^[A-Z0-9]{6}$/;
+
+/**
+ * El código del cliente de un texto leído: el QR de la página de su saldo
+ * (…/?saldo=K7Q4M2, que solo lleva su código) o el código suelto. Las mismas
+ * reglas que el datáfono (pax-saldo.parseScan). null si no es eso.
+ */
+export function walletCodeFromText(raw: string): string | null {
+  const text = raw.trim();
+  if (!text || text.length > 2048) return null;
+  const clean = (s: string): string | null => {
+    const code = s.toUpperCase().replace(/[^A-Z0-9]/g, '');
+    return WALLET_CODE.test(code) ? code : null;
+  };
+  let url: URL;
+  try {
+    url = new URL(text);
+  } catch {
+    return text.length <= 8 ? clean(text) : null;
+  }
+  if (url.protocol !== 'https:' && url.protocol !== 'http:') return null;
+  return clean(url.searchParams.get('saldo') ?? '');
+}
+
+/** Lo que lee la cámara de la app en «Escanear su pase». */
+export type ScannedSaldo = { kind: 'pass'; token: string } | { kind: 'code'; code: string } | { kind: 'unknown' };
+
+/**
+ * El pase de Google Wallet (…/c/<token>, solo para cobrar) o el QR de la
+ * página de su saldo (su código). El enlace del saldo (/w/…) no vale aquí: da
+ * todos los poderes sobre el saldo y el API del personal no lo acepta.
+ */
+export function scannedSaldo(raw: string): ScannedSaldo {
+  const token = passChargeTokenFromText(raw);
+  if (token) return { kind: 'pass', token };
+  const code = walletCodeFromText(raw);
+  return code ? { kind: 'code', code } : { kind: 'unknown' };
 }
 
 /**

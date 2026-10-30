@@ -84,7 +84,7 @@ export function Dashboard({ user, onLogout }: Props) {
     onLogout();
   }
 
-  const showing = (key: TabKey) => links.ficha === null && links.pass === null && tab === key;
+  const showing = (key: TabKey) => links.ficha === null && links.pass === null && links.code === null && tab === key;
   // Recepción enseña su propia cabecera (salvo «Preparar fichas» y las pendientes).
   const [deskHead, setDeskHead] = useState(true);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -126,12 +126,14 @@ export function Dashboard({ user, onLogout }: Props) {
             refreshMoney();
           }}
         />
-      ) : links.pass ? (
+      ) : links.pass || links.code ? (
+        // Su pase (?pase=) o el QR de la página de su saldo (?saldo=), leídos con la cámara del móvil.
         <PassScanned
-          token={links.pass}
+          scan={links.pass ? { kind: 'pass', token: links.pass } : { kind: 'code', code: links.code ?? '' }}
           userId={user.id}
           onClose={() => {
             links.clearPass();
+            links.clearCode();
             refreshMoney();
           }}
         />

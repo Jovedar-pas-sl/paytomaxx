@@ -3,13 +3,16 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { pinBody } from './api-cobro';
 import { readFichaContext, saveFichaContext } from './ficha-context';
 import {
+  codeCheckProblem,
   fichaContextOf,
   iphoneFichaHint,
   pinDetail,
   pinProblemOf,
   scannedPassToken,
+  scannedSaldo,
   showsSinMovil,
   walletCodeComplete,
+  walletCodeFromText,
   walletCodeInput,
 } from './sin-movil';
 
@@ -64,6 +67,38 @@ describe('su pase de Google Wallet', () => {
     expect(scannedPassToken(`https://api.oxiopay.test/w/${PASS}`)).toBeNull();
     expect(scannedPassToken('https://example.com/otra-cosa')).toBeNull();
     expect(scannedPassToken('K7Q-4M2')).toBeNull();
+  });
+});
+
+describe('el QR de la página de su saldo (?saldo=, solo su código)', () => {
+  it('con la cámara de la app o la del móvil: su código, en mayúsculas', () => {
+    expect(walletCodeFromText('https://operator.oxiopay.test/?saldo=K7Q4M2')).toBe('K7Q4M2');
+    expect(walletCodeFromText('https://operator.oxiopay.test/?saldo=k7q-4m2')).toBe('K7Q4M2');
+    expect(walletCodeFromText('K7Q-4M2')).toBe('K7Q4M2');
+  });
+
+  it('un código corto, otro parámetro, otra web rara o un texto largo, no', () => {
+    expect(walletCodeFromText('https://operator.oxiopay.test/?saldo=K7Q')).toBeNull();
+    expect(walletCodeFromText('https://operator.oxiopay.test/?pase=K7Q4M2')).toBeNull();
+    expect(walletCodeFromText('javascript:alert(1)?saldo=K7Q4M2')).toBeNull();
+    expect(walletCodeFromText('UN TEXTO CUALQUIERA')).toBeNull();
+    expect(walletCodeFromText('')).toBeNull();
+  });
+
+  it('«Escanear su pase» lee el pase o este QR; el enlace del saldo (/w/…) nunca', () => {
+    expect(scannedSaldo(`https://api.oxiopay.test/c/${PASS}`)).toEqual({ kind: 'pass', token: PASS });
+    expect(scannedSaldo('https://operator.oxiopay.test/?saldo=K7Q4M2')).toEqual({ kind: 'code', code: 'K7Q4M2' });
+    expect(scannedSaldo(`https://api.oxiopay.test/w/${PASS}`)).toEqual({ kind: 'unknown' });
+    expect(scannedSaldo('https://example.com/menu')).toEqual({ kind: 'unknown' });
+  });
+
+  it('antes de su PIN: el PIN y si le llega para el cobro abierto', () => {
+    const w = { hasPin: true, pinLocked: false, balanceCents: 2000 };
+    expect(codeCheckProblem(w, 1800)).toBeNull();
+    expect(codeCheckProblem(w, 2000)).toBeNull();
+    expect(codeCheckProblem(w, 2001)).toMatch(/No le llega/);
+    expect(codeCheckProblem({ ...w, hasPin: false }, 100)).toMatch(/no tiene PIN/);
+    expect(codeCheckProblem({ ...w, pinLocked: true }, 100)).toMatch(/bloqueado/);
   });
 });
 
@@ -129,5 +164,20 @@ describe('Esperando, la única pantalla de cobrar, lo usa', () => {
 
   it('el PIN paga con la ficha, el código o el pase (el mismo teclado)', () => {
     expect(src).toMatch(/payByPin\(chargeId, pin\.ref, value\)/);
+  });
+});
+
+describe('los enlaces de la cámara del móvil abren el cobro de Inicio', () => {
+  const hooks = readFileSync(new URL('../components/dashboard-hooks.ts', import.meta.url), 'utf8');
+  const dash = readFileSync(new URL('../components/Dashboard.tsx', import.meta.url), 'utf8').replace(/\r\n/g, '\n');
+
+  it('?saldo= se lee como su código y se quita de la URL (un refresh no lo repite)', () => {
+    expect(hooks).toMatch(/walletCodeFromText\(url\.toString\(\)\)/);
+    expect(hooks).toMatch(/url\.searchParams\.delete\(WALLET_CODE_PARAM\)/);
+  });
+
+  it('su pase o su código: la misma pantalla que paga el cobro abierto con su PIN', () => {
+    expect(dash).toMatch(/links\.pass \|\| links\.code \?/);
+    expect(dash).toMatch(/<PassScanned\s+scan=/);
   });
 });

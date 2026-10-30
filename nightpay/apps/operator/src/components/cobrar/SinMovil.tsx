@@ -10,7 +10,7 @@ import {
   PASS_WITH_PHONE_CAMERA_TEXT,
   SIN_MOVIL_LABEL,
   pinProblemOf,
-  scannedPassToken,
+  scannedSaldo,
   walletCodeComplete,
   walletCodeInput,
   type PinVia,
@@ -46,11 +46,12 @@ type Mode = 'menu' | 'code' | 'pass';
 
 /**
  * «Sin móvil ni ficha» (lo que antes solo tenía «Saldo»): el cliente no saca
- * el móvil ni lleva ficha y paga ESTE cobro con su código (K7Q-4M2) o con el
- * QR de su pase de Google Wallet; después teclea su PIN aquí (la pantalla del
- * PIN de siempre, la de Esperando). Sin la cámara de la app (iPhone), su pase
- * se escanea con la del móvil: la app se abre en otra pestaña y paga este
- * cobro (el contexto de ficha que guarda Esperando).
+ * el móvil ni lleva ficha y paga ESTE cobro con su código (K7Q-4M2, tecleado
+ * o leído del QR de la página de su saldo) o con el QR de su pase de Google
+ * Wallet; después teclea su PIN aquí (la pantalla del PIN de siempre, la de
+ * Esperando). Sin la cámara de la app (iPhone), se escanea con la del móvil:
+ * la app se abre en otra pestaña y paga este cobro (el contexto de ficha que
+ * guarda Esperando).
  */
 export function SinMovil({ chargeId, amountCents, what, colors, onReady, onBack }: Props) {
   const [mode, setMode] = useState<Mode>('menu');
@@ -78,17 +79,26 @@ export function SinMovil({ chargeId, amountCents, what, colors, onReady, onBack 
     setError(null);
   }
 
+  /** Su saldo por su código (tecleado o leído del QR de su página): con PIN, a teclearlo; si no, por qué. */
+  const byCode = useCallback(async (typed: string): Promise<boolean> => {
+    const w = await lookupCode(typed);
+    if (!alive.current) return false;
+    const problem = pinProblemOf(w);
+    if (problem) {
+      setError(problem);
+      return false;
+    }
+    ready.current({ ref: { code: w.code }, walletCode: w.code, via: 'code' });
+    return true;
+  }, []);
+
   async function findCode(e: FormEvent) {
     e.preventDefault();
     if (!walletCodeComplete(code) || busy) return;
     setBusy(true);
     setError(null);
     try {
-      const w = await lookupCode(code);
-      if (!alive.current) return;
-      const problem = pinProblemOf(w);
-      if (problem) setError(problem);
-      else ready.current({ ref: { code: w.code }, walletCode: w.code, via: 'code' });
+      await byCode(code);
     } catch (err) {
       if (alive.current) setError((err as Error).message);
     } finally {
@@ -98,33 +108,37 @@ export function SinMovil({ chargeId, amountCents, what, colors, onReady, onBack 
 
   const onScan = useCallback(
     async (raw: string) => {
-      const token = scannedPassToken(raw);
-      if (!token) {
+      const scan = scannedSaldo(raw);
+      if (scan.kind === 'unknown') {
         setError(NOT_A_PASS_TEXT);
         setScanRound((n) => n + 1);
         return;
       }
       setBusy(true);
       setError(null);
+      let done = false;
       try {
-        const check = await checkPass(chargeId, token);
-        if (!alive.current) return;
-        const problem = passCheckProblem(check);
-        if (problem) {
-          setError(problem);
-          setScanRound((n) => n + 1);
+        if (scan.kind === 'code') {
+          done = await byCode(scan.code);
         } else {
-          ready.current({ ref: { walletToken: token }, walletCode: check.codeHint, via: 'pass' });
+          const check = await checkPass(chargeId, scan.token);
+          if (!alive.current) return;
+          const problem = passCheckProblem(check);
+          if (problem) setError(problem);
+          else ready.current({ ref: { walletToken: scan.token }, walletCode: check.codeHint, via: 'pass' });
+          done = problem === null;
         }
       } catch (err) {
-        if (!alive.current) return;
-        setError((err as Error).message);
-        setScanRound((n) => n + 1);
+        if (alive.current) setError((err as Error).message);
       } finally {
-        if (alive.current) setBusy(false);
+        if (alive.current) {
+          setBusy(false);
+          // No ha valido: la cámara vuelve a leer (otra vuelta del escáner).
+          if (!done) setScanRound((n) => n + 1);
+        }
       }
     },
-    [chargeId],
+    [chargeId, byCode],
   );
   // Las dos, siempre la misma función: QrScanner no reinicia la cámara en cada render.
   const handleScan = useCallback((raw: string) => void onScan(raw), [onScan]);
@@ -144,7 +158,7 @@ export function SinMovil({ chargeId, amountCents, what, colors, onReady, onBack 
             </button>
             <button type="button" className={`${styles.btn} ${styles.ghost} ${styles.altOpt}`} onClick={() => go('pass')}>
               Escanear su pase
-              <small>El QR de su pase de Google Wallet y su PIN aquí</small>
+              <small>El QR de su pase de Google Wallet (o el de su página del saldo) y su PIN aquí</small>
             </button>
             <p className={styles.altHint}>{NO_BATTERY_TEXT}</p>
           </>
@@ -174,7 +188,7 @@ export function SinMovil({ chargeId, amountCents, what, colors, onReady, onBack 
         {mode === 'pass' ? (
           scanner ? (
             <>
-              <p className={styles.altHint}>Apunta al QR de su pase de Google Wallet.</p>
+              <p className={styles.altHint}>Apunta al QR de su pase de Google Wallet o al de la página de su saldo.</p>
               {busy ? (
                 <p className={styles.altHint}>Comprobando el pase…</p>
               ) : (
