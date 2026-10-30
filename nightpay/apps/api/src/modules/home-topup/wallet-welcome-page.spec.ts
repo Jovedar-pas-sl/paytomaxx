@@ -106,7 +106,7 @@ describe('PublicWalletController.page con ?nuevo=', () => {
     const m = make(welcome);
     await m.controller.page('tok', 'es', m.reply as never, undefined, 'np_saldos=viejo', 'payTok');
     expect(m.topUps.paidProof).toHaveBeenCalledWith('tok', 'payTok');
-    expect(welcome.rememberCookie).toHaveBeenCalledWith('w-1', 'np_saldos=viejo');
+    expect(welcome.rememberCookie).toHaveBeenCalledWith({ id: 'w-1', qrToken: 'tok' }, 'np_saldos=viejo');
     expect(m.headers).toContainEqual(['Set-Cookie', 'np_saldos=w-1.sig; Path=/r']);
     expect(m.reply.body).toContain('id="welcome"');
     expect(m.reply.body).toContain('data-test="ficha"');

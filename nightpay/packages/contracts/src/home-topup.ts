@@ -63,43 +63,28 @@ export type UpdateHomeTopUpDto = z.infer<typeof UpdateHomeTopUpSchema>;
 // ─── La ficha en recepción ─────────────────────────────────────────────
 
 /**
- * El QR de la ficha que enseña el saldo del cliente (su página, /w): su código
- * y una prueba firmada por el servidor que solo ve quien tiene su saldo. Como
- * enlace a la app del personal (…/?saldo=K7Q4M2&p=…), así el resto de lectores
- * lo leen como su código. Sin la app del personal: «NPF:K7Q4M2:<prueba>».
+ * El QR de la ficha que enseña el saldo del cliente (su página, /w):
+ * «NPF:K7Q4M2:<prueba>», su código y una prueba firmada por el servidor (atada
+ * al saldo y a su enlace de ahora) que solo ve quien tiene el saldo en su
+ * móvil. Texto, no un enlace: leído con la cámara del móvil no abre nada ni
+ * queda en el historial. Solo sirve para la PRIMERA ficha del saldo.
  */
 export const FICHA_QR_PROOF_RE = /^[A-Za-z0-9_-]{22}$/;
-const FICHA_QR_CODE_RE = /^[A-Z0-9]{6}$/;
-export const FICHA_QR_PROOF_PARAM = 'p';
 
 export interface FichaQr {
   code: string;
   proof: string;
 }
 
-/** El QR de la ficha leído (null si no es uno). Solo se mira el formato: nunca se navega. */
+/** El QR de la ficha leído (null si no es uno). Solo se mira el formato. */
 export function parseFichaQr(raw: string): FichaQr | null {
-  const text = raw.trim();
-  if (!text || text.length > 512) return null;
-  const plain = /^NPF:([A-Z0-9]{6}):([A-Za-z0-9_-]{22})$/.exec(text);
-  if (plain) return { code: plain[1] ?? '', proof: plain[2] ?? '' };
-  let url: URL;
-  try {
-    url = new URL(text);
-  } catch {
-    return null;
-  }
-  if (url.protocol !== 'https:' && url.protocol !== 'http:') return null;
-  const code = (url.searchParams.get('saldo') ?? '').toUpperCase();
-  const proof = url.searchParams.get(FICHA_QR_PROOF_PARAM) ?? '';
-  return FICHA_QR_CODE_RE.test(code) && FICHA_QR_PROOF_RE.test(proof) ? { code, proof } : null;
+  const m = /^NPF:([A-Z0-9]{6}):([A-Za-z0-9_-]{22})$/.exec(raw.trim());
+  return m ? { code: m[1] ?? '', proof: m[2] ?? '' } : null;
 }
 
 /** Lo que lleva el QR de la ficha. */
-export function fichaQrContent(code: string, proof: string, operatorBase: string | null): string {
-  return operatorBase
-    ? `${operatorBase.replace(/\/+$/, '')}/?saldo=${code}&${FICHA_QR_PROOF_PARAM}=${proof}`
-    : `NPF:${code}:${proof}`;
+export function fichaQrContent(code: string, proof: string): string {
+  return `NPF:${code}:${proof}`;
 }
 
 /**

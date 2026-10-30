@@ -22,7 +22,7 @@ import { HomeTopUpService } from '../../src/modules/home-topup/home-topup.servic
 import { HomeTopUpSettingsService } from '../../src/modules/home-topup/home-topup-settings.service';
 import { ReceptionFichaService } from '../../src/modules/home-topup/reception-ficha.service';
 import { fichaProof } from '../../src/modules/home-topup/ficha-qr';
-import { rememberSetCookie } from '../../src/modules/home-topup/home-topup-rules';
+import { rememberSetCookie, venueThrottleKey } from '../../src/modules/home-topup/home-topup-rules';
 
 const SECRET = 'secreto-de-cookies-de-integracion-0123456789';
 const cls = new ClsService(new AsyncLocalStorage());
@@ -306,11 +306,11 @@ describe('el freno del local', () => {
   });
 
   it('60 cargas empezadas en 15 min en el local: 429 HOME_TOPUP_BUSY', async () => {
-    counters.set(`np:home-topup:venue:${A}`, 60);
+    counters.set(venueThrottleKey(A), 60);
     const err = await startIn(codeA, 1000).catch((e: unknown) => e);
     expect((err as HttpException).getStatus()).toBe(429);
     expect((err as HttpException).getResponse()).toMatchObject({ code: 'HOME_TOPUP_BUSY' });
-    counters.delete(`np:home-topup:venue:${A}`);
+    counters.delete(venueThrottleKey(A));
   });
 });
 
@@ -318,7 +318,7 @@ describe('este navegador ya tiene un saldo del local', () => {
   it('lo ofrece (con su código tapado) y «Recargar mi saldo» lleva a su página, en «Recargar»', async () => {
     const load = await paidLoad(codeA, 2000);
     const w = await walletOf(load.walletId);
-    const cookie = (rememberSetCookie(SECRET, w.id, undefined) ?? '').split(';')[0];
+    const cookie = (rememberSetCookie(SECRET, { id: w.id, qrToken: w.qrToken }, undefined) ?? '').split(';')[0];
     const page = await pub(() => homeTopUps.page(codeA, cookie));
     expect(page?.mine).toEqual({ codeHint: `${w.shortCode?.slice(0, 3)}-•••` });
     expect(await pub(() => homeTopUps.mySaldoHref(codeA, cookie, 'fr'))).toBe(`/w/${w.qrToken}?lang=fr#recargar`);
@@ -330,7 +330,20 @@ describe('este navegador ya tiene un saldo del local', () => {
     const blocked = await paidLoad(codeA, 1000);
     await sys((tx) => tx.clientWallet.update({ where: { id: blocked.walletId }, data: { blockedAt: new Date() } }));
     let cookie = '';
-    for (const id of [unpaid.walletId!, otherVenue.walletId, blocked.walletId]) cookie = (rememberSetCookie(SECRET, id, cookie) ?? '').split(';')[0] ?? '';
+    for (const id of [unpaid.walletId!, otherVenue.walletId, blocked.walletId]) {
+      const w = await walletOf(id);
+      cookie = (rememberSetCookie(SECRET, { id, qrToken: w.qrToken }, cookie) ?? '').split(';')[0] ?? '';
+    }
+    expect((await pub(() => homeTopUps.page(codeA, cookie)))?.mine).toBeNull();
+    expect(await pub(() => homeTopUps.mySaldoHref(codeA, cookie, 'es'))).toBeNull();
+  });
+
+  it('tras un enlace nuevo del dueño (relink), la cookie de antes ya no lo ofrece ni lleva al enlace nuevo', async () => {
+    const load = await paidLoad(codeA, 2000);
+    const before = await walletOf(load.walletId);
+    const cookie = (rememberSetCookie(SECRET, { id: before.id, qrToken: before.qrToken }, undefined) ?? '').split(';')[0];
+    expect((await pub(() => homeTopUps.page(codeA, cookie)))?.mine).not.toBeNull();
+    await sys((tx) => tx.clientWallet.update({ where: { id: before.id }, data: { qrToken: `relink-${r}-${randomUUID()}` } }));
     expect((await pub(() => homeTopUps.page(codeA, cookie)))?.mine).toBeNull();
     expect(await pub(() => homeTopUps.mySaldoHref(codeA, cookie, 'es'))).toBeNull();
   });
@@ -346,11 +359,18 @@ describe('al llegar: la ficha en recepción', () => {
     return { token, uid };
   }
 
+  /** La prueba del QR de la ficha que enseña ahora su página del saldo. */
+  const proofOf = async (walletId: string) => {
+    const w = await walletOf(walletId);
+    return fichaProof(SECRET, { id: w.id, qrToken: w.qrToken });
+  };
+
   it('con el QR de su saldo: recepción le da la ficha, unida a ese saldo; otra vez, no', async () => {
     const load = await paidLoad(codeA, 4000);
     const card = await stockCard();
+    const proof = await proofOf(load.walletId);
     const out = await pub(() =>
-      fichas.give(reception, { walletId: load.walletId, card: card.token, uid: card.uid, proof: fichaProof(SECRET, load.walletId) }),
+      fichas.give(reception, { walletId: load.walletId, card: card.token, uid: card.uid, proof }),
     );
     expect(out).toMatchObject({ walletId: load.walletId, balanceCents: 4000, via: 'qr' });
     expect(out.fichaNumber).toEqual(expect.any(Number));
@@ -361,9 +381,33 @@ describe('al llegar: la ficha en recepción', () => {
     });
     const another = await stockCard();
     const err = await pub(() =>
-      fichas.give(reception, { walletId: load.walletId, card: another.token, uid: another.uid, proof: fichaProof(SECRET, load.walletId) }),
+      fichas.give(reception, { walletId: load.walletId, card: another.token, uid: another.uid, proof }),
     ).catch((e: unknown) => e);
     expect((err as HttpException).getStatus()).toBe(409);
+  });
+
+  it('solo la primera: con la ficha bloqueada (la perdió), recepción no da otra con su QR; el encargado, sí', async () => {
+    const load = await paidLoad(codeA, 2500);
+    const first = await stockCard();
+    const proof = await proofOf(load.walletId);
+    await pub(() => fichas.give(reception, { walletId: load.walletId, card: first.token, uid: first.uid, proof }));
+    await pub(() => charges.blockCard({ userId: manager.userId, role: 'MANAGER', tenantId: A }, load.walletId));
+    const next = await stockCard();
+    const err = await pub(() => fichas.give(reception, { walletId: load.walletId, card: next.token, uid: next.uid, proof })).catch((e: unknown) => e);
+    expect((err as HttpException).getStatus()).toBe(409);
+    expect((err as Error).message).toContain('ya tuvo ficha');
+    await expect(pub(() => fichas.give(manager, { walletId: load.walletId, card: next.token, uid: next.uid }))).resolves.toMatchObject({ via: 'manager' });
+  });
+
+  it('el QR de antes de un enlace nuevo del dueño ya no vale; el de su página de ahora, sí', async () => {
+    const load = await paidLoad(codeA, 1500);
+    const old = await proofOf(load.walletId);
+    await sys((tx) => tx.clientWallet.update({ where: { id: load.walletId }, data: { qrToken: `relink-f-${r}-${randomUUID()}` } }));
+    const card = await stockCard();
+    const err = await pub(() => fichas.give(reception, { walletId: load.walletId, card: card.token, uid: card.uid, proof: old })).catch((e: unknown) => e);
+    expect((err as HttpException).getResponse()).toMatchObject({ code: 'FICHA_PROOF_WRONG' });
+    const now = await proofOf(load.walletId);
+    await expect(pub(() => fichas.give(reception, { walletId: load.walletId, card: card.token, uid: card.uid, proof: now }))).resolves.toMatchObject({ via: 'qr' });
   });
 
   it('con su código y su PIN (los fallos cuentan); sin prueba, no; el encargado, sin prueba', async () => {
@@ -388,8 +432,9 @@ describe('al llegar: la ficha en recepción', () => {
   it('los mismos permisos que la recepción: un camarero de barra no da fichas', async () => {
     const load = await paidLoad(codeA, 1000);
     const card = await stockCard();
+    const proof = await proofOf(load.walletId);
     const err = await pub(() =>
-      fichas.give(barman, { walletId: load.walletId, card: card.token, uid: card.uid, proof: fichaProof(SECRET, load.walletId) }),
+      fichas.give(barman, { walletId: load.walletId, card: card.token, uid: card.uid, proof }),
     ).catch((e: unknown) => e);
     expect((err as HttpException).getStatus()).toBe(403);
   });

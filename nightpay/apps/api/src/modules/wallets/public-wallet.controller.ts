@@ -263,7 +263,7 @@ export class PublicWalletController {
     const payer = !state.hasFaceId && this.activation ? await this.activation.payerBase(walletId) : null;
     // «Cargar saldo antes de llegar»: el QR de la ficha (sin ficha aún) y que el enlace del local recuerde este saldo.
     const fichaQr = this.welcome ? await this.welcome.fichaQr(token, state) : null;
-    const remember = this.welcome?.rememberCookie(walletId, cookies);
+    const remember = this.welcome?.rememberCookie({ id: walletId, qrToken: token }, cookies);
     if (remember) res.header('Set-Cookie', remember);
     res
       .status(200)

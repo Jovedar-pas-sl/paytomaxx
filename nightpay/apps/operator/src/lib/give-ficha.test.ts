@@ -4,13 +4,12 @@ import { readFichaQr, walletCodeOf } from './give-ficha';
 const PROOF = 'abcdefghijklmnopqrstuv';
 
 describe('dar ficha a un saldo: lo que lee recepción', () => {
-  it('el QR del saldo (enlace a la app o en texto): su código y su prueba', () => {
-    expect(readFichaQr(`https://operator.sala.test/?saldo=K7Q4M2&p=${PROOF}`)).toEqual({ code: 'K7Q4M2', proof: PROOF });
+  it('el QR de la ficha del saldo (texto NPF:código:prueba): su código y su prueba', () => {
     expect(readFichaQr(`NPF:K7Q4M2:${PROOF}`)).toEqual({ code: 'K7Q4M2', proof: PROOF });
   });
 
-  it('otros QR (el de un cobro, el código suelto, el del saldo sin prueba): no, con qué hacer', () => {
-    for (const text of ['https://api.sala.test/s/abcdefghijklmnopqrstu', 'K7Q4M2', 'https://operator.sala.test/?saldo=K7Q4M2']) {
+  it('otros QR (el de un cobro, el código suelto, un enlace): no, con qué hacer', () => {
+    for (const text of ['https://api.sala.test/s/abcdefghijklmnopqrstu', 'K7Q4M2', `https://operator.sala.test/?saldo=K7Q4M2&p=${PROOF}`]) {
       expect(readFichaQr(text)).toMatchObject({ problem: expect.stringContaining('Tu ficha en recepción') });
     }
   });

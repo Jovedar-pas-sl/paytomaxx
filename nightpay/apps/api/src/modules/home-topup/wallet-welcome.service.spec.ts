@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
-import { parseFichaQr } from '@nightpay/contracts';
-import { fichaProofValid } from './ficha-qr';
-import { rememberedWalletIds } from './home-topup-rules';
+import { fichaQrContent, parseFichaQr } from '@nightpay/contracts';
+import { fichaProof, fichaProofValid } from './ficha-qr';
+import { rememberValid, rememberedEntries } from './home-topup-rules';
 import { WalletWelcomeService } from './wallet-welcome.service';
 import { fichaQrBlock, welcomeCard, WELCOME_JS } from './wallet-welcome-view';
 
@@ -12,26 +12,23 @@ const active = { hasCard: false, status: 'ACTIVE', merged: false };
 function make(row: Record<string, unknown> | null, env: Record<string, string> = {}) {
   const tx = { clientWallet: { findUnique: vi.fn(async () => row) } };
   const prisma = { acrossVenues: vi.fn(async (fn: (t: typeof tx) => unknown) => fn(tx)) };
-  const config = {
-    get: vi.fn((k: string) => ({ COOKIE_SECRET: SECRET, NEXT_PUBLIC_API_URL: 'https://api.sala.test', NODE_ENV: 'test', ...env })[k]),
-  };
+  const config = { get: vi.fn((k: string) => ({ COOKIE_SECRET: SECRET, ...env })[k]) };
   return { service: new WalletWelcomeService(prisma as never, config as never), tx };
 }
 
 const wallet = { id: W1, shortCode: 'K7Q4M2', blockedAt: null, closeRequestedAt: null, pendingAssignAt: null, venue: { paymentMethods: null } };
 
 describe('WalletWelcomeService: el QR de la ficha en la página del saldo', () => {
-  it('saldo activo sin ficha en un local con fichas: el QR con su código y la prueba de ese saldo', async () => {
+  it('saldo activo sin ficha en un local con fichas: el QR', async () => {
     const svg = await make(wallet).service.fichaQr('qrTok', active);
     expect(svg?.startsWith('<svg')).toBe(true);
   });
 
-  it('el contenido del QR lo lee recepción: el código y una prueba que vale para ese saldo', async () => {
-    const { fichaQrContent } = await import('@nightpay/contracts');
-    const { fichaProof } = await import('./ficha-qr');
-    const parsed = parseFichaQr(fichaQrContent('K7Q4M2', fichaProof(SECRET, W1), 'https://operator.sala.test'));
+  it('lo que lleva lo lee recepción: el código y una prueba que vale para ese saldo con su enlace de ahora', () => {
+    const parsed = parseFichaQr(fichaQrContent('K7Q4M2', fichaProof(SECRET, { id: W1, qrToken: 'qrTok' })));
     expect(parsed?.code).toBe('K7Q4M2');
-    expect(fichaProofValid(SECRET, W1, parsed?.proof)).toBe(true);
+    expect(fichaProofValid(SECRET, { id: W1, qrToken: 'qrTok' }, parsed?.proof)).toBe(true);
+    expect(fichaProofValid(SECRET, { id: W1, qrToken: 'otro' }, parsed?.proof)).toBe(false);
   });
 
   it('no toca: ya con ficha, cerrado, sumado, bloqueado, con «Me voy», pendiente o sin fichas en el local', async () => {
@@ -45,10 +42,13 @@ describe('WalletWelcomeService: el QR de la ficha en la página del saldo', () =
     expect(await make(null).service.fichaQr('q', active)).toBeNull();
   });
 
-  it('la cookie para el enlace del local: recuerda este saldo (firmado)', () => {
-    const set = make(wallet).service.rememberCookie(W1, undefined);
-    expect(rememberedWalletIds(set?.split(';')[0], SECRET)).toEqual([W1]);
-    expect(make(wallet, { COOKIE_SECRET: '' }).service.rememberCookie(W1, undefined)).toBeNull();
+  it('la cookie para el enlace del local: recuerda este saldo firmado con su enlace de ahora', () => {
+    const set = make(wallet).service.rememberCookie({ id: W1, qrToken: 'qrTok' }, undefined);
+    const [entry] = rememberedEntries(set?.split(';')[0]);
+    expect(entry?.walletId).toBe(W1);
+    expect(rememberValid(SECRET, entry!, 'qrTok')).toBe(true);
+    expect(rememberValid(SECRET, entry!, 'enlace-nuevo')).toBe(false);
+    expect(make(wallet, { COOKIE_SECRET: '' }).service.rememberCookie({ id: W1, qrToken: 'qrTok' }, undefined)).toBeNull();
   });
 });
 

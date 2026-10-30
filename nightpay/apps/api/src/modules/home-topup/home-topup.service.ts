@@ -47,7 +47,9 @@ import {
   homeTopUpKey,
   homeTopUpProblem,
   isHomeTopUpCode,
-  rememberedWalletIds,
+  rememberValid,
+  rememberedEntries,
+  venueThrottleKey,
 } from './home-topup-rules';
 
 /** El local de un enlace encendido, con lo que hace falta para cargar. */
@@ -259,7 +261,7 @@ export class HomeTopUpService {
 
   /** Como mucho HOME_TOPUP_VENUE_MAX cargas empezadas cada 15 min en el local. Sin Redis, no (503). */
   private async throttleVenue(venueId: string): Promise<void> {
-    const key = `np:home-topup:venue:${venueId}`;
+    const key = venueThrottleKey(venueId);
     let count: number;
     try {
       count = await this.redis.incr(key);
@@ -280,9 +282,10 @@ export class HomeTopUpService {
   }
 
   /**
-   * Cargas a medias en el local: con el pago abierto o en el banco sin
-   * respuesta (las que se quedan así acaban en Incidencias). Lo caducado,
-   * fallido o cancelado no cuenta.
+   * Cargas en curso en el local, de la última hora: con el pago abierto o en
+   * el banco. Lo caducado, fallido, cancelado o ya sin respuesta del banco
+   * (ORPHAN, en Incidencias) no cuenta: si no, unas pocas abandonadas a
+   * propósito dejarían el enlace parado. Solo las del enlace (sin persona).
    */
   private async assertVenueUnresolved(venueId: string): Promise<void> {
     const now = new Date();
@@ -290,9 +293,10 @@ export class HomeTopUpService {
       tx.payment.count({
         where: {
           tenantId: venueId,
+          createdByUserId: null,
           idempotencyKey: { startsWith: HOME_TOPUP_KEY_PREFIX },
           createdAt: { gte: new Date(now.getTime() - HOME_TOPUP_UNRESOLVED_WINDOW_MS) },
-          OR: [{ status: { in: ['AUTHORIZING', 'ORPHAN'] } }, { status: 'CREATED', qrExpiresAt: { gt: now } }],
+          OR: [{ status: 'AUTHORIZING' }, { status: 'CREATED', qrExpiresAt: { gt: now } }],
         },
       }),
     );
@@ -305,19 +309,21 @@ export class HomeTopUpService {
   }
 
   /**
-   * El saldo de este local que recuerda este navegador (cookie firmada):
-   * vivo, con dinero cargado (activo con saldo o a cero), no bloqueado, no
-   * sumado a otro, sin «Me voy» pedido. El más reciente.
+   * El saldo de este local que recuerda este navegador (cookie firmada con
+   * su enlace de ahora: tras un enlace nuevo del dueño, ya no vale): vivo,
+   * con dinero cargado (activo con saldo o a cero), no bloqueado, no sumado
+   * a otro, sin «Me voy» pedido. El más reciente.
    */
   private async rememberedWallet(
     venueId: string,
     cookies: string | undefined,
   ): Promise<{ id: string; qrToken: string; shortCode: string | null } | null> {
-    const ids = rememberedWalletIds(cookies, this.secret());
-    if (ids.length === 0) return null;
+    const secret = this.secret();
+    const entries = rememberedEntries(cookies);
+    if (!secret || entries.length === 0) return null;
     const rows = await this.prisma.acrossVenues((tx) =>
       tx.clientWallet.findMany({
-        where: { id: { in: ids }, tenantId: venueId },
+        where: { id: { in: entries.map((e) => e.walletId) }, tenantId: venueId },
         orderBy: { updatedAt: 'desc' },
         select: {
           id: true,
@@ -332,8 +338,11 @@ export class HomeTopUpService {
         },
       }),
     );
+    const signed = (w: { id: string; qrToken: string }): boolean =>
+      entries.some((e) => e.walletId === w.id && rememberValid(secret, e, w.qrToken));
     const usable = rows.find(
       (w) =>
+        signed(w) &&
         LIVE.has(w.status) &&
         (w.status === 'DEPLETED' || w.balanceCents > 0) &&
         !w.blockedAt &&

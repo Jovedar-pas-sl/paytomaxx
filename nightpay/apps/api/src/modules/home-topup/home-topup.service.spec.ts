@@ -102,7 +102,9 @@ describe('HomeTopUpService.venueByCode / page', () => {
   });
 
   it('«Ya tienes un saldo aquí»: el que recuerda el navegador, vivo, con dinero y de este local', async () => {
-    const cookie = (rememberSetCookie(SECRET, W1, rememberSetCookie(SECRET, W2, undefined)?.split(';')[0]) ?? '').split(';')[0];
+    const cookie = (
+      rememberSetCookie(SECRET, { id: W1, qrToken: 'q1' }, rememberSetCookie(SECRET, { id: W2, qrToken: 'q2' }, undefined)?.split(';')[0]) ?? ''
+    ).split(';')[0];
     const wallets = [
       { id: W1, qrToken: 'q1', shortCode: 'K7Q4M2', status: 'ACTIVE', balanceCents: 0, blockedAt: null, mergedIntoId: null, closeRequestedAt: null, pendingAssignAt: null },
       { id: W2, qrToken: 'q2', shortCode: 'Z9X8W7', status: 'DEPLETED', balanceCents: 0, blockedAt: null, mergedIntoId: null, closeRequestedAt: null, pendingAssignAt: null },
@@ -115,8 +117,16 @@ describe('HomeTopUpService.venueByCode / page', () => {
     expect(await service.mySaldoHref(CODE, cookie, 'en')).toBe('/w/q2?lang=en#recargar');
   });
 
+  it('tras un enlace nuevo del dueño (relink), la cookie de antes ya no lo ofrece ni lleva a su página', async () => {
+    const cookie = (rememberSetCookie(SECRET, { id: W1, qrToken: 'enlace-viejo' }, undefined) ?? '').split(';')[0];
+    const relinked = { id: W1, qrToken: 'enlace-nuevo', shortCode: 'K7Q4M2', status: 'ACTIVE', balanceCents: 5000, blockedAt: null, mergedIntoId: null, closeRequestedAt: null, pendingAssignAt: null };
+    const { service } = make({ wallets: [relinked] });
+    expect((await service.page(CODE, cookie))?.mine).toBeNull();
+    expect(await service.mySaldoHref(CODE, cookie, 'es')).toBeNull();
+  });
+
   it('bloqueado, sumado a otro, con «Me voy» o pendiente de asignar: no se ofrece', async () => {
-    const cookie = (rememberSetCookie(SECRET, W1, undefined) ?? '').split(';')[0];
+    const cookie = (rememberSetCookie(SECRET, { id: W1, qrToken: 'q1' }, undefined) ?? '').split(';')[0];
     const base = { id: W1, qrToken: 'q1', shortCode: 'K7Q4M2', status: 'ACTIVE', balanceCents: 5000, blockedAt: null, mergedIntoId: null, closeRequestedAt: null, pendingAssignAt: null };
     for (const extra of [{ blockedAt: new Date() }, { mergedIntoId: W2 }, { closeRequestedAt: new Date() }, { pendingAssignAt: new Date() }, { status: 'REFUNDED' }]) {
       expect((await make({ wallets: [{ ...base, ...extra }] }).service.page(CODE, cookie))?.mine).toBeNull();
@@ -143,7 +153,8 @@ describe('HomeTopUpService.start', () => {
     // Sin cuarto argumento: nadie del local la crea (nadie cobra comisión).
     expect((payments.create.mock.calls[0] as unknown[]).length).toBe(3);
     expect(out).toEqual({ payToken: 'payTok', payUrl: '/pay/payTok?lang=es' });
-    expect(redis.incr).toHaveBeenCalledWith(`np:home-topup:venue:${VENUE}`);
+    // Una clave por ventana de 15 min (si su caducidad fallara, la siguiente es otra).
+    expect(redis.incr).toHaveBeenCalledWith(expect.stringMatching(new RegExp(`^np:home-topup:venue:${VENUE}:[0-9]+$`)));
   });
 
   it('el enlace ya no vale: 404 HOME_TOPUP_GONE (sin crear nada)', async () => {
@@ -192,17 +203,23 @@ describe('HomeTopUpService.start', () => {
     expect((down as ServiceUnavailableException).getResponse()).toMatchObject({ code: 'TRY_LATER' });
   });
 
-  it('20 a medias a la vez en el local (pago abierto o en el banco sin respuesta): 409 HOME_TOPUP_BUSY', async () => {
+  it('20 en curso a la vez en el local (pago abierto o en el banco, de la última hora): 409 HOME_TOPUP_BUSY', async () => {
     const full = make({ unresolved: 20 });
+    const before = Date.now();
     const err = await start(full.service).catch((e: unknown) => e);
     expect((err as ConflictException).getResponse()).toMatchObject({ code: 'HOME_TOPUP_BUSY' });
+    // Ni las ORPHAN (abandonadas a propósito no paran el enlace) ni las que lleven persona.
     expect(full.tx.payment.count).toHaveBeenCalledWith({
       where: expect.objectContaining({
         tenantId: VENUE,
+        createdByUserId: null,
         idempotencyKey: { startsWith: 'wcasa:' },
-        OR: [{ status: { in: ['AUTHORIZING', 'ORPHAN'] } }, { status: 'CREATED', qrExpiresAt: { gt: expect.any(Date) } }],
+        OR: [{ status: 'AUTHORIZING' }, { status: 'CREATED', qrExpiresAt: { gt: expect.any(Date) } }],
       }),
     });
+    const since = (full.tx.payment.count.mock.calls[0] as unknown as [{ where: { createdAt: { gte: Date } } }])[0].where.createdAt.gte;
+    expect(before - since.getTime()).toBeGreaterThanOrEqual(60 * 60_000 - 1000);
+    expect(before - since.getTime()).toBeLessThan(60 * 60_000 + 5000);
     await expect(start(make({ unresolved: 19 }).service)).resolves.toBeTruthy();
   });
 

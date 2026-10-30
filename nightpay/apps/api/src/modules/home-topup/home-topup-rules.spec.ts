@@ -10,7 +10,9 @@ import {
   isHomeTopUpKey,
   newHomeTopUpCode,
   rememberSetCookie,
-  rememberedWalletIds,
+  rememberValid,
+  rememberedEntries,
+  venueThrottleKey,
   walletWelcomeHref,
 } from './home-topup-rules';
 
@@ -78,39 +80,76 @@ describe('Idempotency-Key de la carga', () => {
 });
 
 describe('«Ya tienes un saldo aquí»: la cookie del navegador', () => {
-  it('guarda el id del saldo firmado (nunca su enlace), solo para /r y sin JS', () => {
-    const set = rememberSetCookie(SECRET, W1, undefined);
+  const w1 = { id: W1, qrToken: 'enlace-1' };
+  const w2 = { id: W2, qrToken: 'enlace-2' };
+  /** Los saldos de la cookie cuya firma vale con su enlace de ahora. */
+  const valid = (cookie: string, wallets: Array<{ id: string; qrToken: string }>, secret = SECRET) =>
+    rememberedEntries(cookie)
+      .filter((e) => wallets.some((w) => w.id === e.walletId && rememberValid(secret, e, w.qrToken)))
+      .map((e) => e.walletId);
+
+  it('guarda el id del saldo firmado con su enlace (nunca el enlace), solo para /r y sin JS', () => {
+    const set = rememberSetCookie(SECRET, w1, undefined);
     expect(set).toContain(`${REMEMBER_COOKIE}=${W1}.`);
+    expect(set).not.toContain('enlace-1');
     expect(set).toContain('Path=/r;');
     expect(set).toContain('HttpOnly');
     expect(set).toContain('SameSite=Lax');
-    expect(rememberedWalletIds(sent(set), SECRET)).toEqual([W1]);
+    expect(valid(sent(set), [w1])).toEqual([W1]);
   });
 
   it('el más reciente primero, sin repetir y como mucho unos pocos', () => {
-    const one = sent(rememberSetCookie(SECRET, W1, undefined));
-    const two = sent(rememberSetCookie(SECRET, W2, one));
-    expect(rememberedWalletIds(two, SECRET)).toEqual([W2, W1]);
-    const again = sent(rememberSetCookie(SECRET, W1, two));
-    expect(rememberedWalletIds(again, SECRET)).toEqual([W1, W2]);
+    const one = sent(rememberSetCookie(SECRET, w1, undefined));
+    const two = sent(rememberSetCookie(SECRET, w2, one));
+    expect(valid(two, [w1, w2])).toEqual([W2, W1]);
+    const again = sent(rememberSetCookie(SECRET, w1, two));
+    expect(valid(again, [w1, w2])).toEqual([W1, W2]);
     let many = again;
     for (let i = 0; i < 10; i += 1) {
-      many = sent(rememberSetCookie(SECRET, `${String(i).padStart(8, '0')}-0000-4000-8000-000000000000`, many));
+      many = sent(rememberSetCookie(SECRET, { id: `${String(i).padStart(8, '0')}-0000-4000-8000-000000000000`, qrToken: `q${i}` }, many));
     }
-    expect(rememberedWalletIds(many, SECRET)).toHaveLength(REMEMBER_MAX_WALLETS);
+    expect(rememberedEntries(many)).toHaveLength(REMEMBER_MAX_WALLETS);
+  });
+
+  it('tras un enlace nuevo del dueño (otro qrToken), la firma ya no vale', () => {
+    const cookie = sent(rememberSetCookie(SECRET, w1, undefined));
+    expect(valid(cookie, [{ id: W1, qrToken: 'enlace-nuevo' }])).toEqual([]);
   });
 
   it('una firma cambiada, de otro secreto o un id que no es de saldo: no vale', () => {
-    const good = sent(rememberSetCookie(SECRET, W1, undefined));
-    const forged = good.replace(W1, W2);
-    expect(rememberedWalletIds(forged, SECRET)).toEqual([]);
-    expect(rememberedWalletIds(good, 'otro-secreto-de-cookies-0123456789')).toEqual([]);
-    expect(rememberedWalletIds(`${REMEMBER_COOKIE}=nada.aaaaaaaaaaaaaaaaaaaaaa`, SECRET)).toEqual([]);
-    expect(rememberedWalletIds('otra=1', SECRET)).toEqual([]);
-    expect(rememberedWalletIds(undefined, SECRET)).toEqual([]);
-    // Sin secreto, nada (ni se pone ni se lee).
-    expect(rememberSetCookie('', W1, undefined)).toBeNull();
-    expect(rememberedWalletIds(good, '')).toEqual([]);
+    const good = sent(rememberSetCookie(SECRET, w1, undefined));
+    expect(valid(good.replace(W1, W2), [w1, { id: W2, qrToken: 'enlace-1' }])).toEqual([]);
+    expect(valid(good, [w1], 'otro-secreto-de-cookies-0123456789')).toEqual([]);
+    expect(rememberedEntries(`${REMEMBER_COOKIE}=nada.aaaaaaaaaaaaaaaaaaaaaa`)).toEqual([]);
+    expect(rememberedEntries(`${REMEMBER_COOKIE}=${W1}.corta`)).toEqual([]);
+    expect(rememberedEntries('otra=1')).toEqual([]);
+    expect(rememberedEntries(undefined)).toEqual([]);
+    // Sin secreto, nada (ni se pone ni vale).
+    expect(rememberSetCookie('', w1, undefined)).toBeNull();
+    expect(valid(good, [w1], '')).toEqual([]);
+  });
+
+  it('Secure salvo en desarrollo y en las pruebas (como la sesión del saldo)', () => {
+    const before = process.env.NODE_ENV;
+    try {
+      process.env.NODE_ENV = 'production';
+      expect(rememberSetCookie(SECRET, w1, undefined)).toContain('; Secure');
+      process.env.NODE_ENV = 'staging';
+      expect(rememberSetCookie(SECRET, w1, undefined)).toContain('; Secure');
+      process.env.NODE_ENV = 'test';
+      expect(rememberSetCookie(SECRET, w1, undefined)).not.toContain('Secure');
+    } finally {
+      process.env.NODE_ENV = before;
+    }
+  });
+});
+
+describe('el contador del local', () => {
+  it('una clave por ventana de 15 min: si su caducidad fallara, la ventana siguiente empieza de cero', () => {
+    const t = Date.UTC(2026, 9, 30, 22, 0, 0);
+    expect(venueThrottleKey('v1', t)).toBe(venueThrottleKey('v1', t + 14 * 60_000));
+    expect(venueThrottleKey('v1', t)).not.toBe(venueThrottleKey('v1', t + 15 * 60_000));
+    expect(venueThrottleKey('v1', t)).toMatch(/^np:home-topup:venue:v1:[0-9]+$/);
   });
 });
 
