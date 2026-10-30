@@ -11,11 +11,14 @@ import {
   useNow,
   useWakeLock,
 } from '@nightpay/ui';
+import { getUser } from '@/lib/api';
+import { clearFichaContext, saveFichaContext } from '@/lib/ficha-context';
 import { formatEur } from '@/lib/money';
 import { nfcSupported, readCard, waitingListensNfc } from '@/lib/nfc';
 import { useHealthReport } from '@/lib/connection-health';
 import { useOpenCharge } from '@/lib/open-charges';
 import { advanceStatus } from '@/lib/payment-status';
+import { fichaContextOf, iphoneFichaHint, pinDetail, showsSinMovil, SIN_MOVIL_LABEL } from '@/lib/sin-movil';
 import { useVenueMethods, useVenueNight } from '@/lib/venue-methods';
 import { useWalletChargeLive } from '../use-wallet-charge-live';
 import {
@@ -23,11 +26,13 @@ import {
   cancelCard,
   cancelSaldo,
   fetchSaldoState,
+  lookupCode,
   lookupNfc,
   payByNfc,
   payByPin,
   payFailureKind,
   type CobroCreado,
+  type SaldoRef,
   type SaldoState,
 } from '@/lib/api-cobro';
 import {
@@ -62,6 +67,7 @@ import { colorOf } from './cobrar-context';
 import { IconLock, IconQr } from './icons';
 import { NfcCard } from './NfcCard';
 import { PinScreen } from './PinScreen';
+import { SinMovil, type SaldoForPin } from './SinMovil';
 import styles from './cobrar.module.css';
 
 /** Lo que hay que enseñar de un cobro abierto (lo pone quien lo crea). */
@@ -112,7 +118,8 @@ interface Props {
 const SALDO_POLL_SLOW_MS = 4000;
 const TOAST_MS = 4000;
 
-type PinStep = { card: string; uid: string | null; code: string; reason: string | null };
+/** El PIN que se pide: de qué saldo (su ficha, su código o su pase), cómo se dice y por qué lo pide. */
+type PinStep = SaldoForPin & { reason: string | null };
 
 /**
  * Esperando (maqueta 3.1): el importe, el QR y el NFC a la vez, sin elegir
@@ -120,7 +127,11 @@ type PinStep = { card: string; uid: string | null; code: string; reason: string 
  * NFC acercado por detrás paga el cobro del saldo enlazado; gana el primero.
  * El PIN, solo si el API lo pide (3.2). El resultado a pantalla completa:
  * PAGADO (3.3) o NO PAGADO con la razón y una salida (3.4). Pantalla siempre
- * encendida. En iPhone (sin NFC en la web), solo QR.
+ * encendida. En iPhone (sin NFC en la web) la ficha la lee el propio iPhone:
+ * abre su enlace en otra pestaña, que paga este cobro con su PIN (el contexto
+ * de ficha que se guarda aquí mientras se espera). Lo raro, discreto: «Sin
+ * móvil ni ficha» (su código o su pase, y su PIN aquí). Es la única pantalla
+ * de cobrar: la pestaña «Saldo» ya no existe.
  */
 export function Esperando({ cobro, onNew, onRetry, retrying = false, retryError = null, onPaid, sectionLabel }: Props) {
   const methods = useVenueMethods();
@@ -133,6 +144,8 @@ export function Esperando({ cobro, onNew, onRetry, retrying = false, retryError 
   const [canceling, setCanceling] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [pin, setPin] = useState<PinStep | null>(null);
+  // «Sin móvil ni ficha»: su código o su pase (lo que antes solo tenía «Saldo»).
+  const [sinMovil, setSinMovil] = useState(false);
   const [reading, setReading] = useState(false);
   const [nfcRound, setNfcRound] = useState(0);
   const [paidAt, setPaidAt] = useState<Date | null>(null);
@@ -148,6 +161,10 @@ export function Esperando({ cobro, onNew, onRetry, retrying = false, retryError 
 
   const chargeId = cobro.saldo?.chargeId ?? null;
   const nfcOn = Boolean(chargeId) && methods.nfc && methods.wallet && nfcSupported();
+  // Su código o su pase, con su PIN aquí: con el cobro del saldo y el saldo encendido.
+  const sinMovilOn = showsSinMovil({ chargeId, wallet: methods.wallet });
+  // En iPhone la app no lee la ficha: el iPhone abre su enlace y esa pestaña paga este cobro.
+  const fichaHint = iphoneFichaHint({ chargeId, venueNfc: methods.nfc && methods.wallet, webNfc: nfcSupported() });
   // ¿Se ve? Inicio sigue montado (oculto) al cambiar de pestaña.
   const [shownRef, shown] = useShown();
 
@@ -222,6 +239,17 @@ export function Esperando({ cobro, onNew, onRetry, retrying = false, retryError 
   // franja de arriba lo repetiría y taparía su título.
   useHealthReport(`cobro:${cobro.card?.id ?? chargeId ?? 'x'}`, watching ? { serverDown: !reachable } : {});
 
+  // La ficha en un iPhone (?ficha=…) y el pase leído con la cámara del móvil
+  // (?pase=…) abren la app en otra pestaña: pagan ESTE cobro con su PIN
+  // mientras se espera y se ve (oculto, como el NFC: no paga lo que se acerca en otra pantalla).
+  const userId = getUser()?.id ?? null;
+  const saldoExpiresAt = cobro.saldo?.expiresAt ?? null;
+  useEffect(() => {
+    if (!userId || !chargeId || !saldoExpiresAt || !methods.wallet || !waiting || !shown) return undefined;
+    saveFichaContext(fichaContextOf({ userId, chargeId, totalCents: cobro.totalCents, what: cobro.what, expiresAt: saldoExpiresAt }));
+    return () => clearFichaContext((ctx) => ctx.kind === 'cobro' && ctx.chargeId === chargeId);
+  }, [userId, chargeId, saldoExpiresAt, methods.wallet, waiting, shown, cobro.totalCents, cobro.what]);
+
   /** El NFC acercado: pagado (hasta el tope sin PIN), su PIN o la razón del NO PAGADO. */
   const handleCard = useCallback(
     async (card: string, uid: string | null) => {
@@ -241,16 +269,27 @@ export function Esperando({ cobro, onNew, onRetry, retrying = false, retryError 
           setLocalFail({ title: 'Sin PIN', sentence: 'Este saldo aún no tiene PIN: que pague con el QR desde su móvil.' });
           return;
         }
-        setPin({ card, uid, code: w.code, reason: out.reason === 'night_cap' || out.reason === 'no_uid' ? out.message : null });
+        const reason = out.reason === 'night_cap' || out.reason === 'no_uid' ? out.message : null;
+        setPin({ ref: { card, uid }, walletCode: w.code, via: 'nfc', reason });
       } catch (err) {
-        await failFrom(err, card, uid);
+        await failFrom(err, { card, uid });
       }
     },
     // failFrom solo usa setters y el total del cobro (no cambian).
     [chargeId],
   );
 
-  async function failFrom(err: unknown, card: string, uid: string | null) {
+  /** «No le llega»: lo que tiene, por su ficha o su código (su pase no lo enseña). */
+  async function walletOf(ref: SaldoRef): Promise<{ code: string; balanceCents: number } | null> {
+    try {
+      const w = 'card' in ref ? await lookupNfc(ref.card, ref.uid) : 'code' in ref ? await lookupCode(ref.code) : null;
+      return w ? { code: w.code, balanceCents: w.balanceCents } : null;
+    } catch {
+      return null;
+    }
+  }
+
+  async function failFrom(err: unknown, ref: SaldoRef) {
     const kind = payFailureKind(err);
     if (kind === 'already_paid') {
       setToast('Ya está pagado');
@@ -266,19 +305,15 @@ export function Esperando({ cobro, onNew, onRetry, retrying = false, retryError 
       return;
     }
     const e = err instanceof CobroApiError ? err : null;
-    let wallet: { code: string; balanceCents: number } | null = null;
-    if (e?.code === 'WALLET_INSUFFICIENT') {
-      wallet = await lookupNfc(card, uid)
-        .then((w) => ({ code: w.code, balanceCents: w.balanceCents }))
-        .catch(() => null);
-    }
+    const wallet = e?.code === 'WALLET_INSUFFICIENT' ? await walletOf(ref) : null;
     setLocalFail(failReasonOf(e ?? { message: (err as Error).message }, { totalCents: cobro.totalCents, wallet }));
   }
 
   // El NFC, por detrás, mientras se espera (Android con Chrome). Mientras se
   // comprueba un pago sin respuesta, no se lee otro; con la pestaña oculta
-  // (Recepción, Saldo…), tampoco: la ficha que acercan allí no paga este cobro.
-  const listens = waitingListensNfc({ nfcOn, waiting, pinOpen: pin !== null, checking, shown });
+  // (Recepción, Cobros…), tampoco: la ficha que acercan allí no paga este
+  // cobro. Con «Sin móvil ni ficha» delante, tampoco (está tecleando su código).
+  const listens = waitingListensNfc({ nfcOn, waiting, pinOpen: pin !== null || sinMovil, checking, shown });
   useEffect(() => {
     if (!listens) return undefined;
     const ctrl = new AbortController();
@@ -436,12 +471,12 @@ export function Esperando({ cobro, onNew, onRetry, retrying = false, retryError 
           colors={stripe}
           chip={cobro.pinChip}
           amountCents={cobro.totalCents}
-          detail={`${cobro.what} · saldo ${pin.code}`}
+          detail={pinDetail(cobro.what, pin.walletCode, pin.via)}
           reason={pin.reason}
           onCancel={() => setPin(null)}
           onPin={async (value) => {
             try {
-              const state = await payByPin(chargeId, pin.card, pin.uid, value);
+              const state = await payByPin(chargeId, pin.ref, value);
               if (state.status === 'ACCEPTED') {
                 setPin(null);
                 setSaldo(state);
@@ -453,10 +488,28 @@ export function Esperando({ cobro, onNew, onRetry, retrying = false, retryError 
               // PIN malo (quedan intentos): se queda en el teclado con el aviso.
               if (e && e.status === 422 && !/bloquead/i.test(e.message)) return e.message;
               setPin(null);
-              await failFrom(err, pin.card, pin.uid);
+              await failFrom(err, pin.ref);
               return null;
             }
           }}
+        />
+      </div>
+    );
+  }
+
+  if (sinMovil && chargeId) {
+    return (
+      <div className={styles.overlay} data-charge-open="">
+        <SinMovil
+          chargeId={chargeId}
+          amountCents={cobro.totalCents}
+          what={cobro.what}
+          colors={stripe}
+          onReady={(found) => {
+            setSinMovil(false);
+            setPin({ ...found, reason: null });
+          }}
+          onBack={() => setSinMovil(false)}
         />
       </div>
     );
@@ -471,6 +524,8 @@ export function Esperando({ cobro, onNew, onRetry, retrying = false, retryError 
         checking={checking}
         toast={toast}
         bank={{ status: cobro.card ? cardStatus : null, attemptIso, seenAt: authorizingSeenAt }}
+        fichaHint={fichaHint}
+        onSinMovil={sinMovilOn && !checking ? () => setSinMovil(true) : undefined}
       >
         {confirmingCancel ? (
           <div className={styles.cancelAsk} role="alertdialog" aria-label={CANCEL_WHILE_PAYING_TEXT}>
@@ -506,6 +561,8 @@ function Waiting({
   checking,
   toast,
   bank,
+  fichaHint = null,
+  onSinMovil,
   children,
 }: {
   cobro: CobroAbierto;
@@ -516,6 +573,10 @@ function Waiting({
   toast: string | null;
   /** Con tarjeta: su estado y desde cuándo espera al banco (servidor o, si aún no lo dice, aquí). */
   bank?: { status: PaymentStatus | null; attemptIso: string | null; seenAt: number | null };
+  /** iPhone: cómo se paga con la ficha (la app no la lee; el iPhone abre su enlace). */
+  fichaHint?: string | null;
+  /** «Sin móvil ni ficha»: su código o su pase y su PIN aquí. Sin él, no se ofrece. */
+  onSinMovil?: () => void;
   children: ReactNode;
 }) {
   const [receivedAt] = useState(() => Date.now());
@@ -607,6 +668,13 @@ function Waiting({
             </div>
           ) : null}
         </div>
+        {fichaHint ? <p className={styles.altHint}>{fichaHint}</p> : null}
+        {/* Lo raro (antes, solo en «Saldo»): sin móvil ni ficha, su código o su pase y su PIN aquí. */}
+        {onSinMovil ? (
+          <button type="button" className={styles.altLink} onClick={onSinMovil}>
+            {SIN_MOVIL_LABEL}
+          </button>
+        ) : null}
         {nfcOn && pinExpected(cobro.totalCents, night) ? (
           <p className={`${styles.warnline} ${styles.waitPin}`}>
             <IconLock />
