@@ -45,9 +45,11 @@ describe('renderWalletPage con la bienvenida del saldo cargado desde casa', () =
     expect(html).toContain("if(C.paid||C.welcome){try{history.replaceState(null,'',C.base+'?lang='+C.lang);}catch(e){}}");
   });
 
-  it('sin bienvenida, el «Pagado» de «Recargar» como siempre', () => {
+  it('sin bienvenida, el «Pagado» de «Recargar» como siempre (y sin el JS del comprobante)', () => {
     const html = renderWalletPage('tok', 'es', state, { topUp, paid: proof });
     expect(html).not.toContain('id="welcome"');
+    expect(html).not.toContain('function rcpDraw(');
+    expect(renderWalletPage('tok', 'es', state, { topUp, paid: proof, welcome: true, fichaQr: SVG })).toContain('function rcpDraw(');
     expect(html.indexOf('id="proof"')).toBeGreaterThan(html.indexOf('id="viewTop"'));
     expect(config(html)).toMatchObject({ paid: true, welcome: false });
   });

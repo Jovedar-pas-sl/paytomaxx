@@ -1,7 +1,7 @@
-import { Body, Controller, Get, Header, Headers, HttpCode, Inject, Param, Post, Query, Res } from '@nestjs/common';
-import type { FastifyReply } from 'fastify';
+import { Body, Controller, Get, Header, Headers, HttpCode, Inject, Param, Post, Query, Req, Res } from '@nestjs/common';
+import type { FastifyReply, FastifyRequest } from 'fastify';
 import { Public } from '../../common/decorators/public.decorator';
-import { IpRateLimit } from '../../common/guards/ip-rate-limit.guard';
+import { IpRateLimit, clientIp } from '../../common/guards/ip-rate-limit.guard';
 import { customerLanguage, resolveLanguage } from '../payments/customer-lang';
 import { HOME_TOPUP_PAGE_LIMIT, HOME_TOPUP_START_LIMIT } from './home-topup-rules';
 import { renderHomeTopUpGone, renderHomeTopUpPage } from './home-topup-page';
@@ -13,7 +13,8 @@ import { HomeTopUpService } from './home-topup.service';
  *                              un código cambiado: 404, la misma página sin pistas.
  *  - POST /r/:code/topup     → crea la carga (un saldo nuevo) y dice a dónde ir a
  *                              pagarla (/pay/:token). Freno por IP (y por IP y
- *                              local) aquí y por local en HomeTopUpService.
+ *                              local) aquí; por local y el tope de 24 h por IP,
+ *                              en HomeTopUpService.
  *  - GET  /r/:code/mi-saldo  → «Recargar mi saldo»: a la página del saldo que
  *                              recuerda este navegador, en «Recargar» (303).
  * El enlace es público a propósito (decisión del dueño): cualquiera con él
@@ -68,9 +69,12 @@ export class PublicHomeTopUpController {
     @Param('code') code: string,
     @Body() body: { amountCents?: unknown; key?: unknown; lang?: unknown } | undefined,
     @Headers('cookie') cookies: string | undefined,
+    @Req() req: FastifyRequest,
   ): Promise<{ payUrl: string }> {
     const lang = resolveLanguage(typeof body?.lang === 'string' ? body.lang : undefined, cookies);
-    const started = await this.homeTopUps.start(code, { amountCents: body?.amountCents, key: body?.key, lang });
+    // La IP de fiar (la misma del freno de las IP), para el tope de 24 h.
+    const ip = clientIp(req);
+    const started = await this.homeTopUps.start(code, { amountCents: body?.amountCents, key: body?.key, lang, ip });
     return { payUrl: started.payUrl };
   }
 }

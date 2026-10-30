@@ -38,7 +38,11 @@ import {
   topUpFeeTable,
   type TopUpVenueState,
 } from '../wallets/wallet-topup-rules';
+import { rateLimitIpKey } from '../../common/http/client-ip';
 import {
+  HOME_TOPUP_DAY_S,
+  HOME_TOPUP_IP_DAY_MAX,
+  HOME_TOPUP_IP_VENUE_DAY_MAX,
   HOME_TOPUP_KEY_PREFIX,
   HOME_TOPUP_UNRESOLVED_WINDOW_MS,
   HOME_TOPUP_VENUE_MAX,
@@ -46,6 +50,7 @@ import {
   HOME_TOPUP_VENUE_WINDOW_S,
   homeTopUpKey,
   homeTopUpProblem,
+  ipDayKeys,
   isHomeTopUpCode,
   rememberValid,
   rememberedEntries,
@@ -91,6 +96,8 @@ export function homeTopUpGone(): NotFoundException {
 
 const OPEN_STATUSES = new Set(['CREATED', 'AUTHORIZING', 'AUTHORIZED']);
 const LIVE = new Set(['ACTIVE', 'DEPLETED']);
+/** Las claves del tope de 24 h de una IP (en este local y en todos). */
+type IpDayKeys = ReturnType<typeof ipDayKeys>;
 
 /**
  * «Cargar saldo antes de llegar»: la página del enlace del local y la carga.
@@ -171,8 +178,11 @@ export class HomeTopUpService {
     return mine ? `/w/${encodeURIComponent(mine.qrToken)}?lang=${lang}#recargar` : null;
   }
 
-  /** Crea la carga (un saldo nuevo de este local) y dice a dónde ir a pagarla. */
-  async start(code: string, input: { amountCents: unknown; key: unknown; lang: PayLanguage }): Promise<HomeTopUpStarted> {
+  /** Crea la carga (un saldo nuevo de este local) y dice a dónde ir a pagarla. `ip`: la del cliente (clientIp), para el tope de 24 h. */
+  async start(
+    code: string,
+    input: { amountCents: unknown; key: unknown; lang: PayLanguage; ip: string | null },
+  ): Promise<HomeTopUpStarted> {
     const venue = await this.venueByCode(code);
     if (!venue) throw homeTopUpGone();
     const amountCents = parseTopUpAmount(input.amountCents);
@@ -191,22 +201,29 @@ export class HomeTopUpService {
     const replay = await this.prisma.asSystem((tx) =>
       tx.payment.findUnique({ where: { tenantId_idempotencyKey: { tenantId: venue.id, idempotencyKey: key } }, select: { id: true } }),
     );
-    if (!replay) {
-      await this.throttleVenue(venue.id);
-      await this.assertVenueUnresolved(venue.id);
+    // Un hueco del tope de 24 h de esta IP: si la carga no llega a empezar, se devuelve.
+    const day = replay ? null : await this.takeIpDay(venue.id, input.ip);
+    try {
+      if (!replay) {
+        await this.throttleVenue(venue.id);
+        await this.assertVenueUnresolved(venue.id);
+      }
+      // Sin propina (la página de pago no la ofrece en recargas) y sin persona: nadie cobra comisión.
+      const dto: CreatePaymentDto = {
+        amountCents,
+        currency: 'EUR',
+        terminalExternalId: venue.terminalExternalId ?? '',
+        wallet: { create: true },
+      };
+      const created = await this.payments.create(venue.id, key, dto);
+      const stale = !OPEN_STATUSES.has(created.status) || (created.status === 'CREATED' && Date.parse(created.qrExpiresAt) <= Date.now());
+      if (stale) throw new ConflictException({ message: 'Esta carga ya no vale: vuelve a pulsar el botón.', code: 'WALLET_TOPUP_STALE' });
+      this.logger.log(`Carga desde casa: venue=${venue.id} payment=${created.id} wallet=${created.walletId ?? '-'} amount=${amountCents}c`);
+      return { payToken: created.qrToken, payUrl: `/pay/${encodeURIComponent(created.qrToken)}?lang=${input.lang}` };
+    } catch (err) {
+      if (day) await this.giveBackIpDay(day);
+      throw err;
     }
-    // Sin propina (la página de pago no la ofrece en recargas) y sin persona: nadie cobra comisión.
-    const dto: CreatePaymentDto = {
-      amountCents,
-      currency: 'EUR',
-      terminalExternalId: venue.terminalExternalId ?? '',
-      wallet: { create: true },
-    };
-    const created = await this.payments.create(venue.id, key, dto);
-    const stale = !OPEN_STATUSES.has(created.status) || (created.status === 'CREATED' && Date.parse(created.qrExpiresAt) <= Date.now());
-    if (stale) throw new ConflictException({ message: 'Esta carga ya no vale: vuelve a pulsar el botón.', code: 'WALLET_TOPUP_STALE' });
-    this.logger.log(`Carga desde casa: venue=${venue.id} payment=${created.id} wallet=${created.walletId ?? '-'} amount=${amountCents}c`);
-    return { payToken: created.qrToken, payUrl: `/pay/${encodeURIComponent(created.qrToken)}?lang=${input.lang}` };
   }
 
   // ─── Auxiliares ────────────────────────────────────────────────────
@@ -259,25 +276,68 @@ export class HomeTopUpService {
     });
   }
 
+  /**
+   * El tope de 24 h por IP (home-topup-rules): HOME_TOPUP_IP_VENUE_DAY_MAX
+   * cargas nuevas en este local y HOME_TOPUP_IP_DAY_MAX en todos. Coge un
+   * hueco y devuelve sus claves; si se pasa, lo devuelve y dice que no. Sin IP
+   * de fiar no se cuenta (como el freno de las IP); sin Redis no se carga (503).
+   */
+  private async takeIpDay(venueId: string, ip: string | null): Promise<IpDayKeys | null> {
+    if (!ip) return null;
+    const keys = ipDayKeys(rateLimitIpKey(ip), venueId);
+    const inVenue = await this.count(keys.venue, HOME_TOPUP_DAY_S);
+    const inAll = await this.count(keys.all, HOME_TOPUP_DAY_S);
+    if (inVenue > HOME_TOPUP_IP_VENUE_DAY_MAX || inAll > HOME_TOPUP_IP_DAY_MAX) {
+      await this.giveBackIpDay(keys);
+      this.logger.warn(`Carga desde casa: tope de 24 h de la IP ${ip} (local ${inVenue}/${HOME_TOPUP_IP_VENUE_DAY_MAX}, todos ${inAll}/${HOME_TOPUP_IP_DAY_MAX})`);
+      throw new HttpException(
+        {
+          message: 'Has hecho muchas cargas hoy desde esta conexión. Prueba con los datos del móvil o pide tu saldo en recepción.',
+          code: 'HOME_TOPUP_DAILY',
+        },
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
+    }
+    return keys;
+  }
+
+  /**
+   * Devuelve el hueco del día de una carga que no llegó a empezar (parada por
+   * el tope, el freno del local, las que hay en curso o un fallo al crearla):
+   * solo cuentan las que empiezan. Si Redis falla aquí, se queda contada.
+   */
+  private async giveBackIpDay(keys: IpDayKeys): Promise<void> {
+    try {
+      await this.redis.decr(keys.venue);
+      await this.redis.decr(keys.all);
+    } catch (err) {
+      this.logger.warn(`Carga desde casa: no se pudo devolver el hueco del día de la IP: ${(err as Error).message}`);
+    }
+  }
+
   /** Como mucho HOME_TOPUP_VENUE_MAX cargas empezadas cada 15 min en el local. Sin Redis, no (503). */
   private async throttleVenue(venueId: string): Promise<void> {
-    const key = venueThrottleKey(venueId);
-    let count: number;
+    const count = await this.count(venueThrottleKey(venueId), HOME_TOPUP_VENUE_WINDOW_S);
+    if (count > HOME_TOPUP_VENUE_MAX) {
+      throw new HttpException(
+        { message: 'Ahora hay muchas cargas a la vez en este local: prueba en unos minutos.', code: 'HOME_TOPUP_BUSY' },
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
+    }
+  }
+
+  /** Suma una carga al contador (con caducidad en la primera). Sin Redis no se carga: 503 (fail-closed, como «Recargar»). */
+  private async count(key: string, ttlS: number): Promise<number> {
     try {
-      count = await this.redis.incr(key);
-      if (count === 1) await this.redis.expire(key, HOME_TOPUP_VENUE_WINDOW_S);
+      const count = await this.redis.incr(key);
+      if (count === 1) await this.redis.expire(key, ttlS);
+      return count;
     } catch (err) {
       this.logger.warn(`Carga desde casa sin Redis (no se deja cargar): ${(err as Error).message}`);
       throw new ServiceUnavailableException({
         message: 'Ahora no se puede cargar saldo: inténtalo en unos minutos.',
         code: 'TRY_LATER',
       });
-    }
-    if (count > HOME_TOPUP_VENUE_MAX) {
-      throw new HttpException(
-        { message: 'Ahora hay muchas cargas a la vez en este local: prueba en unos minutos.', code: 'HOME_TOPUP_BUSY' },
-        HttpStatus.TOO_MANY_REQUESTS,
-      );
     }
   }
 

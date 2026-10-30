@@ -50,8 +50,25 @@ export interface HomeTopUpText {
   copied: string;
   fichaQrTitle: string;
   fichaQrHint: string;
+  /** «Guardar comprobante» (bienvenida del saldo nuevo): una imagen con el saldo, su código y el QR de la ficha. */
+  receiptSave: string;
+  receiptHint: string;
+  receiptSaved: string;
+  receiptFail: string;
+  /** Si el móvil no la deja guardar directamente (el navegador de Instagram…): la imagen en grande. */
+  receiptHold: string;
+  receiptClose: string;
+  /** El nombre del archivo, sin acentos ni espacios. */
+  receiptFile: string;
+  /** Lo que pone la imagen. */
+  receiptKick: string;
+  receiptSaldo: string;
+  receiptShow: string;
+  receiptShowNoQr: string;
+  /** Con el QR: con él dan la primera ficha, y la imagen se queda guardada. */
+  receiptPrivate: string;
   /** Los `code` de los errores de esta función (los demás, los de siempre: client-errors.ts). */
-  errors: { HOME_TOPUP_GONE: string; HOME_TOPUP_BUSY: string; HOME_TOPUP_UNAVAILABLE: string };
+  errors: { HOME_TOPUP_GONE: string; HOME_TOPUP_BUSY: string; HOME_TOPUP_UNAVAILABLE: string; HOME_TOPUP_DAILY: string };
 }
 
 const ES: HomeTopUpText = {
@@ -87,10 +104,23 @@ const ES: HomeTopUpText = {
   copied: '✓ Enlace copiado',
   fichaQrTitle: 'Tu ficha en recepción',
   fichaQrHint: 'Enseña este QR en recepción y te dan tu ficha para pagar acercándola.',
+  receiptSave: 'Guardar comprobante',
+  receiptHint: 'Guárdalo en el móvil y enséñalo en recepción al llegar.',
+  receiptSaved: '✓ Comprobante guardado',
+  receiptFail: 'No se ha podido crear la imagen. Haz una captura de pantalla.',
+  receiptHold: 'Mantén pulsada la imagen y elige «Guardar imagen».',
+  receiptClose: 'Cerrar',
+  receiptFile: 'comprobante',
+  receiptKick: 'Saldo cargado',
+  receiptSaldo: 'Tu saldo',
+  receiptShow: 'Enséñalo en recepción y te dan tu ficha.',
+  receiptShowNoQr: 'Al llegar, paga con tu móvil o dile este código en recepción.',
+  receiptPrivate: 'Es personal: no lo compartas.',
   errors: {
     HOME_TOPUP_GONE: 'Este enlace ya no vale. Pide al local su enlace de ahora.',
     HOME_TOPUP_BUSY: 'Ahora hay muchas cargas a la vez en este local. Prueba en unos minutos.',
     HOME_TOPUP_UNAVAILABLE: 'Ahora no se puede cargar saldo desde aquí. Pregunta en el local.',
+    HOME_TOPUP_DAILY: 'Has hecho muchas cargas hoy desde esta conexión. Prueba con los datos del móvil o pide tu saldo en recepción.',
   },
 };
 
@@ -127,10 +157,23 @@ const EN: HomeTopUpText = {
   copied: '✓ Link copied',
   fichaQrTitle: 'Your NFC tag at reception',
   fichaQrHint: 'Show this QR at reception and they will give you your NFC tag to pay by tapping it.',
+  receiptSave: 'Save receipt',
+  receiptHint: 'Keep it on your phone and show it at reception when you arrive.',
+  receiptSaved: '✓ Receipt saved',
+  receiptFail: 'The image couldn’t be created. Take a screenshot instead.',
+  receiptHold: 'Press and hold the image and choose “Save image”.',
+  receiptClose: 'Close',
+  receiptFile: 'receipt',
+  receiptKick: 'Balance loaded',
+  receiptSaldo: 'Your balance',
+  receiptShow: 'Show it at reception to get your NFC tag.',
+  receiptShowNoQr: 'When you arrive, pay with your phone or give this code at reception.',
+  receiptPrivate: 'It’s personal: don’t share it.',
   errors: {
     HOME_TOPUP_GONE: 'This link is no longer valid. Ask the venue for its current link.',
     HOME_TOPUP_BUSY: 'There are many loads at once at this venue right now. Try again in a few minutes.',
     HOME_TOPUP_UNAVAILABLE: 'You can’t load a balance from here right now. Ask at the venue.',
+    HOME_TOPUP_DAILY: 'You’ve started a lot of loads from this connection today. Try your mobile data or ask for your balance at reception.',
   },
 };
 
@@ -167,10 +210,23 @@ const FR: HomeTopUpText = withFrenchSpacing({
   copied: '✓ Lien copié',
   fichaQrTitle: 'Votre badge NFC à l’accueil',
   fichaQrHint: 'Montrez ce QR à l’accueil et on vous donne votre badge NFC pour payer en l’approchant.',
+  receiptSave: 'Enregistrer le reçu',
+  receiptHint: 'Gardez-le sur votre téléphone et montrez-le à l’accueil en arrivant.',
+  receiptSaved: '✓ Reçu enregistré',
+  receiptFail: 'Impossible de créer l’image. Faites une capture d’écran.',
+  receiptHold: 'Appuyez longuement sur l’image et choisissez « Enregistrer l’image ».',
+  receiptClose: 'Fermer',
+  receiptFile: 'recu',
+  receiptKick: 'Solde chargé',
+  receiptSaldo: 'Votre solde',
+  receiptShow: 'Montrez-le à l’accueil pour recevoir votre badge NFC.',
+  receiptShowNoQr: 'En arrivant, payez avec votre téléphone ou donnez ce code à l’accueil.',
+  receiptPrivate: 'Il est personnel : ne le partagez pas.',
   errors: {
     HOME_TOPUP_GONE: 'Ce lien n’est plus valable. Demandez à l’établissement son lien actuel.',
     HOME_TOPUP_BUSY: 'Il y a beaucoup de chargements en même temps ici. Réessayez dans quelques minutes.',
     HOME_TOPUP_UNAVAILABLE: 'Impossible de charger le solde d’ici pour l’instant. Renseignez-vous sur place.',
+    HOME_TOPUP_DAILY: 'Vous avez fait beaucoup de chargements aujourd’hui depuis cette connexion. Essayez avec vos données mobiles ou demandez votre solde à l’accueil.',
   },
 });
 
@@ -207,14 +263,27 @@ const PT: HomeTopUpText = {
   copied: '✓ Ligação copiada',
   fichaQrTitle: 'A sua tag NFC na receção',
   fichaQrHint: 'Mostre este QR na receção e recebe a sua tag NFC para pagar aproximando-a.',
+  receiptSave: 'Guardar comprovativo',
+  receiptHint: 'Guarde-o no telemóvel e mostre-o na receção quando chegar.',
+  receiptSaved: '✓ Comprovativo guardado',
+  receiptFail: 'Não foi possível criar a imagem. Faça uma captura de ecrã.',
+  receiptHold: 'Mantenha a imagem premida e escolha «Guardar imagem».',
+  receiptClose: 'Fechar',
+  receiptFile: 'comprovativo',
+  receiptKick: 'Saldo carregado',
+  receiptSaldo: 'O seu saldo',
+  receiptShow: 'Mostre-o na receção para receber a sua tag NFC.',
+  receiptShowNoQr: 'Quando chegar, pague com o telemóvel ou diga este código na receção.',
+  receiptPrivate: 'É pessoal: não o partilhe.',
   errors: {
     HOME_TOPUP_GONE: 'Esta ligação já não é válida. Peça ao estabelecimento a ligação atual.',
     HOME_TOPUP_BUSY: 'Há muitos carregamentos ao mesmo tempo neste estabelecimento. Tente daqui a uns minutos.',
     HOME_TOPUP_UNAVAILABLE: 'Agora não é possível carregar saldo a partir daqui. Pergunte no local.',
+    HOME_TOPUP_DAILY: 'Fez muitos carregamentos hoje a partir desta ligação. Experimente com os dados móveis ou peça o seu saldo na receção.',
   },
 };
 
 export const HOME_TOPUP_TEXT: Readonly<Record<PayLanguage, HomeTopUpText>> = Object.freeze({ es: ES, en: EN, fr: FR, pt: PT });
 
 /** Los `code` de error propios de esta función. */
-export const HOME_TOPUP_ERROR_CODES = ['HOME_TOPUP_GONE', 'HOME_TOPUP_BUSY', 'HOME_TOPUP_UNAVAILABLE'] as const;
+export const HOME_TOPUP_ERROR_CODES = ['HOME_TOPUP_GONE', 'HOME_TOPUP_BUSY', 'HOME_TOPUP_UNAVAILABLE', 'HOME_TOPUP_DAILY'] as const;

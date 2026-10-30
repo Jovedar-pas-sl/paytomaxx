@@ -63,6 +63,13 @@ export interface CobroRow {
   authCode: string | null;
   providerTxId: string | null;
   walletId: string | null;
+  /**
+   * Carga de un saldo nuevo que hizo el cliente con el enlace del local
+   * («Cargar saldo antes de llegar»): «Desde casa» en la columna «Origen». Lo
+   * decide reports.service (withOrigin) y la Idempotency-Key no sigue en la
+   * fila. Solo va con true: sin el campo, no es una de ellas.
+   */
+  fromHome?: boolean;
   creatorName: string | null;
   creatorEmail: string | null;
   /** Chica a la que va la parte del cobro (normalmente quien lo cobró). */

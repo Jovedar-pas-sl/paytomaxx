@@ -12,9 +12,11 @@ import { FICHA_QR_PROOF_RE, fichaQrContent } from '@nightpay/contracts';
  * encargado). Una ficha con saldo paga sin PIN los importes pequeños («Noche
  * fácil»): por eso la prueba.
  *
- * La prueba no caduca (no hay nada que guardar), pero solo sirve para la
- * PRIMERA ficha del saldo (después, recepción ya no da otra con ella) y deja
- * de valer si el dueño le da un enlace nuevo (relink).
+ * La prueba no caduca, pero solo sirve para la PRIMERA ficha del saldo
+ * (después, recepción ya no da otra con ella) y deja de valer si el dueño le
+ * da un enlace nuevo (relink). El cliente puede guardarla en una imagen
+ * («Guardar comprobante», wallet-welcome-view.ts): por eso la imagen dice
+ * «Es personal: no lo compartas».
  */
 
 const PROOF_LENGTH = 22;

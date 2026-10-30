@@ -306,8 +306,8 @@ describe('GET /pay/:token — página de pago', () => {
     const { reply, sent } = fakeReply();
     await controller.payPage('qr-token-1', 'es', undefined, IPHONE, reply);
     expect(sent.status).toBe(200);
-    expect(sent.body).toMatch(/100\s€/);
-    expect(sent.body).not.toContain('100,00');
+    // Lo que se cobra va con céntimos, como en una página de pago (las propinas, sin ellos).
+    expect(sent.body).toMatch(/<span id="big">100,00\s€<\/span>/);
     expect(sent.body).toContain('Sin propina');
     expect(sent.body).toContain('value="1000"');
     expect(sent.body).toContain('method="POST" action="/pay/qr-token-1"');
@@ -362,9 +362,15 @@ describe('GET /pay/:token — página de pago', () => {
     expect(html).not.toContain('Pagar con Google Pay');
     // Dos botones del mismo formulario (funcionan sin JS): el principal y la tarjeta.
     expect(html.match(/type="submit"/g)).toHaveLength(2);
-    expect(html).toMatch(/<button class="btn" id="payBtn" type="submit" name="method" value="wallet">Pagar 100\s€<\/button>/);
+    expect(html).toMatch(/<button class="btn" id="payBtn" type="submit" name="method" value="wallet"><svg class="ic"[^>]*>.*?<\/svg><span class="lbl">Pagar 100,00\s€<\/span><\/button>/);
     expect(html).toContain('Se abre Apple Pay');
-    expect(html).toContain('<button class="btn alt" id="cardBtn" type="submit" name="method" value="card">Pagar con tarjeta</button>');
+    expect(html).toMatch(/<button class="btn alt" id="cardBtn" type="submit" name="method" value="card"><svg class="ic"[^>]*>.*?<\/svg><span>Pagar con tarjeta<\/span><\/button>/);
+    // El de Apple Pay lo pinta Safari, y solo si el móvil puede pagar con Apple Pay.
+    expect(html).toContain('-webkit-appearance:-apple-pay-button');
+    expect(html).toContain("ApplePaySession.canMakePayments()&&window.CSS&&CSS.supports('-webkit-appearance','-apple-pay-button')");
+    // «o» entre la cartera y la tarjeta, y «Pago seguro» con Visa y Mastercard.
+    expect(html).toContain('<p class="or" aria-hidden="true">o</p>');
+    expect(html).toContain('<p class="trust">Pago seguro<span class="marks" role="img" aria-label="Visa, Mastercard">');
     expect(html.indexOf('id="payBtn"')).toBeLessThan(html.indexOf('id="cardBtn"'));
     // El botón dice lo que hace mientras abre el pago (no solo se apaga).
     expect(html).toContain('Abriendo Apple Pay…');
@@ -493,7 +499,7 @@ describe('GET /pay/:token — página de pago', () => {
     const chosen = fakeReply();
     await controller.payPage('qr-token-1', 'fr', undefined, IPHONE, chosen.reply);
     expect(chosen.sent.body).toContain('<html lang="fr">');
-    expect(chosen.sent.body).toMatch(/Payer 100\s€/);
+    expect(chosen.sent.body).toMatch(/Payer 100,00\s€/);
     expect(chosen.sent.body).toContain('Apple Pay va s’ouvrir');
     expect(chosen.sent.body).toContain('Payer par carte');
     expect(chosen.sent.headers['Set-Cookie']).toMatch(/^np_lang=fr; Path=\/; Max-Age=43200; SameSite=Lax/);

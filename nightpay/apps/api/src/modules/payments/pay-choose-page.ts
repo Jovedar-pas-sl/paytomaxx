@@ -2,6 +2,7 @@ import { MONEY_JS, clientMoney, escapeHtml, jsConfig } from './club-ui';
 import type { PayLanguage } from './customer-lang';
 import type { PayDevice } from './pay-device';
 import { PAY_TEXT, type PayText } from './pay-i18n';
+import { CARD_IC, CARD_MARKS, GPAY_MARK, LOCK_IC, PAY_MARKS_CSS } from './pay-marks';
 import type { PayRedirect } from './pay-redirect';
 import { tipPresetsFor } from './tip';
 
@@ -57,7 +58,7 @@ export const CHOOSE_CSS = `
 .venue{color:var(--fg);font-weight:700;font-size:1rem;letter-spacing:.01em}
 .concept{color:var(--mute);font-size:.95rem;max-width:22rem}
 .head .kick{margin-top:.35rem}
-.amount{font-size:clamp(3.1rem,17vw,4.4rem);font-weight:800;letter-spacing:-.035em;line-height:1;color:var(--fg)}
+.amount{font-size:clamp(2.6rem,14vw,4rem);font-weight:800;letter-spacing:-.035em;line-height:1;color:var(--fg)}
 .meta{display:flex;flex-wrap:wrap;justify-content:center;gap:.15rem .9rem;font-size:.85rem;color:var(--dim)}
 .meta b{color:var(--mute)}
 form{width:100%;display:flex;flex-direction:column;gap:1.1rem}
@@ -66,7 +67,7 @@ legend{width:100%;margin:0 0 .6rem;padding:0;color:var(--fg);font-weight:700;fon
 .tipgrid{display:grid;grid-template-columns:1.35fr 1fr 1fr 1fr;gap:.5rem}
 .tipgrid label{display:block;position:relative}
 .tipgrid input{position:absolute;opacity:0;width:1px;height:1px}
-.tipgrid span{position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:.05rem;min-height:3.5rem;padding:.4rem .25rem;border:1.5px solid var(--line-hi);border-radius:16px;background:var(--surface-2);font-family:var(--num);font-size:1.1rem;font-weight:800;color:var(--fg);cursor:pointer;line-height:1.12;text-align:center;overflow-wrap:anywhere;transition:transform .15s var(--ease)}
+.tipgrid span{position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:.05rem;min-height:3.5rem;padding:.4rem .25rem;border:1.5px solid var(--line-hi);border-radius:var(--r-btn);background:var(--surface-2);font-family:var(--num);font-size:1.1rem;font-weight:800;color:var(--fg);cursor:pointer;line-height:1.12;text-align:center;overflow-wrap:anywhere;transition:transform .15s var(--ease)}
 .tipgrid span.word{font-family:var(--sys);font-size:.9rem}
 .tipgrid small{font-family:var(--sys);font-size:.78rem;font-weight:700;color:var(--mute)}
 .tipgrid input:checked+span{border-color:var(--cream);background:var(--cream);color:var(--ink)}
@@ -78,7 +79,7 @@ legend{width:100%;margin:0 0 .6rem;padding:0;color:var(--fg);font-weight:700;fon
 .other>p{grid-column:1/-1}
 .other label{font-weight:700;color:var(--fg)}
 .eur{display:flex;align-items:center;gap:.4rem}
-.eur input{width:6.5rem;min-height:3.25rem;font-family:var(--num);font-size:1.7rem;font-weight:800;text-align:center;border-radius:16px;border:2px solid var(--line-hi);background:var(--surface-2);color:var(--fg)}
+.eur input{width:6.5rem;min-height:3.25rem;font-family:var(--num);font-size:1.7rem;font-weight:800;text-align:center;border-radius:var(--r-btn);border:2px solid var(--line-hi);background:var(--surface-2);color:var(--fg)}
 .eur input:focus-visible{outline:3px solid var(--fg);outline-offset:2px;border-color:var(--fg)}
 .eur input[aria-invalid=true]{border-color:var(--err)}
 .eur span{font-size:1.4rem;font-weight:800}
@@ -88,25 +89,28 @@ ${BREAKDOWN_CSS}.warn{border:1px solid rgb(255 176 32/.55);border-radius:18px;ba
 .paybar{position:sticky;bottom:0;z-index:5;margin:0 -1rem;padding:.6rem 1rem calc(.7rem + env(safe-area-inset-bottom));background:var(--bg)}
 .paybar::before{content:'';position:absolute;left:0;right:0;bottom:100%;height:.75rem;background:linear-gradient(to top,var(--bg),rgb(15 17 18/0));pointer-events:none}
 .paybar>div{display:flex;flex-direction:column;gap:.5rem;text-align:center}
-.paybar .btn{min-height:3.75rem;font-size:1.25rem}
+.paybar .btn{min-height:3.5rem;font-size:1.125rem}
 .paybar .alts{display:grid;grid-template-columns:1fr;gap:.5rem}
-.paybar .alts.two{grid-template-columns:1fr 1fr}
-.paybar .alts .btn{min-height:3.25rem;font-size:.98rem;padding:.55rem .7rem}
+.paybar .alts .btn{min-height:3.25rem;font-size:1rem;padding:.55rem .7rem}
 .methods{font-size:.85rem;color:var(--mute)}
 .nofee{font-size:.85rem;color:var(--mute)}
-.btn.busy{cursor:progress}
-.btn.busy::before{content:'';flex:none;width:1.1rem;height:1.1rem;border-radius:50%;border:3px solid currentColor;border-right-color:transparent;animation:np-spin .9s linear infinite}
-@keyframes np-spin{to{transform:rotate(360deg)}}
-@media (prefers-reduced-motion:reduce){.btn.busy::before{animation:none;border-right-color:currentColor;opacity:.6}}
 .btn[aria-disabled=true]:not(.busy){opacity:.55}
-/* Móviles bajos (360×740 y similares): todo más compacto para que el desglose no quede detrás de los botones; los toques siguen ≥ 48 px. */
+.btn.gpay{background:#fff;border-color:#fff;color:#1f1f1f;box-shadow:0 1px 2px rgb(0 0 0/.35)}
+.btn.gpay .gmark{display:block;width:auto;height:1.55rem}
+@supports (-webkit-appearance:-apple-pay-button){
+.btn.apay{-webkit-appearance:-apple-pay-button;-apple-pay-button-type:plain;-apple-pay-button-style:white;height:3.5rem;padding:0;border:0;border-radius:var(--r-btn);box-shadow:none;filter:none}
+.btn.apay>*{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+}
+.or{display:flex;align-items:center;gap:.75rem;font-size:.8rem;line-height:1;color:var(--dim)}
+.or::before,.or::after{content:'';flex:1;height:1px;background:var(--line)}
+${PAY_MARKS_CSS}/* Móviles bajos (360×740 y similares): todo más compacto para que el desglose no quede detrás de los botones; los toques siguen ≥ 48 px. */
 @media (max-height:780px){
 .top{min-height:3.25rem;padding-top:calc(.25rem + env(safe-area-inset-top));padding-bottom:.25rem}
 .pay{gap:.8rem}
 form{gap:.8rem}
 .head{gap:.15rem}
 .head .kick{margin-top:.15rem}
-.amount{font-size:clamp(2.6rem,14vw,3.4rem)}
+.amount{font-size:clamp(2.3rem,12vw,3.1rem)}
 .meta{font-size:.8rem}
 legend{margin-bottom:.45rem;font-size:1rem}
 .tipgrid span{min-height:3rem}
@@ -118,9 +122,10 @@ legend{margin-bottom:.45rem;font-size:1rem}
 .brk .why{font-size:.8rem}
 .paybar{padding-top:.45rem}
 .paybar>div{gap:.3rem}
-.paybar .btn{min-height:3.25rem;font-size:1.15rem}
+.paybar .btn{min-height:3.25rem;font-size:1.05rem}
+.paybar .btn.apay{height:3.25rem}
 .paybar .alts .btn{min-height:3rem}
-.methods,.nofee{font-size:.8rem}
+.methods,.nofee,.trust{font-size:.78rem}
 }
 .secure{display:flex;align-items:center;justify-content:center;gap:.4rem;font-size:.85rem;color:var(--dim)}
 .secure svg{width:1rem;height:1rem;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
@@ -142,8 +147,9 @@ function npTipOther(raw,max){var d=String(raw==null?'':raw).split('').filter(fun
 function npPayTotal(amount,fee,tip){return amount+(fee||0)+(tip||0);}
 `;
 
-function money(cents: number, view: ChooseView, t: PayText): string {
-  return clientMoney(cents, t.locale, view.currency);
+/** «5 €» en las propinas; con `full`, «56,00 €»: lo que se cobra (arriba, el desglose y el botón) va con céntimos. */
+function money(cents: number, view: ChooseView, t: PayText, full = false): string {
+  return clientMoney(cents, t.locale, view.currency, full);
 }
 
 function percent(bps: number, locale: string): string {
@@ -208,7 +214,7 @@ function breakdown(view: ChooseView, t: PayText, withTips: boolean): string {
   const fee = view.serviceFeeCents ?? 0;
   if (fee <= 0 && !withTips) return '';
   const b = t.breakdown;
-  const m = (c: number): string => escapeHtml(money(c, view, t));
+  const m = (c: number): string => escapeHtml(money(c, view, t, true));
   const feeRow =
     fee > 0
       ? `<div class="fee"><dt>${escapeHtml(b.serviceFee)}${
@@ -228,25 +234,42 @@ ${feeRow}${withTips ? `<div id="brkTip"><dt>${escapeHtml(b.tip)}</dt><dd class="
 }
 
 /**
- * Los botones de pagar. El principal manda `method`: «wallet» (abre Apple Pay
- * o Google Pay), «card» dentro de Instagram y similares (ahí las carteras no
- * van) o vacío (el banco enseña todo). La tarjeta, segunda opción, es otro
- * botón del mismo formulario (method=card): funciona sin JS.
+ * Los botones de pagar, como en una página de pago. El principal manda
+ * `method`: «wallet» (abre Apple Pay o Google Pay), «card» dentro de
+ * Instagram y similares (ahí las carteras no van) o vacío (el banco enseña
+ * todo). Con «wallet», en Android es el botón claro de Google Pay (pay-marks);
+ * en el iPhone sale «🔒 Pagar 56,00 €» y el JS lo cambia por el botón de
+ * Apple Pay que pinta Safari, solo si el móvil puede pagar con Apple Pay
+ * (ApplePaySession): nunca uno hecho a mano. La tarjeta, segunda opción, es
+ * otro botón del mismo formulario (method=card): funciona sin JS. Debajo,
+ * «Pago seguro» con Visa y Mastercard.
  */
 function payButtons(view: ChooseView, t: PayText, ctx: ChooseContext): string {
   const { inApp, wallet } = ctx.device;
   const method = inApp ? 'card' : wallet ? 'wallet' : '';
-  const total = money(dueCents(view) + presetTip(view), view, t);
+  const label = `${t.payPrefix} ${money(dueCents(view) + presetTip(view), view, t, true)}`;
   const fee = view.serviceFeeCents ?? 0;
-  const card = !inApp && wallet ? `<button class="btn alt" id="cardBtn" type="submit" name="method" value="card">${escapeHtml(t.payByCard)}</button>` : '';
+  const gpay = method === 'wallet' && wallet === 'Google Pay';
+  const main = gpay
+    ? `<button class="btn gpay" id="payBtn" type="submit" name="method" value="${method}"><span class="lbl sr">${escapeHtml(`${label}. ${t.methodsWallet(wallet)}`)}</span>${GPAY_MARK}</button>`
+    : `<button class="btn" id="payBtn" type="submit" name="method" value="${method}">${LOCK_IC}<span class="lbl">${escapeHtml(label)}</span></button>`;
+  // Con el botón de Google Pay ya se ve con qué se paga.
+  const methods = gpay
+    ? ''
+    : `<p class="methods" id="methods">${escapeHtml(inApp ? t.methodsCard : wallet ? t.methodsWallet(wallet) : t.methods)}</p>`;
+  const card =
+    !inApp && wallet
+      ? `<button class="btn alt" id="cardBtn" type="submit" name="method" value="card">${CARD_IC}<span>${escapeHtml(t.payByCard)}</span></button>`
+      : '';
   const saldo = view.saldoPayToken
     ? `<a class="btn alt saldo" id="saldoBtn" href="${escapeHtml(`/s/${encodeURIComponent(view.saldoPayToken)}?lang=${ctx.lang}`)}">${escapeHtml(t.payWithSaldo)}</a>`
     : '';
-  const alts = card || saldo ? `<div class="alts${card && saldo ? ' two' : ''}">${card}${saldo}</div>` : '';
+  const alts =
+    card || saldo ? `<p class="or" aria-hidden="true">${escapeHtml(t.or)}</p><div class="alts">${card}${saldo}</div>` : '';
   return `<div class="paybar"><div>
-<button class="btn" id="payBtn" type="submit" name="method" value="${method}">${escapeHtml(`${t.payPrefix} ${total}`)}</button>
-<p class="methods" id="methods">${escapeHtml(inApp ? t.methodsCard : wallet ? t.methodsWallet(wallet) : t.methods)}</p>
-${alts}${saldo && fee > 0 ? `<p class="nofee">${escapeHtml(t.saldoNoFee)}</p>` : ''}
+${main}
+${methods}${alts}${saldo && fee > 0 ? `<p class="nofee">${escapeHtml(t.saldoNoFee)}</p>` : ''}
+<p class="trust">${escapeHtml(t.secure)}${CARD_MARKS}</p>
 </div></div>`;
 }
 
@@ -256,7 +279,7 @@ var C=JSON.parse(CFG),T=C.text,f=document.getElementById('pay'),btn=document.get
  big=document.getElementById('big'),live=document.getElementById('live'),other=document.getElementById('otherRadio'),box=document.getElementById('otherBox'),
  inp=document.getElementById('otherIn'),oerr=document.getElementById('otherErr'),sent=false,liveT=0,KEY='np_tip_'+C.token;
 function $(id){return document.getElementById(id);}
-function money(c){return npMoney(c,C.locale,C.currency);}
+function money(c){return npMoney(c,C.locale,C.currency,true);}
 function otherState(){return npTipOther(inp?inp.value:'',C.max);}
 function chosen(){var r=f.querySelector('input[name=tip]:checked');return r||null;}
 function state(){var r=chosen();if(!r)return {tip:0,error:null};if(other&&r===other){var o=otherState();return {tip:o.cents,error:o.error};}return {tip:+r.value||0,error:null};}
@@ -266,7 +289,7 @@ function upd(announce){var s=state(),isOther=other&&other.checked;
  if(box)box.hidden=!isOther;
  if(isOther){other.value=String(s.tip);showErr(s.error==='max'?T.tooHigh:'');}else showErr('');
  var sum=npPayTotal(C.amount,C.fee,s.tip),txt=money(sum);
- if(!sent)btn.textContent=T.pay+' '+txt;if(big)big.textContent=txt;
+ if(!sent){var lb=btn.querySelector('.lbl');if(lb)lb.textContent=T.pay+' '+txt+(C.hint?'. '+C.hint:'');}if(big)big.textContent=txt;
  var tv=$('brkTipV');if(tv)tv.textContent=money(s.tip);
  if(tot&&tot.textContent!==txt){tot.textContent=txt;if(announce)say();}}
 function reveal(){var b=$('brk'),bar=f.querySelector('.paybar');if(!b||!bar)return;
@@ -276,9 +299,14 @@ function save(){try{var r=chosen();sessionStorage.setItem(KEY,JSON.stringify({v:
 function restore(){try{var s=JSON.parse(sessionStorage.getItem(KEY)||'null');if(!s)return;
  if(s.v==='other'&&other){other.checked=true;inp.value=String(s.o||'').slice(0,4);return;}
  var r=f.querySelector('input[name=tip][value="'+String(+s.v||0)+'"]');if(r&&r!==other)r.checked=true;}catch(e){}}
-function busy(b,on){f.querySelectorAll('.paybar .btn').forEach(function(x){if(on)x.setAttribute('aria-disabled','true');else x.removeAttribute('aria-disabled');x.classList.remove('busy');});
- if(on){b.classList.add('busy');b.textContent=b.value===C.xpayValue&&C.xpay?T.openingApp:T.opening;f.setAttribute('aria-busy','true');}
- else{f.removeAttribute('aria-busy');var c=$('cardBtn');if(c)c.textContent=T.card;}}
+var orig={};f.querySelectorAll('.paybar .btn').forEach(function(x){if(x.id)orig[x.id]=x.innerHTML;});
+function busy(b,on){f.querySelectorAll('.paybar .btn').forEach(function(x){if(on)x.setAttribute('aria-disabled','true');
+ else{x.removeAttribute('aria-disabled');if(x.id&&orig[x.id]!=null)x.innerHTML=orig[x.id];}x.classList.remove('busy');});
+ if(on){b.classList.remove('apay');b.classList.add('busy');b.textContent=b.value===C.xpayValue&&C.xpay?T.openingApp:T.opening;f.setAttribute('aria-busy','true');}
+ else{f.removeAttribute('aria-busy');applePay();}}
+function applePay(){if(C.wallet!=='apple')return;
+ try{if(window.ApplePaySession&&ApplePaySession.canMakePayments()&&window.CSS&&CSS.supports('-webkit-appearance','-apple-pay-button')){btn.classList.add('apay');
+  var m=$('methods');if(m){C.hint=m.textContent;m.hidden=true;}upd(false);}}catch(e){}}
 if(other){$('otherOpt').hidden=false;inp.addEventListener('input',function(){upd(true);});
  inp.addEventListener('keydown',function(e){if(e.key==='Enter'){e.preventDefault();inp.blur();}});
  inp.addEventListener('change',reveal);}
@@ -291,7 +319,7 @@ f.addEventListener('submit',function(e){if(sent){e.preventDefault();return;}var 
  var s2=$('saldoBtn');if(s2)s2.setAttribute('aria-disabled','true');});
 var sb=$('saldoBtn');if(sb)sb.addEventListener('click',function(e){if(sent)e.preventDefault();});
 window.addEventListener('pageshow',function(e){if(e.persisted){sent=false;busy(btn,false);var s2=$('saldoBtn');if(s2)s2.removeAttribute('aria-disabled');restore();upd(false);}});
-restore();upd(false);
+restore();upd(false);applePay();
 var left=$('left'),d=f.dataset,skew=+d.now-Date.now(),exp=+d.expires,iv;
 function tick(){var s=Math.max(0,Math.floor((exp-Date.now()-skew)/1000));left.textContent=Math.floor(s/60)+':'+('0'+s%60).slice(-2);if(s<=0){clearInterval(iv);setTimeout(function(){location.reload();},1500);}}
 if(left){iv=setInterval(tick,1000);tick();}
@@ -313,12 +341,15 @@ export function renderChooseBody(view: ChooseView, ctx: ChooseContext): string {
     // El botón principal abre Apple Pay / Google Pay (su texto mientras se abre).
     xpay: Boolean(wallet && !inApp),
     xpayValue: 'wallet',
+    // Qué cartera es el botón principal: con «apple», el JS pone el de Safari si el móvil puede.
+    wallet: wallet && !inApp ? (wallet === 'Apple Pay' ? 'apple' : 'google') : null,
+    // El botón de Google Pay no lleva texto a la vista: el importe y la cartera, para el lector de pantalla.
+    hint: wallet === 'Google Pay' && !inApp ? t.methodsWallet(wallet) : '',
     text: {
       pay: t.payPrefix,
       total: t.total,
       opening: t.openingTitle,
       openingApp: wallet ? t.openingWallet(wallet) : t.openingTitle,
-      card: t.payByCard,
       // Los errores de «Otra» (solo si hay propinas).
       empty: withTips ? t.tipOtherEmpty : '',
       tooHigh: withTips ? t.tipOtherTooHigh(clientMoney(Math.floor((view.tipMaxCents ?? 0) / 100) * 100, t.locale, view.currency)) : '',
@@ -329,7 +360,7 @@ export function renderChooseBody(view: ChooseView, ctx: ChooseContext): string {
 <header class="head">
 ${view.venueName ? `<p class="venue">${escapeHtml(view.venueName)}</p>` : ''}
 <p class="kick" aria-hidden="true">${escapeHtml(t.totalToPay)}</p>
-<h1 class="amount num"><span class="sr">${escapeHtml(t.totalToPay)}: </span><span id="big">${escapeHtml(money(start, view, t))}</span></h1>
+<h1 class="amount num"><span class="sr">${escapeHtml(t.totalToPay)}: </span><span id="big">${escapeHtml(money(start, view, t, true))}</span></h1>
 ${view.concept ? `<p class="concept">${escapeHtml(view.concept)}</p>` : ''}
 <p class="meta">${ctx.statementName ? `<span>${escapeHtml(t.statement(ctx.statementName))}</span>` : ''}<span>${escapeHtml(t.expiresIn)} <b class="num" id="left">${escapeHtml(remaining(view.qrExpiresAt, ctx.now))}</b></span></p>
 </header>
@@ -341,7 +372,6 @@ ${breakdown(view, t, withTips)}
 ${inApp ? `<p class="warn" role="note">${escapeHtml(t.inAppWarning(inApp))}</p>` : ''}
 ${payButtons(view, t, ctx)}
 </form>
-<p class="secure">${LOCK_ICON}${escapeHtml(t.secure)}</p>
 </main>
 <script>
 (function(){

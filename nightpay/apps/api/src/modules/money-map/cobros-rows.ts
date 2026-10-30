@@ -8,6 +8,7 @@ import {
   type CobroRow,
   type SectionAmount,
 } from '@nightpay/contracts';
+import { isHomeTopUpPayment } from '../home-topup/home-topup-rules';
 import { cardBrandLabel } from '../payments/card-brand';
 import { lineViews } from '../payments/charge-lines';
 import { paidTwiceOf } from '../payments/late-card-approval';
@@ -70,6 +71,9 @@ export interface PaymentFeedRow {
   }>;
   terminal: { externalId: string; label: string };
   createdBy: PersonLike | null;
+  /** Solo para saber si es una carga desde el enlace del local (fromHome): no pasan a la fila. */
+  idempotencyKey: string;
+  createdByUserId: string | null;
   wallet: { id: string; shortCode: string | null } | null;
   lines: StoredLineLike[];
   /** Tarjeta aprobada después de pagar con el saldo (late-card-approval): «cobrado dos veces». */
@@ -182,6 +186,8 @@ export function paymentCobroRow(p: PaymentFeedRow): CobroRow {
     person: personOf(p.createdBy),
     sections: isTopUp ? [] : sectionsOfLines(p.lines, p.revenueCategory, p.amountCents),
     isTopUp,
+    // «Desde casa»: solo el sí; la clave y quién lo creó no salen de aquí.
+    ...(isHomeTopUpPayment(p) ? { fromHome: true } : {}),
     method,
     methodLabel: paymentMethodLabel(method, p),
     via: paymentVia(method, isTopUp),

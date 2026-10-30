@@ -8,14 +8,17 @@
 // ese saldo con su QR o con su PIN. np_app y FORCE RLS. Ver README.md.
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import { AsyncLocalStorage } from 'node:async_hooks';
-import { randomUUID } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import { ClsService } from 'nestjs-cls';
 import { HttpException } from '@nestjs/common';
-import { serviceFeeQuote } from '@nightpay/contracts';
+import { CobrosQuerySchema, serviceFeeQuote } from '@nightpay/contracts';
 import { PrismaService } from '../../src/common/prisma/prisma.service';
+import { CobrosService } from '../../src/modules/money-map/cobros.service';
 import { PaymentsService } from '../../src/modules/payments/payments.service';
 import { InvalidTransitionError } from '../../src/modules/payments/payment.machine';
+import { cobrosCsv } from '../../src/modules/reports/export-csv';
 import { PeriodReportsService } from '../../src/modules/reports/period-reports.service';
+import { ReportsService } from '../../src/modules/reports/reports.service';
 import { WalletTopUpService } from '../../src/modules/wallets/wallet-topup.service';
 import { WalletChargesService } from '../../src/modules/wallets/wallet-charges.service';
 import { HomeTopUpService } from '../../src/modules/home-topup/home-topup.service';
@@ -62,6 +65,8 @@ const selfTopUps = new WalletTopUpService(prisma as never, passkeys as never, re
 const charges = new WalletChargesService(prisma, audit as never, { get: () => null } as never, {} as never);
 const fichas = new ReceptionFichaService(prisma, charges, audit as never, config as never);
 const period = new PeriodReportsService(prisma as never);
+const cobros = new CobrosService(prisma);
+const reports = new ReportsService(prisma);
 
 /** Como una petición pública (sin local ni persona en el contexto). */
 const pub = <T>(fn: () => Promise<T>): Promise<T> =>
@@ -82,7 +87,7 @@ let manager: { userId: string; role: 'MANAGER'; tenantId: string };
 const owner = () => ({ userId: randomUUID(), tenantId: A });
 
 const key = () => `k${randomUUID().replace(/-/g, '')}`.slice(0, 24);
-const startIn = (code: string, amountCents = 5000, k = key()) => pub(() => homeTopUps.start(code, { amountCents, key: k, lang: 'es' }));
+const startIn = (code: string, amountCents = 5000, k = key()) => pub(() => homeTopUps.start(code, { amountCents, key: k, lang: 'es', ip: null }));
 const paymentOf = (payToken: string) => sys((tx) => tx.payment.findUniqueOrThrow({ where: { qrToken: payToken } }));
 const walletOf = (id: string) => sys((tx) => tx.clientWallet.findUniqueOrThrow({ where: { id } }));
 
@@ -260,6 +265,53 @@ describe('la carga: un saldo nuevo del local', () => {
     expect(z.wallet.topUpCount).toBe(paidTopUps._count);
     expect(z.wallet.topUpCents).toBe(paidTopUps._sum.amountCents);
     expect(z.byRevenueCategory).toEqual([]);
+  });
+
+  it('el panel (Cobros) y el libro de cobros la marcan «Desde casa», sin la clave; una del personal con esa clave, no', async () => {
+    const load = await paidLoad(codeA, 2000);
+    // Una venta del personal con una clave de la misma forma (puesta a mano): no es del enlace.
+    const staff = await sys((tx) =>
+      tx.payment.create({
+        data: {
+          tenantId: A,
+          terminalId: barTerm,
+          idempotencyKey: `wcasa:${randomBytes(32).toString('hex')}`,
+          amountCents: 3000,
+          availableAmountCents: 3000,
+          qrToken: `casa-personal-${r}`,
+          qrExpiresAt: new Date(Date.now() + 3600_000),
+          status: 'AUTHORIZED',
+          authorizedAt: new Date(),
+          createdByUserId: reception.userId,
+          revenueCategory: 'VENUE_BAR',
+        },
+      }),
+    );
+    const inA = <T>(fn: () => Promise<T>): Promise<T> =>
+      cls.run(async () => {
+        cls.set('ctx', { tenantId: A, traceId: 't-casa' });
+        return fn();
+      });
+
+    // El panel: la carga sale «Desde casa» (sin persona); la del personal, no. Ninguna lleva la clave.
+    const [home] = (await inA(() => cobros.list(A, CobrosQuerySchema.parse({ walletId: load.walletId })))).items;
+    expect(home).toMatchObject({ kind: 'PAYMENT', id: load.paymentId, isTopUp: true, person: null, fromHome: true });
+    const mine = await inA(() => cobros.list(A, CobrosQuerySchema.parse({ operatorId: reception.userId })));
+    const byStaff = mine.items.find((i) => i.id === staff.id);
+    expect(byStaff).toBeDefined();
+    expect(byStaff).not.toHaveProperty('fromHome');
+    expect(JSON.stringify([home, byStaff])).not.toMatch(/wcasa:|idempotencyKey|createdByUserId/);
+
+    // El libro de cobros de la gestoría: «Origen», la última; «Desde casa» en la carga y vacía en la del personal.
+    const rows = await inA(() => reports.cobros(A, { from: new Date(Date.now() - 3600_000), to: new Date(Date.now() + 60_000) }));
+    const csv = cobrosCsv(rows, 'Sala Casa');
+    const [header, ...body] = csv.replace(/^\uFEFF/, '').trimEnd().split('\r\n');
+    const cols = header!.split(';');
+    expect(cols.at(-1)).toBe('Origen');
+    const origin = (id: string) => body.find((l) => l.includes(id))?.split(';')[cols.indexOf('Origen')];
+    expect(origin(load.paymentId)).toBe('Desde casa');
+    expect(origin(staff.id)).toBe('');
+    expect(csv).not.toContain('wcasa:');
   });
 });
 

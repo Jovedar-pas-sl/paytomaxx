@@ -27,7 +27,7 @@ import {
 import type { ExportSummary } from './export-summary';
 import type { ReportPeriod } from './report-period';
 import { BRAND_NAME } from '../../common/brand';
-import { SERVICE_FEE_LABEL } from '@nightpay/contracts';
+import { HOME_TOPUP_ORIGIN_LABEL, SERVICE_FEE_LABEL } from '@nightpay/contracts';
 
 /**
  * Los cuatro CSV para la gestoría (Fase 1C): libro de cobros, devoluciones,
@@ -40,6 +40,10 @@ import { SERVICE_FEE_LABEL } from '@nightpay/contracts';
  * plantillas de importación de la gestoría van por posición) y, sin ella, el
  * CSV es el de antes. Con ella, «Total cobrado» la incluye y «Parte local»
  * la descuenta (es de OxioPay).
+ *
+ * «Origen» del libro de cobros, igual: la última y solo si alguna fila es una
+ * carga con el enlace del local («Desde casa»; vacía en el resto). Nada del
+ * cliente (ni su contacto ni la clave de la carga) va en ningún CSV.
  */
 
 // ─── Libro de cobros ────────────────────────────────────────────────────
@@ -47,6 +51,7 @@ import { SERVICE_FEE_LABEL } from '@nightpay/contracts';
 /** `labelOf`: los nombres de sección del local (venueSectionLabeler), como en el panel. */
 export function cobrosCsv(rows: ReadonlyArray<CobroRow>, venueName: string, labelOf: SectionLabeler = categoryLabel): string {
   const withFee = rows.some((r) => (r.serviceFeeCents ?? 0) !== 0 || (r.refundedServiceFeeCents ?? 0) !== 0);
+  const withOrigin = rows.some((r) => r.fromHome === true);
   const header = [
     'Fecha', 'Hora', 'Local', 'Código', 'Concepto', 'Tipo', 'Cobrado por', 'Medio', 'Método',
     'Marca', 'Tipo tarjeta', 'País tarjeta', 'Autorización', 'Pedido banco', 'Importe', 'Propina',
@@ -54,6 +59,8 @@ export function cobrosCsv(rows: ReadonlyArray<CobroRow>, venueName: string, labe
     'Por sección',
     // La «Comisión del servicio» que pagó el cliente encima y lo que queda de ella (se debe a OxioPay).
     ...(withFee ? [SERVICE_FEE_LABEL, `Parte ${BRAND_NAME}`] : []),
+    // Las cargas con el enlace del local («Cargar saldo antes de llegar»), detrás de todo.
+    ...(withOrigin ? ['Origen'] : []),
   ];
   const body = rows.map((r): CsvCell[] => {
     const charged = cobroChargedCents(r);
@@ -89,6 +96,7 @@ export function cobrosCsv(rows: ReadonlyArray<CobroRow>, venueName: string, labe
       r.id,
       text(bySection(r, labelOf)),
       ...(withFee ? [money(r.serviceFeeCents ?? 0), money(oxio)] : []),
+      ...(withOrigin ? [r.fromHome === true ? HOME_TOPUP_ORIGIN_LABEL : ''] : []),
     ];
   });
   return toCsv([header, ...body]);

@@ -101,6 +101,8 @@ export interface PayText {
   /** El botón abre directamente la cartera del móvil (Apple Pay / Google Pay). */
   methodsWallet: (wallet: string) => string;
   payByCard: string;
+  /** Entre la cartera y la tarjeta: «o». */
+  or: string;
   /** Cobro único: pagar el mismo cobro con el saldo (Face ID), en otra página. */
   payWithSaldo: string;
   tipLegend: string;

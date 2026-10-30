@@ -18,6 +18,7 @@ const pay: PayText = {
   methodsCard: 'Con tarjeta',
   methodsWallet: (wallet) => `Se abre ${wallet}`,
   payByCard: 'Pagar con tarjeta',
+  or: 'o',
   payWithSaldo: 'Pagar con mi saldo',
   tipLegend: '¿Quieres dejar propina?',
   noTip: 'Sin propina',

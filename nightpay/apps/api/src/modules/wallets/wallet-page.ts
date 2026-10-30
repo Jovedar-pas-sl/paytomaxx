@@ -11,7 +11,7 @@ import { TOPUP_CSS, TOPUP_JS, paidProofScript, paidProofSection, topUpCard, topU
 import { SCAN_CSS, SCAN_JS, scanArea } from './wallet-scan';
 import { LOST_CSS, LOST_JS, lostButton, lostSheet } from './wallet-lost-view';
 import { WALLET_LIVE_JS } from './wallet-live';
-import { WELCOME_CSS, WELCOME_JS, fichaQrBlock, welcomeCard } from '../home-topup/wallet-welcome-view';
+import { RECEIPT_JS, WELCOME_CSS, WELCOME_JS, fichaQrBlock, welcomeCard } from '../home-topup/wallet-welcome-view';
 
 /**
  * Página del saldo del cliente (/w/:token). HTML autocontenido, marca
@@ -298,7 +298,7 @@ ${topBar(lang)}<h1 class="sr">${h(t.title)}</h1>
 <div class="obot"><span class="num" id="heroCode">${h(state.code)}</span><span id="heroFicha">${state.hasCard && state.fichaNumber ? h(t.fichaNo.split('{n}').join(state.fichaNumber)) : ''}</span></div>
 </section>
 <p class="live" id="liveBar" role="status" hidden></p>
-${welcome && proof ? `${paidProofSection(lang, proof, options.now ?? new Date())}${welcomeCard(lang, state.venueName)}` : ''}${topUpOffNote()}<section class="card main" id="refundCard" hidden aria-labelledby="refundTitle">
+${welcome && proof ? `${paidProofSection(lang, proof, options.now ?? new Date())}${welcomeCard(lang, state.venueName, proof, state.code)}` : ''}${topUpOffNote()}<section class="card main" id="refundCard" hidden aria-labelledby="refundTitle">
 <h2 id="refundTitle"></h2>
 <ol class="steps" id="steps">${t.steps.map((s, i) => `<li data-i="${i}">${h(s)}</li>`).join('')}</ol>
 <p id="refundHow"></p>
@@ -346,7 +346,7 @@ function openSheet(d){if(d.showModal){if(!d.open)d.showModal();}else d.setAttrib
 function closeSheet(d){if(d.close&&d.open)d.close();else d.removeAttribute('open');}
 Array.prototype.forEach.call(document.querySelectorAll('dialog.sheet'),function(d){
  d.addEventListener('click',function(e){if(e.target===d||e.target.hasAttribute('data-close'))closeSheet(d);});});
-function busyBtn(b,on,label){b.disabled=on;b.textContent=on?label:b.getAttribute('data-label');}
+function busyBtn(b,on,label){b.disabled=on;b.classList.toggle('busy',on);b.textContent=on?label:b.getAttribute('data-label');}
 ['leaveGo','pinGo','mergeGo'].forEach(function(id){$(id).setAttribute('data-label',$(id).textContent);});
 $('faceOn').textContent=U.button;$('faceOn').setAttribute('data-label',U.button);
 $('pinWhy').textContent=fill(T.pinWhy,'code',S.code);
@@ -441,7 +441,7 @@ ${SCAN_JS}
 ${TOPUP_JS}
 ${LOST_JS}
 ${VIEWS_JS}
-${WELCOME_JS}
+${welcome ? RECEIPT_JS : ''}${WELCOME_JS}
 if(!C.paid&&S.status==='DEPLETED'&&topCan(S))view='top';
 if(location.hash==='#recargar'&&topCan(S))view='top';
 render(S);

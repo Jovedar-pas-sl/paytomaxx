@@ -114,6 +114,46 @@ describe('libro de cobros', () => {
     const s = summarize([c], [devolucion({ amountCents: 5250, reversedDeltaCents: 4750, afterPayout: true })], []);
     expect(s.chicaNetCents).toBe(4750);
   });
+
+  describe('«Origen»: las cargas con el enlace del local («Desde casa»)', () => {
+    /** La recarga de un saldo nuevo que hizo el cliente desde casa: sin nadie del local ni parte de nadie. */
+    const casa = cobro({
+      id: 'c0a1b2c3-0000-4000-8000-00000000ca5a',
+      revenueCategory: 'EXTRA',
+      captureMethod: 'WALLET_TOPUP',
+      serviceName: null,
+      tipCents: 0,
+      walletId: 'w-1',
+      creatorName: null,
+      creatorEmail: null,
+      earningOperatorName: null,
+      earningOperatorEmail: null,
+      commissionCents: null,
+      earningTipCents: null,
+      reversedCents: null,
+      fromHome: true,
+    });
+
+    it('la última columna: «Desde casa» en esas y vacía en el resto; las de siempre no se mueven', () => {
+      const [plainHeader, plainRow] = lines(cobrosCsv([cobro({})], 'Local'));
+      const [header, home, other] = lines(cobrosCsv([casa, cobro({})], 'Local'));
+      expect(header).toBe(`${plainHeader};Origen`);
+      expect(home!.split(';').at(-1)).toBe('Desde casa');
+      expect(other).toBe(`${plainRow};`);
+    });
+
+    it('con la comisión del servicio, detrás de sus columnas', () => {
+      const [header, row] = lines(cobrosCsv([{ ...casa, serviceFeeCents: 600 }], 'Local'));
+      expect(header!.split(';').slice(-3)).toEqual(['Comisión del servicio', 'Parte OxioPay', 'Origen']);
+      expect(row!.split(';').slice(-3)).toEqual(['6,00', '6,00', 'Desde casa']);
+    });
+
+    it('sin ninguna en el periodo: el CSV de siempre, sin la columna', () => {
+      const [header] = lines(cobrosCsv([cobro({}), cobro({ fromHome: false })], 'Local'));
+      expect(header).not.toContain('Origen');
+      expect(header!.endsWith(';Parte local;Estado;Referencia OxioPay;Por sección')).toBe(true);
+    });
+  });
 });
 
 describe('devoluciones y pagos a chicas', () => {

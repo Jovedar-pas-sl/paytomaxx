@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { BadRequestException, ConflictException, HttpException, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
 import { HomeTopUpService } from './home-topup.service';
-import { homeTopUpKey, rememberSetCookie } from './home-topup-rules';
+import { homeTopUpDay, homeTopUpKey, rememberSetCookie } from './home-topup-rules';
 
 const SECRET = 'secreto-de-cookies-de-prueba-0123456789';
 const CODE = 'AbCdEfGhIjKlMnOp';
@@ -19,6 +19,8 @@ interface Opts {
   wallets?: Array<Record<string, unknown>>;
   redisFails?: boolean;
   redisCount?: number;
+  /** Cuenta de partida de una clave concreta (si no, redisCount). */
+  redisStart?: (key: string) => number | undefined;
   created?: Record<string, unknown>;
 }
 
@@ -50,11 +52,17 @@ function make(o: Opts = {}) {
     ...o.created,
   };
   const payments = { create: vi.fn(async () => created) };
-  let n = o.redisCount ?? 0;
+  const counts = new Map<string, number>();
   const redis = {
-    incr: vi.fn(async () => {
+    incr: vi.fn(async (key: string) => {
       if (o.redisFails) throw new Error('redis caído');
-      n += 1;
+      const n = (counts.get(key) ?? o.redisStart?.(key) ?? o.redisCount ?? 0) + 1;
+      counts.set(key, n);
+      return n;
+    }),
+    decr: vi.fn(async (key: string) => {
+      const n = (counts.get(key) ?? o.redisStart?.(key) ?? o.redisCount ?? 0) - 1;
+      counts.set(key, n);
       return n;
     }),
     expire: vi.fn(async () => 1),
@@ -64,8 +72,11 @@ function make(o: Opts = {}) {
   return { service, tx, prisma, payments, redis };
 }
 
-const start = (s: HomeTopUpService, input: Partial<{ amountCents: unknown; key: unknown }> = {}) =>
-  s.start(CODE, { amountCents: 5000, key: KEY, lang: 'es', ...input });
+const start = (s: HomeTopUpService, input: Partial<{ amountCents: unknown; key: unknown; ip: string | null }> = {}) =>
+  s.start(CODE, { amountCents: 5000, key: KEY, lang: 'es', ip: null, ...input });
+const IP = '203.0.113.7';
+const dayStart = (venue: number, all: number) => (k: string) =>
+  k.startsWith('np:home-topup:ip-venue:') ? venue : k.startsWith('np:home-topup:ip:') ? all : undefined;
 
 describe('HomeTopUpService.venueByCode / page', () => {
   it('apagado, borrado, sin local o con un código sin forma: null (404 sin pistas)', async () => {
@@ -203,6 +214,58 @@ describe('HomeTopUpService.start', () => {
     expect((down as ServiceUnavailableException).getResponse()).toMatchObject({ code: 'TRY_LATER' });
   });
 
+  it('tope de 24 h por IP: la 11.ª carga nueva en el local o la 31.ª sumando todos, 429 HOME_TOPUP_DAILY (sin crear nada)', async () => {
+    const inVenue = make({ redisStart: dayStart(10, 0) });
+    const err = await start(inVenue.service, { ip: IP }).catch((e: unknown) => e);
+    expect((err as HttpException).getStatus()).toBe(429);
+    expect((err as HttpException).getResponse()).toMatchObject({ code: 'HOME_TOPUP_DAILY' });
+    expect(inVenue.payments.create).not.toHaveBeenCalled();
+    // Una IP ya parada no gasta el freno del local.
+    expect(inVenue.redis.incr).not.toHaveBeenCalledWith(expect.stringMatching(/^np:home-topup:venue:/));
+    const inAll = make({ redisStart: dayStart(0, 30) });
+    const err2 = await start(inAll.service, { ip: IP }).catch((e: unknown) => e);
+    expect((err2 as HttpException).getResponse()).toMatchObject({ code: 'HOME_TOPUP_DAILY' });
+    // La 10.ª en el local y la 30.ª en todos aún pasan.
+    await expect(start(make({ redisStart: dayStart(9, 29) }).service, { ip: IP })).resolves.toBeTruthy();
+  });
+
+  it('las cuentas del día: por la IP (su red /64 en IPv6), en este local y en todos, y caducan en 24 h', async () => {
+    const { service, redis } = make();
+    await start(service, { ip: '2001:db8:1:2:aaaa:bbbb:cccc:dddd' });
+    expect(redis.incr).toHaveBeenCalledWith(`np:home-topup:ip-venue:${VENUE}:2001:db8:1:2::/64:${homeTopUpDay()}`);
+    expect(redis.incr).toHaveBeenCalledWith(`np:home-topup:ip:2001:db8:1:2::/64:${homeTopUpDay()}`);
+    expect(redis.expire).toHaveBeenCalledWith(`np:home-topup:ip:2001:db8:1:2::/64:${homeTopUpDay()}`, 24 * 3600);
+  });
+
+  it('una carga que no llega a empezar no gasta el día: parada por el tope, por el freno del local o por un fallo al crearla', async () => {
+    const code = (e: unknown) => (e as HttpException).getResponse();
+    // El freno del local (60 en 15 min): 429 BUSY, y el hueco del día vuelve.
+    const busy = make({ redisStart: (k) => (k.startsWith('np:home-topup:venue:') ? 60 : undefined) });
+    expect(code(await start(busy.service, { ip: IP }).catch((e: unknown) => e))).toMatchObject({ code: 'HOME_TOPUP_BUSY' });
+    expect(busy.redis.decr).toHaveBeenCalledWith(expect.stringMatching(/^np:home-topup:ip-venue:/));
+    expect(busy.redis.decr).toHaveBeenCalledWith(expect.stringMatching(/^np:home-topup:ip:/));
+    // Un fallo al crear el cobro: también vuelve.
+    const broken = make();
+    broken.payments.create.mockRejectedValueOnce(new Error('pasarela caída'));
+    await expect(start(broken.service, { ip: IP })).rejects.toThrow('pasarela caída');
+    expect(broken.redis.decr).toHaveBeenCalledTimes(2);
+    // Parada por el propio tope: lo que cogió vuelve (las cuentas no suben de más).
+    const over = make({ redisStart: dayStart(10, 0) });
+    expect(code(await start(over.service, { ip: IP }).catch((e: unknown) => e))).toMatchObject({ code: 'HOME_TOPUP_DAILY' });
+    expect(over.redis.decr).toHaveBeenCalledTimes(2);
+    // La que sí empieza se queda contada.
+    const fine = make();
+    await start(fine.service, { ip: IP });
+    expect(fine.redis.decr).not.toHaveBeenCalled();
+  });
+
+  it('sin IP de fiar no se cuenta el día (como el freno de las IP); el del local, sí', async () => {
+    const { service, redis } = make();
+    await start(service, { ip: null });
+    expect(redis.incr).toHaveBeenCalledTimes(1);
+    expect(redis.incr).toHaveBeenCalledWith(expect.stringMatching(/^np:home-topup:venue:/));
+  });
+
   it('20 en curso a la vez en el local (pago abierto o en el banco, de la última hora): 409 HOME_TOPUP_BUSY', async () => {
     const full = make({ unresolved: 20 });
     const before = Date.now();
@@ -225,7 +288,7 @@ describe('HomeTopUpService.start', () => {
 
   it('la misma clave repetida (doble toque): el mismo cobro, sin gastar el freno', async () => {
     const { service, redis, tx, payments } = make({ replay: true, redisCount: 999, unresolved: 999 });
-    await expect(start(service)).resolves.toEqual({ payToken: 'payTok', payUrl: '/pay/payTok?lang=es' });
+    await expect(start(service, { ip: IP })).resolves.toEqual({ payToken: 'payTok', payUrl: '/pay/payTok?lang=es' });
     expect(redis.incr).not.toHaveBeenCalled();
     expect(tx.payment.count).not.toHaveBeenCalled();
     expect(payments.create).toHaveBeenCalled();

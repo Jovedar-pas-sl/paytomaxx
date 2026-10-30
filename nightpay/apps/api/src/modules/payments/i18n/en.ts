@@ -18,6 +18,7 @@ const pay: PayText = {
   methodsCard: 'By card',
   methodsWallet: (wallet) => `Opens ${wallet}`,
   payByCard: 'Pay by card',
+  or: 'or',
   payWithSaldo: 'Pay with my balance',
   tipLegend: 'Add a tip?',
   noTip: 'No tip',

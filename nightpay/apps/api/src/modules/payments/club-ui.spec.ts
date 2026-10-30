@@ -41,8 +41,13 @@ describe('marca OxioCard en las páginas del cliente', () => {
     expect(CLUB_BASE_CSS).toContain('--ink:#1f2c36');
     expect(CLUB_BASE_CSS).toContain('--bg:#0f1112');
     expect(CLUB_BASE_CSS).not.toContain('d4ff3a');
-    // Botón principal: pill lima con tinta.
-    expect(CLUB_BASE_CSS).toMatch(/\.btn\{[^}]*border-radius:999px;[^}]*background:var\(--lime\);color:var\(--ink\)/);
+    // Botón principal: lima con tinta, con forma de página de pago (esquinas de 12 px, no un cartel en píldora).
+    expect(CLUB_BASE_CSS).toContain(':root{--r-btn:12px}');
+    expect(CLUB_BASE_CSS).toMatch(/\.btn\{[^}]*border-radius:var\(--r-btn\);[^}]*background:var\(--lime\);color:var\(--ink\)/);
+    expect(CLUB_BASE_CSS).not.toContain('999px');
+    // Ocupado: su color con la ruedita (no gris); desactivado de verdad: gris.
+    expect(CLUB_BASE_CSS).toContain('.btn:disabled:not(.busy),.btn[aria-disabled=true]:not(.busy){background:var(--surface-2)');
+    expect(CLUB_BASE_CSS).toContain('.btn.busy::before{');
     expect(CLUB_BASE_CSS.includes(BACKSLASH)).toBe(false);
   });
 
