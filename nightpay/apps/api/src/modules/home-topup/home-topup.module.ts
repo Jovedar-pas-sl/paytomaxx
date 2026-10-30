@@ -7,6 +7,8 @@ import { HomeTopUpSettingsController } from './home-topup-settings.controller';
 import { HomeTopUpSettingsService } from './home-topup-settings.service';
 import { HomeTopUpService } from './home-topup.service';
 import { PublicHomeTopUpController } from './public-home-topup.controller';
+import { ReceptionFichaController } from './reception-ficha.controller';
+import { ReceptionFichaService } from './reception-ficha.service';
 
 /**
  * «Cargar saldo antes de llegar»: el enlace público del local (/r/<código>),
@@ -14,11 +16,11 @@ import { PublicHomeTopUpController } from './public-home-topup.controller';
  * desde casa. Lo que añade a la página del saldo (WalletWelcomeService) lo
  * registra WalletsModule (es de esa página).
  * PaymentsModule: la carga es un cobro de recarga de siempre (PaymentsService).
- * WalletsModule: lo que comparte con la página del saldo.
+ * WalletsModule: el PIN del cliente al darle la ficha (WalletChargesService).
  */
 @Module({
   imports: [PrismaModule, AuditModule, PaymentsModule, WalletsModule],
-  providers: [HomeTopUpService, HomeTopUpSettingsService],
-  controllers: [PublicHomeTopUpController, HomeTopUpSettingsController],
+  providers: [HomeTopUpService, HomeTopUpSettingsService, ReceptionFichaService],
+  controllers: [PublicHomeTopUpController, HomeTopUpSettingsController, ReceptionFichaController],
 })
 export class HomeTopUpModule {}

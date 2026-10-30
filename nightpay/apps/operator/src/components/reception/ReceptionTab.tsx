@@ -6,6 +6,7 @@ import { fetchPendingTopUps } from '@/lib/api-noche';
 import { useVenueMethods } from '@/lib/venue-methods';
 import s from './desk/desk.module.css';
 import { ReceptionDesk } from './desk/ReceptionDesk';
+import { GiveFicha } from './GiveFicha';
 import { PendingTopUps } from './PendingTopUps';
 import { PrepareFichas } from './PrepareFichas';
 import { useChipReader } from './use-chip-via';
@@ -27,7 +28,7 @@ interface Props {
 export function ReceptionTab({ user, active, onOwnHeader }: Props) {
   const methods = useVenueMethods();
   const reader = useChipReader();
-  const [view, setView] = useState<'desk' | 'prepare' | 'pending'>('desk');
+  const [view, setView] = useState<'desk' | 'prepare' | 'pending' | 'ficha'>('desk');
   const [pending, setPending] = useState(0);
 
   // El mostrador lleva su cabecera (con el menú del logo); lo de dentro, la de arriba.
@@ -49,6 +50,8 @@ export function ReceptionTab({ user, active, onOwnHeader }: Props) {
 
   if (view === 'prepare') return <PrepareFichas on="staff" onDone={() => setView('desk')} />;
   if (view === 'pending') return <PendingTopUps onDone={() => setView('desk')} />;
+  // El saldo cargado desde casa (o cualquiera sin ficha): su ficha, con su QR o su código y su PIN.
+  if (view === 'ficha') return <GiveFicha user={user} onDone={() => setView('desk')} />;
 
   const canPrepare = methods.nfc && reader.via !== null && reader.canWrite;
   const footer = (
@@ -61,6 +64,11 @@ export function ReceptionTab({ user, active, onOwnHeader }: Props) {
       <button type="button" className={`${s.txtlink} ${pending > 0 ? s.txtlinkOn : ''}`} onClick={() => setView('pending')}>
         {pending > 0 ? `Pendientes de asignar (${pending})` : 'Pendientes de asignar'}
       </button>
+      {methods.nfc ? (
+        <button type="button" className={s.txtlink} onClick={() => setView('ficha')}>
+          Dar ficha a un saldo
+        </button>
+      ) : null}
     </div>
   );
   return <ReceptionDesk user={user} active={active} footer={footer} />;
