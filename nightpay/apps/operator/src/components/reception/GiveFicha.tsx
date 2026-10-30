@@ -145,7 +145,7 @@ export function GiveFicha({ user, onDone }: { user: OperatorUser; onDone: () => 
       {step.kind === 'tap' ? (
         <>
           <p className="np-num" style={amountStyle}>
-            {formatEur(step.found.saldo.balanceCents)}
+            {formatEur(step.found.saldo.balanceCents, { compact: true })}
           </p>
           <p style={big}>Saldo {step.found.saldo.code}</p>
           <p style={muted}>Ahora acerca una ficha: queda unida a este saldo.</p>
