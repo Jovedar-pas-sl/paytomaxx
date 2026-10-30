@@ -87,6 +87,7 @@ import { firstTopUp } from '../wallets/wallet-fresh-topup';
 import { WalletBlockedException } from '../wallets/wallet-blocked';
 import { formatWalletCode, newWalletCode } from '../wallets/wallet-rules';
 import { selfTopUpClaimHash } from '../wallets/wallet-topup-rules';
+import { isHomeTopUpKey } from '../home-topup/home-topup-rules';
 import { idempotencyHashOf, sameIdempotentRequest } from './idempotency';
 import {
   findCreditTarget,
@@ -312,6 +313,9 @@ interface PayerWalletRow {
  *    navegador que la empezó (su cookie de vuelta, en la Idempotency-Key);
  *  - otra recarga de un saldo que ya existía: nada (no se lleva su código,
  *    su enlace ni su Face ID).
+ * La que creó el saldo desde el enlace del local («Cargar saldo antes de
+ * llegar», Idempotency-Key `wcasa:`) lo da igual al navegador que la pagó y,
+ * además, lo manda a la página de ese saldo con la bienvenida (walletFromHome).
  */
 export function payerWalletFields(args: {
   wallet: PayerWalletRow | null;
@@ -320,7 +324,7 @@ export function payerWalletFields(args: {
   approvedClaimHash: string | null;
 }): Pick<
   PayablePayment,
-  'walletToken' | 'walletClaimHash' | 'walletCode' | 'walletHasFaceId' | 'walletHasPin' | 'walletReturnToken'
+  'walletToken' | 'walletClaimHash' | 'walletCode' | 'walletHasFaceId' | 'walletHasPin' | 'walletReturnToken' | 'walletFromHome'
 > {
   const returnClaimHash = args.wallet ? selfTopUpClaimHash(args.idempotencyKey) : null;
   const wallet = args.wallet && args.firstTopUp && !returnClaimHash ? args.wallet : null;
@@ -331,6 +335,7 @@ export function payerWalletFields(args: {
     walletHasFaceId: (wallet?._count.passkeys ?? 0) > 0,
     walletHasPin: Boolean(wallet?.pinHash),
     ...(returnClaimHash && args.wallet ? { walletReturnToken: args.wallet.qrToken } : {}),
+    ...(wallet && isHomeTopUpKey(args.idempotencyKey) ? { walletFromHome: true } : {}),
   };
 }
 

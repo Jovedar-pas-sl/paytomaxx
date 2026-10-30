@@ -38,6 +38,7 @@ import { MoneyMapModule } from './modules/money-map/money-map.module';
 import { OxioPaySettlementsModule } from './modules/oxiopay-settlements/oxiopay-settlements.module';
 import { WalletsModule } from './modules/wallets/wallets.module';
 import { WebhooksModule } from './modules/webhooks/webhooks.module';
+import { HomeTopUpModule } from './modules/home-topup/home-topup.module';
 
 @Module({
   imports: [
@@ -92,6 +93,8 @@ import { WebhooksModule } from './modules/webhooks/webhooks.module';
     ApprovalsModule,
     WalletsModule,
     WebhooksModule,
+    // «Cargar saldo antes de llegar»: el enlace del local (/r/<código>) y la ficha en recepción.
+    HomeTopUpModule,
   ],
   controllers: [HealthController],
   // Orden importa: IpRateLimit corre antes que AuthGuard para que un ataque de

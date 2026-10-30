@@ -31,3 +31,4 @@ export * from './service-fee';
 export * from './oxiopay-settlement';
 export * from './bank-hold';
 export * from './pay-wait';
+export * from './home-topup';

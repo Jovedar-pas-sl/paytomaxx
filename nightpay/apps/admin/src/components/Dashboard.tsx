@@ -40,6 +40,7 @@ import { ReportsPanel } from './ReportsPanel';
 import { AlertsPanel } from './settings/AlertsPanel';
 import { NightPanel } from './settings/NightPanel';
 import { PaymentMethodsPanel } from './settings/PaymentMethodsPanel';
+import { HomeTopUpPanel } from './settings/HomeTopUpPanel';
 import { PermissionsPanel } from './settings/PermissionsPanel';
 import { RulesPanel } from './settings/RulesPanel';
 import { SecurityPanel } from './settings/SecurityPanel';
@@ -333,7 +334,12 @@ function ActivePanel(props: ActivePanelProps) {
     case 'rules':
       return isOwner ? <RulesPanel /> : null;
     case 'methods':
-      return isOwner ? <PaymentMethodsPanel onSaved={(m) => props.onPosChange(m.pos)} /> : null;
+      return isOwner ? (
+        <div className="np-set-stack">
+          <PaymentMethodsPanel onSaved={(m) => props.onPosChange(m.pos)} />
+          <HomeTopUpPanel />
+        </div>
+      ) : null;
     case 'night':
       return isOwner ? <NightPanel /> : null;
     case 'permissions':

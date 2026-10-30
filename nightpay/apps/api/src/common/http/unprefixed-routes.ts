@@ -79,4 +79,8 @@ export const UNPREFIXED_ROUTES: readonly UnprefixedRoute[] = Object.freeze([
   { path: 'w/salida/:token/confirm', method: RequestMethod.POST },
   // El QR del pase de Google Wallet (solo para cobrar): a la app del personal.
   { path: 'c/:token', method: RequestMethod.GET },
+  // «Cargar saldo antes de llegar»: el enlace del local, la carga y «Recargar mi saldo».
+  { path: 'r/:code', method: RequestMethod.GET },
+  { path: 'r/:code/topup', method: RequestMethod.POST },
+  { path: 'r/:code/mi-saldo', method: RequestMethod.GET },
 ]);
