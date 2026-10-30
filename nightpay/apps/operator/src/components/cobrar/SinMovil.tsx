@@ -66,13 +66,16 @@ export function SinMovil({ chargeId, amountCents, what, colors, onReady, onBack 
   useEffect(() => {
     ready.current = onReady;
   });
+  // Viva mientras está montada. Se vuelve a marcar al montarse: React (modo
+  // estricto) la monta, la desmonta y la monta otra vez, y sin esto se quedaba
+  // en «Buscando…» con la respuesta ya llegada.
   const alive = useRef(true);
-  useEffect(
-    () => () => {
+  useEffect(() => {
+    alive.current = true;
+    return () => {
       alive.current = false;
-    },
-    [],
-  );
+    };
+  }, []);
 
   function go(next: Mode) {
     setMode(next);

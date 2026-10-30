@@ -167,6 +167,14 @@ describe('Esperando, la única pantalla de cobrar, lo usa', () => {
   });
 });
 
+describe('«Sin móvil ni ficha» (SinMovil)', () => {
+  const src = readFileSync(new URL('../components/cobrar/SinMovil.tsx', import.meta.url), 'utf8').replace(/\r\n/g, '\n');
+
+  it('vuelve a marcarse viva al montarse: React (modo estricto) la monta, la desmonta y la monta otra vez; si no, se queda en «Buscando…»', () => {
+    expect(src).toMatch(/useEffect\(\(\) => \{\n\s*alive\.current = true;\n\s*return \(\) => \{\n\s*alive\.current = false;\n\s*\};\n\s*\}, \[\]\);/);
+  });
+});
+
 describe('los enlaces de la cámara del móvil abren el cobro de Inicio', () => {
   const hooks = readFileSync(new URL('../components/dashboard-hooks.ts', import.meta.url), 'utf8');
   const dash = readFileSync(new URL('../components/Dashboard.tsx', import.meta.url), 'utf8').replace(/\r\n/g, '\n');
