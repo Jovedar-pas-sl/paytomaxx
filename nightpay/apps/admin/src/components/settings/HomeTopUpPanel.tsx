@@ -74,7 +74,7 @@ export function HomeTopUpPanel() {
       {settings.enabled && url && qr ? (
         <div style={box}>
           {settings.problem ? (
-            <p role="alert" className="np-set-error">
+            <p role="alert" className="np-set-error" style={{ flex: 'none' }}>
               {HOME_TOPUP_PROBLEM_TEXT[settings.problem]}
             </p>
           ) : null}

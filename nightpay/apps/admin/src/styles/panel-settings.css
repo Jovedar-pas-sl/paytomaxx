@@ -223,6 +223,15 @@
   color: var(--np-success);
 }
 
+/* En una columna (la línea de «Guardado» al pie de un bloque o de una pila),
+   su alto es el del texto: el «14rem» de arriba es el ancho en una fila. */
+.np-set-stack > .np-set-error,
+.np-set-stack > .np-set-saved,
+.np-set-card > .np-set-error,
+.np-set-card > .np-set-saved {
+  flex: 0 0 auto;
+}
+
 /* Permisos por persona. */
 .np-set-people {
   display: flex;
