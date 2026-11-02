@@ -25,6 +25,8 @@ describe('pagar con el saldo escaneando el QR del personal', () => {
     }
     const es = renderQrChargePage('tok-1', 'es', view, NOW);
     expect(es).toContain('Pagar con mi saldo');
+    // Lo que se cobra, con céntimos, como en las demás páginas de pago.
+    expect(es).toMatch(/<h1 class="amount num">60,00\s€<\/h1>/);
     // Face ID preparado al abrir: al tocar "Pagar" sale al momento.
     expect(es).toContain("pkPrepare(C.base+'/challenge')");
     expect(es).toContain('PIN');

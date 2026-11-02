@@ -159,7 +159,8 @@ function rcpDownload(b,name){var u=URL.createObjectURL(b),a=document.createEleme
 `;
 
 /**
- * welcomeRender(s): con la ficha ya dada (o el saldo cerrado), el QR se quita.
+ * welcomeRender(s): con la ficha ya dada, el saldo cerrado o «Me voy» pedido
+ * (recepción ya no daría ficha), el QR se quita.
  * «Guardar comprobante» (con RECEIPT_JS): la imagen se prepara al abrir la
  * página, para que en el iPhone compartir vaya dentro del mismo toque (Safari
  * no deja compartir después de esperar); si no estaba lista o el QR cambió,
@@ -168,7 +169,7 @@ function rcpDownload(b,name){var u=URL.createObjectURL(b),a=document.createEleme
  * móvil o, sin él, copiarlo.
  */
 export const WELCOME_JS = `
-function welcomeRender(s){var q=$('fichaQr');if(q)q.hidden=!!s.hasCard||s.status!=='ACTIVE';}
+function welcomeRender(s){var q=$('fichaQr');if(q)q.hidden=!!s.hasCard||s.status!=='ACTIVE'||!!s.closeRequested;}
 var welShare=$('welShare');if(welShare)welShare.addEventListener('click',function(){var u=location.origin+C.base;
  if(navigator.share){navigator.share({url:u,title:document.title}).catch(function(){});return;}
  if(navigator.clipboard&&navigator.clipboard.writeText)navigator.clipboard.writeText(u).then(function(){$('welCopied').hidden=false;}).catch(function(){});});

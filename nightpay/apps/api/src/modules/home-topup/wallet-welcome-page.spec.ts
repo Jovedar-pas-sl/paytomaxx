@@ -3,6 +3,7 @@ import { PublicWalletController } from '../wallets/public-wallet.controller';
 import type { ClientWalletState } from '../wallets/wallet-charges.service';
 import { renderWalletPage } from '../wallets/wallet-page';
 import { HOME_TOPUP_TEXT } from './home-topup-text';
+import { WELCOME_JS } from './wallet-welcome-view';
 
 /** La página del saldo con lo de «Cargar saldo antes de llegar»: la bienvenida, el QR de la ficha y la cookie. */
 
@@ -61,6 +62,22 @@ describe('renderWalletPage con la bienvenida del saldo cargado desde casa', () =
     expect(codeCard).toContain(HOME_TOPUP_TEXT.fr.fichaQrHint);
     expect(html).toContain('lostRender(s);welcomeRender(s);');
     expect(renderWalletPage('tok', 'es', state, { topUp })).not.toContain('id="fichaQr"');
+  });
+
+  it('el QR de la ficha se quita al pedir «Me voy» (recepción ya no daría ficha), con la ficha dada o con el saldo cerrado', () => {
+    const fn = /^function welcomeRender\(s\)\{.*\}$/m.exec(WELCOME_JS)?.[0] ?? '';
+    const box = { hidden: false };
+    const render = new Function('$', `${fn}; return welcomeRender;`)(() => box) as (s: Partial<ClientWalletState>) => void;
+    const hiddenFor = (s: Partial<ClientWalletState>): boolean => {
+      render({ hasCard: false, status: 'ACTIVE', closeRequested: false, ...s });
+      return box.hidden;
+    };
+    expect(hiddenFor({})).toBe(false);
+    expect(hiddenFor({ closeRequested: true })).toBe(true);
+    expect(hiddenFor({ hasCard: true })).toBe(true);
+    expect(hiddenFor({ status: 'DEPLETED' })).toBe(true);
+    // Si vuelve a recargar, «Me voy» se anula y el QR vuelve a valer.
+    expect(hiddenFor({ closeRequested: false })).toBe(false);
   });
 
   it('«Recargar mi saldo» desde el enlace del local abre «Recargar» (#recargar)', () => {
