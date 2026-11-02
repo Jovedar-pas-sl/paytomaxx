@@ -105,11 +105,14 @@ async function payAtBank(paymentId: string, tenantId: string, order: string, cha
 const approve = (paymentId: string, order: string) =>
   pub(() => payments.transition(paymentId, { type: 'AUTHORIZED', provider: 'REDSYS', providerTxId: order }));
 
-/** Una carga pagada: el saldo nuevo con su dinero. */
+let loads = 0;
+
+/** Una carga pagada: el saldo nuevo con su dinero. El pedido, único (12 caracteres, como en Redsys). */
 async function paidLoad(code: string, amountCents = 5000): Promise<{ paymentId: string; payToken: string; walletId: string }> {
   const out = await startIn(code, amountCents);
   const p = await paymentOf(out.payToken);
-  await payAtBank(p.id, p.tenantId, `RC${r}${counters.size}${Math.floor(Math.random() * 1e6)}`.slice(0, 12), amountCents + p.serviceFeeCents);
+  loads += 1;
+  await payAtBank(p.id, p.tenantId, `RC${r}${String(loads).padStart(4, '0')}`, amountCents + p.serviceFeeCents);
   return { paymentId: p.id, payToken: out.payToken, walletId: p.walletId! };
 }
 
