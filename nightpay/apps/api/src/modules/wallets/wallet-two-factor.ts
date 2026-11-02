@@ -15,12 +15,12 @@ export function cashApprovalThreshold(thresholdCents: number | null | undefined)
 }
 
 /**
- * El encargado saca dinero del saldo sin el dueño: anular un consumo (vuelve
- * al saldo del cliente) o devolver el saldo en efectivo. Por encima del
+ * El encargado devuelve el saldo en efectivo sin el dueño. Por encima del
  * umbral de «Por aprobar» del local (más de ese importe, como la salida de
  * recepción) pone su código 2FA. No va a «Por aprobar»: el efectivo se da en
  * el momento, con el cliente delante, y el dueño no está para darlo. El
- * dueño, como siempre. Umbral 0: siempre.
+ * dueño, como siempre. Umbral 0: siempre. Anular un cobro con saldo pide el
+ * código a los dos, siempre (WalletsService.reverseConsumption).
  */
 export function managerNeedsTwoFactor(
   role: Role,

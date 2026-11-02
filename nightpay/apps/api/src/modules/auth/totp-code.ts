@@ -13,7 +13,7 @@ export const TOTP_MESSAGES = {
   invalid: 'Código 2FA incorrecto o caducado',
   reused: 'Ese código 2FA ya se ha usado. Espera al siguiente (cambia cada 30 s).',
   unreadable: 'No se puede comprobar tu 2FA. Hay que volver a activarla.',
-  notEnrolled: 'Activa antes la verificación en dos pasos (2FA) en tu perfil.',
+  notEnrolled: 'Activa antes la verificación en dos pasos (2FA) en el panel: Ajustes → Seguridad.',
 } as const;
 
 export type TotpErrorKind = keyof typeof TOTP_MESSAGES;

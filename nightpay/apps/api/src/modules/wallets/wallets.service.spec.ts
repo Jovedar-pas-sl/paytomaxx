@@ -1,6 +1,7 @@
-import { describe, it, expect, vi } from 'vitest';
+import { afterEach, describe, it, expect, vi } from 'vitest';
 import { ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { WalletsService } from './wallets.service';
+import { reversalAlertText } from './wallet-reversal-alert';
 import { PAID_STATUSES_SQL, paymentAt } from '../reports/reporting-sql';
 
 /**
@@ -106,7 +107,7 @@ function makeService(o: ReversalOptions = {}) {
 
 /** Anula c-1 de w-1 desde el local "other" (donde se cobró). */
 const reverse = (svc: WalletsService) =>
-  svc.reverseConsumption({ tenantId: 'other', walletId: 'w-1', consumptionId: 'c-1', actorUserId: 'u-man', reason: 'error' });
+  svc.reverseConsumption({ tenantId: 'other', walletId: 'w-1', consumptionId: 'c-1', actorUserId: 'u-man', totpCode: '123456', reason: 'error' });
 
 describe('WalletsService.createEmpty', () => {
   it('creates wallet with balance 0 and base64url qrToken', async () => {
@@ -221,49 +222,96 @@ describe('anular un consumo del saldo', () => {
   });
 });
 
-describe('anular un consumo: el encargado, desde el umbral del local, con su 2FA', () => {
-  const asManager = (svc: WalletsService, totpCode?: string) =>
+describe('anular un cobro con saldo: siempre con 2FA, no hay otro camino', () => {
+  const anular = (svc: WalletsService, totpCode?: string) =>
     svc.reverseConsumption({
       tenantId: 'other',
       walletId: 'w-1',
       consumptionId: 'c-1',
-      actorUserId: 'u-man',
-      actorRole: 'MANAGER',
+      actorUserId: 'u-1',
       totpCode,
       reason: 'error',
     });
 
-  it('sumando lo ya anulado en el saldo llega al umbral: sin código 403 TOTP_REQUIRED y nada anulado', async () => {
-    // 45 € de este consumo + 60 € ya anulados = 105 € ≥ 100 €.
-    const { svc, txMock } = makeService({ reversedCents: 6_000 });
-    const err = await asManager(svc).catch((e: unknown) => e);
+  it('sin código, por poco que sea: 403 TOTP_REQUIRED y nada anulado', async () => {
+    const { svc, txMock } = makeService({ threshold: 1_000_000 });
+    const err = await anular(svc).catch((e: unknown) => e);
     expect((err as ForbiddenException).getResponse()).toMatchObject({ code: 'TOTP_REQUIRED' });
-    expect((err as Error).message).toMatch(/Anular 105,00 € en este saldo \(sumando lo ya anulado\)/);
+    expect((err as Error).message).toMatch(/Para anular 45,00 €/);
     expect(txMock.clientWallet.update).not.toHaveBeenCalled();
     expect(txMock.walletConsumption.update).not.toHaveBeenCalled();
-    // Lo ya anulado se suma en el saldo del consumo y en el que usa hoy el cliente.
-    const sum = txMock.$queryRaw.mock.calls.find((c) => sqlOf(c).includes('"reversedAt" IS NOT NULL'))!;
-    expect(sum[1]).toEqual(['w-1']);
+  });
+
+  it('sin la app de verificación activada no se puede anular, y lo dice', async () => {
+    const { svc, totpMock, txMock } = makeService();
+    totpMock.isEnabled.mockResolvedValue(false);
+    const err = await anular(svc).catch((e: unknown) => e);
+    expect((err as ForbiddenException).getResponse()).toMatchObject({ code: 'TOTP_NOT_ENROLLED' });
+    expect(txMock.clientWallet.update).not.toHaveBeenCalled();
   });
 
   it('con su código se anula (y queda en el registro que se pidió)', async () => {
-    const { svc, totpMock, auditMock } = makeService({ reversedCents: 6_000 });
-    await expect(asManager(svc, '123456')).resolves.toEqual({ refundedCents: 4500, newBalanceCents: 5500 });
-    expect(totpMock.assertForUser).toHaveBeenCalledWith('u-man', '123456');
+    const { svc, totpMock, auditMock } = makeService();
+    await expect(anular(svc, '123456')).resolves.toEqual({ refundedCents: 4500, newBalanceCents: 5500 });
+    expect(totpMock.assertForUser).toHaveBeenCalledWith('u-1', '123456');
     expect(auditMock.log).toHaveBeenCalledWith(
       expect.objectContaining({ action: 'wallet.consumption.reversed', payload: expect.objectContaining({ twoFactor: true }) }),
     );
   });
 
-  it('por debajo del umbral, sin código; el dueño nunca', async () => {
-    const below = makeService({ reversedCents: 5_499 });
-    await expect(asManager(below.svc)).resolves.toMatchObject({ refundedCents: 4500 });
-    expect(below.totpMock.assertForUser).not.toHaveBeenCalled();
-    const own = makeService({ threshold: 0, reversedCents: 50_000 });
-    await expect(
-      own.svc.reverseConsumption({ tenantId: 'other', walletId: 'w-1', consumptionId: 'c-1', actorUserId: 'u-own', actorRole: 'OWNER', reason: 'x' }),
-    ).resolves.toMatchObject({ refundedCents: 4500 });
-    expect(own.totpMock.isEnabled).not.toHaveBeenCalled();
+  it('un código malo no anula nada', async () => {
+    const { svc, totpMock, txMock } = makeService();
+    totpMock.assertForUser.mockRejectedValue(new ForbiddenException('Código incorrecto'));
+    await expect(anular(svc, '000000')).rejects.toBeInstanceOf(ForbiddenException);
+    expect(txMock.clientWallet.update).not.toHaveBeenCalled();
+  });
+
+  it('el aviso de Telegram dice cuánto vuelve, por qué y quién, sin el código del saldo', () => {
+    const text = reversalAlertText({ venueName: 'Sala Aurora', refundedCents: 4500, reason: 'Se equivocó de copa', actor: 'Lucía' });
+    expect(text).toContain('Sala Aurora');
+    expect(text).toContain('45,00 €');
+    expect(text).toContain('Se equivocó de copa');
+    expect(text).toContain('Lucía');
+  });
+
+  describe('el aviso, de verdad', () => {
+    const conAlertas = () => {
+      const made = makeService();
+      const telegram = { send: vi.fn().mockResolvedValue(true) };
+      (made.txMock as Record<string, unknown>).user = { findUnique: vi.fn().mockResolvedValue({ displayName: 'Lucía', email: 'l@x.es' }) };
+      made.prismaMock.venue.findUnique.mockResolvedValue({ walletGroup: 'principal', name: 'Sala Aurora', alertSettings: { chatId: '-100123' } } as never);
+      const svc = new WalletsService(made.prismaMock as never, made.auditMock as never, made.totpMock as never, telegram as never);
+      return { svc, telegram };
+    };
+
+    afterEach(() => vi.unstubAllEnvs());
+
+    it('sale al chat del local, una vez anulado', async () => {
+      vi.stubEnv('NODE_ENV', 'production');
+      vi.stubEnv('NIGHTPAY_DISABLE_ALERTS', '');
+      const { svc, telegram } = conAlertas();
+      await anular(svc, '123456');
+      await vi.waitFor(() => expect(telegram.send).toHaveBeenCalledTimes(1));
+      expect(telegram.send.mock.calls[0]![0]).toContain('Lucía');
+      expect(telegram.send.mock.calls[0]![1]).toBe('-100123');
+    });
+
+    it('si Telegram falla, la anulación sigue hecha', async () => {
+      vi.stubEnv('NODE_ENV', 'production');
+      vi.stubEnv('NIGHTPAY_DISABLE_ALERTS', '');
+      const { svc, telegram } = conAlertas();
+      telegram.send.mockRejectedValue(new Error('caído'));
+      await expect(anular(svc, '123456')).resolves.toMatchObject({ refundedCents: 4500 });
+      await vi.waitFor(() => expect(telegram.send).toHaveBeenCalled());
+    });
+
+    it('sin código no se avisa de nada', async () => {
+      vi.stubEnv('NODE_ENV', 'production');
+      vi.stubEnv('NIGHTPAY_DISABLE_ALERTS', '');
+      const { svc, telegram } = conAlertas();
+      await expect(anular(svc)).rejects.toBeInstanceOf(ForbiddenException);
+      expect(telegram.send).not.toHaveBeenCalled();
+    });
   });
 });
 

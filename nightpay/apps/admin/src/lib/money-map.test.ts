@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { CobroRow } from '@nightpay/contracts';
 import { groupBySection, packFromDraft, packRemainder } from './carta-form';
 import { cobrosQuery } from './endpoints/money-map';
-import { FALLBACK_SECTIONS, chipTextColor, enabledSections, paidTwiceNote, paymentRowOf, sectionChip } from './money-map';
+import { FALLBACK_SECTIONS, chipTextColor, enabledSections, paidTwiceNote, paymentRowOf, reverseChargeText, reversibleSaldoCharge, sectionChip } from './money-map';
 
 const eur = (c: number) => `${c / 100} €`;
 
@@ -29,6 +29,41 @@ function row(o: Partial<CobroRow> = {}): CobroRow {
     ...o,
   };
 }
+
+describe('anular un cobro pagado con saldo', () => {
+  const saldo = (o: Partial<CobroRow> = {}) =>
+    row({
+      kind: 'SALDO',
+      status: 'ACCEPTED',
+      method: 'SALDO',
+      amountCents: 1200,
+      tipCents: 100,
+      wallet: { id: 'w-1', codeHint: 'K7Q-•••' },
+      consumptionId: 'con-1',
+      ...o,
+    });
+
+  it('dueño y encargado pueden; lo que hace falta para anularlo', () => {
+    expect(reversibleSaldoCharge(saldo(), 'OWNER')).toEqual({ walletId: 'w-1', consumptionId: 'con-1' });
+    expect(reversibleSaldoCharge(saldo(), 'MANAGER')).toEqual({ walletId: 'w-1', consumptionId: 'con-1' });
+  });
+
+  it('nadie más, ni un cobro ya anulado, ni un cobro con tarjeta, ni uno sin saldo o sin consumo', () => {
+    expect(reversibleSaldoCharge(saldo(), 'OPERATOR')).toBeNull();
+    expect(reversibleSaldoCharge(saldo(), 'WAITER')).toBeNull();
+    expect(reversibleSaldoCharge(saldo({ status: 'REVERSED' }), 'OWNER')).toBeNull();
+    expect(reversibleSaldoCharge(saldo({ kind: 'PAYMENT' }), 'OWNER')).toBeNull();
+    expect(reversibleSaldoCharge(saldo({ wallet: null }), 'OWNER')).toBeNull();
+    expect(reversibleSaldoCharge(saldo({ consumptionId: null }), 'OWNER')).toBeNull();
+  });
+
+  it('dice cuánto vuelve (importe y propina), a qué saldo y que no se puede deshacer', () => {
+    const text = reverseChargeText(saldo(), eur);
+    expect(text).toContain('13 €');
+    expect(text).toContain('K7Q-•••');
+    expect(text).toContain('No se puede deshacer');
+  });
+});
 
 describe('sección de un cobro en la lista', () => {
   it('una sección: su nombre y su color; varias: «Varias» con el reparto', () => {

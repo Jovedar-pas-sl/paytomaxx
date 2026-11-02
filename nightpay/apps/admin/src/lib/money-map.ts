@@ -54,6 +54,20 @@ export function sectionLabelOf(sections: readonly VenueSection[], code: SectionC
   return sectionMeta(sections, code).label;
 }
 
+/** Un cobro pagado con saldo que se puede anular: lo que hace falta para hacerlo (solo dueño y encargado). */
+export function reversibleSaldoCharge(row: CobroRow, role: string): { walletId: string; consumptionId: string } | null {
+  if (row.kind !== 'SALDO' || row.status !== 'ACCEPTED') return null;
+  if (role !== 'OWNER' && role !== 'MANAGER') return null;
+  if (!row.wallet || !row.consumptionId) return null;
+  return { walletId: row.wallet.id, consumptionId: row.consumptionId };
+}
+
+/** Lo que pasa al anularlo, antes de confirmar. */
+export function reverseChargeText(row: CobroRow, eur: (cents: number) => string): string {
+  const back = eur(row.amountCents + row.tipCents);
+  return `Vuelven ${back} al saldo ${row.wallet?.codeHint ?? 'del cliente'}. Si alguien ganó comisión con este cobro, se le descuenta. Queda apuntado en el Z. No se puede deshacer.`;
+}
+
 /** Un cobro con tarjeta de la lista, como lo esperan las devoluciones y «Resolver». */
 export function paymentRowOf(row: CobroRow): PaymentRow | null {
   const p = row.payment;

@@ -6,8 +6,8 @@ import { Button, Card, Input } from '@nightpay/ui';
 import type { OperatorUser } from '@/lib/api';
 import { giveFicha, readFichaQr, walletCodeOf } from '@/lib/give-ficha';
 import { formatEur } from '@/lib/money';
-import { fetchReceptionDesk, type ReceptionDeskSaldo } from '@/lib/reception-desk';
-import { useVenueMethods } from '@/lib/venue-methods';
+import { fetchReceptionDesk, fichaGivenNote, noPinLimitCents, type ReceptionDeskSaldo } from '@/lib/reception-desk';
+import { useVenueMethods, useVenueNight } from '@/lib/venue-methods';
 import { PinPad } from '../PinPad';
 import { QrScanner, qrScanSupported } from '../QrScanner';
 import { StaffOutcome } from '../StaffOutcome';
@@ -20,7 +20,7 @@ interface Found {
   pin?: string;
 }
 
-type Step = { kind: 'find' } | { kind: 'scan' } | { kind: 'pin'; found: Found; error?: string } | { kind: 'tap'; found: Found } | { kind: 'done'; out: GivenFicha };
+type Step = { kind: 'find' } | { kind: 'scan' } | { kind: 'pin'; found: Found; error?: string } | { kind: 'tap'; found: Found } | { kind: 'done'; out: GivenFicha; hasPin: boolean };
 
 /**
  * Recepción → «Dar ficha a un saldo»: el cliente que cargó su saldo desde
@@ -31,6 +31,7 @@ type Step = { kind: 'find' } | { kind: 'scan' } | { kind: 'pin'; found: Found; e
  */
 export function GiveFicha({ user, onDone }: { user: OperatorUser; onDone: () => void }) {
   const nfcOn = useVenueMethods().nfc;
+  const noPinMaxCents = noPinLimitCents(useVenueNight());
   const { reader, reading, read } = useReadNfc();
   const [step, setStep] = useState<Step>({ kind: 'find' });
   const [code, setCode] = useState('');
@@ -96,7 +97,7 @@ export function GiveFicha({ user, onDone }: { user: OperatorUser; onDone: () => 
         ...(found.proof ? { proof: found.proof } : {}),
         ...(found.pin ? { pin: found.pin } : {}),
       });
-      setStep({ kind: 'done', out });
+      setStep({ kind: 'done', out, hasPin: found.saldo.hasPin });
     } catch (err) {
       if ((err as Error).name === 'AbortError') return;
       const message = (err as Error).message;
@@ -116,7 +117,7 @@ export function GiveFicha({ user, onDone }: { user: OperatorUser; onDone: () => 
         kind="paid"
         amountCents={out.balanceCents}
         message="Ficha dada"
-        detail={<p>{`Saldo ${out.code}${ficha ? ` · ficha nº ${ficha}` : ''}. Ya puede pagar acercándola.`}</p>}
+        detail={<p>{`Saldo ${out.code}${ficha ? ` · ficha nº ${ficha}` : ''}. ${fichaGivenNote(step.hasPin, noPinMaxCents)}`}</p>}
         primary={{ label: 'Otra ficha', onClick: () => { setCode(''); setStep({ kind: 'find' }); } }}
         secondary={{ label: 'Volver', onClick: onDone }}
       />

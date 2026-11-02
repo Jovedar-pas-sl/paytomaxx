@@ -1,6 +1,7 @@
 import { Inject, Injectable, NotFoundException } from '@nestjs/common';
 import type { Prisma } from '@nightpay/db';
 import {
+  parseChargeRef,
   PaymentStatusSchema,
   type CobroRow,
   type CobrosPage,
@@ -62,6 +63,8 @@ interface Scope {
   /** Saldos que se buscan (por su código o su id). Null = todos. */
   walletIds: string[] | null;
   searchIds: string[] | null;
+  /** Lo buscado es una referencia (C-0022): también los cobros con esa referencia. */
+  searchRef: number | null;
   from: Date | null;
   to: Date | null;
 }
@@ -117,7 +120,9 @@ export class CobrosService {
       if (walletIds.length === 0) return null;
     }
     let searchIds: string[] | null = null;
+    let searchRef: number | null = null;
     if (q.search) {
+      searchRef = parseChargeRef(q.search);
       // También se busca fuera de la página cargada; el local se limita en SQL.
       const term = q.search.toLowerCase();
       const matches = await tx.$queryRaw<Array<{ id: string }>>`
@@ -136,7 +141,7 @@ export class CobrosService {
         LIMIT ${SEARCH_MAX_MATCHES}
       `;
       searchIds = matches.map((p) => p.id);
-      if (searchIds.length === 0) return null;
+      if (searchIds.length === 0 && searchRef === null) return null;
     }
     let night: { openedAt: Date; closedAt: Date | null } | null = null;
     if (q.nightId) {
@@ -145,7 +150,7 @@ export class CobrosService {
     }
     const window = cobrosWindow(night, q);
     if (!window) return null;
-    return { tenantId, walletIds, searchIds, ...window };
+    return { tenantId, walletIds, searchIds, searchRef, ...window };
   }
 
   private async paymentRows(
@@ -159,7 +164,10 @@ export class CobrosService {
     if (statuses) and.push({ status: { in: statuses } });
     if (q.operatorId) and.push({ createdByUserId: q.operatorId });
     if (scope.walletIds) and.push({ walletId: { in: scope.walletIds } });
-    if (scope.searchIds) and.push({ id: { in: scope.searchIds } });
+    if (scope.searchIds) {
+      const found: Prisma.PaymentWhereInput = { id: { in: scope.searchIds } };
+      and.push(scope.searchRef === null ? found : { OR: [found, { ref: scope.searchRef }] });
+    }
     const dates = dateWhere(scope, cursor);
     if (dates) and.push(dates);
     if (q.category) and.push(paymentCategoryWhere(q.category));
@@ -221,7 +229,10 @@ export class CobrosService {
     const wanted = SALDO_STATUSES_FOR(q.status);
     if (!wanted.accepted && !wanted.reversed) return [];
     const and: Prisma.WalletChargeRequestWhereInput[] = [{ tenantId: scope.tenantId }];
-    if (scope.searchIds) and.push({ linkedPaymentId: { in: scope.searchIds } });
+    if (scope.searchIds) {
+      const found: Prisma.WalletChargeRequestWhereInput = { linkedPaymentId: { in: scope.searchIds } };
+      and.push(scope.searchRef === null ? found : { OR: [found, { ref: scope.searchRef }] });
+    }
     if (q.operatorId) and.push({ requestedByUserId: q.operatorId });
     if (scope.walletIds) and.push({ walletId: { in: scope.walletIds } });
     const dates = dateWhere(scope, cursor);

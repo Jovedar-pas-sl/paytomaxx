@@ -83,6 +83,8 @@ export interface PaymentFeedRow {
 export interface SaldoFeedRow {
   id: string;
   linkedPaymentId?: string | null;
+  /** El consumo del saldo: lo que se anula para devolver este cobro. */
+  consumptionId?: string | null;
   ref: number | null;
   createdAt: Date;
   amountCents: number;
@@ -238,6 +240,7 @@ export function saldoCobroRow(s: SaldoFeedRow): CobroRow {
     methodLabel: `${CHARGE_METHOD_LABELS.SALDO} ${hint}`,
     via: saldoVia(s.authMethod),
     wallet: s.wallet ? { id: s.wallet.id, codeHint: hint } : null,
+    consumptionId: s.consumptionId ?? null,
     service: s.serviceName,
     invited: invitedOf(s.lines),
     lines: rowLines(s.lines),

@@ -188,6 +188,19 @@ export async function fetchRecentCashTopUps(): Promise<RecentCashTopUp[]> {
   return res.json();
 }
 
+/** Anular un cobro pagado con saldo: encargado o dueño, siempre con motivo y su 2FA. */
+export async function reverseWalletCharge(
+  target: { walletId: string; consumptionId: string },
+  input: { reason: string; totpCode: string },
+): Promise<{ refundedCents: number; newBalanceCents: number }> {
+  const res = await authedFetch(
+    `/v1/wallets/${encodeURIComponent(target.walletId)}/consumptions/${encodeURIComponent(target.consumptionId)}/reverse`,
+    { method: 'POST', body: JSON.stringify(input) },
+  );
+  if (!res.ok) throw await totpAwareError(res);
+  return res.json();
+}
+
 /** Anular una recarga en efectivo mal tecleada: encargado o dueño, siempre con su 2FA. */
 export async function voidCashTopUp(
   id: string,

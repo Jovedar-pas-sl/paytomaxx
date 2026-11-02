@@ -154,10 +154,86 @@ export function numberMethodButtons(options: ReceptionOptions | null): MethodBut
   ];
 }
 
-/** La nota del PIN de 4.3: no frena la cola, se pone después. */
-export function pinNote(noPinMaxCents: number): string {
-  if (noPinMaxCents <= 0) return 'El PIN lo pone luego: hace falta para pagar con el NFC.';
-  return `El PIN lo pone luego, solo hace falta para más de ${formatEur(noPinMaxCents, { compact: true })}.`;
+/**
+ * La nota del PIN de 4.3: no frena la cola, se elige al terminar. `canChoose`:
+ * si quien carga puede ponerlo ahora (canChoosePin); si no, se dice la verdad.
+ */
+export function pinNote(noPinMaxCents: number, canChoose = true): string {
+  if (!canChoose) return pinAfterLoadText('manager', noPinMaxCents);
+  if (noPinMaxCents <= 0) return 'Al terminar elegirá su PIN: hace falta para pagar con la ficha.';
+  return `Si pasa de ${formatEur(noPinMaxCents, { compact: true })}, elegirá su PIN al terminar.`;
+}
+
+/**
+ * Hasta cuánto paga una ficha sin PIN en este local. Como el servidor
+ * (noPinProblem): con cualquiera de los dos topes a 0, sin PIN no paga nada.
+ */
+export function noPinLimitCents(night: { nfcNoPinMaxCents: number; nfcNoPinNightCapCents: number }): number {
+  return night.nfcNoPinNightCapCents <= 0 ? 0 : Math.max(0, night.nfcNoPinMaxCents);
+}
+
+/**
+ * ¿Quien carga puede poner el PIN ahora? El servidor lo deja a quien hizo la
+ * primera recarga del saldo (15 min) y al encargado o al dueño: un saldo que
+ * ya existía, no (una ficha perdida no se queda con un PIN nuevo en la barra).
+ */
+export function canChoosePin(view: ReceptionDeskView | null, role: string): boolean {
+  return !view || view.kind === 'new' || role === 'MANAGER' || role === 'OWNER';
+}
+
+/**
+ * Qué hacer con el PIN al terminar de cargar. Una ficha que pasa del máximo
+ * sin PIN no paga en barra y su saldo no se devuelve en la salida: `ask` lo
+ * pide ya (con «Ahora no»); `manager` avisa de que lo pone el encargado;
+ * `offer` lo deja como opción; `none`, nada.
+ */
+export type PinAfterLoad = 'none' | 'offer' | 'ask' | 'manager';
+
+export function pinAfterLoad(o: {
+  wallet: { hasPin: boolean; balanceCents: number } | null;
+  hasFicha: boolean;
+  canChoose: boolean;
+  noPinMaxCents: number;
+}): PinAfterLoad {
+  if (!o.wallet || o.wallet.hasPin) return 'none';
+  const needed = o.hasFicha && o.wallet.balanceCents > o.noPinMaxCents;
+  if (!o.canChoose) return needed ? 'manager' : 'none';
+  return needed ? 'ask' : 'offer';
+}
+
+/** Lo que pasa si no lo pone (`ask`), o quién puede ponerlo (`manager`). */
+export function pinAfterLoadText(need: 'ask' | 'manager', noPinMaxCents: number): string {
+  const max = formatEur(noPinMaxCents, { compact: true });
+  if (need === 'ask') {
+    const pay = noPinMaxCents <= 0 ? 'Sin PIN esta ficha no puede pagar.' : `Sin PIN solo paga hasta ${max}.`;
+    return `${pay} Para devolverle el saldo hará falta su Face ID o el encargado.`;
+  }
+  return noPinMaxCents <= 0
+    ? 'Esta ficha no tiene PIN: no puede pagar hasta que lo ponga con el encargado.'
+    : `Esta ficha no tiene PIN: solo paga hasta ${max}. Para más, que lo ponga con el encargado.`;
+}
+
+/** Tras dar ficha a quien cargó desde casa: sin PIN, dónde ponerlo (en su móvil, que es suyo). */
+export function fichaGivenNote(hasPin: boolean, noPinMaxCents: number): string {
+  if (hasPin) return 'Ya puede pagar acercándola.';
+  const pay = noPinMaxCents <= 0 ? 'Sin PIN esta ficha no puede pagar.' : `Sin PIN solo paga hasta ${formatEur(noPinMaxCents, { compact: true })}.`;
+  return `${pay} Que lo elija en su móvil, en Más → Elegir un PIN.`;
+}
+
+/** Este móvil no lee fichas (iPhone): en vez de «Acerca el NFC», lo que se puede hacer aquí. */
+export function noReaderStage(mode: 'entrada' | 'salida'): { title: string; text: string } {
+  return {
+    title: 'Este móvil no lee fichas',
+    text:
+      mode === 'entrada'
+        ? 'Para cargar una ficha nueva, usa el Android de recepción. Aquí puedes cargar un saldo con su código o su número.'
+        : 'Para devolver efectivo, usa el Android de recepción. Aquí puedes ver lo que le queda con su código o su número.',
+  };
+}
+
+/** Una ficha abierta desde el iPhone que el servidor no conoce: aún no tiene saldo. */
+export function fichaLookupText(message: string): string {
+  return /no encontrad/i.test(message) ? 'Esta ficha aún no tiene saldo. Para cargarla, usa el Android de recepción.' : message;
 }
 
 /** El saldo de la recarga para la petición (y su clave): nuevo, el de su NFC o el de su código. */

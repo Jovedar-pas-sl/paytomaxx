@@ -37,6 +37,8 @@ import {
 } from '@/lib/api-cobro';
 import {
   CHECKING_TEXT,
+  NO_PIN_SENTENCE,
+  NO_PIN_TITLE,
   NOT_CHARGED_RETRY_TEXT,
   failReasonOf,
   paidAmounts,
@@ -266,7 +268,7 @@ export function Esperando({ cobro, onNew, onRetry, retrying = false, retryError 
           return;
         }
         if (!w.hasPin) {
-          setLocalFail({ title: 'Sin PIN', sentence: 'Este saldo aún no tiene PIN: que pague con el QR desde su móvil.' });
+          setLocalFail({ title: NO_PIN_TITLE, sentence: NO_PIN_SENTENCE });
           return;
         }
         const reason = out.reason === 'night_cap' || out.reason === 'no_uid' ? out.message : null;

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { CobrosQuerySchema, confirmationCode } from '@nightpay/contracts';
+import { CobrosQuerySchema, confirmationCode, formatChargeRef, parseChargeRef } from '@nightpay/contracts';
 import { HOME_TOPUP_KEY_PREFIX, homeTopUpKey } from '../home-topup/home-topup-rules';
-import { paymentCobroRow, type PaymentFeedRow } from './cobros-rows';
+import { paymentCobroRow, saldoCobroRow, type PaymentFeedRow } from './cobros-rows';
 
 const payment: PaymentFeedRow = {
   id: '7f1c2a9e-3b4d-4e5f-8a6b-1c2d3e4f5a6b', ref: 1, createdAt: new Date(), updatedAt: new Date(),
@@ -30,6 +30,23 @@ describe('referencias de los cobros', () => {
     expect(CobrosQuerySchema.safeParse({ search: '1' }).success).toBe(false);
     expect(CobrosQuerySchema.safeParse({ search: ' 12 ' }).success).toBe(false);
     expect(CobrosQuerySchema.safeParse({ search: '123' }).success).toBe(true);
+  });
+  it('la referencia se encuentra tal como se ve (C-0022), aunque se escriba de otra forma', () => {
+    for (const text of ['C-0022', 'c-0022', 'C0022', 'c22', 'C 22', '  C-0022  ']) expect(parseChargeRef(text)).toBe(22);
+    expect(parseChargeRef(formatChargeRef(12345)!)).toBe(12345);
+  });
+  it('lo que no es una referencia no se trata como tal (ni un pedido del banco que empiece por C)', () => {
+    for (const text of ['0022', '22', 'B9F', 'C-0', 'C-', 'C-22A', 'CC22', '15170MMa8Srw', 'C-1234567890']) {
+      expect(parseChargeRef(text)).toBeNull();
+    }
+  });
+  it('un cobro del saldo lleva el consumo que hay que anular para devolverlo', () => {
+    const row = saldoCobroRow({
+      id: 'req-1', consumptionId: 'con-1', ref: 7, createdAt: new Date(), amountCents: 1200, category: 'VENUE_BAR',
+      serviceName: null, status: 'ACCEPTED', person: null, wallet: { id: 'w-1', shortCode: 'K7Q4M2' }, reversed: false,
+      tipCents: 0, lines: [],
+    });
+    expect(row).toMatchObject({ kind: 'SALDO', id: 'req-1', consumptionId: 'con-1', ref: 'C-0007' });
   });
 });
 

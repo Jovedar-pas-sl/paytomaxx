@@ -12,7 +12,7 @@ type MethodKey = 'card' | 'wallet' | 'nfc' | 'pos' | 'cashTopUp';
 const METHODS: ReadonlyArray<{ key: MethodKey; label: string; hint: string }> = [
   { key: 'card', label: 'QR con tarjeta, Apple Pay o Google Pay', hint: 'El cliente escanea y paga en la página del banco.' },
   { key: 'wallet', label: 'Pago con saldo', hint: 'Recargas y pagos con Face ID o con su código y PIN.' },
-  { key: 'nfc', label: 'Ficha NFC', hint: 'Acercar la ficha del saldo al móvil (siempre con PIN).' },
+  { key: 'nfc', label: 'Ficha NFC', hint: 'Acercar la ficha del saldo al móvil (con PIN desde el tope de Ajustes → Noche).' },
   { key: 'pos', label: 'Datáfono', hint: 'Cobros con el PAX o el datáfono del bar.' },
   {
     key: 'cashTopUp',

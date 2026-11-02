@@ -199,6 +199,8 @@ export interface CobroRow {
   via?: string | null;
   /** Saldo con el que pagó (cobros del saldo) o que recargó (recargas). */
   wallet: { id: string; codeHint: string } | null;
+  /** Cobros del saldo: el consumo que hay que anular para devolverlo. */
+  consumptionId?: string | null;
   /** Lo que se vendió («2× Copa · Habitación»). */
   service: string | null;
   /** «Copa con invitación»: la chica invitada. */

@@ -118,9 +118,9 @@ export function CobrosFiltersBar({ value, onChange }: { value: CobrosFilters; on
         ))}
       </Select>
       <Input
-        aria-label="Código o referencia del banco (al menos 3 caracteres)"
-        placeholder="Código o referencia del banco"
-        title="Al menos 3 letras o números"
+        aria-label="Referencia (C-0022), código o referencia del banco (al menos 3 caracteres)"
+        placeholder="C-0022, código o banco"
+        title="La referencia (C-0022), el código de 3 letras o la referencia del banco"
         value={search}
         onChange={(e) => setSearch(e.target.value)}
         minLength={SEARCH_MIN_CHARS}

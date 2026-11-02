@@ -7,7 +7,7 @@ import { fetchCobros, fetchMetrics, type CobrosFilters, type Metrics, type Payme
 import { cobradoNote, metricsCobradoParts } from '@/lib/cobrado';
 import { keepIfSame } from '@/lib/diff';
 import { formatEur } from '@/lib/money';
-import { paymentRowOf } from '@/lib/money-map';
+import { paymentRowOf, reversibleSaldoCharge } from '@/lib/money-map';
 import { appendPage, mergeLatestPage } from '@/lib/pagination';
 import type { TabKey } from '@/lib/roles';
 import { todayTiles, type NightTotals } from '@/lib/today-tiles';
@@ -20,6 +20,7 @@ import { PaymentReferenceDetails } from './fichas/PaymentReferenceDetails';
 import { Notice } from './Notice';
 import { RefundModal, ResolveModal } from './PaymentModals';
 import { RefundsModal } from './RefundsModal';
+import { ReverseChargeModal } from './ReverseChargeModal';
 import { TonightStrip } from './TonightStrip';
 
 const PAGE_SIZE = 50;
@@ -62,6 +63,7 @@ export function PaymentsPanel({ user, onNavigate, focusPaymentId = null, onFocus
   const [refundFor, setRefundFor] = useState<PaymentRow | null>(null);
   const [resolveFor, setResolveFor] = useState<PaymentRow | null>(null);
   const [refundsFor, setRefundsFor] = useState<PaymentRow | null>(null);
+  const [reverseFor, setReverseFor] = useState<CobroRow | null>(null);
   /** «Abrir cobro» de una incidencia que no está entre los cobros cargados. */
   const [focusMissing, setFocusMissing] = useState(false);
   // Lo cobrado y los pagos de «Esta noche»: «Hoy» no repite las cifras que coinciden.
@@ -207,8 +209,23 @@ export function PaymentsPanel({ user, onNavigate, focusPaymentId = null, onFocus
             rows={payments}
             showReferences
             onDetails={setDetailFor}
-            empty={payments === null ? (error ? 'No se pudieron cargar los cobros.' : 'Cargando cobros…') : 'Sin cobros'}
+            empty={
+              payments === null
+                ? error
+                  ? 'No se pudieron cargar los cobros.'
+                  : 'Cargando cobros…'
+                : filter.search
+                  ? `No hay ningún cobro con «${filter.search}».`
+                  : 'Sin cobros'
+            }
             actions={(row) => {
+              if (reversibleSaldoCharge(row, user.role)) {
+                return (
+                  <Button variant="ghost" onClick={() => setReverseFor(row)} size="md" style={smallBtn}>
+                    Anular cobro
+                  </Button>
+                );
+              }
               const p = paymentRowOf(row);
               if (!p) return null;
               // Redsys: se devuelve en el portal de BBVA y se apunta aquí (solo el dueño).
@@ -279,6 +296,16 @@ export function PaymentsPanel({ user, onNavigate, focusPaymentId = null, onFocus
         onDone={afterAction(() => setRefundFor(null))}
         requestFromCents={user.role === 'MANAGER' ? refundRequestFromCents : null}
       />
+
+      {reverseFor && reversibleSaldoCharge(reverseFor, user.role) ? (
+        <ReverseChargeModal
+          key={reverseFor.id}
+          row={reverseFor}
+          target={reversibleSaldoCharge(reverseFor, user.role)!}
+          onClose={() => setReverseFor(null)}
+          onDone={afterAction(() => setReverseFor(null))}
+        />
+      ) : null}
 
       {refundsFor ? (
         <RefundsModal

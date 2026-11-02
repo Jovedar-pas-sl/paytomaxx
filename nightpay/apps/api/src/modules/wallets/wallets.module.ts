@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { PrismaModule } from '../../common/prisma/prisma.module';
 import { AuditModule } from '../audit/audit.module';
 import { AuthModule } from '../auth/auth.module';
+import { TelegramService } from '../incidents/telegram.service';
 import { PublicWalletCardController } from './public-wallet-card.controller';
 import { WalletCardViewService } from './wallet-card-view.service';
 import { PublicWalletController } from './public-wallet.controller';
@@ -44,6 +45,8 @@ import { WalletWelcomeService } from '../home-topup/wallet-welcome.service';
   imports: [PrismaModule, AuditModule, AuthModule, WalletEventsModule],
   // WalletTopUpService: «Recargar» desde /w (usa PaymentsService con ModuleRef).
   providers: [
+    // Aviso al anular un cobro con saldo.
+    TelegramService,
     WalletViewGuard,
     WalletCardViewService,
     WalletsService,

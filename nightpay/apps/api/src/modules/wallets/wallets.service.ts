@@ -1,4 +1,4 @@
-import { ConflictException, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { ConflictException, Inject, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
 import { Prisma } from '@nightpay/db';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { madridDay, madridStartOfDay } from '../../common/time/madrid';
@@ -7,9 +7,11 @@ import { formatWalletCode, newWalletCode, newWalletToken, sameWalletGroup } from
 import { reopenData } from './wallet-activation';
 import { lockLiveWallet } from './wallet-merge-chain';
 import { PAID_STATUSES_SQL, paymentAt } from '../reports/reporting-sql';
-import type { ClientWalletView, Role, WalletsAdminStats } from '@nightpay/contracts';
+import { alertSettingsOf, type ClientWalletView, type WalletsAdminStats } from '@nightpay/contracts';
 import { TotpService } from '../auth/totp.service';
-import { assertManagerTwoFactor, eur } from './wallet-two-factor';
+import { TelegramService } from '../incidents/telegram.service';
+import { assertTwoFactorCode, eur } from './wallet-two-factor';
+import { reversalAlertText } from './wallet-reversal-alert';
 import { ISSUED_CARD_STATUSES } from './wallet-card-ops';
 
 /** Intentos para dar con un código corto libre (31^6 combinaciones). */
@@ -40,16 +42,6 @@ async function lockConsumption(
      FOR UPDATE
   `;
   return rows[0] ?? null;
-}
-
-/** Lo ya anulado (importe y propina) en estos saldos. */
-async function reversedOnWalletsCents(tx: RawTx, walletIds: string[]): Promise<number> {
-  const rows = await tx.$queryRaw<Array<{ total: bigint | null }>>`
-    SELECT COALESCE(SUM("amountCents" + "tipCents"), 0)::bigint AS total
-      FROM wallet_consumptions
-     WHERE "walletId" = ANY(${[...new Set(walletIds)]}::uuid[]) AND "reversedAt" IS NOT NULL
-  `;
-  return Number(rows[0]?.total ?? 0);
 }
 
 /**
@@ -107,15 +99,18 @@ export class WalletsService {
   private readonly prisma: PrismaService;
   private readonly audit: AuditService;
   private readonly totp: TotpService;
+  private readonly telegram: TelegramService | null;
 
   constructor(
     @Inject(PrismaService) prisma: PrismaService,
     @Inject(AuditService) audit: AuditService,
     @Inject(TotpService) totp: TotpService,
+    @Optional() @Inject(TelegramService) telegram?: TelegramService,
   ) {
     this.prisma = prisma;
     this.audit = audit;
     this.totp = totp;
+    this.telegram = telegram ?? null;
   }
 
   /**
@@ -164,22 +159,20 @@ export class WalletsService {
    * chica. En una transacción, bloqueando en este orden: el consumo (doble
    * clic), el saldo vivo (lo que se le devuelva o cobre a la vez) y la parte
    * de la chica (un pago a la chica a la vez: si ya se le pagó, queda deuda).
-   * El encargado, desde el umbral del local sumando lo ya anulado en ese
-   * saldo, pone su código 2FA (wallet-two-factor.ts).
+   * Dueño y encargado ponen siempre su código 2FA: lo anulado vuelve a un saldo
+   * que se puede pedir en efectivo. Queda en el registro, en el Z y en Telegram.
    */
   async reverseConsumption(input: {
     tenantId: string;
     walletId: string;
     consumptionId: string;
     actorUserId: string;
-    /** Sin él (llamadas internas) no se pide 2FA: solo el encargado la pone. */
-    actorRole?: Role;
     totpCode?: string;
     reason: string;
   }): Promise<{ refundedCents: number; newBalanceCents: number }> {
     const venue = await this.prisma.venue.findUnique({
       where: { id: input.tenantId },
-      select: { walletGroup: true, refundApprovalThresholdCents: true },
+      select: { walletGroup: true },
     });
     const done = await this.prisma.acrossVenues(async (tx) => {
       const consumption = await lockConsumption(tx, input);
@@ -198,13 +191,7 @@ export class WalletsService {
       // Se devuelve todo lo que se descontó: importe y propina. A 0 se reabre
       // (con otro código si el suyo lo tiene ya otro cliente).
       const refunded = consumption.amountCents + consumption.tipCents;
-      const twoFactor = await this.reversalTwoFactor(
-        tx,
-        input,
-        [input.walletId, wallet.id],
-        refunded,
-        venue?.refundApprovalThresholdCents,
-      );
+      await assertTwoFactorCode(this.totp, input.actorUserId, input.totpCode, `Para anular ${eur(refunded)}:`);
       await tx.clientWallet.update({
         where: { id: wallet.id },
         data: { balanceCents: { increment: refunded }, ...(await reopenData(tx, wallet)) },
@@ -218,7 +205,7 @@ export class WalletsService {
         },
       });
       await reverseEarningOf(tx, consumption.id);
-      return { refunded, twoFactor, walletId: wallet.id, newBalanceCents: wallet.balanceCents + refunded };
+      return { refunded, walletId: wallet.id, newBalanceCents: wallet.balanceCents + refunded };
     });
 
     await this.audit.log({
@@ -230,37 +217,39 @@ export class WalletsService {
       payload: {
         reason: input.reason,
         refundedCents: done.refunded,
-        twoFactor: done.twoFactor,
+        twoFactor: true,
         ...(done.walletId !== input.walletId ? { creditedWalletId: done.walletId } : {}),
       },
     });
+    void this.alertReversal(input, done.refunded);
     return { refundedCents: done.refunded, newBalanceCents: done.newBalanceCents };
   }
 
-  /**
-   * 2FA del encargado al anular: cuenta esta anulación más lo ya anulado en el
-   * saldo (el del consumo y el que usa hoy el cliente), por cualquiera: diez
-   * anulaciones de 20 € no se saltan el umbral. Con el saldo vivo bloqueado.
-   */
-  private async reversalTwoFactor(
-    tx: RawTx,
-    input: { actorUserId: string; actorRole?: Role; totpCode?: string },
-    walletIds: string[],
-    refunded: number,
-    thresholdCents: number | undefined,
-  ): Promise<boolean> {
-    if (input.actorRole !== 'MANAGER') return false;
-    const before = await reversedOnWalletsCents(tx, walletIds);
-    const total = before + refunded;
-    const what = before > 0 ? `Anular ${eur(total)} en este saldo (sumando lo ya anulado)` : `Anular ${eur(total)}`;
-    return assertManagerTwoFactor(
-      this.totp,
-      { userId: input.actorUserId, role: input.actorRole },
-      total,
-      thresholdCents,
-      input.totpCode,
-      what,
-    );
+  /** Aviso al Telegram del local (Ajustes → Avisos, grupo de devoluciones). Nunca rompe la anulación. */
+  private async alertReversal(
+    input: { tenantId: string; actorUserId: string; reason: string },
+    refundedCents: number,
+  ): Promise<void> {
+    if (!this.telegram || process.env.NODE_ENV === 'test' || process.env.NIGHTPAY_DISABLE_ALERTS === '1') return;
+    try {
+      const venue = await this.prisma.venue.findUnique({ where: { id: input.tenantId }, select: { name: true, alertSettings: true } });
+      const settings = alertSettingsOf(venue?.alertSettings);
+      if (!settings.kinds.refunds) return;
+      const actor = await this.prisma.asSystem((tx) =>
+        tx.user.findUnique({ where: { id: input.actorUserId }, select: { displayName: true, email: true } }),
+      );
+      await this.telegram.send(
+        reversalAlertText({
+          venueName: venue?.name ?? 'El local',
+          refundedCents,
+          reason: input.reason,
+          actor: actor?.displayName?.trim() || actor?.email || 'sin nombre',
+        }),
+        settings.chatId,
+      );
+    } catch (err) {
+      this.logger.warn(`No se pudo avisar de la anulación: ${(err as Error).message}`);
+    }
   }
 
   /** Lista wallets del venue para el admin panel. */

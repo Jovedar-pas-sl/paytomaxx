@@ -83,7 +83,7 @@ const sys = <T>(fn: (tx: Parameters<Parameters<PrismaService['asSystem']>[0]>[0]
   inVenue(undefined, () => prisma.asSystem(fn));
 
 const r = randomUUID().slice(0, 6);
-let V: string, owner: string, manager: string, managerNo2fa: string, manager2: string, chica: string, term: string;
+let V: string, owner: string, manager: string, managerNo2fa: string, chica: string, term: string;
 let n = 0;
 
 async function newWallet(balanceCents: number, o: { closeRequested?: boolean; blocked?: boolean; status?: 'ACTIVE' | 'DEPLETED' } = {}) {
@@ -119,7 +119,7 @@ async function newConsumption(walletId: string, amountCents: number, tipCents = 
 const walletRow = (id: string) => sys((tx) => tx.clientWallet.findUniqueOrThrow({ where: { id } }));
 const reverseAs = (userId: string, walletId: string, consumptionId: string, totpCode?: string) =>
   inVenue(V, () =>
-    wallets.reverseConsumption({ tenantId: V, walletId, consumptionId, actorUserId: userId, actorRole: 'MANAGER', totpCode, reason: 'error' }),
+    wallets.reverseConsumption({ tenantId: V, walletId, consumptionId, actorUserId: userId, totpCode, reason: 'error' }),
   );
 const managerActor = (userId: string) => ({ userId, role: 'MANAGER' as const, tenantId: V });
 
@@ -169,7 +169,6 @@ beforeAll(async () => {
       (await tx.user.create({ data: { tenantId: V, email: `${tag}-${r}@x.es`, passwordHash: 'x', role, totpSecret } })).id;
     owner = await user('OWNER', 'own');
     manager = await user('MANAGER', 'man', sealed);
-    manager2 = await user('MANAGER', 'man2');
     managerNo2fa = await user('MANAGER', 'man3');
     chica = await user('OPERATOR', 'op');
     term = (await tx.terminal.create({ data: { tenantId: V, externalId: `TDU-${r}`, label: 'Barra' } })).id;
@@ -209,27 +208,24 @@ async function cashIn(walletId: string, amountCents: number): Promise<void> {
 }
 
 describe('M2 — el encargado desde el umbral pone su 2FA (Postgres real)', () => {
-  it('anular 120 €: sin código 403 y nada cambia; con su código se anula', async () => {
+  it('anular un cobro con saldo, por poco que sea: sin código 403 y nada cambia; con su código se anula', async () => {
     const w = await newWallet(0, { status: 'DEPLETED' });
-    const c = await newConsumption(w, 11_000, 1_000);
+    const c = await newConsumption(w, 1_100, 100);
     await expect(reverseAs(manager, w, c)).rejects.toMatchObject({ response: { code: 'TOTP_REQUIRED' } });
     expect((await walletRow(w)).balanceCents).toBe(0);
     expect((await sys((tx) => tx.walletConsumption.findUniqueOrThrow({ where: { id: c } }))).reversedAt).toBeNull();
 
-    await expect(reverseAs(manager, w, c, nextCode())).resolves.toEqual({ refundedCents: 12_000, newBalanceCents: 12_000 });
+    await expect(reverseAs(manager, w, c, nextCode())).resolves.toEqual({ refundedCents: 1_200, newBalanceCents: 1_200 });
   });
 
-  it('anulaciones pequeñas en el mismo saldo suman (también las de otro encargado): la que pasa de 100,00 € pide el código', async () => {
+  it('anular sin la app de verificación activada no se puede, ni siendo el dueño', async () => {
     const w = await newWallet(1_000);
-    const [c1, c2] = [await newConsumption(w, 6_000), await newConsumption(w, 4_001)];
-    await expect(reverseAs(manager2, w, c1)).resolves.toMatchObject({ refundedCents: 6_000 });
-    await expect(reverseAs(manager, w, c2)).rejects.toMatchObject({ response: { code: 'TOTP_REQUIRED' } });
-    expect((await walletRow(w)).balanceCents).toBe(7_000);
-    // 100,00 € justos, sumando: sin código (el mismo límite que la salida de recepción).
-    const exact = await newWallet(1_000);
-    const [e1, e2] = [await newConsumption(exact, 6_000), await newConsumption(exact, 4_000)];
-    await expect(reverseAs(manager2, exact, e1)).resolves.toMatchObject({ refundedCents: 6_000 });
-    await expect(reverseAs(manager, exact, e2)).resolves.toMatchObject({ refundedCents: 4_000 });
+    const c = await newConsumption(w, 500);
+    await expect(reverseAs(managerNo2fa, w, c)).rejects.toMatchObject({ response: { code: 'TOTP_NOT_ENROLLED' } });
+    await expect(
+      inVenue(V, () => wallets.reverseConsumption({ tenantId: V, walletId: w, consumptionId: c, actorUserId: owner, reason: 'error' })),
+    ).rejects.toMatchObject({ response: { code: 'TOTP_NOT_ENROLLED' } });
+    expect((await walletRow(w)).balanceCents).toBe(1_000);
   });
 
   it('devolver 150 € en efectivo: sin código 403 y el saldo sigue abierto; sin la app activada, TOTP_NOT_ENROLLED; con su código, hecho', async () => {
