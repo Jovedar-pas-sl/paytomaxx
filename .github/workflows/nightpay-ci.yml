@@ -221,7 +221,9 @@ jobs:
   # las webs levantados por Playwright (playwright.ci.config.ts). Sin JWT
   # fabricados ni refrescos simulados: login y cookie reales.
   e2e:
-    runs-on: ubuntu-latest
+    # Fijo: ubuntu-latest ya es 26.04 y Playwright 1.59 no instala Chromium ahí.
+    # Quitarlo al subir a una versión de Playwright que lo admita.
+    runs-on: ubuntu-24.04
     timeout-minutes: 25
     services:
       postgres:
