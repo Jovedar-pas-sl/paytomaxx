@@ -80,7 +80,6 @@ export class WalletsController {
       walletId,
       consumptionId,
       actorUserId: user.sub,
-      actorRole: user.role,
       totpCode: dto.totpCode,
       reason: dto.reason,
     });

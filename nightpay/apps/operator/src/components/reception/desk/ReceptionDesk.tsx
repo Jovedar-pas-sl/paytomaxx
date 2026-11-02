@@ -18,6 +18,7 @@ import {
 } from '@/lib/reception';
 import {
   attemptOnStep,
+  canChoosePin,
   CASH_CHECK_DELAY_MS,
   CASH_CHECK_TRIES,
   CASH_UNSURE_LEAVE_TEXT,
@@ -35,9 +36,13 @@ import {
   handOverLine,
   loadedMoneyLine,
   methodButtons,
+  noPinLimitCents,
+  noReaderStage,
   numberEntryProblem,
   numberMethodButtons,
   numberRow,
+  pinAfterLoad,
+  pinAfterLoadText,
   pinNote,
   quickAmounts,
   rechargeChip,
@@ -110,6 +115,8 @@ type Step =
   | { kind: 'card'; read: Read; amountCents: number; payment: CreatedPayment | null }
   | { kind: 'loaded'; done: Loaded }
   | { kind: 'pin'; done: Loaded }
+  /** Encargado o dueño: el PIN de una ficha que ya tenía saldo, sin cargar nada. */
+  | { kind: 'setPin'; read: Read; view: ReceptionDeskSaldo }
   | Exit
   | { kind: 'exitPasskey'; exit: Exit; plan: ReceptionPayoutPlan }
   | { kind: 'exitTotp'; exit: Exit; plan: ReceptionPayoutPlan | null; passkey: boolean; pin?: string; message?: string }
@@ -458,6 +465,23 @@ export function ReceptionDesk({ user, active, footer }: Props) {
     );
   }
 
+  if (step.kind === 'setPin') {
+    const { read, view } = step;
+    return (
+      <PinPad
+        mode="choose"
+        title={`Saldo ${view.code}`}
+        hint="Pásale el móvil al cliente para que elija su PIN"
+        onCancel={() => go({ kind: 'amount', read })}
+        onPin={async (pin) => {
+          await staffBackend.setPin({ walletId: view.walletId, code: view.code, balanceCents: view.balanceCents, hasPin: false, hasCard: read.nfc !== null }, pin);
+          go({ kind: 'amount', read: { ...read, view: { ...view, hasPin: true } } });
+          return null;
+        }}
+      />
+    );
+  }
+
   if (step.kind === 'refunded') {
     return (
       <DeskLoaded
@@ -531,7 +555,7 @@ export function ReceptionDesk({ user, active, footer }: Props) {
         <>
           <TapStage
             mode={mode}
-            noReader={!nfc.reader.loading && !nfc.reader.via ? nfc.reader.note : null}
+            noReader={!nfc.reader.loading && !nfc.reader.via ? noReaderStage(mode) : null}
             stopped={nfc.stopped}
             onRestart={nfc.restart}
             busy={busy}
@@ -564,6 +588,11 @@ export function ReceptionDesk({ user, active, footer }: Props) {
           amounts={amounts}
           onPick={(cents) => go({ kind: 'method', read: step.read, amountCents: cents })}
           onOther={() => go({ kind: 'keypad', read: step.read })}
+          onPin={
+            step.read.view?.kind === 'saldo' && !step.read.view.hasPin && canChoosePin(step.read.view, user.role)
+              ? () => go({ kind: 'setPin', read: step.read, view: step.read.view as ReceptionDeskSaldo })
+              : undefined
+          }
         />
       ) : null}
 
@@ -678,10 +707,23 @@ export function ReceptionDesk({ user, active, footer }: Props) {
 
   function renderLoaded(done: Loaded) {
     const money = loadedMoneyLine(done.method, done.amountCents, done.feeCents);
-    const canPin = done.wallet !== null && !done.wallet.hasPin;
+    const view = done.read.view;
+    const pin = pinAfterLoad({
+      wallet: done.wallet,
+      hasFicha: (done.read.nfc !== null && done.linked) || (view?.kind === 'saldo' && view.fichaNumber !== null),
+      canChoose: canChoosePin(view, user.role),
+      noPinMaxCents: noPinLimitCents(night),
+    });
+    const pinText = pin === 'ask' || pin === 'manager' ? pinAfterLoadText(pin, noPinLimitCents(night)) : null;
+    const askPin = { label: 'Que elija su PIN', onClick: () => go({ kind: 'pin', done }) };
+    const next = { label: 'Siguiente cliente', onClick: () => restart('entrada') };
     const meta = done.read.number ? `Devuélvele su ficha · ${fichaText(done.read.number.printedNumber)}` : handOverLine(done.read.view, done.linked);
     // Pagó en efectivo aquí: su enlace privado no le llega; con este QR activa Face ID en su móvil.
-    const activation = done.method === 'cash' && done.wallet && !done.read.number ? <ActivationQr walletId={done.wallet.walletId} /> : null;
+    // Si hace falta el PIN, primero eso: el QR solo si prefiere pagar con el móvil (si no, deja el botón fuera de la pantalla).
+    const activation =
+      done.method === 'cash' && done.wallet && !done.read.number ? (
+        pin === 'ask' ? <PhoneOption walletId={done.wallet.walletId} /> : <ActivationQr walletId={done.wallet.walletId} />
+      ) : null;
     return (
       <DeskLoaded
         word="CARGADO"
@@ -689,11 +731,11 @@ export function ReceptionDesk({ user, active, footer }: Props) {
         reference={done.reference ?? done.wallet?.code ?? null}
         money={{ icon: done.method, ...money }}
         meta={meta}
-        warn={done.warn}
+        warn={[done.warn, pinText].filter(Boolean).join(' ') || null}
         quiet={done.seen}
         extra={activation}
-        primary={{ label: 'Siguiente cliente', onClick: () => restart('entrada') }}
-        secondary={canPin ? { label: 'Que ponga su PIN', onClick: () => go({ kind: 'pin', done }) } : null}
+        primary={pin === 'ask' ? askPin : next}
+        secondary={pin === 'ask' ? { label: 'Ahora no', onClick: next.onClick } : pin === 'offer' ? askPin : null}
       />
     );
   }
@@ -710,7 +752,7 @@ export function ReceptionDesk({ user, active, footer }: Props) {
         loading={options === null}
         blocked={null}
         buttons={buttons}
-        pinNote={hasPin ? null : pinNote(night.nfcNoPinMaxCents)}
+        pinNote={hasPin ? null : pinNote(noPinLimitCents(night), canChoosePin(read.view, user.role))}
         busy={busy}
         onPick={(method) => {
           if (method === 'cash') void run(() => payCash(read, amountCents));
@@ -746,6 +788,13 @@ export function ReceptionDesk({ user, active, footer }: Props) {
       />
     );
   }
+}
+
+/** Quien prefiere pagar con el móvil: el QR de Face ID, solo si lo pide (gasta un enlace de un solo uso). */
+function PhoneOption({ walletId }: { walletId: string }) {
+  const [open, setOpen] = useState(false);
+  if (open) return <ActivationQr walletId={walletId} />;
+  return <DeskBtn kind="gho" label="Prefiere pagar con el móvil" onClick={() => setOpen(true)} />;
 }
 
 /** La fila de 4.2: su NFC, su código o la ficha buscada por su número (tapada). */

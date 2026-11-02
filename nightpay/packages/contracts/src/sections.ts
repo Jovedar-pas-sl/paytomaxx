@@ -187,3 +187,9 @@ export interface PuestoPerson {
 export function formatChargeRef(ref: number | null | undefined): string | null {
   return typeof ref === 'number' && ref > 0 ? `C-${String(ref).padStart(4, '0')}` : null;
 }
+
+/** «C-0017», «c0017», «C 17» → 17: la referencia tal como se ve en pantalla, al buscarla. Si no lo es, null. */
+export function parseChargeRef(text: string): number | null {
+  const match = /^c[\s-]?0*([1-9]\d{0,8})$/i.exec(text.trim());
+  return match ? Number(match[1]) : null;
+}

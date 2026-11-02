@@ -645,7 +645,7 @@ describe('saldo cargado con y sin comisión del servicio (decisión del dueño):
     const original = await spend(L, first.walletId);
     expect(original.serviceFeeSaldoCents).toBe(1300);
     await spend(L, first.walletId);
-    await inVenue(L.V, () => wallets.reverseConsumption({ tenantId: L.V, walletId: first.walletId, consumptionId: original.id, actorUserId: L.owner, reason: 'prueba' }));
+    await inVenue(L.V, () => wallets.reverseConsumption({ tenantId: L.V, walletId: first.walletId, consumptionId: original.id, actorUserId: L.owner, totpCode: '123456', reason: 'prueba' }));
     expect(await walletOf(first.walletId)).toMatchObject({ balanceCents: 3700 });
     const repeated = await spend(L, first.walletId);
     expect(repeated.serviceFeeSaldoCents).toBe(1300);

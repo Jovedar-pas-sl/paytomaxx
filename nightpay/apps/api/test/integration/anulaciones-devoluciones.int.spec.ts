@@ -12,7 +12,7 @@ const cls = new ClsService(new AsyncLocalStorage());
  
 const prisma = new PrismaService(cls as any);
 const audit = { log: async () => undefined };
-const wallets = new WalletsService(prisma as never, audit as never);
+const wallets = new WalletsService(prisma as never, audit as never, { isEnabled: async () => true, assertForUser: async () => undefined } as never);
 const incidents = new IncidentsService(prisma as never, audit as never);
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -103,7 +103,7 @@ afterAll(async () => {
 describe('anular un consumo del saldo (Postgres real)', () => {
   it('ya pagado a la chica → deuda para su siguiente pago; el saldo vuelve y la wallet se reactiva', async () => {
     const { consumptionId, earningId } = await consumption({ amount: 4000, tip: 500, paid: true });
-    const res = await wallets.reverseConsumption({ tenantId: A, walletId: wallet, consumptionId, actorUserId: owner, reason: 'error' });
+    const res = await wallets.reverseConsumption({ tenantId: A, walletId: wallet, consumptionId, actorUserId: owner, totpCode: '123456', reason: 'error' });
     expect(res).toEqual({ refundedCents: 4500, newBalanceCents: 4500 });
 
     const rows = await asSystemCtx(() =>
@@ -123,7 +123,7 @@ describe('anular un consumo del saldo (Postgres real)', () => {
     const { consumptionId, earningId } = await consumption({ amount: 2000, tip: 0, paid: false });
     const before = await asSystemCtx(() => prisma.asSystem((tx) => tx.clientWallet.findUnique({ where: { id: wallet } })));
     const go = () =>
-      wallets.reverseConsumption({ tenantId: A, walletId: wallet, consumptionId, actorUserId: owner, reason: 'doble clic' });
+      wallets.reverseConsumption({ tenantId: A, walletId: wallet, consumptionId, actorUserId: owner, totpCode: '123456', reason: 'doble clic' });
     const out = await Promise.allSettled([go(), go(), go()]);
     expect(out.filter((o) => o.status === 'fulfilled')).toHaveLength(1);
     expect(out.filter((o) => o.status === 'rejected').map((o) => (o as PromiseRejectedResult).reason.status)).toEqual([409, 409]);
@@ -146,7 +146,7 @@ describe('anular un consumo del saldo (Postgres real)', () => {
       }),
     );
     await sleep(150);
-    await wallets.reverseConsumption({ tenantId: A, walletId: wallet, consumptionId, actorUserId: owner, reason: 'error' });
+    await wallets.reverseConsumption({ tenantId: A, walletId: wallet, consumptionId, actorUserId: owner, totpCode: '123456', reason: 'error' });
     await payout;
     const e = await asSystemCtx(() => prisma.asSystem((tx) => tx.operatorEarning.findUnique({ where: { id: earningId } })));
     expect(e?.payoutId).not.toBeNull();
@@ -180,9 +180,9 @@ describe('anular un consumo del saldo (Postgres real)', () => {
     );
     // Desde un local de otro grupo, no (ni sabe que existe).
     await expect(
-      wallets.reverseConsumption({ tenantId: ids.X, walletId: ids.S, consumptionId: ids.c, actorUserId: owner, reason: 'x' }),
+      wallets.reverseConsumption({ tenantId: ids.X, walletId: ids.S, consumptionId: ids.c, actorUserId: owner, totpCode: '123456', reason: 'x' }),
     ).rejects.toThrow(/no encontrado/i);
-    const res = await wallets.reverseConsumption({ tenantId: ids.B, walletId: ids.S, consumptionId: ids.c, actorUserId: owner, reason: 'error' });
+    const res = await wallets.reverseConsumption({ tenantId: ids.B, walletId: ids.S, consumptionId: ids.c, actorUserId: owner, totpCode: '123456', reason: 'error' });
     expect(res).toEqual({ refundedCents: 3000, newBalanceCents: 4000 });
     const [s, t] = await asSystemCtx(() =>
       prisma.asSystem(async (tx) => [
@@ -212,7 +212,7 @@ describe('anular un consumo del saldo (Postgres real)', () => {
         return { W, other, c: c.id };
       }),
     );
-    await wallets.reverseConsumption({ tenantId: A, walletId: ids.W, consumptionId: ids.c, actorUserId: owner, reason: 'error' });
+    await wallets.reverseConsumption({ tenantId: A, walletId: ids.W, consumptionId: ids.c, actorUserId: owner, totpCode: '123456', reason: 'error' });
     const [w, o] = await asSystemCtx(() =>
       prisma.asSystem(async (tx) => [
         await tx.clientWallet.findUnique({ where: { id: ids.W } }),

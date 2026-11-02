@@ -13,10 +13,17 @@ import {
   deskRechargeWhat,
   deskRow,
   deskTarget,
+  canChoosePin,
+  fichaGivenNote,
+  fichaLookupText,
   fichaText,
   handOverLine,
   loadedMoneyLine,
   methodButtons,
+  noPinLimitCents,
+  noReaderStage,
+  pinAfterLoad,
+  pinAfterLoadText,
   pinNote,
   quickAmounts,
   rechargeChip,
@@ -122,9 +129,89 @@ describe('la recarga (4.2 y 4.3)', () => {
     expect(methodButtons(OPTIONS, otroLocal, 5_000, 'cash')[1]).toMatchObject({ method: 'card', problem: expect.stringMatching(/otro local/) });
   });
 
-  it('la nota del PIN: se pone luego; hace falta desde el máximo sin PIN del local', () => {
-    expect(eur(pinNote(2_000))).toBe('El PIN lo pone luego, solo hace falta para más de 20 €.');
-    expect(pinNote(0)).toMatch(/hace falta para pagar con el NFC/);
+  it('la nota del PIN: lo elige al terminar si pasa del máximo sin PIN del local', () => {
+    expect(eur(pinNote(2_000))).toBe('Si pasa de 20 €, elegirá su PIN al terminar.');
+    expect(pinNote(0)).toMatch(/hace falta para pagar con la ficha/);
+  });
+
+  it('la nota del PIN no promete lo que el personal no puede: un saldo ya cargado lo pone el encargado', () => {
+    expect(eur(pinNote(2_000, false))).toBe('Esta ficha no tiene PIN: solo paga hasta 20 €. Para más, que lo ponga con el encargado.');
+  });
+});
+
+describe('el PIN al terminar de cargar: que una ficha cargada no se quede sin poder pagar', () => {
+  const base = { hasFicha: true, canChoose: true, noPinMaxCents: 2_000 };
+  const wallet = (balanceCents: number, hasPin = false) => ({ balanceCents, hasPin });
+
+  it('pasa del tope y no tiene PIN: se le pide ya', () => {
+    expect(pinAfterLoad({ ...base, wallet: wallet(5_000) })).toBe('ask');
+    expect(pinAfterLoad({ ...base, wallet: wallet(2_001) })).toBe('ask');
+  });
+
+  it('hasta el tope se puede pagar sin PIN: solo se ofrece', () => {
+    expect(pinAfterLoad({ ...base, wallet: wallet(2_000) })).toBe('offer');
+  });
+
+  it('con PIN, o sin saldo que mirar (por número), no se dice nada', () => {
+    expect(pinAfterLoad({ ...base, wallet: wallet(5_000, true) })).toBe('none');
+    expect(pinAfterLoad({ ...base, wallet: null })).toBe('none');
+  });
+
+  it('sin ficha (solo su código) no se insiste: el PIN no hace falta para acercarla', () => {
+    expect(pinAfterLoad({ ...base, hasFicha: false, wallet: wallet(5_000) })).toBe('offer');
+  });
+
+  it('un saldo que ya existía: el personal no puede ponerlo, el encargado sí; no se ofrece lo que fallaría', () => {
+    expect(pinAfterLoad({ ...base, canChoose: false, wallet: wallet(5_000) })).toBe('manager');
+    expect(pinAfterLoad({ ...base, canChoose: false, wallet: wallet(1_000) })).toBe('none');
+  });
+
+  it('con tope 0, toda ficha sin PIN lo necesita', () => {
+    expect(pinAfterLoad({ ...base, noPinMaxCents: 0, wallet: wallet(100) })).toBe('ask');
+  });
+
+  it('quién puede elegirlo ahora: un saldo nuevo, o el encargado y el dueño (lo exige el servidor)', () => {
+    expect(canChoosePin(null, 'WAITER')).toBe(true);
+    expect(canChoosePin(NUEVO, 'WAITER')).toBe(true);
+    expect(canChoosePin(saldo(), 'WAITER')).toBe(false);
+    expect(canChoosePin(saldo(), 'OPERATOR')).toBe(false);
+    expect(canChoosePin(saldo(), 'MANAGER')).toBe(true);
+    expect(canChoosePin(saldo(), 'OWNER')).toBe(true);
+  });
+
+  it('dice qué pasa si no lo pone (la salida también admite su Face ID)', () => {
+    expect(eur(pinAfterLoadText('ask', 2_000))).toBe('Sin PIN solo paga hasta 20 €. Para devolverle el saldo hará falta su Face ID o el encargado.');
+    expect(pinAfterLoadText('ask', 0)).toMatch(/no puede pagar/);
+    expect(eur(pinAfterLoadText('manager', 2_000))).toMatch(/que lo ponga con el encargado/);
+  });
+
+  it('dar ficha a quien cargó desde casa sin PIN: se le dice dónde ponerlo', () => {
+    expect(fichaGivenNote(true, 2_000)).toBe('Ya puede pagar acercándola.');
+    expect(eur(fichaGivenNote(false, 2_000))).toBe('Sin PIN solo paga hasta 20 €. Que lo elija en su móvil, en Más → Elegir un PIN.');
+    expect(fichaGivenNote(false, 0)).toBe('Sin PIN esta ficha no puede pagar. Que lo elija en su móvil, en Más → Elegir un PIN.');
+  });
+
+  it('el tope real, como el servidor: con cualquiera de los dos a 0, sin PIN no paga nada', () => {
+    expect(noPinLimitCents({ nfcNoPinMaxCents: 2_000, nfcNoPinNightCapCents: 10_000 })).toBe(2_000);
+    expect(noPinLimitCents({ nfcNoPinMaxCents: 2_000, nfcNoPinNightCapCents: 0 })).toBe(0);
+    expect(noPinLimitCents({ nfcNoPinMaxCents: 0, nfcNoPinNightCapCents: 10_000 })).toBe(0);
+    // Tope de noche a 0: 15 € de saldo ya necesitan PIN, aunque el máximo sea 20 €.
+    const limit = noPinLimitCents({ nfcNoPinMaxCents: 2_000, nfcNoPinNightCapCents: 0 });
+    expect(pinAfterLoad({ ...base, noPinMaxCents: limit, wallet: wallet(1_500) })).toBe('ask');
+  });
+});
+
+describe('un móvil que no lee fichas (iPhone)', () => {
+  it('no pide acercar nada y dice qué se puede hacer ahí', () => {
+    expect(noReaderStage('entrada').title).toBe('Este móvil no lee fichas');
+    expect(noReaderStage('entrada').text).toMatch(/Android de recepción/);
+    expect(noReaderStage('entrada').text).toMatch(/código o su número/);
+    expect(noReaderStage('salida').text).toMatch(/devolver efectivo/);
+  });
+
+  it('una ficha sin saldo abierta desde el iPhone no dice «Ficha no encontrado»', () => {
+    expect(fichaLookupText('Ficha no encontrado.')).toBe('Esta ficha aún no tiene saldo. Para cargarla, usa el Android de recepción.');
+    expect(fichaLookupText('Demasiados intentos')).toBe('Demasiados intentos');
   });
 });
 

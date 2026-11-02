@@ -55,7 +55,7 @@ const payments = new PaymentsService(
   {} as never,
 );
 const charges = new WalletChargesService(prisma as never, audit as never, { get: () => ({}) } as never, {} as never);
-const wallets = new WalletsService(prisma as never, audit as never, { isEnabled: async () => false } as never);
+const wallets = new WalletsService(prisma as never, audit as never, { isEnabled: async () => true, assertForUser: async () => undefined } as never);
 const cartas = new CartaService(prisma as never, audit as never);
 const reports = new ReportsService(prisma);
 const moneyMap = new MoneyMapService(prisma, reports, config as never);
@@ -369,7 +369,7 @@ describe('invitación del saldo con el NFC del cliente (sin tarjeta)', () => {
   it('anular el consumo devuelve el saldo y le quita su parte', async () => {
     const consumption = await sys((tx) => tx.walletConsumption.findFirstOrThrow({ where: { idempotencyKey: `charge-request:${chargeId}` } }));
     await inVenue(s.V, () =>
-      wallets.reverseConsumption({ tenantId: s.V, walletId: s.w.id, consumptionId: consumption.id, actorUserId: s.owner, actorRole: 'OWNER', reason: 'No era para ella' }),
+      wallets.reverseConsumption({ tenantId: s.V, walletId: s.w.id, consumptionId: consumption.id, actorUserId: s.owner, totpCode: '123456', reason: 'No era para ella' }),
     );
     const m = await live(s);
     expect(m.split).toMatchObject({ chicasCents: 0, venueCents: 0 });

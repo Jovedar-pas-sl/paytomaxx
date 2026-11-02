@@ -35,7 +35,7 @@ const payments = new PaymentsService(
   {} as never,
 );
 const charges = new WalletChargesService(prisma as never, audit as never, { get: () => ({}) } as never, {} as never);
-const wallets = new WalletsService(prisma as never, audit as never, { isEnabled: async () => false } as never);
+const wallets = new WalletsService(prisma as never, audit as never, { isEnabled: async () => true, assertForUser: async () => undefined } as never);
 const carta = new CartaService(prisma as never, audit as never);
 const cobros = new CobrosService(prisma as never);
 
@@ -190,7 +190,7 @@ describe('invitar con el saldo (NFC, código + PIN o QR)', () => {
     const earnings = await earningsOf({ consumptionId: consumption!.id });
     expect(earnings).toEqual([expect.objectContaining({ operatorId: lola, commissionCents: 1250 })]);
     await inVenue(A, () =>
-      wallets.reverseConsumption({ tenantId: A, walletId, consumptionId: consumption!.id, actorUserId: owner, actorRole: 'OWNER', reason: 'Se equivocó de copa' }),
+      wallets.reverseConsumption({ tenantId: A, walletId, consumptionId: consumption!.id, actorUserId: owner, totpCode: '123456', reason: 'Se equivocó de copa' }),
     );
     expect((await earningsOf({ consumptionId: consumption!.id }))[0]).toMatchObject({ reversedCents: 1250 });
   });

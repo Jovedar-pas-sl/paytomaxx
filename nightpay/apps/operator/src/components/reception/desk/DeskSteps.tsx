@@ -11,8 +11,8 @@ import s from './desk.module.css';
 /** 4.1 (y 4.5 sin nada leído): «Acerca el NFC», sin tocar nada. */
 export function TapStage(props: {
   mode: 'entrada' | 'salida';
-  /** Este móvil no lee NFC (iPhone…): el código es lo que queda. */
-  noReader: string | null;
+  /** Este móvil no lee fichas (iPhone…): en vez de pedir que la acerquen, lo que se puede hacer aquí. */
+  noReader: { title: string; text: string } | null;
   /** El lector se paró: un toque lo vuelve a poner. */
   stopped: string | null;
   onRestart: () => void;
@@ -22,14 +22,14 @@ export function TapStage(props: {
   notice?: string | null;
 }) {
   const text =
-    props.noReader ??
+    props.noReader?.text ??
     (props.mode === 'entrada'
       ? 'Por detrás del móvil. Sabe solo si es nuevo o si ya tiene saldo.'
       : 'Por detrás del móvil: sale lo que le queda.');
   const body = (
     <>
-      <NfcCard size="l" />
-      <p className={s.stageTitle}>{props.busy ? 'Leyendo…' : 'Acerca el NFC'}</p>
+      {props.noReader ? null : <NfcCard size="l" />}
+      <p className={s.stageTitle}>{props.noReader?.title ?? (props.busy ? 'Leyendo…' : 'Acerca el NFC')}</p>
       {props.error ? (
         <p role="alert" className={s.stageError}>
           {props.error}
@@ -64,6 +64,8 @@ export function AmountStep(props: {
   amounts: readonly number[];
   onPick: (cents: number) => void;
   onOther: () => void;
+  /** Encargado o dueño ante una ficha sin PIN: que lo elija sin tener que cargar nada. */
+  onPin?: () => void;
 }) {
   const four = props.amounts.length > 3;
   return (
@@ -78,6 +80,7 @@ export function AmountStep(props: {
         ))}
       </div>
       <DeskBtn kind="gho" label="Otro importe" onClick={props.onOther} />
+      {props.onPin ? <DeskBtn kind="gho" label="Que elija su PIN" onClick={props.onPin} /> : null}
     </>
   );
 }

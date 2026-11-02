@@ -3,9 +3,11 @@
 import { useEffect, useState, type CSSProperties } from 'react';
 import { Button, Card } from '@nightpay/ui';
 import { linkWalletCard, lookupWalletCard, payWalletChargeWithPin, type WalletLookup } from '@/lib/api';
+import { NO_PIN_SENTENCE, NO_PIN_TITLE } from '@/lib/cobro-view';
 import { clearFichaContext, readFichaContext, type FichaContext } from '@/lib/ficha-context';
 import { formatEur } from '@/lib/money';
 import { useOpenCharge } from '@/lib/open-charges';
+import { fichaLookupText } from '@/lib/reception-desk';
 import { PinPad } from './PinPad';
 import { StaffOutcome } from './StaffOutcome';
 
@@ -45,13 +47,13 @@ export function FichaTapped({ token, userId, onClose }: { token: string; userId:
         const w = await lookupWalletCard(token, null);
         if (ctx?.kind === 'cobro') {
           if (w.pinLocked) show({ kind: 'done', ok: false, text: 'Su PIN está bloqueado por fallos: avisa al encargado.' });
-          else if (!w.hasPin) show({ kind: 'done', ok: false, text: 'Este cliente aún no tiene PIN: que pague con el QR.' });
+          else if (!w.hasPin) show({ kind: 'done', ok: false, text: `${NO_PIN_TITLE}. ${NO_PIN_SENTENCE}` });
           else show({ kind: 'pin', wallet: w, ctx });
         } else {
           show({ kind: 'info', wallet: w });
         }
       } catch (err) {
-        show({ kind: 'done', ok: false, text: (err as Error).message });
+        show({ kind: 'done', ok: false, text: fichaLookupText((err as Error).message) });
       }
     })();
     return () => {

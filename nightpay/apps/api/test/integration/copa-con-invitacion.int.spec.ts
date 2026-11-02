@@ -60,7 +60,7 @@ const payments = new PaymentsService(
   {} as never,
 );
 const charges = new WalletChargesService(prisma as never, audit as never, { get: () => ({}) } as never, {} as never);
-const wallets = new WalletsService(prisma as never, audit as never, { isEnabled: async () => false } as never);
+const wallets = new WalletsService(prisma as never, audit as never, { isEnabled: async () => true, assertForUser: async () => undefined } as never);
 const carta = new CartaService(prisma as never, audit as never);
 const cobros = new CobrosService(prisma);
 const reports = new ReportsService(prisma);
@@ -354,7 +354,7 @@ describe('devoluciones: le quitan su parte en proporción, y las vistas siguen c
   it('se anula el consumo del NFC: el saldo vuelve al cliente y Nerea pierde esa parte', async () => {
     const consumption = await sys((tx) => tx.walletConsumption.findFirstOrThrow({ where: { idempotencyKey: `charge-request:${p2.chargeId}` } }));
     await inVenue(V, () =>
-      wallets.reverseConsumption({ tenantId: V, walletId: w.id, consumptionId: consumption.id, actorUserId: owner, actorRole: 'OWNER', reason: 'No era para ella' }),
+      wallets.reverseConsumption({ tenantId: V, walletId: w.id, consumptionId: consumption.id, actorUserId: owner, totpCode: '123456', reason: 'No era para ella' }),
     );
     expect(await inVenue(V, () => cobros.invitationSummary(V, nerea))).toEqual({ count: 0, amountCents: 0, shareCents: 0 });
     const mine = await inVenue(V, () => nights.mine(V, nerea));

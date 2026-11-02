@@ -149,6 +149,10 @@ export const CHECKING_TEXT = 'Comprobando si se ha cobrado…';
 /** Ya se sabe: el cobro sigue pendiente (no llegó a cobrarse). */
 export const NOT_CHARGED_RETRY_TEXT = 'No llegó a cobrarse: que vuelva a acercar el NFC o escanee el QR.';
 
+/** La ficha pasa del máximo sin PIN y no lo tiene. No es un rechazo: su saldo sigue ahí y hay salida. */
+export const NO_PIN_TITLE = 'Falta el PIN de esta ficha';
+export const NO_PIN_SENTENCE = 'Su saldo sigue ahí. Que lo ponga con el encargado, o que pague este cobro con el QR.';
+
 /**
  * La pastilla viva de «Esperando» (y lo que oye el lector de pantalla): cambia
  * solo al cambiar de fase, no cada segundo. Con `checking`, comprobando si el
