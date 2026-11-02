@@ -116,7 +116,7 @@ ${
 <p class="hint">${h(t.askStaff)}</p>`
     : `<p class="kick">${h(t.title)}</p>
 <p>${h(t.youPay)}</p>
-<h1 class="amount num">${h(eur(view.amountCents))}</h1>
+<h1 class="amount num">${h(clientMoney(view.amountCents, locale, 'EUR', true))}</h1>
 ${who ? `<p class="who">${h(who)}</p>` : ''}
 <button class="btn" type="button" id="pay">${h(t.pay)}</button>
 <p class="err" id="error" role="alert" hidden></p>

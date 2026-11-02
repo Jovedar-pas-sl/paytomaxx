@@ -240,7 +240,16 @@
   .np-cobros-table tbody td[colspan] { justify-content: center; }
 }
 
-/* Si la tabla de escritorio necesita desplazarse, las acciones siguen a la vista. */
+/*
+ * Escritorio. Con las referencias son 11 columnas: con menos relleno lateral (y
+ * el «+ comisión» y el «+ propina» que se pueden partir, CobrosTable) caben
+ * desde 1280 px, sin que las acciones tapen nada. Si aun así necesita
+ * desplazarse, las acciones siguen a la vista, con su línea a la izquierda.
+ */
 @media (min-width: 1101px) {
-  .np-cobros-table--acciones th:last-child, .np-cobros-table--acciones td[data-card='actions'] { position: sticky; right: 0; background: var(--np-surface); z-index: 2; }
+  .np-table.np-cobros-table th, .np-table.np-cobros-table td { padding-left: 0.4375rem; padding-right: 0.4375rem; }
+  .np-table.np-cobros-table th:first-child, .np-table.np-cobros-table td:first-child { padding-left: 0.75rem; }
+  .np-table.np-cobros-table th:last-child, .np-table.np-cobros-table td:last-child { padding-right: 0.75rem; }
+  .np-table.np-cobros-table td[data-card='actions'] .np-btn { padding-left: 0.875rem; padding-right: 0.875rem; }
+  .np-cobros-table--acciones th:last-child, .np-cobros-table--acciones td[data-card='actions'] { position: sticky; right: 0; background: var(--np-surface); z-index: 2; box-shadow: -1px 0 0 var(--np-border); }
 }

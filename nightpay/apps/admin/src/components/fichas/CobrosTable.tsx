@@ -77,9 +77,9 @@ export function CobrosTable({ rows, actions, empty, hidePerson, extra, showRefer
                 {formatMoney(row.amountCents, row.currency)}
                 {/* La «Comisión del servicio» que pagó el cliente encima (se debe a OxioPay). */}
                 {row.serviceFeeCents ? (
-                  <span style={tipStyle}>+ {formatEur(row.serviceFeeCents)} comisión del servicio</span>
+                  <span style={tipStyle}>+{'\u00a0'}{formatEur(row.serviceFeeCents)} comisión del servicio</span>
                 ) : null}
-                {row.tipCents > 0 ? <span style={tipStyle}>+ {formatEur(row.tipCents)} propina</span> : null}
+                {row.tipCents > 0 ? <span style={tipStyle}>+{'\u00a0'}{formatEur(row.tipCents)} propina</span> : null}
               </td>
               <td data-label="Estado" data-card="status">
                 {/* Una sola forma y una palabra por estado, con tarjeta o con el saldo. */}
@@ -110,7 +110,7 @@ export function CobrosTable({ rows, actions, empty, hidePerson, extra, showRefer
               <td data-label="Cómo pagó" style={meta}>
                 {row.wallet && fichas ? (
                   <button type="button" style={linkStyle} onClick={() => fichas.openWallet(row.wallet!.id)}>
-                    {row.method === 'SALDO' ? row.methodLabel : `${row.methodLabel} · saldo ${row.wallet.codeHint}`}
+                    {row.method === 'SALDO' ? labelWithCode(row.methodLabel) : `${row.methodLabel} · saldo ${row.wallet.codeHint}`}
                   </button>
                 ) : (
                   row.methodLabel
@@ -146,6 +146,13 @@ export function CobrosTable({ rows, actions, empty, hidePerson, extra, showRefer
   );
 }
 
+/** «Saldo K7Q-•••»: si no cabe, parte por el espacio, nunca por el guion del código. */
+function labelWithCode(label: string): ReactNode {
+  const space = label.lastIndexOf(' ');
+  if (space < 0) return label;
+  return <>{label.slice(0, space + 1)}<span style={oneLine}>{label.slice(space + 1)}</span></>;
+}
+
 /** Cobrado dos veces (el saldo y, después, la tarjeta): la fila con tarjeta lo dice debajo del estado. */
 function PaidTwice({ row }: { row: CobroRow }) {
   const note = paidTwiceNote(row, formatEur);
@@ -170,8 +177,12 @@ const paidTwiceStyle = (refunded: boolean): CSSProperties => ({
 const meta: CSSProperties = { color: 'var(--np-text-mute)' };
 const oneLine: CSSProperties = { whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' };
 const amountCell: CSSProperties = { textAlign: 'right', fontWeight: 700, whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' };
+// Se puede partir (el importe de arriba, no): así la tabla cabe en un portátil.
+// Con «comisión del» en una línea: más estrecho, «del» se queda sola.
 const tipStyle: CSSProperties = {
   display: 'block',
+  minWidth: '4.75rem',
+  whiteSpace: 'normal',
   fontSize: '0.75rem',
   fontWeight: 500,
   color: 'var(--np-text-dim)',
