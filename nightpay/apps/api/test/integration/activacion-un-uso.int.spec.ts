@@ -31,6 +31,7 @@ import { WalletCardViewService } from '../../src/modules/wallets/wallet-card-vie
 import { WalletCardsService } from '../../src/modules/wallets/wallet-cards.service';
 import { CashTopUpService } from '../../src/modules/wallets/wallet-cash-topup.service';
 import { WalletChargesService } from '../../src/modules/wallets/wallet-charges.service';
+import { IncidentsService } from '../../src/modules/incidents/incidents.service';
 import { WalletPasskeysService } from '../../src/modules/wallets/wallet-passkeys.service';
 import { WalletTopUpService } from '../../src/modules/wallets/wallet-topup.service';
 import { walletStreamAccess } from '../../src/modules/wallets/wallet-view-access';
@@ -105,9 +106,19 @@ const auditRows = (action: string, targetId: string) =>
   sys((tx) => tx.auditEvent.findMany({ where: { action, targetId }, orderBy: { occurredAt: 'asc' } }));
 
 /** El cliente activa Face ID en SU móvil con el QR. */
-async function activateWith(token: string, phone = new SoftAuthenticator()) {
-  const options = await pub(() => uses.passkeyOptions(token, HOST));
-  return pub(() => uses.registerPasskey(token, HOST, phone.register(options.challenge)));
+async function activateWith(token: string, phone = new SoftAuthenticator(), pin?: string) {
+  const options = await pub(() => uses.passkeyOptions(token, HOST, pin));
+  return pub(() => uses.registerPasskey(token, HOST, phone.register(options.challenge), pin));
+}
+
+/** El saldo ya tiene su edad: la recarga que lo creó fue hace horas. */
+async function older(walletId: string) {
+  await sys((tx) => tx.$executeRaw`UPDATE wallet_cash_topups SET "createdAt" = NOW() - INTERVAL '10 hours' WHERE "walletId" = ${walletId}::uuid`);
+}
+
+/** Otra recarga en efectivo a un saldo que ya existe, por su código (un céntimo basta). */
+async function topUpByCode(code: string, amountCents = 1) {
+  return inVenue(V, () => cash.topUp(V, { userId: rx, role: 'WAITER' }, { amountCents, idempotencyKey: randomUUID(), wallet: { code } }));
 }
 
 let app: NestFastifyApplication;
@@ -248,12 +259,78 @@ describe('QR de activación de un solo uso (M-2, Postgres real)', () => {
     expect(page.body).toContain('id="balance"');
   });
 
-  it('si el saldo ya tenía PIN al activar Face ID con el QR, se le avisa (hadPin)', async () => {
+  it('saldo con PIN: el QR de recepción lo pide para activar Face ID; sin él o con otro, nada', async () => {
     const c = await client();
     await pub(() => charges.setPinFromPayer(c.walletId, '4827'));
     const link = await issue(c.walletId);
-    await expect(activateWith(link.token)).resolves.toMatchObject({ qrToken: c.qrToken, hadPin: true });
+    await expect(pub(() => uses.view(link.token))).resolves.toMatchObject({ state: 'ok', hasPin: true, pinRequired: true });
+    await expect(activateWith(link.token)).rejects.toMatchObject({ response: { code: 'PIN_FORMAT' } });
+    await expect(activateWith(link.token, new SoftAuthenticator(), '0000')).rejects.toMatchObject({ response: { code: 'PIN_WRONG' } });
+    expect(await keysOf(c.walletId)).toBe(0);
+    expect((await tokenRow(link.token))?.usedAt).toBeNull();
+    await expect(activateWith(link.token, new SoftAuthenticator(), '4827')).resolves.toMatchObject({ qrToken: c.qrToken, hadPin: true });
+    expect(await keysOf(c.walletId)).toBe(1);
     await expect(pub(() => uses.setPin(link.token, '7395'))).rejects.toMatchObject({ response: { code: 'ACTIVATION_USED' } });
+  });
+
+  it('el céntimo no abre un saldo ajeno: sin PIN ni ficha no hay QR; con PIN, sale y lo pide', async () => {
+    const c = await client();
+    await older(c.walletId);
+    await topUpByCode(c.code);
+    await expect(issue(c.walletId)).rejects.toMatchObject({ status: 404, response: { reason: 'NEEDS_PROOF' } });
+    await pub(() => charges.setPinFromPayer(c.walletId, '4827'));
+    const link = await issue(c.walletId);
+    await expect(activateWith(link.token)).rejects.toMatchObject({ response: { code: 'PIN_FORMAT' } });
+    await activateWith(link.token, new SoftAuthenticator(), '4827');
+    // Queda para Incidencias: un saldo que ya tenía dinero ha pasado a un móvil.
+    expect(await auditRows('wallet.activation_not_new', c.walletId)).toHaveLength(1);
+    const incidents = new IncidentsService(prisma as never, { log: async () => undefined } as never);
+    const inbox = await pub(() => incidents.list(V));
+    expect(inbox.filter((i) => i.kind === 'sensitive_action' && i.title === 'Saldo con dinero activado en un móvil')).not.toHaveLength(0);
+  });
+
+  it('activar un saldo recién creado no sale en Incidencias', async () => {
+    const c = await client();
+    const link = await issue(c.walletId);
+    await activateWith(link.token);
+    expect(await auditRows('wallet.activation_not_new', c.walletId)).toHaveLength(0);
+  });
+
+  it('activar con PIN cambia el enlace: el que se vio antes deja de abrir la página', async () => {
+    const c = await client();
+    const link = await issue(c.walletId);
+    const http = await httpApp();
+    const out = await pub(() => uses.setPin(link.token, '4827'));
+    expect(out.qrToken).not.toBe(c.qrToken);
+    expect((await http.inject({ method: 'GET', url: `/w/${c.qrToken}`, headers: { host: HOST } })).statusCode).toBe(404);
+    expect((await http.inject({ method: 'GET', url: `/w/${out.qrToken}`, headers: { host: HOST } })).statusCode).toBe(200);
+  });
+
+  it('juntar saldos con solo el enlace no se lleva el dinero: pide el PIN del saldo de origen', async () => {
+    const victim = await client(20_000);
+    const mine = await client(1_000);
+    const phone = new SoftAuthenticator();
+    await activateWith((await issue(mine.walletId)).token, phone);
+    const http = await httpApp();
+    const attempt = async (pin?: string) => {
+      const reto = (await http.inject({ method: 'POST', url: `/w/${victim.qrToken}/merge/challenge`, headers: { host: HOST } })).json() as { challenge: string };
+      return http.inject({ method: 'POST', url: `/w/${victim.qrToken}/merge`, headers: { host: HOST }, payload: { response: phone.assert(reto.challenge), ...(pin ? { pin } : {}) } });
+    };
+    const noPin = await attempt();
+    expect(noPin.statusCode).toBe(403);
+    expect(noPin.json()).toMatchObject({ code: 'MERGE_PROOF_REQUIRED' });
+    const balance = async (id: string) => (await sys((tx) => tx.clientWallet.findUniqueOrThrow({ where: { id } }))).balanceCents;
+    expect(await balance(victim.walletId)).toBe(20_000);
+
+    // Con PIN: otro PIN no vale; el suyo, sí.
+    await pub(() => charges.setPinFromPayer(victim.walletId, '4827'));
+    const wrong = await attempt('0000');
+    expect(wrong.statusCode).toBe(422);
+    expect(wrong.json()).toMatchObject({ code: 'PIN_WRONG' });
+    expect(await balance(victim.walletId)).toBe(20_000);
+    const right = await attempt('4827');
+    expect(right.statusCode).toBe(200);
+    expect(await balance(mine.walletId)).toBe(21_000);
   });
 
   it('el enlace permanente /w/<qrToken> ya no registra el primer Face ID ni el primer PIN (403 ACTIVATION_REQUIRED)', async () => {

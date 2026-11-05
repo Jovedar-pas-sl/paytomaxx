@@ -115,9 +115,32 @@ describe('mapa del dinero: los carriles cuadran', () => {
     // Saldo vivo que dejó la noche: 300 € de recargas − 120 gastados − 20 devueltos.
     expect(o.saldoCents).toBe(16_000);
     expect(o.staffCents).toBe(22_600);
-    expect(o.venueCents + o.staffCents + o.saldoCents).toBe(m.where.totalCents);
+    expect(o.venueCents + o.staffCents + o.saldoCents + (o.paidOutCents ?? 0) + (o.commissionsCents ?? 0)).toBe(m.where.totalCents);
     expect(m.where.liveSaldoCents).toBe(16_000);
     expect(m.where.owed).toEqual({ chicasCents: 30_000, camarerosCents: 500 });
+  });
+
+  it('«Tuyo» no cuenta lo ya pagado por banco ni las comisiones: el dinero que no es del local no se puede gastar', () => {
+    const noche = (rail: string, cashBox: number) =>
+      buildMoneyMap(
+        input({
+          sales: [sale({ amountCents: 100_000, category: 'VENUE_BAR', method: rail === 'MANUAL_CASH' ? 'CASH' : 'CARD', platformBps: 1000 })],
+          topUps: { cardCents: 0, cardCount: 0, cashCents: 0, cashCount: 0 },
+          walletPayouts: { cashCents: 0, cashCount: 0, cardCents: 0 },
+          cardRefunds: { cents: 0, count: 0 },
+          staff: { chicas: { grossCents: 40_000, unpaidCents: 0 }, camareros: { grossCents: 0, unpaidCents: 0 } },
+          payouts: [{ who: 'chicas', rail, count: 1, cents: 40_000 }],
+          bankFeeBps: 0,
+          cashBox: { openingFloatCents: 0, inCents: cashBox, outCents: 0, expectedCents: cashBox },
+        }),
+      );
+    // 1.000 € con tarjeta, 400 € al personal por transferencia, 10 % de OxioPay: al local le quedan 500 €.
+    const tarjeta = noche('BANK_TRANSFER', 0).where;
+    expect(tarjeta.bbvaCents).toBe(100_000);
+    expect(tarjeta.owners).toMatchObject({ paidOutCents: 40_000, commissionsCents: 10_000, venueCents: 50_000 });
+    // Lo mismo en efectivo: los 400 € ya salieron de la caja, no se restan otra vez.
+    const efectivo = noche('MANUAL_CASH', 60_000).where;
+    expect(efectivo.owners).toMatchObject({ paidOutCents: 0, commissionsCents: 10_000, venueCents: 50_000 });
   });
 
   it('qué sale: pagos al personal (de más a menos), lo pendiente, devoluciones y comisiones', () => {
@@ -148,7 +171,7 @@ describe('mapa del dinero: los carriles cuadran', () => {
     expect(m.salesCents).toBe(0);
     expect(m.sections.map((s) => s.code)).toEqual(['CHICA_SERVICE', 'VENUE_BAR', 'VENUE_ROOM', 'VENUE_FOOD', 'VENUE_ENTRY', MONEY_MAP_TIPS]);
     expect(venueSharePercent(m)).toBe(0);
-    expect(m.where.owners).toEqual({ venueCents: 0, staffCents: 0, saldoCents: 0 });
+    expect(m.where.owners).toEqual({ venueCents: 0, staffCents: 0, saldoCents: 0, paidOutCents: 0, commissionsCents: 0 });
   });
 });
 
@@ -242,7 +265,7 @@ describe('con la «Comisión del servicio» (la paga el cliente, se debe a OxioP
     expect(m.where.cashBoxCents).toBe(5_600);
     const o = m.where.owners;
     expect(o.oxioPayCents).toBe(1_365);
-    expect(o.venueCents + o.staffCents + o.saldoCents + (o.oxioPayCents ?? 0)).toBe(m.where.totalCents);
+    expect(o.venueCents + o.staffCents + o.saldoCents + (o.oxioPayCents ?? 0) + (o.paidOutCents ?? 0) + (o.commissionsCents ?? 0)).toBe(m.where.totalCents);
     expect(m.outflow.serviceFeeCents).toBe(1_365);
   });
 

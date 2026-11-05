@@ -1,11 +1,12 @@
-import { ConflictException, Inject, Injectable } from '@nestjs/common';
+import { BadRequestException, ConflictException, Inject, Injectable } from '@nestjs/common';
 import type { PublicKeyCredentialCreationOptionsJSON } from '@simplewebauthn/server';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { WALLET_CLAIM_MAX_AGE_S } from '../payments/wallet-claim';
 import { codeHintOf, WalletChargesService } from './wallet-charges.service';
 import { WalletPasskeysService } from './wallet-passkeys.service';
-import { firstTopUp } from './wallet-fresh-topup';
+import { FRESH_TOPUP_MS, firstTopUp } from './wallet-fresh-topup';
+import { newWalletToken } from './wallet-rules';
 import {
   activationError,
   activationStateOf,
@@ -18,7 +19,7 @@ import {
 
 /** Lo que enseña /w/a/<token> (nunca el enlace del saldo ni lo que tiene). */
 export type ActivationView =
-  | { state: 'ok'; codeHint: string | null; venueName: string | null; hasPin: boolean }
+  | { state: 'ok'; codeHint: string | null; venueName: string | null; hasPin: boolean; pinRequired: boolean }
   | { state: 'used' }
   | { state: 'expired' };
 
@@ -30,6 +31,17 @@ interface UsableWallet {
   qrToken: string;
   hasPin: boolean;
   via: ActivationVia;
+  balanceCents: number;
+  issuedAt: Date;
+}
+
+/**
+ * El QR de recepción de un saldo con PIN pide ese PIN: recepción no prueba que
+ * el saldo sea de quien está delante. El enlace nuevo del dueño (con 2FA) es
+ * para quien lo perdió todo, y puede haber olvidado también el PIN.
+ */
+function needsPin(wallet: UsableWallet): boolean {
+  return wallet.hasPin && wallet.via === 'reception';
 }
 
 /** «Tu saldo ya tiene Face ID activado» de WalletPasskeysService.register. */
@@ -76,12 +88,14 @@ export class WalletActivationUseService {
       codeHint: found.wallet.shortCode ? codeHintOf(found.wallet.shortCode) : null,
       venueName: venue?.name ?? null,
       hasPin: found.wallet.hasPin,
+      pinRequired: needsPin(found.wallet),
     };
   }
 
-  /** Activar Face ID, paso 1 (solo con el QR vigente). */
-  async passkeyOptions(token: string, host: string | undefined): Promise<PublicKeyCredentialCreationOptionsJSON> {
+  /** Activar Face ID, paso 1 (solo con el QR vigente, y con su PIN si lo pide: antes de crear la llave en el móvil). */
+  async passkeyOptions(token: string, host: string | undefined, pin?: unknown): Promise<PublicKeyCredentialCreationOptionsJSON> {
     const wallet = await this.usable(token);
+    await this.assertPin(wallet, pin);
     return this.passkeys.registrationOptions({ id: wallet.id, shortCode: wallet.shortCode }, host);
   }
 
@@ -90,8 +104,10 @@ export class WalletActivationUseService {
     token: string,
     host: string | undefined,
     response: unknown,
+    pin?: unknown,
   ): Promise<{ walletId: string; qrToken: string; hadPin: boolean }> {
     const wallet = await this.usable(token);
+    await this.assertPin(wallet, pin);
     try {
       await this.passkeys.register(wallet.id, host, response, {
         beforeInsert: (tx) => this.spend(tx, token, wallet.id, 'passkey'),
@@ -107,16 +123,29 @@ export class WalletActivationUseService {
     return { walletId: wallet.id, qrToken: wallet.qrToken, hadPin: wallet.hasPin };
   }
 
-  /** El primer PIN (móvil sin Face ID, o si lo prefiere), gastando el QR en la misma transacción. */
+  /**
+   * El primer PIN (móvil sin Face ID, o si lo prefiere), gastando el QR en la
+   * misma transacción. El enlace cambia: con PIN no hay llave que bloquee la
+   * página, y un enlace visto antes seguiría abriéndola. Con Face ID no hace
+   * falta: la página ya pide la llave.
+   */
   async setPin(token: string, pin: string): Promise<{ walletId: string; qrToken: string }> {
     const wallet = await this.usable(token);
+    const qrToken = newWalletToken();
     await this.charges.setFirstPinWithActivation(wallet.id, pin, async (tx) => {
       await this.spend(tx, token, wallet.id, 'pin');
       // Con Face ID (activado por otra vía mientras tanto), el PIN se elige con su llave en /w.
       if ((await tx.walletPasskey.count({ where: { walletId: wallet.id } })) > 0) throw activationError('used');
+      await tx.clientWallet.update({ where: { id: wallet.id }, data: { qrToken } });
     });
     await this.logUse(wallet, 'pin');
-    return { walletId: wallet.id, qrToken: wallet.qrToken };
+    return { walletId: wallet.id, qrToken };
+  }
+
+  private async assertPin(wallet: UsableWallet, pin: unknown): Promise<void> {
+    if (!needsPin(wallet)) return;
+    if (typeof pin !== 'string' || !/^[0-9]{4}$/.test(pin)) throw new BadRequestException({ message: 'El PIN son 4 cifras', code: 'PIN_FORMAT' });
+    await this.charges.checkClientPin(wallet.id, wallet.tenantId, pin);
   }
 
   /**
@@ -154,6 +183,7 @@ export class WalletActivationUseService {
           usedAt: true,
           revokedAt: true,
           expiresAt: true,
+          createdAt: true,
           via: true,
           wallet: {
             select: {
@@ -161,6 +191,7 @@ export class WalletActivationUseService {
               shortCode: true,
               tenantId: true,
               qrToken: true,
+              balanceCents: true,
               status: true,
               blockedAt: true,
               mergedIntoId: true,
@@ -187,6 +218,8 @@ export class WalletActivationUseService {
         qrToken: w.qrToken,
         hasPin: w.pinHash !== null,
         via: row.via === 'relink' ? 'relink' : 'reception',
+        balanceCents: w.balanceCents,
+        issuedAt: row.createdAt,
       },
     };
   }
@@ -210,6 +243,21 @@ export class WalletActivationUseService {
       targetType: 'ClientWallet',
       targetId: wallet.id,
       payload: { usedFor, via: wallet.via, ...(usedFor === 'passkey' ? { hadPin: wallet.hasPin } : {}) },
+    });
+    await this.flagIfNotNew(wallet);
+  }
+
+  /** Un saldo que ya tenía dinero ha pasado a un móvil por el QR de recepción: lo ve el encargado en Incidencias. */
+  private async flagIfNotNew(wallet: UsableWallet): Promise<void> {
+    if (wallet.via !== 'reception' || wallet.balanceCents <= 0) return;
+    const first = await firstTopUp(this.prisma, wallet.id);
+    if (first?.at && first.at.getTime() >= wallet.issuedAt.getTime() - FRESH_TOPUP_MS) return;
+    await this.audit.log({
+      action: 'wallet.activation_not_new',
+      tenantId: wallet.tenantId,
+      targetType: 'ClientWallet',
+      targetId: wallet.id,
+      payload: { amountCents: wallet.balanceCents, hadPin: wallet.hasPin },
     });
   }
 }

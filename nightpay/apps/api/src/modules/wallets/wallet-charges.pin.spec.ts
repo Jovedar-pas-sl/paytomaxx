@@ -144,7 +144,7 @@ function setup(wallet: Row = {}, topUp: Row | null = null) {
   });
   if (topUp) tables.payment.put({ id: 'pay-1', walletId: WALLET, createdByUserId: LOLA, createdAt: NOW, ...topUp });
   const audit = { log: vi.fn(async (_e: { action: string; payload: Record<string, unknown> }) => undefined) };
-  const svc = new WalletChargesService(prisma as never, audit as never, { get: vi.fn() } as never);
+  const svc = new WalletChargesService(prisma as never, audit as never, { get: vi.fn() } as never, { isEnabled: vi.fn(async () => true), assertForUser: vi.fn(async () => undefined) } as never);
   return { svc, db: tables, audit, queries, $queryRaw };
 }
 
@@ -351,7 +351,7 @@ describe('elegir el PIN', () => {
 describe('borrar y desbloquear el PIN: solo el encargado o el dueño del grupo', () => {
   it('el dueño borra el PIN olvidado: todo a cero y el cliente puede elegir otro', async () => {
     const { svc, db, audit } = setup({ pinFails: 5, pinLockedAt: NOW, pinFailedAt: NOW, pinSetById: JAVI });
-    await expect(svc.resetPin(marta, WALLET)).resolves.toEqual({ ok: true });
+    await expect(svc.resetPin(marta, WALLET, '123456')).resolves.toEqual({ ok: true });
     expect(db.clientWallet.get(WALLET)).toMatchObject({
       pinHash: null, pinFails: 0, pinLockedAt: null, pinFailedAt: null, pinSetById: null,
     });
@@ -364,10 +364,10 @@ describe('borrar y desbloquear el PIN: solo el encargado o el dueño del grupo',
     const { svc, db, audit } = setup({ pinFails: 5, pinLockedAt: NOW });
     for (const actor of [lola, dani]) {
       await expect(svc.unlockPin(actor, WALLET)).rejects.toBeInstanceOf(ForbiddenException);
-      await expect(svc.resetPin(actor, WALLET)).rejects.toBeInstanceOf(ForbiddenException);
+      await expect(svc.resetPin(actor, WALLET, '123456')).rejects.toBeInstanceOf(ForbiddenException);
     }
     await expect(svc.unlockPin(encargadoNeon, WALLET)).rejects.toBeInstanceOf(NotFoundException);
-    await expect(svc.resetPin(encargadoNeon, WALLET)).rejects.toBeInstanceOf(NotFoundException);
+    await expect(svc.resetPin(encargadoNeon, WALLET, '123456')).rejects.toBeInstanceOf(NotFoundException);
     expect(db.clientWallet.get(WALLET)).toMatchObject({ pinHash: PIN_HASH, pinFails: 5, pinLockedAt: NOW });
     expect(audit.log).not.toHaveBeenCalled();
   });

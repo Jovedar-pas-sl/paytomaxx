@@ -727,6 +727,7 @@ export class PaymentsService implements OnApplicationBootstrap {
    *  - Si dto.zone (sin externalId): cualquier terminal activo de esa zona.
    *    Si no hay → 400 con mensaje claro.
    *  - Si ambos: terminalExternalId gana.
+   *  - Sin ninguno: el único terminal activo del local; con varios, 400 (no se elige por nadie).
    */
   private async resolveTerminalId(tenantId: string, dto: CreatePaymentDto): Promise<string> {
     if (dto.terminalExternalId) {
@@ -740,6 +741,10 @@ export class PaymentsService implements OnApplicationBootstrap {
       return terminal.id;
     }
     if (!dto.zone) {
+      const active = await this.prisma.asSystem((tx) =>
+        tx.terminal.findMany({ where: { tenantId, active: true }, select: { id: true }, take: 2 }),
+      );
+      if (active.length === 1) return active[0]!.id;
       throw new BadRequestException('Debes pasar terminalExternalId o zone para resolver el datáfono');
     }
     // Normalizamos: si zone=OTRO, el canonical zone es 'OTRO/<zoneCustom>'.

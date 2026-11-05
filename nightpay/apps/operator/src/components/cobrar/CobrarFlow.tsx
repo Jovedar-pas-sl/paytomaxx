@@ -160,7 +160,9 @@ export function CobrarFlow({ user, onCobroDone, onLogout, night, miQrOpen = fals
     async (pending: Pending, key: string): Promise<CobroAbierto> => {
       const totals = pending.view.totalCents;
       if (methods.card) {
-        const created = await createCobro({ ...pending.input, terminalExternalId: terminals[0]?.externalId, idempotencyKey: key });
+        // La lista se pide al entrar y puede haber fallado (mala cobertura): sin ella no se cobra, así que otra vez.
+        const terminal = terminals[0]?.externalId ?? (await fetchTerminals().then((t) => (setTerminals(t), t[0]?.externalId), () => undefined));
+        const created = await createCobro({ ...pending.input, terminalExternalId: terminal, idempotencyKey: key });
         return { ...pending.view, totalCents: totals, card: created, saldo: created.saldo ?? null, ref: created.ref ?? null };
       }
       if (methods.wallet) {

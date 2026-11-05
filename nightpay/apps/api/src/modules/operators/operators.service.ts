@@ -1065,6 +1065,8 @@ export class OperatorsService {
     });
     // Baja: fuera al momento de la app (refresh y tokens de acceso ya emitidos).
     if (dto.active === false) await this.sessions.revokeAllForUser(operatorId);
+    // Sale de las listas, pero se le sigue debiendo: que no se pierda de vista.
+    if (dto.active === false && !operator.deletedAt) await this.flagLeftWithBalance(tenantId, operatorId, actorUserId, updated.displayName);
 
     const { totpCode: _code, ...changes } = dto;
     await this.audit.log({
@@ -1088,6 +1090,24 @@ export class OperatorsService {
     }
 
     return this.toPublicView(updated);
+  }
+
+  private async flagLeftWithBalance(tenantId: string, operatorId: string, actorUserId: string, name: string | null): Promise<void> {
+    try {
+      const { pendingCents } = await this.getBalance(operatorId, tenantId);
+      if (pendingCents <= 0) return;
+      await this.audit.log({
+        action: 'operator.left_with_balance',
+        tenantId,
+        actorId: actorUserId,
+        targetType: 'User',
+        targetId: operatorId,
+        payload: { amountCents: pendingCents, name },
+      });
+    } catch (err) {
+      // La baja ya está hecha y sus sesiones cerradas: un fallo aquí no la deshace.
+      this.logger.error(`Baja de ${operatorId}: no se pudo comprobar lo que se le debe: ${(err as Error).message}`);
+    }
   }
 
   async listOperatorEarnings(

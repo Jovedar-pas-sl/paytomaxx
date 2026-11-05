@@ -10,6 +10,8 @@ import {
   ackKey,
   duplicateChargeIncident,
   cashSplitIncident,
+  sensitiveActionIncident,
+  SENSITIVE_AUDIT_ACTIONS,
   receptionPayoutCapIncident,
   earningReverseFailedIncident,
   nightClosedPendingIncident,
@@ -147,13 +149,16 @@ export class IncidentsService {
                   FROM users u WHERE u.id = a."actorId") AS "actorName"
           FROM audit_events a
          WHERE a."tenantId" = ${tenantId}::uuid
-           AND a.action IN ('refund.earning_reverse_failed', 'wallet.credit_skipped_critical',
-                            'pos.reception_limit_exceeded', 'wallet.cash_split_suspected',
-                            'wallet.reception_payout_cap', 'wallet.card_blocked_by_client')
+           AND (a.action IN ('refund.earning_reverse_failed', 'wallet.credit_skipped_critical',
+                             'pos.reception_limit_exceeded', 'wallet.cash_split_suspected',
+                             'wallet.reception_payout_cap', 'wallet.card_blocked_by_client')
+                OR (a.action = ANY(${[...SENSITIVE_AUDIT_ACTIONS]}::text[])
+                    -- «No se cobró» no sube ningún saldo: no hace falta avisar.
+                    AND COALESCE(a.payload ->> 'decision', 'AUTHORIZED') = 'AUTHORIZED'))
            AND NOT EXISTS (SELECT 1 FROM incident_acks k
                             WHERE k."tenantId" = a."tenantId"
                               AND k.kind IN ('earning_reverse_failed', 'wallet_credit_skipped', 'pos_reception_limit',
-                                             'cash_split_suspected', 'reception_payout_cap', 'wallet_card_lost')
+                                             'cash_split_suspected', 'reception_payout_cap', 'wallet_card_lost', 'sensitive_action')
                               AND k."refId" = a.id::text)
            AND a."occurredAt" >= ${since}
          ORDER BY a."occurredAt" DESC
@@ -392,7 +397,9 @@ export class IncidentsService {
                 ? receptionPayoutCapIncident(r)
                 : r.action === 'wallet.card_blocked_by_client'
                   ? walletCardLostIncident(r)
-                  : walletCreditSkippedIncident(r),
+                  : SENSITIVE_AUDIT_ACTIONS.includes(r.action)
+                    ? sensitiveActionIncident(r)
+                    : walletCreditSkippedIncident(r),
       ),
       ...unprovenSales.map(posUnprovenSalesIncident),
       ...nights.map(nightClosedPendingIncident),

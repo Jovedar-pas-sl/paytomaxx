@@ -58,7 +58,18 @@ describe('POST /v1/reception/wallets/:id/activation-link (emite uno nuevo; el GE
     expect(res.json()).toEqual({ url: ACTIVATION_URL, expiresAt: '2026-10-27T01:13:00.000Z' });
     expect(res.headers['cache-control']).toBe('no-store');
     expect(res.headers['referrer-policy']).toBe('no-referrer');
-    expect(links.link).toHaveBeenCalledWith({ userId: 'rx-1', role, tenantId: 'venue-1' }, WALLET);
+    expect(links.link).toHaveBeenCalledWith({ userId: 'rx-1', role, tenantId: 'venue-1' }, WALLET, expect.any(Date), {});
+  });
+
+  it('la ficha que recepción acaba de leer llega al servicio; una que no es nuestra, 400', async () => {
+    const card = 'Ab3_kQ9-zXw2LmN8pR4t';
+    const res = await app.inject({ method: 'POST', url: url(), headers: { 'x-test-role': 'WAITER', 'x-forwarded-for': '10.0.2.1' }, payload: { card, uid: '04:AA' } });
+    expect(res.statusCode).toBe(200);
+    expect(links.link).toHaveBeenCalledWith({ userId: 'rx-1', role: 'WAITER', tenantId: 'venue-1' }, WALLET, expect.any(Date), { card, uid: '04:AA' });
+    links.link.mockClear();
+    const bad = await app.inject({ method: 'POST', url: url(), headers: { 'x-test-role': 'WAITER', 'x-forwarded-for': '10.0.2.2' }, payload: { card: 'no vale' } });
+    expect(bad.statusCode).toBe(400);
+    expect(links.link).not.toHaveBeenCalled();
   });
 
   it('el GET de antes (apps del personal aún sin actualizar) hace lo mismo', async () => {
@@ -66,7 +77,7 @@ describe('POST /v1/reception/wallets/:id/activation-link (emite uno nuevo; el GE
     expect(res.statusCode).toBe(200);
     expect(res.json()).toEqual({ url: ACTIVATION_URL, expiresAt: '2026-10-27T01:13:00.000Z' });
     expect(res.headers['cache-control']).toBe('no-store');
-    expect(links.link).toHaveBeenCalledWith({ userId: 'rx-1', role: 'WAITER', tenantId: 'venue-1' }, WALLET);
+    expect(links.link).toHaveBeenCalledWith({ userId: 'rx-1', role: 'WAITER', tenantId: 'venue-1' }, WALLET, expect.any(Date), {});
   });
 
   it('las chicas (OPERATOR) y el super-admin no llegan al servicio; sin sesión, 401', async () => {

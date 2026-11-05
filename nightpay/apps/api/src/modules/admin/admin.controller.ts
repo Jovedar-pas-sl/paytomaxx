@@ -170,6 +170,8 @@ const ManualReconcileSchema = z
     // Fase 1B: pedido que cobró el banco (si hubo varios intentos con
     // propinas distintas), para saber qué propina le toca a la chica.
     bankOrder: z.string().trim().regex(/^[0-9A-Za-z]{4,12}$/, 'Número de pedido no válido').optional(),
+    /** Darlo por cobrado sube un saldo sin que el banco lo diga: con el 2FA del dueño. */
+    totpCode: z.string().regex(/^\d{6}$/, 'El código 2FA son 6 cifras').optional(),
   })
   .refine((b) => b.decision !== 'AUTHORIZED' || Boolean(b.bankAuthCode), {
     message: 'Para marcarlo cobrado, pon el código de autorización del banco',
@@ -501,6 +503,7 @@ export class AdminController {
       );
     }
 
+    if (body.decision === 'AUTHORIZED') await this.totp.assertForUser(user.sub, body.totpCode);
     const authCode = body.decision === 'AUTHORIZED' ? body.bankAuthCode ?? null : null;
     try {
       if (body.decision === 'AUTHORIZED') {

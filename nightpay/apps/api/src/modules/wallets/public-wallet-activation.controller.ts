@@ -13,10 +13,11 @@ import { walletViewSetCookies } from './wallet-view-session';
  * El QR de activación de un solo uso (M-2), en el móvil del cliente (fuera de /v1):
  *  - GET  /w/a/:token                   → la página (no gasta nada: las vistas
  *                                          previas de WhatsApp también la abren).
- *  - POST /w/a/:token/passkey/options   → activar Face ID, paso 1.
+ *  - POST /w/a/:token/passkey/options   → activar Face ID, paso 1 (con su PIN si
+ *                                          el QR es de recepción y el saldo ya lo tenía).
  *  - POST /w/a/:token/passkey           → paso 2: gasta el QR y deja la sesión
  *                                          del saldo; devuelve a dónde ir (/w/<enlace>).
- *  - POST /w/a/:token/pin               → el primer PIN: gasta el QR.
+ *  - POST /w/a/:token/pin               → el primer PIN: gasta el QR y cambia el enlace.
  * 409 ACTIVATION_USED si ya se usó; 410 ACTIVATION_EXPIRED si caducó, se
  * anuló o no existe. El enlace del saldo solo lo recibe el móvil que activa.
  */
@@ -53,8 +54,12 @@ export class PublicWalletActivationController {
   @HttpCode(200)
   @Header('Cache-Control', 'no-store')
   @IpRateLimit({ max: 20, windowSec: 60, scope: 'wallet-activation' })
-  async passkeyOptions(@Param('token') token: string, @Headers('host') host: string | undefined): Promise<unknown> {
-    return this.uses.passkeyOptions(token, host);
+  async passkeyOptions(
+    @Param('token') token: string,
+    @Body() body: { pin?: unknown } | undefined,
+    @Headers('host') host: string | undefined,
+  ): Promise<unknown> {
+    return this.uses.passkeyOptions(token, host, body?.pin);
   }
 
   @Public()
@@ -65,11 +70,11 @@ export class PublicWalletActivationController {
   @IpRateLimit({ max: 20, windowSec: 60, scope: 'wallet-activation' })
   async passkey(
     @Param('token') token: string,
-    @Body() body: { response?: unknown } | undefined,
+    @Body() body: { response?: unknown; pin?: unknown } | undefined,
     @Headers('host') host: string | undefined,
     @Res({ passthrough: true }) res: FastifyReply,
   ): Promise<{ url: string; hadPin: boolean }> {
-    const out = await this.uses.registerPasskey(token, host, body?.response);
+    const out = await this.uses.registerPasskey(token, host, body?.response, body?.pin);
     // Su móvil sigue a su saldo ya desbloqueado (la sesión de consulta, como tras Face ID).
     res.header('Set-Cookie', walletViewSetCookies(this.config.get<string>('COOKIE_SECRET') ?? '', { id: out.walletId, qrToken: out.qrToken }));
     return { url: `/w/${encodeURIComponent(out.qrToken)}`, hadPin: out.hadPin };

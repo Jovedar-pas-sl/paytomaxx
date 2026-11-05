@@ -142,7 +142,7 @@ function setup() {
   tables.clientWallet.put({ id: WALLET_NORTE, tenantId: NORTE, shortCode: 'H8M2R5', qrToken: 'qrTokenNorte', balanceCents: 4_000 });
   tables.payment.put({ id: 'pay-1', walletId: WALLET, createdByUserId: LOLA, authorizedAt: new Date(NOW.getTime() - 5 * MIN), createdAt: new Date(NOW.getTime() - 6 * MIN) });
   const audit = { log: vi.fn(async (_e: { action: string; payload: Record<string, unknown> }) => undefined) };
-  const svc = new WalletChargesService(prisma as never, audit as never, { get: vi.fn() } as never);
+  const svc = new WalletChargesService(prisma as never, audit as never, { get: vi.fn() } as never, { isEnabled: vi.fn(async () => true), assertForUser: vi.fn(async () => undefined) } as never);
   return { svc, db: tables, audit };
 }
 
@@ -196,10 +196,18 @@ describe('el encargado ve los cobros con QR que nadie ha pagado', () => {
 });
 
 describe('aprobar sin Face ID (cliente sin batería): hacen falta dos personas', () => {
+  it('sin el código de quien aprueba no se cobra nada', async () => {
+    const { svc, db } = setup();
+    const req = cobro(db);
+    await expect(svc.approveWithoutFaceId(javi, req, WALLET)).rejects.toMatchObject({ response: { code: 'TOTP_REQUIRED' } });
+    expect(db.clientWallet.get(WALLET)).toMatchObject({ balanceCents: 12_000 });
+    expect(db.walletConsumption.list()).toHaveLength(0);
+  });
+
   it('el encargado lo cobra del saldo que elige: justo el importe, consumo, parte de la chica y auditoría', async () => {
     const { svc, db, audit } = setup();
     const req = cobro(db);
-    await expect(svc.approveWithoutFaceId(javi, req, WALLET)).resolves.toMatchObject({ status: 'ACCEPTED', newBalanceCents: 8_000 });
+    await expect(svc.approveWithoutFaceId(javi, req, WALLET, '123456')).resolves.toMatchObject({ status: 'ACCEPTED', newBalanceCents: 8_000 });
     expect(db.clientWallet.get(WALLET)).toMatchObject({ balanceCents: 8_000, status: 'ACTIVE' });
     const [consumo] = db.walletConsumption.list();
     expect(consumo).toMatchObject({
@@ -218,7 +226,7 @@ describe('aprobar sin Face ID (cliente sin batería): hacen falta dos personas',
 
   it('un saldo de otro local del grupo que se queda justo a 0 pasa a gastado (DEPLETED)', async () => {
     const { svc, db } = setup();
-    await svc.approveWithoutFaceId(marta, cobro(db), WALLET_NORTE);
+    await svc.approveWithoutFaceId(marta, cobro(db), WALLET_NORTE, '123456');
     expect(db.clientWallet.get(WALLET_NORTE)).toMatchObject({ balanceCents: 0, status: 'DEPLETED' });
     expect(db.walletConsumption.list()).toEqual([expect.objectContaining({ tenantId: SALA, walletId: WALLET_NORTE })]);
   });
@@ -226,10 +234,10 @@ describe('aprobar sin Face ID (cliente sin batería): hacen falta dos personas',
   it('ni la chica, ni el camarero, ni el encargado aprueban su propio cobro', async () => {
     const { svc, db, audit } = setup();
     const req = cobro(db);
-    await expect(svc.approveWithoutFaceId(lola, req, WALLET)).rejects.toBeInstanceOf(ForbiddenException);
-    await expect(svc.approveWithoutFaceId(dani, req, WALLET)).rejects.toBeInstanceOf(ForbiddenException);
+    await expect(svc.approveWithoutFaceId(lola, req, WALLET, '123456')).rejects.toBeInstanceOf(ForbiddenException);
+    await expect(svc.approveWithoutFaceId(dani, req, WALLET, '123456')).rejects.toBeInstanceOf(ForbiddenException);
     const deJavi = cobro(db, { requestedByUserId: JAVI });
-    await expect(svc.approveWithoutFaceId(javi, deJavi, WALLET)).rejects.toBeInstanceOf(ForbiddenException);
+    await expect(svc.approveWithoutFaceId(javi, deJavi, WALLET, '123456')).rejects.toBeInstanceOf(ForbiddenException);
     expect(db.clientWallet.get(WALLET)).toMatchObject({ balanceCents: 12_000 });
     expect(db.walletConsumption.rows.size).toBe(0);
     expect(audit.log).not.toHaveBeenCalled();
@@ -237,10 +245,10 @@ describe('aprobar sin Face ID (cliente sin batería): hacen falta dos personas',
 
   it('saldo de otro dueño o cobro de otro local: como si no existieran', async () => {
     const { svc, db } = setup();
-    await expect(svc.approveWithoutFaceId(duenoNeon, cobro(db), WALLET)).rejects.toBeInstanceOf(NotFoundException);
+    await expect(svc.approveWithoutFaceId(duenoNeon, cobro(db), WALLET, '123456')).rejects.toBeInstanceOf(NotFoundException);
     const deNeon = cobro(db, { tenantId: NEON });
-    await expect(svc.approveWithoutFaceId(javi, deNeon, WALLET)).rejects.toBeInstanceOf(NotFoundException);
-    await expect(svc.approveWithoutFaceId(javi, cobro(db, { payToken: null }), WALLET)).rejects.toBeInstanceOf(NotFoundException);
+    await expect(svc.approveWithoutFaceId(javi, deNeon, WALLET, '123456')).rejects.toBeInstanceOf(NotFoundException);
+    await expect(svc.approveWithoutFaceId(javi, cobro(db, { payToken: null }), WALLET, '123456')).rejects.toBeInstanceOf(NotFoundException);
     expect(db.clientWallet.get(WALLET)).toMatchObject({ balanceCents: 12_000 });
   });
 
@@ -248,12 +256,12 @@ describe('aprobar sin Face ID (cliente sin batería): hacen falta dos personas',
     const { svc, db, audit } = setup();
     db.clientWallet.put({ ...db.clientWallet.get(WALLET), balanceCents: 3_999 });
     const req = cobro(db);
-    await expect(svc.approveWithoutFaceId(javi, req, WALLET)).rejects.toBeInstanceOf(ConflictException);
+    await expect(svc.approveWithoutFaceId(javi, req, WALLET, '123456')).rejects.toBeInstanceOf(ConflictException);
     expect(db.clientWallet.get(WALLET)).toMatchObject({ balanceCents: 3_999 });
     expect(db.walletChargeRequest.get(req)).toMatchObject({ status: 'PENDING', walletId: null });
     expect(db.walletConsumption.rows.size + db.operatorEarning.rows.size).toBe(0);
     expect(audit.log).not.toHaveBeenCalled();
-    await expect(svc.approveWithoutFaceId(javi, req, WALLET_NORTE)).resolves.toMatchObject({ newBalanceCents: 0 });
+    await expect(svc.approveWithoutFaceId(javi, req, WALLET_NORTE, '123456')).resolves.toMatchObject({ newBalanceCents: 0 });
   });
 });
 
@@ -339,9 +347,9 @@ describe('devolver el saldo: lo que se comprueba antes de tocar nada', () => {
   it('la chica no devuelve en efectivo; el dueño de otro grupo no ve el saldo; sin nada que devolver → 409', async () => {
     const { svc, db } = setup();
     await expect(svc.payout(lola, WALLET, { method: 'CASH' })).rejects.toBeInstanceOf(ForbiddenException);
-    await expect(svc.payout(duenoNeon, WALLET, { method: 'CASH' })).rejects.toBeInstanceOf(NotFoundException);
+    await expect(svc.payout(duenoNeon, WALLET, { totpCode: '123456', method: 'CASH' })).rejects.toBeInstanceOf(NotFoundException);
     db.clientWallet.put({ ...db.clientWallet.get(WALLET), balanceCents: 0, status: 'DEPLETED' });
-    await expect(svc.payout(marta, WALLET, { method: 'CASH' })).rejects.toThrow(/nada que devolver/);
+    await expect(svc.payout(marta, WALLET, { totpCode: '123456', method: 'CASH' })).rejects.toThrow(/nada que devolver/);
     expect(db.walletPayout.rows.size).toBe(0);
     expect(db.clientWallet.get(WALLET)).toMatchObject({ balanceCents: 0, status: 'DEPLETED' });
   });

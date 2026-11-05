@@ -322,6 +322,7 @@ ${lostSheet(lang)}<dialog class="sheet" id="leaveSheet" aria-labelledby="leaveTi
 </dialog>
 <dialog class="sheet" id="mergeSheet" aria-labelledby="mergeTitle">
 <h2 id="mergeTitle">${h(t.mergeTitle)}</h2><p>${h(t.mergeWhy)}</p>
+<div class="pins" id="mergePinBox" hidden><input id="mergePin" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="4" autocomplete="off" aria-label="${h(t.mergePinLabel)}" placeholder="${h(t.pinLabel)}"></div>
 <p class="err" id="mergeErr" role="alert" hidden></p>
 <button class="btn" type="button" id="mergeGo">${h(t.mergeButton)}</button>
 <button class="link" type="button" data-close>${h(t.cancel)}</button>
@@ -379,7 +380,7 @@ function render(s){S=s;S.cards=s.cards||[];
  $('refundCard').hidden=!r;if(r)refundView(r);
  payRender(s,active,r);
  $('pinOpen').hidden=!(active&&!r&&!s.hasPin&&(s.hasFaceId||C.payer));
- $('mergeOpen').hidden=!(active&&!r&&!s.hasFaceId&&!s.merged&&s.balanceCents>0);
+ $('mergeOpen').hidden=!(active&&!r&&!s.hasFaceId&&!s.merged&&s.balanceCents>0&&(C.payer||s.hasPin));
  $('leaveOpen').hidden=!(active&&s.balanceCents>0&&!s.closeRequested);
  var ul=$('movements');ul.textContent='';
  if(!s.movements.length){var e=document.createElement('li');e.className='mv';e.textContent=T.noMovements;ul.appendChild(e);}
@@ -431,11 +432,17 @@ $('pinForm').addEventListener('submit',function(ev){ev.preventDefault();if(busy)
   .then(function(s){render(s);closeSheet($('pinSheet'));toast(T.pinDone);})
   .catch(function(e){$('pin1').value='';$('pin2').value='';if(notPayer(e))closeSheet($('pinSheet'));else if(!pkCancelled(e))show('pinErr',msg(e));})
   .then(function(){busy=false;busyBtn(b,false);});});
-$('mergeOpen').addEventListener('click',function(){show('mergeErr','');openSheet($('mergeSheet'));});
-$('mergeGo').addEventListener('click',function(){var b=$('mergeGo');if(busy)return;busy=true;busyBtn(b,true,T.unlockWaiting);show('mergeErr','');
- pkGet(C.base+'/merge/challenge').then(function(k){return post('/merge',{response:k});})
+// El enlace no prueba que este saldo sea suyo: lo juntan el móvil que pagó la recarga (C.payer) o quien sabe su PIN.
+function mergeAsk(){$('mergePin').value='';$('mergePinBox').hidden=!!C.payer;show('mergeErr','');}
+$('mergeOpen').addEventListener('click',function(){mergeAsk();openSheet($('mergeSheet'));});
+$('mergeGo').addEventListener('click',function(){var b=$('mergeGo');if(busy)return;show('mergeErr','');
+ var pin=$('mergePin').value,viaPayer=!!C.payer;
+ if(!viaPayer&&!/^[0-9]{4}$/.test(pin)){show('mergeErr',T.pinFormat);return;}
+ busy=true;busyBtn(b,true,T.unlockWaiting);
+ (viaPayer?pkGet(C.payer+'/merge/challenge').then(function(k){return pkPost(C.payer+'/merge',{response:k});})
+  :pkGet(C.base+'/merge/challenge').then(function(k){return post('/merge',{response:k,pin:pin});}))
   .then(function(r){closeSheet($('mergeSheet'));toast(fill(T.mergeDone,'amount',eur(r.balanceCents)));busy=false;refresh();})
-  .catch(function(e){if(!pkCancelled(e))show('mergeErr',msg(e));})
+  .catch(function(e){$('mergePin').value='';if(notPayer(e)){if(S.hasPin)mergeAsk();else closeSheet($('mergeSheet'));}else if(!pkCancelled(e))show('mergeErr',msg(e));})
   .then(function(){busy=false;busyBtn(b,false);});});${gw ? GOOGLE_WALLET_JS : ''}
 ${SCAN_JS}
 ${TOPUP_JS}
@@ -446,7 +453,7 @@ if(!C.paid&&S.status==='DEPLETED'&&topCan(S))view='top';
 if(location.hash==='#recargar'&&topCan(S))view='top';
 render(S);
 if(C.paid||C.welcome){try{history.replaceState(null,'',C.base+'?lang='+C.lang);}catch(e){}}
-if(location.hash==='#sumar'&&!$('mergeOpen').hidden)openSheet($('mergeSheet'));
+if(location.hash==='#sumar'&&!$('mergeOpen').hidden){mergeAsk();openSheet($('mergeSheet'));}
 LV.start();
 })();
 ${proof ? paidProofScript(lang) : ''}

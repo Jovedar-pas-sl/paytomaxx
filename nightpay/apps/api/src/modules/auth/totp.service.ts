@@ -84,7 +84,9 @@ export class TotpService {
     await this.attempts.assertNotLocked(userId);
     const step = matchTotpStep(secretBase32, code);
     if (step === null) return this.failForUser(userId, 'invalid');
-    if (!(await this.attempts.claimStep(userId, step))) return this.failForUser(userId, 'reused');
+    // Un código ya usado no vale, pero es bueno: no es probar a ciegas. Repetirlo
+    // (entrar y aprobar algo en los mismos 30 s) no acerca al bloqueo.
+    if (!(await this.attempts.claimStep(userId, step))) throw totpForbidden('reused');
     await this.attempts.clearFailures(userId);
   }
 

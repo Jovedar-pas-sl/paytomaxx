@@ -16,7 +16,9 @@ import { lastNightCutoff } from '../../common/time/madrid';
  *    noche (100 € de fábrica).
  * La noche va de 08:00 a 08:00 de Madrid (como el cierre y los informes) y,
  * tras un PIN bueno, se vuelve a contar desde ese momento. Si el NFC se pierde,
- * lo más que se gasta sin PIN es ese tope. Lo cuenta el servidor con el saldo
+ * lo más que se gasta sin PIN es ese tope CADA NOCHE, hasta que se bloquee o se
+ * acabe el saldo (y el código y el número de serie se pueden copiar: no es una
+ * ficha que no se pueda clonar). Lo cuenta el servidor con el saldo
  * bloqueado (FOR UPDATE): dos cobros a la vez no se saltan el tope.
  */
 

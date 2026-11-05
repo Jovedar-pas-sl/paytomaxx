@@ -13,14 +13,16 @@ import s from './desk.module.css';
  * nuevo (que anula el anterior) mientras el API lo dé (15 min tras la recarga).
  * Solo si el API lo da (recién cargado aquí y sin Face ID aún); si no, nada.
  */
-export function ActivationQr({ walletId }: { walletId: string }) {
+export function ActivationQr({ walletId, read }: { walletId: string; read?: { card: string; uid: string | null } | null }) {
   const [link, setLink] = useState<ActivationLink | null>(null);
   const [expired, setExpired] = useState(false);
   const [round, setRound] = useState(0);
+  const card = read?.card ?? null;
+  const uid = read?.uid ?? null;
 
   useEffect(() => {
     let alive = true;
-    fetchActivationLink(walletId).then((l) => {
+    fetchActivationLink(walletId, card ? { card, uid } : null).then((l) => {
       if (!alive) return;
       setLink(l);
       setExpired(false);
@@ -28,7 +30,7 @@ export function ActivationQr({ walletId }: { walletId: string }) {
     return () => {
       alive = false;
     };
-  }, [walletId, round]);
+  }, [walletId, card, uid, round]);
 
   useEffect(() => {
     if (!link) return undefined;

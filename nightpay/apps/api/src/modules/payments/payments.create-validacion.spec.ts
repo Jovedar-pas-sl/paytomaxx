@@ -22,6 +22,7 @@ type Row = Record<string, unknown>;
 
 interface Opts {
   terminal?: Row | null;
+  activeTerminals?: Row[];
   zoneTerminal?: Row | null;
   serviceItem?: Row | null;
   wallet?: Row | null;
@@ -46,6 +47,7 @@ function makeService(opts: Opts = {}) {
     paymentEvent: { create: vi.fn(async () => ({})) },
     terminal: {
       findUnique: vi.fn(async () => (opts.terminal === undefined ? { id: TERMINAL, active: true } : opts.terminal)),
+      findMany: vi.fn(async () => opts.activeTerminals ?? []),
       findFirst: vi.fn(async () => (opts.zoneTerminal === undefined ? { id: ZONE_TERMINAL } : opts.zoneTerminal)),
     },
     venue: {
@@ -130,6 +132,18 @@ describe('create — datáfono del cobro', () => {
       expect.objectContaining({ where: { tenantId: TENANT, zone: 'OTRO/RESERVADO VIP', active: true } }),
     );
     expect(created[0]).toMatchObject({ terminalId: ZONE_TERMINAL });
+  });
+
+  it('sin datáfono ni zona y un solo datáfono activo: se usa ese (si falló la lista en el móvil, se puede cobrar igual)', async () => {
+    const { service, created } = makeService({ activeTerminals: [{ id: ZONE_TERMINAL }] });
+    await service.create(TENANT, 'idem-val-0006', dto({ terminalExternalId: undefined }), owner);
+    expect(created[0]).toMatchObject({ terminalId: ZONE_TERMINAL });
+  });
+
+  it('sin datáfono ni zona y varios activos: 400, no se elige por nadie', async () => {
+    const { service, created } = makeService({ activeTerminals: [{ id: TERMINAL }, { id: ZONE_TERMINAL }] });
+    await expect(service.create(TENANT, 'idem-val-0007', dto({ terminalExternalId: undefined }), owner)).rejects.toBeInstanceOf(BadRequestException);
+    expect(created).toHaveLength(0);
   });
 
   it('sin datáfono ni zona, o zona sin datáfonos activos → 400', async () => {

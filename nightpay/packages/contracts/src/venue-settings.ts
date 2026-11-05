@@ -367,6 +367,7 @@ const INCIDENT_ALERT_KIND: Readonly<Record<string, AlertKindKey>> = {
   wallet_topup_unassigned: 'wallets',
   reception_payout_cap: 'wallets',
   wallet_card_lost: 'wallets',
+  sensitive_action: 'wallets',
   bank_mismatch: 'bank',
   backup_stale: 'backups',
   backup_unmonitored: 'backups',

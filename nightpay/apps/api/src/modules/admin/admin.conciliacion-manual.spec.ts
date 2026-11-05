@@ -78,9 +78,10 @@ function montar(p: Pago | null, intentos: Intento[] = []) {
     }),
   };
   const audit = { log: vi.fn(async (_entry: Record<string, unknown>) => undefined) };
-  const ctrl = new AdminController(prisma as never, none, audit as never, none, payments as never, none, none);
+  const totp = { assertForUser: vi.fn(async (_user: string, _code: string | undefined) => undefined) };
+  const ctrl = new AdminController(prisma as never, none, audit as never, none, payments as never, none, totp as never);
   const resolver = (body: Body, tenant = SALA_BAMBU) => ctrl.manualReconcile(PAGO, tenant, DUENO, body);
-  return { resolver, eventos, payments, audit, updateMany };
+  return { resolver, eventos, payments, audit, updateMany, totp };
 }
 
 const COBRADO: Body = {
@@ -88,6 +89,7 @@ const COBRADO: Body = {
   reason: 'Visto en el portal de Redsys',
   bankAuthCode: '4F7K2Q',
   bankOrder: '2610AB12',
+  totpCode: '123456',
 };
 const FALLIDO: Body = { decision: 'FAILED', reason: 'El banco no tiene ningún cargo' };
 
@@ -145,6 +147,17 @@ describe('manualReconcile — quién y qué cobro se puede resolver', () => {
     const visto: Body = { decision: 'AUTHORIZED', reason: 'Visto en el panel de Paytef', bankAuthCode: '047215' };
     await expect(h.resolver(visto)).resolves.toEqual({ ok: true, newStatus: 'AUTHORIZED' });
     expect(h.eventos).toEqual([{ type: 'AUTHORIZED', provider: 'PAYTEF', providerTxId: '99812' }]);
+  });
+});
+
+describe('manualReconcile — darlo por cobrado pide el 2FA del dueño', () => {
+  it('sin código válido no se marca nada; «No se cobró» no lo pide', async () => {
+    const { resolver, eventos, totp } = montar(pago());
+    totp.assertForUser.mockRejectedValueOnce(new ForbiddenException({ code: 'TOTP_REQUIRED' }));
+    await expect(resolver({ ...COBRADO, totpCode: undefined })).rejects.toBeInstanceOf(ForbiddenException);
+    expect(eventos).toEqual([]);
+    await resolver(FALLIDO);
+    expect(totp.assertForUser).toHaveBeenCalledTimes(1);
   });
 });
 

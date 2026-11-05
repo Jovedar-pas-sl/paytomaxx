@@ -83,6 +83,7 @@ const sys = <T>(fn: (tx: Parameters<Parameters<PrismaService['asSystem']>[0]>[0]
   inVenue(undefined, () => prisma.asSystem(fn));
 
 const r = randomUUID().slice(0, 6);
+let ownerWith2fa: string;
 let V: string, owner: string, manager: string, managerNo2fa: string, chica: string, term: string;
 let n = 0;
 
@@ -168,6 +169,7 @@ beforeAll(async () => {
     const user = async (role: 'OWNER' | 'MANAGER' | 'OPERATOR', tag: string, totpSecret: string | null = null) =>
       (await tx.user.create({ data: { tenantId: V, email: `${tag}-${r}@x.es`, passwordHash: 'x', role, totpSecret } })).id;
     owner = await user('OWNER', 'own');
+    ownerWith2fa = await user('OWNER', 'own2', sealed);
     manager = await user('MANAGER', 'man', sealed);
     managerNo2fa = await user('MANAGER', 'man3');
     chica = await user('OPERATOR', 'op');
@@ -255,7 +257,7 @@ describe('M2 — el encargado desde el umbral pone su 2FA (Postgres real)', () =
     const big = await newWallet(50_000);
     await cashIn(big, 50_000);
     await expect(
-      inVenue(V, () => charges.payout({ userId: owner, role: 'OWNER', tenantId: V }, big, { method: 'CASH' })),
+      inVenue(V, () => charges.payout({ userId: ownerWith2fa, role: 'OWNER', tenantId: V }, big, { totpCode: totpCodeAt(SECRET, totpStepAt(Date.now())), method: 'CASH' })),
     ).resolves.toMatchObject({ refundedCents: 50_000 });
   });
 });

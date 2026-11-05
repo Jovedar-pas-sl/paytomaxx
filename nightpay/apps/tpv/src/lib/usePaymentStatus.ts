@@ -103,7 +103,13 @@ export function usePaymentStatus(payment: CreatedPayment | null): LivePaymentSta
     socket.on('connect', () => {
       socketLive = true;
       setLive(true);
-      socket.emit('payment:subscribe', { paymentId: id });
+      // Rechazada (sesión caducada, sin renovar): el aviso no llegará, así que se pregunta cada poco.
+      socket.emit('payment:subscribe', { paymentId: id }, (res?: { ok?: boolean }) => {
+        if (res?.ok !== false) return;
+        socketLive = false;
+        setLive(false);
+        poller.poke();
+      });
       // Lo que pasó mientras no había conexión: se pregunta ya.
       poller.poke();
     });

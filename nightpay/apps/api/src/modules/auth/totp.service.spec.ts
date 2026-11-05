@@ -78,6 +78,15 @@ describe('API por usuario (Redis): assertIfEnrolledForUser / assertForUser', () 
     await expect(totp.assertForUser('u1', codeAt(SECRET, STEP + 1))).resolves.toBeUndefined();
   });
 
+  it('repetir un código bueno (entrar y aprobar en los mismos 30 s) no bloquea, por muchas veces que sea', async () => {
+    const { totp } = makeTotpKit({ users: { u1: sealTotpSecret(SECRET, KEK) } });
+    await totp.assertForUser('u1', codeAt(SECRET));
+    for (let i = 0; i < 8; i += 1) {
+      expect((await failureOf(totp.assertForUser('u1', codeAt(SECRET))))?.status).toBe(403);
+    }
+    await expect(totp.assertForUser('u1', codeAt(SECRET, STEP + 1))).resolves.toBeUndefined();
+  });
+
   it('5 códigos malos → 429 (TOTP_LOCKED) aunque luego llegue el bueno; a los 15 min vuelve a dejar', async () => {
     const { totp } = makeTotpKit({ users: { u1: sealTotpSecret(SECRET, KEK) } });
     for (let i = 0; i < 4; i++) expect((await failureOf(totp.assertForUser('u1', '000000')))?.status).toBe(403);

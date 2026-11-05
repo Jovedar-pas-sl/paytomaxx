@@ -9,7 +9,7 @@ function makeController(googleWalletEnabled = false) {
     walletRefByToken: vi.fn().mockResolvedValue({ id: 'w-1', shortCode: 'K7Q4M2' }),
     setPinFromPayer: vi.fn().mockResolvedValue(undefined),
     clientState: vi.fn().mockResolvedValue({ code: 'K7Q-4M2', hasPin: true }),
-    mergeInto: vi.fn().mockResolvedValue({ balanceCents: 35_000 }),
+    mergeIntoWithPin: vi.fn().mockResolvedValue({ balanceCents: 35_000 }),
     requestClose: vi.fn().mockResolvedValue({ code: 'K7Q-4M2', closeRequested: true }),
   };
   const passkeys = {
@@ -153,18 +153,19 @@ describe('/w/:token — PIN y sumar a otro saldo (acciones secundarias de la pá
     const { controller, charges, passkeys } = makeController();
     await controller.mergeChallenge('tok', 'pay.example');
     expect(passkeys.challenge).toHaveBeenCalledWith('merge:w-1', 'pay.example');
-    await expect(controller.merge('tok', { response: { id: 'k' } }, 'pay.example')).resolves.toEqual({
+    await expect(controller.merge('tok', { response: { id: 'k' }, pin: '4821' }, 'pay.example')).resolves.toEqual({
       balanceCents: 35_000,
     });
     expect(passkeys.verify).toHaveBeenCalledWith('merge:w-1', 'pay.example', { id: 'k' });
-    expect(charges.mergeInto).toHaveBeenCalledWith('w-1', 'w-target');
+    // El enlace no prueba que el saldo sea suyo: el PIN llega al servicio, que lo comprueba.
+    expect(charges.mergeIntoWithPin).toHaveBeenCalledWith('w-1', 'w-target', '4821');
   });
 
   it('llave que no vale → no se suma nada', async () => {
     const { controller, charges, passkeys } = makeController();
     passkeys.verify.mockRejectedValueOnce(new BadRequestException('Llave no válida'));
-    await expect(controller.merge('tok', { response: {} }, 'pay.example')).rejects.toThrow('Llave no válida');
-    expect(charges.mergeInto).not.toHaveBeenCalled();
+    await expect(controller.merge('tok', { response: {}, pin: '4821' }, 'pay.example')).rejects.toThrow('Llave no válida');
+    expect(charges.mergeIntoWithPin).not.toHaveBeenCalled();
   });
 });
 

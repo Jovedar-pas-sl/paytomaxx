@@ -253,7 +253,7 @@ describe('devolver: el efectivo, en efectivo (Postgres real)', () => {
     });
     expect(await walletOf(w.walletId)).toMatchObject({ balanceCents: 20_000, status: 'ACTIVE' });
     // Ya no queda efectivo: lo que queda no sale en efectivo.
-    await expect(inVenue(norte.id, () => charges.payout(ownerActor(norte), w.walletId, { method: 'CASH' }))).rejects.toThrow(/entró con tarjeta/);
+    await expect(inVenue(norte.id, () => charges.payout(ownerActor(norte), w.walletId, { totpCode: '123456', method: 'CASH' }))).rejects.toThrow(/entró con tarjeta/);
   });
 
   it('con una devolución a la tarjeta a medias no se paga en efectivo', async () => {
@@ -263,7 +263,7 @@ describe('devolver: el efectivo, en efectivo (Postgres real)', () => {
         data: { tenantId: norte.id, walletId: w.walletId, amountCents: 5_000, method: 'CARD', status: 'PENDING', claimedAt: new Date(), paidByUserId: norte.owner },
       }),
     );
-    await expect(inVenue(norte.id, () => charges.payout(ownerActor(norte), w.walletId, { method: 'CASH' }))).rejects.toThrow(/a medias/);
+    await expect(inVenue(norte.id, () => charges.payout(ownerActor(norte), w.walletId, { totpCode: '123456', method: 'CASH' }))).rejects.toThrow(/a medias/);
     expect(await walletOf(w.walletId)).toMatchObject({ balanceCents: 10_000, status: 'ACTIVE' });
     // El panel lo ve antes de confirmar: nada en efectivo, «A la tarjeta» termina la de 50 €.
     await expect(inVenue(norte.id, () => charges.payoutPreview(ownerActor(norte), w.walletId))).resolves.toMatchObject({

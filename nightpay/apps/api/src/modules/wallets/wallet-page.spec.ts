@@ -156,7 +156,7 @@ describe('página del saldo del cliente', () => {
     );
     expect(html).toContain('id="refundCard"');
     expect(html).toContain('<li data-i="0">Pedido</li><li data-i="1">Aprobado</li><li data-i="2">Devuelto</li>');
-    expect(html).toContain('te lo devuelve a tu tarjeta {cards} o en efectivo');
+    expect(html).toContain('te lo devuelve el local a tu tarjeta {cards}');
     expect(html).toContain('\\"cards\\":[\\"4242\\"]');
     expect(script(html)).toContain("'••'+c");
     expect(script(html)).toContain("aria-current','step'");
@@ -366,7 +366,11 @@ describe('«Más»: debajo de las dos vistas', () => {
     expect(js).toContain("pkGet(C.base+path+'/challenge')");
     expect(js).toContain('if(S.hasFaceId&&!pkSupported()){show(\'pinErr\',T.faceIdNeeded);return;}');
     expect(js).toContain("pkGet(C.base+'/merge/challenge')");
-    expect(js).toContain("post('/merge',{response:k})");
+    // El enlace no prueba que el saldo sea suyo: el móvil que pagó (C.payer, con su cookie) o su PIN.
+    expect(js).toContain("post('/merge',{response:k,pin:pin})");
+    expect(js).toContain("pkPost(C.payer+'/merge',{response:k})");
+    expect(js).toContain("s.balanceCents>0&&(C.payer||s.hasPin)");
+    expect(html).toContain('id="mergePin"');
     // Abre la hoja de sumar si viene del «Pagado» de la recarga.
     expect(js).toContain("location.hash==='#sumar'");
   });
@@ -583,7 +587,9 @@ describe('5.2 «He perdido mi NFC»', () => {
 
   it('solo con NFC y Face ID en un saldo vivo; confirma con la passkey en /lost-nfc y pinta el saldo sin NFC', () => {
     const js = script(renderWalletPage('tok-1', 'es', state()));
-    expect(js).toContain("function lostRender(s){$('lostOpen').hidden=!(s.hasCard&&s.hasFaceId&&!s.merged&&!s.refund&&(s.status==='ACTIVE'||s.status==='DEPLETED'));}");
+    expect(js).toContain("var can=s.hasCard&&!s.merged&&!s.refund&&(s.status==='ACTIVE'||s.status==='DEPLETED');$('lostOpen').hidden=!(can&&s.hasFaceId);$('lostAsk').hidden=!(can&&!s.hasFaceId);");
+    // Sin Face ID no hay botón, pero sí qué hacer.
+    expect(renderWalletPage('tok-1', 'es', state())).toContain('¿Has perdido tu NFC? Avisa en el local');
     expect(js).toContain(' lostRender(s);');
     expect(js).toContain("pkGet(C.base+'/lost-nfc/challenge').then(function(k){return post('/lost-nfc',{response:k});})");
     expect(js).toContain("render(s);closeSheet($('lostSheet'));toast(T.lostDone);");

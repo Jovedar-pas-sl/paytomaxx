@@ -1,10 +1,17 @@
-import { Controller, Get, Header, HttpCode, Inject, Param, ParseUUIDPipe, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Header, HttpCode, Inject, Param, ParseUUIDPipe, Post, UseGuards } from '@nestjs/common';
+import { z } from 'zod';
 import type { JwtPayload, WalletActivationLink } from '@nightpay/contracts';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { IpRateLimit } from '../../common/guards/ip-rate-limit.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
+import { ZodValidationPipe } from '../../common/pipes/zod.pipe';
 import { WalletActivationLinkService } from './wallet-activation-link.service';
+
+/** La ficha que recepción acaba de leer (un saldo que ya tenía dinero, sin PIN, la pide). */
+const ActivationProofSchema = z
+  .object({ card: z.string().regex(/^[A-Za-z0-9_-]{16,64}$/).optional(), uid: z.string().trim().max(64).optional() })
+  .optional();
 
 /**
  * POST /v1/reception/wallets/:id/activation-link → { url, expiresAt } o 404.
@@ -26,8 +33,12 @@ export class ReceptionActivationLinkController {
   @Header('Cache-Control', 'no-store')
   @Header('Referrer-Policy', 'no-referrer')
   @IpRateLimit({ max: 30, windowSec: 60, scope: 'reception-activation-link' })
-  issue(@CurrentUser() user: JwtPayload, @Param('id', ParseUUIDPipe) walletId: string): Promise<WalletActivationLink> {
-    return this.links.link({ userId: user.sub, role: user.role, tenantId: user.tenantId }, walletId);
+  issue(
+    @CurrentUser() user: JwtPayload,
+    @Param('id', ParseUUIDPipe) walletId: string,
+    @Body(new ZodValidationPipe(ActivationProofSchema)) body?: z.infer<typeof ActivationProofSchema>,
+  ): Promise<WalletActivationLink> {
+    return this.links.link({ userId: user.sub, role: user.role, tenantId: user.tenantId }, walletId, new Date(), body ?? {});
   }
 
   /** Lo mismo que el POST, para las apps de antes. */
@@ -37,6 +48,6 @@ export class ReceptionActivationLinkController {
   @Header('Referrer-Policy', 'no-referrer')
   @IpRateLimit({ max: 30, windowSec: 60, scope: 'reception-activation-link' })
   activationLink(@CurrentUser() user: JwtPayload, @Param('id', ParseUUIDPipe) walletId: string): Promise<WalletActivationLink> {
-    return this.issue(user, walletId);
+    return this.issue(user, walletId, {});
   }
 }

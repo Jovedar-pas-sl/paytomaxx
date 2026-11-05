@@ -226,7 +226,7 @@ describe('esta noche, antes de devolver nada: todas las vistas cuadran', () => {
     expect(m.split).toMatchObject({ venueCents: 4200, chicasCents: 2000, camarerosCents: 0, commissions: { platformCents: 0, bankCents: null, totalCents: 0 } });
     expect(m.split.venueCents + m.split.chicasCents + m.split.camarerosCents + m.split.commissions.totalCents).toBe(m.salesCents);
     // Se le debe a Nerea; es dinero que está en el banco y en el saldo, no del local.
-    expect(m.where.owners).toEqual({ staffCents: 2000, saldoCents: 800, venueCents: 7000 + 10_000 - 2000 - 800 });
+    expect(m.where.owners).toEqual({ staffCents: 2000, saldoCents: 800, paidOutCents: 0, commissionsCents: 0, venueCents: 7000 + 10_000 - 2000 - 800 });
     expect(m.where.owed).toEqual({ chicasCents: 2000, camarerosCents: 0, bankHeldCents: 0 });
     expect(m.outflow.pendingStaff).toEqual({ chicasCents: 2000, camarerosCents: 0 });
   });
@@ -372,7 +372,7 @@ describe('devoluciones: le quitan su parte en proporción, y las vistas siguen c
     expect(f.stats.shareCents).toBe(m.split.chicasCents);
     // En el banco 50 € (recarga) + 20 − 20 devueltos; el saldo vivo del cliente: 28 €.
     expect(m.where).toMatchObject({ bbvaCents: 5000, liveSaldoCents: 2800, owed: { chicasCents: 0, camarerosCents: 0 } });
-    expect(m.where.owners).toEqual({ staffCents: 0, saldoCents: 2800, venueCents: 5000 + 10_000 - 2800 });
+    expect(m.where.owners).toEqual({ staffCents: 0, saldoCents: 2800, paidOutCents: 0, commissionsCents: 0, venueCents: 5000 + 10_000 - 2800 });
     const wallet = await sys((tx) => tx.clientWallet.findUniqueOrThrow({ where: { id: w.id } }));
     expect(wallet.balanceCents).toBe(2800);
   });

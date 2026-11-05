@@ -27,7 +27,8 @@ export const LOST_CSS = `
 
 /** El botón, debajo de «Más» (lo enseña el JS). */
 export function lostButton(lang: PayLanguage): string {
-  return `<button class="btn redo" type="button" id="lostOpen" hidden>${LOCK_ICON}<span>${escapeHtml(WALLET_TEXT[lang].lostButton)}</span></button>\n`;
+  return `<button class="btn redo" type="button" id="lostOpen" hidden>${LOCK_ICON}<span>${escapeHtml(WALLET_TEXT[lang].lostButton)}</span></button>
+<p class="small" id="lostAsk" hidden>${escapeHtml(WALLET_TEXT[lang].lostAsk)}</p>\n`;
 }
 
 /** La hoja: por qué, que el saldo no se pierde, «Bloquear con Face ID» y «No, lo tengo» (el foco empieza en la opción que no bloquea). */
@@ -51,7 +52,7 @@ export function lostSheet(lang: PayLanguage): string {
  * ID y el estado nuevo del saldo (ya sin NFC).
  */
 export const LOST_JS = `
-function lostRender(s){$('lostOpen').hidden=!(s.hasCard&&s.hasFaceId&&!s.merged&&!s.refund&&(s.status==='ACTIVE'||s.status==='DEPLETED'));}
+function lostRender(s){var can=s.hasCard&&!s.merged&&!s.refund&&(s.status==='ACTIVE'||s.status==='DEPLETED');$('lostOpen').hidden=!(can&&s.hasFaceId);$('lostAsk').hidden=!(can&&!s.hasFaceId);}
 function lostLabel(text){$('lostGoLabel').textContent=text;}
 $('lostOpen').addEventListener('click',function(){
  $('lostSafe').textContent=fill(fill(T.lostSafe,'amount',eur(S.balanceCents)),'code',S.code);

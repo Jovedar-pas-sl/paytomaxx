@@ -45,7 +45,12 @@ const QrChargeSchema = z
     message: 'O el QR de la chica o la chica de la lista, no los dos',
   });
 
-const ApproveSchema = z.object({ walletId: z.string().uuid() });
+/** El código de la app de verificación de quien hace algo que el cliente no confirma. */
+const TotpCode = z.string().regex(/^\d{6}$/).optional();
+
+const ApproveSchema = z.object({ walletId: z.string().uuid(), totpCode: TotpCode });
+
+const StepUpSchema = z.object({ totpCode: TotpCode }).optional();
 
 /** El código del cliente y su PIN de 4 cifras (lo teclea él en el móvil de la chica). */
 const PinSchema = z.object({
@@ -186,7 +191,7 @@ export class WalletChargesController {
     @Param('id', ParseUUIDPipe) id: string,
     @Body(new ZodValidationPipe(ApproveSchema)) body: z.infer<typeof ApproveSchema>,
   ): Promise<ChargeRequestView> {
-    return this.charges.approveWithoutFaceId({ userId: user.sub, role: user.role, tenantId: user.tenantId }, id, body.walletId);
+    return this.charges.approveWithoutFaceId({ userId: user.sub, role: user.role, tenantId: user.tenantId }, id, body.walletId, body.totpCode);
   }
 
   /** El cliente no saca el móvil: teclea su PIN en el de la chica y paga este mismo cobro. */
@@ -309,8 +314,12 @@ export class WalletChargesController {
   @Post('wallets/:id/pin/reset')
   @Roles('OWNER', 'MANAGER')
   @HttpCode(200)
-  async resetPin(@CurrentUser() user: JwtPayload, @Param('id', ParseUUIDPipe) id: string): Promise<{ ok: true }> {
-    return this.charges.resetPin({ userId: user.sub, role: user.role, tenantId: user.tenantId }, id);
+  async resetPin(
+    @CurrentUser() user: JwtPayload,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body(new ZodValidationPipe(StepUpSchema)) body: z.infer<typeof StepUpSchema>,
+  ): Promise<{ ok: true }> {
+    return this.charges.resetPin({ userId: user.sub, role: user.role, tenantId: user.tenantId }, id, body?.totpCode);
   }
 
   // Contra probar códigos al azar: el personal de un local comparte IP, así
@@ -371,8 +380,9 @@ export class WalletChargesController {
   async relink(
     @CurrentUser() user: JwtPayload,
     @Param('id', ParseUUIDPipe) walletId: string,
+    @Body(new ZodValidationPipe(StepUpSchema)) body: z.infer<typeof StepUpSchema>,
   ): Promise<{ url: string; qrDataUrl: string }> {
-    const { path } = await this.charges.relink({ userId: user.sub, role: user.role, tenantId: user.tenantId }, walletId);
+    const { path } = await this.charges.relinkWithCode({ userId: user.sub, role: user.role, tenantId: user.tenantId }, walletId, body?.totpCode);
     const base = (this.config.get<string>('NEXT_PUBLIC_API_URL') ?? '').replace(/\/+$/, '');
     const url = `${base}${path}`;
     const qrDataUrl = await QRCode.toDataURL(url, { errorCorrectionLevel: 'M', margin: 2, width: 320 });

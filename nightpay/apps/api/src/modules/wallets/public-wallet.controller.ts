@@ -47,7 +47,7 @@ import { WalletWelcomeService } from '../home-topup/wallet-welcome.service';
  *    fotografiara se quedaba con el saldo.
  *  - POST /w/:token/pin/challenge, /pin      → elegir PIN (si aún no tiene): con
  *    Face ID, con su llave; sin él, ya no con el enlace solo (403 ACTIVATION_REQUIRED).
- *  - POST /w/:token/merge/challenge, /merge  → sumar este saldo al de su Face ID.
+ *  - POST /w/:token/merge/challenge, /merge  → sumar este saldo al de su Face ID, con su PIN.
  *  - POST /w/:token/close/challenge, /close  → "Me voy: devolver mi saldo".
  *    Elegir PIN y «Me voy» con un saldo que tiene Face ID piden además su
  *    llave (el reto de /challenge, atado a `pin:` / `close:` y a este saldo):
@@ -175,7 +175,13 @@ export class PublicWalletController {
     return this.passkeys.challenge(`merge:${wallet.id}`, host);
   }
 
-  /** Paso 2: su llave dice cuál es su saldo de siempre; este se suma a aquel. */
+  /**
+   * Paso 2: su llave dice cuál es su saldo de siempre; este se suma a aquel.
+   * El enlace no prueba que este saldo sea suyo (se comparte, se guarda, se
+   * ve): hace falta además su PIN. Sin PIN, solo el móvil que pagó la recarga
+   * (/pay/<cobro>/merge, con su cookie). La llave va primero: sin una propia
+   * no se puede gastar ningún intento del PIN de otro.
+   */
   @Public()
   @Post(':token/merge')
   @HttpCode(200)
@@ -183,12 +189,12 @@ export class PublicWalletController {
   @IpRateLimit({ max: 20, windowSec: 60, scope: 'wallet-merge' })
   async merge(
     @Param('token') token: string,
-    @Body() body: { response?: unknown } | undefined,
+    @Body() body: { response?: unknown; pin?: unknown } | undefined,
     @Headers('host') host: string | undefined,
   ): Promise<{ balanceCents: number }> {
     const wallet = await this.charges.walletRefByToken(token);
     const target = await this.passkeys.verify(`merge:${wallet.id}`, host, body?.response);
-    return this.charges.mergeInto(wallet.id, target);
+    return this.charges.mergeIntoWithPin(wallet.id, target, body?.pin);
   }
 
   /** «Recargar» con Face ID, paso 1: reto para su llave (solo si el saldo tiene Face ID). */

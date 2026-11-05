@@ -38,7 +38,9 @@ export type IncidentKind =
   /** Recarga cobrada sin el NFC del cliente que aún no se ha sumado a su saldo (se quita sola al asignarla). */
   | 'wallet_topup_unassigned'
   /** El cliente bloqueó su NFC en su móvil («He perdido mi NFC»): darle uno nuevo en recepción (se marca como revisada). */
-  | 'wallet_card_lost';
+  | 'wallet_card_lost'
+  /** Algo que mueve dinero o abre un saldo sin que el cliente lo confirme (se marca como revisada). */
+  | 'sensitive_action';
 
 export interface Incident {
   kind: IncidentKind;

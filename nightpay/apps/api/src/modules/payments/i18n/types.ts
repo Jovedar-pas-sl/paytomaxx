@@ -258,6 +258,8 @@ export interface WalletText {
   mergeTitle: string;
   mergeWhy: string;
   mergeButton: string;
+  /** «Juntar saldos» sin ser el móvil que pagó: el PIN de esta recarga. */
+  mergePinLabel: string;
   mergeDone: string;
   leaveRow: string;
   leaveRowHint: string;
@@ -305,6 +307,8 @@ export interface WalletText {
   lostSafe: string;
   lostGo: string;
   lostKeep: string;
+  /** Con ficha y sin Face ID no hay botón de bloquear: qué hacer si la pierde. */
+  lostAsk: string;
   lostDone: string;
   /** «Al momento»: la franja cuando la página no consigue ponerse al día (M-7). */
   reconnecting: string;
@@ -323,6 +327,8 @@ export interface ActivationText {
   pinOffer: string;
   pinWhy: string;
   done: string;
+  /** El QR de recepción de un saldo con PIN: lo teclea antes de activar. */
+  pinAsk: string;
   /** Activó Face ID y el saldo ya tenía un PIN: por si no lo eligió él. */
   hadPin: string;
   go: string;
@@ -447,6 +453,9 @@ export const CLIENT_ERROR_KEYS = [
   'PIN_MISMATCH',
   'PIN_OBVIOUS',
   'PIN_EXISTS',
+  'PIN_WRONG',
+  'PIN_LOCKED',
+  'MERGE_PROOF_REQUIRED',
   'PAYER_ONLY',
   'MERGE_BUSY',
   'MERGE_NOT_ALLOWED',

@@ -5,7 +5,7 @@ import { renderActivationPage } from './wallet-activation-page';
 /** /w/a/<token>: la página del QR de activación de un solo uso (M-2). */
 
 const BASE = '/w/a/AbCdEfGhIjKlMnOpQrStUvWxYz012345';
-const ok = { state: 'ok' as const, codeHint: 'K7Q-•••', venueName: 'Sala Medianoche', hasPin: false };
+const ok = { state: 'ok' as const, codeHint: 'K7Q-•••', venueName: 'Sala Medianoche', hasPin: false, pinRequired: false };
 const script = (html: string): string => html.slice(html.indexOf('<script>') + 8, html.lastIndexOf('</script>'));
 const BACKSLASH = String.fromCharCode(92);
 
@@ -51,6 +51,19 @@ describe('página del QR de activación', () => {
   it('con PIN ya elegido: sin «Prefiero un PIN» (solo el desbloqueo del móvil)', () => {
     const html = renderActivationPage(BASE, 'es', { ...ok, hasPin: true });
     expect(html).toContain('\\"hasPin\\":true');
+    expect(html).not.toContain('id="pinOwn"');
+  });
+
+  it('QR de recepción de un saldo con PIN: lo pide antes de activar, y va en las dos llamadas', () => {
+    const html = renderActivationPage(BASE, 'es', { ...ok, hasPin: true, pinRequired: true });
+    expect(html).toContain('id="pinOwn"');
+    expect(html).toContain('Este saldo ya tiene PIN.');
+    const js = script(html);
+    expect(js).toContain("pkCreate(C.base+'/passkey/options',ask)");
+    expect(js).toContain("Object.assign({response:k},ask)");
+    // Lo ha tecleado él: no hace falta avisarle de que el saldo ya tenía PIN.
+    expect(js).toContain('done(r,!C.pinRequired&&r&&r.hadPin===true)');
+    expect(() => new Function(js)).not.toThrow();
   });
 
   it('ya usado: «Este enlace ya se ha usado. Pide otro en recepción.» (sin botones ni JS)', () => {

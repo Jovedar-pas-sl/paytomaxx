@@ -97,6 +97,25 @@ function makeOps(opts: MakeOptions = {}) {
 describe('OperatorsService.updateOperator — dar de baja corta sus sesiones al momento', () => {
   beforeEach(() => vi.clearAllMocks());
 
+  it('baja con dinero sin cobrar: queda para Incidencias, con el importe y su nombre', async () => {
+    const { svc, audit } = makeOps();
+    vi.spyOn(svc, 'getBalance').mockResolvedValue({ pendingCents: 12_000 } as never);
+    await svc.updateOperator('t-1', 'op-1', 'u-owner', 'OWNER', { active: false });
+    expect(audit.log).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'operator.left_with_balance', targetId: 'op-1', payload: expect.objectContaining({ amountCents: 12_000 }) }),
+    );
+  });
+
+  it('sin nada que cobrar no avisa, y un fallo al mirarlo no deshace la baja', async () => {
+    const { svc, audit, sessions } = makeOps();
+    vi.spyOn(svc, 'getBalance').mockResolvedValueOnce({ pendingCents: 0 } as never);
+    await svc.updateOperator('t-1', 'op-1', 'u-owner', 'OWNER', { active: false });
+    expect(audit.log).not.toHaveBeenCalledWith(expect.objectContaining({ action: 'operator.left_with_balance' }));
+    vi.spyOn(svc, 'getBalance').mockRejectedValueOnce(new Error('BD caída'));
+    await expect(svc.updateOperator('t-1', 'op-1', 'u-owner', 'OWNER', { active: false })).resolves.toBeDefined();
+    expect(sessions.revokeAllForUser).toHaveBeenCalledTimes(2);
+  });
+
   it('active=false → se guarda la baja y se cierran todas sus sesiones (refresh y tokens de acceso)', async () => {
     const { svc, prisma, sessions } = makeOps();
     await svc.updateOperator('t-1', 'op-1', 'u-owner', 'OWNER', { active: false });
