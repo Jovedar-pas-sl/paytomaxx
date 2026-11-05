@@ -134,7 +134,7 @@ export class WalletActivationLinkService {
   /** El saldo nació con esta recarga: nadie tenía nada en él. */
   private async isNew(walletId: string, since: Date): Promise<boolean> {
     const first = await firstTopUp(this.prisma, walletId);
-    return first?.at != null && first.at >= since;
+    return first?.at ? first.at >= since : false;
   }
 
   /** La ficha leída es la de este saldo. El número de serie, si lo hay por los dos lados, tiene que coincidir. */
