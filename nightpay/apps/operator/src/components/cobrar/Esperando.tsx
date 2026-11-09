@@ -1,16 +1,8 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState, type CSSProperties, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { confirmationCode, type PaymentStatus } from '@nightpay/contracts';
-import {
-  countdownPhase,
-  formatClock,
-  qrDeadline,
-  remainingFraction,
-  secondsLeft,
-  useNow,
-  useWakeLock,
-} from '@nightpay/ui';
+import { countdownPhase, formatClock, qrDeadline, secondsLeft, useNow, useWakeLock } from '@nightpay/ui';
 import { getUser } from '@/lib/api';
 import { clearFichaContext, saveFichaContext } from '@/lib/ficha-context';
 import { formatEur } from '@/lib/money';
@@ -66,9 +58,10 @@ import { useShown } from '../reception/desk/use-shown';
 import { StaffOutcome } from '../StaffOutcome';
 import { usePaymentLive } from '../use-payment-live';
 import { colorOf } from './cobrar-context';
-import { IconLock, IconQr } from './icons';
-import { NfcCard } from './NfcCard';
+import { CobroQr } from './CobroQr';
+import { IconLock, IconNfc, IconQr } from './icons';
 import { PinScreen } from './PinScreen';
+import { ScreenHeader } from './ScreenHeader';
 import { SinMovil, type SaldoForPin } from './SinMovil';
 import styles from './cobrar.module.css';
 
@@ -78,16 +71,18 @@ export interface CobroAbierto {
   card: CobroCreado | null;
   /** El cobro del saldo (el enlazado o el suelto): lo pagan el NFC y su PIN. */
   saldo: { chargeId: string; expiresAt: string } | null;
-  /** El QR del cobro del saldo suelto (sin tarjeta). */
+  /** El QR del cobro del saldo suelto (sin tarjeta): el PNG del API, por si su enlace no se pudiera dibujar. */
   saldoQr?: string | null;
+  /** El enlace de pago del cobro del saldo suelto: su QR se dibuja aquí, en vector. */
+  saldoUrl?: string | null;
   /** Lo que paga el cliente (con la propina que se puso en la cuenta, si la hay). */
   totalCents: number;
   /** La propina que se puso en la cuenta (va dentro de totalCents). */
   tipCents?: number;
   ref: string | null;
-  /** Secciones del cobro con su importe: la banda, la franja y el chip. */
+  /** Secciones del cobro con su importe: el chip del resultado y del PIN. */
   sections: ReadonlyArray<{ section: string; cents: number }>;
-  /** «COPAS» · «2 copas · Carlos» (o «INVITACIÓN» · «Nerea · Carlos»). */
+  /** La cabecera de Esperando: «Copas» · «2 copas · Carlos» (o «Invitación» · «Nerea · Carlos»). */
   band: { title: string; detail: string };
   /** «2 copas» (el PAGADO). */
   what: string;
@@ -366,7 +361,8 @@ export function Esperando({ cobro, onNew, onRetry, retrying = false, retryError 
     if (outcome.kind === 'canceled' && canceledByMe) onNew();
   }, [outcome.kind, canceledByMe, onNew]);
 
-  const stripe = cobro.sections.map((s) => ({ color: colorOf(s.section), weight: s.cents }));
+  // Las secciones con su color: el punto del chip del PIN.
+  const pinColors = cobro.sections.map((s) => ({ color: colorOf(s.section), weight: s.cents }));
   const primarySection = [...cobro.sections].sort((a, b) => b.cents - a.cents)[0]?.section ?? null;
   const allSections = cobro.sections.map((s) => s.section);
 
@@ -386,7 +382,6 @@ export function Esperando({ cobro, onNew, onRetry, retrying = false, retryError 
         sections={allSections}
         sectionLabel={sectionLabel}
         reference={cobro.ref}
-        stripe={stripe}
         code={code}
         codeHint="El mismo que ve el cliente"
         summary={
@@ -425,7 +420,6 @@ export function Esperando({ cobro, onNew, onRetry, retrying = false, retryError 
         sections={allSections}
         sectionLabel={sectionLabel}
         reference={null}
-        stripe={stripe}
         message=""
         detail={
           <div className={styles.reason}>
@@ -457,7 +451,6 @@ export function Esperando({ cobro, onNew, onRetry, retrying = false, retryError 
         section={primarySection}
         sections={allSections}
         sectionLabel={sectionLabel}
-        stripe={stripe}
         message={outcome.kind === 'expired' ? 'El cliente no pagó a tiempo.' : 'El cobro se ha cancelado.'}
         primary={{ label: 'Otro QR · mismo importe', onClick: onRetry, loading: retrying }}
         secondary={{ label: 'Nuevo cobro', onClick: onNew, disabled: retrying }}
@@ -470,7 +463,7 @@ export function Esperando({ cobro, onNew, onRetry, retrying = false, retryError 
     return (
       <div className={styles.overlay}>
         <PinScreen
-          colors={stripe}
+          colors={pinColors}
           chip={cobro.pinChip}
           amountCents={cobro.totalCents}
           detail={pinDetail(cobro.what, pin.walletCode, pin.via)}
@@ -506,7 +499,6 @@ export function Esperando({ cobro, onNew, onRetry, retrying = false, retryError 
           chargeId={chargeId}
           amountCents={cobro.totalCents}
           what={cobro.what}
-          colors={stripe}
           onReady={(found) => {
             setSinMovil(false);
             setPin({ ...found, reason: null });
@@ -555,7 +547,12 @@ export function Esperando({ cobro, onNew, onRetry, retrying = false, retryError 
   );
 }
 
-/** La pantalla de espera (3.1 / 2.4). */
+/**
+ * La pantalla de espera (3.1 / 2.4), en Grafito: la cabecera dice de qué es el
+ * cobro; debajo, el importe, el QR de 240 px en vector, la ficha en una fila
+ * (sin tarjeta dibujada) y una sola señal de espera: el punto, lo que pasa y
+ * el reloj, en una línea.
+ */
 function Waiting({
   cobro,
   nfcOn,
@@ -589,11 +586,11 @@ function Waiting({
   const now = useNow(true);
   const night = useVenueNight();
   const left = deadline ? secondsLeft(deadline, now) : 0;
-  const fraction = deadline ? remainingFraction(deadline, now) : 0;
   const phase = deadline ? countdownPhase(left) : 'ok';
   const ending = phase !== 'ok';
-  const qr = cobro.card?.qrPngDataUrl ?? cobro.saldoQr ?? null;
-  const colors = cobro.sections.slice(0, 2).map((s) => colorOf(s.section));
+  // El QR se dibuja aquí con su enlace de pago; el PNG del API, solo si no hay enlace.
+  const qrUrl = cobro.card?.qrUrl ?? cobro.saldoUrl ?? null;
+  const qrPng = cobro.card?.qrPngDataUrl ?? cobro.saldoQr ?? null;
   const invite = Boolean(cobro.invitation);
   // El cliente en la página de su banco: la hora del servidor pasada al reloj
   // de este móvil con el plazo del QR (el mismo en los dos).
@@ -608,37 +605,39 @@ function Waiting({
   });
   const waitParts = checking ? null : cardWaitParts(wait);
   const slowBank = showsBankStrip(wait);
+  // Un solo reloj en la línea: el de la espera del banco si lo hay; si no, lo que le queda al QR.
+  const clock = waitParts ? waitParts.clock : deadline && left > 0 ? `Caduca en ${formatClock(left)}` : null;
 
   return (
     <div className={styles.screen}>
-      <div
-        className={`${styles.band}${colors[1] ? ` ${styles.bandDuo}` : ''}`}
-        style={{ '--c': colors[0] ?? 'var(--np-sec-otros)', '--c2': colors[1] } as CSSProperties}
-      >
-        <b>{cobro.band.title}</b>
-        <span>{cobro.band.detail}</span>
-      </div>
+      <ScreenHeader title={cobro.band.title} subtitle={cobro.band.detail} />
       <div className={styles.waitBody}>
         <p className={styles.amountXl}>{formatEur(cobro.totalCents, { compact: true })}</p>
         {/* Con la «Comisión del servicio»: con tarjeta paga más (con el saldo, no). */}
         {waitingFeeHint(cobro) ? <p className={styles.meta}>{waitingFeeHint(cobro)}</p> : null}
-        {/* Viva: un punto que late y lo que pasa, también para el lector de pantalla (cambia solo al cambiar de fase). */}
-        <p
-          className={`${styles.live}${ending || slowBank ? ` ${styles.liveEnding}` : ''}`}
-          role="status"
-          aria-live="polite"
-          data-bank-wait={wait.stage}
-        >
-          <i aria-hidden="true" />
-          {waitParts ? (
-            <>
-              {waitParts.label}
-              {/* El reloj, cada segundo, solo a la vista: el lector oye la fase. */}
-              {waitParts.clock ? <span aria-hidden="true">{` ${waitParts.clock}`}</span> : null}
-            </>
-          ) : (
-            waitingLiveText(phase, checking)
-          )}
+        <h2 className={styles.waitTitle}>{nfcOn ? 'Acerca el NFC o escanea' : 'Escanea el QR con tu móvil'}</h2>
+        {qrUrl || qrPng ? (
+          <>
+            <div className={styles.qr} style={{ opacity: left <= 0 ? 0.3 : 1 }}>
+              <CobroQr value={qrUrl} fallbackPng={qrPng} label="QR del cobro: el cliente lo escanea con su móvil" />
+            </div>
+            <p className={styles.optLabel}>{invite ? 'Tarjeta o QR' : 'Con tu móvil'}</p>
+          </>
+        ) : null}
+        {nfcOn ? (
+          <p className={`${styles.nfcRow}${reading || checking ? ` ${styles.nfcReading}` : ''}`}>
+            <IconNfc />
+            {checking ? 'Comprobando…' : reading ? 'Leyendo…' : invite ? 'NFC, sin PIN' : 'Por detrás'}
+          </p>
+        ) : null}
+        <p className={`${styles.live}${ending || slowBank ? ` ${styles.liveEnding}` : ''}`}>
+          {/* Viva: un punto que late y lo que pasa, también para el lector de pantalla (cambia solo al cambiar de fase). */}
+          <span className={styles.liveNow} role="status" aria-live="polite" data-bank-wait={wait.stage}>
+            <i aria-hidden="true" />
+            {waitParts ? waitParts.label : waitingLiveText(phase, checking)}
+          </span>
+          {/* El reloj, fuera de la región viva: se lee al pasar por él, sin anunciarse cada segundo. */}
+          {clock ? <span className={styles.clock}>{clock}</span> : null}
         </p>
         {slowBank ? (
           <p className={styles.bankStrip}>
@@ -648,28 +647,6 @@ function Waiting({
               : 'No cobres otra vez: espera su respuesta. Si se cobra, sale aquí.'}
           </p>
         ) : null}
-        <h2 className={styles.waitTitle}>{nfcOn ? 'Acerca el NFC o escanea' : 'Escanea el QR con tu móvil'}</h2>
-        <div className={styles.dual}>
-          {qr ? (
-            <div className={styles.opt}>
-              <div className={`${styles.qr}${nfcOn ? '' : ` ${styles.qrSolo}`}`} style={{ opacity: left <= 0 ? 0.3 : 1 }}>
-                <img src={qr} alt="QR del cobro: el cliente lo escanea con su móvil" />
-              </div>
-              {invite ? 'Tarjeta o QR' : 'Con tu móvil'}
-            </div>
-          ) : null}
-          {nfcOn && qr ? (
-            <span className={styles.orDot} aria-hidden="true">
-              o
-            </span>
-          ) : null}
-          {nfcOn ? (
-            <div className={styles.opt}>
-              <NfcCard reading={reading || checking} />
-              {checking ? 'Comprobando…' : reading ? 'Leyendo…' : invite ? 'NFC, sin PIN' : 'Por detrás'}
-            </div>
-          ) : null}
-        </div>
         {/* Lo raro (antes, solo en «Saldo»): sin móvil ni ficha, su código o su pase y su PIN aquí.
             Justo debajo del QR: a la vista también en un móvil bajo. */}
         {onSinMovil ? (
@@ -683,14 +660,6 @@ function Waiting({
             <IconLock />
             {pinWarning(night)}
           </p>
-        ) : null}
-        {deadline ? (
-          <div className={`${styles.timer}${ending ? ` ${styles.timerEnding}` : ''}`}>
-            <span className={styles.tbar}>
-              <i style={{ transform: `scaleX(${fraction})` }} />
-            </span>
-            <span>{left > 0 ? `Caduca en ${formatClock(left)}` : 'Comprobando…'}</span>
-          </div>
         ) : null}
         {toast ? (
           <p className={styles.toast} role="status">
@@ -714,7 +683,7 @@ function PaidDetail({ cobro, newBalanceCents, meta }: { cobro: CobroAbierto; new
       ) : null}
       {cobro.invitation ? (
         <>
-          <p style={{ fontSize: '1.125rem' }}>Invitación · {cobro.invitation.chica}</p>
+          <p className={styles.left}>Invitación · {cobro.invitation.chica}</p>
           <div className={`${styles.psplit} ${styles.outcomeSplit}`}>
             {cobro.invitation.cells.map((c) => (
               <span key={c.label}>

@@ -17,7 +17,7 @@ import {
 } from '@/lib/sin-movil';
 import { passCheckProblem } from '@/lib/wallet-pass';
 import { QrScanner, qrScanSupported } from '../QrScanner';
-import { ScreenHeader, Stripe } from './ScreenHeader';
+import { ScreenHeader } from './ScreenHeader';
 import styles from './cobrar.module.css';
 
 /** El saldo con el que va a poner su PIN: de dónde salió y cómo se dice en la pantalla del PIN. */
@@ -35,8 +35,6 @@ interface Props {
   amountCents: number;
   /** «2 copas». */
   what: string;
-  /** La franja de la sección del cobro. */
-  colors: ReadonlyArray<{ color: string; weight: number }>;
   /** Encontrado y con PIN: Esperando le pide su PIN. */
   onReady: (found: SaldoForPin) => void;
   onBack: () => void;
@@ -53,7 +51,7 @@ type Mode = 'menu' | 'code' | 'pass';
  * la app se abre en otra pestaña y paga este cobro (el contexto de ficha que
  * guarda Esperando).
  */
-export function SinMovil({ chargeId, amountCents, what, colors, onReady, onBack }: Props) {
+export function SinMovil({ chargeId, amountCents, what, onReady, onBack }: Props) {
   const [mode, setMode] = useState<Mode>('menu');
   const [code, setCode] = useState('');
   const [busy, setBusy] = useState(false);
@@ -151,7 +149,6 @@ export function SinMovil({ chargeId, amountCents, what, colors, onReady, onBack 
   return (
     <div className={styles.screen}>
       <ScreenHeader title={SIN_MOVIL_LABEL} subtitle={`${amount} · ${what}`} onBack={mode === 'menu' ? onBack : () => go('menu')} />
-      <Stripe parts={colors} />
       <div className={styles.body}>
         {mode === 'menu' ? (
           <>

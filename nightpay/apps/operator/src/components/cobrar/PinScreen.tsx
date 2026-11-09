@@ -5,14 +5,14 @@ import { keypadDigits } from '@/lib/pin-pad';
 import { formatEur } from '@/lib/money';
 import { pinFootnote } from '@/lib/cobro-view';
 import { useVenueNight } from '@/lib/venue-methods';
-import { Chip, Stripe } from './ScreenHeader';
+import { Chip } from './ScreenHeader';
 import { IconDel, IconHand } from './icons';
 import styles from './cobrar.module.css';
 
 const PIN_LENGTH = 4;
 
 interface Props {
-  /** La franja y el chip (sección del cobro). */
+  /** Las secciones del cobro (el punto del chip: la primera). */
   colors: ReadonlyArray<{ color: string; weight: number }>;
   /** «Servicios · Lola». */
   chip: string;
@@ -69,10 +69,9 @@ export function PinScreen({ colors, chip, amountCents, detail, reason, onPin, on
   const shuffled = layout === 'shuffled';
   return (
     <div className={styles.screen}>
-      <Stripe parts={colors} height="0.625rem" />
       <div className={styles.body} style={{ gap: '0.875rem' }}>
         <div className={styles.pinHead}>
-          <Chip colors={[colors[0]?.color ?? 'var(--np-sec-otros)']}>{chip}</Chip>
+          <Chip color={colors[0]?.color ?? 'var(--np-sec-otros)'}>{chip}</Chip>
           <span className={styles.num}>{formatEur(amountCents, { compact: true })}</span>
           <p>{detail}</p>
         </div>

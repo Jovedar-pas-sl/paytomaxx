@@ -65,7 +65,7 @@ type Stage =
 interface Pending {
   input: Omit<CobroInput, 'idempotencyKey'>;
   fromCuenta: boolean;
-  view: Omit<CobroAbierto, 'card' | 'saldo' | 'saldoQr' | 'ref'>;
+  view: Omit<CobroAbierto, 'card' | 'saldo' | 'saldoQr' | 'saldoUrl' | 'ref'>;
 }
 
 interface Props {
@@ -172,6 +172,7 @@ export function CobrarFlow({ user, onCobroDone, onLogout, night, miQrOpen = fals
           card: null,
           saldo: { chargeId: s.id, expiresAt: s.expiresAt },
           saldoQr: s.qrPngDataUrl,
+          saldoUrl: s.payUrl,
           ref: s.ref,
         };
       }
@@ -263,12 +264,12 @@ export function CobrarFlow({ user, onCobroDone, onLogout, night, miQrOpen = fals
         totalCents: totals.totalCents,
         tipCents: totals.tipCents,
         sections,
+        // El título de Esperando, sin mayúsculas (Grafito): «Copas + Comida».
         band: {
           title: sections
             .slice(0, 2)
             .map((s) => labelOf(ctx, s.section))
-            .join(' + ')
-            .toUpperCase(),
+            .join(' + '),
           detail: `${what} · ${name}`,
         },
         what,

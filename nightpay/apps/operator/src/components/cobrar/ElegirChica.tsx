@@ -4,8 +4,8 @@ import { useEffect, useState } from 'react';
 import type { InvitableStaff } from '@nightpay/contracts';
 import { fetchInvitables } from '@/lib/api-cobro';
 import { formatEur } from '@/lib/money';
-import { colorOf, puestoChip, type CobrarContext } from './cobrar-context';
-import { Chip, ScreenHeader, Stripe } from './ScreenHeader';
+import { puestoChip, type CobrarContext } from './cobrar-context';
+import { Chip, ScreenHeader } from './ScreenHeader';
 import styles from './cobrar.module.css';
 
 /**
@@ -56,9 +56,8 @@ export function ElegirChica({
         title="¿A quién invita?"
         subtitle={`${who.split(' · ')[0]} · ${formatEur(priceCents, { compact: true })}`}
         onBack={onBack}
-        chip={chip ? <Chip colors={[chip.color]}>{chip.label}</Chip> : null}
+        chip={chip ? <Chip color={chip.color}>{chip.label}</Chip> : null}
       />
-      <Stripe parts={[{ color: colorOf('VENUE_BAR'), weight: 1 }]} />
       <div className={styles.body}>
         {error ? (
           <p role="alert" className={styles.error}>
