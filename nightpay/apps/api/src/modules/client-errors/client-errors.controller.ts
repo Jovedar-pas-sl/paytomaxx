@@ -5,12 +5,15 @@ import { IpRateLimit } from '../../common/guards/ip-rate-limit.guard';
 import { ZodValidationPipe } from '../../common/pipes/zod.pipe';
 import { CLIENT_ERROR_APPS, ClientErrorsService, type ClientErrorApp } from './client-errors.service';
 
-const ClientErrorSchema = z.object({
+// Huella de Next y marca del build: letras, cifras y . _ + - (nada que falsee el registro).
+const TAG = /^[\w.+-]{1,64}$/;
+export const ClientErrorSchema = z.object({
   app: z.enum(Object.keys(CLIENT_ERROR_APPS) as [ClientErrorApp, ...ClientErrorApp[]]),
   message: z.string().max(2_000),
-  digest: z.string().max(64).optional(),
-  path: z.string().max(500).optional(),
-  build: z.string().max(64).optional(),
+  digest: z.string().regex(TAG).optional(),
+  // location.pathname: empieza por «/» y no lleva espacios ni caracteres de control.
+  path: z.string().max(500).regex(/^\/[\x21-\x7E]*$/).optional(),
+  build: z.string().regex(TAG).optional(),
 });
 
 /**

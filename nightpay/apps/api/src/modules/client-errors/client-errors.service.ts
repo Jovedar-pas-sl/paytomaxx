@@ -27,14 +27,22 @@ export interface ClientErrorReport {
 
 /** El mismo fallo se avisa una vez por hora: una pantalla rota en bucle no inunda Telegram. */
 const ALERT_EVERY_S = 60 * 60;
+/**
+ * Avisos por hora para todos los fallos juntos: el aviso no lleva sesión y
+ * cualquiera puede mandarlo, así que nadie puede llenar el Telegram del dueño.
+ * Al pasarlo llega un último aviso diciendo que se calla hasta la hora siguiente.
+ */
+export const MAX_ALERTS_PER_HOUR = 10;
 /** Lo que llega se recorta: nunca un volcado entero, ni tokens de una URL. */
 const MAX_MESSAGE = 200;
 
 /**
  * Una app se ha roto en el móvil de alguien (la pantalla de fallo, error.tsx):
  * hasta ahora nadie se enteraba. Queda en el registro y en la métrica, y por
- * Telegram una vez por hora cada fallo distinto. Sin datos de nadie: la app,
- * el mensaje recortado, la ruta sin consulta y la versión.
+ * Telegram una vez por hora cada fallo distinto, con un tope por hora para
+ * todos. Sin datos de nadie: la app, el mensaje recortado, la ruta sin
+ * consulta y la versión. El texto del mensaje va al registro, no al Telegram:
+ * lo escribe quien manda el aviso.
  */
 @Injectable()
 export class ClientErrorsService {
@@ -46,36 +54,69 @@ export class ClientErrorsService {
     @Inject(MetricsService) private readonly metrics: MetricsService,
   ) {}
 
-  async report(input: ClientErrorReport): Promise<void> {
+  async report(input: ClientErrorReport, now: Date = new Date()): Promise<void> {
     const message = cleanMessage(input.message);
     const path = cleanPath(input.path);
-    const fingerprint = createHash('sha256')
-      .update(`${input.app}|${input.digest ?? ''}|${message}`)
-      .digest('hex')
-      .slice(0, 16);
+    const build = input.build ? oneLine(input.build).slice(0, 64) : null;
+    const fingerprint = fingerprintOf(input.app, input.digest, message);
     this.metrics.clientErrors.inc({ app: input.app });
-    this.logger.warn(`Fallo en ${input.app}${path ? ` (${path})` : ''}: ${message} [${fingerprint}${input.build ? ` · ${input.build}` : ''}]`);
+    this.logger.warn(`Fallo en ${input.app}${path ? ` (${path})` : ''}: ${message} [${fingerprint}${build ? ` · ${build}` : ''}]`);
     if (!this.telegram.isConfigured()) return;
     const first = await this.redis
       .set(`np:client-error:${fingerprint}`, '1', 'EX', ALERT_EVERY_S, 'NX')
       .catch(() => null);
     if (first !== 'OK') return;
+    const sent = await this.countAlert(now);
+    if (sent === null || sent > MAX_ALERTS_PER_HOUR + 1) return;
+    if (sent === MAX_ALERTS_PER_HOUR + 1) {
+      await this.telegram.send(
+        `⚠️ Muchos fallos de pantalla esta hora: dejo de avisar hasta la siguiente. El detalle sigue en el registro del API.`,
+      );
+      return;
+    }
+    const where = path ? ` en ${linklessPath(path)}` : '';
     await this.telegram.send(
-      `⚠️ Ha fallado ${CLIENT_ERROR_APPS[input.app]}${path ? ` en ${path}` : ''}: «${message}». Quien lo vio tenía un botón para volver. Si se repite, avisa.`,
+      `⚠️ Ha fallado ${CLIENT_ERROR_APPS[input.app]}${where}. Quien lo vio tenía un botón para volver. Si se repite, avisa. Detalle en el registro del API (huella ${fingerprint}).`,
     );
+  }
+
+  /** Cuántos avisos van esta hora (null sin Redis: entonces no se avisa). */
+  private async countAlert(now: Date): Promise<number | null> {
+    const key = `np:client-error:tg:${Math.floor(now.getTime() / (ALERT_EVERY_S * 1000))}`;
+    const n = await this.redis.incr(key).catch(() => null);
+    if (n === 1) await this.redis.expire(key, ALERT_EVERY_S).catch(() => null);
+    return n;
   }
 }
 
-/** Una línea, sin direcciones de correo ni cadenas largas que parezcan tokens. */
+/** Sin saltos de línea ni caracteres de control: una línea falsa no se cuela en el registro. */
+function oneLine(raw: string): string {
+  return raw.replace(/[^\x20-\x7E\u00A0-\uFFFF]/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+/** La huella: la app, la de Next y el mensaje sin números (el mismo fallo con otra cifra es el mismo). */
+function fingerprintOf(app: ClientErrorApp, digest: string | undefined, message: string): string {
+  const shape = message.replace(/\d+/g, '#').slice(0, 120);
+  return createHash('sha256').update(`${app}|${digest ?? ''}|${shape}`).digest('hex').slice(0, 16);
+}
+
+/** Una línea, sin enlaces, direcciones de correo ni cadenas largas que parezcan tokens. */
 export function cleanMessage(raw: string): string {
-  const oneLine = raw.replace(/\s+/g, ' ').trim();
-  const masked = oneLine.replace(/[^\s@]+@[^\s@]+/g, '…@…').replace(/[A-Za-z0-9_-]{24,}/g, '…');
+  const masked = oneLine(raw)
+    .replace(/https?:\/\/\S+/g, '[enlace]')
+    .replace(/[^\s@]+@[^\s@]+/g, '…@…')
+    .replace(/[A-Za-z0-9_-]{20,}/g, '…');
   return (masked || 'sin mensaje').slice(0, MAX_MESSAGE);
 }
 
-/** Solo la ruta, y sin los tokens de /w/…, /pay/…, /s/…, /r/… ni ?saldo=. */
+/** Solo la ruta, sin espacios, y sin los tokens de /w/…, /pay/…, /s/…, /r/… ni ?saldo=. */
 export function cleanPath(raw: string | undefined): string | null {
   if (!raw) return null;
-  const path = raw.split(/[?#]/)[0] ?? '';
+  const path = (raw.split(/[?#]/)[0] ?? '').replace(/[^\x21-\x7E]/g, '');
   return path.replace(/[A-Za-z0-9_-]{12,}/g, '…').slice(0, 80) || '/';
+}
+
+/** La ruta para el Telegram, sin puntos ni dos puntos: el chat no la convierte en un enlace. */
+export function linklessPath(path: string): string {
+  return path.replace(/[.:@]/g, '');
 }
