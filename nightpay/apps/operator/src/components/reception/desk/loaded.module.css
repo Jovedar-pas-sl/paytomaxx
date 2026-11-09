@@ -1,0 +1,81 @@
+/* 4.4: CARGADO (y DEVUELTO) sobre la pantalla del resultado de @nightpay/ui
+   (.np-outcome, el verde plano de PAGADO): lo que hace recepción con el
+   dinero, destacado en su bloque oscuro (crema encima, 11:1), y el QR de
+   «Activar Face ID en su móvil» detrás, con filete y sin bloque. */
+
+/* «Efectivo: 50 € a la caja»: lo que hace recepción, destacado en su bloque. */
+.resLeft {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  width: 100%;
+  max-width: 26rem;
+  min-height: 3.5rem;
+  padding: 0.75rem 1rem;
+  border-radius: var(--np-r-md);
+  background: rgb(0 0 0 / 0.24);
+  font-size: 1.125rem;
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+.resLeft b {
+  font: 600 1.125rem var(--np-font-num);
+  font-variant-numeric: proportional-nums;
+}
+
+.resLeft svg {
+  width: 1.375rem;
+  height: 1.375rem;
+}
+
+.resMeta {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 500;
+}
+
+.resFoot {
+  flex: none;
+  display: flex;
+  justify-content: center;
+  padding: 0 1rem max(1.5rem, env(safe-area-inset-bottom, 0px));
+}
+
+.resWarn {
+  margin: 0;
+  max-width: 26rem;
+  padding: 0.625rem 1rem;
+  border-radius: var(--np-r-md);
+  background: var(--np-ink-0);
+  color: var(--np-cream);
+  font-weight: 500;
+}
+
+/* Detrás del bloque del dinero: con filete y sin fondo, para no competir con él. */
+.activate {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  max-width: 26rem;
+  padding: 0.5rem 0.75rem 0.5rem 0.5rem;
+  border-radius: var(--np-r-md);
+  border: 1px solid color-mix(in srgb, currentColor 28%, transparent);
+  text-align: left;
+}
+
+.activateText {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.875rem;
+  line-height: 1.35;
+}
+
+.activateText b {
+  font-size: 1rem;
+  font-weight: 600;
+}

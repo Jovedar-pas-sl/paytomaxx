@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { fetchActivationLink, type ActivationLink } from '@/lib/activation-link';
 import { QrBox } from './QrBox';
 import s from './desk.module.css';
+import l from './loaded.module.css';
 
 /**
  * 4.4 (CARGADO en efectivo): el cliente que paga en efectivo no recibe el
@@ -41,8 +42,8 @@ export function ActivationQr({ walletId, read }: { walletId: string; read?: { ca
   if (!link) return null;
   if (expired) {
     return (
-      <div className={s.activate}>
-        <div className={s.activateText}>
+      <div className={l.activate}>
+        <div className={l.activateText}>
           <b>El QR de activación ha caducado</b>
           <button type="button" className={s.txtlink} onClick={() => setRound((r) => r + 1)}>
             Otro QR
@@ -52,9 +53,9 @@ export function ActivationQr({ walletId, read }: { walletId: string; read?: { ca
     );
   }
   return (
-    <div className={s.activate}>
+    <div className={l.activate}>
       <QrBox value={link.url} label="QR para activar Face ID en su móvil" small />
-      <div className={s.activateText}>
+      <div className={l.activateText}>
         <b>Activar Face ID en su móvil</b>
         <span>Que lo escanee con la cámara. Vale una vez y 10 min.</span>
       </div>

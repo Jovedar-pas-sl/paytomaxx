@@ -5,7 +5,7 @@ import { AmountKeypad, Input } from '@nightpay/ui';
 import { MAX_TYPED_AMOUNT_CENTS } from '@nightpay/contracts';
 import { formatEur } from '@/lib/money';
 import type { MethodButton, ExitPlan } from '@/lib/reception-desk';
-import { CodeBoxes, DeskBtn, DeskRowView, Icon, NfcCard } from './desk-parts';
+import { CodeBoxes, DESK_FIELD, DeskBtn, DeskRowView, Icon, NfcMark } from './desk-parts';
 import s from './desk.module.css';
 
 /** 4.1 (y 4.5 sin nada leído): «Acerca el NFC», sin tocar nada. */
@@ -28,7 +28,7 @@ export function TapStage(props: {
       : 'Por detrás del móvil: sale lo que le queda.');
   const body = (
     <>
-      {props.noReader ? null : <NfcCard size="l" />}
+      {props.noReader ? null : <NfcMark size="l" />}
       <p className={s.stageTitle}>{props.noReader?.title ?? (props.busy ? 'Leyendo…' : 'Acerca el NFC')}</p>
       {props.error ? (
         <p role="alert" className={s.stageError}>
@@ -58,7 +58,7 @@ export function TapStage(props: {
   );
 }
 
-/** 4.2: el NFC leído y los importes rápidos, enormes: tocar uno ya sigue. */
+/** 4.2: el NFC leído y los importes rápidos en rejilla de 72 px, con «Otro» de última casilla: tocar uno ya sigue. */
 export function AmountStep(props: {
   row: { title: string; detail: string };
   amounts: readonly number[];
@@ -67,19 +67,20 @@ export function AmountStep(props: {
   /** Encargado o dueño ante una ficha sin PIN: que lo elija sin tener que cargar nada. */
   onPin?: () => void;
 }) {
-  const four = props.amounts.length > 3;
   return (
     <>
       <DeskRowView title={props.row.title} detail={props.row.detail} />
       <p className={s.q}>¿Cuánto carga?</p>
-      <div className={`${s.quick} ${four ? s.quickFour : ''}`}>
+      <div className={s.quick}>
         {props.amounts.map((c) => (
           <button key={c} type="button" className={s.qb} onClick={() => props.onPick(c)}>
             {formatEur(c, { compact: true })}
           </button>
         ))}
+        <button type="button" className={`${s.qb} ${s.qbOther}`} aria-label="Otro importe" onClick={props.onOther}>
+          Otro
+        </button>
       </div>
-      <DeskBtn kind="gho" label="Otro importe" onClick={props.onOther} />
       {props.onPin ? <DeskBtn kind="gho" label="Que elija su PIN" onClick={props.onPin} /> : null}
     </>
   );
@@ -106,7 +107,7 @@ const METHOD_TEXT = {
   card: { icon: 'card', label: 'Tarjeta', small: 'Paga con el QR en su móvil' },
 } as const;
 
-/** 4.3: el importe, «¿Cómo paga?» con la de por defecto en XL, y la nota del PIN. */
+/** 4.3: el importe, «¿Cómo paga?» en dos filas iguales (la de por defecto, primera y en lima), y la nota del PIN. */
 export function MethodStep(props: {
   chip: string;
   amountCents: number;
@@ -143,7 +144,6 @@ export function MethodStep(props: {
           <DeskBtn
             key={b.method}
             kind={b.primary ? 'pri' : 'gho'}
-            size={b.primary ? 'xl' : 'l'}
             icon={t.icon}
             label={t.label}
             small={t.small}
@@ -168,7 +168,7 @@ export function MethodStep(props: {
   );
 }
 
-/** 4.5: a la salida, lo que le queda; guardar (de fábrica, XL) o devolverlo en efectivo. */
+/** 4.5: a la salida, lo que le queda; guardar (de fábrica, en lima) o devolverlo en efectivo. */
 export function ExitStep(props: {
   row: { title: string; detail: string };
   plan: ExitPlan;
@@ -185,11 +185,10 @@ export function ExitStep(props: {
         <span className={s.kick}>{plan.balanceCents > 0 ? 'Le quedan' : 'No le queda saldo'}</span>
         <p className={s.bignum}>{formatEur(plan.balanceCents, { compact: true })}</p>
       </div>
-      <DeskBtn kind="pri" size="xl" label="Guardar para la próxima" small={plan.keepDetail} onClick={props.onKeep} disabled={props.busy} />
+      <DeskBtn kind="pri" label="Guardar para la próxima" small={plan.keepDetail} onClick={props.onKeep} disabled={props.busy} />
       {plan.refundLabel ? (
         <DeskBtn
           kind="gho"
-          size="l"
           label={plan.refundLabel}
           small={plan.refundBlocked ?? plan.refundDetail}
           onClick={props.onRefund}
@@ -211,10 +210,10 @@ export function NumberStep({ busy, error, onFind }: { busy: boolean; error: stri
   const [number, setNumber] = useState('');
   const ok = /^\d{1,12}$/.test(number);
   return (
-    <form onSubmit={(event) => { event.preventDefault(); if (ok && !busy) onFind(number); }}>
+    <form className={s.foot} onSubmit={(event) => { event.preventDefault(); if (ok && !busy) onFind(number); }}>
       <Input label="Número impreso en la ficha" inputMode="numeric" autoComplete="off" maxLength={12}
-        value={number} onChange={(event) => setNumber(event.target.value.replace(/\D/g, '').slice(0, 12))} size="lg" />
-      <p className={s.lbl}>Como aparece en la ficha. Solo para saldos que ya existen: una ficha nueva se carga acercándola, y para devolver efectivo hace falta el NFC original.</p>
+        value={number} onChange={(event) => setNumber(event.target.value.replace(/\D/g, '').slice(0, 12))} style={DESK_FIELD} />
+      <p className={s.hint}>Como aparece en la ficha. Solo para saldos que ya existen: una ficha nueva se carga acercándola, y para devolver efectivo hace falta el NFC original.</p>
       {error ? <p role="alert" className={s.error}>{error}</p> : null}
       <DeskBtn kind="pri" label="Buscar ficha" disabled={!ok} busy={busy} onClick={() => onFind(number)} />
     </form>

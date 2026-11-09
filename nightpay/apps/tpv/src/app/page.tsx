@@ -64,23 +64,14 @@ export default function Page() {
         </div>
         <header style={{ textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1rem' }}>
           <Logo height="3rem" />
-          <h1
-            style={{
-              margin: 0,
-              fontSize: 'var(--np-t-h1)',
-              fontWeight: 600,
-              letterSpacing: '-0.03em',
-            }}
-          >
-            TPV
-          </h1>
+          <h1 style={{ margin: 0, fontSize: 'var(--np-t-h1)', fontWeight: 600 }}>TPV</h1>
         </header>
         {notice ? (
           <p role="status" style={noticeStyle}>
             {notice}
           </p>
         ) : null}
-        <Card variant="glow" style={{ padding: '2rem', width: '100%', maxWidth: '24rem' }}>
+        <Card style={{ padding: '2rem', width: '100%', maxWidth: '24rem' }}>
           <LoginForm
             onSuccess={() => {
               setNotice(null);

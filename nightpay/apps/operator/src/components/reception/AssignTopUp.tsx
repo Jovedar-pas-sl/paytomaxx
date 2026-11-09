@@ -1,11 +1,13 @@
 'use client';
 
-import { useState, type CSSProperties, type FormEvent } from 'react';
+import { useState, type FormEvent } from 'react';
 import type { AssignedTopUp, SaldoRefDto } from '@nightpay/contracts';
-import { Button, Card, Input } from '@nightpay/ui';
+import { Button, Input } from '@nightpay/ui';
 import { assignPendingTopUp } from '@/lib/api-noche';
 import { formatEur } from '@/lib/money';
 import { useVenueMethods } from '@/lib/venue-methods';
+import { DESK_FIELD } from './desk/desk-parts';
+import r from './reception.module.css';
 import { useReadNfc } from './use-read-nfc';
 
 interface Props {
@@ -47,16 +49,14 @@ export function AssignTopUp({ walletId, amountCents, onAssigned, onLater }: Prop
   }
 
   return (
-    <Card style={cardStyle}>
-      <p style={kicker}>Recarga pendiente de asignar</p>
-      <p className="np-num" style={amountStyle}>
-        {formatEur(amountCents)}
-      </p>
-      <p style={big}>Ahora, su saldo</p>
-      <p style={muted}>Acerca su NFC o teclea su código: la recarga se suma a su saldo.</p>
+    <div className={r.card}>
+      <p className={r.kicker}>Recarga pendiente de asignar</p>
+      <p className={r.amount}>{formatEur(amountCents)}</p>
+      <p className={r.lead}>Ahora, su saldo</p>
+      <p className={r.text}>Acerca su NFC o teclea su código: la recarga se suma a su saldo.</p>
       {nfcOn ? (
         reading ? (
-          <Button size="lg" variant="ghost" onClick={() => reading.abort()}>
+          <Button variant="ghost" onClick={() => reading.abort()}>
             Acerca su NFC… (cancelar)
           </Button>
         ) : (
@@ -74,8 +74,8 @@ export function AssignTopUp({ walletId, amountCents, onAssigned, onLater }: Prop
           </Button>
         )
       ) : null}
-      {nfcOn && !reader.loading && !reader.via && reader.note ? <p style={note}>{reader.note}</p> : null}
-      <form onSubmit={byCode} style={formStyle}>
+      {nfcOn && !reader.loading && !reader.via && reader.note ? <p className={r.note}>{reader.note}</p> : null}
+      <form onSubmit={byCode} className={r.form}>
         <Input
           label="Código del saldo"
           value={code}
@@ -84,43 +84,21 @@ export function AssignTopUp({ walletId, amountCents, onAssigned, onLater }: Prop
           autoCapitalize="characters"
           autoComplete="off"
           disabled={busy}
+          style={DESK_FIELD}
         />
-        <Button type="submit" size="lg" variant="ghost" loading={busy} disabled={code.replace(/-/g, '').length < 6}>
+        <Button type="submit" variant="ghost" loading={busy} disabled={code.replace(/-/g, '').length < 6}>
           Asignar con el código
         </Button>
       </form>
       {error ? (
-        <p role="alert" style={errorStyle}>
+        <p role="alert" className={r.error}>
           {error}
         </p>
       ) : null}
       <Button variant="ghost" disabled={busy || reading !== null} onClick={onLater}>
         Más tarde
       </Button>
-      <p style={note}>No se pierde: queda en Recepción → Pendientes de asignar (y en el panel).</p>
-    </Card>
+      <p className={r.note}>No se pierde: queda en Recepción → Pendientes de asignar (y en el panel).</p>
+    </div>
   );
 }
-
-const cardStyle: CSSProperties = { padding: 'var(--np-pad-card)', display: 'flex', flexDirection: 'column', gap: 'var(--np-gap)', textAlign: 'center' };
-const kicker: CSSProperties = {
-  margin: 0,
-  fontSize: '0.8125rem',
-  fontWeight: 700,
-  letterSpacing: '0.1em',
-  textTransform: 'uppercase',
-  color: 'var(--np-text-mute)',
-};
-const amountStyle: CSSProperties = { margin: 0, fontSize: '2.5rem', lineHeight: 1.15, fontWeight: 700 };
-const big: CSSProperties = { margin: 0, fontSize: '1.375rem', fontWeight: 700 };
-const muted: CSSProperties = { margin: 0, color: 'var(--np-text-mute)', fontSize: '1rem' };
-const errorStyle: CSSProperties = { margin: 0, color: 'var(--np-danger)', fontWeight: 600 };
-const formStyle: CSSProperties = { display: 'flex', flexDirection: 'column', gap: '0.75rem', textAlign: 'left' };
-const note: CSSProperties = {
-  margin: 0,
-  padding: '0.6rem 0.9rem',
-  border: '1px solid var(--np-border)',
-  borderRadius: 'var(--np-r-md)',
-  fontSize: '0.9rem',
-  color: 'var(--np-text-mute)',
-};

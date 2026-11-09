@@ -1,12 +1,13 @@
 'use client';
 
-import { useEffect, useState, type CSSProperties } from 'react';
+import { useEffect, useState } from 'react';
 import type { PendingTopUpView } from '@nightpay/contracts';
-import { Button, Card } from '@nightpay/ui';
+import { Button } from '@nightpay/ui';
 import { fetchPendingTopUps } from '@/lib/api-noche';
 import { formatEur } from '@/lib/money';
 import { StaffOutcome } from '../StaffOutcome';
 import { AssignTopUp } from './AssignTopUp';
+import r from './reception.module.css';
 
 /**
  * Recepción → Pendientes de asignar: recargas cobradas sin el NFC del cliente
@@ -66,24 +67,23 @@ export function PendingTopUps({ onDone }: { onDone: () => void }) {
   }
 
   return (
-    <Card style={cardStyle}>
-      <p style={kicker}>Pendientes de asignar</p>
-      <p style={muted}>Recargas cobradas sin el NFC del cliente. Toca una y acerca su NFC (o teclea su código).</p>
-      {rows === null && !error ? <p style={muted}>Cargando…</p> : null}
-      {rows?.length === 0 ? <p style={big}>No hay ninguna pendiente.</p> : null}
-      {(rows ?? []).map((r) => (
-        <Button key={r.walletId} size="lg" variant="ghost" onClick={() => setPicked(r)} style={rowBtn}>
-          <span className="np-num" style={{ fontWeight: 700 }}>
-            {formatEur(r.amountCents)}
+    <div className={r.card}>
+      <p className={r.kicker}>Pendientes de asignar</p>
+      <p className={r.text}>Recargas cobradas sin el NFC del cliente. Toca una y acerca su NFC (o teclea su código).</p>
+      {rows === null && !error ? <p className={r.text}>Cargando…</p> : null}
+      {rows?.length === 0 ? <p className={r.lead}>No hay ninguna pendiente.</p> : null}
+      {(rows ?? []).map((row) => (
+        <button key={row.walletId} type="button" className={r.pendRow} onClick={() => setPicked(row)}>
+          <span className={`np-num ${r.pendAmount}`}>{formatEur(row.amountCents)}</span>
+          {/* El espacio no se pinta (fila flex), pero el lector de pantalla no los junta. */}{' '}
+          <span className={r.pendWho}>
+            {new Date(row.since).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Madrid' })}
+            {row.byName ? ` · ${row.byName}` : ''}
           </span>
-          <span style={muted}>
-            {new Date(r.since).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Madrid' })}
-            {r.byName ? ` · ${r.byName}` : ''}
-          </span>
-        </Button>
+        </button>
       ))}
       {error ? (
-        <p role="alert" style={{ margin: 0, color: 'var(--np-danger)', fontWeight: 600 }}>
+        <p role="alert" className={r.error}>
           {error}
         </p>
       ) : null}
@@ -93,19 +93,6 @@ export function PendingTopUps({ onDone }: { onDone: () => void }) {
       <Button variant="ghost" onClick={onDone}>
         Volver
       </Button>
-    </Card>
+    </div>
   );
 }
-
-const cardStyle: CSSProperties = { padding: 'var(--np-pad-card)', display: 'flex', flexDirection: 'column', gap: 'var(--np-gap)', textAlign: 'center' };
-const kicker: CSSProperties = {
-  margin: 0,
-  fontSize: '0.8125rem',
-  fontWeight: 700,
-  letterSpacing: '0.1em',
-  textTransform: 'uppercase',
-  color: 'var(--np-text-mute)',
-};
-const big: CSSProperties = { margin: 0, fontSize: '1.25rem', fontWeight: 700 };
-const muted: CSSProperties = { margin: 0, color: 'var(--np-text-mute)', fontSize: '0.95rem' };
-const rowBtn: CSSProperties = { display: 'flex', justifyContent: 'space-between', gap: '0.75rem' };
