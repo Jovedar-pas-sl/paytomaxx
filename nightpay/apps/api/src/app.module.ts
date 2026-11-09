@@ -30,6 +30,7 @@ import { CartaModule } from './modules/carta/carta.module';
 import { ReportsModule } from './modules/reports/reports.module';
 import { NightsModule } from './modules/nights/nights.module';
 import { IncidentsModule } from './modules/incidents/incidents.module';
+import { ClientErrorsModule } from './modules/client-errors/client-errors.module';
 import { BankReconModule } from './modules/bank-recon/bank-recon.module';
 import { PosDeviceModule } from './modules/pos-device/pos-device.module';
 import { SuperAdminModule } from './modules/superadmin/superadmin.module';
@@ -86,6 +87,7 @@ import { HomeTopUpModule } from './modules/home-topup/home-topup.module';
     ReportsModule,
     NightsModule,
     IncidentsModule,
+    ClientErrorsModule,
     BankReconModule,
     PosDeviceModule,
     SuperAdminModule,

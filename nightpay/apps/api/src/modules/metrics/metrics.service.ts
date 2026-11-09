@@ -21,6 +21,13 @@ export class MetricsService implements OnModuleInit {
   readonly registry = new Registry();
 
   // ─── Counters de negocio ──────────────────────────────────────────
+  /** Pantallas de fallo de las apps (error.tsx, POST /v1/client-errors). */
+  readonly clientErrors = new Counter({
+    name: 'nightpay_client_errors_total',
+    help: 'Fallos de pantalla de las apps, por app',
+    labelNames: ['app'],
+    registers: [this.registry],
+  });
   readonly paymentsCreated = new Counter({
     name: 'nightpay_payments_created_total',
     help: 'Pagos creados por venue + provider',
