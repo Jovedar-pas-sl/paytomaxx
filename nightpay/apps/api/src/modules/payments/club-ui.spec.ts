@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { OXIOCARD_WORDMARK } from './brand-logo';
+import { OXIOPAY_WORDMARK } from './brand-logo';
 import { CLUB_BASE_CSS, CLUB_TOKENS, brandBar, brandWordmark } from './club-ui';
 import { CHROME_CSS } from './customer-chrome';
 import { PAID_SCREEN_CSS } from './paid-screen';
@@ -27,13 +27,13 @@ const wallet: ClientWalletState = {
   movements: [],
 };
 
-describe('marca OxioCard en las páginas del cliente', () => {
+describe('marca OxioPay en las páginas del cliente', () => {
   it('el logo va dentro de la página (data: PNG): la CSP del API no deja cargar imágenes de fuera', () => {
-    expect(OXIOCARD_WORDMARK.src.startsWith('data:image/png;base64,iVBOR')).toBe(true);
-    expect(OXIOCARD_WORDMARK.src.includes(BACKSLASH)).toBe(false);
+    expect(OXIOPAY_WORDMARK.src.startsWith('data:image/png;base64,iVBOR')).toBe(true);
+    expect(OXIOPAY_WORDMARK.src.includes(BACKSLASH)).toBe(false);
     const img = brandWordmark();
-    expect(img).toContain('alt="OxioCard"');
-    expect(img).toContain('width="269" height="43"');
+    expect(img).toContain('alt="OxioPay"');
+    expect(img).toContain('width="256" height="51"');
     expect(brandWordmark('<b>')).toContain('alt="&lt;b&gt;"');
     expect(brandBar()).toContain('<header class="brand">');
   });
@@ -83,7 +83,7 @@ describe('marca OxioCard en las páginas del cliente', () => {
       renderNoticePage('es', PAY_TEXT.es.notFound, 'warn'),
     ];
     for (const html of pages) {
-      expect(html).toContain(OXIOCARD_WORDMARK.src);
+      expect(html).toContain(OXIOPAY_WORDMARK.src);
       expect(html).toContain('<meta name="theme-color" content="#0b0d0e">');
       expect(html).not.toMatch(/src="https?:/);
     }

@@ -61,8 +61,10 @@ describe('la página del enlace del local (/r/<código>)', () => {
     expect(html).toContain('id="brk"');
     expect(html).toContain(`"base":"/r/${CODE}"`.replace(/"/g, '\\"'));
     expect(html).toContain('name="robots" content="noindex"');
-    // Sin el vocabulario del personal (lo que pinta la página, no solo los textos).
-    expect(html.replace(/<script>[\s\S]*?<\/script>/g, '')).not.toMatch(/dat[aá]fono|\bterminal\b|oxiopay|chica/i);
+    // Sin el vocabulario del personal (lo que pinta la página, no solo los textos). OxioPay sí
+    // sale: es el producto (el logo y el dominio); OxioCard es solo la ficha.
+    expect(html.replace(/<script>[\s\S]*?<\/script>/g, '')).not.toMatch(/dat[aá]fono|\bterminal\b|chica/i);
+    expect(html).toContain('alt="OxioPay"');
   });
 
   it('el JS de la página no lleva barras invertidas (va dentro de una plantilla) salvo los escapes del JSON', () => {

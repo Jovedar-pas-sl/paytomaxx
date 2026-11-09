@@ -1,6 +1,6 @@
 import { formatMoney } from '@nightpay/contracts';
 import { BRAND_FONT_FACE } from './brand-font';
-import { OXIOCARD_WORDMARK } from './brand-logo';
+import { OXIOPAY_WORDMARK } from './brand-logo';
 
 /**
  * Look de las páginas del cliente (/pay, /s, /w, /r): dirección «Grafito»,
@@ -71,7 +71,7 @@ b,strong{font-weight:600}
 .done{color:var(--ok);font-weight:600}
 .err{margin:0;padding:.75rem .875rem;border:1px solid var(--bad);border-radius:var(--r-field);background:rgb(255 107 107/.1);color:var(--fg);font-size:.875rem;font-weight:500;line-height:1.35;text-align:left}
 .foot{font-size:.8125rem;color:var(--dim)}
-.wm{display:block;width:auto;height:1.25rem}
+.wm{display:block;width:auto;height:calc(1.25rem*51/43);margin-bottom:calc(-1.25rem*8/43)}
 .brand{position:absolute;top:calc(1.1rem + env(safe-area-inset-top));left:0;right:0;display:flex;justify-content:center;pointer-events:none}
 [hidden]{display:none!important}
 @media (prefers-reduced-motion:reduce){*,*::before,*::after{transition:none!important}}`;
@@ -92,9 +92,9 @@ export function clientMoney(cents: number, locale: string, currency = 'EUR', ful
   return formatMoney(cents, { compact: !full, locale, currency });
 }
 
-/** El wordmark de OxioCard (claro, para fondo oscuro). alt vacío si al lado ya pone la marca en texto. */
-export function brandWordmark(alt = 'OxioCard'): string {
-  const w = OXIOCARD_WORDMARK;
+/** El wordmark de OxioPay (claro, para fondo oscuro). alt vacío si al lado ya pone la marca en texto. */
+export function brandWordmark(alt = 'OxioPay'): string {
+  const w = OXIOPAY_WORDMARK;
   return `<img class="wm" src="${w.src}" width="${w.width}" height="${w.height}" alt="${escapeHtml(alt)}">`;
 }
 

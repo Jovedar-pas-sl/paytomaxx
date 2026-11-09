@@ -499,7 +499,7 @@ button {
   box-shadow: inset 0 0 0 1.5px var(--np-sec-saldo);
 }
 
-/* Logo OxioCard (Logo de @nightpay/ui): la versión clara sobre oscuro y la
+/* Logo OxioPay (Logo de @nightpay/ui): la versión clara sobre oscuro y la
    oscura sobre claro; sin data-theme, la del tema oscuro. */
 .np-logo-img {
   display: block;

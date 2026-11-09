@@ -34,7 +34,7 @@ export function langHrefWith(path: string, params: Readonly<Record<string, strin
 
 export const CHROME_CSS = `
 .top{display:flex;align-items:center;justify-content:space-between;gap:.75rem;width:100%;max-width:26rem;margin:0 auto;min-height:3.5rem;padding:calc(.25rem + env(safe-area-inset-top)) 1rem .25rem}
-.top .wm{height:1rem;width:auto}
+.top .wm{height:calc(1rem*51/43);margin-bottom:calc(-1rem*8/43);width:auto}
 .top.over{position:absolute;top:0;left:0;right:0;z-index:3;max-width:none}
 .lang{position:relative;flex:none}
 .lang summary{list-style:none;display:inline-flex;align-items:center;gap:.4rem;min-height:3rem;min-width:3rem;padding:0 .625rem;border:0;border-radius:var(--r-field);color:var(--mute);font-size:.8125rem;font-weight:500;letter-spacing:.04em;cursor:pointer;background:transparent}

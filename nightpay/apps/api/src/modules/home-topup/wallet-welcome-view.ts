@@ -133,7 +133,7 @@ function rcpDraw(d,logo,qr){var W=1080,P=72,QS=600,SYS='OxioSans,system-ui,-appl
  m.font='500 31px '+SYS;var priv=qr?rcpWrap(m,d.private,maxW):[];m.font='400 31px '+SYS;var keep=rcpWrap(m,d.noExpiry,maxW);
  var H=rcpHeight(!!qr,show.length,priv.length+keep.length),c=document.createElement('canvas');c.width=W;c.height=H;var x=c.getContext('2d'),y;
  x.fillStyle='#0b0d0e';x.fillRect(0,0,W,H);
- if(logo&&logo.complete&&logo.naturalWidth)x.drawImage(logo,P,96,Math.round(52*logo.naturalWidth/logo.naturalHeight),52);
+ if(logo&&logo.complete&&logo.naturalWidth)x.drawImage(logo,P,96,Math.round(62*logo.naturalWidth/logo.naturalHeight),62);
  x.textAlign='right';x.fillStyle='#9da6ae';x.font='400 31px '+SYS;x.fillText(d.when,W-P,134);
  rcpRound(x,P/2,200,W-P,H-256,36);x.fillStyle='#131618';x.fill();x.lineWidth=2;x.strokeStyle='#262b30';x.stroke();
  x.textAlign='center';x.fillStyle='#b8c0c6';x.font='500 32px '+SYS;x.fillText(d.kick,W/2,292);

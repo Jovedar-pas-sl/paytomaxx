@@ -9,11 +9,11 @@ interface LogoProps {
    * no se mueven.
    */
   height?: string | number;
-  /** `wordmark` (por defecto): símbolo + «oxiocard». `symbol`: solo el símbolo, en su loseta crema. */
+  /** `wordmark` (por defecto): símbolo + «oxiopay». `symbol`: solo el símbolo, en su loseta crema. */
   variant?: LogoVariant;
-  /** Logo propio (p. ej. el de un local), relativo a `public/`: sustituye al de OxioCard. */
+  /** Logo propio (p. ej. el de un local), relativo a `public/`: sustituye al de OxioPay. */
   src?: string;
-  /** Alt text. Default 'OxioCard'. */
+  /** Alt text. Default 'OxioPay'. */
   alt?: string;
   /**
    * Solo con `src`: en el tema oscuro, el logo propio va sobre una placa
@@ -22,22 +22,33 @@ interface LogoProps {
   adaptiveBackdrop?: boolean;
 }
 
-/** Ficheros de la marca, en `public/brand/` de cada app. */
+/**
+ * Ficheros de la marca, en `public/brand/` de cada app. OxioPay es el producto
+ * (OxioCard, solo la ficha): «oxiopay» está hecho con las letras del logo de
+ * «oxiocard» (np-handoff/herramientas/grafito/logo/componer.cjs).
+ */
 const BRAND = {
   /** Para fondo oscuro (crema con el punto lima). */
-  wordmarkOnDark: '/brand/oxiocard-wordmark-claro.png',
+  wordmarkOnDark: '/brand/oxiopay-wordmark-claro.png',
   /** Para fondo claro (tinta con el punto lima). */
-  wordmarkOnLight: '/brand/oxiocard-wordmark-oscuro.png',
+  wordmarkOnLight: '/brand/oxiopay-wordmark-oscuro.png',
   symbol: '/brand/oxiocard-simbolo.png',
   /** Tamaño real de los PNG (para reservar el hueco antes de que carguen). */
-  wordmarkSize: { width: 269, height: 43 },
+  wordmarkSize: { width: 256, height: 51 },
   symbolSize: 49,
 } as const;
 
 const WORDMARK_SHARE = 0.62;
+/**
+ * Las letras ocupan 43 de las 51 filas del PNG; lo de abajo es el descendente
+ * de la «p» y la «y». Se dibuja más alto en esa proporción y el descendente
+ * cuelga (margen negativo): las letras miden lo mismo que antes y la cabecera
+ * no se mueve.
+ */
+const LETTERS_ROWS = 43;
 
 /**
- * Logo de OxioCard. El wordmark cambia con el tema (data-theme en <html>):
+ * Logo de OxioPay. El wordmark cambia con el tema (data-theme en <html>):
  * claro sobre oscuro y oscuro sobre claro; las reglas están en styles.css
  * (.np-logo-img). Con `src`, el logo propio de siempre.
  */
@@ -45,7 +56,7 @@ export function Logo({
   height = '2rem',
   variant = 'wordmark',
   src,
-  alt = 'OxioCard',
+  alt = 'OxioPay',
   adaptiveBackdrop = true,
 }: LogoProps) {
   const h = typeof height === 'number' ? `${height}px` : height;
@@ -76,7 +87,12 @@ export function Logo({
     );
   }
 
-  const imgStyle: CSSProperties = { height: `calc(${h} * ${WORDMARK_SHARE})` };
+  const letters = `calc(${h} * ${WORDMARK_SHARE})`;
+  const { height: rows } = BRAND.wordmarkSize;
+  const imgStyle: CSSProperties = {
+    height: `calc(${letters} * ${rows} / ${LETTERS_ROWS})`,
+    marginBottom: `calc(${letters} * ${LETTERS_ROWS - rows} / ${LETTERS_ROWS})`,
+  };
   return (
     <span style={{ ...wrap, height: `calc(${h} + 0.75rem)` }}>
       <img
