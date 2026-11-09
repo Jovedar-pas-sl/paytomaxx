@@ -772,8 +772,9 @@
   width: 2.5rem;
   height: 3.875rem;
   border-radius: 0.5rem;
-  background: linear-gradient(150deg, #ecebe7 0%, #cfcdc9 46%, #ecebe7 60%, #b4b2ae 100%);
-  box-shadow: 0 0 0 1.5px var(--np-lime), 0 0 12px 2px var(--np-lime-glow);
+  /* Grafito: la ficha dibujada, plana (sin plata, brillo ni halo lima). */
+  background: var(--np-surface-3);
+  box-shadow: inset 0 0 0 1px var(--np-border-hi);
 }
 
 .np-ficha-card::before {
@@ -793,26 +794,25 @@
   top: 11%;
   width: 10%;
   aspect-ratio: 5 / 4;
-  background: var(--np-lime-deep);
+  background: var(--np-text-dim);
   clip-path: polygon(50% 0, 100% 100%, 0 100%);
 }
 
 .np-ficha-card[data-off='true'] {
-  box-shadow: 0 0 0 1.5px var(--np-danger);
-  filter: grayscale(0.6);
+  box-shadow: inset 0 0 0 1px var(--np-danger);
 }
 
 .np-ficha-mini {
   flex: none;
-  min-height: 2.75rem;
-  padding: 0 1rem;
+  min-height: var(--np-filter-h);
+  padding: 0 0.875rem;
   border: 0;
-  border-radius: var(--np-r-pill);
+  border-radius: var(--np-r-sm);
   background: transparent;
-  box-shadow: inset 0 0 0 2px var(--np-danger);
-  color: var(--np-danger);
-  font-weight: 600;
-  font-size: 0.9375rem;
+  box-shadow: inset 0 0 0 1px var(--np-danger);
+  color: var(--np-danger-text);
+  font-weight: 500;
+  font-size: 0.875rem;
   transition: background var(--np-d-fast), transform var(--np-d-fast) var(--np-ease);
 }
 

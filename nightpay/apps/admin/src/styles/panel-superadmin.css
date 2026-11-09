@@ -45,7 +45,7 @@
 }
 
 .np-sa-area {
-  color: var(--np-accent);
+  color: var(--np-text-mute);
 }
 
 .np-sa-head {
@@ -107,9 +107,9 @@
 .np-sa-callout {
   margin: 0;
   padding: 0.625rem 0.875rem;
-  border-left: 4px solid var(--np-accent);
+  border-left: 3px solid var(--np-border-hi);
   border-radius: var(--np-r-sm);
-  background: var(--np-pill-cyan-bg);
+  background: var(--np-surface-2);
   font-size: 0.875rem;
   line-height: 1.5;
   color: var(--np-text);
@@ -385,7 +385,6 @@
 .np-sa-band {
   padding: 1.25rem 1.5rem;
   border: 1px solid var(--np-border);
-  border-top: 3px solid var(--np-accent);
   border-radius: var(--np-r-lg);
   background: var(--np-surface);
   animation: np-sa-rise var(--np-d-slow) var(--np-ease);
@@ -434,7 +433,7 @@
 }
 
 .np-sa-fig[data-hero] dd {
-  color: var(--np-accent);
+  color: var(--np-text);
 }
 
 .np-sa-fig[data-alert] dd {
@@ -504,9 +503,7 @@
 }
 
 .np-sa-venue:hover {
-  transform: translateY(-2px);
-  border-color: var(--np-accent);
-  box-shadow: 0 10px 28px rgb(0 0 0 / 0.28);
+  border-color: var(--np-border-hi);
 }
 
 .np-sa-venue:active {
@@ -519,7 +516,7 @@
 }
 
 .np-sa-venue[data-current] {
-  box-shadow: inset 4px 0 0 var(--np-accent);
+  box-shadow: inset 3px 0 0 var(--np-text);
   cursor: default;
 }
 
@@ -582,7 +579,7 @@
 .np-sa-venue-fig[data-hero] .np-sa-venue-fig-value {
   font-size: 1.75rem;
   font-size: clamp(1.25rem, 10cqi, 2.25rem);
-  color: var(--np-accent);
+  color: var(--np-text);
 }
 
 .np-sa-venue-foot {
@@ -609,7 +606,8 @@
 }
 
 .np-sa-venue:hover .np-sa-venue-go {
-  color: var(--np-accent);
+  text-decoration: underline;
+  text-underline-offset: 3px;
 }
 
 /* ─── Fichas ──────────────────────────────────────────────────────── */
@@ -691,7 +689,7 @@
 }
 
 .np-sa-action:hover {
-  border-color: var(--np-accent);
+  border-color: var(--np-border-hi);
 }
 
 .np-sa-action:active {
@@ -719,7 +717,7 @@
   align-items: flex-start;
   gap: 0.625rem;
   padding: 1rem;
-  border: 2px solid var(--np-accent);
+  border: 1px solid var(--np-border-hi);
   border-radius: var(--np-r-md);
   background: var(--np-surface);
 }
@@ -773,7 +771,7 @@
   font-size: clamp(2.75rem, 1.5rem + 6vw, 5rem);
   font-weight: 600;
   line-height: 1;
-  color: var(--np-accent);
+  color: var(--np-text);
   overflow-wrap: anywhere;
 }
 

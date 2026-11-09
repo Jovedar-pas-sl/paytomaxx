@@ -215,13 +215,14 @@ function MetricTile({
   highlight?: boolean;
 }) {
   return (
-    <Card variant={highlight ? 'glow' : 'default'} style={{ padding: '1.25rem 1.5rem' }}>
+    // Destacada con el filete fuerte, no en lima (es un total).
+    <Card variant={highlight ? 'elevated' : 'default'} style={{ padding: '1.25rem 1.5rem' }}>
       <p style={metricLabel}>{title}</p>
       <p
         className="np-num"
         style={{
           ...metricValue,
-          color: highlight ? 'var(--np-accent)' : 'var(--np-text)',
+          color: 'var(--np-text)',
         }}
       >
         {value}

@@ -38,7 +38,6 @@
     width: min(54rem, 100%);
     height: min(100%, 60rem);
     border: 1px solid var(--np-border);
-    border-top: 3px solid var(--np-accent);
     border-radius: var(--np-r-lg);
     overflow: hidden;
   }
@@ -103,8 +102,9 @@
 
 .np-close-progress::before { background: var(--np-border); }
 
+/* El avance, en t1: la lima se queda para «Congelar el Z». */
 .np-close-progress-bar {
-  background: var(--np-accent);
+  background: var(--np-text);
   transform-origin: left center;
   transition: transform var(--np-d-base) var(--np-ease);
 }
@@ -144,8 +144,6 @@
 }
 
 .np-close-freeze { width: 100%; }
-
-.np-close-freeze:not(:disabled) { box-shadow: 0 0 0 0 var(--np-glow), 0 10px 32px -12px var(--np-glow); }
 
 .np-close-freeze:focus-visible,
 .np-close-go:focus-visible,
@@ -557,7 +555,8 @@
   background: var(--np-surface);
 }
 
-.np-chica[data-due='true'] { border-left: 4px solid var(--np-accent); }
+/* Por pagar: raíl ámbar (aviso); la lima es el botón «Pagar». */
+.np-chica[data-due='true'] { border-left: 3px solid var(--np-warning); }
 
 .np-chica-who {
   display: flex;
@@ -606,7 +605,7 @@
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  color: var(--np-accent);
+  color: var(--np-text-mute);
 }
 
 .np-caja-kicker {

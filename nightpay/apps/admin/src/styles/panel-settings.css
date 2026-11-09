@@ -166,14 +166,16 @@
   font-weight: 500;
 }
 
+/* Encendido en t1 (lo elegido), no en lima: en Ajustes hay muchos y la lima
+   se queda para «Guardar». */
 .np-switch[aria-checked='true'] {
-  border-color: var(--np-accent);
-  background: color-mix(in oklch, var(--np-accent) 22%, var(--np-surface-2));
+  border-color: var(--np-text);
+  background: color-mix(in oklch, var(--np-text) 16%, var(--np-surface-2));
   color: var(--np-text);
 }
 
 .np-switch[aria-checked='true'] .np-switch-thumb {
-  background: var(--np-accent);
+  background: var(--np-text);
   transform: translate(2rem, -50%);
 }
 
@@ -270,15 +272,15 @@
   align-items: stretch;
   gap: 0.25rem;
   padding: 0.25rem 0 0.5rem 0.75rem;
-  border-left: 2px solid var(--np-accent);
+  border-left: 2px solid var(--np-border-hi);
   margin-top: 0.5rem;
 }
 
 .np-set-tag {
   padding: 0.1rem 0.5rem;
-  border-radius: var(--np-r-pill);
-  border: 1px solid var(--np-accent);
-  color: var(--np-accent);
+  border-radius: var(--np-r-xs);
+  border: 1px solid var(--np-border-hi);
+  color: var(--np-text-mute);
   font-size: 0.75rem;
   font-weight: 500;
 }

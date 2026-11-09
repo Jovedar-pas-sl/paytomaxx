@@ -637,8 +637,10 @@ function MethodOption({
       onClick={onClick}
       style={{
         ...methodStyle,
-        borderColor: active ? 'var(--np-accent)' : 'var(--np-border)',
-        opacity: disabled ? 0.5 : 1,
+        // Lo elegido en t1 (la lima es para el botón); sin opacidad al no poderse.
+        borderColor: active ? 'var(--np-text)' : 'var(--np-border-hi)',
+        boxShadow: active ? 'inset 0 0 0 1px var(--np-text)' : undefined,
+        color: disabled ? 'var(--np-disabled-ink)' : undefined,
         cursor: disabled ? 'not-allowed' : 'pointer',
       }}
     >
@@ -674,8 +676,8 @@ const methodStyle: CSSProperties = {
   padding: '0.75rem',
   textAlign: 'left',
   background: 'var(--np-surface-2)',
-  border: '2px solid var(--np-border)',
-  borderRadius: 'var(--np-r-md)',
+  border: '1px solid var(--np-border-hi)',
+  borderRadius: 'var(--np-r-sm)',
   color: 'var(--np-text)',
   fontFamily: 'inherit',
 };

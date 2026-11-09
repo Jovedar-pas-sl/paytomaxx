@@ -398,7 +398,7 @@ function PayoutsTable({
                   {receipt ? (
                     <>
                       {' '}
-                      <a href={receipt} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--np-accent)' }}>
+                      <a href={receipt} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--np-text)', textDecoration: 'underline' }}>
                         recibo
                       </a>
                     </>

@@ -199,7 +199,12 @@ function UploadCard({ onDone }: { onDone: (s: BankStatementSummary) => void }) {
               role="radio"
               aria-checked={source === s.value}
               onClick={() => setSource(s.value)}
-              style={{ ...sourceBtn, borderColor: source === s.value ? 'var(--np-accent)' : 'var(--np-border)' }}
+              style={{
+                ...sourceBtn,
+                // Lo elegido en t1 (la lima es para «Subir»).
+                borderColor: source === s.value ? 'var(--np-text)' : 'var(--np-border-hi)',
+                boxShadow: source === s.value ? 'inset 0 0 0 1px var(--np-text)' : undefined,
+              }}
             >
               {s.title}
             </button>
@@ -399,11 +404,11 @@ const sourceRow: CSSProperties = { display: 'grid', gridTemplateColumns: 'repeat
 const sourceBtn: CSSProperties = {
   padding: '0.75rem',
   background: 'var(--np-surface-2)',
-  border: '2px solid var(--np-border)',
-  borderRadius: 'var(--np-r-md)',
+  border: '1px solid var(--np-border-hi)',
+  borderRadius: 'var(--np-r-sm)',
   color: 'var(--np-text)',
   fontFamily: 'inherit',
-  fontWeight: 600,
+  fontWeight: 500,
   cursor: 'pointer',
   textAlign: 'left',
 };

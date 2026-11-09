@@ -568,7 +568,7 @@ function PairingModal({ terminal, onClose }: { terminal: Terminal | null; onClos
           <li>Desde entonces el datáfono ve los cobros de las chicas y los cobra sin teclear el ticket.</li>
         </ol>
         {code ? (
-          <div style={{ textAlign: 'center', border: '2px solid var(--np-accent)', borderRadius: 'var(--np-r-lg)', padding: '1rem' }}>
+          <div style={{ textAlign: 'center', border: '1px solid var(--np-border-hi)', borderRadius: 'var(--np-r-lg)', padding: '1rem' }}>
             <p className="np-num" style={{ margin: 0, fontSize: '2.25rem', fontWeight: 700, letterSpacing: '0.12em' }}>
               {code.code}
             </p>

@@ -1,7 +1,7 @@
 /* Panel (admin) · «Liquidación OxioPay»: la ficha (dueño y consola), la lista
    y el aviso de arriba. Encima de @nightpay/ui/styles.css, con sus tokens
    --np-*. El total a pagar en grande (Manrope 600, --np-font-num); el bloque
-   de la transferencia con el borde lima (es lo que hay que hacer). Solo se
+   de la transferencia con su filete (la lima es para el botón). Solo se
    anima opacity/transform, y nada con prefers-reduced-motion. Móvil = hasta
    640px: una columna y las tablas como tarjetas (panel-tables.css). */
 
@@ -106,7 +106,7 @@
   flex-direction: column;
   gap: 0.875rem;
   padding: 1.125rem 1.25rem;
-  border: 2px solid var(--np-accent);
+  border: 1px solid var(--np-border-hi);
   border-radius: var(--np-r-md);
   background: var(--np-surface);
 }

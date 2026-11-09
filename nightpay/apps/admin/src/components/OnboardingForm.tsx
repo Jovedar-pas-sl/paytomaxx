@@ -600,8 +600,8 @@ const textareaStyle: CSSProperties = {
 
 const selfOnboardingBanner: CSSProperties = {
   padding: '1rem',
-  background: 'linear-gradient(135deg, var(--np-surface-2), var(--np-bg))',
-  borderColor: 'var(--np-accent)',
+  background: 'var(--np-surface-2)',
+  borderColor: 'var(--np-border-hi)',
 };
 
 const linkBoxStyle: CSSProperties = {
