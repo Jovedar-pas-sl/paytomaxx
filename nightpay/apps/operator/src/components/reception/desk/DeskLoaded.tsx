@@ -26,6 +26,8 @@ interface Props {
   meta: string;
   /** Algo que no salió (el NFC no se pudo dar…): el dinero sí está. */
   warn?: string | null;
+  /** La nota del PIN («Sin PIN solo paga hasta 20 €…»): una línea con su candado, como en «¿Cómo paga?». */
+  note?: string | null;
   primary: Action;
   secondary?: Action | null;
   /** Sin sonido ni vibración (se vuelve a esta pantalla, p. ej. tras el PIN). */
@@ -43,7 +45,7 @@ interface Props {
  * pantalla del resultado de @nightpay/ui (.np-outcome) sin su franja de la
  * hora (la ve solo quien cobra) ni tira de color arriba (Grafito: plano).
  */
-export function DeskLoaded({ word, amountCents, reference, money, meta, warn, primary, secondary, quiet = false, extra, help = null }: Props) {
+export function DeskLoaded({ word, amountCents, reference, money, meta, warn, note = null, primary, secondary, quiet = false, extra, help = null }: Props) {
   const titleId = useId();
   const helpState = useHelp(RECEPTION_HELP_SCREENS.loaded);
   const primaryRef = useRef<HTMLButtonElement>(null);
@@ -59,7 +61,8 @@ export function DeskLoaded({ word, amountCents, reference, money, meta, warn, pr
   }, []);
   return (
     <section className="np-outcome" data-kind="paid" aria-labelledby={titleId}>
-      <div className="np-outcome-body">
+      {/* s.body: la pantalla del resultado con más cosas, más junta (loaded.module.css). */}
+      <div className={`np-outcome-body ${s.body}`}>
         <div className="np-outcome-top">
           <SectionChip section="VENUE_ENTRY">Recepción</SectionChip>
           {reference ? <span className="np-outcome-ref">{reference}</span> : null}
@@ -93,6 +96,12 @@ export function DeskLoaded({ word, amountCents, reference, money, meta, warn, pr
         {warn ? (
           <p role="alert" className={s.resWarn}>
             {warn}
+          </p>
+        ) : null}
+        {note ? (
+          <p className={s.resNote}>
+            <Icon name="lock" />
+            <span>{note}</span>
           </p>
         ) : null}
         {extra}

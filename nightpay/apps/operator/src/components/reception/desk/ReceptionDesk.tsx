@@ -736,7 +736,8 @@ export function ReceptionDesk({ user, active, footer }: Props) {
         reference={done.reference ?? done.wallet?.code ?? null}
         money={{ icon: done.method, ...money }}
         meta={meta}
-        warn={[done.warn, pinText].filter(Boolean).join(' ') || null}
+        warn={done.warn}
+        note={pinText}
         quiet={done.seen}
         extra={activation}
         help={help}
