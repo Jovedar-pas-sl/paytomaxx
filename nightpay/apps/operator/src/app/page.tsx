@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { Card, Logo } from '@nightpay/ui';
+import { Card, Logo, InstallHint } from '@nightpay/ui';
 import { LoginForm } from '@/components/LoginForm';
 import { Dashboard } from '@/components/Dashboard';
 import { ReloginSheet } from '@/components/ReloginSheet';
@@ -175,6 +175,8 @@ function LoginScreen({
       <Card style={{ padding: '2rem', width: '100%', maxWidth: '24rem' }}>
         <LoginForm onSuccess={onSuccess} />
       </Card>
+      {/* Fuera del cobro: el aviso de instalar como app (no sale si ya lo está). */}
+      <InstallHint style={{ width: '100%', maxWidth: '24rem' }} />
     </main>
   );
 }

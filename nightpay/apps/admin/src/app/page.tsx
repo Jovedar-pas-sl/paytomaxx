@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Card, Logo, ThemeToggle } from '@nightpay/ui';
+import { Card, Logo, ThemeToggle, InstallHint } from '@nightpay/ui';
 import { LoginForm } from '@/components/LoginForm';
 import { Dashboard } from '@/components/Dashboard';
 import {
@@ -108,6 +108,8 @@ export default function Page() {
             }}
           />
         </Card>
+        {/* Fuera del cobro: el aviso de instalar como app (no sale si ya lo está). */}
+        <InstallHint style={{ width: '100%', maxWidth: '24rem' }} />
       </main>
     );
   }
