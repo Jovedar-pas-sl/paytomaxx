@@ -66,10 +66,10 @@ describe('Esperando con «reducir movimiento»: nada en bucle', () => {
     return COBRAR.slice(at, COBRAR.indexOf('\n}\n', at));
   })();
 
-  it('el punto de «Esperando el pago…» y el halo del NFC, quietos y a la vista', () => {
-    expect(reduce).toMatch(/\.ncardPulse,\s*\.live i \{[^}]*animation: none !important;/);
+  // Grafito: sin la tarjeta plata ni su halo; la única señal de espera es el punto.
+  it('el punto de «Esperando el pago…», quieto y a la vista', () => {
+    expect(reduce).toMatch(/\.live i \{[^}]*animation: none !important;/);
     expect(reduce).not.toContain('infinite');
-    // El halo se queda dibujado (no desaparece): se sigue viendo dónde acercar la ficha.
-    expect(reduce).toMatch(/\.ncardPulse \{[^}]*opacity: 0\.6;/);
+    expect(reduce).not.toMatch(/opacity: 0[;.]/);
   });
 });
