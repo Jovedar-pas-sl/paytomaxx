@@ -27,7 +27,7 @@ import { WebhooksModule } from '../webhooks/webhooks.module';
     PaytefDebugController,
     RedsysDebugController,
     PeanpeDebugController,
-    // La letra de la marca para las páginas del cliente (/pay/assets/manrope.woff2).
+    // Las letras de la marca para las páginas del cliente (/pay/assets/instrument-sans.woff2 y manrope.woff2).
     BrandFontController,
   ],
   providers: [PaymentsService, PayStatusService],
