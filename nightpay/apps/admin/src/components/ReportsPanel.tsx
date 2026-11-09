@@ -4,6 +4,7 @@ import { useState, type CSSProperties } from 'react';
 import { Button, Card, Input } from '@nightpay/ui';
 import { downloadExport, type ExportKind } from '@/lib/api';
 import { isValidRange, lastDayOfMonth, presetRange, type ReportPreset } from '@/lib/dates';
+import { FILTER_FIELD } from '@/lib/filter-field';
 
 const REPORTS: Array<{ kind: ExportKind; title: string; detail: string }> = [
   {
@@ -102,14 +103,14 @@ export function ReportsPanel({ isOwner }: { isOwner: boolean }) {
       <Card style={{ padding: '1.25rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
           {PRESETS.map((p) => (
-            <Button key={p.key} variant="ghost" style={chipStyle} onClick={() => applyPreset(p.key)}>
+            <Button key={p.key} variant="ghost" size="sm" onClick={() => applyPreset(p.key)}>
               {p.label}
             </Button>
           ))}
         </div>
         <div style={dateGrid}>
-          <Input label="Desde" type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
-          <Input label="Hasta" type="date" value={to} onChange={(e) => setTo(e.target.value)} />
+          <Input label="Desde" type="date" style={FILTER_FIELD} value={from} onChange={(e) => setFrom(e.target.value)} />
+          <Input label="Hasta" type="date" style={FILTER_FIELD} value={to} onChange={(e) => setTo(e.target.value)} />
         </div>
       </Card>
 
@@ -123,7 +124,7 @@ export function ReportsPanel({ isOwner }: { isOwner: boolean }) {
         {REPORTS.map((r) => (
           <Card key={r.kind} style={{ padding: '1.25rem', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
             <div style={{ flex: 1 }}>
-              <h3 style={{ margin: 0, fontSize: '1.0625rem', fontWeight: 700 }}>{r.title}</h3>
+              <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 600 }}>{r.title}</h3>
               <p style={hintStyle}>{r.detail}</p>
             </div>
             <Button
@@ -158,9 +159,8 @@ function saveBlob(blob: Blob, filename: string): void {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-const titleStyle: CSSProperties = { margin: 0, fontSize: 'var(--np-t-h3)', fontWeight: 700 };
+const titleStyle: CSSProperties = { margin: 0, fontSize: 'var(--np-t-h3)', fontWeight: 600 };
 const hintStyle: CSSProperties = { margin: '0.25rem 0 0', color: 'var(--np-text-mute)', fontSize: '0.9375rem' };
-const chipStyle: CSSProperties = { height: '2.5rem', padding: '0 1rem', fontSize: '0.875rem' };
 const dateGrid: CSSProperties = {
   display: 'grid',
   gridTemplateColumns: 'repeat(auto-fit, minmax(11rem, 1fr))',

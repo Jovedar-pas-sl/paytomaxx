@@ -125,7 +125,7 @@ export function TerminalsPanel({ isOwner }: Props) {
         <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between' }}>
           <div>
             <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 600 }}>Datáfonos / Terminales</h3>
-            <p style={{ margin: '0.25rem 0 0', fontSize: '0.8rem', color: 'var(--np-text-mute)' }}>
+            <p style={{ margin: '0.25rem 0 0', fontSize: '0.8125rem', color: 'var(--np-text-mute)' }}>
               Red de PAX A920 Pro por zona. La chica elige zona al cobrar; el camarero de esa zona lo confirma.
             </p>
           </div>
@@ -229,9 +229,11 @@ export function TerminalsPanel({ isOwner }: Props) {
                   <td data-label="Estado">
                     <span
                       style={{
-                        fontSize: '0.75rem',
-                        padding: '0.125rem 0.5rem',
-                        borderRadius: '999px',
+                        // Como Pill: 14/500 y radio de chip.
+                        fontSize: '0.875rem',
+                        fontWeight: 500,
+                        padding: '0 0.5rem',
+                        borderRadius: 'var(--np-r-xs)',
                         background: t.active ? 'var(--np-pill-success-bg)' : 'var(--np-pill-mute-bg)',
                         color: t.active ? 'var(--np-success)' : 'var(--np-text-mute)',
                       }}
@@ -398,11 +400,11 @@ function BulkCreateModal({
           ))}
         </Select>
         {error ? (
-          <p role="alert" style={{ color: 'var(--np-danger)', fontSize: '0.85rem' }}>
+          <p role="alert" style={{ color: 'var(--np-danger)', fontSize: '0.875rem' }}>
             {error}
           </p>
         ) : null}
-        <p style={{ fontSize: '0.8rem', color: 'var(--np-text-mute)' }}>
+        <p style={{ fontSize: '0.8125rem', color: 'var(--np-text-mute)' }}>
           Crea {countOk ? parsedCount : '?'} terminales con externalId {prefix}1, {prefix}2,… asignados a zona{' '}
           <strong>{zone === 'OTRO' ? zoneCustom || '?' : ZONE_LABEL[zone]}</strong>.
         </p>
@@ -495,7 +497,7 @@ function EditTerminalModal({
           </label>
         ) : null}
         {error ? (
-          <p role="alert" style={{ color: 'var(--np-danger)', fontSize: '0.85rem' }}>
+          <p role="alert" style={{ color: 'var(--np-danger)', fontSize: '0.875rem' }}>
             {error}
           </p>
         ) : null}
@@ -568,7 +570,7 @@ function PairingModal({ terminal, onClose }: { terminal: Terminal | null; onClos
           <li>Desde entonces el datáfono ve los cobros de las chicas y los cobra sin teclear el ticket.</li>
         </ol>
         {code ? (
-          <div style={{ textAlign: 'center', border: '2px solid var(--np-accent)', borderRadius: 'var(--np-r-lg)', padding: '1rem' }}>
+          <div style={{ textAlign: 'center', border: '1px solid var(--np-border-hi)', borderRadius: 'var(--np-r-lg)', padding: '1rem' }}>
             <p className="np-num" style={{ margin: 0, fontSize: '2.25rem', fontWeight: 700, letterSpacing: '0.12em' }}>
               {code.code}
             </p>

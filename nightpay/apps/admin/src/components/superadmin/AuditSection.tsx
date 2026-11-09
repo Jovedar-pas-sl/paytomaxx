@@ -5,6 +5,7 @@ import { Button, Card, Input, Select } from '@nightpay/ui';
 import type { AuditEventPage, AuditEventView } from '@nightpay/contracts';
 import { formatDateTime } from '@/lib/dates';
 import { fetchSaAudit, fetchSaUsers } from '@/lib/endpoints/superadmin';
+import { FILTER_FIELD, FILTER_SELECT } from '@/lib/filter-field';
 import { AUDIT_ACTION_FILTERS, auditActionLabel, auditReason, isSuperAdminAction } from '@/lib/superadmin/audit-actions';
 import { personName } from '@/lib/superadmin/labels';
 import { EMPTY_AUDIT_FILTERS, auditQuery, auditRangeProblem, type AuditFilters } from '@/lib/superadmin/query';
@@ -71,7 +72,7 @@ export function AuditSection({ actor }: Props) {
         sub="Quién hizo qué y cuándo. Lo secreto (contraseñas, IBAN, cuentas) sale tapado."
       />
       <div className="np-sa-toolbar" role="search">
-        <Select label="Local" value={filters.venueId} onChange={(e) => setFilters({ ...filters, venueId: e.target.value })}>
+        <Select style={FILTER_SELECT} label="Local" value={filters.venueId} onChange={(e) => setFilters({ ...filters, venueId: e.target.value })}>
           <option value="">Todos</option>
           {(sa.venues ?? []).map((v) => (
             <option key={v.id} value={v.id}>
@@ -79,7 +80,7 @@ export function AuditSection({ actor }: Props) {
             </option>
           ))}
         </Select>
-        <Select label="Quién" value={filters.actorId} onChange={(e) => setFilters({ ...filters, actorId: e.target.value })}>
+        <Select style={FILTER_SELECT} label="Quién" value={filters.actorId} onChange={(e) => setFilters({ ...filters, actorId: e.target.value })}>
           <option value="">Todos</option>
           {peopleOptions.map((p) => (
             <option key={p.id} value={p.id}>
@@ -87,20 +88,20 @@ export function AuditSection({ actor }: Props) {
             </option>
           ))}
         </Select>
-        <Select label="Qué" value={filters.action} onChange={(e) => setFilters({ ...filters, action: e.target.value })}>
+        <Select style={FILTER_SELECT} label="Qué" value={filters.action} onChange={(e) => setFilters({ ...filters, action: e.target.value })}>
           {AUDIT_ACTION_FILTERS.map((f) => (
             <option key={f.value || 'all'} value={f.value}>
               {f.label}
             </option>
           ))}
         </Select>
-        <Input
+        <Input style={FILTER_FIELD}
           label="Desde"
           type="date"
           value={filters.from}
           onChange={(e) => setFilters({ ...filters, from: e.target.value })}
         />
-        <Input label="Hasta" type="date" value={filters.to} onChange={(e) => setFilters({ ...filters, to: e.target.value })} />
+        <Input style={FILTER_FIELD} label="Hasta" type="date" value={filters.to} onChange={(e) => setFilters({ ...filters, to: e.target.value })} />
       </div>
       {rangeProblem ? <ErrorLine>{rangeProblem}</ErrorLine> : null}
 

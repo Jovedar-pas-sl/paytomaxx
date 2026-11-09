@@ -1,10 +1,11 @@
 'use client';
 
-import { useEffect, useState, type CSSProperties, type FormEvent } from 'react';
+import { useEffect, useState, type CSSProperties, type FormEvent, type ReactNode } from 'react';
 import { Button, Input, Select } from '@nightpay/ui';
 import { CHARGE_METHOD_LABELS, LEGACY_SECTION_META, type ChargeMethod } from '@nightpay/contracts';
 import { fetchNights, fetchOperators, type CobrosFilters, type NightListItem, type Operator } from '@/lib/api';
 import { formatDateTime } from '@/lib/dates';
+import { FILTER_FIELD, FILTER_SELECT } from '@/lib/filter-field';
 import { enabledSections } from '@/lib/money-map';
 import { useSections } from '@/lib/use-sections';
 import { useVenueTimezone } from '@/lib/venue-context';
@@ -71,78 +72,97 @@ export function CobrosFiltersBar({ value, onChange }: { value: CobrosFilters; on
         </button>
       </p>
     ) : null}
-    <form className="np-cobros-filters" style={grid} onSubmit={applyCode} role="search" aria-label="Filtrar cobros">
-      <Select aria-label="Estado" value={value.status?.[0] ?? ''} onChange={(e) => set({ status: e.target.value ? [e.target.value] : undefined })}>
-        {STATUS_FILTERS.map((f) => (
-          <option key={f.value} value={f.value}>
-            {f.label}
-          </option>
-        ))}
-      </Select>
-      <Select aria-label="Chica" value={value.operatorId ?? ''} onChange={(e) => set({ operatorId: e.target.value || undefined })}>
-        <option value="">Todas las chicas</option>
-        {operators.map((o) => (
-          <option key={o.id} value={o.id}>
-            {o.displayName ?? o.email}
-          </option>
-        ))}
-      </Select>
-      <Select aria-label="Sección" value={value.category ?? ''} onChange={(e) => set({ category: e.target.value || undefined })}>
-        <option value="">Todas las secciones</option>
-        {enabledSections(sections).map((s) => (
-          <option key={s.code} value={s.code}>
-            {s.label}
-          </option>
-        ))}
-        <option value="EXTRA">{LEGACY_SECTION_META.label} (antiguos)</option>
-      </Select>
-      <Select
-        aria-label="Cómo pagó"
-        value={value.method ?? ''}
-        onChange={(e) => set({ method: (e.target.value || undefined) as ChargeMethod | undefined })}
-      >
-        <option value="">Cualquier forma de pago</option>
-        {METHODS.map((m) => (
-          <option key={m} value={m}>
-            {CHARGE_METHOD_LABELS[m]}
-          </option>
-        ))}
-      </Select>
-      <Select aria-label="Noche" value={value.nightId ?? ''} onChange={(e) => set({ nightId: e.target.value || undefined })}>
-        <option value="">Todas las noches</option>
-        {nights.map((n) => (
-          <option key={n.id} value={n.id}>
-            {formatDateTime(n.openedAt, tz, 'short')}
-            {n.closedAt ? '' : ' (abierta)'}
-          </option>
-        ))}
-      </Select>
-      <Input
-        aria-label="Referencia (C-0022), código o referencia del banco (al menos 3 caracteres)"
-        placeholder="C-0022, código o banco"
-        title="La referencia (C-0022), el código de 3 letras o la referencia del banco"
-        value={search}
-        onChange={(e) => setSearch(e.target.value)}
-        minLength={SEARCH_MIN_CHARS}
-        maxLength={128}
-      />
-      <Input
-        aria-label="Código del saldo"
-        placeholder="Saldo K7Q-4M2"
-        value={code}
-        onChange={(e) => setCode(e.target.value)}
-        onBlur={() => applyCode()}
-        maxLength={12}
-        autoCapitalize="characters"
-      />
-      <Button type="submit" variant="ghost">Buscar</Button>
+    <form className="np-cobros-filters" onSubmit={applyCode} role="search" aria-label="Filtrar cobros">
+      <Cell w="10.25rem">
+        <Select aria-label="Estado" style={FILTER_SELECT} value={value.status?.[0] ?? ''} onChange={(e) => set({ status: e.target.value ? [e.target.value] : undefined })}>
+          {STATUS_FILTERS.map((f) => (
+            <option key={f.value} value={f.value}>
+              {f.label}
+            </option>
+          ))}
+        </Select>
+      </Cell>
+      <Cell w="9.5rem">
+        <Select aria-label="Chica" style={FILTER_SELECT} value={value.operatorId ?? ''} onChange={(e) => set({ operatorId: e.target.value || undefined })}>
+          <option value="">Todas las chicas</option>
+          {operators.map((o) => (
+            <option key={o.id} value={o.id}>
+              {o.displayName ?? o.email}
+            </option>
+          ))}
+        </Select>
+      </Cell>
+      <Cell w="11rem">
+        <Select aria-label="Sección" style={FILTER_SELECT} value={value.category ?? ''} onChange={(e) => set({ category: e.target.value || undefined })}>
+          <option value="">Todas las secciones</option>
+          {enabledSections(sections).map((s) => (
+            <option key={s.code} value={s.code}>
+              {s.label}
+            </option>
+          ))}
+          <option value="EXTRA">{LEGACY_SECTION_META.label} (antiguos)</option>
+        </Select>
+      </Cell>
+      <Cell w="13rem">
+        <Select
+          aria-label="Cómo pagó"
+          style={FILTER_SELECT}
+          value={value.method ?? ''}
+          onChange={(e) => set({ method: (e.target.value || undefined) as ChargeMethod | undefined })}
+        >
+          <option value="">Cualquier forma de pago</option>
+          {METHODS.map((m) => (
+            <option key={m} value={m}>
+              {CHARGE_METHOD_LABELS[m]}
+            </option>
+          ))}
+        </Select>
+      </Cell>
+      <Cell w="11.25rem">
+        <Select aria-label="Noche" style={FILTER_SELECT} value={value.nightId ?? ''} onChange={(e) => set({ nightId: e.target.value || undefined })}>
+          <option value="">Todas las noches</option>
+          {nights.map((n) => (
+            <option key={n.id} value={n.id}>
+              {formatDateTime(n.openedAt, tz, 'short')}
+              {n.closedAt ? '' : ' (abierta)'}
+            </option>
+          ))}
+        </Select>
+      </Cell>
+      <Cell w="11.5rem">
+        <Input
+          aria-label="Referencia (C-0022), código o referencia del banco (al menos 3 caracteres)"
+          placeholder="C-0022, código o banco"
+          title="La referencia (C-0022), el código de 3 letras o la referencia del banco"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          minLength={SEARCH_MIN_CHARS}
+          maxLength={128}
+          style={FILTER_FIELD}
+        />
+      </Cell>
+      <Cell w="8.25rem">
+        <Input
+          aria-label="Código del saldo"
+          placeholder="Saldo K7Q-4M2"
+          value={code}
+          onChange={(e) => setCode(e.target.value)}
+          onBlur={() => applyCode()}
+          maxLength={12}
+          autoCapitalize="characters"
+          style={FILTER_FIELD}
+        />
+      </Cell>
+      <Button type="submit" variant="ghost" size="sm">Buscar</Button>
     </form>
     </>
   );
 }
 
-const grid: CSSProperties = {
-  display: 'grid',
-  gridTemplateColumns: 'repeat(auto-fit, minmax(10.5rem, 1fr))',
-  gap: '0.5rem',
-};
+/**
+ * Un filtro de la barra: parte del ancho de su texto por defecto (medido con
+ * Instrument Sans 14/500), para que ninguno salga cortado (panel-tables.css).
+ */
+function Cell({ w, children }: { w: string; children: ReactNode }) {
+  return <div style={{ '--np-filter-w': w } as CSSProperties}>{children}</div>;
+}

@@ -127,7 +127,7 @@ export function CobrosTable({ rows, actions, empty, hidePerson, extra, showRefer
               ) : null}
               {actions ? (
                 <td data-label="Acciones" data-card="actions" style={{ textAlign: 'right' }}>
-                  {onDetails ? <Button type="button" variant="ghost" onClick={() => onDetails(row)}>Ver detalle</Button> : null}
+                  {onDetails ? <Button type="button" variant="ghost" size="sm" onClick={() => onDetails(row)}>Ver detalle</Button> : null}
                   {actions(row)}
                 </td>
               ) : null}
@@ -166,10 +166,10 @@ function PaidTwice({ row }: { row: CobroRow }) {
 
 const paidTwiceStyle = (refunded: boolean): CSSProperties => ({
   display: 'block',
-  marginTop: '0.35rem',
+  marginTop: '0.25rem',
   maxWidth: '14rem',
   fontSize: '0.75rem',
-  fontWeight: 600,
+  fontWeight: 500,
   lineHeight: 1.3,
   color: refunded ? 'var(--np-text-mute)' : 'var(--np-danger)',
 });
@@ -200,10 +200,11 @@ const linkStyle: CSSProperties = {
   border: 'none',
   padding: 0,
   font: 'inherit',
-  // Enlace en el color del texto, subrayado (el lima es para la acción principal).
+  // Enlace en el color del texto, subrayado (el lima es para la acción principal), en 500.
   color: 'var(--np-text)',
-  fontWeight: 600,
+  fontWeight: 500,
   textDecoration: 'underline',
+  textDecorationThickness: '1px',
   textUnderlineOffset: '0.15em',
   cursor: 'pointer',
   textAlign: 'inherit',

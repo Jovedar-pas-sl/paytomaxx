@@ -4,6 +4,7 @@ import { useState, type FormEvent } from 'react';
 import { Button, Card, Input, Modal, Select } from '@nightpay/ui';
 import { venueCreateNeedsStepUp, type CreateVenueDto } from '@nightpay/contracts';
 import { createSaVenue, fetchSaVenues } from '@/lib/endpoints/superadmin';
+import { FILTER_FIELD, FILTER_SELECT } from '@/lib/filter-field';
 import { EMPTY_VENUE_FORM, newVenuePayload, slugFromName, type NewVenueForm } from '@/lib/superadmin/forms';
 import { commissionText, venuePauseLabel } from '@/lib/superadmin/labels';
 import { venuesQuery, type VenueFilters } from '@/lib/superadmin/query';
@@ -45,14 +46,14 @@ export function VenuesSection() {
         actions={<Button onClick={() => setCreating(true)}>+ Nuevo local</Button>}
       />
       <div className="np-sa-toolbar" role="search">
-        <Input
+        <Input style={FILTER_FIELD}
           label="Buscar"
           type="search"
           value={filters.q}
           onChange={(e) => setFilters({ ...filters, q: e.target.value })}
           placeholder="Nombre del local"
         />
-        <Select
+        <Select style={FILTER_SELECT}
           label="Negocio"
           value={filters.businessId}
           onChange={(e) => setFilters({ ...filters, businessId: e.target.value })}
@@ -64,7 +65,7 @@ export function VenuesSection() {
             </option>
           ))}
         </Select>
-        <Select
+        <Select style={FILTER_SELECT}
           label="Estado"
           value={filters.state}
           onChange={(e) => setFilters({ ...filters, state: e.target.value as VenueFilters['state'] })}

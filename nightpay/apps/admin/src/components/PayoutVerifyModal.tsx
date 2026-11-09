@@ -162,8 +162,6 @@ const fieldLabel: CSSProperties = {
   display: 'block',
   marginBottom: '0.4rem',
   fontSize: '0.8125rem',
-  fontWeight: 700,
+  fontWeight: 500,
   color: 'var(--np-text-mute)',
-  letterSpacing: '0.04em',
-  textTransform: 'uppercase',
 };

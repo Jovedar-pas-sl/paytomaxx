@@ -24,15 +24,16 @@ export function SectionDot({ color }: { color: string }) {
   return <span aria-hidden="true" style={{ ...dotStyle, background: color }} />;
 }
 
+// Como la etiqueta de estado (Pill): 14/500 y radio de chip.
 const chipStyle: CSSProperties = {
   display: 'inline-flex',
   alignItems: 'center',
-  padding: '0.1rem 0.55rem',
-  borderRadius: '999px',
-  fontSize: '0.75rem',
-  fontWeight: 700,
+  padding: '0 0.5rem',
+  borderRadius: 'var(--np-r-xs)',
+  fontSize: '0.875rem',
+  fontWeight: 500,
   whiteSpace: 'nowrap',
-  lineHeight: 1.5,
+  lineHeight: 1.45,
 };
 
 const neutralStyle: CSSProperties = {

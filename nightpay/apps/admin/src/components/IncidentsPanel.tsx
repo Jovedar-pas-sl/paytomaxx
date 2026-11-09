@@ -154,10 +154,10 @@ function OpenItem({
             placeholder="ej: devuelto en BBVA el 14/10"
           />
           <div className="np-inbox-actions">
-            <Button loading={busy} style={smallBtn} onClick={() => void run(note)}>
+            <Button loading={busy} onClick={() => void run(note)}>
               Marcar como resuelta
             </Button>
-            <Button variant="ghost" style={smallBtn} onClick={() => setWithNote(false)} disabled={busy}>
+            <Button variant="ghost" onClick={() => setWithNote(false)} disabled={busy}>
               Cancelar
             </Button>
           </div>
@@ -166,20 +166,20 @@ function OpenItem({
         <div className="np-inbox-actions">
           {i.ackable && isOwner ? (
             <>
-              <Button loading={busy} style={smallBtn} onClick={() => void run()}>
+              <Button loading={busy} onClick={() => void run()}>
                 Resolver
               </Button>
-              <Button variant="ghost" style={smallBtn} onClick={() => setWithNote(true)} disabled={busy}>
+              <Button variant="ghost" onClick={() => setWithNote(true)} disabled={busy}>
                 Con nota…
               </Button>
             </>
           ) : null}
           {paymentToOpen ? (
-            <Button variant="ghost" style={smallBtn} onClick={() => onOpenPayment(paymentToOpen)}>
+            <Button variant="ghost" onClick={() => onOpenPayment(paymentToOpen)}>
               Abrir cobro
             </Button>
           ) : fixTab && fixLabel ? (
-            <Button variant="ghost" style={smallBtn} onClick={() => onNavigate(fixTab)}>
+            <Button variant="ghost" onClick={() => onNavigate(fixTab)}>
               Ir a {fixLabel}
             </Button>
           ) : null}
@@ -215,8 +215,7 @@ function ResolvedItem({ item }: { item: ResolvedIncident }) {
   );
 }
 
-const titleStyle: CSSProperties = { margin: 0, fontSize: 'var(--np-t-h3)', fontWeight: 700 };
+const titleStyle: CSSProperties = { margin: 0, fontSize: 'var(--np-t-h3)', fontWeight: 600 };
 const hintStyle: CSSProperties = { margin: '0.25rem 0 0', color: 'var(--np-text-mute)', fontSize: '0.9375rem' };
 const hintSmall: CSSProperties = { margin: 0, color: 'var(--np-text-mute)', fontSize: '0.875rem' };
 const groupStyle: CSSProperties = { display: 'flex', flexDirection: 'column', gap: '0.625rem' };
-const smallBtn: CSSProperties = { height: '2.75rem', padding: '0 1.125rem', fontSize: '0.9375rem' };

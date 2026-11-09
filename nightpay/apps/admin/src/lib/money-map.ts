@@ -36,13 +36,29 @@ export function sectionChip(
   return { label: 'Varias', color: null, title };
 }
 
-/** Texto de color legible sobre el color de la sección (todos los de fábrica son claros). */
+const CHIP_INK = '#14110f';
+const CHIP_WHITE = '#ffffff';
+
+/** Luminancia relativa WCAG de un canal sRGB (0-255). */
+function channel(c: number): number {
+  const v = c / 255;
+  return v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
+}
+
+/**
+ * Texto legible sobre el color de la sección: tinta o blanco, el que más
+ * contraste dé (WCAG). La media ponderada de antes ponía blanco sobre el
+ * magenta de Servicios (3,6:1, no llega a AA); con tinta, 5,2:1, como en la
+ * app del personal. Todos los de fábrica son claros: van con tinta.
+ */
 export function chipTextColor(hex: string | null): string {
   if (!hex || !/^#[0-9a-fA-F]{6}$/.test(hex)) return 'var(--np-text)';
   const n = parseInt(hex.slice(1), 16);
-  const [r, g, b] = [(n >> 16) & 255, (n >> 8) & 255, n & 255];
-  // Luminancia relativa aproximada (sRGB): con fondo claro, texto oscuro.
-  return 0.299 * r + 0.587 * g + 0.114 * b > 140 ? '#14110f' : '#ffffff';
+  const l = 0.2126 * channel((n >> 16) & 255) + 0.7152 * channel((n >> 8) & 255) + 0.0722 * channel(n & 255);
+  // Tinta #14110f ≈ 0,0058 de luminancia; blanco, 1.
+  const withInk = (l + 0.05) / (0.0058 + 0.05);
+  const withWhite = 1.05 / (l + 0.05);
+  return withInk >= withWhite ? CHIP_INK : CHIP_WHITE;
 }
 
 /** Las secciones que se pueden elegir en un filtro o en la carta (las encendidas). */

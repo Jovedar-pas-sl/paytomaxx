@@ -379,9 +379,8 @@ const tilesGrid: CSSProperties = {
 
 const sectionTitle: CSSProperties = {
   margin: 0,
-  fontSize: '0.9rem',
+  fontSize: '0.875rem',
   fontWeight: 600,
-  letterSpacing: '-0.01em',
 };
 
 const listHeader: CSSProperties = {
@@ -411,7 +410,7 @@ const categoryItem: CSSProperties = {
   background: 'var(--np-surface-2)',
   borderRadius: 'var(--np-r-md)',
   border: '1px solid var(--np-border)',
-  fontSize: '0.85rem',
+  fontSize: '0.875rem',
 };
 
 const alignRight: CSSProperties = { textAlign: 'right' };
@@ -422,19 +421,16 @@ const badgeRow: CSSProperties = { display: 'flex', gap: '0.35rem', flexWrap: 'wr
 
 const kicker: CSSProperties = {
   margin: 0,
-  fontSize: '0.7rem',
+  fontSize: '0.75rem',
   color: 'var(--np-text-dim)',
-  letterSpacing: '0.1em',
-  textTransform: 'uppercase',
   fontWeight: 500,
 };
 
 const tileNumber: CSSProperties = {
   margin: '0.3rem 0 0',
-  fontSize: '1.4rem',
-  // Cifra grande del panel: Manrope 800, como los importes (las de las tablas, 700).
-  fontWeight: 800,
-  letterSpacing: '-0.02em',
+  fontSize: '1.375rem',
+  // Cifra grande del panel: Manrope 600, como los importes (las de las tablas, 700).
+  fontWeight: 600,
   fontVariantNumeric: 'tabular-nums',
 };
 
@@ -444,12 +440,12 @@ const tileSub: CSSProperties = {
   color: 'var(--np-text-mute)',
 };
 
-const mutedText: CSSProperties = { margin: 0, fontSize: '0.85rem', color: 'var(--np-text-dim)' };
+const mutedText: CSSProperties = { margin: 0, fontSize: '0.875rem', color: 'var(--np-text-dim)' };
 
 const loadingStyle: CSSProperties = {
   margin: 0,
   textAlign: 'center',
-  fontSize: '0.85rem',
+  fontSize: '0.875rem',
   color: 'var(--np-text-mute)',
 };
 

@@ -131,7 +131,7 @@ export function NightsPanel({
         loadError ? null : <p style={hintStyle}>Cargando…</p>
       ) : current === null ? (
         <Card style={{ padding: '1.25rem', display: 'flex', flexDirection: 'column', gap: '0.875rem' }}>
-          <p style={{ margin: 0, fontWeight: 700, fontSize: '1.0625rem' }}>No hay ninguna noche abierta.</p>
+          <p style={{ margin: 0, fontWeight: 600, fontSize: '1rem' }}>No hay ninguna noche abierta.</p>
           <Input
             label="Fondo de caja (opcional)"
             value={floatText}
@@ -156,7 +156,7 @@ export function NightsPanel({
       ) : (
         <Card style={{ padding: '1.25rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
           <div style={rowStyle}>
-            <p style={{ margin: 0, fontWeight: 700, fontSize: '1.125rem' }}>
+            <p style={{ margin: 0, fontWeight: 600, fontSize: '1.125rem' }}>
               Noche abierta desde las {time(current.openedAt)}
             </p>
             <span style={liveStyle}>En vivo</span>
@@ -168,7 +168,7 @@ export function NightsPanel({
           <AdjustmentsBox adjustments={current.z.adjustments} />
           {current.pending.length > 0 ? (
             <div style={pendingBox}>
-              <p style={{ margin: 0, fontWeight: 700 }}>
+              <p style={{ margin: 0, fontWeight: 600 }}>
                 {current.pending.length === 1 ? '1 cobro sin resolver' : `${current.pending.length} cobros sin resolver`}:
                 resuélvelos en Pagos antes de cerrar.
               </p>
@@ -225,7 +225,7 @@ export function NightsPanel({
                     {n.cashDiffCents ? ` · caja: ${diffLabel(n.cashDiffCents).toLowerCase()}` : ''}
                   </td>
                   <td data-label="Acciones" data-card="actions" style={{ textAlign: 'right' }}>
-                    <Button variant="ghost" style={smallBtn} onClick={() => void showNight(n.id)}>
+                    <Button variant="ghost" size="sm" onClick={() => void showNight(n.id)}>
                       Ver Z
                     </Button>
                   </td>
@@ -409,7 +409,7 @@ function AdjustmentsBox({ adjustments: a }: { adjustments?: NightAdjustments }) 
   ];
   return (
     <div style={adjustBox}>
-      <p style={{ margin: 0, fontWeight: 700 }}>Ajustes de noches anteriores ({a.count})</p>
+      <p style={{ margin: 0, fontWeight: 600 }}>Ajustes de noches anteriores ({a.count})</p>
       <p style={hintSmall}>
         Apuntado después con fecha de noches ya cerradas: cobros que el banco confirmó tarde, devoluciones con la
         fecha del banco o consumos anulados. Aquellos Z no cambian; van aquí.
@@ -440,15 +440,13 @@ function pendingLabel(p: NightView['pending'][number]): string {
   return 'esperando al banco';
 }
 
-const titleStyle: CSSProperties = { margin: 0, fontSize: 'var(--np-t-h3)', fontWeight: 700 };
+const titleStyle: CSSProperties = { margin: 0, fontSize: 'var(--np-t-h3)', fontWeight: 600 };
 const hintStyle: CSSProperties = { margin: '0.25rem 0 0', color: 'var(--np-text-mute)', fontSize: '0.9375rem' };
 const hintSmall: CSSProperties = { margin: 0, color: 'var(--np-text-mute)', fontSize: '0.875rem' };
 const rowStyle: CSSProperties = { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem' };
 const liveStyle: CSSProperties = {
   fontSize: '0.75rem',
-  fontWeight: 700,
-  letterSpacing: '0.08em',
-  textTransform: 'uppercase',
+  fontWeight: 500,
   // «En vivo» es un estado: en verde (el lima es para la acción y el «pagado»).
   color: 'var(--np-success)',
 };
@@ -482,4 +480,3 @@ const totalBox: CSSProperties = {
 };
 const numHead: CSSProperties = { textAlign: 'right' };
 const numTd: CSSProperties = { textAlign: 'right', fontVariantNumeric: 'tabular-nums' };
-const smallBtn: CSSProperties = { height: '2.25rem', padding: '0 0.875rem', fontSize: '0.8125rem' };

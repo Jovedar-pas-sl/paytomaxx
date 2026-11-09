@@ -102,18 +102,19 @@ const box: CSSProperties = {
   gap: '0.5rem',
   minWidth: 0,
 };
-const legend: CSSProperties = { fontWeight: 700, padding: '0 0.25rem' };
+const legend: CSSProperties = { fontWeight: 600, padding: '0 0.25rem' };
 const dim: CSSProperties = { color: 'var(--np-text-dim)', fontWeight: 500 };
 const chips: CSSProperties = { display: 'flex', flexWrap: 'wrap', gap: '0.375rem' };
 const chip: CSSProperties = {
   display: 'inline-flex',
   alignItems: 'center',
   gap: '0.375rem',
-  minHeight: '2.5rem',
+  // Chip de Grafito: radio 6, filete de 1 px y 36 px (44 en el móvil).
+  minHeight: 'var(--np-filter-h)',
   padding: '0.25rem 0.625rem',
-  border: '2px solid var(--np-border-hi)',
-  borderRadius: '999px',
+  border: '1px solid var(--np-border-hi)',
+  borderRadius: 'var(--np-r-xs)',
   fontSize: '0.875rem',
-  fontWeight: 600,
+  fontWeight: 500,
   cursor: 'pointer',
 };

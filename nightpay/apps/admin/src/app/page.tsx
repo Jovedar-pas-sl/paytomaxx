@@ -90,24 +90,17 @@ export default function Page() {
           <ThemeToggle />
         </div>
         <header style={{ textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1rem' }}>
-          <Logo height="3rem" />
-          <h1
-            style={{
-              margin: 0,
-              fontSize: 'var(--np-t-h1)',
-              fontWeight: 600,
-              letterSpacing: '-0.03em',
-            }}
-          >
-            Admin
-          </h1>
+          <Logo height="2.5rem" />
+          {/* «Panel», no «Admin»: así lo llama el dueño. */}
+          <h1 style={{ margin: 0, fontSize: '1.75rem', fontWeight: 600 }}>Panel</h1>
         </header>
         {notice ? (
           <p role="status" style={{ margin: 0, maxWidth: '24rem', textAlign: 'center', color: 'var(--np-text-mute)' }}>
             {notice}
           </p>
         ) : null}
-        <Card variant="glow" style={{ padding: '2rem', width: '100%', maxWidth: '24rem' }}>
+        {/* Tarjeta normal: la única lima de la vista es «Entrar». */}
+        <Card style={{ padding: '2rem', width: '100%', maxWidth: '24rem' }}>
           <LoginForm
             onSuccess={(u) => {
               setNotice(null);

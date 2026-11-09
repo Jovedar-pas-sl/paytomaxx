@@ -23,7 +23,7 @@ export function Notice({ tone, children, action, style }: Props) {
     >
       <div style={{ flex: '1 1 14rem', color: 'var(--np-text)' }}>{children}</div>
       {action ? (
-        <Button variant="ghost" type="button" onClick={action.onClick} style={actionStyle}>
+        <Button variant="ghost" type="button" onClick={action.onClick} size="sm">
           {action.label}
         </Button>
       ) : null}
@@ -38,9 +38,8 @@ const boxStyle: CSSProperties = {
   flexWrap: 'wrap',
   padding: '0.75rem 1rem',
   border: '1px solid',
-  borderRadius: 'var(--np-r-md)',
+  borderRadius: 'var(--np-r-sm)',
   fontSize: '0.875rem',
   lineHeight: 1.45,
 };
 
-const actionStyle: CSSProperties = { height: '2.25rem', padding: '0 1rem', fontSize: '0.8125rem' };

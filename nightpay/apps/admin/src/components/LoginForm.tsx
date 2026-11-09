@@ -152,7 +152,7 @@ export function LoginForm({ onSuccess }: Props) {
         type="email"
         autoComplete="email"
         aria-label="Email"
-        placeholder="email@nightpay.local"
+        placeholder="tu@email.com"
         value={email}
         onChange={(e) => setEmail(e.target.value)}
         required
