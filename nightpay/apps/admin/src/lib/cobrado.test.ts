@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { cobradoNote, metricsCobradoParts, zClosedLines, zCobradoParts } from './cobrado';
+import { COBRADO_HELP, COBRADO_PARTS_HINT, cobradoNote, metricsCobradoParts, tonightCobradoNote, zClosedLines, zCobradoParts } from './cobrado';
 import { formatEur } from './money';
 
 // «Hoy · cobrado» y el Z: lo cobrado incluye las recargas (con tarjeta, ya en
@@ -101,5 +101,28 @@ describe('con la «Comisión del servicio» (la paga el cliente encima; se debe 
 
   it('sin ella, como siempre (ni la parte ni el texto)', () => {
     expect(metricsCobradoParts({ ...hoy, serviceFeeCents: undefined })).toEqual({ salesCents: 3_300, tipCents: 200, topUpCents: 10_000 });
+  });
+});
+
+describe('«Cobrado» en «Esta noche»: qué cuenta, sin otra línea de ayuda', () => {
+  it('con desglose, el desglose con sus cifras (ya dice de qué está hecho)', () => {
+    const note = cobradoNote(metricsCobradoParts(DEMO_HOY), formatEur);
+    expect(tonightCobradoNote({ chargedNote: note })).toBe(note);
+  });
+
+  it('sin desglose (todo a 0 o un Z de antes): de qué está hecho, sin cifras que puedan no cuadrar', () => {
+    expect(tonightCobradoNote({ chargedNote: null })).toBe(COBRADO_PARTS_HINT);
+    expect(COBRADO_PARTS_HINT).toBe('Suma ventas, propinas y recargas');
+    expect(COBRADO_PARTS_HINT).not.toMatch(/\d/);
+  });
+
+  it('sin noche abierta o cargando: nada debajo de «—»', () => {
+    expect(tonightCobradoNote(null)).toBeNull();
+    expect(tonightCobradoNote(undefined)).toBeNull();
+  });
+
+  it('la frase entera (al pasar el ratón) nombra todo lo que suma, también el efectivo y la comisión', () => {
+    for (const part of ['ventas', 'propinas', 'recargas', 'efectivo', 'comisión del servicio']) expect(COBRADO_HELP).toContain(part);
+    expect(COBRADO_HELP).not.toMatch(/[!¡]/);
   });
 });

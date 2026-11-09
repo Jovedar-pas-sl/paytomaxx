@@ -5,6 +5,7 @@ import { Button, Card, Modal } from '@nightpay/ui';
 import type { CobroRow } from '@nightpay/contracts';
 import { fetchCobros, fetchMetrics, type CobrosFilters, type Metrics, type PaymentRow, type User } from '@/lib/api';
 import { cobradoNote, metricsCobradoParts } from '@/lib/cobrado';
+import { COBROS_HINT } from '@/lib/cobros-help';
 import { keepIfSame } from '@/lib/diff';
 import { formatEur } from '@/lib/money';
 import { paymentRowOf, reversibleSaldoCharge } from '@/lib/money-map';
@@ -14,6 +15,8 @@ import { todayTiles, type NightTotals } from '@/lib/today-tiles';
 import { useApprovals } from '@/lib/use-approvals';
 import { usePolling } from '@/lib/use-polling';
 import { BankRefundModal } from './BankRefundModal';
+import { CobroRowActions } from './CobroRowActions';
+import { CobrosHowTo } from './CobrosHowTo';
 import { CobrosFiltersBar } from './fichas/CobrosFiltersBar';
 import { CobrosTable } from './fichas/CobrosTable';
 import { PaymentReferenceDetails } from './fichas/PaymentReferenceDetails';
@@ -28,8 +31,6 @@ const PAGE_SIZE = 50;
 const MAX_PAGE_SIZE = 200;
 const POLL_MS = 5000;
 const MAX_POLL_MS = 60_000;
-
-const STUCK_AUTHORIZING_MS = 15 * 60 * 1000;
 
 interface Props {
   user: User;
@@ -197,11 +198,15 @@ export function PaymentsPanel({ user, onNavigate, focusPaymentId = null, onFocus
 
       <section ref={listRef} style={{ display: 'flex', flexDirection: 'column', gap: '1rem', scrollMarginTop: '0.75rem', minWidth: 0 }}>
         <div style={{ display: 'flex', alignItems: 'flex-end', gap: '1rem', flexWrap: 'wrap' }}>
-          <h2 style={sectionTitle}>Cobros</h2>
+          <div style={{ minWidth: 0, flex: '1 1 18rem' }}>
+            <h2 style={sectionTitle}>Cobros</h2>
+            <p className="np-help-line">{COBROS_HINT}</p>
+          </div>
           <Button variant="ghost" size="sm" onClick={refresh} style={{ marginLeft: 'auto' }}>
             Refrescar
           </Button>
         </div>
+        <CobrosHowTo />
         <CobrosFiltersBar value={filter} onChange={changeFilter} />
 
         <Card className="np-table-host" style={{ padding: 0, overflow: 'hidden', minWidth: 0 }}>
@@ -218,44 +223,16 @@ export function PaymentsPanel({ user, onNavigate, focusPaymentId = null, onFocus
                   ? `No hay ningún cobro con «${filter.search}».`
                   : 'Sin cobros'
             }
-            actions={(row) => {
-              if (reversibleSaldoCharge(row, user.role)) {
-                return (
-                  <Button variant="ghost" onClick={() => setReverseFor(row)} size="sm">
-                    Anular cobro
-                  </Button>
-                );
-              }
-              const p = paymentRowOf(row);
-              if (!p) return null;
-              // Redsys: se devuelve en el portal de BBVA y se apunta aquí (solo el dueño).
-              const bankRefund = p.provider === 'REDSYS';
-              const canRefund =
-                (p.status === 'AUTHORIZED' || p.status === 'PARTIALLY_REFUNDED') &&
-                p.availableAmountCents > 0 &&
-                (user.role === 'OWNER' || (!bankRefund && user.role === 'MANAGER'));
-              const canResolve = user.role === 'OWNER' && isStuck(p);
-              return (
-                <>
-                  {canResolve ? (
-                    <Button onClick={() => setResolveFor(p)} size="sm">
-                      Resolver
-                    </Button>
-                  ) : null}
-                  {canRefund ? (
-                    <Button variant="ghost" onClick={() => setRefundFor(p)} size="sm">
-                      {bankRefund ? 'Devolución BBVA' : 'Reembolsar'}
-                    </Button>
-                  ) : null}
-                  {/* Ya hay algo devuelto o reservado (p. ej. una devolución sin confirmar). */}
-                  {p.availableAmountCents < p.amountCents ? (
-                    <Button variant="ghost" onClick={() => setRefundsFor(p)} size="sm">
-                      Devoluciones
-                    </Button>
-                  ) : null}
-                </>
-              );
-            }}
+            actions={(row) => (
+              <CobroRowActions
+                row={row}
+                role={user.role}
+                onReverse={setReverseFor}
+                onResolve={setResolveFor}
+                onRefund={setRefundFor}
+                onRefunds={setRefundsFor}
+              />
+            )}
           />
         </Card>
 
@@ -321,12 +298,6 @@ export function PaymentsPanel({ user, onNavigate, focusPaymentId = null, onFocus
 
 function eurOrDash(cents: number | undefined): string {
   return cents === undefined ? '—' : formatEur(cents);
-}
-
-/** Sin confirmar, o más de 15 min esperando al banco: se puede resolver a mano. */
-function isStuck(p: PaymentRow): boolean {
-  if (p.status === 'ORPHAN') return true;
-  return p.status === 'AUTHORIZING' && Date.now() - Date.parse(p.updatedAt) >= STUCK_AUTHORIZING_MS;
 }
 
 /**

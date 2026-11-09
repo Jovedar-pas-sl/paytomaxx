@@ -4,6 +4,7 @@ import type { CSSProperties, ReactNode } from 'react';
 import { HOME_TOPUP_ORIGIN_LABEL, type CobroRow } from '@nightpay/contracts';
 import { Button } from '@nightpay/ui';
 import { cobroStatus } from '@/lib/cobro-status';
+import { COBRO_ACTION_LABELS, COBRO_ACTION_TITLES } from '@/lib/cobros-help';
 import { formatDateTime } from '@/lib/dates';
 import { formatEur, formatMoney } from '@/lib/money';
 import { paidTwiceNote, sectionChip } from '@/lib/money-map';
@@ -127,7 +128,11 @@ export function CobrosTable({ rows, actions, empty, hidePerson, extra, showRefer
               ) : null}
               {actions ? (
                 <td data-label="Acciones" data-card="actions" style={{ textAlign: 'right' }}>
-                  {onDetails ? <Button type="button" variant="ghost" size="sm" onClick={() => onDetails(row)}>Ver detalle</Button> : null}
+                  {onDetails ? (
+                    <Button type="button" variant="ghost" size="sm" onClick={() => onDetails(row)} title={COBRO_ACTION_TITLES.detail}>
+                      {COBRO_ACTION_LABELS.detail}
+                    </Button>
+                  ) : null}
                   {actions(row)}
                 </td>
               ) : null}

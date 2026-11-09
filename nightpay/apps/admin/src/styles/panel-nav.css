@@ -9,10 +9,56 @@
   --np-filter-fs: 0.875rem;
 }
 
-/* ─── Pestañas (escritorio) ─────────────────────────────────────────
-   Grafito: 40 px, texto t2 y la abierta en t1 con un subrayado de 2 px (lima
-   en oscuro, tinta en claro: la lima sobre el papel no se ve). El color ya no
-   se gasta en navegar. */
+/* ─── Colores del menú (Grafito 2) ──────────────────────────────────
+   El dueño veía el menú apagado. Las secciones que no están abiertas, en t1;
+   la abierta, en lima (es lo elegido). En oscuro, texto lima y subrayado
+   lima de 3 px. En claro la lima no se lee como texto ni como raya fina
+   sobre el papel: va de fondo, con tinta encima y la raya en tinta. Las
+   pestañas de dentro, pastillas: la abierta en lima con tinta. Contraste
+   comprobado (≥ 4,5:1 el texto) en lib/panel-nav-colors.test.ts. */
+
+:root,
+[data-theme='dark'] {
+  --np-nav-ink: var(--np-text);
+  --np-nav-on-ink: var(--np-lime);
+  --np-nav-on-bg: transparent;
+  --np-nav-on-bg-hover: var(--np-surface);
+  --np-nav-on-bar: var(--np-lime);
+  --np-nav-pill-bg: var(--np-surface);
+  --np-nav-pill-bg-hover: var(--np-surface-2);
+  --np-nav-pill-edge: var(--np-border);
+  --np-nav-pill-on-bg: var(--np-lime);
+  --np-nav-pill-on-bg-hover: var(--np-primary-bg-hover);
+  --np-nav-pill-on-ink: var(--np-ink);
+  --np-nav-pill-on-edge: var(--np-lime);
+  /* Barra de abajo: en oscuro, el icono y la etiqueta en lima, sin fondo, y
+     la raya de 3 px arriba. */
+  --np-nav-dock-on-ink: var(--np-lime);
+  --np-nav-dock-on-icon: var(--np-lime);
+  --np-nav-dock-on-bg: transparent;
+  --np-nav-dock-on-edge: transparent;
+  --np-nav-dock-on-bar: var(--np-lime);
+}
+
+[data-theme='light'] {
+  --np-nav-on-ink: var(--np-ink);
+  --np-nav-on-bg: var(--np-lime);
+  --np-nav-on-bg-hover: var(--np-primary-bg-hover);
+  --np-nav-on-bar: var(--np-ink);
+  --np-nav-pill-on-edge: var(--np-ink);
+  /* En claro, una pastilla lima con filete de tinta detrás del icono (como
+     las de dentro) y la etiqueta en tinta; sin la raya, que la tocaba. */
+  --np-nav-dock-on-ink: var(--np-ink);
+  --np-nav-dock-on-icon: var(--np-ink);
+  --np-nav-dock-on-bg: var(--np-lime);
+  --np-nav-dock-on-edge: var(--np-ink);
+  --np-nav-dock-on-bar: transparent;
+}
+
+/* ─── Pestañas de las secciones (escritorio) ────────────────────────
+   40 px; las cerradas en t1 y la abierta en lima con subrayado de 3 px (en
+   claro, la lima de fondo con tinta). Además del color, el subrayado y el
+   600 la marcan. */
 
 .np-tabbar {
   display: flex;
@@ -35,7 +81,7 @@
   border: 0;
   border-radius: var(--np-r-sm) var(--np-r-sm) 0 0;
   background: transparent;
-  color: var(--np-text-mute);
+  color: var(--np-nav-ink);
   font-family: inherit;
   font-size: 1rem;
   font-weight: 500;
@@ -46,11 +92,6 @@
     background var(--np-d-fast);
 }
 
-.np-tabbar[data-size='sm'] .np-tab {
-  padding: 0 0.875rem;
-  font-size: 0.875rem;
-}
-
 /* El subrayado crece desde el centro: también marca la activa sin depender del color. */
 .np-tab::after {
   content: '';
@@ -58,8 +99,9 @@
   left: 0.75rem;
   right: 0.75rem;
   bottom: 0;
-  height: 2px;
-  background: var(--np-accent);
+  height: 3px;
+  border-radius: 2px 2px 0 0;
+  background: var(--np-nav-on-bar);
   transform: scaleX(0);
   transition:
     transform var(--np-d-base) var(--np-ease),
@@ -67,12 +109,17 @@
 }
 
 .np-tab:hover {
-  color: var(--np-text);
   background: var(--np-surface);
 }
 
 .np-tab[aria-selected='true'] {
-  color: var(--np-text);
+  color: var(--np-nav-on-ink);
+  background: var(--np-nav-on-bg);
+  font-weight: 600;
+}
+
+.np-tab[aria-selected='true']:hover {
+  background: var(--np-nav-on-bg-hover);
 }
 
 .np-tab[aria-selected='true']::after {
@@ -88,6 +135,59 @@
   outline: 2px solid var(--np-accent);
   outline-offset: -2px;
   border-radius: var(--np-r-sm);
+}
+
+/* ─── Pestañas de dentro (Cobros, Mapa del dinero, Avisos…): pastillas ──
+   Sobre la superficie con filete; la abierta, lima con tinta (en claro, con
+   un filete de tinta para que se separe del papel). Sin subrayado. */
+
+.np-tabbar[data-size='sm'] {
+  gap: 0.5rem;
+  /* Sitio para el anillo del foco, que va por fuera (la barra recorta). */
+  padding: 3px;
+  margin-left: -3px;
+  margin-right: -3px;
+  border-bottom: 0;
+}
+
+.np-tabbar[data-size='sm'] .np-tab {
+  height: 2.25rem;
+  padding: 0 0.875rem;
+  border-radius: var(--np-r-pill);
+  background: var(--np-nav-pill-bg);
+  box-shadow: inset 0 0 0 1px var(--np-nav-pill-edge);
+  font-size: 0.875rem;
+  transition:
+    color var(--np-d-fast),
+    background var(--np-d-fast),
+    transform var(--np-d-fast) var(--np-ease);
+}
+
+.np-tabbar[data-size='sm'] .np-tab::after {
+  content: none;
+}
+
+.np-tabbar[data-size='sm'] .np-tab:hover {
+  background: var(--np-nav-pill-bg-hover);
+}
+
+.np-tabbar[data-size='sm'] .np-tab[aria-selected='true'] {
+  color: var(--np-nav-pill-on-ink);
+  background: var(--np-nav-pill-on-bg);
+  box-shadow: inset 0 0 0 1px var(--np-nav-pill-on-edge);
+}
+
+.np-tabbar[data-size='sm'] .np-tab[aria-selected='true']:hover {
+  background: var(--np-nav-pill-on-bg-hover);
+}
+
+.np-tabbar[data-size='sm'] .np-tab:active {
+  transform: scale(0.97);
+}
+
+.np-tabbar[data-size='sm'] .np-tab:focus-visible {
+  outline-offset: 1px;
+  border-radius: var(--np-r-pill);
 }
 
 /* ─── Barra de abajo (móvil) ──────────────────────────────────────── */
@@ -118,7 +218,7 @@
   padding: 0.5rem 0.25rem 0.4rem;
   border: 0;
   background: transparent;
-  color: var(--np-text-mute);
+  color: var(--np-nav-ink);
   font-family: inherit;
   font-size: 0.75rem;
   font-weight: 500;
@@ -130,22 +230,34 @@
   transition: transform var(--np-d-fast) var(--np-ease);
 }
 
-/* Marca de la activa: barra de 2 px arriba (no solo color) y etiqueta en t1. */
+/* Marca de la activa (no solo color): en oscuro, raya de 3 px arriba y el
+   icono y la etiqueta en lima; en claro, la pastilla de detrás del icono. */
 .np-bottomnav-item::before {
   content: '';
   position: absolute;
   top: 0;
   left: 28%;
   right: 28%;
-  height: 2px;
-  background: var(--np-accent);
+  height: 3px;
+  border-radius: 0 0 2px 2px;
+  background: var(--np-nav-dock-on-bar);
   transform: scaleX(0);
   transition: transform var(--np-d-base) var(--np-ease);
 }
 
 .np-bottomnav-item[aria-current='page'] {
-  color: var(--np-text);
+  color: var(--np-nav-dock-on-ink);
   font-weight: 600;
+}
+
+.np-bottomnav-item[aria-current='page'] .np-bottomnav-icon {
+  color: var(--np-nav-dock-on-icon);
+}
+
+.np-bottomnav-item[aria-current='page'] .np-bottomnav-icon::after {
+  background: var(--np-nav-dock-on-bg);
+  box-shadow: inset 0 0 0 1px var(--np-nav-dock-on-edge);
+  opacity: 1;
 }
 
 .np-bottomnav-item[aria-current='page']::before {
@@ -165,6 +277,21 @@
 .np-bottomnav-icon {
   position: relative;
   display: inline-flex;
+  /* La pastilla de detrás (::after) queda bajo el icono y el globo. */
+  isolation: isolate;
+}
+
+/* Pastilla detrás del icono de la activa (solo se ve en claro): fuera del
+   flujo, no cambia el alto de la barra. */
+.np-bottomnav-icon::after {
+  content: '';
+  position: absolute;
+  inset: -0.25rem -0.875rem;
+  z-index: -1;
+  border-radius: var(--np-r-pill);
+  background: transparent;
+  opacity: 0;
+  transition: opacity var(--np-d-fast);
 }
 
 .np-bottomnav-badge {
@@ -339,11 +466,14 @@
 
 @media (prefers-reduced-motion: reduce) {
   .np-tab::after,
+  .np-tabbar[data-size='sm'] .np-tab,
   .np-bottomnav-item::before,
+  .np-bottomnav-icon::after,
   .np-bottomnav-item svg {
     transition: none;
   }
 
+  .np-tabbar[data-size='sm'] .np-tab:active,
   .np-bottomnav-item:active svg {
     transform: none;
   }
