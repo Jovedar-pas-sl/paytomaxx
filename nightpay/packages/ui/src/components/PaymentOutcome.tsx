@@ -48,13 +48,8 @@ export interface PaymentOutcomeProps {
   sectionLabel?: (code: string) => string;
   /** «20 €» en vez de «20,00 €» cuando no hay céntimos (como en la pantalla de cobrar). */
   compactAmount?: boolean;
-  /** Referencia del cobro («C-4821»): una pill arriba, junto a la sección. */
+  /** Referencia del cobro («C-4821»): pequeña arriba, junto a la sección. */
   reference?: string | null;
-  /**
-   * La franja de arriba con los colores de las secciones del cobro (CSS, p.
-   * ej. var(--np-sec-copas)), partida por lo cobrado de cada una.
-   */
-  stripe?: ReadonlyArray<{ color: string; weight?: number }> | null;
   /** El botón grande: «Nuevo cobro», «Otro QR · mismo importe»… */
   primary: OutcomeAction;
   secondary?: OutcomeAction;
@@ -78,11 +73,12 @@ const BAND_ITEMS = 8;
 
 /**
  * El resultado de un cobro a pantalla completa, para verlo desde un metro en
- * una sala oscura: PAGADO en el verde de la marca con el aro lima, NO PAGADO
- * en rojo con una cruz, CADUCADO en ámbar, con la palabra y el importe
- * enormes (nunca solo el color). El «hace 0:12» y la franja con la hora que
- * se mueve delatan una captura de pantalla vieja; con «reducir movimiento»,
- * la franja solo se funde.
+ * una sala oscura (Grafito, plano): PAGADO en verde profundo con la marca
+ * lima, NO PAGADO en rojo con una cruz, CADUCADO en ámbar, con la palabra y
+ * el importe grandes (nunca solo el color). El «hace 0:12» y la marquesina
+ * con la hora que se mueve delatan una captura de pantalla vieja; con
+ * «reducir movimiento», la marquesina solo se funde. Los botones, siempre a
+ * la vista (pegados abajo).
  */
 export function PaymentOutcome({
   kind,
@@ -99,7 +95,6 @@ export function PaymentOutcome({
   sectionLabel,
   compactAmount = false,
   reference,
-  stripe,
   primary,
   secondary,
   error,
@@ -134,13 +129,6 @@ export function PaymentOutcome({
 
   return (
     <section className="np-outcome" data-kind={kind} aria-labelledby={titleId}>
-      {stripe && stripe.length > 0 ? (
-        <div className="np-outcome-stripe" aria-hidden="true">
-          {stripe.map((s, i) => (
-            <i key={i} style={{ background: s.color, flex: Math.max(s.weight ?? 1, 1) }} />
-          ))}
-        </div>
-      ) : null}
       <div className="np-outcome-band" aria-hidden="true">
         <div className="np-outcome-band-track">
           {Array.from({ length: BAND_ITEMS * 2 }, (_, i) => (
@@ -153,10 +141,9 @@ export function PaymentOutcome({
         {section || many || reference ? (
           <div className="np-outcome-top">
             {many ? (
-              <span
-                className="np-chip"
-                style={{ background: `linear-gradient(90deg, ${sectionVar(many[0])} 0 50%, ${sectionVar(many[1])} 50%)` }}
-              >
+              // Un punto por sección y sus nombres (el color nunca va solo), sin chip partido.
+              <span className="np-chip" style={{ '--np-c': sectionVar(many[0]) } as CSSProperties}>
+                <i className="np-chip-dot" style={{ background: sectionVar(many[1]) }} aria-hidden="true" />
                 {sectionsChipText(many, sectionLabel)}
               </span>
             ) : section ? (
@@ -166,7 +153,7 @@ export function PaymentOutcome({
           </div>
         ) : null}
         <OutcomeIcon kind={kind} />
-        <h2 id={titleId} className="np-outcome-title" style={fit(title, 0.74)}>
+        <h2 id={titleId} className="np-outcome-title">
           {title}
         </h2>
         <p className="np-outcome-amount" style={fit(amount, 0.58)}>
@@ -201,7 +188,7 @@ export function PaymentOutcome({
   );
 }
 
-/** Tamaño de letra que cabe en el ancho de la pantalla (Manrope 800: ~0,7 em por mayúscula, ~0,55 por cifra). */
+/** Tamaño de letra que cabe en el ancho de la pantalla (Manrope 600 proporcional: ~0,55 em por cifra). */
 function fit(text: string, emPerChar: number): CSSProperties {
   return { '--np-fit': Math.max(4, text.length * emPerChar).toFixed(2) } as CSSProperties;
 }
@@ -239,7 +226,7 @@ const OutcomeButton = forwardRef<HTMLButtonElement, OutcomeButtonProps>(function
   );
 });
 
-/** El aro con el icono: ✓ en lima (pagado), ✗ (rechazado) o un reloj (caducado). */
+/** La marca con el icono, sin halo: ✓ en lima (pagado), ✗ (rechazado) o un reloj (caducado). */
 function OutcomeIcon({ kind }: { kind: OutcomeKind }) {
   return (
     <span className="np-outcome-ring" aria-hidden="true">

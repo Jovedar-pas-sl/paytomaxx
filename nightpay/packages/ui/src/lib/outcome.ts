@@ -11,10 +11,11 @@ export function outcomeKindOf(status: PaymentStatus): OutcomeKind | null {
   return null;
 }
 
+/** La palabra del resultado. Grafito: sin mayúsculas (salvo los códigos). */
 export const OUTCOME_TITLE: Record<OutcomeKind, string> = {
-  paid: 'PAGADO',
-  failed: 'NO PAGADO',
-  expired: 'CADUCADO',
+  paid: 'Pagado',
+  failed: 'No pagado',
+  expired: 'Caducado',
 };
 
 /**

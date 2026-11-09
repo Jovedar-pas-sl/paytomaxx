@@ -1,7 +1,7 @@
 /* Componentes de las apps del personal (operadora y TPV). Importado desde
    styles.css. Movimiento solo con transform/opacity; nada parpadea más de
    3 veces por segundo; con «reducir movimiento» manda la regla de styles.css
-   (salvo la franja del resultado, que pasa a fundido). */
+   (salvo la marquesina del resultado, que pasa a fundido). */
 
 /* Alto de las teclas (importe y PIN) y de la barra de pestañas de abajo: en
    el móvil, según el alto de la pantalla (al final del archivo). */
@@ -17,10 +17,10 @@
 }
 
 /* ─── Resultado a pantalla completa (PaymentOutcome) ─────────────────
-   Como las maquetas: PAGADO en el verde de marca con texto crema y el aro
-   lima con halo; NO PAGADO en rojo entero con tinta y una cruz en un aro
-   oscuro; CADUCADO igual que el rojo, en ámbar. Se entiende desde lejos por
-   el color, el icono y la palabra (nunca solo el color). */
+   Grafito: fondo plano (PAGADO verde profundo, NO PAGADO rojo, CADUCADO
+   ámbar) con texto crema, la marca de 56-64 px sin halo, la palabra 28/600
+   y el importe 56-64/600. Se entiende desde lejos por el color, la marca y
+   la palabra (nunca solo el color). La única lima: la marca del PAGADO. */
 
 .np-outcome {
   position: fixed;
@@ -40,8 +40,6 @@
 .np-outcome[data-kind='paid'] {
   --np-outcome-bg: var(--np-outcome-paid);
   --np-outcome-fg: var(--np-outcome-paid-ink);
-  /* Debajo del degradado, el verde plano. */
-  background-color: var(--np-green-2);
 }
 
 .np-outcome[data-kind='failed'] {
@@ -57,30 +55,25 @@
   to   { opacity: 1; transform: scale(1);    }
 }
 
-/* La franja de las secciones del cobro, arriba del todo (como en las maquetas). */
-.np-outcome-stripe {
-  flex-shrink: 0;
-  display: flex;
-  gap: 2px;
-  height: 0.625rem;
-}
-
-/* Franja con la palabra y la hora, moviéndose despacio (~60 px/s): una
-   captura vieja se queda quieta. */
+/* Marquesina fina con la palabra y la hora, moviéndose despacio (~60 px/s):
+   una captura vieja se queda quieta. Es una función (antifraude), no adorno. */
 .np-outcome-band {
   flex-shrink: 0;
   overflow: hidden;
-  padding: 0.5rem 0;
-  border-bottom: 2px solid color-mix(in srgb, currentColor 35%, transparent);
+  display: flex;
+  align-items: center;
+  height: 1.75rem;
+  background: rgb(0 0 0 / 0.2);
 }
 
 .np-outcome-band-track {
   display: flex;
   width: max-content;
   font-family: var(--np-font-num);
-  font-size: 0.9375rem;
-  font-weight: 800;
-  letter-spacing: 0.08em;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
   white-space: nowrap;
   animation: np-outcome-band 32s linear infinite;
 }
@@ -104,7 +97,7 @@
   width: 100%;
   max-width: 44rem;
   margin: 0 auto;
-  padding: 1rem 1.25rem 1.5rem;
+  padding: 1rem 1rem 0;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -122,6 +115,22 @@
   gap: 0.5rem;
 }
 
+/* Los chips de la sección sobre el color del resultado: velo oscuro y crema. */
+.np-outcome .np-chip {
+  background: rgb(0 0 0 / 0.24);
+  color: inherit;
+  font-size: 0.875rem;
+}
+
+/* El segundo punto del chip de dos secciones («Copas + Comida»). */
+.np-chip-dot {
+  flex: none;
+  width: 0.5rem;
+  height: 0.5rem;
+  margin-left: -0.125rem;
+  border-radius: var(--np-r-pill);
+}
+
 /* La referencia del cobro («C-0023»), pequeña: lo que se compara a un metro
    es el código corto, más abajo (decisión D7). */
 .np-outcome-ref {
@@ -129,29 +138,23 @@
   align-items: center;
   min-height: 1.75rem;
   padding: 0 0.625rem;
-  border: 1px solid color-mix(in srgb, currentColor 60%, transparent);
-  border-radius: var(--np-r-pill);
+  border: 1px solid color-mix(in srgb, currentColor 55%, transparent);
+  border-radius: var(--np-r-xs);
   font-family: var(--np-font-num);
   font-size: 0.875rem;
-  font-weight: 800;
+  font-weight: 600;
   letter-spacing: 0.04em;
   font-variant-numeric: tabular-nums;
 }
 
-.np-outcome[data-kind='failed'] .np-chip,
-.np-outcome[data-kind='expired'] .np-chip {
-  box-shadow: 0 0 0 2px var(--np-outcome-ink);
-}
-
-/* El aro: lima con halo en PAGADO; oscuro con el color del fondo dentro en
-   NO PAGADO y CADUCADO. */
+/* La marca, sin halo: lima con tinta en PAGADO; crema con el color del
+   fondo dentro en NO PAGADO y CADUCADO. 56-64 px según el alto. */
 .np-outcome-ring {
   display: grid;
   place-items: center;
   flex-shrink: 0;
-  width: clamp(5.5rem, 15vh, 7.375rem);
-  height: clamp(5.5rem, 15vh, 7.375rem);
-  margin-block: 0.5rem;
+  width: clamp(3.5rem, 8vh, 4rem);
+  height: clamp(3.5rem, 8vh, 4rem);
   border-radius: 50%;
   background: var(--np-outcome-ink);
 }
@@ -167,19 +170,16 @@
 .np-outcome[data-kind='paid'] .np-outcome-ring {
   background: var(--np-lime);
   color: var(--np-ink);
-  box-shadow:
-    0 0 0 10px var(--np-lime-ring),
-    0 0 60px 10px var(--np-lime-glow);
 }
 
 .np-outcome-icon {
-  width: 53%;
-  height: 53%;
+  width: 56%;
+  height: 56%;
 }
 
 /* ─── El momento PAGADO (decisión D10) ───────────────────────────────
    Una vez, al llegar: un destello verde de toda la pantalla (sube y baja en
-   0,42 s; nunca más de uno), el aro que salta y la marca que se dibuja.
+   0,42 s; nunca más de uno), la marca que salta y que se dibuja.
    Con «reducir movimiento», nada de eso: el estado final, quieto (abajo). */
 .np-outcome[data-kind='paid']::after {
   content: '';
@@ -219,51 +219,51 @@
   to   { stroke-dashoffset: 0; }
 }
 
-/* --np-fit: ancho del texto en em (lo pone el componente): la letra se
-   ajusta para que quepa en una línea. Palabra ~50 px y cifra ~84 px en un
-   móvil de 360×740, como las maquetas. */
+/* La palabra: 28/600 (cabe siempre en una línea). */
 .np-outcome-title {
   margin: 0;
   font-family: var(--np-font-display);
-  font-weight: 800;
-  line-height: 1;
-  letter-spacing: 0.01em;
-  font-size: 2.75rem;
-  font-size: min(clamp(2.75rem, 7vh, 5.5rem), calc(80vw / var(--np-fit, 6)));
+  font-size: 1.75rem;
+  font-weight: 600;
+  line-height: 1.15;
+  letter-spacing: 0;
 }
 
+/* El importe: 56-64/600 en cifras proporcionales (las tabulares dejan
+   huecos a este tamaño). --np-fit: ancho del texto en em (lo pone el
+   componente): la letra baja para que quepa en una línea. */
 .np-outcome-amount {
   margin: 0;
   font-family: var(--np-font-num);
-  font-weight: 800;
+  font-weight: 600;
   line-height: 1;
-  letter-spacing: -0.04em;
-  font-variant-numeric: tabular-nums;
-  font-size: 3rem;
-  font-size: min(clamp(3.25rem, 11.5vh, 9rem), calc(88vw / var(--np-fit, 6)));
+  letter-spacing: 0;
+  font-variant-numeric: proportional-nums;
+  font-size: 3.5rem;
+  font-size: min(clamp(3.5rem, 9vh, 4rem), calc(88vw / var(--np-fit, 6)));
 }
 
 .np-outcome-message {
   margin: 0;
-  font-size: 1.25rem;
-  font-weight: 700;
-  line-height: 1.3;
+  font-size: 1.125rem;
+  font-weight: 500;
+  line-height: 1.35;
 }
 
-/* NO PAGADO / CADUCADO: la razón en un recuadro con borde de tinta. */
+/* NO PAGADO / CADUCADO: la razón en un recuadro con filete crema. */
 .np-outcome[data-kind='failed'] .np-outcome-message,
 .np-outcome[data-kind='expired'] .np-outcome-message {
   width: 100%;
   max-width: 26rem;
   padding: 0.75rem 1rem;
-  border: 2px solid var(--np-outcome-ink);
-  border-radius: var(--np-r-tile);
+  border: 1px solid color-mix(in srgb, var(--np-outcome-ink) 70%, transparent);
+  border-radius: var(--np-r-md);
 }
 
 .np-outcome-detail {
-  font-size: 1.125rem;
-  font-weight: 600;
-  line-height: 1.35;
+  font-size: 1rem;
+  font-weight: 500;
+  line-height: 1.4;
 }
 
 .np-outcome-detail p {
@@ -273,58 +273,48 @@
 .np-outcome-detail b,
 .np-outcome-detail strong {
   font-family: var(--np-font-num);
-  font-weight: 800;
+  font-weight: 600;
 }
 
-/* «Le quedan 30 €»: la cifra en lima sobre el verde (6,5:1). */
-.np-outcome[data-kind='paid'] .np-outcome-detail b,
-.np-outcome[data-kind='paid'] .np-outcome-detail strong {
-  color: var(--np-lime);
-}
-
+/* El código corto en una placa crema (la misma idea que ve el cliente): se
+   compara con el de su móvil a un metro. */
 .np-outcome-code {
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 0.125rem;
-  padding: 0.625rem 1.5rem 0.75rem;
-  border: 2px solid currentColor;
-  border-radius: var(--np-r-tile);
-}
-
-.np-outcome[data-kind='paid'] .np-outcome-code {
-  border-color: var(--np-lime-edge);
-  background: rgb(0 0 0 / 0.24);
+  padding: 0.5rem 1.5rem 0.625rem;
+  border-radius: var(--np-r-md);
+  background: var(--np-outcome-ink);
+  color: var(--np-ink-0);
 }
 
 .np-outcome-code-label {
-  font-size: var(--np-t-label);
-  font-weight: 700;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
+  font-size: 0.875rem;
+  font-weight: 500;
 }
 
 /* ≥ 3rem: se compara con el del móvil del cliente a un metro. */
 .np-outcome-code-value {
   font-family: var(--np-font-num);
-  font-size: 3.25rem;
-  font-weight: 800;
+  font-size: 3rem;
+  font-weight: 700;
   line-height: 1.1;
-  letter-spacing: 0.18em;
-  margin-right: -0.18em;
+  letter-spacing: 0.14em;
+  margin-right: -0.14em;
   font-variant-numeric: tabular-nums;
 }
 
 .np-outcome-code-hint {
-  font-size: 0.9375rem;
-  font-weight: 600;
+  font-size: 0.875rem;
+  font-weight: 500;
 }
 
 .np-outcome-ago {
   margin: 0;
   font-family: var(--np-font-num);
-  font-size: 1.0625rem;
-  font-weight: 800;
+  font-size: 0.875rem;
+  font-weight: 600;
   font-variant-numeric: tabular-nums;
 }
 
@@ -334,54 +324,56 @@
   border-radius: var(--np-r-md);
   background: var(--np-ink-0);
   color: var(--np-cream);
-  font-weight: 600;
+  font-size: 0.875rem;
+  font-weight: 500;
 }
 
+/* Los botones, pegados abajo: a la vista también en un móvil de 360 × 740
+   aunque el detalle sea largo (el resto pasa por debajo, del mismo color). */
 .np-outcome-actions {
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
   width: 100%;
   max-width: 26rem;
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
-  margin-top: 0.5rem;
+  margin-top: 0.25rem;
+  padding: 0.5rem 0 1rem;
+  background: var(--np-outcome-bg);
 }
 
-/* Botón principal: pill lima con tinta en PAGADO; pill oscura en NO PAGADO
-   y CADUCADO. El segundo, un enlace subrayado (con alto de dedo). */
+/* Un solo tipo de botón: principal crema con tinta (56 px) y secundario con
+   filete de 1 px (48 px), radio 14. La lima, solo en la marca del PAGADO. */
 .np-outcome-btn {
-  min-height: 4rem;
+  min-height: 3.5rem;
   padding: 0.5rem 1.5rem;
   border: none;
-  border-radius: var(--np-r-pill);
+  border-radius: var(--np-r-md);
   font-family: var(--np-font-sans);
-  font-size: 1.1875rem;
-  font-weight: 700;
+  font-size: 1.0625rem;
+  font-weight: 600;
   line-height: 1.2;
   touch-action: manipulation;
   -webkit-tap-highlight-color: transparent;
   transition:
     transform var(--np-d-fast) var(--np-ease),
-    opacity var(--np-d-fast);
+    background var(--np-d-fast);
 }
 
 .np-outcome-btn[data-variant='primary'] {
-  background: var(--np-ink-0);
-  color: var(--np-cream);
-}
-
-.np-outcome[data-kind='paid'] .np-outcome-btn[data-variant='primary'] {
-  background: var(--np-lime);
-  color: var(--np-ink);
-  box-shadow: 0 10px 28px -12px var(--np-lime-glow);
+  background: var(--np-outcome-ink);
+  color: var(--np-ink-0);
 }
 
 .np-outcome-btn[data-variant='secondary'] {
   min-height: 3rem;
   background: transparent;
   color: inherit;
-  font-size: 1.0625rem;
-  text-decoration: underline;
-  text-underline-offset: 0.25em;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, currentColor 60%, transparent);
+  font-size: 1rem;
+  font-weight: 500;
 }
 
 /* Solo con ratón: en el móvil el :hover se queda pegado tras tocar. */
@@ -405,24 +397,25 @@
 }
 
 .np-outcome-btn:active:not(:disabled) {
-  transform: scale(0.97);
+  transform: scale(0.98);
 }
 
+/* Esperando al servidor («Un momento…»): el mismo botón, sin opacidad. El
+   secundario sin poder pulsarse, con el texto y el filete apagados. */
 .np-outcome-btn:disabled {
-  opacity: 0.6;
   cursor: progress;
 }
 
-/* El anillo lima de :focus-visible no se ve sobre lima ni sobre el rojo:
-   aquí, el color del texto de la pantalla. */
-.np-outcome-btn:focus-visible {
-  outline: 4px solid currentColor;
-  outline-offset: 4px;
-  border-radius: var(--np-r-pill);
+.np-outcome-btn[data-variant='secondary']:disabled {
+  color: color-mix(in srgb, currentColor 65%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, currentColor 30%, transparent);
 }
 
-.np-outcome .np-outcome-btn[data-variant='primary']:focus-visible {
-  outline-color: var(--np-outcome-fg, var(--np-outcome-ink));
+/* El anillo lima de :focus-visible no se ve sobre el rojo: aquí, crema. */
+.np-outcome-btn:focus-visible {
+  outline: 2px solid var(--np-outcome-ink);
+  outline-offset: 3px;
+  border-radius: var(--np-r-md);
 }
 
 /* ─── Aviso de conexión (ConnectionBanner) ───────────────────────────── */
@@ -433,10 +426,11 @@
   z-index: 60;
 }
 
+/* Ámbar con tinta; sin sombra (Grafito: solo las de la hoja y el diálogo). */
 .np-conn-banner[data-open='true'] {
   background: var(--np-banner-bg);
   color: var(--np-banner-ink);
-  box-shadow: 0 8px 20px rgb(0 0 0 / 0.35);
+  border-bottom: 1px solid rgb(0 0 0 / 0.25);
 }
 
 .np-conn-banner-inner {
@@ -458,14 +452,14 @@
 
 .np-conn-banner-title {
   margin: 0;
-  font-size: 1.0625rem;
-  font-weight: 700;
+  font-size: 1rem;
+  font-weight: 600;
   line-height: 1.3;
 }
 
 .np-conn-banner-hint {
   margin: 0.125rem 0 0;
-  font-size: 0.9375rem;
+  font-size: 0.875rem;
   font-weight: 500;
   line-height: 1.35;
 }
@@ -497,18 +491,16 @@
 
 .np-keypad-label {
   font-size: var(--np-t-label);
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  font-weight: 500;
   color: var(--np-text-label);
 }
 
+/* Importe grande y suelto: Manrope 600 en cifras proporcionales. */
 .np-keypad-amount {
   font-family: var(--np-font-num);
-  font-weight: 800;
-  letter-spacing: -0.02em;
+  font-weight: 600;
   line-height: 1.15;
-  font-variant-numeric: tabular-nums;
+  font-variant-numeric: proportional-nums;
   color: var(--np-text);
   font-size: 2.25rem;
   font-size: min(3rem, calc(92cqi / var(--np-fit, 6)));
@@ -537,7 +529,7 @@
   color: var(--np-text);
   font-family: var(--np-font-num);
   font-size: 1.625rem;
-  font-weight: 800;
+  font-weight: 600;
   font-variant-numeric: tabular-nums;
   touch-action: manipulation;
   -webkit-tap-highlight-color: transparent;
@@ -560,12 +552,14 @@
 
 .np-keypad-key:active:not(:disabled) {
   transform: scale(0.95);
-  background: var(--np-border);
-  border-color: var(--np-accent);
+  background: var(--np-surface-3);
+  border-color: var(--np-border-hi);
 }
 
+/* Sin opacidad (a oscuras, una tecla translúcida parece rota). */
 .np-keypad-key:disabled {
-  opacity: 0.4;
+  color: var(--np-disabled-ink);
+  border-color: var(--np-disabled-edge);
   cursor: not-allowed;
 }
 
@@ -597,16 +591,16 @@
 }
 
 .np-qrcd-track {
-  height: 0.5rem;
+  height: 0.25rem;
   overflow: hidden;
-  border-radius: var(--np-r-pill);
-  border: 1px solid var(--np-border);
-  background: var(--np-surface-2);
+  border-radius: 2px;
+  background: var(--np-surface-3);
 }
 
+/* Neutra: la lima es del botón de la pantalla, no de la cuenta atrás. */
 .np-qrcd-fill {
   height: 100%;
-  background: var(--np-accent);
+  background: var(--np-text-mute);
   transform-origin: left center;
   transition: transform 1s linear;
 }
@@ -618,32 +612,32 @@
 .np-qrcd-label {
   margin: 0;
   text-align: center;
-  font-size: 0.9375rem;
-  font-weight: 600;
+  font-size: 0.875rem;
+  font-weight: 500;
   font-variant-numeric: tabular-nums;
   color: var(--np-text-mute);
 }
 
 .np-qrcd[data-phase='ending'] .np-qrcd-label {
   color: var(--np-warning);
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .np-qrcd[data-phase='over'] .np-qrcd-label {
-  color: var(--np-danger);
-  font-weight: 700;
+  color: var(--np-danger-text);
+  font-weight: 600;
 }
 
 /* ─── Selector de modo y botón fijo abajo ────────────────────────────── */
 
-/* Como las maquetas: una pill con la opción elegida en crema (tinta en
+/* Conmutador de 44 px y radio 10, con la opción elegida en crema (tinta en
    claro); el lima queda para el botón de cobrar. */
 .np-seg {
   display: flex;
   gap: 0.25rem;
   padding: 0.25rem;
   border: 1px solid var(--np-border);
-  border-radius: var(--np-r-pill);
+  border-radius: var(--np-r-md);
   background: var(--np-surface-2);
 }
 
@@ -652,12 +646,11 @@
   min-height: 2.75rem;
   padding: 0.375rem 0.5rem;
   border: none;
-  border-radius: var(--np-r-pill);
+  border-radius: var(--np-r-sm);
   background: transparent;
   color: var(--np-text-mute);
   font-size: 1rem;
-  font-weight: 700;
-  letter-spacing: 0.01em;
+  font-weight: 500;
   white-space: nowrap;
   touch-action: manipulation;
   -webkit-tap-highlight-color: transparent;
@@ -670,6 +663,7 @@
 .np-seg-btn[aria-pressed='true'] {
   background: var(--np-text);
   color: var(--np-bg);
+  font-weight: 600;
 }
 
 .np-seg-btn:hover:not([aria-pressed='true']) {
@@ -778,8 +772,8 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  /* El momento PAGADO, sin destello ni animación: el aro y la marca, ya en su
-     sitio (el estado final). */
+  /* El momento PAGADO, sin destello ni animación: la marca, ya en su sitio
+     (el estado final). */
   .np-outcome[data-kind='paid']::after {
     display: none;
   }
@@ -789,7 +783,7 @@
     animation: none !important;
   }
 
-  /* La franja no se desplaza: se funde despacio (un ciclo cada 5 s). Gana a
+  /* La marquesina no se desplaza: se funde despacio (un ciclo cada 5 s). Gana a
      la regla general de styles.css, que mata todas las animaciones. */
   .np-outcome-band-track {
     animation-name: np-outcome-band-fade !important;
