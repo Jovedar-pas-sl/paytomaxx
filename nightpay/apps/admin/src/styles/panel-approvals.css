@@ -157,13 +157,13 @@
   margin-left: 0.4rem;
   padding: 0 0.3rem;
   border-radius: var(--np-r-pill);
-  background: var(--np-accent);
-  color: var(--np-on-accent);
+  /* Contador neutro (fondo t1): la lima es para actuar, no para navegar. */
+  background: var(--np-text);
+  color: var(--np-bg);
   font-family: var(--np-font-mono);
-  font-size: 0.6875rem;
-  font-weight: 700;
+  font-size: 0.75rem;
+  font-weight: 600;
   line-height: 1;
-  vertical-align: 0.1em;
 }
 
 @media (max-width: 640px) {

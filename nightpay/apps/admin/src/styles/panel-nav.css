@@ -4,9 +4,15 @@
 
 :root {
   --np-panel-nav-h: 4.25rem;
+  /* Campos de los filtros (lib/filter-field.ts): 36 px, como los botones `sm`. */
+  --np-filter-h: 2.25rem;
+  --np-filter-fs: 0.875rem;
 }
 
-/* ─── Pestañas (escritorio) ───────────────────────────────────────── */
+/* ─── Pestañas (escritorio) ─────────────────────────────────────────
+   Grafito: 40 px, texto t2 y la abierta en t1 con un subrayado de 2 px (lima
+   en oscuro, tinta en claro: la lima sobre el papel no se ve). El color ya no
+   se gasta en navegar. */
 
 .np-tabbar {
   display: flex;
@@ -21,15 +27,18 @@
 
 .np-tab {
   position: relative;
+  display: inline-flex;
+  align-items: center;
   flex: 0 0 auto;
-  padding: 0.75rem 1.125rem;
+  height: 2.5rem;
+  padding: 0 1rem;
   border: 0;
   border-radius: var(--np-r-sm) var(--np-r-sm) 0 0;
   background: transparent;
   color: var(--np-text-mute);
   font-family: inherit;
-  font-size: 0.95rem;
-  font-weight: 600;
+  font-size: 1rem;
+  font-weight: 500;
   white-space: nowrap;
   cursor: pointer;
   transition:
@@ -38,7 +47,7 @@
 }
 
 .np-tabbar[data-size='sm'] .np-tab {
-  padding: 0.5rem 0.875rem;
+  padding: 0 0.875rem;
   font-size: 0.875rem;
 }
 
@@ -49,8 +58,7 @@
   left: 0.75rem;
   right: 0.75rem;
   bottom: 0;
-  height: 3px;
-  border-radius: 3px 3px 0 0;
+  height: 2px;
   background: var(--np-accent);
   transform: scaleX(0);
   transition:
@@ -63,13 +71,8 @@
   background: var(--np-surface);
 }
 
-.np-tab:hover::after {
-  transform: scaleX(0.3);
-  opacity: 0.5;
-}
-
 .np-tab[aria-selected='true'] {
-  color: var(--np-accent);
+  color: var(--np-text);
 }
 
 .np-tab[aria-selected='true']::after {
@@ -118,8 +121,7 @@
   color: var(--np-text-mute);
   font-family: inherit;
   font-size: 0.6875rem;
-  font-weight: 600;
-  letter-spacing: 0.02em;
+  font-weight: 500;
   -webkit-tap-highlight-color: transparent;
   transition: color var(--np-d-fast);
 }
@@ -128,23 +130,22 @@
   transition: transform var(--np-d-fast) var(--np-ease);
 }
 
-/* Marca de la activa: barra arriba (no solo color) y etiqueta en negrita. */
+/* Marca de la activa: barra de 2 px arriba (no solo color) y etiqueta en t1. */
 .np-bottomnav-item::before {
   content: '';
   position: absolute;
   top: 0;
   left: 28%;
   right: 28%;
-  height: 3px;
-  border-radius: 0 0 3px 3px;
+  height: 2px;
   background: var(--np-accent);
   transform: scaleX(0);
   transition: transform var(--np-d-base) var(--np-ease);
 }
 
 .np-bottomnav-item[aria-current='page'] {
-  color: var(--np-accent);
-  font-weight: 800;
+  color: var(--np-text);
+  font-weight: 600;
 }
 
 .np-bottomnav-item[aria-current='page']::before {
@@ -175,11 +176,12 @@
   padding: 0 0.3rem;
   border: 2px solid var(--np-bg);
   border-radius: var(--np-r-pill);
-  background: var(--np-accent);
-  color: var(--np-on-accent);
+  /* Contador neutro (fondo t1): la lima es para actuar, no para avisar. */
+  background: var(--np-text);
+  color: var(--np-bg);
   font-family: var(--np-font-mono);
-  font-size: 0.625rem;
-  font-weight: 700;
+  font-size: 0.6875rem;
+  font-weight: 600;
   line-height: 1;
   display: inline-flex;
   align-items: center;
@@ -255,6 +257,9 @@
   /* La barra de abajo, según el alto de la pantalla (44 px de toque como poco). */
   :root {
     --np-panel-nav-h: clamp(3.5rem, 8vh, 4.25rem);
+    /* Con el dedo, 44 px; y 16 px de letra o el iPhone amplía al tocar. */
+    --np-filter-h: 2.75rem;
+    --np-filter-fs: 1rem;
   }
 
   .np-bottomnav-item {
@@ -263,6 +268,11 @@
 
   /* Pestañas de dentro de una sección: 44 px de alto, se tocan bien con el dedo. */
   .np-tab {
+    min-height: 2.75rem;
+  }
+
+  /* Los botones pequeños del escritorio (36 px), a 44 con el dedo. */
+  .np-btn[data-size='sm'] {
     min-height: 2.75rem;
   }
 
@@ -315,9 +325,9 @@
     bottom: 0;
     z-index: 50;
     padding: 0 env(safe-area-inset-right, 0px) env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px);
+    /* Solo el filete: Grafito deja las sombras para hojas y diálogos. */
     border-top: 1px solid var(--np-border);
     background: var(--np-bg);
-    box-shadow: 0 -12px 32px rgb(0 0 0 / 0.35);
   }
 }
 

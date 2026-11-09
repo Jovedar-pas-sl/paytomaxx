@@ -91,26 +91,26 @@ const wrapperStyle: CSSProperties = {
 };
 
 const labelStyle: CSSProperties = {
-  fontSize: '0.65rem',
-  letterSpacing: '0.1em',
-  textTransform: 'uppercase',
+  fontSize: '0.75rem',
   color: 'var(--np-text-dim)',
   fontWeight: 500,
 };
 
+// Campo del panel: 36 px, radio 10 y filete de lo que se toca.
 const selectStyle: CSSProperties = {
-  padding: '0.4rem 0.6rem',
-  borderRadius: '0.4rem',
-  border: '1px solid var(--np-border)',
-  background: 'var(--np-bg-input, var(--np-surface))',
+  height: '2.25rem',
+  padding: '0 0.75rem',
+  borderRadius: 'var(--np-r-sm)',
+  border: '1px solid var(--np-border-hi)',
+  background: 'var(--np-surface)',
   color: 'var(--np-text)',
-  fontSize: '0.85rem',
+  fontSize: '0.875rem',
   fontWeight: 500,
   cursor: 'pointer',
 };
 
 const errStyle: CSSProperties = {
   margin: 0,
-  fontSize: '0.7rem',
-  color: 'var(--np-danger)',
+  fontSize: '0.75rem',
+  color: 'var(--np-danger-text)',
 };
