@@ -365,7 +365,7 @@ function ClosedResult({ night, onDone }: { night: NightView; onDone: () => void 
       {night.pendingAtClose > 0 ? (
         <Notice tone="warning">
           {night.pendingAtClose === 1 ? 'Quedó 1 cobro' : `Quedaron ${night.pendingAtClose} cobros`} sin terminar: sale en
-          Incidencias hasta que se resuelva.
+          Avisos hasta que se resuelva.
         </Notice>
       ) : null}
       <Button onClick={onDone}>Volver a Noches</Button>
@@ -401,7 +401,8 @@ function StatusIcon({ status }: { status: NightCloseStep['status'] }) {
 
 /**
  * Pantalla encima del panel: foco en el título al abrir, Esc para volver,
- * sin scroll de fondo, y el foco vuelve a donde estaba al cerrarla.
+ * sin scroll de fondo, el resto del panel inerte (Tab no sale de la
+ * pantalla, P-4) y el foco vuelve a donde estaba al cerrarla.
  */
 function useModalScreen(headingRef: RefObject<HTMLHeadingElement | null>, onEscape: () => void): void {
   const escape = useRef(onEscape);
@@ -409,6 +410,12 @@ function useModalScreen(headingRef: RefObject<HTMLHeadingElement | null>, onEsca
   useEffect(() => {
     const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     headingRef.current?.focus();
+    // Lo de fuera de la pantalla (va en un portal, hija de <body>): inerte mientras está abierta.
+    const dialog = headingRef.current?.closest('[role="dialog"]') ?? null;
+    const outside = dialog
+      ? Array.from(document.body.children).filter((el): el is HTMLElement => el instanceof HTMLElement && !el.contains(dialog) && !el.inert)
+      : [];
+    for (const el of outside) el.inert = true;
     const overflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
     function onKeyDown(e: KeyboardEvent) {
@@ -421,6 +428,7 @@ function useModalScreen(headingRef: RefObject<HTMLHeadingElement | null>, onEsca
     return () => {
       document.removeEventListener('keydown', onKeyDown);
       document.body.style.overflow = overflow;
+      for (const el of outside) el.inert = false;
       if (previous?.isConnected) previous.focus();
     };
   }, [headingRef]);

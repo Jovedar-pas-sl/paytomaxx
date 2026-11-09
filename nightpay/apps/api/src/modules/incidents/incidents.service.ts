@@ -430,7 +430,7 @@ export class IncidentsService {
     input: { kind: IncidentKind; refId: string; note?: string },
   ): Promise<void> {
     if (SELF_RESOLVING.has(input.kind)) {
-      throw new BadRequestException('Este aviso se quita solo al resolver el cobro en Pagos');
+      throw new BadRequestException('Este aviso se quita solo al resolver el cobro en Hoy → Cobros');
     }
     const current = await this.list(tenantId);
     if (!current.some((i) => i.kind === input.kind && i.refId === input.refId)) {

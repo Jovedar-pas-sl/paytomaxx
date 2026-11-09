@@ -192,8 +192,9 @@ export function PaymentsPanel({ user, onNavigate, focusPaymentId = null, onFocus
           </>
         )}
         <MetricTile title="Hoy · reembolsos" value={eurOrDash(metrics?.today.refundedCents)} />
-        <MetricTile title="Hoy · neto" value={eurOrDash(metrics?.today.netCents)} />
-        <MetricTile title="Semana · neto" value={eurOrDash(metrics?.week.netCents)} />
+        {/* El neto resta también el saldo devuelto en efectivo, que no sale en «reembolsos»: su cuenta, a la vista (P-12). */}
+        <MetricTile title="Hoy · neto" value={eurOrDash(metrics?.today.netCents)} note={NET_NOTE} />
+        <MetricTile title="Semana · neto" value={eurOrDash(metrics?.week.netCents)} note={NET_NOTE} />
       </section>
 
       <section ref={listRef} style={{ display: 'flex', flexDirection: 'column', gap: '1rem', scrollMarginTop: '0.75rem', minWidth: 0 }}>
@@ -304,6 +305,9 @@ function eurOrDash(cents: number | undefined): string {
  * Una cifra del día, en el color del texto (el lima es para la acción y el
  * «pagado»). Sin tarjeta: una fila de cifras con filetes (panel-tonight.css).
  */
+/** Cómo sale el neto (period-totals.ts del API: cobrado − devoluciones − saldo devuelto en efectivo). */
+const NET_NOTE = 'Cobrado − reembolsos − saldo devuelto en efectivo';
+
 function MetricTile({ title, value, note }: { title: string; value: string; note?: string }) {
   return (
     <div className="np-metric">

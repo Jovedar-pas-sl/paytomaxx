@@ -13,7 +13,7 @@ interface KindMeta {
   title: string;
   /** Pestaña donde se arregla (null: fuera del panel). */
   tab: TabKey | null;
-  /** Se arregla en el propio cobro (Pagos → Devoluciones → Resolver): «Abrir cobro». */
+  /** Se arregla en el propio cobro (Hoy → Cobros → Devoluciones → Resolver): «Abrir cobro». */
   opensPayment?: boolean;
   /** Cómo se arregla, en una línea (debajo de los botones). */
   hint?: string;
@@ -41,7 +41,7 @@ export const INCIDENT_KINDS: Record<IncidentKind, KindMeta> = {
     group: 'Datáfono',
     title: 'Ventas del datáfono sin comprobar',
     tab: 'payments',
-    hint: 'Se confirman en Pagos → Resolver con el código de autorización.',
+    hint: 'Se confirman en Hoy → Cobros → Resolver con el código de autorización.',
   },
   pos_reception_limit: {
     group: 'Datáfono',

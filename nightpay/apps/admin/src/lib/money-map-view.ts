@@ -239,7 +239,7 @@ export function moneyMapView(m: MoneyMap, sections: readonly VenueSection[]): Mo
           color: 'var(--np-mm-personal)',
         },
         // No es el saldo de los clientes: lo que el periodo sumó o restó a ese saldo.
-        { key: 'saldo', label: 'Variación del saldo del periodo', cents: m.where.owners.saldoCents, color: 'var(--np-mm-saldo)' },
+        { key: 'saldo', label: 'Saldo nuevo de clientes (estas fechas)', cents: m.where.owners.saldoCents, color: 'var(--np-mm-saldo)' },
         // Salió o saldrá del banco, aunque Banco enseñe lo cobrado.
         ...(m.where.owners.paidOutCents
           ? [{ key: 'paid', label: 'Ya pagado al personal por banco', cents: m.where.owners.paidOutCents, color: 'var(--np-mm-personal)' }]

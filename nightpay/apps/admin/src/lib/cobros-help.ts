@@ -35,8 +35,8 @@ export const COBROS_COLUMNS_HELP: readonly HelpItem[] = [
   { term: 'Importe', text: 'Lo cobrado. Debajo, si las hubo, la propina y la comisión del servicio que pagó el cliente encima.' },
   { term: 'Estado', text: 'En qué punto está el cobro (lo que significa cada uno, en esta ayuda).' },
   {
-    term: 'Chica',
-    text: 'Quién cobró; toca el nombre de la chica para abrir su ficha. «Desde casa»: lo cargó el cliente con el enlace del local, antes de llegar.',
+    term: 'Quién cobró',
+    text: 'Quién hizo el cobro; toca su nombre para abrir su ficha. «Desde casa»: lo cargó el cliente con el enlace del local, antes de llegar.',
   },
   {
     term: 'Sección',

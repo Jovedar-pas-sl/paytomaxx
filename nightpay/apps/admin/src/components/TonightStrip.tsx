@@ -122,20 +122,20 @@ export function TonightStrip({
           <dd>{night ? night.count : '—'}</dd>
         </div>
         <div className="np-tonight-fig">
-          <dt>Pendiente a chicas</dt>
+          {/* «A pagar ya»: lo que se les debe ahora; lo de esta noche sale en el Mapa del dinero
+              («Pago a chicas · al cerrar»). Antes las dos cifras parecían la misma (P-11). */}
+          <dt>A pagar ya a chicas</dt>
           <dd>{pending ? formatEur(pending.pendingCents) : '—'}</dd>
           {pending && pending.operatorCount > 0 ? (
-            <span className="np-tonight-note">
-              a pagar ya · {pending.operatorCount === 1 ? '1 chica' : `${pending.operatorCount} chicas`}
-            </span>
+            <span className="np-tonight-note">{pending.operatorCount === 1 ? '1 chica' : `${pending.operatorCount} chicas`}</span>
           ) : null}
         </div>
         <div className="np-tonight-fig">
-          <dt>Incidencias abiertas</dt>
+          <dt>Avisos abiertos</dt>
           <dd>{openCount ?? '—'}</dd>
           {openCount && onNavigate ? (
             <button type="button" className="np-tonight-link" onClick={() => onNavigate('incidents')}>
-              Ver incidencias
+              Ver avisos
             </button>
           ) : openCount === 0 ? (
             <span className="np-tonight-note">Todo en orden</span>

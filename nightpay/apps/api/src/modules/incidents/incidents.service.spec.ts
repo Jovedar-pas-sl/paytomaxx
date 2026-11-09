@@ -550,7 +550,7 @@ describe('alertas por Telegram', () => {
       kind: 'stuck_payment',
       refId: 'pay-1',
       title: 'Cobro sin confirmar por el banco',
-      detail: '38,30 €. Búscalo en el portal de BBVA y resuélvelo en Pagos → Resolver.',
+      detail: '38,30 €. Búscalo en el portal de BBVA y resuélvelo en Hoy → Cobros → Resolver.',
       occurredAt: '2026-10-13T22:00:00.000Z',
       amountCents: 3_830,
       paymentId: 'pay-1',

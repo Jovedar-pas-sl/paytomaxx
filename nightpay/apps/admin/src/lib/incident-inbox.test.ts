@@ -136,9 +136,9 @@ describe('resolvedToday / recordResolved', () => {
 });
 
 describe('incidencias nuevas del datáfono', () => {
-  it('ventas sin comprobar: en Pagos, con el código de autorización', () => {
+  it('ventas sin comprobar: en Hoy → Cobros, con el código de autorización', () => {
     expect(INCIDENT_KINDS.pos_unproven_sales).toMatchObject({ group: 'Datáfono', title: 'Ventas del datáfono sin comprobar', tab: 'payments' });
-    expect(incidentHint('pos_unproven_sales', true)).toBe('Se confirman en Pagos → Resolver con el código de autorización.');
+    expect(incidentHint('pos_unproven_sales', true)).toBe('Se confirman en Hoy → Cobros → Resolver con el código de autorización.');
   });
 
   it('tope de recepción: en Datáfonos', () => {

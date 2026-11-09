@@ -49,7 +49,7 @@ export function CobrosTable({ rows, actions, empty, hidePerson, extra, showRefer
             {showReferences ? <><th>Código</th><th>Ref. banco</th></> : null}
             <th style={{ textAlign: 'right' }}>Importe</th>
             <th>Estado</th>
-            {hidePerson ? null : <th>Chica</th>}
+            {hidePerson ? null : <th>Quién cobró</th>}
             <th>Sección</th>
             <th>Cómo pagó</th>
             <th>Servicio</th>
@@ -88,10 +88,10 @@ export function CobrosTable({ rows, actions, empty, hidePerson, extra, showRefer
                 <PaidTwice row={row} />
               </td>
               {hidePerson ? null : (
-                <td data-label="Chica">
+                <td data-label="Quién cobró">
                   {row.person ? (
                     fichas && row.person.role === 'OPERATOR' ? (
-                      <button type="button" style={linkStyle} onClick={() => fichas.openOperator(row.person!.id)}>
+                      <button type="button" className="np-cell-link" style={linkStyle} onClick={() => fichas.openOperator(row.person!.id)}>
                         {row.person.name}
                       </button>
                     ) : (
@@ -110,7 +110,7 @@ export function CobrosTable({ rows, actions, empty, hidePerson, extra, showRefer
               </td>
               <td data-label="Cómo pagó" style={meta}>
                 {row.wallet && fichas ? (
-                  <button type="button" style={linkStyle} onClick={() => fichas.openWallet(row.wallet!.id)}>
+                  <button type="button" className="np-cell-link" style={linkStyle} onClick={() => fichas.openWallet(row.wallet!.id)}>
                     {row.method === 'SALDO' ? labelWithCode(row.methodLabel) : `${row.methodLabel} · saldo ${row.wallet.codeHint}`}
                   </button>
                 ) : (

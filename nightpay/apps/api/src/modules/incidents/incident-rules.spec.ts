@@ -79,7 +79,7 @@ describe('incidencias', () => {
     autoClosed: true,
   });
 
-  it('cobro atascado: se resuelve en Pagos, no se marca como revisado', () => {
+  it('cobro atascado: se resuelve en Hoy → Cobros, no se marca como revisado', () => {
     expect(stuck).toMatchObject({ kind: 'stuck_payment', ackable: false, paymentId: 'p-1' });
     expect(orphan.title).toContain('sin confirmar');
   });
@@ -96,7 +96,7 @@ describe('incidencias', () => {
 
   it('mensaje de Telegram corto con el local y qué hacer', () => {
     expect(incidentMessage('Local Centro', night)).toBe(
-      '⚠️ Local Centro: La noche se cerró sola con cobros sin resolver\n2 cobros quedaron pendientes. Resuélvelos en Pagos.',
+      '⚠️ Local Centro: La noche se cerró sola con cobros sin resolver\n2 cobros quedaron pendientes. Resuélvelos en Hoy → Cobros.',
     );
   });
 });
@@ -290,7 +290,7 @@ describe('avisos de cobro aprobado que no se dieron por buenos', () => {
     expect(SELF_RESOLVING.has('approval_unverified')).toBe(true);
     expect(i.detail).toContain('Peanpe avisa de que el cliente pagó 105,00 €');
     expect(i.detail).toContain('el panel de Peanpe (pedido ABC123)');
-    expect(i.detail).toContain('Pagos → Resolver');
+    expect(i.detail).toContain('Hoy → Cobros → Resolver');
   });
 
   it('importe distinto: los dos importes, y se marca como revisada', () => {

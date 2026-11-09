@@ -121,7 +121,7 @@ describe('maqueta 8 · A, barras apiladas', () => {
     expect(v.where.owners.map((s) => [s.label, s.cents])).toEqual([
       ['Tuyo', 308_600],
       ['De chicas', 216_000],
-      ['Variación del saldo del periodo', 115_000],
+      ['Saldo nuevo de clientes (estas fechas)', 115_000],
     ]);
     expect(v.where.note).toBeNull();
     expect(v.outflow.map((r) => [r.label, r.note, r.cents])).toEqual([
@@ -201,7 +201,7 @@ describe('desgloses ampliados', () => {
   it('distingue la variación negativa del periodo del saldo real de los clientes', () => {
     const m = map({ where: { ...map().where, owners: { ...map().where.owners, saldoCents: -5000 }, liveSaldoCents: 235000 } });
     const v = moneyMapView(m, SECTIONS);
-    expect(v.where.owners.find((r) => r.key === 'saldo')).toMatchObject({ label: 'Variación del saldo del periodo', cents: -5000 });
+    expect(v.where.owners.find((r) => r.key === 'saldo')).toMatchObject({ label: 'Saldo nuevo de clientes (estas fechas)', cents: -5000 });
     expect(v.where.balance).toEqual({ label: 'Saldo real de clientes ahora', cents: 235000 });
   });
   it('un Z antiguo etiqueta el saldo y la deuda al corte y no los presenta como actuales', () => {
