@@ -549,9 +549,9 @@ export function Esperando({ cobro, onNew, onRetry, retrying = false, retryError 
 
 /**
  * La pantalla de espera (3.1 / 2.4), en Grafito: la cabecera dice de qué es el
- * cobro; debajo, el importe, el QR de 240 px en vector, la ficha en una fila
- * (sin tarjeta dibujada) y una sola señal de espera: el punto, lo que pasa y
- * el reloj, en una línea.
+ * cobro; debajo, el importe, el QR de 240 px en vector, las dos formas en una
+ * línea (la ficha con su icono, sin tarjeta dibujada) y una sola señal de
+ * espera: el punto, lo que pasa y el reloj, en una línea.
  */
 function Waiting({
   cobro,
@@ -591,6 +591,7 @@ function Waiting({
   // El QR se dibuja aquí con su enlace de pago; el PNG del API, solo si no hay enlace.
   const qrUrl = cobro.card?.qrUrl ?? cobro.saldoUrl ?? null;
   const qrPng = cobro.card?.qrPngDataUrl ?? cobro.saldoQr ?? null;
+  const hasQr = Boolean(qrUrl || qrPng);
   const invite = Boolean(cobro.invitation);
   // El cliente en la página de su banco: la hora del servidor pasada al reloj
   // de este móvil con el plazo del QR (el mismo en los dos).
@@ -615,19 +616,28 @@ function Waiting({
         <p className={styles.amountXl}>{formatEur(cobro.totalCents, { compact: true })}</p>
         {/* Con la «Comisión del servicio»: con tarjeta paga más (con el saldo, no). */}
         {waitingFeeHint(cobro) ? <p className={styles.meta}>{waitingFeeHint(cobro)}</p> : null}
-        <h2 className={styles.waitTitle}>{nfcOn ? 'Acerca el NFC o escanea' : 'Escanea el QR con tu móvil'}</h2>
-        {qrUrl || qrPng ? (
-          <>
-            <div className={styles.qr} style={{ opacity: left <= 0 ? 0.3 : 1 }}>
-              <CobroQr value={qrUrl} fallbackPng={qrPng} label="QR del cobro: el cliente lo escanea con su móvil" />
-            </div>
-            <p className={styles.optLabel}>{invite ? 'Tarjeta o QR' : 'Con tu móvil'}</p>
-          </>
+        {nfcOn && pinExpected(cobro.totalCents, night) ? (
+          <p className={`${styles.warnline} ${styles.waitPin}`}>
+            <IconLock />
+            {pinWarning(night)}
+          </p>
         ) : null}
-        {nfcOn ? (
-          <p className={`${styles.nfcRow}${reading || checking ? ` ${styles.nfcReading}` : ''}`}>
-            <IconNfc />
-            {checking ? 'Comprobando…' : reading ? 'Leyendo…' : invite ? 'NFC, sin PIN' : 'Por detrás'}
+        <h2 className={styles.waitTitle}>{nfcOn ? 'Acerca el NFC o escanea' : 'Escanea el QR con tu móvil'}</h2>
+        {hasQr ? (
+          <div className={styles.qr} style={{ opacity: left <= 0 ? 0.3 : 1 }}>
+            <CobroQr value={qrUrl} fallbackPng={qrPng} label="QR del cobro: el cliente lo escanea con su móvil" />
+          </div>
+        ) : null}
+        {hasQr || nfcOn ? (
+          <p className={styles.ways}>
+            {hasQr ? <span>{invite ? 'Tarjeta o QR' : 'Con tu móvil'}</span> : null}
+            {hasQr && nfcOn ? <span aria-hidden="true">o</span> : null}
+            {nfcOn ? (
+              <span className={`${styles.nfcWay}${reading || checking ? ` ${styles.nfcReading}` : ''}`}>
+                <IconNfc />
+                {checking ? 'Comprobando…' : reading ? 'Leyendo…' : invite ? 'NFC, sin PIN' : 'Por detrás'}
+              </span>
+            ) : null}
           </p>
         ) : null}
         <p className={`${styles.live}${ending || slowBank ? ` ${styles.liveEnding}` : ''}`}>
@@ -655,12 +665,6 @@ function Waiting({
           </button>
         ) : null}
         {fichaHint ? <p className={styles.altHint}>{fichaHint}</p> : null}
-        {nfcOn && pinExpected(cobro.totalCents, night) ? (
-          <p className={`${styles.warnline} ${styles.waitPin}`}>
-            <IconLock />
-            {pinWarning(night)}
-          </p>
-        ) : null}
         {toast ? (
           <p className={styles.toast} role="status">
             {toast}
