@@ -21,9 +21,8 @@ export interface WalletBlock {
 
 export const WALLET_ASK_CSS = `
 .next{width:100%;max-width:26rem;margin:0 auto;padding:1rem 1rem calc(1.5rem + env(safe-area-inset-bottom));display:flex;flex-direction:column;align-items:center;gap:.9rem;text-align:center}
-.ask{width:100%;border:2px solid var(--line);border-radius:var(--r);padding:1.25rem 1.1rem 1rem;background:var(--surface);display:flex;flex-direction:column;align-items:center;gap:.7rem}
-.ask h2{font-size:1.45rem;line-height:1.2}
-.ask .kick{color:var(--lime)}
+.ask{width:100%;border:1px solid var(--line);border-radius:var(--r);padding:1.25rem 1rem 1rem;background:var(--surface);display:flex;flex-direction:column;align-items:center;gap:.75rem}
+.ask h2{font-size:1.375rem;line-height:1.2}
 `;
 
 function unlockJsText(t: PayText): Record<string, unknown> {
