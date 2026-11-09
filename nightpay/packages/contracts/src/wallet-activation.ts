@@ -21,6 +21,10 @@
  *  - Solo en los ACTIVATION_LINK_WINDOW_MINUTES tras una recarga de ese saldo
  *    hecha en este local (efectivo o tarjeta), y solo si el saldo aún no tiene
  *    Face ID (passkey). Si no, 404 ACTIVATION_LINK_UNAVAILABLE con su `reason`.
+ *  - Una recarga no prueba que el saldo sea de quien está delante (basta su
+ *    código y un céntimo): un saldo que ya tenía dinero pide algo más. Con PIN,
+ *    lo teclea el cliente al activar; sin PIN, su ficha leída ahora (`card`,
+ *    `uid`). Sin nada de eso, 404 con `reason` NEEDS_PROOF.
  *  - Queda en el registro (wallet.activation_link al emitirlo; al usarlo,
  *    wallet.activation_used) y tiene límite por IP (429).
  */
@@ -58,8 +62,9 @@ export const ACTIVATION_LINK_UNAVAILABLE_CODE = 'ACTIVATION_LINK_UNAVAILABLE';
  *  - NOT_FOUND: el saldo no existe, no vale aquí, está bloqueado, cerrado o sumado a otro.
  *  - FACE_ID_SET: ya tiene Face ID: el cliente ve su saldo acercando su NFC al móvil.
  *  - NO_RECENT_TOP_UP: no hay una recarga de este local en los últimos 15 minutos.
+ *  - NEEDS_PROOF: el saldo ya tenía dinero y no tiene PIN: hace falta su ficha.
  */
-export const ACTIVATION_LINK_REASONS = ['NOT_FOUND', 'FACE_ID_SET', 'NO_RECENT_TOP_UP'] as const;
+export const ACTIVATION_LINK_REASONS = ['NOT_FOUND', 'FACE_ID_SET', 'NO_RECENT_TOP_UP', 'NEEDS_PROOF'] as const;
 export type ActivationLinkUnavailableReason = (typeof ACTIVATION_LINK_REASONS)[number];
 
 /** Texto para la pantalla de recepción (castellano, como el resto de la app del personal). */
@@ -67,4 +72,5 @@ export const ACTIVATION_LINK_REASON_TEXT: Readonly<Record<ActivationLinkUnavaila
   NOT_FOUND: 'Este saldo no admite QR de activación.',
   FACE_ID_SET: 'Este saldo ya tiene Face ID: el cliente ve su saldo acercando su NFC al móvil.',
   NO_RECENT_TOP_UP: 'El QR de activación solo sale en los 15 minutos siguientes a una recarga en este local.',
+  NEEDS_PROOF: 'Este saldo ya tenía dinero: el QR de activación pide acercar su ficha.',
 };

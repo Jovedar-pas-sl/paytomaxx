@@ -14,6 +14,9 @@ interface Options {
   cashAt?: Date | null;
   cardAt?: Date | null;
   merged?: Array<{ id: string }>;
+  /** La primera recarga del saldo (por defecto, la misma de cashAt/cardAt: saldo nuevo). */
+  firstAt?: Date;
+  card?: Record<string, unknown> | null;
   venueGroup?: string | null;
   apiUrl?: string | undefined;
 }
@@ -21,13 +24,18 @@ interface Options {
 function make(o: Options = {}) {
   const wallet = o.wallet === null ? null : {
     id: 'w1', tenantId: 'venue-1', walletGroup: null, qrToken: 'privateWalletToken_0123', status: 'ACTIVE',
-    blockedAt: null, mergedIntoId: null, pendingAssignAt: null, ...o.wallet,
+    blockedAt: null, mergedIntoId: null, pendingAssignAt: null, pinHash: null, ...o.wallet,
   };
   const tx = {
     user: { findFirst: vi.fn(async () => ({ post: o.post === undefined ? 'RECEPCION' : o.post })) },
     venue: { findUnique: vi.fn(async () => ({ postRules: null, sections: null, walletGroup: o.venueGroup ?? null })) },
     clientWallet: { findUnique: vi.fn(async () => wallet), findMany: vi.fn(async () => o.merged ?? []) },
-    walletCashTopUp: { findFirst: vi.fn(async () => (o.cashAt ? { createdAt: o.cashAt } : null)) },
+    walletCashTopUp: {
+      findFirst: vi.fn(async (q: { orderBy?: { createdAt?: string } }) =>
+        q.orderBy?.createdAt === 'asc' && o.firstAt ? { createdAt: o.firstAt } : o.cashAt ? { createdAt: o.cashAt } : null,
+      ),
+    },
+    walletCard: { findUnique: vi.fn(async () => o.card ?? null) },
     payment: { findFirst: vi.fn(async () => (o.cardAt ? { authorizedAt: o.cardAt } : null)) },
     walletActivationToken: { updateMany: vi.fn(async () => ({ count: 0 })), create: vi.fn(async () => ({})) },
   };
@@ -90,6 +98,44 @@ describe('QR de activación del saldo (recepción)', () => {
     await expect(service.link(actor, 'w1', NOW)).rejects.toMatchObject({ status: 403, response: { code: 'TOP_UP_RECEPTION_ONLY' } });
     expect(tx.clientWallet.findUnique).not.toHaveBeenCalled();
     expect(audit.log).not.toHaveBeenCalled();
+  });
+
+  describe('una recarga no prueba que el saldo sea de quien está delante', () => {
+    const old = { firstAt: minutesAgo(600), cashAt: minutesAgo(1) };
+    const needsProof = { status: 404, response: { code: ACTIVATION_LINK_UNAVAILABLE_CODE, reason: 'NEEDS_PROOF' } };
+
+    it('saldo que ya tenía dinero, sin PIN y sin ficha: no hay QR, por mucho que le carguen un céntimo', async () => {
+      const { service, actor, tx, audit } = make(old);
+      await expect(service.link(actor, 'w1', NOW)).rejects.toMatchObject(needsProof);
+      expect(tx.walletActivationToken.create).not.toHaveBeenCalled();
+      expect(audit.log).not.toHaveBeenCalled();
+    });
+
+    it('con PIN sí: lo teclea el cliente en su móvil al activar', async () => {
+      const { service, actor } = make({ ...old, wallet: { pinHash: 'x' } });
+      await expect(service.link(actor, 'w1', NOW)).resolves.toMatchObject({ url: expect.stringContaining('/w/a/') });
+    });
+
+    it('sin PIN, con su ficha leída ahora: sí', async () => {
+      const card = { walletId: 'w1', status: 'ISSUED', uid: '04AABBCCDDEEFF' };
+      const { service, actor } = make({ ...old, card });
+      await expect(service.link(actor, 'w1', NOW, { card: 'ficha-de-este-saldo-1', uid: '04aabbccddeeff' })).resolves.toMatchObject({ url: expect.stringContaining('/w/a/') });
+    });
+
+    it.each([
+      ['de otro saldo', { walletId: 'otro', status: 'ISSUED', uid: null }, undefined],
+      ['bloqueada', { walletId: 'w1', status: 'BLOCKED', uid: null }, undefined],
+      ['devuelta', { walletId: 'w1', status: 'RETURNED', uid: null }, undefined],
+      ['con otro número de serie (¿copia?)', { walletId: 'w1', status: 'ISSUED', uid: '04AABBCCDDEEFF' }, '04:CC:CC:CC:CC:CC:CC'],
+    ])('una ficha %s no vale', async (_name, card, uid) => {
+      const { service, actor } = make({ ...old, card });
+      await expect(service.link(actor, 'w1', NOW, { card: 'ficha-de-este-saldo-1', uid })).rejects.toMatchObject(needsProof);
+    });
+
+    it('saldo nuevo (nació con esta recarga): no pide nada más', async () => {
+      const { service, actor } = make({ cashAt: minutesAgo(1) });
+      await expect(service.link(actor, 'w1', NOW)).resolves.toMatchObject({ url: expect.stringContaining('/w/a/') });
+    });
   });
 
   it('con Face ID ya activado: 404 FACE_ID_SET (el cliente ya ve su saldo con su NFC)', async () => {

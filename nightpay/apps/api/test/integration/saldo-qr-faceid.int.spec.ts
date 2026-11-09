@@ -45,7 +45,7 @@ const refundsStub = {
     return {};
   }),
 };
-const charges = new WalletChargesService(prisma as never, audit as never, { get: () => refundsStub } as never);
+const charges = new WalletChargesService(prisma as never, audit as never, { get: () => refundsStub } as never, { isEnabled: async () => true, assertForUser: async () => undefined } as never);
 
 const r = randomUUID().slice(0, 6);
 let A: string, B: string, X: string, chicaB: string, managerB: string, ownerA: string, svcB: string;
@@ -185,9 +185,9 @@ describe('cobro con QR y Face ID (Postgres real)', () => {
     const pending = await inVenue(B, () => charges.pendingQrCharges(manager()));
     expect(pending.map((p) => p.id)).toContain(c.id);
     await expect(inVenue(B, () => charges.pendingQrCharges(chica()))).rejects.toThrow(/encargado/);
-    await expect(inVenue(B, () => charges.approveWithoutFaceId(chica(), c.id, spare))).rejects.toThrow(/encargado/);
-    await expect(inVenue(B, () => charges.approveWithoutFaceId(manager(), c.id, foreign))).rejects.toThrow(/no encontrado/i);
-    const done = await inVenue(B, () => charges.approveWithoutFaceId(manager(), c.id, spare));
+    await expect(inVenue(B, () => charges.approveWithoutFaceId(chica(), c.id, spare, '123456'))).rejects.toThrow(/encargado/);
+    await expect(inVenue(B, () => charges.approveWithoutFaceId(manager(), c.id, foreign, '123456'))).rejects.toThrow(/no encontrado/i);
+    const done = await inVenue(B, () => charges.approveWithoutFaceId(manager(), c.id, spare, '123456'));
     expect(done).toMatchObject({ status: 'ACCEPTED', newBalanceCents: 3500 });
     expect(audit.log).toHaveBeenCalledWith(expect.objectContaining({ action: 'wallet.charge_without_faceid', targetId: spare }));
     const after = await inVenue(B, () => charges.pendingQrCharges(manager()));
@@ -270,7 +270,7 @@ describe('cobro con QR y Face ID (Postgres real)', () => {
 
   it('seguridad: el encargado no aprueba su propio cobro; fusión con recarga a medias, no', async () => {
     const mine = await inVenue(B, () => charges.createQrCharge(manager(), { amountCents: 500 }));
-    await expect(inVenue(B, () => charges.approveWithoutFaceId(manager(), mine.id, spare))).rejects.toThrow(/otro encargado/);
+    await expect(inVenue(B, () => charges.approveWithoutFaceId(manager(), mine.id, spare, '123456'))).rejects.toThrow(/otro encargado/);
     // #90: ya no hay cobro con petición que se acepte con el enlace del saldo.
     expect('createRequest' in charges).toBe(false);
     expect('accept' in charges).toBe(false);
@@ -380,7 +380,7 @@ describe('PIN del saldo (Postgres real)', () => {
     const after = await inVenue(B, () => charges.setPin(chica(), { code, pin: '4827' }));
     expect(after.hasPin).toBe(true);
     expect((await sys((tx) => tx.clientWallet.findUnique({ where: { id: w } })))!.pinSetById).toBeNull();
-    await inVenue(B, () => charges.resetPin(manager(), w));
+    await inVenue(B, () => charges.resetPin(manager(), w, '123456'));
     expect((await inVenue(B, () => charges.lookup(B, code))).hasPin).toBe(false);
   });
 
@@ -557,7 +557,7 @@ describe('devolver el saldo (Postgres real)', () => {
     const srcTop = await paidTopUp(src, 5_000, 'd2');
     await inVenue(undefined, () => charges.mergeInto(src, tgt));
     bank.calls = [];
-    const out = await inVenue(A, () => charges.payout(ownerActor(), tgt, { method: 'CARD', bankReference: 'DEV-22' }));
+    const out = await inVenue(A, () => charges.payout(ownerActor(), tgt, { totpCode: '123456', method: 'CARD', bankReference: 'DEV-22' }));
     expect(out).toEqual({ refundedCents: 7_000, method: 'CARD' });
     expect(bank.calls).toEqual(
       expect.arrayContaining([
@@ -576,7 +576,7 @@ describe('devolver el saldo (Postgres real)', () => {
         data: { tenantId: A, walletId: w, amountCents: 3_300, takenByUserId: ownerA, idempotencyKey: `d3-${r}`, createdAt: new Date(Date.now() - 86_400_000) },
       }),
     );
-    const out = await inVenue(A, () => charges.payout(ownerActor(), w, { method: 'CASH', note: 'en mano' }));
+    const out = await inVenue(A, () => charges.payout(ownerActor(), w, { totpCode: '123456', method: 'CASH', note: 'en mano' }));
     expect(out).toEqual({ refundedCents: 3_300, method: 'CASH' });
     expect(await balanceOf(w)).toMatchObject({ balanceCents: 0, status: 'REFUNDED' });
     const rows = await sys((tx) => tx.walletPayout.findMany({ where: { walletId: w } }));
@@ -587,7 +587,7 @@ describe('devolver el saldo (Postgres real)', () => {
     const w = await wallet(A, 4_000, `fg-${r}`, 'D4');
     await paidTopUp(w, 4_000, 'd4');
     bank.calls = [];
-    const go = () => inVenue(A, () => charges.payout(ownerActor(), w, { method: 'CARD' }));
+    const go = () => inVenue(A, () => charges.payout(ownerActor(), w, { totpCode: '123456', method: 'CARD' }));
     const res = await Promise.allSettled([go(), go()]);
     expect(res.filter((x) => x.status === 'fulfilled')).toHaveLength(1);
     expect(bank.calls.reduce((s, c) => s + c.amountCents, 0)).toBe(4_000);
@@ -618,10 +618,10 @@ describe('devolver el saldo (Postgres real)', () => {
     // El cliente no la ve como devuelta mientras está a medias.
     const token = (await balanceOf(w)).qrToken;
     expect((await inVenue(undefined, () => charges.clientState(token))).movements.some((m) => m.kind === 'payout')).toBe(false);
-    await expect(inVenue(A, () => charges.payout(ownerActor(), w, { method: 'CARD' }))).rejects.toThrow(/Ya se está apuntando/);
+    await expect(inVenue(A, () => charges.payout(ownerActor(), w, { totpCode: '123456', method: 'CARD' }))).rejects.toThrow(/Ya se está apuntando/);
     await sys((tx) => tx.walletPayout.update({ where: { id: po.id }, data: { claimedAt: new Date(Date.now() - 10 * 60_000) } }));
     bank.calls = [];
-    const out = await inVenue(A, () => charges.payout(ownerActor(), w, { method: 'CARD' }));
+    const out = await inVenue(A, () => charges.payout(ownerActor(), w, { totpCode: '123456', method: 'CARD' }));
     expect(out).toEqual({ refundedCents: 5_000, method: 'CARD' });
     expect(bank.calls).toEqual([{ paymentId: t1, amountCents: 3_000 }]);
     expect(await sys((tx) => tx.walletPayout.findUnique({ where: { id: po.id } }))).toMatchObject({ status: 'DONE', amountCents: 5_000 });
@@ -637,7 +637,7 @@ describe('devolver el saldo (Postgres real)', () => {
     bank.failOn = bad;
     try {
       // Va primero la más reciente (la que falla): no se apunta nada y el saldo vuelve entero.
-      await expect(inVenue(A, () => charges.payout(ownerActor(), w, { method: 'CARD' }))).rejects.toThrow(/quedan 60,00 €/);
+      await expect(inVenue(A, () => charges.payout(ownerActor(), w, { totpCode: '123456', method: 'CARD' }))).rejects.toThrow(/quedan 60,00 €/);
     } finally {
       bank.failOn = null;
     }

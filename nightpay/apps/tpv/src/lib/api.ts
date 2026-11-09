@@ -4,6 +4,7 @@
 
 import {
   ApiError,
+  LoginCodeRequiredError,
   SESSION_EXPIRED_EVENT,
   ServerUnavailableError,
   createApiClient,
@@ -117,11 +118,20 @@ export async function login(email: string, password: string): Promise<LoginRespo
   try {
     return await client.login({ email, password });
   } catch (err) {
+    // Tiene la 2FA activada: LoginForm pide el código con este ticket.
+    if (err instanceof LoginCodeRequiredError) throw err;
     if (err instanceof ServerUnavailableError) throw new Error(err.message);
     if (err instanceof ApiError) throw new Error(loginErrorText(err.status, err.message));
     throw err;
   }
 }
+
+/** Segundo paso: el ticket de la contraseña y el código de su app de verificación. */
+export function loginWithCode(loginTicket: string, totpCode: string): Promise<LoginResponse> {
+  return client.loginWithCode(loginTicket, totpCode);
+}
+
+export { LoginCodeRequiredError };
 
 function loginErrorText(status: number, detail: string): string {
   if (status === 401) {

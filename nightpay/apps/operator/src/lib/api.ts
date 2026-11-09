@@ -17,6 +17,7 @@ import {
 } from '@nightpay/contracts';
 import {
   ApiError,
+  LoginCodeRequiredError,
   ServerUnavailableError,
   SESSION_EXPIRED_EVENT,
   SessionExpiredError,
@@ -41,7 +42,7 @@ export { SESSION_EXPIRED_EVENT };
  * sesión, hay que volver a entrar. ServerUnavailableError: sin red, servidor
  * caído o saturado (5xx, 429), la sesión sigue y se reintenta.
  */
-export { ServerUnavailableError, SessionExpiredError, tokenExpiresSoon };
+export { LoginCodeRequiredError, ServerUnavailableError, SessionExpiredError, tokenExpiresSoon };
 
 const SESSION_EXPIRED_TEXT = 'Tu sesión ha caducado. Vuelve a iniciar sesión.';
 const SERVER_DOWN_TEXT = 'El servidor está teniendo problemas. Vuelve a intentarlo en unos segundos.';
@@ -326,8 +327,20 @@ export async function login(email: string, password: string): Promise<LoginRespo
   try {
     return await client.login({ email, password });
   } catch (err) {
+    // Tiene la 2FA activada: LoginForm pide el código con este ticket.
+    if (err instanceof LoginCodeRequiredError) throw err;
     if (err instanceof ServerUnavailableError) throw new Error(loginErrorMessage(null));
     if (err instanceof ApiError) throw new Error(loginErrorMessage(err.status, err.message));
+    throw err;
+  }
+}
+
+/** Segundo paso: el ticket de la contraseña y el código de su app de verificación. */
+export async function loginWithCode(loginTicket: string, totpCode: string): Promise<LoginResponse> {
+  try {
+    return await client.loginWithCode(loginTicket, totpCode);
+  } catch (err) {
+    if (err instanceof ServerUnavailableError) throw new Error(loginErrorMessage(null));
     throw err;
   }
 }

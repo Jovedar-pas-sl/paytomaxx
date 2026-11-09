@@ -138,6 +138,37 @@ function makeUser(overrides: Record<string, unknown> = {}) {
   };
 }
 
+describe('entrar con la 2FA activada: dueño y encargado, en dos pasos', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it.each(['OWNER', 'MANAGER'])('%s: la contraseña sola no abre la sesión; con el ticket y el código, sí', async (role) => {
+    const user = makeUser({ role });
+    const { svc, refreshTokensMock, totpMock, tx } = makeService({ loginCandidates: [user], verifyPasswordResult: true, totpEnabled: true });
+    const err = (await svc.login({ email: 'a@b.test', password: 'pwd12345' }).catch((e: unknown) => e)) as UnauthorizedException;
+    expect(err).toBeInstanceOf(UnauthorizedException);
+    const body = err.getResponse() as { code: string; loginTicket: string };
+    expect(body.code).toBe('TOTP_REQUIRED');
+    expect(refreshTokensMock.issue).not.toHaveBeenCalled();
+    tx.user.findUnique.mockResolvedValue(user);
+    await expect(svc.loginWithTotp(body.loginTicket, '123456')).resolves.toMatchObject({ accessToken: 'TOKEN' });
+    expect(totpMock.assertForUser).toHaveBeenCalledWith('u1', '123456');
+  });
+
+  it('sin la 2FA activada entra como siempre: activarla no es obligatorio todavía', async () => {
+    const { svc } = makeService({ loginCandidates: [makeUser()], verifyPasswordResult: true, totpEnabled: false });
+    await expect(svc.login({ email: 'a@b.test', password: 'pwd12345' })).resolves.toMatchObject({ accessToken: 'TOKEN' });
+  });
+
+  it('el ticket de activar en el login sigue siendo solo del super-admin', async () => {
+    const { svc, tx } = makeService({ loginCandidates: [makeUser({ isSuperAdmin: true })], verifyPasswordResult: true, totpEnabled: false });
+    const err = (await svc.login({ email: 'a@b.test', password: 'pwd12345' }).catch((e: unknown) => e)) as UnauthorizedException;
+    const body = err.getResponse() as { code: string; loginTicket: string };
+    expect(body.code).toBe('TOTP_SETUP_REQUIRED');
+    tx.user.findUnique.mockResolvedValue(makeUser({ isSuperAdmin: false }));
+    await expect(svc.loginTotpSetup(body.loginTicket)).rejects.toMatchObject({ response: expect.objectContaining({ code: 'LOGIN_TICKET_EXPIRED' }) });
+  });
+});
+
 describe('AuthService.login', () => {
   beforeEach(() => vi.clearAllMocks());
 
@@ -712,10 +743,9 @@ describe('AuthService.login — super-admin con 2FA en dos pasos', () => {
     expect(noTotp.totpMock.assertForUser).not.toHaveBeenCalled();
   });
 
-  it('quien no es super-admin entra como siempre (sin marca de 2FA ni ticket)', async () => {
-    const owner = makeService({ loginCandidates: [makeUser()], verifyPasswordResult: true, totpEnabled: true });
+  it('quien no es super-admin ni tiene 2FA entra como siempre (sin marca de 2FA ni ticket)', async () => {
+    const owner = makeService({ loginCandidates: [makeUser()], verifyPasswordResult: true, totpEnabled: false });
     await expect(owner.svc.login({ email: 'a@b.test', password: 'pwd12345' })).resolves.toMatchObject({ accessToken: 'TOKEN' });
-    expect(owner.totpMock.isEnabled).not.toHaveBeenCalled();
   });
 });
 

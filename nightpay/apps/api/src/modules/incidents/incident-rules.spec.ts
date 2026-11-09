@@ -1,3 +1,4 @@
+import { SENSITIVE_AUDIT_ACTIONS, sensitiveActionIncident } from './incident-rules';
 import { describe, it, expect } from 'vitest';
 import { Z_NET_LABEL, Z_NET_WITHOUT_STAFF_LABEL } from '@nightpay/contracts';
 import {
@@ -25,6 +26,41 @@ import { incidentMessage, morningSummaryMessage } from './alert-messages';
 import type { ExportSummary } from '../reports/export-csv';
 
 const at = (iso: string) => new Date(iso);
+
+describe('acciones delicadas: el dueño tiene que poder verlas', () => {
+  const row = (action: string, o: Record<string, unknown> = {}) => ({ id: 'a1', action, paymentId: 'p1', amountCents: 5_000, occurredAt: new Date(), payload: null, actorName: 'Javi', ...o });
+
+  it('dice quién en el panel y no en Telegram; se quita marcándola como revisada', () => {
+    const i = sensitiveActionIncident(row('wallet.charge_without_faceid'));
+    expect(i).toMatchObject({ kind: 'sensitive_action', refId: 'a1', amountCents: 5_000, ackable: true, paymentId: null, title: 'Cobro sin que el cliente confirme' });
+    expect(i.detail).toContain('Javi ha cobrado');
+    expect(i.alertDetail).not.toContain('Javi');
+    expect(i.alertDetail).toContain('Alguien del personal ha cobrado');
+    expect(ACKABLE_KINDS as readonly string[]).toContain('sensitive_action');
+    expect(SELF_RESOLVING.has('sensitive_action')).toBe(false);
+  });
+
+  it('sin persona (lo hizo el cliente, o no se sabe): no se inventa un nombre', () => {
+    expect(sensitiveActionIncident(row('wallet.card_copy_suspected', { actorName: null })).detail).toMatch(/^Han acercado/);
+    expect(sensitiveActionIncident(row('wallet.relinked', { actorName: null })).detail).toMatch(/^Alguien del personal ha dado/);
+  });
+
+  it('baja con dinero sin cobrar: el nombre en el panel, no en Telegram', () => {
+    const i = sensitiveActionIncident(row('operator.left_with_balance', { payload: { name: 'Lola' }, actorName: null, amountCents: 12_000 }));
+    expect(i.detail).toContain('(Lola)');
+    expect(i.alertDetail).not.toContain('Lola');
+    expect(i.amountCents).toBe(12_000);
+  });
+
+  it('el cobro dado por pagado a mano lleva a su cobro', () => {
+    expect(sensitiveActionIncident(row('payment.manual_reconcile')).paymentId).toBe('p1');
+  });
+
+  it('todas las que vigila tienen su texto', () => {
+    expect(SENSITIVE_AUDIT_ACTIONS).toEqual(expect.arrayContaining(['wallet.merged_large', 'wallet.activation_not_new', 'wallet.pin_reset', 'venue.night_settings.updated']));
+    for (const a of SENSITIVE_AUDIT_ACTIONS) expect(sensitiveActionIncident(row(a)).title).not.toBe('Acción delicada');
+  });
+});
 
 describe('incidencias', () => {
   const stuck = stuckIncident({ id: 'p-1', status: 'AUTHORIZING', amountCents: 10_000, updatedAt: at('2026-10-13T22:00:00Z') });

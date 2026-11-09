@@ -4,6 +4,7 @@ import {
   ACTIVATION_LINK_REASON_TEXT,
   ACTIVATION_LINK_UNAVAILABLE_CODE,
   ACTIVATION_LINK_WINDOW_MINUTES,
+  normalizeWalletCardUid,
   type ActivationLinkUnavailableReason,
   type WalletActivationLink,
 } from '@nightpay/contracts';
@@ -12,6 +13,8 @@ import { AuditService } from '../audit/audit.service';
 import { assertCanTopUp } from '../venues/charge-rights';
 import { PRINTED_INTENT_PREFIX } from './wallet-cash-intent';
 import { activationPath, issueActivationToken } from './wallet-activation-token';
+import { isIssuedCard } from './wallet-card-ops';
+import { firstTopUp } from './wallet-fresh-topup';
 import { WalletPasskeysService } from './wallet-passkeys.service';
 import { sameWalletGroup } from './wallet-rules';
 
@@ -67,6 +70,11 @@ export async function lastTopUpHere(tx: TopUpTx, venueId: string, walletIds: str
  * recepción, encargado y dueño; solo en los 15 min tras una recarga de este
  * local; solo si aún no tiene Face ID. Ni el token ni el enlace se registran:
  * el registro lleva el saldo, quién, cómo y hasta cuándo.
+ *
+ * Una recarga no prueba que el saldo sea de quien está delante: con su código
+ * y un céntimo, recepción (o quien robe su sesión) se abriría un saldo ajeno.
+ * Por eso un saldo que no es nuevo pide algo más: su PIN (lo teclea el cliente
+ * en /w/a/) o, si no tiene, la ficha que se acaba de leer.
  */
 @Injectable()
 export class WalletActivationLinkService {
@@ -81,13 +89,18 @@ export class WalletActivationLinkService {
     this.origin = originOf(config.get<string>('NEXT_PUBLIC_API_URL')) ?? LOCAL_API_ORIGIN;
   }
 
-  async link(actor: ActivationLinkActor, walletId: string, now: Date = new Date()): Promise<WalletActivationLink> {
+  async link(
+    actor: ActivationLinkActor,
+    walletId: string,
+    now: Date = new Date(),
+    proof: { card?: string; uid?: string } = {},
+  ): Promise<WalletActivationLink> {
     await this.prisma.asSystem((tx) => assertCanTopUp(tx, actor.tenantId, actor));
     const since = new Date(now.getTime() - WINDOW_MS);
     const found = await this.prisma.acrossVenues(async (tx) => {
       const wallet = await tx.clientWallet.findUnique({
         where: { id: walletId },
-        select: { id: true, tenantId: true, walletGroup: true, status: true, blockedAt: true, mergedIntoId: true, pendingAssignAt: true },
+        select: { id: true, tenantId: true, walletGroup: true, status: true, blockedAt: true, mergedIntoId: true, pendingAssignAt: true, pinHash: true },
       });
       // Bloqueado, cerrado, sumado a otro o recarga aún sin su cliente: no es el saldo de nadie que esté delante.
       if (!wallet || wallet.status !== 'ACTIVE' || wallet.blockedAt || wallet.mergedIntoId || wallet.pendingAssignAt) return null;
@@ -95,11 +108,14 @@ export class WalletActivationLinkService {
       if (!sameWalletGroup(wallet, { id: actor.tenantId, walletGroup: venue?.walletGroup ?? null })) return null;
       const merged = await tx.clientWallet.findMany({ where: { mergedIntoId: wallet.id }, select: { id: true } });
       const at = await lastTopUpHere(tx, actor.tenantId, [wallet.id, ...merged.map((m) => m.id)], since);
-      return { at };
+      return { at, hasPin: wallet.pinHash !== null };
     });
     if (!found) throw activationLinkUnavailable('NOT_FOUND');
     if (await this.passkeys.hasPasskey(walletId)) throw activationLinkUnavailable('FACE_ID_SET');
     if (!found.at) throw activationLinkUnavailable('NO_RECENT_TOP_UP');
+    if (!found.hasPin && !(await this.isNew(walletId, since)) && !(await this.cardProves(walletId, proof))) {
+      throw activationLinkUnavailable('NEEDS_PROOF');
+    }
     const issued = await this.prisma.acrossVenues((tx) =>
       issueActivationToken(tx, { walletId, venueId: actor.tenantId, issuedById: actor.userId, via: 'reception', now }),
     );
@@ -113,6 +129,22 @@ export class WalletActivationLinkService {
       payload: { via: 'reception', topUpAt: found.at.toISOString(), expiresAt },
     });
     return { url: `${this.origin}${activationPath(issued.token)}`, expiresAt };
+  }
+
+  /** El saldo nació con esta recarga: nadie tenía nada en él. */
+  private async isNew(walletId: string, since: Date): Promise<boolean> {
+    const first = await firstTopUp(this.prisma, walletId);
+    return first?.at ? first.at >= since : false;
+  }
+
+  /** La ficha leída es la de este saldo. El número de serie, si lo hay por los dos lados, tiene que coincidir. */
+  private async cardProves(walletId: string, proof: { card?: string; uid?: string }): Promise<boolean> {
+    const token = proof.card;
+    if (!token) return false;
+    const card = await this.prisma.acrossVenues((tx) => tx.walletCard.findUnique({ where: { token } }));
+    if (!card || card.walletId !== walletId || !isIssuedCard(card)) return false;
+    const uid = proof.uid ? normalizeWalletCardUid(proof.uid) : null;
+    return !(card.uid && uid && card.uid !== uid);
   }
 }
 

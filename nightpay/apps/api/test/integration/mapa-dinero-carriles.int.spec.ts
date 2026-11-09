@@ -251,8 +251,9 @@ describe('el mapa del dinero de la noche, en directo: los carriles cuadran', () 
     const check = await inVenue(A, () => nights.closeCheck(A));
     expect(live.where.cashBoxCents).toBe(check.cash.expectedCents);
     const o = live.where.owners;
-    expect(o).toEqual({ staffCents: 12_800, saldoCents: 10_000, venueCents: 46_900 - 12_800 - 10_000 });
-    expect(o.venueCents + o.staffCents + o.saldoCents).toBe(live.where.totalCents);
+    // Los 6 € al camarero fueron en efectivo: ya salieron de la caja, no se restan otra vez. Los 28 € de OxioPay no son del local.
+    expect(o).toEqual({ staffCents: 12_800, saldoCents: 10_000, paidOutCents: 0, commissionsCents: 2_800, venueCents: 46_900 - 12_800 - 10_000 - 2_800 });
+    expect(o.venueCents + o.staffCents + o.saldoCents + (o.commissionsCents ?? 0)).toBe(live.where.totalCents);
     // Recargas − consumos − devuelto = lo que tienen los saldos de verdad.
     expect(live.where.liveSaldoCents).toBe(10_000);
     const wallet = await sys((tx) => tx.clientWallet.findUnique({ where: { id: W } }));

@@ -14,8 +14,8 @@ Lo cobrado entre la última copia y la caída **no se pierde en el banco**:
 sale en el portal de BBVA/Redsys y de Paytef y se recupera con el cuadre
 (paso 7).
 
-Mientras dura: cobrar con **datáfono** (Paytef no depende de nuestro
-servidor) o en efectivo, apuntado.
+Mientras dura: en efectivo, apuntado, en los puestos que lo tengan permitido; o con el
+datáfono del banco, si el local tiene uno encendido (no depende de nuestro servidor).
 
 ## Lo que hace falta tener ANTES (revísalo una vez al trimestre)
 
@@ -32,8 +32,8 @@ servidor) o en efectivo, apuntado.
 
 ## Pasos
 
-1. **Avisar** (5 min): grupo de encargados → «cobrad con datáfono o
-   efectivo hasta nuevo aviso». En Cloudflare, nada todavía.
+1. **Avisar** (5 min): grupo de encargados → «sin OxioPay: cobrad en efectivo (o con datáfono, si hay) y
+   apuntadlo hasta nuevo aviso». En Cloudflare, nada todavía.
 2. **VPS nuevo** (15 min): mismo proveedor u otro (Hetzner, Contabo…),
    Ubuntu LTS, 4 GB de RAM o más. Apunta su IP (`<IP-nueva>`).
 3. **Dokploy** (10 min): por SSH, `curl -sSL https://dokploy.com/install.sh | sh`.

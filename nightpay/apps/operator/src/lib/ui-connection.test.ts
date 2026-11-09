@@ -13,7 +13,7 @@ describe('aviso de conexión: qué pasa, en llano', () => {
     const issue = classifyConnection({ online: false, serverDown: true, bankWaitingSinceMs: 0, orphan: true }, NOW);
     expect(issue?.kind).toBe('offline');
     expect(issue?.title).toBe('Tu móvil no tiene internet');
-    expect(issue?.hint).toContain('datáfono');
+    expect(issue?.hint).toContain('avisa al encargado');
   });
 
   it('en el TPV dice «este TPV», no «tu móvil»', () => {
@@ -24,7 +24,7 @@ describe('aviso de conexión: qué pasa, en llano', () => {
     const issue = classifyConnection({ ...ok, serverDown: true, bankWaitingSinceMs: 0 }, NOW);
     expect(issue?.kind).toBe('server');
     expect(issue?.title).toBe('OxioPay no responde, reintentando…');
-    expect(issue?.hint).toContain('Si urge, cobra con el datáfono');
+    expect(issue?.hint).toContain('avisa al encargado');
   });
 
   it('el banco tarda: solo pasado el margen esperando la autorización', () => {

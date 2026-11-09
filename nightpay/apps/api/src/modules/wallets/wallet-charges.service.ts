@@ -377,6 +377,9 @@ const MERGE_BLOCKED = 'Uno de los dos saldos está bloqueado: no se pueden junta
  * su PIN; sin batería, lo aprueba otro encargado. Al irse, el encargado le
  * devuelve el saldo a la tarjeta (hecho en BBVA) o en efectivo.
  */
+/** Juntar saldos desde este importe sale en Incidencias y por Telegram. */
+export const MERGE_ALERT_CENTS = 10_000;
+
 @Injectable()
 export class WalletChargesService {
   private readonly logger = new Logger(WalletChargesService.name);
@@ -995,9 +998,10 @@ export class WalletChargesService {
   /**
    * Encargado o dueño: el cliente no puede usar su móvil (sin batería, móvil
    * antiguo). Cobra del saldo que él elige un cobro con QR que hizo la chica
-   * (la parte de la chica queda como siempre). Queda en la auditoría.
+   * (la parte de la chica queda como siempre). El cliente no confirma nada: lo
+   * firma quien lo aprueba, con su 2FA, y sale en Incidencias y por Telegram.
    */
-  async approveWithoutFaceId(actor: Actor, requestId: string, walletId: string): Promise<ChargeRequestView> {
+  async approveWithoutFaceId(actor: Actor, requestId: string, walletId: string, totpCode?: string): Promise<ChargeRequestView> {
     await this.managerWallet(actor, walletId);
     const request = await this.prisma.asSystem((tx) =>
       tx.walletChargeRequest.findFirst({ where: { id: requestId, tenantId: actor.tenantId, payToken: { not: null } } }),
@@ -1007,6 +1011,7 @@ export class WalletChargesService {
     if (request.requestedByUserId === actor.userId) {
       throw new ForbiddenException('Este cobro lo has hecho tú: lo tiene que aprobar otro encargado o el dueño');
     }
+    await assertTwoFactorCode(this.totp, actor.userId, totpCode, 'Para cobrar sin que el cliente confirme,');
     await this.bindAndSettle(request, walletId, 'staff');
     await this.audit.log({
       action: 'wallet.charge_without_faceid',
@@ -1017,6 +1022,23 @@ export class WalletChargesService {
       payload: { requestId, amountCents: request.amountCents, requestedBy: request.requestedByUserId },
     });
     return this.getRequest(actor, requestId);
+  }
+
+  /**
+   * «Juntar saldos» desde la página del saldo: lo que dice que el saldo de
+   * origen es de quien lo junta es su PIN (el enlace se comparte y se ve).
+   * Sin PIN, 403: esa prueba solo la tiene el móvil que pagó la recarga
+   * (/pay/<cobro>/merge). Los fallos cuentan como cualquier PIN mal puesto.
+   */
+  async mergeIntoWithPin(sourceWalletId: string, targetWalletId: string, pin: unknown): Promise<{ balanceCents: number }> {
+    const source = await this.prisma.acrossVenues((tx) =>
+      tx.clientWallet.findUnique({ where: { id: sourceWalletId }, select: { tenantId: true, pinHash: true } }),
+    );
+    if (!source) throw new NotFoundException('Saldo no encontrado');
+    if (!source.pinHash) throw new ForbiddenException({ message: 'Juntar saldos pide el PIN de esta recarga', code: 'MERGE_PROOF_REQUIRED' });
+    if (typeof pin !== 'string' || !/^[0-9]{4}$/.test(pin)) throw new BadRequestException({ message: 'El PIN son 4 cifras', code: 'PIN_FORMAT' });
+    await this.checkPin(sourceWalletId, pin, { tenantId: source.tenantId, userId: null });
+    return this.mergeInto(sourceWalletId, targetWalletId);
   }
 
   /**
@@ -1095,6 +1117,15 @@ export class WalletChargesService {
       targetId: targetWalletId,
       payload: { from: sourceWalletId, amountCents: result.moved },
     });
+    if (result.moved >= MERGE_ALERT_CENTS) {
+      await this.audit.log({
+        action: 'wallet.merged_large',
+        tenantId: result.tenantId,
+        targetType: 'ClientWallet',
+        targetId: targetWalletId,
+        payload: { from: sourceWalletId, amountCents: result.moved },
+      });
+    }
     return { balanceCents: result.balanceCents };
   }
 
@@ -1690,6 +1721,14 @@ export class WalletChargesService {
     // vale solo para saber de qué saldo es; pagar sigue pidiendo su PIN.
     if (card.uid && uid && card.uid !== uid) {
       this.logger.warn(`Ficha ${card.id}: número de serie distinto (¿copia?)`);
+      // Alguien lo está intentando: que lo vea el encargado, no solo el registro técnico.
+      await this.audit.log({
+        action: 'wallet.card_copy_suspected',
+        tenantId: venueId,
+        targetType: 'ClientWallet',
+        targetId: card.walletId,
+        payload: { cardId: card.id },
+      });
       throw new ConflictException('Esta ficha no es la original (¿copiada?): avisa al encargado');
     }
     const walletId = card.walletId;
@@ -1788,9 +1827,10 @@ export class WalletChargesService {
     return { ok: true };
   }
 
-  /** Encargado o dueño: el cliente olvidó su PIN → se borra y elige otro. */
-  async resetPin(actor: Actor, walletId: string): Promise<{ ok: true }> {
+  /** Encargado o dueño, con su 2FA: el cliente olvidó su PIN → se borra y elige otro. */
+  async resetPin(actor: Actor, walletId: string, totpCode?: string): Promise<{ ok: true }> {
     await this.managerWallet(actor, walletId);
+    await assertTwoFactorCode(this.totp, actor.userId, totpCode, 'Para borrar el PIN de un cliente,');
     await this.prisma.acrossVenues((tx) =>
       tx.clientWallet.update({
         where: { id: walletId },
@@ -1806,6 +1846,11 @@ export class WalletChargesService {
       payload: {},
     });
     return { ok: true };
+  }
+
+  /** El PIN que teclea el cliente en SU móvil (QR de activación de un saldo que ya lo tenía). */
+  async checkClientPin(walletId: string, tenantId: string, pin: string): Promise<void> {
+    await this.checkPin(walletId, pin, { tenantId, userId: null });
   }
 
   /**
@@ -1867,14 +1912,15 @@ export class WalletChargesService {
         throw new ConflictException('El cliente aún no tiene PIN: que pague con Face ID o lo elija con el encargado');
       // 422 (no 403): la app enseña el texto tal cual ("No tienes permiso" confundiría).
       case 'locked':
-        throw new UnprocessableEntityException('Saldo bloqueado por PIN fallado: avisa al encargado para desbloquearlo');
+        throw new UnprocessableEntityException({ message: 'Saldo bloqueado por PIN fallado: avisa al encargado para desbloquearlo', code: 'PIN_LOCKED' });
       case 'now-locked':
         this.logger.warn(`Saldo ${walletId}: bloqueado tras ${PIN_MAX_FAILS} PIN fallidos`);
-        throw new UnprocessableEntityException('PIN incorrecto. Saldo bloqueado: avisa al encargado para desbloquearlo');
+        throw new UnprocessableEntityException({ message: 'PIN incorrecto. Saldo bloqueado: avisa al encargado para desbloquearlo', code: 'PIN_LOCKED' });
       case 'wrong':
-        throw new UnprocessableEntityException(
-          `PIN incorrecto. ${outcome.left === 1 ? 'Queda 1 intento' : `Quedan ${outcome.left} intentos`}`,
-        );
+        throw new UnprocessableEntityException({
+          message: `PIN incorrecto. ${outcome.left === 1 ? 'Queda 1 intento' : `Quedan ${outcome.left} intentos`}`,
+          code: 'PIN_WRONG',
+        });
     }
   }
 
@@ -2071,6 +2117,8 @@ export class WalletChargesService {
     if (actor.role === 'MANAGER' && !wallet.closeRequestedAt) {
       throw new ForbiddenException('El cliente tiene que pulsar «Me voy» en su página de saldo (o que lo haga el dueño)');
     }
+    // El dueño devuelve sin que el cliente lo pida ni esté delante: su 2FA, siempre.
+    if (actor.role === 'OWNER') await assertTwoFactorCode(this.totp, actor.userId, input.totpCode, 'Para devolver un saldo,');
     return input.method === 'CASH'
       ? this.payoutCash(actor, walletId, input, venue?.refundApprovalThresholdCents, wallet.closeRequestedAt)
       : this.payoutCard(actor, walletId, input);
@@ -2285,6 +2333,14 @@ export class WalletChargesService {
    * min, M-2): con él activa Face ID (o elige PIN) en su móvil y va a su
    * saldo. El enlace permanente nuevo no sale en la pantalla del dueño.
    */
+  async relinkWithCode(actor: Actor, walletId: string, totpCode: string | undefined): Promise<{ path: string }> {
+    if (actor.role !== 'OWNER') {
+      throw new ForbiddenException('Un enlace nuevo del saldo solo lo da el dueño');
+    }
+    await assertTwoFactorCode(this.totp, actor.userId, totpCode, 'Para dar un enlace nuevo del saldo,');
+    return this.relink(actor, walletId);
+  }
+
   async relink(actor: Actor, walletId: string): Promise<{ path: string }> {
     if (actor.role !== 'OWNER') {
       throw new ForbiddenException('Un enlace nuevo del saldo solo lo da el dueño');
@@ -2311,7 +2367,7 @@ export class WalletChargesService {
       actorId: actor.userId,
       targetType: 'ClientWallet',
       targetId: walletId,
-      payload: { balanceCents: wallet.balanceCents, removedPasskeys: removedKeys, activationExpiresAt: activation.expiresAt.toISOString() },
+      payload: { amountCents: wallet.balanceCents, balanceCents: wallet.balanceCents, removedPasskeys: removedKeys, activationExpiresAt: activation.expiresAt.toISOString() },
     });
     await this.audit.log({
       action: 'wallet.activation_link',

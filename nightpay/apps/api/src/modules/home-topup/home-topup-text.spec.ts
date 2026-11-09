@@ -76,7 +76,10 @@ describe('textos de «Cargar saldo antes de llegar»', () => {
   it('las condiciones antes de pagar: no caduca y cómo se devuelve (lo que hace hoy «Me voy»)', () => {
     expect(HOME_TOPUP_TEXT.es.noExpiry).toContain('no caduca');
     expect(HOME_TOPUP_TEXT.es.refund).toContain('«Me voy»');
-    expect(HOME_TOPUP_TEXT.es.refund).toContain('a tu tarjeta o en efectivo');
+    // Se cargó con tarjeta: no sale en efectivo, y no lo hace el encargado.
+    expect(HOME_TOPUP_TEXT.es.refund).toContain('a tu tarjeta');
+    expect(HOME_TOPUP_TEXT.es.refund).not.toContain('efectivo');
+    expect(HOME_TOPUP_TEXT.es.refund).not.toContain('encargado');
     expect(HOME_TOPUP_TEXT.es.refundFee).toContain('la comisión del servicio no se devuelve');
   });
 });

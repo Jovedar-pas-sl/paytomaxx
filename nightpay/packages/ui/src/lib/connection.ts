@@ -39,8 +39,8 @@ const OFFLINE_TITLE: Record<ConnectionDevice, string> = {
 };
 
 const OFFLINE_HINT: Record<ConnectionDevice, string> = {
-  phone: 'Mira el wifi o los datos. Si urge, cobra con el datáfono.',
-  register: 'Mira el wifi o el cable. Si urge, cobra con el datáfono.',
+  phone: 'Mira el wifi o los datos. Sin internet no se puede cobrar: avisa al encargado.',
+  register: 'Mira el wifi o el cable. Sin internet no se puede cobrar: avisa al encargado.',
 };
 
 /**
@@ -60,7 +60,7 @@ export function classifyConnection(
     return {
       kind: 'server',
       title: 'OxioPay no responde, reintentando…',
-      hint: 'No hace falta recargar. Si urge, cobra con el datáfono.',
+      hint: 'No hace falta recargar. Si no vuelve en un momento, avisa al encargado.',
     };
   }
   const waiting = signals.bankWaitingSinceMs;

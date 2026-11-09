@@ -16,10 +16,19 @@ export interface ActivationLink {
 /** Solo /w/a/<token> (el token, base64url como los del API): ni /w/<enlace> ni sus acciones. */
 const ACTIVATION_PATH = /^\/w\/a\/[A-Za-z0-9_-]{16,128}$/;
 
-/** null: no toca (404), o no se pudo; nunca rompe CARGADO. */
-export async function fetchActivationLink(walletId: string): Promise<ActivationLink | null> {
+/**
+ * null: no toca (404), o no se pudo; nunca rompe CARGADO. `read`: la ficha que
+ * se acaba de leer (un saldo que ya tenía dinero, sin PIN, la pide).
+ */
+export async function fetchActivationLink(
+  walletId: string,
+  read?: { card: string; uid: string | null } | null,
+): Promise<ActivationLink | null> {
   try {
-    const res = await authedFetch(`/v1/reception/wallets/${encodeURIComponent(walletId)}/activation-link`, { method: 'POST' });
+    const res = await authedFetch(`/v1/reception/wallets/${encodeURIComponent(walletId)}/activation-link`, {
+      method: 'POST',
+      ...(read ? { body: JSON.stringify({ card: read.card, ...(read.uid ? { uid: read.uid } : {}) }) } : {}),
+    });
     if (!res.ok) return null;
     return activationLinkOf(await res.json());
   } catch {

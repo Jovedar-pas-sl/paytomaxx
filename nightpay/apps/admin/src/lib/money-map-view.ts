@@ -240,6 +240,13 @@ export function moneyMapView(m: MoneyMap, sections: readonly VenueSection[]): Mo
         },
         // No es el saldo de los clientes: lo que el periodo sumó o restó a ese saldo.
         { key: 'saldo', label: 'Variación del saldo del periodo', cents: m.where.owners.saldoCents, color: 'var(--np-mm-saldo)' },
+        // Salió o saldrá del banco, aunque Banco enseñe lo cobrado.
+        ...(m.where.owners.paidOutCents
+          ? [{ key: 'paid', label: 'Ya pagado al personal por banco', cents: m.where.owners.paidOutCents, color: 'var(--np-mm-personal)' }]
+          : []),
+        ...(m.where.owners.commissionsCents
+          ? [{ key: 'fees', label: 'Comisiones (OxioPay y banco)', cents: m.where.owners.commissionsCents, color: 'var(--np-mm-comision)' }]
+          : []),
         // La comisión del servicio entró con el resto, pero se debe a OxioPay.
         ...(m.where.owners.oxioPayCents
           ? [{ key: 'oxiopay', label: 'De OxioPay (comisión del servicio)', cents: m.where.owners.oxioPayCents, color: 'var(--np-mm-comision)' }]

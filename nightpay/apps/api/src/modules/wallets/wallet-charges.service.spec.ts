@@ -507,6 +507,77 @@ describe('sumar una recarga al saldo de su Face ID', () => {
   });
 });
 
+describe('juntar saldos desde la página del saldo: el enlace no prueba que sea suyo', () => {
+  function withPin(pinHash: string | null) {
+    const made = makeService({ wallet: wallet({ id: 'src', pinHash }) });
+    const checkPin = vi.spyOn(made.svc as unknown as { checkPin: () => Promise<void> }, 'checkPin').mockResolvedValue(undefined);
+    const mergeInto = vi.spyOn(made.svc, 'mergeInto').mockResolvedValue({ balanceCents: 8000 });
+    return { ...made, checkPin, mergeInto };
+  }
+
+  it('sin PIN: 403, no se mueve nada (solo lo puede juntar el móvil que pagó la recarga)', async () => {
+    const { svc, mergeInto, checkPin } = withPin(null);
+    await expect(svc.mergeIntoWithPin('src', 'tgt', '4821')).rejects.toMatchObject({ status: 403, response: { code: 'MERGE_PROOF_REQUIRED' } });
+    expect(checkPin).not.toHaveBeenCalled();
+    expect(mergeInto).not.toHaveBeenCalled();
+  });
+
+  it.each([[undefined], ['12'], ['abcd'], [4821]])('PIN que no son 4 cifras (%s): 400 y no gasta un intento', async (pin) => {
+    const { svc, mergeInto, checkPin } = withPin('hash');
+    await expect(svc.mergeIntoWithPin('src', 'tgt', pin)).rejects.toMatchObject({ status: 400, response: { code: 'PIN_FORMAT' } });
+    expect(checkPin).not.toHaveBeenCalled();
+    expect(mergeInto).not.toHaveBeenCalled();
+  });
+
+  it('PIN mal puesto: no se junta y el fallo cuenta como cualquier otro', async () => {
+    const { svc, mergeInto, checkPin } = withPin('hash');
+    checkPin.mockRejectedValueOnce(new ConflictException({ code: 'PIN_WRONG' }));
+    await expect(svc.mergeIntoWithPin('src', 'tgt', '0000')).rejects.toMatchObject({ response: { code: 'PIN_WRONG' } });
+    expect(checkPin).toHaveBeenCalledWith('src', '0000', { tenantId: 'home', userId: null });
+    expect(mergeInto).not.toHaveBeenCalled();
+  });
+
+  it('con su PIN, se junta', async () => {
+    const { svc, mergeInto } = withPin('hash');
+    await expect(svc.mergeIntoWithPin('src', 'tgt', '4821')).resolves.toEqual({ balanceCents: 8000 });
+    expect(mergeInto).toHaveBeenCalledWith('src', 'tgt');
+  });
+});
+
+describe('lo que el cliente no confirma pide el 2FA de quien lo hace', () => {
+  it('el dueño no devuelve un saldo sin su código, ni en efectivo ni a la tarjeta', async () => {
+    for (const method of ['CASH', 'CARD'] as const) {
+      const { svc, totp, tx } = makeService();
+      await expect(svc.payout(owner, 'w-1', { method })).rejects.toMatchObject({ response: { code: 'TOTP_REQUIRED' } });
+      expect(totp.assertForUser).not.toHaveBeenCalled();
+      expect(tx.walletPayout.create).not.toHaveBeenCalled();
+    }
+  });
+
+  it('el dueño sin 2FA activada: se lo dice, no se hace', async () => {
+    const { svc, totp } = makeService();
+    totp.isEnabled.mockResolvedValue(false);
+    await expect(svc.payout(owner, 'w-1', { method: 'CASH' })).rejects.toMatchObject({ response: { code: 'TOTP_NOT_ENROLLED' } });
+  });
+
+  it('enlace nuevo: con su código y solo el dueño', async () => {
+    const { svc, totp, tx } = makeService();
+    await expect(svc.relinkWithCode(owner, 'w-1', undefined)).rejects.toMatchObject({ response: { code: 'TOTP_REQUIRED' } });
+    expect(tx.clientWallet.update).not.toHaveBeenCalled();
+    await expect(svc.relinkWithCode(manager, 'w-1', '123456')).rejects.toThrow(ForbiddenException);
+    expect(totp.assertForUser).not.toHaveBeenCalled();
+    await expect(svc.relinkWithCode(owner, 'w-1', '123456')).resolves.toMatchObject({ path: expect.stringContaining('/w/a/') });
+    expect(totp.assertForUser).toHaveBeenCalledWith(owner.userId, '123456');
+  });
+
+  it('un código malo no deja hacer nada', async () => {
+    const { svc, totp, tx } = makeService();
+    totp.assertForUser.mockRejectedValue(new ForbiddenException({ code: 'TOTP_INVALID' }));
+    await expect(svc.resetPin(manager, 'w-1', '000000')).rejects.toMatchObject({ response: { code: 'TOTP_INVALID' } });
+    expect(tx.clientWallet.update).not.toHaveBeenCalled();
+  });
+});
+
 describe('el cliente perdió el enlace de su saldo', () => {
   it('el dueño le da uno nuevo y el viejo deja de valer; lo que enseña es un QR de activación de un solo uso (M-2)', async () => {
     const { svc, tx, audit } = makeService();
@@ -647,14 +718,13 @@ describe('devolver el saldo al cliente que se va', () => {
     expect((notEnrolled as ForbiddenException).getResponse()).toMatchObject({ code: 'TOTP_NOT_ENROLLED' });
   });
 
-  it('por debajo del umbral el encargado no pone código; el dueño nunca', async () => {
+  it('por debajo del umbral el encargado no pone código; el dueño, siempre', async () => {
     const below = payoutService({ threshold: 30_001, cashIn: 5_000, wallet: { balanceCents: 5_000 } });
     await expect(below.svc.payout(manager, 'w-1', { method: 'CASH' })).resolves.toEqual({ refundedCents: 5_000, method: 'CASH' });
     expect(below.totp.assertForUser).not.toHaveBeenCalled();
     const own = payoutService({ threshold: 0, cashIn: 30_000 });
-    await expect(own.svc.payout(owner, 'w-1', { method: 'CASH' })).resolves.toEqual({ refundedCents: 30_000, method: 'CASH' });
-    expect(own.totp.assertForUser).not.toHaveBeenCalled();
-    expect(own.totp.isEnabled).not.toHaveBeenCalled();
+    await expect(own.svc.payout(owner, 'w-1', { totpCode: '123456', method: 'CASH' })).resolves.toEqual({ refundedCents: 30_000, method: 'CASH' });
+    expect(own.totp.assertForUser).toHaveBeenCalledWith(owner.userId, '123456');
   });
 
   it('lo que recepción dejó para el encargado (su tope de la noche): en el panel, con su 2FA aunque sea poco', async () => {
@@ -674,7 +744,7 @@ describe('devolver el saldo al cliente que se va', () => {
     await expect(svc.payout(manager, 'w-1', { method: 'CASH' })).rejects.toThrow(/Me voy/);
     expect(tx.clientWallet.update).not.toHaveBeenCalled();
     const ok = payoutService({ wallet: { closeRequestedAt: null }, cashIn: 30_000 });
-    await expect(ok.svc.payout(owner, 'w-1', { method: 'CASH' })).resolves.toEqual({ refundedCents: 30_000, method: 'CASH' });
+    await expect(ok.svc.payout(owner, 'w-1', { totpCode: '123456', method: 'CASH' })).resolves.toEqual({ refundedCents: 30_000, method: 'CASH' });
   });
 
   it('a la tarjeta: primero el saldo pasa a una devolución PENDING (saldo abierto a 0), luego el banco y al final se cierra', async () => {
@@ -685,7 +755,7 @@ describe('devolver el saldo al cliente que se va', () => {
       state.registered += req.amountCents;
       return {};
     });
-    await expect(svc.payout(owner, 'w-1', { method: 'CARD', bankReference: 'DEV-9' })).resolves.toEqual({
+    await expect(svc.payout(owner, 'w-1', { totpCode: '123456', method: 'CARD', bankReference: 'DEV-9' })).resolves.toEqual({
       refundedCents: 30_000,
       method: 'CARD',
     });
@@ -703,7 +773,7 @@ describe('devolver el saldo al cliente que se va', () => {
     const { svc } = makeService({ wallet: wallet({ closeRequestedAt: new Date() }) });
     await expect(svc.payout(manager, 'w-1', { method: 'CARD' })).rejects.toThrow(ForbiddenException);
     // Desde otro local del grupo: en efectivo sí, a la tarjeta no (las recargas son del otro local).
-    await expect(svc.payout({ ...owner, tenantId: 'other' }, 'w-1', { method: 'CARD' })).rejects.toThrow(
+    await expect(svc.payout({ ...owner, tenantId: 'other' }, 'w-1', { totpCode: '123456', method: 'CARD' })).rejects.toThrow(
       /donde el cliente cargó/,
     );
   });
@@ -716,7 +786,7 @@ describe('devolver el saldo al cliente que se va', () => {
         return {};
       })
       .mockRejectedValueOnce(new Error('fallo'));
-    await expect(svc.payout(owner, 'w-1', { method: 'CARD' })).rejects.toThrow(/quedan 100,00 €/);
+    await expect(svc.payout(owner, 'w-1', { totpCode: '123456', method: 'CARD' })).rejects.toThrow(/quedan 100,00 €/);
     expect(state.payouts).toEqual([expect.objectContaining({ status: 'DONE', amountCents: 20_000 })]);
     expect(state.wallet).toMatchObject({ balanceCents: 10_000, status: 'ACTIVE' });
   });
@@ -724,7 +794,7 @@ describe('devolver el saldo al cliente que se va', () => {
   it('si algo falla a mitad, la wallet no se queda congelada: vuelve a abrirse con su saldo', async () => {
     const { svc, state, tx, refunds } = payoutService();
     tx.payment.findMany.mockRejectedValueOnce(new Error('db caída'));
-    await expect(svc.payout(owner, 'w-1', { method: 'CARD' })).rejects.toThrow('db caída');
+    await expect(svc.payout(owner, 'w-1', { totpCode: '123456', method: 'CARD' })).rejects.toThrow('db caída');
     expect(refunds.registerBankRefund).not.toHaveBeenCalled();
     // Nada apuntado: la devolución no queda y el saldo vuelve entero.
     expect(state.payouts).toEqual([]);
@@ -747,18 +817,18 @@ describe('devolver el saldo al cliente que se va', () => {
         return {};
       })
       .mockRejectedValueOnce(new Error('fallo'));
-    await expect(svc.payout(owner, 'w-1', { method: 'CARD' })).rejects.toThrow('se cayó');
+    await expect(svc.payout(owner, 'w-1', { totpCode: '123456', method: 'CARD' })).rejects.toThrow('se cayó');
     // Recuperable: el saldo está en la devolución PENDING, no perdido ni gastable.
     expect(state.wallet).toMatchObject({ balanceCents: 0, status: 'ACTIVE' });
     expect(state.payouts).toEqual([expect.objectContaining({ status: 'PENDING', amountCents: 30_000 })]);
     prisma.acrossVenues.mockImplementation(real);
 
     // Doble clic / otro intento al momento: no se apunta dos veces.
-    await expect(svc.payout(owner, 'w-1', { method: 'CARD' })).rejects.toThrow(/Ya se está apuntando/);
+    await expect(svc.payout(owner, 'w-1', { totpCode: '123456', method: 'CARD' })).rejects.toThrow(/Ya se está apuntando/);
     expect(refunds.registerBankRefund).toHaveBeenCalledTimes(2);
 
     // En efectivo tampoco se "devuelve" otra vez: avisa de la que está a medias.
-    await expect(svc.payout(owner, 'w-1', { method: 'CASH' })).rejects.toThrow(/a medias/);
+    await expect(svc.payout(owner, 'w-1', { totpCode: '123456', method: 'CASH' })).rejects.toThrow(/a medias/);
 
     // Pasado el rato, se retoma: solo lo que faltaba (10 €) y se cierra.
     state.payouts[0]!.claimedAt = new Date(Date.now() - 10 * 60 * 1000);
@@ -767,7 +837,7 @@ describe('devolver el saldo al cliente que se va', () => {
       state.registered += req.amountCents;
       return {};
     });
-    await expect(svc.payout(owner, 'w-1', { method: 'CARD' })).resolves.toEqual({ refundedCents: 30_000, method: 'CARD' });
+    await expect(svc.payout(owner, 'w-1', { totpCode: '123456', method: 'CARD' })).resolves.toEqual({ refundedCents: 30_000, method: 'CARD' });
     expect(refunds.registerBankRefund.mock.calls.map((c) => c[0].amountCents)).toEqual([10_000]);
     expect(state.payouts).toEqual([expect.objectContaining({ status: 'DONE', amountCents: 30_000 })]);
     expect(state.wallet).toMatchObject({ balanceCents: 0, status: 'REFUNDED' });
@@ -776,7 +846,7 @@ describe('devolver el saldo al cliente que se va', () => {
   describe('el efectivo no se convierte en dinero del banco ni al revés', () => {
     it('en efectivo solo lo que entró en efectivo: el resto sigue en el saldo (abierto, con su ficha) para «A la tarjeta»', async () => {
       const { svc, state, payoutMock, tx } = payoutService({ cashIn: 10_000 });
-      await expect(svc.payout(owner, 'w-1', { method: 'CASH' })).resolves.toEqual({
+      await expect(svc.payout(owner, 'w-1', { totpCode: '123456', method: 'CASH' })).resolves.toEqual({
         refundedCents: 10_000,
         method: 'CASH',
         remainingCents: 20_000,
@@ -789,21 +859,21 @@ describe('devolver el saldo al cliente que se va', () => {
 
     it('cargado con tarjeta (p. ej. robada) no sale en efectivo: 409 y no se toca nada', async () => {
       const { svc, state, payoutMock } = payoutService();
-      await expect(svc.payout(owner, 'w-1', { method: 'CASH' })).rejects.toThrow(/entró con tarjeta/);
+      await expect(svc.payout(owner, 'w-1', { totpCode: '123456', method: 'CASH' })).rejects.toThrow(/entró con tarjeta/);
       expect(state.wallet).toMatchObject({ balanceCents: 30_000, status: 'ACTIVE' });
       expect(payoutMock.create).not.toHaveBeenCalled();
     });
 
     it('en efectivo, menos de 1.000 € en 24 h aunque entrara más en efectivo (otras noches)', async () => {
       const big = payoutService({ wallet: { balanceCents: 150_000 }, cashIn: 150_000 });
-      await expect(big.svc.payout(owner, 'w-1', { method: 'CASH' })).resolves.toMatchObject({ refundedCents: 99_999, remainingCents: 50_001 });
+      await expect(big.svc.payout(owner, 'w-1', { totpCode: '123456', method: 'CASH' })).resolves.toMatchObject({ refundedCents: 99_999, remainingCents: 50_001 });
       const already = payoutService({ cashIn: 130_000, cashOutToday: 99_999 });
-      await expect(already.svc.payout(owner, 'w-1', { method: 'CASH' })).rejects.toThrow(/ya se le devolvieron 999,99 €/);
+      await expect(already.svc.payout(owner, 'w-1', { totpCode: '123456', method: 'CASH' })).rejects.toThrow(/ya se le devolvieron 999,99 €/);
     });
 
     it('a la tarjeta, como mucho el saldo menos el efectivo que sigue en él (recarga 500 con tarjeta, gasta 500, recarga 500 en efectivo)', async () => {
       const { svc, state, refunds } = payoutService({ wallet: { balanceCents: 50_000 }, cashIn: 50_000 });
-      await expect(svc.payout(owner, 'w-1', { method: 'CARD' })).rejects.toThrow(/entró en efectivo/);
+      await expect(svc.payout(owner, 'w-1', { totpCode: '123456', method: 'CARD' })).rejects.toThrow(/entró en efectivo/);
       expect(refunds.registerBankRefund).not.toHaveBeenCalled();
       expect(state.payouts).toEqual([]);
       expect(state.wallet).toMatchObject({ balanceCents: 50_000 });
@@ -811,7 +881,7 @@ describe('devolver el saldo al cliente que se va', () => {
 
     it('a la tarjeta, con parte en efectivo: solo la parte de la tarjeta (el efectivo queda en el saldo)', async () => {
       const { svc, state, refunds } = payoutService({ cashIn: 10_000 });
-      await expect(svc.payout(owner, 'w-1', { method: 'CARD' })).resolves.toEqual({ refundedCents: 20_000, method: 'CARD' });
+      await expect(svc.payout(owner, 'w-1', { totpCode: '123456', method: 'CARD' })).resolves.toEqual({ refundedCents: 20_000, method: 'CARD' });
       expect(refunds.registerBankRefund.mock.calls.map((c) => c[0].amountCents)).toEqual([20_000]);
       expect(state.payouts).toEqual([expect.objectContaining({ status: 'DONE', amountCents: 20_000, method: 'CARD' })]);
       // Los 100 € del efectivo siguen en el saldo, abierto: se devuelven en efectivo.
@@ -823,7 +893,7 @@ describe('devolver el saldo al cliente que se va', () => {
         cashIn: 30_000,
         payouts: [{ id: 'po-1', amountCents: 5000, status: 'PENDING', method: 'CARD', claimedAt: new Date(), createdAt: new Date(), bankReference: null }],
       });
-      await expect(svc.payout(owner, 'w-1', { method: 'CASH' })).rejects.toThrow(/a medias/);
+      await expect(svc.payout(owner, 'w-1', { totpCode: '123456', method: 'CASH' })).rejects.toThrow(/a medias/);
       expect(payoutMock.create).not.toHaveBeenCalled();
     });
   });
@@ -901,12 +971,12 @@ describe('devolver el saldo al cliente que se va', () => {
 
     it('con la cifra que vio el panel: si en efectivo ya es otra, 409 PAYOUT_AMOUNT_CHANGED y no se toca nada', async () => {
       const { svc, state, payoutMock } = payoutService({ cashIn: 10_000 });
-      const err = await svc.payout(owner, 'w-1', { method: 'CASH', expectedAmountCents: 30_000 }).catch((e: unknown) => e);
+      const err = await svc.payout(owner, 'w-1', { totpCode: '123456', method: 'CASH', expectedAmountCents: 30_000 }).catch((e: unknown) => e);
       expect(err).toBeInstanceOf(ConflictException);
       expect((err as ConflictException).getResponse()).toMatchObject({ code: 'PAYOUT_AMOUNT_CHANGED' });
       expect(payoutMock.create).not.toHaveBeenCalled();
       expect(state.wallet).toMatchObject({ balanceCents: 30_000, status: 'ACTIVE' });
-      await expect(svc.payout(owner, 'w-1', { method: 'CASH', expectedAmountCents: 10_000 })).resolves.toEqual({
+      await expect(svc.payout(owner, 'w-1', { totpCode: '123456', method: 'CASH', expectedAmountCents: 10_000 })).resolves.toEqual({
         refundedCents: 10_000,
         method: 'CASH',
         remainingCents: 20_000,
@@ -915,12 +985,12 @@ describe('devolver el saldo al cliente que se va', () => {
 
     it('a la tarjeta igual: otra cifra → 409 sin devolución PENDING ni nada en el banco', async () => {
       const { svc, state, refunds } = payoutService({ cashIn: 10_000 });
-      const err = await svc.payout(owner, 'w-1', { method: 'CARD', expectedAmountCents: 30_000 }).catch((e: unknown) => e);
+      const err = await svc.payout(owner, 'w-1', { totpCode: '123456', method: 'CARD', expectedAmountCents: 30_000 }).catch((e: unknown) => e);
       expect((err as ConflictException).getResponse()).toMatchObject({ code: 'PAYOUT_AMOUNT_CHANGED' });
       expect(state.payouts).toEqual([]);
       expect(refunds.registerBankRefund).not.toHaveBeenCalled();
       expect(state.wallet).toMatchObject({ balanceCents: 30_000 });
-      await expect(svc.payout(owner, 'w-1', { method: 'CARD', expectedAmountCents: 20_000 })).resolves.toEqual({
+      await expect(svc.payout(owner, 'w-1', { totpCode: '123456', method: 'CARD', expectedAmountCents: 20_000 })).resolves.toEqual({
         refundedCents: 20_000,
         method: 'CARD',
       });
@@ -931,9 +1001,9 @@ describe('devolver el saldo al cliente que se va', () => {
         payouts: [pendingCard(5_000, new Date(Date.now() - 10 * 60 * 1000))],
         wallet: { balanceCents: 25_000 },
       });
-      await expect(svc.payout(owner, 'w-1', { method: 'CARD', expectedAmountCents: 25_000 })).rejects.toThrow(ConflictException);
+      await expect(svc.payout(owner, 'w-1', { totpCode: '123456', method: 'CARD', expectedAmountCents: 25_000 })).rejects.toThrow(ConflictException);
       expect(refunds.registerBankRefund).not.toHaveBeenCalled();
-      await expect(svc.payout(owner, 'w-1', { method: 'CARD', expectedAmountCents: 5_000 })).resolves.toEqual({
+      await expect(svc.payout(owner, 'w-1', { totpCode: '123456', method: 'CARD', expectedAmountCents: 5_000 })).resolves.toEqual({
         refundedCents: 5_000,
         method: 'CARD',
       });

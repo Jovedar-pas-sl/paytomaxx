@@ -2,7 +2,7 @@
 
 import { useState, type FormEvent } from 'react';
 import { Button, Input } from '@nightpay/ui';
-import { login, setSession } from '@/lib/api';
+import { LoginCodeRequiredError, login, loginWithCode, setSession } from '@/lib/api';
 
 interface Props {
   onSuccess: () => void;
@@ -13,17 +13,25 @@ export function LoginForm({ onSuccess }: Props) {
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // Con la 2FA activada, la contraseña da un ticket y falta el código de su app.
+  const [ticket, setTicket] = useState<string | null>(null);
+  const [code, setCode] = useState('');
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setError(null);
     setBusy(true);
     try {
-      const result = await login(email.trim().toLowerCase(), password);
+      const result = ticket ? await loginWithCode(ticket, code) : await login(email.trim().toLowerCase(), password);
       setSession(result);
       onSuccess();
     } catch (err) {
-      setError((err as Error).message);
+      if (err instanceof LoginCodeRequiredError) {
+        setTicket(err.loginTicket);
+      } else {
+        setCode('');
+        setError((err as Error).message);
+      }
     } finally {
       setBusy(false);
     }
@@ -40,23 +48,39 @@ export function LoginForm({ onSuccess }: Props) {
         maxWidth: '22rem',
       }}
     >
-      <Input
-        type="email"
-        autoComplete="email"
-        placeholder="email@nightpay.local"
-        value={email}
-        onChange={(e) => setEmail(e.target.value)}
-        required
-      />
-      <Input
-        type="password"
-        autoComplete="current-password"
-        placeholder="contraseña"
-        value={password}
-        onChange={(e) => setPassword(e.target.value)}
-        required
-      />
-      <Button type="submit" loading={busy} size="lg">
+      {ticket ? (
+        <Input
+          inputMode="numeric"
+          autoComplete="one-time-code"
+          maxLength={6}
+          autoFocus
+          placeholder="código de tu app de verificación"
+          aria-label="Código de tu app de verificación"
+          value={code}
+          onChange={(e) => setCode(e.target.value.replace(/[^0-9]/g, ''))}
+          required
+        />
+      ) : (
+        <>
+          <Input
+            type="email"
+            autoComplete="email"
+            placeholder="email@nightpay.local"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            required
+          />
+          <Input
+            type="password"
+            autoComplete="current-password"
+            placeholder="contraseña"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            required
+          />
+        </>
+      )}
+      <Button type="submit" loading={busy} size="lg" disabled={ticket !== null && code.length !== 6}>
         Entrar
       </Button>
       {error ? (

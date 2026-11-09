@@ -14,8 +14,9 @@ import { UNLOCK_CSS, UNLOCK_ICON, unlockCard } from './wallet-unlock-page';
  *  - ok: activar el desbloqueo del móvil (Face ID, huella o bloqueo de
  *    pantalla) o, si lo prefiere (o su navegador no puede), elegir un PIN.
  *    Lo primero que registre gasta el QR. Después su móvil va a su saldo
- *    (/w/<enlace>, con su sesión si es Face ID); si el saldo ya tenía PIN, se
- *    le avisa antes, por si no lo eligió él.
+ *    (/w/<enlace>, con su sesión si es Face ID). Si el saldo ya tenía PIN: el
+ *    QR de recepción lo pide antes de activar; con el enlace nuevo del dueño
+ *    no se pide (puede haberlo olvidado) y se le avisa, por si no lo eligió él.
  *  - used / expired: «Este enlace ya se ha usado / ha caducado. Pide otro en
  *    recepción.», sin botones.
  * Mirar la página no cambia nada (las vistas previas de WhatsApp la abren).
@@ -48,7 +49,7 @@ function body(view: ActivationView, lang: PayLanguage): string {
   return `${card}<section class="act">
 <h1>${h(a.heading)}</h1>
 <p class="lead">${h(a.intro)}</p>
-<button class="btn" id="faceOn" type="button" hidden>${UNLOCK_ICON.face}<span id="faceLabel"></span></button>
+${view.pinRequired ? `<div class="pinbox" id="pinAsk"><p>${h(a.pinAsk)}</p><div class="pins"><input id="pinOwn" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="4" autocomplete="off" aria-label="${h(w.pinLabel)}" placeholder="${h(w.pinLabel)}"></div></div>` : ''}<button class="btn" id="faceOn" type="button" hidden>${UNLOCK_ICON.face}<span id="faceLabel"></span></button>
 <button class="link" id="pinOffer" type="button" hidden>${h(a.pinOffer)}</button>
 <form class="pinbox" id="pinForm" autocomplete="off" hidden>
 <p>${h(a.pinWhy)}</p>
@@ -72,6 +73,7 @@ function activationScript(base: string, lang: PayLanguage, view: Extract<Activat
     base,
     lang,
     hasPin: view.hasPin,
+    pinRequired: view.pinRequired,
     t: a,
     w: { pinFormat: w.pinFormat, pinMismatch: w.pinMismatch, pinSave: w.pinSave },
     unlock: p.unlock,
@@ -94,13 +96,17 @@ function dest(u){if(typeof u!=='string')return null;var d=new URL(u,window.locat
  if(d.origin!==window.location.origin||parts.length!==3||parts[1]!=='w'||!/^[A-Za-z0-9_-]+$/.test(parts[2]))return null;
  return d.pathname+'?lang='+encodeURIComponent(C.lang);}
 function done(r,hadPin){var to=dest(r&&r.url);if(!to)throw new Error('destino');
- face.hidden=true;$('pinOffer').hidden=true;$('pinForm').hidden=true;show('err','');
+ face.hidden=true;$('pinOffer').hidden=true;$('pinForm').hidden=true;show('err','');if(C.pinRequired)$('pinAsk').hidden=true;
  if(hadPin){$('warn').hidden=false;var g=$('go');g.href=to;g.hidden=false;g.focus();return;}
  show('done',T.done);window.location.replace(to);}
-face.addEventListener('click',function(){if(busy)return;busy=true;face.disabled=true;label.textContent=C.waiting;show('err','');
- pkCreate(C.base+'/passkey/options').then(function(k){return pkPost(C.base+'/passkey',{response:k});})
-  .then(function(r){done(r,r&&r.hadPin===true);})
-  .catch(function(e){busy=false;face.disabled=false;label.textContent=U.button;show('err',pkCancelled(e)?T.cancelled:npErr(e,C.errors));});});
+face.addEventListener('click',function(){if(busy)return;show('err','');
+ var own=C.pinRequired?$('pinOwn').value:'';
+ if(C.pinRequired&&!/^[0-9]{4}$/.test(own)){show('err',C.w.pinFormat);$('pinOwn').focus();return;}
+ var ask=C.pinRequired?{pin:own}:{};
+ busy=true;face.disabled=true;label.textContent=C.waiting;
+ pkCreate(C.base+'/passkey/options',ask).then(function(k){return pkPost(C.base+'/passkey',Object.assign({response:k},ask));})
+  .then(function(r){done(r,!C.pinRequired&&r&&r.hadPin===true);})
+  .catch(function(e){busy=false;face.disabled=false;label.textContent=U.button;if(C.pinRequired)$('pinOwn').value='';show('err',pkCancelled(e)?T.cancelled:npErr(e,C.errors));});});
 $('pinOffer').addEventListener('click',function(){$('pinForm').hidden=false;$('pinOffer').hidden=true;$('pin1').focus();});
 $('pinForm').addEventListener('submit',function(ev){ev.preventDefault();if(busy)return;show('err','');
  var x=$('pin1').value,y=$('pin2').value,b=$('pinGo');

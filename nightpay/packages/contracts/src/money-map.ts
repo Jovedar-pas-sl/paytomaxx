@@ -100,7 +100,8 @@ export interface MoneyMapWhere {
   /**
    * De quién es ese total (suman lo mismo): lo del personal de este periodo
    * aún sin pagar, el saldo vivo que dejó el periodo (recargas − consumos −
-   * saldo devuelto) y el resto, tuyo.
+   * saldo devuelto), lo ya pagado por banco o transferencia (BBVA no lo
+   * descuenta), las comisiones y el resto, tuyo.
    */
   owners: {
     venueCents: number;
@@ -108,6 +109,10 @@ export interface MoneyMapWhere {
     saldoCents: number;
     /** La «Comisión del servicio» de este periodo que se debe a OxioPay. Mapas de antes: sin el campo. */
     oxioPayCents?: number;
+    /** Pagado al personal por banco o transferencia en este periodo (lo de efectivo ya salió de la caja). Mapas de antes: sin el campo. */
+    paidOutCents?: number;
+    /** Comisiones de este periodo: la de OxioPay y la estimada del banco. Mapas de antes: sin el campo. */
+    commissionsCents?: number;
   };
   /** Saldo vivo de los clientes del local ahora (o al cerrar); null si no se sabe (periodo pasado). */
   liveSaldoCents: number | null;

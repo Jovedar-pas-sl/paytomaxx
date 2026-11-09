@@ -4,7 +4,7 @@
  * y de "Pagado". El navegador habla en bytes y el API en base64url.
  *
  * Va dentro de plantillas de TypeScript: sin barras invertidas (se perderían).
- * Define en la página: pkSupported(), pkCreate(url), pkGet(url),
+ * Define en la página: pkSupported(), pkCreate(url, cuerpo), pkGet(url),
  * pkPrepare(url) y pkPost(url, body). pkPrepare pide el reto al abrir la
  * página: al tocar "Pagar", Face ID sale al instante (y en el mismo toque,
  * que es lo que exige el iPhone). Si el servidor contesta con error, el
@@ -18,7 +18,7 @@ function pkSupported(){return !!(window.PublicKeyCredential&&navigator.credentia
 function pkCancelled(e){return e&&(e.name==='NotAllowedError'||e.name==='AbortError');}
 function pkPost(url,body){return fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body||{})})
   .then(function(r){return r.json().catch(function(){return {};}).then(function(j){if(!r.ok){var e=new Error(j.detail||j.message||'Error');e.status=r.status;e.code=j.code;e.reason=j.reason;throw e;}return j;});});}
-function pkCreate(optionsUrl){return pkPost(optionsUrl).then(function(o){
+function pkCreate(optionsUrl,body){return pkPost(optionsUrl,body).then(function(o){
   o.challenge=pkBytes(o.challenge);o.user.id=pkBytes(o.user.id);(o.excludeCredentials||[]).forEach(function(c){c.id=pkBytes(c.id);});
   return navigator.credentials.create({publicKey:o});
  }).then(function(c){var r=c.response;return {id:c.id,rawId:pkB64u(c.rawId),type:c.type,

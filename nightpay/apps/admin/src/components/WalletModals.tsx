@@ -9,11 +9,12 @@ import {
   lookupWalletCode,
   payoutWallet,
   relinkWallet,
+  resetWalletPin,
   type PendingQrCharge,
   type WalletPayoutMethod,
   type WalletPayoutPreview,
 } from '@/lib/api';
-import { totpRetryState } from '@/lib/api-errors';
+import { totpLockedUntil, totpRetryState } from '@/lib/api-errors';
 import { walletPayoutSummary } from '@/lib/confirm-summary';
 import { balanceAfterPayout, isPayoutAmountChanged, payoutDoneText, payoutPlan } from '@/lib/wallet-payout';
 import { formatDateTime } from '@/lib/dates';
@@ -160,7 +161,8 @@ export function PayoutModal({
   // Lo que hará el API por este camino: el botón, la confirmación y el texto dicen esa cifra.
   const plan = preview ? payoutPlan(preview, method) : null;
   const amountCents = plan?.amountCents ?? 0;
-  const withCode = askedForCode && method === 'CASH';
+  // El dueño, siempre (devuelve sin que el cliente lo pida); el encargado, desde el umbral en efectivo.
+  const withCode = isOwner || (askedForCode && method === 'CASH');
   const balanceCents = afterCents ?? preview?.balanceCents ?? target.balanceCents;
 
   async function handleSubmit() {
@@ -303,7 +305,11 @@ export function PayoutModal({
                 onChange={setTotp}
                 lockedUntil={lockedUntil}
                 required
-                hint="Devolver en efectivo desde el umbral del local pide los 6 números de tu app de verificación. Si aún no la tienes, actívala en Ajustes → Verificación en dos pasos."
+                hint={
+                  isOwner
+                    ? 'Son los 6 números de tu app de verificación. Si aún no la tienes, actívala en Ajustes → Verificación en dos pasos.'
+                    : 'Devolver en efectivo desde el umbral del local pide los 6 números de tu app de verificación. Si aún no la tienes, actívala en Ajustes → Verificación en dos pasos.'
+                }
               />
             ) : null}
             {error ? (
@@ -350,6 +356,9 @@ export function ChargeWithoutFaceIdModal({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
+  const [totp, setTotp] = useState('');
+  const [lockedUntil, setLockedUntil] = useState<number | null>(null);
+  const locked = useLockActive(lockedUntil);
 
   useEffect(() => {
     let cancelled = false;
@@ -368,12 +377,16 @@ export function ChargeWithoutFaceIdModal({
 
   async function handleApprove() {
     if (!chosen) return;
+    if (!/^\d{6}$/.test(totp)) return setError('Pon los 6 números de tu app de verificación.');
     setBusy(true);
     setError(null);
     try {
-      await approveQrCharge(chosen, target.walletId);
+      await approveQrCharge(chosen, target.walletId, totp);
       onDone();
     } catch (err) {
+      const until = totpLockedUntil(err, Date.now());
+      if (until !== null) setLockedUntil(until);
+      setTotp('');
       setError((err as Error).message);
       setBusy(false);
     }
@@ -392,7 +405,7 @@ export function ChargeWithoutFaceIdModal({
         </div>
         <p style={helpStyle}>
           Para el cliente que no puede pagar con su móvil (sin batería, móvil antiguo). Elige el cobro que le ha hecho la
-          chica: se descuenta de este saldo y queda registrado que lo aprobaste tú.
+          chica: se descuenta de este saldo con tu código 2FA, queda registrado que lo aprobaste tú y avisa al dueño.
         </p>
         {pending === null ? (
           error ? null : <p style={helpStyle}>Cargando cobros pendientes…</p>
@@ -414,6 +427,17 @@ export function ChargeWithoutFaceIdModal({
             ))}
           </div>
         )}
+        {chosen ? (
+          <OtpInput
+            label="Código de tu app de verificación (2FA)"
+            value={totp}
+            onChange={setTotp}
+            lockedUntil={lockedUntil}
+            autoSubmit={false}
+            required
+            hint="Son los 6 números de tu app de verificación. Si aún no la tienes, actívala en Ajustes → Verificación en dos pasos."
+          />
+        ) : null}
         {error ? (
           <p role="alert" style={{ color: 'var(--np-danger)', margin: 0, fontSize: '0.85rem' }}>
             {error}
@@ -428,7 +452,7 @@ export function ChargeWithoutFaceIdModal({
           <Button variant="ghost" onClick={onClose} disabled={busy}>
             Cancelar
           </Button>
-          <Button onClick={handleApprove} loading={busy} disabled={!chosen}>
+          <Button onClick={handleApprove} loading={busy} disabled={!chosen || locked}>
             Cobrar del saldo
           </Button>
         </div>
@@ -442,13 +466,20 @@ export function RelinkModal({ target, onClose }: { target: PayoutTarget; onClose
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [link, setLink] = useState<{ url: string; qrDataUrl: string } | null>(null);
+  const [totp, setTotp] = useState('');
+  const [lockedUntil, setLockedUntil] = useState<number | null>(null);
+  const locked = useLockActive(lockedUntil);
 
   async function handleCreate() {
+    if (!/^\d{6}$/.test(totp)) return setError('Pon los 6 números de tu app de verificación.');
     setBusy(true);
     setError(null);
     try {
-      setLink(await relinkWallet(target.walletId));
+      setLink(await relinkWallet(target.walletId, totp));
     } catch (err) {
+      const until = totpLockedUntil(err, Date.now());
+      if (until !== null) setLockedUntil(until);
+      setTotp('');
       setError((err as Error).message);
     } finally {
       setBusy(false);
@@ -488,6 +519,15 @@ export function RelinkModal({ target, onClose }: { target: PayoutTarget; onClose
               Para el cliente que perdió su móvil o su página de saldo. El enlace que tenía y su Face ID dejan de
               funcionar; con el enlace nuevo lo activa otra vez en su móvil nuevo.
             </p>
+            <OtpInput
+              label="Código de tu app de verificación (2FA)"
+              value={totp}
+              onChange={setTotp}
+              lockedUntil={lockedUntil}
+              autoSubmit={false}
+              required
+              hint="Son los 6 números de tu app de verificación. Si aún no la tienes, actívala en Ajustes → Verificación en dos pasos."
+            />
             {error ? (
               <p role="alert" style={{ color: 'var(--np-danger)', margin: 0, fontSize: '0.85rem' }}>
                 {error}
@@ -497,12 +537,79 @@ export function RelinkModal({ target, onClose }: { target: PayoutTarget; onClose
               <Button variant="ghost" onClick={onClose} disabled={busy}>
                 Cancelar
               </Button>
-              <Button onClick={handleCreate} loading={busy}>
+              <Button onClick={handleCreate} loading={busy} disabled={locked}>
                 Crear enlace nuevo
               </Button>
             </div>
           </>
         )}
+      </div>
+    </Modal>
+  );
+}
+
+/** Borrar el PIN de un cliente que lo olvidó: con el 2FA de quien lo hace (sale en Incidencias). */
+export function ResetPinModal({
+  walletId,
+  code,
+  onClose,
+  onDone,
+}: {
+  walletId: string;
+  code: string | null;
+  onClose: () => void;
+  onDone: () => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [totp, setTotp] = useState('');
+  const [lockedUntil, setLockedUntil] = useState<number | null>(null);
+  const locked = useLockActive(lockedUntil);
+
+  async function handleReset() {
+    if (!/^\d{6}$/.test(totp)) return setError('Pon los 6 números de tu app de verificación.');
+    setBusy(true);
+    setError(null);
+    try {
+      await resetWalletPin(walletId, totp);
+      onDone();
+    } catch (err) {
+      const until = totpLockedUntil(err, Date.now());
+      if (until !== null) setLockedUntil(until);
+      setTotp('');
+      setError((err as Error).message);
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Modal open onClose={busy ? () => undefined : onClose} title="Borrar PIN">
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+        <p style={helpStyle}>
+          Vas a borrar el PIN de {code ?? 'este saldo'}. Comprueba antes que el cliente está delante: elegirá uno nuevo contigo.
+        </p>
+        <OtpInput
+          label="Código de tu app de verificación (2FA)"
+          value={totp}
+          onChange={setTotp}
+          lockedUntil={lockedUntil}
+          autoSubmit={false}
+          required
+          hint="Son los 6 números de tu app de verificación. Si aún no la tienes, actívala en Ajustes → Verificación en dos pasos."
+        />
+        {error ? (
+          <p role="alert" style={{ color: 'var(--np-danger)', margin: 0, fontSize: '0.85rem' }}>
+            {error}
+          </p>
+        ) : null}
+        <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
+          <Button variant="ghost" onClick={onClose} disabled={busy}>
+            Cancelar
+          </Button>
+          <Button onClick={handleReset} loading={busy} disabled={locked}>
+            Borrar PIN
+          </Button>
+        </div>
       </div>
     </Modal>
   );

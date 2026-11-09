@@ -39,10 +39,13 @@ export function ResolveModal({
   const [reason, setReason] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [totp, setTotp] = useState('');
+  const [lockedUntil, setLockedUntil] = useState<number | null>(null);
 
   useEffect(() => {
     if (payment) {
       setDecision('AUTHORIZED');
+      setTotp('');
       setAuthCode('');
       setBankOrder('');
       setReason('');
@@ -78,16 +81,23 @@ export function ResolveModal({
       setError('Explica brevemente cómo lo has comprobado.');
       return;
     }
+    if (decision === 'AUTHORIZED' && !/^\d{6}$/.test(totp)) {
+      setError('Pon los 6 números de tu app de verificación.');
+      return;
+    }
     setSubmitting(true);
     try {
       await resolveStuckPayment(payment.id, {
         decision,
         reason: reason.trim(),
-        ...(decision === 'AUTHORIZED' ? { bankAuthCode: code } : {}),
+        ...(decision === 'AUTHORIZED' ? { bankAuthCode: code, totpCode: totp } : {}),
         ...(needsOrder ? { bankOrder } : {}),
       });
       onDone();
     } catch (err) {
+      const until = totpLockedUntil(err, Date.now());
+      if (until !== null) setLockedUntil(until);
+      setTotp('');
       setError((err as Error).message);
     } finally {
       setSubmitting(false);
@@ -180,6 +190,17 @@ export function ResolveModal({
           maxLength={500}
           required
         />
+        {decision === 'AUTHORIZED' ? (
+          <OtpInput
+            label="Código de tu app de verificación (2FA)"
+            value={totp}
+            onChange={setTotp}
+            lockedUntil={lockedUntil}
+            autoSubmit={false}
+            required
+            hint="Son los 6 números de tu app de verificación. Si aún no la tienes, actívala en Ajustes → Verificación en dos pasos."
+          />
+        ) : null}
         {error ? (
           <p role="alert" style={{ color: 'var(--np-danger)', margin: 0 }}>
             {error}

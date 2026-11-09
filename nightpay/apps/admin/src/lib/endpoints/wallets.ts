@@ -45,12 +45,12 @@ export async function fetchPendingQrCharges(): Promise<PendingQrCharge[]> {
 }
 
 /** Encargado o dueño: cobrar ese cobro de este saldo, sin Face ID (queda registrado). */
-export async function approveQrCharge(requestId: string, walletId: string): Promise<void> {
+export async function approveQrCharge(requestId: string, walletId: string, totpCode: string): Promise<void> {
   const res = await authedFetch(`/v1/wallet-charges/${encodeURIComponent(requestId)}/approve`, {
     method: 'POST',
-    body: JSON.stringify({ walletId }),
+    body: JSON.stringify({ walletId, totpCode }),
   });
-  if (!res.ok) throw await apiError(res);
+  if (!res.ok) throw await totpAwareError(res);
 }
 
 /** Encargado o dueño: tras 5 PIN fallidos, el cliente vuelve a poder probar. */
@@ -65,10 +65,13 @@ export async function blockWalletCard(walletId: string): Promise<void> {
   if (!res.ok) throw await apiError(res);
 }
 
-/** Encargado o dueño: el cliente olvidó su PIN → se borra y elige otro. */
-export async function resetWalletPin(walletId: string): Promise<void> {
-  const res = await authedFetch(`/v1/wallet-charges/wallets/${encodeURIComponent(walletId)}/pin/reset`, { method: 'POST' });
-  if (!res.ok) throw await apiError(res);
+/** Encargado o dueño, con su 2FA: el cliente olvidó su PIN → se borra y elige otro. */
+export async function resetWalletPin(walletId: string, totpCode: string): Promise<void> {
+  const res = await authedFetch(`/v1/wallet-charges/wallets/${encodeURIComponent(walletId)}/pin/reset`, {
+    method: 'POST',
+    body: JSON.stringify({ totpCode }),
+  });
+  if (!res.ok) throw await totpAwareError(res);
 }
 
 export interface WalletsAdminStats {
@@ -122,11 +125,12 @@ export async function lookupWalletCode(code: string): Promise<WalletLookup> {
  * El cliente perdió el enlace de su saldo: uno nuevo (solo el dueño). El viejo
  * deja de valer. Devuelve el enlace y su QR para que el cliente lo escanee.
  */
-export async function relinkWallet(walletId: string): Promise<{ url: string; qrDataUrl: string }> {
+export async function relinkWallet(walletId: string, totpCode: string): Promise<{ url: string; qrDataUrl: string }> {
   const res = await authedFetch(`/v1/wallet-charges/wallets/${encodeURIComponent(walletId)}/relink`, {
     method: 'POST',
+    body: JSON.stringify({ totpCode }),
   });
-  if (!res.ok) throw await apiError(res);
+  if (!res.ok) throw await totpAwareError(res);
   return res.json();
 }
 

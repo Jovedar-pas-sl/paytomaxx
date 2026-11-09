@@ -64,6 +64,12 @@ export const INCIDENT_KINDS: Record<IncidentKind, KindMeta> = {
     tab: 'wallets',
     hint: 'Su saldo sigue valiendo con su código. Si viene a recepción, dale un NFC nuevo.',
   },
+  sensitive_action: {
+    group: 'Saldo',
+    title: 'Acción delicada',
+    tab: 'wallets',
+    hint: 'Comprueba que es lo que tenía que pasar. Si no, cambia las contraseñas y corta esa sesión.',
+  },
   cash_split_suspected: {
     group: 'Efectivo',
     title: 'Efectivo troceado en saldos nuevos',

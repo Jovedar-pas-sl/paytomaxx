@@ -35,4 +35,17 @@ describe('QR de activación de un solo uso (CARGADO)', () => {
     await expect(fetchActivationLink('w 1')).resolves.toMatchObject({ url: `https://x.es/w/a/${TOKEN}` });
     expect(vi.mocked(authedFetch).mock.calls.at(-1)).toEqual(['/v1/reception/wallets/w%201/activation-link', { method: 'POST' }]);
   });
+
+  it('con la ficha que se acaba de leer, la manda: un saldo que ya tenía dinero, sin PIN, la pide', async () => {
+    vi.mocked(authedFetch).mockResolvedValueOnce(new Response('{}', { status: 404 }));
+    await fetchActivationLink('w-1', { card: 'ficha-1', uid: '04AABB' });
+    expect(vi.mocked(authedFetch).mock.calls.at(-1)).toEqual([
+      '/v1/reception/wallets/w-1/activation-link',
+      { method: 'POST', body: JSON.stringify({ card: 'ficha-1', uid: '04AABB' }) },
+    ]);
+    // Leída con un iPhone: sin número de serie.
+    vi.mocked(authedFetch).mockResolvedValueOnce(new Response('{}', { status: 404 }));
+    await fetchActivationLink('w-1', { card: 'ficha-1', uid: null });
+    expect(vi.mocked(authedFetch).mock.calls.at(-1)![1]).toEqual({ method: 'POST', body: JSON.stringify({ card: 'ficha-1' }) });
+  });
 });

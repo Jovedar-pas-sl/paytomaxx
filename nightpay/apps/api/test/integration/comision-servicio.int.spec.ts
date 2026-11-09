@@ -397,14 +397,14 @@ describe('con la comisión del servicio ENCENDIDA (10 % tarjeta y datáfono, 12 
   it('«Devolver saldo»: solo el saldo (a la tarjeta lo que entró con tarjeta, en efectivo lo de efectivo); la comisión se queda', async () => {
     const preview = await inVenue(L.V, () => charges.payoutPreview(ownerActor(L), cardWallet));
     expect(preview).toMatchObject({ balanceCents: 5000, cashOutCents: 0, cardRefundCents: 5000 });
-    await expect(inVenue(L.V, () => charges.payout(ownerActor(L), cardWallet, { method: 'CARD' }))).resolves.toMatchObject({ refundedCents: 5000 });
+    await expect(inVenue(L.V, () => charges.payout(ownerActor(L), cardWallet, { totpCode: '123456', method: 'CARD' }))).resolves.toMatchObject({ refundedCents: 5000 });
     const topUpRefund = await sys((tx) => tx.refund.findFirstOrThrow({ where: { paymentId: cardTopUpId } }));
     expect(topUpRefund).toMatchObject({ amountCents: 5000, serviceFeeCents: 0 });
     expect(await paymentOf(cardTopUpId)).toMatchObject({ availableAmountCents: 0, serviceFeeCents: 600 });
     // Efectivo: le quedan 17 € (entraron 50 € en efectivo): salen 17 €, no 56 € ni 50 €.
     const cashPreview = await inVenue(L.V, () => charges.payoutPreview(ownerActor(L), cashWallet));
     expect(cashPreview).toMatchObject({ balanceCents: 1700, cashOutCents: 1700, cardRefundCents: 0 });
-    await expect(inVenue(L.V, () => charges.payout(ownerActor(L), cashWallet, { method: 'CASH' }))).resolves.toMatchObject({ refundedCents: 1700 });
+    await expect(inVenue(L.V, () => charges.payout(ownerActor(L), cashWallet, { totpCode: '123456', method: 'CASH' }))).resolves.toMatchObject({ refundedCents: 1700 });
     // El cierre cuenta hasta «ahora» con el reloj del proceso y la devolución lleva la hora de la
     // base: en Windows, Date.now() puede ir unos milisegundos por detrás (como copa-escenarios).
     const last = await sys((tx) => tx.walletPayout.findFirstOrThrow({ where: { tenantId: L.V }, orderBy: { createdAt: 'desc' } }));
@@ -527,7 +527,7 @@ describe('con la comisión del servicio APAGADA: todo exactamente como hoy', () 
     expect(m).not.toHaveProperty('serviceFee');
     expect(m.inflow).not.toHaveProperty('serviceFeeCents');
     expect(m.outflow).not.toHaveProperty('serviceFeeCents');
-    expect(Object.keys(m.where.owners).sort()).toEqual(['saldoCents', 'staffCents', 'venueCents']);
+    expect(m.where.owners).not.toHaveProperty('oxioPayCents');
     // 10 % de lo vendido sin propinas: 33 € con tarjeta + 33 € del saldo.
     expect(m.split.commissions.platformCents).toBe(330 + 330);
     // BBVA: 35 € de la venta (la recarga con tarjeta sigue en el banco sin aprobar).

@@ -154,13 +154,13 @@ export async function refundPayment(
  */
 export async function resolveStuckPayment(
   paymentId: string,
-  input: { decision: 'AUTHORIZED' | 'FAILED'; reason: string; bankAuthCode?: string; bankOrder?: string },
+  input: { decision: 'AUTHORIZED' | 'FAILED'; reason: string; bankAuthCode?: string; bankOrder?: string; totpCode?: string },
 ): Promise<{ ok: true; newStatus: string }> {
   const res = await authedFetch(`/v1/admin/payments/${paymentId}/manual-reconcile`, {
     method: 'POST',
     body: JSON.stringify(input),
   });
-  if (!res.ok) throw await apiError(res);
+  if (!res.ok) throw await totpAwareError(res);
   return res.json();
 }
 

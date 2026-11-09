@@ -72,7 +72,7 @@ export function NightPanel() {
           />
         </div>
         <p className="np-set-note">
-          {noPinSummary(settings)} Si el cliente pierde su NFC, lo más que se gasta sin PIN es el tope de la noche (de 08:00 a
+          {noPinSummary(settings)} Si el cliente pierde su NFC y nadie lo bloquea, lo más que se gasta sin PIN es el tope cada noche (de 08:00 a
           08:00), hasta que se bloquea.
         </p>
       </SettingsCard>

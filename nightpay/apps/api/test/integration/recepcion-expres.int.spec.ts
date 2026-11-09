@@ -123,7 +123,7 @@ describe('recepción exprés: el NFC acercado (Postgres real)', () => {
     const out = await inVenue(V, () => cash.topUp(V, recepcion(), { amountCents: 3_500, idempotencyKey: key(), wallet: { create: true } }));
     await inVenue(V, () => charges.linkCard({ ...recepcion(), tenantId: V }, { code: out.code, card: nfc.card, uid: nfc.uid }));
 
-    const paid = await inVenue(V, () => charges.payout({ userId: owner, role: 'OWNER', tenantId: V }, out.walletId, { method: 'CASH' }));
+    const paid = await inVenue(V, () => charges.payout({ userId: owner, role: 'OWNER', tenantId: V }, out.walletId, { totpCode: '123456', method: 'CASH' }));
     expect(paid).toEqual({ refundedCents: 3_500, method: 'CASH' });
     await expect(inVenue(V, () => cards.desk(V, recepcion(), { card: nfc.card, uid: nfc.uid }))).resolves.toEqual({
       kind: 'new',

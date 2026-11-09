@@ -196,10 +196,12 @@ export class AuthService {
       const purpose: LoginTicketPurpose = (await this.totp.isEnabled(user.id)) ? 'code' : 'enroll';
       return this.askSecondStep(user, purpose, ip, userAgent);
     }
+    // Quien tiene la 2FA activada (dueño, encargado): tampoco entra con la contraseña sola.
+    if (await this.totp.isEnabled(user.id)) return this.askSecondStep(user, 'code', ip, userAgent);
     return this.issueLogin(user, ip, userAgent, false);
   }
 
-  /** Segundo paso del login del super-admin: el ticket de la contraseña y el código 2FA. */
+  /** Segundo paso del login con 2FA: el ticket de la contraseña y el código. */
   async loginWithTotp(ticket: string, totpCode: string, ip?: string, userAgent?: string): Promise<IssuedLogin> {
     const user = await this.ticketUser(ticket, 'code');
     // Código malo: 403 TOTP_INVALID (el ticket sigue valiendo); 5 seguidos bloquean (429).
@@ -221,7 +223,7 @@ export class AuthService {
     return this.finishTicketLogin(ticket, user, ip, userAgent);
   }
 
-  /** El usuario del ticket (de ese tipo); baja, contraseña cambiada o ya no super-admin: vuelta a empezar. */
+  /** El usuario del ticket (de ese tipo); baja, contraseña cambiada o, al activarla en el login, ya no super-admin: vuelta a empezar. */
   private async ticketUser(ticket: string, purpose: LoginTicketPurpose): Promise<LoginUser> {
     const tickets = this.requireTickets();
     const pending = await tickets.peek(ticket);
@@ -229,7 +231,8 @@ export class AuthService {
     const user = await this.prisma.asSystem((tx) =>
       tx.user.findUnique({ where: { id: pending.userId }, include: { venue: true } }),
     );
-    if (!user || user.deletedAt || !user.isSuperAdmin || passwordFingerprint(user.passwordHash) !== pending.pwdFp) {
+    const mustBeSuperAdmin = purpose === 'enroll';
+    if (!user || user.deletedAt || (mustBeSuperAdmin && !user.isSuperAdmin) || passwordFingerprint(user.passwordHash) !== pending.pwdFp) {
       await tickets.consume(ticket);
       throw ticketExpired();
     }

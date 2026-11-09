@@ -35,7 +35,8 @@ export type IncidentKind =
   | 'cash_split_suspected'
   | 'reception_payout_cap'
   | 'wallet_topup_unassigned'
-  | 'wallet_card_lost';
+  | 'wallet_card_lost'
+  | 'sensitive_action';
 
 /** Las que desaparecen solas al resolverse (no se marcan como revisadas). */
 export const SELF_RESOLVING: ReadonlySet<IncidentKind> = new Set<IncidentKind>([
@@ -71,6 +72,7 @@ export const ACKABLE_KINDS = [
   'cash_split_suspected',
   'reception_payout_cap',
   'wallet_card_lost',
+  'sensitive_action',
 ] as const satisfies readonly IncidentKind[];
 
 export interface Incident {
@@ -236,6 +238,72 @@ export function walletCardLostIncident(r: EventRow): Incident {
     occurredAt: r.occurredAt.toISOString(),
     amountCents: r.amountCents,
     paymentId: null,
+    ackable: true,
+  };
+}
+
+/** Lo que dice cada acción delicada: quién (si el registro lo sabe) va delante en el panel, no en Telegram. */
+const SENSITIVE_ACTIONS: Readonly<Record<string, { title: string; detail: string }>> = {
+  'wallet.charge_without_faceid': {
+    title: 'Cobro sin que el cliente confirme',
+    detail: 'ha cobrado de un saldo sin Face ID ni PIN, con su 2FA. Comprueba que el cliente estaba delante.',
+  },
+  'wallet.pin_reset': {
+    title: 'PIN de un cliente borrado',
+    detail: 'ha borrado el PIN de un saldo, con su 2FA. Comprueba que lo pidió el cliente.',
+  },
+  'wallet.relinked': {
+    title: 'Enlace nuevo de un saldo',
+    detail: 'ha dado un enlace nuevo: el anterior y su Face ID ya no valen. Comprueba que lo pidió el cliente.',
+  },
+  'wallet.merged_large': {
+    title: 'Se han juntado dos saldos',
+    detail: 'Un cliente ha pasado el dinero de un saldo a otro, con su Face ID y su PIN o desde el móvil que pagó.',
+  },
+  'wallet.activation_not_new': {
+    title: 'Saldo con dinero activado en un móvil',
+    detail: 'Un saldo que no era nuevo ha pasado a un móvil con el QR de recepción. Comprueba quién hizo esa recarga.',
+  },
+  'wallet.card_copy_suspected': {
+    title: 'Posible ficha copiada',
+    detail: 'Han acercado una ficha con el código de un saldo y otro número de serie: el cobro se ha rechazado. Si se repite, cambia esa ficha.',
+  },
+  'payment.manual_reconcile': {
+    title: 'Cobro dado por pagado a mano',
+    detail: 'ha marcado un cobro como pagado, con su 2FA. Comprueba que está en el portal del banco.',
+  },
+  'operator.left_with_balance': {
+    title: 'Baja con dinero sin cobrar',
+    detail: 'Se ha dado de baja a alguien a quien aún se le debe dinero. Ya no sale en las listas: para pagarle, actívala en Personal, págale y vuelve a darla de baja.',
+  },
+  'venue.staff_permissions.updated': {
+    title: 'Permisos del personal cambiados',
+    detail: 'ha cambiado lo que puede hacer el personal (Ajustes → Permisos).',
+  },
+  'venue.night_settings.updated': {
+    title: 'Ajustes de la noche cambiados',
+    detail: 'ha cambiado los topes sin PIN o la recepción (Ajustes → La noche).',
+  },
+};
+
+export const SENSITIVE_AUDIT_ACTIONS: readonly string[] = Object.keys(SENSITIVE_ACTIONS);
+
+/** Algo que mueve dinero o abre un saldo sin que el cliente lo confirme: el dueño tiene que poder verlo. */
+export function sensitiveActionIncident(r: EventRow & { action: string; actorName?: string | null }): Incident {
+  const copy = SENSITIVE_ACTIONS[r.action] ?? { title: 'Acción delicada', detail: 'Revisa el registro.' };
+  const startsLower = /^[a-záéíóú]/.test(copy.detail);
+  const who = r.actorName?.trim();
+  const name = str(r.payload, 'name');
+  return {
+    kind: 'sensitive_action',
+    refId: r.id,
+    title: copy.title,
+    detail: `${startsLower ? `${who || 'Alguien del personal'} ${copy.detail}` : copy.detail}${name ? ` (${name})` : ''}`,
+    // Telegram es un tercero: sin el nombre.
+    alertDetail: startsLower ? `Alguien del personal ${copy.detail}` : copy.detail,
+    occurredAt: r.occurredAt.toISOString(),
+    amountCents: r.amountCents,
+    paymentId: r.action === 'payment.manual_reconcile' ? r.paymentId : null,
     ackable: true,
   };
 }
@@ -433,7 +501,7 @@ const BANK_TEXT: Record<string, { title: string; hint: string }> = {
   },
   REFUND_NOT_IN_OXIOPAY: {
     title: 'Devolución hecha en el banco sin apuntar',
-    hint: 'Apúntala en Pagos → Devolución hecha en BBVA para que cuadre la parte de la chica.',
+    hint: 'Si es de un cobro, apúntala en Pagos → Devolución hecha en BBVA para que cuadre la parte de la chica. Si es de una recarga, esa pantalla no la admite: devuelve lo que quede con «Devolver saldo»; si ya se gastó, es dinero perdido: apúntalo aparte y márcala como revisada.',
   },
   REFUND_NOT_IN_BANK: {
     title: 'Devolución apuntada que el banco no tiene',

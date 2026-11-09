@@ -39,7 +39,7 @@ const payments = new PaymentsService(
   {} as never,
   {} as never,
 );
-const charges = new WalletChargesService(prisma as never, audit as never, { get: () => ({}) } as never, {} as never);
+const charges = new WalletChargesService(prisma as never, audit as never, { get: () => ({}) } as never, { isEnabled: async () => true, assertForUser: async () => undefined } as never);
 const pending = new PendingTopUpService(prisma as never, audit as never, charges, { get: () => payments } as never);
 const incidents = new IncidentsService(prisma as never, audit as never);
 
@@ -150,7 +150,7 @@ describe('NFC sin PIN (Postgres real)', () => {
     const c3 = await qr(1_000);
     await inVenue(undefined, () => charges.payQrCharge(c3.payToken, w.id));
     const c4 = await qr(500);
-    await inVenue(V, () => charges.approveWithoutFaceId({ userId: javi, role: 'MANAGER', tenantId: V }, c4.id, w.id));
+    await inVenue(V, () => charges.approveWithoutFaceId({ userId: javi, role: 'MANAGER', tenantId: V }, c4.id, w.id, '123456'));
     expect(await consumptions(w.id)).toEqual([
       { amountCents: 1_500, authMethod: 'nfc_nopin' },
       { amountCents: 4_000, authMethod: 'pin' },

@@ -202,6 +202,8 @@ export function buildMoneyMap(i: MoneyMapInput): MoneyMap {
   const saldoLeftCents = topUpsCents - saldoCents - i.walletPayouts.cashCents - i.walletPayouts.cardCents;
   // …pero la comisión del servicio no es del local: se debe a OxioPay.
   const oxioPayCents = serviceFee.owedCents;
+  // Lo pagado al personal por banco o transferencia no resta de BBVA (se cuenta lo cobrado): tampoco es del local.
+  const paidOutCents = i.payouts.reduce((sum, p) => (p.rail === 'MANUAL_CASH' ? sum : sum + p.cents), 0);
 
   return {
     scope: i.scope,
@@ -239,9 +241,11 @@ export function buildMoneyMap(i: MoneyMapInput): MoneyMap {
       cashBox: { openingFloatCents: i.cashBox.openingFloatCents, inCents: i.cashBox.inCents, outCents: i.cashBox.outCents },
       totalCents,
       owners: {
-        venueCents: totalCents - staffCents - saldoLeftCents - oxioPayCents,
+        venueCents: totalCents - staffCents - saldoLeftCents - oxioPayCents - paidOutCents - commissionsCents,
         staffCents,
         saldoCents: saldoLeftCents,
+        paidOutCents,
+        commissionsCents,
         ...withServiceFee({ oxioPayCents }),
       },
       liveSaldoCents: i.liveSaldoCents,

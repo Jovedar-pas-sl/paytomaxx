@@ -722,7 +722,7 @@ export function ReceptionDesk({ user, active, footer }: Props) {
     // Si hace falta el PIN, primero eso: el QR solo si prefiere pagar con el móvil (si no, deja el botón fuera de la pantalla).
     const activation =
       done.method === 'cash' && done.wallet && !done.read.number ? (
-        pin === 'ask' ? <PhoneOption walletId={done.wallet.walletId} /> : <ActivationQr walletId={done.wallet.walletId} />
+        pin === 'ask' ? <PhoneOption walletId={done.wallet.walletId} read={done.read.nfc} /> : <ActivationQr walletId={done.wallet.walletId} read={done.read.nfc} />
       ) : null;
     return (
       <DeskLoaded
@@ -791,9 +791,9 @@ export function ReceptionDesk({ user, active, footer }: Props) {
 }
 
 /** Quien prefiere pagar con el móvil: el QR de Face ID, solo si lo pide (gasta un enlace de un solo uso). */
-function PhoneOption({ walletId }: { walletId: string }) {
+function PhoneOption({ walletId, read }: { walletId: string; read: Read['nfc'] }) {
   const [open, setOpen] = useState(false);
-  if (open) return <ActivationQr walletId={walletId} />;
+  if (open) return <ActivationQr walletId={walletId} read={read} />;
   return <DeskBtn kind="gho" label="Prefiere pagar con el móvil" onClick={() => setOpen(true)} />;
 }
 
