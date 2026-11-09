@@ -53,6 +53,7 @@ import {
   type ReceptionDeskSaldo,
   type ReceptionDeskView,
 } from '@/lib/reception-desk';
+import { handOverOf, loadedHelp } from '@/lib/reception-help';
 import { receptionChip, useMySections } from '@/lib/sections';
 import { useVenueNight } from '@/lib/venue-methods';
 import {
@@ -720,6 +721,8 @@ export function ReceptionDesk({ user, active, footer }: Props) {
     const askPin = { label: 'Que elija su PIN', onClick: () => go({ kind: 'pin', done }) };
     const next = { label: 'Siguiente cliente', onClick: () => restart('entrada') };
     const meta = done.read.number ? `Devuélvele su ficha · ${fichaText(done.read.number.printedNumber)}` : handOverLine(done.read.view, done.linked);
+    // Qué hacer ahora, en orden: el efectivo a la caja, la ficha y, si pasa del tope, su PIN.
+    const help = loadedHelp({ method: done.method, handOver: handOverOf({ view, linked: done.linked, byNumber: Boolean(done.read.number) }), pin });
     // Pagó en efectivo aquí: su enlace privado no le llega; con este QR activa Face ID en su móvil.
     // Si hace falta el PIN, primero eso: el QR solo si prefiere pagar con el móvil (si no, deja el botón fuera de la pantalla).
     const activation =
@@ -736,6 +739,7 @@ export function ReceptionDesk({ user, active, footer }: Props) {
         warn={[done.warn, pinText].filter(Boolean).join(' ') || null}
         quiet={done.seen}
         extra={activation}
+        help={help}
         primary={pin === 'ask' ? askPin : next}
         secondary={pin === 'ask' ? { label: 'Ahora no', onClick: next.onClick } : pin === 'offer' ? askPin : null}
       />
