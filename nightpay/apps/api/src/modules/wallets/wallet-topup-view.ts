@@ -55,13 +55,26 @@ function short(cents: number, locale: string): string {
   return clientMoney(cents, locale);
 }
 
+/**
+ * «¿Qué es?» de la comisión del servicio en una recarga (en /w y en /r): un
+ * {pct} de la recarga, no del consumo; `pct` ya formateado («12 %»).
+ */
+export function topUpFeeExplain(lang: PayLanguage, pct: string): string {
+  return WALLET_TEXT[lang].topUpFeeExplain.split('{pct}').join(pct);
+}
+
 /** Aviso debajo del saldo si el saldo o el local no dejan recargar ahora (lo rellena el JS). */
 export function topUpOffNote(): string {
   return `<p class="small" id="topupOff" role="status" hidden></p>
 `;
 }
 
-/** Elegir cuánto: las sugeridas, «Otra» y los límites. Por defecto, la del medio. */
+/**
+ * Elegir cuánto: las sugeridas, «Otra» y los límites. Por defecto, la del
+ * medio. Arriba, una línea con lo que pasa (elige, paga, el saldo sube al
+ * momento); debajo del botón, qué pasa con lo que no gaste (y, con comisión,
+ * que esa no se devuelve). La comisión, en el desglose con su «¿Qué es?».
+ */
 export function topUpCard(lang: PayLanguage, options: TopUpOptions | null): string {
   const t = WALLET_TEXT[lang];
   const h = escapeHtml;
@@ -84,7 +97,7 @@ export function topUpCard(lang: PayLanguage, options: TopUpOptions | null): stri
   const breakdown = withFee
     ? `<dl class="brk" id="topupFee" aria-live="off">
 <div><dt>${h(t.topUpToBalance)}</dt><dd class="num" id="tbAmount"></dd></div>
-<div class="fee"><dt>${h(p.breakdown.serviceFee)} <button class="why" type="button" id="tWhyBtn" aria-expanded="true" aria-controls="tWhy">${h(p.feeWhat)}</button></dt><dd class="num" id="tbFee"></dd><dd class="whytext" id="tWhy">${h(p.feeExplain(pct))}</dd></div>
+<div class="fee"><dt>${h(p.breakdown.serviceFee)} <button class="why" type="button" id="tWhyBtn" aria-expanded="true" aria-controls="tWhy">${h(p.feeWhat)}</button></dt><dd class="num" id="tbFee"></dd><dd class="whytext" id="tWhy">${h(topUpFeeExplain(lang, pct))}</dd></div>
 <div class="tot"><dt>${h(p.totalToPay)}</dt><dd class="num" id="tbTotal"></dd></div>
 </dl>`
     : '';
@@ -99,7 +112,7 @@ ${breakdown}
 <p class="small" id="topupKey" hidden></p>
 <p class="err" id="topupErr" role="alert" hidden></p>
 <button class="btn" type="submit" id="topupGo">${h(t.topUp)}</button>
-<p class="small">${h(withFee ? t.topUpMethodsFee : t.topUpMethods)}</p>
+<p class="small">${h(withFee ? t.topUpLeftoverFee : t.topUpLeftover)}</p>
 </form>
 </section>
 `;

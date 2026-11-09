@@ -280,6 +280,7 @@ export interface WalletText {
   gwPreparing: string;
   topUp: string;
   topUpTitle: string;
+  /** La línea de «Recargar»: elige cuánto, paga (Apple Pay, Google Pay o tarjeta, sin propina) y el saldo sube al momento. */
   topUpWhy: string;
   topUpAmount: string;
   topUpOther: string;
@@ -289,10 +290,17 @@ export interface WalletText {
   topUpGo: string;
   /** Con la «Comisión del servicio»: el botón dice lo que paga, el total («Pagar 56 €»). */
   topUpGoFee: string;
-  topUpMethods: string;
+  /**
+   * Debajo del botón: qué pasa con lo que no gaste (no caduca; con «Me voy»,
+   * el local se lo devuelve a la tarjeta). El nombre de «Me voy» es el de `leaveRow`.
+   */
+  topUpLeftover: string;
   /** Con la «Comisión del servicio»: el desglose (Recarga · Comisión · Total a pagar). */
   topUpToBalance: string;
-  topUpMethodsFee: string;
+  /** `topUpLeftover` y, además, que la comisión del servicio no se devuelve. */
+  topUpLeftoverFee: string;
+  /** «¿Qué es?» de la comisión en una recarga (el de PayText habla del consumo); `{pct}` = «12 %». */
+  topUpFeeExplain: string;
   topUpFaceId: string;
   topUpNoKey: string;
   faceIdNeeded: string;
