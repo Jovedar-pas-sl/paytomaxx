@@ -38,6 +38,11 @@
   font-weight: 500;
 }
 
+/* CARGADO: qué hacer ahora (HelpLine), en t2 y del ancho del bloque. */
+.resHelp {
+  max-width: 26rem;
+}
+
 .resFoot {
   flex: none;
   display: flex;

@@ -39,7 +39,7 @@ export interface CobrarContext {
   cartaFailed: boolean;
 }
 
-/** Color de una sección (o de las propinas): el punto, el chip y el tinte de la loseta (Grafito, con texto crema). */
+/** Color de una sección (o de las propinas): el punto, el chip y las barras. Las losetas, cartaTileColor (sólido, con tinta). */
 export function colorOf(section: string): string {
   return section === PROPINAS ? 'var(--np-sec-propinas)' : sectionVar(section);
 }
