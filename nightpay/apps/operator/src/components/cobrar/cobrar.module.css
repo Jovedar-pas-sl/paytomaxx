@@ -1,7 +1,9 @@
-/* «Cobrar», invitar, esperando y resultado (maquetas aprobadas 1.1–1.4, 2.1–2.5,
-   3.1–3.4): las medidas de las maquetas (marco de 360 × 740) en rem, con las
-   fichas de @nightpay/ui (noche, lima, verdes de marca y colores de sección).
-   Movimiento solo con transform / opacity / box-shadow, y fuera con «reducir
+/* «Cobrar», invitar, esperando y resultado, en la dirección «Grafito»
+   (aprobada el 2-nov-2026): neutros casi negros, filetes de 1 px y la lima
+   solo en «Cobrar» (una por pantalla). Instrument Sans 400/500/600 para el
+   texto y Manrope 600 para las cifras; nada por debajo de 14 px. Botones de
+   56 y 48 px con radio 14. Las secciones, en punto o tinte y siempre con su
+   nombre. Movimiento solo con transform / opacity, y fuera con «reducir
    movimiento» (regla general de styles.css). */
 
 /* ─── Pantalla y cabecera ─────────────────────────────────────────────── */
@@ -10,22 +12,23 @@
   display: flex;
   flex-direction: column;
   flex: 1;
-  /* La cabecera y su franja van de borde a borde (fuera del padding de la página). */
+  /* La cabecera va de borde a borde (fuera del padding de la página). */
   margin: calc(-1 * var(--np-gap)) -1rem 0;
 }
 
 .head {
   display: flex;
   align-items: center;
-  gap: 0.625rem;
-  min-height: 3.875rem;
-  padding: 0.5rem 0.875rem;
+  gap: 0.75rem;
+  min-height: 3.75rem;
+  padding: 0.5rem 1rem;
+  border-bottom: 1px solid var(--np-border);
 }
 
 .logoTile {
   flex: none;
   border: none;
-  border-radius: 0.8125rem;
+  border-radius: var(--np-r-md);
   background: transparent;
   display: grid;
   place-items: center;
@@ -37,11 +40,12 @@
   flex: none;
   width: 2.75rem;
   height: 2.75rem;
-  border-radius: 50%;
+  border-radius: var(--np-r-md);
   display: grid;
   place-items: center;
   background: var(--np-surface-2);
-  border: 1px solid var(--np-border);
+  border: none;
+  box-shadow: inset 0 0 0 1px var(--np-border-hi);
   color: var(--np-text);
   padding: 0;
   cursor: pointer;
@@ -57,12 +61,11 @@
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 1px;
+  gap: 2px;
 }
 
 .headText b {
-  font: 800 1.1875rem/1.1 var(--np-font-num);
-  letter-spacing: -0.01em;
+  font: 600 1.125rem/1.2 var(--np-font-sans);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -70,57 +73,54 @@
 
 .headText span {
   font-size: 0.875rem;
-  color: var(--np-text-label);
+  line-height: 1.3;
+  color: var(--np-text-mute);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
+/* Chip del puesto o la sección: punto de 8 px y su nombre sobre superficie
+   neutra (como .np-chip). El color nunca va solo. */
 .chip {
   flex: none;
   display: inline-flex;
   align-items: center;
   gap: 0.375rem;
-  height: 2.125rem;
-  padding: 0 0.875rem;
-  border-radius: var(--np-r-pill);
-  background: var(--c);
-  color: var(--np-on-section);
-  font-weight: 700;
-  font-size: 0.90625rem;
+  min-height: 1.75rem;
+  padding: 0 0.625rem;
+  border-radius: var(--np-r-xs);
+  background: var(--np-surface-2);
+  color: var(--np-text);
+  font-size: 0.875rem;
+  font-weight: 500;
+  line-height: 1.1;
   white-space: nowrap;
 }
 
-.chipDuo {
-  background: linear-gradient(90deg, var(--c) 0 50%, var(--c2) 50%);
-}
-
-.stripe {
+.chip > i {
   flex: none;
-  height: 0.375rem;
-  display: flex;
-  gap: 2px;
-}
-
-.stripe > i {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: var(--np-r-pill);
   background: var(--c);
 }
 
-/* Menú del logo (tema y salir) */
+/* Menú del logo («Recargar saldo» y «Salir»). */
 .menu {
   display: flex;
   flex-direction: column;
-  gap: 0.625rem;
+  gap: 0.5rem;
 }
 
-/* ─── 1.1 Losetas ─────────────────────────────────────────────────────── */
+/* ─── 1.1 La carta ───────────────────────────────────────────────────── */
 
 .body {
   flex: 1;
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
-  padding: 0.875rem 1rem;
+  padding: 0.75rem 1rem;
 }
 
 .tiles {
@@ -129,19 +129,46 @@
   gap: 0.5rem;
 }
 
+/* El título de cada grupo, una sola vez: punto de 8 px y el nombre (14/500). */
+.group {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0.25rem 0 0;
+  font: 500 0.875rem/1.3 var(--np-font-sans);
+  letter-spacing: 0;
+  color: var(--np-text-mute);
+}
+
+.group:first-child {
+  margin-top: 0;
+}
+
+.group::before {
+  content: '';
+  flex: none;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: var(--np-r-pill);
+  background: var(--c);
+}
+
+/* Loseta: el color de su sección al 26 % sobre la superficie, con texto
+   crema (decidido): se reconoce la sección sin llenar la pantalla. */
 .tile {
   position: relative;
-  min-height: 5.125rem;
+  min-height: 4rem;
   padding: 0.625rem 0.75rem;
   border: none;
   border-radius: var(--np-r-tile);
-  background: var(--c);
-  color: var(--np-on-section);
+  background: color-mix(in srgb, var(--c) 26%, var(--np-surface));
+  color: var(--np-text);
   display: flex;
   flex-direction: column;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 2px;
+  gap: 0.25rem;
   text-align: left;
   cursor: pointer;
   touch-action: manipulation;
@@ -150,69 +177,55 @@
 }
 
 .tile:active {
-  transform: scale(0.97);
+  transform: scale(0.98);
 }
 
+/* La chica (dos secciones o menos): losetas más grandes. */
 .tileBig {
-  min-height: 6.25rem;
+  min-height: 5.5rem;
+}
+
+.tileBig .tileName {
+  font-size: 1.125rem;
 }
 
 .tileBig .price {
-  font-size: 1.75rem;
+  font-size: 1.375rem;
 }
 
-.tileWide {
-  grid-column: 1 / -1;
-  background: linear-gradient(90deg, var(--c) 0 80%, var(--c2) 80%);
-}
-
-/* Loseta elegida (decisión D2): anillo claro separado del color (crema en
-   oscuro, tinta en claro), sin lima: el lima es para «Cobrar». */
+/* Loseta elegida: anillo de 2 px crema y el contador (sin lima: el lima es
+   para «Cobrar»). */
 .tileOn {
-  box-shadow:
-    0 0 0 3px var(--np-bg),
-    0 0 0 6px var(--np-text);
-}
-
-/* Etiqueta de sección: 14 px, nunca menos (antes 12,5 px). En una línea: el
-   contador de arriba a la derecha no la pisa. */
-.kicker {
-  max-width: 100%;
-  font: 700 0.875rem/1.15 var(--np-font-sans);
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.tileOn .kicker {
-  padding-right: 2.25rem;
+  box-shadow: inset 0 0 0 2px var(--np-text);
 }
 
 .tileName {
-  font: 700 1.0625rem/1.15 var(--np-font-sans);
+  font: 500 1rem/1.2 var(--np-font-sans);
   overflow-wrap: anywhere;
 }
 
-.price {
-  font: 800 1.5rem/1 var(--np-font-num);
-  letter-spacing: -0.02em;
+/* En las de la carta, el nombre deja sitio al contador (o al QR) de arriba a la derecha. */
+.tiles > .tile .tileName {
+  padding-right: 1.5rem;
 }
 
-/* Cuántas lleva: arriba a la derecha, lejos del precio, del color del anillo. */
+.price {
+  font: 600 1rem/1.1 var(--np-font-num);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Cuántas lleva: 22 px, fondo crema y texto del fondo. */
 .count {
   position: absolute;
   top: 0.5rem;
   right: 0.5rem;
-  min-width: 1.75rem;
-  height: 1.75rem;
-  padding: 0 0.4375rem;
+  min-width: 1.375rem;
+  height: 1.375rem;
+  padding: 0 0.3125rem;
   border-radius: var(--np-r-pill);
   background: var(--np-text);
   color: var(--np-bg);
-  box-shadow: 0 0 0 2px var(--np-bg);
-  font: 800 0.9375rem/1 var(--np-font-num);
+  font: 600 0.875rem/1 var(--np-font-num);
   font-variant-numeric: tabular-nums;
   display: grid;
   place-items: center;
@@ -223,13 +236,11 @@
   position: absolute;
   top: 0.5rem;
   right: 0.5rem;
-  width: 2rem;
-  height: 2rem;
-  border-radius: 0.625rem;
+  width: 1.5rem;
+  height: 1.5rem;
   display: grid;
   place-items: center;
-  background: var(--np-ink-0);
-  color: var(--np-cream);
+  color: var(--np-text);
 }
 
 .tileQr svg {
@@ -240,19 +251,20 @@
 .tileOther {
   background: var(--np-surface-2);
   color: var(--np-text);
-  box-shadow: inset 0 0 0 2px var(--np-border-hi);
+  box-shadow: inset 0 0 0 1px var(--np-border-hi);
 }
 
-.tileOther span,
-.tileAsk span {
+.tileOther > span:not(.tileName),
+.tileAsk > span:not(.tileName) {
   font-size: 0.875rem;
-  color: var(--np-text-label);
+  line-height: 1.25;
+  color: var(--np-text-mute);
 }
 
 .tileAsk {
   background: transparent;
   color: var(--np-text);
-  border: 2px dashed var(--c);
+  box-shadow: inset 0 0 0 1px var(--np-border);
   justify-content: center;
   cursor: default;
 }
@@ -261,28 +273,44 @@
   transform: none;
 }
 
+/* Propinas y «Otro importe»: una sola fila (en las losetas grandes de la chica, como siempre). */
+.lastRow {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(var(--n, 2), minmax(0, 1fr));
+  gap: 0.5rem;
+}
+
+.lastRow[data-big] {
+  display: contents;
+}
+
+/* Cuatro en fila (tres propinas y «Otro importe»): menos relleno, la palabra entera. */
+.lastRow:not([data-big]) .tile {
+  padding-inline: 0.5rem;
+}
+
 .empty {
   margin: 0;
   padding: 1rem;
   border-radius: var(--np-r-tile);
-  background: var(--np-surface);
   border: 1px dashed var(--np-border-hi);
-  color: var(--np-text-label);
+  color: var(--np-text-mute);
+  font-size: 0.875rem;
   text-align: center;
 }
 
-/* Barra de abajo: resumen y «Cobrar N €» */
+/* Pie de la carta y la cuenta: resumen y «Cobrar N €», pegado abajo. */
 .foot {
   position: sticky;
   bottom: var(--np-foot-bottom, 0);
   z-index: 5;
   display: flex;
   flex-direction: column;
-  gap: 0.625rem;
-  padding: 0.875rem 1rem 1.125rem;
+  gap: 0.5rem;
+  padding: 0.75rem 1rem 1rem;
   background: var(--np-surface);
   border-top: 1px solid var(--np-border);
-  border-radius: 1.75rem 1.75rem 0 0;
 }
 
 .footFlat {
@@ -295,10 +323,10 @@
 .sum {
   display: flex;
   align-items: center;
-  gap: 0.625rem;
-  font-size: 0.96875rem;
-  font-weight: 600;
+  gap: 0.75rem;
   min-height: 2rem;
+  font-size: 1rem;
+  font-weight: 500;
 }
 
 /* «Ver cuenta» y «Deshacer»: 44 px para el dedo sin hacer más alto el pie
@@ -311,7 +339,7 @@
 
 /* «+1 Nachos» durante 4 s (decisión D3), en vez del resumen. */
 .added {
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .undoBtn {
@@ -321,11 +349,11 @@
   gap: 0.375rem;
   padding: 0 0.875rem;
   border: none;
-  border-radius: var(--np-r-pill);
-  background: transparent;
+  border-radius: var(--np-r-sm);
+  background: var(--np-surface-2);
   color: var(--np-text);
-  box-shadow: inset 0 0 0 2px var(--np-border-hi);
-  font: 700 0.9375rem/1 var(--np-font-sans);
+  box-shadow: inset 0 0 0 1px var(--np-border-hi);
+  font: 500 0.875rem/1 var(--np-font-sans);
   cursor: pointer;
   touch-action: manipulation;
 }
@@ -336,7 +364,7 @@
 }
 
 .undoBtn:active {
-  transform: scale(0.97);
+  transform: scale(0.98);
 }
 
 .sum .grow {
@@ -347,33 +375,22 @@
   text-overflow: ellipsis;
 }
 
-.mbar {
-  flex: none;
-  width: 3.375rem;
-  height: 0.75rem;
-  border-radius: var(--np-r-pill);
-  display: flex;
-  gap: 2px;
-  overflow: hidden;
-}
-
-.mbar > i,
-.sbar > i {
-  background: var(--c);
-}
-
+/* Terciario: solo texto, subrayado para que se vea que se toca. */
 .link {
   flex: none;
   background: none;
   border: none;
   padding: 0.25rem 0;
   color: var(--np-text);
-  font-weight: 700;
-  font-size: 0.96875rem;
+  font-size: 1rem;
+  font-weight: 500;
   text-decoration: underline;
+  text-decoration-thickness: 1px;
   text-underline-offset: 4px;
   cursor: pointer;
 }
+
+/* ─── Botones: principal 56 px, secundario 48 px, radio 14 ─────────────── */
 
 .btn {
   display: flex;
@@ -381,41 +398,21 @@
   justify-content: center;
   gap: 0.625rem;
   width: 100%;
-  min-height: 3.875rem;
+  min-height: 3.5rem;
   padding: 0 1.5rem;
   border: none;
-  border-radius: var(--np-r-pill);
-  font: 700 1.1875rem/1.15 var(--np-font-sans);
+  border-radius: var(--np-r-md);
+  font: 600 1.0625rem/1.15 var(--np-font-sans);
   text-align: center;
   cursor: pointer;
   touch-action: manipulation;
-  transition: transform var(--np-d-fast) var(--np-ease), opacity var(--np-d-fast);
+  transition:
+    transform var(--np-d-fast) var(--np-ease),
+    background var(--np-d-fast);
 }
 
 .btn:active:not(:disabled) {
-  transform: scale(0.97);
-}
-
-.btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-/* Sin nada que cobrar (decisión D1): gris, a trazos y con la instrucción
-   dentro; nunca lima apagada. Mientras se crea el cobro (aria-busy) sigue en
-   lima: está trabajando. */
-.primary:disabled:not([aria-busy='true']) {
-  opacity: 1;
-  background: var(--np-disabled-bg);
-  color: var(--np-disabled-ink);
-  box-shadow: none;
-  outline: 1.5px dashed var(--np-disabled-edge);
-  outline-offset: -1.5px;
-  font-weight: 600;
-}
-
-.primary[aria-busy='true'] {
-  opacity: 0.8;
+  transform: scale(0.98);
 }
 
 .btn svg {
@@ -424,23 +421,51 @@
   flex: none;
 }
 
-/* La pill lima: halo en oscuro, borde de tinta en claro (--np-primary-shadow). */
+/* Lima plana con tinta, sin halo (--np-primary-*). */
 .primary {
-  background: var(--np-lime);
-  color: var(--np-ink);
+  background: var(--np-primary-bg);
+  color: var(--np-primary-ink);
   box-shadow: var(--np-primary-shadow);
 }
 
+/* Secundario: superficie con filete de 1 px; nunca compite con la lima. */
 .ghost {
-  background: transparent;
+  min-height: 3rem;
+  background: var(--np-surface-2);
   color: var(--np-text);
-  box-shadow: inset 0 0 0 2px var(--np-border-hi);
+  box-shadow: inset 0 0 0 1px var(--np-border-hi);
+  font-size: 1rem;
+  font-weight: 500;
+}
+
+/* Sin nada que hacer: neutro y sin opacidad (a oscuras, un botón translúcido
+   parece roto). Mientras se crea el cobro (aria-busy) sigue en su color: está
+   trabajando. */
+.btn:disabled:not([aria-busy='true']) {
+  cursor: not-allowed;
+  background: var(--np-disabled-bg);
+  color: var(--np-disabled-ink);
+  box-shadow: inset 0 0 0 1px var(--np-disabled-edge);
+}
+
+.btn[aria-busy='true'] {
+  cursor: progress;
+}
+
+/* Sin nada que cobrar (decisión D1): gris, a trazos y con la instrucción
+   dentro; nunca lima apagada. */
+.primary:disabled:not([aria-busy='true']) {
+  box-shadow: none;
+  outline: 1px dashed var(--np-border-hi);
+  outline-offset: -1px;
+  font-weight: 500;
 }
 
 .error {
   margin: 0;
-  color: var(--np-danger);
-  font-weight: 600;
+  color: var(--np-danger-text);
+  font-size: 0.875rem;
+  font-weight: 500;
   text-align: center;
 }
 
@@ -451,23 +476,22 @@
   align-items: center;
   justify-content: center;
   gap: 0.5rem;
-  min-height: 4.75rem;
+  min-height: 4.5rem;
 }
 
 .amountShow .num {
-  font: 800 4.75rem/1 var(--np-font-num);
-  letter-spacing: -0.02em;
-  font-variant-numeric: tabular-nums;
+  font: 600 4rem/1 var(--np-font-num);
+  font-variant-numeric: proportional-nums;
 }
 
 .amountShow .cur {
-  font: 800 2.125rem var(--np-font-num);
-  color: var(--np-text-label);
+  font: 600 1.75rem var(--np-font-num);
+  color: var(--np-text-mute);
 }
 
 .caret {
-  width: 3px;
-  height: 3.625rem;
+  width: 2px;
+  height: 3rem;
   background: var(--np-text);
   animation: np-cobrar-blink 1.1s steps(1) infinite;
 }
@@ -479,11 +503,9 @@
 }
 
 .label {
-  font: 700 0.84375rem/1.2 var(--np-font-sans);
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: var(--np-text-label);
   margin: 0;
+  font: 500 0.875rem/1.3 var(--np-font-sans);
+  color: var(--np-text-mute);
 }
 
 .secs {
@@ -496,18 +518,22 @@
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
+/* Sección de «Otro importe»: punto y nombre; la elegida en crema con el texto
+   del fondo (como en todo lo elegido). */
 .sec {
-  min-height: 3.375rem;
-  border-radius: 1.125rem;
+  min-height: 3rem;
+  border-radius: var(--np-r-md);
   background: var(--np-surface-2);
-  border: 1px solid var(--np-border);
+  border: none;
+  box-shadow: inset 0 0 0 1px var(--np-border);
   color: var(--np-text);
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 0.375rem;
-  font-weight: 700;
-  font-size: 0.90625rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  line-height: 1.15;
   padding: 0.25rem 0.375rem;
   text-align: center;
   cursor: pointer;
@@ -516,30 +542,26 @@
 .sec::before {
   content: '';
   flex: none;
-  width: 0.625rem;
-  height: 0.625rem;
-  border-radius: 50%;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: var(--np-r-pill);
   background: var(--c);
 }
 
 .secOn {
-  background: var(--c);
-  color: var(--np-on-section);
-  border-color: transparent;
-  flex-direction: column;
-  gap: 0;
-  line-height: 1.15;
-}
-
-.secOn::before {
-  display: none;
+  background: var(--np-text);
+  color: var(--np-bg);
+  box-shadow: none;
+  font-weight: 600;
+  flex-wrap: wrap;
+  column-gap: 0.375rem;
+  row-gap: 0;
 }
 
 .secOn small {
+  flex-basis: 100%;
   font-size: 0.875rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
+  font-weight: 500;
 }
 
 .keys {
@@ -550,13 +572,15 @@
 
 .key {
   height: 3.5rem;
-  border-radius: 1.25rem;
+  border-radius: var(--np-r-md);
   background: var(--np-surface-2);
-  border: 1px solid var(--np-border);
+  border: none;
+  box-shadow: inset 0 0 0 1px var(--np-border);
   color: var(--np-text);
   display: grid;
   place-items: center;
-  font: 800 1.625rem var(--np-font-num);
+  font: 600 1.625rem var(--np-font-num);
+  font-variant-numeric: tabular-nums;
   cursor: pointer;
   touch-action: manipulation;
   -webkit-tap-highlight-color: transparent;
@@ -565,7 +589,13 @@
 }
 
 .key:active:not(:disabled) {
-  transform: scale(0.95);
+  transform: scale(0.96);
+  background: var(--np-surface-3);
+}
+
+.key:disabled {
+  color: var(--np-disabled-ink);
+  cursor: not-allowed;
 }
 
 .key svg {
@@ -574,35 +604,35 @@
 }
 
 .keyText {
-  font: 700 1rem var(--np-font-sans);
-  color: var(--np-text-label);
+  font: 500 1rem var(--np-font-sans);
+  color: var(--np-text-mute);
 }
 
 /* ─── 1.4 La cuenta ──────────────────────────────────────────────────── */
 
+/* Una lista, sin tarjetas: filas de 56 px con filete de 1 px. */
 .lines {
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
+  border-top: 1px solid var(--np-border);
 }
 
 .line {
   display: flex;
   align-items: center;
-  gap: 0.625rem;
-  padding: 0.625rem 0.75rem 0.625rem 0;
-  background: var(--np-surface);
-  border: 1px solid var(--np-border);
-  border-radius: var(--np-r-tile);
-  overflow: hidden;
+  gap: 0.75rem;
+  min-height: 3.5rem;
+  padding: 0.5rem 0;
+  border-bottom: 1px solid var(--np-border);
 }
 
+/* La sección de la línea: un punto (su nombre va debajo del de la línea). */
 .sw {
-  align-self: stretch;
   flex: none;
-  width: 0.375rem;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: var(--np-r-pill);
   background: var(--c);
-  border-radius: 0 4px 4px 0;
 }
 
 .lineText {
@@ -614,20 +644,21 @@
 }
 
 .lineText b {
-  font-size: 1.0625rem;
-  font-weight: 700;
+  font-size: 1rem;
+  font-weight: 500;
   overflow-wrap: anywhere;
 }
 
 .lineText span {
-  font-size: 0.9375rem;
-  color: var(--np-text-label);
+  font-size: 0.875rem;
+  color: var(--np-text-mute);
 }
 
 .lineValue {
-  min-width: 3.125rem;
+  min-width: 3.5rem;
   text-align: right;
-  font: 800 1.25rem var(--np-font-num);
+  font: 600 1rem var(--np-font-num);
+  font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
 
@@ -637,82 +668,71 @@
   gap: 0.5rem;
 }
 
-/* − y + de la cuenta: 48 px, para una mano con prisa (antes 40 px). */
+/* Un solo tipo de paso: «−» y «+» iguales y neutros, 44 px y radio 10. */
 .stepBtn {
-  width: 3rem;
-  height: 3rem;
-  border-radius: 50%;
+  width: 2.75rem;
+  height: 2.75rem;
+  border-radius: var(--np-r-sm);
   display: grid;
   place-items: center;
   border: none;
-  background: transparent;
+  background: var(--np-surface-2);
   color: var(--np-text);
-  box-shadow: inset 0 0 0 2px var(--np-border-hi);
+  box-shadow: inset 0 0 0 1px var(--np-border-hi);
   cursor: pointer;
   padding: 0;
+  touch-action: manipulation;
 }
 
-.stepAdd {
-  background: var(--c);
-  color: var(--np-on-section);
-  box-shadow: none;
+.stepBtn:active {
+  transform: scale(0.96);
 }
 
 .stepBtn svg {
-  width: 1.5rem;
-  height: 1.5rem;
+  width: 1.25rem;
+  height: 1.25rem;
 }
 
 .stepValue {
   min-width: 1.25rem;
   text-align: center;
-  font: 800 1.25rem var(--np-font-num);
+  font: 600 1rem var(--np-font-num);
+  font-variant-numeric: tabular-nums;
 }
 
 .addRow {
-  min-height: 3.375rem;
-  border-radius: var(--np-r-tile);
-  border: 2px dashed var(--np-border-hi);
-  background: transparent;
+  min-height: 3rem;
+  border-radius: var(--np-r-md);
+  border: none;
+  background: var(--np-surface-2);
+  box-shadow: inset 0 0 0 1px var(--np-border-hi);
   color: var(--np-text);
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 0.5rem;
-  font-weight: 700;
+  font-weight: 500;
   font-size: 1rem;
   cursor: pointer;
 }
 
 .addRow svg {
-  width: 1.375rem;
-  height: 1.375rem;
+  width: 1.25rem;
+  height: 1.25rem;
 }
 
-.panel {
-  background: var(--np-surface);
-  border: 1px solid var(--np-border);
-  border-radius: var(--np-r-tile);
-  padding: 0.75rem 0.875rem;
+/* «Cómo se reparte», en una línea: cada sección con su punto, su nombre y lo suyo. */
+.split {
   display: flex;
-  flex-direction: column;
-  gap: 0.5625rem;
-}
-
-.sbar {
-  display: flex;
-  height: 0.875rem;
-  border-radius: var(--np-r-pill);
-  overflow: hidden;
-  gap: 2px;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem 0.75rem;
+  font-size: 0.875rem;
+  color: var(--np-text-mute);
 }
 
 .sleg {
-  display: flex;
-  justify-content: space-between;
-  gap: 0.5rem;
-  font-size: 0.9375rem;
-  flex-wrap: wrap;
+  display: contents;
 }
 
 .sleg span {
@@ -723,31 +743,32 @@
 
 .sleg span::before {
   content: '';
-  width: 0.625rem;
-  height: 0.625rem;
-  border-radius: 50%;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: var(--np-r-pill);
   background: var(--c);
 }
 
 .sleg b {
-  font: 800 0.9375rem var(--np-font-num);
+  font: 600 0.875rem var(--np-font-num);
+  font-variant-numeric: tabular-nums;
+  color: var(--np-text);
 }
 
+/* Aviso del PIN: una línea con el candado, sin caja. */
 .warnline {
   display: flex;
   align-items: center;
-  gap: 0.625rem;
-  padding: 0.625rem 0.875rem;
-  border-radius: 1.125rem;
-  background: color-mix(in srgb, var(--np-warning) 12%, transparent);
-  border: 1px solid color-mix(in srgb, var(--np-warning) 50%, transparent);
-  font-size: 0.9375rem;
-  font-weight: 600;
+  gap: 0.5rem;
+  margin: 0;
+  font-size: 0.875rem;
+  font-weight: 500;
+  line-height: 1.3;
 }
 
 .warnline svg {
-  width: 1.375rem;
-  height: 1.375rem;
+  width: 1.25rem;
+  height: 1.25rem;
   flex: none;
   color: var(--np-warning);
 }
@@ -756,17 +777,18 @@
   display: flex;
   align-items: baseline;
   justify-content: space-between;
-  padding-inline: 0.25rem;
+  gap: 1rem;
+  padding-top: 0.25rem;
 }
 
 .total span {
-  font-size: 1.0625rem;
-  font-weight: 700;
+  font-size: 1rem;
+  font-weight: 500;
 }
 
 .total b {
-  font: 800 2.625rem var(--np-font-num);
-  letter-spacing: -0.03em;
+  font: 600 2.5rem/1 var(--np-font-num);
+  font-variant-numeric: proportional-nums;
 }
 
 /* ─── El reparto de una copa con invitación (PAGADO, 2.5) ──────────────── */
@@ -776,32 +798,31 @@
   grid-auto-columns: minmax(0, 1fr);
   grid-auto-flow: column;
   width: 100%;
-  border-radius: var(--np-r-tile);
+  border-radius: var(--np-r-md);
   overflow: hidden;
-  border: 1.5px solid var(--np-lime-edge);
+  border: 1px solid color-mix(in srgb, currentColor 35%, transparent);
   margin-top: 0.25rem;
 }
 
 .psplit > span {
-  padding: 0.625rem 0.75rem;
-  background: rgb(0 0 0 / 0.24);
+  padding: 0.5rem 0.75rem;
+  background: rgb(0 0 0 / 0.2);
   display: flex;
   flex-direction: column;
   gap: 2px;
 }
 
 .psplit > span + span {
-  border-left: 1.5px solid var(--np-lime-edge);
+  border-left: 1px solid color-mix(in srgb, currentColor 35%, transparent);
 }
 
 .psplit small {
-  font-size: 0.9375rem;
-  font-weight: 600;
+  font-size: 0.875rem;
+  font-weight: 500;
 }
 
 .psplit b {
-  font: 800 1.75rem var(--np-font-num);
-  color: var(--np-lime);
+  font: 600 1.375rem var(--np-font-num);
 }
 
 /* ─── 2.2 Escanea el QR de la chica ──────────────────────────────────── */
@@ -813,18 +834,15 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 1.125rem;
+  gap: 1rem;
   padding: 1rem;
-  background:
-    radial-gradient(60% 40% at 20% 15%, color-mix(in srgb, var(--np-sec-propinas) 28%, transparent), transparent 70%),
-    radial-gradient(55% 40% at 85% 80%, color-mix(in srgb, var(--np-sec-servicios) 22%, transparent), transparent 70%),
-    var(--np-night);
-  color: var(--np-cream);
+  background: var(--np-bg);
+  color: var(--np-text);
 }
 
 .camTitle {
   margin: 0;
-  font: 800 1.5rem/1.15 var(--np-font-num);
+  font: 600 1.375rem/1.2 var(--np-font-sans);
   text-align: center;
 }
 
@@ -840,7 +858,7 @@
   z-index: 2;
   width: 2.75rem;
   height: 2.75rem;
-  border: 4px solid var(--np-cream);
+  border: 3px solid var(--np-text);
 }
 
 .vf > i:nth-of-type(1) {
@@ -848,7 +866,7 @@
   left: 0;
   border-right: 0;
   border-bottom: 0;
-  border-radius: 1rem 0 0 0;
+  border-radius: var(--np-r-md) 0 0 0;
 }
 
 .vf > i:nth-of-type(2) {
@@ -856,7 +874,7 @@
   right: 0;
   border-left: 0;
   border-bottom: 0;
-  border-radius: 0 1rem 0 0;
+  border-radius: 0 var(--np-r-md) 0 0;
 }
 
 .vf > i:nth-of-type(3) {
@@ -864,7 +882,7 @@
   left: 0;
   border-right: 0;
   border-top: 0;
-  border-radius: 0 0 0 1rem;
+  border-radius: 0 0 0 var(--np-r-md);
 }
 
 .vf > i:nth-of-type(4) {
@@ -872,7 +890,7 @@
   right: 0;
   border-left: 0;
   border-top: 0;
-  border-radius: 0 0 1rem 0;
+  border-radius: 0 0 var(--np-r-md) 0;
 }
 
 .vfVideo {
@@ -881,8 +899,8 @@
   width: calc(100% - 1rem);
   height: calc(100% - 1rem);
   object-fit: cover;
-  border-radius: 1rem;
-  background: rgb(0 0 0 / 0.35);
+  border-radius: var(--np-r-sm);
+  background: var(--np-surface);
 }
 
 .vfHint {
@@ -892,24 +910,27 @@
   place-items: center;
   padding: 2rem;
   text-align: center;
-  font-weight: 600;
+  font-size: 1rem;
+  font-weight: 500;
 }
 
+/* «Nerea reconocida» (o por qué no): crema con el texto del fondo. */
 .seen {
   display: inline-flex;
   align-items: center;
   gap: 0.5rem;
   min-height: 2.75rem;
-  padding: 0 1.125rem;
-  border-radius: var(--np-r-pill);
-  background: var(--np-cream);
-  color: var(--np-ink-0);
+  margin: 0;
+  padding: 0.5rem 1rem;
+  border-radius: var(--np-r-md);
+  background: var(--np-text);
+  color: var(--np-bg);
   font-size: 1rem;
-  font-weight: 600;
+  font-weight: 500;
 }
 
 .seen b {
-  font: 800 1.0625rem var(--np-font-num);
+  font-weight: 600;
 }
 
 .seen svg {
@@ -917,72 +938,87 @@
   height: 1.375rem;
 }
 
+/* Un QR que no vale: rojo profundo con texto crema (9,3:1). */
+.seenBad {
+  background: var(--np-outcome-failed);
+  color: var(--np-outcome-ink);
+}
+
 .camFoot {
   flex: none;
   display: flex;
   align-items: center;
-  gap: 0.625rem;
-  padding: 0.875rem 1rem 1.125rem;
-  background: var(--np-night);
+  gap: 0.75rem;
+  padding: 0.75rem 1rem 1rem;
+  background: var(--np-bg);
+  border-top: 1px solid var(--np-border);
 }
 
 .torch {
   flex: none;
-  width: 3.875rem;
-  height: 3.875rem;
-  border-radius: 50%;
+  width: 3rem;
+  height: 3rem;
+  border-radius: var(--np-r-md);
   display: grid;
   place-items: center;
+  border: none;
   background: var(--np-surface-2);
-  border: 1px solid var(--np-border-hi);
+  box-shadow: inset 0 0 0 1px var(--np-border-hi);
   color: var(--np-text);
   padding: 0;
   cursor: pointer;
 }
 
+/* Encendida: como lo elegido, en crema (la lima es para cobrar). */
 .torch[aria-pressed='true'] {
-  background: var(--np-lime);
-  color: var(--np-ink);
-  border-color: transparent;
+  background: var(--np-text);
+  color: var(--np-bg);
+  box-shadow: none;
+}
+
+.torch:disabled {
+  color: var(--np-disabled-ink);
+  box-shadow: inset 0 0 0 1px var(--np-disabled-edge);
+  cursor: not-allowed;
 }
 
 .torch svg {
-  width: 1.625rem;
-  height: 1.625rem;
+  width: 1.5rem;
+  height: 1.5rem;
 }
 
-.camFoot .ghost {
-  color: var(--np-cream);
+.camHint {
+  flex: 1;
+  margin: 0;
+  font-size: 0.875rem;
+  color: var(--np-text-mute);
 }
 
+/* «¿A quién invita?»: una lista de filas de 56 px con filete. */
 .pickList {
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
+  border-top: 1px solid var(--np-border);
 }
 
 .pickItem {
   min-height: 3.5rem;
-  padding: 0 1.125rem;
-  border-radius: var(--np-r-tile);
-  border: 1px solid var(--np-border);
-  background: var(--np-surface);
+  padding: 0 0.25rem;
+  border: none;
+  border-bottom: 1px solid var(--np-border);
+  background: transparent;
   color: var(--np-text);
   display: flex;
   align-items: center;
   gap: 0.75rem;
-  font-weight: 700;
-  font-size: 1.0625rem;
+  font-weight: 500;
+  font-size: 1rem;
   text-align: left;
   cursor: pointer;
 }
 
-.pickItem::before {
-  content: '';
-  width: 0.75rem;
-  height: 0.75rem;
-  border-radius: 50%;
-  background: var(--np-sec-servicios);
+.pickItem:active:not(:disabled) {
+  background: var(--np-surface-2);
 }
 
 /* ─── 2.3 Mi QR ──────────────────────────────────────────────────────── */
@@ -1016,22 +1052,22 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 0.875rem;
-  padding: 0.875rem 1rem;
+  gap: 1rem;
+  padding: 1rem;
   text-align: center;
 }
 
 .me {
-  font: 800 3.625rem/1 var(--np-font-num);
-  letter-spacing: -0.03em;
+  font: 600 2.5rem/1.1 var(--np-font-sans);
   overflow-wrap: anywhere;
 }
 
+/* Negro sobre blanco también a oscuras: así lo leen todos los móviles. */
 .qrBig {
   width: min(16.375rem, 72vw);
   aspect-ratio: 1;
-  padding: 1.125rem;
-  border-radius: 1.625rem;
+  padding: 1rem;
+  border-radius: var(--np-r-lg);
   background: #fff;
 }
 
@@ -1043,8 +1079,8 @@
 
 .muted {
   margin: 0;
-  color: var(--np-text-label);
-  font-size: 1.03125rem;
+  color: var(--np-text-mute);
+  font-size: 1rem;
 }
 
 .tonight {
@@ -1053,20 +1089,21 @@
   align-items: center;
   gap: 0.75rem;
   text-align: left;
-  padding: 0.625rem 0.875rem;
-  border-radius: var(--np-r-tile);
+  padding: 0.75rem 1rem;
+  border-radius: var(--np-r-md);
   background: var(--np-surface);
   border: 1px solid var(--np-border);
 }
 
 .tonight b {
   display: block;
-  font-size: 1.03125rem;
+  font-size: 1rem;
+  font-weight: 600;
 }
 
 .tonight .grow span {
-  font-size: 0.90625rem;
-  color: var(--np-text-label);
+  font-size: 0.875rem;
+  color: var(--np-text-mute);
 }
 
 .grow {
@@ -1092,7 +1129,7 @@
 }
 
 .ring .rf {
-  stroke: var(--np-sec-copas);
+  stroke: var(--np-text);
   transition: stroke-dasharray var(--np-d-slow) var(--np-ease);
 }
 
@@ -1101,7 +1138,7 @@
   inset: 0;
   display: grid;
   place-items: center;
-  font: 800 0.875rem var(--np-font-num);
+  font: 600 0.875rem var(--np-font-num);
 }
 
 .note {
@@ -1110,82 +1147,143 @@
   justify-content: center;
   gap: 0.5rem;
   margin: 0;
-  padding: 0.875rem 1rem 1.375rem;
-  font-size: 0.9375rem;
-  font-weight: 600;
-  color: var(--np-text-label);
+  padding: 0.75rem 1rem 1.5rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--np-text-mute);
 }
 
 .note svg {
+  width: 1.25rem;
+  height: 1.25rem;
+}
+
+/* ─── 3.1 Esperando: el QR y la ficha ────────────────────────────────── */
+
+/* El lado útil del QR del cobro: 240 px, menos en un móvil bajo o estrecho. */
+.waitBody {
+  --qr-side: min(15rem, 70vw, 34vh);
+
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1rem;
+  text-align: center;
+}
+
+@supports (height: 1svh) {
+  .waitBody {
+    --qr-side: min(15rem, 70vw, 34svh);
+  }
+}
+
+/* El importe: 64/600 en cifras proporcionales (bajito en un móvil bajo). */
+.amountXl {
+  margin: 0;
+  font: 600 clamp(2.75rem, 9vh, 4rem) / 1 var(--np-font-num);
+  font-variant-numeric: proportional-nums;
+}
+
+.waitTitle {
+  margin: 0.25rem 0 0;
+  font: 600 1.125rem/1.25 var(--np-font-sans);
+  letter-spacing: 0;
+}
+
+/* La placa blanca del QR: su relleno es el margen claro que piden los lectores. */
+.qr {
+  flex: none;
+  width: calc(var(--qr-side) + 2rem);
+  height: calc(var(--qr-side) + 2rem);
+  padding: 1rem;
+  border-radius: var(--np-r-md);
+  background: #fff;
+  transition: opacity var(--np-d-base);
+}
+
+.qr svg,
+.qr img {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/* Las dos formas, en una línea bajo el QR: «Con tu móvil» o la ficha (su
+   icono, sin tarjeta dibujada). */
+.ways {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 0.25rem 0.75rem;
+  margin: 0;
+  min-height: 1.5rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--np-text-mute);
+}
+
+.nfcWay {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+}
+
+.nfcWay svg {
+  flex: none;
   width: 1.375rem;
   height: 1.375rem;
 }
 
-/* ─── 3.1 Acerca el NFC o escanea ────────────────────────────────────── */
-
-.band {
-  flex: none;
-  min-height: 3.125rem;
-  padding: 0.5rem 1.25rem;
-  /* En dos líneas: las secciones y, debajo, qué y quién (sin cortar «camar…»). */
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  gap: 2px;
-  background: var(--c);
-  color: var(--np-on-section);
-  font-weight: 700;
-  font-size: 1rem;
+.nfcReading {
+  color: var(--np-text);
 }
 
-.bandDuo {
-  background: linear-gradient(90deg, var(--c) 0 50%, var(--c2) 50%);
-}
-
-.band b {
-  font: 800 1rem var(--np-font-num);
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
-}
-
-.band span {
-  font-size: 0.9375rem;
-  line-height: 1.25;
-  overflow-wrap: anywhere;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-
-/* «Esperando el pago…»: viva, con un punto que late despacio (< 1 Hz). */
+/* La única señal de espera: un punto que late despacio (< 1 Hz), lo que pasa
+   y el reloj, en una línea. */
 .live {
-  align-self: center;
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 0.25rem 0.5rem;
+  margin: 0;
+  min-height: 1.5rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--np-text);
+}
+
+.liveNow {
   display: inline-flex;
   align-items: center;
   gap: 0.5rem;
-  margin: 0;
-  min-height: 2.25rem;
-  padding: 0 1rem;
-  border-radius: var(--np-r-pill);
-  background: var(--np-surface-2);
-  border: 1px solid var(--np-border);
-  color: var(--np-text);
-  font-size: 0.9375rem;
-  font-weight: 700;
 }
 
 .live i {
   flex: none;
-  width: 0.625rem;
-  height: 0.625rem;
-  border-radius: 50%;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: var(--np-r-pill);
   background: var(--np-success);
   animation: np-cobrar-dot var(--np-pulse) ease-in-out infinite;
 }
 
+.clock {
+  font-family: var(--np-font-num);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--np-text-mute);
+}
+
 .liveEnding i {
   background: var(--np-warning);
+}
+
+.liveEnding .clock {
+  color: var(--np-warning);
 }
 
 @keyframes np-cobrar-dot {
@@ -1200,240 +1298,29 @@
   }
 }
 
-/* Por encima del tope sin PIN: que el camarero lo sepa antes de que el cliente lo vea. */
-.waitPin {
-  margin: 0;
-  justify-content: center;
-}
-
-.waitBody {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  justify-content: flex-start;
-  gap: 0.75rem;
-  padding: 0.875rem 1rem;
-}
-
-.amountXl {
-  margin: 0;
-  text-align: center;
-  font: 800 clamp(4.5rem, 30vw, 7rem) / 1 var(--np-font-num);
-  letter-spacing: -0.05em;
-  padding-top: 0.375rem;
-  font-variant-numeric: tabular-nums;
-}
-
-.waitTitle {
-  margin: 0;
-  text-align: center;
-  font: 800 1.5625rem/1.15 var(--np-font-num);
-  letter-spacing: -0.01em;
-}
-
-.dual {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.625rem;
-}
-
-.opt {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 0.625rem;
-  font-size: 0.9375rem;
-  font-weight: 700;
-  text-align: center;
-}
-
-.qr {
-  flex: none;
-  width: 11rem;
-  height: 11rem;
-  padding: 0.75rem;
-  border-radius: var(--np-r-tile);
-  background: #fff;
-}
-
-.qrSolo {
-  width: min(16rem, 66vw);
-  height: auto;
-  aspect-ratio: 1;
-}
-
-.qr img {
-  display: block;
-  width: 100%;
-  height: 100%;
-}
-
-/* «o» entre el QR y el NFC: solo la palabra (sin círculo que parezca un botón). */
-.orDot {
-  flex: none;
-  font-weight: 700;
-  font-size: 1rem;
-  color: var(--np-text-label);
-  margin-bottom: 1.75rem;
-}
-
-/* La tarjeta con su pulso alrededor (dónde acercar el NFC; la app sigue esperando). */
-.ncardWrap {
-  position: relative;
-  display: inline-grid;
-}
-
-.ncardPulse {
-  position: absolute;
-  inset: 0;
-  border-radius: 0.875rem;
-  box-shadow: 0 0 0 2px var(--np-lime);
-  pointer-events: none;
-  animation: np-cobrar-pulse var(--np-pulse) var(--np-ease) infinite;
-}
-
-@keyframes np-cobrar-pulse {
-  from {
-    transform: scale(1);
-    opacity: 0.6;
-  }
-  to {
-    transform: scale(1.12);
-    opacity: 0;
-  }
-}
-
-/* Con «reducir movimiento»: nada en bucle. El punto y el halo se quedan
-   quietos y a la vista (el texto «Esperando el pago…» ya dice que se espera). */
+/* Con «reducir movimiento»: nada en bucle. El punto se queda quieto y a la
+   vista (el texto «Esperando el pago…» ya dice que se espera). */
 @media (prefers-reduced-motion: reduce) {
-  .ncardPulse,
   .live i {
     transform: none !important;
     animation: none !important;
   }
-
-  .ncardPulse {
-    opacity: 0.6;
-  }
 }
 
-/* La tarjeta NFC: plata con el halo lima, como la OxioCard. */
-.ncard {
-  --silver-1: #ecebe7;
-  --silver-2: #cfcdc9;
-  --silver-3: #b4b2ae;
-  position: relative;
-  flex: none;
-  width: 5.5rem;
-  height: 8.625rem;
-  border-radius: 0.875rem;
-  background: linear-gradient(150deg, var(--silver-1) 0%, var(--silver-2) 46%, var(--silver-1) 60%, var(--silver-3) 100%);
-  box-shadow:
-    0 0 0 1.5px var(--np-lime),
-    0 0 22px 4px var(--np-lime-glow);
-  animation: np-cobrar-halo 2.4s ease-in-out infinite;
-  color: var(--np-ink);
-}
-
-.ncard::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  background: linear-gradient(118deg, transparent 34%, rgb(255 255 255 / 0.55) 50%, transparent 66%);
-}
-
-.ncardLogo {
-  position: absolute;
-  left: 11%;
-  top: 9%;
-  width: 26%;
-  height: auto;
-}
-
-.ncardTri {
-  position: absolute;
-  right: 12%;
-  top: 11%;
-  width: 10%;
-  aspect-ratio: 5 / 4;
-  background: var(--np-lime-deep);
-  clip-path: polygon(50% 0, 100% 100%, 0 100%);
-}
-
-.ncardWaves {
-  position: absolute;
-  left: 50%;
-  bottom: 12%;
-  width: 34%;
-  height: auto;
-  aspect-ratio: 1;
-  transform: translateX(-50%);
-}
-
-.ncardReading {
-  box-shadow:
-    0 0 0 3px var(--np-lime),
-    0 0 40px 10px var(--np-lime-glow);
-}
-
-@keyframes np-cobrar-halo {
-  0%,
-  100% {
-    box-shadow:
-      0 0 0 1.5px var(--np-lime),
-      0 0 14px 2px var(--np-lime-glow);
-  }
-  50% {
-    box-shadow:
-      0 0 0 1.5px var(--np-lime),
-      0 0 32px 9px var(--np-lime-glow);
-  }
-}
-
-.timer {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  font-size: 0.9375rem;
-  color: var(--np-text-label);
-  font-variant-numeric: tabular-nums;
-}
-
-.tbar {
-  flex: 1;
-  height: 0.375rem;
-  border-radius: var(--np-r-pill);
-  background: var(--np-surface-3);
-  overflow: hidden;
-}
-
-.tbar > i {
-  display: block;
-  height: 100%;
-  background: var(--np-text);
-  border-radius: inherit;
-  transform-origin: left center;
-  transition: transform 1s linear;
-}
-
-.timerEnding {
-  color: var(--np-warning);
-  font-weight: 700;
-}
-
-.timerEnding .tbar > i {
-  background: var(--np-warning);
+/* Por encima del tope sin PIN: que el camarero lo sepa antes de que el cliente
+   lo vea (junto al importe, a la vista también en un móvil bajo). */
+.waitPin {
+  justify-content: center;
 }
 
 .toast {
   margin: 0;
   padding: 0.625rem 0.875rem;
-  border-radius: 1rem;
+  border-radius: var(--np-r-md);
   background: var(--np-surface-2);
-  border: 1px solid var(--np-border-hi);
-  font-weight: 600;
+  box-shadow: inset 0 0 0 1px var(--np-border-hi);
+  font-size: 0.875rem;
+  font-weight: 500;
   text-align: center;
 }
 
@@ -1443,20 +1330,20 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 0.375rem;
+  gap: 0.5rem;
   text-align: center;
-  padding-top: 0.375rem;
+  padding-top: 0.25rem;
 }
 
 .pinHead .num {
-  font: 800 3.75rem/1 var(--np-font-num);
-  letter-spacing: -0.02em;
+  font: 600 4rem/1 var(--np-font-num);
+  font-variant-numeric: proportional-nums;
 }
 
 .pinHead p {
   margin: 0;
   font-size: 1rem;
-  color: var(--np-text-label);
+  color: var(--np-text-mute);
 }
 
 .pinQ {
@@ -1468,7 +1355,7 @@
 }
 
 .pinQ b {
-  font: 800 1.5rem var(--np-font-num);
+  font: 600 1.375rem var(--np-font-sans);
 }
 
 .dots {
@@ -1490,18 +1377,18 @@
 .pad {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 0.625rem;
+  gap: 0.5rem;
 }
 
+/* Teclas del PIN: 74 px (60 con las cifras cambiando de sitio), radio 14. */
 .pad .key {
   height: 4.625rem;
   font-size: 2rem;
-  border-radius: 1.5rem;
 }
 
 .pad .keyText {
-  font: 700 1rem var(--np-font-sans);
-  color: var(--np-text-label);
+  font: 500 1rem var(--np-font-sans);
+  color: var(--np-text-mute);
 }
 
 .padSmall .key {
@@ -1515,52 +1402,48 @@
   justify-content: center;
   gap: 0.5rem;
   margin: 0;
-  font-size: 0.9375rem;
-  color: var(--np-text-label);
+  font-size: 0.875rem;
+  color: var(--np-text-mute);
   text-align: center;
 }
 
 .cover svg {
-  width: 1.375rem;
-  height: 1.375rem;
+  width: 1.25rem;
+  height: 1.25rem;
   flex: none;
 }
 
 /* ─── 3.3 / 3.4 Resultado (dentro de PaymentOutcome) ─────────────────── */
 
+/* «33 € + 2 € de propina» y «Le quedan 30 €»: una línea de texto, sin pastilla. */
 .left {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.5rem;
-  min-height: 3rem;
-  padding: 0 1.375rem;
-  border-radius: var(--np-r-pill);
-  background: rgb(0 0 0 / 0.24);
-  font-size: 1.125rem;
-  font-weight: 600;
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 500;
 }
 
 .meta {
-  margin: 0.5rem 0 0;
-  font-size: 1rem;
-  font-weight: 600;
+  margin: 0;
+  font-size: 0.875rem;
+  font-weight: 500;
 }
 
+/* La razón del NO PAGADO: recuadro con filete crema. */
 .reason {
   width: 100%;
   max-width: 26rem;
   margin: 0 auto;
-  border: 2px solid var(--np-outcome-ink);
-  border-radius: var(--np-r-tile);
+  border: 1px solid color-mix(in srgb, var(--np-outcome-ink) 70%, transparent);
+  border-radius: var(--np-r-md);
   padding: 0.75rem 1rem;
-  font-size: 1.0625rem;
+  font-size: 1rem;
+  font-weight: 400;
   text-align: left;
-  font-weight: 500;
 }
 
 .reason b {
   display: block;
-  font: 800 1.1875rem var(--np-font-num);
+  font: 600 1.125rem/1.3 var(--np-font-sans);
 }
 
 .outcomeSplit {
@@ -1568,32 +1451,17 @@
   margin: 0.5rem auto 0;
 }
 
-
-/* Propinas y «Otro importe»: una sola fila (en las losetas grandes de la chica, como siempre). */
-.lastRow {
-  grid-column: 1 / -1;
-  display: grid;
-  grid-template-columns: repeat(var(--n, 2), minmax(0, 1fr));
-  gap: 0.5rem;
-}
-.lastRow[data-big] { display: contents; }
-.lastRow:not([data-big]) .tileName { font-size: 1rem; }
-.lastRow[data-n='4'] .kicker { display: none; }
-
 /*
  * Móviles bajos (360×740 con la barra de pestañas): las losetas del camarero,
  * algo más justas, para que la carta entera, las propinas y «Otro importe»
- * queden encima de «Cobrar» sin bajar. Las grandes de la chica, como siempre.
+ * queden encima de «Cobrar» sin bajar. Nunca por debajo de 60 px. Las grandes
+ * de la chica, como siempre.
  */
 @media (max-height: 800px) {
   .tile:not(.tileBig) {
-    min-height: 4.5rem;
+    min-height: 3.75rem;
     padding: 0.5rem 0.75rem;
   }
-  /* La etiqueta no baja de 14 px tampoco aquí: se aprieta la línea. */
-  .tile:not(.tileBig) .kicker { line-height: 1.05; }
-  .tile:not(.tileBig) .tileName { font-size: 1rem; line-height: 1.1; }
-  .tile:not(.tileBig) .price { font-size: 1.375rem; }
 }
 
 /* ─── Con tarjeta: la espera del banco (05-ui-ux §4.3) ───────────────── */
@@ -1605,16 +1473,16 @@
   gap: 0.125rem;
   margin: 0;
   padding: 0.625rem 0.875rem;
-  border-radius: 1.125rem;
-  background: color-mix(in srgb, var(--np-warning) 14%, transparent);
+  border-radius: var(--np-r-md);
+  background: color-mix(in srgb, var(--np-warning) 12%, var(--np-surface));
   border: 1px solid color-mix(in srgb, var(--np-warning) 55%, transparent);
-  font-size: 0.9375rem;
-  font-weight: 600;
+  font-size: 0.875rem;
+  font-weight: 500;
   text-align: center;
 }
 
 .bankStrip b {
-  font-weight: 800;
+  font-weight: 600;
   color: var(--np-warning);
 }
 
@@ -1627,13 +1495,13 @@
 
 .cancelAsk p {
   margin: 0;
-  font-weight: 700;
+  font-weight: 600;
   text-align: center;
 }
 
 /* El banco no lo ha confirmado (ORPHAN): ámbar, con la referencia y «Avisar al encargado». */
 .unconfirmed {
-  border-top: 6px solid var(--np-warning);
+  border-top: 4px solid var(--np-warning);
 }
 
 .unconfirmedBody {
@@ -1648,21 +1516,19 @@
 .unconfirmedKicker {
   align-self: center;
   margin: 0;
-  padding: 0.25rem 0.875rem;
-  border-radius: var(--np-r-pill);
+  padding: 0.25rem 0.625rem;
+  border-radius: var(--np-r-xs);
   background: color-mix(in srgb, var(--np-warning) 18%, transparent);
   color: var(--np-warning);
-  font-size: 0.8125rem;
-  font-weight: 800;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  font-size: 0.875rem;
+  font-weight: 600;
 }
 
 .unconfirmedRef {
   display: flex;
   flex-wrap: wrap;
   justify-content: center;
-  gap: 0.5rem 1.25rem;
+  gap: 0.5rem 1.5rem;
   margin: 0;
 }
 
@@ -1673,34 +1539,35 @@
 }
 
 .unconfirmedRef dt {
-  font-size: 0.8125rem;
-  color: var(--np-text-label);
+  font-size: 0.875rem;
+  color: var(--np-text-mute);
 }
 
 .unconfirmedRef dd {
   margin: 0;
-  font: 800 1.25rem var(--np-font-num);
+  font: 600 1.25rem var(--np-font-num);
   letter-spacing: 0.04em;
 }
 
 /* ─── «Sin móvil ni ficha» (antes, solo en la pestaña «Saldo») ─────────── */
 
-/* El botón discreto de Esperando: un enlace, sin competir con el QR ni con el NFC. 44 px de alto. */
+/* El botón discreto de Esperando: terciario (solo texto), sin competir con el QR. 44 px de alto. */
 .altLink {
   align-self: center;
   min-height: 2.75rem;
   padding: 0 0.75rem;
   background: none;
   border: none;
-  color: var(--np-text-label);
-  font: 700 0.9375rem/1.2 var(--np-font-sans);
+  color: var(--np-text-mute);
+  font: 500 0.875rem/1.2 var(--np-font-sans);
   text-decoration: underline;
+  text-decoration-thickness: 1px;
   text-underline-offset: 4px;
   cursor: pointer;
 }
 
 .altLink:disabled {
-  opacity: 0.5;
+  color: var(--np-disabled-ink);
   cursor: not-allowed;
 }
 
@@ -1708,20 +1575,20 @@
 .altOpt {
   flex-direction: column;
   gap: 0.25rem;
-  min-height: 4.75rem;
+  min-height: 4.5rem;
   padding: 0.5rem 1.25rem;
 }
 
 .altOpt small {
-  font: 500 0.875rem/1.25 var(--np-font-sans);
-  color: var(--np-text-label);
+  font: 400 0.875rem/1.3 var(--np-font-sans);
+  color: var(--np-text-mute);
 }
 
 .altHint {
   margin: 0;
-  font-size: 0.9375rem;
+  font-size: 0.875rem;
   line-height: 1.35;
-  color: var(--np-text-label);
+  color: var(--np-text-mute);
   text-align: center;
 }
 

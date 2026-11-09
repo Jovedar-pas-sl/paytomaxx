@@ -26,6 +26,7 @@ import { advanceStatus, isFinalStatus } from '@/lib/payment-status';
 import { NewWalletCard } from './NewWalletCard';
 import { useVenueMethods } from '@/lib/venue-methods';
 import { chargeSectionLabel, useMySections } from '@/lib/sections';
+import { CobroQr } from './cobrar/CobroQr';
 import { StaffOutcome } from './StaffOutcome';
 import { usePaymentLive } from './use-payment-live';
 
@@ -183,7 +184,8 @@ export function ActivePayment({
 
   return (
     // data-charge-open: en Inicio del móvil, lo de arriba se aparta mientras está el QR (home.module.css).
-    <Card variant="glow" data-charge-open="" style={{ padding: 'var(--np-pad-card)', display: 'flex', flexDirection: 'column', gap: 'var(--np-gap)' }}>
+    // Tarjeta neutra (Grafito): la lima, solo en el botón de la pantalla.
+    <Card data-charge-open="" style={{ padding: 'var(--np-pad-card)', display: 'flex', flexDirection: 'column', gap: 'var(--np-gap)' }}>
       <div style={{ textAlign: 'center' }}>
         <p style={kicker}>{isPos ? 'Cobro POS' : 'Importe'}</p>
         <p className="np-num" style={amountBig}>
@@ -191,7 +193,7 @@ export function ActivePayment({
           {formatEurAmount(isPos ? chargeWithFeeCents(payment) : payment.amountCents)}{' '}
           <span style={{ fontSize: '0.95rem', color: 'var(--np-text-mute)', fontWeight: 500 }}>{payment.currency}</span>
         </p>
-        {label ? <p style={{ margin: '0.25rem 0 0', fontWeight: 700, fontSize: '1.0625rem' }}>{label}</p> : null}
+        {label ? <p style={{ margin: '0.25rem 0 0', fontWeight: 500, fontSize: '1rem' }}>{label}</p> : null}
         {/* Con la «Comisión del servicio»: lo que paga con tarjeta (o, en una recarga, lo que se cobra). */}
         {!isPos && paymentFeeLine(payment) ? <p style={{ ...hintStyle, margin: '0.25rem 0 0' }}>{paymentFeeLine(payment)}</p> : null}
         {isPos && payment.serviceFeeCents ? (
@@ -200,7 +202,7 @@ export function ActivePayment({
           </p>
         ) : null}
         {isPos ? (
-          <p style={{ margin: '0.5rem 0 0', fontSize: '0.9375rem', color: 'var(--np-text-mute)' }}>
+          <p style={{ margin: '0.5rem 0 0', fontSize: '0.875rem', color: 'var(--np-text-mute)' }}>
             Llama al camarero. Código: <strong style={refCodeStyle}>#{refCode}</strong>
           </p>
         ) : null}
@@ -209,7 +211,7 @@ export function ActivePayment({
         <StatusPill status={shown} />
       </div>
       {awaiting ? (
-        <p role="status" style={{ margin: 0, textAlign: 'center', fontSize: '0.9375rem', color: 'var(--np-warning)' }}>
+        <p role="status" style={{ margin: 0, textAlign: 'center', fontSize: '0.875rem', color: 'var(--np-warning)' }}>
           {reachable
             ? 'El QR ha caducado. Confirmando con el servidor que no se pagó…'
             : 'Sin conexión con el servidor: no sabemos si el cliente pagó. No cobres otra vez hasta que se confirme.'}
@@ -218,17 +220,16 @@ export function ActivePayment({
 
       <QrCountdown deadline={preCobro ? deadline : null} nowMs={now}>
         <div style={qrBoxStyle}>
-          <img
-            src={payment.qrPngDataUrl}
-            alt={isPos ? 'QR del cobro POS' : 'QR del cobro'}
-            // --np-qr: 20rem; en el móvil, según el alto (el QR y sus botones en una pantalla).
-            style={{ width: '100%', maxWidth: isPos ? 'min(12rem, var(--np-qr))' : 'var(--np-qr)', height: 'auto', display: 'block' }}
-          />
+          {/* En vector, con su enlace (el PNG del API, solo si no se pudiera dibujar).
+              --np-qr: 20rem; en el móvil, según el alto (el QR y sus botones en una pantalla). */}
+          <div style={{ width: '100%', maxWidth: isPos ? 'min(12rem, var(--np-qr))' : 'var(--np-qr)' }}>
+            <CobroQr value={payment.qrUrl} fallbackPng={payment.qrPngDataUrl} label={isPos ? 'QR del cobro POS' : 'QR del cobro'} quiet={2} />
+          </div>
         </div>
       </QrCountdown>
       {isPos ? (
         <div style={posNoteStyle}>
-          <p style={{ margin: 0, fontSize: '0.9375rem', lineHeight: 1.6 }}>
+          <p style={{ margin: 0, fontSize: '0.875rem', lineHeight: 1.6 }}>
             <strong>Camarero:</strong> escanea el QR con tu móvil (o usa código <strong style={refCodeStyle}>#{refCode}</strong>).
             <br />
             Cobra <strong>{formatEur(chargeWithFeeCents(payment))}</strong> en el datáfono
@@ -254,7 +255,7 @@ export function ActivePayment({
       )}
 
       {error ? (
-        <p role="alert" style={{ color: 'var(--np-danger)', margin: 0, fontSize: '0.9375rem', textAlign: 'center' }}>
+        <p role="alert" style={{ color: 'var(--np-danger-text)', margin: 0, fontSize: '0.875rem', fontWeight: 500, textAlign: 'center' }}>
           {error}
         </p>
       ) : null}
@@ -310,7 +311,7 @@ function OutcomeDetail({
     <>
       {/* «C-0042 · Copas»: la referencia que ve el cliente en sus movimientos. */}
       {refLine ? (
-        <p className="np-num" style={{ fontWeight: 800, letterSpacing: '0.04em' }}>
+        <p className="np-num" style={{ fontWeight: 600, letterSpacing: '0.04em' }}>
           {refLine}
         </p>
       ) : null}
@@ -351,22 +352,21 @@ function PaidBlock({ payment, tipCents, onNew }: { payment: CreatedPayment; tipC
   );
 }
 
+// Grafito: sin mayúsculas ni espaciado (salvo los códigos), 14/500.
 const kicker: CSSProperties = {
   margin: 0,
   fontSize: 'var(--np-t-label)',
   color: 'var(--np-text-label)',
-  letterSpacing: '0.1em',
-  textTransform: 'uppercase',
-  fontWeight: 700,
+  fontWeight: 500,
 };
 
+// Importe grande y suelto: 40/600 en cifras proporcionales.
 const amountBig: CSSProperties = {
   margin: '0.25rem 0 0',
   fontSize: '2.5rem',
   lineHeight: 1.15,
   fontWeight: 600,
-  letterSpacing: '-0.03em',
-  fontVariantNumeric: 'tabular-nums',
+  fontVariantNumeric: 'proportional-nums',
 };
 
 const hintStyle: CSSProperties = {
@@ -378,8 +378,9 @@ const hintStyle: CSSProperties = {
 
 const refCodeStyle: CSSProperties = {
   fontFamily: 'var(--np-font-mono)',
+  fontWeight: 600,
   letterSpacing: '0.15em',
-  color: 'var(--np-accent)',
+  color: 'var(--np-text)',
 };
 
 const qrBoxStyle: CSSProperties = {
@@ -394,14 +395,15 @@ const posNoteStyle: CSSProperties = {
   padding: '1rem',
   background: 'var(--np-surface-2)',
   borderRadius: 'var(--np-r-md)',
-  border: '1px dashed var(--np-border)',
+  border: '1px solid var(--np-border)',
   textAlign: 'center',
 };
 
+// Sin lima: la lima es del botón «Cobrado — nuevo».
 const tipStyle: CSSProperties = {
   margin: 0,
   textAlign: 'center',
-  fontWeight: 700,
-  fontSize: '1.25rem',
-  color: 'var(--np-accent)',
+  fontWeight: 600,
+  fontSize: '1.125rem',
+  color: 'var(--np-text)',
 };

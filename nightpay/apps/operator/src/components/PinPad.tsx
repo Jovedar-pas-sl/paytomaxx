@@ -138,27 +138,27 @@ const cardStyle: CSSProperties = {
   textAlign: 'center',
 };
 
+// Grafito: sin mayúsculas ni espaciado, 14/500; título 22/600 y paso 18/600.
 const kicker: CSSProperties = {
   margin: 0,
   fontSize: 'var(--np-t-label)',
-  fontWeight: 700,
-  letterSpacing: '0.12em',
-  textTransform: 'uppercase',
+  fontWeight: 500,
   color: 'var(--np-text-mute)',
 };
 
-const titleStyle: CSSProperties = { margin: 0, fontSize: '1.5rem', fontWeight: 800 };
-const hintStyle: CSSProperties = { margin: 0, fontSize: '0.85rem', color: 'var(--np-text-mute)' };
-const stepStyle: CSSProperties = { margin: 0, fontSize: '1.125rem', fontWeight: 700 };
+const titleStyle: CSSProperties = { margin: 0, fontSize: '1.375rem', fontWeight: 600 };
+const hintStyle: CSSProperties = { margin: 0, fontSize: '0.875rem', color: 'var(--np-text-mute)' };
+const stepStyle: CSSProperties = { margin: 0, fontSize: '1.125rem', fontWeight: 600 };
 
 const dotsStyle: CSSProperties = { display: 'flex', justifyContent: 'center', gap: '1rem', padding: '0.5rem 0' };
 const dotStyle: CSSProperties = {
-  width: '1.1rem',
-  height: '1.1rem',
+  width: '1.125rem',
+  height: '1.125rem',
   borderRadius: '50%',
-  border: '2px solid var(--np-border-hi)',
+  border: '2px solid var(--np-text)',
 };
-const dotFull: CSSProperties = { background: 'var(--np-accent)', borderColor: 'var(--np-accent)' };
+// Las cifras puestas, en crema: la lima es para actuar, no para el progreso.
+const dotFull: CSSProperties = { background: 'var(--np-text)' };
 
 /** Solo para lectores de pantalla. */
 const srOnly: CSSProperties = {
@@ -173,28 +173,30 @@ const srOnly: CSSProperties = {
   border: 0,
 };
 
-const errorStyle: CSSProperties = { margin: 0, fontSize: '0.95rem', color: 'var(--np-danger)', fontWeight: 600 };
+const errorStyle: CSSProperties = { margin: 0, fontSize: '0.875rem', color: 'var(--np-danger-text)', fontWeight: 500 };
 
 const gridStyle: CSSProperties = {
   display: 'grid',
   gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
-  gap: '0.6rem',
+  gap: '0.5rem',
 };
 
-// Alto de las teclas como el del teclado del importe (--np-key-h: según el alto de la pantalla).
+// Teclas del PIN: 60 px como poco (más en una pantalla alta, como el teclado
+// del importe con --np-key-h), radio 14, filete de 1 px y cifras en Manrope 600.
 const keyStyle: CSSProperties = {
-  minHeight: 'var(--np-key-h, 4.25rem)',
+  minHeight: 'max(3.75rem, var(--np-key-h, 4.25rem))',
+  fontFamily: 'var(--np-font-num)',
   fontSize: '1.75rem',
-  fontWeight: 800,
-  borderRadius: 'var(--np-r-lg)',
-  border: '2px solid var(--np-border-hi)',
+  fontWeight: 600,
+  borderRadius: 'var(--np-r-md)',
+  border: '1px solid var(--np-border)',
   background: 'var(--np-surface-2)',
   color: 'var(--np-text)',
   cursor: 'pointer',
   fontVariantNumeric: 'tabular-nums',
 };
 
-const sideKey: CSSProperties = { fontSize: '1rem', fontWeight: 700, color: 'var(--np-text-mute)' };
+const sideKey: CSSProperties = { fontFamily: 'var(--np-font-sans)', fontSize: '1rem', fontWeight: 500, color: 'var(--np-text-mute)' };
 
 /** Teclado fijo: las teclas, más grandes (se aciertan a oscuras y con prisa). */
-const bigKey: CSSProperties = { minHeight: 'calc(var(--np-key-h, 4.25rem) + 0.5rem)', fontSize: '2.25rem' };
+const bigKey: CSSProperties = { minHeight: 'max(3.75rem, calc(var(--np-key-h, 4.25rem) + 0.5rem))', fontSize: '2rem' };

@@ -8,7 +8,7 @@ import { pinExpected, pinWarning } from '@/lib/cobro-view';
 import { chargeable, itemLabel, cuentaTotals, lineCents, lineSection, type Cuenta, type CuentaLine } from '@/lib/cuenta';
 import { colorOf, labelOf, type CobrarContext } from './cobrar-context';
 import { IconLock, IconMinus, IconPlus } from './icons';
-import { Chip, ScreenHeader, Stripe } from './ScreenHeader';
+import { Chip, ScreenHeader } from './ScreenHeader';
 import styles from './cobrar.module.css';
 
 interface Props {
@@ -29,26 +29,26 @@ interface Props {
 }
 
 /**
- * «La cuenta» (maqueta 1.4): cada línea a su sección, con sus pasos; la
- * franja de arriba se parte con los colores de la cuenta y «Cómo se reparte»
- * lo enseña. Si pasa del tope sin PIN, el aviso sale antes.
+ * «La cuenta» (maqueta 1.4), en Grafito: una lista sin tarjetas, cada línea
+ * con el punto de su sección y un solo tipo de paso («−» y «+» iguales);
+ * «Cómo se reparte», en una línea. Si pasa del tope sin PIN, el aviso sale antes.
  */
 export function LaCuenta({ ctx, cuenta, who, onQty, onRemove, onAdd, onBack, onCobrar, onPos, busy, error, nfc }: Props) {
   const totals = cuentaTotals(cuenta);
   const parts = totals.bySection;
   const label = (s: string) => labelOf(ctx, s);
+  // Con varias secciones, sin color: sus nombres van en las líneas y en «Cómo se reparte».
   const chip =
     parts.length > 1 ? (
-      <Chip colors={parts.slice(0, 2).map((p) => colorOf(p.section))}>{`${parts.length} secciones`}</Chip>
+      <Chip>{`${parts.length} secciones`}</Chip>
     ) : parts[0] ? (
-      <Chip colors={[colorOf(parts[0].section)]}>{label(parts[0].section)}</Chip>
+      <Chip color={colorOf(parts[0].section)}>{label(parts[0].section)}</Chip>
     ) : null;
   const canCharge = chargeable(cuenta) && !busy;
 
   return (
     <div className={styles.screen}>
       <ScreenHeader title="La cuenta" subtitle={who} onBack={onBack} chip={chip} />
-      <Stripe parts={parts.length > 0 ? parts.map((p) => ({ color: colorOf(p.section), weight: p.cents })) : [{ color: 'var(--np-border)', weight: 1 }]} />
       <div className={styles.body}>
         <div className={styles.lines}>
           {cuenta.map((line) => (
@@ -60,13 +60,8 @@ export function LaCuenta({ ctx, cuenta, who, onQty, onRemove, onAdd, onBack, onC
           Añadir algo de la carta
         </button>
         {parts.length > 0 ? (
-          <div className={styles.panel}>
+          <div className={styles.split}>
             <span className={styles.label}>Cómo se reparte</span>
-            <div className={styles.sbar} aria-hidden="true">
-              {parts.map((p) => (
-                <i key={p.section} style={{ '--c': colorOf(p.section), flex: p.cents } as CSSProperties} />
-              ))}
-            </div>
             <div className={styles.sleg}>
               {parts.map((p) => (
                 <span key={p.section} style={{ '--c': colorOf(p.section) } as CSSProperties}>
@@ -147,7 +142,7 @@ function Line({
         {line.kind === 'carta' ? (
           <button
             type="button"
-            className={`${styles.stepBtn} ${styles.stepAdd}`}
+            className={styles.stepBtn}
             onClick={() => onQty(line.key, line.qty + 1)}
             aria-label={`Una más: ${name}`}
           >

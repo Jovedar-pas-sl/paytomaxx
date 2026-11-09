@@ -5,7 +5,7 @@ import { useWakeLock } from '@nightpay/ui';
 import type { StaffQrView } from '@nightpay/contracts';
 import { fetchMyStaffQr } from '@/lib/api';
 import { formatEur } from '@/lib/money';
-import { Chip, ScreenHeader, Stripe } from './ScreenHeader';
+import { Chip, ScreenHeader } from './ScreenHeader';
 import { IconSun } from './icons';
 import styles from './cobrar.module.css';
 
@@ -62,9 +62,8 @@ export function MiQr({
           title="Mi QR"
           subtitle="Para que te inviten"
           onBack={onClose}
-          chip={<Chip colors={['var(--np-sec-servicios)']}>{name}</Chip>}
+          chip={<Chip>{name}</Chip>}
         />
-        <Stripe parts={[{ color: 'var(--np-sec-servicios)', weight: 1 }]} />
         <div className={styles.myqr}>
           <div className={styles.me}>{name}</div>
           <div className={styles.qrBig}>
