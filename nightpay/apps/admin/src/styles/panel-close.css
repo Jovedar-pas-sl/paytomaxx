@@ -649,7 +649,7 @@
 
 .np-close-done-lead {
   margin: 0;
-  font-size: 1.0625rem;
+  font-size: 1rem;
   line-height: 1.5;
   color: var(--np-text);
 }
@@ -665,7 +665,7 @@
   .np-close-mark svg { width: 18px; height: 18px; }
   .np-close-step::before { left: calc(1rem - 1px); top: 3.25rem; }
   .np-close-step-top { min-height: 2rem; padding-top: 0.15rem; }
-  .np-close-step-title { font-size: 1.0625rem; }
+  .np-close-step-title { font-size: 1rem; }
   .np-cash { padding: 0.875rem; }
   /* En el móvil, una cifra por fila: etiqueta a la izquierda, importe a la derecha. */
   .np-cash-figures { grid-template-columns: 1fr; }

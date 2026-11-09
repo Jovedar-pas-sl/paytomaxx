@@ -166,16 +166,12 @@
 }
 
 @media (max-width: 640px) {
-  /* Barra de abajo con seis (el dueño tiene «Aprobar»): etiquetas un poco más
-     pequeñas para que quepan sin cortarse desde 360px. */
+  /* Barra de abajo con seis (el dueño tiene «Aprobar»): menos relleno a los
+     lados para que quepan sin cortarse desde 360px (a 12 px, «Informes»
+     mide 50 de los 56 que quedan). */
   .np-bottomnav ul:has(> li:nth-child(6)) .np-bottomnav-item {
     padding-left: 0.125rem;
     padding-right: 0.125rem;
-  }
-
-  .np-bottomnav ul:has(> li:nth-child(6)) .np-bottomnav-label {
-    font-size: 0.625rem;
-    letter-spacing: 0;
   }
 
   .np-approval {

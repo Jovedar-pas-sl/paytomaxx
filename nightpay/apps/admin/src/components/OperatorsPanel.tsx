@@ -232,7 +232,7 @@ function hasEarnings(o: Operator): boolean {
 function CamarerosCard({ camareros, onOpen }: { camareros: Operator[]; onOpen: (id: string) => void }) {
   return (
     <section style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }} aria-labelledby="np-camareros">
-      <h3 id="np-camareros" style={{ ...sectionTitle, fontSize: '1.0625rem' }}>
+      <h3 id="np-camareros" style={{ ...sectionTitle, fontSize: '1rem' }}>
         Camareros · su parte de las invitaciones
       </h3>
       <Card className="np-table-host" style={{ padding: 0, overflow: 'hidden' }}>
@@ -501,7 +501,7 @@ const helpFilter: CSSProperties = {
   display: 'flex',
   alignItems: 'center',
   gap: '0.5rem',
-  fontSize: '0.85rem',
+  fontSize: '0.875rem',
   border: '1px solid var(--np-border)',
   borderRadius: 'var(--np-r-pill)',
   padding: '0.4rem 0.875rem',
@@ -523,7 +523,7 @@ const urlCode: CSSProperties = {
   alignItems: 'center',
   padding: '0 0.875rem',
   fontFamily: 'var(--np-font-mono)',
-  fontSize: '0.7rem',
+  fontSize: '0.75rem',
   background: 'var(--np-bg)',
   color: 'var(--np-text-mute)',
   border: '1px solid var(--np-border)',

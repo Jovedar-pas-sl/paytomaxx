@@ -260,7 +260,7 @@ function AccessPanel({ operator, isOwner }: { operator: Operator; isOwner: boole
         <strong style={{ color: isPending ? 'var(--np-warning)' : 'var(--np-success)' }}>
           {isPending ? 'Pendiente de activar' : 'Cuenta activada'}
         </strong>{' '}
-        · Email: <code style={{ fontFamily: 'var(--np-font-mono)', fontSize: '0.78rem' }}>{operator.email}</code>
+        · Email: <code style={{ fontFamily: 'var(--np-font-mono)', fontSize: '0.8125rem' }}>{operator.email}</code>
       </p>
 
       {/* Regenerar invitación — solo para pendientes */}
@@ -283,7 +283,7 @@ function AccessPanel({ operator, isOwner }: { operator: Operator; isOwner: boole
 
       {inviteResult ? (
         <div style={resultBox}>
-          <p style={{ margin: 0, fontSize: '0.8rem', fontWeight: 600 }}>
+          <p style={{ margin: 0, fontSize: '0.8125rem', fontWeight: 600 }}>
             Nuevo enlace de invitación, válido hasta {formatDateTime(inviteResult.expiresAt, tz, 'datetime')}
           </p>
           <div style={{ display: 'flex', gap: '0.5rem' }}>
@@ -292,7 +292,7 @@ function AccessPanel({ operator, isOwner }: { operator: Operator; isOwner: boole
               {copied === 'invite' ? 'Copiado' : 'Copiar'}
             </Button>
           </div>
-          <p style={{ margin: 0, fontSize: '0.72rem', color: 'var(--np-text-dim)' }}>
+          <p style={{ margin: 0, fontSize: '0.75rem', color: 'var(--np-text-dim)' }}>
             Mándale este enlace por WhatsApp. Cuando lo abra y ponga su contraseña, el enlace deja de valer.
           </p>
         </div>
@@ -355,7 +355,7 @@ function AccessPanel({ operator, isOwner }: { operator: Operator; isOwner: boole
 
       {resetResult ? (
         <div style={{ ...resultBox, border: '2px solid var(--np-success)' }}>
-          <p style={{ margin: 0, fontSize: '0.8rem', fontWeight: 600 }}>
+          <p style={{ margin: 0, fontSize: '0.8125rem', fontWeight: 600 }}>
             Nueva contraseña: apúntala ahora, no se mostrará otra vez
           </p>
           <div style={{ display: 'flex', gap: '0.5rem' }}>
@@ -364,14 +364,14 @@ function AccessPanel({ operator, isOwner }: { operator: Operator; isOwner: boole
               {copied === 'pass' ? 'Copiado' : 'Copiar'}
             </Button>
           </div>
-          <p style={{ margin: 0, fontSize: '0.72rem', color: 'var(--np-text-dim)' }}>
+          <p style={{ margin: 0, fontSize: '0.75rem', color: 'var(--np-text-dim)' }}>
             Email para entrar: <code>{operator.email}</code> · Mándale los dos por WhatsApp.
           </p>
         </div>
       ) : null}
 
       {error ? (
-        <p role="alert" style={{ color: 'var(--np-danger)', margin: 0, fontSize: '0.85rem' }}>
+        <p role="alert" style={{ color: 'var(--np-danger)', margin: 0, fontSize: '0.875rem' }}>
           {error}
         </p>
       ) : null}
@@ -407,7 +407,7 @@ const resultBox: CSSProperties = {
 const resultCode: CSSProperties = {
   flex: 1,
   fontFamily: 'var(--np-font-mono)',
-  fontSize: '0.72rem',
+  fontSize: '0.75rem',
   padding: '0.5rem',
   background: 'var(--np-surface)',
   borderRadius: '0.3rem',
@@ -417,7 +417,7 @@ const resultCode: CSSProperties = {
 const passwordCode: CSSProperties = {
   flex: 1,
   fontFamily: 'var(--np-font-mono)',
-  fontSize: '1.05rem',
+  fontSize: '1rem',
   fontWeight: 600,
   padding: '0.6rem',
   background: 'var(--np-surface)',

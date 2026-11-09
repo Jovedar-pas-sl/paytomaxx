@@ -120,7 +120,7 @@
   background: transparent;
   color: var(--np-text-mute);
   font-family: inherit;
-  font-size: 0.6875rem;
+  font-size: 0.75rem;
   font-weight: 500;
   -webkit-tap-highlight-color: transparent;
   transition: color var(--np-d-fast);
@@ -180,7 +180,7 @@
   background: var(--np-text);
   color: var(--np-bg);
   font-family: var(--np-font-mono);
-  font-size: 0.6875rem;
+  font-size: 0.75rem;
   font-weight: 600;
   line-height: 1;
   display: inline-flex;

@@ -320,7 +320,7 @@ const titleStyle: CSSProperties = {
   fontWeight: 600,
 };
 
-const textStyle: CSSProperties = { margin: 0, fontSize: '0.85rem', lineHeight: 1.5, color: 'var(--np-text-mute)' };
+const textStyle: CSSProperties = { margin: 0, fontSize: '0.875rem', lineHeight: 1.5, color: 'var(--np-text-mute)' };
 
 const formStyle: CSSProperties = { display: 'flex', flexDirection: 'column', gap: '0.875rem' };
 
@@ -343,7 +343,7 @@ const qrStyle: CSSProperties = {
 
 const secretStyle: CSSProperties = {
   fontFamily: 'var(--np-font-mono)',
-  fontSize: '0.85rem',
+  fontSize: '0.875rem',
   letterSpacing: '0.08em',
   padding: '0.4rem 0.6rem',
   background: 'var(--np-surface-2)',

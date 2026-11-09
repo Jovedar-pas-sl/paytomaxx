@@ -98,4 +98,4 @@ function OwnerSettlementDetail({ id, onBack }: { id: string; onBack: () => void 
 const wrap: CSSProperties = { display: 'flex', flexDirection: 'column', gap: '1.25rem', minWidth: 0 };
 const title: CSSProperties = { margin: '0.25rem 0 0', fontSize: 'var(--np-t-h3)', fontWeight: 600 };
 const hint: CSSProperties = { margin: '0.35rem 0 0', color: 'var(--np-text-mute)', fontSize: '0.9375rem', maxWidth: '46rem' };
-const pendingLine: CSSProperties = { margin: 0, fontSize: '1.0625rem' };
+const pendingLine: CSSProperties = { margin: 0, fontSize: '1rem' };

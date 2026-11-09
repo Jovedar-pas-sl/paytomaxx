@@ -219,7 +219,7 @@ export function PayoutConfirmModal({
   return (
     <Modal open onClose={closeGuarded} title={asking ? 'Pedir pago al dueño' : 'Marcar pagado'} width="32rem">
       <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-        <p style={{ margin: 0, fontSize: '0.95rem' }}>
+        <p style={{ margin: 0, fontSize: '0.9375rem' }}>
           Saldo pendiente a liquidar: <strong className="np-num">{formatEur(balanceCents)}</strong>
           {autoVerifiable ? <RateNote rate={rate} balanceCents={balanceCents} currency={currency} /> : null}
         </p>
@@ -244,7 +244,7 @@ export function PayoutConfirmModal({
               </p>
             ) : null}
             {payoutLabel ? (
-              <p style={{ margin: '0.25rem 0 0', fontSize: '0.78rem', color: 'var(--np-text-dim)' }}>
+              <p style={{ margin: '0.25rem 0 0', fontSize: '0.8125rem', color: 'var(--np-text-dim)' }}>
                 Alias: {payoutLabel}
               </p>
             ) : null}
@@ -437,14 +437,14 @@ function RateNote({ rate, balanceCents, currency }: { rate: Rate; balanceCents: 
   );
 }
 
-const rateStyle: CSSProperties = { color: 'var(--np-text-mute)', fontSize: '0.85rem', marginLeft: '0.5rem' };
+const rateStyle: CSSProperties = { color: 'var(--np-text-mute)', fontSize: '0.875rem', marginLeft: '0.5rem' };
 
 const methodBox: CSSProperties = {
   background: 'var(--np-surface-2)',
   border: '1px solid var(--np-border)',
   borderRadius: 'var(--np-r-md)',
   padding: '0.75rem 1rem',
-  fontSize: '0.85rem',
+  fontSize: '0.875rem',
 };
 
 const methodKicker: CSSProperties = {
@@ -457,7 +457,7 @@ const methodKicker: CSSProperties = {
 const addressStyle: CSSProperties = {
   margin: '0.25rem 0 0',
   fontFamily: 'var(--np-font-mono)',
-  fontSize: '0.78rem',
+  fontSize: '0.8125rem',
   color: 'var(--np-text-mute)',
   wordBreak: 'break-all',
 };
@@ -467,7 +467,7 @@ const copyBtn: CSSProperties = {
   background: 'none',
   border: '1px solid var(--np-border)',
   color: 'var(--np-text-mute)',
-  fontSize: '0.7rem',
+  fontSize: '0.75rem',
   padding: '0.15rem 0.5rem',
   borderRadius: '4px',
   cursor: 'pointer',
@@ -492,6 +492,6 @@ const confirmStyle: CSSProperties = {
 
 const inlineCode: CSSProperties = {
   fontFamily: 'var(--np-font-mono)',
-  fontSize: '0.78rem',
+  fontSize: '0.8125rem',
   wordBreak: 'break-all',
 };

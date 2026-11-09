@@ -123,7 +123,7 @@ export function ReportsPanel({ isOwner }: { isOwner: boolean }) {
         {REPORTS.map((r) => (
           <Card key={r.kind} style={{ padding: '1.25rem', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
             <div style={{ flex: 1 }}>
-              <h3 style={{ margin: 0, fontSize: '1.0625rem', fontWeight: 600 }}>{r.title}</h3>
+              <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 600 }}>{r.title}</h3>
               <p style={hintStyle}>{r.detail}</p>
             </div>
             <Button

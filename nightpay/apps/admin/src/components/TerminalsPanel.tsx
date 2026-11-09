@@ -125,7 +125,7 @@ export function TerminalsPanel({ isOwner }: Props) {
         <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between' }}>
           <div>
             <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 600 }}>Datáfonos / Terminales</h3>
-            <p style={{ margin: '0.25rem 0 0', fontSize: '0.8rem', color: 'var(--np-text-mute)' }}>
+            <p style={{ margin: '0.25rem 0 0', fontSize: '0.8125rem', color: 'var(--np-text-mute)' }}>
               Red de PAX A920 Pro por zona. La chica elige zona al cobrar; el camarero de esa zona lo confirma.
             </p>
           </div>
@@ -398,11 +398,11 @@ function BulkCreateModal({
           ))}
         </Select>
         {error ? (
-          <p role="alert" style={{ color: 'var(--np-danger)', fontSize: '0.85rem' }}>
+          <p role="alert" style={{ color: 'var(--np-danger)', fontSize: '0.875rem' }}>
             {error}
           </p>
         ) : null}
-        <p style={{ fontSize: '0.8rem', color: 'var(--np-text-mute)' }}>
+        <p style={{ fontSize: '0.8125rem', color: 'var(--np-text-mute)' }}>
           Crea {countOk ? parsedCount : '?'} terminales con externalId {prefix}1, {prefix}2,… asignados a zona{' '}
           <strong>{zone === 'OTRO' ? zoneCustom || '?' : ZONE_LABEL[zone]}</strong>.
         </p>
@@ -495,7 +495,7 @@ function EditTerminalModal({
           </label>
         ) : null}
         {error ? (
-          <p role="alert" style={{ color: 'var(--np-danger)', fontSize: '0.85rem' }}>
+          <p role="alert" style={{ color: 'var(--np-danger)', fontSize: '0.875rem' }}>
             {error}
           </p>
         ) : null}

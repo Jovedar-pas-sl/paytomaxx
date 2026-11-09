@@ -233,4 +233,4 @@ const itemStyle: CSSProperties = {
   fontSize: '0.9375rem',
 };
 
-const metaStyle: CSSProperties = { display: 'block', marginTop: '0.125rem', color: 'var(--np-text-label)', fontSize: '0.84375rem' };
+const metaStyle: CSSProperties = { display: 'block', marginTop: '0.125rem', color: 'var(--np-text-label)', fontSize: '0.875rem' };

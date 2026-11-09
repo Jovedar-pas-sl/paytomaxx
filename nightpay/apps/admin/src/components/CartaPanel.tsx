@@ -121,7 +121,7 @@ export function CartaPanel() {
                 >
                   <div style={rowStyle}>
                     <div style={{ minWidth: 0, flex: '1 1 12rem' }}>
-                      <p style={{ margin: 0, fontWeight: 600, fontSize: '1.0625rem' }}>
+                      <p style={{ margin: 0, fontWeight: 600, fontSize: '1rem' }}>
                         {item.name}
                         {item.durationMin ? (
                           <span style={{ color: 'var(--np-text-mute)', fontWeight: 500 }}> · {item.durationMin} min</span>

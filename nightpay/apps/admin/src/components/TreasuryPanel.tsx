@@ -130,7 +130,7 @@ export function TreasuryPanel({ isOwner }: Props) {
               <div style={reconcileRow}>
                 <div>
                   <h3 style={sectionTitle}>Reconciliación on-chain</h3>
-                  <p style={{ margin: '0.25rem 0 0', fontSize: '0.85rem', color: 'var(--np-text-mute)' }}>
+                  <p style={{ margin: '0.25rem 0 0', fontSize: '0.875rem', color: 'var(--np-text-mute)' }}>
                     Recorre los pagos sin verificar con hash on-chain y reintenta contra Tronscan / BscScan /
                     Polygonscan / Solscan.
                   </p>
@@ -139,7 +139,7 @@ export function TreasuryPanel({ isOwner }: Props) {
                       role={reconcileResult.ok ? 'status' : 'alert'}
                       style={{
                         margin: '0.5rem 0 0',
-                        fontSize: '0.85rem',
+                        fontSize: '0.875rem',
                         color: reconcileResult.ok ? 'var(--np-success)' : 'var(--np-danger)',
                       }}
                     >
@@ -169,7 +169,7 @@ export function TreasuryPanel({ isOwner }: Props) {
                 />
               ))}
               {Object.keys(stats.byMethod).length === 0 ? (
-                <p style={{ color: 'var(--np-text-dim)', fontSize: '0.85rem', margin: 0 }}>Sin payouts todavía.</p>
+                <p style={{ color: 'var(--np-text-dim)', fontSize: '0.875rem', margin: 0 }}>Sin payouts todavía.</p>
               ) : null}
             </div>
           </Card>
@@ -258,7 +258,7 @@ function SplitTile({
         minWidth: 0,
       }}
     >
-      <p style={{ margin: 0, fontSize: '0.78rem', color: 'var(--np-text-mute)' }}>{label}</p>
+      <p style={{ margin: 0, fontSize: '0.8125rem', color: 'var(--np-text-mute)' }}>{label}</p>
       <p className="np-num" style={{ margin: '0.25rem 0 0', fontSize: '1.5rem', fontWeight: 600, color }}>
         {count}
       </p>
@@ -319,7 +319,7 @@ const metricUnit: CSSProperties = {
 
 const metricSubtitle: CSSProperties = {
   margin: '0.4rem 0 0',
-  fontSize: '0.78rem',
+  fontSize: '0.8125rem',
   color: 'var(--np-text-dim)',
 };
 

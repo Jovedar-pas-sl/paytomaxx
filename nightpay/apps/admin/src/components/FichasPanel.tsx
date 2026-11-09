@@ -329,7 +329,7 @@ const tilesGrid: CSSProperties = {
   gap: '0.75rem',
 };
 
-const sectionTitle: CSSProperties = { margin: '0 0 0.75rem', fontSize: '0.9rem', fontWeight: 600 };
+const sectionTitle: CSSProperties = { margin: '0 0 0.75rem', fontSize: '0.875rem', fontWeight: 600 };
 
 const listHeader: CSSProperties = {
   display: 'flex',
@@ -354,13 +354,13 @@ const kicker: CSSProperties = {
 
 const tileNumber: CSSProperties = {
   margin: '0.3rem 0 0',
-  fontSize: '1.4rem',
+  fontSize: '1.375rem',
   // Cifra grande del panel: Manrope 600, como los importes (las de las tablas, 700).
   fontWeight: 600,
   fontVariantNumeric: 'tabular-nums',
 };
 
 const tileSub: CSSProperties = { margin: '0.2rem 0 0', fontSize: '0.75rem', color: 'var(--np-text-mute)' };
-const mutedText: CSSProperties = { margin: 0, fontSize: '0.85rem', color: 'var(--np-text-dim)' };
+const mutedText: CSSProperties = { margin: 0, fontSize: '0.875rem', color: 'var(--np-text-dim)' };
 const hintText: CSSProperties = { fontSize: '0.75rem', color: 'var(--np-text-dim)' };
 const numberForm: CSSProperties = { display: 'flex', gap: '0.4rem', alignItems: 'center', flexWrap: 'wrap' };

@@ -133,10 +133,10 @@ function SelfOnboardingLinkBanner({ operatorId }: { operatorId: string }) {
     <Card style={selfOnboardingBanner}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '1rem' }}>
         <div style={{ flex: 1 }}>
-          <p style={{ margin: 0, fontSize: '0.85rem', fontWeight: 600 }}>
+          <p style={{ margin: 0, fontSize: '0.875rem', fontWeight: 600 }}>
             ¿La chica sabe usar la web?
           </p>
-          <p style={{ margin: '0.25rem 0 0', fontSize: '0.78rem', color: 'var(--np-text-mute)' }}>
+          <p style={{ margin: '0.25rem 0 0', fontSize: '0.8125rem', color: 'var(--np-text-mute)' }}>
             Mándale un link de 72h y ella misma rellena sus datos (pasaporte, KYC,
             wallet). Si no sabe, rellénalos tú abajo y ya.
           </p>
@@ -155,28 +155,31 @@ function SelfOnboardingLinkBanner({ operatorId }: { operatorId: string }) {
         <div style={linkBoxStyle}>
           <code style={linkUrlStyle}>{link.url}</code>
           <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem' }}>
-            <Button type="button" onClick={copy} variant="ghost">
+            <Button type="button" onClick={copy} variant="ghost" size="sm">
               {copied ? 'Copiado' : 'Copiar'}
             </Button>
+            {/* Botón secundario como los demás (el verde de WhatsApp con blanco no llegaba a 2:1). */}
             <a
               href={`https://wa.me/?text=${encodeURIComponent(
                 `Hola, este es tu link para rellenar tu perfil en OxioPay (válido 72h): ${link.url}`,
               )}`}
               target="_blank"
               rel="noopener noreferrer"
-              style={whatsappBtnStyle}
+              className="np-btn"
+              data-variant="ghost"
+              data-size="sm"
             >
               Compartir por WhatsApp
             </a>
           </div>
-          <p style={{ margin: '0.5rem 0 0', fontSize: '0.72rem', color: 'var(--np-text-dim)' }}>
+          <p style={{ margin: '0.5rem 0 0', fontSize: '0.75rem', color: 'var(--np-text-dim)' }}>
             Caduca: {formatDateTime(link.expiresAt, tz, 'datetime')}
           </p>
         </div>
       ) : null}
 
       {error ? (
-        <p role="alert" style={{ color: 'var(--np-danger)', margin: '0.5rem 0 0', fontSize: '0.85rem' }}>
+        <p role="alert" style={{ color: 'var(--np-danger)', margin: '0.5rem 0 0', fontSize: '0.875rem' }}>
           {error}
         </p>
       ) : null}
@@ -418,7 +421,7 @@ export function OnboardingForm({ operator, onSaved }: Props) {
             Última prueba: {formatDateTime(operator.walletTestAt, tz, 'datetime')}
           </p>
         ) : null}
-        <p style={{ margin: '0.5rem 0 0', fontSize: '0.78rem', color: 'var(--np-text-mute)' }}>
+        <p style={{ margin: '0.5rem 0 0', fontSize: '0.8125rem', color: 'var(--np-text-mute)' }}>
           La dirección concreta de cobro se gestiona en la pestaña <strong>Editar</strong> (campo «Routing del
           payout»). Aquí solo el estado del proceso.
         </p>
@@ -462,7 +465,7 @@ export function OnboardingForm({ operator, onSaved }: Props) {
           placeholder='"Esperando cita NIE para 15/06", "Binance rechazó KYC, probando Bybit", "Vuelve a Colombia en julio"...'
           style={textareaStyle}
         />
-        <p style={{ margin: '0.25rem 0 0', fontSize: '0.7rem', color: 'var(--np-text-dim)' }}>
+        <p style={{ margin: '0.25rem 0 0', fontSize: '0.75rem', color: 'var(--np-text-dim)' }}>
           {notes.length}/2000
         </p>
       </div>
@@ -524,7 +527,7 @@ function CheckBoxRow({
         <p style={{ margin: 0, fontSize: '0.875rem', fontWeight: 500, color: warn && checked ? 'var(--np-warning)' : 'var(--np-text)' }}>
           {title}
         </p>
-        <p style={{ margin: '0.15rem 0 0', fontSize: '0.78rem', color: warn && checked ? 'var(--np-warning)' : 'var(--np-text-mute)' }}>
+        <p style={{ margin: '0.15rem 0 0', fontSize: '0.8125rem', color: warn && checked ? 'var(--np-warning)' : 'var(--np-text-mute)' }}>
           {description}
         </p>
       </div>
@@ -621,16 +624,3 @@ const linkUrlStyle: CSSProperties = {
   lineHeight: 1.4,
 };
 
-const whatsappBtnStyle: CSSProperties = {
-  padding: '0.5rem 0.875rem',
-  background: '#25D366',
-  color: 'white',
-  borderRadius: 'var(--np-r-md)',
-  fontSize: '0.85rem',
-  fontWeight: 500,
-  textDecoration: 'none',
-  border: 'none',
-  display: 'inline-flex',
-  alignItems: 'center',
-  gap: '0.25rem',
-};

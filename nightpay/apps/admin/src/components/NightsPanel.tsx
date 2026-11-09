@@ -131,7 +131,7 @@ export function NightsPanel({
         loadError ? null : <p style={hintStyle}>Cargando…</p>
       ) : current === null ? (
         <Card style={{ padding: '1.25rem', display: 'flex', flexDirection: 'column', gap: '0.875rem' }}>
-          <p style={{ margin: 0, fontWeight: 600, fontSize: '1.0625rem' }}>No hay ninguna noche abierta.</p>
+          <p style={{ margin: 0, fontWeight: 600, fontSize: '1rem' }}>No hay ninguna noche abierta.</p>
           <Input
             label="Fondo de caja (opcional)"
             value={floatText}

@@ -80,7 +80,7 @@
 .np-mm-title h2,
 .np-mm-title h3 {
   margin: 0;
-  font: 600 1.1875rem / 1.1 var(--np-font-num);
+  font: 600 1.125rem / 1.1 var(--np-font-num);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -105,7 +105,7 @@
   background: var(--np-c, var(--np-sec-otros));
   color: var(--np-on-section);
   font-weight: 600;
-  font-size: 0.90625rem;
+  font-size: 0.875rem;
   white-space: nowrap;
 }
 
@@ -231,7 +231,7 @@
 
 .np-mm-kpis .np-mm-side b {
   display: block;
-  font-size: 1.0625rem;
+  font-size: 1rem;
 }
 
 /* El rótulo bajo cada cifra («sin recargas», «81 % de las ventas»): solo en el escritorio. */
@@ -333,7 +333,7 @@
 
 .np-mm-hleg b {
   display: block;
-  font: 600 0.90625rem var(--np-font-num);
+  font: 600 0.875rem var(--np-font-num);
   color: var(--np-text);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
@@ -366,7 +366,7 @@
 }
 
 .np-mm-dleg b {
-  font: 600 0.90625rem var(--np-font-num);
+  font: 600 0.875rem var(--np-font-num);
   color: var(--np-text);
   font-variant-numeric: tabular-nums;
 }
@@ -408,7 +408,7 @@
   grid-template-columns: 5.875rem minmax(0, 1fr) 4.5rem;
   gap: 0.5rem;
   align-items: center;
-  font-size: 0.90625rem;
+  font-size: 0.875rem;
   font-weight: 600;
 }
 
@@ -444,7 +444,7 @@
 
 .np-mm-sr b {
   text-align: right;
-  font: 600 0.90625rem var(--np-font-num);
+  font: 600 0.875rem var(--np-font-num);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
@@ -464,7 +464,7 @@
   gap: 0.5rem;
   padding: 0.125rem 0;
   border-bottom: 1px solid var(--np-border);
-  font-size: 0.90625rem;
+  font-size: 0.875rem;
 }
 
 .np-mm-orow:last-child {
@@ -483,7 +483,7 @@
 }
 
 .np-mm-orow b {
-  font: 600 0.90625rem var(--np-font-num);
+  font: 600 0.875rem var(--np-font-num);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
@@ -639,10 +639,11 @@
   width: min(28rem, 100%);
   max-height: calc(100dvh - 2rem);
   overflow: hidden;
-  border-radius: 1.75rem;
+  /* Hoja en el escritorio: radio 18 y la sombra de diálogo de Grafito. */
+  border-radius: var(--np-r-lg);
   background: var(--np-bg);
   color: var(--np-text);
-  box-shadow: 0 0 0 1px var(--np-border-hi), 0 40px 80px -30px rgb(0 0 0 / 0.6);
+  box-shadow: 0 0 0 1px var(--np-border-hi), 0 16px 40px -12px rgb(0 0 0 / 0.7);
   animation: np-modal-in var(--np-d-base) var(--np-ease);
 }
 
@@ -673,7 +674,6 @@
   padding: 0.875rem 1rem calc(1.375rem + env(safe-area-inset-bottom, 0px));
   background: var(--np-surface);
   border-top: 1px solid var(--np-border);
-  border-radius: 1.75rem 1.75rem 0 0;
 }
 
 /* Botón principal de la hoja, a lo ancho (su alto es el de `lg`: 48 y 56 en el móvil). */
@@ -707,7 +707,7 @@
 .np-ficha-stat {
   min-width: 0;
   padding: 0.5625rem 0.6875rem;
-  border-radius: 1.125rem;
+  border-radius: var(--np-r-md);
   background: var(--np-surface);
   border: 1px solid var(--np-border);
 }
@@ -720,7 +720,7 @@
 
 .np-ficha-stat b {
   display: block;
-  font: 600 1.1875rem var(--np-font-num);
+  font: 600 1.125rem var(--np-font-num);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
   overflow: hidden;
@@ -758,7 +758,7 @@
 
 .np-ficha-nfc b {
   display: block;
-  font-size: 0.96875rem;
+  font-size: 0.9375rem;
 }
 
 .np-ficha-nfc span {
@@ -911,7 +911,7 @@
 
 .np-ficha-tr .np-ficha-what b {
   display: block;
-  font-size: 0.96875rem;
+  font-size: 0.9375rem;
   line-height: 1.2;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -943,14 +943,14 @@
 
 .np-ficha-amt {
   text-align: right;
-  font: 600 1.03125rem var(--np-font-num);
+  font: 600 1rem var(--np-font-num);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
 
 .np-ficha-amt small {
   display: block;
-  font: 600 0.84375rem var(--np-font-sans);
+  font: 600 0.875rem var(--np-font-sans);
   color: var(--np-text-label);
 }
 
@@ -973,7 +973,7 @@
   display: flex;
   justify-content: space-between;
   gap: 0.5rem;
-  font-size: 0.90625rem;
+  font-size: 0.875rem;
 }
 
 .np-ficha-payline span {
@@ -1076,7 +1076,7 @@ button.np-mm-sr:focus-visible {
 }
 button.np-mm-sr {
   font: inherit;
-  font-size: 0.90625rem;
+  font-size: 0.875rem;
   font-weight: 600;
   color: inherit;
   text-align: left;

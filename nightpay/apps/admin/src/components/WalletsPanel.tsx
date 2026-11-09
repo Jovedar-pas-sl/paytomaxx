@@ -379,7 +379,7 @@ const tilesGrid: CSSProperties = {
 
 const sectionTitle: CSSProperties = {
   margin: 0,
-  fontSize: '0.9rem',
+  fontSize: '0.875rem',
   fontWeight: 600,
 };
 
@@ -410,7 +410,7 @@ const categoryItem: CSSProperties = {
   background: 'var(--np-surface-2)',
   borderRadius: 'var(--np-r-md)',
   border: '1px solid var(--np-border)',
-  fontSize: '0.85rem',
+  fontSize: '0.875rem',
 };
 
 const alignRight: CSSProperties = { textAlign: 'right' };
@@ -428,7 +428,7 @@ const kicker: CSSProperties = {
 
 const tileNumber: CSSProperties = {
   margin: '0.3rem 0 0',
-  fontSize: '1.4rem',
+  fontSize: '1.375rem',
   // Cifra grande del panel: Manrope 600, como los importes (las de las tablas, 700).
   fontWeight: 600,
   fontVariantNumeric: 'tabular-nums',
@@ -440,12 +440,12 @@ const tileSub: CSSProperties = {
   color: 'var(--np-text-mute)',
 };
 
-const mutedText: CSSProperties = { margin: 0, fontSize: '0.85rem', color: 'var(--np-text-dim)' };
+const mutedText: CSSProperties = { margin: 0, fontSize: '0.875rem', color: 'var(--np-text-dim)' };
 
 const loadingStyle: CSSProperties = {
   margin: 0,
   textAlign: 'center',
-  fontSize: '0.85rem',
+  fontSize: '0.875rem',
   color: 'var(--np-text-mute)',
 };
 
