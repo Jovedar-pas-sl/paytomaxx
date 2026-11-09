@@ -1,8 +1,8 @@
 'use client';
 
-import { useCallback, useRef, useState, type CSSProperties, type FormEvent } from 'react';
+import { useCallback, useRef, useState, type FormEvent } from 'react';
 import type { GivenFicha } from '@nightpay/contracts';
-import { Button, Card, Input } from '@nightpay/ui';
+import { Button, Input } from '@nightpay/ui';
 import type { OperatorUser } from '@/lib/api';
 import { giveFicha, readFichaQr, walletCodeOf } from '@/lib/give-ficha';
 import { formatEur } from '@/lib/money';
@@ -11,6 +11,8 @@ import { useVenueMethods, useVenueNight } from '@/lib/venue-methods';
 import { PinPad } from '../PinPad';
 import { QrScanner, qrScanSupported } from '../QrScanner';
 import { StaffOutcome } from '../StaffOutcome';
+import { DESK_FIELD } from './desk/desk-parts';
+import r from './reception.module.css';
 import { useReadNfc } from './use-read-nfc';
 
 /** Lo encontrado y cómo prueba el cliente que es suyo (su QR o su PIN; el encargado, ninguna). */
@@ -141,17 +143,15 @@ export function GiveFicha({ user, onDone }: { user: OperatorUser; onDone: () => 
   }
 
   return (
-    <Card style={cardStyle}>
-      <p style={kicker}>Dar ficha a un saldo</p>
+    <div className={r.card}>
+      <p className={r.kicker}>Dar ficha a un saldo</p>
       {step.kind === 'tap' ? (
         <>
-          <p className="np-num" style={amountStyle}>
-            {formatEur(step.found.saldo.balanceCents, { compact: true })}
-          </p>
-          <p style={big}>Saldo {step.found.saldo.code}</p>
-          <p style={muted}>Ahora acerca una ficha: queda unida a este saldo.</p>
+          <p className={r.amount}>{formatEur(step.found.saldo.balanceCents, { compact: true })}</p>
+          <p className={r.lead}>Saldo {step.found.saldo.code}</p>
+          <p className={r.text}>Ahora acerca una ficha: queda unida a este saldo.</p>
           {reading ? (
-            <Button size="lg" variant="ghost" onClick={() => reading.abort()}>
+            <Button variant="ghost" onClick={() => reading.abort()}>
               Acerca la ficha… (cancelar)
             </Button>
           ) : (
@@ -159,13 +159,13 @@ export function GiveFicha({ user, onDone }: { user: OperatorUser; onDone: () => 
               Acercar la ficha
             </Button>
           )}
-          {!reader.loading && !reader.via && reader.note ? <p style={note}>{reader.note}</p> : null}
+          {!reader.loading && !reader.via && reader.note ? <p className={r.note}>{reader.note}</p> : null}
         </>
       ) : (
         <>
-          <p style={big}>¿Cargó su saldo desde casa?</p>
-          <p style={muted}>Que te enseñe el QR de su saldo en su móvil, o teclea su código{manager ? '' : ' (y pondrá su PIN)'}.</p>
-          {!nfcOn ? <p style={note}>«Fichas NFC» está apagado en Ajustes: no se pueden dar fichas.</p> : null}
+          <p className={r.lead}>¿Cargó su saldo desde casa?</p>
+          <p className={r.text}>Que te enseñe el QR de su saldo en su móvil, o teclea su código{manager ? '' : ' (y pondrá su PIN)'}.</p>
+          {!nfcOn ? <p className={r.note}>«Fichas NFC» está apagado en Ajustes: no se pueden dar fichas.</p> : null}
           {step.kind === 'scan' ? (
             <QrScanner onScan={onScan} onError={onScanError} />
           ) : qrScanSupported() ? (
@@ -173,7 +173,7 @@ export function GiveFicha({ user, onDone }: { user: OperatorUser; onDone: () => 
               Escanear su QR
             </Button>
           ) : null}
-          <form onSubmit={byCode} style={formStyle}>
+          <form onSubmit={byCode} className={r.form}>
             <Input
               label="Código del saldo"
               value={code}
@@ -182,44 +182,22 @@ export function GiveFicha({ user, onDone }: { user: OperatorUser; onDone: () => 
               autoCapitalize="characters"
               autoComplete="off"
               disabled={busy || !nfcOn}
+              style={DESK_FIELD}
             />
-            <Button type="submit" size="lg" variant="ghost" loading={busy} disabled={!nfcOn || code.replace(/-/g, '').length < 6}>
+            <Button type="submit" variant="ghost" loading={busy} disabled={!nfcOn || code.replace(/-/g, '').length < 6}>
               Buscar con el código
             </Button>
           </form>
         </>
       )}
       {error ? (
-        <p role="alert" style={errorStyle}>
+        <p role="alert" className={r.error}>
           {error}
         </p>
       ) : null}
       <Button variant="ghost" disabled={reading !== null} onClick={step.kind === 'find' ? onDone : () => setStep({ kind: 'find' })}>
         Volver
       </Button>
-    </Card>
+    </div>
   );
 }
-
-const cardStyle: CSSProperties = { padding: 'var(--np-pad-card)', display: 'flex', flexDirection: 'column', gap: 'var(--np-gap)', textAlign: 'center' };
-const kicker: CSSProperties = {
-  margin: 0,
-  fontSize: '0.8125rem',
-  fontWeight: 700,
-  letterSpacing: '0.1em',
-  textTransform: 'uppercase',
-  color: 'var(--np-text-mute)',
-};
-const amountStyle: CSSProperties = { margin: 0, fontSize: '2.5rem', lineHeight: 1.15, fontWeight: 700 };
-const big: CSSProperties = { margin: 0, fontSize: '1.375rem', fontWeight: 700 };
-const muted: CSSProperties = { margin: 0, color: 'var(--np-text-mute)', fontSize: '1rem' };
-const errorStyle: CSSProperties = { margin: 0, color: 'var(--np-danger)', fontWeight: 600 };
-const formStyle: CSSProperties = { display: 'flex', flexDirection: 'column', gap: '0.75rem', textAlign: 'left' };
-const note: CSSProperties = {
-  margin: 0,
-  padding: '0.6rem 0.9rem',
-  border: '1px solid var(--np-border)',
-  borderRadius: 'var(--np-r-md)',
-  fontSize: '0.9rem',
-  color: 'var(--np-text-mute)',
-};

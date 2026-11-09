@@ -1,12 +1,13 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { isPrintedFichaNumber, walletCardUrl } from '@nightpay/contracts';
-import { Button, Card } from '@nightpay/ui';
+import { Button } from '@nightpay/ui';
 import { playOutcomeSound } from '@/lib/alert-sound';
 import { blankCodeFrom, isChipTimeout, isFatalChipError, tapChip } from '@/lib/chip-tap';
 import { deviceBackend, preparedText, staffBackend, stockOutcomeLine, type PrepareLine } from '@/lib/reception';
 import { isSameTapAgain, needsPrintedNumber } from '@/lib/prepare-fichas';
+import r from './reception.module.css';
 import { useChipReader } from './use-chip-via';
 
 /** Líneas que se ven (la más nueva arriba). */
@@ -133,27 +134,27 @@ export function PrepareFichas({ on, onDone }: Props) {
   }
 
   return (
-    <Card style={cardStyle}>
-      <p style={kicker}>Preparar fichas</p>
-      <p className="np-num" style={counterStyle} aria-live="polite">
+    <div className={r.card}>
+      <p className={r.kicker}>Preparar fichas</p>
+      <p className={r.counter} aria-live="polite">
         {count}
       </p>
-      <p style={muted}>{preparedText(count)} en el stock de este local</p>
+      <p className={r.text}>{preparedText(count)} en el stock de este local</p>
 
-      {reader.loading ? <p style={muted}>Mirando el lector de fichas…</p> : null}
-      {!reader.loading && (!reader.via || !reader.canWrite) ? <p style={note}>{reader.note}</p> : null}
+      {reader.loading ? <p className={r.text}>Mirando el lector de fichas…</p> : null}
+      {!reader.loading && (!reader.via || !reader.canWrite) ? <p className={r.note}>{reader.note}</p> : null}
 
       {pending ? (
-        <form onSubmit={(event) => { event.preventDefault(); void saveNumber(); }} style={{ display: 'grid', gap: '0.75rem' }}>
-          <label htmlFor="ficha-printed-number" style={big}>Número impreso en esta ficha</label>
-          <input id="ficha-printed-number" autoFocus inputMode="numeric" autoComplete="off" pattern="[0-9]{1,12}" maxLength={12} value={printedNumber} onChange={(event) => setPrintedNumber(event.target.value)} style={{ fontSize: '2rem', padding: '0.75rem', textAlign: 'center' }} />
-          <p style={muted}>Copia las cifras tal como aparecen, incluidos los ceros iniciales.</p>
-          {numberError ? <p role="alert" style={note}>{numberError}</p> : null}
+        <form onSubmit={(event) => { event.preventDefault(); void saveNumber(); }} className={r.form}>
+          <label htmlFor="ficha-printed-number" className={r.lead}>Número impreso en esta ficha</label>
+          <input id="ficha-printed-number" className={r.field} autoFocus inputMode="numeric" autoComplete="off" pattern="[0-9]{1,12}" maxLength={12} value={printedNumber} onChange={(event) => setPrintedNumber(event.target.value)} />
+          <p className={r.text}>Copia las cifras tal como aparecen, incluidos los ceros iniciales.</p>
+          {numberError ? <p role="alert" className={r.error}>{numberError}</p> : null}
           <Button size="lg" type="submit" disabled={saving || !isPrintedFichaNumber(printedNumber)}>{saving ? 'Guardando...' : 'Guardar y seguir'}</Button>
         </form>
       ) : running ? (
         <>
-          <p style={big}>Acerca una ficha, retírala y acerca la siguiente</p>
+          <p className={r.lead}>Acerca una ficha, retírala y acerca la siguiente</p>
           <Button variant="ghost" onClick={stop}>
             Parar
           </Button>
@@ -165,10 +166,10 @@ export function PrepareFichas({ on, onDone }: Props) {
       )}
 
       {lines.length > 0 ? (
-        <ul role="log" aria-live="polite" style={listStyle} aria-label="Últimas fichas">
+        <ul role="log" aria-live="polite" className={r.log} aria-label="Últimas fichas">
           {lines.map((l) => (
-            <li key={l.id} style={{ ...lineStyle, borderColor: TONE[l.tone] }}>
-              <span style={{ color: TONE[l.tone], fontWeight: 700 }}>{l.tone === 'warn' ? '!' : '✓'}</span> {l.text}
+            <li key={l.id} className={r.logLine}>
+              <span className={r.logMark} style={{ color: TONE[l.tone] }}>{l.tone === 'warn' ? '!' : '✓'}</span> <span>{l.text}</span>
             </li>
           ))}
         </ul>
@@ -177,40 +178,13 @@ export function PrepareFichas({ on, onDone }: Props) {
       <Button variant="ghost" disabled={running !== null || saving} onClick={onDone}>
         Volver
       </Button>
-    </Card>
+    </div>
   );
 }
 
+/** El color de la marca de cada línea (siempre con su signo: ✓ o !). */
 const TONE: Record<PrepareLine['tone'], string> = {
   ok: 'var(--np-success)',
   info: 'var(--np-text-mute)',
   warn: 'var(--np-warning)',
-};
-
-const cardStyle: CSSProperties = { padding: 'var(--np-pad-card)', display: 'flex', flexDirection: 'column', gap: 'var(--np-gap)', textAlign: 'center' };
-const kicker: CSSProperties = {
-  margin: 0,
-  fontSize: '0.8125rem',
-  fontWeight: 700,
-  letterSpacing: '0.1em',
-  textTransform: 'uppercase',
-  color: 'var(--np-text-mute)',
-};
-const counterStyle: CSSProperties = { margin: 0, fontSize: '4rem', fontWeight: 800, lineHeight: 1 };
-const muted: CSSProperties = { margin: 0, color: 'var(--np-text-mute)', fontSize: '1rem' };
-const big: CSSProperties = { margin: 0, fontSize: '1.25rem', fontWeight: 700 };
-const note: CSSProperties = {
-  margin: 0,
-  padding: '0.6rem 0.9rem',
-  border: '1px solid var(--np-border)',
-  borderRadius: 'var(--np-r-md)',
-  fontSize: '0.9rem',
-  color: 'var(--np-text-mute)',
-};
-const listStyle: CSSProperties = { listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: '0.4rem', textAlign: 'left' };
-const lineStyle: CSSProperties = {
-  padding: '0.5rem 0.75rem',
-  border: '1px solid',
-  borderRadius: 'var(--np-r-md)',
-  fontSize: '0.95rem',
 };
