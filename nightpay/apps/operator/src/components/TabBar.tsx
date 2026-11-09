@@ -46,8 +46,10 @@ function TabBtn({
       onClick={onClick}
       aria-label={label}
       aria-current={active ? 'page' : undefined}
-      style={{ ...tabBtnStyle, color: active ? 'var(--np-accent)' : 'var(--np-text-mute)' }}
+      // La activa en crema con su raya arriba: la lima queda para «Cobrar» (una por pantalla).
+      style={{ ...tabBtnStyle, color: active ? 'var(--np-text)' : 'var(--np-text-mute)', fontWeight: active ? 600 : 500 }}
     >
+      {active ? <span aria-hidden="true" style={activeMarkStyle} /> : null}
       <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '1.5rem' }}>{icon}</span>
       {label}
     </button>
@@ -78,10 +80,11 @@ function TabIcon({ tab, active }: { tab: TabKey; active: boolean }) {
 
 const ICON_PATHS: Record<TabKey, ReactNode> = {
   home: <path d="M3 12L12 3l9 9M5 10v10a1 1 0 001 1h3v-6h6v6h3a1 1 0 001-1V10" />,
+  // El timbre del mostrador (antes, un maletín con una cruz: parecía un botiquín).
   reception: (
     <>
-      <rect x="3" y="7" width="18" height="12" rx="2" />
-      <path d="M7 7V5a2 2 0 012-2h6a2 2 0 012 2v2M12 11v4M10 13h4" />
+      <path d="M4 18a8 8 0 0116 0" />
+      <path d="M2.5 18h19M12 10V7.5M10 7.5h4" />
     </>
   ),
   pos: (
@@ -98,17 +101,19 @@ const ICON_PATHS: Record<TabKey, ReactNode> = {
       <circle cx="4" cy="18" r="1" fill="currentColor" />
     </>
   ),
+  // Una cartera (antes, un cilindro: el icono de una base de datos).
   earnings: (
     <>
-      <ellipse cx="12" cy="6" rx="8" ry="3" />
-      <path d="M4 6v6c0 1.66 3.58 3 8 3s8-1.34 8-3V6" />
-      <path d="M4 12v6c0 1.66 3.58 3 8 3s8-1.34 8-3v-6" />
+      <path d="M17 7V5.5A1.5 1.5 0 0015.5 4H5a2 2 0 00-2 2" />
+      <rect x="3" y="6" width="18" height="14" rx="2" />
+      <path d="M21 11h-4a2 2 0 000 4h4" />
+      <circle cx="17" cy="13" r="0.5" fill="currentColor" />
     </>
   ),
 };
 
 // Alto fijo (TAB_BAR_HEIGHT): el botón de cobrar se queda pegado justo encima.
-// Etiquetas a 0.8125rem y sin mayúsculas: «Ganancias» cabe en 4 pestañas a 320 px.
+// Etiquetas a --np-t-label (14 px en el móvil) y sin mayúsculas: «Ganancias» cabe en 4 pestañas a 320 px.
 const tabBtnStyle: CSSProperties = {
   background: 'transparent',
   border: 'none',
@@ -122,10 +127,21 @@ const tabBtnStyle: CSSProperties = {
   justifyContent: 'center',
   gap: '0.25rem',
   cursor: 'pointer',
+  position: 'relative',
   fontSize: 'var(--np-t-label)',
   lineHeight: 1.2,
-  letterSpacing: '0.01em',
-  fontWeight: 600,
+};
+
+// Raya de 2 px arriba de la pestaña activa (con el color nunca va sola: también la letra y el trazo).
+const activeMarkStyle: CSSProperties = {
+  position: 'absolute',
+  top: 0,
+  left: '50%',
+  width: '1.5rem',
+  height: 2,
+  marginLeft: '-0.75rem',
+  borderRadius: 999,
+  background: 'currentColor',
 };
 
 const tabBarStyle: CSSProperties = {

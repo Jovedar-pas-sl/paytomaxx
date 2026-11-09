@@ -52,7 +52,7 @@ export function ScreenHeader({
   chip?: ReactNode;
   /** Con «atrás» en vez del logo. */
   onBack?: () => void;
-  /** Tocar el logo (menú: tema y salir). */
+  /** Tocar el logo (el menú: «Salir»). */
   onLogo?: () => void;
   /** Un botón más, antes del chip (p. ej. «Mi QR» de la chica). */
   extra?: ReactNode;
@@ -64,7 +64,7 @@ export function ScreenHeader({
           <IconBack />
         </button>
       ) : onLogo ? (
-        <button type="button" className={styles.logoTile} onClick={onLogo} aria-label="Menú: tema y salir">
+        <button type="button" className={styles.logoTile} onClick={onLogo} aria-label="Menú">
           <Logo variant="symbol" height="2.625rem" alt="" />
         </button>
       ) : (
