@@ -361,6 +361,18 @@ button.det {
 
 /* Elegir con su detalle («Efectivo · Lo metes en la caja»): filas iguales de
    72 px, icono de 24, 18/600 y el detalle 14 en t2. La de por defecto, lima. */
+/* «¿Cómo paga?»: el importe y la pregunta ocupan al menos hasta donde
+   acababan los importes de «¿Cuánto carga?» (248–320 a 360×740): «Efectivo»
+   empieza en 332, también con la ayuda cerrada, y un doble toque en «50 €» ya
+   no cae en él (S-1a; además, la pantalla no atiende toques el primer medio
+   segundo). La cabecera y la fila de arriba son fijas: vale en cualquier alto. */
+.methodTop {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  min-height: 15.5rem;
+}
+
 .opt {
   display: flex;
   align-items: center;

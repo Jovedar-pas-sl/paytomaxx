@@ -155,6 +155,18 @@ export function numberMethodButtons(options: ReceptionOptions | null): MethodBut
 }
 
 /**
+ * «¿Cómo paga?» no atiende toques hasta pasado este tiempo desde que sale: el
+ * segundo toque de un doble toque en el importe («50 €») caía en «Efectivo»,
+ * que carga sin más (auditoría S-1a). Medio segundo no frena a nadie.
+ */
+export const METHOD_ARM_MS = 500;
+
+/** ¿Ya cuenta un toque en «¿Cómo paga?»? (`armedAt`: cuando salió la pantalla; en ms). */
+export function methodArmed(armedAt: number, now: number): boolean {
+  return now - armedAt >= METHOD_ARM_MS;
+}
+
+/**
  * La nota del PIN de 4.3: no frena la cola, se elige al terminar. `canChoose`:
  * si quien carga puede ponerlo ahora (canChoosePin); si no, se dice la verdad.
  */

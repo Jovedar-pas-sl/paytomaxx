@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { AmountKeypad, Input } from '@nightpay/ui';
 import { MAX_TYPED_AMOUNT_CENTS } from '@nightpay/contracts';
 import { formatEur } from '@/lib/money';
-import type { MethodButton, ExitPlan } from '@/lib/reception-desk';
+import { methodArmed, type MethodButton, type ExitPlan } from '@/lib/reception-desk';
 import { AMOUNT_HELP, METHOD_HELP, RECEPTION_HELP_SCREENS, tapHelp } from '@/lib/reception-help';
 import { HelpAgain, HelpLine, useHelp } from '../../HelpLine';
 import { CodeBoxes, DESK_FIELD, DeskBtn, DeskRowView, Icon, NfcMark } from './desk-parts';
@@ -153,16 +153,22 @@ export function MethodStep(props: {
   loading: boolean;
 }) {
   const problems = props.buttons.filter((b) => b.problem).map((b) => b.problem);
+  // Cuándo salió esta pantalla: un toque en el primer medio segundo es el
+  // segundo de un doble toque en el importe, no «Efectivo» (S-1a).
+  const [armedAt] = useState(() => Date.now());
   return (
     <>
-      <div className={s.bigamt}>
-        <span className="np-chip" data-dashed="true">
-          {props.chip}
-        </span>
-        <p className={s.bignum}>{formatEur(props.amountCents, { compact: true })}</p>
-        {props.feeText ? <p className={s.lbl}>{props.feeText}</p> : null}
+      {/* s.methodTop: las opciones empiezan por debajo de donde estaban los importes. */}
+      <div className={s.methodTop}>
+        <div className={s.bigamt}>
+          <span className="np-chip" data-dashed="true">
+            {props.chip}
+          </span>
+          <p className={s.bignum}>{formatEur(props.amountCents, { compact: true })}</p>
+          {props.feeText ? <p className={s.lbl}>{props.feeText}</p> : null}
+        </div>
+        <StepQuestion text="¿Cómo paga?" screen={RECEPTION_HELP_SCREENS.method} help={METHOD_HELP} />
       </div>
-      <StepQuestion text="¿Cómo paga?" screen={RECEPTION_HELP_SCREENS.method} help={METHOD_HELP} />
       {props.loading ? <p className={s.lbl}>Cargando…</p> : null}
       {props.blocked ? (
         <p role="alert" className={s.error}>
@@ -180,7 +186,9 @@ export function MethodStep(props: {
             small={t.small}
             disabled={b.problem !== null || props.blocked !== null}
             busy={props.busy}
-            onClick={() => props.onPick(b.method)}
+            onClick={() => {
+              if (methodArmed(armedAt, Date.now())) props.onPick(b.method);
+            }}
           />
         );
       })}
