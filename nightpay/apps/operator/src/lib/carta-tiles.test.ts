@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { CARTA_TEMPLATE } from '@nightpay/contracts';
 import { addItem, EMPTY_CUENTA, type CartaItem } from './cuenta';
-import { cartaTiles, itemAllowed, tapOf } from './carta-tiles';
+import { cartaGroups, cartaTiles, itemAllowed, tapOf } from './carta-tiles';
 
 /** La carta de referencia tal como llega del API (por su orden). */
 const carta: CartaItem[] = CARTA_TEMPLATE.map((p, n) => ({
@@ -43,5 +43,22 @@ describe('la carta del camarero: «Copa» y «Copa con invitación»', () => {
     expect(tapOf(invita)).toBe('invitar');
     // La primera copa ya no pregunta nada: va directa a la cuenta.
     expect(addItem(EMPTY_CUENTA, copa)).toEqual([expect.objectContaining({ kind: 'carta', item: copa, qty: 1 })]);
+  });
+});
+
+describe('los grupos de la carta (Grafito: el título de cada sección, una vez)', () => {
+  it('un grupo por sección, en el orden de las losetas y con sus losetas dentro', () => {
+    const groups = cartaGroups(cartaTiles(carta, BARRA));
+    expect(groups.map((g) => g.section)).toEqual(['VENUE_BAR', 'VENUE_FOOD', 'VENUE_ENTRY']);
+    expect(groups[0]?.items.map((t) => t.name).slice(0, 2)).toEqual(['Copa', 'Copa con invitación']);
+    expect(groups.flatMap((g) => g.items)).toEqual(cartaTiles(carta, BARRA));
+  });
+
+  it('sin losetas, ningún grupo; y no toca la lista que recibe', () => {
+    expect(cartaGroups([])).toEqual([]);
+    const tiles = cartaTiles(carta, BARRA);
+    const copy = [...tiles];
+    cartaGroups(tiles);
+    expect(tiles).toEqual(copy);
   });
 });
