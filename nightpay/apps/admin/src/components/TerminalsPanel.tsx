@@ -229,9 +229,11 @@ export function TerminalsPanel({ isOwner }: Props) {
                   <td data-label="Estado">
                     <span
                       style={{
-                        fontSize: '0.75rem',
-                        padding: '0.125rem 0.5rem',
-                        borderRadius: '999px',
+                        // Como Pill: 14/500 y radio de chip.
+                        fontSize: '0.875rem',
+                        fontWeight: 500,
+                        padding: '0 0.5rem',
+                        borderRadius: 'var(--np-r-xs)',
                         background: t.active ? 'var(--np-pill-success-bg)' : 'var(--np-pill-mute-bg)',
                         color: t.active ? 'var(--np-success)' : 'var(--np-text-mute)',
                       }}

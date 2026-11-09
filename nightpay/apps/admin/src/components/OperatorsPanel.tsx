@@ -502,9 +502,10 @@ const helpFilter: CSSProperties = {
   alignItems: 'center',
   gap: '0.5rem',
   fontSize: '0.875rem',
-  border: '1px solid var(--np-border)',
-  borderRadius: 'var(--np-r-pill)',
-  padding: '0.4rem 0.875rem',
+  minHeight: 'var(--np-filter-h)',
+  border: '1px solid var(--np-border-hi)',
+  borderRadius: 'var(--np-r-sm)',
+  padding: '0 0.75rem',
   cursor: 'pointer',
 };
 

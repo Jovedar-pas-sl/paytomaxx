@@ -38,7 +38,7 @@ const boxStyle: CSSProperties = {
   flexWrap: 'wrap',
   padding: '0.75rem 1rem',
   border: '1px solid',
-  borderRadius: 'var(--np-r-md)',
+  borderRadius: 'var(--np-r-sm)',
   fontSize: '0.875rem',
   lineHeight: 1.45,
 };

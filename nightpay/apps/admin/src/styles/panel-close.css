@@ -265,7 +265,7 @@
 .np-close-badge {
   flex-shrink: 0;
   padding: 0.15rem 0.6rem;
-  border-radius: var(--np-r-pill);
+  border-radius: var(--np-r-xs);
   font-size: 0.75rem;
   font-weight: 500;
   white-space: nowrap;
