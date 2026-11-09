@@ -204,7 +204,7 @@ describe('resumen de las 9:00: las cifras dicen lo que cuentan', () => {
     const text = morningSummaryMessage('Sala Aurora', demo, 0);
     // Antes: «11 pagos con tarjeta · cobrado 1109,00 €», y 450 € eran efectivo.
     expect(text).not.toContain('11 pagos con tarjeta · cobrado 1109,00 €');
-    expect(text).toContain('Cobrado: 1109,00 € (533,00 € de ventas + 26,00 € de propinas + 550,00 € de recargas)');
+    expect(text).toContain('Cobrado: 1109,00 € (533,00 € de ventas con tarjeta + 26,00 € de propinas con tarjeta + 550,00 € de recargas)');
     // 9 ventas y 2 recargas con tarjeta (633 €) + 26 € de propinas.
     expect(text).toContain('Con tarjeta: 11 pagos · 659,00 €');
     // Las propinas ya van en el desglose de «Cobrado».
@@ -485,7 +485,7 @@ describe('resumen de las 9:00 con la «Comisión del servicio»', () => {
 
   it('lo cobrado la desglosa, la tarjeta la incluye y se dice lo que se debe a OxioPay (aparte de lo del local)', () => {
     const text = morningSummaryMessage('Sala Aurora', s, 0);
-    expect(text).toContain('Cobrado: 94,30 € (33,00 € de ventas + 2,00 € de propinas + 50,00 € de recargas + 9,30 € de comisión del servicio)');
+    expect(text).toContain('Cobrado: 94,30 € (33,00 € de ventas con tarjeta + 2,00 € de propinas con tarjeta + 50,00 € de recargas + 9,30 € de comisión del servicio)');
     expect(text).toContain('Con tarjeta: 1 pago · 38,30 €');
     expect(text).toContain('Comisión del servicio: 9,30 € (se debe a OxioPay; 6,00 € en la caja)');
     expect(text).toContain('Para las chicas: 31,70 € · neto sin el personal ni OxioPay: 53,30 €');

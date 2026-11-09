@@ -53,12 +53,18 @@ export function zCobradoParts(s: {
   });
 }
 
-/** «533,00 € de ventas + 26,00 € de propinas + 550,00 € de recargas» (sin las partes a 0); null si no hay nada. */
+/**
+ * «533,00 € de ventas con tarjeta + 26,00 € de propinas con tarjeta + 550,00 €
+ * de recargas» (sin las partes a 0); null si no hay nada. «Con tarjeta»: lo
+ * que entró (el saldo ya entró al recargarse); sin eso, las ventas y las
+ * propinas del Mapa del dinero (que cuentan también las del saldo) parecían
+ * no cuadrar (auditoría P-2).
+ */
 export function cobradoNote(p: CobradoParts | null, eur: (cents: number) => string): string | null {
   if (!p) return null;
   const parts = [
-    p.salesCents !== 0 ? `${eur(p.salesCents)} de ventas` : null,
-    p.tipCents !== 0 ? `${eur(p.tipCents)} de propinas` : null,
+    p.salesCents !== 0 ? `${eur(p.salesCents)} de ventas con tarjeta` : null,
+    p.tipCents !== 0 ? `${eur(p.tipCents)} de propinas con tarjeta` : null,
     p.topUpCents !== 0 ? `${eur(p.topUpCents)} de recargas` : null,
     p.serviceFeeCents ? `${eur(p.serviceFeeCents)} de comisión del servicio` : null,
   ].filter((x): x is string => x !== null);
