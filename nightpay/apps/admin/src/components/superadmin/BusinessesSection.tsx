@@ -5,6 +5,7 @@ import { Button, Card, Input, Modal, Select } from '@nightpay/ui';
 import { businessCreateNeedsStepUp, type BusinessStatusValue, type CreateBusinessDto } from '@nightpay/contracts';
 import { formatPercent } from '@/lib/commission';
 import { createSaBusiness, fetchSaBusinesses } from '@/lib/endpoints/superadmin';
+import { FILTER_FIELD, FILTER_SELECT } from '@/lib/filter-field';
 import { EMPTY_BUSINESS_FORM, businessMoneyChanges, businessPayload, type BusinessForm } from '@/lib/superadmin/forms';
 import { businessesQuery } from '@/lib/superadmin/query';
 import { Pill } from '../Pill';
@@ -46,14 +47,14 @@ export function BusinessesSection() {
         actions={<Button onClick={() => setCreating(true)}>+ Nuevo negocio</Button>}
       />
       <div className="np-sa-toolbar" role="search">
-        <Input
+        <Input style={FILTER_FIELD}
           label="Buscar"
           value={q}
           onChange={(e) => setQ(e.target.value)}
           placeholder="Nombre, NIF/CIF o email"
           type="search"
         />
-        <Select label="Estado" value={status} onChange={(e) => setStatus(e.target.value as BusinessStatusValue | '')}>
+        <Select style={FILTER_SELECT} label="Estado" value={status} onChange={(e) => setStatus(e.target.value as BusinessStatusValue | '')}>
           <option value="">Todos</option>
           <option value="ACTIVE">Cobrando</option>
           <option value="PAUSED">En pausa</option>

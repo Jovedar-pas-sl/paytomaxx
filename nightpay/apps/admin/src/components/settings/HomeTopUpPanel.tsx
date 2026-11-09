@@ -125,7 +125,7 @@ export function HomeTopUpPanel() {
 
 const box: CSSProperties = { display: 'flex', flexDirection: 'column', gap: '0.75rem', paddingTop: '0.5rem' };
 const row: CSSProperties = { display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'center' };
-const labelStyle: CSSProperties = { fontWeight: 600, fontSize: '0.9rem' };
+const labelStyle: CSSProperties = { fontWeight: 600, fontSize: '0.875rem' };
 const urlStyle: CSSProperties = {
   flex: '1 1 14rem',
   minWidth: 0,
@@ -136,7 +136,7 @@ const urlStyle: CSSProperties = {
   background: 'var(--np-surface-2, transparent)',
   color: 'inherit',
   font: 'inherit',
-  fontSize: '0.85rem',
+  fontSize: '0.875rem',
 };
 const qrStyle: CSSProperties = { alignSelf: 'flex-start', borderRadius: 'var(--np-r-md)', background: '#fff' };
 const confirmBox: CSSProperties = {

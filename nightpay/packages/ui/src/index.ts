@@ -71,3 +71,7 @@ export type { WakeLockController, WakeLockEnv, WakeLockLike, WakeLockSentinelLik
 // Código QR sin dependencias (la consola y la app del personal): la matriz y su trazado SVG.
 export { encodeQr, qrSvgPath } from './lib/qr';
 export type { QrMatrix } from './lib/qr';
+
+// Pantalla de fallo de las apps y el aviso al API (Grafito).
+export { ErrorScreen } from './components/ErrorScreen';
+export { reportClientError } from './lib/report-client-error';

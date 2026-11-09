@@ -4,6 +4,7 @@ import { useState, type FormEvent } from 'react';
 import { Button, Card, Input } from '@nightpay/ui';
 import type { CustomerSearchResult } from '@nightpay/contracts';
 import { searchSaCustomers } from '@/lib/endpoints/superadmin';
+import { FILTER_FIELD } from '@/lib/filter-field';
 import { formatEur } from '@/lib/money';
 import { walletStatus } from '@/lib/superadmin/labels';
 import { Notice } from '../Notice';
@@ -66,7 +67,8 @@ export function CustomersSection() {
           placeholder="K7Q-4M2, ficha o id"
           autoComplete="off"
           spellCheck={false}
-          size="lg"
+          // Campo del panel de 40 px, a la altura del botón (44 en el móvil).
+          style={{ ...FILTER_FIELD, height: 'max(2.5rem, var(--np-filter-h))', fontSize: '1rem' }}
         />
         <Button type="submit" loading={searching}>
           Buscar

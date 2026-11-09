@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState, type CSSProperties, type ReactNode } from 'react';
-import { Button, Card, Logo, ThemeToggle } from '@nightpay/ui';
+import { Button, Card, Logo } from '@nightpay/ui';
 import { primeAlertSound } from '@/lib/alert-sound';
 import type { OperatorUser } from '@/lib/api';
 import { clearFichaContext } from '@/lib/ficha-context';
@@ -84,12 +84,12 @@ export function Dashboard({ user, onLogout }: Props) {
   }
 
   const showing = (key: TabKey) => links.ficha === null && links.pass === null && links.code === null && tab === key;
-  // Recepción enseña su propia cabecera (salvo «Preparar fichas» y las pendientes).
+  // Recepción enseña su propia cabecera en todas sus pantallas (lo avisa ReceptionTab).
   const [deskHead, setDeskHead] = useState(true);
   const [menuOpen, setMenuOpen] = useState(false);
   const openMenu = useCallback(() => setMenuOpen(true), []);
   // En Inicio manda la cabecera de «Cobrar» y en Recepción la suya: una sola
-  // cabecera; el logo abre el tema y «Salir».
+  // cabecera; el logo abre el menú («Salir»).
   const ownHeader = showing('home') || (showing('reception') && deskHead);
 
   return (
@@ -102,12 +102,10 @@ export function Dashboard({ user, onLogout }: Props) {
       {ownHeader ? null : (
         <header style={headerStyle}>
           <Logo height="1.75rem" />
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginLeft: 'auto' }}>
-            <ThemeToggle />
-            <Button variant="ghost" size="md" onClick={logout} style={headerBtnStyle}>
-              Salir
-            </Button>
-          </div>
+          {/* Sin tema: el personal va siempre en oscuro (layout). */}
+          <Button variant="ghost" size="md" onClick={logout} style={headerBtnStyle}>
+            Salir
+          </Button>
         </header>
       )}
       {/* La chica: «Te han invitado · +10 €» en cuanto se cobra su invitación. */}
@@ -211,9 +209,10 @@ const panelStyle: CSSProperties = {
 const headerStyle: CSSProperties = {
   display: 'flex',
   alignItems: 'center',
+  justifyContent: 'space-between',
   paddingBottom: 'calc(var(--np-gap) * 0.75)',
   borderBottom: '1px solid var(--np-border)',
 };
 
-// 44 px: se toca bien con el dedo (como el botón del tema, al lado).
+// 44 px: se toca bien con el dedo.
 const headerBtnStyle: CSSProperties = { height: '2.75rem', padding: '0 1rem' };

@@ -94,6 +94,12 @@ describe('sección de un cobro en la lista', () => {
     expect(chipTextColor(null)).toBe('var(--np-text)');
   });
 
+  it('el magenta de Servicios lleva tinta, no blanco (5,2:1 frente a 3,6:1), como en el personal', () => {
+    expect(chipTextColor('#d24fd8')).toBe('#14110f');
+    // Todas las de fábrica son claras: siempre con tinta.
+    for (const s of FALLBACK_SECTIONS) expect(chipTextColor(s.color), s.code).toBe('#14110f');
+  });
+
   it('las secciones apagadas no se ofrecen', () => {
     const off = FALLBACK_SECTIONS.map((s) => (s.code === 'VENUE_FOOD' ? { ...s, enabled: false } : s));
     expect(enabledSections(off).map((s) => s.code)).not.toContain('VENUE_FOOD');

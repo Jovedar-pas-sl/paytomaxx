@@ -1,14 +1,14 @@
 'use client';
 
-import { useCallback, useEffect, useRef, type CSSProperties, type ReactNode } from 'react';
+import { Fragment, useCallback, useEffect, useRef, type CSSProperties, type ReactNode } from 'react';
 import { STICKY_ACTION_BOTTOM } from '../layout';
 import { formatEur } from '@/lib/money';
-import { cartaTiles, tapOf } from '@/lib/carta-tiles';
+import { cartaGroups, cartaTiles, tapOf } from '@/lib/carta-tiles';
 import { cobrarLabel, itemTileKey, tileLabel, tipTileKey, undoFocusTarget, type UndoTap } from '@/lib/carta-view';
-import { chargeable, itemLabel, cuentaSummary, cuentaTotals, qtyOf, type CartaItem, type Cuenta } from '@/lib/cuenta';
-import { colorOf, labelOf, offeredCodes, puestoChip, puestoSection, tileColorOf, tipTiles, type CobrarContext } from './cobrar-context';
+import { PROPINAS, chargeable, itemLabel, cuentaSummary, cuentaTotals, qtyOf, type CartaItem, type Cuenta } from '@/lib/cuenta';
+import { colorOf, labelOf, offeredCodes, puestoChip, tipTiles, type CobrarContext } from './cobrar-context';
 import { IconQr, IconUndo } from './icons';
-import { Chip, ScreenHeader, Stripe } from './ScreenHeader';
+import { Chip, ScreenHeader } from './ScreenHeader';
 import styles from './cobrar.module.css';
 
 interface Props {
@@ -34,9 +34,9 @@ interface Props {
 }
 
 /**
- * «Cobrar», variante A (maqueta 1.1): losetas de color por sección, solo las
- * que su puesto cobra. Tocar suma a la cuenta (×N); abajo, el resumen y
- * «Cobrar N €». «Copa con invitación» es una loseta más (en la carta de
+ * «Cobrar», variante A (maqueta 1.1), en Grafito: las losetas con el tinte de
+ * su sección (26 %) y el título de cada sección una sola vez, solo las que su
+ * puesto cobra. Tocar suma a la cuenta (×N); abajo, el resumen y «Cobrar N €». «Copa con invitación» es una loseta más (en la carta de
  * referencia, justo después de «Copa»): tocarla abre el escáner del QR de la
  * chica. La chica ve Servicios y Propinas, más grandes; la habitación no es
  * suya («La cobra recepción»).
@@ -69,6 +69,7 @@ export function Carta({
     !codes.includes('VENUE_ROOM') &&
     (ctx.sections.find((s) => s.code === 'VENUE_ROOM')?.enabled ?? true);
   const chip = puestoChip(ctx);
+  const groups = cartaGroups(items);
   const totals = cuentaTotals(cuenta);
   const summary = cuentaSummary(cuenta, (s) => labelOf(ctx, s));
   const canCharge = chargeable(cuenta) && !busy;
@@ -81,13 +82,21 @@ export function Carta({
         subtitle={who}
         onLogo={onLogo}
         extra={headerExtra}
-        chip={chip ? <Chip colors={[chip.color]}>{chip.label}</Chip> : null}
+        chip={chip ? <Chip color={chip.color}>{chip.label}</Chip> : null}
       />
-      <Stripe parts={[{ color: colorOf(puestoSection(ctx)), weight: 1 }]} />
       <div className={styles.body}>
         <div className={styles.tiles}>
-          {items.map((item) => (
-            <ItemTile key={item.id} item={item} ctx={ctx} qty={qtyOf(cuenta, item.id)} big={big} onPick={() => onItem(item)} />
+          {/* Clave con el orden: un pack de una sección ajena puede repetir sección más abajo. */}
+          {groups.map((group, i) => (
+            <Fragment key={`${group.section}-${i}`}>
+              {/* El título de la sección, una vez: su punto y su nombre (el color nunca va solo). */}
+              <h2 className={styles.group} style={{ '--c': colorOf(group.section) } as CSSProperties}>
+                {labelOf(ctx, group.section)}
+              </h2>
+              {group.items.map((item) => (
+                <ItemTile key={item.id} item={item} qty={qtyOf(cuenta, item.id)} big={big} onPick={() => onItem(item)} />
+              ))}
+            </Fragment>
           ))}
           {/* Propinas y «Otro importe» en una fila: caben encima de «Cobrar» también con la carta entera. */}
           <div className={styles.lastRow} style={{ '--n': Math.max(2, tips.length + 1) } as CSSProperties} data-n={tips.length + 1} data-big={big || undefined}>
@@ -96,12 +105,12 @@ export function Carta({
                 key={`tip-${cents}`}
                 type="button"
                 className={`${styles.tile}${big ? ` ${styles.tileBig}` : ''}`}
-                style={{ '--c': tileColorOf('propinas') } as CSSProperties}
+                style={{ '--c': colorOf(PROPINAS) } as CSSProperties}
                 data-tile={tipTileKey(cents)}
                 onClick={() => onTip(cents)}
                 aria-label={`Propina de ${formatEur(cents)}`}
               >
-                <span className={styles.kicker}>Propinas</span>
+                {/* Su tinte va con su nombre («Propina»): no hace falta título de grupo. */}
                 <span className={styles.tileName}>Propina</span>
                 <span className={styles.price}>{formatEur(cents, { compact: true })}</span>
               </button>
@@ -112,10 +121,7 @@ export function Carta({
             </button>
           </div>
           {roomsElsewhere ? (
-            <div
-              className={`${styles.tile} ${styles.tileAsk}${big ? ` ${styles.tileBig}` : ''}`}
-              style={{ '--c': colorOf('VENUE_ROOM') } as CSSProperties}
-            >
+            <div className={`${styles.tile} ${styles.tileAsk}${big ? ` ${styles.tileBig}` : ''}`}>
               <span className={styles.tileName}>{singular(labelOf(ctx, 'VENUE_ROOM'))}</span>
               <span>La cobra recepción</span>
             </div>
@@ -158,21 +164,15 @@ export function Carta({
                 </button>
               </>
             ) : (
-              <>
-                <span className={styles.mbar} aria-hidden="true">
-                  {totals.bySection.map((s) => (
-                    <i key={s.section} style={{ '--c': colorOf(s.section), flex: s.cents } as CSSProperties} />
-                  ))}
-                </span>
-                <span className={styles.grow}>{summary}</span>
-              </>
+              // El resumen ya nombra lo que lleva: sin barra de colores al lado.
+              <span className={styles.grow}>{summary}</span>
             )}
             <button type="button" className={styles.link} onClick={onVerCuenta}>
               Ver cuenta
             </button>
           </div>
         ) : null}
-        {/* Vacío: gris, a trazos y con la instrucción dentro (decisión D1); el lima, solo con algo que cobrar. */}
+        {/* Vacío: gris, a trazos y con la instrucción dentro (decisión D1); la lima, solo con algo que cobrar. */}
         <button
           type="button"
           className={`${styles.btn} ${styles.primary}`}
@@ -229,23 +229,18 @@ function singular(label: string): string {
 
 function ItemTile({
   item,
-  ctx,
   qty,
   big,
   onPick,
 }: {
   item: CartaItem;
-  ctx: CobrarContext;
   qty: number;
   big: boolean;
   onPick: () => void;
 }) {
-  const parts = item.components && item.components.length > 1 ? item.components : null;
-  const second = parts?.find((p) => p.category !== item.category)?.category;
-  const style = { '--c': tileColorOf(item.category), ...(second ? { '--c2': tileColorOf(second) } : {}) } as CSSProperties;
-  const cls = [styles.tile, big ? styles.tileBig : '', second ? styles.tileWide : '', qty > 0 ? styles.tileOn : '']
-    .filter(Boolean)
-    .join(' ');
+  // El tinte de su sección (la de la loseta; un pack, la suya): el nombre de la sección va en el título del grupo.
+  const style = { '--c': colorOf(item.category) } as CSSProperties;
+  const cls = [styles.tile, big ? styles.tileBig : '', qty > 0 ? styles.tileOn : ''].filter(Boolean).join(' ');
   // La copa con invitación no va a la cuenta: se cobra aparte, con el QR de la chica.
   const invite = tapOf(item) === 'invitar';
   const label = tileLabel(itemLabel(item), item.priceCents, { qty, invite });
@@ -261,7 +256,6 @@ function ItemTile({
           <IconQr />
         </span>
       ) : null}
-      <span className={styles.kicker}>{labelOf(ctx, item.category)}</span>
       <span className={styles.tileName}>{itemLabel(item)}</span>
       <span className={styles.price}>{formatEur(item.priceCents, { compact: true })}</span>
     </button>

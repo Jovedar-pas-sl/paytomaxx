@@ -130,7 +130,7 @@ export function TreasuryPanel({ isOwner }: Props) {
               <div style={reconcileRow}>
                 <div>
                   <h3 style={sectionTitle}>Reconciliación on-chain</h3>
-                  <p style={{ margin: '0.25rem 0 0', fontSize: '0.85rem', color: 'var(--np-text-mute)' }}>
+                  <p style={{ margin: '0.25rem 0 0', fontSize: '0.875rem', color: 'var(--np-text-mute)' }}>
                     Recorre los pagos sin verificar con hash on-chain y reintenta contra Tronscan / BscScan /
                     Polygonscan / Solscan.
                   </p>
@@ -139,7 +139,7 @@ export function TreasuryPanel({ isOwner }: Props) {
                       role={reconcileResult.ok ? 'status' : 'alert'}
                       style={{
                         margin: '0.5rem 0 0',
-                        fontSize: '0.85rem',
+                        fontSize: '0.875rem',
                         color: reconcileResult.ok ? 'var(--np-success)' : 'var(--np-danger)',
                       }}
                     >
@@ -169,7 +169,7 @@ export function TreasuryPanel({ isOwner }: Props) {
                 />
               ))}
               {Object.keys(stats.byMethod).length === 0 ? (
-                <p style={{ color: 'var(--np-text-dim)', fontSize: '0.85rem', margin: 0 }}>Sin payouts todavía.</p>
+                <p style={{ color: 'var(--np-text-dim)', fontSize: '0.875rem', margin: 0 }}>Sin payouts todavía.</p>
               ) : null}
             </div>
           </Card>
@@ -215,13 +215,14 @@ function MetricTile({
   highlight?: boolean;
 }) {
   return (
-    <Card variant={highlight ? 'glow' : 'default'} style={{ padding: '1.25rem 1.5rem' }}>
+    // Destacada con el filete fuerte, no en lima (es un total).
+    <Card variant={highlight ? 'elevated' : 'default'} style={{ padding: '1.25rem 1.5rem' }}>
       <p style={metricLabel}>{title}</p>
       <p
         className="np-num"
         style={{
           ...metricValue,
-          color: highlight ? 'var(--np-accent)' : 'var(--np-text)',
+          color: 'var(--np-text)',
         }}
       >
         {value}
@@ -257,7 +258,7 @@ function SplitTile({
         minWidth: 0,
       }}
     >
-      <p style={{ margin: 0, fontSize: '0.78rem', color: 'var(--np-text-mute)' }}>{label}</p>
+      <p style={{ margin: 0, fontSize: '0.8125rem', color: 'var(--np-text-mute)' }}>{label}</p>
       <p className="np-num" style={{ margin: '0.25rem 0 0', fontSize: '1.5rem', fontWeight: 600, color }}>
         {count}
       </p>
@@ -295,19 +296,16 @@ const reconcileRow: CSSProperties = {
 
 const metricLabel: CSSProperties = {
   margin: 0,
-  fontSize: '0.7rem',
+  fontSize: '0.75rem',
   color: 'var(--np-text-dim)',
-  letterSpacing: '0.1em',
-  textTransform: 'uppercase',
   fontWeight: 500,
 };
 
 const metricValue: CSSProperties = {
   margin: '0.5rem 0 0',
   fontSize: '1.875rem',
-  // Cifra grande del panel: Manrope 800, como los importes (las de las tablas, 700).
-  fontWeight: 800,
-  letterSpacing: '-0.02em',
+  // Cifra grande del panel: Manrope 600, como los importes (las de las tablas, 700).
+  fontWeight: 600,
   display: 'flex',
   alignItems: 'baseline',
   gap: '0.4rem',
@@ -317,12 +315,11 @@ const metricUnit: CSSProperties = {
   fontSize: '0.875rem',
   color: 'var(--np-text-mute)',
   fontWeight: 500,
-  letterSpacing: '0.04em',
 };
 
 const metricSubtitle: CSSProperties = {
   margin: '0.4rem 0 0',
-  fontSize: '0.78rem',
+  fontSize: '0.8125rem',
   color: 'var(--np-text-dim)',
 };
 
@@ -330,7 +327,6 @@ const sectionTitle: CSSProperties = {
   margin: 0,
   fontSize: '1rem',
   fontWeight: 600,
-  letterSpacing: '-0.01em',
 };
 
 const loadingText: CSSProperties = {

@@ -42,7 +42,7 @@ describe('barra de pagar pegada abajo', () => {
     expect(fade).toContain('position:absolute');
     expect(fade).toContain('bottom:100%');
     expect(fade).toContain('pointer-events:none');
-    expect(fade).toMatch(/background:linear-gradient\(to top,var\(--bg\),rgb\(15 17 18\/0\)\)/);
+    expect(fade).toMatch(/background:linear-gradient\(to top,var\(--bg\),rgb\(11 13 14\/0\)\)/);
     const height = rem(fade, 'height');
     expect(height).toBeLessThanOrEqual(1);
     // El hueco entre el desglose y la barra (gap del formulario) es al menos el degradado.
@@ -54,8 +54,8 @@ describe('barra de pagar pegada abajo', () => {
     expect(rule('.tipgrid')).toMatch(/grid-template-columns:1\.\d+fr 1fr 1fr 1fr/);
     expect(rem(rule('.tipgrid span'), 'min-height')).toBeGreaterThanOrEqual(3);
     expect(rem(rule('.tipgrid span', true), 'min-height')).toBeGreaterThanOrEqual(3);
-    // La elegida se ve sin depender del color: invertida y con su ✓ en una chapa.
-    expect(rule('.tipgrid input:checked+span')).toContain('background:var(--cream)');
+    // La elegida se ve sin depender del color: invertida (Grafito: fondo --fg, texto --bg) y con su ✓ en una chapa.
+    expect(rule('.tipgrid input:checked+span')).toContain('background:var(--fg);color:var(--bg)');
     expect(rule('.tipgrid input:checked+span::after')).toContain('url("data:image/svg+xml');
   });
 

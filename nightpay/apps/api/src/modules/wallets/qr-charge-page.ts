@@ -20,14 +20,15 @@ import type { QrChargeClientView } from './wallet-charges.service';
 
 const QR_CSS = `
 .c{max-width:26rem;margin:0 auto;min-height:calc(100vh - 3.5rem);min-height:calc(100svh - 3.5rem);padding:1rem 1rem calc(2rem + env(safe-area-inset-bottom));display:flex;flex-direction:column;align-items:center;justify-content:center;gap:.9rem;text-align:center}
-.amount{font-size:clamp(3.1rem,17vw,4.4rem);font-weight:800;letter-spacing:-.035em;line-height:1;color:var(--fg)}
+.c h1{font-size:1.75rem}
+.amount{font-weight:600;letter-spacing:-.02em;line-height:1.05;color:var(--fg);font-variant-numeric:proportional-nums}
+.c h1.amount{font-size:clamp(2.75rem,14vw,3.5rem)}
 .who{color:var(--mute)}
-.small{font-size:.9rem}
-.safe{display:flex;align-items:center;gap:.5rem;padding:.55rem .9rem;border-radius:999px;background:var(--lime-soft);border:1.5px solid var(--lime-edge);color:var(--fg);font-weight:800}
-.hint{width:100%;padding:.9rem 1rem;border:1px solid var(--line);border-radius:var(--r-tile);background:var(--surface);color:var(--fg);font-weight:700;text-align:left}
+.small{font-size:.875rem}
+.safe{display:flex;align-items:center;gap:.5rem;padding:.625rem .875rem;border-radius:var(--r-field);background:var(--surface-2);border:1px solid var(--line-hi);color:var(--fg);font-weight:500}
+.hint{width:100%;padding:.875rem 1rem;border:1px solid var(--line);border-radius:var(--r-tile);background:var(--surface);color:var(--fg);font-weight:500;text-align:left}
 .after{max-width:26rem;margin:0 auto;padding:1rem;display:flex;flex-direction:column;align-items:center}
-#pay{min-height:3.75rem;font-size:1.25rem}
-.secure{display:flex;align-items:center;gap:.4rem;font-size:.85rem;color:var(--dim)}
+.secure{display:flex;align-items:center;gap:.4rem;font-size:.8125rem;color:var(--dim)}
 .secure svg{width:1rem;height:1rem;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
 `;
 
@@ -97,7 +98,7 @@ export function renderQrChargePage(
   const closed = view.status !== 'PENDING' && !isPaid;
   return `<!DOCTYPE html>
 <html lang="${lang}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta name="robots" content="noindex"><meta name="theme-color" content="#0f1112"><title>${h(t.title)}</title>
+<meta name="robots" content="noindex"><meta name="theme-color" content="#0b0d0e"><title>${h(t.title)}</title>
 <style>${CLUB_BASE_CSS}${CHROME_CSS}${QR_CSS}${PAID_SCREEN_CSS}</style></head><body>
 ${topBar(lang, undefined, { over: isPaid })}
 ${screen}

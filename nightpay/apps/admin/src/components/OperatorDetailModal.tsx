@@ -232,7 +232,7 @@ export function OperatorDetailModal({
           )}
           <nav className="np-ficha-more" aria-label={`Más de ${name}`}>
             {more.map((v) => (
-              <Button key={v} variant="ghost" onClick={() => setView(v)}>
+              <Button key={v} variant="ghost" size="sm" onClick={() => setView(v)}>
                 {v === 'onboarding' && needsHelp ? 'Onboarding · pide ayuda' : VIEW_LABEL[v]}
               </Button>
             ))}
@@ -398,7 +398,7 @@ function PayoutsTable({
                   {receipt ? (
                     <>
                       {' '}
-                      <a href={receipt} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--np-accent)' }}>
+                      <a href={receipt} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--np-text)', textDecoration: 'underline' }}>
                         recibo
                       </a>
                     </>
@@ -410,7 +410,7 @@ function PayoutsTable({
                 {canVerify ? (
                   <td data-label="Acciones" data-card="actions" style={{ textAlign: 'right' }}>
                     {settled ? null : (
-                      <Button variant="ghost" onClick={() => onVerify(p)} style={smallBtn}>
+                      <Button variant="ghost" onClick={() => onVerify(p)} size="sm">
                         Verificar
                       </Button>
                     )}
@@ -430,7 +430,7 @@ function PayoutsTable({
 function LimitNote({ count, what }: { count: number; what: string }) {
   if (count < HISTORY_LIMIT) return null;
   return (
-    <p style={{ ...emptyText, padding: '0.75rem 0 0', fontSize: '0.8rem' }}>
+    <p style={{ ...emptyText, padding: '0.75rem 0 0', fontSize: '0.8125rem' }}>
       Se ven las {HISTORY_LIMIT} {what} más recientes.
     </p>
   );
@@ -440,10 +440,9 @@ const tableWrap: CSSProperties = { maxHeight: '24rem', overflow: 'auto' };
 const numCol: CSSProperties = { textAlign: 'right' };
 const numCell: CSSProperties = { textAlign: 'right', fontWeight: 500 };
 const cellMeta: CSSProperties = { color: 'var(--np-text-mute)' };
-const smallBtn: CSSProperties = { height: '2.25rem', padding: '0 0.875rem', fontSize: '0.8125rem' };
 const refCode: CSSProperties = {
   fontFamily: 'var(--np-font-mono)',
-  fontSize: '0.72rem',
+  fontSize: '0.75rem',
   display: 'inline-block',
   maxWidth: '9rem',
   overflow: 'hidden',

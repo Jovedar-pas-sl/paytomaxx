@@ -73,7 +73,7 @@ export function LoadGate<T>({
   );
 }
 
-/** Cifra grande (Manrope 800) con su rótulo. Va dentro de <dl className="np-sa-figs">. */
+/** Cifra grande (Manrope 600) con su rótulo. Va dentro de <dl className="np-sa-figs">. */
 export function Figure({
   label,
   value,
@@ -112,6 +112,7 @@ export function SmallButton({
     <Button
       type="button"
       variant={variant}
+      size="sm"
       loading={loading}
       className={['np-sa-sm', className].filter(Boolean).join(' ')}
       {...rest}

@@ -22,6 +22,7 @@ import {
   setSaSettlementStart,
   voidSaSettlement,
 } from '@/lib/endpoints/superadmin';
+import { FILTER_FIELD, FILTER_SELECT } from '@/lib/filter-field';
 import { formatEur } from '@/lib/money';
 import {
   EMPTY_SETTLEMENT_FILTERS,
@@ -107,7 +108,7 @@ export function SettlementsSection() {
               <Notice tone="warning">Falta la cuenta de OxioPay: las liquidaciones salen sin el IBAN para la transferencia. Ponla abajo.</Notice>
             ) : null}
             <div className="np-sa-toolbar" role="search">
-              <Select label="Local" value={filters.venueId} onChange={set('venueId')}>
+              <Select style={FILTER_SELECT} label="Local" value={filters.venueId} onChange={set('venueId')}>
                 <option value="">Todos</option>
                 {(sa.venues ?? []).map((v) => (
                   <option key={v.id} value={v.id}>
@@ -115,7 +116,7 @@ export function SettlementsSection() {
                   </option>
                 ))}
               </Select>
-              <Select label="Negocio" value={filters.businessId} onChange={set('businessId')}>
+              <Select style={FILTER_SELECT} label="Negocio" value={filters.businessId} onChange={set('businessId')}>
                 <option value="">Todos</option>
                 {(sa.businesses ?? []).map((b) => (
                   <option key={b.id} value={b.id}>
@@ -123,16 +124,16 @@ export function SettlementsSection() {
                   </option>
                 ))}
               </Select>
-              <Select label="Estado" value={filters.status} onChange={set('status')}>
+              <Select style={FILTER_SELECT} label="Estado" value={filters.status} onChange={set('status')}>
                 {SETTLEMENT_STATUS_FILTERS.map((s) => (
                   <option key={s.value || 'all'} value={s.value}>
                     {s.label}
                   </option>
                 ))}
               </Select>
-              <Input label="Semanas desde" type="date" value={filters.from} onChange={set('from')} />
-              <Input label="Hasta" type="date" value={filters.to} onChange={set('to')} />
-              <Input label="Referencia" type="search" value={filters.q} onChange={set('q')} placeholder="OXP-2026-S44" autoComplete="off" />
+              <Input style={FILTER_FIELD} label="Semanas desde" type="date" value={filters.from} onChange={set('from')} />
+              <Input style={FILTER_FIELD} label="Hasta" type="date" value={filters.to} onChange={set('to')} />
+              <Input style={FILTER_FIELD} label="Referencia" type="search" value={filters.q} onChange={set('q')} placeholder="OXP-2026-S44" autoComplete="off" />
             </div>
             {page.items.length === 0 ? (
               <p className="np-sa-empty">Ninguna liquidación con ese filtro.</p>

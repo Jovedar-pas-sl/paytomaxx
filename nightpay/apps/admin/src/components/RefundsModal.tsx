@@ -118,7 +118,7 @@ function PendingHint({ refund, isOwner, onResolve }: { refund: Refund; isOwner: 
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
       <span style={metaStyle}>La pasarela no la confirmó. Mírala en su portal y resuélvela.</span>
-      <Button variant="ghost" onClick={onResolve} style={smallBtn}>
+      <Button variant="ghost" onClick={onResolve} size="sm">
         Resolver
       </Button>
     </div>
@@ -235,4 +235,3 @@ const formBox: CSSProperties = {
   background: 'var(--np-surface)',
 };
 const choiceRow: CSSProperties = { display: 'flex', gap: '0.5rem', flexWrap: 'wrap' };
-const smallBtn: CSSProperties = { height: '2.25rem', padding: '0 1rem', fontSize: '0.8125rem' };

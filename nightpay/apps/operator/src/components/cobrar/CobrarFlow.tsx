@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Button, Modal, ThemeToggle } from '@nightpay/ui';
+import { Button, Modal } from '@nightpay/ui';
 import type { InvitationRules } from '@nightpay/contracts';
 import { fetchTerminals, newIdempotencyKey, type CreatedPayment, type MyNight, type OperatorUser } from '@/lib/api';
 import { cancelCard, cancelSaldo, createCobro, createSaldoCobro, fetchInvitationRules, type CobroInput } from '@/lib/api-cobro';
@@ -65,7 +65,7 @@ type Stage =
 interface Pending {
   input: Omit<CobroInput, 'idempotencyKey'>;
   fromCuenta: boolean;
-  view: Omit<CobroAbierto, 'card' | 'saldo' | 'saldoQr' | 'ref'>;
+  view: Omit<CobroAbierto, 'card' | 'saldo' | 'saldoQr' | 'saldoUrl' | 'ref'>;
 }
 
 interface Props {
@@ -172,6 +172,7 @@ export function CobrarFlow({ user, onCobroDone, onLogout, night, miQrOpen = fals
           card: null,
           saldo: { chargeId: s.id, expiresAt: s.expiresAt },
           saldoQr: s.qrPngDataUrl,
+          saldoUrl: s.payUrl,
           ref: s.ref,
         };
       }
@@ -263,12 +264,12 @@ export function CobrarFlow({ user, onCobroDone, onLogout, night, miQrOpen = fals
         totalCents: totals.totalCents,
         tipCents: totals.tipCents,
         sections,
+        // El título de Esperando, sin mayúsculas (Grafito): «Copas + Comida».
         band: {
           title: sections
             .slice(0, 2)
             .map((s) => labelOf(ctx, s.section))
-            .join(' + ')
-            .toUpperCase(),
+            .join(' + '),
           detail: `${what} · ${name}`,
         },
         what,
@@ -393,11 +394,8 @@ export function CobrarFlow({ user, onCobroDone, onLogout, night, miQrOpen = fals
     ) : null;
   const menuModal = (
     <Modal open={menu} onClose={() => setMenu(false)} title="Menú">
+      {/* Sin tema: el personal va siempre en oscuro (layout). */}
       <div className={styles.menu}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem' }}>
-          <span>Tema</span>
-          <ThemeToggle />
-        </div>
         {onRecargar ? (
           <Button
             variant="ghost"

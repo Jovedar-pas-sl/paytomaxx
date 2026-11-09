@@ -7,7 +7,7 @@ import { PROPINAS, type CuentaSection } from '@/lib/cuenta';
 import { IMPORTE_KEYS, importeCents, importeShown, pressImporte, type ImporteKey } from '@/lib/importe';
 import { colorOf, labelOf, offeredCodes, puestoChip, puestoSection, tipTiles, type CobrarContext } from './cobrar-context';
 import { IconDel } from './icons';
-import { Chip, ScreenHeader, Stripe } from './ScreenHeader';
+import { Chip, ScreenHeader } from './ScreenHeader';
 import styles from './cobrar.module.css';
 
 interface Props {
@@ -50,9 +50,8 @@ export function OtroImporte({ ctx, who, adding, onDone, onBack, busy, error }: P
         title="Otro importe"
         subtitle={who}
         onBack={onBack}
-        chip={chip ? <Chip colors={[chip.color]}>{chip.label}</Chip> : null}
+        chip={chip ? <Chip color={chip.color}>{chip.label}</Chip> : null}
       />
-      <Stripe parts={[{ color: colorOf(mine), weight: 1 }]} />
       <div className={styles.body}>
         <div className={styles.amountShow} aria-live="polite">
           <span className={styles.num}>{importeShown(typed)}</span>

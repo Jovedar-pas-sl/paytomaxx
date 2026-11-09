@@ -67,7 +67,7 @@ export function CodeSearch({ onFound }: { onFound: (target: PayoutTarget) => voi
   return (
     <Card style={{ padding: '1rem' }}>
       <h3 style={sectionTitle}>Devolver el saldo a un cliente que se va</h3>
-      <p style={{ margin: '0.25rem 0 0.75rem', fontSize: '0.8rem', color: 'var(--np-text-mute)' }}>
+      <p style={{ margin: '0.25rem 0 0.75rem', fontSize: '0.8125rem', color: 'var(--np-text-mute)' }}>
         Pon el código que sale en su página de saldo (vale aunque cargara en otro local).
       </p>
       <form onSubmit={handleSubmit} style={{ display: 'flex', gap: '0.5rem', alignItems: 'flex-start' }}>
@@ -87,7 +87,7 @@ export function CodeSearch({ onFound }: { onFound: (target: PayoutTarget) => voi
         </Button>
       </form>
       {error ? (
-        <p role="alert" style={{ color: 'var(--np-danger)', margin: '0.5rem 0 0', fontSize: '0.85rem' }}>
+        <p role="alert" style={{ color: 'var(--np-danger)', margin: '0.5rem 0 0', fontSize: '0.875rem' }}>
           {error}
         </p>
       ) : null}
@@ -197,10 +197,10 @@ export function PayoutModal({
     <Modal open onClose={submitting ? () => undefined : onClose} title="Devolver saldo">
       <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
         <div style={summaryStyle}>
-          <p style={{ margin: 0, fontSize: '0.85rem' }}>
+          <p style={{ margin: 0, fontSize: '0.875rem' }}>
             Saldo: <strong className="np-num">{formatEur(balanceCents)}</strong>
           </p>
-          <p style={{ margin: '0.2rem 0 0', fontSize: '0.78rem', color: 'var(--np-text-mute)' }}>
+          <p style={{ margin: '0.2rem 0 0', fontSize: '0.8125rem', color: 'var(--np-text-mute)' }}>
             {[target.code, target.label].filter(Boolean).join(' · ')}
           </p>
         </div>
@@ -250,7 +250,7 @@ export function PayoutModal({
 
             {previewError ? (
               <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
-                <p role="alert" style={{ color: 'var(--np-danger)', margin: 0, fontSize: '0.85rem' }}>
+                <p role="alert" style={{ color: 'var(--np-danger)', margin: 0, fontSize: '0.875rem' }}>
                   No se ha podido calcular lo que se devuelve: {previewError}
                 </p>
                 <Button variant="ghost" onClick={reloadPreview}>
@@ -313,7 +313,7 @@ export function PayoutModal({
               />
             ) : null}
             {error ? (
-              <p role="alert" style={{ color: 'var(--np-danger)', margin: 0, fontSize: '0.85rem' }}>
+              <p role="alert" style={{ color: 'var(--np-danger)', margin: 0, fontSize: '0.875rem' }}>
                 {error}
               </p>
             ) : null}
@@ -396,10 +396,10 @@ export function ChargeWithoutFaceIdModal({
     <Modal open onClose={busy ? () => undefined : onClose} title="Cobrar sin Face ID">
       <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
         <div style={summaryStyle}>
-          <p style={{ margin: 0, fontSize: '0.85rem' }}>
+          <p style={{ margin: 0, fontSize: '0.875rem' }}>
             Saldo del cliente: <strong className="np-num">{formatEur(target.balanceCents)}</strong>
           </p>
-          <p style={{ margin: '0.2rem 0 0', fontSize: '0.78rem', color: 'var(--np-text-mute)' }}>
+          <p style={{ margin: '0.2rem 0 0', fontSize: '0.8125rem', color: 'var(--np-text-mute)' }}>
             {[target.code, target.label].filter(Boolean).join(' · ')}
           </p>
         </div>
@@ -439,7 +439,7 @@ export function ChargeWithoutFaceIdModal({
           />
         ) : null}
         {error ? (
-          <p role="alert" style={{ color: 'var(--np-danger)', margin: 0, fontSize: '0.85rem' }}>
+          <p role="alert" style={{ color: 'var(--np-danger)', margin: 0, fontSize: '0.875rem' }}>
             {error}
           </p>
         ) : null}
@@ -490,10 +490,10 @@ export function RelinkModal({ target, onClose }: { target: PayoutTarget; onClose
     <Modal open onClose={busy ? () => undefined : onClose} title="Enlace nuevo del saldo">
       <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
         <div style={summaryStyle}>
-          <p style={{ margin: 0, fontSize: '0.85rem' }}>
+          <p style={{ margin: 0, fontSize: '0.875rem' }}>
             Saldo: <strong className="np-num">{formatEur(target.balanceCents)}</strong>
           </p>
-          <p style={{ margin: '0.2rem 0 0', fontSize: '0.78rem', color: 'var(--np-text-mute)' }}>
+          <p style={{ margin: '0.2rem 0 0', fontSize: '0.8125rem', color: 'var(--np-text-mute)' }}>
             {[target.code, target.label].filter(Boolean).join(' · ')}
           </p>
         </div>
@@ -510,7 +510,7 @@ export function RelinkModal({ target, onClose }: { target: PayoutTarget; onClose
               height={240}
               style={{ alignSelf: 'center', borderRadius: 'var(--np-r-md)' }}
             />
-            <p style={{ ...helpStyle, wordBreak: 'break-all', fontSize: '0.72rem' }}>{link.url}</p>
+            <p style={{ ...helpStyle, wordBreak: 'break-all', fontSize: '0.75rem' }}>{link.url}</p>
             <Button onClick={onClose}>Hecho</Button>
           </>
         ) : (
@@ -529,7 +529,7 @@ export function RelinkModal({ target, onClose }: { target: PayoutTarget; onClose
               hint="Son los 6 números de tu app de verificación. Si aún no la tienes, actívala en Ajustes → Verificación en dos pasos."
             />
             {error ? (
-              <p role="alert" style={{ color: 'var(--np-danger)', margin: 0, fontSize: '0.85rem' }}>
+              <p role="alert" style={{ color: 'var(--np-danger)', margin: 0, fontSize: '0.875rem' }}>
                 {error}
               </p>
             ) : null}
@@ -598,7 +598,7 @@ export function ResetPinModal({
           hint="Son los 6 números de tu app de verificación. Si aún no la tienes, actívala en Ajustes → Verificación en dos pasos."
         />
         {error ? (
-          <p role="alert" style={{ color: 'var(--np-danger)', margin: 0, fontSize: '0.85rem' }}>
+          <p role="alert" style={{ color: 'var(--np-danger)', margin: 0, fontSize: '0.875rem' }}>
             {error}
           </p>
         ) : null}
@@ -637,22 +637,23 @@ function MethodOption({
       onClick={onClick}
       style={{
         ...methodStyle,
-        borderColor: active ? 'var(--np-accent)' : 'var(--np-border)',
-        opacity: disabled ? 0.5 : 1,
+        // Lo elegido en t1 (la lima es para el botón); sin opacidad al no poderse.
+        borderColor: active ? 'var(--np-text)' : 'var(--np-border-hi)',
+        boxShadow: active ? 'inset 0 0 0 1px var(--np-text)' : undefined,
+        color: disabled ? 'var(--np-disabled-ink)' : undefined,
         cursor: disabled ? 'not-allowed' : 'pointer',
       }}
     >
-      <span style={{ fontWeight: 700 }}>{title}</span>
-      <span style={{ fontSize: '0.78rem', color: 'var(--np-text-mute)' }}>{text}</span>
+      <span style={{ fontWeight: 600 }}>{title}</span>
+      <span style={{ fontSize: '0.8125rem', color: 'var(--np-text-mute)' }}>{text}</span>
     </button>
   );
 }
 
 const sectionTitle: CSSProperties = {
   margin: 0,
-  fontSize: '0.9rem',
+  fontSize: '0.875rem',
   fontWeight: 600,
-  letterSpacing: '-0.01em',
 };
 
 const summaryStyle: CSSProperties = {
@@ -675,8 +676,8 @@ const methodStyle: CSSProperties = {
   padding: '0.75rem',
   textAlign: 'left',
   background: 'var(--np-surface-2)',
-  border: '2px solid var(--np-border)',
-  borderRadius: 'var(--np-r-md)',
+  border: '1px solid var(--np-border-hi)',
+  borderRadius: 'var(--np-r-sm)',
   color: 'var(--np-text)',
   fontFamily: 'inherit',
 };
@@ -695,7 +696,7 @@ const linkStyle: CSSProperties = {
 
 const helpStyle: CSSProperties = {
   margin: 0,
-  fontSize: '0.82rem',
+  fontSize: '0.8125rem',
   color: 'var(--np-text-mute)',
   lineHeight: 1.45,
 };

@@ -1,7 +1,7 @@
 /* Panel (admin) · «Super admin»: la consola de toda la plataforma.
-   Encima de @nightpay/ui/styles.css, con sus tokens --np-*. Marca OxioCard:
-   noche + lima, letra grande; Manrope 800 (--np-font-mono) para importes y
-   códigos. Solo se anima transform/opacity, y nada con prefers-reduced-motion.
+   Encima de @nightpay/ui/styles.css, con sus tokens --np-*. Grafito: neutros,
+   filetes y la lima solo para actuar; Manrope 600 (--np-font-mono) para
+   importes y códigos. Solo se anima transform/opacity, y nada con prefers-reduced-motion.
    Móvil = hasta 640px: una columna y los botones a mano del pulgar. */
 
 .np-sa {
@@ -40,14 +40,12 @@
 .np-sa-kicker {
   margin: 0;
   font-size: var(--np-t-label);
-  font-weight: 700;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
+  font-weight: 500;
   color: var(--np-text-label);
 }
 
 .np-sa-area {
-  color: var(--np-accent);
+  color: var(--np-text-mute);
 }
 
 .np-sa-head {
@@ -76,9 +74,8 @@
 .np-sa-title {
   margin: 0;
   font-size: var(--np-t-h2);
-  font-weight: 700;
+  font-weight: 600;
   line-height: 1.05;
-  letter-spacing: -0.03em;
   color: var(--np-text);
   overflow-wrap: anywhere;
 }
@@ -86,8 +83,7 @@
 .np-sa-subtitle {
   margin: 0;
   font-size: var(--np-t-h3);
-  font-weight: 700;
-  letter-spacing: -0.02em;
+  font-weight: 600;
   color: var(--np-text);
   overflow-wrap: anywhere;
 }
@@ -111,9 +107,9 @@
 .np-sa-callout {
   margin: 0;
   padding: 0.625rem 0.875rem;
-  border-left: 4px solid var(--np-accent);
+  border-left: 3px solid var(--np-border-hi);
   border-radius: var(--np-r-sm);
-  background: var(--np-pill-cyan-bg);
+  background: var(--np-surface-2);
   font-size: 0.875rem;
   line-height: 1.5;
   color: var(--np-text);
@@ -195,12 +191,6 @@
 
 /* ─── Botones ─────────────────────────────────────────────────────── */
 
-.np-btn.np-sa-sm[data-size] {
-  height: 2.5rem;
-  padding: 0 1rem;
-  font-size: 0.875rem;
-}
-
 .np-sa-back {
   align-self: flex-start;
   display: inline-flex;
@@ -218,7 +208,7 @@
 }
 
 .np-sa-back:hover {
-  color: var(--np-accent);
+  color: var(--np-text);
 }
 
 .np-sa-link {
@@ -227,11 +217,10 @@
   background: none;
   color: inherit;
   font: inherit;
-  font-weight: 700;
+  font-weight: 500;
   text-align: left;
   text-decoration: underline;
-  text-decoration-color: var(--np-accent);
-  text-decoration-thickness: 2px;
+  text-decoration-thickness: 1px;
   text-underline-offset: 3px;
   cursor: pointer;
 }
@@ -287,9 +276,7 @@
 
 .np-sa-label {
   font-size: 0.8125rem;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
+  font-weight: 500;
   color: var(--np-text-mute);
 }
 
@@ -365,15 +352,16 @@
 }
 
 /* Filtros: tantas columnas como quepan; en el móvil, una. */
+/* Filtros de 36 px (lib/filter-field.ts), alineados por abajo. */
 .np-sa-toolbar {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
-  gap: 0.875rem;
+  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+  gap: 0.5rem 0.75rem;
   align-items: end;
 }
 
 .np-sa-toolbar .np-sa-check {
-  min-height: 3.5rem;
+  min-height: var(--np-filter-h);
   align-items: center;
 }
 
@@ -385,7 +373,7 @@
 }
 
 .np-sa-search .np-btn {
-  height: 4.5rem;
+  height: max(2.5rem, var(--np-filter-h));
 }
 
 .np-sa-scroll-x {
@@ -397,7 +385,6 @@
 .np-sa-band {
   padding: 1.25rem 1.5rem;
   border: 1px solid var(--np-border);
-  border-top: 3px solid var(--np-accent);
   border-radius: var(--np-r-lg);
   background: var(--np-surface);
   animation: np-sa-rise var(--np-d-slow) var(--np-ease);
@@ -428,10 +415,8 @@
 }
 
 .np-sa-fig dt {
-  font-size: 0.6875rem;
-  font-weight: 700;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
+  font-size: 0.75rem;
+  font-weight: 500;
   color: var(--np-text-dim);
 }
 
@@ -443,13 +428,12 @@
   font-size: clamp(1rem, 9.5cqi, 2.5rem);
   font-weight: 600;
   line-height: 1.1;
-  letter-spacing: -0.03em;
   color: var(--np-text);
   white-space: nowrap;
 }
 
 .np-sa-fig[data-hero] dd {
-  color: var(--np-accent);
+  color: var(--np-text);
 }
 
 .np-sa-fig[data-alert] dd {
@@ -519,9 +503,7 @@
 }
 
 .np-sa-venue:hover {
-  transform: translateY(-2px);
-  border-color: var(--np-accent);
-  box-shadow: 0 10px 28px rgb(0 0 0 / 0.28);
+  border-color: var(--np-border-hi);
 }
 
 .np-sa-venue:active {
@@ -534,7 +516,7 @@
 }
 
 .np-sa-venue[data-current] {
-  box-shadow: inset 4px 0 0 var(--np-accent);
+  box-shadow: inset 3px 0 0 var(--np-text);
   cursor: default;
 }
 
@@ -557,8 +539,7 @@
 .np-sa-venue-name {
   margin-right: auto;
   font-size: 1.125rem;
-  font-weight: 700;
-  letter-spacing: -0.01em;
+  font-weight: 600;
   overflow-wrap: anywhere;
 }
 
@@ -577,10 +558,8 @@
 }
 
 .np-sa-venue-fig-label {
-  font-size: 0.6875rem;
-  font-weight: 700;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
+  font-size: 0.75rem;
+  font-weight: 500;
   color: var(--np-text-dim);
 }
 
@@ -590,7 +569,6 @@
   font-size: 1rem;
   font-size: clamp(0.8125rem, 9cqi, 1.125rem);
   font-weight: 600;
-  letter-spacing: -0.02em;
   white-space: nowrap;
 }
 
@@ -601,7 +579,7 @@
 .np-sa-venue-fig[data-hero] .np-sa-venue-fig-value {
   font-size: 1.75rem;
   font-size: clamp(1.25rem, 10cqi, 2.25rem);
-  color: var(--np-accent);
+  color: var(--np-text);
 }
 
 .np-sa-venue-foot {
@@ -619,16 +597,17 @@
 
 .np-sa-venue-foot [data-alert] {
   color: var(--np-warning);
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .np-sa-venue-go {
-  font-weight: 700;
+  font-weight: 600;
   color: var(--np-text);
 }
 
 .np-sa-venue:hover .np-sa-venue-go {
-  color: var(--np-accent);
+  text-decoration: underline;
+  text-underline-offset: 3px;
 }
 
 /* ─── Fichas ──────────────────────────────────────────────────────── */
@@ -645,10 +624,8 @@
 }
 
 .np-sa-meta dt {
-  font-size: 0.6875rem;
-  font-weight: 700;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
+  font-size: 0.75rem;
+  font-weight: 500;
   color: var(--np-text-dim);
 }
 
@@ -712,7 +689,7 @@
 }
 
 .np-sa-action:hover {
-  border-color: var(--np-accent);
+  border-color: var(--np-border-hi);
 }
 
 .np-sa-action:active {
@@ -721,7 +698,7 @@
 
 .np-sa-action-label {
   font-size: 1rem;
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .np-sa-action[data-danger] .np-sa-action-label {
@@ -740,7 +717,7 @@
   align-items: flex-start;
   gap: 0.625rem;
   padding: 1rem;
-  border: 2px solid var(--np-accent);
+  border: 1px solid var(--np-border-hi);
   border-radius: var(--np-r-md);
   background: var(--np-surface);
 }
@@ -792,10 +769,9 @@
 .np-sa-balance {
   margin: 0;
   font-size: clamp(2.75rem, 1.5rem + 6vw, 5rem);
-  font-weight: 700;
+  font-weight: 600;
   line-height: 1;
-  letter-spacing: -0.04em;
-  color: var(--np-accent);
+  color: var(--np-text);
   overflow-wrap: anywhere;
 }
 

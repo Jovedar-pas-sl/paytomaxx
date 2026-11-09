@@ -23,17 +23,17 @@ const sans = localFont({
   display: 'swap',
 });
 
-// Cifras, importes y títulos: Manrope 800 (marca OxioCard). La variable
+// Cifras e importes: Manrope variable, en 600 y 700 (Grafito). La variable
 // sigue llamándose --font-mono.
 const mono = localFont({
-  src: '../../../../packages/ui/fonts/manrope.woff2',
-  weight: '800',
+  src: '../../../../packages/ui/fonts/manrope-var.woff2',
+  weight: '600 800',
   variable: '--font-mono',
   display: 'swap',
 });
 
 // Solo las cifras de las tablas del panel (decisión D11): Manrope variable
-// 600-800, que panel-tables.css pide en 700. El resto sigue en la de 800.
+// 600-800, que panel-tables.css pide en 700.
 const monoVar = localFont({
   src: '../../../../packages/ui/fonts/manrope-var.woff2',
   weight: '600 800',
@@ -42,7 +42,7 @@ const monoVar = localFont({
 });
 
 export const metadata: Metadata = {
-  title: 'OxioPay — Admin',
+  title: 'OxioPay — Panel',
 };
 
 export const viewport: Viewport = {
@@ -51,8 +51,9 @@ export const viewport: Viewport = {
   // Hasta los bordes en iPhone: env(safe-area-inset-*) solo funciona con 'cover'.
   viewportFit: 'cover',
   themeColor: [
-    { media: '(prefers-color-scheme: dark)', color: '#0f1112' },
-    { media: '(prefers-color-scheme: light)', color: '#efe9df' },
+    // El fondo de cada tema (--np-bg): grafito y papel.
+    { media: '(prefers-color-scheme: dark)', color: '#0b0d0e' },
+    { media: '(prefers-color-scheme: light)', color: '#f7f5f0' },
   ],
 };
 

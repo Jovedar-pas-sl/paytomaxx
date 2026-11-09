@@ -6,9 +6,9 @@ import { formatEur } from '@/lib/money';
 import { onInviteArrived, takePendingInvite } from '@/lib/invite-link';
 import { resolveStaffQr } from '@/lib/api-cobro';
 import { rejectedQr, shouldResolveQr, statusOf, type RejectedQr } from '@/lib/qr-scan';
-import { colorOf, puestoChip, type CobrarContext } from './cobrar-context';
+import { puestoChip, type CobrarContext } from './cobrar-context';
 import { IconCheck, IconFlash } from './icons';
-import { Chip, ScreenHeader, Stripe } from './ScreenHeader';
+import { Chip, ScreenHeader } from './ScreenHeader';
 import styles from './cobrar.module.css';
 
 /** La chica leída (o elegida): con su QR o con su id, y su nombre. */
@@ -195,9 +195,8 @@ export function EscanearChica({ ctx, who, title, priceCents, onChica, onList, on
         title={title}
         subtitle={`${who.split(' · ')[0]} · ${formatEur(priceCents, { compact: true })}`}
         onBack={onBack}
-        chip={chip ? <Chip colors={[chip.color]}>{chip.label}</Chip> : null}
+        chip={chip ? <Chip color={chip.color}>{chip.label}</Chip> : null}
       />
-      <Stripe parts={[{ color: colorOf('VENUE_BAR'), weight: 1 }]} />
       <div className={styles.cam}>
         <h2 className={styles.camTitle}>Escanea el QR de la chica</h2>
         <div className={styles.vf}>
@@ -221,7 +220,7 @@ export function EscanearChica({ ctx, who, title, priceCents, onChica, onList, on
             <span>reconocida</span>
           </p>
         ) : problem ? (
-          <p role="alert" className={styles.seen} style={{ background: 'var(--np-outcome-failed)' }}>
+          <p role="alert" className={`${styles.seen} ${styles.seenBad}`}>
             {problem}
           </p>
         ) : null}
@@ -242,9 +241,7 @@ export function EscanearChica({ ctx, who, title, priceCents, onChica, onList, on
             Elegir de la lista
           </button>
         ) : (
-          <p className={styles.muted} style={{ flex: 1, color: 'var(--np-text-label)', fontSize: '0.9375rem' }}>
-            En su app: «Mi QR».
-          </p>
+          <p className={styles.camHint}>En su app: «Mi QR».</p>
         )}
       </div>
     </div>

@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { Card, Logo, ThemeToggle } from '@nightpay/ui';
+import { Card, Logo } from '@nightpay/ui';
 import { LoginForm } from '@/components/LoginForm';
 import { Dashboard } from '@/components/Dashboard';
 import { ReloginSheet } from '@/components/ReloginSheet';
@@ -152,12 +152,10 @@ function LoginScreen({
         gap: '2rem',
       }}
     >
-      <div style={{ position: 'absolute', top: '1.5rem', right: '1.5rem' }}>
-        <ThemeToggle />
-      </div>
       <header style={{ textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1rem' }}>
         <Logo height="3rem" />
-        <h1 style={{ margin: 0, fontSize: 'var(--np-t-h1)', fontWeight: 600, letterSpacing: '-0.03em' }}>Operadora</h1>
+        {/* Entran camareros, chicas, recepción y encargados: «Personal», no «Operadora». */}
+        <h1 style={{ margin: 0, fontSize: 'var(--np-t-h1)', fontWeight: 600 }}>Personal</h1>
       </header>
       {fromCard ? (
         <p style={{ margin: 0, maxWidth: '24rem', textAlign: 'center', color: 'var(--np-text-mute)' }}>
@@ -169,11 +167,12 @@ function LoginScreen({
         </p>
       ) : null}
       {notice ? (
-        <p role="status" style={{ margin: 0, maxWidth: '24rem', textAlign: 'center', color: 'var(--np-warning)', fontWeight: 600 }}>
+        <p role="status" style={{ margin: 0, maxWidth: '24rem', textAlign: 'center', color: 'var(--np-warning)', fontWeight: 500 }}>
           {notice}
         </p>
       ) : null}
-      <Card variant="glow" style={{ padding: '2rem', width: '100%', maxWidth: '24rem' }}>
+      {/* Sin borde lima: la lima es del botón «Entrar» (una por pantalla). */}
+      <Card style={{ padding: '2rem', width: '100%', maxWidth: '24rem' }}>
         <LoginForm onSuccess={onSuccess} />
       </Card>
     </main>

@@ -33,3 +33,22 @@ export function cartaTiles<T extends CartaItem>(carta: readonly T[], codes: read
 export function tapOf(item: Pick<CartaItem, 'isInvitation'>): 'sumar' | 'invitar' {
   return item.isInvitation === true ? 'invitar' : 'sumar';
 }
+
+/** Un grupo de la carta: su sección y sus losetas. */
+export interface CartaGroup<T> {
+  section: string;
+  items: T[];
+}
+
+/**
+ * Las losetas por grupos de la misma sección, seguidos (cartaTiles ya las
+ * deja juntas): la pantalla pone el título de cada sección una sola vez.
+ */
+export function cartaGroups<T extends Pick<CartaItem, 'category'>>(tiles: readonly T[]): CartaGroup<T>[] {
+  return tiles.reduce<CartaGroup<T>[]>((groups, item) => {
+    const last = groups[groups.length - 1];
+    return last && last.section === item.category
+      ? [...groups.slice(0, -1), { section: last.section, items: [...last.items, item] }]
+      : [...groups, { section: item.category, items: [item] }];
+  }, []);
+}

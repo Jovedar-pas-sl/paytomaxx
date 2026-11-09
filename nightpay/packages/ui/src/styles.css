@@ -1,7 +1,8 @@
-/* Fichas de diseño de OxioPay — marca OxioCard (maquetas aprobadas, 2026-10-20):
-   noche azulada + lima, pills redondas, Manrope 800 en cifras y títulos.
-   Oscuro es el tema principal (salas con poca luz); claro a juego, en crema.
-   Imported once from each app's root layout. */
+/* Fichas de diseño de OxioPay, dirección «Grafito» (aprobada el 2-nov-2026):
+   neutros casi negros, filetes finos y la lima como única luz encendida (actuar,
+   foco y pagado). Instrument Sans 400/500/600 para el texto; Manrope 600/700
+   solo para cifras. Oscuro es el tema principal (salas con poca luz); el claro
+   queda para el panel. Imported once from each app's root layout. */
 
 /* Componentes de las apps del personal (resultado, aviso de conexión, teclado
    de importe, cuenta atrás del QR). @import va antes de cualquier regla. */
@@ -19,19 +20,26 @@
   --np-s-8: 4rem;
   --np-s-9: 6rem;
 
-  /* Radios: tarjetas 22 px, losetas y teclas 20 px, botones en pill. */
+  /* Radios: chips 6, campos y botones del panel 10, botones y losetas 14,
+     tarjetas y hojas 18. 999 solo para contadores y puntos. */
+  --np-r-xs: 6px;
   --np-r-sm: 10px;
   --np-r-md: 14px;
-  --np-r-lg: 22px;
-  --np-r-card: 22px;
-  --np-r-tile: 20px;
+  --np-r-lg: 18px;
+  --np-r-card: 18px;
+  --np-r-tile: 14px;
+
+  /* Alto de los campos (Input/Select): 40 en el panel, como sus botones;
+     48 en el panel desde el móvil y 52 en el personal y el TPV (.np-touch). */
+  --np-field-h: 2.5rem;
   --np-r-pill: 999px;
 
-  /* Type */
-  --np-t-amount: clamp(4.5rem, 10vw, 9rem);
-  --np-t-h1: clamp(2.25rem, 3vw, 3.5rem);
-  --np-t-h2: clamp(1.75rem, 2vw, 2.25rem);
-  --np-t-h3: 1.375rem;
+  /* Letra. Escala: 12 · 13 · 14 · 16 · 18 · 22 · 28 · 40 · 64 (72 solo en
+     el resultado). Importes grandes en cifras proporcionales. */
+  --np-t-amount: clamp(3rem, 9vw, 4rem);
+  --np-t-h1: clamp(1.75rem, 2.4vw, 2.5rem);
+  --np-t-h2: 1.375rem;
+  --np-t-h3: 1.125rem;
   --np-t-body: 1rem;
   --np-t-ui: 0.9375rem;
   /* Mínimo para etiquetas pequeñas (kickers, pestañas): 0.8125rem ≈ 13,8 px. */
@@ -57,21 +65,21 @@
   --np-pulse: 1.6s;
 
   /* Fonts — set on <html> by next/font, here as fallback. --font-mono es
-     Manrope 800 (cifras, importes y títulos); el nombre se queda por las
-     pantallas que ya lo usan. */
+     Manrope variable 600-800, solo para cifras; el nombre se queda por las
+     pantallas que ya lo usan. Los títulos van en Instrument Sans 600. */
   --np-font-sans:
     var(--font-sans), -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   --np-font-mono:
     var(--font-mono), var(--font-sans), -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   --np-font-num: var(--np-font-mono);
-  --np-font-display: var(--np-font-mono);
+  --np-font-display: var(--np-font-sans);
 
   /* Marca OxioCard: iguales en los dos temas. Lima solo para la acción
      principal, el foco y el «pagado»; nunca como color de sección. */
   --np-lime: #c7d301;
   --np-lime-deep: #9aa300;
-  /* Halo contenido (antes 0,45): con alcohol y poca luz deslumbra menos. */
-  --np-lime-glow: rgb(199 211 1 / 0.32);
+  /* Grafito: sin halos (deslumbran con poca luz y suenan a casino). */
+  --np-lime-glow: transparent;
   --np-lime-edge: rgb(199 211 1 / 0.55);
   --np-lime-soft: rgb(199 211 1 / 0.14);
   --np-lime-ring: rgb(199 211 1 / 0.22);
@@ -82,11 +90,12 @@
   --np-green-1: #003818;
   --np-green-2: #004820;
   --np-green-3: #0a6b34;
-  /* Tarjeta OxioCard: verde profundo, brillo en diagonal y borde lima. */
-  --np-card-oxio: linear-gradient(135deg, var(--np-green-1) 0%, var(--np-green-2) 55%, var(--np-green-3) 100%);
-  --np-card-gloss: linear-gradient(118deg, transparent 38%, var(--np-lime-soft) 50%, transparent 62%);
-  /* Motivo 0101 de la «o» del logo, muy tenue (textura de tarjetas). */
-  --np-bits: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='132' height='64'%3E%3Cg font-family='monospace' font-size='11' fill='%23EFE9DF' fill-opacity='.045'%3E%3Ctext x='2' y='12'%3E0101 1001 0110%3C/text%3E%3Ctext x='-12' y='28'%3E1100 1010 0101 1%3C/text%3E%3Ctext x='6' y='44'%3E0110 0101 1001%3C/text%3E%3Ctext x='-6' y='60'%3E1001 0011 0101 0%3C/text%3E%3C/g%3E%3C/svg%3E");
+  /* Grafito: la tarjeta OxioCard es plana (sin degradado ni brillo) y el
+     motivo 0101 se queda para la ficha física y el marketing. */
+  --np-card-oxio: #131618;
+  --np-card-gloss: none;
+  --np-bits: none;
+  --np-bits-brand: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='132' height='64'%3E%3Cg font-family='monospace' font-size='11' fill='%23EFE9DF' fill-opacity='.045'%3E%3Ctext x='2' y='12'%3E0101 1001 0110%3C/text%3E%3Ctext x='-12' y='28'%3E1100 1010 0101 1%3C/text%3E%3Ctext x='6' y='44'%3E0110 0101 1001%3C/text%3E%3Ctext x='-6' y='60'%3E1001 0011 0101 0%3C/text%3E%3C/g%3E%3C/svg%3E");
 
   /* Secciones (de qué es el cobro): familia pastel, siempre con tinta
      --np-on-section encima (≥ 5:1). Las mismas en TS: sectionColor() de
@@ -107,14 +116,14 @@
   --np-sec-propinas-tile: #55b4f7;
 
   /* Resultado a pantalla completa y aviso de conexión: iguales en los dos
-     temas (son señales, no decoración). PAGADO: verde de marca con texto
-     crema (5,5:1 en el verde más claro) y el aro lima; NO PAGADO: rojo con
-     tinta (6,2:1); CADUCADO: ámbar con tinta (10,3:1). */
-  --np-outcome-ink: #0f1112;
-  --np-outcome-paid: radial-gradient(120% 80% at 50% 32%, var(--np-green-3) 0%, var(--np-green-2) 55%, var(--np-green-1) 100%);
-  --np-outcome-paid-ink: var(--np-cream);
-  --np-outcome-failed: #ff5a5f;
-  --np-outcome-expired: #ffb020;
+     temas (son señales, no decoración). Colores planos y profundos, con texto
+     crema: PAGADO 11:1, NO PAGADO 9,3:1, CADUCADO 8,3:1. Un rojo vivo en el
+     85 % de la pantalla deslumbra a oscuras. */
+  --np-outcome-ink: #f4f2ec;
+  --np-outcome-paid: #0b3d24;
+  --np-outcome-paid-ink: #f4f2ec;
+  --np-outcome-failed: #7a1c20;
+  --np-outcome-expired: #5c4300;
   /* El destello verde del PAGADO (una vez, al llegar; decisión D10). */
   --np-flash-paid: #5be38f;
   --np-banner-bg: #ffb020;
@@ -125,53 +134,52 @@
 [data-theme='dark'] {
   color-scheme: dark;
 
-  /* Surfaces: noche con un punto de azul, no negro puro. */
-  --np-bg: #0f1112;
-  --np-surface: #15181b;
-  --np-surface-2: #1c2024;
-  --np-surface-3: #262b31;
-  --np-border: #2a3036;
-  /* Borde de lo que se toca (botones secundarios, «Otro importe»): 3,5:1
-     sobre --np-bg y 3:1 aún sobre --np-surface-2 (WCAG 1.4.11). */
-  --np-border-hi: #616c77;
+  /* Superficies Grafito: casi negro, no negro puro (el negro total deja
+     estelas al desplazar). Las tarjetas se separan por el filete. */
+  --np-bg: #0b0d0e;
+  --np-surface: #131618;
+  --np-surface-2: #1a1e21;
+  --np-surface-3: #23282c;
+  --np-border: #262b30;
+  /* Filete de lo que se toca (botones secundarios, campos): 3,62:1 sobre
+     --np-surface (WCAG 1.4.11). */
+  --np-border-hi: #6b7680;
 
-  /* Text — medido en WCAG y APCA (Lc). Con poca luz y prisa, las ayudas de
-     14-15 px necesitan más que AA: --np-text-dim 8,6:1 · Lc 58 sobre
-     --np-bg (6,5:1 aún sobre --np-surface-3). */
-  --np-text: #f2efe9;
-  /* 11,6:1 · Lc 74. */
-  --np-text-mute: #c4cbd1;
-  --np-text-dim: #a7b0b8;
-  /* Etiquetas pequeñas en MAYÚSCULAS: 10,9:1 · Lc 77 sobre --np-surface-2. */
-  --np-text-label: #cdd3d8;
+  /* Texto: 17,4:1 · 10,6:1 · 7,9:1 sobre el fondo (las ayudas pequeñas, con
+     poca luz y prisa, piden 7:1; 6:1 aún sobre --np-surface-3). */
+  --np-text: #f4f2ec;
+  --np-text-mute: #b8c0c6;
+  --np-text-dim: #9da6ae;
+  /* Etiquetas pequeñas (sin mayúsculas en Grafito). */
+  --np-text-label: #b8c0c6;
 
-  /* Accent — lima. Siempre con tinta encima (--np-on-accent, 8,7:1). */
+  /* Accent — lima. Siempre con tinta encima (--np-on-accent, 11,2:1). */
   --np-accent: #c7d301;
-  --np-accent-2: #d6e12a;
-  --np-on-accent: #1f2c36;
-  /* Borde de lo destacado (tarjeta «glow»): lima al 55 %. */
+  --np-accent-2: #d3de1e;
+  --np-on-accent: #11160a;
   --np-accent-edge: var(--np-lime-edge);
-  --np-glow: rgb(199 211 1 / 0.28);
+  /* Anillo del foco en los campos: discreto. */
+  --np-glow: rgb(199 211 1 / 0.22);
 
-  /* Botón principal: pill lima con tinta, con un halo suave. */
+  /* Botón principal: lima plana con tinta, sin halo. */
   --np-primary-bg: var(--np-lime);
-  --np-primary-bg-hover: #d6e12a;
-  --np-primary-ink: var(--np-ink);
-  --np-primary-shadow: 0 10px 28px -12px var(--np-lime-glow);
+  --np-primary-bg-hover: #d3de1e;
+  --np-primary-ink: #11160a;
+  --np-primary-shadow: none;
 
   /* Semantic */
-  --np-success: #5be38f;
-  --np-danger: #ff5a5f;
-  /* Rojo para TEXTO pequeño (errores de 14-15 px): 7,6:1 · Lc 53. */
-  --np-danger-text: #ff7b7b;
-  --np-warning: #ffb020;
+  --np-success: #58d68d;
+  --np-danger: #ff6b6b;
+  /* Rojo para TEXTO pequeño (errores de 14-15 px). */
+  --np-danger-text: #ff8a84;
+  --np-warning: #f5b342;
   --np-purple: #c9a3ff;
 
-  /* Botón sin nada que hacer: neutro y a trazos, nunca lima apagada (el lima
-     dice «listo»). Texto 7,5:1 sobre --np-surface-2. */
+  /* Botón sin nada que hacer: neutro, nunca lima apagada ni opacidad (el
+     lima dice «listo»). Texto 6:1 sobre --np-surface-2. */
   --np-disabled-bg: var(--np-surface-2);
   --np-disabled-ink: var(--np-text-dim);
-  --np-disabled-edge: var(--np-border-hi);
+  --np-disabled-edge: var(--np-border);
 
   /* Pill backgrounds (theme-aware) */
   --np-pill-mute-bg: #1c2024;
@@ -182,7 +190,7 @@
   --np-pill-purple-bg: #231c33;
 
   /* Backdrop for modals (matches surrounding tone) */
-  --np-backdrop: rgb(8 16 24 / 0.74);
+  --np-backdrop: rgb(5 6 7 / 0.74);
 
   /* Grain visibility */
   --np-grain-opacity: 0;
@@ -192,21 +200,19 @@
 [data-theme='light'] {
   color-scheme: light;
 
-  /* Crema de la marca (el icono de la app) con tinta azulada. */
-  --np-bg: #efe9df;
-  --np-surface: #fbf8f3;
-  --np-surface-2: #e6e0d5;
-  --np-surface-3: #dbd4c8;
-  --np-border: #d3cbbe;
-  /* 3,4:1 sobre la crema y 3,1:1 sobre --np-surface-2 (antes 1,9:1). */
-  --np-border-hi: #857c6d;
+  /* Claro, solo para el panel: papel y tinta (16,2:1 · 7,1:1 · 5,6:1). */
+  --np-bg: #f7f5f0;
+  --np-surface: #fdfcf9;
+  --np-surface-2: #eeebe4;
+  --np-surface-3: #e3dfd6;
+  --np-border: #dcd8cf;
+  /* 3,4:1 sobre el papel. */
+  --np-border-hi: #827a6c;
 
-  --np-text: #1f2c36;
-  --np-text-mute: #46525c;
-  /* 5,3:1 · Lc 66 sobre --np-surface-2. */
-  --np-text-dim: #4f5b65;
-  /* 8:1 sobre --np-bg. */
-  --np-text-label: #3a4650;
+  --np-text: #15191c;
+  --np-text-mute: #4a545c;
+  --np-text-dim: #5a636c;
+  --np-text-label: #4a545c;
 
   /* En claro la lima no se lee como texto: acento = tinta, con lima encima
      (8,7:1). El botón principal sigue siendo la pill lima. */
@@ -219,8 +225,8 @@
   --np-primary-bg: var(--np-lime);
   --np-primary-bg-hover: #d1dc1a;
   --np-primary-ink: var(--np-ink);
-  /* Borde de tinta: la pill lima se separa de la crema (5,8:1; antes 1,4:1). */
-  --np-primary-shadow: inset 0 0 0 1.5px rgb(31 44 54 / 0.7), 0 8px 22px -14px rgb(31 44 54 / 0.55);
+  /* Filete de tinta: la lima se separa del papel (sin sombra). */
+  --np-primary-shadow: inset 0 0 0 1px rgb(21 25 28 / 0.7);
 
   /* 6,2:1 · Lc 73. */
   --np-success: #146234;
@@ -283,10 +289,10 @@ body {
   padding: 0;
 }
 
-/* Letra más grande en todas las apps: 1rem = 17px (antes 16px). Escala
-   también los tamaños en rem escritos a mano en cada pantalla. */
+/* 1rem = 16 px (Grafito): sin tamaños fraccionarios en el panel. La app del
+   personal sube su letra donde hace falta (mínimo 14 px, campos a 16). */
 html {
-  font-size: 106.25%;
+  font-size: 100%;
 }
 
 body {
@@ -348,21 +354,20 @@ button {
   border-radius: 4px;
 }
 
-/* Tabular numbers for any element marked .np-num: Manrope 800 de fábrica
-   (la fuente es variable, 600-800: quien quiera otra jerarquía pone su peso,
-   como las tablas del panel en 700). */
+/* Cifras en Manrope 600, tabulares (para columnas). Un importe grande y
+   suelto puede pedir proporcionales (font-variant-numeric: proportional-nums). */
 .np-num {
   font-family: var(--np-font-mono);
-  font-weight: 800;
+  font-weight: 600;
   font-variant-numeric: tabular-nums;
   font-feature-settings: 'tnum';
 }
 
-/* Títulos en Manrope 800, como en las maquetas. :where() no pesa: la letra,
-   el tamaño o el peso que ponga cada pantalla mandan. */
+/* Títulos en Instrument Sans 600. :where() no pesa: la letra, el tamaño o
+   el peso que ponga cada pantalla mandan. */
 :where(h1, h2, h3) {
   font-family: var(--np-font-display);
-  font-weight: 800;
+  font-weight: 600;
   letter-spacing: -0.01em;
 }
 
@@ -375,10 +380,10 @@ button {
   justify-content: center;
   gap: 0.5rem;
   border: none;
-  border-radius: var(--np-r-pill);
+  border-radius: var(--np-r-sm);
   font-family: var(--np-font-sans);
-  font-weight: 700;
-  letter-spacing: 0.01em;
+  font-weight: 600;
+  letter-spacing: 0;
   cursor: pointer;
   white-space: nowrap;
   user-select: none;
@@ -389,19 +394,27 @@ button {
     color var(--np-d-fast);
 }
 
+/* Escritorio (panel): 36 · 40 · 48 px, radio 10. En la app del personal,
+   48 · 56 px y radio 14 (más abajo, .np-staff). */
+.np-btn[data-size='sm'] {
+  height: 2.25rem;
+  padding: 0 0.875rem;
+  font-size: 0.875rem;
+}
+
 .np-btn[data-size='md'] {
-  height: 3.5rem;
-  padding: 0 1.75rem;
-  font-size: 1.0625rem;
+  height: 2.5rem;
+  padding: 0 1rem;
+  font-size: 0.875rem;
 }
 
 .np-btn[data-size='lg'] {
-  height: 4.25rem;
-  padding: 0 2.25rem;
-  font-size: 1.25rem;
+  height: 3rem;
+  padding: 0 1.5rem;
+  font-size: 1rem;
 }
 
-/* Botón principal: pill lima con tinta (en los dos temas), halo suave. */
+/* Botón principal: lima plana con tinta (en los dos temas). */
 .np-btn[data-variant='primary'] {
   background: var(--np-primary-bg);
   color: var(--np-primary-ink);
@@ -412,21 +425,22 @@ button {
   background: var(--np-primary-bg-hover);
 }
 
+/* Secundario: superficie con filete de 1 px y letra en 500; nunca compite con la lima. */
 .np-btn[data-variant='ghost'] {
-  background: transparent;
+  font-weight: 500;
+  background: var(--np-surface-2);
   color: var(--np-text);
-  box-shadow: inset 0 0 0 2px var(--np-border-hi);
+  box-shadow: inset 0 0 0 1px var(--np-border-hi);
 }
 
 .np-btn[data-variant='ghost']:hover:not(:disabled) {
-  background: var(--np-surface-2);
-  box-shadow: inset 0 0 0 2px var(--np-text-dim);
+  background: var(--np-surface-3);
 }
 
-/* Rojo de NO PAGADO con tinta encima (6,2:1), igual en los dos temas. */
+/* Lo que saca o borra dinero: rojo profundo con texto crema (9,3:1). */
 .np-btn[data-variant='danger'] {
   background: var(--np-outcome-failed);
-  color: var(--np-ink-0);
+  color: var(--np-outcome-ink);
 }
 
 .np-btn[data-variant='danger']:hover:not(:disabled) {
@@ -434,51 +448,58 @@ button {
 }
 
 .np-btn:active:not(:disabled) {
-  transform: scale(0.97);
+  transform: scale(0.98);
 }
 
-.np-btn:disabled {
-  opacity: 0.55;
+/* Sin nada que hacer: superficie y texto apagado, sin opacidad (a oscuras, un
+   botón translúcido parece roto). Cargando (data-loading) sigue en su color:
+   está trabajando, no vacío. */
+.np-btn:disabled:not([data-loading]) {
   cursor: not-allowed;
-}
-
-/* Botón principal sin nada que hacer («Congelar el Z», «Buscar»…): gris y a
-   trazos, nunca lima apagada. Cargando (data-loading) sigue en lima: está
-   trabajando, no vacío. */
-.np-btn[data-variant='primary']:disabled:not([data-loading]) {
-  opacity: 1;
   background: var(--np-disabled-bg);
   color: var(--np-disabled-ink);
-  box-shadow: none;
-  outline: 1.5px dashed var(--np-disabled-edge);
-  outline-offset: -1.5px;
+  box-shadow: inset 0 0 0 1px var(--np-disabled-edge);
 }
 
-/* Chip de sección (SectionChip): pill del color de la sección con tinta; el
-   saldo / la recarga, sin relleno y con borde a trazos. */
+.np-btn[data-loading] {
+  cursor: progress;
+}
+
+/* Chip de sección (SectionChip): punto del color de la sección y el nombre,
+   sobre superficie neutra. El color nunca va solo (daltonismo: Entradas y
+   Habitaciones se confunden), por eso va siempre con su nombre. El saldo / la
+   recarga, con el punto hueco. */
 .np-chip {
   display: inline-flex;
   align-items: center;
   gap: 0.375rem;
-  min-height: 2.125rem;
-  padding: 0 0.875rem;
-  border-radius: var(--np-r-pill);
-  background: var(--np-c, var(--np-sec-otros));
-  color: var(--np-on-section);
+  min-height: 1.75rem;
+  padding: 0 0.625rem;
+  border-radius: var(--np-r-xs);
+  background: var(--np-surface-2);
+  color: var(--np-text);
   font-family: var(--np-font-sans);
-  font-size: 0.875rem;
-  font-weight: 700;
+  font-size: 0.8125rem;
+  font-weight: 500;
   line-height: 1.1;
   white-space: nowrap;
 }
 
-.np-chip[data-dashed='true'] {
-  background: transparent;
-  color: inherit;
-  border: 1.5px dashed var(--np-sec-saldo);
+.np-chip::before {
+  content: '';
+  flex: none;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: var(--np-r-pill);
+  background: var(--np-c, var(--np-sec-otros));
 }
 
-/* Logo OxioCard (Logo de @nightpay/ui): la versión clara sobre oscuro y la
+.np-chip[data-dashed='true']::before {
+  background: transparent;
+  box-shadow: inset 0 0 0 1.5px var(--np-sec-saldo);
+}
+
+/* Logo OxioPay (Logo de @nightpay/ui): la versión clara sobre oscuro y la
    oscura sobre claro; sin data-theme, la del tema oscuro. */
 .np-logo-img {
   display: block;
@@ -539,12 +560,12 @@ input::placeholder {
   gap: 0.625rem;
   margin: 0;
   padding: 0.75rem 0.875rem;
-  border: 1.5px solid var(--np-danger);
-  border-radius: var(--np-r-md);
+  border: 1px solid var(--np-danger);
+  border-radius: var(--np-r-sm);
   background: var(--np-pill-danger-bg);
   color: var(--np-text);
-  font-size: 0.9375rem;
-  font-weight: 600;
+  font-size: 0.875rem;
+  font-weight: 500;
   line-height: 1.35;
   text-align: left;
 }
@@ -655,12 +676,11 @@ input::placeholder {
 
 .np-table thead th {
   text-align: left;
-  padding: 0.875rem 1rem;
+  padding: 0.5rem 0.75rem;
   font-size: 0.75rem;
   font-weight: 500;
   color: var(--np-text-dim);
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+  letter-spacing: 0;
   border-bottom: 1px solid var(--np-border);
   background: var(--np-surface);
   position: sticky;
@@ -669,7 +689,7 @@ input::placeholder {
 }
 
 .np-table tbody td {
-  padding: 0.875rem 1rem;
+  padding: 0.625rem 0.75rem;
   font-size: 0.875rem;
   border-bottom: 1px solid var(--np-border);
   color: var(--np-text);
@@ -713,16 +733,43 @@ input::placeholder {
    tocarlos), tarjetas y huecos más justos, y los botones se ajustan al alto
    de la pantalla (nunca por debajo de 44 px) y parten la etiqueta en dos
    líneas antes que salirse por el lado. El escritorio no cambia. */
+/* Botones táctiles del personal: 48 y 56 px, radio 14 (con el pulgar, los
+   errores suben por debajo de unos 60 px; 48 es el mínimo de Android). */
+.np-touch .np-btn {
+  border-radius: var(--np-r-md);
+}
+
+html.np-touch {
+  --np-field-h: 3.25rem;
+}
+
+.np-touch .np-btn[data-size='md'] {
+  height: 3rem;
+  padding: 0 1.25rem;
+  font-size: 1rem;
+}
+
+.np-touch .np-btn[data-size='lg'] {
+  height: 3.5rem;
+  padding: 0 1.5rem;
+  font-size: 1.0625rem;
+}
+
 @media (max-width: 480px) {
   html.np-staff {
     font-size: 100%;
     --np-t-h1: clamp(1.75rem, 7vw, 2.25rem);
-    --np-t-h2: clamp(1.375rem, 5.5vw, 1.75rem);
+    --np-t-h2: 1.375rem;
     /* 14 px: las etiquetas pequeñas no bajan de lo que eran. */
     --np-t-label: 0.875rem;
     --np-pad-card: 1rem;
     --np-gap: 0.5rem;
     --np-qr: clamp(10rem, 34vh, 20rem);
+  }
+
+  /* El panel desde el móvil: campos de 48 (el personal sigue en 52). */
+  html.np-staff:not(.np-touch) {
+    --np-field-h: 3rem;
   }
 
   /* Modo «sala»: un paso más de letra también en el móvil (17 px). */
@@ -744,15 +791,15 @@ input::placeholder {
   }
 
   .np-staff .np-btn[data-size='md'] {
-    height: clamp(2.75rem, 6.5vh, 3.5rem);
+    height: 3rem;
     padding: 0 1.25rem;
     font-size: 1rem;
   }
 
   .np-staff .np-btn[data-size='lg'] {
-    height: clamp(3.25rem, 7.5vh, 4.25rem);
+    height: 3.5rem;
     padding: 0 1.5rem;
-    font-size: 1.125rem;
+    font-size: 1.0625rem;
   }
 }
 
@@ -763,13 +810,6 @@ input::placeholder {
       --np-qr: clamp(10rem, 34svh, 20rem);
     }
 
-    .np-staff .np-btn[data-size='md'] {
-      height: clamp(2.75rem, 6.5svh, 3.5rem);
-    }
-
-    .np-staff .np-btn[data-size='lg'] {
-      height: clamp(3.25rem, 7.5svh, 4.25rem);
-    }
   }
 }
 

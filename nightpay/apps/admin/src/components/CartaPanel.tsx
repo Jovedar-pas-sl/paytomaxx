@@ -121,7 +121,7 @@ export function CartaPanel() {
                 >
                   <div style={rowStyle}>
                     <div style={{ minWidth: 0, flex: '1 1 12rem' }}>
-                      <p style={{ margin: 0, fontWeight: 700, fontSize: '1.0625rem' }}>
+                      <p style={{ margin: 0, fontWeight: 600, fontSize: '1rem' }}>
                         {item.name}
                         {item.durationMin ? (
                           <span style={{ color: 'var(--np-text-mute)', fontWeight: 500 }}> · {item.durationMin} min</span>
@@ -139,10 +139,10 @@ export function CartaPanel() {
                       {formatEur(item.priceCents)}
                     </span>
                     <div style={{ display: 'flex', gap: '0.5rem' }}>
-                      <Button variant="ghost" style={smallBtn} onClick={() => setEditing(item.id)}>
+                      <Button variant="ghost" size="sm" onClick={() => setEditing(item.id)}>
                         Editar
                       </Button>
-                      <Button variant="ghost" style={smallBtn} onClick={() => void toggleActive(item)}>
+                      <Button variant="ghost" size="sm" onClick={() => void toggleActive(item)}>
                         {item.active ? 'Desactivar' : 'Activar'}
                       </Button>
                     </div>
@@ -272,7 +272,7 @@ function ServiceForm({
 
       {isPack ? (
         <fieldset style={packBox}>
-          <legend style={{ fontWeight: 700, padding: '0 0.25rem' }}>Partes del pack</legend>
+          <legend style={{ fontWeight: 600, padding: '0 0.25rem' }}>Partes del pack</legend>
           {parts.map((part, i) => (
             <div key={i} style={partRow}>
               <Select
@@ -294,7 +294,7 @@ function ServiceForm({
                 onChange={(e) => setParts(parts.map((p, j) => (j === i ? { ...p, amount: e.target.value } : p)))}
               />
               {parts.length > 2 ? (
-                <Button type="button" variant="ghost" style={smallBtn} onClick={() => setParts(parts.filter((_, j) => j !== i))}>
+                <Button type="button" variant="ghost" size="sm" onClick={() => setParts(parts.filter((_, j) => j !== i))}>
                   Quitar
                 </Button>
               ) : null}
@@ -305,7 +305,7 @@ function ServiceForm({
               <Button
                 type="button"
                 variant="ghost"
-                style={smallBtn}
+                size="sm"
                 onClick={() => setParts([...parts, { category: firstCode as SectionCode, amount: '' }])}
               >
                 Añadir parte
@@ -341,13 +341,12 @@ function ServiceForm({
   );
 }
 
-const titleStyle: CSSProperties = { margin: 0, fontSize: 'var(--np-t-h3)', fontWeight: 700 };
-const subtitleStyle: CSSProperties = { margin: '0 0 0.875rem', fontSize: '1rem', fontWeight: 700 };
-const groupTitle: CSSProperties = { margin: '0.5rem 0 0', fontSize: '1rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '0.5rem' };
+const titleStyle: CSSProperties = { margin: 0, fontSize: 'var(--np-t-h3)', fontWeight: 600 };
+const subtitleStyle: CSSProperties = { margin: '0 0 0.875rem', fontSize: '1rem', fontWeight: 600 };
+const groupTitle: CSSProperties = { margin: '0.5rem 0 0', fontSize: '1rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.5rem' };
 const hintStyle: CSSProperties = { margin: '0.25rem 0 0', color: 'var(--np-text-mute)', fontSize: '0.9375rem' };
 const rowStyle: CSSProperties = { display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' };
-const priceStyle: CSSProperties = { fontSize: '1.25rem', fontWeight: 700, marginLeft: 'auto' };
-const smallBtn: CSSProperties = { height: '2.5rem', padding: '0 1rem', fontSize: '0.875rem' };
+const priceStyle: CSSProperties = { fontSize: '1.25rem', fontWeight: 600, marginLeft: 'auto' };
 const formGrid: CSSProperties = {
   display: 'grid',
   gridTemplateColumns: 'repeat(auto-fit, minmax(12rem, 1fr))',

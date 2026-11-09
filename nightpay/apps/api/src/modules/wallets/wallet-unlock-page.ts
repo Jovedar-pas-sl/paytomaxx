@@ -35,23 +35,22 @@ export const UNLOCK_CSS = `
 main{max-width:28rem;min-height:100svh;margin:0 auto;padding:1rem 1rem calc(1.5rem + env(safe-area-inset-bottom));display:flex;flex-direction:column;gap:1.25rem}
 main>.top{padding-left:0;padding-right:0}
 svg{width:1.5rem;height:1.5rem;flex:none;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
-.ocard{position:relative;isolation:isolate;overflow:hidden;min-height:10.5rem;padding:1rem 1.15rem;border-radius:24px;display:flex;flex-direction:column;justify-content:space-between;gap:.5rem;color:var(--cream);background:var(--bits),linear-gradient(135deg,var(--green-1) 0%,var(--green-2) 55%,var(--green-3) 100%);box-shadow:0 0 0 1px var(--lime-edge),0 18px 40px -20px var(--lime-glow)}
-.ocard::after{content:'';position:absolute;inset:0;z-index:-1;background:linear-gradient(118deg,transparent 38%,var(--lime-soft) 50%,transparent 62%);pointer-events:none}
-.ocard.off{color:var(--label);background:var(--bits),var(--surface);box-shadow:0 0 0 1px var(--line-hi)}
-.ocard.off::after{display:none}
+.ocard{min-height:8.75rem;padding:1rem 1.125rem;border:1px solid var(--line);border-radius:var(--r);display:flex;flex-direction:column;justify-content:space-between;gap:.5rem;color:var(--fg);background:var(--surface)}
+.ocard.off{color:var(--dim)}
 .otop,.obot{display:flex;align-items:center;justify-content:space-between;gap:.5rem}
 .ocard .kick{color:inherit}
-.ocard .shut svg{width:2.75rem;height:2.75rem;stroke-width:1.75}
-.obot{font-size:1rem;font-weight:700;letter-spacing:.04em}
+.otop svg{color:var(--mute)}
+.ocard .shut svg{width:2.5rem;height:2.5rem;stroke-width:1.75;color:var(--mute)}
+.obot{font-size:.875rem;font-weight:600;letter-spacing:.04em}
 .act{display:flex;flex-direction:column;gap:1rem}
-h1{font-size:2rem}
-.lead{color:var(--fg);font-size:1.15rem;font-weight:600;line-height:1.4}
-.where{display:flex;align-items:flex-start;gap:.75rem;padding:.9rem 1rem;border-radius:var(--r-tile);background:var(--surface);border:1px dashed var(--lime-edge);color:var(--fg)}
-.where b{display:block;font-size:1.05rem}
-.where span{color:var(--mute);font-size:.95rem}
-.where svg{margin-top:.1rem;color:var(--lime)}
-.btn svg{width:1.6rem;height:1.6rem}
-.mark{width:4rem;height:4rem;border-radius:50%;display:grid;place-items:center;background:rgb(255 90 95/.16);color:var(--bad)}
+h1{font-size:1.75rem}
+.lead{color:var(--fg);font-size:1.125rem;font-weight:400;line-height:1.45}
+.where{display:flex;align-items:flex-start;gap:.75rem;padding:.875rem 1rem;border-radius:var(--r-tile);background:var(--surface);border:1px solid var(--line-hi);color:var(--fg)}
+.where b{display:block;font-size:1rem}
+.where span{color:var(--mute);font-size:.875rem}
+.where svg{margin-top:.1rem;color:var(--mute)}
+.btn svg{width:1.4rem;height:1.4rem}
+.mark{width:4rem;height:4rem;border-radius:50%;display:grid;place-items:center;background:rgb(255 107 107/.12);color:var(--bad)}
 .mark svg{width:2rem;height:2rem}
 .foot{line-height:1.5}
 `;
@@ -102,7 +101,7 @@ export function renderWalletUnlockPage(base: string, lang: PayLanguage, view: Wa
   const paid = view.kind === 'locked' && view.paidToken && /^[A-Za-z0-9_-]{16,64}$/.test(view.paidToken) ? view.paidToken : null;
   // El selector de idioma conserva el «Pagado» que viene del banco (?pagado=).
   const langHref = (l: PayLanguage): string => `${base}?lang=${l}${paid ? `&pagado=${paid}` : ''}`;
-  return `<!doctype html><html lang="${lang}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="robots" content="noindex,nofollow"><meta name="referrer" content="no-referrer"><meta name="theme-color" content="#0f1112"><title>${h(t.title)}</title><style>${CLUB_BASE_CSS}${CHROME_CSS}${UNLOCK_CSS}</style></head><body><main>`
+  return `<!doctype html><html lang="${lang}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="robots" content="noindex,nofollow"><meta name="referrer" content="no-referrer"><meta name="theme-color" content="#0b0d0e"><title>${h(t.title)}</title><style>${CLUB_BASE_CSS}${CHROME_CSS}${UNLOCK_CSS}</style></head><body><main>`
     + topBar(lang, langHref)
     + body(view, t)
     + `</main>${view.kind === 'locked' ? unlockScript(base, lang, t, paid) : ''}</body></html>`;

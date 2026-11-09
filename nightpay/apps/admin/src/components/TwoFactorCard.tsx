@@ -288,7 +288,7 @@ function SetupSteps({
       ) : null}
       <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
         <code style={secretStyle}>{setup.secret}</code>
-        <Button type="button" variant="ghost" onClick={onCopy} style={smallBtn}>
+        <Button type="button" variant="ghost" onClick={onCopy} size="sm">
           {copied ? 'Copiada' : 'Copiar clave'}
         </Button>
       </div>
@@ -318,10 +318,9 @@ const titleStyle: CSSProperties = {
   margin: 0,
   fontSize: 'var(--np-t-h4)',
   fontWeight: 600,
-  letterSpacing: '-0.02em',
 };
 
-const textStyle: CSSProperties = { margin: 0, fontSize: '0.85rem', lineHeight: 1.5, color: 'var(--np-text-mute)' };
+const textStyle: CSSProperties = { margin: 0, fontSize: '0.875rem', lineHeight: 1.5, color: 'var(--np-text-mute)' };
 
 const formStyle: CSSProperties = { display: 'flex', flexDirection: 'column', gap: '0.875rem' };
 
@@ -344,7 +343,7 @@ const qrStyle: CSSProperties = {
 
 const secretStyle: CSSProperties = {
   fontFamily: 'var(--np-font-mono)',
-  fontSize: '0.85rem',
+  fontSize: '0.875rem',
   letterSpacing: '0.08em',
   padding: '0.4rem 0.6rem',
   background: 'var(--np-surface-2)',
@@ -352,4 +351,3 @@ const secretStyle: CSSProperties = {
   wordBreak: 'break-all',
 };
 
-const smallBtn: CSSProperties = { height: '2.25rem', padding: '0 0.875rem', fontSize: '0.8125rem' };

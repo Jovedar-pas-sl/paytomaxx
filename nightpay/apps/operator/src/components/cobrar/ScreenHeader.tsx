@@ -8,36 +8,24 @@ import styles from './cobrar.module.css';
 /** Color CSS de una sección (var(--np-sec-…)). */
 export type SectionVar = string;
 
-/** Pill de color (el puesto, la sección, «2 secciones»). Con dos colores, partida. */
-export function Chip({ colors, children }: { colors: readonly SectionVar[]; children: ReactNode }) {
-  const [c, c2] = colors;
+/**
+ * Chip del puesto o la sección (Grafito): un punto de su color y el nombre,
+ * sobre superficie neutra; el color nunca va solo. Sin color, solo el texto
+ * («2 secciones»: los nombres van en las líneas).
+ */
+export function Chip({ color, children }: { color?: SectionVar | null; children: ReactNode }) {
   return (
-    <span className={`${styles.chip}${c2 ? ` ${styles.chipDuo}` : ''}`} style={{ '--c': c, '--c2': c2 } as CSSProperties}>
+    <span className={styles.chip}>
+      {color ? <i style={{ '--c': color } as CSSProperties} aria-hidden="true" /> : null}
       {children}
     </span>
   );
 }
 
-/** La franja bajo la cabecera: de qué es el cobro (se parte con varias secciones). */
-export function Stripe({
-  parts,
-  height,
-}: {
-  parts: ReadonlyArray<{ color: SectionVar; weight: number }>;
-  height?: string;
-}) {
-  return (
-    <div className={styles.stripe} style={height ? { height } : undefined} aria-hidden="true">
-      {parts.map((p, i) => (
-        <i key={i} style={{ '--c': p.color, flex: Math.max(p.weight, 1) } as CSSProperties} />
-      ))}
-    </div>
-  );
-}
-
 /**
- * Cabecera de las pantallas de cobrar (maqueta «ah»): la loseta del logo (o
- * «atrás»), el título, quién cobra y el chip del puesto o la sección.
+ * Cabecera de las pantallas de cobrar (60 px, con su filete): el logo (o
+ * «atrás»), el título, quién cobra y el chip del puesto o la sección. Sin
+ * franja de color debajo (Grafito: la sección va en el chip, con su nombre).
  */
 export function ScreenHeader({
   title,
@@ -52,7 +40,7 @@ export function ScreenHeader({
   chip?: ReactNode;
   /** Con «atrás» en vez del logo. */
   onBack?: () => void;
-  /** Tocar el logo (menú: tema y salir). */
+  /** Tocar el logo (el menú: «Salir»). */
   onLogo?: () => void;
   /** Un botón más, antes del chip (p. ej. «Mi QR» de la chica). */
   extra?: ReactNode;
@@ -64,7 +52,7 @@ export function ScreenHeader({
           <IconBack />
         </button>
       ) : onLogo ? (
-        <button type="button" className={styles.logoTile} onClick={onLogo} aria-label="Menú: tema y salir">
+        <button type="button" className={styles.logoTile} onClick={onLogo} aria-label="Menú">
           <Logo variant="symbol" height="2.625rem" alt="" />
         </button>
       ) : (

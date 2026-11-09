@@ -171,12 +171,11 @@ export function OperatorsPanel({ isOwner }: Props) {
                       <td data-label="Acciones" data-card="actions" style={{ textAlign: 'right' }}>
                         <Button
                           variant="ghost"
-                          size="md"
+                          size="sm"
                           onClick={(e) => {
                             e.stopPropagation();
                             setSelectedId(op.id);
                           }}
-                          style={{ height: '2.25rem', padding: '0 1rem', fontSize: '0.8125rem' }}
                         >
                           Ver
                         </Button>
@@ -233,7 +232,7 @@ function hasEarnings(o: Operator): boolean {
 function CamarerosCard({ camareros, onOpen }: { camareros: Operator[]; onOpen: (id: string) => void }) {
   return (
     <section style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }} aria-labelledby="np-camareros">
-      <h3 id="np-camareros" style={{ ...sectionTitle, fontSize: '1.0625rem' }}>
+      <h3 id="np-camareros" style={{ ...sectionTitle, fontSize: '1rem' }}>
         Camareros · su parte de las invitaciones
       </h3>
       <Card className="np-table-host" style={{ padding: 0, overflow: 'hidden' }}>
@@ -267,12 +266,11 @@ function CamarerosCard({ camareros, onOpen }: { camareros: Operator[]; onOpen: (
                   <td data-label="Acciones" data-card="actions" style={{ textAlign: 'right' }}>
                     <Button
                       variant="ghost"
-                      size="md"
+                      size="sm"
                       onClick={(e) => {
                         e.stopPropagation();
                         onOpen(c.id);
                       }}
-                      style={{ height: '2.25rem', padding: '0 1rem', fontSize: '0.8125rem' }}
                     >
                       Ver
                     </Button>
@@ -497,17 +495,17 @@ const sectionTitle: CSSProperties = {
   margin: 0,
   fontSize: 'var(--np-t-h2)',
   fontWeight: 600,
-  letterSpacing: '-0.02em',
 };
 
 const helpFilter: CSSProperties = {
   display: 'flex',
   alignItems: 'center',
   gap: '0.5rem',
-  fontSize: '0.85rem',
-  border: '1px solid var(--np-border)',
-  borderRadius: 'var(--np-r-pill)',
-  padding: '0.4rem 0.875rem',
+  fontSize: '0.875rem',
+  minHeight: 'var(--np-filter-h)',
+  border: '1px solid var(--np-border-hi)',
+  borderRadius: 'var(--np-r-sm)',
+  padding: '0 0.75rem',
   cursor: 'pointer',
 };
 
@@ -526,7 +524,7 @@ const urlCode: CSSProperties = {
   alignItems: 'center',
   padding: '0 0.875rem',
   fontFamily: 'var(--np-font-mono)',
-  fontSize: '0.7rem',
+  fontSize: '0.75rem',
   background: 'var(--np-bg)',
   color: 'var(--np-text-mute)',
   border: '1px solid var(--np-border)',

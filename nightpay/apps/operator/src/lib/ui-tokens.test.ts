@@ -1,10 +1,10 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
-// Los grises y bordes de @nightpay/ui medidos (revisión visual de 2026-10-23):
-// si alguien los vuelve a bajar, esta prueba lo dice. WCAG 2.x: 4,5:1 texto,
-// 3:1 bordes de lo que se toca (1.4.11); para las ayudas pequeñas en oscuro
-// se pide 7:1 (lo que Apple pide a los colores propios con letra pequeña).
+// Los grises y bordes de @nightpay/ui, dirección Grafito (2-nov-2026): si
+// alguien los vuelve a bajar, esta prueba lo dice. WCAG 2.x: 4,5:1 texto, 3:1
+// bordes de lo que se toca (1.4.11); para las ayudas pequeñas en oscuro se
+// pide 7:1 (lo que Apple pide a los colores propios con letra pequeña).
 
 // Sin \r: en Windows git deja los ficheros con CRLF.
 const STYLES = readFileSync(new URL('../../../../packages/ui/src/styles.css', import.meta.url), 'utf8').replace(/\r\n/g, '\n');
@@ -33,14 +33,20 @@ function contrast(a: string, b: string): number {
 
 const DARK = tokens(":root,\n[data-theme='dark']");
 const LIGHT = tokens("[data-theme='light']");
+const ROOT = tokens(':root');
 
 describe('grises y bordes del tema oscuro', () => {
   const t = DARK;
   it('textos secundarios: ayudas ≥ 7:1 sobre el fondo y ≥ 6:1 aún sobre surface-3', () => {
     expect(contrast(t['--np-text-dim']!, t['--np-bg']!)).toBeGreaterThanOrEqual(7);
     expect(contrast(t['--np-text-dim']!, t['--np-surface-3']!)).toBeGreaterThanOrEqual(6);
-    expect(contrast(t['--np-text-mute']!, t['--np-bg']!)).toBeGreaterThanOrEqual(11);
-    expect(contrast(t['--np-text-label']!, t['--np-surface-2']!)).toBeGreaterThanOrEqual(10);
+    expect(contrast(t['--np-text-mute']!, t['--np-bg']!)).toBeGreaterThanOrEqual(10);
+    expect(contrast(t['--np-text-label']!, t['--np-surface-2']!)).toBeGreaterThanOrEqual(9);
+  });
+
+  it('tres niveles de texto que se distinguen entre sí', () => {
+    expect(contrast(t['--np-text']!, t['--np-bg']!)).toBeGreaterThan(contrast(t['--np-text-mute']!, t['--np-bg']!) + 4);
+    expect(contrast(t['--np-text-mute']!, t['--np-bg']!)).toBeGreaterThan(contrast(t['--np-text-dim']!, t['--np-bg']!) + 2);
   });
 
   it('el borde de lo que se toca se ve: ≥ 3:1 sobre el fondo y las superficies', () => {
@@ -53,40 +59,55 @@ describe('grises y bordes del tema oscuro', () => {
     expect(contrast(t['--np-danger-text']!, t['--np-bg']!)).toBeGreaterThanOrEqual(7);
     expect(contrast(t['--np-danger-text']!, t['--np-surface']!)).toBeGreaterThanOrEqual(7);
   });
+
+  it('la lima lleva tinta encima (≥ 11:1)', () => {
+    expect(contrast(t['--np-on-accent']!, t['--np-accent']!)).toBeGreaterThanOrEqual(11);
+  });
 });
 
-describe('grises y bordes del tema claro', () => {
+describe('resultados: colores planos y profundos con texto crema', () => {
+  it('PAGADO ≥ 10:1, NO PAGADO ≥ 9:1 y CADUCADO ≥ 8:1', () => {
+    expect(contrast(ROOT['--np-outcome-ink']!, ROOT['--np-outcome-paid']!)).toBeGreaterThanOrEqual(10);
+    expect(contrast(ROOT['--np-outcome-ink']!, ROOT['--np-outcome-failed']!)).toBeGreaterThanOrEqual(9);
+    expect(contrast(ROOT['--np-outcome-ink']!, ROOT['--np-outcome-expired']!)).toBeGreaterThanOrEqual(8);
+  });
+
+  it('sin degradados, halos ni textura 0101 en las fichas', () => {
+    expect(STYLES).toMatch(/--np-lime-glow: transparent;/);
+    expect(STYLES).toMatch(/--np-bits: none;/);
+    expect(STYLES).toMatch(/--np-primary-shadow: none;/);
+    expect(STYLES).not.toMatch(/--np-outcome-paid: radial-gradient/);
+  });
+});
+
+describe('grises y bordes del tema claro (solo el panel)', () => {
   const t = LIGHT;
-  it('ayudas ≥ 5:1 sobre la crema y sobre surface-2', () => {
+  it('ayudas ≥ 5:1 sobre el papel y sobre surface-2', () => {
     expect(contrast(t['--np-text-dim']!, t['--np-bg']!)).toBeGreaterThanOrEqual(5);
     expect(contrast(t['--np-text-dim']!, t['--np-surface-2']!)).toBeGreaterThanOrEqual(5);
     expect(contrast(t['--np-success']!, t['--np-bg']!)).toBeGreaterThanOrEqual(6);
     expect(contrast(t['--np-danger-text']!, t['--np-bg']!)).toBeGreaterThanOrEqual(4.5);
   });
 
-  it('el borde de lo que se toca se ve: ≥ 3:1 sobre la crema y las superficies', () => {
+  it('el borde de lo que se toca se ve: ≥ 3:1 sobre el papel y las superficies', () => {
     for (const bg of ['--np-bg', '--np-surface', '--np-surface-2']) {
       expect(contrast(t['--np-border-hi']!, t[bg]!), bg).toBeGreaterThanOrEqual(3);
     }
   });
 
-  it('la pill lima lleva borde de tinta (no se funde con la crema)', () => {
-    expect(STYLES).toMatch(/--np-primary-shadow: inset 0 0 0 1\.5px rgb\(31 44 54 \/ 0\.7\)/);
+  it('la lima lleva filete de tinta (no se funde con el papel)', () => {
+    expect(STYLES).toMatch(/--np-primary-shadow: inset 0 0 0 1px rgb\(21 25 28 \/ 0\.7\)/);
   });
 });
 
 describe('botón sin nada que hacer', () => {
-  it('gris y a trazos, nunca lima apagada (solo el principal y no mientras carga)', () => {
-    const rule = /\.np-btn\[data-variant='primary'\]:disabled:not\(\[data-loading\]\) \{([^}]*)\}/.exec(STYLES)?.[1] ?? '';
+  it('superficie y texto apagado, sin opacidad ni lima apagada (y no mientras carga)', () => {
+    const rule = /\.np-btn:disabled:not\(\[data-loading\]\) \{([^}]*)\}/.exec(STYLES)?.[1] ?? '';
     expect(rule).toContain('background: var(--np-disabled-bg)');
-    expect(rule).toContain('dashed var(--np-disabled-edge)');
-    expect(rule).toContain('opacity: 1');
+    expect(rule).toContain('color: var(--np-disabled-ink)');
+    expect(rule).not.toContain('opacity');
     // El texto del botón vacío se lee en los dos temas.
-    expect(contrast(DARK['--np-text-dim']!, DARK['--np-surface-2']!)).toBeGreaterThanOrEqual(7);
+    expect(contrast(DARK['--np-text-dim']!, DARK['--np-surface-2']!)).toBeGreaterThanOrEqual(6.5);
     expect(contrast(LIGHT['--np-text-dim']!, LIGHT['--np-surface-2']!)).toBeGreaterThanOrEqual(5);
-  });
-
-  it('el halo del lima, contenido', () => {
-    expect(STYLES).toMatch(/--np-lime-glow: rgb\(199 211 1 \/ 0\.32\)/);
   });
 });

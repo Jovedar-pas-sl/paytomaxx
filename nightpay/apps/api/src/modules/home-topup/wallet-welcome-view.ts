@@ -16,18 +16,17 @@ import { HOME_TOPUP_TEXT } from './home-topup-text';
  */
 
 export const WELCOME_CSS = `
-.wel{gap:.6rem}
-.wel .kick{color:var(--lime)}
+.wel{gap:.625rem}
 .wel .done{text-align:center}
-.fqr{display:flex;flex-direction:column;align-items:center;gap:.55rem;margin-top:.35rem;padding-top:.85rem;border-top:1px solid var(--line);text-align:center}
-.fqr .fqrt{color:var(--fg);font-weight:800}
-.fqri{width:min(15rem,72vw);padding:.4rem;border-radius:18px;background:var(--cream);box-shadow:0 0 0 3px var(--lime-edge)}
+.fqr{display:flex;flex-direction:column;align-items:center;gap:.5rem;margin-top:.35rem;padding-top:.875rem;border-top:1px solid var(--line);text-align:center}
+.fqr .fqrt{color:var(--fg);font-weight:600}
+.fqri{width:min(15rem,72vw);padding:.4rem;border-radius:var(--r);background:var(--cream)}
 .fqri svg{display:block;width:100%;height:auto}
 .rcpv{position:fixed;inset:0;z-index:50;display:flex;flex-direction:column;align-items:center;gap:1rem;overflow:auto;padding:calc(1rem + env(safe-area-inset-top)) 1rem calc(1rem + env(safe-area-inset-bottom));background:var(--scrim);-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px)}
 .rcpv>:first-child{margin-top:auto}
 .rcpv>:last-child{margin-bottom:auto}
-.rcpv img{display:block;max-width:100%;max-height:68vh;border-radius:18px;box-shadow:0 18px 40px -16px rgb(0 0 0/.7)}
-.rcpv p{max-width:22rem;color:var(--fg);font-weight:600;text-align:center}
+.rcpv img{display:block;max-width:100%;max-height:68vh;border-radius:var(--r);box-shadow:var(--sh-dialog)}
+.rcpv p{max-width:22rem;color:var(--fg);font-weight:500;text-align:center}
 .rcpv .btn{flex:none;max-width:20rem}
 `;
 
@@ -104,8 +103,9 @@ export function fichaQrBlock(lang: PayLanguage, svg: string): string {
 
 /**
  * El comprobante, en el propio móvil (sin pedir nada al servidor): un PNG de
- * 1080 px de ancho dibujado en un canvas con la letra de la página (si no
- * llega, con la del sistema). El QR se traza con su propio dibujo (Path2D del
+ * 1080 px de ancho dibujado en un canvas con las letras de la página
+ * (Instrument Sans y Manrope; si no llegan, la del sistema) y los colores de
+ * Grafito: sin lima ni mayúsculas, solo la placa crema del QR. El QR se traza con su propio dibujo (Path2D del
  * SVG de ficha-qr.ts: sin imágenes que «manchen» el canvas). Solo va en la
  * página con la bienvenida (wallet-page.ts). Lo puro (rcpWrap, rcpHeight,
  * rcpKind) se prueba aparte.
@@ -128,30 +128,29 @@ function rcpFit(x,text,weight,size,family,maxW){var s=size;x.font=weight+' '+s+'
 function rcpQr(){var box=document.getElementById('fichaQr'),s=box&&!box.hidden?box.querySelector('svg'):null;
  if(!s||typeof Path2D==='undefined')return null;var p=s.querySelector('path[stroke]'),vb=s.viewBox&&s.viewBox.baseVal;
  return p&&vb&&vb.width?{d:p.getAttribute('d'),n:vb.width}:null;}
-function rcpDraw(d,logo,qr){var W=1080,P=72,QS=600,SYS='system-ui,-apple-system,Segoe UI,Roboto,sans-serif',NUM='OxioManrope,'+SYS,maxW=W-2*P-96;
+function rcpDraw(d,logo,qr){var W=1080,P=72,QS=600,SYS='OxioSans,system-ui,-apple-system,Segoe UI,Roboto,sans-serif',NUM='OxioManrope,'+SYS,maxW=W-2*P-96;
  var m=document.createElement('canvas').getContext('2d');m.font='600 38px '+SYS;var show=rcpWrap(m,qr?d.show:d.showNoQr,maxW);
- m.font='600 31px '+SYS;var priv=qr?rcpWrap(m,d.private,maxW):[];m.font='500 31px '+SYS;var keep=rcpWrap(m,d.noExpiry,maxW);
+ m.font='500 31px '+SYS;var priv=qr?rcpWrap(m,d.private,maxW):[];m.font='400 31px '+SYS;var keep=rcpWrap(m,d.noExpiry,maxW);
  var H=rcpHeight(!!qr,show.length,priv.length+keep.length),c=document.createElement('canvas');c.width=W;c.height=H;var x=c.getContext('2d'),y;
- x.fillStyle='#0f1112';x.fillRect(0,0,W,H);
- if(logo&&logo.complete&&logo.naturalWidth)x.drawImage(logo,P,96,Math.round(52*logo.naturalWidth/logo.naturalHeight),52);
- x.textAlign='right';x.fillStyle='#a7b0b8';x.font='500 31px '+SYS;x.fillText(d.when,W-P,134);
- rcpRound(x,P/2,200,W-P,H-256,44);x.fillStyle='#15181b';x.fill();x.lineWidth=3;x.strokeStyle='#2a3036';x.stroke();
- x.textAlign='center';x.fillStyle='#c7d301';x.font='700 30px '+SYS;try{x.letterSpacing='4px';}catch(e){}
- x.fillText(d.kick.toUpperCase(),W/2,292);try{x.letterSpacing='0px';}catch(e){}
- x.fillStyle='#f2efe9';rcpFit(x,d.venue,'700',46,SYS,maxW);x.fillText(d.venue,W/2,356);
- x.fillStyle='#efe9df';rcpFit(x,d.amount,'800',140,NUM,maxW);x.fillText(d.amount,W/2,500);
- x.fillStyle='#c4cbd1';x.font='500 33px '+SYS;x.fillText(d.confirm,W/2,566);
- x.setLineDash([16,12]);x.strokeStyle='#2a3036';x.lineWidth=3;x.beginPath();x.moveTo(P+48,620);x.lineTo(W-P-48,620);x.stroke();x.setLineDash([]);
+ x.fillStyle='#0b0d0e';x.fillRect(0,0,W,H);
+ if(logo&&logo.complete&&logo.naturalWidth)x.drawImage(logo,P,96,Math.round(62*logo.naturalWidth/logo.naturalHeight),62);
+ x.textAlign='right';x.fillStyle='#9da6ae';x.font='400 31px '+SYS;x.fillText(d.when,W-P,134);
+ rcpRound(x,P/2,200,W-P,H-256,36);x.fillStyle='#131618';x.fill();x.lineWidth=2;x.strokeStyle='#262b30';x.stroke();
+ x.textAlign='center';x.fillStyle='#b8c0c6';x.font='500 32px '+SYS;x.fillText(d.kick,W/2,292);
+ x.fillStyle='#f4f2ec';rcpFit(x,d.venue,'600',46,SYS,maxW);x.fillText(d.venue,W/2,356);
+ x.fillStyle='#f4f2ec';rcpFit(x,d.amount,'600',140,NUM,maxW);x.fillText(d.amount,W/2,500);
+ x.fillStyle='#b8c0c6';x.font='400 33px '+SYS;x.fillText(d.confirm,W/2,566);
+ x.setLineDash([16,12]);x.strokeStyle='#262b30';x.lineWidth=2;x.beginPath();x.moveTo(P+48,620);x.lineTo(W-P-48,620);x.stroke();x.setLineDash([]);
  y=620;if(qr){var qx=(W-QS)/2;rcpRound(x,qx-24,668,QS+48,QS+48,36);x.fillStyle='#efe9df';x.fill();
   x.save();x.translate(qx,692);x.scale(QS/qr.n,QS/qr.n);x.strokeStyle='#1f2c36';x.lineWidth=1;x.stroke(new Path2D(qr.d));x.restore();y=1316;}
- y+=92;x.fillStyle='#a7b0b8';x.font='700 30px '+SYS;x.fillText(d.saldoLabel.toUpperCase(),W/2,y);
- y+=92;x.fillStyle='#f2efe9';rcpFit(x,d.saldo,'800',84,NUM,maxW);x.fillText(d.saldo,W/2,y);
+ y+=92;x.fillStyle='#9da6ae';x.font='500 32px '+SYS;x.fillText(d.saldoLabel,W/2,y);
+ y+=92;x.fillStyle='#f4f2ec';rcpFit(x,d.saldo,'700',84,NUM,maxW);x.fillText(d.saldo,W/2,y);
  y+=84;x.font='600 38px '+SYS;show.forEach(function(l,i){x.fillText(l,W/2,y+i*52);});y+=(show.length-1)*52+14;
- x.fillStyle='#ffb020';x.font='600 31px '+SYS;priv.forEach(function(l){y+=44;x.fillText(l,W/2,y);});
- x.fillStyle='#a7b0b8';x.font='500 31px '+SYS;keep.forEach(function(l){y+=44;x.fillText(l,W/2,y);});
+ x.fillStyle='#f5b342';x.font='500 31px '+SYS;priv.forEach(function(l){y+=44;x.fillText(l,W/2,y);});
+ x.fillStyle='#9da6ae';x.font='400 31px '+SYS;keep.forEach(function(l){y+=44;x.fillText(l,W/2,y);});
  return c;}
 function rcpFonts(){var f=document.fonts;if(!f||!f.load)return Promise.resolve();
- return Promise.race([f.load('800 80px OxioManrope').catch(function(){}),new Promise(function(r){setTimeout(r,1500);})]);}
+ return Promise.race([Promise.all([f.load('600 80px OxioManrope').catch(function(){}),f.load('500 32px OxioSans').catch(function(){})]),new Promise(function(r){setTimeout(r,1500);})]);}
 function rcpPng(c){return new Promise(function(ok,ko){c.toBlob(function(b){if(b)ok(b);else ko(new Error('png'));},'image/png');});}
 function rcpFile(b,name){try{return new File([b],name,{type:'image/png'});}catch(e){return null;}}
 function rcpDownload(b,name){var u=URL.createObjectURL(b),a=document.createElement('a');a.href=u;a.download=name;document.body.appendChild(a);a.click();a.remove();

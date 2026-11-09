@@ -150,16 +150,16 @@ export function Dashboard({ user, onLogout }: Props) {
           <FichasProvider isOwner={isOwner}>
           <main className="np-app-root" style={mainStyle}>
             <header className="np-panel-header" style={headerStyle}>
-              <div className="np-brand" style={{ display: 'flex', alignItems: 'center', gap: '1.25rem', minWidth: 0 }}>
-                {/* Más pequeño en el móvil (en el escritorio, como siempre). */}
-                <Logo height="clamp(1.75rem, 6vw, 2.25rem)" />
-                <div style={{ borderLeft: '1px solid var(--np-border)', paddingLeft: '1.25rem', minWidth: 0 }}>
+              <div className="np-brand" style={{ display: 'flex', alignItems: 'center', gap: '1rem', minWidth: 0 }}>
+                {/* El logo, pequeño (≈ 18 px de letra): lo que manda es el local. */}
+                <Logo height="1.875rem" />
+                <div style={{ borderLeft: '1px solid var(--np-border)', paddingLeft: '1rem', minWidth: 0 }}>
                   <p style={brandKicker}>Panel · local activo</p>
                   {/* El local en grande: con varios locales, que nadie opere en el que no es. */}
                   <h1 style={brandTitle}>{venue.name ?? user.venueSlug}</h1>
                 </div>
               </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
                 {user.isSuperAdmin ? <VenueSwitcher currentSlug={user.venueSlug} /> : null}
                 <div className="np-header-account" style={{ textAlign: 'right' }}>
                   <span style={userEmail}>{user.email}</span>
@@ -168,8 +168,11 @@ export function Dashboard({ user, onLogout }: Props) {
                     {user.isSuperAdmin ? ' · super-admin' : ''}
                   </span>
                 </div>
-                <ThemeToggle />
-                <Button variant="ghost" className="np-header-account" onClick={() => void logout()} loading={loggingOut}>
+                {/* 36 px como «Salir»; en el móvil, 44 (panel-nav.css). */}
+                <span className="np-theme-toggle">
+                  <ThemeToggle size="sm" />
+                </span>
+                <Button variant="ghost" size="sm" className="np-header-account" onClick={() => void logout()} loading={loggingOut}>
                   Salir
                 </Button>
               </div>
@@ -472,28 +475,29 @@ const mainStyle: CSSProperties = {
 
 const headerStyle: CSSProperties = {
   display: 'flex',
-  alignItems: 'flex-start',
+  alignItems: 'center',
   justifyContent: 'space-between',
-  paddingBottom: '1rem',
+  paddingBottom: '0.75rem',
   borderBottom: '1px solid var(--np-border)',
   flexWrap: 'wrap',
   gap: '1rem',
 };
 
+// Etiqueta 12/500 sin mayúsculas (Grafito).
 const brandKicker: CSSProperties = {
   margin: 0,
-  fontSize: '0.7rem',
+  fontSize: '0.75rem',
+  lineHeight: 1.3,
   color: 'var(--np-text-dim)',
-  letterSpacing: '0.18em',
-  textTransform: 'uppercase',
   fontWeight: 500,
 };
 
+// 22/600: se distingue el local de un vistazo sin comerse la pantalla.
 const brandTitle: CSSProperties = {
-  margin: '0.25rem 0 0',
-  fontSize: 'var(--np-t-h1)',
+  margin: '0.125rem 0 0',
+  fontSize: '1.375rem',
+  lineHeight: 1.2,
   fontWeight: 600,
-  letterSpacing: '-0.03em',
   color: 'var(--np-text)',
   // Por palabras («Luna / Valencia»), no a mitad de una.
   overflowWrap: 'break-word',

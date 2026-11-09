@@ -29,28 +29,30 @@ import type { HomeTopUpPageView } from './home-topup.service';
 
 const HOME_CSS = `${TOPUP_CSS}
 .h{max-width:26rem;margin:0 auto;padding:.25rem 1rem calc(2rem + env(safe-area-inset-bottom));display:flex;flex-direction:column;gap:1rem}
-.hh{position:relative;isolation:isolate;overflow:hidden;padding:1.15rem 1.15rem 1.25rem;border-radius:24px;display:flex;flex-direction:column;gap:.55rem;background:var(--bits),linear-gradient(135deg,var(--green-1) 0%,var(--green-2) 55%,var(--green-3) 100%);box-shadow:0 0 0 1px var(--lime-edge),0 18px 40px -20px var(--lime-glow)}
-.hh::after{content:'';position:absolute;inset:0;z-index:-1;background:linear-gradient(118deg,transparent 38%,var(--lime-soft) 50%,transparent 62%);pointer-events:none}
-.hh .kick{color:var(--lime)}
-.hh h1{font-size:clamp(1.7rem,8.4vw,2.2rem);color:var(--cream);letter-spacing:-.02em}
-.hh h1 span{color:var(--lime)}
-.hh p{color:var(--cream)}
-.card{border:1px solid var(--line);border-radius:var(--r);padding:1.1rem;display:flex;flex-direction:column;gap:.75rem;background:var(--surface)}
-.card h2{font-size:1.25rem;line-height:1.2}
-.card.mine{border:1.5px solid var(--lime-edge)}
+.hh{display:flex;flex-direction:column;gap:.375rem;padding:.5rem 0 .25rem}
+.hh h1{font-size:1.75rem;color:var(--fg)}
+.card{border:1px solid var(--line);border-radius:var(--r);padding:1rem;display:flex;flex-direction:column;gap:.75rem;background:var(--surface)}
+.card h2{font-size:1.125rem;line-height:1.25}
+.card.mine{border-color:var(--line-hi)}
 .card.off{border-color:var(--warn)}
 
-.or{font-weight:700;color:var(--fg)}
-.terms{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:.7rem}
-.terms li{display:grid;grid-template-columns:1.6rem 1fr;gap:.6rem;align-items:start;color:var(--mute);font-size:.95rem;line-height:1.45}
-.terms li svg{width:1.4rem;height:1.4rem;margin-top:.05rem;fill:none;stroke:var(--lime);stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.or{font-weight:500;color:var(--fg)}
+.terms{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:.75rem}
+.terms li{display:grid;grid-template-columns:1.5rem 1fr;gap:.625rem;align-items:start;color:var(--mute);font-size:.875rem;line-height:1.45}
+.terms li svg{width:1.25rem;height:1.25rem;margin-top:.05rem;fill:none;stroke:var(--mute);stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
 .terms li b{color:var(--fg)}
-.small{font-size:.85rem}
+.small{font-size:.875rem}
 .foot{text-align:center}
-.topup .paybar{position:sticky;bottom:0;z-index:5;display:flex;flex-direction:column;gap:.5rem;margin:0 -1.1rem -1.1rem;padding:.7rem 1.1rem calc(.85rem + env(safe-area-inset-bottom));border-radius:0 0 var(--r) var(--r);background:var(--surface);text-align:center}
-.topup .paybar::before{content:'';position:absolute;left:0;right:0;bottom:100%;height:.75rem;background:linear-gradient(to top,var(--surface),rgb(21 24 27/0));pointer-events:none}
-.topup .paybar .btn{font-size:1.125rem}
-${PAY_MARKS_CSS}`;
+.topup .paybar{position:sticky;bottom:0;z-index:5;display:flex;flex-direction:column;gap:.5rem;margin:0 -1rem -1rem;padding:.75rem 1rem calc(.875rem + env(safe-area-inset-bottom));border-radius:0 0 var(--r) var(--r);background:var(--surface);text-align:center}
+.topup .paybar::before{content:'';position:absolute;left:0;right:0;bottom:100%;height:.75rem;background:linear-gradient(to top,var(--surface),rgb(19 22 24/0));pointer-events:none}
+.topup .paybar .btn{font-size:1.0625rem}
+${PAY_MARKS_CSS}/* Móviles bajos (360×740): más compacto, para que el desglose con la comisión quede por encima de la barra de pagar. */
+@media (max-height:780px){
+.h{gap:.75rem}
+.hh h1{font-size:1.5rem}
+.amts span{min-height:3rem}
+.tform{gap:.625rem}
+}`;
 
 /** Iconos de las condiciones (decorativos). */
 const ICON = {
@@ -212,7 +214,7 @@ export function renderHomeTopUpPage(code: string, lang: PayLanguage, view: HomeT
   const heading = h(t.heading).split('{venue}').join(`<span>${venue}</span>`);
   return `<!DOCTYPE html>
 <html lang="${PAY_TEXT[lang].htmlLang}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta name="robots" content="noindex"><meta name="referrer" content="no-referrer"><meta name="theme-color" content="#0f1112"><title>${h(`${t.title} · ${view.venueName}`)}</title>
+<meta name="robots" content="noindex"><meta name="referrer" content="no-referrer"><meta name="theme-color" content="#0b0d0e"><title>${h(`${t.title} · ${view.venueName}`)}</title>
 <style>${CLUB_BASE_CSS}${CHROME_CSS}${HOME_CSS}</style></head><body>
 ${topBar(lang)}
 <main class="h">
@@ -251,7 +253,7 @@ export function renderHomeTopUpGone(lang: PayLanguage): string {
   const h = escapeHtml;
   return `<!DOCTYPE html>
 <html lang="${PAY_TEXT[lang].htmlLang}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta name="robots" content="noindex"><meta name="referrer" content="no-referrer"><meta name="theme-color" content="#0f1112"><title>${h(t.notFoundTitle)}</title>
+<meta name="robots" content="noindex"><meta name="referrer" content="no-referrer"><meta name="theme-color" content="#0b0d0e"><title>${h(t.notFoundTitle)}</title>
 <style>${CLUB_BASE_CSS}${CHROME_CSS}${HOME_CSS}</style></head><body>
 ${topBar(lang)}
 <main class="h">

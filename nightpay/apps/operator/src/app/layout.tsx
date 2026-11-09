@@ -16,14 +16,14 @@ const sans = localFont({
 // Cifras, importes y títulos: Manrope 800 (marca OxioCard). La variable
 // sigue llamándose --font-mono.
 const mono = localFont({
-  src: '../../../../packages/ui/fonts/manrope.woff2',
-  weight: '800',
+  src: '../../../../packages/ui/fonts/manrope-var.woff2',
+  weight: '600 800',
   variable: '--font-mono',
   display: 'swap',
 });
 
 export const metadata: Metadata = {
-  title: 'OxioPay — Operadora',
+  title: 'OxioPay — Personal',
 };
 
 export const viewport: Viewport = {
@@ -31,20 +31,18 @@ export const viewport: Viewport = {
   initialScale: 1,
   // Hasta los bordes en iPhone: env(safe-area-inset-*) solo funciona con 'cover'.
   viewportFit: 'cover',
-  themeColor: [
-    { media: '(prefers-color-scheme: dark)', color: '#0f1112' },
-    { media: '(prefers-color-scheme: light)', color: '#efe9df' },
-  ],
+  themeColor: '#0b0d0e',
 };
 
-// El tema (claro u oscuro) y, si el local lo tiene, el modo «sala» (contraste
+// Siempre oscuro (Grafito): dentro del local, un móvil en modo claro enseñaba
+// la crema a toda luz. Y, si el local lo tiene, el modo «sala» (contraste
 // alto): antes de pintar, para que no cambie al cargar.
-const themeInitScript = `${SALA_INIT_SCRIPT}(function(){try{var s=localStorage.getItem('np-theme');if(s==='light'||s==='dark'){document.documentElement.setAttribute('data-theme',s);}else if(window.matchMedia&&window.matchMedia('(prefers-color-scheme: light)').matches){document.documentElement.setAttribute('data-theme','light');}else{document.documentElement.setAttribute('data-theme','dark');}}catch(e){document.documentElement.setAttribute('data-theme','dark');}})();`;
+const themeInitScript = `${SALA_INIT_SCRIPT}(function(){document.documentElement.setAttribute('data-theme','dark');})();`;
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     // np-staff: en el móvil, letra y huecos más justos (@nightpay/ui/styles.css).
-    <html lang="es" className={`np-staff ${sans.variable} ${mono.variable}`} suppressHydrationWarning>
+    <html lang="es" data-theme="dark" className={`np-staff np-touch ${sans.variable} ${mono.variable}`} suppressHydrationWarning>
       <head>
         <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
       </head>

@@ -5,6 +5,7 @@ import { Button, Card, Input } from '@nightpay/ui';
 import type { PendingTopUpView } from '@nightpay/contracts';
 import { assignPendingTopUp, fetchPendingTopUps } from '@/lib/api';
 import { formatDateTime } from '@/lib/dates';
+import { FILTER_FIELD } from '@/lib/filter-field';
 import { formatEur } from '@/lib/money';
 import { assignedText, normalizeSaldoCode, saldoCodeProblem } from '@/lib/pending-topups';
 import { useVenueTimezone } from '@/lib/venue-context';
@@ -39,7 +40,7 @@ export function PendingTopUps() {
     <Card style={{ padding: '1rem', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
       <div style={headerStyle}>
         <h3 style={titleStyle}>Recargas pendientes de asignar</h3>
-        <Button variant="ghost" style={smallBtn} onClick={() => void load()}>
+        <Button variant="ghost" size="sm" onClick={() => void load()}>
           Actualizar
         </Button>
       </div>
@@ -112,9 +113,10 @@ function AssignRow({ row, when, onAssigned }: { row: PendingTopUpView; when: str
             value={code}
             onChange={(e) => setCode(e.target.value.toUpperCase())}
             autoComplete="off"
+            style={FILTER_FIELD}
           />
         </div>
-        <Button type="submit" style={smallBtn} loading={busy}>
+        <Button type="submit" size="sm" loading={busy}>
           Asignar
         </Button>
       </form>
@@ -128,8 +130,7 @@ function AssignRow({ row, when, onAssigned }: { row: PendingTopUpView; when: str
 }
 
 const headerStyle: CSSProperties = { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.75rem' };
-const titleStyle: CSSProperties = { margin: 0, fontSize: '1rem', fontWeight: 700 };
-const smallBtn: CSSProperties = { height: '2.25rem', padding: '0 0.875rem' };
+const titleStyle: CSSProperties = { margin: 0, fontSize: '1rem', fontWeight: 600 };
 const mutedStyle: CSSProperties = { margin: 0, color: 'var(--np-text-mute)', fontSize: '0.875rem' };
 const listStyle: CSSProperties = { listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: '0.5rem' };
 const rowStyle: CSSProperties = {

@@ -1,8 +1,8 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { MAX_CASH_TOP_UP_CENTS, walletCardUrl, type ReceptionOptions } from '@nightpay/contracts';
-import { AmountKeypad, Button, Card } from '@nightpay/ui';
+import { AmountKeypad, Button } from '@nightpay/ui';
 import { createPayment, fetchTerminals, type CreatedPayment } from '@/lib/api';
 import { PENDING_CONFIRM_TEXT } from '@/lib/pax-api';
 import { blankCodeFrom, tapChip } from '@/lib/chip-tap';
@@ -35,6 +35,7 @@ import { ActivePayment } from '../ActivePayment';
 import { PaxChargeFlow } from '../pax/PaxChargeFlow';
 import { PinPad } from '../PinPad';
 import { StaffOutcome } from '../StaffOutcome';
+import r from './reception.module.css';
 import { useChipReader } from './use-chip-via';
 
 type Step =
@@ -277,20 +278,18 @@ export function ReceptionFlow({ on, onDone }: Props) {
 
   if (step.kind === 'topUp' || step.kind === 'topUpPending' || step.kind === 'topUpNotPaid') {
     return (
-      <Card style={cardStyle}>
-        <p style={kicker}>Recepción</p>
-        <p className="np-num" style={amountStyle}>
-          {formatEur(amountCents)}
-        </p>
-        {step.kind === 'topUp' ? <p style={big}>Comprobando la recarga…</p> : null}
+      <div className={r.card}>
+        <p className={r.kicker}>Recepción</p>
+        <p className={r.amount}>{formatEur(amountCents)}</p>
+        {step.kind === 'topUp' ? <p className={r.lead}>Comprobando la recarga…</p> : null}
         {step.kind === 'topUpPending' ? (
-          <p role="status" style={{ ...big, color: 'var(--np-warning)' }}>
+          <p role="status" className={`${r.lead} ${r.warn}`}>
             {PENDING_CONFIRM_TEXT}
           </p>
         ) : null}
         {step.kind === 'topUpNotPaid' ? (
           <>
-            <p role="alert" style={{ ...big, color: 'var(--np-danger)' }}>
+            <p role="alert" className={`${r.lead} ${r.bad}`}>
               La recarga no consta como cobrada: no se ha sumado nada.
             </p>
             <Button
@@ -313,11 +312,11 @@ export function ReceptionFlow({ on, onDone }: Props) {
           </Button>
         )}
         {error ? (
-          <p role="alert" style={errorStyle}>
+          <p role="alert" className={r.error}>
             {error}
           </p>
         ) : null}
-      </Card>
+      </div>
     );
   }
 
@@ -352,8 +351,8 @@ export function ReceptionFlow({ on, onDone }: Props) {
   }
 
   return (
-    <Card style={cardStyle}>
-      <p style={kicker}>Recepción</p>
+    <div className={r.card}>
+      <p className={r.kicker}>Recepción</p>
       {step.kind === 'amount' ? (
         <>
           <AmountKeypad valueCents={amountCents} onChange={setAmountCents} label="Importe a cargar" disabled={busy} />
@@ -368,24 +367,21 @@ export function ReceptionFlow({ on, onDone }: Props) {
 
       {step.kind === 'method' ? (
         <>
-          <p className="np-num" style={amountStyle}>
-            {formatEur(amountCents)}
-          </p>
-          <p style={big}>¿Cómo paga?</p>
-          {!options ? <p style={muted}>Cargando…</p> : null}
+          <p className={r.amount}>{formatEur(amountCents)}</p>
+          <p className={r.lead}>¿Cómo paga?</p>
+          {!options ? <p className={r.text}>Cargando…</p> : null}
           <Button size="lg" disabled={!options?.card} onClick={() => setStep({ kind: 'target', method: 'card' })}>
             {cardMethodLabel(on)}
           </Button>
           <Button
-            size="lg"
             variant="ghost"
             disabled={!options?.cash || topUpCharge(options, amountCents).totalCents > MAX_CASH_TOP_UP_CENTS}
             onClick={() => setStep({ kind: 'target', method: 'cash' })}
           >
             Efectivo
           </Button>
-          {options && !options.cash && options.cashBlockedReason ? <p style={note}>{options.cashBlockedReason}</p> : null}
-          {amountCents > MAX_CASH_TOP_UP_CENTS ? <p style={note}>En efectivo, como mucho 999,99 € por recarga.</p> : null}
+          {options && !options.cash && options.cashBlockedReason ? <p className={r.note}>{options.cashBlockedReason}</p> : null}
+          {amountCents > MAX_CASH_TOP_UP_CENTS ? <p className={r.note}>En efectivo, como mucho 999,99 € por recarga.</p> : null}
           <Button
             variant="ghost"
             onClick={() => {
@@ -401,10 +397,8 @@ export function ReceptionFlow({ on, onDone }: Props) {
 
       {step.kind === 'target' ? (
         <>
-          <p className="np-num" style={amountStyle}>
-            {formatEur(amountCents)}
-          </p>
-          <p style={big}>¿A qué saldo?</p>
+          <p className={r.amount}>{formatEur(amountCents)}</p>
+          <p className={r.lead}>¿A qué saldo?</p>
           <Button size="lg" disabled={busy || reading !== null} onClick={() => void run(() => choose(step.method, { kind: 'new' }))}>
             Saldo nuevo
           </Button>
@@ -414,7 +408,6 @@ export function ReceptionFlow({ on, onDone }: Props) {
             </Button>
           ) : (
             <Button
-              size="lg"
               variant="ghost"
               disabled={busy || !reader.via || !options?.nfc}
               onClick={() =>
@@ -428,7 +421,7 @@ export function ReceptionFlow({ on, onDone }: Props) {
               Recargar su ficha (acercarla)
             </Button>
           )}
-          {reader.note && options?.nfc ? <p style={note}>{reader.note}</p> : null}
+          {reader.note && options?.nfc ? <p className={r.note}>{reader.note}</p> : null}
           <Button variant="ghost" onClick={() => setStep({ kind: 'method' })}>
             Atrás
           </Button>
@@ -437,11 +430,9 @@ export function ReceptionFlow({ on, onDone }: Props) {
 
       {step.kind === 'cash' ? (
         <>
-          <p className="np-num" style={amountStyle}>
-            {formatEur(amountCents)}
-          </p>
-          <p style={big}>{topUpCharge(options, amountCents).text} en efectivo</p>
-          <p style={muted}>
+          <p className={r.amount}>{formatEur(amountCents)}</p>
+          <p className={r.lead}>{topUpCharge(options, amountCents).text} en efectivo</p>
+          <p className={r.text}>
             {step.target.kind === 'card' ? `A su saldo ${step.target.view.codeHint}.` : 'Saldo nuevo.'} Guarda el dinero en la caja y
             pulsa «Cobrado».
           </p>
@@ -477,8 +468,8 @@ export function ReceptionFlow({ on, onDone }: Props) {
 
       {step.kind === 'chip' ? (
         <>
-          <p style={big}>Saldo {step.wallet.code}</p>
-          <p style={muted}>Que haga una foto al código. Ahora, su ficha.</p>
+          <p className={r.lead}>Saldo {step.wallet.code}</p>
+          <p className={r.text}>Que haga una foto al código. Ahora, su ficha.</p>
           {reading ? (
             <Button variant="ghost" onClick={() => reading.abort()}>
               Acerca la ficha y déjala quieta… (cancelar)
@@ -512,32 +503,10 @@ export function ReceptionFlow({ on, onDone }: Props) {
       ) : null}
 
       {error ? (
-        <p role="alert" style={errorStyle}>
+        <p role="alert" className={r.error}>
           {error}
         </p>
       ) : null}
-    </Card>
+    </div>
   );
 }
-
-const cardStyle: CSSProperties = { padding: 'var(--np-pad-card)', display: 'flex', flexDirection: 'column', gap: 'var(--np-gap)', textAlign: 'center' };
-const kicker: CSSProperties = {
-  margin: 0,
-  fontSize: '0.8125rem',
-  fontWeight: 700,
-  letterSpacing: '0.1em',
-  textTransform: 'uppercase',
-  color: 'var(--np-text-mute)',
-};
-const amountStyle: CSSProperties = { margin: 0, fontSize: '2.5rem', lineHeight: 1.15, fontWeight: 700 };
-const muted: CSSProperties = { margin: 0, color: 'var(--np-text-mute)', fontSize: '1rem' };
-const big: CSSProperties = { margin: 0, fontSize: '1.375rem', fontWeight: 700 };
-const errorStyle: CSSProperties = { margin: 0, color: 'var(--np-danger)', fontWeight: 600 };
-const note: CSSProperties = {
-  margin: 0,
-  padding: '0.6rem 0.9rem',
-  border: '1px solid var(--np-border)',
-  borderRadius: 'var(--np-r-md)',
-  fontSize: '0.9rem',
-  color: 'var(--np-text-mute)',
-};

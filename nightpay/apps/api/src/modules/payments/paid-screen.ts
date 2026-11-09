@@ -9,11 +9,12 @@ import type { PayText } from './pay-i18n';
  *    tabulares, y «Enséñaselo al personal». El código es el mismo del
  *    personal (contracts/confirmation-code: 3 cifras hexadecimales, sin O ni
  *    I ni L); aquí no se le añade nada.
- *  - Recién pagado: el verde de la marca con el aro lima, «PAGADO» y el
- *    importe en crema, «hace 0:12» desde que el banco lo autorizó, la hora
- *    con segundos y una franja que se mueve despacio (una captura vieja no se
- *    mueve ni tiene la hora buena). La pantalla no se apaga (Wake Lock)
- *    mientras está a la vista. Solo en el navegador que pagó (`viewerPaid`).
+ *  - Recién pagado: verde plano y profundo (texto 11:1), la marca lima sin
+ *    halo, «Pagado» y el importe, «hace 0:12» desde que el banco lo
+ *    autorizó, la hora con segundos y una marquesina fina con la palabra y la
+ *    hora que se mueve despacio (una captura vieja no se mueve ni tiene la
+ *    hora buena). La pantalla no se apaga (Wake Lock) mientras está a la
+ *    vista. Solo en el navegador que pagó (`viewerPaid`).
  *  - Pasados PAID_FRESH_MS, o en cualquier otro navegador (un /pay reenviado,
  *    el /s de otro móvil): gris, «YA PAGADO · hace 23 min» y «No es un pago
  *    nuevo». El estado lo dice el texto, no solo el color.
@@ -27,40 +28,66 @@ import type { PayText } from './pay-i18n';
 /** Tiempo durante el que «Pagado» se ve en verde con el aro lima (recién pagado). */
 export const PAID_FRESH_MS = 3 * 60_000;
 
-export const PAID_SCREEN_CSS = `
-.paid{position:relative;isolation:isolate;overflow:hidden;width:100%;min-height:100vh;min-height:100svh;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:.45rem;padding:4.25rem 1rem calc(1.75rem + env(safe-area-inset-bottom));background:radial-gradient(120% 80% at 50% 32%,var(--green-3) 0%,var(--green-2) 55%,var(--green-1) 100%);background-color:var(--green-2);color:var(--cream);text-align:center}
+/**
+ * La marquesina antifraude (aquí y en el «Pagado» de la recarga, en /w): una
+ * franja fina con la palabra y la hora que se desplaza despacio (unos 60
+ * px/s); con «reducir movimiento», no se desplaza: se funde despacio. Solo
+ * transform/opacity.
+ */
+export const BAND_CSS = `
+.band{overflow:hidden;display:flex;align-items:center;background:rgb(0 0 0/.2)}
+.band>span{display:flex;flex:none;white-space:nowrap;font-size:.8125rem;font-weight:600;line-height:1;animation:np-band 28s linear infinite;will-change:transform}
+.band i{font-style:normal;padding-right:2rem}
+@keyframes np-band{from{transform:translate3d(0,0,0)}to{transform:translate3d(-50%,0,0)}}
+@keyframes np-fade{from{opacity:.3}to{opacity:1}}
+@media (prefers-reduced-motion:reduce){.band>span{animation:np-fade 2.5s ease-in-out infinite alternate}}
+`;
+
+/** Veces que se repite el texto en cada mitad de la marquesina (llena un escritorio ancho). */
+const BAND_ITEMS = 10;
+
+/** La marquesina: dos mitades iguales, para que el bucle no salte. */
+export function paidBand(text: string): string {
+  const item = `<i>${escapeHtml(text)}</i>`;
+  return `<div class="band" aria-hidden="true"><span>${item.repeat(BAND_ITEMS * 2)}</span></div>`;
+}
+
+/*
+ * El «Pagado» a pantalla completa: verde plano (--paid) con texto claro, la
+ * marca lima de 56 px sin halo encima de la palabra (28/600), el importe en
+ * 56-64/600 con cifras proporcionales y la placa crema del código (72-96/700).
+ * La marquesina va pegada debajo de la barra del logo. Con todo, cabe en
+ * 360×740 con el justificante a la vista.
+ */
+export const PAID_SCREEN_CSS = `${BAND_CSS}
+.paid{position:relative;isolation:isolate;overflow:hidden;width:100%;min-height:100vh;min-height:100svh;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:.5rem;padding:calc(5.75rem + env(safe-area-inset-top)) 1rem calc(1.25rem + env(safe-area-inset-bottom));background:var(--paid);color:var(--paid-ink);text-align:center}
 .paid p{color:inherit}
-.paid .band{position:absolute;top:-50%;left:-50%;width:200%;height:200%;z-index:-1;background:repeating-linear-gradient(-45deg,rgb(239 233 223/.05) 0 30px,rgb(239 233 223/0) 30px 60px);animation:np-band 8s linear infinite;will-change:transform}
-@keyframes np-band{from{transform:translate3d(0,0,0)}to{transform:translate3d(84.85px,0,0)}}
-@keyframes np-fade{from{opacity:.2}to{opacity:1}}
-@media (prefers-reduced-motion:reduce){.paid .band{animation:np-fade 3s ease-in-out infinite alternate}}
-.paid .phead{display:flex;align-items:center;justify-content:center;gap:.7rem}
-.paid .tick{flex:none;width:3.4rem;height:3.4rem;padding:.8rem;border-radius:50%;background:var(--lime);color:var(--ink);box-shadow:0 0 0 7px var(--lime-ring),0 0 40px 6px var(--lime-glow);stroke:currentColor;stroke-width:3;fill:none;stroke-linecap:round;stroke-linejoin:round}
-.paid .ptitle{font-size:clamp(2.3rem,12vw,3.6rem);font-weight:800;letter-spacing:.01em;text-transform:uppercase;line-height:.95}
-.paid .pamount{font-size:clamp(2.3rem,12.5vw,3.6rem);font-weight:800;letter-spacing:-.035em;line-height:1.05}
-.paid .pcode{width:100%;max-width:21rem;margin:.55rem 0 .35rem;padding:.75rem 1rem .85rem;border-radius:22px;background:var(--cream);color:var(--ink);display:flex;flex-direction:column;align-items:center;gap:.1rem;box-shadow:0 0 0 3px var(--lime),0 18px 40px -16px rgb(0 0 0/.6)}
-.paid .pcode .plabel{font-size:.8rem;font-weight:800;letter-spacing:.12em;text-transform:uppercase}
-.paid .pcode b{display:block;font-size:clamp(4.2rem,24vw,6.2rem);font-weight:800;line-height:1;letter-spacing:.16em;margin-right:-.16em;font-variant-numeric:tabular-nums}
-.paid .pcode .phint{font-size:1.05rem;font-weight:800}
+.paid .band{position:absolute;top:calc(3.5rem + env(safe-area-inset-top));left:0;right:0;height:1.75rem}
+.paid .phead{display:flex;flex-direction:column;align-items:center;gap:.5rem}
+.paid .tick{flex:none;width:3.5rem;height:3.5rem;padding:.75rem;border-radius:50%;background:var(--lime);color:var(--on-lime);stroke:currentColor;stroke-width:3;fill:none;stroke-linecap:round;stroke-linejoin:round}
+.paid .ptitle{font-size:1.75rem;font-weight:600;line-height:1.1}
+.paid .pamount{font-size:clamp(3.5rem,17vw,4rem);font-weight:600;letter-spacing:-.02em;line-height:1.05;font-variant-numeric:proportional-nums}
+.paid .pcode{width:100%;max-width:21rem;margin:.375rem 0 .25rem;padding:.625rem 1rem .75rem;border-radius:var(--r);background:var(--cream);color:var(--ink);display:flex;flex-direction:column;align-items:center;gap:.125rem}
+.paid .pcode .plabel{font-size:.8125rem;font-weight:500}
+.paid .pcode b{display:block;font-size:clamp(4.5rem,22vw,6rem);font-weight:700;line-height:1;letter-spacing:.16em;margin-right:-.16em;font-variant-numeric:tabular-nums}
+.paid .pcode .phint{font-size:1rem;font-weight:600}
 .paid .ptime{display:flex;flex-wrap:wrap;align-items:baseline;justify-content:center;gap:.1rem .9rem}
-.paid .pago{font-size:1.6rem;font-weight:800;line-height:1.1}
-.paid .pclock{font-size:1.2rem;font-weight:700}
-.paid [data-lines]{display:flex;flex-direction:column;align-items:center;gap:.35rem}
+.paid .pago{font-size:1.375rem;font-weight:600;line-height:1.1}
+.paid .pclock{font-size:1rem;font-weight:600}
+.paid [data-lines]{display:flex;flex-direction:column;align-items:center;gap:.375rem}
 .paid [data-lines]:empty{display:none}
-.paid .pline{display:inline-flex;align-items:center;min-height:2.5rem;padding:.3rem 1.1rem;border-radius:999px;background:rgb(0 0 0/.24);font-size:1.02rem;font-weight:700}
-.paid .prows{width:100%;max-width:21rem;margin:.2rem 0 0;padding:.15rem .9rem;border-radius:16px;background:rgb(0 0 0/.22);text-align:left}
-.paid .prows div{display:flex;justify-content:space-between;gap:1rem;padding:.35rem 0;font-size:.95rem}
-.paid .prows div+div{border-top:1px solid rgb(239 233 223/.16)}
-.paid .prows dt{font-weight:600}
-.paid .prows dd{margin:0;font-weight:800;font-variant-numeric:tabular-nums}
-.paid .pnote{font-size:.9rem;font-weight:600}
-.paid .pstale{display:none;font-weight:800}
-.paid .pfoot{margin-top:.4rem}
+.paid .pline{display:inline-flex;align-items:center;min-height:2.25rem;padding:.375rem .875rem;border-radius:var(--r-field);background:rgb(0 0 0/.24);font-size:.9375rem;font-weight:500}
+.paid .prows{width:100%;max-width:21rem;margin:.125rem 0 0;padding:.125rem .875rem;border-radius:var(--r-tile);background:rgb(0 0 0/.22);text-align:left}
+.paid .prows div{display:flex;justify-content:space-between;gap:1rem;padding:.3rem 0;font-size:.875rem}
+.paid .prows div+div{border-top:1px solid rgb(244 242 236/.16)}
+.paid .prows dt{font-weight:400}
+.paid .prows dd{margin:0;font-weight:600;font-variant-numeric:tabular-nums}
+.paid .pnote{font-size:.875rem;font-weight:400}
+.paid .pstale{display:none;font-weight:600}
 .paid .pfoot .link{color:inherit}
 .paid.stale{background:var(--stale);color:var(--fg)}
 .paid.stale .band{display:none}
-.paid.stale .tick{background:transparent;color:var(--fg);box-shadow:inset 0 0 0 3px currentColor}
-.paid.stale .pcode{box-shadow:0 0 0 3px var(--line-hi)}
+.paid.stale .tick{background:transparent;color:var(--fg);box-shadow:inset 0 0 0 2px currentColor}
 .paid.stale .pline,.paid.stale .prows{background:rgb(0 0 0/.2)}
 .paid.stale .pstale{display:block}
 `;
@@ -158,12 +185,14 @@ export function renderPaidScreen(a: PaidScreenArgs): string {
   const id = a.id ?? 'paid';
   const at = a.authorizedAt?.getTime() ?? null;
   const fresh = a.viewerPaid === true && at !== null && a.now.getTime() - at < PAID_FRESH_MS;
+  // La marquesina: «Pagado · 23:15» (sin la hora si aún no consta: /s la pone al pagar).
+  const bandText = a.authorizedAt ? `${t.paidTitle} · ${formatTime(a.authorizedAt, t)}` : t.paidTitle;
   const lines = (a.lines ?? []).map((l) => `<p class="pline">${escapeHtml(l)}</p>`).join('');
   const rows = a.rows?.length
     ? `<dl class="prows">${a.rows.map(([k, v]) => `<div><dt>${escapeHtml(k)}</dt><dd class="num">${escapeHtml(v)}</dd></div>`).join('')}</dl>`
     : '';
   return `<section class="paid${fresh ? '' : ' stale'}" id="${id}" data-at="${at ?? ''}" data-now="${a.now.getTime()}" data-fresh="${PAID_FRESH_MS}" aria-labelledby="${id}Title"${a.hidden ? ' hidden' : ''}>
-<div class="band" aria-hidden="true"></div>
+${paidBand(bandText)}
 <div class="phead"><svg class="tick" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 13l4 4L19 7"/></svg><h1 class="ptitle" id="${id}Title" data-title aria-live="polite">${escapeHtml(fresh ? t.paidTitle : t.alreadyPaidTitle)}</h1></div>
 <p class="pamount num" data-amount>${escapeHtml(a.amount)}</p>
 ${a.code ? codePlate(a.code, t) : ''}

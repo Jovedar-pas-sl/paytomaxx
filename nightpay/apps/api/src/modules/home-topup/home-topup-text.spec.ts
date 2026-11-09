@@ -51,7 +51,8 @@ describe('textos de «Cargar saldo antes de llegar»', () => {
   });
 
   it.each(PAY_LANGUAGES)('%s: sin el vocabulario del personal ni nombres internos', (lang) => {
-    const internal = /\bchicas?\b|habitaci|operador|masaje|dat[aá]fono|\btpv\b|\bterminal\b|oxiopay|\bwallets?\b|webhook|idempotenc/i;
+    // OxioPay no está: es el nombre del producto, el que ve el cliente.
+    const internal = /\bchicas?\b|habitaci|operador|masaje|dat[aá]fono|\btpv\b|\bterminal\b|\bwallets?\b|webhook|idempotenc/i;
     expect(leaves(HOME_TOPUP_TEXT[lang]).filter((l) => internal.test(l.text)).map((l) => `${l.path} = ${l.text}`)).toEqual([]);
   });
 

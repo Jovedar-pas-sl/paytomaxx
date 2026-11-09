@@ -13,6 +13,7 @@ import {
 } from '@/lib/api';
 import { formatDateTime } from '@/lib/dates';
 import { keepIfSame } from '@/lib/diff';
+import { FILTER_FIELD, FILTER_SELECT } from '@/lib/filter-field';
 import {
   FICHA_STATUS_FILTERS,
   FICHA_STATUS_TONE,
@@ -186,9 +187,9 @@ export function FichasPanel() {
               placeholder="Número impreso, serie o código"
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
-              style={{ width: '16rem' }}
+              style={{ ...FILTER_FIELD, width: '16rem' }}
             />
-            <Button type="submit" variant="ghost">
+            <Button type="submit" variant="ghost" size="sm">
               Buscar
             </Button>
             <Select
@@ -198,7 +199,7 @@ export function FichasPanel() {
                 setRows(null);
                 setStatus(e.target.value as WalletCardStatus | '');
               }}
-              style={{ width: '10rem' }}
+              style={{ ...FILTER_SELECT, width: '10rem' }}
             >
               {FICHA_STATUS_FILTERS.map((f) => (
                 <option key={f.value} value={f.value}>
@@ -328,7 +329,7 @@ const tilesGrid: CSSProperties = {
   gap: '0.75rem',
 };
 
-const sectionTitle: CSSProperties = { margin: '0 0 0.75rem', fontSize: '0.9rem', fontWeight: 600, letterSpacing: '-0.01em' };
+const sectionTitle: CSSProperties = { margin: '0 0 0.75rem', fontSize: '0.875rem', fontWeight: 600 };
 
 const listHeader: CSSProperties = {
   display: 'flex',
@@ -346,23 +347,20 @@ const numTd: CSSProperties = { textAlign: 'right', fontVariantNumeric: 'tabular-
 
 const kicker: CSSProperties = {
   margin: 0,
-  fontSize: '0.7rem',
+  fontSize: '0.75rem',
   color: 'var(--np-text-dim)',
-  letterSpacing: '0.1em',
-  textTransform: 'uppercase',
   fontWeight: 500,
 };
 
 const tileNumber: CSSProperties = {
   margin: '0.3rem 0 0',
-  fontSize: '1.4rem',
-  // Cifra grande del panel: Manrope 800, como los importes (las de las tablas, 700).
-  fontWeight: 800,
-  letterSpacing: '-0.02em',
+  fontSize: '1.375rem',
+  // Cifra grande del panel: Manrope 600, como los importes (las de las tablas, 700).
+  fontWeight: 600,
   fontVariantNumeric: 'tabular-nums',
 };
 
 const tileSub: CSSProperties = { margin: '0.2rem 0 0', fontSize: '0.75rem', color: 'var(--np-text-mute)' };
-const mutedText: CSSProperties = { margin: 0, fontSize: '0.85rem', color: 'var(--np-text-dim)' };
+const mutedText: CSSProperties = { margin: 0, fontSize: '0.875rem', color: 'var(--np-text-dim)' };
 const hintText: CSSProperties = { fontSize: '0.75rem', color: 'var(--np-text-dim)' };
 const numberForm: CSSProperties = { display: 'flex', gap: '0.4rem', alignItems: 'center', flexWrap: 'wrap' };

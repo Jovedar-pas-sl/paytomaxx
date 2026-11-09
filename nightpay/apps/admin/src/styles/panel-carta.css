@@ -1,7 +1,7 @@
 /* Carta → Carta de referencia: qué pasa con cada producto y por qué. */
 .np-tpl > summary {
   cursor: pointer;
-  font-weight: 700;
+  font-weight: 600;
   min-height: 2.75rem;
   display: flex;
   align-items: center;
@@ -40,7 +40,7 @@
 .np-tpl-state {
   margin-left: auto;
   font-size: 0.8125rem;
-  font-weight: 700;
+  font-weight: 600;
   color: var(--np-tpl-c);
 }
 .np-tpl-why {

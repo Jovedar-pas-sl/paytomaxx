@@ -66,7 +66,7 @@ import {
 } from '@/lib/reception-cash-payout';
 import { PinPad } from '../../PinPad';
 import { ActivationQr } from './ActivationQr';
-import { DeskHead, DeskBtn, DeskRowView } from './desk-parts';
+import { DeskHead, DeskBtn, DeskRowLink, DeskRowView } from './desk-parts';
 import { AmountStep, CodeStep, ExitStep, KeypadStep, MethodStep, NumberStep, TapStage } from './DeskSteps';
 import { DeskLoaded } from './DeskLoaded';
 import { ManagerExitStep, NumberExitStep, PasskeyExitStep, TotpExitStep } from './ExitSteps';
@@ -433,7 +433,7 @@ export function ReceptionDesk({ user, active, footer }: Props) {
   const name = user.displayName ?? 'Recepción';
   // La sección de las entradas con el nombre del local (Ajustes → Secciones), no el de fábrica.
   const chip = receptionChip(sections);
-  const head = (onBack?: () => void) => <DeskHead title="Recepción" sub={name} chip={chip} stripe="section" onBack={onBack} />;
+  const head = (onBack?: () => void) => <DeskHead title="Recepción" sub={name} chip={chip} onBack={onBack} />;
 
   if (step.kind === 'exitPin') {
     return <PinPad mode="enter"
@@ -563,8 +563,11 @@ export function ReceptionDesk({ user, active, footer }: Props) {
             notice={notice}
           />
           <div className={s.foot}>
-            <DeskBtn kind="gho" label="Escribir el código" onClick={() => go({ kind: 'code' })} />
-            <DeskBtn kind="gho" label="Buscar número de ficha" onClick={() => go({ kind: 'number' })} />
+            {/* Lo que no es acercarla: filas de lista, sin competir con el NFC. */}
+            <div className={s.rows}>
+              <DeskRowLink label="Escribir el código" onClick={() => go({ kind: 'code' })} />
+              <DeskRowLink label="Buscar número de ficha" onClick={() => go({ kind: 'number' })} />
+            </div>
             {footer}
           </div>
         </>
@@ -643,7 +646,7 @@ export function ReceptionDesk({ user, active, footer }: Props) {
           <DeskRowView {...deskRow(step.exit.view, 'salida')} />
           <p className={s.q} role="status">Pendiente del encargado; no se ha devuelto dinero</p>
           <p className={s.lbl}>{step.message || 'El encargado confirma la devolución con su propio 2FA desde su panel.'}</p>
-          <DeskBtn kind="pri" size="l" label="Siguiente cliente" onClick={() => restart('salida')} />
+          <DeskBtn kind="pri" label="Siguiente cliente" onClick={() => restart('salida')} />
         </>
       ) : null}
 
@@ -653,7 +656,6 @@ export function ReceptionDesk({ user, active, footer }: Props) {
           <p className={s.lbl}>No tiene saldo: guárdalo con los del stock.</p>
           <DeskBtn
             kind="pri"
-            size="l"
             label="Al stock"
             small="Para el siguiente cliente"
             busy={busy}
@@ -692,7 +694,7 @@ export function ReceptionDesk({ user, active, footer }: Props) {
             {cashUnsureText(eur(amountCents))}
           </p>
         )}
-        <DeskBtn kind="pri" size="l" label={checking ? 'Comprobando…' : 'Comprobar otra vez'} busy={checking} onClick={() => void checkCash(read, amountCents, 1)} />
+        <DeskBtn kind="pri" label={checking ? 'Comprobando…' : 'Comprobar otra vez'} busy={checking} onClick={() => void checkCash(read, amountCents, 1)} />
         {checking ? null : leaveArmed ? (
           <>
             <p className={s.lbl}>{CASH_UNSURE_LEAVE_TEXT}</p>
