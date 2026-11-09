@@ -195,12 +195,6 @@
 
 /* ─── Botones ─────────────────────────────────────────────────────── */
 
-.np-btn.np-sa-sm[data-size] {
-  height: 2.5rem;
-  padding: 0 1rem;
-  font-size: 0.875rem;
-}
-
 .np-sa-back {
   align-self: flex-start;
   display: inline-flex;
@@ -218,7 +212,7 @@
 }
 
 .np-sa-back:hover {
-  color: var(--np-accent);
+  color: var(--np-text);
 }
 
 .np-sa-link {
@@ -227,11 +221,10 @@
   background: none;
   color: inherit;
   font: inherit;
-  font-weight: 700;
+  font-weight: 500;
   text-align: left;
   text-decoration: underline;
-  text-decoration-color: var(--np-accent);
-  text-decoration-thickness: 2px;
+  text-decoration-thickness: 1px;
   text-underline-offset: 3px;
   cursor: pointer;
 }
@@ -365,15 +358,16 @@
 }
 
 /* Filtros: tantas columnas como quepan; en el móvil, una. */
+/* Filtros de 36 px (lib/filter-field.ts), alineados por abajo. */
 .np-sa-toolbar {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
-  gap: 0.875rem;
+  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+  gap: 0.5rem 0.75rem;
   align-items: end;
 }
 
 .np-sa-toolbar .np-sa-check {
-  min-height: 3.5rem;
+  min-height: var(--np-filter-h);
   align-items: center;
 }
 
@@ -385,7 +379,7 @@
 }
 
 .np-sa-search .np-btn {
-  height: 4.5rem;
+  height: max(2.5rem, var(--np-filter-h));
 }
 
 .np-sa-scroll-x {

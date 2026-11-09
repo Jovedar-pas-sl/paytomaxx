@@ -225,7 +225,7 @@ export function NightsPanel({
                     {n.cashDiffCents ? ` · caja: ${diffLabel(n.cashDiffCents).toLowerCase()}` : ''}
                   </td>
                   <td data-label="Acciones" data-card="actions" style={{ textAlign: 'right' }}>
-                    <Button variant="ghost" style={smallBtn} onClick={() => void showNight(n.id)}>
+                    <Button variant="ghost" size="sm" onClick={() => void showNight(n.id)}>
                       Ver Z
                     </Button>
                   </td>
@@ -482,4 +482,3 @@ const totalBox: CSSProperties = {
 };
 const numHead: CSSProperties = { textAlign: 'right' };
 const numTd: CSSProperties = { textAlign: 'right', fontVariantNumeric: 'tabular-nums' };
-const smallBtn: CSSProperties = { height: '2.25rem', padding: '0 0.875rem', fontSize: '0.8125rem' };

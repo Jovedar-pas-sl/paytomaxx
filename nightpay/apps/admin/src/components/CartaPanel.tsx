@@ -139,10 +139,10 @@ export function CartaPanel() {
                       {formatEur(item.priceCents)}
                     </span>
                     <div style={{ display: 'flex', gap: '0.5rem' }}>
-                      <Button variant="ghost" style={smallBtn} onClick={() => setEditing(item.id)}>
+                      <Button variant="ghost" size="sm" onClick={() => setEditing(item.id)}>
                         Editar
                       </Button>
-                      <Button variant="ghost" style={smallBtn} onClick={() => void toggleActive(item)}>
+                      <Button variant="ghost" size="sm" onClick={() => void toggleActive(item)}>
                         {item.active ? 'Desactivar' : 'Activar'}
                       </Button>
                     </div>
@@ -294,7 +294,7 @@ function ServiceForm({
                 onChange={(e) => setParts(parts.map((p, j) => (j === i ? { ...p, amount: e.target.value } : p)))}
               />
               {parts.length > 2 ? (
-                <Button type="button" variant="ghost" style={smallBtn} onClick={() => setParts(parts.filter((_, j) => j !== i))}>
+                <Button type="button" variant="ghost" size="sm" onClick={() => setParts(parts.filter((_, j) => j !== i))}>
                   Quitar
                 </Button>
               ) : null}
@@ -305,7 +305,7 @@ function ServiceForm({
               <Button
                 type="button"
                 variant="ghost"
-                style={smallBtn}
+                size="sm"
                 onClick={() => setParts([...parts, { category: firstCode as SectionCode, amount: '' }])}
               >
                 Añadir parte
@@ -347,7 +347,6 @@ const groupTitle: CSSProperties = { margin: '0.5rem 0 0', fontSize: '1rem', font
 const hintStyle: CSSProperties = { margin: '0.25rem 0 0', color: 'var(--np-text-mute)', fontSize: '0.9375rem' };
 const rowStyle: CSSProperties = { display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' };
 const priceStyle: CSSProperties = { fontSize: '1.25rem', fontWeight: 700, marginLeft: 'auto' };
-const smallBtn: CSSProperties = { height: '2.5rem', padding: '0 1rem', fontSize: '0.875rem' };
 const formGrid: CSSProperties = {
   display: 'grid',
   gridTemplateColumns: 'repeat(auto-fit, minmax(12rem, 1fr))',

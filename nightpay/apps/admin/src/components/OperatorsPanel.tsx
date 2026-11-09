@@ -171,12 +171,11 @@ export function OperatorsPanel({ isOwner }: Props) {
                       <td data-label="Acciones" data-card="actions" style={{ textAlign: 'right' }}>
                         <Button
                           variant="ghost"
-                          size="md"
+                          size="sm"
                           onClick={(e) => {
                             e.stopPropagation();
                             setSelectedId(op.id);
                           }}
-                          style={{ height: '2.25rem', padding: '0 1rem', fontSize: '0.8125rem' }}
                         >
                           Ver
                         </Button>
@@ -267,12 +266,11 @@ function CamarerosCard({ camareros, onOpen }: { camareros: Operator[]; onOpen: (
                   <td data-label="Acciones" data-card="actions" style={{ textAlign: 'right' }}>
                     <Button
                       variant="ghost"
-                      size="md"
+                      size="sm"
                       onClick={(e) => {
                         e.stopPropagation();
                         onOpen(c.id);
                       }}
-                      style={{ height: '2.25rem', padding: '0 1rem', fontSize: '0.8125rem' }}
                     >
                       Ver
                     </Button>

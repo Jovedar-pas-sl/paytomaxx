@@ -44,7 +44,7 @@ export function RecentCashTopUps() {
     <Card style={{ padding: '1rem', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
       <div style={headerStyle}>
         <h3 style={titleStyle}>Recargas en efectivo (últimas 2 h)</h3>
-        <Button variant="ghost" style={smallBtn} onClick={() => void load()}>
+        <Button variant="ghost" size="sm" onClick={() => void load()}>
           Actualizar
         </Button>
       </div>
@@ -76,7 +76,7 @@ export function RecentCashTopUps() {
             {r.voided ? (
               <span style={mutedStyle}>Anulada</span>
             ) : (
-              <Button variant="ghost" style={smallBtn} onClick={() => setVoiding(r)}>
+              <Button variant="ghost" size="sm" onClick={() => setVoiding(r)}>
                 Anular
               </Button>
             )}
@@ -182,7 +182,6 @@ function VoidModal({
 
 const headerStyle: CSSProperties = { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.75rem' };
 const titleStyle: CSSProperties = { margin: 0, fontSize: '1rem', fontWeight: 700 };
-const smallBtn: CSSProperties = { height: '2.25rem', padding: '0 0.875rem' };
 const mutedStyle: CSSProperties = { margin: 0, color: 'var(--np-text-mute)', fontSize: '0.875rem' };
 const listStyle: CSSProperties = { listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: '0.5rem' };
 const rowStyle: CSSProperties = {

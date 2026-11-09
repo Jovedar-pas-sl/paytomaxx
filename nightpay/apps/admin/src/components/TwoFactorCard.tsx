@@ -288,7 +288,7 @@ function SetupSteps({
       ) : null}
       <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
         <code style={secretStyle}>{setup.secret}</code>
-        <Button type="button" variant="ghost" onClick={onCopy} style={smallBtn}>
+        <Button type="button" variant="ghost" onClick={onCopy} size="sm">
           {copied ? 'Copiada' : 'Copiar clave'}
         </Button>
       </div>
@@ -352,4 +352,3 @@ const secretStyle: CSSProperties = {
   wordBreak: 'break-all',
 };
 
-const smallBtn: CSSProperties = { height: '2.25rem', padding: '0 0.875rem', fontSize: '0.8125rem' };

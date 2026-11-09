@@ -248,7 +248,7 @@ function CopyText({ text, label, ariaLabel }: { text: string; label: string; ari
     setTimeout(() => setState('idle'), COPIED_MS);
   }
   return (
-    <Button type="button" variant="ghost" className="np-sa-sm" onClick={() => void copy()} aria-live="polite" aria-label={ariaLabel}>
+    <Button type="button" variant="ghost" size="sm" className="np-sa-sm" onClick={() => void copy()} aria-live="polite" aria-label={ariaLabel}>
       {state === 'copied' ? 'Copiado' : state === 'failed' ? 'Cópialo a mano' : label}
     </Button>
   );

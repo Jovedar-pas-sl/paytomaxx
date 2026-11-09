@@ -112,6 +112,7 @@ export function SmallButton({
     <Button
       type="button"
       variant={variant}
+      size="sm"
       loading={loading}
       className={['np-sa-sm', className].filter(Boolean).join(' ')}
       {...rest}

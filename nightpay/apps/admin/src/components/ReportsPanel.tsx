@@ -102,7 +102,7 @@ export function ReportsPanel({ isOwner }: { isOwner: boolean }) {
       <Card style={{ padding: '1.25rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
           {PRESETS.map((p) => (
-            <Button key={p.key} variant="ghost" style={chipStyle} onClick={() => applyPreset(p.key)}>
+            <Button key={p.key} variant="ghost" size="sm" onClick={() => applyPreset(p.key)}>
               {p.label}
             </Button>
           ))}
@@ -160,7 +160,6 @@ function saveBlob(blob: Blob, filename: string): void {
 
 const titleStyle: CSSProperties = { margin: 0, fontSize: 'var(--np-t-h3)', fontWeight: 700 };
 const hintStyle: CSSProperties = { margin: '0.25rem 0 0', color: 'var(--np-text-mute)', fontSize: '0.9375rem' };
-const chipStyle: CSSProperties = { height: '2.5rem', padding: '0 1rem', fontSize: '0.875rem' };
 const dateGrid: CSSProperties = {
   display: 'grid',
   gridTemplateColumns: 'repeat(auto-fit, minmax(11rem, 1fr))',

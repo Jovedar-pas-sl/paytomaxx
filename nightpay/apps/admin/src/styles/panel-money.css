@@ -680,12 +680,9 @@
   border-radius: 1.75rem 1.75rem 0 0;
 }
 
-/* Botón principal de la hoja: pill lima, 62 px como en la maqueta. */
+/* Botón principal de la hoja, a lo ancho (su alto es el de `lg`: 48 y 56 en el móvil). */
 .np-sheet-foot .np-btn {
   width: 100%;
-  height: auto;
-  min-height: 3.875rem;
-  font-size: 1.1875rem;
 }
 
 @media (max-width: 640px) {
@@ -1006,12 +1003,6 @@
   flex-wrap: wrap;
   gap: 0.5rem;
   padding-top: 0.25rem;
-}
-
-.np-ficha-more .np-btn {
-  height: 2.75rem;
-  padding: 0 1rem;
-  font-size: 0.875rem;
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -324,12 +324,6 @@
   margin-top: 0.25rem;
 }
 
-.np-close-go.np-btn[data-size='md'] {
-  height: 2.5rem;
-  padding: 0 1rem;
-  font-size: 0.875rem;
-}
-
 .np-close-ack {
   display: inline-flex;
   align-items: flex-start;
@@ -600,12 +594,6 @@
 .np-chica-amount { font-size: 0.9375rem; color: var(--np-text); white-space: nowrap; }
 
 .np-chica-amount strong { font-family: var(--np-font-mono); font-size: 1.125rem; }
-
-.np-chica-btn.np-btn[data-size='md'] {
-  height: 2.75rem;
-  padding: 0 1.25rem;
-  font-size: 0.9375rem;
-}
 
 .np-chica-done {
   font-size: 0.8125rem;

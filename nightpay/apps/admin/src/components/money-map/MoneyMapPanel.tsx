@@ -122,7 +122,7 @@ export function MoneyMapPanel({ onNavigate, onOpenCobros }: { onNavigate?: (key:
           {onNavigate ? (
             <>
               {' '}
-              <Button variant="ghost" onClick={() => onNavigate('nights')} style={{ height: '2.75rem', padding: '0 1rem', fontSize: '0.875rem' }}>
+              <Button variant="ghost" size="sm" onClick={() => onNavigate('nights')}>
                 Noches cerradas
               </Button>
             </>
