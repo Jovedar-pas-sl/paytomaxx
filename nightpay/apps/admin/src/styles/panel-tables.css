@@ -208,7 +208,8 @@
 /* ─── Filtros de Cobros ────────────────────────────────────────────
    Campos de 36 px (lib/filter-field.ts) en una línea a 1440 px: cada uno
    parte del ancho de su texto por defecto («Cualquier forma de pago» entero)
-   y crecen a la par. Si no caben, bajan a la línea siguiente. */
+   y crecen a la par. Si no caben (un portátil de 1280), bajan a la línea
+   siguiente sin estirarse a todo lo ancho. */
 .np-cobros-filters {
   display: flex;
   flex-wrap: wrap;
@@ -219,10 +220,20 @@
 .np-cobros-filters > * {
   flex: 1 1 var(--np-filter-w, 10rem);
   min-width: 0;
+  max-width: calc(var(--np-filter-w, 10rem) * 1.6);
 }
 
 .np-cobros-filters > .np-btn {
   flex: 0 0 auto;
+}
+
+/* En el móvil la letra sube a 16 px: cada filtro, un 15 % más ancho (si no,
+   «Todos los estados» se corta), y a todo lo ancho si va solo. */
+@media (max-width: 640px) {
+  .np-cobros-filters > * {
+    flex-basis: calc(var(--np-filter-w, 10rem) * 1.15);
+    max-width: none;
+  }
 }
 
 /* Cifras de las tablas en Manrope 700 (decisión D11; --font-mono-var es la

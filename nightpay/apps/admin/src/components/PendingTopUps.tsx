@@ -5,6 +5,7 @@ import { Button, Card, Input } from '@nightpay/ui';
 import type { PendingTopUpView } from '@nightpay/contracts';
 import { assignPendingTopUp, fetchPendingTopUps } from '@/lib/api';
 import { formatDateTime } from '@/lib/dates';
+import { FILTER_FIELD } from '@/lib/filter-field';
 import { formatEur } from '@/lib/money';
 import { assignedText, normalizeSaldoCode, saldoCodeProblem } from '@/lib/pending-topups';
 import { useVenueTimezone } from '@/lib/venue-context';
@@ -112,6 +113,7 @@ function AssignRow({ row, when, onAssigned }: { row: PendingTopUpView; when: str
             value={code}
             onChange={(e) => setCode(e.target.value.toUpperCase())}
             autoComplete="off"
+            style={FILTER_FIELD}
           />
         </div>
         <Button type="submit" size="sm" loading={busy}>

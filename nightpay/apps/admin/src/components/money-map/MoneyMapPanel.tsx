@@ -5,6 +5,7 @@ import { Button, Input } from '@nightpay/ui';
 import type { MoneyMapQuery } from '@nightpay/contracts';
 import { fetchMoneyMap, type CobrosFilters } from '@/lib/api';
 import { formatDateTime, madridToday } from '@/lib/dates';
+import { FILTER_FIELD } from '@/lib/filter-field';
 import { moneyMapView } from '@/lib/money-map-view';
 import { moneyMapCobrosFilter } from '@/lib/money-map-cobros';
 import { createMoneyMapLoader, moneyMapFreshness, moneyMapPeriod, moneyMapStamp, type MoneyMapLoadState } from '@/lib/money-map-loading';
@@ -90,10 +91,10 @@ export function MoneyMapPanel({ onNavigate, onOpenCobros }: { onNavigate?: (key:
           <span className="np-mm-period-change">Cambiar</span>
         </summary>
         <form className="np-mm-period" aria-label="Periodo del mapa del dinero" onSubmit={applyPeriod}>
-          <Input label="Desde" type="date" value={from} onChange={(event) => setFrom(event.target.value)} required />
-          <Input label="Hasta" type="date" value={to} onChange={(event) => setTo(event.target.value)} min={from || undefined} required />
-          <Button type="submit" variant="ghost">Ver periodo</Button>
-          <Button type="button" variant="ghost" onClick={() => { setRangeError(null); if (!query.from) reload(); else setQuery({}); }}>Esta noche</Button>
+          <Input label="Desde" type="date" style={FILTER_FIELD} value={from} onChange={(event) => setFrom(event.target.value)} required />
+          <Input label="Hasta" type="date" style={FILTER_FIELD} value={to} onChange={(event) => setTo(event.target.value)} min={from || undefined} required />
+          <Button type="submit" variant="ghost" size="sm">Ver periodo</Button>
+          <Button type="button" variant="ghost" size="sm" onClick={() => { setRangeError(null); if (!query.from) reload(); else setQuery({}); }}>Esta noche</Button>
           <p className="np-mm-note">Fechas de Madrid, ambos días incluidos.</p>
         </form>
       </details>

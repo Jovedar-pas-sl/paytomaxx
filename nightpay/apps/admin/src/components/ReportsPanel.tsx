@@ -4,6 +4,7 @@ import { useState, type CSSProperties } from 'react';
 import { Button, Card, Input } from '@nightpay/ui';
 import { downloadExport, type ExportKind } from '@/lib/api';
 import { isValidRange, lastDayOfMonth, presetRange, type ReportPreset } from '@/lib/dates';
+import { FILTER_FIELD } from '@/lib/filter-field';
 
 const REPORTS: Array<{ kind: ExportKind; title: string; detail: string }> = [
   {
@@ -108,8 +109,8 @@ export function ReportsPanel({ isOwner }: { isOwner: boolean }) {
           ))}
         </div>
         <div style={dateGrid}>
-          <Input label="Desde" type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
-          <Input label="Hasta" type="date" value={to} onChange={(e) => setTo(e.target.value)} />
+          <Input label="Desde" type="date" style={FILTER_FIELD} value={from} onChange={(e) => setFrom(e.target.value)} />
+          <Input label="Hasta" type="date" style={FILTER_FIELD} value={to} onChange={(e) => setTo(e.target.value)} />
         </div>
       </Card>
 
