@@ -6,6 +6,7 @@ import {
   Button,
   Card,
   ConnectionBanner,
+  FormError,
   Logo,
   Select,
   SERVER_DOWN_GRACE_MS,
@@ -142,7 +143,7 @@ export function CashRegister({ venueSlug, onLogout }: Props) {
           <div style={{ borderLeft: '1px solid var(--np-border)', paddingLeft: '1rem', minWidth: 0 }}>
             <p style={brandLabel}>TPV</p>
             <p style={brandSub}>
-              venue <code style={code}>{venueSlug}</code>
+              Local <code style={code}>{venueSlug}</code>
             </p>
           </div>
         </div>
@@ -167,7 +168,7 @@ export function CashRegister({ venueSlug, onLogout }: Props) {
           retryError={retryError}
         />
       ) : (
-        <Card variant="glow" style={formCardStyle}>
+        <Card style={formCardStyle}>
           <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
             <Select
               label="Terminal"
@@ -203,11 +204,7 @@ export function CashRegister({ venueSlug, onLogout }: Props) {
               {amountCents > 0 ? `Cobrar ${formatEur(amountCents)}` : 'Cobrar'}
             </Button>
 
-            {error ? (
-              <p role="alert" style={errStyle}>
-                {error}
-              </p>
-            ) : null}
+            {error ? <FormError>{error}</FormError> : null}
           </form>
         </Card>
       )}
@@ -264,30 +261,23 @@ const headerStyle: CSSProperties = {
 
 const brandLabel: CSSProperties = {
   margin: 0,
-  fontSize: '0.95rem',
+  fontSize: '1rem',
   fontWeight: 600,
-  letterSpacing: '-0.01em',
 };
 
 const brandSub: CSSProperties = {
   margin: '0.25rem 0 0',
-  fontSize: 'var(--np-t-label)',
+  fontSize: '0.875rem',
   color: 'var(--np-text-mute)',
 };
 
+// El identificador del local es un código: en cifras, en su chip (radio 6).
 const code: CSSProperties = {
   fontFamily: 'var(--np-font-mono)',
+  fontWeight: 600,
   background: 'var(--np-surface-2)',
   padding: '0.1rem 0.4rem',
-  borderRadius: '4px',
-  fontSize: 'var(--np-t-label)',
+  borderRadius: 'var(--np-r-xs)',
+  fontSize: '0.875rem',
   overflowWrap: 'anywhere',
-};
-
-const errStyle: CSSProperties = {
-  color: 'var(--np-danger)',
-  margin: 0,
-  textAlign: 'center',
-  fontSize: '0.9375rem',
-  fontWeight: 600,
 };

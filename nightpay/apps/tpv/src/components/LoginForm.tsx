@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, type FormEvent } from 'react';
-import { Button, Input } from '@nightpay/ui';
+import { Button, FormError, Input } from '@nightpay/ui';
 import { LoginCodeRequiredError, login, loginWithCode, setSession } from '@/lib/api';
 
 interface Props {
@@ -54,7 +54,7 @@ export function LoginForm({ onSuccess }: Props) {
           autoComplete="one-time-code"
           maxLength={6}
           autoFocus
-          placeholder="código de tu app de verificación"
+          placeholder="Código de tu app de verificación"
           aria-label="Código de tu app de verificación"
           value={code}
           onChange={(e) => setCode(e.target.value.replace(/[^0-9]/g, ''))}
@@ -65,7 +65,7 @@ export function LoginForm({ onSuccess }: Props) {
           <Input
             type="email"
             autoComplete="email"
-            placeholder="email@nightpay.local"
+            placeholder="Email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             required
@@ -73,7 +73,7 @@ export function LoginForm({ onSuccess }: Props) {
           <Input
             type="password"
             autoComplete="current-password"
-            placeholder="contraseña"
+            placeholder="Contraseña"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             required
@@ -83,19 +83,7 @@ export function LoginForm({ onSuccess }: Props) {
       <Button type="submit" loading={busy} size="lg" disabled={ticket !== null && code.length !== 6}>
         Entrar
       </Button>
-      {error ? (
-        <p
-          role="alert"
-          style={{
-            color: 'var(--np-danger)',
-            margin: 0,
-            textAlign: 'center',
-            fontSize: '0.875rem',
-          }}
-        >
-          {error}
-        </p>
-      ) : null}
+      {error ? <FormError>{error}</FormError> : null}
     </form>
   );
 }

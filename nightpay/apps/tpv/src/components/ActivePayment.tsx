@@ -5,13 +5,16 @@ import {
   AmountDisplay,
   Button,
   Card,
+  FormError,
   PaymentOutcome,
   QrCountdown,
   StatusPill,
   awaitingServerExpiry,
+  encodeQr,
   isPreCobro,
   outcomeKindOf,
   qrDeadline,
+  qrSvgPath,
   useNow,
   useWakeLock,
   type PaymentStatus,
@@ -122,7 +125,7 @@ export function ActivePayment({ payment, status, reachable, checkNow, onDone, on
     <div style={gridStyle}>
       <QrCard payment={payment} deadline={isPreCobro(shown) ? deadline : null} now={now} />
 
-      <Card variant="glow" style={{ padding: '2rem', textAlign: 'center' }}>
+      <Card style={{ padding: '2rem', textAlign: 'center' }}>
         <p style={sectionLabel}>Importe</p>
         <AmountDisplay amountCents={payment.amountCents} currency={payment.currency} status={shown} />
         {breakdown ? (
@@ -157,9 +160,7 @@ export function ActivePayment({ payment, status, reachable, checkNow, onDone, on
           )}
           {cancelError && !finished ? (
             <>
-              <p role="alert" style={errStyle}>
-                {cancelError}
-              </p>
+              <FormError>{cancelError}</FormError>
               <Button variant="ghost" size="md" onClick={onDone}>
                 Dejarlo y hacer otro cobro
               </Button>
@@ -204,7 +205,7 @@ function QrCard({ payment, deadline, now }: { payment: CreatedPayment; deadline:
       <div style={{ marginTop: '1rem' }}>
         <QrCountdown deadline={deadline} nowMs={now}>
           <div style={qrBox}>
-            <img src={payment.qrPngDataUrl} alt="QR del cobro" style={qrImg} />
+            <QrImage url={payment.qrUrl} fallbackSrc={payment.qrPngDataUrl} />
           </div>
         </QrCountdown>
       </div>
@@ -221,6 +222,25 @@ function QrCard({ payment, deadline, now }: { payment: CreatedPayment; deadline:
   );
 }
 
+/** Margen blanco alrededor (la norma pide 4 módulos para que se lea bien). */
+const QUIET_ZONE = 4;
+
+/**
+ * El QR del cobro en vector (nítido en cualquier pantalla), con el mismo
+ * enlace que lleva el PNG del API; si no cupiera en un QR, ese PNG.
+ */
+function QrImage({ url, fallbackSrc }: { url: string; fallbackSrc: string }) {
+  const qr = useMemo(() => encodeQr(url), [url]);
+  if (!qr) return <img src={fallbackSrc} alt="QR del cobro" style={qrImg} />;
+  const side = qr.size + QUIET_ZONE * 2;
+  return (
+    <svg role="img" aria-label="QR del cobro" viewBox={`0 0 ${side} ${side}`} shapeRendering="crispEdges" style={qrImg}>
+      <rect width={side} height={side} fill="#ffffff" />
+      <path d={qrSvgPath(qr, QUIET_ZONE)} fill="#0b0b0b" />
+    </svg>
+  );
+}
+
 const gridStyle: CSSProperties = {
   display: 'grid',
   gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 20rem), 1fr))',
@@ -228,24 +248,24 @@ const gridStyle: CSSProperties = {
   alignItems: 'start',
 };
 
+// Etiquetas 14/500 en t2, sin mayúsculas ni espaciado (Grafito).
 const sectionLabel: CSSProperties = {
-  fontSize: 'var(--np-t-label)',
-  fontWeight: 600,
-  color: 'var(--np-text-label)',
-  letterSpacing: '0.1em',
-  textTransform: 'uppercase',
+  fontSize: '0.875rem',
+  fontWeight: 500,
+  color: 'var(--np-text-mute)',
   margin: 0,
 };
 
+// Blanco con un margen de 8 px y el QR de 240 px útiles (vector).
 const qrBox: CSSProperties = {
   background: 'white',
   borderRadius: 'var(--np-r-md)',
-  padding: '1rem',
+  padding: '0.5rem',
   display: 'flex',
   justifyContent: 'center',
 };
 
-const qrImg: CSSProperties = { width: '100%', maxWidth: 320, height: 'auto', display: 'block' };
+const qrImg: CSSProperties = { width: '100%', maxWidth: 240, height: 'auto', aspectRatio: '1', display: 'block' };
 
 const urlCode: CSSProperties = {
   flex: 1,
@@ -257,7 +277,7 @@ const urlCode: CSSProperties = {
   background: 'var(--np-bg)',
   color: 'var(--np-text-mute)',
   border: '1px solid var(--np-border)',
-  borderRadius: 'var(--np-r-md)',
+  borderRadius: 'var(--np-r-sm)',
   overflowX: 'auto',
   whiteSpace: 'nowrap',
   height: '3rem',
@@ -276,12 +296,6 @@ const awaitStyle: CSSProperties = {
   margin: '1rem 0 0',
   fontSize: '0.9375rem',
   color: 'var(--np-warning)',
-};
-
-const errStyle: CSSProperties = {
-  color: 'var(--np-danger)',
-  margin: 0,
-  fontSize: '0.875rem',
 };
 
 const hintStyle: CSSProperties = {
