@@ -431,7 +431,10 @@ describe('«Recargar»: solo lo de recargar', () => {
     expect(top).toContain('id="amtOther"');
     expect(top).toMatch(/De 10\s€ a 300\s€\./);
     expect(top).toContain('Apple Pay, Google Pay o tarjeta');
-    expect(top).toContain('Sin propina: solo pagas lo que recargas.');
+    // Una línea con lo que pasa (elige, paga sin propina, el saldo sube al momento) y, debajo del
+    // botón, qué pasa con lo que no gaste.
+    expect(top).toContain('Elige cuánto y paga con Apple Pay, Google Pay o tarjeta, sin propina. Tu saldo sube al momento.');
+    expect(top).toContain('Lo que no gastes no se pierde: se queda para otro día o, con «Me voy», el local te lo devuelve a tu tarjeta.');
     for (const id of ['codeCard', 'payCard', 'scanGo', 'gwCard', 'pinOpen']) expect(top).not.toContain(`id="${id}"`);
     const en = renderWalletPage('tok-1', 'en', state(), { topUp });
     expect(topView(en)).toContain('Top up your balance');

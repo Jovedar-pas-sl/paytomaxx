@@ -13,10 +13,18 @@ import { withFrenchSpacing } from '../payments/i18n/typography';
  */
 export interface HomeTopUpText {
   title: string;
-  kick: string;
   /** «Carga tu saldo para {venue}». */
   heading: string;
-  intro: string;
+  /** Por qué cargar antes de llegar, en una línea. */
+  advantage: string;
+  /** Cómo funciona, en tres pasos (el nombre de la lista, para lectores de pantalla). */
+  howTitle: string;
+  stepChoose: string;
+  stepPay: string;
+  /** Al llegar, si el local da fichas: su QR en recepción (el de la página del saldo) o el móvil. */
+  stepArrive: string;
+  /** Al llegar, si el local no da fichas: el móvil (también en la bienvenida, sin el QR de la ficha). */
+  stepArriveNoFicha: string;
   amountLegend: string;
   /** Sin comisión: «Cargar 50 €». */
   go: string;
@@ -26,11 +34,12 @@ export interface HomeTopUpText {
   opening: string;
   methods: string;
   conditionsTitle: string;
+  /** Lo que no gaste: delante de que no caduca y de cómo se devuelve. */
+  keep: string;
   noExpiry: string;
   refund: string;
   /** Solo con la comisión del servicio encendida. */
   refundFee: string;
-  onArrival: string;
   mineTitle: string;
   /** «Tu saldo {code} está en este móvil…». */
   mineBody: string;
@@ -44,6 +53,7 @@ export interface HomeTopUpText {
   /** «Ya puedes usarlo en {venue}». */
   welcomeTitle: string;
   welcomeTitleNoVenue: string;
+  /** Con el QR de la ficha en la página; sin él, `stepArriveNoFicha`. */
   welcomeBody: string;
   saveLink: string;
   shareLink: string;
@@ -73,20 +83,24 @@ export interface HomeTopUpText {
 
 const ES: HomeTopUpText = {
   title: 'Cargar saldo',
-  kick: 'Antes de llegar',
   heading: 'Carga tu saldo para {venue}',
-  intro: 'Pagas ahora con Apple Pay, Google Pay o tarjeta y llegas con tu saldo listo.',
+  advantage: 'Llegas con tu saldo listo, sin esperar en recepción para cargarlo.',
+  howTitle: 'Cómo funciona',
+  stepChoose: 'Elige cuánto.',
+  stepPay: 'Paga con Apple Pay, Google Pay o tarjeta.',
+  stepArrive: 'Al llegar, paga con el móvil o enseña tu QR en recepción y te dan tu ficha.',
+  stepArriveNoFicha: 'Al llegar, paga con el móvil escaneando el QR del personal.',
   amountLegend: '¿Cuánto quieres cargar?',
   go: 'Cargar {amount}',
   goFee: 'Pagar {amount}',
   toBalance: 'A tu saldo',
   opening: 'Abriendo el pago…',
-  methods: 'Apple Pay, Google Pay o tarjeta. Sin propina.',
+  methods: 'Sin propina.',
   conditionsTitle: 'Antes de pagar',
+  keep: 'Lo que no gastes no se pierde.',
   noExpiry: 'Tu saldo no caduca: lo gastas cuando vengas, hoy u otro día.',
   refund: 'Si te sobra, pide la devolución en tu saldo («Me voy»): el local te lo devuelve a tu tarjeta, y el banco puede tardar unos días en enseñarlo.',
   refundFee: 'Se devuelve el saldo; la comisión del servicio no se devuelve.',
-  onArrival: 'Al llegar, paga con tu móvil o pide en recepción tu ficha para pagar acercándola.',
   mineTitle: 'Ya tienes un saldo aquí',
   mineBody: 'Tu saldo {code} está en este móvil. Recárgalo en vez de crear otro.',
   mineGo: 'Recargar mi saldo',
@@ -105,7 +119,7 @@ const ES: HomeTopUpText = {
   fichaQrTitle: 'Tu ficha en recepción',
   fichaQrHint: 'Enseña este QR en recepción y te dan tu ficha para pagar acercándola.',
   receiptSave: 'Guardar comprobante',
-  receiptHint: 'Guárdalo en el móvil y enséñalo en recepción al llegar.',
+  receiptHint: 'Guárdalo y enséñalo en recepción.',
   receiptSaved: '✓ Comprobante guardado',
   receiptFail: 'No se ha podido crear la imagen. Haz una captura de pantalla.',
   receiptHold: 'Mantén pulsada la imagen y elige «Guardar imagen».',
@@ -126,20 +140,24 @@ const ES: HomeTopUpText = {
 
 const EN: HomeTopUpText = {
   title: 'Load balance',
-  kick: 'Before you arrive',
   heading: 'Load your balance for {venue}',
-  intro: 'Pay now with Apple Pay, Google Pay or card and arrive with your balance ready.',
+  advantage: 'Arrive with your balance ready, without waiting at reception to load it.',
+  howTitle: 'How it works',
+  stepChoose: 'Choose how much.',
+  stepPay: 'Pay with Apple Pay, Google Pay or card.',
+  stepArrive: 'When you arrive, pay with your phone or show your QR at reception to get your NFC tag.',
+  stepArriveNoFicha: 'When you arrive, pay with your phone by scanning the staff QR.',
   amountLegend: 'How much do you want to load?',
   go: 'Load {amount}',
   goFee: 'Pay {amount}',
   toBalance: 'To your balance',
   opening: 'Opening the payment…',
-  methods: 'Apple Pay, Google Pay or card. No tip.',
+  methods: 'No tip.',
   conditionsTitle: 'Before you pay',
+  keep: 'What you don’t spend isn’t lost.',
   noExpiry: 'Your balance does not expire: spend it whenever you come, today or another day.',
   refund: 'If you have some left, ask for a refund on your balance page (“I’m leaving”): the venue refunds it to your card, and your bank may take a few days to show it.',
   refundFee: 'The balance is refunded; the service fee is not.',
-  onArrival: 'When you arrive, pay with your phone or ask reception for your NFC tag to pay by tapping it.',
   mineTitle: 'You already have a balance here',
   mineBody: 'Your balance {code} is on this phone. Top it up instead of creating another one.',
   mineGo: 'Top up my balance',
@@ -158,7 +176,7 @@ const EN: HomeTopUpText = {
   fichaQrTitle: 'Your NFC tag at reception',
   fichaQrHint: 'Show this QR at reception and they will give you your NFC tag to pay by tapping it.',
   receiptSave: 'Save receipt',
-  receiptHint: 'Keep it on your phone and show it at reception when you arrive.',
+  receiptHint: 'Keep it and show it at reception.',
   receiptSaved: '✓ Receipt saved',
   receiptFail: 'The image couldn’t be created. Take a screenshot instead.',
   receiptHold: 'Press and hold the image and choose “Save image”.',
@@ -179,20 +197,24 @@ const EN: HomeTopUpText = {
 
 const FR: HomeTopUpText = withFrenchSpacing({
   title: 'Charger le solde',
-  kick: 'Avant d’arriver',
   heading: 'Chargez votre solde pour {venue}',
-  intro: 'Payez maintenant avec Apple Pay, Google Pay ou par carte et arrivez avec votre solde prêt.',
+  advantage: 'Arrivez avec votre solde prêt, sans attendre à l’accueil pour le charger.',
+  howTitle: 'Comment ça marche',
+  stepChoose: 'Choisissez le montant.',
+  stepPay: 'Payez par Apple Pay, Google Pay ou carte.',
+  stepArrive: 'En arrivant, payez par téléphone ou montrez votre QR à l’accueil pour votre badge NFC.',
+  stepArriveNoFicha: 'En arrivant, payez par téléphone en scannant le QR du personnel.',
   amountLegend: 'Combien voulez-vous charger ?',
   go: 'Charger {amount}',
   goFee: 'Payer {amount}',
   toBalance: 'Sur votre solde',
   opening: 'Ouverture du paiement…',
-  methods: 'Apple Pay, Google Pay ou carte. Sans pourboire.',
+  methods: 'Sans pourboire.',
   conditionsTitle: 'Avant de payer',
+  keep: 'Ce que vous ne dépensez pas n’est pas perdu.',
   noExpiry: 'Votre solde n’expire pas : utilisez-le quand vous venez, aujourd’hui ou un autre jour.',
   refund: 'S’il vous en reste, demandez le remboursement depuis votre solde (« Je pars ») : l’établissement vous rembourse sur votre carte, et votre banque peut mettre quelques jours à l’afficher.',
   refundFee: 'Le solde est remboursé ; les frais de service ne le sont pas.',
-  onArrival: 'En arrivant, payez avec votre téléphone ou demandez à l’accueil votre badge NFC pour payer en l’approchant.',
   mineTitle: 'Vous avez déjà un solde ici',
   mineBody: 'Votre solde {code} est sur ce téléphone. Rechargez-le au lieu d’en créer un autre.',
   mineGo: 'Recharger mon solde',
@@ -211,7 +233,7 @@ const FR: HomeTopUpText = withFrenchSpacing({
   fichaQrTitle: 'Votre badge NFC à l’accueil',
   fichaQrHint: 'Montrez ce QR à l’accueil et on vous donne votre badge NFC pour payer en l’approchant.',
   receiptSave: 'Enregistrer le reçu',
-  receiptHint: 'Gardez-le sur votre téléphone et montrez-le à l’accueil en arrivant.',
+  receiptHint: 'Gardez-le et montrez-le à l’accueil.',
   receiptSaved: '✓ Reçu enregistré',
   receiptFail: 'Impossible de créer l’image. Faites une capture d’écran.',
   receiptHold: 'Appuyez longuement sur l’image et choisissez « Enregistrer l’image ».',
@@ -232,20 +254,24 @@ const FR: HomeTopUpText = withFrenchSpacing({
 
 const PT: HomeTopUpText = {
   title: 'Carregar saldo',
-  kick: 'Antes de chegar',
   heading: 'Carregue o seu saldo para {venue}',
-  intro: 'Pague já com Apple Pay, Google Pay ou cartão e chegue com o saldo pronto.',
+  advantage: 'Chegue com o saldo pronto, sem esperar na receção para o carregar.',
+  howTitle: 'Como funciona',
+  stepChoose: 'Escolha quanto.',
+  stepPay: 'Pague com Apple Pay, Google Pay ou cartão.',
+  stepArrive: 'Ao chegar, pague com o telefone ou mostre o seu QR na receção para ter a sua tag NFC.',
+  stepArriveNoFicha: 'Ao chegar, pague com o telefone lendo o QR do funcionário.',
   amountLegend: 'Quanto quer carregar?',
   go: 'Carregar {amount}',
   goFee: 'Pagar {amount}',
   toBalance: 'Para o seu saldo',
   opening: 'A abrir o pagamento…',
-  methods: 'Apple Pay, Google Pay ou cartão. Sem gorjeta.',
+  methods: 'Sem gorjeta.',
   conditionsTitle: 'Antes de pagar',
+  keep: 'O que não gastar não se perde.',
   noExpiry: 'O seu saldo não expira: gaste-o quando vier, hoje ou noutro dia.',
   refund: 'Se lhe sobrar, peça a devolução na página do saldo («Vou embora»): o estabelecimento devolve-lhe no cartão, e o banco pode demorar alguns dias a mostrá-lo.',
   refundFee: 'Devolve-se o saldo; a taxa de serviço não é devolvida.',
-  onArrival: 'Ao chegar, pague com o telefone ou peça na receção a sua tag NFC para pagar aproximando-a.',
   mineTitle: 'Já tem um saldo aqui',
   mineBody: 'O seu saldo {code} está neste telefone. Carregue-o em vez de criar outro.',
   mineGo: 'Carregar o meu saldo',
@@ -264,7 +290,7 @@ const PT: HomeTopUpText = {
   fichaQrTitle: 'A sua tag NFC na receção',
   fichaQrHint: 'Mostre este QR na receção e recebe a sua tag NFC para pagar aproximando-a.',
   receiptSave: 'Guardar comprovativo',
-  receiptHint: 'Guarde-o no telemóvel e mostre-o na receção quando chegar.',
+  receiptHint: 'Guarde-o e mostre-o na receção.',
   receiptSaved: '✓ Comprovativo guardado',
   receiptFail: 'Não foi possível criar a imagem. Faça uma captura de ecrã.',
   receiptHold: 'Mantenha a imagem premida e escolha «Guardar imagem».',

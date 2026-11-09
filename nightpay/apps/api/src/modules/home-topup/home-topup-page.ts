@@ -5,23 +5,25 @@ import { CARD_MARKS, LOCK_IC, PAY_MARKS_CSS } from '../payments/pay-marks';
 import { CLIENT_ERROR_JS, clientErrorConfig } from '../wallets/client-errors';
 import { PASSKEY_BROWSER_JS } from '../wallets/passkey-browser';
 import { WALLET_TEXT } from '../wallets/wallet-text';
-import { TOPUP_CSS } from '../wallets/wallet-topup-view';
+import { TOPUP_CSS, topUpFeeExplain } from '../wallets/wallet-topup-view';
 import { HOME_TOPUP_TEXT } from './home-topup-text';
 import type { HomeTopUpPageView } from './home-topup.service';
 
 /**
  * La página del enlace del local (/r/<código>): «Cargar saldo antes de
  * llegar». Móvil primero, marca OxioCard (club-ui), en los cuatro idiomas.
- *  - Arriba, para qué es («Carga tu saldo para Sala Aurora»).
+ *  - Arriba, para qué es («Carga tu saldo para Sala Aurora»), la ventaja en
+ *    una línea y cómo funciona en tres pasos cortos: elige cuánto, paga, y al
+ *    llegar el móvil o (si el local da fichas) su QR en recepción.
  *  - Si este navegador ya tiene un saldo del local: «Recargar mi saldo» (va a
  *    su página del saldo, en «Recargar») antes de ofrecer uno nuevo.
  *  - Cuánto (las sugeridas, «Otra», de 10 a 300 € en euros enteros) y el
  *    total: con la comisión del servicio de las recargas, el desglose y el
  *    botón «Pagar 56 €» (la comisión la calcula el servidor: la tabla de
  *    cada importe va en la página, como en «Recargar»); sin ella, «Cargar 50 €».
- *  - Las condiciones antes de pagar: el saldo no caduca, cómo se pide la
- *    devolución (lo que hace hoy «Me voy») y, con comisión, que esa no se
- *    devuelve; y qué hacer al llegar.
+ *  - Las condiciones antes de pagar: lo que no gaste no se pierde (no
+ *    caduca), cómo se pide la devolución (lo que hace hoy «Me voy») y, con
+ *    comisión, que esa no se devuelve.
  * El botón crea la carga (POST /r/<código>/topup) y lleva a la página de pago
  * de siempre (/pay/…): Apple Pay o Google Pay de entrada, o tarjeta.
  * Sin barras invertidas en el JS (va dentro de una plantilla).
@@ -37,6 +39,9 @@ const HOME_CSS = `${TOPUP_CSS}
 .card.off{border-color:var(--warn)}
 
 .or{font-weight:500;color:var(--fg)}
+.tsteps{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:.5rem;counter-reset:np-step}
+.tsteps li{display:grid;grid-template-columns:1.5rem 1fr;gap:.625rem;align-items:start;color:var(--mute);font-size:.9375rem;line-height:1.4;counter-increment:np-step}
+.tsteps li::before{content:counter(np-step);display:grid;place-items:center;width:1.5rem;height:1.5rem;margin-top:-.0625rem;border:1px solid var(--line-hi);border-radius:50%;color:var(--fg);font-family:var(--num);font-size:.8125rem;font-weight:600;line-height:1}
 .terms{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:.75rem}
 .terms li{display:grid;grid-template-columns:1.5rem 1fr;gap:.625rem;align-items:start;color:var(--mute);font-size:.875rem;line-height:1.45}
 .terms li svg{width:1.25rem;height:1.25rem;margin-top:.05rem;fill:none;stroke:var(--mute);stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
@@ -48,17 +53,21 @@ const HOME_CSS = `${TOPUP_CSS}
 .topup .paybar .btn{font-size:1.0625rem}
 ${PAY_MARKS_CSS}/* Móviles bajos (360×740): más compacto, para que el desglose con la comisión quede por encima de la barra de pagar. */
 @media (max-height:780px){
-.h{gap:.75rem}
-.hh h1{font-size:1.5rem}
-.amts span{min-height:3rem}
-.tform{gap:.625rem}
+.h{gap:.625rem}
+.hh{gap:.25rem;padding-top:0}
+.hh h1{font-size:1.375rem}
+.hh p:last-child{font-size:.9375rem;line-height:1.4}
+.tsteps{gap:.25rem}
+.tsteps li{font-size:.875rem;line-height:1.35}
+.tsteps li::before{width:1.25rem;height:1.25rem;margin-top:0;font-size:.75rem}
+.amts span{min-height:2.75rem}
+.tform{gap:.5rem}
 }`;
 
 /** Iconos de las condiciones (decorativos). */
 const ICON = {
   clock: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>',
   back: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 14 4 9l5-5"/><path d="M4 9h11a5 5 0 0 1 0 10h-3"/></svg>',
-  door: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 3h5v18h-5"/><path d="M10 17l5-5-5-5"/><path d="M15 12H3"/></svg>',
 };
 
 function eur(cents: number, locale: string): string {
@@ -106,7 +115,7 @@ function amountCard(lang: PayLanguage, view: HomeTopUpPageView): string {
     feeBps > 0
       ? `<dl class="brk" id="brk" aria-live="off">
 <div><dt>${h(t.toBalance)}</dt><dd class="num" id="bAmount"></dd></div>
-<div class="fee"><dt>${h(p.breakdown.serviceFee)} <button class="why" type="button" id="whyBtn" aria-expanded="true" aria-controls="whyText">${h(p.feeWhat)}</button></dt><dd class="num" id="bFee"></dd><dd class="whytext" id="whyText">${h(p.feeExplain(pct))}</dd></div>
+<div class="fee"><dt>${h(p.breakdown.serviceFee)} <button class="why" type="button" id="whyBtn" aria-expanded="true" aria-controls="whyText">${h(p.feeWhat)}</button></dt><dd class="num" id="bFee"></dd><dd class="whytext" id="whyText">${h(topUpFeeExplain(lang, pct))}</dd></div>
 <div class="tot"><dt>${h(p.totalToPay)}</dt><dd class="num" id="bTotal"></dd></div>
 </dl>`
       : '';
@@ -126,16 +135,27 @@ ${breakdown}
 `;
 }
 
-/** Lo que tiene que saber antes de pagar. */
+/**
+ * Cómo funciona, en tres pasos: elige cuánto, paga y, al llegar, el móvil o
+ * (si el local da fichas) el QR de su saldo en recepción, que le da la ficha.
+ */
+function howSteps(lang: PayLanguage, fichas: boolean): string {
+  const t = HOME_TOPUP_TEXT[lang];
+  const h = escapeHtml;
+  const steps = [t.stepChoose, t.stepPay, fichas ? t.stepArrive : t.stepArriveNoFicha];
+  return `<ol class="tsteps" aria-label="${h(t.howTitle)}">${steps.map((s) => `<li>${h(s)}</li>`).join('')}</ol>
+`;
+}
+
+/** Lo que tiene que saber antes de pagar: lo que no gaste no se pierde, y cómo se devuelve. */
 function termsCard(lang: PayLanguage, withFee: boolean): string {
   const t = HOME_TOPUP_TEXT[lang];
   const h = escapeHtml;
   return `<section class="card" aria-labelledby="termsTitle">
 <h2 id="termsTitle">${h(t.conditionsTitle)}</h2>
 <ul class="terms">
-<li>${ICON.clock}<span><b>${h(t.noExpiry)}</b></span></li>
+<li>${ICON.clock}<span><b>${h(t.keep)}</b> ${h(t.noExpiry)}</span></li>
 <li>${ICON.back}<span>${h(t.refund)}${withFee ? ` ${h(t.refundFee)}` : ''}</span></li>
-<li>${ICON.door}<span>${h(t.onArrival)}</span></li>
 </ul>
 </section>
 `;
@@ -219,11 +239,10 @@ export function renderHomeTopUpPage(code: string, lang: PayLanguage, view: HomeT
 ${topBar(lang)}
 <main class="h">
 <section class="hh" aria-labelledby="hTitle">
-<p class="kick">${h(t.kick)}</p>
 <h1 id="hTitle">${heading}</h1>
-<p>${h(t.intro)}</p>
+<p>${h(t.advantage)}</p>
 </section>
-${canLoad && view.mine ? mineCard(lang, base, view.mine.codeHint) : ''}${canLoad ? amountCard(lang, view) : offCard(lang)}${termsCard(lang, withFee)}<p class="foot trust">${h(PAY_TEXT[lang].secure)}${CARD_MARKS}</p>
+${canLoad ? howSteps(lang, view.fichas !== false) : ''}${canLoad && view.mine ? mineCard(lang, base, view.mine.codeHint) : ''}${canLoad ? amountCard(lang, view) : offCard(lang)}${termsCard(lang, withFee)}<p class="foot trust">${h(PAY_TEXT[lang].secure)}${CARD_MARKS}</p>
 </main>
 ${
   canLoad
