@@ -80,6 +80,11 @@ export interface HomeTopUpPageView {
   feesCents: number[] | null;
   /** Este navegador ya tiene un saldo de este local: su código tapado (K7Q-•••). */
   mine: { codeHint: string } | null;
+  /**
+   * El local da fichas (NFC): al llegar, su QR en recepción (wallet-welcome).
+   * Sin el dato, sí: lo que decía la página hasta ahora.
+   */
+  fichas?: boolean;
 }
 
 export interface HomeTopUpStarted {
@@ -167,6 +172,7 @@ export class HomeTopUpService {
       serviceFeeBps: serviceFeeBpsFor(venue.serviceFee, 'topUp'),
       feesCents: topUpFeeTable(venue.serviceFee, SELF_TOPUP_MIN_CENTS, SELF_TOPUP_MAX_CENTS),
       mine: mine ? { codeHint: codeHintOf(mine.shortCode) } : null,
+      fichas: paymentMethodsOf(venue.raw.paymentMethods).nfc,
     };
   }
 

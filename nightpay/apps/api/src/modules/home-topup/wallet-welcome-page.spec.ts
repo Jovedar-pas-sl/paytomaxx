@@ -55,6 +55,16 @@ describe('renderWalletPage con la bienvenida del saldo cargado desde casa', () =
     expect(config(html)).toMatchObject({ paid: true, welcome: false });
   });
 
+  it('qué hacer al llegar: con el QR de la ficha en la página, la ficha en recepción; sin él, solo el móvil', () => {
+    const t = HOME_TOPUP_TEXT.es;
+    const conQr = renderWalletPage('tok', 'es', state, { topUp, paid: proof, welcome: true, fichaQr: SVG });
+    expect(conQr).toContain(`<p>${t.welcomeBody}</p>`);
+    const sinQr = renderWalletPage('tok', 'es', state, { topUp, paid: proof, welcome: true, fichaQr: null });
+    expect(sinQr).toContain(`<p>${t.stepArriveNoFicha}</p>`);
+    expect(sinQr).not.toContain(t.welcomeBody);
+    expect(t.stepArriveNoFicha).not.toContain('ficha');
+  });
+
   it('el QR de la ficha en «Tu código», y el JS lo quita al darle la ficha', () => {
     const html = renderWalletPage('tok', 'fr', state, { topUp, fichaQr: SVG });
     const codeCard = html.slice(html.indexOf('id="codeCard"'), html.indexOf('</section>', html.indexOf('id="codeCard"')));
