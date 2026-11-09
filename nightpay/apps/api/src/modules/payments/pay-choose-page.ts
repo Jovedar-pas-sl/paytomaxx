@@ -11,8 +11,8 @@ import { tipPresetsFor } from './tip';
  *
  *  1. Arriba, grande, lo que va a pagar (se pone al día con la propina), con
  *     el local, lo pedido, el extracto y la cuenta atrás.
- *  2. Propina: botones grandes (≥ 56 px) en rejilla de dos; el elegido se ve
- *     invertido (crema) y con su ✓ (no solo por el color); «Sin propina» por
+ *  2. Propina: botones de 48 px en una fila; el elegido se ve invertido
+ *     (fondo claro, texto oscuro) y con su ✓ (no solo por el color); «Sin propina» por
  *     defecto; las sugeridas y su tope son los de siempre (tip.ts); «Otra» con
  *     el teclado numérico y su error dicho con palabras.
  *  3. Desglose: Consumo · Comisión del servicio (si la hay, con «¿Qué es?») ·
@@ -43,91 +43,95 @@ export const BREAKDOWN_CSS = `
 .brk>div{display:grid;grid-template-columns:1fr auto;align-items:center;gap:.25rem 1rem;padding:.6rem 0;border-bottom:1px solid var(--line)}
 .brk>div:last-child,.brk>div:has(+.tot){border-bottom:0}
 .brk dt{color:var(--mute);display:flex;flex-wrap:wrap;align-items:center;gap:.1rem .5rem}
-.brk dd{margin:0;font-family:var(--num);font-weight:800;font-variant-numeric:tabular-nums;color:var(--fg);text-align:right}
-.brk .why{display:inline-flex;align-items:center;min-height:2.75rem;padding:0 .15rem;border:0;background:none;color:var(--fg);font:inherit;font-size:.85rem;font-weight:700;text-decoration:underline;text-underline-offset:.2em;cursor:pointer}
+.brk dd{margin:0;font-family:var(--num);font-weight:600;font-variant-numeric:tabular-nums;color:var(--fg);text-align:right}
+.brk .why{display:inline-flex;align-items:center;min-height:2.75rem;padding:0 .15rem;border:0;background:none;color:var(--fg);font:inherit;font-size:.8125rem;font-weight:500;text-decoration:underline;text-underline-offset:.2em;cursor:pointer}
 .brk .why:focus-visible{outline:3px solid var(--fg);outline-offset:2px}
-.brk dd.whytext{grid-column:1/-1;font-family:var(--sys);font-weight:500;font-size:.9rem;color:var(--mute);text-align:left;line-height:1.45;padding:.1rem 0 .2rem}
-.brk .tot{padding:.85rem 0 .7rem;border-top:2px solid var(--line-hi)}
-.brk .tot dt{color:var(--fg);font-weight:800;text-transform:uppercase;letter-spacing:.08em;font-size:.9rem}
-.brk .tot dd{font-size:1.45rem;color:var(--lime)}
+.brk dd.whytext{grid-column:1/-1;font-family:var(--sans);font-weight:400;font-size:.875rem;color:var(--mute);text-align:left;line-height:1.45;padding:.1rem 0 .2rem}
+.brk .tot{padding:.75rem 0 .625rem;border-top:1px solid var(--line-hi)}
+.brk .tot dt{color:var(--fg);font-weight:600;font-size:1rem}
+.brk .tot dd{font-size:1.125rem;color:var(--fg)}
 `;
 
 export const CHOOSE_CSS = `
 .pay{width:100%;max-width:26rem;margin:0 auto;padding:.25rem 1rem 1.25rem;display:flex;flex-direction:column;gap:1.1rem}
 .head{display:flex;flex-direction:column;align-items:center;gap:.3rem;text-align:center;padding-top:.25rem}
-.venue{color:var(--fg);font-weight:700;font-size:1rem;letter-spacing:.01em}
-.concept{color:var(--mute);font-size:.95rem;max-width:22rem}
+.venue{color:var(--fg);font-weight:600;font-size:1.125rem}
+.concept{color:var(--mute);font-size:.875rem;max-width:22rem}
 .head .kick{margin-top:.35rem}
-.amount{font-size:clamp(2.6rem,14vw,4rem);font-weight:800;letter-spacing:-.035em;line-height:1;color:var(--fg)}
-.meta{display:flex;flex-wrap:wrap;justify-content:center;gap:.15rem .9rem;font-size:.85rem;color:var(--dim)}
-.meta b{color:var(--mute)}
+.amount{font-size:clamp(2.5rem,12vw,3rem);font-weight:600;letter-spacing:-.02em;line-height:1.05;color:var(--fg);font-variant-numeric:proportional-nums}
+.meta{display:flex;flex-wrap:wrap;justify-content:center;gap:.15rem .9rem;font-size:.8125rem;color:var(--dim)}
+.meta b{color:var(--mute);font-weight:600}
 form{width:100%;display:flex;flex-direction:column;gap:1.1rem}
 fieldset{border:0;margin:0;padding:0;min-width:0}
-legend{width:100%;margin:0 0 .6rem;padding:0;color:var(--fg);font-weight:700;font-size:1.05rem;text-align:center}
+legend{width:100%;margin:0 0 .6rem;padding:0;color:var(--fg);font-weight:600;font-size:1rem;text-align:center}
 .tipgrid{display:grid;grid-template-columns:1.35fr 1fr 1fr 1fr;gap:.5rem}
 .tipgrid label{display:block;position:relative}
 .tipgrid input{position:absolute;opacity:0;width:1px;height:1px}
-.tipgrid span{position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:.05rem;min-height:3.5rem;padding:.4rem .25rem;border:1.5px solid var(--line-hi);border-radius:var(--r-btn);background:var(--surface-2);font-family:var(--num);font-size:1.1rem;font-weight:800;color:var(--fg);cursor:pointer;line-height:1.12;text-align:center;overflow-wrap:anywhere;transition:transform .15s var(--ease)}
-.tipgrid span.word{font-family:var(--sys);font-size:.9rem}
-.tipgrid small{font-family:var(--sys);font-size:.78rem;font-weight:700;color:var(--mute)}
-.tipgrid input:checked+span{border-color:var(--cream);background:var(--cream);color:var(--ink)}
-.tipgrid input:checked+span small{color:var(--ink)}
-.tipgrid input:checked+span::after{content:'';position:absolute;top:-.45rem;right:-.35rem;width:1.3rem;height:1.3rem;border-radius:50%;box-shadow:0 0 0 2px var(--bg);background:var(--ink) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23EFE9DF' stroke-width='3.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 13l4 4L19 7'/%3E%3C/svg%3E") center/70% no-repeat}
+.tipgrid span{position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:.05rem;min-height:3rem;padding:.4rem .25rem;border:1px solid var(--line-hi);border-radius:var(--r-field);background:var(--surface-2);font-family:var(--num);font-size:1rem;font-weight:600;color:var(--fg);cursor:pointer;line-height:1.12;text-align:center;overflow-wrap:anywhere;transition:transform .15s var(--ease)}
+.tipgrid span.word{font-family:var(--sans);font-size:.875rem;font-weight:500}
+.tipgrid small{font-family:var(--num);font-size:.75rem;font-weight:600;color:var(--mute)}
+.tipgrid input:checked+span{border-color:var(--fg);background:var(--fg);color:var(--bg)}
+.tipgrid input:checked+span small{color:var(--bg)}
+.tipgrid input:checked+span::after{content:'';position:absolute;top:-.5rem;right:.375rem;width:1rem;height:1rem;border-radius:50%;box-shadow:0 0 0 2px var(--bg);background:var(--bg) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23F4F2EC' stroke-width='3.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 13l4 4L19 7'/%3E%3C/svg%3E") center/70% no-repeat}
 .tipgrid input:focus-visible+span{outline:3px solid var(--fg);outline-offset:3px}
 .tipgrid span:active{transform:scale(.97)}
 .other{display:grid;grid-template-columns:auto auto;justify-content:center;align-items:center;gap:.3rem .7rem;margin-top:.7rem;text-align:center}
 .other>p{grid-column:1/-1}
-.other label{font-weight:700;color:var(--fg)}
+.other label{font-weight:500;color:var(--fg)}
 .eur{display:flex;align-items:center;gap:.4rem}
-.eur input{width:6.5rem;min-height:3.25rem;font-family:var(--num);font-size:1.7rem;font-weight:800;text-align:center;border-radius:var(--r-btn);border:2px solid var(--line-hi);background:var(--surface-2);color:var(--fg)}
+.eur input{width:6.5rem;min-height:3.25rem;font-family:var(--num);font-size:1.375rem;font-weight:600;text-align:center;border-radius:var(--r-field);border:1px solid var(--line-hi);background:var(--surface-2);color:var(--fg)}
 .eur input:focus-visible{outline:3px solid var(--fg);outline-offset:2px;border-color:var(--fg)}
 .eur input[aria-invalid=true]{border-color:var(--err)}
-.eur span{font-size:1.4rem;font-weight:800}
+.eur span{font-size:1.375rem;font-weight:600}
 .other .err{text-align:center}
-.tipnote{margin-top:.65rem;font-size:.9rem;color:var(--mute);text-align:center}
-${BREAKDOWN_CSS}.warn{border:1px solid rgb(255 176 32/.55);border-radius:18px;background:rgb(255 176 32/.12);padding:.75rem 1rem;color:var(--fg);font-size:.95rem}
+.tipnote{margin-top:.65rem;font-size:.875rem;color:var(--mute);text-align:center}
+${BREAKDOWN_CSS}.warn{border:1px solid var(--warn);border-radius:var(--r-tile);background:rgb(245 179 66/.1);padding:.75rem 1rem;color:var(--fg);font-size:.875rem}
 .paybar{position:sticky;bottom:0;z-index:5;margin:0 -1rem;padding:.6rem 1rem calc(.7rem + env(safe-area-inset-bottom));background:var(--bg)}
-.paybar::before{content:'';position:absolute;left:0;right:0;bottom:100%;height:.75rem;background:linear-gradient(to top,var(--bg),rgb(15 17 18/0));pointer-events:none}
+.paybar::before{content:'';position:absolute;left:0;right:0;bottom:100%;height:.75rem;background:linear-gradient(to top,var(--bg),rgb(11 13 14/0));pointer-events:none}
 .paybar>div{display:flex;flex-direction:column;gap:.5rem;text-align:center}
-.paybar .btn{min-height:3.5rem;font-size:1.125rem}
+.paybar .btn{min-height:3.5rem;font-size:1.0625rem}
 .paybar .alts{display:grid;grid-template-columns:1fr;gap:.5rem}
-.paybar .alts .btn{min-height:3.25rem;font-size:1rem;padding:.55rem .7rem}
-.methods{font-size:.85rem;color:var(--mute)}
-.nofee{font-size:.85rem;color:var(--mute)}
-.btn[aria-disabled=true]:not(.busy){opacity:.55}
+.paybar .alts .btn{min-height:3rem;font-size:.9375rem;padding:.55rem .7rem}
+.methods{font-size:.8125rem;color:var(--mute)}
+.nofee{font-size:.8125rem;color:var(--mute)}
+.btn.gpay[aria-disabled=true]:not(.busy){opacity:.55}
 .btn.gpay{background:#fff;border-color:#fff;color:#1f1f1f;box-shadow:0 1px 2px rgb(0 0 0/.35)}
 .btn.gpay .gmark{display:block;width:auto;height:1.55rem}
 @supports (-webkit-appearance:-apple-pay-button){
 .btn.apay{-webkit-appearance:-apple-pay-button;-apple-pay-button-type:plain;-apple-pay-button-style:white;height:3.5rem;padding:0;border:0;border-radius:var(--r-btn);box-shadow:none;filter:none}
 .btn.apay>*{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
 }
-.or{display:flex;align-items:center;gap:.75rem;font-size:.8rem;line-height:1;color:var(--dim)}
+.or{display:flex;align-items:center;gap:.75rem;font-size:.8125rem;line-height:1;color:var(--dim)}
 .or::before,.or::after{content:'';flex:1;height:1px;background:var(--line)}
-${PAY_MARKS_CSS}/* Móviles bajos (360×740 y similares): todo más compacto para que el desglose no quede detrás de los botones; los toques siguen ≥ 48 px. */
+${PAY_MARKS_CSS}/* Móviles bajos (360×740 y similares): todo más compacto para que el desglose no quede detrás de los botones; los toques siguen ≥ 48 px. Sin la «o» de adorno y, con tarjeta y saldo, los dos secundarios lado a lado: la barra deja sitio al TOTAL. */
 @media (max-height:780px){
 .top{min-height:3.25rem;padding-top:calc(.25rem + env(safe-area-inset-top));padding-bottom:.25rem}
 .pay{gap:.8rem}
 form{gap:.8rem}
 .head{gap:.15rem}
 .head .kick{margin-top:.15rem}
-.amount{font-size:clamp(2.3rem,12vw,3.1rem)}
-.meta{font-size:.8rem}
-legend{margin-bottom:.45rem;font-size:1rem}
+.amount{font-size:2.5rem}
+.meta{font-size:.75rem}
+legend{margin-bottom:.45rem;font-size:.9375rem}
 .tipgrid span{min-height:3rem}
-.eur input{min-height:3rem;font-size:1.5rem}
+.eur input{min-height:3rem;font-size:1.375rem}
 .other{margin-top:.5rem}
 .brk>div{padding:.4rem 0}
 .brk .tot{padding:.55rem 0 .45rem}
-.brk dt{font-size:.95rem}
-.brk .why{font-size:.8rem}
+.brk dt{font-size:.875rem}
+.brk dd{font-size:.9375rem}
+.brk .tot dd{font-size:1.0625rem}
+.brk .why{font-size:.8125rem}
 .paybar{padding-top:.45rem}
 .paybar>div{gap:.3rem}
-.paybar .btn{min-height:3.25rem;font-size:1.05rem}
+.paybar .btn{min-height:3.25rem;font-size:1.0625rem}
 .paybar .btn.apay{height:3.25rem}
-.paybar .alts .btn{min-height:3rem}
-.methods,.nofee,.trust{font-size:.78rem}
+.paybar .alts .btn{min-height:3rem;padding:.5rem;line-height:1.15}
+.paybar .or{display:none}
+.paybar .alts:has(>.btn+.btn){grid-template-columns:1fr 1fr}
+.methods,.nofee,.trust{font-size:.75rem}
 }
-.secure{display:flex;align-items:center;justify-content:center;gap:.4rem;font-size:.85rem;color:var(--dim)}
+.secure{display:flex;align-items:center;justify-content:center;gap:.4rem;font-size:.8125rem;color:var(--dim)}
 .secure svg{width:1rem;height:1rem;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
 `;
 
