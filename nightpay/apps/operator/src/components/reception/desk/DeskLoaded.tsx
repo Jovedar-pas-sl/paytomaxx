@@ -5,7 +5,7 @@ import { SectionChip } from '@nightpay/ui';
 import { playOutcomeSound } from '@/lib/alert-sound';
 import { formatEur } from '@/lib/money';
 import { Icon } from './desk-parts';
-import s from './desk.module.css';
+import s from './loaded.module.css';
 
 interface Action {
   label: string;
@@ -18,7 +18,7 @@ interface Props {
   amountCents: number;
   /** La referencia de arriba: el código del saldo (P9H-2XT). */
   reference: string | null;
-  /** La pill de debajo del importe: «Efectivo: 50 € a la caja». */
+  /** El bloque de debajo del importe: «Efectivo: 50 € a la caja». */
   money: { icon: 'cash' | 'card'; label: string; amount: string; tail: string } | null;
   /** «Dale el NFC · ficha nº 0522». */
   meta: string;
@@ -34,9 +34,10 @@ interface Props {
 
 /**
  * 4.4: el mismo verde que PAGADO (el dinero ya está dentro), con lo que hace
- * recepción con el efectivo y que entregue el NFC. Suena y vibra como un
- * cobro pagado (dos vibraciones cortas). Usa la pantalla del resultado de
- * @nightpay/ui (.np-outcome) sin su franja de la hora: la ve solo quien cobra.
+ * recepción con el efectivo, destacado en su bloque, y que entregue el NFC.
+ * Suena y vibra como un cobro pagado (dos vibraciones cortas). Usa la
+ * pantalla del resultado de @nightpay/ui (.np-outcome) sin su franja de la
+ * hora (la ve solo quien cobra) ni tira de color arriba (Grafito: plano).
  */
 export function DeskLoaded({ word, amountCents, reference, money, meta, warn, primary, secondary, quiet = false, extra }: Props) {
   const titleId = useId();
@@ -53,7 +54,6 @@ export function DeskLoaded({ word, amountCents, reference, money, meta, warn, pr
   }, []);
   return (
     <section className="np-outcome" data-kind="paid" aria-labelledby={titleId}>
-      <div className={s.holdBand} aria-hidden="true" />
       <div className="np-outcome-body">
         <div className="np-outcome-top">
           <SectionChip section="VENUE_ENTRY">Recepción</SectionChip>
@@ -73,7 +73,9 @@ export function DeskLoaded({ word, amountCents, reference, money, meta, warn, pr
         {money ? (
           <p className={s.resLeft}>
             <Icon name={money.icon} />
-            {money.label} <b>{money.amount}</b> {money.tail}
+            <span>
+              {money.label} <b>{money.amount}</b> {money.tail}
+            </span>
           </p>
         ) : null}
         <p className={s.resMeta}>{meta}</p>

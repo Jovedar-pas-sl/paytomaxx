@@ -10,7 +10,7 @@ import {
   type ReceptionPayoutPlan,
 } from '@/lib/reception-cash-payout';
 import { numberRow, type NumberSaldo } from '@/lib/reception-desk';
-import { DeskBtn, DeskRowView, Icon } from './desk-parts';
+import { DESK_FIELD, DeskBtn, DeskRowView, Icon } from './desk-parts';
 import { QrBox } from './QrBox';
 import s from './desk.module.css';
 
@@ -18,6 +18,16 @@ import s from './desk.module.css';
 const POLL_MS = 2_000;
 
 const eur = (cents: number) => formatEur(cents, { compact: true });
+
+/** El 2FA es un código: centrado, en cifras de Manrope y espaciado (el único sitio con letter-spacing). */
+const TOTP_FIELD = {
+  ...DESK_FIELD,
+  textAlign: 'center',
+  fontFamily: 'var(--np-font-num)',
+  fontSize: '1.375rem',
+  fontWeight: 600,
+  letterSpacing: '0.3em',
+} as const;
 
 interface PasskeyProps {
   walletId: string;
@@ -97,7 +107,7 @@ export function PasskeyExitStep({ walletId, proof, plan, onConfirmed, onWithoutP
       {state === 'expired' ? <DeskBtn kind="pri" label="Otro QR" onClick={() => setRound((n) => n + 1)} /> : null}
       <div className={s.foot}>
         {onWithoutPhone ? <DeskBtn kind="gho" label={onWithoutPhone.label} onClick={onWithoutPhone.onClick} /> : null}
-        <DeskBtn kind="gho" size={onWithoutPhone ? undefined : 'l'} label="Guardar para la próxima" small={onWithoutPhone ? null : '¿Sin su móvil? Que lo devuelva el encargado'} onClick={onKeep} />
+        <DeskBtn kind="gho" label="Guardar para la próxima" small={onWithoutPhone ? null : '¿Sin su móvil? Que lo devuelva el encargado'} onClick={onKeep} />
       </div>
     </>
   );
@@ -129,11 +139,10 @@ export function TotpExitStep({ plan, amountCents, message, busy, then, onCode }:
         inputMode="numeric"
         autoComplete="one-time-code"
         maxLength={6}
-        size="lg"
         value={code}
         autoFocus
         onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
-        style={{ textAlign: 'center', letterSpacing: '0.3em' }}
+        style={TOTP_FIELD}
       />
       <DeskBtn kind="pri" label={then} disabled={code.length !== 6} busy={busy} onClick={() => onCode(code)} />
     </form>
@@ -150,7 +159,7 @@ export function ManagerExitStep({ plan, amountCents, onAsk, onKeep }: { plan: Re
       </div>
       <p className={s.q}>Lo confirma el encargado</p>
       <p className={s.lbl}>El cliente pone su PIN una vez y queda pendiente: aún no sacas dinero. El encargado lo confirma en el panel con su 2FA.</p>
-      <DeskBtn kind="pri" size="l" label="Pedir al encargado" small="El cliente pone su PIN" onClick={onAsk} />
+      <DeskBtn kind="pri" label="Pedir al encargado" small="El cliente pone su PIN" onClick={onAsk} />
       <DeskBtn kind="gho" label="Guardar para la próxima" onClick={onKeep} />
     </>
   );
@@ -166,9 +175,9 @@ export function NumberExitStep({ view, onKeep, onTap }: { view: NumberSaldo; onK
         <span className={s.kick}>{view.balanceCents > 0 ? 'Le quedan' : 'No le queda saldo'}</span>
         <p className={s.bignum}>{eur(view.balanceCents)}</p>
       </div>
-      <DeskBtn kind="pri" size="xl" label="Guardar para la próxima" small="No caduca · se lleva su NFC" onClick={onKeep} />
+      <DeskBtn kind="pri" label="Guardar para la próxima" small="No caduca · se lleva su NFC" onClick={onKeep} />
       {view.cashOutCents > 0 ? (
-        <DeskBtn kind="gho" size="l" label={`Devolver ${eur(view.cashOutCents)} en efectivo`} small="Para devolver, acerca su NFC original" onClick={onTap} />
+        <DeskBtn kind="gho" label={`Devolver ${eur(view.cashOutCents)} en efectivo`} small="Para devolver, acerca su NFC original" onClick={onTap} />
       ) : null}
     </>
   );

@@ -6,6 +6,21 @@ import { codeBoxes, codeInput } from '@/lib/reception-desk';
 import { useStaffMenu } from '../../staff-menu';
 import s from './desk.module.css';
 
+/**
+ * Los campos de Recepción (Grafito): 52 px, 16/500 a la izquierda, filete de
+ * 1 px que se ve (3,6:1) y radio 10, encima del estilo del <Input> de
+ * @nightpay/ui (compartido; en size="lg", 72 px y 32/700). Aquí ningún campo
+ * lleva `error`: el error va en su caja, debajo.
+ */
+export const DESK_FIELD: CSSProperties = {
+  height: '3.25rem',
+  fontSize: '1rem',
+  fontWeight: 500,
+  borderWidth: 1,
+  borderColor: 'var(--np-border-hi)',
+  borderRadius: 'var(--np-r-sm)',
+};
+
 /** Los iconos de las maquetas (trazo, currentColor). */
 const ICONS = {
   back: <path d="M14.5 5.5L8 12l6.5 6.5" strokeWidth="2.2" strokeLinejoin="round" />,
@@ -43,6 +58,7 @@ const ICONS = {
       <path d="M16 3a13 13 0 0 1 0 18" />
     </>
   ),
+  chevron: <path d="M9.5 5.5L16 12l-6.5 6.5" strokeLinejoin="round" />,
 } as const;
 
 export type IconName = keyof typeof ICONS;
@@ -63,70 +79,55 @@ interface HeadProps {
   onBack?: () => void;
   /** El chip de la derecha: la sección de recepción (Entradas) o «Recarga» a trazos. */
   chip: { section: string; label: string };
-  /** La franja de debajo: el color de la sección o a trazos (recarga). */
-  stripe: 'section' | 'hold';
 }
 
 /**
  * La cabecera de cada pantalla (4.x): símbolo o volver, título, quién y su
- * chip; debajo, la franja. Es la única de Recepción: el símbolo abre el menú
- * (tema y salir), como en «Cobrar».
+ * chip (punto y nombre: el color de la sección nunca va solo, así que ya no
+ * hay franja de color debajo). Es la única de Recepción: el símbolo abre el
+ * menú (tema y salir), como en «Cobrar».
  */
-export function DeskHead({ title, sub, onBack, chip, stripe }: HeadProps) {
+export function DeskHead({ title, sub, onBack, chip }: HeadProps) {
   const openMenu = useStaffMenu();
   return (
-    <>
-      <div className={s.head}>
-        {onBack ? (
-          <button type="button" className={s.back} onClick={onBack} aria-label="Volver">
-            <Icon name="back" />
-          </button>
-        ) : openMenu ? (
-          <button type="button" className={s.logoBtn} onClick={openMenu} aria-label="Menú: tema y salir">
-            <Logo variant="symbol" height="2.625rem" alt="" />
-          </button>
-        ) : (
-          <Logo variant="symbol" height="2.625rem" />
-        )}
-        <div className={s.headText}>
-          <b>{title}</b>
-          <span>{sub}</span>
-        </div>
-        <SectionChip section={chip.section}>{chip.label}</SectionChip>
+    <div className={s.head}>
+      {onBack ? (
+        <button type="button" className={s.back} onClick={onBack} aria-label="Volver">
+          <Icon name="back" />
+        </button>
+      ) : openMenu ? (
+        <button type="button" className={s.logoBtn} onClick={openMenu} aria-label="Menú: tema y salir">
+          <Logo variant="symbol" height="2.5rem" alt="" />
+        </button>
+      ) : (
+        <Logo variant="symbol" height="2.5rem" />
+      )}
+      <div className={s.headText}>
+        <b>{title}</b>
+        <span>{sub}</span>
       </div>
-      <div
-        className={`${s.stripe} ${stripe === 'hold' ? s.stripeHold : ''}`}
-        style={{ '--desk-c': 'var(--np-sec-entradas)' } as CSSProperties}
-        aria-hidden="true"
-      />
-    </>
+      <SectionChip section={chip.section}>{chip.label}</SectionChip>
+    </div>
   );
 }
 
-/** La tarjeta NFC plata con su halo lima (s: en una fila; l: en el escenario, dentro de sus aros). */
-export function NfcCard({ size }: { size: 's' | 'l' }) {
-  if (size === 's') {
-    return (
-      <span className={`${s.ncard} ${s.ncardS}`} aria-hidden="true">
-        <i className={s.tri} />
-      </span>
-    );
-  }
+/**
+ * El NFC dibujado como glifo, sin tarjeta plata ni halo (Grafito). s: en una
+ * fila, en su cuadro neutro; l: en el escenario, dentro de su aro de 1 px.
+ */
+export function NfcMark({ size }: { size: 's' | 'l' }) {
   return (
-    <span className={s.rings} aria-hidden="true">
-      <span className={`${s.ncard} ${s.ncardL}`}>
-        <i className={s.tri} />
-        <Icon name="nfc" />
-      </span>
+    <span className={size === 's' ? s.glyph : s.rings} aria-hidden="true">
+      <Icon name="nfc" />
     </span>
   );
 }
 
-/** La fila del NFC leído (o del saldo): la tarjeta pequeña, qué es y el ✓. */
-export function DeskRowView({ title, detail, check = true, lime = false }: { title: string; detail: string; check?: boolean; lime?: boolean }) {
+/** La fila del NFC leído (o del saldo): su glifo, qué es y el ✓. */
+export function DeskRowView({ title, detail, check = true }: { title: string; detail: string; check?: boolean }) {
   return (
-    <div className={`${s.det} ${lime ? s.detLime : ''}`}>
-      <NfcCard size="s" />
+    <div className={s.det}>
+      <NfcMark size="s" />
       <div className={s.grow}>
         <b>{title}</b>
         <span>{detail}</span>
@@ -190,19 +191,41 @@ export function CodeBoxes({ value, onChange, disabled, label = 'Código del sald
 
 interface BtnProps {
   kind: 'pri' | 'gho';
-  size?: 'xl' | 'l';
   icon?: IconName;
   label: string;
-  /** La línea pequeña de debajo («Lo metes en la caja»). */
+  /** El detalle de debajo («Lo metes en la caja»): entonces es una fila de 72 px. */
   small?: string | null;
   onClick: () => void;
   disabled?: boolean;
   busy?: boolean;
 }
 
-/** Los botones de las maquetas: pill lima o con borde; XL (112 px) y L (80 px) con su línea pequeña. */
-export function DeskBtn({ kind, size, icon, label, small, onClick, disabled, busy }: BtnProps) {
-  const cls = [s.btn, s[kind], size ? s[size] : ''].filter(Boolean).join(' ');
+/**
+ * Un solo botón: el de @nightpay/ui (principal lima de 56 px, secundario de
+ * 48 con filete), a todo el ancho. Con su detalle, una fila de 72 px (icono,
+ * etiqueta y detalle), igual para las dos opciones. Ocupado sigue en su color
+ * (data-loading): está trabajando, no vacío; deshabilitado, neutro.
+ */
+export function DeskBtn({ kind, icon, label, small, onClick, disabled, busy }: BtnProps) {
+  const off = disabled || busy;
+  if (small) {
+    return (
+      <button
+        type="button"
+        className={`${s.opt} ${kind === 'pri' ? s.optPri : ''}`}
+        onClick={onClick}
+        disabled={off}
+        aria-busy={busy || undefined}
+        data-loading={busy || undefined}
+      >
+        {icon ? <Icon name={icon} /> : null}
+        <span className={s.optText}>
+          <b>{busy ? 'Un momento…' : label}</b>
+          {busy ? null : <small>{small}</small>}
+        </span>
+      </button>
+    );
+  }
   const head: ReactNode = icon ? (
     <span className={s.row}>
       <Icon name={icon} />
@@ -212,9 +235,27 @@ export function DeskBtn({ kind, size, icon, label, small, onClick, disabled, bus
     label
   );
   return (
-    <button type="button" className={cls} onClick={onClick} disabled={disabled || busy} aria-busy={busy || undefined}>
+    <button
+      type="button"
+      className={`np-btn ${s.btn}`}
+      data-variant={kind === 'pri' ? 'primary' : 'ghost'}
+      data-size={kind === 'pri' ? 'lg' : 'md'}
+      data-loading={busy || undefined}
+      onClick={onClick}
+      disabled={off}
+      aria-busy={busy || undefined}
+    >
       {busy ? 'Un momento…' : head}
-      {small && !busy ? <small>{small}</small> : null}
+    </button>
+  );
+}
+
+/** Una fila de lista de 52 px con su flecha («Escribir el código»). */
+export function DeskRowLink({ label, onClick }: { label: string; onClick: () => void }) {
+  return (
+    <button type="button" className={s.rowLink} onClick={onClick}>
+      {label}
+      <Icon name="chevron" />
     </button>
   );
 }

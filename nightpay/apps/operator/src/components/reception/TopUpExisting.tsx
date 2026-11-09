@@ -27,7 +27,7 @@ import {
 } from '@/lib/reception-desk';
 import { useVenueNight } from '@/lib/venue-methods';
 import { AssignTopUp } from './AssignTopUp';
-import { CodeBoxes, DeskBtn, DeskHead, Icon, NfcCard } from './desk/desk-parts';
+import { CodeBoxes, DeskBtn, DeskHead, Icon, NfcMark } from './desk/desk-parts';
 import { DeskLoaded } from './desk/DeskLoaded';
 import { TopUpQr, useRetirePayment } from './desk/TopUpQr';
 import { useDeskNfc } from './desk/use-desk-nfc';
@@ -254,7 +254,6 @@ export function TopUpExisting({ onExit, onDone }: Props) {
               title="Recargar saldo"
               sub={`Para ${f.view.code} · tiene ${has}`}
               chip={chip}
-              stripe="hold"
               onBack={() =>
                 void run(async () => {
                   await retire(payment);
@@ -305,7 +304,6 @@ export function TopUpExisting({ onExit, onDone }: Props) {
               title="Cobrar primero"
               sub="Se asigna después"
               chip={chip}
-              stripe="hold"
               onBack={() =>
                 void run(async () => {
                   await retire(payment);
@@ -342,11 +340,11 @@ export function TopUpExisting({ onExit, onDone }: Props) {
   return (
     // data-charge-open: en el móvil, el saludo de Inicio se aparta (esta pantalla trae su cabecera).
     <div className={s.screen} data-charge-open="" ref={shownRef}>
-      <DeskHead title="Recargar saldo" sub={sub} chip={chip} stripe="hold" onBack={onExit} />
+      <DeskHead title="Recargar saldo" sub={sub} chip={chip} onBack={onExit} />
       <span className={s.kick}>¿De quién es el saldo?</span>
       {nfcOn ? (
-        <button type="button" className={`${s.det} ${s.detLime}`} onClick={nfc.stopped ? nfc.restart : undefined} aria-live="polite">
-          <NfcCard size="s" />
+        <button type="button" className={s.det} onClick={nfc.stopped ? nfc.restart : undefined} aria-live="polite">
+          <NfcMark size="s" />
           <span className={s.grow}>
             <b>{nfc.stopped ? 'Toca para leer su NFC' : 'Acerca su NFC'}</b>
             <span>{noReader ?? nfc.stopped ?? 'Antes de cobrar, para que la recarga vaya a su NFC'}</span>

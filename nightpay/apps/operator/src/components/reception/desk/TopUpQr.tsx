@@ -11,6 +11,7 @@ import { advanceStatus, isFinalStatus } from '@/lib/payment-status';
 import { StaffOutcome } from '../../StaffOutcome';
 import { usePaymentLive } from '../../use-payment-live';
 import { DeskBtn, Icon } from './desk-parts';
+import { QrBox } from './QrBox';
 import s from './desk.module.css';
 
 /**
@@ -157,13 +158,13 @@ export function TopUpQr(props: Props) {
         </>
       ) : (
         <>
-          <div className={`${s.qr} ${payment && !props.changing ? '' : s.qrWait}`} aria-busy={props.changing || undefined}>
-            {payment && !props.changing ? (
-              <img src={payment.qrPngDataUrl} alt="QR de la recarga" />
-            ) : (
+          {payment && !props.changing ? (
+            <QrBox value={payment.qrUrl} label="QR de la recarga" fallbackSrc={payment.qrPngDataUrl} />
+          ) : (
+            <div className={`${s.qr} ${s.qrWait}`} aria-busy={props.changing || undefined}>
               <p className={s.qrEmpty}>{props.changing ? 'Un momento…' : selected === null ? 'Elige cuánto carga' : 'Toca el importe para sacar el QR'}</p>
-            )}
-          </div>
+            </div>
+          )}
           <p className={s.waitT}>Que lo pague en su móvil</p>
           {payment && paymentFeeLine(payment) ? <p className={s.lbl}>{paymentFeeLine(payment)}</p> : null}
           <p className={s.lbl}>Tarjeta, Apple Pay o Google Pay. {props.forWhom}</p>
