@@ -12,8 +12,8 @@ const sans = localFont({
   display: 'swap',
 });
 
-// Cifras, importes y títulos: Manrope 800 (marca OxioCard). La variable
-// sigue llamándose --font-mono.
+// Cifras: Manrope variable 600-700 (Grafito). La variable sigue llamándose
+// --font-mono.
 const mono = localFont({
   src: '../../../../packages/ui/fonts/manrope-var.woff2',
   weight: '600 800',
@@ -33,20 +33,14 @@ export const viewport: Viewport = {
   initialScale: 1,
   // Hasta los bordes en iPhone: env(safe-area-inset-*) solo funciona con 'cover'.
   viewportFit: 'cover',
-  themeColor: [
-    { media: '(prefers-color-scheme: dark)', color: '#0f1112' },
-    { media: '(prefers-color-scheme: light)', color: '#efe9df' },
-  ],
+  themeColor: '#0b0d0e',
 };
 
-const themeInitScript = `(function(){try{var s=localStorage.getItem('np-theme');if(s==='light'||s==='dark'){document.documentElement.setAttribute('data-theme',s);}else if(window.matchMedia&&window.matchMedia('(prefers-color-scheme: light)').matches){document.documentElement.setAttribute('data-theme','light');}else{document.documentElement.setAttribute('data-theme','dark');}}catch(e){document.documentElement.setAttribute('data-theme','dark');}})();`;
-
+// Siempre oscuro, como las páginas de pago del API (Grafito: el claro queda
+// para el panel). Sin script de tema: nada que cambie al cargar.
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
-    <html lang="es" className={`${sans.variable} ${mono.variable}`} suppressHydrationWarning>
-      <head>
-        <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
-      </head>
+    <html lang="es" data-theme="dark" className={`${sans.variable} ${mono.variable}`}>
       <body>{children}</body>
     </html>
   );

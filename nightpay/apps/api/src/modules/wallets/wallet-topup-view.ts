@@ -1,7 +1,7 @@
 import { clientMoney, escapeHtml, jsConfig } from '../payments/club-ui';
 import { BREAKDOWN_CSS } from '../payments/pay-choose-page';
 import { PAY_TEXT, type PayLanguage } from '../payments/pay-i18n';
-import { PAID_FRESH_MS, PAID_SCREEN_JS, formatAgo, paidScreenJsText } from '../payments/paid-screen';
+import { BAND_CSS, PAID_FRESH_MS, PAID_SCREEN_JS, formatAgo, paidBand, paidScreenJsText } from '../payments/paid-screen';
 import { receiptHref } from '../payments/public-pay.pages';
 import { WALLET_TEXT } from './wallet-text';
 import type { TopUpOptions, TopUpProof } from './wallet-topup.service';
@@ -15,41 +15,38 @@ import type { TopUpOptions, TopUpProof } from './wallet-topup.service';
  * El JS va dentro de plantillas de TypeScript: sin barras invertidas.
  */
 
-export const TOPUP_CSS = `${BREAKDOWN_CSS}
+export const TOPUP_CSS = `${BREAKDOWN_CSS}${BAND_CSS}
 .topup{text-align:center}
 .topup .brk{text-align:left}
-.tform{display:flex;flex-direction:column;gap:.8rem}
+.tform{display:flex;flex-direction:column;gap:.75rem}
 .tform fieldset{border:0;margin:0;padding:0;min-width:0}
-.amts{display:grid;grid-template-columns:1fr 1fr;gap:.6rem}
+.amts{display:grid;grid-template-columns:1fr 1fr;gap:.5rem}
 .amts label{display:block;position:relative}
 .amts input{position:absolute;opacity:0;width:1px;height:1px}
-.amts span{position:relative;display:flex;align-items:center;justify-content:center;min-height:3.5rem;padding:.5rem 1.9rem;border:1.5px solid var(--line-hi);border-radius:var(--r-btn);background:var(--surface-2);font-family:var(--num);font-size:1.2rem;font-weight:800;color:var(--fg);cursor:pointer;transition:transform .15s var(--ease)}
-.amts input:checked+span{border-color:var(--cream);background:var(--cream);color:var(--ink)}
-.amts input:checked+span::before{content:'';position:absolute;top:50%;left:.85rem;width:1.15rem;height:1.15rem;margin-top:-.575rem;border-radius:50%;background:var(--ink) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23EFE9DF' stroke-width='3.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 13l4 4L19 7'/%3E%3C/svg%3E") center/70% no-repeat}
+.amts span{position:relative;display:flex;align-items:center;justify-content:center;min-height:3.5rem;padding:.5rem 1.9rem;border:1px solid var(--line-hi);border-radius:var(--r-field);background:var(--surface-2);font-family:var(--num);font-size:1.125rem;font-weight:600;color:var(--fg);cursor:pointer;transition:transform .15s var(--ease)}
+.amts input:checked+span{border-color:var(--fg);background:var(--fg);color:var(--bg)}
+.amts input:checked+span::before{content:'';position:absolute;top:50%;left:.85rem;width:1.15rem;height:1.15rem;margin-top:-.575rem;border-radius:50%;background:var(--bg) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23F4F2EC' stroke-width='3.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 13l4 4L19 7'/%3E%3C/svg%3E") center/70% no-repeat}
 .amts input:focus-visible+span{outline:3px solid var(--fg);outline-offset:3px}
 .amts span:active{transform:scale(.97)}
 .tother{display:flex;flex-direction:column;align-items:center;gap:.35rem}
-.tother label{font-weight:600;color:var(--mute)}
+.tother label{font-weight:500;color:var(--mute)}
 .teur{display:flex;align-items:center;gap:.4rem}
-.teur input{width:7rem;min-height:3.25rem;font:inherit;font-size:1.6rem;font-weight:800;text-align:center;border-radius:var(--r-btn);border:2px solid var(--line-hi);background:var(--surface-2);color:var(--fg)}
+.teur input{width:7rem;min-height:3.25rem;font:inherit;font-family:var(--num);font-size:1.375rem;font-weight:600;text-align:center;border-radius:var(--r-field);border:1px solid var(--line-hi);background:var(--surface-2);color:var(--fg)}
 .teur input:focus-visible{outline:3px solid var(--fg);outline-offset:2px}
-.teur span{font-size:1.4rem;font-weight:800}
-.proof{position:relative;isolation:isolate;overflow:hidden;display:grid;grid-template-columns:auto 1fr;align-items:center;gap:.2rem .85rem;padding:1rem 1.1rem;border-radius:var(--r);background:radial-gradient(120% 120% at 20% 20%,var(--green-3) 0%,var(--green-2) 55%,var(--green-1) 100%);background-color:var(--green-2);color:var(--cream);box-shadow:0 0 0 1px var(--lime-edge)}
+.teur span{font-size:1.375rem;font-weight:600}
+.proof{position:relative;overflow:hidden;display:grid;grid-template-columns:auto 1fr;align-items:center;gap:.2rem .875rem;padding:2.5rem 1rem 1rem;border-radius:var(--r);background:var(--paid);color:var(--paid-ink)}
 .proof p,.proof a{color:inherit}
-.proof .band{position:absolute;top:-50%;left:-50%;width:200%;height:200%;z-index:-1;background:repeating-linear-gradient(-45deg,rgb(239 233 223/.05) 0 30px,rgb(239 233 223/0) 30px 60px);animation:np-band 8s linear infinite;will-change:transform}
-@keyframes np-band{from{transform:translate3d(0,0,0)}to{transform:translate3d(84.85px,0,0)}}
-@media (prefers-reduced-motion:reduce){.proof .band{animation:none}}
-.proof .tick{grid-row:span 2;width:3rem;height:3rem;padding:.65rem;border-radius:50%;background:var(--lime);color:var(--ink);box-shadow:0 0 0 5px var(--lime-ring),0 0 24px 4px var(--lime-glow);stroke:currentColor;stroke-width:3;fill:none;stroke-linecap:round;stroke-linejoin:round}
-.proof h2{font-size:1.7rem;font-weight:800;text-transform:uppercase;line-height:1}
-.proof .pwhat{font-weight:800;font-size:1.05rem}
-.proof .pmeta{grid-column:1/-1;display:flex;flex-wrap:wrap;justify-content:space-between;gap:.15rem .75rem;margin-top:.35rem;font-weight:700}
-.proof .pcode b{letter-spacing:.2em}
-.proof .pnote{grid-column:1/-1;font-size:.9rem;font-weight:600}
-.proof .pstale{display:none;grid-column:1/-1;font-weight:800}
+.proof .band{position:absolute;top:0;left:0;right:0;height:1.5rem}
+.proof .tick{grid-row:span 2;width:3rem;height:3rem;padding:.65rem;border-radius:50%;background:var(--lime);color:var(--on-lime);stroke:currentColor;stroke-width:3;fill:none;stroke-linecap:round;stroke-linejoin:round}
+.proof h2{font-size:1.375rem;font-weight:600;line-height:1.1}
+.proof .pwhat{font-weight:600;font-size:1rem}
+.proof .pmeta{grid-column:1/-1;display:flex;flex-wrap:wrap;justify-content:space-between;gap:.15rem .75rem;margin-top:.35rem;font-weight:500}
+.proof .pcode b{letter-spacing:.2em;font-weight:700}
+.proof .pnote{grid-column:1/-1;font-size:.875rem;font-weight:400}
+.proof .pstale{display:none;grid-column:1/-1;font-weight:600}
 .proof .link{grid-column:1/-1;justify-content:flex-start;min-height:2.75rem;padding:0;color:inherit}
-.proof.stale{background:var(--stale);color:var(--fg)}
+.proof.stale{padding-top:1rem;background:var(--stale);color:var(--fg)}
 .proof.stale .band{display:none}
-.proof.stale{box-shadow:none}
 .proof.stale .tick{background:transparent;color:var(--fg);box-shadow:inset 0 0 0 2px currentColor}
 .proof.stale .pstale{display:block}
 `;
@@ -126,8 +123,10 @@ export function paidProofSection(lang: PayLanguage, proof: TopUpProof, now: Date
     second: '2-digit',
   });
   const what = t.proofWhat.replace('{amount}', clientMoney(proof.amountCents, t.locale));
+  // La hora del pago en la marquesina (como en el «Pagado» de /pay).
+  const time = at !== null && Number.isFinite(at) ? new Date(at).toLocaleTimeString(p.locale, { timeZone: 'Europe/Madrid', hour: '2-digit', minute: '2-digit' }) : '';
   return `<section class="proof${fresh ? '' : ' stale'}" id="proof" data-at="${at ?? ''}" data-now="${now.getTime()}" data-fresh="${PAID_FRESH_MS}" aria-labelledby="proofTitle">
-<div class="band" aria-hidden="true"></div>
+${paidBand(time ? `${p.paidTitle} · ${time}` : p.paidTitle)}
 <svg class="tick" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 13l4 4L19 7"/></svg>
 <h2 id="proofTitle" data-title aria-live="polite">${h(fresh ? p.paidTitle : p.alreadyPaidTitle)}</h2>
 <p class="pwhat num">${h(what)}</p>

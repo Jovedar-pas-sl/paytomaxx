@@ -26,12 +26,12 @@ import { UNLOCK_CSS, UNLOCK_ICON, unlockCard } from './wallet-unlock-page';
 
 const ACTIVATION_CSS = `
 .pins{display:flex;gap:.5rem;justify-content:center}
-.pins input{width:7.5rem;min-height:3.25rem;font:inherit;font-size:1.4rem;text-align:center;border-radius:14px;border:2px solid var(--line-hi);background:var(--surface-2);color:var(--fg);letter-spacing:.3em}
+.pins input{width:7.5rem;min-height:3.25rem;font:inherit;font-size:1.375rem;text-align:center;border-radius:var(--r-field);border:1px solid var(--line-hi);background:var(--surface-2);color:var(--fg);letter-spacing:.3em}
 .pins input:focus-visible{outline:3px solid var(--lime);outline-offset:2px}
 .pins input::placeholder{letter-spacing:normal;font-size:1rem;color:var(--dim)}
 .pinbox{display:flex;flex-direction:column;gap:.8rem}
-.done{color:var(--fg);font-weight:700;font-size:1.05rem}
-.warn{padding:.9rem 1rem;border-radius:var(--r-tile);border:1px solid var(--warn);color:var(--fg);font-weight:600}
+.done{color:var(--fg);font-weight:600;font-size:1rem}
+.warn{padding:.875rem 1rem;border-radius:var(--r-tile);border:1px solid var(--warn);color:var(--fg);font-weight:500}
 `;
 
 function body(view: ActivationView, lang: PayLanguage): string {
@@ -122,7 +122,7 @@ ${LANG_JS}</script>`;
 export function renderActivationPage(base: string, lang: PayLanguage, view: ActivationView): string {
   const a = CUSTOMER_TEXT[lang].activation;
   const h = escapeHtml;
-  return `<!doctype html><html lang="${lang}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="robots" content="noindex,nofollow"><meta name="referrer" content="no-referrer"><meta name="theme-color" content="#0f1112"><title>${h(a.title)}</title><style>${CLUB_BASE_CSS}${CHROME_CSS}${UNLOCK_CSS}${ACTIVATION_CSS}</style></head><body><main>`
+  return `<!doctype html><html lang="${lang}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="robots" content="noindex,nofollow"><meta name="referrer" content="no-referrer"><meta name="theme-color" content="#0b0d0e"><title>${h(a.title)}</title><style>${CLUB_BASE_CSS}${CHROME_CSS}${UNLOCK_CSS}${ACTIVATION_CSS}</style></head><body><main>`
     + topBar(lang, (l: PayLanguage) => `${base}?lang=${l}`)
     + body(view, lang)
     + `</main>${view.state === 'ok' ? activationScript(base, lang, view) : `<script>${LANG_JS}</script>`}</body></html>`;

@@ -19,8 +19,8 @@ import {
 export type { WalletBlock } from './paid-wallet-ask';
 
 /**
- * Páginas del cliente en /pay/... (Fase 1B). Marca OxioCard (club-ui.ts):
- * noche + pill lima, «Pagado» en verde, letra grande, muy simple. Arriba de
+ * Páginas del cliente en /pay/... (Fase 1B). Grafito (club-ui.ts): neutros
+ * oscuros, la lima solo en el botón, «Pagado» en verde plano, muy simple. Arriba de
  * todas, el logo y el selector de idioma (customer-chrome.ts). HTML
  * autocontenido (sin fuentes de fuera: la CSP del API no las permite y el
  * cliente puede tener mala red; la de la marca la sirve el propio API). Todo
@@ -89,7 +89,8 @@ export function renderChoosePage(view: ChooseView, ctx: ChooseContext): string {
 // ─── Hacia el banco ─────────────────────────────────────────────────────
 
 const SPIN_CSS = `<style>
-.spin{width:3rem;height:3rem;border:4px solid var(--line-hi);border-top-color:var(--lime);border-radius:50%;animation:np-spin 1s linear infinite}
+.spin{width:3rem;height:3rem;border:3px solid var(--line-hi);border-top-color:var(--fg);border-radius:50%;animation:np-spin 1s linear infinite}
+h1{font-size:1.75rem}
 @keyframes np-spin{to{transform:rotate(360deg)}}
 @keyframes np-breathe{from{opacity:.35}to{opacity:1}}
 @media (prefers-reduced-motion:reduce){.spin{animation:np-breathe 1.5s ease-in-out infinite alternate}}
@@ -241,14 +242,14 @@ export function renderBusyPage(lang: PayLanguage, againHref: string, seconds: nu
 // ─── Avisos: qué pasó, si no se cobró nada y UNA acción ─────────────────
 
 const NOTICE_CSS = `<style>
-.ico{width:5.5rem;height:5.5rem;border-radius:50%;display:grid;place-items:center;background:var(--surface-2);box-shadow:inset 0 0 0 3px currentColor}
-.ico svg{width:2.6rem;height:2.6rem;stroke:currentColor;stroke-width:2.5;fill:none;stroke-linecap:round;stroke-linejoin:round}
-.ico.error{color:var(--bad);background:rgb(255 90 95/.16)}.ico.warn{color:var(--warn);background:rgb(255 176 32/.12)}.ico.neutral{color:var(--mute)}
+.ico{width:4rem;height:4rem;border-radius:50%;display:grid;place-items:center;background:var(--surface-2);box-shadow:inset 0 0 0 2px currentColor}
+.ico svg{width:2rem;height:2rem;stroke:currentColor;stroke-width:2.5;fill:none;stroke-linecap:round;stroke-linejoin:round}
+.ico.error{color:var(--bad);background:rgb(255 107 107/.12)}.ico.warn{color:var(--warn);background:rgb(245 179 66/.12)}.ico.neutral{color:var(--mute)}
 h1{font-size:1.75rem}
-.safe{display:flex;align-items:center;gap:.5rem;padding:.55rem .9rem;border-radius:999px;background:var(--lime-soft);border:1.5px solid var(--lime-edge);color:var(--fg);font-weight:800}
-.safe svg{color:var(--lime)}
+.safe{display:flex;align-items:center;gap:.5rem;padding:.625rem .875rem;border-radius:var(--r-field);background:var(--surface-2);border:1px solid var(--line-hi);color:var(--fg);font-weight:500}
+.safe svg{color:var(--ok)}
 .safe svg{width:1.2rem;height:1.2rem;stroke:currentColor;stroke-width:3;fill:none;stroke-linecap:round;stroke-linejoin:round;flex:none}
-.hint{width:100%;margin-top:.5rem;padding:.9rem 1rem;border:1px solid var(--line);border-radius:var(--r-tile);background:var(--surface);color:var(--fg);font-weight:700;text-align:left}
+.hint{width:100%;margin-top:.5rem;padding:.875rem 1rem;border:1px solid var(--line);border-radius:var(--r-tile);background:var(--surface);color:var(--fg);font-weight:500;text-align:left}
 </style>`;
 
 /** Icono distinto según el tono (el estado no lo dice solo el color). */
@@ -371,9 +372,9 @@ dl{width:100%;margin:.5rem 0 0;padding:0 1rem;text-align:left;border:1px solid v
 dl div{display:flex;justify-content:space-between;gap:1rem;padding:.65rem 0;border-bottom:1px solid var(--line)}
 dl div:last-child{border-bottom:0}
 dt{color:var(--mute)}
-dd{margin:0;font-weight:700;font-variant-numeric:tabular-nums;text-align:right;overflow-wrap:anywhere}
-dl div.tot dt{color:var(--fg);font-weight:800}
-dl div.tot dd{color:var(--lime);font-size:1.25rem}
+dd{margin:0;font-weight:500;font-variant-numeric:tabular-nums;text-align:right;overflow-wrap:anywhere}
+dl div.tot dt{color:var(--fg);font-weight:600}
+dl div.tot dd{color:var(--fg);font-weight:600;font-size:1.125rem}
 @media print{body{background:#fff;color:#000}h1,dd{color:#000}dt,p{color:#333}dl{background:none}dl div.tot dd{color:#000}.noprint,.brand{display:none!important}}
 </style>`;
   const body = `

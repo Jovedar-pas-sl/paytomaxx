@@ -3,7 +3,9 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { OXIOCARD_WORDMARK } from './brand-logo';
 import { CLUB_BASE_CSS, CLUB_TOKENS, brandBar, brandWordmark } from './club-ui';
+import { CHROME_CSS } from './customer-chrome';
 import { PAID_SCREEN_CSS } from './paid-screen';
+import { BREAKDOWN_CSS, CHOOSE_CSS } from './pay-choose-page';
 import { renderNoticePage } from './public-pay.pages';
 import { PAY_TEXT } from './pay-i18n';
 import { renderWalletPage } from '../wallets/wallet-page';
@@ -36,14 +38,15 @@ describe('marca OxioCard en las páginas del cliente', () => {
     expect(brandBar()).toContain('<header class="brand">');
   });
 
-  it('colores de la marca: lima #c7d301 con tinta, noche de fondo; ya no el lima antiguo', () => {
+  it('colores de la marca: lima #c7d301 con su tinta, fondo Grafito; ya no el lima antiguo', () => {
     expect(CLUB_BASE_CSS).toContain('--lime:#c7d301');
-    expect(CLUB_BASE_CSS).toContain('--ink:#1f2c36');
-    expect(CLUB_BASE_CSS).toContain('--bg:#0f1112');
+    expect(CLUB_BASE_CSS).toContain('--on-lime:#11160a');
+    expect(CLUB_BASE_CSS).toContain('--bg:#0b0d0e');
     expect(CLUB_BASE_CSS).not.toContain('d4ff3a');
-    // Botón principal: lima con tinta, con forma de página de pago (esquinas de 12 px, no un cartel en píldora).
-    expect(CLUB_BASE_CSS).toContain(':root{--r-btn:12px}');
-    expect(CLUB_BASE_CSS).toMatch(/\.btn\{[^}]*border-radius:var\(--r-btn\);[^}]*background:var\(--lime\);color:var\(--ink\)/);
+    // Botón principal: lima plana con su tinta, esquinas de 14 px (Grafito: botones del móvil), sin brillo ni halo.
+    expect(CLUB_BASE_CSS).toContain(':root{--r-btn:14px}');
+    expect(CLUB_BASE_CSS).toMatch(/\.btn\{[^}]*border-radius:var\(--r-btn\);[^}]*background:var\(--lime\);color:var\(--on-lime\)/);
+    expect(CLUB_BASE_CSS).not.toMatch(/\.btn\{[^}]*box-shadow/);
     expect(CLUB_BASE_CSS).not.toContain('999px');
     // Ocupado: su color con la ruedita (no gris); desactivado de verdad: gris.
     expect(CLUB_BASE_CSS).toContain('.btn:disabled:not(.busy),.btn[aria-disabled=true]:not(.busy){background:var(--surface-2)');
@@ -51,11 +54,27 @@ describe('marca OxioCard en las páginas del cliente', () => {
     expect(CLUB_BASE_CSS.includes(BACKSLASH)).toBe(false);
   });
 
-  it('«Pagado»: el verde de la marca con texto crema y el aro lima (gris si ya no es nuevo)', () => {
-    expect(PAID_SCREEN_CSS).toContain('radial-gradient(120% 80% at 50% 32%,var(--green-3) 0%,var(--green-2) 55%,var(--green-1) 100%)');
-    expect(PAID_SCREEN_CSS).toContain('color:var(--cream)');
+  it('«Pagado»: verde plano con texto claro, la marca lima sin halo y la placa crema (gris si ya no es nuevo)', () => {
+    expect(CLUB_TOKENS).toContain('--paid:#0b3d24');
+    expect(PAID_SCREEN_CSS).toMatch(/\.paid\{[^}]*background:var\(--paid\);color:var\(--paid-ink\)/);
+    expect(PAID_SCREEN_CSS).not.toContain('gradient');
     expect(PAID_SCREEN_CSS).toMatch(/\.paid \.tick\{[^}]*background:var\(--lime\)/);
+    expect(PAID_SCREEN_CSS).not.toMatch(/\.paid \.tick\{[^}]*box-shadow/);
+    expect(PAID_SCREEN_CSS).toMatch(/\.paid \.pcode\{[^}]*background:var\(--cream\);color:var\(--ink\)/);
     expect(PAID_SCREEN_CSS).toContain('.paid.stale{background:var(--stale)');
+  });
+
+  it('Grafito: una letra para el texto, cifras en Manrope, nunca 800 ni 900 y sin mayúsculas de adorno', () => {
+    expect(CLUB_BASE_CSS).toMatch(/body\{[^}]*font:400 16px\/1\.5 var\(--sans\)/);
+    for (const css of [CLUB_BASE_CSS, CHROME_CSS, PAID_SCREEN_CSS, CHOOSE_CSS]) {
+      expect(css).not.toMatch(/font-weight:\s*[89]00/);
+      expect(css).not.toMatch(/font:\s*[89]00/);
+      expect(css).not.toContain('text-transform:uppercase');
+    }
+    // Los antetítulos y el total, sin lima: la lima es solo lo que hay que tocar.
+    expect(CLUB_BASE_CSS).toMatch(/\.kick\{[^}]*color:var\(--label\)/);
+    expect(BREAKDOWN_CSS).toMatch(/\.brk \.tot dd\{[^}]*color:var\(--fg\)/);
+    expect(BREAKDOWN_CSS).not.toContain('var(--lime)');
   });
 
   it('las páginas llevan el logo y ninguna imagen de otro sitio', () => {
@@ -65,7 +84,7 @@ describe('marca OxioCard en las páginas del cliente', () => {
     ];
     for (const html of pages) {
       expect(html).toContain(OXIOCARD_WORDMARK.src);
-      expect(html).toContain('<meta name="theme-color" content="#0f1112">');
+      expect(html).toContain('<meta name="theme-color" content="#0b0d0e">');
       expect(html).not.toMatch(/src="https?:/);
     }
   });
@@ -95,6 +114,10 @@ describe('las fichas del cliente son las del tema oscuro de @nightpay/ui (no se 
     ['dim', 'text-dim'],
     ['label', 'text-label'],
     ['err', 'danger-text'],
+    ['bad', 'danger'],
+    ['ok', 'success'],
+    ['warn', 'warning'],
+    ['on-lime', 'on-accent'],
   ])('--%s del cliente = --np-%s', (clubName, npName) => {
     expect(darkStart).toBeGreaterThan(0);
     expect(club(clubName)).toBeDefined();
@@ -105,15 +128,19 @@ describe('las fichas del cliente son las del tema oscuro de @nightpay/ui (no se 
     ['lime', 'lime'],
     ['ink', 'ink'],
     ['cream', 'cream'],
-    ['green-1', 'green-1'],
-    ['green-2', 'green-2'],
-    ['green-3', 'green-3'],
-  ])('marca: --%s del cliente = --np-%s', (clubName, npName) => {
+    ['paid', 'outcome-paid'],
+    ['paid-ink', 'outcome-paid-ink'],
+    ['fail', 'outcome-failed'],
+  ])('marca y resultados: --%s del cliente = --np-%s', (clubName, npName) => {
+    expect(club(clubName)).toBeDefined();
     expect(club(clubName)).toBe(np(base, npName));
   });
 
-  it('el halo del lima, igual de contenido que en las apps', () => {
-    expect(CLUB_TOKENS).toContain('--lime-glow:rgb(199 211 1/.32)');
-    expect(styles).toContain('--np-lime-glow: rgb(199 211 1 / 0.32)');
+  it('sin halos, degradados verdes ni 0101, como en las apps', () => {
+    expect(styles).toContain('--np-lime-glow: transparent;');
+    expect(styles).toContain('--np-bits: none;');
+    for (const gone of ['--lime-glow', '--lime-ring', '--lime-soft', '--lime-edge', '--green-', '--bits', '0101']) {
+      expect(CLUB_TOKENS).not.toContain(gone);
+    }
   });
 });
