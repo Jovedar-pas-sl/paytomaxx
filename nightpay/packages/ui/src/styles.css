@@ -28,6 +28,10 @@
   --np-r-lg: 18px;
   --np-r-card: 18px;
   --np-r-tile: 14px;
+
+  /* Alto de los campos (Input/Select): 40 en el panel, como sus botones;
+     48 en el panel desde el móvil y 52 en el personal y el TPV (.np-touch). */
+  --np-field-h: 2.5rem;
   --np-r-pill: 999px;
 
   /* Letra. Escala: 12 · 13 · 14 · 16 · 18 · 22 · 28 · 40 · 64 (72 solo en
@@ -421,8 +425,9 @@ button {
   background: var(--np-primary-bg-hover);
 }
 
-/* Secundario: superficie con filete de 1 px; nunca compite con la lima. */
+/* Secundario: superficie con filete de 1 px y letra en 500; nunca compite con la lima. */
 .np-btn[data-variant='ghost'] {
+  font-weight: 500;
   background: var(--np-surface-2);
   color: var(--np-text);
   box-shadow: inset 0 0 0 1px var(--np-border-hi);
@@ -734,6 +739,10 @@ input::placeholder {
   border-radius: var(--np-r-md);
 }
 
+html.np-touch {
+  --np-field-h: 3.25rem;
+}
+
 .np-touch .np-btn[data-size='md'] {
   height: 3rem;
   padding: 0 1.25rem;
@@ -756,6 +765,11 @@ input::placeholder {
     --np-pad-card: 1rem;
     --np-gap: 0.5rem;
     --np-qr: clamp(10rem, 34vh, 20rem);
+  }
+
+  /* El panel desde el móvil: campos de 48 (el personal sigue en 52). */
+  html.np-staff:not(.np-touch) {
+    --np-field-h: 3rem;
   }
 
   /* Modo «sala»: un paso más de letra también en el móvil (17 px). */

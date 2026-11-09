@@ -57,12 +57,9 @@ const metaVenue: CSSProperties = {
   fontSize: '0.875rem',
   fontWeight: 500,
   color: 'var(--np-text-mute)',
-  letterSpacing: '0.02em',
-  textTransform: 'uppercase',
 };
 
 const metaTerm: CSSProperties = {
-  fontSize: '0.75rem',
+  fontSize: '0.875rem',
   color: 'var(--np-text-dim)',
-  letterSpacing: '0.04em',
 };

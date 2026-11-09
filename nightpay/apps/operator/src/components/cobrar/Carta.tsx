@@ -86,8 +86,9 @@ export function Carta({
       />
       <div className={styles.body}>
         <div className={styles.tiles}>
-          {groups.map((group) => (
-            <Fragment key={group.section}>
+          {/* Clave con el orden: un pack de una sección ajena puede repetir sección más abajo. */}
+          {groups.map((group, i) => (
+            <Fragment key={`${group.section}-${i}`}>
               {/* El título de la sección, una vez: su punto y su nombre (el color nunca va solo). */}
               <h2 className={styles.group} style={{ '--c': colorOf(group.section) } as CSSProperties}>
                 {labelOf(ctx, group.section)}

@@ -85,7 +85,7 @@ interface HeadProps {
  * La cabecera de cada pantalla (4.x): símbolo o volver, título, quién y su
  * chip (punto y nombre: el color de la sección nunca va solo, así que ya no
  * hay franja de color debajo). Es la única de Recepción: el símbolo abre el
- * menú (tema y salir), como en «Cobrar».
+ * menú («Salir»), como en «Cobrar».
  */
 export function DeskHead({ title, sub, onBack, chip }: HeadProps) {
   const openMenu = useStaffMenu();
@@ -96,7 +96,7 @@ export function DeskHead({ title, sub, onBack, chip }: HeadProps) {
           <Icon name="back" />
         </button>
       ) : openMenu ? (
-        <button type="button" className={s.logoBtn} onClick={openMenu} aria-label="Menú: tema y salir">
+        <button type="button" className={s.logoBtn} onClick={openMenu} aria-label="Menú">
           <Logo variant="symbol" height="2.5rem" alt="" />
         </button>
       ) : (

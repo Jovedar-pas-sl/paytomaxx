@@ -35,7 +35,7 @@ export function ReceptionTab({ user, active, onOwnHeader }: Props) {
   const { sections } = useMySections();
 
   // Una sola cabecera en toda Recepción: la del mostrador (el logo abre el
-  // tema y «Salir»), también en «Preparar fichas», las pendientes y «Dar ficha».
+  // menú con «Salir»), también en «Preparar fichas», las pendientes y «Dar ficha».
   useEffect(() => {
     onOwnHeader?.(true);
   }, [onOwnHeader]);

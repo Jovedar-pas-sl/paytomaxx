@@ -223,7 +223,7 @@ export function ActivePayment({
           {/* En vector, con su enlace (el PNG del API, solo si no se pudiera dibujar).
               --np-qr: 20rem; en el móvil, según el alto (el QR y sus botones en una pantalla). */}
           <div style={{ width: '100%', maxWidth: isPos ? 'min(12rem, var(--np-qr))' : 'var(--np-qr)' }}>
-            <CobroQr value={payment.qrUrl} fallbackPng={payment.qrPngDataUrl} label={isPos ? 'QR del cobro POS' : 'QR del cobro'} quiet={2} />
+            <CobroQr value={payment.qrUrl} fallbackPng={payment.qrPngDataUrl} label={isPos ? 'QR del cobro POS' : 'QR del cobro'} quiet={3} />
           </div>
         </div>
       </QrCountdown>

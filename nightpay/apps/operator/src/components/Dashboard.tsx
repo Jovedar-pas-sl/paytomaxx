@@ -84,7 +84,7 @@ export function Dashboard({ user, onLogout }: Props) {
   }
 
   const showing = (key: TabKey) => links.ficha === null && links.pass === null && links.code === null && tab === key;
-  // Recepción enseña su propia cabecera (salvo «Preparar fichas» y las pendientes).
+  // Recepción enseña su propia cabecera en todas sus pantallas (lo avisa ReceptionTab).
   const [deskHead, setDeskHead] = useState(true);
   const [menuOpen, setMenuOpen] = useState(false);
   const openMenu = useCallback(() => setMenuOpen(true), []);

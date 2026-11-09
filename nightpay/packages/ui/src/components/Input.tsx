@@ -20,7 +20,7 @@ export function Input({
   // Marcado en rojo con su error o si quien lo usa lo marca (aria-invalid: p. ej. un FormError aparte).
   const invalid = Boolean(error) || rest['aria-invalid'] === true || rest['aria-invalid'] === 'true';
   return (
-    <label style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', width: '100%' }}>
+    <label style={{ display: 'flex', flexDirection: 'column', gap: '0.375rem', width: '100%' }}>
       {label ? <span style={labelStyle}>{label}</span> : null}
       <span style={inputWrap}>
         <input
@@ -28,7 +28,7 @@ export function Input({
           style={{
             ...inputBase,
             ...(size === 'lg' ? sizeLg : sizeMd),
-            borderColor: invalid ? 'var(--np-danger)' : 'var(--np-border)',
+            borderColor: invalid ? 'var(--np-danger)' : 'var(--np-border-hi)',
             paddingRight: rightSlot ? '4.5rem' : undefined,
             ...style,
           }}
@@ -51,7 +51,7 @@ interface SelectProps extends SelectHTMLAttributes<HTMLSelectElement> {
 
 export function Select({ label, hint, style, className, children, ...rest }: SelectProps) {
   return (
-    <label style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', width: '100%' }}>
+    <label style={{ display: 'flex', flexDirection: 'column', gap: '0.375rem', width: '100%' }}>
       {label ? <span style={labelStyle}>{label}</span> : null}
       <select
         {...rest}
@@ -71,12 +71,11 @@ export function Select({ label, hint, style, className, children, ...rest }: Sel
   );
 }
 
+// Grafito: etiqueta 14/500 en t2, sin mayúsculas ni espaciado.
 const labelStyle: CSSProperties = {
-  fontSize: '0.8125rem',
-  fontWeight: 700,
+  fontSize: '0.875rem',
+  fontWeight: 500,
   color: 'var(--np-text-mute)',
-  letterSpacing: '0.04em',
-  textTransform: 'uppercase',
 };
 
 const inputWrap: CSSProperties = {
@@ -90,19 +89,21 @@ const inputBase: CSSProperties = {
   width: '100%',
   padding: '0 1rem',
   fontFamily: 'var(--np-font-sans)',
-  fontSize: '1.0625rem',
+  // 16 px: el iPhone no amplía al tocar el campo.
+  fontSize: '1rem',
   fontWeight: 500,
   color: 'var(--np-text)',
   // backgroundColor (no `background`): el atajo borraría la flecha de .np-select.
   backgroundColor: 'var(--np-surface)',
-  border: '2px solid var(--np-border)',
-  borderRadius: 'var(--np-r-md)',
+  // Filete de 1 px en el fuerte (3,6:1 sobre el fondo: el campo se ve sin tocarlo).
+  border: '1px solid var(--np-border-hi)',
+  borderRadius: 'var(--np-r-sm)',
   // Sin outline: 'none': con el teclado se ve el anillo de :focus-visible.
   transition: 'border-color var(--np-d-fast), box-shadow var(--np-d-fast)',
 };
 
-const sizeMd: CSSProperties = { height: '3.5rem' };
-const sizeLg: CSSProperties = { height: '4.5rem', fontSize: '2rem', fontWeight: 700 };
+const sizeMd: CSSProperties = { height: 'var(--np-field-h)' };
+const sizeLg: CSSProperties = { height: '4.5rem', fontSize: '2rem', fontWeight: 600 };
 
 const slotStyle: CSSProperties = {
   position: 'absolute',

@@ -606,8 +606,10 @@ function Waiting({
   });
   const waitParts = checking ? null : cardWaitParts(wait);
   const slowBank = showsBankStrip(wait);
-  // Un solo reloj en la línea: el de la espera del banco si lo hay; si no, lo que le queda al QR.
-  const clock = waitParts ? waitParts.clock : deadline && left > 0 ? `Caduca en ${formatClock(left)}` : null;
+  // Un solo reloj en la línea: el de la espera del banco si lo lleva; si no (también con el banco
+  // tardando o en reintento), lo que le queda al QR.
+  const expiry = deadline && left > 0 ? `Caduca en ${formatClock(left)}` : null;
+  const clock = waitParts?.clock ?? expiry;
 
   return (
     <div className={styles.screen}>
@@ -625,7 +627,7 @@ function Waiting({
         <h2 className={styles.waitTitle}>{nfcOn ? 'Acerca el NFC o escanea' : 'Escanea el QR con tu móvil'}</h2>
         {hasQr ? (
           <div className={styles.qr} style={{ opacity: left <= 0 ? 0.3 : 1 }}>
-            <CobroQr value={qrUrl} fallbackPng={qrPng} label="QR del cobro: el cliente lo escanea con su móvil" />
+            <CobroQr value={qrUrl} fallbackPng={qrPng} quiet={2} label="QR del cobro: el cliente lo escanea con su móvil" />
           </div>
         ) : null}
         {hasQr || nfcOn ? (
