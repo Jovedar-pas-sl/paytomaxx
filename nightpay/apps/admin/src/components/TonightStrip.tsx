@@ -2,7 +2,7 @@
 
 import { useEffect, useId, useState } from 'react';
 import { fetchCurrentNight, fetchTreasuryStats } from '@/lib/api';
-import { cobradoNote, zCobradoParts } from '@/lib/cobrado';
+import { COBRADO_HELP, cobradoNote, tonightCobradoNote, zCobradoParts } from '@/lib/cobrado';
 import { formatDateTime } from '@/lib/dates';
 import { keepIfSame } from '@/lib/diff';
 import { formatEur } from '@/lib/money';
@@ -83,6 +83,7 @@ export function TonightStrip({
   );
 
   const openCount = open ? open.length : null;
+  const cobradoLine = tonightCobradoNote(night);
   const chargedCents = night ? night.chargedCents : null;
   const cardCount = night ? night.count : null;
   const known = night !== undefined;
@@ -110,10 +111,11 @@ export function TonightStrip({
         )}
       </div>
       <dl className="np-tonight-grid">
-        <div className="np-tonight-fig" data-hero="">
+        {/* Qué cuenta: el desglose (o, sin él, de qué está hecho) y, al pasar el ratón, la frase entera. */}
+        <div className="np-tonight-fig" data-hero="" title={COBRADO_HELP}>
           <dt>Cobrado</dt>
           <dd>{night ? formatEur(night.chargedCents) : '—'}</dd>
-          {night?.chargedNote ? <span className="np-tonight-note">{night.chargedNote}</span> : null}
+          {cobradoLine ? <span className="np-tonight-note">{cobradoLine}</span> : null}
         </div>
         <div className="np-tonight-fig">
           <dt>Pagos con tarjeta</dt>

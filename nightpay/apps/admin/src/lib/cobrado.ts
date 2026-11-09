@@ -65,6 +65,22 @@ export function cobradoNote(p: CobradoParts | null, eur: (cents: number) => stri
   return parts.length > 0 ? parts.join(' + ') : null;
 }
 
+/** De qué está hecho «Cobrado» cuando no hay desglose (todo a 0, o un API de antes): sin cifras, no puede no cuadrar. */
+export const COBRADO_PARTS_HINT = 'Suma ventas, propinas y recargas';
+
+/** Lo que cuenta «Cobrado», entero (el `title` de la cifra en «Esta noche»). */
+export const COBRADO_HELP =
+  'Todo el dinero que entró esta noche: ventas, propinas y recargas del saldo (con tarjeta y en efectivo) y, si el local la cobra, la comisión del servicio.';
+
+/**
+ * La línea de debajo de «Cobrado» en «Esta noche»: el desglose con sus cifras
+ * o, si no lo hay, de qué está hecho. Sin noche abierta (o cargando), nada.
+ */
+export function tonightCobradoNote(night: { chargedNote: string | null } | null | undefined): string | null {
+  if (!night) return null;
+  return night.chargedNote ?? COBRADO_PARTS_HINT;
+}
+
 /**
  * La línea del Z congelado (al cerrar la noche), como el resumen de las
  * 9:00: «Cobrado» con su desglose (ventas + propinas + recargas, también en
