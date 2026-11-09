@@ -7,6 +7,8 @@ import type { ChipTap } from '@/lib/chip-tap';
 import { formatEur } from '@/lib/money';
 import { useOpenCharge } from '@/lib/open-charges';
 import {
+  browserSessionStorage,
+  cashAttemptRef,
   receptionAttempt,
   staffBackend,
   stockOutcomeLine,
@@ -168,7 +170,9 @@ export function ReceptionDesk({ user, active, footer }: Props) {
   const [notice, setNotice] = useState<string | null>(null);
   const [code, setCode] = useState('');
   // Una clave por recarga (importe, forma de pago y saldo): repetirla no carga dos veces.
-  const attempt = useRef<ReceptionAttempt | null>(null);
+  // La de efectivo queda también en la pestaña: si la pantalla falla a mitad y
+  // se vuelve a hacer la misma recarga, no se carga dos veces (S-4).
+  const attempt = useCashAttemptRef();
   const retire = useRetirePayment();
   // La comprobación en curso de una recarga sin respuesta (otra la anula).
   const cashCheck = useRef(0);
@@ -816,4 +820,11 @@ function backOf(step: Step): Step {
   if (step.kind === 'method') return { kind: 'amount', read: step.read };
   if (step.kind === 'exitPasskey' || step.kind === 'exitTotp' || step.kind === 'exitManager' || step.kind === 'managerPending') return step.exit;
   return { kind: 'tap' };
+}
+
+/** El `ref` de la recarga en curso, con la de efectivo guardada en la pestaña (cashAttemptRef). */
+function useCashAttemptRef(): { current: ReceptionAttempt | null } {
+  const ref = useRef<{ current: ReceptionAttempt | null } | null>(null);
+  if (ref.current === null) ref.current = cashAttemptRef(browserSessionStorage());
+  return ref.current;
 }
