@@ -16,13 +16,14 @@ export function Pill({ tone, children, style }: { tone: Tone; children: ReactNod
   return <span style={{ ...pillStyle, ...TONE_COLORS[tone], ...style }}>{children}</span>;
 }
 
+// Grafito: del tamaño del texto de la tabla (14/500), radio de chip (6).
 const pillStyle: CSSProperties = {
   display: 'inline-flex',
   alignItems: 'center',
-  padding: '0.1rem 0.5rem',
-  borderRadius: '999px',
-  fontSize: '0.72rem',
-  fontWeight: 600,
+  padding: '0 0.5rem',
+  borderRadius: 'var(--np-r-xs)',
+  fontSize: '0.875rem',
+  fontWeight: 500,
   whiteSpace: 'nowrap',
-  lineHeight: 1.5,
+  lineHeight: 1.45,
 };

@@ -13,6 +13,7 @@ import {
 } from '@/lib/api';
 import { formatDateTime } from '@/lib/dates';
 import { keepIfSame } from '@/lib/diff';
+import { FILTER_FIELD, FILTER_SELECT } from '@/lib/filter-field';
 import {
   FICHA_STATUS_FILTERS,
   FICHA_STATUS_TONE,
@@ -186,9 +187,9 @@ export function FichasPanel() {
               placeholder="Número impreso, serie o código"
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
-              style={{ width: '16rem' }}
+              style={{ ...FILTER_FIELD, width: '16rem' }}
             />
-            <Button type="submit" variant="ghost">
+            <Button type="submit" variant="ghost" size="sm">
               Buscar
             </Button>
             <Select
@@ -198,7 +199,7 @@ export function FichasPanel() {
                 setRows(null);
                 setStatus(e.target.value as WalletCardStatus | '');
               }}
-              style={{ width: '10rem' }}
+              style={{ ...FILTER_SELECT, width: '10rem' }}
             >
               {FICHA_STATUS_FILTERS.map((f) => (
                 <option key={f.value} value={f.value}>

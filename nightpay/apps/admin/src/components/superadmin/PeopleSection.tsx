@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { Button, Card, Input, Select } from '@nightpay/ui';
 import type { CreateStaffUserResponse, Role, StaffUserPage, StaffUserView } from '@nightpay/contracts';
 import { createSaUser, fetchSaUsers } from '@/lib/endpoints/superadmin';
+import { FILTER_FIELD, FILTER_SELECT } from '@/lib/filter-field';
 import { SA_ROLES, SA_ROLE_LABELS, lastAccessText, personName } from '@/lib/superadmin/labels';
 import { EMPTY_PERSON_FORM, newPersonPayload, type NewPersonForm } from '@/lib/superadmin/person-forms';
 import { EMPTY_STAFF_FILTERS, staffQuery, type StaffFilters } from '@/lib/superadmin/query';
@@ -68,14 +69,14 @@ export function PeopleSection() {
         actions={<Button onClick={() => setCreating(true)}>+ Nueva persona</Button>}
       />
       <div className="np-sa-toolbar" role="search">
-        <Input
+        <Input style={FILTER_FIELD}
           label="Buscar"
           type="search"
           value={filters.q}
           onChange={(e) => setFilters({ ...filters, q: e.target.value })}
           placeholder="Nombre o email"
         />
-        <Select label="Local" value={filters.venueId} onChange={(e) => setFilters({ ...filters, venueId: e.target.value })}>
+        <Select style={FILTER_SELECT} label="Local" value={filters.venueId} onChange={(e) => setFilters({ ...filters, venueId: e.target.value })}>
           <option value="">Todos</option>
           {(sa.venues ?? []).map((v) => (
             <option key={v.id} value={v.id}>
@@ -83,7 +84,7 @@ export function PeopleSection() {
             </option>
           ))}
         </Select>
-        <Select
+        <Select style={FILTER_SELECT}
           label="Rol"
           value={filters.role}
           onChange={(e) => setFilters({ ...filters, role: e.target.value as Role | '' })}
@@ -95,7 +96,7 @@ export function PeopleSection() {
             </option>
           ))}
         </Select>
-        <Select
+        <Select style={FILTER_SELECT}
           label="Estado"
           value={filters.state}
           onChange={(e) => setFilters({ ...filters, state: e.target.value as StaffFilters['state'] })}

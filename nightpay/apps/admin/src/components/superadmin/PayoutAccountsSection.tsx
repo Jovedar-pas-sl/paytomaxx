@@ -6,6 +6,7 @@ import type { PayoutAccountFull, PayoutAccountListItem } from '@nightpay/contrac
 import { maskPayoutTarget } from '@/lib/confirm-summary';
 import { formatDateTime } from '@/lib/dates';
 import { fetchSaPayoutAccounts, revealSaPayoutAccount, updateSaPayoutAccount } from '@/lib/endpoints/superadmin';
+import { FILTER_FIELD, FILTER_SELECT } from '@/lib/filter-field';
 import type { PayoutValue } from '@/lib/payout-address';
 import { personName } from '@/lib/superadmin/labels';
 import { REVEAL_SECONDS, payoutUpdatePayload, revealSecondsLeft } from '@/lib/superadmin/person-forms';
@@ -60,14 +61,14 @@ export function PayoutAccountsSection() {
         sub="Siempre tapadas. Verlas enteras o cambiarlas pide tu código 2FA y queda en el registro."
       />
       <div className="np-sa-toolbar" role="search">
-        <Input
+        <Input style={FILTER_FIELD}
           label="Buscar"
           type="search"
           value={filters.q}
           onChange={(e) => setFilters({ ...filters, q: e.target.value })}
           placeholder="Nombre o email"
         />
-        <Select label="Local" value={filters.venueId} onChange={(e) => setFilters({ ...filters, venueId: e.target.value })}>
+        <Select style={FILTER_SELECT} label="Local" value={filters.venueId} onChange={(e) => setFilters({ ...filters, venueId: e.target.value })}>
           <option value="">Todos</option>
           {(sa.venues ?? []).map((v) => (
             <option key={v.id} value={v.id}>
@@ -75,7 +76,7 @@ export function PayoutAccountsSection() {
             </option>
           ))}
         </Select>
-        <Select label="Método" value={filters.method} onChange={(e) => setFilters({ ...filters, method: e.target.value })}>
+        <Select style={FILTER_SELECT} label="Método" value={filters.method} onChange={(e) => setFilters({ ...filters, method: e.target.value })}>
           <option value="">Todos</option>
           <PayoutMethodOptions />
         </Select>
