@@ -169,14 +169,14 @@ export function PaymentsPanel({ user, onNavigate, focusPaymentId = null, onFocus
               {error}
               {payments ? ' · se siguen enseñando los últimos datos.' : ''}
             </p>
-            <Button variant="ghost" onClick={refresh} style={smallBtn}>
+            <Button variant="ghost" size="sm" onClick={refresh}>
               Reintentar
             </Button>
           </div>
         </Card>
       ) : null}
 
-      <section className="np-metrics" style={metricsGrid}>
+      <section className="np-metrics">
         {/* Los pagos con tarjeta (también las recargas con tarjeta): lo pagado con el saldo no cuenta aquí. */}
         {/* Solo si dicen otra cosa que «Esta noche» (y nada hasta saberlo: no aparecen para desaparecer). */}
         {todayTiles(nightTotals, metrics?.today) !== 'show' ? null : (
@@ -198,7 +198,7 @@ export function PaymentsPanel({ user, onNavigate, focusPaymentId = null, onFocus
       <section ref={listRef} style={{ display: 'flex', flexDirection: 'column', gap: '1rem', scrollMarginTop: '0.75rem', minWidth: 0 }}>
         <div style={{ display: 'flex', alignItems: 'flex-end', gap: '1rem', flexWrap: 'wrap' }}>
           <h2 style={sectionTitle}>Cobros</h2>
-          <Button variant="ghost" onClick={refresh} style={{ marginLeft: 'auto' }}>
+          <Button variant="ghost" size="sm" onClick={refresh} style={{ marginLeft: 'auto' }}>
             Refrescar
           </Button>
         </div>
@@ -221,7 +221,7 @@ export function PaymentsPanel({ user, onNavigate, focusPaymentId = null, onFocus
             actions={(row) => {
               if (reversibleSaldoCharge(row, user.role)) {
                 return (
-                  <Button variant="ghost" onClick={() => setReverseFor(row)} size="md" style={smallBtn}>
+                  <Button variant="ghost" onClick={() => setReverseFor(row)} size="sm">
                     Anular cobro
                   </Button>
                 );
@@ -238,18 +238,18 @@ export function PaymentsPanel({ user, onNavigate, focusPaymentId = null, onFocus
               return (
                 <>
                   {canResolve ? (
-                    <Button onClick={() => setResolveFor(p)} size="md" style={smallBtn}>
+                    <Button onClick={() => setResolveFor(p)} size="sm">
                       Resolver
                     </Button>
                   ) : null}
                   {canRefund ? (
-                    <Button variant="ghost" onClick={() => setRefundFor(p)} size="md" style={smallBtn}>
+                    <Button variant="ghost" onClick={() => setRefundFor(p)} size="sm">
                       {bankRefund ? 'Devolución BBVA' : 'Reembolsar'}
                     </Button>
                   ) : null}
                   {/* Ya hay algo devuelto o reservado (p. ej. una devolución sin confirmar). */}
                   {p.availableAmountCents < p.amountCents ? (
-                    <Button variant="ghost" onClick={() => setRefundsFor(p)} size="md" style={smallBtn}>
+                    <Button variant="ghost" onClick={() => setRefundsFor(p)} size="sm">
                       Devoluciones
                     </Button>
                   ) : null}
@@ -329,20 +329,19 @@ function isStuck(p: PaymentRow): boolean {
   return p.status === 'AUTHORIZING' && Date.now() - Date.parse(p.updatedAt) >= STUCK_AUTHORIZING_MS;
 }
 
-/** Una cifra del día, en el color del texto (el lima es para la acción y el «pagado»). */
+/**
+ * Una cifra del día, en el color del texto (el lima es para la acción y el
+ * «pagado»). Sin tarjeta: una fila de cifras con filetes (panel-tonight.css).
+ */
 function MetricTile({ title, value, note }: { title: string; value: string; note?: string }) {
   return (
-    <Card className="np-metric" style={{ padding: '1.25rem 1.5rem' }}>
-      <p style={metricLabel}>{title}</p>
-      <p className="np-num np-metric-value" style={{ ...metricValue, color: 'var(--np-text)' }}>
-        {value}
-      </p>
-      {note ? <p style={metricNote}>{note}</p> : null}
-    </Card>
+    <div className="np-metric">
+      <p className="np-metric-label">{title}</p>
+      <p className="np-metric-value">{value}</p>
+      {note ? <p className="np-metric-note">{note}</p> : null}
+    </div>
   );
 }
-
-const metricNote: CSSProperties = { margin: '0.35rem 0 0', fontSize: '0.75rem', color: 'var(--np-text-dim)' };
 
 const errorRow: CSSProperties = {
   display: 'flex',
@@ -352,39 +351,10 @@ const errorRow: CSSProperties = {
   flexWrap: 'wrap',
 };
 
-const smallBtn: CSSProperties = { height: '2.25rem', padding: '0 1rem', fontSize: '0.8125rem' };
-
-const metricsGrid: CSSProperties = {
-  display: 'grid',
-  gridTemplateColumns: 'repeat(auto-fit, minmax(12rem, 1fr))',
-  gap: '1rem',
-};
-
-const metricLabel: CSSProperties = {
-  margin: 0,
-  fontSize: '0.7rem',
-  color: 'var(--np-text-dim)',
-  letterSpacing: '0.1em',
-  textTransform: 'uppercase',
-  fontWeight: 500,
-};
-
-const metricValue: CSSProperties = {
-  margin: '0.5rem 0 0',
-  fontSize: '1.875rem',
-  // Cifra grande del panel: Manrope 800, como los importes (las de las tablas, 700).
-  fontWeight: 800,
-  letterSpacing: '-0.02em',
-  display: 'flex',
-  alignItems: 'baseline',
-  gap: '0.4rem',
-};
-
 const sectionTitle: CSSProperties = {
   margin: 0,
   fontSize: 'var(--np-t-h2)',
   fontWeight: 600,
-  letterSpacing: '-0.02em',
 };
 
 
