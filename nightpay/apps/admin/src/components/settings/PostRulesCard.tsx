@@ -102,7 +102,7 @@ const box: CSSProperties = {
   gap: '0.5rem',
   minWidth: 0,
 };
-const legend: CSSProperties = { fontWeight: 700, padding: '0 0.25rem' };
+const legend: CSSProperties = { fontWeight: 600, padding: '0 0.25rem' };
 const dim: CSSProperties = { color: 'var(--np-text-dim)', fontWeight: 500 };
 const chips: CSSProperties = { display: 'flex', flexWrap: 'wrap', gap: '0.375rem' };
 const chip: CSSProperties = {

@@ -128,7 +128,7 @@ function AssignRow({ row, when, onAssigned }: { row: PendingTopUpView; when: str
 }
 
 const headerStyle: CSSProperties = { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.75rem' };
-const titleStyle: CSSProperties = { margin: 0, fontSize: '1rem', fontWeight: 700 };
+const titleStyle: CSSProperties = { margin: 0, fontSize: '1rem', fontWeight: 600 };
 const mutedStyle: CSSProperties = { margin: 0, color: 'var(--np-text-mute)', fontSize: '0.875rem' };
 const listStyle: CSSProperties = { listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: '0.5rem' };
 const rowStyle: CSSProperties = {

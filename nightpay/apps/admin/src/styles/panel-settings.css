@@ -35,8 +35,7 @@
 .np-set-title {
   margin: 0;
   font-size: var(--np-t-h4, 1.0625rem);
-  font-weight: 700;
-  letter-spacing: -0.01em;
+  font-weight: 600;
   color: var(--np-text);
 }
 
@@ -164,8 +163,7 @@
 .np-switch-text {
   margin-left: auto;
   font-size: 0.75rem;
-  font-weight: 700;
-  letter-spacing: 0.04em;
+  font-weight: 500;
 }
 
 .np-switch[aria-checked='true'] {
@@ -281,10 +279,8 @@
   border-radius: var(--np-r-pill);
   border: 1px solid var(--np-accent);
   color: var(--np-accent);
-  font-size: 0.6875rem;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+  font-size: 0.75rem;
+  font-weight: 500;
 }
 
 .np-set-small {

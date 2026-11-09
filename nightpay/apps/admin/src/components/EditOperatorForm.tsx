@@ -389,9 +389,7 @@ const sectionBox: CSSProperties = {
 
 const sectionHeading: CSSProperties = {
   margin: '0 0 0.75rem',
-  fontSize: '0.7rem',
-  letterSpacing: '0.12em',
-  textTransform: 'uppercase',
+  fontSize: '0.75rem',
   color: 'var(--np-text-dim)',
   fontWeight: 500,
 };

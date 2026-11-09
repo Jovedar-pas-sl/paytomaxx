@@ -451,8 +451,7 @@ const methodKicker: CSSProperties = {
   margin: 0,
   color: 'var(--np-text-mute)',
   fontSize: '0.75rem',
-  textTransform: 'uppercase',
-  letterSpacing: '0.08em',
+  fontWeight: 500,
 };
 
 const addressStyle: CSSProperties = {
@@ -476,10 +475,8 @@ const copyBtn: CSSProperties = {
 
 const fieldLabel: CSSProperties = {
   fontSize: '0.8125rem',
-  fontWeight: 700,
+  fontWeight: 500,
   color: 'var(--np-text-mute)',
-  letterSpacing: '0.04em',
-  textTransform: 'uppercase',
 };
 
 const confirmStyle: CSSProperties = {

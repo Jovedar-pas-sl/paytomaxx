@@ -1,7 +1,7 @@
 /* Panel (admin) · «Super admin»: la consola de toda la plataforma.
-   Encima de @nightpay/ui/styles.css, con sus tokens --np-*. Marca OxioCard:
-   noche + lima, letra grande; Manrope 800 (--np-font-mono) para importes y
-   códigos. Solo se anima transform/opacity, y nada con prefers-reduced-motion.
+   Encima de @nightpay/ui/styles.css, con sus tokens --np-*. Grafito: neutros,
+   filetes y la lima solo para actuar; Manrope 600 (--np-font-mono) para
+   importes y códigos. Solo se anima transform/opacity, y nada con prefers-reduced-motion.
    Móvil = hasta 640px: una columna y los botones a mano del pulgar. */
 
 .np-sa {
@@ -40,9 +40,7 @@
 .np-sa-kicker {
   margin: 0;
   font-size: var(--np-t-label);
-  font-weight: 700;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
+  font-weight: 500;
   color: var(--np-text-label);
 }
 
@@ -76,9 +74,8 @@
 .np-sa-title {
   margin: 0;
   font-size: var(--np-t-h2);
-  font-weight: 700;
+  font-weight: 600;
   line-height: 1.05;
-  letter-spacing: -0.03em;
   color: var(--np-text);
   overflow-wrap: anywhere;
 }
@@ -86,8 +83,7 @@
 .np-sa-subtitle {
   margin: 0;
   font-size: var(--np-t-h3);
-  font-weight: 700;
-  letter-spacing: -0.02em;
+  font-weight: 600;
   color: var(--np-text);
   overflow-wrap: anywhere;
 }
@@ -280,9 +276,7 @@
 
 .np-sa-label {
   font-size: 0.8125rem;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
+  font-weight: 500;
   color: var(--np-text-mute);
 }
 
@@ -422,10 +416,8 @@
 }
 
 .np-sa-fig dt {
-  font-size: 0.6875rem;
-  font-weight: 700;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
+  font-size: 0.75rem;
+  font-weight: 500;
   color: var(--np-text-dim);
 }
 
@@ -437,7 +429,6 @@
   font-size: clamp(1rem, 9.5cqi, 2.5rem);
   font-weight: 600;
   line-height: 1.1;
-  letter-spacing: -0.03em;
   color: var(--np-text);
   white-space: nowrap;
 }
@@ -551,8 +542,7 @@
 .np-sa-venue-name {
   margin-right: auto;
   font-size: 1.125rem;
-  font-weight: 700;
-  letter-spacing: -0.01em;
+  font-weight: 600;
   overflow-wrap: anywhere;
 }
 
@@ -571,10 +561,8 @@
 }
 
 .np-sa-venue-fig-label {
-  font-size: 0.6875rem;
-  font-weight: 700;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
+  font-size: 0.75rem;
+  font-weight: 500;
   color: var(--np-text-dim);
 }
 
@@ -584,7 +572,6 @@
   font-size: 1rem;
   font-size: clamp(0.8125rem, 9cqi, 1.125rem);
   font-weight: 600;
-  letter-spacing: -0.02em;
   white-space: nowrap;
 }
 
@@ -613,11 +600,11 @@
 
 .np-sa-venue-foot [data-alert] {
   color: var(--np-warning);
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .np-sa-venue-go {
-  font-weight: 700;
+  font-weight: 600;
   color: var(--np-text);
 }
 
@@ -639,10 +626,8 @@
 }
 
 .np-sa-meta dt {
-  font-size: 0.6875rem;
-  font-weight: 700;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
+  font-size: 0.75rem;
+  font-weight: 500;
   color: var(--np-text-dim);
 }
 
@@ -715,7 +700,7 @@
 
 .np-sa-action-label {
   font-size: 1rem;
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .np-sa-action[data-danger] .np-sa-action-label {
@@ -786,9 +771,8 @@
 .np-sa-balance {
   margin: 0;
   font-size: clamp(2.75rem, 1.5rem + 6vw, 5rem);
-  font-weight: 700;
+  font-weight: 600;
   line-height: 1;
-  letter-spacing: -0.04em;
   color: var(--np-accent);
   overflow-wrap: anywhere;
 }

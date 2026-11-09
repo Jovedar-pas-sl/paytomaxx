@@ -73,7 +73,7 @@ export function LoadGate<T>({
   );
 }
 
-/** Cifra grande (Manrope 800) con su rótulo. Va dentro de <dl className="np-sa-figs">. */
+/** Cifra grande (Manrope 600) con su rótulo. Va dentro de <dl className="np-sa-figs">. */
 export function Figure({
   label,
   value,

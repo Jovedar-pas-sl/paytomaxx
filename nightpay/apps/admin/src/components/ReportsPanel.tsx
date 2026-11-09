@@ -123,7 +123,7 @@ export function ReportsPanel({ isOwner }: { isOwner: boolean }) {
         {REPORTS.map((r) => (
           <Card key={r.kind} style={{ padding: '1.25rem', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
             <div style={{ flex: 1 }}>
-              <h3 style={{ margin: 0, fontSize: '1.0625rem', fontWeight: 700 }}>{r.title}</h3>
+              <h3 style={{ margin: 0, fontSize: '1.0625rem', fontWeight: 600 }}>{r.title}</h3>
               <p style={hintStyle}>{r.detail}</p>
             </div>
             <Button
@@ -158,7 +158,7 @@ function saveBlob(blob: Blob, filename: string): void {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-const titleStyle: CSSProperties = { margin: 0, fontSize: 'var(--np-t-h3)', fontWeight: 700 };
+const titleStyle: CSSProperties = { margin: 0, fontSize: 'var(--np-t-h3)', fontWeight: 600 };
 const hintStyle: CSSProperties = { margin: '0.25rem 0 0', color: 'var(--np-text-mute)', fontSize: '0.9375rem' };
 const dateGrid: CSSProperties = {
   display: 'grid',

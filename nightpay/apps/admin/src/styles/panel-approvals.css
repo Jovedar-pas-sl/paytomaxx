@@ -5,8 +5,7 @@
 .np-approvals-title {
   margin: 0;
   font-size: var(--np-t-h2, 1.5rem);
-  font-weight: 700;
-  letter-spacing: -0.02em;
+  font-weight: 600;
   color: var(--np-text);
 }
 
@@ -39,7 +38,8 @@
   gap: 0.35rem;
   padding: 1rem 1.125rem 1.125rem;
   border: 1px solid var(--np-border);
-  border-left: 4px solid var(--np-accent);
+  /* Raíl neutro: la única lima de la tarjeta es «Aprobar». */
+  border-left: 3px solid var(--np-border-hi);
   border-radius: var(--np-r-lg);
   background: var(--np-surface);
   animation: np-approval-in var(--np-d-base) var(--np-ease);
@@ -57,7 +57,7 @@
 }
 
 .np-approval[data-mode='approve'] {
-  box-shadow: 0 0 0 1px var(--np-accent);
+  box-shadow: 0 0 0 1px var(--np-text);
 }
 
 .np-approval[data-mode='reject'] {
@@ -73,9 +73,8 @@
   margin: 0.15rem 0 0;
   font-family: var(--np-font-mono);
   font-size: clamp(2rem, 1.4rem + 3vw, 2.75rem);
-  font-weight: 700;
+  font-weight: 600;
   line-height: 1.05;
-  letter-spacing: -0.02em;
   color: var(--np-text);
 }
 

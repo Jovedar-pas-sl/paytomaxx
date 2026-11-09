@@ -56,7 +56,7 @@ export function BankHoldsSection({ operatorId, name, balance, onReleased }: Prop
   return (
     <section style={boxStyle} aria-label="Ventas por datáfono pendientes de cuadrar con el banco">
       {line ? (
-        <p style={{ margin: 0, fontWeight: 700 }}>
+        <p style={{ margin: 0, fontWeight: 600 }}>
           {line}
           <span style={hintStyle}> · no entra en el pago hasta cuadrarlas con el fichero del banco o liberarlas.</span>
         </p>

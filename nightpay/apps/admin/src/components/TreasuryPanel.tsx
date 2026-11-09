@@ -295,19 +295,16 @@ const reconcileRow: CSSProperties = {
 
 const metricLabel: CSSProperties = {
   margin: 0,
-  fontSize: '0.7rem',
+  fontSize: '0.75rem',
   color: 'var(--np-text-dim)',
-  letterSpacing: '0.1em',
-  textTransform: 'uppercase',
   fontWeight: 500,
 };
 
 const metricValue: CSSProperties = {
   margin: '0.5rem 0 0',
   fontSize: '1.875rem',
-  // Cifra grande del panel: Manrope 800, como los importes (las de las tablas, 700).
-  fontWeight: 800,
-  letterSpacing: '-0.02em',
+  // Cifra grande del panel: Manrope 600, como los importes (las de las tablas, 700).
+  fontWeight: 600,
   display: 'flex',
   alignItems: 'baseline',
   gap: '0.4rem',
@@ -317,7 +314,6 @@ const metricUnit: CSSProperties = {
   fontSize: '0.875rem',
   color: 'var(--np-text-mute)',
   fontWeight: 500,
-  letterSpacing: '0.04em',
 };
 
 const metricSubtitle: CSSProperties = {
@@ -330,7 +326,6 @@ const sectionTitle: CSSProperties = {
   margin: 0,
   fontSize: '1rem',
   fontWeight: 600,
-  letterSpacing: '-0.01em',
 };
 
 const loadingText: CSSProperties = {

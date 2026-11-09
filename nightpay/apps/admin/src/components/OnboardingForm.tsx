@@ -279,7 +279,7 @@ export function OnboardingForm({ operator, onSaved }: Props) {
       {/* Estado general */}
       <Card style={summaryCard}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem' }}>
-          <p style={{ margin: 0, fontSize: '0.75rem', color: 'var(--np-text-mute)', textTransform: 'uppercase', letterSpacing: '0.1em' }}>
+          <p style={{ margin: 0, fontSize: '0.75rem', fontWeight: 500, color: 'var(--np-text-mute)' }}>
             Estado del onboarding
           </p>
           <Select
@@ -542,7 +542,7 @@ function ProgressTile({ label, value, ok, warn }: { label: string; value: string
       background: 'var(--np-bg)',
       textAlign: 'center',
     }}>
-      <p style={{ margin: 0, fontSize: '0.65rem', color: 'var(--np-text-dim)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+      <p style={{ margin: 0, fontSize: '0.75rem', fontWeight: 500, color: 'var(--np-text-dim)' }}>
         {label}
       </p>
       <p className="np-num" style={{ margin: '0.2rem 0 0', fontSize: '1rem', fontWeight: 600, color }}>
@@ -566,9 +566,7 @@ const progressGrid: CSSProperties = {
 
 const sectionLabel: CSSProperties = {
   margin: '0 0 0.625rem',
-  fontSize: '0.7rem',
-  letterSpacing: '0.12em',
-  textTransform: 'uppercase',
+  fontSize: '0.75rem',
   color: 'var(--np-text-dim)',
   fontWeight: 500,
 };

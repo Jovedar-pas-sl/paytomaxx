@@ -381,7 +381,6 @@ const sectionTitle: CSSProperties = {
   margin: 0,
   fontSize: '0.9rem',
   fontWeight: 600,
-  letterSpacing: '-0.01em',
 };
 
 const listHeader: CSSProperties = {
@@ -422,19 +421,16 @@ const badgeRow: CSSProperties = { display: 'flex', gap: '0.35rem', flexWrap: 'wr
 
 const kicker: CSSProperties = {
   margin: 0,
-  fontSize: '0.7rem',
+  fontSize: '0.75rem',
   color: 'var(--np-text-dim)',
-  letterSpacing: '0.1em',
-  textTransform: 'uppercase',
   fontWeight: 500,
 };
 
 const tileNumber: CSSProperties = {
   margin: '0.3rem 0 0',
   fontSize: '1.4rem',
-  // Cifra grande del panel: Manrope 800, como los importes (las de las tablas, 700).
-  fontWeight: 800,
-  letterSpacing: '-0.02em',
+  // Cifra grande del panel: Manrope 600, como los importes (las de las tablas, 700).
+  fontWeight: 600,
   fontVariantNumeric: 'tabular-nums',
 };
 

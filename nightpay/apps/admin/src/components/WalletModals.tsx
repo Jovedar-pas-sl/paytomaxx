@@ -642,7 +642,7 @@ function MethodOption({
         cursor: disabled ? 'not-allowed' : 'pointer',
       }}
     >
-      <span style={{ fontWeight: 700 }}>{title}</span>
+      <span style={{ fontWeight: 600 }}>{title}</span>
       <span style={{ fontSize: '0.78rem', color: 'var(--np-text-mute)' }}>{text}</span>
     </button>
   );
@@ -652,7 +652,6 @@ const sectionTitle: CSSProperties = {
   margin: 0,
   fontSize: '0.9rem',
   fontWeight: 600,
-  letterSpacing: '-0.01em',
 };
 
 const summaryStyle: CSSProperties = {

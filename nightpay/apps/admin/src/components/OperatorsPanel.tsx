@@ -495,7 +495,6 @@ const sectionTitle: CSSProperties = {
   margin: 0,
   fontSize: 'var(--np-t-h2)',
   fontWeight: 600,
-  letterSpacing: '-0.02em',
 };
 
 const helpFilter: CSSProperties = {

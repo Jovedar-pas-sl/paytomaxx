@@ -80,8 +80,7 @@
 .np-mm-title h2,
 .np-mm-title h3 {
   margin: 0;
-  font: 800 1.1875rem / 1.1 var(--np-font-num);
-  letter-spacing: -0.01em;
+  font: 600 1.1875rem / 1.1 var(--np-font-num);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -105,7 +104,7 @@
   border-radius: var(--np-r-pill);
   background: var(--np-c, var(--np-sec-otros));
   color: var(--np-on-section);
-  font-weight: 700;
+  font-weight: 600;
   font-size: 0.90625rem;
   white-space: nowrap;
 }
@@ -164,16 +163,13 @@
 
 .np-mm-kick {
   margin: 0;
-  font: 700 0.84375rem / 1.2 var(--np-font-sans);
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
+  font: 500 0.8125rem / 1.2 var(--np-font-sans);
   color: var(--np-text-label);
 }
 
 .np-mm-num {
   font-family: var(--np-font-num);
-  font-weight: 800;
-  letter-spacing: -0.02em;
+  font-weight: 600;
   font-variant-numeric: tabular-nums;
 }
 
@@ -274,7 +270,7 @@
   inset: 0;
   display: grid;
   place-items: center;
-  font: 800 0.875rem / 1 var(--np-font-num);
+  font: 600 0.875rem / 1 var(--np-font-num);
 }
 
 .np-mm-block {
@@ -292,7 +288,7 @@
 }
 
 .np-mm-blockhead b {
-  font: 800 0.9375rem var(--np-font-num);
+  font: 600 0.9375rem var(--np-font-num);
   font-variant-numeric: tabular-nums;
 }
 
@@ -337,7 +333,7 @@
 
 .np-mm-hleg b {
   display: block;
-  font: 800 0.90625rem var(--np-font-num);
+  font: 600 0.90625rem var(--np-font-num);
   color: var(--np-text);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
@@ -370,7 +366,7 @@
 }
 
 .np-mm-dleg b {
-  font: 800 0.90625rem var(--np-font-num);
+  font: 600 0.90625rem var(--np-font-num);
   color: var(--np-text);
   font-variant-numeric: tabular-nums;
 }
@@ -390,7 +386,7 @@
 
 .np-mm-hold b {
   font-family: var(--np-font-num);
-  font-weight: 800;
+  font-weight: 600;
 }
 
 .np-mm-hold span {
@@ -448,7 +444,7 @@
 
 .np-mm-sr b {
   text-align: right;
-  font: 800 0.90625rem var(--np-font-num);
+  font: 600 0.90625rem var(--np-font-num);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
@@ -487,7 +483,7 @@
 }
 
 .np-mm-orow b {
-  font: 800 0.90625rem var(--np-font-num);
+  font: 600 0.90625rem var(--np-font-num);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
@@ -724,7 +720,7 @@
 
 .np-ficha-stat b {
   display: block;
-  font: 800 1.1875rem var(--np-font-num);
+  font: 600 1.1875rem var(--np-font-num);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
   overflow: hidden;
@@ -742,7 +738,6 @@
 
 .np-ficha-stat[data-big='true'] b {
   font-size: 2rem;
-  letter-spacing: -0.03em;
 }
 
 /* Fila de la ficha NFC con «Bloquear». */
@@ -816,7 +811,7 @@
   background: transparent;
   box-shadow: inset 0 0 0 2px var(--np-danger);
   color: var(--np-danger);
-  font-weight: 700;
+  font-weight: 600;
   font-size: 0.9375rem;
   transition: background var(--np-d-fast), transform var(--np-d-fast) var(--np-ease);
 }
@@ -867,7 +862,7 @@
 
 .np-ficha-rates b {
   font-family: var(--np-font-num);
-  font-weight: 800;
+  font-weight: 600;
 }
 
 /* La línea del tiempo: hora, color de la sección, qué y cuánto. */
@@ -893,7 +888,7 @@
 }
 
 .np-ficha-tr time {
-  font: 800 0.875rem var(--np-font-num);
+  font: 600 0.875rem var(--np-font-num);
   color: var(--np-text-label);
   font-variant-numeric: tabular-nums;
 }
@@ -948,14 +943,14 @@
 
 .np-ficha-amt {
   text-align: right;
-  font: 800 1.03125rem var(--np-font-num);
+  font: 600 1.03125rem var(--np-font-num);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
 
 .np-ficha-amt small {
   display: block;
-  font: 700 0.84375rem var(--np-font-sans);
+  font: 600 0.84375rem var(--np-font-sans);
   color: var(--np-text-label);
 }
 
@@ -993,7 +988,7 @@
 }
 
 .np-ficha-payline b {
-  font-weight: 700;
+  font-weight: 600;
   white-space: nowrap;
 }
 
@@ -1025,7 +1020,7 @@
   padding: 0.625rem 0;
   min-height: 2.75rem;
   box-sizing: border-box;
-  font-weight: 700;
+  font-weight: 600;
   font-size: 0.875rem;
   color: var(--np-text-label);
 }
@@ -1107,15 +1102,17 @@ button.np-mm-sr:active { opacity: 0.7; }
   background: var(--np-surface-2);
   font-size: 0.875rem;
 }
+/* «Quitar fechas»: como un botón secundario pequeño (36 px; 44 en el móvil). */
 .np-cobros-window button {
-  min-height: 2.75rem;
+  min-height: var(--np-filter-h);
   padding: 0 0.875rem;
-  border-radius: var(--np-r-pill);
+  border-radius: var(--np-r-sm);
   border: 1px solid var(--np-border-hi);
-  background: var(--np-surface);
+  background: var(--np-surface-2);
   color: var(--np-text);
   font: inherit;
-  font-weight: 700;
+  font-size: 0.875rem;
+  font-weight: 500;
   cursor: pointer;
 }
 
@@ -1138,9 +1135,9 @@ button.np-mm-sr:active { opacity: 0.7; }
   font-size: 0.9375rem;
 }
 .np-mm-period-box > summary::-webkit-details-marker { display: none; }
-.np-mm-period-box > summary b { font-weight: 700; }
+.np-mm-period-box > summary b { font-weight: 600; }
 .np-mm-period-change {
-  font-weight: 700;
+  font-weight: 500;
   color: var(--np-text);
   text-decoration: underline;
   text-underline-offset: 3px;

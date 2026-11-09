@@ -1,6 +1,6 @@
 /* Panel (admin) · «Liquidación OxioPay»: la ficha (dueño y consola), la lista
    y el aviso de arriba. Encima de @nightpay/ui/styles.css, con sus tokens
-   --np-*. El total a pagar en grande (Manrope 800, --np-font-num); el bloque
+   --np-*. El total a pagar en grande (Manrope 600, --np-font-num); el bloque
    de la transferencia con el borde lima (es lo que hay que hacer). Solo se
    anima opacity/transform, y nada con prefers-reduced-motion. Móvil = hasta
    640px: una columna y las tablas como tarjetas (panel-tables.css). */
@@ -24,9 +24,7 @@
 .np-liq-kicker {
   margin: 0;
   font-size: var(--np-t-label);
-  font-weight: 700;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
+  font-weight: 500;
   color: var(--np-text-label);
 }
 
@@ -34,8 +32,7 @@
   margin: 0.25rem 0 0;
   font-family: var(--np-font-num);
   font-size: clamp(1.35rem, 4.5vw, 2rem);
-  font-weight: 800;
-  letter-spacing: -0.01em;
+  font-weight: 600;
   color: var(--np-text);
   overflow-wrap: anywhere;
 }
@@ -73,9 +70,7 @@
 
 .np-liq-fig dt {
   font-size: var(--np-t-label);
-  font-weight: 700;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
+  font-weight: 500;
   color: var(--np-text-label);
 }
 
@@ -83,14 +78,13 @@
   margin: 0;
   font-family: var(--np-font-num);
   font-size: 1.5rem;
-  font-weight: 800;
+  font-weight: 600;
   font-variant-numeric: tabular-nums;
   color: var(--np-text);
 }
 
 .np-liq-fig[data-hero] dd {
   font-size: clamp(1.9rem, 6vw, 2.75rem);
-  letter-spacing: -0.02em;
 }
 
 .np-liq-fig[data-tone='danger'] dd {
@@ -121,8 +115,7 @@
 .np-liq-block h3 {
   margin: 0;
   font-size: var(--np-t-h3);
-  font-weight: 700;
-  letter-spacing: -0.02em;
+  font-weight: 600;
   color: var(--np-text);
 }
 
@@ -152,7 +145,7 @@
 
 .np-liq-pay-row dd {
   margin: 0;
-  font-weight: 700;
+  font-weight: 600;
   color: var(--np-text);
   overflow-wrap: anywhere;
 }
@@ -214,7 +207,7 @@
 .np-liq-concepts tr[data-total] td {
   border-top: 2px solid var(--np-text);
   font-size: 1.0625rem;
-  font-weight: 800;
+  font-weight: 600;
 }
 
 .np-liq-num {
@@ -293,7 +286,7 @@
 
 .np-liq-item-ref {
   font-family: var(--np-font-num);
-  font-weight: 800;
+  font-weight: 600;
   overflow-wrap: anywhere;
 }
 
@@ -310,7 +303,7 @@
   align-items: flex-end;
   gap: 0.25rem;
   font-family: var(--np-font-num);
-  font-weight: 800;
+  font-weight: 600;
   font-size: 1.125rem;
   font-variant-numeric: tabular-nums;
 }
@@ -384,7 +377,7 @@
     padding: 0 0 0.35rem;
     border: 0;
     font-size: 1.0625rem;
-    font-weight: 700;
+    font-weight: 600;
     text-align: left;
     color: var(--np-text);
   }

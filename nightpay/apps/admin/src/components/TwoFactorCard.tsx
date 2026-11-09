@@ -318,7 +318,6 @@ const titleStyle: CSSProperties = {
   margin: 0,
   fontSize: 'var(--np-t-h4)',
   fontWeight: 600,
-  letterSpacing: '-0.02em',
 };
 
 const textStyle: CSSProperties = { margin: 0, fontSize: '0.85rem', lineHeight: 1.5, color: 'var(--np-text-mute)' };
