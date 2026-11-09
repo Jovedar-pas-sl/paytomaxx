@@ -154,7 +154,7 @@ export function FichaTapped({ token, userId, onClose }: { token: string; userId:
         </>
       ) : null}
       {view.kind === 'done' ? (
-        <p style={{ margin: 0, fontSize: '1.15rem', fontWeight: 700, color: view.ok ? 'var(--np-success)' : 'var(--np-danger)' }}>
+        <p style={{ margin: 0, fontSize: '1.125rem', fontWeight: 600, color: view.ok ? 'var(--np-success)' : 'var(--np-danger)' }}>
           {view.text}
         </p>
       ) : null}
@@ -173,21 +173,24 @@ const cardStyle: CSSProperties = {
   textAlign: 'center',
 };
 
+// Grafito: etiqueta 14/500 en t2, sin mayúsculas ni espaciado.
 const kicker: CSSProperties = {
   margin: 0,
   fontSize: 'var(--np-t-label)',
-  fontWeight: 700,
-  letterSpacing: '0.12em',
-  textTransform: 'uppercase',
+  fontWeight: 500,
   color: 'var(--np-text-mute)',
 };
 
-const hintStyle: CSSProperties = { margin: 0, fontSize: '0.85rem', color: 'var(--np-text-mute)' };
+// 14 px como mínimo en la app del personal.
+const hintStyle: CSSProperties = { margin: 0, fontSize: '0.875rem', color: 'var(--np-text-mute)' };
 
+// El código del saldo, en t1 (la lima es para actuar): Manrope 600 a 40 px;
+// el espaciado, solo porque es un código.
 const bigStyle: CSSProperties = {
   margin: 0,
-  fontSize: '2.25rem',
-  fontWeight: 800,
-  letterSpacing: '0.2em',
-  color: 'var(--np-accent)',
+  fontSize: '2.5rem',
+  fontWeight: 600,
+  lineHeight: 1.1,
+  letterSpacing: '0.08em',
+  color: 'var(--np-text)',
 };

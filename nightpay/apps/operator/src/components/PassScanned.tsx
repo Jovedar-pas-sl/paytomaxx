@@ -143,15 +143,16 @@ const cardStyle: CSSProperties = {
   textAlign: 'center',
 };
 
+// Grafito: etiqueta 14/500 en t2, sin mayúsculas ni espaciado.
 const kicker: CSSProperties = {
   margin: 0,
   fontSize: 'var(--np-t-label)',
-  fontWeight: 700,
-  letterSpacing: '0.12em',
-  textTransform: 'uppercase',
+  fontWeight: 500,
   color: 'var(--np-text-mute)',
 };
 
-const hintStyle: CSSProperties = { margin: 0, fontSize: '0.85rem', color: 'var(--np-text-mute)' };
+// 14 px como mínimo en la app del personal.
+const hintStyle: CSSProperties = { margin: 0, fontSize: '0.875rem', color: 'var(--np-text-mute)' };
 
-const doneStyle: CSSProperties = { margin: 0, fontSize: '1.15rem', fontWeight: 700 };
+// Qué hacer, en letra de leer (16/500), no en negrita.
+const doneStyle: CSSProperties = { margin: 0, fontSize: '1rem', fontWeight: 500, lineHeight: 1.45 };

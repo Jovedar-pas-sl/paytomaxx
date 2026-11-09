@@ -34,7 +34,8 @@ export function TonightCard({ night, summary, holdDays, compact = false, onOpen,
   const status = night ? tonightStatus(night, summary, holdDays, Date.now()) : null;
   const cents = summary.tonightCents;
   const amount = night ? (cents < 0 ? formatSignedEur(cents, { compact: true }) : formatEur(cents, { compact: true })) : '—';
-  const color = !night || cents === 0 ? 'var(--np-text-mute)' : cents < 0 ? 'var(--np-danger)' : 'var(--np-accent)';
+  // Grafito: la cifra en t1 (la lima es para actuar, nunca para un total); en rojo si debe.
+  const color = !night || cents === 0 ? 'var(--np-text-mute)' : cents < 0 ? 'var(--np-danger)' : 'var(--np-text)';
 
   return (
     <button type="button" className={styles.hero} data-compact={compact} onClick={onOpen}>
@@ -53,14 +54,15 @@ export function TonightCard({ night, summary, holdDays, compact = false, onOpen,
   );
 }
 
+/** El estado de la noche, como un chip de Grafito: abierta con su punto verde (en marcha), pagada en verde. */
 function TonePill({ tone }: { tone: TonightTone }) {
   const live = tone === 'open';
   return (
     <span
       style={{
         ...pill,
-        color: tone === 'paid' ? 'var(--np-success)' : live ? 'var(--np-accent)' : 'var(--np-text-mute)',
-        background: tone === 'paid' ? 'var(--np-pill-success-bg)' : live ? 'var(--np-pill-cyan-bg)' : 'var(--np-pill-mute-bg)',
+        color: tone === 'paid' ? 'var(--np-success)' : live ? 'var(--np-text)' : 'var(--np-text-mute)',
+        background: tone === 'paid' ? 'var(--np-pill-success-bg)' : 'var(--np-pill-mute-bg)',
       }}
     >
       {live ? <span aria-hidden style={dot} /> : null}
@@ -79,12 +81,13 @@ export function Chevron() {
 }
 
 /**
- * La cifra cabe en una línea a 320 px (Manrope 800: ≈0,55 em por carácter,
- * 0,62 con margen) sin pasar del tamaño máximo.
+ * La cifra cabe en una línea a 320 px (Manrope: ≈0,55 em por carácter, 0,62
+ * con margen) sin pasar del tamaño máximo.
  */
 export function fitAmount(text: string, compact: boolean): string {
   // Compacta: en el móvil, según el alto de la pantalla (--np-hero-amount-max, money.module.css).
-  const max = compact ? 'var(--np-hero-amount-max, 2.75rem)' : '4.5rem';
+  // Entera, 64 como mucho: la escala de Grafito deja el 72 para el resultado.
+  const max = compact ? 'var(--np-hero-amount-max, 2.75rem)' : '4rem';
   const perChar = Math.max(4, text.length) * 0.62;
   return `min(${max}, calc((min(100vw, 32rem) - 7rem) / ${perChar.toFixed(2)}))`;
 }
@@ -96,22 +99,22 @@ const topLine: CSSProperties = {
   flexWrap: 'wrap',
 };
 
+// Grafito: etiquetas 14/500 en t2, sin mayúsculas ni espaciado.
 const kicker: CSSProperties = {
   fontSize: 'var(--np-t-label)',
   color: 'var(--np-text-label)',
-  letterSpacing: '0.1em',
-  textTransform: 'uppercase',
-  fontWeight: 700,
+  fontWeight: 500,
 };
 
+// Chip de Grafito: radio 6 y 14/500.
 const pill: CSSProperties = {
   display: 'inline-flex',
   alignItems: 'center',
   gap: '0.375rem',
   padding: '0.125rem 0.625rem',
-  borderRadius: 'var(--np-r-pill)',
+  borderRadius: 'var(--np-r-xs)',
   fontSize: 'var(--np-t-label)',
-  fontWeight: 700,
+  fontWeight: 500,
   lineHeight: 1.6,
 };
 
@@ -119,21 +122,22 @@ const dot: CSSProperties = {
   width: '0.5rem',
   height: '0.5rem',
   borderRadius: '50%',
-  background: 'currentColor',
+  background: 'var(--np-success)',
 };
 
+// Cifra grande y suelta: Manrope 600 proporcional, sin apretar.
 const amountStyle: CSSProperties = {
   display: 'block',
   margin: '0.125rem 0',
-  fontWeight: 700,
-  lineHeight: 1.05,
-  letterSpacing: '-0.04em',
+  fontWeight: 600,
+  lineHeight: 1.1,
+  fontVariantNumeric: 'proportional-nums',
   whiteSpace: 'nowrap',
 };
 
 const whenStyle: CSSProperties = {
   fontSize: 'var(--np-hero-when, 1.0625rem)',
-  fontWeight: 700,
+  fontWeight: 500,
   color: 'var(--np-text)',
   lineHeight: 1.3,
 };
