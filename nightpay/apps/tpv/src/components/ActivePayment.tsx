@@ -125,7 +125,7 @@ export function ActivePayment({ payment, status, reachable, checkNow, onDone, on
     <div style={gridStyle}>
       <QrCard payment={payment} deadline={isPreCobro(shown) ? deadline : null} now={now} />
 
-      <Card style={{ padding: '2rem', textAlign: 'center' }}>
+      <Card style={{ padding: CARD_PAD, textAlign: 'center' }}>
         <p style={sectionLabel}>Importe</p>
         <AmountDisplay amountCents={payment.amountCents} currency={payment.currency} status={shown} />
         {breakdown ? (
@@ -199,7 +199,7 @@ function QrCard({ payment, deadline, now }: { payment: CreatedPayment; deadline:
   }
 
   return (
-    <Card style={{ padding: '2rem' }}>
+    <Card style={{ padding: CARD_PAD }}>
       <p style={sectionLabel}>QR del cobro</p>
       {/* Fondo blanco en los dos temas: el lector del móvil lo necesita para leer el QR. */}
       <div style={{ marginTop: '1rem' }}>
@@ -244,9 +244,12 @@ function QrImage({ url, fallbackSrc }: { url: string; fallbackSrc: string }) {
 const gridStyle: CSSProperties = {
   display: 'grid',
   gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 20rem), 1fr))',
-  gap: '2rem',
+  gap: 'clamp(1rem, 3vw, 2rem)',
   alignItems: 'start',
 };
+
+// Relleno de las tarjetas: 16 en el móvil (el importe y «Cancelar cobro» suben), 32 en la tableta.
+const CARD_PAD = 'clamp(1rem, 4vw, 2rem)';
 
 // Etiquetas 14/500 en t2, sin mayúsculas ni espaciado (Grafito).
 const sectionLabel: CSSProperties = {
@@ -285,7 +288,7 @@ const urlCode: CSSProperties = {
 };
 
 const actionsStyle: CSSProperties = {
-  marginTop: '2rem',
+  marginTop: '1.5rem',
   display: 'flex',
   flexDirection: 'column',
   alignItems: 'center',
