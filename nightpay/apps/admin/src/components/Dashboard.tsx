@@ -168,7 +168,10 @@ export function Dashboard({ user, onLogout }: Props) {
                     {user.isSuperAdmin ? ' · super-admin' : ''}
                   </span>
                 </div>
-                <ThemeToggle size="sm" />
+                {/* 36 px como «Salir»; en el móvil, 44 (panel-nav.css). */}
+                <span className="np-theme-toggle">
+                  <ThemeToggle size="sm" />
+                </span>
                 <Button variant="ghost" size="sm" className="np-header-account" onClick={() => void logout()} loading={loggingOut}>
                   Salir
                 </Button>

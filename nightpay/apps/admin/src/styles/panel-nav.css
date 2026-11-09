@@ -276,6 +276,12 @@
     min-height: 2.75rem;
   }
 
+  /* El del tema también (su tamaño va en línea, en @nightpay/ui). */
+  .np-theme-toggle > button {
+    width: 2.75rem !important;
+    height: 2.75rem !important;
+  }
+
   .np-app-root,
   .np-panel-body {
     gap: 1.25rem !important;
