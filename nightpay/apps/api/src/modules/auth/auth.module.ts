@@ -8,6 +8,8 @@ import { LockoutService } from './lockout.service';
 import { LoginTicketService } from './login-ticket.service';
 import { RefreshTokenService } from './refresh-token.service';
 import { StaffSessionTransport } from './staff-session.transport';
+import { StepUpController } from './step-up.controller';
+import { StepUpService } from './step-up.service';
 import { TotpAttemptsService } from './totp-attempts.service';
 import { TotpEnrollmentService } from './totp-enrollment.service';
 import { TotpController } from './totp.controller';
@@ -38,10 +40,12 @@ import { TelegramService } from '../incidents/telegram.service';
     LoginTicketService,
     RefreshTokenService,
     StaffSessionTransport,
+    // La verificación del momento para ver lo delicado de un cobro (detalle del pago).
+    StepUpService,
     // Aviso al activar la 2FA de un super-admin (Telegram del entorno).
     TelegramService,
   ],
-  controllers: [AuthController, TotpController],
-  exports: [AuthService, TotpService, RefreshTokenService, AccessRevocationService, JwtModule],
+  controllers: [AuthController, TotpController, StepUpController],
+  exports: [AuthService, TotpService, RefreshTokenService, AccessRevocationService, StepUpService, JwtModule],
 })
 export class AuthModule {}

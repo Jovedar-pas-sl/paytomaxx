@@ -7,8 +7,10 @@ import {
   Headers,
   HttpCode,
   Inject,
+  NotFoundException,
   Optional,
   Param,
+  ParseUUIDPipe,
   Post,
   Query,
   Res,
@@ -17,6 +19,10 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { FastifyReply } from 'fastify';
+import { CobroKindParamSchema, type CobroDetail, type CobroKind } from '@nightpay/contracts';
+import { ZodValidationPipe } from '../../common/pipes/zod.pipe';
+import { CobroDetailService } from '../money-map/cobro-detail.service';
+import { CLIENT_HINTS_ACCEPT_CH } from '../../common/http/client-device';
 import { Public } from '../../common/decorators/public.decorator';
 import { IpRateLimit } from '../../common/guards/ip-rate-limit.guard';
 import { customerLanguage, resolveLanguage } from '../payments/customer-lang';
@@ -74,6 +80,7 @@ export class PublicWalletController {
   private readonly config: ConfigService;
   private readonly activation: WalletActivationUseService | null;
   private readonly welcome: WalletWelcomeService | null;
+  private readonly details: CobroDetailService | null;
 
   constructor(
     @Inject(WalletChargesService) charges: WalletChargesService,
@@ -85,6 +92,8 @@ export class PublicWalletController {
     @Optional() @Inject(WalletActivationUseService) activation?: WalletActivationUseService,
     // «Cargar saldo antes de llegar»: el QR de la ficha y la cookie del enlace del local; en el API siempre está.
     @Optional() @Inject(WalletWelcomeService) welcome?: WalletWelcomeService,
+    // El detalle de un pago del saldo (GET /w/:token/movements/:kind/:id); en el API siempre está.
+    @Optional() @Inject(CobroDetailService) details?: CobroDetailService,
   ) {
     this.charges = charges;
     this.passkeys = passkeys;
@@ -93,6 +102,7 @@ export class PublicWalletController {
     this.config = config;
     this.activation = activation ?? null;
     this.welcome = welcome ?? null;
+    this.details = details ?? null;
   }
 
   /**
@@ -275,6 +285,8 @@ export class PublicWalletController {
       .status(200)
       .header('Content-Type', 'text/html; charset=utf-8')
       .header('Cache-Control', 'no-store')
+      // Android: el modelo y la versión en las peticiones siguientes (detalle del pago).
+      .header('Accept-CH', CLIENT_HINTS_ACCEPT_CH)
       .header('Referrer-Policy', 'no-referrer')
       .send(
         renderWalletPage(token, lang, state, {
@@ -302,6 +314,31 @@ export class PublicWalletController {
     // La página lo pide tras cada aviso y cada 20–30 s mientras se ve: es actividad y alarga la sesión.
     if (access.renew) res.header('Set-Cookie', access.renew);
     return this.charges.clientState(token);
+  }
+
+  /**
+   * El detalle de uno de sus pagos (una recarga o lo que pagó con el saldo):
+   * qué, cuándo, dónde, quién le cobró (su nombre de pila), cómo, el código y
+   * el saldo antes y después. Con el mismo acceso que /state (su Face ID o la
+   * sesión de consulta). Un pago de otro saldo, 404. Nunca el móvil ni la IP.
+   */
+  @Public()
+  @Get(':token/movements/:kind/:id')
+  @Header('Cache-Control', 'no-store')
+  @IpRateLimit({ max: 300, windowSec: 60, scope: 'wallet-movement', failOpen: true })
+  async movement(
+    @Param('token') token: string,
+    @Param('kind', new ZodValidationPipe(CobroKindParamSchema)) kind: CobroKind,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Res({ passthrough: true }) res: FastifyReply,
+    @Headers('cookie') cookies?: string,
+  ): Promise<CobroDetail> {
+    const access = await this.viewAccess(token, cookies);
+    if (!access.allowed) throw new UnauthorizedException({ message: 'Desbloquea tu saldo con tu teléfono.', code: 'WALLET_VIEW_REQUIRED' });
+    if (access.renew) res.header('Set-Cookie', access.renew);
+    if (!this.details) throw new NotFoundException('Pago no encontrado');
+    const wallet = await this.charges.walletRefByToken(token);
+    return this.details.forClient(wallet.id, kind, id);
   }
 
   @Public()

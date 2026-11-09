@@ -120,7 +120,8 @@ function setup() {
     const q = Prisma.sql(strings, ...values);
     return q.text.includes('FROM client_wallets') ? tables.clientWallet.list({ where: { id: values[0] } }) : [];
   });
-  const tx = { ...tables, $queryRaw };
+  // El pago con el saldo deja su evento (detalle del pago) en SQL crudo.
+  const tx = { ...tables, $queryRaw, $executeRaw: vi.fn(async () => 1) };
   const all = Object.values(tables);
   const run = async (fn: (t: typeof tx) => unknown) => {
     const snap = all.map((t) => new Map(t.rows));
@@ -329,7 +330,8 @@ describe('referencias del saldo y su página', () => {
     // Los nombres de Ajustes → Secciones (los de fábrica si el local no los cambió); lo que no es una sección, «Otros».
     expect(state.movements.map((m) => m.label)).toEqual(['Copas', 'Habitaciones', 'Comida', 'Otros', 'Servicios', 'Otros', 'Botella Moët']);
     // Con el color de su sección (el de fábrica si el local no eligió otro).
-    expect(state.movements[0]).toEqual({ kind: 'consumption', amountCents: -1_200, label: 'Copas', venueName: 'Bambú Norte (Alcobendas)', at: at(1).toISOString(), ref: null, color: '#3fe0c0' });
+    // Sin cobro del saldo que lo abra (consumos sueltos de antes): sin detalle.
+    expect(state.movements[0]).toEqual({ kind: 'consumption', amountCents: -1_200, label: 'Copas', venueName: 'Bambú Norte (Alcobendas)', at: at(1).toISOString(), ref: null, color: '#3fe0c0', detail: null });
   });
 
   it('con las secciones renombradas en ese local, el consumo dice su nombre (el de cada local)', async () => {

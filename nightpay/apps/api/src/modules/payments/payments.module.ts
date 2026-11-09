@@ -6,6 +6,7 @@ import { PublicPayController } from './public-pay.controller';
 import { PaytefDebugController } from './paytef-debug.controller';
 import { RedsysDebugController } from './redsys-debug.controller';
 import { PeanpeDebugController } from './peanpe-debug.controller';
+import { DeviceIpRetentionService } from './device-ip-retention.service';
 import { PaymentsService } from './payments.service';
 import { PayStatusService } from './pay-status.service';
 import { QR_EXPIRE_QUEUE, ORPHAN_RECONCILE_QUEUE } from '../queues/queue-tokens';
@@ -30,7 +31,12 @@ import { WebhooksModule } from '../webhooks/webhooks.module';
     // Las letras de la marca para las páginas del cliente (/pay/assets/instrument-sans.woff2 y manrope.woff2).
     BrandFontController,
   ],
-  providers: [PaymentsService, PayStatusService],
-  exports: [PaymentsService],
+  providers: [
+    // La IP de los dispositivos de los cobros se borra a los 90 días (la lanza QrExpireSweepService).
+    DeviceIpRetentionService,
+    PaymentsService,
+    PayStatusService,
+  ],
+  exports: [DeviceIpRetentionService, PaymentsService],
 })
 export class PaymentsModule {}

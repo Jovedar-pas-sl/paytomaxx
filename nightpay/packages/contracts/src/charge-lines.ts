@@ -131,8 +131,16 @@ export const CobrosQuerySchema = z.object({
   method: z.enum(CHARGE_METHODS).optional(),
   /** Código del saldo (K7Q-4M2, con o sin guion): sus cobros del saldo. */
   walletCode: z.string().trim().min(3).max(12).optional(),
-  /** Código de confirmación o referencia bancaria (al menos 3: el código tiene 3, y «1» lo encontraría casi todo). */
+  /**
+   * Código de confirmación, referencia, referencia bancaria, los últimos 4 de
+   * la tarjeta o el número de una ficha (al menos 3: el código tiene 3, y «1»
+   * lo encontraría casi todo). Ver parseCobroSearch (cobro-detail.ts).
+   */
   search: z.string().trim().min(3).max(128).optional(),
+  /** Los últimos 4 de la tarjeta. */
+  cardLast4: z.string().trim().regex(/^\d{4}$/, 'Los últimos 4 de la tarjeta').optional(),
+  /** El número de una ficha NFC (el interno o el impreso): los cobros de los saldos que la tuvieron. */
+  ficha: z.string().trim().regex(/^\d{1,12}$/, 'El número de la ficha').optional(),
   walletId: UuidSchema.optional(),
   /** Las invitaciones a esta chica (cobradas por otra persona). */
   invitedOperatorId: UuidSchema.optional(),

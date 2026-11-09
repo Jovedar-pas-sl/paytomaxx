@@ -11,6 +11,7 @@ import {
 import { randomUUID } from 'node:crypto';
 import { ClsService } from 'nestjs-cls';
 import { PrismaService } from '../../common/prisma/prisma.service';
+import { mayReadCobro, seesWholeVenue } from '../payments/payment-read-access';
 import { GatewayRegistry } from '../gateways/gateway.registry';
 import type { GatewayAdapter } from '../gateways/gateway.adapter';
 import { PaymentsService } from '../payments/payments.service';
@@ -764,7 +765,16 @@ export class RefundsService {
     }
   }
 
-  async listForPayment(paymentId: string) {
+  /**
+   * Las devoluciones de un cobro. Con `reader` (el personal): el dueño y el
+   * encargado, las de cualquiera; el resto, solo las de sus cobros (de otro,
+   * 404 como si no existiera).
+   */
+  async listForPayment(paymentId: string, reader?: { userId: string; role: string }) {
+    if (reader && !seesWholeVenue(reader.role)) {
+      const payment = await this.prisma.payment.findUnique({ where: { id: paymentId }, select: { createdByUserId: true } });
+      if (!payment || !mayReadCobro(reader, payment.createdByUserId)) throw new NotFoundException('Payment not found');
+    }
     return this.prisma.refund.findMany({
       where: { paymentId },
       orderBy: { createdAt: 'desc' },

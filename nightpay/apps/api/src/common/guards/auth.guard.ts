@@ -69,8 +69,11 @@ export class AuthGuard implements CanActivate {
       userId: result.payload.sub,
       role: result.payload.role,
       venueSlug: result.payload.venueSlug,
+      // La verificación del momento (ver lo delicado) va atada a la sesión.
+      ...(result.payload.sid ? { sessionId: result.payload.sid } : {}),
     });
 
     return true;
   }
 }
+

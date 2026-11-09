@@ -1,6 +1,7 @@
 import { InternalServerErrorException, Logger } from '@nestjs/common';
 import type { ClsService } from 'nestjs-cls';
 import type { Role } from '@nightpay/contracts';
+import type { ClientDevice } from '../http/client-device';
 
 export interface RequestContext {
   tenantId?: string;
@@ -12,6 +13,13 @@ export interface RequestContext {
   acrossVenues?: boolean;
   /** Dentro de PrismaService.asSystem: consulta de sistema a propósito (sin local si no lo hay). */
   system?: boolean;
+  /**
+   * El dispositivo y la IP real de quien hace la petición (setup de CLS en
+   * app.module.ts): se guarda con el cobro en los eventos `payment.device`.
+   */
+  device?: ClientDevice;
+  /** La sesión del personal (el `sid` del token): la verificación del momento va atada a ella. */
+  sessionId?: string;
 }
 
 const logger = new Logger('RequestContext');
@@ -25,7 +33,7 @@ const logger = new Logger('RequestContext');
  */
 export function bindTenantContext(
   cls: ClsService<{ ctx: RequestContext }>,
-  ctx: Pick<RequestContext, 'tenantId' | 'userId' | 'role' | 'venueSlug'>,
+  ctx: Pick<RequestContext, 'tenantId' | 'userId' | 'role' | 'venueSlug' | 'sessionId'>,
 ): void {
   if (!cls.isActive()) {
     logger.error('Contexto CLS inactivo en una petición con sesión: se rechaza (sin él no habría filtro por local)');

@@ -93,6 +93,8 @@ function makeService(
     $queryRaw: vi
       .fn()
       .mockResolvedValue(w ? [{ id: w.id, balanceCents: w.balanceCents, status: w.status }] : []),
+    // El pago con el saldo deja su evento (detalle del pago) en SQL crudo.
+    $executeRaw: vi.fn().mockResolvedValue(1),
   };
   const prisma = {
     asSystem: vi.fn().mockImplementation(async (fn: (t: typeof tx) => unknown) => fn(tx)),

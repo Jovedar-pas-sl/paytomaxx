@@ -1,9 +1,10 @@
 import { randomUUID } from 'node:crypto';
-import { Inject, Injectable, Logger, type OnModuleDestroy, type OnModuleInit } from '@nestjs/common';
+import { Inject, Injectable, Logger, Optional, type OnModuleDestroy, type OnModuleInit } from '@nestjs/common';
 import type { Redis } from 'ioredis';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { REDIS_CLIENT } from '../../common/redis/redis.module';
 import { RELEASE_LOCK_LUA } from '../../common/redis/release-lock';
+import { DeviceIpRetentionService } from '../payments/device-ip-retention.service';
 import { PaymentsService } from '../payments/payments.service';
 import { expireIfStillOpen } from './qr-expire.processor';
 
@@ -46,14 +47,19 @@ export class QrExpireSweepService implements OnModuleInit, OnModuleDestroy {
   private bootTimer: NodeJS.Timeout | null = null;
   private timer: NodeJS.Timeout | null = null;
 
+  /** Borrar a los 90 días la IP de los dispositivos de los cobros (como mucho cada 6 h): va en este mismo repaso. */
+  private readonly ipRetention: DeviceIpRetentionService | null;
+
   constructor(
     @Inject(PrismaService) prisma: PrismaService,
     @Inject(PaymentsService) payments: PaymentsService,
     @Inject(REDIS_CLIENT) redis: Redis,
+    @Optional() @Inject(DeviceIpRetentionService) ipRetention?: DeviceIpRetentionService,
   ) {
     this.prisma = prisma;
     this.payments = payments;
     this.redis = redis;
+    this.ipRetention = ipRetention ?? null;
   }
 
   onModuleInit(): void {
@@ -79,6 +85,8 @@ export class QrExpireSweepService implements OnModuleInit, OnModuleDestroy {
         if (expired > 0 || failed > 0) {
           this.logger.warn(`Cobros caducados sin su trabajo de caducidad: ${expired} caducados, ${failed} con error`);
         }
+        // Con el mismo candado: la IP de los dispositivos de los cobros, a los 90 días (cada 6 h; nunca lanza).
+        await this.ipRetention?.maybeRun(now);
       } finally {
         await this.redis.eval(RELEASE_LOCK_LUA, 1, LOCK_KEY, lock);
       }

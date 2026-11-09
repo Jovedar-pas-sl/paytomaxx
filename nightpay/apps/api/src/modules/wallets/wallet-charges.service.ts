@@ -7,6 +7,7 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  Optional,
   UnprocessableEntityException,
 } from '@nestjs/common';
 import { ModuleRef } from '@nestjs/core';
@@ -25,8 +26,18 @@ import {
   type Role,
 } from '@nightpay/contracts';
 import type { Prisma } from '@nightpay/db';
+import { ClsService } from 'nestjs-cls';
+import type { RequestContext } from '../../common/context/request-context';
 import { PrismaService, type TransactionalClient } from '../../common/prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
+import {
+  insertPaymentEvent,
+  paymentDevicePayload,
+  PAYMENT_DEVICE_EVENT,
+  WALLET_CHARGE_CREATED_ACTION,
+  WALLET_CHARGE_SETTLED_ACTION,
+  withoutIp,
+} from '../payments/payment-device';
 import { resolveBpsForOperator, type RevenueCategory } from '../payments/commission';
 import { lineCommission, type DraftLine } from '../payments/charge-lines';
 import { resolveChargeOrThrow } from '../payments/charge-request';
@@ -150,7 +161,14 @@ export interface WalletLookup {
 }
 
 /** Cómo dice el cliente cuál es su saldo, sin su móvil: su código o su ficha NFC. */
-export type WalletRef = { code: string } | { card: string; uid?: string | null };
+export type WalletRef = { code: string } | { card: string; uid?: string | null; requestId?: string };
+/** La ficha acercada y, al pagar, el cobro (para apuntar con él una posible copia). */
+type CardRefInput = { card: string; uid?: string | null; requestId?: string };
+/** Con qué se dijo de quién era el saldo al pagar con PIN (detalle del pago: «Ficha nº…»). */
+type PinVia = 'ficha' | 'pase' | 'código';
+function pinViaOf(input: object): PinVia {
+  return 'card' in input ? 'ficha' : 'walletToken' in input ? 'pase' : 'código';
+}
 
 /** Datáfono vinculado (Authorization: Device): no hay persona, solo su local. */
 export interface TerminalActor {
@@ -324,6 +342,12 @@ export interface ClientWalletState {
     ref: string | null;
     /** Color de la sección del consumo (el del local); null en recargas y devoluciones. */
     color: string | null;
+    /**
+     * El pago para abrir su detalle (GET /w/:token/movements/:kind/:id): lo
+     * pagado con el saldo (SALDO) y las recargas con tarjeta (PAYMENT). Null en
+     * las recargas en efectivo y las devoluciones.
+     */
+    detail?: { kind: 'PAYMENT' | 'SALDO'; id: string } | null;
   }>;
 }
 
@@ -388,16 +412,21 @@ export class WalletChargesService {
   private readonly moduleRef: ModuleRef;
   private readonly totp: TotpService;
 
+  /** El contexto de la petición: el dispositivo con el que se paga (detalle del pago). */
+  private readonly cls: Pick<ClsService<{ ctx: RequestContext }>, 'get'> | null;
+
   constructor(
     @Inject(PrismaService) prisma: PrismaService,
     @Inject(AuditService) audit: AuditService,
     @Inject(ModuleRef) moduleRef: ModuleRef,
     @Inject(TotpService) totp: TotpService,
+    @Optional() @Inject(ClsService) cls?: ClsService<{ ctx: RequestContext }>,
   ) {
     this.prisma = prisma;
     this.audit = audit;
     this.moduleRef = moduleRef;
     this.totp = totp;
+    this.cls = cls ?? null;
   }
 
   // ─── Personal del local ────────────────────────────────────────────────
@@ -586,7 +615,7 @@ export class WalletChargesService {
         where: { walletId: wallet.id, status: { in: ['AUTHORIZED', 'PARTIALLY_REFUNDED', 'REFUNDED'] } },
         orderBy: { createdAt: 'desc' },
         take: 10,
-        select: { amountCents: true, tenantId: true, authorizedAt: true, createdAt: true, cardLast4: true, ref: true },
+        select: { id: true, amountCents: true, tenantId: true, authorizedAt: true, createdAt: true, cardLast4: true, ref: true },
       });
       // Hechas y la que se está apuntando a la tarjeta (paso «Aprobado» del «Me voy»).
       const allPayouts = await tx.walletPayout.findMany({
@@ -610,13 +639,13 @@ export class WalletChargesService {
       const passkeys = await tx.walletPasskey.count({ where: { walletId: wallet.id } });
       const venueIds = [...new Set([wallet.tenantId, ...[...consumptions, ...topUps, ...cashTopUps, ...allPayouts].map((m) => m.tenantId)])];
       const venues = await tx.venue.findMany({ where: { id: { in: venueIds } }, select: { id: true, name: true, sections: true } });
-      // La referencia de cada consumo es la de su cobro (C-0001).
+      // La referencia de cada consumo es la de su cobro (C-0001), y su cobro abre el detalle.
       const refRows =
         consumptions.length === 0
           ? []
           : await tx.walletChargeRequest.findMany({
-              where: { consumptionId: { in: consumptions.map((c) => c.id) }, ref: { not: null } },
-              select: { consumptionId: true, ref: true },
+              where: { consumptionId: { in: consumptions.map((c) => c.id) } },
+              select: { id: true, consumptionId: true, ref: true },
             });
       return { wallet, consumptions, topUps, allPayouts, cashTopUps, issuedCards, passkeys, venues, refRows };
     });
@@ -630,6 +659,7 @@ export class WalletChargesService {
     const sectionOfVenue = (id: string, category: string): { label: string; color: string } =>
       sectionMeta(sectionsOf(venues.find((v) => v.id === id)?.sections), category);
     const refs = new Map(read.refRows.flatMap((x) => (x.consumptionId && x.ref ? [[x.consumptionId, formatChargeRef(x.ref)!]] : [])));
+    const chargeOf = new Map(read.refRows.flatMap((x) => (x.consumptionId ? [[x.consumptionId, x.id]] : [])));
 
     const movements: ClientWalletState['movements'] = [
       ...consumptions.map((c) => ({
@@ -640,6 +670,7 @@ export class WalletChargesService {
         at: c.createdAt.toISOString(),
         ref: refs.get(c.id) ?? null,
         color: sectionOfVenue(c.tenantId, c.category).color,
+        detail: chargeOf.has(c.id) ? { kind: 'SALDO' as const, id: chargeOf.get(c.id)! } : null,
       })),
       ...topUps.map((t) => ({
         kind: 'topup' as const,
@@ -650,6 +681,7 @@ export class WalletChargesService {
         at: (t.authorizedAt ?? t.createdAt).toISOString(),
         ref: formatChargeRef(t.ref),
         color: null,
+        detail: { kind: 'PAYMENT' as const, id: t.id },
       })),
       ...cashTopUps.map((t) => ({
         kind: 'topup' as const,
@@ -700,7 +732,7 @@ export class WalletChargesService {
    * pueden ser de locales distintos del grupo. Todo o nada: si algo falla, el
    * rollback deja el cobro libre otra vez.
    */
-  private async settleRequest(walletId: string, requestId: string, auth: ChargeAuthMethod): Promise<NoPinSettled | null> {
+  private async settleRequest(walletId: string, requestId: string, auth: ChargeAuthMethod, pinVia?: PinVia): Promise<NoPinSettled | null> {
     const wallet = { id: walletId };
     return this.prisma.acrossVenues(async (tx) => {
       // Cobro único: primero la fila del cobro con tarjeta (el mismo orden que
@@ -838,10 +870,69 @@ export class WalletChargesService {
         data: { status: 'ACCEPTED', decidedAt: new Date(), consumptionId: consumption.id },
       });
       if (accepted.count === 0) throw requestError('not-pending');
+      // Detalle del pago: con qué se pagó y el saldo antes y después.
+      await this.recordSaldoSettled(tx, {
+        request: { id: request.id, tenantId: request.tenantId },
+        linkedPaymentId: card?.id ?? null,
+        auth,
+        pinVia,
+        beforeCents: w.balanceCents,
+        afterCents: newBalance,
+      });
       // Cobro único: el cobro con tarjeta ya no se puede autorizar.
       if (card) await cancelCardForSaldo(tx, card, request.id, randomBytes(8).toString('hex'));
       return noPin;
     });
+  }
+
+  /**
+   * El pago con el saldo, para su detalle: el dispositivo (el del cliente con
+   * su Face ID; el del personal o el datáfono con su PIN o su NFC), cómo se
+   * autorizó y el saldo antes y después. Cobro único: un `payment.device` en
+   * el cobro enlazado. Saldo suelto (sin cobro con tarjeta): en el registro,
+   * SIN la IP (audit_events no deja borrar nada).
+   */
+  private async recordSaldoSettled(
+    tx: TransactionalClient,
+    s: {
+      request: { id: string; tenantId: string };
+      linkedPaymentId: string | null;
+      auth: ChargeAuthMethod;
+      pinVia?: PinVia;
+      beforeCents: number;
+      afterCents: number;
+    },
+  ): Promise<void> {
+    const ctx = this.cls?.get('ctx');
+    const payload = paymentDevicePayload(
+      ctx,
+      'saldo',
+      {
+        ...(s.auth === 'passkey' ? { who: 'client' as const } : {}),
+        walletChargeId: s.request.id,
+        authMethod: s.auth,
+        ...(s.pinVia ? { pinVia: s.pinVia } : {}),
+        balanceBeforeCents: s.beforeCents,
+        balanceAfterCents: s.afterCents,
+      },
+      { evenWithoutDevice: true },
+    )!;
+    if (s.linkedPaymentId) {
+      await insertPaymentEvent(tx, {
+        paymentId: s.linkedPaymentId,
+        tenantId: s.request.tenantId,
+        eventType: PAYMENT_DEVICE_EVENT,
+        payload,
+        traceId: ctx?.traceId,
+      });
+      return;
+    }
+    // En SQL crudo, como el resto del registro dentro de una transacción del dinero.
+    await tx.$executeRaw`
+      INSERT INTO audit_events ("tenantId", "actorId", action, "targetType", "targetId", payload, "traceId", "occurredAt")
+      VALUES (${s.request.tenantId}::uuid, ${ctx?.userId ?? null}::uuid, ${WALLET_CHARGE_SETTLED_ACTION}, 'WalletChargeRequest',
+              ${s.request.id}, ${JSON.stringify(withoutIp(payload))}::jsonb, ${ctx?.traceId ?? null}, now())
+    `;
   }
 
   /**
@@ -897,6 +988,16 @@ export class WalletChargesService {
         },
       });
       await insertChargeLines(tx, actor.tenantId, { walletChargeId: created.id }, lines);
+      // Detalle del pago: con qué móvil se creó. Saldo suelto (sin cobro con
+      // tarjeta): en el registro, sin la IP (audit_events no deja borrar).
+      const device = paymentDevicePayload(this.cls?.get('ctx'), 'create', { walletChargeId: created.id });
+      if (device) {
+        await tx.$executeRaw`
+          INSERT INTO audit_events ("tenantId", "actorId", action, "targetType", "targetId", payload, "traceId", "occurredAt")
+          VALUES (${actor.tenantId}::uuid, ${actor.userId}::uuid, ${WALLET_CHARGE_CREATED_ACTION}, 'WalletChargeRequest',
+                  ${created.id}, ${JSON.stringify(withoutIp(device))}::jsonb, ${this.cls?.get('ctx')?.traceId ?? null}, now())
+        `;
+      }
       return created;
     });
     return { ...this.requestView(request, null), payToken };
@@ -1150,16 +1251,17 @@ export class WalletChargesService {
     if (effectiveRequestStatus(request, new Date()) !== 'PENDING' || request.walletId) {
       throw await this.notPendingError(request);
     }
-    const wallet = await this.walletByStaffRef(actor.tenantId, input);
+    // Con el cobro: si la ficha es una copia, la sospecha queda apuntada en él (detalle del pago).
+    const wallet = await this.walletByStaffRef(actor.tenantId, 'card' in input ? { ...input, requestId: request.id } : input);
     // Un PIN que puso el encargado sin el cliente: ni él cobra con ese PIN ni
     // aprueba un cobro suyo (hacen falta dos personas, como sin Face ID).
     if (wallet.pinSetById && (wallet.pinSetById === actor.userId || wallet.pinSetById === request.requestedByUserId)) {
       throw new ForbiddenException('Este PIN lo pusiste tú: el cobro lo tiene que hacer otra persona');
     }
     await this.checkPin(wallet.id, input.pin, actor);
-    await this.bindAndSettle(request, wallet.id, 'pin');
+    const via = pinViaOf(input);
+    await this.bindAndSettle(request, wallet.id, 'pin', via);
     if ('card' in input) await this.touchCard(wallet.id, input);
-    const via = 'card' in input ? 'ficha' : 'walletToken' in input ? 'pase' : 'código';
     this.logger.log(`Saldo ${wallet.id}: cobro ${request.id} pagado con PIN (${via}, ${actor.userId})`);
     return this.getRequest(actor, requestId);
   }
@@ -1215,7 +1317,7 @@ export class WalletChargesService {
     }
     await this.assertMethods(actor.tenantId, ['nfc']);
     if (effectiveRequestStatus(request, new Date()) !== 'PENDING' || request.walletId) throw await this.notPendingError(request);
-    const wallet = await this.noPinCardWallet(actor.tenantId, input);
+    const wallet = await this.noPinCardWallet(actor.tenantId, { ...input, requestId: request.id });
     const noPin = await this.bindAndSettle(request, wallet.id, 'nfc_nopin');
     await this.touchCard(wallet.id, input);
     await this.logNoPinCharge(request, wallet.id, noPin, { tenantId: actor.tenantId, actorId: actor.userId });
@@ -1224,7 +1326,7 @@ export class WalletChargesService {
   }
 
   /** El saldo del NFC acercado, si se puede pagar sin PIN con él (si no, 409 PIN_REQUIRED). */
-  private async noPinCardWallet(venueId: string, input: { card: string; uid?: string | null }) {
+  private async noPinCardWallet(venueId: string, input: CardRefInput) {
     const { card, wallet } = await this.cardWithWallet(venueId, input);
     const problem = noPinCardProblem(card, input.uid ? normalizeWalletCardUid(input.uid) : null);
     if (problem) throw new PinRequiredException(problem);
@@ -1373,9 +1475,9 @@ export class WalletChargesService {
     }
     const who = { tenantId: terminal.tenantId, userId: null, terminalId: terminal.terminalId };
     await this.checkPin(wallet.id, input.pin, who);
-    await this.bindAndSettle(request, wallet.id, 'pin');
+    const via = pinViaOf(input);
+    await this.bindAndSettle(request, wallet.id, 'pin', via);
     if ('card' in input) await this.touchCard(wallet.id, input);
-    const via = 'card' in input ? 'ficha' : 'walletToken' in input ? 'pase' : 'código';
     await this.audit.log({
       action: 'wallet.pin_charge_terminal',
       tenantId: terminal.tenantId,
@@ -1400,7 +1502,7 @@ export class WalletChargesService {
     const request = await this.terminalRequest(terminal, requestId);
     await this.assertMethods(terminal.tenantId, ['nfc']);
     if (!(input.uid && normalizeWalletCardUid(input.uid))) throw new BadRequestException(TERMINAL_CARD_NEEDS_UID);
-    const wallet = await this.noPinCardWallet(terminal.tenantId, input);
+    const wallet = await this.noPinCardWallet(terminal.tenantId, { ...input, requestId: request.id });
     const noPin = await this.bindAndSettle(request, wallet.id, 'nfc_nopin');
     await this.touchCard(wallet.id, input);
     await this.logNoPinCharge(request, wallet.id, noPin, { tenantId: terminal.tenantId, terminalId: terminal.terminalId });
@@ -1704,12 +1806,12 @@ export class WalletChargesService {
   }
 
   /** La ficha → su saldo: activa, con saldo abierto y del grupo de este local. */
-  private async walletByCard(venueId: string, input: { card: string; uid?: string | null }) {
+  private async walletByCard(venueId: string, input: CardRefInput) {
     return (await this.cardWithWallet(venueId, input)).wallet;
   }
 
   /** La ficha (dada, y no una copia) y su saldo abierto del grupo de este local. */
-  private async cardWithWallet(venueId: string, input: { card: string; uid?: string | null }) {
+  private async cardWithWallet(venueId: string, input: CardRefInput) {
     const card = isWalletCardToken(input.card)
       ? await this.prisma.acrossVenues((tx) => tx.walletCard.findUnique({ where: { token: input.card } }))
       : null;
@@ -1727,7 +1829,8 @@ export class WalletChargesService {
         tenantId: venueId,
         targetType: 'ClientWallet',
         targetId: card.walletId,
-        payload: { cardId: card.id },
+        // El cobro que se intentaba pagar: su detalle lo enseña como señal.
+        payload: { cardId: card.id, ...(input.requestId ? { requestId: input.requestId } : {}) },
       });
       throw new ConflictException('Esta ficha no es la original (¿copiada?): avisa al encargado');
     }
@@ -1971,6 +2074,7 @@ export class WalletChargesService {
     request: { id: string; tenantId: string; status: string; expiresAt: Date; walletId: string | null; linkedPaymentId?: string | null },
     walletId: string,
     auth: ChargeAuthMethod,
+    pinVia?: PinVia,
   ): Promise<NoPinSettled | null> {
     if (effectiveRequestStatus(request, new Date()) !== 'PENDING' || request.walletId) {
       throw await this.notPendingError(request);
@@ -1990,7 +2094,7 @@ export class WalletChargesService {
     if (!wallet || !sameWalletGroup(wallet, { id: request.tenantId, walletGroup: venue?.walletGroup ?? null })) {
       throw new ConflictException({ message: 'Tu saldo no vale en este local', code: 'CHARGE_OTHER_VENUE' });
     }
-    return this.settleRequest(walletId, request.id, auth);
+    return this.settleRequest(walletId, request.id, auth, pinVia);
   }
 
   /**
