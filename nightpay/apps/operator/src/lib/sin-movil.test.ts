@@ -146,6 +146,12 @@ describe('el PIN', () => {
     expect(pinBody({ code: 'K7Q-4M2' }, '1234')).toEqual({ code: 'K7Q-4M2', pin: '1234' });
     expect(pinBody({ walletToken: PASS }, '1234')).toEqual({ walletToken: PASS, pin: '1234' });
   });
+
+  it('con la propina que eligió el cliente en la pantalla del PIN (B1); sin propinas en el cobro, no va', () => {
+    expect(pinBody({ code: 'K7Q-4M2' }, '1234', 500)).toEqual({ code: 'K7Q-4M2', pin: '1234', tipCents: 500 });
+    expect(pinBody({ code: 'K7Q-4M2' }, '1234', 0)).toEqual({ code: 'K7Q-4M2', pin: '1234', tipCents: 0 });
+    expect(pinBody({ card: 'tok', uid: null }, '1234', null)).toEqual({ card: 'tok', pin: '1234' });
+  });
 });
 
 describe('Esperando, la única pantalla de cobrar, lo usa', () => {
@@ -162,8 +168,9 @@ describe('Esperando, la única pantalla de cobrar, lo usa', () => {
     expect(src).toMatch(/pinOpen: pin !== null \|\| sinMovil/);
   });
 
-  it('el PIN paga con la ficha, el código o el pase (el mismo teclado)', () => {
-    expect(src).toMatch(/payByPin\(chargeId, pin\.ref, value\)/);
+  it('el PIN paga con la ficha, el código o el pase (el mismo teclado), con la propina que eligió el cliente (B1)', () => {
+    expect(src).toMatch(/payByPin\(chargeId, pin\.ref, value, tipCents\)/);
+    expect(src).toContain('tipSetup={pinTip}');
   });
 
   it('«Sin móvil ni ficha», justo debajo del QR (antes que el aviso de la ficha en iPhone): a la vista también en un móvil pequeño', () => {

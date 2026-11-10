@@ -90,7 +90,7 @@ export function PaymentMethodsPanel({ onSaved }: { onSaved?: (methods: VenuePaym
         ))}
       </SettingsCard>
 
-      <SettingsCard title="Propinas" hint="Los importes en euros aparecen también en las losetas de Cobrar. El cliente puede añadir propina en la página de pago.">
+      <SettingsCard title="Propinas" hint="La propina la elige el cliente al pagar (con tarjeta, con su saldo o con su PIN), sin nada marcado: estas son las que se le sugieren. El personal ya no la añade al cobrar.">
         <Switch
           label="Aceptar propinas"
           checked={methods.tips}

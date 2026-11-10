@@ -109,9 +109,11 @@ describe('la loseta en cobrar.module.css', () => {
     expect(other).toMatch(/box-shadow: inset 0 0 0 1px var\(--np-border-hi\);/);
   });
 
-  it('Carta.tsx pinta las losetas y las propinas con cartaTileColor (el título del grupo, con su punto)', () => {
+  it('Carta.tsx pinta las losetas con cartaTileColor (el título del grupo, con su punto); sin losetas de propina (B1)', () => {
     expect(CARTA).toMatch(/'--c': cartaTileColor\(item\.category\)/);
-    expect(CARTA).toMatch(/'--c': cartaTileColor\(PROPINAS\)/);
+    // B1: la propina la elige el cliente al pagar; en Cobrar no se añade.
+    expect(CARTA).not.toMatch(/cartaTileColor\(PROPINAS\)/);
+    expect(CARTA).not.toContain('onTip');
     expect(CARTA).toMatch(/className=\{styles\.group\} style=\{\{ '--c': colorOf\(group\.section\) \}/);
   });
 });

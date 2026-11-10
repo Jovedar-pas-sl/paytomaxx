@@ -4,9 +4,9 @@ import { Fragment, useCallback, useEffect, useRef, type CSSProperties, type Reac
 import { STICKY_ACTION_BOTTOM } from '../layout';
 import { formatEur } from '@/lib/money';
 import { cartaGroups, cartaTileColor, cartaTiles, tapOf } from '@/lib/carta-tiles';
-import { cobrarLabel, itemTileKey, tileLabel, tipTileKey, undoFocusTarget, type UndoTap } from '@/lib/carta-view';
-import { PROPINAS, chargeable, itemLabel, cuentaSummary, cuentaTotals, qtyOf, type CartaItem, type Cuenta } from '@/lib/cuenta';
-import { colorOf, labelOf, offeredCodes, puestoChip, tipTiles, type CobrarContext } from './cobrar-context';
+import { cobrarLabel, itemTileKey, tileLabel, undoFocusTarget, type UndoTap } from '@/lib/carta-view';
+import { chargeable, itemLabel, cuentaSummary, cuentaTotals, qtyOf, type CartaItem, type Cuenta } from '@/lib/cuenta';
+import { colorOf, labelOf, offeredCodes, puestoChip, type CobrarContext } from './cobrar-context';
 import { IconQr, IconUndo } from './icons';
 import { Chip, ScreenHeader } from './ScreenHeader';
 import styles from './cobrar.module.css';
@@ -18,7 +18,6 @@ interface Props {
   who: string;
   /** Una loseta de la carta: «Copa» (y el resto) se suma a la cuenta; «Copa con invitación» va a escanear el QR de la chica. */
   onItem: (item: CartaItem) => void;
-  onTip: (cents: number) => void;
   onOtro: () => void;
   onVerCuenta: () => void;
   onCobrar: () => void;
@@ -47,7 +46,6 @@ export function Carta({
   cuenta,
   who,
   onItem,
-  onTip,
   onOtro,
   onVerCuenta,
   onCobrar,
@@ -61,8 +59,8 @@ export function Carta({
 }: Props) {
   const codes = offeredCodes(ctx);
   const items = cartaTiles(ctx.carta, codes);
-  const tips = tipTiles(ctx);
-  const sectionsShown = new Set([...items.map((i) => i.category), ...(tips.length > 0 ? ['propinas'] : [])]);
+  // B1: sin losetas de propina (la elige el cliente al pagar).
+  const sectionsShown = new Set(items.map((i) => i.category));
   const big = sectionsShown.size <= 2;
   // La chica: la habitación, si el local la usa, la cobra recepción.
   const roomsElsewhere =
@@ -99,26 +97,11 @@ export function Carta({
               ))}
             </Fragment>
           ))}
-          {/* Propinas y «Otro importe» en una fila: caben encima de «Cobrar» también con la carta entera. */}
-          <div className={styles.lastRow} style={{ '--n': Math.max(2, tips.length + 1) } as CSSProperties} data-n={tips.length + 1} data-big={big || undefined}>
-            {tips.map((cents) => (
-              <button
-                key={`tip-${cents}`}
-                type="button"
-                className={`${styles.tile}${big ? ` ${styles.tileBig}` : ''}`}
-                style={{ '--c': cartaTileColor(PROPINAS) } as CSSProperties}
-                data-tile={tipTileKey(cents)}
-                onClick={() => onTip(cents)}
-                aria-label={`Propina de ${formatEur(cents)}`}
-              >
-                {/* Su color va con su nombre («Propina»): no hace falta título de grupo. */}
-                <span className={styles.tileName}>Propina</span>
-                <span className={styles.price}>{formatEur(cents, { compact: true })}</span>
-              </button>
-            ))}
+          {/* «Otro importe», encima de «Cobrar» también con la carta entera (sin propinas: las elige el cliente al pagar). */}
+          <div className={styles.lastRow} style={{ '--n': 2 } as CSSProperties} data-n={1} data-big={big || undefined}>
             <button type="button" className={`${styles.tile} ${styles.tileOther}${big ? ` ${styles.tileBig}` : ''}`} onClick={onOtro}>
               <span className={styles.tileName}>Otro importe</span>
-              <span>{codes.length > 1 && (big || tips.length < 2) ? 'Teclearlo y elegir sección' : 'Teclearlo'}</span>
+              <span>{codes.length > 1 ? 'Teclearlo y elegir sección' : 'Teclearlo'}</span>
             </button>
           </div>
           {roomsElsewhere ? (

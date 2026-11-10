@@ -9,10 +9,7 @@ import { tapOf } from '@/lib/carta-tiles';
 import {
   addedItemLabel,
   addedItemSpoken,
-  addedTipLabel,
-  addedTipSpoken,
   itemTileKey,
-  tipTileKey,
   undoTap,
   UNDO_MS,
   type UndoTap,
@@ -21,8 +18,6 @@ import { arrivedTooLate, cancelTargetOf } from '@/lib/cobro-attempt';
 import { invitationSplit, splitCells, whoLine } from '@/lib/cobro-view';
 import {
   EMPTY_CUENTA,
-  PROPINAS,
-  addAmount,
   addItem,
   chargeLinesOf,
   cobrarYApuntar,
@@ -42,7 +37,7 @@ import { nfcSupported } from '@/lib/nfc';
 import { ActivePayment } from '../ActivePayment';
 import { useCarta } from '../carta';
 import { Carta } from './Carta';
-import { labelOf, type CobrarContext } from './cobrar-context';
+import { customerTipsOn, labelOf, type CobrarContext } from './cobrar-context';
 import { ElegirChica } from './ElegirChica';
 import { EscanearChica, type Invitada } from './EscanearChica';
 import { Esperando, type CobroAbierto } from './Esperando';
@@ -197,16 +192,6 @@ export function CobrarFlow({ user, onCobroDone, onLogout, night, miQrOpen = fals
     setCuenta(next);
   }
 
-  /** Una propina de la carta: el pie dice «+2 € de propina» y el lector, cuánta lleva ya la cuenta. */
-  function tapTip(cents: number) {
-    const next = addAmount(cuenta, PROPINAS, cents);
-    tapped(next, {
-      label: addedTipLabel(cents),
-      spoken: addedTipSpoken(cents, cuentaTotals(next).tipCents),
-      tile: tipTileKey(cents),
-    });
-  }
-
   function undoLast() {
     setCuenta((c) => undoTap(undo, c));
     setUndo(null);
@@ -259,11 +244,12 @@ export function CobrarFlow({ user, onCobroDone, onLogout, night, miQrOpen = fals
     const what = cuentaWhat(c);
     const top = [...sections].sort((a, b) => b.cents - a.cents)[0]?.section ?? 'VENUE_BAR';
     return start({
-      input: { lines: chargeLinesOf(c), tipCents: totals.tipCents },
+      // B1: sin propina al crear; la elige el cliente al pagar.
+      input: { lines: chargeLinesOf(c) },
       fromCuenta: true,
       view: {
         totalCents: totals.totalCents,
-        tipCents: totals.tipCents,
+        tipsOn: customerTipsOn(ctx),
         sections,
         // El título de Esperando, sin mayúsculas (Grafito): «Copas + Comida».
         band: {
@@ -293,6 +279,7 @@ export function CobrarFlow({ user, onCobroDone, onLogout, night, miQrOpen = fals
       fromCuenta: false,
       view: {
         totalCents: invite.priceCents,
+        tipsOn: customerTipsOn(ctx),
         sections: [{ section: invite.category, cents: invite.priceCents }],
         band: { title: 'Invitación', detail: `${chica.name} · ${name}` },
         what: 'Invitación',
@@ -365,12 +352,10 @@ export function CobrarFlow({ user, onCobroDone, onLogout, night, miQrOpen = fals
     setBusy(true);
     setError(null);
     try {
-      const totals = cuentaTotals(cuenta);
       const created = await createCobro({
         lines: chargeLinesOf(cuenta),
         pos: true,
         terminalExternalId: terminals[0]?.externalId,
-        tipCents: totals.tipCents,
       });
       go({ kind: 'pos', payment: created, label: cuentaWhat(cuenta) });
     } catch (err) {
@@ -524,7 +509,6 @@ export function CobrarFlow({ user, onCobroDone, onLogout, night, miQrOpen = fals
             cuenta={cuenta}
             who={who}
             onItem={pickItem}
-            onTip={tapTip}
             onOtro={() => {
               setError(null);
               go({ kind: 'otro' });
