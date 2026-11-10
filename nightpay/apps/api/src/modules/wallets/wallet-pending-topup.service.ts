@@ -10,6 +10,7 @@ import type {
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { PaymentsService } from '../payments/payments.service';
+import { paymentMethodLabel, paymentMethodOf } from '../money-map/cobros-rows';
 import { assertCanTopUp } from '../venues/charge-rights';
 import { assertVenueAcceptsMethods } from '../venues/venue-methods';
 import { WalletChargesService, codeHintOf } from './wallet-charges.service';
@@ -113,6 +114,7 @@ export class PendingTopUpService {
         select: { id: true, balanceCents: true, pendingAssignAt: true, pendingAssignById: true },
       }),
     );
+    const paidWith = await this.paidWith(rows.map((r) => r.id));
     const ids = [...new Set(rows.map((r) => r.pendingAssignById).filter((id): id is string => id !== null))];
     const users =
       ids.length === 0
@@ -127,8 +129,40 @@ export class PendingTopUpService {
         amountCents: r.balanceCents,
         since: (r.pendingAssignAt ?? new Date()).toISOString(),
         byName: u ? (u.displayName?.trim() || u.email.split('@')[0] || null) : null,
+        paidWith: paidWith.get(r.id) ?? null,
       };
     });
+  }
+
+  /**
+   * Cómo pagó cada una (A8): «Tarjeta Visa ••4242», «Apple Pay / Google Pay»
+   * o «Datáfono», como en Cobros del panel. Así se reconoce al cliente en la
+   * lista sin enseñar nada suyo más (ni el saldo ni su enlace).
+   */
+  private async paidWith(walletIds: string[]): Promise<Map<string, string>> {
+    if (walletIds.length === 0) return new Map();
+    const payments = await this.prisma.asSystem((tx) =>
+      tx.payment.findMany({
+        where: { walletId: { in: walletIds }, status: 'AUTHORIZED' },
+        orderBy: { createdAt: 'desc' },
+        select: {
+          walletId: true,
+          captureMethod: true,
+          posOperationNumber: true,
+          authorizedAt: true,
+          cardBrand: true,
+          cardLast4: true,
+          attempts: { select: { status: true, payMethod: true }, orderBy: { createdAt: 'asc' } },
+        },
+      }),
+    );
+    const out = new Map<string, string>();
+    for (const p of payments) {
+      if (!p.walletId || out.has(p.walletId)) continue;
+      const method = paymentMethodOf(p);
+      if (method) out.set(p.walletId, paymentMethodLabel(method, p));
+    }
+    return out;
   }
 
   /**

@@ -42,6 +42,11 @@ export interface PendingTopUpView {
   since: string;
   /** Quién la cobró (null si ya no está). */
   byName: string | null;
+  /**
+   * Cómo pagó el cliente, para reconocerle (A8): «Tarjeta Visa ••4242» (los 4
+   * últimos de su tarjeta) o «Apple Pay / Google Pay». null: no se sabe.
+   */
+  paidWith?: string | null;
 }
 
 /** La recarga ya sumada al saldo del cliente. */

@@ -57,6 +57,7 @@ export function PendingTopUps({ onDone }: { onDone: () => void }) {
       <AssignTopUp
         walletId={picked.walletId}
         amountCents={picked.amountCents}
+        paidWith={picked.paidWith ?? null}
         onAssigned={(out) => {
           setPicked(null);
           setAssigned({ amountCents: out.amountCents, detail: `Saldo ${out.codeHint} · tiene ${formatEur(out.balanceCents)}` });
@@ -80,6 +81,13 @@ export function PendingTopUps({ onDone }: { onDone: () => void }) {
             {new Date(row.since).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Madrid' })}
             {row.byName ? ` · ${row.byName}` : ''}
           </span>
+          {/* Para reconocer al cliente (A8): «Tarjeta Visa ••4242». */}
+          {row.paidWith ? (
+            <>
+              {' '}
+              <span className={r.pendWho}>{row.paidWith}</span>
+            </>
+          ) : null}
         </button>
       ))}
       {error ? (

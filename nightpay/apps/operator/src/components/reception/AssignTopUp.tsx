@@ -14,6 +14,8 @@ interface Props {
   /** El saldo provisional de la recarga pendiente. */
   walletId: string;
   amountCents: number;
+  /** Cómo pagó (A8): «Tarjeta Visa ••4242», para preguntarle al cliente si es la suya. */
+  paidWith?: string | null;
   onAssigned: (out: AssignedTopUp) => void;
   /** Dejarla pendiente (se asigna luego en Recepción o en el panel). */
   onLater: () => void;
@@ -24,7 +26,7 @@ interface Props {
  * su NFC o tecleando su código. Si no se puede ahora, queda pendiente (nunca
  * se pierde: Recepción → Pendientes de asignar, o el panel).
  */
-export function AssignTopUp({ walletId, amountCents, onAssigned, onLater }: Props) {
+export function AssignTopUp({ walletId, amountCents, paidWith = null, onAssigned, onLater }: Props) {
   const nfcOn = useVenueMethods().nfc;
   const { reader, reading, read } = useReadNfc();
   const [code, setCode] = useState('');
@@ -52,6 +54,7 @@ export function AssignTopUp({ walletId, amountCents, onAssigned, onLater }: Prop
     <div className={r.card}>
       <p className={r.kicker}>Recarga pendiente de asignar</p>
       <p className={r.amount}>{formatEur(amountCents)}</p>
+      {paidWith ? <p className={r.text}>Pagó con {paidWith.replace(/^(Tarjeta|Datáfono)/, (w) => w.toLowerCase())}</p> : null}
       <p className={r.lead}>Ahora, su saldo</p>
       <p className={r.text}>Acerca su NFC o teclea su código: la recarga se suma a su saldo.</p>
       {nfcOn ? (
