@@ -22,6 +22,7 @@ import {
 } from '@nightpay/ui';
 import { chargeBreakdownText, confirmationCode, formatMoney } from '@nightpay/contracts';
 import { cancelPayment, type CreatedPayment } from '@/lib/api';
+import styles from './active-payment.module.css';
 
 /** Estados en los que el QR ya no se puede pagar: basta con "Nuevo cobro". */
 export const FINISHED_STATUSES: ReadonlySet<PaymentStatus> = new Set<PaymentStatus>([
@@ -122,10 +123,11 @@ export function ActivePayment({ payment, status, reachable, checkNow, onDone, on
   }
 
   return (
-    <div style={gridStyle}>
+    <div className={styles.grid}>
       <QrCard payment={payment} deadline={isPreCobro(shown) ? deadline : null} now={now} />
 
-      <Card style={{ padding: CARD_PAD, textAlign: 'center' }}>
+      {/* En el móvil, el importe va arriba y «Cancelar cobro» en una barra fija abajo. */}
+      <Card className={styles.amount} style={{ padding: CARD_PAD, textAlign: 'center' }}>
         <p style={sectionLabel}>Importe</p>
         <AmountDisplay amountCents={payment.amountCents} currency={payment.currency} status={shown} />
         {breakdown ? (
@@ -143,7 +145,7 @@ export function ActivePayment({ payment, status, reachable, checkNow, onDone, on
               : 'Sin conexión con el servidor: no sabemos si el cliente pagó. No cobres otra vez hasta que se confirme.'}
           </p>
         ) : null}
-        <div style={actionsStyle}>
+        <div className={styles.actions}>
           {awaiting ? (
             <Button variant="ghost" size="md" onClick={checkNow}>
               Comprobar ahora
@@ -241,13 +243,6 @@ function QrImage({ url, fallbackSrc }: { url: string; fallbackSrc: string }) {
   );
 }
 
-const gridStyle: CSSProperties = {
-  display: 'grid',
-  gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 20rem), 1fr))',
-  gap: 'clamp(1rem, 3vw, 2rem)',
-  alignItems: 'start',
-};
-
 // Relleno de las tarjetas: 16 en el móvil (el importe y «Cancelar cobro» suben), 32 en la tableta.
 const CARD_PAD = 'clamp(1rem, 4vw, 2rem)';
 
@@ -285,14 +280,6 @@ const urlCode: CSSProperties = {
   whiteSpace: 'nowrap',
   height: '3rem',
   minWidth: 0,
-};
-
-const actionsStyle: CSSProperties = {
-  marginTop: '1.5rem',
-  display: 'flex',
-  flexDirection: 'column',
-  alignItems: 'center',
-  gap: '0.75rem',
 };
 
 const awaitStyle: CSSProperties = {

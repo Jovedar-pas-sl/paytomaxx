@@ -156,3 +156,23 @@ describe('CARGADO en un móvil bajo: el QR de Face ID y su línea, sin bajar (PS
     expect(staff).toMatch(/\.np-outcome-btn\[data-variant='secondary'\] \{\s*min-height: 3rem;/);
   });
 });
+
+describe('TPV en el móvil: el importe arriba, el QR debajo y «Cancelar cobro» siempre a la vista', () => {
+  const css = read('../../../tpv/src/components/active-payment.module.css');
+  const tsx = read('../../../tpv/src/components/ActivePayment.tsx');
+  const phone = css.slice(css.indexOf('@media (max-width: 47.99rem)'));
+
+  it('en una columna, la tarjeta del importe va primero y la de las acciones queda fija abajo', () => {
+    expect(phone).toMatch(/\.amount \{\s*order: -1;\s*z-index: 1;/); // si no, la tarjeta del QR tapa la barra
+    expect(phone).toMatch(/\.actions \{\s*position: fixed;[^}]*bottom: 0;/);
+    // El hueco de abajo deja ver entera la tarjeta del QR por encima de la barra.
+    expect(phone).toMatch(/\.grid \{[^}]*padding-bottom: calc\(5rem \+ env\(safe-area-inset-bottom\)\);/);
+  });
+
+  it('el cobro usa esas clases (en la tableta, como estaba: el QR y el importe en dos columnas)', () => {
+    expect(tsx).toContain('<div className={styles.grid}>');
+    expect(tsx).toContain('<Card className={styles.amount}');
+    expect(tsx).toContain('<div className={styles.actions}>');
+    expect(css).toMatch(/\.grid \{\s*display: grid;\s*grid-template-columns: repeat\(auto-fit, minmax\(min\(100%, 20rem\), 1fr\)\);/);
+  });
+});
