@@ -20,6 +20,7 @@ import {
   roughBalanceQuestion,
   deskTarget,
   canChoosePin,
+  canChoosePinAfterLoad,
   fichaGivenNote,
   fichaLookupText,
   fichaText,
@@ -303,6 +304,15 @@ describe('¿Cuánto carga? con el número de la ficha en grande (A1)', () => {
     expect(ask(0)).toBe('¿Ya no le queda nada?');
     // Leída o por su código, no se pregunta.
     expect(entryRow({ view: saldo(), nfc: FICHA }).ask).toBeUndefined();
+  });
+
+  it('B10: recepción pone el PIN a un saldo que ya existía tras recargarlo, solo con su ficha leída', () => {
+    expect(canChoosePin(saldo({ hasPin: false }), 'WAITER')).toBe(false);
+    expect(canChoosePinAfterLoad(saldo({ hasPin: false }), 'WAITER', true)).toBe(true);
+    // Por su código o por su número (sin la ficha delante), no: el encargado.
+    expect(canChoosePinAfterLoad(saldo({ hasPin: false }), 'WAITER', false)).toBe(false);
+    expect(canChoosePinAfterLoad(saldo({ hasPin: false }), 'MANAGER', false)).toBe(true);
+    expect(canChoosePinAfterLoad(NUEVO, 'WAITER', true)).toBe(true);
   });
 
   it('nunca «NFC» en lo que ve el personal', () => {

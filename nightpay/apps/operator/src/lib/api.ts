@@ -730,8 +730,13 @@ export async function fetchWalletById(walletId: string): Promise<WalletLookup> {
 }
 
 /** El cliente elige su PIN en el móvil de la chica (justo tras recargar). */
-export async function setWalletPin(code: string, pin: string): Promise<WalletLookup> {
-  const res = await authedFetch('/v1/wallet-charges/pin', { method: 'POST', body: JSON.stringify({ code, pin }) });
+/**
+ * El cliente elige su PIN en el móvil del personal. Con `card` (B10): la ficha
+ * leída al recargar un saldo que ya existía, para que recepción también pueda.
+ */
+export async function setWalletPin(code: string, pin: string, card?: { card: string; uid: string | null } | null): Promise<WalletLookup> {
+  const ficha = card ? { card: card.card, ...(card.uid ? { uid: card.uid } : {}) } : {};
+  const res = await authedFetch('/v1/wallet-charges/pin', { method: 'POST', body: JSON.stringify({ code, pin, ...ficha }) });
   if (!res.ok) throw new Error(await parseOperatorApiError(res, 'PIN del saldo'));
   return res.json();
 }

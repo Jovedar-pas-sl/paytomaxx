@@ -27,6 +27,7 @@ import {
 import {
   attemptOnStep,
   canChoosePin,
+  canChoosePinAfterLoad,
   CASH_CHECK_DELAY_MS,
   CASH_CHECK_TRIES,
   CASH_UNSURE_LEAVE_TEXT,
@@ -318,7 +319,7 @@ export function ReceptionDesk({ user, active, footer, onGiveFicha, onScanHome }:
     return pinAfterLoad({
       wallet: done.wallet,
       hasFicha: (done.read.nfc !== null && done.linked) || (view?.kind === 'saldo' && view.fichaNumber !== null),
-      canChoose: canChoosePin(view, user.role),
+      canChoose: canChoosePinAfterLoad(view, user.role, done.read.nfc !== null),
       noPinMaxCents: noPinLimitCents(night),
     });
   }
@@ -557,7 +558,7 @@ export function ReceptionDesk({ user, active, footer, onGiveFicha, onScanHome }:
         hint="Pásale el móvil al cliente para que elija su PIN"
         onCancel={() => go({ kind: 'loaded', done: { ...done, seen: true } })}
         onPin={async (pin) => {
-          const next = await staffBackend.setPin(wallet, pin);
+          const next = await staffBackend.setPin(wallet, pin, done.read.nfc);
           go({ kind: 'loaded', done: { ...done, wallet: next, seen: true } });
           return null;
         }}
@@ -911,7 +912,7 @@ export function ReceptionDesk({ user, active, footer, onGiveFicha, onScanHome }:
         top={<LoadedBand word="Cargado" amountCents={done.amountCents} line={line} aviso={wrong} />}
         onCancel={() => go({ kind: 'loaded', done: { ...done, seen: true, pinSkipped: true } })}
         onPin={async (pin) => {
-          const next = await staffBackend.setPin(wallet, pin);
+          const next = await staffBackend.setPin(wallet, pin, done.read.nfc);
           go({ kind: 'loaded', done: { ...done, wallet: next, seen: true } });
           return null;
         }}
@@ -933,7 +934,7 @@ export function ReceptionDesk({ user, active, footer, onGiveFicha, onScanHome }:
         loading={options === null}
         blocked={null}
         buttons={buttons}
-        pinNote={hasPin ? null : pinNote(noPinLimitCents(night), canChoosePin(read.view, user.role))}
+        pinNote={hasPin ? null : pinNote(noPinLimitCents(night), canChoosePinAfterLoad(read.view, user.role, read.nfc !== null))}
         busy={busy}
         onPick={(method) => {
           if (method === 'cash') void run(() => cashChosen(read, amountCents));

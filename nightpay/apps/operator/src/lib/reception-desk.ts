@@ -290,6 +290,16 @@ export function canChoosePin(view: ReceptionDeskView | null, role: string): bool
 }
 
 /**
+ * B10: recepción también pone el PIN a un saldo que ya existía, justo después
+ * de recargarlo y con su ficha leída (no por su código ni por su número): el
+ * servidor lo vuelve a mirar (la ficha es de ese saldo y la recarga es suya,
+ * de hace menos de 15 min). El cliente lo teclea él y, con PIN, no se cambia.
+ */
+export function canChoosePinAfterLoad(view: ReceptionDeskView | null, role: string, fichaRead: boolean): boolean {
+  return canChoosePin(view, role) || (fichaRead && view?.kind === 'saldo');
+}
+
+/**
  * Qué hacer con el PIN al terminar de cargar. Una ficha que pasa del máximo
  * sin PIN no paga en barra y su saldo no se devuelve en la salida: `ask` lo
  * pide ya (con «Ahora no»); `manager` avisa de que lo pone el encargado;

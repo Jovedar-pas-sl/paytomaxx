@@ -74,7 +74,7 @@ import {
   walletCash,
   type PayoutAmounts,
 } from './wallet-cash-limits';
-import { firstTopUp, isFreshTopUpBy, type TopUpBy } from './wallet-fresh-topup';
+import { firstTopUp, isFreshTopUpBy, pinAfterRecharge, type TopUpBy } from './wallet-fresh-topup';
 import { topUpTarget } from './wallet-topup-target';
 import {
   PinRequiredException,
@@ -1863,20 +1863,22 @@ export class WalletChargesService {
    * delante). Después, el encargado (p. ej. lo olvidó) — y entonces él no
    * puede cobrar con ese PIN.
    */
-  async setPin(actor: Actor, input: { code: string; pin: string }): Promise<WalletLookup> {
+  async setPin(actor: Actor, input: { code: string; pin: string; card?: string; uid?: string }): Promise<WalletLookup> {
     const wallet = await this.walletByCode(actor.tenantId, input.code);
     const fresh = await this.freshTopUpBy(wallet.id, actor.userId);
-    if (!fresh && !isManager(actor)) {
+    // B10: un saldo que ya existía, justo después de recargarlo esta persona y con su ficha delante.
+    const afterRecharge = !fresh && input.card ? await pinAfterRecharge(this.prisma, { walletId: wallet.id, userId: actor.userId, card: input.card, uid: input.uid }) : false;
+    if (!fresh && !afterRecharge && !isManager(actor)) {
       throw new UnprocessableEntityException('Este saldo no tiene PIN: que lo elija con el encargado (o en su móvil al recargar)');
     }
-    await this.storeFirstPin(wallet.id, input.pin, fresh ? null : actor.userId);
+    await this.storeFirstPin(wallet.id, input.pin, fresh || afterRecharge ? null : actor.userId);
     await this.audit.log({
       action: 'wallet.pin_set',
       tenantId: actor.tenantId,
       actorId: actor.userId,
       targetType: 'ClientWallet',
       targetId: wallet.id,
-      payload: { where: 'staff-device', role: actor.role, afterTopUp: fresh },
+      payload: { where: 'staff-device', role: actor.role, afterTopUp: fresh, ...(afterRecharge ? { afterRecharge: true } : {}) },
     });
     return this.lookup(actor.tenantId, input.code);
   }

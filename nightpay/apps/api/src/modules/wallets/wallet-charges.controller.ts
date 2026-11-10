@@ -56,6 +56,9 @@ const StepUpSchema = z.object({ totpCode: TotpCode }).optional();
 const PinSchema = z.object({
   code: z.string().trim().min(6).max(10),
   pin: z.string().regex(/^[0-9]{4}$/, 'El PIN son 4 cifras'),
+  /** B10: la ficha leída al recargar un saldo que ya existía (recepción pone su PIN justo después). */
+  card: z.string().regex(/^[A-Za-z0-9_-]{16,64}$/, 'Esta ficha no es nuestra').optional(),
+  uid: z.string().trim().max(64).optional(),
 });
 
 const CardToken = z.string().regex(/^[A-Za-z0-9_-]{16,64}$/, 'Esta ficha no es nuestra');

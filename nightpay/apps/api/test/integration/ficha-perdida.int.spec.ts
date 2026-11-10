@@ -6,6 +6,8 @@
 //    de recepción; la pantalla manda lo que dijo y, si cambió, 409.
 //  - Sin saldo que la cubra, 409 y no se hace nada (ni se gasta su PIN).
 //  - Repetida (se cortó la respuesta), no se cobra dos veces.
+//  - B10: recepción pone el PIN a un saldo que ya existía justo después de
+//    recargarlo y con su ficha; sin la ficha o sin recargarlo, no.
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { randomUUID } from 'node:crypto';
@@ -142,5 +144,45 @@ describe('«Ficha perdida» en recepción (B6)', () => {
     await expect(
       inVenue(V, () => fichas.replaceLost(recepcion(), { walletId: s.walletId, card: nueva.card, uid: nueva.uid, pin: '2468', feeCents: 0 })),
     ).resolves.toMatchObject({ feeCents: 0, balanceCents: 3_000, replacedCards: 1 });
+  });
+});
+
+describe('B10: recepción pone el PIN a un saldo que ya existía, justo después de recargarlo y con su ficha', () => {
+  /** Un saldo sin PIN, con su ficha, cargado hace tiempo por otra persona (no es «recién recargado»). */
+  async function saldoViejo(n: string) {
+    const ficha = await stockedCard(`${n}${digits}3`.slice(0, 12));
+    const out = await inVenue(V, () =>
+      cash.topUp(V, { userId: rocio, role: 'WAITER' }, { amountCents: 2_000, idempotencyKey: key(), wallet: { create: true, card: ficha.card, uid: ficha.uid } }),
+    );
+    // La primera recarga, de hace una hora: la ventana de los 15 min de la primera ya pasó.
+    await sys((tx) => tx.walletCashTopUp.updateMany({ where: { walletId: out.walletId }, data: { createdAt: new Date(Date.now() - 60 * 60_000) } }));
+    return { ...ficha, walletId: out.walletId, code: out.code };
+  }
+  const recarga = (s: { card: string; uid: string }) =>
+    inVenue(V, () => cash.topUp(V, { userId: rocio, role: 'WAITER' }, { amountCents: 1_000, idempotencyKey: key(), wallet: { card: s.card, uid: s.uid } }));
+  const pinHash = (walletId: string) => sys((tx) => tx.clientWallet.findUniqueOrThrow({ where: { id: walletId }, select: { pinHash: true, pinSetById: true } }));
+
+  it('tras recargarlo y con su ficha: lo elige el cliente (no queda a nombre de quien carga)', async () => {
+    const s = await saldoViejo('61');
+    // Sin recargarlo ahora, no (lo pone el encargado).
+    await expect(inVenue(V, () => charges.setPin({ userId: rocio, role: 'WAITER', tenantId: V }, { code: s.code, pin: '4826', card: s.card, uid: s.uid }))).rejects.toMatchObject({ status: 422 });
+    await recarga(s);
+    await inVenue(V, () => charges.setPin({ userId: rocio, role: 'WAITER', tenantId: V }, { code: s.code, pin: '4826', card: s.card, uid: s.uid }));
+    const row = await pinHash(s.walletId);
+    expect(row.pinHash).not.toBeNull();
+    expect(row.pinSetById).toBeNull();
+    // Con PIN, no se cambia.
+    await expect(inVenue(V, () => charges.setPin({ userId: rocio, role: 'WAITER', tenantId: V }, { code: s.code, pin: '7351', card: s.card, uid: s.uid }))).rejects.toMatchObject({ status: 409 });
+  });
+
+  it('sin su ficha (solo el código) u otra ficha: no', async () => {
+    const s = await saldoViejo('62');
+    await recarga(s);
+    await expect(inVenue(V, () => charges.setPin({ userId: rocio, role: 'WAITER', tenantId: V }, { code: s.code, pin: '4826' }))).rejects.toMatchObject({ status: 422 });
+    const otra = await stockedCard(`63${digits}3`.slice(0, 12));
+    await expect(
+      inVenue(V, () => charges.setPin({ userId: rocio, role: 'WAITER', tenantId: V }, { code: s.code, pin: '4826', card: otra.card, uid: otra.uid })),
+    ).rejects.toMatchObject({ status: 422 });
+    expect((await pinHash(s.walletId)).pinHash).toBeNull();
   });
 });
