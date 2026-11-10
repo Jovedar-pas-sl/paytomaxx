@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { fichaDigits, fichaShort, followsPrevious, photoHint, wrongFichaText } from './ficha-number';
+import { fichaDigits, fichaShort, followsPrevious, notFollowingText, photoHint, wrongFichaText } from './ficha-number';
 
 const plain = (printed: string) =>
   fichaDigits(printed)
@@ -66,6 +66,11 @@ describe('preparar fichas: ¿sigue a la anterior? (A12)', () => {
   it('sin anterior, o con lo que no son cifras: no se avisa', () => {
     expect(followsPrevious(null, '00001013')).toBeNull();
     expect(followsPrevious('00001012', '')).toBeNull();
+  });
+  it('el aviso: cuál debería ser, para compararlo con la ficha', () => {
+    expect(notFollowingText('00001012', '00001015')).toBe('La anterior era la 1012: esta debería ser la 1013. Compruébalo con la ficha.');
+    expect(notFollowingText('00001012', '00001013')).toBeNull();
+    expect(notFollowingText(null, '00001013')).toBeNull();
   });
   it('números largos sin perder cifras', () => {
     expect(followsPrevious('999999999999', '1000000000000')).toBeNull();

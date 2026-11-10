@@ -66,6 +66,18 @@ export function followsPrevious(previous: string | null | undefined, typed: stri
   return Number(next) === Number(prev) + 1;
 }
 
+/**
+ * «Preparar fichas» (A12): el aviso si el número tecleado no sigue al de la
+ * anterior (una cifra mal tecleada). Solo avisa: se puede guardar igual (la
+ * pila puede no ir seguida). null: sigue, o no hay con qué comparar.
+ */
+export function notFollowingText(previous: string | null | undefined, typed: string): string | null {
+  if (followsPrevious(previous, typed) !== false) return null;
+  const prev = fichaShort(previous);
+  const next = String(Number(prev) + 1);
+  return `La anterior era la ${prev}: esta debería ser la ${next}. Compruébalo con la ficha.`;
+}
+
 /** CARGADO (A11): lo que el cliente puede fotografiar para no perder su saldo. */
 export function photoHint(has: { ficha: boolean; code: boolean }): string | null {
   if (has.ficha && has.code) return 'Haz una foto a tu ficha o a tu código';

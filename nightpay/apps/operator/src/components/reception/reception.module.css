@@ -161,3 +161,23 @@
   font-weight: 600;
   text-align: center;
 }
+
+/* «Preparar fichas» (A12): el número tecleado, en grande y en grupos de 4
+   como en la ficha (las cifras de FichaNumber). */
+.typedFicha {
+  font-size: 2.25rem;
+  text-align: center;
+}
+
+/* Si no sigue a la anterior: el aviso en ámbar (se puede guardar igual). */
+.followWarn {
+  margin: 0;
+  padding: 0.625rem 0.875rem;
+  border: 1px solid var(--np-warning);
+  border-radius: var(--np-r-sm);
+  background: var(--np-pill-warning-bg);
+  color: var(--np-text);
+  font-size: 0.9375rem;
+  font-weight: 600;
+  line-height: 1.35;
+}
