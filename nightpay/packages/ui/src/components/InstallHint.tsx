@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState, type CSSProperties } from 'react';
 import { Button } from './Button';
-import { installPlatform, installSnoozed, snoozeInstall, type InstallPlatform } from '../lib/install';
+import { installHintOffered, installPlatform, isAppleMobile, installSnoozed, snoozeInstall, type InstallPlatform } from '../lib/install';
 
 interface PromptEvent extends Event {
   prompt: () => Promise<void>;
@@ -43,16 +43,19 @@ function listenOnce(): void {
 /**
  * Qué se puede hacer para instalar en este móvil y el botón de Android.
  * `platform` es null hasta que se sabe (en el servidor no se pinta nada).
+ * `apple`: es un iPhone o un iPad (también con la app ya instalada).
  */
-export function useInstall(): { platform: InstallPlatform | null; install: () => Promise<boolean> } {
+export function useInstall(): { platform: InstallPlatform | null; apple: boolean; install: () => Promise<boolean> } {
   const [platform, setPlatform] = useState<InstallPlatform | null>(null);
+  const [apple, setApple] = useState(false);
 
   useEffect(() => {
     listenOnce();
-    const update = () =>
-      setPlatform(
-        installPlatform({ userAgent: navigator.userAgent, standalone: installedNow || isStandalone(), hasPrompt: deferred !== null }),
-      );
+    const update = () => {
+      const env = { userAgent: navigator.userAgent, maxTouchPoints: navigator.maxTouchPoints ?? 0 };
+      setApple(isAppleMobile(env));
+      setPlatform(installPlatform({ ...env, standalone: installedNow || isStandalone(), hasPrompt: deferred !== null }));
+    };
     update();
     subscribers.add(update);
     return () => {
@@ -72,7 +75,7 @@ export function useInstall(): { platform: InstallPlatform | null; install: () =>
     return choice?.outcome === 'accepted';
   }, []);
 
-  return { platform, install };
+  return { platform, apple, install };
 }
 
 /** Los pasos del iPhone, con el icono de Compartir dibujado. */
@@ -93,9 +96,11 @@ export function IosInstallSteps() {
 /**
  * El aviso de instalar, para la pantalla de entrar (fuera del cobro: no
  * estorba). Se puede apartar («Ahora no») y no vuelve en 30 días; ya
- * instalada, o donde no se puede, no sale.
+ * instalada, o donde no se puede, no sale. `ios={false}`: en el iPhone y el
+ * iPad no se ofrece (la app del personal: instalada, guarda sus datos aparte
+ * de Safari y el cobro con ficha pasa por Safari).
  */
-export function InstallHint({ appName = 'OxioPay', style }: { appName?: string; style?: CSSProperties }) {
+export function InstallHint({ appName = 'OxioPay', style, ios = true }: { appName?: string; style?: CSSProperties; ios?: boolean }) {
   const { platform, install } = useInstall();
   const [hidden, setHidden] = useState(true);
 
@@ -103,7 +108,7 @@ export function InstallHint({ appName = 'OxioPay', style }: { appName?: string; 
     setHidden(installSnoozed(Date.now()));
   }, []);
 
-  if (hidden || (platform !== 'prompt' && platform !== 'ios')) return null;
+  if (hidden || !installHintOffered(platform, ios)) return null;
 
   const later = () => {
     snoozeInstall(Date.now());
