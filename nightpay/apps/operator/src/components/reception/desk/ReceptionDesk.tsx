@@ -727,9 +727,16 @@ export function ReceptionDesk({ user, active, footer }: Props) {
     const pinText = pin === 'ask' || pin === 'manager' ? pinAfterLoadText(pin, noPinLimitCents(night)) : null;
     const askPin = { label: 'Que elija su PIN', onClick: () => go({ kind: 'pin', done }) };
     const next = { label: 'Siguiente cliente', onClick: () => restart('entrada') };
-    const meta = done.read.number ? `Devuélvele su ficha · ${fichaText(done.read.number.printedNumber)}` : handOverLine(done.read.view, done.linked);
+    const reference = done.reference ?? done.wallet?.code ?? null;
     // Qué hacer ahora, en orden: el efectivo a la caja, la ficha y, si pasa del tope, su PIN.
-    const help = loadedHelp({ method: done.method, handOver: handOverOf({ view, linked: done.linked, byNumber: Boolean(done.read.number) }), pin });
+    const handOver = handOverOf({ view, linked: done.linked, byNumber: Boolean(done.read.number), hasCode: reference !== null });
+    // Sin ficha ni código en pantalla, no hay nada que apuntar (el aviso manda al encargado).
+    const meta = done.read.number
+      ? `Devuélvele su ficha · ${fichaText(done.read.number.printedNumber)}`
+      : handOver === 'manager'
+        ? 'Sin ficha ni código: con el encargado'
+        : handOverLine(done.read.view, done.linked);
+    const help = loadedHelp({ method: done.method, handOver, pin });
     // Pagó en efectivo aquí: su enlace privado no le llega; con este QR activa Face ID en su móvil.
     // Si hace falta el PIN, primero eso: el QR solo si prefiere pagar con el móvil (si no, deja el botón fuera de la pantalla).
     const activation =
@@ -740,7 +747,7 @@ export function ReceptionDesk({ user, active, footer }: Props) {
       <DeskLoaded
         word="CARGADO"
         amountCents={done.amountCents}
-        reference={done.reference ?? done.wallet?.code ?? null}
+        reference={reference}
         money={{ icon: done.method, ...money }}
         meta={meta}
         warn={done.warn}
