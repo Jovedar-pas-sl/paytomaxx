@@ -79,6 +79,8 @@ interface HeadProps {
   onBack?: () => void;
   /** El chip de la derecha: la sección de recepción (Entradas) o «Recarga» a trazos. */
   chip: { section: string; label: string };
+  /** Sin el menú del logo (el símbolo, quieto): mientras no se sabe si se cargó, no se sale por ahí. */
+  noMenu?: boolean;
 }
 
 /**
@@ -87,8 +89,9 @@ interface HeadProps {
  * hay franja de color debajo). Es la única de Recepción: el símbolo abre el
  * menú («Salir»), como en «Cobrar».
  */
-export function DeskHead({ title, sub, onBack, chip }: HeadProps) {
-  const openMenu = useStaffMenu();
+export function DeskHead({ title, sub, onBack, chip, noMenu = false }: HeadProps) {
+  const menu = useStaffMenu();
+  const openMenu = noMenu ? null : menu;
   return (
     <div className={s.head}>
       {onBack ? (

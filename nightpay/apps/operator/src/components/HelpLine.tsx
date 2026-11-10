@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useId, useSyncExternalStore, type ReactNode } from 'react';
+import { useCallback, useId, useSyncExternalStore, type CSSProperties, type ReactNode } from 'react';
 import { browserHelpStorage, createHelpStore } from '../lib/help-line';
 import styles from './help-line.module.css';
 
@@ -66,10 +66,10 @@ export function useHelp(screen: string): Help {
 const cx = (...names: Array<string | undefined>) => names.filter(Boolean).join(' ');
 
 /** La línea (14-16 px, en t2) con «Entendido» al final. Cerrada, nada. */
-export function HelpLine({ help, children, className }: { help: Help; children: ReactNode; className?: string }) {
+export function HelpLine({ help, children, className, style }: { help: Help; children: ReactNode; className?: string; style?: CSSProperties }) {
   if (help.hidden) return null;
   return (
-    <p className={cx(styles.line, className)}>
+    <p className={cx(styles.line, className)} style={style}>
       {children}{' '}
       <button id={help.okId} type="button" className={styles.ok} onClick={help.hide} aria-label="Entendido, ocultar la ayuda">
         Entendido

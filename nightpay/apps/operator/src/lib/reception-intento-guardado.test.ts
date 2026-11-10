@@ -28,8 +28,8 @@ function memoryStorage(): AttemptStorage & { data: Map<string, string> } {
   };
 }
 
-const CASH = '5000|cash|nuevo:ficha:tok-1';
-const CARD = '5000|card|nuevo:ficha:tok-1';
+const CASH = '5000|cash|ficha:tok-1';
+const CARD = '5000|card|ficha:tok-1';
 
 describe('la recarga en efectivo a medias, en la pestaña', () => {
   it('tras un fallo y volver a entrar, la misma recarga va con la misma clave (no se carga dos veces)', () => {
@@ -44,7 +44,7 @@ describe('la recarga en efectivo a medias, en la pestaña', () => {
     expect(after.current?.key).toBe(key);
     expect(receptionAttempt(after.current, CASH).key).toBe(key);
     // Otra recarga (otro importe) ya no reutiliza la clave.
-    expect(receptionAttempt(after.current, '2000|cash|nuevo:ficha:tok-1').key).not.toBe(key);
+    expect(receptionAttempt(after.current, '2000|cash|ficha:tok-1').key).not.toBe(key);
   });
 
   it('al terminar (o al pasar al siguiente cliente) se borra', () => {

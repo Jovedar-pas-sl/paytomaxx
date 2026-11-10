@@ -5,6 +5,7 @@ import { Card, Logo, InstallHint } from '@nightpay/ui';
 import { LoginForm } from '@/components/LoginForm';
 import { Dashboard } from '@/components/Dashboard';
 import { ReloginSheet } from '@/components/ReloginSheet';
+import { SafariNotice } from '@/components/SafariNotice';
 import { SessionExpiredContext } from '@/components/session-context';
 import { WALLET_CARD_PARAM, WALLET_PASS_PARAM } from '@nightpay/contracts';
 import { getUser, hasSession, apiBase, logout, onProfileUpdated, onSessionEnded, type OperatorUser } from '@/lib/api';
@@ -179,8 +180,10 @@ function LoginScreen({
       <p style={{ margin: 0, maxWidth: '24rem', textAlign: 'center', fontSize: '0.875rem', color: 'var(--np-text-mute)' }}>
         ¿No puedes entrar? Pide al encargado una contraseña nueva.
       </p>
-      {/* Fuera del cobro: el aviso de instalar como app (no sale si ya lo está). */}
-      <InstallHint style={{ width: '100%', maxWidth: '24rem' }} />
+      {/* Fuera del cobro: el aviso de instalar como app, solo en Android (no sale si ya lo está). */}
+      <InstallHint ios={false} style={{ width: '100%', maxWidth: '24rem' }} />
+      {/* Ya instalada en un iPhone o un iPad: la ficha y la cámara, en Safari. */}
+      <SafariNotice style={{ maxWidth: '24rem', textAlign: 'center' }} />
     </main>
   );
 }

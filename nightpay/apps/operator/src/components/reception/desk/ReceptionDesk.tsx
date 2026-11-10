@@ -682,12 +682,15 @@ export function ReceptionDesk({ user, active, footer }: Props) {
     </div>
   );
 
-  /** Efectivo sin respuesta: se comprueba antes de pasar al siguiente cliente (sin flecha atrás). */
+  /**
+   * Efectivo sin respuesta: se comprueba antes de pasar al siguiente cliente
+   * (sin flecha atrás ni el menú del logo: se sale solo por «Salir sin saberlo»).
+   */
   function renderCashUnsure(st: Extract<Step, { kind: 'cashUnsure' }>) {
     const { read, amountCents, checking, leaveArmed } = st;
     return (
       <div className={s.screen}>
-        {head()}
+        <DeskHead title="Recepción" sub={name} chip={chip} noMenu />
         {/* Ni «sin saldo» ni lo que le quedaba: puede que ya esté cargado. */}
         <DeskRowView {...cashUnsureRow(read, amountCents, checking)} />
         {checking ? (
