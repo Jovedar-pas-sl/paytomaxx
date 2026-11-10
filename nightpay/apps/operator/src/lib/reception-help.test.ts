@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { ReceptionDeskView } from '@nightpay/contracts';
-import { AMOUNT_HELP, METHOD_HELP, RECEPTION_HELP_SCREENS, handOverOf, loadedHelp, tapHelp } from './reception-help';
+import { AMOUNT_HELP, METHOD_HELP, RECEPTION_HELP_SCREENS, cashInHandText, handOverOf, loadedHelp, tapHelp, turnPhoneText } from './reception-help';
 
 const NEW = { kind: 'new' } as unknown as ReceptionDeskView;
 const SALDO_FICHA = { kind: 'saldo', fichaNumber: 'F1', code: 'K7Q-4M2' } as unknown as ReceptionDeskView;
@@ -23,6 +23,18 @@ describe('la ayuda de cada paso de Recepción', () => {
       expect(text).not.toMatch(/[!¡]/);
       expect(text.length).toBeLessThanOrEqual(90);
     }
+  });
+
+  it('«¿Cómo paga?»: cobrar primero; el efectivo, cuando ya está en la mano (A2)', () => {
+    expect(METHOD_HELP).toBe('Cobra primero y toca cómo te ha pagado.');
+    expect(cashInHandText(5_000).split(String.fromCharCode(160)).join(' ')).toBe('Ya tengo los 50 € en la mano');
+    // Con la comisión del servicio, lo que paga el cliente.
+    expect(cashInHandText(5_600).split(String.fromCharCode(160)).join(' ')).toBe('Ya tengo los 56 € en la mano');
+  });
+
+  it('la pantalla del cobro, girada hacia el cliente (A5)', () => {
+    expect(turnPhoneText(true)).toBe('Gira el móvil: que vea el importe y su ficha');
+    expect(turnPhoneText(false)).toBe('Gira el móvil: que vea el importe');
   });
 });
 

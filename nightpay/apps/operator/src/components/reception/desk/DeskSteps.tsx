@@ -5,7 +5,7 @@ import { AmountKeypad, Input } from '@nightpay/ui';
 import { MAX_TYPED_AMOUNT_CENTS } from '@nightpay/contracts';
 import { formatEur } from '@/lib/money';
 import { methodArmed, type EntryRow, type MethodButton, type ExitPlan } from '@/lib/reception-desk';
-import { AMOUNT_HELP, METHOD_HELP, RECEPTION_HELP_SCREENS, tapHelp } from '@/lib/reception-help';
+import { AMOUNT_HELP, METHOD_HELP, RECEPTION_HELP_SCREENS, cashInHandText, tapHelp, turnPhoneText } from '@/lib/reception-help';
 import { HelpAgain, HelpLine, useHelp } from '../../HelpLine';
 import { CodeBoxes, DESK_FIELD, DeskBtn, DeskRowView, FichaNumber, Icon, NfcMark } from './desk-parts';
 import s from './desk.module.css';
@@ -138,10 +138,12 @@ export function KeypadStep({ onDone }: { onDone: (cents: number) => void }) {
   );
 }
 
-const METHOD_TEXT = {
-  cash: { icon: 'cash', label: 'Efectivo', small: 'Lo metes en la caja' },
-  card: { icon: 'card', label: 'Tarjeta', small: 'Paga con el QR en su móvil' },
-} as const;
+/** Los dos botones de «¿Cómo paga?»: el de efectivo dice que el dinero ya está en la mano (A2). */
+function methodText(method: 'cash' | 'card', chargeCents: number) {
+  return method === 'cash'
+    ? { icon: 'cash' as const, label: 'Efectivo', small: cashInHandText(chargeCents) }
+    : { icon: 'card' as const, label: 'Tarjeta', small: 'Paga con el QR en su móvil' };
+}
 
 /**
  * 4.3: el importe y la ficha en grande (A1), «¿Cómo paga?» en dos filas
@@ -152,6 +154,8 @@ export function MethodStep(props: {
   amountCents: number;
   /** El número impreso de la ficha, en grande debajo del importe (null: sin ficha o sin número). */
   ficha?: string | null;
+  /** Lo que paga el cliente (el saldo + la comisión del servicio): «Ya tengo los 56 € en la mano». */
+  chargeCents: number;
   /** Con la «Comisión del servicio»: «Cobra 56 € (50 € de saldo + 6 € de comisión del servicio)». */
   feeText?: string | null;
   buttons: MethodButton[];
@@ -184,6 +188,11 @@ export function MethodStep(props: {
               <FichaNumber printed={props.ficha} className={s.cobroFicha} />
             </>
           ) : null}
+          {/* Se enseña al cliente (A5): el importe y su ficha, antes de cobrar. */}
+          <p className={s.turn}>
+            <Icon name="phone" />
+            {turnPhoneText(Boolean(props.ficha))}
+          </p>
         </div>
         <StepQuestion text="¿Cómo paga?" screen={RECEPTION_HELP_SCREENS.method} help={METHOD_HELP} />
       </div>
@@ -194,7 +203,7 @@ export function MethodStep(props: {
         </p>
       ) : null}
       {props.buttons.map((b) => {
-        const t = METHOD_TEXT[b.method];
+        const t = methodText(b.method, props.chargeCents);
         return (
           <DeskBtn
             key={b.method}

@@ -3,6 +3,7 @@
 // con «Entendido» (help-line.ts). Funciones puras: se prueban sin pantalla.
 
 import type { ReceptionDeskView } from '@nightpay/contracts';
+import { formatEur } from './money';
 import type { PinAfterLoad } from './reception-desk';
 
 /** Las claves de cada pantalla (una por paso: cerrar una no cierra las otras). */
@@ -23,8 +24,28 @@ export function tapHelp(mode: 'entrada' | 'salida'): string {
 /** «¿Cuánto carga?». */
 export const AMOUNT_HELP = 'Toca lo que quiere cargar. Si no está, «Otro» y lo tecleas.';
 
-/** «¿Cómo paga?» (cada botón ya dice qué pasa con el dinero: aquí, solo qué hacer). */
-export const METHOD_HELP = 'Toca cómo te paga: la ficha se carga en cuanto está cobrado.';
+/**
+ * «¿Cómo paga?» (A2): primero el dinero y después el botón; el de efectivo
+ * carga en cuanto se toca, así que no se toca antes de tenerlo.
+ */
+export const METHOD_HELP = 'Cobra primero y toca cómo te ha pagado.';
+
+/**
+ * Debajo de «Efectivo» (A2): «Ya tengo los 56 € en la mano» (lo que paga el
+ * cliente, con la comisión del servicio si la hay). Antes decía «Lo metes en
+ * la caja», una orden para después: se tocaba sin tener el dinero.
+ */
+export function cashInHandText(chargeCents: number): string {
+  return `Ya tengo los ${formatEur(chargeCents, { compact: true })} en la mano`;
+}
+
+/**
+ * «¿Cómo paga?» se enseña al cliente (A5): lo que va a pagar y su ficha, en
+ * grande, antes de cobrar.
+ */
+export function turnPhoneText(hasFicha: boolean): string {
+  return hasFicha ? 'Gira el móvil: que vea el importe y su ficha' : 'Gira el móvil: que vea el importe';
+}
 
 /** Qué se hace con la ficha en CARGADO (lo mismo que dice handOverLine, como orden). */
 export type HandOver = 'give' | 'return' | 'code' | 'none';

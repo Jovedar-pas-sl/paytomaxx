@@ -772,6 +772,7 @@ export function ReceptionDesk({ user, active, footer }: Props) {
         chip={read.number ? 'Recarga' : rechargeChip(read.view)}
         amountCents={amountCents}
         ficha={readFicha(read)}
+        chargeCents={topUpCharge(options, amountCents).totalCents}
         feeText={topUpCharge(options, amountCents).feeCents > 0 ? topUpCharge(options, amountCents).text : null}
         loading={options === null}
         blocked={null}
