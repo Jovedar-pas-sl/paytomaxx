@@ -493,7 +493,7 @@ export interface ExitPlan {
   refundBlocked: string | null;
   /** Lo que no sale en efectivo (lo entró con tarjeta…), dicho antes. */
   note: string | null;
-  /** Debajo de «Guardar para la próxima»: «No caduca · se lleva su NFC» (sin NFC: «que guarde su código»). */
+  /** Debajo de «Guardar para la próxima»: «Para otra noche · se lleva su ficha» (sin ficha: «que guarde su código»). Sin caducidad: no está decidida. */
   keepDetail: string;
 }
 
