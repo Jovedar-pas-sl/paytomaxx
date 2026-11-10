@@ -10,6 +10,7 @@ import s from './desk/desk.module.css';
 import { ReceptionDesk } from './desk/ReceptionDesk';
 import { CashVoids } from './CashVoids';
 import { GiveFicha } from './GiveFicha';
+import { LostFicha } from './LostFicha';
 import { PendingTopUps } from './PendingTopUps';
 import { PrepareFichas } from './PrepareFichas';
 import { qrScanSupported } from '../QrScanner';
@@ -32,7 +33,7 @@ interface Props {
 export function ReceptionTab({ user, active, onOwnHeader }: Props) {
   const methods = useVenueMethods();
   const reader = useChipReader();
-  const [view, setView] = useState<'desk' | 'prepare' | 'pending' | 'ficha' | 'voids'>('desk');
+  const [view, setView] = useState<'desk' | 'prepare' | 'pending' | 'ficha' | 'voids' | 'lost'>('desk');
   // «Darle una» desde un saldo sin ficha (A7): su código, ya escrito en «Dar ficha a un saldo».
   const [fichaCode, setFichaCode] = useState<string | undefined>(undefined);
   // B5: «Escanear su QR (cargó en casa)» desde la primera pantalla: la cámara ya puesta.
@@ -69,6 +70,8 @@ export function ReceptionTab({ user, active, onOwnHeader }: Props) {
   if (view === 'pending') return inner(<PendingTopUps onDone={() => setView('desk')} />);
   // B4: pasados los 2 minutos del «Me he equivocado», el encargado o el dueño, desde su móvil.
   if (view === 'voids') return inner(<CashVoids onDone={() => setView('desk')} />);
+  // B6: ficha nueva para quien perdió la suya, con su QR o su PIN; se cobra del saldo.
+  if (view === 'lost') return inner(<LostFicha user={user} onDone={() => setView('desk')} />);
   // El saldo cargado desde casa (o cualquiera sin ficha): su ficha, con su QR o su código y su PIN.
   if (view === 'ficha') {
     return inner(
@@ -100,6 +103,11 @@ export function ReceptionTab({ user, active, onOwnHeader }: Props) {
       {methods.nfc ? (
         <button type="button" className={s.moreBtn} onClick={() => setView('ficha')}>
           Dar ficha a un saldo
+        </button>
+      ) : null}
+      {methods.nfc ? (
+        <button type="button" className={s.moreBtn} onClick={() => setView('lost')}>
+          Ficha perdida
         </button>
       ) : null}
       {user.role === 'MANAGER' || user.role === 'OWNER' ? (

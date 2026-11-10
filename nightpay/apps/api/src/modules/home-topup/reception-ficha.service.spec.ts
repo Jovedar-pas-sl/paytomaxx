@@ -75,7 +75,7 @@ function make(o: { wallet?: Record<string, unknown> | null; issued?: boolean; ha
   };
   const audit = { log: vi.fn(async () => undefined) };
   const config = { get: vi.fn(() => SECRET) };
-  const service = new ReceptionFichaService(prisma as never, charges as never, audit as never, config as never);
+  const service = new ReceptionFichaService(prisma as never, charges as never, audit as never, config as never, {} as never);
   return { service, tx, charges, audit };
 }
 

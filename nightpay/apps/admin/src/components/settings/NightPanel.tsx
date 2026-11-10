@@ -127,6 +127,13 @@ export function NightPanel() {
           onChange={(e) => update({ payoutNightCapEur: e.target.value })}
           hint="Lo que cada persona de recepción devuelve en efectivo con el NFC y el PIN del cliente en una noche (de 08:00 a 08:00). Al pasarlo, cada salida la confirma el encargado con su 2FA y te llega un aviso. 0 = siempre el encargado."
         />
+        <Input
+          label="Ficha nueva por perdida (€)"
+          inputMode="decimal"
+          value={current.lostFichaFeeEur}
+          onChange={(e) => update({ lostFichaFeeEur: e.target.value })}
+          hint="Si el cliente pierde su ficha, en recepción le dan otra y se descuenta esto de su saldo (la pantalla lo dice antes). Si no le llega el saldo, no se hace. 0 = gratis."
+        />
       </SettingsCard>
 
       <SettingsCard title="Al cobrar" hint="El aviso del resultado (pagado o no) en las apps del personal. Por si en algún local molestan.">

@@ -82,6 +82,16 @@ export class FichaNumbersService {
     };
   }
 
+  /**
+   * «Ficha perdida» (B6) por el número de la ficha perdida: el saldo vivo que
+   * tiene. Solo sirve junto con el PIN del cliente (lo comprueba quien llama).
+   */
+  async walletIdByNumber(venueId: string, printedNumber: string): Promise<string> {
+    const found = await this.find(venueId, printedNumber);
+    if (!found.wallet) throw new ConflictException('Esa ficha no tiene saldo: no hay nada que pasar a otra');
+    return found.wallet.id;
+  }
+
   /** Solo quien carga saldos (recepción, el encargado o el dueño), con las fichas NFC encendidas. */
   private async assertReception(actor: Actor): Promise<void> {
     await this.prisma.asSystem(async (tx) => {

@@ -63,7 +63,7 @@ const settings = new HomeTopUpSettingsService(prisma, audit as never, homeTopUps
 const passkeys = { hasPasskey: vi.fn(async () => false), assertOwner: vi.fn(async () => undefined) };
 const selfTopUps = new WalletTopUpService(prisma as never, passkeys as never, redis as never, config as never, { get: () => payments } as never);
 const charges = new WalletChargesService(prisma, audit as never, { get: () => null } as never, {} as never);
-const fichas = new ReceptionFichaService(prisma, charges, audit as never, config as never);
+const fichas = new ReceptionFichaService(prisma, charges, audit as never, config as never, {} as never);
 const period = new PeriodReportsService(prisma as never);
 const cobros = new CobrosService(prisma);
 const reports = new ReportsService(prisma);

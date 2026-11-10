@@ -125,5 +125,47 @@ export interface GivenFicha {
   via: GiveFichaVia;
 }
 
+/**
+ * «Ficha perdida» en recepción (estudio de fichas, B6): una ficha nueva para
+ * un saldo que ya tenía una, con una prueba (su QR, o su código y su PIN, o el
+ * número de su ficha y su PIN; el encargado, sin prueba). La vieja deja de
+ * pagar en la misma operación y la nueva se cobra del saldo (Ajustes → Noche,
+ * `lostFichaFeeCents`): la pantalla dice cuánto antes de confirmar y manda lo
+ * que dijo (si ha cambiado, 409 LOST_FICHA_FEE_CHANGED). Sin saldo que la
+ * cubra, 409 LOST_FICHA_NO_BALANCE y no se hace nada.
+ */
+export const ReplaceLostFichaSchema = z
+  .object({
+    /** El saldo (por su QR o su código); o, si no, el número impreso de la ficha perdida. */
+    walletId: UuidSchema.optional(),
+    printedNumber: z.string().regex(/^[0-9]{1,12}$/, 'Escribe entre 1 y 12 cifras del número impreso').optional(),
+    /** La ficha nueva, acercada. */
+    card: z.string().regex(/^[A-Za-z0-9_-]{16,64}$/, 'Esta ficha no es nuestra'),
+    uid: z.string().trim().max(64).optional(),
+    proof: z.string().regex(FICHA_QR_PROOF_RE, 'Ese QR no es el de un saldo').optional(),
+    pin: z.string().regex(/^[0-9]{4}$/, 'El PIN son 4 cifras').optional(),
+    /** Lo que costaba la ficha nueva en la pantalla. */
+    feeCents: z.number().int().nonnegative().max(50_00),
+  })
+  .strict()
+  .refine((d) => (d.walletId === undefined) !== (d.printedNumber === undefined), { message: 'Busca el saldo por su QR, su código o el número de su ficha' });
+export type ReplaceLostFichaDto = z.infer<typeof ReplaceLostFichaSchema>;
+
+export interface ReplacedFicha {
+  /** Lo que le queda tras pagar la ficha nueva. */
+  balanceCents: number;
+  /** Lo que se cobró por la ficha nueva. */
+  feeCents: number;
+  /** La ficha nueva. */
+  fichaNumber: number | null;
+  printedNumber?: string | null;
+  /** Las fichas que dejaron de pagar (la perdida). */
+  replacedCards: number;
+  via: GiveFichaVia;
+}
+
+export const LOST_FICHA_NO_BALANCE_CODE = 'LOST_FICHA_NO_BALANCE';
+export const LOST_FICHA_FEE_CHANGED_CODE = 'LOST_FICHA_FEE_CHANGED';
+
 /** El 422 cuando falta la prueba (ni QR ni PIN): la app pide una de las dos. */
 export const FICHA_PROOF_REQUIRED_CODE = 'FICHA_PROOF_REQUIRED';

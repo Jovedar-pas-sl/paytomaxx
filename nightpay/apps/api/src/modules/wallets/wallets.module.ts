@@ -99,6 +99,6 @@ import { WalletWelcomeService } from '../home-topup/wallet-welcome.service';
   ],
   // GoogleWalletService: lo usa el repaso de la cola google-wallet-sync (QueuesModule).
   // CashTopUpService y WalletCardsService: la recepción del datáfono (PosDeviceModule).
-  exports: [WalletsService, WalletChargesService, WalletPasskeysService, GoogleWalletService, CashTopUpService, WalletCardsService],
+  exports: [WalletsService, WalletChargesService, WalletPasskeysService, GoogleWalletService, CashTopUpService, WalletCardsService, FichaNumbersService],
 })
 export class WalletsModule {}

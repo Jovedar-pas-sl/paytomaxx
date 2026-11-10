@@ -16,9 +16,18 @@ describe('Ajustes → Noche', () => {
       feedbackVibration: true,
       feedbackSound: true,
       payoutNightCapEur: '300',
+      lostFichaFeeEur: '3',
       highContrast: false,
     });
     expect(nightChange(form, current)).toEqual({ ok: true, change: {} });
+  });
+
+  it('la ficha nueva por perdida (B6): 3 € de fábrica, de 0 (gratis) a 50 €; manda solo eso', () => {
+    const form = nightFormFrom(current);
+    expect(nightChange({ ...form, lostFichaFeeEur: '2,50' }, current)).toEqual({ ok: true, change: { lostFichaFeeCents: 250 } });
+    expect(nightChange({ ...form, lostFichaFeeEur: '0' }, current)).toEqual({ ok: true, change: { lostFichaFeeCents: 0 } });
+    const tooMuch = nightChange({ ...form, lostFichaFeeEur: '51' }, current);
+    expect(tooMuch.ok).toBe(false);
   });
 
   it('modo «sala» (contraste alto): encenderlo y apagarlo manda solo eso', () => {

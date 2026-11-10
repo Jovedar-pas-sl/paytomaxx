@@ -3,6 +3,7 @@
 // (night-form.test.ts).
 
 import {
+  MAX_LOST_FICHA_FEE_CENTS,
   MAX_NFC_NO_PIN_CENTS,
   MAX_NFC_NO_PIN_NIGHT_CAP_CENTS,
   MAX_RECEPTION_PAYOUT_NIGHT_CAP_CENTS,
@@ -25,6 +26,8 @@ export interface NightForm {
   feedbackSound: boolean;
   /** Tope de efectivo devuelto por persona de recepción y noche (€). */
   payoutNightCapEur: string;
+  /** La ficha nueva por perdida, del saldo del cliente (€). */
+  lostFichaFeeEur: string;
   /** Modo «sala»: las apps del personal en contraste alto. */
   highContrast: boolean;
 }
@@ -46,6 +49,7 @@ export function nightFormFrom(s: VenueNightSettings): NightForm {
     feedbackVibration: s.feedbackVibration,
     feedbackSound: s.feedbackSound,
     payoutNightCapEur: eurosText(s.receptionPayoutNightCapCents),
+    lostFichaFeeEur: eurosText(s.lostFichaFeeCents),
     highContrast: s.highContrast,
   };
 }
@@ -83,6 +87,8 @@ export function nightChange(
   if (payoutCap === null) {
     return { ok: false, problem: `Tope de salidas en efectivo por noche: de 0 € (siempre el encargado) a ${MAX_RECEPTION_PAYOUT_NIGHT_CAP_CENTS / 100} €.` };
   }
+  const lostFee = parseEurosUpTo(form.lostFichaFeeEur, MAX_LOST_FICHA_FEE_CENTS);
+  if (lostFee === null) return { ok: false, problem: `Ficha nueva por perdida: de 0 € (gratis) a ${MAX_LOST_FICHA_FEE_CENTS / 100} €.` };
   const quick = parseQuickAmounts(form.quickAmountsEur);
   if (!quick) {
     return { ok: false, problem: `Importes rápidos: de 1 a ${MAX_RECEPTION_QUICK_AMOUNTS} importes en euros enteros (p. ej. 20, 50, 100).` };
@@ -96,6 +102,7 @@ export function nightChange(
     feedbackVibration: form.feedbackVibration,
     feedbackSound: form.feedbackSound,
     receptionPayoutNightCapCents: payoutCap,
+    lostFichaFeeCents: lostFee,
     highContrast: form.highContrast,
   };
   const problem = nightSettingsProblem(next);
@@ -109,6 +116,7 @@ export function nightChange(
   if (next.feedbackVibration !== current.feedbackVibration) change.feedbackVibration = next.feedbackVibration;
   if (next.feedbackSound !== current.feedbackSound) change.feedbackSound = next.feedbackSound;
   if (payoutCap !== current.receptionPayoutNightCapCents) change.receptionPayoutNightCapCents = payoutCap;
+  if (lostFee !== current.lostFichaFeeCents) change.lostFichaFeeCents = lostFee;
   if (next.highContrast !== current.highContrast) change.highContrast = next.highContrast;
   return { ok: true, change };
 }
