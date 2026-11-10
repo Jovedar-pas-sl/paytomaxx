@@ -2,7 +2,7 @@
 
 import { useEffect, useId, useState } from 'react';
 import { fetchCurrentNight, fetchTreasuryStats } from '@/lib/api';
-import { cobradoNote, zCobradoParts } from '@/lib/cobrado';
+import { COBRADO_HELP, cobradoNote, tonightCobradoNote, zCobradoParts } from '@/lib/cobrado';
 import { formatDateTime } from '@/lib/dates';
 import { keepIfSame } from '@/lib/diff';
 import { formatEur } from '@/lib/money';
@@ -83,6 +83,7 @@ export function TonightStrip({
   );
 
   const openCount = open ? open.length : null;
+  const cobradoLine = tonightCobradoNote(night);
   const chargedCents = night ? night.chargedCents : null;
   const cardCount = night ? night.count : null;
   const known = night !== undefined;
@@ -110,30 +111,31 @@ export function TonightStrip({
         )}
       </div>
       <dl className="np-tonight-grid">
-        <div className="np-tonight-fig" data-hero="">
+        {/* Qué cuenta: el desglose (o, sin él, de qué está hecho) y, al pasar el ratón, la frase entera. */}
+        <div className="np-tonight-fig" data-hero="" title={COBRADO_HELP}>
           <dt>Cobrado</dt>
           <dd>{night ? formatEur(night.chargedCents) : '—'}</dd>
-          {night?.chargedNote ? <span className="np-tonight-note">{night.chargedNote}</span> : null}
+          {cobradoLine ? <span className="np-tonight-note">{cobradoLine}</span> : null}
         </div>
         <div className="np-tonight-fig">
           <dt>Pagos con tarjeta</dt>
           <dd>{night ? night.count : '—'}</dd>
         </div>
         <div className="np-tonight-fig">
-          <dt>Pendiente a chicas</dt>
+          {/* «A pagar ya»: lo que se les debe ahora; lo de esta noche sale en el Mapa del dinero
+              («Pago a chicas · al cerrar»). Antes las dos cifras parecían la misma (P-11). */}
+          <dt>A pagar ya a chicas</dt>
           <dd>{pending ? formatEur(pending.pendingCents) : '—'}</dd>
           {pending && pending.operatorCount > 0 ? (
-            <span className="np-tonight-note">
-              a pagar ya · {pending.operatorCount === 1 ? '1 chica' : `${pending.operatorCount} chicas`}
-            </span>
+            <span className="np-tonight-note">{pending.operatorCount === 1 ? '1 chica' : `${pending.operatorCount} chicas`}</span>
           ) : null}
         </div>
         <div className="np-tonight-fig">
-          <dt>Incidencias abiertas</dt>
+          <dt>Avisos abiertos</dt>
           <dd>{openCount ?? '—'}</dd>
           {openCount && onNavigate ? (
             <button type="button" className="np-tonight-link" onClick={() => onNavigate('incidents')}>
-              Ver incidencias
+              Ver avisos
             </button>
           ) : openCount === 0 ? (
             <span className="np-tonight-note">Todo en orden</span>

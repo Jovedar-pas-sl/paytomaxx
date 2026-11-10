@@ -265,6 +265,8 @@
   .np-cobros-table tbody td[data-card='status'] { order: 3; flex: 0 0 auto; }
   .np-cobros-table tbody td[data-card='actions'] { order: 6; flex-wrap: wrap; justify-content: flex-start; gap: 0.5rem; margin-top: 0.5rem; padding-top: 0.75rem; border-top: 1px solid var(--np-border); }
   .np-cobros-table tbody td[data-card='actions'] .np-btn { flex: 1 1 auto; min-height: 2.75rem; }
+  /* Los enlaces de las celdas (quién cobró, su saldo): 44 px de alto para el dedo (P-16). */
+  .np-cobros-table tbody td .np-cell-link { display: inline-flex; align-items: center; min-height: 2.75rem; }
   .np-cobros-table tbody td[colspan] { justify-content: center; }
 }
 

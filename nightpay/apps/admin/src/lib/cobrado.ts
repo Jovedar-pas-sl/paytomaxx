@@ -53,16 +53,38 @@ export function zCobradoParts(s: {
   });
 }
 
-/** «533,00 € de ventas + 26,00 € de propinas + 550,00 € de recargas» (sin las partes a 0); null si no hay nada. */
+/**
+ * «533,00 € de ventas con tarjeta + 26,00 € de propinas con tarjeta + 550,00 €
+ * de recargas» (sin las partes a 0); null si no hay nada. «Con tarjeta»: lo
+ * que entró (el saldo ya entró al recargarse); sin eso, las ventas y las
+ * propinas del Mapa del dinero (que cuentan también las del saldo) parecían
+ * no cuadrar (auditoría P-2).
+ */
 export function cobradoNote(p: CobradoParts | null, eur: (cents: number) => string): string | null {
   if (!p) return null;
   const parts = [
-    p.salesCents !== 0 ? `${eur(p.salesCents)} de ventas` : null,
-    p.tipCents !== 0 ? `${eur(p.tipCents)} de propinas` : null,
+    p.salesCents !== 0 ? `${eur(p.salesCents)} de ventas con tarjeta` : null,
+    p.tipCents !== 0 ? `${eur(p.tipCents)} de propinas con tarjeta` : null,
     p.topUpCents !== 0 ? `${eur(p.topUpCents)} de recargas` : null,
     p.serviceFeeCents ? `${eur(p.serviceFeeCents)} de comisión del servicio` : null,
   ].filter((x): x is string => x !== null);
   return parts.length > 0 ? parts.join(' + ') : null;
+}
+
+/** De qué está hecho «Cobrado» cuando no hay desglose (todo a 0, o un API de antes): sin cifras, no puede no cuadrar. */
+export const COBRADO_PARTS_HINT = 'Suma ventas, propinas y recargas';
+
+/** Lo que cuenta «Cobrado», entero (el `title` de la cifra en «Esta noche»). */
+export const COBRADO_HELP =
+  'Todo el dinero que entró esta noche: ventas, propinas y recargas del saldo (con tarjeta y en efectivo) y, si el local la cobra, la comisión del servicio.';
+
+/**
+ * La línea de debajo de «Cobrado» en «Esta noche»: el desglose con sus cifras
+ * o, si no lo hay, de qué está hecho. Sin noche abierta (o cargando), nada.
+ */
+export function tonightCobradoNote(night: { chargedNote: string | null } | null | undefined): string | null {
+  if (!night) return null;
+  return night.chargedNote ?? COBRADO_PARTS_HINT;
 }
 
 /**

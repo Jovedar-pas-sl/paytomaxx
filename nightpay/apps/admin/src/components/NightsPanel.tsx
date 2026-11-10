@@ -170,7 +170,7 @@ export function NightsPanel({
             <div style={pendingBox}>
               <p style={{ margin: 0, fontWeight: 600 }}>
                 {current.pending.length === 1 ? '1 cobro sin resolver' : `${current.pending.length} cobros sin resolver`}:
-                resuélvelos en Pagos antes de cerrar.
+                resuélvelos en Hoy → Cobros antes de cerrar.
               </p>
               <ul style={{ margin: '0.5rem 0 0', paddingLeft: '1.1rem' }}>
                 {current.pending.slice(0, 8).map((p) => (

@@ -77,7 +77,7 @@ export function moneyMapDetails(m: MoneyMap): MoneyDetails {
         { label: `Deuda total a camareros ${when}`, cents: w.owed?.camarerosCents ?? null },
         // De la deuda, la de ventas por datáfono sin cuadrar con el banco: no se paga hasta cuadrarlas (H-1).
         ...(w.owed?.bankHeldCents ? [{ label: `De ella, pendiente de cuadrar con el banco ${when}`, cents: w.owed.bankHeldCents }] : []),
-        { label: 'Variación del saldo del periodo', cents: w.owners.saldoCents },
+        { label: 'Saldo nuevo de clientes (estas fechas)', cents: w.owners.saldoCents },
         { label: `Saldo real de clientes ${when}`, cents: w.liveSaldoCents },
       ],
     },

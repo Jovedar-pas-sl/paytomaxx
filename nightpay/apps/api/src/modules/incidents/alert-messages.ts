@@ -45,8 +45,9 @@ export function incidentMessage(venueName: string, i: Incident, opts: { includeN
 function cobradoParts(s: ExportSummary): string | null {
   if (s.walletCardTopUpsCents === undefined) return null;
   const parts = [
-    [s.grossCents - s.walletCardTopUpsCents, 'de ventas'],
-    [s.tipsCents, 'de propinas'],
+    // «Con tarjeta», como en el panel: el Mapa del dinero cuenta también las del saldo (P-2).
+    [s.grossCents - s.walletCardTopUpsCents, 'de ventas con tarjeta'],
+    [s.tipsCents, 'de propinas con tarjeta'],
     [s.walletCardTopUpsCents + (s.walletCashTopUpsCents ?? 0), 'de recargas'],
     // La paga el cliente encima y se debe a OxioPay (sin ella, no sale).
     [s.serviceFeeCents ?? 0, 'de comisión del servicio'],

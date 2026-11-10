@@ -4,6 +4,7 @@ import type { CSSProperties, ReactNode } from 'react';
 import { HOME_TOPUP_ORIGIN_LABEL, type CobroRow } from '@nightpay/contracts';
 import { Button } from '@nightpay/ui';
 import { cobroStatus } from '@/lib/cobro-status';
+import { COBRO_ACTION_LABELS, COBRO_ACTION_TITLES } from '@/lib/cobros-help';
 import { formatDateTime } from '@/lib/dates';
 import { formatEur, formatMoney } from '@/lib/money';
 import { paidTwiceNote, sectionChip } from '@/lib/money-map';
@@ -48,7 +49,7 @@ export function CobrosTable({ rows, actions, empty, hidePerson, extra, showRefer
             {showReferences ? <><th>Código</th><th>Ref. banco</th></> : null}
             <th style={{ textAlign: 'right' }}>Importe</th>
             <th>Estado</th>
-            {hidePerson ? null : <th>Chica</th>}
+            {hidePerson ? null : <th>Quién cobró</th>}
             <th>Sección</th>
             <th>Cómo pagó</th>
             <th>Servicio</th>
@@ -87,10 +88,10 @@ export function CobrosTable({ rows, actions, empty, hidePerson, extra, showRefer
                 <PaidTwice row={row} />
               </td>
               {hidePerson ? null : (
-                <td data-label="Chica">
+                <td data-label="Quién cobró">
                   {row.person ? (
                     fichas && row.person.role === 'OPERATOR' ? (
-                      <button type="button" style={linkStyle} onClick={() => fichas.openOperator(row.person!.id)}>
+                      <button type="button" className="np-cell-link" style={linkStyle} onClick={() => fichas.openOperator(row.person!.id)}>
                         {row.person.name}
                       </button>
                     ) : (
@@ -109,7 +110,7 @@ export function CobrosTable({ rows, actions, empty, hidePerson, extra, showRefer
               </td>
               <td data-label="Cómo pagó" style={meta}>
                 {row.wallet && fichas ? (
-                  <button type="button" style={linkStyle} onClick={() => fichas.openWallet(row.wallet!.id)}>
+                  <button type="button" className="np-cell-link" style={linkStyle} onClick={() => fichas.openWallet(row.wallet!.id)}>
                     {row.method === 'SALDO' ? labelWithCode(row.methodLabel) : `${row.methodLabel} · saldo ${row.wallet.codeHint}`}
                   </button>
                 ) : (
@@ -127,7 +128,11 @@ export function CobrosTable({ rows, actions, empty, hidePerson, extra, showRefer
               ) : null}
               {actions ? (
                 <td data-label="Acciones" data-card="actions" style={{ textAlign: 'right' }}>
-                  {onDetails ? <Button type="button" variant="ghost" size="sm" onClick={() => onDetails(row)}>Ver detalle</Button> : null}
+                  {onDetails ? (
+                    <Button type="button" variant="ghost" size="sm" onClick={() => onDetails(row)} title={COBRO_ACTION_TITLES.detail}>
+                      {COBRO_ACTION_LABELS.detail}
+                    </Button>
+                  ) : null}
                   {actions(row)}
                 </td>
               ) : null}

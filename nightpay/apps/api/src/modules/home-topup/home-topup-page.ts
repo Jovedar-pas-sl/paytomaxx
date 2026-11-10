@@ -109,6 +109,7 @@ function amountCard(lang: PayLanguage, view: HomeTopUpPageView): string {
     )
     .join('');
   const limits = fill(fill(w.topUpLimits, 'min', eur(view.minCents, w.locale)), 'max', eur(view.maxCents, w.locale));
+  // Con un saldo recordado, la acción (lima) es «Recargar mi saldo»; un saldo nuevo, secundario: una sola lima (C-2).
   const feeBps = view.serviceFeeBps ?? 0;
   const pct = new Intl.NumberFormat(w.locale, { style: 'percent', maximumFractionDigits: 2 }).format(feeBps / 10_000);
   const breakdown =
@@ -128,7 +129,7 @@ function amountCard(lang: PayLanguage, view: HomeTopUpPageView): string {
 <p class="small" id="limits">${h(limits)}</p>
 ${breakdown}
 <div class="paybar"><p class="err" id="err" role="alert" hidden></p>
-<button class="btn" type="submit" id="go">${LOCK_IC}<span id="goLbl"></span></button>
+<button class="${view.mine ? 'btn alt' : 'btn'}" type="submit" id="go">${LOCK_IC}<span id="goLbl"></span></button>
 <p class="small">${h(t.methods)}</p></div>
 </form>
 </section>
@@ -242,7 +243,7 @@ ${topBar(lang)}
 <h1 id="hTitle">${heading}</h1>
 <p>${h(t.advantage)}</p>
 </section>
-${canLoad ? howSteps(lang, view.fichas !== false) : ''}${canLoad && view.mine ? mineCard(lang, base, view.mine.codeHint) : ''}${canLoad ? amountCard(lang, view) : offCard(lang)}${termsCard(lang, withFee)}<p class="foot trust">${h(PAY_TEXT[lang].secure)}${CARD_MARKS}</p>
+${/* Las condiciones («Antes de pagar»), antes del importe y del botón (C-3). */ ''}${canLoad ? howSteps(lang, view.fichas !== false) : ''}${canLoad && view.mine ? mineCard(lang, base, view.mine.codeHint) : ''}${termsCard(lang, withFee)}${canLoad ? amountCard(lang, view) : offCard(lang)}<p class="foot trust">${h(PAY_TEXT[lang].secure)}${CARD_MARKS}</p>
 </main>
 ${
   canLoad

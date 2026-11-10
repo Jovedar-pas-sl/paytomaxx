@@ -2,6 +2,7 @@
 
 import { createContext, useContext, useState } from 'react';
 import { Button, IosInstallSteps, Modal, useInstall } from '@nightpay/ui';
+import { GUIA_PATH } from '../lib/guia';
 import { PasskeySheet } from './PasskeySheet';
 
 /**
@@ -16,9 +17,22 @@ export function useStaffMenu(): (() => void) | null {
 }
 
 /**
+ * «Guía rápida» (/guia): cómo cobrar, cómo cargar una ficha y qué hacer si…
+ * Un enlace con aspecto de botón secundario, en los dos menús del logo (este y
+ * el de Inicio), siempre justo antes de «Salir».
+ */
+export function GuiaMenuLink() {
+  return (
+    <a href={GUIA_PATH} className="np-btn" data-variant="ghost" data-size="md">
+      Guía rápida
+    </a>
+  );
+}
+
+/**
  * La hoja del menú: instalar como app (si se puede y aún no lo está), la llave
- * de acceso (verificarse con el móvil sin 2FA) y «Salir». Sin tema: el
- * personal va siempre en oscuro (layout).
+ * de acceso (verificarse con el móvil sin 2FA), la guía y «Salir». Sin tema:
+ * el personal va siempre en oscuro (layout).
  */
 export function StaffMenu({ open, onClose, onLogout }: { open: boolean; onClose: () => void; onLogout: () => void }) {
   const { platform, install } = useInstall();
@@ -47,6 +61,7 @@ export function StaffMenu({ open, onClose, onLogout }: { open: boolean; onClose:
         >
           Llave de acceso
         </Button>
+        <GuiaMenuLink />
         <Button variant="ghost" onClick={onLogout}>
           Salir
         </Button>

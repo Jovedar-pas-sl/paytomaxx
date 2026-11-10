@@ -152,8 +152,8 @@ export function MoneyMapView({ map, wide = false, onOpen }: { map: MoneyMap; wid
           <Bar segments={v.where.owners} label="De quién es" style={{ marginTop: '0.25rem' }} />
           <Legend segments={v.where.owners} />
           <p className="np-mm-note">
-            La variación del saldo del periodo es lo que estas fechas sumaron o restaron al saldo de los clientes
-            (recargas − consumos − saldo devuelto); puede ser negativa. No es el saldo real de los clientes:
+            «Saldo nuevo de clientes (estas fechas)» es lo que estas fechas sumaron o restaron al saldo de los
+            clientes (recargas − consumos − saldo devuelto); puede ser negativo. No es el saldo real de los clientes:
           </p>
           <div className="np-mm-balance">
             <span>{v.where.balance.label}</span>

@@ -1,5 +1,5 @@
 import type { CSSProperties } from 'react';
-import { amountParts } from '../format';
+import { formatMoney } from '@nightpay/contracts';
 import type { PaymentStatus } from './StatusPill';
 
 interface AmountDisplayProps {
@@ -8,113 +8,59 @@ interface AmountDisplayProps {
   status?: PaymentStatus;
 }
 
+/**
+ * El importe del cobro abierto (TPV), como el del resultado (Grafito): una
+ * sola cifra «25,00 €» en Manrope 600 proporcional, sin halo ni trozos de
+ * tamaños distintos. Esperando al banco, late despacio (< 1 Hz); pagado en
+ * verde y rechazado o caducado en rojo (con su estado al lado: nunca solo el
+ * color). La letra baja para que quepa en una línea (--np-fit).
+ */
 export function AmountDisplay({ amountCents, currency, status = 'CREATED' }: AmountDisplayProps) {
-  const amount = amountParts(amountCents, currency);
+  // El formato de toda la app: «25,00 €»; miles con punto.
+  const text = formatMoney(amountCents, { currency });
 
   const isAuthorizing = status === 'AUTHORIZING' || status === 'ORPHAN';
   const isFinal = status === 'AUTHORIZED';
   const isFailed = status === 'FAILED' || status === 'EXPIRED';
 
-  const accent = isFinal
-    ? 'var(--np-success)'
-    : isFailed
-      ? 'var(--np-danger)'
-      : 'var(--np-text)';
+  const color = isFinal ? 'var(--np-success)' : isFailed ? 'var(--np-danger)' : 'var(--np-text)';
 
   return (
-    <div
-      data-status={status}
-      style={{
-        ...wrap,
-        transform: isFinal ? 'scale(0.92)' : 'scale(1)',
-      }}
-    >
-      <div
-        aria-hidden
-        style={{
-          ...halo,
-          opacity: isAuthorizing ? 0.9 : isFinal ? 0.6 : 0.35,
-          background: isFinal
-            ? 'radial-gradient(circle, oklch(74% 0.18 145 / 0.45), transparent 60%)'
-            : isFailed
-              ? 'radial-gradient(circle, oklch(68% 0.22 25 / 0.4), transparent 60%)'
-              : 'radial-gradient(circle, var(--np-glow), transparent 60%)',
-        }}
-      />
-
-      {/* El lector de pantalla lee "48,50 €" de una vez, no los trozos. */}
-      <span className="np-sr-only">{amount.text}</span>
-      <div
+    <div data-status={status} style={wrap}>
+      <span
         className="np-num"
-        aria-hidden
-        style={{
-          ...amountWrap,
-          color: accent,
-          animation: isAuthorizing ? 'np-amount-breathe 1.6s ease-in-out infinite' : 'none',
-        }}
+        style={
+          {
+            ...amountStyle,
+            '--np-fit': Math.max(4, text.length * 0.58).toFixed(2),
+            color,
+            animation: isAuthorizing ? 'np-amount-breathe var(--np-pulse) ease-in-out infinite' : 'none',
+          } as CSSProperties
+        }
       >
-        <span style={{ fontSize: 'var(--np-t-amount)', fontWeight: 600, letterSpacing: '-0.04em' }}>
-          {amount.whole}
-        </span>
-        {amount.fraction ? (
-          <>
-            <span style={separator}>{amount.decimal}</span>
-            <span style={cents}>{amount.fraction}</span>
-          </>
-        ) : null}
-        <span style={curr}>{amount.code}</span>
-      </div>
+        {text}
+      </span>
     </div>
   );
 }
 
+// El ancho de la tarjeta manda (cqi): en el móvil y en la tableta cabe igual.
 const wrap: CSSProperties = {
-  position: 'relative',
+  containerType: 'inline-size',
   display: 'flex',
   alignItems: 'center',
   justifyContent: 'center',
-  padding: 'var(--np-s-6) 0',
-  transition: 'transform var(--np-d-slow) var(--np-ease)',
+  padding: 'var(--np-s-5) 0',
 };
 
-const halo: CSSProperties = {
-  position: 'absolute',
-  inset: '-30%',
-  pointerEvents: 'none',
-  transition: 'opacity var(--np-d-slow) var(--np-ease), background var(--np-d-slow)',
-  filter: 'blur(40px)',
-  zIndex: 0,
-};
-
-const amountWrap: CSSProperties = {
-  position: 'relative',
-  zIndex: 1,
-  display: 'flex',
-  alignItems: 'baseline',
-  gap: '0.05em',
-  fontFeatureSettings: '"tnum"',
-  fontVariantNumeric: 'tabular-nums',
+const amountStyle: CSSProperties = {
+  display: 'block',
+  fontWeight: 600,
+  lineHeight: 1.05,
+  letterSpacing: 0,
+  fontVariantNumeric: 'proportional-nums',
+  fontFeatureSettings: 'normal',
+  whiteSpace: 'nowrap',
+  fontSize: 'min(var(--np-t-amount), calc(92cqi / var(--np-fit, 6)))',
   transition: 'color var(--np-d-base)',
-};
-
-const separator: CSSProperties = {
-  fontSize: 'calc(var(--np-t-amount) * 0.55)',
-  fontWeight: 600,
-  color: 'var(--np-text-dim)',
-  margin: '0 0.05em',
-};
-
-const cents: CSSProperties = {
-  fontSize: 'calc(var(--np-t-amount) * 0.45)',
-  fontWeight: 600,
-  letterSpacing: '-0.03em',
-};
-
-const curr: CSSProperties = {
-  fontSize: 'calc(var(--np-t-amount) * 0.22)',
-  fontWeight: 500,
-  marginLeft: '0.5em',
-  color: 'var(--np-text-mute)',
-  fontFamily: 'var(--np-font-sans)',
-  letterSpacing: '0.05em',
 };

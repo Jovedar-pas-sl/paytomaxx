@@ -550,7 +550,7 @@ describe('alertas por Telegram', () => {
       kind: 'stuck_payment',
       refId: 'pay-1',
       title: 'Cobro sin confirmar por el banco',
-      detail: '38,30 €. Búscalo en el portal de BBVA y resuélvelo en Pagos → Resolver.',
+      detail: '38,30 €. Búscalo en el portal de BBVA y resuélvelo en Hoy → Cobros → Resolver.',
       occurredAt: '2026-10-13T22:00:00.000Z',
       amountCents: 3_830,
       paymentId: 'pay-1',
@@ -694,7 +694,7 @@ describe('alertas por Telegram', () => {
     expect(reports.cobros).not.toHaveBeenCalled();
     const text = String(telegram.send.mock.calls[0]![0]);
     expect(text).toContain('anoche: el Z de la noche cerrada a las 05:00');
-    expect(text).toContain('Cobrado: 55,00 € (50,00 € de ventas + 5,00 € de propinas)');
+    expect(text).toContain('Cobrado: 55,00 € (50,00 € de ventas con tarjeta + 5,00 € de propinas con tarjeta)');
     expect(text).toContain('Con tarjeta: 2 pagos · 55,00 €');
   });
 

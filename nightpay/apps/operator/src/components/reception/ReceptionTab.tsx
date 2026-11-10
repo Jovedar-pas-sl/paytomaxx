@@ -65,22 +65,23 @@ export function ReceptionTab({ user, active, onOwnHeader }: Props) {
   if (view === 'ficha') return inner(<GiveFicha user={user} onDone={() => setView('desk')} />);
 
   const canPrepare = methods.nfc && reader.via !== null && reader.canWrite;
+  // Lo secundario, junto y abajo en una sola fila (Grafito 2): los mismos tres, y las pendientes con su número.
   const footer = (
-    <div className={s.links}>
+    <nav className={s.more} aria-label="Fichas y recargas pendientes">
       {canPrepare ? (
-        <button type="button" className={s.txtlink} onClick={() => setView('prepare')}>
+        <button type="button" className={s.moreBtn} onClick={() => setView('prepare')}>
           Preparar fichas
         </button>
       ) : null}
-      <button type="button" className={`${s.txtlink} ${pending > 0 ? s.txtlinkOn : ''}`} onClick={() => setView('pending')}>
+      <button type="button" className={`${s.moreBtn} ${pending > 0 ? s.moreBtnOn : ''}`} onClick={() => setView('pending')}>
         {pending > 0 ? `Pendientes de asignar (${pending})` : 'Pendientes de asignar'}
       </button>
       {methods.nfc ? (
-        <button type="button" className={s.txtlink} onClick={() => setView('ficha')}>
+        <button type="button" className={s.moreBtn} onClick={() => setView('ficha')}>
           Dar ficha a un saldo
         </button>
       ) : null}
-    </div>
+    </nav>
   );
   return <ReceptionDesk user={user} active={active} footer={footer} />;
 }

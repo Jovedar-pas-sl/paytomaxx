@@ -15,7 +15,8 @@
   text-align: left;
   color: var(--np-text);
   background: var(--np-surface);
-  border: 2px solid var(--np-accent);
+  /* Grafito: el filete de lo que se toca (como las filas de abajo), sin marco lima. */
+  border: 1px solid var(--np-border-hi);
   border-radius: var(--np-r-lg);
   cursor: pointer;
   transition:
@@ -66,7 +67,7 @@
   width: 1.5rem;
   height: 1.5rem;
   margin-top: -0.75rem;
-  color: var(--np-accent);
+  color: var(--np-text-mute);
   transition: transform var(--np-d-fast) var(--np-ease);
 }
 
@@ -138,12 +139,12 @@
   min-height: 2.75rem;
   padding: 0 0.875rem 0 0.5rem;
   margin-left: -0.5rem;
-  color: var(--np-accent);
+  color: var(--np-text);
   background: transparent;
   border: none;
-  border-radius: var(--np-r-pill);
+  border-radius: var(--np-r-sm);
   font-size: 1rem;
-  font-weight: 700;
+  font-weight: 500;
   cursor: pointer;
   transition: background var(--np-d-fast);
 }

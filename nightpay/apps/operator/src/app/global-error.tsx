@@ -17,7 +17,7 @@ export default function GlobalError({ error }: { error: Error & { digest?: strin
       <body>
         <ErrorScreen
           title="Esta pantalla ha fallado"
-          detail="Si había un cobro abierto, sigue en el servidor: míralo en Cobros antes de cobrar otra vez."
+          detail="Si había un cobro o una recarga a medias, sigue en el servidor: mira Cobros o acerca la ficha antes de cobrar o cargar otra vez."
           actionLabel="Volver a cobrar"
           onAction={() => window.location.assign('/')}
         />

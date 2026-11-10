@@ -4,7 +4,18 @@
 // loseta más, en su sitio de la carta (en la de referencia, justo después de
 // «Copa»): tocarla abre el escáner del QR de la chica y se cobra aparte.
 
+import { sectionTileVar } from '@nightpay/ui';
 import type { CartaItem } from './cuenta';
+
+/**
+ * El relleno de una loseta: el color sólido de su sección, con tinta encima
+ * (--np-on-section, ≥ 4,5:1 en todas). Servicios y Propinas, en su tono de
+ * loseta (un punto más claro). Las propinas van por su clave («propinas»).
+ * El punto del título de cada grupo sigue con el color exacto (colorOf).
+ */
+export function cartaTileColor(section: string): string {
+  return sectionTileVar(section);
+}
 
 /** ¿Puede cobrar esta cosa de la carta? (un pack, todas sus partes). */
 export function itemAllowed(item: Pick<CartaItem, 'category' | 'components'>, codes: readonly string[]): boolean {

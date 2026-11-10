@@ -13,7 +13,8 @@ import { nextSearch, SEARCH_MIN_CHARS } from '@/lib/cobros-search';
 
 const STATUS_FILTERS: Array<{ value: string; label: string }> = [
   { value: '', label: 'Todos los estados' },
-  { value: 'CREATED', label: 'Creado' },
+  // La misma palabra que la tabla (cobro-status): «Sin pagar».
+  { value: 'CREATED', label: 'Sin pagar' },
   { value: 'AUTHORIZING', label: 'Esperando pago' },
   { value: 'AUTHORIZED', label: 'Pagado' },
   { value: 'FAILED', label: 'Rechazado' },

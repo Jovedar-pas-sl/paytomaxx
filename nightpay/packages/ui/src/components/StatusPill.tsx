@@ -159,8 +159,8 @@ export function StatusPill({ status, size = 'md', perspective = 'operator' }: St
   };
   const dims =
     size === 'sm'
-      ? { padding: '0.25rem 0.625rem', fontSize: '0.75rem' }
-      : { padding: '0.5rem 1rem', fontSize: '0.875rem' };
+      ? { minHeight: '1.5rem', padding: '0 0.5rem', fontSize: '0.8125rem' }
+      : { minHeight: '2rem', padding: '0 0.75rem 0 0.625rem', fontSize: '0.875rem' };
 
   return (
     <span
@@ -171,7 +171,6 @@ export function StatusPill({ status, size = 'md', perspective = 'operator' }: St
         ...dims,
         color: cfg.color,
         background: cfg.bg,
-        borderColor: cfg.color,
       } as CSSProperties}
     >
       {cfg.spin ? <Pulse color={cfg.color} /> : <Dot color={cfg.color} />}
@@ -180,16 +179,18 @@ export function StatusPill({ status, size = 'md', perspective = 'operator' }: St
   );
 }
 
+// Grafito: como los estados del panel y de «Cobros» del personal (fondo
+// teñido, texto del color, radio de chip 6, 14/500, sin filete), con su punto
+// (late mientras espera): el color nunca va solo.
 const pillBase: CSSProperties = {
   display: 'inline-flex',
   alignItems: 'center',
   gap: '0.5rem',
-  borderRadius: 'var(--np-r-pill)',
-  border: '1px solid',
+  borderRadius: 'var(--np-r-xs)',
   fontWeight: 500,
-  letterSpacing: '0.01em',
+  lineHeight: 1.2,
   fontFamily: 'var(--np-font-sans)',
-  transition: 'background var(--np-d-base), color var(--np-d-base), border-color var(--np-d-base)',
+  transition: 'background var(--np-d-base), color var(--np-d-base)',
 };
 
 function Dot({ color }: { color: string }) {

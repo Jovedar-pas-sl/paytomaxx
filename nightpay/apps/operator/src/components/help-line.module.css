@@ -1,0 +1,65 @@
+/* La línea de ayuda del personal (Grafito 2): 15 px en t2, como mucho una por
+   pantalla, con «Entendido» al final; cerrada, un «?» pequeño junto al
+   título. Sin caja ni color: se lee sin competir con lo que se toca. */
+
+.line {
+  margin: 0;
+  font-size: 0.9375rem;
+  font-weight: 400;
+  line-height: 1.4;
+  color: var(--np-text-mute);
+  text-wrap: pretty;
+}
+
+/* «Entendido»: texto subrayado al final de la línea; 44 px de alto para el
+   dedo sin mover la línea (el relleno se come con el margen). */
+.ok {
+  display: inline-block;
+  margin: -0.75rem 0;
+  padding: 0.75rem 0.25rem;
+  border: none;
+  background: transparent;
+  color: var(--np-text);
+  font: 500 0.9375rem/1.4 var(--np-font-sans);
+  text-decoration: underline;
+  text-decoration-color: var(--np-border-hi);
+  text-underline-offset: 4px;
+  white-space: nowrap;
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.ok:active {
+  color: var(--np-text-mute);
+}
+
+/* «?»: 28 px a la vista y 44 para el dedo (el ::after lo agranda). */
+.again {
+  position: relative;
+  flex: none;
+  width: 1.75rem;
+  height: 1.75rem;
+  display: inline-grid;
+  place-items: center;
+  padding: 0;
+  border: 1px solid var(--np-border-hi);
+  border-radius: var(--np-r-pill);
+  background: transparent;
+  color: var(--np-text-mute);
+  font: 600 0.875rem/1 var(--np-font-sans);
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.again::after {
+  content: '';
+  position: absolute;
+  inset: -0.5rem;
+}
+
+.again:active {
+  background: var(--np-surface-2);
+  color: var(--np-text);
+}

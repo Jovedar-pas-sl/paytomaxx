@@ -24,6 +24,7 @@ import { attemptFor, chargeFingerprint, type ChargeAttempt } from '@/lib/charge-
 import { unlockBeep } from '@/lib/beep';
 import { usePaymentStatus } from '@/lib/usePaymentStatus';
 import { ActivePayment, FINISHED_STATUSES } from './ActivePayment';
+import styles from './cash-register.module.css';
 
 interface Props {
   venueSlug: string;
@@ -136,11 +137,16 @@ export function CashRegister({ venueSlug, onLogout }: Props) {
   return (
     <main className="np-app-root np-screen" style={mainStyle}>
       {/* Sin internet / OxioPay sin responder / el banco tardando: arriba, en ámbar. */}
-      <ConnectionBanner issue={issue} style={{ margin: '-1.5rem -1.5rem 0' }} />
+      <ConnectionBanner issue={issue} style={{ margin: 'calc(-1 * var(--tpv-pad)) calc(-1 * var(--tpv-pad)) 0' }} />
       <header style={headerStyle}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', minWidth: 0 }}>
-          <Logo height="2rem" />
-          <div style={{ borderLeft: '1px solid var(--np-border)', paddingLeft: '1rem', minWidth: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', minWidth: 0 }}>
+          <span className={styles.logoFull}>
+            <Logo height="2rem" />
+          </span>
+          <span className={styles.logoMark}>
+            <Logo variant="symbol" height="2.25rem" />
+          </span>
+          <div style={{ borderLeft: '1px solid var(--np-border)', paddingLeft: '0.75rem', minWidth: 0 }}>
             <p style={brandLabel}>TPV</p>
             <p style={brandSub}>
               Local <code style={code}>{venueSlug}</code>
@@ -232,19 +238,22 @@ function useConnectionIssue(hasCharge: boolean, status: PaymentStatus | null, re
   );
 }
 
-const mainStyle: CSSProperties = {
-  padding: '1.5rem',
+// Margen de 16 en el móvil y 24 en la tableta (Grafito); la franja de
+// conexión lo deshace para ir de lado a lado.
+const mainStyle = {
+  '--tpv-pad': 'clamp(1rem, 4vw, 1.5rem)',
+  padding: 'var(--tpv-pad)',
   maxWidth: '64rem',
   margin: '0 auto',
   display: 'flex',
   flexDirection: 'column',
-  gap: '1.5rem',
-};
+  gap: 'var(--tpv-pad)',
+} as CSSProperties;
 
 const formCardStyle: CSSProperties = {
-  padding: '1.5rem',
+  padding: 'clamp(1rem, 4vw, 1.5rem)',
   maxWidth: '30rem',
-  margin: '0.5rem auto',
+  margin: '0 auto',
   width: '100%',
 };
 
@@ -252,10 +261,10 @@ const headerStyle: CSSProperties = {
   display: 'flex',
   alignItems: 'center',
   justifyContent: 'space-between',
-  // En un móvil estrecho, «Salir» baja de línea antes que sacar la página por el lado.
+  // Si aun así no cupiera, «Salir» baja de línea antes que sacar la página por el lado.
   flexWrap: 'wrap',
   gap: '0.75rem',
-  paddingBottom: '1rem',
+  paddingBottom: 'clamp(0.75rem, 3vw, 1rem)',
   borderBottom: '1px solid var(--np-border)',
 };
 

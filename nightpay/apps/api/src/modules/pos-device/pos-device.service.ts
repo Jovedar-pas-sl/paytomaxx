@@ -732,7 +732,7 @@ function pendingOutcome(operationNumber: string): SaleOutcome {
     status: 'PENDING',
     operationNumber,
     message:
-      'Cobrada en el datáfono, pendiente de comprobar con Paytef: todavía NO se ha sumado al saldo. No la anules ni la repitas; el dueño la confirma en Pagos → Resolver.',
+      'Cobrada en el datáfono, pendiente de comprobar con Paytef: todavía NO se ha sumado al saldo. No la anules ni la repitas; el dueño la confirma en Hoy → Cobros → Resolver.',
   };
 }
 

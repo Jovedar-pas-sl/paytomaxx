@@ -1,0 +1,20 @@
+/* La cabecera del TPV en una sola línea también en un móvil de 360: en
+   estrecho, el símbolo de la marca en vez del logotipo entero (con el
+   logotipo, «Salir» bajaba a otra línea, suelto a la izquierda). */
+.logoFull {
+  display: block;
+}
+
+.logoMark {
+  display: none;
+}
+
+@media (max-width: 480px) {
+  .logoFull {
+    display: none;
+  }
+
+  .logoMark {
+    display: block;
+  }
+}
