@@ -324,6 +324,47 @@ export interface WalletText {
   linkGone: string;
   /** Sin Face ID ni PIN y sin poder activarlo aquí (M-2): el QR de activación de recepción. */
   activateAtReception: string;
+  /** «Detalle del pago»: al tocar un movimiento (lo pagado con el saldo y las recargas con tarjeta). */
+  detail: WalletDetailText;
+}
+
+/**
+ * La hoja del detalle de un pago en /w: qué, cuándo, dónde, quién le cobró
+ * (su nombre de pila), cómo pagó, el código y el saldo antes y después. Las
+ * palabras únicas: «Pagado», «Devuelto» para lo que vuelve, «Cancelado» solo
+ * para lo que no se pagó.
+ */
+export interface WalletDetailText {
+  title: string;
+  loading: string;
+  failed: string;
+  close: string;
+  amount: string;
+  tip: string;
+  fee: string;
+  total: string;
+  when: string;
+  where: string;
+  /** «Te cobró: Ana». */
+  who: string;
+  how: string;
+  code: string;
+  before: string;
+  after: string;
+  /** «Tarjeta Visa ••4242». */
+  card: string;
+  saldo: string;
+  /** «Tu ficha nº 0522». */
+  ficha: string;
+  paid: string;
+  refunded: string;
+  partlyRefunded: string;
+  /** Un pago con el saldo que el local deshizo: el dinero volvió al saldo (también la marca de la fila). */
+  returned: string;
+  canceled: string;
+  pending: string;
+  undoCard: string;
+  undoSaldo: string;
 }
 
 /** /w/a/<token>: el QR de activación de un solo uso (el primer Face ID o el primer PIN, M-2). */

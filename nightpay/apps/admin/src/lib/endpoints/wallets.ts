@@ -1,5 +1,6 @@
 // Saldos de clientes (Phase 1B).
 
+import { STEP_UP_TOKEN_HEADER } from '@nightpay/contracts';
 import { apiError, authedFetch, totpAwareError } from '../http';
 import type { WalletPayoutPreview, WalletPayoutResult } from '../wallet-payout';
 
@@ -195,11 +196,13 @@ export async function fetchRecentCashTopUps(): Promise<RecentCashTopUp[]> {
 /** Anular un cobro pagado con saldo: encargado o dueño, siempre con motivo y su 2FA. */
 export async function reverseWalletCharge(
   target: { walletId: string; consumptionId: string },
-  input: { reason: string; totpCode: string },
+  input: { reason: string; totpCode?: string },
+  /** Sin 2FA: la prueba de la llave de acceso para esta anulación (stepUpActions.reverseConsumption). */
+  stepUpToken?: string,
 ): Promise<{ refundedCents: number; newBalanceCents: number }> {
   const res = await authedFetch(
     `/v1/wallets/${encodeURIComponent(target.walletId)}/consumptions/${encodeURIComponent(target.consumptionId)}/reverse`,
-    { method: 'POST', body: JSON.stringify(input) },
+    { method: 'POST', body: JSON.stringify(input), ...(stepUpToken ? { headers: { [STEP_UP_TOKEN_HEADER]: stepUpToken } } : {}) },
   );
   if (!res.ok) throw await totpAwareError(res);
   return res.json();

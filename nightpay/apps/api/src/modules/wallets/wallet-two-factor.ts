@@ -94,7 +94,7 @@ export async function assertTwoFactorCode(
 export async function passkeyInstead(totp: TwoFactorDeps, userId: string, action: string | undefined, why: string): Promise<boolean> {
   if (!action) return false;
   if (await totp.passkeyProofFor?.(userId, action)) return true;
-  const err = await totp.missingSecondFactor?.(userId, action, `${why} confirma con tu llave de acceso (Face ID o el PIN de tu móvil) y repítelo.`);
+  const err = await totp.missingSecondFactor?.(userId, action, `${why} confirma con tu llave de acceso (Face ID o huella) y repítelo.`);
   if (err && codeOf(err) === PASSKEY_REQUIRED_CODE) throw err;
   return false;
 }

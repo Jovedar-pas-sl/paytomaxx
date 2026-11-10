@@ -2,7 +2,7 @@
 
 import { useEffect, useState, type FormEvent } from 'react';
 import { passkeysSupported, type CreationOptionsJSON } from '@nightpay/api-client';
-import type { StaffPasskeyView } from '@nightpay/contracts';
+import { unlockName, type StaffPasskeyView } from '@nightpay/contracts';
 import { Button, Input } from '@nightpay/ui';
 import { fetchPasskeys, fetchStepUp, passkeyRegister, passkeyRegistrationOptions, removePasskey } from '@/lib/api';
 import { formatDateTime } from '@/lib/dates';
@@ -12,12 +12,12 @@ import { SettingsCard } from './SettingsBits';
 
 /**
  * Ajustes → Seguridad → «Llave de acceso»: quien no tiene la verificación en
- * dos pasos se verifica con su móvil (Face ID, huella o el PIN del propio
- * móvil) para ver lo delicado de un cobro y para anular o devolver. Darla de
+ * dos pasos se verifica con su móvil (Face ID o huella) para ver lo delicado de un cobro y para anular o devolver. Darla de
  * alta pide la contraseña otra vez (y el código, si tiene 2FA); después, un
  * toque en el móvil crea la llave (en el iPhone tiene que ser en el mismo toque).
  */
 export function PasskeysCard() {
+  const unlock = unlockName(typeof navigator === 'undefined' ? null : navigator.userAgent);
   const [keys, setKeys] = useState<StaffPasskeyView[] | null>(null);
   const [totpEnabled, setTotpEnabled] = useState(false);
   const [adding, setAdding] = useState(false);
@@ -106,7 +106,7 @@ export function PasskeysCard() {
   return (
     <SettingsCard
       title="Llave de acceso"
-      hint="Si no usas la verificación en dos pasos, confirma con tu móvil (Face ID, huella o su PIN) para ver lo delicado de un cobro y para anular o devolver."
+      hint="Si no usas la verificación en dos pasos, confirma con tu móvil (Face ID o huella) para ver lo delicado de un cobro y para anular o devolver."
     >
       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
         {keys === null && !error ? <p style={{ margin: 0 }}>Cargando…</p> : null}
@@ -147,7 +147,7 @@ export function PasskeysCard() {
         ) : null}
         {supported && options ? (
           <Button onClick={() => void create()} loading={busy}>
-            Crear la llave con Face ID o el PIN del móvil
+            Crear la llave con {unlock}
           </Button>
         ) : null}
         {error ? (

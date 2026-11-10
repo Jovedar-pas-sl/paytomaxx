@@ -11,7 +11,7 @@ import { openTotpSecret, sealTotpSecret, type OpenedTotpSecret } from './totp-cr
 import { StepUpTokens } from './step-up-tokens';
 
 /** 403 PASSKEY_REQUIRED: quien no tiene 2FA y sí llave confirma con ella esta acción. */
-export const PASSKEY_REQUIRED_MESSAGE = 'Confirma con tu llave de acceso (Face ID o el PIN de tu móvil) y repítelo.';
+export const PASSKEY_REQUIRED_MESSAGE = 'Confirma con tu llave de acceso (Face ID o huella) y repítelo.';
 
 /**
  * 2FA con app de verificación (TOTP, RFC 6238).

@@ -236,6 +236,26 @@ describe('quién ve qué', () => {
     await expect(as(null, null, () => details.forClient(other.id, 'SALDO', c.saldo!.chargeId))).rejects.toBeInstanceOf(NotFoundException);
   });
 
+  it('el cliente: un pago con el saldo deshecho sigue en sus movimientos («Devuelto a tu saldo»), y su detalle dice cuándo, sin quién ni por qué', async () => {
+    const w = await wallet(20_000);
+    const c = await cobroDe(lola);
+    await as({ userId: lola, role: 'OPERATOR', tenantId: V }, IPHONE, () =>
+      charges.payQrChargeWithPin({ userId: lola, role: 'OPERATOR', tenantId: V }, c.saldo!.chargeId, { card: w.card, uid: w.uid, pin: '4827' }),
+    );
+    // Lo deshace el encargado (como lo deja «Anular cobro»: el consumo marcado y el dinero de vuelta).
+    await sys(async (tx) => {
+      const req = await tx.walletChargeRequest.findUniqueOrThrow({ where: { id: c.saldo!.chargeId }, select: { consumptionId: true } });
+      await tx.walletConsumption.update({ where: { id: req.consumptionId! }, data: { reversedAt: new Date(), reversedByUserId: manager } });
+      await tx.clientWallet.update({ where: { id: w.id }, data: { balanceCents: { increment: 12_000 } } });
+    });
+    const state = await as(null, null, () => charges.clientState(w.qrToken));
+    const row = state.movements.find((m) => m.kind === 'consumption');
+    expect(row).toMatchObject({ returned: true, detail: { kind: 'SALDO', id: c.saldo!.chargeId } });
+    const d = await as(null, null, () => details.forClient(w.id, 'SALDO', c.saldo!.chargeId));
+    expect(d.undo).toEqual([expect.objectContaining({ kind: 'VOID', by: null, reason: null })]);
+    expect(JSON.stringify(d)).not.toContain('Javi');
+  });
+
   it('el móvil y la IP del cliente, solo el encargado y el dueño verificados; sin verificar, null (y 403 pedido aparte)', async () => {
     const c = await cobroDe(lola);
     // El cliente abrió el pago con tarjeta en su Android (el evento de /pay).

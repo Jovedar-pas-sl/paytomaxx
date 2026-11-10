@@ -219,7 +219,7 @@ export class StaffPasskeysService implements StaffPasskeyCounter {
   async verify(actor: StaffActor, purpose: string, response: unknown, origin: string | undefined): Promise<void> {
     const r = response as AuthenticationResponseJSON | undefined;
     if (!r || typeof r !== 'object' || typeof r.id !== 'string') {
-      throw new ForbiddenException({ message: 'Confirma con Face ID, huella o el PIN de tu móvil.', code: 'PASSKEY_REQUIRED' });
+      throw new ForbiddenException({ message: 'Confirma con Face ID o huella en tu móvil.', code: 'PASSKEY_REQUIRED' });
     }
     const key = await this.prisma.staffPasskey.findUnique({
       where: { credentialId: r.id },

@@ -4,14 +4,11 @@ import { createFakeRedis } from '../auth/testing/fake-redis';
 import { DEVICE_IP_RETENTION_BATCH, DeviceIpRetentionService, retentionDaysOf } from './device-ip-retention.service';
 
 const NOW = new Date('2026-11-08T08:00:00.000Z');
-const SALA = 'a1a1a1a1-0000-4000-8000-000000000001';
-const NEON = 'a1a1a1a1-0000-4000-8000-000000000002';
 
 function setup(updated: number[] = []) {
   const queue = [...updated];
   const sql: Prisma.Sql[] = [];
   const tx = {
-    venue: { findMany: vi.fn(async () => [{ id: SALA }, { id: NEON }]) },
     $executeRaw: vi.fn(async (strings: TemplateStringsArray, ...values: unknown[]) => {
       sql.push(Prisma.sql(strings, ...values));
       return queue.shift() ?? 0;
@@ -27,12 +24,17 @@ afterEach(() => {
 });
 
 describe('la IP de los dispositivos de los cobros se borra a los 90 días', () => {
-  it('local a local y de 500 en 500, solo en los `payment.device` de antes del corte y con IP', async () => {
-    const { svc, sql } = setup([DEVICE_IP_RETENTION_BATCH, 12, 3]);
+  it('todos los locales en una sentencia por vuelta (cada uno por su índice, de 500 en 500), solo en los `payment.device` de antes del corte y con IP', async () => {
+    // Primera vuelta: algún local llenó sus 500 (512 en total) → otra; la segunda no llena → se acaba.
+    const { svc, sql } = setup([DEVICE_IP_RETENTION_BATCH + 12, 3]);
     expect(await svc.eraseOld(NOW)).toBe(DEVICE_IP_RETENTION_BATCH + 12 + 3);
-    // La Sala: una vuelta llena y otra; Neón: una.
-    expect(sql.map((q) => q.values[0])).toEqual([SALA, SALA, NEON]);
+    expect(sql).toHaveLength(2);
     const q = sql[0]!;
+    // Una sola sentencia para todos los locales (antes, una transacción por local).
+    expect(q.text).toContain('FROM venues v');
+    expect(q.text).toContain('CROSS JOIN LATERAL');
+    expect(q.text).toContain('"tenantId" = v.id');
+    expect(q.values).toContain(DEVICE_IP_RETENTION_BATCH);
     expect(q.text).toContain("payload - 'ip'");
     expect(q.text).toContain('"ipErased": true');
     expect(q.text).toContain("payload ->> 'ip' IS NOT NULL");
@@ -45,7 +47,7 @@ describe('la IP de los dispositivos de los cobros se borra a los 90 días', () =
     const { svc, sql } = setup([1]);
     expect(await svc.maybeRun(NOW)).toBe(1);
     expect(await svc.maybeRun(new Date(NOW.getTime() + 10 * 60_000))).toBe(0);
-    expect(sql).toHaveLength(2);
+    expect(sql).toHaveLength(1);
   });
 
   it('se apaga con NIGHTPAY_DISABLE_DEVICE_IP_RETENTION=1; los días, con DEVICE_IP_RETENTION_DAYS', async () => {

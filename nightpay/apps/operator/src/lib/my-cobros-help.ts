@@ -24,8 +24,8 @@ export interface MyCobrosViewer {
 /** La línea de arriba: qué es la lista y qué se puede hacer con un cobro. */
 export function myCobrosHelpLine(viewer: MyCobrosViewer): string {
   return viewer.cancelPending
-    ? 'Tus cobros, del último al primero. Si uno sigue pendiente y el cliente ya no paga, toca «Cancelar».'
-    : 'Tus cobros, del último al primero. Para devolver uno, avisa al encargado o al dueño.';
+    ? 'Tus cobros, del último al primero: toca uno para ver su detalle. Si uno sigue pendiente y el cliente ya no paga, toca «Cancelar».'
+    : 'Tus cobros, del último al primero: toca uno para ver su detalle. Para devolver uno, avisa al encargado o al dueño.';
 }
 
 export interface StateHelp {

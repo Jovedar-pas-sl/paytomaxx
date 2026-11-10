@@ -349,6 +349,11 @@ export interface ClientWalletState {
      * las recargas en efectivo y las devoluciones.
      */
     detail?: { kind: 'PAYMENT' | 'SALDO'; id: string } | null;
+    /**
+     * Un pago con el saldo que el local deshizo: el dinero volvió a su saldo
+     * (la fila lo dice, «Devuelto a tu saldo»; sin quién ni por qué).
+     */
+    returned?: boolean;
   }>;
 }
 
@@ -606,11 +611,12 @@ export class WalletChargesService {
     const read = await this.prisma.acrossVenues(async (tx) => {
       const wallet = await tx.clientWallet.findUnique({ where: { qrToken } });
       if (!wallet) return null;
+      // También los deshechos: la fila dice que el dinero volvió a su saldo.
       const consumptions = await tx.walletConsumption.findMany({
-        where: { walletId: wallet.id, reversedAt: null },
+        where: { walletId: wallet.id },
         orderBy: { createdAt: 'desc' },
         take: 30,
-        select: { id: true, amountCents: true, tipCents: true, category: true, notes: true, tenantId: true, createdAt: true },
+        select: { id: true, amountCents: true, tipCents: true, category: true, notes: true, tenantId: true, createdAt: true, reversedAt: true },
       });
       const topUps = await tx.payment.findMany({
         where: { walletId: wallet.id, status: { in: ['AUTHORIZED', 'PARTIALLY_REFUNDED', 'REFUNDED'] } },
@@ -672,6 +678,7 @@ export class WalletChargesService {
         ref: refs.get(c.id) ?? null,
         color: sectionOfVenue(c.tenantId, c.category).color,
         detail: chargeOf.has(c.id) ? { kind: 'SALDO' as const, id: chargeOf.get(c.id)! } : null,
+        ...(c.reversedAt ? { returned: true } : {}),
       })),
       ...topUps.map((t) => ({
         kind: 'topup' as const,

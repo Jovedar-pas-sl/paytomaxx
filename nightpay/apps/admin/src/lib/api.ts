@@ -12,6 +12,7 @@ export * from './endpoints/settings';
 export * from './endpoints/pending-topups';
 export * from './endpoints/totp';
 export * from './endpoints/step-up';
+export * from './endpoints/cobro-detail';
 export * from './endpoints/terminals';
 export * from './endpoints/carta';
 export * from './endpoints/bank';

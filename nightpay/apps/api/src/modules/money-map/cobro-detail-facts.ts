@@ -488,7 +488,7 @@ const AUDIT_TEXT: Readonly<Record<string, string>> = {
   'approval.rejected': 'Rechazado por el dueño',
   'wallet.consumption.reversed': 'Anulado: el dinero volvió al saldo',
   'wallet.card_copy_suspected': 'Intentaron pagar con una copia de la ficha',
-  'wallet.charge_nfc_nopin': 'Pagado con el NFC sin PIN',
+  'wallet.charge_nfc_nopin': 'Pagado con la ficha sin PIN',
   'wallet.pin_charge_terminal': 'Pagado con PIN en el datáfono',
   'wallet.charge_approved_without_faceid': 'Cobrado sin que el cliente lo confirmara',
 };

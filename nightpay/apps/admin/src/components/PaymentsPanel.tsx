@@ -5,6 +5,7 @@ import { Button, Card, Modal } from '@nightpay/ui';
 import type { CobroRow } from '@nightpay/contracts';
 import { fetchCobros, fetchMetrics, type CobrosFilters, type Metrics, type PaymentRow, type User } from '@/lib/api';
 import { cobradoNote, metricsCobradoParts } from '@/lib/cobrado';
+import { refFromSearch, withoutRef } from '@/lib/cobro-detail-view';
 import { COBROS_HINT } from '@/lib/cobros-help';
 import { keepIfSame } from '@/lib/diff';
 import { formatEur } from '@/lib/money';
@@ -19,7 +20,7 @@ import { CobroRowActions } from './CobroRowActions';
 import { CobrosHowTo } from './CobrosHowTo';
 import { CobrosFiltersBar } from './fichas/CobrosFiltersBar';
 import { CobrosTable } from './fichas/CobrosTable';
-import { PaymentReferenceDetails } from './fichas/PaymentReferenceDetails';
+import { CobroDetailPanel } from './fichas/CobroDetailPanel';
 import { Notice } from './Notice';
 import { RefundModal, ResolveModal } from './PaymentModals';
 import { RefundsModal } from './RefundsModal';
@@ -57,7 +58,10 @@ export function PaymentsPanel({ user, onNavigate, focusPaymentId = null, onFocus
   /** null = aún no ha llegado la primera página. */
   const [payments, setPayments] = useState<CobroRow[] | null>(null);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
-  const [filter, setFilter] = useState<CobrosFilters>(() => initialFilter ?? {});
+  // El enlace de «Compartir» (?ref=C-0024): se busca ese cobro y se abre su detalle (una vez).
+  const [linkRef, setLinkRef] = useState<string | null>(() => (typeof window === 'undefined' ? null : refFromSearch(window.location.search)));
+  const [linkMissing, setLinkMissing] = useState<string | null>(null);
+  const [filter, setFilter] = useState<CobrosFilters>(() => initialFilter ?? (linkRef ? { search: linkRef } : {}));
   const [error, setError] = useState<string | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
   const [detailFor, setDetailFor] = useState<CobroRow | null>(null);
@@ -90,6 +94,16 @@ export function PaymentsPanel({ user, onNavigate, focusPaymentId = null, onFocus
     setFocusMissing(!row);
     onFocusDone?.();
   }, [focusPaymentId, payments, onFocusDone]);
+
+  useEffect(() => {
+    if (!linkRef || payments === null) return;
+    const row = payments.find((p) => p.ref === linkRef);
+    if (row) setDetailFor(row);
+    else setLinkMissing(linkRef);
+    setLinkRef(null);
+    const { pathname, search, hash } = window.location;
+    window.history.replaceState(window.history.state, '', `${pathname}${withoutRef(search)}${hash}`);
+  }, [linkRef, payments]);
 
   // Desde el mapa del dinero: la lista con los filtros de esa cifra (una vez).
   useEffect(() => {
@@ -160,6 +174,12 @@ export function PaymentsPanel({ user, onNavigate, focusPaymentId = null, onFocus
       {focusMissing ? (
         <Notice tone="info" action={{ label: 'Entendido', onClick: () => setFocusMissing(false) }}>
           Ese cobro no está entre los últimos cargados. Pulsa «Cargar más» abajo y, en él, Devoluciones → Resolver.
+        </Notice>
+      ) : null}
+
+      {linkMissing ? (
+        <Notice tone="info" action={{ label: 'Entendido', onClick: () => setLinkMissing(null) }}>
+          El cobro {linkMissing} no está entre los de este local.
         </Notice>
       ) : null}
 
@@ -252,7 +272,7 @@ export function PaymentsPanel({ user, onNavigate, focusPaymentId = null, onFocus
       </section>
 
       <Modal open={Boolean(detailFor)} onClose={() => setDetailFor(null)} title="Detalle del cobro">
-        {detailFor ? <PaymentReferenceDetails row={detailFor} /> : null}
+        {detailFor ? <CobroDetailPanel key={`${detailFor.kind}:${detailFor.id}`} row={detailFor} /> : null}
       </Modal>
 
       <ResolveModal

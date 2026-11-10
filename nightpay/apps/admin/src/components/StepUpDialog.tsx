@@ -2,7 +2,7 @@
 
 import { useEffect, useState, type FormEvent } from 'react';
 import { passkeysSupported, type RequestOptionsJSON } from '@nightpay/api-client';
-import type { StepUpProof, StepUpStatus } from '@nightpay/contracts';
+import { unlockName, type StepUpProof, type StepUpStatus } from '@nightpay/contracts';
 import { Button, Modal } from '@nightpay/ui';
 import { fetchStepUp, passkeyChallenge, passkeyConfirm, verifyStepUpWithCode } from '@/lib/api';
 import { stepUpErrorText } from '@/lib/step-up';
@@ -30,6 +30,7 @@ interface Props {
  * tiene que salir en el mismo toque.
  */
 export function StepUpDialog({ open, onClose, onVerified, action, onProof, reason }: Props) {
+  const unlock = unlockName(typeof navigator === 'undefined' ? null : navigator.userAgent);
   const [status, setStatus] = useState<StepUpStatus | null>(null);
   const [challenge, setChallenge] = useState<RequestOptionsJSON | null>(null);
   const [code, setCode] = useState('');
@@ -98,7 +99,7 @@ export function StepUpDialog({ open, onClose, onVerified, action, onProof, reaso
     <Modal open={open} onClose={onClose} title="Verificarte">
       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.875rem' }}>
         <p style={{ margin: 0, color: 'var(--np-text-mute)', fontSize: '0.9375rem', lineHeight: 1.45 }}>
-          {reason ?? 'Para ver lo delicado de un cobro.'} Vale 5 minutos.
+          {reason ?? 'Para ver lo delicado de un cobro.'} {action ? 'Vale para esto, una vez.' : 'Vale 5 minutos.'}
         </p>
         {status === null && !error ? <p style={{ margin: 0 }}>Un momento…</p> : null}
         {method === 'totp' && !action ? (
@@ -113,7 +114,7 @@ export function StepUpDialog({ open, onClose, onVerified, action, onProof, reaso
         {method === 'passkey' ? (
           passkeysSupported() ? (
             <Button onClick={() => void withPasskey()} loading={busy} disabled={!challenge}>
-              Confirmar con Face ID o el PIN del móvil
+              Confirmar con {unlock}
             </Button>
           ) : (
             <p style={{ margin: 0 }}>Este navegador no permite llaves de acceso. Ábrelo en el móvil donde la diste de alta.</p>

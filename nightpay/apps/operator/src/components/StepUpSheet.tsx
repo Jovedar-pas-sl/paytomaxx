@@ -2,7 +2,7 @@
 
 import { useEffect, useState, type FormEvent } from 'react';
 import { passkeysSupported, type RequestOptionsJSON } from '@nightpay/api-client';
-import type { StepUpStatus } from '@nightpay/contracts';
+import { unlockName, type StepUpStatus } from '@nightpay/contracts';
 import { Button, Input, Modal } from '@nightpay/ui';
 import { fetchStepUp, passkeyChallenge, passkeyConfirm, stepUpErrorText, verifyStepUpWithCode } from '@/lib/api-step-up';
 
@@ -13,6 +13,7 @@ import { fetchStepUp, passkeyChallenge, passkeyConfirm, stepUpErrorText, verifyS
  * toque). Sin ninguna, le dice dónde darla de alta.
  */
 export function StepUpSheet({ open, onClose, onVerified }: { open: boolean; onClose: () => void; onVerified: (s: StepUpStatus) => void }) {
+  const unlock = unlockName(typeof navigator === 'undefined' ? null : navigator.userAgent);
   const [status, setStatus] = useState<StepUpStatus | null>(null);
   const [challenge, setChallenge] = useState<RequestOptionsJSON | null>(null);
   const [code, setCode] = useState('');
@@ -96,7 +97,7 @@ export function StepUpSheet({ open, onClose, onVerified }: { open: boolean; onCl
         ) : null}
         {method === 'passkey' ? (
           <Button onClick={() => void withPasskey()} loading={busy} disabled={!challenge}>
-            Confirmar con Face ID o el PIN del móvil
+            Confirmar con {unlock}
           </Button>
         ) : null}
         {status !== null && method === null ? (

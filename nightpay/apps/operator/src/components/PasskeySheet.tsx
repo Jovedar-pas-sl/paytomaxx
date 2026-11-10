@@ -2,9 +2,9 @@
 
 import { useEffect, useState, type CSSProperties, type FormEvent } from 'react';
 import { passkeysSupported, type CreationOptionsJSON } from '@nightpay/api-client';
-import type { StaffPasskeyView } from '@nightpay/contracts';
+import { unlockName, type StaffPasskeyView } from '@nightpay/contracts';
 import { Button, Input, Modal } from '@nightpay/ui';
-import { fetchPasskeys, fetchStepUp, passkeyRegister, passkeyRegistrationOptions, removePasskey, stepUpErrorText } from '@/lib/api-step-up';
+import { fetchPasskeys, fetchStepUp, passkeyRegister, passkeyRegistrationOptions, removePasskey, stepUpErrorText } from '../lib/api-step-up';
 
 /**
  * «Llave de acceso» (desde el menú): quien no tiene la verificación en dos
@@ -14,6 +14,7 @@ import { fetchPasskeys, fetchStepUp, passkeyRegister, passkeyRegistrationOptions
  * iPhone tiene que ser en el mismo toque).
  */
 export function PasskeySheet({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const unlock = unlockName(typeof navigator === 'undefined' ? null : navigator.userAgent);
   const [keys, setKeys] = useState<StaffPasskeyView[] | null>(null);
   const [totpEnabled, setTotpEnabled] = useState(false);
   const [password, setPassword] = useState('');
@@ -108,7 +109,7 @@ export function PasskeySheet({ open, onClose }: { open: boolean; onClose: () => 
     <Modal open={open} onClose={close} title="Llave de acceso">
       <div style={stack}>
         <p style={note}>
-          Confirma con tu móvil (Face ID, huella o su PIN) para ver lo delicado de tus cobros, si no usas la verificación en dos pasos.
+          Confirma con tu móvil (Face ID o huella) para ver lo delicado de tus cobros, si no usas la verificación en dos pasos.
         </p>
         {keys?.map((k) => (
           <div key={k.id} style={row}>
@@ -144,7 +145,7 @@ export function PasskeySheet({ open, onClose }: { open: boolean; onClose: () => 
         ) : null}
         {supported && options ? (
           <Button onClick={() => void create()} loading={busy}>
-            Crear la llave con Face ID o el PIN del móvil
+            Crear la llave con {unlock}
           </Button>
         ) : null}
         {error ? (

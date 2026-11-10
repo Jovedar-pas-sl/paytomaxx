@@ -116,7 +116,7 @@ export const COBRO_FLAGS = [
   'PAID_TWICE',
   /** Recarga que hizo el cliente con el enlace del local, antes de llegar. */
   'FROM_HOME',
-  /** Pagado con el NFC sin PIN (hasta el tope de la noche). */
+  /** Pagado con la ficha sin PIN (hasta el tope de la noche). */
   'NFC_NO_PIN',
   /** Cobrado del saldo sin que el cliente lo confirmara (lo aprobó el encargado). */
   'APPROVED_BY_STAFF',
@@ -130,9 +130,9 @@ export const COBRO_FLAGS = [
 export type CobroFlag = (typeof COBRO_FLAGS)[number];
 
 export const COBRO_FLAG_TEXT: Readonly<Record<CobroFlag, string>> = {
-  PAID_TWICE: 'Cobrado dos veces',
+  PAID_TWICE: 'Pagado dos veces',
   FROM_HOME: 'Desde casa',
-  NFC_NO_PIN: 'NFC sin PIN',
+  NFC_NO_PIN: 'Ficha sin PIN',
   APPROVED_BY_STAFF: 'Sin confirmar por el cliente',
   CARD_COPY_SUSPECTED: 'Posible copia de la ficha',
   NO_3DS: 'Sin 3DS',
@@ -395,7 +395,7 @@ export const COBRO_STATUS_TEXT: Readonly<Record<string, string>> = {
   ACCEPTED: 'Pagado',
   PARTIALLY_REFUNDED: 'Devuelto en parte',
   REFUNDED: 'Devuelto',
-  REVERSED: 'Anulado',
+  REVERSED: 'Devuelto',
   CANCELED: 'Cancelado',
   EXPIRED: 'Caducado',
   FAILED: 'No se pudo pagar',
@@ -454,7 +454,7 @@ export const STEP_UP_REQUIRED_CODE = 'STEP_UP_REQUIRED';
 
 /**
  * 403 de una acción que pide la 2FA a quien no la tiene pero sí tiene una
- * llave de acceso: que confirme con ella (Face ID o el PIN de su móvil) esa
+ * llave de acceso: que confirme con ella (Face ID o huella) esa
  * acción (`stepUpAction` en el error) y la repita con la prueba.
  */
 export const PASSKEY_REQUIRED_CODE = 'PASSKEY_REQUIRED';
@@ -567,4 +567,16 @@ export interface StepUpProof {
 /** Lo que devuelve verificarse con la llave: el estado y, para una acción, su prueba. */
 export interface StepUpPasskeyResult extends StepUpStatus {
   proof: StepUpProof | null;
+}
+
+/**
+ * Cómo se llama desbloquear el móvil: «Face ID» en un iPhone o iPad, «huella»
+ * en un Android y, si no se sabe, «Face ID o huella». Las palabras únicas de
+ * los textos nuevos (sin «el PIN del móvil»: el móvil decide).
+ */
+export function unlockName(userAgent: string | null | undefined): string {
+  const ua = userAgent ?? '';
+  if (/iPhone|iPad|iPod/i.test(ua)) return 'Face ID';
+  if (/Android/i.test(ua)) return 'huella';
+  return 'Face ID o huella';
 }

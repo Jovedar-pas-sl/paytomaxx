@@ -132,9 +132,9 @@ export function CobrosFiltersBar({ value, onChange }: { value: CobrosFilters; on
       </Cell>
       <Cell w="11.5rem">
         <Input
-          aria-label="Referencia (C-0022), código o referencia del banco (al menos 3 caracteres)"
-          placeholder="C-0022, código o banco"
-          title="La referencia (C-0022), el código de 3 letras o la referencia del banco"
+          aria-label="Referencia (C-0022), código, referencia del banco, 4 últimos de la tarjeta o número de ficha (al menos 3 caracteres)"
+          placeholder="C-0022, código, tarjeta o ficha"
+          title="La referencia (C-0022), el código de 3 letras, la referencia del banco, los 4 últimos de la tarjeta (tarjeta 4242) o el número de la ficha (ficha 522)"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           minLength={SEARCH_MIN_CHARS}
