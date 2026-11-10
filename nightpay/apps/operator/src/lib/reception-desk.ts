@@ -52,6 +52,12 @@ export async function topUpByNumber(body: ReceptionNumberTopUpDto): Promise<Rece
   return res.json();
 }
 
+/** El teléfono opcional al dar una ficha nueva (lo deja quien se la dio, en sus 15 min). */
+export async function saveContactPhone(walletId: string, phone: string): Promise<void> {
+  const res = await authedFetch(`/v1/reception/wallets/${encodeURIComponent(walletId)}/phone`, { method: 'POST', body: JSON.stringify({ phone }) });
+  if (!res.ok) throw new Error(await parseOperatorApiError(res, 'Teléfono'));
+}
+
 /** Por qué la ficha buscada por número no se carga aquí (null: se puede, en efectivo). */
 export function numberEntryProblem(view: ReceptionNumberView): string | null {
   if (view.kind === 'new') return NEW_FICHA_BY_NUMBER_MESSAGE;

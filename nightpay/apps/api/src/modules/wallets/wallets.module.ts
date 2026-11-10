@@ -22,6 +22,8 @@ import { PublicPayoutConfirmController } from './public-payout-confirm.controlle
 import { ReceptionPayoutPasskeys } from './reception-payout-passkey';
 import { ReceptionPayoutService } from './reception-payout.service';
 import { FichaNumbersService } from './ficha-numbers.service';
+import { ReceptionContactController } from './reception-contact.controller';
+import { WalletContactService } from './wallet-contact.service';
 import { ReceptionFichaNumberController } from './reception-ficha-number.controller';
 import { ReceptionActivationLinkController } from './reception-activation-link.controller';
 import { WalletActivationLinkService } from './wallet-activation-link.service';
@@ -47,6 +49,7 @@ import { CobroDetailModule } from '../money-map/cobro-detail.module';
   imports: [PrismaModule, AuditModule, AuthModule, WalletEventsModule, CobroDetailModule],
   // WalletTopUpService: «Recargar» desde /w (usa PaymentsService con ModuleRef).
   providers: [
+    WalletContactService,
     // Aviso al anular un cobro con saldo.
     TelegramService,
     WalletViewGuard,
@@ -75,6 +78,8 @@ import { CobroDetailModule } from '../money-map/cobro-detail.module';
     WalletWelcomeService,
   ],
   controllers: [
+    // El teléfono opcional al dar una ficha nueva (y buscar un saldo por él).
+    ReceptionContactController,
     WalletsController,
     AdminWalletsController,
     WalletChargesController,

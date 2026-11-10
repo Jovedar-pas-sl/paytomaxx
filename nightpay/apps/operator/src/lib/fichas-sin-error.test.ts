@@ -136,3 +136,15 @@ describe('B5: los cuidados de la ficha que se lee sola', () => {
     expect(sound).toMatch(/ficha: \[\s*\{ freq: 1319/);
   });
 });
+
+describe('teléfono opcional al dar una ficha nueva', () => {
+  it('en CARGADO de una ficha nueva y en «Ficha dada», con su línea debajo; se puede saltar', () => {
+    const desk = read('../components/reception/desk/ReceptionDesk.tsx');
+    expect(desk).toContain("const phone = view?.kind === 'new' && done.linked && done.wallet ? <ContactPhoneField walletId={done.wallet.walletId} /> : null;");
+    const give = read('../components/reception/GiveFicha.tsx');
+    expect(give).toContain('<ContactPhoneField walletId={out.walletId} />');
+    const field = read('../components/reception/desk/ContactPhone.tsx');
+    expect(field).toContain('<label htmlFor={id}>Teléfono (opcional)</label>');
+    expect(field).toContain('<small>{CONTACT_PHONE_NOTE}</small>');
+  });
+});

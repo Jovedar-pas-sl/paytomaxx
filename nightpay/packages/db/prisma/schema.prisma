@@ -1158,6 +1158,10 @@ model ClientWallet {
   // saldo (al acercar su NFC o teclear su código). Quién la cobró.
   pendingAssignAt   DateTime? @db.Timestamptz
   pendingAssignById String?   @db.Uuid
+  // Teléfono opcional al darle una ficha nueva (20261110100000): solo para
+  // encontrar su saldo si lo pierde todo. Dato personal: fuera de las listas;
+  // lo ven el encargado y el dueño en el detalle. Normalizado (CHECK en SQL).
+  contactPhone      String?   @db.VarChar(16)
   createdAt    DateTime     @default(now()) @db.Timestamptz
   updatedAt    DateTime     @updatedAt @db.Timestamptz
 

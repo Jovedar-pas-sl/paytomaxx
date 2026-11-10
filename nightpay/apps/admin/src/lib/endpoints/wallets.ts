@@ -1,6 +1,6 @@
 // Saldos de clientes (Phase 1B).
 
-import { STEP_UP_TOKEN_HEADER } from '@nightpay/contracts';
+import { STEP_UP_TOKEN_HEADER, type WalletByPhone } from '@nightpay/contracts';
 import { apiError, authedFetch, totpAwareError } from '../http';
 import type { WalletPayoutPreview, WalletPayoutResult } from '../wallet-payout';
 
@@ -36,6 +36,16 @@ export interface PendingQrCharge {
   requestedByName: string;
   createdAt: string;
   expiresAt: string;
+}
+
+/**
+ * Encargado o dueño: el saldo de quien lo ha perdido todo (la ficha y el
+ * código), por el teléfono que dejó al darle la ficha. Sin el teléfono.
+ */
+export async function findWalletsByPhone(phone: string): Promise<WalletByPhone[]> {
+  const res = await authedFetch(`/v1/reception/wallets/by-phone?phone=${encodeURIComponent(phone)}`);
+  if (!res.ok) throw await apiError(res);
+  return res.json();
 }
 
 /** Encargado o dueño: cobros con QR sin pagar (cliente sin batería…). */

@@ -11,6 +11,7 @@ import { useVenueMethods, useVenueNight } from '@/lib/venue-methods';
 import { PinPad } from '../PinPad';
 import { QrScanner, qrScanSupported } from '../QrScanner';
 import { StaffOutcome } from '../StaffOutcome';
+import { ContactPhoneField } from './desk/ContactPhone';
 import { DESK_FIELD } from './desk/desk-parts';
 import r from './reception.module.css';
 import { useReadNfc } from './use-read-nfc';
@@ -151,7 +152,13 @@ export function GiveFicha({
         sound="ficha"
         amountCents={out.balanceCents}
         message="Ficha dada"
-        detail={<p>{`Saldo ${out.code}${ficha ? ` · ficha nº ${ficha}` : ''}. ${fichaGivenNote(step.hasPin, noPinMaxCents)}`}</p>}
+        detail={
+          <>
+            <p>{`Saldo ${out.code}${ficha ? ` · ficha nº ${ficha}` : ''}. ${fichaGivenNote(step.hasPin, noPinMaxCents)}`}</p>
+            {/* Su teléfono, si quiere: solo para encontrar su saldo si pierde la ficha. */}
+            <ContactPhoneField walletId={out.walletId} />
+          </>
+        }
         primary={{ label: 'Otra ficha', onClick: () => { setCode(''); setStep({ kind: 'find' }); } }}
         secondary={{ label: 'Volver', onClick: onDone }}
       />

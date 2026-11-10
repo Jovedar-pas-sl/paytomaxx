@@ -111,6 +111,11 @@ export function WalletFichaModal({ walletId, onClose }: { walletId: string; onCl
             ) : null}
           </div>
 
+          {sheet.phone ? (
+            <p style={{ margin: 0, fontSize: '0.875rem' }}>
+              Teléfono: <b>{sheet.phone}</b> · solo para encontrar su saldo si pierde la ficha
+            </p>
+          ) : null}
           <FichaTimeline rows={sheet.rows} empty="Aún no tiene movimientos." label="Recargas, gastos y devoluciones" />
         </>
       )}

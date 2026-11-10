@@ -6,6 +6,7 @@
 //    de recepción; la pantalla manda lo que dijo y, si cambió, 409.
 //  - Sin saldo que la cubra, 409 y no se hace nada (ni se gasta su PIN).
 //  - Repetida (se cortó la respuesta), no se cobra dos veces.
+//  - El teléfono opcional al dar una ficha nueva (solo quien se la dio, 15 min; lo buscan el encargado y el dueño).
 //  - B10: recepción pone el PIN a un saldo que ya existía justo después de
 //    recargarlo y con su ficha; sin la ficha o sin recargarlo, no.
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
@@ -19,6 +20,7 @@ import { WalletCardsService } from '../../src/modules/wallets/wallet-cards.servi
 import { WalletChargesService } from '../../src/modules/wallets/wallet-charges.service';
 import { FichaNumbersService } from '../../src/modules/wallets/ficha-numbers.service';
 import { ReceptionFichaService } from '../../src/modules/home-topup/reception-ficha.service';
+import { WalletContactService } from '../../src/modules/wallets/wallet-contact.service';
 
 const cls = new ClsService(new AsyncLocalStorage());
 const prisma = new PrismaService(cls as never);
@@ -209,5 +211,28 @@ describe('B5: la ficha que se lee sola tras «Escanear su QR (cargó en casa)»'
       inVenue(V, () => fichas.give(recepcion(), { walletId: sinFicha.walletId, card: nueva.card, uid: nueva.uid, pin: '2468', onlyStock: true })),
     ).resolves.toMatchObject({ walletId: sinFicha.walletId, printedNumber: given.printedNumber });
     expect(await sys((tx) => tx.walletCard.count({ where: { walletId: sinFicha.walletId, status: 'ISSUED' } }))).toBe(1);
+  });
+});
+
+describe('teléfono opcional al dar una ficha nueva', () => {
+  it('lo deja quien le acaba de dar la ficha; el encargado o el dueño lo buscan; nunca en el registro', async () => {
+    const contacts = new WalletContactService(prisma, audit as never);
+    const ficha = await stockedCard(`81${digits}5`.slice(0, 12));
+    const out = await inVenue(V, () =>
+      cash.topUp(V, { userId: rocio, role: 'WAITER' }, { amountCents: 2_000, idempotencyKey: key(), wallet: { create: true, card: ficha.card, uid: ficha.uid } }),
+    );
+    audit.log.mockClear();
+    await inVenue(V, () => contacts.setPhone(recepcion(), out.walletId, '+34 600-12 34 56'));
+    expect(await sys((tx) => tx.clientWallet.findUniqueOrThrow({ where: { id: out.walletId }, select: { contactPhone: true } }))).toEqual({ contactPhone: '+34600123456' });
+    expect(JSON.stringify(audit.log.mock.calls)).not.toContain('600');
+    await expect(inVenue(V, () => contacts.setPhone(recepcion(), out.walletId, 'llámame'))).rejects.toMatchObject({ status: 400 });
+    // Pasados 15 minutos desde que se la dio, ya no (con el encargado).
+    await sys((tx) => tx.walletCardEvent.updateMany({ where: { walletId: out.walletId }, data: { at: new Date(Date.now() - 20 * 60_000) } }));
+    await expect(inVenue(V, () => contacts.setPhone(recepcion(), out.walletId, '600123456'))).rejects.toMatchObject({ status: 403 });
+    // Buscar: solo el encargado o el dueño, y sin enseñar el teléfono.
+    await expect(inVenue(V, () => contacts.findByPhone(recepcion(), '+34600123456'))).rejects.toMatchObject({ status: 403 });
+    const found = await inVenue(V, () => contacts.findByPhone({ userId: rocio, role: 'OWNER', tenantId: V }, '0034 600 123 456'));
+    expect(found).toEqual([expect.objectContaining({ walletId: out.walletId, code: out.code, balanceCents: 2_000 })]);
+    expect(JSON.stringify(found)).not.toContain('600');
   });
 });

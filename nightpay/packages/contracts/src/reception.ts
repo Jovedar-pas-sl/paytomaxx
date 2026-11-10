@@ -115,6 +115,34 @@ export const CashTopUpUndoSchema = z
   .strict();
 export type CashTopUpUndoDto = z.infer<typeof CashTopUpUndoSchema>;
 
+// ─── Teléfono opcional al dar una ficha nueva (10-nov-2026) ─────────────
+
+/** Debajo del campo, para el cliente. */
+export const CONTACT_PHONE_NOTE = 'Solo para encontrar tu saldo si pierdes la ficha';
+
+/**
+ * «600 12 34 56», «+34 600-123-456», «0034 600123456» → «600123456» o
+ * «+34600123456»: solo cifras (con «+» delante si es internacional), de 6 a
+ * 15. null si no lo parece.
+ */
+export function normalizeContactPhone(raw: string): string | null {
+  const compact = raw.trim().replace(/[\s().-]/g, '');
+  const intl = compact.startsWith('+') ? compact : compact.startsWith('00') ? `+${compact.slice(2)}` : compact;
+  return /^[+]?[0-9]{6,15}$/.test(intl) ? intl : null;
+}
+
+export const ContactPhoneSchema = z.object({ phone: z.string().trim().min(1).max(32) }).strict();
+export type ContactPhoneDto = z.infer<typeof ContactPhoneSchema>;
+
+/** Un saldo encontrado por su teléfono (encargado o dueño): sin el teléfono, que ya lo saben. */
+export interface WalletByPhone {
+  walletId: string;
+  code: string;
+  balanceCents: number;
+  status: string;
+  createdAt: string;
+}
+
 /** Lo que devuelve la anulación: la fila negativa y el saldo que queda. */
 export interface CashTopUpVoidResult {
   voidId: string;

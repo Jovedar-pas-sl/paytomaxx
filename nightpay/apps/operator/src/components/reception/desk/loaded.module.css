@@ -198,6 +198,64 @@
   text-align: left;
 }
 
+/* El teléfono opcional al dar una ficha nueva: con filete y sin fondo, como el
+   QR de Face ID; se puede saltar. Sirve en el verde de CARGADO y en «Ficha dada». */
+.phone {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+  width: 100%;
+  max-width: 26rem;
+  padding: 0.625rem 0.75rem;
+  border-radius: var(--np-r-md);
+  border: 1px solid color-mix(in srgb, currentColor 28%, transparent);
+  text-align: left;
+}
+
+.phone label {
+  font-size: 0.9375rem;
+  font-weight: 600;
+}
+
+.phone small {
+  font-size: 0.8125rem;
+  line-height: 1.35;
+}
+
+.phoneRow {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.phoneRow input {
+  flex: 1;
+  min-width: 0;
+  min-height: 2.75rem;
+  padding: 0 0.75rem;
+  border-radius: var(--np-r-sm);
+  border: 1px solid color-mix(in srgb, currentColor 40%, transparent);
+  background: rgb(0 0 0 / 0.24);
+  color: inherit;
+  font: 500 1rem/1 var(--np-font-num);
+}
+
+.phoneRow button {
+  min-height: 2.75rem;
+  padding: 0 0.875rem;
+  border-radius: var(--np-r-sm);
+  border: 1px solid currentColor;
+  background: transparent;
+  color: inherit;
+  font: 600 0.9375rem/1 var(--np-font-sans);
+}
+
+.phoneSaved {
+  margin: 0;
+  max-width: 26rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+}
+
 /* «Me he equivocado» (B4): terciario de 44 px debajo de los botones, en la
    tinta del resultado y subrayado; solo los 2 minutos siguientes. */
 .undoLink {

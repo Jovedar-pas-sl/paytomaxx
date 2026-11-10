@@ -312,6 +312,8 @@ export interface WalletFicha {
     hasPin: boolean;
     hasCard: boolean;
     hasFaceId: boolean;
+    /** El teléfono opcional que dejó al darle la ficha (solo encargado y dueño: esta ficha ya es solo suya). */
+    contactPhone?: string | null;
   };
   topUps: WalletFichaTopUp[];
   /** Lo que se gastó del saldo (cobros del saldo, también los anulados: status REVERSED). */

@@ -231,3 +231,15 @@ describe('9.2 · ficha de la chica y del camarero', () => {
     expect(sp(payButtonLabel('request', 27_100, 'Lola'))).toBe('Pedir pago de 271 € para Lola');
   });
 });
+
+describe('el teléfono que dejó al darle la ficha', () => {
+  it('sale en el detalle del saldo (solo el encargado y el dueño lo abren) y nunca en la lista', async () => {
+    const { readFileSync } = await import('node:fs');
+    const panel = readFileSync(new URL('../components/WalletsPanel.tsx', import.meta.url), 'utf8');
+    expect(panel).not.toMatch(/contactPhone|\.phone\b/);
+    const modal = readFileSync(new URL('../components/fichas/WalletFichaModal.tsx', import.meta.url), 'utf8');
+    expect(modal).toContain('{sheet.phone ? (');
+    const search = readFileSync(new URL('../components/WalletPhoneSearch.tsx', import.meta.url), 'utf8');
+    expect(search).toContain('findWalletsByPhone(phone)');
+  });
+});

@@ -83,6 +83,7 @@ import { PinPad } from '../../PinPad';
 import { ActivationQr } from './ActivationQr';
 import { CounterAviso, DeskHead, DeskBtn, DeskRowLink, DeskRowView } from './desk-parts';
 import { AmountStep, CashConfirmStep, CodeStep, ExitStep, KeypadStep, MethodStep, NumberStep, TapStage } from './DeskSteps';
+import { ContactPhoneField } from './ContactPhone';
 import { DeskLoaded, LoadedBand } from './DeskLoaded';
 import { ManagerExitStep, NumberExitStep, PasskeyExitStep, TotpExitStep } from './ExitSteps';
 import { TopUpQr, useRetirePayment } from './TopUpQr';
@@ -914,6 +915,8 @@ export function ReceptionDesk({ user, active, footer, onGiveFicha, onScanHome, h
           <ActivationQr walletId={done.wallet.walletId} read={done.read.nfc} onOpen={setFaceQrOpen} />
         )
       ) : null;
+    // La ficha nueva que se le acaba de dar: su teléfono, si quiere (se puede saltar).
+    const phone = view?.kind === 'new' && done.linked && done.wallet ? <ContactPhoneField walletId={done.wallet.walletId} /> : null;
     return (
       <DeskLoaded
         word="Cargado"
@@ -925,7 +928,14 @@ export function ReceptionDesk({ user, active, footer, onGiveFicha, onScanHome, h
         warn={done.warn}
         note={pinText}
         quiet={done.seen}
-        extra={activation}
+        extra={
+          activation || phone ? (
+            <>
+              {activation}
+              {phone}
+            </>
+          ) : null
+        }
         help={help}
         aviso={wrong}
         tertiary={
