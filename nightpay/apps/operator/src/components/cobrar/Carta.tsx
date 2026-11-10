@@ -137,7 +137,7 @@ export function Carta({
             .
           </p>
         ) : ctx.cartaLoaded && items.length === 0 ? (
-          <p className={styles.empty}>No hay productos disponibles para tu puesto. El dueño o encargado debe configurar la carta en Administración → Carta y comprobar las secciones del puesto.{' '}
+          <p className={styles.empty}>No hay productos disponibles para tu puesto. El dueño o encargado debe configurar la carta en Ajustes → Carta y comprobar las secciones del puesto.{' '}
             <button type="button" className={styles.link} onClick={onRetryCarta}>Actualizar carta</button>
           </p>
         ) : null}

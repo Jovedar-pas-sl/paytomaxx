@@ -224,7 +224,14 @@ function CobroRow({ row: r, night, cancel }: { row: OwnCobro; night: OwnNight | 
       {meta ? <span className={styles.meta}>{meta}</span> : null}
       {cancel ? (
         <div className={styles.actions}>
-          <Button variant="ghost" size="md" onClick={cancel.run} loading={cancel.busy} disabled={cancel.busy}>
+          <Button
+            variant="ghost"
+            size="md"
+            onClick={cancel.run}
+            loading={cancel.busy}
+            disabled={cancel.busy}
+            aria-label={`Cancelar el cobro ${r.ref ? `${r.ref} ` : ''}de ${formatEur(r.amountCents, { compact: true })}`}
+          >
             Cancelar
           </Button>
         </div>

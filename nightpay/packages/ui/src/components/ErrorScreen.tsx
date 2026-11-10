@@ -18,7 +18,8 @@ interface Props {
  */
 export function ErrorScreen({ title, detail, actionLabel, onAction }: Props) {
   return (
-    <main role="alert" style={wrap}>
+    <main style={wrap}>
+      <div role="alert" style={alertBox}>
       <div style={mark} aria-hidden="true">
         <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
           <path d="M12 7v6" />
@@ -28,6 +29,7 @@ export function ErrorScreen({ title, detail, actionLabel, onAction }: Props) {
       </div>
       <h1 style={titleStyle}>{title}</h1>
       <p style={detailStyle}>{detail}</p>
+      </div>
       <Button size="lg" onClick={onAction} style={{ width: '100%', maxWidth: '22rem' }}>
         {actionLabel}
       </Button>
@@ -47,6 +49,9 @@ const wrap: CSSProperties = {
   background: 'var(--np-bg)',
   color: 'var(--np-text)',
 };
+
+// Lo que se anuncia (marca, título y qué pasa), en su caja: el lector no lee el botón como aviso.
+const alertBox: CSSProperties = { display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1rem' };
 
 const mark: CSSProperties = {
   width: '4rem',
