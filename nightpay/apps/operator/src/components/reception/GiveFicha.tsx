@@ -31,12 +31,13 @@ type Step = { kind: 'find' } | { kind: 'scan' } | { kind: 'pin'; found: Found; e
  * cliente pone su PIN (el encargado y el dueño no lo necesitan). Después se
  * acerca una ficha y queda unida a ese saldo. Solo la primera ficha.
  */
-export function GiveFicha({ user, onDone }: { user: OperatorUser; onDone: () => void }) {
+export function GiveFicha({ user, onDone, initialCode }: { user: OperatorUser; onDone: () => void; initialCode?: string }) {
   const nfcOn = useVenueMethods().nfc;
   const noPinMaxCents = noPinLimitCents(useVenueNight());
   const { reader, reading, read } = useReadNfc();
   const [step, setStep] = useState<Step>({ kind: 'find' });
-  const [code, setCode] = useState('');
+  // Desde un saldo sin ficha en el mostrador (A7): su código ya escrito; se busca como siempre.
+  const [code, setCode] = useState(initialCode ?? '');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const manager = user.role === 'MANAGER' || user.role === 'OWNER';

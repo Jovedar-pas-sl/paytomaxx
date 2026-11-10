@@ -345,6 +345,24 @@ button.det {
   color: var(--np-warning);
 }
 
+/* «Darle una» (A7): un saldo sin ficha, encontrado por su código. Terciario
+   de 44 px dentro de la fila: lleva a «Dar ficha a un saldo» con su código. */
+.grow > .rowAction {
+  display: inline-flex;
+  align-items: center;
+  min-height: 2.75rem;
+  margin: 0.25rem 0 -0.5rem -0.25rem;
+  padding: 0 0.25rem;
+  border: none;
+  background: transparent;
+  color: var(--np-text);
+  font: 600 0.9375rem/1.2 var(--np-font-sans);
+  text-decoration: underline;
+  text-decoration-color: var(--np-border-hi);
+  text-underline-offset: 4px;
+  touch-action: manipulation;
+}
+
 /* Leído: la marca en verde de estado, sin círculo. */
 .okc {
   flex: none;

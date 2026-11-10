@@ -151,6 +151,8 @@ interface Props {
   active: boolean;
   /** Lo de siempre, debajo del primer paso: «Preparar fichas», «Pendientes de asignar (2)». */
   footer: ReactNode;
+  /** Un saldo sin ficha encontrado por su código (A7): «Darle una» abre «Dar ficha a un saldo» con él. */
+  onGiveFicha?: (code: string) => void;
 }
 
 /**
@@ -164,7 +166,7 @@ interface Props {
  * su Face ID, así el cliente teclea el PIN una sola vez.
  * Solo recepción carga saldos y cobra efectivo (el servidor lo exige igual).
  */
-export function ReceptionDesk({ user, active, footer }: Props) {
+export function ReceptionDesk({ user, active, footer, onGiveFicha }: Props) {
   const night = useVenueNight();
   const { sections } = useMySections();
   const [mode, setMode] = useState<Mode>('entrada');
@@ -306,6 +308,13 @@ export function ReceptionDesk({ user, active, footer }: Props) {
     );
     known.set(card, printed);
     return printed;
+  }
+
+  /** Un saldo sin ficha (por su código), en la entrada (A7): «Darle una». */
+  function giveFichaOf(read: Read): (() => void) | undefined {
+    const view = read.view;
+    if (!onGiveFicha || mode !== 'entrada' || view?.kind !== 'saldo' || view.fichaNumber !== null || view.blocked) return undefined;
+    return () => onGiveFicha(view.code);
   }
 
   function onCode(next: string): void {
@@ -657,6 +666,7 @@ export function ReceptionDesk({ user, active, footer }: Props) {
               ? () => go({ kind: 'setPin', read: step.read, view: step.read.view as ReceptionDeskSaldo })
               : undefined
           }
+          onGiveFicha={giveFichaOf(step.read)}
         />
       ) : null}
 

@@ -31,6 +31,8 @@ export function ReceptionTab({ user, active, onOwnHeader }: Props) {
   const methods = useVenueMethods();
   const reader = useChipReader();
   const [view, setView] = useState<'desk' | 'prepare' | 'pending' | 'ficha'>('desk');
+  // «Darle una» desde un saldo sin ficha (A7): su código, ya escrito en «Dar ficha a un saldo».
+  const [fichaCode, setFichaCode] = useState<string | undefined>(undefined);
   const [pending, setPending] = useState(0);
   const { sections } = useMySections();
 
@@ -62,7 +64,18 @@ export function ReceptionTab({ user, active, onOwnHeader }: Props) {
   if (view === 'prepare') return inner(<PrepareFichas on="staff" onDone={() => setView('desk')} />);
   if (view === 'pending') return inner(<PendingTopUps onDone={() => setView('desk')} />);
   // El saldo cargado desde casa (o cualquiera sin ficha): su ficha, con su QR o su código y su PIN.
-  if (view === 'ficha') return inner(<GiveFicha user={user} onDone={() => setView('desk')} />);
+  if (view === 'ficha') {
+    return inner(
+      <GiveFicha
+        user={user}
+        initialCode={fichaCode}
+        onDone={() => {
+          setFichaCode(undefined);
+          setView('desk');
+        }}
+      />,
+    );
+  }
 
   const canPrepare = methods.nfc && reader.via !== null && reader.canWrite;
   // Lo secundario, junto y abajo en una sola fila (Grafito 2): los mismos tres, y las pendientes con su número.
@@ -83,5 +96,11 @@ export function ReceptionTab({ user, active, onOwnHeader }: Props) {
       ) : null}
     </nav>
   );
-  return <ReceptionDesk user={user} active={active} footer={footer} />;
+  const giveFicha = methods.nfc
+    ? (code: string) => {
+        setFichaCode(code);
+        setView('ficha');
+      }
+    : undefined;
+  return <ReceptionDesk user={user} active={active} footer={footer} onGiveFicha={giveFicha} />;
 }

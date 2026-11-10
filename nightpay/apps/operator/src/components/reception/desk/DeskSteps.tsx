@@ -105,6 +105,8 @@ export function AmountStep(props: {
   onOther: () => void;
   /** Encargado o dueño ante una ficha sin PIN: que lo elija sin tener que cargar nada. */
   onPin?: () => void;
+  /** Un saldo sin ficha, por su código (A7): «Darle una» lleva a «Dar ficha a un saldo» con su código. */
+  onGiveFicha?: () => void;
 }) {
   // La hora a la que salió la pantalla: «hace 2 min» no cambia mientras se mira.
   const [shownAt] = useState(() => Date.now());
@@ -114,6 +116,11 @@ export function AmountStep(props: {
       <DeskRowView title={props.row.title} detail={props.row.detail} ficha={props.row.ficha}>
         {props.row.hint ? <span className={s.rowHint}>{props.row.hint}</span> : null}
         {props.row.ask ? <span className={s.rowHint}>{props.row.ask}</span> : null}
+        {props.onGiveFicha ? (
+          <button type="button" className={s.rowAction} onClick={props.onGiveFicha}>
+            Darle una
+          </button>
+        ) : null}
         {recent ? (
           <span className={s.rowRecent}>
             <Icon name="clock" />
