@@ -4,6 +4,7 @@
 //    hace menos de 10 min, con el nombre de pila de quien la cargó (nunca el
 //    email); una anulada no cuenta.
 //  - A9: /w y /r ofrecen los importes de la recepción del local (Ajustes → Noche).
+//  - B4: «Me he equivocado»: la misma persona, en 2 min, con la misma ficha y si el saldo la cubre; va a Incidencias.
 //  - B2: cómo se confirmó una recarga en efectivo (la ficha otra vez o «sin leerla») queda en el registro.
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import { AsyncLocalStorage } from 'node:async_hooks';
@@ -17,6 +18,7 @@ import { FichaNumbersService } from '../../src/modules/wallets/ficha-numbers.ser
 import { WalletTopUpService } from '../../src/modules/wallets/wallet-topup.service';
 import { HomeTopUpService } from '../../src/modules/home-topup/home-topup.service';
 import { newHomeTopUpCode } from '../../src/modules/home-topup/home-topup-rules';
+import { SENSITIVE_AUDIT_ACTIONS } from '../../src/modules/incidents/incident-rules';
 
 const cls = new ClsService(new AsyncLocalStorage());
 const prisma = new PrismaService(cls as never);
@@ -154,5 +156,45 @@ describe('B2: cómo se confirmó el efectivo queda apuntado', () => {
     expect(CashTopUpSchema.safeParse({ ...base, fichaCheck: 'tap' }).success).toBe(true);
     expect(CashTopUpSchema.safeParse({ ...base, fichaCheck: 'otra' }).success).toBe(false);
     expect(ReceptionNumberTopUpSchema.safeParse({ printedNumber: '17', amountCents: 1_000, idempotencyKey: 'clave-0001', fichaCheck: 'manual' }).success).toBe(true);
+  });
+});
+
+describe('B4: «Me he equivocado» en los 2 minutos siguientes', () => {
+  const load = async (n: string, cents = 5_000) => {
+    const f = await stockedCard(`${n}${r.replace(/\D/g, '').slice(0, 3)}9`.slice(0, 12));
+    const out = await inVenue(V, () => cash.topUp(V, recepcion(), { amountCents: cents, idempotencyKey: key(), wallet: { create: true, card: f.card, uid: f.uid } }));
+    return { ...f, ...out };
+  };
+  const me = () => ({ userId: rocio, role: 'WAITER' as const, tenantId: V });
+
+  it('la misma persona, con el motivo y la misma ficha: se anula, resta del saldo y va a Incidencias', async () => {
+    const t = await load('81');
+    audit.log.mockClear();
+    const out = await inVenue(V, () => cash.undo(me(), t.topUpId, { reason: 'amount', card: t.card, uid: t.uid }));
+    expect(out).toMatchObject({ topUpId: t.topUpId, amountCents: 5_000, balanceCents: 0 });
+    const rows = await sys((tx) => tx.walletCashTopUp.findMany({ where: { walletId: t.walletId }, orderBy: { createdAt: 'asc' } }));
+    expect(rows.map((x) => x.amountCents)).toEqual([5_000, -5_000]);
+    expect(rows[1]).toMatchObject({ voidOfId: t.topUpId, reason: 'Importe equivocado', takenByUserId: rocio });
+    expect(audit.log).toHaveBeenCalledWith(expect.objectContaining({ action: 'wallet.cash_topup_undone', payload: expect.objectContaining({ reason: 'amount', name: 'Importe equivocado' }) }));
+    expect(SENSITIVE_AUDIT_ACTIONS).toContain('wallet.cash_topup_undone');
+    // Dos veces, no.
+    await expect(inVenue(V, () => cash.undo(me(), t.topUpId, { reason: 'amount', card: t.card, uid: t.uid }))).rejects.toThrow(/ya está anulada/);
+  });
+
+  it('otra persona, otra ficha o pasados 2 minutos: no (lo anula el encargado)', async () => {
+    const t = await load('82');
+    await expect(
+      inVenue(V, () => cash.undo({ userId: sinNombre, role: 'WAITER', tenantId: V }, t.topUpId, { reason: 'unpaid', card: t.card, uid: t.uid })),
+    ).rejects.toMatchObject({ status: 403 });
+    const otra = await stockedCard(`83${r.replace(/\D/g, '').slice(0, 3)}9`.slice(0, 12));
+    await expect(inVenue(V, () => cash.undo(me(), t.topUpId, { reason: 'ficha', card: otra.card, uid: otra.uid }))).rejects.toThrow(/no es la ficha de esta recarga/);
+    await sys((tx) => tx.walletCashTopUp.update({ where: { id: t.topUpId }, data: { createdAt: new Date(Date.now() - 3 * 60_000) } }));
+    await expect(inVenue(V, () => cash.undo(me(), t.topUpId, { reason: 'unpaid', card: t.card, uid: t.uid }))).rejects.toThrow(/más de 2 minutos/);
+  });
+
+  it('solo si el saldo aún la cubre', async () => {
+    const t = await load('84');
+    await sys((tx) => tx.clientWallet.update({ where: { id: t.walletId }, data: { balanceCents: 1_000 } }));
+    await expect(inVenue(V, () => cash.undo(me(), t.topUpId, { reason: 'unpaid', card: t.card, uid: t.uid }))).rejects.toThrow(/ya no cubre/);
   });
 });

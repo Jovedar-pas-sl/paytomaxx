@@ -2,14 +2,18 @@ import { ConflictException, ForbiddenException, Inject, Injectable, Logger, NotF
 import {
   CASH_LIMIT_CENTS,
   CASH_TOP_UP_METHODS,
+  CASH_TOP_UP_UNDO_SECONDS,
   CASH_TOP_UP_VOID_WINDOW_MINUTES,
+  CASH_UNDO_REASON_LABEL,
   DEVICE_CASH_TOP_UP_DENIED_MESSAGE,
   MAX_CASH_TOP_UP_CENTS,
   STAFF_PERMISSION_DENIED_CODE,
   deviceCan,
   serviceFeeQuote,
   staffPermissionsOf,
+  normalizeWalletCardUid,
   type CashTopUpResult,
+  type CashTopUpUndoDto,
   type CashTopUpVoidResult,
   type FichaCheck,
   type Role,
@@ -24,7 +28,7 @@ import { assertCanHandleCash, chargeRightsFor } from '../venues/charge-rights';
 import { assertVenueAcceptsMethods } from '../venues/venue-methods';
 import { assertVenueAcceptsCharges } from '../venues/venue-pause';
 import { insertEmptyWallet } from './empty-wallet';
-import { attachCardInTx, type CardBy } from './wallet-card-ops';
+import { attachCardInTx, isIssuedCard, type CardBy } from './wallet-card-ops';
 import { reopenData } from './wallet-activation';
 import { cashTopUpOverLimit, walletCash } from './wallet-cash-limits';
 import { cashIntentFingerprint, storedReceipt, type PrintedTopUpRef } from './wallet-cash-intent';
@@ -423,6 +427,72 @@ export class CashTopUpService {
     });
     this.logger.log(`Recarga en efectivo ${topUpId} anulada (−${out.amountCents}c) por ${actor.userId}`);
     return out;
+  }
+
+  /**
+   * «Me he equivocado» (B4): quien la cargó deshace su recarga en efectivo en
+   * los CASH_TOP_UP_UNDO_SECONDS siguientes, con el motivo y acercando la
+   * misma ficha, y solo si el saldo aún la cubre (applyVoid). Es la misma
+   * anulación que la del encargado (fila negativa, resta en la caja y el Z),
+   * sin 2FA, y sale en Incidencias. Pasado el plazo, la anula el encargado.
+   */
+  async undo(actor: CashVoidActor, topUpId: string, input: CashTopUpUndoDto, now: Date = new Date()): Promise<CashTopUpVoidResult> {
+    const row = await this.prisma.withTenant(actor.tenantId, (tx) =>
+      tx.walletCashTopUp.findUnique({
+        where: { id: topUpId },
+        select: { tenantId: true, walletId: true, takenByUserId: true, createdAt: true, voidOfId: true },
+      }),
+    );
+    if (!row || row.tenantId !== actor.tenantId || row.voidOfId) throw new NotFoundException('Recarga en efectivo no encontrada');
+    if (row.takenByUserId !== actor.userId) {
+      throw new ForbiddenException('Solo la deshace quien la cargó: si no, que la anule el encargado.');
+    }
+    if (now.getTime() - row.createdAt.getTime() > CASH_TOP_UP_UNDO_SECONDS * 1000) {
+      throw new ConflictException({ message: 'Han pasado más de 2 minutos: que la anule el encargado.', code: 'CASH_UNDO_LATE' });
+    }
+    await this.assertSameFicha(row.walletId, input);
+    const label = CASH_UNDO_REASON_LABEL[input.reason];
+    let out: CashTopUpVoidResult;
+    try {
+      out = await this.prisma.acrossVenues((tx) => this.applyVoid(tx, actor, topUpId, label));
+    } catch (err) {
+      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
+        throw new ConflictException('Esta recarga ya está anulada');
+      }
+      throw err;
+    }
+    // A Incidencias (acción delicada): cobrar, cargar y deshacer podría ser una forma de quedarse efectivo.
+    await this.audit.log({
+      action: 'wallet.cash_topup_undone',
+      tenantId: actor.tenantId,
+      actorId: actor.userId,
+      targetType: 'ClientWallet',
+      targetId: out.walletId,
+      payload: {
+        topUpId,
+        voidId: out.voidId,
+        amountCents: out.amountCents,
+        ...(out.serviceFeeCents ? { serviceFeeCents: out.serviceFeeCents } : {}),
+        reason: input.reason,
+        name: label,
+      },
+    });
+    this.logger.log(`Recarga en efectivo ${topUpId} deshecha (−${out.amountCents}c, ${input.reason}) por ${actor.userId}`);
+    return out;
+  }
+
+  /** La ficha acercada es la del saldo de la recarga (o la del saldo al que se sumó). */
+  private async assertSameFicha(walletId: string, input: { card: string; uid?: string | undefined }): Promise<void> {
+    const uid = input.uid ? normalizeWalletCardUid(input.uid) : null;
+    const same = await this.prisma.acrossVenues(async (tx) => {
+      const card = await tx.walletCard.findUnique({ where: { token: input.card }, select: { walletId: true, status: true, uid: true } });
+      if (!card || !isIssuedCard(card) || !card.walletId) return 'other';
+      if (card.uid && uid && card.uid !== uid) return 'copy';
+      const [mine, topUp] = await Promise.all([liveWalletId(tx, card.walletId), liveWalletId(tx, walletId)]);
+      return mine !== null && mine === topUp ? 'same' : 'other';
+    });
+    if (same === 'copy') throw new ConflictException('Esta ficha no es la original (¿copiada?): avisa al encargado.');
+    if (same === 'other') throw new ConflictException('Esa no es la ficha de esta recarga: acerca la misma ficha.');
   }
 
   /**

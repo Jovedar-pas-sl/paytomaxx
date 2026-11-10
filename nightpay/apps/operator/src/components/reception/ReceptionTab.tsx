@@ -8,6 +8,7 @@ import { useVenueMethods } from '@/lib/venue-methods';
 import { DeskHead } from './desk/desk-parts';
 import s from './desk/desk.module.css';
 import { ReceptionDesk } from './desk/ReceptionDesk';
+import { CashVoids } from './CashVoids';
 import { GiveFicha } from './GiveFicha';
 import { PendingTopUps } from './PendingTopUps';
 import { PrepareFichas } from './PrepareFichas';
@@ -31,7 +32,7 @@ interface Props {
 export function ReceptionTab({ user, active, onOwnHeader }: Props) {
   const methods = useVenueMethods();
   const reader = useChipReader();
-  const [view, setView] = useState<'desk' | 'prepare' | 'pending' | 'ficha'>('desk');
+  const [view, setView] = useState<'desk' | 'prepare' | 'pending' | 'ficha' | 'voids'>('desk');
   // «Darle una» desde un saldo sin ficha (A7): su código, ya escrito en «Dar ficha a un saldo».
   const [fichaCode, setFichaCode] = useState<string | undefined>(undefined);
   // B5: «Escanear su QR (cargó en casa)» desde la primera pantalla: la cámara ya puesta.
@@ -66,6 +67,8 @@ export function ReceptionTab({ user, active, onOwnHeader }: Props) {
   );
   if (view === 'prepare') return inner(<PrepareFichas on="staff" onDone={() => setView('desk')} />);
   if (view === 'pending') return inner(<PendingTopUps onDone={() => setView('desk')} />);
+  // B4: pasados los 2 minutos del «Me he equivocado», el encargado o el dueño, desde su móvil.
+  if (view === 'voids') return inner(<CashVoids onDone={() => setView('desk')} />);
   // El saldo cargado desde casa (o cualquiera sin ficha): su ficha, con su QR o su código y su PIN.
   if (view === 'ficha') {
     return inner(
@@ -97,6 +100,11 @@ export function ReceptionTab({ user, active, onOwnHeader }: Props) {
       {methods.nfc ? (
         <button type="button" className={s.moreBtn} onClick={() => setView('ficha')}>
           Dar ficha a un saldo
+        </button>
+      ) : null}
+      {user.role === 'MANAGER' || user.role === 'OWNER' ? (
+        <button type="button" className={s.moreBtn} onClick={() => setView('voids')}>
+          Anular una recarga
         </button>
       ) : null}
     </nav>

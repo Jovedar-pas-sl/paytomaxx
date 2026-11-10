@@ -5,7 +5,7 @@
 // paso, la clave guardada del efectivo). Lo usa ReceptionDesk.
 
 import { useRef, useState } from 'react';
-import type { FichaCheck, ReceptionDeskNew } from '@nightpay/contracts';
+import type { CashUndoReason, FichaCheck, ReceptionDeskNew } from '@nightpay/contracts';
 import type { CreatedPayment } from '@/lib/api';
 import { counterFicha, type CounterFicha } from '@/lib/counter-tap';
 import { browserSessionStorage, cashAttemptRef, type PayMethod, type ReceptionAttempt, type ReceptionWallet } from '@/lib/reception';
@@ -43,6 +43,9 @@ export interface Loaded {
   pinSkipped?: boolean;
   /** La referencia de arriba si no hay saldo entero (por número: K7Q-•••). */
   reference?: string | null;
+  /** B4: la recarga en efectivo (para «Me he equivocado») y cuándo salió CARGADO (ms). */
+  topUpId?: string;
+  loadedAt?: number;
 }
 
 export type Exit = { kind: 'exit'; view: ReceptionDeskSaldo; nfc: CashExitNfc; requestKey: string };
@@ -71,7 +74,11 @@ export type Step =
   | { kind: 'exitNumber'; view: NumberSaldo }
   | { kind: 'refunded'; code: string; refundedCents: number; remainingCents: number }
   /** Efectivo sin respuesta: no se sabe si se cargó. Se comprueba con la misma clave antes de seguir. */
-  | { kind: 'cashUnsure'; read: Read; amountCents: number; checking: boolean; leaveArmed?: boolean; how?: FichaCheck };
+  | { kind: 'cashUnsure'; read: Read; amountCents: number; checking: boolean; leaveArmed?: boolean; how?: FichaCheck }
+  /** B4: «Me he equivocado»: el motivo y, después, la misma ficha. */
+  | { kind: 'undo'; done: Loaded; reason: CashUndoReason | null }
+  /** B4: anulada; `cents`: lo que se quitó (saldo + comisión). */
+  | { kind: 'undone'; reason: CashUndoReason; cents: number };
 
 /** Desde que se cobra hasta el resultado: si la sesión caduca, se entra encima sin perderlo. */
 export const CHARGING = new Set<Step['kind']>(['card', 'loaded', 'pin', 'cashUnsure', 'exitPasskey', 'exitTotp', 'exitPin', 'managerPending', 'refunded']);
@@ -106,6 +113,8 @@ export function counterOf(step: Step): CounterFicha | null {
       return counterFicha(step.read);
     case 'loaded':
       return counterFicha(step.done.read);
+    case 'undo':
+      return step.reason ? counterFicha(step.done.read) : null;
     case 'exit':
     case 'exitNew':
       return counterFicha({ view: step.view, nfc: step.nfc });
@@ -121,6 +130,7 @@ export function backOf(step: Step): Step {
   if (step.kind === 'keypad') return { kind: 'amount', read: step.read };
   if (step.kind === 'method') return { kind: 'amount', read: step.read };
   if (step.kind === 'cashConfirm') return { kind: 'method', read: step.read, amountCents: step.amountCents };
+  if (step.kind === 'undo') return { kind: 'loaded', done: { ...step.done, seen: true } };
   if (step.kind === 'exitPasskey' || step.kind === 'exitTotp' || step.kind === 'exitManager' || step.kind === 'managerPending') return step.exit;
   return { kind: 'tap' };
 }

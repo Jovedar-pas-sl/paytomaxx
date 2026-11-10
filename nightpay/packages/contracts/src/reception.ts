@@ -88,6 +88,33 @@ export const CashTopUpVoidSchema = z.object({
 });
 export type CashTopUpVoidDto = z.infer<typeof CashTopUpVoidSchema>;
 
+/**
+ * «Me he equivocado» (estudio de fichas, B4): quien cargó en efectivo la
+ * deshace en estos segundos, con el motivo y acercando la misma ficha, si el
+ * saldo aún la cubre. Sale en Incidencias. Después, la anula el encargado.
+ */
+export const CASH_TOP_UP_UNDO_SECONDS = 120;
+
+export const CASH_UNDO_REASONS = ['amount', 'ficha', 'unpaid'] as const;
+export type CashUndoReason = (typeof CASH_UNDO_REASONS)[number];
+
+/** Los tres motivos, tal cual se ven (y se apuntan en la anulación). */
+export const CASH_UNDO_REASON_LABEL: Readonly<Record<CashUndoReason, string>> = {
+  amount: 'Importe equivocado',
+  ficha: 'Ficha equivocada',
+  unpaid: 'No llegó a pagar',
+};
+
+export const CashTopUpUndoSchema = z
+  .object({
+    reason: z.enum(CASH_UNDO_REASONS),
+    /** La misma ficha de la recarga, acercada otra vez. */
+    card: CardTokenSchema,
+    uid: CardUidSchema,
+  })
+  .strict();
+export type CashTopUpUndoDto = z.infer<typeof CashTopUpUndoSchema>;
+
 /** Lo que devuelve la anulación: la fila negativa y el saldo que queda. */
 export interface CashTopUpVoidResult {
   voidId: string;

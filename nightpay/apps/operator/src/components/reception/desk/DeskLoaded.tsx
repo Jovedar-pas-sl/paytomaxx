@@ -40,6 +40,8 @@ interface Props {
   ids?: LoadedIds | null;
   /** Se acercó otra ficha (A3): solo el aviso, arriba; la pantalla no se cierra. */
   aviso?: string | null;
+  /** Debajo de los botones, en pequeño: «Me he equivocado» (B4). */
+  tertiary?: ReactNode;
 }
 
 /** La ficha y el código del saldo, en grande en CARGADO. */
@@ -61,7 +63,23 @@ export interface LoadedIds {
  * pantalla del resultado de @nightpay/ui (.np-outcome) sin su franja de la
  * hora (la ve solo quien cobra) ni tira de color arriba (Grafito: plano).
  */
-export function DeskLoaded({ word, amountCents, reference, money, meta, warn, note = null, primary, secondary, quiet = false, extra, help = null, ids = null, aviso = null }: Props) {
+export function DeskLoaded({
+  word,
+  amountCents,
+  reference,
+  money,
+  meta,
+  warn,
+  note = null,
+  primary,
+  secondary,
+  quiet = false,
+  extra,
+  help = null,
+  ids = null,
+  aviso = null,
+  tertiary = null,
+}: Props) {
   const titleId = useId();
   const helpState = useHelp(RECEPTION_HELP_SCREENS.loaded);
   const primaryRef = useRef<HTMLButtonElement>(null);
@@ -135,6 +153,7 @@ export function DeskLoaded({ word, amountCents, reference, money, meta, warn, no
             </button>
           ) : null}
         </div>
+        {tertiary}
       </div>
       <p role="status" aria-live="polite" className="np-sr-only">
         {announce}

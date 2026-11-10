@@ -1,11 +1,13 @@
 import { Body, Controller, Get, HttpCode, Inject, Param, ParseUUIDPipe, Post, UseGuards } from '@nestjs/common';
 import {
   CashTopUpSchema,
+  CashTopUpUndoSchema,
   CashTopUpVoidSchema,
   SaldoRefSchema,
   paymentMethodsOf,
   type CashTopUpDto,
   type CashTopUpResult,
+  type CashTopUpUndoDto,
   type CashTopUpVoidDto,
   type CashTopUpVoidResult,
   type JwtPayload,
@@ -121,6 +123,22 @@ export class ReceptionController {
     @Body(new ZodValidationPipe(CashTopUpVoidSchema)) body: CashTopUpVoidDto,
   ): Promise<CashTopUpVoidResult> {
     return this.cash.voidTopUp({ userId: user.sub, role: user.role, tenantId: user.tenantId }, id, body);
+  }
+
+  /**
+   * «Me he equivocado» (B4): quien cargó en efectivo la deshace en los 2 min
+   * siguientes, con el motivo y la misma ficha. Lo demás lo mira el servicio.
+   */
+  @Post('cash/:id/undo')
+  @HttpCode(200)
+  @Roles('WAITER', 'MANAGER', 'OWNER')
+  @IpRateLimit({ max: 10, windowSec: 60, scope: 'reception-cash-undo' })
+  async undoCash(
+    @CurrentUser() user: JwtPayload,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body(new ZodValidationPipe(CashTopUpUndoSchema)) body: CashTopUpUndoDto,
+  ): Promise<CashTopUpVoidResult> {
+    return this.cash.undo({ userId: user.sub, role: user.role, tenantId: user.tenantId }, id, body);
   }
 
   @Post('lookup')

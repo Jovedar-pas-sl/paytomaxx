@@ -280,6 +280,10 @@ const SENSITIVE_ACTIONS: Readonly<Record<string, { title: string; detail: string
     title: 'Permisos del personal cambiados',
     detail: 'ha cambiado lo que puede hacer el personal (Ajustes → Permisos).',
   },
+  'wallet.cash_topup_undone': {
+    title: 'Recarga en efectivo deshecha',
+    detail: 'ha deshecho una recarga en efectivo nada más hacerla («Me he equivocado»). Comprueba la caja.',
+  },
   'venue.night_settings.updated': {
     title: 'Ajustes de la noche cambiados',
     detail: 'ha cambiado los topes sin PIN o la recepción (Ajustes → La noche).',

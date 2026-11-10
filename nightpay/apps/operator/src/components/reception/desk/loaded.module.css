@@ -198,6 +198,22 @@
   text-align: left;
 }
 
+/* «Me he equivocado» (B4): terciario de 44 px debajo de los botones, en la
+   tinta del resultado y subrayado; solo los 2 minutos siguientes. */
+.undoLink {
+  display: block;
+  min-height: 2.75rem;
+  margin: 0 auto;
+  padding: 0 0.75rem;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: 500 0.9375rem/1.2 var(--np-font-sans);
+  text-decoration: underline;
+  text-underline-offset: 4px;
+  touch-action: manipulation;
+}
+
 /* Lo que salió mal (el NFC no se pudo dar…): en su caja oscura. */
 .resWarn {
   margin: 0;

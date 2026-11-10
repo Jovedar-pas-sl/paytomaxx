@@ -63,6 +63,7 @@ import {
   type ReceptionDeskSaldo,
   type ReceptionDeskView,
 } from '@/lib/reception-desk';
+import { undoCashTopUp, type CashUndoReason } from '@/lib/cash-undo';
 import { photoHint } from '@/lib/ficha-number';
 import { handOverOf, loadedHelp } from '@/lib/reception-help';
 import { receptionChip, useMySections } from '@/lib/sections';
@@ -82,6 +83,7 @@ import { AmountStep, CashConfirmStep, CodeStep, ExitStep, KeypadStep, MethodStep
 import { DeskLoaded, LoadedBand } from './DeskLoaded';
 import { ManagerExitStep, NumberExitStep, PasskeyExitStep, TotpExitStep } from './ExitSteps';
 import { TopUpQr, useRetirePayment } from './TopUpQr';
+import { UndoLink, UndoneStep, UndoStep } from './UndoSteps';
 import { useDeskNfc } from './use-desk-nfc';
 import { CHARGING, PhoneOption, backOf, counterOf, ignoreCounterError, readRow, useCashAttemptRef, type Exit, type Loaded, type Mode, type Read, type Step } from './desk-model';
 import s from './desk.module.css';
@@ -244,12 +246,12 @@ export function ReceptionDesk({ user, active, footer, onGiveFicha, onScanHome }:
     const ficha = here;
     if (!ficha) return;
     const at = step;
-    if (sameCounterCard(ficha, tap.token)) return counterSame(at);
+    if (sameCounterCard(ficha, tap.token)) return counterSame(at, tap);
     const round = counterRound.current;
     const printed = tap.token && !tap.other ? await printedOfCard(tap.token, tap.uid) : null;
     if (round !== counterRound.current) return;
     const text = counterTapText(ficha, { token: tap.token, printed });
-    if (text === null) return counterSame(at);
+    if (text === null) return counterSame(at, tap);
     await counterOther(at, tap, text);
   }
 
@@ -272,12 +274,22 @@ export function ReceptionDesk({ user, active, footer, onGiveFicha, onScanHome }:
     return () => onGiveFicha(view.code);
   }
 
-  /** La misma ficha en el mostrador: confirma el efectivo (B2); en lo demás no pasa nada (A3). */
-  function counterSame(at: Step): void {
+  /** La misma ficha en el mostrador: confirma el efectivo (B2) o la anulación (B4); en lo demás no pasa nada (A3). */
+  function counterSame(at: Step, tap: ChipTap): void {
     setWrong(null);
     if (at.kind === 'cashConfirm' && methodArmed(stepShownAt.current, Date.now())) {
       void run(() => payCash(at.read, at.amountCents, 'tap'));
     }
+    if (at.kind === 'undo' && at.reason && tap.token) {
+      void run(() => undoNow(at.done, at.reason!, tap));
+    }
+  }
+
+  /** B4: con la misma ficha delante, se anula (el servidor lo comprueba otra vez: quién, cuándo, la ficha y el saldo). */
+  async function undoNow(done: Loaded, reason: CashUndoReason, tap: ChipTap): Promise<void> {
+    if (!done.topUpId || !tap.token) return;
+    const out = await undoCashTopUp(done.topUpId, { reason, card: tap.token, ...(tap.uid ? { uid: tap.uid } : {}) });
+    go({ kind: 'undone', reason, cents: out.amountCents + (out.serviceFeeCents ?? 0) });
   }
 
   /**
@@ -345,6 +357,7 @@ export function ReceptionDesk({ user, active, footer, onGiveFicha, onScanHome }:
     wallet: ReceptionWallet | null,
     cardLinked = false,
     feeCents = 0,
+    topUpId?: string,
   ): Promise<void> {
     let linked = read.view?.kind === 'saldo' || cardLinked;
     let warn: string | null =
@@ -359,7 +372,7 @@ export function ReceptionDesk({ user, active, footer, onGiveFicha, onScanHome }:
       }
     }
     attempt.current = null;
-    go({ kind: 'loaded', done: { read, amountCents, feeCents, method, wallet: w, linked, warn } });
+    go({ kind: 'loaded', done: { read, amountCents, feeCents, method, wallet: w, linked, warn, ...(topUpId ? { topUpId, loadedAt: Date.now() } : {}) } });
   }
 
   /**
@@ -383,7 +396,18 @@ export function ReceptionDesk({ user, active, footer, onGiveFicha, onScanHome }:
       attempt.current = null;
       return go({
         kind: 'loaded',
-        done: { read, amountCents, feeCents: out.serviceFeeCents ?? 0, method: 'cash', wallet: null, linked: true, warn: null, reference: out.codeHint },
+        done: {
+          read,
+          amountCents,
+          feeCents: out.serviceFeeCents ?? 0,
+          method: 'cash',
+          wallet: null,
+          linked: true,
+          warn: null,
+          reference: out.codeHint,
+          topUpId: out.topUpId,
+          loadedAt: Date.now(),
+        },
       });
     }
     const target = deskTarget(read.view, read.nfc);
@@ -402,7 +426,7 @@ export function ReceptionDesk({ user, active, footer, onGiveFicha, onScanHome }:
     );
     const hasPin = read.view?.kind === 'saldo' && read.view.hasPin;
     const wallet = { walletId: out.walletId, code: out.code, balanceCents: out.balanceCents, hasPin, hasCard: read.nfc !== null };
-    await finish(read, amountCents, 'cash', wallet, out.cardLinked === true, out.serviceFeeCents ?? 0);
+    await finish(read, amountCents, 'cash', wallet, out.cardLinked === true, out.serviceFeeCents ?? 0, out.topUpId);
   }
 
   /**
@@ -687,6 +711,18 @@ export function ReceptionDesk({ user, active, footer, onGiveFicha, onScanHome }:
 
       {step.kind === 'method' ? renderMethod(step.read, step.amountCents) : null}
 
+      {step.kind === 'undo' ? (
+        <UndoStep
+          reason={step.reason}
+          chargeCents={step.done.amountCents + step.done.feeCents}
+          ficha={readFicha(step.done.read)}
+          busy={busy}
+          onReason={(reason) => go({ kind: 'undo', done: step.done, reason })}
+        />
+      ) : null}
+
+      {step.kind === 'undone' ? <UndoneStep reason={step.reason} cents={step.cents} onNext={() => restart('entrada')} /> : null}
+
       {step.kind === 'cashConfirm' ? (
         <CashConfirmStep
           amountCents={step.amountCents}
@@ -849,6 +885,11 @@ export function ReceptionDesk({ user, active, footer, onGiveFicha, onScanHome }:
         extra={activation}
         help={help}
         aviso={wrong}
+        tertiary={
+          done.method === 'cash' && done.topUpId && done.loadedAt && needsFichaCheck(counterFicha(done.read)) ? (
+            <UndoLink loadedAt={done.loadedAt} onUndo={() => go({ kind: 'undo', done, reason: null })} />
+          ) : null
+        }
         primary={pin === 'ask' && !done.pinSkipped ? askPin : next}
         secondary={pin === 'ask' ? (done.pinSkipped ? askPin : { label: 'Ahora no', onClick: next.onClick }) : pin === 'offer' ? askPin : null}
       />
