@@ -6,7 +6,7 @@ import { MAX_TYPED_AMOUNT_CENTS } from '@nightpay/contracts';
 import { formatEur } from '@/lib/money';
 import type { RecentTopUp } from '@nightpay/contracts';
 import { methodArmed, recentTopUpLine, type EntryRow, type MethodButton, type ExitPlan } from '@/lib/reception-desk';
-import { AMOUNT_HELP, EXIT_HELP, METHOD_HELP, RECEPTION_HELP_SCREENS, cashInHandText, tapHelp, turnPhoneText } from '@/lib/reception-help';
+import { AMOUNT_HELP, EXIT_HELP, METHOD_HELP, RECEPTION_HELP_SCREENS, cashConfirmText, cashInHandText, tapHelp, turnPhoneText } from '@/lib/reception-help';
 import { HelpAgain, HelpLine, useHelp } from '../../HelpLine';
 import { CodeBoxes, DESK_FIELD, DeskBtn, DeskRowView, FichaNumber, Icon, NfcMark } from './desk-parts';
 import s from './desk.module.css';
@@ -252,6 +252,55 @@ export function MethodStep(props: {
           {props.pinNote}
         </p>
       ) : null}
+    </>
+  );
+}
+
+/**
+ * B2: el efectivo se confirma acercando otra vez la misma ficha (otra no
+ * vale: solo avisa). Si no se lee, «Cargar sin leerla», que queda apuntado.
+ * El primer medio segundo no atiende toques: el segundo de un doble toque en
+ * «Efectivo» no cae en «Cargar sin leerla» (como S-1a).
+ */
+export function CashConfirmStep(props: {
+  amountCents: number;
+  /** Lo que paga el cliente (con la comisión del servicio, si la hay). */
+  chargeCents: number;
+  ficha: string | null;
+  busy: boolean;
+  onManual: () => void;
+}) {
+  const [armedAt] = useState(() => Date.now());
+  return (
+    <>
+      <div className={s.bigamt}>
+        <span className={s.kick}>Efectivo</span>
+        <p className={s.bignum}>{formatEur(props.chargeCents, { compact: true })}</p>
+        {props.ficha ? (
+          <>
+            <span className={s.kick} aria-hidden="true">
+              Ficha
+            </span>
+            <FichaNumber printed={props.ficha} className={s.cobroFicha} />
+          </>
+        ) : null}
+      </div>
+      <div className={s.stage}>
+        <NfcMark size="l" />
+        <div className={s.stageLive} aria-live="polite" aria-busy={props.busy || undefined}>
+          <p className={s.stageTitle}>{props.busy ? 'Cargando…' : 'Acerca otra vez la ficha'}</p>
+          <p className={s.stageText}>{cashConfirmText(props.amountCents)}</p>
+        </div>
+      </div>
+      <DeskBtn
+        kind="gho"
+        label="Cargar sin leerla"
+        small="Si no se lee: queda apuntado"
+        busy={props.busy}
+        onClick={() => {
+          if (methodArmed(armedAt, Date.now())) props.onManual();
+        }}
+      />
     </>
   );
 }

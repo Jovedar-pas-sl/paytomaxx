@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { ReceptionDeskView } from '@nightpay/contracts';
-import { AMOUNT_HELP, EXIT_HELP, METHOD_HELP, RECEPTION_HELP_SCREENS, cashInHandText, handOverOf, loadedHelp, tapHelp, turnPhoneText } from './reception-help';
+import { AMOUNT_HELP, EXIT_HELP, METHOD_HELP, RECEPTION_HELP_SCREENS, cashConfirmText, cashInHandText, handOverOf, loadedHelp, tapHelp, turnPhoneText } from './reception-help';
 
 const NEW = { kind: 'new' } as unknown as ReceptionDeskView;
 const SALDO_FICHA = { kind: 'saldo', fichaNumber: 'F1', code: 'K7Q-4M2' } as unknown as ReceptionDeskView;
@@ -37,6 +37,10 @@ describe('la ayuda de cada paso de Recepción', () => {
     expect(cashInHandText(5_000).split(String.fromCharCode(160)).join(' ')).toBe('Ya tengo los 50 € en la mano');
     // Con la comisión del servicio, lo que paga el cliente.
     expect(cashInHandText(5_600).split(String.fromCharCode(160)).join(' ')).toBe('Ya tengo los 56 € en la mano');
+  });
+
+  it('B2: el efectivo se carga al acercar otra vez la ficha; otra no vale', () => {
+    expect(cashConfirmText(5_000).split(String.fromCharCode(160)).join(' ')).toBe('Al acercarla se cargan 50 € en su saldo. Con otra ficha no se carga.');
   });
 
   it('la pantalla del cobro, girada hacia el cliente (A5)', () => {

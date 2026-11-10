@@ -47,6 +47,14 @@ export const TopUpWalletSchema = z.union([
 ]);
 export type TopUpWalletDto = z.infer<typeof TopUpWalletSchema>;
 
+/**
+ * Cómo se confirmó una recarga en efectivo a una ficha (estudio de fichas,
+ * B2): acercando otra vez la misma ficha (`tap`) o, si no se leía, con
+ * «Cargar sin leerla» (`manual`), que queda apuntado en el registro.
+ */
+export const FICHA_CHECKS = ['tap', 'manual'] as const;
+export type FichaCheck = (typeof FICHA_CHECKS)[number];
+
 export const CashTopUpSchema = z.object({
   /** El saldo que se carga (sin la comisión del servicio). */
   amountCents: z.number().int().positive().max(MAX_CASH_TOP_UP_CENTS, 'En efectivo, como mucho 999,99 € por recarga'),
@@ -61,6 +69,8 @@ export const CashTopUpSchema = z.object({
    * no se cobró. Apagada, no hace falta.
    */
   serviceFeeCents: z.number().int().nonnegative().max(MAX_CASH_TOP_UP_CENTS).optional(),
+  /** B2: cómo se confirmó con la ficha (sin el campo: sin ficha que acercar, o una app anterior). */
+  fichaCheck: z.enum(FICHA_CHECKS).optional(),
 });
 export type CashTopUpDto = z.infer<typeof CashTopUpSchema>;
 

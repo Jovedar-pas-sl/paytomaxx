@@ -41,6 +41,14 @@ export function cashInHandText(chargeCents: number): string {
 }
 
 /**
+ * B2: tras tocar «Efectivo», se carga al acercar otra vez la misma ficha:
+ * «Al acercarla se cargan 50 € en su saldo. Con otra ficha no se carga.»
+ */
+export function cashConfirmText(amountCents: number): string {
+  return `Al acercarla se cargan ${formatEur(amountCents, { compact: true })} en su saldo. Con otra ficha no se carga.`;
+}
+
+/**
  * «¿Cómo paga?» se enseña al cliente (A5): lo que va a pagar y su ficha, en
  * grande, antes de cobrar.
  */

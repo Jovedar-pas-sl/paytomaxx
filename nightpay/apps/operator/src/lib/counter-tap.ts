@@ -45,3 +45,28 @@ export function counterTapText(here: CounterFicha, tapped: { token: string | nul
   }
   return wrongFichaText(here.printed, tapped.printed);
 }
+
+/**
+ * B2: el efectivo se confirma acercando otra vez la misma ficha. Solo si hay
+ * ficha que acercar (leída, buscada por su número o de un saldo con ficha);
+ * sin ficha (saldo nuevo sin ficha, saldo sin ficha), como siempre.
+ */
+export function needsFichaCheck(ficha: CounterFicha): boolean {
+  return ficha.card !== null || ficha.printed !== null;
+}
+
+/** B3: en CARGADO, otra ficha cierra y abre la siguiente; salvo con el PIN pendiente o el QR de Face ID abierto. */
+export type LoadedOtherTap = 'next' | 'pin' | 'qr';
+
+export function loadedOtherTap(o: { pinPending: boolean; faceQrOpen: boolean }): LoadedOtherTap {
+  if (o.pinPending) return 'pin';
+  if (o.faceQrOpen) return 'qr';
+  return 'next';
+}
+
+/** Lo que se dice si CARGADO no se cierra con la otra ficha (B3): el aviso de A3 y qué falta. */
+export function loadedBlockedText(base: string, why: Exclude<LoadedOtherTap, 'next'>): string {
+  return why === 'pin'
+    ? `${base}. Antes, que este cliente elija su PIN o toque «Ahora no»`
+    : `${base}. Su QR de Face ID sigue abierto: cuando termine, «Siguiente cliente»`;
+}

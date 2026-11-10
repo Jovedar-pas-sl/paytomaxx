@@ -11,6 +11,7 @@ import {
   staffPermissionsOf,
   type CashTopUpResult,
   type CashTopUpVoidResult,
+  type FichaCheck,
   type Role,
   type TopUpWalletDto,
 } from '@nightpay/contracts';
@@ -50,6 +51,8 @@ export interface CashTopUpInput {
    * ella (app anterior) y con la comisión encendida: 409, no se cobra.
    */
   serviceFeeCents?: number;
+  /** B2: acercando otra vez la ficha o «Cargar sin leerla» (queda en el registro). */
+  fichaCheck?: FichaCheck;
 }
 
 /** La comisión del servicio de una recarga en efectivo: el % y el importe del momento. */
@@ -189,6 +192,8 @@ export class CashTopUpService {
         amountCents: input.amountCents,
         ...(fee.cents > 0 ? { serviceFeeCents: fee.cents, serviceFeeBps: fee.bps } : {}),
         createdWallet,
+        // B2: cómo se confirmó con la ficha; «sin leerla» queda apuntado aquí.
+        ...(input.fichaCheck ? { fichaCheck: input.fichaCheck } : {}),
         ...('terminalId' in by ? { terminalId: by.terminalId } : {}),
       },
     });

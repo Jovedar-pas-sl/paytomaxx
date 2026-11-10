@@ -4,10 +4,12 @@
 //    hace menos de 10 min, con el nombre de pila de quien la cargó (nunca el
 //    email); una anulada no cuenta.
 //  - A9: /w y /r ofrecen los importes de la recepción del local (Ajustes → Noche).
+//  - B2: cómo se confirmó una recarga en efectivo (la ficha otra vez o «sin leerla») queda en el registro.
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { randomUUID } from 'node:crypto';
 import { ClsService } from 'nestjs-cls';
+import { CashTopUpSchema, ReceptionNumberTopUpSchema } from '@nightpay/contracts';
 import { PrismaService } from '../../src/common/prisma/prisma.service';
 import { CashTopUpService } from '../../src/modules/wallets/wallet-cash-topup.service';
 import { WalletCardsService } from '../../src/modules/wallets/wallet-cards.service';
@@ -136,5 +138,21 @@ describe('los mismos importes en recepción, /w y /r (A9)', () => {
     const home = new HomeTopUpService(prisma, {} as never, {} as never, { get: () => '' } as never);
     const page = await inVenue(undefined, () => home.page(code, undefined));
     expect(page?.presetsCents).toEqual([2_500, 5_000, 7_500]);
+  });
+});
+
+describe('B2: cómo se confirmó el efectivo queda apuntado', () => {
+  it('acercando otra vez la ficha o «Cargar sin leerla»: va en el registro de la recarga', async () => {
+    const f = await stockedCard(`70${r.replace(/\D/g, '').slice(0, 3)}7`.slice(0, 12));
+    audit.log.mockClear();
+    await inVenue(V, () =>
+      cash.topUp(V, recepcion(), { amountCents: 1_500, idempotencyKey: key(), wallet: { create: true, card: f.card, uid: f.uid }, fichaCheck: 'manual' }),
+    );
+    expect(audit.log).toHaveBeenCalledWith(expect.objectContaining({ action: 'wallet.cash_topup', payload: expect.objectContaining({ fichaCheck: 'manual' }) }));
+    // La petición lo acepta, también por número; otro valor, no.
+    const base = { amountCents: 1_000, idempotencyKey: 'clave-0001', wallet: { code: 'K7Q4M2' } };
+    expect(CashTopUpSchema.safeParse({ ...base, fichaCheck: 'tap' }).success).toBe(true);
+    expect(CashTopUpSchema.safeParse({ ...base, fichaCheck: 'otra' }).success).toBe(false);
+    expect(ReceptionNumberTopUpSchema.safeParse({ printedNumber: '17', amountCents: 1_000, idempotencyKey: 'clave-0001', fichaCheck: 'manual' }).success).toBe(true);
   });
 });

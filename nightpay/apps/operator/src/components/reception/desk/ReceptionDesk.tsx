@@ -1,11 +1,19 @@
 'use client';
 
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import type { ReceptionDeskNew, ReceptionOptions } from '@nightpay/contracts';
+import type { FichaCheck, ReceptionDeskNew, ReceptionOptions } from '@nightpay/contracts';
 import { createPayment, fetchTerminals, type CreatedPayment, type OperatorUser } from '@/lib/api';
 import { playOutcomeSound } from '@/lib/alert-sound';
 import type { ChipTap } from '@/lib/chip-tap';
-import { counterFicha, counterTapText, sameCounterCard, type CounterFicha } from '@/lib/counter-tap';
+import {
+  counterFicha,
+  counterTapText,
+  loadedBlockedText,
+  loadedOtherTap,
+  needsFichaCheck,
+  sameCounterCard,
+  type CounterFicha,
+} from '@/lib/counter-tap';
 import { formatEur } from '@/lib/money';
 import { useOpenCharge } from '@/lib/open-charges';
 import {
@@ -41,6 +49,7 @@ import {
   fetchReceptionDesk,
   handOverLine,
   loadedMoneyLine,
+  methodArmed,
   methodButtons,
   noPinLimitCents,
   noReaderStage,
@@ -56,6 +65,7 @@ import {
   refundDoneLine,
   topUpByNumber,
   type NumberSaldo,
+  type PinAfterLoad,
   type ReceptionDeskSaldo,
   type ReceptionDeskView,
 } from '@/lib/reception-desk';
@@ -75,7 +85,7 @@ import {
 import { PinPad } from '../../PinPad';
 import { ActivationQr } from './ActivationQr';
 import { CounterAviso, DeskHead, DeskBtn, DeskRowLink, DeskRowView } from './desk-parts';
-import { AmountStep, CodeStep, ExitStep, KeypadStep, MethodStep, NumberStep, TapStage } from './DeskSteps';
+import { AmountStep, CashConfirmStep, CodeStep, ExitStep, KeypadStep, MethodStep, NumberStep, TapStage } from './DeskSteps';
 import { DeskLoaded, LoadedBand } from './DeskLoaded';
 import { ManagerExitStep, NumberExitStep, PasskeyExitStep, TotpExitStep } from './ExitSteps';
 import { TopUpQr, useRetirePayment } from './TopUpQr';
@@ -122,6 +132,8 @@ type Step =
   | { kind: 'amount'; read: Read }
   | { kind: 'keypad'; read: Read }
   | { kind: 'method'; read: Read; amountCents: number }
+  /** B2: el efectivo, a la espera de que se acerque otra vez la misma ficha (o «Cargar sin leerla»). */
+  | { kind: 'cashConfirm'; read: Read; amountCents: number }
   | { kind: 'card'; read: Read; amountCents: number; payment: CreatedPayment | null }
   | { kind: 'loaded'; done: Loaded }
   | { kind: 'pin'; done: Loaded }
@@ -137,7 +149,7 @@ type Step =
   | { kind: 'exitNumber'; view: NumberSaldo }
   | { kind: 'refunded'; code: string; refundedCents: number; remainingCents: number }
   /** Efectivo sin respuesta: no se sabe si se cargó. Se comprueba con la misma clave antes de seguir. */
-  | { kind: 'cashUnsure'; read: Read; amountCents: number; checking: boolean; leaveArmed?: boolean };
+  | { kind: 'cashUnsure'; read: Read; amountCents: number; checking: boolean; leaveArmed?: boolean; how?: FichaCheck };
 
 /** Desde que se cobra hasta el resultado: si la sesión caduca, se entra encima sin perderlo. */
 const CHARGING = new Set<Step['kind']>(['card', 'loaded', 'pin', 'cashUnsure', 'exitPasskey', 'exitTotp', 'exitPin', 'managerPending', 'refunded']);
@@ -189,6 +201,10 @@ export function ReceptionDesk({ user, active, footer, onGiveFicha }: Props) {
   const [wrong, setWrong] = useState<string | null>(null);
   const counterRound = useRef(0);
   const printedOf = useRef(new Map<string, string | null>());
+  // B3: el QR de Face ID está a la vista en CARGADO (la siguiente ficha no lo cierra).
+  const [faceQrOpen, setFaceQrOpen] = useState(false);
+  // Cuándo salió la pantalla: la ficha que aún se estaba leyendo al tocar «Efectivo» no lo confirma (B2).
+  const stepShownAt = useRef(0);
 
   useEffect(() => {
     staffBackend
@@ -209,7 +225,9 @@ export function ReceptionDesk({ user, active, footer, onGiveFicha }: Props) {
   );
   useEffect(() => {
     counterRound.current += 1;
+    stepShownAt.current = Date.now();
     setWrong(null);
+    setFaceQrOpen(false);
   }, [step.kind]);
   useOpenCharge('recepcion', CHARGING.has(step.kind), step.kind === 'card' && step.payment !== null);
   const amounts = quickAmounts(night.receptionQuickAmountsCents);
@@ -291,13 +309,14 @@ export function ReceptionDesk({ user, active, footer, onGiveFicha }: Props) {
   async function onCounterTap(tap: ChipTap): Promise<void> {
     const ficha = here;
     if (!ficha) return;
-    if (sameCounterCard(ficha, tap.token)) return setWrong(null);
+    const at = step;
+    if (sameCounterCard(ficha, tap.token)) return counterSame(at);
     const round = counterRound.current;
     const printed = tap.token && !tap.other ? await printedOfCard(tap.token, tap.uid) : null;
     if (round !== counterRound.current) return;
     const text = counterTapText(ficha, { token: tap.token, printed });
-    setWrong(text);
-    if (text) playOutcomeSound('warn');
+    if (text === null) return counterSame(at);
+    await counterOther(at, tap, text);
   }
 
   /** El número impreso de la ficha acercada, una vez por ficha (sigue apoyada y se lee otra vez). */
@@ -317,6 +336,56 @@ export function ReceptionDesk({ user, active, footer, onGiveFicha }: Props) {
     const view = read.view;
     if (!onGiveFicha || mode !== 'entrada' || view?.kind !== 'saldo' || view.fichaNumber !== null || view.blocked) return undefined;
     return () => onGiveFicha(view.code);
+  }
+
+  /** La misma ficha en el mostrador: confirma el efectivo (B2); en lo demás no pasa nada (A3). */
+  function counterSame(at: Step): void {
+    setWrong(null);
+    if (at.kind === 'cashConfirm' && methodArmed(stepShownAt.current, Date.now())) {
+      void run(() => payCash(at.read, at.amountCents, 'tap'));
+    }
+  }
+
+  /**
+   * Otra ficha: en CARGADO es el siguiente cliente y se abre (B3), salvo con el
+   * PIN pendiente o el QR de Face ID a la vista; en lo demás, solo el aviso (A3).
+   */
+  async function counterOther(at: Step, tap: ChipTap, text: string): Promise<void> {
+    let aviso = text;
+    if (at.kind === 'loaded') {
+      const why = loadedOtherTap({ pinPending: loadedPinPending(at.done), faceQrOpen });
+      if (why === 'next') {
+        restart('entrada');
+        // En blanco (o con otra cosa): la primera pantalla la vuelve a leer y la prepara (aquí no se graba).
+        if (tap.token && !tap.other) await onTap(tap);
+        return;
+      }
+      aviso = loadedBlockedText(text, why);
+    }
+    setWrong(aviso);
+    playOutcomeSound('warn');
+  }
+
+  /** Qué hacer con el PIN en CARGADO (la ficha, su tope y quién carga). */
+  function loadedPin(done: Loaded): PinAfterLoad {
+    const view = done.read.view;
+    return pinAfterLoad({
+      wallet: done.wallet,
+      hasFicha: (done.read.nfc !== null && done.linked) || (view?.kind === 'saldo' && view.fichaNumber !== null),
+      canChoose: canChoosePin(view, user.role),
+      noPinMaxCents: noPinLimitCents(night),
+    });
+  }
+
+  /** B3: el PIN está pendiente mientras su teclado está abierto (antes de «Ahora no»). */
+  function loadedPinPending(done: Loaded): boolean {
+    return loadedPin(done) === 'ask' && !done.pinSkipped;
+  }
+
+  /** «Efectivo» (o «Mejor en efectivo»): con ficha, se confirma acercándola otra vez (B2); sin ella, como siempre. */
+  async function cashChosen(read: Read, amountCents: number): Promise<void> {
+    if (needsFichaCheck(counterFicha(read))) return go({ kind: 'cashConfirm', read, amountCents });
+    await payCash(read, amountCents);
   }
 
   function onCode(next: string): void {
@@ -359,8 +428,12 @@ export function ReceptionDesk({ user, active, footer, onGiveFicha }: Props) {
     go({ kind: 'loaded', done: { read, amountCents, feeCents, method, wallet: w, linked, warn } });
   }
 
-  /** La recarga en efectivo con la clave de este intento: repetirla no carga dos veces. */
-  async function sendCash(read: Read, amountCents: number): Promise<void> {
+  /**
+   * La recarga en efectivo con la clave de este intento: repetirla no carga dos
+   * veces. `how`: cómo se confirmó con la ficha (B2; «sin leerla» queda apuntado).
+   */
+  async function sendCash(read: Read, amountCents: number, how?: FichaCheck): Promise<void> {
+    const check = how ? { fichaCheck: how } : {};
     if (read.number) {
       const out = await cashWithFreshFee(
         () =>
@@ -369,6 +442,7 @@ export function ReceptionDesk({ user, active, footer, onGiveFicha }: Props) {
             amountCents,
             idempotencyKey: keyFor(amountCents, 'cash', read),
             ...topUpCharge(options, amountCents).body,
+            ...check,
           }),
         { refresh: () => staffBackend.options(), onOptions: setOptions, amountCents },
       );
@@ -388,6 +462,7 @@ export function ReceptionDesk({ user, active, footer, onGiveFicha }: Props) {
           wallet: cashTopUpWallet(target, read.nfc),
           // La «Comisión del servicio» que se ha dicho (si cambió, el servidor no la apunta).
           ...topUpCharge(options, amountCents).body,
+          ...check,
         }),
       { refresh: () => staffBackend.options(), onOptions: setOptions, amountCents },
     );
@@ -401,24 +476,24 @@ export function ReceptionDesk({ user, active, footer, onGiveFicha }: Props) {
    * en vez de «vuelve a intentarlo» (y pasar al siguiente cliente con la
    * ficha vacía), «Comprobando…» repitiéndola con la misma clave.
    */
-  async function payCash(read: Read, amountCents: number): Promise<void> {
+  async function payCash(read: Read, amountCents: number, how?: FichaCheck): Promise<void> {
     try {
-      await sendCash(read, amountCents);
+      await sendCash(read, amountCents, how);
     } catch (err) {
       if (!cashTopUpUnsure(err)) throw err;
-      void checkCash(read, amountCents, CASH_CHECK_TRIES);
+      void checkCash(read, amountCents, CASH_CHECK_TRIES, how);
     }
   }
 
   /** Repite la recarga (misma clave) hasta saber qué pasó; si no hay manera, se pide comprobarlo a mano. */
-  async function checkCash(read: Read, amountCents: number, tries: number): Promise<void> {
+  async function checkCash(read: Read, amountCents: number, tries: number, how?: FichaCheck): Promise<void> {
     const token = (cashCheck.current += 1);
     for (let i = 0; i < tries; i += 1) {
-      go({ kind: 'cashUnsure', read, amountCents, checking: true });
+      go({ kind: 'cashUnsure', read, amountCents, checking: true, how });
       await sleep(CASH_CHECK_DELAY_MS);
       if (token !== cashCheck.current) return;
       try {
-        await sendCash(read, amountCents);
+        await sendCash(read, amountCents, how);
         return;
       } catch (err) {
         if (token !== cashCheck.current) return;
@@ -430,7 +505,7 @@ export function ReceptionDesk({ user, active, footer, onGiveFicha }: Props) {
         }
       }
     }
-    go({ kind: 'cashUnsure', read, amountCents, checking: false });
+    go({ kind: 'cashUnsure', read, amountCents, checking: false, how });
   }
 
   async function newCardPayment(read: Read, amountCents: number): Promise<CreatedPayment> {
@@ -589,7 +664,7 @@ export function ReceptionDesk({ user, active, footer, onGiveFicha }: Props) {
                   // Primero se retira el QR (si ya lo pagó, el servidor no deja: sale su CARGADO).
                   if (!qrSettled) await retire(payment);
                   setStep({ kind: 'card', read, amountCents, payment: null });
-                  await payCash(read, amountCents);
+                  await cashChosen(read, amountCents);
                 })
             : undefined
         }
@@ -676,6 +751,16 @@ export function ReceptionDesk({ user, active, footer, onGiveFicha }: Props) {
 
       {step.kind === 'method' ? renderMethod(step.read, step.amountCents) : null}
 
+      {step.kind === 'cashConfirm' ? (
+        <CashConfirmStep
+          amountCents={step.amountCents}
+          chargeCents={topUpCharge(options, step.amountCents).totalCents}
+          ficha={readFicha(step.read)}
+          busy={busy}
+          onManual={() => void run(() => payCash(step.read, step.amountCents, 'manual'))}
+        />
+      ) : null}
+
       {step.kind === 'exit' ? (
         <ExitStep
           row={deskRow(step.view, 'salida')}
@@ -752,7 +837,7 @@ export function ReceptionDesk({ user, active, footer, onGiveFicha }: Props) {
 
   /** Efectivo sin respuesta: se comprueba antes de pasar al siguiente cliente (sin flecha atrás). */
   function renderCashUnsure(st: Extract<Step, { kind: 'cashUnsure' }>) {
-    const { read, amountCents, checking, leaveArmed } = st;
+    const { read, amountCents, checking, leaveArmed, how } = st;
     return (
       <div className={s.screen}>
         {head()}
@@ -768,7 +853,7 @@ export function ReceptionDesk({ user, active, footer, onGiveFicha }: Props) {
             {cashUnsureText(eur(amountCents))}
           </p>
         )}
-        <DeskBtn kind="pri" label={checking ? 'Comprobando…' : 'Comprobar otra vez'} busy={checking} onClick={() => void checkCash(read, amountCents, 1)} />
+        <DeskBtn kind="pri" label={checking ? 'Comprobando…' : 'Comprobar otra vez'} busy={checking} onClick={() => void checkCash(read, amountCents, 1, how)} />
         {checking ? null : leaveArmed ? (
           <>
             <p className={s.lbl}>{CASH_UNSURE_LEAVE_TEXT}</p>
@@ -784,12 +869,7 @@ export function ReceptionDesk({ user, active, footer, onGiveFicha }: Props) {
   function renderLoaded(done: Loaded) {
     const money = loadedMoneyLine(done.method, done.amountCents, done.feeCents);
     const view = done.read.view;
-    const pin = pinAfterLoad({
-      wallet: done.wallet,
-      hasFicha: (done.read.nfc !== null && done.linked) || (view?.kind === 'saldo' && view.fichaNumber !== null),
-      canChoose: canChoosePin(view, user.role),
-      noPinMaxCents: noPinLimitCents(night),
-    });
+    const pin = loadedPin(done);
     const pinText = pin === 'ask' || pin === 'manager' ? pinAfterLoadText(pin, noPinLimitCents(night)) : null;
     const askPin = { label: 'Que elija su PIN', onClick: () => go({ kind: 'pin', done }) };
     const next = { label: 'Siguiente cliente', onClick: () => restart('entrada') };
@@ -813,7 +893,11 @@ export function ReceptionDesk({ user, active, footer, onGiveFicha }: Props) {
     // Si hace falta el PIN, primero eso: el QR solo si prefiere pagar con el móvil (si no, deja el botón fuera de la pantalla).
     const activation =
       done.method === 'cash' && done.wallet && !done.read.number ? (
-        pin === 'ask' ? <PhoneOption walletId={done.wallet.walletId} read={done.read.nfc} /> : <ActivationQr walletId={done.wallet.walletId} read={done.read.nfc} />
+        pin === 'ask' ? (
+          <PhoneOption walletId={done.wallet.walletId} read={done.read.nfc} onOpen={setFaceQrOpen} />
+        ) : (
+          <ActivationQr walletId={done.wallet.walletId} read={done.read.nfc} onOpen={setFaceQrOpen} />
+        )
       ) : null;
     return (
       <DeskLoaded
@@ -875,7 +959,7 @@ export function ReceptionDesk({ user, active, footer, onGiveFicha }: Props) {
         pinNote={hasPin ? null : pinNote(noPinLimitCents(night), canChoosePin(read.view, user.role))}
         busy={busy}
         onPick={(method) => {
-          if (method === 'cash') void run(() => payCash(read, amountCents));
+          if (method === 'cash') void run(() => cashChosen(read, amountCents));
           else void run(() => changeCard(read, amountCents, null));
         }}
       />
@@ -911,9 +995,9 @@ export function ReceptionDesk({ user, active, footer, onGiveFicha }: Props) {
 }
 
 /** Quien prefiere pagar con el móvil: el QR de Face ID, solo si lo pide (gasta un enlace de un solo uso). */
-function PhoneOption({ walletId, read }: { walletId: string; read: Read['nfc'] }) {
+function PhoneOption({ walletId, read, onOpen }: { walletId: string; read: Read['nfc']; onOpen?: (open: boolean) => void }) {
   const [open, setOpen] = useState(false);
-  if (open) return <ActivationQr walletId={walletId} read={read} />;
+  if (open) return <ActivationQr walletId={walletId} read={read} onOpen={onOpen} />;
   return <DeskBtn kind="gho" label="Prefiere pagar con el móvil" onClick={() => setOpen(true)} />;
 }
 
@@ -934,6 +1018,7 @@ function counterOf(step: Step): CounterFicha | null {
     case 'amount':
     case 'keypad':
     case 'method':
+    case 'cashConfirm':
     case 'card':
     case 'cashUnsure':
       return counterFicha(step.read);
@@ -953,6 +1038,7 @@ function counterOf(step: Step): CounterFicha | null {
 function backOf(step: Step): Step {
   if (step.kind === 'keypad') return { kind: 'amount', read: step.read };
   if (step.kind === 'method') return { kind: 'amount', read: step.read };
+  if (step.kind === 'cashConfirm') return { kind: 'method', read: step.read, amountCents: step.amountCents };
   if (step.kind === 'exitPasskey' || step.kind === 'exitTotp' || step.kind === 'exitManager' || step.kind === 'managerPending') return step.exit;
   return { kind: 'tap' };
 }

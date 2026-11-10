@@ -70,6 +70,7 @@ export class FichaNumbersService {
       idempotencyKey: input.idempotencyKey,
       wallet: { printed: { cardId: found.cardId } },
       ...(input.serviceFeeCents !== undefined ? { serviceFeeCents: input.serviceFeeCents } : {}),
+      ...(input.fichaCheck ? { fichaCheck: input.fichaCheck } : {}),
     });
     return {
       topUpId: out.topUpId,
