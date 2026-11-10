@@ -121,3 +121,16 @@ describe('CARGADO (recepción)', () => {
     expect(token('--np-warning')).toBe('#f5b342');
   });
 });
+
+describe('textos del QR y de la invitación (revisión de Grafito 2)', () => {
+  it('«10 min» del QR de Face ID no se parte en dos líneas (espacio duro)', () => {
+    expect(read('../components/reception/desk/ActivationQr.tsx')).toContain('Vale una vez y 10&nbsp;min.');
+  });
+
+  it('invitación: «Tarjeta, QR o ficha, sin PIN» (no «Tarjeta o QR o NFC»)', () => {
+    const src = read('../components/cobrar/Esperando.tsx');
+    expect(src).toContain("invite ? (nfcOn ? 'Tarjeta, QR' : 'Tarjeta o QR') : 'Con tu móvil'");
+    expect(src).toContain("invite ? (hasQr ? 'ficha, sin PIN' : 'Ficha, sin PIN') : 'Por detrás'");
+    expect(src).not.toContain("'NFC, sin PIN'");
+  });
+});

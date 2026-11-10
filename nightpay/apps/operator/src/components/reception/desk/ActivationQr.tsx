@@ -58,7 +58,8 @@ export function ActivationQr({ walletId, read }: { walletId: string; read?: { ca
       <QrBox value={link.url} label="QR para activar Face ID en su móvil" small />
       <div className={l.activateText}>
         <b>Activar Face ID en su móvil</b>
-        <span>Que lo escanee con la cámara. Vale una vez y 10 min.</span>
+        {/* «10 min» no se parte entre dos líneas (espacio duro). */}
+        <span>Que lo escanee con la cámara. Vale una vez y 10&nbsp;min.</span>
         {/* Para el cliente, que mira la pantalla (PS-A12). */}
         <span className={l.activateClient}>
           {ACTIVATION_FOR_CLIENT.es} · <span lang="en">{ACTIVATION_FOR_CLIENT.en}</span>
