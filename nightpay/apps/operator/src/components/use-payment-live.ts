@@ -3,16 +3,7 @@ import { io } from 'socket.io-client';
 import type { PaymentStatus } from '@nightpay/contracts';
 import { fetchPaymentStatus, freshAccessToken, ServerUnavailableError, wsBase } from '@/lib/api';
 import { isFinalStatus, pollUpdate } from '@/lib/payment-status';
-import { createPoller } from '@/lib/poller';
-
-/** Con el tiempo real conectado, el sondeo es solo una red de seguridad. */
-const POLL_LIVE_MS = 15_000;
-/** Sin tiempo real (wifi del local, servidor reiniciando), se pregunta a menudo. */
-const POLL_OFFLINE_MS = 4_000;
-/** Plazo de cada consulta del estado: una colgada no deja de vigilar el cobro. */
-const POLL_TIMEOUT_MS = 10_000;
-/** El servidor cerró o rechazó la conexión (p. ej. token caducado): socket.io no reintenta solo. */
-const RECONNECT_MS = 10_000;
+import { createPaymentLive, type PaymentSocket } from '@nightpay/ui';
 
 export interface PaymentUpdate {
   status: PaymentStatus;
@@ -58,11 +49,9 @@ export function usePaymentLive(
 
   useEffect(() => {
     if (!id || !qrToken) return undefined;
-    let live = false;
     let final = false;
     // Cerrado por nosotros (otro cobro, pantalla fuera): nada de reconectar.
     let closed = false;
-    let retry: ReturnType<typeof setTimeout> | null = null;
     setConnected(true);
     setPollOk(true);
 
@@ -71,11 +60,13 @@ export function usePaymentLive(
       onUpdateRef.current(update);
     };
 
-    const poller = createPoller({
-      intervalMs: () => (live ? POLL_LIVE_MS : POLL_OFFLINE_MS),
-      timeoutMs: POLL_TIMEOUT_MS,
+    const live = createPaymentLive({
+      paymentId: id,
       isHidden,
-      task: async (signal) => {
+      onLiveChange: (isLive) => {
+        if (!closed) setConnected(isLive);
+      },
+      poll: async (signal) => {
         if (final) return 'stop';
         try {
           const current = await fetchPaymentStatus(qrToken, signal);
@@ -89,62 +80,43 @@ export function usePaymentLive(
         }
         return final ? 'stop' : undefined;
       },
-    });
-
-    const socket = io(`${wsBase}/rt`, {
-      transports: ['websocket', 'polling'],
-      // El JWT de quien cobra en el handshake: en cada (re)conexión, el vigente.
-      auth: (cb) => {
-        void freshAccessToken().then((token) => cb(token ? { token } : {}));
+      socket: () => {
+        const socket = io(`${wsBase}/rt`, {
+          // Si el WebSocket no conecta (proxy, wifi del local), cae a polling HTTP.
+          transports: ['websocket', 'polling'],
+          tryAllTransports: true,
+          // El JWT de quien cobra en el handshake: en cada (re)conexión, el vigente.
+          auth: (cb) => {
+            void freshAccessToken().then((token) => cb(token ? { token } : {}));
+          },
+        });
+        socket.on('payment:update', (e: { paymentId: string; status: PaymentStatus }) => {
+          if (e.paymentId !== id) return;
+          emit({ status: e.status });
+          // Salió al banco (o se quedó sin su respuesta): el sondeo trae desde cuándo.
+          if (e.status === 'AUTHORIZING' || e.status === 'ORPHAN') live.poke();
+        });
+        socket.on('payment:completed', (e: { paymentId: string; status: PaymentStatus; tipCents?: number }) => {
+          if (e.paymentId === id) emit({ status: e.status, tipCents: e.tipCents ?? 0 });
+        });
+        return socket as unknown as PaymentSocket;
       },
     });
-    const goOffline = () => {
-      if (closed) return;
-      live = false;
-      setConnected(false);
-      if (!socket.active && retry === null) {
-        retry = setTimeout(() => {
-          retry = null;
-          if (!closed) socket.connect();
-        }, RECONNECT_MS);
-      }
-    };
-    socket.on('connect', () => {
-      live = true;
-      setConnected(true);
-      // Rechazada (sesión caducada, sin renovar): el aviso no llegará, así que se pregunta cada poco.
-      socket.emit('payment:subscribe', { paymentId: id }, (res?: { ok?: boolean }) => {
-        if (closed || res?.ok !== false) return;
-        live = false;
-        setConnected(false);
-        poller.poke();
-      });
-      poller.poke();
-    });
-    socket.on('disconnect', goOffline);
-    socket.on('connect_error', goOffline);
-    socket.on('payment:update', (e: { paymentId: string; status: PaymentStatus }) => {
-      if (e.paymentId !== id) return;
-      emit({ status: e.status });
-      // Salió al banco (o se quedó sin su respuesta): el sondeo trae desde cuándo.
-      if (e.status === 'AUTHORIZING' || e.status === 'ORPHAN') poller.poke();
-    });
-    socket.on('payment:completed', (e: { paymentId: string; status: PaymentStatus; tipCents?: number }) => {
-      if (e.paymentId === id) emit({ status: e.status, tipCents: e.tipCents ?? 0 });
-    });
 
+    const poke = () => live.poke();
     const onVisibility = () => {
-      if (!isHidden()) poller.poke();
+      if (!isHidden()) poke();
     };
     document.addEventListener('visibilitychange', onVisibility);
-    poller.start(POLL_OFFLINE_MS);
+    // Vuelve la red (cobertura recuperada): se pregunta ya, sin esperar a la siguiente vuelta.
+    window.addEventListener('online', poke);
+    live.start();
 
     return () => {
       closed = true;
       document.removeEventListener('visibilitychange', onVisibility);
-      if (retry !== null) clearTimeout(retry);
-      poller.stop();
-      socket.disconnect();
+      window.removeEventListener('online', poke);
+      live.stop();
     };
   }, [id, qrToken]);
 

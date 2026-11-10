@@ -66,6 +66,15 @@ export { createWakeLock, wakeLockFrom } from './lib/wake-lock';
 export { advanceStatus, isFinalStatus, isPolledPayment } from './lib/payment-status';
 export { createPoller } from './lib/poller';
 export type { PollOutcome, Poller, PollerOptions } from './lib/poller';
+export {
+  createPaymentLive,
+  PAYMENT_POLL_LIVE_MS,
+  PAYMENT_POLL_OFFLINE_MS,
+  PAYMENT_POLL_TIMEOUT_MS,
+  PAYMENT_RECONNECT_AFTER_SERVER_CLOSE_MS,
+  PAYMENT_RECONNECT_MS,
+} from './lib/payment-live';
+export type { PaymentLive, PaymentLiveOptions, PaymentSocket } from './lib/payment-live';
 export type { WakeLockController, WakeLockEnv, WakeLockLike, WakeLockSentinelLike } from './lib/wake-lock';
 
 // Código QR sin dependencias (la consola y la app del personal): la matriz y su trazado SVG.

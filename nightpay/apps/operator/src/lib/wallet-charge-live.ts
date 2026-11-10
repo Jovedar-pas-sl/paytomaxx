@@ -20,12 +20,15 @@ export const WALLET_CHARGE_POLL_LIVE_MS = 10_000;
 export const WALLET_CHARGE_POLL_OFFLINE_MS = 4_000;
 /** El servidor cerró o rechazó la conexión (p. ej. token caducado): socket.io no reintenta solo. */
 export const WALLET_CHARGE_RECONNECT_MS = 10_000;
+/** El servidor cerró la conexión a propósito (despliegue): la nueva réplica ya está. */
+export const WALLET_CHARGE_RECONNECT_AFTER_SERVER_CLOSE_MS = 1_000;
 /** Plazo de cada consulta: una colgada no deja de vigilar el cobro. */
-const POLL_TIMEOUT_MS = 10_000;
+const POLL_TIMEOUT_MS = 6_000;
 
 /** Lo que se usa del socket de socket.io-client. */
 export interface ChargeSocket {
-  on(event: 'connect' | 'disconnect' | 'connect_error', listener: () => void): unknown;
+  on(event: 'connect' | 'connect_error', listener: () => void): unknown;
+  on(event: 'disconnect', listener: (reason?: string) => void): unknown;
   on(event: 'wallet-charge:update', listener: (e: { id?: string; status?: string }) => void): unknown;
   emit(event: 'wallet-charge:subscribe', data: { chargeId: string }): unknown;
   connect(): unknown;
@@ -70,7 +73,7 @@ export function createWalletChargeLive(o: WalletChargeLiveOptions): WalletCharge
     isHidden: o.isHidden,
   });
 
-  const goOffline = () => {
+  const goOffline = (reason?: string) => {
     if (closed) return;
     const wasLive = live;
     live = false;
@@ -80,7 +83,7 @@ export function createWalletChargeLive(o: WalletChargeLiveOptions): WalletCharge
       retry = setTimeout(() => {
         retry = null;
         if (!closed) socket?.connect();
-      }, WALLET_CHARGE_RECONNECT_MS);
+      }, reason === 'io server disconnect' ? WALLET_CHARGE_RECONNECT_AFTER_SERVER_CLOSE_MS : WALLET_CHARGE_RECONNECT_MS);
     }
   };
 
@@ -96,7 +99,7 @@ export function createWalletChargeLive(o: WalletChargeLiveOptions): WalletCharge
         poller.poke();
       });
       s.on('disconnect', goOffline);
-      s.on('connect_error', goOffline);
+      s.on('connect_error', () => goOffline());
       s.on('wallet-charge:update', (e) => {
         if (!closed && typeof e?.id === 'string' && e.id.toLowerCase() === chargeId) poller.poke();
       });
