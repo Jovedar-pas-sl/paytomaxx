@@ -3,6 +3,7 @@ import {
   Controller,
   Get,
   GoneException,
+  Header,
   HttpCode,
   Inject,
   Param,
@@ -147,6 +148,8 @@ export class PaymentsController {
    */
   @Public()
   @Get('public/:token')
+  // Es el estado vivo de un cobro: ni el navegador ni un proxy del local lo guardan.
+  @Header('Cache-Control', 'no-store')
   @IpRateLimit({ max: 600, windowSec: 60, scope: 'payment-public', failOpen: true })
   async getPublic(@Param('token') token: string): Promise<PublicPaymentView> {
     return this.payments.getByToken(token);

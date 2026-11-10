@@ -1,17 +1,16 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { io, type Socket } from 'socket.io-client';
-import { advanceStatus, createPoller, isFinalStatus, isPolledPayment, type PaymentStatus, type Poller } from '@nightpay/ui';
+import { io } from 'socket.io-client';
+import {
+  advanceStatus,
+  createPaymentLive,
+  isFinalStatus,
+  isPolledPayment,
+  type PaymentLive,
+  type PaymentSocket,
+  type PaymentStatus,
+} from '@nightpay/ui';
 import { fetchPaymentStatus, freshAccessToken, wsBase, type CreatedPayment } from './api';
 import { playBeep } from './beep';
-
-/** Con el tiempo real conectado, el sondeo es solo una red de seguridad. */
-const POLL_LIVE_MS = 15_000;
-/** Sin tiempo real, se pregunta a menudo. */
-const POLL_FAST_MS = 4_000;
-/** Plazo de cada consulta: una colgada no deja de vigilar el cobro. */
-const POLL_TIMEOUT_MS = 10_000;
-/** El servidor cerró o rechazó la conexión (p. ej. token caducado): socket.io no reintenta solo. */
-const RECONNECT_MS = 10_000;
 
 export interface LivePaymentStatus {
   status: PaymentStatus | null;
@@ -35,7 +34,7 @@ export function usePaymentStatus(payment: CreatedPayment | null): LivePaymentSta
   const [status, setStatus] = useState<PaymentStatus | null>(null);
   const [live, setLive] = useState<boolean | null>(null);
   const [pollOk, setPollOk] = useState(true);
-  const pollerRef = useRef<Poller | null>(null);
+  const pollerRef = useRef<PaymentLive | null>(null);
 
   const id = payment?.id ?? null;
   const qrToken = payment?.qrToken ?? null;
@@ -46,11 +45,9 @@ export function usePaymentStatus(payment: CreatedPayment | null): LivePaymentSta
     setLive(null);
     setPollOk(true);
     if (!id || !qrToken) return undefined;
-    let socketLive = false;
     let final = initial !== null && isFinalStatus(initial);
     let beeped = false;
     let closed = false;
-    let retry: ReturnType<typeof setTimeout> | null = null;
 
     const emit = (next: PaymentStatus) => {
       if (closed) return;
@@ -62,11 +59,13 @@ export function usePaymentStatus(payment: CreatedPayment | null): LivePaymentSta
       }
     };
 
-    const poller = createPoller({
-      intervalMs: () => (socketLive ? POLL_LIVE_MS : POLL_FAST_MS),
-      timeoutMs: POLL_TIMEOUT_MS,
+    const link = createPaymentLive({
+      paymentId: id,
       isHidden,
-      task: async (signal) => {
+      onLiveChange: (isLive) => {
+        if (!closed) setLive(isLive);
+      },
+      poll: async (signal) => {
         if (final) return 'stop';
         try {
           const current = await fetchPaymentStatus(qrToken, signal);
@@ -78,63 +77,43 @@ export function usePaymentStatus(payment: CreatedPayment | null): LivePaymentSta
         }
         return final ? 'stop' : undefined;
       },
-    });
-    pollerRef.current = poller;
-
-    const socket: Socket = io(`${wsBase}/rt`, {
-      transports: ['websocket', 'polling'],
-      // El API pide el JWT del personal. Función: en cada reconexión el token
-      // del momento (renovado si está a punto de caducar), no el del primer intento.
-      auth: (cb) => {
-        void freshAccessToken().then((token) => cb(token ? { token } : {}));
+      socket: () => {
+        const socket = io(`${wsBase}/rt`, {
+          // Si el WebSocket no conecta (proxy, wifi del local), cae a polling HTTP.
+          transports: ['websocket', 'polling'],
+          tryAllTransports: true,
+          // El API pide el JWT del personal. Función: en cada reconexión el token
+          // del momento (renovado si está a punto de caducar), no el del primer intento.
+          auth: (cb) => {
+            void freshAccessToken().then((token) => cb(token ? { token } : {}));
+          },
+        });
+        socket.on('payment:update', (e: { paymentId: string; status: PaymentStatus }) => {
+          if (e.paymentId === id) emit(e.status);
+        });
+        socket.on('payment:completed', (e: { paymentId: string; status: PaymentStatus }) => {
+          if (e.paymentId === id) emit(e.status);
+        });
+        return socket as unknown as PaymentSocket;
       },
     });
-    const goOffline = () => {
-      if (closed) return;
-      socketLive = false;
-      setLive(false);
-      if (!socket.active && retry === null) {
-        retry = setTimeout(() => {
-          retry = null;
-          if (!closed) socket.connect();
-        }, RECONNECT_MS);
-      }
-    };
-    socket.on('connect', () => {
-      socketLive = true;
-      setLive(true);
-      // Rechazada (sesión caducada, sin renovar): el aviso no llegará, así que se pregunta cada poco.
-      socket.emit('payment:subscribe', { paymentId: id }, (res?: { ok?: boolean }) => {
-        if (res?.ok !== false) return;
-        socketLive = false;
-        setLive(false);
-        poller.poke();
-      });
-      // Lo que pasó mientras no había conexión: se pregunta ya.
-      poller.poke();
-    });
-    socket.on('disconnect', goOffline);
-    socket.on('connect_error', goOffline);
-    socket.on('payment:update', (e: { paymentId: string; status: PaymentStatus }) => {
-      if (e.paymentId === id) emit(e.status);
-    });
-    socket.on('payment:completed', (e: { paymentId: string; status: PaymentStatus }) => {
-      if (e.paymentId === id) emit(e.status);
-    });
+    pollerRef.current = link;
 
+    const poke = () => link.poke();
     const onVisibility = () => {
-      if (!isHidden()) poller.poke();
+      if (!isHidden()) poke();
     };
     document.addEventListener('visibilitychange', onVisibility);
-    poller.start(POLL_FAST_MS);
+    // Vuelve la red (cobertura recuperada): se pregunta ya.
+    window.addEventListener('online', poke);
+    link.start();
 
     return () => {
       closed = true;
       pollerRef.current = null;
       document.removeEventListener('visibilitychange', onVisibility);
-      if (retry !== null) clearTimeout(retry);
-      poller.stop();
-      socket.disconnect();
+      window.removeEventListener('online', poke);
+      link.stop();
     };
   }, [id, qrToken, initial]);
 
