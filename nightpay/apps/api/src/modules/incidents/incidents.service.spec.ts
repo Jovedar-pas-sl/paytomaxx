@@ -344,6 +344,7 @@ describe('devoluciones sin confirmar (refund_pending)', () => {
       amountCents: 2500,
       paymentId: 'p-1',
       ackable: false,
+      noteRequired: false,
     });
     expect(i!.detail).toMatch(/Revisa en el panel de Paytef .*pulsa Resolver/);
     // El mismo refId en la siguiente vuelta, aunque el texto cambie ("hace 17 min").
@@ -770,5 +771,41 @@ describe('bandeja de incidencias — consultas a la base (DI-04)', () => {
     const prisma = { $queryRaw: query, asSystem: vi.fn(async (fn: (tx: unknown) => unknown) => fn({ $queryRaw: query })) };
     const svc = new IncidentsService(prisma as never, { log: vi.fn() } as never);
     await expect(svc.list('t-1', at('2026-10-17T01:00:00Z'))).rejects.toThrow('connection terminated');
+  });
+});
+
+describe('cerrar un aviso de dinero pide nota (B11)', () => {
+  const dup = { id: '7', paymentId: 'p-2', amountCents: 100, occurredAt: at('2026-10-13T22:00:00Z'), payload: {} };
+  const lost = { id: '12', action: 'wallet.card_blocked_by_client', paymentId: null, amountCents: 5000, occurredAt: at('2026-10-13T22:00:00Z'), payload: {} };
+
+  it('sin nota, o con menos de 3 letras, no se cierra y no se apunta nada', async () => {
+    for (const note of [undefined, '', '  ok  '.slice(2, 3)]) {
+      const t = makeIncidents({ dup: [dup] });
+      await expect(t.svc.ack('t-1', 'owner', { kind: 'duplicate_charge', refId: '7', ...(note === undefined ? {} : { note }) })).rejects.toMatchObject({
+        response: expect.objectContaining({ code: 'INCIDENT_NOTE_REQUIRED' }),
+      });
+      expect(t.prisma.incidentAck.upsert).not.toHaveBeenCalled();
+      expect(t.audit.log).not.toHaveBeenCalled();
+    }
+  });
+
+  it('con nota, se cierra y la nota queda en el registro', async () => {
+    const t = makeIncidents({ dup: [dup] });
+    await t.svc.ack('t-1', 'owner', { kind: 'duplicate_charge', refId: '7', note: 'devuelto en BBVA' });
+    expect(t.audit.log).toHaveBeenCalledWith(expect.objectContaining({ payload: { note: 'devuelto en BBVA' } }));
+  });
+
+  it('un aviso que no es de dinero se cierra sin nota', async () => {
+    const t = makeIncidents({ audit: [lost] });
+    await t.svc.ack('t-1', 'owner', { kind: 'wallet_card_lost', refId: '12' });
+    expect(t.prisma.incidentAck.upsert).toHaveBeenCalled();
+  });
+
+  it('la bandeja dice en cada aviso si pide nota', async () => {
+    const items = await makeIncidents({ dup: [dup], audit: [lost] }).svc.list('t-1', at('2026-10-14T01:00:00Z'));
+    expect(items.map((i) => [i.kind, i.noteRequired])).toEqual([
+      ['duplicate_charge', true],
+      ['wallet_card_lost', false],
+    ]);
   });
 });
