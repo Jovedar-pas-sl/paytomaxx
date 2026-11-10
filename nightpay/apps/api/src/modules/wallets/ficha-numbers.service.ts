@@ -14,6 +14,7 @@ import { assertCanTopUp } from '../venues/charge-rights';
 import { assertVenueAcceptsMethods } from '../venues/venue-methods';
 import { PRINTED_NUMBER_INVALID, printedLookupScopes } from './ficha-numbers';
 import { LIVE_WALLET_STATUSES, liveWallet, type DeskWallet } from './reception-desk';
+import { recentTopUp } from './recent-topup';
 import { cardInGroup, cardUnusableText, isIssuedCard } from './wallet-card-ops';
 import { CashTopUpService } from './wallet-cash-topup.service';
 import { cashPayoutCapCents, cashPayoutNote, walletCash } from './wallet-cash-limits';
@@ -116,6 +117,7 @@ export class FichaNumbersService {
     const w = found.wallet;
     if (!w) return { kind: 'new', printedNumber };
     const cash = await this.prisma.acrossVenues((tx) => walletCash(tx, w.id));
+    const lastTopUp = await this.prisma.acrossVenues((tx) => recentTopUp(tx, w.id));
     return {
       kind: 'saldo',
       printedNumber,
@@ -127,6 +129,7 @@ export class FichaNumbersService {
       blocked: w.blockedAt !== null,
       closeRequested: w.closeRequestedAt !== null,
       isHomeVenue: w.tenantId === venueId,
+      lastTopUp,
     };
   }
 

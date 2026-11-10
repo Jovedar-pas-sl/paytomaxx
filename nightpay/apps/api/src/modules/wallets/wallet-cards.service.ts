@@ -22,6 +22,7 @@ import { assertCanTopUp } from '../venues/charge-rights';
 import { assertVenueAcceptsMethods } from '../venues/venue-methods';
 import { fichasCounts, frozenFichas } from './fichas-counts';
 import { readReceptionDesk, type DeskRef } from './reception-desk';
+import { recentTopUp } from './recent-topup';
 import { PRINTED_NUMBER_INVALID, PRINTED_NUMBER_TAKEN, assignPrintedNumber, isPrintedNumberClash } from './ficha-numbers';
 import {
   ISSUED_CARD_STATUSES,
@@ -375,7 +376,10 @@ export class WalletCardsService {
     await this.prisma.asSystem((tx) => assertCanTopUp(tx, venueId, actor));
     if ('card' in ref) await this.assertNfc(venueId);
     const venue = await this.prisma.venue.findUnique({ where: { id: venueId }, select: { walletGroup: true } });
-    return this.prisma.acrossVenues((tx) => readReceptionDesk(tx, { id: venueId, walletGroup: venue?.walletGroup ?? null }, ref));
+    const view = await this.prisma.acrossVenues((tx) => readReceptionDesk(tx, { id: venueId, walletGroup: venue?.walletGroup ?? null }, ref));
+    if (view.kind !== 'saldo') return view;
+    // «Cargada hace 2 min: 50 € en efectivo (Sergio)» (A4): que no se cargue dos veces.
+    return { ...view, lastTopUp: await this.prisma.acrossVenues((tx) => recentTopUp(tx, view.walletId)) };
   }
 
   private async assertNfc(venueId: string): Promise<void> {

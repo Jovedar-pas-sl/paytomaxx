@@ -8,14 +8,20 @@ const actor = { userId: 'b1c2d3e4-f5a6-4b7c-8d9e-0f1a2b3c4d03', role: 'WAITER' a
 
 type Row = Record<string, unknown>;
 
-function setup(o: { cards?: Row[]; wallet?: Row | null; post?: string; nfc?: boolean } = {}) {
+function setup(o: { cards?: Row[]; wallet?: Row | null; post?: string; nfc?: boolean; recent?: boolean } = {}) {
   const cards = o.cards ?? [{ id: 'c-1', walletId: 'w-1', status: 'ISSUED', venueId: SALA, printedNumberNorm: '17', printedScope: 'g:grupo' }];
   const wallet = o.wallet === undefined
     ? { id: 'w-1', tenantId: NORTE, walletGroup: 'grupo', shortCode: 'K7Q4M2', balanceCents: 8_000, status: 'ACTIVE', pinHash: 'h', blockedAt: null, closeRequestedAt: null, mergedIntoId: null }
     : o.wallet;
   const venues: Record<string, Row> = { [SALA]: { id: SALA, walletGroup: 'grupo', paymentMethods: o.nfc === false ? { nfc: false } : null, postRules: null, sections: null }, [NORTE]: { id: NORTE, walletGroup: 'grupo' } };
   const tx = {
-    user: { findFirst: vi.fn(async () => ({ post: o.post ?? 'RECEPCION' })) },
+    user: {
+      findFirst: vi.fn(async () => ({ post: o.post ?? 'RECEPCION' })),
+      findUnique: vi.fn(async () => ({ displayName: 'Sergio García', email: 'sergio@local.es' })),
+    },
+    // La última recarga (A4): una en efectivo hace un momento, de Sergio.
+    walletCashTopUp: { findFirst: vi.fn(async () => (o.recent ? { createdAt: new Date(), amountCents: 5_000, takenByUserId: 'u-sergio' } : null)) },
+    payment: { findFirst: vi.fn(async () => null) },
     venue: { findUnique: vi.fn(async (a: { where: { id: string } }) => venues[a.where.id] ?? null) },
     walletCard: {
       findMany: vi.fn(async (a: { where: { printedNumberNorm: string; printedScope: { in: string[] } } }) =>
@@ -39,9 +45,17 @@ describe('buscar una ficha por su número impreso (sin acercarla)', () => {
     expect(view).toEqual({
       kind: 'saldo', printedNumber: '00017', codeHint: 'K7Q-•••', balanceCents: 8_000, cashOutCents: 5_000,
       cashOutNote: expect.stringContaining('tarjeta'), hasPin: true, blocked: false, closeRequested: false, isHomeVenue: false,
+      lastTopUp: null,
     });
     expect(JSON.stringify(view)).not.toMatch(/w-1|K7Q-4M2|K7Q4M2|c-1/);
     expect(audit.log).toHaveBeenCalledWith(expect.objectContaining({ action: 'wallet.card_number_lookup', actorId: actor.userId, targetId: 'c-1', payload: { printedNumber: '00017', result: 'saldo' } }));
+  });
+
+  it('con la última recarga si es reciente (A4): el nombre de pila, nunca el email', async () => {
+    const { svc } = setup({ recent: true });
+    const view = await svc.lookup(actor, '17');
+    expect(view.kind === 'saldo' ? view.lastTopUp : null).toMatchObject({ amountCents: 5_000, method: 'cash', byName: 'Sergio' });
+    expect(JSON.stringify(view)).not.toContain('@');
   });
 
   it('del stock (o de un saldo cerrado): «nueva», sin nada más; cada búsqueda queda en el registro', async () => {

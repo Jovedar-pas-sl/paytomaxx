@@ -4,7 +4,8 @@ import { useState } from 'react';
 import { AmountKeypad, Input } from '@nightpay/ui';
 import { MAX_TYPED_AMOUNT_CENTS } from '@nightpay/contracts';
 import { formatEur } from '@/lib/money';
-import { methodArmed, type EntryRow, type MethodButton, type ExitPlan } from '@/lib/reception-desk';
+import type { RecentTopUp } from '@nightpay/contracts';
+import { methodArmed, recentTopUpLine, type EntryRow, type MethodButton, type ExitPlan } from '@/lib/reception-desk';
 import { AMOUNT_HELP, METHOD_HELP, RECEPTION_HELP_SCREENS, cashInHandText, tapHelp, turnPhoneText } from '@/lib/reception-help';
 import { HelpAgain, HelpLine, useHelp } from '../../HelpLine';
 import { CodeBoxes, DESK_FIELD, DeskBtn, DeskRowView, FichaNumber, Icon, NfcMark } from './desk-parts';
@@ -95,16 +96,29 @@ export function TapStage(props: {
  */
 export function AmountStep(props: {
   row: EntryRow;
+  /** La última recarga, si es reciente (A4): «Cargada hace 2 min: 50 € en efectivo (Sergio)». */
+  lastTopUp?: RecentTopUp | null;
+  /** Lo leído es una ficha («Cargada») o un saldo sin ficha («Cargado»). */
+  hasFicha?: boolean;
   amounts: readonly number[];
   onPick: (cents: number) => void;
   onOther: () => void;
   /** Encargado o dueño ante una ficha sin PIN: que lo elija sin tener que cargar nada. */
   onPin?: () => void;
 }) {
+  // La hora a la que salió la pantalla: «hace 2 min» no cambia mientras se mira.
+  const [shownAt] = useState(() => Date.now());
+  const recent = recentTopUpLine(props.lastTopUp, shownAt, props.hasFicha ?? true);
   return (
     <>
       <DeskRowView title={props.row.title} detail={props.row.detail} ficha={props.row.ficha}>
         {props.row.hint ? <span className={s.rowHint}>{props.row.hint}</span> : null}
+        {recent ? (
+          <span className={s.rowRecent}>
+            <Icon name="clock" />
+            {recent}
+          </span>
+        ) : null}
       </DeskRowView>
       <StepQuestion text="¿Cuánto carga?" screen={RECEPTION_HELP_SCREENS.amount} help={AMOUNT_HELP} />
       <div className={s.quick}>

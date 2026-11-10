@@ -14,7 +14,9 @@ import {
   deskRow,
   entryRow,
   FICHA_IN_HAND,
+  lastTopUpOf,
   readFicha,
+  recentTopUpLine,
   deskTarget,
   canChoosePin,
   fichaGivenNote,
@@ -267,6 +269,21 @@ describe('¿Cuánto carga? con el número de la ficha en grande (A1)', () => {
     expect(readFicha({ view: saldo({ fichaNumber: null }) })).toBeNull();
     expect(readFicha({ view: null })).toBeNull();
   });
+  it('la última recarga, durante 10 min en la fila de la ficha (A4)', () => {
+    const now = Date.parse('2026-11-10T01:00:00Z');
+    const at = (min: number) => new Date(now - min * 60_000).toISOString();
+    const sergio = { at: at(2), amountCents: 5_000, method: 'cash' as const, byName: 'Sergio' };
+    expect(eur(recentTopUpLine(sergio, now) ?? '')).toBe('Cargada hace 2 min: 50 € en efectivo (Sergio)');
+    expect(eur(recentTopUpLine({ ...sergio, method: 'card', byName: null }, now) ?? '')).toBe('Cargada hace 2 min: 50 € con tarjeta');
+    expect(eur(recentTopUpLine({ ...sergio, at: at(0) }, now, false) ?? '')).toBe('Cargado hace un momento: 50 € en efectivo (Sergio)');
+    // El reloj del móvil algo atrasado: «hace un momento», nunca «hace -1 min».
+    expect(recentTopUpLine({ ...sergio, at: at(-1) }, now)).toMatch(/hace un momento/);
+    expect(recentTopUpLine({ ...sergio, at: at(10) }, now)).toBeNull();
+    expect(recentTopUpLine(null, now)).toBeNull();
+    expect(lastTopUpOf({ view: saldo({ lastTopUp: sergio }) })).toBe(sergio);
+    expect(lastTopUpOf({ view: NUEVO })).toBeNull();
+  });
+
   it('nunca «NFC» en lo que ve el personal', () => {
     for (const row of [entryRow({ view: NUEVO, nfc: FICHA }), entryRow({ view: null, nfc: null }), entryRow({ view: saldo({ fichaNumber: null }), nfc: null })]) {
       expect(`${row.title} ${row.detail} ${row.hint ?? ''}`).not.toMatch(/NFC/);

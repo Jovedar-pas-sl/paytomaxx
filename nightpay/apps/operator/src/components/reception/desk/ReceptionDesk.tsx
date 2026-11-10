@@ -36,6 +36,7 @@ import {
   deskTarget,
   entryRow,
   FICHA_IN_HAND,
+  lastTopUpOf,
   fetchFichaByNumber,
   fetchReceptionDesk,
   handOverLine,
@@ -646,6 +647,8 @@ export function ReceptionDesk({ user, active, footer }: Props) {
       {step.kind === 'amount' ? (
         <AmountStep
           row={readRow(step.read)}
+          lastTopUp={lastTopUpOf(step.read)}
+          hasFicha={Boolean(step.read.number) || step.read.view?.kind === 'new' || (step.read.view?.kind === 'saldo' && step.read.view.fichaNumber !== null)}
           amounts={amounts}
           onPick={(cents) => go({ kind: 'method', read: step.read, amountCents: cents })}
           onOther={() => go({ kind: 'keypad', read: step.read })}

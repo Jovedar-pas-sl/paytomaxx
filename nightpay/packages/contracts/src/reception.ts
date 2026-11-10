@@ -201,6 +201,26 @@ export interface ReceptionDeskSaldo {
   fichaNumber: number | null;
   /** Tiene Face ID: a la salida lo confirma en su móvil (el PIN no basta). */
   hasPasskey?: boolean;
+  /** La última recarga, si fue hace menos de RECENT_TOP_UP_MINUTES (A4); null o sin el campo: ninguna. */
+  lastTopUp?: RecentTopUp | null;
 }
 
 export type ReceptionDeskView = ReceptionDeskNew | ReceptionDeskSaldo;
+
+/**
+ * Lo que dura en la fila de la ficha «Cargada hace 2 min: 50 € en efectivo
+ * (Sergio)» (estudio de fichas, A4): que no se cargue dos veces lo mismo ni se
+ * dude de si se cargó.
+ */
+export const RECENT_TOP_UP_MINUTES = 10;
+
+/** La última recarga de un saldo, si es reciente (A4). Sin nada que sirva para pagar. */
+export interface RecentTopUp {
+  /** Cuándo se sumó (ISO). */
+  at: string;
+  /** Lo que se cargó en el saldo (sin la comisión del servicio). */
+  amountCents: number;
+  method: 'cash' | 'card';
+  /** El nombre de pila de quien la cargó (nunca el email). null: sin nombre, el datáfono o el propio cliente. */
+  byName: string | null;
+}

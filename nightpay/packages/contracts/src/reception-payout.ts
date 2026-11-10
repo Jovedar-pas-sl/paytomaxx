@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { IdempotencyKeySchema, MAX_CASH_TOP_UP_CENTS } from './reception';
+import { IdempotencyKeySchema, MAX_CASH_TOP_UP_CENTS, type RecentTopUp } from './reception';
 import type { ChargeRights } from './post-rules';
 import { staffCan, type StaffPermissions } from './venue-settings';
 
@@ -100,6 +100,8 @@ export type ReceptionNumberView =
       blocked: boolean;
       closeRequested: boolean;
       isHomeVenue: boolean;
+      /** La última recarga, si es reciente (A4). */
+      lastTopUp?: RecentTopUp | null;
     };
 
 /** Una ficha nueva (o del stock) se carga acercándola: así sale con su saldo. */
