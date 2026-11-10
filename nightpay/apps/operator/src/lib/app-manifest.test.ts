@@ -23,6 +23,13 @@ describe('se abre como app desde la pantalla de inicio (manifiesto)', () => {
     expect(meta.icons.apple[0]!.url).toBe(APP_ICONS.apple);
   });
 
+  it('girar: el personal, en vertical (el móvil en la mano); el TPV y el panel, como esté la pantalla', () => {
+    const orientation = (app: string) => readFileSync(join(APPS, app, 'src', 'app', 'manifest.ts'), 'utf8').match(/orientation: '(\w+)'/)?.[1];
+    expect(orientation('operator')).toBe('portrait');
+    expect(orientation('tpv')).toBe('any');
+    expect(orientation('admin')).toBe('any');
+  });
+
   it.each(['operator', 'admin', 'tpv'])('%s: los iconos están en public/ y la app enlaza el manifiesto', (app) => {
     for (const path of Object.values(APP_ICONS)) expect(existsSync(join(APPS, app, 'public', path))).toBe(true);
     expect(existsSync(join(APPS, app, 'src', 'app', 'manifest.ts'))).toBe(true);
