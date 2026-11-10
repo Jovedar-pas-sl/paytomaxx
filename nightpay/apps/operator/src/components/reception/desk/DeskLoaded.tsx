@@ -143,6 +143,35 @@ export function DeskLoaded({ word, amountCents, reference, money, meta, warn, no
   );
 }
 
+/**
+ * B1: con la ficha por encima del tope sin PIN, el teclado del PIN sale solo
+ * al cargar; encima, esta franja verde con lo que acaba de pasar (suena y
+ * vibra como CARGADO) y lo que hay que hacer con el dinero y la ficha.
+ */
+export function LoadedBand({ word, amountCents, line, aviso = null }: { word: string; amountCents: number; line: string; aviso?: string | null }) {
+  const amount = formatEur(amountCents, { compact: true });
+  useEffect(() => {
+    playOutcomeSound('paid');
+    // Una vez, al salir.
+  }, []);
+  return (
+    <div className={s.band} role="status">
+      <span className={s.bandTick} aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M5 12.5l4.5 4.5L19 7.5" />
+        </svg>
+      </span>
+      <span className={s.bandText}>
+        <b>
+          {word} {amount}
+        </b>
+        <span>{line}</span>
+      </span>
+      {aviso ? <CounterAviso text={aviso} className={s.resAviso} /> : null}
+    </div>
+  );
+}
+
 /** La ficha y el código en grande, uno al lado del otro; debajo, qué mirar y la foto. */
 function LoadedIdsView({ ids }: { ids: LoadedIds }) {
   return (

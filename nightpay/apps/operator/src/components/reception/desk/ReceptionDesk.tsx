@@ -76,7 +76,7 @@ import { PinPad } from '../../PinPad';
 import { ActivationQr } from './ActivationQr';
 import { CounterAviso, DeskHead, DeskBtn, DeskRowLink, DeskRowView } from './desk-parts';
 import { AmountStep, CodeStep, ExitStep, KeypadStep, MethodStep, NumberStep, TapStage } from './DeskSteps';
-import { DeskLoaded } from './DeskLoaded';
+import { DeskLoaded, LoadedBand } from './DeskLoaded';
 import { ManagerExitStep, NumberExitStep, PasskeyExitStep, TotpExitStep } from './ExitSteps';
 import { TopUpQr, useRetirePayment } from './TopUpQr';
 import { useDeskNfc } from './use-desk-nfc';
@@ -107,6 +107,8 @@ interface Loaded {
   warn: string | null;
   /** Ya se vio (se vuelve del PIN): sin sonar otra vez. */
   seen?: boolean;
+  /** B1: el teclado del PIN salió solo y el cliente dijo «Ahora no». */
+  pinSkipped?: boolean;
   /** La referencia de arriba si no hay saldo entero (por número: K7Q-•••). */
   reference?: string | null;
 }
@@ -792,6 +794,10 @@ export function ReceptionDesk({ user, active, footer, onGiveFicha }: Props) {
     const askPin = { label: 'Que elija su PIN', onClick: () => go({ kind: 'pin', done }) };
     const next = { label: 'Siguiente cliente', onClick: () => restart('entrada') };
     const meta = done.read.number ? 'Devuélvele su ficha' : handOverLine(done.read.view, done.linked);
+    // B1 (aprobado el 2-nov): por encima del tope sin PIN, el teclado sale solo, con «Ahora no».
+    if (pin === 'ask' && done.wallet && !done.seen && !done.pinSkipped) {
+      return renderPinFirst(done, done.wallet, `${money.label} ${money.amount} ${money.tail} · ${meta}`);
+    }
     // La ficha (si se le dio o es la suya) y el código, en grande; por número, el código va tapado arriba (A1, A11).
     const ficha = done.linked || view?.kind === 'saldo' || done.read.number ? readFicha(done.read) : null;
     const code = done.read.number ? null : (done.wallet?.code ?? null);
@@ -823,8 +829,31 @@ export function ReceptionDesk({ user, active, footer, onGiveFicha }: Props) {
         extra={activation}
         help={help}
         aviso={wrong}
-        primary={pin === 'ask' ? askPin : next}
-        secondary={pin === 'ask' ? { label: 'Ahora no', onClick: next.onClick } : pin === 'offer' ? askPin : null}
+        primary={pin === 'ask' && !done.pinSkipped ? askPin : next}
+        secondary={pin === 'ask' ? (done.pinSkipped ? askPin : { label: 'Ahora no', onClick: next.onClick }) : pin === 'offer' ? askPin : null}
+      />
+    );
+  }
+
+  /**
+   * B1: el teclado del PIN, solo, nada más cargar (la ficha pasa del tope sin
+   * PIN). Encima, «Cargado 50 €» y qué hacer con el dinero y la ficha. «Ahora
+   * no» lleva a CARGADO con el aviso de lo que pasa sin PIN.
+   */
+  function renderPinFirst(done: Loaded, wallet: ReceptionWallet, line: string) {
+    return (
+      <PinPad
+        mode="choose"
+        title={`Saldo ${wallet.code}`}
+        hint="Pásale el móvil al cliente para que elija su PIN"
+        cancelLabel="Ahora no"
+        top={<LoadedBand word="Cargado" amountCents={done.amountCents} line={line} aviso={wrong} />}
+        onCancel={() => go({ kind: 'loaded', done: { ...done, seen: true, pinSkipped: true } })}
+        onPin={async (pin) => {
+          const next = await staffBackend.setPin(wallet, pin);
+          go({ kind: 'loaded', done: { ...done, wallet: next, seen: true } });
+          return null;
+        }}
       />
     );
   }

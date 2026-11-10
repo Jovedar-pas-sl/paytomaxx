@@ -28,3 +28,27 @@ describe('un saldo sin ficha encontrado por su código: «Darle una» (A7)', () 
     expect(give).not.toMatch(/useEffect\([^)]*find\(/);
   });
 });
+
+describe('B1: por encima del tope sin PIN, el teclado sale solo al cargar, con «Ahora no»', () => {
+  const desk = read('../components/reception/desk/ReceptionDesk.tsx');
+  const pad = read('../components/PinPad.tsx');
+
+  it('CARGADO con el PIN pendiente abre el teclado sin tocar nada (una vez: al volver, ya no)', () => {
+    const loaded = desk.slice(desk.indexOf('function renderLoaded('), desk.indexOf('function renderPinFirst('));
+    expect(loaded).toMatch(/if \(pin === 'ask' && done\.wallet && !done\.seen && !done\.pinSkipped\) \{\s*return renderPinFirst\(/);
+  });
+
+  it('«Ahora no» vuelve a CARGADO sin sonar otra vez; con el PIN puesto, también', () => {
+    const first = desk.slice(desk.indexOf('function renderPinFirst('), desk.indexOf('function renderMethod('));
+    expect(first).toContain('cancelLabel="Ahora no"');
+    expect(first).toContain("go({ kind: 'loaded', done: { ...done, seen: true, pinSkipped: true } })");
+    expect(first).toContain("go({ kind: 'loaded', done: { ...done, wallet: next, seen: true } })");
+    // Tras «Ahora no», el botón grande es «Siguiente cliente» y el PIN queda a mano.
+    expect(desk).toContain("primary={pin === 'ask' && !done.pinSkipped ? askPin : next}");
+  });
+
+  it('el teclado de siempre, con su tecla de salir con otro nombre', () => {
+    expect(pad).toContain("cancelLabel = 'Cancelar'");
+    expect(pad).toMatch(/onClick=\{onCancel\} disabled=\{busy\}>\s*\{cancelLabel\}/);
+  });
+});

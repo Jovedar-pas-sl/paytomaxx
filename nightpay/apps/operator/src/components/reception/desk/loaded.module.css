@@ -141,6 +141,54 @@
   height: 1.25rem;
 }
 
+/* B1: la franja verde encima del teclado del PIN («Cargado 50 €», qué hacer
+   con el dinero y la ficha): el mismo verde y la misma tinta que CARGADO. */
+.band {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
+  padding: 0.625rem 0.75rem;
+  border-radius: var(--np-r-md);
+  background: var(--np-outcome-paid);
+  color: var(--np-outcome-ink);
+  text-align: left;
+}
+
+.bandTick {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 50%;
+  border: 2px solid currentColor;
+}
+
+.bandTick svg {
+  width: 1.125rem;
+  height: 1.125rem;
+}
+
+.bandText {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  line-height: 1.3;
+}
+
+.bandText b {
+  font: 600 1.125rem/1.2 var(--np-font-num);
+}
+
+.band .resAviso {
+  flex-basis: 100%;
+}
+
 /* Se acercó otra ficha (A3): el aviso, en la caja oscura de lo que hay que
    mirar (sobre el verde, el ámbar de fondo no se leería). */
 .resAviso {
