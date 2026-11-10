@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { CASH_TOP_UP_UNDO_SECONDS } from '@nightpay/contracts';
 import { formatEur } from '@/lib/money';
 import { CASH_UNDO_REASON_LABEL, UNDO_REASON_NEXT, undoOpen, undoneText, type CashUndoReason } from '@/lib/cash-undo';
-import { DeskBtn, FichaNumber, NfcMark } from './desk-parts';
+import { DeskBtn, DeskRowLink, FichaNumber, NfcMark } from './desk-parts';
 import s from './desk.module.css';
 import l from './loaded.module.css';
 
@@ -25,6 +25,23 @@ export function UndoLink({ loadedAt, onUndo }: { loadedAt: number; onUndo: () =>
       Me he equivocado
     </button>
   );
+}
+
+/**
+ * «Me he equivocado» en la primera pantalla de recepción (B4): la recarga en
+ * efectivo sigue a mano sus 2 minutos aunque CARGADO ya se haya cerrado (con
+ * B3 la siguiente ficha lo cierra enseguida, justo en «Ficha equivocada»).
+ * `label`: «50 € · ficha 1013». Se va sola al acabar el plazo.
+ */
+export function UndoRow({ loadedAt, label, onUndo }: { loadedAt: number; label: string; onUndo: () => void }) {
+  const [open, setOpen] = useState(() => undoOpen(loadedAt, Date.now()));
+  useEffect(() => {
+    if (!open) return undefined;
+    const timer = setTimeout(() => setOpen(false), Math.max(0, loadedAt + CASH_TOP_UP_UNDO_SECONDS * 1000 - Date.now()));
+    return () => clearTimeout(timer);
+  }, [open, loadedAt]);
+  if (!open) return null;
+  return <DeskRowLink label={`Me he equivocado: ${label}`} onClick={onUndo} />;
 }
 
 /**

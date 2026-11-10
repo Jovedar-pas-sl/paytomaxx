@@ -67,7 +67,7 @@ import {
   type ReceptionDeskView,
 } from '@/lib/reception-desk';
 import { undoCashTopUp, type CashUndoReason } from '@/lib/cash-undo';
-import { photoHint } from '@/lib/ficha-number';
+import { fichaShort, photoHint } from '@/lib/ficha-number';
 import { handOverOf, loadedHelp } from '@/lib/reception-help';
 import { receptionChip, useMySections } from '@/lib/sections';
 import { useVenueNight } from '@/lib/venue-methods';
@@ -86,7 +86,7 @@ import { AmountStep, CashConfirmStep, CodeStep, ExitStep, KeypadStep, MethodStep
 import { DeskLoaded, LoadedBand } from './DeskLoaded';
 import { ManagerExitStep, NumberExitStep, PasskeyExitStep, TotpExitStep } from './ExitSteps';
 import { TopUpQr, useRetirePayment } from './TopUpQr';
-import { UndoLink, UndoneStep, UndoStep } from './UndoSteps';
+import { UndoLink, UndoneStep, UndoRow, UndoStep } from './UndoSteps';
 import { useDeskNfc, type TapMeta } from './use-desk-nfc';
 import { CHARGING, PhoneOption, backOf, counterOf, ignoreCounterError, readRow, useCashAttemptRef, type Exit, type Loaded, type Mode, type Read, type Step } from './desk-model';
 import s from './desk.module.css';
@@ -95,6 +95,13 @@ const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve,
 
 const errText = (err: unknown) => (err as Error).message;
 const eur = (cents: number) => formatEur(cents, { compact: true });
+
+/** «50 € · ficha 1013» (o su código): de qué recarga es «Me he equivocado» en la primera pantalla (B4). */
+function undoRowLabel(done: Loaded): string {
+  const ficha = fichaShort(readFicha(done.read));
+  const who = ficha ? `ficha ${ficha}` : (done.wallet?.code ?? done.reference ?? '');
+  return [eur(done.amountCents + done.feeCents), who].filter(Boolean).join(' · ');
+}
 
 interface Props {
   user: OperatorUser;
@@ -149,6 +156,8 @@ export function ReceptionDesk({ user, active, footer, onGiveFicha, onScanHome, h
   const [faceQrOpen, setFaceQrOpen] = useState(false);
   // Cuándo salió la pantalla: la ficha que aún se estaba leyendo al tocar «Efectivo» no lo confirma (B2).
   const stepShownAt = useRef(0);
+  // B4: las últimas recargas en efectivo de esta pantalla, para «Me he equivocado» en la primera pantalla (2 min).
+  const [recentCash, setRecentCash] = useState<Loaded[]>([]);
 
   useEffect(() => {
     staffBackend
@@ -173,6 +182,12 @@ export function ReceptionDesk({ user, active, footer, onGiveFicha, onScanHome, h
     setWrong(null);
     setFaceQrOpen(false);
   }, [step.kind]);
+  useEffect(() => {
+    if (step.kind !== 'loaded') return;
+    const done = step.done;
+    if (done.method !== 'cash' || !done.topUpId || !done.loadedAt || !needsFichaCheck(counterFicha(done.read))) return;
+    setRecentCash((prev) => [done, ...prev.filter((d) => d.topUpId !== done.topUpId)].slice(0, 3));
+  }, [step]);
   useOpenCharge(home ? 'cobro' : 'recepcion', CHARGING.has(step.kind), step.kind === 'card' && step.payment !== null);
   // B12: recargado desde Inicio, lo de la persona se pone al día (como tras un cobro).
   useEffect(() => {
@@ -302,6 +317,7 @@ export function ReceptionDesk({ user, active, footer, onGiveFicha, onScanHome, h
   async function undoNow(done: Loaded, reason: CashUndoReason, tap: ChipTap): Promise<void> {
     if (!done.topUpId || !tap.token) return;
     const out = await undoCashTopUp(done.topUpId, { reason, card: tap.token, ...(tap.uid ? { uid: tap.uid } : {}) });
+    setRecentCash((prev) => prev.filter((d) => d.topUpId !== done.topUpId));
     go({ kind: 'undone', reason, cents: out.amountCents + (out.serviceFeeCents ?? 0) });
   }
 
@@ -686,6 +702,17 @@ export function ReceptionDesk({ user, active, footer, onGiveFicha, onScanHome, h
             <div className={s.rows}>
               {/* B5: quien cargó desde casa llega con su QR: su ficha, sin buscar en el pie. */}
               {onScanHome && mode === 'entrada' ? <DeskRowLink label="Escanear su QR (cargó en casa)" onClick={onScanHome} /> : null}
+              {/* B4: «Me he equivocado» sigue a mano sus 2 minutos, aunque CARGADO ya se cerrara. */}
+              {mode === 'entrada'
+                ? recentCash.map((d) => (
+                    <UndoRow
+                      key={d.topUpId}
+                      loadedAt={d.loadedAt ?? 0}
+                      label={undoRowLabel(d)}
+                      onUndo={() => go({ kind: 'undo', done: d, reason: null, fromTap: true })}
+                    />
+                  ))
+                : null}
               <DeskRowLink label="Escribir el código" onClick={() => go({ kind: 'code' })} />
               <DeskRowLink label="Buscar número de ficha" onClick={() => go({ kind: 'number' })} />
             </div>

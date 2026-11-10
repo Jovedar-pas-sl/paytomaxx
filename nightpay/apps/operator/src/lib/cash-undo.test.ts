@@ -39,3 +39,21 @@ describe('«Me he equivocado» (B4)', () => {
     expect(voids).toMatch(/inputMode="numeric"/);
   });
 });
+
+describe('«Me he equivocado» no se pierde al cerrar CARGADO (B4 con B3)', () => {
+  it('sigue en la primera pantalla de recepción hasta que pasan sus 2 minutos', () => {
+    const desk = read('../components/reception/desk/ReceptionDesk.tsx');
+    // Cada recarga en efectivo con ficha se guarda al salir CARGADO…
+    expect(desk).toMatch(/setRecentCash\(\(prev\) => \[done, \.\.\.prev\.filter\(\(d\) => d\.topUpId !== done\.topUpId\)\]\.slice\(0, 3\)\)/);
+    // …y sale en la primera pantalla de la entrada, con su plazo (UndoRow se va sola a los 2 min).
+    expect(desk).toMatch(/recentCash\.map\(\(d\) => \(\s*<UndoRow/);
+    expect(desk).toContain("onUndo={() => go({ kind: 'undo', done: d, reason: null, fromTap: true })}");
+    // Anulada, ya no sale.
+    expect(desk).toContain('setRecentCash((prev) => prev.filter((d) => d.topUpId !== done.topUpId));');
+    const rows = read('../components/reception/desk/UndoSteps.tsx');
+    expect(rows).toMatch(/export function UndoRow[\s\S]*?useState\(\(\) => undoOpen\(loadedAt, Date\.now\(\)\)\)[\s\S]*?setTimeout\(\(\) => setOpen\(false\)/);
+    // Desde la primera pantalla, «Atrás» vuelve a ella.
+    const model = read('../components/reception/desk/desk-model.tsx');
+    expect(model).toContain("if (step.kind === 'undo') return step.fromTap ? { kind: 'tap' } : { kind: 'loaded', done: { ...step.done, seen: true } };");
+  });
+});

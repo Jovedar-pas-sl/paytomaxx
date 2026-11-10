@@ -76,7 +76,7 @@ export type Step =
   /** Efectivo sin respuesta: no se sabe si se cargó. Se comprueba con la misma clave antes de seguir. */
   | { kind: 'cashUnsure'; read: Read; amountCents: number; checking: boolean; leaveArmed?: boolean; how?: FichaCheck }
   /** B4: «Me he equivocado»: el motivo y, después, la misma ficha. */
-  | { kind: 'undo'; done: Loaded; reason: CashUndoReason | null }
+  | { kind: 'undo'; done: Loaded; reason: CashUndoReason | null; fromTap?: boolean }
   /** B4: anulada; `cents`: lo que se quitó (saldo + comisión). */
   | { kind: 'undone'; reason: CashUndoReason; cents: number };
 
@@ -130,7 +130,8 @@ export function backOf(step: Step): Step {
   if (step.kind === 'keypad') return { kind: 'amount', read: step.read };
   if (step.kind === 'method') return { kind: 'amount', read: step.read };
   if (step.kind === 'cashConfirm') return { kind: 'method', read: step.read, amountCents: step.amountCents };
-  if (step.kind === 'undo') return { kind: 'loaded', done: { ...step.done, seen: true } };
+  // Desde la primera pantalla, a ella; desde CARGADO, a CARGADO (sin sonar otra vez).
+  if (step.kind === 'undo') return step.fromTap ? { kind: 'tap' } : { kind: 'loaded', done: { ...step.done, seen: true } };
   if (step.kind === 'exitPasskey' || step.kind === 'exitTotp' || step.kind === 'exitManager' || step.kind === 'managerPending') return step.exit;
   return { kind: 'tap' };
 }
