@@ -104,6 +104,11 @@ interface Props {
   onGiveFicha?: (code: string) => void;
   /** B5: «Escanear su QR (cargó en casa)»: abre «Dar ficha a un saldo» con la cámara ya puesta. */
   onScanHome?: () => void;
+  /**
+   * B12: Inicio → «Recargar saldo», con las mismas pantallas (solo la entrada,
+   * sin el pie de Recepción). `onExit`: volver a cobrar; `onDone`: recargado.
+   */
+  home?: { onExit: () => void; onDone: () => void };
 }
 
 /**
@@ -117,7 +122,7 @@ interface Props {
  * su Face ID, así el cliente teclea el PIN una sola vez.
  * Solo recepción carga saldos y cobra efectivo (el servidor lo exige igual).
  */
-export function ReceptionDesk({ user, active, footer, onGiveFicha, onScanHome }: Props) {
+export function ReceptionDesk({ user, active, footer, onGiveFicha, onScanHome, home }: Props) {
   const night = useVenueNight();
   const { sections } = useMySections();
   const [mode, setMode] = useState<Mode>('entrada');
@@ -166,7 +171,11 @@ export function ReceptionDesk({ user, active, footer, onGiveFicha, onScanHome }:
     setWrong(null);
     setFaceQrOpen(false);
   }, [step.kind]);
-  useOpenCharge('recepcion', CHARGING.has(step.kind), step.kind === 'card' && step.payment !== null);
+  useOpenCharge(home ? 'cobro' : 'recepcion', CHARGING.has(step.kind), step.kind === 'card' && step.payment !== null);
+  // B12: recargado desde Inicio, lo de la persona se pone al día (como tras un cobro).
+  useEffect(() => {
+    if (step.kind === 'loaded') home?.onDone();
+  }, [step.kind]);
   const amounts = quickAmounts(night.receptionQuickAmountsCents);
 
   function go(next: Step): void {
@@ -534,7 +543,7 @@ export function ReceptionDesk({ user, active, footer, onGiveFicha, onScanHome }:
   const name = user.displayName ?? 'Recepción';
   // La sección de las entradas con el nombre del local (Ajustes → Secciones), no el de fábrica.
   const chip = receptionChip(sections);
-  const head = (onBack?: () => void) => <DeskHead title="Recepción" sub={name} chip={chip} onBack={onBack} />;
+  const head = (onBack?: () => void) => <DeskHead title={home ? 'Recargar saldo' : 'Recepción'} sub={name} chip={chip} onBack={onBack} />;
 
   if (step.kind === 'exitPin') {
     return <PinPad mode="enter"
@@ -640,14 +649,17 @@ export function ReceptionDesk({ user, active, footer, onGiveFicha, onScanHome }:
     <div className={s.screen}>
       {topLevel ? (
         <>
-          {head(step.kind === 'tap' ? undefined : () => restart('salida'))}
-          <div className={s.seg} role="group" aria-label="Entrada o salida">
-            {(['entrada', 'salida'] as const).map((m) => (
-              <button key={m} type="button" className={s.segBtn} aria-pressed={mode === m} onClick={() => restart(m)}>
-                {m === 'entrada' ? 'Entrada' : 'Salida'}
-              </button>
-            ))}
-          </div>
+          {head(step.kind === 'tap' ? home?.onExit : () => restart('salida'))}
+          {/* B12: desde Inicio solo se recarga (la salida es de Recepción). */}
+          {home ? null : (
+            <div className={s.seg} role="group" aria-label="Entrada o salida">
+              {(['entrada', 'salida'] as const).map((m) => (
+                <button key={m} type="button" className={s.segBtn} aria-pressed={mode === m} onClick={() => restart(m)}>
+                  {m === 'entrada' ? 'Entrada' : 'Salida'}
+                </button>
+              ))}
+            </div>
+          )}
         </>
       ) : (
         head(() => go(backOf(step)))

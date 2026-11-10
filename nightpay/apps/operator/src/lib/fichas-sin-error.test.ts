@@ -76,11 +76,9 @@ describe('B5: «Escanear su QR (cargó en casa)» en la primera pantalla y la fi
 describe('auditoría gráfica en recepción: como el resto de la app', () => {
   it('«Cargado» y «Devuelto», como «Pagado» (sin mayúsculas)', () => {
     const desk = read('../components/reception/desk/ReceptionDesk.tsx');
-    const existing = read('../components/reception/TopUpExisting.tsx');
     expect(desk).toContain('word="Cargado"');
     expect(desk).toContain('word="Devuelto"');
-    expect(existing).toContain('word="Cargado"');
-    expect(`${desk}${existing}`).not.toMatch(/word="(CARGADO|DEVUELTO)"/);
+    expect(desk).not.toMatch(/word="(CARGADO|DEVUELTO)"/);
   });
 
   it('la cabecera de recepción, como ScreenHeader: el mismo logo y «Atrás»', () => {
@@ -98,5 +96,20 @@ describe('B11: preparar fichas sin teclear', () => {
     const prep = read('../components/reception/PrepareFichas.tsx');
     expect(prep).toContain("setPrintedNumber(nextPrintedNumber(lastPrintedRef.current) ?? '');");
     expect(prep).toContain('notFollowingText(lastPrinted, printedNumber)');
+  });
+});
+
+describe('B12: Inicio → «Recargar saldo» con las mismas pantallas que el mostrador', () => {
+  it('Inicio usa la recepción (solo la entrada, sin el pie) y ya no la pantalla aparte', () => {
+    const home = read('../components/HomeTab.tsx');
+    const wrap = read('../components/reception/HomeTopUpDesk.tsx');
+    const desk = read('../components/reception/desk/ReceptionDesk.tsx');
+    expect(home).toContain('<HomeTopUpDesk user={user} onExit={() => setRecargar(false)} onDone={onCobroDone} />');
+    expect(home).not.toContain('TopUpExisting');
+    expect(wrap).toContain('<ReceptionDesk user={user} active={shown} footer={null} home={{ onExit, onDone }} />');
+    // Sin «Entrada / Salida»: desde Inicio solo se recarga; volver, a cobrar.
+    expect(desk).toMatch(/\{home \? null : \(\s*<div className=\{s\.seg\}/);
+    expect(desk).toContain("head(step.kind === 'tap' ? home?.onExit : () => restart('salida'))");
+    expect(desk).toContain("title={home ? 'Recargar saldo' : 'Recepción'}");
   });
 });

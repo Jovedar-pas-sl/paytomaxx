@@ -4,7 +4,7 @@ import { useState } from 'react';
 import type { MyNight, OperatorUser } from '@/lib/api';
 import { canTopUp, useMyRights } from '@/lib/venue-methods';
 import { CobrarFlow } from './cobrar/CobrarFlow';
-import { TopUpExisting } from './reception/TopUpExisting';
+import { HomeTopUpDesk } from './reception/HomeTopUpDesk';
 import styles from './home.module.css';
 
 interface Props {
@@ -20,7 +20,8 @@ interface Props {
  * Inicio = «Cobrar» (maquetas 1.1–3.4): la carta en losetas de su puesto, la
  * cuenta y el cobro único (QR y NFC a la vez). La chica, además, «Mi QR»
  * para que la inviten a una copa. Quien carga saldos (recepción, encargado,
- * dueño), «Recargar saldo» de un saldo que ya existe (maquetas 4.6–4.7).
+ * dueño), «Recargar saldo» con las mismas pantallas que el mostrador de
+ * Recepción (B12).
  */
 export function HomeTab({ user, night, onCobroDone, onLogout }: Props) {
   const [miQr, setMiQr] = useState(false);
@@ -29,7 +30,7 @@ export function HomeTab({ user, night, onCobroDone, onLogout }: Props) {
   if (recargar && topUps) {
     return (
       <div className={styles.home}>
-        <TopUpExisting onExit={() => setRecargar(false)} onDone={onCobroDone} />
+        <HomeTopUpDesk user={user} onExit={() => setRecargar(false)} onDone={onCobroDone} />
       </div>
     );
   }
