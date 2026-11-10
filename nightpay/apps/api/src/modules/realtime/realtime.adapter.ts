@@ -12,6 +12,15 @@ type RedisFactory = (url: string) => Redis;
 const defaultRedis: RedisFactory = (url) => new Redis(url, { lazyConnect: false });
 
 /**
+ * Un móvil que pierde cobertura deja el socket muerto sin aviso: el servidor
+ * lo sabe (y el cliente, que recibe el mismo ping) a los pingInterval +
+ * pingTimeout. Con los de por defecto (25 s + 20 s) eran hasta 45 s sin
+ * «PAGADO»; con estos, unos 15 s. Cuesta un ping de unos bytes cada 10 s.
+ */
+export const PING_INTERVAL_MS = 10_000;
+export const PING_TIMEOUT_MS = 5_000;
+
+/**
  * Adaptador Socket.io que mete pub/sub via Redis (ADR-001).
  * Permite que multiples instancias del API compartan eventos —
  * critico cuando escalemos a >1 nodo tras balanceador.
@@ -55,6 +64,8 @@ export class RedisIoAdapter extends IoAdapter {
       allowRequest: (req: IncomingMessage, callback: (err: string | null, success: boolean) => void) =>
         callback(null, socketOriginAllowed(req.headers.origin, this.isProd, this.allowedOrigins)),
       transports: ['websocket', 'polling'],
+      pingInterval: PING_INTERVAL_MS,
+      pingTimeout: PING_TIMEOUT_MS,
     });
     (server as any).adapter(this.adapterConstructor);
     return server;
