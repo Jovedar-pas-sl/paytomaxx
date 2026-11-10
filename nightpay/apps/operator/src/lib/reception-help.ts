@@ -12,6 +12,7 @@ export const RECEPTION_HELP_SCREENS = {
   amount: 'recepcion-importe',
   method: 'recepcion-pago',
   loaded: 'recepcion-cargado',
+  exit: 'recepcion-salida',
 } as const;
 
 /** «Acerca el NFC»: qué hacer con la ficha (entrada o salida). */
@@ -46,6 +47,16 @@ export function cashInHandText(chargeCents: number): string {
 export function turnPhoneText(hasFicha: boolean): string {
   return hasFicha ? 'Gira el móvil: que vea el importe y su ficha' : 'Gira el móvil: que vea el importe';
 }
+
+/**
+ * La salida (lo que le queda): qué hace cada botón, como lo hace el código.
+ * «Devolver» saca de la caja en efectivo lo que entró en efectivo; lo que
+ * entró con tarjeta queda pendiente y el local se lo devuelve a su tarjeta
+ * («A la tarjeta»). «Guardar» no toca nada: el saldo sigue en su ficha y su
+ * código. Sin hablar de caducidad (no está decidida).
+ */
+export const EXIT_HELP =
+  'Devolver: le das ahora en efectivo lo que cargó en efectivo; lo de tarjeta se lo devuelve el local a su tarjeta. Guardar: se queda en su ficha y su código para otra noche.';
 
 /** Qué se hace con la ficha en CARGADO (lo mismo que dice handOverLine, como orden). */
 export type HandOver = 'give' | 'return' | 'code' | 'none';

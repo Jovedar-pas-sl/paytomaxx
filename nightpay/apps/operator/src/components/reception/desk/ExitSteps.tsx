@@ -11,6 +11,7 @@ import {
 } from '@/lib/reception-cash-payout';
 import { entryRow, type NumberSaldo } from '@/lib/reception-desk';
 import { DESK_FIELD, DeskBtn, DeskRowView, Icon } from './desk-parts';
+import { ExitHelp } from './DeskSteps';
 import { QrBox } from './QrBox';
 import s from './desk.module.css';
 
@@ -179,6 +180,7 @@ export function NumberExitStep({ view, onKeep, onTap }: { view: NumberSaldo; onK
         <span className={s.kick}>{view.balanceCents > 0 ? 'Le quedan' : 'No le queda saldo'}</span>
         <p className={s.bignum}>{eur(view.balanceCents)}</p>
       </div>
+      <ExitHelp />
       <DeskBtn kind="pri" label="Guardar para la próxima" small="No caduca · se lleva su NFC" onClick={onKeep} />
       {view.cashOutCents > 0 ? (
         <DeskBtn kind="gho" label={`Devolver ${eur(view.cashOutCents)} en efectivo`} small="Para devolver, acerca su NFC original" onClick={onTap} />

@@ -6,7 +6,7 @@ import { MAX_TYPED_AMOUNT_CENTS } from '@nightpay/contracts';
 import { formatEur } from '@/lib/money';
 import type { RecentTopUp } from '@nightpay/contracts';
 import { methodArmed, recentTopUpLine, type EntryRow, type MethodButton, type ExitPlan } from '@/lib/reception-desk';
-import { AMOUNT_HELP, METHOD_HELP, RECEPTION_HELP_SCREENS, cashInHandText, tapHelp, turnPhoneText } from '@/lib/reception-help';
+import { AMOUNT_HELP, EXIT_HELP, METHOD_HELP, RECEPTION_HELP_SCREENS, cashInHandText, tapHelp, turnPhoneText } from '@/lib/reception-help';
 import { HelpAgain, HelpLine, useHelp } from '../../HelpLine';
 import { CodeBoxes, DESK_FIELD, DeskBtn, DeskRowView, FichaNumber, Icon, NfcMark } from './desk-parts';
 import s from './desk.module.css';
@@ -256,6 +256,24 @@ export function MethodStep(props: {
   );
 }
 
+/**
+ * La salida: qué hace «Devolver» y qué hace «Guardar», en su línea de ayuda
+ * (se cierra con «Entendido»; el «?» al lado de «Le quedan» la vuelve a abrir).
+ * Los botones no cambian de tamaño ni de orden.
+ */
+export function ExitHelp() {
+  const help = useHelp(RECEPTION_HELP_SCREENS.exit);
+  return (
+    <div className={s.qBlock}>
+      <div className={s.qRow}>
+        <span />
+        <HelpAgain help={help} />
+      </div>
+      <HelpLine help={help}>{EXIT_HELP}</HelpLine>
+    </div>
+  );
+}
+
 /** 4.5: a la salida, lo que le queda; guardar (de fábrica, en lima) o devolverlo en efectivo. */
 export function ExitStep(props: {
   row: { title: string; detail: string };
@@ -273,6 +291,7 @@ export function ExitStep(props: {
         <span className={s.kick}>{plan.balanceCents > 0 ? 'Le quedan' : 'No le queda saldo'}</span>
         <p className={s.bignum}>{formatEur(plan.balanceCents, { compact: true })}</p>
       </div>
+      <ExitHelp />
       <DeskBtn kind="pri" label="Guardar para la próxima" small={plan.keepDetail} onClick={props.onKeep} disabled={props.busy} />
       {plan.refundLabel ? (
         <DeskBtn
