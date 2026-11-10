@@ -113,6 +113,7 @@ export function AmountStep(props: {
     <>
       <DeskRowView title={props.row.title} detail={props.row.detail} ficha={props.row.ficha}>
         {props.row.hint ? <span className={s.rowHint}>{props.row.hint}</span> : null}
+        {props.row.ask ? <span className={s.rowHint}>{props.row.ask}</span> : null}
         {recent ? (
           <span className={s.rowRecent}>
             <Icon name="clock" />
@@ -293,6 +294,8 @@ export function NumberStep({ busy, error, onFind }: { busy: boolean; error: stri
     <form className={s.foot} onSubmit={(event) => { event.preventDefault(); if (ok && !busy) onFind(number); }}>
       <Input label="Número impreso en la ficha" inputMode="numeric" autoComplete="off" maxLength={12}
         value={number} onChange={(event) => setNumber(event.target.value.replace(/\D/g, '').slice(0, 12))} style={DESK_FIELD} />
+      {/* Lo tecleado, en grande y en grupos de 4 como en la ficha (A6): una cifra mal se ve. */}
+      {number ? <FichaNumber printed={number} className={s.typedFicha} /> : null}
       <p className={s.hint}>Como aparece en la ficha. Solo para saldos que ya existen: una ficha nueva se carga acercándola, y para devolver efectivo hace falta el NFC original.</p>
       {error ? <p role="alert" className={s.error}>{error}</p> : null}
       <DeskBtn kind="pri" label="Buscar ficha" disabled={!ok} busy={busy} onClick={() => onFind(number)} />

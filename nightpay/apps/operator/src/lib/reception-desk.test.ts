@@ -17,6 +17,7 @@ import {
   lastTopUpOf,
   readFicha,
   recentTopUpLine,
+  roughBalanceQuestion,
   deskTarget,
   canChoosePin,
   fichaGivenNote,
@@ -282,6 +283,26 @@ describe('¿Cuánto carga? con el número de la ficha en grande (A1)', () => {
     expect(recentTopUpLine(null, now)).toBeNull();
     expect(lastTopUpOf({ view: saldo({ lastTopUp: sergio }) })).toBe(sergio);
     expect(lastTopUpOf({ view: NUEVO })).toBeNull();
+  });
+
+  it('por su número: el número en grande, «Compruébalo con la ficha» y «¿Le quedan unos 35 €?» (A6)', () => {
+    const porNumero = {
+      kind: 'saldo' as const, printedNumber: '00001013', codeHint: 'K7Q-•••', balanceCents: 3_540, cashOutCents: 0, cashOutNote: null,
+      hasPin: true, blocked: false, closeRequested: false, isHomeVenue: true,
+    };
+    const row = entryRow({ view: null, nfc: null, number: porNumero });
+    expect({ ...row, detail: eur(row.detail), ask: eur(row.ask ?? '') }).toEqual({
+      title: 'Ficha', ficha: '00001013', detail: 'Le quedan 35,40 € · K7Q-•••', hint: 'Compruébalo con la ficha', ask: '¿Le quedan unos 35 €?',
+    });
+    const ask = (cents: number) => eur(roughBalanceQuestion(cents));
+    expect(ask(3_740)).toBe('¿Le quedan unos 35 €?');
+    expect(ask(3_760)).toBe('¿Le quedan unos 40 €?');
+    expect(ask(1_000)).toBe('¿Le quedan unos 10 €?');
+    expect(ask(740)).toBe('¿Le quedan unos 7 €?');
+    expect(ask(40)).toBe('¿Le queda menos de 1 €?');
+    expect(ask(0)).toBe('¿Ya no le queda nada?');
+    // Leída o por su código, no se pregunta.
+    expect(entryRow({ view: saldo(), nfc: FICHA }).ask).toBeUndefined();
   });
 
   it('nunca «NFC» en lo que ve el personal', () => {

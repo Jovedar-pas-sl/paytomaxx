@@ -473,6 +473,12 @@ button.det {
   color: var(--np-text-mute);
 }
 
+/* «Buscar número de ficha» (A6): lo tecleado, en grande, para compararlo con la ficha. */
+.typedFicha {
+  font-size: 2.25rem;
+  text-align: center;
+}
+
 /* «¿Cómo paga?»: la ficha debajo del importe, centrada y algo más grande. */
 .cobroFicha {
   font-size: 2.25rem;

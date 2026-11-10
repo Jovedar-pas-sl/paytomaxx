@@ -99,12 +99,33 @@ export function deskRow(view: ReceptionDeskView, mode: 'entrada' | 'salida'): De
 /** Debajo de la ficha leída en grande (A1): que mire el número de la que tiene en la mano. */
 export const FICHA_IN_HAND = 'Mira que es la que tienes en la mano';
 
+/**
+ * Buscada por su número (A6): el número se teclea y una cifra mal es la ficha
+ * de otro. Que se compare con la ficha y se pregunte al cliente lo que tiene.
+ */
+export const FICHA_CHECK = 'Compruébalo con la ficha';
+
+/**
+ * «¿Le quedan unos 35 €?» (A6): lo que se le pregunta al cliente para saber
+ * que es la suya, redondeado como lo recuerda (a 5 € desde 10 €; por debajo,
+ * al euro). Sin decirle la cifra exacta.
+ */
+export function roughBalanceQuestion(balanceCents: number): string {
+  if (balanceCents <= 0) return '¿Ya no le queda nada?';
+  const euros = balanceCents / 100;
+  const rough = euros >= 10 ? Math.round(euros / 5) * 5 : Math.round(euros);
+  if (rough <= 0) return '¿Le queda menos de 1 €?';
+  return `¿Le quedan unos ${formatEur(rough * 100, { compact: true })}?`;
+}
+
 /** La fila de «¿Cuánto carga?» (4.2) con el número de la ficha en grande (A1). */
 export interface EntryRow extends DeskRow {
   /** El número impreso, en grande (null: sin ficha o sin número impreso). */
   ficha: string | null;
   /** Lo que hay que mirar al ver el número («Mira que es la que tienes en la mano»). */
   hint: string | null;
+  /** Por su número (A6): lo que se le pregunta al cliente («¿Le quedan unos 35 €?»). */
+  ask?: string;
 }
 
 /**
@@ -115,7 +136,8 @@ export interface EntryRow extends DeskRow {
  */
 export function entryRow(read: { view: ReceptionDeskView | null; nfc: unknown; number?: NumberSaldo }): EntryRow {
   if (read.number) {
-    return { title: 'Ficha', ficha: read.number.printedNumber, detail: `${leftText(read.number.balanceCents)} · ${read.number.codeHint}`, hint: null };
+    const n = read.number;
+    return { title: 'Ficha', ficha: n.printedNumber, detail: `${leftText(n.balanceCents)} · ${n.codeHint}`, hint: FICHA_CHECK, ask: roughBalanceQuestion(n.balanceCents) };
   }
   const view = read.view;
   if (!view) return { title: 'Saldo nuevo', detail: 'Sin ficha: se queda con su código', ficha: null, hint: null };
