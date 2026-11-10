@@ -201,7 +201,7 @@ describe('recarga en efectivo y caja de la noche (Postgres real)', () => {
     });
     const efectivo = check.steps.find((s) => s.key === 'efectivo')!;
     expect(efectivo).toMatchObject({ status: 'block', count: 3 });
-    expect(efectivo.detail).toContain('debería haber 160,00 €');
+    expect(efectivo.detail).toContain('escribe lo contado');
 
     const closed = await inVenue(norte.id, () =>
       nights.close(norte.id, { userId: norte.manager, role: 'MANAGER' }, night.id, { cashCountedCents: 16_000 }),
