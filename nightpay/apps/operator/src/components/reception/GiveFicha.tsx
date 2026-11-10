@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useRef, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import type { GivenFicha } from '@nightpay/contracts';
 import { Button, Input } from '@nightpay/ui';
 import type { OperatorUser } from '@/lib/api';
@@ -31,11 +31,22 @@ type Step = { kind: 'find' } | { kind: 'scan' } | { kind: 'pin'; found: Found; e
  * cliente pone su PIN (el encargado y el dueño no lo necesitan). Después se
  * acerca una ficha y queda unida a ese saldo. Solo la primera ficha.
  */
-export function GiveFicha({ user, onDone, initialCode }: { user: OperatorUser; onDone: () => void; initialCode?: string }) {
+export function GiveFicha({
+  user,
+  onDone,
+  initialCode,
+  scanFirst = false,
+}: {
+  user: OperatorUser;
+  onDone: () => void;
+  initialCode?: string;
+  /** B5: desde «Escanear su QR (cargó en casa)»: la cámara, ya puesta. */
+  scanFirst?: boolean;
+}) {
   const nfcOn = useVenueMethods().nfc;
   const noPinMaxCents = noPinLimitCents(useVenueNight());
   const { reader, reading, read } = useReadNfc();
-  const [step, setStep] = useState<Step>({ kind: 'find' });
+  const [step, setStep] = useState<Step>(() => (scanFirst && qrScanSupported() ? { kind: 'scan' } : { kind: 'find' }));
   // Desde un saldo sin ficha en el mostrador (A7): su código ya escrito; se busca como siempre.
   const [code, setCode] = useState(initialCode ?? '');
   const [busy, setBusy] = useState(false);
@@ -111,6 +122,14 @@ export function GiveFicha({ user, onDone, initialCode }: { user: OperatorUser; o
       setBusy(false);
     }
   }
+
+  // B5: con el saldo encontrado, la ficha nueva se lee sola (una vez por saldo; si falla, queda el botón).
+  const autoRead = useRef<Found | null>(null);
+  useEffect(() => {
+    if (step.kind !== 'tap' || !reader.via || busy || reading || autoRead.current === step.found) return;
+    autoRead.current = step.found;
+    void tapAndGive(step.found);
+  });
 
   if (step.kind === 'done') {
     const { out } = step;

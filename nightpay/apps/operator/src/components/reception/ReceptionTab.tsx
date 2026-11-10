@@ -11,6 +11,7 @@ import { ReceptionDesk } from './desk/ReceptionDesk';
 import { GiveFicha } from './GiveFicha';
 import { PendingTopUps } from './PendingTopUps';
 import { PrepareFichas } from './PrepareFichas';
+import { qrScanSupported } from '../QrScanner';
 import { useChipReader } from './use-chip-via';
 
 interface Props {
@@ -33,6 +34,8 @@ export function ReceptionTab({ user, active, onOwnHeader }: Props) {
   const [view, setView] = useState<'desk' | 'prepare' | 'pending' | 'ficha'>('desk');
   // «Darle una» desde un saldo sin ficha (A7): su código, ya escrito en «Dar ficha a un saldo».
   const [fichaCode, setFichaCode] = useState<string | undefined>(undefined);
+  // B5: «Escanear su QR (cargó en casa)» desde la primera pantalla: la cámara ya puesta.
+  const [scanFirst, setScanFirst] = useState(false);
   const [pending, setPending] = useState(0);
   const { sections } = useMySections();
 
@@ -69,8 +72,10 @@ export function ReceptionTab({ user, active, onOwnHeader }: Props) {
       <GiveFicha
         user={user}
         initialCode={fichaCode}
+        scanFirst={scanFirst}
         onDone={() => {
           setFichaCode(undefined);
+          setScanFirst(false);
           setView('desk');
         }}
       />,
@@ -102,5 +107,12 @@ export function ReceptionTab({ user, active, onOwnHeader }: Props) {
         setView('ficha');
       }
     : undefined;
-  return <ReceptionDesk user={user} active={active} footer={footer} onGiveFicha={giveFicha} />;
+  const scanHome =
+    methods.nfc && qrScanSupported()
+      ? () => {
+          setScanFirst(true);
+          setView('ficha');
+        }
+      : undefined;
+  return <ReceptionDesk user={user} active={active} footer={footer} onGiveFicha={giveFicha} onScanHome={scanHome} />;
 }

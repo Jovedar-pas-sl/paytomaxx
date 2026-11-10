@@ -52,3 +52,23 @@ describe('B1: por encima del tope sin PIN, el teclado sale solo al cargar, con �
     expect(pad).toMatch(/onClick=\{onCancel\} disabled=\{busy\}>\s*\{cancelLabel\}/);
   });
 });
+
+describe('B5: «Escanear su QR (cargó en casa)» en la primera pantalla y la ficha nueva se lee sola', () => {
+  const desk = read('../components/reception/desk/ReceptionDesk.tsx');
+  const tab = read('../components/reception/ReceptionTab.tsx');
+  const give = read('../components/reception/GiveFicha.tsx');
+
+  it('una fila más en la primera pantalla de la entrada, que abre la cámara de «Dar ficha a un saldo»', () => {
+    expect(desk).toContain('<DeskRowLink label="Escanear su QR (cargó en casa)" onClick={onScanHome} />');
+    expect(desk).toContain("onScanHome && mode === 'entrada'");
+    expect(tab).toMatch(/methods\.nfc && qrScanSupported\(\)/);
+    expect(tab).toContain('scanFirst={scanFirst}');
+    expect(give).toContain("scanFirst && qrScanSupported() ? { kind: 'scan' } : { kind: 'find' }");
+  });
+
+  it('con su saldo encontrado, la ficha se lee sin tocar «Acercar la ficha» (una vez; si falla, queda el botón)', () => {
+    expect(give).toMatch(/if \(step\.kind !== 'tap' \|\| !reader\.via \|\| busy \|\| reading \|\| autoRead\.current === step\.found\) return;\s*autoRead\.current = step\.found;\s*void tapAndGive\(step\.found\);/);
+    // Las pruebas de que es suyo, las de siempre: su QR, o su código y su PIN (el encargado, ninguna).
+    expect(give).toContain('if (proof || manager) return setStep({ kind: \'tap\', found });');
+  });
+});

@@ -167,6 +167,8 @@ interface Props {
   footer: ReactNode;
   /** Un saldo sin ficha encontrado por su código (A7): «Darle una» abre «Dar ficha a un saldo» con él. */
   onGiveFicha?: (code: string) => void;
+  /** B5: «Escanear su QR (cargó en casa)»: abre «Dar ficha a un saldo» con la cámara ya puesta. */
+  onScanHome?: () => void;
 }
 
 /**
@@ -180,7 +182,7 @@ interface Props {
  * su Face ID, así el cliente teclea el PIN una sola vez.
  * Solo recepción carga saldos y cobra efectivo (el servidor lo exige igual).
  */
-export function ReceptionDesk({ user, active, footer, onGiveFicha }: Props) {
+export function ReceptionDesk({ user, active, footer, onGiveFicha, onScanHome }: Props) {
   const night = useVenueNight();
   const { sections } = useMySections();
   const [mode, setMode] = useState<Mode>('entrada');
@@ -710,6 +712,8 @@ export function ReceptionDesk({ user, active, footer, onGiveFicha }: Props) {
           <div className={s.foot}>
             {/* Lo que no es acercarla: filas de lista, sin competir con el NFC. */}
             <div className={s.rows}>
+              {/* B5: quien cargó desde casa llega con su QR: su ficha, sin buscar en el pie. */}
+              {onScanHome && mode === 'entrada' ? <DeskRowLink label="Escanear su QR (cargó en casa)" onClick={onScanHome} /> : null}
               <DeskRowLink label="Escribir el código" onClick={() => go({ kind: 'code' })} />
               <DeskRowLink label="Buscar número de ficha" onClick={() => go({ kind: 'number' })} />
             </div>
