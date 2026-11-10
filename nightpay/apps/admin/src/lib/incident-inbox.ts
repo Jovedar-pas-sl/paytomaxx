@@ -40,8 +40,9 @@ export const INCIDENT_KINDS: Record<IncidentKind, KindMeta> = {
   pos_unproven_sales: {
     group: 'Datáfono',
     title: 'Ventas del datáfono sin comprobar',
-    tab: 'payments',
-    hint: 'Se confirman en Hoy → Cobros → Resolver con el código de autorización.',
+    // En Hoy → Cobros no se resuelven (salen como pagadas, sin «Resolver»): se cuadran con el banco.
+    tab: 'bank',
+    hint: 'Se cuadran en Informes → Banco: sube el fichero del banco y las que coincidan dejan de retener la comisión. Sin el fichero, se liberan con tu 2FA en la ficha de quien cobra esa comisión.',
   },
   pos_reception_limit: {
     group: 'Datáfono',

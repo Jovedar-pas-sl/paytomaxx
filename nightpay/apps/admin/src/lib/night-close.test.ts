@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { describe, it, expect } from 'vitest';
 import type { NightCash, NightCloseStep } from '@nightpay/contracts';
 import {
@@ -11,6 +12,8 @@ import {
   ackedKeys,
   freezeState,
   parseCashInput,
+  pendingHeading,
+  pendingTodo,
   readyCount,
   stepTab,
   stepsFromBody,
@@ -241,5 +244,29 @@ describe('cambiar al cerrar el fondo apuntado al abrir', () => {
     expect(cashOutcome(CASH, { floatText: '', countedText: '0' }, false).reason).not.toBe('negative');
     const noFloat = { ...CASH, openingFloatCents: 0 };
     expect(cashOutcome(noFloat, { floatText: '', countedText: '0' })).toMatchObject({ reason: 'negative', status: 'block' });
+  });
+});
+
+describe('cobros sin resolver al cerrar: qué hacer con cada uno (no todos tienen «Resolver» en Hoy → Cobros)', () => {
+  it('el título manda a cada línea, no a una pantalla', () => {
+    expect(pendingHeading(1)).toBe('1 cobro sin resolver. Antes de cerrar, haz lo que dice cada uno:');
+    expect(pendingHeading(3)).toBe('3 cobros sin resolver. Antes de cerrar, haz lo que dice cada uno:');
+  });
+
+  it('cada caso, su salida: el datáfono se confirma con el ticket o caduca; «Resolver» solo con el banco sin confirmar o pasados 15 min', () => {
+    expect(pendingTodo({ status: 'AWAITING_CAPTURE', captureMethod: 'POS_EXTERNAL' })).toBe(
+      'datáfono sin confirmar: que quien cobró lo confirme con el ticket en la app, o caduca solo',
+    );
+    expect(pendingTodo({ status: 'ORPHAN', captureMethod: 'REDSYS' })).toContain('«Resolver» en Hoy → Cobros');
+    expect(pendingTodo({ status: 'AUTHORIZING', captureMethod: 'REDSYS' })).toContain('si a los 15 min sigue, «Resolver»');
+    expect(pendingTodo({ status: 'CREATED', captureMethod: 'WALLET_TOPUP' })).toBe('recarga en el datáfono a medias: se termina en el datáfono o caduca sola');
+    expect(pendingTodo({ status: 'CREATED', captureMethod: 'WALLET_TOPUP' })).not.toContain('Resolver');
+  });
+
+  it('Noches los usa (ya no dice «resuélvelos en Hoy → Cobros»)', () => {
+    const panel = readFileSync(new URL('../components/NightsPanel.tsx', import.meta.url), 'utf8');
+    expect(panel).toContain('{pendingHeading(current.pending.length)}');
+    expect(panel).toContain('{pendingTodo(p)}');
+    expect(panel).not.toContain('resuélvelos en Hoy → Cobros');
   });
 });

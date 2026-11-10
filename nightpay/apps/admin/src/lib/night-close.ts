@@ -247,3 +247,21 @@ function isStep(v: unknown): v is NightCloseStep {
     Array.isArray(s.items)
   );
 }
+
+/**
+ * Los cobros sin resolver de la noche abierta: no todos se resuelven en el
+ * mismo sitio (en Hoy → Cobros, «Resolver» solo sale con el banco sin
+ * confirmar o esperando más de 15 min), así que cada uno dice qué hacer.
+ */
+export function pendingHeading(count: number): string {
+  const what = count === 1 ? '1 cobro sin resolver' : `${count} cobros sin resolver`;
+  return `${what}. Antes de cerrar, haz lo que dice cada uno:`;
+}
+
+/** Qué es cada pendiente y qué hacer con él. */
+export function pendingTodo(p: { status: string; captureMethod: string | null }): string {
+  if (p.captureMethod === 'POS_EXTERNAL') return 'datáfono sin confirmar: que quien cobró lo confirme con el ticket en la app, o caduca solo';
+  if (p.status === 'ORPHAN') return 'el banco no lo confirmó: búscalo en BBVA y dilo con «Resolver» en Hoy → Cobros';
+  if (p.status === 'AUTHORIZING') return 'esperando al banco: suele llegar solo; si a los 15 min sigue, «Resolver» en Hoy → Cobros';
+  return 'recarga en el datáfono a medias: se termina en el datáfono o caduca sola';
+}

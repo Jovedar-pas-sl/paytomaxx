@@ -16,7 +16,7 @@ import {
 import { cobradoNote, zCobradoParts } from '@/lib/cobrado';
 import { formatDateTime } from '@/lib/dates';
 import { formatEur } from '@/lib/money';
-import { diffLabel, parseCashInput } from '@/lib/night-close';
+import { diffLabel, parseCashInput, pendingHeading, pendingTodo } from '@/lib/night-close';
 import type { PanelTab, TabKey } from '@/lib/roles';
 import { useVenueTimezone } from '@/lib/venue-context';
 import { Z_NET_LABEL, zNetLabel, zTypeLabel } from '@/lib/z-labels';
@@ -168,14 +168,11 @@ export function NightsPanel({
           <AdjustmentsBox adjustments={current.z.adjustments} />
           {current.pending.length > 0 ? (
             <div style={pendingBox}>
-              <p style={{ margin: 0, fontWeight: 600 }}>
-                {current.pending.length === 1 ? '1 cobro sin resolver' : `${current.pending.length} cobros sin resolver`}:
-                resuélvelos en Hoy → Cobros antes de cerrar.
-              </p>
+              <p style={{ margin: 0, fontWeight: 600 }}>{pendingHeading(current.pending.length)}</p>
               <ul style={{ margin: '0.5rem 0 0', paddingLeft: '1.1rem' }}>
                 {current.pending.slice(0, 8).map((p) => (
                   <li key={p.id} className="np-num">
-                    {time(p.createdAt)} · {formatEur(p.amountCents)} · {pendingLabel(p)}
+                    {time(p.createdAt)} · {formatEur(p.amountCents)} · {pendingTodo(p)}
                   </li>
                 ))}
               </ul>
@@ -432,12 +429,6 @@ function AdjustmentsBox({ adjustments: a }: { adjustments?: NightAdjustments }) 
       ) : null}
     </div>
   );
-}
-
-function pendingLabel(p: NightView['pending'][number]): string {
-  if (p.captureMethod === 'POS_EXTERNAL') return 'datáfono sin confirmar';
-  if (p.status === 'ORPHAN') return 'el banco no lo confirmó: búscalo en BBVA';
-  return 'esperando al banco';
 }
 
 const titleStyle: CSSProperties = { margin: 0, fontSize: 'var(--np-t-h3)', fontWeight: 600 };

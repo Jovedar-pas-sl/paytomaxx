@@ -187,7 +187,7 @@ describe('cobrado dos veces: la marca de la fila', () => {
 
   it('a devolver (Redsys): cuánto y dónde', () => {
     expect(paidTwiceNote(row({ status: 'CANCELED', paidTwice: { amountCents: 1200, refunded: false } }), eur)).toBe(
-      'Cobrado dos veces: devuelve 12 € a la tarjeta (Incidencias)',
+      'Cobrado dos veces: devuelve 12 € a la tarjeta (Avisos)',
     );
   });
 
