@@ -186,3 +186,28 @@ describe('B10: recepción pone el PIN a un saldo que ya existía, justo después
     expect((await pinHash(s.walletId)).pinHash).toBeNull();
   });
 });
+
+describe('B5: la ficha que se lee sola tras «Escanear su QR (cargó en casa)»', () => {
+  it('solo una nueva o del stock (la de otro saldo, aunque esté gastado, no) y la misma otra vez no hace nada', async () => {
+    const sinFicha = await inVenue(V, () =>
+      cash.topUp(V, { userId: rocio, role: 'WAITER' }, { amountCents: 1_500, idempotencyKey: key(), wallet: { create: true } }),
+    );
+    await inVenue(undefined, () => charges.setPinFromPayer(sinFicha.walletId, '2468'));
+    const gastado = await saldoConFicha('71', 500);
+    await sys((tx) => tx.clientWallet.update({ where: { id: gastado.walletId }, data: { balanceCents: 0, status: 'DEPLETED' } }));
+    const ajena = await inVenue(V, () =>
+      fichas.give(recepcion(), { walletId: sinFicha.walletId, card: gastado.vieja.card, uid: gastado.vieja.uid, pin: '2468', onlyStock: true }),
+    ).catch((e: unknown) => e);
+    expect((ajena as HttpException).getResponse()).toMatchObject({ code: 'FICHA_NOT_FREE' });
+    const nueva = await stockedCard(`72${digits}4`.slice(0, 12));
+    const given = await inVenue(V, () =>
+      fichas.give(recepcion(), { walletId: sinFicha.walletId, card: nueva.card, uid: nueva.uid, pin: '2468', onlyStock: true }),
+    );
+    expect(given).toMatchObject({ walletId: sinFicha.walletId, via: 'pin', printedNumber: `72${digits}4`.slice(0, 12) });
+    // Leída otra vez (sigue apoyada): lo mismo, sin error ni otra ficha.
+    await expect(
+      inVenue(V, () => fichas.give(recepcion(), { walletId: sinFicha.walletId, card: nueva.card, uid: nueva.uid, pin: '2468', onlyStock: true })),
+    ).resolves.toMatchObject({ walletId: sinFicha.walletId, printedNumber: given.printedNumber });
+    expect(await sys((tx) => tx.walletCard.count({ where: { walletId: sinFicha.walletId, status: 'ISSUED' } }))).toBe(1);
+  });
+});

@@ -15,6 +15,9 @@ import { DESK_FIELD } from './desk/desk-parts';
 import r from './reception.module.css';
 import { useReadNfc } from './use-read-nfc';
 
+/** B5: la espera de la ficha que se lee sola se corta a este tiempo. */
+const AUTO_READ_MS = 60_000;
+
 /** Lo encontrado y cómo prueba el cliente que es suyo (su QR o su PIN; el encargado, ninguna). */
 interface Found {
   saldo: ReceptionDeskSaldo;
@@ -99,17 +102,25 @@ export function GiveFicha({
     void find(c);
   }
 
-  async function tapAndGive(found: Found): Promise<void> {
+  /**
+   * Acercar la ficha y darla. Sola (B5, tras «Escanear su QR»): la espera se
+   * corta al minuto, una ficha en blanco se graba en el mismo gesto y solo vale
+   * una nueva o del stock (onlyStock: el servidor no da la de otro saldo, aunque
+   * esté gastado). La misma ficha leída otra vez no hace nada (el servidor
+   * devuelve lo de antes).
+   */
+  async function tapAndGive(found: Found, auto = false): Promise<void> {
     setBusy(true);
     setError(null);
     try {
-      const nfc = await read();
+      const nfc = await read(auto ? { writeBlank: true, timeoutMs: AUTO_READ_MS } : {});
       const out = await giveFicha({
         walletId: found.saldo.walletId,
         card: nfc.token,
         ...(nfc.uid ? { uid: nfc.uid } : {}),
         ...(found.proof ? { proof: found.proof } : {}),
         ...(found.pin ? { pin: found.pin } : {}),
+        ...(auto ? { onlyStock: true as const } : {}),
       });
       setStep({ kind: 'done', out, hasPin: found.saldo.hasPin });
     } catch (err) {
@@ -128,7 +139,7 @@ export function GiveFicha({
   useEffect(() => {
     if (step.kind !== 'tap' || !reader.via || busy || reading || autoRead.current === step.found) return;
     autoRead.current = step.found;
-    void tapAndGive(step.found);
+    void tapAndGive(step.found, true);
   });
 
   if (step.kind === 'done') {
@@ -137,6 +148,7 @@ export function GiveFicha({
     return (
       <StaffOutcome
         kind="paid"
+        sound="ficha"
         amountCents={out.balanceCents}
         message="Ficha dada"
         detail={<p>{`Saldo ${out.code}${ficha ? ` · ficha nº ${ficha}` : ''}. ${fichaGivenNote(step.hasPin, noPinMaxCents)}`}</p>}
@@ -167,9 +179,11 @@ export function GiveFicha({
       <p className={r.kicker}>Dar ficha a un saldo</p>
       {step.kind === 'tap' ? (
         <>
-          <p className={r.amount}>{formatEur(step.found.saldo.balanceCents, { compact: true })}</p>
-          <p className={r.lead}>Saldo {step.found.saldo.code}</p>
-          <p className={r.text}>Ahora acerca una ficha: queda unida a este saldo.</p>
+          {/* El código del saldo en grande (B5): que el cliente vea que es el suyo mientras se espera la ficha. */}
+          <p className={r.kicker}>Su código</p>
+          <p className={`np-num ${r.amount}`}>{step.found.saldo.code}</p>
+          <p className={r.lead}>Le quedan {formatEur(step.found.saldo.balanceCents, { compact: true })}</p>
+          <p className={r.text}>Ahora acerca una ficha nueva o del stock: queda unida a este saldo.</p>
           {reading ? (
             <Button variant="ghost" onClick={() => reading.abort()}>
               Acerca la ficha… (cancelar)

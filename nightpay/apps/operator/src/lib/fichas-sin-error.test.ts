@@ -67,7 +67,7 @@ describe('B5: «Escanear su QR (cargó en casa)» en la primera pantalla y la fi
   });
 
   it('con su saldo encontrado, la ficha se lee sin tocar «Acercar la ficha» (una vez; si falla, queda el botón)', () => {
-    expect(give).toMatch(/if \(step\.kind !== 'tap' \|\| !reader\.via \|\| busy \|\| reading \|\| autoRead\.current === step\.found\) return;\s*autoRead\.current = step\.found;\s*void tapAndGive\(step\.found\);/);
+    expect(give).toMatch(/if \(step\.kind !== 'tap' \|\| !reader\.via \|\| busy \|\| reading \|\| autoRead\.current === step\.found\) return;\s*autoRead\.current = step\.found;\s*void tapAndGive\(step\.found, true\);/);
     // Las pruebas de que es suyo, las de siempre: su QR, o su código y su PIN (el encargado, ninguna).
     expect(give).toContain('if (proof || manager) return setStep({ kind: \'tap\', found });');
   });
@@ -111,5 +111,28 @@ describe('B12: Inicio → «Recargar saldo» con las mismas pantallas que el mos
     expect(desk).toMatch(/\{home \? null : \(\s*<div className=\{s\.seg\}/);
     expect(desk).toContain("head(step.kind === 'tap' ? home?.onExit : () => restart('salida'))");
     expect(desk).toContain("title={home ? 'Recargar saldo' : 'Recepción'}");
+  });
+});
+
+describe('B5: los cuidados de la ficha que se lee sola', () => {
+  const give = read('../components/reception/GiveFicha.tsx');
+  const reader = read('../components/reception/use-read-nfc.ts');
+  it('la espera se corta sola al minuto, con el código del saldo en grande', () => {
+    expect(give).toContain('const AUTO_READ_MS = 60_000;');
+    expect(give).toContain('read(auto ? { writeBlank: true, timeoutMs: AUTO_READ_MS } : {})');
+    expect(reader).toMatch(/setTimeout\(\(\) => \{\s*timedOut = true;\s*controller\.abort\(\);/);
+    expect(reader).toContain('if (timedOut) throw new Error(READ_TIMEOUT_TEXT);');
+    expect(give).toContain('<p className={`np-num ${r.amount}`}>{step.found.saldo.code}</p>');
+  });
+  it('solo una ficha en blanco (se graba y va al stock) o del stock; la de otro saldo, no (onlyStock)', () => {
+    expect(give).toContain('...(auto ? { onlyStock: true as const } : {}),');
+    expect(reader).toContain('if (tap.written) await staffBackend.stock(tap.token, tap.uid);');
+  });
+  it('un sonido propio al darla, distinto del de cobro', () => {
+    expect(give).toMatch(/kind="paid"\s*sound="ficha"/);
+    const outcome = read('../components/StaffOutcome.tsx');
+    expect(outcome).toContain("playOutcomeSound(sound ?? (props.kind === 'paid' ? 'paid' : 'failed'));");
+    const sound = read('./alert-sound.ts');
+    expect(sound).toMatch(/ficha: \[\s*\{ freq: 1319/);
   });
 });

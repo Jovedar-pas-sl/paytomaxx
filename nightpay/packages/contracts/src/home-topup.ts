@@ -107,6 +107,11 @@ export const GiveFichaSchema = z
     uid: z.string().trim().max(64).optional(),
     proof: z.string().regex(FICHA_QR_PROOF_RE, 'Ese QR no es el de un saldo').optional(),
     pin: z.string().regex(/^[0-9]{4}$/, 'El PIN son 4 cifras').optional(),
+    /**
+     * B5 (la ficha que se lee sola tras «Escanear su QR»): solo una nueva o del
+     * stock, nunca la de otro saldo, aunque esté gastado (409 FICHA_NOT_FREE).
+     */
+    onlyStock: z.literal(true).optional(),
   })
   .strict();
 export type GiveFichaDto = z.infer<typeof GiveFichaSchema>;

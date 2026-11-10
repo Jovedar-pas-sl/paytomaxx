@@ -25,7 +25,7 @@ import { PrismaService, type TransactionalClient } from '../../common/prisma/pri
 import { AuditService } from '../audit/audit.service';
 import { assertCanTopUp } from '../venues/charge-rights';
 import { assertVenueAcceptsMethods } from '../venues/venue-methods';
-import { ISSUED_CARD_STATUSES, attachCardInTx } from '../wallets/wallet-card-ops';
+import { ISSUED_CARD_STATUSES, attachCardInTx, isIssuedCard } from '../wallets/wallet-card-ops';
 import { WalletChargesService } from '../wallets/wallet-charges.service';
 import { FichaNumbersService } from '../wallets/ficha-numbers.service';
 import { serviceFeeSaldoCents, serviceFeeSpendCents, saldoCredits } from '../wallets/wallet-fee-saldo';
@@ -74,6 +74,10 @@ export class ReceptionFichaService {
     if (!isWalletCardToken(input.card)) throw new BadRequestException('Esta ficha no es nuestra: grábala otra vez');
     const wallet = await this.liveWallet(actor.tenantId, input.walletId);
     const manager = actor.role === 'MANAGER' || actor.role === 'OWNER';
+    // La misma ficha leída otra vez (B5: se lee sola): ya es de este saldo; no pasa nada.
+    if (await this.prisma.acrossVenues((tx) => cardIsOf(tx, input.card, wallet.id))) {
+      return this.givenView(wallet, await this.proofOf(actor, wallet, input));
+    }
     // Antes de gastar un intento de su PIN: ya con ficha (o, recepción, si ya tuvo una), no.
     await this.prisma.acrossVenues((tx) => assertFirstFicha(tx, wallet.id, manager));
     const via = await this.proofOf(actor, wallet, input);
@@ -82,6 +86,7 @@ export class ReceptionFichaService {
       // Con el saldo bloqueado y otra vez la regla: de dos «dar ficha» a la vez, una (la otra no sustituye a la primera).
       await tx.$queryRaw`SELECT id FROM client_wallets WHERE id = ${wallet.id}::uuid FOR UPDATE`;
       await assertFirstFicha(tx, wallet.id, manager);
+      if (input.onlyStock) await assertFreeCard(tx, input.card);
       return attachCardInTx(tx, { walletId: wallet.id, venueId: actor.tenantId, card: input.card, uid, by: { userId: actor.userId } });
     });
     await this.audit.log({
@@ -90,8 +95,13 @@ export class ReceptionFichaService {
       actorId: actor.userId,
       targetType: 'ClientWallet',
       targetId: wallet.id,
-      payload: { replacedCards: replaced, withUid: uid !== null, where: 'reception', via },
+      payload: { replacedCards: replaced, withUid: uid !== null, where: 'reception', via, ...(input.onlyStock ? { onlyStock: true } : {}) },
     });
+    return this.givenView(wallet, via);
+  }
+
+  /** Lo que ve recepción tras darla: el saldo, su código y el número de su ficha. */
+  private async givenView(wallet: { id: string; shortCode: string | null; balanceCents: number }, via: GiveFichaVia): Promise<GivenFicha> {
     const card = await this.prisma.acrossVenues((tx) =>
       tx.walletCard.findFirst({
         where: { walletId: wallet.id, status: { in: ISSUED_CARD_STATUSES } },
@@ -231,6 +241,23 @@ export class ReceptionFichaService {
 }
 
 const eur = (cents: number) => `${(cents / 100).toFixed(2).replace('.', ',').replace(/,00$/, '')} €`;
+
+/** ¿Esta ficha ya está dada a este saldo? (la misma, leída otra vez). */
+async function cardIsOf(tx: Pick<TransactionalClient, 'walletCard'>, token: string, walletId: string): Promise<boolean> {
+  const card = await tx.walletCard.findUnique({ where: { token }, select: { walletId: true, status: true } });
+  return card !== null && isIssuedCard(card) && card.walletId === walletId;
+}
+
+/**
+ * B5: solo una ficha nueva o del stock. La de otro saldo no, aunque esté
+ * gastado (attachCardInTx la dejaría pasar si ya no tiene dinero).
+ */
+async function assertFreeCard(tx: Pick<TransactionalClient, 'walletCard'>, token: string): Promise<void> {
+  const card = await tx.walletCard.findUnique({ where: { token }, select: { walletId: true, status: true } });
+  if (card && isIssuedCard(card)) {
+    throw new ConflictException({ message: 'Esa ficha es de otro saldo (aunque esté gastado): usa una nueva o del stock.', code: 'FICHA_NOT_FREE' });
+  }
+}
 
 /** 409 si el saldo no cubre la ficha nueva: se dice y no se hace nada. */
 function noBalance(balanceCents: number, fee: number): ConflictException {
