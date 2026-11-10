@@ -23,7 +23,9 @@ export function Button({
   const cls = ['np-btn', className].filter(Boolean).join(' ');
 
   return (
+    // type="button" por defecto: dentro de un <form> no lo envía sin querer (quien quiera, pasa type="submit").
     <button
+      type="button"
       {...rest}
       disabled={isDisabled}
       data-variant={variant}

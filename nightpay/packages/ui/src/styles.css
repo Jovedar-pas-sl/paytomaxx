@@ -42,7 +42,8 @@
   --np-t-h3: 1.125rem;
   --np-t-body: 1rem;
   --np-t-ui: 0.9375rem;
-  /* Mínimo para etiquetas pequeñas (kickers, pestañas): 0.8125rem ≈ 13,8 px. */
+  /* Mínimo para etiquetas pequeñas (kickers, pestañas): 0.8125rem = 13 px
+     (en el móvil del personal, 14: abajo). */
   --np-t-label: 0.8125rem;
 
   /* Relleno de las tarjetas y separación entre bloques de una pantalla
@@ -348,10 +349,10 @@ button {
   color: var(--np-on-accent);
 }
 
+/* Sin border-radius: el anillo sigue la forma de cada cosa (deformaba teclas y selectores). */
 :focus-visible {
   outline: 2px solid var(--np-accent);
   outline-offset: 3px;
-  border-radius: 4px;
 }
 
 /* Cifras en Manrope 600, tabulares (para columnas). Un importe grande y
@@ -748,6 +749,12 @@ html.np-touch {
   --np-field-h: 3.25rem;
 }
 
+/* El pequeño también se toca con el dedo: 44 px como mínimo (26 usos). */
+.np-touch .np-btn[data-size='sm'] {
+  height: 2.75rem;
+  padding: 0 1rem;
+}
+
 .np-touch .np-btn[data-size='md'] {
   height: 3rem;
   padding: 0 1.25rem;
@@ -793,6 +800,11 @@ html.np-touch {
     white-space: normal;
     text-align: center;
     line-height: 1.15;
+  }
+
+  .np-staff .np-btn[data-size='sm'] {
+    height: 2.75rem;
+    padding: 0 1rem;
   }
 
   .np-staff .np-btn[data-size='md'] {

@@ -57,10 +57,11 @@
   pointer-events: none;
 }
 
+/* Atrás y los iconos de la cabecera: 48 px (con el pulgar, a oscuras). */
 .iconBtn {
   flex: none;
-  width: 2.75rem;
-  height: 2.75rem;
+  width: 3rem;
+  height: 3rem;
   border-radius: var(--np-r-md);
   display: grid;
   place-items: center;
@@ -698,10 +699,10 @@ html[data-contrast='sala'] .lastRow[data-n='4']:not([data-big]) {
   gap: 0.5rem;
 }
 
-/* Un solo tipo de paso: «−» y «+» iguales y neutros, 44 px y radio 10. */
+/* Un solo tipo de paso: «−» y «+» iguales y neutros, 48 px y radio 10. */
 .stepBtn {
-  width: 2.75rem;
-  height: 2.75rem;
+  width: 3rem;
+  height: 3rem;
   border-radius: var(--np-r-sm);
   display: grid;
   place-items: center;
@@ -1306,12 +1307,14 @@ html[data-contrast='sala'] .lastRow[data-n='4']:not([data-big]) {
   gap: 0.5rem;
 }
 
+/* Esperando: el punto que late, neutro como en StatusPill; el verde, solo
+   para «pagado» (antes parecía pagado antes de tiempo). */
 .live i {
   flex: none;
   width: 0.5rem;
   height: 0.5rem;
   border-radius: var(--np-r-pill);
-  background: var(--np-success);
+  background: var(--np-text);
   animation: np-cobrar-dot var(--np-pulse) ease-in-out infinite;
 }
 

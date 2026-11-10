@@ -150,16 +150,16 @@ export function PendingPos({ onConfirmed, focusPaymentId, onFocusConsumed }: Pro
             Cuando cobres en el datáfono, vuelve aquí y toca el cobro para confirmar.
           </p>
         </div>
-        <button
-          type="button"
+        <Button
+          variant="ghost"
+          size="md"
           onClick={toggleMute}
           aria-label={muted ? 'Activar sonido de alerta' : 'Silenciar alerta'}
           aria-pressed={muted}
-          title={muted ? 'Activar sonido' : 'Silenciar'}
           style={muteBtnStyle}
         >
-          {muted ? '🔕' : '🔔'}
-        </button>
+          <BellIcon muted={muted} />
+        </Button>
       </div>
 
       {zones.length > 1 ? (
@@ -609,11 +609,16 @@ const amountStyle: CSSProperties = {
   fontVariantNumeric: 'tabular-nums',
 };
 
+// 44 px de alto para el dedo, 14 px como mínimo (personal).
 const backBtnStyle: CSSProperties = {
+  minHeight: '2.75rem',
+  padding: '0 0.75rem',
   background: 'transparent',
   border: 'none',
+  borderRadius: 'var(--np-r-sm)',
   color: 'var(--np-text-mute)',
-  fontSize: '0.85rem',
+  fontSize: '0.875rem',
+  fontWeight: 500,
   cursor: 'pointer',
 };
 
@@ -627,19 +632,23 @@ const amountDigitsStyle: CSSProperties = {
   fontWeight: 600,
 };
 
+// La campana: un botón secundario cuadrado de 48 px (Button md en táctil), sin emoji.
 const muteBtnStyle: CSSProperties = {
-  background: 'var(--np-surface-2)',
-  border: '1px solid var(--np-border)',
-  borderRadius: '50%',
-  width: '2.5rem',
-  height: '2.5rem',
-  display: 'flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-  fontSize: '1.2rem',
-  cursor: 'pointer',
+  width: '3rem',
+  padding: 0,
   flexShrink: 0,
 };
+
+/** La campana (con una raya, silenciada): SVG que hereda el color del botón. */
+function BellIcon({ muted }: { muted: boolean }) {
+  return (
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M6 16V11a6 6 0 0112 0v5l1.5 2h-15z" />
+      <path d="M10 20.5a2 2 0 004 0" />
+      {muted ? <path d="M4 4l16 16" /> : null}
+    </svg>
+  );
+}
 
 const confirmPillStyle: CSSProperties = {
   padding: '1rem',
