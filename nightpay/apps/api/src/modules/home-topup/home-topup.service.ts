@@ -13,6 +13,7 @@ import { ConfigService } from '@nestjs/config';
 import type { Redis } from 'ioredis';
 import {
   methodsNeededForPayment,
+  nightSettingsOf,
   paymentMethodsOf,
   serviceFeeBpsFor,
   type CreatePaymentDto,
@@ -32,7 +33,7 @@ import { eur } from '../wallets/wallet-two-factor';
 import {
   SELF_TOPUP_MAX_CENTS,
   SELF_TOPUP_MIN_CENTS,
-  SELF_TOPUP_PRESETS_CENTS,
+  selfTopUpPresets,
   isClientTopUpKey,
   parseTopUpAmount,
   topUpFeeTable,
@@ -65,6 +66,8 @@ export interface HomeVenue {
   raw: VenuePauseState & { paymentMethods: unknown };
   terminalExternalId: string | null;
   serviceFee: VenueServiceFee;
+  /** Los importes que se ofrecen: los de su recepción (Ajustes → Noche, A9). */
+  presetsCents: number[];
 }
 
 /** Lo que pinta la página del enlace (/r/<código>). */
@@ -137,6 +140,7 @@ export class HomeTopUpService {
           name: true,
           homeTopUpEnabled: true,
           deletedAt: true,
+          nightSettings: true,
           ...VENUE_PAUSE_SELECT,
           ...VENUE_METHODS_SELECT,
           ...VENUE_SERVICE_FEE_SELECT,
@@ -152,7 +156,7 @@ export class HomeTopUpService {
     return this.prisma.asSystem(async (tx) => {
       const venue = await tx.venue.findUnique({
         where: { id: venueId },
-        select: { id: true, name: true, ...VENUE_PAUSE_SELECT, ...VENUE_METHODS_SELECT, ...VENUE_SERVICE_FEE_SELECT },
+        select: { id: true, name: true, nightSettings: true, ...VENUE_PAUSE_SELECT, ...VENUE_METHODS_SELECT, ...VENUE_SERVICE_FEE_SELECT },
       });
       return venue ? this.withState(tx, venue) : null;
     });
@@ -166,7 +170,7 @@ export class HomeTopUpService {
     return {
       venueName: venue.name,
       problem: homeTopUpProblem(venue.state),
-      presetsCents: [...SELF_TOPUP_PRESETS_CENTS],
+      presetsCents: venue.presetsCents,
       minCents: SELF_TOPUP_MIN_CENTS,
       maxCents: SELF_TOPUP_MAX_CENTS,
       serviceFeeBps: serviceFeeBpsFor(venue.serviceFee, 'topUp'),
@@ -241,7 +245,7 @@ export class HomeTopUpService {
   /** Pausa, formas de cobro, pasarela y el terminal al que se apunta la carga. */
   private async withState(
     tx: TransactionalClient,
-    venue: { id: string; name: string; paymentMethods: unknown } & VenuePauseState & Partial<VenueServiceFeeRow>,
+    venue: { id: string; name: string; paymentMethods: unknown; nightSettings?: unknown } & VenuePauseState & Partial<VenueServiceFeeRow>,
   ): Promise<HomeVenue> {
     const gateways = await tx.gatewayCredential.count({ where: { tenantId: venue.id, active: true } });
     // Uno del local que no sea el datáfono de recepción: sus topes son de lo cobrado allí.
@@ -264,6 +268,7 @@ export class HomeTopUpService {
       raw: { pausedAt: venue.pausedAt, business: venue.business ?? null, paymentMethods: venue.paymentMethods },
       terminalExternalId: terminal?.externalId ?? null,
       serviceFee: venueServiceFeeOf(venue),
+      presetsCents: selfTopUpPresets(nightSettingsOf(venue.nightSettings).receptionQuickAmountsCents),
     };
   }
 

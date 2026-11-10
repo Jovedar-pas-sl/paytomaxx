@@ -204,7 +204,7 @@ describe('dos opciones debajo del saldo: «Pagar» y «Recargar»', () => {
     expect(html).toContain('<div class="seg" role="tablist" id="seg" aria-label="¿Qué quieres hacer?" hidden>');
     expect(html).toMatch(/<button class="segb" type="button" role="tab" id="tabPay" aria-controls="viewPay" aria-selected="true">.*Pagar<\/button>/);
     expect(html).toMatch(
-      /<button class="segb" type="button" role="tab" id="tabTop" aria-controls="viewTop" aria-selected="false" tabindex="-1">.*Recargar<\/button>/,
+      /<button class="segb" type="button" role="tab" id="tabTop" aria-controls="viewTop" aria-selected="false" tabindex="-1">.*Cargar<\/button>/,
     );
     expect(html).toContain('<section class="view" id="viewPay" aria-labelledby="tabPay">');
     expect(html).toContain('<section class="view" id="viewTop" aria-labelledby="tabTop" hidden>');
@@ -437,7 +437,11 @@ describe('«Recargar»: solo lo de recargar', () => {
     expect(top).toContain('Lo que no gastes no se pierde: se queda para otro día o, con «Me voy», el local te lo devuelve a tu tarjeta.');
     for (const id of ['codeCard', 'payCard', 'scanGo', 'gwCard', 'pinOpen']) expect(top).not.toContain(`id="${id}"`);
     const en = renderWalletPage('tok-1', 'en', state(), { topUp });
-    expect(topView(en)).toContain('Top up your balance');
+    // Las mismas palabras que la recepción y /r (A9): «Cargar saldo», «Otro», «Cargar 50 €».
+    expect(top).toContain('Cargar saldo');
+    expect(top).toMatch(/id="amtOther"><span>Otro<\/span>/);
+    expect(top).toContain('<legend class="sr">¿Cuánto quieres cargar?</legend>');
+    expect(topView(en)).toContain('Load balance');
     expect(topView(en)).toContain('From €10 to €300.');
   });
 

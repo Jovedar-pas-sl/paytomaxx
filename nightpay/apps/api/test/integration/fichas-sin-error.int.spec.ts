@@ -3,6 +3,7 @@
 //  - A4: al leer la ficha (o buscarla por su número), su última recarga si fue
 //    hace menos de 10 min, con el nombre de pila de quien la cargó (nunca el
 //    email); una anulada no cuenta.
+//  - A9: /w y /r ofrecen los importes de la recepción del local (Ajustes → Noche).
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { randomUUID } from 'node:crypto';
@@ -11,6 +12,9 @@ import { PrismaService } from '../../src/common/prisma/prisma.service';
 import { CashTopUpService } from '../../src/modules/wallets/wallet-cash-topup.service';
 import { WalletCardsService } from '../../src/modules/wallets/wallet-cards.service';
 import { FichaNumbersService } from '../../src/modules/wallets/ficha-numbers.service';
+import { WalletTopUpService } from '../../src/modules/wallets/wallet-topup.service';
+import { HomeTopUpService } from '../../src/modules/home-topup/home-topup.service';
+import { newHomeTopUpCode } from '../../src/modules/home-topup/home-topup-rules';
 
 const cls = new ClsService(new AsyncLocalStorage());
 const prisma = new PrismaService(cls as never);
@@ -110,5 +114,27 @@ describe('la última recarga en la fila de la ficha (A4)', () => {
     await sys((tx) => tx.walletCashTopUp.update({ where: { id: old.topUpId }, data: { createdAt: new Date(Date.now() - 11 * 60_000) } }));
     const stale = await inVenue(V, () => cards.desk(V, recepcion(), { card: g.card, uid: g.uid }));
     expect(stale.kind === 'saldo' ? stale.lastTopUp : 'x').toBeNull();
+  });
+});
+
+describe('los mismos importes en recepción, /w y /r (A9)', () => {
+  it('los de Ajustes → Noche que valen desde el móvil (euros enteros de 10 a 300 €)', async () => {
+    const code = newHomeTopUpCode();
+    await sys(async (tx) => {
+      await tx.venue.update({
+        where: { id: V },
+        data: { nightSettings: { receptionQuickAmountsCents: [500, 2_500, 5_000, 7_500] }, homeTopUpEnabled: true, homeTopUpCode: code } as never,
+      });
+    });
+    const f = await stockedCard(`60${r.replace(/\D/g, '').slice(0, 3)}6`.slice(0, 12));
+    const out = await inVenue(V, () => cash.topUp(V, recepcion(), { amountCents: 1_000, idempotencyKey: key(), wallet: { create: true, card: f.card, uid: f.uid } }));
+    const { qrToken } = await sys((tx) => tx.clientWallet.findUniqueOrThrow({ where: { id: out.walletId }, select: { qrToken: true } }));
+    const self = new WalletTopUpService(prisma, {} as never, {} as never, { get: () => '' } as never, {} as never);
+    const w = await inVenue(undefined, () => self.options(qrToken));
+    // 5 € no se puede desde el móvil (mínimo 10 €): fuera; los demás, los de la recepción.
+    expect(w.presetsCents).toEqual([2_500, 5_000, 7_500]);
+    const home = new HomeTopUpService(prisma, {} as never, {} as never, { get: () => '' } as never);
+    const page = await inVenue(undefined, () => home.page(code, undefined));
+    expect(page?.presetsCents).toEqual([2_500, 5_000, 7_500]);
   });
 });

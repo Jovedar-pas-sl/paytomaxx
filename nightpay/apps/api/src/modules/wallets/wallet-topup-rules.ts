@@ -84,6 +84,18 @@ export function selfTopUpCapProblem(
   return total + amountCents > SELF_TOPUP_DAILY_MAX_CENTS ? 'daily-amount' : null;
 }
 
+/**
+ * Los importes que se ofrecen en /w y en /r (estudio de fichas, A9): los
+ * mismos que en la recepción del local (Ajustes → Noche), los que se pueden
+ * recargar desde el móvil (euros enteros de SELF_TOPUP_MIN_CENTS a
+ * SELF_TOPUP_MAX_CENTS). Si no queda ninguno, los de fábrica. El del medio
+ * sigue saliendo marcado (quitarlo es otro punto, B14, sin aprobar).
+ */
+export function selfTopUpPresets(receptionQuickAmountsCents: readonly number[]): number[] {
+  const usable = [...new Set(receptionQuickAmountsCents.filter((c) => parseTopUpAmount(c) !== null))].sort((a, b) => a - b);
+  return usable.length > 0 ? usable : [...SELF_TOPUP_PRESETS_CENTS];
+}
+
 /** Importe pedido → céntimos, o null si no vale (euros enteros entre el mínimo y el máximo). */
 export function parseTopUpAmount(raw: unknown): number | null {
   if (typeof raw !== 'number' || !Number.isInteger(raw)) return null;
