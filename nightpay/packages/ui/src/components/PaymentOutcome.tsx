@@ -62,12 +62,6 @@ const DEFAULT_MESSAGE: Record<OutcomeKind, string | undefined> = {
   expired: 'El cliente no pagó a tiempo.',
 };
 
-const SPOKEN_TITLE: Record<OutcomeKind, string> = {
-  paid: 'Pagado',
-  failed: 'Rechazado',
-  expired: 'Caducado',
-};
-
 /** Repeticiones de la franja (dos mitades iguales para que el bucle no salte). */
 const BAND_ITEMS = 8;
 
@@ -111,7 +105,8 @@ export function PaymentOutcome({
 
   // El anuncio va a una región que ya existe: si nace con el texto, muchos
   // lectores de pantalla no lo leen.
-  const spoken = [SPOKEN_TITLE[kind], amount, message, code ? `Código ${code.split('').join(' ')}` : null]
+  // El lector dice la palabra de la pantalla («No pagado», no «Rechazado»: S-9).
+  const spoken = [title, amount, message, code ? `Código ${code.split('').join(' ')}` : null]
     .filter(Boolean)
     .join('. ');
   const [announce, setAnnounce] = useState('');

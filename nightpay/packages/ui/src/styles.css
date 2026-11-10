@@ -494,6 +494,11 @@ button {
   background: var(--np-c, var(--np-sec-otros));
 }
 
+/* En la app del personal (np-staff y np-touch a la vez), 14 px: su mínimo (S-14). */
+.np-staff.np-touch .np-chip {
+  font-size: 0.875rem;
+}
+
 .np-chip[data-dashed='true']::before {
   background: transparent;
   box-shadow: inset 0 0 0 1.5px var(--np-sec-saldo);
