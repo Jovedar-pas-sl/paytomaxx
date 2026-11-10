@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { keypadDigits } from '@/lib/pin-pad';
+import { PIN_ENTER, keypadDigits } from '@/lib/pin-pad';
 import { formatEur } from '@/lib/money';
 import { pinFootnote } from '@/lib/cobro-view';
 import { useVenueNight } from '@/lib/venue-methods';
@@ -19,6 +19,8 @@ interface Props {
   amountCents: number;
   /** «1 h · saldo K7Q-4M2». */
   detail: string;
+  /** La propina que marcó el personal («33 € + 5 € de propina»), a la vista del cliente (PS-A1). */
+  tip?: { base: string; tip: string } | null;
   /** Por qué pide el PIN (si no es el tope de siempre): «Ya lleva el tope sin PIN de esta noche…». */
   reason?: string | null;
   /** Devuelve un mensaje si no ha valido (PIN malo…) o null si ya está. */
@@ -32,7 +34,7 @@ interface Props {
  * teclas de 74 px y nada más en pantalla; o con las cifras cambiando de sitio
  * si el local lo pide (Ajustes → Noche). Se envía solo al poner la cuarta cifra.
  */
-export function PinScreen({ colors, chip, amountCents, detail, reason, onPin, onCancel }: Props) {
+export function PinScreen({ colors, chip, amountCents, detail, tip = null, reason, onPin, onCancel }: Props) {
   const night = useVenueNight();
   const layout = night.pinKeypad;
   const [keys, setKeys] = useState<string[]>(() => keypadDigits(layout));
@@ -73,10 +75,17 @@ export function PinScreen({ colors, chip, amountCents, detail, reason, onPin, on
         <div className={styles.pinHead}>
           <Chip color={colors[0]?.color ?? 'var(--np-sec-otros)'}>{chip}</Chip>
           <span className={styles.num}>{formatEur(amountCents, { compact: true })}</span>
+          {tip ? (
+            <p>
+              {tip.base} + {tip.tip} de propina
+            </p>
+          ) : null}
           <p>{detail}</p>
         </div>
         <div className={styles.pinQ}>
-          <b>Pon tu PIN</b>
+          <b>
+            {PIN_ENTER.es} <span lang="en" className={styles.en}>· {PIN_ENTER.en}</span>
+          </b>
           <span className={styles.dots} role="status" aria-label={`${pin.length} de ${PIN_LENGTH} cifras`}>
             {Array.from({ length: PIN_LENGTH }, (_, i) => (
               <i key={i} className={i < pin.length ? styles.full : undefined} />

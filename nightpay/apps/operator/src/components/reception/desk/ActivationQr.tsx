@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { fetchActivationLink, type ActivationLink } from '@/lib/activation-link';
+import { ACTIVATION_FOR_CLIENT } from '@/lib/pin-pad';
 import { QrBox } from './QrBox';
 import s from './desk.module.css';
 import l from './loaded.module.css';
@@ -58,6 +59,10 @@ export function ActivationQr({ walletId, read }: { walletId: string; read?: { ca
       <div className={l.activateText}>
         <b>Activar Face ID en su móvil</b>
         <span>Que lo escanee con la cámara. Vale una vez y 10 min.</span>
+        {/* Para el cliente, que mira la pantalla (PS-A12). */}
+        <span className={l.activateClient}>
+          {ACTIVATION_FOR_CLIENT.es} · <span lang="en">{ACTIVATION_FOR_CLIENT.en}</span>
+        </span>
       </div>
     </div>
   );

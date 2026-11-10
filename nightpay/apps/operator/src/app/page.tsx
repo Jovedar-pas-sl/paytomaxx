@@ -175,6 +175,10 @@ function LoginScreen({
       <Card style={{ padding: '2rem', width: '100%', maxWidth: '24rem' }}>
         <LoginForm onSuccess={onSuccess} />
       </Card>
+      {/* Sin salida no se sabía a quién pedir ayuda (S-16). */}
+      <p style={{ margin: 0, maxWidth: '24rem', textAlign: 'center', fontSize: '0.875rem', color: 'var(--np-text-mute)' }}>
+        ¿No puedes entrar? Pide al encargado una contraseña nueva.
+      </p>
       {/* Fuera del cobro: el aviso de instalar como app (no sale si ya lo está). */}
       <InstallHint style={{ width: '100%', maxWidth: '24rem' }} />
     </main>

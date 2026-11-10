@@ -135,9 +135,15 @@
 .activateText {
   display: flex;
   flex-direction: column;
-  gap: 0.25rem;
+  gap: 0.125rem;
   font-size: 0.875rem;
-  line-height: 1.35;
+  line-height: 1.3;
+}
+
+/* La línea para el cliente (PS-A12): en la crema algo más suave, debajo. */
+.activateClient {
+  margin-top: 0.125rem;
+  color: color-mix(in srgb, var(--np-outcome-ink) 85%, transparent);
 }
 
 .activateText b {
