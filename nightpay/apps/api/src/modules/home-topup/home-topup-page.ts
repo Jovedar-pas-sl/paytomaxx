@@ -8,6 +8,7 @@ import { PASSKEY_BROWSER_JS } from '../wallets/passkey-browser';
 import { WALLET_TEXT } from '../wallets/wallet-text';
 import { TOPUP_CSS, topUpFeeExplain } from '../wallets/wallet-topup-view';
 import { HOME_TOPUP_TEXT } from './home-topup-text';
+import { QUEUE_PAGE_TEXT } from './home-topup-queue';
 import type { HomeTopUpPageView } from './home-topup.service';
 
 /**
@@ -30,7 +31,8 @@ import type { HomeTopUpPageView } from './home-topup.service';
  * Sin barras invertidas en el JS (va dentro de una plantilla).
  */
 
-const HOME_CSS = `${TOPUP_CSS}
+const HOME_CSS = `
+.qnote{margin:.5rem 0 0;padding:.625rem .875rem;border-radius:var(--r-tile);border:1px solid var(--line-hi);background:var(--surface-2);color:var(--fg);font-weight:500}${TOPUP_CSS}
 .h{max-width:26rem;margin:0 auto;padding:.25rem 1rem calc(2rem + env(safe-area-inset-bottom));display:flex;flex-direction:column;gap:1rem}
 .hh{display:flex;flex-direction:column;gap:.375rem;padding:.5rem 0 .25rem}
 .hh h1{font-size:1.75rem;color:var(--fg)}
@@ -217,7 +219,7 @@ $('f').addEventListener('submit',function(ev){ev.preventDefault();if(busy)return
  var c=cents(),b=$('go');
  if(!ok(c)){show('err',fill(fill(T.range,'min',eur(C.min)),'max',eur(C.max)));return;}
  busy=true;setGo(T.opening,true);
- pkPost(C.base+'/topup',{amountCents:c,key:K,lang:C.lang})
+ pkPost(C.base+(C.queue?'/cola':'/topup'),C.queue?{amountCents:c,key:K,lang:C.lang,queue:C.queue}:{amountCents:c,key:K,lang:C.lang})
   .then(function(r){var u=r&&r.payUrl;if(typeof u==='string'&&u.indexOf('/pay/')===0){location.href=u;return;}throw new Error(T.error);})
   .catch(function(e){newKey();busy=false;setGo(b.getAttribute('data-label'),false);show('err',npErr(e,C.errors));});});
 window.addEventListener('pageshow',function(e){if(e.persisted){busy=false;newKey();setGo($('go').getAttribute('data-label'),false);}});
@@ -230,6 +232,14 @@ export function renderHomeTopUpPage(code: string, lang: PayLanguage, view: HomeT
   const base = `/r/${encodeURIComponent(code)}`;
   const canLoad = view.problem === null;
   const withFee = (view.serviceFeeBps ?? 0) > 0;
+  // El QR del cartel de la cola (B16): el de esta noche carga por /cola; uno de otra noche, aviso y lo de siempre.
+  const q = QUEUE_PAGE_TEXT[lang];
+  const queueToken = view.queue && 'token' in view.queue ? view.queue.token : null;
+  const queueNote = queueToken
+    ? `<p class="qnote" role="note">${h(q.note)}</p>`
+    : view.queue
+      ? `<p class="qnote" role="status">${h(q.expired)}</p>`
+      : '';
   const config = jsConfig({
     base,
     lang,
@@ -238,7 +248,15 @@ export function renderHomeTopUpPage(code: string, lang: PayLanguage, view: HomeT
     max: view.maxCents,
     fees: view.feesCents,
     text: jsText(lang),
-    errors: { ...clientErrorConfig(lang), ...t.errors },
+    errors: {
+      ...clientErrorConfig(lang),
+      ...t.errors,
+      HOME_TOPUP_QUEUE_EXPIRED: q.expired,
+      HOME_TOPUP_QUEUE_COOKIE: q.noCookies,
+      HOME_TOPUP_QUEUE_DEVICE: q.deviceMax,
+      HOME_TOPUP_QUEUE_NIGHT: q.nightMax,
+    },
+    ...(queueToken ? { queue: queueToken } : {}),
   });
   const venue = h(view.venueName);
   const heading = h(t.heading).split('{venue}').join(`<span>${venue}</span>`);
@@ -251,7 +269,7 @@ ${topBar(lang)}
 <section class="hh" aria-labelledby="hTitle">
 <h1 id="hTitle">${heading}</h1>
 <p>${h(t.advantage)}</p>
-</section>
+${queueNote}</section>
 ${/* Las condiciones («Antes de pagar»), antes del importe y del botón (C-3). */ ''}${canLoad ? howSteps(lang, view.fichas !== false) : ''}${canLoad && view.mine ? mineCard(lang, base, view.mine.codeHint) : ''}${termsCard(lang, withFee)}${canLoad ? amountCard(lang, view) : offCard(lang, base, Boolean(view.mine))}<p class="foot trust">${h(PAY_TEXT[lang].secure)}${CARD_MARKS}</p>
 </main>
 ${

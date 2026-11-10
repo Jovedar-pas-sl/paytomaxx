@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { homeTopUpPrintHtml, homeTopUpSummary } from './home-topup';
+import { homeTopUpPrintHtml, homeTopUpSummary, queuePosterHtml } from './home-topup';
 
 const NBSP = String.fromCharCode(0xa0);
 
@@ -23,5 +23,19 @@ describe('«Cargar saldo desde casa» en Ajustes', () => {
     expect(html).toContain('<img src="data:image/png;base64,AAA"');
     expect(html).toContain('https://api.x/r/Ab&quot;&lt;c');
     expect(html).not.toContain('<script');
+  });
+});
+
+describe('el cartel de la cola (B16)', () => {
+  it('«Carga tu saldo mientras esperas», con su línea en inglés, el QR y hasta cuándo vale; sin el enlace escrito', () => {
+    const html = queuePosterHtml('data:image/png;base64,AAA', 'las 11:00 del 11/11');
+    expect(html).toContain('<h1>Carga tu saldo mientras esperas</h1>');
+    expect(html).toContain('lang="en">Top up your balance while you wait</p>');
+    expect(html).toContain('<img src="data:image/png;base64,AAA"');
+    expect(html).toContain('Vale esta noche, hasta las 11:00 del 11/11.');
+    expect(html).toContain('solo te damos la ficha');
+    expect(html).not.toContain('NFC');
+    expect(html).not.toContain('<script');
+    expect(html).not.toContain('/r/');
   });
 });

@@ -223,3 +223,21 @@ describe('/r explicada: la ventaja, cómo funciona y lo que no gaste', () => {
     expect(WALLET_TEXT.es.topUpFeeExplain).toContain('{pct}');
   });
 });
+
+describe('/r abierta con el QR del cartel de la cola (B16)', () => {
+  it('esta noche: «Carga tu saldo mientras esperas» y la carga va por /cola con su QR; JS válido', () => {
+    const html = renderHomeTopUpPage(CODE, 'es', viewFor(null, { queue: { token: '20.abcdefghijklmnopqrstuv' } }));
+    expect(html).toContain('Carga tu saldo mientras esperas: en recepción solo te darán la ficha.');
+    expect(html).toContain("pkPost(C.base+(C.queue?'/cola':'/topup')");
+    expect(html).toContain('20.abcdefghijklmnopqrstuv');
+    for (const part of html.split('<script>').slice(1)) {
+      expect(() => new Function(part.slice(0, part.indexOf('</script>')))).not.toThrow();
+    }
+  });
+
+  it('de otra noche: lo dice y carga como el enlace de siempre (sin el QR en la configuración)', () => {
+    const html = renderHomeTopUpPage(CODE, 'en', viewFor(null, { queue: { expired: true } }));
+    expect(html).toContain('This QR was for another night.');
+    expect(html).not.toMatch(/queue[^:]*:"[0-9]/);
+  });
+});

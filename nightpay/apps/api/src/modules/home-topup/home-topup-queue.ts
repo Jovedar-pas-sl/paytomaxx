@@ -156,10 +156,3 @@ export const QUEUE_PAGE_TEXT: Readonly<Record<PayLanguage, { note: string; expir
   },
 };
 
-/** El cartel para imprimir (lo que lee el cliente, con su línea en inglés). */
-export const QUEUE_POSTER_TEXT = {
-  title: 'Carga tu saldo mientras esperas',
-  titleEn: 'Top up your balance while you wait',
-  steps: 'Escanea, elige cuánto y paga. En recepción solo te damos la ficha.',
-  stepsEn: 'Scan, choose how much and pay. At reception we just give you your tag.',
-} as const;

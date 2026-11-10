@@ -88,5 +88,7 @@ export const UNPREFIXED_ROUTES: readonly UnprefixedRoute[] = Object.freeze([
   // «Cargar saldo antes de llegar»: el enlace del local, la carga y «Recargar mi saldo».
   { path: 'r/:code', method: RequestMethod.GET },
   { path: 'r/:code/topup', method: RequestMethod.POST },
+  // El QR del cartel de la cola (B16): la misma carga, con los topes por móvil y por noche.
+  { path: 'r/:code/cola', method: RequestMethod.POST },
   { path: 'r/:code/mi-saldo', method: RequestMethod.GET },
 ]);

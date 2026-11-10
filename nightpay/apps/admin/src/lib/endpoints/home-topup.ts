@@ -22,3 +22,16 @@ export async function rotateHomeTopUp(): Promise<HomeTopUpSettings> {
   if (!res.ok) throw await apiError(res);
   return res.json();
 }
+
+/** El cartel de la cola de esta noche (B16): el enlace con el QR firmado, su PNG y hasta cuándo vale. */
+export interface HomeTopUpQueuePoster {
+  url: string;
+  qrPngDataUrl: string;
+  validUntil: string;
+}
+
+export async function fetchHomeTopUpQueue(): Promise<HomeTopUpQueuePoster> {
+  const res = await authedFetch('/v1/admin/venue/home-topup/queue');
+  if (!res.ok) throw await apiError(res);
+  return res.json();
+}
