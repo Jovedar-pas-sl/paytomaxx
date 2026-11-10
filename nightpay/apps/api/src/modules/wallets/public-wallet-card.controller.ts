@@ -5,7 +5,7 @@ import { isWalletCardToken } from '@nightpay/contracts';
 import { Public } from '../../common/decorators/public.decorator';
 import { IpRateLimit } from '../../common/guards/ip-rate-limit.guard';
 import { customerLanguage } from '../payments/customer-lang';
-import { WalletCardViewService } from './wallet-card-view.service';
+import { WalletCardViewService, type CardPinView } from './wallet-card-view.service';
 import { renderWalletUnlockPage } from './wallet-unlock-page';
 import { walletViewSetCookies } from './wallet-view-session';
 
@@ -29,6 +29,44 @@ export class PublicWalletCardController {
     const { lang, setCookie } = customerLanguage(langQuery, cookies);
     if (setCookie) res.header('Set-Cookie', setCookie);
     res.type('text/html; charset=utf-8').send(renderWalletUnlockPage(`/w/card/${encodeURIComponent(token)}`, lang, view));
+  }
+
+  /** B7: «Recargar esta ficha» (solo suma): a la página de pago de siempre. */
+  @Public()
+  @Post('card/:token/topup')
+  @HttpCode(200)
+  @Header('Cache-Control', 'no-store')
+  @IpRateLimit({ max: 10, windowSec: 60, scope: 'wallet-card-topup' })
+  async topUp(
+    @Param('token') token: string,
+    @Body() body: { amountCents?: unknown; key?: unknown; lang?: unknown } | undefined,
+    @Headers('cookie') cookies: string | undefined,
+  ): Promise<{ payUrl: string }> {
+    if (!isWalletCardToken(token)) throw new NotFoundException();
+    const { lang } = customerLanguage(typeof body?.lang === 'string' ? body.lang : undefined, cookies);
+    return this.cards.startTopUp(token, { amountCents: body?.amountCents, key: body?.key, lang });
+  }
+
+  /** B7: «Ver mi saldo con mi PIN» (10 min, el mismo contador de fallos, sin pagos). */
+  @Public()
+  @Post('card/:token/pin')
+  @HttpCode(200)
+  @Header('Cache-Control', 'no-store')
+  @IpRateLimit({ max: 10, windowSec: 60, scope: 'wallet-card-pin' })
+  pinView(@Param('token') token: string, @Body() body: { pin?: unknown } | undefined): Promise<CardPinView> {
+    if (!isWalletCardToken(token)) throw new NotFoundException();
+    return this.cards.viewWithPin(token, body?.pin);
+  }
+
+  /** B7: «Actualizar» el saldo visto con el PIN, dentro de sus 10 min. */
+  @Public()
+  @Post('card/:token/saldo')
+  @HttpCode(200)
+  @Header('Cache-Control', 'no-store')
+  @IpRateLimit({ max: 30, windowSec: 60, scope: 'wallet-card-pin-view' })
+  pinViewAgain(@Param('token') token: string, @Body() body: { viewToken?: unknown } | undefined): Promise<CardPinView> {
+    if (!isWalletCardToken(token)) throw new NotFoundException();
+    return this.cards.viewAgain(token, body?.viewToken);
   }
 
   @Public()

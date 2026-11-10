@@ -2065,6 +2065,15 @@ export class WalletChargesService {
   }
 
   /**
+   * «Ver mi saldo con mi PIN» desde la ficha (B7): el mismo PIN y el mismo
+   * contador de fallos (5 → bloqueado), sin persona (lo teclea el cliente en
+   * su móvil). No paga nada: solo deja ver el saldo un rato.
+   */
+  async checkPinForCardView(walletId: string, tenantId: string, pin: string): Promise<void> {
+    await this.checkPin(walletId, pin, { tenantId, userId: null });
+  }
+
+  /**
    * Lo que haría «Devolver saldo» ahora, sin tocar nada: en efectivo, lo que
    * entró en efectivo sin llegar a 1.000 € en 24 h; a la tarjeta, el resto; y
    * lo que hoy no puede salir en efectivo. El panel lo enseña antes de

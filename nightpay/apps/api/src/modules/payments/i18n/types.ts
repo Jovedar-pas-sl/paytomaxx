@@ -399,6 +399,40 @@ export interface UnlockPageText {
   unavailable: string;
   rateLimited: string;
   error: string;
+  /** B7: «Recargar esta ficha» y «Ver mi saldo con mi PIN». */
+  ficha: FichaCardText;
+}
+
+/**
+ * La ficha en el móvil del cliente (estudio de fichas, B7): recargarla (solo
+ * suma) y ver el saldo con el PIN (10 min, sin pagos). `{amount}`, `{min}`,
+ * `{max}` y `{time}` los rellena la página.
+ */
+export interface FichaCardText {
+  topUpTitle: string;
+  topUpWhy: string;
+  topUpOther: string;
+  topUpOtherLabel: string;
+  topUpLimits: string;
+  topUpGo: string;
+  topUpFee: string;
+  topUpOpening: string;
+  topUpLimit: string;
+  topUpOff: string;
+  topUpAmount: string;
+  pinTitle: string;
+  pinWhy: string;
+  pinLabel: string;
+  pinGo: string;
+  pinBalance: string;
+  pinUntil: string;
+  pinAgain: string;
+  pinExpired: string;
+  pinFormat: string;
+  pinWrong: string;
+  pinLocked: string;
+  rateLimited: string;
+  error: string;
 }
 
 /** La salida de recepción confirmada con Face ID en el móvil del cliente (/w/salida/:token). */
@@ -476,6 +510,9 @@ export const CLIENT_ERROR_KEYS = [
   'ACTIVATION_USED',
   'ACTIVATION_EXPIRED',
   'ACTIVATION_REQUIRED',
+  // B7: la ficha en el móvil del cliente («Ver mi saldo con mi PIN»).
+  'CARD_NO_PIN',
+  'CARD_VIEW_EXPIRED',
 ] as const;
 
 export type ClientErrorKey = (typeof CLIENT_ERROR_KEYS)[number];

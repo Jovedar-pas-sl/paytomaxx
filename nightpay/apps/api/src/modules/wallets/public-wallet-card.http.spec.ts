@@ -132,7 +132,7 @@ describe('consulta NFC HTTP: ninguna información antes de verificar la llave', 
     findUnique.mockResolvedValue({ ...issued, status: 'BLOCKED' });
     const blocked = await api.inject({ method: 'GET', url: `/w/card/${CARD}` });
     expect(blocked.statusCode).toBe(200);
-    expect(blocked.body).toContain('Este NFC está bloqueado');
+    expect(blocked.body).toContain('Esta ficha está bloqueada');
     for (const card of [null, { ...issued, status: 'STOCK', walletId: null, wallet: null }, { ...issued, wallet: { ...wallet, status: 'REFUNDED' } }]) {
       findUnique.mockResolvedValue(card);
       const r = await api.inject({ method: 'GET', url: `/w/card/${CARD}?lang=en` });

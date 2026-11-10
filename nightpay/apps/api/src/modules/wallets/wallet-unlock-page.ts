@@ -4,6 +4,8 @@ import { CUSTOMER_TEXT } from '../payments/i18n';
 import type { UnlockPageText } from '../payments/i18n/types';
 import type { PayLanguage } from '../payments/pay-i18n';
 import { PASSKEY_BROWSER_JS } from './passkey-browser';
+import { CARD_EXTRAS_CSS, cardExtrasHtml, cardExtrasScript } from './wallet-card-extras';
+import type { TopUpOptions } from './wallet-topup.service';
 
 /**
  * Lo que enseña la página antes de desbloquear (/w/card/<ficha> y el enlace
@@ -16,10 +18,19 @@ import { PASSKEY_BROWSER_JS } from './passkey-browser';
  *  - unavailable: no está dado a ningún saldo vivo.
  */
 export type WalletUnlockView =
-  | { kind: 'locked'; codeHint?: string | null; paidToken?: string }
-  | { kind: 'setup'; codeHint?: string | null }
+  | ({ kind: 'locked'; codeHint?: string | null; paidToken?: string } & CardExtras)
+  | ({ kind: 'setup'; codeHint?: string | null } & CardExtras)
   | { kind: 'blocked' }
   | { kind: 'unavailable' };
+
+/**
+ * B7, solo en la página de la ficha (/w/card/<ficha>): «Recargar esta ficha»
+ * (si el local deja recargar ahora) y «Ver mi saldo con mi PIN» (si tiene PIN).
+ */
+interface CardExtras {
+  topUp?: TopUpOptions | null;
+  hasPin?: boolean;
+}
 
 type Text = UnlockPageText;
 
@@ -61,13 +72,13 @@ export function unlockCard(t: Text, codeHint: string | null | undefined, off: bo
   return `<section class="ocard${off ? ' off' : ''}" aria-label="${h(t.card)}"><div class="otop"><span class="kick">${h(t.card)}</span>${UNLOCK_ICON.nfc}</div><span class="shut">${UNLOCK_ICON.lock}</span><div class="obot">${code}</div></section>`;
 }
 
-function body(view: WalletUnlockView, t: Text): string {
+function body(view: WalletUnlockView, t: Text, locale: string): string {
   const h = escapeHtml;
   switch (view.kind) {
     case 'locked':
-      return `${unlockCard(t, view.codeHint, false)}<section class="act"><h1>${h(t.heading)}</h1><p>${h(t.intro)}</p><button class="btn" id="unlock" type="button">${UNLOCK_ICON.face}<span id="unlockLabel">${h(t.button)}</span></button><p id="error" class="err" role="alert" hidden></p><p class="foot">${h(t.security)}</p><p class="foot">${h(t.newPhone)}</p></section>`;
+      return `${unlockCard(t, view.codeHint, false)}<section class="act"><h1>${h(t.heading)}</h1><p>${h(t.intro)}</p><button class="btn" id="unlock" type="button">${UNLOCK_ICON.face}<span id="unlockLabel">${h(t.button)}</span></button><p id="error" class="err" role="alert" hidden></p><p class="foot">${h(t.security)}</p><p class="foot">${h(t.newPhone)}</p></section>${extrasOf(view, t, locale)}`;
     case 'setup':
-      return `${unlockCard(t, view.codeHint, true)}<section class="act"><h1>${h(t.setupHeading)}</h1><p class="lead">${h(t.setup)}</p><div class="where">${UNLOCK_ICON.pin}<div><b>${h(t.setupWhere)}</b><span>${h(t.setupHow)}</span></div></div><p class="foot">${h(t.setupFoot)}</p></section>`;
+      return `${unlockCard(t, view.codeHint, true)}<section class="act"><h1>${h(t.setupHeading)}</h1><p class="lead">${h(t.setup)}</p><div class="where">${UNLOCK_ICON.pin}<div><b>${h(t.setupWhere)}</b><span>${h(t.setupHow)}</span></div></div><p class="foot">${h(t.setupFoot)}</p></section>${extrasOf(view, t, locale)}`;
     case 'blocked':
       return `<section class="act"><span class="mark">${UNLOCK_ICON.lock}</span><h1>${h(t.blockedHeading)}</h1><p class="lead">${h(t.blocked)}</p></section>`;
     case 'unavailable':
@@ -75,10 +86,26 @@ function body(view: WalletUnlockView, t: Text): string {
   }
 }
 
+/** Los textos del desbloqueo, sin los de la ficha (esos van con su propio JS). */
+function withoutFicha(t: Text): Omit<Text, 'ficha'> {
+  const copy: Partial<Text> = { ...t };
+  delete copy.ficha;
+  return copy as Omit<Text, 'ficha'>;
+}
+
+/** B7: lo de la ficha (recargar, ver con el PIN), si lo hay. */
+function extrasOf(view: CardExtras, t: Text, locale: string): string {
+  return cardExtrasHtml(t.ficha, locale, view.topUp ?? null, view.hasPin === true);
+}
+
+function hasExtras(view: WalletUnlockView): boolean {
+  return (view.kind === 'locked' || view.kind === 'setup') && (Boolean(view.topUp) || view.hasPin === true);
+}
+
 /** Solo en `locked`: pide el reto al abrir y, al tocar, Face ID y a /w/<enlace>. Sin barras invertidas. */
 function unlockScript(base: string, lang: PayLanguage, t: Text, paid: string | null): string {
   return `<script>
-(function(){'use strict';var C=JSON.parse(${jsConfig({ base, lang, t, paid })}),b=document.getElementById('unlock'),l=document.getElementById('unlockLabel'),e=document.getElementById('error'),busy=false;
+(function(){'use strict';var C=JSON.parse(${jsConfig({ base, lang, t: withoutFicha(t), paid })}),b=document.getElementById('unlock'),l=document.getElementById('unlockLabel'),e=document.getElementById('error'),busy=false;
 ${PASSKEY_BROWSER_JS}
 function message(text){e.textContent=text;e.hidden=!text;}
 var prepared=pkSupported()?pkPrepare(C.base+'/view/challenge'):null;
@@ -97,12 +124,13 @@ ${LANG_JS}</script>`;
 
 export function renderWalletUnlockPage(base: string, lang: PayLanguage, view: WalletUnlockView = { kind: 'locked' }): string {
   const t = CUSTOMER_TEXT[lang].unlockPage;
+  const locale = CUSTOMER_TEXT[lang].wallet.locale;
   const h = escapeHtml;
   const paid = view.kind === 'locked' && view.paidToken && /^[A-Za-z0-9_-]{16,64}$/.test(view.paidToken) ? view.paidToken : null;
   // El selector de idioma conserva el «Pagado» que viene del banco (?pagado=).
   const langHref = (l: PayLanguage): string => `${base}?lang=${l}${paid ? `&pagado=${paid}` : ''}`;
-  return `<!doctype html><html lang="${lang}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="robots" content="noindex,nofollow"><meta name="referrer" content="no-referrer"><meta name="theme-color" content="#0b0d0e"><title>${h(t.title)}</title><style>${CLUB_BASE_CSS}${CHROME_CSS}${UNLOCK_CSS}</style></head><body><main>`
+  return `<!doctype html><html lang="${lang}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="robots" content="noindex,nofollow"><meta name="referrer" content="no-referrer"><meta name="theme-color" content="#0b0d0e"><title>${h(t.title)}</title><style>${CLUB_BASE_CSS}${CHROME_CSS}${UNLOCK_CSS}${hasExtras(view) ? CARD_EXTRAS_CSS : ''}</style></head><body><main>`
     + topBar(lang, langHref)
-    + body(view, t)
-    + `</main>${view.kind === 'locked' ? unlockScript(base, lang, t, paid) : ''}</body></html>`;
+    + body(view, t, locale)
+    + `</main>${view.kind === 'locked' ? unlockScript(base, lang, t, paid) : ''}${hasExtras(view) ? cardExtrasScript(base, lang, locale, t.ficha) : ''}</body></html>`;
 }

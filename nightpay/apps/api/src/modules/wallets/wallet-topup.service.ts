@@ -26,6 +26,9 @@ import { WalletPasskeysService } from './wallet-passkeys.service';
 import { eur } from './wallet-two-factor';
 import { HOME_TOPUP_KEY_PREFIX } from '../home-topup/home-topup-rules';
 import {
+  FICHA_TOPUP_CAPS,
+  FICHA_TOPUP_KEY_PREFIX,
+  FICHA_TOPUP_PER_WALLET_MAX,
   SELF_TOPUP_DAILY_MAX_CENTS,
   SELF_TOPUP_DAILY_MAX_PAID,
   SELF_TOPUP_DAILY_WINDOW_MS,
@@ -35,6 +38,7 @@ import {
   SELF_TOPUP_PER_WALLET_MAX,
   SELF_TOPUP_PER_WALLET_WINDOW_S,
   TOPUP_BLOCK_MESSAGES,
+  fichaTopUpKey,
   isClientTopUpKey,
   parseTopUpAmount,
   selfTopUpCapProblem,
@@ -118,6 +122,22 @@ const CAP_ERRORS: Readonly<Record<SelfTopUpCapProblem, { code: string; message: 
 };
 
 type RecentTopUp = { id: string; idempotencyKey: string | null; amountCents: number; status: string; qrExpiresAt: Date };
+
+/** El 409 de los topes de «Recargar esta ficha» (B7), con los de /w como código para la página. */
+const FICHA_CAP_ERRORS: Readonly<Record<SelfTopUpCapProblem, { code: string; message: string }>> = {
+  'daily-amount': {
+    code: 'WALLET_TOPUP_DAILY_LIMIT',
+    message: `Desde la ficha se recargan como mucho ${eur(FICHA_TOPUP_CAPS.dailyMaxCents)} cada 24 h. Pide la recarga en el local.`,
+  },
+  'daily-count': {
+    code: 'WALLET_TOPUP_DAILY_LIMIT',
+    message: `Desde la ficha se hacen como mucho ${FICHA_TOPUP_CAPS.dailyMaxPaid} recargas cada 24 h. Pide la recarga en el local.`,
+  },
+  unresolved: {
+    code: 'WALLET_TOPUP_PENDING_LIMIT',
+    message: 'Esta ficha tiene recargas a medias: espera unos minutos o pide la recarga en el local.',
+  },
+};
 
 /**
  * «Recargar» desde la página del saldo (/w/:token). Crea, con la maquinaria de
@@ -236,6 +256,49 @@ export class WalletTopUpService {
     };
   }
 
+  /**
+   * «Recargar esta ficha» (B7): la recarga del saldo de la ficha desde el
+   * móvil de quien la acerca, sin Face ID y sin enseñar nada del saldo. Solo
+   * suma. Con su propio freno (FICHA_TOPUP_*): cada 15 min por saldo y 24 h
+   * por saldo, contadas en la base. Al pagar, el «Pagado» de siempre, sin el
+   * enlace del saldo (no es la primera recarga ni una de /w).
+   */
+  async startFromFicha(
+    qrToken: string,
+    cardId: string,
+    input: { amountCents: unknown; key: unknown; lang: PayLanguage },
+  ): Promise<{ payUrl: string }> {
+    const amountCents = parseTopUpAmount(input.amountCents);
+    if (amountCents === null) {
+      throw new BadRequestException({
+        message: `La recarga va de ${eur(SELF_TOPUP_MIN_CENTS)} a ${eur(SELF_TOPUP_MAX_CENTS)}, en euros enteros.`,
+        code: 'WALLET_TOPUP_AMOUNT',
+      });
+    }
+    if (!isClientTopUpKey(input.key)) {
+      throw new BadRequestException({ message: 'Vuelve a abrir la página e inténtalo otra vez.', code: 'PAGE_STALE' });
+    }
+    const wallet = await this.walletOf(qrToken);
+    await this.throttle(wallet.id, 'ficha');
+    const venue = await this.venueOf(wallet);
+    this.assertAllowed(wallet, venue);
+    const key = fichaTopUpKey(cardId, input.key);
+    const rows = await this.recentTopUps(wallet.id, [FICHA_TOPUP_KEY_PREFIX]);
+    const replay = rows.some((r) => r.idempotencyKey === key);
+    const problem = replay ? null : selfTopUpCapProblem(rows, amountCents, new Date(), FICHA_TOPUP_CAPS);
+    if (problem) throw new ConflictException(FICHA_CAP_ERRORS[problem]);
+    const created = await this.payments().create(wallet.tenantId, key, {
+      amountCents,
+      currency: 'EUR',
+      terminalExternalId: venue.terminalExternalId ?? '',
+      wallet: { walletId: wallet.id },
+    });
+    const stale = !OPEN_STATUSES.has(created.status) || (created.status === 'CREATED' && Date.parse(created.qrExpiresAt) <= Date.now());
+    if (stale) throw new ConflictException({ message: STARTED_MESSAGE, code: 'WALLET_TOPUP_STALE' });
+    this.logger.log(`Recarga desde la ficha: wallet=${wallet.id} payment=${created.id} amount=${amountCents}c`);
+    return { payUrl: `/pay/${encodeURIComponent(created.qrToken)}?lang=${input.lang}` };
+  }
+
   /** El «Pagado» de una recarga de ESTE saldo (otro cobro u otro saldo: null). */
   async paidProof(qrToken: string, payToken: string | undefined): Promise<TopUpProof | null> {
     if (!payToken || payToken.length > 64) return null;
@@ -265,12 +328,17 @@ export class WalletTopUpService {
    * a la más nueva: el tope es de lo que se carga sin el personal delante.
    */
   private async recentSelfTopUps(walletId: string): Promise<RecentTopUp[]> {
+    return this.recentTopUps(walletId, [SELF_TOPUP_KEY_PREFIX, HOME_TOPUP_KEY_PREFIX]);
+  }
+
+  /** Las recargas de las últimas 24 h de este saldo con estas claves (las de /w o las de la ficha). */
+  private async recentTopUps(walletId: string, prefixes: readonly string[]): Promise<RecentTopUp[]> {
     const since = new Date(Date.now() - SELF_TOPUP_DAILY_WINDOW_MS);
     return this.prisma.asSystem((tx) =>
       tx.payment.findMany({
         where: {
           walletId,
-          OR: [{ idempotencyKey: { startsWith: SELF_TOPUP_KEY_PREFIX } }, { idempotencyKey: { startsWith: HOME_TOPUP_KEY_PREFIX } }],
+          OR: prefixes.map((p) => ({ idempotencyKey: { startsWith: p } })),
           createdAt: { gte: since },
         },
         orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
@@ -380,8 +448,9 @@ export class WalletTopUpService {
    * límite por IP). Sin Redis no se recarga desde el móvil (503): sin este
    * límite quedaría solo el de la IP (fail-closed; el tope de 24 h va aparte).
    */
-  private async throttle(walletId: string): Promise<void> {
-    const key = `np:wallet-topup:${walletId}`;
+  private async throttle(walletId: string, from: 'self' | 'ficha' = 'self'): Promise<void> {
+    const key = from === 'ficha' ? `np:ficha-topup:${walletId}` : `np:wallet-topup:${walletId}`;
+    const max = from === 'ficha' ? FICHA_TOPUP_PER_WALLET_MAX : SELF_TOPUP_PER_WALLET_MAX;
     let count: number;
     try {
       count = await this.redis.incr(key);
@@ -393,7 +462,7 @@ export class WalletTopUpService {
         code: 'TRY_LATER',
       });
     }
-    if (count > SELF_TOPUP_PER_WALLET_MAX) {
+    if (count > max) {
       throw new HttpException(
         { message: 'Demasiadas recargas seguidas: espera unos minutos y vuelve a probar.', code: 'WALLET_TOPUP_TOO_MANY' },
         HttpStatus.TOO_MANY_REQUESTS,

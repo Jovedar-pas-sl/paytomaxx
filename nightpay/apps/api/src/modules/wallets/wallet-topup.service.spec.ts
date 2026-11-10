@@ -4,7 +4,7 @@ import { PAYMENT_METHOD_DISABLED_CODE } from '@nightpay/contracts';
 import { WalletTopUpService } from './wallet-topup.service';
 import { WalletPasskeysService } from './wallet-passkeys.service';
 import { VENUE_PAUSED_STATUS } from '../venues/venue-pause';
-import { selfTopUpClaim, selfTopUpClaimHash, selfTopUpKey } from './wallet-topup-rules';
+import { fichaTopUpKey, selfTopUpClaim, selfTopUpClaimHash, selfTopUpKey } from './wallet-topup-rules';
 
 const SECRET = 'secreto-de-cookies-de-las-pruebas-0123456789';
 const WALLET = '2a3b4c5d-6e7f-4a8b-9c0d-1e2f3a4b5c6d';
@@ -394,5 +394,42 @@ describe('WalletTopUpService.options / challenge / paidProof', () => {
     await expect(make({ paidPayment: paid }).service.paidProof('w-tok', undefined)).resolves.toBeNull();
     await expect(make({ paidPayment: paid }).service.paidProof('w-tok', 'x'.repeat(65))).resolves.toBeNull();
     await expect(make({ paidPayment: paid, wallet: null }).service.paidProof('w-tok', 'pay-tok-1')).resolves.toBeNull();
+  });
+});
+
+describe('WalletTopUpService.startFromFicha — «Recargar esta ficha» (B7)', () => {
+  const fromFicha = (service: WalletTopUpService, o: Record<string, unknown> = {}) =>
+    service.startFromFicha('w-tok', 'card-1', { amountCents: 5000, key: KEY, lang: 'es', ...o });
+
+  it('solo suma: la recarga de su saldo, con su clave `ftopup:` (sin la vuelta al saldo ni su enlace)', async () => {
+    const { service, payments } = make();
+    const out = await fromFicha(service);
+    const [tenant, idemKey, dto] = payments.create.mock.calls[0] as unknown as [string, string, Record<string, unknown>];
+    expect(tenant).toBe(VENUE);
+    expect(idemKey).toBe(fichaTopUpKey('card-1', KEY));
+    expect(idemKey.startsWith('ftopup:')).toBe(true);
+    expect(selfTopUpClaimHash(idemKey)).toBeNull();
+    expect(dto).toEqual({ amountCents: 5000, currency: 'EUR', terminalExternalId: 'BARRA-1', wallet: { walletId: WALLET } });
+    expect(out).toEqual({ payUrl: '/pay/pay-tok-1?lang=es' });
+    expect(JSON.stringify(out)).not.toContain('w-tok');
+  });
+
+  it('su propio freno: 24 h por saldo (contadas con su clave) y cada 15 min por saldo', async () => {
+    const lleno = make({ recent: [row(15_000, 'AUTHORIZED', { idempotencyKey: 'ftopup:a' }), row(4_000, 'AUTHORIZED', { idempotencyKey: 'ftopup:b' })] });
+    await expect(fromFicha(lleno.service)).rejects.toThrow(/como mucho 200/);
+    expect(lleno.payments.create).not.toHaveBeenCalled();
+    // Solo cuenta las de la ficha.
+    expect(lleno.db.payment.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ OR: [{ idempotencyKey: { startsWith: 'ftopup:' } }] }) }));
+    const rapido = make({ incr: 5 });
+    await expect(fromFicha(rapido.service)).rejects.toThrow(HttpException);
+    expect(rapido.redis.incr).toHaveBeenCalledWith(`np:ficha-topup:${WALLET}`);
+  });
+
+  it('importe raro o clave rara: no; saldo bloqueado: no', async () => {
+    const { service } = make();
+    await expect(fromFicha(service, { amountCents: 5050 })).rejects.toThrow(BadRequestException);
+    await expect(fromFicha(service, { key: 'x' })).rejects.toThrow(BadRequestException);
+    const blocked = make({ wallet: { blockedAt: new Date() } });
+    await expect(fromFicha(blocked.service)).rejects.toThrow(ConflictException);
   });
 });
