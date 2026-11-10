@@ -532,11 +532,18 @@
 
 /* Desde el móvil y la tableta (menos de 900 px), las cuatro cifras no caben
    en una fila (a 360 la página medía 401 px, auditoría P-1): arriba las
-   ventas, el anillo y «Para el local»; debajo, propinas y cobros a medias. */
+   ventas, el anillo y «Para el local»; debajo, propinas y cobros a medias.
+   Las ventas parten de todo el ancho que dejan el anillo, «Para el local» y
+   sus dos huecos (1 px menos, por redondeo): la primera fila queda llena y
+   «Propinas» no puede subir a ella (a 430 px las ventas medían 1 px). */
 @media (max-width: 899.98px) {
   .np-mm-body[data-layout='wide'] .np-mm-kpis {
     flex-wrap: wrap;
     row-gap: 0.5rem;
+  }
+
+  .np-mm-body[data-layout='wide'] .np-mm-kpis .np-mm-grow {
+    flex: 1 1 calc(100% - 4rem - 5.375rem - 1.5rem - 1px);
   }
 
   .np-mm-body[data-layout='wide'] .np-mm-kpis .np-mm-more {

@@ -89,6 +89,17 @@ describe('mapa del dinero en el escritorio (dos columnas desde 900 px)', () => {
     expect(decl(rule('.np-mm-cap'), 'display')).toBe('none');
   });
 
+  it('por debajo de 900 px «Propinas» nunca sube a la fila de las ventas (P-1: a 430 px las ventas medían 1 px)', () => {
+    const NARROW = '@media (max-width: 899.98px)';
+    const grow = decl(rule(".np-mm-body[data-layout='wide'] .np-mm-kpis .np-mm-grow", NARROW), 'flex');
+    // Las ventas parten del ancho que dejan el anillo (4rem), «Para el local» (5.375rem) y dos huecos.
+    expect(grow).toMatch(/^1 1 calc\(100% - 4rem - 5\.375rem - 1\.5rem/);
+    expect(decl(rule('.np-mm-ring'), 'width')).toBe('4rem');
+    expect(decl(rule('.np-mm-kpis .np-mm-side'), 'width')).toBe('5.375rem');
+    expect(decl(rule('.np-mm-kpis'), 'gap')).toBe('0.75rem');
+    expect(decl(rule(".np-mm-body[data-layout='wide'] .np-mm-kpis .np-mm-more", NARROW), 'flex')).toBe('1 1 calc(50% - 0.375rem)');
+  });
+
   it('en una pantalla grande el mapa usa el ancho (no se queda en 64rem)', () => {
     const wide = rule('.np-mm', '@media (min-width: 1200px)');
     expect(Number(decl(wide, 'max-width')?.replace('rem', ''))).toBeGreaterThan(64);
