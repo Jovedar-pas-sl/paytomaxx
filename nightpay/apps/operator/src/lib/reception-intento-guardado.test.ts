@@ -99,8 +99,10 @@ describe('la recarga en efectivo a medias, en la pestaña', () => {
 
   it('recepción usa la clave guardada', () => {
     const desk = read('../components/reception/desk/ReceptionDesk.tsx');
+    // El gancho vive con los pasos de la recepción (desk-model.tsx).
+    const model = read('../components/reception/desk/desk-model.tsx');
     expect(desk).toContain('const attempt = useCashAttemptRef();');
-    expect(desk).toContain('cashAttemptRef(browserSessionStorage())');
+    expect(model).toContain('cashAttemptRef(browserSessionStorage())');
     expect(desk).not.toMatch(/useRef<ReceptionAttempt \| null>\(null\)/);
   });
 });
