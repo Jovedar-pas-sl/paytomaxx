@@ -63,8 +63,6 @@ export function StaffMenu({ open, onClose, onLogout }: { open: boolean; onClose:
     <PasskeySheet open={passkeys} onClose={() => setPasskeys(false)} />
     <Modal open={open} onClose={onClose} title="Menú">
       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-        <InstallMenuItem />
-        <GuiaMenuLink />
         <Button
           variant="ghost"
           onClick={() => {
@@ -74,6 +72,8 @@ export function StaffMenu({ open, onClose, onLogout }: { open: boolean; onClose:
         >
           Llave de acceso
         </Button>
+        <InstallMenuItem />
+        <GuiaMenuLink />
         <Button variant="ghost" onClick={onLogout}>
           Salir
         </Button>
