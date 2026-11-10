@@ -134,3 +134,25 @@ describe('textos del QR y de la invitación (revisión de Grafito 2)', () => {
     expect(src).not.toContain("'NFC, sin PIN'");
   });
 });
+
+describe('CARGADO en un móvil bajo: el QR de Face ID y su línea, sin bajar (PS-A12)', () => {
+  const css = read('../components/reception/desk/loaded.module.css');
+  const block = (media: string) => css.slice(css.indexOf(media), css.indexOf('\n}\n', css.indexOf(media)));
+
+  it('hasta 780 px de alto se juntan los huecos y el pie; hasta 700, la marca va en la fila de «CARGADO»', () => {
+    expect(block('@media (max-height: 780px)')).toMatch(/gap: 0\.375rem/);
+    expect(block('@media (max-height: 780px)')).toMatch(/\.resFoot :global\(\.np-outcome-actions\) \{\s*padding: 0\.375rem 0 0\.5rem;/);
+    const low = block('@media (max-height: 700px)');
+    expect(low).toMatch(/\.headline \{\s*display: flex;/);
+    expect(low).toMatch(/width: 2\.5rem;\s*height: 2\.5rem;/);
+    expect(css).toMatch(/\.headline \{\s*display: contents;/);
+    expect(read('../components/reception/desk/DeskLoaded.tsx')).toMatch(/<div className=\{s\.headline\}>\s*<span className="np-outcome-ring"/);
+  });
+
+  it('los toques no bajan: ni el CSS de CARGADO toca la altura de los botones (56 y 48 px)', () => {
+    expect(css).not.toMatch(/np-outcome-btn/);
+    const staff = read('../../../../packages/ui/src/staff.css');
+    expect(staff).toMatch(/\.np-outcome-btn \{\s*min-height: 3\.5rem;/);
+    expect(staff).toMatch(/\.np-outcome-btn\[data-variant='secondary'\] \{\s*min-height: 3rem;/);
+  });
+});
