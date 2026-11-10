@@ -258,9 +258,12 @@ export function deskTarget(view: ReceptionDeskView | null, nfc: { card: string; 
 
 /**
  * Lo que se recarga, para la clave de idempotencia: importe, forma de pago y a
- * qué saldo. Un saldo nuevo va con la ficha leída: dos clientes con ficha
- * nueva, mismo importe y misma forma de pago no comparten clave (si no, el
- * servidor devolvería la recarga del primero como si fuera la del segundo) (A2-04).
+ * qué saldo. Con la ficha leída, la recarga es de esa ficha, nueva o con
+ * saldo: dos clientes con ficha nueva, mismo importe y misma forma de pago no
+ * comparten clave (A2-04), y una ficha nueva ya cargada que se vuelve a leer
+ * (la pantalla falló tras la recarga) sigue siendo la misma recarga, aunque
+ * ahora tenga saldo: no se carga dos veces (S-4). Dos recargas a propósito no
+ * se juntan: al terminar una, o con «Siguiente cliente», la clave se borra.
  */
 export function deskRechargeWhat(
   amountCents: number,
@@ -268,9 +271,8 @@ export function deskRechargeWhat(
   read: { view: ReceptionDeskView | null; nfc: { card: string; uid: string | null } | null; number?: NumberSaldo },
 ): string {
   if (read.number) return `${amountCents}|${method}|numero:${read.number.printedNumber}`;
-  const target = deskTarget(read.view, read.nfc);
-  const what = receptionWhat(amountCents, method, target);
-  return target.kind === 'new' && read.nfc ? `${what}:ficha:${read.nfc.card}` : what;
+  if (read.nfc) return `${amountCents}|${method}|ficha:${read.nfc.card}`;
+  return receptionWhat(amountCents, method, deskTarget(read.view, read.nfc));
 }
 
 /**

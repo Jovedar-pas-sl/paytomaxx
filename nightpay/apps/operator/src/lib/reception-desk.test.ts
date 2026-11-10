@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import type { ReceptionDeskSaldo, ReceptionOptions } from '@nightpay/contracts';
 import { ApiError, ServerUnavailableError, SessionExpiredError } from '@nightpay/api-client';
-import { receptionAttempt } from './reception';
+import { cashAttemptRef, receptionAttempt } from './reception';
 import {
   attemptOnStep,
   cashTopUpUnsure,
@@ -284,9 +284,32 @@ describe('la clave de la recarga va con el cliente (A2-04)', () => {
     const a = deskRechargeWhat(2_000, 'cash', { view: NUEVO, nfc: FICHA });
     const b = deskRechargeWhat(2_000, 'cash', { view: NUEVO, nfc: OTRA });
     expect(a).not.toBe(b);
-    expect(a).toBe(`2000|cash|nuevo:ficha:${FICHA.card}`);
+    expect(a).toBe(`2000|cash|ficha:${FICHA.card}`);
     // La misma ficha (un corte, un doble toque): lo mismo.
     expect(deskRechargeWhat(2_000, 'cash', { view: NUEVO, nfc: FICHA })).toBe(a);
+  });
+
+  it('S-4: ficha nueva → recarga hecha → la misma ficha leída ya con saldo: la misma clave (no se carga dos veces)', () => {
+    const storage = new Map<string, string>();
+    const tab = { getItem: (k: string) => storage.get(k) ?? null, setItem: (k: string, v: string) => void storage.set(k, v), removeItem: (k: string) => void storage.delete(k) };
+    const before = cashAttemptRef(tab, () => 1_000);
+    before.current = receptionAttempt(before.current, deskRechargeWhat(5_000, 'cash', { view: NUEVO, nfc: FICHA }));
+    const key = before.current.key;
+    // El servidor la cargó y la pantalla falló: la app vuelve a empezar y la ficha ya es un saldo.
+    const after = cashAttemptRef(tab, () => 61_000);
+    expect(receptionAttempt(after.current, deskRechargeWhat(5_000, 'cash', { view: saldo(), nfc: FICHA })).key).toBe(key);
+  });
+
+  it('dos recargas a propósito a la misma ficha no se juntan: al terminar una (o con «Siguiente cliente») la clave se borra', () => {
+    const ref = cashAttemptRef(null);
+    ref.current = receptionAttempt(ref.current, deskRechargeWhat(5_000, 'cash', { view: NUEVO, nfc: FICHA }));
+    const first = ref.current.key;
+    ref.current = null; // finish() o restart()
+    ref.current = receptionAttempt(ref.current, deskRechargeWhat(5_000, 'cash', { view: saldo(), nfc: FICHA }));
+    expect(ref.current.key).not.toBe(first);
+    const desk = readFileSync(new URL('../components/reception/desk/ReceptionDesk.tsx', import.meta.url), 'utf8');
+    expect(desk).toMatch(/function restart\([^)]*\): void \{\s*attempt\.current = null;/);
+    expect(desk).toMatch(/attempt\.current = null;\s*go\(\{ kind: 'loaded'/);
   });
 
   it('lo demás, como antes: su NFC con saldo, su código, un saldo nuevo sin NFC o por el número', () => {

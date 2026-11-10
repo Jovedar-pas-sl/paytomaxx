@@ -211,6 +211,26 @@ describe('recarga en efectivo', () => {
       expect(topUps.size).toBe(1);
     });
 
+    it('S-4: la ficha nueva ya cargada, leída otra vez (ahora con saldo) con la misma clave: el mismo recibo, nada se carga', async () => {
+      const { svc, topUps, wallets } = setup();
+      const nueva = { amountCents: 5_000, idempotencyKey: 'intent-nueva-01', wallet: { create: true as const, card: FICHA } };
+      // La recarga que creó el saldo con esta ficha (la pantalla falló después).
+      topUps.set('ct-1', {
+        id: 'ct-1', tenantId: SALA, idempotencyKey: nueva.idempotencyKey, walletId: WALLET, amountCents: 5_000, createdWallet: true,
+        takenByUserId: JAVI, terminalId: null, intentFingerprint: cashIntentFingerprint(nueva), receipt: null, serviceFeeCents: 0,
+      });
+      await expect(svc.topUp(SALA, javi, { ...nueva, wallet: { card: FICHA } })).resolves.toMatchObject({ topUpId: 'ct-1', walletId: WALLET, replayed: true });
+      expect(topUps.size).toBe(1);
+      expect(wallets.get(WALLET)).toMatchObject({ balanceCents: 2_000 });
+      // Otra ficha, otro importe o un código con esa clave: 409, como siempre.
+      for (const retry of [{ ...nueva, wallet: { card: 'Zz9yX8wV7uT6sR5qP4oN3m' } }, { ...nueva, amountCents: 5_001, wallet: { card: FICHA } }, { ...nueva, wallet: { code: 'K7Q4M2' } }]) {
+        await expect(svc.topUp(SALA, javi, retry)).rejects.toBeInstanceOf(ConflictException);
+      }
+      // Si aquella no creó el saldo (fue a un saldo que ya había), no vale.
+      topUps.set('ct-1', { ...topUps.get('ct-1')!, createdWallet: false });
+      await expect(svc.topUp(SALA, javi, { ...nueva, wallet: { card: FICHA } })).rejects.toBeInstanceOf(ConflictException);
+    });
+
     it('la otra petición ganó la carrera (choque de único aunque Prisma no diga qué índice): devuelve su recibo', async () => {
       const { svc, tx, topUps, wallets } = setup();
       const first = await svc.topUp(SALA, javi, pedida);
