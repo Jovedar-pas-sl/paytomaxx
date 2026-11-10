@@ -9,6 +9,8 @@ import {
   counterFicha,
   counterTapText,
   loadedBlockedText,
+  confirmsWithFicha,
+  isFreshTap,
   loadedOtherTap,
   needsFichaCheck,
   sameCounterCard,
@@ -45,7 +47,7 @@ import {
   fetchReceptionDesk,
   handOverLine,
   loadedMoneyLine,
-  methodArmed,
+  METHOD_ARM_MS,
   methodButtons,
   noPinLimitCents,
   noReaderStage,
@@ -85,7 +87,7 @@ import { DeskLoaded, LoadedBand } from './DeskLoaded';
 import { ManagerExitStep, NumberExitStep, PasskeyExitStep, TotpExitStep } from './ExitSteps';
 import { TopUpQr, useRetirePayment } from './TopUpQr';
 import { UndoLink, UndoneStep, UndoStep } from './UndoSteps';
-import { useDeskNfc } from './use-desk-nfc';
+import { useDeskNfc, type TapMeta } from './use-desk-nfc';
 import { CHARGING, PhoneOption, backOf, counterOf, ignoreCounterError, readRow, useCashAttemptRef, type Exit, type Loaded, type Mode, type Read, type Step } from './desk-model';
 import s from './desk.module.css';
 
@@ -252,16 +254,16 @@ export function ReceptionDesk({ user, active, footer, onGiveFicha, onScanHome, h
    * de este cliente no pasa nada; con otra, solo el aviso («Esa es la 1014, no
    * la 1013»). No graba, no carga y no cambia de pantalla.
    */
-  async function onCounterTap(tap: ChipTap): Promise<void> {
+  async function onCounterTap(tap: ChipTap, meta: TapMeta): Promise<void> {
     const ficha = here;
     if (!ficha) return;
     const at = step;
-    if (sameCounterCard(ficha, tap.token)) return counterSame(at, tap);
+    if (sameCounterCard(ficha, tap.token)) return counterSame(at, tap, meta);
     const round = counterRound.current;
     const printed = tap.token && !tap.other ? await printedOfCard(tap.token, tap.uid) : null;
     if (round !== counterRound.current) return;
     const text = counterTapText(ficha, { token: tap.token, printed });
-    if (text === null) return counterSame(at, tap);
+    if (text === null) return counterSame(at, tap, meta);
     await counterOther(at, tap, text);
   }
 
@@ -285,12 +287,13 @@ export function ReceptionDesk({ user, active, footer, onGiveFicha, onScanHome, h
   }
 
   /** La misma ficha en el mostrador: confirma el efectivo (B2) o la anulación (B4); en lo demás no pasa nada (A3). */
-  function counterSame(at: Step, tap: ChipTap): void {
+  function counterSame(at: Step, tap: ChipTap, meta: TapMeta): void {
     setWrong(null);
-    if (at.kind === 'cashConfirm' && methodArmed(stepShownAt.current, Date.now())) {
+    // Solo si se ha retirado y vuelto a acercar: apoyada sin moverla no confirma nada (confirmsWithFicha).
+    if (at.kind === 'cashConfirm' && confirmsWithFicha({ waitedMs: meta.waitedMs, shownAt: stepShownAt.current, now: Date.now(), armMs: METHOD_ARM_MS })) {
       void run(() => payCash(at.read, at.amountCents, 'tap'));
     }
-    if (at.kind === 'undo' && at.reason && tap.token) {
+    if (at.kind === 'undo' && at.reason && tap.token && isFreshTap(meta.waitedMs)) {
       void run(() => undoNow(at.done, at.reason!, tap));
     }
   }

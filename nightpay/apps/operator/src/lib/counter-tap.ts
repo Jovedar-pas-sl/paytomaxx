@@ -55,6 +55,29 @@ export function needsFichaCheck(ficha: CounterFicha): boolean {
   return ficha.card !== null || ficha.printed !== null;
 }
 
+/**
+ * B2 (y B4): «acercar otra vez la misma ficha» es retirarla y volver a
+ * acercarla. Web NFC no avisa de cuándo se retira una ficha: la que sigue
+ * apoyada se lee en cuanto el lector vuelve a escuchar. Por eso solo cuenta
+ * la lectura que llega tras un hueco sin ficha (FRESH_TAP_MS esperando); la
+ * misma presencia, leída una y otra vez, nunca confirma nada.
+ */
+export const FRESH_TAP_MS = 1_500;
+
+/** «¿Es una ficha acercada de nuevo?» (`waitedMs`: lo que esperó el lector a esta lectura). */
+export function isFreshTap(waitedMs: number): boolean {
+  return waitedMs >= FRESH_TAP_MS;
+}
+
+/**
+ * B2: la misma ficha confirma el efectivo solo si se ha retirado y vuelto a
+ * acercar (isFreshTap) y ya ha pasado el medio segundo de la pantalla (el
+ * doble toque en «Efectivo», S-1a). Apoyada sin moverla, no carga nada.
+ */
+export function confirmsWithFicha(o: { waitedMs: number; shownAt: number; now: number; armMs: number }): boolean {
+  return isFreshTap(o.waitedMs) && o.now - o.shownAt >= o.armMs;
+}
+
 /** B3: en CARGADO, otra ficha cierra y abre la siguiente; salvo con el PIN pendiente o el QR de Face ID abierto. */
 export type LoadedOtherTap = 'next' | 'pin' | 'qr';
 

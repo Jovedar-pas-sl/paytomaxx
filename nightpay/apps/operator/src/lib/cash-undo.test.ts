@@ -27,7 +27,7 @@ describe('«Me he equivocado» (B4)', () => {
     const desk = read('../components/reception/desk/ReceptionDesk.tsx');
     expect(desk).toMatch(/done\.method === 'cash' && done\.topUpId && done\.loadedAt && needsFichaCheck\(counterFicha\(done\.read\)\)/);
     const same = desk.slice(desk.indexOf('function counterSame('), desk.indexOf('async function counterOther('));
-    expect(same).toMatch(/if \(at\.kind === 'undo' && at\.reason && tap\.token\) \{\s*void run\(\(\) => undoNow\(at\.done, at\.reason!, tap\)\);/);
+    expect(same).toMatch(/if \(at\.kind === 'undo' && at\.reason && tap\.token && isFreshTap\(meta\.waitedMs\)\) \{\s*void run\(\(\) => undoNow\(at\.done, at\.reason!, tap\)\);/);
   });
 
   it('pasados los 2 minutos, el encargado o el dueño desde su móvil, con su 2FA', () => {

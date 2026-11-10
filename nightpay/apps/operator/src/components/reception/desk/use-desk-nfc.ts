@@ -9,6 +9,11 @@ import { useChipReader, type ChipReader } from '../use-chip-via';
 /** Tras un fallo que no es del lector (la red, un NFC que no vale), se vuelve a escuchar a este ritmo. */
 const RETRY_MS = 1_200;
 
+/** Cómo llegó la lectura: lo que se esperó desde que el lector empezó a escuchar (B2). */
+export interface TapMeta {
+  waitedMs: number;
+}
+
 export interface DeskNfc {
   reader: ChipReader;
   /** El lector se paró y hace falta un toque para seguir (permiso de Web NFC, NFC apagado…). */
@@ -27,7 +32,7 @@ export interface DeskNfc {
 export function useDeskNfc(
   active: boolean,
   write: boolean,
-  onTap: (tap: ChipTap) => Promise<void>,
+  onTap: (tap: ChipTap, meta: TapMeta) => Promise<void>,
   onError: (message: string) => void,
 ): DeskNfc {
   const reader = useChipReader();
@@ -63,11 +68,13 @@ export function useDeskNfc(
     async function loop(): Promise<void> {
       while (!controller.signal.aborted) {
         try {
+          // Lo que tarda en llegar la lectura: una ficha que sigue apoyada llega enseguida (B2).
+          const started = Date.now();
           const tap = await tapChip(via, controller.signal, canWrite ? blank : undefined);
           if (controller.signal.aborted) return;
           // Si la pantalla sigue aquí (no valía), se vuelve a escuchar tras un momento:
           // el mismo NFC sigue apoyado y no se lee dos veces seguidas.
-          await handlers.current.onTap(tap);
+          await handlers.current.onTap(tap, { waitedMs: Date.now() - started });
           await wait(RETRY_MS);
         } catch (err) {
           if ((err as Error).name === 'AbortError' || controller.signal.aborted) return;

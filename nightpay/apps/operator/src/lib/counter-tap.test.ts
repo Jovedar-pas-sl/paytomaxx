@@ -1,7 +1,17 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import type { ReceptionDeskSaldo } from '@nightpay/contracts';
-import { counterFicha, counterTapText, loadedBlockedText, loadedOtherTap, needsFichaCheck, sameCounterCard } from './counter-tap';
+import {
+  FRESH_TAP_MS,
+  confirmsWithFicha,
+  counterFicha,
+  counterTapText,
+  isFreshTap,
+  loadedBlockedText,
+  loadedOtherTap,
+  needsFichaCheck,
+  sameCounterCard,
+} from './counter-tap';
 
 const NUEVA = { kind: 'new' as const, fichaNumber: 7, printedNumber: '00001013' };
 const SALDO = {
@@ -63,7 +73,7 @@ describe('el lector en el mostrador (A3)', () => {
     expect(handler).not.toMatch(/\bgo\(|setStep\(|restart\(|staffBackend\.(stock|cash|link)|payCash|sendCash/);
     // La misma ficha: solo carga en «Acerca otra vez la ficha» (B2), pasado el medio segundo.
     const same = desk.slice(desk.indexOf('function counterSame('), desk.indexOf('async function counterOther('));
-    expect(same).toMatch(/if \(at\.kind === 'cashConfirm' && methodArmed\(stepShownAt\.current, Date\.now\(\)\)\) \{\s*void run\(\(\) => payCash\(at\.read, at\.amountCents, 'tap'\)\);/);
+    expect(same).toMatch(/if \(at\.kind === 'cashConfirm' && confirmsWithFicha\(\{[^}]*\}\)\) \{\s*void run\(\(\) => payCash\(at\.read, at\.amountCents, 'tap'\)\);/);
     expect(same.match(/payCash\(/g)).toHaveLength(1);
     // Otra ficha: solo en CARGADO abre la siguiente (B3); en lo demás, el aviso.
     const other = desk.slice(desk.indexOf('async function counterOther('), desk.indexOf('/** Qué hacer con el PIN en CARGADO'));
@@ -94,6 +104,31 @@ describe('el lector en el mostrador (A3)', () => {
     const qr = readFileSync(new URL('../components/reception/desk/ActivationQr.tsx', import.meta.url), 'utf8').replace(/\r\n/g, '\n');
     expect(qr).toContain('const shown = link !== null && !expired;');
     expect(qr).toContain('useEffect(() => () => onOpen?.(false), [onOpen]);');
+  });
+});
+
+describe('B2: la ficha apoyada no confirma; hay que retirarla y acercarla otra vez', () => {
+  const shownAt = 1_000_000;
+  it('apoyada sin moverla: el lector la lee enseguida una y otra vez, y no se carga nada', () => {
+    // Al tocar «Efectivo» el lector vuelve a escuchar y la ficha apoyada llega en unos ms; así cada 1,2 s.
+    for (const later of [600, 1_800, 3_000, 10_000, 60_000]) {
+      expect(confirmsWithFicha({ waitedMs: 120, shownAt, now: shownAt + later, armMs: 500 })).toBe(false);
+    }
+    expect(isFreshTap(FRESH_TAP_MS - 1)).toBe(false);
+  });
+  it('retirada y acercada otra vez (un hueco sin ficha): confirma, pasado el medio segundo de la pantalla', () => {
+    expect(confirmsWithFicha({ waitedMs: 2_400, shownAt, now: shownAt + 2_400, armMs: 500 })).toBe(true);
+    expect(confirmsWithFicha({ waitedMs: 2_400, shownAt, now: shownAt + 300, armMs: 500 })).toBe(false);
+    expect(isFreshTap(FRESH_TAP_MS)).toBe(true);
+  });
+  it('el mostrador lo usa para el efectivo (B2) y para «Me he equivocado» (B4)', () => {
+    const desk = readFileSync(new URL('../components/reception/desk/ReceptionDesk.tsx', import.meta.url), 'utf8').replace(/\r\n/g, '\n');
+    const same = desk.slice(desk.indexOf('function counterSame('), desk.indexOf('async function counterOther('));
+    expect(same).toContain('confirmsWithFicha({ waitedMs: meta.waitedMs, shownAt: stepShownAt.current, now: Date.now(), armMs: METHOD_ARM_MS })');
+    expect(same).toMatch(/if \(at\.kind === 'undo' && at\.reason && tap\.token && isFreshTap\(meta\.waitedMs\)\)/);
+    const hook = readFileSync(new URL('../components/reception/desk/use-desk-nfc.ts', import.meta.url), 'utf8').replace(/\r\n/g, '\n');
+    expect(hook).toMatch(/const started = Date\.now\(\);\s*const tap = await tapChip\(/);
+    expect(hook).toContain('await handlers.current.onTap(tap, { waitedMs: Date.now() - started });');
   });
 });
 
