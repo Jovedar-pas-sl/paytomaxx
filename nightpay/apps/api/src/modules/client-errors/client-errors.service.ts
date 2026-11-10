@@ -14,6 +14,18 @@ export const CLIENT_ERROR_APPS = {
 } as const;
 export type ClientErrorApp = keyof typeof CLIENT_ERROR_APPS;
 
+/**
+ * Las pantallas de cada app (el primer tramo de su ruta en Next). Solo estas
+ * llegan al Telegram: la ruta la escribe quien manda el aviso, sin sesión, y
+ * podría ser un texto para el dueño («/Tu~cuenta~bloqueada~llama~al~…»).
+ */
+export const CLIENT_ERROR_ROUTES: Record<ClientErrorApp, readonly string[]> = {
+  operator: ['/', '/guia', '/accept-invite', '/onboarding', '/pax'],
+  admin: ['/'],
+  tpv: ['/'],
+  'web-client': ['/', '/pay', '/wallet'],
+};
+
 export interface ClientErrorReport {
   app: ClientErrorApp;
   message: string;
@@ -41,8 +53,9 @@ const MAX_MESSAGE = 200;
  * hasta ahora nadie se enteraba. Queda en el registro y en la métrica, y por
  * Telegram una vez por hora cada fallo distinto, con un tope por hora para
  * todos. Sin datos de nadie: la app, el mensaje recortado, la ruta sin
- * consulta y la versión. El texto del mensaje va al registro, no al Telegram:
- * lo escribe quien manda el aviso.
+ * consulta y la versión. El mensaje y la ruta completa van al registro, no al
+ * Telegram: los escribe quien manda el aviso. Al Telegram, la app, la huella
+ * y, si es una pantalla conocida de esa app, el primer tramo de la ruta.
  */
 @Injectable()
 export class ClientErrorsService {
@@ -74,7 +87,8 @@ export class ClientErrorsService {
       );
       return;
     }
-    const where = path ? ` en ${linklessPath(path)}` : '';
+    const route = telegramRoute(input.app, path);
+    const where = route ? ` en ${route}` : '';
     await this.telegram.send(
       `⚠️ Ha fallado ${CLIENT_ERROR_APPS[input.app]}${where}. Quien lo vio tenía un botón para volver. Si se repite, avisa. Detalle en el registro del API (huella ${fingerprint}).`,
     );
@@ -116,7 +130,9 @@ export function cleanPath(raw: string | undefined): string | null {
   return path.replace(/[A-Za-z0-9_-]{12,}/g, '…').slice(0, 80) || '/';
 }
 
-/** La ruta para el Telegram, sin puntos ni dos puntos: el chat no la convierte en un enlace. */
-export function linklessPath(path: string): string {
-  return path.replace(/[.:@]/g, '');
+/** La ruta para el Telegram: su primer tramo, solo si es una pantalla de esa app (null: no se dice). */
+export function telegramRoute(app: ClientErrorApp, path: string | null): string | null {
+  if (!path) return null;
+  const first = `/${path.split('/')[1] ?? ''}`;
+  return CLIENT_ERROR_ROUTES[app].includes(first) ? first : null;
 }
