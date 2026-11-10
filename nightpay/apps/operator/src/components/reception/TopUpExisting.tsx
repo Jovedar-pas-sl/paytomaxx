@@ -210,7 +210,7 @@ export function TopUpExisting({ onExit, onDone }: Props) {
   if (step.kind === 'done') {
     return (
       <DeskLoaded
-        word="CARGADO"
+        word="Cargado"
         amountCents={step.amountCents}
         reference={step.code}
         money={{ icon: step.method, ...loadedMoneyLine(step.method, step.amountCents, step.feeCents) }}

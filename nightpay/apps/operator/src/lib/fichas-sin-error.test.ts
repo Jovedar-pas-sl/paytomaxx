@@ -72,3 +72,23 @@ describe('B5: «Escanear su QR (cargó en casa)» en la primera pantalla y la fi
     expect(give).toContain('if (proof || manager) return setStep({ kind: \'tap\', found });');
   });
 });
+
+describe('auditoría gráfica en recepción: como el resto de la app', () => {
+  it('«Cargado» y «Devuelto», como «Pagado» (sin mayúsculas)', () => {
+    const desk = read('../components/reception/desk/ReceptionDesk.tsx');
+    const existing = read('../components/reception/TopUpExisting.tsx');
+    expect(desk).toContain('word="Cargado"');
+    expect(desk).toContain('word="Devuelto"');
+    expect(existing).toContain('word="Cargado"');
+    expect(`${desk}${existing}`).not.toMatch(/word="(CARGADO|DEVUELTO)"/);
+  });
+
+  it('la cabecera de recepción, como ScreenHeader: el mismo logo y «Atrás»', () => {
+    const parts = read('../components/reception/desk/desk-parts.tsx');
+    const screen = read('../components/cobrar/ScreenHeader.tsx');
+    const logo = (src: string) => src.match(/<Logo variant="symbol" height="([^"]+)"/)?.[1];
+    expect(logo(parts)).toBe(logo(screen));
+    expect(parts).toContain('aria-label="Atrás"');
+    expect(screen).toContain('aria-label="Atrás"');
+  });
+});

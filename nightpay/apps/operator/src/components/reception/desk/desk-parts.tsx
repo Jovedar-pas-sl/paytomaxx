@@ -105,15 +105,15 @@ export function DeskHead({ title, sub, onBack, chip }: HeadProps) {
   return (
     <div className={s.head}>
       {onBack ? (
-        <button type="button" className={s.back} onClick={onBack} aria-label="Volver">
+        <button type="button" className={s.back} onClick={onBack} aria-label="Atrás">
           <Icon name="back" />
         </button>
       ) : openMenu ? (
         <button type="button" className={s.logoBtn} onClick={openMenu} aria-label="Menú">
-          <Logo variant="symbol" height="2.5rem" alt="" />
+          <Logo variant="symbol" height="2.625rem" alt="" />
         </button>
       ) : (
-        <Logo variant="symbol" height="2.5rem" />
+        <Logo variant="symbol" height="2.625rem" />
       )}
       <div className={s.headText}>
         <b>{title}</b>

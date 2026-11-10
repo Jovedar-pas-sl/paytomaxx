@@ -585,7 +585,7 @@ export function ReceptionDesk({ user, active, footer, onGiveFicha, onScanHome }:
   if (step.kind === 'refunded') {
     return (
       <DeskLoaded
-        word="DEVUELTO"
+        word="Devuelto"
         amountCents={step.refundedCents}
         reference={step.code}
         money={{ icon: 'cash', label: 'Efectivo:', amount: eur(step.refundedCents), tail: 'de la caja' }}
@@ -873,7 +873,7 @@ export function ReceptionDesk({ user, active, footer, onGiveFicha, onScanHome }:
       ) : null;
     return (
       <DeskLoaded
-        word="CARGADO"
+        word="Cargado"
         amountCents={done.amountCents}
         reference={done.read.number ? (done.reference ?? null) : null}
         money={{ icon: done.method, ...money }}
