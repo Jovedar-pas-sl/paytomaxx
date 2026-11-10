@@ -3,6 +3,7 @@ import { CHROME_CSS, LANG_JS, topBar } from '../payments/customer-chrome';
 import { CUSTOMER_TEXT } from '../payments/i18n';
 import type { UnlockPageText } from '../payments/i18n/types';
 import type { PayLanguage } from '../payments/pay-i18n';
+import { myBalanceBlock } from './my-balance';
 import { PASSKEY_BROWSER_JS } from './passkey-browser';
 
 /**
@@ -61,15 +62,17 @@ export function unlockCard(t: Text, codeHint: string | null | undefined, off: bo
   return `<section class="ocard${off ? ' off' : ''}" aria-label="${h(t.card)}"><div class="otop"><span class="kick">${h(t.card)}</span>${UNLOCK_ICON.nfc}</div><span class="shut">${UNLOCK_ICON.lock}</span><div class="obot">${code}</div></section>`;
 }
 
-function body(view: WalletUnlockView, t: Text): string {
+function body(view: WalletUnlockView, t: Text, lang: PayLanguage): string {
   const h = escapeHtml;
   switch (view.kind) {
     case 'locked':
       return `${unlockCard(t, view.codeHint, false)}<section class="act"><h1>${h(t.heading)}</h1><p>${h(t.intro)}</p><button class="btn" id="unlock" type="button">${UNLOCK_ICON.face}<span id="unlockLabel">${h(t.button)}</span></button><p id="error" class="err" role="alert" hidden></p><p class="foot">${h(t.security)}</p><p class="foot">${h(t.newPhone)}</p></section>`;
     case 'setup':
       return `${unlockCard(t, view.codeHint, true)}<section class="act"><h1>${h(t.setupHeading)}</h1><p class="lead">${h(t.setup)}</p><div class="where">${UNLOCK_ICON.pin}<div><b>${h(t.setupWhere)}</b><span>${h(t.setupHow)}</span></div></div><p class="foot">${h(t.setupFoot)}</p></section>`;
+    // Quien la bloqueó lo hizo con su Face ID: «Ver mi saldo» con su llave lleva a SU saldo
+    // (el botón solo sale si el móvil tiene llaves; sin saldo en este móvil, lo dice).
     case 'blocked':
-      return `<section class="act"><span class="mark">${UNLOCK_ICON.lock}</span><h1>${h(t.blockedHeading)}</h1><p class="lead">${h(t.blocked)}</p></section>`;
+      return `<section class="act"><span class="mark">${UNLOCK_ICON.lock}</span><h1>${h(t.blockedHeading)}</h1><p class="lead">${h(t.blocked)}</p>${myBalanceBlock(lang, { withPasskeyJs: true })}</section>`;
     case 'unavailable':
       return `<section class="act"><h1>${h(t.unavailableHeading)}</h1><p class="lead">${h(t.unavailableText)}</p></section>`;
   }
@@ -88,7 +91,8 @@ prepared().then(function(response){return pkPost(C.base+'/view',{response:respon
 if(typeof result.url!=='string')throw new Error('invalid destination');
 var dest=new URL(result.url,window.location.origin),parts=dest.pathname.split('/');
 if(dest.origin!==window.location.origin||parts.length!==3||parts[1]!=='w'||!/^[A-Za-z0-9_-]+$/.test(parts[2]))throw new Error('invalid destination');
-window.location.replace(dest.pathname+'?lang='+encodeURIComponent(C.lang)+(C.paid?'&pagado='+encodeURIComponent(C.paid):''));
+// «Recargar» (#recargar) sigue abierto al llegar al saldo.
+window.location.replace(dest.pathname+'?lang='+encodeURIComponent(C.lang)+(C.paid?'&pagado='+encodeURIComponent(C.paid):'')+(window.location.hash==='#recargar'?'#recargar':''));
 }).catch(function(err){message(pkCancelled(err)?C.t.cancelled:err.code==='FACE_ID_NOT_SET'?C.t.setup:err.code==='FACE_ID_WRONG'||err.code==='FACE_ID_UNKNOWN'?C.t.wrong:err.code==='FACE_ID_TIMEOUT'||err.code==='FACE_ID_USED'?C.t.expired:err.status===429?C.t.rateLimited:err.status===404||err.status===409?C.t.unavailable:C.t.error);
 }).then(function(){busy=false;b.disabled=false;l.textContent=C.t.button;prepared=pkPrepare(C.base+'/view/challenge');});});
 })();
@@ -103,6 +107,6 @@ export function renderWalletUnlockPage(base: string, lang: PayLanguage, view: Wa
   const langHref = (l: PayLanguage): string => `${base}?lang=${l}${paid ? `&pagado=${paid}` : ''}`;
   return `<!doctype html><html lang="${lang}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="robots" content="noindex,nofollow"><meta name="referrer" content="no-referrer"><meta name="theme-color" content="#0b0d0e"><title>${h(t.title)}</title><style>${CLUB_BASE_CSS}${CHROME_CSS}${UNLOCK_CSS}</style></head><body><main>`
     + topBar(lang, langHref)
-    + body(view, t)
+    + body(view, t, lang)
     + `</main>${view.kind === 'locked' ? unlockScript(base, lang, t, paid) : ''}</body></html>`;
 }

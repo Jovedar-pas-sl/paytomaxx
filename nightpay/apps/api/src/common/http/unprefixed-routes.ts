@@ -48,6 +48,9 @@ export const UNPREFIXED_ROUTES: readonly UnprefixedRoute[] = Object.freeze([
   { path: 'w/card/:token', method: RequestMethod.GET },
   { path: 'w/card/:token/view/challenge', method: RequestMethod.POST },
   { path: 'w/card/:token/view', method: RequestMethod.POST },
+  // «Ver mi saldo» desde las pantallas que acaban (my-balance.ts): Face ID y a su saldo.
+  { path: 'w/mine/challenge', method: RequestMethod.POST },
+  { path: 'w/mine', method: RequestMethod.POST },
   { path: 'w/:token/view/challenge', method: RequestMethod.POST },
   { path: 'w/:token/view', method: RequestMethod.POST },
   { path: 'w/:token/close/challenge', method: RequestMethod.POST },

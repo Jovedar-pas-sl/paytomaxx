@@ -133,6 +133,17 @@ describe('la página del enlace del local (/r/<código>)', () => {
     expect(html).not.toContain('id="f"');
     expect(html).not.toContain('id="mineGo"');
     expect(html).not.toContain('pkPost(');
+    // Salida: su saldo (el que recuerda este navegador), donde también se recarga.
+    expect(html).toContain(`<a class="btn alt" href="/r/${CODE}/mi-saldo?lang=en">See my balance</a>`);
+  });
+
+  it('apagado y sin saldo recordado: «Ver mi saldo» con su Face ID (oculto si el móvil no tiene llaves)', () => {
+    const html = renderHomeTopUpPage(CODE, 'es', viewFor(null, { problem: 'paused' }));
+    expect(html).toContain('id="npMine" hidden>Ver mi saldo</button>');
+    expect(html).not.toContain('/mi-saldo');
+    for (const part of html.split('<script>').slice(1)) {
+      expect(() => new Function(part.slice(0, part.indexOf('</script>')))).not.toThrow();
+    }
   });
 
   it('un nombre de local con HTML se pinta como texto', () => {
@@ -145,7 +156,13 @@ describe('la página del enlace del local (/r/<código>)', () => {
     const html = renderHomeTopUpGone(lang);
     expect(html).toContain(HOME_TOPUP_TEXT[lang].notFoundTitle.replace(/'/g, '&#39;'));
     expect(html).not.toContain('Sala');
-    expect(html).not.toContain('pkPost(');
+    // Nada del local ni de cargar; la única salida, su saldo con su Face ID (my-balance.ts).
+    expect(html).not.toContain('/topup');
+    expect(html).not.toContain('/r/');
+    expect(html).toContain('id="npMine" hidden');
+    for (const part of html.split('<script>').slice(1)) {
+      expect(() => new Function(part.slice(0, part.indexOf('</script>')))).not.toThrow();
+    }
   });
 });
 

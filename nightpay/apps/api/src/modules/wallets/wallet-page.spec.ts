@@ -76,7 +76,19 @@ describe('página del saldo del cliente', () => {
       }),
     );
     expect(html).not.toContain('</script><img');
-    expect(html.match(/<\/script>/g)).toHaveLength(1);
+    // El de la página y el de «Ver mi saldo» (my-balance.ts): ninguno más.
+    expect(html.match(/<\/script>/g)).toHaveLength(2);
+    expect(html.match(/<script>/g)).toHaveLength(2);
+  });
+
+  it('saldo sumado a otro: «Ver mi saldo» (con su Face ID) lleva a aquel; en uno abierto no sale', () => {
+    const html = renderWalletPage('tok-1', 'es', state({ status: 'DEPLETED', merged: true, balanceCents: 0 }));
+    expect(html).toContain('id="npMine" hidden');
+    expect(html).toContain("window.npMineWanted=s.status==='DEPLETED'&&Boolean(s.merged)");
+    expect(html).toMatch(/^npMineShow[(]window[.]npMineWanted[)];$/m);
+    for (const part of html.split('<script>').slice(1)) {
+      expect(() => new Function(part.slice(0, part.indexOf('</script>')))).not.toThrow();
+    }
   });
 
   it('sin QR del código (ya no se paga enseñándolo); con "Activar Face ID" y JS válido sin barras invertidas', () => {

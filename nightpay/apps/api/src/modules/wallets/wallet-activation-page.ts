@@ -3,6 +3,7 @@ import { CHROME_CSS, LANG_JS, topBar } from '../payments/customer-chrome';
 import { CUSTOMER_TEXT } from '../payments/i18n';
 import { PAY_TEXT, type PayLanguage } from '../payments/pay-i18n';
 import { CLIENT_ERROR_JS, clientErrorConfig } from './client-errors';
+import { myBalanceBlock } from './my-balance';
 import { PASSKEY_BROWSER_JS } from './passkey-browser';
 import type { ActivationView } from './wallet-activation-use.service';
 import { UNLOCK_CSS, UNLOCK_ICON, unlockCard } from './wallet-unlock-page';
@@ -18,7 +19,8 @@ import { UNLOCK_CSS, UNLOCK_ICON, unlockCard } from './wallet-unlock-page';
  *    QR de recepción lo pide antes de activar; con el enlace nuevo del dueño
  *    no se pide (puede haberlo olvidado) y se le avisa, por si no lo eligió él.
  *  - used / expired: «Este enlace ya se ha usado / ha caducado. Pide otro en
- *    recepción.», sin botones.
+ *    recepción.». Usado (lo suele volver a abrir quien ya lo activó): «Ver mi
+ *    saldo» con su Face ID; caducado, sin botones (aún no tiene llave).
  * Mirar la página no cambia nada (las vistas previas de WhatsApp la abren).
  * Nunca lleva el enlace del saldo ni lo que tiene: el código tapado y el local.
  * El JS va dentro de una plantilla de TypeScript: sin barras invertidas.
@@ -42,7 +44,8 @@ function body(view: ActivationView, lang: PayLanguage): string {
   if (view.state !== 'ok') {
     const heading = view.state === 'used' ? a.usedHeading : a.expiredHeading;
     const text = view.state === 'used' ? a.used : a.expired;
-    return `<section class="act"><span class="mark">${UNLOCK_ICON.lock}</span><h1>${h(heading)}</h1><p class="lead">${h(text)}</p></section>`;
+    const mine = view.state === 'used' ? myBalanceBlock(lang, { withPasskeyJs: true }) : '';
+    return `<section class="act"><span class="mark">${UNLOCK_ICON.lock}</span><h1>${h(heading)}</h1><p class="lead">${h(text)}</p>${mine}</section>`;
   }
   const label = view.venueName ? `${w.balance} · ${view.venueName}` : w.balance;
   const card = unlockCard({ ...u, card: label }, view.codeHint, false);

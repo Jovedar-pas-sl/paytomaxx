@@ -351,6 +351,17 @@ describe('GET /pay/:token — página de pago', () => {
     await controller.payPage('qr-token-1', 'es', undefined, IPHONE, reply);
     expect(sent.body).toContain('Ya está pagado con tu saldo');
     expect(sent.body).not.toContain('No se te ha cobrado nada');
+    // Salida (pantalla sin salida): «Ver mi saldo» con Face ID, enseñado al cargar.
+    expect(sent.body).toContain('id="npMine"');
+    expect(sent.body).toMatch(/^npMineShow[(]true[)];$/m);
+    expect(sent.body).toContain('function pkPrepare(');
+  });
+
+  it('cobro caducado: sin «Ver mi saldo» (no se pagó con saldo: lo que toca es pedir otro QR)', async () => {
+    const { controller } = makeController({ page: { kind: 'closed', reason: 'expired' } });
+    const { reply, sent } = fakeReply();
+    await controller.payPage('qr-token-1', 'es', undefined, IPHONE, reply);
+    expect(sent.body).not.toContain('id="npMine"');
   });
 
   it('iPhone: «Pagar 100 €» que abre Apple Pay (Redsys solo cartera) como botón principal, sin botón de Apple hecho a mano, y «Pagar con tarjeta» de segunda opción', async () => {

@@ -3,6 +3,7 @@ import { CHROME_CSS, LANG_JS, topBar } from '../payments/customer-chrome';
 import { PAY_TEXT, type PayLanguage } from '../payments/pay-i18n';
 import { CARD_MARKS, LOCK_IC, PAY_MARKS_CSS } from '../payments/pay-marks';
 import { CLIENT_ERROR_JS, clientErrorConfig } from '../wallets/client-errors';
+import { MY_BALANCE_TEXT, myBalanceBlock } from '../wallets/my-balance';
 import { PASSKEY_BROWSER_JS } from '../wallets/passkey-browser';
 import { WALLET_TEXT } from '../wallets/wallet-text';
 import { TOPUP_CSS, topUpFeeExplain } from '../wallets/wallet-topup-view';
@@ -162,13 +163,21 @@ function termsCard(lang: PayLanguage, withFee: boolean): string {
 `;
 }
 
-/** Ahora el local no deja cargar (pausa, formas de cobro, pasarela): sin formulario. */
-function offCard(lang: PayLanguage): string {
+/**
+ * Ahora el local no deja cargar (pausa, formas de cobro, pasarela): sin
+ * formulario. Salida: «Ver mi saldo» (el que recuerda este navegador o, si
+ * no, con su Face ID), donde también se recarga cuando el local vuelve a dejar.
+ */
+function offCard(lang: PayLanguage, base: string, remembered: boolean): string {
   const t = HOME_TOPUP_TEXT[lang];
   const h = escapeHtml;
+  const mine = remembered
+    ? `<a class="btn alt" href="${h(`${base}/mi-saldo?lang=${lang}`)}">${h(MY_BALANCE_TEXT[lang].button)}</a>`
+    : myBalanceBlock(lang, { withPasskeyJs: true });
   return `<section class="card off" role="status" aria-labelledby="offTitle">
 <h2 id="offTitle">${h(t.offTitle)}</h2>
 <p>${h(t.offBody)}</p>
+${mine}
 </section>
 `;
 }
@@ -243,7 +252,7 @@ ${topBar(lang)}
 <h1 id="hTitle">${heading}</h1>
 <p>${h(t.advantage)}</p>
 </section>
-${/* Las condiciones («Antes de pagar»), antes del importe y del botón (C-3). */ ''}${canLoad ? howSteps(lang, view.fichas !== false) : ''}${canLoad && view.mine ? mineCard(lang, base, view.mine.codeHint) : ''}${termsCard(lang, withFee)}${canLoad ? amountCard(lang, view) : offCard(lang)}<p class="foot trust">${h(PAY_TEXT[lang].secure)}${CARD_MARKS}</p>
+${/* Las condiciones («Antes de pagar»), antes del importe y del botón (C-3). */ ''}${canLoad ? howSteps(lang, view.fichas !== false) : ''}${canLoad && view.mine ? mineCard(lang, base, view.mine.codeHint) : ''}${termsCard(lang, withFee)}${canLoad ? amountCard(lang, view) : offCard(lang, base, Boolean(view.mine))}<p class="foot trust">${h(PAY_TEXT[lang].secure)}${CARD_MARKS}</p>
 </main>
 ${
   canLoad
@@ -280,6 +289,7 @@ ${topBar(lang)}
 <section class="card off" aria-labelledby="goneTitle">
 <h1 id="goneTitle" class="sub">${h(t.notFoundTitle)}</h1>
 <p>${h(t.notFoundBody)}</p>
+${/* Salida: su saldo con su Face ID (desde allí también se recarga). No dice nada del local. */ ''}${myBalanceBlock(lang, { withPasskeyJs: true })}
 </section>
 </main>
 <script>${LANG_JS}</script>

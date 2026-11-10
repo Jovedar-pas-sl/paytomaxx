@@ -59,11 +59,20 @@ describe('pantalla de consulta protegida', () => {
     expect(renderWalletUnlockPage('/w/card/t', 'en', { kind: 'blocked' })).toContain('This NFC tag is blocked');
     const off = renderWalletUnlockPage('/w/card/t', 'es', { kind: 'unavailable' });
     expect(off).toContain('Este NFC no está activo');
-    for (const html of [blocked, off]) {
-      expect(html).not.toContain('<button');
-      expect(html).not.toContain('<script');
-      expect(html).not.toContain('class="ocard');
+    for (const html of [blocked, off]) expect(html).not.toContain('class="ocard');
+    expect(off).not.toContain('<button');
+    expect(off).not.toContain('<script');
+  });
+  it('NFC bloqueado: «Ver mi saldo» con su Face ID (lo bloqueó su dueño con ella), oculto si el móvil no tiene llaves', () => {
+    const blocked = renderWalletUnlockPage('/w/card/t', 'es', { kind: 'blocked' });
+    expect(blocked).toContain('id="npMine" hidden>Ver mi saldo</button>');
+    expect(blocked).toMatch(/^npMineShow[(]true[)];$/m);
+    for (const part of blocked.split('<script>').slice(1)) {
+      expect(() => new Function(part.slice(0, part.indexOf('</script>')))).not.toThrow();
     }
+  });
+  it('al desbloquear, «Recargar» (#recargar) sigue abierto en el saldo', () => {
+    expect(renderWalletUnlockPage('/w/tok', 'es', { kind: 'locked' })).toContain("(window.location.hash==='#recargar'?'#recargar':'')");
   });
   it('idioma: enlace al otro idioma en la barra de arriba', () => {
     expect(renderWalletUnlockPage('/w/card/t', 'es', { kind: 'setup' })).toContain('href="/w/card/t?lang=en"');

@@ -109,6 +109,28 @@ describe('pagar con el saldo escaneando el QR del personal', () => {
     expect(html).not.toContain('id="pay"');
   });
 
+  it('«Ver mi saldo» en todas las pantallas que acaban: tras pagar aquí, el enlace de la respuesta; si no, con Face ID', () => {
+    // Ya pagado (QR que se vuelve a abrir), pagado con tarjeta o caducado: con Face ID, enseñado al cargar.
+    for (const v of [
+      { ...view, status: 'ACCEPTED' as const, paidAt: new Date(NOW.getTime() - 60_000).toISOString() },
+      { ...view, status: 'CANCELED' as const, paidElsewhere: true },
+      { ...view, status: 'EXPIRED' as const },
+    ]) {
+      const html = renderQrChargePage('tok-1', 'es', v, NOW);
+      expect(html).toContain('id="npMine"');
+      expect(html.match(/id="npMine"/g)).toHaveLength(1);
+      expect(html).toMatch(/^npMineShow[(]true[)];$/m);
+      for (const js of scripts(html)) expect(() => new Function(js)).not.toThrow();
+    }
+    // Sin pagar: nada al cargar; al pagar, el enlace de su saldo (solo una ruta /w/<enlace>) o, sin él, Face ID.
+    const pending = renderQrChargePage('tok-1', 'en', view, NOW);
+    expect(pending).toContain('See my balance');
+    expect(pending).not.toMatch(/^npMineShow[(]true[)];$/m);
+    const js = scripts(pending).join('');
+    expect(js).toContain('r.walletUrl&&/^[/]w[/][A-Za-z0-9_-]+$/.test(r.walletUrl)');
+    expect(js).toContain('window.npMineShow(true)');
+  });
+
   it('error al pagar: solo dice que no se cobró si el servidor lo rechazó (4xx que no es 409)', () => {
     const payFail = new Function(`${PAY_FAIL_JS}; return npPayFail;`)() as (e: unknown) => string;
     // Sin respuesta o fallo del servidor (5xx): no se sabe si se cobró (el cobro pudo

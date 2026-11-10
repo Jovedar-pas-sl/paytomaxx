@@ -6,6 +6,7 @@ import { LOCK_ICON } from '../payments/pay-choose-page';
 import { PAY_TEXT, type PayLanguage } from '../payments/pay-i18n';
 import { PASSKEY_BROWSER_JS } from './passkey-browser';
 import { CLIENT_ERROR_JS, clientErrorConfig } from './client-errors';
+import { MY_BALANCE_TEXT, myBalanceButton, myBalanceScript } from './my-balance';
 import type { QrChargeClientView } from './wallet-charges.service';
 
 /**
@@ -30,6 +31,7 @@ const QR_CSS = `
 .after{max-width:26rem;margin:0 auto;padding:1rem;display:flex;flex-direction:column;align-items:center}
 .secure{display:flex;align-items:center;gap:.4rem;font-size:.8125rem;color:var(--dim)}
 .secure svg{width:1rem;height:1rem;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.mine{width:100%;max-width:22rem;display:grid;gap:.5rem;margin-top:.5rem}
 `;
 
 /**
@@ -69,6 +71,7 @@ export function renderQrChargePage(
   const { code, ...publicView } = view;
   const config = jsConfig({
     base,
+    lang,
     locale,
     text: {
       ...t,
@@ -83,6 +86,11 @@ export function renderQrChargePage(
     now: now.getTime(),
   });
   const who = [view.serviceName, view.requestedByName, view.venueName].filter(Boolean).join(' · ');
+  // Caducado, cancelado o rechazado: no se cobró nada.
+  const closed = view.status !== 'PENDING' && !isPaid;
+  // «Ver mi saldo»: tras pagar aquí, el enlace que trae la respuesta del pago;
+  // al abrir uno ya pagado o cerrado, con Face ID (la página no sabe de quién es).
+  const mine = `<div class="mine"><a class="btn alt" id="mineLink" hidden>${h(MY_BALANCE_TEXT[lang].button)}</a>${myBalanceButton(lang)}</div>`;
   // Ya pagado (alguien vuelve a abrir el QR): el «Pagado» en gris, sin formulario.
   const screen = renderPaidScreen({
     t: p,
@@ -93,9 +101,8 @@ export function renderQrChargePage(
     code: isPaid ? (code ?? null) : null,
     hidden: !isPaid,
     fromBalance: true,
+    footer: closed ? undefined : mine,
   });
-  // Caducado, cancelado o rechazado: no se cobró nada.
-  const closed = view.status !== 'PENDING' && !isPaid;
   return `<!DOCTYPE html>
 <html lang="${lang}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="robots" content="noindex"><meta name="theme-color" content="#0b0d0e"><title>${h(t.title)}</title>
@@ -109,12 +116,14 @@ ${
     : closed && view.paidElsewhere
     ? `<p class="kick">${h(t.title)}</p>
 <h1>${h(t.paidByCard)}</h1>
-<p class="safe">${h(t.notFromBalance)}</p>`
+<p class="safe">${h(t.notFromBalance)}</p>
+${mine}`
     : closed
     ? `<p class="kick">${h(t.title)}</p>
 <h1>${h(view.status === 'EXPIRED' ? t.expired : t.notPending)}</h1>
 <p class="safe">${h(p.notCharged)}</p>
-<p class="hint">${h(t.askStaff)}</p>`
+<p class="hint">${h(t.askStaff)}</p>
+${mine}`
     : `<p class="kick">${h(t.title)}</p>
 <p>${h(t.youPay)}</p>
 <h1 class="amount num">${h(clientMoney(view.amountCents, locale, 'EUR', true))}</h1>
@@ -158,6 +167,8 @@ function paid(r){stop('');$('ask').hidden=true;
   var lab=document.createElement('span');lab.className='plabel';lab.textContent=T.codeLabel;var val=document.createElement('b');val.className='num';val.textContent=r.code;
   var hint=document.createElement('span');hint.className='phint';hint.textContent=T.codeHint;box.appendChild(lab);box.appendChild(val);box.appendChild(hint);
   el.insertBefore(box,el.querySelector('.pstale'));}
+ // «Ver mi saldo»: el enlace de SU saldo (la respuesta del pago); sin él, con Face ID.
+ var ml=$('mineLink');if(r.walletUrl&&/^[/]w[/][A-Za-z0-9_-]+$/.test(r.walletUrl)){ml.href=r.walletUrl+'?lang='+encodeURIComponent(C.lang);ml.hidden=false;}else if(window.npMineShow)window.npMineShow(true);
  var bar=document.querySelector?document.querySelector('header.top'):null;if(bar)bar.classList.add('over');
  el.hidden=false;window.scrollTo(0,0);npPaid(el,T.paid);}
 // No se sabe si se cobró: se pregunta el estado. Pendiente → se puede volver a
@@ -190,5 +201,6 @@ $('pay').addEventListener('click',function(){
 $('reload').addEventListener('click',function(){location.reload();});
 })();
 </script>
+${myBalanceScript(lang, { visible: view.status !== 'PENDING' })}
 ${langScript()}</body></html>`;
 }

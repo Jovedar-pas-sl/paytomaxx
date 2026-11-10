@@ -12,6 +12,7 @@ import {
   Query,
   Res,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import type { FastifyReply } from 'fastify';
 import { Public } from '../../common/decorators/public.decorator';
 import { IpRateLimit } from '../../common/guards/ip-rate-limit.guard';
@@ -19,6 +20,7 @@ import { customerLanguage } from '../payments/customer-lang';
 import { renderQrChargePage } from './qr-charge-page';
 import { WalletChargesService, type QrChargeClientView, type QrChargePaid } from './wallet-charges.service';
 import { WalletPasskeysService } from './wallet-passkeys.service';
+import { walletViewSetCookies } from './wallet-view-session';
 
 /**
  * Pagar con el saldo escaneando el QR de la chica (fuera de /v1):
@@ -33,13 +35,16 @@ import { WalletPasskeysService } from './wallet-passkeys.service';
 export class PublicSaldoController {
   private readonly charges: WalletChargesService;
   private readonly passkeys: WalletPasskeysService;
+  private readonly config: ConfigService;
 
   constructor(
     @Inject(WalletChargesService) charges: WalletChargesService,
     @Inject(WalletPasskeysService) passkeys: WalletPasskeysService,
+    @Inject(ConfigService) config: ConfigService,
   ) {
     this.charges = charges;
     this.passkeys = passkeys;
+    this.config = config;
   }
 
   @Public()
@@ -100,9 +105,17 @@ export class PublicSaldoController {
     @Param('token') token: string,
     @Body() body: { response?: unknown } | undefined,
     @Headers('host') host: string | undefined,
-  ): Promise<QrChargePaid> {
+    @Res({ passthrough: true }) res: FastifyReply,
+  ): Promise<QrChargePaid & { walletUrl?: string }> {
     const walletId = await this.passkeys.verify(scopeOf(token), host, body?.response);
-    return this.charges.payQrCharge(token, walletId);
+    const paid = await this.charges.payQrCharge(token, walletId);
+    // «Ver mi saldo» en su «Pagado»: acaba de desbloquear su móvil con la
+    // llave de ese saldo, así que se abre la sesión de consulta (como al
+    // entrar por la ficha) y la página lleva el enlace.
+    const wallet = await this.charges.liveWalletRef(walletId).catch(() => null);
+    if (!wallet) return paid;
+    res.header('Set-Cookie', walletViewSetCookies(this.config.get<string>('COOKIE_SECRET') ?? '', wallet));
+    return { ...paid, walletUrl: `/w/${encodeURIComponent(wallet.qrToken)}` };
   }
 }
 

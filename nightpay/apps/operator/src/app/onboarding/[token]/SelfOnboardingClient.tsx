@@ -173,6 +173,10 @@ export function SelfOnboardingClient({ token }: Props) {
           <p style={{ fontSize: '0.85rem', color: 'var(--np-text-dim)', marginTop: '1rem' }}>
             Pídele al admin del local un link nuevo.
           </p>
+          {/* Salida: si ya tiene cuenta, a entrar en la app. */}
+          <a href="/" className="np-btn" data-variant="ghost" data-size="md" style={{ marginTop: '1rem' }}>
+            Entrar
+          </a>
         </Card>
       </main>
     );
@@ -191,8 +195,11 @@ export function SelfOnboardingClient({ token }: Props) {
             </p>
           ) : null}
           <p style={{ marginTop: '1rem', fontSize: '0.85rem', color: 'var(--np-text-dim)' }}>
-            Ya puedes cerrar esta página.
+            Ya puedes cerrar esta página o entrar en la app.
           </p>
+          <a href="/" className="np-btn" data-variant="ghost" data-size="md" style={{ marginTop: '0.75rem' }}>
+            Entrar
+          </a>
         </Card>
       </main>
     );

@@ -42,7 +42,7 @@ import {
 } from '../payments/cobro-link';
 import { hashPin, PIN_MAX_FAILS, PIN_PROBLEM_TEXT, pinProblem, verifyPin } from './wallet-pin';
 import { reopenData } from './wallet-activation';
-import { mergedWalletIds } from './wallet-merge-chain';
+import { liveWalletId, mergedWalletIds } from './wallet-merge-chain';
 import { clientRefundState, refundCards, type ClientRefundState } from './wallet-refund-view';
 import {
   ISSUED_CARD_STATUSES,
@@ -946,6 +946,17 @@ export class WalletChargesService {
       balanceCents: wallet?.balanceCents ?? 0,
       code: request.linkedPaymentId ? confirmationCode(request.linkedPaymentId) : null,
     };
+  }
+
+  /**
+   * El saldo de la llave con la que se acaba de pagar (o aquel al que se
+   * sumó): su id y su enlace, para «Ver mi saldo» en el «Pagado» de /s.
+   */
+  async liveWalletRef(walletId: string): Promise<{ id: string; qrToken: string } | null> {
+    return this.prisma.acrossVenues(async (tx) => {
+      const id = await liveWalletId(tx, walletId);
+      return id ? tx.clientWallet.findUnique({ where: { id }, select: { id: true, qrToken: true } }) : null;
+    });
   }
 
   /** Encargado o dueño: cobros con QR que nadie ha pagado aún (cliente sin batería…). */
