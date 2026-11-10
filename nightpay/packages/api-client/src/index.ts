@@ -37,3 +37,12 @@ export {
   type SessionEvent,
   type SessionUser,
 } from './types';
+export {
+  createPasskey,
+  getPasskey,
+  passkeyCancelled,
+  passkeysSupported,
+  type CreationOptionsJSON,
+  type CredentialJSON,
+  type RequestOptionsJSON,
+} from './webauthn';

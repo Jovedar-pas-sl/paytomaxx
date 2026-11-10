@@ -21,6 +21,7 @@ import {
   paymentMethodsOf,
   sectionMeta,
   sectionsOf,
+  stepUpActions,
   type ChargeAuthMethod,
   type ChargeLineInput,
   type Role,
@@ -1112,7 +1113,7 @@ export class WalletChargesService {
     if (request.requestedByUserId === actor.userId) {
       throw new ForbiddenException('Este cobro lo has hecho tú: lo tiene que aprobar otro encargado o el dueño');
     }
-    await assertTwoFactorCode(this.totp, actor.userId, totpCode, 'Para cobrar sin que el cliente confirme,');
+    await assertTwoFactorCode(this.totp, actor.userId, totpCode, 'Para cobrar sin que el cliente confirme,', stepUpActions.chargeWithoutFaceId(requestId, walletId));
     await this.bindAndSettle(request, walletId, 'staff');
     await this.audit.log({
       action: 'wallet.charge_without_faceid',
@@ -1933,7 +1934,7 @@ export class WalletChargesService {
   /** Encargado o dueño, con su 2FA: el cliente olvidó su PIN → se borra y elige otro. */
   async resetPin(actor: Actor, walletId: string, totpCode?: string): Promise<{ ok: true }> {
     await this.managerWallet(actor, walletId);
-    await assertTwoFactorCode(this.totp, actor.userId, totpCode, 'Para borrar el PIN de un cliente,');
+    await assertTwoFactorCode(this.totp, actor.userId, totpCode, 'Para borrar el PIN de un cliente,', stepUpActions.resetPin(walletId));
     await this.prisma.acrossVenues((tx) =>
       tx.clientWallet.update({
         where: { id: walletId },
@@ -2222,7 +2223,7 @@ export class WalletChargesService {
       throw new ForbiddenException('El cliente tiene que pulsar «Me voy» en su página de saldo (o que lo haga el dueño)');
     }
     // El dueño devuelve sin que el cliente lo pida ni esté delante: su 2FA, siempre.
-    if (actor.role === 'OWNER') await assertTwoFactorCode(this.totp, actor.userId, input.totpCode, 'Para devolver un saldo,');
+    if (actor.role === 'OWNER') await assertTwoFactorCode(this.totp, actor.userId, input.totpCode, 'Para devolver un saldo,', stepUpActions.walletPayout(walletId));
     return input.method === 'CASH'
       ? this.payoutCash(actor, walletId, input, venue?.refundApprovalThresholdCents, wallet.closeRequestedAt)
       : this.payoutCard(actor, walletId, input);
@@ -2260,7 +2261,13 @@ export class WalletChargesService {
       assertExpectedPayout(input.expectedAmountCents, cap);
       const fromReception = actor.role === 'MANAGER' && (await receptionAskedManager(tx, walletId, closeRequestedAt));
       if (fromReception) {
-        await assertTwoFactorCode(this.totp, actor.userId, input.totpCode, `Devolver ${eur(cap)} en efectivo: recepción lo dejó para el encargado,`);
+        await assertTwoFactorCode(
+          this.totp,
+          actor.userId,
+          input.totpCode,
+          `Devolver ${eur(cap)} en efectivo: recepción lo dejó para el encargado,`,
+          stepUpActions.walletPayout(walletId),
+        );
       }
       const asked = fromReception || (await assertManagerTwoFactor(
         this.totp,
@@ -2269,6 +2276,7 @@ export class WalletChargesService {
         cashApprovalThreshold(thresholdCents),
         input.totpCode,
         `Devolver ${eur(cap)} en efectivo`,
+        stepUpActions.walletPayout(walletId),
       ));
       const left = w.balanceCents - cap;
       // Lo que entró con tarjeta sigue en el saldo (abierto, con su «Me voy») para el dueño.
@@ -2441,7 +2449,7 @@ export class WalletChargesService {
     if (actor.role !== 'OWNER') {
       throw new ForbiddenException('Un enlace nuevo del saldo solo lo da el dueño');
     }
-    await assertTwoFactorCode(this.totp, actor.userId, totpCode, 'Para dar un enlace nuevo del saldo,');
+    await assertTwoFactorCode(this.totp, actor.userId, totpCode, 'Para dar un enlace nuevo del saldo,', stepUpActions.relink(walletId));
     return this.relink(actor, walletId);
   }
 

@@ -1,3 +1,4 @@
+import { PASSKEY_REQUIRED_CODE, stepUpActions } from '@nightpay/contracts';
 import {
   BadGatewayException,
   BadRequestException,
@@ -246,9 +247,6 @@ export class RefundsService {
     const totals = await refundTotalsOf(tx, actor, request.paymentId);
     const reason = twoFactorReason(request.amountCents, totals);
     if (!reason) return false;
-    if (!request.totpCode) {
-      throw totpForbidden('required', `Hace falta el código 2FA: ${reason} devueltos (desde 100 € se pide).`);
-    }
     // Su propia ficha, sin el filtro de local: un super-admin que está mirando
     // otro local no aparece en ese local (antes daba «no la tienes activada»).
     const user = await this.prisma.acrossVenues((across) =>
@@ -257,6 +255,19 @@ export class RefundsService {
         select: { totpSecret: true, email: true },
       }),
     );
+    if (!user?.totpSecret) {
+      // Sin 2FA: la prueba de su llave de acceso para ESTA devolución (de un solo uso).
+      const action = stepUpActions.refund(request.paymentId, request.amountCents);
+      if (await this.totp.passkeyProofFor?.(actor.userId, action)) {
+        this.logger.log(`Devolución confirmada con la llave de acceso (${reason}): user=${actor.userId}`);
+        return true;
+      }
+      const passkey = await this.totp.missingSecondFactor?.(actor.userId, action, `Hace falta confirmarlo: ${reason} devueltos (desde 100 € se pide). Confirma con tu llave de acceso (Face ID o el PIN de tu móvil).`);
+      if (passkey && (passkey.getResponse() as { code?: unknown }).code === PASSKEY_REQUIRED_CODE) throw passkey;
+    }
+    if (!request.totpCode) {
+      throw totpForbidden('required', `Hace falta el código 2FA: ${reason} devueltos (desde 100 € se pide).`);
+    }
     if (!user?.totpSecret) throw totpForbidden('notEnrolled', REFUND_TOTP_NOT_ENROLLED);
     try {
       await this.totp.checkStoredForUser(actor.userId, user.totpSecret, request.totpCode);

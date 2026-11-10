@@ -491,3 +491,80 @@ export interface StaffPasskeyView {
   lastUsedAt: string | null;
 }
 
+// ─── Llaves de acceso del personal y pruebas para actuar (fase 2) ───────
+
+/**
+ * La prueba de la llave para UNA acción que pide la 2FA, a quien no la tiene:
+ * va en esta cabecera al repetir la acción. Vale 2 minutos, una vez y solo
+ * para esa acción (`stepUpAction` del 403 PASSKEY_REQUIRED).
+ */
+export const STEP_UP_TOKEN_HEADER = 'X-Step-Up-Token';
+export const STEP_UP_ACTION_TTL_SECONDS = 120;
+
+/**
+ * La acción a la que va atada una prueba («refund:<cobro>:<importe>»). La
+ * dice el API en el 403 PASSKEY_REQUIRED: las apps no tienen que calcularla.
+ */
+export const stepUpActions = {
+  refund: (paymentId: string, amountCents: number) => `refund:${paymentId}:${amountCents}`,
+  reverseConsumption: (consumptionId: string) => `reverse:${consumptionId}`,
+  approve: (approvalId: string) => `approve:${approvalId}`,
+  walletPayout: (walletId: string) => `wallet-payout:${walletId}`,
+  chargeWithoutFaceId: (requestId: string, walletId: string) => `charge-approve:${requestId}:${walletId}`,
+  resetPin: (walletId: string) => `pin-reset:${walletId}`,
+  relink: (walletId: string) => `relink:${walletId}`,
+  receptionCashOut: (walletId: string) => `cash-out:${walletId}`,
+  cashTopUpVoid: (topUpId: string) => `cash-void:${topUpId}`,
+  resolvePayment: (paymentId: string) => `resolve:${paymentId}`,
+  operatorPayout: (operatorId: string) => `operator-payout:${operatorId}`,
+  nightFloat: (nightId: string) => `night-float:${nightId}`,
+  bankHoldRelease: (paymentId: string) => `bank-hold:${paymentId}`,
+} as const;
+
+export const STEP_UP_ACTION_RE = /^[a-z-]{3,32}(?::[A-Za-z0-9-]{1,64}){1,3}$/;
+
+/** Dar de alta una llave pide la contraseña otra vez (y el código, si tiene 2FA). */
+export const StaffPasskeyOptionsSchema = z.object({
+  password: z.string().min(1).max(200),
+  totpCode: z
+    .string()
+    .max(20)
+    .transform((s) => s.replace(/\s+/g, ''))
+    .pipe(z.string().regex(/^\d{6}$/, 'El código son 6 cifras'))
+    .optional(),
+});
+export type StaffPasskeyOptionsDto = z.infer<typeof StaffPasskeyOptionsSchema>;
+
+/** La respuesta del móvil (WebAuthn) tal cual: la comprueba el API. */
+const WebAuthnResponseSchema = z.record(z.string(), z.unknown());
+
+export const StaffPasskeyRegisterSchema = z.object({
+  response: WebAuthnResponseSchema,
+  /** El nombre que le pone la persona («Mi iPhone»); sin él, el del móvil. */
+  name: z.string().trim().min(1).max(80).optional(),
+});
+export type StaffPasskeyRegisterDto = z.infer<typeof StaffPasskeyRegisterSchema>;
+
+/** Verificarse con la llave: para ver (sin `action`) o para una acción (con ella). */
+export const StepUpPasskeyOptionsSchema = z.object({
+  action: z.string().regex(STEP_UP_ACTION_RE, 'Acción no válida').optional(),
+});
+export type StepUpPasskeyOptionsDto = z.infer<typeof StepUpPasskeyOptionsSchema>;
+
+export const StepUpPasskeySchema = z.object({
+  response: WebAuthnResponseSchema,
+  action: z.string().regex(STEP_UP_ACTION_RE, 'Acción no válida').optional(),
+});
+export type StepUpPasskeyDto = z.infer<typeof StepUpPasskeySchema>;
+
+/** La prueba para repetir una acción (en STEP_UP_TOKEN_HEADER). */
+export interface StepUpProof {
+  token: string;
+  action: string;
+  expiresAt: string;
+}
+
+/** Lo que devuelve verificarse con la llave: el estado y, para una acción, su prueba. */
+export interface StepUpPasskeyResult extends StepUpStatus {
+  proof: StepUpProof | null;
+}

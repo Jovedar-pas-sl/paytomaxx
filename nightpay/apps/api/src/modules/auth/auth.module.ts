@@ -8,8 +8,11 @@ import { LockoutService } from './lockout.service';
 import { LoginTicketService } from './login-ticket.service';
 import { RefreshTokenService } from './refresh-token.service';
 import { StaffSessionTransport } from './staff-session.transport';
+import { StaffPasskeysAdminController, StaffPasskeysController } from './staff-passkeys.controller';
+import { StaffPasskeysService } from './staff-passkeys.service';
 import { StepUpController } from './step-up.controller';
-import { StepUpService } from './step-up.service';
+import { STAFF_PASSKEY_COUNTER, StepUpService } from './step-up.service';
+import { StepUpTokens } from './step-up-tokens';
 import { TotpAttemptsService } from './totp-attempts.service';
 import { TotpEnrollmentService } from './totp-enrollment.service';
 import { TotpController } from './totp.controller';
@@ -42,10 +45,14 @@ import { TelegramService } from '../incidents/telegram.service';
     StaffSessionTransport,
     // La verificación del momento para ver lo delicado de un cobro (detalle del pago).
     StepUpService,
+    // Las llaves de acceso del personal (quien no tiene 2FA) y sus pruebas para actuar.
+    StaffPasskeysService,
+    { provide: STAFF_PASSKEY_COUNTER, useExisting: StaffPasskeysService },
+    StepUpTokens,
     // Aviso al activar la 2FA de un super-admin (Telegram del entorno).
     TelegramService,
   ],
-  controllers: [AuthController, TotpController, StepUpController],
+  controllers: [AuthController, TotpController, StepUpController, StaffPasskeysController, StaffPasskeysAdminController],
   exports: [AuthService, TotpService, RefreshTokenService, AccessRevocationService, StepUpService, JwtModule],
 })
 export class AuthModule {}

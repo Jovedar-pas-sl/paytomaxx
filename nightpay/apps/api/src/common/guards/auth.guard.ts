@@ -71,9 +71,16 @@ export class AuthGuard implements CanActivate {
       venueSlug: result.payload.venueSlug,
       // La verificación del momento (ver lo delicado) va atada a la sesión.
       ...(result.payload.sid ? { sessionId: result.payload.sid } : {}),
+      // La prueba de la llave de acceso para la acción que se repite (sin 2FA).
+      ...stepUpTokenOf(req.headers['x-step-up-token']),
     });
 
     return true;
   }
 }
 
+/** La cabecera X-Step-Up-Token, si tiene la forma de una prueba (43 letras de base64url). */
+function stepUpTokenOf(value: string | string[] | undefined): { stepUpToken?: string } {
+  const first = Array.isArray(value) ? value[0] : value;
+  return typeof first === 'string' && /^[A-Za-z0-9_-]{43}$/.test(first) ? { stepUpToken: first } : {};
+}

@@ -56,7 +56,7 @@ describe('assertManagerTwoFactor', () => {
   it('con código: lo comprueba TotpService (intentos y códigos usados); uno malo no deja seguir', async () => {
     const ok = totp();
     await expect(assertManagerTwoFactor(ok, manager, 12_000, 10_000, '123456', 'Anular')).resolves.toBe(true);
-    expect(ok.assertForUser).toHaveBeenCalledWith('man-1', '123456');
+    expect(ok.assertForUser).toHaveBeenCalledWith('man-1', '123456', undefined);
     await expect(assertManagerTwoFactor(totp({ valid: false }), manager, 12_000, 10_000, '000000', 'Anular')).rejects.toThrow(
       ForbiddenException,
     );

@@ -18,6 +18,7 @@ import { cashPayoutCapCents, cashPayoutRefusal, walletCash } from './wallet-cash
 import { isIssuedCard, lockCard, returnWalletCards, type LockedCard } from './wallet-card-ops';
 import { sameWalletGroup } from './wallet-rules';
 import { assertTwoFactorCode, cashApprovalThreshold, eur } from './wallet-two-factor';
+import { stepUpActions } from '@nightpay/contracts';
 import {
   RECEPTION_PAYOUT_CAP_ACTION,
   capReachedFirstTime,
@@ -227,7 +228,13 @@ async function precheck(deps: ReceptionPayoutDeps, venue: PayoutVenue, actor: Ac
   const n = await needsNow(deps.prisma, venue, actor, input.expectedAmountCents, { has: hasPasskey, confirmed });
   if (n.needs === 'passkey_required') throw passkeyRequired();
   if (n.needs === 'manager_2fa' && !input.totpCode) {
-    await assertTwoFactorCode(deps.totp, actor.userId, undefined, twoFactorWhy(input.expectedAmountCents, n.reasons, n.limitCents, n.nightCapCents));
+    await assertTwoFactorCode(
+      deps.totp,
+      actor.userId,
+      undefined,
+      twoFactorWhy(input.expectedAmountCents, n.reasons, n.limitCents, n.nightCapCents),
+      stepUpActions.receptionCashOut(walletId),
+    );
   }
   const auth: Auth = { passkey: confirmed, hasPasskey };
   return { receipt: null, auth, pinHash };
@@ -275,7 +282,9 @@ async function settle(tx: TransactionalClient, deps: ReceptionPayoutDeps, s: Set
   if (n.reasons.includes('night_cap')) await capIncident(tx, deps, s, amount, night);
   if (n.needs === 'manager_pending') return pending(tx, deps, s, amount, n.reasons, night);
   const twoFactor = n.needs === 'manager_2fa';
-  if (twoFactor) await assertTwoFactorCode(deps.totp, actor.userId, input.totpCode, twoFactorWhy(amount, n.reasons, night.limit, night.cap));
+  if (twoFactor) {
+    await assertTwoFactorCode(deps.totp, actor.userId, input.totpCode, twoFactorWhy(amount, n.reasons, night.limit, night.cap), stepUpActions.receptionCashOut(walletId));
+  }
   return pay(tx, deps, s, w, { amount, twoFactor, cardId: card?.id ?? null });
 }
 

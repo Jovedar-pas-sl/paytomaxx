@@ -20,6 +20,10 @@ export interface RequestContext {
   device?: ClientDevice;
   /** La sesión del personal (el `sid` del token): la verificación del momento va atada a ella. */
   sessionId?: string;
+  /** La prueba de la llave de acceso para la acción de esta petición (cabecera X-Step-Up-Token). */
+  stepUpToken?: string;
+  /** La acción para la que ya se gastó esa prueba en esta petición. */
+  stepUpSpentFor?: string;
 }
 
 const logger = new Logger('RequestContext');
@@ -33,7 +37,7 @@ const logger = new Logger('RequestContext');
  */
 export function bindTenantContext(
   cls: ClsService<{ ctx: RequestContext }>,
-  ctx: Pick<RequestContext, 'tenantId' | 'userId' | 'role' | 'venueSlug' | 'sessionId'>,
+  ctx: Pick<RequestContext, 'tenantId' | 'userId' | 'role' | 'venueSlug' | 'sessionId' | 'stepUpToken'>,
 ): void {
   if (!cls.isActive()) {
     logger.error('Contexto CLS inactivo en una petición con sesión: se rechaza (sin él no habría filtro por local)');

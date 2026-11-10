@@ -253,7 +253,7 @@ describe('anular un cobro con saldo: siempre con 2FA, no hay otro camino', () =>
   it('con su código se anula (y queda en el registro que se pidió)', async () => {
     const { svc, totpMock, auditMock } = makeService();
     await expect(anular(svc, '123456')).resolves.toEqual({ refundedCents: 4500, newBalanceCents: 5500 });
-    expect(totpMock.assertForUser).toHaveBeenCalledWith('u-1', '123456');
+    expect(totpMock.assertForUser).toHaveBeenCalledWith('u-1', '123456', expect.stringMatching(/^reverse:/));
     expect(auditMock.log).toHaveBeenCalledWith(
       expect.objectContaining({ action: 'wallet.consumption.reversed', payload: expect.objectContaining({ twoFactor: true }) }),
     );

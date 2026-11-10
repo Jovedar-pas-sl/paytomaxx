@@ -226,7 +226,8 @@ describe('tope de la noche de cada recepcionista', () => {
     totp.assertForUser.mockClear();
     await expect(scope(solo1, () => charges.payout(manager, b.walletId, { method: 'CASH' }))).rejects.toMatchObject({ response: { code: 'TOTP_REQUIRED' } });
     await expect(scope(solo1, () => charges.payout(manager, b.walletId, { method: 'CASH', totpCode: '123456' }))).resolves.toMatchObject({ refundedCents: 2_000 });
-    expect(totp.assertForUser).toHaveBeenCalledWith(manager.userId, '123456');
+    // Con la acción a la que va atada la 2FA (quien no la tiene, con la prueba de su llave).
+    expect(totp.assertForUser).toHaveBeenCalledWith(manager.userId, '123456', `wallet-payout:${b.walletId}`);
   });
 
   it('el encargado en recepción pasado su tope pone su 2FA (antes del PIN del cliente)', async () => {

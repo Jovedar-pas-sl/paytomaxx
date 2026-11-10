@@ -3,6 +3,7 @@
 import { Button } from '@nightpay/ui';
 import type { User } from '@/lib/api';
 import { TwoFactorCard } from '../TwoFactorCard';
+import { PasskeysCard } from './PasskeysCard';
 import { SettingsCard } from './SettingsBits';
 
 const ROLE_LABELS: Record<User['role'], string> = {
@@ -14,7 +15,7 @@ const ROLE_LABELS: Record<User['role'], string> = {
 
 /**
  * Ajustes → Seguridad: quién está dentro (y «Salir», que en el móvil vive
- * aquí) y la verificación en dos pasos.
+ * aquí), la verificación en dos pasos y la llave de acceso (quien no tiene 2FA).
  */
 export function SecurityPanel({
   user,
@@ -40,6 +41,7 @@ export function SecurityPanel({
         </div>
       </SettingsCard>
       <TwoFactorCard />
+      <PasskeysCard />
     </div>
   );
 }

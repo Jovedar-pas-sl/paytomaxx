@@ -1,7 +1,8 @@
 'use client';
 
-import { createContext, useContext } from 'react';
+import { createContext, useContext, useState } from 'react';
 import { Button, IosInstallSteps, Modal, useInstall } from '@nightpay/ui';
+import { PasskeySheet } from './PasskeySheet';
 
 /**
  * El menú del logo («Salir») para las pantallas que llevan su propia
@@ -15,12 +16,16 @@ export function useStaffMenu(): (() => void) | null {
 }
 
 /**
- * La hoja del menú: instalar como app (si se puede y aún no lo está) y «Salir».
- * Sin tema: el personal va siempre en oscuro (layout).
+ * La hoja del menú: instalar como app (si se puede y aún no lo está), la llave
+ * de acceso (verificarse con el móvil sin 2FA) y «Salir». Sin tema: el
+ * personal va siempre en oscuro (layout).
  */
 export function StaffMenu({ open, onClose, onLogout }: { open: boolean; onClose: () => void; onLogout: () => void }) {
   const { platform, install } = useInstall();
+  const [passkeys, setPasskeys] = useState(false);
   return (
+    <>
+    <PasskeySheet open={passkeys} onClose={() => setPasskeys(false)} />
     <Modal open={open} onClose={onClose} title="Menú">
       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
         {platform === 'prompt' ? (
@@ -33,10 +38,20 @@ export function StaffMenu({ open, onClose, onLogout }: { open: boolean; onClose:
             <b style={{ color: 'var(--np-text)', fontWeight: 600 }}>Instalar en el móvil.</b> <IosInstallSteps />
           </p>
         ) : null}
+        <Button
+          variant="ghost"
+          onClick={() => {
+            onClose();
+            setPasskeys(true);
+          }}
+        >
+          Llave de acceso
+        </Button>
         <Button variant="ghost" onClick={onLogout}>
           Salir
         </Button>
       </div>
     </Modal>
+    </>
   );
 }

@@ -1,9 +1,18 @@
 import { ForbiddenException, Inject, Injectable, Optional } from '@nestjs/common';
 import type { Redis } from 'ioredis';
-import { STEP_UP_REQUIRED_CODE, STEP_UP_TTL_SECONDS, type StepUpMethod, type StepUpStatus } from '@nightpay/contracts';
+import type { PublicKeyCredentialRequestOptionsJSON } from '@simplewebauthn/server';
+import {
+  STEP_UP_REQUIRED_CODE,
+  STEP_UP_TTL_SECONDS,
+  type StepUpMethod,
+  type StepUpPasskeyResult,
+  type StepUpStatus,
+} from '@nightpay/contracts';
 import { REDIS_CLIENT } from '../../common/redis/redis.module';
 import { AuditService } from '../audit/audit.service';
+import { StaffPasskeysService } from './staff-passkeys.service';
 import { stepUpKey } from './step-up-keys';
+import { StepUpTokens } from './step-up-tokens';
 import { TotpService } from './totp.service';
 
 /**
@@ -66,17 +75,23 @@ export class StepUpService {
   private readonly totp: Pick<TotpService, 'assertForUser' | 'isEnabled'>;
   private readonly audit: AuditService | null;
   private readonly passkeys: StaffPasskeyCounter | null;
+  private readonly keys: Pick<StaffPasskeysService, 'authenticationOptions' | 'verify'> | null;
+  private readonly tokens: Pick<StepUpTokens, 'mint'> | null;
 
   constructor(
     @Inject(REDIS_CLIENT) redis: Redis,
     @Inject(TotpService) totp: TotpService,
     @Optional() @Inject(AuditService) audit?: AuditService,
     @Optional() @Inject(STAFF_PASSKEY_COUNTER) passkeys?: StaffPasskeyCounter,
+    @Optional() @Inject(StaffPasskeysService) keys?: StaffPasskeysService,
+    @Optional() @Inject(StepUpTokens) tokens?: StepUpTokens,
   ) {
     this.redis = redis;
     this.totp = totp;
     this.audit = audit ?? null;
     this.passkeys = passkeys ?? null;
+    this.keys = keys ?? null;
+    this.tokens = tokens ?? null;
   }
 
   /** La verificación vigente de esta sesión (null: sin verificar, caducada o sin sesión). */
@@ -117,6 +132,59 @@ export class StepUpService {
     return this.status(actor, nowMs);
   }
 
+  /**
+   * Verificarse con la llave, paso 1: el reto (solo con SUS llaves). Quien
+   * tiene 2FA se verifica con su código (403 TOTP_REQUIRED); sin llaves, 403
+   * PASSKEY_NOT_SET. Con `action`, para esa acción; sin ella, para ver.
+   */
+  async passkeyOptions(actor: StepUpActor, action: string | undefined, origin: string | undefined): Promise<PublicKeyCredentialRequestOptionsJSON> {
+    requireSession(actor);
+    await this.assertPasskeyIsTheirMethod(actor);
+    return this.requireKeys().authenticationOptions(actor, purposeOf(action), origin);
+  }
+
+  /**
+   * Paso 2: su móvil lo firmó. Sin `action`, 5 minutos para ver lo delicado;
+   * con ella, la prueba de un solo uso para repetir esa acción (2 minutos).
+   */
+  async verifyWithPasskey(
+    actor: StepUpActor,
+    response: unknown,
+    action: string | undefined,
+    origin: string | undefined,
+    nowMs: number = Date.now(),
+  ): Promise<StepUpPasskeyResult> {
+    const sessionId = requireSession(actor);
+    await this.assertPasskeyIsTheirMethod(actor);
+    try {
+      await this.requireKeys().verify(actor, purposeOf(action), response, origin);
+    } catch (err) {
+      await this.log(actor, 'auth.step_up.failed', { method: 'passkey', ...(action ? { action } : {}) });
+      throw err;
+    }
+    if (action) {
+      if (!this.tokens) throw new ForbiddenException('No se puede confirmar ahora: vuelve a intentarlo.');
+      const proof = await this.tokens.mint({ userId: actor.userId, sessionId, action }, nowMs);
+      await this.log(actor, 'auth.step_up.ok', { method: 'passkey', action });
+      return { ...(await this.status(actor, nowMs)), proof };
+    }
+    await this.grant(actor.userId, sessionId, 'passkey', nowMs);
+    await this.log(actor, 'auth.step_up.ok', { method: 'passkey' });
+    return { ...(await this.status(actor, nowMs)), proof: null };
+  }
+
+  /** Quien tiene 2FA se verifica con su código, como siempre (la llave es para quien no la tiene). */
+  private async assertPasskeyIsTheirMethod(actor: StepUpActor): Promise<void> {
+    if (await this.totp.isEnabled(actor.userId)) {
+      throw new ForbiddenException({ message: 'Tienes la verificación en dos pasos: usa su código.', code: 'TOTP_REQUIRED' });
+    }
+  }
+
+  private requireKeys(): Pick<StaffPasskeysService, 'authenticationOptions' | 'verify'> {
+    if (!this.keys) throw new ForbiddenException({ message: 'No tienes ninguna llave de acceso.', code: 'PASSKEY_NOT_SET' });
+    return this.keys;
+  }
+
   /** Apunta la verificación de esta sesión (5 minutos desde ahora). */
   async grant(userId: string, sessionId: string, method: StepUpMethod, nowMs: number = Date.now()): Promise<StepUpGrant> {
     const grant: StepUpGrant = { userId, method, until: nowMs + STEP_UP_TTL_SECONDS * 1000 };
@@ -151,6 +219,11 @@ export class StepUpService {
       payload,
     });
   }
+}
+
+/** Para qué es el reto: ver, o una acción concreta. */
+function purposeOf(action: string | undefined): string {
+  return action ? `action:${action}` : 'view';
 }
 
 function requireSession(actor: StepUpActor): string {

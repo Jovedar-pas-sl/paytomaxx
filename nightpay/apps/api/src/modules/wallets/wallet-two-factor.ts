@@ -1,6 +1,14 @@
-import type { Role } from '@nightpay/contracts';
+import { HttpException } from '@nestjs/common';
+import { PASSKEY_REQUIRED_CODE, type Role } from '@nightpay/contracts';
 import { totpForbidden } from '../auth/totp-code';
 import type { TotpService } from '../auth/totp.service';
+
+/**
+ * Lo que se usa de la 2FA. La llave de acceso (passkeyProofFor,
+ * missingSecondFactor) es opcional: sin ella, como antes (solo la 2FA).
+ */
+export type TwoFactorDeps = Pick<TotpService, 'assertForUser' | 'isEnabled'> &
+  Partial<Pick<TotpService, 'passkeyProofFor' | 'missingSecondFactor'>>;
 
 /** El de la base (venues.refundApprovalThresholdCents, @default(10000)), si no llega. */
 const DEFAULT_THRESHOLD_CENTS = 100_00;
@@ -37,31 +45,37 @@ export function managerNeedsTwoFactor(
  * Devuelve si se pidió el código.
  */
 export async function assertManagerTwoFactor(
-  totp: Pick<TotpService, 'assertForUser' | 'isEnabled'>,
+  totp: TwoFactorDeps,
   actor: { userId: string; role: Role },
   amountCents: number,
   thresholdCents: number | null | undefined,
   totpCode: string | undefined,
   what: string,
+  action?: string,
 ): Promise<boolean> {
   if (!managerNeedsTwoFactor(actor.role, amountCents, thresholdCents)) return false;
-  await assertTwoFactorCode(totp, actor.userId, totpCode, `${what}: con más de ${eur(thresholdCents ?? DEFAULT_THRESHOLD_CENTS)}`);
+  await assertTwoFactorCode(totp, actor.userId, totpCode, `${what}: con más de ${eur(thresholdCents ?? DEFAULT_THRESHOLD_CENTS)}`, action);
   return true;
 }
 
 /**
  * El código 2FA de esta persona, haga falta por lo que haga falta (`why`:
  * «Devolver 120,00 € en efectivo: con más de 100,00 €»). Sin código, el 403
- * que pide ponerlo (o activarla); con él, TotpService lo comprueba.
+ * que pide ponerlo (o activarla); con él, TotpService lo comprueba. Con
+ * `action` (stepUpActions), quien no tiene 2FA puede hacerlo con la prueba de
+ * su llave de acceso para esa acción (si tiene llave y no la trae, 403
+ * PASSKEY_REQUIRED con la acción).
  */
 export async function assertTwoFactorCode(
-  totp: Pick<TotpService, 'assertForUser' | 'isEnabled'>,
+  totp: TwoFactorDeps,
   userId: string,
   totpCode: string | undefined,
   why: string,
+  action?: string,
 ): Promise<void> {
   if (!totpCode) {
     if (!(await totp.isEnabled(userId))) {
+      if (await passkeyInstead(totp, userId, action, why)) return;
       throw totpForbidden(
         'notEnrolled',
         `${why} hace falta la app de verificación (2FA) y no la tienes activada. Actívala en Ajustes o que lo haga el dueño.`,
@@ -69,7 +83,25 @@ export async function assertTwoFactorCode(
     }
     throw totpForbidden('required', `${why} pon el código de tu app de verificación (2FA).`);
   }
-  await totp.assertForUser(userId, totpCode);
+  await totp.assertForUser(userId, totpCode, action);
+}
+
+/**
+ * Sin 2FA: la prueba de su llave para esta acción vale (true, y se gasta);
+ * con llave y sin la prueba, 403 PASSKEY_REQUIRED; sin llave (o sin acción),
+ * false: quien llama da su error de siempre.
+ */
+export async function passkeyInstead(totp: TwoFactorDeps, userId: string, action: string | undefined, why: string): Promise<boolean> {
+  if (!action) return false;
+  if (await totp.passkeyProofFor?.(userId, action)) return true;
+  const err = await totp.missingSecondFactor?.(userId, action, `${why} confirma con tu llave de acceso (Face ID o el PIN de tu móvil) y repítelo.`);
+  if (err && codeOf(err) === PASSKEY_REQUIRED_CODE) throw err;
+  return false;
+}
+
+function codeOf(err: HttpException): string | null {
+  const body = err.getResponse();
+  return body && typeof body === 'object' && 'code' in body ? String((body as { code: unknown }).code) : null;
 }
 
 export function eur(cents: number): string {

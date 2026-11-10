@@ -40,13 +40,13 @@ export function currentRelyingParty(host: string | undefined): ReturnType<typeof
 }
 
 /** api.paytomaxx.com → paytomaxx.com (localhost e IPs, tal cual). */
-function siteOf(hostname: string): string {
+export function siteOf(hostname: string): string {
   if (hostname === 'localhost' || hostname.includes(':') || /^[\d.]+$/.test(hostname)) return hostname;
   const labels = hostname.split('.');
   return labels.length > 2 ? labels.slice(-2).join('.') : hostname;
 }
 
-function originOf(url: string | undefined): string | null {
+export function originOf(url: string | undefined): string | null {
   if (!url?.trim()) return null;
   try {
     const withProto = /^https?:\/\//i.test(url) ? url : `https://${url}`;
