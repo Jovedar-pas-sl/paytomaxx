@@ -85,6 +85,62 @@
   background: var(--np-outcome-bg);
 }
 
+/* La ficha y el código en grande (A1, A11): lo que el cliente se lleva, uno
+   al lado del otro, en la tinta del resultado. */
+.ids {
+  display: flex;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 0.25rem 1.75rem;
+  width: 100%;
+  max-width: 26rem;
+}
+
+.idCell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.125rem;
+}
+
+.idKey {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: color-mix(in srgb, var(--np-outcome-ink) 85%, transparent);
+}
+
+.ids .idFicha {
+  font-size: 2rem;
+  color: inherit;
+}
+
+.idCode {
+  font: 600 2rem/1.15 var(--np-font-num);
+}
+
+/* «Mira que es la que tienes en la mano» (para quien carga). */
+.idHint {
+  margin: 0;
+  font-size: 0.9375rem;
+  font-weight: 600;
+}
+
+/* «Haz una foto a tu ficha o a tu código» (para el cliente): con su cámara. */
+.photo {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.9375rem;
+  font-weight: 500;
+}
+
+.photo svg {
+  flex: none;
+  width: 1.25rem;
+  height: 1.25rem;
+}
+
 /* Lo que salió mal (el NFC no se pudo dar…): en su caja oscura. */
 .resWarn {
   margin: 0;

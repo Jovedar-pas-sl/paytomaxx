@@ -4,10 +4,10 @@ import { useState } from 'react';
 import { AmountKeypad, Input } from '@nightpay/ui';
 import { MAX_TYPED_AMOUNT_CENTS } from '@nightpay/contracts';
 import { formatEur } from '@/lib/money';
-import { methodArmed, type MethodButton, type ExitPlan } from '@/lib/reception-desk';
+import { methodArmed, type EntryRow, type MethodButton, type ExitPlan } from '@/lib/reception-desk';
 import { AMOUNT_HELP, METHOD_HELP, RECEPTION_HELP_SCREENS, tapHelp } from '@/lib/reception-help';
 import { HelpAgain, HelpLine, useHelp } from '../../HelpLine';
-import { CodeBoxes, DESK_FIELD, DeskBtn, DeskRowView, Icon, NfcMark } from './desk-parts';
+import { CodeBoxes, DESK_FIELD, DeskBtn, DeskRowView, FichaNumber, Icon, NfcMark } from './desk-parts';
 import s from './desk.module.css';
 
 /** La pregunta de un paso («¿Cuánto carga?») con, si su ayuda está cerrada, el «?» al lado. */
@@ -89,9 +89,12 @@ export function TapStage(props: {
   );
 }
 
-/** 4.2: el NFC leído y los importes rápidos en rejilla de 72 px, con «Otro» de última casilla: tocar uno ya sigue. */
+/**
+ * 4.2: la ficha leída, con su número en grande (A1), y los importes rápidos en
+ * rejilla de 72 px, con «Otro» de última casilla: tocar uno ya sigue.
+ */
 export function AmountStep(props: {
-  row: { title: string; detail: string };
+  row: EntryRow;
   amounts: readonly number[];
   onPick: (cents: number) => void;
   onOther: () => void;
@@ -100,7 +103,9 @@ export function AmountStep(props: {
 }) {
   return (
     <>
-      <DeskRowView title={props.row.title} detail={props.row.detail} />
+      <DeskRowView title={props.row.title} detail={props.row.detail} ficha={props.row.ficha}>
+        {props.row.hint ? <span className={s.rowHint}>{props.row.hint}</span> : null}
+      </DeskRowView>
       <StepQuestion text="¿Cuánto carga?" screen={RECEPTION_HELP_SCREENS.amount} help={AMOUNT_HELP} />
       <div className={s.quick}>
         {props.amounts.map((c) => (
@@ -138,10 +143,15 @@ const METHOD_TEXT = {
   card: { icon: 'card', label: 'Tarjeta', small: 'Paga con el QR en su móvil' },
 } as const;
 
-/** 4.3: el importe, «¿Cómo paga?» en dos filas iguales (la de por defecto, primera y en lima), y la nota del PIN. */
+/**
+ * 4.3: el importe y la ficha en grande (A1), «¿Cómo paga?» en dos filas
+ * iguales (la de por defecto, primera y en lima), y la nota del PIN.
+ */
 export function MethodStep(props: {
   chip: string;
   amountCents: number;
+  /** El número impreso de la ficha, en grande debajo del importe (null: sin ficha o sin número). */
+  ficha?: string | null;
   /** Con la «Comisión del servicio»: «Cobra 56 € (50 € de saldo + 6 € de comisión del servicio)». */
   feeText?: string | null;
   buttons: MethodButton[];
@@ -159,13 +169,21 @@ export function MethodStep(props: {
   return (
     <>
       {/* s.methodTop: las opciones empiezan por debajo de donde estaban los importes. */}
-      <div className={s.methodTop}>
+      <div className={s.methodTop} data-ficha={props.ficha ? 'true' : undefined}>
         <div className={s.bigamt}>
           <span className="np-chip" data-dashed="true">
             {props.chip}
           </span>
           <p className={s.bignum}>{formatEur(props.amountCents, { compact: true })}</p>
           {props.feeText ? <p className={s.lbl}>{props.feeText}</p> : null}
+          {props.ficha ? (
+            <>
+              <span className={s.kick} aria-hidden="true">
+                Ficha
+              </span>
+              <FichaNumber printed={props.ficha} className={s.cobroFicha} />
+            </>
+          ) : null}
         </div>
         <StepQuestion text="¿Cómo paga?" screen={RECEPTION_HELP_SCREENS.method} help={METHOD_HELP} />
       </div>

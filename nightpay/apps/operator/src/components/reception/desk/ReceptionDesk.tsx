@@ -32,9 +32,10 @@ import {
   deskRechargeWhat,
   deskRow,
   deskTarget,
+  entryRow,
+  FICHA_IN_HAND,
   fetchFichaByNumber,
   fetchReceptionDesk,
-  fichaText,
   handOverLine,
   loadedMoneyLine,
   methodButtons,
@@ -42,11 +43,11 @@ import {
   noReaderStage,
   numberEntryProblem,
   numberMethodButtons,
-  numberRow,
   pinAfterLoad,
   pinAfterLoadText,
   pinNote,
   quickAmounts,
+  readFicha,
   rechargeChip,
   rechargeProblem,
   refundDoneLine,
@@ -55,6 +56,7 @@ import {
   type ReceptionDeskSaldo,
   type ReceptionDeskView,
 } from '@/lib/reception-desk';
+import { photoHint } from '@/lib/ficha-number';
 import { handOverOf, loadedHelp } from '@/lib/reception-help';
 import { receptionChip, useMySections } from '@/lib/sections';
 import { useVenueNight } from '@/lib/venue-methods';
@@ -724,7 +726,16 @@ export function ReceptionDesk({ user, active, footer }: Props) {
     const pinText = pin === 'ask' || pin === 'manager' ? pinAfterLoadText(pin, noPinLimitCents(night)) : null;
     const askPin = { label: 'Que elija su PIN', onClick: () => go({ kind: 'pin', done }) };
     const next = { label: 'Siguiente cliente', onClick: () => restart('entrada') };
-    const meta = done.read.number ? `Devuélvele su ficha · ${fichaText(done.read.number.printedNumber)}` : handOverLine(done.read.view, done.linked);
+    const meta = done.read.number ? 'Devuélvele su ficha' : handOverLine(done.read.view, done.linked);
+    // La ficha (si se le dio o es la suya) y el código, en grande; por número, el código va tapado arriba (A1, A11).
+    const ficha = done.linked || view?.kind === 'saldo' || done.read.number ? readFicha(done.read) : null;
+    const code = done.read.number ? null : (done.wallet?.code ?? null);
+    const ids = {
+      ficha,
+      code,
+      hint: ficha && (done.read.nfc || done.read.number) ? FICHA_IN_HAND : null,
+      photo: photoHint({ ficha: ficha !== null, code: code !== null }),
+    };
     // Qué hacer ahora, en orden: el efectivo a la caja, la ficha y, si pasa del tope, su PIN.
     const help = loadedHelp({ method: done.method, handOver: handOverOf({ view, linked: done.linked, byNumber: Boolean(done.read.number) }), pin });
     // Pagó en efectivo aquí: su enlace privado no le llega; con este QR activa Face ID en su móvil.
@@ -737,9 +748,10 @@ export function ReceptionDesk({ user, active, footer }: Props) {
       <DeskLoaded
         word="CARGADO"
         amountCents={done.amountCents}
-        reference={done.reference ?? done.wallet?.code ?? null}
+        reference={done.read.number ? (done.reference ?? null) : null}
         money={{ icon: done.method, ...money }}
         meta={meta}
+        ids={ids}
         warn={done.warn}
         note={pinText}
         quiet={done.seen}
@@ -757,8 +769,9 @@ export function ReceptionDesk({ user, active, footer }: Props) {
     const hasPin = read.number ? true : read.view?.kind === 'saldo' && read.view.hasPin;
     return (
       <MethodStep
-        chip={read.number ? `Recarga · ${fichaText(read.number.printedNumber)}` : rechargeChip(read.view)}
+        chip={read.number ? 'Recarga' : rechargeChip(read.view)}
         amountCents={amountCents}
+        ficha={readFicha(read)}
         feeText={topUpCharge(options, amountCents).feeCents > 0 ? topUpCharge(options, amountCents).text : null}
         loading={options === null}
         blocked={null}
@@ -808,10 +821,9 @@ function PhoneOption({ walletId, read }: { walletId: string; read: Read['nfc'] }
   return <DeskBtn kind="gho" label="Prefiere pagar con el móvil" onClick={() => setOpen(true)} />;
 }
 
-/** La fila de 4.2: su NFC, su código o la ficha buscada por su número (tapada). */
-function readRow(read: Read): { title: string; detail: string } {
-  if (read.number) return numberRow(read.number);
-  return read.view ? deskRow(read.view, 'entrada') : { title: 'Saldo nuevo', detail: 'Sin NFC: se queda con su código' };
+/** La fila de 4.2: su ficha (con su número en grande), su código o la ficha buscada por su número (tapada). */
+function readRow(read: Read) {
+  return entryRow(read);
 }
 
 /** Volver un paso (la cabecera): del importe al NFC, del teclado y de cómo paga al importe; de la salida, a lo que le queda. */

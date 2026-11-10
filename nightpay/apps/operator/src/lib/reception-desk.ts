@@ -94,10 +94,61 @@ export function deskRow(view: ReceptionDeskView, mode: 'entrada' | 'salida'): De
   return { title, detail: [left, saldo].filter(Boolean).join(' · ') };
 }
 
-/** El chip de 4.3: «Recarga · ficha nº 0522» (o «Recarga · K7Q-4M2» sin NFC, «Recarga · saldo nuevo»). */
+/** Debajo de la ficha leída en grande (A1): que mire el número de la que tiene en la mano. */
+export const FICHA_IN_HAND = 'Mira que es la que tienes en la mano';
+
+/** La fila de «¿Cuánto carga?» (4.2) con el número de la ficha en grande (A1). */
+export interface EntryRow extends DeskRow {
+  /** El número impreso, en grande (null: sin ficha o sin número impreso). */
+  ficha: string | null;
+  /** Lo que hay que mirar al ver el número («Mira que es la que tienes en la mano»). */
+  hint: string | null;
+}
+
+/**
+ * 4.2: la ficha leída con su número en grande («Ficha nueva», 0000 1013, «Sin
+ * saldo»), la de un saldo (lo que le queda y su código), la buscada por su
+ * número (el código, tapado) o el saldo sin ficha. «Mira que es la que tienes
+ * en la mano», solo si se ha acercado (por el código no la tienen delante).
+ */
+export function entryRow(read: { view: ReceptionDeskView | null; nfc: unknown; number?: NumberSaldo }): EntryRow {
+  if (read.number) {
+    return { title: 'Ficha', ficha: read.number.printedNumber, detail: `${leftText(read.number.balanceCents)} · ${read.number.codeHint}`, hint: null };
+  }
+  const view = read.view;
+  if (!view) return { title: 'Saldo nuevo', detail: 'Sin ficha: se queda con su código', ficha: null, hint: null };
+  const printed = view.printedNumber ?? null;
+  const hint = printed && read.nfc ? FICHA_IN_HAND : null;
+  if (view.kind === 'new') {
+    return printed
+      ? { title: 'Ficha nueva', ficha: printed, detail: 'Sin saldo', hint }
+      : { title: 'Ficha nueva', detail: 'Sin número impreso · sin saldo', ficha: null, hint: null };
+  }
+  const left = leftText(view.balanceCents);
+  if (view.fichaNumber === null) return { title: `Saldo ${view.code}`, detail: `${left} · sin ficha`, ficha: null, hint: null };
+  if (!printed) return { title: 'Ficha sin número impreso', detail: `${left} · ${view.code}`, ficha: null, hint: null };
+  return { title: 'Ficha', ficha: printed, detail: `${left} · ${view.code}`, hint };
+}
+
+function leftText(balanceCents: number): string {
+  return balanceCents > 0 ? `Le quedan ${formatEur(balanceCents, { compact: true })}` : 'Sin saldo';
+}
+
+/** El número impreso de lo leído, para enseñarlo en grande (null: sin ficha o sin número impreso). */
+export function readFicha(read: { view: ReceptionDeskView | null; number?: NumberSaldo }): string | null {
+  if (read.number) return read.number.printedNumber;
+  if (!read.view || (read.view.kind === 'saldo' && read.view.fichaNumber === null)) return null;
+  return read.view.printedNumber ?? null;
+}
+
+/**
+ * El chip de 4.3: «Recarga», y la ficha va en grande debajo del importe (A1);
+ * sin número impreso, «Recarga · ficha sin número impreso»; sin ficha,
+ * «Recarga · K7Q-4M2» o «Recarga · saldo nuevo».
+ */
 export function rechargeChip(view: ReceptionDeskView | null): string {
   if (!view) return 'Recarga · saldo nuevo';
-  if (view.fichaNumber !== null) return `Recarga · ${fichaText(view.printedNumber)}`;
+  if (view.fichaNumber !== null) return view.printedNumber ? 'Recarga' : `Recarga · ${fichaText(null)}`;
   return view.kind === 'saldo' ? `Recarga · ${view.code}` : 'Recarga · saldo nuevo';
 }
 
@@ -372,11 +423,15 @@ export function loadedMoneyLine(method: PayMethod, amountCents: number, feeCents
     : { label: 'Tarjeta:', amount, tail: `en su móvil${withFee}` };
 }
 
-/** 4.4: qué hace con el NFC («Dale el NFC · ficha nº 0522»). */
+/**
+ * 4.4: qué hace con la ficha («Dale la ficha»). Su número y el código ya van
+ * en grande encima (A1, A11); sin número impreso, se dice aquí.
+ */
 export function handOverLine(view: ReceptionDeskView | null, linked: boolean): string {
-  if (view?.kind === 'saldo') return view.fichaNumber === null ? `Saldo ${view.code}` : `Devuélvele su NFC · ${fichaText(view.printedNumber)}`;
-  if (view && linked) return `Dale el NFC · ${fichaText(view.printedNumber)}`;
-  return 'Sin NFC: que apunte su código';
+  const which = (printed?: string | null) => (printed ? '' : ` · ${fichaText(null)}`);
+  if (view?.kind === 'saldo') return view.fichaNumber === null ? 'Saldo sin ficha' : `Devuélvele su ficha${which(view.printedNumber)}`;
+  if (view && linked) return `Dale la ficha${which(view.printedNumber)}`;
+  return 'Sin ficha: que apunte su código';
 }
 
 // ─── Salida (4.5) ─────────────────────────────────────────────────────────

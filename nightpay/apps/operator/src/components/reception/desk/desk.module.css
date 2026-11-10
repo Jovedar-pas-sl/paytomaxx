@@ -291,6 +291,41 @@ button.det {
   color: var(--np-text-mute);
 }
 
+/* El número impreso de la ficha en grande (A1): «0000 1013», cifras de
+   Manrope del mismo ancho; la parte que importa a 600 y en t1, los ceros de
+   delante a 400 y apagados (Grafito: nada por encima de 600). En la fila, a
+   30 px entre el título y el detalle. */
+.fichaNum {
+  display: block;
+  font: 600 1.875rem/1.15 var(--np-font-num);
+  font-variant-numeric: tabular-nums;
+  color: var(--np-text);
+}
+
+.fichaNum b {
+  font-weight: 600;
+}
+
+.fichaWeak {
+  font-weight: 400;
+  opacity: 0.45;
+}
+
+.grow > .fichaNum {
+  font-size: 1.875rem;
+  color: var(--np-text);
+}
+
+/* Debajo de la ficha, lo que hay que mirar o decir («Mira que es la que
+   tienes en la mano»): en t1 y 14/600, que se lea de un vistazo. */
+.grow > .rowHint {
+  display: block;
+  margin-top: 0.25rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--np-text);
+}
+
 /* Leído: la marca en verde de estado, sin círculo. */
 .okc {
   flex: none;
@@ -392,6 +427,18 @@ button.det {
   flex-direction: column;
   gap: 0.75rem;
   min-height: 15.5rem;
+}
+
+/* Con la ficha en grande debajo del importe (A1), «Efectivo» baja lo mismo
+   que bajan los importes de «¿Cuánto carga?» con su número (S-1a). */
+.methodTop[data-ficha='true'] {
+  min-height: 19rem;
+}
+
+/* «¿Cómo paga?»: la ficha debajo del importe, centrada y algo más grande. */
+.cobroFicha {
+  font-size: 2.25rem;
+  text-align: center;
 }
 
 .opt {

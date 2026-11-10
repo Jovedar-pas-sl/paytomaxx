@@ -6,7 +6,7 @@ import { playOutcomeSound } from '@/lib/alert-sound';
 import { formatEur } from '@/lib/money';
 import { RECEPTION_HELP_SCREENS } from '@/lib/reception-help';
 import { HelpAgain, HelpLine, useHelp } from '../../HelpLine';
-import { Icon } from './desk-parts';
+import { FichaNumber, Icon } from './desk-parts';
 import s from './loaded.module.css';
 
 interface Action {
@@ -36,6 +36,20 @@ interface Props {
   extra?: ReactNode;
   /** CARGADO: qué hacer ahora, en orden (la línea de ayuda, que se cierra; su «?» va arriba). */
   help?: string | null;
+  /** CARGADO (A1, A11): la ficha y el código en grande, qué mirar y qué fotografiar. */
+  ids?: LoadedIds | null;
+}
+
+/** La ficha y el código del saldo, en grande en CARGADO. */
+export interface LoadedIds {
+  /** El número impreso de la ficha (null: sin ficha o sin número impreso). */
+  ficha: string | null;
+  /** El código del saldo (K7Q-4M2; por número, tapado: entonces no se enseña). */
+  code: string | null;
+  /** «Mira que es la que tienes en la mano». */
+  hint: string | null;
+  /** «Haz una foto a tu ficha o a tu código» (para el cliente). */
+  photo: string | null;
 }
 
 /**
@@ -45,7 +59,7 @@ interface Props {
  * pantalla del resultado de @nightpay/ui (.np-outcome) sin su franja de la
  * hora (la ve solo quien cobra) ni tira de color arriba (Grafito: plano).
  */
-export function DeskLoaded({ word, amountCents, reference, money, meta, warn, note = null, primary, secondary, quiet = false, extra, help = null }: Props) {
+export function DeskLoaded({ word, amountCents, reference, money, meta, warn, note = null, primary, secondary, quiet = false, extra, help = null, ids = null }: Props) {
   const titleId = useId();
   const helpState = useHelp(RECEPTION_HELP_SCREENS.loaded);
   const primaryRef = useRef<HTMLButtonElement>(null);
@@ -88,6 +102,7 @@ export function DeskLoaded({ word, amountCents, reference, money, meta, warn, no
           </p>
         ) : null}
         <p className={s.resMeta}>{meta}</p>
+        {ids ? <LoadedIdsView ids={ids} /> : null}
         {help ? (
           <HelpLine help={helpState} className={s.resHelp}>
             {help}
@@ -122,5 +137,36 @@ export function DeskLoaded({ word, amountCents, reference, money, meta, warn, no
         {announce}
       </p>
     </section>
+  );
+}
+
+/** La ficha y el código en grande, uno al lado del otro; debajo, qué mirar y la foto. */
+function LoadedIdsView({ ids }: { ids: LoadedIds }) {
+  return (
+    <>
+      {ids.ficha || ids.code ? (
+        <div className={s.ids}>
+          {ids.ficha ? (
+            <div className={s.idCell}>
+              <span className={s.idKey}>Ficha</span>
+              <FichaNumber printed={ids.ficha} className={s.idFicha} />
+            </div>
+          ) : null}
+          {ids.code ? (
+            <div className={s.idCell}>
+              <span className={s.idKey}>Código</span>
+              <span className={s.idCode}>{ids.code}</span>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+      {ids.hint ? <p className={s.idHint}>{ids.hint}</p> : null}
+      {ids.photo ? (
+        <p className={s.photo}>
+          <Icon name="camera" />
+          <span>{ids.photo}</span>
+        </p>
+      ) : null}
+    </>
   );
 }

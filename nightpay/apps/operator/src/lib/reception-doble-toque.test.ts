@@ -35,7 +35,10 @@ describe('«¿Cómo paga?» y el doble toque', () => {
     const css = read('../components/reception/desk/desk.module.css');
     const top = css.slice(css.indexOf('.methodTop {'), css.indexOf('}', css.indexOf('.methodTop {')));
     expect(top).toContain('min-height: 15.5rem');
+    // Con la ficha en grande (A1), los importes de antes bajan y «Efectivo» baja con ellos.
+    const withFicha = css.slice(css.indexOf(".methodTop[data-ficha='true'] {"), css.indexOf('}', css.indexOf(".methodTop[data-ficha='true'] {")));
+    expect(withFicha).toContain('min-height: 19rem');
     const steps = read('../components/reception/desk/DeskSteps.tsx');
-    expect(steps).toMatch(/<div className=\{s\.methodTop\}>\s*<div className=\{s\.bigamt\}>[\s\S]*?<StepQuestion text="¿Cómo paga\?"/);
+    expect(steps).toMatch(/<div className=\{s\.methodTop\} data-ficha=\{props\.ficha \? 'true' : undefined\}>\s*<div className=\{s\.bigamt\}>[\s\S]*?<StepQuestion text="¿Cómo paga\?"/);
   });
 });
