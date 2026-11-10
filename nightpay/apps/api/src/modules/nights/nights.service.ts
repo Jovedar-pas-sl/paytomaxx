@@ -1,3 +1,4 @@
+import { stepUpActions } from '@nightpay/contracts';
 import {
   BadRequestException,
   ConflictException,
@@ -194,7 +195,7 @@ export class NightsService {
   private readonly reports: ReportsService;
   private readonly audit: AuditService;
   private readonly checks: CloseCheckService;
-  private readonly totp: Pick<TotpService, 'assertForUser' | 'isEnabled'> | null;
+  private readonly totp: (Pick<TotpService, 'assertForUser' | 'isEnabled'> & Partial<Pick<TotpService, 'passkeyProofFor'>>) | null;
   private readonly moneyMap: Pick<MoneyMapService, 'compute'> | null;
 
   constructor(
@@ -290,7 +291,7 @@ export class NightsService {
     const input = {
       openingFloatCents: opts.openingFloatCents,
       countedCents: opts.cashCountedCents,
-      floatChangeApproved: await this.floatChangeApproved(actor, night.openingFloatCents, opts),
+      floatChangeApproved: await this.floatChangeApproved(actor, night.openingFloatCents, opts, stepUpActions.nightFloat(night.id)),
     };
     assertCanClose(withCashInput(check.steps, check.cash, input), opts.acknowledged ?? [], opts.note);
 
@@ -604,15 +605,21 @@ export class NightsService {
     actor: { userId: string; role: string },
     recordedFloatCents: number | null,
     opts: CloseNightOptions,
+    action: string,
   ): Promise<boolean> {
     const typed = opts.openingFloatCents;
     if (typed === undefined || recordedFloatCents === null || typed === recordedFloatCents) return false;
-    if (actor.role !== 'OWNER' || !opts.totpCode) return false;
+    if (actor.role !== 'OWNER') return false;
+    if (!opts.totpCode) {
+      // Sin 2FA: la prueba de su llave de acceso para este cambio de fondo.
+      if (!this.totp?.passkeyProofFor || (await this.totp.isEnabled(actor.userId))) return false;
+      return this.totp.passkeyProofFor(actor.userId, action);
+    }
     if (!this.totp) throw new ForbiddenException('No se puede comprobar el 2FA: cambia el fondo más tarde');
     if (!(await this.totp.isEnabled(actor.userId))) {
       throw totpForbidden('notEnrolled', 'Cambiar el fondo apuntado al abrir: activa antes la app de verificación (2FA).');
     }
-    await this.totp.assertForUser(actor.userId, opts.totpCode);
+    await this.totp.assertForUser(actor.userId, opts.totpCode, action);
     return true;
   }
 

@@ -23,6 +23,7 @@ import {
   type PaymentEvent,
   type PaymentMachineState,
 } from './payment.machine';
+import { insertPaymentEvent, recordPaymentDevice, WALLET_CREDITED_EVENT } from './payment-device';
 import {
   chargeBreakdownText,
   chargeRightsOf,
@@ -937,6 +938,9 @@ export class PaymentsService implements OnApplicationBootstrap {
           traceId: this.cls.get('ctx')?.traceId ?? randomUUID(),
         },
       });
+      // Detalle del pago: con qué móvil se creó (el del personal; el del
+      // cliente en una recarga desde /w o desde casa; el datáfono).
+      await recordPaymentDevice(tx, this.cls.get('ctx'), { id: p.id, tenantId }, 'create', saldo ? { walletChargeId: saldo.id } : {});
       return p;
     });
   }
@@ -1903,6 +1907,14 @@ export class PaymentsService implements OnApplicationBootstrap {
     this.logger.log(
       `Payment ${paymentId} AUTHORIZED → wallet ${w.id} credited +${p.amountCents}c (new balance: ${w.balanceCents + p.amountCents})`,
     );
+    // Detalle del pago: el saldo antes y después de esta recarga (el que ve el cliente).
+    await insertPaymentEvent(tx, {
+      paymentId,
+      tenantId: p.tenantId,
+      eventType: WALLET_CREDITED_EVENT,
+      payload: { walletId: w.id, amountCents: p.amountCents, balanceBeforeCents: w.balanceCents, balanceAfterCents: w.balanceCents + p.amountCents },
+      traceId: this.cls.get('ctx')?.traceId,
+    });
     if (shortCode !== w.shortCode) {
       this.logger.warn(`Wallet ${w.id} reactivada con código nuevo (el anterior lo usaba otro saldo activo)`);
     }
@@ -1973,11 +1985,12 @@ export class PaymentsService implements OnApplicationBootstrap {
       // H2: pasamos expectedTenantId — transition() valida que payment.tenantId
       // coincide con el del actor, defensa cross-tenant aunque la query previa
       // ya filtra por CLS middleware.
-      await this.transition(
-        paymentId,
-        { type: 'CANCELED', reason: 'user-canceled' },
-        actor.tenantId,
-      );
+      // Quién lo canceló (en el evento) y con qué móvil, en la misma transacción.
+      await this.transition(paymentId, { type: 'CANCELED', reason: 'user-canceled', byUserId: actor.userId }, actor.tenantId, {
+        prepare: async (tx, locked) => {
+          await recordPaymentDevice(tx, this.cls.get('ctx'), { id: locked.id, tenantId: locked.tenantId }, 'cancel');
+        },
+      });
     } catch (err) {
       if (err instanceof InvalidTransitionError) {
         throw new ConflictException(
@@ -2118,6 +2131,8 @@ export class PaymentsService implements OnApplicationBootstrap {
         traceId: this.cls.get('ctx')?.traceId ?? randomUUID(),
       },
     });
+    // Detalle del pago: el móvil de quien lo confirmó con el ticket del datáfono.
+    await recordPaymentDevice(tx, this.cls.get('ctx'), { id: locked.id, tenantId: locked.tenantId }, 'pos');
     return noTip;
   }
 
@@ -2347,6 +2362,9 @@ export class PaymentsService implements OnApplicationBootstrap {
         claimHash: choice?.claimHash ?? null,
       },
     });
+    // Detalle del pago: el móvil del cliente que va a pagar con este intento.
+    const ctx = this.cls.get('ctx');
+    await recordPaymentDevice(tx, { ...ctx, device: choice?.device ?? ctx?.device }, payment, 'card', { who: 'client', attemptId });
   }
 
   /**

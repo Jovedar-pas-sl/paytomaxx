@@ -1,3 +1,4 @@
+import { stepUpActions } from '@nightpay/contracts';
 import { ConflictException, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import type { ApprovalView } from '@nightpay/contracts';
 import { PrismaService, type TransactionalClient } from '../../common/prisma/prisma.service';
@@ -73,12 +74,13 @@ export class ApprovalsService {
     this.audit = audit;
   }
 
-  async approve(actor: ApprovalActor, id: string, totpCode: string): Promise<ApprovalView> {
+  async approve(actor: ApprovalActor, id: string, totpCode: string | undefined): Promise<ApprovalView> {
     const now = new Date();
     const row = await this.requests.decidable(actor, id, now, 'APPROVED');
     // Ya aprobada (doble toque, otra pestaña): cómo quedó, sin volver a hacer nada.
     if (row.status === 'APPROVED') return this.requests.view(actor, row);
-    await this.totp.assertForUser(actor.userId, totpCode);
+    // Con su 2FA o, sin ella, con la prueba de su llave para esta solicitud.
+    await this.totp.assertForUser(actor.userId, totpCode, stepUpActions.approve(id));
     try {
       if (row.kind === 'PAYOUT') await this.executePayout(actor, row, now);
       else await this.executeRefund(actor, row, now);

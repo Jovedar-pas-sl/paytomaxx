@@ -62,7 +62,7 @@ describe('AuthGuard', () => {
     await expect(guard.canActivate(ctx({ authorization: 'Bearer t' }))).rejects.toThrow(InternalServerErrorException);
   });
 
-  it('con contexto: pone el local y conserva el traceId del middleware', async () => {
+  it('con contexto: pone el local, la sesión (la verificación del momento va atada a ella) y conserva el traceId del middleware', async () => {
     const { guard, cls } = makeGuard();
     await cls.run(async () => {
       cls.set('ctx', { traceId: 'trace-1' });
@@ -73,6 +73,7 @@ describe('AuthGuard', () => {
         userId: PAYLOAD.sub,
         role: 'MANAGER',
         venueSlug: 'luna',
+        sessionId: PAYLOAD.sid,
       });
     });
   });

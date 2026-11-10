@@ -6,6 +6,7 @@ import { randomUUID } from 'node:crypto';
 import type { FastifyRequest } from 'fastify';
 import { configModuleOptions } from './config/env';
 import { sanitizeTraceId } from './common/context/trace-id';
+import { requestDevice } from './common/http/client-device';
 import { AuthGuard } from './common/guards/auth.guard';
 import { IpRateLimitGuard } from './common/guards/ip-rate-limit.guard';
 import { EmailModule } from './common/email/email.module';
@@ -59,7 +60,10 @@ import { HomeTopUpModule } from './modules/home-topup/home-topup.module';
           // X-Trace-Id del cliente solo si es corto y limpio (se guarda en
           // audit_events y se devuelve en los errores); si no, uno nuevo.
           const traceId = sanitizeTraceId(req?.headers?.['x-trace-id']) ?? cls.getId();
-          cls.set('ctx', { traceId });
+          // El dispositivo y la IP real (la misma que los límites de peticiones):
+          // van con el cobro en los eventos `payment.device` (detalle del pago).
+          const device = req?.headers ? requestDevice(req) : undefined;
+          cls.set('ctx', { traceId, ...(device ? { device } : {}) });
           // Sus transacciones, de una en una: una petición no ocupa varias
           // conexiones del pool a la vez (PrismaService, RequestTxGate).
           startRequestTxGate(cls);

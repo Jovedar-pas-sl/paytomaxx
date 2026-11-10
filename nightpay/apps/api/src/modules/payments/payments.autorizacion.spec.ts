@@ -301,7 +301,13 @@ describe('cancel — errores', () => {
     const { service, transition } = makeService({ payment: { status: 'AUTHORIZED' } });
     transition.mockRejectedValueOnce(new InvalidTransitionError('AUTHORIZED', 'CANCELED'));
     await expect(service.cancel(PAYMENT_ID, owner)).rejects.toThrow(/AUTHORIZED/);
-    expect(transition).toHaveBeenCalledWith(PAYMENT_ID, { type: 'CANCELED', reason: 'user-canceled' }, TENANT);
+    // Con quién lo canceló (detalle del pago) y su dispositivo en la misma transacción (prepare).
+    expect(transition).toHaveBeenCalledWith(
+      PAYMENT_ID,
+      { type: 'CANCELED', reason: 'user-canceled', byUserId: owner.userId },
+      TENANT,
+      expect.objectContaining({ prepare: expect.any(Function) }),
+    );
   });
 
   it('otro error (cobro de otro local, base caída) → sale tal cual', async () => {

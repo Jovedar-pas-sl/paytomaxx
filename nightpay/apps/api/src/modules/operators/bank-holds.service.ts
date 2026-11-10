@@ -1,3 +1,4 @@
+import { stepUpActions } from '@nightpay/contracts';
 import { randomUUID } from 'node:crypto';
 import { ConflictException, ForbiddenException, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { ClsService } from 'nestjs-cls';
@@ -184,7 +185,7 @@ export class BankHoldsService {
       });
     }
     // Liberar es dar por bueno dinero sin prueba del banco: 2FA siempre.
-    await this.totp.assertForUser(actor.userId, dto.totpCode);
+    await this.totp.assertForUser(actor.userId, dto.totpCode, stepUpActions.bankHoldRelease(paymentId));
     const note = dto.note?.trim() || null;
     const released = await this.prisma.asSystem(async (tx) => {
       // De una en una por cobro: la segunda ve la primera.

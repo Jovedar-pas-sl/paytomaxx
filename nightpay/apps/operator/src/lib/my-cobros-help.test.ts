@@ -91,6 +91,8 @@ describe('la línea de arriba', () => {
     expect(MY_COBROS_HELP_SCREEN).toBe('cobros');
     expect(myCobrosHelpLine(CHICA)).toContain('toca «Cancelar»');
     expect(myCobrosHelpLine(STAFF)).toContain('avisa al encargado o al dueño');
+    // Tocar un cobro abre su detalle (CobroDetailSheet).
+    for (const viewer of [CHICA, STAFF]) expect(myCobrosHelpLine(viewer)).toContain('toca uno para ver su detalle');
   });
 
   it('todo en español llano: sin mayúsculas, emojis ni exclamaciones', () => {

@@ -164,6 +164,9 @@ const EnvSchema = z.object({
   // Face ID. Se leen también de process.env; aquí quedan documentadas y, si
   // están mal escritas, se avisa al arrancar (no se tumba el arranque).
   NEXT_PUBLIC_OPERATOR_URL: z.string().optional(),
+  // El panel (enlace de «Compartir» del detalle de un cobro). Sin ella, la del
+  // API con «admin.» en vez de «api.» (money-map/admin-panel-url.ts).
+  ADMIN_BASE_URL: z.string().url().optional(),
   NEXT_PUBLIC_WEB_CLIENT_URL: z.string().optional(),
   PASSKEY_RP_ID: z.string().optional(),
   // Google Wallet: el cliente guarda su saldo en Google Wallet (Android) y el

@@ -1,3 +1,4 @@
+import { PASSKEY_REQUIRED_CODE, stepUpActions } from '@nightpay/contracts';
 import {
   BadGatewayException,
   BadRequestException,
@@ -11,6 +12,7 @@ import {
 import { randomUUID } from 'node:crypto';
 import { ClsService } from 'nestjs-cls';
 import { PrismaService } from '../../common/prisma/prisma.service';
+import { mayReadCobro, seesWholeVenue } from '../payments/payment-read-access';
 import { GatewayRegistry } from '../gateways/gateway.registry';
 import type { GatewayAdapter } from '../gateways/gateway.adapter';
 import { PaymentsService } from '../payments/payments.service';
@@ -245,9 +247,6 @@ export class RefundsService {
     const totals = await refundTotalsOf(tx, actor, request.paymentId);
     const reason = twoFactorReason(request.amountCents, totals);
     if (!reason) return false;
-    if (!request.totpCode) {
-      throw totpForbidden('required', `Hace falta el código 2FA: ${reason} devueltos (desde 100 € se pide).`);
-    }
     // Su propia ficha, sin el filtro de local: un super-admin que está mirando
     // otro local no aparece en ese local (antes daba «no la tienes activada»).
     const user = await this.prisma.acrossVenues((across) =>
@@ -256,6 +255,19 @@ export class RefundsService {
         select: { totpSecret: true, email: true },
       }),
     );
+    if (!user?.totpSecret) {
+      // Sin 2FA: la prueba de su llave de acceso para ESTA devolución (de un solo uso).
+      const action = stepUpActions.refund(request.paymentId, request.amountCents);
+      if (await this.totp.passkeyProofFor?.(actor.userId, action)) {
+        this.logger.log(`Devolución confirmada con la llave de acceso (${reason}): user=${actor.userId}`);
+        return true;
+      }
+      const passkey = await this.totp.missingSecondFactor?.(actor.userId, action, `Hace falta confirmarlo: ${reason} devueltos (desde 100 € se pide). Confirma con tu llave de acceso (Face ID o el PIN de tu móvil).`);
+      if (passkey && (passkey.getResponse() as { code?: unknown }).code === PASSKEY_REQUIRED_CODE) throw passkey;
+    }
+    if (!request.totpCode) {
+      throw totpForbidden('required', `Hace falta el código 2FA: ${reason} devueltos (desde 100 € se pide).`);
+    }
     if (!user?.totpSecret) throw totpForbidden('notEnrolled', REFUND_TOTP_NOT_ENROLLED);
     try {
       await this.totp.checkStoredForUser(actor.userId, user.totpSecret, request.totpCode);
@@ -764,7 +776,16 @@ export class RefundsService {
     }
   }
 
-  async listForPayment(paymentId: string) {
+  /**
+   * Las devoluciones de un cobro. Con `reader` (el personal): el dueño y el
+   * encargado, las de cualquiera; el resto, solo las de sus cobros (de otro,
+   * 404 como si no existiera).
+   */
+  async listForPayment(paymentId: string, reader?: { userId: string; role: string }) {
+    if (reader && !seesWholeVenue(reader.role)) {
+      const payment = await this.prisma.payment.findUnique({ where: { id: paymentId }, select: { createdByUserId: true } });
+      if (!payment || !mayReadCobro(reader, payment.createdByUserId)) throw new NotFoundException('Payment not found');
+    }
     return this.prisma.refund.findMany({
       where: { paymentId },
       orderBy: { createdAt: 'desc' },

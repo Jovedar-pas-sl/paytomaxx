@@ -1,4 +1,6 @@
 import { ConflictException, ForbiddenException, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { stepUpActions } from '@nightpay/contracts';
+import { passkeyInstead, type TwoFactorDeps } from './wallet-two-factor';
 import {
   CASH_LIMIT_CENTS,
   CASH_TOP_UP_METHODS,
@@ -116,7 +118,7 @@ export class CashTopUpService {
   private readonly prisma: PrismaService;
   private readonly audit: AuditService;
 
-  private readonly totp: Pick<TotpService, 'assertForUser' | 'isEnabled'>;
+  private readonly totp: TwoFactorDeps;
 
   constructor(
     @Inject(PrismaService) prisma: PrismaService,
@@ -395,13 +397,16 @@ export class CashTopUpService {
     // Antes del 2FA: que la pantalla diga lo que sale de la caja (saldo + comisión del servicio).
     await this.assertVoidFeeShown(actor.tenantId, topUpId, input.serviceFeeCents);
     const what = 'Anular una recarga en efectivo';
+    const action = stepUpActions.cashTopUpVoid(topUpId);
     if (!input.totpCode) {
-      if (!(await this.totp.isEnabled(actor.userId))) {
+      if (await this.totp.isEnabled(actor.userId)) throw totpForbidden('required', `${what}: pon el código de tu app de verificación (2FA).`);
+      // Sin 2FA: la prueba de su llave de acceso para esta anulación (si tiene llave).
+      if (!(await passkeyInstead(this.totp, actor.userId, action, `${what}:`))) {
         throw totpForbidden('notEnrolled', `${what}: hace falta la app de verificación (2FA) y no la tienes activada.`);
       }
-      throw totpForbidden('required', `${what}: pon el código de tu app de verificación (2FA).`);
+    } else {
+      await this.totp.assertForUser(actor.userId, input.totpCode, action);
     }
-    await this.totp.assertForUser(actor.userId, input.totpCode);
     let out: CashTopUpVoidResult;
     try {
       out = await this.prisma.acrossVenues((tx) => this.applyVoid(tx, actor, topUpId, input.reason.trim()));

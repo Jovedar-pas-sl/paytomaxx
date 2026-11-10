@@ -410,6 +410,34 @@ describe('RefundsService.refund — authorization gates', () => {
     ).rejects.toThrow(/no la tienes activada/);
   });
 
+  it('sin 2FA, con su llave de acceso: la prueba de ESA devolución (de un solo uso) la deja pasar', async () => {
+    const { svc, prismaMock, totpMock } = makeService({ payment: bigPayment, user: { ...enrolledUser, totpSecret: null } });
+    const asked: string[] = [];
+    Object.assign(totpMock, {
+      passkeyProofFor: vi.fn(async (_u: string, action: string) => {
+        asked.push(action);
+        return action === 'refund:pay-1:10000';
+      }),
+    });
+    await svc.refund({ paymentId: 'pay-1', amountCents: 10_000 }, manager).catch(() => undefined);
+    expect(asked).toEqual(['refund:pay-1:10000']);
+    expect(totpMock.checkStoredForUser).not.toHaveBeenCalled();
+    expect(prismaMock.refund.create).toHaveBeenCalled();
+  });
+
+  it('sin 2FA, con llave y sin la prueba: 403 PASSKEY_REQUIRED con la acción (el panel pide la llave y lo repite)', async () => {
+    const { svc, prismaMock, totpMock } = makeService({ payment: bigPayment, user: { ...enrolledUser, totpSecret: null } });
+    Object.assign(totpMock, {
+      passkeyProofFor: vi.fn(async () => false),
+      missingSecondFactor: vi.fn(
+        async (_u: string, action: string) => new ForbiddenException({ message: 'Confirma con tu llave', code: 'PASSKEY_REQUIRED', stepUpAction: action }),
+      ),
+    });
+    const err = await svc.refund({ paymentId: 'pay-1', amountCents: 10_000 }, manager).catch((e: unknown) => e);
+    expect((err as ForbiddenException).getResponse()).toMatchObject({ code: 'PASSKEY_REQUIRED', stepUpAction: 'refund:pay-1:10000' });
+    expect(prismaMock.refund.create).not.toHaveBeenCalled();
+  });
+
   it('rejects invalid TOTP code', async () => {
     const { svc, prismaMock } = makeService({
       payment: bigPayment,

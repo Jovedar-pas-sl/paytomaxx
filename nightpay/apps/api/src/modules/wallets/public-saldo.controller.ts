@@ -13,6 +13,7 @@ import {
   Res,
 } from '@nestjs/common';
 import type { FastifyReply } from 'fastify';
+import { CLIENT_HINTS_ACCEPT_CH } from '../../common/http/client-device';
 import { Public } from '../../common/decorators/public.decorator';
 import { IpRateLimit } from '../../common/guards/ip-rate-limit.guard';
 import { customerLanguage } from '../payments/customer-lang';
@@ -59,6 +60,8 @@ export class PublicSaldoController {
       .status(200)
       .header('Content-Type', 'text/html; charset=utf-8')
       .header('Cache-Control', 'no-store')
+      // Android: el modelo y la versión en las peticiones siguientes (detalle del pago).
+      .header('Accept-CH', CLIENT_HINTS_ACCEPT_CH)
       .send(renderQrChargePage(token, lang, view));
   }
 

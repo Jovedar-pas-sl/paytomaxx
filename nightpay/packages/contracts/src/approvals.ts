@@ -145,13 +145,17 @@ export type ApprovalRules = z.infer<typeof ApprovalRulesSchema>;
 
 // ─── Escritura ──────────────────────────────────────────────────────────
 
-/** Aprobar: el código de la app de verificación del dueño (acepta "123 456"). */
+/**
+ * Aprobar: el código de la app de verificación del dueño (acepta "123 456").
+ * Sin 2FA, sin código: la prueba de su llave de acceso (cabecera X-Step-Up-Token).
+ */
 export const ApproveApprovalSchema = z.object({
   totpCode: z
     .string()
     .max(20)
     .transform((s) => s.replace(/\s+/g, ''))
-    .pipe(z.string().regex(/^\d{6}$/, 'El código 2FA son 6 cifras')),
+    .pipe(z.string().regex(/^\d{6}$/, 'El código 2FA son 6 cifras'))
+    .optional(),
 });
 export type ApproveApprovalDto = z.infer<typeof ApproveApprovalSchema>;
 

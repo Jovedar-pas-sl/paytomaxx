@@ -28,6 +28,12 @@ const connectSrc = [
   ...(isDev ? ['http://localhost:*', 'ws://localhost:*', 'http://127.0.0.1:*', 'ws://127.0.0.1:*'] : []),
 ].filter((src, i, all) => src && all.indexOf(src) === i);
 
+// Los client hints del modelo van también al API (otro origen): hay que delegárselos.
+const apiOrigin = originOf(apiUrl);
+const clientHintsDelegation = apiOrigin
+  ? `, ch-ua-model=(self "${apiOrigin}"), ch-ua-platform-version=(self "${apiOrigin}")`
+  : '';
+
 const securityHeaders = [
   {
     key: 'Content-Security-Policy',
@@ -48,7 +54,10 @@ const securityHeaders = [
   { key: 'X-Content-Type-Options', value: 'nosniff' },
   { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
   { key: 'Strict-Transport-Security', value: 'max-age=31536000; includeSubDomains; preload' },
-  { key: 'Permissions-Policy', value: 'camera=(), microphone=(), geolocation=(), payment=()' },
+  // Detalle del pago: el modelo y la versión del Android (client hints) en las
+  // peticiones al API, que los guarda con el cobro (el iPhone no los da).
+  { key: 'Accept-CH', value: 'Sec-CH-UA-Model, Sec-CH-UA-Platform-Version' },
+  { key: 'Permissions-Policy', value: `camera=(), microphone=(), geolocation=(), payment=()${clientHintsDelegation}` },
 ];
 
 /** @type {import('next').NextConfig} */
