@@ -245,7 +245,8 @@ describe('invitación con propina', () => {
   let s: Sala, pay: string;
   beforeAll(async () => {
     s = await sala('propina');
-    const c = await cobro(s, [{ serviceItemId: s.invita }], { invitedStaffToken: qrOf(s, s.nerea), tipCents: 200 });
+    // B1: la propina la elige el cliente en la página de pago (el banco cobra la del intento).
+    const c = await cobro(s, [{ serviceItemId: s.invita }], { invitedStaffToken: qrOf(s, s.nerea) });
     await paidByCard(s, c.id, 2_000, 200);
     pay = c.id;
   });

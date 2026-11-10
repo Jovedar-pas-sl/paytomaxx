@@ -97,11 +97,12 @@ const TOP_UP = { wallet: { walletId: '0b6f4a8e-6f1e-4e0b-9a51-0c2f3c4d5e6f' } } 
 describe('crear un cobro con la comisión del servicio', () => {
   it('apagada: como siempre (sin %, 0 €, el % antiguo de OxioPay y lo devolvible de siempre)', async () => {
     const { service, created } = makeService({ enabled: false });
-    const res = await service.create('tenant-1', 'idem-fee-0001', dto({ tipCents: 200 }), owner);
+    // Sin propina al crear (B1: la elige el cliente al pagar).
+    const res = await service.create('tenant-1', 'idem-fee-0001', dto(), owner);
     expect(created[0]).toMatchObject({
       amountCents: 3300,
-      tipCents: 200,
-      availableAmountCents: 3500,
+      tipCents: 0,
+      availableAmountCents: 3300,
       serviceFeeBps: null,
       serviceFeeCents: 0,
       platformCommissionBps: 1000,
@@ -111,13 +112,13 @@ describe('crear un cobro con la comisión del servicio', () => {
 
   it('encendida, pago directo: 33 € → 3,30 €, devolvible entera y el local ya no paga el % antiguo', async () => {
     const { service, created, events } = makeService({ enabled: true, cardBps: 1000, topUpBps: 1200 });
-    const res = await service.create('tenant-1', 'idem-fee-0002', dto({ tipCents: 200 }), owner);
+    const res = await service.create('tenant-1', 'idem-fee-0002', dto(), owner);
     expect(created[0]).toMatchObject({
       amountCents: 3300,
-      tipCents: 200,
+      tipCents: 0,
       serviceFeeBps: 1000,
       serviceFeeCents: 330,
-      availableAmountCents: 3830,
+      availableAmountCents: 3630,
       platformCommissionBps: 0,
     });
     expect(events[0]?.payload).toMatchObject({ amountCents: 3300, serviceFeeCents: 330 });

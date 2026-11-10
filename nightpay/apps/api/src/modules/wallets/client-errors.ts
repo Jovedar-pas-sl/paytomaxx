@@ -11,11 +11,34 @@ import type { PayLanguage } from '../payments/pay-i18n';
  *
  * `TOPUP_<motivo>`: el 409 WALLET_TOPUP_UNAVAILABLE con su `reason`.
  */
+/**
+ * Los de la propina que elige el cliente en /s (B1) y de «Ver mi saldo»
+ * (my-balance.ts). Aparte de payments/i18n/ para no pisar sus textos.
+ */
+const MORE_ERRORS: Readonly<Record<PayLanguage, Record<'TIP_NOT_VALID' | 'WALLET_NOT_FOUND', string>>> = {
+  es: {
+    TIP_NOT_VALID: 'Esa propina no vale: elige otra o «Sin propina».',
+    WALLET_NOT_FOUND: 'No encontramos tu saldo. Pregunta en recepción.',
+  },
+  en: {
+    TIP_NOT_VALID: 'That tip isn’t valid: choose another one or “No tip”.',
+    WALLET_NOT_FOUND: 'We couldn’t find your balance. Ask at reception.',
+  },
+  fr: {
+    TIP_NOT_VALID: 'Ce pourboire n’est pas valable : choisissez-en un autre ou « Sans pourboire ».',
+    WALLET_NOT_FOUND: 'Nous ne trouvons pas votre solde. Demandez à l’accueil.',
+  },
+  pt: {
+    TIP_NOT_VALID: 'Essa gorjeta não é válida: escolha outra ou «Sem gorjeta».',
+    WALLET_NOT_FOUND: 'Não encontramos o seu saldo. Pergunte na receção.',
+  },
+};
+
 export const CLIENT_ERROR_TEXT: Readonly<Record<PayLanguage, ClientErrorTexts>> = {
-  es: CUSTOMER_TEXT.es.errors,
-  en: CUSTOMER_TEXT.en.errors,
-  fr: CUSTOMER_TEXT.fr.errors,
-  pt: CUSTOMER_TEXT.pt.errors,
+  es: { ...CUSTOMER_TEXT.es.errors, ...MORE_ERRORS.es },
+  en: { ...CUSTOMER_TEXT.en.errors, ...MORE_ERRORS.en },
+  fr: { ...CUSTOMER_TEXT.fr.errors, ...MORE_ERRORS.fr },
+  pt: { ...CUSTOMER_TEXT.pt.errors, ...MORE_ERRORS.pt },
 };
 
 /** Lo que lee el JS de la página: los textos de su idioma. */

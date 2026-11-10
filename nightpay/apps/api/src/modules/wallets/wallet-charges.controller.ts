@@ -80,6 +80,8 @@ const PayPinSchema = z
     uid: CardUid,
     walletToken: PassToken.optional(),
     pin: z.string().regex(/^[0-9]{4}$/, 'El PIN son 4 cifras'),
+    /** B1: la propina que eligió el cliente en la pantalla del PIN (sin ella, la que traía el cobro). */
+    tipCents: z.number().int().nonnegative().max(500_00).optional(),
   })
   .refine((b) => [b.code, b.card, b.walletToken].filter(Boolean).length === 1, {
     message: 'Falta el código, la ficha o el pase del cliente',
@@ -212,6 +214,7 @@ export class WalletChargesController {
     return this.charges.payQrChargeWithPin({ userId: user.sub, role: user.role, tenantId: user.tenantId }, id, {
       ...ref,
       pin: body.pin,
+      ...(body.tipCents !== undefined ? { tipCents: body.tipCents } : {}),
     });
   }
 

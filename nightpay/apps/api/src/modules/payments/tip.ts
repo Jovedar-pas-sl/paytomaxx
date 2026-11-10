@@ -1,3 +1,12 @@
+import { BadRequestException } from '@nestjs/common';
+import {
+  STAFF_TIP_REMOVED_CODE,
+  STAFF_TIP_REMOVED_MESSAGE,
+  maxTipCents,
+  type CustomerTipProblem,
+  tipPresetsFor,
+  type TipPresetConfig,
+} from '@nightpay/contracts';
 import type { TransactionalClient } from '../../common/prisma/prisma.service';
 
 /**
@@ -10,46 +19,40 @@ import type { TransactionalClient } from '../../common/prisma/prisma.service';
  * Solo con Redsys: el resto de pasarelas cobran el importe, como antes.
  */
 
-/** Hasta este importe se sugieren euros fijos; por encima, porcentajes. */
-export const TIP_FLAT_UP_TO_CENTS = 40_00;
-/** Propinas sugeridas para importes pequeños: +2 € y +5 €. */
-export const TIP_FLAT_PRESETS_CENTS: readonly number[] = [200, 500];
-/** Propinas sugeridas para el resto: 10 % y 15 %, en euros enteros. */
-export const TIP_PERCENT_PRESETS: readonly number[] = [10, 15];
-
-/** Propina sugerida: su importe y, si sale de un porcentaje, cuál. */
-export interface TipPreset {
-  cents: number;
-  percent: number | null;
-}
-
-/** Propinas sugeridas que eligió el local (Ajustes → Formas de cobro); sin ellas, las de siempre. */
-export interface TipPresetConfig {
-  flatCents?: readonly number[];
-  percents?: readonly number[];
-}
+// Las sugeridas y el máximo, en contracts (también los usa la app del personal
+// en la pantalla del PIN, B1).
+export {
+  MAX_TIP_CENTS,
+  TIP_FLAT_PRESETS_CENTS,
+  TIP_FLAT_UP_TO_CENTS,
+  TIP_PERCENT_PRESETS,
+  maxTipCents,
+  tipPresetsFor,
+  type TipPreset,
+  type TipPresetConfig,
+} from '@nightpay/contracts';
 
 /**
- * Propinas sugeridas para un importe (además de «Sin propina» y «Otra»).
- * Las que pasarían del máximo no se sugieren.
+ * B1: la propina solo la pone el cliente al pagar. Una app del personal de
+ * antes que aún la mande al crear el cobro recibe esto (400): ignorarla en
+ * silencio dejaría al personal esperando una propina que nadie paga.
  */
-export function tipPresetsFor(amountCents: number, config: TipPresetConfig = {}): TipPreset[] {
-  const cap = maxTipCents(amountCents);
-  const flat = config.flatCents?.length ? config.flatCents : TIP_FLAT_PRESETS_CENTS;
-  const percents = config.percents?.length ? config.percents : TIP_PERCENT_PRESETS;
-  const raw: TipPreset[] =
-    amountCents <= TIP_FLAT_UP_TO_CENTS
-      ? flat.map((cents) => ({ cents, percent: null }))
-      : percents.map((percent) => ({
-          cents: Math.max(100, Math.round((amountCents * percent) / 10_000) * 100),
-          percent,
-        }));
-  const seen = new Set<number>();
-  return raw.filter((t) => {
-    if (t.cents > cap || seen.has(t.cents)) return false;
-    seen.add(t.cents);
-    return true;
-  });
+export function staffTipRemoved(): BadRequestException {
+  return new BadRequestException({ message: STAFF_TIP_REMOVED_MESSAGE, code: STAFF_TIP_REMOVED_CODE });
+}
+
+/** El código del 400 de una propina del cliente que no vale (la página lo traduce). */
+export const TIP_NOT_VALID_CODE = 'TIP_NOT_VALID';
+
+const CUSTOMER_TIP_MESSAGE: Record<CustomerTipProblem, string> = {
+  invalid: 'Propina no válida',
+  'too-high': 'La propina no puede pasar del importe del cobro ni de 500,00 €',
+  'tips-off': 'En este cobro no se puede dejar propina',
+};
+
+/** La propina que eligió el cliente al pagar con su saldo o su PIN no vale (B1): 400. */
+export function customerTipError(problem: CustomerTipProblem): BadRequestException {
+  return new BadRequestException({ message: CUSTOMER_TIP_MESSAGE[problem], code: TIP_NOT_VALID_CODE, reason: problem });
 }
 
 /**
@@ -96,14 +99,6 @@ export function tipGoesToStaff(p: { tipGoesTo: string | null; creatorRole: strin
   if (p.tipGoesTo === 'beneficiary') return true;
   if (p.tipGoesTo) return p.tipGoesTo === 'operator' && p.creatorRole === 'OPERATOR';
   return defaultTipGoesTo(p.creatorRole) === 'operator';
-}
-
-/** Propina como mucho del importe del cobro y nunca más de esto. */
-export const MAX_TIP_CENTS = 500_00;
-
-/** Propina máxima para un cobro de este importe (la misma regla en el datáfono). */
-export function maxTipCents(amountCents: number): number {
-  return Math.max(0, Math.min(amountCents, MAX_TIP_CENTS));
 }
 
 /**
