@@ -1,0 +1,49 @@
+/* El cobro abierto del TPV. En la tableta, el QR y el importe en dos columnas. */
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 20rem), 1fr));
+  gap: clamp(1rem, 3vw, 2rem);
+  align-items: start;
+}
+
+.actions {
+  margin-top: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+/* En el móvil (una columna): el importe arriba y el QR debajo, y «Cancelar
+   cobro» en una barra fija abajo, a la vista también al bajar hasta el QR. El
+   hueco de abajo deja ver entera la tarjeta del QR por encima de la barra. */
+@media (max-width: 47.99rem) {
+  .grid {
+    grid-template-columns: minmax(0, 1fr);
+    padding-bottom: calc(5rem + env(safe-area-inset-bottom));
+  }
+
+  /* z-index: la tarjeta (isolation: isolate) lleva dentro la barra fija;
+     con order: -1 se pintaría debajo de la del QR y esta la taparía. */
+  .amount {
+    order: -1;
+    z-index: 1;
+  }
+
+  .actions {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 10;
+    margin: 0;
+    padding: 0.75rem 1rem calc(0.75rem + env(safe-area-inset-bottom));
+    background: var(--np-bg);
+    border-top: 1px solid var(--np-border);
+  }
+
+  .actions > button {
+    width: 100%;
+    max-width: 30rem;
+  }
+}

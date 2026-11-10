@@ -136,9 +136,11 @@ describe('resolvedToday / recordResolved', () => {
 });
 
 describe('incidencias nuevas del datáfono', () => {
-  it('ventas sin comprobar: en Pagos, con el código de autorización', () => {
-    expect(INCIDENT_KINDS.pos_unproven_sales).toMatchObject({ group: 'Datáfono', title: 'Ventas del datáfono sin comprobar', tab: 'payments' });
-    expect(incidentHint('pos_unproven_sales', true)).toBe('Se confirman en Pagos → Resolver con el código de autorización.');
+  it('ventas sin comprobar: en Hoy → Cobros, con el código de autorización', () => {
+    expect(INCIDENT_KINDS.pos_unproven_sales).toMatchObject({ group: 'Datáfono', title: 'Ventas del datáfono sin comprobar', tab: 'bank' });
+    // En Hoy → Cobros esas ventas salen pagadas y sin «Resolver»: el aviso lleva a Banco.
+    expect(incidentHint('pos_unproven_sales', true)).toBe('Se cuadran en Informes → Banco: sube el fichero del banco y las que coincidan dejan de retener la comisión. Sin el fichero, se liberan con tu 2FA en la ficha de quien cobra esa comisión.');
+    expect(incidentHint('pos_unproven_sales', true)).not.toMatch(/Resolver|Hoy → Cobros/);
   });
 
   it('tope de recepción: en Datáfonos', () => {

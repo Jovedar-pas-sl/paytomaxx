@@ -84,3 +84,8 @@ export type { QrMatrix } from './lib/qr';
 // Pantalla de fallo de las apps y el aviso al API (Grafito).
 export { ErrorScreen } from './components/ErrorScreen';
 export { reportClientError } from './lib/report-client-error';
+
+// Instalar la web como app (pantalla completa): el aviso y los pasos del iPhone.
+export { InstallHint, IosInstallSteps, useInstall } from './components/InstallHint';
+export { installHintOffered, installPlatform, isAppleMobile, installSnoozed, snoozeInstall, INSTALL_SNOOZE_MS } from './lib/install';
+export type { InstallPlatform } from './lib/install';

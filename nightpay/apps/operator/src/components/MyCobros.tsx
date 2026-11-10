@@ -18,8 +18,16 @@ import {
   type OwnCobrosSnapshot,
   type OwnNight,
 } from '@/lib/my-cobros';
+import {
+  MY_COBROS_HELP_SCREEN,
+  myCobrosHelpLine,
+  myCobrosSituations,
+  myCobrosStates,
+  type MyCobrosViewer,
+} from '@/lib/my-cobros-help';
 import { formatEur } from '@/lib/money';
 import { usePolling } from '@/lib/use-polling';
+import { HelpAgain, HelpLine, useHelp } from './HelpLine';
 import styles from './my-cobros.module.css';
 
 interface Props {
@@ -37,12 +45,14 @@ interface Props {
  * oscuras: arriba el total de la noche y, en cada cobro, un chip de color con
  * icono y palabra, la propina en su línea, las recargas marcadas «no es
  * venta» y el «cobrado dos veces» del panel. No autoriza devoluciones; con
- * `cancelPending`, cancela los suyos aún sin pagar.
+ * `cancelPending`, cancela los suyos aún sin pagar. Arriba (Grafito 2), una
+ * línea de ayuda que se cierra con «Entendido» y «¿Qué significa cada estado?».
  */
 export function MyCobros({ cancelPending = false, pollMs = 15_000 }: Props) {
   const [{ items, cursor, error, moreBusy, night }, setState] = useState<OwnCobrosSnapshot>({ items: null, cursor: null, error: null, moreBusy: false, night: null });
   const [busyId, setBusyId] = useState<string | null>(null);
   const [cancelError, setCancelError] = useState<string | null>(null);
+  const help = useHelp(MY_COBROS_HELP_SCREEN);
   const feed = useRef<ReturnType<typeof createOwnCobrosFeed> | null>(null);
   useEffect(() => {
     const current = createOwnCobrosFeed(fetchOwnCobros, setState);
@@ -73,9 +83,16 @@ export function MyCobros({ cancelPending = false, pollMs = 15_000 }: Props) {
     }
   }
 
+  const viewer: MyCobrosViewer = { cancelPending };
   return (
     <section className={styles.list} aria-label="Mis cobros">
-      <h2 className={styles.title}>Mis cobros</h2>
+      {/* Qué es la lista y qué se puede hacer (se cierra con «Entendido»; el «?» la vuelve a enseñar). */}
+      <div className={styles.titleRow}>
+        <h2 className={styles.title}>Mis cobros</h2>
+        <HelpAgain help={help} />
+      </div>
+      <HelpLine help={help}>{myCobrosHelpLine(viewer)}</HelpLine>
+      <StatesHelp viewer={viewer} />
       {night && items ? <NightTotal items={items} night={night} cursor={cursor} /> : null}
       {error ? (
         <Card role="alert" style={{ padding: '1rem' }}>
@@ -104,6 +121,43 @@ export function MyCobros({ cancelPending = false, pollMs = 15_000 }: Props) {
         </Button>
       ) : null}
     </section>
+  );
+}
+
+/**
+ * «¿Qué significa cada estado?», cerrado de entrada: cada estado que puede
+ * salir en la lista con su chip (el mismo de las filas) y qué hacer; debajo,
+ * «Si pasa esto»: el botón que hay que tocar o a quién avisar.
+ */
+function StatesHelp({ viewer }: { viewer: MyCobrosViewer }) {
+  return (
+    <details className={styles.help}>
+      <summary>¿Qué significa cada estado?</summary>
+      <div className={styles.helpBody}>
+        <dl className={styles.legend}>
+          {myCobrosStates(viewer).map((st) => (
+            <div key={st.label} data-tone={st.tone}>
+              <dt>
+                <span className={styles.chip} data-tone={st.tone}>
+                  <StateIcon icon={st.icon} />
+                  {st.label}
+                </span>
+              </dt>
+              <dd>{st.text}</dd>
+            </div>
+          ))}
+        </dl>
+        <h3 className={styles.helpTitle}>Si pasa esto</h3>
+        <dl className={styles.cases}>
+          {myCobrosSituations(viewer).map((c) => (
+            <div key={c.when}>
+              <dt>{c.when}</dt>
+              <dd>{c.todo}</dd>
+            </div>
+          ))}
+        </dl>
+      </div>
+    </details>
   );
 }
 
@@ -170,7 +224,14 @@ function CobroRow({ row: r, night, cancel }: { row: OwnCobro; night: OwnNight | 
       {meta ? <span className={styles.meta}>{meta}</span> : null}
       {cancel ? (
         <div className={styles.actions}>
-          <Button variant="ghost" size="md" onClick={cancel.run} loading={cancel.busy} disabled={cancel.busy}>
+          <Button
+            variant="ghost"
+            size="md"
+            onClick={cancel.run}
+            loading={cancel.busy}
+            disabled={cancel.busy}
+            aria-label={`Cancelar el cobro ${r.ref ? `${r.ref} ` : ''}de ${formatEur(r.amountCents, { compact: true })}`}
+          >
             Cancelar
           </Button>
         </div>

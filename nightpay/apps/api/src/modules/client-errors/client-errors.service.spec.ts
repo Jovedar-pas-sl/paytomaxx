@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { ClientErrorsService, MAX_ALERTS_PER_HOUR, cleanMessage, cleanPath, linklessPath } from './client-errors.service';
+import { ClientErrorsService, MAX_ALERTS_PER_HOUR, cleanMessage, cleanPath, telegramRoute } from './client-errors.service';
 
 function make(o: { configured?: boolean; first?: boolean; sentThisHour?: number } = {}) {
   let count = o.sentThisHour ?? 0;
@@ -84,8 +84,25 @@ describe('fallos de pantalla de las apps', () => {
     expect(cleanPath('/x\n2026 ERROR Pago')).not.toMatch(/\s/);
   });
 
-  it('la ruta del Telegram no se puede convertir en un enlace', () => {
-    expect(linklessPath('//evil.tld/entra:aqui')).toBe('//eviltld/entraaqui');
-    expect(linklessPath('/w/…')).toBe('/w/…');
+  it('al Telegram, solo el primer tramo de una pantalla conocida de esa app; nunca lo que escribió quien lo manda', () => {
+    expect(telegramRoute('operator', '/guia')).toBe('/guia');
+    expect(telegramRoute('operator', '/onboarding/…')).toBe('/onboarding');
+    expect(telegramRoute('web-client', '/pay/…')).toBe('/pay');
+    expect(telegramRoute('admin', '/')).toBe('/');
+    expect(telegramRoute('admin', '/guia')).toBeNull();
+    expect(telegramRoute('operator', '//evil.tld/entra:aqui')).toBe('/'); // solo «/», nada de lo escrito
+    expect(telegramRoute('admin', '/Tu~cuenta~BBVA~bloqueada~llama~al~600123456')).toBeNull();
+    expect(telegramRoute('tpv', null)).toBeNull();
+  });
+
+  it('una ruta inventada no llega al chat del dueño: la app y la huella sí; la ruta entera, al registro', async () => {
+    const { service, telegram } = make();
+    const warn = vi.spyOn((service as unknown as { logger: { warn: (m: string) => void } }).logger, 'warn').mockImplementation(() => undefined);
+    await service.report({ app: 'admin', message: 'x', path: '/Tu~cuenta~BBVA~bloqueada~llama~al~600123456' });
+    const text = telegram.send.mock.calls[0]![0] as string;
+    expect(text).toMatch(/^⚠️ Ha fallado el panel\. /);
+    expect(text).not.toMatch(/cuenta|BBVA|600123456|~/);
+    expect(text).toMatch(/huella [0-9a-f]{16}/);
+    expect(warn.mock.calls[0]![0]).toContain('/Tu~cuenta~BBVA~bloqueada~llama~al~600123456');
   });
 });

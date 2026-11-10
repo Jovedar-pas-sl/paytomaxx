@@ -3,7 +3,7 @@
 import { useEffect, useState, type CSSProperties } from 'react';
 import { Card } from '@nightpay/ui';
 import { WALLET_PIN_PROBLEM_TEXT, walletPinProblem } from '@nightpay/contracts';
-import { keypadDigits } from '@/lib/pin-pad';
+import { PIN_CHOOSE, PIN_CHOOSE_HINT, PIN_ENTER, PIN_REPEAT, keypadDigits } from '@/lib/pin-pad';
 import { useVenueNight } from '@/lib/venue-methods';
 
 const PIN_LENGTH = 4;
@@ -76,8 +76,7 @@ export function PinPad({ title, hint, mode, onPin, onCancel }: Props) {
     if (next.length === PIN_LENGTH) void complete(next);
   }
 
-  const step =
-    mode === 'enter' ? 'Pon tu PIN' : first === null ? 'Elige un PIN de 4 cifras' : 'Repite el PIN';
+  const step = mode === 'enter' ? PIN_ENTER : first === null ? PIN_CHOOSE : PIN_REPEAT;
   const key = shuffled ? keyStyle : { ...keyStyle, ...bigKey };
 
   return (
@@ -85,7 +84,12 @@ export function PinPad({ title, hint, mode, onPin, onCancel }: Props) {
       <p style={kicker}>Para el cliente</p>
       <p style={titleStyle}>{title}</p>
       {hint ? <p style={hintStyle}>{hint}</p> : null}
-      <p style={stepStyle}>{step}</p>
+      <p style={stepStyle}>
+        {step.es}{' '}
+        <span lang="en" style={enStyle}>
+          · {step.en}
+        </span>
+      </p>
       <div role="status" style={dotsStyle}>
         {Array.from({ length: PIN_LENGTH }, (_, i) => (
           <span key={i} aria-hidden style={{ ...dotStyle, ...(i < pin.length ? dotFull : {}) }} />
@@ -120,9 +124,13 @@ export function PinPad({ title, hint, mode, onPin, onCancel }: Props) {
         </button>
       </div>
       <p style={hintStyle}>
-        {mode === 'choose'
-          ? 'Tápalo con la mano y no lo digas en voz alta. No se guarda en ningún sitio.'
-          : shuffled
+        {mode === 'choose' ? (
+          <>
+            {PIN_CHOOSE_HINT.es}
+            <br />
+            <span lang="en">{PIN_CHOOSE_HINT.en}</span>
+          </>
+        ) : shuffled
             ? 'Tápalo con la mano. Las cifras cambian de sitio cada vez.'
             : 'Tápalo con la mano.'}
       </p>
@@ -149,6 +157,8 @@ const kicker: CSSProperties = {
 const titleStyle: CSSProperties = { margin: 0, fontSize: '1.375rem', fontWeight: 600 };
 const hintStyle: CSSProperties = { margin: 0, fontSize: '0.875rem', color: 'var(--np-text-mute)' };
 const stepStyle: CSSProperties = { margin: 0, fontSize: '1.125rem', fontWeight: 600 };
+// La línea en inglés, detrás y en t2: se lee sin competir con la española.
+const enStyle: CSSProperties = { fontSize: '0.9375rem', fontWeight: 500, color: 'var(--np-text-mute)' };
 
 const dotsStyle: CSSProperties = { display: 'flex', justifyContent: 'center', gap: '1rem', padding: '0.5rem 0' };
 const dotStyle: CSSProperties = {

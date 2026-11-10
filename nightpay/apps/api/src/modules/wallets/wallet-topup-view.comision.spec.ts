@@ -48,17 +48,20 @@ describe('/w «Recargar» con la comisión del servicio', () => {
     expect(html).toContain('<dt>Recarga (a tu saldo)</dt><dd class="num" id="tbAmount"></dd>');
     expect(html).toContain('<dd class="num" id="tbFee"></dd>');
     expect(html).toContain('<dt>Total a pagar</dt><dd class="num" id="tbTotal"></dd>');
-    // «¿Qué es?», con el % de las recargas.
+    // «¿Qué es?», con el % de las recargas: de la recarga (no «del consumo»), y que no va al saldo.
     expect(html).toContain('>¿Qué es?</button>');
-    expect(html).toContain('Es un 12 % del consumo que cobra la plataforma de pago por el servicio. No es una propina.');
-    expect(html).toContain(WALLET_TEXT.es.topUpMethodsFee);
-    expect(html).not.toContain(WALLET_TEXT.es.topUpMethods);
+    expect(html).toContain('Es un 12 % de la recarga, para la plataforma de pago. No va a tu saldo y no es una propina.');
+    expect(html).not.toContain('del consumo');
+    // Debajo del botón: lo que no gaste no se pierde, y la comisión no se devuelve.
+    expect(html).toContain(WALLET_TEXT.es.topUpLeftoverFee);
+    expect(html).toContain('La comisión del servicio no se devuelve.');
   });
 
-  it('sin comisión: la de siempre', () => {
+  it('sin comisión: lo que no gaste no se pierde, sin hablar de comisión', () => {
     const html = topUpCard('es', { ...base, serviceFeeBps: null, feesCents: null });
     expect(html).not.toContain('id="topupFee"');
-    expect(html).toContain(WALLET_TEXT.es.topUpMethods);
+    expect(html).toContain(WALLET_TEXT.es.topUpLeftover);
+    expect(html).not.toContain('comisión');
   });
 
   it('la comisión la manda el servidor ya calculada (M-3): el JS no la calcula', () => {

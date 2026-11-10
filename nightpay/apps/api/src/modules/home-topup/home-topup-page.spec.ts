@@ -4,6 +4,7 @@ import { PAY_LANGUAGES } from '../payments/customer-lang';
 import { SELF_TOPUP_MAX_CENTS, SELF_TOPUP_MIN_CENTS, SELF_TOPUP_PRESETS_CENTS, topUpFeeTable } from '../wallets/wallet-topup-rules';
 import { HOME_JS, renderHomeTopUpGone, renderHomeTopUpPage } from './home-topup-page';
 import { HOME_TOPUP_TEXT } from './home-topup-text';
+import { WALLET_TEXT } from '../wallets/wallet-text';
 import type { HomeTopUpPageView } from './home-topup.service';
 
 const CODE = 'AbCdEfGhIjKlMnOp';
@@ -145,5 +146,82 @@ describe('la página del enlace del local (/r/<código>)', () => {
     expect(html).toContain(HOME_TOPUP_TEXT[lang].notFoundTitle.replace(/'/g, '&#39;'));
     expect(html).not.toContain('Sala');
     expect(html).not.toContain('pkPost(');
+  });
+});
+
+describe('/r explicada: la ventaja, cómo funciona y lo que no gaste', () => {
+  /** El texto como sale en el HTML (escapeHtml cambia los apóstrofos rectos). */
+  const inHtml = (s: string): string => s.replace(/'/g, '&#39;');
+
+  it.each(PAY_LANGUAGES)('%s: la ventaja en una línea y los tres pasos, antes de elegir cuánto', (lang) => {
+    const t = HOME_TOPUP_TEXT[lang];
+    const html = renderHomeTopUpPage(CODE, lang, viewFor(null));
+    expect(html).toContain(`<p>${inHtml(t.advantage)}</p>`);
+    expect(html).toContain(
+      `<ol class="tsteps" aria-label="${inHtml(t.howTitle)}"><li>${inHtml(t.stepChoose)}</li><li>${inHtml(t.stepPay)}</li><li>${inHtml(t.stepArrive)}</li></ol>`,
+    );
+    expect(html.indexOf('class="tsteps"')).toBeLessThan(html.indexOf('id="f"'));
+    expect(html.indexOf('class="tsteps"')).toBeGreaterThan(html.indexOf('id="hTitle"'));
+  });
+
+  it('el paso 3 según el local: con fichas, el QR en recepción; sin ellas, solo el móvil', () => {
+    const t = HOME_TOPUP_TEXT.es;
+    const conFichas = renderHomeTopUpPage(CODE, 'es', viewFor(null, { fichas: true }));
+    expect(conFichas).toContain(t.stepArrive);
+    expect(conFichas).not.toContain(t.stepArriveNoFicha);
+    const sinFichas = renderHomeTopUpPage(CODE, 'es', viewFor(null, { fichas: false }));
+    expect(sinFichas).toContain(t.stepArriveNoFicha);
+    expect(sinFichas).not.toContain(t.stepArrive);
+    // Sin el dato (una vista de antes): como decía la página, con la ficha.
+    expect(renderHomeTopUpPage(CODE, 'es', viewFor(null))).toContain(t.stepArrive);
+  });
+
+  it('ya tiene un saldo de aquí: los pasos arriba y «Recargar mi saldo» antes de cargar otro', () => {
+    const html = renderHomeTopUpPage(CODE, 'es', viewFor(null, { mine: { codeHint: 'K7Q-•••' } }));
+    expect(html.indexOf('class="tsteps"')).toBeLessThan(html.indexOf('id="mineGo"'));
+    expect(html.indexOf('id="mineGo"')).toBeLessThan(html.indexOf('id="f"'));
+  });
+
+  it('el local no deja cargar ahora: sin los pasos (no hay nada que elegir ni pagar)', () => {
+    const html = renderHomeTopUpPage(CODE, 'es', viewFor(null, { problem: 'paused' }));
+    expect(html).not.toContain('class="tsteps"');
+    expect(html).toContain(HOME_TOPUP_TEXT.es.offTitle);
+  });
+
+  it('el local no deja cargar ahora: primero el aviso y después las condiciones (no al revés)', () => {
+    for (const problem of ['paused', 'methods'] as const) {
+      const html = renderHomeTopUpPage(CODE, 'es', viewFor(null, { problem }));
+      expect(html.indexOf(HOME_TOPUP_TEXT.es.offTitle)).toBeGreaterThan(-1);
+      expect(html.indexOf(HOME_TOPUP_TEXT.es.offTitle)).toBeLessThan(html.indexOf('id="termsTitle"'));
+    }
+  });
+
+  it('ya tiene un saldo de aquí: las condiciones antes de las dos formas; «O carga un saldo nuevo:» pegado al importe', () => {
+    const html = renderHomeTopUpPage(CODE, 'es', viewFor(null, { mine: { codeHint: 'K7Q-•••' } }));
+    expect(html.indexOf('id="termsTitle"')).toBeLessThan(html.indexOf('id="mineTitle"'));
+    const or = `<p class="or">${HOME_TOPUP_TEXT.es.mineOr}</p>`;
+    const at = html.indexOf(or);
+    expect(at).toBeGreaterThan(html.indexOf('id="mineGo"'));
+    // Lo siguiente tras «O carga un saldo nuevo:» es la tarjeta del importe, no otra.
+    const next = html.slice(at + or.length).trimStart();
+    expect(next.startsWith('<section class="card topup" aria-labelledby="amtTitle">')).toBe(true);
+  });
+
+  it('antes de pagar: lo que no gaste no se pierde (no caduca) y cómo se devuelve; al llegar ya va en los pasos', () => {
+    const t = HOME_TOPUP_TEXT.es;
+    const html = renderHomeTopUpPage(CODE, 'es', viewFor(null));
+    const terms = html.slice(html.indexOf('id="termsTitle"'), html.indexOf('</section>', html.indexOf('id="termsTitle"')));
+    expect(terms).toContain(`<b>${t.keep}</b> ${t.noExpiry}`);
+    expect(terms).toContain(t.refund);
+    expect(terms.match(/<li>/g)).toHaveLength(2);
+    // Debajo del botón, solo lo que no dicen los pasos.
+    expect(html).toContain(`<p class="small">${t.methods}</p></div>`);
+  });
+
+  it('con comisión: su «¿Qué es?» habla de la recarga (no del consumo) y dice que no va al saldo', () => {
+    const html = renderHomeTopUpPage(CODE, 'es', viewFor({ enabled: true, cardBps: 1000, topUpBps: 1200 })).replace(/[\u00a0\u202f]/g, ' ');
+    expect(html).toContain('Es un 12 % de la recarga, para la plataforma de pago. No va a tu saldo y no es una propina.');
+    expect(html).not.toContain('del consumo');
+    expect(WALLET_TEXT.es.topUpFeeExplain).toContain('{pct}');
   });
 });

@@ -295,7 +295,7 @@ ${topBar(lang)}<h1 class="sr">${h(t.title)}</h1>
 <div class="obot"><span class="num" id="heroCode">${h(state.code)}</span><span id="heroFicha">${state.hasCard && state.fichaNumber ? h(t.fichaNo.split('{n}').join(state.fichaNumber)) : ''}</span></div>
 </section>
 <p class="live" id="liveBar" role="status" hidden></p>
-${welcome && proof ? `${paidProofSection(lang, proof, options.now ?? new Date())}${welcomeCard(lang, state.venueName, proof, state.code)}` : ''}${topUpOffNote()}<section class="card main" id="refundCard" hidden aria-labelledby="refundTitle">
+${welcome && proof ? `${paidProofSection(lang, proof, options.now ?? new Date())}${welcomeCard(lang, state.venueName, proof, state.code, Boolean(options.fichaQr))}` : ''}${topUpOffNote()}<section class="card main" id="refundCard" hidden aria-labelledby="refundTitle">
 <h2 id="refundTitle"></h2>
 <ol class="steps" id="steps">${t.steps.map((s, i) => `<li data-i="${i}">${h(s)}</li>`).join('')}</ol>
 <p id="refundHow"></p>

@@ -65,15 +65,26 @@ function receiptData(lang: PayLanguage, venueName: string | null, proof: TopUpPr
   };
 }
 
-/** «Tu saldo está listo»: debajo del «Pagado» de la carga que lo creó. */
-export function welcomeCard(lang: PayLanguage, venueName: string | null, proof: TopUpProof, walletCode: string): string {
+/**
+ * «Tu saldo está listo»: debajo del «Pagado» de la carga que lo creó. Qué
+ * hacer al llegar: el móvil y, si la página lleva el QR de la ficha (el
+ * local da fichas), la ficha en recepción; sin él, solo el móvil (sin el
+ * dato, como antes: con la ficha).
+ */
+export function welcomeCard(
+  lang: PayLanguage,
+  venueName: string | null,
+  proof: TopUpProof,
+  walletCode: string,
+  withFichaQr = true,
+): string {
   const t = HOME_TOPUP_TEXT[lang];
   const h = escapeHtml;
   const title = venueName ? t.welcomeTitle.split('{venue}').join(venueName) : t.welcomeTitleNoVenue;
   return `<section class="card main wel" id="welcome" aria-labelledby="welTitle">
 <p class="kick">${h(t.welcomeKick)}</p>
 <h2 id="welTitle">${h(title)}</h2>
-<p>${h(t.welcomeBody)}</p>
+<p>${h(withFichaQr ? t.welcomeBody : t.stepArriveNoFicha)}</p>
 <button class="btn" type="button" id="welReceipt" data-r="${h(JSON.stringify(receiptData(lang, venueName, proof, walletCode)))}">${SAVE_IC}<span>${h(t.receiptSave)}</span></button>
 <p class="small">${h(t.receiptHint)}</p>
 <p class="small done" id="welSaved" role="status" hidden>${h(t.receiptSaved)}</p>

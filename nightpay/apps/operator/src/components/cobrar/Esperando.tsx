@@ -61,6 +61,7 @@ import { colorOf } from './cobrar-context';
 import { CobroQr } from './CobroQr';
 import { IconLock, IconNfc, IconQr } from './icons';
 import { PinScreen } from './PinScreen';
+import { WAIT_TITLE_EN } from '@/lib/pin-pad';
 import { ScreenHeader } from './ScreenHeader';
 import { SinMovil, type SaldoForPin } from './SinMovil';
 import styles from './cobrar.module.css';
@@ -131,6 +132,7 @@ type PinStep = SaldoForPin & { reason: string | null };
  * de cobrar: la pestaña «Saldo» ya no existe.
  */
 export function Esperando({ cobro, onNew, onRetry, retrying = false, retryError = null, onPaid, sectionLabel }: Props) {
+  const staffTip = staffTipOf(cobro);
   const methods = useVenueMethods();
   const [cardStatus, setCardStatus] = useState<PaymentStatus>((cobro.card?.status as PaymentStatus) ?? 'CREATED');
   // La propina del cliente con tarjeta: undefined hasta que la diga el API (no es 0).
@@ -466,6 +468,7 @@ export function Esperando({ cobro, onNew, onRetry, retrying = false, retryError 
           colors={pinColors}
           chip={cobro.pinChip}
           amountCents={cobro.totalCents}
+          tip={staffTip}
           detail={pinDetail(cobro.what, pin.walletCode, pin.via)}
           reason={pin.reason}
           onCancel={() => setPin(null)}
@@ -547,6 +550,12 @@ export function Esperando({ cobro, onNew, onRetry, retrying = false, retryError 
   );
 }
 
+/** La propina que marcó el personal (va dentro del total): «33 € + 5 € de propina», a la vista del cliente (PS-A1). */
+function staffTipOf(cobro: CobroAbierto): { base: string; tip: string } | null {
+  const tip = cobro.tipCents ?? 0;
+  return tipLine({ baseCents: cobro.totalCents - tip, tipCents: tip, totalCents: cobro.totalCents });
+}
+
 /**
  * La pantalla de espera (3.1 / 2.4), en Grafito: la cabecera dice de qué es el
  * cobro; debajo, el importe, el QR de 240 px en vector, las dos formas en una
@@ -578,6 +587,7 @@ function Waiting({
   onSinMovil?: () => void;
   children: ReactNode;
 }) {
+  const staffTip = staffTipOf(cobro);
   const [receivedAt] = useState(() => Date.now());
   const deadline = useMemo(() => {
     const expires = cobro.card?.qrExpiresAt ?? cobro.saldo?.expiresAt;
@@ -616,6 +626,12 @@ function Waiting({
       <ScreenHeader title={cobro.band.title} subtitle={cobro.band.detail} />
       <div className={styles.waitBody}>
         <p className={styles.amountXl}>{formatEur(cobro.totalCents, { compact: true })}</p>
+        {/* La propina que marcó el personal, a la vista del cliente antes de pagar (PS-A1), como en el PAGADO. */}
+        {staffTip ? (
+          <p className={styles.meta}>
+            {staffTip.base} + {staffTip.tip} de propina
+          </p>
+        ) : null}
         {/* Con la «Comisión del servicio»: con tarjeta paga más (con el saldo, no). */}
         {waitingFeeHint(cobro) ? <p className={styles.meta}>{waitingFeeHint(cobro)}</p> : null}
         {nfcOn && pinExpected(cobro.totalCents, night) ? (
@@ -625,6 +641,10 @@ function Waiting({
           </p>
         ) : null}
         <h2 className={styles.waitTitle}>{nfcOn ? 'Acerca el NFC o escanea' : 'Escanea el QR con tu móvil'}</h2>
+        {/* Lo lee el cliente: su línea en inglés (PS-A10). */}
+        <p lang="en" className={styles.waitEn}>
+          {nfcOn ? WAIT_TITLE_EN.nfc : WAIT_TITLE_EN.qr}
+        </p>
         {hasQr ? (
           <div className={styles.qr} style={{ opacity: left <= 0 ? 0.3 : 1 }}>
             <CobroQr value={qrUrl} fallbackPng={qrPng} quiet={2} label="QR del cobro: el cliente lo escanea con su móvil" />
@@ -632,12 +652,13 @@ function Waiting({
         ) : null}
         {hasQr || nfcOn ? (
           <p className={styles.ways}>
-            {hasQr ? <span>{invite ? 'Tarjeta o QR' : 'Con tu móvil'}</span> : null}
+            {/* Invitación: «Tarjeta, QR o ficha, sin PIN» (sin ficha, «Tarjeta o QR»; sin QR, «Ficha, sin PIN»). */}
+            {hasQr ? <span>{invite ? (nfcOn ? 'Tarjeta, QR' : 'Tarjeta o QR') : 'Con tu móvil'}</span> : null}
             {hasQr && nfcOn ? <span aria-hidden="true">o</span> : null}
             {nfcOn ? (
               <span className={`${styles.nfcWay}${reading || checking ? ` ${styles.nfcReading}` : ''}`}>
                 <IconNfc />
-                {checking ? 'Comprobando…' : reading ? 'Leyendo…' : invite ? 'NFC, sin PIN' : 'Por detrás'}
+                {checking ? 'Comprobando…' : reading ? 'Leyendo…' : invite ? (hasQr ? 'ficha, sin PIN' : 'Ficha, sin PIN') : 'Por detrás'}
               </span>
             ) : null}
           </p>

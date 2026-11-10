@@ -7,6 +7,8 @@ import type { ChipTap } from '@/lib/chip-tap';
 import { formatEur } from '@/lib/money';
 import { useOpenCharge } from '@/lib/open-charges';
 import {
+  browserSessionStorage,
+  cashAttemptRef,
   receptionAttempt,
   staffBackend,
   stockOutcomeLine,
@@ -53,6 +55,7 @@ import {
   type ReceptionDeskSaldo,
   type ReceptionDeskView,
 } from '@/lib/reception-desk';
+import { handOverOf, loadedHelp } from '@/lib/reception-help';
 import { receptionChip, useMySections } from '@/lib/sections';
 import { useVenueNight } from '@/lib/venue-methods';
 import {
@@ -167,7 +170,9 @@ export function ReceptionDesk({ user, active, footer }: Props) {
   const [notice, setNotice] = useState<string | null>(null);
   const [code, setCode] = useState('');
   // Una clave por recarga (importe, forma de pago y saldo): repetirla no carga dos veces.
-  const attempt = useRef<ReceptionAttempt | null>(null);
+  // La de efectivo queda también en la pestaña: si la pantalla falla a mitad y
+  // se vuelve a hacer la misma recarga, no se carga dos veces (S-4).
+  const attempt = useCashAttemptRef();
   const retire = useRetirePayment();
   // La comprobación en curso de una recarga sin respuesta (otra la anula).
   const cashCheck = useRef(0);
@@ -677,12 +682,15 @@ export function ReceptionDesk({ user, active, footer }: Props) {
     </div>
   );
 
-  /** Efectivo sin respuesta: se comprueba antes de pasar al siguiente cliente (sin flecha atrás). */
+  /**
+   * Efectivo sin respuesta: se comprueba antes de pasar al siguiente cliente
+   * (sin flecha atrás ni el menú del logo: se sale solo por «Salir sin saberlo»).
+   */
   function renderCashUnsure(st: Extract<Step, { kind: 'cashUnsure' }>) {
     const { read, amountCents, checking, leaveArmed } = st;
     return (
       <div className={s.screen}>
-        {head()}
+        <DeskHead title="Recepción" sub={name} chip={chip} noMenu />
         {/* Ni «sin saldo» ni lo que le quedaba: puede que ya esté cargado. */}
         <DeskRowView {...cashUnsureRow(read, amountCents, checking)} />
         {checking ? (
@@ -719,7 +727,16 @@ export function ReceptionDesk({ user, active, footer }: Props) {
     const pinText = pin === 'ask' || pin === 'manager' ? pinAfterLoadText(pin, noPinLimitCents(night)) : null;
     const askPin = { label: 'Que elija su PIN', onClick: () => go({ kind: 'pin', done }) };
     const next = { label: 'Siguiente cliente', onClick: () => restart('entrada') };
-    const meta = done.read.number ? `Devuélvele su ficha · ${fichaText(done.read.number.printedNumber)}` : handOverLine(done.read.view, done.linked);
+    const reference = done.reference ?? done.wallet?.code ?? null;
+    // Qué hacer ahora, en orden: el efectivo a la caja, la ficha y, si pasa del tope, su PIN.
+    const handOver = handOverOf({ view, linked: done.linked, byNumber: Boolean(done.read.number), hasCode: reference !== null });
+    // Sin ficha ni código en pantalla, no hay nada que apuntar (el aviso manda al encargado).
+    const meta = done.read.number
+      ? `Devuélvele su ficha · ${fichaText(done.read.number.printedNumber)}`
+      : handOver === 'manager'
+        ? 'Sin ficha ni código: con el encargado'
+        : handOverLine(done.read.view, done.linked);
+    const help = loadedHelp({ method: done.method, handOver, pin });
     // Pagó en efectivo aquí: su enlace privado no le llega; con este QR activa Face ID en su móvil.
     // Si hace falta el PIN, primero eso: el QR solo si prefiere pagar con el móvil (si no, deja el botón fuera de la pantalla).
     const activation =
@@ -730,12 +747,14 @@ export function ReceptionDesk({ user, active, footer }: Props) {
       <DeskLoaded
         word="CARGADO"
         amountCents={done.amountCents}
-        reference={done.reference ?? done.wallet?.code ?? null}
+        reference={reference}
         money={{ icon: done.method, ...money }}
         meta={meta}
-        warn={[done.warn, pinText].filter(Boolean).join(' ') || null}
+        warn={done.warn}
+        note={pinText}
         quiet={done.seen}
         extra={activation}
+        help={help}
         primary={pin === 'ask' ? askPin : next}
         secondary={pin === 'ask' ? { label: 'Ahora no', onClick: next.onClick } : pin === 'offer' ? askPin : null}
       />
@@ -811,4 +830,11 @@ function backOf(step: Step): Step {
   if (step.kind === 'method') return { kind: 'amount', read: step.read };
   if (step.kind === 'exitPasskey' || step.kind === 'exitTotp' || step.kind === 'exitManager' || step.kind === 'managerPending') return step.exit;
   return { kind: 'tap' };
+}
+
+/** El `ref` de la recarga en curso, con la de efectivo guardada en la pestaña (cashAttemptRef). */
+function useCashAttemptRef(): { current: ReceptionAttempt | null } {
+  const ref = useRef<{ current: ReceptionAttempt | null } | null>(null);
+  if (ref.current === null) ref.current = cashAttemptRef(browserSessionStorage());
+  return ref.current;
 }

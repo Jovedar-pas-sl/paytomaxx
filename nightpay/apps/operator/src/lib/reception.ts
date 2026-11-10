@@ -326,6 +326,84 @@ export function receptionAttempt(previous: ReceptionAttempt | null, what: string
   return previous?.what === what ? previous : { key: newReceptionKey(), what };
 }
 
+// ─── La recarga en efectivo en curso, guardada en la pestaña (S-4) ───────
+// Si la pantalla falla a mitad («Esta pantalla ha fallado» → «Volver a
+// cobrar» recarga la app), la clave se perdía con la memoria: al repetir la
+// misma recarga, iba con clave nueva y el efectivo se cargaba dos veces. Ahora
+// la de efectivo queda en sessionStorage (solo esta pestaña) un rato: repetir
+// lo mismo (importe, efectivo, la misma ficha o código) va con la misma clave.
+
+/** Donde se guarda (sessionStorage). */
+export const CASH_ATTEMPT_STORAGE_KEY = 'np-recepcion-efectivo';
+
+/** Pasado este tiempo sin tocarla, ya no es «la misma recarga a medias», sino otra. */
+export const CASH_ATTEMPT_TTL_MS = 10 * 60_000;
+
+/** Lo que se usa del almacenamiento (en las pruebas, uno de mentira). */
+export interface AttemptStorage {
+  getItem(key: string): string | null;
+  setItem(key: string, value: string): void;
+  removeItem(key: string): void;
+}
+
+/** ¿Es una recarga en efectivo? (`what`: «importe|forma de pago|saldo»). */
+export function isCashAttempt(attempt: ReceptionAttempt): boolean {
+  return attempt.what.split('|')[1] === 'cash';
+}
+
+/** La recarga en efectivo a medias de esta pestaña, si la hay y es reciente. Si falla al leerla, ninguna. */
+export function loadCashAttempt(storage: AttemptStorage | null, now: number): ReceptionAttempt | null {
+  if (!storage) return null;
+  try {
+    const raw = storage.getItem(CASH_ATTEMPT_STORAGE_KEY);
+    if (!raw) return null;
+    const saved = JSON.parse(raw) as { key?: unknown; what?: unknown; at?: unknown };
+    if (typeof saved.key !== 'string' || typeof saved.what !== 'string' || typeof saved.at !== 'number') return null;
+    if (now < saved.at || now - saved.at > CASH_ATTEMPT_TTL_MS) return null;
+    const attempt = { key: saved.key, what: saved.what };
+    return isCashAttempt(attempt) ? attempt : null;
+  } catch {
+    return null;
+  }
+}
+
+/** La guarda (si es de efectivo) o la quita. Sin almacenamiento, como antes: la clave vive en la memoria. */
+export function saveCashAttempt(storage: AttemptStorage | null, attempt: ReceptionAttempt | null, now: number): void {
+  if (!storage) return;
+  try {
+    if (attempt && isCashAttempt(attempt)) storage.setItem(CASH_ATTEMPT_STORAGE_KEY, JSON.stringify({ key: attempt.key, what: attempt.what, at: now }));
+    else storage.removeItem(CASH_ATTEMPT_STORAGE_KEY);
+  } catch {
+    // Lleno o bloqueado: la clave sigue en la memoria (lo de siempre).
+  }
+}
+
+/**
+ * Como el `useRef` de la recarga en curso, pero lo que se le asigna (y es de
+ * efectivo) queda también en la pestaña; al crearse, empieza con lo guardado.
+ */
+export function cashAttemptRef(storage: AttemptStorage | null, now: () => number = Date.now): { current: ReceptionAttempt | null } {
+  let value = loadCashAttempt(storage, now());
+  return {
+    get current() {
+      return value;
+    },
+    set current(next: ReceptionAttempt | null) {
+      value = next;
+      saveCashAttempt(storage, next, now());
+    },
+  };
+}
+
+/** sessionStorage del navegador; null en el servidor o si el navegador no lo deja tocar. */
+export function browserSessionStorage(): AttemptStorage | null {
+  try {
+    return typeof window === 'undefined' ? null : window.sessionStorage;
+  } catch {
+    return null;
+  }
+}
+
 // ─── «Preparar fichas» ────────────────────────────────────────────────────
 
 /** Lo que pasó con la ficha acercada, para la lista de la pantalla. */

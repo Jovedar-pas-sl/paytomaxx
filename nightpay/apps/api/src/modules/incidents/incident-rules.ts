@@ -130,7 +130,7 @@ export function stuckIncident(r: StuckRow): Incident {
     kind: 'stuck_payment',
     refId: r.id,
     title: orphan ? 'Cobro sin confirmar por el banco' : 'Cobro atascado esperando al banco',
-    detail: `${eur(r.amountCents)}. Búscalo en el portal de BBVA y resuélvelo en Pagos → Resolver.`,
+    detail: `${eur(r.amountCents)}. Búscalo en el portal de BBVA y resuélvelo en Hoy → Cobros → Resolver.`,
     occurredAt: r.updatedAt.toISOString(),
     amountCents: r.amountCents,
     paymentId: r.id,
@@ -144,7 +144,7 @@ export function duplicateChargeIncident(r: EventRow): Incident {
     kind: 'duplicate_charge',
     refId: r.id,
     title: 'El cliente pagó dos veces',
-    detail: `Devuelve uno en el portal de BBVA${order ? ` (pedido ${order})` : ''} y regístralo en Pagos → Devolución BBVA.`,
+    detail: `Devuelve uno en el portal de BBVA${order ? ` (pedido ${order})` : ''} y regístralo en Hoy → Cobros → Devolución BBVA.`,
     occurredAt: r.occurredAt.toISOString(),
     amountCents: r.amountCents,
     paymentId: r.paymentId,
@@ -315,7 +315,7 @@ export function nightClosedPendingIncident(r: NightPendingRow): Incident {
     title: r.autoClosed
       ? 'La noche se cerró sola con cobros sin resolver'
       : 'La noche se cerró con cobros sin resolver',
-    detail: `${r.pendingAtClose === 1 ? '1 cobro quedó pendiente' : `${r.pendingAtClose} cobros quedaron pendientes`}. Resuélvelos en Pagos.`,
+    detail: `${r.pendingAtClose === 1 ? '1 cobro quedó pendiente' : `${r.pendingAtClose} cobros quedaron pendientes`}. Resuélvelos en Hoy → Cobros.`,
     occurredAt: r.closedAt.toISOString(),
     amountCents: null,
     paymentId: null,
@@ -380,7 +380,7 @@ export function posVoidedPaidIncident(r: EventRow): Incident {
     kind: 'pos_voided_paid',
     refId: r.id,
     title: 'Venta anulada en el datáfono y el cobro sigue pagado',
-    detail: `${r.amountCents === null ? '' : `${eur(r.amountCents)}. `}${op ? `Operación ${op}. ` : ''}El cliente no ha pagado: regístralo como devolución en Pagos para descontar la comisión de la chica, o vuelve a cobrarlo.`,
+    detail: `${r.amountCents === null ? '' : `${eur(r.amountCents)}. `}${op ? `Operación ${op}. ` : ''}El cliente no ha pagado: regístralo como devolución en Hoy → Cobros para descontar la comisión de la chica, o vuelve a cobrarlo.`,
     occurredAt: r.occurredAt.toISOString(),
     amountCents: r.amountCents,
     paymentId: r.paymentId,
@@ -485,7 +485,7 @@ export function bankMismatchKey(r: BankItemRow): string {
 const BANK_TEXT: Record<string, { title: string; hint: string }> = {
   NOT_PAID_HERE: {
     title: 'El banco cobró un pago que aquí no consta como pagado',
-    hint: 'Ábrelo en Pagos y resuélvelo con la autorización del banco.',
+    hint: 'Ábrelo en Hoy → Cobros y resuélvelo con la autorización del banco.',
   },
   NOT_IN_OXIOPAY: {
     title: `Venta en el banco que no está en ${BRAND_NAME}`,
@@ -501,7 +501,7 @@ const BANK_TEXT: Record<string, { title: string; hint: string }> = {
   },
   REFUND_NOT_IN_OXIOPAY: {
     title: 'Devolución hecha en el banco sin apuntar',
-    hint: 'Si es de un cobro, apúntala en Pagos → Devolución hecha en BBVA para que cuadre la parte de la chica. Si es de una recarga, esa pantalla no la admite: devuelve lo que quede con «Devolver saldo»; si ya se gastó, es dinero perdido: apúntalo aparte y márcala como revisada.',
+    hint: 'Si es de un cobro, apúntala en Hoy → Cobros → Devolución BBVA para que cuadre la parte de la chica. Si es de una recarga, esa pantalla no la admite: devuelve lo que quede con «Devolver saldo»; si ya se gastó, es dinero perdido: apúntalo aparte y márcala como revisada.',
   },
   REFUND_NOT_IN_BANK: {
     title: 'Devolución apuntada que el banco no tiene',
@@ -629,7 +629,7 @@ export function paymentAnomalyIncident(r: PaymentAnomalyRow): Incident {
       kind: 'amount_mismatch',
       refId: r.id,
       title: 'El banco aprobó un importe distinto',
-      detail: `Aprobado ${charged === null ? '?' : eur(charged)}${other} · el cobro era de ${expected === null ? '?' : eur(expected)}${orderText}. No se ha dado por pagado: compruébalo en ${provider.where} y resuélvelo en Pagos → Resolver (o devuelve el cargo).`,
+      detail: `Aprobado ${charged === null ? '?' : eur(charged)}${other} · el cobro era de ${expected === null ? '?' : eur(expected)}${orderText}. No se ha dado por pagado: compruébalo en ${provider.where} y resuélvelo en Hoy → Cobros → Resolver (o devuelve el cargo).`,
       amountCents: charged ?? r.amountCents,
       ackable: true,
     };
@@ -667,7 +667,7 @@ export function paymentAnomalyIncident(r: PaymentAnomalyRow): Incident {
       kind: 'approval_unverified',
       refId: r.paymentId ?? r.id,
       title: 'Recarga del datáfono sin comprobar',
-      detail: `El datáfono dice que cobró${r.amountCents === null ? '' : ` ${eur(r.amountCents)}`} con tarjeta${op ? ` (operación ${op})` : ''}, pero Paytef no lo ha confirmado y NO se ha sumado al saldo. Míralo en el panel de Paytef y, si está cobrado, resuélvelo en Pagos → Resolver con su código de autorización.`,
+      detail: `El datáfono dice que cobró${r.amountCents === null ? '' : ` ${eur(r.amountCents)}`} con tarjeta${op ? ` (operación ${op})` : ''}, pero Paytef no lo ha confirmado y NO se ha sumado al saldo. Míralo en el panel de Paytef y, si está cobrado, resuélvelo en Hoy → Cobros → Resolver con su código de autorización.`,
       amountCents: r.amountCents,
       ackable: false,
     };
@@ -677,7 +677,7 @@ export function paymentAnomalyIncident(r: PaymentAnomalyRow): Incident {
     kind: 'approval_unverified',
     refId: r.paymentId ?? r.id,
     title: 'Aviso de pago sin comprobar',
-    detail: `${provider.who} avisa de que el cliente pagó${r.amountCents === null ? '' : ` ${eur(r.amountCents)}`}, pero no se ha podido comprobar y NO se ha dado por pagado. Míralo en ${provider.where}${orderText} y, si está cobrado, resuélvelo en Pagos → Resolver.`,
+    detail: `${provider.who} avisa de que el cliente pagó${r.amountCents === null ? '' : ` ${eur(r.amountCents)}`}, pero no se ha podido comprobar y NO se ha dado por pagado. Míralo en ${provider.where}${orderText} y, si está cobrado, resuélvelo en Hoy → Cobros → Resolver.`,
     amountCents: r.amountCents,
     ackable: false,
   };

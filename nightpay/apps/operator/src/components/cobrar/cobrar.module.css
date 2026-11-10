@@ -26,7 +26,10 @@
 }
 
 .logoTile {
+  position: relative;
   flex: none;
+  min-width: 2.75rem;
+  min-height: 2.75rem;
   border: none;
   border-radius: var(--np-r-md);
   background: transparent;
@@ -36,10 +39,29 @@
   cursor: pointer;
 }
 
+/* El logo abre el menú (S-7): 44 px para el dedo como mínimo y un «≡»
+   pequeño en la esquina, para que se vea que se toca (un contador: radio 999). */
+.logoTile::after {
+  content: '≡';
+  position: absolute;
+  right: -0.25rem;
+  bottom: -0.25rem;
+  width: 1.125rem;
+  height: 1.125rem;
+  border-radius: var(--np-r-pill);
+  background: var(--np-surface-2);
+  box-shadow: inset 0 0 0 1px var(--np-border-hi);
+  color: var(--np-text);
+  font: 600 0.75rem/1.125rem var(--np-font-sans);
+  text-align: center;
+  pointer-events: none;
+}
+
+/* Atrás y los iconos de la cabecera: 48 px (con el pulgar, a oscuras). */
 .iconBtn {
   flex: none;
-  width: 2.75rem;
-  height: 2.75rem;
+  width: 3rem;
+  height: 3rem;
   border-radius: var(--np-r-md);
   display: grid;
   place-items: center;
@@ -154,16 +176,18 @@
   background: var(--c);
 }
 
-/* Loseta: el color de su sección al 26 % sobre la superficie, con texto
-   crema (decidido): se reconoce la sección sin llenar la pantalla. */
+/* Loseta (Grafito 2): el color sólido de su sección (cartaTileColor) con el
+   texto en tinta, ≥ 4,5:1 en todas (carta-colors.test.ts). El tinte del 26 %
+   con texto crema se veía apagado. Plana: sin halo ni degradado. En modo
+   «sala» no cambia (las secciones y la tinta son las mismas). */
 .tile {
   position: relative;
   min-height: 4rem;
   padding: 0.625rem 0.75rem;
   border: none;
   border-radius: var(--np-r-tile);
-  background: color-mix(in srgb, var(--c) 26%, var(--np-surface));
-  color: var(--np-text);
+  background: var(--c);
+  color: var(--np-on-section);
   display: flex;
   flex-direction: column;
   align-items: flex-start;
@@ -193,10 +217,10 @@
   font-size: 1.375rem;
 }
 
-/* Loseta elegida: anillo de 2 px crema y el contador (sin lima: el lima es
-   para «Cobrar»). */
+/* Loseta elegida: anillo de tinta de 3 px por dentro y el contador (sin lima:
+   el lima es para «Cobrar»). La tinta se ve sobre cualquier sección. */
 .tileOn {
-  box-shadow: inset 0 0 0 2px var(--np-text);
+  box-shadow: inset 0 0 0 3px var(--np-on-section);
 }
 
 .tileName {
@@ -214,7 +238,7 @@
   font-variant-numeric: tabular-nums;
 }
 
-/* Cuántas lleva: 22 px, fondo crema y texto del fondo. */
+/* Cuántas lleva: 22 px, en tinta con la cifra crema (como el anillo). */
 .count {
   position: absolute;
   top: 0.5rem;
@@ -223,8 +247,8 @@
   height: 1.375rem;
   padding: 0 0.3125rem;
   border-radius: var(--np-r-pill);
-  background: var(--np-text);
-  color: var(--np-bg);
+  background: var(--np-on-section);
+  color: var(--np-cream);
   font: 600 0.875rem/1 var(--np-font-num);
   font-variant-numeric: tabular-nums;
   display: grid;
@@ -240,7 +264,8 @@
   height: 1.5rem;
   display: grid;
   place-items: center;
-  color: var(--np-text);
+  /* En tinta, como el texto de la loseta. */
+  color: inherit;
 }
 
 .tileQr svg {
@@ -288,6 +313,12 @@
 /* Cuatro en fila (tres propinas y «Otro importe»): menos relleno, la palabra entera. */
 .lastRow:not([data-big]) .tile {
   padding-inline: 0.5rem;
+}
+
+/* Modo «sala» (la letra un paso más grande): cuatro en fila partían
+   «Propina» en dos; van en dos filas de dos. Los colores no cambian. */
+html[data-contrast='sala'] .lastRow[data-n='4']:not([data-big]) {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .empty {
@@ -668,10 +699,10 @@
   gap: 0.5rem;
 }
 
-/* Un solo tipo de paso: «−» y «+» iguales y neutros, 44 px y radio 10. */
+/* Un solo tipo de paso: «−» y «+» iguales y neutros, 48 px y radio 10. */
 .stepBtn {
-  width: 2.75rem;
-  height: 2.75rem;
+  width: 3rem;
+  height: 3rem;
   border-radius: var(--np-r-sm);
   display: grid;
   place-items: center;
@@ -1192,6 +1223,20 @@
   letter-spacing: 0;
 }
 
+/* La línea en inglés para el cliente, pegada al título y en t2 (PS-A10). */
+.waitEn {
+  margin: -0.375rem 0 0;
+  font-size: 0.875rem;
+  color: var(--np-text-mute);
+  text-align: center;
+}
+
+/* La parte en inglés de un texto para el cliente («Pon tu PIN · Enter your PIN»). */
+.en {
+  font-weight: 500;
+  color: var(--np-text-mute);
+}
+
 /* La placa blanca del QR: su relleno es el margen claro que piden los lectores. */
 .qr {
   flex: none;
@@ -1262,12 +1307,14 @@
   gap: 0.5rem;
 }
 
+/* Esperando: el punto que late, neutro como en StatusPill; el verde, solo
+   para «pagado» (antes parecía pagado antes de tiempo). */
 .live i {
   flex: none;
   width: 0.5rem;
   height: 0.5rem;
   border-radius: var(--np-r-pill);
-  background: var(--np-success);
+  background: var(--np-text);
   animation: np-cobrar-dot var(--np-pulse) ease-in-out infinite;
 }
 

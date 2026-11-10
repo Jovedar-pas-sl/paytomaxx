@@ -32,7 +32,7 @@ export function PayoutsReceived({ payouts, account }: Props) {
           {payouts.slice(0, SHOWN).map((p) => (
             <li key={p.id} style={itemStyle}>
               <div style={{ minWidth: 0 }}>
-                <p style={{ margin: 0, fontWeight: 700, fontSize: '1.0625rem' }}>
+                <p style={{ margin: 0, fontWeight: 500, fontSize: '1.0625rem' }}>
                   {dayLabel(p.createdAt)} <span style={muted}>· {timeLabel(p.createdAt)}</span>
                 </p>
                 <p style={metaText}>
@@ -59,27 +59,27 @@ function AccountLine({ account }: { account: PayoutAccount | null }) {
   return (
     <p style={accountStyle}>
       <span style={muted}>Te pagan a </span>
-      <strong className="np-num" style={{ fontSize: '0.9375rem', letterSpacing: '0.02em' }}>
+      <strong style={{ fontWeight: 600 }}>
         {parts.join(' · ')}
       </strong>
     </p>
   );
 }
 
+// Grafito: título de bloque 18/600 en t1, sin mayúsculas ni espaciado.
 const sectionTitle: CSSProperties = {
   margin: '0.5rem 0 0',
-  fontSize: 'var(--np-t-label)',
-  color: 'var(--np-text-label)',
-  letterSpacing: '0.1em',
-  textTransform: 'uppercase',
-  fontWeight: 700,
+  fontSize: 'var(--np-t-h3)',
+  color: 'var(--np-text)',
+  fontWeight: 600,
 };
 
+// Filete normal: el borde a trazos es, en Grafito, el del saldo y las recargas.
 const accountStyle: CSSProperties = {
   margin: 0,
   padding: '0.75rem 1rem',
-  background: 'var(--np-surface-2)',
-  border: '1px dashed var(--np-border-hi)',
+  background: 'var(--np-surface)',
+  border: '1px solid var(--np-border)',
   borderRadius: 'var(--np-r-md)',
   lineHeight: 1.5,
   overflowWrap: 'anywhere',
@@ -105,7 +105,7 @@ const itemStyle: CSSProperties = {
 
 const amountStyle: CSSProperties = {
   fontSize: '1.25rem',
-  fontWeight: 700,
+  fontWeight: 600,
   whiteSpace: 'nowrap',
 };
 

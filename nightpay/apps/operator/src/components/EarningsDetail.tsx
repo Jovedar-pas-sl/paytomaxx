@@ -56,7 +56,7 @@ function TonightDetail({ night, summary, earnings, holdDays }: Props) {
   const status = night ? tonightStatus(night, summary, holdDays, Date.now()) : null;
   return (
     <>
-      <Head title="Esta noche" amount={signedOrPlain(summary.tonightCents)} tone={summary.tonightCents < 0 ? 'danger' : 'accent'}>
+      <Head title="Esta noche" amount={signedOrPlain(summary.tonightCents)} tone={summary.tonightCents < 0 ? 'danger' : 'text'}>
         {status ? `${status.when}. ${status.state}.` : null}
         {night ? <><br />{tonightBreakdown(night)}</> : null}
       </Head>
@@ -79,10 +79,10 @@ function OtherNightsDetail({ night, summary, earnings }: Props) {
       {groups.map((g) => (
         <div key={g.key} style={{ display: 'flex', flexDirection: 'column' }}>
           <div style={groupHead}>
-            <span style={{ fontWeight: 700 }}>
+            <span style={{ fontWeight: 600 }}>
               Noche del {g.label} <span style={muted}>· {g.earnings.length} {g.earnings.length === 1 ? 'cobro' : 'cobros'}</span>
             </span>
-            <span className="np-num" style={{ fontWeight: 700 }}>
+            <span className="np-num" style={{ fontWeight: 600 }}>
               {formatEur(g.totalCents, { compact: true })}
             </span>
           </div>
@@ -223,10 +223,10 @@ function EarningList({ earnings, items, empty }: { earnings: MyEarning[] | null;
   );
 }
 
-type Tone = 'accent' | 'danger' | 'warning' | 'mute' | 'text';
+type Tone = 'danger' | 'warning' | 'mute' | 'text';
 
+// Grafito: lo que ganas, en t1 (la lima es para actuar, nunca para un total).
 const TONE_COLOR: Record<Tone, string> = {
-  accent: 'var(--np-accent)',
   danger: 'var(--np-danger)',
   warning: 'var(--np-warning)',
   mute: 'var(--np-text-mute)',
@@ -249,7 +249,7 @@ function Item({ title, detail, amount, tone = 'text' }: { title: string; detail:
   return (
     <li style={itemStyle}>
       <div style={{ minWidth: 0 }}>
-        <p style={{ margin: 0, fontWeight: 700 }}>{title}</p>
+        <p style={{ margin: 0, fontWeight: 500 }}>{title}</p>
         <p style={metaText}>{detail}</p>
       </div>
       <span className="np-num" style={{ ...itemAmount, color: TONE_COLOR[tone] }}>
@@ -263,21 +263,21 @@ function signedOrPlain(cents: number): string {
   return cents < 0 ? formatSignedEur(cents, { compact: true }) : formatEur(cents, { compact: true });
 }
 
+// Grafito: etiquetas 14/500 en t2, sin mayúsculas ni espaciado.
 const kicker: CSSProperties = {
   margin: 0,
   fontSize: 'var(--np-t-label)',
   color: 'var(--np-text-label)',
-  letterSpacing: '0.1em',
-  textTransform: 'uppercase',
-  fontWeight: 700,
+  fontWeight: 500,
 };
 
+// Cifra grande y suelta: Manrope 600 proporcional, sin apretar.
 const bigAmount: CSSProperties = {
   margin: 0,
   fontSize: 'clamp(2.25rem, 11vw, 3.25rem)',
-  fontWeight: 700,
-  letterSpacing: '-0.04em',
-  lineHeight: 1.05,
+  fontWeight: 600,
+  fontVariantNumeric: 'proportional-nums',
+  lineHeight: 1.1,
 };
 
 const explainStyle: CSSProperties = {
@@ -316,7 +316,7 @@ const itemStyle: CSSProperties = {
 
 const itemAmount: CSSProperties = {
   fontSize: '1.0625rem',
-  fontWeight: 700,
+  fontWeight: 600,
   whiteSpace: 'nowrap',
 };
 

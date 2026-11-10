@@ -53,13 +53,15 @@ const toast: CSSProperties = {
   gap: '0.5rem',
   minHeight: '3rem',
   padding: '0 1.25rem',
-  borderRadius: 'var(--np-r-pill)',
-  background: 'var(--np-card-oxio)',
-  color: 'var(--np-cream)',
-  boxShadow: '0 0 0 1.5px var(--np-lime), 0 12px 32px -12px var(--np-lime-glow)',
-  fontWeight: 700,
+  // Grafito: un aviso sobre la pantalla, con filete y la sombra del diálogo
+  // (sin anillo lima ni halo: la lima es para actuar); el punto verde, dinero que entra.
+  borderRadius: 'var(--np-r-md)',
+  background: 'var(--np-surface-2)',
+  color: 'var(--np-text)',
+  boxShadow: 'inset 0 0 0 1px var(--np-border-hi), 0 16px 40px -12px rgb(0 0 0 / 0.7)',
+  fontWeight: 500,
   fontSize: '1.0625rem',
   whiteSpace: 'nowrap',
 };
 
-const dot: CSSProperties = { width: '0.625rem', height: '0.625rem', borderRadius: '50%', background: 'var(--np-lime)' };
+const dot: CSSProperties = { width: '0.625rem', height: '0.625rem', borderRadius: '50%', background: 'var(--np-success)' };

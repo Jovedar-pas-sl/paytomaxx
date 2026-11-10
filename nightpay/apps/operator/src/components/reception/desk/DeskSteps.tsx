@@ -4,11 +4,31 @@ import { useState } from 'react';
 import { AmountKeypad, Input } from '@nightpay/ui';
 import { MAX_TYPED_AMOUNT_CENTS } from '@nightpay/contracts';
 import { formatEur } from '@/lib/money';
-import type { MethodButton, ExitPlan } from '@/lib/reception-desk';
+import { methodArmed, type MethodButton, type ExitPlan } from '@/lib/reception-desk';
+import { AMOUNT_HELP, METHOD_HELP, RECEPTION_HELP_SCREENS, tapHelp } from '@/lib/reception-help';
+import { HelpAgain, HelpLine, useHelp } from '../../HelpLine';
 import { CodeBoxes, DESK_FIELD, DeskBtn, DeskRowView, Icon, NfcMark } from './desk-parts';
 import s from './desk.module.css';
 
-/** 4.1 (y 4.5 sin nada leído): «Acerca el NFC», sin tocar nada. */
+/** La pregunta de un paso («¿Cuánto carga?») con, si su ayuda está cerrada, el «?» al lado. */
+function StepQuestion({ text, screen, help }: { text: string; screen: string; help: string }) {
+  const h = useHelp(screen);
+  return (
+    <div className={s.qBlock}>
+      <div className={s.qRow}>
+        <p className={s.q}>{text}</p>
+        <HelpAgain help={h} />
+      </div>
+      <HelpLine help={h}>{help}</HelpLine>
+    </div>
+  );
+}
+
+/**
+ * 4.1 (y 4.5 sin nada leído): «Acerca el NFC», sin tocar nada. Debajo, qué
+ * hacer (la línea de ayuda, que se cierra); un error, un aviso o el lector
+ * parado van en su lugar.
+ */
 export function TapStage(props: {
   mode: 'entrada' | 'salida';
   /** Este móvil no lee fichas (iPhone…): en vez de pedir que la acerquen, lo que se puede hacer aquí. */
@@ -21,14 +41,11 @@ export function TapStage(props: {
   /** «Guardado: R3D-8LP sigue con 35 €»: lo último que se hizo. */
   notice?: string | null;
 }) {
-  const text =
-    props.noReader?.text ??
-    (props.mode === 'entrada'
-      ? 'Por detrás del móvil. Sabe solo si es nuevo o si ya tiene saldo.'
-      : 'Por detrás del móvil: sale lo que le queda.');
-  const body = (
+  const help = useHelp(RECEPTION_HELP_SCREENS.nfc);
+  const status = props.stopped ?? props.noReader?.text ?? null;
+  const mark = props.noReader ? null : <NfcMark size="l" />;
+  const words = (
     <>
-      {props.noReader ? null : <NfcMark size="l" />}
       <p className={s.stageTitle}>{props.noReader?.title ?? (props.busy ? 'Leyendo…' : 'Acerca el NFC')}</p>
       {props.error ? (
         <p role="alert" className={s.stageError}>
@@ -38,22 +55,36 @@ export function TapStage(props: {
         <p role="status" className={s.stageNotice}>
           {props.notice}
         </p>
-      ) : (
-        <p className={s.stageText}>{props.stopped ?? text}</p>
-      )}
+      ) : status ? (
+        <p className={s.stageText}>{status}</p>
+      ) : null}
     </>
   );
   // Web NFC pide el permiso con un toque: entonces el escenario es el botón.
   if (props.stopped) {
     return (
       <button type="button" className={s.stage} onClick={props.onRestart} aria-label="Tocar para leer el NFC">
-        {body}
+        {mark}
+        {words}
       </button>
     );
   }
+  // Se anuncia lo que cambia solo (leyendo, un error, un aviso); la ayuda y sus botones, fuera de esa región.
+  const showHelp = !props.error && !props.notice && !status;
   return (
-    <div className={s.stage} aria-live="polite" aria-busy={props.busy || undefined}>
-      {body}
+    <div className={s.stage}>
+      {mark}
+      <div className={s.stageLive} aria-live="polite" aria-busy={props.busy || undefined}>
+        {words}
+      </div>
+      {showHelp ? (
+        <>
+          <HelpLine help={help} className={s.stageHelp}>
+            {tapHelp(props.mode)}
+          </HelpLine>
+          <HelpAgain help={help} />
+        </>
+      ) : null}
     </div>
   );
 }
@@ -70,7 +101,7 @@ export function AmountStep(props: {
   return (
     <>
       <DeskRowView title={props.row.title} detail={props.row.detail} />
-      <p className={s.q}>¿Cuánto carga?</p>
+      <StepQuestion text="¿Cuánto carga?" screen={RECEPTION_HELP_SCREENS.amount} help={AMOUNT_HELP} />
       <div className={s.quick}>
         {props.amounts.map((c) => (
           <button key={c} type="button" className={s.qb} onClick={() => props.onPick(c)}>
@@ -122,16 +153,22 @@ export function MethodStep(props: {
   loading: boolean;
 }) {
   const problems = props.buttons.filter((b) => b.problem).map((b) => b.problem);
+  // Cuándo salió esta pantalla: un toque en el primer medio segundo es el
+  // segundo de un doble toque en el importe, no «Efectivo» (S-1a).
+  const [armedAt] = useState(() => Date.now());
   return (
     <>
-      <div className={s.bigamt}>
-        <span className="np-chip" data-dashed="true">
-          {props.chip}
-        </span>
-        <p className={s.bignum}>{formatEur(props.amountCents, { compact: true })}</p>
-        {props.feeText ? <p className={s.lbl}>{props.feeText}</p> : null}
+      {/* s.methodTop: las opciones empiezan por debajo de donde estaban los importes. */}
+      <div className={s.methodTop}>
+        <div className={s.bigamt}>
+          <span className="np-chip" data-dashed="true">
+            {props.chip}
+          </span>
+          <p className={s.bignum}>{formatEur(props.amountCents, { compact: true })}</p>
+          {props.feeText ? <p className={s.lbl}>{props.feeText}</p> : null}
+        </div>
+        <StepQuestion text="¿Cómo paga?" screen={RECEPTION_HELP_SCREENS.method} help={METHOD_HELP} />
       </div>
-      <p className={s.q}>¿Cómo paga?</p>
       {props.loading ? <p className={s.lbl}>Cargando…</p> : null}
       {props.blocked ? (
         <p role="alert" className={s.error}>
@@ -149,7 +186,9 @@ export function MethodStep(props: {
             small={t.small}
             disabled={b.problem !== null || props.blocked !== null}
             busy={props.busy}
-            onClick={() => props.onPick(b.method)}
+            onClick={() => {
+              if (methodArmed(armedAt, Date.now())) props.onPick(b.method);
+            }}
           />
         );
       })}

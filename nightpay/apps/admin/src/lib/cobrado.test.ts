@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { cobradoNote, metricsCobradoParts, zClosedLines, zCobradoParts } from './cobrado';
+import { COBRADO_HELP, COBRADO_PARTS_HINT, cobradoNote, metricsCobradoParts, tonightCobradoNote, zClosedLines, zCobradoParts } from './cobrado';
 import { formatEur } from './money';
 
 // «Hoy · cobrado» y el Z: lo cobrado incluye las recargas (con tarjeta, ya en
@@ -25,7 +25,7 @@ describe('lo cobrado, por partes', () => {
     expect(p).toEqual({ salesCents: 53_300, tipCents: 2_600, topUpCents: 55_000 });
     expect(p!.salesCents + p!.tipCents + p!.topUpCents).toBe(DEMO_HOY.chargedCents);
     expect(cobradoNote(p, formatEur)).toBe(
-      `${formatEur(53_300)} de ventas + ${formatEur(2_600)} de propinas + ${formatEur(55_000)} de recargas`,
+      `${formatEur(53_300)} de ventas con tarjeta + ${formatEur(2_600)} de propinas con tarjeta + ${formatEur(55_000)} de recargas`,
     );
   });
 
@@ -35,7 +35,7 @@ describe('lo cobrado, por partes', () => {
   });
 
   it('lo que es 0 no se nombra; sin nada, sin subtítulo', () => {
-    expect(cobradoNote({ salesCents: 53_300, tipCents: 0, topUpCents: 0 }, formatEur)).toBe(`${formatEur(53_300)} de ventas`);
+    expect(cobradoNote({ salesCents: 53_300, tipCents: 0, topUpCents: 0 }, formatEur)).toBe(`${formatEur(53_300)} de ventas con tarjeta`);
     expect(cobradoNote({ salesCents: 0, tipCents: 0, topUpCents: 45_000 }, formatEur)).toBe(`${formatEur(45_000)} de recargas`);
     expect(cobradoNote({ salesCents: 0, tipCents: 0, topUpCents: 0 }, formatEur)).toBeNull();
   });
@@ -60,7 +60,7 @@ describe('la línea del Z congelado (prueba real: «17 pagos con tarjeta · cobr
 
   it('como el resumen de las 9:00: «Cobrado» con su desglose y, aparte, «Con tarjeta» con su importe', () => {
     expect(zClosedLines(z, formatEur)).toEqual({
-      cobrado: `Cobrado: ${formatEur(245_000)} (${formatEur(58_200)} de ventas + ${formatEur(2_800)} de propinas + ${formatEur(184_000)} de recargas)`,
+      cobrado: `Cobrado: ${formatEur(245_000)} (${formatEur(58_200)} de ventas con tarjeta + ${formatEur(2_800)} de propinas con tarjeta + ${formatEur(184_000)} de recargas)`,
       card: `Con tarjeta: 17 pagos · ${formatEur(78_000)}`,
     });
   });
@@ -80,7 +80,7 @@ describe('con la «Comisión del servicio» (la paga el cliente encima; se debe 
     const p = metricsCobradoParts(hoy);
     expect(p).toEqual({ salesCents: 3_300, tipCents: 200, topUpCents: 10_000, serviceFeeCents: 1_530 });
     expect(cobradoNote(p, formatEur)).toBe(
-      `${formatEur(3_300)} de ventas + ${formatEur(200)} de propinas + ${formatEur(10_000)} de recargas + ${formatEur(1_530)} de comisión del servicio`,
+      `${formatEur(3_300)} de ventas con tarjeta + ${formatEur(200)} de propinas con tarjeta + ${formatEur(10_000)} de recargas + ${formatEur(1_530)} de comisión del servicio`,
     );
   });
 
@@ -101,5 +101,28 @@ describe('con la «Comisión del servicio» (la paga el cliente encima; se debe 
 
   it('sin ella, como siempre (ni la parte ni el texto)', () => {
     expect(metricsCobradoParts({ ...hoy, serviceFeeCents: undefined })).toEqual({ salesCents: 3_300, tipCents: 200, topUpCents: 10_000 });
+  });
+});
+
+describe('«Cobrado» en «Esta noche»: qué cuenta, sin otra línea de ayuda', () => {
+  it('con desglose, el desglose con sus cifras (ya dice de qué está hecho)', () => {
+    const note = cobradoNote(metricsCobradoParts(DEMO_HOY), formatEur);
+    expect(tonightCobradoNote({ chargedNote: note })).toBe(note);
+  });
+
+  it('sin desglose (todo a 0 o un Z de antes): de qué está hecho, sin cifras que puedan no cuadrar', () => {
+    expect(tonightCobradoNote({ chargedNote: null })).toBe(COBRADO_PARTS_HINT);
+    expect(COBRADO_PARTS_HINT).toBe('Suma ventas, propinas y recargas');
+    expect(COBRADO_PARTS_HINT).not.toMatch(/\d/);
+  });
+
+  it('sin noche abierta o cargando: nada debajo de «—»', () => {
+    expect(tonightCobradoNote(null)).toBeNull();
+    expect(tonightCobradoNote(undefined)).toBeNull();
+  });
+
+  it('la frase entera (al pasar el ratón) nombra todo lo que suma, también el efectivo y la comisión', () => {
+    for (const part of ['ventas', 'propinas', 'recargas', 'efectivo', 'comisión del servicio']) expect(COBRADO_HELP).toContain(part);
+    expect(COBRADO_HELP).not.toMatch(/[!¡]/);
   });
 });

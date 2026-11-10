@@ -42,11 +42,11 @@ export function IncidentsPanel({ isOwner, tabs, onNavigate, onOpenPayment, hidde
 
   return (
     <section style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-      <h2 style={titleStyle}>Incidencias</h2>
+      <h2 style={titleStyle}>Avisos</h2>
 
       {feed.error ? (
         <Notice tone="danger" action={{ label: 'Reintentar', onClick: refresh }}>
-          No se pudieron cargar las incidencias: {feed.error}
+          No se pudieron cargar los avisos: {feed.error}
           {open ? ' · se siguen enseñando las últimas.' : ''}
         </Notice>
       ) : null}

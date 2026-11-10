@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, type CSSProperties } from 'react';
-import { Card, Logo, ThemeToggle } from '@nightpay/ui';
+import { Card, Logo, ThemeToggle, InstallHint } from '@nightpay/ui';
 import { LoginForm } from '@/components/LoginForm';
 import { CashRegister } from '@/components/CashRegister';
 import { SESSION_EXPIRED_EVENT, getVenueSlug, hasSession } from '@/lib/api';
@@ -80,6 +80,8 @@ export default function Page() {
             }}
           />
         </Card>
+        {/* Fuera del cobro: el aviso de instalar como app (no sale si ya lo está). */}
+        <InstallHint style={{ width: '100%', maxWidth: '24rem' }} />
       </main>
     );
   }

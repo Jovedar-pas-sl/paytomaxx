@@ -9,79 +9,196 @@
   margin: 0;
 }
 
+/* El título y, con la ayuda cerrada, su «?». */
+.titleRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  min-height: 2.75rem;
+}
+
+/* «¿Qué significa cada estado?» (Grafito 2): cerrado de entrada, con filete. */
+.help {
+  border: 1px solid var(--np-border);
+  border-radius: var(--np-r-md);
+  background: var(--np-surface);
+}
+
+.help > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  min-height: 3rem;
+  padding: 0 1rem;
+  font: 500 0.9375rem/1.3 var(--np-font-sans);
+  color: var(--np-text);
+  list-style: none;
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.help > summary::-webkit-details-marker {
+  display: none;
+}
+
+/* La flecha: abajo cerrado, arriba abierto. */
+.help > summary::after {
+  content: '';
+  flex: none;
+  width: 0.5rem;
+  height: 0.5rem;
+  margin-right: 0.25rem;
+  border-right: 2px solid var(--np-text-mute);
+  border-bottom: 2px solid var(--np-text-mute);
+  transform: translateY(-2px) rotate(45deg);
+}
+
+.help[open] > summary::after {
+  transform: translateY(2px) rotate(-135deg);
+}
+
+.helpBody {
+  display: grid;
+  gap: 0.875rem;
+  padding: 0.25rem 1rem 1rem;
+  border-top: 1px solid var(--np-border);
+}
+
+.helpTitle {
+  margin: 0.25rem 0 0;
+  font: 600 0.9375rem/1.3 var(--np-font-sans);
+  color: var(--np-text);
+}
+
+.legend,
+.cases {
+  margin: 0;
+  display: grid;
+  gap: 0.75rem;
+}
+
+/* Cada estado: su chip (el mismo de las filas) y qué hacer. */
+.legend > div {
+  --row-c: var(--np-text-mute);
+  --row-bg: var(--np-pill-mute-bg);
+  display: grid;
+  justify-items: start;
+  gap: 0.375rem;
+  padding-top: 0.75rem;
+}
+
+.legend > div[data-tone='ok'] { --row-c: var(--np-success); --row-bg: var(--np-pill-success-bg); }
+.legend > div[data-tone='wait'] { --row-c: var(--np-warning); --row-bg: var(--np-pill-warning-bg); }
+.legend > div[data-tone='bad'] { --row-c: var(--np-danger); --row-bg: var(--np-pill-danger-bg); }
+
+.legend dt,
+.cases dt {
+  margin: 0;
+}
+
+.legend dd,
+.cases dd {
+  margin: 0;
+  font-size: 0.9375rem;
+  line-height: 1.4;
+  color: var(--np-text-mute);
+}
+
+/* «Si pasa esto»: la situación en t1 y qué hacer debajo, en t2. */
+.cases > div {
+  display: grid;
+  gap: 0.125rem;
+}
+
+.cases dt {
+  font: 500 0.9375rem/1.35 var(--np-font-sans);
+  color: var(--np-text);
+}
+
 .note {
   margin: 0;
   color: var(--np-text-mute);
   font-size: 0.9375rem;
 }
 
-/* El total de la noche, arriba. */
+/* El total de la noche, arriba (Grafito): tarjeta plana con filete, la
+   etiqueta en t2 sin mayúsculas y la cifra 40/600 en t1. Sin degradado ni
+   lima: el color es para lo que se toca y para los estados. */
 .night {
   display: grid;
   gap: 0.125rem;
   padding: 0.875rem 1rem 1rem;
+  border: 1px solid var(--np-border);
   border-radius: var(--np-r-lg);
-  background:
-    var(--np-bits),
-    linear-gradient(125deg, var(--np-green-1), var(--np-green-2));
-  /* Sin borde lima: el lima es para la acción y el «pagado», no para un total. */
-  box-shadow: 0 0 0 1px rgb(239 233 223 / 0.18);
-  color: var(--np-cream);
+  background: var(--np-surface);
+  color: var(--np-text);
 }
 
 .kicker {
-  font: 700 0.8125rem/1.2 var(--np-font-sans);
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  opacity: 0.85;
+  font: 500 0.875rem/1.3 var(--np-font-sans);
+  color: var(--np-text-mute);
 }
 
+/* Cifra grande y suelta: proporcional (las tabulares dejan huecos). */
 .nightTotal {
-  font: 800 2.5rem/1.05 var(--np-font-num);
-  letter-spacing: -0.03em;
-  font-variant-numeric: tabular-nums;
-  color: var(--np-cream);
+  font: 600 2.5rem/1.1 var(--np-font-num);
+  font-variant-numeric: proportional-nums;
+  color: var(--np-text);
 }
 
 .nightLine {
   font-size: 0.875rem;
-  font-weight: 600;
-}
-
-.night .note {
-  color: var(--np-cream);
-  opacity: 0.85;
+  font-weight: 500;
+  color: var(--np-text-mute);
 }
 
 .tags {
   display: flex;
   flex-wrap: wrap;
   gap: 0.375rem;
-  margin-top: 0.375rem;
+  margin-top: 0.5rem;
 }
 
+/* Etiquetas como los chips de Grafito (.np-chip): radio 6, superficie neutra,
+   14/500 y un punto de color que nunca va solo (siempre con su palabra):
+   Propinas en su azul, la recarga con el punto hueco (no es venta) y lo
+   pendiente en ámbar. */
 .tipTag,
 .saleTag,
-.waitTag {
+.waitTag,
+.tip {
   display: inline-flex;
   align-items: center;
+  gap: 0.375rem;
   min-height: 1.75rem;
   padding: 0 0.625rem;
-  border-radius: var(--np-r-pill);
+  border-radius: var(--np-r-xs);
+  background: var(--np-surface-2);
+  color: var(--np-text);
   font-size: 0.875rem;
-  font-weight: 700;
+  font-weight: 500;
+  line-height: 1.1;
   white-space: nowrap;
 }
 
-.tipTag {
+.tipTag::before,
+.saleTag::before,
+.waitTag::before,
+.tip::before {
+  content: '';
+  flex: none;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: var(--np-r-pill);
   background: var(--np-sec-propinas);
-  color: var(--np-on-section);
 }
 
-.saleTag {
-  background: var(--np-pill-mute-bg);
-  color: var(--np-text-label);
-  border: 1px dashed var(--np-border-hi);
+.saleTag::before {
+  background: transparent;
+  box-shadow: inset 0 0 0 1.5px var(--np-sec-saldo);
 }
 
 .waitTag {
@@ -89,13 +206,12 @@
   color: var(--np-warning);
 }
 
-.night .saleTag {
-  background: rgb(0 0 0 / 0.25);
-  color: var(--np-cream);
-  border-color: rgb(239 233 223 / 0.45);
+.waitTag::before {
+  background: var(--np-warning);
 }
 
-/* Un cobro: el borde y el chip, del color de su estado. */
+/* Un cobro: el chip del color de su estado y, a la izquierda, un filete fino
+   del mismo color (se ve de un vistazo sin pesar). */
 .row {
   --row-c: var(--np-text-mute);
   --row-bg: var(--np-pill-mute-bg);
@@ -103,7 +219,7 @@
   gap: 0.25rem;
   padding: 0.875rem 1rem 1rem;
   border: 1px solid var(--np-border);
-  border-left: 0.375rem solid var(--row-c);
+  border-left: 3px solid var(--row-c);
   border-radius: var(--np-r-lg);
   background: var(--np-surface);
   min-width: 0;
@@ -120,18 +236,19 @@
   gap: 0.5rem;
 }
 
+/* El estado: como los del panel (fondo teñido, texto del color, radio 6), con
+   su icono (el color nunca va solo). */
 .chip {
   display: inline-flex;
   align-items: center;
   gap: 0.375rem;
   min-height: 2rem;
-  padding: 0 0.75rem 0 0.5rem;
-  border-radius: var(--np-r-pill);
+  padding: 0 0.625rem 0 0.5rem;
+  border-radius: var(--np-r-xs);
   background: var(--row-bg);
   color: var(--row-c);
-  border: 1.5px solid var(--row-c);
   font-size: 0.9375rem;
-  font-weight: 800;
+  font-weight: 500;
 }
 
 .chip svg {
@@ -141,13 +258,13 @@
 }
 
 .time {
-  font: 700 1rem var(--np-font-num);
-  color: var(--np-text-label);
+  font: 600 1rem var(--np-font-num);
+  color: var(--np-text-mute);
 }
 
 .amount {
-  font: 800 1.75rem/1.1 var(--np-font-num);
-  letter-spacing: -0.02em;
+  font: 600 1.75rem/1.15 var(--np-font-num);
+  font-variant-numeric: proportional-nums;
 }
 
 .amount[data-gone] {
@@ -156,36 +273,27 @@
   text-decoration-thickness: 2px;
 }
 
-/* La propina, en su línea: una pastilla del color de Propinas (se lee en los dos temas). */
+/* La propina, en su línea: su chip con el punto azul de Propinas. */
 .tip {
   justify-self: start;
-  display: inline-flex;
-  align-items: center;
-  min-height: 1.75rem;
-  padding: 0 0.625rem;
-  border-radius: var(--np-r-pill);
-  background: var(--np-sec-propinas);
-  color: var(--np-on-section);
-  font-size: 0.9375rem;
-  font-weight: 800;
 }
 
 .refund {
   font-size: 0.9375rem;
-  font-weight: 700;
-  color: var(--np-text-label);
+  font-weight: 500;
+  color: var(--np-text-mute);
 }
 
 /* Cobrado dos veces (el saldo y después la tarjeta), como en el panel: en rojo hasta que se devuelve. */
 .twice {
   font-size: 0.9375rem;
-  font-weight: 700;
-  line-height: 1.3;
-  color: var(--np-danger);
+  font-weight: 500;
+  line-height: 1.35;
+  color: var(--np-danger-text);
 }
 
 .twice[data-refunded] {
-  color: var(--np-text-label);
+  color: var(--np-text-mute);
 }
 
 /* Cancelar un cobro aún sin pagar (la chica). */
@@ -195,19 +303,26 @@
   margin-top: 0.25rem;
 }
 
+/* Qué se cobró: 16/500, como el nombre en las losetas de la carta. */
 .what {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 0.25rem 0.5rem;
-  font-size: 1.0625rem;
-  font-weight: 700;
+  font-size: 1rem;
+  font-weight: 500;
   overflow-wrap: anywhere;
 }
 
+.what .saleTag {
+  color: var(--np-text-mute);
+}
+
+/* A quién se invitó, un paso por debajo de lo que se cobró. */
 .invited {
   font-size: 0.9375rem;
-  font-weight: 600;
+  font-weight: 500;
+  color: var(--np-text-mute);
 }
 
 .meta {

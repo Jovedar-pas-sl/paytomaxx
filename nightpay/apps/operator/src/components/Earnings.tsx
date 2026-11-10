@@ -159,10 +159,10 @@ function Row({ label, sub, amount, color, onClick }: { label: string; sub: strin
   return (
     <button type="button" className={styles.row} onClick={onClick}>
       <span style={{ display: 'flex', flexDirection: 'column', gap: '0.125rem', minWidth: 0 }}>
-        <span style={{ fontSize: '1rem', fontWeight: 700, lineHeight: 1.3 }}>{label}</span>
+        <span style={{ fontSize: '1rem', fontWeight: 500, lineHeight: 1.3 }}>{label}</span>
         <span style={{ fontSize: '0.875rem', color: 'var(--np-text-mute)', lineHeight: 1.35 }}>{sub}</span>
       </span>
-      <span className="np-num" style={{ fontSize: '1.125rem', fontWeight: 700, color, whiteSpace: 'nowrap' }}>
+      <span className="np-num" style={{ fontSize: '1.125rem', fontWeight: 600, color, whiteSpace: 'nowrap' }}>
         {amount}
       </span>
       <Chevron />
@@ -220,24 +220,23 @@ function capitalize(text: string): string {
   return text.charAt(0).toUpperCase() + text.slice(1);
 }
 
+// Grafito: tarjeta plana con filete, sin la raya lima (la lima es para actuar).
 const nextStyle: CSSProperties = {
   display: 'flex',
   alignItems: 'center',
   justifyContent: 'space-between',
   gap: '1rem',
-  padding: '0.875rem 1.125rem',
-  background: 'var(--np-surface-2)',
-  borderLeft: '4px solid var(--np-accent)',
-  borderRadius: 'var(--np-r-md)',
+  padding: '0.875rem 1rem',
+  background: 'var(--np-surface)',
+  border: '1px solid var(--np-border)',
+  borderRadius: 'var(--np-r-lg)',
 };
 
 const nextLabel: CSSProperties = {
   margin: 0,
   fontSize: 'var(--np-t-label)',
   color: 'var(--np-text-label)',
-  letterSpacing: '0.1em',
-  textTransform: 'uppercase',
-  fontWeight: 700,
+  fontWeight: 500,
 };
 
 const nextExplain: CSSProperties = {
@@ -248,8 +247,8 @@ const nextExplain: CSSProperties = {
 };
 
 const nextAmount: CSSProperties = {
-  fontSize: '1.5rem',
-  fontWeight: 700,
-  color: 'var(--np-accent)',
+  fontSize: '1.375rem',
+  fontWeight: 600,
+  color: 'var(--np-text)',
   whiteSpace: 'nowrap',
 };

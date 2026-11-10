@@ -3,6 +3,7 @@ import type { ReactNode } from 'react';
 import localFont from 'next/font/local';
 import '@nightpay/ui/styles.css';
 import { SALA_INIT_SCRIPT } from '@/lib/sala-contrast';
+import { appleAppMetadata } from '@nightpay/ui/app-manifest';
 
 // Fuentes dentro del repo (packages/ui/fonts, licencia OFL): el build no
 // descarga nada de Google Fonts. Variables, con los mismos pesos de antes.
@@ -24,6 +25,8 @@ const mono = localFont({
 
 export const metadata: Metadata = {
   title: 'OxioPay — Personal',
+  // Añadida a la pantalla de inicio, se abre como app (icono de OxioPay, sin barra del navegador).
+  ...appleAppMetadata('OxioPay'),
 };
 
 export const viewport: Viewport = {

@@ -147,9 +147,9 @@ export function cobrosStep(
   const status = worst(items);
   const detail =
     status === 'block'
-      ? 'Hay un cliente pagando ahora mismo: espera o resuélvelo en Pagos.'
+      ? 'Hay un cliente pagando ahora mismo: espera o resuélvelo en Hoy → Cobros.'
       : status === 'warn'
-        ? 'Resuélvelos en Pagos. Si cierras igual, explica por qué en la nota: quedan apuntados como pendientes.'
+        ? 'Resuélvelos en Hoy → Cobros. Si cierras igual, explica por qué en la nota: quedan apuntados como pendientes.'
         : 'Todos los cobros y devoluciones de la noche están terminados.';
   return step('cobros', 'Cobros sin terminar', status, detail, items, 'payments');
 }
@@ -168,7 +168,7 @@ function paymentItem(p: UnresolvedPaymentRow, now: Date): NightCloseItem {
 
 function unresolvedWhat(p: UnresolvedPaymentRow, unproven: boolean, fresh: boolean): string {
   if (p.captureMethod === 'POS_EXTERNAL') return 'datáfono sin confirmar';
-  if (unproven) return 'recarga del datáfono sin comprobar con Paytef: resuélvela en Pagos';
+  if (unproven) return 'recarga del datáfono sin comprobar con Paytef: resuélvela en Hoy → Cobros';
   if (p.captureMethod === 'WALLET_TOPUP' && p.status === 'CREATED') return 'recarga a medio cobrar en el datáfono: mira el lector';
   if (p.status === 'ORPHAN') return 'el banco no lo confirmó: búscalo en BBVA';
   return fresh ? 'el cliente está pagando' : 'atascado esperando al banco';

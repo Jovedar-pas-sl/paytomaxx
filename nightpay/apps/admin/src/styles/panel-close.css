@@ -365,6 +365,9 @@
   margin-left: 0.5rem;
   padding: 0;
   border: 0;
+  /* 44 px para el dedo sin mover la línea (P-17): el relleno se come con el margen. */
+  min-height: 2.75rem;
+  margin-block: -0.75rem;
   background: none;
   color: var(--np-text);
   font: inherit;

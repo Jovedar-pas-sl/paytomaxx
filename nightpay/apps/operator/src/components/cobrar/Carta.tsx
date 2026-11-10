@@ -3,7 +3,7 @@
 import { Fragment, useCallback, useEffect, useRef, type CSSProperties, type ReactNode } from 'react';
 import { STICKY_ACTION_BOTTOM } from '../layout';
 import { formatEur } from '@/lib/money';
-import { cartaGroups, cartaTiles, tapOf } from '@/lib/carta-tiles';
+import { cartaGroups, cartaTileColor, cartaTiles, tapOf } from '@/lib/carta-tiles';
 import { cobrarLabel, itemTileKey, tileLabel, tipTileKey, undoFocusTarget, type UndoTap } from '@/lib/carta-view';
 import { PROPINAS, chargeable, itemLabel, cuentaSummary, cuentaTotals, qtyOf, type CartaItem, type Cuenta } from '@/lib/cuenta';
 import { colorOf, labelOf, offeredCodes, puestoChip, tipTiles, type CobrarContext } from './cobrar-context';
@@ -34,8 +34,9 @@ interface Props {
 }
 
 /**
- * «Cobrar», variante A (maqueta 1.1), en Grafito: las losetas con el tinte de
- * su sección (26 %) y el título de cada sección una sola vez, solo las que su
+ * «Cobrar», variante A (maqueta 1.1), en Grafito: cada loseta del color sólido
+ * de su sección con el texto en tinta (Grafito 2: el tinte del 26 % se veía
+ * apagado) y el título de cada sección una sola vez, solo las que su
  * puesto cobra. Tocar suma a la cuenta (×N); abajo, el resumen y «Cobrar N €». «Copa con invitación» es una loseta más (en la carta de
  * referencia, justo después de «Copa»): tocarla abre el escáner del QR de la
  * chica. La chica ve Servicios y Propinas, más grandes; la habitación no es
@@ -105,12 +106,12 @@ export function Carta({
                 key={`tip-${cents}`}
                 type="button"
                 className={`${styles.tile}${big ? ` ${styles.tileBig}` : ''}`}
-                style={{ '--c': colorOf(PROPINAS) } as CSSProperties}
+                style={{ '--c': cartaTileColor(PROPINAS) } as CSSProperties}
                 data-tile={tipTileKey(cents)}
                 onClick={() => onTip(cents)}
                 aria-label={`Propina de ${formatEur(cents)}`}
               >
-                {/* Su tinte va con su nombre («Propina»): no hace falta título de grupo. */}
+                {/* Su color va con su nombre («Propina»): no hace falta título de grupo. */}
                 <span className={styles.tileName}>Propina</span>
                 <span className={styles.price}>{formatEur(cents, { compact: true })}</span>
               </button>
@@ -136,7 +137,7 @@ export function Carta({
             .
           </p>
         ) : ctx.cartaLoaded && items.length === 0 ? (
-          <p className={styles.empty}>No hay productos disponibles para tu puesto. El dueño o encargado debe configurar la carta en Administración → Carta y comprobar las secciones del puesto.{' '}
+          <p className={styles.empty}>No hay productos disponibles para tu puesto. El dueño o encargado debe configurar la carta en Ajustes → Carta y comprobar las secciones del puesto.{' '}
             <button type="button" className={styles.link} onClick={onRetryCarta}>Actualizar carta</button>
           </p>
         ) : null}
@@ -238,8 +239,8 @@ function ItemTile({
   big: boolean;
   onPick: () => void;
 }) {
-  // El tinte de su sección (la de la loseta; un pack, la suya): el nombre de la sección va en el título del grupo.
-  const style = { '--c': colorOf(item.category) } as CSSProperties;
+  // El color sólido de su sección (un pack, la suya), con tinta encima: el nombre de la sección va en el título del grupo.
+  const style = { '--c': cartaTileColor(item.category) } as CSSProperties;
   const cls = [styles.tile, big ? styles.tileBig : '', qty > 0 ? styles.tileOn : ''].filter(Boolean).join(' ');
   // La copa con invitación no va a la cuenta: se cobra aparte, con el QR de la chica.
   const invite = tapOf(item) === 'invitar';

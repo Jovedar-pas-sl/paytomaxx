@@ -3,6 +3,32 @@
    dinero, destacado en su bloque oscuro (crema encima, 11:1), y el QR de
    «Activar Face ID en su móvil» detrás, con filete y sin bloque. */
 
+/* CARGADO es el resultado con más cosas (el dinero, la ficha, la ayuda, el
+   PIN y, si lo pide, el QR de Face ID): huecos de 8 en vez de 12, y la marca
+   y el importe de 56 (lo mínimo de Grafito), para que a 360×740 los dos
+   botones se vean sin bajar. */
+.body {
+  gap: 0.5rem;
+  padding-top: 0.75rem;
+}
+
+.body :global(.np-outcome-ring) {
+  width: 3.5rem;
+  height: 3.5rem;
+}
+
+.body :global(.np-outcome-amount) {
+  font-size: min(3.5rem, calc(88vw / var(--np-fit, 6)));
+}
+
+/* «Prefiere pagar con el móvil»: sobre el verde, como el secundario del
+   resultado (filete crema y sin fondo), no el gris de las pantallas oscuras. */
+.body :global(.np-btn[data-variant='ghost']) {
+  background: transparent;
+  color: inherit;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--np-outcome-ink) 60%, transparent);
+}
+
 /* «Efectivo: 50 € a la caja»: lo que hace recepción, destacado en su bloque. */
 .resLeft {
   margin: 0;
@@ -13,8 +39,8 @@
   gap: 0.5rem;
   width: 100%;
   max-width: 26rem;
-  min-height: 3.5rem;
-  padding: 0.75rem 1rem;
+  min-height: 3rem;
+  padding: 0.625rem 1rem;
   border-radius: var(--np-r-md);
   background: rgb(0 0 0 / 0.24);
   font-size: 1.125rem;
@@ -38,21 +64,60 @@
   font-weight: 500;
 }
 
+/* CARGADO: qué hacer ahora (HelpLine), del ancho del bloque y en la crema
+   del resultado (8,4:1): el t2 de las pantallas oscuras se ve azulado sobre
+   el verde. Doble clase: gana a la de la línea. */
+.resHelp.resHelp {
+  max-width: 26rem;
+  color: color-mix(in srgb, var(--np-outcome-ink) 85%, transparent);
+}
+
+/* Los botones, pegados abajo: aunque el QR de Face ID no quepa (un móvil más
+   bajo), se ven sin bajar; lo demás pasa por debajo, del mismo verde. */
 .resFoot {
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
   flex: none;
   display: flex;
   justify-content: center;
-  padding: 0 1rem max(1.5rem, env(safe-area-inset-bottom, 0px));
+  padding: 0 1rem env(safe-area-inset-bottom, 0px);
+  background: var(--np-outcome-bg);
 }
 
+/* Lo que salió mal (el NFC no se pudo dar…): en su caja oscura. */
 .resWarn {
   margin: 0;
   max-width: 26rem;
-  padding: 0.625rem 1rem;
+  padding: 0.5rem 0.875rem;
   border-radius: var(--np-r-md);
   background: var(--np-ink-0);
   color: var(--np-cream);
+  font-size: 0.9375rem;
   font-weight: 500;
+  line-height: 1.4;
+}
+
+/* La nota del PIN, como en «¿Cómo paga?»: una línea con su candado ámbar
+   (6,7:1 sobre el verde), sin caja. */
+.resNote {
+  margin: 0;
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  max-width: 26rem;
+  font-size: 0.9375rem;
+  font-weight: 500;
+  line-height: 1.4;
+  text-align: left;
+}
+
+.resNote svg {
+  flex: none;
+  width: 1.25rem;
+  height: 1.25rem;
+  margin-top: 0.0625rem;
+  color: var(--np-warning);
 }
 
 /* Detrás del bloque del dinero: con filete y sin fondo, para no competir con él. */
@@ -70,12 +135,77 @@
 .activateText {
   display: flex;
   flex-direction: column;
-  gap: 0.25rem;
+  gap: 0.125rem;
   font-size: 0.875rem;
-  line-height: 1.35;
+  line-height: 1.3;
+}
+
+/* La línea para el cliente (PS-A12): en la crema algo más suave, debajo. */
+.activateClient {
+  margin-top: 0.125rem;
+  color: color-mix(in srgb, var(--np-outcome-ink) 85%, transparent);
 }
 
 .activateText b {
   font-size: 1rem;
   font-weight: 600;
+}
+
+/* La marca y la palabra: sin caja propia (como si fueran hijas del cuerpo);
+   en una pantalla baja pasan a una fila (abajo). */
+.headline {
+  display: contents;
+}
+
+/* Pantallas bajas (PS-A12): el QR de Face ID y su línea para el cliente,
+   enteros por encima de los botones sin bajar. Se juntan los huecos y el pie;
+   los botones no bajan (56 y 48 px). A 360×740 faltaban 10 px. */
+@media (max-height: 780px) {
+  .body {
+    gap: 0.375rem;
+    padding-top: 0.5rem;
+  }
+
+  .resFoot :global(.np-outcome-actions) {
+    padding: 0.375rem 0 0.5rem;
+  }
+}
+
+/* A 360×640 faltaban unos 110 px: la marca (40 px) en la fila de la palabra,
+   el importe más pequeño y el bloque del dinero y el QR más juntos. */
+@media (max-height: 700px) {
+  .headline {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.625rem;
+  }
+
+  .body :global(.np-outcome-ring) {
+    width: 2.5rem;
+    height: 2.5rem;
+  }
+
+  .body :global(.np-outcome-amount) {
+    font-size: min(2.75rem, calc(88vw / var(--np-fit, 6)));
+  }
+
+  .resLeft {
+    min-height: 2.75rem;
+    padding: 0.375rem 0.875rem;
+  }
+
+  .activate {
+    padding: 0.375rem 0.625rem 0.375rem 0.375rem;
+  }
+
+  .activateText {
+    gap: 0;
+    font-size: 0.8125rem;
+    line-height: 1.25;
+  }
+
+  .activateText b {
+    font-size: 0.9375rem;
+  }
 }

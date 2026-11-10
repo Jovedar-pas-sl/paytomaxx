@@ -305,8 +305,7 @@ export const FR: CustomerTexts = withFrenchSpacing<CustomerTexts>({
     gwPreparing: 'Préparation de votre carte…',
     topUp: 'Recharger',
     topUpTitle: 'Recharger mon solde',
-    topUpWhy:
-      'Choisissez le montant. Payez avec Apple Pay, Google Pay ou par carte : il s’ajoute aussitôt à votre solde.',
+    topUpWhy: 'Choisissez le montant et payez avec Apple Pay, Google Pay ou par carte, sans pourboire. Votre solde augmente aussitôt.',
     topUpAmount: 'Montant',
     topUpOther: 'Autre',
     topUpOtherLabel: 'Montant en euros',
@@ -314,9 +313,13 @@ export const FR: CustomerTexts = withFrenchSpacing<CustomerTexts>({
     topUpRange: 'Saisissez un montant de {min} à {max}, en euros entiers.',
     topUpGo: 'Recharger {amount}',
     topUpGoFee: 'Payer {amount}',
-    topUpMethods: 'Pas de pourboire : vous ne payez que ce que vous rechargez.',
+    topUpLeftover:
+      'Ce que vous ne dépensez pas n’est pas perdu : il reste pour une autre fois ou, avec « Je pars », l’établissement vous le rembourse sur votre carte.',
     topUpToBalance: 'Recharge (sur votre solde)',
-    topUpMethodsFee: 'Pas de pourboire. Votre solde reçoit ce que vous rechargez ; les frais de service sont en plus.',
+    topUpLeftoverFee:
+      'Ce que vous ne dépensez pas n’est pas perdu : il reste pour une autre fois ou, avec « Je pars », l’établissement vous le rembourse sur votre carte. Les frais de service ne sont pas remboursés.',
+    topUpFeeExplain:
+      'Des frais de {pct} sur la recharge, pour la plateforme de paiement. Ils ne vont pas sur votre solde et ce n’est pas un pourboire.',
     topUpFaceId: 'Pour confirmer, déverrouillez votre téléphone comme pour payer.',
     topUpNoKey: 'Ce solde utilise Face ID : rechargez depuis le téléphone où vous l’avez activé.',
     faceIdNeeded: 'Ce solde utilise Face ID : faites-le depuis le téléphone où vous l’avez activé.',

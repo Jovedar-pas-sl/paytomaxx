@@ -99,6 +99,14 @@ describe('HomeTopUpService.venueByCode / page', () => {
     expect(view?.feesCents?.[40]).toBe(600);
   });
 
+  it('la página dice si el local da fichas (el paso de al llegar): por defecto sí; con las fichas apagadas, no', async () => {
+    expect((await make().service.page(CODE, undefined))?.fichas).toBe(true);
+    const sinFichas = make({
+      venue: { id: VENUE, name: 'Sala Aurora', homeTopUpEnabled: true, deletedAt: null, pausedAt: null, business: null, paymentMethods: { nfc: false }, serviceFeeEnabled: false, serviceFeeBps: 1000, topUpServiceFeeBps: 1000 },
+    });
+    expect((await sinFichas.service.page(CODE, undefined))?.fichas).toBe(false);
+  });
+
   it('el terminal de la carga: uno del local que no sea el datáfono de recepción', async () => {
     const { service, tx } = make();
     await service.page(CODE, undefined);

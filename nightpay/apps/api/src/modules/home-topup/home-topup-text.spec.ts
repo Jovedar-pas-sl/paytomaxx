@@ -82,5 +82,29 @@ describe('textos de «Cargar saldo antes de llegar»', () => {
     expect(HOME_TOPUP_TEXT.es.refund).not.toContain('efectivo');
     expect(HOME_TOPUP_TEXT.es.refund).not.toContain('encargado');
     expect(HOME_TOPUP_TEXT.es.refundFee).toContain('la comisión del servicio no se devuelve');
+    // Lo que no gaste no se pierde: delante de que no caduca.
+    expect(HOME_TOPUP_TEXT.es.keep).toBe('Lo que no gastes no se pierde.');
+  });
+
+  it('la ventaja: llega con el saldo cargado, sin esperar en recepción para cargarlo', () => {
+    expect(HOME_TOPUP_TEXT.es.advantage).toBe('Llegas con tu saldo listo, sin esperar en recepción para cargarlo.');
+  });
+
+  it.each(PAY_LANGUAGES)('%s: los tres pasos: cómo se paga y qué hacer al llegar (sin fichas, ni ficha ni QR propio)', (lang) => {
+    const t = HOME_TOPUP_TEXT[lang];
+    expect(t.stepPay).toContain('Apple Pay');
+    expect(t.stepPay).toContain('Google Pay');
+    // Con fichas: el QR de su saldo en recepción, que le da la ficha.
+    expect(t.stepArrive).toMatch(/QR/);
+    expect(t.stepArrive).toMatch(/ficha|NFC/);
+    // Sin fichas: solo el móvil (el QR es el del personal).
+    expect(t.stepArriveNoFicha).not.toMatch(/ficha|NFC/);
+    // Cortos: una línea o dos en un móvil de 360 px.
+    for (const step of [t.stepChoose, t.stepPay, t.stepArrive, t.stepArriveNoFicha]) expect(step.length).toBeLessThanOrEqual(90);
+  });
+
+  it.each(PAY_LANGUAGES)('%s: sin signos de exclamación, sin emojis y sin gritar', (lang) => {
+    const bad = leaves(HOME_TOPUP_TEXT[lang]).filter((l) => /[!¡]|\p{Emoji_Presentation}|\b[A-ZÁÉÍÓÚÑ]{4,}\b/u.test(l.text));
+    expect(bad.map((l) => `${l.path} = ${l.text}`)).toEqual([]);
   });
 });
