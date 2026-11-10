@@ -6,7 +6,7 @@ import { Button } from '@nightpay/ui';
 import { playOutcomeSound } from '@/lib/alert-sound';
 import { blankCodeFrom, isChipTimeout, isFatalChipError, tapChip } from '@/lib/chip-tap';
 import { deviceBackend, preparedText, staffBackend, stockOutcomeLine, type PrepareLine } from '@/lib/reception';
-import { notFollowingText } from '@/lib/ficha-number';
+import { nextPrintedNumber, notFollowingText } from '@/lib/ficha-number';
 import { isSameTapAgain, needsPrintedNumber } from '@/lib/prepare-fichas';
 import { FichaNumber } from './desk/desk-parts';
 import r from './reception.module.css';
@@ -39,6 +39,9 @@ export function PrepareFichas({ on, onDone }: Props) {
   const [lines, setLines] = useState<Array<PrepareLine & { id: number }>>([]);
   // El número impreso de la última ficha (guardado ahora o el que ya tenía): el siguiente debería seguirle (A12).
   const [lastPrinted, setLastPrinted] = useState<string | null>(null);
+  // El bucle de lectura no se vuelve a crear en cada pintada: lee la última de aquí.
+  const lastPrintedRef = useRef<string | null>(null);
+  lastPrintedRef.current = lastPrinted;
   /** Código pedido para la próxima ficha en blanco (se reutiliza si no se intentó grabar). */
   const blank = useMemo(
     () => blankCodeFrom(() => backend.newToken(), (token) => walletCardUrl(window.location.origin, token)),
@@ -83,7 +86,8 @@ export function PrepareFichas({ on, onDone }: Props) {
     if (backend.labelStock && needsPrintedNumber(outcome)) {
       if (!tap.uid) throw new Error('No se pudo leer la serie NFC: acerca la ficha otra vez');
       setPending({ card: tap.token, uid: tap.uid, line: stockOutcomeLine(outcome) });
-      setPrintedNumber('');
+      // B11: propone el siguiente al de la anterior (se acepta con un toque o se cambia); sin anterior, se teclea.
+      setPrintedNumber(nextPrintedNumber(lastPrintedRef.current) ?? '');
       setNumberError(null);
       // Stop the reader while the physical number is entered; count only after saving.
       return 'number-needed';
@@ -154,7 +158,9 @@ export function PrepareFichas({ on, onDone }: Props) {
         <form onSubmit={(event) => { event.preventDefault(); void saveNumber(); }} className={r.form}>
           <label htmlFor="ficha-printed-number" className={r.lead}>Número impreso en esta ficha</label>
           <input id="ficha-printed-number" className={r.field} autoFocus inputMode="numeric" autoComplete="off" pattern="[0-9]{1,12}" maxLength={12} value={printedNumber} onChange={(event) => setPrintedNumber(event.target.value)} />
-          <p className={r.text}>Copia las cifras tal como aparecen, incluidos los ceros iniciales.</p>
+          <p className={r.text}>
+            {nextPrintedNumber(lastPrinted) ? 'Te proponemos la siguiente: compruébala con la ficha y cámbiala si no es.' : 'Copia las cifras tal como aparecen, incluidos los ceros iniciales.'}
+          </p>
           {/* Lo tecleado, en grande y en grupos de 4 como en la ficha; si no sigue a la anterior, se avisa (A12). */}
           {printedNumber ? <FichaNumber printed={printedNumber} className={r.typedFicha} /> : null}
           {notFollowingText(lastPrinted, printedNumber) ? (

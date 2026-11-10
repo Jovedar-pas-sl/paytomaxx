@@ -92,3 +92,11 @@ describe('auditoría gráfica en recepción: como el resto de la app', () => {
     expect(screen).toContain('aria-label="Atrás"');
   });
 });
+
+describe('B11: preparar fichas sin teclear', () => {
+  it('al pedir el número impreso, propone el siguiente a la anterior; el aviso de A12 sigue si se cambia', () => {
+    const prep = read('../components/reception/PrepareFichas.tsx');
+    expect(prep).toContain("setPrintedNumber(nextPrintedNumber(lastPrintedRef.current) ?? '');");
+    expect(prep).toContain('notFollowingText(lastPrinted, printedNumber)');
+  });
+});

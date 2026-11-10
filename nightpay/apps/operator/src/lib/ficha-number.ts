@@ -67,6 +67,19 @@ export function followsPrevious(previous: string | null | undefined, typed: stri
 }
 
 /**
+ * «Preparar fichas» sin teclear (B11): el número siguiente al de la anterior,
+ * con los mismos ceros delante («00001012» → «00001013»). null sin anterior
+ * (o si ya no cabe en 12 cifras): entonces se teclea.
+ */
+export function nextPrintedNumber(previous: string | null | undefined): string | null {
+  const prev = previous ? normalizePrintedFichaNumber(previous) : null;
+  if (prev === null || !previous) return null;
+  const next = String(Number(prev) + 1);
+  const padded = next.padStart(previous.length, '0');
+  return isPrintedFichaNumber(padded) ? padded : null;
+}
+
+/**
  * «Preparar fichas» (A12): el aviso si el número tecleado no sigue al de la
  * anterior (una cifra mal tecleada). Solo avisa: se puede guardar igual (la
  * pila puede no ir seguida). null: sigue, o no hay con qué comparar.

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { fichaDigits, fichaShort, followsPrevious, notFollowingText, photoHint, wrongFichaText } from './ficha-number';
+import { fichaDigits, fichaShort, followsPrevious, nextPrintedNumber, notFollowingText, photoHint, wrongFichaText } from './ficha-number';
 
 const plain = (printed: string) =>
   fichaDigits(printed)
@@ -66,6 +66,16 @@ describe('preparar fichas: ¿sigue a la anterior? (A12)', () => {
   it('sin anterior, o con lo que no son cifras: no se avisa', () => {
     expect(followsPrevious(null, '00001013')).toBeNull();
     expect(followsPrevious('00001012', '')).toBeNull();
+  });
+  it('B11: la app propone el siguiente, con los mismos ceros delante', () => {
+    expect(nextPrintedNumber('00001012')).toBe('00001013');
+    expect(nextPrintedNumber('0999')).toBe('1000');
+    expect(nextPrintedNumber('9999')).toBe('10000');
+    expect(nextPrintedNumber('17')).toBe('18');
+    expect(nextPrintedNumber(null)).toBeNull();
+    expect(nextPrintedNumber('999999999999')).toBeNull();
+    // Lo propuesto sigue a la anterior: sin aviso de A12.
+    expect(followsPrevious('00001012', nextPrintedNumber('00001012')!)).toBe(true);
   });
   it('el aviso: cuál debería ser, para compararlo con la ficha', () => {
     expect(notFollowingText('00001012', '00001015')).toBe('La anterior era la 1012: esta debería ser la 1013. Compruébalo con la ficha.');
