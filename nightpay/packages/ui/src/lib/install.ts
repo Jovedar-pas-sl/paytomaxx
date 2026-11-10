@@ -12,17 +12,35 @@ export interface InstallEnv {
   standalone: boolean;
   /** Chrome/Android ya ha ofrecido instalar (guardamos su evento). */
   hasPrompt: boolean;
+  /** navigator.maxTouchPoints: el Safari del iPad se anuncia como un Mac, pero el Mac no es táctil. */
+  maxTouchPoints?: number;
 }
 
-export function installPlatform({ userAgent, standalone, hasPrompt }: InstallEnv): InstallPlatform {
-  if (standalone) return 'installed';
-  if (hasPrompt) return 'prompt';
-  const ua = userAgent;
-  const appleMobile = /iPhone|iPad|iPod/.test(ua) || (/Macintosh/.test(ua) && /Mobile/.test(ua));
+/**
+ * ¿Es un iPhone o un iPad (con cualquier navegador, también la app ya
+ * instalada)? El Safari del iPad (iPadOS 13 o posterior) envía el user agent
+ * del Mac, sin «iPad» ni «Mobile»: se reconoce por la pantalla táctil.
+ */
+export function isAppleMobile({ userAgent, maxTouchPoints = 0 }: Pick<InstallEnv, 'userAgent' | 'maxTouchPoints'>): boolean {
+  return /iPhone|iPad|iPod/.test(userAgent) || (/Macintosh/.test(userAgent) && maxTouchPoints > 1);
+}
+
+export function installPlatform(env: InstallEnv): InstallPlatform {
+  if (env.standalone) return 'installed';
+  if (env.hasPrompt) return 'prompt';
+  const ua = env.userAgent;
   // Solo Safari instala en el iPhone: Chrome (CriOS), Firefox (FxiOS) y los
   // navegadores de dentro de otras apps no tienen «Añadir a pantalla de inicio» igual.
   const safari = /Safari/.test(ua) && !/CriOS|FxiOS|EdgiOS|OPiOS|GSA|Instagram|FBAN|FBAV|Line|WhatsApp/.test(ua);
-  return appleMobile && safari ? 'ios' : 'none';
+  return isAppleMobile(env) && safari ? 'ios' : 'none';
+}
+
+/**
+ * ¿Sale el aviso de instalar de la entrada? Con el botón de Android/Chrome, o
+ * con los pasos del iPhone y el iPad si ahí se ofrece (`ios`).
+ */
+export function installHintOffered(platform: InstallPlatform | null, ios = true): boolean {
+  return platform === 'prompt' || (platform === 'ios' && ios);
 }
 
 /** Tras «Ahora no», no se vuelve a ofrecer en este tiempo. */

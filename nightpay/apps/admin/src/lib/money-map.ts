@@ -122,5 +122,5 @@ export function paidTwiceNote(row: Pick<CobroRow, 'paidTwice'>, eur: (cents: num
   if (!p) return null;
   return p.refunded
     ? `Cobrado dos veces: la tarjeta se devolvió sola (${eur(p.amountCents)})`
-    : `Cobrado dos veces: devuelve ${eur(p.amountCents)} a la tarjeta (Incidencias)`;
+    : `Cobrado dos veces: devuelve ${eur(p.amountCents)} a la tarjeta (Avisos)`;
 }

@@ -243,7 +243,13 @@ ${topBar(lang)}
 <h1 id="hTitle">${heading}</h1>
 <p>${h(t.advantage)}</p>
 </section>
-${/* Las condiciones («Antes de pagar»), antes del importe y del botón (C-3). */ ''}${canLoad ? howSteps(lang, view.fichas !== false) : ''}${canLoad && view.mine ? mineCard(lang, base, view.mine.codeHint) : ''}${termsCard(lang, withFee)}${canLoad ? amountCard(lang, view) : offCard(lang)}<p class="foot trust">${h(PAY_TEXT[lang].secure)}${CARD_MARKS}</p>
+${
+  /*
+   * Las condiciones («Antes de pagar»), antes de las dos formas de cargar y
+   * del botón (C-3); «O carga un saldo nuevo:» queda pegado al importe. Si no
+   * se puede cargar, primero lo dice y después las condiciones.
+   */ ''
+}${canLoad ? `${howSteps(lang, view.fichas !== false)}${termsCard(lang, withFee)}${view.mine ? mineCard(lang, base, view.mine.codeHint) : ''}${amountCard(lang, view)}` : `${offCard(lang)}${termsCard(lang, withFee)}`}<p class="foot trust">${h(PAY_TEXT[lang].secure)}${CARD_MARKS}</p>
 </main>
 ${
   canLoad

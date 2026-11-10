@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState, type CSSProperties, type ReactNode } from 'react';
-import { Button, Card, Logo } from '@nightpay/ui';
+import { Card, Logo } from '@nightpay/ui';
 import { primeAlertSound } from '@/lib/alert-sound';
 import type { OperatorUser } from '@/lib/api';
 import { clearFichaContext } from '@/lib/ficha-context';
@@ -27,9 +27,11 @@ import { MyCobros } from './MyCobros';
 import { PassScanned } from './PassScanned';
 import { PendingPos } from './PendingPos';
 import { ReceptionTab } from './reception/ReceptionTab';
+import { SafariNotice } from './SafariNotice';
 import { useSessionExpired } from './session-context';
 import { StaffMenu, StaffMenuContext } from './staff-menu';
 import { TabBar } from './TabBar';
+import cobrarStyles from './cobrar/cobrar.module.css';
 
 interface Props {
   user: OperatorUser;
@@ -99,15 +101,18 @@ export function Dashboard({ user, onLogout }: Props) {
     <main className="np-app-root np-screen" style={mainStyle}>
       {/* Sin internet / OxioPay sin responder / el banco tardando: arriba, en ámbar. */}
       <ConnectionStatus serverDown={own.error?.transient === true} />
+      {/* Cobros, Ganancias y la cola del datáfono: el logo abre el menú, con
+          «Salir» dentro (como en Inicio y Recepción): nadie sale de la sesión
+          por un toque sin querer. Sin tema: el personal va siempre en oscuro. */}
       {ownHeader ? null : (
         <header style={headerStyle}>
-          <Logo height="1.75rem" />
-          {/* Sin tema: el personal va siempre en oscuro (layout). */}
-          <Button variant="ghost" size="md" onClick={logout} style={headerBtnStyle}>
-            Salir
-          </Button>
+          <button type="button" className={cobrarStyles.logoTile} onClick={openMenu} aria-label="Menú">
+            <Logo variant="symbol" height="2.625rem" alt="" />
+          </button>
         </header>
       )}
+      {/* Instalada en un iPhone o un iPad: que abra Safari para la ficha y la cámara (fuera de un cobro). */}
+      {charges.open ? null : <SafariNotice />}
       {/* La chica: «Te han invitado · +10 €» en cuanto se cobra su invitación. */}
       {access.ownEarnings ? <InvitationToast night={night.night} /> : null}
 
@@ -213,6 +218,3 @@ const headerStyle: CSSProperties = {
   paddingBottom: 'calc(var(--np-gap) * 0.75)',
   borderBottom: '1px solid var(--np-border)',
 };
-
-// 44 px: se toca bien con el dedo.
-const headerBtnStyle: CSSProperties = { height: '2.75rem', padding: '0 1rem' };

@@ -42,7 +42,7 @@ const STATUS: Record<BankItemStatus, { label: string; tone: 'ok' | 'warn' | 'bad
 
 /**
  * Cuadre con el banco: el dueño sube el fichero de operaciones del portal
- * y se compara con lo apuntado. Lo que no cuadra también sale en Incidencias.
+ * y se compara con lo apuntado. Lo que no cuadra también sale en Avisos.
  */
 export function BankReconPanel({ isOwner }: { isOwner: boolean }) {
   /** null = cargando (antes salía "no has subido nada" mientras cargaba). */
@@ -188,7 +188,7 @@ function UploadCard({ onDone }: { onDone: (s: BankStatementSummary) => void }) {
           <h3 style={sectionTitle}>Cuadre con el banco</h3>
           <p style={mutedStyle}>
             Sube lo que el banco dice que cobró y se compara con lo apuntado aquí, cobro a cobro. Lo que no cuadra sale
-            abajo y en Incidencias. Hazlo cada mañana con el día anterior.
+            abajo y en Avisos. Hazlo cada mañana con el día anterior.
           </p>
         </div>
         <div role="radiogroup" aria-label="De dónde es el fichero" style={sourceRow}>

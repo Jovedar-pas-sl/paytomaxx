@@ -36,7 +36,7 @@ export const COBROS_COLUMNS_HELP: readonly HelpItem[] = [
   { term: 'Estado', text: 'En qué punto está el cobro (lo que significa cada uno, en esta ayuda).' },
   {
     term: 'Quién cobró',
-    text: 'Quién hizo el cobro; toca su nombre para abrir su ficha. «Desde casa»: lo cargó el cliente con el enlace del local, antes de llegar.',
+    text: 'Quién hizo el cobro. Si su nombre va subrayado (quien tiene ficha propia en el panel), tócalo para abrir su ficha. «Desde casa»: lo cargó el cliente con el enlace del local, antes de llegar.',
   },
   {
     term: 'Sección',

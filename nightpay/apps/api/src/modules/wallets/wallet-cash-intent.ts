@@ -43,6 +43,22 @@ export function cashIntentFingerprint(input: { amountCents: number; wallet: TopU
   return 'printed' in w ? `${PRINTED_INTENT_PREFIX}${hash}` : hash;
 }
 
+/**
+ * La ficha nueva ya cargada, leída otra vez con la misma clave (S-4): la
+ * pantalla falló tras la recarga y, al repetirla, la ficha ya es un saldo, así
+ * que ahora se pide «a esta ficha» y no «saldo nuevo con esta ficha». Es la
+ * misma recarga (el destino es la ficha): solo si aquella creó el saldo con
+ * esa misma ficha y el mismo importe.
+ */
+export function isNewCardRetry(
+  existing: { intentFingerprint: string | null; createdWallet: boolean },
+  input: { amountCents: number; wallet: TopUpWalletDto | PrintedTopUpRef },
+): boolean {
+  const w = input.wallet;
+  if (!existing.createdWallet || !existing.intentFingerprint || !('card' in w) || 'create' in w) return false;
+  return existing.intentFingerprint === cashIntentFingerprint({ amountCents: input.amountCents, wallet: { create: true, card: w.card } });
+}
+
 /** ¿Esta recarga se hizo por el número impreso (sin la ficha delante)? */
 export function isPrintedIntent(fingerprint: string | null | undefined): boolean {
   return typeof fingerprint === 'string' && fingerprint.startsWith(PRINTED_INTENT_PREFIX);

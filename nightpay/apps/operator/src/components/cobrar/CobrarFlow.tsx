@@ -50,7 +50,7 @@ import { IconPlus, IconQr } from './icons';
 import { LaCuenta } from './LaCuenta';
 import { MiQr } from './MiQr';
 import { OtroImporte } from './OtroImporte';
-import { GuiaMenuLink } from '../staff-menu';
+import { GuiaMenuLink, InstallMenuItem } from '../staff-menu';
 import styles from './cobrar.module.css';
 
 type Stage =
@@ -408,6 +408,7 @@ export function CobrarFlow({ user, onCobroDone, onLogout, night, miQrOpen = fals
             Recargar saldo
           </Button>
         ) : null}
+        <InstallMenuItem />
         <GuiaMenuLink />
         <Button variant="ghost" onClick={onLogout}>
           Salir

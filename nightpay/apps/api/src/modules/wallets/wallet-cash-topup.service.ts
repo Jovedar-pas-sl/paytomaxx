@@ -33,7 +33,7 @@ import { insertEmptyWallet } from './empty-wallet';
 import { attachCardInTx, isIssuedCard, type CardBy } from './wallet-card-ops';
 import { reopenData } from './wallet-activation';
 import { cashTopUpOverLimit, walletCash } from './wallet-cash-limits';
-import { cashIntentFingerprint, storedReceipt, type PrintedTopUpRef } from './wallet-cash-intent';
+import { cashIntentFingerprint, isNewCardRetry, storedReceipt, type PrintedTopUpRef } from './wallet-cash-intent';
 import { liveWalletId, lockLiveWallet } from './wallet-merge-chain';
 import { formatWalletCode, normalizeWalletCode, sameWalletGroup } from './wallet-rules';
 import { topUpTarget } from './wallet-topup-target';
@@ -633,7 +633,7 @@ export class CashTopUpService {
       'userId' in by ? existing.takenByUserId === by.userId : existing.terminalId === by.terminalId;
     if (!sameWho || existing.amountCents !== input.amountCents) throw new ConflictException(KEY_REUSED);
     const sameIntent = existing.intentFingerprint
-      ? existing.intentFingerprint === cashIntentFingerprint(input)
+      ? existing.intentFingerprint === cashIntentFingerprint(input) || isNewCardRetry(existing, input)
       : await this.legacyIntentMatches(existing, input.wallet);
     if (!sameIntent) throw new ConflictException(KEY_REUSED);
     const receipt = storedReceipt(existing.receipt) ?? (await this.currentReceipt(existing.walletId));

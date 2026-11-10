@@ -137,3 +137,13 @@ describe('español llano, sacado del código', () => {
     expect(COBROS_HINT).not.toMatch(/\n/);
   });
 });
+
+describe('«Quién cobró»: el nombre solo abre una ficha si la tiene', () => {
+  it('lo dice, en vez de prometer que todos se tocan (el de un camarero o recepción es texto)', () => {
+    const who = COBROS_COLUMNS_HELP.find((c) => c.term === 'Quién cobró')!;
+    expect(who.text).toContain('Si su nombre va subrayado (quien tiene ficha propia en el panel), tócalo para abrir su ficha.');
+    const table = readFileSync(new URL('../components/fichas/CobrosTable.tsx', import.meta.url), 'utf8');
+    expect(table).toContain("fichas && row.person.role === 'OPERATOR' ? (");
+    expect(table).toContain("textDecoration: 'underline'");
+  });
+});
