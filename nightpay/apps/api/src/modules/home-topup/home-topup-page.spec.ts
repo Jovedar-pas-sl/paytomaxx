@@ -188,6 +188,25 @@ describe('/r explicada: la ventaja, cómo funciona y lo que no gaste', () => {
     expect(html).toContain(HOME_TOPUP_TEXT.es.offTitle);
   });
 
+  it('el local no deja cargar ahora: primero el aviso y después las condiciones (no al revés)', () => {
+    for (const problem of ['paused', 'methods'] as const) {
+      const html = renderHomeTopUpPage(CODE, 'es', viewFor(null, { problem }));
+      expect(html.indexOf(HOME_TOPUP_TEXT.es.offTitle)).toBeGreaterThan(-1);
+      expect(html.indexOf(HOME_TOPUP_TEXT.es.offTitle)).toBeLessThan(html.indexOf('id="termsTitle"'));
+    }
+  });
+
+  it('ya tiene un saldo de aquí: las condiciones antes de las dos formas; «O carga un saldo nuevo:» pegado al importe', () => {
+    const html = renderHomeTopUpPage(CODE, 'es', viewFor(null, { mine: { codeHint: 'K7Q-•••' } }));
+    expect(html.indexOf('id="termsTitle"')).toBeLessThan(html.indexOf('id="mineTitle"'));
+    const or = `<p class="or">${HOME_TOPUP_TEXT.es.mineOr}</p>`;
+    const at = html.indexOf(or);
+    expect(at).toBeGreaterThan(html.indexOf('id="mineGo"'));
+    // Lo siguiente tras «O carga un saldo nuevo:» es la tarjeta del importe, no otra.
+    const next = html.slice(at + or.length).trimStart();
+    expect(next.startsWith('<section class="card topup" aria-labelledby="amtTitle">')).toBe(true);
+  });
+
   it('antes de pagar: lo que no gaste no se pierde (no caduca) y cómo se devuelve; al llegar ya va en los pasos', () => {
     const t = HOME_TOPUP_TEXT.es;
     const html = renderHomeTopUpPage(CODE, 'es', viewFor(null));
