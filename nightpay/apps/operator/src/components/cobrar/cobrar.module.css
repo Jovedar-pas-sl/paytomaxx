@@ -26,7 +26,10 @@
 }
 
 .logoTile {
+  position: relative;
   flex: none;
+  min-width: 2.75rem;
+  min-height: 2.75rem;
   border: none;
   border-radius: var(--np-r-md);
   background: transparent;
@@ -34,6 +37,24 @@
   place-items: center;
   padding: 0;
   cursor: pointer;
+}
+
+/* El logo abre el menú (S-7): 44 px para el dedo como mínimo y un «≡»
+   pequeño en la esquina, para que se vea que se toca (un contador: radio 999). */
+.logoTile::after {
+  content: '≡';
+  position: absolute;
+  right: -0.25rem;
+  bottom: -0.25rem;
+  width: 1.125rem;
+  height: 1.125rem;
+  border-radius: var(--np-r-pill);
+  background: var(--np-surface-2);
+  box-shadow: inset 0 0 0 1px var(--np-border-hi);
+  color: var(--np-text);
+  font: 600 0.75rem/1.125rem var(--np-font-sans);
+  text-align: center;
+  pointer-events: none;
 }
 
 .iconBtn {
@@ -1199,6 +1220,20 @@ html[data-contrast='sala'] .lastRow[data-n='4']:not([data-big]) {
   margin: 0.25rem 0 0;
   font: 600 1.125rem/1.25 var(--np-font-sans);
   letter-spacing: 0;
+}
+
+/* La línea en inglés para el cliente, pegada al título y en t2 (PS-A10). */
+.waitEn {
+  margin: -0.375rem 0 0;
+  font-size: 0.875rem;
+  color: var(--np-text-mute);
+  text-align: center;
+}
+
+/* La parte en inglés de un texto para el cliente («Pon tu PIN · Enter your PIN»). */
+.en {
+  font-weight: 500;
+  color: var(--np-text-mute);
 }
 
 /* La placa blanca del QR: su relleno es el margen claro que piden los lectores. */
