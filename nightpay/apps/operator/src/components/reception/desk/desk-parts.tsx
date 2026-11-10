@@ -292,6 +292,19 @@ export function DeskBtn({ kind, icon, label, small, onClick, disabled, busy }: B
   );
 }
 
+/**
+ * El aviso del mostrador (A3): se acercó otra ficha que la del cliente que se
+ * atiende («Esa es la 1014, no la 1013»). Solo avisa: la pantalla sigue igual.
+ */
+export function CounterAviso({ text, className }: { text: string; className?: string }) {
+  return (
+    <p role="alert" className={`${s.aviso} ${className ?? ''}`}>
+      <Icon name="nfc" />
+      <span>{text}</span>
+    </p>
+  );
+}
+
 /** Una fila de lista de 52 px con su flecha («Escribir el código»). */
 export function DeskRowLink({ label, onClick }: { label: string; onClick: () => void }) {
   return (

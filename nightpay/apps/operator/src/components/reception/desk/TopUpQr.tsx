@@ -10,7 +10,7 @@ import { useOpenCharge, type ChargeSpot } from '@/lib/open-charges';
 import { advanceStatus, isFinalStatus } from '@/lib/payment-status';
 import { StaffOutcome } from '../../StaffOutcome';
 import { usePaymentLive } from '../../use-payment-live';
-import { DeskBtn, Icon } from './desk-parts';
+import { CounterAviso, DeskBtn, Icon } from './desk-parts';
 import { QrBox } from './QrBox';
 import s from './desk.module.css';
 
@@ -57,6 +57,8 @@ interface Props {
   onRetry: () => void;
   onBack: () => void;
   error: string | null;
+  /** Se acercó otra ficha (A3): solo el aviso, debajo de la cabecera. */
+  aviso?: string | null;
 }
 
 /**
@@ -111,6 +113,7 @@ export function TopUpQr(props: Props) {
   return (
     <div className={s.screen}>
       {props.head}
+      {props.aviso ? <CounterAviso text={props.aviso} /> : null}
       <div className={s.amts} role="group" aria-label="Cuánto carga">
         {amounts.slice(0, 3).map((c) => (
           <button

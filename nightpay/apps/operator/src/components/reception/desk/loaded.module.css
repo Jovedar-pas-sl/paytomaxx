@@ -141,6 +141,15 @@
   height: 1.25rem;
 }
 
+/* Se acercó otra ficha (A3): el aviso, en la caja oscura de lo que hay que
+   mirar (sobre el verde, el ámbar de fondo no se leería). */
+.resAviso {
+  max-width: 26rem;
+  background: var(--np-ink-0);
+  color: var(--np-cream);
+  text-align: left;
+}
+
 /* Lo que salió mal (el NFC no se pudo dar…): en su caja oscura. */
 .resWarn {
   margin: 0;

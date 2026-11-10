@@ -3,7 +3,9 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type { ReceptionDeskNew, ReceptionOptions } from '@nightpay/contracts';
 import { createPayment, fetchTerminals, type CreatedPayment, type OperatorUser } from '@/lib/api';
+import { playOutcomeSound } from '@/lib/alert-sound';
 import type { ChipTap } from '@/lib/chip-tap';
+import { counterFicha, counterTapText, sameCounterCard, type CounterFicha } from '@/lib/counter-tap';
 import { formatEur } from '@/lib/money';
 import { useOpenCharge } from '@/lib/open-charges';
 import {
@@ -71,7 +73,7 @@ import {
 } from '@/lib/reception-cash-payout';
 import { PinPad } from '../../PinPad';
 import { ActivationQr } from './ActivationQr';
-import { DeskHead, DeskBtn, DeskRowLink, DeskRowView } from './desk-parts';
+import { CounterAviso, DeskHead, DeskBtn, DeskRowLink, DeskRowView } from './desk-parts';
 import { AmountStep, CodeStep, ExitStep, KeypadStep, MethodStep, NumberStep, TapStage } from './DeskSteps';
 import { DeskLoaded } from './DeskLoaded';
 import { ManagerExitStep, NumberExitStep, PasskeyExitStep, TotpExitStep } from './ExitSteps';
@@ -178,6 +180,10 @@ export function ReceptionDesk({ user, active, footer }: Props) {
   const retire = useRetirePayment();
   // La comprobación en curso de una recarga sin respuesta (otra la anula).
   const cashCheck = useRef(0);
+  // Se acercó otra ficha en el mostrador (A3): el aviso, hasta cambiar de pantalla.
+  const [wrong, setWrong] = useState<string | null>(null);
+  const counterRound = useRef(0);
+  const printedOf = useRef(new Map<string, string | null>());
 
   useEffect(() => {
     staffBackend
@@ -186,7 +192,20 @@ export function ReceptionDesk({ user, active, footer }: Props) {
       .catch((err: Error) => setError(err.message));
   }, []);
 
-  const nfc = useDeskNfc(active && step.kind === 'tap' && !busy, mode === 'entrada', onTap, setError);
+  // El lector escucha siempre en el mostrador (A3); solo en la primera pantalla
+  // lee para abrir (y graba una ficha en blanco); en las demás, solo avisa.
+  const here = counterOf(step);
+  const atTap = step.kind === 'tap';
+  const nfc = useDeskNfc(
+    active && !busy && (atTap || here !== null),
+    mode === 'entrada' && step.kind === 'tap',
+    atTap ? onTap : onCounterTap,
+    atTap ? setError : ignoreCounterError,
+  );
+  useEffect(() => {
+    counterRound.current += 1;
+    setWrong(null);
+  }, [step.kind]);
   useOpenCharge('recepcion', CHARGING.has(step.kind), step.kind === 'card' && step.payment !== null);
   const amounts = quickAmounts(night.receptionQuickAmountsCents);
 
@@ -257,6 +276,35 @@ export function ReceptionDesk({ user, active, footer }: Props) {
       if (tap.written) await staffBackend.stock(card.card, card.uid);
       open(await fetchReceptionDesk(card.uid ? { card: card.card, uid: card.uid } : { card: card.card }), card);
     });
+  }
+
+  /**
+   * Fuera de la primera pantalla el lector sigue escuchando (A3): con la ficha
+   * de este cliente no pasa nada; con otra, solo el aviso («Esa es la 1014, no
+   * la 1013»). No graba, no carga y no cambia de pantalla.
+   */
+  async function onCounterTap(tap: ChipTap): Promise<void> {
+    const ficha = here;
+    if (!ficha) return;
+    if (sameCounterCard(ficha, tap.token)) return setWrong(null);
+    const round = counterRound.current;
+    const printed = tap.token && !tap.other ? await printedOfCard(tap.token, tap.uid) : null;
+    if (round !== counterRound.current) return;
+    const text = counterTapText(ficha, { token: tap.token, printed });
+    setWrong(text);
+    if (text) playOutcomeSound('warn');
+  }
+
+  /** El número impreso de la ficha acercada, una vez por ficha (sigue apoyada y se lee otra vez). */
+  async function printedOfCard(card: string, uid: string | null): Promise<string | null> {
+    const known = printedOf.current;
+    if (known.has(card)) return known.get(card) ?? null;
+    const printed = await fetchReceptionDesk(uid ? { card, uid } : { card }).then(
+      (view) => view.printedNumber ?? null,
+      () => null,
+    );
+    known.set(card, printed);
+    return printed;
   }
 
   function onCode(next: string): void {
@@ -536,6 +584,7 @@ export function ReceptionDesk({ user, active, footer }: Props) {
         cashBusy={busy}
         onBack={() => go({ kind: 'method', read, amountCents })}
         error={error}
+        aviso={wrong}
       />
     );
   }
@@ -557,6 +606,8 @@ export function ReceptionDesk({ user, active, footer }: Props) {
       ) : (
         head(() => go(backOf(step)))
       )}
+
+      {wrong && step.kind !== 'tap' ? <CounterAviso text={wrong} /> : null}
 
       {step.kind === 'tap' ? (
         <>
@@ -690,6 +741,7 @@ export function ReceptionDesk({ user, active, footer }: Props) {
     return (
       <div className={s.screen}>
         {head()}
+        {wrong ? <CounterAviso text={wrong} /> : null}
         {/* Ni «sin saldo» ni lo que le quedaba: puede que ya esté cargado. */}
         <DeskRowView {...cashUnsureRow(read, amountCents, checking)} />
         {checking ? (
@@ -757,6 +809,7 @@ export function ReceptionDesk({ user, active, footer }: Props) {
         quiet={done.seen}
         extra={activation}
         help={help}
+        aviso={wrong}
         primary={pin === 'ask' ? askPin : next}
         secondary={pin === 'ask' ? { label: 'Ahora no', onClick: next.onClick } : pin === 'offer' ? askPin : null}
       />
@@ -825,6 +878,33 @@ function PhoneOption({ walletId, read }: { walletId: string; read: Read['nfc'] }
 /** La fila de 4.2: su ficha (con su número en grande), su código o la ficha buscada por su número (tapada). */
 function readRow(read: Read) {
   return entryRow(read);
+}
+
+/** En el mostrador, un fallo al leer otra ficha no se enseña: no se estaba leyendo para nada (A3). */
+function ignoreCounterError(): void {}
+
+/**
+ * La ficha del cliente que se atiende en cada pantalla (A3): mientras hay una,
+ * el lector escucha. Sin ella (primera pantalla, el código, el PIN…), null.
+ */
+function counterOf(step: Step): CounterFicha | null {
+  switch (step.kind) {
+    case 'amount':
+    case 'keypad':
+    case 'method':
+    case 'card':
+    case 'cashUnsure':
+      return counterFicha(step.read);
+    case 'loaded':
+      return counterFicha(step.done.read);
+    case 'exit':
+    case 'exitNew':
+      return counterFicha({ view: step.view, nfc: step.nfc });
+    case 'exitNumber':
+      return counterFicha({ view: null, nfc: null, number: step.view });
+    default:
+      return null;
+  }
 }
 
 /** Volver un paso (la cabecera): del importe al NFC, del teclado y de cómo paga al importe; de la salida, a lo que le queda. */

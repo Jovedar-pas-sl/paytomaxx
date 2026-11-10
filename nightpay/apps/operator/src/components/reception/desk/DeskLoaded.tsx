@@ -6,7 +6,7 @@ import { playOutcomeSound } from '@/lib/alert-sound';
 import { formatEur } from '@/lib/money';
 import { RECEPTION_HELP_SCREENS } from '@/lib/reception-help';
 import { HelpAgain, HelpLine, useHelp } from '../../HelpLine';
-import { FichaNumber, Icon } from './desk-parts';
+import { CounterAviso, FichaNumber, Icon } from './desk-parts';
 import s from './loaded.module.css';
 
 interface Action {
@@ -38,6 +38,8 @@ interface Props {
   help?: string | null;
   /** CARGADO (A1, A11): la ficha y el código en grande, qué mirar y qué fotografiar. */
   ids?: LoadedIds | null;
+  /** Se acercó otra ficha (A3): solo el aviso, arriba; la pantalla no se cierra. */
+  aviso?: string | null;
 }
 
 /** La ficha y el código del saldo, en grande en CARGADO. */
@@ -59,7 +61,7 @@ export interface LoadedIds {
  * pantalla del resultado de @nightpay/ui (.np-outcome) sin su franja de la
  * hora (la ve solo quien cobra) ni tira de color arriba (Grafito: plano).
  */
-export function DeskLoaded({ word, amountCents, reference, money, meta, warn, note = null, primary, secondary, quiet = false, extra, help = null, ids = null }: Props) {
+export function DeskLoaded({ word, amountCents, reference, money, meta, warn, note = null, primary, secondary, quiet = false, extra, help = null, ids = null, aviso = null }: Props) {
   const titleId = useId();
   const helpState = useHelp(RECEPTION_HELP_SCREENS.loaded);
   const primaryRef = useRef<HTMLButtonElement>(null);
@@ -82,6 +84,7 @@ export function DeskLoaded({ word, amountCents, reference, money, meta, warn, no
           {reference ? <span className="np-outcome-ref">{reference}</span> : null}
           {help ? <HelpAgain help={helpState} /> : null}
         </div>
+        {aviso ? <CounterAviso text={aviso} className={s.resAviso} /> : null}
         <span className="np-outcome-ring" aria-hidden="true">
           <svg className="np-outcome-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
             <path d="M5 12.5l4.5 4.5L19 7.5" />
