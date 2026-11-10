@@ -576,8 +576,36 @@ describe('maqueta 5.1: tarjeta OxioCard y movimientos con su referencia', () => 
     const js = script(renderWalletPage('tok-1', 'es', state()));
     expect(js).toContain("sw.className=m.color?'sw':'sw hold'");
     expect(js).toContain("sw.style.setProperty('--c',m.color)");
-    expect(js).toContain('sub.textContent=[m.ref,m.venueName,when(m.at)].filter(Boolean).join');
+    expect(js).toContain("sub.textContent=[m.returned?T.detail.returned:'',m.ref,m.venueName,when(m.at)].filter(Boolean).join");
     expect(js).not.toContain('innerHTML');
+  });
+
+  it('tocar un movimiento con detalle abre «Detalle del pago» (su ruta en /w); uno deshecho dice «Devuelto a tu saldo»', () => {
+    const html = renderWalletPage('tok-1', 'es', state());
+    const js = script(html);
+    expect(html).toContain('<dialog class="sheet" id="detSheet" aria-labelledby="detTitle">');
+    expect(html).toContain('\\"apart\\":true');
+    // Solo las filas con detalle son botones; las demás, como siempre.
+    expect(js).toContain("if(m.detail){host=document.createElement('button');host.type='button';host.className='mvb';");
+    expect(js).toContain("fetch(C.base+'/movements/'+m.detail.kind+'/'+encodeURIComponent(m.detail.id)");
+    // Deshecho: tachado y con la marca; el detalle dice cuándo, sin quién ni por qué.
+    expect(js).toContain("b.className=(m.returned?'gone':m.amountCents>0?'plus':'minus')+' num'");
+    expect(js).toContain("if(s==='REVERSED')return D.returned;");
+    for (const hidden of ['u.by', 'u.reason', 'sensitive', 'devices', '.ip']) expect(js).not.toContain(hidden);
+    // Lo que se escribe, con textContent: nada de HTML.
+    expect(js.slice(js.indexOf('function detRow'), js.indexOf('function detOpen'))).not.toContain('innerHTML');
+  });
+
+  it('el detalle en los cuatro idiomas, con las palabras únicas en castellano', () => {
+    for (const lang of ['es', 'en', 'fr', 'pt'] as const) {
+      const html = renderWalletPage('tok-1', lang, state());
+      expect(html).toContain(`data-close>${WALLET_TEXT[lang].detail.close}</button>`);
+    }
+    const d = WALLET_TEXT.es.detail;
+    expect([d.paid, d.refunded, d.returned, d.undoCard, d.undoSaldo]).toEqual(['Pagado', 'Devuelto', 'Devuelto a tu saldo', 'Devuelto a tu tarjeta', 'Devuelto a tu saldo']);
+    expect(d.who).toBe('Te cobró');
+    expect(d.ficha).toBe('Tu ficha nº {n}');
+    expect(JSON.stringify(d)).not.toMatch(/Reembols|Cobrado|NFC/);
   });
 });
 

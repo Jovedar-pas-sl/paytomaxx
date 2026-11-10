@@ -119,7 +119,8 @@ function setup(wallet: Row = {}, topUp: Row | null = null) {
     queries.push(Prisma.sql(strings, ...values));
     return tables.clientWallet.list({ where: { id: values[0] } });
   });
-  const tx = { ...tables, $queryRaw };
+  // El pago con el saldo deja su evento (detalle del pago) en SQL crudo.
+  const tx = { ...tables, $queryRaw, $executeRaw: vi.fn(async () => 1) };
   const all = Object.values(tables);
   // Todo o nada: si la transacción falla, la base vuelve a como estaba.
   const run = async (fn: (t: typeof tx) => unknown) => {

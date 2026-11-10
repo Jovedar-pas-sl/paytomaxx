@@ -11,11 +11,13 @@ import {
   Param,
   Post,
   Query,
+  Req,
   Res,
   UseFilters,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import type { FastifyReply } from 'fastify';
+import type { FastifyReply, FastifyRequest } from 'fastify';
+import { CLIENT_HINTS_ACCEPT_CH, requestDevice } from '../../common/http/client-device';
 import { z } from 'zod';
 import { Public } from '../../common/decorators/public.decorator';
 import { PaymentsService } from './payments.service';
@@ -285,6 +287,7 @@ export class PublicPayController {
     @Body() body: unknown,
     @Headers('cookie') cookies: string | undefined,
     @Res() res: FastifyReply,
+    @Req() req?: FastifyRequest,
   ): Promise<void> {
     const parsed = CheckoutFormSchema.safeParse(body ?? {});
     const lang = this.language(res, parsed.success ? parsed.data.lang : undefined, cookies);
@@ -300,6 +303,8 @@ export class PublicPayController {
       method: parsed.data.method === 'wallet' && !this.directWallet() ? null : parsed.data.method,
       language: lang,
       claimHash: sha256(claim),
+      // El móvil del cliente que paga (detalle del pago).
+      ...(req ? { device: requestDevice(req) } : {}),
     };
     try {
       const view = await this.payments.startCheckout(token, choice);
@@ -638,6 +643,8 @@ function sendHtml(res: FastifyReply, status: number, html: string): void {
     .status(status)
     .header('Content-Type', 'text/html; charset=utf-8')
     .header('Cache-Control', 'no-store')
+    // Android: que mande el modelo y la versión en las peticiones siguientes (al pagar).
+    .header('Accept-CH', CLIENT_HINTS_ACCEPT_CH)
     .send(html);
 }
 

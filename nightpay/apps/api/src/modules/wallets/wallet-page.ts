@@ -1,3 +1,4 @@
+import { DETAIL_TIP_AND_FEE_APART } from '@nightpay/contracts';
 import { PAY_TEXT, type PayLanguage } from '../payments/pay-i18n';
 import { CLUB_BASE_CSS, MONEY_JS, clientMoney, escapeHtml, jsConfig } from '../payments/club-ui';
 import { CHROME_CSS, LANG_JS, topBar } from '../payments/customer-chrome';
@@ -27,7 +28,8 @@ import { RECEIPT_JS, WELCOME_CSS, WELCOME_JS, fichaQrBlock, welcomeCard } from '
  *    (wallet-topup-view.ts). Al volver del banco se abre aquí con su «Pagado».
  *    Si el local no deja recargar, no hay opciones: solo «Pagar».
  * Debajo de las dos, «Más»: elegir PIN, juntar saldos, «Me voy» (en hojas
- * dentro de la página: nada de confirm()/alert()) y los movimientos. El
+ * dentro de la página: nada de confirm()/alert()) y los movimientos (tocar
+ * uno abre su «Detalle del pago»; uno deshecho dice «Devuelto a tu saldo»). El
  * estado se pone al día al momento: la página escucha los avisos de su saldo
  * (GET /w/:token/events) y solo entonces pide /state; de respaldo, cada
  * 20–30 s, y «Reconectando…» si no lo consigue (wallet-live.ts). Aquí no se
@@ -84,6 +86,14 @@ li.mv .mt b{display:block;color:var(--fg);font-size:1rem;font-weight:500}
 li.mv .mt span{display:block;color:var(--mute);font-size:.8125rem}
 li.mv .plus{color:var(--ok);font-weight:600;white-space:nowrap}
 li.mv .minus{color:var(--fg);font-weight:600;white-space:nowrap}
+li.mv .gone{color:var(--mute);font-weight:500;white-space:nowrap;text-decoration:line-through}
+.mvb{display:flex;align-items:center;gap:.75rem;width:100%;min-height:2.75rem;margin:0;padding:0;border:0;background:none;color:inherit;font:inherit;text-align:left;cursor:pointer}
+.mvb:focus-visible{outline:3px solid var(--fg);outline-offset:2px}
+.det{display:flex;flex-direction:column;margin:0;text-align:left}
+.det div{display:flex;justify-content:space-between;gap:1rem;padding:.5rem 0;border-bottom:1px solid var(--line)}
+.det dt{color:var(--mute)}
+.det dd{margin:0;text-align:right;font-weight:500;overflow-wrap:anywhere}
+.det-total{font-size:2rem;font-weight:600;line-height:1.1}
 dialog.sheet{position:fixed;inset:auto 0 0 0;width:100%;max-width:30rem;max-height:92vh;margin:0 auto;overflow:auto;border:0;border-top:1px solid var(--line-hi);border-radius:var(--r) var(--r) 0 0;padding:1.5rem 1rem calc(1.25rem + env(safe-area-inset-bottom));background:var(--surface);color:var(--fg);box-shadow:var(--sh-sheet);display:none;flex-direction:column;gap:.75rem;text-align:center}
 dialog.sheet[open]{display:flex;animation:np-up .28s var(--ease)}
 dialog.sheet::backdrop{background:var(--scrim)}
@@ -283,6 +293,8 @@ export function renderWalletPage(
     paid: proof !== null && !welcome,
     welcome,
     payer: options.payer ?? null,
+    // «Detalle del pago»: propina y comisión del servicio cada una en su línea.
+    apart: DETAIL_TIP_AND_FEE_APART,
   });
   const h = escapeHtml;
   return `<!DOCTYPE html>
@@ -326,6 +338,13 @@ ${lostSheet(lang)}<dialog class="sheet" id="leaveSheet" aria-labelledby="leaveTi
 <p class="err" id="mergeErr" role="alert" hidden></p>
 <button class="btn" type="button" id="mergeGo">${h(t.mergeButton)}</button>
 <button class="link" type="button" data-close>${h(t.cancel)}</button>
+</dialog>
+<dialog class="sheet" id="detSheet" aria-labelledby="detTitle">
+<h2 id="detTitle"></h2>
+<p class="det-total num" id="detTotal"></p><p id="detStatus" role="status"></p>
+<dl class="det" id="detList"></dl>
+<p class="err" id="detErr" role="alert" hidden></p>
+<button class="link" type="button" data-close>${h(t.detail.close)}</button>
 </dialog>
 <p class="toast" id="toast" role="status" hidden></p>
 <script>
@@ -386,16 +405,44 @@ function render(s){S=s;S.cards=s.cards||[];
  $('leaveOpen').hidden=!(active&&s.balanceCents>0&&!s.closeRequested);
  var ul=$('movements');ul.textContent='';
  if(!s.movements.length){var e=document.createElement('li');e.className='mv';e.textContent=T.noMovements;ul.appendChild(e);}
- s.movements.forEach(function(m){var li=document.createElement('li'),sw=document.createElement('i'),mt=document.createElement('div'),a=document.createElement('b'),sub=document.createElement('span'),b=document.createElement('span');li.className='mv';
+ s.movements.forEach(function(m){var li=document.createElement('li'),sw=document.createElement('i'),mt=document.createElement('span'),a=document.createElement('b'),sub=document.createElement('span'),b=document.createElement('span'),host=li;li.className='mv';
   sw.className=m.color?'sw':'sw hold';sw.setAttribute('aria-hidden','true');if(m.color)sw.style.setProperty('--c',m.color);
-  mt.className='mt';a.textContent=m.labelKey&&T.mv[m.labelKey]?T.mv[m.labelKey]:m.label;sub.textContent=[m.ref,m.venueName,when(m.at)].filter(Boolean).join(' · ');mt.appendChild(a);mt.appendChild(sub);
-  b.textContent=(m.amountCents>0?'+':'')+eur(m.amountCents);b.className=(m.amountCents>0?'plus':'minus')+' num';
-  li.appendChild(sw);li.appendChild(mt);li.appendChild(b);ul.appendChild(li);});
+  mt.className='mt';a.textContent=m.labelKey&&T.mv[m.labelKey]?T.mv[m.labelKey]:m.label;sub.textContent=[m.returned?T.detail.returned:'',m.ref,m.venueName,when(m.at)].filter(Boolean).join(' · ');mt.appendChild(a);mt.appendChild(sub);
+  b.textContent=(m.amountCents>0?'+':'')+eur(m.amountCents);b.className=(m.returned?'gone':m.amountCents>0?'plus':'minus')+' num';
+  if(m.detail){host=document.createElement('button');host.type='button';host.className='mvb';host.addEventListener('click',function(){detOpen(m);});li.appendChild(host);}
+  host.appendChild(sw);host.appendChild(mt);host.appendChild(b);ul.appendChild(li);});
  lostRender(s);welcomeRender(s);
  var can=topRender(s);
  $('payEmpty').hidden=!(can&&s.status==='DEPLETED');
  segShow(can||C.paid);}
 function post(path,body){return pkPost(C.base+path,body||{});}
+// «Detalle del pago»: un movimiento con detalle (lo pagado con el saldo y las recargas con tarjeta).
+// Qué, cuándo, dónde, quién le cobró (su nombre de pila), cómo pagó, el código y el saldo antes y
+// después; si se devolvió, cuándo (sin quién ni por qué). Nunca el móvil ni la IP.
+var detSeq=0;
+function detRow(k,v){if(!v)return;var d=document.createElement('div'),a=document.createElement('dt'),b=document.createElement('dd');
+ a.textContent=k;b.textContent=v;d.appendChild(a);d.appendChild(b);$('detList').appendChild(d);}
+function detStatus(d){var D=T.detail,s=d.status;
+ if(s==='REVERSED')return D.returned;if(s==='AUTHORIZED'||s==='ACCEPTED')return D.paid;if(s==='REFUNDED')return D.refunded;
+ if(s==='PARTIALLY_REFUNDED')return D.partlyRefunded;if(s==='CANCELED'||s==='EXPIRED'||s==='FAILED')return D.canceled;return D.pending;}
+function detHow(m){var D=T.detail;if(!m)return '';
+ if(m.method==='SALDO')return m.fichaNumber?fill(D.ficha,'n',m.fichaNumber):D.saldo;
+ if(m.cardLast4)return fill(D.card,'card',[m.cardBrand,'••'+m.cardLast4].filter(Boolean).join(' '));
+ return m.label&&m.label!=='—'?m.label:'';}
+function detFill(d){var D=T.detail;$('detList').textContent='';
+ $('detTotal').textContent=eur(d.totalCents);$('detStatus').textContent=detStatus(d);
+ if(C.apart&&(d.tipCents||d.serviceFeeCents)){detRow(D.amount,eur(d.amountCents));if(d.tipCents)detRow(D.tip,eur(d.tipCents));if(d.serviceFeeCents)detRow(D.fee,eur(d.serviceFeeCents));}
+ detRow(D.when,when(d.paidAt||d.createdAt));detRow(D.where,[d.venueName,d.isTopUp?T.mv.topUp:d.service].filter(Boolean).join(' · '));
+ if(d.chargedBy)detRow(D.who,d.chargedBy.name);detRow(D.how,detHow(d.method));detRow(D.code,d.confirmationCode);
+ if(d.balance){detRow(D.before,eur(d.balance.beforeCents));detRow(D.after,eur(d.balance.afterCents));}
+ (d.undo||[]).forEach(function(u){detRow(u.kind==='REFUND'?D.undoCard:u.kind==='VOID'?D.undoSaldo:D.canceled,[typeof u.amountCents==='number'?eur(u.amountCents):'',when(u.at)].filter(Boolean).join(' · '));});}
+function detOpen(m){var D=T.detail,n=++detSeq;
+ $('detTitle').textContent=m.ref?D.title+' · '+m.ref:D.title;$('detTotal').textContent='';$('detStatus').textContent=D.loading;$('detList').textContent='';show('detErr','');
+ openSheet($('detSheet'));
+ fetch(C.base+'/movements/'+m.detail.kind+'/'+encodeURIComponent(m.detail.id),{headers:{Accept:'application/json'}})
+  .then(function(r){if(!r.ok)throw new Error(String(r.status));return r.json();})
+  .then(function(d){if(n===detSeq)detFill(d);})
+  .catch(function(){if(n!==detSeq)return;$('detStatus').textContent='';show('detErr',D.failed);});}
 ${WALLET_LIVE_JS}
 // Al momento: los avisos de su saldo y, de respaldo, cada 20–30 s (wallet-live.ts).
 var LV=npLive({base:C.base,busy:function(){return busy;},state:function(s){render(s);},bar:function(on){show('liveBar',on?T.reconnecting:'');},

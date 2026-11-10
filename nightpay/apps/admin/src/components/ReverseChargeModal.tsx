@@ -2,17 +2,21 @@
 
 import { useState, type CSSProperties, type FormEvent } from 'react';
 import { Button, Input, Modal } from '@nightpay/ui';
-import type { CobroRow } from '@nightpay/contracts';
+import { PASSKEY_REQUIRED_CODE, stepUpActions, type CobroRow, type StepUpProof } from '@nightpay/contracts';
 import { reverseWalletCharge } from '@/lib/api';
-import { totpRetryState } from '@/lib/api-errors';
+import { ApiError, totpRetryState } from '@/lib/api-errors';
 import { formatEur } from '@/lib/money';
 import { reverseChargeText } from '@/lib/money-map';
 import { OTP_LENGTH } from '@/lib/otp';
+import { proofFor } from '@/lib/refund-confirm';
+import { useStepUpMethod } from '@/lib/use-step-up-method';
+import { KeyConfirm } from './KeyConfirm';
 import { OtpInput } from './OtpInput';
 
 /**
  * Anular un cobro pagado con saldo: el dinero vuelve al saldo del cliente. Con
- * motivo y código 2FA siempre, porque ese saldo se puede pedir en efectivo.
+ * motivo y código 2FA siempre, porque ese saldo se puede pedir en efectivo
+ * (sin 2FA y con llave de acceso: confirmándolo con ella).
  */
 export function ReverseChargeModal({
   row,
@@ -30,7 +34,13 @@ export function ReverseChargeModal({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [lockedUntil, setLockedUntil] = useState<number | null>(null);
-  const ready = reason.trim().length > 0 && totp.length === OTP_LENGTH;
+  const method = useStepUpMethod(true);
+  const [askedForKey, setAskedForKey] = useState(false);
+  const [proof, setProof] = useState<StepUpProof | null>(null);
+  const withKey = method === 'passkey' || askedForKey;
+  const action = stepUpActions.reverseConsumption(target.consumptionId);
+  const keyProof = withKey ? proofFor(proof, action, Date.now()) : null;
+  const ready = reason.trim().length > 0 && (withKey ? Boolean(keyProof) : totp.length === OTP_LENGTH);
 
   async function submit(e: FormEvent): Promise<void> {
     e.preventDefault();
@@ -38,13 +48,20 @@ export function ReverseChargeModal({
     setBusy(true);
     setError(null);
     try {
-      await reverseWalletCharge(target, { reason: reason.trim(), totpCode: totp });
+      await reverseWalletCharge(target, { reason: reason.trim(), ...(withKey ? {} : { totpCode: totp }) }, keyProof?.token);
       onDone();
     } catch (err) {
-      setError((err as Error).message);
-      setLockedUntil(totpRetryState(err, Date.now()).lockedUntil);
+      if (err instanceof ApiError && err.code === PASSKEY_REQUIRED_CODE) {
+        setAskedForKey(true);
+        setError('Confírmalo con tu llave de acceso y después pulsa «Anular cobro».');
+      } else {
+        setError((err as Error).message);
+        setLockedUntil(totpRetryState(err, Date.now()).lockedUntil);
+      }
       setTotp('');
     } finally {
+      // La confirmación con la llave vale una vez.
+      if (keyProof) setProof(null);
       setBusy(false);
     }
   }
@@ -54,15 +71,25 @@ export function ReverseChargeModal({
       <form onSubmit={(e) => void submit(e)} style={formStyle}>
         <p style={textStyle}>{reverseChargeText(row, formatEur)}</p>
         <Input label="Motivo" value={reason} onChange={(e) => setReason(e.target.value)} maxLength={500} required autoFocus />
-        <OtpInput
-          label="Código de tu app de verificación (2FA)"
-          value={totp}
-          onChange={setTotp}
-          autoSubmit={false}
-          lockedUntil={lockedUntil}
-          required
-          hint="Si aún no la tienes, actívala en Ajustes → Seguridad."
-        />
+        {withKey ? (
+          <KeyConfirm
+            action={action}
+            confirmed={Boolean(keyProof)}
+            onProof={setProof}
+            reason={`Para anular este cobro: ${formatEur(row.amountCents + row.tipCents)} vuelven al saldo del cliente.`}
+            next="Ahora pulsa «Anular cobro»."
+          />
+        ) : (
+          <OtpInput
+            label="Código de tu app de verificación (2FA)"
+            value={totp}
+            onChange={setTotp}
+            autoSubmit={false}
+            lockedUntil={lockedUntil}
+            required
+            hint="Si aún no la tienes, actívala en Ajustes → Seguridad."
+          />
+        )}
         {error ? (
           <p role="alert" style={errorStyle}>
             {error}

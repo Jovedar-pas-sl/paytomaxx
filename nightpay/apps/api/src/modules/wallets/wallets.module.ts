@@ -39,11 +39,13 @@ import { WalletViewGuard } from './wallet-view.guard';
 import { WalletEventsModule } from '../wallet-events/wallet-events.module';
 import { PublicWalletEventsController } from './public-wallet-events.controller';
 import { WalletWelcomeService } from '../home-topup/wallet-welcome.service';
+import { CobroDetailModule } from '../money-map/cobro-detail.module';
 
 @Module({
   // AuthModule: TotpService (2FA del encargado al anular y al devolver en efectivo).
   // WalletEventsModule: los avisos del saldo al momento (GET /w/:token/events).
-  imports: [PrismaModule, AuditModule, AuthModule, WalletEventsModule],
+  // CobroDetailModule: el detalle de un pago en la página del saldo (GET /w/:token/movements/:kind/:id).
+  imports: [PrismaModule, AuditModule, AuthModule, WalletEventsModule, CobroDetailModule],
   // WalletTopUpService: «Recargar» desde /w (usa PaymentsService con ModuleRef).
   providers: [
     // Aviso al anular un cobro con saldo.

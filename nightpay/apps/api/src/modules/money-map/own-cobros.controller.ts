@@ -1,9 +1,20 @@
-import { Controller, Get, Inject, Query, UseGuards } from '@nestjs/common';
-import { OwnCobrosQuerySchema, ownRefundedCents, type JwtPayload, type OwnCobrosPage, type OwnCobrosQuery } from '@nightpay/contracts';
+import { Controller, Get, Inject, Param, ParseUUIDPipe, Query, UseGuards } from '@nestjs/common';
+import {
+  CobroKindParamSchema,
+  OwnCobrosQuerySchema,
+  ownRefundedCents,
+  type CobroDetail,
+  type CobroDetailSensitive,
+  type CobroKind,
+  type JwtPayload,
+  type OwnCobrosPage,
+  type OwnCobrosQuery,
+} from '@nightpay/contracts';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { ZodValidationPipe } from '../../common/pipes/zod.pipe';
+import { CobroDetailService } from './cobro-detail.service';
 import { CobrosService } from './cobros.service';
 import { MoneyMapService } from './money-map.service';
 
@@ -14,7 +25,34 @@ export class OwnCobrosController {
   constructor(
     @Inject(CobrosService) private readonly cobros: CobrosService,
     @Inject(MoneyMapService) private readonly moneyMap: MoneyMapService,
+    @Inject(CobroDetailService) private readonly details: CobroDetailService,
   ) {}
+
+  /**
+   * El detalle de uno de sus cobros: lo básico y «lo tuyo» (su comisión, su
+   * propina, su parte de una invitación). De otra persona, 404. Nunca la parte
+   * del local ni el reparto.
+   */
+  @Get('cobros/:kind/:id')
+  @Roles('OPERATOR', 'WAITER', 'MANAGER', 'OWNER')
+  async detail(
+    @CurrentUser() user: JwtPayload,
+    @Param('kind', new ZodValidationPipe(CobroKindParamSchema)) kind: CobroKind,
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<CobroDetail> {
+    return this.details.forStaff(user, kind, id);
+  }
+
+  /** Solo lo delicado de uno de sus cobros: sin la verificación vigente, 403 STEP_UP_REQUIRED. */
+  @Get('cobros/:kind/:id/sensitive')
+  @Roles('OPERATOR', 'WAITER', 'MANAGER', 'OWNER')
+  async sensitive(
+    @CurrentUser() user: JwtPayload,
+    @Param('kind', new ZodValidationPipe(CobroKindParamSchema)) kind: CobroKind,
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<CobroDetailSensitive> {
+    return this.details.sensitiveFor(user, kind, id, 'STAFF');
+  }
 
   @Get('cobros')
   @Roles('OPERATOR', 'WAITER', 'MANAGER', 'OWNER')

@@ -28,6 +28,12 @@ const connectSrc = [
   ...(isDev ? ['http://localhost:*', 'ws://localhost:*', 'http://127.0.0.1:*', 'ws://127.0.0.1:*'] : []),
 ].filter((src, i, all) => src && all.indexOf(src) === i);
 
+// Los client hints del modelo van también al API (otro origen): hay que delegárselos.
+const apiOrigin = originOf(apiUrl);
+const clientHintsDelegation = apiOrigin
+  ? `, ch-ua-model=(self "${apiOrigin}"), ch-ua-platform-version=(self "${apiOrigin}")`
+  : '';
+
 const securityHeaders = [
   {
     key: 'Content-Security-Policy',
@@ -51,7 +57,10 @@ const securityHeaders = [
   // Cámara solo para esta web: el camarero escanea el «Mi QR» de la chica
   // («Copa con invitación»); ninguna otra página (ni iframes) la pide. Web NFC
   // no pasa por Permissions-Policy (el NFC sigue funcionando).
-  { key: 'Permissions-Policy', value: 'camera=(self), microphone=(), geolocation=(), payment=()' },
+  // Detalle del pago: el modelo y la versión del Android (client hints) en las
+  // peticiones al API, que los guarda con el cobro (el iPhone no los da).
+  { key: 'Accept-CH', value: 'Sec-CH-UA-Model, Sec-CH-UA-Platform-Version' },
+  { key: 'Permissions-Policy', value: `camera=(self), microphone=(), geolocation=(), payment=()${clientHintsDelegation}` },
 ];
 // Next aplica la última cabecera que coincide: en /pax va la política entera
 // más frame-src 'none' (antes una regla corta dejaba /pax sin el resto).

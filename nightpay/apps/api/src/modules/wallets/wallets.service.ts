@@ -11,6 +11,7 @@ import { alertSettingsOf, type ClientWalletView, type WalletsAdminStats } from '
 import { TotpService } from '../auth/totp.service';
 import { TelegramService } from '../incidents/telegram.service';
 import { assertTwoFactorCode, eur } from './wallet-two-factor';
+import { stepUpActions } from '@nightpay/contracts';
 import { reversalAlertText } from './wallet-reversal-alert';
 import { ISSUED_CARD_STATUSES } from './wallet-card-ops';
 
@@ -191,7 +192,13 @@ export class WalletsService {
       // Se devuelve todo lo que se descontó: importe y propina. A 0 se reabre
       // (con otro código si el suyo lo tiene ya otro cliente).
       const refunded = consumption.amountCents + consumption.tipCents;
-      await assertTwoFactorCode(this.totp, input.actorUserId, input.totpCode, `Para anular ${eur(refunded)}:`);
+      await assertTwoFactorCode(
+        this.totp,
+        input.actorUserId,
+        input.totpCode,
+        `Para anular ${eur(refunded)}:`,
+        stepUpActions.reverseConsumption(input.consumptionId),
+      );
       await tx.clientWallet.update({
         where: { id: wallet.id },
         data: { balanceCents: { increment: refunded }, ...(await reopenData(tx, wallet)) },

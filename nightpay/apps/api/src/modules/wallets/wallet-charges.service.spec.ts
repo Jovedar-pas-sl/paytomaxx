@@ -93,6 +93,8 @@ function makeService(
     $queryRaw: vi
       .fn()
       .mockResolvedValue(w ? [{ id: w.id, balanceCents: w.balanceCents, status: w.status }] : []),
+    // El pago con el saldo deja su evento (detalle del pago) en SQL crudo.
+    $executeRaw: vi.fn().mockResolvedValue(1),
   };
   const prisma = {
     asSystem: vi.fn().mockImplementation(async (fn: (t: typeof tx) => unknown) => fn(tx)),
@@ -567,7 +569,7 @@ describe('lo que el cliente no confirma pide el 2FA de quien lo hace', () => {
     await expect(svc.relinkWithCode(manager, 'w-1', '123456')).rejects.toThrow(ForbiddenException);
     expect(totp.assertForUser).not.toHaveBeenCalled();
     await expect(svc.relinkWithCode(owner, 'w-1', '123456')).resolves.toMatchObject({ path: expect.stringContaining('/w/a/') });
-    expect(totp.assertForUser).toHaveBeenCalledWith(owner.userId, '123456');
+    expect(totp.assertForUser).toHaveBeenCalledWith(owner.userId, '123456', expect.stringMatching(/^(wallet-payout|relink):/));
   });
 
   it('un código malo no deja hacer nada', async () => {
@@ -695,7 +697,7 @@ describe('devolver el saldo al cliente que se va', () => {
     const out = await svc.payout(manager, 'w-1', { method: 'CASH', totpCode: '123456' });
     expect(out).toEqual({ refundedCents: 30_000, method: 'CASH' });
     // 300 € ≥ 100 € (el umbral por defecto): con su código 2FA.
-    expect(totp.assertForUser).toHaveBeenCalledWith('man-1', '123456');
+    expect(totp.assertForUser).toHaveBeenCalledWith('man-1', '123456', expect.stringMatching(/^wallet-payout:/));
     // La lectura previa y UNA transacción que cierra y apunta.
     expect(prisma.acrossVenues.mock.calls.length - callsBefore).toBe(2);
     expect(state.wallet).toMatchObject({ balanceCents: 0, status: 'REFUNDED' });
@@ -724,7 +726,7 @@ describe('devolver el saldo al cliente que se va', () => {
     expect(below.totp.assertForUser).not.toHaveBeenCalled();
     const own = payoutService({ threshold: 0, cashIn: 30_000 });
     await expect(own.svc.payout(owner, 'w-1', { totpCode: '123456', method: 'CASH' })).resolves.toEqual({ refundedCents: 30_000, method: 'CASH' });
-    expect(own.totp.assertForUser).toHaveBeenCalledWith(owner.userId, '123456');
+    expect(own.totp.assertForUser).toHaveBeenCalledWith(owner.userId, '123456', expect.stringMatching(/^wallet-payout:/));
   });
 
   it('lo que recepción dejó para el encargado (su tope de la noche): en el panel, con su 2FA aunque sea poco', async () => {
@@ -736,7 +738,7 @@ describe('devolver el saldo al cliente que se va', () => {
     expect((err as ForbiddenException).getResponse()).toMatchObject({ code: 'TOTP_REQUIRED' });
     expect((err as Error).message).toMatch(/recepción lo dejó para el encargado/);
     await expect(left.svc.payout(manager, 'w-1', { method: 'CASH', totpCode: '123456' })).resolves.toEqual({ refundedCents: 5_000, method: 'CASH' });
-    expect(left.totp.assertForUser).toHaveBeenCalledWith('man-1', '123456');
+    expect(left.totp.assertForUser).toHaveBeenCalledWith('man-1', '123456', expect.stringMatching(/^wallet-payout:/));
   });
 
   it('el encargado no devuelve sin el "Me voy" del cliente; el dueño sí', async () => {

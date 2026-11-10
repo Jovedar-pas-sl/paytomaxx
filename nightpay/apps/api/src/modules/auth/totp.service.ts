@@ -1,10 +1,17 @@
-import { Inject, Injectable, Logger } from '@nestjs/common';
+import { ForbiddenException, Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import * as speakeasy from 'speakeasy';
+import { ClsService } from 'nestjs-cls';
+import { PASSKEY_REQUIRED_CODE } from '@nightpay/contracts';
 import { BRAND_NAME } from '../../common/brand';
+import type { RequestContext } from '../../common/context/request-context';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { TOTP_LOCK_POLICY, TotpAttemptsService } from './totp-attempts.service';
 import { buildOtpauthUrl, matchTotpStep, totpForbidden, totpLockedError, type TotpErrorKind } from './totp-code';
 import { openTotpSecret, sealTotpSecret, type OpenedTotpSecret } from './totp-crypto';
+import { StepUpTokens } from './step-up-tokens';
+
+/** 403 PASSKEY_REQUIRED: quien no tiene 2FA y sí llave confirma con ella esta acción. */
+export const PASSKEY_REQUIRED_MESSAGE = 'Confirma con tu llave de acceso (Face ID o huella) y repítelo.';
 
 /**
  * 2FA con app de verificación (TOTP, RFC 6238).
@@ -22,13 +29,20 @@ export class TotpService {
   private readonly logger = new Logger(TotpService.name);
   private readonly prisma: PrismaService;
   private readonly attempts: TotpAttemptsService;
+  /** Pruebas de la llave de acceso para actuar sin 2FA (cabecera X-Step-Up-Token). */
+  private readonly tokens: Pick<StepUpTokens, 'consume'> | null;
+  private readonly cls: Pick<ClsService<{ ctx: RequestContext }>, 'get' | 'set'> | null;
 
   constructor(
     @Inject(PrismaService) prisma: PrismaService,
     @Inject(TotpAttemptsService) attempts: TotpAttemptsService,
+    @Optional() @Inject(StepUpTokens) tokens?: StepUpTokens,
+    @Optional() @Inject(ClsService) cls?: ClsService<{ ctx: RequestContext }>,
   ) {
     this.prisma = prisma;
     this.attempts = attempts;
+    this.tokens = tokens ?? null;
+    this.cls = cls ?? null;
   }
 
   /** Secreto nuevo + URL otpauth para el QR. Se guarda con sealSecret(). */
@@ -60,11 +74,47 @@ export class TotpService {
     if (stored) await this.checkStoredForUser(userId, stored, code);
   }
 
-  /** Exige la 2FA activada y un código bueno. */
-  async assertForUser(userId: string, code: string | undefined): Promise<void> {
+  /**
+   * Exige la 2FA activada y un código bueno. Con `action` (la acción que lo
+   * pide, stepUpActions de @nightpay/contracts): quien no tiene 2FA puede
+   * hacerla con la prueba de su llave de acceso para ESA acción (de un solo
+   * uso, en la cabecera X-Step-Up-Token); si tiene llave y no la trae, 403
+   * PASSKEY_REQUIRED con `stepUpAction`. Sin `action` (login, cambio de local,
+   * desactivar la 2FA, el super-admin), solo la 2FA, como siempre.
+   */
+  async assertForUser(userId: string, code: string | undefined, action?: string): Promise<void> {
     const stored = await this.loadStoredSecret(userId);
-    if (!stored) throw totpForbidden('notEnrolled');
+    if (!stored) {
+      if (action && (await this.passkeyProofFor(userId, action))) return;
+      throw await this.missingSecondFactor(userId, action);
+    }
     await this.checkStoredForUser(userId, stored, code);
+  }
+
+  /**
+   * Sin 2FA: ¿trae la prueba de su llave para esta acción, de esta sesión? La
+   * gasta (una vez). Si la misma petición lo vuelve a preguntar para la misma
+   * acción (un reintento dentro), vale sin gastar otra.
+   */
+  async passkeyProofFor(userId: string, action: string): Promise<boolean> {
+    const ctx = this.cls?.get('ctx');
+    if (!this.tokens || !ctx?.stepUpToken) return false;
+    if (ctx.stepUpSpentFor === action) return true;
+    const ok = await this.tokens.consume({ userId, sessionId: ctx.sessionId ?? null, action }, ctx.stepUpToken);
+    if (ok) this.cls?.set('ctx', { ...ctx, stepUpSpentFor: action });
+    return ok;
+  }
+
+  /**
+   * El 403 de quien no tiene 2FA: con una llave de acceso y una acción, que
+   * confirme con ella (PASSKEY_REQUIRED, `stepUpAction`); si no, que active la
+   * 2FA (TOTP_NOT_ENROLLED). `message`: el texto a medida de quien llama.
+   */
+  async missingSecondFactor(userId: string, action?: string, message?: string): Promise<ForbiddenException> {
+    if (action && (await this.passkeyCount(userId)) > 0) {
+      return new ForbiddenException({ message: message ?? PASSKEY_REQUIRED_MESSAGE, code: PASSKEY_REQUIRED_CODE, stepUpAction: action });
+    }
+    return totpForbidden('notEnrolled', message);
   }
 
   /**
@@ -108,6 +158,15 @@ export class TotpService {
     } catch (err) {
       this.logger.error(`No se puede leer un secreto 2FA guardado: ${(err as Error).message}`);
       return null;
+    }
+  }
+
+  private async passkeyCount(userId: string): Promise<number> {
+    try {
+      return await this.prisma.staffPasskey.count({ where: { userId } });
+    } catch (err) {
+      this.logger.warn(`No se pudieron contar las llaves de acceso: ${(err as Error).message}`);
+      return 0;
     }
   }
 

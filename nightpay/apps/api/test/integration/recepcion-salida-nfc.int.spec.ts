@@ -159,7 +159,8 @@ describe('salida NFC de recepción (Postgres real)', () => {
     expect(await sys((tx) => tx.walletPayout.count({ where: { walletId: c.walletId } }))).toBe(0);
     await expect(scope(venue, () => charges.payout({ userId: manager, role: 'MANAGER', tenantId: venue }, c.walletId, { method: 'CASH' }))).rejects.toThrow(/2FA|verificación/);
     await scope(venue, () => charges.payout({ userId: manager, role: 'MANAGER', tenantId: venue }, c.walletId, { method: 'CASH', totpCode: '123456' }));
-    expect(totp.assertForUser).toHaveBeenCalledWith(manager, '123456');
+    // Con la acción a la que va atada la 2FA (quien no la tiene, con la prueba de su llave).
+    expect(totp.assertForUser).toHaveBeenCalledWith(manager, '123456', `wallet-payout:${c.walletId}`);
     expect(await sys((tx) => tx.walletPayout.count({ where: { walletId: c.walletId, status: 'DONE' } }))).toBe(1);
   });
 });

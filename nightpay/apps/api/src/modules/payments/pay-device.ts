@@ -1,3 +1,5 @@
+import { IN_APP_BROWSERS } from '../../common/http/client-device';
+
 /**
  * Qué puede usar el cliente para pagar, según su navegador (User-Agent).
  *
@@ -10,15 +12,6 @@ export interface PayDevice {
   /** Nombre de la app cuyo navegador interno se está usando. */
   inApp: string | null;
 }
-
-const IN_APP_BROWSERS: ReadonlyArray<[RegExp, string]> = [
-  [/Instagram/i, 'Instagram'],
-  [/FBAN|FBAV|FB_IAB|FBIOS|Messenger/i, 'Facebook'],
-  [/musical_ly|BytedanceWebview|TikTok/i, 'TikTok'],
-  [/Snapchat/i, 'Snapchat'],
-  [/LinkedInApp/i, 'LinkedIn'],
-  [/\bLine\//i, 'LINE'],
-];
 
 export function detectPayDevice(userAgent: string | undefined): PayDevice {
   const ua = userAgent ?? '';

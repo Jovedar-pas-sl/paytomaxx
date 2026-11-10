@@ -1,0 +1,94 @@
+/* «Detalle del pago» del personal (Grafito): filetes, sin degradados, pesos 400/500/600. */
+
+.sheet {
+  display: grid;
+  gap: 1rem;
+}
+
+.head {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0.5rem 0.75rem;
+}
+
+.total {
+  font-size: 1.75rem;
+  line-height: 1.1;
+}
+
+.status {
+  font: 500 0.875rem/1.3 var(--np-font-sans);
+  color: var(--np-text);
+}
+
+.mute {
+  margin: 0;
+  font: 400 0.8125rem/1.4 var(--np-font-sans);
+  color: var(--np-text-mute);
+}
+
+.block {
+  display: grid;
+  gap: 0.375rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--np-border);
+}
+
+.blockTitle {
+  margin: 0;
+  font: 600 0.8125rem/1.3 var(--np-font-sans);
+  color: var(--np-text-mute);
+}
+
+.line {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  font: 400 0.9375rem/1.35 var(--np-font-sans);
+}
+
+.line > span:last-child {
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+
+.line[data-strong] {
+  font-weight: 600;
+}
+
+.flag {
+  margin: 0;
+  font: 500 0.8125rem/1.35 var(--np-font-sans);
+  color: var(--np-warning);
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+/* Toda la fila de «Mis cobros» abre el detalle; «Cancelar» queda por encima. */
+.rowHost {
+  position: relative;
+}
+
+.rowOpen {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: inherit;
+  background: transparent;
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.rowAbove {
+  position: relative;
+  z-index: 1;
+}
