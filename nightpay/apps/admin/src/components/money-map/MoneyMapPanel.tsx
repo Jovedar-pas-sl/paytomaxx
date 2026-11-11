@@ -6,14 +6,11 @@ import type { MoneyMapQuery } from '@nightpay/contracts';
 import { fetchMoneyMap, type CobrosFilters } from '@/lib/api';
 import { formatDateTime, madridToday } from '@/lib/dates';
 import { FILTER_FIELD } from '@/lib/filter-field';
-import { moneyMapView } from '@/lib/money-map-view';
 import { moneyMapCobrosFilter } from '@/lib/money-map-cobros';
 import { createMoneyMapLoader, moneyMapFreshness, moneyMapPeriod, moneyMapStamp, type MoneyMapLoadState } from '@/lib/money-map-loading';
 import type { TabKey } from '@/lib/roles';
 import { usePolling } from '@/lib/use-polling';
-import { useSections } from '@/lib/use-sections';
 import { useVenue } from '@/lib/venue-context';
-import { Stripe } from '../fichas/FichaSheet';
 import { Notice } from '../Notice';
 import { MoneyMapView } from './MoneyMapView';
 
@@ -28,7 +25,6 @@ const MAX_POLL_MS = 240_000;
  */
 export function MoneyMapPanel({ onNavigate, onOpenCobros }: { onNavigate?: (key: TabKey) => void; onOpenCobros?: (filter: CobrosFilters) => void }) {
   const venue = useVenue();
-  const { sections } = useSections();
   const [{ map, shown, requested, loading, error }, setState] = useState<MoneyMapLoadState>({ map: null, shown: null, requested: {}, loading: false, error: null });
   const [query, setQuery] = useState<MoneyMapQuery>({});
   const [from, setFrom] = useState(madridToday);
@@ -63,14 +59,13 @@ export function MoneyMapPanel({ onNavigate, onOpenCobros }: { onNavigate?: (key:
   const stamp = map ? moneyMapStamp(map) : null;
   const fresh = map ? moneyMapFreshness(map, venue.timezone) : null;
   const periodText = map?.scope.kind === 'period' ? `Del ${dayLabel(shown?.from)} al ${dayLabel(shown?.to)}, ambos incluidos (hora de Madrid). ` : '';
-  const stripe = map ? moneyMapView(map, sections).stripe : [];
 
   return (
     <section className="np-mm" aria-labelledby="np-mm-title">
       <header className="np-mm-head">
         <span className="np-mm-logo" aria-hidden="true" />
         <div className="np-mm-title">
-          <h2 id="np-mm-title">Mapa del dinero</h2>
+          <h2 id="np-mm-title">{map?.scope.kind === 'period' ? 'El dinero de estas fechas' : 'El dinero de esta noche'}</h2>
           <span>{venue.name ?? venue.slug}</span>
         </div>
         {/* La hora de los datos (generatedAt), como la maqueta: el estado entero, para el lector de pantalla. */}
@@ -83,7 +78,6 @@ export function MoneyMapPanel({ onNavigate, onOpenCobros }: { onNavigate?: (key:
           ) : loading ? 'Cargando…' : 'Sin datos'}
         </span>
       </header>
-      <Stripe segments={stripe} />
 
       <details className="np-mm-period-box" data-tour="mapa-fechas">
         <summary>
@@ -114,7 +108,11 @@ export function MoneyMapPanel({ onNavigate, onOpenCobros }: { onNavigate?: (key:
       ) : null}
 
       {map ? (
-        <MoneyMapView map={map} wide onOpen={onOpenCobros ? (target) => onOpenCobros(moneyMapCobrosFilter(map, target)) : undefined} />
+        <MoneyMapView
+          map={map}
+          onOpen={onOpenCobros ? (target) => onOpenCobros(moneyMapCobrosFilter(map, target)) : undefined}
+          onAction={onNavigate ? (action) => onNavigate(action === 'close-cash' ? 'nights' : 'treasury') : undefined}
+        />
       ) : error ? null : <p className="np-mm-note">Cargando…</p>}
 
       {map ? (

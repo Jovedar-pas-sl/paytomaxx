@@ -2,15 +2,16 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
 /**
- * El mapa del dinero en el escritorio (panel-money.css). Las pruebas del panel
- * no tienen DOM ni maquetación: aquí se lee el CSS y se comprueban las reglas
- * que evitan los dos fallos que se vieron en la demo (1440 px):
- *  - la pista «Toca las ventas…» ocupaba sola la columna izquierda y «Dónde
- *    está» bajaba a otra fila (media pantalla vacía);
- *  - «Reservados VIP» salía cortado («Reservados …») en «Por sección».
+ * El mapa del dinero en cuatro preguntas (panel-money-q.css, Grafito 3 · B).
+ * Las pruebas del panel no tienen DOM ni maquetación: aquí se lee el CSS y se
+ * comprueban las reglas que importan: dos columnas en el escritorio y una en el
+ * móvil (360 px), la raya de color de cada tarjeta, la cifra grande de 40 px en
+ * Manrope 700, y que no queda ni el anillo ni las barras dobles de antes.
  */
 
-const CSS = readFileSync(new URL('../styles/panel-money.css', import.meta.url), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+const strip = (css: string): string => css.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\r\n/g, '\n');
+const Q = strip(readFileSync(new URL('../styles/panel-money-q.css', import.meta.url), 'utf8'));
+const OLD = strip(readFileSync(new URL('../styles/panel-money.css', import.meta.url), 'utf8'));
 
 interface Rule {
   media: string | null;
@@ -18,7 +19,6 @@ interface Rule {
   body: string;
 }
 
-/** Las reglas del CSS (una por selector), con la @media que las envuelve. */
 function rulesOf(css: string, media: string | null = null): Rule[] {
   const out: Rule[] = [];
   let i = 0;
@@ -41,67 +41,47 @@ function rulesOf(css: string, media: string | null = null): Rule[] {
   return out;
 }
 
-const RULES = rulesOf(CSS);
-const WIDE = '@media (min-width: 900px)';
+const RULES = rulesOf(Q);
+const MOBILE = '@media (max-width: 640px)';
 
-function rule(selector: string, media: string | null = null): Rule | undefined {
-  return RULES.find((r) => r.selector === selector && r.media === media);
-}
-
-function decl(r: Rule | undefined, prop: string): string | null {
+function decl(selector: string, prop: string, media: string | null = null): string | null {
+  const r = RULES.find((x) => x.selector === selector && x.media === media);
   const m = r?.body.match(new RegExp(`(?:^|;|\\s)${prop}\\s*:\\s*([^;]+)`));
   return m ? m[1]!.trim() : null;
 }
 
-describe('mapa del dinero en el escritorio (dos columnas desde 900 px)', () => {
-  it('todo lo que no es una de las dos columnas (cifras, la pista, notas) ocupa la fila entera', () => {
-    const r = rule(".np-mm-body[data-layout='wide'] > :not(.np-mm-col)", WIDE);
-    expect(r, 'falta la regla de fila entera').toBeDefined();
-    expect(decl(r, 'grid-column')).toBe('1 / -1');
+describe('mapa del dinero en cuatro preguntas', () => {
+  it('las cuatro tarjetas, en dos columnas; en el móvil, en una', () => {
+    expect(decl('.np-mmq-cards', 'grid-template-columns')).toBe('repeat(2, minmax(0, 1fr))');
+    expect(decl('.np-mmq-cards', 'grid-template-columns', MOBILE)).toBe('minmax(0, 1fr)');
   });
 
-  it('el nombre de una sección nunca se corta con «…»: si no cabe, pasa a dos líneas', () => {
-    const r = rule('.np-mm-sr > span:first-child');
-    expect(r).toBeDefined();
-    expect(decl(r, 'white-space')).not.toBe('nowrap');
-    expect(decl(r, 'text-overflow')).toBeNull();
-    expect(decl(r, 'overflow')).toBeNull();
-    expect(decl(r, 'overflow-wrap')).toBe('anywhere');
-    expect(decl(r, 'min-width')).toBe('0');
+  it('cada tarjeta lleva su raya de color de 4 px y una cifra de 40 px en Manrope 700', () => {
+    expect(decl('.np-mmq-card', 'border-top')).toBe('4px solid var(--np-mmq-c, var(--np-border-hi))');
+    for (const tone of ['ganado', 'caja', 'banco', 'debo']) {
+      expect(decl(`.np-mmq-card[data-tone='${tone}']`, '--np-mmq-c')).toBe(`var(--np-mmq-${tone})`);
+    }
+    expect(decl('.np-mmq-num', 'font-size')).toBe('var(--gf-t-kpi, 2.5rem)');
+    expect(decl('.np-mmq-num', 'font-weight')).toBe('700');
+    expect(decl('.np-mmq-num', 'font-family')).toBe('var(--np-font-num)');
   });
 
-  it('en el escritorio la columna del nombre es más ancha («Reservados VIP» en una línea)', () => {
-    const rem = (cols: string | null) => Number(cols?.match(/^([\d.]+)rem/)?.[1] ?? 0);
-    const plain = rule(".np-mm-body[data-layout='wide'] .np-mm-sr", WIDE);
-    const open = rule(".np-mm-body[data-layout='wide'] .np-mm-sr[data-open]", WIDE);
-    expect(rem(decl(plain, 'grid-template-columns'))).toBeGreaterThanOrEqual(9);
-    expect(rem(decl(open, 'grid-template-columns'))).toBeGreaterThanOrEqual(9);
-    // Las filas que se abren conservan su cuarta columna (la flecha).
-    expect(decl(open, 'grid-template-columns')?.split(/\s+(?![^(]*\))/)).toHaveLength(4);
+  it('los dos temas tienen su color de cada tarjeta', () => {
+    expect(Q).toMatch(/\[data-theme='light'\]\s*\{[^}]*--np-mmq-debo/);
+    expect(Q).toMatch(/\[data-theme='light'\]\s*\{[^}]*--np-mmq-banco/);
   });
 
-  it('arriba, las cuatro cifras en fila (ventas, anillo + para el local, propinas, cobros) con su rótulo (D8)', () => {
-    const kpis = rule(".np-mm-body[data-layout='wide'] .np-mm-kpis", WIDE);
-    expect(decl(kpis, 'display')).toBe('grid');
-    expect(decl(kpis, 'grid-template-columns')?.split(/\s+(?![^(]*\))/)).toHaveLength(5);
-    expect(decl(rule(".np-mm-body[data-layout='wide'] .np-mm-cap", WIDE), 'display')).toBe('block');
-    // En el móvil, el rótulo no ocupa sitio.
-    expect(decl(rule('.np-mm-cap'), 'display')).toBe('none');
+  it('el saldo sin gastar es una nota y lo vendido ocupa su fila; sin letra bajo 14 px', () => {
+    expect(decl('.np-mmq-saldo', 'font-size')).toBe('var(--gf-t-body, 1rem)');
+    expect(decl('.np-mmq-parts', 'font-size')).toBe('var(--gf-t-small, 0.875rem)');
+    expect(decl('.np-mmq-sold', 'flex-wrap')).toBe('wrap');
+    expect(decl('.np-mmq-sold', 'flex-direction', MOBILE)).toBe('column');
   });
 
-  it('por debajo de 900 px «Propinas» nunca sube a la fila de las ventas (P-1: a 430 px las ventas medían 1 px)', () => {
-    const NARROW = '@media (max-width: 899.98px)';
-    const grow = decl(rule(".np-mm-body[data-layout='wide'] .np-mm-kpis .np-mm-grow", NARROW), 'flex');
-    // Las ventas parten del ancho que dejan el anillo (4rem), «Para el local» (5.375rem) y dos huecos.
-    expect(grow).toMatch(/^1 1 calc\(100% - 4rem - 5\.375rem - 1\.5rem/);
-    expect(decl(rule('.np-mm-ring'), 'width')).toBe('4rem');
-    expect(decl(rule('.np-mm-kpis .np-mm-side'), 'width')).toBe('5.375rem');
-    expect(decl(rule('.np-mm-kpis'), 'gap')).toBe('0.75rem');
-    expect(decl(rule(".np-mm-body[data-layout='wide'] .np-mm-kpis .np-mm-more", NARROW), 'flex')).toBe('1 1 calc(50% - 0.375rem)');
-  });
-
-  it('en una pantalla grande el mapa usa el ancho (no se queda en 64rem)', () => {
-    const wide = rule('.np-mm', '@media (min-width: 1200px)');
-    expect(Number(decl(wide, 'max-width')?.replace('rem', ''))).toBeGreaterThan(64);
+  it('ya no queda el anillo ni las barras apiladas', () => {
+    for (const gone of ['np-mm-ring', 'np-mm-hbar', 'np-mm-hleg', 'np-mm-dleg', 'np-mm-srows', 'np-mm-kpis']) {
+      expect(OLD, gone).not.toContain(gone);
+      expect(Q, gone).not.toContain(gone);
+    }
   });
 });

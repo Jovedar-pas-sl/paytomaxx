@@ -1,0 +1,203 @@
+/* Panel (admin) · Mapa del dinero en cuatro preguntas (Grafito 3, opción B):
+   cuatro tarjetas grandes (dos columnas; una en el móvil), el saldo sin gastar
+   y lo vendido por sección. Los dos temas: el color de cada tarjeta es solo la
+   raya de arriba y la cifra. */
+
+:root,
+[data-theme='dark'] {
+  --np-mmq-ganado: var(--np-success);
+  --np-mmq-caja: var(--np-warning);
+  --np-mmq-banco: var(--np-cream);
+  --np-mmq-debo: #f2b49b;
+  --np-mmq-info-bg: #0f1f31;
+  --np-mmq-info-edge: #2b4a66;
+  --np-mmq-info-dot: #6fa8dc;
+}
+
+[data-theme='light'] {
+  --np-mmq-banco: var(--np-ink);
+  --np-mmq-debo: #9a4a28;
+  --np-mmq-info-bg: #e6eff8;
+  --np-mmq-info-edge: #b4cbe2;
+  --np-mmq-info-dot: #2f6fa8;
+}
+
+.np-mmq {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  padding-top: 0.25rem;
+}
+
+.np-mmq-cards {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.np-mmq-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+  min-width: 0;
+  padding: 1.125rem 1.25rem;
+  border: 1px solid var(--np-border);
+  border-top: 4px solid var(--np-mmq-c, var(--np-border-hi));
+  border-radius: 1rem;
+  background: var(--np-surface);
+}
+
+.np-mmq-card[data-tone='ganado'] { --np-mmq-c: var(--np-mmq-ganado); }
+.np-mmq-card[data-tone='caja'] { --np-mmq-c: var(--np-mmq-caja); }
+.np-mmq-card[data-tone='banco'] { --np-mmq-c: var(--np-mmq-banco); }
+.np-mmq-card[data-tone='debo'] { --np-mmq-c: var(--np-mmq-debo); }
+
+.np-mmq-q {
+  margin: 0;
+  font-size: var(--gf-t-h3, 1.125rem);
+  font-weight: 400;
+  line-height: 1.3;
+  color: var(--np-text-mute);
+}
+
+.np-mmq-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+  justify-content: space-between;
+}
+
+.np-mmq-num {
+  font-family: var(--np-font-num);
+  font-size: var(--gf-t-kpi, 2.5rem);
+  font-weight: 700;
+  font-variant-numeric: proportional-nums;
+  line-height: 1.1;
+  color: var(--np-text);
+  overflow-wrap: anywhere;
+}
+
+.np-mmq-card[data-tone='ganado'] .np-mmq-num,
+.np-mmq-card[data-tone='caja'] .np-mmq-num,
+.np-mmq-card[data-tone='debo'] .np-mmq-num {
+  color: var(--np-mmq-c);
+}
+
+.np-mmq-cap {
+  margin: 0;
+  font-size: var(--gf-t-small, 0.875rem);
+  line-height: 1.45;
+  color: var(--np-text-dim);
+}
+
+/* El saldo de clientes sin gastar: una nota azul, no una cifra más. */
+.np-mmq-saldo {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  margin: 0;
+  padding: 0.875rem 1.125rem;
+  border: 1px solid var(--np-mmq-info-edge);
+  border-radius: var(--np-r-md);
+  background: var(--np-mmq-info-bg);
+  font-size: var(--gf-t-body, 1rem);
+  line-height: 1.4;
+  color: var(--np-text);
+}
+
+.np-mmq-dot {
+  flex: none;
+  width: 0.75rem;
+  height: 0.75rem;
+  margin-top: 0.3rem;
+  border-radius: 3px;
+  background: var(--np-mmq-info-dot);
+}
+
+.np-mmq-sold {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+  padding: 0.875rem 1.125rem;
+  border-radius: var(--np-r-md);
+  background: var(--np-surface);
+  font-size: var(--gf-t-body, 1rem);
+}
+
+.np-mmq-sold-total {
+  display: flex;
+  align-items: baseline;
+  gap: 0.875rem;
+  color: var(--np-text-mute);
+}
+
+.np-mmq-sold-num {
+  font-family: var(--np-font-num);
+  font-size: var(--gf-t-h3, 1.125rem);
+  font-weight: 700;
+  color: var(--np-text);
+}
+
+.np-mmq-parts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 1.25rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--gf-t-small, 0.875rem);
+  color: var(--np-text-dim);
+}
+
+.np-mmq-part {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.375rem;
+  min-height: 2rem;
+  align-items: center;
+}
+
+.np-mmq-part b {
+  font-family: var(--np-font-num);
+  font-weight: 700;
+  color: var(--np-text);
+  font-variant-numeric: tabular-nums;
+}
+
+.np-mmq-swatch {
+  width: 0.625rem;
+  height: 0.625rem;
+  border-radius: 3px;
+  background: var(--np-c, var(--np-border-hi));
+}
+
+.np-mmq-none {
+  margin: 0;
+  color: var(--np-text-dim);
+}
+
+.np-mmq-blocks {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 22rem), 1fr));
+  gap: 1rem 2rem;
+  padding-bottom: 0.5rem;
+}
+
+.np-mmq-block h4 {
+  margin: 0 0 0.375rem;
+  font-size: var(--gf-t-body, 1rem);
+  font-weight: 600;
+}
+
+@media (max-width: 640px) {
+  .np-mmq-cards {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .np-mmq-sold {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}
