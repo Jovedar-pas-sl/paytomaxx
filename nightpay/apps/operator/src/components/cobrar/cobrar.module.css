@@ -204,6 +204,54 @@
   transform: scale(0.98);
 }
 
+/* Loseta de la carta con su logo o foto (maqueta B): el cuadrado de 52 px a la
+   izquierda y, a la derecha, el nombre y el precio. Sigue el color de su
+   sección, el toque y los 92 px de alto como mínimo. */
+.tileItem {
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 0.625rem;
+  padding: 0.625rem;
+}
+
+/* Doble clase: también en las grandes de la chica y en móviles bajos (92 px siempre). */
+.tile.tileItem {
+  min-height: 5.75rem;
+}
+
+/* Cuadrado de 52 px: crema con la imagen (contain) o el icono en tinta. */
+.thumb {
+  flex: 0 0 3.25rem;
+  width: 3.25rem;
+  height: 3.25rem;
+  border-radius: 0.75rem;
+  background: var(--np-cream, #efe9df);
+  color: var(--np-ink, #1f2c36);
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+}
+
+.thumbImg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.tileText {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  min-width: 0;
+}
+
+/* El contador (o el QR) está arriba a la derecha: el nombre le deja sitio solo si lo hay. */
+.tiles > .tile .tileNameBadge {
+  padding-right: 1.25rem;
+}
+
 /* La chica (dos secciones o menos): losetas más grandes. */
 .tileBig {
   min-height: 5.5rem;
@@ -229,7 +277,7 @@
 }
 
 /* En las de la carta, el nombre deja sitio al contador (o al QR) de arriba a la derecha. */
-.tiles > .tile .tileName {
+.tiles > .tile:not(.tileItem) .tileName {
   padding-right: 1.5rem;
 }
 
@@ -1593,7 +1641,7 @@ html[data-contrast='sala'] .lastRow[data-n='4']:not([data-big]) {
  * de la chica, como siempre.
  */
 @media (max-height: 800px) {
-  .tile:not(.tileBig) {
+  .tile:not(.tileBig):not(.tileItem) {
     min-height: 3.75rem;
     padding: 0.5rem 0.75rem;
   }

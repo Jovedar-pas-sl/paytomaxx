@@ -16,6 +16,10 @@ export interface CartaItem {
   /** Pack: sus partes (cada una a su sección). */
   components?: ReadonlyArray<{ category: string; amountCents: number }> | null;
   isInvitation?: boolean;
+  /** Icono de la colección (null = el de su sección). */
+  icon?: string | null;
+  /** Ruta de su logo o foto (versionada por su huella), o null. */
+  imageUrl?: string | null;
 }
 
 /** Propinas: no son una sección de línea, van aparte (tipCents); en la pantalla, con su color. */

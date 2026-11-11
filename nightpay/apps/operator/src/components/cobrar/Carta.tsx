@@ -8,6 +8,7 @@ import { cobrarLabel, itemTileKey, tileLabel, undoFocusTarget, type UndoTap } fr
 import { chargeable, itemLabel, cuentaSummary, cuentaTotals, qtyOf, type CartaItem, type Cuenta } from '@/lib/cuenta';
 import { colorOf, labelOf, offeredCodes, puestoChip, type CobrarContext } from './cobrar-context';
 import { IconQr, IconUndo } from './icons';
+import { ItemThumb } from './ItemThumb';
 import { Chip, ScreenHeader } from './ScreenHeader';
 import styles from './cobrar.module.css';
 
@@ -224,7 +225,7 @@ function ItemTile({
 }) {
   // El color sólido de su sección (un pack, la suya), con tinta encima: el nombre de la sección va en el título del grupo.
   const style = { '--c': cartaTileColor(item.category) } as CSSProperties;
-  const cls = [styles.tile, big ? styles.tileBig : '', qty > 0 ? styles.tileOn : ''].filter(Boolean).join(' ');
+  const cls = [styles.tile, styles.tileItem, big ? styles.tileBig : '', qty > 0 ? styles.tileOn : ''].filter(Boolean).join(' ');
   // La copa con invitación no va a la cuenta: se cobra aparte, con el QR de la chica.
   const invite = tapOf(item) === 'invitar';
   const label = tileLabel(itemLabel(item), item.priceCents, { qty, invite });
@@ -240,8 +241,11 @@ function ItemTile({
           <IconQr />
         </span>
       ) : null}
-      <span className={styles.tileName}>{itemLabel(item)}</span>
-      <span className={styles.price}>{formatEur(item.priceCents, { compact: true })}</span>
+      <ItemThumb item={item} />
+      <span className={styles.tileText}>
+        <span className={`${styles.tileName}${qty > 0 || invite ? ` ${styles.tileNameBadge}` : ''}`}>{itemLabel(item)}</span>
+        <span className={styles.price}>{formatEur(item.priceCents, { compact: true })}</span>
+      </span>
     </button>
   );
 }
