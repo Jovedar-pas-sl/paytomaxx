@@ -96,7 +96,7 @@ export function CartaPanel() {
             <h3 style={groupTitle}>
               {group.color ? <SectionDot color={group.color} /> : null}
               {group.label}
-              {group.enabled ? null : <span style={{ color: 'var(--np-text-dim)', fontWeight: 500 }}> · apagada</span>}
+              {group.enabled ? null : <span style={{ color: 'var(--np-text-dim)', fontWeight: 400 }}> · apagada</span>}
             </h3>
             {group.items.map((item, ii) =>
               editing === item.id ? (
@@ -127,7 +127,7 @@ export function CartaPanel() {
                       <p style={{ margin: 0, fontWeight: 600, fontSize: '1rem' }}>
                         {item.name}
                         {item.durationMin ? (
-                          <span style={{ color: 'var(--np-text-mute)', fontWeight: 500 }}> · {item.durationMin} min</span>
+                          <span style={{ color: 'var(--np-text-mute)', fontWeight: 400 }}> · {item.durationMin} min</span>
                         ) : null}
                       </p>
                       <p style={{ ...hintStyle, marginTop: '0.125rem' }}>
@@ -351,9 +351,9 @@ function ServiceForm({
 const titleStyle: CSSProperties = { margin: 0, fontSize: 'var(--np-t-h3)', fontWeight: 600 };
 const subtitleStyle: CSSProperties = { margin: '0 0 0.875rem', fontSize: '1rem', fontWeight: 600 };
 const groupTitle: CSSProperties = { margin: '0.5rem 0 0', fontSize: '1rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.5rem' };
-const hintStyle: CSSProperties = { margin: '0.25rem 0 0', color: 'var(--np-text-mute)', fontSize: '0.9375rem' };
+const hintStyle: CSSProperties = { margin: '0.25rem 0 0', color: 'var(--np-text-mute)', fontSize: '1rem' };
 const rowStyle: CSSProperties = { display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' };
-const priceStyle: CSSProperties = { fontSize: '1.25rem', fontWeight: 600, marginLeft: 'auto' };
+const priceStyle: CSSProperties = { fontSize: '1.375rem', fontWeight: 600, marginLeft: 'auto' };
 const formGrid: CSSProperties = {
   display: 'grid',
   gridTemplateColumns: 'repeat(auto-fit, minmax(12rem, 1fr))',

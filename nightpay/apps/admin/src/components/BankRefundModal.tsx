@@ -159,8 +159,8 @@ const stepsStyle: CSSProperties = {
   flexDirection: 'column',
   gap: '0.375rem',
   color: 'var(--np-text-mute)',
-  fontSize: '0.9375rem',
+  fontSize: '1rem',
 };
-const metaStyle: CSSProperties = { margin: '0.75rem 0 0', fontSize: '0.9375rem' };
+const metaStyle: CSSProperties = { margin: '0.75rem 0 0', fontSize: '1rem' };
 const codeStyle: CSSProperties = { fontFamily: 'var(--np-font-mono)', color: 'var(--np-text)' };
 const checkStyle: CSSProperties = { display: 'flex', alignItems: 'center', gap: '0.5rem', fontWeight: 600 };

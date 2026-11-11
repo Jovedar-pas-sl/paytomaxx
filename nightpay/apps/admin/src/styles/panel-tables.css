@@ -75,7 +75,7 @@
     min-width: 0;
     padding: 0.3rem 0 !important;
     border: 0 !important;
-    font-size: 0.9375rem;
+    font-size: 1rem;
     text-align: right !important;
     overflow-wrap: anywhere;
   }
@@ -86,8 +86,8 @@
     flex-shrink: 0;
     max-width: 50%;
     font-family: var(--np-font-sans);
-    font-size: 0.75rem;
-    font-weight: 500;
+    font-size: 0.875rem;
+    font-weight: 400;
     text-align: left;
     color: var(--np-text-dim);
   }
@@ -111,7 +111,7 @@
   }
 
   .np-table tbody td[data-card='top'] {
-    font-size: 0.8125rem;
+    font-size: 0.875rem;
     color: var(--np-text-dim) !important;
   }
 
@@ -257,11 +257,11 @@
   .np-cobros-table tbody tr::before { order: 2; }
   .np-cobros-table tbody tr::after { order: 4; }
   .np-cobros-table tbody td { order: 5; display: flex; flex: 1 1 100%; justify-content: space-between; align-items: baseline; gap: 1rem; min-width: 0; padding: 0.3rem 0; border: 0; text-align: right; overflow-wrap: anywhere; }
-  .np-cobros-table tbody td::before { content: attr(data-label); flex-shrink: 0; max-width: 50%; font-size: 0.75rem; font-weight: 500; text-align: left; color: var(--np-text-dim); }
+  .np-cobros-table tbody td::before { content: attr(data-label); flex-shrink: 0; max-width: 50%; font-size: 0.875rem; font-weight: 400; text-align: left; color: var(--np-text-dim); }
   .np-cobros-table tbody td[data-card='top'] { order: 1; flex: 0 1 auto; color: var(--np-text-dim); }
   .np-cobros-table tbody td[data-card='top'] ~ td[data-card='top'] { margin-left: auto; }
   .np-cobros-table tbody td[data-card='top']::before, .np-cobros-table tbody td[data-card='status']::before, .np-cobros-table tbody td[data-card='actions']::before, .np-cobros-table tbody td[colspan]::before { content: none; }
-  .np-cobros-table tbody td[data-card='amount'] { order: 3; flex: 1 1 auto; flex-direction: column; align-items: flex-start; gap: 0.15rem; font-size: 1.5rem; text-align: left !important; }
+  .np-cobros-table tbody td[data-card='amount'] { order: 3; flex: 1 1 auto; flex-direction: column; align-items: flex-start; gap: 0.15rem; font-size: 1.375rem; text-align: left !important; }
   .np-cobros-table tbody td[data-card='status'] { order: 3; flex: 0 0 auto; }
   .np-cobros-table tbody td[data-card='actions'] { order: 6; flex-wrap: wrap; justify-content: flex-start; gap: 0.5rem; margin-top: 0.5rem; padding-top: 0.75rem; border-top: 1px solid var(--np-border); }
   .np-cobros-table tbody td[data-card='actions'] .np-btn { flex: 1 1 auto; min-height: 2.75rem; }

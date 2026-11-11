@@ -67,7 +67,7 @@ export function CodeSearch({ onFound }: { onFound: (target: PayoutTarget) => voi
   return (
     <Card style={{ padding: '1rem' }}>
       <h3 style={sectionTitle}>Devolver el saldo a un cliente que se va</h3>
-      <p style={{ margin: '0.25rem 0 0.75rem', fontSize: '0.8125rem', color: 'var(--np-text-mute)' }}>
+      <p style={{ margin: '0.25rem 0 0.75rem', fontSize: '0.875rem', color: 'var(--np-text-mute)' }}>
         Pon el código que sale en su página de saldo (vale aunque cargara en otro local).
       </p>
       <form onSubmit={handleSubmit} style={{ display: 'flex', gap: '0.5rem', alignItems: 'flex-start' }}>
@@ -200,7 +200,7 @@ export function PayoutModal({
           <p style={{ margin: 0, fontSize: '0.875rem' }}>
             Saldo: <strong className="np-num">{formatEur(balanceCents)}</strong>
           </p>
-          <p style={{ margin: '0.2rem 0 0', fontSize: '0.8125rem', color: 'var(--np-text-mute)' }}>
+          <p style={{ margin: '0.2rem 0 0', fontSize: '0.875rem', color: 'var(--np-text-mute)' }}>
             {[target.code, target.label].filter(Boolean).join(' · ')}
           </p>
         </div>
@@ -399,7 +399,7 @@ export function ChargeWithoutFaceIdModal({
           <p style={{ margin: 0, fontSize: '0.875rem' }}>
             Saldo del cliente: <strong className="np-num">{formatEur(target.balanceCents)}</strong>
           </p>
-          <p style={{ margin: '0.2rem 0 0', fontSize: '0.8125rem', color: 'var(--np-text-mute)' }}>
+          <p style={{ margin: '0.2rem 0 0', fontSize: '0.875rem', color: 'var(--np-text-mute)' }}>
             {[target.code, target.label].filter(Boolean).join(' · ')}
           </p>
         </div>
@@ -493,7 +493,7 @@ export function RelinkModal({ target, onClose }: { target: PayoutTarget; onClose
           <p style={{ margin: 0, fontSize: '0.875rem' }}>
             Saldo: <strong className="np-num">{formatEur(target.balanceCents)}</strong>
           </p>
-          <p style={{ margin: '0.2rem 0 0', fontSize: '0.8125rem', color: 'var(--np-text-mute)' }}>
+          <p style={{ margin: '0.2rem 0 0', fontSize: '0.875rem', color: 'var(--np-text-mute)' }}>
             {[target.code, target.label].filter(Boolean).join(' · ')}
           </p>
         </div>
@@ -510,7 +510,7 @@ export function RelinkModal({ target, onClose }: { target: PayoutTarget; onClose
               height={240}
               style={{ alignSelf: 'center', borderRadius: 'var(--np-r-md)' }}
             />
-            <p style={{ ...helpStyle, wordBreak: 'break-all', fontSize: '0.75rem' }}>{link.url}</p>
+            <p style={{ ...helpStyle, wordBreak: 'break-all', fontSize: '0.875rem' }}>{link.url}</p>
             <Button onClick={onClose}>Hecho</Button>
           </>
         ) : (
@@ -645,7 +645,7 @@ function MethodOption({
       }}
     >
       <span style={{ fontWeight: 600 }}>{title}</span>
-      <span style={{ fontSize: '0.8125rem', color: 'var(--np-text-mute)' }}>{text}</span>
+      <span style={{ fontSize: '0.875rem', color: 'var(--np-text-mute)' }}>{text}</span>
     </button>
   );
 }
@@ -688,7 +688,7 @@ const linkStyle: CSSProperties = {
   background: 'transparent',
   border: 'none',
   color: 'var(--np-text)',
-  fontSize: '0.8125rem',
+  fontSize: '0.875rem',
   fontFamily: 'inherit',
   cursor: 'pointer',
   textDecoration: 'underline',
@@ -696,7 +696,7 @@ const linkStyle: CSSProperties = {
 
 const helpStyle: CSSProperties = {
   margin: 0,
-  fontSize: '0.8125rem',
+  fontSize: '0.875rem',
   color: 'var(--np-text-mute)',
   lineHeight: 1.45,
 };

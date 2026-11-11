@@ -184,7 +184,7 @@ const formStyle = {
   width: '100%',
 } as const;
 
-const stepText = { margin: 0, fontSize: '0.9375rem', color: 'var(--np-text-mute)', lineHeight: 1.5 } as const;
+const stepText = { margin: 0, fontSize: '1rem', color: 'var(--np-text-mute)', lineHeight: 1.5 } as const;
 
 /** Email o contraseña mal escritos (no un fallo de red ni el bloqueo por intentos). */
 function isBadCredentials(err: unknown): boolean {

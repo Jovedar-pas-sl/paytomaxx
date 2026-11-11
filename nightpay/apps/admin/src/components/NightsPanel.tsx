@@ -307,7 +307,7 @@ function ZSummary({ summary: s }: { summary: NightSummary }) {
         {totals.map(([label, cents]) => (
           <div key={label} style={totalBox}>
             <span style={hintSmall}>{label}</span>
-            <span className="np-num" style={{ fontSize: '1.25rem', fontWeight: 700 }}>
+            <span className="np-num" style={{ fontSize: '1.375rem', fontWeight: 700 }}>
               {formatEur(cents)}
             </span>
           </div>
@@ -432,12 +432,12 @@ function AdjustmentsBox({ adjustments: a }: { adjustments?: NightAdjustments }) 
 }
 
 const titleStyle: CSSProperties = { margin: 0, fontSize: 'var(--np-t-h3)', fontWeight: 600 };
-const hintStyle: CSSProperties = { margin: '0.25rem 0 0', color: 'var(--np-text-mute)', fontSize: '0.9375rem' };
+const hintStyle: CSSProperties = { margin: '0.25rem 0 0', color: 'var(--np-text-mute)', fontSize: '1rem' };
 const hintSmall: CSSProperties = { margin: 0, color: 'var(--np-text-mute)', fontSize: '0.875rem' };
 const rowStyle: CSSProperties = { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem' };
 const liveStyle: CSSProperties = {
-  fontSize: '0.75rem',
-  fontWeight: 500,
+  fontSize: '0.875rem',
+  fontWeight: 400,
   // «En vivo» es un estado: en verde (el lima es para la acción y el «pagado»).
   color: 'var(--np-success)',
 };
@@ -446,7 +446,7 @@ const pendingBox: CSSProperties = {
   borderRadius: 'var(--np-r-md)',
   padding: '0.75rem 1rem',
   color: 'var(--np-warning)',
-  fontSize: '0.9375rem',
+  fontSize: '1rem',
 };
 const adjustBox: CSSProperties = {
   display: 'flex',

@@ -258,8 +258,8 @@ function SplitTile({
         minWidth: 0,
       }}
     >
-      <p style={{ margin: 0, fontSize: '0.8125rem', color: 'var(--np-text-mute)' }}>{label}</p>
-      <p className="np-num" style={{ margin: '0.25rem 0 0', fontSize: '1.5rem', fontWeight: 600, color }}>
+      <p style={{ margin: 0, fontSize: '0.875rem', color: 'var(--np-text-mute)' }}>{label}</p>
+      <p className="np-num" style={{ margin: '0.25rem 0 0', fontSize: '1.375rem', fontWeight: 600, color }}>
         {count}
       </p>
     </div>
@@ -296,14 +296,14 @@ const reconcileRow: CSSProperties = {
 
 const metricLabel: CSSProperties = {
   margin: 0,
-  fontSize: '0.75rem',
+  fontSize: '0.875rem',
   color: 'var(--np-text-dim)',
-  fontWeight: 500,
+  fontWeight: 400,
 };
 
 const metricValue: CSSProperties = {
   margin: '0.5rem 0 0',
-  fontSize: '1.875rem',
+  fontSize: '1.75rem',
   // Cifra grande del panel: Manrope 600, como los importes (las de las tablas, 700).
   fontWeight: 600,
   display: 'flex',
@@ -314,12 +314,12 @@ const metricValue: CSSProperties = {
 const metricUnit: CSSProperties = {
   fontSize: '0.875rem',
   color: 'var(--np-text-mute)',
-  fontWeight: 500,
+  fontWeight: 400,
 };
 
 const metricSubtitle: CSSProperties = {
   margin: '0.4rem 0 0',
-  fontSize: '0.8125rem',
+  fontSize: '0.875rem',
   color: 'var(--np-text-dim)',
 };
 

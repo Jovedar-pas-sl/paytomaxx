@@ -9,7 +9,7 @@
 .np-tpl-intro {
   margin: 0.5rem 0 0.75rem;
   color: var(--np-text-mute);
-  font-size: 0.9375rem;
+  font-size: 1rem;
 }
 .np-tpl-list {
   list-style: none;
@@ -39,7 +39,7 @@
 .np-tpl-head > b { min-width: 0; overflow-wrap: anywhere; }
 .np-tpl-state {
   margin-left: auto;
-  font-size: 0.8125rem;
+  font-size: 0.875rem;
   font-weight: 600;
   color: var(--np-tpl-c);
 }

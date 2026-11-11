@@ -42,4 +42,4 @@ export function PaymentReferenceDetails({ row }: { row: CobroRow }) {
 }
 
 const fieldStyle: CSSProperties = { display: 'grid', gridTemplateColumns: '1fr auto', gap: '0.35rem 0.75rem', padding: '0.75rem 0', borderBottom: '1px solid var(--np-border)' };
-const noteStyle: CSSProperties = { gridColumn: '1 / -1', fontSize: '0.8125rem', color: 'var(--np-text-mute)' };
+const noteStyle: CSSProperties = { gridColumn: '1 / -1', fontSize: '0.875rem', color: 'var(--np-text-mute)' };

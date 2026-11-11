@@ -136,7 +136,7 @@ function SelfOnboardingLinkBanner({ operatorId }: { operatorId: string }) {
           <p style={{ margin: 0, fontSize: '0.875rem', fontWeight: 600 }}>
             ¿La chica sabe usar la web?
           </p>
-          <p style={{ margin: '0.25rem 0 0', fontSize: '0.8125rem', color: 'var(--np-text-mute)' }}>
+          <p style={{ margin: '0.25rem 0 0', fontSize: '0.875rem', color: 'var(--np-text-mute)' }}>
             Mándale un link de 72h y ella misma rellena sus datos (pasaporte, KYC,
             wallet). Si no sabe, rellénalos tú abajo y ya.
           </p>
@@ -172,7 +172,7 @@ function SelfOnboardingLinkBanner({ operatorId }: { operatorId: string }) {
               Compartir por WhatsApp
             </a>
           </div>
-          <p style={{ margin: '0.5rem 0 0', fontSize: '0.75rem', color: 'var(--np-text-dim)' }}>
+          <p style={{ margin: '0.5rem 0 0', fontSize: '0.875rem', color: 'var(--np-text-dim)' }}>
             Caduca: {formatDateTime(link.expiresAt, tz, 'datetime')}
           </p>
         </div>
@@ -282,7 +282,7 @@ export function OnboardingForm({ operator, onSaved }: Props) {
       {/* Estado general */}
       <Card style={summaryCard}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem' }}>
-          <p style={{ margin: 0, fontSize: '0.75rem', fontWeight: 500, color: 'var(--np-text-mute)' }}>
+          <p style={{ margin: 0, fontSize: '0.875rem', fontWeight: 400, color: 'var(--np-text-mute)' }}>
             Estado del onboarding
           </p>
           <Select
@@ -417,11 +417,11 @@ export function OnboardingForm({ operator, onSaved }: Props) {
           description="Marca cuando hayas hecho el envío de prueba y la chica confirme que recibió. Se guarda fecha + hora."
         />
         {operator.walletTestAt ? (
-          <p style={{ margin: '0.25rem 0 0', fontSize: '0.75rem', color: 'var(--np-text-dim)' }}>
+          <p style={{ margin: '0.25rem 0 0', fontSize: '0.875rem', color: 'var(--np-text-dim)' }}>
             Última prueba: {formatDateTime(operator.walletTestAt, tz, 'datetime')}
           </p>
         ) : null}
-        <p style={{ margin: '0.5rem 0 0', fontSize: '0.8125rem', color: 'var(--np-text-mute)' }}>
+        <p style={{ margin: '0.5rem 0 0', fontSize: '0.875rem', color: 'var(--np-text-mute)' }}>
           La dirección concreta de cobro se gestiona en la pestaña <strong>Editar</strong> (campo «Routing del
           payout»). Aquí solo el estado del proceso.
         </p>
@@ -465,7 +465,7 @@ export function OnboardingForm({ operator, onSaved }: Props) {
           placeholder='"Esperando cita NIE para 15/06", "Binance rechazó KYC, probando Bybit", "Vuelve a Colombia en julio"...'
           style={textareaStyle}
         />
-        <p style={{ margin: '0.25rem 0 0', fontSize: '0.75rem', color: 'var(--np-text-dim)' }}>
+        <p style={{ margin: '0.25rem 0 0', fontSize: '0.875rem', color: 'var(--np-text-dim)' }}>
           {notes.length}/2000
         </p>
       </div>
@@ -524,10 +524,10 @@ function CheckBoxRow({
         style={{ marginTop: '0.2rem' }}
       />
       <div style={{ flex: 1 }}>
-        <p style={{ margin: 0, fontSize: '0.875rem', fontWeight: 500, color: warn && checked ? 'var(--np-warning)' : 'var(--np-text)' }}>
+        <p style={{ margin: 0, fontSize: '0.875rem', fontWeight: 400, color: warn && checked ? 'var(--np-warning)' : 'var(--np-text)' }}>
           {title}
         </p>
-        <p style={{ margin: '0.15rem 0 0', fontSize: '0.8125rem', color: warn && checked ? 'var(--np-warning)' : 'var(--np-text-mute)' }}>
+        <p style={{ margin: '0.15rem 0 0', fontSize: '0.875rem', color: warn && checked ? 'var(--np-warning)' : 'var(--np-text-mute)' }}>
           {description}
         </p>
       </div>
@@ -545,7 +545,7 @@ function ProgressTile({ label, value, ok, warn }: { label: string; value: string
       background: 'var(--np-bg)',
       textAlign: 'center',
     }}>
-      <p style={{ margin: 0, fontSize: '0.75rem', fontWeight: 500, color: 'var(--np-text-dim)' }}>
+      <p style={{ margin: 0, fontSize: '0.875rem', fontWeight: 400, color: 'var(--np-text-dim)' }}>
         {label}
       </p>
       <p className="np-num" style={{ margin: '0.2rem 0 0', fontSize: '1rem', fontWeight: 600, color }}>
@@ -569,15 +569,15 @@ const progressGrid: CSSProperties = {
 
 const sectionLabel: CSSProperties = {
   margin: '0 0 0.625rem',
-  fontSize: '0.75rem',
+  fontSize: '0.875rem',
   color: 'var(--np-text-dim)',
-  fontWeight: 500,
+  fontWeight: 400,
 };
 
 const selectLabel: CSSProperties = {
   display: 'block',
-  fontSize: '0.8125rem',
-  fontWeight: 500,
+  fontSize: '0.875rem',
+  fontWeight: 400,
   color: 'var(--np-text-mute)',
   marginBottom: '0.375rem',
 };
@@ -617,7 +617,7 @@ const linkBoxStyle: CSSProperties = {
 
 const linkUrlStyle: CSSProperties = {
   display: 'block',
-  fontSize: '0.75rem',
+  fontSize: '0.875rem',
   fontFamily: 'var(--np-font-mono, monospace)',
   color: 'var(--np-text-mute)',
   wordBreak: 'break-all',

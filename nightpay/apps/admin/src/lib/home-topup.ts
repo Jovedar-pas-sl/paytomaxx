@@ -44,7 +44,7 @@ export const QUEUE_POSTER_TEXT = {
 export function queuePosterHtml(qrPngDataUrl: string, validUntilText: string): string {
   const t = QUEUE_POSTER_TEXT;
   return `<!DOCTYPE html><html lang="es"><head><meta charset="utf-8"><title>${escapeHtml(t.title)}</title>
-<style>body{margin:0;font-family:system-ui,sans-serif;color:#1f2c36;text-align:center}main{padding:2.5rem 1.5rem;display:flex;flex-direction:column;align-items:center;gap:1rem}h1{margin:0;font-size:2.4rem}.en{color:#55606a;font-weight:500}p{margin:0;font-size:1.15rem}img{width:13cm;height:13cm}small{font-size:.9rem;color:#55606a}</style>
+<style>body{margin:0;font-family:system-ui,sans-serif;color:#1f2c36;text-align:center}main{padding:2.5rem 1.5rem;display:flex;flex-direction:column;align-items:center;gap:1rem}h1{margin:0;font-size:2.4rem}.en{color:#55606a;font-weight: 400}p{margin:0;font-size:1.15rem}img{width:13cm;height:13cm}small{font-size:.9rem;color:#55606a}</style>
 </head><body><main><h1>${escapeHtml(t.title)}</h1><p class="en" lang="en">${escapeHtml(t.titleEn)}</p>
 <img src="${escapeHtml(qrPngDataUrl)}" alt="QR para cargar saldo">
 <p>${escapeHtml(t.steps)}</p><p class="en" lang="en">${escapeHtml(t.stepsEn)}</p>

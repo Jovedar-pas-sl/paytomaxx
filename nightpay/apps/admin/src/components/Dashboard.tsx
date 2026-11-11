@@ -489,10 +489,10 @@ const headerStyle: CSSProperties = {
 // Etiqueta 12/500 sin mayúsculas (Grafito).
 const brandKicker: CSSProperties = {
   margin: 0,
-  fontSize: '0.75rem',
+  fontSize: '0.875rem',
   lineHeight: 1.3,
   color: 'var(--np-text-dim)',
-  fontWeight: 500,
+  fontWeight: 400,
 };
 
 // 22/600: se distingue el local de un vistazo sin comerse la pantalla.
@@ -510,14 +510,14 @@ const userEmail: CSSProperties = {
   display: 'block',
   margin: 0,
   fontSize: '0.875rem',
-  fontWeight: 500,
+  fontWeight: 400,
   color: 'var(--np-text)',
 };
 
 const userMeta: CSSProperties = {
   display: 'block',
   margin: '0.25rem 0 0',
-  fontSize: '0.75rem',
+  fontSize: '0.875rem',
   color: 'var(--np-text-mute)',
 };
 
@@ -526,5 +526,5 @@ const code: CSSProperties = {
   background: 'var(--np-surface-2)',
   padding: '0.1rem 0.4rem',
   borderRadius: '4px',
-  fontSize: '0.75rem',
+  fontSize: '0.875rem',
 };

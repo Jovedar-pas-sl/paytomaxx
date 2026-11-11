@@ -477,11 +477,11 @@ const codeStyle: CSSProperties = {
   background: 'var(--np-surface-2)',
   padding: '0.1rem 0.4rem',
   borderRadius: '4px',
-  fontSize: '0.75rem',
+  fontSize: '0.875rem',
 };
 
 const metaStyle: CSSProperties = {
   margin: 0,
-  fontSize: '0.8125rem',
+  fontSize: '0.875rem',
   color: 'var(--np-text-mute)',
 };

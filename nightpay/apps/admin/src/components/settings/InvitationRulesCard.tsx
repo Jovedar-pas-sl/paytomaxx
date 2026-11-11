@@ -138,4 +138,4 @@ function ShareRow({
 }
 
 const row: CSSProperties = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(10rem, 1fr))', gap: '0.5rem 1rem' };
-const hint: CSSProperties = { margin: 0, color: 'var(--np-text-mute)', fontSize: '0.9375rem' };
+const hint: CSSProperties = { margin: 0, color: 'var(--np-text-mute)', fontSize: '1rem' };

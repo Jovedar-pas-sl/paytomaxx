@@ -125,7 +125,7 @@ export function TerminalsPanel({ isOwner }: Props) {
         <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between' }}>
           <div>
             <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 600 }}>Datáfonos / Terminales</h3>
-            <p style={{ margin: '0.25rem 0 0', fontSize: '0.8125rem', color: 'var(--np-text-mute)' }}>
+            <p style={{ margin: '0.25rem 0 0', fontSize: '0.875rem', color: 'var(--np-text-mute)' }}>
               Red de PAX A920 Pro por zona. La chica elige zona al cobrar; el camarero de esa zona lo confirma.
             </p>
           </div>
@@ -231,7 +231,7 @@ export function TerminalsPanel({ isOwner }: Props) {
                       style={{
                         // Como Pill: 14/500 y radio de chip.
                         fontSize: '0.875rem',
-                        fontWeight: 500,
+                        fontWeight: 400,
                         padding: '0 0.5rem',
                         borderRadius: 'var(--np-r-xs)',
                         background: t.active ? 'var(--np-pill-success-bg)' : 'var(--np-pill-mute-bg)',
@@ -240,7 +240,7 @@ export function TerminalsPanel({ isOwner }: Props) {
                     >
                       {t.active ? 'Activo' : 'Inactivo'}
                     </span>
-                    {t.reception ? <span style={{ marginLeft: '0.375rem', fontSize: '0.75rem' }}>· Recepción</span> : null}
+                    {t.reception ? <span style={{ marginLeft: '0.375rem', fontSize: '0.875rem' }}>· Recepción</span> : null}
                   </td>
                   <td data-label="App OxioPay">
                     {t.devicePaired ? (
@@ -404,7 +404,7 @@ function BulkCreateModal({
             {error}
           </p>
         ) : null}
-        <p style={{ fontSize: '0.8125rem', color: 'var(--np-text-mute)' }}>
+        <p style={{ fontSize: '0.875rem', color: 'var(--np-text-mute)' }}>
           Crea {countOk ? parsedCount : '?'} terminales con externalId {prefix}1, {prefix}2,… asignados a zona{' '}
           <strong>{zone === 'OTRO' ? zoneCustom || '?' : ZONE_LABEL[zone]}</strong>.
         </p>
@@ -571,7 +571,7 @@ function PairingModal({ terminal, onClose }: { terminal: Terminal | null; onClos
         </ol>
         {code ? (
           <div style={{ textAlign: 'center', border: '1px solid var(--np-border-hi)', borderRadius: 'var(--np-r-lg)', padding: '1rem' }}>
-            <p className="np-num" style={{ margin: 0, fontSize: '2.25rem', fontWeight: 700, letterSpacing: '0.12em' }}>
+            <p className="np-num" style={{ margin: 0, fontSize: '2.5rem', fontWeight: 700, letterSpacing: '0.12em' }}>
               {code.code}
             </p>
             <p style={{ margin: '0.25rem 0 0', color: 'var(--np-text-mute)', fontSize: '0.875rem' }}>

@@ -31,7 +31,7 @@ const chipStyle: CSSProperties = {
   padding: '0 0.5rem',
   borderRadius: 'var(--np-r-xs)',
   fontSize: '0.875rem',
-  fontWeight: 500,
+  fontWeight: 400,
   whiteSpace: 'nowrap',
   lineHeight: 1.45,
 };

@@ -57,7 +57,7 @@ export function PuestosCard() {
           {data.map((p) => (
             <li key={p.id} style={row}>
               <span style={{ fontWeight: 600, minWidth: 0, overflowWrap: 'anywhere' }}>
-                {p.name} <span style={{ color: 'var(--np-text-dim)', fontWeight: 500 }}>· {ROLE_NAME[p.role]}</span>
+                {p.name} <span style={{ color: 'var(--np-text-dim)', fontWeight: 400 }}>· {ROLE_NAME[p.role]}</span>
               </span>
               <Select
                 aria-label={`Puesto de ${p.name}`}
@@ -77,7 +77,7 @@ export function PuestosCard() {
         </ul>
       )}
       <StatusLine saved={saved} error={error} />
-      <p style={{ margin: 0, fontSize: '0.8125rem', color: 'var(--np-text-dim)' }}>
+      <p style={{ margin: 0, fontSize: '0.875rem', color: 'var(--np-text-dim)' }}>
         {data.filter((p) => p.post).length} de {data.length} con puesto propio.
       </p>
     </SettingsCard>

@@ -34,7 +34,7 @@
 
 .np-set-title {
   margin: 0;
-  font-size: var(--np-t-h4, 1.0625rem);
+  font-size: var(--np-t-h4, 1.125rem);
   font-weight: 600;
   color: var(--np-text);
 }
@@ -55,7 +55,7 @@
   display: flex;
   flex-direction: column;
   gap: 0.35rem;
-  font-size: 0.9375rem;
+  font-size: 1rem;
   line-height: 1.45;
   color: var(--np-text);
 }
@@ -100,13 +100,13 @@
 }
 
 .np-set-row-label {
-  font-size: 0.9375rem;
+  font-size: 1rem;
   font-weight: 600;
   color: var(--np-text);
 }
 
 .np-set-row-hint {
-  font-size: 0.8125rem;
+  font-size: 0.875rem;
   color: var(--np-text-mute);
   line-height: 1.4;
 }
@@ -162,8 +162,8 @@
 
 .np-switch-text {
   margin-left: auto;
-  font-size: 0.75rem;
-  font-weight: 500;
+  font-size: 0.875rem;
+  font-weight: 400;
 }
 
 /* Encendido en t1 (lo elegido), no en lima: en Ajustes hay muchos y la lima
@@ -281,8 +281,8 @@
   border-radius: var(--np-r-xs);
   border: 1px solid var(--np-border-hi);
   color: var(--np-text-mute);
-  font-size: 0.75rem;
-  font-weight: 500;
+  font-size: 0.875rem;
+  font-weight: 400;
 }
 
 .np-set-small {
@@ -310,12 +310,12 @@
 .np-set-account strong {
   display: block;
   color: var(--np-text);
-  font-size: 0.9375rem;
+  font-size: 1rem;
 }
 
 .np-set-account code {
   font-family: var(--np-font-mono);
-  font-size: 0.75rem;
+  font-size: 0.875rem;
 }
 
 @media (max-width: 640px) {
