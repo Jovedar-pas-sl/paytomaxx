@@ -253,7 +253,6 @@ export function Esperando({ cobro, onNew, onRetry, retrying = false, retryError 
       .catch(() => undefined);
     return () => ctrl.abort();
     // Una vez por cobro pagado.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cardPaid, cardToken]);
 
   useEffect(() => {
