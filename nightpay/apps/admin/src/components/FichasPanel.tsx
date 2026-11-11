@@ -179,36 +179,35 @@ export function FichasPanel() {
       </Card>
 
       <Card className="np-table-host" style={{ padding: '1rem' }} data-tour="fichas-lista">
-        <div style={listHeader}>
-          <h3 style={sectionTitle}>Fichas</h3>
-          <form onSubmit={search} style={searchRow}>
-            <Input
-              aria-label="Buscar ficha"
-              placeholder="Número impreso, serie o código"
-              value={draft}
-              onChange={(e) => setDraft(e.target.value)}
-              style={{ ...FILTER_FIELD, width: '16rem' }}
-            />
-            <Button type="submit" variant="ghost" size="sm">
-              Buscar
-            </Button>
-            <Select
-              aria-label="Filtrar por estado"
-              value={status}
-              onChange={(e) => {
-                setRows(null);
-                setStatus(e.target.value as WalletCardStatus | '');
-              }}
-              style={{ ...FILTER_SELECT, width: '10rem' }}
-            >
-              {FICHA_STATUS_FILTERS.map((f) => (
-                <option key={f.value} value={f.value}>
-                  {f.label}
-                </option>
-              ))}
-            </Select>
-          </form>
-        </div>
+        <h3 style={listTitle}>Fichas</h3>
+        {/* El buscador, «Buscar» y el estado («Todas») en una sola fila (en el móvil bajan, cada uno entero). */}
+        <form onSubmit={search} className="np-fichas-bar" role="search" aria-label="Buscar fichas">
+          <Input
+            label="Buscar ficha"
+            placeholder="Número impreso, serie o código"
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            style={FILTER_FIELD}
+          />
+          <Button type="submit" variant="ghost" size="sm">
+            Buscar
+          </Button>
+          <Select
+            label="Estado"
+            value={status}
+            onChange={(e) => {
+              setRows(null);
+              setStatus(e.target.value as WalletCardStatus | '');
+            }}
+            style={FILTER_SELECT}
+          >
+            {FICHA_STATUS_FILTERS.map((f) => (
+              <option key={f.value} value={f.value}>
+                {f.label}
+              </option>
+            ))}
+          </Select>
+        </form>
 
         {rows === null ? (
           <p style={mutedText}>{error ? 'No se pudo cargar la lista.' : 'Cargando…'}</p>
@@ -331,16 +330,7 @@ const tilesGrid: CSSProperties = {
 
 const sectionTitle: CSSProperties = { margin: '0 0 0.75rem', fontSize: '0.875rem', fontWeight: 600 };
 
-const listHeader: CSSProperties = {
-  display: 'flex',
-  justifyContent: 'space-between',
-  alignItems: 'center',
-  gap: '0.75rem',
-  flexWrap: 'wrap',
-  marginBottom: '0.75rem',
-};
-
-const searchRow: CSSProperties = { display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' };
+const listTitle: CSSProperties = { margin: '0 0 0.75rem', fontSize: '1.125rem', fontWeight: 600 };
 
 const alignRight: CSSProperties = { textAlign: 'right' };
 const numTd: CSSProperties = { textAlign: 'right', fontVariantNumeric: 'tabular-nums' };

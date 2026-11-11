@@ -176,11 +176,18 @@ export function TreasuryPanel({ isOwner }: Props) {
 
           <Card style={{ padding: '1.25rem' }}>
             <h3 style={sectionTitle}>Estado de reconciliación</h3>
-            <div style={splitGrid}>
-              {Object.entries(stats.byReconciliationStatus).map(([status, count]) => (
-                <SplitTile key={status} label={reconciliationLabel(status)} count={count} variant={statusVariant(status)} />
-              ))}
-            </div>
+            {Object.keys(stats.byReconciliationStatus).length === 0 ? (
+              <p style={{ color: 'var(--np-text-mute)', fontSize: '1rem', margin: 0 }}>
+                Todavía no hay pagos a compañeras que reconciliar. Cuando pagues a una, aquí verás cuántos pagos están
+                verificados, cuáles esperan y cuáles no cuadran.
+              </p>
+            ) : (
+              <div style={splitGrid}>
+                {Object.entries(stats.byReconciliationStatus).map(([status, count]) => (
+                  <SplitTile key={status} label={reconciliationLabel(status)} count={count} variant={statusVariant(status)} />
+                ))}
+              </div>
+            )}
           </Card>
         </>
       )}

@@ -211,13 +211,15 @@ function UploadCard({ onDone }: { onDone: (s: BankStatementSummary) => void }) {
           ))}
         </div>
         <p style={mutedStyle}>{current.how}</p>
-        <input
-          ref={fileInput}
-          type="file"
-          accept=".csv,.txt,.xls,.htm,.html"
-          onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-          aria-label="Fichero del banco"
-        />
+        <label className="np-file">
+          <span>Fichero del banco</span>
+          <input
+            ref={fileInput}
+            type="file"
+            accept=".csv,.txt,.xls,.htm,.html"
+            onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+          />
+        </label>
         <label style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', fontSize: '0.875rem' }}>
           <input type="checkbox" checked={withDays} onChange={(e) => setWithDays(e.target.checked)} />
           El fichero no trae fechas (indicar los días)
