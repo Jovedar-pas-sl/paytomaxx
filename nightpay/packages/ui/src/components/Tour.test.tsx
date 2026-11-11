@@ -125,6 +125,26 @@ describe('Tour', () => {
     expect(onClose).toHaveBeenLastCalledWith('escape');
   });
 
+  it('mientras está abierto, lo de debajo no oye el teclado (el importe del TPV, Intro para cobrar)', () => {
+    const heard = vi.fn();
+    window.addEventListener('keydown', heard);
+    try {
+      mountTour();
+      const press = (key: string) =>
+        act(() => void document.body.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true })));
+      press('5');
+      press('Enter');
+      press('Backspace');
+      expect(heard).not.toHaveBeenCalled();
+      // Cerrado (la pantalla lo quita), el teclado vuelve a llegar.
+      render(createElement(Page, {}));
+      press('5');
+      expect(heard).toHaveBeenCalledTimes(1);
+    } finally {
+      window.removeEventListener('keydown', heard);
+    }
+  });
+
   it('sin ningún elemento, se cierra sin dejarlo visto y no pinta nada', () => {
     const onClose = vi.fn();
     mountTour(onClose, []);

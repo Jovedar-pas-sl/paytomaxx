@@ -160,7 +160,13 @@ export function Tour({ steps, onClose }: TourProps) {
         closeRef.current('escape');
         return;
       }
-      if (e.key !== 'Tab') return;
+      if (e.key !== 'Tab') {
+        // Con el tutorial abierto, lo de debajo no oye el teclado (el teclado del
+        // importe del TPV, Intro para cobrar…). Intro y Espacio siguen pulsando los
+        // botones de la burbuja: eso es lo que hace el navegador por defecto.
+        e.stopPropagation();
+        return;
+      }
       const bubble = bubbleRef.current;
       if (!bubble) return;
       const items = Array.from(bubble.querySelectorAll<HTMLElement>(FOCUSABLE));
