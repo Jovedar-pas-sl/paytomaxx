@@ -22,26 +22,51 @@ function cobroRow(who: string | null | undefined, at: Date | null | undefined): 
   return [{ label: who?.trim() ? 'Cobró' : 'Hora', value: text }];
 }
 
+/** Con qué se identificó el saldo al poner su PIN: la ficha acercada, su código tecleado o su pase escaneado. */
+export type SaldoPaidVia = 'nfc' | 'code' | 'pass';
+
 export interface SaldoHowInput {
   /** El número impreso de la ficha con la que pagó (solo si se acercó una y la ficha lo tiene). */
   fichaNumber?: string | null;
   /** El código del saldo, tapado («K7Q-•••»). */
   codeHint?: string | null;
   paidWith?: ChargeAuthMethod | null;
+  /** Pagado con su PIN: con qué se identificó el saldo, si se supo en esta pantalla (el sondeo no lo dice). */
+  paidVia?: SaldoPaidVia | null;
+  /** El código del cobro único (el que ve el cliente en su móvil al pagar «con mi saldo» desde el QR). */
+  code?: string | null;
   /** Lo que le queda tras pagar; null: no se sabe. */
   newBalanceCents: number | null;
   who?: string | null;
   at?: Date | null;
 }
 
-/** Pagó con su saldo: con la ficha (NFC) o con su móvil (Face ID o huella). */
+/**
+ * Pagó con su saldo: con la ficha (NFC), con su código o su pase y su PIN, o
+ * con su móvil (Face ID o huella). «Con su ficha» solo si hubo ficha: un PIN
+ * sin saber con qué se identificó es «Con su saldo y su PIN» (pudo ser el código).
+ */
 export function saldoHow(i: SaldoHowInput): OutcomeHow {
-  const withFicha = Boolean(i.fichaNumber) || i.paidWith === 'nfc_nopin' || i.paidWith === 'pin';
+  const withFicha = Boolean(i.fichaNumber) || i.paidWith === 'nfc_nopin' || i.paidVia === 'nfc';
   const phone = !withFicha && i.paidWith === 'passkey';
-  const title = i.fichaNumber ? `Con ficha nº ${i.fichaNumber}` : withFicha ? 'Con su ficha' : phone ? 'Con su móvil' : 'Con su saldo';
+  const title = i.fichaNumber
+    ? `Con ficha nº ${i.fichaNumber}`
+    : withFicha
+      ? 'Con su ficha'
+      : i.paidVia === 'code'
+        ? 'Con su código y su PIN'
+        : i.paidVia === 'pass'
+          ? 'Con su pase y su PIN'
+          : i.paidWith === 'pin'
+            ? 'Con su saldo y su PIN'
+            : phone
+              ? 'Con su móvil'
+              : 'Con su saldo';
   const sub = [phone ? 'Face ID o huella' : null, i.codeHint ? `Código del saldo ${i.codeHint}` : null].filter(Boolean).join(' · ');
   const rows: Row[] = [];
   if (i.newBalanceCents !== null) rows.push({ label: 'Le quedan', value: formatMoney(i.newBalanceCents, { compact: true }), num: true });
+  // El mismo código que ve el cliente: para comparar los dos móviles, también si pagó con el saldo.
+  if (i.code) rows.push({ label: 'Código del cobro', value: i.code, num: true });
   rows.push(...cobroRow(i.who, i.at));
   return { kind: 'ficha', title, sub: sub || null, rows };
 }

@@ -12,8 +12,10 @@ const read = (rel: string): string => readFileSync(new URL(rel, import.meta.url)
 const STAFF = read('../../../../packages/ui/src/staff.css');
 
 describe('PIN', () => {
-  it('el temblor dura 360 ms y alterna dos clases para repetirse', () => {
-    expect(STAFF).toMatch(/\.np-shake-a,\s*\.np-shake-b \{\s*animation: np-shake 360ms ease-in-out 1;/);
+  it('el temblor dura 360 ms y alterna dos clases con dos animaciones (mismo nombre = no se repite)', () => {
+    expect(STAFF).toMatch(/\.np-shake-a \{\s*animation: np-shake 360ms ease-in-out 1;/);
+    expect(STAFF).toMatch(/@keyframes np-shake-b \{/);
+    expect(STAFF).toMatch(/\.np-shake-b \{\s*animation: np-shake-b 360ms ease-in-out 1;/);
     expect([0, 1, 2, 3].map(shakeClass)).toEqual(['', 'np-shake-a', 'np-shake-b', 'np-shake-a']);
   });
 
@@ -76,9 +78,11 @@ describe('mantener pulsado 1,2 s', () => {
     expect(done).toBe(0);
   });
 
-  it('solo sustituye ventanas de «¿seguro?» sin dinero: cancelar con el banco y quitar el aviso', () => {
+  it('solo sustituye ventanas de «¿seguro?» sin dinero (quitar el aviso); con el cliente en su banco no se ofrece cancelar', () => {
     const esperando = read('../components/cobrar/Esperando.tsx');
-    expect(esperando).toContain('<HoldButton');
+    // El API no deja cancelar en AUTHORIZING: ni botón ni «¿seguro?», solo el aviso de esperar.
+    expect(esperando).not.toContain('<HoldButton');
+    expect(esperando).toContain('<p className={styles.altHint}>{CANCEL_WHILE_PAYING_TEXT}</p>');
     expect(esperando).not.toContain('No, seguir esperando');
     expect(esperando).not.toContain('confirmingCancel');
     const ventas = read('../components/pax/SalesToReview.tsx');

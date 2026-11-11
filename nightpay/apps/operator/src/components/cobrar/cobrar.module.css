@@ -665,7 +665,8 @@ html[data-contrast='sala'] .lastRow[data-n='4']:not([data-big]) {
 }
 
 /* Teclas según el alto de la pantalla (Grafito 3): 48 px como mínimo y 72 como
-   máximo, el 8,5 % del alto de en medio (otroImporteLayout, lib/importe.ts).
+   máximo, el 8,5 % del alto de en medio; en un móvil bajo (hasta 700 px de alto)
+   bajan a 44, al final de este fichero (keyHeightPx, lib/importe.ts).
    La letra va en proporción: 22 en las bajas y 28 desde 760 px de alto. */
 .key {
   height: clamp(48px, 8.5vh, 72px);
@@ -1472,6 +1473,11 @@ html[data-contrast='sala'] .lastRow[data-n='4']:not([data-big]) {
   color: var(--np-text-mute);
 }
 
+/* La pantalla del PIN: huecos de 14 px entre el importe, la propina, los puntos y el teclado. */
+.pinBody {
+  gap: 0.875rem;
+}
+
 .pinQ {
   display: flex;
   flex-direction: column;
@@ -1708,19 +1714,6 @@ html[data-contrast='sala'] .lastRow[data-n='4']:not([data-big]) {
   color: var(--np-warning);
 }
 
-/* «¿Cancelar? El cliente está pagando en su banco.» */
-.cancelAsk {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-}
-
-.cancelAsk p {
-  margin: 0;
-  font-weight: 600;
-  text-align: center;
-}
-
 /* El banco no lo ha confirmado (ORPHAN): ámbar, con la referencia y «Avisar al encargado». */
 .unconfirmed {
   border-top: 4px solid var(--np-warning);
@@ -1789,7 +1782,18 @@ html[data-contrast='sala'] .lastRow[data-n='4']:not([data-big]) {
   cursor: pointer;
 }
 
+/* «Cancelar cobro» (o el aviso de que el cliente está en su banco), debajo de «Sin móvil ni ficha». */
+.footCancel {
+  display: flex;
+  flex-direction: column;
+}
+
 .btn.cancelLink {
+  /* Se toca lo que se ve: el texto subrayado, no toda la franja del pie (un toque
+     sin querer a un lado cancelaba el cobro mientras el cliente escaneaba). */
+  width: auto;
+  align-self: center;
+  padding: 0 1rem;
   min-height: 3rem;
   background: transparent;
   box-shadow: none;
@@ -1835,7 +1839,8 @@ html[data-contrast='sala'] .lastRow[data-n='4']:not([data-big]) {
 /*
  * 360 × 640 (móvil bajo, con la barra de pestañas): las teclas de «Otro importe» y del PIN
  * bajan a 44 y 52 px (el mínimo para el dedo) para que la última fila no quede tapada por
- * el pie fijo («Cobrar» / «Cancelar»).
+ * el pie fijo («Cobrar» / «Cancelar»), y el importe del PIN baja de 64 a 40 px para que
+ * «Tápalo con la mano…», debajo del teclado, no quede fuera de la pantalla.
  */
 @media (max-height: 700px) {
   .key {
@@ -1848,6 +1853,27 @@ html[data-contrast='sala'] .lastRow[data-n='4']:not([data-big]) {
 
   .padSmall .key {
     height: 3rem;
+  }
+
+  .pinHead .num {
+    font-size: var(--np-fs-40);
+  }
+
+  /* Con propinas y un PIN mal, los huecos del PIN se aprietan: la nota cabe sin scroll. */
+  .pinBody {
+    gap: 0.5rem;
+  }
+
+  /* El QR baja de 34 a 26 vh (166 px a 640: se escanea igual): el importe, el QR, las dos
+     formas, la línea viva y los avisos caben encima del pie sin scroll. */
+  .waitBody {
+    --qr-side: min(15rem, 70vw, 26vh);
+  }
+
+  @supports (height: 1svh) {
+    .waitBody {
+      --qr-side: min(15rem, 70vw, 26svh);
+    }
   }
 }
 

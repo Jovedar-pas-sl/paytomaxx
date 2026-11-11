@@ -173,9 +173,15 @@ describe('Esperando, la única pantalla de cobrar, lo usa', () => {
     expect(src).toContain('tipSetup={pinTip}');
   });
 
-  it('«Sin móvil ni ficha», justo debajo del QR (antes que el aviso de la ficha en iPhone): a la vista también en un móvil pequeño', () => {
-    expect(src.indexOf('{onSinMovil ? (')).toBeGreaterThan(-1);
-    expect(src.indexOf('{onSinMovil ? (')).toBeLessThan(src.indexOf('{fichaHint ? <p'));
+  it('«Sin móvil ni ficha» va en el pie, encima de «Cancelar cobro»: entero a la vista también en un móvil bajo (360 × 640)', () => {
+    const foot = src.indexOf('className={`${styles.foot} ${styles.footFlat}`}>', src.indexOf('function Waiting('));
+    expect(foot).toBeGreaterThan(-1);
+    const alt = src.indexOf('{onSinMovil ? (');
+    const cancel = src.indexOf('data-tour="esperando-cancelar"');
+    expect(alt).toBeGreaterThan(foot);
+    // Cada uno con su marca del tutorial: la de «Cancelar cobro» no envuelve al otro botón.
+    expect(cancel).toBeGreaterThan(alt);
+    expect(src.indexOf('{children}', cancel)).toBeGreaterThan(cancel);
   });
 
   it('lo que no cabe pasa por debajo del pie sin verse a través: el pie, del color de la página', () => {

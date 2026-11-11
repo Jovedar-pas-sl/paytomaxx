@@ -975,9 +975,37 @@
   }
 }
 
-.np-shake-a,
-.np-shake-b {
+.np-shake-a {
   animation: np-shake 360ms ease-in-out 1;
+}
+
+/* Los mismos fotogramas con otro nombre: una animación que no cambia de nombre no vuelve
+   a empezar, y el segundo fallo seguido no temblaba. */
+@keyframes np-shake-b {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+
+  20% {
+    transform: translateX(-8px);
+  }
+
+  40% {
+    transform: translateX(8px);
+  }
+
+  60% {
+    transform: translateX(-5px);
+  }
+
+  80% {
+    transform: translateX(5px);
+  }
+}
+
+.np-shake-b {
+  animation: np-shake-b 360ms ease-in-out 1;
 }
 
 /* «Cobrar» mientras se crea el cobro: «Cobrando» con tres puntos que suben y bajan. */
@@ -1042,7 +1070,8 @@
   background: color-mix(in srgb, var(--np-danger) 10%, var(--np-surface));
   color: var(--np-danger-text);
   font: 600 var(--np-fs-16)/1.15 var(--np-font-sans);
-  touch-action: none;
+  /* manipulation, no none: así un scroll que empieza sobre el botón manda pointercancel y suelta. */
+  touch-action: manipulation;
   user-select: none;
   -webkit-touch-callout: none;
   cursor: pointer;

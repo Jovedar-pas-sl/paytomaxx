@@ -1,12 +1,14 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type PointerEvent, type ReactNode } from 'react';
 import { haptic } from '../lib/haptic';
 
 /** Lo que hay que mantener pulsado para confirmar (Grafito 3). */
 export const HOLD_MS = 1200;
 /** La vibración al confirmar. */
 const DONE_BUZZ = [20, 40, 20] as const;
+/** Mover el dedo más de esto mientras se mantiene lo cancela (se arrepintió, o va a hacer scroll). */
+const MOVE_PX = 12;
 
 interface HoldButtonProps {
   /** «Mantén para cancelar el cobro». */
@@ -56,6 +58,22 @@ export function HoldButton({ children, holdingLabel = 'Sigue pulsando…', onCon
 
   useEffect(() => stop, [stop]);
 
+  // En táctil el navegador captura el puntero solo y ya no manda pointerleave aunque el dedo
+  // salga del botón: se suelta la captura y se vigila el movimiento, y sacar o deslizar el dedo
+  // cancela (con touch-action: manipulation, un scroll manda pointercancel y también cancela).
+  const origin = useRef<{ x: number; y: number } | null>(null);
+  const down = (e: PointerEvent<HTMLButtonElement>) => {
+    const el = e.currentTarget;
+    if (typeof el.hasPointerCapture === 'function' && el.hasPointerCapture(e.pointerId)) el.releasePointerCapture(e.pointerId);
+    origin.current = { x: e.clientX, y: e.clientY };
+    start();
+  };
+  const move = (e: PointerEvent<HTMLButtonElement>) => {
+    const o = origin.current;
+    if (!o || !timer.current) return;
+    if (Math.hypot(e.clientX - o.x, e.clientY - o.y) > MOVE_PX) stop();
+  };
+
   const key = (down: boolean) => (e: KeyboardEvent<HTMLButtonElement>) => {
     if (e.key !== 'Enter' && e.key !== ' ') return;
     e.preventDefault();
@@ -71,7 +89,8 @@ export function HoldButton({ children, holdingLabel = 'Sigue pulsando…', onCon
       disabled={disabled || busy}
       aria-busy={busy || undefined}
       data-holding={holding || undefined}
-      onPointerDown={start}
+      onPointerDown={down}
+      onPointerMove={move}
       onPointerUp={stop}
       onPointerLeave={stop}
       onPointerCancel={stop}

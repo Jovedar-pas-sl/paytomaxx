@@ -138,7 +138,7 @@ describe('el cliente paga con tarjeta: lo que ve el camarero mientras el banco c
     expect(serverToLocalMs(1_000, null)).toBe(1_000);
   });
 
-  it('cancelar mientras el cliente paga en su banco pide confirmarlo', () => {
-    expect(CANCEL_WHILE_PAYING_TEXT).toBe('¿Cancelar? El cliente está pagando en su banco.');
+  it('mientras el cliente paga en su banco no se cancela: se dice y se espera', () => {
+    expect(CANCEL_WHILE_PAYING_TEXT).toBe('El cliente está pagando en su banco: espera su respuesta. Hasta entonces no se puede cancelar.');
   });
 });

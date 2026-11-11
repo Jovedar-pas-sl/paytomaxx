@@ -111,7 +111,7 @@ export function PinScreen({ colors, chip, amountCents, detail, tipSetup = null, 
   const shuffled = layout === 'shuffled';
   return (
     <div className={styles.screen}>
-      <div className={styles.body} style={{ gap: '0.875rem' }}>
+      <div className={`${styles.body} ${styles.pinBody}`}>
         <div className={styles.pinHead}>
           <Chip color={colors[0]?.color ?? 'var(--np-sec-otros)'}>{chip}</Chip>
           <span className={styles.num} aria-live="polite">

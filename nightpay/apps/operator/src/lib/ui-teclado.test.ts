@@ -22,11 +22,18 @@ describe('altura de las teclas: clamp(48px, 8.5svh, 72px)', () => {
     expect(key.indexOf('8.5vh')).toBeLessThan(key.indexOf('8.5svh'));
   });
 
-  it('el cálculo: nunca menos de 48 ni más de 72', () => {
-    expect(keyHeightPx(480)).toBe(48);
-    expect(keyHeightPx(640)).toBeCloseTo(54.4, 5);
+  it('el cálculo: 44 en un móvil bajo (hasta 700 de alto); si no, nunca menos de 48 ni más de 72', () => {
+    expect(keyHeightPx(480)).toBe(44);
+    expect(keyHeightPx(640)).toBe(44);
+    expect(keyHeightPx(700)).toBe(44);
+    expect(keyHeightPx(701)).toBeCloseTo(59.585, 3);
     expect(keyHeightPx(844)).toBeCloseTo(71.74, 2);
     expect(keyHeightPx(1200)).toBe(72);
+  });
+
+  it('el CSS baja las teclas a 44 px hasta 700 de alto (el mínimo para el dedo): el cálculo es el mismo', () => {
+    const short = COBRAR.slice(COBRAR.lastIndexOf('@media (max-height: 700px) {'));
+    expect(short).toMatch(/^@media \(max-height: 700px\) \{\s*\.key \{\s*height: 2\.75rem;/);
   });
 
   it('la letra va en proporción: 22 en las bajas y 28 desde 760 px de alto', () => {
@@ -50,8 +57,8 @@ describe('«Añadir X €» siempre a la vista', () => {
     expect(otroImporteHeightPx(844, 2)).toBeLessThanOrEqual(844);
   });
 
-  it('con más secciones a 640 de alto algo baja, pero el pie con «Añadir» queda pegado (sticky) sobre la barra', () => {
-    expect(otroImporteHeightPx(640, 2)).toBeGreaterThan(640);
+  it('a 640 de alto cabe también con las secciones en dos filas; y si algo bajara, el pie con «Añadir» queda pegado (sticky) sobre la barra', () => {
+    expect(otroImporteHeightPx(640, 2)).toBeLessThanOrEqual(640);
     const foot = rule(COBRAR, '.foot');
     expect(foot).toContain('position: sticky');
     expect(foot).toContain('bottom: var(--np-foot-bottom, 0)');

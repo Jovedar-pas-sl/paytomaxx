@@ -48,11 +48,26 @@ describe('punto 6: «cómo se pagó» sin inventar nada', () => {
     expect(how.rows[1]!.value).toBe('Carlos · 01:22');
   });
 
-  it('ficha sin número impreso: «Con su ficha» (no se inventa el número)', () => {
-    const how = saldoHow({ paidWith: 'pin', newBalanceCents: null, who: 'Carlos', at: AT });
+  it('ficha sin número impreso, con su PIN: «Con su ficha» (no se inventa el número)', () => {
+    const how = saldoHow({ paidWith: 'pin', paidVia: 'nfc', newBalanceCents: null, who: 'Carlos', at: AT });
     expect(how.title).toBe('Con su ficha');
     expect(how.title).not.toMatch(/\d/);
     expect(how.rows.map((r) => r.label)).toEqual(['Cobró']);
+  });
+
+  it('con su PIN pero sin ficha (su código o su pase), no dice «ficha»; sin saber con qué, «Con su saldo y su PIN»', () => {
+    expect(saldoHow({ paidWith: 'pin', paidVia: 'code', codeHint: 'K7Q-•••', newBalanceCents: 500 })).toMatchObject({ title: 'Con su código y su PIN', sub: 'Código del saldo K7Q-•••' });
+    expect(saldoHow({ paidWith: 'pin', paidVia: 'pass', newBalanceCents: 500 }).title).toBe('Con su pase y su PIN');
+    // El sondeo solo dice «pin» (por ejemplo, la ficha leída por un iPhone en otra pestaña): no se afirma que hubo ficha.
+    expect(saldoHow({ paidWith: 'pin', newBalanceCents: 500 }).title).toBe('Con su saldo y su PIN');
+  });
+
+  it('con el saldo desde el QR (Face ID) sale el mismo código del cobro que ve el cliente', () => {
+    const how = saldoHow({ paidWith: 'passkey', code: 'C-0043', newBalanceCents: 500 });
+    expect(how.rows).toEqual([
+      { label: 'Le quedan', value: how.rows[0]!.value, num: true },
+      { label: 'Código del cobro', value: 'C-0043', num: true },
+    ]);
   });
 
   it('con el móvil: «Face ID o huella»; sin saber cómo, «Con su saldo»', () => {
