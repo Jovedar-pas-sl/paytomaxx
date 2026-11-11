@@ -17,7 +17,7 @@ export function Chip({ color, children }: { color?: SectionVar | null; children:
   return (
     <span className={styles.chip}>
       {color ? <i style={{ '--c': color } as CSSProperties} aria-hidden="true" /> : null}
-      {children}
+      <span className={styles.chipText}>{children}</span>
     </span>
   );
 }

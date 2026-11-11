@@ -182,6 +182,8 @@ export function CobrarFlow({ user, onCobroDone, onLogout, night, miQrOpen = fals
     screen.current += 1;
     // Fuera de la carta ya no hay «Deshacer» (la cuenta se corrige en «La cuenta»).
     setUndo(null);
+    // Pantalla nueva, desde arriba (la carta puede venir con el scroll abajo, hasta «Otro importe»).
+    window.scrollTo({ top: 0 });
     setStage(next);
   }, []);
 

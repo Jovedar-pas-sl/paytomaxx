@@ -206,7 +206,7 @@ const gridStyle: CSSProperties = {
 // Teclas del PIN: 60 px como poco (más en una pantalla alta, como el teclado
 // del importe con --np-key-h), radio 14, filete de 1 px y cifras en Manrope 600.
 const keyStyle: CSSProperties = {
-  minHeight: 'max(3.75rem, var(--np-key-h, 4.25rem))',
+  minHeight: 'max(3rem, var(--np-key-h, 4.25rem))',
   fontFamily: 'var(--np-font-num)',
   fontSize: 'var(--np-fs-28)',
   fontWeight: 600,
@@ -221,4 +221,4 @@ const keyStyle: CSSProperties = {
 const sideKey: CSSProperties = { fontFamily: 'var(--np-font-sans)', fontSize: 'var(--np-fs-16)', fontWeight: 500, color: 'var(--np-text-mute)' };
 
 /** Teclado fijo: las teclas, más grandes (se aciertan a oscuras y con prisa). */
-const bigKey: CSSProperties = { minHeight: 'max(3.75rem, calc(var(--np-key-h, 4.25rem) + 0.5rem))', fontSize: 'var(--np-fs-28)' };
+const bigKey: CSSProperties = { minHeight: 'max(3.25rem, calc(var(--np-key-h, 4.25rem) + 0.5rem))', fontSize: 'var(--np-fs-28)' };

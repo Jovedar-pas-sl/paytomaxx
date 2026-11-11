@@ -572,7 +572,7 @@ export function Esperando({ cobro, onNew, onRetry, retrying = false, retryError 
             </HoldButton>
           </div>
         ) : (
-          <button type="button" className={`${styles.btn} ${styles.ghost}`} onClick={() => void cancel()} disabled={canceling}>
+          <button type="button" className={`${styles.btn} ${styles.ghost} ${styles.cancelLink}`} onClick={() => void cancel()} disabled={canceling}>
             {canceling ? 'Cancelando…' : 'Cancelar cobro'}
           </button>
         )}

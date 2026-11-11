@@ -79,7 +79,8 @@
 }
 
 .headText {
-  flex: 1;
+  /* El título no baja de 5,5 rem: es el chip el que cede y se acorta (con «Mi QR» y «?» delante, a 360 px). */
+  flex: 1 0 5rem;
   min-width: 0;
   display: flex;
   flex-direction: column;
@@ -105,7 +106,8 @@
 /* Chip del puesto o la sección: punto de 8 px y su nombre sobre superficie
    neutra (como .np-chip). El color nunca va solo. */
 .chip {
-  flex: none;
+  flex: 0 1 auto;
+  min-width: 4.25rem;
   display: inline-flex;
   align-items: center;
   gap: 0.375rem;
@@ -119,6 +121,12 @@
   font-weight: 500;
   line-height: 1.1;
   white-space: nowrap;
+}
+
+.chipText {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .chip > i {
@@ -1767,17 +1775,29 @@ html[data-contrast='sala'] .lastRow[data-n='4']:not([data-big]) {
 
 /* El botón discreto de Esperando: terciario (solo texto), sin competir con el QR. 44 px de alto. */
 .altLink {
-  align-self: center;
-  min-height: 2.75rem;
+  /* Como en la maqueta de Esperando: «Sin móvil ni ficha» es el botón secundario (56 px)
+     y «Cancelar cobro» queda como enlace. */
+  align-self: stretch;
+  min-height: 3.5rem;
   padding: 0 0.75rem;
-  background: none;
+  background: var(--np-surface-2);
+  border: none;
+  box-shadow: inset 0 0 0 1px var(--np-border-hi);
+  border-radius: var(--np-r-md);
+  color: var(--np-text);
+  font: 500 var(--np-fs-16)/1.2 var(--np-font-sans);
+  cursor: pointer;
+}
+
+.btn.cancelLink {
+  min-height: 3rem;
+  background: transparent;
+  box-shadow: none;
   border: none;
   color: var(--np-text-mute);
-  font: 500 var(--np-fs-14)/1.2 var(--np-font-sans);
+  font: 400 var(--np-fs-16)/1.2 var(--np-font-sans);
   text-decoration: underline;
-  text-decoration-thickness: 1px;
   text-underline-offset: 4px;
-  cursor: pointer;
 }
 
 .altLink:disabled {
@@ -1810,4 +1830,35 @@ html[data-contrast='sala'] .lastRow[data-n='4']:not([data-big]) {
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
+}
+
+/*
+ * 360 × 640 (móvil bajo, con la barra de pestañas): las teclas de «Otro importe» y del PIN
+ * bajan a 44 y 52 px (el mínimo para el dedo) para que la última fila no quede tapada por
+ * el pie fijo («Cobrar» / «Cancelar»).
+ */
+@media (max-height: 700px) {
+  .key {
+    height: 2.75rem;
+  }
+
+  .pad .key {
+    height: 3.125rem;
+  }
+
+  .padSmall .key {
+    height: 3rem;
+  }
+}
+
+/* A 360 px de ancho, la cabecera con «?», «Mi QR» o «+» y el chip aprieta los huecos. */
+@media (max-width: 380px) {
+  .head {
+    gap: 0.5rem;
+    padding-inline: 0.75rem;
+  }
+
+  .chip {
+    padding: 0 0.5rem;
+  }
 }
