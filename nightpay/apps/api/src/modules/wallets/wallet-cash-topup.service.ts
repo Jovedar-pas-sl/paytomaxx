@@ -13,7 +13,6 @@ import {
   deviceCan,
   serviceFeeQuote,
   staffPermissionsOf,
-  normalizeWalletCardUid,
   type CashTopUpResult,
   type CashTopUpUndoDto,
   type CashTopUpVoidResult,
@@ -36,6 +35,7 @@ import { cashTopUpOverLimit, walletCash } from './wallet-cash-limits';
 import { cashIntentFingerprint, isNewCardRetry, storedReceipt, type PrintedTopUpRef } from './wallet-cash-intent';
 import { liveWalletId, lockLiveWallet } from './wallet-merge-chain';
 import { formatWalletCode, normalizeWalletCode, sameWalletGroup } from './wallet-rules';
+import { assertFichaInHand } from './wallet-fresh-topup';
 import { topUpTarget } from './wallet-topup-target';
 import { VENUE_SERVICE_FEE_SELECT, venueServiceFeeOf } from '../payments/service-fee';
 
@@ -486,18 +486,20 @@ export class CashTopUpService {
     return out;
   }
 
-  /** La ficha acercada es la del saldo de la recarga (o la del saldo al que se sumó). */
+  /**
+   * La ficha acercada es la del saldo de la recarga (o la del saldo al que se
+   * sumó) y está delante: si tiene uid, leído y el mismo (como en la salida de
+   * efectivo); con solo su enlace, 409 «acerca la ficha».
+   */
   private async assertSameFicha(walletId: string, input: { card: string; uid?: string | undefined }): Promise<void> {
-    const uid = input.uid ? normalizeWalletCardUid(input.uid) : null;
-    const same = await this.prisma.acrossVenues(async (tx) => {
+    const found = await this.prisma.acrossVenues(async (tx) => {
       const card = await tx.walletCard.findUnique({ where: { token: input.card }, select: { walletId: true, status: true, uid: true } });
-      if (!card || !isIssuedCard(card) || !card.walletId) return 'other';
-      if (card.uid && uid && card.uid !== uid) return 'copy';
+      if (!card || !isIssuedCard(card) || !card.walletId) return null;
       const [mine, topUp] = await Promise.all([liveWalletId(tx, card.walletId), liveWalletId(tx, walletId)]);
-      return mine !== null && mine === topUp ? 'same' : 'other';
+      return mine !== null && mine === topUp ? { uid: card.uid } : null;
     });
-    if (same === 'copy') throw new ConflictException('Esta ficha no es la original (¿copiada?): avisa al encargado.');
-    if (same === 'other') throw new ConflictException('Esa no es la ficha de esta recarga: acerca la misma ficha.');
+    if (!found) throw new ConflictException('Esa no es la ficha de esta recarga: acerca la misma ficha.');
+    assertFichaInHand(found.uid, input.uid);
   }
 
   /**

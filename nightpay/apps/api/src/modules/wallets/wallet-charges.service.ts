@@ -1938,7 +1938,14 @@ export class WalletChargesService {
     const wallet = await this.walletByCode(actor.tenantId, input.code);
     const fresh = await this.freshTopUpBy(wallet.id, actor.userId);
     // B10: un saldo que ya existía, justo después de recargarlo esta persona y con su ficha delante.
-    const afterRecharge = !fresh && input.card ? await pinAfterRecharge(this.prisma, { walletId: wallet.id, userId: actor.userId, card: input.card, uid: input.uid }) : false;
+    // Sin la ficha leída (o con otra), no; el encargado puede igualmente, pero entonces el PIN es suyo.
+    const afterRecharge =
+      !fresh && input.card
+        ? await pinAfterRecharge(this.prisma, { walletId: wallet.id, userId: actor.userId, card: input.card, uid: input.uid }).catch((err: unknown) => {
+            if (isManager(actor) && err instanceof ConflictException) return false;
+            throw err;
+          })
+        : false;
     if (!fresh && !afterRecharge && !isManager(actor)) {
       throw new UnprocessableEntityException('Este saldo no tiene PIN: que lo elija con el encargado (o en su móvil al recargar)');
     }

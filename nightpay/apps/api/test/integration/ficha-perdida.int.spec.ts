@@ -185,6 +185,14 @@ describe('B10: recepción pone el PIN a un saldo que ya existía, justo después
     await expect(
       inVenue(V, () => charges.setPin({ userId: rocio, role: 'WAITER', tenantId: V }, { code: s.code, pin: '4826', card: otra.card, uid: otra.uid })),
     ).rejects.toMatchObject({ status: 422 });
+    // Su enlace sin leer la ficha (sin uid) o con otro uid: 409, «acerca la ficha».
+    await expect(inVenue(V, () => charges.setPin({ userId: rocio, role: 'WAITER', tenantId: V }, { code: s.code, pin: '4826', card: s.card }))).rejects.toMatchObject({
+      status: 409,
+      response: expect.objectContaining({ code: 'FICHA_TAP_NEEDED' }),
+    });
+    await expect(
+      inVenue(V, () => charges.setPin({ userId: rocio, role: 'WAITER', tenantId: V }, { code: s.code, pin: '4826', card: s.card, uid: '04AABBCCDDEEFF' })),
+    ).rejects.toMatchObject({ status: 409, response: expect.objectContaining({ code: 'FICHA_COPY' }) });
     expect((await pinHash(s.walletId)).pinHash).toBeNull();
   });
 });

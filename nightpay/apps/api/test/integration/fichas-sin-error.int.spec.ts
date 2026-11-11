@@ -188,6 +188,15 @@ describe('B4: «Me he equivocado» en los 2 minutos siguientes', () => {
     ).rejects.toMatchObject({ status: 403 });
     const otra = await stockedCard(`83${r.replace(/\D/g, '').slice(0, 3)}9`.slice(0, 12));
     await expect(inVenue(V, () => cash.undo(me(), t.topUpId, { reason: 'ficha', card: otra.card, uid: otra.uid }))).rejects.toThrow(/no es la ficha de esta recarga/);
+    // Sin la ficha física (solo su enlace, sin uid) o con otro uid: no (como la salida de efectivo).
+    await expect(inVenue(V, () => cash.undo(me(), t.topUpId, { reason: 'amount', card: t.card }))).rejects.toMatchObject({
+      status: 409,
+      response: expect.objectContaining({ code: 'FICHA_TAP_NEEDED', message: expect.stringMatching(/^Acerca la ficha/) }),
+    });
+    await expect(inVenue(V, () => cash.undo(me(), t.topUpId, { reason: 'amount', card: t.card, uid: '04AABBCCDDEEFF' }))).rejects.toMatchObject({
+      status: 409,
+      response: expect.objectContaining({ code: 'FICHA_COPY' }),
+    });
     await sys((tx) => tx.walletCashTopUp.update({ where: { id: t.topUpId }, data: { createdAt: new Date(Date.now() - 3 * 60_000) } }));
     await expect(inVenue(V, () => cash.undo(me(), t.topUpId, { reason: 'unpaid', card: t.card, uid: t.uid }))).rejects.toThrow(/más de 2 minutos/);
   });

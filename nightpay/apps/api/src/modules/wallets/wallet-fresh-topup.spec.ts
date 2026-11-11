@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { FRESH_TOPUP_MS, firstTopUp, isFreshTopUpBy, type FirstTopUp } from './wallet-fresh-topup';
+import { FRESH_TOPUP_MS, assertFichaInHand, firstTopUp, isFreshTopUpBy, type FirstTopUp } from './wallet-fresh-topup';
 
 /**
  * «Recién recargado»: quien cobró la primera recarga del saldo (persona o
@@ -65,5 +65,25 @@ describe('¿es de quien pregunta y de hace menos de 15 min?', () => {
     expect(isFreshTopUpBy(cashBy({ userId: LOLA, at: new Date(NOW.getTime() - FRESH_TOPUP_MS) }), { userId: LOLA }, NOW)).toBe(true);
     expect(isFreshTopUpBy(cashBy({ userId: LOLA, at: null }), { userId: LOLA }, NOW)).toBe(false);
     expect(isFreshTopUpBy(null, { userId: LOLA }, NOW)).toBe(false);
+  });
+});
+
+describe('la ficha física delante («Me he equivocado», el PIN tras recargar)', () => {
+  const code = (fn: () => void) => {
+    try {
+      fn();
+      return 'ok';
+    } catch (err) {
+      return ((err as { getResponse: () => { code: string } }).getResponse()).code;
+    }
+  };
+  it('con uid apuntado: hay que leerla (sin uid, «acerca la ficha») y que sea la misma', () => {
+    expect(code(() => assertFichaInHand('04A23B110001', undefined))).toBe('FICHA_TAP_NEEDED');
+    expect(code(() => assertFichaInHand('04A23B110001', ''))).toBe('FICHA_TAP_NEEDED');
+    expect(code(() => assertFichaInHand('04A23B110001', '04000000000000'))).toBe('FICHA_COPY');
+    expect(code(() => assertFichaInHand('04A23B110001', '04:a2:3b:11:00:01'))).toBe('ok');
+  });
+  it('una ficha sin uid apuntado (de antes) no lo pide', () => {
+    expect(code(() => assertFichaInHand(null, undefined))).toBe('ok');
   });
 });

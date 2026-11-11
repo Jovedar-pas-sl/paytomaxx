@@ -1,6 +1,24 @@
+import { ConflictException } from '@nestjs/common';
 import { normalizeWalletCardUid } from '@nightpay/contracts';
 import type { PrismaService } from '../../common/prisma/prisma.service';
 import { isIssuedCard } from './wallet-card-ops';
+
+/** Sin leer la ficha (solo su enlace): no vale como «la ficha delante». */
+export const FICHA_TAP_NEEDED = 'Acerca la ficha al móvil: hay que leerla (no basta con su enlace).';
+export const FICHA_COPY = 'Esta ficha no es la original (¿copiada?): avisa al encargado.';
+
+/**
+ * La ficha física delante, como en la salida de efectivo: si la ficha tiene
+ * uid, hay que haberla leído (su uid) y que coincida. Sin uid leído, 409
+ * «acerca la ficha»; con otro uid, 409 «no es la original». Las fichas sin uid
+ * apuntado (de antes) no lo piden.
+ */
+export function assertFichaInHand(cardUid: string | null, readUid: string | null | undefined): void {
+  if (!cardUid) return;
+  const uid = readUid ? normalizeWalletCardUid(readUid) : null;
+  if (!uid) throw new ConflictException({ message: FICHA_TAP_NEEDED, code: 'FICHA_TAP_NEEDED' });
+  if (normalizeWalletCardUid(cardUid) !== uid) throw new ConflictException({ message: FICHA_COPY, code: 'FICHA_COPY' });
+}
 
 /**
  * «Recién recargado»: la recarga que creó el saldo la cobró esta persona (o
@@ -90,9 +108,10 @@ export async function pinAfterRecharge(
     ),
   ]);
   if (!card || !isIssuedCard(card) || card.walletId !== a.walletId) return false;
-  const uid = a.uid ? normalizeWalletCardUid(a.uid) : null;
-  if (card.uid && uid && card.uid !== uid) return false;
-  return cash !== null || paid !== null;
+  if (cash === null && paid === null) return false;
+  // Su ficha y una recarga suya de ahora: la ficha tiene que estar delante (leída).
+  assertFichaInHand(card.uid, a.uid);
+  return true;
 }
 
 /** ¿La primera recarga es de quien pregunta y de hace menos de 15 min? */
