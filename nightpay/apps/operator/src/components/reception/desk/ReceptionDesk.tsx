@@ -892,22 +892,30 @@ export function ReceptionDesk({ user, active, footer, onGiveFicha, onScanHome, h
     const pinText = pin === 'ask' || pin === 'manager' ? pinAfterLoadText(pin, noPinLimitCents(night)) : null;
     const askPin = { label: 'Que elija su PIN', onClick: () => go({ kind: 'pin', done }) };
     const next = { label: 'Siguiente cliente', onClick: () => restart('entrada') };
-    const meta = done.read.number ? 'Devuélvele su ficha' : handOverLine(done.read.view, done.linked);
+    // Lo que queda en pantalla: la ficha (si se le dio o es la suya) y el código, en grande;
+    // por número, el código va tapado arriba (A1, A11).
+    const ficha = done.linked || view?.kind === 'saldo' || done.read.number ? readFicha(done.read) : null;
+    const code = done.read.number ? null : (done.wallet?.code ?? null);
+    const reference = done.read.number ? (done.reference ?? null) : null;
+    // Qué hacer ahora, en orden: el efectivo a la caja, la ficha y, si pasa del tope, su PIN.
+    const handOver = handOverOf({ view, linked: done.linked, byNumber: Boolean(done.read.number), hasCode: (code ?? reference) !== null });
+    // Sin ficha ni código en pantalla, no hay nada que apuntar (el aviso manda al encargado).
+    const meta = done.read.number
+      ? 'Devuélvele su ficha'
+      : handOver === 'manager'
+        ? 'Sin ficha ni código: con el encargado'
+        : handOverLine(done.read.view, done.linked);
     // B1 (aprobado el 2-nov): por encima del tope sin PIN, el teclado sale solo, con «Ahora no».
     if (pin === 'ask' && done.wallet && !done.seen && !done.pinSkipped) {
       return renderPinFirst(done, done.wallet, `${money.label} ${money.amount} ${money.tail} · ${meta}`);
     }
-    // La ficha (si se le dio o es la suya) y el código, en grande; por número, el código va tapado arriba (A1, A11).
-    const ficha = done.linked || view?.kind === 'saldo' || done.read.number ? readFicha(done.read) : null;
-    const code = done.read.number ? null : (done.wallet?.code ?? null);
     const ids = {
       ficha,
       code,
       hint: ficha && (done.read.nfc || done.read.number) ? FICHA_IN_HAND : null,
       photo: photoHint({ ficha: ficha !== null, code: code !== null }),
     };
-    // Qué hacer ahora, en orden: el efectivo a la caja, la ficha y, si pasa del tope, su PIN.
-    const help = loadedHelp({ method: done.method, handOver: handOverOf({ view, linked: done.linked, byNumber: Boolean(done.read.number) }), pin });
+    const help = loadedHelp({ method: done.method, handOver, pin });
     // Pagó en efectivo aquí: su enlace privado no le llega; con este QR activa Face ID en su móvil.
     // Si hace falta el PIN, primero eso: el QR solo si prefiere pagar con el móvil (si no, deja el botón fuera de la pantalla).
     const activation =
@@ -924,7 +932,7 @@ export function ReceptionDesk({ user, active, footer, onGiveFicha, onScanHome, h
       <DeskLoaded
         word="Cargado"
         amountCents={done.amountCents}
-        reference={done.read.number ? (done.reference ?? null) : null}
+        reference={reference}
         money={{ icon: done.method, ...money }}
         meta={meta}
         ids={ids}

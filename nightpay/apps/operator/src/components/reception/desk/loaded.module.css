@@ -337,3 +337,62 @@
   font-size: 1rem;
   font-weight: 600;
 }
+
+/* La marca y la palabra: sin caja propia (como si fueran hijas del cuerpo);
+   en una pantalla baja pasan a una fila (abajo). */
+.headline {
+  display: contents;
+}
+
+/* Pantallas bajas (PS-A12): el QR de Face ID y su línea para el cliente,
+   enteros por encima de los botones sin bajar. Se juntan los huecos y el pie;
+   los botones no bajan (56 y 48 px). A 360×740 faltaban 10 px. */
+@media (max-height: 780px) {
+  .body {
+    gap: 0.375rem;
+    padding-top: 0.5rem;
+  }
+
+  .resFoot :global(.np-outcome-actions) {
+    padding: 0.375rem 0 0.5rem;
+  }
+}
+
+/* A 360×640 faltaban unos 110 px: la marca (40 px) en la fila de la palabra,
+   el importe más pequeño y el bloque del dinero y el QR más juntos. */
+@media (max-height: 700px) {
+  .headline {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.625rem;
+  }
+
+  .body :global(.np-outcome-ring) {
+    width: 2.5rem;
+    height: 2.5rem;
+  }
+
+  .body :global(.np-outcome-amount) {
+    font-size: min(2.75rem, calc(88vw / var(--np-fit, 6)));
+  }
+
+  .resLeft {
+    min-height: 2.75rem;
+    padding: 0.375rem 0.875rem;
+  }
+
+  .activate {
+    padding: 0.375rem 0.625rem 0.375rem 0.375rem;
+  }
+
+  .activateText {
+    gap: 0;
+    font-size: 0.8125rem;
+    line-height: 1.25;
+  }
+
+  .activateText b {
+    font-size: 0.9375rem;
+  }
+}

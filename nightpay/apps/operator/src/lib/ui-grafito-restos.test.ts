@@ -121,3 +121,58 @@ describe('CARGADO (recepción)', () => {
     expect(token('--np-warning')).toBe('#f5b342');
   });
 });
+
+describe('textos del QR y de la invitación (revisión de Grafito 2)', () => {
+  it('«10 min» del QR de Face ID no se parte en dos líneas (espacio duro)', () => {
+    expect(read('../components/reception/desk/ActivationQr.tsx')).toContain('Vale una vez y 10&nbsp;min.');
+  });
+
+  it('invitación: «Tarjeta, QR o ficha, sin PIN» (no «Tarjeta o QR o NFC»)', () => {
+    const src = read('../components/cobrar/Esperando.tsx');
+    expect(src).toContain("invite ? (nfcOn ? 'Tarjeta, QR' : 'Tarjeta o QR') : 'Con tu móvil'");
+    expect(src).toContain("invite ? (hasQr ? 'ficha, sin PIN' : 'Ficha, sin PIN') : 'Por detrás'");
+    expect(src).not.toContain("'NFC, sin PIN'");
+  });
+});
+
+describe('CARGADO en un móvil bajo: el QR de Face ID y su línea, sin bajar (PS-A12)', () => {
+  const css = read('../components/reception/desk/loaded.module.css');
+  const block = (media: string) => css.slice(css.indexOf(media), css.indexOf('\n}\n', css.indexOf(media)));
+
+  it('hasta 780 px de alto se juntan los huecos y el pie; hasta 700, la marca va en la fila de «CARGADO»', () => {
+    expect(block('@media (max-height: 780px)')).toMatch(/gap: 0\.375rem/);
+    expect(block('@media (max-height: 780px)')).toMatch(/\.resFoot :global\(\.np-outcome-actions\) \{\s*padding: 0\.375rem 0 0\.5rem;/);
+    const low = block('@media (max-height: 700px)');
+    expect(low).toMatch(/\.headline \{\s*display: flex;/);
+    expect(low).toMatch(/width: 2\.5rem;\s*height: 2\.5rem;/);
+    expect(css).toMatch(/\.headline \{\s*display: contents;/);
+    expect(read('../components/reception/desk/DeskLoaded.tsx')).toMatch(/<div className=\{s\.headline\}>\s*<span className="np-outcome-ring"/);
+  });
+
+  it('los toques no bajan: ni el CSS de CARGADO toca la altura de los botones (56 y 48 px)', () => {
+    expect(css).not.toMatch(/np-outcome-btn/);
+    const staff = read('../../../../packages/ui/src/staff.css');
+    expect(staff).toMatch(/\.np-outcome-btn \{\s*min-height: 3\.5rem;/);
+    expect(staff).toMatch(/\.np-outcome-btn\[data-variant='secondary'\] \{\s*min-height: 3rem;/);
+  });
+});
+
+describe('TPV en el móvil: el importe arriba, el QR debajo y «Cancelar cobro» siempre a la vista', () => {
+  const css = read('../../../tpv/src/components/active-payment.module.css');
+  const tsx = read('../../../tpv/src/components/ActivePayment.tsx');
+  const phone = css.slice(css.indexOf('@media (max-width: 47.99rem)'));
+
+  it('en una columna, la tarjeta del importe va primero y la de las acciones queda fija abajo', () => {
+    expect(phone).toMatch(/\.amount \{\s*order: -1;\s*z-index: 1;/); // si no, la tarjeta del QR tapa la barra
+    expect(phone).toMatch(/\.actions \{\s*position: fixed;[^}]*bottom: 0;/);
+    // El hueco de abajo deja ver entera la tarjeta del QR por encima de la barra.
+    expect(phone).toMatch(/\.grid \{[^}]*padding-bottom: calc\(5rem \+ env\(safe-area-inset-bottom\)\);/);
+  });
+
+  it('el cobro usa esas clases (en la tableta, como estaba: el QR y el importe en dos columnas)', () => {
+    expect(tsx).toContain('<div className={styles.grid}>');
+    expect(tsx).toContain('<Card className={styles.amount}');
+    expect(tsx).toContain('<div className={styles.actions}>');
+    expect(css).toMatch(/\.grid \{\s*display: grid;\s*grid-template-columns: repeat\(auto-fit, minmax\(min\(100%, 20rem\), 1fr\)\);/);
+  });
+});

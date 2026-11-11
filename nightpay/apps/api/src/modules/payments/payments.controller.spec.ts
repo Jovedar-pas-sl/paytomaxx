@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import 'reflect-metadata';
 import { GoneException, ParseUUIDPipe } from '@nestjs/common';
-import { ROUTE_ARGS_METADATA } from '@nestjs/common/constants';
+import { HEADERS_METADATA, ROUTE_ARGS_METADATA } from '@nestjs/common/constants';
 import { ROLES_KEY } from '../../common/decorators/roles.decorator';
 import { IS_PUBLIC_KEY } from '../../common/decorators/public.decorator';
 import { PaymentsController } from './payments.controller';
@@ -51,5 +51,15 @@ describe('POST /payments/public/:token/start-authorization — retirado (DIN-2)'
 
   it('sigue siendo pública (sin sesión): a quien la llame le llega el 410, no un 401', () => {
     expect(Reflect.getMetadata(IS_PUBLIC_KEY, PaymentsController.prototype.startAuthorization)).toBe(true);
+  });
+});
+
+describe('GET /payments/public/:token: el estado vivo de un cobro', () => {
+  it('no se guarda en caché (ni navegador ni proxy del local): Cache-Control: no-store', () => {
+    const headers = Reflect.getMetadata(HEADERS_METADATA, PaymentsController.prototype.getPublic) as Array<{
+      name: string;
+      value: string;
+    }>;
+    expect(headers).toContainEqual({ name: 'Cache-Control', value: 'no-store' });
   });
 });

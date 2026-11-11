@@ -40,7 +40,9 @@ export function useWalletChargeLive(
       poll: (signal) => taskRef.current(signal),
       socket: () =>
         io(`${wsBase}/rt`, {
+          // Si el WebSocket no conecta (proxy, wifi del local), cae a polling HTTP.
           transports: ['websocket', 'polling'],
+          tryAllTransports: true,
           // El JWT de quien cobra en el handshake: en cada (re)conexión, el vigente.
           auth: (cb) => {
             void freshAccessToken().then((token) => cb(token ? { token } : {}));
@@ -54,9 +56,13 @@ export function useWalletChargeLive(
       if (!isHidden()) live.poke();
     };
     document.addEventListener('visibilitychange', onVisibility);
+    // Vuelve la red (cobertura recuperada): se pregunta ya.
+    const onOnline = () => live.poke();
+    window.addEventListener('online', onOnline);
     live.start(firstCheckMs);
     return () => {
       document.removeEventListener('visibilitychange', onVisibility);
+      window.removeEventListener('online', onOnline);
       live.stop();
       if (liveRef.current === live) liveRef.current = null;
     };

@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import type { ReceptionDeskView } from '@nightpay/contracts';
 import { AMOUNT_HELP, EXIT_HELP, METHOD_HELP, RECEPTION_HELP_SCREENS, cashConfirmText, cashInHandText, handOverOf, loadedHelp, tapHelp, turnPhoneText } from './reception-help';
@@ -51,12 +52,25 @@ describe('la ayuda de cada paso de Recepción', () => {
 
 describe('CARGADO: qué se hace con la ficha', () => {
   it('como handOverLine: dar la nueva, devolver la suya, apuntar el código o nada', () => {
-    expect(handOverOf({ view: NEW, linked: true, byNumber: false })).toBe('give');
-    expect(handOverOf({ view: NEW, linked: false, byNumber: false })).toBe('code');
-    expect(handOverOf({ view: null, linked: false, byNumber: false })).toBe('code');
-    expect(handOverOf({ view: SALDO_FICHA, linked: true, byNumber: false })).toBe('return');
-    expect(handOverOf({ view: SALDO_CODIGO, linked: true, byNumber: false })).toBe('none');
-    expect(handOverOf({ view: null, linked: true, byNumber: true })).toBe('return');
+    expect(handOverOf({ view: NEW, linked: true, byNumber: false, hasCode: true })).toBe('give');
+    expect(handOverOf({ view: NEW, linked: false, byNumber: false, hasCode: true })).toBe('code');
+    expect(handOverOf({ view: null, linked: false, byNumber: false, hasCode: true })).toBe('code');
+    expect(handOverOf({ view: SALDO_FICHA, linked: true, byNumber: false, hasCode: true })).toBe('return');
+    expect(handOverOf({ view: SALDO_CODIGO, linked: true, byNumber: false, hasCode: true })).toBe('none');
+    expect(handOverOf({ view: null, linked: true, byNumber: true, hasCode: false })).toBe('return');
+  });
+
+  it('sin código en pantalla (no se pudo leer su saldo nuevo) no pide apuntarlo: al encargado, como el aviso', () => {
+    expect(handOverOf({ view: NEW, linked: false, byNumber: false, hasCode: false })).toBe('manager');
+    expect(handOverOf({ view: null, linked: false, byNumber: false, hasCode: false })).toBe('manager');
+    expect(loadedHelp({ method: 'card', handOver: 'manager', pin: 'none' })).toBe('Avisa al encargado.');
+    expect(loadedHelp({ method: 'cash', handOver: 'manager', pin: 'none' })).toBe('Mete el efectivo en la caja y avisa al encargado.');
+    expect(loadedHelp({ method: 'card', handOver: 'manager', pin: 'none' })).not.toMatch(/código/);
+    // CARGADO: el código que se enseña decide, y la línea de debajo tampoco pide apuntarlo.
+    const desk = readFileSync(new URL('../components/reception/desk/ReceptionDesk.tsx', import.meta.url), 'utf8').replace(/\r\n/g, '\n');
+    // El código está en grande (ids) o, por número, tapado arriba (reference).
+    expect(desk).toContain('hasCode: (code ?? reference) !== null');
+    expect(desk).toMatch(/handOver === 'manager'\s*\? 'Sin ficha ni código: con el encargado'/);
   });
 });
 

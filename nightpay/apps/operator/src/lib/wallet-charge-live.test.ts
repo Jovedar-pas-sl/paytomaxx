@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   WALLET_CHARGE_POLL_LIVE_MS,
   WALLET_CHARGE_POLL_OFFLINE_MS,
+  WALLET_CHARGE_RECONNECT_AFTER_SERVER_CLOSE_MS,
   WALLET_CHARGE_RECONNECT_MS,
   createWalletChargeLive,
   type ChargeSocket,
@@ -23,8 +24,8 @@ class FakeSocket implements ChargeSocket {
   emitted: Array<[string, unknown]> = [];
   disconnected = false;
   connects = 0;
-  private handlers = new Map<string, Array<(e: ChargeUpdate) => void>>();
-  on(event: string, fn: (e: ChargeUpdate) => void): this {
+  private handlers = new Map<string, Array<(e: never) => void>>();
+  on(event: string, fn: (e: never) => void): this {
     this.handlers.set(event, [...(this.handlers.get(event) ?? []), fn]);
     return this;
   }
@@ -40,8 +41,8 @@ class FakeSocket implements ChargeSocket {
     this.disconnected = true;
     return this;
   }
-  fire(event: string, e: ChargeUpdate = {}): void {
-    for (const fn of this.handlers.get(event) ?? []) fn(e);
+  fire(event: string, e: ChargeUpdate | string = {}): void {
+    for (const fn of this.handlers.get(event) ?? []) (fn as (e: ChargeUpdate | string) => void)(e);
   }
 }
 
@@ -103,6 +104,18 @@ describe('createWalletChargeLive', () => {
     socket.active = false;
     socket.fire('disconnect');
     await vi.advanceTimersByTimeAsync(WALLET_CHARGE_RECONNECT_MS - 1);
+    expect(socket.connects).toBe(0);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(socket.connects).toBe(1);
+    live.stop();
+  });
+
+  it('el servidor cerró la conexión a propósito (despliegue): vuelve a conectar al segundo', async () => {
+    const { socket, live } = setup();
+    live.start(WALLET_CHARGE_POLL_OFFLINE_MS);
+    socket.active = false;
+    socket.fire('disconnect', 'io server disconnect');
+    await vi.advanceTimersByTimeAsync(WALLET_CHARGE_RECONNECT_AFTER_SERVER_CLOSE_MS - 1);
     expect(socket.connects).toBe(0);
     await vi.advanceTimersByTimeAsync(1);
     expect(socket.connects).toBe(1);

@@ -652,12 +652,13 @@ function Waiting({
         ) : null}
         {hasQr || nfcOn ? (
           <p className={styles.ways}>
-            {hasQr ? <span>{invite ? 'Tarjeta o QR' : 'Con tu móvil'}</span> : null}
+            {/* Invitación: «Tarjeta, QR o ficha, sin PIN» (sin ficha, «Tarjeta o QR»; sin QR, «Ficha, sin PIN»). */}
+            {hasQr ? <span>{invite ? (nfcOn ? 'Tarjeta, QR' : 'Tarjeta o QR') : 'Con tu móvil'}</span> : null}
             {hasQr && nfcOn ? <span aria-hidden="true">o</span> : null}
             {nfcOn ? (
               <span className={`${styles.nfcWay}${reading || checking ? ` ${styles.nfcReading}` : ''}`}>
                 <IconNfc />
-                {checking ? 'Comprobando…' : reading ? 'Leyendo…' : invite ? 'NFC, sin PIN' : 'Por detrás'}
+                {checking ? 'Comprobando…' : reading ? 'Leyendo…' : invite ? (hasQr ? 'ficha, sin PIN' : 'Ficha, sin PIN') : 'Por detrás'}
               </span>
             ) : null}
           </p>

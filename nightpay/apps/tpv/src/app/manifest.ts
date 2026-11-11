@@ -8,6 +8,7 @@ export default function manifest(): MetadataRoute.Manifest {
     name: 'OxioPay — TPV',
     shortName: 'OxioPay TPV',
     description: 'Cobrar en la caja del local.',
-    orientation: 'portrait',
+    // Sin bloqueo: el TPV tiene diseño de tableta y en la barra puede estar en horizontal.
+    orientation: 'any',
   });
 }

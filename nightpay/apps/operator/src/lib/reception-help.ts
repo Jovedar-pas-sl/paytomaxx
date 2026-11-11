@@ -67,24 +67,27 @@ export const EXIT_HELP =
   'Devolver: le das ahora en efectivo lo que cargó en efectivo; lo de tarjeta se lo devuelve el local a su tarjeta. Guardar: se queda en su ficha y su código para otra noche.';
 
 /** Qué se hace con la ficha en CARGADO (lo mismo que dice handOverLine, como orden). */
-export type HandOver = 'give' | 'return' | 'code' | 'none';
+export type HandOver = 'give' | 'return' | 'code' | 'manager' | 'none';
 
 /**
  * Como handOverLine: una ficha nueva que se dio, se le da; la suya (leída o
- * buscada por número), se le devuelve; sin NFC, que apunte su código; un
- * saldo sin ficha (por su código), nada.
+ * buscada por número), se le devuelve; sin ficha, que apunte su código; un
+ * saldo sin ficha (por su código), nada. Sin ficha y sin código en pantalla
+ * (no se pudo leer su saldo nuevo: `hasCode` false), no hay nada que apuntar:
+ * al encargado, como dice el aviso de debajo.
  */
-export function handOverOf(o: { view: ReceptionDeskView | null; linked: boolean; byNumber: boolean }): HandOver {
+export function handOverOf(o: { view: ReceptionDeskView | null; linked: boolean; byNumber: boolean; hasCode: boolean }): HandOver {
   if (o.byNumber) return 'return';
   if (o.view?.kind === 'saldo') return o.view.fichaNumber === null ? 'none' : 'return';
   if (o.view && o.linked) return 'give';
-  return 'code';
+  return o.hasCode ? 'code' : 'manager';
 }
 
 const HAND_OVER_TEXT: Record<HandOver, string | null> = {
   give: 'dale la ficha',
   return: 'devuélvele su ficha',
   code: 'que apunte su código',
+  manager: 'avisa al encargado',
   none: null,
 };
 
