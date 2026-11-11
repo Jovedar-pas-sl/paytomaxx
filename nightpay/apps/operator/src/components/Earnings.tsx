@@ -118,7 +118,7 @@ function MoneyRows({ summary, holdDays, earnings, night, onOpen }: RowsProps) {
   const bank = summary.bankHeldCents;
 
   return (
-    <nav aria-label="Lo demás que te deben" className={styles.rows}>
+    <nav aria-label="Lo demás que te deben" className={styles.rows} data-tour="ganancias-otras">
       <Row
         label="Pendiente de otras noches"
         sub={other > 0 ? (nights > 0 ? `${nights} ${nights === 1 ? 'noche' : 'noches'} sin cobrar` : 'Ganado y aún sin cobrar') : 'Nada pendiente'}
@@ -184,7 +184,7 @@ function NextPayout({ summary }: { summary: MoneySummary }) {
     .filter(Boolean)
     .join(' ');
   return (
-    <div style={nextStyle}>
+    <div style={nextStyle} data-tour="ganancias-proximo">
       <div style={{ minWidth: 0 }}>
         <p style={nextLabel}>Próximo pago</p>
         <p style={nextExplain}>

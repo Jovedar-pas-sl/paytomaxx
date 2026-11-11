@@ -123,13 +123,13 @@ export function FichasPanel() {
       {actionError ? <Notice tone="danger">{actionError}</Notice> : null}
 
       {summary ? (
-        <section style={tilesGrid}>
+        <section style={tilesGrid} data-tour="fichas-resumen">
           <Tile title="En stock" value={String(summary.enStock)} subtitle="Grabadas y sin dar (también las devueltas)" />
           <Tile title="Entregadas" value={String(summary.entregadas)} subtitle="Ahora mismo en manos de clientes" />
         </section>
       ) : null}
 
-      <Card className="np-table-host" style={{ padding: '1rem' }}>
+      <Card className="np-table-host" style={{ padding: '1rem' }} data-tour="fichas-noche">
         <h3 style={sectionTitle}>Por noche</h3>
         {!summary ? (
           <p style={mutedText}>{error ? 'No se pudo cargar.' : 'Cargando…'}</p>
@@ -178,7 +178,7 @@ export function FichasPanel() {
         )}
       </Card>
 
-      <Card className="np-table-host" style={{ padding: '1rem' }}>
+      <Card className="np-table-host" style={{ padding: '1rem' }} data-tour="fichas-lista">
         <div style={listHeader}>
           <h3 style={sectionTitle}>Fichas</h3>
           <form onSubmit={search} style={searchRow}>

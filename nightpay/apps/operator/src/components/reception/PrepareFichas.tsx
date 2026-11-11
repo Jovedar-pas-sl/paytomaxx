@@ -146,7 +146,7 @@ export function PrepareFichas({ on, onDone }: Props) {
   return (
     <div className={r.card}>
       <p className={r.kicker}>Preparar fichas</p>
-      <p className={r.counter} aria-live="polite">
+      <p className={r.counter} aria-live="polite" data-tour="prep-contador">
         {count}
       </p>
       <p className={r.text}>{preparedText(count)} en el stock de este local</p>
@@ -155,7 +155,7 @@ export function PrepareFichas({ on, onDone }: Props) {
       {!reader.loading && (!reader.via || !reader.canWrite) ? <p className={r.note}>{reader.note}</p> : null}
 
       {pending ? (
-        <form onSubmit={(event) => { event.preventDefault(); void saveNumber(); }} className={r.form}>
+        <form onSubmit={(event) => { event.preventDefault(); void saveNumber(); }} className={r.form} data-tour="prep-numero">
           <label htmlFor="ficha-printed-number" className={r.lead}>Número impreso en esta ficha</label>
           <input id="ficha-printed-number" className={r.field} autoFocus inputMode="numeric" autoComplete="off" pattern="[0-9]{1,12}" maxLength={12} value={printedNumber} onChange={(event) => setPrintedNumber(event.target.value)} />
           <p className={r.text}>
@@ -174,18 +174,18 @@ export function PrepareFichas({ on, onDone }: Props) {
       ) : running ? (
         <>
           <p className={r.lead}>Acerca una ficha, retírala y acerca la siguiente</p>
-          <Button variant="ghost" onClick={stop}>
+          <Button variant="ghost" onClick={stop} data-tour="prep-accion">
             Parar
           </Button>
         </>
       ) : (
-        <Button size="lg" disabled={!reader.via} onClick={start}>
+        <Button size="lg" disabled={!reader.via} onClick={start} data-tour="prep-accion">
           {count > 0 ? 'Seguir preparando' : 'Empezar'}
         </Button>
       )}
 
       {lines.length > 0 ? (
-        <ul role="log" aria-live="polite" className={r.log} aria-label="Últimas fichas">
+        <ul role="log" aria-live="polite" className={r.log} aria-label="Últimas fichas" data-tour="prep-registro">
           {lines.map((l) => (
             <li key={l.id} className={r.logLine}>
               <span className={r.logMark} style={{ color: TONE[l.tone] }}>{l.tone === 'warn' ? '!' : '✓'}</span> <span>{l.text}</span>

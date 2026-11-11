@@ -1,5 +1,15 @@
 import { test, expect, type APIRequestContext } from '@playwright/test';
 
+// El tutorial de la primera vez (Tour) tapa la pantalla hasta cerrarlo: aquí se da por visto.
+test.beforeEach(async ({ page }) => {
+  await page.addInitScript(() => {
+    const getItem = Storage.prototype.getItem;
+    Storage.prototype.getItem = function (key: string) {
+      return key.startsWith('np-tour-') ? '1' : getItem.call(this, key);
+    };
+  });
+});
+
 /**
  * Recorridos esenciales con servicios de verdad (playwright.ci.config.ts):
  * base nightpay_e2e recién migrada con los datos de fixtures/ci-seed.mjs, el

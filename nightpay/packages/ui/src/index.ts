@@ -9,6 +9,7 @@ export { FormError } from './components/FormError';
 export { Modal } from './components/Modal';
 export { ThemeToggle } from './components/ThemeToggle';
 export { Logo } from './components/Logo';
+export { CartaIcon, CartaItemIcon, CARTA_ICON_PATHS } from './components/CartaIcon';
 export { SectionChip } from './components/SectionChip';
 export { formatEur } from './format';
 
@@ -89,3 +90,21 @@ export { reportClientError } from './lib/report-client-error';
 export { InstallHint, IosInstallSteps, useInstall } from './components/InstallHint';
 export { installHintOffered, installPlatform, isAppleMobile, installSnoozed, snoozeInstall, INSTALL_SNOOZE_MS } from './lib/install';
 export type { InstallPlatform } from './lib/install';
+
+// El tutorial de cada pantalla: «?» y pasos sobre elementos con data-tour.
+export { HelpButton, ScreenHelp, Tour, findTourTarget, useTour } from './components/Tour';
+export type { TourProps, UseTour } from './components/Tour';
+export {
+  TOUR_VERSION,
+  bubblePlacement,
+  closeMarksSeen,
+  hasSeenTour,
+  markTourSeen,
+  presentSteps,
+  resetTourSession,
+  shouldAutoStart,
+  stepCounter,
+  tourKey,
+  tourMove,
+} from './lib/tour';
+export type { TourCloseReason, TourStep, TourStorage } from './lib/tour';

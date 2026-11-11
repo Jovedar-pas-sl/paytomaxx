@@ -64,7 +64,7 @@ export function AlertsPanel() {
       ) : null}
 
       <SettingsCard
-        title="Chat"
+        title="Chat" tour="telegram-chat"
         hint={
           settings.chatId
             ? 'Los avisos de este local van a su propio chat.'
@@ -93,7 +93,7 @@ export function AlertsPanel() {
         </div>
       </SettingsCard>
 
-      <SettingsCard title="Qué avisos salen">
+      <SettingsCard title="Qué avisos salen" tour="telegram-avisos">
         {ALERT_KINDS.map((key) => (
           <Switch
             key={key}
@@ -105,7 +105,7 @@ export function AlertsPanel() {
         ))}
       </SettingsCard>
 
-      <SettingsCard title="Privacidad">
+      <SettingsCard title="Privacidad" tour="telegram-privacidad">
         <Switch
           label="Poner el nombre de las chicas"
           hint="Telegram es de fuera: por defecto los avisos no llevan nombres."

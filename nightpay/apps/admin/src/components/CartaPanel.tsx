@@ -6,6 +6,7 @@ import { MAX_PACK_COMPONENTS, parseEuroCents, type SectionCode } from '@nightpay
 import { createServiceItem, fetchCarta, updateServiceItem, type ServiceItem, type ServiceItemInput } from '@/lib/api';
 import { groupBySection, packFromDraft, packRemainder, type PartDraft } from '@/lib/carta-form';
 import { CartaTemplate } from './CartaTemplate';
+import { CartaImageEditor, CartaThumb } from './CartaImageEditor';
 import { centsToInput, formatEur } from '@/lib/money';
 import { enabledSections, sectionLabelOf } from '@/lib/money-map';
 import { useSections } from '@/lib/use-sections';
@@ -25,6 +26,7 @@ export function CartaPanel() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState<string | null>(null);
+  const [imageOf, setImageOf] = useState<string | null>(null);
 
   const reload = useCallback(() => {
     setLoadError(null);
@@ -59,7 +61,7 @@ export function CartaPanel() {
 
       {items !== null ? <CartaTemplate items={items} sections={sections} onApplied={reload} /> : null}
 
-      <Card style={{ padding: '1.25rem' }}>
+      <Card style={{ padding: '1.25rem' }} data-tour="carta-anadir">
         <h3 style={subtitleStyle}>Añadir a la carta</h3>
         <ServiceForm
           submitLabel="Añadir a la carta"
@@ -89,14 +91,14 @@ export function CartaPanel() {
           <p style={{ margin: 0 }}>Todavía no hay nada. Añade el primero arriba: por ejemplo «Copa» a 10 € en Copas.</p>
         </Card>
       ) : (
-        groupBySection(items, sections).map((group) => (
-          <div key={group.code} style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+        groupBySection(items, sections).map((group, gi) => (
+          <div key={group.code} style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }} {...(gi === 0 ? { 'data-tour': 'carta-lista' } : {})}>
             <h3 style={groupTitle}>
               {group.color ? <SectionDot color={group.color} /> : null}
               {group.label}
               {group.enabled ? null : <span style={{ color: 'var(--np-text-dim)', fontWeight: 500 }}> · apagada</span>}
             </h3>
-            {group.items.map((item) =>
+            {group.items.map((item, ii) =>
               editing === item.id ? (
                 <Card key={item.id} style={{ padding: '1.25rem' }}>
                   <ServiceForm
@@ -120,6 +122,7 @@ export function CartaPanel() {
                   }}
                 >
                   <div style={rowStyle}>
+                    <CartaThumb item={item} />
                     <div style={{ minWidth: 0, flex: '1 1 12rem' }}>
                       <p style={{ margin: 0, fontWeight: 600, fontSize: '1rem' }}>
                         {item.name}
@@ -139,14 +142,18 @@ export function CartaPanel() {
                       {formatEur(item.priceCents)}
                     </span>
                     <div style={{ display: 'flex', gap: '0.5rem' }}>
-                      <Button variant="ghost" size="sm" onClick={() => setEditing(item.id)}>
+                      <Button variant="ghost" size="sm" onClick={() => setEditing(item.id)} {...(gi === 0 && ii === 0 ? { 'data-tour': 'carta-editar' } : {})}>
                         Editar
+                      </Button>
+                      <Button variant="ghost" size="sm" aria-expanded={imageOf === item.id} onClick={() => setImageOf(imageOf === item.id ? null : item.id)}>
+                        Icono o imagen
                       </Button>
                       <Button variant="ghost" size="sm" onClick={() => void toggleActive(item)}>
                         {item.active ? 'Desactivar' : 'Activar'}
                       </Button>
                     </div>
                   </div>
+                  {imageOf === item.id ? <CartaImageEditor item={item} onChanged={reload} /> : null}
                 </Card>
               ),
             )}

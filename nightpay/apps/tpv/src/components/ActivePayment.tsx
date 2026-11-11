@@ -127,7 +127,7 @@ export function ActivePayment({ payment, status, reachable, checkNow, onDone, on
       <QrCard payment={payment} deadline={isPreCobro(shown) ? deadline : null} now={now} />
 
       {/* En el móvil, el importe va arriba y «Cancelar cobro» en una barra fija abajo. */}
-      <Card className={styles.amount} style={{ padding: CARD_PAD, textAlign: 'center' }}>
+      <Card className={styles.amount} style={{ padding: CARD_PAD, textAlign: 'center' }} data-tour="tpv-importe">
         <p style={sectionLabel}>Importe</p>
         <AmountDisplay amountCents={payment.amountCents} currency={payment.currency} status={shown} />
         {breakdown ? (
@@ -135,7 +135,7 @@ export function ActivePayment({ payment, status, reachable, checkNow, onDone, on
             Con tarjeta paga {formatMoney(payment.amountCents + feeCents, { compact: true, currency: payment.currency })} ({breakdown})
           </p>
         ) : null}
-        <div style={{ marginTop: '1rem', display: 'flex', justifyContent: 'center' }}>
+        <div style={{ marginTop: '1rem', display: 'flex', justifyContent: 'center' }} data-tour="tpv-estado">
           <StatusPill status={shown} />
         </div>
         {awaiting ? (
@@ -145,7 +145,7 @@ export function ActivePayment({ payment, status, reachable, checkNow, onDone, on
               : 'Sin conexión con el servidor: no sabemos si el cliente pagó. No cobres otra vez hasta que se confirme.'}
           </p>
         ) : null}
-        <div className={styles.actions}>
+        <div className={styles.actions} data-tour="tpv-cancelar">
           {awaiting ? (
             <Button variant="ghost" size="md" onClick={checkNow}>
               Comprobar ahora
@@ -201,7 +201,7 @@ function QrCard({ payment, deadline, now }: { payment: CreatedPayment; deadline:
   }
 
   return (
-    <Card style={{ padding: CARD_PAD }}>
+    <Card style={{ padding: CARD_PAD }} data-tour="tpv-qr">
       <p style={sectionLabel}>QR del cobro</p>
       {/* Fondo blanco en los dos temas: el lector del móvil lo necesita para leer el QR. */}
       <div style={{ marginTop: '1rem' }}>

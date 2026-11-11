@@ -1,19 +1,12 @@
-// Recepción, cargar la ficha (Grafito 2): la línea de ayuda de cada paso,
-// corta y en español llano, para el personal a oscuras y con prisa. Se cierra
-// con «Entendido» (help-line.ts). Funciones puras: se prueban sin pantalla.
+// Recepción, cargar la ficha (Grafito 2): lo que hay que hacer en cada paso,
+// corto y en español llano, para el personal a oscuras y con prisa. Lo usan el
+// tutorial del «?» (tours.ts), la Guía rápida (/guia) y los textos que quedan
+// a la vista en el paso (lo que se mete en la caja, la ficha que se entrega).
+// Funciones puras: se prueban sin pantalla.
 
 import type { ReceptionDeskView } from '@nightpay/contracts';
 import { formatEur } from './money';
 import type { PinAfterLoad } from './reception-desk';
-
-/** Las claves de cada pantalla (una por paso: cerrar una no cierra las otras). */
-export const RECEPTION_HELP_SCREENS = {
-  nfc: 'recepcion-nfc',
-  amount: 'recepcion-importe',
-  method: 'recepcion-pago',
-  loaded: 'recepcion-cargado',
-  exit: 'recepcion-salida',
-} as const;
 
 /** «Acerca el NFC»: qué hacer con la ficha (entrada o salida). */
 export function tapHelp(mode: 'entrada' | 'salida'): string {
@@ -55,16 +48,6 @@ export function cashConfirmText(amountCents: number): string {
 export function turnPhoneText(hasFicha: boolean): string {
   return hasFicha ? 'Gira el móvil: que vea el importe y su ficha' : 'Gira el móvil: que vea el importe';
 }
-
-/**
- * La salida (lo que le queda): qué hace cada botón, como lo hace el código.
- * «Devolver» saca de la caja en efectivo lo que entró en efectivo; lo que
- * entró con tarjeta queda pendiente y el local se lo devuelve a su tarjeta
- * («A la tarjeta»). «Guardar» no toca nada: el saldo sigue en su ficha y su
- * código. Sin hablar de caducidad (no está decidida).
- */
-export const EXIT_HELP =
-  'Devolver: le das ahora en efectivo lo que cargó en efectivo; lo de tarjeta se lo devuelve el local a su tarjeta. Guardar: se queda en su ficha y su código para otra noche.';
 
 /** Qué se hace con la ficha en CARGADO (lo mismo que dice handOverLine, como orden). */
 export type HandOver = 'give' | 'return' | 'code' | 'manager' | 'none';

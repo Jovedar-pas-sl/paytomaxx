@@ -74,6 +74,11 @@ async function seed(tag: string): Promise<{ tenantId: string; rows: Rows }> {
       const settlementPayment = await tx.oxioPaySettlementPayment.create({
         data: { tenantId, settlementId: settlement.id, amountCents: 50, paidOn: new Date('2026-11-03T00:00:00Z'), bankReference: 'TRF', reason: 'A cuenta', recordedById: owner },
       });
+      // La carta: un producto con su logo (bytes de mentira; la base solo mira tipo, tamaño, medidas y huella).
+      const item = await tx.serviceItem.create({ data: { tenantId, name: `RLS ${tag}`, priceCents: 500, category: 'VENUE_BAR' } });
+      await tx.serviceItemImage.create({
+        data: { serviceItemId: item.id, tenantId, contentType: 'image/png', data: Buffer.alloc(64, 1), contentHash: 'a'.repeat(64), width: 64, height: 64 },
+      });
       return {
         tenantId,
         rows: {
@@ -89,6 +94,7 @@ async function seed(tag: string): Promise<{ tenantId: string; rows: Rows }> {
           charge_ref_counters: tenantId,
           oxiopay_settlements: settlement.id,
           oxiopay_settlement_payments: settlementPayment.id,
+          service_item_images: item.id,
         },
       };
     }),
@@ -97,8 +103,16 @@ async function seed(tag: string): Promise<{ tenantId: string; rows: Rows }> {
 
 /** Locales de las filas de A y B que se ven, SIN filtrar por local en la consulta. */
 async function visibleTenants(tx: { $queryRawUnsafe: PrismaService['$queryRawUnsafe'] }, table: Table): Promise<string[]> {
-  // peanpe_calls tiene de clave el identificador de la llamada; las demás, id.
-  const key = table === 'peanpe_calls' ? 'identificador_llamada' : table === 'charge_ref_counters' ? '"tenantId"::text' : 'id::text';
+  // peanpe_calls tiene de clave el identificador de la llamada, service_item_images
+  // el producto y charge_ref_counters el local; las demás, id.
+  const key =
+    table === 'peanpe_calls'
+      ? 'identificador_llamada'
+      : table === 'charge_ref_counters'
+        ? '"tenantId"::text'
+        : table === 'service_item_images'
+          ? '"serviceItemId"::text'
+          : 'id::text';
   const rows = await tx.$queryRawUnsafe<Array<{ t: string }>>(
     `SELECT "tenantId"::text AS t FROM ${table} WHERE ${key} = ANY($1::text[]) ORDER BY 1`,
     [rowsA[table], rowsB[table]],

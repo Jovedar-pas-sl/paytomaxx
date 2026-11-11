@@ -1,10 +1,11 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useWakeLock } from '@nightpay/ui';
+import { useWakeLock, ScreenHelp } from '@nightpay/ui';
 import type { StaffQrView } from '@nightpay/contracts';
 import { fetchMyStaffQr } from '@/lib/api';
 import { formatEur } from '@/lib/money';
+import { TOURS } from '@/lib/tours';
 import { Chip, ScreenHeader } from './ScreenHeader';
 import { IconSun } from './icons';
 import styles from './cobrar.module.css';
@@ -63,10 +64,11 @@ export function MiQr({
           subtitle="Para que te inviten"
           onBack={onClose}
           chip={<Chip>{name}</Chip>}
+          help={<ScreenHelp {...TOURS.miQr} />}
         />
         <div className={styles.myqr}>
           <div className={styles.me}>{name}</div>
-          <div className={styles.qrBig}>
+          <div className={styles.qrBig} data-tour="miqr-codigo">
             {qr ? <img src={qr.qrPngDataUrl} alt={`QR de ${name} para las invitaciones`} /> : null}
           </div>
           {error && !qr ? (
@@ -80,7 +82,7 @@ export function MiQr({
           ) : (
             <p className={styles.muted}>Enséñaselo al camarero cuando te inviten.</p>
           )}
-          <div className={styles.tonight}>
+          <div className={styles.tonight} data-tour="miqr-noche">
             <span className={styles.ring}>
               <svg viewBox="0 0 36 36" aria-hidden="true">
                 <circle className={styles.rb} cx="18" cy="18" r="15" fill="none" strokeWidth="4" />
@@ -108,7 +110,7 @@ export function MiQr({
             </div>
           </div>
         </div>
-        <p className={styles.note}>
+        <p className={styles.note} data-tour="miqr-brillo">
           <IconSun />
           Sube el brillo al máximo
         </p>

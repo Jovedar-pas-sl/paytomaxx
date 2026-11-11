@@ -7,6 +7,7 @@
 /* Componentes de las apps del personal (resultado, aviso de conexión, teclado
    de importe, cuenta atrás del QR). @import va antes de cualquier regla. */
 @import './staff.css';
+@import './tour.css';
 
 :root {
   /* Spacing — 4px base */

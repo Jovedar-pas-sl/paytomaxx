@@ -50,7 +50,7 @@ export function PostRulesCard() {
 
   return (
     <SettingsCard
-      title="Qué cobra cada puesto"
+      title="Qué cobra cada puesto" tour="secciones-puestos"
       hint="Cada persona solo ve y solo puede cobrar lo de su puesto. Las chicas son siempre Sala. Tú y el encargado lo podéis todo."
     >
       <div style={grid}>

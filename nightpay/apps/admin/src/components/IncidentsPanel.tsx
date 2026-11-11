@@ -55,7 +55,7 @@ export function IncidentsPanel({ isOwner, tabs, onNavigate, onOpenPayment, hidde
         </Notice>
       ) : null}
 
-      <section aria-labelledby={openId} style={groupStyle}>
+      <section aria-labelledby={openId} style={groupStyle} data-tour="avisos-abiertos">
         <h3 id={openId} className="np-inbox-head">
           Abiertas <span className="np-inbox-count">{openCount ?? '…'}</span>
         </h3>
@@ -86,7 +86,7 @@ export function IncidentsPanel({ isOwner, tabs, onNavigate, onOpenPayment, hidde
         )}
       </section>
 
-      <section aria-labelledby={doneId} style={groupStyle}>
+      <section aria-labelledby={doneId} style={groupStyle} data-tour="avisos-resueltos">
         <h3 id={doneId} className="np-inbox-head">
           Resueltas hoy <span className="np-inbox-count">{feed.resolved.length}</span>
         </h3>

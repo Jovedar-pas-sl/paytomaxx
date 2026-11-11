@@ -58,7 +58,7 @@ export function CobrosTable({ rows, actions, empty, hidePerson, extra, showRefer
           </tr>
         </thead>
         <tbody>
-          {(rows ?? []).map((row) => (
+          {(rows ?? []).map((row, i) => (
             <tr key={`${row.kind}-${row.id}`}>
               {/* Hora y referencia en una línea (antes «22 oct, / 18:31», «C- / 0025»). */}
               <td data-label="Hora" data-card="top" className="np-num" style={{ ...meta, ...oneLine }}>
@@ -82,7 +82,7 @@ export function CobrosTable({ rows, actions, empty, hidePerson, extra, showRefer
                 ) : null}
                 {row.tipCents > 0 ? <span style={tipStyle}>+{'\u00a0'}{formatEur(row.tipCents)} propina</span> : null}
               </td>
-              <td data-label="Estado" data-card="status">
+              <td data-label="Estado" data-card="status" {...(i === 0 ? { 'data-tour': 'cobros-estado' } : {})}>
                 {/* Una sola forma y una palabra por estado, con tarjeta o con el saldo. */}
                 <Pill tone={cobroStatus(row).tone}>{cobroStatus(row).label}</Pill>
                 <PaidTwice row={row} />
@@ -127,7 +127,7 @@ export function CobrosTable({ rows, actions, empty, hidePerson, extra, showRefer
                 </td>
               ) : null}
               {actions ? (
-                <td data-label="Acciones" data-card="actions" style={{ textAlign: 'right' }}>
+                <td data-label="Acciones" data-card="actions" style={{ textAlign: 'right' }} {...(i === 0 ? { 'data-tour': 'cobros-acciones' } : {})}>
                   {onDetails ? (
                     <Button type="button" variant="ghost" size="sm" onClick={() => onDetails(row)} title={COBRO_ACTION_TITLES.detail}>
                       {COBRO_ACTION_LABELS.detail}

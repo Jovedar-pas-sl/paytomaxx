@@ -2,7 +2,8 @@
 
 import { useEffect, useId, useRef, useState, type ReactNode, type RefObject } from 'react';
 import { createPortal } from 'react-dom';
-import { Button } from '@nightpay/ui';
+import { Button, ScreenHelp } from '@nightpay/ui';
+import { TOURS } from '@/lib/tours';
 import type { NightChicaPay, NightCloseCheck, NightCloseStep, NightCloseStepKey } from '@nightpay/contracts';
 import { NightCloseRefused, closeNight, fetchCloseCheck, type NightView, type PayoutMethod } from '@/lib/api';
 import { ApiError, totpRetryState } from '@/lib/api-errors';
@@ -166,7 +167,7 @@ export function NightCloseScreen({ night, isOwner, tabs, onNavigate, onClose, on
       {!check ? (
         loadError ? null : <p className="np-close-hint">Cargando los pasos…</p>
       ) : (
-        <ol className="np-close-steps">
+        <ol className="np-close-steps" data-tour="cierre-pasos">
           {steps.map((step, i) => (
             <StepCard
               key={step.key}
@@ -220,7 +221,7 @@ export function NightCloseScreen({ night, isOwner, tabs, onNavigate, onClose, on
   );
 
   const screen = (
-    <div className="np-close" role="dialog" aria-modal="true" aria-labelledby={titleId}>
+    <div className="np-close" role="dialog" aria-modal="true" aria-labelledby={titleId} data-tour-host="">
       <div className="np-close-panel">
         <header className="np-close-head">
           <div className="np-close-head-row">
@@ -229,6 +230,7 @@ export function NightCloseScreen({ night, isOwner, tabs, onNavigate, onClose, on
                 ? `Abierta a las ${formatDateTime(night.openedAt, tz, 'time')} · cerrada a las ${formatDateTime(closed.closedAt, tz, 'time')}`
                 : `Noche abierta desde las ${formatDateTime(night.openedAt, tz, 'time')}`}
             </p>
+            {closed ? null : <ScreenHelp {...TOURS.nightClose} delayMs={1500} />}
             <button
               type="button"
               className="np-modal-close"
@@ -245,7 +247,7 @@ export function NightCloseScreen({ night, isOwner, tabs, onNavigate, onClose, on
             {closed ? 'Noche cerrada' : 'Cerrar la noche'}
           </h2>
           {check && !closed ? (
-            <div className="np-close-progress" aria-label={`${ready} de ${steps.length} pasos listos`}>
+            <div className="np-close-progress" data-tour="cierre-progreso" aria-label={`${ready} de ${steps.length} pasos listos`}>
               <span className="np-close-progress-bar" style={{ transform: `scaleX(${ready / Math.max(1, steps.length)})` }} />
               <span className="np-close-progress-text">
                 {ready} de {steps.length} listos
@@ -263,7 +265,7 @@ export function NightCloseScreen({ night, isOwner, tabs, onNavigate, onClose, on
                 {error}
               </p>
             ) : null}
-            <Button size="lg" className="np-close-freeze" onClick={() => void freezeZ()} disabled={!freeze.canFreeze} loading={busy}>
+            <Button size="lg" className="np-close-freeze" onClick={() => void freezeZ()} disabled={!freeze.canFreeze} loading={busy} data-tour="cierre-congelar">
               Congelar el Z
             </Button>
             <p className="np-close-hint" aria-live="polite">

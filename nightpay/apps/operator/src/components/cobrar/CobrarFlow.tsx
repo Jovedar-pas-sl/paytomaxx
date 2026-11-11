@@ -370,11 +370,11 @@ export function CobrarFlow({ user, onCobroDone, onLogout, night, miQrOpen = fals
   ) : null;
   const headerExtra =
     user.role === 'OPERATOR' && onMiQr ? (
-      <button type="button" className={styles.iconBtn} onClick={() => onMiQr(true)} aria-label="Mi QR para las invitaciones">
+      <button type="button" className={styles.iconBtn} onClick={() => onMiQr(true)} aria-label="Mi QR para las invitaciones" data-tour="cobrar-miqr">
         <IconQr />
       </button>
     ) : onRecargar ? (
-      <button type="button" className={styles.iconBtn} onClick={onRecargar} aria-label="Recargar saldo">
+      <button type="button" className={styles.iconBtn} onClick={onRecargar} aria-label="Recargar saldo" data-tour="cobrar-recargar">
         <IconPlus />
       </button>
     ) : null;

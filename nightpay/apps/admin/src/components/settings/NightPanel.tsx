@@ -52,7 +52,7 @@ export function NightPanel() {
   return (
     <form onSubmit={(e) => void onSubmit(e)} className="np-set-stack" noValidate>
       <SettingsCard
-        title="NFC sin PIN"
+        title="NFC sin PIN" tour="noche-nfc"
         hint="El cliente solo acerca su NFC (tarjeta, ficha o pulsera) y queda pagado. Por encima, o al pasar el tope de la noche, pone su PIN."
       >
         <div className="np-set-grid">
@@ -77,7 +77,7 @@ export function NightPanel() {
         </p>
       </SettingsCard>
 
-      <SettingsCard title="Teclado del PIN" hint="Lo que ve el cliente al poner su PIN en el móvil del personal o en el datáfono.">
+      <SettingsCard title="Teclado del PIN" tour="noche-pin" hint="Lo que ve el cliente al poner su PIN en el móvil del personal o en el datáfono.">
         <Switch
           label="Desordenar las cifras"
           hint="Fijo (de fábrica) es más fácil a oscuras y el cliente lo tapa con la mano. Desordenado cambia las cifras de sitio cada vez."
@@ -86,7 +86,7 @@ export function NightPanel() {
         />
       </SettingsCard>
 
-      <SettingsCard title="Recepción" hint="Al recargar un saldo: los importes de un toque y el botón grande. A la salida: hasta cuánto devuelve sola.">
+      <SettingsCard title="Recepción" tour="noche-recepcion" hint="Al recargar un saldo: los importes de un toque y el botón grande. A la salida: hasta cuánto devuelve sola.">
         <Input
           label="Importes rápidos (€)"
           inputMode="numeric"
@@ -136,7 +136,7 @@ export function NightPanel() {
         />
       </SettingsCard>
 
-      <SettingsCard title="Al cobrar" hint="El aviso del resultado (pagado o no) en las apps del personal. Por si en algún local molestan.">
+      <SettingsCard title="Al cobrar" tour="noche-cobrar" hint="El aviso del resultado (pagado o no) en las apps del personal. Por si en algún local molestan.">
         <Switch
           label="Vibración"
           hint="Solo en Android (el iPhone no vibra desde la web)."
@@ -147,7 +147,7 @@ export function NightPanel() {
       </SettingsCard>
 
       <SettingsCard
-        title="Pantallas del personal"
+        title="Pantallas del personal" tour="noche-pantallas"
         hint="Cómo se ven los móviles del personal en este local. Se aplica en cuanto vuelven a abrir la app."
       >
         <Switch

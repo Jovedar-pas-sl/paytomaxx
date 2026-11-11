@@ -96,11 +96,7 @@ export function ApprovalsPanel() {
   return (
     <section style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
       <div>
-        <h2 className="np-approvals-title">Por aprobar</h2>
-        <p className="np-approvals-hint">
-          Lo que pide el encargado: pagos a las chicas y devoluciones grandes. Se aprueba con tu código 2FA; quien lo
-          pide no puede aprobarlo. Sin decidir, caduca a las 24 h.
-        </p>
+        <h2 className="np-approvals-title" data-tour="aprobar-titulo">Por aprobar</h2>
       </div>
 
       {outcome ? (
@@ -116,7 +112,7 @@ export function ApprovalsPanel() {
         </Notice>
       ) : null}
 
-      <section aria-labelledby={pendingId} style={groupStyle}>
+      <section aria-labelledby={pendingId} style={groupStyle} data-tour="aprobar-pendientes">
         <h3 id={pendingId} className="np-inbox-head">
           Pendientes <span className="np-inbox-count">{feed.pending ? feed.pending.length : '…'}</span>
         </h3>

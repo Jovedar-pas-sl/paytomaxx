@@ -56,6 +56,13 @@ const PAYMENT_PUBLIC_POLL = /^\/v1\/payments\/public\/[^/?]+(\?|$)/;
  * desde la IP del local. Va con su propio @IpRateLimit (por IP y por cobro).
  */
 const PAY_STATUS_POLL = /^\/pay\/[^/?]+\/status(\?|$)/;
+/**
+ * El logo o la foto de un producto de la carta (GET, versionada por su huella):
+ * al abrir la carta, cada móvil del personal pide todas la primera vez, todos
+ * desde la IP del local. Va con su propio @IpRateLimit y, después, el
+ * navegador la guarda un año.
+ */
+const CARTA_IMAGE = /^\/v1\/services\/[0-9a-f-]{36}\/image\/[0-9a-f]{64}(\?|$)/;
 const LOOPBACK = new Set(['127.0.0.1', '::1']);
 
 interface LimitedRequest extends ClientIpRequest {
@@ -70,7 +77,7 @@ interface LimitedRequest extends ClientIpRequest {
  * misma máquina (p. ej. un túnel de Cloudflare) no habría límite.
  */
 export function isGlobalRateLimitExempt(req: LimitedRequest): boolean {
-  if (req.method === 'GET' && [WALLET_STATE_POLL, PAY_PAGES, PAYMENT_PUBLIC_POLL, PAY_STATUS_POLL].some((re) => re.test(req.url))) {
+  if (req.method === 'GET' && [WALLET_STATE_POLL, PAY_PAGES, PAYMENT_PUBLIC_POLL, PAY_STATUS_POLL, CARTA_IMAGE].some((re) => re.test(req.url))) {
     return true;
   }
   const peer = normalizeIp(req.raw?.socket?.remoteAddress ?? req.socket?.remoteAddress);

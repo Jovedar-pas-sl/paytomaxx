@@ -17,8 +17,26 @@ export function showSafariNotice(platform: InstallPlatform | null, apple: boolea
   return platform === 'installed' && apple;
 }
 
-/** El aviso: corto, se cierra con «Entendido» (como las otras ayudas). */
+/** El aviso: corto, se cierra con «Entendido» y no vuelve en este móvil. */
 export const SAFARI_NOTICE_TEXT = 'Para cobrar con ficha o leer una invitación con la cámara, abre OxioPay en Safari.';
 
-/** Su clave de ayuda («np-ayuda-app-instalada»): cerrada, no vuelve en este móvil. */
-export const SAFARI_NOTICE_SCREEN = 'app-instalada';
+/** Lo cerrado, en localStorage de este móvil (no es una ayuda de pantalla). */
+export const SAFARI_NOTICE_KEY = 'np-aviso-safari-v1';
+
+/** ¿Ya lo cerró en este móvil? Si no se puede leer, se sigue viendo. */
+export function safariNoticeDismissed(): boolean {
+  try {
+    return window.localStorage.getItem(SAFARI_NOTICE_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
+/** «Entendido»: queda cerrado (si no se puede guardar, vuelve la próxima vez). */
+export function dismissSafariNotice(): void {
+  try {
+    window.localStorage.setItem(SAFARI_NOTICE_KEY, '1');
+  } catch {
+    // Sin almacenamiento, solo se cierra hasta recargar.
+  }
+}

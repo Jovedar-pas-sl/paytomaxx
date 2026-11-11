@@ -34,6 +34,8 @@ export const FORCED_RLS_TABLES = [
   // «Liquidación OxioPay» (20261031100000): lo que cada local debe a OxioPay y lo que ha pagado.
   'oxiopay_settlements',
   'oxiopay_settlement_payments',
+  // El logo o la foto de cada producto de la carta (20261111100000).
+  'service_item_images',
 ] as const;
 
 export const FORCED_RLS_MODELS: ReadonlySet<string> = new Set([
@@ -49,6 +51,7 @@ export const FORCED_RLS_MODELS: ReadonlySet<string> = new Set([
   'ChargeRefCounter',
   'OxioPaySettlement',
   'OxioPaySettlementPayment',
+  'ServiceItemImage',
 ]);
 
 const FORCED_TABLE_RE = new RegExp(`\\b(${FORCED_RLS_TABLES.join('|')})\\b`);

@@ -21,7 +21,7 @@ interface Props {
  * Los botones de una fila de Cobros (además de «Ver detalle», que pone la
  * tabla): anular un cobro del saldo, resolver uno atascado, devolver (BBVA o
  * la pasarela) y ver las devoluciones. Quién ve cada uno, como lo explica
- * «Cómo leer esta tabla» (lib/cobros-help.ts).
+ * el tutorial del «?» de Cobros (lib/tours.ts).
  */
 export function CobroRowActions({ row, role, onReverse, onResolve, onRefund, onRefunds }: Props) {
   if (reversibleSaldoCharge(row, role)) {

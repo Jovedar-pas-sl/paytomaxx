@@ -134,7 +134,7 @@ export function WalletsPanel({ isOwner }: Props) {
 
       {stats ? (
         <>
-          <section style={tilesGrid}>
+          <section style={tilesGrid} data-tour="saldos-resumen">
             <Tile
               title="Saldos activos"
               value={String(stats.activeCount)}
@@ -175,7 +175,7 @@ export function WalletsPanel({ isOwner }: Props) {
 
       <RecentCashTopUps />
 
-      <Card className="np-table-host" style={{ padding: '1rem' }}>
+      <Card className="np-table-host" style={{ padding: '1rem' }} data-tour="saldos-lista">
         <div style={listHeader}>
           <h3 style={sectionTitle}>Lista de saldos</h3>
           <Select
@@ -207,7 +207,7 @@ export function WalletsPanel({ isOwner }: Props) {
                   <th style={alignRight}>Saldo</th>
                   <th style={alignRight}>Consumos</th>
                   <th>Creada</th>
-                  <th>Acciones</th>
+                  <th data-tour="saldos-acciones">Acciones</th>
                 </tr>
               </thead>
               <tbody>

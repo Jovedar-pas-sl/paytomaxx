@@ -84,7 +84,7 @@ export function OperatorsPanel({ isOwner }: Props) {
           <Button variant="ghost" onClick={reload}>
             Refrescar
           </Button>
-          <Button onClick={() => setCreateOpen(true)}>+ Nueva operadora</Button>
+          <Button onClick={() => setCreateOpen(true)} data-tour="chicas-nueva">+ Nueva operadora</Button>
         </div>
       </div>
 
@@ -95,7 +95,7 @@ export function OperatorsPanel({ isOwner }: Props) {
         </Notice>
       ) : null}
 
-      <Card className="np-table-host" style={{ padding: 0, overflow: 'hidden' }}>
+      <Card className="np-table-host" style={{ padding: 0, overflow: 'hidden' }} data-tour="chicas-tabla">
         <div style={{ overflowX: 'auto' }}>
           <table className="np-table">
             <thead>
@@ -125,7 +125,7 @@ export function OperatorsPanel({ isOwner }: Props) {
                   </td>
                 </tr>
               ) : (
-                visibleOperators.map((op) => {
+                visibleOperators.map((op, i) => {
                   const needsHelp = op.needsHelpWallet || op.needsHelpDocs;
                   return (
                     <tr
@@ -165,7 +165,7 @@ export function OperatorsPanel({ isOwner }: Props) {
                       <td data-label="Pagado total" className="np-num" style={numCell}>
                         {formatEur(op.balance.paidCents)}
                       </td>
-                      <td data-label="Estado" data-card="status" style={cellMeta}>
+                      <td data-label="Estado" data-card="status" style={cellMeta} {...(i === 0 ? { 'data-tour': 'chicas-estado' } : {})}>
                         <OnboardingBadge operator={op} />
                       </td>
                       <td data-label="Acciones" data-card="actions" style={{ textAlign: 'right' }}>
@@ -231,7 +231,7 @@ function hasEarnings(o: Operator): boolean {
  */
 function CamarerosCard({ camareros, onOpen }: { camareros: Operator[]; onOpen: (id: string) => void }) {
   return (
-    <section style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }} aria-labelledby="np-camareros">
+    <section style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }} aria-labelledby="np-camareros" data-tour="chicas-camareros">
       <h3 id="np-camareros" style={{ ...sectionTitle, fontSize: '1rem' }}>
         Camareros · su parte de las invitaciones
       </h3>

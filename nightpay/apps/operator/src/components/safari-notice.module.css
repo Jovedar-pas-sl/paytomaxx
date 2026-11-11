@@ -1,0 +1,33 @@
+/* El aviso de abrir OxioPay en Safari (app instalada en un iPhone o iPad): 15 px en t2, con «Entendido» al final. */
+
+.line {
+  margin: 0;
+  font-size: 0.9375rem;
+  font-weight: 400;
+  line-height: 1.4;
+  color: var(--np-text-mute);
+  text-wrap: pretty;
+}
+
+/* «Entendido»: texto subrayado al final de la línea; 44 px de alto para el
+   dedo sin mover la línea (el relleno se come con el margen). */
+.ok {
+  display: inline-block;
+  margin: -0.75rem 0;
+  padding: 0.75rem 0.25rem;
+  border: none;
+  background: transparent;
+  color: var(--np-text);
+  font: 500 0.9375rem/1.4 var(--np-font-sans);
+  text-decoration: underline;
+  text-decoration-color: var(--np-border-hi);
+  text-underline-offset: 4px;
+  white-space: nowrap;
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.ok:active {
+  color: var(--np-text-mute);
+}

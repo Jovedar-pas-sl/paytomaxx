@@ -14,6 +14,7 @@ describe('tablas con FORCE RLS', () => {
       'oxiopay_settlements',
       'payment_lines',
       'peanpe_calls',
+      'service_item_images',
       'wallet_cash_topups',
       'wallet_consumptions',
     ]);
@@ -28,6 +29,7 @@ describe('tablas con FORCE RLS', () => {
       'OxioPaySettlementPayment',
       'PaymentLine',
       'PeanpeCall',
+      'ServiceItemImage',
       'WalletCashTopUp',
       'WalletConsumption',
     ]);

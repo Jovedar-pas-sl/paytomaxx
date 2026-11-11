@@ -94,6 +94,8 @@ interface HeadProps {
   chip: { section: string; label: string };
   /** Sin el menú del logo (el símbolo, quieto): mientras no se sabe si se cargó, no se sale por ahí. */
   noMenu?: boolean;
+  /** El «?» con el tutorial de la pantalla (ScreenHelp), junto al logo. */
+  help?: ReactNode;
 }
 
 /**
@@ -102,7 +104,7 @@ interface HeadProps {
  * hay franja de color debajo). Es la única de Recepción: el símbolo abre el
  * menú («Salir»), como en «Cobrar».
  */
-export function DeskHead({ title, sub, onBack, chip, noMenu = false }: HeadProps) {
+export function DeskHead({ title, sub, onBack, chip, noMenu = false, help }: HeadProps) {
   const menu = useStaffMenu();
   const openMenu = noMenu ? null : menu;
   return (
@@ -118,6 +120,7 @@ export function DeskHead({ title, sub, onBack, chip, noMenu = false }: HeadProps
       ) : (
         <Logo variant="symbol" height="2.625rem" />
       )}
+      {help}
       <div className={s.headText}>
         <b>{title}</b>
         <span>{sub}</span>
@@ -164,12 +167,14 @@ interface RowProps {
   ficha?: string | null;
   /** Debajo: «Mira que es la que tienes en la mano», lo último que se cargó… */
   children?: ReactNode;
+  /** Su marca para el tutorial (data-tour). */
+  tour?: string;
 }
 
 /** La fila de la ficha leída (o del saldo): su glifo, qué es y el ✓. */
-export function DeskRowView({ title, detail, check = true, ficha = null, children }: RowProps) {
+export function DeskRowView({ title, detail, check = true, ficha = null, children, tour }: RowProps) {
   return (
-    <div className={s.det}>
+    <div className={s.det} data-tour={tour}>
       <NfcMark size="s" />
       <div className={s.grow}>
         <b>{title}</b>
@@ -243,6 +248,8 @@ interface BtnProps {
   onClick: () => void;
   disabled?: boolean;
   busy?: boolean;
+  /** Su marca para el tutorial (data-tour). */
+  tour?: string;
 }
 
 /**
@@ -251,7 +258,7 @@ interface BtnProps {
  * etiqueta y detalle), igual para las dos opciones. Ocupado sigue en su color
  * (data-loading): está trabajando, no vacío; deshabilitado, neutro.
  */
-export function DeskBtn({ kind, icon, label, small, onClick, disabled, busy }: BtnProps) {
+export function DeskBtn({ kind, icon, label, small, onClick, disabled, busy, tour }: BtnProps) {
   const off = disabled || busy;
   if (small) {
     return (
@@ -262,6 +269,7 @@ export function DeskBtn({ kind, icon, label, small, onClick, disabled, busy }: B
         disabled={off}
         aria-busy={busy || undefined}
         data-loading={busy || undefined}
+        data-tour={tour}
       >
         {icon ? <Icon name={icon} /> : null}
         <span className={s.optText}>
@@ -289,6 +297,7 @@ export function DeskBtn({ kind, icon, label, small, onClick, disabled, busy }: B
       onClick={onClick}
       disabled={off}
       aria-busy={busy || undefined}
+      data-tour={tour}
     >
       {busy ? 'Un momento…' : head}
     </button>

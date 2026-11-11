@@ -181,11 +181,6 @@ button.stage:active {
   gap: 0.75rem;
 }
 
-/* La línea de ayuda del escenario (HelpLine), centrada como el título. */
-.stageHelp {
-  max-width: 32ch;
-}
-
 .stageError,
 .stageNotice {
   margin: 0;
@@ -384,19 +379,11 @@ button.det {
   font: 600 1.375rem/1.2 var(--np-font-display);
 }
 
-/* La pregunta del paso y su línea de ayuda, juntas. */
+/* La pregunta del paso. */
 .qBlock {
   display: flex;
   flex-direction: column;
   gap: 0.25rem;
-}
-
-/* La pregunta y, con su ayuda cerrada, el «?» a la derecha. */
-.qRow {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.75rem;
 }
 
 .quick {

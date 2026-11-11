@@ -18,7 +18,7 @@ interface Props {
 /** «Pagos recibidos»: los últimos, con fecha, cómo y cuánto, y a qué cuenta se le paga. */
 export function PayoutsReceived({ payouts, account }: Props) {
   return (
-    <section aria-labelledby="pagos-recibidos" style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+    <section aria-labelledby="pagos-recibidos" style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }} data-tour="ganancias-pagos">
       <h2 id="pagos-recibidos" style={sectionTitle}>
         Pagos recibidos
       </h2>

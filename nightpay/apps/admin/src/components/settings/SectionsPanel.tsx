@@ -55,7 +55,7 @@ export function SectionsPanel() {
   return (
     <div className="np-set-stack">
       <SettingsCard
-        title="Secciones del local"
+        title="Secciones del local" tour="secciones-local"
         hint="Cada cobro va a su sección: la del servicio de la carta, la que toca quien cobra o la de su puesto. Apaga las que no uses."
       >
         <ul style={list}>
@@ -87,7 +87,7 @@ export function SectionsPanel() {
       </SettingsCard>
       <PostRulesCard />
       <InvitationRulesCard />
-      <SettingsCard title="Además" hint="No se eligen al cobrar: salen solas en los informes.">
+      <SettingsCard title="Además" tour="secciones-ademas" hint="No se eligen al cobrar: salen solas en los informes.">
         <p style={{ margin: 0, display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
           <SectionChip view={{ label: TIPS_SECTION_META.label, color: TIPS_SECTION_META.color, title: 'Las propinas de los clientes' }} />
           <SectionChip

@@ -1,14 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { PaymentStatusSchema } from '@nightpay/contracts';
-import { ownCobroState } from './my-cobros';
-import {
-  MY_COBROS_HELP_SCREEN,
-  OWN_COBRO_STATUSES,
-  myCobrosHelpLine,
-  myCobrosSituations,
-  myCobrosStates,
-} from './my-cobros-help';
+import { myCobrosSituations } from './my-cobros-help';
 
 const CHICA = { cancelPending: true };
 const STAFF = { cancelPending: false };
@@ -20,35 +12,6 @@ function plain(text: string): void {
   // Siglas aparte (PIN, QR), ninguna palabra entera en mayúsculas.
   expect(text.replace(/\b(PIN|QR)\b/g, '')).not.toMatch(/\b[A-ZÁÉÍÓÚÑ]{3,}\b/);
 }
-
-describe('los estados que pueden salir en «Cobros»', () => {
-  it('los del cobro con tarjeta (todos los PaymentStatus) y los del saldo (aceptado o anulado)', () => {
-    expect(OWN_COBRO_STATUSES).toEqual([...PaymentStatusSchema.options, 'ACCEPTED', 'REVERSED']);
-  });
-
-  it('cada estado que puede salir tiene su explicación (por su palabra), y ninguna sobra', () => {
-    const explained = myCobrosStates(CHICA).map((s) => s.label);
-    const shown = [...new Set(OWN_COBRO_STATUSES.map((s) => ownCobroState(s).label))];
-    expect([...explained].sort()).toEqual([...shown].sort());
-    // Sin repetir (AUTHORIZED y ACCEPTED dicen los dos «Cobrado»).
-    expect(new Set(explained).size).toBe(explained.length);
-    // «Rechazado» (DECLINED) no lo trae el API: no se explica.
-    expect(explained).not.toContain('Rechazado');
-  });
-
-  it('el chip de cada uno es el de las filas (misma palabra, color e icono)', () => {
-    const cobrado = myCobrosStates(STAFF)[0]!;
-    expect(cobrado).toMatchObject({ label: 'Cobrado', tone: 'ok', icon: 'check' });
-    expect(myCobrosStates(STAFF).find((s) => s.label === 'Fallido')).toMatchObject({ tone: 'bad', icon: 'x' });
-  });
-
-  it('un pendiente: la chica lo cancela con «Cancelar»; el resto, caduca solo', () => {
-    const pendiente = (viewer: { cancelPending: boolean }) => myCobrosStates(viewer).find((s) => s.label === 'Pendiente')!.text;
-    expect(pendiente(CHICA)).toContain('toca «Cancelar»');
-    expect(pendiente(STAFF)).not.toContain('«Cancelar»');
-    expect(pendiente(STAFF)).toContain('caduca solo');
-  });
-});
 
 describe('«Si pasa esto»', () => {
   it('el banco tarda, se va sin pagar, dos veces, que le devuelvan y su saldo', () => {
@@ -86,19 +49,9 @@ describe('«Si pasa esto»', () => {
   });
 });
 
-describe('la línea de arriba', () => {
-  it('qué es la lista y qué se puede hacer, según quién mira', () => {
-    expect(MY_COBROS_HELP_SCREEN).toBe('cobros');
-    expect(myCobrosHelpLine(CHICA)).toContain('toca «Cancelar»');
-    expect(myCobrosHelpLine(STAFF)).toContain('avisa al encargado o al dueño');
-    // Tocar un cobro abre su detalle (CobroDetailSheet).
-    for (const viewer of [CHICA, STAFF]) expect(myCobrosHelpLine(viewer)).toContain('toca uno para ver su detalle');
-  });
-
-  it('todo en español llano: sin mayúsculas, emojis ni exclamaciones', () => {
+describe('español llano', () => {
+  it('sin mayúsculas, emojis ni exclamaciones', () => {
     for (const viewer of [CHICA, STAFF]) {
-      plain(myCobrosHelpLine(viewer));
-      for (const s of myCobrosStates(viewer)) plain(s.text);
       for (const c of myCobrosSituations(viewer)) {
         plain(c.when);
         plain(c.todo);

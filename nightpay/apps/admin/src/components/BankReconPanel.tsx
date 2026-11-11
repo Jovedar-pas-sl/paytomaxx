@@ -80,7 +80,7 @@ export function BankReconPanel({ isOwner }: { isOwner: boolean }) {
         }}
       />
       {openId ? <StatementDetail id={openId} onClose={() => setOpenId(null)} /> : null}
-      <Card className="np-table-host" style={{ padding: '1rem' }}>
+      <Card className="np-table-host" style={{ padding: '1rem' }} data-tour="banco-anteriores">
         <h3 style={sectionTitle}>Cuadres anteriores</h3>
         {loadError ? (
           <Notice tone="danger" action={{ label: 'Reintentar', onClick: () => void reload() }} style={{ marginTop: '0.5rem' }}>
@@ -182,7 +182,7 @@ function UploadCard({ onDone }: { onDone: (s: BankStatementSummary) => void }) {
   }
 
   return (
-    <Card style={{ padding: '1.25rem' }}>
+    <Card style={{ padding: '1.25rem' }} data-tour="banco-cuadre">
       <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '0.9rem' }}>
         <div>
           <h3 style={sectionTitle}>Cuadre con el banco</h3>
@@ -191,7 +191,7 @@ function UploadCard({ onDone }: { onDone: (s: BankStatementSummary) => void }) {
             abajo y en Avisos. Hazlo cada mañana con el día anterior.
           </p>
         </div>
-        <div role="radiogroup" aria-label="De dónde es el fichero" style={sourceRow}>
+        <div role="radiogroup" aria-label="De dónde es el fichero" style={sourceRow} data-tour="banco-origen">
           {SOURCES.map((s) => (
             <button
               key={s.value}
@@ -244,7 +244,7 @@ function UploadCard({ onDone }: { onDone: (s: BankStatementSummary) => void }) {
             {error}
           </p>
         ) : null}
-        <Button type="submit" loading={busy} disabled={!file || (withDays && (!from || !to || badRange))}>
+        <Button type="submit" loading={busy} disabled={!file || (withDays && (!from || !to || badRange))} data-tour="banco-subir">
           Cuadrar
         </Button>
       </form>

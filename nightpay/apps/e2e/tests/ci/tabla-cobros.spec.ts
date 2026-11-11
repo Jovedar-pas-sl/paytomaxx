@@ -1,5 +1,15 @@
 import { test, expect } from '@playwright/test';
 
+// El tutorial de la primera vez (Tour) tapa la pantalla hasta cerrarlo: aquí se da por visto.
+test.beforeEach(async ({ page }) => {
+  await page.addInitScript(() => {
+    const getItem = Storage.prototype.getItem;
+    Storage.prototype.getItem = function (key: string) {
+      return key.startsWith('np-tour-') ? '1' : getItem.call(this, key);
+    };
+  });
+});
+
 const row = {
   kind: 'PAYMENT', id: '7f1c2a9e-3b4d-4e5f-8a6b-1c2d3e4f5a6b', ref: 'C-0001', confirmationCode: 'A6B',
   createdAt: '2026-10-28T12:00:00Z', amountCents: 5000, tipCents: 200, serviceFeeCents: 500,

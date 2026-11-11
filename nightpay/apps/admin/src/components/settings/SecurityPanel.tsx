@@ -28,7 +28,7 @@ export function SecurityPanel({
 }) {
   return (
     <div className="np-set-stack">
-      <SettingsCard title="Tu cuenta">
+      <SettingsCard title="Tu cuenta" tour="seguridad-cuenta">
         <div className="np-set-account">
           <p>
             <strong>{user.email}</strong>

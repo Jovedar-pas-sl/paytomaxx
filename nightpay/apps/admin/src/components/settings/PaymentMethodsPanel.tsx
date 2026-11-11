@@ -77,7 +77,7 @@ export function PaymentMethodsPanel({ onSaved }: { onSaved?: (methods: VenuePaym
 
   return (
     <div className="np-set-stack">
-      <SettingsCard title="Formas de cobro" hint="Lo que apagues deja de salir en las apps del personal.">
+      <SettingsCard title="Formas de cobro" tour="formas-cobro" hint="Lo que apagues deja de salir en las apps del personal.">
         {METHODS.map((m) => (
           <Switch
             key={m.key}
@@ -90,7 +90,7 @@ export function PaymentMethodsPanel({ onSaved }: { onSaved?: (methods: VenuePaym
         ))}
       </SettingsCard>
 
-      <SettingsCard title="Propinas" hint="La propina la elige el cliente al pagar (con tarjeta, con su saldo o con su PIN), sin nada marcado: estas son las que se le sugieren. El personal ya no la añade al cobrar.">
+      <SettingsCard title="Propinas" tour="formas-propinas" hint="La propina la elige el cliente al pagar (con tarjeta, con su saldo o con su PIN), sin nada marcado: estas son las que se le sugieren. El personal ya no la añade al cobrar.">
         <Switch
           label="Aceptar propinas"
           checked={methods.tips}

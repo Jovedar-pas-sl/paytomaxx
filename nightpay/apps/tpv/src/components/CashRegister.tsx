@@ -10,6 +10,7 @@ import {
   Logo,
   Select,
   SERVER_DOWN_GRACE_MS,
+  ScreenHelp,
   ThemeToggle,
   classifyConnection,
   formatEur,
@@ -23,6 +24,7 @@ import { createPayment, fetchTerminals, logout as apiLogout, type CreatedPayment
 import { attemptFor, chargeFingerprint, type ChargeAttempt } from '@/lib/charge-attempt';
 import { unlockBeep } from '@/lib/beep';
 import { usePaymentStatus } from '@/lib/usePaymentStatus';
+import { TOURS } from '@/lib/tours';
 import { ActivePayment, FINISHED_STATUSES } from './ActivePayment';
 import styles from './cash-register.module.css';
 
@@ -154,6 +156,12 @@ export function CashRegister({ venueSlug, onLogout }: Props) {
           </div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+          {/* El «?» de la pantalla que se ve: cobro o espera. En la espera, solo a mano (hay un cobro abierto). */}
+          {active ? (
+            <ScreenHelp key="espera" {...TOURS.espera} ready={false} />
+          ) : (
+            <ScreenHelp key="cobro" {...TOURS.cobro} ready={!submitting && amountCents === 0} />
+          )}
           <ThemeToggle />
           <Button variant="ghost" size="md" onClick={logout} loading={leaving}>
             Salir
@@ -181,6 +189,7 @@ export function CashRegister({ venueSlug, onLogout }: Props) {
               value={terminal}
               onChange={(e) => setTerminal(e.target.value)}
               required
+              data-tour="tpv-terminal"
             >
               {terminals.length === 0 && <option value="">— sin terminales —</option>}
               {terminals.map((t) => (
@@ -192,20 +201,23 @@ export function CashRegister({ venueSlug, onLogout }: Props) {
 
             {/* Teclado propio (en céntimos): en la tablet no sale el del sistema.
                 Con teclado físico también vale: cifras, Retroceso e Intro. */}
-            <AmountKeypad
-              valueCents={amountCents}
-              onChange={setAmountCents}
-              maxCents={MAX_TYPED_AMOUNT_CENTS}
-              disabled={submitting}
-              captureKeyboard
-              onEnter={() => void handleSubmit()}
-            />
+            <div data-tour="tpv-teclado">
+              <AmountKeypad
+                valueCents={amountCents}
+                onChange={setAmountCents}
+                maxCents={MAX_TYPED_AMOUNT_CENTS}
+                disabled={submitting}
+                captureKeyboard
+                onEnter={() => void handleSubmit()}
+              />
+            </div>
 
             <Button
               type="submit"
               loading={submitting}
               disabled={terminals.length === 0 || amountCents <= 0}
               size="lg"
+              data-tour="tpv-cobrar"
             >
               {amountCents > 0 ? `Cobrar ${formatEur(amountCents)}` : 'Cobrar'}
             </Button>

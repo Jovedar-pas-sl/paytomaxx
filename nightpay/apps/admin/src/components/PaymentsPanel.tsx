@@ -6,7 +6,6 @@ import type { CobroRow } from '@nightpay/contracts';
 import { fetchCobros, fetchMetrics, type CobrosFilters, type Metrics, type PaymentRow, type User } from '@/lib/api';
 import { cobradoNote, metricsCobradoParts } from '@/lib/cobrado';
 import { refFromSearch, withoutRef } from '@/lib/cobro-detail-view';
-import { COBROS_HINT } from '@/lib/cobros-help';
 import { keepIfSame } from '@/lib/diff';
 import { formatEur } from '@/lib/money';
 import { paymentRowOf, reversibleSaldoCharge } from '@/lib/money-map';
@@ -17,7 +16,6 @@ import { useApprovals } from '@/lib/use-approvals';
 import { usePolling } from '@/lib/use-polling';
 import { BankRefundModal } from './BankRefundModal';
 import { CobroRowActions } from './CobroRowActions';
-import { CobrosHowTo } from './CobrosHowTo';
 import { CobrosFiltersBar } from './fichas/CobrosFiltersBar';
 import { CobrosTable } from './fichas/CobrosTable';
 import { CobroDetailPanel } from './fichas/CobroDetailPanel';
@@ -197,7 +195,7 @@ export function PaymentsPanel({ user, onNavigate, focusPaymentId = null, onFocus
         </Card>
       ) : null}
 
-      <section className="np-metrics">
+      <section className="np-metrics" data-tour="cobros-resumen">
         {/* Los pagos con tarjeta (también las recargas con tarjeta): lo pagado con el saldo no cuenta aquí. */}
         {/* Solo si dicen otra cosa que «Esta noche» (y nada hasta saberlo: no aparecen para desaparecer). */}
         {todayTiles(nightTotals, metrics?.today) !== 'show' ? null : (
@@ -221,16 +219,14 @@ export function PaymentsPanel({ user, onNavigate, focusPaymentId = null, onFocus
         <div style={{ display: 'flex', alignItems: 'flex-end', gap: '1rem', flexWrap: 'wrap' }}>
           <div style={{ minWidth: 0, flex: '1 1 18rem' }}>
             <h2 style={sectionTitle}>Cobros</h2>
-            <p className="np-help-line">{COBROS_HINT}</p>
           </div>
           <Button variant="ghost" size="sm" onClick={refresh} style={{ marginLeft: 'auto' }}>
             Refrescar
           </Button>
         </div>
-        <CobrosHowTo />
         <CobrosFiltersBar value={filter} onChange={changeFilter} />
 
-        <Card className="np-table-host" style={{ padding: 0, overflow: 'hidden', minWidth: 0 }}>
+        <Card className="np-table-host" style={{ padding: 0, overflow: 'hidden', minWidth: 0 }} data-tour="cobros-tabla">
           <CobrosTable
             rows={payments}
             showReferences
