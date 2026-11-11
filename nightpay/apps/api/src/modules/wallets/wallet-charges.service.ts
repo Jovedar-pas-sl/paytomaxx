@@ -266,6 +266,16 @@ export interface ChargeRequestView {
   paidWith?: ChargeAuthMethod | null;
   /** Cobro único: no lo pagó el saldo porque ya lo pagó la tarjeta (el PAGADO es el del cobro con tarjeta). */
   paidElsewhere?: boolean;
+  /**
+   * Pagado con el saldo: el código del saldo, tapado como en el panel («K7Q-•••»),
+   * para el PAGADO de quien cobra. Sin pagar o de antes, no va.
+   */
+  walletCodeHint?: string;
+  /**
+   * Pagado acercando una ficha: su número impreso («1013»). Solo en la respuesta
+   * del pago con ficha (NFC o ficha + PIN); sin número impreso, no va.
+   */
+  fichaNumber?: string;
 }
 
 /** Cobro con QR para la chica: lo mismo que un cobro y el token del QR. */
@@ -546,24 +556,36 @@ export class WalletChargesService {
   }
 
   /** La chica espera a que el cliente pague (solo la que lo hizo, o el encargado). */
-  async getRequest(actor: Actor, requestId: string): Promise<ChargeRequestView> {
+  async getRequest(actor: Actor, requestId: string, via?: { cardToken?: string }): Promise<ChargeRequestView> {
     const request = await this.ownRequest(actor, requestId);
     const walletId = request.walletId;
     const accepted = request.status === 'ACCEPTED';
-    const [wallet, consumption, elsewhere] = await Promise.all([
+    const [wallet, consumption, elsewhere, fichaNumber] = await Promise.all([
       walletId
         ? this.prisma.acrossVenues((tx) =>
-            tx.clientWallet.findUnique({ where: { id: walletId }, select: { balanceCents: true } }),
+            tx.clientWallet.findUnique({ where: { id: walletId }, select: { balanceCents: true, shortCode: true } }),
           )
         : null,
       accepted && request.consumptionId ? this.consumptionAuth(request.consumptionId) : null,
       accepted ? false : this.paidByCard(request),
+      accepted && walletId && via?.cardToken ? this.printedFichaNumber(walletId, via.cardToken) : null,
     ]);
     return {
       ...this.requestView(request, accepted ? (wallet?.balanceCents ?? null) : null),
       paidWith: consumption,
       ...(elsewhere ? { paidElsewhere: true } : {}),
+      // Solo los datos que existen: sin código o sin número impreso, no se inventa nada.
+      ...(accepted && wallet?.shortCode ? { walletCodeHint: codeHintOf(wallet.shortCode) } : {}),
+      ...(fichaNumber ? { fichaNumber } : {}),
     };
+  }
+
+  /** El número impreso de la ficha con la que se pagó (null si la ficha no lo tiene o no es de ese saldo). */
+  private async printedFichaNumber(walletId: string, cardToken: string): Promise<string | null> {
+    const card = await this.prisma.acrossVenues((tx) =>
+      tx.walletCard.findFirst({ where: { token: cardToken, walletId }, select: { printedNumber: true } }),
+    );
+    return card?.printedNumber ?? null;
   }
 
   /** Cómo se autorizó el consumo de un cobro pagado (null en los de antes). */
@@ -1342,7 +1364,7 @@ export class WalletChargesService {
     await this.bindAndSettle(request, wallet.id, 'pin', via, input.tipCents ?? null);
     if ('card' in input) await this.touchCard(wallet.id, input);
     this.logger.log(`Saldo ${wallet.id}: cobro ${request.id} pagado con PIN (${via}, ${actor.userId})`);
-    return this.getRequest(actor, requestId);
+    return this.getRequest(actor, requestId, 'card' in input ? { cardToken: input.card } : undefined);
   }
 
   /**
@@ -1401,7 +1423,7 @@ export class WalletChargesService {
     await this.touchCard(wallet.id, input);
     await this.logNoPinCharge(request, wallet.id, noPin, { tenantId: actor.tenantId, actorId: actor.userId });
     this.logger.log(`Saldo ${wallet.id}: cobro ${request.id} pagado con el NFC sin PIN (${actor.userId})`);
-    return this.getRequest(actor, requestId);
+    return this.getRequest(actor, requestId, { cardToken: input.card });
   }
 
   /** El saldo del NFC acercado, si se puede pagar sin PIN con él (si no, 409 PIN_REQUIRED). */

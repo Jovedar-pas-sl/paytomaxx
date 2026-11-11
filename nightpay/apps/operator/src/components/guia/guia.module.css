@@ -30,7 +30,7 @@
   margin-left: -0.25rem;
   border-radius: var(--np-r-sm);
   color: var(--np-text);
-  font-size: 1rem;
+  font-size: var(--np-fs-16);
   font-weight: 500;
   -webkit-tap-highlight-color: transparent;
 }
@@ -60,7 +60,7 @@
 
 .lead {
   margin: 0;
-  font-size: 1rem;
+  font-size: var(--np-fs-16);
   line-height: 1.5;
   color: var(--np-text-mute);
 }
@@ -85,7 +85,7 @@
   background: var(--np-surface-2);
   box-shadow: inset 0 0 0 1px var(--np-border-hi);
   color: var(--np-text);
-  font-size: 0.9375rem;
+  font-size: var(--np-fs-16);
   font-weight: 500;
   -webkit-tap-highlight-color: transparent;
 }
@@ -110,7 +110,7 @@
 
 .sectionLead {
   margin: -0.25rem 0 0;
-  font-size: 0.9375rem;
+  font-size: var(--np-fs-16);
   line-height: 1.4;
   color: var(--np-text-mute);
 }
@@ -143,13 +143,13 @@
   height: 1.75rem;
   border: 1px solid var(--np-border-hi);
   border-radius: var(--np-r-pill);
-  font: 600 0.875rem/1 var(--np-font-num);
+  font: 700 var(--np-fs-14)/1 var(--np-font-num);
   color: var(--np-text);
 }
 
 .stepText {
   margin: 0.125rem 0 0;
-  font-size: 1rem;
+  font-size: var(--np-fs-16);
   line-height: 1.45;
 }
 
@@ -188,20 +188,20 @@
 
 .cases dt {
   margin: 0;
-  font: 500 1rem/1.35 var(--np-font-sans);
+  font: 500 var(--np-fs-16)/1.35 var(--np-font-sans);
   color: var(--np-text);
 }
 
 .cases dd {
   margin: 0;
-  font-size: 0.9375rem;
+  font-size: var(--np-fs-16);
   line-height: 1.45;
   color: var(--np-text-mute);
 }
 
 .foot {
   margin: 0;
-  font-size: 0.875rem;
+  font-size: var(--np-fs-14);
   color: var(--np-text-dim);
 }
 

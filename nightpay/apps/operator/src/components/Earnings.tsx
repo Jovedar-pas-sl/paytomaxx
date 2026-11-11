@@ -159,10 +159,10 @@ function Row({ label, sub, amount, color, onClick }: { label: string; sub: strin
   return (
     <button type="button" className={styles.row} onClick={onClick}>
       <span style={{ display: 'flex', flexDirection: 'column', gap: '0.125rem', minWidth: 0 }}>
-        <span style={{ fontSize: '1rem', fontWeight: 500, lineHeight: 1.3 }}>{label}</span>
-        <span style={{ fontSize: '0.875rem', color: 'var(--np-text-mute)', lineHeight: 1.35 }}>{sub}</span>
+        <span style={{ fontSize: 'var(--np-fs-16)', fontWeight: 500, lineHeight: 1.3 }}>{label}</span>
+        <span style={{ fontSize: 'var(--np-fs-14)', color: 'var(--np-text-mute)', lineHeight: 1.35 }}>{sub}</span>
       </span>
-      <span className="np-num" style={{ fontSize: '1.125rem', fontWeight: 600, color, whiteSpace: 'nowrap' }}>
+      <span className="np-num" style={{ fontSize: 'var(--np-fs-18)', fontWeight: 600, color, whiteSpace: 'nowrap' }}>
         {amount}
       </span>
       <Chevron />
@@ -207,7 +207,7 @@ function NextPayout({ summary }: { summary: MoneySummary }) {
 function ErrorCard({ text }: { text: string }) {
   return (
     <Card role="alert" style={{ padding: '0.875rem', borderColor: 'var(--np-danger)' }}>
-      <p style={{ color: 'var(--np-danger)', margin: 0, fontSize: '0.9375rem' }}>{text}</p>
+      <p style={{ color: 'var(--np-danger)', margin: 0, fontSize: 'var(--np-fs-16)' }}>{text}</p>
     </Card>
   );
 }
@@ -241,13 +241,13 @@ const nextLabel: CSSProperties = {
 
 const nextExplain: CSSProperties = {
   margin: '0.25rem 0 0',
-  fontSize: '0.875rem',
+  fontSize: 'var(--np-fs-14)',
   color: 'var(--np-text-mute)',
   lineHeight: 1.4,
 };
 
 const nextAmount: CSSProperties = {
-  fontSize: '1.375rem',
+  fontSize: 'var(--np-fs-22)',
   fontWeight: 600,
   color: 'var(--np-text)',
   whiteSpace: 'nowrap',

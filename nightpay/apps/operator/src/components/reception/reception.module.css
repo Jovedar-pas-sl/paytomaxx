@@ -18,19 +18,19 @@
 
 .kicker {
   margin: 0;
-  font-size: 0.875rem;
+  font-size: var(--np-fs-14);
   font-weight: 500;
   color: var(--np-text-mute);
 }
 
 .lead {
   margin: 0;
-  font: 600 1.375rem/1.2 var(--np-font-display);
+  font: 600 var(--np-fs-22)/1.2 var(--np-font-display);
 }
 
 .text {
   margin: 0;
-  font-size: 1rem;
+  font-size: var(--np-fs-16);
   line-height: 1.4;
   color: var(--np-text-mute);
 }
@@ -38,13 +38,13 @@
 /* Importe suelto: grande y en cifras proporcionales. */
 .amount {
   margin: 0;
-  font: 600 2.5rem/1.1 var(--np-font-num);
+  font: 700 var(--np-fs-40)/1.1 var(--np-font-num);
   font-variant-numeric: proportional-nums;
 }
 
 .counter {
   margin: 0;
-  font: 600 4rem/1 var(--np-font-num);
+  font: 700 var(--np-fs-64)/1 var(--np-font-num);
   font-variant-numeric: proportional-nums;
 }
 
@@ -63,7 +63,7 @@
   padding: 0.625rem 0.75rem;
   border-radius: var(--np-r-sm);
   background: var(--np-surface-2);
-  font-size: 0.875rem;
+  font-size: var(--np-fs-14);
   line-height: 1.4;
   color: var(--np-text-mute);
 }
@@ -76,7 +76,7 @@
   border-radius: var(--np-r-sm);
   background: var(--np-pill-danger-bg);
   color: var(--np-text);
-  font-size: 0.875rem;
+  font-size: var(--np-fs-14);
   font-weight: 500;
   line-height: 1.35;
 }
@@ -96,7 +96,7 @@
   border-radius: var(--np-r-sm);
   background: var(--np-surface);
   color: var(--np-text);
-  font-size: 1rem;
+  font-size: var(--np-fs-16);
   font-weight: 500;
 }
 
@@ -124,7 +124,7 @@
 }
 
 .pendAmount {
-  font-size: 1.125rem;
+  font-size: var(--np-fs-18);
 }
 
 .pendWho {
@@ -132,7 +132,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 0.875rem;
+  font-size: var(--np-fs-14);
   color: var(--np-text-mute);
 }
 
@@ -151,7 +151,7 @@
   gap: 0.5rem;
   padding: 0.5rem 0;
   border-bottom: 1px solid var(--np-border);
-  font-size: 0.875rem;
+  font-size: var(--np-fs-14);
   line-height: 1.35;
 }
 
@@ -165,7 +165,7 @@
 /* «Preparar fichas» (A12): el número tecleado, en grande y en grupos de 4
    como en la ficha (las cifras de FichaNumber). */
 .typedFicha {
-  font-size: 2.25rem;
+  font-size: var(--np-fs-40);
   text-align: center;
 }
 
@@ -177,7 +177,7 @@
   border-radius: var(--np-r-sm);
   background: var(--np-pill-warning-bg);
   color: var(--np-text);
-  font-size: 0.9375rem;
+  font-size: var(--np-fs-16);
   font-weight: 600;
   line-height: 1.35;
 }

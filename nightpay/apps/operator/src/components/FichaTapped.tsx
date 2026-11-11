@@ -78,7 +78,7 @@ export function FichaTapped({ token, userId, onClose }: { token: string; userId:
     return (
       <Card style={cardStyle}>
         <p style={kicker}>Dar ficha</p>
-        <p style={{ margin: 0, fontSize: '1.1rem' }}>¿Dar esta ficha al saldo</p>
+        <p style={{ margin: 0, fontSize: 'var(--np-fs-18)' }}>¿Dar esta ficha al saldo</p>
         <p className="np-num" style={bigStyle}>
           {view.code}?
         </p>
@@ -154,7 +154,7 @@ export function FichaTapped({ token, userId, onClose }: { token: string; userId:
         </>
       ) : null}
       {view.kind === 'done' ? (
-        <p style={{ margin: 0, fontSize: '1.125rem', fontWeight: 600, color: view.ok ? 'var(--np-success)' : 'var(--np-danger)' }}>
+        <p style={{ margin: 0, fontSize: 'var(--np-fs-18)', fontWeight: 600, color: view.ok ? 'var(--np-success)' : 'var(--np-danger)' }}>
           {view.text}
         </p>
       ) : null}
@@ -182,13 +182,13 @@ const kicker: CSSProperties = {
 };
 
 // 14 px como mínimo en la app del personal.
-const hintStyle: CSSProperties = { margin: 0, fontSize: '0.875rem', color: 'var(--np-text-mute)' };
+const hintStyle: CSSProperties = { margin: 0, fontSize: 'var(--np-fs-14)', color: 'var(--np-text-mute)' };
 
 // El código del saldo, en t1 (la lima es para actuar): Manrope 600 a 40 px;
 // el espaciado, solo porque es un código.
 const bigStyle: CSSProperties = {
   margin: 0,
-  fontSize: '2.5rem',
+  fontSize: 'var(--np-fs-40)',
   fontWeight: 600,
   lineHeight: 1.1,
   letterSpacing: '0.08em',

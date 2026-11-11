@@ -56,6 +56,7 @@ function makeService(
     },
     walletConsumption: {
       create: vi.fn().mockResolvedValue({ id: 'cons-1' }),
+      findFirst: vi.fn().mockResolvedValue({ authMethod: 'nfc_nopin' }),
       findMany: vi.fn().mockResolvedValue([]),
     },
     operatorEarning: { create: vi.fn().mockResolvedValue({}) },
@@ -71,6 +72,7 @@ function makeService(
     walletPasskey: { deleteMany: vi.fn().mockResolvedValue({ count: 0 }), count: vi.fn().mockResolvedValue(0) },
     walletCard: {
       count: vi.fn().mockResolvedValue(0),
+      findFirst: vi.fn().mockResolvedValue({ printedNumber: '1013' }),
       findMany: vi.fn().mockResolvedValue([]),
       update: vi.fn().mockResolvedValue({}),
       updateMany: vi.fn().mockResolvedValue({ count: 0 }),
@@ -1076,5 +1078,43 @@ describe('formas de cobro del local (Ajustes): saldo y ficha NFC apagados', () =
     await expect(
       svc.payQrChargeWithPin(chica, 'req-1', { card: 'A'.repeat(22), uid: null, pin: '1234' }),
     ).rejects.toEqual(disabled('nfc'));
+  });
+});
+
+
+describe('el PAGADO de quien cobra con el saldo: solo datos que el API tiene', () => {
+  const paid = () => request({ requestedByUserId: 'op-1', status: 'ACCEPTED', consumptionId: 'cons-1' });
+
+  it('pagado: el código del saldo tapado («K7Q-•••»), nunca entero, y lo que le queda', async () => {
+    const { svc, tx } = makeService();
+    tx.walletChargeRequest.findFirst.mockResolvedValue(paid());
+    const view = await svc.getRequest(chica, 'req-1');
+    expect(view).toMatchObject({ status: 'ACCEPTED', newBalanceCents: 30_000, walletCodeHint: 'K7Q-•••' });
+    expect(JSON.stringify(view)).not.toContain('K7Q4M2');
+    // Sin ficha en la consulta (el sondeo), no hay número de ficha.
+    expect(view).not.toHaveProperty('fichaNumber');
+  });
+
+  it('pagado con ficha: su número impreso, buscado por su token y del mismo saldo', async () => {
+    const { svc, tx } = makeService();
+    tx.walletChargeRequest.findFirst.mockResolvedValue(paid());
+    const view = await svc.getRequest(chica, 'req-1', { cardToken: 'tok-ficha' });
+    expect(view).toMatchObject({ fichaNumber: '1013' });
+    expect(tx.walletCard.findFirst).toHaveBeenCalledWith({ where: { token: 'tok-ficha', walletId: 'w-1' }, select: { printedNumber: true } });
+  });
+
+  it('ficha sin número impreso: no se enseña ninguno (nada inventado)', async () => {
+    const { svc, tx } = makeService();
+    tx.walletChargeRequest.findFirst.mockResolvedValue(paid());
+    tx.walletCard.findFirst.mockResolvedValue({ printedNumber: null });
+    await expect(svc.getRequest(chica, 'req-1', { cardToken: 'tok-ficha' })).resolves.not.toHaveProperty('fichaNumber');
+  });
+
+  it('sin pagar: ni código ni ficha', async () => {
+    const { svc, tx } = makeService();
+    tx.walletChargeRequest.findFirst.mockResolvedValue(request({ requestedByUserId: 'op-1' }));
+    const view = await svc.getRequest(chica, 'req-1', { cardToken: 'tok-ficha' });
+    expect(view).not.toHaveProperty('walletCodeHint');
+    expect(view).not.toHaveProperty('fichaNumber');
   });
 });

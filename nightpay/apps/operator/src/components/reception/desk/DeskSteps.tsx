@@ -7,7 +7,7 @@ import { formatEur } from '@/lib/money';
 import type { RecentTopUp } from '@nightpay/contracts';
 import { methodArmed, recentTopUpLine, type EntryRow, type MethodButton, type ExitPlan } from '@/lib/reception-desk';
 import { cashConfirmText, cashInHandText, turnPhoneText } from '@/lib/reception-help';
-import { CodeBoxes, DESK_FIELD, DeskBtn, DeskRowView, FichaNumber, Icon, NfcMark } from './desk-parts';
+import { CodeBoxes, DESK_FIELD, DeskBtn, DeskRowView, FichaNumber, Icon, MethodBlock, NfcMark } from './desk-parts';
 import s from './desk.module.css';
 
 /** La pregunta de un paso («¿Cuánto carga?»); su ayuda es el tutorial del «?» de la cabecera. */
@@ -151,8 +151,8 @@ function methodText(method: 'cash' | 'card', chargeCents: number) {
 }
 
 /**
- * 4.3: el importe y la ficha en grande (A1), «¿Cómo paga?» en dos filas
- * iguales (la de por defecto, primera y en lima), y la nota del PIN.
+ * 4.3: el importe y la ficha en grande (A1), «¿Cómo paga?» en dos bloques
+ * grandes e iguales, uno al lado del otro y ninguno marcado, y la nota del PIN.
  */
 export function MethodStep(props: {
   chip: string;
@@ -207,24 +207,26 @@ export function MethodStep(props: {
           {props.blocked}
         </p>
       ) : null}
-      {props.buttons.map((b, i) => {
-        const t = methodText(b.method, props.chargeCents);
-        return (
-          <DeskBtn
-            key={b.method}
-            tour={i === 0 ? 'recep-metodos' : undefined}
-            kind={b.primary ? 'pri' : 'gho'}
-            icon={t.icon}
-            label={t.label}
-            small={t.small}
-            disabled={b.problem !== null || props.blocked !== null}
-            busy={props.busy}
-            onClick={() => {
-              if (methodArmed(armedAt, Date.now())) props.onPick(b.method);
-            }}
-          />
-        );
-      })}
+      <div className={s.methods} role="group" aria-label="Cómo paga">
+        {props.buttons.map((b, i) => {
+          const t = methodText(b.method, props.chargeCents);
+          return (
+            <MethodBlock
+              key={b.method}
+              tour={i === 0 ? 'recep-metodos' : undefined}
+              method={b.method}
+              icon={t.icon}
+              label={t.label}
+              small={t.small}
+              disabled={b.problem !== null || props.blocked !== null}
+              busy={props.busy}
+              onClick={() => {
+                if (methodArmed(armedAt, Date.now())) props.onPick(b.method);
+              }}
+            />
+          );
+        })}
+      </div>
       {[...new Set(problems)].map((p) => (
         <p key={p} className={s.lbl}>
           {p}

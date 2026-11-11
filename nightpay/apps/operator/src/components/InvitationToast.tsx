@@ -60,7 +60,7 @@ const toast: CSSProperties = {
   color: 'var(--np-text)',
   boxShadow: 'inset 0 0 0 1px var(--np-border-hi), 0 16px 40px -12px rgb(0 0 0 / 0.7)',
   fontWeight: 500,
-  fontSize: '1.0625rem',
+  fontSize: 'var(--np-fs-16)',
   whiteSpace: 'nowrap',
 };
 

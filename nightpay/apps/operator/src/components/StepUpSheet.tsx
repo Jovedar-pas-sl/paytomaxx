@@ -78,7 +78,7 @@ export function StepUpSheet({ open, onClose, onVerified }: { open: boolean; onCl
   return (
     <Modal open={open} onClose={onClose} title="Verificarte">
       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-        <p style={{ margin: 0, fontSize: '0.875rem', color: 'var(--np-text-mute)' }}>Para ver más de este cobro. Vale 5 minutos.</p>
+        <p style={{ margin: 0, fontSize: 'var(--np-fs-14)', color: 'var(--np-text-mute)' }}>Para ver más de este cobro. Vale 5 minutos.</p>
         {method === 'totp' ? (
           <form onSubmit={(e) => void withCode(e)} style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
             <Input
@@ -104,7 +104,7 @@ export function StepUpSheet({ open, onClose, onVerified }: { open: boolean; onCl
           <p style={{ margin: 0 }}>Para ver más, da de alta tu llave de acceso: en el menú, «Llave de acceso».</p>
         ) : null}
         {error ? (
-          <p role="alert" style={{ margin: 0, color: 'var(--np-danger)', fontSize: '0.875rem' }}>
+          <p role="alert" style={{ margin: 0, color: 'var(--np-danger)', fontSize: 'var(--np-fs-14)' }}>
             {error}
           </p>
         ) : null}

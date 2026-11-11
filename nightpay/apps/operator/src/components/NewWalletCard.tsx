@@ -149,20 +149,18 @@ const boxStyle: CSSProperties = {
 const kicker: CSSProperties = {
   margin: 0,
   fontSize: 'var(--np-t-label)',
-  fontWeight: 700,
-  letterSpacing: '0.12em',
-  textTransform: 'uppercase',
+  fontWeight: 600,
   color: 'var(--np-text-mute)',
 };
 
 const codeStyle: CSSProperties = {
   margin: 0,
-  fontSize: '2.25rem',
-  fontWeight: 800,
+  fontSize: 'var(--np-fs-40)',
+  fontWeight: 700,
   letterSpacing: '0.2em',
-  color: 'var(--np-accent)',
+  color: 'var(--np-text)',
 };
 
-const hintStyle: CSSProperties = { margin: 0, fontSize: '0.85rem', color: 'var(--np-text-mute)' };
-const okStyle: CSSProperties = { margin: 0, fontWeight: 700, color: 'var(--np-success)' };
-const errorStyle: CSSProperties = { margin: 0, fontSize: '0.9rem', color: 'var(--np-danger)' };
+const hintStyle: CSSProperties = { margin: 0, fontSize: 'var(--np-fs-14)', color: 'var(--np-text-mute)' };
+const okStyle: CSSProperties = { margin: 0, fontWeight: 600, color: 'var(--np-success)' };
+const errorStyle: CSSProperties = { margin: 0, fontSize: 'var(--np-fs-14)', color: 'var(--np-danger)' };

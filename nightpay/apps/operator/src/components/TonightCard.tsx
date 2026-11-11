@@ -87,7 +87,7 @@ export function Chevron() {
 export function fitAmount(text: string, compact: boolean): string {
   // Compacta: en el móvil, según el alto de la pantalla (--np-hero-amount-max, money.module.css).
   // Entera, 64 como mucho: la escala de Grafito deja el 72 para el resultado.
-  const max = compact ? 'var(--np-hero-amount-max, 2.75rem)' : '4rem';
+  const max = compact ? 'var(--np-hero-amount-max, 2.5rem)' : '4rem';
   const perChar = Math.max(4, text.length) * 0.62;
   return `min(${max}, calc((min(100vw, 32rem) - 7rem) / ${perChar.toFixed(2)}))`;
 }
@@ -136,14 +136,14 @@ const amountStyle: CSSProperties = {
 };
 
 const whenStyle: CSSProperties = {
-  fontSize: 'var(--np-hero-when, 1.0625rem)',
+  fontSize: 'var(--np-hero-when, var(--np-fs-16))',
   fontWeight: 500,
   color: 'var(--np-text)',
   lineHeight: 1.3,
 };
 
 const metaStyle: CSSProperties = {
-  fontSize: '0.9375rem',
+  fontSize: 'var(--np-fs-16)',
   color: 'var(--np-text-mute)',
   lineHeight: 1.4,
 };

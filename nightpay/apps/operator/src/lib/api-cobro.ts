@@ -122,6 +122,10 @@ export interface SaldoState {
   paidWith?: ChargeAuthMethod | null;
   /** Cobro único: lo pagó la tarjeta. */
   paidElsewhere?: boolean;
+  /** Pagado con el saldo: su código tapado («K7Q-•••»), si el API lo da. */
+  walletCodeHint?: string;
+  /** Pagado con una ficha: su número impreso, solo en la respuesta del pago con ficha. */
+  fichaNumber?: string;
 }
 
 export function fetchSaldoState(id: string, signal?: AbortSignal): Promise<SaldoState> {

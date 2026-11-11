@@ -102,8 +102,9 @@ describe('la loseta en cobrar.module.css', () => {
   });
 
   it('nombre en 500, precio en 600; «Otro importe» neutro y con filete', () => {
-    expect(block(COBRAR, '.tileName')).toMatch(/font: 500 /);
-    expect(block(COBRAR, '.price')).toMatch(/font: 600 /);
+    // Grafito 3: nombre a 14 con peso 500; precio a 16 en Manrope 700.
+    expect(block(COBRAR, '.tileName')).toMatch(/font: 500 var\(--np-fs-14\)/);
+    expect(block(COBRAR, '.price')).toMatch(/font: 700 var\(--np-fs-16\)/);
     const other = block(COBRAR, '.tileOther');
     expect(other).toMatch(/background: var\(--np-surface-2\);/);
     expect(other).toMatch(/box-shadow: inset 0 0 0 1px var\(--np-border-hi\);/);

@@ -25,6 +25,7 @@ import { PrismaService, type TransactionalClient } from '../../common/prisma/pri
 import { AuditService } from '../audit/audit.service';
 import { chargeRightsFor } from '../venues/charge-rights';
 import { checkCartaImage, decodeImageBase64 } from './carta-image';
+import { POPULARITY_NIGHTS, readSnapshot, sortByPopularity, unitsByItem, type CartaOrderSnapshot, type SoldLine } from './carta-popularity';
 
 const SELECT = {
   id: true,
@@ -40,6 +41,9 @@ const SELECT = {
   // Solo la huella: los bytes de la imagen no viajan con la carta.
   image: { select: { contentHash: true } },
 } as const;
+
+/** Cobros con tarjeta que cuentan como vendidos. */
+const PAID_CARD: ReadonlySet<string> = new Set(['AUTHORIZED', 'PARTIALLY_REFUNDED']);
 
 const ORDER = [{ sortOrder: 'asc' as const }, { priceCents: 'asc' as const }];
 
@@ -101,7 +105,12 @@ export class CartaService {
   async listForStaff(tenantId: string, role: string, userId?: string): Promise<ServiceItem[]> {
     const [rows, sections, rights] = await Promise.all([
       // En una transacción del local: la imagen (FORCE RLS) se lee con el local en la sesión.
-      this.prisma.withTenant(tenantId, (tx) => tx.serviceItem.findMany({ where: { tenantId, active: true }, orderBy: ORDER, select: SELECT })),
+      this.prisma.withTenant(tenantId, async (tx) => {
+        const items = await tx.serviceItem.findMany({ where: { tenantId, active: true }, orderBy: ORDER, select: SELECT });
+        // Los más pedidos arriba: el orden de la noche, calculado una vez y fijo hasta que se cierre.
+        const snapshot = await this.nightSnapshot(tx, tenantId, items.map((i) => i.id));
+        return snapshot ? sortByPopularity(items, snapshot) : items;
+      }),
       this.venueSections(tenantId),
       userId ? this.prisma.asSystem((tx) => chargeRightsFor(tx, tenantId, { userId, role })) : Promise.resolve(null),
     ]);
@@ -112,6 +121,43 @@ export class CartaService {
       .filter((r) => !off.has(r.category))
       .filter((r) => !rights || canChargeSection(rights, isSectionCode(r.category) ? r.category : (fallback ?? r.category)))
       .map(view);
+  }
+
+  /**
+   * El orden de la noche abierta: si aún no se calculó, se calcula ahora con las
+   * unidades vendidas de las últimas 4 noches cerradas y se guarda (solo gana
+   * la primera petición: la escritura exige que siga vacío). Sin noche abierta,
+   * null: el orden manual de siempre.
+   */
+  private async nightSnapshot(tx: TransactionalClient, tenantId: string, activeIds: string[]): Promise<CartaOrderSnapshot | null> {
+    const night = await tx.venueNight.findFirst({ where: { tenantId, closedAt: null }, orderBy: { openedAt: 'desc' }, select: { id: true, cartaOrder: true } });
+    if (!night) return null;
+    const saved = readSnapshot(night.cartaOrder);
+    if (saved) return saved;
+    const closed = await tx.venueNight.findMany({
+      where: { tenantId, closedAt: { not: null } },
+      orderBy: { openedAt: 'desc' },
+      take: POPULARITY_NIGHTS,
+      select: { openedAt: true, closedAt: true },
+    });
+    const ranges = closed.flatMap((n) => (n.closedAt ? [{ createdAt: { gte: n.openedAt, lte: n.closedAt } }] : []));
+    const rows = ranges.length
+      ? await tx.paymentLine.findMany({
+          where: { tenantId, serviceItemId: { in: activeIds }, OR: ranges },
+          select: { serviceItemId: true, qty: true, payment: { select: { status: true } }, walletCharge: { select: { status: true } } },
+        })
+      : [];
+    const lines: SoldLine[] = rows.map((r) => ({
+      serviceItemId: r.serviceItemId,
+      qty: r.qty,
+      paid: r.payment ? PAID_CARD.has(r.payment.status) : r.walletCharge?.status === 'ACCEPTED',
+    }));
+    const fresh: CartaOrderSnapshot = { computedAt: new Date().toISOString(), units: unitsByItem(activeIds, lines) };
+    // Solo si sigue vacío: dos móviles pidiendo a la vez no se pisan.
+    const won = await tx.venueNight.updateMany({ where: { id: night.id, cartaOrder: { equals: Prisma.DbNull } }, data: { cartaOrder: fresh as unknown as Prisma.InputJsonValue } });
+    if (won.count > 0) return fresh;
+    const again = await tx.venueNight.findUnique({ where: { id: night.id }, select: { cartaOrder: true } });
+    return readSnapshot(again?.cartaOrder) ?? fresh;
   }
 
   /** Carta completa (también desactivados) para el panel. */

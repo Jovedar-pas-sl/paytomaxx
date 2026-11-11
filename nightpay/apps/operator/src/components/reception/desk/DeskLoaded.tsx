@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useId, useRef, useState, type CSSProperties, type ReactNode } from 'react';
-import { ScreenHelp, SectionChip } from '@nightpay/ui';
+import { cashHow, OutcomeHowCard, ScreenHelp, SectionChip } from '@nightpay/ui';
 import { playOutcomeSound } from '@/lib/alert-sound';
 import { formatEur } from '@/lib/money';
 import { TOURS } from '@/lib/tours';
@@ -41,6 +41,17 @@ interface Props {
   aviso?: string | null;
   /** Debajo de los botones, en pequeño: «Me he equivocado» (B4). */
   tertiary?: ReactNode;
+  /**
+   * Quien cobra, si el efectivo entró hoy en la caja: el bloque del dinero pasa a
+   * ser la tarjeta de «cómo se pagó» (En efectivo · Mételo en la caja · Cobró…).
+   */
+  cashBy?: string | null;
+}
+
+/** «En efectivo · Mételo en la caja»; con comisión, también cuánto va a la caja (no es el mismo importe). */
+function cashCard(cashAmount: string, loadedAmount: string, by: string, at: Date) {
+  const how = cashHow({ who: by, at });
+  return cashAmount === loadedAmount ? how : { ...how, rows: [{ label: 'A la caja', value: cashAmount, num: true }, ...how.rows] };
 }
 
 /** La ficha y el código del saldo, en grande en CARGADO. */
@@ -78,7 +89,10 @@ export function DeskLoaded({
   ids = null,
   aviso = null,
   tertiary = null,
+  cashBy = null,
 }: Props) {
+  // La hora a la que salió la pantalla (no cambia al repintar).
+  const [shownAt] = useState(() => new Date());
   const titleId = useId();
   const primaryRef = useRef<HTMLButtonElement>(null);
   const amount = formatEur(amountCents, { compact: true });
@@ -106,7 +120,7 @@ export function DeskLoaded({
         <div className={s.headline}>
           <span className="np-outcome-ring" aria-hidden="true">
             <svg className="np-outcome-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M5 12.5l4.5 4.5L19 7.5" />
+              <path d="M5 12.5l4.5 4.5L19 7.5" pathLength={1} />
             </svg>
           </span>
           <h2 id={titleId} className="np-outcome-title" data-tour="recep-cargado" style={{ '--np-fit': Math.max(4, word.length * 0.74).toFixed(2) } as CSSProperties}>
@@ -116,7 +130,9 @@ export function DeskLoaded({
         <p className="np-outcome-amount" style={{ '--np-fit': Math.max(4, amount.length * 0.58).toFixed(2) } as CSSProperties}>
           {amount}
         </p>
-        {money ? (
+        {money && cashBy && money.icon === 'cash' ? (
+          <OutcomeHowCard how={cashCard(money.amount, amount, cashBy, shownAt)} />
+        ) : money ? (
           <p className={s.resLeft}>
             <Icon name={money.icon} />
             <span>
@@ -175,7 +191,7 @@ export function LoadedBand({ word, amountCents, line, aviso = null }: { word: st
     <div className={s.band} role="status">
       <span className={s.bandTick} aria-hidden="true">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M5 12.5l4.5 4.5L19 7.5" />
+          <path d="M5 12.5l4.5 4.5L19 7.5" pathLength={1} />
         </svg>
       </span>
       <span className={s.bandText}>

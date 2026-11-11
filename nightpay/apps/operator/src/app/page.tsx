@@ -177,7 +177,7 @@ function LoginScreen({
         <LoginForm onSuccess={onSuccess} />
       </Card>
       {/* Sin salida no se sabía a quién pedir ayuda (S-16). */}
-      <p style={{ margin: 0, maxWidth: '24rem', textAlign: 'center', fontSize: '0.875rem', color: 'var(--np-text-mute)' }}>
+      <p style={{ margin: 0, maxWidth: '24rem', textAlign: 'center', fontSize: 'var(--np-fs-14)', color: 'var(--np-text-mute)' }}>
         ¿No puedes entrar? Pide al encargado una contraseña nueva.
       </p>
       {/* Fuera del cobro: el aviso de instalar como app, solo en Android (no sale si ya lo está). */}

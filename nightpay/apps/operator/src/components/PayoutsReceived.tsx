@@ -32,7 +32,7 @@ export function PayoutsReceived({ payouts, account }: Props) {
           {payouts.slice(0, SHOWN).map((p) => (
             <li key={p.id} style={itemStyle}>
               <div style={{ minWidth: 0 }}>
-                <p style={{ margin: 0, fontWeight: 500, fontSize: '1.0625rem' }}>
+                <p style={{ margin: 0, fontWeight: 500, fontSize: 'var(--np-fs-16)' }}>
                   {dayLabel(p.createdAt)} <span style={muted}>· {timeLabel(p.createdAt)}</span>
                 </p>
                 <p style={metaText}>
@@ -104,7 +104,7 @@ const itemStyle: CSSProperties = {
 };
 
 const amountStyle: CSSProperties = {
-  fontSize: '1.25rem',
+  fontSize: 'var(--np-fs-18)',
   fontWeight: 600,
   whiteSpace: 'nowrap',
 };
@@ -113,7 +113,7 @@ const muted: CSSProperties = { color: 'var(--np-text-mute)', fontWeight: 500 };
 
 const metaText: CSSProperties = {
   margin: '0.125rem 0 0',
-  fontSize: '0.9375rem',
+  fontSize: 'var(--np-fs-16)',
   color: 'var(--np-text-mute)',
 };
 

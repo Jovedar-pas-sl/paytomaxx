@@ -1,8 +1,8 @@
 // La imagen de cada loseta de la carta: de dónde se pide y cuándo se cambia por
 // el icono. Funciones puras (se prueban sin pantalla).
 
-/** Lado de la imagen en la loseta (px): el cuadrado de 52 px de la maqueta. */
-export const THUMB_SIZE = 52;
+/** Lado de la imagen en la loseta (px): el cuadrado de 44 px de Grafito 3. */
+export const THUMB_SIZE = 44;
 
 const IMAGE_PATH = /^\/v1\/services\/[0-9a-f-]{36}\/image\/[0-9a-f]{64}$/;
 

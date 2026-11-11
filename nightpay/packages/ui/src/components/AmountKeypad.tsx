@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useId, useRef, type CSSProperties } from 'react';
+import { haptic } from '../lib/haptic';
 import { formatEur } from '../format';
 import {
   DEFAULT_KEYPAD_MAX_CENTS,
@@ -70,7 +71,7 @@ export function AmountKeypad({
   }, [captureKeyboard]);
 
   function press(key: KeypadKey) {
-    if (typeof navigator !== 'undefined' && 'vibrate' in navigator) navigator.vibrate(8);
+    haptic();
     onChange(pressKeypad(valueCents, key, maxCents));
   }
 

@@ -186,13 +186,13 @@ export async function createPayment(
 export async function fetchPaymentStatus(
   qrToken: string,
   signal?: AbortSignal,
-): Promise<{ id?: string; status: PaymentStatus }> {
+): Promise<{ id?: string; status: PaymentStatus; cardLast4?: string; payMethod?: 'card' | 'wallet' }> {
   const res = await client.publicFetch(`/v1/payments/public/${encodeURIComponent(qrToken)}`, {
     cache: 'no-store',
     signal,
   });
   if (!res.ok) throw new Error(commonError(res.status) ?? `No se pudo consultar el cobro (error ${res.status}).`);
-  return (await res.json()) as { id?: string; status: PaymentStatus };
+  return (await res.json()) as { id?: string; status: PaymentStatus; cardLast4?: string; payMethod?: 'card' | 'wallet' };
 }
 
 /** Anula un cobro que aún no se ha pagado: su QR deja de valer. */

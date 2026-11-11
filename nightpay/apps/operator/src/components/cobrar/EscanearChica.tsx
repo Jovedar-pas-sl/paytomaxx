@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { staffTokenFrom } from '@nightpay/contracts';
+import { haptic } from '@nightpay/ui';
 import { formatEur } from '@/lib/money';
 import { onInviteArrived, takePendingInvite } from '@/lib/invite-link';
 import { resolveStaffQr } from '@/lib/api-cobro';
@@ -103,7 +104,7 @@ export function EscanearChica({ ctx, who, title, priceCents, onChica, onList, on
         if (!alive.current) return;
         setSeen(chica.name);
         setProblem(null);
-        if ('vibrate' in navigator) navigator.vibrate(30);
+        haptic(30);
         leaving.current = setTimeout(() => {
           leaving.current = null;
           if (!alive.current) return;

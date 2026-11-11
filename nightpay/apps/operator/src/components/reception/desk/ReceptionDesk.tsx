@@ -683,7 +683,7 @@ export function ReceptionDesk({ user, active, footer, onGiveFicha, onScanHome, h
           {head(step.kind === 'tap' ? home?.onExit : () => restart('salida'))}
           {/* B12: desde Inicio solo se recarga (la salida es de Recepción). */}
           {home ? null : (
-            <div className={s.seg} role="group" aria-label="Entrada o salida" data-tour="recep-modo">
+            <div className={s.seg} role="group" aria-label="Entrada o salida" data-tour="recep-modo" data-pos={mode === 'salida' ? 1 : 0}>
               {(['entrada', 'salida'] as const).map((m) => (
                 <button key={m} type="button" className={s.segBtn} aria-pressed={mode === m} onClick={() => restart(m)}>
                   {m === 'entrada' ? 'Entrada' : 'Salida'}
@@ -945,6 +945,7 @@ export function ReceptionDesk({ user, active, footer, onGiveFicha, onScanHome, h
         amountCents={done.amountCents}
         reference={reference}
         money={{ icon: done.method, ...money }}
+        cashBy={done.method === 'cash' ? user.displayName ?? null : null}
         meta={meta}
         ids={ids}
         warn={done.warn}

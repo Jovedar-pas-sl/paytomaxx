@@ -8,6 +8,7 @@ import {
   FormError,
   PaymentOutcome,
   QrCountdown,
+  cardHow,
   StatusPill,
   awaitingServerExpiry,
   encodeQr,
@@ -21,7 +22,7 @@ import {
   type QrDeadline,
 } from '@nightpay/ui';
 import { chargeBreakdownText, confirmationCode, formatMoney } from '@nightpay/contracts';
-import { cancelPayment, type CreatedPayment } from '@/lib/api';
+import { cancelPayment, fetchPaymentStatus, type CreatedPayment } from '@/lib/api';
 import styles from './active-payment.module.css';
 
 /** Estados en los que el QR ya no se puede pagar: basta con "Nuevo cobro". */
@@ -77,6 +78,20 @@ export function ActivePayment({ payment, status, reachable, checkNow, onDone, on
   const finished = FINISHED_STATUSES.has(shown);
   useWakeLock(!finished);
 
+  // Pagado: cómo pagó (4 últimas cifras, Apple o Google Pay), solo si el banco lo dio. Una consulta, una vez.
+  const [cardFacts, setCardFacts] = useState<{ cardLast4?: string; payMethod?: 'card' | 'wallet' }>({});
+  const paid = shown === 'AUTHORIZED';
+  const [paidAt, setPaidAt] = useState<Date | null>(null);
+  useEffect(() => {
+    if (!paid) return undefined;
+    setPaidAt((at) => at ?? new Date());
+    const ctrl = new AbortController();
+    fetchPaymentStatus(payment.qrToken, ctrl.signal)
+      .then((current) => setCardFacts({ cardLast4: current.cardLast4, payMethod: current.payMethod }))
+      .catch(() => undefined);
+    return () => ctrl.abort();
+  }, [paid, payment.qrToken]);
+
   useEffect(() => {
     if (!awaiting) return undefined;
     checkNow();
@@ -101,6 +116,7 @@ export function ActivePayment({ payment, status, reachable, checkNow, onDone, on
   const breakdown = feeCents > 0 ? chargeBreakdownText({ baseCents: payment.amountCents, feeCents, tipCents: 0 }) : null;
   const outcome = outcomeKindOf(shown);
   if (outcome) {
+    // El TPV no sabe quién cobra: sale la hora, sin nombre.
     return (
       <PaymentOutcome
         key={outcome}
@@ -109,8 +125,7 @@ export function ActivePayment({ payment, status, reachable, checkNow, onDone, on
         currency={payment.currency}
         detail={breakdown ? <p style={hintStyle}>{breakdown}</p> : undefined}
         message={outcome === 'failed' ? 'Que el cliente pruebe con otra tarjeta.' : undefined}
-        code={outcome === 'paid' ? confirmationCode(payment.id) : null}
-        codeHint="Debe coincidir con el del móvil del cliente."
+        how={outcome === 'paid' ? cardHow({ ...cardFacts, code: confirmationCode(payment.id), at: paidAt }) : null}
         primary={
           outcome === 'paid'
             ? { label: 'Nuevo cobro', onClick: onDone }
@@ -206,7 +221,7 @@ function QrCard({ payment, deadline, now }: { payment: CreatedPayment; deadline:
       {/* Fondo blanco en los dos temas: el lector del móvil lo necesita para leer el QR. */}
       <div style={{ marginTop: '1rem' }}>
         <QrCountdown deadline={deadline} nowMs={now}>
-          <div style={qrBox}>
+          <div className={deadline ? 'np-breathe' : undefined} style={qrBox}>
             <QrImage url={payment.qrUrl} fallbackSrc={payment.qrPngDataUrl} />
           </div>
         </QrCountdown>
@@ -248,7 +263,7 @@ const CARD_PAD = 'clamp(1rem, 4vw, 2rem)';
 
 // Etiquetas 14/500 en t2, sin mayúsculas ni espaciado (Grafito).
 const sectionLabel: CSSProperties = {
-  fontSize: '0.875rem',
+  fontSize: 'var(--np-fs-14)',
   fontWeight: 500,
   color: 'var(--np-text-mute)',
   margin: 0,
@@ -284,12 +299,12 @@ const urlCode: CSSProperties = {
 
 const awaitStyle: CSSProperties = {
   margin: '1rem 0 0',
-  fontSize: '0.9375rem',
+  fontSize: 'var(--np-fs-16)',
   color: 'var(--np-warning)',
 };
 
 const hintStyle: CSSProperties = {
   margin: '0.75rem 0 0',
-  fontSize: '0.875rem',
+  fontSize: 'var(--np-fs-14)',
   color: 'var(--np-text-mute)',
 };

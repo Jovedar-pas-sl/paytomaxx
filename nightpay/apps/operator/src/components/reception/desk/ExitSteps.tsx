@@ -24,7 +24,7 @@ const TOTP_FIELD = {
   ...DESK_FIELD,
   textAlign: 'center',
   fontFamily: 'var(--np-font-num)',
-  fontSize: '1.375rem',
+  fontSize: 'var(--np-fs-22)',
   fontWeight: 600,
   letterSpacing: '0.3em',
 } as const;

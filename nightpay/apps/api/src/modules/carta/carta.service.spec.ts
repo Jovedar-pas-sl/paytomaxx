@@ -7,6 +7,8 @@ function makeService(existing: Record<string, unknown> | null = null, sections: 
     $queryRaw: vi.fn().mockResolvedValue([{ id: 'tenant-1' }]),
     withTenant: vi.fn(),
     venue: { findUnique: vi.fn().mockResolvedValue({ sections }) },
+    // Sin noche abierta: el orden manual de siempre (los más pedidos, en carta-popularity.spec.ts).
+    venueNight: { findFirst: vi.fn().mockResolvedValue(null) },
     serviceItem: {
       findMany: vi.fn().mockResolvedValue([]),
       findFirst: vi.fn().mockResolvedValue(existing),

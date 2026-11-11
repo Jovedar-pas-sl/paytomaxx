@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { haptic, pinFailed, shakeClass } from '@nightpay/ui';
 import { PIN_ENTER, keypadDigits } from '@/lib/pin-pad';
 import { formatEur } from '@/lib/money';
 import { pinFootnote, tipLine } from '@/lib/cobro-view';
@@ -53,6 +54,7 @@ export function PinScreen({ colors, chip, amountCents, detail, tipSetup = null, 
   useEffect(() => setKeys(keypadDigits(layout)), [layout]);
   const [pin, setPin] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [shake, setShake] = useState(0);
   const [busy, setBusy] = useState(false);
   const [choice, setChoice] = useState<PinTipChoice>(() => (tipSetup ? pinTipInitial(tipSetup) : { kind: 'none' }));
   const chosen = tipSetup ? pinTipCents(choice, tipSetup) : null;
@@ -62,16 +64,24 @@ export function PinScreen({ colors, chip, amountCents, detail, tipSetup = null, 
   // «33 € + 5 € de propina», a la vista del cliente (la que eligió él).
   const tip = tipLine({ baseCents, tipCents, totalCents });
 
+  /** PIN mal: los puntos tiemblan 360 ms y el móvil vibra [30, 60, 30]. */
+  function failPin() {
+    setShake((n) => n + 1);
+    pinFailed();
+  }
+
   async function complete(value: string) {
     setBusy(true);
     try {
       const problem = await onPin(value, tipSetup ? tipCents : null);
       setPin('');
       setError(problem);
+      if (problem) failPin();
       setKeys(keypadDigits(layout));
     } catch (err) {
       setPin('');
       setError((err as Error).message);
+      failPin();
       setKeys(keypadDigits(layout));
     } finally {
       setBusy(false);
@@ -86,7 +96,7 @@ export function PinScreen({ colors, chip, amountCents, detail, tipSetup = null, 
       setError(tipError);
       return;
     }
-    if ('vibrate' in navigator) navigator.vibrate(8);
+    haptic();
     const next = pin + digit;
     setPin(next);
     setError(null);
@@ -119,7 +129,7 @@ export function PinScreen({ colors, chip, amountCents, detail, tipSetup = null, 
           <b>
             {PIN_ENTER.es} <span lang="en" className={styles.en}>· {PIN_ENTER.en}</span>
           </b>
-          <span className={styles.dots} role="status" aria-label={`${pin.length} de ${PIN_LENGTH} cifras`}>
+          <span className={`${styles.dots} ${shakeClass(shake)}`} role="status" aria-label={`${pin.length} de ${PIN_LENGTH} cifras`}>
             {Array.from({ length: PIN_LENGTH }, (_, i) => (
               <i key={i} className={i < pin.length ? styles.full : undefined} />
             ))}

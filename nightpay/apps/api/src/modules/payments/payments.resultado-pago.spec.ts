@@ -377,6 +377,25 @@ describe('getByToken — consulta pública por el QR', () => {
     await expect(pending.service.getByToken(QR)).resolves.not.toHaveProperty('tipCents');
   });
 
+  it('pagado: las 4 últimas cifras y cómo pagó, solo si el banco las dio (el PAGADO del personal)', async () => {
+    const card = makeService({ payment: { status: 'AUTHORIZED', cardLast4: '4021' }, attempts: [{ providerTxId: 'ORD-2', status: 'APPROVED', payMethod: 'wallet' }] });
+    await expect(card.service.getByToken(QR)).resolves.toMatchObject({ cardLast4: '4021', payMethod: 'wallet' });
+    // Sin cifras (cobro de antes, datáfono) o con basura: no se dice nada.
+    const none = makeService({ payment: { status: 'AUTHORIZED' } });
+    const view = await none.service.getByToken(QR);
+    expect(view).not.toHaveProperty('cardLast4');
+    expect(view).not.toHaveProperty('payMethod');
+    const odd = makeService({ payment: { status: 'AUTHORIZED', cardLast4: '40 1' } });
+    await expect(odd.service.getByToken(QR)).resolves.not.toHaveProperty('cardLast4');
+  });
+
+  it.each(['CREATED', 'AUTHORIZING', 'ORPHAN', 'FAILED'])('sin pagar (%s): nada de la tarjeta', async (status) => {
+    const { service } = makeService({ payment: { status, cardLast4: '4021' }, attempts: [{ providerTxId: 'ORD-2', status: 'APPROVED', payMethod: 'card' }] });
+    const view = await service.getByToken(QR);
+    expect(view).not.toHaveProperty('cardLast4');
+    expect(view).not.toHaveProperty('payMethod');
+  });
+
   // El código de confirmación del «Pagado» son los 3 últimos caracteres del id
   // (confirmation-code.ts): con el id, una página falsa lo enseñaría sin pagar.
   it.each(['CREATED', 'AWAITING_CAPTURE', 'AUTHORIZING', 'ORPHAN', 'FAILED', 'EXPIRED', 'CANCELED'])(

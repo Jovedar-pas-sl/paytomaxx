@@ -31,11 +31,11 @@
 }
 
 .headText b {
-  font: 600 1.125rem/1.2 var(--np-font-display);
+  font: 600 var(--np-fs-18)/1.2 var(--np-font-display);
 }
 
 .headText span {
-  font-size: 0.875rem;
+  font-size: var(--np-fs-14);
   color: var(--np-text-mute);
   white-space: nowrap;
   overflow: hidden;
@@ -95,7 +95,7 @@
   background: var(--np-surface-2);
   box-shadow: inset 0 0 0 1px var(--np-border-hi);
   color: var(--np-text);
-  font: 600 0.75rem/1.125rem var(--np-font-sans);
+  font: 600 var(--np-fs-14)/1.125rem var(--np-font-sans);
   text-align: center;
   pointer-events: none;
 }
@@ -103,6 +103,7 @@
 /* ─── Entrada / Salida: conmutador de 44 px ─── */
 
 .seg {
+  position: relative;
   flex: none;
   display: flex;
   gap: 4px;
@@ -112,14 +113,39 @@
   border: 1px solid var(--np-border);
 }
 
+/* La marca crema se desliza a la opción tocada (Grafito 3). */
+.seg::before {
+  content: '';
+  position: absolute;
+  top: 4px;
+  bottom: 4px;
+  left: 4px;
+  width: calc((100% - 12px) / 2);
+  border-radius: var(--np-r-sm);
+  background: var(--np-chosen);
+  transform: translateX(0);
+  transition: transform 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.seg[data-pos='1']::before {
+  transform: translateX(calc(100% + 4px));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .seg::before {
+    transition: none;
+  }
+}
+
 .segBtn {
+  position: relative;
   flex: 1;
   height: 2.75rem;
   border: none;
   border-radius: var(--np-r-sm);
   background: transparent;
   color: var(--np-text-mute);
-  font-size: 1rem;
+  font-size: var(--np-fs-16);
   font-weight: 500;
   touch-action: manipulation;
   transition: background var(--np-d-fast), color var(--np-d-fast);
@@ -127,8 +153,7 @@
 
 /* Elegido: fondo t1 y texto del fondo (como lo elegido en toda la app). */
 .segBtn[aria-pressed='true'] {
-  background: var(--np-text);
-  color: var(--np-bg);
+  color: var(--np-on-chosen);
   font-weight: 600;
 }
 
@@ -161,13 +186,13 @@ button.stage:active {
 
 .stageTitle {
   margin: 0;
-  font: 600 1.75rem/1.15 var(--np-font-display);
+  font: 600 var(--np-fs-28)/1.15 var(--np-font-display);
 }
 
 .stageText {
   margin: 0;
   max-width: 30ch;
-  font-size: 1rem;
+  font-size: var(--np-fs-16);
   line-height: 1.4;
   color: var(--np-text-mute);
 }
@@ -188,7 +213,7 @@ button.stage:active {
   padding: 0.625rem 0.875rem;
   border-radius: var(--np-r-sm);
   color: var(--np-text);
-  font-size: 0.875rem;
+  font-size: var(--np-fs-14);
   font-weight: 500;
   line-height: 1.35;
 }
@@ -277,12 +302,12 @@ button.det {
 
 .grow > b {
   display: block;
-  font-size: 1rem;
+  font-size: var(--np-fs-16);
   font-weight: 500;
 }
 
 .grow > span {
-  font-size: 0.875rem;
+  font-size: var(--np-fs-14);
   color: var(--np-text-mute);
 }
 
@@ -292,7 +317,7 @@ button.det {
    30 px entre el título y el detalle. */
 .fichaNum {
   display: block;
-  font: 600 1.875rem/1.15 var(--np-font-num);
+  font: 700 var(--np-fs-28)/1.15 var(--np-font-num);
   font-variant-numeric: tabular-nums;
   color: var(--np-text);
 }
@@ -307,7 +332,7 @@ button.det {
 }
 
 .grow > .fichaNum {
-  font-size: 1.875rem;
+  font-size: var(--np-fs-28);
   color: var(--np-text);
 }
 
@@ -316,7 +341,7 @@ button.det {
 .grow > .rowHint {
   display: block;
   margin-top: 0.25rem;
-  font-size: 0.875rem;
+  font-size: var(--np-fs-14);
   font-weight: 600;
   color: var(--np-text);
 }
@@ -328,7 +353,7 @@ button.det {
   align-items: center;
   gap: 0.375rem;
   margin-top: 0.375rem;
-  font-size: 0.875rem;
+  font-size: var(--np-fs-14);
   font-weight: 600;
   color: var(--np-text);
 }
@@ -351,7 +376,7 @@ button.det {
   border: none;
   background: transparent;
   color: var(--np-text);
-  font: 600 0.9375rem/1.2 var(--np-font-sans);
+  font: 600 var(--np-fs-16)/1.2 var(--np-font-sans);
   text-decoration: underline;
   text-decoration-color: var(--np-border-hi);
   text-underline-offset: 4px;
@@ -376,7 +401,7 @@ button.det {
 
 .q {
   margin: 0;
-  font: 600 1.375rem/1.2 var(--np-font-display);
+  font: 600 var(--np-fs-22)/1.2 var(--np-font-display);
 }
 
 /* La pregunta del paso. */
@@ -399,20 +424,20 @@ button.det {
   background: var(--np-surface-2);
   box-shadow: inset 0 0 0 1px var(--np-border-hi);
   color: var(--np-text);
-  font: 600 1.75rem/1 var(--np-font-num);
+  font: 700 var(--np-fs-28)/1 var(--np-font-num);
   font-variant-numeric: proportional-nums;
   touch-action: manipulation;
-  transition: transform var(--np-d-fast) var(--np-ease), background var(--np-d-fast);
+  transition: transform var(--np-press-ms) ease-out, background var(--np-d-fast);
 }
 
 .qb:active {
-  transform: scale(0.98);
+  transform: scale(var(--np-press-scale));
   background: var(--np-surface-3);
 }
 
 /* «Otro»: la última casilla; si queda sola en su fila, a todo el ancho. */
 .qbOther {
-  font: 600 1.125rem/1 var(--np-font-sans);
+  font: 600 var(--np-fs-18)/1 var(--np-font-sans);
 }
 
 .qbOther:nth-child(odd) {
@@ -466,7 +491,7 @@ button.det {
   align-items: center;
   gap: 0.375rem;
   margin: 0.25rem 0 0;
-  font-size: 0.875rem;
+  font-size: var(--np-fs-14);
   font-weight: 500;
   color: var(--np-text);
 }
@@ -480,13 +505,13 @@ button.det {
 
 /* «Buscar número de ficha» (A6): lo tecleado, en grande, para compararlo con la ficha. */
 .typedFicha {
-  font-size: 2.25rem;
+  font-size: var(--np-fs-40);
   text-align: center;
 }
 
 /* «¿Cómo paga?»: la ficha debajo del importe, centrada y algo más grande. */
 .cobroFicha {
-  font-size: 2.25rem;
+  font-size: var(--np-fs-40);
   text-align: center;
 }
 
@@ -505,7 +530,7 @@ button.det {
   font: inherit;
   text-align: left;
   touch-action: manipulation;
-  transition: transform var(--np-d-fast) var(--np-ease), background var(--np-d-fast);
+  transition: transform var(--np-press-ms) ease-out, background var(--np-d-fast);
 }
 
 .opt svg {
@@ -522,11 +547,11 @@ button.det {
 }
 
 .optText b {
-  font: 600 1.125rem/1.2 var(--np-font-sans);
+  font: 600 var(--np-fs-18)/1.2 var(--np-font-sans);
 }
 
 .optText small {
-  font-size: 0.875rem;
+  font-size: var(--np-fs-14);
   line-height: 1.3;
   color: var(--np-text-mute);
 }
@@ -542,7 +567,7 @@ button.det {
 }
 
 .opt:active:not(:disabled) {
-  transform: scale(0.98);
+  transform: scale(var(--np-press-scale));
 }
 
 @media (hover: hover) {
@@ -571,6 +596,93 @@ button.det {
   cursor: progress;
 }
 
+/* «¿Cómo paga?» (Grafito 3): dos bloques iguales y grandes, uno al lado del
+   otro, ninguno marcado de antemano. Efectivo en verde, tarjeta en azul;
+   el borde de 2 px y el icono llevan el color (los tokens valen en los dos temas). */
+.methods {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.method {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+  min-height: 10.5rem;
+  padding: 1rem;
+  border: 2px solid var(--m-line);
+  border-radius: var(--np-r-lg);
+  background: var(--m-bg);
+  color: var(--np-text);
+  font: inherit;
+  text-align: left;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.method[data-method='cash'] {
+  --m-bg: var(--np-cash-bg);
+  --m-line: var(--np-cash-line);
+  --m-ink: var(--np-cash-icon-ink);
+  --m-sub: var(--np-cash-sub);
+}
+
+.method[data-method='card'] {
+  --m-bg: var(--np-card-bg);
+  --m-line: var(--np-card-line);
+  --m-ink: var(--np-card-icon-ink);
+  --m-sub: var(--np-card-sub);
+}
+
+.methodIcon {
+  display: grid;
+  place-items: center;
+  width: 3.5rem;
+  height: 3.5rem;
+  border-radius: var(--np-r-md);
+  background: var(--m-line);
+  color: var(--m-ink);
+}
+
+.methodIcon svg {
+  width: 2rem;
+  height: 2rem;
+}
+
+.methodText {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.methodText b {
+  font: 600 var(--np-fs-22)/1.15 var(--np-font-sans);
+}
+
+.methodText small {
+  font-size: var(--np-fs-14);
+  line-height: 1.3;
+  color: var(--m-sub);
+}
+
+/* Sin nada que hacer: neutro, nunca el color apagado. */
+.method:disabled:not([data-loading]) {
+  cursor: not-allowed;
+  --m-bg: var(--np-disabled-bg);
+  --m-line: var(--np-disabled-edge);
+  --m-ink: var(--np-disabled-ink);
+  --m-sub: var(--np-disabled-ink);
+  color: var(--np-disabled-ink);
+}
+
+.method[data-loading] {
+  cursor: progress;
+}
+
 /* «Escribir el código», «Buscar número de ficha»: filas de lista de 52 px. */
 .rows {
   display: flex;
@@ -590,7 +702,7 @@ button.det {
   border-bottom: 1px solid var(--np-border);
   background: transparent;
   color: var(--np-text);
-  font: 500 1rem/1.25 var(--np-font-sans);
+  font: 500 var(--np-fs-16)/1.25 var(--np-font-sans);
   text-align: left;
   touch-action: manipulation;
 }
@@ -619,13 +731,13 @@ button.det {
 
 .bignum {
   margin: 0;
-  font: 600 4rem/1 var(--np-font-num);
+  font: 700 var(--np-fs-64)/1 var(--np-font-num);
   font-variant-numeric: proportional-nums;
 }
 
 .kick {
   margin: 0;
-  font: 500 0.875rem/1.3 var(--np-font-sans);
+  font: 500 var(--np-fs-14)/1.3 var(--np-font-sans);
   color: var(--np-text-mute);
 }
 
@@ -635,7 +747,7 @@ button.det {
   align-items: center;
   gap: 0.5rem;
   margin: 0;
-  font-size: 0.875rem;
+  font-size: var(--np-fs-14);
   font-weight: 500;
   line-height: 1.35;
   color: var(--np-text-mute);
@@ -656,7 +768,7 @@ button.det {
   border-radius: var(--np-r-sm);
   background: var(--np-pill-danger-bg);
   color: var(--np-text);
-  font-size: 0.875rem;
+  font-size: var(--np-fs-14);
   font-weight: 500;
   line-height: 1.35;
   text-align: left;
@@ -674,7 +786,7 @@ button.det {
   border-radius: var(--np-r-sm);
   background: var(--np-pill-warning-bg);
   color: var(--np-text);
-  font-size: 1rem;
+  font-size: var(--np-fs-16);
   font-weight: 600;
   line-height: 1.3;
 }
@@ -719,7 +831,7 @@ button.det {
   border-radius: var(--np-r-sm);
   background: transparent;
   color: var(--np-text-mute);
-  font-size: 0.875rem;
+  font-size: var(--np-fs-14);
   font-weight: 500;
   text-decoration: underline;
   text-decoration-color: var(--np-border-hi);
@@ -757,7 +869,7 @@ button.det {
   border: none;
   background: var(--np-bg);
   color: var(--np-text-mute);
-  font: 500 0.875rem/1.25 var(--np-font-sans);
+  font: 500 var(--np-fs-14)/1.25 var(--np-font-sans);
   text-align: center;
   overflow-wrap: anywhere;
   touch-action: manipulation;
@@ -780,7 +892,7 @@ button.det {
   align-items: center;
   gap: 0.75rem;
   margin: 0;
-  font-size: 0.875rem;
+  font-size: var(--np-fs-14);
   font-weight: 500;
   color: var(--np-text-mute);
 }
@@ -810,12 +922,12 @@ button.det {
   border-radius: var(--np-r-sm);
   border: 1px solid var(--np-border-hi);
   background: var(--np-surface);
-  font: 600 1.375rem var(--np-font-num);
+  font: 700 var(--np-fs-22) var(--np-font-num);
   font-style: normal;
 }
 
 .code em {
-  font: 600 1.375rem var(--np-font-num);
+  font: 700 var(--np-fs-22) var(--np-font-num);
   font-style: normal;
   color: var(--np-text-dim);
 }
@@ -832,7 +944,7 @@ button.det {
   width: 100%;
   height: 100%;
   opacity: 0;
-  font-size: 1rem;
+  font-size: var(--np-fs-16);
   border: none;
   background: transparent;
   color: transparent;
@@ -869,14 +981,14 @@ button.det {
   background: var(--np-surface-2);
   box-shadow: inset 0 0 0 1px var(--np-border-hi);
   color: var(--np-text);
-  font: 600 1.125rem var(--np-font-num);
+  font: 700 var(--np-fs-18) var(--np-font-num);
   font-variant-numeric: proportional-nums;
   touch-action: manipulation;
 }
 
 .amt[aria-pressed='true'] {
-  background: var(--np-text);
-  color: var(--np-bg);
+  background: var(--np-chosen);
+  color: var(--np-on-chosen);
   box-shadow: none;
 }
 
@@ -885,7 +997,7 @@ button.det {
 }
 
 .amtTxt {
-  font: 500 1rem var(--np-font-sans);
+  font: 500 var(--np-fs-16) var(--np-font-sans);
 }
 
 /* El QR en vector: 240 px útiles, menos en pantallas bajas. Negro sobre blanco
@@ -926,21 +1038,21 @@ button.det {
   padding: 1rem;
   text-align: center;
   color: var(--np-text-mute);
-  font-size: 0.875rem;
+  font-size: var(--np-fs-14);
   font-weight: 500;
 }
 
 .waitT {
   margin: 0;
   text-align: center;
-  font: 600 1.125rem/1.25 var(--np-font-display);
+  font: 600 var(--np-fs-18)/1.25 var(--np-font-display);
 }
 
 .lbl {
   margin: 0;
   text-align: center;
   color: var(--np-text-mute);
-  font-size: 0.875rem;
+  font-size: var(--np-fs-14);
   line-height: 1.4;
 }
 
@@ -948,7 +1060,7 @@ button.det {
 .hint {
   margin: 0;
   color: var(--np-text-mute);
-  font-size: 0.875rem;
+  font-size: var(--np-fs-14);
   line-height: 1.4;
 }
 

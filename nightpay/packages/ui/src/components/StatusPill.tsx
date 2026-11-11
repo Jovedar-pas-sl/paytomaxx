@@ -159,8 +159,8 @@ export function StatusPill({ status, size = 'md', perspective = 'operator' }: St
   };
   const dims =
     size === 'sm'
-      ? { minHeight: '1.5rem', padding: '0 0.5rem', fontSize: '0.8125rem' }
-      : { minHeight: '2rem', padding: '0 0.75rem 0 0.625rem', fontSize: '0.875rem' };
+      ? { minHeight: '1.5rem', padding: '0 0.5rem', fontSize: 'var(--np-fs-14)' }
+      : { minHeight: '2rem', padding: '0 0.75rem 0 0.625rem', fontSize: 'var(--np-fs-14)' };
 
   return (
     <span

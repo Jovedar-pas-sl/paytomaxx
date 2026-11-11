@@ -251,10 +251,10 @@ function PickCharge({
       ) : null}
       {(charges ?? []).map((c) => (
         <button key={c.id} type="button" disabled={busy} onClick={() => onPicked(c)} style={chargeBtn}>
-          <span className="np-num" style={{ fontSize: '2rem', fontWeight: 700 }}>
+          <span className="np-num" style={{ fontSize: 'var(--np-fs-28)', fontWeight: 700 }}>
             {formatEur(c.amountCents)}
           </span>
-          <span style={{ fontSize: '1.0625rem', fontWeight: 600 }}>
+          <span style={{ fontSize: 'var(--np-fs-16)', fontWeight: 600 }}>
             {[c.requestedByName, c.serviceName].filter(Boolean).join(' · ') || 'Cobro del saldo'}
           </span>
         </button>
@@ -392,7 +392,7 @@ function ChargeHeader({ charge }: { charge: SaldoCharge }) {
   return (
     <>
       <p style={kicker}>Cobrar con saldo</p>
-      <p className="np-num" style={{ margin: 0, fontSize: '3rem', fontWeight: 700 }}>
+      <p className="np-num" style={{ margin: 0, fontSize: 'var(--np-fs-40)', fontWeight: 700 }}>
         {formatEur(charge.amountCents)}
       </p>
       <p style={muted}>{[charge.requestedByName, charge.serviceName].filter(Boolean).join(' · ') || 'Cobro del saldo'}</p>
@@ -409,21 +409,21 @@ const cardStyle: CSSProperties = {
 };
 const kicker: CSSProperties = {
   margin: 0,
-  fontSize: '0.8125rem',
+  fontSize: 'var(--np-fs-14)',
   fontWeight: 700,
   letterSpacing: '0.1em',
   textTransform: 'uppercase',
   color: 'var(--np-text-mute)',
 };
-const muted: CSSProperties = { margin: 0, color: 'var(--np-text-mute)', fontSize: '1rem' };
-const big: CSSProperties = { margin: 0, fontSize: '1.375rem', fontWeight: 700 };
+const muted: CSSProperties = { margin: 0, color: 'var(--np-text-mute)', fontSize: 'var(--np-fs-16)' };
+const big: CSSProperties = { margin: 0, fontSize: 'var(--np-fs-22)', fontWeight: 700 };
 const errorStyle: CSSProperties = { margin: 0, color: 'var(--np-danger)', fontWeight: 600 };
 const noteStyle: CSSProperties = {
   margin: 0,
   padding: '0.6rem 0.9rem',
   border: '1px solid var(--np-border)',
   borderRadius: 'var(--np-r-md)',
-  fontSize: '0.9rem',
+  fontSize: 'var(--np-fs-14)',
   color: 'var(--np-text-mute)',
 };
 const chargeBtn: CSSProperties = {

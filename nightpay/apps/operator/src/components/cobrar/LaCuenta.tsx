@@ -1,7 +1,7 @@
 'use client';
 
 import type { CSSProperties } from 'react';
-import { ScreenHelp } from '@nightpay/ui';
+import { BusyWord, ScreenHelp } from '@nightpay/ui';
 import { STICKY_ACTION_BOTTOM } from '../layout';
 import { TOURS } from '@/lib/tours';
 import { formatEur } from '@/lib/money';
@@ -93,7 +93,7 @@ export function LaCuenta({ ctx, cuenta, who, onQty, onRemove, onAdd, onBack, onC
           onClick={onCobrar}
           data-tour="cuenta-cobrar"
         >
-          {cobrarLabel({ busy, empty: false, totalCents: totals.totalCents })}
+          {busy ? <BusyWord word={cobrarLabel({ busy, empty: false, totalCents: 0 })} /> : cobrarLabel({ busy, empty: false, totalCents: totals.totalCents })}
         </button>
         {onPos ? (
           <button type="button" className={`${styles.btn} ${styles.ghost}`} disabled={!canCharge} onClick={onPos}>

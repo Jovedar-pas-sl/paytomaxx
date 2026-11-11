@@ -185,7 +185,7 @@ function PaxScreenView({ onNight }: { onNight: (night: VenueNightSettings) => vo
       <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: '1rem' }}>
         <div>
           <p style={kicker}>{info?.venueName ?? 'OxioPay'}</p>
-          <h1 style={{ margin: 0, fontSize: '1.5rem' }}>
+          <h1 style={{ margin: 0, fontSize: 'var(--np-fs-22)' }}>
             {info?.terminal.label ?? 'Datáfono'}
             {info?.terminal.zone ? <span style={muted}> · {info.terminal.zone.toLowerCase()}</span> : null}
           </h1>
@@ -239,7 +239,7 @@ function PaxScreenView({ onNight }: { onNight: (night: VenueNightSettings) => vo
 
       {charges.length === 0 ? (
         <Card style={{ padding: '2rem 1.25rem', textAlign: 'center' }}>
-          <p style={{ margin: 0, fontSize: '1.125rem', fontWeight: 600 }}>No hay cobros esperando.</p>
+          <p style={{ margin: 0, fontSize: 'var(--np-fs-18)', fontWeight: 600 }}>No hay cobros esperando.</p>
           <p style={{ ...muted, margin: '0.5rem 0 0' }}>Cuando una chica cree un cobro por datáfono, sale aquí.</p>
         </Card>
       ) : (
@@ -252,10 +252,10 @@ function PaxScreenView({ onNight }: { onNight: (night: VenueNightSettings) => vo
               onClick={() => setSelected(c)}
               style={{ ...chargeBtn, borderColor: c.forThisTerminal ? 'var(--np-accent)' : 'var(--np-border-hi)' }}
             >
-              <span className="np-num" style={{ fontSize: '2rem', fontWeight: 700 }}>
+              <span className="np-num" style={{ fontSize: 'var(--np-fs-28)', fontWeight: 700 }}>
                 {formatEur(c.amountCents)}
               </span>
-              <span style={{ fontSize: '1.0625rem', fontWeight: 600 }}>{c.createdByName}</span>
+              <span style={{ fontSize: 'var(--np-fs-16)', fontWeight: 600 }}>{c.createdByName}</span>
               {c.serviceFeeCents ? <span style={muted}>{posChargeLine(c)}</span> : null}
               <span style={muted}>
                 Código {c.code}
@@ -294,7 +294,7 @@ function PairingForm({ onPaired }: { onPaired: (info: PaxInfo) => void }) {
 
   return (
     <Card style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-      <h1 style={{ margin: 0, fontSize: '1.5rem' }}>Vincular este datáfono</h1>
+      <h1 style={{ margin: 0, fontSize: 'var(--np-fs-22)' }}>Vincular este datáfono</h1>
       <p style={{ ...muted, margin: 0 }}>
         En el panel: Datáfonos → este datáfono → Vincular app. Teclea aquí el código que sale (vale 15 minutos).
       </p>
@@ -367,14 +367,14 @@ const mainStyle: CSSProperties = {
 };
 const kicker: CSSProperties = {
   margin: 0,
-  fontSize: '0.8125rem',
+  fontSize: 'var(--np-fs-14)',
   fontWeight: 700,
   letterSpacing: '0.1em',
   textTransform: 'uppercase',
   color: 'var(--np-text-mute)',
 };
-const muted: CSSProperties = { color: 'var(--np-text-mute)', fontSize: '0.9375rem' };
-const badge: CSSProperties = { fontSize: '0.875rem', fontWeight: 700 };
+const muted: CSSProperties = { color: 'var(--np-text-mute)', fontSize: 'var(--np-fs-16)' };
+const badge: CSSProperties = { fontSize: 'var(--np-fs-14)', fontWeight: 700 };
 const warnBox: CSSProperties = {
   margin: 0,
   border: '2px solid var(--np-warning)',
