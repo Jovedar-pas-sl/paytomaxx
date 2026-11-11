@@ -32,7 +32,8 @@ export type { Section, SectionCode, SectionKey } from './lib/sections';
 // Apps del personal (operadora y TPV): resultado a pantalla completa, aviso de
 // conexión, teclado de importe y cuenta atrás del QR, con su lógica pura.
 export { PaymentOutcome } from './components/PaymentOutcome';
-export type { OutcomeAction, PaymentOutcomeProps } from './components/PaymentOutcome';
+export { OutcomeHowCard } from './components/PaymentOutcome';
+export type { OutcomeAction, OutcomeHow, PaymentOutcomeProps } from './components/PaymentOutcome';
 export { ConnectionBanner } from './components/ConnectionBanner';
 export { AmountKeypad } from './components/AmountKeypad';
 export { QrCountdown } from './components/QrCountdown';
@@ -64,6 +65,8 @@ export type { KeypadKey } from './lib/amount-keypad';
 export { BANK_SLOW_AFTER_MS, classifyConnection, SERVER_DOWN_GRACE_MS } from './lib/connection';
 export type { ConnectionDevice, ConnectionIssue, ConnectionIssueKind, ConnectionSignals } from './lib/connection';
 export { createWakeLock, wakeLockFrom } from './lib/wake-lock';
+export { cardHow, cashHow, chargedBy, saldoHow } from './lib/outcome-how';
+export type { CardHowInput, CashHowInput, SaldoHowInput } from './lib/outcome-how';
 export { haptic, HAPTIC_BAD, HAPTIC_TAP_MS } from './lib/haptic';
 export { advanceStatus, isFinalStatus, isPolledPayment } from './lib/payment-status';
 export { createPoller } from './lib/poller';

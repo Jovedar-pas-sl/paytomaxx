@@ -8,6 +8,7 @@ import {
   FormError,
   PaymentOutcome,
   QrCountdown,
+  cardHow,
   StatusPill,
   awaitingServerExpiry,
   encodeQr,
@@ -21,7 +22,7 @@ import {
   type QrDeadline,
 } from '@nightpay/ui';
 import { chargeBreakdownText, confirmationCode, formatMoney } from '@nightpay/contracts';
-import { cancelPayment, type CreatedPayment } from '@/lib/api';
+import { cancelPayment, fetchPaymentStatus, type CreatedPayment } from '@/lib/api';
 import styles from './active-payment.module.css';
 
 /** Estados en los que el QR ya no se puede pagar: basta con "Nuevo cobro". */
@@ -77,6 +78,20 @@ export function ActivePayment({ payment, status, reachable, checkNow, onDone, on
   const finished = FINISHED_STATUSES.has(shown);
   useWakeLock(!finished);
 
+  // Pagado: cómo pagó (4 últimas cifras, Apple o Google Pay), solo si el banco lo dio. Una consulta, una vez.
+  const [cardFacts, setCardFacts] = useState<{ cardLast4?: string; payMethod?: 'card' | 'wallet' }>({});
+  const paid = shown === 'AUTHORIZED';
+  const [paidAt, setPaidAt] = useState<Date | null>(null);
+  useEffect(() => {
+    if (!paid) return undefined;
+    setPaidAt((at) => at ?? new Date());
+    const ctrl = new AbortController();
+    fetchPaymentStatus(payment.qrToken, ctrl.signal)
+      .then((current) => setCardFacts({ cardLast4: current.cardLast4, payMethod: current.payMethod }))
+      .catch(() => undefined);
+    return () => ctrl.abort();
+  }, [paid, payment.qrToken]);
+
   useEffect(() => {
     if (!awaiting) return undefined;
     checkNow();
@@ -101,6 +116,7 @@ export function ActivePayment({ payment, status, reachable, checkNow, onDone, on
   const breakdown = feeCents > 0 ? chargeBreakdownText({ baseCents: payment.amountCents, feeCents, tipCents: 0 }) : null;
   const outcome = outcomeKindOf(shown);
   if (outcome) {
+    // El TPV no sabe quién cobra: sale la hora, sin nombre.
     return (
       <PaymentOutcome
         key={outcome}
@@ -109,8 +125,7 @@ export function ActivePayment({ payment, status, reachable, checkNow, onDone, on
         currency={payment.currency}
         detail={breakdown ? <p style={hintStyle}>{breakdown}</p> : undefined}
         message={outcome === 'failed' ? 'Que el cliente pruebe con otra tarjeta.' : undefined}
-        code={outcome === 'paid' ? confirmationCode(payment.id) : null}
-        codeHint="Debe coincidir con el del móvil del cliente."
+        how={outcome === 'paid' ? cardHow({ ...cardFacts, code: confirmationCode(payment.id), at: paidAt }) : null}
         primary={
           outcome === 'paid'
             ? { label: 'Nuevo cobro', onClick: onDone }

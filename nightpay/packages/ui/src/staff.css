@@ -167,9 +167,47 @@
   color: var(--np-outcome-expired);
 }
 
+/* PAGADO (Grafito 3): el ✓ se dibuja. Aro verde y palo crema en un SVG de
+   104 × 104; el círculo se traza en 380 ms y el palo en 260 ms. */
 .np-outcome[data-kind='paid'] .np-outcome-ring {
-  background: var(--np-lime);
-  color: var(--np-ink);
+  width: clamp(5rem, 13vh, 7rem);
+  height: clamp(5rem, 13vh, 7rem);
+  background: transparent;
+  border-radius: 0;
+}
+
+.np-check {
+  width: 100%;
+  height: 100%;
+  animation: np-check-pop var(--np-d-moment) ease-out 1 both;
+}
+
+.np-check-ring {
+  stroke: var(--np-outcome-tick-ring);
+  stroke-dasharray: 302;
+  animation: np-check-ring 380ms ease-out 1 both;
+}
+
+.np-check-tick {
+  stroke: var(--np-outcome-ink);
+  stroke-dasharray: 60;
+  animation: np-check-tick 260ms ease-out 330ms 1 both;
+}
+
+@keyframes np-check-ring {
+  from { stroke-dashoffset: 302; }
+  to   { stroke-dashoffset: 0;   }
+}
+
+@keyframes np-check-tick {
+  from { stroke-dashoffset: 60; }
+  to   { stroke-dashoffset: 0;  }
+}
+
+@keyframes np-check-pop {
+  0%   { transform: scale(0.92); }
+  60%  { transform: scale(1.04); }
+  100% { transform: scale(1);    }
 }
 
 .np-outcome-icon {
@@ -198,7 +236,12 @@
   100% { opacity: 0;    }
 }
 
-.np-outcome[data-kind='paid'] .np-outcome-ring {
+/* CARGADO sigue con su marca de siempre: aro lima que salta y ✓ que se dibuja
+   (pathLength="1"); queda dibujada al final. */
+.np-outcome[data-kind='paid'] .np-outcome-ring:not(:has(.np-check)) {
+  background: var(--np-lime);
+  color: var(--np-ink);
+  border-radius: 50%;
   animation: np-outcome-pop var(--np-d-moment) var(--np-ease-pop) 1 both;
 }
 
@@ -207,7 +250,6 @@
   to   { transform: scale(1);   opacity: 1; }
 }
 
-/* La marca ✓ se dibuja (pathLength="1" en el SVG): queda dibujada al final. */
 .np-outcome[data-kind='paid'] .np-outcome-icon path {
   stroke-dasharray: 1;
   stroke-dashoffset: 0;
@@ -241,6 +283,118 @@
   font-variant-numeric: proportional-nums;
   font-size: var(--np-fs-64);
   font-size: min(clamp(var(--np-fs-40), 9vh, var(--np-fs-64)), calc(88vw / var(--np-fit, 6)));
+}
+
+/* Grafito 3: la palabra manda (64, Manrope 700) y el importe va debajo (40).
+   Solo en el resultado de un cobro (PaymentOutcome); CARGADO conserva lo suyo.
+   --np-fit-word: ancho de la palabra en em, para que quepa en una línea. */
+.np-outcome-title.np-outcome-word {
+  font-family: var(--np-font-num);
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: 0.02em;
+  font-size: var(--np-fs-64);
+  font-size: min(var(--np-fs-64), calc(88vw / var(--np-fit-word, 6)));
+}
+
+.np-outcome-amount.np-outcome-amount-sub {
+  font-size: var(--np-fs-40);
+  font-size: min(var(--np-fs-40), calc(88vw / var(--np-fit, 6)));
+}
+
+/* «Cómo se pagó»: una tarjeta bajo el importe con el método (icono de su
+   color), lo que lo identifica y quién cobró. Solo datos que tiene el API. */
+.np-outcome-how {
+  width: 100%;
+  max-width: 26rem;
+  margin-top: 0.375rem;
+  padding: 0.875rem 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.625rem;
+  border-radius: 1rem;
+  background: var(--np-outcome-how-bg);
+  border: 1px solid var(--np-outcome-how-line);
+  text-align: left;
+}
+
+.np-outcome-how-head {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.np-outcome-how-icon {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 2.75rem;
+  height: 2.75rem;
+  border-radius: 0.75rem;
+}
+
+.np-outcome-how-icon svg {
+  width: 1.625rem;
+  height: 1.625rem;
+}
+
+.np-outcome-how-icon[data-kind='ficha'] {
+  background: var(--np-cream);
+  color: var(--np-ink);
+}
+
+.np-outcome-how-icon[data-kind='cash'] {
+  background: #58d68d;
+  color: #0b2a17;
+}
+
+.np-outcome-how-icon[data-kind='card'] {
+  background: #6fa8dc;
+  color: #0b1a2a;
+}
+
+.np-outcome-how-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.np-outcome-how-title {
+  font-size: var(--np-fs-18);
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+.np-outcome-how-sub {
+  font-size: var(--np-fs-14);
+  color: var(--np-outcome-sub);
+}
+
+.np-outcome-how-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  font-size: var(--np-fs-16);
+}
+
+.np-outcome-how-row:first-of-type {
+  padding-top: 0.625rem;
+  border-top: 1px solid var(--np-outcome-how-line);
+}
+
+.np-outcome-how-label {
+  color: var(--np-outcome-sub);
+}
+
+.np-outcome-how-value[data-num] {
+  font-family: var(--np-font-num);
+  font-weight: 700;
+}
+
+.np-outcome-what {
+  margin: 0;
+  font-size: var(--np-fs-14);
+  color: var(--np-outcome-sub);
 }
 
 .np-outcome-message {
@@ -771,29 +925,6 @@
   }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  /* El momento PAGADO, sin destello ni animación: la marca, ya en su sitio
-     (el estado final). */
-  .np-outcome[data-kind='paid']::after {
-    display: none;
-  }
-
-  .np-outcome[data-kind='paid'] .np-outcome-ring,
-  .np-outcome[data-kind='paid'] .np-outcome-icon path {
-    animation: none !important;
-  }
-
-  /* La marquesina no se desplaza: se funde despacio (un ciclo cada 5 s). Gana a
-     la regla general de styles.css, que mata todas las animaciones. */
-  .np-outcome-band-track {
-    animation-name: np-outcome-band-fade !important;
-    animation-duration: 2.5s !important;
-    animation-timing-function: ease-in-out !important;
-    animation-iteration-count: infinite !important;
-    animation-direction: alternate !important;
-  }
-}
-
 /* Esperando el pago (Grafito 3): un anillo crema (tinta en claro) que respira alrededor del QR,
    mientras se espera. box-shadow que crece y se apaga en 2,6 s, en bucle; no
    cambia el tamaño del QR. Con «reducir movimiento», un anillo fijo. */
@@ -816,5 +947,32 @@
   .np-breathe {
     animation: none !important;
     box-shadow: 0 0 0 4px color-mix(in srgb, var(--np-chosen) 25%, transparent);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* El momento PAGADO, sin destello ni animación: la marca, ya en su sitio
+     (el estado final). */
+  .np-outcome[data-kind='paid']::after {
+    display: none;
+  }
+
+  .np-outcome[data-kind='paid'] .np-outcome-ring,
+  .np-outcome[data-kind='paid'] .np-outcome-icon path,
+  .np-check,
+  .np-check-ring,
+  .np-check-tick {
+    animation: none !important;
+    stroke-dashoffset: 0;
+  }
+
+  /* La marquesina no se desplaza: se funde despacio (un ciclo cada 5 s). Gana a
+     la regla general de styles.css, que mata todas las animaciones. */
+  .np-outcome-band-track {
+    animation-name: np-outcome-band-fade !important;
+    animation-duration: 2.5s !important;
+    animation-timing-function: ease-in-out !important;
+    animation-iteration-count: infinite !important;
+    animation-direction: alternate !important;
   }
 }

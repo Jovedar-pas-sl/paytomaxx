@@ -135,6 +135,12 @@
   --np-outcome-ink: #f4f2ec;
   --np-outcome-paid: #0b3d24;
   --np-outcome-paid-ink: #f4f2ec;
+  /* La tarjeta de «cómo se pagó» sobre el verde (Grafito 3): letra de apoyo,
+     filetes y el ✓ que se dibuja. Iguales en los dos temas. */
+  --np-outcome-sub: #cfe9d9;
+  --np-outcome-how-bg: rgb(0 0 0 / 0.25);
+  --np-outcome-how-line: rgb(207 233 217 / 0.25);
+  --np-outcome-tick-ring: #58d68d;
   --np-outcome-failed: #7a1c20;
   --np-outcome-expired: #5c4300;
   /* El destello verde del PAGADO (una vez, al llegar; decisión D10). */

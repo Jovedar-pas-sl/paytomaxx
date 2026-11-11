@@ -49,17 +49,23 @@ describe('D10: el momento PAGADO, una vez', () => {
     expect(STAFF).toMatch(/@keyframes np-outcome-flash \{\s*0%\s+\{ opacity: 0;\s*\}\s*30%\s+\{ opacity: 0\.55;\s*\}\s*100%\s+\{ opacity: 0;\s*\}/);
   });
 
-  it('el aro salta y la marca se dibuja (y queda dibujada)', () => {
-    expect(STAFF).toMatch(/\.np-outcome\[data-kind='paid'\] \.np-outcome-ring \{\s*animation: np-outcome-pop var\(--np-d-moment\) var\(--np-ease-pop\) 1 both;/);
-    const path = rule(STAFF, ".np-outcome[data-kind='paid'] .np-outcome-icon path");
-    expect(path).toContain('stroke-dashoffset: 0');
-    expect(OUTCOME).toContain('pathLength={1}');
+  it('el ✓ se dibuja: el círculo en 380 ms, el palo en 260 ms, y queda dibujado', () => {
+    expect(rule(STAFF, '.np-check-ring')).toMatch(/animation: np-check-ring 380ms ease-out 1 both/);
+    expect(rule(STAFF, '.np-check-tick')).toMatch(/animation: np-check-tick 260ms ease-out 330ms 1 both/);
+    expect(STAFF).toMatch(/@keyframes np-check-ring \{\s*from \{ stroke-dashoffset: 302; \}\s*to\s+\{ stroke-dashoffset: 0;\s*\}/);
+    expect(OUTCOME).toContain('className="np-check-ring"');
+    expect(OUTCOME).toContain('className="np-check-tick"');
+  });
+
+  it('CARGADO conserva su marca: aro que salta y ✓ con pathLength', () => {
+    expect(STAFF).toMatch(/\.np-outcome\[data-kind='paid'\] \.np-outcome-ring:not\(:has\(\.np-check\)\) \{[^}]*animation: np-outcome-pop var\(--np-d-moment\) var\(--np-ease-pop\) 1 both;/);
+    expect(read('../components/reception/desk/DeskLoaded.tsx')).toContain('pathLength={1}');
   });
 
   it('con «reducir movimiento»: sin destello ni animación, solo el estado final', () => {
     const reduce = STAFF.slice(STAFF.lastIndexOf('@media (prefers-reduced-motion: reduce)'));
     expect(reduce).toMatch(/\.np-outcome\[data-kind='paid'\]::after \{\s*display: none;/);
-    expect(reduce).toMatch(/\.np-outcome\[data-kind='paid'\] \.np-outcome-ring,\s*\.np-outcome\[data-kind='paid'\] \.np-outcome-icon path \{\s*animation: none !important;/);
+    expect(reduce).toMatch(/\.np-check-ring,\s*\.np-check-tick \{\s*animation: none !important;\s*stroke-dashoffset: 0;/);
   });
 });
 

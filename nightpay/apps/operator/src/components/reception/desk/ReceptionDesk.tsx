@@ -945,6 +945,7 @@ export function ReceptionDesk({ user, active, footer, onGiveFicha, onScanHome, h
         amountCents={done.amountCents}
         reference={reference}
         money={{ icon: done.method, ...money }}
+        cashBy={done.method === 'cash' ? user.displayName ?? null : null}
         meta={meta}
         ids={ids}
         warn={done.warn}
