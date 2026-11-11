@@ -70,8 +70,8 @@
   display: flex;
   width: max-content;
   font-family: var(--np-font-num);
-  font-size: 0.8125rem;
-  font-weight: 600;
+  font-size: var(--np-fs-14);
+  font-weight: 700;
   line-height: 1;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
@@ -119,7 +119,7 @@
 .np-outcome .np-chip {
   background: rgb(0 0 0 / 0.24);
   color: inherit;
-  font-size: 0.875rem;
+  font-size: var(--np-fs-14);
 }
 
 /* El segundo punto del chip de dos secciones («Copas + Comida»). */
@@ -141,8 +141,8 @@
   border: 1px solid color-mix(in srgb, currentColor 55%, transparent);
   border-radius: var(--np-r-xs);
   font-family: var(--np-font-num);
-  font-size: 0.875rem;
-  font-weight: 600;
+  font-size: var(--np-fs-14);
+  font-weight: 700;
   letter-spacing: 0.04em;
   font-variant-numeric: tabular-nums;
 }
@@ -223,7 +223,7 @@
 .np-outcome-title {
   margin: 0;
   font-family: var(--np-font-display);
-  font-size: 1.75rem;
+  font-size: var(--np-fs-28);
   font-weight: 600;
   line-height: 1.15;
   letter-spacing: 0;
@@ -235,17 +235,17 @@
 .np-outcome-amount {
   margin: 0;
   font-family: var(--np-font-num);
-  font-weight: 600;
+  font-weight: 700;
   line-height: 1;
   letter-spacing: 0;
   font-variant-numeric: proportional-nums;
-  font-size: 3.5rem;
-  font-size: min(clamp(3.5rem, 9vh, 4rem), calc(88vw / var(--np-fit, 6)));
+  font-size: var(--np-fs-64);
+  font-size: min(clamp(var(--np-fs-40), 9vh, var(--np-fs-64)), calc(88vw / var(--np-fit, 6)));
 }
 
 .np-outcome-message {
   margin: 0;
-  font-size: 1.125rem;
+  font-size: var(--np-fs-18);
   font-weight: 500;
   line-height: 1.35;
 }
@@ -261,7 +261,7 @@
 }
 
 .np-outcome-detail {
-  font-size: 1rem;
+  font-size: var(--np-fs-16);
   font-weight: 500;
   line-height: 1.4;
 }
@@ -273,7 +273,7 @@
 .np-outcome-detail b,
 .np-outcome-detail strong {
   font-family: var(--np-font-num);
-  font-weight: 600;
+  font-weight: 700;
 }
 
 /* El código corto en una placa crema (la misma idea que ve el cliente): se
@@ -290,14 +290,14 @@
 }
 
 .np-outcome-code-label {
-  font-size: 0.875rem;
+  font-size: var(--np-fs-14);
   font-weight: 500;
 }
 
 /* ≥ 3rem: se compara con el del móvil del cliente a un metro. */
 .np-outcome-code-value {
   font-family: var(--np-font-num);
-  font-size: 3rem;
+  font-size: var(--np-fs-40);
   font-weight: 700;
   line-height: 1.1;
   letter-spacing: 0.14em;
@@ -306,15 +306,15 @@
 }
 
 .np-outcome-code-hint {
-  font-size: 0.875rem;
+  font-size: var(--np-fs-14);
   font-weight: 500;
 }
 
 .np-outcome-ago {
   margin: 0;
   font-family: var(--np-font-num);
-  font-size: 0.875rem;
-  font-weight: 600;
+  font-size: var(--np-fs-14);
+  font-weight: 700;
   font-variant-numeric: tabular-nums;
 }
 
@@ -324,7 +324,7 @@
   border-radius: var(--np-r-md);
   background: var(--np-ink-0);
   color: var(--np-cream);
-  font-size: 0.875rem;
+  font-size: var(--np-fs-14);
   font-weight: 500;
 }
 
@@ -352,7 +352,7 @@
   border: none;
   border-radius: var(--np-r-md);
   font-family: var(--np-font-sans);
-  font-size: 1.0625rem;
+  font-size: var(--np-fs-16);
   font-weight: 600;
   line-height: 1.2;
   touch-action: manipulation;
@@ -372,7 +372,7 @@
   background: transparent;
   color: inherit;
   box-shadow: inset 0 0 0 1px color-mix(in srgb, currentColor 60%, transparent);
-  font-size: 1rem;
+  font-size: var(--np-fs-16);
   font-weight: 500;
 }
 
@@ -452,14 +452,14 @@
 
 .np-conn-banner-title {
   margin: 0;
-  font-size: 1rem;
+  font-size: var(--np-fs-16);
   font-weight: 600;
   line-height: 1.3;
 }
 
 .np-conn-banner-hint {
   margin: 0.125rem 0 0;
-  font-size: 0.875rem;
+  font-size: var(--np-fs-14);
   font-weight: 500;
   line-height: 1.35;
 }
@@ -498,12 +498,12 @@
 /* Importe grande y suelto: Manrope 600 en cifras proporcionales. */
 .np-keypad-amount {
   font-family: var(--np-font-num);
-  font-weight: 600;
+  font-weight: 700;
   line-height: 1.15;
   font-variant-numeric: proportional-nums;
   color: var(--np-text);
-  font-size: 2.25rem;
-  font-size: min(3rem, calc(92cqi / var(--np-fit, 6)));
+  font-size: var(--np-fs-40);
+  font-size: min(var(--np-fs-40), calc(92cqi / var(--np-fit, 6)));
 }
 
 .np-keypad-display[data-empty='true'] .np-keypad-amount {
@@ -528,8 +528,8 @@
   background: var(--np-surface-2);
   color: var(--np-text);
   font-family: var(--np-font-num);
-  font-size: 1.625rem;
-  font-weight: 600;
+  font-size: var(--np-fs-28);
+  font-weight: 700;
   font-variant-numeric: tabular-nums;
   touch-action: manipulation;
   -webkit-tap-highlight-color: transparent;
@@ -542,7 +542,7 @@
 
 .np-keypad-key[data-key='00'],
 .np-keypad-key[data-key='back'] {
-  font-size: 1.25rem;
+  font-size: var(--np-fs-18);
   color: var(--np-text-mute);
 }
 
@@ -612,7 +612,7 @@
 .np-qrcd-label {
   margin: 0;
   text-align: center;
-  font-size: 0.875rem;
+  font-size: var(--np-fs-14);
   font-weight: 500;
   font-variant-numeric: tabular-nums;
   color: var(--np-text-mute);
@@ -649,7 +649,7 @@
   border-radius: var(--np-r-sm);
   background: transparent;
   color: var(--np-text-mute);
-  font-size: 1rem;
+  font-size: var(--np-fs-16);
   font-weight: 500;
   white-space: nowrap;
   touch-action: manipulation;
@@ -714,7 +714,7 @@
   }
 
   .np-keypad-amount {
-    font-size: min(2.75rem, 6vh, calc(92cqi / var(--np-fit, 6)));
+    font-size: min(var(--np-fs-40), 6vh, calc(92cqi / var(--np-fit, 6)));
   }
 
   .np-keypad-grid {
@@ -722,7 +722,7 @@
   }
 
   .np-keypad-key {
-    font-size: 1.5rem;
+    font-size: var(--np-fs-22);
   }
 
   .np-qrcd {
@@ -766,7 +766,7 @@
     }
 
     .np-keypad-amount {
-      font-size: min(2.75rem, 6svh, calc(92cqi / var(--np-fit, 6)));
+      font-size: min(var(--np-fs-40), 6svh, calc(92cqi / var(--np-fit, 6)));
     }
   }
 }

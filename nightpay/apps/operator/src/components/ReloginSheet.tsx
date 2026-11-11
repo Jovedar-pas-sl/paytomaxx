@@ -100,7 +100,7 @@ const dot: CSSProperties = {
 
 const titleStyle: CSSProperties = {
   margin: 0,
-  fontSize: '1.375rem',
+  fontSize: 'var(--np-fs-22)',
   fontWeight: 700,
   lineHeight: 1.25,
   letterSpacing: '-0.01em',
@@ -108,7 +108,7 @@ const titleStyle: CSSProperties = {
 
 const hintStyle: CSSProperties = {
   margin: '0 0 0.25rem',
-  fontSize: '0.9375rem',
+  fontSize: 'var(--np-fs-16)',
   color: 'var(--np-text-mute)',
   lineHeight: 1.4,
 };
@@ -123,12 +123,12 @@ const barStyle: CSSProperties = {
 const barTitle: CSSProperties = {
   margin: 0,
   fontWeight: 700,
-  fontSize: '1.0625rem',
+  fontSize: 'var(--np-fs-16)',
   color: 'var(--np-warning)',
 };
 
 const barHint: CSSProperties = {
   margin: 0,
-  fontSize: '0.875rem',
+  fontSize: 'var(--np-fs-14)',
   color: 'var(--np-text-mute)',
 };

@@ -159,11 +159,11 @@ const kicker: CSSProperties = {
   color: 'var(--np-text-mute)',
 };
 
-const titleStyle: CSSProperties = { margin: 0, fontSize: '1.375rem', fontWeight: 600 };
-const hintStyle: CSSProperties = { margin: 0, fontSize: '0.875rem', color: 'var(--np-text-mute)' };
-const stepStyle: CSSProperties = { margin: 0, fontSize: '1.125rem', fontWeight: 600 };
+const titleStyle: CSSProperties = { margin: 0, fontSize: 'var(--np-fs-22)', fontWeight: 600 };
+const hintStyle: CSSProperties = { margin: 0, fontSize: 'var(--np-fs-14)', color: 'var(--np-text-mute)' };
+const stepStyle: CSSProperties = { margin: 0, fontSize: 'var(--np-fs-18)', fontWeight: 600 };
 // La línea en inglés, detrás y en t2: se lee sin competir con la española.
-const enStyle: CSSProperties = { fontSize: '0.9375rem', fontWeight: 500, color: 'var(--np-text-mute)' };
+const enStyle: CSSProperties = { fontSize: 'var(--np-fs-16)', fontWeight: 500, color: 'var(--np-text-mute)' };
 
 const dotsStyle: CSSProperties = { display: 'flex', justifyContent: 'center', gap: '1rem', padding: '0.5rem 0' };
 const dotStyle: CSSProperties = {
@@ -188,7 +188,7 @@ const srOnly: CSSProperties = {
   border: 0,
 };
 
-const errorStyle: CSSProperties = { margin: 0, fontSize: '0.875rem', color: 'var(--np-danger-text)', fontWeight: 500 };
+const errorStyle: CSSProperties = { margin: 0, fontSize: 'var(--np-fs-14)', color: 'var(--np-danger-text)', fontWeight: 500 };
 
 const gridStyle: CSSProperties = {
   display: 'grid',
@@ -201,7 +201,7 @@ const gridStyle: CSSProperties = {
 const keyStyle: CSSProperties = {
   minHeight: 'max(3.75rem, var(--np-key-h, 4.25rem))',
   fontFamily: 'var(--np-font-num)',
-  fontSize: '1.75rem',
+  fontSize: 'var(--np-fs-28)',
   fontWeight: 600,
   borderRadius: 'var(--np-r-md)',
   border: '1px solid var(--np-border)',
@@ -211,7 +211,7 @@ const keyStyle: CSSProperties = {
   fontVariantNumeric: 'tabular-nums',
 };
 
-const sideKey: CSSProperties = { fontFamily: 'var(--np-font-sans)', fontSize: '1rem', fontWeight: 500, color: 'var(--np-text-mute)' };
+const sideKey: CSSProperties = { fontFamily: 'var(--np-font-sans)', fontSize: 'var(--np-fs-16)', fontWeight: 500, color: 'var(--np-text-mute)' };
 
 /** Teclado fijo: las teclas, más grandes (se aciertan a oscuras y con prisa). */
-const bigKey: CSSProperties = { minHeight: 'max(3.75rem, calc(var(--np-key-h, 4.25rem) + 0.5rem))', fontSize: '2rem' };
+const bigKey: CSSProperties = { minHeight: 'max(3.75rem, calc(var(--np-key-h, 4.25rem) + 0.5rem))', fontSize: 'var(--np-fs-28)' };

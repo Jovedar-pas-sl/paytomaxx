@@ -35,17 +35,25 @@
   --np-field-h: 2.5rem;
   --np-r-pill: 999px;
 
-  /* Letra. Escala: 12 · 13 · 14 · 16 · 18 · 22 · 28 · 40 · 64 (72 solo en
-     el resultado). Importes grandes en cifras proporcionales. */
-  --np-t-amount: clamp(3rem, 9vw, 4rem);
-  --np-t-h1: clamp(1.75rem, 2.4vw, 2.5rem);
-  --np-t-h2: 1.375rem;
-  --np-t-h3: 1.125rem;
-  --np-t-body: 1rem;
-  --np-t-ui: 0.9375rem;
-  /* Mínimo para etiquetas pequeñas (kickers, pestañas): 0.8125rem = 13 px
-     (en el móvil del personal, 14: abajo). */
-  --np-t-label: 0.8125rem;
+  /* Letra (Grafito 3): UNA escala de 7 tamaños, la misma en el personal, el
+     TPV y el panel: 64 · 40 · 28 · 22 · 18 · 16 · 14. Nunca menos de 14.
+     Dos pesos (400 y 600; 500 donde la maqueta lo pide); las cifras, en
+     Manrope 700. Nada de tamaños sueltos: se usa --np-fs-N. */
+  --np-fs-64: 4rem;
+  --np-fs-40: 2.5rem;
+  --np-fs-28: 1.75rem;
+  --np-fs-22: 1.375rem;
+  --np-fs-18: 1.125rem;
+  --np-fs-16: 1rem;
+  --np-fs-14: 0.875rem;
+  --np-t-amount: clamp(2.5rem, 9vw, 4rem);
+  --np-t-h1: var(--np-fs-28);
+  --np-t-h2: var(--np-fs-22);
+  --np-t-h3: var(--np-fs-18);
+  --np-t-body: var(--np-fs-16);
+  --np-t-ui: var(--np-fs-16);
+  /* Mínimo para etiquetas pequeñas (kickers, pestañas): 14 px. */
+  --np-t-label: var(--np-fs-14);
 
   /* Relleno de las tarjetas y separación entre bloques de una pantalla
      (más justos en el móvil, abajo). */
@@ -360,7 +368,7 @@ button {
    suelto puede pedir proporcionales (font-variant-numeric: proportional-nums). */
 .np-num {
   font-family: var(--np-font-mono);
-  font-weight: 600;
+  font-weight: 700;
   font-variant-numeric: tabular-nums;
   font-feature-settings: 'tnum';
 }
@@ -401,19 +409,19 @@ button {
 .np-btn[data-size='sm'] {
   height: 2.25rem;
   padding: 0 0.875rem;
-  font-size: 0.875rem;
+  font-size: var(--np-fs-14);
 }
 
 .np-btn[data-size='md'] {
   height: 2.5rem;
   padding: 0 1rem;
-  font-size: 0.875rem;
+  font-size: var(--np-fs-14);
 }
 
 .np-btn[data-size='lg'] {
   height: 3rem;
   padding: 0 1.5rem;
-  font-size: 1rem;
+  font-size: var(--np-fs-16);
 }
 
 /* Botón principal: lima plana con tinta (en los dos temas). */
@@ -481,7 +489,7 @@ button {
   background: var(--np-surface-2);
   color: var(--np-text);
   font-family: var(--np-font-sans);
-  font-size: 0.8125rem;
+  font-size: var(--np-fs-14);
   font-weight: 500;
   line-height: 1.1;
   white-space: nowrap;
@@ -498,7 +506,7 @@ button {
 
 /* En la app del personal (np-staff y np-touch a la vez), 14 px: su mínimo (S-14). */
 .np-staff.np-touch .np-chip {
-  font-size: 0.875rem;
+  font-size: var(--np-fs-14);
 }
 
 .np-chip[data-dashed='true']::before {
@@ -571,7 +579,7 @@ input::placeholder {
   border-radius: var(--np-r-sm);
   background: var(--np-pill-danger-bg);
   color: var(--np-text);
-  font-size: 0.875rem;
+  font-size: var(--np-fs-14);
   font-weight: 500;
   line-height: 1.35;
   text-align: left;
@@ -684,7 +692,7 @@ input::placeholder {
 .np-table thead th {
   text-align: left;
   padding: 0.5rem 0.75rem;
-  font-size: 0.75rem;
+  font-size: var(--np-fs-14);
   font-weight: 500;
   color: var(--np-text-dim);
   letter-spacing: 0;
@@ -697,7 +705,7 @@ input::placeholder {
 
 .np-table tbody td {
   padding: 0.625rem 0.75rem;
-  font-size: 0.875rem;
+  font-size: var(--np-fs-14);
   border-bottom: 1px solid var(--np-border);
   color: var(--np-text);
 }
@@ -759,22 +767,18 @@ html.np-touch {
 .np-touch .np-btn[data-size='md'] {
   height: 3rem;
   padding: 0 1.25rem;
-  font-size: 1rem;
+  font-size: var(--np-fs-16);
 }
 
 .np-touch .np-btn[data-size='lg'] {
   height: 3.5rem;
   padding: 0 1.5rem;
-  font-size: 1.0625rem;
+  font-size: var(--np-fs-16);
 }
 
 @media (max-width: 480px) {
   html.np-staff {
     font-size: 100%;
-    --np-t-h1: clamp(1.75rem, 7vw, 2.25rem);
-    --np-t-h2: 1.375rem;
-    /* 14 px: las etiquetas pequeñas no bajan de lo que eran. */
-    --np-t-label: 0.875rem;
     --np-pad-card: 1rem;
     --np-gap: 0.5rem;
     --np-qr: clamp(10rem, 34vh, 20rem);
@@ -793,7 +797,7 @@ html.np-touch {
   /* Campos sin tamaño propio (fechas, buscadores…): 16 px, o el iPhone amplía
      al tocarlos. :where() no pesa: el tamaño que ponga cada campo manda. */
   :where(.np-staff) :where(input, select, textarea) {
-    font-size: 1rem;
+    font-size: var(--np-fs-16);
   }
 
   .np-staff .np-btn {
@@ -811,13 +815,13 @@ html.np-touch {
   .np-staff .np-btn[data-size='md'] {
     height: 3rem;
     padding: 0 1.25rem;
-    font-size: 1rem;
+    font-size: var(--np-fs-16);
   }
 
   .np-staff .np-btn[data-size='lg'] {
     height: 3.5rem;
     padding: 0 1.5rem;
-    font-size: 1.0625rem;
+    font-size: var(--np-fs-16);
   }
 }
 

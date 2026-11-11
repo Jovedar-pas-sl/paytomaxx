@@ -191,9 +191,9 @@ export function ActivePayment({
         <p className="np-num" style={amountBig}>
           {/* Con datáfono, en grande lo que se cobra en él (con la comisión del servicio). */}
           {formatEurAmount(isPos ? chargeWithFeeCents(payment) : payment.amountCents)}{' '}
-          <span style={{ fontSize: '0.95rem', color: 'var(--np-text-mute)', fontWeight: 500 }}>{payment.currency}</span>
+          <span style={{ fontSize: 'var(--np-fs-16)', color: 'var(--np-text-mute)', fontWeight: 500 }}>{payment.currency}</span>
         </p>
-        {label ? <p style={{ margin: '0.25rem 0 0', fontWeight: 500, fontSize: '1rem' }}>{label}</p> : null}
+        {label ? <p style={{ margin: '0.25rem 0 0', fontWeight: 500, fontSize: 'var(--np-fs-16)' }}>{label}</p> : null}
         {/* Con la «Comisión del servicio»: lo que paga con tarjeta (o, en una recarga, lo que se cobra). */}
         {!isPos && paymentFeeLine(payment) ? <p style={{ ...hintStyle, margin: '0.25rem 0 0' }}>{paymentFeeLine(payment)}</p> : null}
         {isPos && payment.serviceFeeCents ? (
@@ -202,7 +202,7 @@ export function ActivePayment({
           </p>
         ) : null}
         {isPos ? (
-          <p style={{ margin: '0.5rem 0 0', fontSize: '0.875rem', color: 'var(--np-text-mute)' }}>
+          <p style={{ margin: '0.5rem 0 0', fontSize: 'var(--np-fs-14)', color: 'var(--np-text-mute)' }}>
             Llama al camarero. Código: <strong style={refCodeStyle}>#{refCode}</strong>
           </p>
         ) : null}
@@ -211,7 +211,7 @@ export function ActivePayment({
         <StatusPill status={shown} />
       </div>
       {awaiting ? (
-        <p role="status" style={{ margin: 0, textAlign: 'center', fontSize: '0.875rem', color: 'var(--np-warning)' }}>
+        <p role="status" style={{ margin: 0, textAlign: 'center', fontSize: 'var(--np-fs-14)', color: 'var(--np-warning)' }}>
           {reachable
             ? 'El QR ha caducado. Confirmando con el servidor que no se pagó…'
             : 'Sin conexión con el servidor: no sabemos si el cliente pagó. No cobres otra vez hasta que se confirme.'}
@@ -229,7 +229,7 @@ export function ActivePayment({
       </QrCountdown>
       {isPos ? (
         <div style={posNoteStyle}>
-          <p style={{ margin: 0, fontSize: '0.875rem', lineHeight: 1.6 }}>
+          <p style={{ margin: 0, fontSize: 'var(--np-fs-14)', lineHeight: 1.6 }}>
             <strong>Camarero:</strong> escanea el QR con tu móvil (o usa código <strong style={refCodeStyle}>#{refCode}</strong>).
             <br />
             Cobra <strong>{formatEur(chargeWithFeeCents(payment))}</strong> en el datáfono
@@ -255,7 +255,7 @@ export function ActivePayment({
       )}
 
       {error ? (
-        <p role="alert" style={{ color: 'var(--np-danger-text)', margin: 0, fontSize: '0.875rem', fontWeight: 500, textAlign: 'center' }}>
+        <p role="alert" style={{ color: 'var(--np-danger-text)', margin: 0, fontSize: 'var(--np-fs-14)', fontWeight: 500, textAlign: 'center' }}>
           {error}
         </p>
       ) : null}
@@ -329,7 +329,7 @@ function PaidBlock({ payment, tipCents, onNew }: { payment: CreatedPayment; tipC
     <>
       <p style={{ ...kicker, textAlign: 'center' }}>
         Código de confirmación{' '}
-        <strong className="np-num" style={{ fontSize: '1.5rem', color: 'var(--np-text)', letterSpacing: '0.2em' }}>
+        <strong className="np-num" style={{ fontSize: 'var(--np-fs-22)', color: 'var(--np-text)', letterSpacing: '0.2em' }}>
           {confirmationCode(payment.id)}
         </strong>
       </p>
@@ -363,7 +363,7 @@ const kicker: CSSProperties = {
 // Importe grande y suelto: 40/600 en cifras proporcionales.
 const amountBig: CSSProperties = {
   margin: '0.25rem 0 0',
-  fontSize: '2.5rem',
+  fontSize: 'var(--np-fs-40)',
   lineHeight: 1.15,
   fontWeight: 600,
   fontVariantNumeric: 'proportional-nums',
@@ -371,7 +371,7 @@ const amountBig: CSSProperties = {
 
 const hintStyle: CSSProperties = {
   margin: 0,
-  fontSize: '0.875rem',
+  fontSize: 'var(--np-fs-14)',
   color: 'var(--np-text-mute)',
   lineHeight: 1.4,
 };
@@ -404,6 +404,6 @@ const tipStyle: CSSProperties = {
   margin: 0,
   textAlign: 'center',
   fontWeight: 600,
-  fontSize: '1.125rem',
+  fontSize: 'var(--np-fs-18)',
   color: 'var(--np-text)',
 };

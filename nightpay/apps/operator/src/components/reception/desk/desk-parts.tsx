@@ -15,7 +15,7 @@ import s from './desk.module.css';
  */
 export const DESK_FIELD: CSSProperties = {
   height: '3.25rem',
-  fontSize: '1rem',
+  fontSize: 'var(--np-fs-16)',
   fontWeight: 500,
   borderWidth: 1,
   borderColor: 'var(--np-border-hi)',

@@ -54,12 +54,12 @@ const metaWrap: CSSProperties = {
 };
 
 const metaVenue: CSSProperties = {
-  fontSize: '0.875rem',
+  fontSize: 'var(--np-fs-14)',
   fontWeight: 500,
   color: 'var(--np-text-mute)',
 };
 
 const metaTerm: CSSProperties = {
-  fontSize: '0.875rem',
+  fontSize: 'var(--np-fs-14)',
   color: 'var(--np-text-dim)',
 };

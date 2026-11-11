@@ -32,7 +32,7 @@
 /* En Inicio del móvil, más baja: el teclado y el botón de cobrar caben debajo. */
 @media (max-width: 480px) {
   .hero[data-compact='true'] {
-    --np-hero-amount-max: clamp(1.75rem, 4.5vh, 2.75rem);
+    --np-hero-amount-max: clamp(1.75rem, 4.5vh, 2.5rem);
     --np-hero-when: 0.875rem;
     padding: 0.5rem 2.5rem 0.5rem 0.875rem;
     gap: 0;
@@ -42,7 +42,7 @@
 @supports (height: 1svh) {
   @media (max-width: 480px) {
     .hero[data-compact='true'] {
-      --np-hero-amount-max: clamp(1.75rem, 4.5svh, 2.75rem);
+      --np-hero-amount-max: clamp(1.75rem, 4.5svh, 2.5rem);
     }
   }
 }
@@ -143,7 +143,7 @@
   background: transparent;
   border: none;
   border-radius: var(--np-r-sm);
-  font-size: 1rem;
+  font-size: var(--np-fs-16);
   font-weight: 500;
   cursor: pointer;
   transition: background var(--np-d-fast);
@@ -192,7 +192,7 @@
   background: var(--np-surface-2);
   border: 1px solid var(--np-border-hi);
   border-radius: var(--np-r-pill);
-  font-size: 0.9375rem;
+  font-size: var(--np-fs-16);
   font-weight: 700;
   white-space: nowrap;
   cursor: pointer;

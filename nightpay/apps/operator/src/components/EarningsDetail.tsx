@@ -274,7 +274,7 @@ const kicker: CSSProperties = {
 // Cifra grande y suelta: Manrope 600 proporcional, sin apretar.
 const bigAmount: CSSProperties = {
   margin: 0,
-  fontSize: 'clamp(2.25rem, 11vw, 3.25rem)',
+  fontSize: 'clamp(2.5rem, 11vw, 4rem)',
   fontWeight: 600,
   fontVariantNumeric: 'proportional-nums',
   lineHeight: 1.1,
@@ -282,7 +282,7 @@ const bigAmount: CSSProperties = {
 
 const explainStyle: CSSProperties = {
   margin: 0,
-  fontSize: '1rem',
+  fontSize: 'var(--np-fs-16)',
   color: 'var(--np-text-mute)',
   lineHeight: 1.45,
 };
@@ -295,7 +295,7 @@ const groupHead: CSSProperties = {
   alignItems: 'baseline',
   gap: '1rem',
   padding: '0.75rem 0.25rem 0.5rem',
-  fontSize: '1.0625rem',
+  fontSize: 'var(--np-fs-16)',
 };
 
 const listStyle: CSSProperties = {
@@ -315,21 +315,21 @@ const itemStyle: CSSProperties = {
 };
 
 const itemAmount: CSSProperties = {
-  fontSize: '1.0625rem',
+  fontSize: 'var(--np-fs-16)',
   fontWeight: 600,
   whiteSpace: 'nowrap',
 };
 
 const metaText: CSSProperties = {
   margin: '0.125rem 0 0',
-  fontSize: '0.9375rem',
+  fontSize: 'var(--np-fs-16)',
   color: 'var(--np-text-mute)',
   lineHeight: 1.4,
 };
 
 const muted: CSSProperties = { color: 'var(--np-text-mute)', fontWeight: 500 };
 
-const noteStyle: CSSProperties = { margin: 0, color: 'var(--np-text-mute)', fontSize: '0.9375rem' };
+const noteStyle: CSSProperties = { margin: 0, color: 'var(--np-text-mute)', fontSize: 'var(--np-fs-16)' };
 
 const emptyText: CSSProperties = {
   margin: 0,

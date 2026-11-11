@@ -102,5 +102,5 @@ const noticeStyle: CSSProperties = {
   maxWidth: '24rem',
   textAlign: 'center',
   color: 'var(--np-warning)',
-  fontSize: '0.9375rem',
+  fontSize: 'var(--np-fs-16)',
 };

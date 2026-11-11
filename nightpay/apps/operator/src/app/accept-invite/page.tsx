@@ -86,7 +86,7 @@ function Inner() {
               Activar
             </Button>
             {error ? (
-              <p role="alert" style={{ color: 'var(--np-danger)', margin: 0, textAlign: 'center', fontSize: '0.875rem' }}>
+              <p role="alert" style={{ color: 'var(--np-danger)', margin: 0, textAlign: 'center', fontSize: 'var(--np-fs-14)' }}>
                 {error}
               </p>
             ) : null}
@@ -112,7 +112,7 @@ const enterStyle = {
   flexWrap: 'wrap' as const,
   justifyContent: 'center',
   color: 'var(--np-text-mute)',
-  fontSize: '0.9375rem',
+  fontSize: 'var(--np-fs-16)',
 };
 
 const pageStyle = {

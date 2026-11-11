@@ -170,7 +170,7 @@ export function SelfOnboardingClient({ token }: Props) {
           <Logo height="2rem" />
           <h1 style={{ marginTop: '1rem', color: 'var(--np-danger)' }}>Link inválido</h1>
           <p style={{ color: 'var(--np-text-mute)', marginTop: '0.5rem' }}>{error}</p>
-          <p style={{ fontSize: '0.85rem', color: 'var(--np-text-dim)', marginTop: '1rem' }}>
+          <p style={{ fontSize: 'var(--np-fs-14)', color: 'var(--np-text-dim)', marginTop: '1rem' }}>
             Pídele al admin del local un link nuevo.
           </p>
           {/* Salida: si ya tiene cuenta, a entrar en la app. */}
@@ -187,14 +187,14 @@ export function SelfOnboardingClient({ token }: Props) {
       <main className="np-screen" style={pageStyle}>
         <Card style={{ ...cardStyle, textAlign: 'center', borderColor: 'var(--np-success)' }}>
           <Logo height="2rem" />
-          <h1 style={{ marginTop: '1rem', color: 'var(--np-success)', fontSize: '1.5rem' }}>{screen.title}</h1>
+          <h1 style={{ marginTop: '1rem', color: 'var(--np-success)', fontSize: 'var(--np-fs-22)' }}>{screen.title}</h1>
           <p style={{ color: 'var(--np-text-mute)', marginTop: '0.75rem' }}>{screen.text}</p>
           {payoutIgnored ? (
             <p role="status" style={{ marginTop: '0.75rem', color: 'var(--np-warning)' }}>
               Tu forma de cobro no se ha cambiado: la configura el admin del local. Si quieres otra, díselo.
             </p>
           ) : null}
-          <p style={{ marginTop: '1rem', fontSize: '0.85rem', color: 'var(--np-text-dim)' }}>
+          <p style={{ marginTop: '1rem', fontSize: 'var(--np-fs-14)', color: 'var(--np-text-dim)' }}>
             Ya puedes cerrar esta página o entrar en la app.
           </p>
           <a href="/" className="np-btn" data-variant="ghost" data-size="md" style={{ marginTop: '0.75rem' }}>
@@ -210,16 +210,16 @@ export function SelfOnboardingClient({ token }: Props) {
     <main className="np-screen" style={pageStyle}>
       <header style={headerStyle}>
         <Logo height="2rem" />
-        <p style={{ margin: '0.5rem 0 0', fontSize: '0.85rem', color: 'var(--np-text-mute)' }}>
+        <p style={{ margin: '0.5rem 0 0', fontSize: 'var(--np-fs-14)', color: 'var(--np-text-mute)' }}>
           {profile.venueName}
         </p>
       </header>
 
       <Card style={cardStyle}>
-        <h1 style={{ margin: 0, fontSize: '1.4rem', fontWeight: 600, letterSpacing: '-0.02em' }}>
+        <h1 style={{ margin: 0, fontSize: 'var(--np-fs-22)', fontWeight: 600, letterSpacing: '-0.02em' }}>
           Tu perfil
         </h1>
-        <p style={{ margin: '0.5rem 0 0', fontSize: '0.9rem', color: 'var(--np-text-mute)' }}>
+        <p style={{ margin: '0.5rem 0 0', fontSize: 'var(--np-fs-14)', color: 'var(--np-text-mute)' }}>
           Hola{profile.displayName ? `, ${profile.displayName}` : ''} 👋. Esta página es para que
           rellenes tu información (pasaporte, wallet, docs). Te ahorra que tu admin te lo pregunte.
         </p>
@@ -391,7 +391,7 @@ export function SelfOnboardingClient({ token }: Props) {
           </section>
 
           {error ? (
-            <p role="alert" style={{ color: 'var(--np-danger)', margin: 0, fontSize: '0.875rem' }}>
+            <p role="alert" style={{ color: 'var(--np-danger)', margin: 0, fontSize: 'var(--np-fs-14)' }}>
               {error}
             </p>
           ) : null}
@@ -446,7 +446,7 @@ function CheckBoxRow({
       <div style={{ flex: 1 }}>
         <p style={{
           margin: 0,
-          fontSize: '0.9rem',
+          fontSize: 'var(--np-fs-14)',
           fontWeight: 500,
           color: warn && checked ? '#78350f' : 'var(--np-text)',
         }}>
@@ -454,7 +454,7 @@ function CheckBoxRow({
         </p>
         <p style={{
           margin: '0.15rem 0 0',
-          fontSize: '0.78rem',
+          fontSize: 'var(--np-fs-14)',
           color: warn && checked ? '#78350f' : 'var(--np-text-mute)',
         }}>
           {description}
@@ -483,7 +483,7 @@ const cardStyle: CSSProperties = {
 
 const sectionHead: CSSProperties = {
   margin: 0,
-  fontSize: '0.78rem',
+  fontSize: 'var(--np-fs-14)',
   letterSpacing: '0.12em',
   textTransform: 'uppercase',
   color: 'var(--np-text-dim)',
@@ -492,7 +492,7 @@ const sectionHead: CSSProperties = {
 
 const selectLabel: CSSProperties = {
   display: 'block',
-  fontSize: '0.85rem',
+  fontSize: 'var(--np-fs-14)',
   fontWeight: 500,
   color: 'var(--np-text-mute)',
   marginBottom: '0.4rem',
@@ -500,7 +500,7 @@ const selectLabel: CSSProperties = {
 
 const hintStyle: CSSProperties = {
   margin: '0.4rem 0 0',
-  fontSize: '0.78rem',
+  fontSize: 'var(--np-fs-14)',
   color: 'var(--np-text-dim)',
 };
 
@@ -510,7 +510,7 @@ const textareaStyle: CSSProperties = {
   border: '1px solid var(--np-border)',
   borderRadius: 'var(--np-r-md)',
   padding: '0.625rem 0.875rem',
-  fontSize: '0.875rem',
+  fontSize: 'var(--np-fs-14)',
   color: 'var(--np-text)',
   fontFamily: 'inherit',
   resize: 'vertical',

@@ -149,7 +149,7 @@ export function PasskeySheet({ open, onClose }: { open: boolean; onClose: () => 
           </Button>
         ) : null}
         {error ? (
-          <p role="alert" style={{ margin: 0, color: 'var(--np-danger)', fontSize: '0.875rem' }}>
+          <p role="alert" style={{ margin: 0, color: 'var(--np-danger)', fontSize: 'var(--np-fs-14)' }}>
             {error}
           </p>
         ) : null}
@@ -160,4 +160,4 @@ export function PasskeySheet({ open, onClose }: { open: boolean; onClose: () => 
 
 const stack: CSSProperties = { display: 'flex', flexDirection: 'column', gap: '0.75rem' };
 const row: CSSProperties = { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.75rem' };
-const note: CSSProperties = { margin: 0, fontSize: '0.875rem', lineHeight: 1.45, color: 'var(--np-text-mute)' };
+const note: CSSProperties = { margin: 0, fontSize: 'var(--np-fs-14)', lineHeight: 1.45, color: 'var(--np-text-mute)' };

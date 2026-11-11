@@ -248,7 +248,7 @@ const CARD_PAD = 'clamp(1rem, 4vw, 2rem)';
 
 // Etiquetas 14/500 en t2, sin mayúsculas ni espaciado (Grafito).
 const sectionLabel: CSSProperties = {
-  fontSize: '0.875rem',
+  fontSize: 'var(--np-fs-14)',
   fontWeight: 500,
   color: 'var(--np-text-mute)',
   margin: 0,
@@ -284,12 +284,12 @@ const urlCode: CSSProperties = {
 
 const awaitStyle: CSSProperties = {
   margin: '1rem 0 0',
-  fontSize: '0.9375rem',
+  fontSize: 'var(--np-fs-16)',
   color: 'var(--np-warning)',
 };
 
 const hintStyle: CSSProperties = {
   margin: '0.75rem 0 0',
-  fontSize: '0.875rem',
+  fontSize: 'var(--np-fs-14)',
   color: 'var(--np-text-mute)',
 };

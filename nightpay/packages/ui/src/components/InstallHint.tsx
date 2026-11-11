@@ -145,6 +145,6 @@ const card: CSSProperties = {
   boxShadow: 'inset 0 0 0 1px var(--np-border)',
   textAlign: 'left',
 };
-const title: CSSProperties = { fontSize: '1rem', fontWeight: 600, color: 'var(--np-text)' };
-const text: CSSProperties = { margin: 0, fontSize: '0.875rem', lineHeight: 1.45, color: 'var(--np-text-mute)' };
+const title: CSSProperties = { fontSize: 'var(--np-fs-16)', fontWeight: 600, color: 'var(--np-text)' };
+const text: CSSProperties = { margin: 0, fontSize: 'var(--np-fs-14)', lineHeight: 1.45, color: 'var(--np-text-mute)' };
 const actions: CSSProperties = { display: 'flex', gap: '0.5rem', flexWrap: 'wrap' };

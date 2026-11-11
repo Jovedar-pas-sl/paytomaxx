@@ -82,7 +82,7 @@ function ReviewCard({
 
   return (
     <Card style={cardStyle}>
-      <p style={{ margin: 0, fontWeight: 700, fontSize: '1.0625rem' }}>{entry.title}</p>
+      <p style={{ margin: 0, fontWeight: 700, fontSize: 'var(--np-fs-16)' }}>{entry.title}</p>
       <p style={muted}>{entry.message}</p>
       <p style={muted}>
         {operationNumber ? `Operación ${operationNumber}` : 'Sin número de operación'}
@@ -120,4 +120,4 @@ const cardStyle: CSSProperties = {
   gap: '0.5rem',
   border: '2px solid var(--np-warning)',
 };
-const muted: CSSProperties = { margin: 0, color: 'var(--np-text-mute)', fontSize: '0.9375rem' };
+const muted: CSSProperties = { margin: 0, color: 'var(--np-text-mute)', fontSize: 'var(--np-fs-16)' };
