@@ -122,7 +122,7 @@ export function TonightStrip({
       <dl className="np-tonight-grid">
         {/* Qué cuenta: el desglose (o, sin él, de qué está hecho) y, al pasar el ratón, la frase entera. */}
         <div className="np-tonight-fig" data-hero="" title={COBRADO_HELP}>
-          <dt>Cobrado</dt>
+          <dt>Pagado esta noche</dt>
           <dd className="np-count">{chargedShown !== null ? formatEur(chargedShown) : night === undefined ? <Skel width="9rem" height="2.75rem" /> : '—'}</dd>
           {cobradoLine ? <span className="np-tonight-note">{cobradoLine}</span> : null}
         </div>
