@@ -292,7 +292,7 @@ function ZSummary({ summary: s }: { summary: NightSummary }) {
     ...(s.walletCashPayoutsCents ? ([['Saldo devuelto en efectivo', -s.walletCashPayoutsCents]] as Array<[string, number]>) : []),
     // Lo cobrado menos lo devuelto; no es el «Neto sin el personal» de abajo (ni el del resumen de las 9:00).
     [Z_NET_LABEL, s.netCents],
-    ['Para las chicas', s.chicaNetCents],
+    ['Para las compañeras', s.chicaNetCents],
     // Solo si el local da parte a los camareros de las copas con invitación (de fábrica, nada).
     ...(s.camareroNetCents ? ([['Para los camareros', s.camareroNetCents]] as Array<[string, number]>) : []),
     // La «Comisión del servicio» entra con lo cobrado, pero se debe a OxioPay (no es del local).
@@ -307,7 +307,7 @@ function ZSummary({ summary: s }: { summary: NightSummary }) {
         {totals.map(([label, cents]) => (
           <div key={label} style={totalBox}>
             <span style={hintSmall}>{label}</span>
-            <span className="np-num" style={{ fontSize: '1.25rem', fontWeight: 700 }}>
+            <span className="np-num" style={{ fontSize: '1.375rem', fontWeight: 700 }}>
               {formatEur(cents)}
             </span>
           </div>
@@ -330,7 +330,7 @@ function ZSummary({ summary: s }: { summary: NightSummary }) {
           <table className="np-table">
             <thead>
               <tr>
-                <th>Chica</th>
+                <th>Compañera</th>
                 <th style={numHead}>Cobros</th>
                 <th style={numHead}>Cobrado</th>
                 <th style={numHead}>Comisión</th>
@@ -341,7 +341,7 @@ function ZSummary({ summary: s }: { summary: NightSummary }) {
             <tbody>
               {s.perChica.map((c) => (
                 <tr key={c.name}>
-                  <td data-label="Chica" data-card="title">
+                  <td data-label="Compañera" data-card="title">
                     {c.name}
                   </td>
                   <td data-label="Cobros" style={numTd}>
@@ -399,7 +399,7 @@ function AdjustmentsBox({ adjustments: a }: { adjustments?: NightAdjustments }) 
     ['Cobrado', s.chargedCents],
     ['Devoluciones', -s.refundsCents],
     [Z_NET_LABEL, s.netCents],
-    ['Para las chicas', s.chicaNetCents],
+    ['Para las compañeras', s.chicaNetCents],
     ...(s.camareroNetCents ? ([['Para los camareros', s.camareroNetCents]] as Array<[string, number]>) : []),
     ...(s.serviceFeeNetCents ? ([['Comisión del servicio · se debe a OxioPay', s.serviceFeeNetCents]] as Array<[string, number]>) : []),
     [zNetLabel(s), s.venueNetCents],
@@ -424,7 +424,7 @@ function AdjustmentsBox({ adjustments: a }: { adjustments?: NightAdjustments }) 
       {a.reversedConsumptionsCount > 0 ? (
         <p style={hintSmall}>
           Consumos del saldo anulados: {a.reversedConsumptionsCount} ({formatEur(a.reversedConsumptionsCents)}); la
-          parte de las chicas que se descuenta: {formatEur(a.reversedConsumptionsChicaCents)}.
+          parte de las compañeras que se descuenta: {formatEur(a.reversedConsumptionsChicaCents)}.
         </p>
       ) : null}
     </div>
@@ -432,12 +432,12 @@ function AdjustmentsBox({ adjustments: a }: { adjustments?: NightAdjustments }) 
 }
 
 const titleStyle: CSSProperties = { margin: 0, fontSize: 'var(--np-t-h3)', fontWeight: 600 };
-const hintStyle: CSSProperties = { margin: '0.25rem 0 0', color: 'var(--np-text-mute)', fontSize: '0.9375rem' };
+const hintStyle: CSSProperties = { margin: '0.25rem 0 0', color: 'var(--np-text-mute)', fontSize: '1rem' };
 const hintSmall: CSSProperties = { margin: 0, color: 'var(--np-text-mute)', fontSize: '0.875rem' };
 const rowStyle: CSSProperties = { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem' };
 const liveStyle: CSSProperties = {
-  fontSize: '0.75rem',
-  fontWeight: 500,
+  fontSize: '0.875rem',
+  fontWeight: 400,
   // «En vivo» es un estado: en verde (el lima es para la acción y el «pagado»).
   color: 'var(--np-success)',
 };
@@ -446,7 +446,7 @@ const pendingBox: CSSProperties = {
   borderRadius: 'var(--np-r-md)',
   padding: '0.75rem 1rem',
   color: 'var(--np-warning)',
-  fontSize: '0.9375rem',
+  fontSize: '1rem',
 };
 const adjustBox: CSSProperties = {
   display: 'flex',

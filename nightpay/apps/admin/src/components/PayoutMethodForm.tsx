@@ -226,8 +226,8 @@ export function PayoutMethodForm({ method, address, metadata, label, onChange, d
 
 const labelStyle: CSSProperties = {
   display: 'block',
-  fontSize: '0.8125rem',
-  fontWeight: 500,
+  fontSize: '0.875rem',
+  fontWeight: 400,
   color: 'var(--np-text-mute)',
   marginBottom: '0.375rem',
 };

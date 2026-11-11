@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { UNDO_RESOLVE_MS, createDelayedActions, resolveNoteOk, undoSecondsLeft } from './undo-resolve';
+import { UNDO_RESOLVE_MS, createDelayedActions, resolveNoteOk, undoMsLeft, undoSecondsLeft } from './undo-resolve';
 
 // «Resolver» un aviso (B11): se marca de verdad a los 10 s; hasta entonces se
 // puede deshacer. Si se cierra el panel antes, se manda en ese momento.
@@ -84,6 +84,14 @@ describe('cuenta atrás', () => {
     expect(undoSecondsLeft(10_000, 9_001)).toBe(1);
     expect(undoSecondsLeft(10_000, 10_000)).toBe(0);
     expect(undoSecondsLeft(10_000, 12_000)).toBe(0);
+  });
+});
+
+describe('barra de «Deshacer»', () => {
+  it('milisegundos que quedan, nunca negativos (la barra se vacía en UNDO_RESOLVE_MS)', () => {
+    expect(undoMsLeft(UNDO_RESOLVE_MS, 0)).toBe(10_000);
+    expect(undoMsLeft(UNDO_RESOLVE_MS, 2_500)).toBe(7_500);
+    expect(undoMsLeft(UNDO_RESOLVE_MS, 12_000)).toBe(0);
   });
 });
 

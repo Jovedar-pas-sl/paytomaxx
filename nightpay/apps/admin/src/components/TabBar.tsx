@@ -20,6 +20,8 @@ interface Props<K extends string> {
   className?: string;
   /** Globo con un número junto a la etiqueta (p. ej. lo que hay por aprobar) y lo que se lee. */
   badges?: Partial<Record<K, { text: string; spoken: string } | null>>;
+  /** Pestañas que aún no se sabe si salen: una silueta en su sitio (la abierta siempre se pinta). */
+  pending?: readonly K[];
 }
 
 export function tabId(prefix: string, key: string): string {
@@ -45,6 +47,7 @@ export function TabBar<K extends string>({
   size = 'md',
   className,
   badges,
+  pending,
 }: Props<K>) {
   const buttons = useRef(new Map<K, HTMLButtonElement>());
 
@@ -95,6 +98,13 @@ export function TabBar<K extends string>({
       {tabs.map((t, i) => {
         const selected = t.key === active;
         const badge = badges?.[t.key] ?? null;
+        if (!selected && pending?.includes(t.key)) {
+          return (
+            <span key={t.key} className="np-tab np-tab-skel" aria-hidden="true">
+              <span className="np-skel" style={{ width: '5.5rem', height: '1rem' }} />
+            </span>
+          );
+        }
         return (
           <button
             key={t.key}

@@ -191,7 +191,7 @@ export function PayoutConfirmModal({
       <Modal open onClose={closeGuarded} title="Pedido al dueño" width="32rem">
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
           <Notice tone="info">{requested.message}</Notice>
-          <p style={{ margin: 0, fontSize: '0.9375rem' }}>
+          <p style={{ margin: 0, fontSize: '1rem' }}>
             Pago de <strong className="np-num">{formatEur(requested.amountCents)}</strong> a {operatorName}. No se apunta
             hasta que el dueño lo apruebe; lo verás en «Mis solicitudes» (y, si lo rechaza, el motivo).
           </p>
@@ -219,7 +219,7 @@ export function PayoutConfirmModal({
   return (
     <Modal open onClose={closeGuarded} title={asking ? 'Pedir pago al dueño' : 'Marcar pagado'} width="32rem">
       <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-        <p style={{ margin: 0, fontSize: '0.9375rem' }}>
+        <p style={{ margin: 0, fontSize: '1rem' }}>
           Saldo pendiente a liquidar: <strong className="np-num">{formatEur(balanceCents)}</strong>
           {autoVerifiable ? <RateNote rate={rate} balanceCents={balanceCents} currency={currency} /> : null}
         </p>
@@ -227,7 +227,7 @@ export function PayoutConfirmModal({
 
         {payoutMethod ? (
           <div style={methodBox}>
-            <p style={methodKicker}>Método de la chica</p>
+            <p style={methodKicker}>Método de la compañera</p>
             <p style={{ margin: '0.25rem 0 0' }}>
               <strong>{PAYOUT_METHOD_LABELS[payoutMethod]}</strong>
             </p>
@@ -244,7 +244,7 @@ export function PayoutConfirmModal({
               </p>
             ) : null}
             {payoutLabel ? (
-              <p style={{ margin: '0.25rem 0 0', fontSize: '0.8125rem', color: 'var(--np-text-dim)' }}>
+              <p style={{ margin: '0.25rem 0 0', fontSize: '0.875rem', color: 'var(--np-text-dim)' }}>
                 Alias: {payoutLabel}
               </p>
             ) : null}
@@ -258,7 +258,7 @@ export function PayoutConfirmModal({
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
             <Notice tone="warning">
-              Esta chica no tiene método de cobro guardado. Elige cómo le has pagado. Para verificar pagos cripto
+              Esta compañera no tiene método de cobro guardado. Elige cómo le has pagado. Para verificar pagos cripto
               solos, guarda antes su dirección en Editar.
             </Notice>
             <label htmlFor={railId} style={fieldLabel}>
@@ -450,14 +450,14 @@ const methodBox: CSSProperties = {
 const methodKicker: CSSProperties = {
   margin: 0,
   color: 'var(--np-text-mute)',
-  fontSize: '0.75rem',
-  fontWeight: 500,
+  fontSize: '0.875rem',
+  fontWeight: 400,
 };
 
 const addressStyle: CSSProperties = {
   margin: '0.25rem 0 0',
   fontFamily: 'var(--np-font-mono)',
-  fontSize: '0.8125rem',
+  fontSize: '0.875rem',
   color: 'var(--np-text-mute)',
   wordBreak: 'break-all',
 };
@@ -467,15 +467,15 @@ const copyBtn: CSSProperties = {
   background: 'none',
   border: '1px solid var(--np-border)',
   color: 'var(--np-text-mute)',
-  fontSize: '0.75rem',
+  fontSize: '0.875rem',
   padding: '0.15rem 0.5rem',
   borderRadius: '4px',
   cursor: 'pointer',
 };
 
 const fieldLabel: CSSProperties = {
-  fontSize: '0.8125rem',
-  fontWeight: 500,
+  fontSize: '0.875rem',
+  fontWeight: 400,
   color: 'var(--np-text-mute)',
 };
 
@@ -492,6 +492,6 @@ const confirmStyle: CSSProperties = {
 
 const inlineCode: CSSProperties = {
   fontFamily: 'var(--np-font-mono)',
-  fontSize: '0.8125rem',
+  fontSize: '0.875rem',
   wordBreak: 'break-all',
 };

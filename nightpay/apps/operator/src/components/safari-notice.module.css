@@ -2,7 +2,7 @@
 
 .line {
   margin: 0;
-  font-size: 0.9375rem;
+  font-size: var(--np-fs-16);
   font-weight: 400;
   line-height: 1.4;
   color: var(--np-text-mute);
@@ -18,7 +18,7 @@
   border: none;
   background: transparent;
   color: var(--np-text);
-  font: 500 0.9375rem/1.4 var(--np-font-sans);
+  font: 500 var(--np-fs-16)/1.4 var(--np-font-sans);
   text-decoration: underline;
   text-decoration-color: var(--np-border-hi);
   text-underline-offset: 4px;

@@ -184,7 +184,7 @@ function ResolveRefundForm({
       </div>
       <p style={metaStyle}>
         {outcome === 'SUCCEEDED'
-          ? 'Se descuenta del cobro y de la parte de la chica.'
+          ? 'Se descuenta del cobro y de la parte de la compañera.'
           : outcome === 'FAILED'
             ? 'Se libera lo reservado: se podrá devolver otra vez.'
             : ''}
@@ -214,7 +214,7 @@ function ResolveRefundForm({
   );
 }
 
-const metaStyle: CSSProperties = { margin: 0, fontSize: '0.8125rem', color: 'var(--np-text-mute)' };
+const metaStyle: CSSProperties = { margin: 0, fontSize: '0.875rem', color: 'var(--np-text-mute)' };
 const listStyle: CSSProperties = { listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: '0.5rem' };
 const itemStyle: CSSProperties = {
   display: 'flex',

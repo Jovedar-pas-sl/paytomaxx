@@ -35,11 +35,11 @@ export const TOURS = {
     screen: 'panel-mapa-dinero',
     steps: [
       { target: 'mapa-fechas', title: 'Fechas', text: 'Por defecto sale esta noche. Cambia las fechas para ver otro periodo y vuelve con «Esta noche».' },
-      { target: 'mapa-entra', title: 'Cómo entra', text: 'De dónde viene el dinero. Toca una cifra para ver los cobros que la forman.' },
-      { target: 'mapa-seccion', title: 'Por sección', text: 'Cuánto se ha vendido en cada sección de la carta (Copas, Habitaciones…).' },
-      { target: 'mapa-reparto', title: 'Cómo se reparte', text: 'De lo vendido, cuánto es del local y cuánto de las compañeras.' },
-      { target: 'mapa-donde', title: 'Dónde está', text: 'Dónde está el dinero ahora (banco, caja, saldos de clientes) y de quién es.' },
-      { target: 'mapa-sale', title: 'Qué sale', text: 'Lo que sale: devoluciones, pagos a compañeras y lo demás.' },
+      { target: 'mapa-ganado', title: '¿Cuánto he ganado?', text: 'Lo tuyo: lo vendido menos lo de las compañeras, las comisiones y lo que se haya devuelto de ventas.' },
+      { target: 'mapa-caja', title: 'La caja', text: 'Lo que debería haber en la caja: fondo más efectivo cobrado, menos salidas. Con la noche abierta, «Cerrar la caja» te lleva a cerrarla.' },
+      { target: 'mapa-banco', title: 'El banco', text: 'Lo cobrado con tarjeta, menos lo devuelto. El día de abono lo confirma el banco.' },
+      { target: 'mapa-debo', title: 'Lo que debes', text: 'Lo que se debe a las compañeras. «Ver por compañera» abre sus pagos.' },
+      { target: 'mapa-vendido', title: 'Lo vendido', text: 'Cuánto se ha vendido en cada sección de la carta. Toca una para ver sus cobros.' },
     ],
   },
   incidents: {

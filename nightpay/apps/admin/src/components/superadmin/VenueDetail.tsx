@@ -65,7 +65,7 @@ export function VenueDetailView({ venueId, onBack }: Props) {
                   ['Negocio', v.business?.name ?? 'Sin negocio'],
                   ['Alta', formatDateTime(v.createdAt, tz, 'date')],
                   ['Personas', v.counts.users],
-                  ['Chicas', v.counts.operators],
+                  ['Compañeras', v.counts.operators],
                   ['Datáfonos', v.counts.terminals],
                 ]}
               />

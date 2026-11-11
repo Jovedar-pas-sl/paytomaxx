@@ -748,6 +748,10 @@ model VenueNight {
   cashDiffCents     Int?
   cashNote          String?
 
+  // «Los más pedidos arriba» (20261112100000): { computedAt, units: { [productoId]: unidades } },
+  // calculado una vez al pedir la carta por primera vez esa noche; null hasta entonces.
+  cartaOrder Json?
+
   venue Venue @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   @@index([tenantId, openedAt(sort: Desc)])

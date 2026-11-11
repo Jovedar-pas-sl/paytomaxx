@@ -7,7 +7,7 @@ import { formatDateTime } from '@/lib/dates';
 import { fixTabFor, incidentHeading, incidentHint, incidentKey, kindMeta, type ResolvedIncident } from '@/lib/incident-inbox';
 import { formatEur } from '@/lib/money';
 import type { PanelTab, TabKey } from '@/lib/roles';
-import { resolveNoteOk, undoSecondsLeft } from '@/lib/undo-resolve';
+import { UNDO_RESOLVE_MS, resolveNoteOk, undoMsLeft, undoSecondsLeft } from '@/lib/undo-resolve';
 import { useIncidents } from '@/lib/use-incidents';
 import { useVenueTimezone } from '@/lib/venue-context';
 import { Notice } from './Notice';
@@ -222,6 +222,8 @@ function OpenItem({
 function UndoItem({ incident: i, until, onUndo }: { incident: Incident; until: number; onUndo: () => void }) {
   const now = useNow();
   const actions = useRef<HTMLDivElement>(null);
+  // Lo que queda al aparecer: la barra se vacía sola en ese tiempo (CSS), sin repintar cada segundo.
+  const [startMs] = useState(() => undoMsLeft(until, Date.now()));
   useEffect(() => {
     const focused = document.activeElement;
     if (!focused || focused === document.body) actions.current?.querySelector('button')?.focus();
@@ -238,6 +240,10 @@ function UndoItem({ incident: i, until, onUndo }: { incident: Incident; until: n
           Deshacer
         </Button>
         <span style={hintSmall}>Se quita de la bandeja en {undoSecondsLeft(until, now)} s.</span>
+      </div>
+      {/* La barra se vacía en 10 s. Con «reducir movimiento» no se anima: se queda donde toca y el texto cuenta los segundos. */}
+      <div className="np-drain" aria-hidden="true">
+        <i style={{ animationDuration: `${startMs}ms`, transform: `scaleX(${undoMsLeft(until, now) / UNDO_RESOLVE_MS})` }} />
       </div>
     </li>
   );
@@ -260,6 +266,6 @@ function ResolvedItem({ item }: { item: ResolvedIncident }) {
 }
 
 const titleStyle: CSSProperties = { margin: 0, fontSize: 'var(--np-t-h3)', fontWeight: 600 };
-const hintStyle: CSSProperties = { margin: '0.25rem 0 0', color: 'var(--np-text-mute)', fontSize: '0.9375rem' };
+const hintStyle: CSSProperties = { margin: '0.25rem 0 0', color: 'var(--np-text-mute)', fontSize: '1rem' };
 const hintSmall: CSSProperties = { margin: 0, color: 'var(--np-text-mute)', fontSize: '0.875rem' };
 const groupStyle: CSSProperties = { display: 'flex', flexDirection: 'column', gap: '0.625rem' };

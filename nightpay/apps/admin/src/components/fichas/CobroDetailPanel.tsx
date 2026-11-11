@@ -180,7 +180,7 @@ export function CobroDetailPanel({ row }: { row: CobroRow }) {
 function Block({ title, children }: { title: string; children: ReactNode }) {
   return (
     <section style={{ display: 'flex', flexDirection: 'column', gap: '0.375rem' }}>
-      <h3 style={{ margin: 0, fontSize: '0.8125rem', fontWeight: 600, color: 'var(--np-text-mute)' }}>{title}</h3>
+      <h3 style={{ margin: 0, fontSize: '0.875rem', fontWeight: 600, color: 'var(--np-text-mute)' }}>{title}</h3>
       {children}
     </section>
   );

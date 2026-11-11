@@ -91,9 +91,9 @@ const wrapperStyle: CSSProperties = {
 };
 
 const labelStyle: CSSProperties = {
-  fontSize: '0.75rem',
+  fontSize: '0.875rem',
   color: 'var(--np-text-dim)',
-  fontWeight: 500,
+  fontWeight: 400,
 };
 
 // Campo del panel: 36 px, radio 10 y filete de lo que se toca.
@@ -105,12 +105,12 @@ const selectStyle: CSSProperties = {
   background: 'var(--np-surface)',
   color: 'var(--np-text)',
   fontSize: '0.875rem',
-  fontWeight: 500,
+  fontWeight: 400,
   cursor: 'pointer',
 };
 
 const errStyle: CSSProperties = {
   margin: 0,
-  fontSize: '0.75rem',
+  fontSize: '0.875rem',
   color: 'var(--np-danger-text)',
 };

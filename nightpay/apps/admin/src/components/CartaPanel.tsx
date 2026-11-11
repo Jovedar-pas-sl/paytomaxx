@@ -12,6 +12,7 @@ import { enabledSections, sectionLabelOf } from '@/lib/money-map';
 import { useSections } from '@/lib/use-sections';
 import { SectionDot } from './fichas/SectionChip';
 import { Notice } from './Notice';
+import { SwitchLine } from './ToggleSwitch';
 
 /**
  * Carta del local (Fase 1A; el mapa del dinero). Lo que el personal toca
@@ -96,7 +97,7 @@ export function CartaPanel() {
             <h3 style={groupTitle}>
               {group.color ? <SectionDot color={group.color} /> : null}
               {group.label}
-              {group.enabled ? null : <span style={{ color: 'var(--np-text-dim)', fontWeight: 500 }}> · apagada</span>}
+              {group.enabled ? null : <span style={{ color: 'var(--np-text-dim)', fontWeight: 400 }}> · apagada</span>}
             </h3>
             {group.items.map((item, ii) =>
               editing === item.id ? (
@@ -127,14 +128,14 @@ export function CartaPanel() {
                       <p style={{ margin: 0, fontWeight: 600, fontSize: '1rem' }}>
                         {item.name}
                         {item.durationMin ? (
-                          <span style={{ color: 'var(--np-text-mute)', fontWeight: 500 }}> · {item.durationMin} min</span>
+                          <span style={{ color: 'var(--np-text-mute)', fontWeight: 400 }}> · {item.durationMin} min</span>
                         ) : null}
                       </p>
                       <p style={{ ...hintStyle, marginTop: '0.125rem' }}>
                         {item.components && item.components.length > 0
                           ? `Pack: ${item.components.map((c) => `${sectionLabelOf(sections, c.category)} ${formatEur(c.amountCents)}`).join(' + ')}`
                           : sectionLabelOf(sections, item.category)}
-                        {item.isInvitation ? ' · Invitación (se reparte con la chica)' : ''}
+                        {item.isInvitation ? ' · Invitación (se reparte con la compañera)' : ''}
                         {item.active ? '' : ' · desactivado'}
                       </p>
                     </div>
@@ -260,21 +261,16 @@ function ServiceForm({
         </Select>
       </div>
 
-      <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontWeight: 600 }}>
-        <input type="checkbox" checked={isPack} onChange={(e) => setIsPack(e.target.checked)} style={{ width: '1.25rem', height: '1.25rem' }} />
-        Es un pack (se reparte entre secciones)
-      </label>
+      <SwitchLine checked={isPack} onChange={setIsPack}>
+        <b style={{ fontWeight: 600 }}>Es un pack (se reparte entre secciones)</b>
+      </SwitchLine>
 
       {canInvite ? (
-        <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontWeight: 600 }}>
-          <input
-            type="checkbox"
-            checked={isInvite}
-            onChange={(e) => setIsInvite(e.target.checked)}
-            style={{ width: '1.25rem', height: '1.25rem' }}
-          />
-          Es una copa con invitación (el cliente invita a una chica: se escanea su QR y se reparte con el local según Ajustes → Invitaciones)
-        </label>
+        <SwitchLine checked={isInvite} onChange={setIsInvite}>
+          <b style={{ fontWeight: 600 }}>
+            Es una copa con invitación (el cliente invita a una compañera: se escanea su QR y se reparte con el local según Ajustes → Invitaciones)
+          </b>
+        </SwitchLine>
       ) : null}
 
       {isPack ? (
@@ -351,9 +347,9 @@ function ServiceForm({
 const titleStyle: CSSProperties = { margin: 0, fontSize: 'var(--np-t-h3)', fontWeight: 600 };
 const subtitleStyle: CSSProperties = { margin: '0 0 0.875rem', fontSize: '1rem', fontWeight: 600 };
 const groupTitle: CSSProperties = { margin: '0.5rem 0 0', fontSize: '1rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.5rem' };
-const hintStyle: CSSProperties = { margin: '0.25rem 0 0', color: 'var(--np-text-mute)', fontSize: '0.9375rem' };
+const hintStyle: CSSProperties = { margin: '0.25rem 0 0', color: 'var(--np-text-mute)', fontSize: '1rem' };
 const rowStyle: CSSProperties = { display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' };
-const priceStyle: CSSProperties = { fontSize: '1.25rem', fontWeight: 600, marginLeft: 'auto' };
+const priceStyle: CSSProperties = { fontSize: '1.375rem', fontWeight: 600, marginLeft: 'auto' };
 const formGrid: CSSProperties = {
   display: 'grid',
   gridTemplateColumns: 'repeat(auto-fit, minmax(12rem, 1fr))',

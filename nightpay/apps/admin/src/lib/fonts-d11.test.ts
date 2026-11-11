@@ -28,8 +28,8 @@ describe('Manrope variable en todas las apps (Grafito)', () => {
     expect(variable).toBeLessThan(35_000);
   });
 
-  it('las cifras van en 600 de fábrica; las de las tablas del panel, en 700', () => {
-    expect(read('packages/ui/src/styles.css')).toMatch(/\.np-num \{[^}]*font-weight: 600;/);
+  it('las cifras van en Manrope 700 (la maqueta Grafito 3), también las de las tablas del panel', () => {
+    expect(read('packages/ui/src/styles.css')).toMatch(/\.np-num \{[^}]*font-weight: 700;/);
     expect(read('apps/admin/src/styles/panel-tables.css')).toMatch(
       /\.np-table \.np-num \{\s*font-family: var\(--font-mono-var\), var\(--np-font-mono\);\s*font-weight: 700;/,
     );

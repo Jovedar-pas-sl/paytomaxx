@@ -27,7 +27,7 @@ import { centsToInput } from './money';
 // ─── Reglas del local ──────────────────────────────────────────────
 
 export const COMMISSION_FIELDS: ReadonlyArray<{ key: keyof OperatorCommissionDefaults; label: string }> = [
-  { key: 'CHICA_SERVICE', label: 'Servicio de chica' },
+  { key: 'CHICA_SERVICE', label: 'Servicio de compañera' },
   { key: 'VENUE_BAR', label: 'Bar / bebida' },
   { key: 'VENUE_ROOM', label: 'Habitación' },
   { key: 'VENUE_FOOD', label: 'Comida' },
@@ -174,7 +174,7 @@ export const PERMISSION_LABELS: Readonly<Record<StaffPermissionKey, string>> = {
   refund: 'Devolver',
   cash: 'Dar efectivo y anular consumos',
   closeNight: 'Cerrar la noche',
-  payouts: 'Pedir y hacer pagos a las chicas',
+  payouts: 'Pedir y hacer pagos a las compañeras',
   reports: 'Ver informes',
   cashTopUp: 'Cobrar recargas en efectivo',
   cashPayout: 'Devolver saldo en efectivo a la salida',
@@ -225,7 +225,7 @@ export function hasOverride(perms: StaffPermissions, person: { id: string; role:
 export const ALERT_KIND_LABELS: Readonly<Record<AlertKindKey, string>> = {
   payments: 'Cobros con problemas',
   refunds: 'Devoluciones sin confirmar',
-  chicas: 'Descuentos a chicas que fallaron',
+  chicas: 'Descuentos a compañeras que fallaron',
   nights: 'Noches cerradas con pendientes',
   pos: 'Datáfonos que no cuadran',
   wallets: 'Saldos de clientes',

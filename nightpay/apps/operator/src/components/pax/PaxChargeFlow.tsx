@@ -227,7 +227,7 @@ export function PaxChargeFlow({ charge, onDone, start, onPaid }: Props) {
         {charge.createdByName}
         {charge.code ? ` · código ${charge.code}` : null}
       </p>
-      <p className="np-num" style={{ margin: 0, fontSize: '3rem', fontWeight: 700 }}>
+      <p className="np-num" style={{ margin: 0, fontSize: 'var(--np-fs-40)', fontWeight: 700 }}>
         {formatEur(charge.amountCents)}
       </p>
       {/* El lector pide el total: con la «Comisión del servicio», su desglose. */}
@@ -366,5 +366,5 @@ function sentence(text: string): string {
   return /[.!?]$/.test(text) ? text : `${text}.`;
 }
 
-const muted: CSSProperties = { margin: 0, color: 'var(--np-text-mute)', fontSize: '1rem' };
-const big: CSSProperties = { margin: 0, fontSize: '1.375rem', fontWeight: 700 };
+const muted: CSSProperties = { margin: 0, color: 'var(--np-text-mute)', fontSize: 'var(--np-fs-16)' };
+const big: CSSProperties = { margin: 0, fontSize: 'var(--np-fs-22)', fontWeight: 700 };

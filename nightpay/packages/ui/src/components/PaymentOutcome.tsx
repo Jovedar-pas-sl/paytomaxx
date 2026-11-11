@@ -19,6 +19,21 @@ export interface OutcomeAction {
   icon?: ReactNode;
 }
 
+/**
+ * «Cómo se pagó», la tarjeta bajo el importe del PAGADO (Grafito 3): ficha,
+ * efectivo o tarjeta. Solo lleva datos que el API ya tiene; lo que no existe
+ * no se pasa (y no se enseña).
+ */
+export interface OutcomeHow {
+  kind: 'ficha' | 'cash' | 'card';
+  /** «Con ficha nº 1013», «En efectivo», «Con tarjeta». */
+  title: string;
+  /** «Código del saldo K7Q-•••», «Mételo en la caja», «Apple Pay o Google Pay». */
+  sub?: string | null;
+  /** Las filas de debajo: «Le quedan 26 €», «Cobró Carlos · 01:22»… (`num`: cifra en Manrope 700). */
+  rows: ReadonlyArray<{ label: string; value: string; num?: boolean }>;
+}
+
 export interface PaymentOutcomeProps {
   kind: OutcomeKind;
   amountCents: number;
@@ -31,6 +46,8 @@ export interface PaymentOutcomeProps {
   summary?: ReactNode;
   /** Debajo del código: «le quedan 40 €», quién / qué / cómo… */
   detail?: ReactNode;
+  /** Pagado: la tarjeta de cómo se pagó (ficha, efectivo o tarjeta), bajo el importe. */
+  how?: OutcomeHow | null;
   /**
    * Código corto que también ve el cliente en su móvil (solo pagado): grande,
    * para compararlo a un metro. La referencia («C-0023») va pequeña arriba.
@@ -67,8 +84,8 @@ const BAND_ITEMS = 8;
 
 /**
  * El resultado de un cobro a pantalla completa, para verlo desde un metro en
- * una sala oscura (Grafito, plano): PAGADO en verde profundo con la marca
- * lima, NO PAGADO en rojo con una cruz, CADUCADO en ámbar, con la palabra y
+ * una sala oscura (Grafito, plano): PAGADO en verde profundo con su ✓ que se
+ * dibuja, NO PAGADO en rojo con una cruz, CADUCADO en ámbar, con la palabra y
  * el importe grandes (nunca solo el color). El «hace 0:12» y la marquesina
  * con la hora que se mueve delatan una captura de pantalla vieja; con
  * «reducir movimiento», la marquesina solo se funde. Los botones, siempre a
@@ -82,6 +99,7 @@ export function PaymentOutcome({
   message = DEFAULT_MESSAGE[kind],
   summary,
   detail,
+  how,
   code,
   codeHint,
   section,
@@ -148,12 +166,13 @@ export function PaymentOutcome({
           </div>
         ) : null}
         <OutcomeIcon kind={kind} />
-        <h2 id={titleId} className="np-outcome-title">
+        <h2 id={titleId} className="np-outcome-title np-outcome-word" style={{ '--np-fit-word': Math.max(4, title.length * 0.74).toFixed(2) } as CSSProperties}>
           {title}
         </h2>
-        <p className="np-outcome-amount" style={fit(amount, 0.58)}>
+        <p className="np-outcome-amount np-outcome-amount-sub" style={fit(amount, 0.58)}>
           {amount}
         </p>
+        {how ? <OutcomeHowCard how={how} /> : null}
         {message ? <p className="np-outcome-message">{message}</p> : null}
         {summary ? <div className="np-outcome-detail">{summary}</div> : null}
         {code ? (
@@ -180,6 +199,39 @@ export function PaymentOutcome({
         {announce}
       </p>
     </section>
+  );
+}
+
+const HOW_ICON: Record<OutcomeHow['kind'], ReactNode> = {
+  ficha: <path d="M12 3a9 9 0 1 1 0 18a9 9 0 1 1 0-18M9 9.5c1.6-1.3 4.4-1.3 6 0M7.5 7.5c2.5-2.2 6.5-2.2 9 0M10.5 11.5c.8-.6 2.2-.6 3 0" />,
+  cash: <path d="M3 7h18v10H3zM7 7v10M17 7v10M12 9.5a2.5 2.5 0 1 1 0 5a2.5 2.5 0 1 1 0-5" />,
+  card: <path d="M3 6h18v12H3zM3 10h18M7 15h4" />,
+};
+
+/** La tarjeta de cómo se pagó: el icono de su color, el título y sus filas. */
+export function OutcomeHowCard({ how }: { how: OutcomeHow }) {
+  return (
+    <div className="np-outcome-how" data-how={how.kind}>
+      <div className="np-outcome-how-head">
+        <span className="np-outcome-how-icon" data-kind={how.kind} aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+            {HOW_ICON[how.kind]}
+          </svg>
+        </span>
+        <div className="np-outcome-how-text">
+          <span className="np-outcome-how-title">{how.title}</span>
+          {how.sub ? <span className="np-outcome-how-sub">{how.sub}</span> : null}
+        </div>
+      </div>
+      {how.rows.map((row) => (
+        <div key={row.label} className="np-outcome-how-row">
+          <span className="np-outcome-how-label">{row.label}</span>
+          <span className="np-outcome-how-value" data-num={row.num ? '' : undefined}>
+            {row.value}
+          </span>
+        </div>
+      ))}
+    </div>
   );
 }
 
@@ -223,6 +275,17 @@ const OutcomeButton = forwardRef<HTMLButtonElement, OutcomeButtonProps>(function
 
 /** La marca con el icono, sin halo: ✓ en lima (pagado), ✗ (rechazado) o un reloj (caducado). */
 function OutcomeIcon({ kind }: { kind: OutcomeKind }) {
+  if (kind === 'paid') {
+    // Grafito 3: aro verde (380 ms) y palo crema (260 ms) que se dibujan; con «reducir movimiento», ya dibujados.
+    return (
+      <span className="np-outcome-ring" aria-hidden="true">
+        <svg className="np-check" viewBox="0 0 104 104" fill="none" strokeLinecap="round" strokeLinejoin="round">
+          <circle className="np-check-ring" cx="52" cy="52" r="48" strokeWidth="6" />
+          <path className="np-check-tick" d="M31 53l14 14 28-30" strokeWidth="8" />
+        </svg>
+      </span>
+    );
+  }
   return (
     <span className="np-outcome-ring" aria-hidden="true">
       <svg
@@ -234,8 +297,6 @@ function OutcomeIcon({ kind }: { kind: OutcomeKind }) {
         strokeLinecap="round"
         strokeLinejoin="round"
       >
-        {/* pathLength=1: la marca se dibuja de 0 a 1 (staff.css, el momento PAGADO). */}
-        {kind === 'paid' ? <path d="M5 12.5l4.5 4.5L19 7.5" pathLength={1} /> : null}
         {kind === 'failed' ? <path d="M6.5 6.5l11 11M17.5 6.5l-11 11" /> : null}
         {kind === 'expired' ? (
           <>

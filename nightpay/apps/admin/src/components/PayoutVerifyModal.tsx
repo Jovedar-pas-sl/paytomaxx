@@ -161,7 +161,7 @@ const metaStyle: CSSProperties = { margin: 0, fontSize: '0.875rem', color: 'var(
 const fieldLabel: CSSProperties = {
   display: 'block',
   marginBottom: '0.4rem',
-  fontSize: '0.8125rem',
-  fontWeight: 500,
+  fontSize: '0.875rem',
+  fontWeight: 400,
   color: 'var(--np-text-mute)',
 };

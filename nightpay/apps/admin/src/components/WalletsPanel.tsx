@@ -424,9 +424,9 @@ const badgeRow: CSSProperties = { display: 'flex', gap: '0.35rem', flexWrap: 'wr
 
 const kicker: CSSProperties = {
   margin: 0,
-  fontSize: '0.75rem',
+  fontSize: '0.875rem',
   color: 'var(--np-text-dim)',
-  fontWeight: 500,
+  fontWeight: 400,
 };
 
 const tileNumber: CSSProperties = {
@@ -439,7 +439,7 @@ const tileNumber: CSSProperties = {
 
 const tileSub: CSSProperties = {
   margin: '0.2rem 0 0',
-  fontSize: '0.75rem',
+  fontSize: '0.875rem',
   color: 'var(--np-text-mute)',
 };
 

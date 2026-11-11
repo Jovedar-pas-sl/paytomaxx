@@ -54,7 +54,7 @@ export function MyRequestsPanel({ hideWhenEmpty = false }: { hideWhenEmpty?: boo
           Mis solicitudes
         </h2>
         <p className="np-approvals-hint">
-          Pagos a las chicas y devoluciones grandes que has pedido al dueño. Se hacen cuando él los aprueba; sin
+          Pagos a las compañeras y devoluciones grandes que has pedido al dueño. Se hacen cuando él los aprueba; sin
           decidir, caducan a las 24 h.
         </p>
       </div>

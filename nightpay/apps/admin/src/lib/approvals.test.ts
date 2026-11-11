@@ -74,7 +74,7 @@ const refund: ApprovalView = {
 
 describe('tarjeta de «Por aprobar»', () => {
   it('qué es y a quién va (cuenta tapada / tarjeta ••4242)', () => {
-    expect(kindLabel(payout)).toBe('Pago a chica');
+    expect(kindLabel(payout)).toBe('Pago a compañera');
     expect(kindLabel(refund)).toBe('Devolución');
     expect(approvalTarget(payout, label)).toBe('Lola · USDT TRC20 · T…9f2a');
     expect(approvalTarget(refund, label)).toBe(`Cobro de ${formatEur(20_000)} · tarjeta ••4242`);

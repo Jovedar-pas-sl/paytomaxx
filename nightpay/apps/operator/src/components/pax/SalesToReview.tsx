@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, type CSSProperties } from 'react';
-import { Button, Card } from '@nightpay/ui';
+import { Button, Card, HoldButton } from '@nightpay/ui';
 import { clearSaleToReview, type SaleToReview } from '@/lib/pax-api';
 import { voidNoticeOf, voidSaleOnReader, type VoidNotice, type VoidResult } from '@/lib/pax-void';
 import { formatEur } from '@/lib/money';
@@ -67,8 +67,6 @@ function ReviewCard({
   onVoided: (notice: VoidNotice) => void;
 }) {
   const [busy, setBusy] = useState(false);
-  // Quitar el aviso pide un segundo toque: solo si ya se anuló o lo ha visto el encargado.
-  const [confirming, setConfirming] = useState(false);
   const { voidable, operationNumber } = entry;
 
   async function voidIt() {
@@ -82,7 +80,7 @@ function ReviewCard({
 
   return (
     <Card style={cardStyle}>
-      <p style={{ margin: 0, fontWeight: 700, fontSize: '1.0625rem' }}>{entry.title}</p>
+      <p style={{ margin: 0, fontWeight: 700, fontSize: 'var(--np-fs-16)' }}>{entry.title}</p>
       <p style={muted}>{entry.message}</p>
       <p style={muted}>
         {operationNumber ? `Operación ${operationNumber}` : 'Sin número de operación'}
@@ -93,22 +91,16 @@ function ReviewCard({
           Anular en el datáfono
         </Button>
       ) : null}
-      {confirming ? (
-        <Button
-          variant="ghost"
-          disabled={busy}
-          onClick={() => {
-            clearSaleToReview(entry.paymentId, operationNumber);
-            onChanged();
-          }}
-        >
-          Sí: ya está anulada o lo sabe el encargado
-        </Button>
-      ) : (
-        <Button variant="ghost" disabled={busy} onClick={() => setConfirming(true)}>
-          Ya está resuelto: quitar el aviso
-        </Button>
-      )}
+      {/* Quitar el aviso ya no pide un segundo toque: se mantiene pulsado 1,2 s (no mueve dinero). */}
+      <HoldButton
+        disabled={busy}
+        onConfirm={() => {
+          clearSaleToReview(entry.paymentId, operationNumber);
+          onChanged();
+        }}
+      >
+        Mantén para quitar el aviso: ya está resuelto
+      </HoldButton>
     </Card>
   );
 }
@@ -120,4 +112,4 @@ const cardStyle: CSSProperties = {
   gap: '0.5rem',
   border: '2px solid var(--np-warning)',
 };
-const muted: CSSProperties = { margin: 0, color: 'var(--np-text-mute)', fontSize: '0.9375rem' };
+const muted: CSSProperties = { margin: 0, color: 'var(--np-text-mute)', fontSize: 'var(--np-fs-16)' };

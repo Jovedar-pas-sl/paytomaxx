@@ -15,7 +15,7 @@ import s from './desk.module.css';
  */
 export const DESK_FIELD: CSSProperties = {
   height: '3.25rem',
-  fontSize: '1rem',
+  fontSize: 'var(--np-fs-16)',
   fontWeight: 500,
   borderWidth: 1,
   borderColor: 'var(--np-border-hi)',
@@ -300,6 +300,43 @@ export function DeskBtn({ kind, icon, label, small, onClick, disabled, busy, tou
       data-tour={tour}
     >
       {busy ? 'Un momento…' : head}
+    </button>
+  );
+}
+
+/**
+ * Un bloque de «¿Cómo paga?» (Grafito 3): grande, con su color (efectivo
+ * verde, tarjeta azul), el icono arriba y el nombre y la aclaración abajo.
+ * Va por parejas dentro de un `.methods`; ninguno viene marcado.
+ */
+export function MethodBlock({ method, icon, label, small, onClick, disabled, busy, tour }: {
+  method: 'cash' | 'card';
+  icon: IconName;
+  label: string;
+  small: string;
+  onClick: () => void;
+  disabled?: boolean;
+  busy?: boolean;
+  tour?: string;
+}) {
+  return (
+    <button
+      type="button"
+      className={`${s.method} np-press`}
+      data-method={method}
+      data-loading={busy || undefined}
+      disabled={disabled || busy}
+      aria-busy={busy || undefined}
+      data-tour={tour}
+      onClick={onClick}
+    >
+      <span className={s.methodIcon}>
+        <Icon name={icon} />
+      </span>
+      <span className={s.methodText}>
+        <b>{busy ? 'Un momento…' : label}</b>
+        {busy ? null : <small>{small}</small>}
+      </span>
     </button>
   );
 }

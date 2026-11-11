@@ -5,6 +5,7 @@ import { PUESTOS, type PostCode, type PostRule, type SectionCode } from '@nightp
 import { fetchPostRules, updatePostRules } from '@/lib/api';
 import { enabledSections } from '@/lib/money-map';
 import { useSections } from '@/lib/use-sections';
+import { SwitchLine } from '../ToggleSwitch';
 import { LoadState, SettingsCard, StatusLine, useSavedFlash, useSettingsLoad } from './SettingsBits';
 
 const FLAGS: ReadonlyArray<{ key: 'tips' | 'cash' | 'topUps' | 'cashPayout'; label: string }> = [
@@ -51,7 +52,7 @@ export function PostRulesCard() {
   return (
     <SettingsCard
       title="Qué cobra cada puesto" tour="secciones-puestos"
-      hint="Cada persona solo ve y solo puede cobrar lo de su puesto. Las chicas son siempre Sala. Tú y el encargado lo podéis todo."
+      hint="Cada persona solo ve y solo puede cobrar lo de su puesto. Las compañeras son siempre Sala. Tú y el encargado lo podéis todo."
     >
       <div style={grid}>
         {PUESTOS.map((p) => {
@@ -60,7 +61,7 @@ export function PostRulesCard() {
             <fieldset key={p.code} style={box} disabled={busy}>
               <legend style={legend}>
                 {p.label}
-                {p.code === 'SALA' ? <span style={dim}> · las chicas</span> : null}
+                {p.code === 'SALA' ? <span style={dim}> · las compañeras</span> : null}
               </legend>
               <div style={chips}>
                 {enabledSections(sections).map((s) => (
@@ -74,12 +75,11 @@ export function PostRulesCard() {
                   </label>
                 ))}
               </div>
-              <div style={chips}>
+              <div>
                 {FLAGS.map((f) => (
-                  <label key={f.key} style={chip}>
-                    <input type="checkbox" checked={rule[f.key]} onChange={(e) => void save(p.code, { [f.key]: e.target.checked })} />
+                  <SwitchLine key={f.key} checked={rule[f.key]} onChange={(next) => void save(p.code, { [f.key]: next })} disabled={busy}>
                     {f.label}
-                  </label>
+                  </SwitchLine>
                 ))}
               </div>
             </fieldset>
@@ -103,7 +103,7 @@ const box: CSSProperties = {
   minWidth: 0,
 };
 const legend: CSSProperties = { fontWeight: 600, padding: '0 0.25rem' };
-const dim: CSSProperties = { color: 'var(--np-text-dim)', fontWeight: 500 };
+const dim: CSSProperties = { color: 'var(--np-text-dim)', fontWeight: 400 };
 const chips: CSSProperties = { display: 'flex', flexWrap: 'wrap', gap: '0.375rem' };
 const chip: CSSProperties = {
   display: 'inline-flex',
@@ -115,6 +115,6 @@ const chip: CSSProperties = {
   border: '1px solid var(--np-border-hi)',
   borderRadius: 'var(--np-r-xs)',
   fontSize: '0.875rem',
-  fontWeight: 500,
+  fontWeight: 400,
   cursor: 'pointer',
 };

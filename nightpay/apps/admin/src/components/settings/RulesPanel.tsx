@@ -98,9 +98,9 @@ export function RulesPanel() {
         </ul>
       </SettingsCard>
 
-      <SettingsCard title="Cobros de las chicas" tour="reglas-chicas" hint={platformCommissionHint(settings)}>
+      <SettingsCard title="Cobros de las compañeras" tour="reglas-chicas" hint={platformCommissionHint(settings)}>
         <Input
-          label="Tope por cobro de una chica (€)"
+          label="Tope por cobro de una compañera (€)"
           inputMode="decimal"
           value={current.maxCobroEur}
           onChange={(e) => update({ maxCobroEur: e.target.value })}
@@ -119,7 +119,7 @@ export function RulesPanel() {
         </div>
       </SettingsCard>
 
-      <SettingsCard title="Pagos a las chicas" tour="reglas-pagos" hint={holdDaysText(effectiveDays)}>
+      <SettingsCard title="Pagos a las compañeras" tour="reglas-pagos" hint={holdDaysText(effectiveDays)}>
         <Input
           label="Días de espera para pagarles"
           inputMode="numeric"

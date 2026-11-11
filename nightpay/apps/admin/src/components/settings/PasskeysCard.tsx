@@ -115,7 +115,7 @@ export function PasskeysCard() {
           <div key={k.id} style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', justifyContent: 'space-between', flexWrap: 'wrap' }}>
             <span>
               <strong style={{ fontWeight: 600 }}>{k.label}</strong>
-              <span style={{ display: 'block', fontSize: '0.8125rem', color: 'var(--np-text-mute)' }}>
+              <span style={{ display: 'block', fontSize: '0.875rem', color: 'var(--np-text-mute)' }}>
                 Dada de alta el {formatDateTime(k.createdAt)}
                 {k.lastUsedAt ? ` · usada por última vez el ${formatDateTime(k.lastUsedAt)}` : ''}
               </span>

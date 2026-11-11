@@ -5,7 +5,7 @@ import { visibleSections } from './roles';
 describe('bottomNavItems', () => {
   it('las cinco secciones, sin «Más»', () => {
     const items = bottomNavItems(visibleSections({ role: 'OWNER', isSuperAdmin: true }));
-    expect(items.map((i) => i.label)).toEqual(['Hoy', 'Chicas', 'Clientes', 'Informes', 'Ajustes']);
+    expect(items.map((i) => i.label)).toEqual(['Hoy', 'Compañeras', 'Clientes', 'Informes', 'Ajustes']);
     expect(items.map((i) => i.key as string)).not.toContain('more');
   });
 

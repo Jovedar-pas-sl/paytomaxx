@@ -170,10 +170,10 @@ function staff(o: Partial<StaffFicha> = {}): StaffFicha {
   };
 }
 
-describe('9.2 · ficha de la chica y del camarero', () => {
+describe('9.2 · ficha de la compañera y del camarero', () => {
   it('cabecera, cifras, lo que le toca de cada cosa y sus pagos', () => {
     const s = staffSheet(staff(), SECTIONS, TZ);
-    expect(s).toMatchObject({ title: 'Lola', subtitle: 'Chica · esta noche', chip: { label: 'Servicios', color: '#d24fd8' } });
+    expect(s).toMatchObject({ title: 'Lola', subtitle: 'Compañera · esta noche', chip: { label: 'Servicios', color: '#d24fd8' } });
     expect(s.stats.map((x) => [x.label, x.cents])).toEqual([
       ['Vendido', 34_500],
       ['Su parte', 27_100],

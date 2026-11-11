@@ -192,7 +192,7 @@ function TabPanel({ visible, children }: { visible: boolean; children: ReactNode
 function PollErrorBanner({ error }: { error: PollError }) {
   return (
     <Card role="alert" style={{ padding: '0.875rem', borderColor: 'var(--np-danger)' }}>
-      <p style={{ color: 'var(--np-danger)', margin: 0, fontSize: '0.9375rem' }}>{error.text}</p>
+      <p style={{ color: 'var(--np-danger)', margin: 0, fontSize: 'var(--np-fs-16)' }}>{error.text}</p>
     </Card>
   );
 }

@@ -404,7 +404,7 @@ function CreateOperatorModal({
               {error}
             </p>
           ) : null}
-          <p style={{ margin: 0, fontSize: '0.75rem', color: 'var(--np-text-dim)' }}>
+          <p style={{ margin: 0, fontSize: '0.875rem', color: 'var(--np-text-dim)' }}>
             El enlace vale 24 h y deja de valer tras el primer uso.
           </p>
           <Button onClick={onClose}>Cerrar</Button>
@@ -443,7 +443,7 @@ function CreateOperatorModal({
             </Notice>
           ) : (
             <p style={{ margin: 0, fontSize: '0.875rem', color: 'var(--np-text-mute)' }}>
-              Comisión: la del local para servicios de chica
+              Comisión: la del local para servicios de compañera
               {venueCommission.bps !== null ? ` (${formatPercent(venueCommission.bps)})` : '…'}. Solo el dueño
               puede cambiarla.
             </p>
@@ -510,7 +510,7 @@ const helpFilter: CSSProperties = {
 };
 
 const numCol: CSSProperties = { textAlign: 'right' };
-const numCell: CSSProperties = { textAlign: 'right', fontWeight: 500 };
+const numCell: CSSProperties = { textAlign: 'right', fontWeight: 400 };
 const cellMeta: CSSProperties = { color: 'var(--np-text-mute)' };
 const emptyCell: CSSProperties = {
   textAlign: 'center',
@@ -524,7 +524,7 @@ const urlCode: CSSProperties = {
   alignItems: 'center',
   padding: '0 0.875rem',
   fontFamily: 'var(--np-font-mono)',
-  fontSize: '0.75rem',
+  fontSize: '0.875rem',
   background: 'var(--np-bg)',
   color: 'var(--np-text-mute)',
   border: '1px solid var(--np-border)',

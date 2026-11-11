@@ -41,7 +41,7 @@ export function InvitationRulesCard() {
 
   if (!data) return <LoadState error={loadError} retry={retry} what="las invitaciones" />;
 
-  const a = shareFromDraft(chica, 'la chica');
+  const a = shareFromDraft(chica, 'la compañera');
   const b = shareFromDraft(camarero, 'el camarero');
   const preview: InvitationRules | null = a.ok && b.ok ? { chica: a.share, camarero: b.share } : null;
 
@@ -67,17 +67,17 @@ export function InvitationRulesCard() {
   return (
     <SettingsCard
       title="Invitaciones" tour="secciones-invitaciones"
-      hint="«Copa con invitación»: el cliente invita a una chica a una copa y quien la cobra escanea su QR («Mi QR» en su app). La chica se lleva su parte y el local, el resto."
+      hint="«Copa con invitación»: el cliente invita a una compañera a una copa y quien la cobra escanea su QR («Mi QR» en su app). La compañera se lleva su parte y el local, el resto."
     >
       <form onSubmit={(e) => void save(e)} style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-        <ShareRow label="Para la chica invitada" draft={chica} onChange={setChica} disabled={busy} />
+        <ShareRow label="Para la compañera invitada" draft={chica} onChange={setChica} disabled={busy} />
         <p style={hint}>{preview ? invitationExample(preview, EXAMPLE_PRICE_CENTS) : '—'}</p>
         <details className="np-set-more" open={camareroOpen} onToggle={(e) => setCamareroOpen(e.currentTarget.open)}>
           <summary>Parte del camarero que la cobra: {b.ok ? camareroText(b.share) : '—'}</summary>
           <div className="np-set-more-body">
             <p style={hint}>
               Lo normal es nada: el camarero consta como quien la cobró (sus cobros y su historial) y el local se queda lo que
-              no es de la chica.
+              no es de la compañera.
             </p>
             <ShareRow label="Para el camarero que la cobra" draft={camarero} onChange={setCamarero} disabled={busy} />
           </div>
@@ -91,7 +91,7 @@ export function InvitationRulesCard() {
             setCamarero(REFERENCE_SPLIT.camarero);
           }}
         >
-          Reparto de referencia: la mitad para la chica
+          Reparto de referencia: la mitad para la compañera
         </Button>
         <SaveRow busy={busy} saved={saved} error={error} />
       </form>
@@ -138,4 +138,4 @@ function ShareRow({
 }
 
 const row: CSSProperties = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(10rem, 1fr))', gap: '0.5rem 1rem' };
-const hint: CSSProperties = { margin: 0, color: 'var(--np-text-mute)', fontSize: '0.9375rem' };
+const hint: CSSProperties = { margin: 0, color: 'var(--np-text-mute)', fontSize: '1rem' };

@@ -341,6 +341,11 @@ export const PublicPaymentViewSchema = z.object({
    * En los demás estados no va. Opcional: API anterior.
    */
   attemptStartedAt: z.string().datetime().nullable().optional(),
+  /**
+   * Solo ya pagado: cómo pagó el cliente. «wallet» = Apple Pay o Google Pay (el
+   * banco no dice cuál de los dos); «card» = tarjeta. Opcional.
+   */
+  payMethod: z.enum(['card', 'wallet']).optional(),
 });
 export type PublicPaymentView = z.infer<typeof PublicPaymentViewSchema>;
 

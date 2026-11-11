@@ -25,7 +25,7 @@ describe('auditActionLabel', () => {
     expect(auditActionLabel('auth.login.ok')).toBe('Entró');
     expect(auditActionLabel('auth.login.failed')).toBe('Intento de entrada fallido');
     expect(auditActionLabel('refund.created')).toBe('Devolución hecha');
-    expect(auditActionLabel('operator.payout.created')).toBe('Pago a chica apuntado');
+    expect(auditActionLabel('operator.payout.created')).toBe('Pago a compañera apuntado');
     expect(auditActionLabel('night.closed')).toBe('Noche cerrada');
   });
 

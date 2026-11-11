@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useId, useRef, useState, type CSSProperties } from 'react';
-import { Button, Card, Input } from '@nightpay/ui';
+import { Button, Card, haptic, Input } from '@nightpay/ui';
 import {
   confirmPosPayment,
   fetchPendingPos,
@@ -202,7 +202,7 @@ export function PendingPos({ onConfirmed, focusPaymentId, onFocusConsumed }: Pro
         <p style={emptyStyle}>Cargando…</p>
       ) : pending.length === 0 ? (
         <div style={emptyStateStyle}>
-          <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--np-text-mute)' }}>
+          <p style={{ margin: 0, fontSize: 'var(--np-fs-14)', color: 'var(--np-text-mute)' }}>
             ✓ No hay cobros POS pendientes.
           </p>
         </div>
@@ -283,7 +283,7 @@ function ConfirmForm({
     setSubmitting(true);
     setError(null);
     try {
-      if ('vibrate' in navigator) navigator.vibrate(10);
+      haptic();
       // Lo cobrado (el total de la lista, con la comisión del servicio): sin ello, el API no confirma.
       await confirmPosPayment(payment.id, posConfirmBody(payment, ref, photo));
       onConfirmed();
@@ -333,7 +333,7 @@ function ConfirmForm({
       </div>
 
       <div style={stepsBox}>
-        <p style={{ margin: 0, fontSize: '0.85rem', fontWeight: 500, marginBottom: '0.5rem' }}>
+        <p style={{ margin: 0, fontSize: 'var(--np-fs-14)', fontWeight: 500, marginBottom: '0.5rem' }}>
           Pasos:
         </p>
         <ol style={stepsListStyle}>
@@ -361,7 +361,7 @@ function ConfirmForm({
           htmlFor={photoInputId}
           style={{
             display: 'block',
-            fontSize: '0.875rem',
+            fontSize: 'var(--np-fs-14)',
             fontWeight: 500,
             marginBottom: '0.375rem',
             color: 'var(--np-text)',
@@ -376,7 +376,7 @@ function ConfirmForm({
           capture="environment"
           onChange={handlePhotoCapture}
           disabled={submitting}
-          style={{ fontSize: '0.875rem' }}
+          style={{ fontSize: 'var(--np-fs-14)' }}
         />
         {photo ? (
           <div style={{ marginTop: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
@@ -399,7 +399,7 @@ function ConfirmForm({
                 border: 'none',
                 color: 'var(--np-text-mute)',
                 cursor: 'pointer',
-                fontSize: '0.85rem',
+                fontSize: 'var(--np-fs-14)',
               }}
             >
               Quitar
@@ -494,16 +494,16 @@ const zoneTabStyle: CSSProperties = {
   border: 'none',
   borderRadius: 'var(--np-r-sm)',
   color: 'var(--np-text-mute)',
-  fontSize: '0.85rem',
+  fontSize: 'var(--np-fs-14)',
   fontWeight: 500,
   cursor: 'pointer',
   fontFamily: 'inherit',
 };
 
 const zoneTabActiveStyle: CSSProperties = {
-  background: 'var(--np-surface)',
-  color: 'var(--np-accent)',
-  boxShadow: 'var(--np-shadow-sm)',
+  background: 'var(--np-chosen)',
+  color: 'var(--np-on-chosen)',
+  fontWeight: 600,
 };
 
 const zoneBadgeStyle: CSSProperties = {
@@ -528,12 +528,12 @@ const goneStyle: CSSProperties = {
   borderRadius: 'var(--np-r-md)',
   color: 'var(--np-warning)',
   fontWeight: 600,
-  fontSize: '0.9375rem',
+  fontSize: 'var(--np-fs-16)',
 };
 
 const titleStyle: CSSProperties = {
   margin: 0,
-  fontSize: '1rem',
+  fontSize: 'var(--np-fs-16)',
   fontWeight: 600,
 };
 
@@ -545,13 +545,13 @@ const hintStyle: CSSProperties = {
 
 const errorStyle: CSSProperties = {
   margin: 0,
-  fontSize: '0.85rem',
+  fontSize: 'var(--np-fs-14)',
   color: 'var(--np-danger)',
 };
 
 const emptyStyle: CSSProperties = {
   margin: 0,
-  fontSize: '0.85rem',
+  fontSize: 'var(--np-fs-14)',
   color: 'var(--np-text-mute)',
   textAlign: 'center',
 };
@@ -589,11 +589,11 @@ const itemStyle: CSSProperties = {
 
 const refStyle: CSSProperties = {
   margin: 0,
-  fontSize: '1.1rem',
+  fontSize: 'var(--np-fs-18)',
   fontWeight: 700,
   fontFamily: 'var(--np-font-mono, monospace)',
   letterSpacing: '0.1em',
-  color: 'var(--np-accent)',
+  color: 'var(--np-text)',
 };
 
 const metaStyle: CSSProperties = {
@@ -604,7 +604,7 @@ const metaStyle: CSSProperties = {
 
 const amountStyle: CSSProperties = {
   margin: 0,
-  fontSize: '1.3rem',
+  fontSize: 'var(--np-fs-22)',
   fontWeight: 600,
   fontVariantNumeric: 'tabular-nums',
 };
@@ -617,14 +617,14 @@ const backBtnStyle: CSSProperties = {
   border: 'none',
   borderRadius: 'var(--np-r-sm)',
   color: 'var(--np-text-mute)',
-  fontSize: '0.875rem',
+  fontSize: 'var(--np-fs-14)',
   fontWeight: 500,
   cursor: 'pointer',
 };
 
 const amountDigitsStyle: CSSProperties = {
   margin: '0.25rem 0 0',
-  fontSize: '1rem',
+  fontSize: 'var(--np-fs-16)',
   fontFamily: 'var(--np-font-mono)',
   letterSpacing: '0.3em',
   color: 'var(--np-warning, #b45309)',
@@ -670,14 +670,14 @@ const kickerStyle: CSSProperties = {
 
 const amountBigStyle: CSSProperties = {
   margin: 0,
-  fontSize: '2.25rem',
+  fontSize: 'var(--np-fs-40)',
   fontWeight: 600,
   letterSpacing: '-0.03em',
   fontVariantNumeric: 'tabular-nums',
 };
 
 const currStyle: CSSProperties = {
-  fontSize: '0.9rem',
+  fontSize: 'var(--np-fs-14)',
   color: 'var(--np-text-mute)',
   fontWeight: 500,
 };
@@ -692,6 +692,6 @@ const stepsBox: CSSProperties = {
 const stepsListStyle: CSSProperties = {
   margin: 0,
   paddingLeft: '1.25rem',
-  fontSize: '0.85rem',
+  fontSize: 'var(--np-fs-14)',
   lineHeight: 1.6,
 };

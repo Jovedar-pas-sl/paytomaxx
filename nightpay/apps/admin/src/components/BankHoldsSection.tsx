@@ -191,7 +191,7 @@ function ReleaseForm({
           hint="Al poner el sexto número se libera. Cada código vale una sola vez."
         />
         {error ? (
-          <p role="alert" style={{ margin: 0, color: 'var(--np-danger)', fontSize: '0.9375rem' }}>
+          <p role="alert" style={{ margin: 0, color: 'var(--np-danger)', fontSize: '1rem' }}>
             {error}
           </p>
         ) : null}
@@ -218,7 +218,7 @@ const boxStyle: CSSProperties = {
   background: 'color-mix(in srgb, var(--np-warning) 8%, transparent)',
 };
 
-const hintStyle: CSSProperties = { fontWeight: 500, color: 'var(--np-text-label)' };
+const hintStyle: CSSProperties = { fontWeight: 400, color: 'var(--np-text-label)' };
 
 const listStyle: CSSProperties = { listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: '0.5rem' };
 
@@ -230,7 +230,7 @@ const itemStyle: CSSProperties = {
   padding: '0.625rem 0.75rem',
   borderRadius: 'var(--np-r-sm)',
   background: 'var(--np-surface-2)',
-  fontSize: '0.9375rem',
+  fontSize: '1rem',
 };
 
 const metaStyle: CSSProperties = { display: 'block', marginTop: '0.125rem', color: 'var(--np-text-label)', fontSize: '0.875rem' };

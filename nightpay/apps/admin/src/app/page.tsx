@@ -95,7 +95,7 @@ export default function Page() {
           <h1 style={{ margin: 0, fontSize: '1.75rem', fontWeight: 600 }}>Panel</h1>
         </header>
         {notice ? (
-          <p role="status" style={{ margin: 0, maxWidth: '24rem', textAlign: 'center', color: 'var(--np-text-mute)' }}>
+          <p role="status" className="np-relogin-notice">
             {notice}
           </p>
         ) : null}

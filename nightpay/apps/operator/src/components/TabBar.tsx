@@ -13,10 +13,11 @@ const TAB_LABEL: Record<TabKey, string> = {
 };
 
 /**
- * La pestaña elegida, en lima (--np-accent: lima en oscuro, que es el del
- * personal; 11:1 sobre --np-surface). Las demás, en t2 (--np-text-mute).
+ * La pestaña elegida, en crema (tinta en el tema claro: --np-chosen); la lima
+ * es solo para lo que se toca (el botón de la acción principal). Las demás, en
+ * t2 (--np-text-mute).
  */
-const TAB_ACTIVE_COLOR = 'var(--np-accent)';
+const TAB_ACTIVE_COLOR = 'var(--np-chosen)';
 const TAB_IDLE_COLOR = 'var(--np-text-mute)';
 
 /** Barra de pestañas de abajo: solo las del rol (ver roleAccess). */
@@ -53,7 +54,7 @@ function TabBtn({
       onClick={onClick}
       aria-label={label}
       aria-current={active ? 'page' : undefined}
-      // La activa en lima (icono, texto y su raya arriba): la lima marca lo elegido. Las demás, en t2.
+      // La activa en crema (icono, texto y su raya arriba). Las demás, en t2.
       style={{ ...tabBtnStyle, color: active ? TAB_ACTIVE_COLOR : TAB_IDLE_COLOR, fontWeight: active ? 600 : 500 }}
     >
       {active ? <span aria-hidden="true" style={activeMarkStyle} /> : null}

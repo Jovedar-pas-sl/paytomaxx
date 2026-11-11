@@ -30,7 +30,8 @@ const code = (text: string) => text.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/
 describe('restos de antes de Grafito', () => {
   for (const [name, rel] of Object.entries(FILES)) {
     it(`${name}: sin mayúsculas, sin 700/800/900, sin degradados ni halos`, () => {
-      const text = code(read(rel));
+      // El 700 es solo de las cifras (Manrope, Grafito 3): se quita antes de mirar.
+      const text = code(read(rel)).replace(/font:\s*700\s[^;]*--np-font-num[^;]*;/g, '');
       expect(text).not.toMatch(/text-transform:\s*uppercase|textTransform:\s*'uppercase'/);
       expect(text).not.toMatch(/font-weight:\s*[789]00|fontWeight:\s*'?[789]00|font:\s*[789]00/);
       expect(text).not.toMatch(/linear-gradient|radial-gradient|--np-lime-glow|blur\(/);
@@ -99,10 +100,10 @@ describe('CARGADO (recepción)', () => {
     expect(foot).toContain('background: var(--np-outcome-bg)');
   });
 
-  it('más junta que los otros resultados: huecos de 8 y la marca y el importe de 56', () => {
+  it('más junta que los otros resultados: huecos de 8 y la marca de 56 y el importe de la escala (40)', () => {
     expect(block('.body')).toContain('gap: 0.5rem');
     expect(loaded).toMatch(/\.body :global\(\.np-outcome-ring\) \{\s*width: 3\.5rem;\s*height: 3\.5rem;/);
-    expect(loaded).toMatch(/\.body :global\(\.np-outcome-amount\) \{\s*font-size: min\(3\.5rem,/);
+    expect(loaded).toMatch(/\.body :global\(\.np-outcome-amount\) \{\s*font-size: min\(var\(--np-fs-40\),/);
   });
 
   it('la línea de ayuda, en la crema del resultado (≥ 7:1 sobre el verde), no en el gris de las pantallas oscuras', () => {

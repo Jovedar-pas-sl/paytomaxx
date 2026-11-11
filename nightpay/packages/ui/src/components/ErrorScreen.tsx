@@ -63,12 +63,12 @@ const mark: CSSProperties = {
   color: 'var(--np-warning)',
 };
 
-const titleStyle: CSSProperties = { margin: 0, fontSize: '1.375rem', fontWeight: 600 };
+const titleStyle: CSSProperties = { margin: 0, fontSize: 'var(--np-fs-22)', fontWeight: 600 };
 
 const detailStyle: CSSProperties = {
   margin: '0 0 0.5rem',
   maxWidth: '26rem',
-  fontSize: '1rem',
+  fontSize: 'var(--np-fs-16)',
   lineHeight: 1.5,
   color: 'var(--np-text-mute)',
 };

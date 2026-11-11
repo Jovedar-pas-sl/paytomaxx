@@ -65,7 +65,7 @@ export function PeopleSection() {
       <SectionHead
         kicker="Todos los locales"
         title="Personas"
-        sub="Dueños, encargados, camareros y chicas. Las acciones delicadas piden tu código 2FA."
+        sub="Dueños, encargados, camareros y compañeras. Las acciones delicadas piden tu código 2FA."
         actions={<Button onClick={() => setCreating(true)}>+ Nueva persona</Button>}
       />
       <div className="np-sa-toolbar" role="search">
@@ -274,7 +274,7 @@ function CreatePersonDialog({
             value={form.commissionPct}
             onChange={set('commissionPct')}
             placeholder="La del local"
-            hint="Solo si esta chica cobra distinto que las demás."
+            hint="Solo si esta compañera cobra distinto que las demás."
           />
         ) : null}
       </div>

@@ -193,16 +193,14 @@ function WireFields({
 
 const sectionHead: CSSProperties = {
   margin: 0,
-  fontSize: '0.78rem',
-  letterSpacing: '0.12em',
-  textTransform: 'uppercase',
+  fontSize: 'var(--np-fs-14)',
   color: 'var(--np-text-dim)',
   fontWeight: 500,
 };
 
 const selectLabel: CSSProperties = {
   display: 'block',
-  fontSize: '0.85rem',
+  fontSize: 'var(--np-fs-14)',
   fontWeight: 500,
   color: 'var(--np-text-mute)',
   marginBottom: '0.4rem',
@@ -210,6 +208,6 @@ const selectLabel: CSSProperties = {
 
 const hintStyle: CSSProperties = {
   margin: '0.4rem 0 0',
-  fontSize: '0.78rem',
+  fontSize: 'var(--np-fs-14)',
   color: 'var(--np-text-dim)',
 };

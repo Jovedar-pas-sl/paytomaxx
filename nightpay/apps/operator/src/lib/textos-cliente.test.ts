@@ -97,7 +97,7 @@ describe('prioridad 4 del personal', () => {
   });
 
   it('S-14: el chip de la cabecera, a 14 px en el personal', () => {
-    expect(read('../../../../packages/ui/src/styles.css')).toMatch(/\.np-staff\.np-touch \.np-chip \{\s*font-size: 0\.875rem;/);
+    expect(read('../../../../packages/ui/src/styles.css')).toMatch(/\.np-staff\.np-touch \.np-chip \{\s*font-size: var\(--np-fs-14\);/);
   });
 
   it('S-15: el aviso, en una caja de dentro; <main> sigue siendo la región principal', () => {

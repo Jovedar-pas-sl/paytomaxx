@@ -10,14 +10,14 @@ export const SA_ROLE_LABELS: Readonly<Record<Role, string>> = {
   OWNER: 'Dueño',
   MANAGER: 'Encargado',
   WAITER: 'Camarero',
-  OPERATOR: 'Chica',
+  OPERATOR: 'Compañera',
 };
 
 /** Orden de los roles en los desplegables. */
 export const SA_ROLES: readonly Role[] = ['OWNER', 'MANAGER', 'WAITER', 'OPERATOR'];
 
 export const CATEGORY_LABELS: Readonly<Record<keyof OperatorCommissionDefaults, string>> = {
-  CHICA_SERVICE: 'Servicio de chica',
+  CHICA_SERVICE: 'Servicio de compañera',
   VENUE_BAR: 'Bar / bebida',
   VENUE_ROOM: 'Habitación',
   VENUE_FOOD: 'Comida',

@@ -20,7 +20,7 @@ export interface VerifyOutcome {
 /** Motivos del API nuevo: "codigo: detalle" (o solo el código). */
 const REASON_LABELS: Record<string, string> = {
   importe_distinto: 'El importe no cuadra',
-  destino_distinto: 'Fue a otra dirección, no a la de la chica',
+  destino_distinto: 'Fue a otra dirección, no a la de la compañera',
   sin_usdt: 'No es un envío de USDT/USDC',
   tx_fallida: 'La transacción falló en la red',
   tx_anterior_al_pago: 'La transacción es anterior al pago',
@@ -42,7 +42,7 @@ export function describeVerifyReason(reason: string | null): string | null {
     return `Se enviaron ${amount[1]} y tocaban ${amount[2]} (USDT/USDC).`;
   }
   const to = /_to_mismatch_(.+)$/.exec(reason);
-  if (to) return `La transacción fue a otra dirección (${to[1]}), no a la de la chica.`;
+  if (to) return `La transacción fue a otra dirección (${to[1]}), no a la de la compañera.`;
   if (/_unconfirmed$|_pending_or_unknown$/.test(reason)) {
     return 'La transacción aún no está confirmada en la red. Vuelve a verificar en unos minutos.';
   }
@@ -55,7 +55,7 @@ export function describeVerifyReason(reason: string | null): string | null {
   const status = /^tron_status_(.+)$/.exec(reason);
   if (status) return `La transacción falló en la red (${status[1]}).`;
   if (/_no_usdt_transfer$|_no_usdc_transfer_to_wallet$|_invalid_amount$/.test(reason)) {
-    return 'Esa transacción no es un envío de USDT/USDC a la dirección de la chica.';
+    return 'Esa transacción no es un envío de USDT/USDC a la dirección de la compañera.';
   }
   if (reason === 'manual_required') {
     return 'Este método no se verifica solo: queda apuntada la referencia.';

@@ -112,7 +112,7 @@ export function TwoFactorCard() {
       resetForm();
       setDone(
         next.enabled
-          ? 'Verificación en dos pasos activada. Desde ahora pedirá el código para reembolsos de 100 € o más y para pagar a las chicas.'
+          ? 'Verificación en dos pasos activada. Desde ahora pedirá el código para reembolsos de 100 € o más y para pagar a las compañeras.'
           : 'Verificación en dos pasos desactivada.',
       );
     } catch (err) {
@@ -143,7 +143,7 @@ export function TwoFactorCard() {
       </div>
       <p style={textStyle}>
         Pide un código de 6 números de una app de verificación (Google Authenticator, Authy…) para los reembolsos
-        de 100 € o más y para pagar a las chicas. Así, una sesión robada no basta para mover dinero.
+        de 100 € o más y para pagar a las compañeras. Así, una sesión robada no basta para mover dinero.
       </p>
 
       {done ? <Notice tone="success">{done}</Notice> : null}

@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, type CSSProperties, type ReactNode } from 'react';
-import { Card } from '@nightpay/ui';
+import { Card, haptic, pinFailed, shakeClass } from '@nightpay/ui';
 import { WALLET_PIN_PROBLEM_TEXT, walletPinProblem } from '@nightpay/contracts';
 import { PIN_CHOOSE, PIN_CHOOSE_HINT, PIN_ENTER, PIN_REPEAT, keypadDigits } from '@/lib/pin-pad';
 import { useVenueNight } from '@/lib/venue-methods';
@@ -43,11 +43,17 @@ export function PinPad({ title, hint, mode, onPin, onCancel, cancelLabel = 'Canc
   const [first, setFirst] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [shake, setShake] = useState(0);
 
   function restart(message: string | null, keepFirst = false): void {
     setPin('');
     if (!keepFirst) setFirst(null);
     setError(message);
+    // Un PIN que no vale: los puntos tiemblan y el móvil vibra [30, 60, 30].
+    if (message) {
+      setShake((n) => n + 1);
+      pinFailed();
+    }
     setKeys(keypadDigits(layout));
   }
 
@@ -73,7 +79,7 @@ export function PinPad({ title, hint, mode, onPin, onCancel, cancelLabel = 'Canc
 
   function press(digit: string): void {
     if (busy || pin.length >= PIN_LENGTH) return;
-    if ('vibrate' in navigator) navigator.vibrate(8);
+    haptic();
     const next = pin + digit;
     setPin(next);
     setError(null);
@@ -95,7 +101,7 @@ export function PinPad({ title, hint, mode, onPin, onCancel, cancelLabel = 'Canc
           · {step.en}
         </span>
       </p>
-      <div role="status" style={dotsStyle}>
+      <div role="status" style={dotsStyle} className={shakeClass(shake) || undefined}>
         {Array.from({ length: PIN_LENGTH }, (_, i) => (
           <span key={i} aria-hidden style={{ ...dotStyle, ...(i < pin.length ? dotFull : {}) }} />
         ))}
@@ -159,11 +165,11 @@ const kicker: CSSProperties = {
   color: 'var(--np-text-mute)',
 };
 
-const titleStyle: CSSProperties = { margin: 0, fontSize: '1.375rem', fontWeight: 600 };
-const hintStyle: CSSProperties = { margin: 0, fontSize: '0.875rem', color: 'var(--np-text-mute)' };
-const stepStyle: CSSProperties = { margin: 0, fontSize: '1.125rem', fontWeight: 600 };
+const titleStyle: CSSProperties = { margin: 0, fontSize: 'var(--np-fs-22)', fontWeight: 600 };
+const hintStyle: CSSProperties = { margin: 0, fontSize: 'var(--np-fs-14)', color: 'var(--np-text-mute)' };
+const stepStyle: CSSProperties = { margin: 0, fontSize: 'var(--np-fs-18)', fontWeight: 600 };
 // La línea en inglés, detrás y en t2: se lee sin competir con la española.
-const enStyle: CSSProperties = { fontSize: '0.9375rem', fontWeight: 500, color: 'var(--np-text-mute)' };
+const enStyle: CSSProperties = { fontSize: 'var(--np-fs-16)', fontWeight: 500, color: 'var(--np-text-mute)' };
 
 const dotsStyle: CSSProperties = { display: 'flex', justifyContent: 'center', gap: '1rem', padding: '0.5rem 0' };
 const dotStyle: CSSProperties = {
@@ -171,9 +177,10 @@ const dotStyle: CSSProperties = {
   height: '1.125rem',
   borderRadius: '50%',
   border: '2px solid var(--np-text)',
+  transition: 'background var(--np-d-fast), transform var(--np-d-fast)',
 };
 // Las cifras puestas, en crema: la lima es para actuar, no para el progreso.
-const dotFull: CSSProperties = { background: 'var(--np-text)' };
+const dotFull: CSSProperties = { background: 'var(--np-text)', transform: 'scale(1.1)' };
 
 /** Solo para lectores de pantalla. */
 const srOnly: CSSProperties = {
@@ -188,7 +195,7 @@ const srOnly: CSSProperties = {
   border: 0,
 };
 
-const errorStyle: CSSProperties = { margin: 0, fontSize: '0.875rem', color: 'var(--np-danger-text)', fontWeight: 500 };
+const errorStyle: CSSProperties = { margin: 0, fontSize: 'var(--np-fs-14)', color: 'var(--np-danger-text)', fontWeight: 500 };
 
 const gridStyle: CSSProperties = {
   display: 'grid',
@@ -199,9 +206,9 @@ const gridStyle: CSSProperties = {
 // Teclas del PIN: 60 px como poco (más en una pantalla alta, como el teclado
 // del importe con --np-key-h), radio 14, filete de 1 px y cifras en Manrope 600.
 const keyStyle: CSSProperties = {
-  minHeight: 'max(3.75rem, var(--np-key-h, 4.25rem))',
+  minHeight: 'max(3rem, var(--np-key-h, 4.25rem))',
   fontFamily: 'var(--np-font-num)',
-  fontSize: '1.75rem',
+  fontSize: 'var(--np-fs-28)',
   fontWeight: 600,
   borderRadius: 'var(--np-r-md)',
   border: '1px solid var(--np-border)',
@@ -211,7 +218,7 @@ const keyStyle: CSSProperties = {
   fontVariantNumeric: 'tabular-nums',
 };
 
-const sideKey: CSSProperties = { fontFamily: 'var(--np-font-sans)', fontSize: '1rem', fontWeight: 500, color: 'var(--np-text-mute)' };
+const sideKey: CSSProperties = { fontFamily: 'var(--np-font-sans)', fontSize: 'var(--np-fs-16)', fontWeight: 500, color: 'var(--np-text-mute)' };
 
 /** Teclado fijo: las teclas, más grandes (se aciertan a oscuras y con prisa). */
-const bigKey: CSSProperties = { minHeight: 'max(3.75rem, calc(var(--np-key-h, 4.25rem) + 0.5rem))', fontSize: '2rem' };
+const bigKey: CSSProperties = { minHeight: 'max(3.25rem, calc(var(--np-key-h, 4.25rem) + 0.5rem))', fontSize: 'var(--np-fs-28)' };

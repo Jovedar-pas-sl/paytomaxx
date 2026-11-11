@@ -423,8 +423,11 @@ export class MoneyMapService {
          WHERE ct."tenantId" = ${tenantId}::uuid AND ct."createdAt" >= ${w.from} AND ct."createdAt" < ${w.to} ${recordedCash}
       ), devoluciones AS (
         SELECT COUNT(*)::int AS "refundCount", COALESCE(SUM(r."amountCents"), 0)::bigint AS "refundCents",
-               COALESCE(SUM(r."serviceFeeCents"), 0)::bigint AS "refundFeeCents"
+               COALESCE(SUM(r."serviceFeeCents"), 0)::bigint AS "refundFeeCents",
+               -- De ventas (no recargas) y sin la comisión del servicio devuelta: lo que el local deja de ganar.
+               COALESCE(SUM(r."amountCents" - r."serviceFeeCents") FILTER (WHERE p."walletId" IS NULL), 0)::bigint AS "saleRefundNetCents"
           FROM refunds r
+          LEFT JOIN payments p ON p.id = r."paymentId"
          WHERE r."tenantId" = ${tenantId}::uuid AND r.status = 'SUCCEEDED'
            AND ${refundAt('r')} >= ${w.from} AND ${refundAt('r')} < ${w.to} ${recordedRefund}
       ), saldo AS (
@@ -447,7 +450,7 @@ export class MoneyMapService {
         cardFeeCents: n(t.cardFeeCents),
         cashFeeCents: n(t.cashFeeCents),
       },
-      cardRefunds: { cents: n(t.refundCents), count: n(t.refundCount), serviceFeeCents: n(t.refundFeeCents) },
+      cardRefunds: { cents: n(t.refundCents), count: n(t.refundCount), serviceFeeCents: n(t.refundFeeCents), salesNetCents: n(t.saleRefundNetCents) },
       walletPayouts: { cashCents: n(t.walletCashCents), cashCount: n(t.walletCashCount), cardCents: n(t.walletCardCents) },
     };
   }
@@ -468,31 +471,40 @@ function activeConsumptions(tenantId: string, w: TimeWindow, asOf: Date | undefi
          AND c."createdAt" >= ${w.from} AND c."createdAt" < ${w.to}`;
 }
 
-/** Saldo vivo de los clientes del local y lo que se debe al personal, ahora (comisiones sin pagar − deudas). */
+/**
+ * Saldo vivo de los clientes del local y lo que se debe al personal, ahora:
+ * comisiones sin pagar − deudas, sumado por persona sin compensar (la deuda de
+ * una no resta a las demás, como Pagos a compañeras: payableSummary). Lo que
+ * deben por devoluciones tras pagarles sale aparte (debtCents).
+ */
 async function liveBalances(
   tx: TransactionalClient,
   tenantId: string,
-): Promise<{ saldoCents: number; owed: { chicasCents: number; camarerosCents: number; bankHeldCents: number } }> {
+): Promise<{ saldoCents: number; owed: { chicasCents: number; camarerosCents: number; bankHeldCents: number; debtCents: number } }> {
   const [saldo] = await tx.$queryRaw<Array<{ cents: Num }>>`
     SELECT COALESCE(SUM("balanceCents"), 0)::bigint AS cents
       FROM client_wallets
      WHERE "tenantId" = ${tenantId}::uuid AND status = 'ACTIVE' AND "mergedIntoId" IS NULL
   `;
-  const owed = await tx.$queryRaw<Array<{ chica: boolean; cents: Num }>>`
-    SELECT x.chica, COALESCE(SUM(x.cents), 0)::bigint AS cents
+  const owed = await tx.$queryRaw<Array<{ chica: boolean; cents: Num; debt: Num }>>`
+    SELECT y.chica, COALESCE(SUM(GREATEST(y.cents, 0)), 0)::bigint AS cents, COALESCE(SUM(LEAST(y.cents, 0)), 0)::bigint AS debt
       FROM (
-        SELECT (u.role = 'OPERATOR') AS chica, e."commissionCents" + COALESCE(e."tipCents", 0) - e."reversedCents" AS cents
-          FROM operator_earnings e JOIN users u ON u.id = e."operatorId"
-         WHERE e."tenantId" = ${tenantId}::uuid AND e."payoutId" IS NULL
-        UNION ALL
-        -- Devoluciones llegadas con la comisión ya pagada: se descuentan del próximo pago.
-        SELECT (u.role = 'OPERATOR'), -r."reversedDeltaCents"
-          FROM earning_reversals r
-          JOIN operator_earnings e ON e.id = r."earningId"
-          JOIN users u ON u.id = e."operatorId"
-         WHERE e."tenantId" = ${tenantId}::uuid AND r."afterPayout" AND r."settledPayoutId" IS NULL
-      ) x
-     GROUP BY x.chica
+        SELECT x.chica, x."operatorId", SUM(x.cents) AS cents
+          FROM (
+            SELECT (u.role = 'OPERATOR') AS chica, e."operatorId", e."commissionCents" + COALESCE(e."tipCents", 0) - e."reversedCents" AS cents
+              FROM operator_earnings e JOIN users u ON u.id = e."operatorId"
+             WHERE e."tenantId" = ${tenantId}::uuid AND e."payoutId" IS NULL
+            UNION ALL
+            -- Devoluciones llegadas con la comisión ya pagada: se descuentan del próximo pago.
+            SELECT (u.role = 'OPERATOR'), e."operatorId", -r."reversedDeltaCents"
+              FROM earning_reversals r
+              JOIN operator_earnings e ON e.id = r."earningId"
+              JOIN users u ON u.id = e."operatorId"
+             WHERE e."tenantId" = ${tenantId}::uuid AND r."afterPayout" AND r."settledPayoutId" IS NULL
+          ) x
+         GROUP BY x.chica, x."operatorId"
+      ) y
+     GROUP BY y.chica
   `;
   // De lo debido, lo de ventas por datáfono sin cuadrar con el banco: no se paga hasta cuadrarlas (bank-hold-sql).
   const [held] = await tx.$queryRaw<Array<{ cents: Num }>>`
@@ -501,5 +513,10 @@ async function liveBalances(
      WHERE e."tenantId" = ${tenantId}::uuid AND e."payoutId" IS NULL AND ${earningBankHeldSql('e')}
   `;
   const of = (chica: boolean) => n(owed.find((o) => o.chica === chica)?.cents);
-  return { saldoCents: n(saldo?.cents), owed: { chicasCents: of(true), camarerosCents: of(false), bankHeldCents: n(held?.cents) } };
+  // Lo que deben las compañeras (el total por persona en negativo), en positivo (nunca −0).
+  const debt = Math.max(0, -n(owed.find((o) => o.chica)?.debt));
+  return {
+    saldoCents: n(saldo?.cents),
+    owed: { chicasCents: of(true), camarerosCents: of(false), bankHeldCents: n(held?.cents), debtCents: debt },
+  };
 }

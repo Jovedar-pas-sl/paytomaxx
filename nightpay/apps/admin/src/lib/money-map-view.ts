@@ -126,14 +126,14 @@ function serviceFeeLine(m: MoneyMap): MoneyMapView['serviceFee'] {
 function outflowRows(m: MoneyMap): OutRow[] {
   const o = m.outflow;
   const pendingNote = moneyMapIsCurrent(m) ? 'al cerrar' : 'pendiente al corte';
-  const who = (w: 'chicas' | 'camareros') => (w === 'chicas' ? 'Pago a chicas' : 'Pago a camareros');
+  const who = (w: 'chicas' | 'camareros') => (w === 'chicas' ? 'Pago a compañeras' : 'Pago a camareros');
   const rows: OutRow[] = o.payouts.map((p) => ({
     key: `payout-${p.who}-${p.rail ?? 'none'}`,
     label: who(p.who),
     note: railNote(p.rail),
     cents: p.cents,
   }));
-  if (o.pendingStaff.chicasCents > 0) rows.push({ key: 'pending-chicas', label: 'Pago a chicas', note: pendingNote, cents: o.pendingStaff.chicasCents });
+  if (o.pendingStaff.chicasCents > 0) rows.push({ key: 'pending-chicas', label: 'Pago a compañeras', note: pendingNote, cents: o.pendingStaff.chicasCents });
   if (o.pendingStaff.camarerosCents > 0) {
     rows.push({ key: 'pending-camareros', label: 'Pago a camareros', note: pendingNote, cents: o.pendingStaff.camarerosCents });
   }
@@ -181,7 +181,7 @@ function splitSegments(m: MoneyMap): Segment[] {
     { key: 'venue', label: 'Local', cents: s.venueCents, color: 'var(--np-mm-tuyo)' },
     {
       key: 'staff',
-      label: staffLabel(s.chicasCents, s.camarerosCents, { chicas: 'Chicas', camareros: 'Camareros', both: 'Personal' }),
+      label: staffLabel(s.chicasCents, s.camarerosCents, { chicas: 'Compañeras', camareros: 'Camareros', both: 'Personal' }),
       cents: s.chicasCents + s.camarerosCents,
       color: 'var(--np-mm-personal)',
     },
@@ -234,7 +234,7 @@ export function moneyMapView(m: MoneyMap, sections: readonly VenueSection[]): Mo
         { key: 'venue', label: 'Tuyo', cents: m.where.owners.venueCents, color: 'var(--np-mm-tuyo)' },
         {
           key: 'staff',
-          label: staffLabel(staff - camareros, camareros, { chicas: 'De chicas', camareros: 'De camareros', both: 'Del personal' }),
+          label: staffLabel(staff - camareros, camareros, { chicas: 'De compañeras', camareros: 'De camareros', both: 'Del personal' }),
           cents: staff,
           color: 'var(--np-mm-personal)',
         },

@@ -152,7 +152,7 @@ const kicker: CSSProperties = {
 };
 
 // 14 px como mínimo en la app del personal.
-const hintStyle: CSSProperties = { margin: 0, fontSize: '0.875rem', color: 'var(--np-text-mute)' };
+const hintStyle: CSSProperties = { margin: 0, fontSize: 'var(--np-fs-14)', color: 'var(--np-text-mute)' };
 
 // Qué hacer, en letra de leer (16/500), no en negrita.
-const doneStyle: CSSProperties = { margin: 0, fontSize: '1rem', fontWeight: 500, lineHeight: 1.45 };
+const doneStyle: CSSProperties = { margin: 0, fontSize: 'var(--np-fs-16)', fontWeight: 500, lineHeight: 1.45 };

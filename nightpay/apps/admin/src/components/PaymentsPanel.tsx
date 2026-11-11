@@ -255,7 +255,7 @@ export function PaymentsPanel({ user, onNavigate, focusPaymentId = null, onFocus
 
         {payments && payments.length > 0 ? (
           <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
-            <span style={{ ...cellMeta, fontSize: '0.8125rem' }}>
+            <span style={{ ...cellMeta, fontSize: '0.875rem' }}>
               {payments.length === 1 ? '1 cobro' : `${payments.length} cobros`}
             </span>
             {nextCursor ? (

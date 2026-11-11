@@ -70,8 +70,8 @@
   display: flex;
   width: max-content;
   font-family: var(--np-font-num);
-  font-size: 0.8125rem;
-  font-weight: 600;
+  font-size: var(--np-fs-14);
+  font-weight: 700;
   line-height: 1;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
@@ -119,7 +119,7 @@
 .np-outcome .np-chip {
   background: rgb(0 0 0 / 0.24);
   color: inherit;
-  font-size: 0.875rem;
+  font-size: var(--np-fs-14);
 }
 
 /* El segundo punto del chip de dos secciones («Copas + Comida»). */
@@ -141,8 +141,8 @@
   border: 1px solid color-mix(in srgb, currentColor 55%, transparent);
   border-radius: var(--np-r-xs);
   font-family: var(--np-font-num);
-  font-size: 0.875rem;
-  font-weight: 600;
+  font-size: var(--np-fs-14);
+  font-weight: 700;
   letter-spacing: 0.04em;
   font-variant-numeric: tabular-nums;
 }
@@ -167,9 +167,47 @@
   color: var(--np-outcome-expired);
 }
 
+/* PAGADO (Grafito 3): el ✓ se dibuja. Aro verde y palo crema en un SVG de
+   104 × 104; el círculo se traza en 380 ms y el palo en 260 ms. */
 .np-outcome[data-kind='paid'] .np-outcome-ring {
-  background: var(--np-lime);
-  color: var(--np-ink);
+  width: clamp(5rem, 13vh, 7rem);
+  height: clamp(5rem, 13vh, 7rem);
+  background: transparent;
+  border-radius: 0;
+}
+
+.np-check {
+  width: 100%;
+  height: 100%;
+  animation: np-check-pop var(--np-d-moment) ease-out 1 both;
+}
+
+.np-check-ring {
+  stroke: var(--np-outcome-tick-ring);
+  stroke-dasharray: 302;
+  animation: np-check-ring 380ms ease-out 1 both;
+}
+
+.np-check-tick {
+  stroke: var(--np-outcome-ink);
+  stroke-dasharray: 60;
+  animation: np-check-tick 260ms ease-out 330ms 1 both;
+}
+
+@keyframes np-check-ring {
+  from { stroke-dashoffset: 302; }
+  to   { stroke-dashoffset: 0;   }
+}
+
+@keyframes np-check-tick {
+  from { stroke-dashoffset: 60; }
+  to   { stroke-dashoffset: 0;  }
+}
+
+@keyframes np-check-pop {
+  0%   { transform: scale(0.92); }
+  60%  { transform: scale(1.04); }
+  100% { transform: scale(1);    }
 }
 
 .np-outcome-icon {
@@ -198,7 +236,12 @@
   100% { opacity: 0;    }
 }
 
-.np-outcome[data-kind='paid'] .np-outcome-ring {
+/* CARGADO sigue con su marca de siempre: aro lima que salta y ✓ que se dibuja
+   (pathLength="1"); queda dibujada al final. */
+.np-outcome[data-kind='paid'] .np-outcome-ring:not(:has(.np-check)) {
+  background: var(--np-lime);
+  color: var(--np-ink);
+  border-radius: 50%;
   animation: np-outcome-pop var(--np-d-moment) var(--np-ease-pop) 1 both;
 }
 
@@ -207,7 +250,6 @@
   to   { transform: scale(1);   opacity: 1; }
 }
 
-/* La marca ✓ se dibuja (pathLength="1" en el SVG): queda dibujada al final. */
 .np-outcome[data-kind='paid'] .np-outcome-icon path {
   stroke-dasharray: 1;
   stroke-dashoffset: 0;
@@ -223,7 +265,7 @@
 .np-outcome-title {
   margin: 0;
   font-family: var(--np-font-display);
-  font-size: 1.75rem;
+  font-size: var(--np-fs-28);
   font-weight: 600;
   line-height: 1.15;
   letter-spacing: 0;
@@ -235,17 +277,129 @@
 .np-outcome-amount {
   margin: 0;
   font-family: var(--np-font-num);
-  font-weight: 600;
+  font-weight: 700;
   line-height: 1;
   letter-spacing: 0;
   font-variant-numeric: proportional-nums;
-  font-size: 3.5rem;
-  font-size: min(clamp(3.5rem, 9vh, 4rem), calc(88vw / var(--np-fit, 6)));
+  font-size: var(--np-fs-64);
+  font-size: min(clamp(var(--np-fs-40), 9vh, var(--np-fs-64)), calc(88vw / var(--np-fit, 6)));
+}
+
+/* Grafito 3: la palabra manda (64, Manrope 700) y el importe va debajo (40).
+   Solo en el resultado de un cobro (PaymentOutcome); CARGADO conserva lo suyo.
+   --np-fit-word: ancho de la palabra en em, para que quepa en una línea. */
+.np-outcome-title.np-outcome-word {
+  font-family: var(--np-font-num);
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: 0.02em;
+  font-size: var(--np-fs-64);
+  font-size: min(var(--np-fs-64), calc(88vw / var(--np-fit-word, 6)));
+}
+
+.np-outcome-amount.np-outcome-amount-sub {
+  font-size: var(--np-fs-40);
+  font-size: min(var(--np-fs-40), calc(88vw / var(--np-fit, 6)));
+}
+
+/* «Cómo se pagó»: una tarjeta bajo el importe con el método (icono de su
+   color), lo que lo identifica y quién cobró. Solo datos que tiene el API. */
+.np-outcome-how {
+  width: 100%;
+  max-width: 26rem;
+  margin-top: 0.375rem;
+  padding: 0.875rem 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.625rem;
+  border-radius: 1rem;
+  background: var(--np-outcome-how-bg);
+  border: 1px solid var(--np-outcome-how-line);
+  text-align: left;
+}
+
+.np-outcome-how-head {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.np-outcome-how-icon {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 2.75rem;
+  height: 2.75rem;
+  border-radius: 0.75rem;
+}
+
+.np-outcome-how-icon svg {
+  width: 1.625rem;
+  height: 1.625rem;
+}
+
+.np-outcome-how-icon[data-kind='ficha'] {
+  background: var(--np-cream);
+  color: var(--np-ink);
+}
+
+.np-outcome-how-icon[data-kind='cash'] {
+  background: #58d68d;
+  color: #0b2a17;
+}
+
+.np-outcome-how-icon[data-kind='card'] {
+  background: #6fa8dc;
+  color: #0b1a2a;
+}
+
+.np-outcome-how-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.np-outcome-how-title {
+  font-size: var(--np-fs-18);
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+.np-outcome-how-sub {
+  font-size: var(--np-fs-14);
+  color: var(--np-outcome-sub);
+}
+
+.np-outcome-how-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  font-size: var(--np-fs-16);
+}
+
+.np-outcome-how-row:first-of-type {
+  padding-top: 0.625rem;
+  border-top: 1px solid var(--np-outcome-how-line);
+}
+
+.np-outcome-how-label {
+  color: var(--np-outcome-sub);
+}
+
+.np-outcome-how-value[data-num] {
+  font-family: var(--np-font-num);
+  font-weight: 700;
+}
+
+.np-outcome-what {
+  margin: 0;
+  font-size: var(--np-fs-14);
+  color: var(--np-outcome-sub);
 }
 
 .np-outcome-message {
   margin: 0;
-  font-size: 1.125rem;
+  font-size: var(--np-fs-18);
   font-weight: 500;
   line-height: 1.35;
 }
@@ -261,7 +415,7 @@
 }
 
 .np-outcome-detail {
-  font-size: 1rem;
+  font-size: var(--np-fs-16);
   font-weight: 500;
   line-height: 1.4;
 }
@@ -273,7 +427,7 @@
 .np-outcome-detail b,
 .np-outcome-detail strong {
   font-family: var(--np-font-num);
-  font-weight: 600;
+  font-weight: 700;
 }
 
 /* El código corto en una placa crema (la misma idea que ve el cliente): se
@@ -290,14 +444,14 @@
 }
 
 .np-outcome-code-label {
-  font-size: 0.875rem;
+  font-size: var(--np-fs-14);
   font-weight: 500;
 }
 
 /* ≥ 3rem: se compara con el del móvil del cliente a un metro. */
 .np-outcome-code-value {
   font-family: var(--np-font-num);
-  font-size: 3rem;
+  font-size: var(--np-fs-64);
   font-weight: 700;
   line-height: 1.1;
   letter-spacing: 0.14em;
@@ -306,15 +460,15 @@
 }
 
 .np-outcome-code-hint {
-  font-size: 0.875rem;
+  font-size: var(--np-fs-14);
   font-weight: 500;
 }
 
 .np-outcome-ago {
   margin: 0;
   font-family: var(--np-font-num);
-  font-size: 0.875rem;
-  font-weight: 600;
+  font-size: var(--np-fs-14);
+  font-weight: 700;
   font-variant-numeric: tabular-nums;
 }
 
@@ -324,7 +478,7 @@
   border-radius: var(--np-r-md);
   background: var(--np-ink-0);
   color: var(--np-cream);
-  font-size: 0.875rem;
+  font-size: var(--np-fs-14);
   font-weight: 500;
 }
 
@@ -352,13 +506,13 @@
   border: none;
   border-radius: var(--np-r-md);
   font-family: var(--np-font-sans);
-  font-size: 1.0625rem;
+  font-size: var(--np-fs-16);
   font-weight: 600;
   line-height: 1.2;
   touch-action: manipulation;
   -webkit-tap-highlight-color: transparent;
   transition:
-    transform var(--np-d-fast) var(--np-ease),
+    transform var(--np-press-ms) ease-out,
     background var(--np-d-fast);
 }
 
@@ -372,7 +526,7 @@
   background: transparent;
   color: inherit;
   box-shadow: inset 0 0 0 1px color-mix(in srgb, currentColor 60%, transparent);
-  font-size: 1rem;
+  font-size: var(--np-fs-16);
   font-weight: 500;
 }
 
@@ -397,7 +551,7 @@
 }
 
 .np-outcome-btn:active:not(:disabled) {
-  transform: scale(0.98);
+  transform: scale(var(--np-press-scale));
 }
 
 /* Esperando al servidor («Un momento…»): el mismo botón, sin opacidad. El
@@ -452,14 +606,14 @@
 
 .np-conn-banner-title {
   margin: 0;
-  font-size: 1rem;
+  font-size: var(--np-fs-16);
   font-weight: 600;
   line-height: 1.3;
 }
 
 .np-conn-banner-hint {
   margin: 0.125rem 0 0;
-  font-size: 0.875rem;
+  font-size: var(--np-fs-14);
   font-weight: 500;
   line-height: 1.35;
 }
@@ -498,12 +652,12 @@
 /* Importe grande y suelto: Manrope 600 en cifras proporcionales. */
 .np-keypad-amount {
   font-family: var(--np-font-num);
-  font-weight: 600;
+  font-weight: 700;
   line-height: 1.15;
   font-variant-numeric: proportional-nums;
   color: var(--np-text);
-  font-size: 2.25rem;
-  font-size: min(3rem, calc(92cqi / var(--np-fit, 6)));
+  font-size: var(--np-fs-40);
+  font-size: min(var(--np-fs-40), calc(92cqi / var(--np-fit, 6)));
 }
 
 .np-keypad-display[data-empty='true'] .np-keypad-amount {
@@ -528,21 +682,21 @@
   background: var(--np-surface-2);
   color: var(--np-text);
   font-family: var(--np-font-num);
-  font-size: 1.625rem;
-  font-weight: 600;
+  font-size: var(--np-fs-28);
+  font-weight: 700;
   font-variant-numeric: tabular-nums;
   touch-action: manipulation;
   -webkit-tap-highlight-color: transparent;
   user-select: none;
   transition:
-    transform var(--np-d-fast) var(--np-ease),
+    transform var(--np-press-ms) ease-out,
     background var(--np-d-fast),
     border-color var(--np-d-fast);
 }
 
 .np-keypad-key[data-key='00'],
 .np-keypad-key[data-key='back'] {
-  font-size: 1.25rem;
+  font-size: var(--np-fs-18);
   color: var(--np-text-mute);
 }
 
@@ -551,7 +705,7 @@
 }
 
 .np-keypad-key:active:not(:disabled) {
-  transform: scale(0.95);
+  transform: scale(var(--np-press-scale));
   background: var(--np-surface-3);
   border-color: var(--np-border-hi);
 }
@@ -612,7 +766,7 @@
 .np-qrcd-label {
   margin: 0;
   text-align: center;
-  font-size: 0.875rem;
+  font-size: var(--np-fs-14);
   font-weight: 500;
   font-variant-numeric: tabular-nums;
   color: var(--np-text-mute);
@@ -649,20 +803,20 @@
   border-radius: var(--np-r-sm);
   background: transparent;
   color: var(--np-text-mute);
-  font-size: 1rem;
+  font-size: var(--np-fs-16);
   font-weight: 500;
   white-space: nowrap;
   touch-action: manipulation;
   -webkit-tap-highlight-color: transparent;
   transition:
-    transform var(--np-d-fast) var(--np-ease),
+    transform var(--np-press-ms) ease-out,
     background var(--np-d-fast),
     color var(--np-d-fast);
 }
 
 .np-seg-btn[aria-pressed='true'] {
-  background: var(--np-text);
-  color: var(--np-bg);
+  background: var(--np-chosen);
+  color: var(--np-on-chosen);
   font-weight: 600;
 }
 
@@ -672,7 +826,7 @@
 }
 
 .np-seg-btn:active {
-  transform: scale(0.96);
+  transform: scale(var(--np-press-scale));
 }
 
 .np-seg-btn:focus-visible {
@@ -714,7 +868,7 @@
   }
 
   .np-keypad-amount {
-    font-size: min(2.75rem, 6vh, calc(92cqi / var(--np-fit, 6)));
+    font-size: min(var(--np-fs-40), 6vh, calc(92cqi / var(--np-fit, 6)));
   }
 
   .np-keypad-grid {
@@ -722,7 +876,7 @@
   }
 
   .np-keypad-key {
-    font-size: 1.5rem;
+    font-size: var(--np-fs-22);
   }
 
   .np-qrcd {
@@ -766,8 +920,188 @@
     }
 
     .np-keypad-amount {
-      font-size: min(2.75rem, 6svh, calc(92cqi / var(--np-fit, 6)));
+      font-size: min(var(--np-fs-40), 6svh, calc(92cqi / var(--np-fit, 6)));
     }
+  }
+}
+
+/* Esperando el pago (Grafito 3): un anillo crema (tinta en claro) que respira alrededor del QR,
+   mientras se espera. box-shadow que crece y se apaga en 2,6 s, en bucle; no
+   cambia el tamaño del QR. Con «reducir movimiento», un anillo fijo. */
+@keyframes np-breathe {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--np-chosen) 38%, transparent);
+  }
+
+  50% {
+    box-shadow: 0 0 0 16px color-mix(in srgb, var(--np-chosen) 0%, transparent);
+  }
+}
+
+.np-breathe {
+  animation: np-breathe 2.6s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .np-breathe {
+    animation: none !important;
+    box-shadow: 0 0 0 4px color-mix(in srgb, var(--np-chosen) 25%, transparent);
+  }
+}
+
+/* PIN mal (Grafito 3): los puntos tiemblan 360 ms. Dos clases que se alternan
+   para que el temblor se repita al fallar otra vez seguida. */
+@keyframes np-shake {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+
+  20% {
+    transform: translateX(-8px);
+  }
+
+  40% {
+    transform: translateX(8px);
+  }
+
+  60% {
+    transform: translateX(-5px);
+  }
+
+  80% {
+    transform: translateX(5px);
+  }
+}
+
+.np-shake-a {
+  animation: np-shake 360ms ease-in-out 1;
+}
+
+/* Los mismos fotogramas con otro nombre: una animación que no cambia de nombre no vuelve
+   a empezar, y el segundo fallo seguido no temblaba. */
+@keyframes np-shake-b {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+
+  20% {
+    transform: translateX(-8px);
+  }
+
+  40% {
+    transform: translateX(8px);
+  }
+
+  60% {
+    transform: translateX(-5px);
+  }
+
+  80% {
+    transform: translateX(5px);
+  }
+}
+
+.np-shake-b {
+  animation: np-shake-b 360ms ease-in-out 1;
+}
+
+/* «Cobrar» mientras se crea el cobro: «Cobrando» con tres puntos que suben y bajan. */
+@keyframes np-dots {
+  0%,
+  80%,
+  100% {
+    opacity: 0.25;
+  }
+
+  40% {
+    opacity: 1;
+  }
+}
+
+.np-dots {
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
+}
+
+.np-dots > i {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: np-dots 1s infinite;
+}
+
+.np-dots > i:nth-child(2) {
+  animation-delay: 160ms;
+}
+
+.np-dots > i:nth-child(3) {
+  animation-delay: 320ms;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .np-shake-a,
+  .np-shake-b,
+  .np-dots > i {
+    animation: none !important;
+  }
+
+  .np-dots > i {
+    opacity: 0.7;
+  }
+}
+
+/* Mantener pulsado para confirmar (Grafito 3): la barra se llena en 1,2 s. */
+.np-hold {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 3.5rem;
+  padding: 0 1.5rem;
+  overflow: hidden;
+  border: 1px solid var(--np-danger);
+  border-radius: var(--np-r-md);
+  background: color-mix(in srgb, var(--np-danger) 10%, var(--np-surface));
+  color: var(--np-danger-text);
+  font: 600 var(--np-fs-16)/1.15 var(--np-font-sans);
+  /* manipulation, no none: así un scroll que empieza sobre el botón manda pointercancel y suelta. */
+  touch-action: manipulation;
+  user-select: none;
+  -webkit-touch-callout: none;
+  cursor: pointer;
+}
+
+.np-hold-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 0;
+  background: color-mix(in srgb, var(--np-danger) 22%, transparent);
+  transition: width 0ms linear;
+}
+
+.np-hold-fill.on {
+  width: 100%;
+  transition: width var(--np-hold-ms, 1200ms) linear;
+}
+
+.np-hold-text {
+  position: relative;
+}
+
+.np-hold:disabled {
+  cursor: progress;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .np-hold-fill.on {
+    transition: none;
+    width: 0;
   }
 }
 
@@ -779,8 +1113,12 @@
   }
 
   .np-outcome[data-kind='paid'] .np-outcome-ring,
-  .np-outcome[data-kind='paid'] .np-outcome-icon path {
+  .np-outcome[data-kind='paid'] .np-outcome-icon path,
+  .np-check,
+  .np-check-ring,
+  .np-check-tick {
     animation: none !important;
+    stroke-dashoffset: 0;
   }
 
   /* La marquesina no se desplaza: se funde despacio (un ciclo cada 5 s). Gana a

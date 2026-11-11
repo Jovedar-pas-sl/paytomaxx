@@ -430,7 +430,7 @@ function PayoutsTable({
 function LimitNote({ count, what }: { count: number; what: string }) {
   if (count < HISTORY_LIMIT) return null;
   return (
-    <p style={{ ...emptyText, padding: '0.75rem 0 0', fontSize: '0.8125rem' }}>
+    <p style={{ ...emptyText, padding: '0.75rem 0 0', fontSize: '0.875rem' }}>
       Se ven las {HISTORY_LIMIT} {what} más recientes.
     </p>
   );
@@ -438,11 +438,11 @@ function LimitNote({ count, what }: { count: number; what: string }) {
 
 const tableWrap: CSSProperties = { maxHeight: '24rem', overflow: 'auto' };
 const numCol: CSSProperties = { textAlign: 'right' };
-const numCell: CSSProperties = { textAlign: 'right', fontWeight: 500 };
+const numCell: CSSProperties = { textAlign: 'right', fontWeight: 400 };
 const cellMeta: CSSProperties = { color: 'var(--np-text-mute)' };
 const refCode: CSSProperties = {
   fontFamily: 'var(--np-font-mono)',
-  fontSize: '0.75rem',
+  fontSize: '0.875rem',
   display: 'inline-block',
   maxWidth: '9rem',
   overflow: 'hidden',

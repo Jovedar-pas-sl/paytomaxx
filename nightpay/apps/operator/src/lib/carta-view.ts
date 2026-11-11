@@ -12,7 +12,7 @@ export const UNDO_MS = 4_000;
  * qué hacer (y va en gris, no en lima: el lima es «listo para cobrar»).
  */
 export function cobrarLabel({ busy, empty, totalCents }: { busy: boolean; empty: boolean; totalCents: number }): string {
-  if (busy) return 'Un momento…';
+  if (busy) return 'Cobrando';
   if (empty) return 'Toca lo que te pide el cliente';
   return `Cobrar ${formatEur(totalCents, { compact: true })}`;
 }

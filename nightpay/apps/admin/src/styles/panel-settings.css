@@ -34,7 +34,7 @@
 
 .np-set-title {
   margin: 0;
-  font-size: var(--np-t-h4, 1.0625rem);
+  font-size: var(--np-t-h4, 1.125rem);
   font-weight: 600;
   color: var(--np-text);
 }
@@ -55,7 +55,7 @@
   display: flex;
   flex-direction: column;
   gap: 0.35rem;
-  font-size: 0.9375rem;
+  font-size: 1rem;
   line-height: 1.45;
   color: var(--np-text);
 }
@@ -73,7 +73,7 @@
 
 .np-set-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(9rem, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr));
   gap: 0.75rem 1rem;
 }
 
@@ -100,13 +100,13 @@
 }
 
 .np-set-row-label {
-  font-size: 0.9375rem;
+  font-size: 1rem;
   font-weight: 600;
   color: var(--np-text);
 }
 
 .np-set-row-hint {
-  font-size: 0.8125rem;
+  font-size: 0.875rem;
   color: var(--np-text-mute);
   line-height: 1.4;
 }
@@ -127,61 +127,6 @@
   flex-direction: column;
   gap: 0.75rem;
   padding-top: 0.25rem;
-}
-
-.np-switch {
-  position: relative;
-  flex: 0 0 auto;
-  display: inline-flex;
-  align-items: center;
-  width: 4.25rem;
-  height: 2.25rem;
-  padding: 0 0.5rem;
-  border: 1px solid var(--np-border-hi);
-  border-radius: var(--np-r-pill);
-  background: var(--np-surface-2);
-  color: var(--np-text-mute);
-  font-family: inherit;
-  cursor: pointer;
-  transition:
-    background var(--np-d-fast),
-    border-color var(--np-d-fast);
-}
-
-.np-switch-thumb {
-  position: absolute;
-  top: 50%;
-  left: 0.25rem;
-  width: 1.625rem;
-  height: 1.625rem;
-  border-radius: 50%;
-  background: var(--np-text-mute);
-  transform: translateY(-50%);
-  transition: transform var(--np-d-base) var(--np-ease);
-}
-
-.np-switch-text {
-  margin-left: auto;
-  font-size: 0.75rem;
-  font-weight: 500;
-}
-
-/* Encendido en t1 (lo elegido), no en lima: en Ajustes hay muchos y la lima
-   se queda para «Guardar». */
-.np-switch[aria-checked='true'] {
-  border-color: var(--np-text);
-  background: color-mix(in oklch, var(--np-text) 16%, var(--np-surface-2));
-  color: var(--np-text);
-}
-
-.np-switch[aria-checked='true'] .np-switch-thumb {
-  background: var(--np-text);
-  transform: translate(2rem, -50%);
-}
-
-.np-switch[aria-checked='true'] .np-switch-text {
-  margin-left: 0;
-  margin-right: auto;
 }
 
 .np-switch:focus-visible {
@@ -281,8 +226,8 @@
   border-radius: var(--np-r-xs);
   border: 1px solid var(--np-border-hi);
   color: var(--np-text-mute);
-  font-size: 0.75rem;
-  font-weight: 500;
+  font-size: 0.875rem;
+  font-weight: 400;
 }
 
 .np-set-small {
@@ -310,12 +255,12 @@
 .np-set-account strong {
   display: block;
   color: var(--np-text);
-  font-size: 0.9375rem;
+  font-size: 1rem;
 }
 
 .np-set-account code {
   font-family: var(--np-font-mono);
-  font-size: 0.75rem;
+  font-size: 0.875rem;
 }
 
 @media (max-width: 640px) {

@@ -103,7 +103,7 @@ function isTicketExpired(err: unknown): boolean {
 }
 
 const formStyle = { display: 'flex', flexDirection: 'column', gap: '1rem', width: '100%' } as const;
-const stepText = { margin: 0, fontSize: '0.9375rem', color: 'var(--np-text-mute)', lineHeight: 1.5 } as const;
+const stepText = { margin: 0, fontSize: '1rem', color: 'var(--np-text-mute)', lineHeight: 1.5 } as const;
 const qrStyle = { alignSelf: 'center', borderRadius: 8, background: '#fff', padding: 8 } as const;
 const secretStyle = { alignSelf: 'center', fontSize: '0.875rem', letterSpacing: '0.08em', wordBreak: 'break-all' } as const;
 const errorStyle = { color: 'var(--np-danger)', margin: 0, textAlign: 'center', fontSize: '0.875rem' } as const;

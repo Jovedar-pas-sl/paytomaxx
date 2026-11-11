@@ -4,12 +4,9 @@ import { useEffect, useState } from 'react';
 import type { MoneyMap } from '@nightpay/contracts';
 import { ApiError } from '@/lib/api-errors';
 import { fetchMoneyMap, type CobrosFilters } from '@/lib/api';
-import { moneyMapView } from '@/lib/money-map-view';
 import { moneyMapCobrosFilter } from '@/lib/money-map-cobros';
 import { moneyMapFreshness, moneyMapStamp } from '@/lib/money-map-loading';
 import { useVenueTimezone } from '@/lib/venue-context';
-import { useSections } from '@/lib/use-sections';
-import { Stripe } from '../fichas/FichaSheet';
 import { MoneyMapView } from './MoneyMapView';
 
 /**
@@ -18,7 +15,6 @@ import { MoneyMapView } from './MoneyMapView';
  * su corte. Sin permiso de informes (encargado), no sale.
  */
 export function NightMoneyMap({ nightId, onOpenCobros }: { nightId: string; onOpenCobros?: (filter: CobrosFilters) => void }) {
-  const { sections } = useSections();
   const timezone = useVenueTimezone();
   const [map, setMap] = useState<MoneyMap | null>(null);
   const [state, setState] = useState<'loading' | 'ok' | 'hidden' | 'error'>('loading');
@@ -57,7 +53,6 @@ export function NightMoneyMap({ nightId, onOpenCobros }: { nightId: string; onOp
           </span>
         ) : null}
       </div>
-      {map ? <Stripe segments={moneyMapView(map, sections).stripe} /> : null}
       {map ? <p className="np-mm-note np-mm-fresh">{fresh!.line}</p> : null}
       {state === 'loading' ? <p className="np-mm-note">Cargando…</p> : null}
       {state === 'error' ? <p className="np-mm-note">No se pudo cargar el mapa del dinero de esta noche.</p> : null}

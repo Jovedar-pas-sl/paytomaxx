@@ -504,7 +504,7 @@ export function rulesPayload(
       ? `devolución con aprobación desde: ${formatEur(saved.refundApprovalThresholdCents)} → ${formatEur(p.refundThreshold)}`
       : null,
     dto.payoutRequiresApproval !== undefined
-      ? `pagos a chicas con aprobación: ${yesNo(saved.payoutRequiresApproval)} → ${yesNo(form.payoutRequiresApproval)}`
+      ? `pagos a compañeras con aprobación: ${yesNo(saved.payoutRequiresApproval)} → ${yesNo(form.payoutRequiresApproval)}`
       : null,
     dto.serviceFeeEnabled !== undefined
       ? `comisión del servicio al cliente: ${onOff(fee.enabled)} → ${onOff(form.serviceFeeEnabled)}`

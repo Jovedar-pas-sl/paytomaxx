@@ -13,6 +13,20 @@ export interface PolledPayment {
   tipCents?: number;
   /** Esperando al banco (AUTHORIZING) o sin su respuesta (ORPHAN): cuándo salió el intento. API nuevo. */
   attemptStartedAt?: string | null;
+  /** Ya pagado: «wallet» = Apple Pay o Google Pay; «card» = tarjeta. */
+  payMethod?: 'card' | 'wallet';
+}
+
+/** Lo que el sondeo cuenta de cómo se pagó (para el PAGADO). */
+export interface PaidCardFacts {
+  payMethod?: 'card' | 'wallet';
+}
+
+/** Solo lo que el API dijo y con forma válida: nada se inventa. */
+export function cardFactsOf(current: PolledPayment): PaidCardFacts {
+  return {
+    ...(current.payMethod === 'card' || current.payMethod === 'wallet' ? { payMethod: current.payMethod } : {}),
+  };
 }
 
 /**
@@ -23,11 +37,12 @@ export interface PolledPayment {
 export function pollUpdate(
   current: PolledPayment,
   id: string,
-): { status: PaymentStatus; tipCents?: number; attemptStartedAt?: string } | null {
+): ({ status: PaymentStatus; tipCents?: number; attemptStartedAt?: string } & PaidCardFacts) | null {
   if (!isPolledPayment(current, id)) return null;
   return {
     status: current.status,
     ...(typeof current.tipCents === 'number' ? { tipCents: current.tipCents } : {}),
     ...(typeof current.attemptStartedAt === 'string' ? { attemptStartedAt: current.attemptStartedAt } : {}),
+    ...cardFactsOf(current),
   };
 }

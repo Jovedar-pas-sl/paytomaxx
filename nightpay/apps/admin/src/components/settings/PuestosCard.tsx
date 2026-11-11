@@ -8,7 +8,7 @@ import { sectionLabelOf } from '@/lib/money-map';
 import { useSections } from '@/lib/use-sections';
 import { LoadState, SettingsCard, StatusLine, useSavedFlash, useSettingsLoad } from './SettingsBits';
 
-const ROLE_NAME: Record<PuestoPerson['role'], string> = { MANAGER: 'Encargado', WAITER: 'Camarero', OPERATOR: 'Chica' };
+const ROLE_NAME: Record<PuestoPerson['role'], string> = { MANAGER: 'Encargado', WAITER: 'Camarero', OPERATOR: 'Compañera' };
 
 /**
  * Ajustes → Permisos → Puestos (dueño): el puesto de cada persona (Sala,
@@ -48,7 +48,7 @@ export function PuestosCard() {
   return (
     <SettingsCard
       title="Puestos"
-      hint="El puesto decide lo que cobra cada persona (Ajustes → Secciones) y la sección que su app marca de entrada. Sin puesto, Barra. Las chicas son siempre Sala."
+      hint="El puesto decide lo que cobra cada persona (Ajustes → Secciones) y la sección que su app marca de entrada. Sin puesto, Barra. Las compañeras son siempre Sala."
     >
       {data.length === 0 ? (
         <p className="np-set-loading">Aún no hay personal en el local.</p>
@@ -57,7 +57,7 @@ export function PuestosCard() {
           {data.map((p) => (
             <li key={p.id} style={row}>
               <span style={{ fontWeight: 600, minWidth: 0, overflowWrap: 'anywhere' }}>
-                {p.name} <span style={{ color: 'var(--np-text-dim)', fontWeight: 500 }}>· {ROLE_NAME[p.role]}</span>
+                {p.name} <span style={{ color: 'var(--np-text-dim)', fontWeight: 400 }}>· {ROLE_NAME[p.role]}</span>
               </span>
               <Select
                 aria-label={`Puesto de ${p.name}`}
@@ -77,7 +77,7 @@ export function PuestosCard() {
         </ul>
       )}
       <StatusLine saved={saved} error={error} />
-      <p style={{ margin: 0, fontSize: '0.8125rem', color: 'var(--np-text-dim)' }}>
+      <p style={{ margin: 0, fontSize: '0.875rem', color: 'var(--np-text-dim)' }}>
         {data.filter((p) => p.post).length} de {data.length} con puesto propio.
       </p>
     </SettingsCard>

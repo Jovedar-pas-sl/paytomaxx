@@ -142,8 +142,8 @@ export function serverToLocalMs(serverMs: number, anchor: { serverMs: number; lo
   return anchor ? serverMs - (anchor.serverMs - anchor.localMs) : serverMs;
 }
 
-/** «Cancelar cobro» con el cliente pagando en su banco: se confirma antes. */
-export const CANCEL_WHILE_PAYING_TEXT = '¿Cancelar? El cliente está pagando en su banco.';
+/** Con el cliente pagando en su banco no se puede cancelar (el API no lo deja): se dice y se espera. */
+export const CANCEL_WHILE_PAYING_TEXT = 'El cliente está pagando en su banco: espera su respuesta. Hasta entonces no se puede cancelar.';
 
 /** La pantalla ámbar del cobro que el banco no confirmó (ORPHAN). */
 export const UNCONFIRMED_TITLE = 'El banco no lo ha confirmado';

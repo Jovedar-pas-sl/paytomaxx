@@ -27,7 +27,7 @@ test('los botones del cobro quedan visibles y se pueden usar en móvil, tableta 
     headers: { 'Access-Control-Allow-Origin':'http://127.0.0.1:4303', 'Access-Control-Allow-Credentials':'true' },
     body: JSON.stringify({ items: [row], nextCursor: null }) }));
   await page.goto('/');
-  await page.getByLabel('Email').fill('owner@isolated.test');
+  await page.getByLabel(/^(Email|Correo electrónico)$/).fill('owner@isolated.test');
   await page.getByLabel('Contraseña').fill('Isolated-test-password-2026!');
   await page.getByRole('button',{ name:'Entrar',exact:true }).click();
   await page.getByText(/esta noche/i).first().waitFor();

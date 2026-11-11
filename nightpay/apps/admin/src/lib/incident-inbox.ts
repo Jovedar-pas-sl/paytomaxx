@@ -31,7 +31,7 @@ export const INCIDENT_KINDS: Record<IncidentKind, KindMeta> = {
     tab: 'payments',
     opensPayment: true,
   },
-  earning_reverse_failed: { group: 'Chicas', title: 'Devolución sin descontar a la chica', tab: 'operators' },
+  earning_reverse_failed: { group: 'Compañeras', title: 'Devolución sin descontar a la compañera', tab: 'operators' },
   night_closed_pending: { group: 'Noche', title: 'Noche cerrada con cobros sin resolver', tab: 'nights' },
   pos_charge_mismatch: { group: 'Datáfono', title: 'Venta del datáfono que no cuadra', tab: 'terminals' },
   pos_unmatched_op: { group: 'Datáfono', title: 'Venta del datáfono sin cobro', tab: 'terminals' },

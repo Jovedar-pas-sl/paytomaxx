@@ -175,7 +175,7 @@ export function CartaImageEditor({ item, onChanged }: { item: ServiceItem; onCha
 const box: CSSProperties = { display: 'flex', flexDirection: 'column', gap: '0.75rem', marginTop: '0.75rem', paddingTop: '0.75rem', borderTop: '1px solid var(--np-border)' };
 const topRow: CSSProperties = { display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' };
 const previewRow: CSSProperties = { display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' };
-const hint: CSSProperties = { margin: 0, color: 'var(--np-text-mute)', fontSize: '0.9375rem' };
+const hint: CSSProperties = { margin: 0, color: 'var(--np-text-mute)', fontSize: '1rem' };
 const thumbBox: CSSProperties = {
   flex: 'none',
   display: 'grid',

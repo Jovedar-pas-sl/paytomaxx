@@ -7,6 +7,9 @@ import { formatEur } from '@/lib/money';
 import { DESK_FIELD } from './desk/desk-parts';
 import r from './reception.module.css';
 
+/** El motivo elegido, en crema (tinta en claro): la lima es de la acción principal. */
+const CHOSEN = { background: 'var(--np-chosen)', color: 'var(--np-on-chosen)' } as const;
+
 const time = (iso: string) => new Date(iso).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Madrid' });
 
 /**
@@ -65,7 +68,7 @@ export function CashVoids({ onDone }: { onDone: () => void }) {
         </p>
         <p className={r.lead}>¿Qué ha pasado?</p>
         {(Object.keys(CASH_UNDO_REASON_LABEL) as CashUndoReason[]).map((why) => (
-          <Button key={why} variant={reason === why ? 'primary' : 'ghost'} aria-pressed={reason === why} onClick={() => setReason(why)} disabled={busy}>
+          <Button key={why} variant="ghost" aria-pressed={reason === why} style={reason === why ? CHOSEN : undefined} onClick={() => setReason(why)} disabled={busy}>
             {CASH_UNDO_REASON_LABEL[why]}
           </Button>
         ))}

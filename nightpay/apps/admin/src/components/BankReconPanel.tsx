@@ -211,14 +211,16 @@ function UploadCard({ onDone }: { onDone: (s: BankStatementSummary) => void }) {
           ))}
         </div>
         <p style={mutedStyle}>{current.how}</p>
-        <input
-          ref={fileInput}
-          type="file"
-          accept=".csv,.txt,.xls,.htm,.html"
-          onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-          aria-label="Fichero del banco"
-        />
-        <label style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', fontSize: '0.875rem' }}>
+        <label className="np-file">
+          <span>Fichero del banco</span>
+          <input
+            ref={fileInput}
+            type="file"
+            accept=".csv,.txt,.xls,.htm,.html"
+            onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+          />
+        </label>
+        <label style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', fontSize: '0.875rem', minHeight: '2.75rem' }}>
           <input type="checkbox" checked={withDays} onChange={(e) => setWithDays(e.target.checked)} />
           El fichero no trae fechas (indicar los días)
         </label>
@@ -325,7 +327,7 @@ function StatementDetail({ id, onClose }: { id: string; onClose: () => void }) {
           Cerrar
         </Button>
       </div>
-      <label style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', fontSize: '0.875rem' }}>
+      <label style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', fontSize: '0.875rem', minHeight: '2.75rem' }}>
         <input type="checkbox" checked={showAll} onChange={(e) => setShowAll(e.target.checked)} />
         Ver también lo que cuadra
       </label>
@@ -396,9 +398,9 @@ function period(s: BankStatementSummary): string {
   return s.periodFrom === s.periodTo ? f(s.periodFrom) : `${f(s.periodFrom)} – ${f(s.periodTo)}`;
 }
 
-const sectionTitle: CSSProperties = { margin: 0, fontSize: '0.9375rem', fontWeight: 600 };
-const mutedStyle: CSSProperties = { margin: '0.25rem 0 0', fontSize: '0.8125rem', color: 'var(--np-text-mute)' };
-const mutedInline: CSSProperties = { fontSize: '0.75rem', color: 'var(--np-text-mute)' };
+const sectionTitle: CSSProperties = { margin: 0, fontSize: '1rem', fontWeight: 600 };
+const mutedStyle: CSSProperties = { margin: '0.25rem 0 0', fontSize: '0.875rem', color: 'var(--np-text-mute)' };
+const mutedInline: CSSProperties = { fontSize: '0.875rem', color: 'var(--np-text-mute)' };
 const errorStyle: CSSProperties = { margin: 0, fontSize: '0.875rem', color: 'var(--np-danger)' };
 const sourceRow: CSSProperties = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(12rem, 1fr))', gap: '0.5rem' };
 const sourceBtn: CSSProperties = {
@@ -408,7 +410,7 @@ const sourceBtn: CSSProperties = {
   borderRadius: 'var(--np-r-sm)',
   color: 'var(--np-text)',
   fontFamily: 'inherit',
-  fontWeight: 500,
+  fontWeight: 400,
   cursor: 'pointer',
   textAlign: 'left',
 };

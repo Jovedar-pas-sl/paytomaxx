@@ -98,7 +98,7 @@ export function StepUpDialog({ open, onClose, onVerified, action, onProof, reaso
   return (
     <Modal open={open} onClose={onClose} title="Verificarte">
       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.875rem' }}>
-        <p style={{ margin: 0, color: 'var(--np-text-mute)', fontSize: '0.9375rem', lineHeight: 1.45 }}>
+        <p style={{ margin: 0, color: 'var(--np-text-mute)', fontSize: '1rem', lineHeight: 1.45 }}>
           {reason ?? 'Para ver lo delicado de un cobro.'} {action ? 'Vale para esto, una vez.' : 'Vale 5 minutos.'}
         </p>
         {status === null && !error ? <p style={{ margin: 0 }}>Un momento…</p> : null}

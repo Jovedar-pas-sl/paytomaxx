@@ -73,7 +73,7 @@ export function Select({ label, hint, style, className, children, ...rest }: Sel
 
 // Grafito: etiqueta 14/500 en t2, sin mayúsculas ni espaciado.
 const labelStyle: CSSProperties = {
-  fontSize: '0.875rem',
+  fontSize: 'var(--np-fs-14)',
   fontWeight: 500,
   color: 'var(--np-text-mute)',
 };
@@ -90,7 +90,7 @@ const inputBase: CSSProperties = {
   padding: '0 1rem',
   fontFamily: 'var(--np-font-sans)',
   // 16 px: el iPhone no amplía al tocar el campo.
-  fontSize: '1rem',
+  fontSize: 'var(--np-fs-16)',
   fontWeight: 500,
   color: 'var(--np-text)',
   // backgroundColor (no `background`): el atajo borraría la flecha de .np-select.
@@ -103,7 +103,7 @@ const inputBase: CSSProperties = {
 };
 
 const sizeMd: CSSProperties = { height: 'var(--np-field-h)' };
-const sizeLg: CSSProperties = { height: '4.5rem', fontSize: '2rem', fontWeight: 600 };
+const sizeLg: CSSProperties = { height: '4.5rem', fontSize: 'var(--np-fs-28)', fontWeight: 600 };
 
 const slotStyle: CSSProperties = {
   position: 'absolute',
@@ -113,6 +113,6 @@ const slotStyle: CSSProperties = {
 };
 
 const hintStyle: CSSProperties = {
-  fontSize: '0.8125rem',
+  fontSize: 'var(--np-fs-14)',
   color: 'var(--np-text-dim)',
 };

@@ -93,7 +93,7 @@ export function TreasuryPanel({ isOwner }: Props) {
         <>
           <section style={metricsGrid}>
             <MetricTile
-              title="Saldo pendiente a chicas"
+              title="Saldo pendiente a compañeras"
               value={formatEur(stats.pendingPayoutsCents)}
               subtitle={pendingSubtitle(stats)}
               highlight
@@ -176,11 +176,18 @@ export function TreasuryPanel({ isOwner }: Props) {
 
           <Card style={{ padding: '1.25rem' }}>
             <h3 style={sectionTitle}>Estado de reconciliación</h3>
-            <div style={splitGrid}>
-              {Object.entries(stats.byReconciliationStatus).map(([status, count]) => (
-                <SplitTile key={status} label={reconciliationLabel(status)} count={count} variant={statusVariant(status)} />
-              ))}
-            </div>
+            {Object.keys(stats.byReconciliationStatus).length === 0 ? (
+              <p style={{ color: 'var(--np-text-mute)', fontSize: '1rem', margin: 0 }}>
+                Todavía no hay pagos a compañeras que reconciliar. Cuando pagues a una, aquí verás cuántos pagos están
+                verificados, cuáles esperan y cuáles no cuadran.
+              </p>
+            ) : (
+              <div style={splitGrid}>
+                {Object.entries(stats.byReconciliationStatus).map(([status, count]) => (
+                  <SplitTile key={status} label={reconciliationLabel(status)} count={count} variant={statusVariant(status)} />
+                ))}
+              </div>
+            )}
           </Card>
         </>
       )}
@@ -190,7 +197,7 @@ export function TreasuryPanel({ isOwner }: Props) {
 
 /** Chicas con algo que cobrar ya y, con el API nuevo, lo que está en espera y la deuda. */
 function pendingSubtitle(stats: TreasuryStats): string {
-  const parts = [`${stats.pendingOperatorCount} chica${stats.pendingOperatorCount === 1 ? '' : 's'}`];
+  const parts = [`${stats.pendingOperatorCount} compañera${stats.pendingOperatorCount === 1 ? '' : 's'}`];
   if (stats.heldPayoutsCents) parts.push(`${formatEur(stats.heldPayoutsCents)} en espera`);
   if (stats.bankHeldPayoutsCents) parts.push(`${formatEur(stats.bankHeldPayoutsCents)} pendientes de cuadrar con el banco`);
   if (stats.operatorDebtCents) parts.push(`deuda por devoluciones ${formatEur(stats.operatorDebtCents)}`);
@@ -258,8 +265,8 @@ function SplitTile({
         minWidth: 0,
       }}
     >
-      <p style={{ margin: 0, fontSize: '0.8125rem', color: 'var(--np-text-mute)' }}>{label}</p>
-      <p className="np-num" style={{ margin: '0.25rem 0 0', fontSize: '1.5rem', fontWeight: 600, color }}>
+      <p style={{ margin: 0, fontSize: '0.875rem', color: 'var(--np-text-mute)' }}>{label}</p>
+      <p className="np-num" style={{ margin: '0.25rem 0 0', fontSize: '1.375rem', fontWeight: 600, color }}>
         {count}
       </p>
     </div>
@@ -296,14 +303,14 @@ const reconcileRow: CSSProperties = {
 
 const metricLabel: CSSProperties = {
   margin: 0,
-  fontSize: '0.75rem',
+  fontSize: '0.875rem',
   color: 'var(--np-text-dim)',
-  fontWeight: 500,
+  fontWeight: 400,
 };
 
 const metricValue: CSSProperties = {
   margin: '0.5rem 0 0',
-  fontSize: '1.875rem',
+  fontSize: '1.75rem',
   // Cifra grande del panel: Manrope 600, como los importes (las de las tablas, 700).
   fontWeight: 600,
   display: 'flex',
@@ -314,12 +321,12 @@ const metricValue: CSSProperties = {
 const metricUnit: CSSProperties = {
   fontSize: '0.875rem',
   color: 'var(--np-text-mute)',
-  fontWeight: 500,
+  fontWeight: 400,
 };
 
 const metricSubtitle: CSSProperties = {
   margin: '0.4rem 0 0',
-  fontSize: '0.8125rem',
+  fontSize: '0.875rem',
   color: 'var(--np-text-dim)',
 };
 

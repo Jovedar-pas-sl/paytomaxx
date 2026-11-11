@@ -278,7 +278,7 @@ export function staffSheet(
   const payouts = f.payouts.map((p) => `${dayShort(p.at, tz)}: ${eurShort(p.cents)}`);
   return {
     title: f.person.name,
-    subtitle: `${camarero ? 'Camarero' : 'Chica'} · ${f.window.open || f.window.nightId ? 'esta noche' : 'desde el último cierre'}`,
+    subtitle: `${camarero ? 'Camarero' : 'Compañera'} · ${f.window.open || f.window.nightId ? 'esta noche' : 'desde el último cierre'}`,
     chip,
     stats: [
       { key: 'sold', label: 'Vendido', cents: f.stats.soldCents },

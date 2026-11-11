@@ -14,6 +14,8 @@ export interface PaymentUpdate {
   tipCents?: number;
   /** Esperando al banco: cuándo salió el intento (solo el sondeo, API nuevo). */
   attemptStartedAt?: string;
+  /** Ya pagado (el sondeo): cómo pagó, si el banco lo dio. */
+  payMethod?: 'card' | 'wallet';
 }
 
 export interface PaymentLiveState {

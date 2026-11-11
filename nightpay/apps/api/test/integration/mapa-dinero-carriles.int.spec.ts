@@ -8,7 +8,7 @@ import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { randomUUID } from 'node:crypto';
 import { ClsService } from 'nestjs-cls';
-import { MONEY_MAP_TIPS, type MoneyMap } from '@nightpay/contracts';
+import { MONEY_MAP_TIPS, venueEarnedCents, type MoneyMap } from '@nightpay/contracts';
 import { Prisma } from '@nightpay/db';
 import { PrismaService } from '../../src/common/prisma/prisma.service';
 import { PaymentsService } from '../../src/modules/payments/payments.service';
@@ -258,13 +258,15 @@ describe('el mapa del dinero de la noche, en directo: los carriles cuadran', () 
     expect(live.where.liveSaldoCents).toBe(10_000);
     const wallet = await sys((tx) => tx.clientWallet.findUnique({ where: { id: W } }));
     expect(wallet!.balanceCents).toBe(o.saldoCents);
-    expect(live.where.owed).toEqual({ chicasCents: 12_800, camarerosCents: 0, bankHeldCents: 0 });
+    expect(live.where.owed).toEqual({ chicasCents: 12_800, camarerosCents: 0, bankHeldCents: 0, debtCents: 0 });
   });
 
   it('qué sale: lo pagado al camarero, lo pendiente de Lola, devoluciones y comisiones', () => {
     expect(live.outflow.payouts).toEqual([{ who: 'camareros', rail: 'MANUAL_CASH', count: 1, cents: 600 }]);
     expect(live.outflow.pendingStaff).toEqual({ chicasCents: 12_800, camarerosCents: 0 });
-    expect(live.outflow.refunds).toEqual({ cardCents: 1_000, cardCount: 1, cashCents: 2_000, cashCount: 1 });
+    // De los 10 € devueltos a tarjeta, los 10 eran venta (las copas): es lo que resta «¿Cuánto he ganado?».
+    expect(live.outflow.refunds).toEqual({ cardCents: 1_000, cardCount: 1, cashCents: 2_000, cashCount: 1, salesCents: 1_000 });
+    expect(venueEarnedCents(live)).toBe(12_300 - 1_000);
     expect(live.outflow.commissionsCents).toBe(2_800);
   });
 });
@@ -432,5 +434,43 @@ describe('la parte del camarero: se ve y se paga como la de una chica', () => {
       requests.requestPayout({ userId: manager, role: 'MANAGER', tenantId: A }, dani, { externalRail: 'MANUAL_CASH' }),
     );
     expect(asked).toMatchObject({ status: 'PENDING', amountCents: 300 });
+  });
+});
+
+describe('lo que se debe a las compañeras: por persona, sin compensar (como Pagos a compañeras)', () => {
+  it('la deuda de una (devolución tras pagarle) no resta de lo que se debe a las demás: sale aparte, y una recarga devuelta no es venta', async () => {
+    const before = await inVenue(A, () => moneyMap.forQuery(A, {}, soon()));
+    // Bea hace un pack (120 € de servicio, su 50 %: 60 €) y se le paga en efectivo.
+    const bea = (
+      await sys((tx) =>
+        tx.user.create({
+          data: { tenantId: A, email: `bea-mc-${r}@x.es`, passwordHash: 'x', role: 'OPERATOR', commissionBps: 5000, displayName: 'Bea', payoutMethod: 'MANUAL_CASH' },
+        }),
+      )
+    ).id;
+    const p = await inVenue(A, () => payments.create(A, key(), body({ amountCents: 1, serviceItemId: pack }), { userId: bea, role: 'OPERATOR' }));
+    await authorize(p.id, `MC${r}5`);
+    await inVenue(A, () => operators.createPayout(A, bea, owner, 'lo de esta noche', { externalRail: 'MANUAL_CASH' }));
+    const earning = await sys((tx) => tx.operatorEarning.findFirstOrThrow({ where: { operatorId: bea, paymentId: p.id } }));
+    expect(earning.payoutId).not.toBeNull();
+    const hers = earning.commissionCents + earning.tipCents;
+    expect(hers).toBe(6_000);
+    const paid = await inVenue(A, () => moneyMap.forQuery(A, {}, soon()));
+    // Ya cobrada: a Bea no se le debe nada y lo de las demás no cambia.
+    expect(paid.where.owed).toMatchObject({ chicasCents: before.where.owed!.chicasCents, debtCents: 0 });
+    const topUp = await sys((tx) => tx.payment.findFirstOrThrow({ where: { tenantId: A, walletId: W, captureMethod: 'WALLET_TOPUP' } }));
+    await sys(async (tx) => {
+      // Después se devuelve entero el cobro de Bea: su parte ya pagada pasa a ser deuda suya.
+      const refund = await tx.refund.create({ data: { tenantId: A, paymentId: p.id, amountCents: 15_000, requestedBy: owner, status: 'SUCCEEDED' } });
+      await tx.earningReversal.create({ data: { tenantId: A, earningId: earning.id, refundId: refund.id, reversedDeltaCents: hers, afterPayout: true } });
+      // Y 20 € de la recarga con tarjeta: una devolución que no es de ventas.
+      await tx.refund.create({ data: { tenantId: A, paymentId: topUp.id, amountCents: 2_000, requestedBy: owner, status: 'SUCCEEDED' } });
+    });
+    const after = await inVenue(A, () => moneyMap.forQuery(A, {}, soon()));
+    // Lo que se debe a las demás sigue igual (antes, la deuda de Bea se lo restaba) y lo de Bea va aparte.
+    expect(after.where.owed).toMatchObject({ chicasCents: before.where.owed!.chicasCents, debtCents: hers });
+    // De lo devuelto a tarjeta en la ventana, solo cuenta como venta lo del cobro de Bea, no lo de la recarga.
+    expect(after.outflow.refunds.cardCents - paid.outflow.refunds.cardCents).toBe(15_000 + 2_000);
+    expect((after.outflow.refunds.salesCents ?? 0) - (paid.outflow.refunds.salesCents ?? 0)).toBe(15_000);
   });
 });

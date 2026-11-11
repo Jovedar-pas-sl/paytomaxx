@@ -62,7 +62,7 @@ export interface PanelSection {
 
 export const SECTION_LABELS: Readonly<Record<SectionKey, string>> = {
   hoy: 'Hoy',
-  chicas: 'Chicas',
+  chicas: 'Compañeras',
   clientes: 'Clientes',
   informes: 'Informes',
   ajustes: 'Ajustes',
@@ -76,8 +76,8 @@ export const PANEL_TABS: readonly PanelTab[] = [
   // El mapa del dinero en directo (/v1/admin/money-map): como los informes.
   { key: 'money', label: 'Mapa del dinero', section: 'hoy', access: 'reports' },
   { key: 'incidents', label: 'Avisos', section: 'hoy', access: 'staff' },
-  { key: 'operators', label: 'Chicas', section: 'chicas', access: 'staff' },
-  { key: 'treasury', label: 'Pagos a chicas', section: 'chicas', access: 'staff' },
+  { key: 'operators', label: 'Compañeras', section: 'chicas', access: 'staff' },
+  { key: 'treasury', label: 'Pagos a compañeras', section: 'chicas', access: 'staff' },
   { key: 'wallets', label: 'Saldos', section: 'clientes', access: 'staff' },
   // Fichas NFC: stock, entregadas y perdidas por noche (/v1/wallet-cards).
   { key: 'fichas', label: 'Fichas', section: 'clientes', access: 'staff' },

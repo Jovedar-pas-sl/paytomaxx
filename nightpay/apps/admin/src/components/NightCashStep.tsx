@@ -79,7 +79,7 @@ export function NightCashStep({
     <div className="np-cash">
       <p className="np-cash-why">
         Por OxioPay la caja sube con las recargas del saldo en efectivo (recepción) y baja con el saldo devuelto en
-        efectivo y los pagos en efectivo a las chicas. Lo que se cobre en efectivo fuera de OxioPay (barra, entradas)
+        efectivo y los pagos en efectivo a las compañeras. Lo que se cobre en efectivo fuera de OxioPay (barra, entradas)
         no está aquí: si lo guardas en esta caja, sale como «sobran».
       </p>
 
@@ -252,7 +252,7 @@ function CashMoves({ cash }: { cash: NightCash }) {
         <span className="np-num">{formatEur(-cash.walletCashPayoutsCents)}</span>
       </li>
       <li>
-        <span>Pagos a las chicas en efectivo ({cash.chicaCashPayoutsCount})</span>
+        <span>Pagos a las compañeras en efectivo ({cash.chicaCashPayoutsCount})</span>
         <span className="np-num">{formatEur(-cash.chicaCashPayoutsCents)}</span>
       </li>
       {(cash.camareroCashPayoutsCount ?? 0) > 0 ? (

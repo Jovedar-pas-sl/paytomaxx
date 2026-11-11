@@ -86,17 +86,20 @@ export function MiQr({
             <span className={styles.ring}>
               <svg viewBox="0 0 36 36" aria-hidden="true">
                 <circle className={styles.rb} cx="18" cy="18" r="15" fill="none" strokeWidth="4" />
-                <circle
-                  className={styles.rf}
-                  cx="18"
-                  cy="18"
-                  r="15"
-                  fill="none"
-                  strokeWidth="4"
-                  strokeLinecap="round"
-                  pathLength={100}
-                  strokeDasharray={`${dash} 100`}
-                />
+{/* Con 0 invitaciones no se dibuja: el extremo redondo dejaría un punto suelto en el aro. */}
+                {dash > 0 ? (
+                  <circle
+                    className={styles.rf}
+                    cx="18"
+                    cy="18"
+                    r="15"
+                    fill="none"
+                    strokeWidth="4"
+                    strokeLinecap="round"
+                    pathLength={100}
+                    strokeDasharray={`${dash} 100`}
+                  />
+                ) : null}
               </svg>
               <span>{count}</span>
             </span>

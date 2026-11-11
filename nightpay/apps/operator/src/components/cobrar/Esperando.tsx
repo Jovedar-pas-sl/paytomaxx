@@ -2,15 +2,15 @@
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { confirmationCode, type PaymentStatus } from '@nightpay/contracts';
-import { countdownPhase, formatClock, qrDeadline, secondsLeft, useNow, useWakeLock, ScreenHelp } from '@nightpay/ui';
-import { getUser } from '@/lib/api';
+import { cardHow, countdownPhase, formatClock, qrDeadline, saldoHow, secondsLeft, useNow, useWakeLock, ScreenHelp } from '@nightpay/ui';
+import { fetchPaymentStatus, getUser } from '@/lib/api';
 import { clearFichaContext, saveFichaContext } from '@/lib/ficha-context';
 import { formatEur } from '@/lib/money';
 import { nfcSupported, readCard, waitingListensNfc } from '@/lib/nfc';
 import { useHealthReport } from '@/lib/connection-health';
 import { useOpenCharge } from '@/lib/open-charges';
-import { advanceStatus } from '@/lib/payment-status';
-import { fichaContextOf, iphoneFichaHint, pinDetail, showsSinMovil, SIN_MOVIL_LABEL } from '@/lib/sin-movil';
+import { advanceStatus, cardFactsOf, type PaidCardFacts } from '@/lib/payment-status';
+import { fichaContextOf, iphoneFichaHint, pinDetail, showsSinMovil, SIN_MOVIL_LABEL, type PinVia } from '@/lib/sin-movil';
 import { useVenueMethods, useVenueNight } from '@/lib/venue-methods';
 import { useWalletChargeLive } from '../use-wallet-charge-live';
 import {
@@ -35,7 +35,6 @@ import {
   failReasonOf,
   paidAmounts,
   paidBreakdown,
-  paidMeta,
   pinExpected,
   pinWarning,
   tipLine,
@@ -148,6 +147,12 @@ export function Esperando({ cobro, onNew, onRetry, retrying = false, retryError 
   const [cardStatus, setCardStatus] = useState<PaymentStatus>((cobro.card?.status as PaymentStatus) ?? 'CREATED');
   // La propina del cliente con tarjeta: undefined hasta que la diga el API (no es 0).
   const [cardTip, setCardTip] = useState<number | undefined>(undefined);
+  // Pagado con tarjeta: lo que el banco dio de cómo (4 últimas cifras, Apple o Google Pay).
+  const [cardFacts, setCardFacts] = useState<PaidCardFacts>({});
+  // Pagado con ficha: su número impreso (la respuesta del pago con ficha lo trae; el sondeo, no).
+  const [fichaNo, setFichaNo] = useState<string | null>(null);
+  // Pagado con su PIN aquí: con qué se identificó el saldo (la ficha, su código o su pase). El sondeo no lo dice.
+  const [paidVia, setPaidVia] = useState<PinVia | null>(null);
   const [saldo, setSaldo] = useState<SaldoState | null>(null);
   const [localFail, setLocalFail] = useState<FailReason | null>(null);
   const [canceledByMe, setCanceledByMe] = useState(false);
@@ -167,7 +172,6 @@ export function Esperando({ cobro, onNew, onRetry, retrying = false, retryError 
   // se vio aquí. La espera del banco cuenta desde ahí (05-ui-ux §4.3).
   const [attemptIso, setAttemptIso] = useState<string | null>(null);
   const [authorizingSeenAt, setAuthorizingSeenAt] = useState<number | null>(null);
-  const [confirmingCancel, setConfirmingCancel] = useState(false);
 
   const chargeId = cobro.saldo?.chargeId ?? null;
   const nfcOn = Boolean(chargeId) && methods.nfc && methods.wallet && nfcSupported();
@@ -190,13 +194,18 @@ export function Esperando({ cobro, onNew, onRetry, retrying = false, retryError 
   const { reachable } = usePaymentLive(cobro.card, (update) => {
     setCardStatus((current) => advanceStatus(current, update.status));
     if (update.tipCents !== undefined) setCardTip(update.tipCents);
+    if (update.payMethod) {
+      setCardFacts((facts) => ({
+        ...facts,
+        ...(update.payMethod ? { payMethod: update.payMethod } : {}),
+      }));
+    }
     if (update.attemptStartedAt) setAttemptIso(update.attemptStartedAt);
   });
 
   // Salió al banco: desde cuándo (aquí) mientras el sondeo no trae la hora del servidor.
   useEffect(() => {
     if (cardStatus === 'AUTHORIZING') setAuthorizingSeenAt((seen) => seen ?? Date.now());
-    if (cardStatus !== 'AUTHORIZING') setConfirmingCancel(false);
   }, [cardStatus]);
 
   // Saldo: ¿lo pagó con su móvil (Face ID) o lo canceló la tarjeta? Al
@@ -207,7 +216,7 @@ export function Esperando({ cobro, onNew, onRetry, retrying = false, retryError 
       if (!chargeId) return 'stop';
       try {
         const fresh = await fetchSaldoState(chargeId, signal);
-        setSaldo(fresh);
+        setSaldo((prev) => keepFicha(fresh, prev));
         if (fresh.status !== 'PENDING') return 'stop';
         if (checking) {
           // Sigue pendiente: aquel pago no llegó a cobrarse. Se vuelve a escuchar el NFC.
@@ -233,6 +242,19 @@ export function Esperando({ cobro, onNew, onRetry, retrying = false, retryError 
     setPaidAt(new Date());
     onPaid();
   }, [outcome.kind, paidAt, onPaid]);
+
+  // Pagó la tarjeta y el aviso en directo no trae cómo: una consulta más al sondeo, una vez.
+  const cardToken = cobro.card?.qrToken ?? null;
+  const cardPaid = outcome.kind === 'paid' && outcome.method === 'card';
+  useEffect(() => {
+    if (!cardPaid || !cardToken || cardFacts.payMethod) return undefined;
+    const ctrl = new AbortController();
+    fetchPaymentStatus(cardToken, ctrl.signal)
+      .then((current) => setCardFacts((facts) => ({ ...facts, ...cardFactsOf(current) })))
+      .catch(() => undefined);
+    return () => ctrl.abort();
+    // Una vez por cobro pagado.
+  }, [cardPaid, cardToken]);
 
   useEffect(() => {
     if (!toast) return undefined;
@@ -267,6 +289,8 @@ export function Esperando({ cobro, onNew, onRetry, retrying = false, retryError 
       try {
         const out = await payByNfc(chargeId, card, uid);
         if (out.kind === 'paid') {
+          if (out.state.fichaNumber) setFichaNo(out.state.fichaNumber);
+          setPaidVia('nfc');
           setSaldo(out.state);
           return;
         }
@@ -365,7 +389,6 @@ export function Esperando({ cobro, onNew, onRetry, retrying = false, retryError 
       );
     } finally {
       setCanceling(false);
-      setConfirmingCancel(false);
     }
   }
 
@@ -386,6 +409,21 @@ export function Esperando({ cobro, onNew, onRetry, retrying = false, retryError 
     const breakdown = paidBreakdown(amounts);
     // El mismo código que ve el cliente (el del cobro único, también si pagó con el saldo); sin cobro con tarjeta, ninguno.
     const code = cobro.card ? confirmationCode(cobro.card.id) : null;
+    const at = paidAt ?? new Date();
+    // Cómo pagó: con tarjeta, lo que dio el banco; con el saldo, la ficha o el móvil. Solo datos del API.
+    const how =
+      outcome.method === 'card'
+        ? cardHow({ ...cardFacts, code, who: cobro.who, at })
+        : saldoHow({
+            fichaNumber: fichaNo,
+            codeHint: saldo?.walletCodeHint ?? null,
+            paidWith: outcome.method,
+            paidVia,
+            code,
+            newBalanceCents: outcome.newBalanceCents,
+            who: cobro.who,
+            at,
+          });
     return (
       <StaffOutcome
         kind="paid"
@@ -395,8 +433,7 @@ export function Esperando({ cobro, onNew, onRetry, retrying = false, retryError 
         sections={allSections}
         sectionLabel={sectionLabel}
         reference={cobro.ref}
-        code={code}
-        codeHint="El mismo que ve el cliente"
+        how={how}
         summary={
           breakdown ? (
             <p className={styles.left}>{breakdown}</p>
@@ -406,13 +443,7 @@ export function Esperando({ cobro, onNew, onRetry, retrying = false, retryError 
             </p>
           ) : null
         }
-        detail={
-          <PaidDetail
-            cobro={cobro}
-            newBalanceCents={outcome.newBalanceCents}
-            meta={paidMeta({ who: cobro.who, what: cobro.invitation ? null : cobro.what, method: outcome.method, at: paidAt ?? new Date() })}
-          />
-        }
+        detail={<PaidDetail cobro={cobro} what={cobro.invitation ? null : cobro.what} />}
         primary={{ label: 'Nuevo cobro', onClick: onNew }}
       />
     );
@@ -489,6 +520,8 @@ export function Esperando({ cobro, onNew, onRetry, retrying = false, retryError 
               const state = await payByPin(chargeId, pin.ref, value, tipCents);
               if (state.status === 'ACCEPTED') {
                 setPin(null);
+                setPaidVia(pin.via);
+                if (state.fichaNumber) setFichaNo(state.fichaNumber);
                 setSaldo(state);
                 return null;
               }
@@ -536,24 +569,12 @@ export function Esperando({ cobro, onNew, onRetry, retrying = false, retryError 
         fichaHint={fichaHint}
         onSinMovil={sinMovilOn && !checking ? () => setSinMovil(true) : undefined}
       >
-        {confirmingCancel ? (
-          <div className={styles.cancelAsk} role="alertdialog" aria-label={CANCEL_WHILE_PAYING_TEXT}>
-            <p>{CANCEL_WHILE_PAYING_TEXT}</p>
-            <button type="button" className={`${styles.btn} ${styles.ghost}`} onClick={() => setConfirmingCancel(false)} autoFocus>
-              No, seguir esperando
-            </button>
-            <button type="button" className={`${styles.btn} ${styles.ghost}`} onClick={() => void cancel()} disabled={canceling}>
-              {canceling ? 'Cancelando…' : 'Sí, cancelar'}
-            </button>
-          </div>
+        {cardStatus === 'AUTHORIZING' ? (
+          // Con el cliente en la página de su banco el API no deja cancelar (lo resuelve el banco:
+          // PAGADO, fallido o sin confirmar), así que no se ofrece un botón que siempre fallaría.
+          <p className={styles.altHint}>{CANCEL_WHILE_PAYING_TEXT}</p>
         ) : (
-          <button
-            type="button"
-            className={`${styles.btn} ${styles.ghost}`}
-            // Con el cliente en la página de su banco, se confirma antes.
-            onClick={() => (cardStatus === 'AUTHORIZING' ? setConfirmingCancel(true) : void cancel())}
-            disabled={canceling}
-          >
+          <button type="button" className={`${styles.btn} ${styles.ghost} ${styles.cancelLink}`} onClick={() => void cancel()} disabled={canceling}>
             {canceling ? 'Cancelando…' : 'Cancelar cobro'}
           </button>
         )}
@@ -658,7 +679,7 @@ function Waiting({
           {nfcOn ? WAIT_TITLE_EN.nfc : WAIT_TITLE_EN.qr}
         </p>
         {hasQr ? (
-          <div className={styles.qr} style={{ opacity: left <= 0 ? 0.3 : 1 }} data-tour="esperando-qr">
+          <div className={left > 0 ? `${styles.qr} np-breathe` : styles.qr} style={{ opacity: left <= 0 ? 0.3 : 1 }} data-tour="esperando-qr">
             <CobroQr value={qrUrl} fallbackPng={qrPng} quiet={2} label="QR del cobro: el cliente lo escanea con su móvil" />
           </div>
         ) : null}
@@ -692,13 +713,6 @@ function Waiting({
               : 'No cobres otra vez: espera su respuesta. Si se cobra, sale aquí.'}
           </p>
         ) : null}
-        {/* Lo raro (antes, solo en «Saldo»): sin móvil ni ficha, su código o su pase y su PIN aquí.
-            Justo debajo del QR: a la vista también en un móvil bajo. */}
-        {onSinMovil ? (
-          <button type="button" className={styles.altLink} onClick={onSinMovil} data-tour="esperando-sinmovil">
-            {SIN_MOVIL_LABEL}
-          </button>
-        ) : null}
         {fichaHint ? <p className={styles.altHint}>{fichaHint}</p> : null}
         {toast ? (
           <p className={styles.toast} role="status">
@@ -706,20 +720,27 @@ function Waiting({
           </p>
         ) : null}
       </div>
-      <div className={`${styles.foot} ${styles.footFlat}`} data-tour="esperando-cancelar">{children}</div>
+      <div className={`${styles.foot} ${styles.footFlat}`}>
+        {/* Lo raro (antes, solo en «Saldo»): sin móvil ni ficha, su código o su pase y su PIN aquí.
+            En el pie, encima de «Cancelar cobro»: entero a la vista también en un móvil bajo
+            (360 × 640), donde debajo del QR quedaba tapado por el propio pie. */}
+        {onSinMovil ? (
+          <button type="button" className={styles.altLink} onClick={onSinMovil} data-tour="esperando-sinmovil">
+            {SIN_MOVIL_LABEL}
+          </button>
+        ) : null}
+        <div className={styles.footCancel} data-tour="esperando-cancelar">
+          {children}
+        </div>
+      </div>
     </div>
   );
 }
 
 /** PAGADO (3.3 / 2.5): lo que le queda, quién / qué / cómo, y el reparto si es una invitación. */
-function PaidDetail({ cobro, newBalanceCents, meta }: { cobro: CobroAbierto; newBalanceCents: number | null; meta: string }) {
+function PaidDetail({ cobro, what }: { cobro: CobroAbierto; what: string | null }) {
   return (
     <>
-      {newBalanceCents !== null ? (
-        <p className={styles.left}>
-          Le quedan <b>{formatEur(newBalanceCents, { compact: true })}</b>
-        </p>
-      ) : null}
       {cobro.invitation ? (
         <>
           <p className={styles.left}>Invitación · {cobro.invitation.chica}</p>
@@ -733,9 +754,14 @@ function PaidDetail({ cobro, newBalanceCents, meta }: { cobro: CobroAbierto; new
           </div>
         </>
       ) : null}
-      <p className={styles.meta}>{meta}</p>
+      {what ? <p className="np-outcome-what">{what}</p> : null}
     </>
   );
+}
+
+/** El sondeo no trae la ficha (solo la respuesta del pago con ficha): se conserva. */
+function keepFicha(fresh: SaldoState, prev: SaldoState | null): SaldoState {
+  return fresh.fichaNumber || !prev?.fichaNumber ? fresh : { ...fresh, fichaNumber: prev.fichaNumber };
 }
 
 /**

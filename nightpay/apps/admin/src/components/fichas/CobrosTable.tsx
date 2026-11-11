@@ -11,6 +11,7 @@ import { paidTwiceNote, sectionChip } from '@/lib/money-map';
 import { useSections } from '@/lib/use-sections';
 import { useVenueTimezone } from '@/lib/venue-context';
 import { Pill } from '../Pill';
+import { SkelRows } from '../Skeleton';
 import { useFichas } from './fichas-context';
 import { SectionChip } from './SectionChip';
 
@@ -41,7 +42,21 @@ export function CobrosTable({ rows, actions, empty, hidePerson, extra, showRefer
   const colCount = 8 - (hidePerson ? 1 : 0) + (actions ? 1 : 0) + (extra ? 1 : 0) + (showReferences ? 2 : 0);
   return (
     <div style={{ overflowX: 'auto', minWidth: 0, maxWidth: '100%' }}>
-      <table className={`np-table np-cobros-table${actions ? ' np-cobros-table--acciones' : ''}`} >
+      <table className={`np-table np-cobros-table${actions ? ' np-cobros-table--acciones' : ''}`} aria-busy={rows === null}>
+        {/* Anchos fijos en el escritorio (panel-grafito.css): «Servicio», sin ancho, se lleva lo que sobra. */}
+        <colgroup>
+          <col data-col="hora" />
+          <col data-col="ref" />
+          {showReferences ? <><col data-col="codigo" /><col data-col="banco" /></> : null}
+          <col data-col="importe" />
+          <col data-col="estado" />
+          {hidePerson ? null : <col data-col="quien" />}
+          <col data-col="seccion" />
+          <col data-col="como" />
+          <col data-col="servicio" />
+          {extra ? <col data-col="extra" /> : null}
+          {actions ? <col data-col="acciones" /> : null}
+        </colgroup>
         <thead>
           <tr>
             <th>Hora</th>
@@ -138,7 +153,9 @@ export function CobrosTable({ rows, actions, empty, hidePerson, extra, showRefer
               ) : null}
             </tr>
           ))}
-          {rows === null || rows.length === 0 ? (
+          {rows === null ? (
+            <SkelRows cols={colCount} cards={skeletonCards(colCount, Boolean(showReferences), Boolean(hidePerson), Boolean(extra), Boolean(actions))} />
+          ) : rows.length === 0 ? (
             <tr>
               <td colSpan={colCount} style={emptyCell}>
                 {empty}
@@ -149,6 +166,21 @@ export function CobrosTable({ rows, actions, empty, hidePerson, extra, showRefer
       </table>
     </div>
   );
+}
+
+/**
+ * La forma de una tarjeta de cobro mientras carga: hora y ref arriba, importe y
+ * estado, y las acciones; el resto de columnas no se ven en el móvil.
+ */
+function skeletonCards(cols: number, refs: boolean, noPerson: boolean, extra: boolean, actions: boolean): Array<string | undefined> {
+  const out: Array<string | undefined> = ['top', 'top'];
+  if (refs) out.push('hide', 'hide');
+  out.push('amount', 'status');
+  if (!noPerson) out.push('hide');
+  out.push('hide', 'hide', 'hide');
+  if (extra) out.push('hide');
+  if (actions) out.push('actions');
+  return out.slice(0, cols);
 }
 
 /** «Saldo K7Q-•••»: si no cabe, parte por el espacio, nunca por el guion del código. */
@@ -173,8 +205,8 @@ const paidTwiceStyle = (refunded: boolean): CSSProperties => ({
   display: 'block',
   marginTop: '0.25rem',
   maxWidth: '14rem',
-  fontSize: '0.75rem',
-  fontWeight: 500,
+  fontSize: '0.875rem',
+  fontWeight: 400,
   lineHeight: 1.3,
   color: refunded ? 'var(--np-text-mute)' : 'var(--np-danger)',
 });
@@ -188,8 +220,8 @@ const tipStyle: CSSProperties = {
   display: 'block',
   minWidth: '4.75rem',
   whiteSpace: 'normal',
-  fontSize: '0.75rem',
-  fontWeight: 500,
+  fontSize: '0.875rem',
+  fontWeight: 400,
   color: 'var(--np-text-dim)',
   fontFamily: 'var(--np-font-sans)',
   letterSpacing: 0,
@@ -207,7 +239,7 @@ const linkStyle: CSSProperties = {
   font: 'inherit',
   // Enlace en el color del texto, subrayado (el lima es para la acción principal), en 500.
   color: 'var(--np-text)',
-  fontWeight: 500,
+  fontWeight: 400,
   textDecoration: 'underline',
   textDecorationThickness: '1px',
   textUnderlineOffset: '0.15em',

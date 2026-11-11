@@ -54,7 +54,7 @@ function Inner() {
     <main className="np-screen" style={pageStyle}>
       <header style={{ textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1rem' }}>
         <Logo height="3rem" />
-        <h1 style={{ margin: 0, fontSize: 'var(--np-t-h2)', fontWeight: 600, letterSpacing: '-0.02em' }}>
+        <h1 style={{ margin: 0, fontSize: 'var(--np-t-h2)', fontWeight: 600 }}>
           Activar cuenta
         </h1>
       </header>
@@ -86,7 +86,7 @@ function Inner() {
               Activar
             </Button>
             {error ? (
-              <p role="alert" style={{ color: 'var(--np-danger)', margin: 0, textAlign: 'center', fontSize: '0.875rem' }}>
+              <p role="alert" style={{ color: 'var(--np-danger)', margin: 0, textAlign: 'center', fontSize: 'var(--np-fs-14)' }}>
                 {error}
               </p>
             ) : null}
@@ -112,7 +112,7 @@ const enterStyle = {
   flexWrap: 'wrap' as const,
   justifyContent: 'center',
   color: 'var(--np-text-mute)',
-  fontSize: '0.9375rem',
+  fontSize: 'var(--np-fs-16)',
 };
 
 const pageStyle = {

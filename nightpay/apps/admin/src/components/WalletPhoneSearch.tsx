@@ -36,7 +36,7 @@ export function WalletPhoneSearch() {
   return (
     <Card style={{ padding: '1rem' }}>
       <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 600 }}>¿Lo ha perdido todo?</h3>
-      <p style={{ margin: '0.25rem 0 0.75rem', fontSize: '0.8125rem', color: 'var(--np-text-mute)' }}>
+      <p style={{ margin: '0.25rem 0 0.75rem', fontSize: '0.875rem', color: 'var(--np-text-mute)' }}>
         Busca su saldo por el teléfono que dejó al darle la ficha (si lo dejó).
       </p>
       <form onSubmit={(e) => void search(e)} style={{ display: 'flex', gap: '0.5rem', alignItems: 'flex-end', flexWrap: 'wrap' }}>

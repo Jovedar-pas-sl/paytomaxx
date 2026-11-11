@@ -14,6 +14,7 @@ import {
 import { formatDateTime } from '@/lib/dates';
 import { useVenueTimezone } from '@/lib/venue-context';
 import { Notice } from './Notice';
+import { SwitchLine } from './ToggleSwitch';
 
 interface Props {
   isOwner: boolean;
@@ -125,8 +126,8 @@ export function TerminalsPanel({ isOwner }: Props) {
         <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between' }}>
           <div>
             <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 600 }}>Datáfonos / Terminales</h3>
-            <p style={{ margin: '0.25rem 0 0', fontSize: '0.8125rem', color: 'var(--np-text-mute)' }}>
-              Red de PAX A920 Pro por zona. La chica elige zona al cobrar; el camarero de esa zona lo confirma.
+            <p style={{ margin: '0.25rem 0 0', fontSize: '0.875rem', color: 'var(--np-text-mute)' }}>
+              Red de PAX A920 Pro por zona. La compañera elige zona al cobrar; el camarero de esa zona lo confirma.
             </p>
           </div>
           <Button variant="ghost" size="md" onClick={() => setBulkOpen(true)} data-tour="datafonos-lote">
@@ -231,7 +232,7 @@ export function TerminalsPanel({ isOwner }: Props) {
                       style={{
                         // Como Pill: 14/500 y radio de chip.
                         fontSize: '0.875rem',
-                        fontWeight: 500,
+                        fontWeight: 400,
                         padding: '0 0.5rem',
                         borderRadius: 'var(--np-r-xs)',
                         background: t.active ? 'var(--np-pill-success-bg)' : 'var(--np-pill-mute-bg)',
@@ -240,7 +241,7 @@ export function TerminalsPanel({ isOwner }: Props) {
                     >
                       {t.active ? 'Activo' : 'Inactivo'}
                     </span>
-                    {t.reception ? <span style={{ marginLeft: '0.375rem', fontSize: '0.75rem' }}>· Recepción</span> : null}
+                    {t.reception ? <span style={{ marginLeft: '0.375rem', fontSize: '0.875rem' }}>· Recepción</span> : null}
                   </td>
                   <td data-label="App OxioPay">
                     {t.devicePaired ? (
@@ -404,7 +405,7 @@ function BulkCreateModal({
             {error}
           </p>
         ) : null}
-        <p style={{ fontSize: '0.8125rem', color: 'var(--np-text-mute)' }}>
+        <p style={{ fontSize: '0.875rem', color: 'var(--np-text-mute)' }}>
           Crea {countOk ? parsedCount : '?'} terminales con externalId {prefix}1, {prefix}2,… asignados a zona{' '}
           <strong>{zone === 'OTRO' ? zoneCustom || '?' : ZONE_LABEL[zone]}</strong>.
         </p>
@@ -486,15 +487,11 @@ function EditTerminalModal({
             required
           />
         ) : null}
-        <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-          <input type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} />
-          <span>Activo</span>
-        </label>
+        <SwitchLine checked={active} onChange={setActive}>Activo</SwitchLine>
         {isOwner ? (
-          <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-            <input type="checkbox" checked={reception} onChange={(e) => setReception(e.target.checked)} />
-            <span>Recepción (el único que cobra recargas en efectivo)</span>
-          </label>
+          <SwitchLine checked={reception} onChange={setReception}>
+            Recepción (el único que cobra recargas en efectivo)
+          </SwitchLine>
         ) : null}
         {error ? (
           <p role="alert" style={{ color: 'var(--np-danger)', fontSize: '0.875rem' }}>
@@ -567,11 +564,11 @@ function PairingModal({ terminal, onClose }: { terminal: Terminal | null; onClos
         <ol style={{ margin: 0, paddingLeft: '1.25rem', display: 'flex', flexDirection: 'column', gap: '0.375rem' }}>
           <li>Abre la app OxioPay en este datáfono.</li>
           <li>Genera el código y tecléalo en el datáfono (vale 15 minutos y una sola vez).</li>
-          <li>Desde entonces el datáfono ve los cobros de las chicas y los cobra sin teclear el ticket.</li>
+          <li>Desde entonces el datáfono ve los cobros de las compañeras y los cobra sin teclear el ticket.</li>
         </ol>
         {code ? (
           <div style={{ textAlign: 'center', border: '1px solid var(--np-border-hi)', borderRadius: 'var(--np-r-lg)', padding: '1rem' }}>
-            <p className="np-num" style={{ margin: 0, fontSize: '2.25rem', fontWeight: 700, letterSpacing: '0.12em' }}>
+            <p className="np-num" style={{ margin: 0, fontSize: '2.5rem', fontWeight: 700, letterSpacing: '0.12em' }}>
               {code.code}
             </p>
             <p style={{ margin: '0.25rem 0 0', color: 'var(--np-text-mute)', fontSize: '0.875rem' }}>

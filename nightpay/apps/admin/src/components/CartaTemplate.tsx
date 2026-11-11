@@ -76,7 +76,7 @@ export function CartaTemplate({ items, sections, onApplied }: {
         <p className="np-tpl-intro">
           Añade los productos que te faltan con su precio de referencia. Lo que ya tienes no se toca: si quieres igualar
           un producto a la referencia, márcalo. «Copa» es la copa normal y, justo después, «Copa con invitación» por
-          20 € (se escanea el QR de la chica; su reparto, en Ajustes → Secciones → Invitaciones).
+          20 € (se escanea el QR de la compañera; su reparto, en Ajustes → Secciones → Invitaciones).
         </p>
         <ul className="np-tpl-list">
           {plan.map((p) => (

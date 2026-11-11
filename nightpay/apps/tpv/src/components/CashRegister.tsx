@@ -18,6 +18,7 @@ import {
   useNow,
   useOnline,
   type PaymentStatus,
+  haptic,
 } from '@nightpay/ui';
 import { MAX_TYPED_AMOUNT_CENTS } from '@nightpay/contracts';
 import { createPayment, fetchTerminals, logout as apiLogout, type CreatedPayment } from '@/lib/api';
@@ -76,7 +77,7 @@ export function CashRegister({ venueSlug, onLogout }: Props) {
   async function handleSubmit(e?: FormEvent) {
     e?.preventDefault();
     if (inFlight.current) return;
-    if ('vibrate' in navigator) navigator.vibrate(15);
+    haptic();
     // Gesto de la cajera: deja listo el audio para el pitido de "pagado".
     unlockBeep();
     setError(null);
@@ -215,6 +216,7 @@ export function CashRegister({ venueSlug, onLogout }: Props) {
             <Button
               type="submit"
               loading={submitting}
+              loadingLabel="Cobrando"
               disabled={terminals.length === 0 || amountCents <= 0}
               size="lg"
               data-tour="tpv-cobrar"
@@ -282,13 +284,13 @@ const headerStyle: CSSProperties = {
 
 const brandLabel: CSSProperties = {
   margin: 0,
-  fontSize: '1rem',
+  fontSize: 'var(--np-fs-16)',
   fontWeight: 600,
 };
 
 const brandSub: CSSProperties = {
   margin: '0.25rem 0 0',
-  fontSize: '0.875rem',
+  fontSize: 'var(--np-fs-14)',
   color: 'var(--np-text-mute)',
 };
 
@@ -299,6 +301,6 @@ const code: CSSProperties = {
   background: 'var(--np-surface-2)',
   padding: '0.1rem 0.4rem',
   borderRadius: 'var(--np-r-xs)',
-  fontSize: '0.875rem',
+  fontSize: 'var(--np-fs-14)',
   overflowWrap: 'anywhere',
 };

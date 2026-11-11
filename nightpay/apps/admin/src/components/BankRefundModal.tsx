@@ -86,7 +86,7 @@ export function BankRefundModal({
           devolución.
         </li>
         <li>
-          Apúntala aquí. OxioPay ajusta el cobro y descuenta la parte de la chica, aunque ya se le haya pagado.
+          Apúntala aquí. OxioPay ajusta el cobro y descuenta la parte de la compañera, aunque ya se le haya pagado.
         </li>
       </ol>
       <p style={metaStyle}>
@@ -159,8 +159,8 @@ const stepsStyle: CSSProperties = {
   flexDirection: 'column',
   gap: '0.375rem',
   color: 'var(--np-text-mute)',
-  fontSize: '0.9375rem',
+  fontSize: '1rem',
 };
-const metaStyle: CSSProperties = { margin: '0.75rem 0 0', fontSize: '0.9375rem' };
+const metaStyle: CSSProperties = { margin: '0.75rem 0 0', fontSize: '1rem' };
 const codeStyle: CSSProperties = { fontFamily: 'var(--np-font-mono)', color: 'var(--np-text)' };
 const checkStyle: CSSProperties = { display: 'flex', alignItems: 'center', gap: '0.5rem', fontWeight: 600 };

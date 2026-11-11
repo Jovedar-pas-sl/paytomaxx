@@ -128,7 +128,7 @@ describe('GET /v1/admin/money-map: la noche abierta', () => {
     expect(m.where.cashBoxCents).toBe(14_800);
     expect(m.where.cashBox).toEqual({ openingFloatCents: 10_000, inCents: 5_000, outCents: 200 });
     expect(m.where.liveSaldoCents).toBe(13_000);
-    expect(m.where.owed).toEqual({ chicasCents: 40_000, camarerosCents: 0, bankHeldCents: 0 });
+    expect(m.where.owed).toEqual({ chicasCents: 40_000, camarerosCents: 0, bankHeldCents: 0, debtCents: 0 });
     expect(m.outflow.payouts).toEqual([{ who: 'camareros', rail: 'MANUAL_CASH', count: 1, cents: 200 }]);
     expect(reports.recargasEfectivo).toHaveBeenCalledWith(TENANT, { from: T('2026-10-24T06:00:00Z'), to: NOW }, { recordedBefore: NOW });
     for (const q of queries) expectTenantScoped(q);

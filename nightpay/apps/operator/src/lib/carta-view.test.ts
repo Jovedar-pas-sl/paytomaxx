@@ -30,8 +30,8 @@ describe('el botón de abajo (decisión D1)', () => {
     expect(plain(cobrarLabel({ busy: false, empty: false, totalCents: 3350 }))).toBe('Cobrar 33,50 €');
   });
 
-  it('mientras se crea el cobro, «Un momento…»', () => {
-    expect(plain(cobrarLabel({ busy: true, empty: false, totalCents: 3300 }))).toBe('Un momento…');
+  it('mientras se crea el cobro, «Cobrando» (con tres puntos en pantalla)', () => {
+    expect(plain(cobrarLabel({ busy: true, empty: false, totalCents: 3300 }))).toBe('Cobrando');
   });
 });
 

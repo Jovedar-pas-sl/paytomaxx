@@ -22,7 +22,7 @@ describe('cinco secciones', () => {
   it('dueño y encargado ven Hoy, Chicas, Clientes, Informes y Ajustes, en ese orden', () => {
     expect(sections({ role: 'OWNER' })).toEqual(['hoy', 'chicas', 'clientes', 'informes', 'ajustes']);
     expect(sections({ role: 'MANAGER' })).toEqual(['hoy', 'chicas', 'clientes', 'informes', 'ajustes']);
-    expect(visibleSections({ role: 'OWNER' }).map((s) => s.label)).toEqual(['Hoy', 'Chicas', 'Clientes', 'Informes', 'Ajustes']);
+    expect(visibleSections({ role: 'OWNER' }).map((s) => s.label)).toEqual(['Hoy', 'Compañeras', 'Clientes', 'Informes', 'Ajustes']);
   });
 
   it('Hoy: cobros, el mapa del dinero y una sola bandeja de avisos; Chicas: las chicas y sus pagos; Clientes: los saldos y las fichas', () => {
