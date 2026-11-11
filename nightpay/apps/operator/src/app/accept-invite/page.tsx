@@ -54,7 +54,7 @@ function Inner() {
     <main className="np-screen" style={pageStyle}>
       <header style={{ textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1rem' }}>
         <Logo height="3rem" />
-        <h1 style={{ margin: 0, fontSize: 'var(--np-t-h2)', fontWeight: 600, letterSpacing: '-0.02em' }}>
+        <h1 style={{ margin: 0, fontSize: 'var(--np-t-h2)', fontWeight: 600 }}>
           Activar cuenta
         </h1>
       </header>

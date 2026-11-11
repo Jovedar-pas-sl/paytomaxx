@@ -86,9 +86,7 @@ const kicker: CSSProperties = {
   margin: 0,
   fontSize: 'var(--np-t-label)',
   color: 'var(--np-warning)',
-  letterSpacing: '0.1em',
-  textTransform: 'uppercase',
-  fontWeight: 700,
+  fontWeight: 600,
 };
 
 const dot: CSSProperties = {
@@ -101,9 +99,8 @@ const dot: CSSProperties = {
 const titleStyle: CSSProperties = {
   margin: 0,
   fontSize: 'var(--np-fs-22)',
-  fontWeight: 700,
+  fontWeight: 600,
   lineHeight: 1.25,
-  letterSpacing: '-0.01em',
 };
 
 const hintStyle: CSSProperties = {
@@ -122,7 +119,7 @@ const barStyle: CSSProperties = {
 
 const barTitle: CSSProperties = {
   margin: 0,
-  fontWeight: 700,
+  fontWeight: 600,
   fontSize: 'var(--np-fs-16)',
   color: 'var(--np-warning)',
 };

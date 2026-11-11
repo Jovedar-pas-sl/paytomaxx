@@ -194,8 +194,6 @@ function WireFields({
 const sectionHead: CSSProperties = {
   margin: 0,
   fontSize: 'var(--np-fs-14)',
-  letterSpacing: '0.12em',
-  textTransform: 'uppercase',
   color: 'var(--np-text-dim)',
   fontWeight: 500,
 };

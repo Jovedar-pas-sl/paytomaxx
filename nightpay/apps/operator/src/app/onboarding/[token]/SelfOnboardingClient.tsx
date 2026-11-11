@@ -216,7 +216,7 @@ export function SelfOnboardingClient({ token }: Props) {
       </header>
 
       <Card style={cardStyle}>
-        <h1 style={{ margin: 0, fontSize: 'var(--np-fs-22)', fontWeight: 600, letterSpacing: '-0.02em' }}>
+        <h1 style={{ margin: 0, fontSize: 'var(--np-fs-22)', fontWeight: 600 }}>
           Tu perfil
         </h1>
         <p style={{ margin: '0.5rem 0 0', fontSize: 'var(--np-fs-14)', color: 'var(--np-text-mute)' }}>
@@ -484,8 +484,6 @@ const cardStyle: CSSProperties = {
 const sectionHead: CSSProperties = {
   margin: 0,
   fontSize: 'var(--np-fs-14)',
-  letterSpacing: '0.12em',
-  textTransform: 'uppercase',
   color: 'var(--np-text-dim)',
   fontWeight: 500,
 };
