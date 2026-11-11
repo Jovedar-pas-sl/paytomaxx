@@ -34,7 +34,7 @@ async function applyTemplate(request: APIRequestContext, accessToken: string) {
 test('login real con cookie, carta de referencia atómica y repetible, y el total de la cuenta en la app', async ({ page }) => {
   // Panel: login de verdad; el refresh va en una cookie HttpOnly, no en el cuerpo.
   await page.goto('/');
-  await page.getByRole('textbox', { name: 'Email' }).fill('owner@isolated.test');
+  await page.getByRole('textbox', { name: /^(Email|Correo electrónico)$/ }).fill('owner@isolated.test');
   await page.getByLabel('Contraseña').fill(password);
   const loginResponse = page.waitForResponse(`${api}/v1/auth/login`);
   await page.getByRole('button', { name: 'Entrar', exact: true }).click();
