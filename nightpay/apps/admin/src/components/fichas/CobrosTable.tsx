@@ -42,6 +42,20 @@ export function CobrosTable({ rows, actions, empty, hidePerson, extra, showRefer
   return (
     <div style={{ overflowX: 'auto', minWidth: 0, maxWidth: '100%' }}>
       <table className={`np-table np-cobros-table${actions ? ' np-cobros-table--acciones' : ''}`} >
+        {/* Anchos fijos en el escritorio (panel-grafito.css): «Servicio», sin ancho, se lleva lo que sobra. */}
+        <colgroup>
+          <col data-col="hora" />
+          <col data-col="ref" />
+          {showReferences ? <><col data-col="codigo" /><col data-col="banco" /></> : null}
+          <col data-col="importe" />
+          <col data-col="estado" />
+          {hidePerson ? null : <col data-col="quien" />}
+          <col data-col="seccion" />
+          <col data-col="como" />
+          <col data-col="servicio" />
+          {extra ? <col data-col="extra" /> : null}
+          {actions ? <col data-col="acciones" /> : null}
+        </colgroup>
         <thead>
           <tr>
             <th>Hora</th>

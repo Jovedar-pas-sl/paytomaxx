@@ -12,7 +12,7 @@ import { useVenueTimezone } from '@/lib/venue-context';
 import { nextSearch, SEARCH_MIN_CHARS } from '@/lib/cobros-search';
 
 const STATUS_FILTERS: Array<{ value: string; label: string }> = [
-  { value: '', label: 'Todos los estados' },
+  { value: '', label: 'Todos' },
   // La misma palabra que la tabla (cobro-status): «Sin pagar».
   { value: 'CREATED', label: 'Sin pagar' },
   { value: 'AUTHORIZING', label: 'Esperando pago' },
@@ -26,7 +26,7 @@ const STATUS_FILTERS: Array<{ value: string; label: string }> = [
 
 const METHODS: ChargeMethod[] = ['CARD', 'MOBILE_WALLET', 'POS', 'SALDO'];
 
-/** Filtros de Cobros: estado, chica, sección, cómo pagó, saldo, noche y las fechas de una cifra del mapa (van al API). */
+/** Filtros de Cobros: estado, compañera, sección, cómo pagó, saldo, noche y las fechas de una cifra del mapa (van al API). */
 export function CobrosFiltersBar({ value, onChange }: { value: CobrosFilters; onChange: (next: CobrosFilters) => void }) {
   const tz = useVenueTimezone();
   const { sections } = useSections();
@@ -74,8 +74,8 @@ export function CobrosFiltersBar({ value, onChange }: { value: CobrosFilters; on
       </p>
     ) : null}
     <form className="np-cobros-filters" onSubmit={applyCode} role="search" aria-label="Filtrar cobros" data-tour="cobros-filtros">
-      <Cell w="10.25rem">
-        <Select aria-label="Estado" style={FILTER_SELECT} value={value.status?.[0] ?? ''} onChange={(e) => set({ status: e.target.value ? [e.target.value] : undefined })}>
+      <Cell w="9rem">
+        <Select label="Estado" data-active={value.status?.length ? 'true' : undefined} style={FILTER_SELECT} value={value.status?.[0] ?? ''} onChange={(e) => set({ status: e.target.value ? [e.target.value] : undefined })}>
           {STATUS_FILTERS.map((f) => (
             <option key={f.value} value={f.value}>
               {f.label}
@@ -84,8 +84,8 @@ export function CobrosFiltersBar({ value, onChange }: { value: CobrosFilters; on
         </Select>
       </Cell>
       <Cell w="9.5rem">
-        <Select aria-label="Compañera" style={FILTER_SELECT} value={value.operatorId ?? ''} onChange={(e) => set({ operatorId: e.target.value || undefined })}>
-          <option value="">Todas las compañeras</option>
+        <Select label="Compañera" data-active={value.operatorId ? 'true' : undefined} style={FILTER_SELECT} value={value.operatorId ?? ''} onChange={(e) => set({ operatorId: e.target.value || undefined })}>
+          <option value="">Todas</option>
           {operators.map((o) => (
             <option key={o.id} value={o.id}>
               {o.displayName ?? o.email}
@@ -93,9 +93,9 @@ export function CobrosFiltersBar({ value, onChange }: { value: CobrosFilters; on
           ))}
         </Select>
       </Cell>
-      <Cell w="11rem">
-        <Select aria-label="Sección" style={FILTER_SELECT} value={value.category ?? ''} onChange={(e) => set({ category: e.target.value || undefined })}>
-          <option value="">Todas las secciones</option>
+      <Cell w="9rem">
+        <Select label="Sección" data-active={value.category ? 'true' : undefined} style={FILTER_SELECT} value={value.category ?? ''} onChange={(e) => set({ category: e.target.value || undefined })}>
+          <option value="">Todas</option>
           {enabledSections(sections).map((s) => (
             <option key={s.code} value={s.code}>
               {s.label}
@@ -104,14 +104,15 @@ export function CobrosFiltersBar({ value, onChange }: { value: CobrosFilters; on
           <option value="EXTRA">{LEGACY_SECTION_META.label} (antiguos)</option>
         </Select>
       </Cell>
-      <Cell w="13rem">
+      <Cell w="10rem">
         <Select
-          aria-label="Cómo pagó"
+          label="Forma de pago"
+          data-active={value.method ? 'true' : undefined}
           style={FILTER_SELECT}
           value={value.method ?? ''}
           onChange={(e) => set({ method: (e.target.value || undefined) as ChargeMethod | undefined })}
         >
-          <option value="">Cualquier forma de pago</option>
+          <option value="">Cualquiera</option>
           {METHODS.map((m) => (
             <option key={m} value={m}>
               {CHARGE_METHOD_LABELS[m]}
@@ -120,8 +121,8 @@ export function CobrosFiltersBar({ value, onChange }: { value: CobrosFilters; on
         </Select>
       </Cell>
       <Cell w="11.25rem">
-        <Select aria-label="Noche" style={FILTER_SELECT} value={value.nightId ?? ''} onChange={(e) => set({ nightId: e.target.value || undefined })}>
-          <option value="">Todas las noches</option>
+        <Select label="Noche" data-active={value.nightId ? 'true' : undefined} style={FILTER_SELECT} value={value.nightId ?? ''} onChange={(e) => set({ nightId: e.target.value || undefined })}>
+          <option value="">Todas</option>
           {nights.map((n) => (
             <option key={n.id} value={n.id}>
               {formatDateTime(n.openedAt, tz, 'short')}
@@ -130,10 +131,10 @@ export function CobrosFiltersBar({ value, onChange }: { value: CobrosFilters; on
           ))}
         </Select>
       </Cell>
-      <Cell w="11.5rem">
+      <Cell w="15rem">
         <Input
-          aria-label="Referencia (C-0022), código, referencia del banco, 4 últimos de la tarjeta o número de ficha (al menos 3 caracteres)"
-          placeholder="C-0022, código, tarjeta o ficha"
+          label="Buscar"
+          placeholder="C-0022, código, ficha o 4 últimos"
           title="La referencia (C-0022), el código de 3 letras, la referencia del banco, los 4 últimos de la tarjeta (tarjeta 4242) o el número de la ficha (ficha 522)"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
@@ -142,10 +143,10 @@ export function CobrosFiltersBar({ value, onChange }: { value: CobrosFilters; on
           style={FILTER_FIELD}
         />
       </Cell>
-      <Cell w="8.25rem">
+      <Cell w="9rem">
         <Input
-          aria-label="Código del saldo"
-          placeholder="Saldo K7Q-4M2"
+          label="Código del saldo"
+          placeholder="K7Q-4M2"
           value={code}
           onChange={(e) => setCode(e.target.value)}
           onBlur={() => applyCode()}
