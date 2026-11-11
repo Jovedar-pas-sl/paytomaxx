@@ -17,7 +17,11 @@ function rule(css: string, selector: string): string {
   return css.slice(start, css.indexOf('}', start));
 }
 
-const rem = (body: string, prop: string): number => Number(new RegExp(`${prop}:\\s*([\\d.]+)rem`).exec(body)?.[1] ?? NaN);
+const rem = (body: string, prop: string): number => {
+  const token = new RegExp(`${prop}:\\s*var\\(--np-fs-(\\d+)\\)`).exec(body)?.[1];
+  if (token) return Number(token) / 16;
+  return Number(new RegExp(`${prop}:\\s*([\\d.]+)rem`).exec(body)?.[1] ?? NaN);
+};
 
 describe('D7: el código grande y la referencia pequeña', () => {
   it('el código se lee a un metro (≥ 3rem) y la referencia va por debajo de 1rem', () => {

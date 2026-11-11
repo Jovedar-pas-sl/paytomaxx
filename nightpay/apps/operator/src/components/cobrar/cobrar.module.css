@@ -272,7 +272,7 @@
 }
 
 .tileName {
-  font: 500 var(--np-fs-16)/1.2 var(--np-font-sans);
+  font: 500 var(--np-fs-14)/1.25 var(--np-font-sans);
   overflow-wrap: anywhere;
 }
 

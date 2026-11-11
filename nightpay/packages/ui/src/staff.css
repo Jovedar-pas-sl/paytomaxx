@@ -297,7 +297,7 @@
 /* ≥ 3rem: se compara con el del móvil del cliente a un metro. */
 .np-outcome-code-value {
   font-family: var(--np-font-num);
-  font-size: var(--np-fs-40);
+  font-size: var(--np-fs-64);
   font-weight: 700;
   line-height: 1.1;
   letter-spacing: 0.14em;
