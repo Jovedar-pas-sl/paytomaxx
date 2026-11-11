@@ -193,7 +193,7 @@ export function cajaOutText(caja: {
     caja.camareroCashPayoutsCount > 0
       ? ` · a los camareros: ${formatEur(caja.camareroCashPayoutsCents ?? 0)} (${caja.camareroCashPayoutsCount})`
       : '';
-  return `${wallet} · pagos a las chicas en efectivo: ${staff}${camareros}.`;
+  return `${wallet} · pagos a las compañeras en efectivo: ${staff}${camareros}.`;
 }
 
 /** Un aviso confirmado: el paso y cómo estaba al confirmarlo (su huella). */

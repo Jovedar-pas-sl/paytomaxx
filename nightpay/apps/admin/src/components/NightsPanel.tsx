@@ -292,7 +292,7 @@ function ZSummary({ summary: s }: { summary: NightSummary }) {
     ...(s.walletCashPayoutsCents ? ([['Saldo devuelto en efectivo', -s.walletCashPayoutsCents]] as Array<[string, number]>) : []),
     // Lo cobrado menos lo devuelto; no es el «Neto sin el personal» de abajo (ni el del resumen de las 9:00).
     [Z_NET_LABEL, s.netCents],
-    ['Para las chicas', s.chicaNetCents],
+    ['Para las compañeras', s.chicaNetCents],
     // Solo si el local da parte a los camareros de las copas con invitación (de fábrica, nada).
     ...(s.camareroNetCents ? ([['Para los camareros', s.camareroNetCents]] as Array<[string, number]>) : []),
     // La «Comisión del servicio» entra con lo cobrado, pero se debe a OxioPay (no es del local).
@@ -330,7 +330,7 @@ function ZSummary({ summary: s }: { summary: NightSummary }) {
           <table className="np-table">
             <thead>
               <tr>
-                <th>Chica</th>
+                <th>Compañera</th>
                 <th style={numHead}>Cobros</th>
                 <th style={numHead}>Cobrado</th>
                 <th style={numHead}>Comisión</th>
@@ -341,7 +341,7 @@ function ZSummary({ summary: s }: { summary: NightSummary }) {
             <tbody>
               {s.perChica.map((c) => (
                 <tr key={c.name}>
-                  <td data-label="Chica" data-card="title">
+                  <td data-label="Compañera" data-card="title">
                     {c.name}
                   </td>
                   <td data-label="Cobros" style={numTd}>
@@ -399,7 +399,7 @@ function AdjustmentsBox({ adjustments: a }: { adjustments?: NightAdjustments }) 
     ['Cobrado', s.chargedCents],
     ['Devoluciones', -s.refundsCents],
     [Z_NET_LABEL, s.netCents],
-    ['Para las chicas', s.chicaNetCents],
+    ['Para las compañeras', s.chicaNetCents],
     ...(s.camareroNetCents ? ([['Para los camareros', s.camareroNetCents]] as Array<[string, number]>) : []),
     ...(s.serviceFeeNetCents ? ([['Comisión del servicio · se debe a OxioPay', s.serviceFeeNetCents]] as Array<[string, number]>) : []),
     [zNetLabel(s), s.venueNetCents],
@@ -424,7 +424,7 @@ function AdjustmentsBox({ adjustments: a }: { adjustments?: NightAdjustments }) 
       {a.reversedConsumptionsCount > 0 ? (
         <p style={hintSmall}>
           Consumos del saldo anulados: {a.reversedConsumptionsCount} ({formatEur(a.reversedConsumptionsCents)}); la
-          parte de las chicas que se descuenta: {formatEur(a.reversedConsumptionsChicaCents)}.
+          parte de las compañeras que se descuenta: {formatEur(a.reversedConsumptionsChicaCents)}.
         </p>
       ) : null}
     </div>

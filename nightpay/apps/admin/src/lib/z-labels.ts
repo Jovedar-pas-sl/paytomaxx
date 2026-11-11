@@ -28,5 +28,5 @@ export function zTypeLabel(label: string): string {
  * chicas, y así se dice.
  */
 export function zNetLabel(summary: { camareroNetCents?: number }): string {
-  return summary.camareroNetCents === undefined ? 'Neto sin las chicas' : Z_NET_WITHOUT_STAFF_LABEL;
+  return summary.camareroNetCents === undefined ? 'Neto sin las compañeras' : Z_NET_WITHOUT_STAFF_LABEL;
 }

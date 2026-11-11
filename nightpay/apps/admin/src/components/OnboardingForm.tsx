@@ -134,7 +134,7 @@ function SelfOnboardingLinkBanner({ operatorId }: { operatorId: string }) {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '1rem' }}>
         <div style={{ flex: 1 }}>
           <p style={{ margin: 0, fontSize: '0.875rem', fontWeight: 600 }}>
-            ¿La chica sabe usar la web?
+            ¿La compañera sabe usar la web?
           </p>
           <p style={{ margin: '0.25rem 0 0', fontSize: '0.875rem', color: 'var(--np-text-mute)' }}>
             Mándale un link de 72h y ella misma rellena sus datos (pasaporte, KYC,
@@ -414,7 +414,7 @@ export function OnboardingForm({ operator, onSaved }: Props) {
           onChange={setWalletTestPassed}
           disabled={submitting}
           title="Prueba 1 USDT confirmada"
-          description="Marca cuando hayas hecho el envío de prueba y la chica confirme que recibió. Se guarda fecha + hora."
+          description="Marca cuando hayas hecho el envío de prueba y la compañera confirme que recibió. Se guarda fecha + hora."
         />
         {operator.walletTestAt ? (
           <p style={{ margin: '0.25rem 0 0', fontSize: '0.875rem', color: 'var(--np-text-dim)' }}>

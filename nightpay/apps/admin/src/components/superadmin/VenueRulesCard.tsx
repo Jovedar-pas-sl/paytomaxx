@@ -70,12 +70,12 @@ export function VenueRulesCard({ venue, onSaved }: Props) {
 
         <div className="np-sa-rule">
           <Input
-            label="Tope por cobro de una chica (€)"
+            label="Tope por cobro de una compañera (€)"
             inputMode="decimal"
             value={form.maxCobroEur}
             onChange={(e) => update({ maxCobroEur: e.target.value })}
           />
-          <Help>Lo máximo que una chica puede cobrar de una vez desde su móvil. Hasta 10.000 €.</Help>
+          <Help>Lo máximo que una compañera puede cobrar de una vez desde su móvil. Hasta 10.000 €.</Help>
         </div>
 
         <div className="np-sa-rule">
@@ -136,7 +136,7 @@ export function VenueRulesCard({ venue, onSaved }: Props) {
         <fieldset className="np-sa-rule np-sa-fieldset">
           <legend className="np-sa-label">Comisiones por categoría (%)</legend>
           <Help>
-            Lo que se lleva quien hace el cobro (la chica o el camarero) según lo que cobra. Con la comisión de la
+            Lo que se lleva quien hace el cobro (la compañera o el camarero) según lo que cobra. Con la comisión de la
             plataforma no puede pasar del 100 %: el resto es del local.
           </Help>
           <div className="np-sa-grid-2">
@@ -160,7 +160,7 @@ export function VenueRulesCard({ venue, onSaved }: Props) {
 
         <div className="np-sa-rule">
           <Input
-            label="Días de espera para pagar a las chicas"
+            label="Días de espera para pagar a las compañeras"
             inputMode="numeric"
             value={form.holdDays}
             onChange={(e) => update({ holdDays: e.target.value.replace(/\D/g, '').slice(0, 2) })}
@@ -173,7 +173,7 @@ export function VenueRulesCard({ venue, onSaved }: Props) {
               ? ` Al guardar: ${holdDaysText(holdTyped).toLowerCase()}.`
               : ''}
           </p>
-          <Help>Desde que la chica cobra hasta que se le puede pagar lo suyo (por si hay devoluciones).</Help>
+          <Help>Desde que la compañera cobra hasta que se le puede pagar lo suyo (por si hay devoluciones).</Help>
         </div>
 
         <div className="np-sa-rule">
@@ -192,7 +192,7 @@ export function VenueRulesCard({ venue, onSaved }: Props) {
         <CheckRow
           checked={form.payoutRequiresApproval}
           onChange={(on) => update({ payoutRequiresApproval: on })}
-          label="Los pagos a las chicas necesitan aprobación"
+          label="Los pagos a las compañeras necesitan aprobación"
           help="El encargado pide el pago y el dueño lo aprueba con su código. Quien lo pide no lo puede aprobar."
         />
 

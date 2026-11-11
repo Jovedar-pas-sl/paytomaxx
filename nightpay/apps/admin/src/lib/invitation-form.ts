@@ -54,7 +54,7 @@ export function showCamareroShare(d: ShareDraft): boolean {
 export function invitationExample(rules: InvitationRules, priceCents: number): string {
   const { beneficiaryCents, chargerCents } = invitationShares(rules, { unitCents: priceCents, qty: 1 }, { getsShare: true });
   const local = priceCents - beneficiaryCents - chargerCents;
-  const head = `De una copa con invitación de ${formatEur(priceCents)}: ${formatEur(beneficiaryCents)} para la chica`;
+  const head = `De una copa con invitación de ${formatEur(priceCents)}: ${formatEur(beneficiaryCents)} para la compañera`;
   if (chargerCents === 0) return `${head} y ${formatEur(local)} para el local.`;
   return `${head}, ${formatEur(chargerCents)} para el camarero que la cobra y ${formatEur(local)} para el local.`;
 }

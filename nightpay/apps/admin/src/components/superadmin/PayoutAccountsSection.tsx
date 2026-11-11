@@ -56,7 +56,7 @@ export function PayoutAccountsSection() {
   return (
     <div className="np-sa-stack">
       <SectionHead
-        kicker="Chicas de todos los locales"
+        kicker="Compañeras de todos los locales"
         title="Cuentas de cobro"
         sub="Siempre tapadas. Verlas enteras o cambiarlas pide tu código 2FA y queda en el registro."
       />
@@ -95,14 +95,14 @@ export function PayoutAccountsSection() {
       <LoadGate loaded={list} what="las cuentas de cobro">
         {(items) => {
           const rows = items.map((r) => changed[r.userId] ?? r);
-          if (rows.length === 0) return <p className="np-sa-empty">Ninguna chica con ese filtro.</p>;
+          if (rows.length === 0) return <p className="np-sa-empty">Ninguna compañera con ese filtro.</p>;
           return (
             <Card className="np-table-host" style={{ padding: 0, overflow: 'hidden' }}>
               <div className="np-sa-scroll-x">
                 <table className="np-table">
                   <thead>
                     <tr>
-                      <th>Chica</th>
+                      <th>Compañera</th>
                       <th>Local</th>
                       <th>Método</th>
                       <th>Cuenta</th>
@@ -116,7 +116,7 @@ export function PayoutAccountsSection() {
                       const shown = revealed?.userId === r.userId ? revealed : null;
                       return (
                         <tr key={r.userId}>
-                          <td data-label="Chica" data-card="title">
+                          <td data-label="Compañera" data-card="title">
                             {personName(r)}
                             {!r.active ? <span className="np-sa-dim np-sa-small"> · de baja</span> : null}
                           </td>
@@ -219,7 +219,7 @@ function ChangePayoutDialog({
       action="payout.update"
       summary={summary}
       validate={() => (payload.ok ? null : payload.error)}
-      reasonPlaceholder="Por ejemplo: la chica cambió de banco"
+      reasonPlaceholder="Por ejemplo: la compañera cambió de banco"
       submitLabel="Guardar cuenta"
       width="36rem"
       onSubmit={async (values) => {

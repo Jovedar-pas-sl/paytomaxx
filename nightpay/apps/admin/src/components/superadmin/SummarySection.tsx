@@ -93,7 +93,7 @@ function TotalsBand({ totals }: { totals: OverviewTotals }) {
           />
         ) : null}
         <Figure
-          label="Pendiente a chicas"
+          label="Pendiente a compañeras"
           value={formatEur(totals.pendingToChicasCents)}
           note={heldNote(totals.heldForChicasCents, totals.bankHeldForChicasCents ?? 0)}
         />
@@ -122,7 +122,7 @@ function BusinessBlock({ business }: { business: OverviewBusiness }) {
         {business.status === 'PAUSED' ? <Pill tone="warning">En pausa</Pill> : null}
         <p className="np-sa-biz-totals">
           Hoy <strong className="np-num">{formatEur(t.chargedTodayCents)}</strong> · Semana{' '}
-          <strong className="np-num">{formatEur(t.chargedWeekCents)}</strong> · A chicas{' '}
+          <strong className="np-num">{formatEur(t.chargedWeekCents)}</strong> · A compañeras{' '}
           <strong className="np-num">{formatEur(t.pendingToChicasCents)}</strong>
         </p>
       </div>
@@ -166,7 +166,7 @@ function VenueTile({ venue }: { venue: OverviewVenue }) {
         <span className="np-sa-venue-figs">
           <VenueFig label="Hoy" value={formatEur(venue.chargedTodayCents)} hero />
           <VenueFig label="Semana" value={formatEur(venue.chargedWeekCents)} />
-          <VenueFig label="A chicas" value={formatEur(venue.pendingToChicasCents)} />
+          <VenueFig label="A compañeras" value={formatEur(venue.pendingToChicasCents)} />
           <VenueFig label="Saldo clientes" value={formatEur(venue.liveCustomerBalanceCents)} />
           <VenueFig label="Cobros hoy" value={String(venue.paymentsToday)} />
           {venue.serviceFeeEnabled || venue.serviceFeeWeekCents ? (

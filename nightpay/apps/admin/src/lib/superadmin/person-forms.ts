@@ -25,13 +25,13 @@ export type NewPersonDto = Omit<CreateStaffUserDto, 'totpCode'>;
 
 export function newPersonPayload(form: NewPersonForm): FormResult<NewPersonDto> {
   if (!form.venueId) return { ok: false, error: 'Elige el local.' };
-  if (!form.role) return { ok: false, error: 'Elige qué es: dueño, encargado, camarero o chica.' };
+  if (!form.role) return { ok: false, error: 'Elige qué es: dueño, encargado, camarero o compañera.' };
   const email = form.email.trim().toLowerCase();
   if (!EMAIL.test(email) || email.length > 254) return { ok: false, error: 'El email no es válido.' };
   const displayName = form.displayName.trim();
   if (displayName.length > 80) return { ok: false, error: 'El nombre, como mucho 80 letras.' };
   const isChica = form.role === 'OPERATOR';
-  if (isChica && !displayName) return { ok: false, error: 'Pon el nombre con el que se verá a la chica.' };
+  if (isChica && !displayName) return { ok: false, error: 'Pon el nombre con el que se verá a la compañera.' };
   let commissionBps: number | undefined;
   if (isChica && form.commissionPct.trim()) {
     const bps = parsePercentToBps(form.commissionPct);

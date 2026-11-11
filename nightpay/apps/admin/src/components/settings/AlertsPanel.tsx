@@ -107,7 +107,7 @@ export function AlertsPanel() {
 
       <SettingsCard title="Privacidad" tour="telegram-privacidad">
         <Switch
-          label="Poner el nombre de las chicas"
+          label="Poner el nombre de las compañeras"
           hint="Telegram es de fuera: por defecto los avisos no llevan nombres."
           checked={settings.includeNames}
           disabled={busy}

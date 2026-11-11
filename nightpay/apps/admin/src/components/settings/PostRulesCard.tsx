@@ -52,7 +52,7 @@ export function PostRulesCard() {
   return (
     <SettingsCard
       title="Qué cobra cada puesto" tour="secciones-puestos"
-      hint="Cada persona solo ve y solo puede cobrar lo de su puesto. Las chicas son siempre Sala. Tú y el encargado lo podéis todo."
+      hint="Cada persona solo ve y solo puede cobrar lo de su puesto. Las compañeras son siempre Sala. Tú y el encargado lo podéis todo."
     >
       <div style={grid}>
         {PUESTOS.map((p) => {
@@ -61,7 +61,7 @@ export function PostRulesCard() {
             <fieldset key={p.code} style={box} disabled={busy}>
               <legend style={legend}>
                 {p.label}
-                {p.code === 'SALA' ? <span style={dim}> · las chicas</span> : null}
+                {p.code === 'SALA' ? <span style={dim}> · las compañeras</span> : null}
               </legend>
               <div style={chips}>
                 {enabledSections(sections).map((s) => (

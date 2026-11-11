@@ -443,7 +443,7 @@ function CreateOperatorModal({
             </Notice>
           ) : (
             <p style={{ margin: 0, fontSize: '0.875rem', color: 'var(--np-text-mute)' }}>
-              Comisión: la del local para servicios de chica
+              Comisión: la del local para servicios de compañera
               {venueCommission.bps !== null ? ` (${formatPercent(venueCommission.bps)})` : '…'}. Solo el dueño
               puede cambiarla.
             </p>

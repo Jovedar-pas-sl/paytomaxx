@@ -123,11 +123,11 @@ export function TonightStrip({
         </div>
         <div className="np-tonight-fig">
           {/* «A pagar ya»: lo que se les debe ahora; lo de esta noche sale en el Mapa del dinero
-              («Pago a chicas · al cerrar»). Antes las dos cifras parecían la misma (P-11). */}
-          <dt>A pagar ya a chicas</dt>
+              («Pago a compañeras · al cerrar»). Antes las dos cifras parecían la misma (P-11). */}
+          <dt>A pagar ya a compañeras</dt>
           <dd>{pending ? formatEur(pending.pendingCents) : '—'}</dd>
           {pending && pending.operatorCount > 0 ? (
-            <span className="np-tonight-note">{pending.operatorCount === 1 ? '1 chica' : `${pending.operatorCount} chicas`}</span>
+            <span className="np-tonight-note">{pending.operatorCount === 1 ? '1 compañera' : `${pending.operatorCount} compañeras`}</span>
           ) : null}
         </div>
         <div className="np-tonight-fig">

@@ -298,7 +298,7 @@ function AccessPanel({ operator, isOwner }: { operator: Operator; isOwner: boole
         <div>
           <p style={{ margin: '0 0 0.3rem', fontSize: '0.875rem', fontWeight: 400 }}>Resetear contraseña</p>
           <p style={{ margin: '0 0 0.5rem', fontSize: '0.875rem', color: 'var(--np-text-dim)' }}>
-            Útil si la chica olvidó su contraseña. La verás UNA vez para copiarla.
+            Útil si la compañera olvidó su contraseña. La verás UNA vez para copiarla.
           </p>
           <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'stretch', marginBottom: '0.4rem' }}>
             <input
@@ -306,7 +306,7 @@ function AccessPanel({ operator, isOwner }: { operator: Operator; isOwner: boole
               value={explicitPass}
               onChange={(e) => setExplicitPass(e.target.value)}
               placeholder="Escribe una (mín. 8) o deja vacío"
-              aria-label="Nueva contraseña para la chica"
+              aria-label="Nueva contraseña para la compañera"
               autoComplete="new-password"
               name="operator-new-password"
               disabled={busy !== null}

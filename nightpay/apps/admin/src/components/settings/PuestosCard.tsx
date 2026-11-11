@@ -8,7 +8,7 @@ import { sectionLabelOf } from '@/lib/money-map';
 import { useSections } from '@/lib/use-sections';
 import { LoadState, SettingsCard, StatusLine, useSavedFlash, useSettingsLoad } from './SettingsBits';
 
-const ROLE_NAME: Record<PuestoPerson['role'], string> = { MANAGER: 'Encargado', WAITER: 'Camarero', OPERATOR: 'Chica' };
+const ROLE_NAME: Record<PuestoPerson['role'], string> = { MANAGER: 'Encargado', WAITER: 'Camarero', OPERATOR: 'Compañera' };
 
 /**
  * Ajustes → Permisos → Puestos (dueño): el puesto de cada persona (Sala,
@@ -48,7 +48,7 @@ export function PuestosCard() {
   return (
     <SettingsCard
       title="Puestos"
-      hint="El puesto decide lo que cobra cada persona (Ajustes → Secciones) y la sección que su app marca de entrada. Sin puesto, Barra. Las chicas son siempre Sala."
+      hint="El puesto decide lo que cobra cada persona (Ajustes → Secciones) y la sección que su app marca de entrada. Sin puesto, Barra. Las compañeras son siempre Sala."
     >
       {data.length === 0 ? (
         <p className="np-set-loading">Aún no hay personal en el local.</p>

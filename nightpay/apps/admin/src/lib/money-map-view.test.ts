@@ -120,12 +120,12 @@ describe('maqueta 8 · A, barras apiladas', () => {
     ]);
     expect(v.where.owners.map((s) => [s.label, s.cents])).toEqual([
       ['Tuyo', 308_600],
-      ['De chicas', 216_000],
+      ['De compañeras', 216_000],
       ['Saldo nuevo de clientes (estas fechas)', 115_000],
     ]);
     expect(v.where.note).toBeNull();
     expect(v.outflow.map((r) => [r.label, r.note, r.cents])).toEqual([
-      ['Pago a chicas', 'al cerrar', 216_000],
+      ['Pago a compañeras', 'al cerrar', 216_000],
       ['Devoluciones', 'efectivo', 7_000],
       ['Comisiones', 'OxioPay (el banco, en su extracto)', 5_400],
     ]);
@@ -149,7 +149,7 @@ describe('maqueta 8 · A, barras apiladas', () => {
       SECTIONS,
     );
     expect(v.outflow.map((r) => `${r.label} · ${r.note}`)).toEqual([
-      'Pago a chicas · transferencia',
+      'Pago a compañeras · transferencia',
       'Pago a camareros · efectivo',
       'Pago a camareros · al cerrar',
       'Devoluciones · tarjeta',
@@ -245,7 +245,7 @@ describe('desgloses ampliados', () => {
     const d = moneyMapDetails(m);
     expect(d.owed.note).toContain('al cerrar');
     expect(d.owed.rows[2]!.label).toContain('al corte');
-    expect(d.outflow.rows[0]).toEqual({ label: 'Pagado a chicas · efectivo', cents: 45000, count: 2 });
+    expect(d.outflow.rows[0]).toEqual({ label: 'Pagado a compañeras · efectivo', cents: 45000, count: 2 });
   });
 });
 

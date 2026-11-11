@@ -9,7 +9,7 @@ describe('nombres de las líneas del Z', () => {
   });
 
   it('lo demás, tal cual (secciones, recargas en efectivo, nombres del local)', () => {
-    for (const label of ['Recarga con tarjeta', 'Recarga en efectivo', 'Copas', 'Reservados VIP', 'Servicio de chica + Habitación']) {
+    for (const label of ['Recarga con tarjeta', 'Recarga en efectivo', 'Copas', 'Reservados VIP', 'Servicio de compañera + Habitación']) {
       expect(zTypeLabel(label)).toBe(label);
     }
   });
@@ -23,8 +23,8 @@ describe('el neto del Z sin el personal', () => {
     expect(zNetLabel({ camareroNetCents: 0 })).toBe(Z_NET_WITHOUT_STAFF_LABEL);
   });
 
-  it('un Z congelado antes (sin la parte de los camareros): solo restaba lo de las chicas', () => {
-    expect(zNetLabel({})).toBe('Neto sin las chicas');
+  it('un Z congelado antes (sin la parte de los camareros): solo restaba lo de las compañeras', () => {
+    expect(zNetLabel({})).toBe('Neto sin las compañeras');
   });
 });
 

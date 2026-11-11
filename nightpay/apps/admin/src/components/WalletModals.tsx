@@ -410,7 +410,7 @@ export function ChargeWithoutFaceIdModal({
         {pending === null ? (
           error ? null : <p style={helpStyle}>Cargando cobros pendientes…</p>
         ) : pending.length === 0 ? (
-          <p style={helpStyle}>No hay cobros con QR pendientes. Que la chica genere el cobro en su móvil y vuelve aquí.</p>
+          <p style={helpStyle}>No hay cobros con QR pendientes. Que la compañera genere el cobro en su móvil y vuelve aquí.</p>
         ) : (
           <div role="radiogroup" aria-label="Cobro a aprobar" style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
             {pending.map((p) => (

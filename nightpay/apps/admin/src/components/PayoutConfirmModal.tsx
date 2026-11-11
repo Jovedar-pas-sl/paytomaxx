@@ -227,7 +227,7 @@ export function PayoutConfirmModal({
 
         {payoutMethod ? (
           <div style={methodBox}>
-            <p style={methodKicker}>Método de la chica</p>
+            <p style={methodKicker}>Método de la compañera</p>
             <p style={{ margin: '0.25rem 0 0' }}>
               <strong>{PAYOUT_METHOD_LABELS[payoutMethod]}</strong>
             </p>
@@ -258,7 +258,7 @@ export function PayoutConfirmModal({
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
             <Notice tone="warning">
-              Esta chica no tiene método de cobro guardado. Elige cómo le has pagado. Para verificar pagos cripto
+              Esta compañera no tiene método de cobro guardado. Elige cómo le has pagado. Para verificar pagos cripto
               solos, guarda antes su dirección en Editar.
             </Notice>
             <label htmlFor={railId} style={fieldLabel}>

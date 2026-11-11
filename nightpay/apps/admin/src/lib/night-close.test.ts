@@ -105,14 +105,14 @@ describe('efectivo tecleado', () => {
     );
   });
 
-  it('el bloque «Caja» dice lo que salió: a las chicas y, aparte, a los camareros (los Z de antes, «al personal»)', () => {
+  it('el bloque «Caja» dice lo que salió: a las compañeras y, aparte, a los camareros (los Z de antes, «al personal»)', () => {
     const sp = (t: string) => t.replace(/\u00a0/g, ' ');
     const out = { walletCashPayoutsCount: 1, walletCashPayoutsCents: 4500, chicaCashPayoutsCount: 1, chicaCashPayoutsCents: 751 };
     expect(sp(cajaOutText({ ...out, camareroCashPayoutsCount: 1, camareroCashPayoutsCents: 750 }))).toBe(
-      'Saldo devuelto en efectivo: 45,00 € (1) · pagos a las chicas en efectivo: 7,51 € (1) · a los camareros: 7,50 € (1).',
+      'Saldo devuelto en efectivo: 45,00 € (1) · pagos a las compañeras en efectivo: 7,51 € (1) · a los camareros: 7,50 € (1).',
     );
     expect(sp(cajaOutText({ ...out, camareroCashPayoutsCount: 0, camareroCashPayoutsCents: 0 }))).toBe(
-      'Saldo devuelto en efectivo: 45,00 € (1) · pagos a las chicas en efectivo: 7,51 € (1).',
+      'Saldo devuelto en efectivo: 45,00 € (1) · pagos a las compañeras en efectivo: 7,51 € (1).',
     );
     // Un Z congelado antes (sin el campo): sus pagos eran de todo el personal.
     expect(sp(cajaOutText(out))).toBe('Saldo devuelto en efectivo: 45,00 € (1) · pagos al personal en efectivo: 7,51 € (1).');

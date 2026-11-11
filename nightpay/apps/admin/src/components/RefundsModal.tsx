@@ -184,7 +184,7 @@ function ResolveRefundForm({
       </div>
       <p style={metaStyle}>
         {outcome === 'SUCCEEDED'
-          ? 'Se descuenta del cobro y de la parte de la chica.'
+          ? 'Se descuenta del cobro y de la parte de la compañera.'
           : outcome === 'FAILED'
             ? 'Se libera lo reservado: se podrá devolver otra vez.'
             : ''}

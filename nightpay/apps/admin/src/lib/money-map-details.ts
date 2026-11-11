@@ -48,7 +48,7 @@ export function moneyMapDetails(m: MoneyMap): MoneyDetails {
       note: 'Reparto de las ventas del periodo. La parte del local no es el saldo de caja ni el beneficio neto. La comisión bancaria solo se incluye cuando está configurada.',
       rows: [
         { label: 'Para el local', cents: s.venueCents },
-        { label: 'Para las chicas', cents: s.chicasCents },
+        { label: 'Para las compañeras', cents: s.chicasCents },
         { label: 'Para los camareros', cents: s.camarerosCents },
         { label: 'Comisión OxioPay', cents: s.commissions.platformCents },
         { label: 'Comisión bancaria', cents: s.commissions.bankCents },
@@ -71,9 +71,9 @@ export function moneyMapDetails(m: MoneyMap): MoneyDetails {
         m.scope.kind === 'period' ? 'La variación del periodo y los totales al corte son conceptos distintos. Si no hay una cifra histórica disponible, se indica.' :
         'La deuda total y el saldo real de clientes incluyen también noches anteriores. Se distinguen de lo generado en este periodo.',
       rows: [
-        { label: 'Pendiente a chicas de este periodo', cents: o.pendingStaff.chicasCents },
+        { label: 'Pendiente a compañeras de este periodo', cents: o.pendingStaff.chicasCents },
         { label: 'Pendiente a camareros de este periodo', cents: o.pendingStaff.camarerosCents },
-        { label: `Deuda total a chicas ${when}`, cents: w.owed?.chicasCents ?? null },
+        { label: `Deuda total a compañeras ${when}`, cents: w.owed?.chicasCents ?? null },
         { label: `Deuda total a camareros ${when}`, cents: w.owed?.camarerosCents ?? null },
         // De la deuda, la de ventas por datáfono sin cuadrar con el banco: no se paga hasta cuadrarlas (H-1).
         ...(w.owed?.bankHeldCents ? [{ label: `De ella, pendiente de cuadrar con el banco ${when}`, cents: w.owed.bankHeldCents }] : []),
@@ -85,7 +85,7 @@ export function moneyMapDetails(m: MoneyMap): MoneyDetails {
       title: 'Pagos y devoluciones',
       note: 'Pagos al personal ya realizados y devoluciones del periodo. Los importes pendientes de pagar se muestran aparte. Las comisiones son las calculadas, no una confirmación de cargo bancario.',
       rows: [
-        ...o.payouts.map((p) => ({ label: `${p.who === 'chicas' ? 'Pagado a chicas' : 'Pagado a camareros'} · ${railNote(p.rail)}`, cents: p.cents, count: p.count })),
+        ...o.payouts.map((p) => ({ label: `${p.who === 'chicas' ? 'Pagado a compañeras' : 'Pagado a camareros'} · ${railNote(p.rail)}`, cents: p.cents, count: p.count })),
         { label: 'Devuelto a tarjeta', cents: o.refunds.cardCents, count: o.refunds.cardCount },
         { label: 'Devuelto en efectivo', cents: o.refunds.cashCents, count: o.refunds.cashCount },
         { label: 'Comisiones calculadas', cents: o.commissionsCents },

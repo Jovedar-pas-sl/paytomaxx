@@ -135,7 +135,7 @@ export function CartaPanel() {
                         {item.components && item.components.length > 0
                           ? `Pack: ${item.components.map((c) => `${sectionLabelOf(sections, c.category)} ${formatEur(c.amountCents)}`).join(' + ')}`
                           : sectionLabelOf(sections, item.category)}
-                        {item.isInvitation ? ' · Invitación (se reparte con la chica)' : ''}
+                        {item.isInvitation ? ' · Invitación (se reparte con la compañera)' : ''}
                         {item.active ? '' : ' · desactivado'}
                       </p>
                     </div>

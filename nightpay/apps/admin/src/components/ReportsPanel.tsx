@@ -10,7 +10,7 @@ const REPORTS: Array<{ kind: ExportKind; title: string; detail: string }> = [
   {
     kind: 'resumen',
     title: 'Resumen para la gestoría',
-    detail: 'Totales del periodo, reparto entre chicas y local, devoluciones y lo pagado a cada chica.',
+    detail: 'Totales del periodo, reparto entre compañeras y local, devoluciones y lo pagado a cada compañera.',
   },
   {
     kind: 'cobros',
@@ -20,12 +20,12 @@ const REPORTS: Array<{ kind: ExportKind; title: string; detail: string }> = [
   {
     kind: 'devoluciones',
     title: 'Devoluciones',
-    detail: 'Las devoluciones del periodo y lo descontado a cada chica.',
+    detail: 'Las devoluciones del periodo y lo descontado a cada compañera.',
   },
   {
     kind: 'liquidaciones',
-    title: 'Pagos a chicas',
-    detail: 'Cada pago hecho a una chica: importe, vía y referencia.',
+    title: 'Pagos a compañeras',
+    detail: 'Cada pago hecho a una compañera: importe, vía y referencia.',
   },
   {
     kind: 'recargas-efectivo',

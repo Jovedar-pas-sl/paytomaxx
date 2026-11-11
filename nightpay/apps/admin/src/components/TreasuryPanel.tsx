@@ -93,7 +93,7 @@ export function TreasuryPanel({ isOwner }: Props) {
         <>
           <section style={metricsGrid}>
             <MetricTile
-              title="Saldo pendiente a chicas"
+              title="Saldo pendiente a compañeras"
               value={formatEur(stats.pendingPayoutsCents)}
               subtitle={pendingSubtitle(stats)}
               highlight
@@ -190,7 +190,7 @@ export function TreasuryPanel({ isOwner }: Props) {
 
 /** Chicas con algo que cobrar ya y, con el API nuevo, lo que está en espera y la deuda. */
 function pendingSubtitle(stats: TreasuryStats): string {
-  const parts = [`${stats.pendingOperatorCount} chica${stats.pendingOperatorCount === 1 ? '' : 's'}`];
+  const parts = [`${stats.pendingOperatorCount} compañera${stats.pendingOperatorCount === 1 ? '' : 's'}`];
   if (stats.heldPayoutsCents) parts.push(`${formatEur(stats.heldPayoutsCents)} en espera`);
   if (stats.bankHeldPayoutsCents) parts.push(`${formatEur(stats.bankHeldPayoutsCents)} pendientes de cuadrar con el banco`);
   if (stats.operatorDebtCents) parts.push(`deuda por devoluciones ${formatEur(stats.operatorDebtCents)}`);

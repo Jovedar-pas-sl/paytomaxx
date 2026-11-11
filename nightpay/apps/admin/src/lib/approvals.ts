@@ -16,7 +16,7 @@ export const APPROVAL_STATUS: Record<ApprovalStatus, { label: string; tone: Tone
 };
 
 export function kindLabel(v: Pick<ApprovalView, 'kind'>): string {
-  return v.kind === 'PAYOUT' ? 'Pago a chica' : 'Devolución';
+  return v.kind === 'PAYOUT' ? 'Pago a compañera' : 'Devolución';
 }
 
 /** Nombre corto del método ("USDT TRC20"); quien llama pasa la tabla de nombres. */

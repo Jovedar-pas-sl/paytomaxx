@@ -212,7 +212,7 @@ describe('reglas del local', () => {
   it('chica + plataforma no pasan del 100 %', () => {
     const form = rulesFormFrom(rules);
     const r = rulesPayload(rules, { ...form, platformPct: '15' }, 7);
-    expect(r).toMatchObject({ ok: false, error: expect.stringMatching(/Servicio de chica.*100 %/) });
+    expect(r).toMatchObject({ ok: false, error: expect.stringMatching(/Servicio de compañera.*100 %/) });
   });
 
   it('días de espera: vacío = lo general; fuera de 0-60, error', () => {

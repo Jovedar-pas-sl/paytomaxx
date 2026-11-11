@@ -84,8 +84,8 @@ export function CobrosFiltersBar({ value, onChange }: { value: CobrosFilters; on
         </Select>
       </Cell>
       <Cell w="9.5rem">
-        <Select aria-label="Chica" style={FILTER_SELECT} value={value.operatorId ?? ''} onChange={(e) => set({ operatorId: e.target.value || undefined })}>
-          <option value="">Todas las chicas</option>
+        <Select aria-label="Compañera" style={FILTER_SELECT} value={value.operatorId ?? ''} onChange={(e) => set({ operatorId: e.target.value || undefined })}>
+          <option value="">Todas las compañeras</option>
           {operators.map((o) => (
             <option key={o.id} value={o.id}>
               {o.displayName ?? o.email}
