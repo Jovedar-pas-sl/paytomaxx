@@ -274,7 +274,7 @@ export function OnboardingForm({ operator, onSaved }: Props) {
 
       {changedElsewhere ? (
         <Notice tone="info">
-          Hay datos nuevos guardados desde que abriste esto (por ejemplo, desde el enlace de la chica). Al guardar
+          Hay datos nuevos guardados desde que abriste esto (por ejemplo, desde el enlace de la compañera). Al guardar
           solo se manda lo que cambies tú; cierra y vuelve a abrir para verlos.
         </Notice>
       ) : null}

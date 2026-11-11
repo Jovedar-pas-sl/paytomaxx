@@ -86,7 +86,7 @@ export function BankRefundModal({
           devolución.
         </li>
         <li>
-          Apúntala aquí. OxioPay ajusta el cobro y descuenta la parte de la chica, aunque ya se le haya pagado.
+          Apúntala aquí. OxioPay ajusta el cobro y descuenta la parte de la compañera, aunque ya se le haya pagado.
         </li>
       </ol>
       <p style={metaStyle}>

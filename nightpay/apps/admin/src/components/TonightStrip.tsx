@@ -54,7 +54,8 @@ export function TonightStrip({
   const { open } = useIncidents();
   /** undefined = cargando; null = no hay noche abierta. */
   const [night, setNight] = useState<NightFigures | null | undefined>(undefined);
-  const [pending, setPending] = useState<PendingFigures | null>(null);
+  /** undefined = cargando; null = no llegó (sale «—», no una silueta para siempre). */
+  const [pending, setPending] = useState<PendingFigures | null | undefined>(undefined);
 
   usePolling(
     async (signal) => {
@@ -76,7 +77,10 @@ export function TonightStrip({
       }
       if (t.status === 'fulfilled') {
         const next = { pendingCents: t.value.pendingPayoutsCents, operatorCount: t.value.pendingOperatorCount };
-        setPending((prev) => keepIfSame(prev, next));
+        setPending((prev) => keepIfSame(prev ?? null, next));
+      } else {
+        // Sin respuesta: «—» (si ya había una cifra, se queda).
+        setPending((prev) => prev ?? null);
       }
       return n.status === 'fulfilled' && t.status === 'fulfilled';
     },
@@ -134,7 +138,7 @@ export function TonightStrip({
           {/* «A pagar ya»: lo que se les debe ahora; lo de esta noche sale en el Mapa del dinero
               («Pago a compañeras · al cerrar»). Antes las dos cifras parecían la misma (P-11). */}
           <dt>A pagar ya a compañeras</dt>
-          <dd className="np-count">{pendingShown !== null ? formatEur(pendingShown) : <Skel width="6rem" height="1.5rem" />}</dd>
+          <dd className="np-count">{pendingShown !== null ? formatEur(pendingShown) : pending === undefined ? <Skel width="6rem" height="1.5rem" /> : '—'}</dd>
           {pending && pending.operatorCount > 0 ? (
             <span className="np-tonight-note">{pending.operatorCount === 1 ? '1 compañera' : `${pending.operatorCount} compañeras`}</span>
           ) : null}
