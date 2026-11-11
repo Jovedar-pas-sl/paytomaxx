@@ -5,7 +5,7 @@ import { Button, CartaIcon, CartaItemIcon } from '@nightpay/ui';
 import { CARTA_ICONS, cartaIconOf, type CartaIconCode } from '@nightpay/contracts';
 import { API_BASE } from '@/lib/http';
 import { removeServiceImage, updateServiceItem, uploadServiceImage, type ServiceItem } from '@/lib/api';
-import { ACCEPTED_IMAGE_TYPES, reduceToWebp, type ReducedImage } from '@/lib/carta-image-resize';
+import { ACCEPTED_IMAGE_TYPES, reduceCartaImage, type ReducedImage } from '@/lib/carta-image-resize';
 
 /** La dirección completa de la imagen de un producto (el API está en otro origen). */
 export function cartaImageUrl(item: Pick<ServiceItem, 'imageUrl'>): string | null {
@@ -66,7 +66,7 @@ export function CartaImageEditor({ item, onChanged }: { item: ServiceItem; onCha
     setError(null);
     setBusy(true);
     try {
-      setPending(await reduceToWebp(file));
+      setPending(await reduceCartaImage(file));
     } catch (err) {
       setPending(null);
       setError((err as Error).message);
