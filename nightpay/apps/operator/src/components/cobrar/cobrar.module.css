@@ -206,7 +206,7 @@
 
 /* Loseta de la carta con su logo o foto (maqueta B): el cuadrado de 52 px a la
    izquierda y, a la derecha, el nombre y el precio. Sigue el color de su
-   sección, el toque y los 92 px de alto como mínimo. */
+   sección, el toque y los 92 px de alto como mínimo (76 px en móviles bajos). */
 .tileItem {
   flex-direction: row;
   align-items: center;
@@ -215,7 +215,7 @@
   padding: 0.625rem;
 }
 
-/* Doble clase: también en las grandes de la chica y en móviles bajos (92 px siempre). */
+/* Doble clase: también en las grandes de la chica (92 px; en móviles bajos, 76 px: ver el final). */
 .tile.tileItem {
   min-height: 5.75rem;
 }
@@ -1644,6 +1644,23 @@ html[data-contrast='sala'] .lastRow[data-n='4']:not([data-big]) {
   .tile:not(.tileBig):not(.tileItem) {
     min-height: 3.75rem;
     padding: 0.5rem 0.75rem;
+  }
+
+  /* Con logo o foto: 76 px de alto como mínimo y el cuadrado a 44 px (en las demás, 92 y 52). */
+  .tile.tileItem {
+    min-height: 4.75rem;
+    padding: 0.5rem 0.625rem;
+  }
+
+  .tileItem .thumb {
+    flex-basis: 2.75rem;
+    width: 2.75rem;
+    height: 2.75rem;
+  }
+
+  .tileItem .thumb svg {
+    width: 2.25rem;
+    height: 2.25rem;
   }
 }
 
