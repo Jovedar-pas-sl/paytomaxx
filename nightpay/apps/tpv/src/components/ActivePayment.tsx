@@ -78,8 +78,8 @@ export function ActivePayment({ payment, status, reachable, checkNow, onDone, on
   const finished = FINISHED_STATUSES.has(shown);
   useWakeLock(!finished);
 
-  // Pagado: cómo pagó (4 últimas cifras, Apple o Google Pay), solo si el banco lo dio. Una consulta, una vez.
-  const [cardFacts, setCardFacts] = useState<{ cardLast4?: string; payMethod?: 'card' | 'wallet' }>({});
+  // Pagado: cómo pagó (tarjeta, Apple o Google Pay), solo si el banco lo dio. Una consulta, una vez.
+  const [cardFacts, setCardFacts] = useState<{ payMethod?: 'card' | 'wallet' }>({});
   const paid = shown === 'AUTHORIZED';
   const [paidAt, setPaidAt] = useState<Date | null>(null);
   useEffect(() => {
@@ -87,7 +87,7 @@ export function ActivePayment({ payment, status, reachable, checkNow, onDone, on
     setPaidAt((at) => at ?? new Date());
     const ctrl = new AbortController();
     fetchPaymentStatus(payment.qrToken, ctrl.signal)
-      .then((current) => setCardFacts({ cardLast4: current.cardLast4, payMethod: current.payMethod }))
+      .then((current) => setCardFacts({ payMethod: current.payMethod }))
       .catch(() => undefined);
     return () => ctrl.abort();
   }, [paid, payment.qrToken]);

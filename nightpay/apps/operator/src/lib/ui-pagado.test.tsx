@@ -68,22 +68,21 @@ describe('punto 6: «cómo se pagó» sin inventar nada', () => {
     expect(JSON.stringify(how)).not.toMatch(/cambio/i);
   });
 
-  it('tarjeta: ····4021, Apple Pay o Google Pay si el banco lo dijo, código del cobro y quién cobró', () => {
-    const how = cardHow({ last4: '4021', payMethod: 'wallet', code: 'K7Q', who: 'Carlos', at: AT });
-    expect(how.title).toBe('Con tarjeta ····4021');
-    expect(how.sub).toContain('Apple Pay o Google Pay');
+  it('tarjeta: Apple Pay o Google Pay si el banco lo dijo, sin cifras, con código del cobro y quién cobró', () => {
+    const how = cardHow({ payMethod: 'wallet', code: 'K7Q', who: 'Carlos', at: AT });
+    expect(how.title).toBe('Con Apple Pay o Google Pay');
+    expect(how.sub).toBe('Autorizado por el banco');
+    expect(JSON.stringify(how)).not.toMatch(/····|\d{4}/);
     expect(how.rows).toEqual([
       { label: 'Código del cobro', value: 'K7Q', num: true },
       { label: 'Cobró', value: 'Carlos · 01:22' },
     ]);
   });
 
-  it('tarjeta sin cifras ni método: ni cifras ni Apple Pay', () => {
+  it('tarjeta sin método: «Con tarjeta», sin Apple Pay', () => {
     const how = cardHow({ code: 'K7Q', who: 'Carlos', at: AT });
     expect(how.title).toBe('Con tarjeta');
     expect(how.sub).not.toMatch(/Apple|Google/);
-    // Cifras con forma rara: se ignoran.
-    expect(cardHow({ last4: '40 1' }).title).toBe('Con tarjeta');
   });
 
   it('sin nombre (el TPV), la fila es «Hora»; sin nada, ninguna', () => {
@@ -93,11 +92,12 @@ describe('punto 6: «cómo se pagó» sin inventar nada', () => {
   });
 
   it('el sondeo solo pasa lo que el API dijo y con forma válida', () => {
-    expect(cardFactsOf({ status: 'AUTHORIZED', cardLast4: '4021', payMethod: 'wallet' })).toEqual({ cardLast4: '4021', payMethod: 'wallet' });
-    expect(cardFactsOf({ status: 'AUTHORIZED', cardLast4: 'abcd', payMethod: 'otro' as never })).toEqual({});
+    expect(cardFactsOf({ status: 'AUTHORIZED', payMethod: 'wallet' })).toEqual({ payMethod: 'wallet' });
+    // Unas cifras que llegaran de más no pasan.
+    expect(cardFactsOf({ status: 'AUTHORIZED', cardLast4: '4021', payMethod: 'otro' } as never)).toEqual({});
     expect(cardFactsOf({ status: 'AUTHORIZED' })).toEqual({});
     const id = '7f1c2a9e-3b4d-4e5f-8a6b-1c2d3e4f5a6b';
-    expect(pollUpdate({ id, status: 'AUTHORIZED', tipCents: 0, cardLast4: '4021' }, id)).toMatchObject({ cardLast4: '4021' });
+    expect(pollUpdate({ id, status: 'AUTHORIZED', tipCents: 0, payMethod: 'card' }, id)).toMatchObject({ payMethod: 'card' });
   });
 
   it('PAGADO pinta el ✓ que se dibuja, la palabra a 64 y la tarjeta debajo del importe', () => {

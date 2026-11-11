@@ -192,10 +192,9 @@ export function Esperando({ cobro, onNew, onRetry, retrying = false, retryError 
   const { reachable } = usePaymentLive(cobro.card, (update) => {
     setCardStatus((current) => advanceStatus(current, update.status));
     if (update.tipCents !== undefined) setCardTip(update.tipCents);
-    if (update.cardLast4 || update.payMethod) {
+    if (update.payMethod) {
       setCardFacts((facts) => ({
         ...facts,
-        ...(update.cardLast4 ? { cardLast4: update.cardLast4 } : {}),
         ...(update.payMethod ? { payMethod: update.payMethod } : {}),
       }));
     }
@@ -246,7 +245,7 @@ export function Esperando({ cobro, onNew, onRetry, retrying = false, retryError 
   const cardToken = cobro.card?.qrToken ?? null;
   const cardPaid = outcome.kind === 'paid' && outcome.method === 'card';
   useEffect(() => {
-    if (!cardPaid || !cardToken || cardFacts.cardLast4 || cardFacts.payMethod) return undefined;
+    if (!cardPaid || !cardToken || cardFacts.payMethod) return undefined;
     const ctrl = new AbortController();
     fetchPaymentStatus(cardToken, ctrl.signal)
       .then((current) => setCardFacts((facts) => ({ ...facts, ...cardFactsOf(current) })))

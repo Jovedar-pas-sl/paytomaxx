@@ -377,16 +377,15 @@ describe('getByToken — consulta pública por el QR', () => {
     await expect(pending.service.getByToken(QR)).resolves.not.toHaveProperty('tipCents');
   });
 
-  it('pagado: las 4 últimas cifras y cómo pagó, solo si el banco las dio (el PAGADO del personal)', async () => {
+  it('pagado: cómo pagó, solo si el banco lo dio, y NUNCA las cifras de la tarjeta (ruta pública por el QR)', async () => {
     const card = makeService({ payment: { status: 'AUTHORIZED', cardLast4: '4021' }, attempts: [{ providerTxId: 'ORD-2', status: 'APPROVED', payMethod: 'wallet' }] });
-    await expect(card.service.getByToken(QR)).resolves.toMatchObject({ cardLast4: '4021', payMethod: 'wallet' });
-    // Sin cifras (cobro de antes, datáfono) o con basura: no se dice nada.
+    const shown = await card.service.getByToken(QR);
+    expect(shown).toMatchObject({ payMethod: 'wallet' });
+    expect(shown).not.toHaveProperty('cardLast4');
+    expect(JSON.stringify(shown)).not.toContain('4021');
+    // Sin método (cobro de antes, datáfono): no se dice nada.
     const none = makeService({ payment: { status: 'AUTHORIZED' } });
-    const view = await none.service.getByToken(QR);
-    expect(view).not.toHaveProperty('cardLast4');
-    expect(view).not.toHaveProperty('payMethod');
-    const odd = makeService({ payment: { status: 'AUTHORIZED', cardLast4: '40 1' } });
-    await expect(odd.service.getByToken(QR)).resolves.not.toHaveProperty('cardLast4');
+    expect(await none.service.getByToken(QR)).not.toHaveProperty('payMethod');
   });
 
   it.each(['CREATED', 'AUTHORIZING', 'ORPHAN', 'FAILED'])('sin pagar (%s): nada de la tarjeta', async (status) => {

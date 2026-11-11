@@ -47,8 +47,6 @@ export function saldoHow(i: SaldoHowInput): OutcomeHow {
 }
 
 export interface CardHowInput {
-  /** Las 4 últimas cifras, si el banco las dio. */
-  last4?: string | null;
   /** «wallet»: Apple Pay o Google Pay (el banco no dice cuál). */
   payMethod?: 'card' | 'wallet' | null;
   /** El código del cobro (el que ve el cliente en su móvil). */
@@ -59,14 +57,13 @@ export interface CardHowInput {
 
 /** Pagó con tarjeta (también Apple Pay o Google Pay). */
 export function cardHow(i: CardHowInput): OutcomeHow {
-  const last4 = i.last4 && /^[0-9]{4}$/.test(i.last4) ? i.last4 : null;
   const rows: Row[] = [];
   if (i.code) rows.push({ label: 'Código del cobro', value: i.code, num: true });
   rows.push(...cobroRow(i.who, i.at));
   return {
     kind: 'card',
-    title: last4 ? `Con tarjeta ····${last4}` : 'Con tarjeta',
-    sub: i.payMethod === 'wallet' ? 'Apple Pay o Google Pay · autorizado por el banco' : 'Autorizado por el banco',
+    title: i.payMethod === 'wallet' ? 'Con Apple Pay o Google Pay' : 'Con tarjeta',
+    sub: 'Autorizado por el banco',
     rows,
   };
 }

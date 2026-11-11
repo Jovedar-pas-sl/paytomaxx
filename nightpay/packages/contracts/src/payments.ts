@@ -342,11 +342,6 @@ export const PublicPaymentViewSchema = z.object({
    */
   attemptStartedAt: z.string().datetime().nullable().optional(),
   /**
-   * Solo ya pagado y solo si el banco la dio: las 4 últimas cifras de la
-   * tarjeta (el PAGADO del personal: «Con tarjeta ····4021»). Opcional.
-   */
-  cardLast4: z.string().regex(/^[0-9]{4}$/).optional(),
-  /**
    * Solo ya pagado: cómo pagó el cliente. «wallet» = Apple Pay o Google Pay (el
    * banco no dice cuál de los dos); «card» = tarjeta. Opcional.
    */

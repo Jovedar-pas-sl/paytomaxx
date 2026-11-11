@@ -26,7 +26,7 @@ export interface OutcomeAction {
  */
 export interface OutcomeHow {
   kind: 'ficha' | 'cash' | 'card';
-  /** «Con ficha nº 1013», «En efectivo», «Con tarjeta ····4021». */
+  /** «Con ficha nº 1013», «En efectivo», «Con tarjeta». */
   title: string;
   /** «Código del saldo K7Q-•••», «Mételo en la caja», «Apple Pay o Google Pay». */
   sub?: string | null;
