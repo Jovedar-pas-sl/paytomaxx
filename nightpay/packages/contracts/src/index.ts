@@ -32,5 +32,6 @@ export * from './oxiopay-settlement';
 export * from './bank-hold';
 export * from './pay-wait';
 export * from './home-topup';
+export * from './customer-tip';
 export * from './cobro-detail';
 export * from './cobro-detail-text';

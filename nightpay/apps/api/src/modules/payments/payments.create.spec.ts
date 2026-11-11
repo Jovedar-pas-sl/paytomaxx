@@ -107,91 +107,49 @@ function dto(extra: Partial<CreatePaymentDto> = {}): CreatePaymentDto {
   return { amountCents: 10_000, currency: 'EUR', terminalExternalId: 'BARRA-1', ...extra } as CreatePaymentDto;
 }
 
-describe('create — propina que pone quien crea el cobro (#3)', () => {
-  it('Redsys, cobro con QR: se apunta y es devolvible (el banco la confirmará)', async () => {
-    const { service, created } = makeService();
-    await service.create('tenant-1', 'idem-key-0001', dto({ tipCents: 500 }), operator);
-    expect(created[0]).toMatchObject({ tipCents: 500, availableAmountCents: 10_500, tipGoesTo: 'operator' });
+describe('create — la propina ya no la pone quien cobra (B1)', () => {
+  const STAFF_TIP_REMOVED = expect.objectContaining({ code: 'STAFF_TIP_REMOVED' });
+
+  it('con propina, venga de quien venga y sea por QR, datáfono, cobro único o recarga: 400 y no se guarda nada', async () => {
+    const cases: Array<[typeof operator, Partial<CreatePaymentDto>]> = [
+      [operator, { tipCents: 500 }],
+      [operator, { tipCents: 500, withSaldo: true }],
+      [operator, { tipCents: 500, tipGoesTo: 'venue' }],
+      [owner, { tipCents: 500, tipGoesTo: 'beneficiary', tipBeneficiaryUserId: '0b6f4a8e-6f1e-4e0b-9a51-0c2f3c4d5e6f' }],
+      [owner, { tipCents: 900, captureMethod: 'POS_EXTERNAL' }],
+      [owner, { tipCents: 900, wallet: { walletId: '0b6f4a8e-6f1e-4e0b-9a51-0c2f3c4d5e6f' } }],
+    ];
+    for (const [i, [who, extra]] of cases.entries()) {
+      const { service, created, events } = makeService();
+      await expect(service.create('tenant-1', `idem-key-00${10 + i}`, dto(extra), who)).rejects.toMatchObject({
+        status: 400,
+        response: STAFF_TIP_REMOVED,
+      });
+      expect(created).toHaveLength(0);
+      expect(events).toHaveLength(0);
+    }
   });
 
-  it('otra pasarela: no se apunta (no la cobraría) y queda constancia', async () => {
-    const { service, created, events } = makeService({ provider: 'PAYTEF' });
-    await service.create('tenant-1', 'idem-key-0002', dto({ tipCents: 500, tipGoesTo: 'operator' }), operator);
+  it('el aviso dice qué hacer (la app de antes lo enseña tal cual)', async () => {
+    const { service } = makeService({ provider: 'PAYTEF' });
+    await expect(service.create('tenant-1', 'idem-key-0020', dto({ tipCents: 500 }), operator)).rejects.toThrow(
+      /la elige el cliente al pagar\. Quita la propina y vuelve a cobrar/,
+    );
+  });
+
+  it('sin propina (o 0): el cobro, sin propina; la que elija el cliente se apunta al pagar', async () => {
+    const { service, created } = makeService();
+    await service.create('tenant-1', 'idem-key-0021', dto({ tipCents: 0 }), operator);
     expect(created[0]).toMatchObject({ tipCents: 0, availableAmountCents: 10_000 });
     expect(created[0]).not.toHaveProperty('tipGoesTo');
-    expect(events[0]?.payload).toMatchObject({ tipCents: 0, tipIgnoredCents: 500 });
   });
 
-  it('cobro por datáfono externo o recarga de saldo: sin propina aunque sea Redsys', async () => {
-    const pos = makeService();
-    await pos.service.create('tenant-1', 'idem-key-0003', dto({ tipCents: 900, captureMethod: 'POS_EXTERNAL' }), owner);
-    expect(pos.created[0]).toMatchObject({ tipCents: 0, availableAmountCents: 10_000 });
-
-    const topUp = makeService();
-    await topUp.service.create(
-      'tenant-1',
-      'idem-key-0004',
-      dto({ tipCents: 900, wallet: { walletId: '0b6f4a8e-6f1e-4e0b-9a51-0c2f3c4d5e6f' } }),
-      owner,
-    );
-    expect(topUp.created[0]).toMatchObject({ tipCents: 0, availableAmountCents: 10_000 });
-  });
-
-  it('como mucho el importe y 500 €', async () => {
-    const { service } = makeService();
-    await expect(service.create('tenant-1', 'idem-key-0005', dto({ amountCents: 2_000, tipCents: 2_001 }), owner)).rejects.toThrow(
-      /no puede pasar del importe/,
-    );
-    await expect(
-      service.create('tenant-1', 'idem-key-0006', dto({ amountCents: 900_000, tipCents: 50_001 }), owner),
-    ).rejects.toThrow(BadRequestException);
-  });
-
-  it('el tope del local para la chica cuenta importe + propina', async () => {
-    const { service, created } = makeService({ capCents: 20_000 });
-    await expect(
-      service.create('tenant-1', 'idem-key-0007', dto({ amountCents: 18_000, tipCents: 3_000 }), operator),
-    ).rejects.toThrow(/con propina\) supera el límite del local/);
-    expect(created).toHaveLength(0);
-  });
-});
-
-describe('create — destino de la propina (#53)', () => {
-  it('la chica no puede dar la propina a otra persona (se perdería)', async () => {
+  it('la chica sigue sin poder mandar la propina a otra persona (se perdería)', async () => {
     const { service, created } = makeService();
-    await expect(
-      service.create(
-        'tenant-1',
-        'idem-key-0008',
-        dto({ tipCents: 500, tipGoesTo: 'beneficiary', tipBeneficiaryUserId: '0b6f4a8e-6f1e-4e0b-9a51-0c2f3c4d5e6f' }),
-        operator,
-      ),
-    ).rejects.toThrow(/para ti o para el local/);
-    await expect(service.create('tenant-1', 'idem-key-0009', dto({ tipGoesTo: 'shared' }), operator)).rejects.toThrow(
+    await expect(service.create('tenant-1', 'idem-key-0022', dto({ tipGoesTo: 'shared' }), operator)).rejects.toThrow(
       BadRequestException,
     );
     expect(created).toHaveLength(0);
-  });
-
-  it('la chica puede darla al local', async () => {
-    const { service, created } = makeService();
-    await service.create('tenant-1', 'idem-key-0010', dto({ tipCents: 500, tipGoesTo: 'venue' }), operator);
-    expect(created[0]).toMatchObject({ tipCents: 500, tipGoesTo: 'venue' });
-  });
-
-  it('el dueño sí puede dársela a una chica del local', async () => {
-    const { service, created } = makeService();
-    await service.create(
-      'tenant-1',
-      'idem-key-0011',
-      dto({ tipCents: 500, tipGoesTo: 'beneficiary', tipBeneficiaryUserId: '0b6f4a8e-6f1e-4e0b-9a51-0c2f3c4d5e6f' }),
-      owner,
-    );
-    expect(created[0]).toMatchObject({
-      tipCents: 500,
-      tipGoesTo: 'beneficiary',
-      tipBeneficiaryUserId: '0b6f4a8e-6f1e-4e0b-9a51-0c2f3c4d5e6f',
-    });
   });
 });
 
@@ -385,11 +343,11 @@ describe('create — formas de cobro del local (Ajustes → Formas de cobro)', (
     expect(off.created).toHaveLength(0);
   });
 
-  it('propinas apagadas: una propina al crear → 409 TIPS_DISABLED; sin propina, se cobra', async () => {
+  it('propinas apagadas: el cobro se crea igual (la propina ya no la pone quien cobra; el cliente no verá propinas)', async () => {
     const off = makeService({ paymentMethods: { tips: false } });
     await expect(off.service.create('tenant-1', 'idem-key-0404', dto({ tipCents: 500 }), operator)).rejects.toMatchObject({
-      status: 409,
-      response: expect.objectContaining({ code: 'TIPS_DISABLED' }),
+      status: 400,
+      response: expect.objectContaining({ code: 'STAFF_TIP_REMOVED' }),
     });
     await off.service.create('tenant-1', 'idem-key-0405', dto(), operator);
     expect(off.created).toHaveLength(1);
@@ -397,7 +355,7 @@ describe('create — formas de cobro del local (Ajustes → Formas de cobro)', (
 
   it('sin ajustes guardados: todo encendido menos el datáfono (apagado de fábrica desde el 20-10-2026)', async () => {
     const unsaved = makeService({ paymentMethods: null });
-    await unsaved.service.create('tenant-1', 'idem-key-0406', dto({ tipCents: 500 }), operator);
+    await unsaved.service.create('tenant-1', 'idem-key-0406', dto(), operator);
     await expect(unsaved.service.create('tenant-1', 'idem-key-0407', dto({ captureMethod: 'POS_EXTERNAL' }), owner)).rejects.toEqual(
       disabled('pos'),
     );

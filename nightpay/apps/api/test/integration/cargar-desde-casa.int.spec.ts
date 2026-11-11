@@ -190,6 +190,26 @@ describe('el interruptor y el enlace del local', () => {
   });
 });
 
+describe('el cartel de la cola (B16)', () => {
+  it('desde el wifi del local (una sola IP): más cargas que el tope por IP, con el tope por móvil', async () => {
+    const poster = await pub(() => settings.queuePoster(A));
+    const token = decodeURIComponent(poster!.url.split('cola=')[1]!);
+    const WIFI = '198.51.100.20';
+    const fromQueue = (deviceId: string | null, t: unknown = token) =>
+      pub(() => homeTopUps.start(codeA, { amountCents: 1000, key: key(), lang: 'es', ip: WIFI, queue: { token: t, deviceId } }));
+    // 11 móviles distintos tras la misma IP: pasa del tope de 24 h por IP (10) sin tocarlo.
+    for (let i = 0; i < 11; i += 1) await expect(fromQueue(`dev-${r}-${i}`)).resolves.toMatchObject({ payUrl: expect.stringMatching(/^[/]pay[/]/) });
+    expect([...counters.keys()].some((k) => k.includes(WIFI))).toBe(false);
+    // El mismo móvil, como mucho 3 por noche.
+    const same = `dev-${r}-same`;
+    for (let i = 0; i < 3; i += 1) await fromQueue(same);
+    await expect(fromQueue(same)).rejects.toMatchObject({ response: expect.objectContaining({ code: 'HOME_TOPUP_QUEUE_DEVICE' }) });
+    // Un QR inventado o sin la cookie del móvil: no.
+    await expect(fromQueue(`dev-${r}-x`, '1.AAAAAAAAAAAAAAAAAAAAAA')).rejects.toMatchObject({ response: expect.objectContaining({ code: 'HOME_TOPUP_QUEUE_EXPIRED' }) });
+    await expect(fromQueue(null)).rejects.toMatchObject({ response: expect.objectContaining({ code: 'HOME_TOPUP_QUEUE_COOKIE' }) });
+  });
+});
+
 describe('la carga: un saldo nuevo del local', () => {
   it('recarga con tarjeta de un saldo NUEVO: sin persona, sin propina, al terminal que no es de recepción', async () => {
     const before = await sys((tx) => tx.clientWallet.count({ where: { tenantId: A } }));

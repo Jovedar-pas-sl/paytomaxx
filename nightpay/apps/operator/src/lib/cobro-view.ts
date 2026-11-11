@@ -44,11 +44,12 @@ export interface PaidAmounts {
 }
 
 /**
- * Las cifras del PAGADO. `cobro.totalCents` ya lleva la propina que se puso en
- * la cuenta (`cobro.tipCents`). Con tarjeta manda la que eligió el cliente en
- * su página (la de la cuenta va marcada y puede cambiarla): no se suma dos
- * veces; mientras no se sepa (`null`), el total de la cuenta, sin línea de
- * propina. Con el saldo, la de la cuenta (no se puede cambiar).
+ * Las cifras del PAGADO. `cobro.totalCents` lleva la propina que puso el
+ * personal en un cobro de antes (`cobro.tipCents`; B1: en los nuevos, nunca).
+ * Manda la que dice el API, la que eligió el cliente al pagar: con tarjeta, en
+ * su página; con el saldo o su PIN, en /s o en la pantalla del PIN. No se suma
+ * dos veces; mientras no se sepa (`null`), el total del cobro, sin línea de
+ * propina (con el saldo: la del cobro).
  */
 export function paidAmounts(
   cobro: { totalCents: number; tipCents?: number | null; serviceFeeCents?: number | null },
@@ -56,7 +57,10 @@ export function paidAmounts(
 ): PaidAmounts {
   const accountTip = Math.max(0, cobro.tipCents ?? 0);
   const baseCents = cobro.totalCents - accountTip;
-  if (outcome.method !== 'card') return { baseCents, tipCents: accountTip, totalCents: cobro.totalCents };
+  if (outcome.method !== 'card') {
+    const tipCents = outcome.tipCents === null ? accountTip : Math.max(0, outcome.tipCents);
+    return { baseCents, tipCents, totalCents: baseCents + tipCents };
+  }
   // Con tarjeta, la «Comisión del servicio» (sobre lo vendido, nunca sobre la propina).
   const fee = Math.max(0, cobro.serviceFeeCents ?? 0);
   const withFee = fee > 0 ? { serviceFeeCents: fee } : {};

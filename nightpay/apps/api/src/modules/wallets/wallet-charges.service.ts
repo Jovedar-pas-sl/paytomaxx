@@ -13,16 +13,20 @@ import {
 import { ModuleRef } from '@nestjs/core';
 import {
   confirmationCode,
+  customerTipProblem,
   fichaNumberText,
   formatChargeRef,
   isWalletCardToken,
   nightSettingsOf,
   normalizeWalletCardUid,
+  maxTipCents,
   paymentMethodsOf,
   sectionMeta,
   sectionsOf,
   stepUpActions,
+  tipPresetsFor,
   type ChargeAuthMethod,
+  type TipPreset,
   type ChargeLineInput,
   type Role,
 } from '@nightpay/contracts';
@@ -54,7 +58,7 @@ import {
 } from '../payments/cobro-link';
 import { hashPin, PIN_MAX_FAILS, PIN_PROBLEM_TEXT, pinProblem, verifyPin } from './wallet-pin';
 import { reopenData } from './wallet-activation';
-import { mergedWalletIds } from './wallet-merge-chain';
+import { liveWalletId, mergedWalletIds } from './wallet-merge-chain';
 import { clientRefundState, refundCards, type ClientRefundState } from './wallet-refund-view';
 import {
   ISSUED_CARD_STATUSES,
@@ -84,9 +88,9 @@ import {
   noPinWindowStart,
 } from './wallet-nopin';
 import { assertVenueAcceptsCharges } from '../venues/venue-pause';
-import { TipsDisabledException, assertVenueAcceptsMethods } from '../venues/venue-methods';
-import { tipsForbidden } from '../venues/charge-rights';
-import { maxTipCents } from '../payments/tip';
+import { assertVenueAcceptsMethods } from '../venues/venue-methods';
+import { chargeRightsFor } from '../venues/charge-rights';
+import { customerTipError, staffTipRemoved } from '../payments/tip';
 import { TotpService } from '../auth/totp.service';
 import { assertManagerTwoFactor, assertTwoFactorCode, cashApprovalThreshold } from './wallet-two-factor';
 import { receptionAskedManager } from './reception-payout-rules';
@@ -288,6 +292,24 @@ export interface QrChargeClientView {
    * pagado (si no, llega en la respuesta del pago).
    */
   code?: string | null;
+  /**
+   * B1: la propina la elige aquí el cliente, sin nada marcado. Solo antes de
+   * pagar y con las propinas encendidas (en el local y en el puesto de quien
+   * cobra); si no, no va. `amountCents` (arriba) ya la lleva sumada si el
+   * cobro traía una de antes (`previousCents`, puesta por el personal): sale
+   * marcada y se puede quitar.
+   */
+  tip?: QrChargeTipView | null;
+}
+
+/** La propina en /s (B1): lo que se cobra sin ella, la que traía el cobro, el máximo y las sugeridas. */
+export interface QrChargeTipView {
+  baseCents: number;
+  previousCents: number;
+  maxCents: number;
+  presets: TipPreset[];
+  /** Va entera para quien cobra (una chica): se le dice al cliente. */
+  toStaff: boolean;
 }
 
 /** Respuesta de POST /s/:token/pay: lo cobrado, lo que le queda y el código del cobro único. */
@@ -493,7 +515,10 @@ export class WalletChargesService {
   private async resolveCharge(
     actor: Actor,
     input: QrChargeInput,
-  ): Promise<{ amountCents: number; category: RevenueCategory; serviceName: string | null; lines: DraftLine[]; tipCents: number }> {
+  ): Promise<{ amountCents: number; category: RevenueCategory; serviceName: string | null; lines: DraftLine[] }> {
+    // B1: la propina la elige el cliente al pagar (con su saldo o su PIN); el
+    // personal ya no la pone. Una app de antes que la mande: 400 claro.
+    if ((input.tipCents ?? 0) > 0) throw staffTipRemoved();
     const charge = await resolveChargeOrThrow(this.prisma, {
       tenantId: actor.tenantId,
       userId: actor.userId,
@@ -506,18 +531,6 @@ export class WalletChargesService {
       invitedOperatorId: input.invitedOperatorId,
     });
     const amountCents = charge.amountCents;
-    // La propina: con las propinas encendidas en el local y en su puesto, hasta el importe (y 500 €).
-    const tipCents = input.tipCents ?? 0;
-    if (tipCents > 0) {
-      const venue = await this.prisma.asSystem((tx) =>
-        tx.venue.findUnique({ where: { id: actor.tenantId }, select: { paymentMethods: true } }),
-      );
-      if (!paymentMethodsOf(venue?.paymentMethods).tips) throw new TipsDisabledException();
-      if (charge.rights && !charge.rights.tips) throw tipsForbidden();
-      if (tipCents > maxTipCents(amountCents)) {
-        throw new BadRequestException('La propina no puede pasar del importe del cobro ni de 500,00 €');
-      }
-    }
     // El mismo tope por cobro que tiene la chica con el QR (Ajustes del local).
     if (actor.role === 'OPERATOR') {
       const venue = await this.prisma.venue.findUnique({
@@ -529,7 +542,7 @@ export class WalletChargesService {
         throw new ForbiddenException(`El máximo que puedes cobrar de una vez es ${eur(max)}`);
       }
     }
-    return { amountCents, category: charge.primaryCategory, serviceName: charge.serviceName, lines: charge.lines, tipCents };
+    return { amountCents, category: charge.primaryCategory, serviceName: charge.serviceName, lines: charge.lines };
   }
 
   /** La chica espera a que el cliente pague (solo la que lo hizo, o el encargado). */
@@ -740,7 +753,14 @@ export class WalletChargesService {
    * pueden ser de locales distintos del grupo. Todo o nada: si algo falla, el
    * rollback deja el cobro libre otra vez.
    */
-  private async settleRequest(walletId: string, requestId: string, auth: ChargeAuthMethod, pinVia?: PinVia): Promise<NoPinSettled | null> {
+  private async settleRequest(
+    walletId: string,
+    requestId: string,
+    auth: ChargeAuthMethod,
+    pinVia?: PinVia,
+    /** B1: la propina que eligió el cliente al pagar (null: no eligió; vale la que traía el cobro). */
+    tipChoice: number | null = null,
+  ): Promise<NoPinSettled | null> {
     const wallet = { id: walletId };
     return this.prisma.acrossVenues(async (tx) => {
       // Cobro único: primero la fila del cobro con tarjeta (el mismo orden que
@@ -776,8 +796,12 @@ export class WalletChargesService {
       if (bound.count === 0) throw requestError('not-pending');
       const request = await tx.walletChargeRequest.findFirst({ where: { id: requestId, walletId: wallet.id } });
       if (!request) throw new NotFoundException('Cobro no encontrado');
-      // Lo que sale del saldo: el importe y la propina que pidió el cliente.
-      const tipCents = request.tipCents ?? 0;
+      // Lo que sale del saldo: el importe y la propina que eligió el cliente
+      // al pagar (B1). Queda en el cobro: el personal la ve en su PAGADO.
+      const tipCents = tipChoice === null ? (request.tipCents ?? 0) : await customerTipOf(tx, request, tipChoice);
+      if (tipCents !== (request.tipCents ?? 0)) {
+        await tx.walletChargeRequest.update({ where: { id: request.id }, data: { tipCents } });
+      }
       const totalCents = request.amountCents + tipCents;
       const decision = decideAccept({ ...request, amountCents: totalCents }, w, new Date());
       if (!decision.ok) throw requestError(decision.reason);
@@ -976,7 +1000,7 @@ export class WalletChargesService {
       await assertVenueAcceptsCharges(tx, actor.tenantId);
       await assertVenueAcceptsMethods(tx, actor.tenantId, ['wallet']);
     });
-    const { amountCents, category, serviceName, lines, tipCents } = await this.resolveCharge(actor, input);
+    const { amountCents, category, serviceName, lines } = await this.resolveCharge(actor, input);
     const payToken = randomBytes(24).toString('base64url');
     // Cobro, su referencia (C-0001) y sus líneas: todo o nada.
     const request = await this.prisma.asSystem(async (tx) => {
@@ -992,7 +1016,6 @@ export class WalletChargesService {
           payToken,
           ref,
           expiresAt: new Date(Date.now() + QR_CHARGE_TTL_MS),
-          ...(tipCents > 0 ? { tipCents } : {}),
         },
       });
       await insertChargeLines(tx, actor.tenantId, { walletChargeId: created.id }, lines);
@@ -1015,13 +1038,14 @@ export class WalletChargesService {
   async qrChargeForClient(payToken: string): Promise<QrChargeClientView> {
     const request = await this.qrRequest(payToken);
     const [venue, requester] = await Promise.all([
-      this.prisma.venue.findUnique({ where: { id: request.tenantId }, select: { name: true } }),
+      this.prisma.venue.findUnique({ where: { id: request.tenantId }, select: { name: true, paymentMethods: true } }),
       this.prisma.asSystem((tx) =>
-        tx.user.findUnique({ where: { id: request.requestedByUserId }, select: { displayName: true } }),
+        tx.user.findUnique({ where: { id: request.requestedByUserId }, select: { displayName: true, role: true } }),
       ),
     ]);
     const status = effectiveRequestStatus(request, new Date());
     const elsewhere = status !== 'ACCEPTED' && (await this.paidByCard(request));
+    const tip = status === 'PENDING' ? await this.clientTipView(request, venue?.paymentMethods, requester?.role ?? null) : null;
     return {
       status,
       // Lo que paga: el importe y la propina que pidió.
@@ -1033,6 +1057,34 @@ export class WalletChargesService {
       paidAt: status === 'ACCEPTED' && request.decidedAt ? request.decidedAt.toISOString() : null,
       ...(elsewhere ? { paidElsewhere: true } : {}),
       code: request.linkedPaymentId ? confirmationCode(request.linkedPaymentId) : null,
+      ...(tip ? { tip } : {}),
+    };
+  }
+
+  /**
+   * La propina que se ofrece en /s (B1): con las propinas encendidas en el
+   * local y en el puesto de quien cobra; las sugeridas del local para este
+   * importe y el máximo (el importe, y 500 €). Sin propinas, null.
+   */
+  private async clientTipView(
+    request: { tenantId: string; requestedByUserId: string; amountCents: number; tipCents: number | null },
+    venueMethods: unknown,
+    requesterRole: string | null,
+  ): Promise<QrChargeTipView | null> {
+    const methods = paymentMethodsOf(venueMethods);
+    if (!methods.tips) return null;
+    const rights = await this.prisma.asSystem((tx) =>
+      chargeRightsFor(tx, request.tenantId, { userId: request.requestedByUserId, role: requesterRole }),
+    );
+    if (!rights.tips) return null;
+    const baseCents = request.amountCents;
+    return {
+      baseCents,
+      previousCents: request.tipCents ?? 0,
+      maxCents: maxTipCents(baseCents),
+      presets: tipPresetsFor(baseCents, { flatCents: methods.tipFlatCents, percents: methods.tipPercents }),
+      // Como al pagar: la propina es entera de la chica que cobra; si cobra otra persona, del local.
+      toStaff: requesterRole === 'OPERATOR',
     };
   }
 
@@ -1043,18 +1095,32 @@ export class WalletChargesService {
    * Ya pagado, la respuesta trae el código del cobro único (el que ve el
    * personal): la página de /s no lo lleva antes de pagar.
    */
-  async payQrCharge(payToken: string, walletId: string): Promise<QrChargePaid> {
+  async payQrCharge(payToken: string, walletId: string, tipChoice: number | null = null): Promise<QrChargePaid> {
     const request = await this.qrRequest(payToken);
-    await this.bindAndSettle(request, walletId, 'passkey');
-    const wallet = await this.prisma.acrossVenues((tx) =>
-      tx.clientWallet.findUnique({ where: { id: walletId }, select: { balanceCents: true } }),
+    await this.bindAndSettle(request, walletId, 'passkey', undefined, tipChoice);
+    const [wallet, paid] = await this.prisma.acrossVenues((tx) =>
+      Promise.all([
+        tx.clientWallet.findUnique({ where: { id: walletId }, select: { balanceCents: true } }),
+        tx.walletChargeRequest.findUnique({ where: { id: request.id }, select: { tipCents: true } }),
+      ]),
     );
     this.logger.log(`Saldo ${walletId}: cobro ${request.id} pagado con su llave (QR)`);
     return {
-      amountCents: request.amountCents + (request.tipCents ?? 0),
+      amountCents: request.amountCents + (paid?.tipCents ?? 0),
       balanceCents: wallet?.balanceCents ?? 0,
       code: request.linkedPaymentId ? confirmationCode(request.linkedPaymentId) : null,
     };
+  }
+
+  /**
+   * El saldo de la llave con la que se acaba de pagar (o aquel al que se
+   * sumó): su id y su enlace, para «Ver mi saldo» en el «Pagado» de /s.
+   */
+  async liveWalletRef(walletId: string): Promise<{ id: string; qrToken: string } | null> {
+    return this.prisma.acrossVenues(async (tx) => {
+      const id = await liveWalletId(tx, walletId);
+      return id ? tx.clientWallet.findUnique({ where: { id }, select: { id: true, qrToken: true } }) : null;
+    });
   }
 
   /** Encargado o dueño: cobros con QR que nadie ha pagado aún (cliente sin batería…). */
@@ -1244,7 +1310,11 @@ export class WalletChargesService {
    * El cliente no saca el móvil: la chica pone su código y él teclea su PIN
    * en el móvil de ella. Se paga el mismo cobro del QR (no queda otro colgado).
    */
-  async payQrChargeWithPin(actor: Actor, requestId: string, input: StaffWalletRef & { pin: string }): Promise<ChargeRequestView> {
+  async payQrChargeWithPin(
+    actor: Actor,
+    requestId: string,
+    input: StaffWalletRef & { pin: string; tipCents?: number },
+  ): Promise<ChargeRequestView> {
     const request = await this.prisma.asSystem((tx) =>
       tx.walletChargeRequest.findFirst({ where: { id: requestId, tenantId: actor.tenantId, payToken: { not: null } } }),
     );
@@ -1268,7 +1338,8 @@ export class WalletChargesService {
     }
     await this.checkPin(wallet.id, input.pin, actor);
     const via = pinViaOf(input);
-    await this.bindAndSettle(request, wallet.id, 'pin', via);
+    // B1: la propina la elige el cliente en la pantalla del PIN (sin elegir: la que traía el cobro).
+    await this.bindAndSettle(request, wallet.id, 'pin', via, input.tipCents ?? null);
     if ('card' in input) await this.touchCard(wallet.id, input);
     this.logger.log(`Saldo ${wallet.id}: cobro ${request.id} pagado con PIN (${via}, ${actor.userId})`);
     return this.getRequest(actor, requestId);
@@ -2085,6 +2156,7 @@ export class WalletChargesService {
     walletId: string,
     auth: ChargeAuthMethod,
     pinVia?: PinVia,
+    tipChoice: number | null = null,
   ): Promise<NoPinSettled | null> {
     if (effectiveRequestStatus(request, new Date()) !== 'PENDING' || request.walletId) {
       throw await this.notPendingError(request);
@@ -2104,7 +2176,7 @@ export class WalletChargesService {
     if (!wallet || !sameWalletGroup(wallet, { id: request.tenantId, walletGroup: venue?.walletGroup ?? null })) {
       throw new ConflictException({ message: 'Tu saldo no vale en este local', code: 'CHARGE_OTHER_VENUE' });
     }
-    return this.settleRequest(walletId, request.id, auth, pinVia);
+    return this.settleRequest(walletId, request.id, auth, pinVia, tipChoice);
   }
 
   /**
@@ -2720,4 +2792,30 @@ export interface QrChargeInput {
   tipCents?: number;
   /** «Copa con invitación» con la chica elegida de la lista (si el local no pide su QR). */
   invitedOperatorId?: string;
+}
+
+/**
+ * La propina que eligió el cliente al pagar con su saldo o su PIN (B1): «Sin
+ * propina» siempre; si no, con las propinas encendidas en el local y en el
+ * puesto de quien cobra, y hasta el importe (y 500 €). La que ya traía un
+ * cobro de antes (puesta por el personal) se respeta. Si no vale, 400.
+ */
+async function customerTipOf(
+  tx: TransactionalClient,
+  request: { tenantId: string; requestedByUserId: string; amountCents: number; tipCents: number | null },
+  chosen: number,
+): Promise<number> {
+  const previous = request.tipCents ?? 0;
+  let tipsOn = false;
+  if (chosen > 0 && chosen !== previous) {
+    const [venue, requester] = await Promise.all([
+      tx.venue.findUnique({ where: { id: request.tenantId }, select: { paymentMethods: true } }),
+      tx.user.findUnique({ where: { id: request.requestedByUserId }, select: { role: true } }),
+    ]);
+    const rights = await chargeRightsFor(tx, request.tenantId, { userId: request.requestedByUserId, role: requester?.role });
+    tipsOn = paymentMethodsOf(venue?.paymentMethods).tips && rights.tips;
+  }
+  const problem = customerTipProblem({ amountCents: request.amountCents, tipCents: chosen, tipsOn, previousTipCents: previous });
+  if (problem) throw customerTipError(problem);
+  return chosen;
 }

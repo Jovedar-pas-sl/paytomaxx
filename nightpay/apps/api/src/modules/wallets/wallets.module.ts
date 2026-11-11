@@ -4,6 +4,7 @@ import { AuditModule } from '../audit/audit.module';
 import { AuthModule } from '../auth/auth.module';
 import { TelegramService } from '../incidents/telegram.service';
 import { PublicWalletCardController } from './public-wallet-card.controller';
+import { PublicWalletMineController } from './public-wallet-mine.controller';
 import { WalletCardViewService } from './wallet-card-view.service';
 import { PublicWalletController } from './public-wallet.controller';
 import { WalletChargesController } from './wallet-charges.controller';
@@ -84,6 +85,8 @@ import { CobroDetailModule } from '../money-map/cobro-detail.module';
     AdminWalletsController,
     WalletChargesController,
     PublicWalletCardController,
+    // «Ver mi saldo» con Face ID desde las pantallas que acaban (antes que /w/:token).
+    PublicWalletMineController,
     PublicWalletController,
     // El QR de activación en el móvil del cliente (/w/a/:token).
     PublicWalletActivationController,

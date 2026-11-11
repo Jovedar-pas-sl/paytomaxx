@@ -70,8 +70,12 @@ export function puestoSection(ctx: Pick<CobrarContext, 'post' | 'user' | 'defaul
   return post ? postSection(post) : (ctx.defaultCategory ?? 'VENUE_BAR');
 }
 
-/** Las propinas que se ofrecen como losetas (las sugeridas del local), si su puesto las lleva. */
-export function tipTiles(ctx: Pick<CobrarContext, 'tips' | 'methods'>): number[] {
-  if (!ctx.tips || !ctx.methods.tips) return [];
-  return ctx.methods.tipFlatCents.filter((c) => c > 0).slice(0, 3);
+/**
+ * ¿Puede el cliente dejar propina en este cobro? Con las propinas encendidas
+ * en el local y en el puesto de quien cobra. B1: la elige el cliente al pagar
+ * (en la pantalla del PIN, en su página de pago o en /s); el personal ya no la
+ * añade en Cobrar.
+ */
+export function customerTipsOn(ctx: Pick<CobrarContext, 'tips' | 'methods'>): boolean {
+  return ctx.tips && ctx.methods.tips;
 }

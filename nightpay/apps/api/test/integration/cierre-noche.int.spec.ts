@@ -204,7 +204,9 @@ describe('cierre de la noche con arqueo de caja (Postgres real)', () => {
       ['incidencias', 'ok'],
       ['z', 'ok'],
     ]);
-    expect(stepOf(check.steps, 'efectivo').detail).toContain('debería haber 65,00 €');
+    // A ciegas (B9): el paso no dice lo que debería haber hasta que se cuenta.
+    expect(stepOf(check.steps, 'efectivo').detail).toContain('escribe lo contado');
+    expect(stepOf(check.steps, 'efectivo').detail).not.toContain('65,00');
     expect(check.chicas).toEqual([
       expect.objectContaining({ toPayCents: 0, paidTonightCents: 9000, paidTonightCount: 1, earnedTonightCents: 9000 }),
     ]);

@@ -126,12 +126,15 @@ describe('formas de cobro: se guardan en el local y el API las aplica (Postgres 
     expect(await sys((tx) => tx.walletChargeRequest.count({ where: { tenantId: A } }))).toBe(before);
   });
 
-  it('propinas apagadas: una propina al crear el cobro → 409 TIPS_DISABLED', async () => {
+  it('propinas apagadas: la página de pago no ofrece propina (B1: el personal ya no la pone al crear)', async () => {
     await inVenue(A, () => settings.updatePaymentMethods(ownerJwt(), { wallet: true, tips: false }));
     await expect(createCharge({ tipCents: 500 })).rejects.toMatchObject({
-      status: 409,
-      response: expect.objectContaining({ code: 'TIPS_DISABLED' }),
+      status: 400,
+      response: expect.objectContaining({ code: 'STAFF_TIP_REMOVED' }),
     });
+    const created = await createCharge();
+    const page = await inVenue(undefined, () => payments.getPayPage(created.qrToken));
+    expect(page).toMatchObject({ kind: 'choose', tipOptionsCents: [0], tipMaxCents: 0 });
   });
 
   it('la columna solo guarda objetos (CHECK en la base)', async () => {

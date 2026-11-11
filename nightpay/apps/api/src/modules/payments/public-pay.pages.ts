@@ -5,6 +5,7 @@ import { customerPage as page } from './customer-page';
 import { CHOOSE_CSS, LOCK_ICON, renderChooseBody, type ChooseContext } from './pay-choose-page';
 import { PAID_SCREEN_CSS, paidScreenScript, renderPaidScreen } from './paid-screen';
 import { WALLET_ASK_CSS, renderWalletAsk, type WalletBlock } from './paid-wallet-ask';
+import { myBalanceBlock } from '../wallets/my-balance';
 import { PAY_TEXT, type PayErrorKey, type PayLanguage, type PayNotice, type PayText } from './pay-i18n';
 import {
   CLOSED_REASON,
@@ -270,6 +271,8 @@ export function renderNoticePage(
   tone: 'error' | 'warn' | 'neutral',
   retryHref?: string,
   langHref?: LangHref,
+  /** Algo más al final (p. ej. «Ver mi saldo»). */
+  extra = '',
 ): string {
   const t = PAY_TEXT[lang];
   const action =
@@ -283,13 +286,15 @@ export function renderNoticePage(
 <h1>${escapeHtml(notice.title)}</h1>
 ${notice.notCharged ? `<p class="safe" id="notCharged"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 13l4 4L19 7"/></svg>${escapeHtml(t.notCharged)}</p>` : ''}
 ${notice.body ? `<p>${escapeHtml(notice.body)}</p>` : ''}
-${action}`;
+${action}${extra}`;
   return page(t, notice.title, body, { head: NOTICE_CSS, langHref });
 }
 
 export function renderClosedPage(reason: PayClosedReason, lang: PayLanguage, langHref?: LangHref): string {
   const tone = reason === 'canceled' || reason === 'paid-with-saldo' ? 'neutral' : 'warn';
-  return renderNoticePage(lang, PAY_TEXT[lang].closed[reason], tone, undefined, langHref);
+  // Ya pagado con su saldo: «Ver mi saldo» (con Face ID: la página no sabe de quién es).
+  const extra = reason === 'paid-with-saldo' ? myBalanceBlock(lang, { withPasskeyJs: true }) : '';
+  return renderNoticePage(lang, PAY_TEXT[lang].closed[reason], tone, undefined, langHref, extra);
 }
 
 /** Error al abrir o empezar el cobro. Nunca enseña el detalle técnico ni códigos del banco. */

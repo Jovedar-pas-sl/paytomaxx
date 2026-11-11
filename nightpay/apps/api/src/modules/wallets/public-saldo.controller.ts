@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   ConflictException,
   Controller,
@@ -12,6 +13,7 @@ import {
   Query,
   Res,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import type { FastifyReply } from 'fastify';
 import { CLIENT_HINTS_ACCEPT_CH } from '../../common/http/client-device';
 import { Public } from '../../common/decorators/public.decorator';
@@ -20,6 +22,7 @@ import { customerLanguage } from '../payments/customer-lang';
 import { renderQrChargePage } from './qr-charge-page';
 import { WalletChargesService, type QrChargeClientView, type QrChargePaid } from './wallet-charges.service';
 import { WalletPasskeysService } from './wallet-passkeys.service';
+import { walletViewSetCookies } from './wallet-view-session';
 
 /**
  * Pagar con el saldo escaneando el QR de la chica (fuera de /v1):
@@ -34,13 +37,16 @@ import { WalletPasskeysService } from './wallet-passkeys.service';
 export class PublicSaldoController {
   private readonly charges: WalletChargesService;
   private readonly passkeys: WalletPasskeysService;
+  private readonly config: ConfigService;
 
   constructor(
     @Inject(WalletChargesService) charges: WalletChargesService,
     @Inject(WalletPasskeysService) passkeys: WalletPasskeysService,
+    @Inject(ConfigService) config: ConfigService,
   ) {
     this.charges = charges;
     this.passkeys = passkeys;
+    this.config = config;
   }
 
   @Public()
@@ -51,6 +57,8 @@ export class PublicSaldoController {
     @Query('lang') langQuery: string | undefined,
     @Headers('cookie') cookies: string | undefined,
     @Res() res: FastifyReply,
+    /** B1: la propina que ya eligió en /pay antes de «Pagar con mi saldo». */
+    @Query('tip') tipQuery?: string,
   ): Promise<void> {
     const view = await this.charges.qrChargeForClient(token);
     // Español por defecto; el idioma que elige el cliente queda en su cookie.
@@ -62,7 +70,7 @@ export class PublicSaldoController {
       .header('Cache-Control', 'no-store')
       // Android: el modelo y la versión en las peticiones siguientes (detalle del pago).
       .header('Accept-CH', CLIENT_HINTS_ACCEPT_CH)
-      .send(renderQrChargePage(token, lang, view));
+      .send(renderQrChargePage(token, lang, view, new Date(), { tipFromPay: tipQueryOf(tipQuery) }));
   }
 
   /**
@@ -101,15 +109,40 @@ export class PublicSaldoController {
   @IpRateLimit({ max: 60, windowSec: 60, scope: 'saldo-qr-pay' })
   async pay(
     @Param('token') token: string,
-    @Body() body: { response?: unknown } | undefined,
+    @Body() body: { response?: unknown; tipCents?: unknown } | undefined,
     @Headers('host') host: string | undefined,
-  ): Promise<QrChargePaid> {
+    @Res({ passthrough: true }) res: FastifyReply,
+  ): Promise<QrChargePaid & { walletUrl?: string }> {
+    // B1: la propina que eligió el cliente en esta página (antes de gastar su Face ID).
+    const tip = tipChoiceOf(body?.tipCents);
     const walletId = await this.passkeys.verify(scopeOf(token), host, body?.response);
-    return this.charges.payQrCharge(token, walletId);
+    const paid = await this.charges.payQrCharge(token, walletId, tip);
+    // «Ver mi saldo» en su «Pagado»: acaba de desbloquear su móvil con la
+    // llave de ese saldo, así que se abre la sesión de consulta (como al
+    // entrar por la ficha) y la página lleva el enlace.
+    const wallet = await this.charges.liveWalletRef(walletId).catch(() => null);
+    if (!wallet) return paid;
+    res.header('Set-Cookie', walletViewSetCookies(this.config.get<string>('COOKIE_SECRET') ?? '', wallet));
+    return { ...paid, walletUrl: `/w/${encodeURIComponent(wallet.qrToken)}` };
   }
 }
 
 /** El reto vale solo para este cobro. */
 function scopeOf(token: string): string {
   return `charge:${token}`;
+}
+
+/** ?tip= de /pay: céntimos enteros (si no lo son, como si no viniera). */
+function tipQueryOf(raw: string | undefined): number | null {
+  if (!raw || !/^[0-9]{1,6}$/.test(raw)) return null;
+  return Number(raw);
+}
+
+/** La propina elegida (céntimos enteros, hasta 500 €); sin ella, null (vale la que traía el cobro). */
+function tipChoiceOf(value: unknown): number | null {
+  if (value === undefined || value === null) return null;
+  if (typeof value !== 'number' || !Number.isInteger(value) || value < 0 || value > 500_00) {
+    throw new BadRequestException({ message: 'Propina no válida', code: 'TIP_NOT_VALID', reason: 'invalid' });
+  }
+  return value;
 }

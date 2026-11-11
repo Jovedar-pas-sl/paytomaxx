@@ -34,14 +34,14 @@ describe('el cobro abierto, para el cliente (PS-A10, PS-A1)', () => {
     expect(WAIT_TITLE_EN.qr).toBe('Scan the QR with your phone');
   });
 
-  it('la propina que marcó el personal, a la vista antes de pagar: «33 € + 5 € de propina»', () => {
+  it('la propina, a la vista antes de pagar: «33 € + 5 € de propina» (la de un cobro de antes y, con el PIN, la que elige el cliente: B1)', () => {
     const line = tipLine({ baseCents: 3300, tipCents: 500, totalCents: 3800 })!;
     expect(sp(`${line.base} + ${line.tip} de propina`)).toBe('33 € + 5 € de propina');
     expect(tipLine({ baseCents: 3300, tipCents: 0, totalCents: 3300 })).toBeNull();
     const wait = read('../components/cobrar/Esperando.tsx');
     expect(wait).toContain('function staffTipOf(cobro: CobroAbierto)');
     expect(wait).toMatch(/\{staffTip\.base\} \+ \{staffTip\.tip\} de propina/);
-    expect(wait).toContain('tip={staffTip}');
+    expect(wait).toContain('tipSetup={pinTip}');
     expect(read('../components/cobrar/PinScreen.tsx')).toMatch(/\{tip\.base\} \+ \{tip\.tip\} de propina/);
   });
 });

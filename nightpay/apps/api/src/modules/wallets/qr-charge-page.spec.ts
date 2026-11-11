@@ -26,7 +26,7 @@ describe('pagar con el saldo escaneando el QR del personal', () => {
     const es = renderQrChargePage('tok-1', 'es', view, NOW);
     expect(es).toContain('Pagar con mi saldo');
     // Lo que se cobra, con céntimos, como en las demás páginas de pago.
-    expect(es).toMatch(/<h1 class="amount num">60,00\s€<\/h1>/);
+    expect(es).toMatch(/<h1 class="amount num" id="amt">60,00\s€<\/h1>/);
     // Face ID preparado al abrir: al tocar "Pagar" sale al momento.
     expect(es).toContain("pkPrepare(C.base+'/challenge')");
     expect(es).toContain('PIN');
@@ -107,6 +107,76 @@ describe('pagar con el saldo escaneando el QR del personal', () => {
     expect(html).toContain('No se te ha cobrado nada');
     expect(html).toContain('Pide al personal que lo repita');
     expect(html).not.toContain('id="pay"');
+  });
+
+  it('«Ver mi saldo» en todas las pantallas que acaban: tras pagar aquí, el enlace de la respuesta; si no, con Face ID', () => {
+    // Ya pagado (QR que se vuelve a abrir), pagado con tarjeta o caducado: con Face ID, enseñado al cargar.
+    for (const v of [
+      { ...view, status: 'ACCEPTED' as const, paidAt: new Date(NOW.getTime() - 60_000).toISOString() },
+      { ...view, status: 'CANCELED' as const, paidElsewhere: true },
+      { ...view, status: 'EXPIRED' as const },
+    ]) {
+      const html = renderQrChargePage('tok-1', 'es', v, NOW);
+      expect(html).toContain('id="npMine"');
+      expect(html.match(/id="npMine"/g)).toHaveLength(1);
+      expect(html).toMatch(/^npMineShow[(]true[)];$/m);
+      for (const js of scripts(html)) expect(() => new Function(js)).not.toThrow();
+    }
+    // Sin pagar: nada al cargar; al pagar, el enlace de su saldo (solo una ruta /w/<enlace>) o, sin él, Face ID.
+    const pending = renderQrChargePage('tok-1', 'en', view, NOW);
+    expect(pending).toContain('See my balance');
+    expect(pending).not.toMatch(/^npMineShow[(]true[)];$/m);
+    const js = scripts(pending).join('');
+    expect(js).toContain('r.walletUrl&&/^[/]w[/][A-Za-z0-9_-]+$/.test(r.walletUrl)');
+    expect(js).toContain('window.npMineShow(true)');
+  });
+
+  describe('la propina la elige el cliente (B1), sin nada marcado', () => {
+    const tip = { baseCents: 3300, previousCents: 0, maxCents: 3300, presets: [{ cents: 200, percent: null }, { cents: 500, percent: null }], toStaff: true };
+    const checked = (html: string) => html.match(/<input type="radio" name="tip" value="\d+"[^>]* checked>/g) ?? [];
+
+    it('«Sin propina», las sugeridas del local y «Otra», sin ninguna marcada; el importe, sin propina', () => {
+      for (const lang of ['es', 'en', 'fr', 'pt'] as const) {
+        const html = renderQrChargePage('tok-1', lang, { ...view, amountCents: 3300, tip }, NOW);
+        expect(html).toContain('<fieldset class="tips">');
+        expect(checked(html)).toEqual([]);
+        expect(html).toContain('id="otherRadio"');
+        for (const js of scripts(html)) expect(() => new Function(js)).not.toThrow();
+      }
+      const es = renderQrChargePage('tok-1', 'es', { ...view, amountCents: 3300, tip }, NOW);
+      expect(es).toContain('>Sin propina</span>');
+      expect(es).toMatch(/>\+2\s€<\/span>/);
+      expect(es).toMatch(/>\+5\s€<\/span>/);
+      expect(es).toMatch(/<h1 class="amount num" id="amt">33,00\s€<\/h1>/);
+      expect(es).toMatch(/<p class="tipline num" id="tipLine" hidden><\/p>/);
+      // La propina es entera de la chica que cobra: se le dice (como en /pay).
+      expect(es).toContain('Va entera para el personal');
+      // Se manda con el pago (y «Otra» mal puesta se dice antes de pedir Face ID).
+      const js = scripts(es).join('');
+      expect(js).toContain("pkPost(C.base+'/pay',tp?{response:k,tipCents:tp.tip}:{response:k})");
+      expect(js).toContain("tipErr(tp.error==='max'?TP.tooHigh:TP.empty)");
+    });
+
+    it('la que ya eligió en /pay sale marcada (también en «Otra»); la de un cobro de antes, marcada y se puede quitar', () => {
+      const fromPay = renderQrChargePage('tok-1', 'es', { ...view, amountCents: 3300, tip }, NOW, { tipFromPay: 500 });
+      expect(checked(fromPay)).toEqual(['<input type="radio" name="tip" value="500" checked>']);
+      expect(fromPay).toMatch(/<h1 class="amount num" id="amt">38,00\s€<\/h1>/);
+      expect(fromPay.replace(new RegExp(String.fromCharCode(160), 'g'), ' ')).toContain('<p class="tipline num" id="tipLine">33 € + 5 € de propina</p>');
+      const other = renderQrChargePage('tok-1', 'es', { ...view, amountCents: 3300, tip }, NOW, { tipFromPay: 700 });
+      expect(other).toContain('id="otherRadio" checked');
+      expect(other).toContain('value="7"');
+      // Por encima del máximo o con céntimos que «Otra» no admite: como si no viniera.
+      expect(checked(renderQrChargePage('tok-1', 'es', { ...view, amountCents: 3300, tip }, NOW, { tipFromPay: 999_00 }))).toEqual([]);
+      const old = renderQrChargePage('tok-1', 'es', { ...view, amountCents: 3800, tip: { ...tip, previousCents: 500 } }, NOW);
+      expect(checked(old)).toEqual(['<input type="radio" name="tip" value="500" checked>']);
+      expect(old).toContain('>Sin propina</span>');
+    });
+
+    it('sin propinas (local o puesto) no hay nada que elegir: se paga lo que dice el cobro', () => {
+      const html = renderQrChargePage('tok-1', 'es', { ...view, tip: null }, NOW);
+      expect(html).not.toContain('<fieldset class="tips">');
+      expect(html).toMatch(/<h1 class="amount num" id="amt">60,00\s€<\/h1>/);
+    });
   });
 
   it('error al pagar: solo dice que no se cobró si el servidor lo rechazó (4xx que no es 409)', () => {

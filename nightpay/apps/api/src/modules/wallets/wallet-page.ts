@@ -12,6 +12,7 @@ import { TOPUP_CSS, TOPUP_JS, paidProofScript, paidProofSection, topUpCard, topU
 import { SCAN_CSS, SCAN_JS, scanArea } from './wallet-scan';
 import { LOST_CSS, LOST_JS, lostButton, lostSheet } from './wallet-lost-view';
 import { WALLET_LIVE_JS } from './wallet-live';
+import { myBalanceButton, myBalanceScript } from './my-balance';
 import { RECEIPT_JS, WELCOME_CSS, WELCOME_JS, fichaQrBlock, welcomeCard } from '../home-topup/wallet-welcome-view';
 
 /**
@@ -45,6 +46,7 @@ const WALLET_CSS = `
 .hero .obot{display:flex;justify-content:space-between;gap:.5rem;font-size:.875rem;font-weight:600;color:var(--fg)}
 .balance{font-size:3.5rem;font-weight:600;letter-spacing:-.02em;line-height:1;margin-top:.25rem;color:var(--fg);font-variant-numeric:proportional-nums}
 .status{font-weight:500;color:var(--fg)}
+.hero .mine{display:grid;gap:.375rem}.hero .mine:has(#npMine[hidden]){display:none}
 .seg{display:grid;grid-template-columns:1fr 1fr;gap:.5rem}
 .segb{display:flex;align-items:center;justify-content:center;gap:.5rem;min-height:3.5rem;padding:.5rem .75rem;border:1px solid var(--line-hi);border-radius:var(--r-btn);background:var(--surface-2);color:var(--fg);font:inherit;font-size:1.0625rem;font-weight:600;line-height:1.1;cursor:pointer;transition:transform .15s var(--ease)}
 .segb svg{width:1.25rem;height:1.25rem;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
@@ -304,6 +306,7 @@ ${topBar(lang)}<h1 class="sr">${h(t.title)}</h1>
 <p id="balanceLabel">${h(state.venueName ? t.balanceOf.split('{venue}').join(state.venueName) : t.balance)}</p>
 <p class="balance num" id="balance" aria-live="polite">${h(eur(state.balanceCents, t.locale))}</p>
 <p class="status" id="notice" role="status" hidden></p>
+<div class="mine">${myBalanceButton(lang)}</div>
 <div class="obot"><span class="num" id="heroCode">${h(state.code)}</span><span id="heroFicha">${state.hasCard && state.fichaNumber ? h(t.fichaNo.split('{n}').join(state.fichaNumber)) : ''}</span></div>
 </section>
 <p class="live" id="liveBar" role="status" hidden></p>
@@ -393,6 +396,8 @@ function render(s){S=s;S.cards=s.cards||[];
  var active=s.status==='ACTIVE',r=s.refund;
  var notice=active?'':s.status==='DEPLETED'?(s.merged?T.merged:T.depleted):r?'':T.closed;
  show('notice',notice);
+ // Sumado a otro saldo: «Ver mi saldo» lleva a aquel con su Face ID (pantalla sin salida).
+ window.npMineWanted=s.status==='DEPLETED'&&Boolean(s.merged);if(window.npMineShow)window.npMineShow(window.npMineWanted);
  $('refundCard').hidden=!r;if(r)refundView(r);
  payRender(s,active,r);
  $('pinOpen').hidden=!(active&&!r&&!s.hasPin&&(s.hasFaceId||C.payer));
@@ -502,5 +507,6 @@ LV.start();
 })();
 ${proof ? paidProofScript(lang) : ''}
 ${LANG_JS}
-</script></body></html>`;
+</script>
+${myBalanceScript(lang, { showIf: 'window.npMineWanted' })}</body></html>`;
 }

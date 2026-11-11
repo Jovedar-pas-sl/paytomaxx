@@ -351,6 +351,17 @@ describe('GET /pay/:token — página de pago', () => {
     await controller.payPage('qr-token-1', 'es', undefined, IPHONE, reply);
     expect(sent.body).toContain('Ya está pagado con tu saldo');
     expect(sent.body).not.toContain('No se te ha cobrado nada');
+    // Salida (pantalla sin salida): «Ver mi saldo» con Face ID, enseñado al cargar.
+    expect(sent.body).toContain('id="npMine"');
+    expect(sent.body).toMatch(/^npMineShow[(]true[)];$/m);
+    expect(sent.body).toContain('function pkPrepare(');
+  });
+
+  it('cobro caducado: sin «Ver mi saldo» (no se pagó con saldo: lo que toca es pedir otro QR)', async () => {
+    const { controller } = makeController({ page: { kind: 'closed', reason: 'expired' } });
+    const { reply, sent } = fakeReply();
+    await controller.payPage('qr-token-1', 'es', undefined, IPHONE, reply);
+    expect(sent.body).not.toContain('id="npMine"');
   });
 
   it('iPhone: «Pagar 100 €» que abre Apple Pay (Redsys solo cartera) como botón principal, sin botón de Apple hecho a mano, y «Pagar con tarjeta» de segunda opción', async () => {
@@ -397,15 +408,24 @@ describe('GET /pay/:token — página de pago', () => {
     expect(html).not.toContain('id="cardBtn"');
   });
 
-  it('«Sin propina» marcada por defecto, aunque el cobro traiga una propina del local', async () => {
+  it('sin nada marcado (B1: la propina la elige el cliente), aunque el cobro traiga una propina del local', async () => {
     const { controller } = makeController({
       page: { ...CHOOSE, tipOptionsCents: [0, 300, 1_000, 1_500], tipCents: 300 } as PayRedirect,
     });
     const { reply, sent } = fakeReply();
     await controller.payPage('qr-token-1', 'es', undefined, IPHONE, reply);
-    const checked = sent.body!.match(/<input type="radio" name="tip" value="(\d+)" checked>/g) ?? [];
-    expect(checked).toEqual(['<input type="radio" name="tip" value="0" checked>']);
+    expect(sent.body!.match(/<input type="radio" name="tip"[^>]* checked>/g) ?? []).toEqual([]);
     expect(sent.body).toContain('value="300"');
+    expect(sent.body).toContain('<input type="radio" name="tip" value="0"><span class="word">Sin propina</span>');
+  });
+
+  it('«Pagar con mi saldo» lleva la propina que ya eligió aquí (?tip=), solo si eligió una', async () => {
+    const { controller } = makeController({
+      page: { ...CHOOSE, saldoPayToken: 'saldo-token-123456789' } as PayRedirect,
+    });
+    const { reply, sent } = fakeReply();
+    await controller.payPage('qr-token-1', 'es', undefined, IPHONE, reply);
+    expect(sent.body).toContain("if(!s.error&&chosen()){try{var u=new URL(sb.getAttribute('href'),location.href);u.searchParams.set('tip',String(s.tip));");
   });
 
   it('propinas según el importe: hasta 40 € +2 € y +5 €; por encima 10 % y 15 %; y «Otra» hasta el máximo', async () => {

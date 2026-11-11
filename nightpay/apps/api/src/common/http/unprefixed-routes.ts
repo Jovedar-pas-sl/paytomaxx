@@ -54,6 +54,9 @@ export const UNPREFIXED_ROUTES: readonly UnprefixedRoute[] = Object.freeze([
   { path: 'w/card/:token/pin', method: RequestMethod.POST },
   { path: 'w/card/:token/saldo', method: RequestMethod.POST },
   { path: 'w/card/:token/view', method: RequestMethod.POST },
+  // «Ver mi saldo» desde las pantallas que acaban (my-balance.ts): Face ID y a su saldo.
+  { path: 'w/mine/challenge', method: RequestMethod.POST },
+  { path: 'w/mine', method: RequestMethod.POST },
   { path: 'w/:token/view/challenge', method: RequestMethod.POST },
   { path: 'w/:token/view', method: RequestMethod.POST },
   { path: 'w/:token/close/challenge', method: RequestMethod.POST },
@@ -89,5 +92,7 @@ export const UNPREFIXED_ROUTES: readonly UnprefixedRoute[] = Object.freeze([
   // «Cargar saldo antes de llegar»: el enlace del local, la carga y «Recargar mi saldo».
   { path: 'r/:code', method: RequestMethod.GET },
   { path: 'r/:code/topup', method: RequestMethod.POST },
+  // El QR del cartel de la cola (B16): la misma carga, con los topes por móvil y por noche.
+  { path: 'r/:code/cola', method: RequestMethod.POST },
   { path: 'r/:code/mi-saldo', method: RequestMethod.GET },
 ]);

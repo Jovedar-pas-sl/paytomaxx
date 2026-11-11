@@ -2,10 +2,12 @@ import { CLUB_BASE_CSS, MONEY_JS, clientMoney, escapeHtml, jsConfig } from '../p
 import { CHROME_CSS, langScript, topBar } from '../payments/customer-chrome';
 import { CUSTOMER_TEXT } from '../payments/i18n';
 import { PAID_SCREEN_CSS, PAID_SCREEN_JS, paidScreenJsText, renderPaidScreen } from '../payments/paid-screen';
-import { LOCK_ICON } from '../payments/pay-choose-page';
+import { LOCK_ICON, TIP_JS } from '../payments/pay-choose-page';
 import { PAY_TEXT, type PayLanguage } from '../payments/pay-i18n';
 import { PASSKEY_BROWSER_JS } from './passkey-browser';
 import { CLIENT_ERROR_JS, clientErrorConfig } from './client-errors';
+import { MY_BALANCE_TEXT, myBalanceButton, myBalanceScript } from './my-balance';
+import { SALDO_TIP_CSS, SALDO_TIP_LINE, initialSaldoTip, saldoTipConfig, saldoTipFieldset } from './saldo-tip';
 import type { QrChargeClientView } from './wallet-charges.service';
 
 /**
@@ -30,6 +32,7 @@ const QR_CSS = `
 .after{max-width:26rem;margin:0 auto;padding:1rem;display:flex;flex-direction:column;align-items:center}
 .secure{display:flex;align-items:center;gap:.4rem;font-size:.8125rem;color:var(--dim)}
 .secure svg{width:1rem;height:1rem;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.mine{width:100%;max-width:22rem;display:grid;gap:.5rem;margin-top:.5rem}
 `;
 
 /**
@@ -54,6 +57,8 @@ export function renderQrChargePage(
   lang: PayLanguage,
   view: QrChargeClientView,
   now: Date = new Date(),
+  /** B1: la propina que ya eligió en /pay antes de tocar «Pagar con mi saldo» (?tip=). */
+  opts: { tipFromPay?: number | null } = {},
 ): string {
   const t = CUSTOMER_TEXT[lang].saldo;
   const p = PAY_TEXT[lang];
@@ -63,12 +68,19 @@ export function renderQrChargePage(
   const eur = (c: number): string => clientMoney(c, locale);
   const isPaid = view.status === 'ACCEPTED';
   const paidAt = isPaid && view.paidAt ? new Date(view.paidAt) : null;
+  // B1: la propina la elige aquí el cliente (sin nada marcado), si el cobro la admite.
+  const tipView = view.status === 'PENDING' ? (view.tip ?? null) : null;
+  const initialTip = tipView ? initialSaldoTip(tipView, opts.tipFromPay ?? null) : null;
+  const dueCents = tipView ? tipView.baseCents + (initialTip ?? 0) : view.amountCents;
+  const tipLine = (tip: number): string =>
+    tipView ? SALDO_TIP_LINE[lang].split('{base}').join(eur(tipView.baseCents)).split('{tip}').join(eur(tip)) : '';
   // El código del cobro único nunca va en la página antes de pagar (ni en el
   // HTML ni aquí): un «Pagado» falso no lo tendría. Al pagar aquí, llega en la
   // respuesta del pago.
   const { code, ...publicView } = view;
   const config = jsConfig({
     base,
+    lang,
     locale,
     text: {
       ...t,
@@ -79,10 +91,16 @@ export function renderQrChargePage(
     },
     errors: clientErrorConfig(lang),
     view: publicView,
+    tip: tipView ? saldoTipConfig(lang, tipView) : null,
     // La hora del servidor: la cuenta atrás corrige la del móvil (como /pay).
     now: now.getTime(),
   });
   const who = [view.serviceName, view.requestedByName, view.venueName].filter(Boolean).join(' · ');
+  // Caducado, cancelado o rechazado: no se cobró nada.
+  const closed = view.status !== 'PENDING' && !isPaid;
+  // «Ver mi saldo»: tras pagar aquí, el enlace que trae la respuesta del pago;
+  // al abrir uno ya pagado o cerrado, con Face ID (la página no sabe de quién es).
+  const mine = `<div class="mine"><a class="btn alt" id="mineLink" hidden>${h(MY_BALANCE_TEXT[lang].button)}</a>${myBalanceButton(lang)}</div>`;
   // Ya pagado (alguien vuelve a abrir el QR): el «Pagado» en gris, sin formulario.
   const screen = renderPaidScreen({
     t: p,
@@ -93,13 +111,12 @@ export function renderQrChargePage(
     code: isPaid ? (code ?? null) : null,
     hidden: !isPaid,
     fromBalance: true,
+    footer: closed ? undefined : mine,
   });
-  // Caducado, cancelado o rechazado: no se cobró nada.
-  const closed = view.status !== 'PENDING' && !isPaid;
   return `<!DOCTYPE html>
 <html lang="${lang}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="robots" content="noindex"><meta name="theme-color" content="#0b0d0e"><title>${h(t.title)}</title>
-<style>${CLUB_BASE_CSS}${CHROME_CSS}${QR_CSS}${PAID_SCREEN_CSS}</style></head><body>
+<style>${CLUB_BASE_CSS}${CHROME_CSS}${QR_CSS}${PAID_SCREEN_CSS}${tipView ? SALDO_TIP_CSS : ''}</style></head><body>
 ${topBar(lang, undefined, { over: isPaid })}
 ${screen}
 <main class="${isPaid ? 'after' : 'c'}" id="ask">
@@ -109,16 +126,20 @@ ${
     : closed && view.paidElsewhere
     ? `<p class="kick">${h(t.title)}</p>
 <h1>${h(t.paidByCard)}</h1>
-<p class="safe">${h(t.notFromBalance)}</p>`
+<p class="safe">${h(t.notFromBalance)}</p>
+${mine}`
     : closed
     ? `<p class="kick">${h(t.title)}</p>
 <h1>${h(view.status === 'EXPIRED' ? t.expired : t.notPending)}</h1>
 <p class="safe">${h(p.notCharged)}</p>
-<p class="hint">${h(t.askStaff)}</p>`
+<p class="hint">${h(t.askStaff)}</p>
+${mine}`
     : `<p class="kick">${h(t.title)}</p>
 <p>${h(t.youPay)}</p>
-<h1 class="amount num">${h(clientMoney(view.amountCents, locale, 'EUR', true))}</h1>
+<h1 class="amount num" id="amt">${h(clientMoney(dueCents, locale, 'EUR', true))}</h1>
+${tipView ? `<p class="tipline num" id="tipLine"${initialTip ? '' : ' hidden'}>${h(initialTip ? tipLine(initialTip) : '')}</p>` : ''}
 ${who ? `<p class="who">${h(who)}</p>` : ''}
+${tipView ? saldoTipFieldset(lang, tipView, initialTip) : ''}
 <button class="btn" type="button" id="pay">${h(t.pay)}</button>
 <p class="err" id="error" role="alert" hidden></p>
 <p class="safe" id="notCharged" hidden>${h(p.notCharged)}</p>
@@ -132,8 +153,9 @@ ${PASSKEY_BROWSER_JS}
 ${CLIENT_ERROR_JS}
 ${PAID_SCREEN_JS}
 ${PAY_FAIL_JS}
+${TIP_JS}
 (function(){
-var C=JSON.parse(${config}),T=C.text,V=C.view,el=document.getElementById('paid');
+var C=JSON.parse(${config}),T=C.text,V=C.view,TP=C.tip,el=document.getElementById('paid'),sentTip=null;
 function $(id){return document.getElementById(id);}
 ${MONEY_JS}
 function eur(c){return npMoney(c,C.locale,'EUR');}
@@ -146,6 +168,15 @@ function stop(text){over=true;clearInterval(iv);$('pay').hidden=true;$('clock').
 function tick(){var s=Math.max(0,Math.floor((exp-Date.now()-skew)/1000));
  $('clock').textContent=over?'':T.expiresIn+' '+Math.floor(s/60)+':'+('0'+s%60).slice(-2);
  if(s<=0&&!over)stop(T.expired+'. '+T.askStaff);}
+// B1: la propina que elige el cliente (sin nada marcado: «Sin propina»).
+function tipNow(){if(!TP)return null;var r=document.querySelector('input[name=tip]:checked');if(!r)return {tip:0,error:null};
+ if(r.id==='otherRadio'){var o=npTipOther($('otherIn').value,TP.max);return {tip:o.cents,error:o.error};}return {tip:+r.value||0,error:null};}
+function tipErr(text){var e=$('otherErr');if(e){e.textContent=text;e.hidden=!text;}}
+function tipShow(){if(!TP)return;var s=tipNow(),oth=$('otherRadio'),on=Boolean(oth&&oth.checked),box=$('otherBox'),t=s.error?0:s.tip,l=$('tipLine');
+ if(box)box.hidden=!on;if(!on)tipErr('');$('amt').textContent=npMoney(TP.base+t,C.locale,'EUR',true);
+ if(l){l.hidden=!(t>0);l.textContent=t>0?TP.line.split('{base}').join(eur(TP.base)).split('{tip}').join(eur(t)):'';}}
+if(TP){document.querySelectorAll('input[name=tip]').forEach(function(r){r.addEventListener('change',function(){tipShow();if(r.id==='otherRadio')$('otherIn').focus();});});
+ var oin=$('otherIn');if(oin)oin.addEventListener('input',function(){tipErr('');tipShow();});tipShow();}
 if(!pkSupported()){stop(T.unsupported);return;}
 iv=setInterval(tick,1000);tick();
 // Face ID preparado ya: al tocar "Pagar" sale al momento.
@@ -158,6 +189,8 @@ function paid(r){stop('');$('ask').hidden=true;
   var lab=document.createElement('span');lab.className='plabel';lab.textContent=T.codeLabel;var val=document.createElement('b');val.className='num';val.textContent=r.code;
   var hint=document.createElement('span');hint.className='phint';hint.textContent=T.codeHint;box.appendChild(lab);box.appendChild(val);box.appendChild(hint);
   el.insertBefore(box,el.querySelector('.pstale'));}
+ // «Ver mi saldo»: el enlace de SU saldo (la respuesta del pago); sin él, con Face ID.
+ var ml=$('mineLink');if(r.walletUrl&&/^[/]w[/][A-Za-z0-9_-]+$/.test(r.walletUrl)){ml.href=r.walletUrl+'?lang='+encodeURIComponent(C.lang);ml.hidden=false;}else if(window.npMineShow)window.npMineShow(true);
  var bar=document.querySelector?document.querySelector('header.top'):null;if(bar)bar.classList.add('over');
  el.hidden=false;window.scrollTo(0,0);npPaid(el,T.paid);}
 // No se sabe si se cobró: se pregunta el estado. Pendiente → se puede volver a
@@ -169,15 +202,18 @@ function check(n){
  fetch(C.base+'/state',{cache:'no-store',headers:{Accept:'application/json'}})
   .then(function(r){if(!r.ok)throw r;return r.json();})
   .then(function(s){if(!s||!s.status)throw s;
-   if(s.status==='ACCEPTED'){paid({amountCents:V.amountCents,code:s.code||null});return;}
+   if(s.status==='ACCEPTED'){paid({amountCents:TP&&sentTip!==null?TP.base+sentTip:V.amountCents,code:s.code||null});return;}
    if(s.status!=='PENDING'){location.reload();return;}
    if(!over){show('error',T.stillPending);$('pay').hidden=false;}})
   .catch(function(){if(n>1)setTimeout(function(){check(n-1);},${STATE_RETRY_MS});else lost();});
 }
 $('pay').addEventListener('click',function(){
- var b=$('pay');if(b.disabled)return;b.disabled=true;b.textContent=T.paying;show('error','');$('notCharged').hidden=true;$('reload').hidden=true;
- var k=go?go():pkGet(C.base+'/challenge');go=null;
- k.then(function(k){return pkPost(C.base+'/pay',{response:k});})
+ var b=$('pay');if(b.disabled)return;
+ // «Otra» sin importe o por encima del máximo: se dice antes de pedir Face ID.
+ var tp=tipNow();if(tp&&tp.error){tipErr(tp.error==='max'?TP.tooHigh:TP.empty);$('otherIn').focus();return;}
+ b.disabled=true;b.textContent=T.paying;show('error','');$('notCharged').hidden=true;$('reload').hidden=true;
+ var k=go?go():pkGet(C.base+'/challenge');go=null;sentTip=tp?tp.tip:null;
+ k.then(function(k){return pkPost(C.base+'/pay',tp?{response:k,tipCents:tp.tip}:{response:k});})
   // Un 200 sin lo cobrado (un proxy que contesta otra cosa) no es un «Pagado».
   .then(function(r){if(!r||typeof r.amountCents!=='number')throw new Error('?');paid(r);})
   .catch(function(e){b.disabled=false;b.textContent=T.pay;if(pkCancelled(e))return;
@@ -190,5 +226,6 @@ $('pay').addEventListener('click',function(){
 $('reload').addEventListener('click',function(){location.reload();});
 })();
 </script>
+${myBalanceScript(lang, { visible: view.status !== 'PENDING' })}
 ${langScript()}</body></html>`;
 }

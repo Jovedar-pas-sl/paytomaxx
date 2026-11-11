@@ -7,6 +7,15 @@ import { PrismaService } from '../../common/prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { SELF_TOPUP_MAX_CENTS, SELF_TOPUP_MIN_CENTS } from '../wallets/wallet-topup-rules';
 import { homeTopUpProblem, newHomeTopUpCode } from './home-topup-rules';
+import { queueToken, queueUrl, queueValidUntil } from './home-topup-queue';
+
+/** El cartel de la cola de esta noche (B16): su enlace, su QR y hasta cuándo vale. */
+export interface HomeTopUpQueuePoster {
+  url: string;
+  qrPngDataUrl: string;
+  /** ISO: cuando cambia la noche de /r (las 10:00 UTC). */
+  validUntil: string;
+}
 import { HomeTopUpService } from './home-topup.service';
 
 /** Sin NEXT_PUBLIC_API_URL (solo en local): el API en su puerto. */
@@ -31,6 +40,7 @@ export interface HomeTopUpActor {
 export class HomeTopUpSettingsService {
   private readonly logger = new Logger(HomeTopUpSettingsService.name);
   private readonly origin: string;
+  private readonly secret: string;
 
   constructor(
     @Inject(PrismaService) private readonly prisma: PrismaService,
@@ -39,6 +49,28 @@ export class HomeTopUpSettingsService {
     @Inject(ConfigService) config: ConfigService,
   ) {
     this.origin = originOf(config.get<string>('NEXT_PUBLIC_API_URL')) ?? LOCAL_API_ORIGIN;
+    this.secret = config.get<string>('COOKIE_SECRET') ?? '';
+  }
+
+  /**
+   * El cartel de la cola de esta noche (B16): el enlace del local con el QR
+   * firmado de esta noche. Con la carga desde casa apagada, null (no hay
+   * enlace que poner en el cartel).
+   */
+  async queuePoster(venueId: string, now: Date = new Date()): Promise<HomeTopUpQueuePoster | null> {
+    const venue = await this.prisma.asSystem((tx) =>
+      tx.venue.findUniqueOrThrow({ where: { id: venueId }, select: { homeTopUpEnabled: true, homeTopUpCode: true } }),
+    );
+    if (!venue.homeTopUpEnabled || !venue.homeTopUpCode || this.secret.length < 32) return null;
+    const url = queueUrl(
+      `${this.origin}${HOME_TOPUP_PATH_PREFIX}${venue.homeTopUpCode}`,
+      queueToken(this.secret, venueId, venue.homeTopUpCode, now.getTime()),
+    );
+    return {
+      url,
+      qrPngDataUrl: await QRCode.toDataURL(url, { width: 720, margin: 2, errorCorrectionLevel: 'M' }),
+      validUntil: queueValidUntil(now.getTime()).toISOString(),
+    };
   }
 
   async view(venueId: string): Promise<HomeTopUpSettings> {

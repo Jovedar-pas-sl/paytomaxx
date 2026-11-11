@@ -51,6 +51,8 @@ export interface Incident {
   amountCents: number | null;
   paymentId: string | null;
   ackable: boolean;
+  /** Aviso de dinero (B11): se cierra escribiendo qué se hizo. Sin el campo (API anterior): no. */
+  noteRequired?: boolean;
 }
 
 export async function fetchIncidents(): Promise<{ items: Incident[]; telegram: boolean }> {
@@ -59,8 +61,16 @@ export async function fetchIncidents(): Promise<{ items: Incident[]; telegram: b
   return res.json();
 }
 
-export async function ackIncident(input: { kind: IncidentKind; refId: string; note?: string }): Promise<void> {
-  const res = await authedFetch('/v1/incidents/ack', { method: 'POST', body: JSON.stringify(input) });
+/** `keepalive`: al cerrar la pestaña, para que el aviso marcado llegue igual. */
+export async function ackIncident(
+  input: { kind: IncidentKind; refId: string; note?: string },
+  opts: { keepalive?: boolean } = {},
+): Promise<void> {
+  const res = await authedFetch('/v1/incidents/ack', {
+    method: 'POST',
+    body: JSON.stringify(input),
+    ...(opts.keepalive ? { keepalive: true } : {}),
+  });
   if (!res.ok) throw await apiError(res);
 }
 

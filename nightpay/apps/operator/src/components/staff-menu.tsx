@@ -52,8 +52,8 @@ export function InstallMenuItem() {
 }
 
 /**
- * La hoja del menú: instalar como app (en Android, si aún no lo está), la
- * llave de acceso (verificarse con el móvil sin 2FA), la guía y «Salir». Sin
+ * La hoja del menú: la llave de acceso (verificarse con el móvil sin 2FA),
+ * instalar como app (en Android, si aún no lo está), la guía y «Salir». Sin
  * tema: el personal va siempre en oscuro (layout).
  */
 export function StaffMenu({ open, onClose, onLogout }: { open: boolean; onClose: () => void; onLogout: () => void }) {

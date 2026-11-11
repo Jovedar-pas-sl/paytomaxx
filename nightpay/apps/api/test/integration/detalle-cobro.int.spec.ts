@@ -205,6 +205,18 @@ describe('el dispositivo de cada paso', () => {
   });
 });
 
+describe('la propina que elige el cliente al pagar (B1)', () => {
+  it('con su PIN: sale en el detalle como siempre (la de la chica y el total), sin otra vía', async () => {
+    const w = await wallet(5_000);
+    const actor = { userId: nerea, role: 'OPERATOR' as const, tenantId: V };
+    const q = await as(actor, ANDROID, () => charges.createQrCharge(actor, { amountCents: 2_000, category: 'CHICA_SERVICE' }));
+    await as(actor, ANDROID, () => charges.payQrChargeWithPin(actor, q.id, { code: w.code, pin: '4827', tipCents: 300 }));
+    const d = await as(null, null, () => details.forStaff(jwt(nerea, 'OPERATOR'), 'SALDO', q.id));
+    expect(d.mine).toMatchObject({ tipCents: 300 });
+    expect(d.mine!.totalCents).toBe(d.mine!.commissionCents + 300);
+  });
+});
+
 describe('quién ve qué', () => {
   it('la chica: lo suyo con «lo tuyo»; nunca la parte del local, el banco ni lo de otras; el cobro de otra, 404', async () => {
     const c = await cobroDe(lola);

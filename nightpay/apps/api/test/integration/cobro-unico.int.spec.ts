@@ -423,38 +423,102 @@ describe('las carreras: nunca se cobra dos veces (Postgres real)', () => {
   });
 });
 
-describe('la propina que pide el cliente (loseta «Propina»)', () => {
-  it('con el saldo la paga entera (del local si cobra el camarero); en la tarjeta sale ya marcada', async () => {
-    const w = await wallet(5000);
-    const c = await cobro([{ serviceItemId: copa }], { tipCents: 500 });
-    expect(c.amountCents).toBe(1000);
-    const page = await inVenue(undefined, () => payments.getPayPage(c.qrToken));
-    expect(page).toMatchObject({ kind: 'choose', amountCents: 1000, presetTipCents: 500 });
-    const paid = await payNfc(c.saldo!.chargeId, w);
-    expect(paid).toMatchObject({ status: 'ACCEPTED', amountCents: 1000, tipCents: 500, newBalanceCents: 3500 });
-    const consumption = await sys((tx) =>
-      tx.walletConsumption.findFirst({ where: { idempotencyKey: `charge-request:${c.saldo!.chargeId}` } }),
-    );
-    expect(consumption).toMatchObject({ amountCents: 1000, tipCents: 500, tipGoesTo: 'venue' });
+describe('la propina la elige el cliente al pagar (B1)', () => {
+  const STAFF_TIP_REMOVED = { response: expect.objectContaining({ code: 'STAFF_TIP_REMOVED' }) };
+  const TIP_NOT_VALID = { response: expect.objectContaining({ code: 'TIP_NOT_VALID' }) };
+  const consumptionOf = (chargeId: string) =>
+    sys((tx) => tx.walletConsumption.findFirst({ where: { idempotencyKey: `charge-request:${chargeId}` } }));
+  const balanceOf = async (walletId: string) =>
+    (await sys((tx) => tx.clientWallet.findUniqueOrThrow({ where: { id: walletId } }))).balanceCents;
+
+  it('el personal ya no la pone: el cobro único y el del saldo con propina, 400 sin crear nada', async () => {
+    const before = await sys((tx) => tx.walletChargeRequest.count({ where: { tenantId: V } }));
+    await expect(cobro([{ serviceItemId: copa }], { tipCents: 500 })).rejects.toMatchObject(STAFF_TIP_REMOVED);
+    await expect(
+      inVenue(V, () => charges.createQrCharge({ userId: nerea, role: 'OPERATOR', tenantId: V }, { amountCents: 1000, tipCents: 200 })),
+    ).rejects.toMatchObject(STAFF_TIP_REMOVED);
+    expect(await sys((tx) => tx.walletChargeRequest.count({ where: { tenantId: V } }))).toBe(before);
   });
 
-  it('cobro del saldo de la chica con propina: la propina es entera para ella', async () => {
+  it('con su PIN la elige el cliente (del local si cobra el camarero); en la tarjeta, nada marcado', async () => {
+    const w = await wallet(5000);
+    const c = await cobro([{ serviceItemId: copa }]);
+    expect(c.amountCents).toBe(1000);
+    const page = await inVenue(undefined, () => payments.getPayPage(c.qrToken));
+    expect(page).toMatchObject({ kind: 'choose', amountCents: 1000 });
+    expect(page).not.toHaveProperty('presetTipCents');
+    const paid = await inVenue(V, () =>
+      charges.payQrChargeWithPin(carlosActor(), c.saldo!.chargeId, { card: w.card, uid: w.uid, pin: '4827', tipCents: 500 }),
+    );
+    expect(paid).toMatchObject({ status: 'ACCEPTED', amountCents: 1000, tipCents: 500, newBalanceCents: 3500 });
+    expect(await consumptionOf(c.saldo!.chargeId)).toMatchObject({ amountCents: 1000, tipCents: 500, tipGoesTo: 'venue' });
+  });
+
+  it('con su Face ID en /s, al cobrar la chica: la propina es entera para ella', async () => {
     const w = await wallet(20_000);
     const servicio = await sys((tx) =>
       tx.serviceItem.create({ data: { tenantId: V, name: '1 h', priceCents: 12_000, category: 'CHICA_SERVICE' } }),
     );
     const qr = await inVenue(V, () =>
-      charges.createQrCharge({ userId: nerea, role: 'OPERATOR', tenantId: V }, { serviceItemId: servicio.id, tipCents: 1000 }),
+      charges.createQrCharge({ userId: nerea, role: 'OPERATOR', tenantId: V }, { serviceItemId: servicio.id }),
     );
-    await inVenue(undefined, () => charges.payQrCharge(qr.payToken, w.id));
-    const consumption = await sys((tx) => tx.walletConsumption.findFirst({ where: { idempotencyKey: `charge-request:${qr.id}` } }));
+    const view = await inVenue(undefined, () => charges.qrChargeForClient(qr.payToken));
+    expect(view.tip).toMatchObject({ baseCents: 12_000, previousCents: 0, maxCents: 12_000, toStaff: true });
+    const paid = await inVenue(undefined, () => charges.payQrCharge(qr.payToken, w.id, 1000));
+    expect(paid).toMatchObject({ amountCents: 13_000, balanceCents: 7000 });
+    const consumption = await consumptionOf(qr.id);
+    expect(consumption).toMatchObject({ amountCents: 12_000, tipCents: 1000, tipGoesTo: 'operator' });
     const earning = await sys((tx) => tx.operatorEarning.findFirst({ where: { consumptionId: consumption!.id } }));
     expect(earning).toMatchObject({ operatorId: nerea, commissionCents: 10_800, tipCents: 1000 });
-    expect((await sys((tx) => tx.clientWallet.findUniqueOrThrow({ where: { id: w.id } }))).balanceCents).toBe(7000);
-    // Más propina que el importe: no.
-    await expect(
-      inVenue(V, () => charges.createQrCharge({ userId: nerea, role: 'OPERATOR', tenantId: V }, { amountCents: 1000, tipCents: 2000 })),
-    ).rejects.toThrow(/propina/);
+    // El personal la ve en su PAGADO: queda en el cobro.
+    expect(await sys((tx) => tx.walletChargeRequest.findUniqueOrThrow({ where: { id: qr.id } }))).toMatchObject({ tipCents: 1000 });
+  });
+
+  it('más que el importe: 400 y no se cobra nada (el cobro sigue libre)', async () => {
+    const w = await wallet(5000);
+    const qr = await inVenue(V, () => charges.createQrCharge({ userId: nerea, role: 'OPERATOR', tenantId: V }, { amountCents: 1000 }));
+    await expect(inVenue(undefined, () => charges.payQrCharge(qr.payToken, w.id, 2000))).rejects.toMatchObject(TIP_NOT_VALID);
+    expect(await balanceOf(w.id)).toBe(5000);
+    expect(await sys((tx) => tx.walletChargeRequest.findUniqueOrThrow({ where: { id: qr.id } }))).toMatchObject({
+      status: 'PENDING',
+      walletId: null,
+      tipCents: 0,
+    });
+    // «Sin propina» sí.
+    await inVenue(undefined, () => charges.payQrCharge(qr.payToken, w.id, 0));
+    expect(await balanceOf(w.id)).toBe(4000);
+  });
+
+  it('un cobro de antes con la propina del personal: se respeta si no elige, y la puede quitar', async () => {
+    const legacy = async () => {
+      const c = await cobro([{ serviceItemId: copa }]);
+      await sys((tx) => tx.walletChargeRequest.update({ where: { id: c.saldo!.chargeId }, data: { tipCents: 300 } }));
+      return c;
+    };
+    const kept = await legacy();
+    const w1 = await wallet(5000);
+    await expect(payNfc(kept.saldo!.chargeId, w1)).resolves.toMatchObject({ status: 'ACCEPTED', tipCents: 300, newBalanceCents: 3700 });
+    const removed = await legacy();
+    const w2 = await wallet(5000);
+    const paid = await inVenue(V, () =>
+      charges.payQrChargeWithPin(carlosActor(), removed.saldo!.chargeId, { card: w2.card, uid: w2.uid, pin: '4827', tipCents: 0 }),
+    );
+    expect(paid).toMatchObject({ status: 'ACCEPTED', tipCents: 0, newBalanceCents: 4000 });
+  });
+
+  it('con las propinas apagadas en el local, solo «Sin propina»', async () => {
+    const methods = await sys((tx) => tx.venue.findUniqueOrThrow({ where: { id: V }, select: { paymentMethods: true } }));
+    await sys((tx) => tx.venue.update({ where: { id: V }, data: { paymentMethods: { ...(methods.paymentMethods as object), tips: false } } }));
+    try {
+      const w = await wallet(5000);
+      const qr = await inVenue(V, () => charges.createQrCharge({ userId: nerea, role: 'OPERATOR', tenantId: V }, { amountCents: 1000 }));
+      expect((await inVenue(undefined, () => charges.qrChargeForClient(qr.payToken))).tip).toBeUndefined();
+      await expect(inVenue(undefined, () => charges.payQrCharge(qr.payToken, w.id, 200))).rejects.toMatchObject(TIP_NOT_VALID);
+      await inVenue(undefined, () => charges.payQrCharge(qr.payToken, w.id, 0));
+      expect(await balanceOf(w.id)).toBe(4000);
+    } finally {
+      await sys((tx) => tx.venue.update({ where: { id: V }, data: { paymentMethods: methods.paymentMethods ?? undefined } }));
+    }
   });
 });
 

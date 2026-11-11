@@ -133,6 +133,17 @@ describe('la página del enlace del local (/r/<código>)', () => {
     expect(html).not.toContain('id="f"');
     expect(html).not.toContain('id="mineGo"');
     expect(html).not.toContain('pkPost(');
+    // Salida: su saldo (el que recuerda este navegador), donde también se recarga.
+    expect(html).toContain(`<a class="btn alt" href="/r/${CODE}/mi-saldo?lang=en">See my balance</a>`);
+  });
+
+  it('apagado y sin saldo recordado: «Ver mi saldo» con su Face ID (oculto si el móvil no tiene llaves)', () => {
+    const html = renderHomeTopUpPage(CODE, 'es', viewFor(null, { problem: 'paused' }));
+    expect(html).toContain('id="npMine" hidden>Ver mi saldo</button>');
+    expect(html).not.toContain('/mi-saldo');
+    for (const part of html.split('<script>').slice(1)) {
+      expect(() => new Function(part.slice(0, part.indexOf('</script>')))).not.toThrow();
+    }
   });
 
   it('un nombre de local con HTML se pinta como texto', () => {
@@ -145,7 +156,13 @@ describe('la página del enlace del local (/r/<código>)', () => {
     const html = renderHomeTopUpGone(lang);
     expect(html).toContain(HOME_TOPUP_TEXT[lang].notFoundTitle.replace(/'/g, '&#39;'));
     expect(html).not.toContain('Sala');
-    expect(html).not.toContain('pkPost(');
+    // Nada del local ni de cargar; la única salida, su saldo con su Face ID (my-balance.ts).
+    expect(html).not.toContain('/topup');
+    expect(html).not.toContain('/r/');
+    expect(html).toContain('id="npMine" hidden');
+    for (const part of html.split('<script>').slice(1)) {
+      expect(() => new Function(part.slice(0, part.indexOf('</script>')))).not.toThrow();
+    }
   });
 });
 
@@ -223,5 +240,23 @@ describe('/r explicada: la ventaja, cómo funciona y lo que no gaste', () => {
     expect(html).toContain('Es un 12 % de la recarga, para la plataforma de pago. No va a tu saldo y no es una propina.');
     expect(html).not.toContain('del consumo');
     expect(WALLET_TEXT.es.topUpFeeExplain).toContain('{pct}');
+  });
+});
+
+describe('/r abierta con el QR del cartel de la cola (B16)', () => {
+  it('esta noche: «Carga tu saldo mientras esperas» y la carga va por /cola con su QR; JS válido', () => {
+    const html = renderHomeTopUpPage(CODE, 'es', viewFor(null, { queue: { token: '20.abcdefghijklmnopqrstuv' } }));
+    expect(html).toContain('Carga tu saldo mientras esperas: en recepción solo te darán la ficha.');
+    expect(html).toContain("pkPost(C.base+(C.queue?'/cola':'/topup')");
+    expect(html).toContain('20.abcdefghijklmnopqrstuv');
+    for (const part of html.split('<script>').slice(1)) {
+      expect(() => new Function(part.slice(0, part.indexOf('</script>')))).not.toThrow();
+    }
+  });
+
+  it('de otra noche: lo dice y carga como el enlace de siempre (sin el QR en la configuración)', () => {
+    const html = renderHomeTopUpPage(CODE, 'en', viewFor(null, { queue: { expired: true } }));
+    expect(html).toContain('This QR was for another night.');
+    expect(html).not.toMatch(/queue[^:]*:"[0-9]/);
   });
 });

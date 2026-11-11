@@ -61,6 +61,7 @@ import { colorOf } from './cobrar-context';
 import { CobroQr } from './CobroQr';
 import { IconLock, IconNfc, IconQr } from './icons';
 import { PinScreen } from './PinScreen';
+import { pinTipSetup } from '@/lib/pin-tip';
 import { WAIT_TITLE_EN } from '@/lib/pin-pad';
 import { ScreenHeader } from './ScreenHeader';
 import { SinMovil, type SaldoForPin } from './SinMovil';
@@ -76,10 +77,12 @@ export interface CobroAbierto {
   saldoQr?: string | null;
   /** El enlace de pago del cobro del saldo suelto: su QR se dibuja aquí, en vector. */
   saldoUrl?: string | null;
-  /** Lo que paga el cliente (con la propina que se puso en la cuenta, si la hay). */
+  /** Lo que paga el cliente (en un cobro de antes, con la propina que puso el personal). */
   totalCents: number;
-  /** La propina que se puso en la cuenta (va dentro de totalCents). */
+  /** La propina que puso el personal en un cobro de antes (va dentro de totalCents). B1: en los nuevos, nunca. */
   tipCents?: number;
+  /** El cliente puede dejar propina al pagar con su PIN (propinas del local y del puesto encendidas). Sin el dato: no. */
+  tipsOn?: boolean;
   ref: string | null;
   /** Secciones del cobro con su importe: el chip del resultado y del PIN. */
   sections: ReadonlyArray<{ section: string; cents: number }>;
@@ -132,8 +135,15 @@ type PinStep = SaldoForPin & { reason: string | null };
  * de cobrar: la pestaña «Saldo» ya no existe.
  */
 export function Esperando({ cobro, onNew, onRetry, retrying = false, retryError = null, onPaid, sectionLabel }: Props) {
-  const staffTip = staffTipOf(cobro);
   const methods = useVenueMethods();
+  // B1: la propina la elige el cliente en la pantalla del PIN (sin nada marcado).
+  const pinTip = pinTipSetup({
+    totalCents: cobro.totalCents,
+    tipCents: cobro.tipCents,
+    tipsOn: methods.tips && cobro.tipsOn === true,
+    flatCents: methods.tipFlatCents,
+    percents: methods.tipPercents,
+  });
   const [cardStatus, setCardStatus] = useState<PaymentStatus>((cobro.card?.status as PaymentStatus) ?? 'CREATED');
   // La propina del cliente con tarjeta: undefined hasta que la diga el API (no es 0).
   const [cardTip, setCardTip] = useState<number | undefined>(undefined);
@@ -468,13 +478,14 @@ export function Esperando({ cobro, onNew, onRetry, retrying = false, retryError 
           colors={pinColors}
           chip={cobro.pinChip}
           amountCents={cobro.totalCents}
-          tip={staffTip}
+          tipSetup={pinTip}
           detail={pinDetail(cobro.what, pin.walletCode, pin.via)}
           reason={pin.reason}
           onCancel={() => setPin(null)}
-          onPin={async (value) => {
+          onPin={async (value, tipCents) => {
             try {
-              const state = await payByPin(chargeId, pin.ref, value);
+              // B1: con la propina que eligió el cliente en esta pantalla.
+              const state = await payByPin(chargeId, pin.ref, value, tipCents);
               if (state.status === 'ACCEPTED') {
                 setPin(null);
                 setSaldo(state);

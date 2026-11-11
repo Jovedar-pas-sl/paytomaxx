@@ -7,9 +7,11 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  Optional,
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { AuditService } from '../audit/audit.service';
 import type { Redis } from 'ioredis';
 import {
   methodsNeededForPayment,
@@ -57,6 +59,15 @@ import {
   rememberedEntries,
   venueThrottleKey,
 } from './home-topup-rules';
+import {
+  QUEUE_DEVICE_MAX,
+  QUEUE_NIGHT_MAX,
+  newQueueDevice,
+  queueDeviceCookie,
+  queueDeviceId,
+  queueKeys,
+  queueTokenValid,
+} from './home-topup-queue';
 
 /** El local de un enlace encendido, con lo que hace falta para cargar. */
 export interface HomeVenue {
@@ -88,6 +99,12 @@ export interface HomeTopUpPageView {
    * Sin el dato, sí: lo que decía la página hasta ahora.
    */
   fichas?: boolean;
+  /**
+   * Abierta con el QR del cartel de la cola (B16): `token`, el de esta noche
+   * (la carga va por /r/:code/cola); `expired`, uno de otra noche (la página
+   * lo dice y carga como el enlace de siempre). Sin cartel, no va.
+   */
+  queue?: { token: string } | { expired: true };
 }
 
 export interface HomeTopUpStarted {
@@ -127,6 +144,7 @@ export class HomeTopUpService {
     @Inject(PaymentsService) private readonly payments: PaymentsService,
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
     @Inject(ConfigService) private readonly config: ConfigService,
+    @Optional() @Inject(AuditService) private readonly audit?: AuditService,
   ) {}
 
   /** El local de este enlace si está encendido; si no (o el código no tiene forma), null. */
@@ -163,11 +181,18 @@ export class HomeTopUpService {
   }
 
   /** La página: importes, comisión y, si este navegador ya tiene un saldo de aquí, ese. null = 404. */
-  async page(code: string, cookies: string | undefined): Promise<HomeTopUpPageView | null> {
+  async page(code: string, cookies: string | undefined, queueToken?: string): Promise<HomeTopUpPageView | null> {
     const venue = await this.venueByCode(code);
     if (!venue) return null;
     const mine = await this.rememberedWallet(venue.id, cookies);
+    const queue =
+      queueToken === undefined
+        ? null
+        : queueTokenValid(this.secret(), venue.id, code, queueToken)
+          ? { token: queueToken }
+          : { expired: true as const };
     return {
+      ...(queue ? { queue } : {}),
       venueName: venue.name,
       problem: homeTopUpProblem(venue.state),
       presetsCents: venue.presetsCents,
@@ -191,7 +216,14 @@ export class HomeTopUpService {
   /** Crea la carga (un saldo nuevo de este local) y dice a dónde ir a pagarla. `ip`: la del cliente (clientIp), para el tope de 24 h. */
   async start(
     code: string,
-    input: { amountCents: unknown; key: unknown; lang: PayLanguage; ip: string | null },
+    input: {
+      amountCents: unknown;
+      key: unknown;
+      lang: PayLanguage;
+      ip: string | null;
+      /** Desde el cartel de la cola (B16): su QR de la noche y el móvil (cookie firmada). */
+      queue?: { token: unknown; deviceId: string | null };
+    },
   ): Promise<HomeTopUpStarted> {
     const venue = await this.venueByCode(code);
     if (!venue) throw homeTopUpGone();
@@ -206,13 +238,17 @@ export class HomeTopUpService {
       throw new BadRequestException({ message: 'Vuelve a abrir la página e inténtalo otra vez.', code: 'PAGE_STALE' });
     }
     this.assertCanLoad(venue);
+    // Desde el cartel: el QR de esta noche y el móvil, o nada.
+    if (input.queue) this.assertQueue(venue.id, code, input.queue);
     const key = homeTopUpKey(this.secret(), venue.id, input.key);
     // La misma clave repetida (doble toque, la red): el mismo cobro, sin gastar otra vez el freno.
     const replay = await this.prisma.asSystem((tx) =>
       tx.payment.findUnique({ where: { tenantId_idempotencyKey: { tenantId: venue.id, idempotencyKey: key } }, select: { id: true } }),
     );
     // Un hueco del tope de 24 h de esta IP: si la carga no llega a empezar, se devuelve.
-    const day = replay ? null : await this.takeIpDay(venue.id, input.ip);
+    // Desde el cartel no (toda la cola sale por el wifi del local): su móvil y la noche.
+    const day = replay || input.queue ? null : await this.takeIpDay(venue.id, input.ip);
+    const queued = !replay && input.queue?.deviceId ? await this.takeQueue(venue.id, input.queue.deviceId) : null;
     try {
       if (!replay) {
         await this.throttleVenue(venue.id);
@@ -229,10 +265,76 @@ export class HomeTopUpService {
       const stale = !OPEN_STATUSES.has(created.status) || (created.status === 'CREATED' && Date.parse(created.qrExpiresAt) <= Date.now());
       if (stale) throw new ConflictException({ message: 'Esta carga ya no vale: vuelve a pulsar el botón.', code: 'WALLET_TOPUP_STALE' });
       this.logger.log(`Carga desde casa: venue=${venue.id} payment=${created.id} wallet=${created.walletId ?? '-'} amount=${amountCents}c`);
+      // Cada carga desde el cartel, en el registro (el móvil, recortado: no es nada personal).
+      if (queued) {
+        await this.audit?.log({
+          action: 'home_topup.queue',
+          tenantId: venue.id,
+          targetType: 'Payment',
+          targetId: created.id,
+          payload: { amountCents, walletId: created.walletId ?? null, device: input.queue!.deviceId!.slice(0, 8) },
+        });
+      }
       return { payToken: created.qrToken, payUrl: `/pay/${encodeURIComponent(created.qrToken)}?lang=${input.lang}` };
     } catch (err) {
       if (day) await this.giveBackIpDay(day);
+      if (queued) await this.giveBack([queued.device, queued.night]);
       throw err;
+    }
+  }
+
+  // ─── El cartel de la cola (B16) ───────────────────────────────────
+
+  /** El móvil de la cookie del cartel (firmada); null si no la tiene o no vale. */
+  queueDevice(cookies: string | undefined): string | null {
+    return queueDeviceId(this.secret(), cookies);
+  }
+
+  /** La cookie del móvil para la página del cartel, si aún no la tiene (null: ya la tiene). */
+  queueDeviceSetCookie(cookies: string | undefined): string | null {
+    if (this.queueDevice(cookies) || this.secret().length < 32) return null;
+    const secure = !['development', 'test'].includes(process.env.NODE_ENV ?? '');
+    return queueDeviceCookie(newQueueDevice(this.secret()), secure);
+  }
+
+  /** El QR de esta noche y el móvil (cookie firmada): si no, no se carga desde el cartel. */
+  private assertQueue(venueId: string, code: string, queue: { token: unknown; deviceId: string | null }): void {
+    if (!queueTokenValid(this.secret(), venueId, code, queue.token)) {
+      throw new BadRequestException({ message: 'Este QR era de otra noche: escanea el del cartel de hoy.', code: 'HOME_TOPUP_QUEUE_EXPIRED' });
+    }
+    if (!queue.deviceId) {
+      throw new BadRequestException({
+        message: 'Tu navegador no guarda la sesión de esta página: ábrela otra vez desde el QR o carga en recepción.',
+        code: 'HOME_TOPUP_QUEUE_COOKIE',
+      });
+    }
+  }
+
+  /** Un hueco de los topes del cartel: por móvil y por local esta noche (si se pasa, se devuelve). */
+  private async takeQueue(venueId: string, deviceId: string): Promise<{ device: string; night: string }> {
+    const keys = queueKeys(venueId, deviceId);
+    const device = await this.count(keys.device, HOME_TOPUP_DAY_S);
+    const night = await this.count(keys.night, HOME_TOPUP_DAY_S);
+    if (device > QUEUE_DEVICE_MAX || night > QUEUE_NIGHT_MAX) {
+      await this.giveBack([keys.device, keys.night]);
+      const tooMany = device > QUEUE_DEVICE_MAX;
+      this.logger.warn(`Carga desde el cartel parada (venue=${venueId}): ${tooMany ? `móvil ${device}/${QUEUE_DEVICE_MAX}` : `noche ${night}/${QUEUE_NIGHT_MAX}`}`);
+      throw new HttpException(
+        tooMany
+          ? { message: 'Ya has cargado varias veces desde este móvil esta noche: pídelo en recepción.', code: 'HOME_TOPUP_QUEUE_DEVICE' }
+          : { message: 'Esta noche ya no se puede cargar desde el cartel: pídelo en recepción.', code: 'HOME_TOPUP_QUEUE_NIGHT' },
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
+    }
+    return keys;
+  }
+
+  /** Devuelve los huecos de una carga que no llegó a empezar (si Redis falla aquí, quedan contados). */
+  private async giveBack(keys: string[]): Promise<void> {
+    try {
+      for (const key of keys) await this.redis.decr(key);
+    } catch (err) {
+      this.logger.warn(`Carga desde el cartel: no se pudo devolver el hueco: ${(err as Error).message}`);
     }
   }
 

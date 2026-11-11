@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { Prisma } from '@nightpay/db';
 import { HOME_TOPUP_CODE_RE } from '@nightpay/contracts';
+import { queueTokenValid } from './home-topup-queue';
 import { HomeTopUpSettingsService } from './home-topup-settings.service';
 
 const VENUE = '11111111-1111-4111-8111-111111111111';
@@ -29,7 +30,11 @@ function make(o: { enabled?: boolean; code?: string | null; clashes?: number; pr
     serviceFee: { enabled: o.fee ?? false, cardBps: 1000, topUpBps: 1200 },
   };
   const homeTopUps = { venueState: vi.fn(async () => state) };
-  const config = { get: vi.fn((k: string) => (k === 'NEXT_PUBLIC_API_URL' ? 'https://api.sala.test/v1' : undefined)) };
+  const config = {
+    get: vi.fn((k: string) =>
+      k === 'NEXT_PUBLIC_API_URL' ? 'https://api.sala.test/v1' : k === 'COOKIE_SECRET' ? 'test-only-cookie-secret-with-32-characters' : undefined,
+    ),
+  };
   const service = new HomeTopUpSettingsService(prisma as never, audit as never, homeTopUps as never, config as never);
   return { service, row, tx, audit };
 }
@@ -82,5 +87,21 @@ describe('Ajustes → «Cargar saldo desde casa»', () => {
     const view = await make({ enabled: true, code: 'AbCdEfGhIjKlMnOp', problem: true, fee: true }).service.view(VENUE);
     expect(view.problem).toBe('methods');
     expect(view.serviceFeeBps).toBe(1200);
+  });
+});
+
+describe('el cartel de la cola (B16)', () => {
+  it('encendido: el enlace con el QR de esta noche (firmado), su PNG y hasta cuándo vale', async () => {
+    const now = new Date('2026-11-10T22:00:00Z');
+    const poster = await make({ enabled: true, code: 'AbCdEfGhIjKlMnOp' }).service.queuePoster(VENUE, now);
+    expect(poster!.url).toMatch(/^https:\/\/api\.sala\.test\/r\/AbCdEfGhIjKlMnOp\?cola=[0-9]+\.[A-Za-z0-9_-]{22}$/);
+    const token = decodeURIComponent(poster!.url.split('cola=')[1]!);
+    expect(queueTokenValid('test-only-cookie-secret-with-32-characters', VENUE, 'AbCdEfGhIjKlMnOp', token, now.getTime())).toBe(true);
+    expect(poster!.qrPngDataUrl).toMatch(/^data:image\/png;base64,/);
+    expect(poster!.validUntil).toBe('2026-11-11T10:00:00.000Z');
+  });
+
+  it('apagado: sin cartel', async () => {
+    expect(await make({ enabled: false, code: 'AbCdEfGhIjKlMnOp' }).service.queuePoster(VENUE)).toBeNull();
   });
 });

@@ -18,6 +18,7 @@ import {
   receptionPayoutCapIncident,
   stuckIncident,
   walletCardLostIncident,
+  ackNeedsNote,
   walletCloseRequestedIncident,
   walletCreditSkippedIncident,
   walletOpenBalanceIncident,
@@ -495,5 +496,39 @@ describe('resumen de las 9:00 con la «Comisión del servicio»', () => {
     const plain = { ...s, serviceFeeCents: 0, serviceFeeCashCents: 0, serviceFeeNetCents: 0 };
     expect(morningSummaryMessage('Sala Aurora', plain, 0)).not.toContain('omisión del servicio');
     expect(morningSummaryMessage('Sala Aurora', plain, 0)).toContain('neto sin el personal:');
+  });
+});
+
+describe('avisos de dinero (B11): para cerrarlos hay que escribir qué se hizo', () => {
+  it('los de cobros, devoluciones, datáfono, efectivo y banco piden nota', () => {
+    for (const kind of [
+      'duplicate_charge',
+      'amount_mismatch',
+      'approval_unbooked',
+      'earning_reverse_failed',
+      'wallet_credit_skipped',
+      'night_closed_pending',
+      'pos_charge_mismatch',
+      'pos_unmatched_op',
+      'pos_voided_paid',
+      'pos_unproven_sales',
+      'pos_reception_limit',
+      'cash_split_suspected',
+      'reception_payout_cap',
+      'bank_mismatch',
+    ] as const) {
+      expect(ackNeedsNote({ kind, amountCents: null }), kind).toBe(true);
+    }
+  });
+
+  it('los que no mueven dinero, no: una ficha bloqueada, las copias o un cambio de ajustes', () => {
+    expect(ackNeedsNote({ kind: 'wallet_card_lost', amountCents: 5000 })).toBe(false);
+    expect(ackNeedsNote({ kind: 'backup_unmonitored', amountCents: null })).toBe(false);
+    expect(ackNeedsNote({ kind: 'sensitive_action', amountCents: null })).toBe(false);
+  });
+
+  it('una acción delicada con importe (un cobro sin Face ID, uno dado por pagado a mano) es de dinero', () => {
+    expect(ackNeedsNote({ kind: 'sensitive_action', amountCents: 4000 })).toBe(true);
+    expect(ackNeedsNote({ kind: 'sensitive_action', amountCents: 0 })).toBe(false);
   });
 });

@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { BadRequestException, ConflictException, HttpException, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
 import { HomeTopUpService } from './home-topup.service';
 import { homeTopUpDay, homeTopUpKey, rememberSetCookie } from './home-topup-rules';
+import { QUEUE_DEVICE_MAX, QUEUE_NIGHT_MAX, queueToken } from './home-topup-queue';
 
 const SECRET = 'secreto-de-cookies-de-prueba-0123456789';
 const CODE = 'AbCdEfGhIjKlMnOp';
@@ -68,8 +69,9 @@ function make(o: Opts = {}) {
     expire: vi.fn(async () => 1),
   };
   const config = { get: vi.fn(() => SECRET) };
-  const service = new HomeTopUpService(prisma as never, payments as never, redis as never, config as never);
-  return { service, tx, prisma, payments, redis };
+  const audit = { log: vi.fn(async () => undefined) };
+  const service = new HomeTopUpService(prisma as never, payments as never, redis as never, config as never, audit as never);
+  return { service, tx, prisma, payments, redis, audit };
 }
 
 const start = (s: HomeTopUpService, input: Partial<{ amountCents: unknown; key: unknown; ip: string | null }> = {}) =>
@@ -307,5 +309,69 @@ describe('HomeTopUpService.start', () => {
       const err = await start(make({ replay: true, created }).service).catch((e: unknown) => e);
       expect((err as ConflictException).getResponse()).toMatchObject({ code: 'WALLET_TOPUP_STALE' });
     }
+  });
+});
+
+describe('desde el cartel de la cola (B16)', () => {
+  const tonight = () => queueToken(SECRET, VENUE, CODE);
+  const fromQueue = (m: ReturnType<typeof make>, queue: { token: unknown; deviceId: string | null }, ip: string | null = '10.0.0.7') =>
+    m.service.start(CODE, { amountCents: 5000, key: KEY, lang: 'es', ip, queue });
+
+  it('sin el tope por IP (la cola sale por el wifi): cuenta el móvil y la noche, y queda en el registro', async () => {
+    const m = make();
+    await expect(fromQueue(m, { token: tonight(), deviceId: 'dev-1' })).resolves.toMatchObject({ payToken: 'payTok' });
+    const keys = m.redis.incr.mock.calls.map((c) => String(c[0]));
+    expect(keys.some((k) => k.includes(':ip'))).toBe(false);
+    expect(keys.some((k) => k.includes('queue-device') && k.includes('dev-1'))).toBe(true);
+    expect(keys.some((k) => k.includes('queue-night'))).toBe(true);
+    expect(m.audit.log).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'home_topup.queue', tenantId: VENUE, targetId: 'p1', payload: expect.objectContaining({ amountCents: 5000 }) }),
+    );
+  });
+
+  it('un QR de otra noche (o inventado): 400 y no se crea nada', async () => {
+    const m = make();
+    for (const token of ['1.AAAAAAAAAAAAAAAAAAAAAA', 'x', undefined]) {
+      await expect(fromQueue(m, { token, deviceId: 'dev-1' })).rejects.toMatchObject({ response: expect.objectContaining({ code: 'HOME_TOPUP_QUEUE_EXPIRED' }) });
+    }
+    expect(m.payments.create).not.toHaveBeenCalled();
+  });
+
+  it('sin la cookie del móvil: 400 (no se carga sin tope por móvil)', async () => {
+    const m = make();
+    await expect(fromQueue(m, { token: tonight(), deviceId: null })).rejects.toMatchObject({ response: expect.objectContaining({ code: 'HOME_TOPUP_QUEUE_COOKIE' }) });
+    expect(m.payments.create).not.toHaveBeenCalled();
+  });
+
+  it('pasado el tope del móvil o el de la noche: 429, se devuelve el hueco y no se crea nada', async () => {
+    const device = make({ redisStart: (k) => (k.includes('queue-device') ? QUEUE_DEVICE_MAX : undefined) });
+    const e1 = await fromQueue(device, { token: tonight(), deviceId: 'dev-1' }).catch((e: HttpException) => e);
+    expect((e1 as HttpException).getStatus()).toBe(429);
+    expect((e1 as HttpException).getResponse()).toMatchObject({ code: 'HOME_TOPUP_QUEUE_DEVICE' });
+    expect(device.redis.decr).toHaveBeenCalledTimes(2);
+    const night = make({ redisStart: (k) => (k.includes('queue-night') ? QUEUE_NIGHT_MAX : undefined) });
+    await expect(fromQueue(night, { token: tonight(), deviceId: 'dev-2' })).rejects.toMatchObject({ response: expect.objectContaining({ code: 'HOME_TOPUP_QUEUE_NIGHT' }) });
+    expect([...device.payments.create.mock.calls, ...night.payments.create.mock.calls]).toHaveLength(0);
+  });
+
+  it('si la carga no llega a empezar, los huecos del móvil y de la noche se devuelven', async () => {
+    const m = make({ unresolved: 99 });
+    await expect(fromQueue(m, { token: tonight(), deviceId: 'dev-1' })).rejects.toBeDefined();
+    const back = m.redis.decr.mock.calls.map((c) => String(c[0]));
+    expect(back.some((k) => k.includes('queue-device'))).toBe(true);
+    expect(back.some((k) => k.includes('queue-night'))).toBe(true);
+    expect(m.audit.log).not.toHaveBeenCalled();
+  });
+
+  it('la página: con el QR de esta noche, su token; con uno de otra, «de otra noche»', async () => {
+    const m = make();
+    expect((await m.service.page(CODE, undefined, tonight()))?.queue).toEqual({ token: tonight() });
+    expect((await m.service.page(CODE, undefined, '1.AAAAAAAAAAAAAAAAAAAAAA'))?.queue).toEqual({ expired: true });
+    expect((await m.service.page(CODE, undefined))?.queue).toBeUndefined();
+    // La cookie del móvil: nueva si no tiene; ninguna si ya la tiene.
+    const cookie = m.service.queueDeviceSetCookie(undefined)!;
+    expect(cookie).toMatch(/^np_cola=/);
+    expect(m.service.queueDeviceSetCookie(cookie.split(';')[0])).toBeNull();
+    expect(m.service.queueDevice(cookie.split(';')[0])).toMatch(/^[A-Za-z0-9_-]{22}$/);
   });
 });

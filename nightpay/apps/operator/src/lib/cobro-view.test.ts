@@ -113,12 +113,16 @@ describe('el PAGADO con propina (D7)', () => {
     expect(paidAmounts({ totalCents: 3500, tipCents: 200 }, { method: 'card', tipCents: 500 }).totalCents).toBe(3800);
   });
 
-  it('con el saldo: la propina de la cuenta (no se puede cambiar)', () => {
-    expect(paidAmounts({ totalCents: 3500, tipCents: 200 }, { method: 'nfc_nopin', tipCents: 0 })).toEqual({
+  it('con el saldo o su PIN: la que dice el API, la que eligió el cliente al pagar (B1)', () => {
+    expect(paidAmounts({ totalCents: 3300 }, { method: 'pin', tipCents: 500 })).toEqual({ baseCents: 3300, tipCents: 500, totalCents: 3800 });
+    expect(paidAmounts({ totalCents: 3300 }, { method: 'nfc_nopin', tipCents: 0 })).toEqual({ baseCents: 3300, tipCents: 0, totalCents: 3300 });
+    // Un cobro de antes con la propina del personal: si no la cambió, esa; si la quitó, sin propina.
+    expect(paidAmounts({ totalCents: 3500, tipCents: 200 }, { method: 'nfc_nopin', tipCents: 200 })).toEqual({
       baseCents: 3300,
       tipCents: 200,
       totalCents: 3500,
     });
+    expect(paidAmounts({ totalCents: 3500, tipCents: 200 }, { method: 'pin', tipCents: 0 }).totalCents).toBe(3300);
   });
 
   it('con tarjeta y la propina aún sin saber (solo llegó el estado): el total de la cuenta, sin línea de propina', () => {

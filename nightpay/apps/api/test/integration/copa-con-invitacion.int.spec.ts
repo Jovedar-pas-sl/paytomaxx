@@ -167,16 +167,16 @@ beforeAll(async () => {
   copa = items.find((i) => i.name === 'Copa')!.id;
   invita = items.find((i) => i.name === 'Copa con invitación')!.id;
 
-  // Carlos cobra: una copa con invitación con tarjeta, otra con el NFC del cliente y 2 copas con 2 € de propina (Face ID).
+  // Carlos cobra: una copa con invitación con tarjeta, otra con el NFC del cliente y 2 copas; el cliente deja 2 € de propina al pagar con Face ID (B1).
   const a = await cobro(V, carlos, [{ serviceItemId: invita }], { invitedStaffToken: qrOf(nerea) });
   await paidByCard(V, a.id, 2_000);
   p1 = a.id;
   const b = await cobro(V, carlos, [{ serviceItemId: invita }], { invitedStaffToken: qrOf(nerea) });
   await inVenue(V, () => charges.payQrChargeWithCard(carlosActor(), b.saldo!.chargeId, { card: w.card, uid: w.uid }));
   p2 = { id: b.id, chargeId: b.saldo!.chargeId };
-  const c = await cobro(V, carlos, [{ serviceItemId: copa, qty: 2 }], { tipCents: 200 });
+  const c = await cobro(V, carlos, [{ serviceItemId: copa, qty: 2 }]);
   const payToken = (await sys((tx) => tx.walletChargeRequest.findUniqueOrThrow({ where: { id: c.saldo!.chargeId } }))).payToken!;
-  await inVenue(undefined, () => charges.payQrCharge(payToken, w.id));
+  await inVenue(undefined, () => charges.payQrCharge(payToken, w.id, 200));
 });
 
 afterAll(async () => {

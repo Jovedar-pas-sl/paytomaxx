@@ -13,8 +13,8 @@ import { formatEur } from '@/lib/money';
 import {
   STATUS_LABEL,
   ackedKeys,
-  cashInputOf,
-  effectiveSteps,
+  closeCashInput,
+  closeSteps,
   floatChangeCode,
   freezeState,
   readyCount,
@@ -61,6 +61,8 @@ export function NightCloseScreen({ night, isOwner, tabs, onNavigate, onClose, on
   const [check, setCheck] = useState<NightCloseCheck | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [draft, setDraft] = useState<CashDraft>({ floatText: '', countedText: '' });
+  // Cierre a ciegas (B9): lo esperado sale solo tras «Ver si cuadra» con lo contado escrito.
+  const [countDone, setCountDone] = useState(false);
   const [cashNote, setCashNote] = useState('');
   // Fondo cambiado al cerrar: el código 2FA del dueño (y hasta cuándo no deja probar otro).
   const [floatCode, setFloatCode] = useState('');
@@ -97,7 +99,7 @@ export function NightCloseScreen({ night, isOwner, tabs, onNavigate, onClose, on
 
   const floatChange = check ? floatChangeCode(check.cash, draft, { isOwner, code: floatCode }) : { needed: false as const };
   const floatApproved = floatChange.needed && floatChange.code !== undefined;
-  const steps = check ? effectiveSteps(check.steps, check.cash, draft, floatApproved) : [];
+  const steps = check ? closeSteps(check.steps, check.cash, draft, { countDone, floatApproved }) : [];
   const acks = ackedKeys(ackList, steps);
   const ackStep = (key: NightCloseStepKey, on: boolean) => {
     const step = steps.find((s) => s.key === key);
@@ -109,7 +111,7 @@ export function NightCloseScreen({ night, isOwner, tabs, onNavigate, onClose, on
   async function freezeZ() {
     setBusy(true);
     setError(null);
-    const cash = cashInputOf(draft);
+    const cash = closeCashInput(draft, countDone);
     try {
       const view = await closeNight(night.id, {
         acknowledged: acks,
@@ -175,6 +177,8 @@ export function NightCloseScreen({ night, isOwner, tabs, onNavigate, onClose, on
                   onCashNote={setCashNote}
                   acked={acks.includes('efectivo')}
                   onAck={(on) => ackStep('efectivo', on)}
+                  countDone={countDone}
+                  onCountDone={() => setCountDone(true)}
                   disabled={busy}
                   isOwner={isOwner}
                   floatCode={floatCode}

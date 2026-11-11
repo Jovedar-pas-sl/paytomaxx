@@ -6,6 +6,9 @@ import {
   cajaOutText,
   cashInputOf,
   cashOutcome,
+  closeCashInput,
+  closeSteps,
+  countReady,
   diffLabel,
   effectiveSteps,
   floatChangeCode,
@@ -268,5 +271,76 @@ describe('cobros sin resolver al cerrar: qué hacer con cada uno (no todos tiene
     expect(panel).toContain('{pendingHeading(current.pending.length)}');
     expect(panel).toContain('{pendingTodo(p)}');
     expect(panel).not.toContain('resuélvelos en Hoy → Cobros');
+  });
+});
+
+describe('cierre a ciegas (B9): nadie ve lo esperado hasta escribir lo contado', () => {
+  // CASH: fondo 200 €; salieron 135 €: lo esperado, 65 €.
+  const efectivoOf = (steps: NightCloseStep[]) => steps.find((s) => s.key === 'efectivo');
+  const typed = (countedText: string, floatText = '') => ({ floatText, countedText });
+
+  it('sin «Ver si cuadra», lo tecleado no cuenta: el paso sigue sin contar y no dice ninguna cifra', () => {
+    for (const counted of ['', '60', '65']) {
+      const efectivo = efectivoOf(closeSteps(STEPS, CASH, typed(counted), { countDone: false }));
+      expect(efectivo?.status).toBe('block');
+      expect(efectivo?.detail).toContain('Ver si cuadra');
+      expect(efectivo?.detail).not.toMatch(/[0-9]/);
+    }
+  });
+
+  it('a ciegas, teclear justo lo esperado no da «Listo» (no se cuadra probando importes)', () => {
+    const steps = closeSteps(STEPS, CASH, typed('65'), { countDone: false });
+    expect(readyCount(steps, ['saldo'])).toBe(6);
+    expect(freezeState(steps, ['saldo'], '').reason).toBe('Falta resolver: «Efectivo».');
+    expect(readyCount(closeSteps(STEPS, CASH, typed('65'), { countDone: true }), ['saldo'])).toBe(7);
+  });
+
+  it('dado por contado: como hoy (cuadra, o la diferencia con su cifra para confirmarla)', () => {
+    expect(efectivoOf(closeSteps(STEPS, CASH, typed('65'), { countDone: true }))?.status).toBe('ok');
+    const short = efectivoOf(closeSteps(STEPS, CASH, typed('60'), { countDone: true }));
+    expect(short).toMatchObject({ status: 'warn' });
+    expect(short?.detail).toMatch(/^Faltan 5,00\s€/);
+  });
+
+  it('fondo sin apuntar o lo esperado negativo: el aviso no da las entradas, las salidas ni lo esperado', () => {
+    const noFloat: NightCash = { ...CASH, openingFloatCents: null };
+    const missing = efectivoOf(closeSteps(STEPS, noFloat, typed('65'), { countDone: false }));
+    expect(missing?.status).toBe('block');
+    expect(missing?.detail).toBe('Apunta con cuánto empezó la caja (el fondo) y cuéntala.');
+    const negative = efectivoOf(closeSteps(STEPS, { ...CASH, openingFloatCents: 0 }, typed(''), { countDone: false }));
+    expect(negative?.status).toBe('block');
+    expect(negative?.detail).not.toMatch(/[0-9]/);
+  });
+
+  it('sin efectivo ni fondo no hace falta contar: sigue «Listo»', () => {
+    const empty: NightCash = {
+      ...CASH,
+      openingFloatCents: 0,
+      walletCashPayoutsCount: 0,
+      walletCashPayoutsCents: 0,
+      chicaCashPayoutsCount: 0,
+      chicaCashPayoutsCents: 0,
+      cashOutCents: 0,
+      expectedCents: 0,
+    };
+    expect(efectivoOf(closeSteps(STEPS, empty, typed(''), { countDone: false }))?.status).toBe('ok');
+  });
+
+  it('el fondo cambiado sigue pidiendo el 2FA del dueño a ciegas', () => {
+    const changed = typed('15', '150');
+    expect(efectivoOf(closeSteps(STEPS, CASH, changed, { countDone: false }))?.detail).toMatch(/2FA/);
+    expect(efectivoOf(closeSteps(STEPS, CASH, changed, { countDone: true, floatApproved: true }))?.status).toBe('ok');
+  });
+
+  it('al congelar el Z, lo contado solo va si se dio por contado', () => {
+    expect(closeCashInput(typed('65', '200'), false)).toEqual({ openingFloatCents: 20_000, countedCents: undefined });
+    expect(closeCashInput(typed('65', '200'), true)).toEqual({ openingFloatCents: 20_000, countedCents: 6500 });
+  });
+
+  it('«Ver si cuadra» solo con un importe escrito', () => {
+    expect(countReady(typed(''))).toBe(false);
+    expect(countReady(typed('12abc'))).toBe(false);
+    expect(countReady(typed('0'))).toBe(true);
+    expect(countReady(typed('65,50'))).toBe(true);
   });
 });
