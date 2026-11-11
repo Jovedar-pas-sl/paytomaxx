@@ -220,7 +220,7 @@ function UploadCard({ onDone }: { onDone: (s: BankStatementSummary) => void }) {
             onChange={(e) => setFile(e.target.files?.[0] ?? null)}
           />
         </label>
-        <label style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', fontSize: '0.875rem' }}>
+        <label style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', fontSize: '0.875rem', minHeight: '2.75rem' }}>
           <input type="checkbox" checked={withDays} onChange={(e) => setWithDays(e.target.checked)} />
           El fichero no trae fechas (indicar los días)
         </label>
@@ -327,7 +327,7 @@ function StatementDetail({ id, onClose }: { id: string; onClose: () => void }) {
           Cerrar
         </Button>
       </div>
-      <label style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', fontSize: '0.875rem' }}>
+      <label style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', fontSize: '0.875rem', minHeight: '2.75rem' }}>
         <input type="checkbox" checked={showAll} onChange={(e) => setShowAll(e.target.checked)} />
         Ver también lo que cuadra
       </label>

@@ -274,15 +274,15 @@ textarea:focus {
   .np-cobros-table col[data-col='hora'] { width: 6.75rem; }
   .np-cobros-table col[data-col='ref'] { width: 5.5rem; }
   .np-cobros-table col[data-col='codigo'] { width: 5rem; }
-  .np-cobros-table col[data-col='banco'] { width: 9rem; }
+  .np-cobros-table col[data-col='banco'] { width: 8rem; }
   .np-cobros-table col[data-col='importe'] { width: 7rem; }
   .np-cobros-table col[data-col='estado'] { width: 8rem; }
   .np-cobros-table col[data-col='quien'] { width: 7rem; }
   .np-cobros-table col[data-col='seccion'] { width: 8rem; }
-  .np-cobros-table col[data-col='como'] { width: 8.5rem; }
+  .np-cobros-table col[data-col='como'] { width: 10.5rem; }
   .np-cobros-table col[data-col='extra'] { width: 8rem; }
   /* «Ver detalle» + «Anular cobro» / «Devolución BBVA» en una línea: 232 px y su relleno. */
-  .np-cobros-table col[data-col='acciones'] { width: 15rem; }
+  .np-cobros-table col[data-col='acciones'] { width: 17rem; }
   .np-cobros-table td[data-label='Acciones'] button + button {
     margin-inline-start: 0.375rem;
   }
