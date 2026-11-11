@@ -1,6 +1,6 @@
 // Carta del local (Fase 1A; el mapa del dinero): servicios de todas las secciones y packs.
 
-import type { ApplyCartaTemplateDto, ApplyCartaTemplateResult, PackComponent, SectionCode } from '@nightpay/contracts';
+import type { ApplyCartaTemplateDto, ApplyCartaTemplateResult, CartaIconCode, PackComponent, SectionCode } from '@nightpay/contracts';
 import { apiError, authedFetch } from '../http';
 
 // ─── Carta de servicios ────────────────────────────────────────────
@@ -20,6 +20,10 @@ export interface ServiceItem {
   components?: PackComponent[] | null;
   /** «Copa con invitación» (Copas): quien la cobra escanea el QR de la chica invitada. */
   isInvitation?: boolean;
+  /** Icono de la colección (null = el de su sección). */
+  icon?: CartaIconCode | null;
+  /** Ruta de su logo o foto (versionada por su huella), o null. */
+  imageUrl?: string | null;
 }
 
 export interface ServiceItemInput {
@@ -32,6 +36,8 @@ export interface ServiceItemInput {
   components?: PackComponent[] | null;
   /** Solo en Copas y sin pack. */
   isInvitation?: boolean;
+  /** Icono de la colección (null = el de su sección). */
+  icon?: CartaIconCode | null;
 }
 
 export async function fetchCarta(): Promise<ServiceItem[]> {
@@ -62,6 +68,20 @@ export async function updateServiceItem(
   input: Partial<ServiceItemInput> & { active?: boolean },
 ): Promise<ServiceItem> {
   const res = await authedFetch(`/v1/services/${id}`, { method: 'PATCH', body: JSON.stringify(input) });
+  if (!res.ok) throw await apiError(res);
+  return res.json();
+}
+
+/** Sube el logo o la foto (ya reducida a WebP, en base64). Devuelve el producto con su nueva ruta. */
+export async function uploadServiceImage(id: string, base64: string): Promise<ServiceItem> {
+  const res = await authedFetch(`/v1/services/${id}/image`, { method: 'PUT', body: JSON.stringify({ data: base64 }) });
+  if (!res.ok) throw await apiError(res);
+  return res.json();
+}
+
+/** Quita el logo o la foto: el producto vuelve a su icono. */
+export async function removeServiceImage(id: string): Promise<ServiceItem> {
+  const res = await authedFetch(`/v1/services/${id}/image`, { method: 'DELETE' });
   if (!res.ok) throw await apiError(res);
   return res.json();
 }

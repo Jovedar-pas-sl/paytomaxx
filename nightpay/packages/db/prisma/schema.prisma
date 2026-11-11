@@ -104,6 +104,7 @@ model Venue {
   walletConsumptions WalletConsumption[]
   peanpeCalls        PeanpeCall[]
   serviceItems       ServiceItem[]
+  serviceItemImages  ServiceItemImage[]
   nights             VenueNight[]
   incidentAcks       IncidentAck[]
   posTerminalOps     PosTerminalOp[]
@@ -773,14 +774,39 @@ model ServiceItem {
   // «Copa con invitación» (20261023100200): en Copas, con su precio; la venta
   // se reparte con la chica invitada (venues.invitationRules).
   isInvitation Boolean @default(false)
+  // Icono de la colección cerrada (CARTA_ICON_CODES, 20261111100000); null = el de su sección.
+  icon        String?  @db.VarChar(24)
   createdAt   DateTime @default(now()) @db.Timestamptz
   updatedAt   DateTime @default(now()) @updatedAt @db.Timestamptz
 
-  venue        Venue         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  venue        Venue              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   paymentLines PaymentLine[]
+  image        ServiceItemImage?
 
+  @@unique([id, tenantId])
   @@index([tenantId, active, sortOrder])
   @@map("service_items")
+}
+
+// Logo o foto del producto (20261111100000): WebP o PNG de 128×128 como mucho, en la
+// base. La clave ajena lleva el local (una imagen no es de otro local que su
+// producto). FORCE RLS: solo dentro de una transacción de PrismaService.
+model ServiceItemImage {
+  serviceItemId String   @id @db.Uuid
+  tenantId      String   @db.Uuid
+  contentType   String   @default("image/webp") @db.VarChar(16)
+  data          Bytes
+  contentHash   String   @db.Char(64)
+  width         Int
+  height        Int
+  updatedAt     DateTime @default(now()) @updatedAt @db.Timestamptz
+
+  item  ServiceItem @relation(fields: [serviceItemId, tenantId], references: [id, tenantId], onDelete: Cascade)
+  venue Venue       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([serviceItemId, tenantId])
+  @@index([tenantId])
+  @@map("service_item_images")
 }
 
 // El mapa del dinero (20261023100000): las líneas de cada cobro, cada una en

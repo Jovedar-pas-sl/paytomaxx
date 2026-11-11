@@ -9,6 +9,7 @@ export { FormError } from './components/FormError';
 export { Modal } from './components/Modal';
 export { ThemeToggle } from './components/ThemeToggle';
 export { Logo } from './components/Logo';
+export { CartaIcon, CartaItemIcon, CARTA_ICON_PATHS } from './components/CartaIcon';
 export { SectionChip } from './components/SectionChip';
 export { formatEur } from './format';
 

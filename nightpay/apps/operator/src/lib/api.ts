@@ -635,6 +635,10 @@ export interface ServiceItem {
   components?: Array<{ category: SectionCode; amountCents: number }> | null;
   /** «Copa con invitación»: hace falta el QR de la chica invitada. */
   isInvitation?: boolean;
+  /** Icono de la colección (null = el de su sección). */
+  icon?: string | null;
+  /** Ruta de su logo o foto (versionada por su huella), o null. */
+  imageUrl?: string | null;
 }
 
 /** Lo que quien llama puede cobrar (la chica solo ve sus servicios). */

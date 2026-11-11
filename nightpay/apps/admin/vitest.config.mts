@@ -5,6 +5,7 @@ import { defineConfig } from 'vitest/config';
 // así una prueba puede pintar un componente que importa '@/lib/...'
 // (CobrosTable, CobroRowActions) como lo compila Next.
 export default defineConfig({
+  esbuild: { jsx: 'automatic' },
   resolve: {
     alias: { '@': fileURLToPath(new URL('./src', import.meta.url)) },
   },
