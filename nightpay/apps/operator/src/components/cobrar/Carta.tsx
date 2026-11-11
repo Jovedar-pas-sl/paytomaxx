@@ -1,7 +1,7 @@
 'use client';
 
 import { Fragment, useCallback, useEffect, useRef, type CSSProperties, type ReactNode } from 'react';
-import { ScreenHelp } from '@nightpay/ui';
+import { BusyWord, ScreenHelp } from '@nightpay/ui';
 import { STICKY_ACTION_BOTTOM } from '../layout';
 import { TOURS } from '@/lib/tours';
 import { formatEur } from '@/lib/money';
@@ -169,7 +169,7 @@ export function Carta({
           onClick={onCobrar}
           data-tour="cobrar-cobrar"
         >
-          {cobrarLabel({ busy, empty: cuenta.length === 0, totalCents: totals.totalCents })}
+          {busy ? <BusyWord word={cobrarLabel({ busy, empty: false, totalCents: 0 })} /> : cobrarLabel({ busy, empty: cuenta.length === 0, totalCents: totals.totalCents })}
         </button>
         {cuenta.length > 0 && !chargeable(cuenta) ? (
           <p className={styles.error}>Una propina sola no se cobra: añade lo que se lleva.</p>

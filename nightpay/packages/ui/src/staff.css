@@ -950,6 +950,132 @@
   }
 }
 
+/* PIN mal (Grafito 3): los puntos tiemblan 360 ms. Dos clases que se alternan
+   para que el temblor se repita al fallar otra vez seguida. */
+@keyframes np-shake {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+
+  20% {
+    transform: translateX(-8px);
+  }
+
+  40% {
+    transform: translateX(8px);
+  }
+
+  60% {
+    transform: translateX(-5px);
+  }
+
+  80% {
+    transform: translateX(5px);
+  }
+}
+
+.np-shake-a,
+.np-shake-b {
+  animation: np-shake 360ms ease-in-out 1;
+}
+
+/* «Cobrar» mientras se crea el cobro: «Cobrando» con tres puntos que suben y bajan. */
+@keyframes np-dots {
+  0%,
+  80%,
+  100% {
+    opacity: 0.25;
+  }
+
+  40% {
+    opacity: 1;
+  }
+}
+
+.np-dots {
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
+}
+
+.np-dots > i {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: np-dots 1s infinite;
+}
+
+.np-dots > i:nth-child(2) {
+  animation-delay: 160ms;
+}
+
+.np-dots > i:nth-child(3) {
+  animation-delay: 320ms;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .np-shake-a,
+  .np-shake-b,
+  .np-dots > i {
+    animation: none !important;
+  }
+
+  .np-dots > i {
+    opacity: 0.7;
+  }
+}
+
+/* Mantener pulsado para confirmar (Grafito 3): la barra se llena en 1,2 s. */
+.np-hold {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 3.5rem;
+  padding: 0 1.5rem;
+  overflow: hidden;
+  border: 1px solid var(--np-danger);
+  border-radius: var(--np-r-md);
+  background: color-mix(in srgb, var(--np-danger) 10%, var(--np-surface));
+  color: var(--np-danger-text);
+  font: 600 var(--np-fs-16)/1.15 var(--np-font-sans);
+  touch-action: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+  cursor: pointer;
+}
+
+.np-hold-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 0;
+  background: color-mix(in srgb, var(--np-danger) 22%, transparent);
+  transition: width 0ms linear;
+}
+
+.np-hold-fill.on {
+  width: 100%;
+  transition: width var(--np-hold-ms, 1200ms) linear;
+}
+
+.np-hold-text {
+  position: relative;
+}
+
+.np-hold:disabled {
+  cursor: progress;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .np-hold-fill.on {
+    transition: none;
+    width: 0;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   /* El momento PAGADO, sin destello ni animación: la marca, ya en su sitio
      (el estado final). */

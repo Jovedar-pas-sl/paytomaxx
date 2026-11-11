@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, type CSSProperties, type ReactNode } from 'react';
-import { Card, haptic } from '@nightpay/ui';
+import { Card, haptic, pinFailed, shakeClass } from '@nightpay/ui';
 import { WALLET_PIN_PROBLEM_TEXT, walletPinProblem } from '@nightpay/contracts';
 import { PIN_CHOOSE, PIN_CHOOSE_HINT, PIN_ENTER, PIN_REPEAT, keypadDigits } from '@/lib/pin-pad';
 import { useVenueNight } from '@/lib/venue-methods';
@@ -43,11 +43,17 @@ export function PinPad({ title, hint, mode, onPin, onCancel, cancelLabel = 'Canc
   const [first, setFirst] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [shake, setShake] = useState(0);
 
   function restart(message: string | null, keepFirst = false): void {
     setPin('');
     if (!keepFirst) setFirst(null);
     setError(message);
+    // Un PIN que no vale: los puntos tiemblan y el móvil vibra [30, 60, 30].
+    if (message) {
+      setShake((n) => n + 1);
+      pinFailed();
+    }
     setKeys(keypadDigits(layout));
   }
 
@@ -95,7 +101,7 @@ export function PinPad({ title, hint, mode, onPin, onCancel, cancelLabel = 'Canc
           · {step.en}
         </span>
       </p>
-      <div role="status" style={dotsStyle}>
+      <div role="status" style={dotsStyle} className={shakeClass(shake) || undefined}>
         {Array.from({ length: PIN_LENGTH }, (_, i) => (
           <span key={i} aria-hidden style={{ ...dotStyle, ...(i < pin.length ? dotFull : {}) }} />
         ))}
@@ -171,9 +177,10 @@ const dotStyle: CSSProperties = {
   height: '1.125rem',
   borderRadius: '50%',
   border: '2px solid var(--np-text)',
+  transition: 'background var(--np-d-fast), transform var(--np-d-fast)',
 };
 // Las cifras puestas, en crema: la lima es para actuar, no para el progreso.
-const dotFull: CSSProperties = { background: 'var(--np-text)' };
+const dotFull: CSSProperties = { background: 'var(--np-text)', transform: 'scale(1.1)' };
 
 /** Solo para lectores de pantalla. */
 const srOnly: CSSProperties = {

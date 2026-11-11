@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, type CSSProperties } from 'react';
-import { haptic } from '@nightpay/ui';
+import { BusyWord, haptic } from '@nightpay/ui';
 import { STICKY_ACTION_BOTTOM } from '../layout';
 import { formatEur } from '@/lib/money';
 import type { CuentaSection } from '@/lib/cuenta';
@@ -100,7 +100,7 @@ export function OtroImporte({ ctx, who, adding, onDone, onBack, busy, error }: P
           aria-busy={busy || undefined}
           onClick={() => onDone(section, cents)}
         >
-          {busy ? 'Un momento…' : action}
+          {busy ? adding ? 'Un momento…' : <BusyWord word="Cobrando" /> : action}
         </button>
         {error ? (
           <p role="alert" className={styles.error}>

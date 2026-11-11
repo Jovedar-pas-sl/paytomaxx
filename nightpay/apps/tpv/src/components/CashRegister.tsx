@@ -216,6 +216,7 @@ export function CashRegister({ venueSlug, onLogout }: Props) {
             <Button
               type="submit"
               loading={submitting}
+              loadingLabel="Cobrando"
               disabled={terminals.length === 0 || amountCents <= 0}
               size="lg"
               data-tour="tpv-cobrar"

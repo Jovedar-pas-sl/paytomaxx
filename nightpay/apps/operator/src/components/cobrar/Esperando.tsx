@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { confirmationCode, type PaymentStatus } from '@nightpay/contracts';
-import { cardHow, countdownPhase, formatClock, qrDeadline, saldoHow, secondsLeft, useNow, useWakeLock, ScreenHelp } from '@nightpay/ui';
+import { cardHow, countdownPhase, HoldButton, formatClock, qrDeadline, saldoHow, secondsLeft, useNow, useWakeLock, ScreenHelp } from '@nightpay/ui';
 import { fetchPaymentStatus, getUser } from '@/lib/api';
 import { clearFichaContext, saveFichaContext } from '@/lib/ficha-context';
 import { formatEur } from '@/lib/money';
@@ -170,7 +170,6 @@ export function Esperando({ cobro, onNew, onRetry, retrying = false, retryError 
   // se vio aquí. La espera del banco cuenta desde ahí (05-ui-ux §4.3).
   const [attemptIso, setAttemptIso] = useState<string | null>(null);
   const [authorizingSeenAt, setAuthorizingSeenAt] = useState<number | null>(null);
-  const [confirmingCancel, setConfirmingCancel] = useState(false);
 
   const chargeId = cobro.saldo?.chargeId ?? null;
   const nfcOn = Boolean(chargeId) && methods.nfc && methods.wallet && nfcSupported();
@@ -206,7 +205,6 @@ export function Esperando({ cobro, onNew, onRetry, retrying = false, retryError 
   // Salió al banco: desde cuándo (aquí) mientras el sondeo no trae la hora del servidor.
   useEffect(() => {
     if (cardStatus === 'AUTHORIZING') setAuthorizingSeenAt((seen) => seen ?? Date.now());
-    if (cardStatus !== 'AUTHORIZING') setConfirmingCancel(false);
   }, [cardStatus]);
 
   // Saldo: ¿lo pagó con su móvil (Face ID) o lo canceló la tarjeta? Al
@@ -390,7 +388,6 @@ export function Esperando({ cobro, onNew, onRetry, retrying = false, retryError 
       );
     } finally {
       setCanceling(false);
-      setConfirmingCancel(false);
     }
   }
 
@@ -568,24 +565,16 @@ export function Esperando({ cobro, onNew, onRetry, retrying = false, retryError 
         fichaHint={fichaHint}
         onSinMovil={sinMovilOn && !checking ? () => setSinMovil(true) : undefined}
       >
-        {confirmingCancel ? (
-          <div className={styles.cancelAsk} role="alertdialog" aria-label={CANCEL_WHILE_PAYING_TEXT}>
+        {cardStatus === 'AUTHORIZING' ? (
+          // Con el cliente en la página de su banco ya no hay ventana de «¿seguro?»: se mantiene pulsado 1,2 s.
+          <div className={styles.cancelAsk}>
             <p>{CANCEL_WHILE_PAYING_TEXT}</p>
-            <button type="button" className={`${styles.btn} ${styles.ghost}`} onClick={() => setConfirmingCancel(false)} autoFocus>
-              No, seguir esperando
-            </button>
-            <button type="button" className={`${styles.btn} ${styles.ghost}`} onClick={() => void cancel()} disabled={canceling}>
-              {canceling ? 'Cancelando…' : 'Sí, cancelar'}
-            </button>
+            <HoldButton onConfirm={() => void cancel()} busy={canceling} busyLabel="Cancelando…">
+              Mantén para cancelar el cobro
+            </HoldButton>
           </div>
         ) : (
-          <button
-            type="button"
-            className={`${styles.btn} ${styles.ghost}`}
-            // Con el cliente en la página de su banco, se confirma antes.
-            onClick={() => (cardStatus === 'AUTHORIZING' ? setConfirmingCancel(true) : void cancel())}
-            disabled={canceling}
-          >
+          <button type="button" className={`${styles.btn} ${styles.ghost}`} onClick={() => void cancel()} disabled={canceling}>
             {canceling ? 'Cancelando…' : 'Cancelar cobro'}
           </button>
         )}

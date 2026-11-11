@@ -1,4 +1,5 @@
-export { Button } from './components/Button';
+export { HOLD_MS, HoldButton } from './components/HoldButton';
+export { BusyWord, Button } from './components/Button';
 export { Card } from './components/Card';
 export { AmountDisplay } from './components/AmountDisplay';
 export { StatusPill } from './components/StatusPill';
@@ -68,6 +69,7 @@ export { createWakeLock, wakeLockFrom } from './lib/wake-lock';
 export { cardHow, cashHow, chargedBy, saldoHow } from './lib/outcome-how';
 export type { CardHowInput, CashHowInput, SaldoHowInput } from './lib/outcome-how';
 export { haptic, HAPTIC_BAD, HAPTIC_TAP_MS } from './lib/haptic';
+export { pinFailed, shakeClass } from './lib/shake';
 export { advanceStatus, isFinalStatus, isPolledPayment } from './lib/payment-status';
 export { createPoller } from './lib/poller';
 export type { PollOutcome, Poller, PollerOptions } from './lib/poller';

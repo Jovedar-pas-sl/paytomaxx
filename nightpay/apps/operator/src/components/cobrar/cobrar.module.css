@@ -1573,10 +1573,13 @@ html[data-contrast='sala'] .lastRow[data-n='4']:not([data-big]) {
   height: 1.125rem;
   border-radius: 50%;
   border: 2px solid var(--np-text);
+  transition: background var(--np-d-fast), transform var(--np-d-fast);
 }
 
+/* Cada cifra llena su punto. */
 .dots i.full {
   background: var(--np-text);
+  transform: scale(1.1);
 }
 
 .pad {
