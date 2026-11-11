@@ -15,7 +15,16 @@ import l from './loaded.module.css';
  * nuevo (que anula el anterior) mientras el API lo dé (15 min tras la recarga).
  * Solo si el API lo da (recién cargado aquí y sin Face ID aún); si no, nada.
  */
-export function ActivationQr({ walletId, read }: { walletId: string; read?: { card: string; uid: string | null } | null }) {
+export function ActivationQr({
+  walletId,
+  read,
+  onOpen,
+}: {
+  walletId: string;
+  read?: { card: string; uid: string | null } | null;
+  /** B3: el QR está a la vista (con él abierto, la siguiente ficha no cierra CARGADO). */
+  onOpen?: (open: boolean) => void;
+}) {
   const [link, setLink] = useState<ActivationLink | null>(null);
   const [expired, setExpired] = useState(false);
   const [round, setRound] = useState(0);
@@ -39,6 +48,13 @@ export function ActivationQr({ walletId, read }: { walletId: string; read?: { ca
     const timer = setTimeout(() => setExpired(true), Math.max(0, Date.parse(link.expiresAt) - Date.now()));
     return () => clearTimeout(timer);
   }, [link]);
+
+  // B3: quien atiende sabe si el QR está a la vista; al irse la pantalla, ya no.
+  const shown = link !== null && !expired;
+  useEffect(() => {
+    onOpen?.(shown);
+  }, [shown, onOpen]);
+  useEffect(() => () => onOpen?.(false), [onOpen]);
 
   if (!link) return null;
   if (expired) {

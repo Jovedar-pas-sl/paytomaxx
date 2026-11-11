@@ -12,9 +12,10 @@ import { tipPresetsFor } from './tip';
  *  1. Arriba, grande, lo que va a pagar (se pone al día con la propina), con
  *     el local, lo pedido, el extracto y la cuenta atrás.
  *  2. Propina: botones de 48 px en una fila; el elegido se ve invertido
- *     (fondo claro, texto oscuro) y con su ✓ (no solo por el color); «Sin propina» por
- *     defecto; las sugeridas y su tope son los de siempre (tip.ts); «Otra» con
- *     el teclado numérico y su error dicho con palabras.
+ *     (fondo claro, texto oscuro) y con su ✓ (no solo por el color). Sin nada
+ *     marcado (B1: la elige el cliente; sin elegir, no hay propina); las
+ *     sugeridas y su tope son los de siempre (tip.ts); «Otra» con el teclado
+ *     numérico y su error dicho con palabras.
  *  3. Desglose: Consumo · Comisión del servicio (si la hay, con «¿Qué es?») ·
  *     Propina · TOTAL. El lector de pantalla oye solo el total al cambiarlo.
  *  4. Abajo, pegados al borde: Apple Pay / Google Pay como botón principal
@@ -194,7 +195,7 @@ function tipChoices(view: ChooseView, t: PayText): string {
   const canOther = view.tipMaxCents >= 100;
   const maxText = money(Math.floor(view.tipMaxCents / 100) * 100, view, t);
   return `<fieldset class="tips"><legend>${escapeHtml(t.tipLegend)}</legend><div class="tipgrid">
-<label><input type="radio" name="tip" value="0"${preset === 0 ? ' checked' : ''}><span class="word">${escapeHtml(t.noTip)}</span></label>${options}${
+<label><input type="radio" name="tip" value="0"><span class="word">${escapeHtml(t.noTip)}</span></label>${options}${
     canOther
       ? `<label id="otherOpt" hidden><input type="radio" name="tip" value="0" id="otherRadio"><span class="word">${escapeHtml(t.tipOther)}</span></label>`
       : ''
@@ -321,7 +322,9 @@ f.addEventListener('submit',function(e){if(sent){e.preventDefault();return;}var 
  if(s.error){e.preventDefault();showErr(s.error==='max'?T.tooHigh:T.empty);inp.focus();try{box.scrollIntoView({block:'center'});}catch(x){}return;}
  upd(false);save();sent=true;busy(e.submitter||btn,true);
  var s2=$('saldoBtn');if(s2)s2.setAttribute('aria-disabled','true');});
-var sb=$('saldoBtn');if(sb)sb.addEventListener('click',function(e){if(sent)e.preventDefault();});
+// «Pagar con mi saldo»: la propina que ya eligió aquí va con él (?tip=) y sale marcada en /s.
+var sb=$('saldoBtn');if(sb)sb.addEventListener('click',function(e){if(sent){e.preventDefault();return;}var s=state();
+ if(!s.error&&chosen()){try{var u=new URL(sb.getAttribute('href'),location.href);u.searchParams.set('tip',String(s.tip));sb.setAttribute('href',u.pathname+u.search);}catch(x){}}});
 window.addEventListener('pageshow',function(e){if(e.persisted){sent=false;busy(btn,false);var s2=$('saldoBtn');if(s2)s2.removeAttribute('aria-disabled');restore();upd(false);}});
 restore();upd(false);applePay();
 var left=$('left'),d=f.dataset,skew=+d.now-Date.now(),exp=+d.expires,iv;

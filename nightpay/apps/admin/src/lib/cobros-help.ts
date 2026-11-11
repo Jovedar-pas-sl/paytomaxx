@@ -64,7 +64,7 @@ export const COBRO_ACTION_LABELS: Readonly<Record<CobroAction, string>> = {
 
 /** El `title` corto de cada botón (al pasar el ratón). */
 export const COBRO_ACTION_TITLES: Readonly<Record<CobroAction, string>> = {
-  detail: 'Código, pedido y autorización del banco, para copiarlos',
+  detail: 'Qué, cuándo, quién cobró, cómo se pagó y lo del banco',
   reverse: 'Devuelve el importe al saldo del cliente. Pide motivo y 2FA',
   resolve: 'Di si el banco lo cobró, después de mirarlo en su portal',
   bankRefund: 'Apunta una devolución que ya hiciste en el portal de BBVA',
@@ -74,7 +74,7 @@ export const COBRO_ACTION_TITLES: Readonly<Record<CobroAction, string>> = {
 
 const ACTION_TEXT: Readonly<Record<CobroAction, string>> = {
   detail:
-    'En todos los cobros. Enseña el código de confirmación, el pedido y la autorización del banco, cada uno con «Copiar», y los intentos de pago (aprobado, denegado o sin respuesta).',
+    'En todos los cobros. Qué se cobró, cuándo y dónde, quién lo cobró y cómo se pagó (tarjeta con sus 4 últimos, saldo o ficha); la propina y la comisión del servicio, aparte; si se devolvió o se canceló, quién, cuándo y por qué; el reparto (el dueño, y el encargado con permiso de informes); y lo del banco: el código de confirmación, el pedido y la autorización, cada uno con «Copiar», y los intentos de pago. El móvil y la IP, la tarjeta y el historial piden «Verificar» (con el 2FA o con tu llave de acceso; vale 5 minutos). «Compartir» manda un texto corto con el enlace al cobro en el panel, que pide iniciar sesión.',
   reverse:
     'En los cobros pagados con el saldo (dueño y encargado). El importe vuelve al saldo del cliente. Pide el motivo y el código de tu app de verificación (2FA).',
   resolve:
@@ -82,7 +82,7 @@ const ACTION_TEXT: Readonly<Record<CobroAction, string>> = {
   bankRefund:
     'Solo el dueño, en los cobros con tarjeta de BBVA que están «Pagado» o «Devuelto en parte». La devolución se hace en el portal de BBVA y aquí se apunta: importe, día, referencia del banco (opcional) y motivo. OxioPay ajusta el cobro y descuenta la parte de la chica.',
   refund:
-    'En los cobros con tarjeta de otra pasarela que están «Pagado» o «Devuelto en parte» (dueño y encargado): OxioPay devuelve el dinero a la tarjeta. Pide el importe y la razón (opcional); desde 100\u00a0€ devueltos, de una vez o sumando, también el 2FA. Al encargado, desde el importe que haya fijado el dueño, se le pide a él («Pedir al dueño»).',
+    'En los cobros con tarjeta de otra pasarela que están «Pagado» o «Devuelto en parte» (dueño y encargado): OxioPay devuelve el dinero a la tarjeta. Pide el importe y la razón (opcional); desde 100\u00a0€ devueltos, de una vez o sumando, también el 2FA. Si esta devolución, de una vez, llega a esa cifra, se manda con el botón que dice el importe, no al poner el sexto número; sin 2FA, se confirma antes con tu llave de acceso. Al encargado, desde el importe que haya fijado el dueño, se le pide a él («Pedir al dueño»).',
   refunds:
     'Sale cuando el cobro ya tiene algo devuelto o reservado. Enseña cada devolución: «Hecha», «No hecha» o «Sin confirmar». Una «Sin confirmar» la resuelve el dueño pasados 2 minutos.',
 };

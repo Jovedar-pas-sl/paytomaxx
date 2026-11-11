@@ -167,10 +167,11 @@ export class RefundsController {
     );
   }
 
+  /** Las devoluciones de un cobro: el dueño y el encargado, de cualquiera; el camarero, solo de los suyos. */
   @Get(':id/refunds')
   @Roles('OWNER', 'MANAGER', 'WAITER')
-  async list(@Param('id', ParseUUIDPipe) paymentId: string) {
-    return this.refunds.listForPayment(paymentId);
+  async list(@Param('id', ParseUUIDPipe) paymentId: string, @CurrentUser() user: JwtPayload) {
+    return this.refunds.listForPayment(paymentId, { userId: user.sub, role: user.role });
   }
 }
 

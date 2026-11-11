@@ -36,7 +36,7 @@ const eur = (cents: number) => formatEur(cents, { compact: true });
  * número de serie y que el cliente lo confirme (su PIN o su Face ID).
  */
 export function cashExitPlan(view: ReceptionDeskSaldo, nfc: CashExitNfc): ExitPlan {
-  const keepDetail = view.fichaNumber === null ? 'No caduca · que guarde su código' : 'No caduca · se lleva su NFC';
+  const keepDetail = view.fichaNumber === null ? 'Para otra noche · que guarde su código' : 'Para otra noche · se lleva su ficha';
   const plan = { balanceCents: view.balanceCents, keepDetail, refundLabel: null, refundDetail: null, refundBlocked: null };
   // Solo su código, sin NFC: aquí no se devuelve (lo hace el panel).
   if (view.fichaNumber === null && !nfc) return { ...plan, note: view.balanceCents > 0 ? NO_NFC_EXIT_TEXT : null };

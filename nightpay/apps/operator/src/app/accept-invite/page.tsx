@@ -93,9 +93,27 @@ function Inner() {
           </form>
         )}
       </Card>
+      {/* Salida: si el enlace ya no vale o la cuenta ya está activada, a entrar. */}
+      <p style={enterStyle}>
+        ¿Ya activaste tu cuenta?{' '}
+        <a href="/" className="np-btn" data-variant="ghost" data-size="md">
+          Entrar
+        </a>
+      </p>
     </main>
   );
 }
+
+const enterStyle = {
+  margin: 0,
+  display: 'flex',
+  alignItems: 'center',
+  gap: '0.75rem',
+  flexWrap: 'wrap' as const,
+  justifyContent: 'center',
+  color: 'var(--np-text-mute)',
+  fontSize: '0.9375rem',
+};
 
 const pageStyle = {
   display: 'flex',

@@ -171,7 +171,7 @@ describe('cuadre con el banco contra Postgres real', () => {
   it('lo marcado como revisado sigue revisado al volver a subir el fichero', async () => {
     const before = await asTenant(B, () => incidents.list(B, new Date('2026-10-14T09:10:00Z')));
     const target = before.find((i) => i.kind === 'bank_mismatch')!;
-    await asTenant(B, () => incidents.ack(B, owner, { kind: 'bank_mismatch', refId: target.refId }));
+    await asTenant(B, () => incidents.ack(B, owner, { kind: 'bank_mismatch', refId: target.refId, note: 'mirado en el banco' }));
     await asTenant(A, () =>
       svc.importStatement(
         { userId: owner, role: 'OWNER', tenantId: A },

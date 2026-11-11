@@ -52,6 +52,13 @@ function setup(o: { pending?: Row | null; target?: Row; terminal?: Row | null; v
       findUnique: vi.fn(async (a: { where: Row }) => (a.where.id === target.id ? target : a.where.id === PROV ? pending : null)),
     },
     walletCard: { findUnique: vi.fn(async () => ({ id: 'c', token: FICHA, uid: null, walletId: target.id, status: 'ISSUED' })) },
+    // Cómo pagó cada una (A8): la primera con tarjeta, la segunda con el móvil.
+    payment: {
+      findMany: vi.fn(async () => [
+        { walletId: PROV, captureMethod: null, posOperationNumber: null, authorizedAt: new Date(), cardBrand: '1', cardLast4: '4242', attempts: [{ status: 'APPROVED', payMethod: 'card' }] },
+        { walletId: 'w-2', captureMethod: null, posOperationNumber: null, authorizedAt: new Date(), cardBrand: '1', cardLast4: '9999', attempts: [{ status: 'APPROVED', payMethod: 'wallet' }] },
+      ]),
+    },
     user: {
       findMany: vi.fn(async () => [{ id: 'u-lola', displayName: 'Lola', email: 'lola@bambu.es' }]),
       findFirst: vi.fn(async (a: { where: { id: string } }) => ({ post: POSTS[a.where.id] ?? null })),
@@ -101,9 +108,11 @@ describe('las pendientes', () => {
   it('las cobradas del local, con quién las cobró; la chica solo ve las suyas', async () => {
     const { svc, tx } = setup();
     await expect(svc.list(pablo)).resolves.toEqual([
-      { walletId: PROV, amountCents: 5_000, since: '2026-10-16T23:00:00.000Z', byName: 'Lola' },
-      { walletId: 'w-2', amountCents: 2_000, since: '2026-10-16T22:30:00.000Z', byName: null },
+      { walletId: PROV, amountCents: 5_000, since: '2026-10-16T23:00:00.000Z', byName: 'Lola', paidWith: 'Tarjeta Visa ••4242' },
+      { walletId: 'w-2', amountCents: 2_000, since: '2026-10-16T22:30:00.000Z', byName: null, paidWith: 'Apple Pay / Google Pay' },
     ]);
+    // Solo las pagadas de esas recargas.
+    expect(tx.payment.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { walletId: { in: [PROV, 'w-2'] }, status: 'AUTHORIZED' } }));
     expect(tx.clientWallet.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
         where: { tenantId: SALA, pendingAssignAt: { not: null }, mergedIntoId: null, status: 'ACTIVE', balanceCents: { gt: 0 } },

@@ -12,8 +12,15 @@ import {
   codeInput,
   deskRechargeWhat,
   deskRow,
+  entryRow,
+  FICHA_IN_HAND,
+  lastTopUpOf,
+  readFicha,
+  recentTopUpLine,
+  roughBalanceQuestion,
   deskTarget,
   canChoosePin,
+  canChoosePinAfterLoad,
   fichaGivenNote,
   fichaLookupText,
   fichaText,
@@ -67,7 +74,7 @@ describe('el NFC leído (4.2 y 4.5)', () => {
     expect(deskRow(NUEVO_SIN, 'entrada')).toEqual({ title: 'NFC nuevo', detail: 'Ficha sin número impreso · sin saldo' });
     expect(fichaText(null)).toBe('ficha sin número impreso');
     expect(deskRow(saldo({ printedNumber: undefined }), 'salida').title).toBe('Ficha sin número impreso');
-    expect(handOverLine(NUEVO_SIN, true)).toBe('Dale el NFC · ficha sin número impreso');
+    expect(handOverLine(NUEVO_SIN, true)).toBe('Dale la ficha · ficha sin número impreso');
   });
 
   it('con saldo: lo que le queda en la entrada; «leída» a la salida', () => {
@@ -78,8 +85,9 @@ describe('el NFC leído (4.2 y 4.5)', () => {
     expect(deskRow(saldo({ fichaNumber: null }), 'salida')).toEqual({ title: 'Saldo R3D-8LP', detail: 'Sin NFC · por su código' });
   });
 
-  it('el chip de 4.3: su ficha, su código o un saldo nuevo sin NFC', () => {
-    expect(rechargeChip(NUEVO)).toBe('Recarga · ficha nº 00736903');
+  it('el chip de 4.3: «Recarga» (la ficha va en grande debajo), su código o un saldo nuevo sin ficha', () => {
+    expect(rechargeChip(NUEVO)).toBe('Recarga');
+    expect(rechargeChip(NUEVO_SIN)).toBe('Recarga · ficha sin número impreso');
     expect(rechargeChip(saldo({ fichaNumber: null }))).toBe('Recarga · R3D-8LP');
     expect(rechargeChip(null)).toBe('Recarga · saldo nuevo');
   });
@@ -232,11 +240,85 @@ describe('CARGADO (4.4)', () => {
     expect(loadedMoneyLine('cash', 5_000, 0)).toEqual(loadedMoneyLine('cash', 5_000));
   });
 
-  it('y con el NFC: dárselo (nuevo), devolvérselo (el suyo) o el código si no tiene', () => {
-    expect(handOverLine(NUEVO, true)).toBe('Dale el NFC · ficha nº 00736903');
-    expect(handOverLine(saldo(), true)).toBe('Devuélvele su NFC · ficha nº 0388');
-    expect(handOverLine(saldo({ fichaNumber: null }), true)).toBe('Saldo R3D-8LP');
-    expect(handOverLine(null, false)).toMatch(/Sin NFC/);
+  it('y con la ficha: dársela (nueva), devolvérsela (la suya) o el código si no tiene (su número va en grande encima)', () => {
+    expect(handOverLine(NUEVO, true)).toBe('Dale la ficha');
+    expect(handOverLine(saldo(), true)).toBe('Devuélvele su ficha');
+    expect(handOverLine(saldo({ fichaNumber: null }), true)).toBe('Saldo sin ficha');
+    expect(handOverLine(null, false)).toBe('Sin ficha: que apunte su código');
+    expect(handOverLine(saldo({ printedNumber: null }), true)).toBe('Devuélvele su ficha · ficha sin número impreso');
+  });
+});
+
+describe('¿Cuánto carga? con el número de la ficha en grande (A1)', () => {
+  it('la leída: su número aparte, para verlo en grande, y que mire la que tiene en la mano', () => {
+    expect(entryRow({ view: NUEVO, nfc: FICHA })).toEqual({ title: 'Ficha nueva', ficha: '00736903', detail: 'Sin saldo', hint: FICHA_IN_HAND });
+    const suya = entryRow({ view: saldo(), nfc: FICHA });
+    expect({ ...suya, detail: eur(suya.detail) }).toEqual({ title: 'Ficha', ficha: '0388', detail: 'Le quedan 35 € · R3D-8LP', hint: FICHA_IN_HAND });
+  });
+  it('por el código no la tienen delante: el número, sin «la que tienes en la mano»', () => {
+    expect(entryRow({ view: saldo(), nfc: null }).hint).toBeNull();
+    expect(entryRow({ view: saldo(), nfc: null }).ficha).toBe('0388');
+  });
+  it('sin número impreso, sin ficha o saldo nuevo sin ficha: sin número en grande', () => {
+    expect(entryRow({ view: NUEVO_SIN, nfc: FICHA })).toEqual({ title: 'Ficha nueva', detail: 'Sin número impreso · sin saldo', ficha: null, hint: null });
+    expect(entryRow({ view: saldo({ fichaNumber: null }), nfc: null })).toMatchObject({ title: 'Saldo R3D-8LP', ficha: null });
+    expect(entryRow({ view: saldo({ fichaNumber: null }), nfc: null }).detail).toMatch(/sin ficha$/);
+    expect(entryRow({ view: null, nfc: null })).toEqual({ title: 'Saldo nuevo', detail: 'Sin ficha: se queda con su código', ficha: null, hint: null });
+  });
+  it('lo que se enseña en grande en «¿Cómo paga?» y en CARGADO', () => {
+    expect(readFicha({ view: NUEVO })).toBe('00736903');
+    expect(readFicha({ view: NUEVO_SIN })).toBeNull();
+    expect(readFicha({ view: saldo({ fichaNumber: null }) })).toBeNull();
+    expect(readFicha({ view: null })).toBeNull();
+  });
+  it('la última recarga, durante 10 min en la fila de la ficha (A4)', () => {
+    const now = Date.parse('2026-11-10T01:00:00Z');
+    const at = (min: number) => new Date(now - min * 60_000).toISOString();
+    const sergio = { at: at(2), amountCents: 5_000, method: 'cash' as const, byName: 'Sergio' };
+    expect(eur(recentTopUpLine(sergio, now) ?? '')).toBe('Cargada hace 2 min: 50 € en efectivo (Sergio)');
+    expect(eur(recentTopUpLine({ ...sergio, method: 'card', byName: null }, now) ?? '')).toBe('Cargada hace 2 min: 50 € con tarjeta');
+    expect(eur(recentTopUpLine({ ...sergio, at: at(0) }, now, false) ?? '')).toBe('Cargado hace un momento: 50 € en efectivo (Sergio)');
+    // El reloj del móvil algo atrasado: «hace un momento», nunca «hace -1 min».
+    expect(recentTopUpLine({ ...sergio, at: at(-1) }, now)).toMatch(/hace un momento/);
+    expect(recentTopUpLine({ ...sergio, at: at(10) }, now)).toBeNull();
+    expect(recentTopUpLine(null, now)).toBeNull();
+    expect(lastTopUpOf({ view: saldo({ lastTopUp: sergio }) })).toBe(sergio);
+    expect(lastTopUpOf({ view: NUEVO })).toBeNull();
+  });
+
+  it('por su número: el número en grande, «Compruébalo con la ficha» y «¿Le quedan unos 35 €?» (A6)', () => {
+    const porNumero = {
+      kind: 'saldo' as const, printedNumber: '00001013', codeHint: 'K7Q-•••', balanceCents: 3_540, cashOutCents: 0, cashOutNote: null,
+      hasPin: true, blocked: false, closeRequested: false, isHomeVenue: true,
+    };
+    const row = entryRow({ view: null, nfc: null, number: porNumero });
+    expect({ ...row, detail: eur(row.detail), ask: eur(row.ask ?? '') }).toEqual({
+      title: 'Ficha', ficha: '00001013', detail: 'Le quedan 35,40 € · K7Q-•••', hint: 'Compruébalo con la ficha', ask: '¿Le quedan unos 35 €?',
+    });
+    const ask = (cents: number) => eur(roughBalanceQuestion(cents));
+    expect(ask(3_740)).toBe('¿Le quedan unos 35 €?');
+    expect(ask(3_760)).toBe('¿Le quedan unos 40 €?');
+    expect(ask(1_000)).toBe('¿Le quedan unos 10 €?');
+    expect(ask(740)).toBe('¿Le quedan unos 7 €?');
+    expect(ask(40)).toBe('¿Le queda menos de 1 €?');
+    expect(ask(0)).toBe('¿Ya no le queda nada?');
+    // Leída o por su código, no se pregunta.
+    expect(entryRow({ view: saldo(), nfc: FICHA }).ask).toBeUndefined();
+  });
+
+  it('B10: recepción pone el PIN a un saldo que ya existía tras recargarlo, solo con su ficha leída', () => {
+    expect(canChoosePin(saldo({ hasPin: false }), 'WAITER')).toBe(false);
+    expect(canChoosePinAfterLoad(saldo({ hasPin: false }), 'WAITER', true)).toBe(true);
+    // Por su código o por su número (sin la ficha delante), no: el encargado.
+    expect(canChoosePinAfterLoad(saldo({ hasPin: false }), 'WAITER', false)).toBe(false);
+    expect(canChoosePinAfterLoad(saldo({ hasPin: false }), 'MANAGER', false)).toBe(true);
+    expect(canChoosePinAfterLoad(NUEVO, 'WAITER', true)).toBe(true);
+  });
+
+  it('nunca «NFC» en lo que ve el personal', () => {
+    for (const row of [entryRow({ view: NUEVO, nfc: FICHA }), entryRow({ view: null, nfc: null }), entryRow({ view: saldo({ fichaNumber: null }), nfc: null })]) {
+      expect(`${row.title} ${row.detail} ${row.hint ?? ''}`).not.toMatch(/NFC/);
+    }
   });
 });
 

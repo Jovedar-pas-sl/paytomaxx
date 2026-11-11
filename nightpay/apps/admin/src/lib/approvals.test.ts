@@ -1,6 +1,9 @@
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import type { ApprovalView } from '@nightpay/contracts';
 import {
+  approvalAutoSends,
+  approveButtonText,
   APPROVAL_STATUS,
   approvalReason,
   approvedMessage,
@@ -197,5 +200,29 @@ describe('tarjeta de «Por aprobar»', () => {
     expect(refundGoesToApproval(10_000, 9_999)).toBe(false);
     expect(refundGoesToApproval(null, 1_000_000)).toBe(false);
     expect(refundGoesToApproval(10_000, Number.NaN)).toBe(false);
+  });
+});
+
+const NBSP = new RegExp(String.fromCharCode(160), 'g');
+
+describe('«Por aprobar»: una devolución desde 100 € no sale sola', () => {
+  const refund = (amountCents: number) => ({ kind: 'REFUND', amountCents });
+  it('desde 100 €, sin autoSubmit y con el botón que dice el importe; por debajo y los pagos, al sexto número', () => {
+    expect(approvalAutoSends(refund(12_000))).toBe(false);
+    expect(approvalAutoSends(refund(10_000))).toBe(false);
+    expect(approvalAutoSends(refund(9_999))).toBe(true);
+    expect(approvalAutoSends({ kind: 'PAYOUT', amountCents: 50_000 })).toBe(true);
+    expect(approveButtonText(refund(12_000), formatEur).replace(NBSP, ' ')).toBe('Aprobar devolución de 120,00 €');
+    expect(approveButtonText({ kind: 'PAYOUT', amountCents: 12_000 }, formatEur).replace(NBSP, ' ')).toBe('Aprobar 120,00 €');
+  });
+
+  it('la tarjeta: el sexto número solo aprueba si toca, y el dueño sin 2FA con llave confirma con KeyConfirm', () => {
+    const card = readFileSync(new URL('../components/ApprovalsPanel.tsx', import.meta.url), 'utf8');
+    expect(card).toContain('autoSubmit={autoSends}');
+    // Ya no hay un «autoSubmit» suelto (siempre): depende de autoSends.
+    expect(card).not.toMatch(/autoSubmit\s+autoFocus/);
+    expect(card).toContain('<KeyConfirm');
+    expect(card).toContain('action={stepUpActions.approve(item.id)}');
+    expect(card).toContain('{buttonText}');
   });
 });

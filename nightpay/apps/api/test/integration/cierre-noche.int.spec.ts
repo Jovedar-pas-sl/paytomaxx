@@ -204,7 +204,9 @@ describe('cierre de la noche con arqueo de caja (Postgres real)', () => {
       ['incidencias', 'ok'],
       ['z', 'ok'],
     ]);
-    expect(stepOf(check.steps, 'efectivo').detail).toContain('debería haber 65,00 €');
+    // A ciegas (B9): el paso no dice lo que debería haber hasta que se cuenta.
+    expect(stepOf(check.steps, 'efectivo').detail).toContain('escribe lo contado');
+    expect(stepOf(check.steps, 'efectivo').detail).not.toContain('65,00');
     expect(check.chicas).toEqual([
       expect.objectContaining({ toPayCents: 0, paidTonightCents: 9000, paidTonightCount: 1, earnedTonightCents: 9000 }),
     ]);
@@ -221,9 +223,11 @@ describe('cierre de la noche con arqueo de caja (Postgres real)', () => {
     );
     expect(needsAck).toMatchObject({ code: 'NIGHT_CLOSE_NEEDS_ACK', missing: ['efectivo'] });
 
+    // Contó 55 €, vio lo esperado y volvió a contar: 60 €. El Z guarda los dos.
     const closed = await asStaff(caja.id, () =>
       nights.close(caja.id, { userId: caja.manager, role: 'MANAGER' }, night0, {
         cashCountedCents: 6000,
+        cashFirstCountedCents: 5500,
         acknowledged: ['efectivo'],
         cashNote: 'faltan 5 € del cambio',
       }),
@@ -235,6 +239,7 @@ describe('cierre de la noche con arqueo de caja (Postgres real)', () => {
       chicaCashPayoutsCents: 9000,
       expectedCents: 6500,
       countedCents: 6000,
+      firstCountedCents: 5500,
       diffCents: -500,
       note: 'faltan 5 € del cambio',
     });

@@ -66,17 +66,23 @@ describe('página del QR de activación', () => {
     expect(() => new Function(js)).not.toThrow();
   });
 
-  it('ya usado: «Este enlace ya se ha usado. Pide otro en recepción.» (sin botones ni JS)', () => {
+  it('ya usado: «Este enlace ya se ha usado. Pide otro en recepción.», sin activar nada; solo «Ver mi saldo» con su Face ID', () => {
     const html = renderActivationPage(BASE, 'es', { state: 'used' });
     expect(html).toContain('Este enlace ya se ha usado. Pide otro en recepción.');
     expect(html).not.toContain('id="faceOn"');
-    expect(html).not.toContain('passkey');
+    expect(html).not.toContain('/passkey');
+    // Lo suele volver a abrir quien ya lo activó: a su saldo con su llave (my-balance.ts).
+    expect(html).toContain('id="npMine" hidden>Ver mi saldo</button>');
+    for (const part of html.split('<script>').slice(1)) {
+      expect(() => new Function(part.slice(0, part.indexOf('</script>')))).not.toThrow();
+    }
   });
 
   it('caducado (o anulado, o que no existe): «Este enlace ha caducado. Pide otro en recepción.»', () => {
     const html = renderActivationPage(BASE, 'es', { state: 'expired' });
     expect(html).toContain('Este enlace ha caducado. Pide otro en recepción.');
     expect(html).not.toContain('id="faceOn"');
+    expect(html).not.toContain('id="npMine"');
   });
 
   it('en inglés, francés y portugués los mismos avisos', () => {

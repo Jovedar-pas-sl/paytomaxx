@@ -13,6 +13,7 @@ import {
   type ResolvedIncident,
   type ResolvedLog,
 } from './incident-inbox';
+import { UNDO_RESOLVE_MS, createDelayedActions, type DelayedActions, type PendingResolve } from './undo-resolve';
 import { usePolling } from './use-polling';
 
 /** Suave: es para el globo de la barra y la franja; la pestaña refresca al abrirse. */
@@ -27,8 +28,18 @@ export interface IncidentsFeed {
   /** Resueltas hoy (día del local) vistas desde este dispositivo, lo último primero. */
   resolved: ResolvedIncident[];
   refresh: () => void;
-  /** Marcar como revisada (solo el dueño). Lanza el error del API si falla. */
-  resolve: (incident: Incident, note?: string) => Promise<void>;
+  /**
+   * Marcar como revisada (solo el dueño). Se manda pasados 10 s (B11): hasta
+   * entonces sale en `pending` y se puede deshacer. Si el API falla, vuelve a
+   * la bandeja con su error en `failed`.
+   */
+  resolve: (incident: Incident, note?: string) => void;
+  /** Las marcadas que aún se pueden deshacer. */
+  pending: readonly PendingResolve[];
+  /** «Deshacer»: la marcada vuelve a la bandeja sin mandarse. */
+  undo: (key: string) => void;
+  /** Error del último intento de marcarla, por aviso. */
+  failed: Readonly<Record<string, string>>;
 }
 
 const EMPTY_FEED: IncidentsFeed = {
@@ -37,7 +48,10 @@ const EMPTY_FEED: IncidentsFeed = {
   error: null,
   resolved: [],
   refresh: () => undefined,
-  resolve: async () => undefined,
+  resolve: () => undefined,
+  pending: [],
+  undo: () => undefined,
+  failed: {},
 };
 
 export const IncidentsContext = createContext<IncidentsFeed>(EMPTY_FEED);
@@ -102,17 +116,62 @@ export function useIncidentsFeed(tenantId: string, timezone: string): IncidentsF
     [tenantId],
   );
 
-  const resolve = useCallback(
-    async (incident: Incident, note?: string) => {
-      await ackIncident({ kind: incident.kind, refId: incident.refId, ...(note ? { note } : {}) });
+  // «Resolver» con 10 s para deshacer (B11).
+  const [pending, setPending] = useState<PendingResolve[]>([]);
+  const [failed, setFailed] = useState<Record<string, string>>({});
+  const delayed = useRef<DelayedActions | null>(null);
+  delayed.current ??= createDelayedActions();
+  // Al cerrar la pestaña, lo marcado se manda ya (con keepalive, para que llegue).
+  const leaving = useRef(false);
+
+  const commit = useCallback(
+    async (incident: Incident, note: string | undefined) => {
       const key = incidentKey(incident);
-      record([{ ...toResolved(incident, 'ack'), ...(note ? { note } : {}) }]);
-      lastItems.current = lastItems.current?.filter((i) => incidentKey(i) !== key) ?? null;
-      setData((prev) => (prev ? { ...prev, items: prev.items.filter((i) => incidentKey(i) !== key) } : prev));
-      refresh();
+      try {
+        await ackIncident(
+          { kind: incident.kind, refId: incident.refId, ...(note ? { note } : {}) },
+          { keepalive: leaving.current },
+        );
+        record([{ ...toResolved(incident, 'ack'), ...(note ? { note } : {}) }]);
+        lastItems.current = lastItems.current?.filter((i) => incidentKey(i) !== key) ?? null;
+        setData((prev) => (prev ? { ...prev, items: prev.items.filter((i) => incidentKey(i) !== key) } : prev));
+        refresh();
+      } catch (err) {
+        setFailed((prev) => ({ ...prev, [key]: (err as Error).message }));
+      } finally {
+        setPending((prev) => prev.filter((p) => p.key !== key));
+      }
     },
     [record, refresh],
   );
+  // El temporizador llama a la versión de ahora (no a la de cuando se marcó).
+  const commitRef = useRef(commit);
+  commitRef.current = commit;
+
+  const resolve = useCallback((incident: Incident, note?: string) => {
+    const key = incidentKey(incident);
+    setFailed((prev) => (key in prev ? withoutKey(prev, key) : prev));
+    setPending((prev) => [...prev.filter((p) => p.key !== key), { key, until: Date.now() + UNDO_RESOLVE_MS }]);
+    delayed.current?.schedule(key, () => void commitRef.current(incident, note), UNDO_RESOLVE_MS);
+  }, []);
+
+  const undo = useCallback((key: string) => {
+    if (delayed.current?.cancel(key)) setPending((prev) => prev.filter((p) => p.key !== key));
+  }, []);
+
+  // Cerrar la pestaña o salir del panel: lo marcado no se pierde.
+  useEffect(() => {
+    const queue = delayed.current;
+    const onLeave = () => {
+      leaving.current = true;
+      queue?.flush();
+    };
+    window.addEventListener('pagehide', onLeave);
+    return () => {
+      window.removeEventListener('pagehide', onLeave);
+      queue?.flush();
+    };
+  }, []);
 
   const resolved = useMemo(() => resolvedToday(log, dayInZone(new Date(), timezone)), [log, timezone]);
 
@@ -124,9 +183,13 @@ export function useIncidentsFeed(tenantId: string, timezone: string): IncidentsF
   }, [data, resolved]);
 
   return useMemo(
-    () => ({ open, telegram: data?.telegram ?? false, error, resolved, refresh, resolve }),
-    [open, data?.telegram, error, resolved, refresh, resolve],
+    () => ({ open, telegram: data?.telegram ?? false, error, resolved, refresh, resolve, pending, undo, failed }),
+    [open, data?.telegram, error, resolved, refresh, resolve, pending, undo, failed],
   );
+}
+
+function withoutKey(map: Readonly<Record<string, string>>, key: string): Record<string, string> {
+  return Object.fromEntries(Object.entries(map).filter(([k]) => k !== key));
 }
 
 function toResolved(i: Incident, how: ResolvedIncident['how']): ResolvedIncident {

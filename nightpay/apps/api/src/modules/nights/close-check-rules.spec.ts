@@ -178,7 +178,9 @@ describe('4 · efectivo (sin contar aún)', () => {
       expectedCents: 8000,
     });
     expect(s.status).toBe('block');
-    expect(s.detail).toContain('debería haber 80,00 €');
+    // A ciegas: el texto no dice lo que debería haber.
+    expect(s.detail).toContain('escribe lo contado');
+    expect(s.detail).not.toContain('80,00');
     expect(s.count).toBe(3);
     expect(s.items.map((i) => i.amountCents)).toEqual([-3000, -9000]);
   });

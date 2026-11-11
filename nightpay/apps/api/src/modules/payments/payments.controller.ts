@@ -6,6 +6,7 @@ import {
   Header,
   HttpCode,
   Inject,
+  NotFoundException,
   Param,
   ParseUUIDPipe,
   Post,
@@ -31,6 +32,7 @@ import { ZodValidationPipe } from '../../common/pipes/zod.pipe';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import type { JwtPayload } from '@nightpay/contracts';
 import { PaymentsService } from './payments.service';
+import { mayReadCobro } from './payment-read-access';
 import { staffBankRef, type StaffBankRef } from './staff-bank-ref';
 
 @Controller('payments')
@@ -118,13 +120,17 @@ export class PaymentsController {
   }
 
   /**
-   * Detalle interno (admin/manager) — pasa por Prisma middleware tenant filter.
+   * Detalle interno — pasa por Prisma middleware tenant filter. El dueño y el
+   * encargado, cualquiera del local; el camarero, solo los suyos (uno de otra
+   * persona, 404: antes enseñaba cualquier cobro).
    */
   @Get(':id')
   @UseGuards(RolesGuard)
   @Roles('OWNER', 'MANAGER', 'WAITER')
-  async findOne(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() _user: JwtPayload) {
-    return this.payments.findById(id);
+  async findOne(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: JwtPayload) {
+    const payment = await this.payments.findById(id);
+    if (!mayReadCobro({ userId: user.sub, role: user.role }, payment.createdByUserId)) throw new NotFoundException('Payment not found');
+    return payment;
   }
 
   /**

@@ -148,6 +148,11 @@ export const CloseNightSchema = z.object({
   /** Efectivo contado en la caja (obligatorio si hubo efectivo o fondo). */
   cashCountedCents: CashCentsSchema.optional(),
   /**
+   * Cierre a ciegas: el primer recuento (el de «Ver si cuadra»), si después se
+   * volvió a contar («Volver a contar»). El Z y el registro guardan los dos.
+   */
+  cashFirstCountedCents: CashCentsSchema.optional(),
+  /**
    * Fondo de caja, si no se puso al abrir. Cambiar el que se apuntó al abrir
    * lo aprueba el dueño con su 2FA (`totpCode`); si no, bloquea el cierre.
    */
@@ -210,7 +215,7 @@ export interface CashOutcome {
  *    el dueño con su 2FA): si no, quien cierra cuadra la caja cambiando el fondo;
  *  - salió efectivo y nadie dijo el fondo → bloquea (sin fondo, lo esperado sería negativo);
  *  - lo esperado sale negativo → bloquea (salió más de lo que entró más el fondo);
- *  - hay que contar y no se ha contado → bloquea;
+ *  - hay que contar y no se ha contado → bloquea (sin decir lo esperado: cierre a ciegas);
  *  - contado ≠ esperado → aviso (se confirma y la diferencia va al Z);
  *  - cuadra → ok.
  */
@@ -255,7 +260,8 @@ export function evaluateCash(cash: NightCash, input: CashInput = {}): CashOutcom
       ...base,
       reason: 'count-missing',
       status: 'block',
-      detail: `Cuenta el efectivo de la caja: debería haber ${eur(expectedCents)}.`,
+      // Cierre a ciegas (B9): lo esperado no se dice hasta que se cuenta.
+      detail: 'Cuenta el efectivo de la caja y escribe lo contado: lo que debería haber sale después.',
     };
   }
   if (diffCents !== null && diffCents !== 0) {

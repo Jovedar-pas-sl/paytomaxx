@@ -1,3 +1,4 @@
+import { stepUpActions } from '@nightpay/contracts';
 import {
   BadRequestException,
   Body,
@@ -503,7 +504,7 @@ export class AdminController {
       );
     }
 
-    if (body.decision === 'AUTHORIZED') await this.totp.assertForUser(user.sub, body.totpCode);
+    if (body.decision === 'AUTHORIZED') await this.totp.assertForUser(user.sub, body.totpCode, stepUpActions.resolvePayment(payment.id));
     const authCode = body.decision === 'AUTHORIZED' ? body.bankAuthCode ?? null : null;
     try {
       if (body.decision === 'AUTHORIZED') {
@@ -871,7 +872,7 @@ export class AdminController {
     // (una sesión robada no basta para mandar su dinero a otra cuenta); el
     // encargado que paga directo, siempre. Intentos y códigos usados en
     // Redis: valen entre réplicas del API.
-    if (route.twoFactor === 'required') await this.totp.assertForUser(user.sub, dto.totpCode);
+    if (route.twoFactor === 'required') await this.totp.assertForUser(user.sub, dto.totpCode, stepUpActions.operatorPayout(id));
     else await this.totp.assertIfEnrolledForUser(user.sub, dto.totpCode);
     return this.operators.createPayout(tenantId, id, user.sub, dto.notes, {
       externalTxId: dto.externalTxId,

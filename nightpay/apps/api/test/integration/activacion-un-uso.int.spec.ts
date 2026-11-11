@@ -52,7 +52,7 @@ const cards = new WalletCardsService(prisma, audit);
 const charges = new WalletChargesService(prisma as never, audit, { get: () => ({}) } as never, totp as never);
 const links = new WalletActivationLinkService(prisma, audit, passkeys, { get: () => ORIGIN } as never);
 const uses = new WalletActivationUseService(prisma, passkeys, charges, audit);
-const cardView = new WalletCardViewService(prisma, passkeys);
+const cardView = new WalletCardViewService(prisma, passkeys, {} as never, {} as never, { get: () => "" } as never);
 
 const inVenue = <T>(tenantId: string | undefined, fn: () => Promise<T>): Promise<T> =>
   cls.run(async () => {

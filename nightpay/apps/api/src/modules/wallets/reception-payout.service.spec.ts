@@ -101,6 +101,21 @@ describe('la página del cliente', () => {
     expect(gone).not.toContain('<script>');
   });
 
+  it('confirmada (al abrirla o al confirmar aquí): «Ver mi saldo» con su Face ID; el JS es válido', () => {
+    const done = renderPayoutConfirmPage('/w/salida/tok', 'es', { amountCents: 3_500, venueName: '', confirmed: true });
+    expect(done).toContain('id="npMine" hidden>Ver mi saldo</button>');
+    expect(done).toMatch(/^npMineShow[(]true[)];$/m);
+    const ask = renderPayoutConfirmPage('/w/salida/tok', 'es', { amountCents: 3_500, venueName: '', confirmed: false });
+    expect(ask).toContain('id="npMine" hidden');
+    expect(ask).not.toMatch(/^npMineShow[(]true[)];$/m);
+    expect(ask).toContain('if(window.npMineShow)window.npMineShow(true);');
+    for (const html of [done, ask]) {
+      for (const part of html.split('<script>').slice(1)) {
+        expect(() => new Function(part.slice(0, part.indexOf('</script>')))).not.toThrow();
+      }
+    }
+  });
+
   it('el controlador sirve la página (404 si ya no vale) y pasa reto y firma al servicio', async () => {
     const payouts = { confirmView: vi.fn(async () => null), challenge: vi.fn(async () => ({ c: 1 })), confirm: vi.fn(async () => ({ amountCents: 1 })) };
     const ctrl = new PublicPayoutConfirmController(payouts as never);

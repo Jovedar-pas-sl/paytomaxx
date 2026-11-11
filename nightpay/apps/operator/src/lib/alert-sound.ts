@@ -69,7 +69,7 @@ export function playAlertBeep(): void {
  * caducado). «warn»: algo que mirar sin estar mirando la pantalla (una ficha
  * que hay que apartar).
  */
-export type OutcomeSound = 'paid' | 'failed' | 'warn';
+export type OutcomeSound = 'paid' | 'failed' | 'warn' | 'ficha';
 
 const OUTCOME_NOTES: Record<OutcomeSound, readonly Note[]> = {
   // Do6 → Sol6: se oye por encima de la música.
@@ -84,6 +84,12 @@ const OUTCOME_NOTES: Record<OutcomeSound, readonly Note[]> = {
     { freq: 330, at: 0, duration: 0.18, type: 'triangle', gain: 0.35 },
     { freq: 330, at: 0.26, duration: 0.18, type: 'triangle', gain: 0.35 },
   ],
+  // Ficha dada (B5): tres notas cortas que bajan, distintas de pagado (dos que suben).
+  ficha: [
+    { freq: 1319, at: 0, duration: 0.1 },
+    { freq: 1175, at: 0.12, duration: 0.1 },
+    { freq: 988, at: 0.24, duration: 0.18 },
+  ],
 };
 
 /** Vibración (solo Android: iPhone no la tiene en la web). */
@@ -91,6 +97,7 @@ const OUTCOME_VIBRATION: Record<OutcomeSound, number[]> = {
   paid: [60, 50, 120],
   failed: [350],
   warn: [200, 100, 200],
+  ficha: [40, 40, 40, 40, 40],
 };
 
 /** Sonido y vibración al cobrar del local (Ajustes → Noche). De fábrica, los dos. */

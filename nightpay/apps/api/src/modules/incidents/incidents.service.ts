@@ -6,8 +6,10 @@ import { AuditService } from '../audit/audit.service';
 import { BackupMonitorService } from '../db-backups/backup-monitor.service';
 import { paymentBankHeldSql } from '../operators/bank-hold-sql';
 import {
+  MIN_ACK_NOTE_LENGTH,
   SELF_RESOLVING,
   ackKey,
+  ackNeedsNote,
   duplicateChargeIncident,
   cashSplitIncident,
   sensitiveActionIncident,
@@ -420,7 +422,9 @@ export class IncidentsService {
         ? backupIncidents(await this.backups.verdict(now), now, process.env.NODE_ENV === 'production')
         : []),
     ];
-    return openIncidents(all, new Set(acks.map((a) => ackKey(a.kind, a.refId))));
+    const open = openIncidents(all, new Set(acks.map((a) => ackKey(a.kind, a.refId))));
+    // Los de dinero se cierran escribiendo qué se hizo (B11).
+    return open.map((i) => ({ ...i, noteRequired: i.ackable && ackNeedsNote(i) }));
   }
 
   /** El dueño la revisó: se quita de la bandeja (queda en el registro). */
@@ -433,8 +437,16 @@ export class IncidentsService {
       throw new BadRequestException('Este aviso se quita solo al resolver el cobro en Hoy → Cobros');
     }
     const current = await this.list(tenantId);
-    if (!current.some((i) => i.kind === input.kind && i.refId === input.refId)) {
+    const found = current.find((i) => i.kind === input.kind && i.refId === input.refId);
+    if (!found) {
       throw new NotFoundException('Esa incidencia no está en la bandeja de este local');
+    }
+    // Aviso de dinero (B11): se cierra diciendo qué se hizo.
+    if (ackNeedsNote(found) && (input.note?.trim().length ?? 0) < MIN_ACK_NOTE_LENGTH) {
+      throw new BadRequestException({
+        message: 'Es un aviso de dinero: escribe qué has hecho para cerrarlo.',
+        code: 'INCIDENT_NOTE_REQUIRED',
+      });
     }
     await this.prisma.incidentAck.upsert({
       where: { tenantId_kind_refId: { tenantId, kind: input.kind, refId: input.refId } },

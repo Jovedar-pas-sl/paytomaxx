@@ -22,6 +22,7 @@ import { SectionChip } from './fichas/SectionChip';
 import { Notice } from './Notice';
 import { PendingTopUps } from './PendingTopUps';
 import { Pill, type Tone } from './Pill';
+import { WalletPhoneSearch } from './WalletPhoneSearch';
 import { RecentCashTopUps } from './RecentCashTopUps';
 import { ChargeWithoutFaceIdModal, CodeSearch, PayoutModal, RelinkModal, ResetPinModal, type PayoutTarget } from './WalletModals';
 
@@ -128,6 +129,8 @@ export function WalletsPanel({ isOwner }: Props) {
         </Notice>
       ) : null}
       {actionError ? <Notice tone="danger">{actionError}</Notice> : null}
+
+      <WalletPhoneSearch />
 
       {stats ? (
         <>

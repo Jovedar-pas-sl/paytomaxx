@@ -45,6 +45,9 @@ describe('otras credenciales en la URL', () => {
       '/ok?Ds_SignatureVersion=HMAC&Ds_MerchantParameters=***&Ds_Signature=***',
     );
     expect(redactSecretsInUrl('/x?token=t&lang=es')).toBe('/x?token=***&lang=es');
+    // El teléfono del cliente es un dato personal: tapado si alguien lo pone en la URL.
+    expect(redactSecretsInUrl('/v1/reception/wallets/by-phone?phone=600123456')).toBe('/v1/reception/wallets/by-phone?phone=***');
+    expect(redactSecretsInUrl('/x?Telefono=%2B34600123456&lang=es')).toBe('/x?Telefono=***&lang=es');
   });
 
   it('URLs completas (llamadas salientes): token del bot de Telegram en la ruta', () => {

@@ -105,7 +105,8 @@ export interface ReceptionBackend {
   wallet(walletId: string): Promise<ReceptionWallet>;
   /** Da la ficha al saldo recién recargado (en el móvil va por su código). */
   link(wallet: ReceptionWallet, card: string, uid: string | null): Promise<ReceptionWallet>;
-  setPin(wallet: ReceptionWallet, pin: string): Promise<ReceptionWallet>;
+  /** `card` (B10, solo en el móvil): la ficha leída al recargar un saldo que ya existía. */
+  setPin(wallet: ReceptionWallet, pin: string, card?: { card: string; uid: string | null } | null): Promise<ReceptionWallet>;
   /** Código nuevo para grabar en una ficha en blanco. */
   newToken(): Promise<string>;
   /** La ficha acercada en «Preparar fichas», al stock. */
@@ -144,7 +145,7 @@ export const staffBackend: ReceptionBackend = {
   cash: receptionCashTopUp,
   wallet: async (walletId) => receptionWalletOf(await fetchWalletById(walletId)),
   link: async (w, card, uid) => receptionWalletOf(await linkWalletCard(w.code, card, uid)),
-  setPin: async (w, pin) => receptionWalletOf(await setWalletPin(w.code, pin)),
+  setPin: async (w, pin, card) => receptionWalletOf(await setWalletPin(w.code, pin, card)),
   newToken: receptionFichaToken,
   stock: receptionFichaStock,
   labelStock: receptionFichaNumber,

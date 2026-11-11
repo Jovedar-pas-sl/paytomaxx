@@ -38,11 +38,13 @@ function reply() {
   return { res, out };
 }
 
-function make(o: { page?: HomeTopUpPageView | null; href?: string | null } = {}) {
+function make(o: { page?: HomeTopUpPageView | null; href?: string | null; refused?: boolean } = {}) {
   const homeTopUps = {
     page: vi.fn(async () => (o.page === undefined ? view : o.page)),
     mySaldoHref: vi.fn(async () => o.href ?? null),
     start: vi.fn(async () => ({ payToken: 'payTok', payUrl: '/pay/payTok?lang=fr' })),
+    queueDevice: vi.fn(() => 'dev-1'),
+    queueDeviceSetCookie: vi.fn(async () => (o.refused ? { cookie: null, refused: true } : { cookie: 'np_cola=nuevo; Path=/r', refused: false })),
   };
   return { controller: new PublicHomeTopUpController(homeTopUps as never), homeTopUps };
 }
@@ -52,7 +54,9 @@ describe('PublicHomeTopUpController (/r/:code)', () => {
     const { controller, homeTopUps } = make();
     const { res, out } = reply();
     await controller.page(CODE, 'pt', 'np_saldos=x', res as never);
-    expect(homeTopUps.page).toHaveBeenCalledWith(CODE, 'np_saldos=x');
+    expect(homeTopUps.page).toHaveBeenCalledWith(CODE, 'np_saldos=x', undefined);
+    // Sin el cartel, sin la cookie del móvil.
+    expect(homeTopUps.queueDeviceSetCookie).not.toHaveBeenCalled();
     expect(out.status).toBe(200);
     expect(out.headers['cache-control']).toEqual(['no-store']);
     expect(out.headers['referrer-policy']).toEqual(['no-referrer']);
@@ -89,6 +93,38 @@ describe('PublicHomeTopUpController (/r/:code)', () => {
       payUrl: '/pay/payTok?lang=fr',
     });
     expect(homeTopUps.start).toHaveBeenCalledWith(CODE, { amountCents: 5000, key: 'k1234567890abcdef', lang: 'fr', ip: '203.0.113.7' });
+  });
+
+  it('con el QR del cartel de esta noche: la cookie del móvil; con uno de otra noche, no', async () => {
+    const tonight = make({ page: { ...view, queue: { token: '20.abc' } } });
+    const a = reply();
+    await tonight.controller.page(CODE, 'es', undefined, a.res as never, '20.abc', { headers: {}, ip: '10.0.0.1' } as never);
+    expect(tonight.homeTopUps.page).toHaveBeenCalledWith(CODE, undefined, '20.abc');
+    expect(tonight.homeTopUps.queueDeviceSetCookie).toHaveBeenCalledWith(CODE, undefined, '10.0.0.1');
+    expect(a.out.headers['set-cookie']).toContain('np_cola=nuevo; Path=/r');
+    const old = make({ page: { ...view, queue: { expired: true } } });
+    const b = reply();
+    await old.controller.page(CODE, 'es', undefined, b.res as never, '19.abc');
+    expect(old.homeTopUps.queueDeviceSetCookie).not.toHaveBeenCalled();
+  });
+
+  it('muchos móviles nuevos desde la misma IP esta noche: sin cookie, lo dice y carga como el enlace de siempre', async () => {
+    const full = make({ page: { ...view, queue: { token: '20.abc' } }, refused: true });
+    const { res, out } = reply();
+    await full.controller.page(CODE, 'es', undefined, res as never, '20.abc', { headers: {}, ip: '10.0.0.1' } as never);
+    expect(out.headers['set-cookie'] ?? []).not.toContainEqual(expect.stringContaining('np_cola='));
+    const html = String(out.body);
+    expect(html).toContain('Desde esta conexión ya se han abierto muchas cargas del cartel esta noche');
+    // Sin el QR en la página: «Cargar» va por /topup (con su tope por IP), no por /cola.
+    expect(html).not.toContain('20.abc');
+  });
+
+  it('«Cargar» desde el cartel: el QR y el móvil de la cookie van al servicio', async () => {
+    const { controller, homeTopUps } = make();
+    const out = await controller.startFromQueue(CODE, { amountCents: 5000, key: 'k', lang: 'es', queue: '20.abc' }, 'np_cola=x', { headers: {}, ip: '10.0.0.1' } as never);
+    expect(out).toEqual({ payUrl: '/pay/payTok?lang=fr' });
+    expect(homeTopUps.start).toHaveBeenCalledWith(CODE, expect.objectContaining({ queue: { token: '20.abc', deviceId: 'dev-1' } }));
+    expect(homeTopUps.queueDevice).toHaveBeenCalledWith('np_cola=x');
   });
 
   it('públicas y con su freno por IP (y por IP y local al cargar)', () => {

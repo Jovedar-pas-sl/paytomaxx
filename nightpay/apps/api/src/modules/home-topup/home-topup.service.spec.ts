@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { BadRequestException, ConflictException, HttpException, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
 import { HomeTopUpService } from './home-topup.service';
 import { homeTopUpDay, homeTopUpKey, rememberSetCookie } from './home-topup-rules';
+import { QUEUE_COOKIES_PER_IP_MAX, QUEUE_DEVICE_MAX, QUEUE_IP_NIGHT_MAX, QUEUE_NIGHT_MAX, queueOpenKey, queueToken } from './home-topup-queue';
 
 const SECRET = 'secreto-de-cookies-de-prueba-0123456789';
 const CODE = 'AbCdEfGhIjKlMnOp';
@@ -22,6 +23,8 @@ interface Opts {
   /** Cuenta de partida de una clave concreta (si no, redisCount). */
   redisStart?: (key: string) => number | undefined;
   created?: Record<string, unknown>;
+  /** ¿Sigue sin pagar la carga de antes del móvil? (payment.count por id) */
+  openLoad?: boolean;
 }
 
 function make(o: Opts = {}) {
@@ -35,7 +38,7 @@ function make(o: Opts = {}) {
     terminal: { findFirst: vi.fn(async () => (o.terminal === undefined ? { externalId: 'T1' } : o.terminal)) },
     payment: {
       findUnique: vi.fn(async () => (o.replay ? { id: 'p0' } : null)),
-      count: vi.fn(async () => o.unresolved ?? 0),
+      count: vi.fn(async (args?: { where?: { id?: string } }) => (args?.where?.id ? (o.openLoad ? 1 : 0) : (o.unresolved ?? 0))),
     },
     clientWallet: { findMany: vi.fn(async () => o.wallets ?? []) },
   };
@@ -53,6 +56,7 @@ function make(o: Opts = {}) {
   };
   const payments = { create: vi.fn(async () => created) };
   const counts = new Map<string, number>();
+  const store = new Map<string, string>();
   const redis = {
     incr: vi.fn(async (key: string) => {
       if (o.redisFails) throw new Error('redis caído');
@@ -66,10 +70,20 @@ function make(o: Opts = {}) {
       return n;
     }),
     expire: vi.fn(async () => 1),
+    // La carga sin pagar de cada móvil del cartel (SET NX).
+    set: vi.fn(async (key: string, value: string, ...flags: unknown[]) => {
+      if (o.redisFails) throw new Error('redis caído');
+      if (flags.includes('NX') && store.has(key)) return null;
+      store.set(key, value);
+      return 'OK';
+    }),
+    get: vi.fn(async (key: string) => store.get(key) ?? null),
+    del: vi.fn(async (key: string) => (store.delete(key) ? 1 : 0)),
   };
   const config = { get: vi.fn(() => SECRET) };
-  const service = new HomeTopUpService(prisma as never, payments as never, redis as never, config as never);
-  return { service, tx, prisma, payments, redis };
+  const audit = { log: vi.fn(async () => undefined) };
+  const service = new HomeTopUpService(prisma as never, payments as never, redis as never, config as never, audit as never);
+  return { service, tx, prisma, payments, redis, audit };
 }
 
 const start = (s: HomeTopUpService, input: Partial<{ amountCents: unknown; key: unknown; ip: string | null }> = {}) =>
@@ -307,5 +321,128 @@ describe('HomeTopUpService.start', () => {
       const err = await start(make({ replay: true, created }).service).catch((e: unknown) => e);
       expect((err as ConflictException).getResponse()).toMatchObject({ code: 'WALLET_TOPUP_STALE' });
     }
+  });
+});
+
+describe('desde el cartel de la cola (B16)', () => {
+  const tonight = () => queueToken(SECRET, VENUE, CODE);
+  const fromQueue = (m: ReturnType<typeof make>, queue: { token: unknown; deviceId: string | null }, ip: string | null = '10.0.0.7') =>
+    m.service.start(CODE, { amountCents: 5000, key: KEY, lang: 'es', ip, queue });
+
+  it('sin el tope de 24 h por IP de /r (la cola sale por el wifi): cuenta su IP esta noche, el móvil y la noche, y queda en el registro', async () => {
+    const m = make();
+    await expect(fromQueue(m, { token: tonight(), deviceId: 'dev-1' })).resolves.toMatchObject({ payToken: 'payTok' });
+    const keys = m.redis.incr.mock.calls.map((c) => String(c[0]));
+    expect(keys.some((k) => k.startsWith('np:home-topup:ip'))).toBe(false);
+    expect(keys.some((k) => k.startsWith(`np:home-topup:queue-ip:${VENUE}:10.0.0.7:`))).toBe(true);
+    expect(keys.some((k) => k.includes('queue-device') && k.includes('dev-1'))).toBe(true);
+    expect(keys.some((k) => k.includes('queue-night'))).toBe(true);
+    expect(m.audit.log).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'home_topup.queue', tenantId: VENUE, targetId: 'p1', payload: expect.objectContaining({ amountCents: 5000 }) }),
+    );
+  });
+
+  it('un QR de otra noche (o inventado): 400 y no se crea nada', async () => {
+    const m = make();
+    for (const token of ['1.AAAAAAAAAAAAAAAAAAAAAA', 'x', undefined]) {
+      await expect(fromQueue(m, { token, deviceId: 'dev-1' })).rejects.toMatchObject({ response: expect.objectContaining({ code: 'HOME_TOPUP_QUEUE_EXPIRED' }) });
+    }
+    expect(m.payments.create).not.toHaveBeenCalled();
+  });
+
+  it('sin la cookie del móvil: 400 (no se carga sin tope por móvil)', async () => {
+    const m = make();
+    await expect(fromQueue(m, { token: tonight(), deviceId: null })).rejects.toMatchObject({ response: expect.objectContaining({ code: 'HOME_TOPUP_QUEUE_COOKIE' }) });
+    expect(m.payments.create).not.toHaveBeenCalled();
+  });
+
+  it('pasado el tope del móvil o el de la noche: 429, se devuelve el hueco y no se crea nada', async () => {
+    const device = make({ redisStart: (k) => (k.includes('queue-device') ? QUEUE_DEVICE_MAX : undefined) });
+    const e1 = await fromQueue(device, { token: tonight(), deviceId: 'dev-1' }).catch((e: HttpException) => e);
+    expect((e1 as HttpException).getStatus()).toBe(429);
+    expect((e1 as HttpException).getResponse()).toMatchObject({ code: 'HOME_TOPUP_QUEUE_DEVICE' });
+    // Los del móvil y la noche, y el de la IP esta noche.
+    expect(device.redis.decr).toHaveBeenCalledTimes(3);
+    const night = make({ redisStart: (k) => (k.includes('queue-night') ? QUEUE_NIGHT_MAX : undefined) });
+    await expect(fromQueue(night, { token: tonight(), deviceId: 'dev-2' })).rejects.toMatchObject({ response: expect.objectContaining({ code: 'HOME_TOPUP_QUEUE_NIGHT' }) });
+    expect([...device.payments.create.mock.calls, ...night.payments.create.mock.calls]).toHaveLength(0);
+  });
+
+  it('si la carga no llega a empezar, los huecos de la IP, del móvil y de la noche se devuelven, y el de la carga sin pagar se suelta', async () => {
+    const m = make({ unresolved: 99 });
+    await expect(fromQueue(m, { token: tonight(), deviceId: 'dev-1' })).rejects.toBeDefined();
+    const back = m.redis.decr.mock.calls.map((c) => String(c[0]));
+    expect(back.some((k) => k.includes('queue-ip'))).toBe(true);
+    expect(back.some((k) => k.includes('queue-device'))).toBe(true);
+    expect(back.some((k) => k.includes('queue-night'))).toBe(true);
+    expect(m.redis.del).toHaveBeenCalledWith(queueOpenKey(VENUE, 'dev-1'));
+    expect(m.audit.log).not.toHaveBeenCalled();
+  });
+
+  it(`por IP y noche, como mucho ${QUEUE_IP_NIGHT_MAX} cargas desde el cartel: después, 429 y no se crea nada`, async () => {
+    const m = make({ redisStart: (k) => (k.includes('queue-ip') ? QUEUE_IP_NIGHT_MAX : undefined) });
+    const err = await fromQueue(m, { token: tonight(), deviceId: 'dev-1' }).catch((e: HttpException) => e);
+    expect((err as HttpException).getStatus()).toBe(429);
+    expect((err as HttpException).getResponse()).toMatchObject({ code: 'HOME_TOPUP_QUEUE_IP' });
+    expect(m.payments.create).not.toHaveBeenCalled();
+    // Sin IP de fiar no se cuenta (como el tope de /r).
+    const noIp = make({ redisStart: (k) => (k.includes('queue-ip') ? QUEUE_IP_NIGHT_MAX : undefined) });
+    await expect(fromQueue(noIp, { token: tonight(), deviceId: 'dev-1' }, null)).resolves.toBeTruthy();
+  });
+
+  it('como mucho una carga sin pagar a la vez por móvil; pagada o caducada, ya puede cargar otra', async () => {
+    const m = make({ openLoad: true });
+    await expect(fromQueue(m, { token: tonight(), deviceId: 'dev-1' })).resolves.toBeTruthy();
+    // La segunda (otra clave), con la primera sin pagar: 409 y no se crea; los huecos se devuelven.
+    const again = (key: string) => m.service.start(CODE, { amountCents: 2000, key, lang: 'es', ip: '10.0.0.7', queue: { token: tonight(), deviceId: 'dev-1' } });
+    await expect(again('k2234567890abcdef')).rejects.toMatchObject({ response: expect.objectContaining({ code: 'HOME_TOPUP_QUEUE_OPEN' }) });
+    expect(m.payments.create).toHaveBeenCalledTimes(1);
+    expect(m.redis.decr.mock.calls.map((c) => String(c[0])).some((k) => k.includes('queue-device'))).toBe(true);
+    // Otro móvil, sí.
+    await expect(m.service.start(CODE, { amountCents: 2000, key: 'k3234567890abcdef', lang: 'es', ip: '10.0.0.7', queue: { token: tonight(), deviceId: 'dev-2' } })).resolves.toBeTruthy();
+    // La primera ya no está sin pagar: el mismo móvil carga otra vez.
+    const paid = make({ openLoad: false });
+    await fromQueue(paid, { token: tonight(), deviceId: 'dev-1' });
+    await expect(paid.service.start(CODE, { amountCents: 2000, key: 'k2234567890abcdef', lang: 'es', ip: '10.0.0.7', queue: { token: tonight(), deviceId: 'dev-1' } })).resolves.toBeTruthy();
+    expect(paid.payments.create).toHaveBeenCalledTimes(2);
+  });
+
+  it('las del cartel se cuentan aparte: su clave `wcasa:cola:`, su freno y sus «a medias», que no paran /r', async () => {
+    const queue = make();
+    await fromQueue(queue, { token: tonight(), deviceId: 'dev-1' });
+    expect(queue.payments.create).toHaveBeenCalledWith(VENUE, expect.stringMatching(/^wcasa:cola:[0-9a-f]{64}$/), expect.anything());
+    expect(queue.redis.incr).toHaveBeenCalledWith(expect.stringMatching(new RegExp(`^np:home-topup:venue-cola:${VENUE}:[0-9]+$`)));
+    expect(queue.redis.incr).not.toHaveBeenCalledWith(expect.stringMatching(/^np:home-topup:venue:/));
+    expect(queue.tx.payment.count).toHaveBeenCalledWith({ where: expect.objectContaining({ idempotencyKey: { startsWith: 'wcasa:cola:' } }) });
+    // /r: sin las del cartel en sus «a medias» ni en su freno.
+    const link = make();
+    await start(link.service);
+    expect(link.payments.create).toHaveBeenCalledWith(VENUE, expect.stringMatching(/^wcasa:[0-9a-f]{64}$/), expect.anything());
+    expect(link.tx.payment.count).toHaveBeenCalledWith({
+      where: expect.objectContaining({ idempotencyKey: { startsWith: 'wcasa:' }, NOT: { idempotencyKey: { startsWith: 'wcasa:cola:' } } }),
+    });
+  });
+
+  it('la página: con el QR de esta noche, su token; con uno de otra, «de otra noche»', async () => {
+    const m = make();
+    expect((await m.service.page(CODE, undefined, tonight()))?.queue).toEqual({ token: tonight() });
+    expect((await m.service.page(CODE, undefined, '1.AAAAAAAAAAAAAAAAAAAAAA'))?.queue).toEqual({ expired: true });
+    expect((await m.service.page(CODE, undefined))?.queue).toBeUndefined();
+    // La cookie del móvil: nueva si no tiene; ninguna si ya la tiene (y entonces no cuenta).
+    const first = await m.service.queueDeviceSetCookie(CODE, undefined, '10.0.0.7');
+    expect(first).toMatchObject({ refused: false, cookie: expect.stringMatching(/^np_cola=/) });
+    const cookie = first.cookie!.split(';')[0];
+    expect(await m.service.queueDeviceSetCookie(CODE, cookie, '10.0.0.7')).toEqual({ cookie: null, refused: false });
+    expect(m.redis.incr).toHaveBeenCalledTimes(1);
+    expect(m.service.queueDevice(cookie)).toMatch(/^[A-Za-z0-9_-]{22}$/);
+  });
+
+  it(`como mucho ${QUEUE_COOKIES_PER_IP_MAX} móviles nuevos por IP y noche: después, sin cookie (y sin Redis, tampoco)`, async () => {
+    const full = make({ redisStart: (k) => (k.includes('queue-cookie') ? QUEUE_COOKIES_PER_IP_MAX : undefined) });
+    expect(await full.service.queueDeviceSetCookie(CODE, undefined, '10.0.0.7')).toEqual({ cookie: null, refused: true });
+    expect(full.redis.incr).toHaveBeenCalledWith(expect.stringMatching(new RegExp(`^np:home-topup:queue-cookie:${CODE}:10.0.0.7:[0-9]+$`)));
+    const fits = make({ redisStart: (k) => (k.includes('queue-cookie') ? QUEUE_COOKIES_PER_IP_MAX - 1 : undefined) });
+    expect((await fits.service.queueDeviceSetCookie(CODE, undefined, '10.0.0.7')).cookie).toMatch(/^np_cola=/);
+    expect(await make({ redisFails: true }).service.queueDeviceSetCookie(CODE, undefined, '10.0.0.7')).toEqual({ cookie: null, refused: true });
   });
 });

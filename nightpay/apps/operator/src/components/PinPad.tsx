@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, type CSSProperties } from 'react';
+import { useEffect, useState, type CSSProperties, type ReactNode } from 'react';
 import { Card } from '@nightpay/ui';
 import { WALLET_PIN_PROBLEM_TEXT, walletPinProblem } from '@nightpay/contracts';
 import { PIN_CHOOSE, PIN_CHOOSE_HINT, PIN_ENTER, PIN_REPEAT, keypadDigits } from '@/lib/pin-pad';
@@ -20,6 +20,10 @@ interface Props {
   /** Devuelve un mensaje si no ha valido (PIN malo…) o null si ya está. */
   onPin: (pin: string) => Promise<string | null>;
   onCancel: () => void;
+  /** La tecla de salir: «Cancelar» (de fábrica) o «Ahora no» (el PIN tras cargar, B1). */
+  cancelLabel?: string;
+  /** Encima del teclado: lo que acaba de pasar (p. ej. «Cargado 50 €»), para quien lo atiende. */
+  top?: ReactNode;
 }
 
 /**
@@ -29,7 +33,7 @@ interface Props {
  * de sitio en cada intento. Solo se ven puntos y no es un campo de texto (el
  * móvil no lo recuerda ni lo sugiere).
  */
-export function PinPad({ title, hint, mode, onPin, onCancel }: Props) {
+export function PinPad({ title, hint, mode, onPin, onCancel, cancelLabel = 'Cancelar', top = null }: Props) {
   const layout = useVenueNight().pinKeypad;
   const shuffled = layout === 'shuffled';
   const [keys, setKeys] = useState<string[]>(() => keypadDigits(layout));
@@ -81,6 +85,7 @@ export function PinPad({ title, hint, mode, onPin, onCancel }: Props) {
 
   return (
     <Card style={cardStyle}>
+      {top}
       <p style={kicker}>Para el cliente</p>
       <p style={titleStyle}>{title}</p>
       {hint ? <p style={hintStyle}>{hint}</p> : null}
@@ -108,7 +113,7 @@ export function PinPad({ title, hint, mode, onPin, onCancel }: Props) {
           </button>
         ))}
         <button type="button" style={{ ...key, ...sideKey }} onClick={onCancel} disabled={busy}>
-          Cancelar
+          {cancelLabel}
         </button>
         <button type="button" style={key} onClick={() => press(keys[9]!)} disabled={busy}>
           {keys[9]}

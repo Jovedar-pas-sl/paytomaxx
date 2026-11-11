@@ -1,5 +1,6 @@
 // Saldos de clientes (Phase 1B).
 
+import { STEP_UP_TOKEN_HEADER, type WalletByPhone } from '@nightpay/contracts';
 import { apiError, authedFetch, totpAwareError } from '../http';
 import type { WalletPayoutPreview, WalletPayoutResult } from '../wallet-payout';
 
@@ -35,6 +36,17 @@ export interface PendingQrCharge {
   requestedByName: string;
   createdAt: string;
   expiresAt: string;
+}
+
+/**
+ * Encargado o dueño: el saldo de quien lo ha perdido todo (la ficha y el
+ * código), por el teléfono que dejó al darle la ficha. Sin el teléfono.
+ */
+export async function findWalletsByPhone(phone: string): Promise<WalletByPhone[]> {
+  // En el cuerpo (POST), no en la URL: el teléfono no acaba en los logs.
+  const res = await authedFetch('/v1/reception/wallets/by-phone', { method: 'POST', body: JSON.stringify({ phone }) });
+  if (!res.ok) throw await apiError(res);
+  return res.json();
 }
 
 /** Encargado o dueño: cobros con QR sin pagar (cliente sin batería…). */
@@ -195,11 +207,13 @@ export async function fetchRecentCashTopUps(): Promise<RecentCashTopUp[]> {
 /** Anular un cobro pagado con saldo: encargado o dueño, siempre con motivo y su 2FA. */
 export async function reverseWalletCharge(
   target: { walletId: string; consumptionId: string },
-  input: { reason: string; totpCode: string },
+  input: { reason: string; totpCode?: string },
+  /** Sin 2FA: la prueba de la llave de acceso para esta anulación (stepUpActions.reverseConsumption). */
+  stepUpToken?: string,
 ): Promise<{ refundedCents: number; newBalanceCents: number }> {
   const res = await authedFetch(
     `/v1/wallets/${encodeURIComponent(target.walletId)}/consumptions/${encodeURIComponent(target.consumptionId)}/reverse`,
-    { method: 'POST', body: JSON.stringify(input) },
+    { method: 'POST', body: JSON.stringify(input), ...(stepUpToken ? { headers: { [STEP_UP_TOKEN_HEADER]: stepUpToken } } : {}) },
   );
   if (!res.ok) throw await totpAwareError(res);
   return res.json();

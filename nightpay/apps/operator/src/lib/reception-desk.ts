@@ -7,6 +7,8 @@
 import {
   fichaLabel,
   MAX_CASH_TOP_UP_CENTS,
+  RECENT_TOP_UP_MINUTES,
+  type RecentTopUp,
   NEW_FICHA_BY_NUMBER_MESSAGE,
   type ReceptionDeskSaldo,
   type ReceptionDeskView,
@@ -48,6 +50,12 @@ export async function topUpByNumber(body: ReceptionNumberTopUpDto): Promise<Rece
   const res = await authedFetch('/v1/reception/fichas/number-topup', { method: 'POST', body: JSON.stringify(body) });
   if (!res.ok) throw await operatorApiError(res, 'Ficha');
   return res.json();
+}
+
+/** El teléfono opcional al dar una ficha nueva (lo deja quien se la dio, en sus 15 min). */
+export async function saveContactPhone(walletId: string, phone: string): Promise<void> {
+  const res = await authedFetch(`/v1/reception/wallets/${encodeURIComponent(walletId)}/phone`, { method: 'POST', body: JSON.stringify({ phone }) });
+  if (!res.ok) throw new Error(await parseOperatorApiError(res, 'Teléfono'));
 }
 
 /** Por qué la ficha buscada por número no se carga aquí (null: se puede, en efectivo). */
@@ -94,10 +102,104 @@ export function deskRow(view: ReceptionDeskView, mode: 'entrada' | 'salida'): De
   return { title, detail: [left, saldo].filter(Boolean).join(' · ') };
 }
 
-/** El chip de 4.3: «Recarga · ficha nº 0522» (o «Recarga · K7Q-4M2» sin NFC, «Recarga · saldo nuevo»). */
+/** Debajo de la ficha leída en grande (A1): que mire el número de la que tiene en la mano. */
+export const FICHA_IN_HAND = 'Mira que es la que tienes en la mano';
+
+/**
+ * Buscada por su número (A6): el número se teclea y una cifra mal es la ficha
+ * de otro. Que se compare con la ficha y se pregunte al cliente lo que tiene.
+ */
+export const FICHA_CHECK = 'Compruébalo con la ficha';
+
+/**
+ * «¿Le quedan unos 35 €?» (A6): lo que se le pregunta al cliente para saber
+ * que es la suya, redondeado como lo recuerda (a 5 € desde 10 €; por debajo,
+ * al euro). Sin decirle la cifra exacta.
+ */
+export function roughBalanceQuestion(balanceCents: number): string {
+  if (balanceCents <= 0) return '¿Ya no le queda nada?';
+  const euros = balanceCents / 100;
+  const rough = euros >= 10 ? Math.round(euros / 5) * 5 : Math.round(euros);
+  if (rough <= 0) return '¿Le queda menos de 1 €?';
+  return `¿Le quedan unos ${formatEur(rough * 100, { compact: true })}?`;
+}
+
+/** La fila de «¿Cuánto carga?» (4.2) con el número de la ficha en grande (A1). */
+export interface EntryRow extends DeskRow {
+  /** El número impreso, en grande (null: sin ficha o sin número impreso). */
+  ficha: string | null;
+  /** Lo que hay que mirar al ver el número («Mira que es la que tienes en la mano»). */
+  hint: string | null;
+  /** Por su número (A6): lo que se le pregunta al cliente («¿Le quedan unos 35 €?»). */
+  ask?: string;
+}
+
+/**
+ * 4.2: la ficha leída con su número en grande («Ficha nueva», 0000 1013, «Sin
+ * saldo»), la de un saldo (lo que le queda y su código), la buscada por su
+ * número (el código, tapado) o el saldo sin ficha. «Mira que es la que tienes
+ * en la mano», solo si se ha acercado (por el código no la tienen delante).
+ */
+export function entryRow(read: { view: ReceptionDeskView | null; nfc: unknown; number?: NumberSaldo }): EntryRow {
+  if (read.number) {
+    const n = read.number;
+    return { title: 'Ficha', ficha: n.printedNumber, detail: `${leftText(n.balanceCents)} · ${n.codeHint}`, hint: FICHA_CHECK, ask: roughBalanceQuestion(n.balanceCents) };
+  }
+  const view = read.view;
+  if (!view) return { title: 'Saldo nuevo', detail: 'Sin ficha: se queda con su código', ficha: null, hint: null };
+  const printed = view.printedNumber ?? null;
+  const hint = printed && read.nfc ? FICHA_IN_HAND : null;
+  if (view.kind === 'new') {
+    return printed
+      ? { title: 'Ficha nueva', ficha: printed, detail: 'Sin saldo', hint }
+      : { title: 'Ficha nueva', detail: 'Sin número impreso · sin saldo', ficha: null, hint: null };
+  }
+  const left = leftText(view.balanceCents);
+  if (view.fichaNumber === null) return { title: `Saldo ${view.code}`, detail: `${left} · sin ficha`, ficha: null, hint: null };
+  if (!printed) return { title: 'Ficha sin número impreso', detail: `${left} · ${view.code}`, ficha: null, hint: null };
+  return { title: 'Ficha', ficha: printed, detail: `${left} · ${view.code}`, hint };
+}
+
+/** La última recarga de lo leído (por su ficha, su código o su número), si el servidor la dio. */
+export function lastTopUpOf(read: { view: ReceptionDeskView | null; number?: NumberSaldo }): RecentTopUp | null {
+  if (read.number) return read.number.lastTopUp ?? null;
+  return read.view?.kind === 'saldo' ? (read.view.lastTopUp ?? null) : null;
+}
+
+/**
+ * En la fila de la ficha durante 10 min (A4): «Cargada hace 2 min: 50 € en
+ * efectivo (Sergio)». Para no cargar dos veces lo mismo ni dudar de si se
+ * cargó. Un saldo sin ficha, «Cargado». `now`: la hora del móvil (ms).
+ */
+export function recentTopUpLine(topUp: RecentTopUp | null | undefined, now: number, ficha = true): string | null {
+  if (!topUp) return null;
+  const minutes = Math.floor((now - Date.parse(topUp.at)) / 60_000);
+  if (!Number.isFinite(minutes) || minutes >= RECENT_TOP_UP_MINUTES) return null;
+  const when = minutes <= 0 ? 'hace un momento' : `hace ${minutes} min`;
+  const how = topUp.method === 'cash' ? 'en efectivo' : 'con tarjeta';
+  const who = topUp.byName ? ` (${topUp.byName})` : '';
+  return `${ficha ? 'Cargada' : 'Cargado'} ${when}: ${formatEur(topUp.amountCents, { compact: true })} ${how}${who}`;
+}
+
+function leftText(balanceCents: number): string {
+  return balanceCents > 0 ? `Le quedan ${formatEur(balanceCents, { compact: true })}` : 'Sin saldo';
+}
+
+/** El número impreso de lo leído, para enseñarlo en grande (null: sin ficha o sin número impreso). */
+export function readFicha(read: { view: ReceptionDeskView | null; number?: NumberSaldo }): string | null {
+  if (read.number) return read.number.printedNumber;
+  if (!read.view || (read.view.kind === 'saldo' && read.view.fichaNumber === null)) return null;
+  return read.view.printedNumber ?? null;
+}
+
+/**
+ * El chip de 4.3: «Recarga», y la ficha va en grande debajo del importe (A1);
+ * sin número impreso, «Recarga · ficha sin número impreso»; sin ficha,
+ * «Recarga · K7Q-4M2» o «Recarga · saldo nuevo».
+ */
 export function rechargeChip(view: ReceptionDeskView | null): string {
   if (!view) return 'Recarga · saldo nuevo';
-  if (view.fichaNumber !== null) return `Recarga · ${fichaText(view.printedNumber)}`;
+  if (view.fichaNumber !== null) return view.printedNumber ? 'Recarga' : `Recarga · ${fichaText(null)}`;
   return view.kind === 'saldo' ? `Recarga · ${view.code}` : 'Recarga · saldo nuevo';
 }
 
@@ -191,6 +293,16 @@ export function noPinLimitCents(night: { nfcNoPinMaxCents: number; nfcNoPinNight
  */
 export function canChoosePin(view: ReceptionDeskView | null, role: string): boolean {
   return !view || view.kind === 'new' || role === 'MANAGER' || role === 'OWNER';
+}
+
+/**
+ * B10: recepción también pone el PIN a un saldo que ya existía, justo después
+ * de recargarlo y con su ficha leída (no por su código ni por su número): el
+ * servidor lo vuelve a mirar (la ficha es de ese saldo y la recarga es suya,
+ * de hace menos de 15 min). El cliente lo teclea él y, con PIN, no se cambia.
+ */
+export function canChoosePinAfterLoad(view: ReceptionDeskView | null, role: string, fichaRead: boolean): boolean {
+  return canChoosePin(view, role) || (fichaRead && view?.kind === 'saldo');
 }
 
 /**
@@ -374,11 +486,15 @@ export function loadedMoneyLine(method: PayMethod, amountCents: number, feeCents
     : { label: 'Tarjeta:', amount, tail: `en su móvil${withFee}` };
 }
 
-/** 4.4: qué hace con el NFC («Dale el NFC · ficha nº 0522»). */
+/**
+ * 4.4: qué hace con la ficha («Dale la ficha»). Su número y el código ya van
+ * en grande encima (A1, A11); sin número impreso, se dice aquí.
+ */
 export function handOverLine(view: ReceptionDeskView | null, linked: boolean): string {
-  if (view?.kind === 'saldo') return view.fichaNumber === null ? `Saldo ${view.code}` : `Devuélvele su NFC · ${fichaText(view.printedNumber)}`;
-  if (view && linked) return `Dale el NFC · ${fichaText(view.printedNumber)}`;
-  return 'Sin NFC: que apunte su código';
+  const which = (printed?: string | null) => (printed ? '' : ` · ${fichaText(null)}`);
+  if (view?.kind === 'saldo') return view.fichaNumber === null ? 'Saldo sin ficha' : `Devuélvele su ficha${which(view.printedNumber)}`;
+  if (view && linked) return `Dale la ficha${which(view.printedNumber)}`;
+  return 'Sin ficha: que apunte su código';
 }
 
 // ─── Salida (4.5) ─────────────────────────────────────────────────────────
@@ -395,7 +511,7 @@ export interface ExitPlan {
   refundBlocked: string | null;
   /** Lo que no sale en efectivo (lo entró con tarjeta…), dicho antes. */
   note: string | null;
-  /** Debajo de «Guardar para la próxima»: «No caduca · se lleva su NFC» (sin NFC: «que guarde su código»). */
+  /** Debajo de «Guardar para la próxima»: «Para otra noche · se lleva su ficha» (sin ficha: «que guarde su código»). Sin caducidad: no está decidida. */
   keepDetail: string;
 }
 

@@ -1,9 +1,10 @@
 'use client';
 
 import { useId, useState } from 'react';
+import { Button } from '@nightpay/ui';
 import type { NightCash } from '@nightpay/contracts';
 import { formatEur } from '@/lib/money';
-import { FLOAT_OWNER_ONLY_TEXT, cashOutcome, diffLabel, parseCashInput, type CashDraft } from '@/lib/night-close';
+import { FLOAT_OWNER_ONLY_TEXT, cashOutcome, countReady, diffLabel, parseCashInput, type CashDraft } from '@/lib/night-close';
 import { OtpInput } from './OtpInput';
 
 interface Props {
@@ -15,6 +16,13 @@ interface Props {
   /** La diferencia está confirmada (aviso del paso «Efectivo»). */
   acked: boolean;
   onAck: (on: boolean) => void;
+  /** Cierre a ciegas (B9): ya pulsó «Ver si cuadra» con lo contado escrito (desde ahí, lo contado queda fijo). */
+  countDone: boolean;
+  onCountDone: () => void;
+  /** «Volver a contar»: el primer recuento se guarda y va al Z con el nuevo. */
+  onRecount: () => void;
+  /** El primer recuento, si ya se volvió a contar. */
+  firstCountCents: number | null;
   disabled?: boolean;
   /** Cambiar el fondo apuntado al abrir: el dueño pone aquí su código 2FA. */
   isOwner: boolean;
@@ -24,9 +32,12 @@ interface Props {
 }
 
 /**
- * Paso «Efectivo»: el arqueo. Lo que debería haber (fondo − lo que salió en
- * efectivo por OxioPay), lo contado en grande y la diferencia resaltada si
- * no cuadra. OxioPay no cobra en efectivo: la caja, por el sistema, solo baja.
+ * Paso «Efectivo»: el arqueo, a ciegas (B9). Primero el fondo y lo contado en
+ * grande; con «Ver si cuadra», lo que entró y salió en efectivo por OxioPay,
+ * lo que debería haber y la diferencia resaltada si no cuadra. Antes no sale
+ * nada que deje calcular lo esperado: nadie (tampoco el dueño) cuadra a ojo.
+ * Tras «Ver si cuadra», lo contado y el fondo quedan fijos; para corregirlo,
+ * «Volver a contar», y el Z guarda el primer recuento y el nuevo.
  */
 export function NightCashStep({
   cash,
@@ -36,6 +47,10 @@ export function NightCashStep({
   onCashNote,
   acked,
   onAck,
+  countDone,
+  onCountDone,
+  onRecount,
+  firstCountCents,
   disabled,
   isOwner,
   floatCode,
@@ -51,8 +66,14 @@ export function NightCashStep({
   const counted = parseCashInput(draft.countedText);
   const float = parseCashInput(draft.floatText);
   const askFloat = cash.openingFloatCents === null || editFloat;
+  // Tras «Ver si cuadra», lo contado y el fondo no se tocan: se vuelve a contar.
+  const frozen = Boolean(disabled) || countDone;
   const diff = outcome.diffCents;
   const tone = diff === null ? 'none' : diff < 0 ? 'short' : diff > 0 ? 'over' : 'ok';
+  const ready = countReady(draft);
+  const showCount = () => {
+    if (ready && !disabled) onCountDone();
+  };
 
   return (
     <div className="np-cash">
@@ -68,38 +89,13 @@ export function NightCashStep({
           <span className="np-num">
             {cash.openingFloatCents === null ? 'sin apuntar' : formatEur(cash.openingFloatCents)}
             {cash.openingFloatCents !== null && !editFloat ? (
-              <button type="button" className="np-close-link" onClick={() => setEditFloat(true)} disabled={disabled}>
+              <button type="button" className="np-close-link" onClick={() => setEditFloat(true)} disabled={frozen}>
                 Corregir
               </button>
             ) : null}
           </span>
         </li>
-        {(cash.walletCashTopUpsCount ?? 0) > 0 ? (
-          <li>
-            <span>Recargas del saldo en efectivo ({cash.walletCashTopUpsCount})</span>
-            <span className="np-num">+{formatEur(cash.walletCashTopUpsCents)}</span>
-          </li>
-        ) : null}
-        {cash.walletCashTopUpFeesCents ? (
-          <li>
-            <span>Comisión del servicio de esas recargas (se debe a OxioPay)</span>
-            <span className="np-num">+{formatEur(cash.walletCashTopUpFeesCents)}</span>
-          </li>
-        ) : null}
-        <li>
-          <span>Saldo devuelto en efectivo ({cash.walletCashPayoutsCount})</span>
-          <span className="np-num">{formatEur(-cash.walletCashPayoutsCents)}</span>
-        </li>
-        <li>
-          <span>Pagos a las chicas en efectivo ({cash.chicaCashPayoutsCount})</span>
-          <span className="np-num">{formatEur(-cash.chicaCashPayoutsCents)}</span>
-        </li>
-        {(cash.camareroCashPayoutsCount ?? 0) > 0 ? (
-          <li>
-            <span>Pagos a los camareros en efectivo ({cash.camareroCashPayoutsCount})</span>
-            <span className="np-num">{formatEur(-(cash.camareroCashPayoutsCents ?? 0))}</span>
-          </li>
-        ) : null}
+        {countDone ? <CashMoves cash={cash} /> : null}
       </ul>
 
       {askFloat ? (
@@ -115,7 +111,7 @@ export function NightCashStep({
             placeholder="0,00"
             value={draft.floatText}
             onChange={(e) => onDraft({ ...draft, floatText: e.target.value })}
-            disabled={disabled}
+            disabled={frozen}
             aria-invalid={float === null}
           />
           {float === null ? <span className="np-cash-error">Escribe un importe, p. ej. 150 o 150,50.</span> : null}
@@ -151,7 +147,10 @@ export function NightCashStep({
           placeholder="0,00"
           value={draft.countedText}
           onChange={(e) => onDraft({ ...draft, countedText: e.target.value })}
-          disabled={disabled}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && !countDone) showCount();
+          }}
+          disabled={frozen}
           aria-invalid={counted === null}
           aria-describedby={`${countedId}-echo`}
         />
@@ -164,22 +163,44 @@ export function NightCashStep({
         </span>
       </div>
 
-      <dl className="np-cash-figures">
-        <div>
-          <dt>Debería haber</dt>
-          <dd>{formatEur(outcome.expectedCents)}</dd>
+      {countDone ? (
+        <dl className="np-cash-figures">
+          <div>
+            <dt>Debería haber</dt>
+            <dd>{formatEur(outcome.expectedCents)}</dd>
+          </div>
+          <div>
+            <dt>Contado</dt>
+            <dd>{outcome.countedCents === null ? '—' : formatEur(outcome.countedCents)}</dd>
+          </div>
+          <div className="np-cash-diff" data-tone={tone}>
+            <dt>Diferencia</dt>
+            <dd>{diff === null ? '—' : diff === 0 ? 'Cuadra' : formatEur(diff)}</dd>
+          </div>
+        </dl>
+      ) : (
+        <div className="np-cash-blind">
+          <Button onClick={showCount} disabled={!ready || disabled}>
+            Ver si cuadra
+          </Button>
+          <p className="np-cash-blind-note">
+            {firstCountCents !== null
+              ? `Vuelves a contar: el primer recuento (${formatEur(firstCountCents)}) queda en el Z con el nuevo.`
+              : 'Se cuenta a ciegas: lo que debería haber sale al pulsar «Ver si cuadra».'}
+          </p>
         </div>
-        <div>
-          <dt>Contado</dt>
-          <dd>{outcome.countedCents === null ? '—' : formatEur(outcome.countedCents)}</dd>
-        </div>
-        <div className="np-cash-diff" data-tone={tone}>
-          <dt>Diferencia</dt>
-          <dd>{diff === null ? '—' : diff === 0 ? 'Cuadra' : formatEur(diff)}</dd>
-        </div>
-      </dl>
+      )}
 
-      {diff !== null && diff !== 0 ? (
+      {countDone ? (
+        <div className="np-cash-recount">
+          <Button variant="ghost" onClick={onRecount} disabled={disabled}>
+            Volver a contar
+          </Button>
+          <p className="np-cash-blind-note">Lo contado ya no se cambia aquí: si te equivocaste, vuelve a contar. El Z guarda el primer recuento y el nuevo.</p>
+        </div>
+      ) : null}
+
+      {countDone && diff !== null && diff !== 0 ? (
         <div className="np-cash-mismatch">
           <p className="np-cash-mismatch-title">{diffLabel(diff)}</p>
           <label htmlFor={noteId} className="np-cash-label">
@@ -207,5 +228,39 @@ export function NightCashStep({
         </div>
       ) : null}
     </div>
+  );
+}
+
+/** Lo que entró y salió en efectivo por OxioPay: solo tras «Ver si cuadra» (deja calcular lo esperado). */
+function CashMoves({ cash }: { cash: NightCash }) {
+  return (
+    <>
+      {(cash.walletCashTopUpsCount ?? 0) > 0 ? (
+        <li>
+          <span>Recargas del saldo en efectivo ({cash.walletCashTopUpsCount})</span>
+          <span className="np-num">+{formatEur(cash.walletCashTopUpsCents)}</span>
+        </li>
+      ) : null}
+      {cash.walletCashTopUpFeesCents ? (
+        <li>
+          <span>Comisión del servicio de esas recargas (se debe a OxioPay)</span>
+          <span className="np-num">+{formatEur(cash.walletCashTopUpFeesCents)}</span>
+        </li>
+      ) : null}
+      <li>
+        <span>Saldo devuelto en efectivo ({cash.walletCashPayoutsCount})</span>
+        <span className="np-num">{formatEur(-cash.walletCashPayoutsCents)}</span>
+      </li>
+      <li>
+        <span>Pagos a las chicas en efectivo ({cash.chicaCashPayoutsCount})</span>
+        <span className="np-num">{formatEur(-cash.chicaCashPayoutsCents)}</span>
+      </li>
+      {(cash.camareroCashPayoutsCount ?? 0) > 0 ? (
+        <li>
+          <span>Pagos a los camareros en efectivo ({cash.camareroCashPayoutsCount})</span>
+          <span className="np-num">{formatEur(-(cash.camareroCashPayoutsCents ?? 0))}</span>
+        </li>
+      ) : null}
+    </>
   );
 }

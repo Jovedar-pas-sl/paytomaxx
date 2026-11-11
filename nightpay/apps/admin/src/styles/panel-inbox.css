@@ -50,6 +50,17 @@
   border-style: dashed;
 }
 
+/* Recién resuelta (B11): 10 s para deshacerla; como «Resueltas», con raíl verde. */
+.np-inbox-item[data-state='undo'] {
+  border-style: dashed;
+  border-left: 3px solid var(--np-success);
+  padding-left: 1rem;
+}
+
+.np-inbox-item[data-state='undo'] .np-inbox-kicker {
+  color: var(--np-success);
+}
+
 .np-inbox-meta {
   display: flex;
   flex-wrap: wrap;

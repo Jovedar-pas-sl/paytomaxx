@@ -324,6 +324,47 @@ export interface WalletText {
   linkGone: string;
   /** Sin Face ID ni PIN y sin poder activarlo aquí (M-2): el QR de activación de recepción. */
   activateAtReception: string;
+  /** «Detalle del pago»: al tocar un movimiento (lo pagado con el saldo y las recargas con tarjeta). */
+  detail: WalletDetailText;
+}
+
+/**
+ * La hoja del detalle de un pago en /w: qué, cuándo, dónde, quién le cobró
+ * (su nombre de pila), cómo pagó, el código y el saldo antes y después. Las
+ * palabras únicas: «Pagado», «Devuelto» para lo que vuelve, «Cancelado» solo
+ * para lo que no se pagó.
+ */
+export interface WalletDetailText {
+  title: string;
+  loading: string;
+  failed: string;
+  close: string;
+  amount: string;
+  tip: string;
+  fee: string;
+  total: string;
+  when: string;
+  where: string;
+  /** «Te cobró: Ana». */
+  who: string;
+  how: string;
+  code: string;
+  before: string;
+  after: string;
+  /** «Tarjeta Visa ••4242». */
+  card: string;
+  saldo: string;
+  /** «Tu ficha nº 0522». */
+  ficha: string;
+  paid: string;
+  refunded: string;
+  partlyRefunded: string;
+  /** Un pago con el saldo que el local deshizo: el dinero volvió al saldo (también la marca de la fila). */
+  returned: string;
+  canceled: string;
+  pending: string;
+  undoCard: string;
+  undoSaldo: string;
 }
 
 /** /w/a/<token>: el QR de activación de un solo uso (el primer Face ID o el primer PIN, M-2). */
@@ -397,6 +438,40 @@ export interface UnlockPageText {
   wrong: string;
   expired: string;
   unavailable: string;
+  rateLimited: string;
+  error: string;
+  /** B7: «Recargar esta ficha» y «Ver mi saldo con mi PIN». */
+  ficha: FichaCardText;
+}
+
+/**
+ * La ficha en el móvil del cliente (estudio de fichas, B7): recargarla (solo
+ * suma) y ver el saldo con el PIN (10 min, sin pagos). `{amount}`, `{min}`,
+ * `{max}` y `{time}` los rellena la página.
+ */
+export interface FichaCardText {
+  topUpTitle: string;
+  topUpWhy: string;
+  topUpOther: string;
+  topUpOtherLabel: string;
+  topUpLimits: string;
+  topUpGo: string;
+  topUpFee: string;
+  topUpOpening: string;
+  topUpLimit: string;
+  topUpOff: string;
+  topUpAmount: string;
+  pinTitle: string;
+  pinWhy: string;
+  pinLabel: string;
+  pinGo: string;
+  pinBalance: string;
+  pinUntil: string;
+  pinAgain: string;
+  pinExpired: string;
+  pinFormat: string;
+  pinWrong: string;
+  pinLocked: string;
   rateLimited: string;
   error: string;
 }
@@ -476,6 +551,10 @@ export const CLIENT_ERROR_KEYS = [
   'ACTIVATION_USED',
   'ACTIVATION_EXPIRED',
   'ACTIVATION_REQUIRED',
+  // B7: la ficha en el móvil del cliente («Ver mi saldo con mi PIN»).
+  'CARD_NO_PIN',
+  'CARD_VIEW_EXPIRED',
+  'CARD_VIEW_LOCKED',
 ] as const;
 
 export type ClientErrorKey = (typeof CLIENT_ERROR_KEYS)[number];

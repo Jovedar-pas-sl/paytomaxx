@@ -23,6 +23,7 @@ import {
   type PaymentEvent,
   type PaymentMachineState,
 } from './payment.machine';
+import { insertPaymentEvent, recordPaymentDevice, WALLET_CREDITED_EVENT } from './payment-device';
 import {
   chargeBreakdownText,
   chargeRightsOf,
@@ -46,13 +47,13 @@ import { PeanpeAdapter } from '../gateways/peanpe.adapter';
 import { RealtimeGateway } from '../realtime/realtime.gateway';
 import { MetricsService } from '../metrics/metrics.service';
 import { VENUE_PAUSE_SELECT, assertVenueNotPaused } from '../venues/venue-pause';
-import { TipsDisabledException, VENUE_METHODS_SELECT, assertMethodsEnabled } from '../venues/venue-methods';
+import { VENUE_METHODS_SELECT, assertMethodsEnabled } from '../venues/venue-methods';
 import { resolveBpsForOperator, type OperatorCommissionDefaults, type RevenueCategory } from './commission';
 import { lineCommission, lineViews, type DraftLine } from './charge-lines';
 import { linesWithOperatorBps, resolveChargeOrThrow, type LineWithBps } from './charge-request';
 import { insertChargeLines, insertInvitationEarnings, linesOf, nextChargeRef } from './charge-store';
 import { invitationEarnings } from './invitation-lines';
-import { assertCanTopUp, tipsForbidden } from '../venues/charge-rights';
+import { assertCanTopUp } from '../venues/charge-rights';
 import type { AuthorizeResult, Provider } from '@nightpay/contracts';
 import {
   PAID_STATES,
@@ -77,6 +78,7 @@ import {
   readChargedTip,
   settleChargedTip,
   tipChoiceAllowed,
+  staffTipRemoved,
   tipDestinationAllowed,
   tipGoesToStaff,
 } from './tip';
@@ -263,10 +265,8 @@ interface PaymentDraft {
   serviceFee: { bps: number | null; cents: number };
   /** % de la chica fijado al crear (#54); null si no lo crea una chica. */
   operatorCommissionBps: number | null;
-  /** Cobro único: también se puede pagar con el saldo (cobro del saldo enlazado). */
+  /** Cobro único: también se puede pagar con el saldo (cobro del saldo enlazado; su propina la elige el cliente al pagar). */
   withSaldo: boolean;
-  /** Cobro único: la propina que pidió el cliente, la que paga si paga con el saldo. */
-  saldoTipCents: number;
 }
 
 /**
@@ -631,15 +631,12 @@ export class PaymentsService implements OnApplicationBootstrap {
     // Las recargas del saldo, solo en recepción (el puesto), el encargado, el
     // dueño o el datáfono de recepción. El cliente desde /w no tiene persona.
     if (isWalletTopUp && !viaDevice && creator.userId) await this.assertCanTopUp(tenantId, creator.userId, creatorRole);
-    const { amountCents, service, revenueCategory, lines, fromCarta, rights } = await this.resolveCharge(tenantId, dto, creator);
+    const { amountCents, service, revenueCategory, lines, fromCarta } = await this.resolveCharge(tenantId, dto, creator);
 
-    // Propina que pone quien crea el cobro: solo si el banco la va a cobrar y
-    // confirmar (Redsys); por datáfono cuenta la del datáfono. Y el tope del
-    // local para la chica es sobre importe + propina. Con las propinas
-    // apagadas en el local, 409 TIPS_DISABLED.
-    if ((dto.tipCents ?? 0) > 0 && !methods.tips) throw new TipsDisabledException();
-    // Y su puesto tiene que llevar propinas (recepción, no).
-    if ((dto.tipCents ?? 0) > 0 && rights && !rights.tips) throw tipsForbidden();
+    // B1: la propina solo la pone el cliente al pagar (con tarjeta, en la
+    // página de pago; por datáfono, la del datáfono). Quien crea el cobro ya
+    // no la pone: una app de antes que la mande recibe un 400 claro.
+    if ((dto.tipCents ?? 0) > 0) throw staffTipRemoved();
     const tip = await this.resolveCreatorTip({ tenantId, dto, amountCents, creatorRole, isPosExternal, isWalletTopUp });
     const capProblem = operatorCapProblem({
       creatorRole,
@@ -685,20 +682,7 @@ export class PaymentsService implements OnApplicationBootstrap {
       // Cobro único: con el saldo encendido en el local y quien cobra con
       // nombre (el cobro del saldo es suyo). Ni recargas ni datáfono.
       withSaldo: Boolean(dto.withSaldo) && !isWalletTopUp && !byDatafono && methods.wallet && creator.userId !== null,
-      saldoTipCents: this.saldoTip(dto, amountCents),
     };
-  }
-
-  /**
-   * Cobro único con propina (la loseta «Propina»): con el saldo se paga entera
-   * (con tarjeta, la de la página de pago, que ya sale marcada). Hasta el
-   * importe y 500 €; las propinas apagadas o el puesto sin propinas ya dieron
-   * 409/403 antes.
-   */
-  private saldoTip(dto: CreatePaymentDto, amountCents: number): number {
-    const tip = dto.withSaldo ? (dto.tipCents ?? 0) : 0;
-    if (tip > maxTipCents(amountCents)) throw new BadRequestException(TIP_TOO_HIGH);
-    return tip;
   }
 
   /**
@@ -915,7 +899,6 @@ export class PaymentsService implements OnApplicationBootstrap {
                 ref,
                 expiresAt: qrExpiresAt,
                 linkedPaymentId: p.id,
-                tipCents: draft.saldoTipCents,
               },
               select: { id: true },
             })
@@ -937,6 +920,9 @@ export class PaymentsService implements OnApplicationBootstrap {
           traceId: this.cls.get('ctx')?.traceId ?? randomUUID(),
         },
       });
+      // Detalle del pago: con qué móvil se creó (el del personal; el del
+      // cliente en una recarga desde /w o desde casa; el datáfono).
+      await recordPaymentDevice(tx, this.cls.get('ctx'), { id: p.id, tenantId }, 'create', saldo ? { walletChargeId: saldo.id } : {});
       return p;
     });
   }
@@ -1903,6 +1889,14 @@ export class PaymentsService implements OnApplicationBootstrap {
     this.logger.log(
       `Payment ${paymentId} AUTHORIZED → wallet ${w.id} credited +${p.amountCents}c (new balance: ${w.balanceCents + p.amountCents})`,
     );
+    // Detalle del pago: el saldo antes y después de esta recarga (el que ve el cliente).
+    await insertPaymentEvent(tx, {
+      paymentId,
+      tenantId: p.tenantId,
+      eventType: WALLET_CREDITED_EVENT,
+      payload: { walletId: w.id, amountCents: p.amountCents, balanceBeforeCents: w.balanceCents, balanceAfterCents: w.balanceCents + p.amountCents },
+      traceId: this.cls.get('ctx')?.traceId,
+    });
     if (shortCode !== w.shortCode) {
       this.logger.warn(`Wallet ${w.id} reactivada con código nuevo (el anterior lo usaba otro saldo activo)`);
     }
@@ -1973,11 +1967,12 @@ export class PaymentsService implements OnApplicationBootstrap {
       // H2: pasamos expectedTenantId — transition() valida que payment.tenantId
       // coincide con el del actor, defensa cross-tenant aunque la query previa
       // ya filtra por CLS middleware.
-      await this.transition(
-        paymentId,
-        { type: 'CANCELED', reason: 'user-canceled' },
-        actor.tenantId,
-      );
+      // Quién lo canceló (en el evento) y con qué móvil, en la misma transacción.
+      await this.transition(paymentId, { type: 'CANCELED', reason: 'user-canceled', byUserId: actor.userId }, actor.tenantId, {
+        prepare: async (tx, locked) => {
+          await recordPaymentDevice(tx, this.cls.get('ctx'), { id: locked.id, tenantId: locked.tenantId }, 'cancel');
+        },
+      });
     } catch (err) {
       if (err instanceof InvalidTransitionError) {
         throw new ConflictException(
@@ -2118,6 +2113,8 @@ export class PaymentsService implements OnApplicationBootstrap {
         traceId: this.cls.get('ctx')?.traceId ?? randomUUID(),
       },
     });
+    // Detalle del pago: el móvil de quien lo confirmó con el ticket del datáfono.
+    await recordPaymentDevice(tx, this.cls.get('ctx'), { id: locked.id, tenantId: locked.tenantId }, 'pos');
     return noTip;
   }
 
@@ -2347,6 +2344,9 @@ export class PaymentsService implements OnApplicationBootstrap {
         claimHash: choice?.claimHash ?? null,
       },
     });
+    // Detalle del pago: el móvil del cliente que va a pagar con este intento.
+    const ctx = this.cls.get('ctx');
+    await recordPaymentDevice(tx, { ...ctx, device: choice?.device ?? ctx?.device }, payment, 'card', { who: 'client', attemptId });
   }
 
   /**

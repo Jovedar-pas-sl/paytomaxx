@@ -30,6 +30,7 @@ const attachCardInTx = vi.fn(async () => 0);
 vi.mock('../wallets/wallet-card-ops', () => ({
   ISSUED_CARD_STATUSES: ['ISSUED', 'ACTIVE'],
   attachCardInTx: (...args: unknown[]) => attachCardInTx(...(args as [])),
+  isIssuedCard: (c: { status: string; walletId: string | null }) => ['ISSUED', 'ACTIVE'].includes(c.status) && c.walletId !== null,
 }));
 vi.mock('../venues/charge-rights', () => ({
   assertCanTopUp: vi.fn(async (_tx: unknown, _venue: string, person: { role: string }) => {
@@ -59,6 +60,8 @@ function make(o: { wallet?: Record<string, unknown> | null; issued?: boolean; ha
       ),
     },
     walletCard: {
+      // La ficha acercada: del stock (no es ya de este saldo ni de otro).
+      findUnique: vi.fn(async () => ({ walletId: null, status: 'STOCK' })),
       findFirst: vi.fn(async () => (issued ? { number: 417, printedNumber: null } : null)),
       count: vi.fn(async () => (o.hadCard ? 1 : 0)),
     },
@@ -75,7 +78,7 @@ function make(o: { wallet?: Record<string, unknown> | null; issued?: boolean; ha
   };
   const audit = { log: vi.fn(async () => undefined) };
   const config = { get: vi.fn(() => SECRET) };
-  const service = new ReceptionFichaService(prisma as never, charges as never, audit as never, config as never);
+  const service = new ReceptionFichaService(prisma as never, charges as never, audit as never, config as never, {} as never);
   return { service, tx, charges, audit };
 }
 

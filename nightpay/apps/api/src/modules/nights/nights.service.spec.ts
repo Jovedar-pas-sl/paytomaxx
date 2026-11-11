@@ -240,7 +240,7 @@ describe('cerrar la noche', () => {
     expect(prisma.venueNight.updateMany).not.toHaveBeenCalled();
     // El dueño con su 2FA: se cierra con el fondo nuevo y el Z guarda los dos.
     await svc.close('t-1', { userId: 'own-1', role: 'OWNER' }, 'night-1', { ...typed, totpCode: '123456' });
-    expect(totp.assertForUser).toHaveBeenCalledWith('own-1', '123456');
+    expect(totp.assertForUser).toHaveBeenCalledWith('own-1', '123456', expect.stringMatching(/^night-float:/));
     expect(closedData(prisma).zReport.caja).toMatchObject({ openingFloatCents: 5000, recordedFloatCents: 20_000, diffCents: 0 });
     expect(closedData(prisma)).toMatchObject({ openingFloatCents: 5000 });
   });
@@ -283,6 +283,15 @@ describe('cerrar la noche', () => {
     );
     await svc.close('t-1', manager, 'night-1', { acknowledged: ['cobros'], note: 'BBVA lo confirma mañana' });
     expect(closedData(prisma)).toMatchObject({ pendingAtClose: 1, closeNote: 'BBVA lo confirma mañana' });
+  });
+
+  it('«Volver a contar»: el primer recuento va al Z y al registro con el último', async () => {
+    const { svc, prisma, audit } = makeService({ check: check({ cash: CASH }) });
+    await svc.close('t-1', manager, 'night-1', { cashCountedCents: 6000, cashFirstCountedCents: 5500 });
+    expect(closedData(prisma).zReport.caja).toMatchObject({ countedCents: 6000, firstCountedCents: 5500, diffCents: 0 });
+    expect(audit.log).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'night.closed', payload: expect.objectContaining({ cash: expect.objectContaining({ countedCents: 6000, firstCountedCents: 5500 }) }) }),
+    );
   });
 
   it('con efectivo: sin contar no se cierra; contado y cuadrado, la caja va al Z y a la noche', async () => {

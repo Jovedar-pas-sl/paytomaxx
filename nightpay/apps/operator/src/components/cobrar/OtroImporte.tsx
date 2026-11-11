@@ -3,9 +3,9 @@
 import { useState, type CSSProperties } from 'react';
 import { STICKY_ACTION_BOTTOM } from '../layout';
 import { formatEur } from '@/lib/money';
-import { PROPINAS, type CuentaSection } from '@/lib/cuenta';
+import type { CuentaSection } from '@/lib/cuenta';
 import { IMPORTE_KEYS, importeCents, importeShown, pressImporte, type ImporteKey } from '@/lib/importe';
-import { colorOf, labelOf, offeredCodes, puestoChip, puestoSection, tipTiles, type CobrarContext } from './cobrar-context';
+import { colorOf, labelOf, offeredCodes, puestoChip, puestoSection, type CobrarContext } from './cobrar-context';
 import { IconDel } from './icons';
 import { Chip, ScreenHeader } from './ScreenHeader';
 import styles from './cobrar.module.css';
@@ -23,18 +23,17 @@ interface Props {
 
 /**
  * «Otro importe» (maqueta 1.3): teclado grande y la sección obligatoria, con
- * la de su puesto ya marcada. Solo salen sus secciones (y Propinas si las
- * lleva): sin sección no se cobra, así nada cae en «Otros».
+ * la de su puesto ya marcada. Solo salen sus secciones (sin Propinas: B1, la
+ * elige el cliente al pagar): sin sección no se cobra, así nada cae en «Otros».
  */
 export function OtroImporte({ ctx, who, adding, onDone, onBack, busy, error }: Props) {
   const codes = offeredCodes(ctx);
-  const options: CuentaSection[] = [...codes, ...(tipTiles(ctx).length > 0 || (ctx.tips && ctx.methods.tips) ? [PROPINAS] : [])];
+  const options: CuentaSection[] = [...codes];
   const mine = puestoSection(ctx);
   const [section, setSection] = useState<CuentaSection>(codes.includes(mine) ? mine : (options[0] ?? 'VENUE_BAR'));
   const [typed, setTyped] = useState('');
   const cents = importeCents(typed);
   const chip = puestoChip(ctx);
-  const tipOnly = section === PROPINAS && !adding;
 
   function press(key: ImporteKey) {
     if ('vibrate' in navigator) navigator.vibrate(8);
@@ -96,13 +95,12 @@ export function OtroImporte({ ctx, who, adding, onDone, onBack, busy, error }: P
         <button
           type="button"
           className={`${styles.btn} ${styles.primary}`}
-          disabled={cents <= 0 || busy || tipOnly}
+          disabled={cents <= 0 || busy}
           aria-busy={busy || undefined}
           onClick={() => onDone(section, cents)}
         >
           {busy ? 'Un momento…' : action}
         </button>
-        {tipOnly ? <p className={styles.error}>Una propina sola no se cobra: añade lo que se lleva.</p> : null}
         {error ? (
           <p role="alert" className={styles.error}>
             {error}

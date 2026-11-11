@@ -1,4 +1,5 @@
 import { RETRY_WAIT_MS } from '@nightpay/contracts';
+import type { ClientDevice } from '../../common/http/client-device';
 import type { PayLanguage } from './customer-lang';
 import type { PaymentMachineState } from './payment.machine';
 import { maxTipCents, tipOptionsFor, type TipPresetConfig } from './tip';
@@ -23,6 +24,8 @@ export interface CheckoutChoice {
   language: PayLanguage;
   /** Huella de la cookie del navegador que abre el intento (enlace del saldo). */
   claimHash?: string | null;
+  /** El móvil del cliente que paga (detalle del pago): va en el evento `payment.device` del intento. */
+  device?: ClientDevice;
 }
 
 export type PayRedirect =

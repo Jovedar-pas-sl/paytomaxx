@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import type { OwnCobro } from '@nightpay/contracts';
+import type { CobroKind, OwnCobro } from '@nightpay/contracts';
 import { Button, Card } from '@nightpay/ui';
 import { cancelPayment } from '@/lib/api';
 import { paymentTimeLabel, timeLabel } from '@/lib/earnings-view';
@@ -27,7 +27,9 @@ import {
 } from '@/lib/my-cobros-help';
 import { formatEur } from '@/lib/money';
 import { usePolling } from '@/lib/use-polling';
+import { CobroDetailSheet } from './CobroDetailSheet';
 import { HelpAgain, HelpLine, useHelp } from './HelpLine';
+import detailStyles from './cobro-detail.module.css';
 import styles from './my-cobros.module.css';
 
 interface Props {
@@ -52,6 +54,8 @@ export function MyCobros({ cancelPending = false, pollMs = 15_000 }: Props) {
   const [{ items, cursor, error, moreBusy, night }, setState] = useState<OwnCobrosSnapshot>({ items: null, cursor: null, error: null, moreBusy: false, night: null });
   const [busyId, setBusyId] = useState<string | null>(null);
   const [cancelError, setCancelError] = useState<string | null>(null);
+  /** El cobro abierto («Detalle del pago»): se toca la fila. */
+  const [opened, setOpened] = useState<{ kind: CobroKind; id: string } | null>(null);
   const help = useHelp(MY_COBROS_HELP_SCREEN);
   const feed = useRef<ReturnType<typeof createOwnCobrosFeed> | null>(null);
   useEffect(() => {
@@ -112,6 +116,7 @@ export function MyCobros({ cancelPending = false, pollMs = 15_000 }: Props) {
           key={`${r.kind}-${r.id}`}
           row={r}
           night={night}
+          onOpen={() => setOpened({ kind: r.kind, id: r.id })}
           cancel={cancelPending && ownCobroCancelable(r) ? { busy: busyId === r.id, run: () => void onCancel(r.id) } : null}
         />
       ))}
@@ -120,6 +125,7 @@ export function MyCobros({ cancelPending = false, pollMs = 15_000 }: Props) {
           Ver anteriores
         </Button>
       ) : null}
+      <CobroDetailSheet target={opened} onClose={() => setOpened(null)} />
     </section>
   );
 }
@@ -188,7 +194,7 @@ interface RowCancel {
   run: () => void;
 }
 
-function CobroRow({ row: r, night, cancel }: { row: OwnCobro; night: OwnNight | null; cancel: RowCancel | null }) {
+function CobroRow({ row: r, night, onOpen, cancel }: { row: OwnCobro; night: OwnNight | null; onOpen: () => void; cancel: RowCancel | null }) {
   const state = ownCobroState(r.status);
   const when = new Date(r.createdAt);
   const tonight = night ? r.createdAt >= night.from : false;
@@ -196,7 +202,14 @@ function CobroRow({ row: r, night, cancel }: { row: OwnCobro; night: OwnNight | 
   const meta = [r.ref, r.methodLabel, r.via].filter(Boolean).join(' · ');
   const twice = ownPaidTwiceNote(r, (cents) => formatEur(cents, { compact: true }));
   return (
-    <article className={styles.row} data-tone={state.tone}>
+    <article className={`${styles.row} ${detailStyles.rowHost}`} data-tone={state.tone}>
+      {/* Toda la fila abre el detalle; «Cancelar», por encima. */}
+      <button
+        type="button"
+        className={detailStyles.rowOpen}
+        onClick={onOpen}
+        aria-label={`Ver el cobro ${r.ref ? `${r.ref} ` : ''}de ${formatEur(r.amountCents, { compact: true })}`}
+      />
       <div className={styles.rowTop}>
         <span className={styles.chip} data-tone={state.tone}>
           <StateIcon icon={state.icon} />
@@ -223,7 +236,7 @@ function CobroRow({ row: r, night, cancel }: { row: OwnCobro; night: OwnNight | 
       {r.invitedName ? <span className={styles.invited}>Invitación a {r.invitedName}</span> : null}
       {meta ? <span className={styles.meta}>{meta}</span> : null}
       {cancel ? (
-        <div className={styles.actions}>
+        <div className={`${styles.actions} ${detailStyles.rowAbove}`}>
           <Button
             variant="ghost"
             size="md"

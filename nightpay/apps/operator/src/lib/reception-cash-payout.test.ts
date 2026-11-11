@@ -28,7 +28,7 @@ describe('la salida (4.5)', () => {
     expect(eur(plan.refundLabel)).toBe('Devolver 35 € en efectivo');
     expect(eur(plan.refundDetail)).toBe('Sacas 35 € de la caja · el NFC vuelve al stock');
     expect(plan.refundBlocked).toBeNull();
-    expect(plan.keepDetail).toBe('No caduca · se lleva su NFC');
+    expect(plan.keepDetail).toBe('Para otra noche · se lleva su ficha');
   });
   it('parte con tarjeta: lo exacto que sale de la caja y el resto, a su tarjeta', () => {
     const note = 'Los otros 15,00 € entraron con tarjeta: los devuelve el dueño «A la tarjeta».';
@@ -53,7 +53,7 @@ describe('la salida (4.5)', () => {
     expect(plan.refundLabel).toBeNull();
     expect(plan.note).toBe(NO_NFC_EXIT_TEXT);
     expect(NO_NFC_EXIT_TEXT).toBe('Este saldo no tiene NFC: lo devuelve el encargado en el panel (Clientes → Saldos).');
-    expect(plan.keepDetail).toBe('No caduca · que guarde su código');
+    expect(plan.keepDetail).toBe('Para otra noche · que guarde su código');
   });
   it('para devolver: el NFC original con su número de serie y su PIN o su Face ID', () => {
     expect(cashExitPlan(view(), null).refundBlocked).toContain('NFC original');

@@ -235,14 +235,14 @@ describe('create — el puesto decide lo que se cobra', () => {
     expect(boss.created[0]).toMatchObject({ revenueCategory: 'VENUE_ROOM' });
   });
 
-  it('recepción: todas las secciones, pero sin propinas', async () => {
+  it('recepción: todas las secciones; la propina, nadie del personal (B1: la elige el cliente al pagar)', async () => {
     const recepcion = makeService();
     recepcion.db.user.findFirst.mockImplementation(async () => ({ id: BENEFICIARY, commissionBps: null, post: 'RECEPCION' }) as never);
     await recepcion.service.create(TENANT, 'idem-val-0035', dto({ revenueCategory: 'VENUE_ROOM' }), waiter);
     expect(recepcion.created[0]).toMatchObject({ revenueCategory: 'VENUE_ROOM' });
     await expect(recepcion.service.create(TENANT, 'idem-val-0036', dto({ tipCents: 200 }), waiter)).rejects.toMatchObject({
-      status: 403,
-      response: expect.objectContaining({ code: 'TIPS_NOT_ALLOWED' }),
+      status: 400,
+      response: expect.objectContaining({ code: 'STAFF_TIP_REMOVED' }),
     });
   });
 
@@ -299,23 +299,12 @@ describe('create — recarga de saldo', () => {
   });
 });
 
-describe('create — propina para una persona del local', () => {
-  const tipTo = (extra: Partial<CreatePaymentDto>) => dto({ tipCents: 500, tipGoesTo: 'beneficiary', ...extra });
-
-  it('«para una persona» sin decir quién → 400', async () => {
+describe('create — propina para una persona del local (ya no: B1)', () => {
+  it('con propina, aunque diga para quién → 400 STAFF_TIP_REMOVED y no se guarda nada', async () => {
     const { service, created } = makeService();
-    await expect(service.create(TENANT, 'idem-val-0030', tipTo({}), owner)).rejects.toThrow(/tipBeneficiaryUserId/);
-    expect(created).toHaveLength(0);
-  });
-
-  it('persona que no es de este local (o dada de baja) → 400', async () => {
-    const { service, db, created } = makeService({ beneficiaryExists: false });
     await expect(
-      service.create(TENANT, 'idem-val-0031', tipTo({ tipBeneficiaryUserId: BENEFICIARY }), owner),
-    ).rejects.toBeInstanceOf(BadRequestException);
-    expect(db.user.findFirst).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { id: BENEFICIARY, tenantId: TENANT, deletedAt: null } }),
-    );
+      service.create(TENANT, 'idem-val-0030', dto({ tipCents: 500, tipGoesTo: 'beneficiary', tipBeneficiaryUserId: BENEFICIARY }), owner),
+    ).rejects.toMatchObject({ response: expect.objectContaining({ code: 'STAFF_TIP_REMOVED' }) });
     expect(created).toHaveLength(0);
   });
 });

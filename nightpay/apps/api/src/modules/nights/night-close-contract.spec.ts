@@ -61,10 +61,10 @@ describe('el paso «Efectivo» con lo tecleado', () => {
     });
   });
 
-  it('hay que contar y no se ha contado → bloquea con lo que debería haber', () => {
+  it('hay que contar y no se ha contado → bloquea sin decir lo que debería haber (cierre a ciegas)', () => {
     const o = evaluateCash(CASH);
     expect(o).toMatchObject({ reason: 'count-missing', status: 'block', required: true, expectedCents: 8000 });
-    expect(o.detail).toBe('Cuenta el efectivo de la caja: debería haber 80,00 €.');
+    expect(o.detail).toBe('Cuenta el efectivo de la caja y escribe lo contado: lo que debería haber sale después.');
   });
 
   it('solo el fondo (sin movimientos) también se cuenta; contar 0 € vale', () => {

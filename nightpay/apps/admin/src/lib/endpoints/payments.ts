@@ -1,6 +1,6 @@
 // Cobros: métricas, lista, devoluciones, resolver atascados e informes CSV.
 
-import type { ApprovalRequestedResponse } from '@nightpay/contracts';
+import { STEP_UP_TOKEN_HEADER, type ApprovalRequestedResponse } from '@nightpay/contracts';
 import { apiError, authedFetch, totpAwareError } from '../http';
 import { refundIntentKey, settleRefundIntent, settlesRefundIntent } from '../refund-intent';
 
@@ -129,12 +129,15 @@ export async function refundPayment(
   amountCents: number,
   reason?: string,
   totpCode?: string,
+  /** Sin 2FA: la prueba de la llave de acceso para esta devolución (stepUpActions.refund). */
+  stepUpToken?: string,
 ): Promise<{ id: string; status: string; providerRefundId: string | null; replayed?: boolean } | ApprovalRequestedResponse> {
   const idempotencyKey = refundIntentKey(paymentId);
   try {
     const res = await authedFetch(`/v1/payments/${paymentId}/refunds`, {
       method: 'POST',
       body: JSON.stringify({ amountCents, reason, totpCode, idempotencyKey }),
+      ...(stepUpToken ? { headers: { [STEP_UP_TOKEN_HEADER]: stepUpToken } } : {}),
     });
     if (!res.ok) throw await totpAwareError(res);
     const result = await res.json();

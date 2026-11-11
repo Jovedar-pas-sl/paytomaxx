@@ -76,7 +76,19 @@ describe('página del saldo del cliente', () => {
       }),
     );
     expect(html).not.toContain('</script><img');
-    expect(html.match(/<\/script>/g)).toHaveLength(1);
+    // El de la página y el de «Ver mi saldo» (my-balance.ts): ninguno más.
+    expect(html.match(/<\/script>/g)).toHaveLength(2);
+    expect(html.match(/<script>/g)).toHaveLength(2);
+  });
+
+  it('saldo sumado a otro: «Ver mi saldo» (con su Face ID) lleva a aquel; en uno abierto no sale', () => {
+    const html = renderWalletPage('tok-1', 'es', state({ status: 'DEPLETED', merged: true, balanceCents: 0 }));
+    expect(html).toContain('id="npMine" hidden');
+    expect(html).toContain("window.npMineWanted=s.status==='DEPLETED'&&Boolean(s.merged)");
+    expect(html).toMatch(/^npMineShow[(]window[.]npMineWanted[)];$/m);
+    for (const part of html.split('<script>').slice(1)) {
+      expect(() => new Function(part.slice(0, part.indexOf('</script>')))).not.toThrow();
+    }
   });
 
   it('sin QR del código (ya no se paga enseñándolo); con "Activar Face ID" y JS válido sin barras invertidas', () => {
@@ -204,7 +216,7 @@ describe('dos opciones debajo del saldo: «Pagar» y «Recargar»', () => {
     expect(html).toContain('<div class="seg" role="tablist" id="seg" aria-label="¿Qué quieres hacer?" hidden>');
     expect(html).toMatch(/<button class="segb" type="button" role="tab" id="tabPay" aria-controls="viewPay" aria-selected="true">.*Pagar<\/button>/);
     expect(html).toMatch(
-      /<button class="segb" type="button" role="tab" id="tabTop" aria-controls="viewTop" aria-selected="false" tabindex="-1">.*Recargar<\/button>/,
+      /<button class="segb" type="button" role="tab" id="tabTop" aria-controls="viewTop" aria-selected="false" tabindex="-1">.*Cargar<\/button>/,
     );
     expect(html).toContain('<section class="view" id="viewPay" aria-labelledby="tabPay">');
     expect(html).toContain('<section class="view" id="viewTop" aria-labelledby="tabTop" hidden>');
@@ -437,7 +449,11 @@ describe('«Recargar»: solo lo de recargar', () => {
     expect(top).toContain('Lo que no gastes no se pierde: se queda para otro día o, con «Me voy», el local te lo devuelve a tu tarjeta.');
     for (const id of ['codeCard', 'payCard', 'scanGo', 'gwCard', 'pinOpen']) expect(top).not.toContain(`id="${id}"`);
     const en = renderWalletPage('tok-1', 'en', state(), { topUp });
-    expect(topView(en)).toContain('Top up your balance');
+    // Las mismas palabras que la recepción y /r (A9): «Cargar saldo», «Otro», «Cargar 50 €».
+    expect(top).toContain('Cargar saldo');
+    expect(top).toMatch(/id="amtOther"><span>Otro<\/span>/);
+    expect(top).toContain('<legend class="sr">¿Cuánto quieres cargar?</legend>');
+    expect(topView(en)).toContain('Load balance');
     expect(topView(en)).toContain('From €10 to €300.');
   });
 
@@ -564,8 +580,36 @@ describe('maqueta 5.1: tarjeta OxioCard y movimientos con su referencia', () => 
     const js = script(renderWalletPage('tok-1', 'es', state()));
     expect(js).toContain("sw.className=m.color?'sw':'sw hold'");
     expect(js).toContain("sw.style.setProperty('--c',m.color)");
-    expect(js).toContain('sub.textContent=[m.ref,m.venueName,when(m.at)].filter(Boolean).join');
+    expect(js).toContain("sub.textContent=[m.returned?T.detail.returned:'',m.ref,m.venueName,when(m.at)].filter(Boolean).join");
     expect(js).not.toContain('innerHTML');
+  });
+
+  it('tocar un movimiento con detalle abre «Detalle del pago» (su ruta en /w); uno deshecho dice «Devuelto a tu saldo»', () => {
+    const html = renderWalletPage('tok-1', 'es', state());
+    const js = script(html);
+    expect(html).toContain('<dialog class="sheet" id="detSheet" aria-labelledby="detTitle">');
+    expect(html).toContain('\\"apart\\":true');
+    // Solo las filas con detalle son botones; las demás, como siempre.
+    expect(js).toContain("if(m.detail){host=document.createElement('button');host.type='button';host.className='mvb';");
+    expect(js).toContain("fetch(C.base+'/movements/'+m.detail.kind+'/'+encodeURIComponent(m.detail.id)");
+    // Deshecho: tachado y con la marca; el detalle dice cuándo, sin quién ni por qué.
+    expect(js).toContain("b.className=(m.returned?'gone':m.amountCents>0?'plus':'minus')+' num'");
+    expect(js).toContain("if(s==='REVERSED')return D.returned;");
+    for (const hidden of ['u.by', 'u.reason', 'sensitive', 'devices', '.ip']) expect(js).not.toContain(hidden);
+    // Lo que se escribe, con textContent: nada de HTML.
+    expect(js.slice(js.indexOf('function detRow'), js.indexOf('function detOpen'))).not.toContain('innerHTML');
+  });
+
+  it('el detalle en los cuatro idiomas, con las palabras únicas en castellano', () => {
+    for (const lang of ['es', 'en', 'fr', 'pt'] as const) {
+      const html = renderWalletPage('tok-1', lang, state());
+      expect(html).toContain(`data-close>${WALLET_TEXT[lang].detail.close}</button>`);
+    }
+    const d = WALLET_TEXT.es.detail;
+    expect([d.paid, d.refunded, d.returned, d.undoCard, d.undoSaldo]).toEqual(['Pagado', 'Devuelto', 'Devuelto a tu saldo', 'Devuelto a tu tarjeta', 'Devuelto a tu saldo']);
+    expect(d.who).toBe('Te cobró');
+    expect(d.ficha).toBe('Tu ficha nº {n}');
+    expect(JSON.stringify(d)).not.toMatch(/Reembols|Cobrado|NFC/);
   });
 });
 

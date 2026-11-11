@@ -12,6 +12,7 @@ import {
   withCashInput,
   type CashInput,
   type CashOutcome,
+  type CashReason,
   type NightCash,
   type NightCloseLink,
   type NightCloseStatus,
@@ -64,6 +65,69 @@ export function effectiveSteps(
 
 export function cashOutcome(cash: NightCash, draft: CashDraft, floatApproved = false): CashOutcome {
   return evaluateCash(cash, cashInputOf(draft, floatApproved));
+}
+
+// ─── Cierre a ciegas (B9) ───────────────────────────────────────────
+// Nadie (tampoco el encargado ni el dueño) ve lo que debería haber hasta
+// escribir lo contado y pulsar «Ver si cuadra»: así nadie cuadra a ojo.
+// Mientras, lo tecleado no cuenta: el paso «Efectivo» sigue sin contar y
+// su texto no lleva cifras que lo dejen calcular (ni la diferencia, que
+// también lo diría).
+
+/** Textos del paso «Efectivo» a ciegas (sin cifras). */
+const BLIND_DETAIL: Partial<Record<CashReason, string>> = {
+  'count-missing': 'Cuenta el efectivo de la caja, escríbelo y pulsa «Ver si cuadra»: lo que debería haber sale después.',
+  'float-missing': 'Apunta con cuánto empezó la caja (el fondo) y cuéntala.',
+  negative:
+    'Lo que debería haber sale negativo: salió más efectivo del que entró más el fondo. Revisa el fondo y los pagos en efectivo de la noche.',
+};
+
+/** Lo tecleado que cuenta: lo contado, solo si ya se dio por contado. */
+function countedDraft(draft: CashDraft, countDone: boolean): CashDraft {
+  return countDone ? draft : { ...draft, countedText: '' };
+}
+
+/** ¿Se puede pulsar «Ver si cuadra»? Con un importe escrito (0 vale). */
+export function countReady(draft: CashDraft): boolean {
+  return typeof parseCashInput(draft.countedText) === 'number';
+}
+
+/**
+ * «Volver a contar» tras «Ver si cuadra»: el primer recuento se guarda (el Z y
+ * el registro llevan los dos); si ya se había vuelto a contar, sigue el primero.
+ */
+export function firstCountOf(previous: number | null, draft: CashDraft): number | null {
+  if (previous !== null) return previous;
+  const counted = parseCashInput(draft.countedText);
+  return typeof counted === 'number' ? counted : null;
+}
+
+/** El primer recuento que va al cerrar: solo si se volvió a contar y el último está dado por contado. */
+export function firstCountToSend(first: number | null, countDone: boolean): number | undefined {
+  return first !== null && countDone ? first : undefined;
+}
+
+/**
+ * Los pasos del cierre con el efectivo tecleado. Sin dar por contado, como si
+ * no se hubiera contado y sin cifras en el paso «Efectivo».
+ */
+export function closeSteps(
+  steps: ReadonlyArray<NightCloseStep>,
+  cash: NightCash,
+  draft: CashDraft,
+  opts: { countDone: boolean; floatApproved?: boolean },
+): NightCloseStep[] {
+  const used = countedDraft(draft, opts.countDone);
+  const floatApproved = opts.floatApproved ?? false;
+  const out = effectiveSteps(steps, cash, used, floatApproved);
+  if (opts.countDone) return out;
+  const blind = BLIND_DETAIL[cashOutcome(cash, used, floatApproved).reason];
+  return blind ? out.map((s) => (s.key === 'efectivo' ? { ...s, detail: blind } : s)) : out;
+}
+
+/** Lo que se manda al congelar el Z: lo contado solo si se dio por contado. */
+export function closeCashInput(draft: CashDraft, countDone: boolean): CashInput {
+  return cashInputOf(countedDraft(draft, countDone));
 }
 
 /**

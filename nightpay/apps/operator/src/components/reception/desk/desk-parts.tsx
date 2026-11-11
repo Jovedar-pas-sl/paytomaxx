@@ -2,6 +2,7 @@
 
 import type { CSSProperties, ReactNode } from 'react';
 import { Logo, SectionChip } from '@nightpay/ui';
+import { fichaDigits } from '@/lib/ficha-number';
 import { codeBoxes, codeInput } from '@/lib/reception-desk';
 import { useStaffMenu } from '../../staff-menu';
 import s from './desk.module.css';
@@ -59,6 +60,18 @@ const ICONS = {
     </>
   ),
   chevron: <path d="M9.5 5.5L16 12l-6.5 6.5" strokeLinejoin="round" />,
+  camera: (
+    <>
+      <path d="M4 8.5h3l1.5-2.5h7L17 8.5h3v10H4z" strokeLinejoin="round" />
+      <circle cx="12" cy="13.5" r="3.25" />
+    </>
+  ),
+  phone: (
+    <>
+      <rect x="7" y="2.5" width="10" height="19" rx="2.5" />
+      <path d="M11 18.5h2" />
+    </>
+  ),
 } as const;
 
 export type IconName = keyof typeof ICONS;
@@ -95,15 +108,15 @@ export function DeskHead({ title, sub, onBack, chip, noMenu = false }: HeadProps
   return (
     <div className={s.head}>
       {onBack ? (
-        <button type="button" className={s.back} onClick={onBack} aria-label="Volver">
+        <button type="button" className={s.back} onClick={onBack} aria-label="Atrás">
           <Icon name="back" />
         </button>
       ) : openMenu ? (
         <button type="button" className={s.logoBtn} onClick={openMenu} aria-label="Menú">
-          <Logo variant="symbol" height="2.5rem" alt="" />
+          <Logo variant="symbol" height="2.625rem" alt="" />
         </button>
       ) : (
-        <Logo variant="symbol" height="2.5rem" />
+        <Logo variant="symbol" height="2.625rem" />
       )}
       <div className={s.headText}>
         <b>{title}</b>
@@ -126,14 +139,43 @@ export function NfcMark({ size }: { size: 's' | 'l' }) {
   );
 }
 
-/** La fila del NFC leído (o del saldo): su glifo, qué es y el ✓. */
-export function DeskRowView({ title, detail, check = true }: { title: string; detail: string; check?: boolean }) {
+/**
+ * El número impreso de la ficha en grande (A1): «0000 1013», en grupos de 4
+ * y la parte que importa en negrita. El lector de pantalla lo oye entero.
+ */
+export function FichaNumber({ printed, className }: { printed: string; className?: string }) {
+  return (
+    <span className={`${s.fichaNum} ${className ?? ''}`}>
+      <span className="np-sr-only">Ficha nº {printed}</span>
+      <span aria-hidden="true">
+        {fichaDigits(printed).map((part, i) =>
+          part.strong ? <b key={i}>{part.text}</b> : <span key={i} className={s.fichaWeak}>{part.text}</span>,
+        )}
+      </span>
+    </span>
+  );
+}
+
+interface RowProps {
+  title: string;
+  detail: string;
+  check?: boolean;
+  /** El número impreso de la ficha, en grande entre el título y el detalle (A1). */
+  ficha?: string | null;
+  /** Debajo: «Mira que es la que tienes en la mano», lo último que se cargó… */
+  children?: ReactNode;
+}
+
+/** La fila de la ficha leída (o del saldo): su glifo, qué es y el ✓. */
+export function DeskRowView({ title, detail, check = true, ficha = null, children }: RowProps) {
   return (
     <div className={s.det}>
       <NfcMark size="s" />
       <div className={s.grow}>
         <b>{title}</b>
+        {ficha ? <FichaNumber printed={ficha} /> : null}
         <span>{detail}</span>
+        {children}
       </div>
       {check ? (
         <span className={s.okc}>
@@ -250,6 +292,19 @@ export function DeskBtn({ kind, icon, label, small, onClick, disabled, busy }: B
     >
       {busy ? 'Un momento…' : head}
     </button>
+  );
+}
+
+/**
+ * El aviso del mostrador (A3): se acercó otra ficha que la del cliente que se
+ * atiende («Esa es la 1014, no la 1013»). Solo avisa: la pantalla sigue igual.
+ */
+export function CounterAviso({ text, className }: { text: string; className?: string }) {
+  return (
+    <p role="alert" className={`${s.aviso} ${className ?? ''}`}>
+      <Icon name="nfc" />
+      <span>{text}</span>
+    </p>
   );
 }
 

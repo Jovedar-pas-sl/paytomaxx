@@ -56,6 +56,9 @@ const StepUpSchema = z.object({ totpCode: TotpCode }).optional();
 const PinSchema = z.object({
   code: z.string().trim().min(6).max(10),
   pin: z.string().regex(/^[0-9]{4}$/, 'El PIN son 4 cifras'),
+  /** B10: la ficha leída al recargar un saldo que ya existía (recepción pone su PIN justo después). */
+  card: z.string().regex(/^[A-Za-z0-9_-]{16,64}$/, 'Esta ficha no es nuestra').optional(),
+  uid: z.string().trim().max(64).optional(),
 });
 
 const CardToken = z.string().regex(/^[A-Za-z0-9_-]{16,64}$/, 'Esta ficha no es nuestra');
@@ -80,6 +83,8 @@ const PayPinSchema = z
     uid: CardUid,
     walletToken: PassToken.optional(),
     pin: z.string().regex(/^[0-9]{4}$/, 'El PIN son 4 cifras'),
+    /** B1: la propina que eligió el cliente en la pantalla del PIN (sin ella, la que traía el cobro). */
+    tipCents: z.number().int().nonnegative().max(500_00).optional(),
   })
   .refine((b) => [b.code, b.card, b.walletToken].filter(Boolean).length === 1, {
     message: 'Falta el código, la ficha o el pase del cliente',
@@ -212,6 +217,7 @@ export class WalletChargesController {
     return this.charges.payQrChargeWithPin({ userId: user.sub, role: user.role, tenantId: user.tenantId }, id, {
       ...ref,
       pin: body.pin,
+      ...(body.tipCents !== undefined ? { tipCents: body.tipCents } : {}),
     });
   }
 

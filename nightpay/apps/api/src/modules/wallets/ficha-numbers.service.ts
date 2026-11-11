@@ -14,6 +14,7 @@ import { assertCanTopUp } from '../venues/charge-rights';
 import { assertVenueAcceptsMethods } from '../venues/venue-methods';
 import { PRINTED_NUMBER_INVALID, printedLookupScopes } from './ficha-numbers';
 import { LIVE_WALLET_STATUSES, liveWallet, type DeskWallet } from './reception-desk';
+import { recentTopUp } from './recent-topup';
 import { cardInGroup, cardUnusableText, isIssuedCard } from './wallet-card-ops';
 import { CashTopUpService } from './wallet-cash-topup.service';
 import { cashPayoutCapCents, cashPayoutNote, walletCash } from './wallet-cash-limits';
@@ -69,6 +70,7 @@ export class FichaNumbersService {
       idempotencyKey: input.idempotencyKey,
       wallet: { printed: { cardId: found.cardId } },
       ...(input.serviceFeeCents !== undefined ? { serviceFeeCents: input.serviceFeeCents } : {}),
+      ...(input.fichaCheck ? { fichaCheck: input.fichaCheck } : {}),
     });
     return {
       topUpId: out.topUpId,
@@ -78,6 +80,16 @@ export class FichaNumbersService {
       balanceCents: out.balanceCents,
       replayed: out.replayed,
     };
+  }
+
+  /**
+   * «Ficha perdida» (B6) por el número de la ficha perdida: el saldo vivo que
+   * tiene. Solo sirve junto con el PIN del cliente (lo comprueba quien llama).
+   */
+  async walletIdByNumber(venueId: string, printedNumber: string): Promise<string> {
+    const found = await this.find(venueId, printedNumber);
+    if (!found.wallet) throw new ConflictException('Esa ficha no tiene saldo: no hay nada que pasar a otra');
+    return found.wallet.id;
   }
 
   /** Solo quien carga saldos (recepción, el encargado o el dueño), con las fichas NFC encendidas. */
@@ -116,6 +128,7 @@ export class FichaNumbersService {
     const w = found.wallet;
     if (!w) return { kind: 'new', printedNumber };
     const cash = await this.prisma.acrossVenues((tx) => walletCash(tx, w.id));
+    const lastTopUp = await this.prisma.acrossVenues((tx) => recentTopUp(tx, w.id));
     return {
       kind: 'saldo',
       printedNumber,
@@ -127,6 +140,7 @@ export class FichaNumbersService {
       blocked: w.blockedAt !== null,
       closeRequested: w.closeRequestedAt !== null,
       isHomeVenue: w.tenantId === venueId,
+      lastTopUp,
     };
   }
 

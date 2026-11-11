@@ -8,9 +8,12 @@ import { useVenueMethods } from '@/lib/venue-methods';
 import { DeskHead } from './desk/desk-parts';
 import s from './desk/desk.module.css';
 import { ReceptionDesk } from './desk/ReceptionDesk';
+import { CashVoids } from './CashVoids';
 import { GiveFicha } from './GiveFicha';
+import { LostFicha } from './LostFicha';
 import { PendingTopUps } from './PendingTopUps';
 import { PrepareFichas } from './PrepareFichas';
+import { qrScanSupported } from '../QrScanner';
 import { useChipReader } from './use-chip-via';
 
 interface Props {
@@ -30,7 +33,11 @@ interface Props {
 export function ReceptionTab({ user, active, onOwnHeader }: Props) {
   const methods = useVenueMethods();
   const reader = useChipReader();
-  const [view, setView] = useState<'desk' | 'prepare' | 'pending' | 'ficha'>('desk');
+  const [view, setView] = useState<'desk' | 'prepare' | 'pending' | 'ficha' | 'voids' | 'lost'>('desk');
+  // «Darle una» desde un saldo sin ficha (A7): su código, ya escrito en «Dar ficha a un saldo».
+  const [fichaCode, setFichaCode] = useState<string | undefined>(undefined);
+  // B5: «Escanear su QR (cargó en casa)» desde la primera pantalla: la cámara ya puesta.
+  const [scanFirst, setScanFirst] = useState(false);
   const [pending, setPending] = useState(0);
   const { sections } = useMySections();
 
@@ -61,8 +68,25 @@ export function ReceptionTab({ user, active, onOwnHeader }: Props) {
   );
   if (view === 'prepare') return inner(<PrepareFichas on="staff" onDone={() => setView('desk')} />);
   if (view === 'pending') return inner(<PendingTopUps onDone={() => setView('desk')} />);
+  // B4: pasados los 2 minutos del «Me he equivocado», el encargado o el dueño, desde su móvil.
+  if (view === 'voids') return inner(<CashVoids onDone={() => setView('desk')} />);
+  // B6: ficha nueva para quien perdió la suya, con su QR o su PIN; se cobra del saldo.
+  if (view === 'lost') return inner(<LostFicha user={user} onDone={() => setView('desk')} />);
   // El saldo cargado desde casa (o cualquiera sin ficha): su ficha, con su QR o su código y su PIN.
-  if (view === 'ficha') return inner(<GiveFicha user={user} onDone={() => setView('desk')} />);
+  if (view === 'ficha') {
+    return inner(
+      <GiveFicha
+        user={user}
+        initialCode={fichaCode}
+        scanFirst={scanFirst}
+        onDone={() => {
+          setFichaCode(undefined);
+          setScanFirst(false);
+          setView('desk');
+        }}
+      />,
+    );
+  }
 
   const canPrepare = methods.nfc && reader.via !== null && reader.canWrite;
   // Lo secundario, junto y abajo en una sola fila (Grafito 2): los mismos tres, y las pendientes con su número.
@@ -81,7 +105,30 @@ export function ReceptionTab({ user, active, onOwnHeader }: Props) {
           Dar ficha a un saldo
         </button>
       ) : null}
+      {methods.nfc ? (
+        <button type="button" className={s.moreBtn} onClick={() => setView('lost')}>
+          Ficha perdida
+        </button>
+      ) : null}
+      {user.role === 'MANAGER' || user.role === 'OWNER' ? (
+        <button type="button" className={s.moreBtn} onClick={() => setView('voids')}>
+          Anular una recarga
+        </button>
+      ) : null}
     </nav>
   );
-  return <ReceptionDesk user={user} active={active} footer={footer} />;
+  const giveFicha = methods.nfc
+    ? (code: string) => {
+        setFichaCode(code);
+        setView('ficha');
+      }
+    : undefined;
+  const scanHome =
+    methods.nfc && qrScanSupported()
+      ? () => {
+          setScanFirst(true);
+          setView('ficha');
+        }
+      : undefined;
+  return <ReceptionDesk user={user} active={active} footer={footer} onGiveFicha={giveFicha} onScanHome={scanHome} />;
 }

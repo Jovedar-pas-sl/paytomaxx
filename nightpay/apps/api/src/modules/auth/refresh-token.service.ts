@@ -1,4 +1,5 @@
 import { Inject, Injectable, Logger, Optional, UnauthorizedException } from '@nestjs/common';
+import { stepUpKey } from './step-up-keys';
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import type { Redis } from 'ioredis';
 import { REDIS_CLIENT } from '../../common/redis/redis.module';
@@ -449,7 +450,8 @@ export class RefreshTokenService {
 
   /** Lo que la sesión recordaba (local elegido, entró con 2FA): una sesión cerrada no lo deja atrás. */
   private async forgetFamily(familyId: string): Promise<void> {
-    await this.redis.del(this.venueKey(familyId), this.twoFactorKey(familyId));
+    // También la verificación del momento de esa sesión (step-up.service): se borra al salir.
+    await this.redis.del(this.venueKey(familyId), this.twoFactorKey(familyId), stepUpKey(familyId));
   }
 
   private async scanKeys(pattern: string): Promise<string[]> {

@@ -101,9 +101,10 @@ describe('estado de la propina en la página', () => {
     return renderChooseBody(view, ctx).replace(/[\u00a0\u202f]/g, ' ');
   };
 
-  it('«Sin propina» marcada por defecto, las sugeridas de siempre y «Otra» (oculta hasta que hay JS)', () => {
+  it('sin nada marcado (B1), las sugeridas de siempre y «Otra» (oculta hasta que hay JS); sin elegir, sin propina', () => {
     const html = render();
-    expect(html).toContain('<input type="radio" name="tip" value="0" checked><span class="word">Sin propina</span>');
+    expect(html).toContain('<input type="radio" name="tip" value="0"><span class="word">Sin propina</span>');
+    expect(html).not.toMatch(/name="tip"[^>]* checked/);
     expect(html).toContain('value="200"><span class="num">+2 €</span>');
     expect(html).toContain('value="500"><span class="num">+5 €</span>');
     expect(html).toContain('<label id="otherOpt" hidden>');

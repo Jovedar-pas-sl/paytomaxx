@@ -7,26 +7,42 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  Optional,
   UnprocessableEntityException,
 } from '@nestjs/common';
 import { ModuleRef } from '@nestjs/core';
 import {
   confirmationCode,
+  customerTipProblem,
   fichaNumberText,
   formatChargeRef,
   isWalletCardToken,
   nightSettingsOf,
   normalizeWalletCardUid,
+  maxTipCents,
   paymentMethodsOf,
   sectionMeta,
   sectionsOf,
+  stepUpActions,
+  tipPresetsFor,
   type ChargeAuthMethod,
+  type TipPreset,
   type ChargeLineInput,
   type Role,
 } from '@nightpay/contracts';
 import type { Prisma } from '@nightpay/db';
+import { ClsService } from 'nestjs-cls';
+import type { RequestContext } from '../../common/context/request-context';
 import { PrismaService, type TransactionalClient } from '../../common/prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
+import {
+  insertPaymentEvent,
+  paymentDevicePayload,
+  PAYMENT_DEVICE_EVENT,
+  WALLET_CHARGE_CREATED_ACTION,
+  WALLET_CHARGE_SETTLED_ACTION,
+  withoutIp,
+} from '../payments/payment-device';
 import { resolveBpsForOperator, type RevenueCategory } from '../payments/commission';
 import { lineCommission, type DraftLine } from '../payments/charge-lines';
 import { resolveChargeOrThrow } from '../payments/charge-request';
@@ -42,7 +58,7 @@ import {
 } from '../payments/cobro-link';
 import { hashPin, PIN_MAX_FAILS, PIN_PROBLEM_TEXT, pinProblem, verifyPin } from './wallet-pin';
 import { reopenData } from './wallet-activation';
-import { mergedWalletIds } from './wallet-merge-chain';
+import { liveWalletId, mergedWalletIds } from './wallet-merge-chain';
 import { clientRefundState, refundCards, type ClientRefundState } from './wallet-refund-view';
 import {
   ISSUED_CARD_STATUSES,
@@ -62,7 +78,7 @@ import {
   walletCash,
   type PayoutAmounts,
 } from './wallet-cash-limits';
-import { firstTopUp, isFreshTopUpBy, type TopUpBy } from './wallet-fresh-topup';
+import { firstTopUp, isFreshTopUpBy, pinAfterRecharge, type TopUpBy } from './wallet-fresh-topup';
 import { topUpTarget } from './wallet-topup-target';
 import {
   PinRequiredException,
@@ -72,9 +88,9 @@ import {
   noPinWindowStart,
 } from './wallet-nopin';
 import { assertVenueAcceptsCharges } from '../venues/venue-pause';
-import { TipsDisabledException, assertVenueAcceptsMethods } from '../venues/venue-methods';
-import { tipsForbidden } from '../venues/charge-rights';
-import { maxTipCents } from '../payments/tip';
+import { assertVenueAcceptsMethods } from '../venues/venue-methods';
+import { chargeRightsFor } from '../venues/charge-rights';
+import { customerTipError, staffTipRemoved } from '../payments/tip';
 import { TotpService } from '../auth/totp.service';
 import { assertManagerTwoFactor, assertTwoFactorCode, cashApprovalThreshold } from './wallet-two-factor';
 import { receptionAskedManager } from './reception-payout-rules';
@@ -150,7 +166,14 @@ export interface WalletLookup {
 }
 
 /** Cómo dice el cliente cuál es su saldo, sin su móvil: su código o su ficha NFC. */
-export type WalletRef = { code: string } | { card: string; uid?: string | null };
+export type WalletRef = { code: string } | { card: string; uid?: string | null; requestId?: string };
+/** La ficha acercada y, al pagar, el cobro (para apuntar con él una posible copia). */
+type CardRefInput = { card: string; uid?: string | null; requestId?: string };
+/** Con qué se dijo de quién era el saldo al pagar con PIN (detalle del pago: «Ficha nº…»). */
+type PinVia = 'ficha' | 'pase' | 'código';
+function pinViaOf(input: object): PinVia {
+  return 'card' in input ? 'ficha' : 'walletToken' in input ? 'pase' : 'código';
+}
 
 /** Datáfono vinculado (Authorization: Device): no hay persona, solo su local. */
 export interface TerminalActor {
@@ -269,6 +292,24 @@ export interface QrChargeClientView {
    * pagado (si no, llega en la respuesta del pago).
    */
   code?: string | null;
+  /**
+   * B1: la propina la elige aquí el cliente, sin nada marcado. Solo antes de
+   * pagar y con las propinas encendidas (en el local y en el puesto de quien
+   * cobra); si no, no va. `amountCents` (arriba) ya la lleva sumada si el
+   * cobro traía una de antes (`previousCents`, puesta por el personal): sale
+   * marcada y se puede quitar.
+   */
+  tip?: QrChargeTipView | null;
+}
+
+/** La propina en /s (B1): lo que se cobra sin ella, la que traía el cobro, el máximo y las sugeridas. */
+export interface QrChargeTipView {
+  baseCents: number;
+  previousCents: number;
+  maxCents: number;
+  presets: TipPreset[];
+  /** Va entera para quien cobra (una chica): se le dice al cliente. */
+  toStaff: boolean;
 }
 
 /** Respuesta de POST /s/:token/pay: lo cobrado, lo que le queda y el código del cobro único. */
@@ -324,6 +365,17 @@ export interface ClientWalletState {
     ref: string | null;
     /** Color de la sección del consumo (el del local); null en recargas y devoluciones. */
     color: string | null;
+    /**
+     * El pago para abrir su detalle (GET /w/:token/movements/:kind/:id): lo
+     * pagado con el saldo (SALDO) y las recargas con tarjeta (PAYMENT). Null en
+     * las recargas en efectivo y las devoluciones.
+     */
+    detail?: { kind: 'PAYMENT' | 'SALDO'; id: string } | null;
+    /**
+     * Un pago con el saldo que el local deshizo: el dinero volvió a su saldo
+     * (la fila lo dice, «Devuelto a tu saldo»; sin quién ni por qué).
+     */
+    returned?: boolean;
   }>;
 }
 
@@ -388,16 +440,21 @@ export class WalletChargesService {
   private readonly moduleRef: ModuleRef;
   private readonly totp: TotpService;
 
+  /** El contexto de la petición: el dispositivo con el que se paga (detalle del pago). */
+  private readonly cls: Pick<ClsService<{ ctx: RequestContext }>, 'get'> | null;
+
   constructor(
     @Inject(PrismaService) prisma: PrismaService,
     @Inject(AuditService) audit: AuditService,
     @Inject(ModuleRef) moduleRef: ModuleRef,
     @Inject(TotpService) totp: TotpService,
+    @Optional() @Inject(ClsService) cls?: ClsService<{ ctx: RequestContext }>,
   ) {
     this.prisma = prisma;
     this.audit = audit;
     this.moduleRef = moduleRef;
     this.totp = totp;
+    this.cls = cls ?? null;
   }
 
   // ─── Personal del local ────────────────────────────────────────────────
@@ -458,7 +515,10 @@ export class WalletChargesService {
   private async resolveCharge(
     actor: Actor,
     input: QrChargeInput,
-  ): Promise<{ amountCents: number; category: RevenueCategory; serviceName: string | null; lines: DraftLine[]; tipCents: number }> {
+  ): Promise<{ amountCents: number; category: RevenueCategory; serviceName: string | null; lines: DraftLine[] }> {
+    // B1: la propina la elige el cliente al pagar (con su saldo o su PIN); el
+    // personal ya no la pone. Una app de antes que la mande: 400 claro.
+    if ((input.tipCents ?? 0) > 0) throw staffTipRemoved();
     const charge = await resolveChargeOrThrow(this.prisma, {
       tenantId: actor.tenantId,
       userId: actor.userId,
@@ -471,18 +531,6 @@ export class WalletChargesService {
       invitedOperatorId: input.invitedOperatorId,
     });
     const amountCents = charge.amountCents;
-    // La propina: con las propinas encendidas en el local y en su puesto, hasta el importe (y 500 €).
-    const tipCents = input.tipCents ?? 0;
-    if (tipCents > 0) {
-      const venue = await this.prisma.asSystem((tx) =>
-        tx.venue.findUnique({ where: { id: actor.tenantId }, select: { paymentMethods: true } }),
-      );
-      if (!paymentMethodsOf(venue?.paymentMethods).tips) throw new TipsDisabledException();
-      if (charge.rights && !charge.rights.tips) throw tipsForbidden();
-      if (tipCents > maxTipCents(amountCents)) {
-        throw new BadRequestException('La propina no puede pasar del importe del cobro ni de 500,00 €');
-      }
-    }
     // El mismo tope por cobro que tiene la chica con el QR (Ajustes del local).
     if (actor.role === 'OPERATOR') {
       const venue = await this.prisma.venue.findUnique({
@@ -494,7 +542,7 @@ export class WalletChargesService {
         throw new ForbiddenException(`El máximo que puedes cobrar de una vez es ${eur(max)}`);
       }
     }
-    return { amountCents, category: charge.primaryCategory, serviceName: charge.serviceName, lines: charge.lines, tipCents };
+    return { amountCents, category: charge.primaryCategory, serviceName: charge.serviceName, lines: charge.lines };
   }
 
   /** La chica espera a que el cliente pague (solo la que lo hizo, o el encargado). */
@@ -576,17 +624,18 @@ export class WalletChargesService {
     const read = await this.prisma.acrossVenues(async (tx) => {
       const wallet = await tx.clientWallet.findUnique({ where: { qrToken } });
       if (!wallet) return null;
+      // También los deshechos: la fila dice que el dinero volvió a su saldo.
       const consumptions = await tx.walletConsumption.findMany({
-        where: { walletId: wallet.id, reversedAt: null },
+        where: { walletId: wallet.id },
         orderBy: { createdAt: 'desc' },
         take: 30,
-        select: { id: true, amountCents: true, tipCents: true, category: true, notes: true, tenantId: true, createdAt: true },
+        select: { id: true, amountCents: true, tipCents: true, category: true, notes: true, tenantId: true, createdAt: true, reversedAt: true },
       });
       const topUps = await tx.payment.findMany({
         where: { walletId: wallet.id, status: { in: ['AUTHORIZED', 'PARTIALLY_REFUNDED', 'REFUNDED'] } },
         orderBy: { createdAt: 'desc' },
         take: 10,
-        select: { amountCents: true, tenantId: true, authorizedAt: true, createdAt: true, cardLast4: true, ref: true },
+        select: { id: true, amountCents: true, tenantId: true, authorizedAt: true, createdAt: true, cardLast4: true, ref: true },
       });
       // Hechas y la que se está apuntando a la tarjeta (paso «Aprobado» del «Me voy»).
       const allPayouts = await tx.walletPayout.findMany({
@@ -610,13 +659,13 @@ export class WalletChargesService {
       const passkeys = await tx.walletPasskey.count({ where: { walletId: wallet.id } });
       const venueIds = [...new Set([wallet.tenantId, ...[...consumptions, ...topUps, ...cashTopUps, ...allPayouts].map((m) => m.tenantId)])];
       const venues = await tx.venue.findMany({ where: { id: { in: venueIds } }, select: { id: true, name: true, sections: true } });
-      // La referencia de cada consumo es la de su cobro (C-0001).
+      // La referencia de cada consumo es la de su cobro (C-0001), y su cobro abre el detalle.
       const refRows =
         consumptions.length === 0
           ? []
           : await tx.walletChargeRequest.findMany({
-              where: { consumptionId: { in: consumptions.map((c) => c.id) }, ref: { not: null } },
-              select: { consumptionId: true, ref: true },
+              where: { consumptionId: { in: consumptions.map((c) => c.id) } },
+              select: { id: true, consumptionId: true, ref: true },
             });
       return { wallet, consumptions, topUps, allPayouts, cashTopUps, issuedCards, passkeys, venues, refRows };
     });
@@ -630,6 +679,7 @@ export class WalletChargesService {
     const sectionOfVenue = (id: string, category: string): { label: string; color: string } =>
       sectionMeta(sectionsOf(venues.find((v) => v.id === id)?.sections), category);
     const refs = new Map(read.refRows.flatMap((x) => (x.consumptionId && x.ref ? [[x.consumptionId, formatChargeRef(x.ref)!]] : [])));
+    const chargeOf = new Map(read.refRows.flatMap((x) => (x.consumptionId ? [[x.consumptionId, x.id]] : [])));
 
     const movements: ClientWalletState['movements'] = [
       ...consumptions.map((c) => ({
@@ -640,6 +690,8 @@ export class WalletChargesService {
         at: c.createdAt.toISOString(),
         ref: refs.get(c.id) ?? null,
         color: sectionOfVenue(c.tenantId, c.category).color,
+        detail: chargeOf.has(c.id) ? { kind: 'SALDO' as const, id: chargeOf.get(c.id)! } : null,
+        ...(c.reversedAt ? { returned: true } : {}),
       })),
       ...topUps.map((t) => ({
         kind: 'topup' as const,
@@ -650,6 +702,7 @@ export class WalletChargesService {
         at: (t.authorizedAt ?? t.createdAt).toISOString(),
         ref: formatChargeRef(t.ref),
         color: null,
+        detail: { kind: 'PAYMENT' as const, id: t.id },
       })),
       ...cashTopUps.map((t) => ({
         kind: 'topup' as const,
@@ -700,7 +753,14 @@ export class WalletChargesService {
    * pueden ser de locales distintos del grupo. Todo o nada: si algo falla, el
    * rollback deja el cobro libre otra vez.
    */
-  private async settleRequest(walletId: string, requestId: string, auth: ChargeAuthMethod): Promise<NoPinSettled | null> {
+  private async settleRequest(
+    walletId: string,
+    requestId: string,
+    auth: ChargeAuthMethod,
+    pinVia?: PinVia,
+    /** B1: la propina que eligió el cliente al pagar (null: no eligió; vale la que traía el cobro). */
+    tipChoice: number | null = null,
+  ): Promise<NoPinSettled | null> {
     const wallet = { id: walletId };
     return this.prisma.acrossVenues(async (tx) => {
       // Cobro único: primero la fila del cobro con tarjeta (el mismo orden que
@@ -736,8 +796,12 @@ export class WalletChargesService {
       if (bound.count === 0) throw requestError('not-pending');
       const request = await tx.walletChargeRequest.findFirst({ where: { id: requestId, walletId: wallet.id } });
       if (!request) throw new NotFoundException('Cobro no encontrado');
-      // Lo que sale del saldo: el importe y la propina que pidió el cliente.
-      const tipCents = request.tipCents ?? 0;
+      // Lo que sale del saldo: el importe y la propina que eligió el cliente
+      // al pagar (B1). Queda en el cobro: el personal la ve en su PAGADO.
+      const tipCents = tipChoice === null ? (request.tipCents ?? 0) : await customerTipOf(tx, request, tipChoice);
+      if (tipCents !== (request.tipCents ?? 0)) {
+        await tx.walletChargeRequest.update({ where: { id: request.id }, data: { tipCents } });
+      }
       const totalCents = request.amountCents + tipCents;
       const decision = decideAccept({ ...request, amountCents: totalCents }, w, new Date());
       if (!decision.ok) throw requestError(decision.reason);
@@ -838,10 +902,69 @@ export class WalletChargesService {
         data: { status: 'ACCEPTED', decidedAt: new Date(), consumptionId: consumption.id },
       });
       if (accepted.count === 0) throw requestError('not-pending');
+      // Detalle del pago: con qué se pagó y el saldo antes y después.
+      await this.recordSaldoSettled(tx, {
+        request: { id: request.id, tenantId: request.tenantId },
+        linkedPaymentId: card?.id ?? null,
+        auth,
+        pinVia,
+        beforeCents: w.balanceCents,
+        afterCents: newBalance,
+      });
       // Cobro único: el cobro con tarjeta ya no se puede autorizar.
       if (card) await cancelCardForSaldo(tx, card, request.id, randomBytes(8).toString('hex'));
       return noPin;
     });
+  }
+
+  /**
+   * El pago con el saldo, para su detalle: el dispositivo (el del cliente con
+   * su Face ID; el del personal o el datáfono con su PIN o su NFC), cómo se
+   * autorizó y el saldo antes y después. Cobro único: un `payment.device` en
+   * el cobro enlazado. Saldo suelto (sin cobro con tarjeta): en el registro,
+   * SIN la IP (audit_events no deja borrar nada).
+   */
+  private async recordSaldoSettled(
+    tx: TransactionalClient,
+    s: {
+      request: { id: string; tenantId: string };
+      linkedPaymentId: string | null;
+      auth: ChargeAuthMethod;
+      pinVia?: PinVia;
+      beforeCents: number;
+      afterCents: number;
+    },
+  ): Promise<void> {
+    const ctx = this.cls?.get('ctx');
+    const payload = paymentDevicePayload(
+      ctx,
+      'saldo',
+      {
+        ...(s.auth === 'passkey' ? { who: 'client' as const } : {}),
+        walletChargeId: s.request.id,
+        authMethod: s.auth,
+        ...(s.pinVia ? { pinVia: s.pinVia } : {}),
+        balanceBeforeCents: s.beforeCents,
+        balanceAfterCents: s.afterCents,
+      },
+      { evenWithoutDevice: true },
+    )!;
+    if (s.linkedPaymentId) {
+      await insertPaymentEvent(tx, {
+        paymentId: s.linkedPaymentId,
+        tenantId: s.request.tenantId,
+        eventType: PAYMENT_DEVICE_EVENT,
+        payload,
+        traceId: ctx?.traceId,
+      });
+      return;
+    }
+    // En SQL crudo, como el resto del registro dentro de una transacción del dinero.
+    await tx.$executeRaw`
+      INSERT INTO audit_events ("tenantId", "actorId", action, "targetType", "targetId", payload, "traceId", "occurredAt")
+      VALUES (${s.request.tenantId}::uuid, ${ctx?.userId ?? null}::uuid, ${WALLET_CHARGE_SETTLED_ACTION}, 'WalletChargeRequest',
+              ${s.request.id}, ${JSON.stringify(withoutIp(payload))}::jsonb, ${ctx?.traceId ?? null}, now())
+    `;
   }
 
   /**
@@ -877,7 +1000,7 @@ export class WalletChargesService {
       await assertVenueAcceptsCharges(tx, actor.tenantId);
       await assertVenueAcceptsMethods(tx, actor.tenantId, ['wallet']);
     });
-    const { amountCents, category, serviceName, lines, tipCents } = await this.resolveCharge(actor, input);
+    const { amountCents, category, serviceName, lines } = await this.resolveCharge(actor, input);
     const payToken = randomBytes(24).toString('base64url');
     // Cobro, su referencia (C-0001) y sus líneas: todo o nada.
     const request = await this.prisma.asSystem(async (tx) => {
@@ -893,10 +1016,19 @@ export class WalletChargesService {
           payToken,
           ref,
           expiresAt: new Date(Date.now() + QR_CHARGE_TTL_MS),
-          ...(tipCents > 0 ? { tipCents } : {}),
         },
       });
       await insertChargeLines(tx, actor.tenantId, { walletChargeId: created.id }, lines);
+      // Detalle del pago: con qué móvil se creó. Saldo suelto (sin cobro con
+      // tarjeta): en el registro, sin la IP (audit_events no deja borrar).
+      const device = paymentDevicePayload(this.cls?.get('ctx'), 'create', { walletChargeId: created.id });
+      if (device) {
+        await tx.$executeRaw`
+          INSERT INTO audit_events ("tenantId", "actorId", action, "targetType", "targetId", payload, "traceId", "occurredAt")
+          VALUES (${actor.tenantId}::uuid, ${actor.userId}::uuid, ${WALLET_CHARGE_CREATED_ACTION}, 'WalletChargeRequest',
+                  ${created.id}, ${JSON.stringify(withoutIp(device))}::jsonb, ${this.cls?.get('ctx')?.traceId ?? null}, now())
+        `;
+      }
       return created;
     });
     return { ...this.requestView(request, null), payToken };
@@ -906,13 +1038,14 @@ export class WalletChargesService {
   async qrChargeForClient(payToken: string): Promise<QrChargeClientView> {
     const request = await this.qrRequest(payToken);
     const [venue, requester] = await Promise.all([
-      this.prisma.venue.findUnique({ where: { id: request.tenantId }, select: { name: true } }),
+      this.prisma.venue.findUnique({ where: { id: request.tenantId }, select: { name: true, paymentMethods: true } }),
       this.prisma.asSystem((tx) =>
-        tx.user.findUnique({ where: { id: request.requestedByUserId }, select: { displayName: true } }),
+        tx.user.findUnique({ where: { id: request.requestedByUserId }, select: { displayName: true, role: true } }),
       ),
     ]);
     const status = effectiveRequestStatus(request, new Date());
     const elsewhere = status !== 'ACCEPTED' && (await this.paidByCard(request));
+    const tip = status === 'PENDING' ? await this.clientTipView(request, venue?.paymentMethods, requester?.role ?? null) : null;
     return {
       status,
       // Lo que paga: el importe y la propina que pidió.
@@ -924,6 +1057,34 @@ export class WalletChargesService {
       paidAt: status === 'ACCEPTED' && request.decidedAt ? request.decidedAt.toISOString() : null,
       ...(elsewhere ? { paidElsewhere: true } : {}),
       code: request.linkedPaymentId ? confirmationCode(request.linkedPaymentId) : null,
+      ...(tip ? { tip } : {}),
+    };
+  }
+
+  /**
+   * La propina que se ofrece en /s (B1): con las propinas encendidas en el
+   * local y en el puesto de quien cobra; las sugeridas del local para este
+   * importe y el máximo (el importe, y 500 €). Sin propinas, null.
+   */
+  private async clientTipView(
+    request: { tenantId: string; requestedByUserId: string; amountCents: number; tipCents: number | null },
+    venueMethods: unknown,
+    requesterRole: string | null,
+  ): Promise<QrChargeTipView | null> {
+    const methods = paymentMethodsOf(venueMethods);
+    if (!methods.tips) return null;
+    const rights = await this.prisma.asSystem((tx) =>
+      chargeRightsFor(tx, request.tenantId, { userId: request.requestedByUserId, role: requesterRole }),
+    );
+    if (!rights.tips) return null;
+    const baseCents = request.amountCents;
+    return {
+      baseCents,
+      previousCents: request.tipCents ?? 0,
+      maxCents: maxTipCents(baseCents),
+      presets: tipPresetsFor(baseCents, { flatCents: methods.tipFlatCents, percents: methods.tipPercents }),
+      // Como al pagar: la propina es entera de la chica que cobra; si cobra otra persona, del local.
+      toStaff: requesterRole === 'OPERATOR',
     };
   }
 
@@ -934,18 +1095,32 @@ export class WalletChargesService {
    * Ya pagado, la respuesta trae el código del cobro único (el que ve el
    * personal): la página de /s no lo lleva antes de pagar.
    */
-  async payQrCharge(payToken: string, walletId: string): Promise<QrChargePaid> {
+  async payQrCharge(payToken: string, walletId: string, tipChoice: number | null = null): Promise<QrChargePaid> {
     const request = await this.qrRequest(payToken);
-    await this.bindAndSettle(request, walletId, 'passkey');
-    const wallet = await this.prisma.acrossVenues((tx) =>
-      tx.clientWallet.findUnique({ where: { id: walletId }, select: { balanceCents: true } }),
+    await this.bindAndSettle(request, walletId, 'passkey', undefined, tipChoice);
+    const [wallet, paid] = await this.prisma.acrossVenues((tx) =>
+      Promise.all([
+        tx.clientWallet.findUnique({ where: { id: walletId }, select: { balanceCents: true } }),
+        tx.walletChargeRequest.findUnique({ where: { id: request.id }, select: { tipCents: true } }),
+      ]),
     );
     this.logger.log(`Saldo ${walletId}: cobro ${request.id} pagado con su llave (QR)`);
     return {
-      amountCents: request.amountCents + (request.tipCents ?? 0),
+      amountCents: request.amountCents + (paid?.tipCents ?? 0),
       balanceCents: wallet?.balanceCents ?? 0,
       code: request.linkedPaymentId ? confirmationCode(request.linkedPaymentId) : null,
     };
+  }
+
+  /**
+   * El saldo de la llave con la que se acaba de pagar (o aquel al que se
+   * sumó): su id y su enlace, para «Ver mi saldo» en el «Pagado» de /s.
+   */
+  async liveWalletRef(walletId: string): Promise<{ id: string; qrToken: string } | null> {
+    return this.prisma.acrossVenues(async (tx) => {
+      const id = await liveWalletId(tx, walletId);
+      return id ? tx.clientWallet.findUnique({ where: { id }, select: { id: true, qrToken: true } }) : null;
+    });
   }
 
   /** Encargado o dueño: cobros con QR que nadie ha pagado aún (cliente sin batería…). */
@@ -1011,7 +1186,7 @@ export class WalletChargesService {
     if (request.requestedByUserId === actor.userId) {
       throw new ForbiddenException('Este cobro lo has hecho tú: lo tiene que aprobar otro encargado o el dueño');
     }
-    await assertTwoFactorCode(this.totp, actor.userId, totpCode, 'Para cobrar sin que el cliente confirme,');
+    await assertTwoFactorCode(this.totp, actor.userId, totpCode, 'Para cobrar sin que el cliente confirme,', stepUpActions.chargeWithoutFaceId(requestId, walletId));
     await this.bindAndSettle(request, walletId, 'staff');
     await this.audit.log({
       action: 'wallet.charge_without_faceid',
@@ -1135,7 +1310,11 @@ export class WalletChargesService {
    * El cliente no saca el móvil: la chica pone su código y él teclea su PIN
    * en el móvil de ella. Se paga el mismo cobro del QR (no queda otro colgado).
    */
-  async payQrChargeWithPin(actor: Actor, requestId: string, input: StaffWalletRef & { pin: string }): Promise<ChargeRequestView> {
+  async payQrChargeWithPin(
+    actor: Actor,
+    requestId: string,
+    input: StaffWalletRef & { pin: string; tipCents?: number },
+  ): Promise<ChargeRequestView> {
     const request = await this.prisma.asSystem((tx) =>
       tx.walletChargeRequest.findFirst({ where: { id: requestId, tenantId: actor.tenantId, payToken: { not: null } } }),
     );
@@ -1150,16 +1329,18 @@ export class WalletChargesService {
     if (effectiveRequestStatus(request, new Date()) !== 'PENDING' || request.walletId) {
       throw await this.notPendingError(request);
     }
-    const wallet = await this.walletByStaffRef(actor.tenantId, input);
+    // Con el cobro: si la ficha es una copia, la sospecha queda apuntada en él (detalle del pago).
+    const wallet = await this.walletByStaffRef(actor.tenantId, 'card' in input ? { ...input, requestId: request.id } : input);
     // Un PIN que puso el encargado sin el cliente: ni él cobra con ese PIN ni
     // aprueba un cobro suyo (hacen falta dos personas, como sin Face ID).
     if (wallet.pinSetById && (wallet.pinSetById === actor.userId || wallet.pinSetById === request.requestedByUserId)) {
       throw new ForbiddenException('Este PIN lo pusiste tú: el cobro lo tiene que hacer otra persona');
     }
     await this.checkPin(wallet.id, input.pin, actor);
-    await this.bindAndSettle(request, wallet.id, 'pin');
+    const via = pinViaOf(input);
+    // B1: la propina la elige el cliente en la pantalla del PIN (sin elegir: la que traía el cobro).
+    await this.bindAndSettle(request, wallet.id, 'pin', via, input.tipCents ?? null);
     if ('card' in input) await this.touchCard(wallet.id, input);
-    const via = 'card' in input ? 'ficha' : 'walletToken' in input ? 'pase' : 'código';
     this.logger.log(`Saldo ${wallet.id}: cobro ${request.id} pagado con PIN (${via}, ${actor.userId})`);
     return this.getRequest(actor, requestId);
   }
@@ -1215,7 +1396,7 @@ export class WalletChargesService {
     }
     await this.assertMethods(actor.tenantId, ['nfc']);
     if (effectiveRequestStatus(request, new Date()) !== 'PENDING' || request.walletId) throw await this.notPendingError(request);
-    const wallet = await this.noPinCardWallet(actor.tenantId, input);
+    const wallet = await this.noPinCardWallet(actor.tenantId, { ...input, requestId: request.id });
     const noPin = await this.bindAndSettle(request, wallet.id, 'nfc_nopin');
     await this.touchCard(wallet.id, input);
     await this.logNoPinCharge(request, wallet.id, noPin, { tenantId: actor.tenantId, actorId: actor.userId });
@@ -1224,7 +1405,7 @@ export class WalletChargesService {
   }
 
   /** El saldo del NFC acercado, si se puede pagar sin PIN con él (si no, 409 PIN_REQUIRED). */
-  private async noPinCardWallet(venueId: string, input: { card: string; uid?: string | null }) {
+  private async noPinCardWallet(venueId: string, input: CardRefInput) {
     const { card, wallet } = await this.cardWithWallet(venueId, input);
     const problem = noPinCardProblem(card, input.uid ? normalizeWalletCardUid(input.uid) : null);
     if (problem) throw new PinRequiredException(problem);
@@ -1373,9 +1554,9 @@ export class WalletChargesService {
     }
     const who = { tenantId: terminal.tenantId, userId: null, terminalId: terminal.terminalId };
     await this.checkPin(wallet.id, input.pin, who);
-    await this.bindAndSettle(request, wallet.id, 'pin');
+    const via = pinViaOf(input);
+    await this.bindAndSettle(request, wallet.id, 'pin', via);
     if ('card' in input) await this.touchCard(wallet.id, input);
-    const via = 'card' in input ? 'ficha' : 'walletToken' in input ? 'pase' : 'código';
     await this.audit.log({
       action: 'wallet.pin_charge_terminal',
       tenantId: terminal.tenantId,
@@ -1400,7 +1581,7 @@ export class WalletChargesService {
     const request = await this.terminalRequest(terminal, requestId);
     await this.assertMethods(terminal.tenantId, ['nfc']);
     if (!(input.uid && normalizeWalletCardUid(input.uid))) throw new BadRequestException(TERMINAL_CARD_NEEDS_UID);
-    const wallet = await this.noPinCardWallet(terminal.tenantId, input);
+    const wallet = await this.noPinCardWallet(terminal.tenantId, { ...input, requestId: request.id });
     const noPin = await this.bindAndSettle(request, wallet.id, 'nfc_nopin');
     await this.touchCard(wallet.id, input);
     await this.logNoPinCharge(request, wallet.id, noPin, { tenantId: terminal.tenantId, terminalId: terminal.terminalId });
@@ -1704,12 +1885,12 @@ export class WalletChargesService {
   }
 
   /** La ficha → su saldo: activa, con saldo abierto y del grupo de este local. */
-  private async walletByCard(venueId: string, input: { card: string; uid?: string | null }) {
+  private async walletByCard(venueId: string, input: CardRefInput) {
     return (await this.cardWithWallet(venueId, input)).wallet;
   }
 
   /** La ficha (dada, y no una copia) y su saldo abierto del grupo de este local. */
-  private async cardWithWallet(venueId: string, input: { card: string; uid?: string | null }) {
+  private async cardWithWallet(venueId: string, input: CardRefInput) {
     const card = isWalletCardToken(input.card)
       ? await this.prisma.acrossVenues((tx) => tx.walletCard.findUnique({ where: { token: input.card } }))
       : null;
@@ -1727,7 +1908,8 @@ export class WalletChargesService {
         tenantId: venueId,
         targetType: 'ClientWallet',
         targetId: card.walletId,
-        payload: { cardId: card.id },
+        // El cobro que se intentaba pagar: su detalle lo enseña como señal.
+        payload: { cardId: card.id, ...(input.requestId ? { requestId: input.requestId } : {}) },
       });
       throw new ConflictException('Esta ficha no es la original (¿copiada?): avisa al encargado');
     }
@@ -1752,20 +1934,29 @@ export class WalletChargesService {
    * delante). Después, el encargado (p. ej. lo olvidó) — y entonces él no
    * puede cobrar con ese PIN.
    */
-  async setPin(actor: Actor, input: { code: string; pin: string }): Promise<WalletLookup> {
+  async setPin(actor: Actor, input: { code: string; pin: string; card?: string; uid?: string }): Promise<WalletLookup> {
     const wallet = await this.walletByCode(actor.tenantId, input.code);
     const fresh = await this.freshTopUpBy(wallet.id, actor.userId);
-    if (!fresh && !isManager(actor)) {
+    // B10: un saldo que ya existía, justo después de recargarlo esta persona y con su ficha delante.
+    // Sin la ficha leída (o con otra), no; el encargado puede igualmente, pero entonces el PIN es suyo.
+    const afterRecharge =
+      !fresh && input.card
+        ? await pinAfterRecharge(this.prisma, { walletId: wallet.id, userId: actor.userId, card: input.card, uid: input.uid }).catch((err: unknown) => {
+            if (isManager(actor) && err instanceof ConflictException) return false;
+            throw err;
+          })
+        : false;
+    if (!fresh && !afterRecharge && !isManager(actor)) {
       throw new UnprocessableEntityException('Este saldo no tiene PIN: que lo elija con el encargado (o en su móvil al recargar)');
     }
-    await this.storeFirstPin(wallet.id, input.pin, fresh ? null : actor.userId);
+    await this.storeFirstPin(wallet.id, input.pin, fresh || afterRecharge ? null : actor.userId);
     await this.audit.log({
       action: 'wallet.pin_set',
       tenantId: actor.tenantId,
       actorId: actor.userId,
       targetType: 'ClientWallet',
       targetId: wallet.id,
-      payload: { where: 'staff-device', role: actor.role, afterTopUp: fresh },
+      payload: { where: 'staff-device', role: actor.role, afterTopUp: fresh, ...(afterRecharge ? { afterRecharge: true } : {}) },
     });
     return this.lookup(actor.tenantId, input.code);
   }
@@ -1830,7 +2021,7 @@ export class WalletChargesService {
   /** Encargado o dueño, con su 2FA: el cliente olvidó su PIN → se borra y elige otro. */
   async resetPin(actor: Actor, walletId: string, totpCode?: string): Promise<{ ok: true }> {
     await this.managerWallet(actor, walletId);
-    await assertTwoFactorCode(this.totp, actor.userId, totpCode, 'Para borrar el PIN de un cliente,');
+    await assertTwoFactorCode(this.totp, actor.userId, totpCode, 'Para borrar el PIN de un cliente,', stepUpActions.resetPin(walletId));
     await this.prisma.acrossVenues((tx) =>
       tx.clientWallet.update({
         where: { id: walletId },
@@ -1971,6 +2162,8 @@ export class WalletChargesService {
     request: { id: string; tenantId: string; status: string; expiresAt: Date; walletId: string | null; linkedPaymentId?: string | null },
     walletId: string,
     auth: ChargeAuthMethod,
+    pinVia?: PinVia,
+    tipChoice: number | null = null,
   ): Promise<NoPinSettled | null> {
     if (effectiveRequestStatus(request, new Date()) !== 'PENDING' || request.walletId) {
       throw await this.notPendingError(request);
@@ -1990,7 +2183,7 @@ export class WalletChargesService {
     if (!wallet || !sameWalletGroup(wallet, { id: request.tenantId, walletGroup: venue?.walletGroup ?? null })) {
       throw new ConflictException({ message: 'Tu saldo no vale en este local', code: 'CHARGE_OTHER_VENUE' });
     }
-    return this.settleRequest(walletId, request.id, auth);
+    return this.settleRequest(walletId, request.id, auth, pinVia, tipChoice);
   }
 
   /**
@@ -2065,6 +2258,22 @@ export class WalletChargesService {
   }
 
   /**
+   * «Ver mi saldo con mi PIN» desde la ficha (B7): solo mira si el PIN es el
+   * suyo, sin tocar nada del saldo. Su contador de fallos va aparte
+   * (WalletCardViewService): quien tenga la ficha no puede bloquear el PIN de
+   * pagar ni reiniciar lo gastado sin PIN. Si el PIN de pagar ya está
+   * bloqueado, tampoco deja ver.
+   */
+  async pinForCardView(walletId: string, pin: string): Promise<'ok' | 'wrong' | 'locked' | 'no-pin'> {
+    const w = await this.prisma.acrossVenues((tx) =>
+      tx.clientWallet.findUnique({ where: { id: walletId }, select: { pinHash: true, pinLockedAt: true } }),
+    );
+    if (!w?.pinHash) return 'no-pin';
+    if (w.pinLockedAt) return 'locked';
+    return (await verifyPin(pin, w.pinHash, pinPepper())) ? 'ok' : 'wrong';
+  }
+
+  /**
    * Lo que haría «Devolver saldo» ahora, sin tocar nada: en efectivo, lo que
    * entró en efectivo sin llegar a 1.000 € en 24 h; a la tarjeta, el resto; y
    * lo que hoy no puede salir en efectivo. El panel lo enseña antes de
@@ -2118,7 +2327,7 @@ export class WalletChargesService {
       throw new ForbiddenException('El cliente tiene que pulsar «Me voy» en su página de saldo (o que lo haga el dueño)');
     }
     // El dueño devuelve sin que el cliente lo pida ni esté delante: su 2FA, siempre.
-    if (actor.role === 'OWNER') await assertTwoFactorCode(this.totp, actor.userId, input.totpCode, 'Para devolver un saldo,');
+    if (actor.role === 'OWNER') await assertTwoFactorCode(this.totp, actor.userId, input.totpCode, 'Para devolver un saldo,', stepUpActions.walletPayout(walletId));
     return input.method === 'CASH'
       ? this.payoutCash(actor, walletId, input, venue?.refundApprovalThresholdCents, wallet.closeRequestedAt)
       : this.payoutCard(actor, walletId, input);
@@ -2156,7 +2365,13 @@ export class WalletChargesService {
       assertExpectedPayout(input.expectedAmountCents, cap);
       const fromReception = actor.role === 'MANAGER' && (await receptionAskedManager(tx, walletId, closeRequestedAt));
       if (fromReception) {
-        await assertTwoFactorCode(this.totp, actor.userId, input.totpCode, `Devolver ${eur(cap)} en efectivo: recepción lo dejó para el encargado,`);
+        await assertTwoFactorCode(
+          this.totp,
+          actor.userId,
+          input.totpCode,
+          `Devolver ${eur(cap)} en efectivo: recepción lo dejó para el encargado,`,
+          stepUpActions.walletPayout(walletId),
+        );
       }
       const asked = fromReception || (await assertManagerTwoFactor(
         this.totp,
@@ -2165,6 +2380,7 @@ export class WalletChargesService {
         cashApprovalThreshold(thresholdCents),
         input.totpCode,
         `Devolver ${eur(cap)} en efectivo`,
+        stepUpActions.walletPayout(walletId),
       ));
       const left = w.balanceCents - cap;
       // Lo que entró con tarjeta sigue en el saldo (abierto, con su «Me voy») para el dueño.
@@ -2337,7 +2553,7 @@ export class WalletChargesService {
     if (actor.role !== 'OWNER') {
       throw new ForbiddenException('Un enlace nuevo del saldo solo lo da el dueño');
     }
-    await assertTwoFactorCode(this.totp, actor.userId, totpCode, 'Para dar un enlace nuevo del saldo,');
+    await assertTwoFactorCode(this.totp, actor.userId, totpCode, 'Para dar un enlace nuevo del saldo,', stepUpActions.relink(walletId));
     return this.relink(actor, walletId);
   }
 
@@ -2590,4 +2806,30 @@ export interface QrChargeInput {
   tipCents?: number;
   /** «Copa con invitación» con la chica elegida de la lista (si el local no pide su QR). */
   invitedOperatorId?: string;
+}
+
+/**
+ * La propina que eligió el cliente al pagar con su saldo o su PIN (B1): «Sin
+ * propina» siempre; si no, con las propinas encendidas en el local y en el
+ * puesto de quien cobra, y hasta el importe (y 500 €). La que ya traía un
+ * cobro de antes (puesta por el personal) se respeta. Si no vale, 400.
+ */
+async function customerTipOf(
+  tx: TransactionalClient,
+  request: { tenantId: string; requestedByUserId: string; amountCents: number; tipCents: number | null },
+  chosen: number,
+): Promise<number> {
+  const previous = request.tipCents ?? 0;
+  let tipsOn = false;
+  if (chosen > 0 && chosen !== previous) {
+    const [venue, requester] = await Promise.all([
+      tx.venue.findUnique({ where: { id: request.tenantId }, select: { paymentMethods: true } }),
+      tx.user.findUnique({ where: { id: request.requestedByUserId }, select: { role: true } }),
+    ]);
+    const rights = await chargeRightsFor(tx, request.tenantId, { userId: request.requestedByUserId, role: requester?.role });
+    tipsOn = paymentMethodsOf(venue?.paymentMethods).tips && rights.tips;
+  }
+  const problem = customerTipProblem({ amountCents: request.amountCents, tipCents: chosen, tipsOn, previousTipCents: previous });
+  if (problem) throw customerTipError(problem);
+  return chosen;
 }

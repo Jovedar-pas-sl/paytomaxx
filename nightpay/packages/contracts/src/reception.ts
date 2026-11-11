@@ -47,6 +47,14 @@ export const TopUpWalletSchema = z.union([
 ]);
 export type TopUpWalletDto = z.infer<typeof TopUpWalletSchema>;
 
+/**
+ * Cómo se confirmó una recarga en efectivo a una ficha (estudio de fichas,
+ * B2): acercando otra vez la misma ficha (`tap`) o, si no se leía, con
+ * «Cargar sin leerla» (`manual`), que queda apuntado en el registro.
+ */
+export const FICHA_CHECKS = ['tap', 'manual'] as const;
+export type FichaCheck = (typeof FICHA_CHECKS)[number];
+
 export const CashTopUpSchema = z.object({
   /** El saldo que se carga (sin la comisión del servicio). */
   amountCents: z.number().int().positive().max(MAX_CASH_TOP_UP_CENTS, 'En efectivo, como mucho 999,99 € por recarga'),
@@ -61,6 +69,8 @@ export const CashTopUpSchema = z.object({
    * no se cobró. Apagada, no hace falta.
    */
   serviceFeeCents: z.number().int().nonnegative().max(MAX_CASH_TOP_UP_CENTS).optional(),
+  /** B2: cómo se confirmó con la ficha (sin el campo: sin ficha que acercar, o una app anterior). */
+  fichaCheck: z.enum(FICHA_CHECKS).optional(),
 });
 export type CashTopUpDto = z.infer<typeof CashTopUpSchema>;
 
@@ -77,6 +87,61 @@ export const CashTopUpVoidSchema = z.object({
   serviceFeeCents: z.number().int().nonnegative().max(MAX_CASH_TOP_UP_CENTS).optional(),
 });
 export type CashTopUpVoidDto = z.infer<typeof CashTopUpVoidSchema>;
+
+/**
+ * «Me he equivocado» (estudio de fichas, B4): quien cargó en efectivo la
+ * deshace en estos segundos, con el motivo y acercando la misma ficha, si el
+ * saldo aún la cubre. Sale en Incidencias. Después, la anula el encargado.
+ */
+export const CASH_TOP_UP_UNDO_SECONDS = 120;
+
+export const CASH_UNDO_REASONS = ['amount', 'ficha', 'unpaid'] as const;
+export type CashUndoReason = (typeof CASH_UNDO_REASONS)[number];
+
+/** Los tres motivos, tal cual se ven (y se apuntan en la anulación). */
+export const CASH_UNDO_REASON_LABEL: Readonly<Record<CashUndoReason, string>> = {
+  amount: 'Importe equivocado',
+  ficha: 'Ficha equivocada',
+  unpaid: 'No llegó a pagar',
+};
+
+export const CashTopUpUndoSchema = z
+  .object({
+    reason: z.enum(CASH_UNDO_REASONS),
+    /** La misma ficha de la recarga, acercada otra vez. */
+    card: CardTokenSchema,
+    uid: CardUidSchema,
+  })
+  .strict();
+export type CashTopUpUndoDto = z.infer<typeof CashTopUpUndoSchema>;
+
+// ─── Teléfono opcional al dar una ficha nueva (10-nov-2026) ─────────────
+
+/** Debajo del campo, para el cliente. */
+export const CONTACT_PHONE_NOTE = 'Solo para encontrar tu saldo si pierdes la ficha';
+
+/**
+ * «600 12 34 56», «+34 600-123-456», «0034 600123456» → «600123456» o
+ * «+34600123456»: solo cifras (con «+» delante si es internacional), de 6 a
+ * 15. null si no lo parece.
+ */
+export function normalizeContactPhone(raw: string): string | null {
+  const compact = raw.trim().replace(/[\s().-]/g, '');
+  const intl = compact.startsWith('+') ? compact : compact.startsWith('00') ? `+${compact.slice(2)}` : compact;
+  return /^[+]?[0-9]{6,15}$/.test(intl) ? intl : null;
+}
+
+export const ContactPhoneSchema = z.object({ phone: z.string().trim().min(1).max(32) }).strict();
+export type ContactPhoneDto = z.infer<typeof ContactPhoneSchema>;
+
+/** Un saldo encontrado por su teléfono (encargado o dueño): sin el teléfono, que ya lo saben. */
+export interface WalletByPhone {
+  walletId: string;
+  code: string;
+  balanceCents: number;
+  status: string;
+  createdAt: string;
+}
 
 /** Lo que devuelve la anulación: la fila negativa y el saldo que queda. */
 export interface CashTopUpVoidResult {
@@ -201,6 +266,26 @@ export interface ReceptionDeskSaldo {
   fichaNumber: number | null;
   /** Tiene Face ID: a la salida lo confirma en su móvil (el PIN no basta). */
   hasPasskey?: boolean;
+  /** La última recarga, si fue hace menos de RECENT_TOP_UP_MINUTES (A4); null o sin el campo: ninguna. */
+  lastTopUp?: RecentTopUp | null;
 }
 
 export type ReceptionDeskView = ReceptionDeskNew | ReceptionDeskSaldo;
+
+/**
+ * Lo que dura en la fila de la ficha «Cargada hace 2 min: 50 € en efectivo
+ * (Sergio)» (estudio de fichas, A4): que no se cargue dos veces lo mismo ni se
+ * dude de si se cargó.
+ */
+export const RECENT_TOP_UP_MINUTES = 10;
+
+/** La última recarga de un saldo, si es reciente (A4). Sin nada que sirva para pagar. */
+export interface RecentTopUp {
+  /** Cuándo se sumó (ISO). */
+  at: string;
+  /** Lo que se cargó en el saldo (sin la comisión del servicio). */
+  amountCents: number;
+  method: 'cash' | 'card';
+  /** El nombre de pila de quien la cargó (nunca el email). null: sin nombre, el datáfono o el propio cliente. */
+  byName: string | null;
+}

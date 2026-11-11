@@ -104,7 +104,7 @@ describe('ApprovalsService.approve', () => {
   it('pago: 2FA del dueño primero; luego createPayout con exactamente lo pedido, marcando la aprobación dentro', async () => {
     const { svc, operators, totp, audit } = make({ row: payoutRow() });
     await expect(svc.approve(boss, 'ap-1', '123456')).resolves.toMatchObject({ status: 'APPROVED', resultRef: 'po-1' });
-    expect(totp.assertForUser).toHaveBeenCalledWith('jefe', '123456');
+    expect(totp.assertForUser).toHaveBeenCalledWith('jefe', '123456', 'approve:ap-1');
     const [tenant, chica, paidBy, notes, options] = operators.createPayout.mock.calls[0]!;
     expect([tenant, chica, paidBy, notes]).toEqual([T, CHICA, 'jefe', 'cierre']);
     expect(options).toMatchObject({

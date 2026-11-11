@@ -1,5 +1,13 @@
 import { Body, Controller, HttpCode, Inject, Post, UseGuards } from '@nestjs/common';
-import { GiveFichaSchema, type GiveFichaDto, type GivenFicha, type JwtPayload } from '@nightpay/contracts';
+import {
+  GiveFichaSchema,
+  ReplaceLostFichaSchema,
+  type GiveFichaDto,
+  type GivenFicha,
+  type JwtPayload,
+  type ReplaceLostFichaDto,
+  type ReplacedFicha,
+} from '@nightpay/contracts';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { IpRateLimit } from '../../common/guards/ip-rate-limit.guard';
@@ -28,5 +36,21 @@ export class ReceptionFichaController {
     @Body(new ZodValidationPipe(GiveFichaSchema)) body: GiveFichaDto,
   ): Promise<GivenFicha> {
     return this.fichas.give({ userId: user.sub, role: user.role, tenantId: user.tenantId }, body);
+  }
+
+  /**
+   * «Ficha perdida» (B6): ficha nueva para un saldo que ya tenía, con su QR, o
+   * su código o el número de su ficha y su PIN. La vieja deja de pagar y la
+   * nueva se cobra del saldo, en la misma operación.
+   */
+  @Post('fichas/replace-lost')
+  @HttpCode(200)
+  @Roles('WAITER', 'MANAGER', 'OWNER')
+  @IpRateLimit({ max: 10, windowSec: 60, scope: 'reception-ficha-lost' })
+  async replaceLost(
+    @CurrentUser() user: JwtPayload,
+    @Body(new ZodValidationPipe(ReplaceLostFichaSchema)) body: ReplaceLostFichaDto,
+  ): Promise<ReplacedFicha> {
+    return this.fichas.replaceLost({ userId: user.sub, role: user.role, tenantId: user.tenantId }, body);
   }
 }

@@ -193,7 +193,7 @@ describe('salida de recepción con NFC + PIN', () => {
     expect(wallet.pinFails).toBe(0);
     expect(payouts).toHaveLength(0);
     await expect(pay(MANAGER, { expectedAmountCents: 12_000, totpCode: '123456' })).resolves.toMatchObject({ kind: 'done' });
-    expect(totp.assertForUser).toHaveBeenCalledWith(MANAGER.userId, '123456');
+    expect(totp.assertForUser).toHaveBeenCalledWith(MANAGER.userId, '123456', expect.stringMatching(/^cash-out:/));
   });
   it('con su 2FA queda «nfc_pin + manager_2fa» en el registro', async () => {
     const { pay, audits } = setup({ balance: 12_000 });

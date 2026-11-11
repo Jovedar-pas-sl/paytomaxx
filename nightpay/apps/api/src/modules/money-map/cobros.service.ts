@@ -1,8 +1,11 @@
 import { Inject, Injectable, NotFoundException } from '@nestjs/common';
 import type { Prisma } from '@nightpay/db';
 import {
+  fichaSearchOf,
   parseChargeRef,
+  parseCobroSearch,
   PaymentStatusSchema,
+  type CobroFichaSearch,
   type CobroRow,
   type CobrosPage,
   type CobrosQuery,
@@ -11,6 +14,7 @@ import {
 } from '@nightpay/contracts';
 import { PrismaService, type TransactionalClient } from '../../common/prisma/prisma.service';
 import { LATE_CARD_APPROVAL_EVENTS } from '../payments/late-card-approval';
+import { printedLookupScopes } from '../wallets/ficha-numbers';
 import { normalizeWalletCode } from '../wallets/wallet-rules';
 import {
   decodeCursor,
@@ -65,6 +69,8 @@ interface Scope {
   searchIds: string[] | null;
   /** Lo buscado es una referencia (C-0022): también los cobros con esa referencia. */
   searchRef: number | null;
+  /** Lo buscado es el número de una ficha: los saldos que la tuvieron (sus cobros y recargas). */
+  searchWalletIds: string[] | null;
   from: Date | null;
   to: Date | null;
 }
@@ -121,6 +127,11 @@ export class CobrosService {
     }
     let searchIds: string[] | null = null;
     let searchRef: number | null = null;
+    let searchWalletIds: string[] | null = null;
+    // Lo tecleado puede ser también los últimos 4 de la tarjeta o el número de una ficha.
+    const typed = q.search ? parseCobroSearch(q.search) : null;
+    const cardLast4 = q.cardLast4 ?? typed?.cardLast4 ?? null;
+    const ficha = q.ficha ? fichaSearchOf(q.ficha) : (typed?.ficha ?? null);
     if (q.search) {
       searchRef = parseChargeRef(q.search);
       // También se busca fuera de la página cargada; el local se limita en SQL.
@@ -141,7 +152,19 @@ export class CobrosService {
         LIMIT ${SEARCH_MAX_MATCHES}
       `;
       searchIds = matches.map((p) => p.id);
-      if (searchIds.length === 0 && searchRef === null) return null;
+    }
+    if (cardLast4) {
+      const cards = await tx.payment.findMany({
+        where: { tenantId, cardLast4 },
+        orderBy: { createdAt: 'desc' },
+        take: SEARCH_MAX_MATCHES,
+        select: { id: true },
+      });
+      searchIds = [...new Set([...(searchIds ?? []), ...cards.map((p) => p.id)])];
+    }
+    if (ficha) searchWalletIds = await walletsWithFicha(tx, tenantId, ficha);
+    if ((q.search || cardLast4 || ficha) && (searchIds ?? []).length === 0 && searchRef === null && (searchWalletIds ?? []).length === 0) {
+      return null;
     }
     let night: { openedAt: Date; closedAt: Date | null } | null = null;
     if (q.nightId) {
@@ -150,7 +173,7 @@ export class CobrosService {
     }
     const window = cobrosWindow(night, q);
     if (!window) return null;
-    return { tenantId, walletIds, searchIds, searchRef, ...window };
+    return { tenantId, walletIds, searchIds, searchRef, searchWalletIds, ...window };
   }
 
   private async paymentRows(
@@ -164,9 +187,14 @@ export class CobrosService {
     if (statuses) and.push({ status: { in: statuses } });
     if (q.operatorId) and.push({ createdByUserId: q.operatorId });
     if (scope.walletIds) and.push({ walletId: { in: scope.walletIds } });
-    if (scope.searchIds) {
-      const found: Prisma.PaymentWhereInput = { id: { in: scope.searchIds } };
-      and.push(scope.searchRef === null ? found : { OR: [found, { ref: scope.searchRef }] });
+    if (scope.searchIds || scope.searchWalletIds) {
+      and.push({
+        OR: [
+          { id: { in: scope.searchIds ?? [] } },
+          ...(scope.searchRef === null ? [] : [{ ref: scope.searchRef }]),
+          ...(scope.searchWalletIds ? [{ walletId: { in: scope.searchWalletIds } }] : []),
+        ],
+      });
     }
     const dates = dateWhere(scope, cursor);
     if (dates) and.push(dates);
@@ -229,9 +257,14 @@ export class CobrosService {
     const wanted = SALDO_STATUSES_FOR(q.status);
     if (!wanted.accepted && !wanted.reversed) return [];
     const and: Prisma.WalletChargeRequestWhereInput[] = [{ tenantId: scope.tenantId }];
-    if (scope.searchIds) {
-      const found: Prisma.WalletChargeRequestWhereInput = { linkedPaymentId: { in: scope.searchIds } };
-      and.push(scope.searchRef === null ? found : { OR: [found, { ref: scope.searchRef }] });
+    if (scope.searchIds || scope.searchWalletIds) {
+      and.push({
+        OR: [
+          { linkedPaymentId: { in: scope.searchIds ?? [] } },
+          ...(scope.searchRef === null ? [] : [{ ref: scope.searchRef }]),
+          ...(scope.searchWalletIds ? [{ walletId: { in: scope.searchWalletIds } }] : []),
+        ],
+      });
     }
     if (q.operatorId) and.push({ requestedByUserId: q.operatorId });
     if (scope.walletIds) and.push({ walletId: { in: scope.walletIds } });
@@ -293,6 +326,31 @@ export async function saldoCharges(
     });
     return { ...row, tenantId: r.tenantId };
   });
+}
+
+/**
+ * Los saldos que tuvieron la ficha (por su número interno o el impreso, en el
+ * grupo de este local): el que la tiene ahora y los que la tuvieron antes
+ * (wallet_card_events ISSUED): una ficha devuelta y dada a otro cliente
+ * encuentra los cobros de los dos.
+ */
+async function walletsWithFicha(tx: TransactionalClient, tenantId: string, ficha: CobroFichaSearch): Promise<string[]> {
+  const venue = await tx.venue.findUnique({ where: { id: tenantId }, select: { walletGroup: true } });
+  const scopes = printedLookupScopes({ id: tenantId, walletGroup: venue?.walletGroup ?? null });
+  const cards = await tx.walletCard.findMany({
+    where: {
+      OR: [...(ficha.number ? [{ number: ficha.number }] : []), { printedNumberNorm: ficha.printedNorm, printedScope: { in: scopes } }],
+    },
+    select: { id: true, walletId: true },
+    take: 20,
+  });
+  if (cards.length === 0) return [];
+  const issued = await tx.walletCardEvent.findMany({
+    where: { cardId: { in: cards.map((c) => c.id) }, kind: 'ISSUED', walletId: { not: null } },
+    select: { walletId: true },
+    take: SEARCH_MAX_MATCHES,
+  });
+  return [...new Set([...cards, ...issued].flatMap((x) => (x.walletId ? [x.walletId] : [])))];
 }
 
 /** Personas por id (quién cobró). */

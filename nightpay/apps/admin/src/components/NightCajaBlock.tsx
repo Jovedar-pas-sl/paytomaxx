@@ -42,8 +42,14 @@ export function NightCajaBlock({ caja }: { caja: NightCaja }) {
           <dt>Debería haber</dt>
           <dd>{formatEur(caja.expectedCents)}</dd>
         </div>
+        {caja.firstCountedCents !== undefined ? (
+          <div>
+            <dt>Primer recuento</dt>
+            <dd>{formatEur(caja.firstCountedCents)}</dd>
+          </div>
+        ) : null}
         <div>
-          <dt>Contado</dt>
+          <dt>{caja.firstCountedCents !== undefined ? 'Contado al volver a contar' : 'Contado'}</dt>
           <dd>{counted ? formatEur(caja.countedCents ?? 0) : 'Sin contar'}</dd>
         </div>
         <div className="np-caja-diff" data-tone={tone}>

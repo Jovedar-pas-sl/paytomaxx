@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useRef, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import type { GivenFicha } from '@nightpay/contracts';
 import { Button, Input } from '@nightpay/ui';
 import type { OperatorUser } from '@/lib/api';
@@ -11,9 +11,13 @@ import { useVenueMethods, useVenueNight } from '@/lib/venue-methods';
 import { PinPad } from '../PinPad';
 import { QrScanner, qrScanSupported } from '../QrScanner';
 import { StaffOutcome } from '../StaffOutcome';
+import { ContactPhoneField } from './desk/ContactPhone';
 import { DESK_FIELD } from './desk/desk-parts';
 import r from './reception.module.css';
 import { useReadNfc } from './use-read-nfc';
+
+/** B5: la espera de la ficha que se lee sola se corta a este tiempo. */
+const AUTO_READ_MS = 60_000;
 
 /** Lo encontrado y cómo prueba el cliente que es suyo (su QR o su PIN; el encargado, ninguna). */
 interface Found {
@@ -31,12 +35,24 @@ type Step = { kind: 'find' } | { kind: 'scan' } | { kind: 'pin'; found: Found; e
  * cliente pone su PIN (el encargado y el dueño no lo necesitan). Después se
  * acerca una ficha y queda unida a ese saldo. Solo la primera ficha.
  */
-export function GiveFicha({ user, onDone }: { user: OperatorUser; onDone: () => void }) {
+export function GiveFicha({
+  user,
+  onDone,
+  initialCode,
+  scanFirst = false,
+}: {
+  user: OperatorUser;
+  onDone: () => void;
+  initialCode?: string;
+  /** B5: desde «Escanear su QR (cargó en casa)»: la cámara, ya puesta. */
+  scanFirst?: boolean;
+}) {
   const nfcOn = useVenueMethods().nfc;
   const noPinMaxCents = noPinLimitCents(useVenueNight());
   const { reader, reading, read } = useReadNfc();
-  const [step, setStep] = useState<Step>({ kind: 'find' });
-  const [code, setCode] = useState('');
+  const [step, setStep] = useState<Step>(() => (scanFirst && qrScanSupported() ? { kind: 'scan' } : { kind: 'find' }));
+  // Desde un saldo sin ficha en el mostrador (A7): su código ya escrito; se busca como siempre.
+  const [code, setCode] = useState(initialCode ?? '');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const manager = user.role === 'MANAGER' || user.role === 'OWNER';
@@ -87,17 +103,25 @@ export function GiveFicha({ user, onDone }: { user: OperatorUser; onDone: () => 
     void find(c);
   }
 
-  async function tapAndGive(found: Found): Promise<void> {
+  /**
+   * Acercar la ficha y darla. Sola (B5, tras «Escanear su QR»): la espera se
+   * corta al minuto, una ficha en blanco se graba en el mismo gesto y solo vale
+   * una nueva o del stock (onlyStock: el servidor no da la de otro saldo, aunque
+   * esté gastado). La misma ficha leída otra vez no hace nada (el servidor
+   * devuelve lo de antes).
+   */
+  async function tapAndGive(found: Found, auto = false): Promise<void> {
     setBusy(true);
     setError(null);
     try {
-      const nfc = await read();
+      const nfc = await read(auto ? { writeBlank: true, timeoutMs: AUTO_READ_MS } : {});
       const out = await giveFicha({
         walletId: found.saldo.walletId,
         card: nfc.token,
         ...(nfc.uid ? { uid: nfc.uid } : {}),
         ...(found.proof ? { proof: found.proof } : {}),
         ...(found.pin ? { pin: found.pin } : {}),
+        ...(auto ? { onlyStock: true as const } : {}),
       });
       setStep({ kind: 'done', out, hasPin: found.saldo.hasPin });
     } catch (err) {
@@ -111,15 +135,30 @@ export function GiveFicha({ user, onDone }: { user: OperatorUser; onDone: () => 
     }
   }
 
+  // B5: con el saldo encontrado, la ficha nueva se lee sola (una vez por saldo; si falla, queda el botón).
+  const autoRead = useRef<Found | null>(null);
+  useEffect(() => {
+    if (step.kind !== 'tap' || !reader.via || busy || reading || autoRead.current === step.found) return;
+    autoRead.current = step.found;
+    void tapAndGive(step.found, true);
+  });
+
   if (step.kind === 'done') {
     const { out } = step;
     const ficha = out.printedNumber ?? (out.fichaNumber !== null ? String(out.fichaNumber).padStart(4, '0') : null);
     return (
       <StaffOutcome
         kind="paid"
+        sound="ficha"
         amountCents={out.balanceCents}
         message="Ficha dada"
-        detail={<p>{`Saldo ${out.code}${ficha ? ` · ficha nº ${ficha}` : ''}. ${fichaGivenNote(step.hasPin, noPinMaxCents)}`}</p>}
+        detail={
+          <>
+            <p>{`Saldo ${out.code}${ficha ? ` · ficha nº ${ficha}` : ''}. ${fichaGivenNote(step.hasPin, noPinMaxCents)}`}</p>
+            {/* Su teléfono, si quiere: solo para encontrar su saldo si pierde la ficha. */}
+            <ContactPhoneField walletId={out.walletId} />
+          </>
+        }
         primary={{ label: 'Otra ficha', onClick: () => { setCode(''); setStep({ kind: 'find' }); } }}
         secondary={{ label: 'Volver', onClick: onDone }}
       />
@@ -147,9 +186,11 @@ export function GiveFicha({ user, onDone }: { user: OperatorUser; onDone: () => 
       <p className={r.kicker}>Dar ficha a un saldo</p>
       {step.kind === 'tap' ? (
         <>
-          <p className={r.amount}>{formatEur(step.found.saldo.balanceCents, { compact: true })}</p>
-          <p className={r.lead}>Saldo {step.found.saldo.code}</p>
-          <p className={r.text}>Ahora acerca una ficha: queda unida a este saldo.</p>
+          {/* El código del saldo en grande (B5): que el cliente vea que es el suyo mientras se espera la ficha. */}
+          <p className={r.kicker}>Su código</p>
+          <p className={`np-num ${r.amount}`}>{step.found.saldo.code}</p>
+          <p className={r.lead}>Le quedan {formatEur(step.found.saldo.balanceCents, { compact: true })}</p>
+          <p className={r.text}>Ahora acerca una ficha nueva o del stock: queda unida a este saldo.</p>
           {reading ? (
             <Button variant="ghost" onClick={() => reading.abort()}>
               Acerca la ficha… (cancelar)

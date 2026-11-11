@@ -1,8 +1,12 @@
 import { ConflictException, ForbiddenException, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { stepUpActions } from '@nightpay/contracts';
+import { passkeyInstead, type TwoFactorDeps } from './wallet-two-factor';
 import {
   CASH_LIMIT_CENTS,
   CASH_TOP_UP_METHODS,
+  CASH_TOP_UP_UNDO_SECONDS,
   CASH_TOP_UP_VOID_WINDOW_MINUTES,
+  CASH_UNDO_REASON_LABEL,
   DEVICE_CASH_TOP_UP_DENIED_MESSAGE,
   MAX_CASH_TOP_UP_CENTS,
   STAFF_PERMISSION_DENIED_CODE,
@@ -10,7 +14,9 @@ import {
   serviceFeeQuote,
   staffPermissionsOf,
   type CashTopUpResult,
+  type CashTopUpUndoDto,
   type CashTopUpVoidResult,
+  type FichaCheck,
   type Role,
   type TopUpWalletDto,
 } from '@nightpay/contracts';
@@ -23,12 +29,13 @@ import { assertCanHandleCash, chargeRightsFor } from '../venues/charge-rights';
 import { assertVenueAcceptsMethods } from '../venues/venue-methods';
 import { assertVenueAcceptsCharges } from '../venues/venue-pause';
 import { insertEmptyWallet } from './empty-wallet';
-import { attachCardInTx, type CardBy } from './wallet-card-ops';
+import { attachCardInTx, isIssuedCard, type CardBy } from './wallet-card-ops';
 import { reopenData } from './wallet-activation';
 import { cashTopUpOverLimit, walletCash } from './wallet-cash-limits';
 import { cashIntentFingerprint, isNewCardRetry, storedReceipt, type PrintedTopUpRef } from './wallet-cash-intent';
 import { liveWalletId, lockLiveWallet } from './wallet-merge-chain';
 import { formatWalletCode, normalizeWalletCode, sameWalletGroup } from './wallet-rules';
+import { assertFichaInHand } from './wallet-fresh-topup';
 import { topUpTarget } from './wallet-topup-target';
 import { VENUE_SERVICE_FEE_SELECT, venueServiceFeeOf } from '../payments/service-fee';
 
@@ -50,6 +57,8 @@ export interface CashTopUpInput {
    * ella (app anterior) y con la comisión encendida: 409, no se cobra.
    */
   serviceFeeCents?: number;
+  /** B2: acercando otra vez la ficha o «Cargar sin leerla» (queda en el registro). */
+  fichaCheck?: FichaCheck;
 }
 
 /** La comisión del servicio de una recarga en efectivo: el % y el importe del momento. */
@@ -109,7 +118,7 @@ export class CashTopUpService {
   private readonly prisma: PrismaService;
   private readonly audit: AuditService;
 
-  private readonly totp: Pick<TotpService, 'assertForUser' | 'isEnabled'>;
+  private readonly totp: TwoFactorDeps;
 
   constructor(
     @Inject(PrismaService) prisma: PrismaService,
@@ -189,6 +198,8 @@ export class CashTopUpService {
         amountCents: input.amountCents,
         ...(fee.cents > 0 ? { serviceFeeCents: fee.cents, serviceFeeBps: fee.bps } : {}),
         createdWallet,
+        // B2: cómo se confirmó con la ficha; «sin leerla» queda apuntado aquí.
+        ...(input.fichaCheck ? { fichaCheck: input.fichaCheck } : {}),
         ...('terminalId' in by ? { terminalId: by.terminalId } : {}),
       },
     });
@@ -386,13 +397,16 @@ export class CashTopUpService {
     // Antes del 2FA: que la pantalla diga lo que sale de la caja (saldo + comisión del servicio).
     await this.assertVoidFeeShown(actor.tenantId, topUpId, input.serviceFeeCents);
     const what = 'Anular una recarga en efectivo';
+    const action = stepUpActions.cashTopUpVoid(topUpId);
     if (!input.totpCode) {
-      if (!(await this.totp.isEnabled(actor.userId))) {
+      if (await this.totp.isEnabled(actor.userId)) throw totpForbidden('required', `${what}: pon el código de tu app de verificación (2FA).`);
+      // Sin 2FA: la prueba de su llave de acceso para esta anulación (si tiene llave).
+      if (!(await passkeyInstead(this.totp, actor.userId, action, `${what}:`))) {
         throw totpForbidden('notEnrolled', `${what}: hace falta la app de verificación (2FA) y no la tienes activada.`);
       }
-      throw totpForbidden('required', `${what}: pon el código de tu app de verificación (2FA).`);
+    } else {
+      await this.totp.assertForUser(actor.userId, input.totpCode, action);
     }
-    await this.totp.assertForUser(actor.userId, input.totpCode);
     let out: CashTopUpVoidResult;
     try {
       out = await this.prisma.acrossVenues((tx) => this.applyVoid(tx, actor, topUpId, input.reason.trim()));
@@ -418,6 +432,74 @@ export class CashTopUpService {
     });
     this.logger.log(`Recarga en efectivo ${topUpId} anulada (−${out.amountCents}c) por ${actor.userId}`);
     return out;
+  }
+
+  /**
+   * «Me he equivocado» (B4): quien la cargó deshace su recarga en efectivo en
+   * los CASH_TOP_UP_UNDO_SECONDS siguientes, con el motivo y acercando la
+   * misma ficha, y solo si el saldo aún la cubre (applyVoid). Es la misma
+   * anulación que la del encargado (fila negativa, resta en la caja y el Z),
+   * sin 2FA, y sale en Incidencias. Pasado el plazo, la anula el encargado.
+   */
+  async undo(actor: CashVoidActor, topUpId: string, input: CashTopUpUndoDto, now: Date = new Date()): Promise<CashTopUpVoidResult> {
+    const row = await this.prisma.withTenant(actor.tenantId, (tx) =>
+      tx.walletCashTopUp.findUnique({
+        where: { id: topUpId },
+        select: { tenantId: true, walletId: true, takenByUserId: true, createdAt: true, voidOfId: true },
+      }),
+    );
+    if (!row || row.tenantId !== actor.tenantId || row.voidOfId) throw new NotFoundException('Recarga en efectivo no encontrada');
+    if (row.takenByUserId !== actor.userId) {
+      throw new ForbiddenException('Solo la deshace quien la cargó: si no, que la anule el encargado.');
+    }
+    if (now.getTime() - row.createdAt.getTime() > CASH_TOP_UP_UNDO_SECONDS * 1000) {
+      throw new ConflictException({ message: 'Han pasado más de 2 minutos: que la anule el encargado.', code: 'CASH_UNDO_LATE' });
+    }
+    await this.assertSameFicha(row.walletId, input);
+    const label = CASH_UNDO_REASON_LABEL[input.reason];
+    let out: CashTopUpVoidResult;
+    try {
+      out = await this.prisma.acrossVenues((tx) => this.applyVoid(tx, actor, topUpId, label));
+    } catch (err) {
+      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
+        throw new ConflictException('Esta recarga ya está anulada');
+      }
+      throw err;
+    }
+    // A Incidencias (acción delicada): cobrar, cargar y deshacer podría ser una forma de quedarse efectivo.
+    await this.audit.log({
+      action: 'wallet.cash_topup_undone',
+      tenantId: actor.tenantId,
+      actorId: actor.userId,
+      targetType: 'ClientWallet',
+      targetId: out.walletId,
+      payload: {
+        topUpId,
+        voidId: out.voidId,
+        amountCents: out.amountCents,
+        ...(out.serviceFeeCents ? { serviceFeeCents: out.serviceFeeCents } : {}),
+        reason: input.reason,
+        name: label,
+      },
+    });
+    this.logger.log(`Recarga en efectivo ${topUpId} deshecha (−${out.amountCents}c, ${input.reason}) por ${actor.userId}`);
+    return out;
+  }
+
+  /**
+   * La ficha acercada es la del saldo de la recarga (o la del saldo al que se
+   * sumó) y está delante: si tiene uid, leído y el mismo (como en la salida de
+   * efectivo); con solo su enlace, 409 «acerca la ficha».
+   */
+  private async assertSameFicha(walletId: string, input: { card: string; uid?: string | undefined }): Promise<void> {
+    const found = await this.prisma.acrossVenues(async (tx) => {
+      const card = await tx.walletCard.findUnique({ where: { token: input.card }, select: { walletId: true, status: true, uid: true } });
+      if (!card || !isIssuedCard(card) || !card.walletId) return null;
+      const [mine, topUp] = await Promise.all([liveWalletId(tx, card.walletId), liveWalletId(tx, walletId)]);
+      return mine !== null && mine === topUp ? { uid: card.uid } : null;
+    });
+    if (!found) throw new ConflictException('Esa no es la ficha de esta recarga: acerca la misma ficha.');
+    assertFichaInHand(found.uid, input.uid);
   }
 
   /**

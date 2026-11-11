@@ -218,9 +218,10 @@ describe('/v1/approvals', () => {
     expect((await call('GET', '/v1/approvals?status=RARO', 'OWNER')).statusCode).toBe(400);
   });
 
-  it('aprobar: solo el dueño y con el código de 6 cifras', async () => {
+  it('aprobar: solo el dueño; el código, de 6 cifras (sin código: el dueño sin 2FA, con la prueba de su llave)', async () => {
     expect((await call('POST', `/v1/approvals/${APPROVAL}/approve`, 'MANAGER', { totpCode: '123456' })).statusCode).toBe(403);
-    expect((await call('POST', `/v1/approvals/${APPROVAL}/approve`, 'OWNER', {})).statusCode).toBe(400);
+    expect((await call('POST', `/v1/approvals/${APPROVAL}/approve`, 'OWNER', { totpCode: '12345' })).statusCode).toBe(400);
+    expect((await call('POST', `/v1/approvals/${APPROVAL}/approve`, 'OWNER', {})).statusCode).toBe(200);
     expect((await call('POST', '/v1/approvals/no-es-uuid/approve', 'OWNER', { totpCode: '123456' })).statusCode).toBe(400);
     const ok = await call('POST', `/v1/approvals/${APPROVAL}/approve`, 'OWNER', { totpCode: '123 456' });
     expect(ok.statusCode).toBe(200);

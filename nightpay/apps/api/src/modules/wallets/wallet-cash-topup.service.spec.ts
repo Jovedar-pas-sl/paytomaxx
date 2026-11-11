@@ -518,7 +518,7 @@ describe('anular una recarga en efectivo mal tecleada', () => {
     const { svc, wallets, topUps, totp, audit } = setup();
     const top = await svc.topUp(SALA, javi, { amountCents: 99_999, idempotencyKey: 'clave-anular-001', wallet: { code: 'K7Q4M2' } });
     const out = await svc.voidTopUp(manager, top.topUpId, { reason: 'Era 99,99', totpCode: '123456' });
-    expect(totp.assertForUser).toHaveBeenCalledWith(JAVI, '123456');
+    expect(totp.assertForUser).toHaveBeenCalledWith(JAVI, '123456', expect.stringMatching(/^cash-void:/));
     expect(out).toMatchObject({ topUpId: top.topUpId, walletId: WALLET, amountCents: 99_999, balanceCents: 2_000 });
     expect(wallets.get(WALLET)).toMatchObject({ balanceCents: 2_000 });
     expect([...topUps.values()].find((t) => t.voidOfId === top.topUpId)).toMatchObject({

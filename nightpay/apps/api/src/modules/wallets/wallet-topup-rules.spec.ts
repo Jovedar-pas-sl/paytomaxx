@@ -7,6 +7,7 @@ import {
   SELF_TOPUP_MAX_CENTS,
   SELF_TOPUP_MIN_CENTS,
   SELF_TOPUP_PRESETS_CENTS,
+  selfTopUpPresets,
   TOPUP_BLOCK_MESSAGES,
   isClientTopUpKey,
   parseTopUpAmount,
@@ -71,6 +72,11 @@ describe('selfTopUpCapProblem — tope de 24 h por saldo de las recargas desde /
 describe('«Recargar» desde /w: importes', () => {
   it('las sugeridas (20, 50, 100 €) están dentro de los límites (10 € a 300 €)', () => {
     expect(SELF_TOPUP_PRESETS_CENTS).toEqual([2000, 5000, 10000]);
+    // Los de la recepción del local (Ajustes → Noche) que valen desde el móvil (A9).
+    expect(selfTopUpPresets([2_500, 5_000, 7_500])).toEqual([2_500, 5_000, 7_500]);
+    expect(selfTopUpPresets([10_000, 500, 2_050, 40_000, 2_000])).toEqual([2_000, 10_000]);
+    expect(selfTopUpPresets([500, 50_000])).toEqual([2_000, 5_000, 10_000]);
+    expect(selfTopUpPresets([])).toEqual([2_000, 5_000, 10_000]);
     for (const c of SELF_TOPUP_PRESETS_CENTS) expect(parseTopUpAmount(c)).toBe(c);
     expect(SELF_TOPUP_MIN_CENTS).toBe(1000);
     expect(SELF_TOPUP_MAX_CENTS).toBe(30000);

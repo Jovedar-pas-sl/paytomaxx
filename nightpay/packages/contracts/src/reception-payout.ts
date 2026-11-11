@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { IdempotencyKeySchema, MAX_CASH_TOP_UP_CENTS } from './reception';
+import { FICHA_CHECKS, IdempotencyKeySchema, MAX_CASH_TOP_UP_CENTS, type RecentTopUp } from './reception';
 import type { ChargeRights } from './post-rules';
 import { staffCan, type StaffPermissions } from './venue-settings';
 
@@ -100,6 +100,8 @@ export type ReceptionNumberView =
       blocked: boolean;
       closeRequested: boolean;
       isHomeVenue: boolean;
+      /** La última recarga, si es reciente (A4). */
+      lastTopUp?: RecentTopUp | null;
     };
 
 /** Una ficha nueva (o del stock) se carga acercándola: así sale con su saldo. */
@@ -113,6 +115,8 @@ export const ReceptionNumberTopUpSchema = z
     idempotencyKey: IdempotencyKeySchema,
     /** La «Comisión del servicio» que enseñó la pantalla (como CashTopUpSchema). */
     serviceFeeCents: z.number().int().nonnegative().max(MAX_CASH_TOP_UP_CENTS).optional(),
+    /** B2: confirmada acercando otra vez la ficha o «Cargar sin leerla» (como CashTopUpSchema). */
+    fichaCheck: z.enum(FICHA_CHECKS).optional(),
   })
   .strict();
 export type ReceptionNumberTopUpDto = z.infer<typeof ReceptionNumberTopUpSchema>;

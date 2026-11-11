@@ -228,6 +228,8 @@ model User {
   reversedConsumptions  WalletConsumption[] @relation("ConsumptionReversedBy")
   // «Copa con invitación»: las líneas en las que la invitaron.
   invitedLines          PaymentLine[]       @relation("PaymentLineBeneficiary")
+  // Sus llaves de acceso (20261109100000): verificarse sin 2FA.
+  staffPasskeys         StaffPasskey[]
 
   @@index([tenantId])
   @@map("users")
@@ -1156,6 +1158,10 @@ model ClientWallet {
   // saldo (al acercar su NFC o teclear su código). Quién la cobró.
   pendingAssignAt   DateTime? @db.Timestamptz
   pendingAssignById String?   @db.Uuid
+  // Teléfono opcional al darle una ficha nueva (20261110100000): solo para
+  // encontrar su saldo si lo pierde todo. Dato personal: fuera de las listas;
+  // lo ven el encargado y el dueño en el detalle. Normalizado (CHECK en SQL).
+  contactPhone      String?   @db.VarChar(16)
   createdAt    DateTime     @default(now()) @db.Timestamptz
   updatedAt    DateTime     @updatedAt @db.Timestamptz
 
@@ -1302,6 +1308,28 @@ model WalletPasskey {
 
   @@index([walletId])
   @@map("wallet_passkeys")
+}
+
+/// Llave de acceso del personal (20261109100000, «Detalle del pago»): quien no
+/// tiene 2FA se verifica con ella (Face ID, huella o el PIN de su móvil) para
+/// ver lo delicado de un cobro y para las acciones que piden 2FA. Solo la
+/// clave pública. Sin local ni RLS, como wallet_passkeys: cuelga de la persona.
+model StaffPasskey {
+  id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId       String    @db.Uuid
+  credentialId String    @unique
+  publicKey    Bytes
+  counter      BigInt    @default(0)
+  transports   String[]  @default([])
+  /// El móvil con el que se dio de alta («iPhone · iOS 18»).
+  name         String
+  createdAt    DateTime  @default(now()) @db.Timestamptz
+  lastUsedAt   DateTime? @db.Timestamptz
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("staff_passkeys")
 }
 
 /// Dónde está guardado el pase del saldo (hoy solo Google Wallet; Apple, más adelante).

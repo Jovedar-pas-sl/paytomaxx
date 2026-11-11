@@ -75,6 +75,39 @@ export const ACKABLE_KINDS = [
   'sensitive_action',
 ] as const satisfies readonly IncidentKind[];
 
+/**
+ * Avisos de dinero (B11): cobros, devoluciones, datáfono, efectivo y banco.
+ * Para cerrarlos hay que escribir qué se hizo (queda en el registro).
+ */
+const MONEY_ACK_KINDS: ReadonlySet<IncidentKind> = new Set<IncidentKind>([
+  'duplicate_charge',
+  'amount_mismatch',
+  'approval_unbooked',
+  'earning_reverse_failed',
+  'wallet_credit_skipped',
+  'night_closed_pending',
+  'pos_charge_mismatch',
+  'pos_unmatched_op',
+  'pos_voided_paid',
+  'pos_unproven_sales',
+  'pos_reception_limit',
+  'cash_split_suspected',
+  'reception_payout_cap',
+  'bank_mismatch',
+]);
+
+/** Letras mínimas de la nota de un aviso de dinero (como la del cierre con cobros sin terminar). */
+export const MIN_ACK_NOTE_LENGTH = 3;
+
+/**
+ * ¿Pide nota para cerrarlo? Los de dinero y las acciones delicadas con
+ * importe (un cobro sin Face ID, uno dado por pagado a mano…).
+ */
+export function ackNeedsNote(i: Pick<Incident, 'kind' | 'amountCents'>): boolean {
+  if (MONEY_ACK_KINDS.has(i.kind)) return true;
+  return i.kind === 'sensitive_action' && (i.amountCents ?? 0) > 0;
+}
+
 export interface Incident {
   kind: IncidentKind;
   /** Id de lo que la provoca (cobro, aviso, registro o noche). */
@@ -86,6 +119,8 @@ export interface Incident {
   paymentId: string | null;
   /** true = se quita marcándola como revisada; false = se quita resolviéndola. */
   ackable: boolean;
+  /** Se cierra escribiendo qué se hizo (aviso de dinero, B11). Lo pone la bandeja (list). */
+  noteRequired?: boolean;
   /**
    * El detalle sin el nombre de la chica, para Telegram (un tercero) cuando
    * el local no quiere nombres (Ajustes → Avisos). Sin él, el detalle no lleva nombres.
@@ -279,6 +314,10 @@ const SENSITIVE_ACTIONS: Readonly<Record<string, { title: string; detail: string
   'venue.staff_permissions.updated': {
     title: 'Permisos del personal cambiados',
     detail: 'ha cambiado lo que puede hacer el personal (Ajustes → Permisos).',
+  },
+  'wallet.cash_topup_undone': {
+    title: 'Recarga en efectivo deshecha',
+    detail: 'ha deshecho una recarga en efectivo nada más hacerla («Me he equivocado»). Comprueba la caja.',
   },
   'venue.night_settings.updated': {
     title: 'Ajustes de la noche cambiados',

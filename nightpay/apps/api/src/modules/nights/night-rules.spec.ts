@@ -108,6 +108,10 @@ describe('la caja en el Z', () => {
   });
 
   it('sin contar (cierre automático): lo que debería haber, sin contado ni diferencia', () => {
+    // Sin lo contado, un «primer recuento» suelto no va al Z.
+    expect(buildNightCaja(cash, evaluateCash(cash), null, now, 5000)).not.toHaveProperty('firstCountedCents');
+    expect(buildNightCaja(cash, evaluateCash(cash, { countedCents: 6750 }), null, now, 5000)).toMatchObject({ countedCents: 6750, firstCountedCents: 5000 });
+    expect(buildNightCaja(cash, evaluateCash(cash, { countedCents: 6750 }), null, now)).not.toHaveProperty('firstCountedCents');
     const caja = buildNightCaja(cash, evaluateCash(cash), null, now);
     expect(caja).toMatchObject({ expectedCents: 8000, countedCents: null, diffCents: null, note: null });
   });

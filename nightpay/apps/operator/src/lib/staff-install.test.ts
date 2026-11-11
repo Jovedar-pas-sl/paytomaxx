@@ -95,6 +95,6 @@ describe('la «Guía rápida» (otra página) no se lleva un cobro abierto', () 
     expect(parts).toMatch(/\) : openMenu \? \(\s*<button type="button" className=\{s\.logoBtn\} onClick=\{openMenu\} aria-label="Menú">/);
     const desk = source('../components/reception/desk/ReceptionDesk.tsx');
     const unsure = desk.slice(desk.indexOf('function renderCashUnsure('));
-    expect(unsure.slice(0, unsure.indexOf('</div>'))).toContain('<DeskHead title="Recepción" sub={name} chip={chip} noMenu />');
+    expect(unsure.slice(0, unsure.indexOf('</div>'))).toContain("<DeskHead title={home ? 'Recargar saldo' : 'Recepción'} sub={name} chip={chip} noMenu />");
   });
 });

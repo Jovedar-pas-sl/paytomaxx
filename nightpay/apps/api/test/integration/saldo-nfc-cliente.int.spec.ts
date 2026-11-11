@@ -53,7 +53,7 @@ const cards = new WalletCardsService(prisma, audit);
 const charges = new WalletChargesService(prisma as never, audit, { get: () => ({}) } as never, totp as never);
 const links = new WalletActivationLinkService(prisma, audit, passkeys, { get: () => ORIGIN } as never);
 const lost = new WalletLostCardService(prisma, audit, passkeys);
-const cardView = new WalletCardViewService(prisma, passkeys);
+const cardView = new WalletCardViewService(prisma, passkeys, {} as never, {} as never, { get: () => "" } as never);
 const incidents = new IncidentsService(prisma, audit);
 
 const inVenue = <T>(tenantId: string | undefined, fn: () => Promise<T>): Promise<T> =>
@@ -209,12 +209,12 @@ describe('QR de activación (recepción, Postgres real)', () => {
     await expect(inVenue(V, () => links.link(actor(rx, 'WAITER'), c.walletId))).rejects.toMatchObject({ status: 404, response: { reason: 'FACE_ID_SET' } });
     expect(await auditRows('wallet.activation_link', c.walletId)).toHaveLength(0);
     // Y desde ese momento /w/card ya no dice «pide el QR»: pide su passkey.
-    await expect(inVenue(undefined, () => cardView.pageView(c.card))).resolves.toEqual({ kind: 'locked', codeHint: `${c.code.slice(0, 3)}-•••` });
+    await expect(inVenue(undefined, () => cardView.pageView(c.card))).resolves.toMatchObject({ kind: 'locked', codeHint: `${c.code.slice(0, 3)}-•••` });
   });
 
   it('sin passkey, /w/card dice cómo activarla desde el principio', async () => {
     const c = await client();
-    await expect(inVenue(undefined, () => cardView.pageView(c.card))).resolves.toEqual({ kind: 'setup', codeHint: `${c.code.slice(0, 3)}-•••` });
+    await expect(inVenue(undefined, () => cardView.pageView(c.card))).resolves.toMatchObject({ kind: 'setup', codeHint: `${c.code.slice(0, 3)}-•••` });
   });
 });
 

@@ -42,12 +42,21 @@ export const UNPREFIXED_ROUTES: readonly UnprefixedRoute[] = Object.freeze([
   // Saldo: página del cliente y sus acciones.
   { path: 'w/:token', method: RequestMethod.GET },
   { path: 'w/:token/state', method: RequestMethod.GET },
+  // El detalle de uno de sus pagos (al tocarlo en la lista de movimientos).
+  { path: 'w/:token/movements/:kind/:id', method: RequestMethod.GET },
   // «Saldo al momento»: avisos de que el saldo cambió (text/event-stream).
   { path: 'w/:token/events', method: RequestMethod.GET },
   // Consulta desde la ficha NFC y desbloqueo del enlace privado de saldo.
   { path: 'w/card/:token', method: RequestMethod.GET },
   { path: 'w/card/:token/view/challenge', method: RequestMethod.POST },
+  // B7: la ficha en el móvil del cliente (recargarla y ver el saldo con el PIN).
+  { path: 'w/card/:token/topup', method: RequestMethod.POST },
+  { path: 'w/card/:token/pin', method: RequestMethod.POST },
+  { path: 'w/card/:token/saldo', method: RequestMethod.POST },
   { path: 'w/card/:token/view', method: RequestMethod.POST },
+  // «Ver mi saldo» desde las pantallas que acaban (my-balance.ts): Face ID y a su saldo.
+  { path: 'w/mine/challenge', method: RequestMethod.POST },
+  { path: 'w/mine', method: RequestMethod.POST },
   { path: 'w/:token/view/challenge', method: RequestMethod.POST },
   { path: 'w/:token/view', method: RequestMethod.POST },
   { path: 'w/:token/close/challenge', method: RequestMethod.POST },
@@ -83,5 +92,7 @@ export const UNPREFIXED_ROUTES: readonly UnprefixedRoute[] = Object.freeze([
   // «Cargar saldo antes de llegar»: el enlace del local, la carga y «Recargar mi saldo».
   { path: 'r/:code', method: RequestMethod.GET },
   { path: 'r/:code/topup', method: RequestMethod.POST },
+  // El QR del cartel de la cola (B16): la misma carga, con los topes por móvil y por noche.
+  { path: 'r/:code/cola', method: RequestMethod.POST },
   { path: 'r/:code/mi-saldo', method: RequestMethod.GET },
 ]);

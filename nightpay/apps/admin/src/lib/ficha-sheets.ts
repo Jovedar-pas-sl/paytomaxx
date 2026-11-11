@@ -98,6 +98,8 @@ export interface WalletSheet {
   card: { id: string; label: string; status: string; active: boolean; detail: string } | null;
   /** Sin ficha NFC: cómo paga («PIN puesto · Face ID»). */
   noCardDetail: string;
+  /** El teléfono que dejó al darle la ficha (solo aquí, en el detalle: nunca en listas). */
+  phone: string | null;
   rows: TimelineRow[];
 }
 
@@ -187,6 +189,7 @@ export function walletSheet(f: WalletFicha, sections: readonly VenueSection[], t
         }
       : null,
     noCardDetail: joinParts([w.hasPin ? 'PIN puesto' : 'sin PIN', w.hasFaceId ? 'Face ID' : null]),
+    phone: w.contactPhone ?? null,
     rows,
   };
 }

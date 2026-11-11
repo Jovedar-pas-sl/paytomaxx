@@ -4,10 +4,11 @@ import { useState } from 'react';
 import { AmountKeypad, Input } from '@nightpay/ui';
 import { MAX_TYPED_AMOUNT_CENTS } from '@nightpay/contracts';
 import { formatEur } from '@/lib/money';
-import { methodArmed, type MethodButton, type ExitPlan } from '@/lib/reception-desk';
-import { AMOUNT_HELP, METHOD_HELP, RECEPTION_HELP_SCREENS, tapHelp } from '@/lib/reception-help';
+import type { RecentTopUp } from '@nightpay/contracts';
+import { methodArmed, recentTopUpLine, type EntryRow, type MethodButton, type ExitPlan } from '@/lib/reception-desk';
+import { AMOUNT_HELP, EXIT_HELP, METHOD_HELP, RECEPTION_HELP_SCREENS, cashConfirmText, cashInHandText, tapHelp, turnPhoneText } from '@/lib/reception-help';
 import { HelpAgain, HelpLine, useHelp } from '../../HelpLine';
-import { CodeBoxes, DESK_FIELD, DeskBtn, DeskRowView, Icon, NfcMark } from './desk-parts';
+import { CodeBoxes, DESK_FIELD, DeskBtn, DeskRowView, FichaNumber, Icon, NfcMark } from './desk-parts';
 import s from './desk.module.css';
 
 /** La pregunta de un paso («¿Cuánto carga?») con, si su ayuda está cerrada, el «?» al lado. */
@@ -89,18 +90,44 @@ export function TapStage(props: {
   );
 }
 
-/** 4.2: el NFC leído y los importes rápidos en rejilla de 72 px, con «Otro» de última casilla: tocar uno ya sigue. */
+/**
+ * 4.2: la ficha leída, con su número en grande (A1), y los importes rápidos en
+ * rejilla de 72 px, con «Otro» de última casilla: tocar uno ya sigue.
+ */
 export function AmountStep(props: {
-  row: { title: string; detail: string };
+  row: EntryRow;
+  /** La última recarga, si es reciente (A4): «Cargada hace 2 min: 50 € en efectivo (Sergio)». */
+  lastTopUp?: RecentTopUp | null;
+  /** Lo leído es una ficha («Cargada») o un saldo sin ficha («Cargado»). */
+  hasFicha?: boolean;
   amounts: readonly number[];
   onPick: (cents: number) => void;
   onOther: () => void;
   /** Encargado o dueño ante una ficha sin PIN: que lo elija sin tener que cargar nada. */
   onPin?: () => void;
+  /** Un saldo sin ficha, por su código (A7): «Darle una» lleva a «Dar ficha a un saldo» con su código. */
+  onGiveFicha?: () => void;
 }) {
+  // La hora a la que salió la pantalla: «hace 2 min» no cambia mientras se mira.
+  const [shownAt] = useState(() => Date.now());
+  const recent = recentTopUpLine(props.lastTopUp, shownAt, props.hasFicha ?? true);
   return (
     <>
-      <DeskRowView title={props.row.title} detail={props.row.detail} />
+      <DeskRowView title={props.row.title} detail={props.row.detail} ficha={props.row.ficha}>
+        {props.row.hint ? <span className={s.rowHint}>{props.row.hint}</span> : null}
+        {props.row.ask ? <span className={s.rowHint}>{props.row.ask}</span> : null}
+        {props.onGiveFicha ? (
+          <button type="button" className={s.rowAction} onClick={props.onGiveFicha}>
+            Darle una
+          </button>
+        ) : null}
+        {recent ? (
+          <span className={s.rowRecent}>
+            <Icon name="clock" />
+            {recent}
+          </span>
+        ) : null}
+      </DeskRowView>
       <StepQuestion text="¿Cuánto carga?" screen={RECEPTION_HELP_SCREENS.amount} help={AMOUNT_HELP} />
       <div className={s.quick}>
         {props.amounts.map((c) => (
@@ -133,15 +160,24 @@ export function KeypadStep({ onDone }: { onDone: (cents: number) => void }) {
   );
 }
 
-const METHOD_TEXT = {
-  cash: { icon: 'cash', label: 'Efectivo', small: 'Lo metes en la caja' },
-  card: { icon: 'card', label: 'Tarjeta', small: 'Paga con el QR en su móvil' },
-} as const;
+/** Los dos botones de «¿Cómo paga?»: el de efectivo dice que el dinero ya está en la mano (A2). */
+function methodText(method: 'cash' | 'card', chargeCents: number) {
+  return method === 'cash'
+    ? { icon: 'cash' as const, label: 'Efectivo', small: cashInHandText(chargeCents) }
+    : { icon: 'card' as const, label: 'Tarjeta', small: 'Paga con el QR en su móvil' };
+}
 
-/** 4.3: el importe, «¿Cómo paga?» en dos filas iguales (la de por defecto, primera y en lima), y la nota del PIN. */
+/**
+ * 4.3: el importe y la ficha en grande (A1), «¿Cómo paga?» en dos filas
+ * iguales (la de por defecto, primera y en lima), y la nota del PIN.
+ */
 export function MethodStep(props: {
   chip: string;
   amountCents: number;
+  /** El número impreso de la ficha, en grande debajo del importe (null: sin ficha o sin número). */
+  ficha?: string | null;
+  /** Lo que paga el cliente (el saldo + la comisión del servicio): «Ya tengo los 56 € en la mano». */
+  chargeCents: number;
   /** Con la «Comisión del servicio»: «Cobra 56 € (50 € de saldo + 6 € de comisión del servicio)». */
   feeText?: string | null;
   buttons: MethodButton[];
@@ -159,13 +195,26 @@ export function MethodStep(props: {
   return (
     <>
       {/* s.methodTop: las opciones empiezan por debajo de donde estaban los importes. */}
-      <div className={s.methodTop}>
+      <div className={s.methodTop} data-ficha={props.ficha ? 'true' : undefined}>
         <div className={s.bigamt}>
           <span className="np-chip" data-dashed="true">
             {props.chip}
           </span>
           <p className={s.bignum}>{formatEur(props.amountCents, { compact: true })}</p>
           {props.feeText ? <p className={s.lbl}>{props.feeText}</p> : null}
+          {props.ficha ? (
+            <>
+              <span className={s.kick} aria-hidden="true">
+                Ficha
+              </span>
+              <FichaNumber printed={props.ficha} className={s.cobroFicha} />
+            </>
+          ) : null}
+          {/* Se enseña al cliente (A5): el importe y su ficha, antes de cobrar. */}
+          <p className={s.turn}>
+            <Icon name="phone" />
+            {turnPhoneText(Boolean(props.ficha))}
+          </p>
         </div>
         <StepQuestion text="¿Cómo paga?" screen={RECEPTION_HELP_SCREENS.method} help={METHOD_HELP} />
       </div>
@@ -176,7 +225,7 @@ export function MethodStep(props: {
         </p>
       ) : null}
       {props.buttons.map((b) => {
-        const t = METHOD_TEXT[b.method];
+        const t = methodText(b.method, props.chargeCents);
         return (
           <DeskBtn
             key={b.method}
@@ -207,6 +256,73 @@ export function MethodStep(props: {
   );
 }
 
+/**
+ * B2: el efectivo se confirma acercando otra vez la misma ficha (otra no
+ * vale: solo avisa). Si no se lee, «Cargar sin leerla», que queda apuntado.
+ * El primer medio segundo no atiende toques: el segundo de un doble toque en
+ * «Efectivo» no cae en «Cargar sin leerla» (como S-1a).
+ */
+export function CashConfirmStep(props: {
+  amountCents: number;
+  /** Lo que paga el cliente (con la comisión del servicio, si la hay). */
+  chargeCents: number;
+  ficha: string | null;
+  busy: boolean;
+  onManual: () => void;
+}) {
+  const [armedAt] = useState(() => Date.now());
+  return (
+    <>
+      <div className={s.bigamt}>
+        <span className={s.kick}>Efectivo</span>
+        <p className={s.bignum}>{formatEur(props.chargeCents, { compact: true })}</p>
+        {props.ficha ? (
+          <>
+            <span className={s.kick} aria-hidden="true">
+              Ficha
+            </span>
+            <FichaNumber printed={props.ficha} className={s.cobroFicha} />
+          </>
+        ) : null}
+      </div>
+      <div className={s.stage}>
+        <NfcMark size="l" />
+        <div className={s.stageLive} aria-live="polite" aria-busy={props.busy || undefined}>
+          <p className={s.stageTitle}>{props.busy ? 'Cargando…' : 'Acerca otra vez la ficha'}</p>
+          <p className={s.stageText}>{cashConfirmText(props.amountCents)}</p>
+        </div>
+      </div>
+      <DeskBtn
+        kind="gho"
+        label="Cargar sin leerla"
+        small="Si no se lee: queda apuntado"
+        busy={props.busy}
+        onClick={() => {
+          if (methodArmed(armedAt, Date.now())) props.onManual();
+        }}
+      />
+    </>
+  );
+}
+
+/**
+ * La salida: qué hace «Devolver» y qué hace «Guardar», en su línea de ayuda
+ * (se cierra con «Entendido»; el «?» al lado de «Le quedan» la vuelve a abrir).
+ * Los botones no cambian de tamaño ni de orden.
+ */
+export function ExitHelp() {
+  const help = useHelp(RECEPTION_HELP_SCREENS.exit);
+  return (
+    <div className={s.qBlock}>
+      <div className={s.qRow}>
+        <span />
+        <HelpAgain help={help} />
+      </div>
+      <HelpLine help={help}>{EXIT_HELP}</HelpLine>
+    </div>
+  );
+}
+
 /** 4.5: a la salida, lo que le queda; guardar (de fábrica, en lima) o devolverlo en efectivo. */
 export function ExitStep(props: {
   row: { title: string; detail: string };
@@ -224,6 +340,7 @@ export function ExitStep(props: {
         <span className={s.kick}>{plan.balanceCents > 0 ? 'Le quedan' : 'No le queda saldo'}</span>
         <p className={s.bignum}>{formatEur(plan.balanceCents, { compact: true })}</p>
       </div>
+      <ExitHelp />
       <DeskBtn kind="pri" label="Guardar para la próxima" small={plan.keepDetail} onClick={props.onKeep} disabled={props.busy} />
       {plan.refundLabel ? (
         <DeskBtn
@@ -252,6 +369,8 @@ export function NumberStep({ busy, error, onFind }: { busy: boolean; error: stri
     <form className={s.foot} onSubmit={(event) => { event.preventDefault(); if (ok && !busy) onFind(number); }}>
       <Input label="Número impreso en la ficha" inputMode="numeric" autoComplete="off" maxLength={12}
         value={number} onChange={(event) => setNumber(event.target.value.replace(/\D/g, '').slice(0, 12))} style={DESK_FIELD} />
+      {/* Lo tecleado, en grande y en grupos de 4 como en la ficha (A6): una cifra mal se ve. */}
+      {number ? <FichaNumber printed={number} className={s.typedFicha} /> : null}
       <p className={s.hint}>Como aparece en la ficha. Solo para saldos que ya existen: una ficha nueva se carga acercándola, y para devolver efectivo hace falta el NFC original.</p>
       {error ? <p role="alert" className={s.error}>{error}</p> : null}
       <DeskBtn kind="pri" label="Buscar ficha" disabled={!ok} busy={busy} onClick={() => onFind(number)} />

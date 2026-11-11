@@ -39,6 +39,11 @@ export interface VenueNightSettings {
    */
   receptionPayoutNightCapCents: number;
   /**
+   * Lo que cuesta la ficha nueva cuando el cliente pierde la suya (estudio de
+   * fichas, B6): se descuenta de su saldo al dársela en recepción. 0 = gratis.
+   */
+  lostFichaFeeCents: number;
+  /**
    * Modo «sala»: las apps del personal en contraste alto (textos más claros,
    * bordes más marcados, sin halos y la letra un paso más grande). Para
    * locales con muy poca luz o personal que lo pida. Apagado de fábrica.
@@ -51,6 +56,8 @@ export const MAX_NFC_NO_PIN_CENTS = 50_00;
 export const MAX_NFC_NO_PIN_NIGHT_CAP_CENTS = 500_00;
 export const MAX_RECEPTION_QUICK_AMOUNTS = 4;
 export const MAX_RECEPTION_PAYOUT_NIGHT_CAP_CENTS = 5_000_00;
+/** La ficha nueva por perdida, como mucho 50 €. */
+export const MAX_LOST_FICHA_FEE_CENTS = 50_00;
 const MIN_QUICK_AMOUNT_CENTS = 100;
 
 export const DEFAULT_RECEPTION_QUICK_AMOUNTS_CENTS: readonly number[] = [20_00, 50_00, 100_00];
@@ -64,6 +71,8 @@ export const DEFAULT_NIGHT_SETTINGS: Readonly<VenueNightSettings> = Object.freez
   feedbackVibration: true,
   feedbackSound: true,
   receptionPayoutNightCapCents: 300_00,
+  // B6: 3 € (lo decidió el dueño el 10-nov-2026).
+  lostFichaFeeCents: 3_00,
   highContrast: false,
 });
 
@@ -83,6 +92,7 @@ export const UpdateNightSettingsSchema = z
     feedbackVibration: z.boolean().optional(),
     feedbackSound: z.boolean().optional(),
     receptionPayoutNightCapCents: cents(MAX_RECEPTION_PAYOUT_NIGHT_CAP_CENTS).optional(),
+    lostFichaFeeCents: cents(MAX_LOST_FICHA_FEE_CENTS).optional(),
     highContrast: z.boolean().optional(),
   })
   .strict()
@@ -120,6 +130,7 @@ export function nightSettingsOf(raw: unknown): VenueNightSettings {
     feedbackSound: flag('feedbackSound'),
     receptionPayoutNightCapCents:
       intIn(s.receptionPayoutNightCapCents, 0, MAX_RECEPTION_PAYOUT_NIGHT_CAP_CENTS) ?? d.receptionPayoutNightCapCents,
+    lostFichaFeeCents: intIn(s.lostFichaFeeCents, 0, MAX_LOST_FICHA_FEE_CENTS) ?? d.lostFichaFeeCents,
     highContrast: flag('highContrast'),
   };
 }

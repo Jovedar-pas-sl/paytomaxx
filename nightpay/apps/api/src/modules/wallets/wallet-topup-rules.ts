@@ -59,6 +59,42 @@ export interface SelfTopUpRow {
 
 export type SelfTopUpCapProblem = 'daily-amount' | 'daily-count' | 'unresolved';
 
+/** Los topes de 24 h de una forma de recargar desde el móvil. */
+export interface TopUpCaps {
+  dailyMaxCents: number;
+  dailyMaxPaid: number;
+  maxUnresolved: number;
+}
+
+const SELF_CAPS: TopUpCaps = {
+  dailyMaxCents: SELF_TOPUP_DAILY_MAX_CENTS,
+  dailyMaxPaid: SELF_TOPUP_DAILY_MAX_PAID,
+  maxUnresolved: SELF_TOPUP_MAX_UNRESOLVED,
+};
+
+// ─── «Recargar esta ficha» (estudio de fichas, B7) ───────────────────────
+
+/**
+ * Cualquiera que acerque la ficha a su móvil (o la lea con una app de NFC)
+ * puede recargarla: solo suma, sin ver el saldo ni el enlace privado. Con su
+ * propio freno, más corto que el de /w (allí hace falta el enlace o el Face
+ * ID): una tarjeta robada no mete mucho en una ficha ajena. Se cuentan los
+ * cobros con la clave `ftopup:` del saldo, en la base.
+ */
+export const FICHA_TOPUP_KEY_PREFIX = 'ftopup:';
+export const FICHA_TOPUP_CAPS: Readonly<TopUpCaps> = Object.freeze({ dailyMaxCents: 200_00, dailyMaxPaid: 3, maxUnresolved: 2 });
+/** Recargas empezadas desde la ficha cada 15 min, por saldo (además del límite por IP). */
+export const FICHA_TOPUP_PER_WALLET_MAX = 4;
+
+/**
+ * La Idempotency-Key de una recarga desde la ficha: `ftopup:<sha256>` de la
+ * ficha y la clave del navegador. Lleva «:» (el personal no puede crearla) y
+ * no es la de /w: el «Pagado» no lleva al saldo ni enseña su enlace.
+ */
+export function fichaTopUpKey(cardId: string, clientKey: string): string {
+  return `${FICHA_TOPUP_KEY_PREFIX}${sha256(`ficha-topup:${cardId}:${clientKey}`)}`;
+}
+
 const PAID_TOPUP = new Set(['AUTHORIZED', 'PARTIALLY_REFUNDED', 'REFUNDED']);
 
 /** A medias o sin confirmar: puede acabar cobrada (QR vigente, en el banco o en ORPHAN). */
@@ -76,12 +112,25 @@ export function selfTopUpCapProblem(
   rows: readonly SelfTopUpRow[],
   amountCents: number,
   now: Date,
+  caps: TopUpCaps = SELF_CAPS,
 ): SelfTopUpCapProblem | null {
   const live = rows.filter((r) => PAID_TOPUP.has(r.status) || unresolved(r, now));
-  if (live.filter((r) => unresolved(r, now)).length >= SELF_TOPUP_MAX_UNRESOLVED) return 'unresolved';
-  if (live.filter((r) => PAID_TOPUP.has(r.status)).length >= SELF_TOPUP_DAILY_MAX_PAID) return 'daily-count';
+  if (live.filter((r) => unresolved(r, now)).length >= caps.maxUnresolved) return 'unresolved';
+  if (live.filter((r) => PAID_TOPUP.has(r.status)).length >= caps.dailyMaxPaid) return 'daily-count';
   const total = live.reduce((sum, r) => sum + r.amountCents, 0);
-  return total + amountCents > SELF_TOPUP_DAILY_MAX_CENTS ? 'daily-amount' : null;
+  return total + amountCents > caps.dailyMaxCents ? 'daily-amount' : null;
+}
+
+/**
+ * Los importes que se ofrecen en /w y en /r (estudio de fichas, A9): los
+ * mismos que en la recepción del local (Ajustes → Noche), los que se pueden
+ * recargar desde el móvil (euros enteros de SELF_TOPUP_MIN_CENTS a
+ * SELF_TOPUP_MAX_CENTS). Si no queda ninguno, los de fábrica. El del medio
+ * sigue saliendo marcado (quitarlo es otro punto, B14, sin aprobar).
+ */
+export function selfTopUpPresets(receptionQuickAmountsCents: readonly number[]): number[] {
+  const usable = [...new Set(receptionQuickAmountsCents.filter((c) => parseTopUpAmount(c) !== null))].sort((a, b) => a - b);
+  return usable.length > 0 ? usable : [...SELF_TOPUP_PRESETS_CENTS];
 }
 
 /** Importe pedido → céntimos, o null si no vale (euros enteros entre el mínimo y el máximo). */

@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import type { ReceptionDeskView } from '@nightpay/contracts';
-import { AMOUNT_HELP, METHOD_HELP, RECEPTION_HELP_SCREENS, handOverOf, loadedHelp, tapHelp } from './reception-help';
+import { AMOUNT_HELP, EXIT_HELP, METHOD_HELP, RECEPTION_HELP_SCREENS, cashConfirmText, cashInHandText, handOverOf, loadedHelp, tapHelp, turnPhoneText } from './reception-help';
 
 const NEW = { kind: 'new' } as unknown as ReceptionDeskView;
 const SALDO_FICHA = { kind: 'saldo', fichaNumber: 'F1', code: 'K7Q-4M2' } as unknown as ReceptionDeskView;
@@ -11,7 +11,14 @@ describe('la ayuda de cada paso de Recepción', () => {
   it('una clave por paso (cerrar una no cierra las otras)', () => {
     const keys = Object.values(RECEPTION_HELP_SCREENS);
     expect(new Set(keys).size).toBe(keys.length);
-    expect(keys).toEqual(['recepcion-nfc', 'recepcion-importe', 'recepcion-pago', 'recepcion-cargado']);
+    expect(keys).toEqual(['recepcion-nfc', 'recepcion-importe', 'recepcion-pago', 'recepcion-cargado', 'recepcion-salida']);
+  });
+
+  it('la salida: qué hace «Devolver» y qué hace «Guardar», sin caducidades', () => {
+    expect(EXIT_HELP).toContain('Devolver: le das ahora en efectivo lo que cargó en efectivo');
+    expect(EXIT_HELP).toContain('lo de tarjeta se lo devuelve el local a su tarjeta');
+    expect(EXIT_HELP).toContain('Guardar: se queda en su ficha y su código para otra noche.');
+    expect(EXIT_HELP).not.toMatch(/caduc|días|NFC/i);
   });
 
   it('acerca el NFC, el importe y cómo paga: qué hacer, en una línea', () => {
@@ -24,6 +31,22 @@ describe('la ayuda de cada paso de Recepción', () => {
       expect(text).not.toMatch(/[!¡]/);
       expect(text.length).toBeLessThanOrEqual(90);
     }
+  });
+
+  it('«¿Cómo paga?»: cobrar primero; el efectivo, cuando ya está en la mano (A2)', () => {
+    expect(METHOD_HELP).toBe('Cobra primero y toca cómo te ha pagado.');
+    expect(cashInHandText(5_000).split(String.fromCharCode(160)).join(' ')).toBe('Ya tengo los 50 € en la mano');
+    // Con la comisión del servicio, lo que paga el cliente.
+    expect(cashInHandText(5_600).split(String.fromCharCode(160)).join(' ')).toBe('Ya tengo los 56 € en la mano');
+  });
+
+  it('B2: el efectivo se carga al acercar otra vez la ficha; otra no vale', () => {
+    expect(cashConfirmText(5_000).split(String.fromCharCode(160)).join(' ')).toBe('Al acercarla se cargan 50 € en su saldo. Con otra ficha no se carga.');
+  });
+
+  it('la pantalla del cobro, girada hacia el cliente (A5)', () => {
+    expect(turnPhoneText(true)).toBe('Gira el móvil: que vea el importe y su ficha');
+    expect(turnPhoneText(false)).toBe('Gira el móvil: que vea el importe');
   });
 });
 
@@ -45,7 +68,8 @@ describe('CARGADO: qué se hace con la ficha', () => {
     expect(loadedHelp({ method: 'card', handOver: 'manager', pin: 'none' })).not.toMatch(/código/);
     // CARGADO: el código que se enseña decide, y la línea de debajo tampoco pide apuntarlo.
     const desk = readFileSync(new URL('../components/reception/desk/ReceptionDesk.tsx', import.meta.url), 'utf8').replace(/\r\n/g, '\n');
-    expect(desk).toContain('hasCode: reference !== null');
+    // El código está en grande (ids) o, por número, tapado arriba (reference).
+    expect(desk).toContain('hasCode: (code ?? reference) !== null');
     expect(desk).toMatch(/handOver === 'manager'\s*\? 'Sin ficha ni código: con el encargado'/);
   });
 });

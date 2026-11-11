@@ -4,6 +4,7 @@ import { Public } from '../../common/decorators/public.decorator';
 import { IpRateLimit, clientIp } from '../../common/guards/ip-rate-limit.guard';
 import { customerLanguage, resolveLanguage } from '../payments/customer-lang';
 import { HOME_TOPUP_PAGE_LIMIT, HOME_TOPUP_START_LIMIT } from './home-topup-rules';
+import { QUEUE_PARAM, QUEUE_START_LIMIT } from './home-topup-queue';
 import { renderHomeTopUpGone, renderHomeTopUpPage } from './home-topup-page';
 import { HomeTopUpService } from './home-topup.service';
 
@@ -15,6 +16,10 @@ import { HomeTopUpService } from './home-topup.service';
  *                              pagarla (/pay/:token). Freno por IP (y por IP y
  *                              local) aquí; por local y el tope de 24 h por IP,
  *                              en HomeTopUpService.
+ *  - POST /r/:code/cola      → lo mismo desde el QR del cartel de la cola (B16):
+ *                              sin el tope por IP (la cola sale por el wifi del
+ *                              local); con el QR de esta noche y los topes por
+ *                              móvil (cookie firmada, la pone GET ?cola=) y por noche.
  *  - GET  /r/:code/mi-saldo  → «Recargar mi saldo»: a la página del saldo que
  *                              recuerda este navegador, en «Recargar» (303).
  * El enlace es público a propósito (decisión del dueño): cualquiera con él
@@ -33,15 +38,45 @@ export class PublicHomeTopUpController {
     @Query('lang') langQuery: string | undefined,
     @Headers('cookie') cookies: string | undefined,
     @Res() res: FastifyReply,
+    /** El QR del cartel de la cola (B16). */
+    @Query(QUEUE_PARAM) queueToken?: string,
+    @Req() req?: FastifyRequest,
   ): Promise<void> {
     const { lang, setCookie } = customerLanguage(langQuery, cookies);
-    if (setCookie) res.header('Set-Cookie', setCookie);
-    const view = await this.homeTopUps.page(code, cookies);
+    const view = await this.homeTopUps.page(code, cookies, typeof queueToken === 'string' ? queueToken : undefined);
+    // Con el QR del cartel de esta noche: la cookie del móvil (su tope por noche), con su
+    // tope de móviles nuevos por IP; pasado, sin cookie y la página lo dice.
+    const device =
+      view?.queue && 'token' in view.queue ? await this.homeTopUps.queueDeviceSetCookie(code, cookies, req ? clientIp(req) : null) : null;
+    for (const cookie of [setCookie, device?.cookie]) if (cookie) res.header('Set-Cookie', cookie);
     if (!view) {
       sendHtml(res, 404, renderHomeTopUpGone(lang));
       return;
     }
-    sendHtml(res, 200, renderHomeTopUpPage(code, lang, view));
+    const shown = device?.refused && view.queue && 'token' in view.queue ? { ...view, queue: { token: view.queue.token, noDevice: true as const } } : view;
+    sendHtml(res, 200, renderHomeTopUpPage(code, lang, shown));
+  }
+
+  @Public()
+  @Post(':code/cola')
+  @HttpCode(200)
+  @Header('Cache-Control', 'no-store')
+  @IpRateLimit(QUEUE_START_LIMIT)
+  async startFromQueue(
+    @Param('code') code: string,
+    @Body() body: { amountCents?: unknown; key?: unknown; lang?: unknown; queue?: unknown } | undefined,
+    @Headers('cookie') cookies: string | undefined,
+    @Req() req: FastifyRequest,
+  ): Promise<{ payUrl: string }> {
+    const lang = resolveLanguage(typeof body?.lang === 'string' ? body.lang : undefined, cookies);
+    const started = await this.homeTopUps.start(code, {
+      amountCents: body?.amountCents,
+      key: body?.key,
+      lang,
+      ip: clientIp(req),
+      queue: { token: body?.queue, deviceId: this.homeTopUps.queueDevice(cookies) },
+    });
+    return { payUrl: started.payUrl };
   }
 
   @Public()

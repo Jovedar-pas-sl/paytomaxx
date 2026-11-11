@@ -291,6 +291,78 @@ button.det {
   color: var(--np-text-mute);
 }
 
+/* El número impreso de la ficha en grande (A1): «0000 1013», cifras de
+   Manrope del mismo ancho; la parte que importa a 600 y en t1, los ceros de
+   delante a 400 y apagados (Grafito: nada por encima de 600). En la fila, a
+   30 px entre el título y el detalle. */
+.fichaNum {
+  display: block;
+  font: 600 1.875rem/1.15 var(--np-font-num);
+  font-variant-numeric: tabular-nums;
+  color: var(--np-text);
+}
+
+.fichaNum b {
+  font-weight: 600;
+}
+
+.fichaWeak {
+  font-weight: 400;
+  opacity: 0.45;
+}
+
+.grow > .fichaNum {
+  font-size: 1.875rem;
+  color: var(--np-text);
+}
+
+/* Debajo de la ficha, lo que hay que mirar o decir («Mira que es la que
+   tienes en la mano»): en t1 y 14/600, que se lea de un vistazo. */
+.grow > .rowHint {
+  display: block;
+  margin-top: 0.25rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--np-text);
+}
+
+/* «Cargada hace 2 min: 50 € en efectivo (Sergio)» (A4): con su reloj ámbar,
+   que se vea antes de cargar otra vez lo mismo. */
+.grow > .rowRecent {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  margin-top: 0.375rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--np-text);
+}
+
+.rowRecent svg {
+  flex: none;
+  width: 1.125rem;
+  height: 1.125rem;
+  color: var(--np-warning);
+}
+
+/* «Darle una» (A7): un saldo sin ficha, encontrado por su código. Terciario
+   de 44 px dentro de la fila: lleva a «Dar ficha a un saldo» con su código. */
+.grow > .rowAction {
+  display: inline-flex;
+  align-items: center;
+  min-height: 2.75rem;
+  margin: 0.25rem 0 -0.5rem -0.25rem;
+  padding: 0 0.25rem;
+  border: none;
+  background: transparent;
+  color: var(--np-text);
+  font: 600 0.9375rem/1.2 var(--np-font-sans);
+  text-decoration: underline;
+  text-decoration-color: var(--np-border-hi);
+  text-underline-offset: 4px;
+  touch-action: manipulation;
+}
+
 /* Leído: la marca en verde de estado, sin círculo. */
 .okc {
   flex: none;
@@ -392,6 +464,43 @@ button.det {
   flex-direction: column;
   gap: 0.75rem;
   min-height: 15.5rem;
+}
+
+/* Con la ficha en grande debajo del importe (A1), «Efectivo» baja lo mismo
+   que bajan los importes de «¿Cuánto carga?» con su número (S-1a). */
+.methodTop[data-ficha='true'] {
+  min-height: 19rem;
+}
+
+/* «Gira el móvil: que vea el importe y su ficha» (A5): una línea con su
+   móvil, en t1, debajo de lo que ve el cliente. */
+.turn {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  margin: 0.25rem 0 0;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--np-text);
+}
+
+.turn svg {
+  flex: none;
+  width: 1.125rem;
+  height: 1.125rem;
+  color: var(--np-text-mute);
+}
+
+/* «Buscar número de ficha» (A6): lo tecleado, en grande, para compararlo con la ficha. */
+.typedFicha {
+  font-size: 2.25rem;
+  text-align: center;
+}
+
+/* «¿Cómo paga?»: la ficha debajo del importe, centrada y algo más grande. */
+.cobroFicha {
+  font-size: 2.25rem;
+  text-align: center;
 }
 
 .opt {
@@ -566,6 +675,30 @@ button.det {
   text-align: left;
 }
 
+/* «Esa es la 1014, no la 1013» (A3): ámbar de aviso, con el glifo de la
+   ficha; no es un error (no se ha hecho nada) y la pantalla sigue igual. */
+.aviso {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  margin: 0;
+  padding: 0.625rem 0.875rem;
+  border: 1px solid var(--np-warning);
+  border-radius: var(--np-r-sm);
+  background: var(--np-pill-warning-bg);
+  color: var(--np-text);
+  font-size: 1rem;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.aviso svg {
+  flex: none;
+  width: 1.375rem;
+  height: 1.375rem;
+  color: var(--np-warning);
+}
+
 /* ─── Pie: plano o sobre --np-surface con su filete ─── */
 
 .foot {
@@ -619,10 +752,13 @@ button.det {
    casillas iguales: «Preparar fichas · Pendientes de asignar (2) · Dar ficha
    a un saldo». Texto t2 de 14/500, dos líneas como mucho; cada casilla, de
    48 px como mínimo. Con pendientes, la suya en t1 (el número se ve). */
+/* Con más de tres (Ficha perdida, Anular una recarga del encargado), en filas
+   de tres: las líneas entre casillas son el hueco de 1 px sobre el filete. */
 .more {
   display: grid;
-  grid-auto-flow: column;
-  grid-auto-columns: minmax(0, 1fr);
+  grid-template-columns: repeat(auto-fit, minmax(6.25rem, 1fr));
+  gap: 1px;
+  background: var(--np-border);
   border: 1px solid var(--np-border);
   border-radius: var(--np-r-md);
   overflow: hidden;
@@ -632,7 +768,7 @@ button.det {
   min-height: 3rem;
   padding: 0.375rem 0.5rem;
   border: none;
-  background: transparent;
+  background: var(--np-bg);
   color: var(--np-text-mute);
   font: 500 0.875rem/1.25 var(--np-font-sans);
   text-align: center;
@@ -641,9 +777,6 @@ button.det {
   -webkit-tap-highlight-color: transparent;
 }
 
-.moreBtn + .moreBtn {
-  border-left: 1px solid var(--np-border);
-}
 
 .moreBtn:active {
   background: var(--np-surface-2);

@@ -99,6 +99,8 @@ export interface NightCaja {
   expectedCents: number;
   /** null = no se contó (cierre automático o sin efectivo). */
   countedCents: number | null;
+  /** Se volvió a contar tras «Ver si cuadra»: el primer recuento (countedCents es el último). */
+  firstCountedCents?: number;
   /** Contado − esperado (negativo = falta). */
   diffCents: number | null;
   note: string | null;

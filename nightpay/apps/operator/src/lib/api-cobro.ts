@@ -64,7 +64,6 @@ export interface CobroCreado extends CreatedPayment {
 
 export interface CobroInput {
   lines: ChargeLineInput[];
-  tipCents?: number;
   /** «Copa con invitación»: el QR de la chica o la elegida de la lista. */
   invitedStaffToken?: string;
   invitedOperatorId?: string;
@@ -83,7 +82,7 @@ export function createCobro(input: CobroInput): Promise<CobroCreado> {
   if (input.zone) body.zone = input.zone;
   if (input.pos) body.captureMethod = 'POS_EXTERNAL';
   else body.withSaldo = true;
-  if (input.tipCents && input.tipCents > 0) body.tipCents = input.tipCents;
+  // B1: la propina ya no la pone el personal: la elige el cliente al pagar.
   if (input.invitedStaffToken) body.invitedStaffToken = input.invitedStaffToken;
   if (input.invitedOperatorId) body.invitedOperatorId = input.invitedOperatorId;
   return call<CobroCreado>(
@@ -107,7 +106,6 @@ export interface SaldoCobro {
 
 export function createSaldoCobro(input: Omit<CobroInput, 'terminalExternalId' | 'zone' | 'pos' | 'idempotencyKey'>): Promise<SaldoCobro> {
   const body: Record<string, unknown> = { lines: input.lines };
-  if (input.tipCents && input.tipCents > 0) body.tipCents = input.tipCents;
   if (input.invitedStaffToken) body.invitedStaffToken = input.invitedStaffToken;
   if (input.invitedOperatorId) body.invitedOperatorId = input.invitedOperatorId;
   return call<SaldoCobro>('/v1/wallet-charges/qr', { method: 'POST', body: JSON.stringify(body) }, 'Cobro del saldo');
@@ -163,18 +161,23 @@ export async function payByNfc(id: string, card: string, uid: string | null): Pr
  */
 export type SaldoRef = { card: string; uid: string | null } | { code: string } | { walletToken: string };
 
-/** El cuerpo de POST /v1/wallet-charges/:id/pin: el saldo (uno solo) y su PIN. */
-export function pinBody(ref: SaldoRef, pin: string): Record<string, string> {
-  if ('card' in ref) return { card: ref.card, ...(ref.uid ? { uid: ref.uid } : {}), pin };
-  if ('code' in ref) return { code: ref.code, pin };
-  return { walletToken: ref.walletToken, pin };
+/**
+ * El cuerpo de POST /v1/wallet-charges/:id/pin: el saldo (uno solo), su PIN
+ * y la propina que eligió el cliente en la misma pantalla (B1; null: sin
+ * propinas en este cobro, no se manda).
+ */
+export function pinBody(ref: SaldoRef, pin: string, tipCents: number | null = null): Record<string, string | number> {
+  const tip: Record<string, number> = tipCents === null ? {} : { tipCents };
+  if ('card' in ref) return { card: ref.card, ...(ref.uid ? { uid: ref.uid } : {}), pin, ...tip };
+  if ('code' in ref) return { code: ref.code, pin, ...tip };
+  return { walletToken: ref.walletToken, pin, ...tip };
 }
 
 /** Su PIN, tecleado en este móvil, con su ficha, su código o su pase. */
-export function payByPin(id: string, ref: SaldoRef, pin: string): Promise<SaldoState> {
+export function payByPin(id: string, ref: SaldoRef, pin: string, tipCents: number | null = null): Promise<SaldoState> {
   return call<SaldoState>(
     `/v1/wallet-charges/${encodeURIComponent(id)}/pin`,
-    { method: 'POST', body: JSON.stringify(pinBody(ref, pin)) },
+    { method: 'POST', body: JSON.stringify(pinBody(ref, pin, tipCents)) },
     'PIN del saldo',
   );
 }

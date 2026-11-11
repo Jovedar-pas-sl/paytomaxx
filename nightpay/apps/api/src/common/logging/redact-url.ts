@@ -70,6 +70,9 @@ const SENSITIVE_QUERY_KEYS = new Set([
   'signature',
   'password',
   'pin',
+  // Datos personales: el teléfono del cliente (por si alguien lo pone en una URL).
+  'phone',
+  'telefono',
   'ds_merchantparameters',
   'ds_signature',
   // La app del personal abierta desde el QR del pase de Google Wallet (/c/<token>).

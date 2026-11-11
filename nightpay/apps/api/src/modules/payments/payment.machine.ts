@@ -45,7 +45,8 @@ export type PaymentEvent =
    * total: REFUND_FULL no lo enviaba nadie y se quitó.
    */
   | { type: 'REFUND_PARTIAL'; amountCents: number }
-  | { type: 'CANCELED'; reason?: string }
+  /** `byUserId`: quién lo canceló (el personal; los automáticos no lo llevan). */
+  | { type: 'CANCELED'; reason?: string; byUserId?: string }
   /**
    * Cobro único (cobro-link.ts): el cliente lo pagó con su saldo (NFC, PIN o
    * Face ID) antes que con la tarjeta. El cobro con tarjeta se cancela y ya

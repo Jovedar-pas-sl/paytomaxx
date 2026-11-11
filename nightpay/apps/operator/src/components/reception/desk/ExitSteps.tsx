@@ -9,8 +9,9 @@ import {
   requestPayoutPasskey,
   type ReceptionPayoutPlan,
 } from '@/lib/reception-cash-payout';
-import { numberRow, type NumberSaldo } from '@/lib/reception-desk';
+import { entryRow, type NumberSaldo } from '@/lib/reception-desk';
 import { DESK_FIELD, DeskBtn, DeskRowView, Icon } from './desk-parts';
+import { ExitHelp } from './DeskSteps';
 import { QrBox } from './QrBox';
 import s from './desk.module.css';
 
@@ -167,15 +168,20 @@ export function ManagerExitStep({ plan, amountCents, onAsk, onKeep }: { plan: Re
 
 /** Salida por el número impreso: se ve lo que tiene (tapado); para devolver, el NFC original. */
 export function NumberExitStep({ view, onKeep, onTap }: { view: NumberSaldo; onKeep: () => void; onTap: () => void }) {
-  const row = numberRow(view);
+  // Por su número (A6): en grande, «Compruébalo con la ficha» y lo que se le pregunta.
+  const row = entryRow({ view: null, nfc: null, number: view });
   return (
     <>
-      <DeskRowView title={row.title} detail={row.detail} />
+      <DeskRowView title={row.title} detail={row.detail} ficha={row.ficha}>
+        <span className={s.rowHint}>{row.hint}</span>
+        <span className={s.rowHint}>{row.ask}</span>
+      </DeskRowView>
       <div className={s.bigamt}>
         <span className={s.kick}>{view.balanceCents > 0 ? 'Le quedan' : 'No le queda saldo'}</span>
         <p className={s.bignum}>{eur(view.balanceCents)}</p>
       </div>
-      <DeskBtn kind="pri" label="Guardar para la próxima" small="No caduca · se lleva su NFC" onClick={onKeep} />
+      <ExitHelp />
+      <DeskBtn kind="pri" label="Guardar para la próxima" small="Para otra noche · se lleva su ficha" onClick={onKeep} />
       {view.cashOutCents > 0 ? (
         <DeskBtn kind="gho" label={`Devolver ${eur(view.cashOutCents)} en efectivo`} small="Para devolver, acerca su NFC original" onClick={onTap} />
       ) : null}
