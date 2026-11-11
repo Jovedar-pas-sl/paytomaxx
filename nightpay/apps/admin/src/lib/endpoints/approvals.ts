@@ -7,6 +7,7 @@ import type {
   ApprovalStatus,
   ApprovalView,
 } from '@nightpay/contracts';
+import { STEP_UP_TOKEN_HEADER } from '@nightpay/contracts';
 import { apiError, authedFetch, totpAwareError } from '../http';
 
 export type { ApprovalRequestedResponse, ApprovalRules, ApprovalStatus, ApprovalView } from '@nightpay/contracts';
@@ -26,10 +27,12 @@ export async function fetchApprovalRules(): Promise<ApprovalRules> {
   return res.json();
 }
 
-export async function approveApproval(id: string, totpCode: string): Promise<ApprovalView> {
+/** Con el código 2FA o, sin 2FA, con la prueba de la llave (cabecera de la acción `approve:<id>`). */
+export async function approveApproval(id: string, totpCode: string | undefined, stepUpToken?: string): Promise<ApprovalView> {
   const res = await authedFetch(`/v1/approvals/${encodeURIComponent(id)}/approve`, {
     method: 'POST',
-    body: JSON.stringify({ totpCode }),
+    body: JSON.stringify(totpCode ? { totpCode } : {}),
+    ...(stepUpToken ? { headers: { [STEP_UP_TOKEN_HEADER]: stepUpToken } } : {}),
   });
   if (!res.ok) throw await totpAwareError(res);
   return res.json();

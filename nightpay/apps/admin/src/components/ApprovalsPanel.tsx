@@ -2,13 +2,15 @@
 
 import { useCallback, useEffect, useId, useRef, useState, type FormEvent } from 'react';
 import { Button, Input, useNow } from '@nightpay/ui';
-import type { PayoutMethod } from '@nightpay/contracts';
+import { PASSKEY_REQUIRED_CODE, stepUpActions, type PayoutMethod, type StepUpProof } from '@nightpay/contracts';
 import { approveApproval, fetchApprovals, rejectApproval, type ApprovalView } from '@/lib/api';
 import { ApiError, totpLockedUntil } from '@/lib/api-errors';
 import {
   APPROVAL_STATUS,
+  approvalAutoSends,
   approvalReason,
   approvalTarget,
+  approveButtonText,
   approveFailure,
   approveSummary,
   approvedMessage,
@@ -19,10 +21,13 @@ import {
   timeAgo,
 } from '@/lib/approvals';
 import { formatEur } from '@/lib/money';
+import { proofFor } from '@/lib/refund-confirm';
 import { useApprovals } from '@/lib/use-approvals';
 import { useLockActive } from '@/lib/use-lock';
+import { useStepUpMethod } from '@/lib/use-step-up-method';
 import { useVenue } from '@/lib/venue-context';
 import { ConfirmLine } from './ConfirmLine';
+import { KeyConfirm } from './KeyConfirm';
 import { Notice } from './Notice';
 import { OtpInput } from './OtpInput';
 import { settle } from './PayoutConfirmModal';
@@ -162,22 +167,43 @@ function ApprovalCard({ item, now, onDone }: { item: ApprovalView; now: Date; on
   const inFlight = useRef(false);
   const locked = useLockActive(lockedUntil);
   const reason = approvalReason(item);
+  // Sin 2FA y con llave de acceso: se confirma con ella (el API la acepta para esta solicitud).
+  const method = useStepUpMethod(mode === 'approve');
+  const [askedForKey, setAskedForKey] = useState(false);
+  const [proof, setProof] = useState<StepUpProof | null>(null);
+  const withKey = method === 'passkey' || askedForKey;
+  const keyProof = withKey ? proofFor(proof, stepUpActions.approve(item.id), Date.now()) : null;
+  // Una devolución desde 100 € no sale sola: con el botón que dice el importe.
+  const autoSends = approvalAutoSends(item);
+  const buttonText = approveButtonText(item, formatEur);
 
   function open(next: Mode): void {
     setMode(next);
     setError(null);
     setCode('');
+    setProof(null);
   }
 
-  async function approve(e: FormEvent): Promise<void> {
+  function approve(e: FormEvent): void {
     e.preventDefault();
+    void send(keyProof);
+  }
+
+  /** Confirmado con la llave: si se aprueba sola, ya; si no, el botón. */
+  function onKeyProof(next: StepUpProof): void {
+    setProof(next);
+    if (autoSends) void send(next);
+  }
+
+  async function send(withProof: StepUpProof | null): Promise<void> {
     if (inFlight.current) return;
-    if (!/^\d{6}$/.test(code)) return setError('Pon los 6 números de tu app de verificación.');
+    if (withKey && !withProof) return setError('Confírmalo antes con tu llave de acceso.');
+    if (!withKey && !/^\d{6}$/.test(code)) return setError('Pon los 6 números de tu app de verificación.');
     inFlight.current = true;
     setBusy(true);
     setError(null);
     try {
-      const result = await approveApproval(item.id, code);
+      const result = await approveApproval(item.id, withKey ? undefined : code, withKey ? withProof?.token : undefined);
       onDone(await afterApproved(item, result));
     } catch (err) {
       onApproveError(err);
@@ -188,6 +214,13 @@ function ApprovalCard({ item, now, onDone }: { item: ApprovalView; now: Date; on
   }
 
   function onApproveError(err: unknown): void {
+    if (err instanceof ApiError && err.code === PASSKEY_REQUIRED_CODE) {
+      // Sin 2FA y con llave: se confirma con ella.
+      setAskedForKey(true);
+      setProof(null);
+      setError(autoSends ? 'Confírmalo con tu llave de acceso.' : `Confírmalo con tu llave de acceso y después pulsa «${buttonText}».`);
+      return;
+    }
     const lockEnds = totpLockedUntil(err, Date.now());
     if (lockEnds !== null) {
       setLockedUntil(lockEnds);
@@ -257,26 +290,40 @@ function ApprovalCard({ item, now, onDone }: { item: ApprovalView; now: Date; on
       ) : mode === 'approve' ? (
         <form onSubmit={(e) => void approve(e)} className="np-approval-form">
           <ConfirmLine>{approveSummary(item, venue.name ?? venue.slug, methodLabel)}</ConfirmLine>
-          <OtpInput
-            key={otpKey}
-            label="Código de tu app de verificación (2FA)"
-            value={code}
-            onChange={setCode}
-            autoSubmit
-            autoFocus
-            required
-            disabled={busy}
-            lockedUntil={lockedUntil}
-            hint="Al poner el sexto número se aprueba. Cada código vale una sola vez."
-          />
+          {withKey ? (
+            <KeyConfirm
+              action={stepUpActions.approve(item.id)}
+              confirmed={Boolean(keyProof)}
+              onProof={onKeyProof}
+              reason={`Para aprobar ${item.kind === 'REFUND' ? 'la devolución' : 'el pago'} de ${formatEur(item.amountCents)}.`}
+              next={autoSends ? 'Se está aprobando.' : `Ahora pulsa «${buttonText}».`}
+            />
+          ) : (
+            <OtpInput
+              key={otpKey}
+              label="Código de tu app de verificación (2FA)"
+              value={code}
+              onChange={setCode}
+              autoSubmit={autoSends}
+              autoFocus
+              required
+              disabled={busy}
+              lockedUntil={lockedUntil}
+              hint={
+                autoSends
+                  ? 'Al poner el sexto número se aprueba. Cada código vale una sola vez.'
+                  : `Pon los 6 números y pulsa «${buttonText}»: desde 100 € no se aprueba sola. Cada código vale una sola vez.`
+              }
+            />
+          )}
           {error ? (
             <p role="alert" className="np-approval-error">
               {error}
             </p>
           ) : null}
           <div className="np-approval-actions">
-            <Button type="submit" loading={busy} disabled={locked}>
-              Aprobar {formatEur(item.amountCents)}
+            <Button type="submit" loading={busy} disabled={(!withKey && locked) || (withKey && !keyProof)}>
+              {buttonText}
             </Button>
             <Button variant="ghost" type="button" onClick={() => open('idle')} disabled={busy}>
               Cancelar

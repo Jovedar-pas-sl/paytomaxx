@@ -3,6 +3,7 @@
 
 import type { ApprovalStatus, ApprovalView, PayoutMethod } from '@nightpay/contracts';
 import { formatEur } from './money';
+import { refundAutoSends } from './refund-confirm';
 
 type Tone = 'success' | 'warning' | 'danger' | 'info' | 'neutral';
 
@@ -177,6 +178,20 @@ export function approveFailure(err: { status: number; code: string | null; messa
   if (err.status >= 500) return { kind: 'done', tone: 'warning', text: LOST_TEXT };
   if (err.code === 'TOTP_NOT_ENROLLED' || err.code === 'TOTP_UNREADABLE') return { kind: 'enrol', text: ENROL_TEXT };
   return { kind: 'retry', text: err.message, clearCode: err.code === 'TOTP_INVALID' };
+}
+
+/**
+ * ¿Se aprueba sola al poner el sexto número (o al confirmar con la llave)?
+ * Una devolución desde 100 €, no: con el botón que dice el importe, como al
+ * devolver (refund-confirm.ts). Los pagos y las devoluciones menores, sí.
+ */
+export function approvalAutoSends(item: { kind: string; amountCents: number }): boolean {
+  return item.kind !== 'REFUND' || refundAutoSends(item.amountCents);
+}
+
+/** El botón: «Aprobar devolución de 120,00 €» (devolución) o «Aprobar 120,00 €». */
+export function approveButtonText(item: { kind: string; amountCents: number }, eur: (cents: number) => string): string {
+  return item.kind === 'REFUND' ? `Aprobar devolución de ${eur(item.amountCents)}` : `Aprobar ${eur(item.amountCents)}`;
 }
 
 /** El motivo del rechazo: obligatorio (lo lee el encargado). null = vale. */
