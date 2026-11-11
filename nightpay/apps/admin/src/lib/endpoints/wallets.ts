@@ -43,7 +43,8 @@ export interface PendingQrCharge {
  * código), por el teléfono que dejó al darle la ficha. Sin el teléfono.
  */
 export async function findWalletsByPhone(phone: string): Promise<WalletByPhone[]> {
-  const res = await authedFetch(`/v1/reception/wallets/by-phone?phone=${encodeURIComponent(phone)}`);
+  // En el cuerpo (POST), no en la URL: el teléfono no acaba en los logs.
+  const res = await authedFetch('/v1/reception/wallets/by-phone', { method: 'POST', body: JSON.stringify({ phone }) });
   if (!res.ok) throw await apiError(res);
   return res.json();
 }

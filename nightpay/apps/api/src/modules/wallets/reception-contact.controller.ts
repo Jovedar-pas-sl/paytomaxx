@@ -1,4 +1,4 @@
-import { Body, Controller, Get, HttpCode, Inject, Param, ParseUUIDPipe, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, HttpCode, Inject, Param, ParseUUIDPipe, Post, UseGuards } from '@nestjs/common';
 import { ContactPhoneSchema, type ContactPhoneDto, type JwtPayload, type WalletByPhone } from '@nightpay/contracts';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
@@ -11,8 +11,9 @@ import { WalletContactService } from './wallet-contact.service';
  * El teléfono opcional al dar una ficha nueva:
  *  - POST /v1/reception/wallets/:id/phone → lo deja quien le acaba de dar la
  *    ficha (o el encargado o el dueño);
- *  - GET  /v1/reception/wallets/by-phone?phone= → el encargado o el dueño
- *    encuentran el saldo de quien lo ha perdido todo.
+ *  - POST /v1/reception/wallets/by-phone {phone} → el encargado o el dueño
+ *    encuentran el saldo de quien lo ha perdido todo. En el cuerpo, no en la
+ *    URL: así el teléfono no acaba en los logs.
  */
 @Controller('reception')
 @UseGuards(RolesGuard)
@@ -31,10 +32,11 @@ export class ReceptionContactController {
     return this.contacts.setPhone({ userId: user.sub, role: user.role, tenantId: user.tenantId }, id, body.phone);
   }
 
-  @Get('wallets/by-phone')
+  @Post('wallets/by-phone')
+  @HttpCode(200)
   @Roles('MANAGER', 'OWNER')
   @IpRateLimit({ max: 20, windowSec: 60, scope: 'reception-wallet-phone-search' })
-  async byPhone(@CurrentUser() user: JwtPayload, @Query('phone') phone: string | undefined): Promise<WalletByPhone[]> {
-    return this.contacts.findByPhone({ userId: user.sub, role: user.role, tenantId: user.tenantId }, phone ?? '');
+  async byPhone(@CurrentUser() user: JwtPayload, @Body(new ZodValidationPipe(ContactPhoneSchema)) body: ContactPhoneDto): Promise<WalletByPhone[]> {
+    return this.contacts.findByPhone({ userId: user.sub, role: user.role, tenantId: user.tenantId }, body.phone);
   }
 }
