@@ -14,6 +14,7 @@ import {
 import { formatDateTime } from '@/lib/dates';
 import { useVenueTimezone } from '@/lib/venue-context';
 import { Notice } from './Notice';
+import { SwitchLine } from './ToggleSwitch';
 
 interface Props {
   isOwner: boolean;
@@ -486,15 +487,11 @@ function EditTerminalModal({
             required
           />
         ) : null}
-        <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-          <input type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} />
-          <span>Activo</span>
-        </label>
+        <SwitchLine checked={active} onChange={setActive}>Activo</SwitchLine>
         {isOwner ? (
-          <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-            <input type="checkbox" checked={reception} onChange={(e) => setReception(e.target.checked)} />
-            <span>Recepción (el único que cobra recargas en efectivo)</span>
-          </label>
+          <SwitchLine checked={reception} onChange={setReception}>
+            Recepción (el único que cobra recargas en efectivo)
+          </SwitchLine>
         ) : null}
         {error ? (
           <p role="alert" style={{ color: 'var(--np-danger)', fontSize: '0.875rem' }}>

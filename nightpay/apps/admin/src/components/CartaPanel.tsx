@@ -12,6 +12,7 @@ import { enabledSections, sectionLabelOf } from '@/lib/money-map';
 import { useSections } from '@/lib/use-sections';
 import { SectionDot } from './fichas/SectionChip';
 import { Notice } from './Notice';
+import { SwitchLine } from './ToggleSwitch';
 
 /**
  * Carta del local (Fase 1A; el mapa del dinero). Lo que el personal toca
@@ -260,21 +261,16 @@ function ServiceForm({
         </Select>
       </div>
 
-      <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontWeight: 600 }}>
-        <input type="checkbox" checked={isPack} onChange={(e) => setIsPack(e.target.checked)} style={{ width: '1.25rem', height: '1.25rem' }} />
-        Es un pack (se reparte entre secciones)
-      </label>
+      <SwitchLine checked={isPack} onChange={setIsPack}>
+        <b style={{ fontWeight: 600 }}>Es un pack (se reparte entre secciones)</b>
+      </SwitchLine>
 
       {canInvite ? (
-        <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontWeight: 600 }}>
-          <input
-            type="checkbox"
-            checked={isInvite}
-            onChange={(e) => setIsInvite(e.target.checked)}
-            style={{ width: '1.25rem', height: '1.25rem' }}
-          />
-          Es una copa con invitación (el cliente invita a una chica: se escanea su QR y se reparte con el local según Ajustes → Invitaciones)
-        </label>
+        <SwitchLine checked={isInvite} onChange={setIsInvite}>
+          <b style={{ fontWeight: 600 }}>
+            Es una copa con invitación (el cliente invita a una compañera: se escanea su QR y se reparte con el local según Ajustes → Invitaciones)
+          </b>
+        </SwitchLine>
       ) : null}
 
       {isPack ? (

@@ -111,7 +111,7 @@ export function LoginForm({ onSuccess }: Props) {
 
   if (ticket) {
     return (
-      <form onSubmit={(e) => void handleCode(e)} style={formStyle} noValidate>
+      <form onSubmit={(e) => void handleCode(e)} style={formStyle} className="np-notch" noValidate>
         <p style={stepText}>
           Tu cuenta tiene la verificación en dos pasos. Pon el código de tu app para entrar en el panel.
         </p>
@@ -147,11 +147,11 @@ export function LoginForm({ onSuccess }: Props) {
 
   const marked = badCredentials ? { 'aria-invalid': true as const, 'aria-describedby': errorId } : {};
   return (
-    <form onSubmit={(e) => void handlePassword(e)} style={formStyle}>
+    <form onSubmit={(e) => void handlePassword(e)} style={formStyle} className="np-notch">
       <Input
         type="email"
         autoComplete="email"
-        aria-label="Email"
+        label="Correo electrónico"
         placeholder="tu@email.com"
         value={email}
         onChange={(e) => setEmail(e.target.value)}
@@ -161,8 +161,8 @@ export function LoginForm({ onSuccess }: Props) {
       <Input
         type="password"
         autoComplete="current-password"
-        aria-label="Contraseña"
-        placeholder="contraseña"
+        label="Contraseña"
+        placeholder="Tu contraseña"
         value={password}
         onChange={(e) => setPassword(e.target.value)}
         required

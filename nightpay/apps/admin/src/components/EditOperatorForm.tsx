@@ -20,6 +20,7 @@ import { useVenueTimezone } from '@/lib/venue-context';
 import { Notice } from './Notice';
 import { OtpInput } from './OtpInput';
 import { PayoutMethodForm } from './PayoutMethodForm';
+import { SwitchLine } from './ToggleSwitch';
 
 /** Lo que este formulario puede cambiar de una chica. */
 interface EditSnapshot {
@@ -135,15 +136,9 @@ export function EditOperatorForm({
         onChange={(e) => setCommissionPct(e.target.value)}
         disabled={!isOwner || submitting}
       />
-      <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.875rem' }}>
-        <input
-          type="checkbox"
-          checked={active}
-          onChange={(e) => setActive(e.target.checked)}
-          disabled={!isOwner || submitting}
-        />
+      <SwitchLine checked={active} onChange={setActive} disabled={!isOwner || submitting}>
         Activa (puede crear cobros)
-      </label>
+      </SwitchLine>
       {isOwner ? null : (
         <p style={hintText}>Solo el dueño cambia la comisión, si está activa y su método de cobro.</p>
       )}

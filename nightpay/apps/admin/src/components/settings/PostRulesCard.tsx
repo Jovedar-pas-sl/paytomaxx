@@ -5,6 +5,7 @@ import { PUESTOS, type PostCode, type PostRule, type SectionCode } from '@nightp
 import { fetchPostRules, updatePostRules } from '@/lib/api';
 import { enabledSections } from '@/lib/money-map';
 import { useSections } from '@/lib/use-sections';
+import { SwitchLine } from '../ToggleSwitch';
 import { LoadState, SettingsCard, StatusLine, useSavedFlash, useSettingsLoad } from './SettingsBits';
 
 const FLAGS: ReadonlyArray<{ key: 'tips' | 'cash' | 'topUps' | 'cashPayout'; label: string }> = [
@@ -74,12 +75,11 @@ export function PostRulesCard() {
                   </label>
                 ))}
               </div>
-              <div style={chips}>
+              <div>
                 {FLAGS.map((f) => (
-                  <label key={f.key} style={chip}>
-                    <input type="checkbox" checked={rule[f.key]} onChange={(e) => void save(p.code, { [f.key]: e.target.checked })} />
+                  <SwitchLine key={f.key} checked={rule[f.key]} onChange={(next) => void save(p.code, { [f.key]: next })} disabled={busy}>
                     {f.label}
-                  </label>
+                  </SwitchLine>
                 ))}
               </div>
             </fieldset>

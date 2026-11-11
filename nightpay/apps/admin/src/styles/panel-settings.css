@@ -129,61 +129,6 @@
   padding-top: 0.25rem;
 }
 
-.np-switch {
-  position: relative;
-  flex: 0 0 auto;
-  display: inline-flex;
-  align-items: center;
-  width: 4.25rem;
-  height: 2.25rem;
-  padding: 0 0.5rem;
-  border: 1px solid var(--np-border-hi);
-  border-radius: var(--np-r-pill);
-  background: var(--np-surface-2);
-  color: var(--np-text-mute);
-  font-family: inherit;
-  cursor: pointer;
-  transition:
-    background var(--np-d-fast),
-    border-color var(--np-d-fast);
-}
-
-.np-switch-thumb {
-  position: absolute;
-  top: 50%;
-  left: 0.25rem;
-  width: 1.625rem;
-  height: 1.625rem;
-  border-radius: 50%;
-  background: var(--np-text-mute);
-  transform: translateY(-50%);
-  transition: transform var(--np-d-base) var(--np-ease);
-}
-
-.np-switch-text {
-  margin-left: auto;
-  font-size: 0.875rem;
-  font-weight: 400;
-}
-
-/* Encendido en t1 (lo elegido), no en lima: en Ajustes hay muchos y la lima
-   se queda para «Guardar». */
-.np-switch[aria-checked='true'] {
-  border-color: var(--np-text);
-  background: color-mix(in oklch, var(--np-text) 16%, var(--np-surface-2));
-  color: var(--np-text);
-}
-
-.np-switch[aria-checked='true'] .np-switch-thumb {
-  background: var(--np-text);
-  transform: translate(2rem, -50%);
-}
-
-.np-switch[aria-checked='true'] .np-switch-text {
-  margin-left: 0;
-  margin-right: auto;
-}
-
 .np-switch:focus-visible {
   outline: 2px solid var(--np-accent);
   outline-offset: 2px;

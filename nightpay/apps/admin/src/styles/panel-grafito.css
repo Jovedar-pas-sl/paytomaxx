@@ -1,0 +1,316 @@
+/* Panel (admin) · Grafito 3: escala de letra, lo elegido en crema, campos con
+   la etiqueta sobre el borde, interruptores Sí/No, siluetas de carga, la barra
+   de «Deshacer» y la tabla de Cobros con columnas fijas.
+   Va la última (después de los estilos de @nightpay/ui y de los del panel).
+   Solo se anima transform/opacity, y nada con prefers-reduced-motion. */
+
+/* ─── Escala de letra: 64 · 40 · 28 · 22 · 18 · 16 · 14 ───────────────────
+   Nunca menos de 14. Dos pesos (400 y 600); las cifras, Manrope 700. */
+:root {
+  --gf-t-hero: 4rem;
+  --gf-t-kpi: 2.5rem;
+  --gf-t-h1: 1.75rem;
+  --gf-t-h2: 1.375rem;
+  --gf-t-h3: 1.125rem;
+  --gf-t-body: 1rem;
+  --gf-t-small: 0.875rem;
+  --gf-w-regular: 400;
+  --gf-w-strong: 600;
+  --gf-w-num: 700;
+
+  /* Los tokens de @nightpay/ui que bajaban de 14 (o iban a 15), en la escala. */
+  --np-t-label: var(--gf-t-small);
+  --np-t-ui: var(--gf-t-body);
+  --np-t-h4: var(--gf-t-h3);
+  --np-t-h3: var(--gf-t-h3);
+  --np-t-h2: var(--gf-t-h2);
+}
+
+/* ─── Lo elegido: crema en oscuro, tinta en claro ───────────────────────
+   La lima se queda para el botón de la acción principal. */
+:root,
+[data-theme='dark'] {
+  --np-sel-bg: var(--np-cream);
+  --np-sel-bg-hover: #f6f1e9;
+  --np-sel-ink: var(--np-ink);
+  --np-focus: var(--np-cream);
+  --np-on-success: #0b2a17;
+  --np-bar-track: var(--np-surface-3);
+}
+
+[data-theme='light'] {
+  --np-sel-bg: var(--np-ink);
+  --np-sel-bg-hover: var(--np-accent-2);
+  --np-sel-ink: var(--np-cream);
+  --np-focus: var(--np-ink);
+  --np-on-success: #f7f5f0;
+}
+
+/* Lo que dibujan los componentes de @nightpay/ui con la letra en línea:
+   13 → 14 y 15 → 16, sin tocar ese paquete. */
+[style*='font-size: 0.75rem'],
+[style*='font-size: 0.8125rem'] {
+  font-size: var(--gf-t-small) !important;
+}
+
+[style*='font-size: 0.9375rem'] {
+  font-size: var(--gf-t-body) !important;
+}
+
+.np-chip,
+.np-table thead th {
+  font-size: var(--gf-t-small);
+}
+
+.np-chip,
+.np-table thead th,
+[style*='font-weight: 500'] {
+  font-weight: var(--gf-w-regular);
+}
+
+/* ─── Foco: marcado en crema (en claro, tinta) ───────────────────────── */
+:focus-visible {
+  outline-color: var(--np-focus);
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+  border-color: var(--np-focus) !important;
+  box-shadow: 0 0 0 1px var(--np-focus) !important;
+}
+
+/* ─── Botones que se eligen (aria-pressed): crema, no lima ───────────── */
+.np-btn[aria-pressed='true'][data-variant='primary'] {
+  background: var(--np-sel-bg);
+  color: var(--np-sel-ink);
+  box-shadow: none;
+}
+
+.np-btn[aria-pressed='true'][data-variant='primary']:hover {
+  background: var(--np-sel-bg-hover);
+}
+
+/* Filtros con algo elegido (Cobros): el filete en crema. */
+.np-cobros-filters select[data-active='true'],
+.np-cobros-filters input[data-active='true'] {
+  border-color: var(--np-focus);
+  box-shadow: inset 0 0 0 1px var(--np-focus);
+}
+
+/* ─── Interruptor Sí / No ────────────────────────────────────────────────
+   84 × 40: «Sí» o «No» escrito dentro y la bolita que se desliza. Verde
+   encendido, gris apagado: además del color, la palabra y el lado. */
+.np-switch {
+  position: relative;
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  width: 5.25rem;
+  height: 2.5rem;
+  padding: 0 0.875rem;
+  border: 1px solid var(--np-border-hi);
+  border-radius: 1.25rem;
+  background: var(--np-surface-3);
+  color: var(--np-text-mute);
+  font-family: inherit;
+  font-size: var(--gf-t-small);
+  font-weight: var(--gf-w-strong);
+  cursor: pointer;
+  transition: background var(--np-d-fast), color var(--np-d-fast), border-color var(--np-d-fast);
+}
+
+.np-switch-thumb {
+  position: absolute;
+  top: 50%;
+  left: 3px;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 50%;
+  background: var(--np-text-dim);
+  transform: translateY(-50%);
+  transition: transform var(--np-d-base) var(--np-ease), background var(--np-d-fast);
+}
+
+.np-switch-text {
+  margin-left: auto;
+  margin-right: 0;
+  font-size: var(--gf-t-small);
+  font-weight: var(--gf-w-strong);
+}
+
+.np-switch[aria-checked='true'] {
+  border-color: var(--np-success);
+  background: var(--np-success);
+  color: var(--np-on-success);
+}
+
+.np-switch[aria-checked='true'] .np-switch-thumb {
+  background: var(--np-bg);
+  transform: translate(2.75rem, -50%);
+}
+
+.np-switch[aria-checked='true'] .np-switch-text {
+  margin-left: 0;
+  margin-right: auto;
+}
+
+/* Un interruptor suelto dentro de una frase (Terminales, Reglas…). */
+.np-switch-line {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  min-height: 2.75rem;
+}
+
+.np-switch-line > span:first-child {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* ─── Campos con la etiqueta sobre el borde ──────────────────────────────
+   En el escritorio, dentro de .np-notch, la etiqueta se apoya sobre el filete
+   del campo y no desaparece al escribir. En el móvil se queda encima, entera
+   (las largas no caben sobre el borde de 330 px). */
+:is(.np-notch, .np-set-card) {
+  --np-field-bg: var(--np-surface);
+}
+
+@media (min-width: 641px) {
+  :is(.np-notch, .np-set-card) label:has(> span:first-child + span input:not([type='checkbox']):not([type='radio'])),
+  :is(.np-notch, .np-set-card) label:has(> span:first-child + select) {
+    position: relative;
+    margin-top: 0.5625rem;
+  }
+
+  :is(.np-notch, .np-set-card) label:has(> span:first-child + span input:not([type='checkbox']):not([type='radio'])) > span:first-child,
+  :is(.np-notch, .np-set-card) label:has(> span:first-child + select) > span:first-child {
+    position: absolute;
+    top: -0.6875rem;
+    left: 0.75rem;
+    z-index: 1;
+    max-width: calc(100% - 1.5rem);
+    padding: 0 0.375rem;
+    overflow: hidden;
+    background: var(--np-field-bg);
+    color: var(--np-text-mute);
+    font-size: var(--gf-t-small);
+    font-weight: var(--gf-w-regular);
+    line-height: 1.3;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    pointer-events: none;
+  }
+
+  :is(.np-notch, .np-set-card) label:focus-within > span:first-child {
+    color: var(--np-focus);
+  }
+}
+
+/* ─── Siluetas mientras carga ─────────────────────────────────────────────
+   Bloques grises que respiran (solo opacidad) con la forma de la pantalla. */
+.np-skel {
+  display: block;
+  border-radius: var(--np-r-sm);
+  background: var(--np-surface-3);
+  animation: np-breathe 1.6s ease-in-out infinite;
+}
+
+.np-skel[data-round] {
+  border-radius: var(--np-r-pill);
+}
+
+@keyframes np-breathe {
+  0%,
+  100% {
+    opacity: 0.45;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+.np-skel-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem 1rem;
+  border-top: 1px solid var(--np-border);
+}
+
+.np-skel-table {
+  border: 1px solid var(--np-border);
+  border-radius: var(--np-r-md);
+  overflow: hidden;
+}
+
+/* ─── «Resuelto · Deshacer»: la barra que se vacía en 10 s ──────────────── */
+.np-drain {
+  height: 4px;
+  overflow: hidden;
+  background: var(--np-bar-track);
+}
+
+.np-drain > i {
+  display: block;
+  width: 100%;
+  height: 100%;
+  background: var(--np-sel-bg);
+  transform-origin: left center;
+  animation-name: np-drain;
+  animation-timing-function: linear;
+  animation-fill-mode: forwards;
+}
+
+@keyframes np-drain {
+  from {
+    transform: scaleX(1);
+  }
+  to {
+    transform: scaleX(0);
+  }
+}
+
+/* ─── Cobros: columnas de ancho fijo (escritorio) ────────────────────────
+   «Servicio» se lleva lo que sobra: no se aprieta ni queda un hueco antes de
+   «Acciones». Por debajo de 1100 px son tarjetas (panel-tables.css). */
+@media (min-width: 1101px) {
+  .np-table.np-cobros-table {
+    table-layout: fixed;
+    width: 100%;
+    min-width: 64rem;
+  }
+
+  .np-cobros-table col[data-col='hora'] { width: 7.5rem; }
+  .np-cobros-table col[data-col='ref'] { width: 5.75rem; }
+  .np-cobros-table col[data-col='codigo'] { width: 6rem; }
+  .np-cobros-table col[data-col='banco'] { width: 11rem; }
+  .np-cobros-table col[data-col='importe'] { width: 7.5rem; }
+  .np-cobros-table col[data-col='estado'] { width: 8.5rem; }
+  .np-cobros-table col[data-col='quien'] { width: 8rem; }
+  .np-cobros-table col[data-col='seccion'] { width: 8.5rem; }
+  .np-cobros-table col[data-col='como'] { width: 9.5rem; }
+  .np-cobros-table col[data-col='extra'] { width: 9rem; }
+  .np-cobros-table col[data-col='acciones'] { width: 13.5rem; }
+
+  .np-cobros-table td[data-label='Servicio'] {
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+}
+
+/* ─── Cifras que suben ──────────────────────────────────────────────────── */
+.np-count {
+  font-variant-numeric: tabular-nums;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .np-skel {
+    animation: none;
+    opacity: 0.7;
+  }
+
+  .np-drain > i {
+    animation: none;
+  }
+}

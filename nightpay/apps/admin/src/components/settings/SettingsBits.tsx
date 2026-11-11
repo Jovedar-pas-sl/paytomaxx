@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useId, useState, type ReactNode } from 'react';
 import { Button } from '@nightpay/ui';
 import { Notice } from '../Notice';
+import { ToggleSwitch } from '../ToggleSwitch';
 
 /** Un bloque de Ajustes: título, una línea de ayuda y su contenido (`tour`: su marca para el tutorial). */
 export function SettingsCard({ title, hint, children, tour }: { title: string; hint?: ReactNode; children: ReactNode; tour?: string }) {
@@ -45,21 +46,13 @@ export function Switch({
           </span>
         ) : null}
       </div>
-      <button
-        type="button"
-        role="switch"
-        aria-checked={checked}
-        aria-label={label}
-        aria-describedby={hint ? hintId : undefined}
-        className="np-switch"
+      <ToggleSwitch
+        checked={checked}
+        onChange={onChange}
+        ariaLabel={label}
+        describedBy={hint ? hintId : undefined}
         disabled={disabled}
-        onClick={() => onChange(!checked)}
-      >
-        <span className="np-switch-thumb" aria-hidden="true" />
-        <span className="np-switch-text" aria-hidden="true">
-          {checked ? 'Sí' : 'No'}
-        </span>
-      </button>
+      />
     </div>
   );
 }

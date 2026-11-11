@@ -13,6 +13,8 @@ import '../styles/panel-approvals.css';
 import '../styles/panel-settings.css';
 import '../styles/panel-money.css';
 import '../styles/panel-carta.css';
+// Grafito 3 (escala, lo elegido, interruptores, siluetas): la última, ajusta a las demás.
+import '../styles/panel-grafito.css';
 import { appleAppMetadata } from '@nightpay/ui/app-manifest';
 
 // Fuentes dentro del repo (packages/ui/fonts, licencia OFL): el build no
