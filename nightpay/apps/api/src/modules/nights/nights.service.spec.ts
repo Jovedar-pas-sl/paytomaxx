@@ -285,6 +285,15 @@ describe('cerrar la noche', () => {
     expect(closedData(prisma)).toMatchObject({ pendingAtClose: 1, closeNote: 'BBVA lo confirma mañana' });
   });
 
+  it('«Volver a contar»: el primer recuento va al Z y al registro con el último', async () => {
+    const { svc, prisma, audit } = makeService({ check: check({ cash: CASH }) });
+    await svc.close('t-1', manager, 'night-1', { cashCountedCents: 6000, cashFirstCountedCents: 5500 });
+    expect(closedData(prisma).zReport.caja).toMatchObject({ countedCents: 6000, firstCountedCents: 5500, diffCents: 0 });
+    expect(audit.log).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'night.closed', payload: expect.objectContaining({ cash: expect.objectContaining({ countedCents: 6000, firstCountedCents: 5500 }) }) }),
+    );
+  });
+
   it('con efectivo: sin contar no se cierra; contado y cuadrado, la caja va al Z y a la noche', async () => {
     const { svc, prisma } = makeService({ check: check({ cash: CASH }) });
     const err = await svc.close('t-1', manager, 'night-1').catch((e: unknown) => e);

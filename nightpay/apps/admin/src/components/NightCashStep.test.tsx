@@ -23,7 +23,7 @@ const CASH: NightCash = {
 const NBSP = new RegExp(String.fromCharCode(160), 'g');
 const DISABLED_SHOW = /<button[^>]*disabled[^>]*>(?:(?!<\/button>).)*Ver si cuadra/;
 
-function render(countDone: boolean, countedText = '140'): string {
+function render(countDone: boolean, countedText = '140', firstCountCents: number | null = null): string {
   const noop = () => undefined;
   return renderToStaticMarkup(
     <NightCashStep
@@ -36,6 +36,8 @@ function render(countDone: boolean, countedText = '140'): string {
       onAck={noop}
       countDone={countDone}
       onCountDone={noop}
+      onRecount={noop}
+      firstCountCents={firstCountCents}
       isOwner={false}
       floatCode=""
       onFloatCode={noop}
@@ -77,5 +79,18 @@ describe('paso «Efectivo» a ciegas', () => {
     expect(html).toContain('+80,00 €');
     expect(html).toContain('Faltan 5,00 €');
     expect(html).not.toContain('Ver si cuadra');
+  });
+
+  it('tras «Ver si cuadra», lo contado (y el fondo) quedan fijos; para corregirlo, «Volver a contar»', () => {
+    const counted = (html: string) => html.match(/<input[^>]*value="140"[^>]*>/)?.[0] ?? '';
+    expect(counted(render(false))).not.toContain('disabled');
+    expect(counted(render(true))).toContain('disabled');
+    expect(render(false)).not.toContain('Volver a contar');
+    expect(render(true)).toContain('Volver a contar');
+    expect(render(true)).toContain('El Z guarda el primer recuento y el nuevo.');
+    // Volviendo a contar: a ciegas otra vez, y dice que el primero queda en el Z.
+    const again = render(false, '', 14_000);
+    expect(again).toContain('Vuelves a contar: el primer recuento (140,00 €) queda en el Z con el nuevo.');
+    expect(again).not.toContain('Debería haber');
   });
 });

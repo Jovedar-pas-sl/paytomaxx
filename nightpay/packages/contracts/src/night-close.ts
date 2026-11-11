@@ -148,6 +148,11 @@ export const CloseNightSchema = z.object({
   /** Efectivo contado en la caja (obligatorio si hubo efectivo o fondo). */
   cashCountedCents: CashCentsSchema.optional(),
   /**
+   * Cierre a ciegas: el primer recuento (el de «Ver si cuadra»), si después se
+   * volvió a contar («Volver a contar»). El Z y el registro guardan los dos.
+   */
+  cashFirstCountedCents: CashCentsSchema.optional(),
+  /**
    * Fondo de caja, si no se puso al abrir. Cambiar el que se apuntó al abrir
    * lo aprueba el dueño con su 2FA (`totpCode`); si no, bloquea el cierre.
    */

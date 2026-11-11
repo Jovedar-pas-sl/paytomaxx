@@ -77,6 +77,11 @@ export interface NightCaja {
   expectedCents: number;
   /** null = nadie la contó (cierre automático, o sin efectivo). */
   countedCents: number | null;
+  /**
+   * Si se volvió a contar tras «Ver si cuadra» (cierre a ciegas): el primer
+   * recuento; countedCents es el último. Sin recuento, no viene.
+   */
+  firstCountedCents?: number;
   /** Contado − esperado (negativo = falta). null si no se contó. */
   diffCents: number | null;
   note: string | null;
@@ -127,7 +132,14 @@ export function buildNightZ(
 }
 
 /** El bloque «Caja» del Z con el efectivo de la noche y lo contado (evaluateCash). */
-export function buildNightCaja(cash: NightCash, outcome: CashOutcome, note: string | null | undefined, now: Date): NightCaja {
+export function buildNightCaja(
+  cash: NightCash,
+  outcome: CashOutcome,
+  note: string | null | undefined,
+  now: Date,
+  /** El primer recuento, si se volvió a contar (solo cuenta si hay un recuento final). */
+  firstCountedCents?: number,
+): NightCaja {
   return {
     openingFloatCents: outcome.floatCents,
     recordedFloatCents: cash.openingFloatCents,
@@ -144,6 +156,7 @@ export function buildNightCaja(cash: NightCash, outcome: CashOutcome, note: stri
     cashOutCents: cash.cashOutCents,
     expectedCents: outcome.expectedCents,
     countedCents: outcome.countedCents,
+    ...(firstCountedCents !== undefined && outcome.countedCents !== null ? { firstCountedCents } : {}),
     diffCents: outcome.diffCents,
     note: note?.trim() || null,
     frozenAt: now.toISOString(),

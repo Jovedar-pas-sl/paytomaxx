@@ -16,6 +16,8 @@ import {
   closeCashInput,
   closeSteps,
   floatChangeCode,
+  firstCountOf,
+  firstCountToSend,
   freezeState,
   readyCount,
   stepTab,
@@ -62,7 +64,14 @@ export function NightCloseScreen({ night, isOwner, tabs, onNavigate, onClose, on
   const [loadError, setLoadError] = useState<string | null>(null);
   const [draft, setDraft] = useState<CashDraft>({ floatText: '', countedText: '' });
   // Cierre a ciegas (B9): lo esperado sale solo tras «Ver si cuadra» con lo contado escrito.
+  // Después, lo contado queda fijo; «Volver a contar» guarda el primer recuento (va al Z).
   const [countDone, setCountDone] = useState(false);
+  const [firstCount, setFirstCount] = useState<number | null>(null);
+  const recount = () => {
+    setFirstCount((prev) => firstCountOf(prev, draft));
+    setDraft((prev) => ({ ...prev, countedText: '' }));
+    setCountDone(false);
+  };
   const [cashNote, setCashNote] = useState('');
   // Fondo cambiado al cerrar: el código 2FA del dueño (y hasta cuándo no deja probar otro).
   const [floatCode, setFloatCode] = useState('');
@@ -117,6 +126,7 @@ export function NightCloseScreen({ night, isOwner, tabs, onNavigate, onClose, on
         acknowledged: acks,
         note: note.trim() || undefined,
         cashCountedCents: cash.countedCents ?? undefined,
+        cashFirstCountedCents: firstCountToSend(firstCount, countDone),
         openingFloatCents: cash.openingFloatCents ?? undefined,
         cashNote: cashNote.trim() || undefined,
         totpCode: floatChange.needed ? floatChange.code : undefined,
@@ -179,6 +189,8 @@ export function NightCloseScreen({ night, isOwner, tabs, onNavigate, onClose, on
                   onAck={(on) => ackStep('efectivo', on)}
                   countDone={countDone}
                   onCountDone={() => setCountDone(true)}
+                  onRecount={recount}
+                  firstCountCents={firstCount}
                   disabled={busy}
                   isOwner={isOwner}
                   floatCode={floatCode}

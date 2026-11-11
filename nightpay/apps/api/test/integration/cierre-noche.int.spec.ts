@@ -223,9 +223,11 @@ describe('cierre de la noche con arqueo de caja (Postgres real)', () => {
     );
     expect(needsAck).toMatchObject({ code: 'NIGHT_CLOSE_NEEDS_ACK', missing: ['efectivo'] });
 
+    // Contó 55 €, vio lo esperado y volvió a contar: 60 €. El Z guarda los dos.
     const closed = await asStaff(caja.id, () =>
       nights.close(caja.id, { userId: caja.manager, role: 'MANAGER' }, night0, {
         cashCountedCents: 6000,
+        cashFirstCountedCents: 5500,
         acknowledged: ['efectivo'],
         cashNote: 'faltan 5 € del cambio',
       }),
@@ -237,6 +239,7 @@ describe('cierre de la noche con arqueo de caja (Postgres real)', () => {
       chicaCashPayoutsCents: 9000,
       expectedCents: 6500,
       countedCents: 6000,
+      firstCountedCents: 5500,
       diffCents: -500,
       note: 'faltan 5 € del cambio',
     });

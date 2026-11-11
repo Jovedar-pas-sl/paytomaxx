@@ -93,6 +93,21 @@ export function countReady(draft: CashDraft): boolean {
 }
 
 /**
+ * «Volver a contar» tras «Ver si cuadra»: el primer recuento se guarda (el Z y
+ * el registro llevan los dos); si ya se había vuelto a contar, sigue el primero.
+ */
+export function firstCountOf(previous: number | null, draft: CashDraft): number | null {
+  if (previous !== null) return previous;
+  const counted = parseCashInput(draft.countedText);
+  return typeof counted === 'number' ? counted : null;
+}
+
+/** El primer recuento que va al cerrar: solo si se volvió a contar y el último está dado por contado. */
+export function firstCountToSend(first: number | null, countDone: boolean): number | undefined {
+  return first !== null && countDone ? first : undefined;
+}
+
+/**
  * Los pasos del cierre con el efectivo tecleado. Sin dar por contado, como si
  * no se hubiera contado y sin cifras en el paso «Efectivo».
  */

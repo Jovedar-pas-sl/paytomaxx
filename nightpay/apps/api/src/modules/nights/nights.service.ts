@@ -131,6 +131,8 @@ export interface CloseNightOptions {
   acknowledged?: ReadonlyArray<NightCloseStepKey>;
   note?: string;
   cashCountedCents?: number;
+  /** El primer recuento, si se volvió a contar tras «Ver si cuadra». */
+  cashFirstCountedCents?: number;
   openingFloatCents?: number;
   cashNote?: string;
   /** 2FA del dueño, para cambiar el fondo que se apuntó al abrir. */
@@ -295,7 +297,7 @@ export class NightsService {
     };
     assertCanClose(withCashInput(check.steps, check.cash, input), opts.acknowledged ?? [], opts.note);
 
-    const caja = buildNightCaja(check.cash, evaluateCash(check.cash, input), opts.cashNote, now);
+    const caja = buildNightCaja(check.cash, evaluateCash(check.cash, input), opts.cashNote, now, opts.cashFirstCountedCents);
     const pending = await this.pending(tenantId, window);
     const z = await this.withMoneyMap(tenantId, night.id, window, now, this.zFrom(window, rows, pending.count, now, start.since, caja));
     const closed = await this.markClosed(night.id, tenantId, {
@@ -324,6 +326,7 @@ export class NightsService {
           recordedFloatCents: caja.recordedFloatCents ?? null,
           expectedCents: caja.expectedCents,
           countedCents: caja.countedCents,
+          ...(caja.firstCountedCents !== undefined ? { firstCountedCents: caja.firstCountedCents } : {}),
           diffCents: caja.diffCents,
         },
       },

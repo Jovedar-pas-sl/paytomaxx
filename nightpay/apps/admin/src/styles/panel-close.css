@@ -463,8 +463,9 @@
 
 .np-cash-error { color: var(--np-danger); }
 
-/* Cierre a ciegas (B9): «Ver si cuadra» antes de ver lo esperado. */
-.np-cash-blind {
+/* Cierre a ciegas (B9): «Ver si cuadra» antes de ver lo esperado; después, «Volver a contar». */
+.np-cash-blind,
+.np-cash-recount {
   display: flex;
   flex-direction: column;
   align-items: stretch;

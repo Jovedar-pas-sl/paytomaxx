@@ -15,6 +15,8 @@ import {
   ackedKeys,
   freezeState,
   parseCashInput,
+  firstCountOf,
+  firstCountToSend,
   pendingHeading,
   pendingTodo,
   readyCount,
@@ -271,6 +273,26 @@ describe('cobros sin resolver al cerrar: qué hacer con cada uno (no todos tiene
     expect(panel).toContain('{pendingHeading(current.pending.length)}');
     expect(panel).toContain('{pendingTodo(p)}');
     expect(panel).not.toContain('resuélvelos en Hoy → Cobros');
+  });
+});
+
+describe('«Volver a contar» tras «Ver si cuadra»: el primer recuento va al Z con el nuevo', () => {
+  it('el primero se guarda; si se vuelve a contar otra vez, sigue el primero', () => {
+    expect(firstCountOf(null, { floatText: '', countedText: '140,50' })).toBe(14_050);
+    expect(firstCountOf(14_050, { floatText: '', countedText: '150' })).toBe(14_050);
+    expect(firstCountOf(null, { floatText: '', countedText: '' })).toBeNull();
+  });
+
+  it('al cerrar va solo si se volvió a contar y el nuevo está dado por contado', () => {
+    expect(firstCountToSend(14_050, true)).toBe(14_050);
+    expect(firstCountToSend(14_050, false)).toBeUndefined();
+    expect(firstCountToSend(null, true)).toBeUndefined();
+  });
+
+  it('la pantalla del cierre lo manda con lo contado', () => {
+    const screen = readFileSync(new URL('../components/NightCloseScreen.tsx', import.meta.url), 'utf8');
+    expect(screen).toContain('cashFirstCountedCents: firstCountToSend(firstCount, countDone)');
+    expect(screen).toContain('onRecount={recount}');
   });
 });
 
