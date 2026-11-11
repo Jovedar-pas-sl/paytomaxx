@@ -35,8 +35,8 @@ export const TOURS = {
     screen: 'panel-mapa-dinero',
     steps: [
       { target: 'mapa-fechas', title: 'Fechas', text: 'Por defecto sale esta noche. Cambia las fechas para ver otro periodo y vuelve con «Esta noche».' },
-      { target: 'mapa-ganado', title: '¿Cuánto he ganado?', text: 'Lo tuyo: lo vendido menos lo de las compañeras y las comisiones.' },
-      { target: 'mapa-caja', title: 'La caja', text: 'Lo que debería haber en la caja: fondo más efectivo cobrado, menos salidas. Con «Cerrar la caja» vas a cerrar la noche.' },
+      { target: 'mapa-ganado', title: '¿Cuánto he ganado?', text: 'Lo tuyo: lo vendido menos lo de las compañeras, las comisiones y lo que se haya devuelto de ventas.' },
+      { target: 'mapa-caja', title: 'La caja', text: 'Lo que debería haber en la caja: fondo más efectivo cobrado, menos salidas. Con la noche abierta, «Cerrar la caja» te lleva a cerrarla.' },
       { target: 'mapa-banco', title: 'El banco', text: 'Lo cobrado con tarjeta, menos lo devuelto. El día de abono lo confirma el banco.' },
       { target: 'mapa-debo', title: 'Lo que debes', text: 'Lo que se debe a las compañeras. «Ver por compañera» abre sus pagos.' },
       { target: 'mapa-vendido', title: 'Lo vendido', text: 'Cuánto se ha vendido en cada sección de la carta. Toca una para ver sus cobros.' },

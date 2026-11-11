@@ -45,7 +45,7 @@ export function moneyMapDetails(m: MoneyMap): MoneyDetails {
     },
     split: {
       title: 'Detalle del reparto',
-      note: 'Reparto de las ventas del periodo. La parte del local no es el saldo de caja ni el beneficio neto. La comisión bancaria solo se incluye cuando está configurada.',
+      note: 'Reparto de las ventas del periodo, antes de devoluciones: «¿Cuánto he ganado?» es «Para el local» menos lo devuelto de ventas. La parte del local no es el saldo de caja. La comisión bancaria solo se incluye cuando está configurada.',
       rows: [
         { label: 'Para el local', cents: s.venueCents },
         { label: 'Para las compañeras', cents: s.chicasCents },
@@ -77,6 +77,8 @@ export function moneyMapDetails(m: MoneyMap): MoneyDetails {
         { label: `Deuda total a camareros ${when}`, cents: w.owed?.camarerosCents ?? null },
         // De la deuda, la de ventas por datáfono sin cuadrar con el banco: no se paga hasta cuadrarlas (H-1).
         ...(w.owed?.bankHeldCents ? [{ label: `De ella, pendiente de cuadrar con el banco ${when}`, cents: w.owed.bankHeldCents }] : []),
+        // Lo que deben las compañeras por devoluciones tras pagarles: aparte, no resta de la deuda con las demás.
+        ...(w.owed?.debtCents ? [{ label: `Te deben las compañeras por devoluciones ${when} (se descuenta de su próximo pago)`, cents: w.owed.debtCents }] : []),
         { label: 'Saldo nuevo de clientes (estas fechas)', cents: w.owners.saldoCents },
         { label: `Saldo real de clientes ${when}`, cents: w.liveSaldoCents },
       ],
@@ -87,6 +89,8 @@ export function moneyMapDetails(m: MoneyMap): MoneyDetails {
       rows: [
         ...o.payouts.map((p) => ({ label: `${p.who === 'chicas' ? 'Pagado a compañeras' : 'Pagado a camareros'} · ${railNote(p.rail)}`, cents: p.cents, count: p.count })),
         { label: 'Devuelto a tarjeta', cents: o.refunds.cardCents, count: o.refunds.cardCount },
+        // De eso, lo que era venta (sin recargas ni comisión del servicio): lo que resta «¿Cuánto he ganado?».
+        ...(o.refunds.salesCents ? [{ label: '…de ello, de ventas (se resta de lo ganado)', cents: o.refunds.salesCents }] : []),
         { label: 'Devuelto en efectivo', cents: o.refunds.cashCents, count: o.refunds.cashCount },
         { label: 'Comisiones calculadas', cents: o.commissionsCents },
       ],

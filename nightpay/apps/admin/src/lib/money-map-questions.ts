@@ -1,16 +1,21 @@
 // El mapa del dinero en cuatro preguntas (Grafito 3, opción B). Cada cifra sale
-// de un campo que el API ya calcula (MoneyMap, contratos); aquí solo se elige
-// el campo y se escribe lo que es de verdad. Ninguna cuenta nueva:
+// de campos que el API ya calcula (MoneyMap, contratos); aquí solo se eligen y
+// se escribe lo que es de verdad. Ninguna cuenta nueva salvo una resta:
 //
-//   ¿Cuánto he ganado?                   split.venueCents
-//   ¿Cuánto tiene que haber en la caja?  where.cashBoxCents
+//   ¿Cuánto he ganado?                   split.venueCents − outflow.refunds.salesCents
+//                                        (venueEarnedCents: lo del local menos lo devuelto de ventas)
+//   ¿Cuánto tiene que haber en la caja?  where.cashBoxCents, solo en una noche; en unas fechas
+//                                        o sin noche abierta, el efectivo del periodo (entradas − salidas)
 //   ¿Cuánto llega al banco?              where.bbvaCents (devoluciones: outflow.refunds.cardCents)
-//   ¿Cuánto debo a las compañeras?       where.owed.chicasCents, o si no se sabe
-//                                        outflow.pendingStaff.chicasCents
+//   ¿Cuánto debo a las compañeras?       where.owed.chicasCents (por persona, sin compensar;
+//                                        la deuda por devoluciones, owed.debtCents, aparte),
+//                                        o si no se sabe outflow.pendingStaff.chicasCents
 //   Saldo de clientes sin gastar         where.liveSaldoCents
 //   Lo vendido                           salesCents y sections (moneyMapView)
+//
+// Una cifra negativa se explica en su texto (y se pinta de aviso, no en verde).
 
-import type { MoneyMap, VenueSection } from '@nightpay/contracts';
+import { venueEarnedCents, type MoneyMap, type VenueSection } from '@nightpay/contracts';
 import { eurShort, moneyMapIsCurrent, moneyMapView, type SectionRow } from './money-map-view';
 
 export type QuestionKey = 'ganado' | 'caja' | 'banco' | 'debo';
@@ -32,63 +37,110 @@ export interface MoneyMapQuestions {
   sold: { label: string; cents: number; parts: SectionRow[] };
 }
 
-/** «Fondo de caja 200 € + efectivo cobrado 1.070 € − salidas 70 €». */
-function cashCaption(m: MoneyMap): string {
+type Card = Omit<QuestionCard, 'key'>;
+
+/** La noche abierta, en directo: la única desde la que se puede «Cerrar la caja». */
+function isOpenNight(m: MoneyMap): boolean {
+  return m.scope.kind === 'night' && m.scope.open && !m.frozen;
+}
+
+/** Lo del local menos lo devuelto de ventas (venueEarnedCents). Una noche cerrada antes de llevar esa cuenta no lo trae: se dice. */
+function earnedCard(m: MoneyMap): Card {
+  const refunds = m.outflow.refunds;
+  const refunded = refunds.salesCents ?? 0;
+  const cents = venueEarnedCents(m);
+  const who = m.split.camarerosCents > 0 ? 'las compañeras, los camareros' : 'las compañeras';
+  const minus = refunded > 0 ? `, y menos ${eurShort(refunded)} devueltos de ventas` : '';
+  const bank = m.split.commissions.bankCents === null ? ' Sin la comisión del banco: sale en su extracto.' : '';
+  // Un mapa guardado antes de separar lo devuelto de ventas: la cifra va sin restar, y se avisa.
+  const unknown =
+    refunds.salesCents === undefined && refunds.cardCents > 0
+      ? ` No descuenta los ${eurShort(refunds.cardCents)} devueltos a tarjeta: en esta noche, ya cerrada, no se sabe cuánto era de ventas.`
+      : '';
+  const negative = cents < 0 ? ' Sale negativo: en estas fechas se devolvió más de lo que se ganó.' : '';
+  return {
+    question: '¿Cuánto he ganado?',
+    cents,
+    caption: `Lo tuyo: lo vendido menos lo de ${who} y las comisiones${minus}.${bank}${unknown}${negative}`,
+    action: null,
+  };
+}
+
+/** «Fondo de caja 200 € + efectivo cobrado 1.070 € − salidas 70 €»; sin una noche con su fondo, solo el efectivo del periodo. */
+function cashCard(m: MoneyMap): Card {
   const box = m.where.cashBox;
+  const cents = m.where.cashBoxCents;
+  // En unas fechas, o de día sin noche abierta (desde el último cierre), el API no cuenta
+  // ningún fondo (va por noche): no es «lo que tiene que haber en la caja».
+  const noNight = m.scope.kind === 'night' && m.scope.nightId === null;
+  if (m.scope.kind === 'period' || noNight) {
+    return {
+      question: noNight ? 'Efectivo desde el último cierre' : 'Efectivo de estas fechas',
+      cents,
+      caption: `Efectivo cobrado ${eurShort(box.inCents)} − salidas ${eurShort(box.outCents)}. El fondo y el arqueo van por noche: míralos en Noches.`,
+      action: null,
+    };
+  }
   const float = box.openingFloatCents;
   const parts = [
     float === null ? 'Sin fondo de caja apuntado' : `Fondo de caja ${eurShort(float)}`,
     `+ efectivo cobrado ${eurShort(box.inCents)}`,
     `− salidas ${eurShort(box.outCents)}`,
   ];
-  return `${parts.join(' ')}. No sustituye al arqueo.`;
-}
-
-function bankCaption(m: MoneyMap): string {
-  const refunded = m.outflow.refunds.cardCents;
-  const base = 'Lo cobrado con tarjeta (ventas y recargas)';
-  const net = refunded > 0 ? `${base}, menos ${eurShort(refunded)} devueltos.` : `${base}.`;
-  return `${net} El día de abono lo confirma el banco.`;
-}
-
-function ownedCard(m: MoneyMap): Pick<QuestionCard, 'cents' | 'caption'> {
-  const when = moneyMapIsCurrent(m) ? 'ahora' : 'al corte';
-  const owed = m.where.owed;
-  const waiters = (owed ? owed.camarerosCents : m.outflow.pendingStaff.camarerosCents) > 0;
-  const waitersCents = owed ? owed.camarerosCents : m.outflow.pendingStaff.camarerosCents;
-  const extra = waiters ? ` Aparte, a camareros: ${eurShort(waitersCents)}.` : '';
-  if (owed) {
-    return { cents: owed.chicasCents, caption: `Lo que se les debe ${when}, de esta noche y de antes.${extra}` };
-  }
+  const negative = cents < 0 ? (float === null ? ' Sale negativo: ¿falta apuntar el fondo de caja?' : ' Sale negativo: revisa las salidas de caja.') : '';
   return {
-    cents: m.outflow.pendingStaff.chicasCents,
-    caption: `Lo que han ganado en estas fechas y aún no se les ha pagado (la deuda total ${when} no se conoce).${extra}`,
+    question: '¿Cuánto tiene que haber en la caja?',
+    cents,
+    caption: `${parts.join(' ')}. No sustituye al arqueo.${negative}`,
+    action: isOpenNight(m) ? 'close-cash' : null,
   };
 }
 
-function ganadoCaption(m: MoneyMap): string {
-  const who = m.split.camarerosCents > 0 ? 'las compañeras, los camareros' : 'las compañeras';
-  const bank = m.split.commissions.bankCents === null ? ' Sin la comisión del banco: sale en su extracto.' : '';
-  return `Lo tuyo: lo vendido menos lo de ${who} y las comisiones.${bank}`;
+function bankCard(m: MoneyMap): Card {
+  const refunded = m.outflow.refunds.cardCents;
+  const base = 'Lo cobrado con tarjeta (ventas y recargas)';
+  const net = refunded > 0 ? `${base}, menos ${eurShort(refunded)} devueltos.` : `${base}.`;
+  const cents = m.where.bbvaCents;
+  const negative = cents < 0 ? ' Sale negativo: se devolvió más de lo que se cobró con tarjeta, y el banco lo descontará.' : '';
+  return { question: '¿Cuánto llega al banco?', cents, caption: `${net} El día de abono lo confirma el banco.${negative}`, action: null };
+}
+
+function owedCard(m: MoneyMap): Card {
+  const question = '¿Cuánto debo a las compañeras?';
+  const when = moneyMapIsCurrent(m) ? 'ahora' : 'al corte';
+  const owed = m.where.owed;
+  const waitersCents = owed ? owed.camarerosCents : m.outflow.pendingStaff.camarerosCents;
+  const extra = waitersCents > 0 ? ` Aparte, a camareros: ${eurShort(waitersCents)}.` : '';
+  if (owed) {
+    const debt = owed.debtCents ?? 0;
+    const owing = debt > 0 ? ` Y te deben ${eurShort(debt)} por devoluciones: se descuenta de su próximo pago.` : '';
+    return {
+      question,
+      cents: owed.chicasCents,
+      caption: `Lo que se les debe ${when}, de esta noche y de antes, sumando lo de cada una.${extra}${owing}`,
+      action: 'by-person',
+    };
+  }
+  const cents = m.outflow.pendingStaff.chicasCents;
+  const negative = cents < 0 ? ' Sale negativo: las devoluciones de estas fechas pesan más que lo ganado.' : '';
+  return {
+    question,
+    cents,
+    caption: `Lo que han ganado en estas fechas y aún no se les ha pagado (la deuda total ${when} no se conoce).${extra}${negative}`,
+    action: 'by-person',
+  };
 }
 
 export function moneyMapQuestions(m: MoneyMap, sections: readonly VenueSection[]): MoneyMapQuestions {
   const v = moneyMapView(m, sections);
   const current = moneyMapIsCurrent(m);
-  const owned = ownedCard(m);
   const live = m.where.liveSaldoCents;
   return {
     cards: [
-      { key: 'ganado', question: '¿Cuánto he ganado?', cents: m.split.venueCents, caption: ganadoCaption(m), action: null },
-      {
-        key: 'caja',
-        question: '¿Cuánto tiene que haber en la caja?',
-        cents: m.where.cashBoxCents,
-        caption: cashCaption(m),
-        action: current ? 'close-cash' : null,
-      },
-      { key: 'banco', question: '¿Cuánto llega al banco?', cents: m.where.bbvaCents, caption: bankCaption(m), action: null },
-      { key: 'debo', question: '¿Cuánto debo a las compañeras?', cents: owned.cents, caption: owned.caption, action: 'by-person' },
+      { key: 'ganado', ...earnedCard(m) },
+      { key: 'caja', ...cashCard(m) },
+      { key: 'banco', ...bankCard(m) },
+      { key: 'debo', ...owedCard(m) },
     ],
     savedBalance: {
       cents: live,

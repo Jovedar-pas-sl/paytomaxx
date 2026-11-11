@@ -116,7 +116,11 @@ export interface MoneyMapWhere {
   };
   /** Saldo vivo de los clientes del local ahora (o al cerrar); null si no se sabe (periodo pasado). */
   liveSaldoCents: number | null;
-  /** Lo que se debe al personal ahora (o al cerrar), de esta noche y de antes; null si no se sabe. */
+  /**
+   * Lo que se debe al personal ahora (o al cerrar), de esta noche y de antes,
+   * sumando lo de cada persona sin compensar (la deuda de una no resta a las
+   * demás, como en Pagos a compañeras); null si no se sabe.
+   */
   owed: {
     chicasCents: number;
     camarerosCents: number;
@@ -125,6 +129,11 @@ export interface MoneyMapWhere {
      * no se paga hasta cuadrarlas o liberarlas. Mapas de antes: sin el campo.
      */
     bankHeldCents?: number;
+    /**
+     * Lo que deben las compañeras por devoluciones llegadas después de pagarles
+     * (se descuenta de su próximo pago): va aparte, no resta. Mapas de antes: sin el campo.
+     */
+    debtCents?: number;
   } | null;
 }
 
@@ -142,7 +151,17 @@ export interface MoneyMapOutflow {
   payouts: MoneyMapPayoutGroup[];
   /** Lo del personal de este periodo aún sin pagar: sale al pagarles. */
   pendingStaff: { chicasCents: number; camarerosCents: number };
-  refunds: { cardCents: number; cardCount: number; cashCents: number; cashCount: number };
+  refunds: {
+    cardCents: number;
+    cardCount: number;
+    cashCents: number;
+    cashCount: number;
+    /**
+     * De lo devuelto a tarjeta, lo que era venta (no recargas) y sin la comisión
+     * del servicio devuelta: lo que el local deja de ganar. Mapas de antes: sin el campo.
+     */
+    salesCents?: number;
+  };
   commissionsCents: number;
   /** La «Comisión del servicio» que se debe a OxioPay: sale al liquidársela. Mapas de antes: sin el campo. */
   serviceFeeCents?: number;
@@ -184,6 +203,16 @@ export interface MoneyMap {
   outflow: MoneyMapOutflow;
   /** «Comisión del servicio» (se debe a OxioPay). Los mapas congelados antes del 2026-10-26 no la traen. */
   serviceFee?: MoneyMapServiceFee;
+}
+
+/**
+ * Lo que ha ganado el local («¿Cuánto he ganado?»): su parte de lo vendido
+ * menos lo devuelto de ventas. split.venueCents solo no vale: un cobro
+ * devuelto sigue contando como venta y, al quitarle su parte al personal, la
+ * del local sube. Los mapas de antes no traen lo devuelto de ventas: sin restar.
+ */
+export function venueEarnedCents(m: Pick<MoneyMap, 'split' | 'outflow'>): number {
+  return m.split.venueCents - (m.outflow.refunds.salesCents ?? 0);
 }
 
 /** % de lo vendido que se queda el local (para el anillo), de 0 a 100. */

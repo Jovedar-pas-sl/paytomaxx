@@ -68,8 +68,12 @@ export interface MoneyMapInput {
   /** Recargas (el saldo) y su «Comisión del servicio» (con tarjeta y en efectivo). */
   topUps: { cardCents: number; cardCount: number; cashCents: number; cashCount: number; cardFeeCents?: number; cashFeeCents?: number };
   staff: { chicas: StaffShare; camareros: StaffShare };
-  /** Devoluciones hechas en el banco en el periodo (de cobros y de recargas), con la comisión del servicio devuelta. */
-  cardRefunds: { cents: number; count: number; serviceFeeCents?: number };
+  /**
+   * Devoluciones hechas en el banco en el periodo (de cobros y de recargas), con
+   * la comisión del servicio devuelta y, aparte, lo que era venta sin esa
+   * comisión (salesNetCents): lo que el local deja de ganar.
+   */
+  cardRefunds: { cents: number; count: number; serviceFeeCents?: number; salesNetCents?: number };
   /** Saldo devuelto al cliente en el periodo (hechas). */
   walletPayouts: { cashCents: number; cashCount: number; cardCents: number };
   payouts: readonly MoneyMapPayoutGroup[];
@@ -77,7 +81,8 @@ export interface MoneyMapInput {
   /** Tasa del banco (BANK_CARD_FEE_BPS); null = no se sabe. */
   bankFeeBps: number | null;
   liveSaldoCents: number | null;
-  owed: { chicasCents: number; camarerosCents: number } | null;
+  /** Por persona, sin compensar; la deuda por devoluciones tras pagar (debtCents) va aparte. */
+  owed: { chicasCents: number; camarerosCents: number; debtCents?: number } | null;
 }
 
 const BPS = 10_000;
@@ -259,6 +264,7 @@ export function buildMoneyMap(i: MoneyMapInput): MoneyMap {
         cardCount: i.cardRefunds.count,
         cashCents: i.walletPayouts.cashCents,
         cashCount: i.walletPayouts.cashCount,
+        ...(i.cardRefunds.salesNetCents !== undefined ? { salesCents: i.cardRefunds.salesNetCents } : {}),
       },
       commissionsCents,
       ...withServiceFee({ serviceFeeCents: oxioPayCents }),

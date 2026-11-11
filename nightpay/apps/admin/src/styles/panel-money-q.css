@@ -84,6 +84,11 @@
   color: var(--np-mmq-c);
 }
 
+/* Una cifra negativa (más devuelto que cobrado, fondo sin apuntar…): de aviso, nunca en verde. El texto la explica. */
+.np-mmq-card .np-mmq-num[data-neg='true'] {
+  color: var(--np-danger);
+}
+
 .np-mmq-cap {
   margin: 0;
   font-size: var(--gf-t-small, 0.875rem);

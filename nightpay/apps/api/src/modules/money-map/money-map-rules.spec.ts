@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { MONEY_MAP_TIPS, venueSharePercent } from '@nightpay/contracts';
+import { MONEY_MAP_TIPS, venueEarnedCents, venueSharePercent } from '@nightpay/contracts';
 import {
   buildMoneyMap,
   frozenMoneyMapOf,
@@ -118,6 +118,46 @@ describe('mapa del dinero: los carriles cuadran', () => {
     expect(o.venueCents + o.staffCents + o.saldoCents + (o.paidOutCents ?? 0) + (o.commissionsCents ?? 0)).toBe(m.where.totalCents);
     expect(m.where.liveSaldoCents).toBe(16_000);
     expect(m.where.owed).toEqual({ chicasCents: 30_000, camarerosCents: 500 });
+  });
+
+  it('de lo devuelto, lo que era venta y sin la comisión del servicio va aparte («ganado» lo resta en el panel); los mapas de antes no lo traen', () => {
+    expect(buildMoneyMap(input()).outflow.refunds.salesCents).toBeUndefined();
+    const m = buildMoneyMap(input({ cardRefunds: { cents: 1_000, count: 1, serviceFeeCents: 100, salesNetCents: 900 } }));
+    expect(m.outflow.refunds).toMatchObject({ cardCents: 1_000, cardCount: 1, salesCents: 900 });
+    // Lo repartido no cambia: la resta la hace la tarjeta «¿Cuánto he ganado?».
+    expect(m.split.venueCents).toBe(31_000 - 22_100 - 500 - 3_050);
+  });
+
+  it('«¿Cuánto he ganado?» (venueEarnedCents): un cobro devuelto no se queda como ganancia', () => {
+    // 100 € con tarjeta: 50 % de la compañera y 10 % de OxioPay. Sin devolver, el local gana 40 €.
+    const one = (o: Partial<MoneyMapInput>) =>
+      buildMoneyMap(
+        input({
+          sales: [sale({ amountCents: 10_000, category: 'CHICA_SERVICE', platformBps: 1000 })],
+          staff: { chicas: { grossCents: 5_000, unpaidCents: 5_000 }, camareros: { grossCents: 0, unpaidCents: 0 } },
+          cardRefunds: { cents: 0, count: 0, salesNetCents: 0 },
+          ...o,
+        }),
+      );
+    expect(venueEarnedCents(one({}))).toBe(4_000);
+    // Devuelto entero esa misma noche: el cobro sigue contando como venta y a ella se le quita su parte.
+    // El reparto daría 90 € para el local; lo ganado de verdad es −10 € (el % de OxioPay se mantiene).
+    const sameNight = one({ staff: { chicas: { grossCents: 0, unpaidCents: 0 }, camareros: { grossCents: 0, unpaidCents: 0 } }, cardRefunds: { cents: 10_000, count: 1, salesNetCents: 10_000 } });
+    expect(sameNight.split.venueCents).toBe(9_000);
+    expect(venueEarnedCents(sameNight)).toBe(-1_000);
+    // Hoy sin ventas, y se devuelve un cobro de otra noche: el reparto daría +50 €; lo ganado, −50 €.
+    const otherNight = one({ sales: [], staff: { chicas: { grossCents: -5_000, unpaidCents: -5_000 }, camareros: { grossCents: 0, unpaidCents: 0 } }, cardRefunds: { cents: 10_000, count: 1, salesNetCents: 10_000 } });
+    expect(otherNight.split.venueCents).toBe(5_000);
+    expect(venueEarnedCents(otherNight)).toBe(-5_000);
+    // Una recarga devuelta no es venta: no resta de lo ganado.
+    expect(venueEarnedCents(one({ cardRefunds: { cents: 5_000, count: 1, salesNetCents: 0 } }))).toBe(4_000);
+    // Un mapa de antes (sin la cifra): sin restar.
+    expect(venueEarnedCents(buildMoneyMap(input()))).toBe(buildMoneyMap(input()).split.venueCents);
+  });
+
+  it('la deuda de las compañeras por devoluciones tras pagarles va aparte de lo debido', () => {
+    const m = buildMoneyMap(input({ owed: { chicasCents: 30_000, camarerosCents: 500, debtCents: 8_000 } }));
+    expect(m.where.owed).toEqual({ chicasCents: 30_000, camarerosCents: 500, debtCents: 8_000 });
   });
 
   it('«Tuyo» no cuenta lo ya pagado por banco ni las comisiones: el dinero que no es del local no se puede gastar', () => {
