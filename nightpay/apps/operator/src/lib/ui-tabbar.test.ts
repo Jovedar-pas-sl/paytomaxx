@@ -8,7 +8,7 @@ const SRC = readFileSync(new URL('../components/TabBar.tsx', import.meta.url), '
 
 describe('la barra de abajo del personal', () => {
   it('la elegida, en crema (--np-chosen); las demás, en --np-text-mute', () => {
-    expect(SRC).toMatch(/const TAB_ACTIVE_COLOR = 'var\(--np-accent\)';/);
+    expect(SRC).toMatch(/const TAB_ACTIVE_COLOR = 'var\(--np-chosen\)';/);
     expect(SRC).toMatch(/const TAB_IDLE_COLOR = 'var\(--np-text-mute\)';/);
     expect(SRC).toMatch(/color: active \? TAB_ACTIVE_COLOR : TAB_IDLE_COLOR/);
   });
