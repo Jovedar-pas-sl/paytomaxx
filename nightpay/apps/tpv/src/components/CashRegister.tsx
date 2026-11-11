@@ -18,6 +18,7 @@ import {
   useNow,
   useOnline,
   type PaymentStatus,
+  haptic,
 } from '@nightpay/ui';
 import { MAX_TYPED_AMOUNT_CENTS } from '@nightpay/contracts';
 import { createPayment, fetchTerminals, logout as apiLogout, type CreatedPayment } from '@/lib/api';
@@ -76,7 +77,7 @@ export function CashRegister({ venueSlug, onLogout }: Props) {
   async function handleSubmit(e?: FormEvent) {
     e?.preventDefault();
     if (inFlight.current) return;
-    if ('vibrate' in navigator) navigator.vibrate(15);
+    haptic();
     // Gesto de la cajera: deja listo el audio para el pitido de "pagado".
     unlockBeep();
     setError(null);

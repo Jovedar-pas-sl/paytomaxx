@@ -358,7 +358,7 @@
   touch-action: manipulation;
   -webkit-tap-highlight-color: transparent;
   transition:
-    transform var(--np-d-fast) var(--np-ease),
+    transform var(--np-press-ms) ease-out,
     background var(--np-d-fast);
 }
 
@@ -397,7 +397,7 @@
 }
 
 .np-outcome-btn:active:not(:disabled) {
-  transform: scale(0.98);
+  transform: scale(var(--np-press-scale));
 }
 
 /* Esperando al servidor («Un momento…»): el mismo botón, sin opacidad. El
@@ -535,7 +535,7 @@
   -webkit-tap-highlight-color: transparent;
   user-select: none;
   transition:
-    transform var(--np-d-fast) var(--np-ease),
+    transform var(--np-press-ms) ease-out,
     background var(--np-d-fast),
     border-color var(--np-d-fast);
 }
@@ -551,7 +551,7 @@
 }
 
 .np-keypad-key:active:not(:disabled) {
-  transform: scale(0.95);
+  transform: scale(var(--np-press-scale));
   background: var(--np-surface-3);
   border-color: var(--np-border-hi);
 }
@@ -655,14 +655,14 @@
   touch-action: manipulation;
   -webkit-tap-highlight-color: transparent;
   transition:
-    transform var(--np-d-fast) var(--np-ease),
+    transform var(--np-press-ms) ease-out,
     background var(--np-d-fast),
     color var(--np-d-fast);
 }
 
 .np-seg-btn[aria-pressed='true'] {
-  background: var(--np-text);
-  color: var(--np-bg);
+  background: var(--np-chosen);
+  color: var(--np-on-chosen);
   font-weight: 600;
 }
 
@@ -672,7 +672,7 @@
 }
 
 .np-seg-btn:active {
-  transform: scale(0.96);
+  transform: scale(var(--np-press-scale));
 }
 
 .np-seg-btn:focus-visible {

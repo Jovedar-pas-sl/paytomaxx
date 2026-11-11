@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useId, useRef, useState, type CSSProperties } from 'react';
-import { Button, Card, Input } from '@nightpay/ui';
+import { Button, Card, haptic, Input } from '@nightpay/ui';
 import {
   confirmPosPayment,
   fetchPendingPos,
@@ -283,7 +283,7 @@ function ConfirmForm({
     setSubmitting(true);
     setError(null);
     try {
-      if ('vibrate' in navigator) navigator.vibrate(10);
+      haptic();
       // Lo cobrado (el total de la lista, con la comisión del servicio): sin ello, el API no confirma.
       await confirmPosPayment(payment.id, posConfirmBody(payment, ref, photo));
       onConfirmed();
@@ -501,9 +501,9 @@ const zoneTabStyle: CSSProperties = {
 };
 
 const zoneTabActiveStyle: CSSProperties = {
-  background: 'var(--np-surface)',
-  color: 'var(--np-accent)',
-  boxShadow: 'var(--np-shadow-sm)',
+  background: 'var(--np-chosen)',
+  color: 'var(--np-on-chosen)',
+  fontWeight: 600,
 };
 
 const zoneBadgeStyle: CSSProperties = {
@@ -593,7 +593,7 @@ const refStyle: CSSProperties = {
   fontWeight: 700,
   fontFamily: 'var(--np-font-mono, monospace)',
   letterSpacing: '0.1em',
-  color: 'var(--np-accent)',
+  color: 'var(--np-text)',
 };
 
 const metaStyle: CSSProperties = {

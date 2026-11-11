@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, type CSSProperties, type ReactNode } from 'react';
-import { Card } from '@nightpay/ui';
+import { Card, haptic } from '@nightpay/ui';
 import { WALLET_PIN_PROBLEM_TEXT, walletPinProblem } from '@nightpay/contracts';
 import { PIN_CHOOSE, PIN_CHOOSE_HINT, PIN_ENTER, PIN_REPEAT, keypadDigits } from '@/lib/pin-pad';
 import { useVenueNight } from '@/lib/venue-methods';
@@ -73,7 +73,7 @@ export function PinPad({ title, hint, mode, onPin, onCancel, cancelLabel = 'Canc
 
   function press(digit: string): void {
     if (busy || pin.length >= PIN_LENGTH) return;
-    if ('vibrate' in navigator) navigator.vibrate(8);
+    haptic();
     const next = pin + digit;
     setPin(next);
     setError(null);

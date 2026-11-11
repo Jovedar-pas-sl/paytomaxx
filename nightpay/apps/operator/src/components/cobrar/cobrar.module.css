@@ -109,11 +109,12 @@
   display: inline-flex;
   align-items: center;
   gap: 0.375rem;
-  min-height: 1.75rem;
-  padding: 0 0.625rem;
-  border-radius: var(--np-r-xs);
-  background: var(--np-surface-2);
-  color: var(--np-text);
+  min-height: 2.25rem;
+  padding: 0 0.75rem;
+  border-radius: var(--np-r-sm);
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--np-border);
+  color: var(--np-text-mute);
   font-size: var(--np-fs-14);
   font-weight: 500;
   line-height: 1.1;
@@ -197,16 +198,17 @@
   cursor: pointer;
   touch-action: manipulation;
   -webkit-tap-highlight-color: transparent;
-  transition: transform var(--np-d-fast) var(--np-ease);
+  transition: transform var(--np-press-ms) ease-out;
 }
 
 .tile:active {
-  transform: scale(0.98);
+  transform: scale(var(--np-press-scale));
 }
 
-/* Loseta de la carta con su logo o foto (maqueta B): el cuadrado de 52 px a la
-   izquierda y, a la derecha, el nombre y el precio. Sigue el color de su
-   sección, el toque y los 92 px de alto como mínimo (76 px en móviles bajos). */
+/* Loseta de la carta con su logo o foto (Grafito 3): el cuadrado de 44 px a la
+   izquierda y, a la derecha, el nombre (14/500) y el precio (16). Sigue el
+   color de su sección y el toque; 76 px de alto como mínimo en todas las
+   alturas de pantalla (antes 92 y 52 px, y 76 y 44 en móviles bajos). */
 .tileItem {
   flex-direction: row;
   align-items: center;
@@ -215,16 +217,16 @@
   padding: 0.625rem;
 }
 
-/* Doble clase: también en las grandes de la chica (92 px; en móviles bajos, 76 px: ver el final). */
+/* Doble clase: también en las grandes de la chica. */
 .tile.tileItem {
-  min-height: 5.75rem;
+  min-height: 4.75rem;
 }
 
-/* Cuadrado de 52 px: crema con la imagen (contain) o el icono en tinta. */
+/* Cuadrado de 44 px: crema con la imagen (contain) o el icono en tinta. */
 .thumb {
-  flex: 0 0 3.25rem;
-  width: 3.25rem;
-  height: 3.25rem;
+  flex: 0 0 2.75rem;
+  width: 2.75rem;
+  height: 2.75rem;
   border-radius: 0.75rem;
   background: var(--np-cream, #efe9df);
   color: var(--np-ink, #1f2c36);
@@ -257,13 +259,6 @@
   min-height: 5.5rem;
 }
 
-.tileBig .tileName {
-  font-size: var(--np-fs-18);
-}
-
-.tileBig .price {
-  font-size: var(--np-fs-22);
-}
 
 /* Loseta elegida: anillo de tinta de 3 px por dentro y el contador (sin lima:
    el lima es para «Cobrar»). La tinta se ve sobre cualquier sección. */
@@ -279,6 +274,7 @@
 /* En las de la carta, el nombre deja sitio al contador (o al QR) de arriba a la derecha. */
 .tiles > .tile:not(.tileItem) .tileName {
   padding-right: 1.5rem;
+  font: 600 var(--np-fs-16)/1.2 var(--np-font-sans);
 }
 
 .price {
@@ -443,7 +439,7 @@ html[data-contrast='sala'] .lastRow[data-n='4']:not([data-big]) {
 }
 
 .undoBtn:active {
-  transform: scale(0.98);
+  transform: scale(var(--np-press-scale));
 }
 
 .sum .grow {
@@ -486,12 +482,12 @@ html[data-contrast='sala'] .lastRow[data-n='4']:not([data-big]) {
   cursor: pointer;
   touch-action: manipulation;
   transition:
-    transform var(--np-d-fast) var(--np-ease),
+    transform var(--np-press-ms) ease-out,
     background var(--np-d-fast);
 }
 
 .btn:active:not(:disabled) {
-  transform: scale(0.98);
+  transform: scale(var(--np-press-scale));
 }
 
 .btn svg {
@@ -664,11 +660,11 @@ html[data-contrast='sala'] .lastRow[data-n='4']:not([data-big]) {
   touch-action: manipulation;
   -webkit-tap-highlight-color: transparent;
   user-select: none;
-  transition: transform var(--np-d-fast) var(--np-ease);
+  transition: transform var(--np-press-ms) ease-out;
 }
 
 .key:active:not(:disabled) {
-  transform: scale(0.96);
+  transform: scale(var(--np-press-scale));
   background: var(--np-surface-3);
 }
 
@@ -764,7 +760,7 @@ html[data-contrast='sala'] .lastRow[data-n='4']:not([data-big]) {
 }
 
 .stepBtn:active {
-  transform: scale(0.96);
+  transform: scale(var(--np-press-scale));
 }
 
 .stepBtn svg {
@@ -1050,8 +1046,8 @@ html[data-contrast='sala'] .lastRow[data-n='4']:not([data-big]) {
 
 /* Encendida: como lo elegido, en crema (la lima es para cobrar). */
 .torch[aria-pressed='true'] {
-  background: var(--np-text);
-  color: var(--np-bg);
+  background: var(--np-chosen);
+  color: var(--np-on-chosen);
   box-shadow: none;
 }
 
@@ -1646,21 +1642,9 @@ html[data-contrast='sala'] .lastRow[data-n='4']:not([data-big]) {
     padding: 0.5rem 0.75rem;
   }
 
-  /* Con logo o foto: 76 px de alto como mínimo y el cuadrado a 44 px (en las demás, 92 y 52). */
+  /* Con logo o foto: la misma loseta (76 px y cuadrado de 44) que en cualquier altura. */
   .tile.tileItem {
-    min-height: 4.75rem;
     padding: 0.5rem 0.625rem;
-  }
-
-  .tileItem .thumb {
-    flex-basis: 2.75rem;
-    width: 2.75rem;
-    height: 2.75rem;
-  }
-
-  .tileItem .thumb svg {
-    width: 2.25rem;
-    height: 2.25rem;
   }
 }
 

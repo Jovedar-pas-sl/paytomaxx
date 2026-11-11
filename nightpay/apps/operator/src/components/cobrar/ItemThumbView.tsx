@@ -33,7 +33,7 @@ export function ItemThumbView({ item, src, failedSrc = null, onError }: ViewProp
           onError={onError}
         />
       ) : (
-        <CartaItemIcon item={item} size={36} />
+        <CartaItemIcon item={item} size={26} />
       )}
     </span>
   );

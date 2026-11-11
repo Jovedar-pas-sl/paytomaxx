@@ -64,6 +64,7 @@ export type { KeypadKey } from './lib/amount-keypad';
 export { BANK_SLOW_AFTER_MS, classifyConnection, SERVER_DOWN_GRACE_MS } from './lib/connection';
 export type { ConnectionDevice, ConnectionIssue, ConnectionIssueKind, ConnectionSignals } from './lib/connection';
 export { createWakeLock, wakeLockFrom } from './lib/wake-lock';
+export { haptic, HAPTIC_BAD, HAPTIC_TAP_MS } from './lib/haptic';
 export { advanceStatus, isFinalStatus, isPolledPayment } from './lib/payment-status';
 export { createPoller } from './lib/poller';
 export type { PollOutcome, Poller, PollerOptions } from './lib/poller';

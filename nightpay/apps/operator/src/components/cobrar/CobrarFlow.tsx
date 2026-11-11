@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Button, Modal } from '@nightpay/ui';
+import { Button, haptic, Modal } from '@nightpay/ui';
 import type { InvitationRules } from '@nightpay/contracts';
 import { fetchTerminals, newIdempotencyKey, type CreatedPayment, type MyNight, type OperatorUser } from '@/lib/api';
 import { cancelCard, cancelSaldo, createCobro, createSaldoCobro, fetchInvitationRules, type CobroInput } from '@/lib/api-cobro';
@@ -219,7 +219,7 @@ export function CobrarFlow({ user, onCobroDone, onLogout, night, miQrOpen = fals
     setBusy(true);
     setError(null);
     try {
-      if ('vibrate' in navigator) navigator.vibrate(10);
+      haptic();
       const cobro = await open(pending, attempt.current.key);
       attempt.current = null;
       if (arrivedTooLate(asked, screen.current)) {
@@ -328,6 +328,7 @@ export function CobrarFlow({ user, onCobroDone, onLogout, night, miQrOpen = fals
       go({ kind: 'escanear', invite: item });
       return;
     }
+    haptic();
     const next = addItem(cuenta, item);
     tapped(next, {
       label: addedItemLabel(item.name),

@@ -67,6 +67,9 @@
   /* Solo el aro de PAGADO, una vez: salta un poco y se asienta. */
   --np-ease-pop: cubic-bezier(0.34, 1.56, 0.64, 1);
   --np-d-fast: 150ms;
+  /* Botón que se hunde: al tocar, scale(0.96) unos 90 ms (losetas, teclas y botones principales). */
+  --np-press-scale: 0.96;
+  --np-press-ms: 90ms;
   --np-d-base: 250ms;
   /* El momento PAGADO (destello, aro y marca). */
   --np-d-moment: 420ms;
@@ -177,6 +180,22 @@
   --np-primary-ink: #11160a;
   --np-primary-shadow: none;
 
+  /* Lo ELEGIDO (pestaña, chip, filtro, estado): crema en oscuro, con tinta
+     encima; en claro, tinta con texto crema. La lima queda para el botón de
+     la acción principal de cada pantalla. */
+  --np-chosen: var(--np-cream);
+  --np-on-chosen: var(--np-ink);
+
+  /* «¿Cómo paga?» (Grafito 3): efectivo en verde, tarjeta en azul. */
+  --np-cash-bg: #0f2a1b;
+  --np-cash-line: #58d68d;
+  --np-cash-icon-ink: #0b2a17;
+  --np-cash-sub: #cfe9d9;
+  --np-card-bg: #0f1f31;
+  --np-card-line: #6fa8dc;
+  --np-card-icon-ink: #0b1a2a;
+  --np-card-sub: #cfe0f2;
+
   /* Semantic */
   --np-success: #58d68d;
   --np-danger: #ff6b6b;
@@ -231,6 +250,19 @@
   --np-on-accent: #c7d301;
   --np-accent-edge: #1f2c36;
   --np-glow: rgb(31 44 54 / 0.18);
+
+  --np-chosen: var(--np-ink);
+  --np-on-chosen: var(--np-cream);
+
+  /* Papel teñido, borde y tinta del color: el texto ≥ 6,5:1. */
+  --np-cash-bg: #e3f2e8;
+  --np-cash-line: #146234;
+  --np-cash-icon-ink: #ffffff;
+  --np-cash-sub: #2f5a40;
+  --np-card-bg: #e1ecf7;
+  --np-card-line: #1f5c93;
+  --np-card-icon-ink: #ffffff;
+  --np-card-sub: #34506b;
 
   --np-primary-bg: var(--np-lime);
   --np-primary-bg-hover: #d1dc1a;
@@ -398,7 +430,7 @@ button {
   white-space: nowrap;
   user-select: none;
   transition:
-    transform var(--np-d-fast) var(--np-ease),
+    transform var(--np-press-ms) ease-out,
     background var(--np-d-fast),
     box-shadow var(--np-d-fast),
     color var(--np-d-fast);
@@ -458,7 +490,7 @@ button {
 }
 
 .np-btn:active:not(:disabled) {
-  transform: scale(0.98);
+  transform: scale(var(--np-press-scale));
 }
 
 /* Sin nada que hacer: superficie y texto apagado, sin opacidad (a oscuras, un
@@ -844,4 +876,21 @@ html.np-touch {
     transition-duration: 0.01ms !important;
   }
 
+  /* Botón que se hunde: con «reducir movimiento», sin animación (ni hundirse). */
+  button:active,
+  [role='button']:active,
+  .np-press:active {
+    transform: none !important;
+  }
+}
+
+/* Botón que se hunde (Grafito 3): losetas, teclas y botones principales. Las
+   piezas que ya tienen su propia regla :active usan los mismos valores
+   (--np-press-scale, --np-press-ms); esta clase es para las que no. */
+.np-press {
+  transition: transform var(--np-press-ms) ease-out;
+}
+
+.np-press:active:not(:disabled) {
+  transform: scale(var(--np-press-scale));
 }

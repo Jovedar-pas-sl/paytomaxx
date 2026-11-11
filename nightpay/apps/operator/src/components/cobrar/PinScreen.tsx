@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { haptic } from '@nightpay/ui';
 import { PIN_ENTER, keypadDigits } from '@/lib/pin-pad';
 import { formatEur } from '@/lib/money';
 import { pinFootnote, tipLine } from '@/lib/cobro-view';
@@ -86,7 +87,7 @@ export function PinScreen({ colors, chip, amountCents, detail, tipSetup = null, 
       setError(tipError);
       return;
     }
-    if ('vibrate' in navigator) navigator.vibrate(8);
+    haptic();
     const next = pin + digit;
     setPin(next);
     setError(null);
