@@ -86,6 +86,14 @@
   white-space: nowrap;
 }
 
+/* En un móvil estrecho el título pasa a dos líneas en vez de cortarse. */
+@media (max-width: 480px) {
+  .np-mm-title h2,
+  .np-mm-title h3 {
+    white-space: normal;
+  }
+}
+
 .np-mm-title span {
   font-size: 0.875rem;
   color: var(--np-text-label);

@@ -46,18 +46,8 @@
   --np-on-success: #f7f5f0;
 }
 
-/* Lo que dibujan los componentes de @nightpay/ui con la letra en línea:
-   13 → 14 y 15 → 16, sin tocar ese paquete. */
-[style*='font-size: 0.75rem'],
-[style*='font-size: 0.8125rem'] {
-  font-size: var(--gf-t-small) !important;
-}
-
-[style*='font-size: 0.9375rem'] {
-  font-size: var(--gf-t-body) !important;
-}
-
-.np-chip,
+/* La letra de Input, Select, StatusPill y .np-chip ya sale a 14 de @nightpay/ui
+   (escala única, sin 13 ni 15): aquí solo queda la cabecera de las tablas. */
 .np-table thead th {
   font-size: var(--gf-t-small);
 }
@@ -99,7 +89,7 @@ textarea:focus {
 }
 
 /* ─── Interruptor Sí / No ────────────────────────────────────────────────
-   84 × 40: «Sí» o «No» escrito dentro y la bolita que se desliza. Verde
+   84 × 44: «Sí» o «No» escrito dentro y la bolita que se desliza. Verde
    encendido, gris apagado: además del color, la palabra y el lado. */
 .np-switch {
   position: relative;
@@ -107,10 +97,10 @@ textarea:focus {
   display: inline-flex;
   align-items: center;
   width: 5.25rem;
-  height: 2.5rem;
+  height: 2.75rem;
   padding: 0 0.875rem;
   border: 1px solid var(--np-border-hi);
-  border-radius: 1.25rem;
+  border-radius: 1.375rem;
   background: var(--np-surface-3);
   color: var(--np-text-mute);
   font-family: inherit;
@@ -278,20 +268,24 @@ textarea:focus {
   .np-table.np-cobros-table {
     table-layout: fixed;
     width: 100%;
-    min-width: 64rem;
+    min-width: 60rem;
   }
 
-  .np-cobros-table col[data-col='hora'] { width: 7.5rem; }
-  .np-cobros-table col[data-col='ref'] { width: 5.75rem; }
-  .np-cobros-table col[data-col='codigo'] { width: 6rem; }
-  .np-cobros-table col[data-col='banco'] { width: 11rem; }
-  .np-cobros-table col[data-col='importe'] { width: 7.5rem; }
-  .np-cobros-table col[data-col='estado'] { width: 8.5rem; }
-  .np-cobros-table col[data-col='quien'] { width: 8rem; }
-  .np-cobros-table col[data-col='seccion'] { width: 8.5rem; }
-  .np-cobros-table col[data-col='como'] { width: 9.5rem; }
-  .np-cobros-table col[data-col='extra'] { width: 9rem; }
-  .np-cobros-table col[data-col='acciones'] { width: 13.5rem; }
+  .np-cobros-table col[data-col='hora'] { width: 6.75rem; }
+  .np-cobros-table col[data-col='ref'] { width: 5.5rem; }
+  .np-cobros-table col[data-col='codigo'] { width: 5rem; }
+  .np-cobros-table col[data-col='banco'] { width: 9rem; }
+  .np-cobros-table col[data-col='importe'] { width: 7rem; }
+  .np-cobros-table col[data-col='estado'] { width: 8rem; }
+  .np-cobros-table col[data-col='quien'] { width: 7rem; }
+  .np-cobros-table col[data-col='seccion'] { width: 8rem; }
+  .np-cobros-table col[data-col='como'] { width: 8.5rem; }
+  .np-cobros-table col[data-col='extra'] { width: 8rem; }
+  /* «Ver detalle» + «Anular cobro» / «Devolución BBVA» en una línea: 232 px y su relleno. */
+  .np-cobros-table col[data-col='acciones'] { width: 15rem; }
+  .np-cobros-table td[data-label='Acciones'] button + button {
+    margin-inline-start: 0.375rem;
+  }
 
   .np-cobros-table td[data-label='Servicio'] {
     overflow: hidden;
@@ -440,4 +434,16 @@ input[type='file']::file-selector-button:hover {
   font-size: var(--gf-t-body);
   line-height: 1.4;
   color: var(--np-text);
+}
+
+/* Móvil: lo que se toca (enlaces de las cifras, partes del «Lo vendido») llega a 44 px de alto. */
+@media (max-width: 600px) {
+  .np-tonight-link,
+  .np-cell-link,
+  .np-mmq-part,
+  .np-mmq-sold-total {
+    display: inline-flex;
+    align-items: center;
+    min-height: 2.75rem;
+  }
 }
