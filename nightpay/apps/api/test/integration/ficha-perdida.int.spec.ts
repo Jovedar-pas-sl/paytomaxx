@@ -232,7 +232,10 @@ describe('teléfono opcional al dar una ficha nueva', () => {
     audit.log.mockClear();
     await inVenue(V, () => contacts.setPhone(recepcion(), out.walletId, '+34 600-12 34 56'));
     expect(await sys((tx) => tx.clientWallet.findUniqueOrThrow({ where: { id: out.walletId }, select: { contactPhone: true } }))).toEqual({ contactPhone: '+34600123456' });
-    expect(JSON.stringify(audit.log.mock.calls)).not.toContain('600');
+    // El número entero, no «600»: tres cifras sueltas pueden salir por azar en un id o una hora.
+    const logged = JSON.stringify(audit.log.mock.calls);
+    expect(logged).not.toContain('600123456');
+    expect(logged).not.toContain('12 34 56');
     await expect(inVenue(V, () => contacts.setPhone(recepcion(), out.walletId, 'llámame'))).rejects.toMatchObject({ status: 400 });
     // Pasados 15 minutos desde que se la dio, ya no (con el encargado).
     await sys((tx) => tx.walletCardEvent.updateMany({ where: { walletId: out.walletId }, data: { at: new Date(Date.now() - 20 * 60_000) } }));
@@ -241,6 +244,6 @@ describe('teléfono opcional al dar una ficha nueva', () => {
     await expect(inVenue(V, () => contacts.findByPhone(recepcion(), '+34600123456'))).rejects.toMatchObject({ status: 403 });
     const found = await inVenue(V, () => contacts.findByPhone({ userId: rocio, role: 'OWNER', tenantId: V }, '0034 600 123 456'));
     expect(found).toEqual([expect.objectContaining({ walletId: out.walletId, code: out.code, balanceCents: 2_000 })]);
-    expect(JSON.stringify(found)).not.toContain('600');
+    expect(JSON.stringify(found)).not.toContain('600123456');
   });
 });
