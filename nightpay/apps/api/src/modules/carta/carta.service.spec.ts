@@ -185,7 +185,7 @@ describe('CartaService: logo o foto e icono', () => {
     (made.prisma as unknown as { asSystem: unknown }).asSystem = vi.fn(async (fn: (tx: unknown) => unknown) => fn(made.prisma));
     return { ...made, images };
   }
-  const png = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.alloc(100)]).toString('base64');
+  const png = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.alloc(100)]).toString('base64'); // un JPEG
 
   it('la carta lleva el icono y la ruta versionada de la imagen (o null)', async () => {
     const { service, prisma } = makeService();
@@ -207,7 +207,7 @@ describe('CartaService: logo o foto e icono', () => {
     expect(audit.log).not.toHaveBeenCalled();
   });
 
-  it('subir: un PNG o un SVG se rechaza antes de tocar la base', async () => {
+  it('subir: un JPEG o un SVG se rechaza antes de tocar la base', async () => {
     const { service, prisma, images } = withImages({ id: 'item-1' });
     await expect(service.setImage('tenant-1', 'owner', 'item-1', png)).rejects.toBeInstanceOf(BadRequestException);
     await expect(service.setImage('tenant-1', 'owner', 'item-1', Buffer.from('<svg/>').toString('base64'))).rejects.toBeInstanceOf(BadRequestException);

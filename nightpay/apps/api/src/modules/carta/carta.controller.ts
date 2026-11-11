@@ -27,7 +27,7 @@ import { CartaService } from './carta.service';
  *  - GET /v1/services        → lo que puede cobrar quien llama (apps).
  *  - GET /v1/services/all    → carta completa para el panel.
  *  - POST/PATCH              → el dueño o el encargado la mantienen.
- *  - PUT/DELETE :id/image    → su logo o foto (WebP de 128 px como mucho).
+ *  - PUT/DELETE :id/image    → su logo o foto (WebP o PNG de 128 px como mucho).
  *  - GET :id/image/:hash     → la imagen, sin sesión (la pide un <img>), versionada
  *                              por su huella: el navegador la guarda un año.
  */
@@ -107,7 +107,6 @@ export class CartaController {
 
 /** Cabeceras de la imagen de la carta: para siempre en el navegador (la huella cambia con la imagen). */
 export const CARTA_IMAGE_HEADERS = Object.freeze({
-  'Content-Type': 'image/webp',
   'Cache-Control': 'public, max-age=31536000, immutable',
   'X-Content-Type-Options': 'nosniff',
   // La pide una página de otro origen (la app del personal): helmet ya lo pone cross-origin; aquí, explícito.
@@ -139,7 +138,7 @@ export class CartaImageController {
     if (!/^[0-9a-f]{64}$/.test(hash)) throw new NotFoundException();
     const image = await this.carta.imageFor(id, hash);
     if (!image) throw new NotFoundException();
-    reply.headers({ ...CARTA_IMAGE_HEADERS, ETag: `"${image.contentHash}"`, 'Content-Length': String(image.data.length) });
+    reply.headers({ ...CARTA_IMAGE_HEADERS, 'Content-Type': image.contentType === 'image/png' ? 'image/png' : 'image/webp', ETag: `"${image.contentHash}"`, 'Content-Length': String(image.data.length) });
     return image.data;
   }
 }

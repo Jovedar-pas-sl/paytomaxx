@@ -35,3 +35,17 @@ export const JPEG_BYTES = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), 
 export const SVG_BYTES = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128"><script>alert(1)</script></svg>');
 /** Un SVG que empieza como un WebP (RIFF…WEBP) para colarse. */
 export const SVG_AS_WEBP = Buffer.concat([Buffer.from('RIFF\x00\x00\x00\x00WEBPVP8L', 'latin1'), SVG_BYTES]);
+
+/** PNG con la cabecera buena (firma + IHDR) y relleno: vale para probar bytes y medidas. */
+export function pngFixture(opts: { width?: number; height?: number; bytes?: number } = {}): Buffer {
+  const { width = 128, height = 128, bytes = 2048 } = opts;
+  const head = Buffer.alloc(8 + 4 + 4 + 13);
+  Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).copy(head, 0);
+  head.writeUInt32BE(13, 8);
+  head.write('IHDR', 12, 'latin1');
+  head.writeUInt32BE(width, 16);
+  head.writeUInt32BE(height, 20);
+  head[24] = 8;
+  head[25] = 6;
+  return Buffer.concat([head, Buffer.alloc(Math.max(bytes - head.length, 0), 0x33)]);
+}

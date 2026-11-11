@@ -68,6 +68,13 @@ describe('GET /v1/services/:id/image/:hash', () => {
     expect(service.imageFor).toHaveBeenCalledWith(ID, HASH);
   });
 
+  it('un PNG se sirve con su Content-Type', async () => {
+    service.imageFor.mockResolvedValue({ data: bytes, contentHash: HASH, contentType: 'image/png' });
+    const res = await app.inject({ method: 'GET', url: `/v1/services/${ID}/image/${HASH}` });
+    expect(res.headers['content-type']).toBe('image/png');
+    expect(res.headers['x-content-type-options']).toBe('nosniff');
+  });
+
   it('huella que no es de la imagen actual, o de otro producto: 404 y sin cabeceras de caché', async () => {
     service.imageFor.mockResolvedValue(null);
     const res = await app.inject({ method: 'GET', url: `/v1/services/${ID}/image/${HASH}` });

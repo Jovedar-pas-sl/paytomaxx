@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { checkCartaImage, sniffImage, webpSize } from './carta-image';
 import { CHROME_WEBP_BASE64 } from '../../../test/support/chrome-webp';
-import { JPEG_BYTES, PNG_BYTES, SVG_AS_WEBP, SVG_BYTES, webpFixture } from '../../../test/support/webp-fixture';
+import { JPEG_BYTES, PNG_BYTES, pngFixture, SVG_AS_WEBP, SVG_BYTES, webpFixture } from '../../../test/support/webp-fixture';
 
 describe('carta-image: los bytes mandan, no el nombre', () => {
   it('reconoce WebP, PNG y JPEG por sus primeros bytes', () => {
@@ -49,12 +49,36 @@ describe('carta-image: los bytes mandan, no el nombre', () => {
     expect(checkCartaImage(Buffer.concat([webpFixture(), Buffer.from('<svg/>')])).ok).toBe(false);
   });
 
-  it('PNG y JPEG se rechazan con un mensaje claro (no hay librería para convertirlos)', () => {
-    for (const bytes of [PNG_BYTES, JPEG_BYTES]) {
-      const res = checkCartaImage(bytes);
-      expect(res.ok).toBe(false);
-      if (!res.ok) expect(res.message).toMatch(/solo guarda WebP/);
+  it('un PNG válido (firma + IHDR cuadrado) se acepta tal cual, con su tipo', () => {
+    const data = pngFixture();
+    const res = checkCartaImage(data);
+    expect(res.ok).toBe(true);
+    if (res.ok) {
+      expect(res.image).toMatchObject({ contentType: 'image/png', width: 128, height: 128 });
+      expect(res.image.data).toBe(data);
     }
+    const webp = checkCartaImage(webpFixture());
+    expect(webp.ok && webp.image.contentType).toBe('image/webp');
+  });
+
+  it('un PNG mayor de 128 px, no cuadrado, menor de 16 o de más de 64 KB se rechaza', () => {
+    expect(checkCartaImage(pngFixture({ width: 256, height: 256 })).ok).toBe(false);
+    expect(checkCartaImage(pngFixture({ width: 129, height: 129 })).ok).toBe(false);
+    expect(checkCartaImage(pngFixture({ width: 8, height: 8 })).ok).toBe(false);
+    const wide = checkCartaImage(pngFixture({ width: 128, height: 64 }));
+    expect(!wide.ok && wide.message).toMatch(/cuadrada/);
+    expect(checkCartaImage(pngFixture({ bytes: 64 * 1024 + 1 })).ok).toBe(false);
+    expect(checkCartaImage(pngFixture({ bytes: 64 * 1024 })).ok).toBe(true);
+  });
+
+  it('una firma PNG sin chunk IHDR no vale, y un JPEG tampoco (mensaje claro)', () => {
+    expect(checkCartaImage(PNG_BYTES).ok).toBe(false);
+    const jpeg = checkCartaImage(JPEG_BYTES);
+    expect(!jpeg.ok && jpeg.message).toMatch(/WebP o PNG/);
+  });
+
+  it('un SVG, aunque se llame .png, no pasa (no empieza como PNG)', () => {
+    expect(checkCartaImage(SVG_BYTES).ok).toBe(false);
   });
 
   it('el tamaño: 64 KB sí, 64 KB + 1 no, vacío no', () => {

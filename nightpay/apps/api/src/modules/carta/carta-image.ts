@@ -1,9 +1,13 @@
 import { createHash } from 'node:crypto';
 import { CARTA_IMAGE_MAX_BYTES, CARTA_IMAGE_MAX_SIDE, CARTA_IMAGE_MIN_SIDE } from '@nightpay/contracts';
 
-/** Una imagen que se puede guardar: WebP ya comprobado. */
+/** Los tipos que se guardan (la lista de la migración). */
+export type CartaImageType = 'image/webp' | 'image/png';
+
+/** Una imagen que se puede guardar: WebP o PNG ya comprobado. */
 export interface CheckedImage {
   data: Buffer;
+  contentType: CartaImageType;
   contentHash: string;
   width: number;
   height: number;
@@ -47,13 +51,18 @@ export function webpSize(b: Buffer): { width: number; height: number } | null {
   return null;
 }
 
-const HOW_TO = 'Vuelve a cargar el panel y súbela otra vez.';
+/** El ancho y el alto de un PNG (chunk IHDR, que va siempre primero) o null si no cuadra. */
+export function pngSize(b: Buffer): { width: number; height: number } | null {
+  if (b.length < 33) return null;
+  if (b.readUInt32BE(8) !== 13 || b.toString('latin1', 12, 16) !== 'IHDR') return null;
+  return { width: b.readUInt32BE(16), height: b.readUInt32BE(20) };
+}
 
 /**
- * Comprueba lo que llega al subir el logo o la foto: solo WebP (por los bytes),
- * como mucho 64 KB, cuadrada y de 16 a 128 px. Un SVG, un PNG, un JPEG o
- * cualquier otra cosa no se guarda. (No hay librería de imágenes en el
- * servidor: el panel ya la manda reducida a WebP.)
+ * Comprueba lo que llega al subir el logo o la foto: solo WebP o PNG (por los
+ * bytes; el PNG es para los navegadores que no codifican WebP, como Safari),
+ * como mucho 64 KB, cuadrada y de 16 a 128 px. Un SVG, un JPEG o cualquier otra
+ * cosa no se guarda. Se guarda tal cual, sin reencodificar.
  */
 export function checkCartaImage(data: Buffer): ImageCheck {
   if (data.length === 0) return { ok: false, message: 'La imagen está vacía.' };
@@ -61,18 +70,16 @@ export function checkCartaImage(data: Buffer): ImageCheck {
     return { ok: false, message: `La imagen pesa ${Math.ceil(data.length / 1024)} KB; el máximo es ${CARTA_IMAGE_MAX_BYTES / 1024} KB.` };
   }
   const kind = sniffImage(data);
-  if (kind === 'png' || kind === 'jpeg') {
-    return { ok: false, message: `El servidor solo guarda WebP (el panel la reduce antes de enviarla). ${HOW_TO}` };
-  }
-  if (kind !== 'webp') return { ok: false, message: 'Solo se admiten imágenes WebP (no SVG ni otros formatos).' };
-  const size = webpSize(data);
-  if (!size) return { ok: false, message: 'La imagen WebP no es válida (o es animada).' };
+  if (kind !== 'webp' && kind !== 'png') return { ok: false, message: 'Solo se admiten imágenes WebP o PNG (no SVG, JPEG ni otros formatos).' };
+  const size = kind === 'webp' ? webpSize(data) : pngSize(data);
+  if (!size) return { ok: false, message: `La imagen ${kind === 'webp' ? 'WebP' : 'PNG'} no es válida (o es animada).` };
   const { width, height } = size;
   if (width !== height) return { ok: false, message: 'La imagen tiene que ser cuadrada.' };
   if (width < CARTA_IMAGE_MIN_SIDE || width > CARTA_IMAGE_MAX_SIDE) {
     return { ok: false, message: `La imagen tiene que medir entre ${CARTA_IMAGE_MIN_SIDE} y ${CARTA_IMAGE_MAX_SIDE} píxeles de lado.` };
   }
-  return { ok: true, image: { data, contentHash: createHash('sha256').update(data).digest('hex'), width, height } };
+  const contentType: CartaImageType = kind === 'webp' ? 'image/webp' : 'image/png';
+  return { ok: true, image: { data, contentType, contentHash: createHash('sha256').update(data).digest('hex'), width, height } };
 }
 
 /** El base64 que llega, a bytes (el esquema ya limita largo y alfabeto). */

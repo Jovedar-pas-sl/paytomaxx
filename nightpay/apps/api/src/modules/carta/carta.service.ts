@@ -256,14 +256,14 @@ export class CartaService {
   async setImage(tenantId: string, actorId: string, id: string, base64: string): Promise<ServiceItem> {
     const checked = checkCartaImage(decodeImageBase64(base64));
     if (!checked.ok) throw new BadRequestException(checked.message);
-    const { data, contentHash, width, height } = checked.image;
+    const { data, contentType, contentHash, width, height } = checked.image;
     const row = await this.withCartaLock(tenantId, async (tx) => {
       const existing = await tx.serviceItem.findFirst({ where: { id, tenantId }, select: { id: true } });
       if (!existing) throw new NotFoundException('Ese servicio no está en la carta de este local');
       await tx.serviceItemImage.upsert({
         where: { serviceItemId: id },
-        create: { serviceItemId: id, tenantId, data, contentHash, width, height },
-        update: { data, contentHash, width, height },
+        create: { serviceItemId: id, tenantId, contentType, data, contentHash, width, height },
+        update: { contentType, data, contentHash, width, height },
       });
       return tx.serviceItem.findFirstOrThrow({ where: { id, tenantId }, select: SELECT });
     });
@@ -273,7 +273,7 @@ export class CartaService {
       actorId,
       targetType: 'ServiceItem',
       targetId: id,
-      payload: { contentHash, bytes: data.length, width, height },
+      payload: { contentHash, contentType, bytes: data.length, width, height },
     });
     return view(row);
   }
@@ -298,14 +298,14 @@ export class CartaService {
    * producto → null). Sin sesión (la pide un <img>): el aislamiento es la
    * propia dirección (UUID + SHA-256), no adivinable, y solo sale la imagen.
    */
-  async imageFor(id: string, contentHash: string): Promise<{ data: Buffer; contentHash: string } | null> {
+  async imageFor(id: string, contentHash: string): Promise<{ data: Buffer; contentHash: string; contentType: string } | null> {
     const row = await this.prisma.asSystem((tx) =>
       tx.serviceItemImage.findFirst({
         where: { serviceItemId: id, contentHash },
-        select: { data: true, contentHash: true },
+        select: { data: true, contentHash: true, contentType: true },
       }),
     );
-    return row ? { data: Buffer.from(row.data), contentHash: row.contentHash.trim() } : null;
+    return row ? { data: Buffer.from(row.data), contentHash: row.contentHash.trim(), contentType: row.contentType } : null;
   }
 
   /** La sección del servicio (y la de cada parte del pack) tiene que estar encendida en el local. */

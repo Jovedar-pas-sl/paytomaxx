@@ -15,7 +15,7 @@ import { PrismaService } from '../../src/common/prisma/prisma.service';
 import { AuditService } from '../../src/modules/audit/audit.service';
 import { CartaController, CartaImageController } from '../../src/modules/carta/carta.controller';
 import { CartaService } from '../../src/modules/carta/carta.service';
-import { JPEG_BYTES, PNG_BYTES, SVG_AS_WEBP, SVG_BYTES, webpFixture } from '../support/webp-fixture';
+import { JPEG_BYTES, pngFixture, SVG_AS_WEBP, SVG_BYTES, webpFixture } from '../support/webp-fixture';
 
 const cls = new ClsService(new AsyncLocalStorage());
 const prisma = new PrismaService(cls as never);
@@ -88,6 +88,24 @@ describe('carta con logo o foto: subir, servir y quitar (Postgres real, RLS forz
     expect(img.rawPayload.equals(bytes)).toBe(true);
   });
 
+  it('un PNG de 128×128 (Safari) se guarda tal cual y se sirve como image/png', async () => {
+    const t = await venue();
+    const item = await product(t);
+    const png = pngFixture();
+    const up = await upload(t, item.id, png);
+    expect(up.statusCode).toBe(200);
+    const img = await app.inject({ method: 'GET', url: up.json().imageUrl });
+    expect(img.statusCode).toBe(200);
+    expect(img.headers['content-type']).toBe('image/png');
+    expect(img.headers['cache-control']).toBe('public, max-age=31536000, immutable');
+    expect(img.headers['x-content-type-options']).toBe('nosniff');
+    expect(img.rawPayload.equals(png)).toBe(true);
+    const stored = await rows(t);
+    expect(stored[0]!.contentType).toBe('image/png');
+    const bad = await prisma.asSystem((tx) => tx.$executeRaw`UPDATE service_item_images SET "contentType" = 'image/svg+xml' WHERE "serviceItemId" = ${item.id}::uuid`).then(() => 'ok', (e: Error) => e.message);
+    expect(bad).toMatch(/service_item_images_type_known|check constraint/i);
+  });
+
   it('cambiar la imagen cambia la ruta; la ruta vieja ya no sirve; la misma imagen deja la misma ruta', async () => {
     const t = await venue();
     const item = await product(t);
@@ -113,10 +131,10 @@ describe('carta con logo o foto: subir, servir y quitar (Postgres real, RLS forz
     expect(await rows(t)).toHaveLength(0);
   });
 
-  it('no guarda SVG (ni disfrazado), PNG, JPEG, más de 64 KB ni medidas raras; no queda nada en la base', async () => {
+  it('no guarda SVG (ni disfrazado), JPEG, PNG de más de 128 px, más de 64 KB ni medidas raras; no queda nada en la base', async () => {
     const t = await venue();
     const item = await product(t);
-    const bads = [SVG_BYTES, SVG_AS_WEBP, PNG_BYTES, JPEG_BYTES, webpFixture({ bytes: 64 * 1024 + 1 }), webpFixture({ width: 256, height: 256 }), webpFixture({ width: 128, height: 64 })];
+    const bads = [SVG_BYTES, SVG_AS_WEBP, pngFixture({ width: 256, height: 256 }), JPEG_BYTES, webpFixture({ bytes: 64 * 1024 + 1 }), webpFixture({ width: 256, height: 256 }), webpFixture({ width: 128, height: 64 })];
     for (const bad of bads) {
       const res = await upload(t, item.id, bad);
       expect(res.statusCode, bad.subarray(0, 12).toString('latin1')).toBe(400);
