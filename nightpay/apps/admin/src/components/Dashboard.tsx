@@ -1,7 +1,8 @@
 'use client';
 
 import { useEffect, useState, type CSSProperties } from 'react';
-import { Button, Logo, ThemeToggle } from '@nightpay/ui';
+import { Button, Logo, ScreenHelp, ThemeToggle } from '@nightpay/ui';
+import { TAB_TOURS } from '@/lib/tours';
 import {
   fetchMyPermissions,
   fetchPaymentMethods,
@@ -168,6 +169,8 @@ export function Dashboard({ user, onLogout }: Props) {
                     {user.isSuperAdmin ? ' · super-admin' : ''}
                   </span>
                 </div>
+                {/* El «?» de la pestaña que se ve: su tutorial, en la barra de arriba. Las páginas son lentas en cargar: espera un poco más antes de salir solo. */}
+                {TAB_TOURS[tab] ? <ScreenHelp key={tab} {...TAB_TOURS[tab]} delayMs={1500} /> : null}
                 {/* 36 px como «Salir»; en el móvil, 44 (panel-nav.css). */}
                 <span className="np-theme-toggle">
                   <ThemeToggle size="sm" />

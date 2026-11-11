@@ -66,7 +66,7 @@ export function InvitationRulesCard() {
 
   return (
     <SettingsCard
-      title="Invitaciones"
+      title="Invitaciones" tour="secciones-invitaciones"
       hint="«Copa con invitación»: el cliente invita a una chica a una copa y quien la cobra escanea su QR («Mi QR» en su app). La chica se lleva su parte y el local, el resto."
     >
       <form onSubmit={(e) => void save(e)} style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>

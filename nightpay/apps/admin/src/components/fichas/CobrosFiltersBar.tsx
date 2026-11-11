@@ -73,7 +73,7 @@ export function CobrosFiltersBar({ value, onChange }: { value: CobrosFilters; on
         </button>
       </p>
     ) : null}
-    <form className="np-cobros-filters" onSubmit={applyCode} role="search" aria-label="Filtrar cobros">
+    <form className="np-cobros-filters" onSubmit={applyCode} role="search" aria-label="Filtrar cobros" data-tour="cobros-filtros">
       <Cell w="10.25rem">
         <Select aria-label="Estado" style={FILTER_SELECT} value={value.status?.[0] ?? ''} onChange={(e) => set({ status: e.target.value ? [e.target.value] : undefined })}>
           {STATUS_FILTERS.map((f) => (

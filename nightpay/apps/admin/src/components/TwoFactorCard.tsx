@@ -134,7 +134,7 @@ export function TwoFactorCard() {
   }
 
   return (
-    <Card style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+    <Card style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1rem' }} data-tour="seguridad-2fa">
       <div style={headerRow}>
         <h3 style={titleStyle}>Verificación en dos pasos</h3>
         {typeof status === 'object' ? (

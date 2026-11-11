@@ -130,7 +130,7 @@ export function NightsPanel({
       {current === undefined ? (
         loadError ? null : <p style={hintStyle}>Cargando…</p>
       ) : current === null ? (
-        <Card style={{ padding: '1.25rem', display: 'flex', flexDirection: 'column', gap: '0.875rem' }}>
+        <Card style={{ padding: '1.25rem', display: 'flex', flexDirection: 'column', gap: '0.875rem' }} data-tour="noches-actual">
           <p style={{ margin: 0, fontWeight: 600, fontSize: '1rem' }}>No hay ninguna noche abierta.</p>
           <Input
             label="Fondo de caja (opcional)"
@@ -154,7 +154,7 @@ export function NightsPanel({
           </Button>
         </Card>
       ) : (
-        <Card style={{ padding: '1.25rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+        <Card style={{ padding: '1.25rem', display: 'flex', flexDirection: 'column', gap: '1rem' }} data-tour="noches-actual">
           <div style={rowStyle}>
             <p style={{ margin: 0, fontWeight: 600, fontSize: '1.125rem' }}>
               Noche abierta desde las {time(current.openedAt)}
@@ -179,12 +179,12 @@ export function NightsPanel({
             </div>
           ) : null}
           <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-            <Button onClick={() => setClosing(true)}>Cerrar noche</Button>
+            <Button onClick={() => setClosing(true)} data-tour="noches-cerrar">Cerrar noche</Button>
           </div>
         </Card>
       )}
 
-      <Card className="np-table-host" style={{ padding: 0, overflow: 'hidden' }}>
+      <Card className="np-table-host" style={{ padding: 0, overflow: 'hidden' }} data-tour="noches-lista">
         <div style={{ overflowX: 'auto' }}>
           <table className="np-table">
             <thead>

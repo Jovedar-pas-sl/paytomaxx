@@ -121,7 +121,7 @@ export function TerminalsPanel({ isOwner }: Props) {
       ) : null}
       {error ? <Notice tone="danger">{error}</Notice> : null}
 
-      <Card style={{ padding: '1.25rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+      <Card style={{ padding: '1.25rem', display: 'flex', flexDirection: 'column', gap: '1rem' }} data-tour="datafonos-alta">
         <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between' }}>
           <div>
             <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 600 }}>Datáfonos / Terminales</h3>
@@ -129,7 +129,7 @@ export function TerminalsPanel({ isOwner }: Props) {
               Red de PAX A920 Pro por zona. La chica elige zona al cobrar; el camarero de esa zona lo confirma.
             </p>
           </div>
-          <Button variant="ghost" size="md" onClick={() => setBulkOpen(true)}>
+          <Button variant="ghost" size="md" onClick={() => setBulkOpen(true)} data-tour="datafonos-lote">
             + Crear lote
           </Button>
         </div>
@@ -192,7 +192,7 @@ export function TerminalsPanel({ isOwner }: Props) {
         </form>
       </Card>
 
-      <Card className="np-table-host" style={{ padding: '1.25rem' }}>
+      <Card className="np-table-host" style={{ padding: '1.25rem' }} data-tour="datafonos-lista">
         {terminals === null ? (
           <p style={{ margin: 0, fontSize: '0.875rem' }}>{loadError ? 'Sin datos.' : 'Cargando…'}</p>
         ) : terminals.length === 0 ? (

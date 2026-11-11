@@ -48,7 +48,7 @@ export function PermissionsPanel({ posOn = true }: { posOn?: boolean } = {}) {
 
   return (
     <div className="np-set-stack">
-      <SettingsCard title="Encargados" hint="Lo que pueden hacer todos los encargados. Tú siempre puedes todo.">
+      <SettingsCard title="Encargados" tour="permisos-encargados" hint="Lo que pueden hacer todos los encargados. Tú siempre puedes todo.">
         {editablePermissions('MANAGER').map((key) => (
           <Switch
             key={key}
@@ -61,7 +61,7 @@ export function PermissionsPanel({ posOn = true }: { posOn?: boolean } = {}) {
       </SettingsCard>
 
       {managers.length + waiters.length > 0 ? (
-        <SettingsCard title="Por persona" hint="Solo si alguien necesita algo distinto a los demás de su rol (p. ej. el camarero de recepción).">
+        <SettingsCard title="Por persona" tour="permisos-persona" hint="Solo si alguien necesita algo distinto a los demás de su rol (p. ej. el camarero de recepción).">
           <ul className="np-set-people">
             {[...managers, ...waiters].map((p) => (
               <PersonRow
@@ -80,7 +80,7 @@ export function PermissionsPanel({ posOn = true }: { posOn?: boolean } = {}) {
       ) : null}
 
       <SettingsCard
-        title="Camareros"
+        title="Camareros" tour="permisos-camareros"
         hint={`${waiterHint(posOn)}${waiters.length > 0 ? ` (${waiters.length} en el local)` : ''}`}
       >
         {editablePermissions('WAITER').map((key) => (

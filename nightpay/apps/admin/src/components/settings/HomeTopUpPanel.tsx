@@ -86,7 +86,7 @@ export function HomeTopUpPanel() {
   const { url, qrPngDataUrl: qr } = settings;
   return (
     <SettingsCard
-      title="Cargar saldo desde casa"
+      title="Cargar saldo desde casa" tour="formas-casa"
       hint="Un enlace del local para que el cliente cargue su saldo antes de llegar. Cualquiera con el enlace puede cargar: publícalo en Instagram, en vuestra web o en WhatsApp."
     >
       <Switch

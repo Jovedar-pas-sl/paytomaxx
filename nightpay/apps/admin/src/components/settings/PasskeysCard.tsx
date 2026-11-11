@@ -105,7 +105,7 @@ export function PasskeysCard() {
 
   return (
     <SettingsCard
-      title="Llave de acceso"
+      title="Llave de acceso" tour="seguridad-llave"
       hint="Si no usas la verificación en dos pasos, confirma con tu móvil (Face ID o huella) para ver lo delicado de un cobro y para anular o devolver."
     >
       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>

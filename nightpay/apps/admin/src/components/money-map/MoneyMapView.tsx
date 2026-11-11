@@ -52,7 +52,7 @@ export function MoneyMapView({ map, wide = false, onOpen }: { map: MoneyMap; wid
       {onOpen ? <p className="np-mm-note np-mm-hint">Toca las ventas, una sección o «Del saldo» para ver sus cobros.</p> : null}
 
       <div className="np-mm-col">
-        <section className="np-mm-block" aria-label="Cómo entra">
+        <section className="np-mm-block" aria-label="Cómo entra" data-tour="mapa-entra">
           <div className="np-mm-blockhead">
             <h3 className="np-mm-kick">Cómo entra</h3>
           </div>
@@ -91,7 +91,7 @@ export function MoneyMapView({ map, wide = false, onOpen }: { map: MoneyMap; wid
           {details.serviceFee ? <Detail detail={details.serviceFee} /> : null}
         </section>
 
-        <section className="np-mm-block" aria-label="Por sección">
+        <section className="np-mm-block" aria-label="Por sección" data-tour="mapa-seccion">
           <div className="np-mm-blockhead">
             <h3 className="np-mm-kick">Por sección</h3>
           </div>
@@ -130,7 +130,7 @@ export function MoneyMapView({ map, wide = false, onOpen }: { map: MoneyMap; wid
           </details>
         </section>
 
-        <section className="np-mm-block" aria-label="Cómo se reparte">
+        <section className="np-mm-block" aria-label="Cómo se reparte" data-tour="mapa-reparto">
           <div className="np-mm-blockhead">
             <h3 className="np-mm-kick">Cómo se reparte</h3>
             <b>{eurShort(map.salesCents)}</b>
@@ -142,7 +142,7 @@ export function MoneyMapView({ map, wide = false, onOpen }: { map: MoneyMap; wid
       </div>
 
       <div className="np-mm-col">
-        <section className="np-mm-block" aria-label="Dónde está">
+        <section className="np-mm-block" aria-label="Dónde está" data-tour="mapa-donde">
           <div className="np-mm-blockhead">
             <h3 className="np-mm-kick">Dónde está</h3>
             <b>{eurShort(v.where.totalCents)}</b>
@@ -164,7 +164,7 @@ export function MoneyMapView({ map, wide = false, onOpen }: { map: MoneyMap; wid
           <Detail detail={details.owed} />
         </section>
 
-        <section className="np-mm-block" aria-label="Qué sale">
+        <section className="np-mm-block" aria-label="Qué sale" data-tour="mapa-sale">
           <div className="np-mm-blockhead">
             <h3 className="np-mm-kick">Qué sale</h3>
           </div>

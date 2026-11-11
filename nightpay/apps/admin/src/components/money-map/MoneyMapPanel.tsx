@@ -85,7 +85,7 @@ export function MoneyMapPanel({ onNavigate, onOpenCobros }: { onNavigate?: (key:
       </header>
       <Stripe segments={stripe} />
 
-      <details className="np-mm-period-box">
+      <details className="np-mm-period-box" data-tour="mapa-fechas">
         <summary>
           <span>Fechas: <b>{query.from ? `${dayLabel(query.from)} – ${dayLabel(query.to)}` : 'esta noche'}</b></span>
           <span className="np-mm-period-change">Cambiar</span>

@@ -90,7 +90,7 @@ export function RulesPanel() {
   const serviceFee = serviceFeeRulesText(settings);
   return (
     <form onSubmit={onSubmit} className="np-set-stack" noValidate>
-      <SettingsCard title="Comisión del servicio al cliente" hint={`${serviceFee.status} (la cambia OxioPay).`}>
+      <SettingsCard title="Comisión del servicio al cliente" tour="reglas-comision" hint={`${serviceFee.status} (la cambia OxioPay).`}>
         <ul className="np-set-list">
           {serviceFee.lines.map((line) => (
             <li key={line}>{line}</li>
@@ -98,7 +98,7 @@ export function RulesPanel() {
         </ul>
       </SettingsCard>
 
-      <SettingsCard title="Cobros de las chicas" hint={platformCommissionHint(settings)}>
+      <SettingsCard title="Cobros de las chicas" tour="reglas-chicas" hint={platformCommissionHint(settings)}>
         <Input
           label="Tope por cobro de una chica (€)"
           inputMode="decimal"
@@ -119,7 +119,7 @@ export function RulesPanel() {
         </div>
       </SettingsCard>
 
-      <SettingsCard title="Pagos a las chicas" hint={holdDaysText(effectiveDays)}>
+      <SettingsCard title="Pagos a las chicas" tour="reglas-pagos" hint={holdDaysText(effectiveDays)}>
         <Input
           label="Días de espera para pagarles"
           inputMode="numeric"
@@ -136,7 +136,7 @@ export function RulesPanel() {
         />
       </SettingsCard>
 
-      <SettingsCard title="Devoluciones">
+      <SettingsCard title="Devoluciones" tour="reglas-devoluciones">
         <Input
           label="El encargado pide aprobación desde (€)"
           inputMode="decimal"

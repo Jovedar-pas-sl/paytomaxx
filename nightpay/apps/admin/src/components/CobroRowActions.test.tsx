@@ -5,8 +5,8 @@ import type { CobroRow } from '@nightpay/contracts';
 import { COBRO_ACTION_TITLES } from '../lib/cobros-help';
 import { CobroRowActions } from './CobroRowActions';
 
-// Los botones de una fila de Cobros: quién ve cada uno es lo que cuenta
-// «Cómo leer esta tabla» (lib/cobros-help.ts). Si cambia aquí, la ayuda miente.
+// Los botones de una fila de Cobros: quién ve cada uno es lo que cuenta y
+// con qué título. Si cambia aquí, el tutorial del «?» de Cobros (lib/tours.ts) miente.
 
 const NOW = Date.parse('2026-11-09T23:30:00Z');
 const minutesAgo = (m: number) => new Date(NOW - m * 60_000).toISOString();

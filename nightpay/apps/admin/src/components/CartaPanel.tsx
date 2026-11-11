@@ -59,7 +59,7 @@ export function CartaPanel() {
 
       {items !== null ? <CartaTemplate items={items} sections={sections} onApplied={reload} /> : null}
 
-      <Card style={{ padding: '1.25rem' }}>
+      <Card style={{ padding: '1.25rem' }} data-tour="carta-anadir">
         <h3 style={subtitleStyle}>Añadir a la carta</h3>
         <ServiceForm
           submitLabel="Añadir a la carta"
@@ -89,14 +89,14 @@ export function CartaPanel() {
           <p style={{ margin: 0 }}>Todavía no hay nada. Añade el primero arriba: por ejemplo «Copa» a 10 € en Copas.</p>
         </Card>
       ) : (
-        groupBySection(items, sections).map((group) => (
-          <div key={group.code} style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+        groupBySection(items, sections).map((group, gi) => (
+          <div key={group.code} style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }} {...(gi === 0 ? { 'data-tour': 'carta-lista' } : {})}>
             <h3 style={groupTitle}>
               {group.color ? <SectionDot color={group.color} /> : null}
               {group.label}
               {group.enabled ? null : <span style={{ color: 'var(--np-text-dim)', fontWeight: 500 }}> · apagada</span>}
             </h3>
-            {group.items.map((item) =>
+            {group.items.map((item, ii) =>
               editing === item.id ? (
                 <Card key={item.id} style={{ padding: '1.25rem' }}>
                   <ServiceForm
@@ -139,7 +139,7 @@ export function CartaPanel() {
                       {formatEur(item.priceCents)}
                     </span>
                     <div style={{ display: 'flex', gap: '0.5rem' }}>
-                      <Button variant="ghost" size="sm" onClick={() => setEditing(item.id)}>
+                      <Button variant="ghost" size="sm" onClick={() => setEditing(item.id)} {...(gi === 0 && ii === 0 ? { 'data-tour': 'carta-editar' } : {})}>
                         Editar
                       </Button>
                       <Button variant="ghost" size="sm" onClick={() => void toggleActive(item)}>

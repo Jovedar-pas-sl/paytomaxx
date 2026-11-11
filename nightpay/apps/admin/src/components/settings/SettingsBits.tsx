@@ -4,11 +4,11 @@ import { useCallback, useEffect, useId, useState, type ReactNode } from 'react';
 import { Button } from '@nightpay/ui';
 import { Notice } from '../Notice';
 
-/** Un bloque de Ajustes: título, una línea de ayuda y su contenido. */
-export function SettingsCard({ title, hint, children }: { title: string; hint?: ReactNode; children: ReactNode }) {
+/** Un bloque de Ajustes: título, una línea de ayuda y su contenido (`tour`: su marca para el tutorial). */
+export function SettingsCard({ title, hint, children, tour }: { title: string; hint?: ReactNode; children: ReactNode; tour?: string }) {
   const titleId = useId();
   return (
-    <section className="np-set-card" aria-labelledby={titleId}>
+    <section className="np-set-card" aria-labelledby={titleId} data-tour={tour}>
       <header className="np-set-head">
         <h2 id={titleId} className="np-set-title">
           {title}
