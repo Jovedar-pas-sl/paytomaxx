@@ -9,8 +9,10 @@ import { formatEur } from '@/lib/money';
 import type { TabKey } from '@/lib/roles';
 import type { NightTotals } from '@/lib/today-tiles';
 import { useIncidents } from '@/lib/use-incidents';
+import { useCountUp } from '@/lib/use-count-up';
 import { usePolling } from '@/lib/use-polling';
 import { useVenueTimezone } from '@/lib/venue-context';
+import { Skel } from './Skeleton';
 
 const POLL_MS = 20_000;
 const MAX_POLL_MS = 120_000;
@@ -82,6 +84,10 @@ export function TonightStrip({
     [],
   );
 
+  // Los totales suben contando cuando cambian (medio segundo; sin movimiento, directos).
+  const chargedShown = useCountUp(night ? night.chargedCents : null);
+  const cardCountShown = useCountUp(night ? night.count : null);
+  const pendingShown = useCountUp(pending ? pending.pendingCents : null);
   const openCount = open ? open.length : null;
   const cobradoLine = tonightCobradoNote(night);
   const chargedCents = night ? night.chargedCents : null;
@@ -99,7 +105,10 @@ export function TonightStrip({
           Esta noche
         </h2>
         {night === undefined ? (
-          <span className="np-tonight-since">Cargando…</span>
+          <span className="np-tonight-since" role="status">
+            <Skel width="11rem" height="1rem" />
+            <span className="np-sr-only">Cargando la noche</span>
+          </span>
         ) : night ? (
           <span className="np-tonight-since">Abierta desde las {formatDateTime(night.openedAt, tz, 'time')}</span>
         ) : onNavigate ? (
@@ -114,18 +123,18 @@ export function TonightStrip({
         {/* Qué cuenta: el desglose (o, sin él, de qué está hecho) y, al pasar el ratón, la frase entera. */}
         <div className="np-tonight-fig" data-hero="" title={COBRADO_HELP}>
           <dt>Cobrado</dt>
-          <dd>{night ? formatEur(night.chargedCents) : '—'}</dd>
+          <dd className="np-count">{chargedShown !== null ? formatEur(chargedShown) : night === undefined ? <Skel width="9rem" height="2.75rem" /> : '—'}</dd>
           {cobradoLine ? <span className="np-tonight-note">{cobradoLine}</span> : null}
         </div>
         <div className="np-tonight-fig">
           <dt>Pagos con tarjeta</dt>
-          <dd>{night ? night.count : '—'}</dd>
+          <dd className="np-count">{cardCountShown !== null ? cardCountShown : night === undefined ? <Skel width="3rem" height="1.5rem" /> : '—'}</dd>
         </div>
         <div className="np-tonight-fig">
           {/* «A pagar ya»: lo que se les debe ahora; lo de esta noche sale en el Mapa del dinero
               («Pago a compañeras · al cerrar»). Antes las dos cifras parecían la misma (P-11). */}
           <dt>A pagar ya a compañeras</dt>
-          <dd>{pending ? formatEur(pending.pendingCents) : '—'}</dd>
+          <dd className="np-count">{pendingShown !== null ? formatEur(pendingShown) : <Skel width="6rem" height="1.5rem" />}</dd>
           {pending && pending.operatorCount > 0 ? (
             <span className="np-tonight-note">{pending.operatorCount === 1 ? '1 compañera' : `${pending.operatorCount} compañeras`}</span>
           ) : null}

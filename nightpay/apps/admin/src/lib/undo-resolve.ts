@@ -64,6 +64,11 @@ export function createDelayedActions(timers: Timers = DEFAULT_TIMERS): DelayedAc
   };
 }
 
+/** Milisegundos que quedan para deshacer (nunca negativos). */
+export function undoMsLeft(until: number, now: number): number {
+  return Math.max(0, until - now);
+}
+
 /** Segundos que quedan para deshacer: «10 s» al empezar y nunca «0 s» mientras se puede. */
 export function undoSecondsLeft(until: number, now: number): number {
   return Math.max(0, Math.ceil((until - now) / 1000));

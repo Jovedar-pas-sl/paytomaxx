@@ -12,7 +12,7 @@ import type { TabKey } from '@/lib/roles';
 import { usePolling } from '@/lib/use-polling';
 import { useVenue } from '@/lib/venue-context';
 import { Notice } from '../Notice';
-import { MoneyMapView } from './MoneyMapView';
+import { MoneyMapSkeleton, MoneyMapView } from './MoneyMapView';
 
 const POLL_MS = 30_000;
 const MAX_POLL_MS = 240_000;
@@ -113,7 +113,7 @@ export function MoneyMapPanel({ onNavigate, onOpenCobros }: { onNavigate?: (key:
           onOpen={onOpenCobros ? (target) => onOpenCobros(moneyMapCobrosFilter(map, target)) : undefined}
           onAction={onNavigate ? (action) => onNavigate(action === 'close-cash' ? 'nights' : 'treasury') : undefined}
         />
-      ) : error ? null : <p className="np-mm-note">Cargando…</p>}
+      ) : error ? null : <MoneyMapSkeleton />}
 
       {map ? (
         <p className="np-mm-foot">

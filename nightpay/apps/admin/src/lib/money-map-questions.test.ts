@@ -3,7 +3,7 @@ import { DEFAULT_SECTIONS, SECTION_CODES, type MoneyMap, type VenueSection } fro
 import { moneyMapQuestions } from './money-map-questions';
 
 const SECTIONS: VenueSection[] = SECTION_CODES.map((code) => ({ code, ...DEFAULT_SECTIONS[code] }));
-const sp = (s: string) => s.replace(/ /g, ' ');
+const sp = (s: string) => s.replaceAll(String.fromCharCode(0xa0), ' ');
 
 /** Una noche abierta con cifras inventadas (la de la maqueta 8, ampliada). */
 function map(o: Partial<MoneyMap> = {}): MoneyMap {

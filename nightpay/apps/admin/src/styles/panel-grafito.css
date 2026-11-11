@@ -314,3 +314,15 @@ textarea:focus {
     animation: none;
   }
 }
+
+/* La barra de «Deshacer» dentro de un aviso resuelto: a todo el ancho, bajo las acciones. */
+.np-inbox-item > .np-drain {
+  margin-top: 0.75rem;
+  border-radius: 2px;
+}
+
+/* Una pestaña que aún no se sabe si sale (Datáfonos): su hueco, con una silueta. */
+.np-tab-skel {
+  cursor: default;
+  pointer-events: none;
+}

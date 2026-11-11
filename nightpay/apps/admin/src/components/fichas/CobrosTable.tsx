@@ -11,6 +11,7 @@ import { paidTwiceNote, sectionChip } from '@/lib/money-map';
 import { useSections } from '@/lib/use-sections';
 import { useVenueTimezone } from '@/lib/venue-context';
 import { Pill } from '../Pill';
+import { SkelRows } from '../Skeleton';
 import { useFichas } from './fichas-context';
 import { SectionChip } from './SectionChip';
 
@@ -41,7 +42,7 @@ export function CobrosTable({ rows, actions, empty, hidePerson, extra, showRefer
   const colCount = 8 - (hidePerson ? 1 : 0) + (actions ? 1 : 0) + (extra ? 1 : 0) + (showReferences ? 2 : 0);
   return (
     <div style={{ overflowX: 'auto', minWidth: 0, maxWidth: '100%' }}>
-      <table className={`np-table np-cobros-table${actions ? ' np-cobros-table--acciones' : ''}`} >
+      <table className={`np-table np-cobros-table${actions ? ' np-cobros-table--acciones' : ''}`} aria-busy={rows === null}>
         {/* Anchos fijos en el escritorio (panel-grafito.css): «Servicio», sin ancho, se lleva lo que sobra. */}
         <colgroup>
           <col data-col="hora" />
@@ -152,7 +153,9 @@ export function CobrosTable({ rows, actions, empty, hidePerson, extra, showRefer
               ) : null}
             </tr>
           ))}
-          {rows === null || rows.length === 0 ? (
+          {rows === null ? (
+            <SkelRows cols={colCount} cards={skeletonCards(colCount, Boolean(showReferences), Boolean(hidePerson), Boolean(extra), Boolean(actions))} />
+          ) : rows.length === 0 ? (
             <tr>
               <td colSpan={colCount} style={emptyCell}>
                 {empty}
@@ -163,6 +166,21 @@ export function CobrosTable({ rows, actions, empty, hidePerson, extra, showRefer
       </table>
     </div>
   );
+}
+
+/**
+ * La forma de una tarjeta de cobro mientras carga: hora y ref arriba, importe y
+ * estado, y las acciones; el resto de columnas no se ven en el móvil.
+ */
+function skeletonCards(cols: number, refs: boolean, noPerson: boolean, extra: boolean, actions: boolean): Array<string | undefined> {
+  const out: Array<string | undefined> = ['top', 'top'];
+  if (refs) out.push('hide', 'hide');
+  out.push('amount', 'status');
+  if (!noPerson) out.push('hide');
+  out.push('hide', 'hide', 'hide');
+  if (extra) out.push('hide');
+  if (actions) out.push('actions');
+  return out.slice(0, cols);
 }
 
 /** «Saldo K7Q-•••»: si no cabe, parte por el espacio, nunca por el guion del código. */

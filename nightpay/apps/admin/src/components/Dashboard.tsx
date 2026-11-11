@@ -46,6 +46,7 @@ import { PermissionsPanel } from './settings/PermissionsPanel';
 import { RulesPanel } from './settings/RulesPanel';
 import { SecurityPanel } from './settings/SecurityPanel';
 import { SuperAdminPanel } from './superadmin/SuperAdminPanel';
+import { Skel } from './Skeleton';
 import { TabBar, tabId, tabPanelId } from './TabBar';
 import { TerminalsPanel } from './TerminalsPanel';
 import { TreasuryPanel } from './TreasuryPanel';
@@ -79,7 +80,7 @@ const ROLE_LABELS: Record<User['role'], string> = {
  * pestañas. «Hoy» lleva un solo globo: incidencias + lo que hay por aprobar.
  */
 export function Dashboard({ user, onLogout }: Props) {
-  const venue = useVenueInfo(user);
+  const [venue, venueSettled] = useVenueInfo(user);
   const reports = useCanSeeReports(user);
   // Datáfono apagado en Formas de cobro: fuera la pestaña Datáfonos (y su permiso).
   const [posOn, setPosOn, posKnown] = useVenuePosOn(user);
@@ -157,7 +158,15 @@ export function Dashboard({ user, onLogout }: Props) {
                 <div style={{ borderLeft: '1px solid var(--np-border)', paddingLeft: '1rem', minWidth: 0 }}>
                   <p style={brandKicker}>Panel · local activo</p>
                   {/* El local en grande: con varios locales, que nadie opere en el que no es. */}
-                  <h1 style={brandTitle}>{venue.name ?? user.venueSlug}</h1>
+                  {/* Hasta que llega el nombre, una silueta del mismo alto: nunca el slug («sala-aurora») antes que el nombre. */}
+                  {venue.name || venueSettled ? (
+                    <h1 style={brandTitle}>{venue.name ?? user.venueSlug}</h1>
+                  ) : (
+                    <h1 style={brandTitle} aria-busy="true">
+                      <Skel width="11rem" height="1.375rem" style={{ marginTop: '0.125rem' }} />
+                      <span className="np-sr-only">Cargando el local</span>
+                    </h1>
+                  )}
                 </div>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
@@ -201,7 +210,7 @@ export function Dashboard({ user, onLogout }: Props) {
                 id={tabPanelId(SECTIONS_ID, section.key)}
                 aria-labelledby={tabId(SECTIONS_ID, section.key)}
               >
-                <SectionTabs section={section} active={tab} onChange={goTo} avisosBadge={hoyBadge} />
+                <SectionTabs section={section} active={tab} onChange={goTo} avisosBadge={hoyBadge} pending={posKnown ? [] : ['terminals']} />
                 <div
                   className="np-panel-view"
                   {...(section.tabs.length > 1
@@ -244,11 +253,14 @@ function SectionTabs({
   active,
   onChange,
   avisosBadge,
+  pending,
 }: {
   section: PanelSection;
   active: TabKey;
   onChange: (key: TabKey) => void;
   avisosBadge: { text: string; spoken: string } | null;
+  /** Pestañas que aún no se sabe si salen (Datáfonos): una silueta en su sitio, sin que aparezcan y desaparezcan. */
+  pending: readonly TabKey[];
 }) {
   if (section.tabs.length < 2) return null;
   return (
@@ -261,6 +273,7 @@ function SectionTabs({
       size="sm"
       className="np-subtabs"
       badges={{ incidents: avisosBadge }}
+      pending={pending}
     />
   );
 }
@@ -365,8 +378,10 @@ function ActivePanel(props: ActivePanelProps) {
  * Nombre y zona horaria del local activo (Ajustes del local). Mientras no
  * llegan, o si fallan, se enseña el slug y las horas van en hora de Madrid.
  */
-function useVenueInfo(user: User): VenueInfo {
+function useVenueInfo(user: User): [VenueInfo, boolean] {
   const [info, setInfo] = useState<VenueInfo>({ name: null, slug: user.venueSlug, timezone: DEFAULT_TIMEZONE });
+  /** Ya contestó (bien o mal): sin nombre, la cabecera enseña el slug. */
+  const [settled, setSettled] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -376,13 +391,16 @@ function useVenueInfo(user: User): VenueInfo {
       })
       .catch(() => {
         // Sin ajustes se sigue con el slug y Madrid; cada pestaña enseña sus propios errores.
+      })
+      .finally(() => {
+        if (!cancelled) setSettled(true);
       });
     return () => {
       cancelled = true;
     };
   }, [user.tenantId]);
 
-  return info;
+  return [info, settled];
 }
 
 interface ReportsAccess {

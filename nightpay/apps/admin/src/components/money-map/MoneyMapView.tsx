@@ -8,6 +8,7 @@ import { moneyMapDetails, type MoneyDetail } from '@/lib/money-map-details';
 import { canOpenSection, type MoneyMapTarget } from '@/lib/money-map-cobros';
 import { moneyMapQuestions, type QuestionCard } from '@/lib/money-map-questions';
 import { useSections } from '@/lib/use-sections';
+import { Skel } from '../Skeleton';
 
 interface Props {
   map: MoneyMap;
@@ -103,6 +104,31 @@ export function MoneyMapView({ map, onOpen, onAction }: Props) {
           ))}
         </div>
       </details>
+    </div>
+  );
+}
+
+/** Las cuatro tarjetas y la fila de lo vendido en silueta, mientras llega el mapa. */
+export function MoneyMapSkeleton() {
+  return (
+    <div className="np-mmq" role="status" aria-busy="true">
+      <span className="np-sr-only">Cargando el mapa del dinero…</span>
+      <div className="np-mmq-cards" aria-hidden="true">
+        {[0, 1, 2, 3].map((i) => (
+          <div key={i} className="np-mmq-card">
+            <Skel width="70%" height="1.125rem" />
+            <Skel width="45%" height="2.75rem" />
+            <Skel width="90%" height="0.875rem" />
+          </div>
+        ))}
+      </div>
+      <div className="np-mmq-saldo" aria-hidden="true" style={{ borderColor: 'var(--np-border)', background: 'transparent' }}>
+        <Skel width="60%" height="1rem" />
+      </div>
+      <div className="np-mmq-sold" aria-hidden="true">
+        <Skel width="12rem" height="1.25rem" />
+        <Skel width="16rem" height="1rem" />
+      </div>
     </div>
   );
 }
