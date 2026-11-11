@@ -36,14 +36,14 @@ CREATE UNIQUE INDEX IF NOT EXISTS "service_items_id_tenantId_key" ON "service_it
 
 CREATE TABLE IF NOT EXISTS "service_item_images" (
   "serviceItemId" UUID        PRIMARY KEY,
-  "tenantId"      UUID        NOT NULL REFERENCES "venues"("id") ON DELETE CASCADE,
+  "tenantId"      UUID        NOT NULL REFERENCES "venues"("id") ON DELETE CASCADE ON UPDATE CASCADE,
   "data"          BYTEA       NOT NULL,
   "contentHash"   CHAR(64)    NOT NULL,
   "width"         INTEGER     NOT NULL,
   "height"        INTEGER     NOT NULL,
   "updatedAt"     TIMESTAMPTZ NOT NULL DEFAULT now(),
-  CONSTRAINT "service_item_images_item_fkey" FOREIGN KEY ("serviceItemId", "tenantId")
-    REFERENCES "service_items" ("id", "tenantId") ON DELETE CASCADE,
+  CONSTRAINT "service_item_images_serviceItemId_tenantId_fkey" FOREIGN KEY ("serviceItemId", "tenantId")
+    REFERENCES "service_items" ("id", "tenantId") ON DELETE CASCADE ON UPDATE CASCADE,
   CONSTRAINT "service_item_images_size_valid" CHECK (octet_length("data") BETWEEN 12 AND 65536),
   CONSTRAINT "service_item_images_dims_valid" CHECK ("width" BETWEEN 16 AND 128 AND "height" BETWEEN 16 AND 128),
   CONSTRAINT "service_item_images_hash_valid" CHECK ("contentHash" ~ '^[0-9a-f]{64}$')

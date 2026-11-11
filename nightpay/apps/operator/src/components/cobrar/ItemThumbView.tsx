@@ -22,7 +22,6 @@ export function ItemThumbView({ item, src, failedSrc = null, onError }: ViewProp
   return (
     <span className={styles.thumb} data-thumb={showImage ? 'image' : 'icon'}>
       {showImage ? (
-        // eslint-disable-next-line @next/next/no-img-element -- sin next/image (images.unoptimized): la imagen ya viene reducida a 128 px.
         <img
           className={styles.thumbImg}
           src={src ?? undefined}
