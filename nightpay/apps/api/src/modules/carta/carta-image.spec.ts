@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { checkCartaImage, sniffImage, webpSize } from './carta-image';
+import { CHROME_WEBP_BASE64 } from '../../../test/support/chrome-webp';
 import { JPEG_BYTES, PNG_BYTES, SVG_AS_WEBP, SVG_BYTES, webpFixture } from '../../../test/support/webp-fixture';
 
 describe('carta-image: los bytes mandan, no el nombre', () => {
@@ -18,6 +19,12 @@ describe('carta-image: los bytes mandan, no el nombre', () => {
       expect(res.image).toMatchObject({ width: 128, height: 128 });
       expect(res.image.contentHash).toMatch(/^[0-9a-f]{64}$/);
     }
+  });
+
+  it('un WebP de verdad (el de canvas.toBlob de Chromium, 128×128) se acepta', () => {
+    const res = checkCartaImage(Buffer.from(CHROME_WEBP_BASE64, 'base64'));
+    expect(res.ok).toBe(true);
+    if (res.ok) expect(res.image).toMatchObject({ width: 128, height: 128 });
   });
 
   it('la misma imagen da la misma huella y otra distinta, otra', () => {

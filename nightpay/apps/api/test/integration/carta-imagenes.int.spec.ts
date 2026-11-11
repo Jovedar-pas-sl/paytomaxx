@@ -164,7 +164,7 @@ describe('carta con logo o foto: subir, servir y quitar (Postgres real, RLS forz
     const forged = await prisma
       .asSystem((tx) => tx.$executeRaw`INSERT INTO service_item_images ("serviceItemId","tenantId","data","contentHash","width","height") VALUES (${other.id}::uuid, ${b}::uuid, ${webpFixture()}, ${'e'.repeat(64)}, 128, 128)`)
       .then(() => 'insertada', (e: Error) => e.message);
-    expect(forged).toMatch(/foreign key|service_item_images_item_fkey/i);
+    expect(forged).toMatch(/foreign key|service_item_images_serviceItemId_tenantId_fkey/i);
     const asB = await prisma
       .withTenant(b, (tx) => tx.$executeRaw`INSERT INTO service_item_images ("serviceItemId","tenantId","data","contentHash","width","height") VALUES (${other.id}::uuid, ${a}::uuid, ${webpFixture()}, ${'f'.repeat(64)}, 128, 128)`)
       .then(() => 'insertada', (e: Error) => e.message);

@@ -6,6 +6,7 @@ import { MAX_PACK_COMPONENTS, parseEuroCents, type SectionCode } from '@nightpay
 import { createServiceItem, fetchCarta, updateServiceItem, type ServiceItem, type ServiceItemInput } from '@/lib/api';
 import { groupBySection, packFromDraft, packRemainder, type PartDraft } from '@/lib/carta-form';
 import { CartaTemplate } from './CartaTemplate';
+import { CartaImageEditor, CartaThumb } from './CartaImageEditor';
 import { centsToInput, formatEur } from '@/lib/money';
 import { enabledSections, sectionLabelOf } from '@/lib/money-map';
 import { useSections } from '@/lib/use-sections';
@@ -25,6 +26,7 @@ export function CartaPanel() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState<string | null>(null);
+  const [imageOf, setImageOf] = useState<string | null>(null);
 
   const reload = useCallback(() => {
     setLoadError(null);
@@ -120,6 +122,7 @@ export function CartaPanel() {
                   }}
                 >
                   <div style={rowStyle}>
+                    <CartaThumb item={item} />
                     <div style={{ minWidth: 0, flex: '1 1 12rem' }}>
                       <p style={{ margin: 0, fontWeight: 600, fontSize: '1rem' }}>
                         {item.name}
@@ -142,11 +145,15 @@ export function CartaPanel() {
                       <Button variant="ghost" size="sm" onClick={() => setEditing(item.id)}>
                         Editar
                       </Button>
+                      <Button variant="ghost" size="sm" aria-expanded={imageOf === item.id} onClick={() => setImageOf(imageOf === item.id ? null : item.id)}>
+                        Icono o imagen
+                      </Button>
                       <Button variant="ghost" size="sm" onClick={() => void toggleActive(item)}>
                         {item.active ? 'Desactivar' : 'Activar'}
                       </Button>
                     </div>
                   </div>
+                  {imageOf === item.id ? <CartaImageEditor item={item} onChanged={reload} /> : null}
                 </Card>
               ),
             )}
