@@ -30,7 +30,13 @@ import type { TopUpVenueState } from '../wallets/wallet-topup-rules';
  * persona (una clave así puesta en el cuerpo de una petición del personal no cuenta).
  */
 export const HOME_TOPUP_KEY_PREFIX = 'wcasa:';
-const HOME_TOPUP_KEY_RE = /^wcasa:[0-9a-f]{64}$/;
+/**
+ * Las del cartel de la cola (B16): `wcasa:cola:<HMAC>`. Siguen siendo «Desde
+ * casa» (isHomeTopUpKey), pero sus cuentas de «a medias» y del freno del local
+ * van aparte: lo que pase en la cola no para el enlace de siempre (/r).
+ */
+export const QUEUE_KEY_PREFIX = `${HOME_TOPUP_KEY_PREFIX}cola:`;
+const HOME_TOPUP_KEY_RE = /^wcasa:(?:cola:)?[0-9a-f]{64}$/;
 
 /** Cargas empezadas en todo el local cada HOME_TOPUP_VENUE_WINDOW_S (un local grande no llega ni en su mejor noche). */
 export const HOME_TOPUP_VENUE_MAX = 60;
@@ -42,6 +48,11 @@ export const HOME_TOPUP_UNRESOLVED_WINDOW_MS = 60 * 60 * 1000;
 /** La clave del contador del local en esta ventana (si su caducidad fallara, la siguiente ventana es otra clave). */
 export function venueThrottleKey(venueId: string, nowMs: number = Date.now()): string {
   return `np:home-topup:venue:${venueId}:${Math.floor(nowMs / 1000 / HOME_TOPUP_VENUE_WINDOW_S)}`;
+}
+
+/** La del cartel de la cola, aparte: sus cargas no gastan el freno del enlace de siempre. */
+export function queueThrottleKey(venueId: string, nowMs: number = Date.now()): string {
+  return `np:home-topup:venue-cola:${venueId}:${Math.floor(nowMs / 1000 / HOME_TOPUP_VENUE_WINDOW_S)}`;
 }
 
 /**
@@ -118,9 +129,9 @@ export function homeTopUpProblem(venue: TopUpVenueState): HomeTopUpProblem | nul
  * La Idempotency-Key de la carga sale de la clave del navegador (un doble
  * toque repite la misma) y del local, firmada con el secreto del servidor.
  */
-export function homeTopUpKey(secret: string, venueId: string, clientKey: string): string {
+export function homeTopUpKey(secret: string, venueId: string, clientKey: string, fromQueue = false): string {
   const mac = createHmac('sha256', secret).update(`home-topup:${venueId}:${clientKey}`).digest('hex');
-  return `${HOME_TOPUP_KEY_PREFIX}${mac}`;
+  return `${fromQueue ? QUEUE_KEY_PREFIX : HOME_TOPUP_KEY_PREFIX}${mac}`;
 }
 
 /** ¿Es la carga de un saldo nuevo desde el enlace del local? */

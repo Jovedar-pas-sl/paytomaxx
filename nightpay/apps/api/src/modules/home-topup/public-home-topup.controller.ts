@@ -40,17 +40,21 @@ export class PublicHomeTopUpController {
     @Res() res: FastifyReply,
     /** El QR del cartel de la cola (B16). */
     @Query(QUEUE_PARAM) queueToken?: string,
+    @Req() req?: FastifyRequest,
   ): Promise<void> {
     const { lang, setCookie } = customerLanguage(langQuery, cookies);
     const view = await this.homeTopUps.page(code, cookies, typeof queueToken === 'string' ? queueToken : undefined);
-    // Con el QR del cartel de esta noche: la cookie del móvil (su tope por noche).
-    const device = view?.queue && 'token' in view.queue ? this.homeTopUps.queueDeviceSetCookie(cookies) : null;
-    for (const cookie of [setCookie, device]) if (cookie) res.header('Set-Cookie', cookie);
+    // Con el QR del cartel de esta noche: la cookie del móvil (su tope por noche), con su
+    // tope de móviles nuevos por IP; pasado, sin cookie y la página lo dice.
+    const device =
+      view?.queue && 'token' in view.queue ? await this.homeTopUps.queueDeviceSetCookie(code, cookies, req ? clientIp(req) : null) : null;
+    for (const cookie of [setCookie, device?.cookie]) if (cookie) res.header('Set-Cookie', cookie);
     if (!view) {
       sendHtml(res, 404, renderHomeTopUpGone(lang));
       return;
     }
-    sendHtml(res, 200, renderHomeTopUpPage(code, lang, view));
+    const shown = device?.refused && view.queue && 'token' in view.queue ? { ...view, queue: { token: view.queue.token, noDevice: true as const } } : view;
+    sendHtml(res, 200, renderHomeTopUpPage(code, lang, shown));
   }
 
   @Public()

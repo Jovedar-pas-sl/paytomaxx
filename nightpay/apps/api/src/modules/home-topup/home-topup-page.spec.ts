@@ -259,4 +259,14 @@ describe('/r abierta con el QR del cartel de la cola (B16)', () => {
     expect(html).toContain('This QR was for another night.');
     expect(html).not.toMatch(/queue[^:]*:"[0-9]/);
   });
+
+  it('sin cookie del móvil (muchos móviles nuevos desde esta IP): lo dice en los 4 idiomas y carga como el enlace de siempre', () => {
+    const view = viewFor(null, { queue: { token: '20.abcdefghijklmnopqrstuv', noDevice: true } });
+    const html = renderHomeTopUpPage(CODE, 'es', view);
+    expect(html).toContain('Desde esta conexión ya se han abierto muchas cargas del cartel esta noche.');
+    expect(html).not.toContain('20.abcdefghijklmnopqrstuv');
+    expect(renderHomeTopUpPage(CODE, 'en', view)).toContain('Top up using mobile data (not the wifi)');
+    expect(renderHomeTopUpPage(CODE, 'fr', view)).toContain('données mobiles');
+    expect(renderHomeTopUpPage(CODE, 'pt', view)).toContain('dados móveis');
+  });
 });

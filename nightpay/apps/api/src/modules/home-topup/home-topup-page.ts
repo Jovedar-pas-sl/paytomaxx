@@ -234,11 +234,13 @@ export function renderHomeTopUpPage(code: string, lang: PayLanguage, view: HomeT
   const withFee = (view.serviceFeeBps ?? 0) > 0;
   // El QR del cartel de la cola (B16): el de esta noche carga por /cola; uno de otra noche, aviso y lo de siempre.
   const q = QUEUE_PAGE_TEXT[lang];
-  const queueToken = view.queue && 'token' in view.queue ? view.queue.token : null;
+  // Sin cookie del móvil (muchos móviles nuevos desde esta IP esta noche): lo dice y carga como el enlace de siempre.
+  const noDevice = view.queue !== undefined && 'token' in view.queue && view.queue.noDevice === true;
+  const queueToken = view.queue && 'token' in view.queue && !noDevice ? view.queue.token : null;
   const queueNote = queueToken
     ? `<p class="qnote" role="note">${h(q.note)}</p>`
     : view.queue
-      ? `<p class="qnote" role="status">${h(q.expired)}</p>`
+      ? `<p class="qnote" role="status">${h(noDevice ? q.noDevice : q.expired)}</p>`
       : '';
   const config = jsConfig({
     base,
@@ -255,6 +257,8 @@ export function renderHomeTopUpPage(code: string, lang: PayLanguage, view: HomeT
       HOME_TOPUP_QUEUE_COOKIE: q.noCookies,
       HOME_TOPUP_QUEUE_DEVICE: q.deviceMax,
       HOME_TOPUP_QUEUE_NIGHT: q.nightMax,
+      HOME_TOPUP_QUEUE_IP: q.ipMax,
+      HOME_TOPUP_QUEUE_OPEN: q.open,
     },
     ...(queueToken ? { queue: queueToken } : {}),
   });

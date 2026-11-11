@@ -49,12 +49,25 @@ const payments = new PaymentsService(
   {} as never,
 );
 const counters = new Map<string, number>();
+const store = new Map<string, string>();
 const redis = {
   incr: async (k: string) => {
     counters.set(k, (counters.get(k) ?? 0) + 1);
     return counters.get(k)!;
   },
+  decr: async (k: string) => {
+    counters.set(k, (counters.get(k) ?? 0) - 1);
+    return counters.get(k)!;
+  },
   expire: async () => 1,
+  // La carga sin pagar de cada móvil del cartel (SET NX).
+  set: async (k: string, v: string, ...flags: unknown[]) => {
+    if (flags.includes('NX') && store.has(k)) return null;
+    store.set(k, v);
+    return 'OK';
+  },
+  get: async (k: string) => store.get(k) ?? null,
+  del: async (k: string) => (store.delete(k) ? 1 : 0),
 };
 const config = { get: (k: string) => (k === 'COOKIE_SECRET' ? SECRET : undefined) };
 const audit = { log: vi.fn(async () => undefined) };
@@ -191,22 +204,69 @@ describe('el interruptor y el enlace del local', () => {
 });
 
 describe('el cartel de la cola (B16)', () => {
-  it('desde el wifi del local (una sola IP): más cargas que el tope por IP, con el tope por móvil', async () => {
+  const WIFI = '198.51.100.20';
+  let token = '';
+  const fromQueue = (deviceId: string | null, t: unknown = token) =>
+    pub(() => homeTopUps.start(codeA, { amountCents: 1000, key: key(), lang: 'es', ip: WIFI, queue: { token: t, deviceId } }));
+  /** El cliente no pagó: caduca (y ya no cuenta como sin pagar). */
+  const expire = async (payToken: string) => pub(async () => payments.transition((await paymentOf(payToken)).id, { type: 'TIMEOUT' }));
+  const openIn = (prefix: string) =>
+    sys((tx) =>
+      tx.payment.count({
+        where: {
+          tenantId: A,
+          idempotencyKey: { startsWith: prefix },
+          ...(prefix === 'wcasa:cola:' ? {} : { NOT: { idempotencyKey: { startsWith: 'wcasa:cola:' } } }),
+          status: 'CREATED',
+          qrExpiresAt: { gt: new Date() },
+        },
+      }),
+    );
+
+  beforeAll(async () => {
     const poster = await pub(() => settings.queuePoster(A));
-    const token = decodeURIComponent(poster!.url.split('cola=')[1]!);
-    const WIFI = '198.51.100.20';
-    const fromQueue = (deviceId: string | null, t: unknown = token) =>
-      pub(() => homeTopUps.start(codeA, { amountCents: 1000, key: key(), lang: 'es', ip: WIFI, queue: { token: t, deviceId } }));
-    // 11 móviles distintos tras la misma IP: pasa del tope de 24 h por IP (10) sin tocarlo.
+    token = decodeURIComponent(poster!.url.split('cola=')[1]!);
+  });
+
+  it('desde el wifi del local (una sola IP): más cargas que el tope de 24 h por IP de /r, con el tope por móvil', async () => {
+    // 11 móviles distintos tras la misma IP: pasa del tope de 24 h por IP de /r (10) sin tocarlo.
     for (let i = 0; i < 11; i += 1) await expect(fromQueue(`dev-${r}-${i}`)).resolves.toMatchObject({ payUrl: expect.stringMatching(/^[/]pay[/]/) });
-    expect([...counters.keys()].some((k) => k.includes(WIFI))).toBe(false);
-    // El mismo móvil, como mucho 3 por noche.
+    expect([...counters.keys()].some((k) => k.startsWith('np:home-topup:ip') && k.includes(WIFI))).toBe(false);
+    // Sí cuenta su IP esta noche (holgado: QUEUE_IP_NIGHT_MAX).
+    expect([...counters.entries()].find(([k]) => k.startsWith(`np:home-topup:queue-ip:${A}:`))?.[1]).toBe(11);
+    // El mismo móvil: una sin pagar a la vez y, como mucho, 3 por noche.
     const same = `dev-${r}-same`;
-    for (let i = 0; i < 3; i += 1) await fromQueue(same);
+    for (let i = 0; i < 3; i += 1) {
+      const out = await fromQueue(same);
+      if (i === 0) await expect(fromQueue(same)).rejects.toMatchObject({ response: expect.objectContaining({ code: 'HOME_TOPUP_QUEUE_OPEN' }) });
+      if (i < 2) await expire(out.payToken);
+    }
     await expect(fromQueue(same)).rejects.toMatchObject({ response: expect.objectContaining({ code: 'HOME_TOPUP_QUEUE_DEVICE' }) });
     // Un QR inventado o sin la cookie del móvil: no.
     await expect(fromQueue(`dev-${r}-x`, '1.AAAAAAAAAAAAAAAAAAAAAA')).rejects.toMatchObject({ response: expect.objectContaining({ code: 'HOME_TOPUP_QUEUE_EXPIRED' }) });
     await expect(fromQueue(null)).rejects.toMatchObject({ response: expect.objectContaining({ code: 'HOME_TOPUP_QUEUE_COOKIE' }) });
+  });
+
+  it('las del cartel a medias se cuentan aparte: 20 en la cola paran la cola, no el enlace de siempre (/r)', async () => {
+    expect(await openIn('wcasa:cola:')).toBeGreaterThan(0);
+    for (let i = await openIn('wcasa:cola:'); i < 20; i += 1) await fromQueue(`dev-${r}-m${i}`);
+    await expect(fromQueue(`dev-${r}-m99`)).rejects.toMatchObject({ response: expect.objectContaining({ code: 'HOME_TOPUP_BUSY' }) });
+    await expect(startIn(codeA, 1000)).resolves.toMatchObject({ payUrl: expect.stringMatching(/^[/]pay[/]/) });
+  });
+
+  it('por IP y noche: como mucho 40 cargas desde el cartel y 20 móviles nuevos (después, la página no da cookie)', async () => {
+    const ipKey = [...counters.keys()].find((k) => k.startsWith(`np:home-topup:queue-ip:${A}:`))!;
+    counters.set(ipKey, 40);
+    await expect(fromQueue(`dev-${r}-ip`)).rejects.toMatchObject({ response: expect.objectContaining({ code: 'HOME_TOPUP_QUEUE_IP' }) });
+    expect(counters.get(ipKey)).toBe(40);
+    const cookies = [];
+    for (let i = 0; i < 20; i += 1) cookies.push(await homeTopUps.queueDeviceSetCookie(codeA, undefined, WIFI));
+    expect(cookies.every((c) => c.cookie?.startsWith('np_cola=') && !c.refused)).toBe(true);
+    expect(await homeTopUps.queueDeviceSetCookie(codeA, undefined, WIFI)).toEqual({ cookie: null, refused: true });
+    // Quien ya tiene la suya, la conserva (no gasta otra).
+    expect(await homeTopUps.queueDeviceSetCookie(codeA, cookies[0]!.cookie!.split(';')[0], WIFI)).toEqual({ cookie: null, refused: false });
+    // Desde otra IP (datos del móvil), sí.
+    expect((await homeTopUps.queueDeviceSetCookie(codeA, undefined, '203.0.113.99')).cookie).toMatch(/^np_cola=/);
   });
 });
 
@@ -364,8 +424,17 @@ describe('la comisión del servicio de las recargas', () => {
 
 describe('el freno del local', () => {
   it('20 a medias a la vez: la siguiente, 409 HOME_TOPUP_BUSY; caducadas, no cuentan', async () => {
+    // Las del cartel de la cola van aparte (no cuentan aquí).
     const open = await sys((tx) =>
-      tx.payment.count({ where: { tenantId: A, idempotencyKey: { startsWith: 'wcasa:' }, status: 'CREATED', qrExpiresAt: { gt: new Date() } } }),
+      tx.payment.count({
+        where: {
+          tenantId: A,
+          idempotencyKey: { startsWith: 'wcasa:' },
+          NOT: { idempotencyKey: { startsWith: 'wcasa:cola:' } },
+          status: 'CREATED',
+          qrExpiresAt: { gt: new Date() },
+        },
+      }),
     );
     const started: string[] = [];
     for (let i = open; i < 20; i += 1) started.push((await startIn(codeA, 1000)).payToken);

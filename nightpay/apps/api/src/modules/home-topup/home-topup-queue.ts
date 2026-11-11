@@ -14,8 +14,14 @@ import { HOME_TOPUP_DAY_S, HOME_TOPUP_DAY_START_UTC_S, homeTopUpDay } from './ho
  *  - un tope por móvil (una cookie firmada que pone la página al abrirse con
  *    el QR): QUEUE_DEVICE_MAX cargas por noche;
  *  - un tope por local y noche: QUEUE_NIGHT_MAX cargas desde el cartel;
- *  - y lo de siempre: el freno del local cada 15 min, las que hay en curso a
- *    la vez, 3DS en el pago con tarjeta y cada carga en el registro (audit).
+ *  - como mucho una carga sin pagar a la vez por móvil;
+ *  - por IP y noche, holgados (toda la cola sale por el mismo wifi; solo para
+ *    que un script no invente móviles): QUEUE_COOKIES_PER_IP_MAX móviles
+ *    nuevos (cookies) y QUEUE_IP_NIGHT_MAX cargas desde el cartel;
+ *  - y lo de siempre, pero con cuentas propias (clave `wcasa:cola:`): el freno
+ *    del local cada 15 min y las que hay en curso a la vez, para que lo que
+ *    pase en la cola no pare el enlace de siempre (/r); 3DS en el pago con
+ *    tarjeta y cada carga en el registro (audit).
  * Sin la cookie del móvil (cookies bloqueadas) no se carga desde el cartel.
  */
 
@@ -27,6 +33,14 @@ export const QUEUE_DEVICE_MAX = 3;
 export const QUEUE_NIGHT_MAX = 300;
 /** La cookie del móvil (Path=/r: solo la ve esta página). */
 export const QUEUE_DEVICE_COOKIE = 'np_cola';
+/** Móviles nuevos (cookies del cartel) por IP y noche: pasado eso, la página no da cookie y lo dice. */
+export const QUEUE_COOKIES_PER_IP_MAX = 20;
+/** Cargas desde el cartel (POST /r/:code/cola) por IP y noche. */
+export const QUEUE_IP_NIGHT_MAX = 40;
+/** Cuánto se recuerda la carga sin pagar de un móvil (después, como mucho, la hora de «a medias»). */
+export const QUEUE_OPEN_TTL_S = 60 * 60;
+/** Mientras se crea (si el proceso se cae a medias, el hueco se libera solo). */
+export const QUEUE_PENDING_TTL_S = 60;
 
 const TOKEN_RE = /^([0-9]{1,6})\.([A-Za-z0-9_-]{22})$/;
 const DEVICE_RE = /^([A-Za-z0-9_-]{22})\.([A-Za-z0-9_-]{22})$/;
@@ -110,6 +124,21 @@ export function queueKeys(venueId: string, deviceId: string, nowMs: number = Dat
   };
 }
 
+/** Cargas desde el cartel de esta IP esta noche (ipKey: rateLimitIpKey). */
+export function queueIpKey(venueId: string, ipKey: string, nowMs: number = Date.now()): string {
+  return `np:home-topup:queue-ip:${venueId}:${ipKey}:${homeTopUpDay(nowMs)}`;
+}
+
+/** Móviles nuevos (cookies) que el cartel de este enlace ha dado a esta IP esta noche. */
+export function queueCookieKey(code: string, ipKey: string, nowMs: number = Date.now()): string {
+  return `np:home-topup:queue-cookie:${code}:${ipKey}:${homeTopUpDay(nowMs)}`;
+}
+
+/** La carga sin pagar de este móvil (su id de cobro; «pending» mientras se crea). */
+export function queueOpenKey(venueId: string, deviceId: string): string {
+  return `np:home-topup:queue-open:${venueId}:${deviceId}`;
+}
+
 /**
  * El freno por IP de «Cargar» desde el cartel (POST /r/:code/cola): holgado,
  * porque toda la cola sale por el wifi del local; solo para que un script
@@ -125,13 +154,18 @@ export const QUEUE_START_LIMIT: IpRateLimitConfig = Object.freeze({
 // ─── Textos ─────────────────────────────────────────────────────────
 
 /** Encima de la carga, en la página abierta con el QR del cartel. */
-export const QUEUE_PAGE_TEXT: Readonly<Record<PayLanguage, { note: string; expired: string; noCookies: string; deviceMax: string; nightMax: string }>> = {
+export const QUEUE_PAGE_TEXT: Readonly<
+  Record<PayLanguage, { note: string; expired: string; noCookies: string; deviceMax: string; nightMax: string; noDevice: string; ipMax: string; open: string }>
+> = {
   es: {
     note: 'Carga tu saldo mientras esperas: en recepción solo te darán la ficha.',
     expired: 'Este QR era de otra noche. Escanea el del cartel de hoy o carga en recepción.',
     noCookies: 'Tu navegador no deja guardar la sesión de esta página. Ábrela otra vez desde el QR o carga en recepción.',
     deviceMax: 'Ya has cargado varias veces desde este móvil esta noche. Si necesitas más, pídelo en recepción.',
     nightMax: 'Esta noche ya no se puede cargar desde el cartel. Pídelo en recepción.',
+    noDevice: 'Desde esta conexión ya se han abierto muchas cargas del cartel esta noche. Carga con los datos del móvil (sin el wifi) o en recepción.',
+    ipMax: 'Desde esta conexión ya se ha cargado mucho desde el cartel esta noche. Carga con los datos del móvil (sin el wifi) o en recepción.',
+    open: 'Ya tienes una carga sin pagar en este móvil: págala o espera unos minutos a que caduque.',
   },
   en: {
     note: 'Top up your balance while you wait: at reception they’ll just give you your tag.',
@@ -139,6 +173,9 @@ export const QUEUE_PAGE_TEXT: Readonly<Record<PayLanguage, { note: string; expir
     noCookies: 'Your browser won’t keep this page’s session. Open it again from the QR or top up at reception.',
     deviceMax: 'You’ve already topped up several times from this phone tonight. If you need more, ask at reception.',
     nightMax: 'Topping up from the poster is closed for tonight. Ask at reception.',
+    noDevice: 'Many top-ups from the poster have already been opened on this connection tonight. Top up using mobile data (not the wifi) or at reception.',
+    ipMax: 'A lot has already been topped up from the poster on this connection tonight. Top up using mobile data (not the wifi) or at reception.',
+    open: 'You already have an unpaid top-up on this phone: pay it or wait a few minutes for it to expire.',
   },
   fr: {
     note: 'Rechargez votre solde pendant que vous attendez : à l’accueil, on vous donnera juste votre badge.',
@@ -146,6 +183,9 @@ export const QUEUE_PAGE_TEXT: Readonly<Record<PayLanguage, { note: string; expir
     noCookies: 'Votre navigateur ne garde pas la session de cette page. Rouvrez-la depuis le QR ou rechargez à l’accueil.',
     deviceMax: 'Vous avez déjà rechargé plusieurs fois depuis ce téléphone ce soir. Pour plus, demandez à l’accueil.',
     nightMax: 'La recharge depuis l’affiche est fermée pour ce soir. Demandez à l’accueil.',
+    noDevice: 'Beaucoup de recharges depuis l’affiche ont déjà été ouvertes sur cette connexion ce soir. Rechargez avec les données mobiles (sans le wifi) ou à l’accueil.',
+    ipMax: 'Beaucoup de recharges ont déjà été faites depuis l’affiche sur cette connexion ce soir. Rechargez avec les données mobiles (sans le wifi) ou à l’accueil.',
+    open: 'Vous avez déjà une recharge non payée sur ce téléphone : payez-la ou attendez quelques minutes qu’elle expire.',
   },
   pt: {
     note: 'Carregue o seu saldo enquanto espera: na receção só lhe dão a tag.',
@@ -153,6 +193,9 @@ export const QUEUE_PAGE_TEXT: Readonly<Record<PayLanguage, { note: string; expir
     noCookies: 'O seu navegador não guarda a sessão desta página. Abra-a outra vez a partir do QR ou carregue na receção.',
     deviceMax: 'Já carregou várias vezes a partir deste telefone esta noite. Se precisar de mais, peça na receção.',
     nightMax: 'Esta noite já não se pode carregar a partir do cartaz. Peça na receção.',
+    noDevice: 'Já se abriram muitos carregamentos do cartaz nesta ligação esta noite. Carregue com os dados móveis (sem o wifi) ou na receção.',
+    ipMax: 'Já se carregou muito a partir do cartaz nesta ligação esta noite. Carregue com os dados móveis (sem o wifi) ou na receção.',
+    open: 'Já tem um carregamento por pagar neste telefone: pague-o ou espere uns minutos até expirar.',
   },
 };
 
