@@ -5,11 +5,13 @@ import {
   cartaTemplatePlan,
   initialOfferedSection,
   invitationItemProblem,
+  isCartaIcon,
   isSectionCode,
   packComponentsOf,
   packProblem,
   sameAsSeen,
   sectionsOf,
+  serviceImagePath,
   type TemplateChange,
   type CreateServiceItemDto,
   type ApplyCartaTemplateDto,
@@ -22,6 +24,7 @@ import {
 import { PrismaService, type TransactionalClient } from '../../common/prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { chargeRightsFor } from '../venues/charge-rights';
+import { checkCartaImage, decodeImageBase64 } from './carta-image';
 
 const SELECT = {
   id: true,
@@ -33,6 +36,9 @@ const SELECT = {
   sortOrder: true,
   components: true,
   isInvitation: true,
+  icon: true,
+  // Solo la huella: los bytes de la imagen no viajan con la carta.
+  image: { select: { contentHash: true } },
 } as const;
 
 const ORDER = [{ sortOrder: 'asc' as const }, { priceCents: 'asc' as const }];
@@ -61,8 +67,14 @@ function ticked(plan: TemplateChange<TemplateRow>[], update: NonNullable<ApplyCa
 }
 
 /** La fila tal como la ven las apps (el pack, ya validado; uno raro → sin pack). */
-function view<T extends { components: unknown }>(row: T): ServiceItem {
-  return { ...(row as unknown as ServiceItem), components: packComponentsOf(row.components) };
+function view<T extends { id: string; components: unknown; icon: string | null; image: { contentHash: string } | null }>(row: T): ServiceItem {
+  const { image, ...rest } = row;
+  return {
+    ...(rest as unknown as ServiceItem),
+    components: packComponentsOf(row.components),
+    icon: isCartaIcon(row.icon) ? row.icon : null,
+    imageUrl: image ? serviceImagePath(row.id, image.contentHash.trim()) : null,
+  };
 }
 
 /**
@@ -88,7 +100,8 @@ export class CartaService {
    */
   async listForStaff(tenantId: string, role: string, userId?: string): Promise<ServiceItem[]> {
     const [rows, sections, rights] = await Promise.all([
-      this.prisma.serviceItem.findMany({ where: { tenantId, active: true }, orderBy: ORDER, select: SELECT }),
+      // En una transacción del local: la imagen (FORCE RLS) se lee con el local en la sesión.
+      this.prisma.withTenant(tenantId, (tx) => tx.serviceItem.findMany({ where: { tenantId, active: true }, orderBy: ORDER, select: SELECT })),
       this.venueSections(tenantId),
       userId ? this.prisma.asSystem((tx) => chargeRightsFor(tx, tenantId, { userId, role })) : Promise.resolve(null),
     ]);
@@ -103,11 +116,9 @@ export class CartaService {
 
   /** Carta completa (también desactivados) para el panel. */
   async listAll(tenantId: string): Promise<ServiceItem[]> {
-    const rows = await this.prisma.serviceItem.findMany({
-      where: { tenantId },
-      orderBy: ORDER,
-      select: SELECT,
-    });
+    const rows = await this.prisma.withTenant(tenantId, (tx) =>
+      tx.serviceItem.findMany({ where: { tenantId }, orderBy: ORDER, select: SELECT }),
+    );
     return rows.map(view);
   }
 
@@ -174,6 +185,7 @@ export class CartaService {
           sortOrder: dto.sortOrder ?? 0,
           ...(dto.components ? { components: dto.components } : {}),
           ...(dto.isInvitation ? { isInvitation: true } : {}),
+          ...(dto.icon ? { icon: dto.icon } : {}),
         },
         select: SELECT,
       });
@@ -217,6 +229,7 @@ export class CartaService {
           ...(dto.sortOrder !== undefined ? { sortOrder: dto.sortOrder } : {}),
           ...(dto.active !== undefined ? { active: dto.active } : {}),
           ...(dto.isInvitation !== undefined ? { isInvitation: dto.isInvitation } : {}),
+          ...(dto.icon !== undefined ? { icon: dto.icon } : {}),
           ...(dto.components !== undefined ? { components: dto.components ?? Prisma.DbNull } : {}),
         },
         select: SELECT,
@@ -232,6 +245,67 @@ export class CartaService {
       payload: { before: existing, after: row },
     });
     return view(row);
+  }
+
+  /**
+   * Guarda (o cambia) el logo o la foto del producto: WebP ya comprobado
+   * (carta-image.ts). Bajo el mismo candado de la carta. El producto tiene que
+   * ser de este local; la clave ajena (producto, local) lo asegura también en
+   * la base.
+   */
+  async setImage(tenantId: string, actorId: string, id: string, base64: string): Promise<ServiceItem> {
+    const checked = checkCartaImage(decodeImageBase64(base64));
+    if (!checked.ok) throw new BadRequestException(checked.message);
+    const { data, contentHash, width, height } = checked.image;
+    const row = await this.withCartaLock(tenantId, async (tx) => {
+      const existing = await tx.serviceItem.findFirst({ where: { id, tenantId }, select: { id: true } });
+      if (!existing) throw new NotFoundException('Ese servicio no está en la carta de este local');
+      await tx.serviceItemImage.upsert({
+        where: { serviceItemId: id },
+        create: { serviceItemId: id, tenantId, data, contentHash, width, height },
+        update: { data, contentHash, width, height },
+      });
+      return tx.serviceItem.findFirstOrThrow({ where: { id, tenantId }, select: SELECT });
+    });
+    await this.audit.log({
+      action: 'carta.item.image_set',
+      tenantId,
+      actorId,
+      targetType: 'ServiceItem',
+      targetId: id,
+      payload: { contentHash, bytes: data.length, width, height },
+    });
+    return view(row);
+  }
+
+  /** Quita el logo o la foto (el producto vuelve a su icono). Sin imagen no hace nada. */
+  async removeImage(tenantId: string, actorId: string, id: string): Promise<ServiceItem> {
+    const { row, removed } = await this.withCartaLock(tenantId, async (tx) => {
+      const existing = await tx.serviceItem.findFirst({ where: { id, tenantId }, select: { id: true } });
+      if (!existing) throw new NotFoundException('Ese servicio no está en la carta de este local');
+      const { count } = await tx.serviceItemImage.deleteMany({ where: { serviceItemId: id, tenantId } });
+      return { removed: count, row: await tx.serviceItem.findFirstOrThrow({ where: { id, tenantId }, select: SELECT }) };
+    });
+    if (removed > 0) {
+      await this.audit.log({ action: 'carta.item.image_removed', tenantId, actorId, targetType: 'ServiceItem', targetId: id, payload: {} });
+    }
+    return view(row);
+  }
+
+  /**
+   * Los bytes de la imagen para servirla: la dirección lleva el producto y la
+   * huella, y las dos tienen que coincidir (una huella vieja o de otro
+   * producto → null). Sin sesión (la pide un <img>): el aislamiento es la
+   * propia dirección (UUID + SHA-256), no adivinable, y solo sale la imagen.
+   */
+  async imageFor(id: string, contentHash: string): Promise<{ data: Buffer; contentHash: string } | null> {
+    const row = await this.prisma.asSystem((tx) =>
+      tx.serviceItemImage.findFirst({
+        where: { serviceItemId: id, contentHash },
+        select: { data: true, contentHash: true },
+      }),
+    );
+    return row ? { data: Buffer.from(row.data), contentHash: row.contentHash.trim() } : null;
   }
 
   /** La sección del servicio (y la de cada parte del pack) tiene que estar encendida en el local. */

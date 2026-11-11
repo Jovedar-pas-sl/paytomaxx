@@ -175,3 +175,80 @@ describe('CartaService', () => {
     );
   });
 });
+
+describe('CartaService: logo o foto e icono', () => {
+  const ROW = { id: 'item-1', name: 'Copa', priceCents: 1000, category: 'VENUE_BAR', components: null, icon: null, image: null };
+  function withImages(existing: Record<string, unknown> | null) {
+    const made = makeService(existing);
+    const images = { upsert: vi.fn().mockResolvedValue({}), deleteMany: vi.fn().mockResolvedValue({ count: 1 }), findFirst: vi.fn() };
+    Object.assign(made.prisma, { serviceItemImage: images, serviceItem: { ...made.prisma.serviceItem, findFirstOrThrow: vi.fn().mockResolvedValue({ ...ROW, image: { contentHash: 'b'.repeat(64) } }) } });
+    (made.prisma as unknown as { asSystem: unknown }).asSystem = vi.fn(async (fn: (tx: unknown) => unknown) => fn(made.prisma));
+    return { ...made, images };
+  }
+  const png = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.alloc(100)]).toString('base64');
+
+  it('la carta lleva el icono y la ruta versionada de la imagen (o null)', async () => {
+    const { service, prisma } = makeService();
+    prisma.serviceItem.findMany.mockResolvedValueOnce([
+      { ...ROW, id: 'a', icon: 'gin_tonic', image: { contentHash: 'c'.repeat(64) } },
+      { ...ROW, id: 'b', icon: 'no_existe', image: null },
+    ]);
+    const list = await service.listAll('tenant-1');
+    expect(list[0]).toMatchObject({ icon: 'gin_tonic', imageUrl: `/v1/services/a/image/${'c'.repeat(64)}` });
+    expect(list[1]).toMatchObject({ icon: null, imageUrl: null });
+    expect(JSON.stringify(list)).not.toContain('"image"');
+  });
+
+  it('subir: producto de otro local (o que no existe) → 404 y nada se escribe', async () => {
+    const { service, images, audit } = withImages(null);
+    const bytes = (await import('../../../test/support/webp-fixture')).webpFixture().toString('base64');
+    await expect(service.setImage('tenant-1', 'owner', 'item-1', bytes)).rejects.toBeInstanceOf(NotFoundException);
+    expect(images.upsert).not.toHaveBeenCalled();
+    expect(audit.log).not.toHaveBeenCalled();
+  });
+
+  it('subir: un PNG o un SVG se rechaza antes de tocar la base', async () => {
+    const { service, prisma, images } = withImages({ id: 'item-1' });
+    await expect(service.setImage('tenant-1', 'owner', 'item-1', png)).rejects.toBeInstanceOf(BadRequestException);
+    await expect(service.setImage('tenant-1', 'owner', 'item-1', Buffer.from('<svg/>').toString('base64'))).rejects.toBeInstanceOf(BadRequestException);
+    expect(prisma.withTenant).not.toHaveBeenCalled();
+    expect(images.upsert).not.toHaveBeenCalled();
+  });
+
+  it('subir: guarda con el local del token, bajo el candado, y deja rastro', async () => {
+    const { service, prisma, images, audit } = withImages({ id: 'item-1' });
+    const { webpFixture } = await import('../../../test/support/webp-fixture');
+    const item = await service.setImage('tenant-1', 'owner', 'item-1', webpFixture().toString('base64'));
+    expect(prisma.$queryRaw).toHaveBeenCalledTimes(1);
+    expect(images.upsert.mock.calls[0]![0].create).toMatchObject({ serviceItemId: 'item-1', tenantId: 'tenant-1', width: 128, height: 128 });
+    expect(audit.log).toHaveBeenCalledWith(expect.objectContaining({ action: 'carta.item.image_set', tenantId: 'tenant-1' }));
+    expect(item.imageUrl).toBe(`/v1/services/item-1/image/${'b'.repeat(64)}`);
+  });
+
+  it('quitar: producto de otro local → 404; sin imagen no deja rastro', async () => {
+    const none = withImages(null);
+    await expect(none.service.removeImage('tenant-1', 'owner', 'item-1')).rejects.toBeInstanceOf(NotFoundException);
+    const { service, images, audit } = withImages({ id: 'item-1' });
+    images.deleteMany.mockResolvedValueOnce({ count: 0 });
+    await service.removeImage('tenant-1', 'owner', 'item-1');
+    expect(images.deleteMany.mock.calls[0]![0].where).toEqual({ serviceItemId: 'item-1', tenantId: 'tenant-1' });
+    expect(audit.log).not.toHaveBeenCalled();
+  });
+
+  it('servir: pide producto Y huella; sin coincidencia, null', async () => {
+    const { service, images } = withImages(null);
+    images.findFirst.mockResolvedValueOnce(null);
+    expect(await service.imageFor('item-1', 'd'.repeat(64))).toBeNull();
+    expect(images.findFirst.mock.calls[0]![0].where).toEqual({ serviceItemId: 'item-1', contentHash: 'd'.repeat(64) });
+    images.findFirst.mockResolvedValueOnce({ data: new Uint8Array([1, 2, 3]), contentHash: 'd'.repeat(64) });
+    const hit = await service.imageFor('item-1', 'd'.repeat(64));
+    expect(hit?.data.equals(Buffer.from([1, 2, 3]))).toBe(true);
+  });
+
+  it('el icono se guarda por PATCH y se puede quitar con null', async () => {
+    const { service, prisma } = makeService({ id: 'item-1', name: 'Copa', priceCents: 1000, category: 'VENUE_BAR', components: null });
+    await service.update('tenant-1', 'owner', 'item-1', { icon: 'cerveza' });
+    await service.update('tenant-1', 'owner', 'item-1', { icon: null });
+    expect(prisma.serviceItem.update.mock.calls.map((c) => c[0].data.icon)).toEqual(['cerveza', null]);
+  });
+});

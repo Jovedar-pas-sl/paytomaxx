@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { PackComponentSchema, PackComponentsSchema, packProblem } from './charge-lines';
+import { CartaIconSchema } from './carta-icons';
 import { UuidSchema } from './common';
 import { RevenueCategorySchema } from './payments';
 import { SectionCodeSchema } from './sections';
@@ -26,6 +27,10 @@ export const ServiceItemSchema = z.object({
   components: z.array(PackComponentSchema).nullable(),
   /** «Copa con invitación»: en Copas; la venta se reparte con la chica invitada. */
   isInvitation: z.boolean(),
+  /** Icono de la colección; null = el de su sección. */
+  icon: CartaIconSchema.nullable(),
+  /** Ruta de su logo o foto (versionada por la huella; el navegador la guarda), o null. */
+  imageUrl: z.string().nullable(),
 });
 export type ServiceItem = z.infer<typeof ServiceItemSchema>;
 
@@ -40,6 +45,8 @@ const ServiceItemFieldsSchema = z.object({
   components: PackComponentsSchema.nullable().optional(),
   /** «Copa con invitación» (solo en Copas y sin pack). */
   isInvitation: z.boolean().optional(),
+  /** Icono de la colección (null = el de su sección). */
+  icon: CartaIconSchema.nullable().optional(),
 });
 
 export const CreateServiceItemSchema = ServiceItemFieldsSchema.superRefine((d, ctx) => {
