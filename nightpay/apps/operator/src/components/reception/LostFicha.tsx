@@ -201,11 +201,11 @@ export function LostFicha({ user, onDone }: { user: OperatorUser; onDone: () => 
       {step.kind === 'scan' ? (
         <QrScanner onScan={onScan} onError={onScanError} />
       ) : qrScanSupported() ? (
-        <Button size="lg" disabled={busy} onClick={() => setStep({ kind: 'scan' })}>
+        <Button size="lg" disabled={busy} onClick={() => setStep({ kind: 'scan' })} data-tour="perdida-escanear">
           Escanear su QR
         </Button>
       ) : null}
-      <form onSubmit={submitCode} className={r.form}>
+      <form onSubmit={submitCode} className={r.form} data-tour="perdida-codigo">
         <Input
           label="Su código"
           value={code}
@@ -220,7 +220,7 @@ export function LostFicha({ user, onDone }: { user: OperatorUser; onDone: () => 
           Buscar con el código
         </Button>
       </form>
-      <form onSubmit={submitNumber} className={r.form}>
+      <form onSubmit={submitNumber} className={r.form} data-tour="perdida-numero">
         <Input
           label="El número de su ficha"
           inputMode="numeric"
@@ -241,7 +241,7 @@ export function LostFicha({ user, onDone }: { user: OperatorUser; onDone: () => 
           {error}
         </p>
       ) : null}
-      <Button variant="ghost" disabled={reading !== null} onClick={step.kind === 'find' ? onDone : () => setStep({ kind: 'find' })}>
+      <Button variant="ghost" disabled={reading !== null} onClick={step.kind === 'find' ? onDone : () => setStep({ kind: 'find' })} data-tour="perdida-volver">
         Volver
       </Button>
     </div>

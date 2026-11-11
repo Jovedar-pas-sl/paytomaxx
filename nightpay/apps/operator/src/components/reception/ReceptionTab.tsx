@@ -5,6 +5,8 @@ import type { OperatorUser } from '@/lib/api';
 import { fetchPendingTopUps } from '@/lib/api-noche';
 import { receptionChip, useMySections } from '@/lib/sections';
 import { useVenueMethods } from '@/lib/venue-methods';
+import { ScreenHelp } from '@nightpay/ui';
+import { TOURS, type TourDef } from '@/lib/tours';
 import { DeskHead } from './desk/desk-parts';
 import s from './desk/desk.module.css';
 import { ReceptionDesk } from './desk/ReceptionDesk';
@@ -60,18 +62,18 @@ export function ReceptionTab({ user, active, onOwnHeader }: Props) {
   }, [view, active]);
 
   // Lo de dentro, con la cabecera del mostrador y sin flecha: cada pantalla vuelve con su «Volver».
-  const inner = (body: ReactNode) => (
+  const inner = (body: ReactNode, tour: TourDef | null) => (
     <div className={s.screen}>
-      <DeskHead title="Recepción" sub={user.displayName ?? 'Recepción'} chip={receptionChip(sections)} />
+      <DeskHead title="Recepción" sub={user.displayName ?? 'Recepción'} chip={receptionChip(sections)} help={tour ? <ScreenHelp {...tour} /> : undefined} />
       {body}
     </div>
   );
-  if (view === 'prepare') return inner(<PrepareFichas on="staff" onDone={() => setView('desk')} />);
-  if (view === 'pending') return inner(<PendingTopUps onDone={() => setView('desk')} />);
+  if (view === 'prepare') return inner(<PrepareFichas on="staff" onDone={() => setView('desk')} />, TOURS.prepararFichas);
+  if (view === 'pending') return inner(<PendingTopUps onDone={() => setView('desk')} />, null);
   // B4: pasados los 2 minutos del «Me he equivocado», el encargado o el dueño, desde su móvil.
-  if (view === 'voids') return inner(<CashVoids onDone={() => setView('desk')} />);
+  if (view === 'voids') return inner(<CashVoids onDone={() => setView('desk')} />, null);
   // B6: ficha nueva para quien perdió la suya, con su QR o su PIN; se cobra del saldo.
-  if (view === 'lost') return inner(<LostFicha user={user} onDone={() => setView('desk')} />);
+  if (view === 'lost') return inner(<LostFicha user={user} onDone={() => setView('desk')} />, TOURS.fichaPerdida);
   // El saldo cargado desde casa (o cualquiera sin ficha): su ficha, con su QR o su código y su PIN.
   if (view === 'ficha') {
     return inner(
@@ -85,13 +87,14 @@ export function ReceptionTab({ user, active, onOwnHeader }: Props) {
           setView('desk');
         }}
       />,
+      TOURS.darFicha,
     );
   }
 
   const canPrepare = methods.nfc && reader.via !== null && reader.canWrite;
   // Lo secundario, junto y abajo en una sola fila (Grafito 2): los mismos tres, y las pendientes con su número.
   const footer = (
-    <nav className={s.more} aria-label="Fichas y recargas pendientes">
+    <nav className={s.more} aria-label="Fichas y recargas pendientes" data-tour="recep-mas">
       {canPrepare ? (
         <button type="button" className={s.moreBtn} onClick={() => setView('prepare')}>
           Preparar fichas

@@ -6,29 +6,22 @@ import { MAX_TYPED_AMOUNT_CENTS } from '@nightpay/contracts';
 import { formatEur } from '@/lib/money';
 import type { RecentTopUp } from '@nightpay/contracts';
 import { methodArmed, recentTopUpLine, type EntryRow, type MethodButton, type ExitPlan } from '@/lib/reception-desk';
-import { AMOUNT_HELP, EXIT_HELP, METHOD_HELP, RECEPTION_HELP_SCREENS, cashConfirmText, cashInHandText, tapHelp, turnPhoneText } from '@/lib/reception-help';
-import { HelpAgain, HelpLine, useHelp } from '../../HelpLine';
+import { cashConfirmText, cashInHandText, turnPhoneText } from '@/lib/reception-help';
 import { CodeBoxes, DESK_FIELD, DeskBtn, DeskRowView, FichaNumber, Icon, NfcMark } from './desk-parts';
 import s from './desk.module.css';
 
-/** La pregunta de un paso («¿Cuánto carga?») con, si su ayuda está cerrada, el «?» al lado. */
-function StepQuestion({ text, screen, help }: { text: string; screen: string; help: string }) {
-  const h = useHelp(screen);
+/** La pregunta de un paso («¿Cuánto carga?»); su ayuda es el tutorial del «?» de la cabecera. */
+function StepQuestion({ text }: { text: string }) {
   return (
     <div className={s.qBlock}>
-      <div className={s.qRow}>
-        <p className={s.q}>{text}</p>
-        <HelpAgain help={h} />
-      </div>
-      <HelpLine help={h}>{help}</HelpLine>
+      <p className={s.q}>{text}</p>
     </div>
   );
 }
 
 /**
- * 4.1 (y 4.5 sin nada leído): «Acerca el NFC», sin tocar nada. Debajo, qué
- * hacer (la línea de ayuda, que se cierra); un error, un aviso o el lector
- * parado van en su lugar.
+ * 4.1 (y 4.5 sin nada leído): «Acerca el NFC», sin tocar nada. Un error, un
+ * aviso o el lector parado van en su lugar.
  */
 export function TapStage(props: {
   mode: 'entrada' | 'salida';
@@ -42,7 +35,6 @@ export function TapStage(props: {
   /** «Guardado: R3D-8LP sigue con 35 €»: lo último que se hizo. */
   notice?: string | null;
 }) {
-  const help = useHelp(RECEPTION_HELP_SCREENS.nfc);
   const status = props.stopped ?? props.noReader?.text ?? null;
   const mark = props.noReader ? null : <NfcMark size="l" />;
   const words = (
@@ -70,22 +62,13 @@ export function TapStage(props: {
       </button>
     );
   }
-  // Se anuncia lo que cambia solo (leyendo, un error, un aviso); la ayuda y sus botones, fuera de esa región.
-  const showHelp = !props.error && !props.notice && !status;
+  // Se anuncia lo que cambia solo (leyendo, un error, un aviso).
   return (
-    <div className={s.stage}>
+    <div className={s.stage} data-tour="recep-nfc">
       {mark}
       <div className={s.stageLive} aria-live="polite" aria-busy={props.busy || undefined}>
         {words}
       </div>
-      {showHelp ? (
-        <>
-          <HelpLine help={help} className={s.stageHelp}>
-            {tapHelp(props.mode)}
-          </HelpLine>
-          <HelpAgain help={help} />
-        </>
-      ) : null}
     </div>
   );
 }
@@ -113,7 +96,7 @@ export function AmountStep(props: {
   const recent = recentTopUpLine(props.lastTopUp, shownAt, props.hasFicha ?? true);
   return (
     <>
-      <DeskRowView title={props.row.title} detail={props.row.detail} ficha={props.row.ficha}>
+      <DeskRowView title={props.row.title} detail={props.row.detail} ficha={props.row.ficha} tour="recep-ficha">
         {props.row.hint ? <span className={s.rowHint}>{props.row.hint}</span> : null}
         {props.row.ask ? <span className={s.rowHint}>{props.row.ask}</span> : null}
         {props.onGiveFicha ? (
@@ -128,8 +111,8 @@ export function AmountStep(props: {
           </span>
         ) : null}
       </DeskRowView>
-      <StepQuestion text="¿Cuánto carga?" screen={RECEPTION_HELP_SCREENS.amount} help={AMOUNT_HELP} />
-      <div className={s.quick}>
+      <StepQuestion text="¿Cuánto carga?" />
+      <div className={s.quick} data-tour="recep-importes">
         {props.amounts.map((c) => (
           <button key={c} type="button" className={s.qb} onClick={() => props.onPick(c)}>
             {formatEur(c, { compact: true })}
@@ -139,7 +122,7 @@ export function AmountStep(props: {
           Otro
         </button>
       </div>
-      {props.onPin ? <DeskBtn kind="gho" label="Que elija su PIN" onClick={props.onPin} /> : null}
+      {props.onPin ? <DeskBtn kind="gho" label="Que elija su PIN" onClick={props.onPin} tour="recep-pin" /> : null}
     </>
   );
 }
@@ -196,7 +179,7 @@ export function MethodStep(props: {
     <>
       {/* s.methodTop: las opciones empiezan por debajo de donde estaban los importes. */}
       <div className={s.methodTop} data-ficha={props.ficha ? 'true' : undefined}>
-        <div className={s.bigamt}>
+        <div className={s.bigamt} data-tour="recep-total">
           <span className="np-chip" data-dashed="true">
             {props.chip}
           </span>
@@ -216,7 +199,7 @@ export function MethodStep(props: {
             {turnPhoneText(Boolean(props.ficha))}
           </p>
         </div>
-        <StepQuestion text="¿Cómo paga?" screen={RECEPTION_HELP_SCREENS.method} help={METHOD_HELP} />
+        <StepQuestion text="¿Cómo paga?" />
       </div>
       {props.loading ? <p className={s.lbl}>Cargando…</p> : null}
       {props.blocked ? (
@@ -224,11 +207,12 @@ export function MethodStep(props: {
           {props.blocked}
         </p>
       ) : null}
-      {props.buttons.map((b) => {
+      {props.buttons.map((b, i) => {
         const t = methodText(b.method, props.chargeCents);
         return (
           <DeskBtn
             key={b.method}
+            tour={i === 0 ? 'recep-metodos' : undefined}
             kind={b.primary ? 'pri' : 'gho'}
             icon={t.icon}
             label={t.label}
@@ -247,7 +231,7 @@ export function MethodStep(props: {
         </p>
       ))}
       {props.pinNote ? (
-        <p className={s.note}>
+        <p className={s.note} data-tour="recep-nota">
           <Icon name="lock" />
           {props.pinNote}
         </p>
@@ -305,24 +289,6 @@ export function CashConfirmStep(props: {
   );
 }
 
-/**
- * La salida: qué hace «Devolver» y qué hace «Guardar», en su línea de ayuda
- * (se cierra con «Entendido»; el «?» al lado de «Le quedan» la vuelve a abrir).
- * Los botones no cambian de tamaño ni de orden.
- */
-export function ExitHelp() {
-  const help = useHelp(RECEPTION_HELP_SCREENS.exit);
-  return (
-    <div className={s.qBlock}>
-      <div className={s.qRow}>
-        <span />
-        <HelpAgain help={help} />
-      </div>
-      <HelpLine help={help}>{EXIT_HELP}</HelpLine>
-    </div>
-  );
-}
-
 /** 4.5: a la salida, lo que le queda; guardar (de fábrica, en lima) o devolverlo en efectivo. */
 export function ExitStep(props: {
   row: { title: string; detail: string };
@@ -336,12 +302,11 @@ export function ExitStep(props: {
   return (
     <>
       <DeskRowView title={props.row.title} detail={props.row.detail} />
-      <div className={s.bigamt}>
+      <div className={s.bigamt} data-tour="recep-quedan">
         <span className={s.kick}>{plan.balanceCents > 0 ? 'Le quedan' : 'No le queda saldo'}</span>
         <p className={s.bignum}>{formatEur(plan.balanceCents, { compact: true })}</p>
       </div>
-      <ExitHelp />
-      <DeskBtn kind="pri" label="Guardar para la próxima" small={plan.keepDetail} onClick={props.onKeep} disabled={props.busy} />
+      <DeskBtn kind="pri" label="Guardar para la próxima" small={plan.keepDetail} onClick={props.onKeep} disabled={props.busy} tour="recep-guardar" />
       {plan.refundLabel ? (
         <DeskBtn
           kind="gho"
@@ -350,6 +315,7 @@ export function ExitStep(props: {
           onClick={props.onRefund}
           disabled={plan.refundBlocked !== null}
           busy={props.busy}
+          tour="recep-devolver"
         />
       ) : null}
       {plan.note && !plan.refundBlocked?.includes(plan.note) ? <p className={s.lbl}>{plan.note}</p> : null}

@@ -1,7 +1,9 @@
 'use client';
 
 import { Fragment, useCallback, useEffect, useRef, type CSSProperties, type ReactNode } from 'react';
+import { ScreenHelp } from '@nightpay/ui';
 import { STICKY_ACTION_BOTTOM } from '../layout';
+import { TOURS } from '@/lib/tours';
 import { formatEur } from '@/lib/money';
 import { cartaGroups, cartaTileColor, cartaTiles, tapOf } from '@/lib/carta-tiles';
 import { cobrarLabel, itemTileKey, tileLabel, undoFocusTarget, type UndoTap } from '@/lib/carta-view';
@@ -81,10 +83,11 @@ export function Carta({
         subtitle={who}
         onLogo={onLogo}
         extra={headerExtra}
+        help={<ScreenHelp {...TOURS.cobrar} ready={!busy && cuenta.length === 0} />}
         chip={chip ? <Chip color={chip.color}>{chip.label}</Chip> : null}
       />
       <div className={styles.body}>
-        <div className={styles.tiles}>
+        <div className={styles.tiles} data-tour="cobrar-carta">
           {/* Clave con el orden: un pack de una sección ajena puede repetir sección más abajo. */}
           {groups.map((group, i) => (
             <Fragment key={`${group.section}-${i}`}>
@@ -98,7 +101,7 @@ export function Carta({
             </Fragment>
           ))}
           {/* «Otro importe», encima de «Cobrar» también con la carta entera (sin propinas: las elige el cliente al pagar). */}
-          <div className={styles.lastRow} style={{ '--n': 2 } as CSSProperties} data-n={1} data-big={big || undefined}>
+          <div className={styles.lastRow} style={{ '--n': 2 } as CSSProperties} data-n={1} data-big={big || undefined} data-tour="cobrar-otro">
             <button type="button" className={`${styles.tile} ${styles.tileOther}${big ? ` ${styles.tileBig}` : ''}`} onClick={onOtro}>
               <span className={styles.tileName}>Otro importe</span>
               <span>{codes.length > 1 ? 'Teclearlo y elegir sección' : 'Teclearlo'}</span>
@@ -132,7 +135,7 @@ export function Carta({
         </span>
         {cuenta.length > 0 ? (
           // data-sum + tabIndex -1: si «Deshacer» se va con el foco y la loseta no está, el foco viene aquí.
-          <div className={styles.sum} data-sum="" tabIndex={-1}>
+          <div className={styles.sum} data-sum="" tabIndex={-1} data-tour="cobrar-resumen">
             {undo && onUndo ? (
               <>
                 <span className={`${styles.grow} ${styles.added}`}>{undo.label}</span>
@@ -163,6 +166,7 @@ export function Carta({
           disabled={!canCharge}
           aria-busy={busy || undefined}
           onClick={onCobrar}
+          data-tour="cobrar-cobrar"
         >
           {cobrarLabel({ busy, empty: cuenta.length === 0, totalCents: totals.totalCents })}
         </button>

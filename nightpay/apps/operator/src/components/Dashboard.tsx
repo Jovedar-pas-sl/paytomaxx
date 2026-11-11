@@ -1,12 +1,13 @@
 'use client';
 
 import { useCallback, useEffect, useState, type CSSProperties, type ReactNode } from 'react';
-import { Card, Logo } from '@nightpay/ui';
+import { Card, Logo, ScreenHelp } from '@nightpay/ui';
 import { primeAlertSound } from '@/lib/alert-sound';
 import type { OperatorUser } from '@/lib/api';
 import { clearFichaContext } from '@/lib/ficha-context';
 import { tabForOpenCharge, useOpenCharges } from '@/lib/open-charges';
 import { roleAccess, type TabKey } from '@/lib/roles';
+import { TOURS } from '@/lib/tours';
 import { useUrlTab } from '@/lib/use-url-tab';
 import {
   MyRightsContext,
@@ -109,6 +110,9 @@ export function Dashboard({ user, onLogout }: Props) {
           <button type="button" className={cobrarStyles.logoTile} onClick={openMenu} aria-label="Menú">
             <Logo variant="symbol" height="2.625rem" alt="" />
           </button>
+          {/* El «?» de Cobros y de Ganancias, junto al logo (cada pantalla con su tutorial). */}
+          {tab === 'payments' && showing('payments') ? <ScreenHelp {...TOURS.cobros} ready={!charges.open} /> : null}
+          {tab === 'earnings' && showing('earnings') ? <ScreenHelp {...TOURS.ganancias} ready={!charges.open} /> : null}
         </header>
       )}
       {/* Instalada en un iPhone o un iPad: que abra Safari para la ficha y la cámara (fuera de un cobro). */}
@@ -214,7 +218,7 @@ const panelStyle: CSSProperties = {
 const headerStyle: CSSProperties = {
   display: 'flex',
   alignItems: 'center',
-  justifyContent: 'space-between',
+  gap: '0.5rem',
   paddingBottom: 'calc(var(--np-gap) * 0.75)',
   borderBottom: '1px solid var(--np-border)',
 };

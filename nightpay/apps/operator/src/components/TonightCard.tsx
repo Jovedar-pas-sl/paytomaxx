@@ -38,7 +38,7 @@ export function TonightCard({ night, summary, holdDays, compact = false, onOpen,
   const color = !night || cents === 0 ? 'var(--np-text-mute)' : cents < 0 ? 'var(--np-danger)' : 'var(--np-text)';
 
   return (
-    <button type="button" className={styles.hero} data-compact={compact} onClick={onOpen}>
+    <button type="button" className={styles.hero} data-compact={compact} onClick={onOpen} data-tour="ganancias-noche">
       <span style={topLine}>
         <span style={kicker}>Esta noche{who ? ` · ${who}` : ''}</span>
         {status ? <TonePill tone={status.tone} /> : null}

@@ -34,6 +34,7 @@ export function ScreenHeader({
   onBack,
   onLogo,
   extra,
+  help,
 }: {
   title: string;
   subtitle?: string | null;
@@ -44,6 +45,8 @@ export function ScreenHeader({
   onLogo?: () => void;
   /** Un botón más, antes del chip (p. ej. «Mi QR» de la chica). */
   extra?: ReactNode;
+  /** El «?» con el tutorial de la pantalla (ScreenHelp), junto al logo. */
+  help?: ReactNode;
 }) {
   return (
     <header className={styles.head}>
@@ -58,6 +61,7 @@ export function ScreenHeader({
       ) : (
         <Logo variant="symbol" height="2.625rem" />
       )}
+      {help}
       <div className={styles.headText}>
         <b>{title}</b>
         {subtitle ? <span>{subtitle}</span> : null}

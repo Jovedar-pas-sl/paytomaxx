@@ -172,7 +172,7 @@ describe('TPV en el móvil: el importe arriba, el QR debajo y «Cancelar cobro»
   it('el cobro usa esas clases (en la tableta, como estaba: el QR y el importe en dos columnas)', () => {
     expect(tsx).toContain('<div className={styles.grid}>');
     expect(tsx).toContain('<Card className={styles.amount}');
-    expect(tsx).toContain('<div className={styles.actions}>');
+    expect(tsx).toContain('<div className={styles.actions} data-tour="tpv-cancelar">');
     expect(css).toMatch(/\.grid \{\s*display: grid;\s*grid-template-columns: repeat\(auto-fit, minmax\(min\(100%, 20rem\), 1fr\)\);/);
   });
 });

@@ -39,6 +39,6 @@ describe('«¿Cómo paga?» y el doble toque', () => {
     const withFicha = css.slice(css.indexOf(".methodTop[data-ficha='true'] {"), css.indexOf('}', css.indexOf(".methodTop[data-ficha='true'] {")));
     expect(withFicha).toContain('min-height: 19rem');
     const steps = read('../components/reception/desk/DeskSteps.tsx');
-    expect(steps).toMatch(/<div className=\{s\.methodTop\} data-ficha=\{props\.ficha \? 'true' : undefined\}>\s*<div className=\{s\.bigamt\}>[\s\S]*?<StepQuestion text="¿Cómo paga\?"/);
+    expect(steps).toMatch(/<div className=\{s\.methodTop\} data-ficha=\{props\.ficha \? 'true' : undefined\}>\s*<div className=\{s\.bigamt\} data-tour="recep-total">[\s\S]*?<StepQuestion text="¿Cómo paga\?"/);
   });
 });

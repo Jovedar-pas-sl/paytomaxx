@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { confirmationCode, type PaymentStatus } from '@nightpay/contracts';
-import { countdownPhase, formatClock, qrDeadline, secondsLeft, useNow, useWakeLock } from '@nightpay/ui';
+import { countdownPhase, formatClock, qrDeadline, secondsLeft, useNow, useWakeLock, ScreenHelp } from '@nightpay/ui';
 import { getUser } from '@/lib/api';
 import { clearFichaContext, saveFichaContext } from '@/lib/ficha-context';
 import { formatEur } from '@/lib/money';
@@ -63,6 +63,7 @@ import { IconLock, IconNfc, IconQr } from './icons';
 import { PinScreen } from './PinScreen';
 import { pinTipSetup } from '@/lib/pin-tip';
 import { WAIT_TITLE_EN } from '@/lib/pin-pad';
+import { TOURS } from '@/lib/tours';
 import { ScreenHeader } from './ScreenHeader';
 import { SinMovil, type SaldoForPin } from './SinMovil';
 import styles from './cobrar.module.css';
@@ -634,9 +635,9 @@ function Waiting({
 
   return (
     <div className={styles.screen}>
-      <ScreenHeader title={cobro.band.title} subtitle={cobro.band.detail} />
+      <ScreenHeader title={cobro.band.title} subtitle={cobro.band.detail} help={<ScreenHelp {...TOURS.esperando} ready={false} />} />
       <div className={styles.waitBody}>
-        <p className={styles.amountXl}>{formatEur(cobro.totalCents, { compact: true })}</p>
+        <p className={styles.amountXl} data-tour="esperando-importe">{formatEur(cobro.totalCents, { compact: true })}</p>
         {/* La propina que marcó el personal, a la vista del cliente antes de pagar (PS-A1), como en el PAGADO. */}
         {staffTip ? (
           <p className={styles.meta}>
@@ -657,12 +658,12 @@ function Waiting({
           {nfcOn ? WAIT_TITLE_EN.nfc : WAIT_TITLE_EN.qr}
         </p>
         {hasQr ? (
-          <div className={styles.qr} style={{ opacity: left <= 0 ? 0.3 : 1 }}>
+          <div className={styles.qr} style={{ opacity: left <= 0 ? 0.3 : 1 }} data-tour="esperando-qr">
             <CobroQr value={qrUrl} fallbackPng={qrPng} quiet={2} label="QR del cobro: el cliente lo escanea con su móvil" />
           </div>
         ) : null}
         {hasQr || nfcOn ? (
-          <p className={styles.ways}>
+          <p className={styles.ways} data-tour="esperando-formas">
             {/* Invitación: «Tarjeta, QR o ficha, sin PIN» (sin ficha, «Tarjeta o QR»; sin QR, «Ficha, sin PIN»). */}
             {hasQr ? <span>{invite ? (nfcOn ? 'Tarjeta, QR' : 'Tarjeta o QR') : 'Con tu móvil'}</span> : null}
             {hasQr && nfcOn ? <span aria-hidden="true">o</span> : null}
@@ -674,7 +675,7 @@ function Waiting({
             ) : null}
           </p>
         ) : null}
-        <p className={`${styles.live}${ending || slowBank ? ` ${styles.liveEnding}` : ''}`}>
+        <p className={`${styles.live}${ending || slowBank ? ` ${styles.liveEnding}` : ''}`} data-tour="esperando-estado">
           {/* Viva: un punto que late y lo que pasa, también para el lector de pantalla (cambia solo al cambiar de fase). */}
           <span className={styles.liveNow} role="status" aria-live="polite" data-bank-wait={wait.stage}>
             <i aria-hidden="true" />
@@ -694,7 +695,7 @@ function Waiting({
         {/* Lo raro (antes, solo en «Saldo»): sin móvil ni ficha, su código o su pase y su PIN aquí.
             Justo debajo del QR: a la vista también en un móvil bajo. */}
         {onSinMovil ? (
-          <button type="button" className={styles.altLink} onClick={onSinMovil}>
+          <button type="button" className={styles.altLink} onClick={onSinMovil} data-tour="esperando-sinmovil">
             {SIN_MOVIL_LABEL}
           </button>
         ) : null}
@@ -705,7 +706,7 @@ function Waiting({
           </p>
         ) : null}
       </div>
-      <div className={`${styles.foot} ${styles.footFlat}`}>{children}</div>
+      <div className={`${styles.foot} ${styles.footFlat}`} data-tour="esperando-cancelar">{children}</div>
     </div>
   );
 }

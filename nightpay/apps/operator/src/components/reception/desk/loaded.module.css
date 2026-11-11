@@ -64,10 +64,14 @@
   font-weight: 500;
 }
 
-/* CARGADO: qué hacer ahora (HelpLine), del ancho del bloque y en la crema
-   del resultado (8,4:1): el t2 de las pantallas oscuras se ve azulado sobre
-   el verde. Doble clase: gana a la de la línea. */
+/* CARGADO: qué hacer ahora con el dinero y la ficha, del ancho del bloque y en
+   la crema del resultado (8,4:1): el t2 de las pantallas oscuras se ve
+   azulado sobre el verde. */
 .resHelp.resHelp {
+  margin: 0;
+  font-size: 0.9375rem;
+  line-height: 1.4;
+  text-wrap: pretty;
   max-width: 26rem;
   color: color-mix(in srgb, var(--np-outcome-ink) 85%, transparent);
 }

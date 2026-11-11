@@ -1,7 +1,9 @@
 'use client';
 
 import type { CSSProperties } from 'react';
+import { ScreenHelp } from '@nightpay/ui';
 import { STICKY_ACTION_BOTTOM } from '../layout';
+import { TOURS } from '@/lib/tours';
 import { formatEur } from '@/lib/money';
 import { cobrarLabel } from '@/lib/carta-view';
 import { pinExpected, pinWarning } from '@/lib/cobro-view';
@@ -48,19 +50,19 @@ export function LaCuenta({ ctx, cuenta, who, onQty, onRemove, onAdd, onBack, onC
 
   return (
     <div className={styles.screen}>
-      <ScreenHeader title="La cuenta" subtitle={who} onBack={onBack} chip={chip} />
+      <ScreenHeader title="La cuenta" subtitle={who} onBack={onBack} chip={chip} help={<ScreenHelp {...TOURS.cuenta} ready={!busy} />} />
       <div className={styles.body}>
-        <div className={styles.lines}>
+        <div className={styles.lines} data-tour="cuenta-lineas">
           {cuenta.map((line) => (
             <Line key={line.key} line={line} label={label} onQty={onQty} onRemove={onRemove} />
           ))}
         </div>
-        <button type="button" className={styles.addRow} onClick={onAdd}>
+        <button type="button" className={styles.addRow} onClick={onAdd} data-tour="cuenta-anadir">
           <IconPlus />
           Añadir algo de la carta
         </button>
         {parts.length > 0 ? (
-          <div className={styles.split}>
+          <div className={styles.split} data-tour="cuenta-reparto">
             <span className={styles.label}>Cómo se reparte</span>
             <div className={styles.sleg}>
               {parts.map((p) => (
@@ -77,7 +79,7 @@ export function LaCuenta({ ctx, cuenta, who, onQty, onRemove, onAdd, onBack, onC
             {pinWarning(ctx.night)}
           </div>
         ) : null}
-        <div className={styles.total}>
+        <div className={styles.total} data-tour="cuenta-total">
           <span>Total</span>
           <b>{formatEur(totals.totalCents, { compact: true })}</b>
         </div>
@@ -89,6 +91,7 @@ export function LaCuenta({ ctx, cuenta, who, onQty, onRemove, onAdd, onBack, onC
           disabled={!canCharge}
           aria-busy={busy || undefined}
           onClick={onCobrar}
+          data-tour="cuenta-cobrar"
         >
           {cobrarLabel({ busy, empty: false, totalCents: totals.totalCents })}
         </button>

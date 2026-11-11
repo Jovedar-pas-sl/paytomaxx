@@ -2,6 +2,8 @@
 
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type { FichaCheck, ReceptionOptions } from '@nightpay/contracts';
+import { ScreenHelp } from '@nightpay/ui';
+import { TOURS } from '@/lib/tours';
 import { createPayment, fetchTerminals, type CreatedPayment, type OperatorUser } from '@/lib/api';
 import { playOutcomeSound } from '@/lib/alert-sound';
 import type { ChipTap } from '@/lib/chip-tap';
@@ -563,7 +565,16 @@ export function ReceptionDesk({ user, active, footer, onGiveFicha, onScanHome, h
   const name = user.displayName ?? 'Recepción';
   // La sección de las entradas con el nombre del local (Ajustes → Secciones), no el de fábrica.
   const chip = receptionChip(sections);
-  const head = (onBack?: () => void) => <DeskHead title={home ? 'Recargar saldo' : 'Recepción'} sub={name} chip={chip} onBack={onBack} />;
+  // El «?» de la cabecera: el tutorial del paso que se ve (lectura, importe, cómo paga, salida).
+  const stepHelp = (at: Step) => {
+    if (at.kind === 'tap') return <ScreenHelp {...TOURS.recepcionLectura} ready={!busy} />;
+    // Importe, cómo paga y salida son una recarga a medias, con el cliente delante: solo con el «?».
+    if (at.kind === 'amount') return <ScreenHelp {...TOURS.recepcionImporte} ready={false} />;
+    if (at.kind === 'method') return <ScreenHelp {...TOURS.recepcionPago} ready={false} />;
+    if (at.kind === 'exit' || at.kind === 'exitNumber') return <ScreenHelp {...TOURS.recepcionSalida} ready={false} />;
+    return undefined;
+  };
+  const head = (onBack?: () => void) => <DeskHead title={home ? 'Recargar saldo' : 'Recepción'} sub={name} chip={chip} onBack={onBack} help={stepHelp(step)} />;
 
   if (step.kind === 'exitPin') {
     return <PinPad mode="enter"
@@ -672,7 +683,7 @@ export function ReceptionDesk({ user, active, footer, onGiveFicha, onScanHome, h
           {head(step.kind === 'tap' ? home?.onExit : () => restart('salida'))}
           {/* B12: desde Inicio solo se recarga (la salida es de Recepción). */}
           {home ? null : (
-            <div className={s.seg} role="group" aria-label="Entrada o salida">
+            <div className={s.seg} role="group" aria-label="Entrada o salida" data-tour="recep-modo">
               {(['entrada', 'salida'] as const).map((m) => (
                 <button key={m} type="button" className={s.segBtn} aria-pressed={mode === m} onClick={() => restart(m)}>
                   {m === 'entrada' ? 'Entrada' : 'Salida'}
@@ -700,7 +711,7 @@ export function ReceptionDesk({ user, active, footer, onGiveFicha, onScanHome, h
           />
           <div className={s.foot}>
             {/* Lo que no es acercarla: filas de lista, sin competir con el NFC. */}
-            <div className={s.rows}>
+            <div className={s.rows} data-tour="recep-otras">
               {/* B5: quien cargó desde casa llega con su QR: su ficha, sin buscar en el pie. */}
               {onScanHome && mode === 'entrada' ? <DeskRowLink label="Escanear su QR (cargó en casa)" onClick={onScanHome} /> : null}
               {/* B4: «Me he equivocado» sigue a mano sus 2 minutos, aunque CARGADO ya se cerrara. */}

@@ -196,7 +196,7 @@ export function GiveFicha({
               Acerca la ficha… (cancelar)
             </Button>
           ) : (
-            <Button size="lg" loading={busy} disabled={!reader.via} onClick={() => void tapAndGive(step.found)}>
+            <Button size="lg" loading={busy} disabled={!reader.via} onClick={() => void tapAndGive(step.found)} data-tour="dar-acercar">
               Acercar la ficha
             </Button>
           )}
@@ -210,11 +210,11 @@ export function GiveFicha({
           {step.kind === 'scan' ? (
             <QrScanner onScan={onScan} onError={onScanError} />
           ) : qrScanSupported() ? (
-            <Button size="lg" disabled={busy || !nfcOn} onClick={() => setStep({ kind: 'scan' })}>
+            <Button size="lg" disabled={busy || !nfcOn} onClick={() => setStep({ kind: 'scan' })} data-tour="dar-escanear">
               Escanear su QR
             </Button>
           ) : null}
-          <form onSubmit={byCode} className={r.form}>
+          <form onSubmit={byCode} className={r.form} data-tour="dar-codigo">
             <Input
               label="Código del saldo"
               value={code}
@@ -236,7 +236,7 @@ export function GiveFicha({
           {error}
         </p>
       ) : null}
-      <Button variant="ghost" disabled={reading !== null} onClick={step.kind === 'find' ? onDone : () => setStep({ kind: 'find' })}>
+      <Button variant="ghost" disabled={reading !== null} onClick={step.kind === 'find' ? onDone : () => setStep({ kind: 'find' })} data-tour="dar-volver">
         Volver
       </Button>
     </div>

@@ -1,11 +1,10 @@
 'use client';
 
 import { useEffect, useId, useRef, useState, type CSSProperties, type ReactNode } from 'react';
-import { SectionChip } from '@nightpay/ui';
+import { ScreenHelp, SectionChip } from '@nightpay/ui';
 import { playOutcomeSound } from '@/lib/alert-sound';
 import { formatEur } from '@/lib/money';
-import { RECEPTION_HELP_SCREENS } from '@/lib/reception-help';
-import { HelpAgain, HelpLine, useHelp } from '../../HelpLine';
+import { TOURS } from '@/lib/tours';
 import { CounterAviso, FichaNumber, Icon } from './desk-parts';
 import s from './loaded.module.css';
 
@@ -81,7 +80,6 @@ export function DeskLoaded({
   tertiary = null,
 }: Props) {
   const titleId = useId();
-  const helpState = useHelp(RECEPTION_HELP_SCREENS.loaded);
   const primaryRef = useRef<HTMLButtonElement>(null);
   const amount = formatEur(amountCents, { compact: true });
   // El anuncio va a una región que ya existe (si nace con el texto, muchos lectores no lo leen).
@@ -100,7 +98,8 @@ export function DeskLoaded({
         <div className="np-outcome-top">
           <SectionChip section="VENUE_ENTRY">Recepción</SectionChip>
           {reference ? <span className="np-outcome-ref">{reference}</span> : null}
-          {help ? <HelpAgain help={helpState} /> : null}
+          {/* CARGADO es un resultado: el tutorial no sale solo, solo con el «?». */}
+          <ScreenHelp {...TOURS.recepcionCargado} ready={false} />
         </div>
         {aviso ? <CounterAviso text={aviso} className={s.resAviso} /> : null}
         {/* La marca y la palabra: una debajo de otra; en una pantalla baja, en la misma fila. */}
@@ -110,7 +109,7 @@ export function DeskLoaded({
               <path d="M5 12.5l4.5 4.5L19 7.5" />
             </svg>
           </span>
-          <h2 id={titleId} className="np-outcome-title" style={{ '--np-fit': Math.max(4, word.length * 0.74).toFixed(2) } as CSSProperties}>
+          <h2 id={titleId} className="np-outcome-title" data-tour="recep-cargado" style={{ '--np-fit': Math.max(4, word.length * 0.74).toFixed(2) } as CSSProperties}>
             {word}
           </h2>
         </div>
@@ -127,11 +126,7 @@ export function DeskLoaded({
         ) : null}
         <p className={s.resMeta}>{meta}</p>
         {ids ? <LoadedIdsView ids={ids} /> : null}
-        {help ? (
-          <HelpLine help={helpState} className={s.resHelp}>
-            {help}
-          </HelpLine>
-        ) : null}
+        {help ? <p className={s.resHelp}>{help}</p> : null}
         {warn ? (
           <p role="alert" className={s.resWarn}>
             {warn}
@@ -146,7 +141,7 @@ export function DeskLoaded({
         {extra}
       </div>
       <div className={s.resFoot}>
-        <div className="np-outcome-actions">
+        <div className="np-outcome-actions" data-tour="recep-siguiente">
           <button ref={primaryRef} type="button" className="np-outcome-btn" data-variant="primary" onClick={primary.onClick}>
             {primary.label}
           </button>
@@ -199,7 +194,7 @@ function LoadedIdsView({ ids }: { ids: LoadedIds }) {
   return (
     <>
       {ids.ficha || ids.code ? (
-        <div className={s.ids}>
+        <div className={s.ids} data-tour="recep-ids">
           {ids.ficha ? (
             <div className={s.idCell}>
               <span className={s.idKey}>Ficha</span>

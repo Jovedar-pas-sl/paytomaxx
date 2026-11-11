@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
-import { Input } from '@nightpay/ui';
+import { Input, ScreenHelp } from '@nightpay/ui';
 import { checkPass, lookupCode, type SaldoRef } from '@/lib/api-cobro';
 import { formatEur } from '@/lib/money';
 import {
@@ -17,6 +17,7 @@ import {
 } from '@/lib/sin-movil';
 import { passCheckProblem } from '@/lib/wallet-pass';
 import { QrScanner, qrScanSupported } from '../QrScanner';
+import { TOURS } from '@/lib/tours';
 import { ScreenHeader } from './ScreenHeader';
 import styles from './cobrar.module.css';
 
@@ -148,11 +149,11 @@ export function SinMovil({ chargeId, amountCents, what, onReady, onBack }: Props
   const amount = formatEur(amountCents, { compact: true });
   return (
     <div className={styles.screen}>
-      <ScreenHeader title={SIN_MOVIL_LABEL} subtitle={`${amount} · ${what}`} onBack={mode === 'menu' ? onBack : () => go('menu')} />
+      <ScreenHeader title={SIN_MOVIL_LABEL} subtitle={`${amount} · ${what}`} onBack={mode === 'menu' ? onBack : () => go('menu')} help={<ScreenHelp {...TOURS.sinMovil} ready={false} />} />
       <div className={styles.body}>
         {mode === 'menu' ? (
           <>
-            <button type="button" className={`${styles.btn} ${styles.ghost} ${styles.altOpt}`} onClick={() => go('code')}>
+            <button type="button" className={`${styles.btn} ${styles.ghost} ${styles.altOpt}`} onClick={() => go('code')} data-tour="sinmovil-opciones">
               Su código + PIN
               <small>El código de su saldo (K7Q-4M2) y su PIN aquí</small>
             </button>
@@ -164,7 +165,7 @@ export function SinMovil({ chargeId, amountCents, what, onReady, onBack }: Props
           </>
         ) : null}
         {mode === 'code' ? (
-          <form onSubmit={(e) => void findCode(e)} className={styles.altForm}>
+          <form onSubmit={(e) => void findCode(e)} className={styles.altForm} data-tour="sinmovil-codigo">
             <Input
               label="Código del cliente"
               value={code}
@@ -188,7 +189,7 @@ export function SinMovil({ chargeId, amountCents, what, onReady, onBack }: Props
         {mode === 'pass' ? (
           scanner ? (
             <>
-              <p className={styles.altHint}>Apunta al QR de su pase de Google Wallet o al de la página de su saldo.</p>
+              <p className={styles.altHint} data-tour="sinmovil-pase">Apunta al QR de su pase de Google Wallet o al de la página de su saldo.</p>
               {busy ? (
                 <p className={styles.altHint}>Comprobando el pase…</p>
               ) : (
@@ -205,7 +206,7 @@ export function SinMovil({ chargeId, amountCents, what, onReady, onBack }: Props
           </p>
         ) : null}
         {mode !== 'menu' ? (
-          <button type="button" className={styles.altLink} onClick={() => go('menu')} disabled={busy}>
+          <button type="button" className={styles.altLink} onClick={() => go('menu')} disabled={busy} data-tour="sinmovil-otra">
             Otra forma de pagar
           </button>
         ) : null}

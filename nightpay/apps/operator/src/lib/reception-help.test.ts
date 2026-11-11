@@ -1,26 +1,13 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import type { ReceptionDeskView } from '@nightpay/contracts';
-import { AMOUNT_HELP, EXIT_HELP, METHOD_HELP, RECEPTION_HELP_SCREENS, cashConfirmText, cashInHandText, handOverOf, loadedHelp, tapHelp, turnPhoneText } from './reception-help';
+import { AMOUNT_HELP, METHOD_HELP, cashConfirmText, cashInHandText, handOverOf, loadedHelp, tapHelp, turnPhoneText } from './reception-help';
 
 const NEW = { kind: 'new' } as unknown as ReceptionDeskView;
 const SALDO_FICHA = { kind: 'saldo', fichaNumber: 'F1', code: 'K7Q-4M2' } as unknown as ReceptionDeskView;
 const SALDO_CODIGO = { kind: 'saldo', fichaNumber: null, code: 'K7Q-4M2' } as unknown as ReceptionDeskView;
 
-describe('la ayuda de cada paso de Recepción', () => {
-  it('una clave por paso (cerrar una no cierra las otras)', () => {
-    const keys = Object.values(RECEPTION_HELP_SCREENS);
-    expect(new Set(keys).size).toBe(keys.length);
-    expect(keys).toEqual(['recepcion-nfc', 'recepcion-importe', 'recepcion-pago', 'recepcion-cargado', 'recepcion-salida']);
-  });
-
-  it('la salida: qué hace «Devolver» y qué hace «Guardar», sin caducidades', () => {
-    expect(EXIT_HELP).toContain('Devolver: le das ahora en efectivo lo que cargó en efectivo');
-    expect(EXIT_HELP).toContain('lo de tarjeta se lo devuelve el local a su tarjeta');
-    expect(EXIT_HELP).toContain('Guardar: se queda en su ficha y su código para otra noche.');
-    expect(EXIT_HELP).not.toMatch(/caduc|días|NFC/i);
-  });
-
+describe('los textos de cada paso de Recepción', () => {
   it('acerca el NFC, el importe y cómo paga: qué hacer, en una línea', () => {
     expect(tapHelp('entrada')).toBe('Pon la ficha del cliente detrás del móvil: la app sabe si es nueva o si ya tiene saldo.');
     expect(tapHelp('salida')).toBe('Pon su ficha detrás del móvil para ver lo que le queda.');
