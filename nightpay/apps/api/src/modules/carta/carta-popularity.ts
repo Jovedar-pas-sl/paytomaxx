@@ -16,15 +16,32 @@ export interface SoldLine {
   serviceItemId: string | null;
   qty: number;
   paid: boolean;
+  /**
+   * El cobro de la línea (paymentId o walletChargeId). Un pack guarda una línea
+   * por parte, todas del mismo cobro y producto con la misma qty: cuentan una
+   * vez (la mayor). Sin cobro, la línea cuenta sola.
+   */
+  chargeId?: string | null;
 }
 
 /** Unidades vendidas de cada producto activo (las líneas sin pagar o de otro producto no cuentan). */
 export function unitsByItem(activeIds: readonly string[], lines: readonly SoldLine[]): Record<string, number> {
   const units: Record<string, number> = Object.fromEntries(activeIds.map((id) => [id, 0]));
+  // Por cobro y producto, una sola vez: las partes de un pack no se suman entre sí.
+  const perCharge = new Map<string, { itemId: string; qty: number }>();
   for (const l of lines) {
     if (!l.paid || !l.serviceItemId || !(l.serviceItemId in units)) continue;
-    units[l.serviceItemId] = (units[l.serviceItemId] ?? 0) + Math.max(0, l.qty);
+    const qty = Math.max(0, l.qty);
+    if (!l.chargeId) {
+      units[l.serviceItemId] = (units[l.serviceItemId] ?? 0) + qty;
+      continue;
+    }
+    const key = `${l.chargeId}\u0000${l.serviceItemId}`;
+    const seen = perCharge.get(key);
+    if (!seen) perCharge.set(key, { itemId: l.serviceItemId, qty });
+    else seen.qty = Math.max(seen.qty, qty);
   }
+  for (const { itemId, qty } of perCharge.values()) units[itemId] = (units[itemId] ?? 0) + qty;
   return units;
 }
 

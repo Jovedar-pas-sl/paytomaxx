@@ -144,13 +144,31 @@ export class CartaService {
     const rows = ranges.length
       ? await tx.paymentLine.findMany({
           where: { tenantId, serviceItemId: { in: activeIds }, OR: ranges },
-          select: { serviceItemId: true, qty: true, payment: { select: { status: true } }, walletCharge: { select: { status: true } } },
+          select: {
+            serviceItemId: true,
+            qty: true,
+            paymentId: true,
+            walletChargeId: true,
+            payment: { select: { status: true } },
+            walletCharge: { select: { status: true, consumptionId: true } },
+          },
         })
       : [];
+    // Un consumo del saldo anulado después (el dinero volvió al saldo) no se vendió: como un cobro con tarjeta devuelto.
+    const consumptionIds = [...new Set(rows.flatMap((r) => (r.walletCharge?.consumptionId ? [r.walletCharge.consumptionId] : [])))];
+    const reversed = new Set(
+      consumptionIds.length
+        ? (await tx.walletConsumption.findMany({ where: { tenantId, id: { in: consumptionIds }, reversedAt: { not: null } }, select: { id: true } })).map((c) => c.id)
+        : [],
+    );
     const lines: SoldLine[] = rows.map((r) => ({
       serviceItemId: r.serviceItemId,
       qty: r.qty,
-      paid: r.payment ? PAID_CARD.has(r.payment.status) : r.walletCharge?.status === 'ACCEPTED',
+      paid: r.payment
+        ? PAID_CARD.has(r.payment.status)
+        : r.walletCharge?.status === 'ACCEPTED' && !(r.walletCharge.consumptionId !== null && reversed.has(r.walletCharge.consumptionId)),
+      // Las partes de un pack (una línea por parte, mismo cobro y producto) cuentan una vez.
+      chargeId: r.paymentId ?? r.walletChargeId ?? null,
     }));
     const fresh: CartaOrderSnapshot = { computedAt: new Date().toISOString(), units: unitsByItem(activeIds, lines) };
     // Solo si sigue vacío: dos móviles pidiendo a la vez no se pisan.

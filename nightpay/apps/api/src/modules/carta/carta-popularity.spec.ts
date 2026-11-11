@@ -16,6 +16,21 @@ describe('los más pedidos arriba: cuenta y orden (puro)', () => {
     expect(units).toEqual({ a: 5, b: 0, c: 0 });
   });
 
+  it('un pack guarda una línea por parte (mismo cobro y producto): cuenta una vez, no una por parte', () => {
+    const units = unitsByItem(['pack', 'copa'], [
+      // «1 h con habitación» (dos partes) vendido una vez…
+      { serviceItemId: 'pack', qty: 1, paid: true, chargeId: 'p1' },
+      { serviceItemId: 'pack', qty: 1, paid: true, chargeId: 'p1' },
+      // …y dos veces en otro cobro.
+      { serviceItemId: 'pack', qty: 2, paid: true, chargeId: 'p2' },
+      { serviceItemId: 'pack', qty: 2, paid: true, chargeId: 'p2' },
+      { serviceItemId: 'copa', qty: 3, paid: true, chargeId: 'p2' },
+      // Una línea sin cobro cuenta sola.
+      { serviceItemId: 'copa', qty: 1, paid: true },
+    ]);
+    expect(units).toEqual({ pack: 3, copa: 4 });
+  });
+
   it('los más vendidos primero; empates y sin ventas, el orden manual', () => {
     const manual = [{ id: 'a' }, { id: 'b' }, { id: 'c' }, { id: 'd' }];
     const out = sortByPopularity(manual, SNAP({ a: 0, b: 7, c: 7, d: 0 }));
@@ -62,6 +77,7 @@ function setup() {
       }),
     },
     paymentLine: { findMany: vi.fn(async () => sales) },
+    walletConsumption: { findMany: vi.fn(async () => [] as Array<{ id: string }>) },
     venue: { findUnique: vi.fn().mockResolvedValue({ sections: null }) },
   };
   const prisma = { withTenant: vi.fn(async (_t: string, fn: (x: typeof tx) => unknown) => fn(tx)), venue: tx.venue };
@@ -101,6 +117,24 @@ describe('la carta de la noche (servicio)', () => {
     expect((await service.listForStaff('t1', 'WAITER')).map((i) => i.id)).toEqual(['a', 'b', 'c']);
     expect(tx.paymentLine.findMany).not.toHaveBeenCalled();
     expect((open.cartaOrder as { units: Record<string, number> }).units).toEqual({ a: 0, b: 0, c: 0 });
+  });
+
+  it('un pack cuenta una vez por cobro, y un consumo del saldo anulado no cuenta', async () => {
+    const { service, tx, open, setSales } = setup();
+    setSales([
+      // Un pack de dos partes vendido una vez con tarjeta: dos líneas del mismo cobro.
+      { serviceItemId: 'a', qty: 1, paymentId: 'p1', walletChargeId: null, payment: { status: 'AUTHORIZED' }, walletCharge: null },
+      { serviceItemId: 'a', qty: 1, paymentId: 'p1', walletChargeId: null, payment: { status: 'AUTHORIZED' }, walletCharge: null },
+      // Dos copas con el saldo, anuladas después (el dinero volvió al saldo).
+      { serviceItemId: 'b', qty: 2, paymentId: null, walletChargeId: 'w1', payment: null, walletCharge: { status: 'ACCEPTED', consumptionId: 'c1' } },
+      // Una copa con el saldo que sí se vendió.
+      { serviceItemId: 'c', qty: 1, paymentId: null, walletChargeId: 'w2', payment: null, walletCharge: { status: 'ACCEPTED', consumptionId: 'c2' } },
+    ] as never);
+    tx.walletConsumption.findMany.mockResolvedValue([{ id: 'c1' }]);
+    await service.listForStaff('t1', 'WAITER');
+    expect((open.cartaOrder as { units: Record<string, number> }).units).toEqual({ a: 1, b: 0, c: 1 });
+    // Solo los consumos de esas líneas, del local y anulados.
+    expect(tx.walletConsumption.findMany.mock.calls[0]![0]).toMatchObject({ where: { tenantId: 't1', id: { in: ['c1', 'c2'] }, reversedAt: { not: null } } });
   });
 
   it('un producto nuevo a media noche va al final de la lista', async () => {
