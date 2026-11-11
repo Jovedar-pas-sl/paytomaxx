@@ -80,19 +80,18 @@ interface Pair {
 const PAIRS: Pair[] = [
   { what: 'sección cerrada (t1) sobre el fondo', fg: '--np-nav-ink', bg: '--np-bg', oscuro: 17.40, claro: 16.23, text: true },
   { what: 'sección cerrada al pasar el ratón', fg: '--np-nav-ink', bg: '--np-surface', oscuro: 16.23, claro: 17.23, text: true },
-  { what: 'sección abierta: su texto sobre su fondo', fg: '--np-nav-on-ink', bg: '--np-nav-on-bg', oscuro: 11.82, claro: 8.66, text: true },
-  { what: 'sección abierta al pasar el ratón', fg: '--np-nav-on-ink', bg: '--np-nav-on-bg-hover', oscuro: 11.03, claro: 9.49, text: true },
-  { what: 'subrayado de la abierta (3 px) junto al fondo', fg: '--np-nav-on-bar', bg: '--np-bg', oscuro: 11.82, claro: 13.10, text: false },
-  { what: 'subrayado de la abierta sobre su fondo (en claro, la lima)', fg: '--np-nav-on-bar', bg: '--np-nav-on-bg', oscuro: 11.82, claro: 8.66, text: false },
+  { what: 'sección abierta: su texto sobre su fondo', fg: '--np-nav-on-ink', bg: '--np-nav-on-bg', oscuro: 16.13, claro: 11.82, text: true },
+  { what: 'sección abierta al pasar el ratón', fg: '--np-nav-on-ink', bg: '--np-nav-on-bg-hover', oscuro: 15.05, claro: 8.57, text: true },
+  { what: 'subrayado de la abierta (3 px) junto al fondo', fg: '--np-nav-on-bar', bg: '--np-bg', oscuro: 16.13, claro: 13.10, text: false },
   { what: 'pastilla cerrada: t1 sobre la superficie', fg: '--np-nav-ink', bg: '--np-nav-pill-bg', oscuro: 16.23, claro: 17.23, text: true },
   { what: 'pastilla cerrada al pasar el ratón', fg: '--np-nav-ink', bg: '--np-nav-pill-bg-hover', oscuro: 14.99, claro: 14.85, text: true },
-  { what: 'pastilla abierta: tinta sobre lima', fg: '--np-nav-pill-on-ink', bg: '--np-nav-pill-on-bg', oscuro: 8.66, claro: 8.66, text: true },
-  { what: 'pastilla abierta al pasar el ratón', fg: '--np-nav-pill-on-ink', bg: '--np-nav-pill-on-bg-hover', oscuro: 9.67, claro: 9.49, text: true },
-  { what: 'filete de la pastilla abierta junto al fondo', fg: '--np-nav-pill-on-edge', bg: '--np-bg', oscuro: 11.82, claro: 13.10, text: false },
+  { what: 'pastilla abierta: tinta sobre crema (en claro, crema sobre tinta)', fg: '--np-nav-pill-on-ink', bg: '--np-nav-pill-on-bg', oscuro: 11.82, claro: 11.82, text: true },
+  { what: 'pastilla abierta al pasar el ratón', fg: '--np-nav-pill-on-ink', bg: '--np-nav-pill-on-bg-hover', oscuro: 12.69, claro: 8.57, text: true },
+  { what: 'filete de la pastilla abierta junto al fondo', fg: '--np-nav-pill-on-edge', bg: '--np-bg', oscuro: 16.13, claro: 13.10, text: false },
   { what: 'barra de abajo: etiqueta cerrada (t1)', fg: '--np-nav-ink', bg: '--np-bg', oscuro: 17.40, claro: 16.23, text: true },
-  { what: 'barra de abajo: etiqueta abierta', fg: '--np-nav-dock-on-ink', bg: '--np-bg', oscuro: 11.82, claro: 13.10, text: true },
-  { what: 'barra de abajo: icono abierto sobre su pastilla', fg: '--np-nav-dock-on-icon', bg: '--np-nav-dock-on-bg', oscuro: 11.82, claro: 8.66, text: false },
-  { what: 'barra de abajo: raya de 3 px junto al fondo (solo oscuro)', fg: '--np-nav-dock-on-bar', bg: '--np-bg', oscuro: 11.82, claro: null, text: false },
+  { what: 'barra de abajo: etiqueta abierta', fg: '--np-nav-dock-on-ink', bg: '--np-bg', oscuro: 16.13, claro: 13.10, text: true },
+  { what: 'barra de abajo: icono abierto sobre su pastilla', fg: '--np-nav-dock-on-icon', bg: '--np-nav-dock-on-bg', oscuro: 16.13, claro: 11.82, text: false },
+  { what: 'barra de abajo: raya de 3 px junto al fondo (solo oscuro)', fg: '--np-nav-dock-on-bar', bg: '--np-bg', oscuro: 16.13, claro: null, text: false },
   { what: 'barra de abajo: filete de la pastilla del icono junto al fondo (solo claro)', fg: '--np-nav-dock-on-edge', bg: '--np-bg', oscuro: null, claro: 13.10, text: false },
 ];
 
@@ -114,24 +113,34 @@ describe('colores del menú del panel: contraste con los tokens de verdad', () =
     });
   }
 
-  it('en claro la lima no va como texto ni como raya: sobre el papel no llega a 3:1', () => {
-    const t = THEMES.claro;
-    expect(ratio(resolve(t, '--np-lime'), resolve(t, '--np-bg'))).toBeLessThan(3);
-    for (const fg of ['--np-nav-on-ink', '--np-nav-on-bar', '--np-nav-dock-on-ink', '--np-nav-dock-on-icon']) {
-      expect(resolve(t, fg), fg).not.toBe(resolve(t, '--np-lime'));
-    }
-    // La lima sí, de fondo: la sección abierta, la pastilla y detrás del icono.
-    for (const bg of ['--np-nav-on-bg', '--np-nav-pill-on-bg', '--np-nav-dock-on-bg']) {
-      expect(resolve(t, bg), bg).toBe(resolve(t, '--np-lime'));
+  it('la lima no marca lo elegido en ningún tema: es solo del botón de la acción principal', () => {
+    for (const name of ['oscuro', 'claro'] as const) {
+      const t = THEMES[name];
+      for (const token of [
+        '--np-nav-on-ink', '--np-nav-on-bg', '--np-nav-on-bar', '--np-nav-pill-on-bg', '--np-nav-pill-on-edge',
+        '--np-nav-dock-on-ink', '--np-nav-dock-on-icon', '--np-nav-dock-on-bar', '--np-nav-dock-on-bg',
+      ]) {
+        expect(resolve(t, token), `${name} ${token}`).not.toBe(resolve(t, '--np-lime'));
+      }
     }
   });
 
-  it('en oscuro la abierta es lima (texto, subrayado e icono), no t1', () => {
+  it('en oscuro lo elegido es crema (texto, subrayado, icono y pastilla), no t1', () => {
     const t = THEMES.oscuro;
     for (const fg of ['--np-nav-on-ink', '--np-nav-on-bar', '--np-nav-dock-on-ink', '--np-nav-dock-on-icon', '--np-nav-pill-on-bg']) {
-      expect(resolve(t, fg), fg).toBe(resolve(t, '--np-lime'));
+      expect(resolve(t, fg), fg).toBe(resolve(t, '--np-cream'));
     }
     expect(resolve(t, '--np-nav-ink')).toBe(resolve(t, '--np-text'));
+  });
+
+  it('en claro lo elegido va en tinta con el texto en crema', () => {
+    const t = THEMES.claro;
+    for (const bg of ['--np-nav-on-bg', '--np-nav-pill-on-bg', '--np-nav-dock-on-bg']) {
+      expect(resolve(t, bg), bg).toBe(resolve(t, '--np-ink'));
+    }
+    for (const fg of ['--np-nav-on-ink', '--np-nav-pill-on-ink', '--np-nav-dock-on-icon']) {
+      expect(resolve(t, fg), fg).toBe(resolve(t, '--np-cream'));
+    }
   });
 });
 

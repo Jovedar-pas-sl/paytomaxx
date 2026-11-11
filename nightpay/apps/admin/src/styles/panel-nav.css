@@ -9,55 +9,58 @@
   --np-filter-fs: 0.875rem;
 }
 
-/* ─── Colores del menú (Grafito 2) ──────────────────────────────────
-   El dueño veía el menú apagado. Las secciones que no están abiertas, en t1;
-   la abierta, en lima (es lo elegido). En oscuro, texto lima y subrayado
-   lima de 3 px. En claro la lima no se lee como texto ni como raya fina
-   sobre el papel: va de fondo, con tinta encima y la raya en tinta. Las
-   pestañas de dentro, pastillas: la abierta en lima con tinta. Contraste
-   comprobado (≥ 4,5:1 el texto) en lib/panel-nav-colors.test.ts. */
+/* ─── Colores del menú (Grafito 3) ──────────────────────────────────
+   La lima es solo para lo que se toca para actuar (el botón principal): lo
+   ELEGIDO del menú va en crema. En oscuro, la sección abierta lleva texto y
+   subrayado crema de 3 px; las pastillas de dentro (Cobros, Mapa, Avisos),
+   fondo crema con tinta. En claro lo elegido va en tinta con el texto en
+   crema (la crema no se vería sobre el papel). Contraste comprobado (≥ 4,5:1
+   el texto) en lib/panel-nav-colors.test.ts. */
 
 :root,
 [data-theme='dark'] {
   --np-nav-ink: var(--np-text);
-  --np-nav-on-ink: var(--np-lime);
+  --np-nav-on-ink: var(--np-cream);
   --np-nav-on-bg: transparent;
   --np-nav-on-bg-hover: var(--np-surface);
-  --np-nav-on-bar: var(--np-lime);
+  --np-nav-on-bar: var(--np-cream);
   --np-nav-pill-bg: var(--np-surface);
   --np-nav-pill-bg-hover: var(--np-surface-2);
   --np-nav-pill-edge: var(--np-border);
-  --np-nav-pill-on-bg: var(--np-lime);
-  --np-nav-pill-on-bg-hover: var(--np-primary-bg-hover);
+  --np-nav-pill-on-bg: var(--np-cream);
+  --np-nav-pill-on-bg-hover: #f6f1e9;
   --np-nav-pill-on-ink: var(--np-ink);
-  --np-nav-pill-on-edge: var(--np-lime);
-  /* Barra de abajo: en oscuro, el icono y la etiqueta en lima, sin fondo, y
+  --np-nav-pill-on-edge: var(--np-cream);
+  /* Barra de abajo: en oscuro, el icono y la etiqueta en crema, sin fondo, y
      la raya de 3 px arriba. */
-  --np-nav-dock-on-ink: var(--np-lime);
-  --np-nav-dock-on-icon: var(--np-lime);
+  --np-nav-dock-on-ink: var(--np-cream);
+  --np-nav-dock-on-icon: var(--np-cream);
   --np-nav-dock-on-bg: transparent;
   --np-nav-dock-on-edge: transparent;
-  --np-nav-dock-on-bar: var(--np-lime);
+  --np-nav-dock-on-bar: var(--np-cream);
 }
 
 [data-theme='light'] {
-  --np-nav-on-ink: var(--np-ink);
-  --np-nav-on-bg: var(--np-lime);
-  --np-nav-on-bg-hover: var(--np-primary-bg-hover);
+  --np-nav-on-ink: var(--np-cream);
+  --np-nav-on-bg: var(--np-ink);
+  --np-nav-on-bg-hover: var(--np-accent-2);
   --np-nav-on-bar: var(--np-ink);
+  --np-nav-pill-on-bg: var(--np-ink);
+  --np-nav-pill-on-bg-hover: var(--np-accent-2);
+  --np-nav-pill-on-ink: var(--np-cream);
   --np-nav-pill-on-edge: var(--np-ink);
-  /* En claro, una pastilla lima con filete de tinta detrás del icono (como
-     las de dentro) y la etiqueta en tinta; sin la raya, que la tocaba. */
+  /* En claro, una pastilla de tinta con el icono en crema detrás (como las
+     de dentro) y la etiqueta en tinta; sin la raya, que la tocaba. */
   --np-nav-dock-on-ink: var(--np-ink);
-  --np-nav-dock-on-icon: var(--np-ink);
-  --np-nav-dock-on-bg: var(--np-lime);
+  --np-nav-dock-on-icon: var(--np-cream);
+  --np-nav-dock-on-bg: var(--np-ink);
   --np-nav-dock-on-edge: var(--np-ink);
   --np-nav-dock-on-bar: transparent;
 }
 
 /* ─── Pestañas de las secciones (escritorio) ────────────────────────
-   40 px; las cerradas en t1 y la abierta en lima con subrayado de 3 px (en
-   claro, la lima de fondo con tinta). Además del color, el subrayado y el
+   40 px; las cerradas en t1 y la abierta en crema con subrayado de 3 px (en
+   claro, fondo de tinta con texto crema). Además del color, el subrayado y el
    600 la marcan. */
 
 .np-tabbar {
@@ -84,7 +87,7 @@
   color: var(--np-nav-ink);
   font-family: inherit;
   font-size: 1rem;
-  font-weight: 500;
+  font-weight: 400;
   white-space: nowrap;
   cursor: pointer;
   transition:
@@ -138,8 +141,8 @@
 }
 
 /* ─── Pestañas de dentro (Cobros, Mapa del dinero, Avisos…): pastillas ──
-   Sobre la superficie con filete; la abierta, lima con tinta (en claro, con
-   un filete de tinta para que se separe del papel). Sin subrayado. */
+   Sobre la superficie con filete; la abierta, crema con tinta (en claro, de
+   tinta con texto crema). Sin subrayado. */
 
 .np-tabbar[data-size='sm'] {
   gap: 0.5rem;
@@ -220,8 +223,8 @@
   background: transparent;
   color: var(--np-nav-ink);
   font-family: inherit;
-  font-size: 0.75rem;
-  font-weight: 500;
+  font-size: 0.875rem;
+  font-weight: 400;
   -webkit-tap-highlight-color: transparent;
   transition: color var(--np-d-fast);
 }
@@ -307,7 +310,7 @@
   background: var(--np-text);
   color: var(--np-bg);
   font-family: var(--np-font-mono);
-  font-size: 0.75rem;
+  font-size: 0.875rem;
   font-weight: 600;
   line-height: 1;
   display: inline-flex;
@@ -371,7 +374,7 @@
 .np-2fa-banner p {
   flex: 1 1 18rem;
   margin: 0;
-  font-size: 0.9375rem;
+  font-size: 1rem;
   line-height: 1.45;
   color: var(--np-text-mute);
 }
@@ -390,7 +393,7 @@
   }
 
   .np-bottomnav-item {
-    font-size: 0.75rem;
+    font-size: 0.875rem;
   }
 
   /* Pestañas de dentro de una sección: 44 px de alto, se tocan bien con el dedo. */
