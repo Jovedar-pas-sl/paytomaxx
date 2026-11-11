@@ -62,7 +62,7 @@ describe('punto 2: la lima solo para lo que se toca; lo elegido, en crema', () =
     expect(active.slice(0, 200)).toContain("background: 'var(--np-chosen)'");
     expect(active.slice(0, 200)).toContain("color: 'var(--np-on-chosen)'");
     expect(read('../components/reception/CashVoids.tsx')).toContain("background: 'var(--np-chosen)'");
-    for (const sel of ['.segBtn[aria-pressed=\'true\']', '.amt[aria-pressed=\'true\']']) {
+    for (const sel of [".amt[aria-pressed='true']", '.seg::before']) {
       expect(rule(DESK, sel)).toContain('background: var(--np-chosen)');
     }
     expect(rule(STAFF, ".np-seg-btn[aria-pressed='true']")).toContain('background: var(--np-chosen)');
