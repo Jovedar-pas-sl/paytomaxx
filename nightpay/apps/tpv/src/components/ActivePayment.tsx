@@ -206,7 +206,7 @@ function QrCard({ payment, deadline, now }: { payment: CreatedPayment; deadline:
       {/* Fondo blanco en los dos temas: el lector del móvil lo necesita para leer el QR. */}
       <div style={{ marginTop: '1rem' }}>
         <QrCountdown deadline={deadline} nowMs={now}>
-          <div style={qrBox}>
+          <div className={deadline ? 'np-breathe' : undefined} style={qrBox}>
             <QrImage url={payment.qrUrl} fallbackSrc={payment.qrPngDataUrl} />
           </div>
         </QrCountdown>

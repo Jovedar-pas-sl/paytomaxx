@@ -1385,8 +1385,23 @@ export class PaymentsService implements OnApplicationBootstrap {
     // de antes de la Fase 0: desde que cambió de estado). No dice nada más del intento.
     const waiting = payment.status === 'AUTHORIZING' || payment.status === 'ORPHAN';
     const attemptAt = payment.attempts?.[0]?.createdAt ?? payment.updatedAt;
+    // Ya pagado: cómo se pagó, para el PAGADO del personal («Con tarjeta ····4021»).
+    // Solo lo que el banco dio; lo que falta (cobro de antes, datáfono) no se dice.
+    const charged = paid
+      ? await this.prisma.asSystem((tx) =>
+          tx.paymentAttempt.findFirst({
+            where: { paymentId: payment.id, status: 'APPROVED' },
+            orderBy: { createdAt: 'asc' },
+            select: { payMethod: true },
+          }),
+        )
+      : null;
+    const last4 = paid && typeof payment.cardLast4 === 'string' && /^\d{4}$/.test(payment.cardLast4) ? payment.cardLast4 : null;
     return {
       ...(paid ? { id: payment.id } : {}),
+      ...(last4 ? { cardLast4: last4 } : {}),
+      // 'wallet': pagó con Apple Pay o Google Pay (el banco no dice cuál de los dos).
+      ...(paid && (charged?.payMethod === 'wallet' || charged?.payMethod === 'card') ? { payMethod: charged.payMethod } : {}),
       amountCents: payment.amountCents,
       // La fija el cobro al crearse (no cambia): el personal la enseña aparte.
       serviceFeeCents: payment.serviceFeeCents,

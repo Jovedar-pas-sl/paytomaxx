@@ -658,7 +658,7 @@ function Waiting({
           {nfcOn ? WAIT_TITLE_EN.nfc : WAIT_TITLE_EN.qr}
         </p>
         {hasQr ? (
-          <div className={styles.qr} style={{ opacity: left <= 0 ? 0.3 : 1 }} data-tour="esperando-qr">
+          <div className={left > 0 ? `${styles.qr} np-breathe` : styles.qr} style={{ opacity: left <= 0 ? 0.3 : 1 }} data-tour="esperando-qr">
             <CobroQr value={qrUrl} fallbackPng={qrPng} quiet={2} label="QR del cobro: el cliente lo escanea con su móvil" />
           </div>
         ) : null}

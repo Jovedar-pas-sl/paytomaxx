@@ -793,3 +793,28 @@
     animation-direction: alternate !important;
   }
 }
+
+/* Esperando el pago (Grafito 3): un anillo crema (tinta en claro) que respira alrededor del QR,
+   mientras se espera. box-shadow que crece y se apaga en 2,6 s, en bucle; no
+   cambia el tamaño del QR. Con «reducir movimiento», un anillo fijo. */
+@keyframes np-breathe {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--np-chosen) 38%, transparent);
+  }
+
+  50% {
+    box-shadow: 0 0 0 16px color-mix(in srgb, var(--np-chosen) 0%, transparent);
+  }
+}
+
+.np-breathe {
+  animation: np-breathe 2.6s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .np-breathe {
+    animation: none !important;
+    box-shadow: 0 0 0 4px color-mix(in srgb, var(--np-chosen) 25%, transparent);
+  }
+}
