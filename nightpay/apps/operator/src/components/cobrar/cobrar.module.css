@@ -551,12 +551,23 @@ html[data-contrast='sala'] .lastRow[data-n='4']:not([data-big]) {
   align-items: center;
   justify-content: center;
   gap: 0.5rem;
-  min-height: 4.5rem;
+  min-height: 3rem;
 }
 
+/* El importe: 40 en un móvil bajo (360 × 640), 64 desde 760 px de alto. */
 .amountShow .num {
-  font: 700 var(--np-fs-64)/1 var(--np-font-num);
+  font: 700 var(--np-fs-40)/1 var(--np-font-num);
   font-variant-numeric: proportional-nums;
+}
+
+@media (min-height: 760px) {
+  .amountShow {
+    min-height: 4.5rem;
+  }
+
+  .amountShow .num {
+    font-size: var(--np-fs-64);
+  }
 }
 
 .amountShow .cur {
@@ -645,8 +656,12 @@ html[data-contrast='sala'] .lastRow[data-n='4']:not([data-big]) {
   gap: 0.5rem;
 }
 
+/* Teclas según el alto de la pantalla (Grafito 3): 48 px como mínimo y 72 como
+   máximo, el 8,5 % del alto de en medio (otroImporteLayout, lib/importe.ts).
+   La letra va en proporción: 22 en las bajas y 28 desde 760 px de alto. */
 .key {
-  height: 3.5rem;
+  height: clamp(48px, 8.5vh, 72px);
+  height: clamp(48px, 8.5svh, 72px);
   border-radius: var(--np-r-md);
   background: var(--np-surface-2);
   border: none;
@@ -654,7 +669,7 @@ html[data-contrast='sala'] .lastRow[data-n='4']:not([data-big]) {
   color: var(--np-text);
   display: grid;
   place-items: center;
-  font: 700 var(--np-fs-28) var(--np-font-num);
+  font: 700 var(--np-fs-22) var(--np-font-num);
   font-variant-numeric: tabular-nums;
   cursor: pointer;
   touch-action: manipulation;
@@ -674,8 +689,19 @@ html[data-contrast='sala'] .lastRow[data-n='4']:not([data-big]) {
 }
 
 .key svg {
-  width: 1.75rem;
-  height: 1.75rem;
+  width: 1.5rem;
+  height: 1.5rem;
+}
+
+@media (min-height: 760px) {
+  .key {
+    font-size: var(--np-fs-28);
+  }
+
+  .key svg {
+    width: 1.75rem;
+    height: 1.75rem;
+  }
 }
 
 .keyText {
