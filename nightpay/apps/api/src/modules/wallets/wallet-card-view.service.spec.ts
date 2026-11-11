@@ -1,3 +1,6 @@
+import 'reflect-metadata';
+import { IP_RATE_LIMIT_META } from '../../common/guards/ip-rate-limit.guard';
+import { CARD_PIN_VIEW_LIMIT, PublicWalletCardController } from './public-wallet-card.controller';
 import { describe, expect, it, vi } from 'vitest';
 import { ForbiddenException } from '@nestjs/common';
 import { WalletCardViewService } from './wallet-card-view.service';
@@ -108,16 +111,27 @@ describe('«Ver mi saldo con mi PIN» desde la ficha (B7)', () => {
         }),
       ),
     };
-    const charges = { checkPinForCardView: vi.fn(async () => undefined) };
-    const service = new WalletCardViewService(prisma as never, {} as never, {} as never, charges as never, { get: () => 'secreto-de-pruebas' } as never);
-    return { service, charges };
+    let right = '2468';
+    const charges = { pinForCardView: vi.fn(async (_w: string, pin: string) => (pin === right ? 'ok' : 'wrong')) };
+    const store = new Map<string, number>();
+    const redis = {
+      get: vi.fn(async (k: string) => (store.has(k) ? String(store.get(k)) : null)),
+      incr: vi.fn(async (k: string) => {
+        store.set(k, (store.get(k) ?? 0) + 1);
+        return store.get(k)!;
+      }),
+      expire: vi.fn(async () => 1),
+      del: vi.fn(async (k: string) => (store.delete(k) ? 1 : 0)),
+    };
+    const service = new WalletCardViewService(prisma as never, {} as never, {} as never, charges as never, { get: () => 'secreto-de-pruebas' } as never, redis as never);
+    return { service, charges, redis, setRight: (pin: string) => (right = pin) };
   }
   const TOKEN = 'q3VbX9kLmN2pR7sT4wYz1A';
 
-  it('con su PIN (el mismo contador de fallos), el saldo durante 10 minutos; nada para pagar ni su enlace', async () => {
+  it('con su PIN, el saldo durante 10 minutos; nada para pagar ni su enlace', async () => {
     const { service, charges } = withPin();
     const view = await service.viewWithPin(TOKEN, '2468', NOW);
-    expect(charges.checkPinForCardView).toHaveBeenCalledWith('w-1', 't-1', '2468');
+    expect(charges.pinForCardView).toHaveBeenCalledWith('w-1', '2468');
     expect(view.balanceCents).toBe(3_540);
     expect(view.expiresAt).toBe(new Date(NOW.getTime() + 10 * 60_000).toISOString());
     expect(JSON.stringify(view)).not.toContain('secreto-del-saldo');
@@ -131,6 +145,36 @@ describe('«Ver mi saldo con mi PIN» desde la ficha (B7)', () => {
   it('el PIN con su forma; sin PIN, que no lo tiene', async () => {
     const { service, charges } = withPin();
     await expect(service.viewWithPin(TOKEN, '12a4', NOW)).rejects.toMatchObject({ status: 400 });
-    expect(charges.checkPinForCardView).not.toHaveBeenCalled();
+    expect(charges.pinForCardView).not.toHaveBeenCalled();
+  });
+
+  it('su propio contador: 5 fallos cierran SOLO esta vista 15 min (ni con el PIN bueno); el PIN de pagar no se toca', async () => {
+    const { service, redis } = withPin();
+    for (let i = 4; i >= 1; i -= 1) {
+      await expect(service.viewWithPin(TOKEN, '1111', NOW)).rejects.toMatchObject({
+        status: 422,
+        response: expect.objectContaining({ code: 'PIN_WRONG', message: `PIN incorrecto. ${i === 1 ? 'Queda 1 intento' : `Quedan ${i} intentos`}` }),
+      });
+    }
+    await expect(service.viewWithPin(TOKEN, '1111', NOW)).rejects.toMatchObject({ status: 429, response: expect.objectContaining({ code: 'CARD_VIEW_LOCKED' }) });
+    await expect(service.viewWithPin(TOKEN, '2468', NOW)).rejects.toMatchObject({ status: 429, response: expect.objectContaining({ code: 'CARD_VIEW_LOCKED' }) });
+    expect(redis.expire).toHaveBeenCalledWith('np:card-pin-view:fails:w-1', 15 * 60);
+  });
+
+  it('con el PIN bueno, los fallos de antes se borran; sin Redis, no se deja ver (503)', async () => {
+    const { service, redis } = withPin();
+    await expect(service.viewWithPin(TOKEN, '1111', NOW)).rejects.toMatchObject({ status: 422 });
+    await expect(service.viewWithPin(TOKEN, '2468', NOW)).resolves.toMatchObject({ balanceCents: 3_540 });
+    expect(redis.del).toHaveBeenCalledWith('np:card-pin-view:fails:w-1');
+    redis.get.mockRejectedValueOnce(new Error('caído'));
+    await expect(service.viewWithPin(TOKEN, '2468', NOW)).rejects.toMatchObject({ status: 503 });
+  });
+});
+
+describe('«Ver mi saldo con mi PIN»: su freno por IP y por ficha e IP', () => {
+  it('POST /w/card/:token/pin lleva su propio freno, con tope por ficha (el :token) e IP', () => {
+    const proto = PublicWalletCardController.prototype as unknown as Record<string, () => void>;
+    expect(Reflect.getMetadata(IP_RATE_LIMIT_META, proto.pinView)).toEqual(CARD_PIN_VIEW_LIMIT);
+    expect(CARD_PIN_VIEW_LIMIT).toMatchObject({ scope: 'wallet-card-pin', perKey: { param: 'token', max: 8 } });
   });
 });

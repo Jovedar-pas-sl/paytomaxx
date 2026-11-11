@@ -2258,12 +2258,19 @@ export class WalletChargesService {
   }
 
   /**
-   * «Ver mi saldo con mi PIN» desde la ficha (B7): el mismo PIN y el mismo
-   * contador de fallos (5 → bloqueado), sin persona (lo teclea el cliente en
-   * su móvil). No paga nada: solo deja ver el saldo un rato.
+   * «Ver mi saldo con mi PIN» desde la ficha (B7): solo mira si el PIN es el
+   * suyo, sin tocar nada del saldo. Su contador de fallos va aparte
+   * (WalletCardViewService): quien tenga la ficha no puede bloquear el PIN de
+   * pagar ni reiniciar lo gastado sin PIN. Si el PIN de pagar ya está
+   * bloqueado, tampoco deja ver.
    */
-  async checkPinForCardView(walletId: string, tenantId: string, pin: string): Promise<void> {
-    await this.checkPin(walletId, pin, { tenantId, userId: null });
+  async pinForCardView(walletId: string, pin: string): Promise<'ok' | 'wrong' | 'locked' | 'no-pin'> {
+    const w = await this.prisma.acrossVenues((tx) =>
+      tx.clientWallet.findUnique({ where: { id: walletId }, select: { pinHash: true, pinLockedAt: true } }),
+    );
+    if (!w?.pinHash) return 'no-pin';
+    if (w.pinLockedAt) return 'locked';
+    return (await verifyPin(pin, w.pinHash, pinPepper())) ? 'ok' : 'wrong';
   }
 
   /**

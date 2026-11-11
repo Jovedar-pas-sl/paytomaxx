@@ -3,11 +3,22 @@ import { ConfigService } from '@nestjs/config';
 import type { FastifyReply } from 'fastify';
 import { isWalletCardToken } from '@nightpay/contracts';
 import { Public } from '../../common/decorators/public.decorator';
-import { IpRateLimit } from '../../common/guards/ip-rate-limit.guard';
+import { IpRateLimit, type IpRateLimitConfig } from '../../common/guards/ip-rate-limit.guard';
 import { customerLanguage } from '../payments/customer-lang';
 import { WalletCardViewService, type CardPinView } from './wallet-card-view.service';
 import { renderWalletUnlockPage } from './wallet-unlock-page';
 import { walletViewSetCookies } from './wallet-view-session';
+
+/**
+ * «Ver mi saldo con mi PIN»: 30 intentos cada 15 min por IP y 8 por ficha e IP
+ * (además de su propio contador de fallos por saldo: 5 y la vista se cierra 15 min).
+ */
+export const CARD_PIN_VIEW_LIMIT: IpRateLimitConfig = Object.freeze({
+  max: 30,
+  windowSec: 15 * 60,
+  scope: 'wallet-card-pin',
+  perKey: { param: 'token', max: 8 },
+});
 
 @Controller('w')
 export class PublicWalletCardController {
@@ -47,12 +58,16 @@ export class PublicWalletCardController {
     return this.cards.startTopUp(token, { amountCents: body?.amountCents, key: body?.key, lang });
   }
 
-  /** B7: «Ver mi saldo con mi PIN» (10 min, el mismo contador de fallos, sin pagos). */
+  /**
+   * B7: «Ver mi saldo con mi PIN» (10 min, sin pagos). Sus fallos van aparte
+   * del PIN de pagar (5 → esta vista cerrada 15 min) y tiene su freno por IP
+   * y por ficha e IP.
+   */
   @Public()
   @Post('card/:token/pin')
   @HttpCode(200)
   @Header('Cache-Control', 'no-store')
-  @IpRateLimit({ max: 10, windowSec: 60, scope: 'wallet-card-pin' })
+  @IpRateLimit(CARD_PIN_VIEW_LIMIT)
   pinView(@Param('token') token: string, @Body() body: { pin?: unknown } | undefined): Promise<CardPinView> {
     if (!isWalletCardToken(token)) throw new NotFoundException();
     return this.cards.viewWithPin(token, body?.pin);

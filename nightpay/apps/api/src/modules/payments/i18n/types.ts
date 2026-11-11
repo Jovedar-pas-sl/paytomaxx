@@ -554,6 +554,7 @@ export const CLIENT_ERROR_KEYS = [
   // B7: la ficha en el móvil del cliente («Ver mi saldo con mi PIN»).
   'CARD_NO_PIN',
   'CARD_VIEW_EXPIRED',
+  'CARD_VIEW_LOCKED',
 ] as const;
 
 export type ClientErrorKey = (typeof CLIENT_ERROR_KEYS)[number];

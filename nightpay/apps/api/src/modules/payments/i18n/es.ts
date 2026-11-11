@@ -498,6 +498,7 @@ export const ES: CustomerTexts = {
     PIN_FORMAT: 'El PIN son 4 cifras.',
     CARD_NO_PIN: 'Esta ficha aún no tiene PIN.',
     CARD_VIEW_EXPIRED: 'Han pasado 10 minutos: vuelve a poner tu PIN.',
+    CARD_VIEW_LOCKED: 'Demasiados intentos: prueba otra vez dentro de 15 minutos. Para pagar, tu PIN sigue igual.',
     PIN_MISMATCH: 'Los dos PIN no son iguales.',
     PIN_OBVIOUS: 'Ese PIN es demasiado fácil de adivinar: elige otro.',
     PIN_EXISTS: 'Este saldo ya tiene PIN.',

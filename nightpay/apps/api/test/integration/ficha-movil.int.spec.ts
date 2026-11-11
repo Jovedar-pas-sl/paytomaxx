@@ -1,7 +1,8 @@
 // Integración (Postgres real, np_app y FORCE RLS): la ficha en el móvil del
 // cliente (estudio de fichas, B7).
-//  - «Ver mi saldo con mi PIN»: el mismo PIN y el mismo contador de fallos del
-//    saldo; con el PIN bien, el saldo (nada del enlace privado) durante 10 min.
+//  - «Ver mi saldo con mi PIN»: el mismo PIN, con su propio contador de fallos
+//    (5 → esa vista cerrada 15 min; el PIN de pagar no se toca); con el PIN
+//    bien, el saldo (nada del enlace privado) durante 10 min.
 //  - La página de la ficha enseña «Recargar esta ficha» y «Ver mi saldo con mi
 //    PIN» sin el saldo ni el enlace.
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
@@ -23,7 +24,24 @@ const cards = new WalletCardsService(prisma, audit as never);
 const charges = new WalletChargesService(prisma as never, audit as never, { get: () => ({}) } as never, totp as never);
 const passkeys = { hasPasskey: vi.fn(async () => false) };
 const topUps = { options: vi.fn(async () => ({ allowed: true, block: null, presetsCents: [2_000, 5_000], minCents: 1_000, maxCents: 30_000, serviceFeeBps: null, feesCents: null })) };
-const cardView = new WalletCardViewService(prisma, passkeys as never, topUps as never, charges, { get: () => 'secreto-de-pruebas-ficha-movil' } as never);
+const viewFails = new Map<string, number>();
+const redis = {
+  get: async (k: string) => (viewFails.has(k) ? String(viewFails.get(k)) : null),
+  incr: async (k: string) => {
+    viewFails.set(k, (viewFails.get(k) ?? 0) + 1);
+    return viewFails.get(k)!;
+  },
+  expire: async () => 1,
+  del: async (k: string) => (viewFails.delete(k) ? 1 : 0),
+};
+const cardView = new WalletCardViewService(
+  prisma,
+  passkeys as never,
+  topUps as never,
+  charges,
+  { get: () => 'secreto-de-pruebas-ficha-movil' } as never,
+  redis as never,
+);
 
 const inVenue = <T>(tenantId: string | undefined, fn: () => Promise<T>): Promise<T> =>
   cls.run(async () => {
@@ -69,14 +87,24 @@ describe('la ficha en el móvil del cliente (B7)', () => {
     expect(JSON.stringify(view)).not.toContain('3500');
   });
 
-  it('«Ver mi saldo con mi PIN»: el PIN mal cuenta como fallo; bien, el saldo durante 10 min', async () => {
+  it('«Ver mi saldo con mi PIN»: el PIN mal cuenta en su contador (no en el de pagar); bien, el saldo durante 10 min', async () => {
     await expect(pub(() => cardView.viewWithPin(card, '1357'))).rejects.toMatchObject({ status: 422 });
-    expect(await sys((tx) => tx.clientWallet.findUniqueOrThrow({ where: { id: walletId }, select: { pinFails: true } }))).toEqual({ pinFails: 1 });
+    expect(await sys((tx) => tx.clientWallet.findUniqueOrThrow({ where: { id: walletId }, select: { pinFails: true } }))).toEqual({ pinFails: 0 });
     const seen = await pub(() => cardView.viewWithPin(card, '2468'));
     expect(seen.balanceCents).toBe(3_500);
     expect(Date.parse(seen.expiresAt) - Date.now()).toBeGreaterThan(9 * 60_000);
-    // El PIN bueno pone el contador a 0, como al pagar.
-    expect(await sys((tx) => tx.clientWallet.findUniqueOrThrow({ where: { id: walletId }, select: { pinFails: true } }))).toEqual({ pinFails: 0 });
     await expect(pub(() => cardView.viewAgain(card, seen.viewToken))).resolves.toMatchObject({ balanceCents: 3_500 });
+  });
+
+  it('5 fallos en la vista: se cierra solo la vista (15 min); el pago con PIN sigue funcionando', async () => {
+    for (let i = 0; i < 4; i += 1) await expect(pub(() => cardView.viewWithPin(card, '1357'))).rejects.toMatchObject({ status: 422 });
+    await expect(pub(() => cardView.viewWithPin(card, '1357'))).rejects.toMatchObject({ status: 429, response: expect.objectContaining({ code: 'CARD_VIEW_LOCKED' }) });
+    await expect(pub(() => cardView.viewWithPin(card, '2468'))).rejects.toMatchObject({ status: 429 });
+    // El PIN de pagar: ni un fallo ni bloqueado; con él se paga (lo mismo que pide el cobro).
+    expect(await sys((tx) => tx.clientWallet.findUniqueOrThrow({ where: { id: walletId }, select: { pinFails: true, pinLockedAt: true } }))).toEqual({
+      pinFails: 0,
+      pinLockedAt: null,
+    });
+    await expect(inVenue(V, () => charges.checkPinForPayout({ userId: rocio, role: 'WAITER', tenantId: V }, walletId, '2468'))).resolves.toBeUndefined();
   });
 });
