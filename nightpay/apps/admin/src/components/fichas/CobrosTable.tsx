@@ -13,6 +13,7 @@ import { useVenueTimezone } from '@/lib/venue-context';
 import { Pill } from '../Pill';
 import { SkelRows } from '../Skeleton';
 import { useFichas } from './fichas-context';
+import { MethodMark } from './MethodMark';
 import { SectionChip } from './SectionChip';
 
 interface Props {
@@ -74,7 +75,7 @@ export function CobrosTable({ rows, actions, empty, hidePerson, extra, showRefer
         </thead>
         <tbody>
           {(rows ?? []).map((row, i) => (
-            <tr key={`${row.kind}-${row.id}`}>
+            <tr key={`${row.kind}-${row.id}`} style={rowStripe(sectionChip(row, sections, formatEur).color)}>
               {/* Hora y referencia en una línea (antes «22 oct, / 18:31», «C- / 0025»). */}
               <td data-label="Hora" data-card="top" className="np-num" style={{ ...meta, ...oneLine }}>
                 {formatDateTime(row.createdAt, tz, 'short')}
@@ -99,7 +100,7 @@ export function CobrosTable({ rows, actions, empty, hidePerson, extra, showRefer
               </td>
               <td data-label="Estado" data-card="status" {...(i === 0 ? { 'data-tour': 'cobros-estado' } : {})}>
                 {/* Una sola forma y una palabra por estado, con tarjeta o con el saldo. */}
-                <Pill tone={cobroStatus(row).tone}>{cobroStatus(row).label}</Pill>
+                <Pill tone={cobroStatus(row).tone} dot>{cobroStatus(row).label}</Pill>
                 <PaidTwice row={row} />
               </td>
               {hidePerson ? null : (
@@ -124,13 +125,15 @@ export function CobrosTable({ rows, actions, empty, hidePerson, extra, showRefer
                 <SectionChip view={sectionChip(row, sections, (c) => formatEur(c))} />
               </td>
               <td data-label="Cómo pagó" style={meta}>
-                {row.wallet && fichas ? (
-                  <button type="button" className="np-cell-link" style={linkStyle} onClick={() => fichas.openWallet(row.wallet!.id)}>
-                    {row.method === 'SALDO' ? labelWithCode(row.methodLabel) : `${row.methodLabel} · saldo ${row.wallet.codeHint}`}
-                  </button>
-                ) : (
-                  row.methodLabel
-                )}
+                <MethodMark method={row.method}>
+                  {row.wallet && fichas ? (
+                    <button type="button" className="np-cell-link" style={linkStyle} onClick={() => fichas.openWallet(row.wallet!.id)}>
+                      {row.method === 'SALDO' ? labelWithCode(row.methodLabel) : `${row.methodLabel} · saldo ${row.wallet.codeHint}`}
+                    </button>
+                  ) : (
+                    row.methodLabel
+                  )}
+                </MethodMark>
               </td>
               <td data-label="Servicio" style={meta}>
                 {row.service ?? '—'}
@@ -210,6 +213,11 @@ const paidTwiceStyle = (refunded: boolean): CSSProperties => ({
   lineHeight: 1.3,
   color: refunded ? 'var(--np-text-mute)' : 'var(--np-danger)',
 });
+
+/** La franja de color de la sección a la izquierda de la fila (panel-vivo.css); sin color («Varias»), un gris. */
+function rowStripe(color: string | null): CSSProperties {
+  return { '--np-row': color ?? 'var(--np-border-hi)' } as CSSProperties;
+}
 
 const meta: CSSProperties = { color: 'var(--np-text-mute)' };
 const oneLine: CSSProperties = { whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' };

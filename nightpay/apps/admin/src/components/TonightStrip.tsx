@@ -125,16 +125,16 @@ export function TonightStrip({
       </div>
       <dl className="np-tonight-grid">
         {/* Qué cuenta: el desglose (o, sin él, de qué está hecho) y, al pasar el ratón, la frase entera. */}
-        <div className="np-tonight-fig" data-hero="" title={COBRADO_HELP}>
+        <div className="np-tonight-fig" data-hero="" data-tone="ok" title={COBRADO_HELP}>
           <dt>Pagado esta noche</dt>
           <dd className="np-count">{chargedShown !== null ? formatEur(chargedShown) : night === undefined ? <Skel width="9rem" height="2.75rem" /> : '—'}</dd>
           {cobradoLine ? <span className="np-tonight-note">{cobradoLine}</span> : null}
         </div>
-        <div className="np-tonight-fig">
+        <div className="np-tonight-fig" data-tone="card">
           <dt>Pagos con tarjeta</dt>
           <dd className="np-count">{cardCountShown !== null ? cardCountShown : night === undefined ? <Skel width="3rem" height="1.5rem" /> : '—'}</dd>
         </div>
-        <div className="np-tonight-fig">
+        <div className="np-tonight-fig" data-tone="pay">
           {/* «A pagar ya»: lo que se les debe ahora; lo de esta noche sale en el Mapa del dinero
               («Pago a compañeras · al cerrar»). Antes las dos cifras parecían la misma (P-11). */}
           <dt>A pagar ya a compañeras</dt>
@@ -143,7 +143,7 @@ export function TonightStrip({
             <span className="np-tonight-note">{pending.operatorCount === 1 ? '1 compañera' : `${pending.operatorCount} compañeras`}</span>
           ) : null}
         </div>
-        <div className="np-tonight-fig">
+        <div className="np-tonight-fig" data-tone="warn">
           <dt>Avisos abiertos</dt>
           <dd>{openCount ?? '—'}</dd>
           {openCount && onNavigate ? (

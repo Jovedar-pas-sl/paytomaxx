@@ -20,10 +20,10 @@
 :root,
 [data-theme='dark'] {
   --np-nav-ink: var(--np-text);
-  --np-nav-on-ink: var(--np-cream);
-  --np-nav-on-bg: transparent;
-  --np-nav-on-bg-hover: var(--np-surface);
-  --np-nav-on-bar: var(--np-cream);
+  --np-nav-on-ink: #11160a;
+  --np-nav-on-bg: var(--np-lime);
+  --np-nav-on-bg-hover: #d3de1e;
+  --np-nav-on-bar: #11160a;
   --np-nav-pill-bg: var(--np-surface);
   --np-nav-pill-bg-hover: var(--np-surface-2);
   --np-nav-pill-edge: var(--np-border);
@@ -41,9 +41,9 @@
 }
 
 [data-theme='light'] {
-  --np-nav-on-ink: var(--np-cream);
-  --np-nav-on-bg: var(--np-ink);
-  --np-nav-on-bg-hover: var(--np-accent-2);
+  --np-nav-on-ink: var(--np-ink);
+  --np-nav-on-bg: var(--np-lime);
+  --np-nav-on-bg-hover: #d1dc1a;
   --np-nav-on-bar: var(--np-ink);
   --np-nav-pill-on-bg: var(--np-ink);
   --np-nav-pill-on-bg-hover: var(--np-accent-2);
