@@ -183,19 +183,24 @@
   height: 0.5rem;
   border-radius: var(--np-r-pill);
   background: var(--c);
+  box-shadow: 0 0 8px var(--c);
 }
 
-/* Loseta (Grafito 2): el color sólido de su sección (cartaTileColor) con el
-   texto en tinta, ≥ 4,5:1 en todas (carta-colors.test.ts). El tinte del 26 %
-   con texto crema se veía apagado. Plana: sin halo ni degradado. En modo
-   «sala» no cambia (las secciones y la tinta son las mismas). */
+/* Loseta (Grafito 3, colores con más vida): el color de su sección
+   (cartaTileColor) en degradado suave de 150° —del color mezclado con blanco
+   al color—, con el texto en tinta (≥ 4,5:1 en todas, carta-colors.test.ts).
+   Debajo, un brillo del mismo color y arriba una línea clara (--np-tile-glow
+   y --np-tile-hi: en el tema claro el brillo es una sombra suave). Sin
+   animación nueva: con «reducir movimiento» no cambia nada. En modo «sala»
+   tampoco (las secciones y la tinta son las mismas). */
 .tile {
   position: relative;
   min-height: 4rem;
   padding: 0.625rem 0.75rem;
   border: none;
   border-radius: var(--np-r-tile);
-  background: var(--c);
+  background: linear-gradient(150deg, color-mix(in srgb, var(--c) 62%, #fff) 0%, var(--c) 58%);
+  box-shadow: 0 8px 22px -8px color-mix(in srgb, var(--c) var(--np-tile-glow), transparent), inset 0 1px 0 var(--np-tile-hi);
   color: var(--np-on-section);
   display: flex;
   flex-direction: column;
@@ -230,13 +235,13 @@
   min-height: 4.75rem;
 }
 
-/* Cuadrado de 44 px: crema con la imagen (contain) o el icono en tinta. */
+/* Cuadrado de 44 px: blanco translúcido con la imagen (contain) o el icono en tinta. */
 .thumb {
   flex: 0 0 2.75rem;
   width: 2.75rem;
   height: 2.75rem;
   border-radius: 0.75rem;
-  background: var(--np-cream, #efe9df);
+  background: rgb(255 255 255 / 0.72);
   color: var(--np-ink, #1f2c36);
   display: grid;
   place-items: center;
@@ -257,9 +262,10 @@
   min-width: 0;
 }
 
-/* El contador (o el QR) está arriba a la derecha: el nombre le deja sitio solo si lo hay. */
+/* El contador (o el QR) asoma por la esquina de arriba a la derecha, fuera del
+   texto: el nombre conserva todo su ancho y no se parte ni se pisa. */
 .tiles > .tile .tileNameBadge {
-  padding-right: 1.25rem;
+  padding-right: 0;
 }
 
 /* La chica (dos secciones o menos): losetas más grandes. */
@@ -268,10 +274,13 @@
 }
 
 
-/* Loseta elegida: anillo de tinta de 3 px por dentro y el contador (sin lima:
-   el lima es para «Cobrar»). La tinta se ve sobre cualquier sección. */
+/* Loseta con unidades en la cuenta: brilla un poco más y lleva un aro fino
+   claro por dentro, además del contador (sin lima: el lima es para «Cobrar»). */
 .tileOn {
-  box-shadow: inset 0 0 0 3px var(--np-on-section);
+  box-shadow:
+    0 10px 26px -6px color-mix(in srgb, var(--c) var(--np-tile-glow-on), transparent),
+    inset 0 1px 0 var(--np-tile-hi),
+    inset 0 0 0 2px rgb(255 255 255 / 0.9);
 }
 
 .tileName {
@@ -290,11 +299,11 @@
   font-variant-numeric: tabular-nums;
 }
 
-/* Cuántas lleva: 22 px, en tinta con la cifra crema (como el anillo). */
+/* Cuántas lleva: 22 px, en tinta con la cifra crema. */
 .count {
   position: absolute;
-  top: 0.5rem;
-  right: 0.5rem;
+  top: -0.375rem;
+  right: -0.375rem;
   min-width: 1.375rem;
   height: 1.375rem;
   padding: 0 0.3125rem;
@@ -310,19 +319,20 @@
 /* «Copa con invitación»: una loseta más; el QR dice que se escanea el de la chica. */
 .tileQr {
   position: absolute;
-  top: 0.5rem;
-  right: 0.5rem;
-  width: 1.5rem;
-  height: 1.5rem;
+  top: -0.375rem;
+  right: -0.375rem;
+  width: 1.625rem;
+  height: 1.625rem;
   display: grid;
   place-items: center;
-  /* En tinta, como el texto de la loseta. */
-  color: inherit;
+  border-radius: var(--np-r-pill);
+  background: var(--np-on-section);
+  color: var(--np-cream);
 }
 
 .tileQr svg {
-  width: 1.25rem;
-  height: 1.25rem;
+  width: 1rem;
+  height: 1rem;
 }
 
 .tileOther {
@@ -504,11 +514,17 @@ html[data-contrast='sala'] .lastRow[data-n='4']:not([data-big]) {
   flex: none;
 }
 
-/* Lima plana con tinta, sin halo (--np-primary-*). */
+/* Lima con tinta (--np-primary-*); el brillo suave lima lo pone --np-primary-glow
+   (en el tema claro es el filete, sin halo). */
 .primary {
   background: var(--np-primary-bg);
   color: var(--np-primary-ink);
   box-shadow: var(--np-primary-shadow);
+}
+
+/* «Cobrar» de la carta y de la cuenta: con el brillo lima. */
+.foot .primary:not(:disabled) {
+  box-shadow: var(--np-primary-glow);
 }
 
 /* Secundario: superficie con filete de 1 px; nunca compite con la lima. */
