@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { DEFAULT_SECTIONS, SECTION_CODES, mergeSections, sectionMeta, sectionsOf, type VenueSection } from '@nightpay/contracts';
 import { FALLBACK_SECTIONS, chargeSectionLabel, initialSection, offeredSections, receptionChip, sectionColor } from './sections';
 
 describe('secciones en «Otro importe»', () => {
@@ -31,7 +32,7 @@ describe('secciones en «Otro importe»', () => {
   });
 
   it('cada servicio de la carta con el color de su sección (los antiguos, el de «Otros»)', () => {
-    expect(sectionColor(FALLBACK_SECTIONS, 'VENUE_ROOM')).toBe('#c4b0f5');
+    expect(sectionColor(FALLBACK_SECTIONS, 'VENUE_ROOM')).toBe('#a98bff');
     expect(sectionColor(FALLBACK_SECTIONS, 'EXTRA')).toBe('#7c8893');
   });
 });
@@ -41,5 +42,49 @@ describe('el chip de Recepción', () => {
     expect(receptionChip(FALLBACK_SECTIONS)).toEqual({ section: 'VENUE_ENTRY', label: 'Entradas' });
     const own = FALLBACK_SECTIONS.map((x) => (x.code === 'VENUE_ENTRY' ? { ...x, label: 'Puerta' } : x));
     expect(receptionChip(own).label).toBe('Puerta');
+  });
+});
+
+describe('colores guardados de fábrica antiguos (colores con más vida)', () => {
+  const OLD = {
+    CHICA_SERVICE: ['#d24fd8', '#df73e4'],
+    VENUE_BAR: ['#3fe0c0'],
+    VENUE_ROOM: ['#c4b0f5'],
+    VENUE_FOOD: ['#f2b49b'],
+    VENUE_ENTRY: ['#8fc3f2'],
+  } as const;
+
+  it('un color guardado igual a uno de fábrica antiguo cuenta como el de fábrica: sale el nuevo', () => {
+    for (const code of SECTION_CODES) {
+      for (const old of OLD[code]) {
+        const got = sectionsOf({ [code]: { color: old.toUpperCase(), label: 'Mi nombre' } }).find((s) => s.code === code)!;
+        expect(got.color, `${code} ${old}`).toBe(DEFAULT_SECTIONS[code].color);
+        expect(got.label).toBe('Mi nombre');
+      }
+    }
+  });
+
+  it('el color que el dueño eligió a mano se respeta', () => {
+    const got = sectionsOf({ VENUE_BAR: { color: '#123456' }, VENUE_FOOD: { color: '#3FE0C0' } });
+    expect(got.find((s) => s.code === 'VENUE_BAR')!.color).toBe('#123456');
+    // Un color de fábrica de OTRA sección, puesto a mano aquí, también es una elección suya.
+    expect(got.find((s) => s.code === 'VENUE_FOOD')!.color).toBe('#3fe0c0');
+  });
+
+  it('sectionMeta traduce el antiguo y deja el del dueño', () => {
+    const stored: VenueSection[] = SECTION_CODES.map((code) => ({
+      code,
+      enabled: true,
+      label: DEFAULT_SECTIONS[code].label,
+      color: code === 'VENUE_ROOM' ? '#abcdef' : OLD[code][0],
+    }));
+    expect(sectionMeta(stored, 'VENUE_BAR').color).toBe('#00e0ae');
+    expect(sectionMeta(stored, 'CHICA_SERVICE').color).toBe('#e447f0');
+    expect(sectionMeta(stored, 'VENUE_ROOM').color).toBe('#abcdef');
+  });
+
+  it('guardar un cambio de nombre no fija el color antiguo: mergeSections lo deja en el nuevo', () => {
+    const merged = mergeSections({ VENUE_BAR: { color: '#3fe0c0' } }, { sections: { VENUE_BAR: { label: 'Barra' } } });
+    expect(merged?.VENUE_BAR).toMatchObject({ label: 'Barra', color: '#00e0ae' });
   });
 });

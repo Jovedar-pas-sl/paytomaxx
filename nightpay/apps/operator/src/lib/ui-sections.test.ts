@@ -37,11 +37,11 @@ function contrast(a: string, b: string): number {
 
 describe('colores de las secciones (marca OxioCard)', () => {
   it('cada categoría del cobro tiene su sección y su color', () => {
-    expect(sectionColor('VENUE_BAR')).toBe('#3fe0c0');
-    expect(sectionColor('VENUE_ROOM')).toBe('#c4b0f5');
-    expect(sectionColor('VENUE_FOOD')).toBe('#f2b49b');
-    expect(sectionColor('CHICA_SERVICE')).toBe('#d24fd8');
-    expect(sectionColor('VENUE_ENTRY')).toBe('#8fc3f2');
+    expect(sectionColor('VENUE_BAR')).toBe('#00e0ae');
+    expect(sectionColor('VENUE_ROOM')).toBe('#a98bff');
+    expect(sectionColor('VENUE_FOOD')).toBe('#ff8a3d');
+    expect(sectionColor('CHICA_SERVICE')).toBe('#e447f0');
+    expect(sectionColor('VENUE_ENTRY')).toBe('#3d9bff');
     expect(sectionColor('EXTRA')).toBe('#7c8893');
     expect(sectionOf('VENUE_BAR')?.label).toBe('Copas');
     expect(sectionVar('CHICA_SERVICE')).toBe('var(--np-sec-servicios)');
@@ -75,10 +75,10 @@ describe('colores de las secciones (marca OxioCard)', () => {
   });
 });
 
-describe('tonos de loseta (Servicios y Propinas, decisión D5)', () => {
-  it('las losetas de Servicios y Propinas van un punto más claras; las demás, con su color', () => {
-    expect(sectionTileColor('CHICA_SERVICE')).toBe('#df73e4');
-    expect(sectionTileColor('propinas')).toBe('#55b4f7');
+describe('tonos de loseta (con los colores vivos, iguales a los de la sección)', () => {
+  it('las losetas de Servicios y Propinas llevan su color vivo; las demás, el suyo', () => {
+    expect(sectionTileColor('CHICA_SERVICE')).toBe('#e447f0');
+    expect(sectionTileColor('propinas')).toBe('#ffc94d');
     expect(sectionTileVar('CHICA_SERVICE')).toBe('var(--np-sec-servicios-tile)');
     expect(sectionTileVar('propinas')).toBe('var(--np-sec-propinas-tile)');
     expect(sectionTileVar('VENUE_BAR')).toBe('var(--np-sec-copas)');
@@ -91,11 +91,23 @@ describe('tonos de loseta (Servicios y Propinas, decisión D5)', () => {
     for (const [key, color] of Object.entries(SECTION_TILE_COLORS)) expect(cssVar(`--np-sec-${key}-tile`), key).toBe(color);
   });
 
-  it('la etiqueta pequeña se lee mejor que sobre el color de marca (tinta ≥ 6,5:1)', () => {
+  it('la etiqueta pequeña se lee sobre cada loseta (tinta oscura ≥ 4,5:1)', () => {
     for (const [key, color] of Object.entries(SECTION_TILE_COLORS)) {
-      const tile = contrast(SECTION_ON_COLOR, color!);
-      expect(tile, key).toBeGreaterThanOrEqual(6.5);
-      expect(tile, key).toBeGreaterThan(contrast(SECTION_ON_COLOR, SECTIONS[key as keyof typeof SECTIONS].color));
+      expect(contrast(SECTION_ON_COLOR, color!), key).toBeGreaterThanOrEqual(4.5);
     }
+  });
+
+  it('la tinta es #0b0d0e y todas las secciones coloreadas tienen su par en la paleta viva', () => {
+    expect(SECTION_ON_COLOR).toBe('#0b0d0e');
+    expect(Object.fromEntries(Object.entries(SECTIONS).map(([k, s]) => [k, s.color]))).toMatchObject({
+      copas: '#00e0ae',
+      comida: '#ff8a3d',
+      entradas: '#3d9bff',
+      servicios: '#e447f0',
+      habitaciones: '#a98bff',
+      propinas: '#ffc94d',
+      saldo: '#9aa4ad',
+      otros: '#7c8893',
+    });
   });
 });

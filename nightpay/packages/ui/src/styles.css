@@ -110,23 +110,29 @@
   --np-bits: none;
   --np-bits-brand: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='132' height='64'%3E%3Cg font-family='monospace' font-size='11' fill='%23EFE9DF' fill-opacity='.045'%3E%3Ctext x='2' y='12'%3E0101 1001 0110%3C/text%3E%3Ctext x='-12' y='28'%3E1100 1010 0101 1%3C/text%3E%3Ctext x='6' y='44'%3E0110 0101 1001%3C/text%3E%3Ctext x='-6' y='60'%3E1001 0011 0101 0%3C/text%3E%3C/g%3E%3C/svg%3E");
 
-  /* Secciones (de qué es el cobro): familia pastel, siempre con tinta
-     --np-on-section encima (≥ 5:1). Las mismas en TS: sectionColor() de
+  /* Secciones (de qué es el cobro): familia viva, siempre con tinta oscura
+     --np-on-section encima (≥ 4,5:1). Las mismas en TS: sectionColor() de
      @nightpay/ui. El saldo / la recarga va en gris y con borde a trazos. */
-  --np-sec-copas: #3fe0c0;
-  --np-sec-habitaciones: #c4b0f5;
-  --np-sec-comida: #f2b49b;
-  --np-sec-servicios: #d24fd8;
-  --np-sec-entradas: #8fc3f2;
-  --np-sec-propinas: #3fa9f5;
+  --np-sec-copas: #00e0ae;
+  --np-sec-habitaciones: #a98bff;
+  --np-sec-comida: #ff8a3d;
+  --np-sec-servicios: #e447f0;
+  --np-sec-entradas: #3d9bff;
+  --np-sec-propinas: #ffc94d;
   --np-sec-saldo: #9aa4ad;
   --np-sec-otros: #7c8893;
-  --np-on-section: #0f1112;
+  --np-on-section: #0b0d0e;
   /* Tonos de LOSETA (rellenos grandes con la etiqueta pequeña encima): un
      punto más claros para que la tinta se lea (Servicios 6,95:1, Propinas
      8,35:1). Chips, barras y franjas siguen con el color exacto de arriba. */
-  --np-sec-servicios-tile: #df73e4;
-  --np-sec-propinas-tile: #55b4f7;
+  --np-sec-servicios-tile: #e447f0;
+  --np-sec-propinas-tile: #ffc94d;
+  /* Brillo de las losetas de la carta (oscuro): del color al 75 %, más con
+     unidades en la cuenta, y una línea clara arriba. Brillo lima de «Cobrar». */
+  --np-tile-glow: 75%;
+  --np-tile-glow-on: 90%;
+  --np-tile-hi: rgb(255 255 255 / 0.45);
+  --np-primary-glow: 0 8px 24px -8px rgb(199 211 1 / 0.7);
 
   /* Resultado a pantalla completa y aviso de conexión: iguales en los dos
      temas (son señales, no decoración). Colores planos y profundos, con texto
@@ -275,6 +281,11 @@
   --np-primary-ink: var(--np-ink);
   /* Filete de tinta: la lima se separa del papel (sin sombra). */
   --np-primary-shadow: inset 0 0 0 1px rgb(21 25 28 / 0.7);
+  /* Claro: sin brillo de color fuerte, solo una sombra suave. */
+  --np-tile-glow: 32%;
+  --np-tile-glow-on: 48%;
+  --np-tile-hi: rgb(255 255 255 / 0.55);
+  --np-primary-glow: inset 0 0 0 1px rgb(21 25 28 / 0.7), 0 4px 12px -6px rgb(21 25 28 / 0.35);
 
   /* 6,2:1 · Lc 73. */
   --np-success: #146234;

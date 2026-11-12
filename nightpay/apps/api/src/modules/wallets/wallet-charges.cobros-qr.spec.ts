@@ -331,7 +331,7 @@ describe('referencias del saldo y su página', () => {
     expect(state.movements.map((m) => m.label)).toEqual(['Copas', 'Habitaciones', 'Comida', 'Otros', 'Servicios', 'Otros', 'Botella Moët']);
     // Con el color de su sección (el de fábrica si el local no eligió otro).
     // Sin cobro del saldo que lo abra (consumos sueltos de antes): sin detalle.
-    expect(state.movements[0]).toEqual({ kind: 'consumption', amountCents: -1_200, label: 'Copas', venueName: 'Bambú Norte (Alcobendas)', at: at(1).toISOString(), ref: null, color: '#3fe0c0', detail: null });
+    expect(state.movements[0]).toEqual({ kind: 'consumption', amountCents: -1_200, label: 'Copas', venueName: 'Bambú Norte (Alcobendas)', at: at(1).toISOString(), ref: null, color: '#00e0ae', detail: null });
   });
 
   it('con las secciones renombradas en ese local, el consumo dice su nombre (el de cada local)', async () => {
@@ -339,7 +339,7 @@ describe('referencias del saldo y su página', () => {
     db.venue.put({ id: NORTE, name: 'Bambú Norte (Alcobendas)', walletGroup: 'grupo-bambu', sections: { VENUE_BAR: { label: 'Barra de arriba' } } });
     db.walletConsumption.put({ id: 'c-r', walletId: WALLET, tenantId: NORTE, category: 'VENUE_BAR', notes: null, amountCents: 1_000, tipCents: 0, createdAt: new Date(NOW.getTime() - MIN) });
     const state = await svc.clientState('qrTokenDelClienteK7Q4M2xx');
-    expect(state.movements[0]).toMatchObject({ label: 'Barra de arriba', color: '#3fe0c0' });
+    expect(state.movements[0]).toMatchObject({ label: 'Barra de arriba', color: '#00e0ae' });
     // La tarjeta de arriba: el local del saldo; sin NFC, sin número.
     expect(state).toMatchObject({ venueName: 'Sala Bambú (Madrid)', hasCard: false, fichaNumber: null });
   });

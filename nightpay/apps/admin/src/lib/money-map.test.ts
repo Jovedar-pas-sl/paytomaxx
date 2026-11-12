@@ -69,7 +69,7 @@ describe('sección de un cobro en la lista', () => {
   it('una sección: su nombre y su color; varias: «Varias» con el reparto', () => {
     expect(sectionChip(row({ sections: [{ category: 'VENUE_BAR', amountCents: 2000 }] }), FALLBACK_SECTIONS, eur)).toEqual({
       label: 'Copas',
-      color: '#3fe0c0',
+      color: '#00e0ae',
       title: 'Copas 20 €',
     });
     const pack = sectionChip(
@@ -94,8 +94,8 @@ describe('sección de un cobro en la lista', () => {
     expect(chipTextColor(null)).toBe('var(--np-text)');
   });
 
-  it('el magenta de Servicios lleva tinta, no blanco (5,2:1 frente a 3,6:1), como en el personal', () => {
-    expect(chipTextColor('#d24fd8')).toBe('#14110f');
+  it('el magenta de Servicios lleva tinta, no blanco (6:1 frente a menos con blanco), como en el personal', () => {
+    expect(chipTextColor('#e447f0')).toBe('#14110f');
     // Todas las de fábrica son claras: siempre con tinta.
     for (const s of FALLBACK_SECTIONS) expect(chipTextColor(s.color), s.code).toBe('#14110f');
   });
