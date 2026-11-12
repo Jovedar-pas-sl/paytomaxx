@@ -8,6 +8,7 @@ import { UNPREFIXED_ROUTES, type UnprefixedRoute } from '../http/unprefixed-rout
  *    /w/salida/<token> (salida de recepción), /c/<token> (QR del pase de
  *    Google Wallet)… y /pay/result?op=<pedido>
  *  - /v1/webhooks/paytef/<secreto>      URL secreta de los avisos de Paytef
+ *  - /v1/webhooks/btcpay/<token>        token del aviso de BTCPay de cada local
  *  - /v1/operators/self-onboarding/<t>  enlace de alta de una chica (72 h)
  *  - /v1/payments/public/<token>, /v1/wallets/public/<token>
  *  - /bot<id>:<token>/…                 llamadas salientes a Telegram
@@ -52,6 +53,8 @@ export function tokenPathPatterns(routes: ReadonlyArray<UnprefixedRoute>): RegEx
 const PATH_PATTERNS: ReadonlyArray<RegExp> = [
   ...tokenPathPatterns(UNPREFIXED_ROUTES),
   /^(\/v1\/webhooks\/paytef\/)[^/?#]+/,
+  // El token de la ruta del aviso de BTCPay de cada local.
+  /^(\/v1\/webhooks\/btcpay\/)[^/?#]+/,
   /^(\/v1\/operators\/self-onboarding\/)[^/?#]+/,
   /^(\/v1\/payments\/public\/)[^/?#]+/,
   /^(\/v1\/wallets\/public\/)[^/?#]+/,

@@ -20,6 +20,12 @@ const REDACT_PATHS = [
   '*.tokenizationData',
   '*.Ds_MerchantParameters',
   '*.Ds_Signature',
+  // BTCPay: la clave de API y el secreto del aviso de cada local, y la firma del aviso.
+  '*.apiKey',
+  '*.apiKeyEnc',
+  '*.webhookSecret',
+  '*.webhookSecretEnc',
+  'req.headers["btcpay-sig"]',
 ];
 
 /** Opciones del logger de Fastify (main.ts). */

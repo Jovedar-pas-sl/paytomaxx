@@ -99,6 +99,12 @@ const EnvSchema = z.object({
   PAY_DIRECT_WALLET: z
     .union([z.boolean(), z.string().transform((s) => !['false', '0', 'no', 'off'].includes(s.trim().toLowerCase()))])
     .default(true),
+  // «Pagar con bitcoin» (BTCPay Server). Apagado por defecto: sin esto no hay
+  // rutas (404), ni botón, ni repaso de facturas, y cada local además tiene que
+  // activarlo en Ajustes. Ver modules/btcpay.
+  BTCPAY_ENABLED: z
+    .union([z.boolean(), z.string().transform((s) => ['true', '1', 'yes', 'on'].includes(s.trim().toLowerCase()))])
+    .default(false),
   // Nombre de la marca en pantallas, concepto del cobro y correos (por
   // defecto OxioPay). No cambia el extracto del banco: eso lo fija BBVA.
   BRAND_NAME: z.string().trim().min(2).max(20).optional(),

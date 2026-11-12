@@ -5,6 +5,7 @@ import { WipayAdapter } from './wipay.adapter';
 import { PeanpeAdapter } from './peanpe.adapter';
 import { PaytefAdapter } from './paytef.adapter';
 import { RedsysAdapter } from './redsys.adapter';
+import { BtcpayAdapter } from './btcpay.adapter';
 
 /** Adapters reales: solo se construyen (no llaman a ninguna pasarela). */
 function realAdapters() {
@@ -16,12 +17,13 @@ function realAdapters() {
     peanpe: new PeanpeAdapter(config as never, metrics as never, prisma as never),
     paytef: new PaytefAdapter(config as never, metrics as never),
     redsys: new RedsysAdapter(config as never, metrics as never),
+    btcpay: new BtcpayAdapter(),
   };
 }
 
 function makeRegistry() {
   const a = realAdapters();
-  return { registry: new GatewayRegistry(a.wipay, a.peanpe, a.paytef, a.redsys), ...a };
+  return { registry: new GatewayRegistry(a.wipay, a.peanpe, a.paytef, a.redsys, a.btcpay), ...a };
 }
 
 describe('GatewayRegistry.get — qué adapter atiende cada pasarela', () => {
@@ -30,6 +32,7 @@ describe('GatewayRegistry.get — qué adapter atiende cada pasarela', () => {
     ['PEANPE', PeanpeAdapter],
     ['PAYTEF', PaytefAdapter],
     ['REDSYS', RedsysAdapter],
+    ['BTCPAY', BtcpayAdapter],
   ] as const)('%s → su propio adapter', (provider, AdapterClass) => {
     const { registry } = makeRegistry();
     const adapter = registry.get(provider);

@@ -1,9 +1,10 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Optional } from '@nestjs/common';
 import type { Provider } from '@nightpay/contracts';
 import { WipayAdapter } from './wipay.adapter';
 import { PeanpeAdapter } from './peanpe.adapter';
 import { PaytefAdapter } from './paytef.adapter';
 import { RedsysAdapter } from './redsys.adapter';
+import { BtcpayAdapter } from './btcpay.adapter';
 import type { GatewayAdapter } from './gateway.adapter';
 
 /**
@@ -19,12 +20,15 @@ export class GatewayRegistry {
     @Inject(PeanpeAdapter) peanpe: PeanpeAdapter,
     @Inject(PaytefAdapter) paytef: PaytefAdapter,
     @Inject(RedsysAdapter) redsys: RedsysAdapter,
+    // Bitcoin (BTCPay): no es la pasarela de tarjeta del local; solo para lo que el resto del API pide a toda pasarela.
+    @Optional() @Inject(BtcpayAdapter) btcpay?: BtcpayAdapter,
   ) {
     this.adapters = new Map<Provider, GatewayAdapter>([
       ['WIPAY', wipay],
       ['PEANPE', peanpe],
       ['PAYTEF', paytef],
       ['REDSYS', redsys],
+      ...(btcpay ? ([['BTCPAY', btcpay]] as Array<[Provider, GatewayAdapter]>) : []),
     ]);
   }
 

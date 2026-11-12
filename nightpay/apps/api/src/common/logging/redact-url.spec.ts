@@ -20,6 +20,7 @@ describe('otras credenciales en la URL', () => {
     expect(redactSecretsInUrl('/pay/qr-abc?lang=es')).toBe('/pay/***?lang=es');
     expect(redactSecretsInUrl('/pay/qr-abc/receipt')).toBe('/pay/***/receipt');
     expect(redactSecretsInUrl('/v1/webhooks/paytef/sup3rs3cret')).toBe('/v1/webhooks/paytef/***');
+    expect(redactSecretsInUrl('/v1/webhooks/btcpay/tok3n-del-local')).toBe('/v1/webhooks/btcpay/***');
     expect(redactSecretsInUrl('/v1/operators/self-onboarding/eyJhbGc.x.y')).toBe('/v1/operators/self-onboarding/***');
     expect(redactSecretsInUrl('/v1/wallets/public/tok')).toBe('/v1/wallets/public/***');
     expect(redactSecretsInUrl('/v1/payments')).toBe('/v1/payments');

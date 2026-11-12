@@ -54,7 +54,14 @@ export type PaymentEvent =
    * banco (AUTHORIZING) o sin confirmar (ORPHAN, FAILED): una aprobación que
    * llegue después se devuelve sola o queda en Incidencias.
    */
-  | { type: 'PAID_WITH_SALDO'; walletChargeId: string };
+  | { type: 'PAID_WITH_SALDO'; walletChargeId: string }
+  /**
+   * La factura de bitcoin se cerró sin pagarse (caducó o BTCPay la invalidó):
+   * AUTHORIZING → AWAITING_CAPTURE. El cobro sigue abierto para pagarlo de otra
+   * forma. Solo con una factura de BTCPAY: con un banco de por medio no se
+   * vuelve atrás (el cliente puede estar pagando).
+   */
+  | { type: 'INVOICE_CLOSED' };
 
 export interface PaymentContext {
   paymentId: string;
@@ -88,12 +95,17 @@ export const paymentMachine = setup({
       if (event.type !== 'PAID_WITH_SALDO') return;
       context.failureReason = 'paid-with-saldo';
     },
+    persistInvoiceClosed: ({ context }) => {
+      context.failureReason = 'bitcoin-invoice-closed';
+    },
     deductRefund: ({ context, event }) => {
       if (event.type !== 'REFUND_PARTIAL') return;
       context.availableAmountCents = Math.max(0, context.availableAmountCents - event.amountCents);
     },
   },
   guards: {
+    // La factura de bitcoin es lo único que se abre y se cierra sin banco de por medio.
+    isBitcoinPayment: ({ context }) => context.provider === 'BTCPAY',
     refundIsTotal: ({ context, event }) => {
       if (event.type !== 'REFUND_PARTIAL') return false;
       return context.availableAmountCents - event.amountCents <= 0;
@@ -136,6 +148,9 @@ export const paymentMachine = setup({
         FAILED: { target: 'FAILED', actions: 'persistFailure' },
         TIMEOUT: 'ORPHAN',
         PAID_WITH_SALDO: { target: 'CANCELED', actions: 'persistPaidWithSaldo' },
+        // Bitcoin: el personal cancela el cobro y el cobro vuelve a estar abierto si la factura se cierra.
+        CANCELED: { target: 'CANCELED', guard: 'isBitcoinPayment', actions: 'persistCancel' },
+        INVOICE_CLOSED: { target: 'AWAITING_CAPTURE', guard: 'isBitcoinPayment', actions: 'persistInvoiceClosed' },
       },
     },
     AUTHORIZED: {
