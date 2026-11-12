@@ -24,6 +24,7 @@ import { MetricsService } from '../../src/modules/metrics/metrics.service';
 import { AuthModule } from '../../src/modules/auth/auth.module';
 import { CLAIM_STEP_LUA } from '../../src/modules/auth/totp-attempts.service';
 import { claimStepScript, createFakeRedis } from '../../src/modules/auth/testing/fake-redis';
+import { photoHashesOf } from '../../src/modules/profile/photo-hashes';
 import { ProfileModule } from '../../src/modules/profile/profile.module';
 import { jpegFixture, pngFixture, SVG_BYTES, webpFixture } from '../support/webp-fixture';
 
@@ -296,6 +297,19 @@ describe('Mi perfil: la foto (FORCE RLS)', () => {
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({ actorId: encargado.id, tenantId: venueA });
     expect((await call(sEnc.access, 'DELETE', `/v1/staff/${chica.id}/photo`)).json()).toEqual({ removed: false });
+  });
+
+  it('las listas del panel traen la huella de la foto de su local (y no la de otro)', async () => {
+    const enA = await newUser(venueA, 'OPERATOR', 'Lista A');
+    const enB = await newUser(venueB, 'OPERATOR', 'Lista B');
+    const sa = await login(enA.email);
+    const sb = await login(enB.email);
+    const hashA = (await upload(sa.access, webpFixture({ width: 256, height: 256, fill: 0x21 }))).json().photoHash as string;
+    await upload(sb.access, webpFixture({ width: 256, height: 256, fill: 0x22 }));
+    const fromA = await photoHashesOf(prisma, venueA, [enA.id, enB.id]);
+    expect([...fromA.keys()]).toEqual([enA.id]);
+    expect(fromA.get(enA.id)).toBe(hashA);
+    expect((await photoHashesOf(prisma, venueA, [])).size).toBe(0);
   });
 
   it('el tope de subidas por persona: a la 11.ª en un minuto, 429', async () => {

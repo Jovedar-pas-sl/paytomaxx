@@ -346,6 +346,8 @@ export const OperatorPublicViewSchema = z.object({
   needsHelpDocs: z.boolean().optional(),
   onboardingStatus: OnboardingStatusSchema.optional(),
   onboardingNotes: z.string().nullable().optional(),
+  /** Huella de su foto de perfil (Mi perfil); null o ausente = sin foto. */
+  photoHash: z.string().length(64).nullable().optional(),
 });
 export type OperatorPublicView = z.infer<typeof OperatorPublicViewSchema>;
 
