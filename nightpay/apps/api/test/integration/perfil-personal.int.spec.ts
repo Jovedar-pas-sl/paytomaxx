@@ -7,6 +7,9 @@
 import 'reflect-metadata';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { randomUUID } from 'node:crypto';
+import { spawnSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import * as bcrypt from 'bcryptjs';
 import { Global, Module } from '@nestjs/common';
 import { APP_GUARD } from '@nestjs/core';
@@ -415,5 +418,34 @@ describe('Mi perfil: correo y contraseña (piden la actual)', () => {
     expect(codes.slice(0, 5).every((c) => c === 403)).toBe(true);
     expect(codes[5]).toBe(429);
     expect((await call(s.access, 'PATCH', '/v1/me/email', { email: `tope-${r}@local.test`, currentPassword: PASSWORD })).statusCode).toBe(429);
+  });
+});
+
+describe('migración 20261113100000_fotos_personal (Postgres real)', () => {
+  it('se puede repetir, la base rechaza lo que no es una foto de perfil y una foto no es de otro local que su persona; se va con la persona', async () => {
+    const u = await newUser(venueA, 'OPERATOR', 'Migración');
+    const row = (over: Record<string, unknown> = {}) => ({
+      userId: u.id, tenantId: venueA, contentType: 'image/webp', data: Buffer.alloc(64, 3), contentHash: 'c'.repeat(64), width: 256, height: 256, ...over,
+    });
+    const tryInsert = (data: Record<string, unknown>) =>
+      prisma.asSystem((tx) => tx.userPhoto.create({ data: data as never })).then(() => 'ok', (e: Error) => e.message);
+    for (const bad of [{ contentType: 'image/svg+xml' }, { contentType: 'image/png' }, { data: Buffer.alloc(150 * 1024 + 1, 1) }, { width: 512, height: 512 }, { width: 16, height: 16 }, { contentHash: 'XYZ' }]) {
+      expect(await tryInsert(row(bad)), JSON.stringify(Object.keys(bad))).toMatch(/user_photos_|check constraint|violates/i);
+    }
+    // Una foto de otro local que el de su persona: la clave ajena (persona, local) la rechaza.
+    expect(await tryInsert(row({ tenantId: venueB }))).toMatch(/foreign key|user_photos_userId_tenantId_fkey/i);
+    expect(await tryInsert(row())).toBe('ok');
+
+    const cli = join(__dirname, '../../../../packages/db/node_modules/prisma/build/index.js');
+    const file = join(__dirname, '../../../../packages/db/prisma/migrations/20261113100000_fotos_personal/migration.sql');
+    for (let i = 0; i < 2; i += 1) {
+      const res = spawnSync(process.execPath, [cli, 'db', 'execute', '--url', String(process.env.DATABASE_URL), '--file', file], { encoding: 'utf8', env: { ...process.env, PRISMA_HIDE_UPDATE_MESSAGE: '1' } });
+      expect(res.status, `${res.stdout}
+${res.stderr}`).toBe(0);
+    }
+    expect(await photoRows(venueA).then((rows) => rows.filter((x) => x.userId === u.id))).toHaveLength(1);
+    expect(readFileSync(file, 'utf8')).toMatch(/SET lock_timeout = '5s'/);
+    await prisma.asSystem((tx) => tx.user.delete({ where: { id: u.id } }));
+    expect(await photoRows(venueA).then((rows) => rows.filter((x) => x.userId === u.id))).toHaveLength(0);
   });
 });
