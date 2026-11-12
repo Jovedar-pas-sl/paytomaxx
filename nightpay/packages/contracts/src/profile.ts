@@ -45,6 +45,8 @@ export type UploadProfilePhotoDto = z.infer<typeof UploadProfilePhotoSchema>;
 export interface MyProfile {
   userId: string;
   displayName: string | null;
+  email: string;
+  phone: string | null;
   role: 'OWNER' | 'MANAGER' | 'WAITER' | 'OPERATOR';
   venueName: string;
   hasPhoto: boolean;
@@ -65,3 +67,72 @@ export function profileInitials(name: string | null | undefined): string {
   const second = parts.length > 1 ? (Array.from(parts[parts.length - 1]!)[0] ?? '') : '';
   return (first + second).toUpperCase();
 }
+
+// ── Contacto y seguridad ────────────────────────────────────────────
+
+/** Quita lo que la gente escribe de adorno en un teléfono: espacios, puntos, guiones y paréntesis. */
+function compactPhone(v: string): string {
+  return v.replace(/[\s.\-()]/g, '');
+}
+
+/**
+ * Teléfono español (9 cifras, empieza por 6, 7, 8 o 9; con o sin +34 / 0034) o
+ * internacional (+ y de 8 a 15 cifras). Se guarda en forma compacta con «+».
+ * Es el mismo campo `users.phone` del alta de la compañera.
+ */
+export function normalizePhone(raw: string): string | null {
+  const compact = compactPhone(raw.trim());
+  const withPlus = compact.startsWith('00') ? `+${compact.slice(2)}` : compact;
+  if (/^[6-9]\d{8}$/.test(withPlus)) return `+34${withPlus}`;
+  if (/^\+34[6-9]\d{8}$/.test(withPlus)) return withPlus;
+  if (/^\+(?!34)[1-9]\d{7,14}$/.test(withPlus)) return withPlus;
+  return null;
+}
+
+/** `PATCH /v1/me/contact`: el teléfono (vacío = quitarlo). */
+export const UpdatePhoneSchema = z.object({
+  phone: z
+    .string({ error: 'Escribe tu teléfono' })
+    .max(40, 'El teléfono es demasiado largo')
+    .transform((v, ctx) => {
+      if (v.trim() === '') return null;
+      const n = normalizePhone(v);
+      if (!n) {
+        ctx.addIssue({ code: 'custom', message: 'Escribe un teléfono español (9 cifras) o internacional con +, por ejemplo +34 600 123 456' });
+        return z.NEVER;
+      }
+      return n;
+    }),
+});
+export type UpdatePhoneDto = z.infer<typeof UpdatePhoneSchema>;
+
+const CurrentPasswordField = z.string({ error: 'Escribe tu contraseña actual' }).min(1, 'Escribe tu contraseña actual').max(200);
+/** La misma regla que el resto del sistema (login, restablecer): de 8 a 200 caracteres. */
+export const NEW_PASSWORD_MIN = 8;
+export const NEW_PASSWORD_MAX = 200;
+
+/** `PATCH /v1/me/email`: el correo con el que entra. Pide la contraseña actual. */
+export const UpdateEmailSchema = z.object({
+  email: z
+    .string({ error: 'Escribe tu correo' })
+    .trim()
+    .toLowerCase()
+    .max(254, 'El correo es demasiado largo')
+    .pipe(z.string().email('Ese correo no es válido')),
+  currentPassword: CurrentPasswordField,
+});
+export type UpdateEmailDto = z.infer<typeof UpdateEmailSchema>;
+
+/** `POST /v1/me/password`: la actual y la nueva dos veces. */
+export const ChangePasswordSchema = z
+  .object({
+    currentPassword: CurrentPasswordField,
+    newPassword: z
+      .string({ error: 'Escribe la contraseña nueva' })
+      .min(NEW_PASSWORD_MIN, `La contraseña nueva tiene que tener al menos ${NEW_PASSWORD_MIN} caracteres`)
+      .max(NEW_PASSWORD_MAX, 'La contraseña nueva es demasiado larga'),
+    newPasswordRepeat: z.string({ error: 'Repite la contraseña nueva' }),
+  })
+  .refine((v) => v.newPassword === v.newPasswordRepeat, { path: ['newPasswordRepeat'], message: 'Las dos contraseñas nuevas no coinciden' })
+  .refine((v) => v.newPassword !== v.currentPassword, { path: ['newPassword'], message: 'La contraseña nueva tiene que ser distinta de la actual' });
+export type ChangePasswordDto = z.infer<typeof ChangePasswordSchema>;

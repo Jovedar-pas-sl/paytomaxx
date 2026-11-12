@@ -63,6 +63,12 @@ const PAY_STATUS_POLL = /^\/pay\/[^/?]+\/status(\?|$)/;
  * navegador la guarda un año.
  */
 const CARTA_IMAGE = /^\/v1\/services\/[0-9a-f-]{36}\/image\/[0-9a-f]{64}(\?|$)/;
+/**
+ * La foto de perfil del personal (GET, versionada por su huella, con sesión): al
+ * abrir una lista de compañeras o de personal se piden todas la primera vez y,
+ * después, el móvil las guarda. Va con su propio tope por persona.
+ */
+const STAFF_PHOTO = /^\/v1\/staff\/[0-9a-f-]{36}\/photo\/[0-9a-f]{64}(\?|$)/;
 const LOOPBACK = new Set(['127.0.0.1', '::1']);
 
 interface LimitedRequest extends ClientIpRequest {
@@ -77,7 +83,7 @@ interface LimitedRequest extends ClientIpRequest {
  * misma máquina (p. ej. un túnel de Cloudflare) no habría límite.
  */
 export function isGlobalRateLimitExempt(req: LimitedRequest): boolean {
-  if (req.method === 'GET' && [WALLET_STATE_POLL, PAY_PAGES, PAYMENT_PUBLIC_POLL, PAY_STATUS_POLL, CARTA_IMAGE].some((re) => re.test(req.url))) {
+  if (req.method === 'GET' && [WALLET_STATE_POLL, PAY_PAGES, PAYMENT_PUBLIC_POLL, PAY_STATUS_POLL, CARTA_IMAGE, STAFF_PHOTO].some((re) => re.test(req.url))) {
     return true;
   }
   const peer = normalizeIp(req.raw?.socket?.remoteAddress ?? req.socket?.remoteAddress);
