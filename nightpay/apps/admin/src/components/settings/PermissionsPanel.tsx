@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Button } from '@nightpay/ui';
+import { Button, StaffAvatar } from '@nightpay/ui';
 import type { PermissionRole, StaffPermissionKey, StaffPermissions, UpdateStaffPermissionsDto } from '@nightpay/contracts';
 import { fetchStaffPermissions, updateStaffPermissions, type PermissionPerson } from '@/lib/api';
 import { PERMISSION_HINTS, PERMISSION_LABELS, ROLE_LABELS, editablePermissions, hasOverride, personCan, waiterHint } from '@/lib/settings-forms';
@@ -142,7 +142,8 @@ function PersonRow({
   return (
     <li className="np-set-person" data-open={open || undefined}>
       <div className="np-set-person-head">
-        <span className="np-set-person-name">
+        <span className="np-set-person-name" style={{ display: 'inline-flex', alignItems: 'center', gap: '0.625rem' }}>
+          <StaffAvatar userId={person.id} hash={person.photoHash ?? null} name={person.displayName?.trim() || null} size={32} />
           {name}
           {custom ? <span className="np-set-tag">A medida</span> : null}
         </span>
