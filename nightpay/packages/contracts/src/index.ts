@@ -36,3 +36,4 @@ export * from './customer-tip';
 export * from './cobro-detail';
 export * from './cobro-detail-text';
 export * from './carta-icons';
+export * from './profile';
