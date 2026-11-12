@@ -1,7 +1,12 @@
 // Ajustes del local: reglas (con 2FA), formas de cobro, la noche, permisos del personal y avisos de Telegram.
 
 import type {
+  BtcpaySettingsView,
+  BtcpayTestResult,
   PermissionSet,
+  SaveBtcpaySettingsDto,
+  TestBtcpaySettingsDto,
+  UpdateBtcpayModeDto,
   StaffPermissions,
   UpdateAlertSettingsDto,
   UpdateNightSettingsDto,
@@ -150,6 +155,40 @@ export async function fetchNightSettings(): Promise<VenueNightSettings> {
 
 export async function updateNightSettings(input: UpdateNightSettingsDto): Promise<VenueNightSettings> {
   const res = await authedFetch('/v1/admin/venue/night', { method: 'PATCH', body: JSON.stringify(input) });
+  if (!res.ok) throw await apiError(res);
+  return res.json();
+}
+
+// ─── Bitcoin (BTCPay) ──────────────────────────────────────────────
+
+/**
+ * Lo guardado de la conexión a BTCPay. null = el servidor no tiene el pago con
+ * bitcoin encendido (BTCPAY_ENABLED): sus rutas dan 404 y el panel no enseña la sección.
+ */
+export async function fetchBtcpaySettings(): Promise<BtcpaySettingsView | null> {
+  const res = await authedFetch('/v1/admin/venue/btcpay');
+  if (res.status === 404) return null;
+  if (!res.ok) throw await apiError(res);
+  return res.json();
+}
+
+/** Guardar o cambiar la conexión (con la 2FA del dueño): prueba la conexión y registra el aviso en BTCPay. */
+export async function saveBtcpaySettings(input: SaveBtcpaySettingsDto): Promise<BtcpaySettingsView> {
+  const res = await authedFetch('/v1/admin/venue/btcpay', { method: 'PUT', body: JSON.stringify(input) });
+  if (!res.ok) throw await totpAwareError(res);
+  return res.json();
+}
+
+/** Encender o apagar el bitcoin y para qué se usa, con la 2FA. */
+export async function updateBtcpayMode(input: UpdateBtcpayModeDto): Promise<BtcpaySettingsView> {
+  const res = await authedFetch('/v1/admin/venue/btcpay', { method: 'PATCH', body: JSON.stringify(input) });
+  if (!res.ok) throw await totpAwareError(res);
+  return res.json();
+}
+
+/** «Probar conexión»: lo guardado, o lo que se está escribiendo (sin guardarlo). */
+export async function testBtcpaySettings(input: TestBtcpaySettingsDto): Promise<BtcpayTestResult> {
+  const res = await authedFetch('/v1/admin/venue/btcpay/test', { method: 'POST', body: JSON.stringify(input) });
   if (!res.ok) throw await apiError(res);
   return res.json();
 }

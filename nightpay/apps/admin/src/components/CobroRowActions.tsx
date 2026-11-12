@@ -35,7 +35,10 @@ export function CobroRowActions({ row, role, onReverse, onResolve, onRefund, onR
   if (!p) return null;
   // Redsys: se devuelve en el portal de BBVA y se apunta aquí (solo el dueño).
   const bankRefund = p.provider === 'REDSYS';
+  // Bitcoin: el dinero no pasó por el banco ni por la pasarela. Devolverlo desde la app llega en la fase siguiente.
+  const bitcoin = p.provider === 'BTCPAY';
   const canRefund =
+    !bitcoin &&
     (p.status === 'AUTHORIZED' || p.status === 'PARTIALLY_REFUNDED') &&
     p.availableAmountCents > 0 &&
     (role === 'OWNER' || (!bankRefund && role === 'MANAGER'));

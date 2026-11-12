@@ -24,7 +24,7 @@ const STATUS_FILTERS: Array<{ value: string; label: string }> = [
   { value: 'ORPHAN', label: 'Sin confirmar' },
 ];
 
-const METHODS: ChargeMethod[] = ['CARD', 'MOBILE_WALLET', 'POS', 'SALDO'];
+const METHODS: ChargeMethod[] = ['CARD', 'MOBILE_WALLET', 'POS', 'SALDO', 'BITCOIN'];
 
 /** Filtros de Cobros: estado, compañera, sección, cómo pagó, saldo, noche y las fechas de una cifra del mapa (van al API). */
 export function CobrosFiltersBar({ value, onChange }: { value: CobrosFilters; onChange: (next: CobrosFilters) => void }) {

@@ -291,3 +291,34 @@ describe('con la «Comisión del servicio» (la paga el cliente, se debe a OxioP
     expect(moneyMapDetails(map()).serviceFee).toBeNull();
   });
 });
+
+describe('mapa del dinero con bitcoin (BTCPay)', () => {
+  const withBitcoin = (): MoneyMap => {
+    const m = map();
+    return {
+      ...m,
+      salesCents: m.salesCents + 50_000,
+      inflow: { ...m.inflow, bitcoinCents: 50_000, topUps: { ...m.inflow.topUps, bitcoinCents: 10_000 } },
+      where: { ...m.where, bitcoinCents: 60_000, totalCents: m.where.totalCents + 60_000 },
+    };
+  };
+
+  it('«Bitcoin» es un canal más de lo que entra y una línea nueva en dónde está el dinero', () => {
+    const v = moneyMapView(withBitcoin(), SECTIONS);
+    expect(v.inflow.find((s) => s.key === 'bitcoin')).toMatchObject({ label: 'Bitcoin', cents: 50_000 });
+    expect(v.where.places.find((p) => p.key === 'bitcoin')).toMatchObject({ label: 'Bitcoin, en la cartera del local', cents: 60_000 });
+    expect(v.where.places.find((p) => p.key === 'bbva')?.cents).toBe(map().where.bbvaCents);
+  });
+
+  it('sin bitcoin no sale ni el canal ni la línea', () => {
+    const v = moneyMapView(map(), SECTIONS);
+    expect(v.inflow.some((s) => s.key === 'bitcoin')).toBe(false);
+    expect(v.where.places.some((p) => p.key === 'bitcoin')).toBe(false);
+  });
+
+  it('el detalle de caja y banco enseña la línea de bitcoin solo si la hay', () => {
+    const rows = (m: MoneyMap) => moneyMapDetails(m).cash.rows.map((r) => r.label);
+    expect(rows(withBitcoin())).toContain('Bitcoin, en la cartera del local');
+    expect(rows(map())).not.toContain('Bitcoin, en la cartera del local');
+  });
+});
