@@ -1,8 +1,10 @@
-import { BadRequestException, ConflictException, ForbiddenException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@nightpay/db';
 import * as bcrypt from 'bcryptjs';
 import {
   CURRENT_PASSWORD_WRONG_CODE,
+  DISPLAY_NAME_TAKEN_CODE,
+  DISPLAY_NAME_TAKEN_MESSAGE,
   EMAIL_TAKEN_CODE,
   type ChangePasswordDto,
   type MyProfile,
@@ -13,6 +15,7 @@ import {
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { passwordFingerprint, RefreshTokenService } from '../auth/refresh-token.service';
+import { maskEmail, maskPhone } from './audit-mask';
 import { checkProfilePhoto } from './profile-image';
 
 const BCRYPT_ROUNDS = 10;
@@ -51,6 +54,7 @@ function isUniqueViolation(err: unknown): boolean {
  */
 @Injectable()
 export class ProfileService {
+  private readonly logger = new Logger(ProfileService.name);
   private readonly prisma: PrismaService;
   private readonly audit: AuditService;
   private readonly sessions: RefreshTokenService;
@@ -74,8 +78,9 @@ export class ProfileService {
   async updateName(actor: ProfileActor, dto: UpdateProfileDto): Promise<MyProfile> {
     const me = await this.loadSelf(actor.userId);
     if (me.displayName !== dto.displayName) {
+      await this.assertNameFree(me, dto.displayName);
       await this.prisma.asSystem((tx) => tx.user.update({ where: { id: me.id }, data: { displayName: dto.displayName } }));
-      await this.log(actor, me, 'profile.name.updated', { before: me.displayName, after: dto.displayName });
+      await this.log(actor, me, 'profile.name.updated', { field: 'displayName', before: me.displayName, after: dto.displayName });
     }
     return this.getMine(actor);
   }
@@ -84,7 +89,7 @@ export class ProfileService {
     const me = await this.loadSelf(actor.userId);
     if ((me.phone ?? null) !== dto.phone) {
       await this.prisma.asSystem((tx) => tx.user.update({ where: { id: me.id }, data: { phone: dto.phone } }));
-      await this.log(actor, me, 'profile.phone.updated', { before: me.phone, after: dto.phone });
+      await this.log(actor, me, 'profile.phone.updated', { field: 'phone', before: maskPhone(me.phone), after: maskPhone(dto.phone) });
     }
     return this.getMine(actor);
   }
@@ -102,14 +107,16 @@ export class ProfileService {
       tx.user.findFirst({ where: { email: { equals: dto.email, mode: 'insensitive' }, id: { not: me.id } }, select: { id: true } }),
     );
     if (taken) throw this.emailTaken();
+    // Primero el registro, luego el cambio y al final las sesiones: si algo falla, queda rastro.
+    await this.log(actor, me, 'profile.email.changed', { field: 'email', before: maskEmail(me.email), after: maskEmail(dto.email) });
     try {
       await this.prisma.asSystem((tx) => tx.user.update({ where: { id: me.id }, data: { email: dto.email } }));
     } catch (err) {
+      await this.log(actor, me, 'profile.email.change_failed', { field: 'email' });
       if (isUniqueViolation(err)) throw this.emailTaken();
       throw err;
     }
-    const closed = await this.sessions.revokeOthersForUser(me.id, actor.sid);
-    await this.log(actor, me, 'profile.email.changed', { before: me.email, after: dto.email, otherSessionsClosed: closed });
+    await this.closeOtherSessions(actor, me.id, 'cambio de correo');
     return this.getMine(actor);
   }
 
@@ -118,9 +125,15 @@ export class ProfileService {
     const me = await this.loadSelf(actor.userId);
     await this.assertCurrentPassword(me, dto.currentPassword);
     const passwordHash = await bcrypt.hash(dto.newPassword, BCRYPT_ROUNDS);
-    await this.prisma.asSystem((tx) => tx.user.update({ where: { id: me.id }, data: { passwordHash, invitedAt: null, inviteToken: null } }));
-    const closed = await this.sessions.revokeOthersForUser(me.id, actor.sid, passwordFingerprint(passwordHash));
-    await this.log(actor, me, 'profile.password.changed', { otherSessionsClosed: closed });
+    // Primero el registro, luego el cambio y al final las sesiones: si algo falla, queda rastro.
+    await this.log(actor, me, 'profile.password.changed', { field: 'password' });
+    try {
+      await this.prisma.asSystem((tx) => tx.user.update({ where: { id: me.id }, data: { passwordHash, invitedAt: null, inviteToken: null } }));
+    } catch (err) {
+      await this.log(actor, me, 'profile.password.change_failed', { field: 'password' });
+      throw err;
+    }
+    const closed = await this.closeOtherSessions(actor, me.id, 'cambio de contraseña', passwordFingerprint(passwordHash));
     return { changed: true, otherSessionsClosed: closed };
   }
 
@@ -194,6 +207,36 @@ export class ProfileService {
     return new Map(rows.map((r) => [r.userId, r.contentHash.trim()]));
   }
 
+  /**
+   * Cierra las demás sesiones. El cambio ya está hecho: si Redis falla se prueba
+   * con cerrarlas todas (también esta) y, si tampoco, se registra el fallo y se
+   * contesta OK. Nunca se traga el error sin dejar rastro.
+   */
+  private async closeOtherSessions(actor: ProfileActor, userId: string, why: string, newPwdFp?: string): Promise<number> {
+    try {
+      return await this.sessions.revokeOthersForUser(userId, actor.sid, newPwdFp);
+    } catch (err) {
+      this.logger.error(`No se pudieron cerrar las demás sesiones tras el ${why} (user=${userId}): ${(err as Error).message}. Pruebo a cerrarlas todas.`);
+    }
+    try {
+      return await this.sessions.revokeAllForUser(userId);
+    } catch (err) {
+      this.logger.error(`No se pudo cerrar ninguna sesión tras el ${why} (user=${userId}, tenant=${actor.tenantId}): ${(err as Error).message}. El cambio SÍ se hizo; las sesiones abiertas siguen vivas.`);
+      return 0;
+    }
+  }
+
+  /** Nadie más del personal activo del local usa ese nombre (sin mirar mayúsculas). */
+  private async assertNameFree(me: SelfRow, name: string): Promise<void> {
+    const clash = await this.prisma.asSystem((tx) =>
+      tx.user.findFirst({
+        where: { tenantId: me.tenantId, deletedAt: null, id: { not: me.id }, displayName: { equals: name, mode: 'insensitive' } },
+        select: { id: true },
+      }),
+    );
+    if (clash) throw new ConflictException({ message: DISPLAY_NAME_TAKEN_MESSAGE, code: DISPLAY_NAME_TAKEN_CODE });
+  }
+
   private async loadSelf(userId: string): Promise<SelfRow> {
     const me = await this.prisma.asSystem((tx) => tx.user.findUnique({ where: { id: userId }, select: SELF_SELECT }));
     if (!me || me.deletedAt) throw new NotFoundException('Tu cuenta no está activa');
@@ -236,7 +279,6 @@ export class ProfileService {
       action,
       tenantId: me.tenantId,
       actorId: actor.userId,
-      actorEmail: me.email,
       targetType: 'User',
       targetId: me.id,
       payload,

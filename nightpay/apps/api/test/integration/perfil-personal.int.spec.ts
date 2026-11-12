@@ -27,6 +27,9 @@ import { MetricsService } from '../../src/modules/metrics/metrics.service';
 import { AuthModule } from '../../src/modules/auth/auth.module';
 import { CLAIM_STEP_LUA } from '../../src/modules/auth/totp-attempts.service';
 import { claimStepScript, createFakeRedis } from '../../src/modules/auth/testing/fake-redis';
+import { maskEmail } from '../../src/modules/profile/audit-mask';
+import { RefreshTokenService } from '../../src/modules/auth/refresh-token.service';
+import { Logger } from '@nestjs/common';
 import { photoHashesOf } from '../../src/modules/profile/photo-hashes';
 import { ProfileModule } from '../../src/modules/profile/profile.module';
 import { jpegFixture, pngFixture, SVG_BYTES, webpFixture } from '../support/webp-fixture';
@@ -168,7 +171,7 @@ describe('Mi perfil: ver y cambiar el nombre y el teléfono (Postgres real)', ()
   it('un nombre malo da 400 y no cambia nada; un cambio deja en el registro el de antes y el de después', async () => {
     const u = await newUser(venueA, 'WAITER', 'Lucía');
     const s = await login(u.email);
-    for (const bad of ['', 'L', 'x'.repeat(41), ' Lucía', 'Lu\ncía']) {
+    for (const bad of ['', 'L', 'x'.repeat(41), '   ', 'Lu\ncía']) {
       expect((await call(s.access, 'PATCH', '/v1/me/profile', { displayName: bad })).statusCode, bad).toBe(400);
     }
     expect((await profileOf(s.access)).displayName).toBe('Lucía');
@@ -178,7 +181,7 @@ describe('Mi perfil: ver y cambiar el nombre y el teléfono (Postgres real)', ()
     const rows = await audit('profile.name.updated', u.id);
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({ actorId: u.id, tenantId: venueA });
-    expect(rows[0]!.payload).toEqual({ before: 'Lucía', after: 'Lucía P.' });
+    expect(rows[0]!.payload).toEqual({ field: 'displayName', before: 'Lucía', after: 'Lucía P.' });
   });
 
   it('el teléfono: se guarda normalizado (el mismo campo del alta), uno inválido da 400, vacío lo quita, y queda en el registro', async () => {
@@ -192,7 +195,11 @@ describe('Mi perfil: ver y cambiar el nombre y el teléfono (Postgres real)', ()
     expect(stored.phone).toBe('+34600123456');
     expect((await call(s.access, 'PATCH', '/v1/me/contact', { phone: '' })).json().phone).toBeNull();
     const rows = await audit('profile.phone.updated', u.id);
-    expect(rows.map((x) => x.payload)).toEqual([{ before: null, after: '+34600123456' }, { before: '+34600123456', after: null }]);
+    expect(rows.map((x) => x.payload)).toEqual([
+      { field: 'phone', before: null, after: '***456' },
+      { field: 'phone', before: '***456', after: null },
+    ]);
+    expect(JSON.stringify(rows.map((x) => ({ payload: x.payload, actorEmail: x.actorEmail })))).not.toContain('600123456');
   });
 
   it('sin sesión, 401', async () => {
@@ -361,7 +368,12 @@ describe('Mi perfil: correo y contraseña (piden la actual)', () => {
     expect(res.json().email).toBe(nuevo);
     const rows = await audit('profile.email.changed', u.id);
     expect(rows).toHaveLength(1);
-    expect(rows[0]!.payload).toMatchObject({ before: u.email, after: nuevo, otherSessionsClosed: 1 });
+    // El registro no guarda el correo entero ni el actorEmail: solo tapado y qué campo cambió.
+    expect(rows[0]!.payload).toEqual({ field: 'email', before: maskEmail(u.email), after: maskEmail(nuevo) });
+    expect(rows[0]!.actorId).toBe(u.id);
+    expect(rows[0]!.actorEmail).toBeNull();
+    expect(JSON.stringify(rows.map((x) => ({ payload: x.payload, actorEmail: x.actorEmail })))).not.toContain(nuevo);
+    expect(JSON.stringify(rows.map((x) => ({ payload: x.payload, actorEmail: x.actorEmail })))).not.toContain(u.email);
 
     expect((await call(movil.access, 'GET', '/v1/me/profile')).statusCode).toBe(200);
     expect((await post('/v1/auth/refresh', { cookie: movil.cookie })).statusCode).toBe(200);
@@ -447,5 +459,94 @@ ${res.stderr}`).toBe(0);
     expect(readFileSync(file, 'utf8')).toMatch(/SET lock_timeout = '5s'/);
     await prisma.asSystem((tx) => tx.user.delete({ where: { id: u.id } }));
     expect(await photoRows(venueA).then((rows) => rows.filter((x) => x.userId === u.id))).toHaveLength(0);
+  });
+});
+
+describe('Mi perfil: nombre único, orden del registro y fallo de Redis', () => {
+  it('dos personas activas del mismo local no comparten nombre (sin mirar mayúsculas ni espacios de más); otro local sí; una dada de baja no cuenta', async () => {
+    const a = await newUser(venueA, 'WAITER', `Único ${r}`);
+    const b = await newUser(venueA, 'WAITER', `Otra ${r}`);
+    const deB = await newUser(venueB, 'WAITER', `Fuera ${r}`);
+    const baja = await newUser(venueA, 'WAITER', `Baja ${r}`);
+    await prisma.asSystem((tx) => tx.user.update({ where: { id: baja.id }, data: { deletedAt: new Date() } }));
+    const sb = await login(b.email);
+    const dup = await call(sb.access, 'PATCH', '/v1/me/profile', { displayName: `  único   ${r}`.toUpperCase() });
+    expect(dup.statusCode).toBe(409);
+    expect(dup.json().detail).toBe('Ya hay alguien con ese nombre en el local');
+    expect(dup.json().code).toBe('DISPLAY_NAME_TAKEN');
+    expect((await profileOf(sb.access)).displayName).toBe(`Otra ${r}`);
+    // Otro local: libre. Una persona dada de baja: libre. El suyo propio, con otras mayúsculas: libre.
+    const sOther = await login(deB.email);
+    expect((await call(sOther.access, 'PATCH', '/v1/me/profile', { displayName: `Único ${r}` })).statusCode).toBe(200);
+    expect((await call(sb.access, 'PATCH', '/v1/me/profile', { displayName: `Baja ${r}` })).statusCode).toBe(200);
+    expect((await call(sb.access, 'PATCH', '/v1/me/profile', { displayName: `BAJA ${r}` })).statusCode).toBe(200);
+    void a;
+  });
+
+  it('un nombre con invisibles o bidi da 400 y uno con espacios de más se guarda limpio', async () => {
+    const u = await newUser(venueA, 'WAITER', `Limpio ${r}`);
+    const s = await login(u.email);
+    for (const cp of [0x200b, 0x202e, 0x3164, 0x2800]) {
+      const res = await call(s.access, 'PATCH', '/v1/me/profile', { displayName: `Ana${String.fromCodePoint(cp)}Bel` });
+      expect(res.statusCode, cp.toString(16)).toBe(400);
+    }
+    const ok = await call(s.access, 'PATCH', '/v1/me/profile', { displayName: `  Ana   Bel ${r}  ` });
+    expect(ok.json().displayName).toBe(`Ana Bel ${r}`);
+  });
+
+  it('contraseña: el registro va primero, luego el cambio y al final las sesiones', async () => {
+    const u = await newUser(venueA, 'WAITER', `Orden ${r}`);
+    const s = await login(u.email);
+    const sessions = app.get(RefreshTokenService);
+    const seen: Array<{ audited: number; hashChanged: boolean }> = [];
+    const original = sessions.revokeOthersForUser.bind(sessions);
+    const spy = vi.spyOn(sessions, 'revokeOthersForUser').mockImplementation(async (...args) => {
+      const audited = (await audit('profile.password.changed', u.id)).length;
+      const row = await prisma.asSystem((tx) => tx.user.findUniqueOrThrow({ where: { id: u.id }, select: { passwordHash: true } }));
+      seen.push({ audited, hashChanged: !(await bcrypt.compare(PASSWORD, row.passwordHash)) });
+      return original(...args);
+    });
+    try {
+      expect((await call(s.access, 'POST', '/v1/me/password', { currentPassword: PASSWORD, newPassword: NEW_PASSWORD, newPasswordRepeat: NEW_PASSWORD })).statusCode).toBe(200);
+    } finally {
+      spy.mockRestore();
+    }
+    expect(seen).toEqual([{ audited: 1, hashChanged: true }]);
+  });
+
+  it('si cerrar las demás sesiones falla (Redis), se cierran todas; si tampoco, se registra el error y se contesta OK con el cambio hecho', async () => {
+    const sessions = app.get(RefreshTokenService);
+    const errorLog = vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+    try {
+      // 1) Falla "las demás": cae a "todas".
+      const u1 = await newUser(venueA, 'WAITER', `Redis uno ${r}`);
+      const s1 = await login(u1.email);
+      const others = vi.spyOn(sessions, 'revokeOthersForUser').mockRejectedValue(new Error('redis caído'));
+      const all = vi.spyOn(sessions, 'revokeAllForUser');
+      const r1 = await call(s1.access, 'POST', '/v1/me/password', { currentPassword: PASSWORD, newPassword: NEW_PASSWORD, newPasswordRepeat: NEW_PASSWORD });
+      expect(r1.statusCode).toBe(200);
+      expect(all).toHaveBeenCalledWith(u1.id);
+      expect((await post('/v1/auth/login', { body: { email: u1.email, password: NEW_PASSWORD } })).statusCode).toBe(200);
+      expect(errorLog).toHaveBeenCalled();
+
+      // 2) Fallan las dos: OK igualmente, con el error en el log y el correo ya cambiado.
+      errorLog.mockClear();
+      const u2 = await newUser(venueA, 'WAITER', `Redis dos ${r}`);
+      const s2 = await login(u2.email);
+      all.mockRejectedValue(new Error('redis caído otra vez'));
+      const nuevo = `redis-${r}@local.test`;
+      const r2 = await call(s2.access, 'PATCH', '/v1/me/email', { email: nuevo, currentPassword: PASSWORD });
+      expect(r2.statusCode).toBe(200);
+      expect(r2.json().email).toBe(nuevo);
+      const logged = errorLog.mock.calls.map((c) => String(c[0])).join('\n');
+      expect(logged).toContain(u2.id);
+      expect(logged).toContain('redis caído otra vez');
+      expect(await audit('profile.email.changed', u2.id)).toHaveLength(1);
+      others.mockRestore();
+      all.mockRestore();
+    } finally {
+      errorLog.mockRestore();
+      vi.restoreAllMocks();
+    }
   });
 });

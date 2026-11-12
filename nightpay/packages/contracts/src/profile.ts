@@ -14,14 +14,38 @@ const hasControlChars = (v: string): boolean =>
     return c <= 0x1f || (c >= 0x7f && c <= 0x9f) || c === 0x2028 || c === 0x2029;
   });
 
-/** `PATCH /v1/me/profile`: el nombre que ven los demás. Sin espacios a los lados, de 2 a 40 caracteres. */
-export const UpdateProfileSchema = z.object({
-  displayName: z
+// Invisibles que se cuelan como «nombre»: Hangul filler (3164, 115F, 1160) y braille en blanco (2800).
+const INVISIBLE_CODE_POINTS: ReadonlySet<number> = new Set([0x3164, 0x2800, 0x115f, 0x1160]);
+// Formato (Cf: bidi, ancho cero, joiners…), separador de línea (Zl) y de párrafo (Zp).
+const INVISIBLE_CLASSES = /[\p{Cf}\p{Zl}\p{Zp}]/u;
+
+/** ¿Lleva caracteres invisibles o de dirección (bidi) que dejan engañar con un nombre? */
+export function hasInvisibleChars(v: string): boolean {
+  return INVISIBLE_CLASSES.test(v) || Array.from(v).some((ch) => INVISIBLE_CODE_POINTS.has(ch.codePointAt(0)!));
+}
+
+/** NFC, espacios repetidos a uno y sin espacios a los lados. Los saltos de línea y tabuladores no se tocan (se rechazan). */
+export function cleanDisplayName(raw: string): string {
+  return raw.normalize('NFC').replace(/ {2,}/g, ' ').trim();
+}
+
+/**
+ * El nombre visible de una persona del personal: se limpia (cleanDisplayName) y
+ * después se exige de `min` a `max` caracteres, sin control ni invisibles. Lo que
+ * queda vacío tras limpiar se rechaza. Lo comparten el API y las pantallas.
+ */
+export const displayNameSchema = (min: number, max: number) =>
+  z
     .string({ error: 'Escribe tu nombre' })
-    .refine((v) => v === v.trim(), 'El nombre no puede empezar ni acabar con espacios')
-    .refine((v) => v.length >= DISPLAY_NAME_MIN, `El nombre tiene que tener al menos ${DISPLAY_NAME_MIN} caracteres`)
-    .refine((v) => v.length <= DISPLAY_NAME_MAX, `El nombre puede tener ${DISPLAY_NAME_MAX} caracteres como mucho`)
-    .refine((v) => !hasControlChars(v), 'El nombre tiene caracteres que no se admiten'),
+    .transform(cleanDisplayName)
+    .refine((v) => v.length > 0, 'Escribe un nombre')
+    .refine((v) => v.length >= min, `El nombre tiene que tener al menos ${min} caracteres`)
+    .refine((v) => v.length <= max, `El nombre puede tener ${max} caracteres como mucho`)
+    .refine((v) => !hasControlChars(v) && !hasInvisibleChars(v), 'El nombre tiene caracteres que no se admiten');
+
+/** `PATCH /v1/me/profile`: el nombre que ven los demás, de 2 a 40 caracteres, ya limpio. */
+export const UpdateProfileSchema = z.object({
+  displayName: displayNameSchema(DISPLAY_NAME_MIN, DISPLAY_NAME_MAX),
 });
 export type UpdateProfileDto = z.infer<typeof UpdateProfileSchema>;
 
@@ -157,3 +181,7 @@ export interface ProfileApi {
 
 export const CURRENT_PASSWORD_WRONG_CODE = 'CURRENT_PASSWORD_WRONG';
 export const EMAIL_TAKEN_CODE = 'EMAIL_TAKEN';
+
+/** Una persona del local ya usa ese nombre (sin mirar mayúsculas). */
+export const DISPLAY_NAME_TAKEN_CODE = 'DISPLAY_NAME_TAKEN';
+export const DISPLAY_NAME_TAKEN_MESSAGE = 'Ya hay alguien con ese nombre en el local';
