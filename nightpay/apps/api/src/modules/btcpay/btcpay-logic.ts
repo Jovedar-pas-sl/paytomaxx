@@ -221,7 +221,7 @@ export function describeBtcpayFailure(status: number, body: unknown): BtcpayFail
     return {
       code: 'NO_WALLET',
       transient: false,
-      message: 'La tienda de BTCPay no tiene ninguna cartera vinculada. Conecta una cartera en BTCPay (Wallets, Bitcoin) y vuelve a probar.',
+      message: 'La tienda de BTCPay no tiene ninguna cartera vinculada. Conecta una cartera de bitcoin en el menú de carteras de tu BTCPay y vuelve a probar.',
     };
   }
   if (status === 422 || status === 400) {

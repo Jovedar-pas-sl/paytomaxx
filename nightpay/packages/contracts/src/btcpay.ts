@@ -38,6 +38,14 @@ const StoreIdSchema = z
   .trim()
   .regex(/^[A-Za-z0-9_-]{1,100}$/, 'El id de tienda son letras y números (lo ves en BTCPay, Ajustes de la tienda).');
 
+/** Las claves de BTCPay son letras y números: nada de espacios, saltos de línea ni caracteres raros que acaben en una cabecera. */
+const ApiKeySchema = z
+  .string()
+  .trim()
+  .min(8, 'La clave de API es demasiado corta')
+  .max(300)
+  .regex(/^[A-Za-z0-9._~+/=-]+$/, 'La clave de API solo lleva letras, números y . _ ~ + / = -');
+
 const TotpSchema = z
   .string()
   .regex(/^\d{6}$/, 'El código 2FA son 6 cifras')
@@ -48,7 +56,7 @@ export const SaveBtcpaySettingsSchema = z
   .object({
     baseUrl: z.string().trim().min(1, 'Escribe la dirección de tu BTCPay').max(2048),
     storeId: StoreIdSchema,
-    apiKey: z.string().trim().min(8, 'La clave de API es demasiado corta').max(300).optional(),
+    apiKey: ApiKeySchema.optional(),
     enabled: z.boolean(),
     purpose: z.enum(BTCPAY_PURPOSES),
     totpCode: TotpSchema,
@@ -61,7 +69,7 @@ export const TestBtcpaySettingsSchema = z
   .object({
     baseUrl: z.string().trim().min(1).max(2048).optional(),
     storeId: StoreIdSchema.optional(),
-    apiKey: z.string().trim().min(8).max(300).optional(),
+    apiKey: ApiKeySchema.optional(),
   })
   .strict();
 export type TestBtcpaySettingsDto = z.infer<typeof TestBtcpaySettingsSchema>;

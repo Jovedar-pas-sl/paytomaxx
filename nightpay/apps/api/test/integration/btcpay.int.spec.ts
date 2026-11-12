@@ -12,6 +12,8 @@ import http from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { createHmac, randomUUID } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { ClsService } from 'nestjs-cls';
 import { ConflictException, NotFoundException, ServiceUnavailableException, UnauthorizedException } from '@nestjs/common';
 import { PrismaService } from '../../src/common/prisma/prisma.service';
@@ -850,5 +852,59 @@ describe('el dinero con un cobro en bitcoin', () => {
     // Y el listado de Cobros lo etiqueta «Bitcoin».
     const sales = await sys((tx) => tx.payment.findMany({ where: { tenantId: T }, include: { attempts: true } }));
     expect(sales.filter((s) => s.attempts.some((a) => a.payMethod === 'bitcoin'))).toHaveLength(1);
+  });
+});
+
+describe('las migraciones de bitcoin', () => {
+  const dir = join(__dirname, '../../../../packages/db/prisma/migrations');
+  const sqlOf = (name: string) => readFileSync(join(dir, name, 'migration.sql'), 'utf8');
+  const statements = (sql: string) =>
+    sql
+      .split(';')
+      .map((chunk) =>
+        chunk
+          .split('\n')
+          .filter((line) => !line.trim().startsWith('--'))
+          .join(' ')
+          .trim(),
+      )
+      .filter((st) => st.length > 0);
+
+  it.each(['20261114100000_btcpay', '20261114100100_btcpay_tablas'])('%s: con su lock_timeout y sin tocar migraciones de antes', (name) => {
+    expect(sqlOf(name)).toMatch(/SET lock_timeout = '5s'/);
+    expect(sqlOf(name)).not.toMatch(/DROP TABLE|TRUNCATE|DELETE FROM/i);
+  });
+
+  it('el valor del enum va en su propia migración (no se puede usar en la misma transacción que lo crea)', () => {
+    const enumSql = sqlOf('20261114100000_btcpay');
+    expect(enumSql).toMatch(/ADD VALUE IF NOT EXISTS 'BTCPAY'/);
+    expect(sqlOf('20261114100100_btcpay_tablas')).not.toMatch(/ADD VALUE/);
+    expect(statements(enumSql).filter((st) => !st.startsWith('SET'))).toHaveLength(1);
+  });
+
+  it('se pueden repetir: volver a aplicarlas no falla ni cambia nada', async () => {
+    const before = await sys((tx) => tx.btcpayStore.count());
+    for (const name of ['20261114100000_btcpay', '20261114100100_btcpay_tablas']) {
+      for (const st of statements(sqlOf(name))) await sys((tx) => tx.$executeRawUnsafe(st));
+    }
+    expect(await sys((tx) => tx.btcpayStore.count())).toBe(before);
+    await sys((tx) => tx.$executeRawUnsafe('RESET lock_timeout'));
+  });
+
+  it('los CHECK: un uso o un estado inventado, o un importe a cero, no entran', async () => {
+    await expect(
+      sys((tx) => tx.btcpayStore.create({ data: { tenantId: B, baseUrl: 'https://x.es', storeId: 's', apiKeyEnc: 'a:b:c', hookToken: `hk-chk-${r}-abcdefghijklmnop`, purpose: 'TODO' } })),
+    ).rejects.toThrow();
+    const p = await newPayment(500);
+    const base = { tenantId: A, paymentId: p.id, storeId: 'S', checkoutLink: 'https://x', qrLink: 'bitcoin:x', expiresAt: new Date(Date.now() + 60_000) };
+    await expect(sys((tx) => tx.btcpayInvoice.create({ data: { ...base, invoiceId: `chk1-${r}`, amountCents: 0 } }))).rejects.toThrow();
+    await expect(sys((tx) => tx.btcpayInvoice.create({ data: { ...base, invoiceId: `chk2-${r}`, amountCents: 500, status: 'Rara' } }))).rejects.toThrow();
+  });
+
+  it('los datos de un local no se borran con otro: la conexión y las facturas caen con su local, no con el cobro de otro', async () => {
+    const L = await sys(async (tx) => (await tx.venue.create({ data: { name: 'Sala Borrable', slug: `btc-del-${r}`, walletGroup: `gbtc-del-${r}` } })).id);
+    await sys((tx) => tx.btcpayStore.create({ data: { tenantId: L, baseUrl: 'https://x.es', storeId: 's', apiKeyEnc: 'a:b:c', hookToken: `hk-del-${r}-abcdefghijklmnop` } }));
+    await sys((tx) => tx.venue.delete({ where: { id: L } }));
+    expect(await sys((tx) => tx.btcpayStore.count({ where: { tenantId: L } }))).toBe(0);
   });
 });
