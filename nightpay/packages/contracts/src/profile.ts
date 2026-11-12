@@ -136,3 +136,24 @@ export const ChangePasswordSchema = z
   .refine((v) => v.newPassword === v.newPasswordRepeat, { path: ['newPasswordRepeat'], message: 'Las dos contraseñas nuevas no coinciden' })
   .refine((v) => v.newPassword !== v.currentPassword, { path: ['newPassword'], message: 'La contraseña nueva tiene que ser distinta de la actual' });
 export type ChangePasswordDto = z.infer<typeof ChangePasswordSchema>;
+
+/**
+ * Lo que las pantallas de «Mi perfil» (@nightpay/ui) necesitan del API. Cada app
+ * lo monta con su cliente (createProfileApi, @nightpay/api-client). Los fallos
+ * llegan como Error con un texto ya en español para enseñar tal cual; `code` es
+ * CURRENT_PASSWORD_WRONG o EMAIL_TAKEN cuando toca.
+ */
+export interface ProfileApi {
+  get(): Promise<MyProfile>;
+  setName(displayName: string): Promise<MyProfile>;
+  setPhone(phone: string): Promise<MyProfile>;
+  setEmail(email: string, currentPassword: string): Promise<MyProfile>;
+  changePassword(input: { currentPassword: string; newPassword: string; newPasswordRepeat: string }): Promise<{ otherSessionsClosed: number }>;
+  setPhoto(base64: string): Promise<MyProfile>;
+  removePhoto(): Promise<MyProfile>;
+  /** Los bytes de la foto de una persona del local (con la sesión puesta); null si ya no está. */
+  fetchPhoto(userId: string, hash: string): Promise<Blob | null>;
+}
+
+export const CURRENT_PASSWORD_WRONG_CODE = 'CURRENT_PASSWORD_WRONG';
+export const EMAIL_TAKEN_CODE = 'EMAIL_TAKEN';

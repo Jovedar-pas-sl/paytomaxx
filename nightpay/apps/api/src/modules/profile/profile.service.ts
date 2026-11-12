@@ -2,6 +2,8 @@ import { BadRequestException, ConflictException, ForbiddenException, Inject, Inj
 import { Prisma } from '@nightpay/db';
 import * as bcrypt from 'bcryptjs';
 import {
+  CURRENT_PASSWORD_WRONG_CODE,
+  EMAIL_TAKEN_CODE,
   type ChangePasswordDto,
   type MyProfile,
   type UpdateEmailDto,
@@ -14,8 +16,6 @@ import { passwordFingerprint, RefreshTokenService } from '../auth/refresh-token.
 import { checkProfilePhoto } from './profile-image';
 
 const BCRYPT_ROUNDS = 10;
-export const CURRENT_PASSWORD_WRONG_CODE = 'CURRENT_PASSWORD_WRONG';
-export const EMAIL_TAKEN_CODE = 'EMAIL_TAKEN';
 
 /** Quién llama: lo del token. `sid` es su sesión (para no cerrarla al cerrar las demás). */
 export interface ProfileActor {

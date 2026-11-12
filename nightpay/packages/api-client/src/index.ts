@@ -46,3 +46,4 @@ export {
   type CredentialJSON,
   type RequestOptionsJSON,
 } from './webauthn';
+export { createProfileApi } from './profile';
