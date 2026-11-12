@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, type CSSProperties, type FormEvent } from 'react';
-import { Button, Card, Input, Modal } from '@nightpay/ui';
+import { Button, Card, Input, Modal, StaffAvatar } from '@nightpay/ui';
 import { createOperator, fetchOperators, fetchVenueSettings, type Operator } from '@/lib/api';
 import { formatPercent, parsePercentToBps } from '@/lib/commission';
 import { keepIfSame } from '@/lib/diff';
@@ -138,7 +138,7 @@ export function OperatorsPanel({ isOwner }: Props) {
                       }}
                     >
                       <td data-label="Nombre" data-card="title">
-                        {op.displayName ?? '—'}
+                        <PersonName id={op.id} name={op.displayName} photoHash={op.photoHash} fallback="—" />
                         {needsHelp ? (
                           <Pill tone="warning" style={{ marginLeft: '0.5rem' }}>
                             pide ayuda
@@ -229,6 +229,17 @@ function hasEarnings(o: Operator): boolean {
  * dueño les dio algo en Ajustes, o si les queda algo de antes. Lo que se les
  * debe y lo pagado; su ficha es la de las chicas, con el mismo botón para pagarles.
  */
+/** El nombre con su foto (o las iniciales sobre un color) en las listas. */
+function PersonName({ id, name, photoHash, fallback }: { id: string; name: string | null; photoHash?: string | null; fallback: string }) {
+  const shown = name?.trim() || fallback;
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.625rem', minWidth: 0, verticalAlign: 'middle' }}>
+      <StaffAvatar userId={id} hash={photoHash ?? null} name={name?.trim() || null} size={32} />
+      <span style={{ minWidth: 0, overflowWrap: 'anywhere' }}>{shown}</span>
+    </span>
+  );
+}
+
 function CamarerosCard({ camareros, onOpen }: { camareros: Operator[]; onOpen: (id: string) => void }) {
   return (
     <section style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }} aria-labelledby="np-camareros" data-tour="chicas-camareros">
@@ -250,7 +261,7 @@ function CamarerosCard({ camareros, onOpen }: { camareros: Operator[]; onOpen: (
               {camareros.map((c) => (
                 <tr key={c.id} className="np-row-link" onClick={() => onOpen(c.id)} style={{ cursor: 'pointer' }}>
                   <td data-label="Nombre" data-card="title">
-                    {c.displayName ?? c.email}
+                    <PersonName id={c.id} name={c.displayName} photoHash={c.photoHash} fallback={c.email} />
                   </td>
                   <td
                     data-label="A pagar"

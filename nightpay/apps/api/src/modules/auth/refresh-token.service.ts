@@ -283,6 +283,38 @@ export class RefreshTokenService {
     return count;
   }
 
+  /**
+   * Cierra todas las sesiones de la persona MENOS una (la del móvil desde el que
+   * cambia su contraseña o su correo): sus refresh tokens y, al momento, sus
+   * tokens de acceso. A la que se queda se le apunta la huella de la contraseña
+   * nueva (`newPwdFp`) para que su próximo refresh no la cierre. Sin sesión que
+   * conservar (token antiguo sin `sid`) se cierran todas. Devuelve cuántas cerró.
+   */
+  async revokeOthersForUser(userId: string, keepFamily: string | undefined, newPwdFp?: string): Promise<number> {
+    if (!keepFamily || !UUID_RE.test(keepFamily)) return this.revokeAllForUser(userId);
+    const keys = await this.scanKeys(`nightpay:refresh:user:${userId}:*`);
+    const closed = new Set<string>();
+    for (const k of keys) {
+      const jti = k.split(':').pop();
+      if (!jti) continue;
+      const stored = await this.fetch(jti);
+      if (!stored) {
+        await this.redis.del(k);
+        continue;
+      }
+      if (stored.family === keepFamily) {
+        if (newPwdFp) await this.redis.set(this.key(jti), JSON.stringify({ ...stored, pwdFp: newPwdFp }), 'KEEPTTL', 'XX');
+        continue;
+      }
+      await this.deleteJti(jti, stored);
+      await this.forgetFamily(stored.family);
+      closed.add(stored.family);
+    }
+    for (const family of closed) await this.revocations.revokeSession(family);
+    if (closed.size > 0) this.logger.log(`Closed ${closed.size} other sessions for user ${userId}`);
+    return closed.size;
+  }
+
   /** Revoca toda una family (reuso detectado, contraseña cambiada) y, al momento, sus tokens de acceso. */
   async revokeFamily(familyId: string): Promise<void> {
     await this.revocations.revokeSession(familyId);

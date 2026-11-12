@@ -61,6 +61,8 @@ export interface Operator {
   id: string;
   email: string;
   displayName: string | null;
+  /** Huella de su foto de perfil (Mi perfil), o null sin foto. */
+  photoHash?: string | null;
   commissionBps: number;
   active: boolean;
   invitedAt: string | null;

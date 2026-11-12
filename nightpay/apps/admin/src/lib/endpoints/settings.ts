@@ -98,6 +98,8 @@ export interface PermissionPerson {
   email: string;
   displayName: string | null;
   role: 'MANAGER' | 'WAITER';
+  /** Huella de su foto de perfil, o null sin foto. */
+  photoHash?: string | null;
 }
 
 export async function fetchStaffPermissions(): Promise<{ permissions: StaffPermissions; people: PermissionPerson[] }> {

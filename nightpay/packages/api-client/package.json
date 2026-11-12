@@ -18,5 +18,8 @@
     "@nightpay/config": "workspace:*",
     "typescript": "^5.5.4",
     "vitest": "^2.0.0"
+  },
+  "dependencies": {
+    "@nightpay/contracts": "workspace:*"
   }
 }

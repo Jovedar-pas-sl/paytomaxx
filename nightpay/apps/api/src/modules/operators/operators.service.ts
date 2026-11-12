@@ -15,6 +15,7 @@ import { JwtService } from '@nestjs/jwt';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { PrismaService, type TransactionalClient } from '../../common/prisma/prisma.service';
 import { EmailService } from '../../common/email/email.service';
+import { photoHashesOf } from '../profile/photo-hashes';
 import { AuditService } from '../audit/audit.service';
 import { RefreshTokenService } from '../auth/refresh-token.service';
 import { NOT_SALDO_TWIN, saldoCharges } from '../money-map/cobros.service';
@@ -422,11 +423,13 @@ export class OperatorsService {
       orderBy: { createdAt: 'desc' },
     });
 
+    const photos = await photoHashesOf(this.prisma, tenantId, operators.map((o) => o.id));
     const result: OperatorWithBalance[] = [];
     for (const op of operators) {
       const balance = await this.getBalance(op.id, tenantId);
       result.push({
         ...this.toPublicView(op as never),
+        photoHash: photos.get(op.id) ?? null,
         balance,
       });
     }

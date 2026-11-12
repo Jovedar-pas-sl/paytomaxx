@@ -28,6 +28,7 @@ import { RealtimeModule } from './modules/realtime/realtime.module';
 import { RefundsModule } from './modules/refunds/refunds.module';
 import { TerminalsModule } from './modules/terminals/terminals.module';
 import { CartaModule } from './modules/carta/carta.module';
+import { ProfileModule } from './modules/profile/profile.module';
 import { ReportsModule } from './modules/reports/reports.module';
 import { NightsModule } from './modules/nights/nights.module';
 import { IncidentsModule } from './modules/incidents/incidents.module';
@@ -88,6 +89,7 @@ import { HomeTopUpModule } from './modules/home-topup/home-topup.module';
     TreasuryModule,
     TerminalsModule,
     CartaModule,
+    ProfileModule,
     ReportsModule,
     NightsModule,
     IncidentsModule,

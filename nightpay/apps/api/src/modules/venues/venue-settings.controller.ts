@@ -32,6 +32,7 @@ import { Roles } from '../../common/decorators/roles.decorator';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { ZodValidationPipe } from '../../common/pipes/zod.pipe';
 import { PrismaService } from '../../common/prisma/prisma.service';
+import { photoHashesOf } from '../profile/photo-hashes';
 import { AuditService } from '../audit/audit.service';
 
 /** Persona del local a la que el dueño puede dar o quitar permisos. */
@@ -40,6 +41,8 @@ export interface PermissionPerson {
   email: string;
   displayName: string | null;
   role: 'MANAGER' | 'WAITER';
+  /** Huella de su foto de perfil, o null sin foto. */
+  photoHash: string | null;
 }
 
 export interface AlertSettingsView extends VenueAlertSettings {
@@ -208,15 +211,16 @@ export class VenueSettingsController {
     );
   }
 
-  private permissionPeople(tenantId: string): Promise<PermissionPerson[]> {
-    return this.prisma.asSystem(async (tx) => {
-      const rows = await tx.user.findMany({
+  private async permissionPeople(tenantId: string): Promise<PermissionPerson[]> {
+    const rows = await this.prisma.asSystem((tx) =>
+      tx.user.findMany({
         where: { tenantId, deletedAt: null, role: { in: ['MANAGER', 'WAITER'] } },
         select: { id: true, email: true, displayName: true, role: true },
         orderBy: [{ role: 'asc' }, { email: 'asc' }],
-      });
-      return rows.map((r) => ({ ...r, role: r.role as PermissionPerson['role'] }));
-    });
+      }),
+    );
+    const photos = await photoHashesOf(this.prisma, tenantId, rows.map((r) => r.id));
+    return rows.map((r) => ({ ...r, role: r.role as PermissionPerson['role'], photoHash: photos.get(r.id) ?? null }));
   }
 
   private async save(

@@ -105,6 +105,7 @@ model Venue {
   peanpeCalls        PeanpeCall[]
   serviceItems       ServiceItem[]
   serviceItemImages  ServiceItemImage[]
+  userPhotos         UserPhoto[]
   nights             VenueNight[]
   incidentAcks       IncidentAck[]
   posTerminalOps     PosTerminalOp[]
@@ -231,7 +232,10 @@ model User {
   invitedLines          PaymentLine[]       @relation("PaymentLineBeneficiary")
   // Sus llaves de acceso (20261109100000): verificarse sin 2FA.
   staffPasskeys         StaffPasskey[]
+  // Su foto de perfil (20261113100000).
+  photo                 UserPhoto?
 
+  @@unique([id, tenantId])
   @@index([tenantId])
   @@map("users")
 }
@@ -811,6 +815,27 @@ model ServiceItemImage {
   @@unique([serviceItemId, tenantId])
   @@index([tenantId])
   @@map("service_item_images")
+}
+
+// Foto de perfil del personal (20261113100000): WebP o JPEG de 256×256 como mucho y
+// 150 KB, en la base. La clave ajena lleva el local. FORCE RLS: solo dentro de una
+// transacción de PrismaService.
+model UserPhoto {
+  userId      String   @id @db.Uuid
+  tenantId    String   @db.Uuid
+  contentType String   @default("image/webp") @db.VarChar(16)
+  data        Bytes
+  contentHash String   @db.Char(64)
+  width       Int
+  height      Int
+  updatedAt   DateTime @default(now()) @updatedAt @db.Timestamptz
+
+  user  User  @relation(fields: [userId, tenantId], references: [id, tenantId], onDelete: Cascade)
+  venue Venue @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, tenantId])
+  @@index([tenantId])
+  @@map("user_photos")
 }
 
 // El mapa del dinero (20261023100000): las líneas de cada cobro, cada una en

@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Card, Logo, InstallHint } from '@nightpay/ui';
 import { LoginForm } from '@/components/LoginForm';
 import { Dashboard } from '@/components/Dashboard';
+import { MyProfileProvider } from '@/components/my-profile';
 import { ReloginSheet } from '@/components/ReloginSheet';
 import { SafariNotice } from '@/components/SafariNotice';
 import { SessionExpiredContext } from '@/components/session-context';
@@ -122,7 +123,9 @@ export default function Page() {
 
   return (
     <SessionExpiredContext.Provider value={expired}>
-      <Dashboard key={generation} user={user} onLogout={handleLogout} />
+      <MyProfileProvider user={user}>
+        <Dashboard key={generation} user={user} onLogout={handleLogout} />
+      </MyProfileProvider>
       {view === 'relogin' ? (
         <ReloginSheet email={user.email} chargePending={charges.pending} onSuccess={enter} />
       ) : null}

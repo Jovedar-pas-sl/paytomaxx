@@ -114,3 +114,23 @@ export {
   tourMove,
 } from './lib/tour';
 export type { TourCloseReason, TourStep, TourStorage } from './lib/tour';
+
+// «Mi perfil» (personal y panel): foto, nombre, contacto, seguridad y ajustes de este móvil.
+export { ProfileScreen, ProfileDevice } from './components/ProfileScreen';
+export type { ProfileScreenProps } from './components/ProfileScreen';
+export { StaffAvatar, StaffPhotoProvider, initialsTone, useStaffPhotoUrl } from './components/StaffAvatar';
+export type { StaffPhotoFetcher } from './components/StaffAvatar';
+export {
+  BIGFONT_KEY,
+  HAPTIC_KEY,
+  THEME_KEY,
+  applyBigFont,
+  applyThemeChoice,
+  deviceInitScript,
+  hapticEnabled,
+  readBigFont,
+  readThemeChoice,
+  resolveTheme,
+} from './lib/device-settings';
+export type { ThemeChoice } from './lib/device-settings';
+export { PHOTO_MAX_BYTES, PHOTO_OUT_SIDE, PhotoPrepareError, encodeProfilePhoto, photoPlan, prepareProfilePhoto } from './lib/profile-photo';

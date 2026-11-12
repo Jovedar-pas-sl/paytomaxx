@@ -19,3 +19,4 @@ export * from './endpoints/bank';
 export * from './endpoints/approvals';
 export * from './endpoints/fichas';
 export * from './endpoints/money-map';
+export * from './endpoints/profile';

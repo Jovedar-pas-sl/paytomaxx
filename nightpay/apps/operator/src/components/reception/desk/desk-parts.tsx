@@ -4,6 +4,7 @@ import type { CSSProperties, ReactNode } from 'react';
 import { Logo, SectionChip } from '@nightpay/ui';
 import { fichaDigits } from '@/lib/ficha-number';
 import { codeBoxes, codeInput } from '@/lib/reception-desk';
+import { MenuAvatar } from '../../my-profile';
 import { useStaffMenu } from '../../staff-menu';
 import s from './desk.module.css';
 
@@ -115,7 +116,7 @@ export function DeskHead({ title, sub, onBack, chip, noMenu = false, help }: Hea
         </button>
       ) : openMenu ? (
         <button type="button" className={s.logoBtn} onClick={openMenu} aria-label="Menú">
-          <Logo variant="symbol" height="2.625rem" alt="" />
+          <MenuAvatar />
         </button>
       ) : (
         <Logo variant="symbol" height="2.625rem" />

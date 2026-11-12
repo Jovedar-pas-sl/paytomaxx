@@ -177,7 +177,18 @@ export const TOURS = {
       { target: 'cierre-congelar', title: 'Congelar el Z', text: 'Guarda el informe de la noche y la caja: ya no cambian. Solo se activa cuando todo está listo.' },
     ],
   },
+  perfil: {
+    screen: 'panel-perfil',
+    steps: [
+      { target: 'perfil-foto', title: 'Tu foto y tu nombre', text: 'Cambia tu foto (de la galería o con la cámara) y el nombre que ven los demás en las listas y en los cobros. Sin foto salen tus iniciales.' },
+      { target: 'perfil-contacto', title: 'Contacto', text: 'Tu teléfono y el correo con el que entras al panel. Para cambiar el correo hace falta tu contraseña de ahora.' },
+      { target: 'perfil-seguridad', title: 'Seguridad', text: 'Cambia tu contraseña o cierra la sesión. Al cambiar la contraseña se cierran tus sesiones en otros dispositivos.' },
+      { target: 'perfil-movil', title: 'Este equipo', text: 'El tema del panel: oscuro, claro o como el equipo. Se guarda solo en este navegador.' },
+    ],
+  },
 } as const satisfies Record<string, TourDef>;
+
+
 
 export type TourKey = keyof typeof TOURS;
 
