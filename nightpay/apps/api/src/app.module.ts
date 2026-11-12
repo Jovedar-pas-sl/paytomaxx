@@ -17,6 +17,7 @@ import { AdminModule } from './modules/admin/admin.module';
 import { ApprovalsModule } from './modules/approvals/approvals.module';
 import { AuditModule } from './modules/audit/audit.module';
 import { AuthModule } from './modules/auth/auth.module';
+import { BtcpayModule } from './modules/btcpay/btcpay.module';
 import { GatewaysModule } from './modules/gateways/gateways.module';
 import { HealthController } from './modules/health/health.controller';
 import { MetricsModule } from './modules/metrics/metrics.module';
@@ -82,6 +83,8 @@ import { HomeTopUpModule } from './modules/home-topup/home-topup.module';
     VenuesModule,
     MoneyMapModule,
     PaymentsModule,
+    // «Pagar con bitcoin» (BTCPay): apagado salvo BTCPAY_ENABLED.
+    BtcpayModule,
     RefundsModule,
     OperatorsModule,
     AdminModule,

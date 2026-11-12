@@ -232,3 +232,11 @@ export function describeBtcpayFailure(status: number, body: unknown): BtcpayFail
   }
   return { code: 'UNKNOWN', transient: false, message: 'BTCPay ha contestado algo inesperado. Revisa la dirección, la tienda y la clave.' };
 }
+
+// ─── ¿Para qué usa el local el bitcoin? ───────────────────────────────
+
+/** Cobros, recargas del saldo o los dos (Ajustes). Un valor desconocido no deja nada. */
+export function purposeAllows(purpose: string | null | undefined, topUp: boolean): boolean {
+  if (purpose === 'BOTH') return true;
+  return topUp ? purpose === 'TOPUPS' : purpose === 'PAYMENTS';
+}

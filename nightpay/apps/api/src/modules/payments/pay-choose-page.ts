@@ -269,8 +269,14 @@ function payButtons(view: ChooseView, t: PayText, ctx: ChooseContext): string {
   const saldo = view.saldoPayToken
     ? `<a class="btn alt saldo" id="saldoBtn" href="${escapeHtml(`/s/${encodeURIComponent(view.saldoPayToken)}?lang=${ctx.lang}`)}">${escapeHtml(t.payWithSaldo)}</a>`
     : '';
+  // «Pagar con bitcoin»: otro botón del mismo formulario que va a su propia página (formaction).
+  const bitcoin = view.bitcoin
+    ? `<button class="btn alt" id="btcBtn" type="submit" formaction="${escapeHtml(`/pay/${encodeURIComponent(ctx.token)}/bitcoin?lang=${ctx.lang}`)}" formmethod="post"><span aria-hidden="true">₿</span><span>${escapeHtml(t.payWithBitcoin)}</span></button>`
+    : '';
   const alts =
-    card || saldo ? `<p class="or" aria-hidden="true">${escapeHtml(t.or)}</p><div class="alts">${card}${saldo}</div>` : '';
+    card || saldo || bitcoin
+      ? `<p class="or" aria-hidden="true">${escapeHtml(t.or)}</p><div class="alts">${card}${bitcoin}${saldo}</div>`
+      : '';
   return `<div class="paybar"><div>
 ${main}
 ${methods}${alts}${saldo && fee > 0 ? `<p class="nofee">${escapeHtml(t.saldoNoFee)}</p>` : ''}

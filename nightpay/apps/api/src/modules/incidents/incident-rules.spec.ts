@@ -294,6 +294,30 @@ describe('avisos de cobro aprobado que no se dieron por buenos', () => {
     expect(i.detail).toContain('Hoy → Cobros → Resolver');
   });
 
+  it('bitcoin: pago a medias o tardío = incidencia que NO da por pagado, con dónde mirarlo', () => {
+    const partial = paymentAnomalyIncident(
+      row('payment.approval_unverified', { provider: 'BTCPAY', providerTxId: 'INV1', reason: 'btcpay-paid_partial', source: 'btcpay' }),
+    );
+    expect(partial).toMatchObject({ kind: 'approval_unverified', ackable: false, title: 'Pago de bitcoin a medias' });
+    expect(partial.detail).toContain('NO se ha dado por pagado');
+    expect(partial.detail).toContain('tu BTCPay y la cartera del local');
+    const late = paymentAnomalyIncident(
+      row('payment.approval_unverified', { provider: 'BTCPAY', providerTxId: 'INV1', reason: 'btcpay-paid_late', source: 'btcpay' }),
+    );
+    expect(late.title).toBe('Pago de bitcoin fuera de plazo');
+    const mismatch = paymentAnomalyIncident(
+      row('payment.approval_unverified', { provider: 'BTCPAY', providerTxId: 'INV1', reason: 'btcpay-amount_mismatch', source: 'btcpay' }),
+    );
+    expect(mismatch.title).toBe('Una factura de bitcoin no cuadra con el cobro');
+  });
+
+  it('bitcoin llegado a un cobro cancelado: devolverlo desde la cartera del local', () => {
+    const i = paymentAnomalyIncident(row('payment.approval_unbooked', { provider: 'BTCPAY', providerTxId: 'INV1', fromStatus: 'CANCELED' }));
+    expect(i).toMatchObject({ kind: 'approval_unbooked', ackable: true });
+    expect(i.detail).toContain('cancelado');
+    expect(i.detail).toContain('tu BTCPay y la cartera del local');
+  });
+
   it('importe distinto: los dos importes, y se marca como revisada', () => {
     const i = paymentAnomalyIncident(
       row('payment.amount_mismatch', {

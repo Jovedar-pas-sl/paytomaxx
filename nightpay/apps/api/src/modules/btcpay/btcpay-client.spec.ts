@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { BtcpayApiError, BtcpayClient, BtcpayClients } from './btcpay-client';
+import { BtcpayApiError, BtcpayClients } from './btcpay-client';
 import { BtcpayNet, type BtcpayHttpRequest, type BtcpayHttpResponse } from './btcpay-net';
 import { GatewayTransientError } from '../gateways/gateway-errors';
 

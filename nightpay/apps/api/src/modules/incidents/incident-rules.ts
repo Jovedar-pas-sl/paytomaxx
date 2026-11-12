@@ -636,6 +636,7 @@ const PROVIDER_TEXT: Record<string, { who: string; where: string }> = {
   PAYTEF: { who: 'Paytef', where: 'el panel de Paytef' },
   PEANPE: { who: 'Peanpe', where: 'el panel de Peanpe' },
   WIPAY: { who: 'Cecabank', where: 'el portal de Cecabank' },
+  BTCPAY: { who: 'Tu BTCPay (bitcoin)', where: 'tu BTCPay y la cartera del local' },
 };
 const UNKNOWN_PROVIDER_TEXT = { who: 'La pasarela', where: 'el panel de la pasarela' };
 
@@ -696,6 +697,24 @@ export function paymentAnomalyIncident(r: PaymentAnomalyRow): Incident {
       detail: `${r.amountCents === null ? '' : `${eur(r.amountCents)}. `}El cobro estaba ${status} cuando llegó la aprobación${orderText}. Devuélveselo al cliente desde ${provider.where}.`,
       amountCents: r.amountCents,
       ackable: true,
+    };
+  }
+  // payment.approval_unverified de una factura de bitcoin: pago a medias, tardío o factura que no cuadra.
+  if (str(r.payload, 'source') === 'btcpay') {
+    const reason = str(r.payload, 'reason') ?? '';
+    const BTC_REASONS: Record<string, { title: string; what: string }> = {
+      'btcpay-paid_partial': { title: 'Pago de bitcoin a medias', what: 'El cliente envió menos bitcoin de lo que costaba el cobro.' },
+      'btcpay-paid_late': { title: 'Pago de bitcoin fuera de plazo', what: 'El cliente pagó cuando la factura de bitcoin ya había caducado.' },
+    };
+    const known = BTC_REASONS[reason];
+    return {
+      ...base,
+      kind: 'approval_unverified',
+      refId: r.paymentId ?? r.id,
+      title: known?.title ?? 'Una factura de bitcoin no cuadra con el cobro',
+      detail: `${known?.what ?? 'BTCPay avisa de una factura cuyo importe, moneda o tienda no coinciden con el cobro.'} NO se ha dado por pagado${r.amountCents === null ? '' : ` (${eur(r.amountCents)})`}${orderText}. Míralo en ${provider.where}: devuelve el bitcoin recibido desde la cartera del local y cancela el cobro, o, si ya está todo cobrado, resuélvelo en Hoy → Cobros → Resolver.`,
+      amountCents: r.amountCents,
+      ackable: false,
     };
   }
   // payment.approval_unverified: uno por cobro; se quita solo al resolverlo.

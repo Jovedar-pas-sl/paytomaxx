@@ -338,6 +338,14 @@ export class PublicPayController {
           }),
         );
         return;
+      case 'bitcoin':
+        // Factura de bitcoin abierta: su página (BtcpayPayController).
+        res
+          .status(303)
+          .header('Location', `/pay/${encodeURIComponent(token)}/bitcoin?lang=${lang}`)
+          .header('Cache-Control', 'no-store')
+          .send();
+        return;
       case 'redirect':
         // Paytef u otros PSPs con URL hosted → 302
         res.status(302).header('Location', view.url).send();

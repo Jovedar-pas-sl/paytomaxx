@@ -7,6 +7,7 @@ import {
   decimalToCents,
   describeBtcpayFailure,
   judgeInvoice,
+  purposeAllows,
   unifiedPaymentLink,
   verifyBtcpaySignature,
   type InvoiceData,
@@ -236,5 +237,21 @@ describe('describeBtcpayFailure: mensajes para el dueño', () => {
   it('el mensaje al dueño nunca lleva el texto crudo de BTCPay con la clave', () => {
     const f = describeBtcpayFailure(401, { message: 'token SECRETO-123 no vale' });
     expect(JSON.stringify(f)).not.toContain('SECRETO-123');
+  });
+});
+
+describe('purposeAllows: cobros, recargas o los dos', () => {
+  it.each([
+    ['PAYMENTS', false, true],
+    ['PAYMENTS', true, false],
+    ['TOPUPS', true, true],
+    ['TOPUPS', false, false],
+    ['BOTH', true, true],
+    ['BOTH', false, true],
+    ['RARO', true, false],
+    [undefined, false, false],
+    [null, true, false],
+  ])('%s con recarga=%s → %s', (purpose, topUp, expected) => {
+    expect(purposeAllows(purpose, topUp)).toBe(expected);
   });
 });

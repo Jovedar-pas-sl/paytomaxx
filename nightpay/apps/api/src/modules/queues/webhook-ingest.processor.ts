@@ -1,5 +1,5 @@
 import { Processor, WorkerHost } from '@nestjs/bullmq';
-import { Inject, Logger } from '@nestjs/common';
+import { Inject, Logger, Optional } from '@nestjs/common';
 import type { Job } from 'bullmq';
 import { randomUUID } from 'node:crypto';
 import type { Provider } from '@nightpay/contracts';
@@ -10,6 +10,7 @@ import type { GatewayAdapter } from '../gateways/gateway.adapter';
 import { parseWebhookBody } from '../gateways/header-utils';
 import { InvalidTransitionError, isIdempotentTransition } from '../payments/payment.machine';
 import { WEBHOOKS_INGEST_QUEUE } from './queue-tokens';
+import { BtcpayInvoiceService } from '../btcpay/btcpay-invoice.service';
 import {
   CARD_REFUNDED_AFTER_SALDO_EVENT,
   lateApprovalHandled,
@@ -57,16 +58,20 @@ export class WebhookIngestProcessor extends WorkerHost {
   private readonly prisma: PrismaService;
   private readonly payments: PaymentsService;
   private readonly gateways: GatewayRegistry;
+  /** Los avisos de BTCPay (bitcoin) los procesa BtcpayInvoiceService con la conexión de cada local. */
+  private readonly btcpay: BtcpayInvoiceService | null;
 
   constructor(
     @Inject(PrismaService) prisma: PrismaService,
     @Inject(PaymentsService) payments: PaymentsService,
     @Inject(GatewayRegistry) gateways: GatewayRegistry,
+    @Optional() @Inject(BtcpayInvoiceService) btcpay?: BtcpayInvoiceService,
   ) {
     super();
     this.prisma = prisma;
     this.payments = payments;
     this.gateways = gateways;
+    this.btcpay = btcpay ?? null;
   }
 
   async process(job: Job<WebhookIngestJobData>): Promise<void> {
@@ -79,6 +84,14 @@ export class WebhookIngestProcessor extends WorkerHost {
 
     if (delivery.processedAt) {
       this.logger.debug(`webhook ${deliveryId} already processed`);
+      return;
+    }
+
+    // Bitcoin: el aviso no trae estado ni importe, se vuelve a pedir la factura a BTCPay.
+    if (delivery.provider === 'BTCPAY') {
+      if (!this.btcpay) throw new Error('Aviso de BTCPay sin el servicio de facturas de bitcoin');
+      await this.btcpay.handleDelivery(delivery.tenantId, delivery.rawBody);
+      await this.markProcessed(deliveryId);
       return;
     }
 
