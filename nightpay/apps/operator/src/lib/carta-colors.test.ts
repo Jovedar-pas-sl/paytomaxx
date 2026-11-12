@@ -43,7 +43,7 @@ function contrast(a: string, b: string): number {
 
 describe('la tinta sobre el color de cada sección (Grafito 2)', () => {
   it('styles.css define la tinta y todas las secciones (y los dos tonos de loseta)', () => {
-    expect(INK).toBe('#0f1112');
+    expect(INK).toBe('#0b0d0e');
     expect(Object.keys(SECTION_VARS)).toEqual(
       expect.arrayContaining([
         '--np-sec-copas',
@@ -86,16 +86,20 @@ describe('la tinta sobre el color de cada sección (Grafito 2)', () => {
 });
 
 describe('la loseta en cobrar.module.css', () => {
-  it('color sólido de la sección y texto en tinta (sin el tinte del 26 %)', () => {
+  it('degradado de 150° del color de la sección, brillo debajo, línea clara arriba y texto en tinta', () => {
     const tile = block(COBRAR, '.tile');
-    expect(tile).toMatch(/background: var\(--c\);/);
+    expect(tile).toMatch(/background: linear-gradient\(150deg, color-mix\(in srgb, var\(--c\) 62%, #fff\) 0%, var\(--c\) 58%\);/);
+    expect(tile).toMatch(/box-shadow: 0 8px 22px -8px color-mix\(in srgb, var\(--c\) var\(--np-tile-glow\), transparent\), inset 0 1px 0 var\(--np-tile-hi\);/);
     expect(tile).toMatch(/color: var\(--np-on-section\);/);
     expect(tile).toMatch(/border-radius: var\(--np-r-tile\);/);
-    expect(COBRAR).not.toMatch(/color-mix\(in srgb, var\(--c\)/);
+    // Ya no es el tinte del 26 % sobre la superficie: el color entra en el degradado.
+    expect(COBRAR).not.toMatch(/color-mix\(in srgb, var\(--c\) 26%/);
   });
 
-  it('la elegida: anillo de tinta de 3 px y el contador en tinta, que se ven sobre el color', () => {
-    expect(block(COBRAR, '.tileOn')).toMatch(/box-shadow: inset 0 0 0 3px var\(--np-on-section\);/);
+  it('la elegida: brilla más y lleva un aro fino claro; el contador en tinta se ve sobre el color', () => {
+    const on = block(COBRAR, '.tileOn');
+    expect(on).toMatch(/var\(--np-tile-glow-on\)/);
+    expect(on).toMatch(/inset 0 0 0 2px rgb\(255 255 255 \/ 0\.9\)/);
     expect(block(COBRAR, '.count')).toMatch(/background: var\(--np-on-section\);/);
     // Un anillo (no texto) pide 3:1 con lo de al lado; la tinta da ≥ 4,5 sobre todas.
     for (const [name, hex] of Object.entries(SECTION_VARS)) expect(contrast(INK, hex), name).toBeGreaterThanOrEqual(3);
@@ -116,5 +120,32 @@ describe('la loseta en cobrar.module.css', () => {
     expect(CARTA).not.toMatch(/cartaTileColor\(PROPINAS\)/);
     expect(CARTA).not.toContain('onTip');
     expect(CARTA).toMatch(/className=\{styles\.group\} style=\{\{ '--c': colorOf\(group\.section\) \}/);
+  });
+});
+
+describe('el brillo de la carta (colores con más vida)', () => {
+  it('oscuro: del color al 75 %, línea clara de 0,45 y brillo lima en «Cobrar»', () => {
+    expect(ROOT).toMatch(/--np-tile-glow:\s*75%/);
+    expect(ROOT).toMatch(/--np-tile-hi:\s*rgb\(255 255 255 \/ 0\.45\)/);
+    expect(ROOT).toMatch(/--np-primary-glow:\s*0 8px 24px -8px rgb\(199 211 1 \/ 0\.7\)/);
+    expect(block(COBRAR, '.foot .primary:not(:disabled)')).toMatch(/box-shadow: var\(--np-primary-glow\);/);
+  });
+
+  it('claro: sin brillo de color fuerte (sombra suave)', () => {
+    const light = block(STYLES, "[data-theme='light']");
+    const glow = Number(light.match(/--np-tile-glow:\s*(\d+)%/)?.[1]);
+    expect(glow).toBeGreaterThan(0);
+    expect(glow).toBeLessThanOrEqual(35);
+    expect(light).toMatch(/--np-primary-glow:/);
+  });
+
+  it('sin animación nueva en la loseta', () => {
+    expect(block(COBRAR, '.tile')).not.toMatch(/animation:/);
+    expect(block(COBRAR, '.tileOn')).not.toMatch(/animation:/);
+  });
+
+  it('el contador ×N no pisa el nombre y el punto del título brilla', () => {
+    expect(block(COBRAR, '.tiles > .tile .tileNameBadge')).toMatch(/padding-right: 0;/);
+    expect(block(COBRAR, '.group::before')).toMatch(/box-shadow: 0 0 8px var\(--c\);/);
   });
 });

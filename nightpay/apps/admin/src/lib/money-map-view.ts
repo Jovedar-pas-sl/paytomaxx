@@ -4,9 +4,9 @@
 // destinos van en grises (variables --np-mm-* de panel-money.css). Sin IVA.
 
 import {
-  DEFAULT_SECTIONS,
   MONEY_MAP_TIPS,
   formatMoney,
+  isDefaultSectionColor,
   isSectionCode,
   sectionMeta,
   venueSharePercent,
@@ -25,7 +25,7 @@ export function sectionPaint(sections: readonly VenueSection[], code: string): {
   if (code === MONEY_MAP_TIPS) return { label: SECTIONS.propinas.label, color: SECTIONS.propinas.color };
   const meta = sectionMeta(sections, code);
   const own = sections.find((s) => s.code === code);
-  const custom = own && isSectionCode(code) && own.color.toLowerCase() !== DEFAULT_SECTIONS[code].color.toLowerCase();
+  const custom = own && isSectionCode(code) && !isDefaultSectionColor(code, own.color);
   return { label: meta.label, color: custom ? own.color : sectionColor(code) };
 }
 

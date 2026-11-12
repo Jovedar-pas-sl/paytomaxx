@@ -46,6 +46,7 @@ import { LaCuenta } from './LaCuenta';
 import { MiQr } from './MiQr';
 import { OtroImporte } from './OtroImporte';
 import { GuiaMenuLink, InstallMenuItem } from '../staff-menu';
+import { ProfileSheet } from '../ProfileSheet';
 import styles from './cobrar.module.css';
 
 type Stage =
@@ -106,6 +107,8 @@ export function CobrarFlow({ user, onCobroDone, onLogout, night, miQrOpen = fals
   const [retrying, setRetrying] = useState(false);
   const [retryError, setRetryError] = useState<string | null>(null);
   const [menu, setMenu] = useState(false);
+  // «Mi perfil» también desde el menú de Cobrar (la pantalla principal del personal).
+  const [profile, setProfile] = useState(false);
   const attempt = useRef<{ key: string; what: string } | null>(null);
   /** Lo último que se tocó en la carta: el pie ofrece «Deshacer» durante 4 s (decisión D3). */
   const [undo, setUndo] = useState<UndoTap | null>(null);
@@ -382,9 +385,20 @@ export function CobrarFlow({ user, onCobroDone, onLogout, night, miQrOpen = fals
       </button>
     ) : null;
   const menuModal = (
+    <>
+    <ProfileSheet open={profile} onClose={() => setProfile(false)} onLogout={onLogout} />
     <Modal open={menu} onClose={() => setMenu(false)} title="Menú">
-      {/* Sin tema: el personal va siempre en oscuro (layout). */}
+      {/* El tema se elige en «Mi perfil» (por defecto, oscuro). */}
       <div className={styles.menu}>
+        <Button
+          variant="ghost"
+          onClick={() => {
+            setMenu(false);
+            setProfile(true);
+          }}
+        >
+          Mi perfil
+        </Button>
         {onRecargar ? (
           <Button
             variant="ghost"
@@ -403,6 +417,7 @@ export function CobrarFlow({ user, onCobroDone, onLogout, night, miQrOpen = fals
         </Button>
       </div>
     </Modal>
+    </>
   );
 
   switch (stage.kind) {

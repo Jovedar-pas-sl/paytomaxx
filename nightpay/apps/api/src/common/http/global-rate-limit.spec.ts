@@ -11,6 +11,12 @@ describe('límite global de peticiones', () => {
     expect(isGlobalRateLimitExempt(req('/v1/health', '::ffff:127.0.0.1'))).toBe(true);
   });
 
+  it('la foto de perfil del personal (GET con su huella) tiene su propio tope, no el global', () => {
+    const id = '0b0e5d3e-6a56-4a3e-9d2f-0d6a8c0c9a11';
+    expect(isGlobalRateLimitExempt(req(`/v1/staff/${id}/photo/${'a'.repeat(64)}`, '203.0.113.5'))).toBe(true);
+    expect(isGlobalRateLimitExempt(req(`/v1/staff/${id}/photo`, '203.0.113.5', {}, 'DELETE'))).toBe(false);
+  });
+
   it('loopback ya no exime al resto de rutas (un proxy local lo dejaría todo sin límite)', () => {
     expect(isGlobalRateLimitExempt(req('/v1/auth/login', '127.0.0.1', {}, 'POST'))).toBe(false);
     expect(isGlobalRateLimitExempt(req('/v1/venues', '::1'))).toBe(false);

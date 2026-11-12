@@ -8,10 +8,13 @@
   --np-mmq-ganado: var(--np-success);
   --np-mmq-caja: var(--np-warning);
   --np-mmq-banco: var(--np-cream);
-  --np-mmq-debo: #f2b49b;
+  --np-mmq-debo: #ff8a3d;
   --np-mmq-info-bg: #0f1f31;
   --np-mmq-info-edge: #2b4a66;
   --np-mmq-info-dot: #6fa8dc;
+  /* El tinte suave de cada tarjeta: cuánto de su color entra en el fondo y en el borde. */
+  --np-mmq-tint: 16%;
+  --np-mmq-edge: 40%;
 }
 
 [data-theme='light'] {
@@ -20,6 +23,8 @@
   --np-mmq-info-bg: #e6eff8;
   --np-mmq-info-edge: #b4cbe2;
   --np-mmq-info-dot: #2f6fa8;
+  --np-mmq-tint: 9%;
+  --np-mmq-edge: 28%;
 }
 
 .np-mmq {
@@ -44,7 +49,10 @@
   border: 1px solid var(--np-border);
   border-top: 4px solid var(--np-mmq-c, var(--np-border-hi));
   border-radius: 1rem;
-  background: var(--np-surface);
+  background: linear-gradient(160deg, color-mix(in srgb, var(--np-mmq-c, var(--np-border-hi)) var(--np-mmq-tint), var(--np-surface)) 0%, var(--np-surface) 70%);
+  border-right-color: color-mix(in srgb, var(--np-mmq-c, var(--np-border-hi)) var(--np-mmq-edge), var(--np-border));
+  border-bottom-color: color-mix(in srgb, var(--np-mmq-c, var(--np-border-hi)) var(--np-mmq-edge), var(--np-border));
+  border-left-color: color-mix(in srgb, var(--np-mmq-c, var(--np-border-hi)) var(--np-mmq-edge), var(--np-border));
 }
 
 .np-mmq-card[data-tone='ganado'] { --np-mmq-c: var(--np-mmq-ganado); }

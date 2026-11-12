@@ -161,6 +161,15 @@ export const TOURS = {
       { target: 'dar-volver', title: 'Volver', text: 'Vuelve a Recepción sin dar ninguna ficha.' },
     ],
   },
+  perfil: {
+    screen: 'perfil',
+    steps: [
+      { target: 'perfil-foto', title: 'Tu foto y tu nombre', text: 'Toca «Cambiar foto» para elegir una de la galería o hacerla con la cámara. El nombre es el que ve el resto del personal en los cobros.' },
+      { target: 'perfil-contacto', title: 'Contacto', text: 'Tu teléfono y el correo con el que entras. Para cambiar el correo hace falta tu contraseña de ahora.' },
+      { target: 'perfil-seguridad', title: 'Seguridad', text: 'Cambia tu contraseña o cierra la sesión de este móvil. Al cambiar la contraseña se cierran tus sesiones en otros móviles.' },
+      { target: 'perfil-movil', title: 'Este móvil', text: 'Tema, vibrar al tocar y letra más grande. Se guardan solo en este móvil.' },
+    ],
+  },
 } as const satisfies Record<string, TourDef>;
 
 export type TourKey = keyof typeof TOURS;

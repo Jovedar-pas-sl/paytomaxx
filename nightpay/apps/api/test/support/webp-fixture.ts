@@ -49,3 +49,20 @@ export function pngFixture(opts: { width?: number; height?: number; bytes?: numb
   head[25] = 6;
   return Buffer.concat([head, Buffer.alloc(Math.max(bytes - head.length, 0), 0x33)]);
 }
+
+/** JPEG con la cabecera buena (SOI + APP0 + SOF0 con medidas) y relleno: vale para probar bytes y medidas. */
+export function jpegFixture(opts: { width?: number; height?: number; bytes?: number; progressive?: boolean } = {}): Buffer {
+  const { width = 256, height = 256, bytes = 4096, progressive = false } = opts;
+  const soi = Buffer.from([0xff, 0xd8]);
+  const app0 = Buffer.from([0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0x00, 0x01, 0x01, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00]);
+  const sof = Buffer.alloc(19);
+  sof[0] = 0xff;
+  sof[1] = progressive ? 0xc2 : 0xc0;
+  sof.writeUInt16BE(17, 2);
+  sof[4] = 8;
+  sof.writeUInt16BE(height, 5);
+  sof.writeUInt16BE(width, 7);
+  sof[9] = 3;
+  const head = Buffer.concat([soi, app0, sof]);
+  return Buffer.concat([head, Buffer.alloc(Math.max(bytes - head.length - 2, 0), 0x11), Buffer.from([0xff, 0xd9])]);
+}

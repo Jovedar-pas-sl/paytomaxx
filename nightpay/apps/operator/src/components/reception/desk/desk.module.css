@@ -615,7 +615,9 @@ button.det {
   padding: 1rem;
   border: 2px solid var(--m-line);
   border-radius: var(--np-r-lg);
-  background: var(--m-bg);
+  background: linear-gradient(155deg, color-mix(in srgb, var(--m-line) 16%, var(--m-bg)) 0%, var(--m-bg) 70%);
+  /* Brillo del mismo color debajo (más suave en el tema claro: --np-tile-glow). */
+  box-shadow: 0 8px 22px -8px color-mix(in srgb, var(--m-line) var(--np-tile-glow), transparent), inset 0 1px 0 color-mix(in srgb, var(--m-line) 45%, transparent);
   color: var(--np-text);
   font: inherit;
   text-align: left;
@@ -672,6 +674,7 @@ button.det {
 /* Sin nada que hacer: neutro, nunca el color apagado. */
 .method:disabled:not([data-loading]) {
   cursor: not-allowed;
+  box-shadow: none;
   --m-bg: var(--np-disabled-bg);
   --m-line: var(--np-disabled-edge);
   --m-ink: var(--np-disabled-ink);

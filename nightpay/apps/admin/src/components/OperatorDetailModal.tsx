@@ -1,12 +1,13 @@
 'use client';
 
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
-import { Button } from '@nightpay/ui';
+import { Button, StaffAvatar } from '@nightpay/ui';
 import type { StaffFicha } from '@nightpay/contracts';
 import {
   fetchOperatorEarnings,
   fetchOperatorPayouts,
   fetchStaffFicha,
+  removeStaffPhoto,
   type Operator,
   type OperatorEarning,
   type OperatorPayout,
@@ -81,6 +82,9 @@ export function OperatorDetailModal({
   const [payoutOpen, setPayoutOpen] = useState(false);
   const [verifyFor, setVerifyFor] = useState<OperatorPayout | null>(null);
   const generation = useRef(0);
+  const [photoGone, setPhotoGone] = useState(false);
+  const [photoBusy, setPhotoBusy] = useState(false);
+  const [photoError, setPhotoError] = useState<string | null>(null);
   const payoutMode = payoutModeFor(isOwner, useApprovals().rules?.payout);
 
   useEffect(() => {
@@ -121,6 +125,23 @@ export function OperatorDetailModal({
   );
 
   const name = operator.displayName ?? operator.email;
+  const photoHash = photoGone ? null : (operator.photoHash ?? null);
+
+  /** Quitar la foto de esta persona (por si sube algo que no toca): queda en el registro. */
+  async function dropPhoto(): Promise<void> {
+    if (photoBusy) return;
+    setPhotoBusy(true);
+    setPhotoError(null);
+    try {
+      await removeStaffPhoto(operator.id);
+      setPhotoGone(true);
+      onChanged();
+    } catch (err) {
+      setPhotoError((err as Error).message);
+    } finally {
+      setPhotoBusy(false);
+    }
+  }
   const sheet = ficha ? staffSheet(ficha, sections, tz) : null;
   const camarero = ficha?.person.role === 'WAITER';
   // Lo que un pago liquida hoy (pasados los días de espera, menos deuda). Si
@@ -187,6 +208,19 @@ export function OperatorDetailModal({
     >
       {view === 'main' ? (
         <>
+          <div className="np-ficha-person" style={personRow}>
+            <StaffAvatar userId={operator.id} hash={photoHash} name={operator.displayName?.trim() || null} size={56} />
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.125rem', minWidth: 0, flex: 1 }}>
+              <b style={{ overflowWrap: 'anywhere' }}>{name}</b>
+              {operator.phone ? <span style={{ color: 'var(--np-text-mute)', fontSize: 'var(--np-fs-14)' }}>{operator.phone}</span> : null}
+            </div>
+            {photoHash ? (
+              <Button variant="ghost" size="sm" loading={photoBusy} onClick={() => void dropPhoto()}>
+                Quitar foto
+              </Button>
+            ) : null}
+          </div>
+          {photoError ? <Notice tone="danger">{photoError}</Notice> : null}
           {fichaError ? (
             <Notice tone="danger" action={{ label: 'Reintentar', onClick: () => setAttempt((n) => n + 1) }}>
               {fichaError}
@@ -456,3 +490,5 @@ const emptyText: CSSProperties = {
   padding: '2rem 1rem',
   margin: 0,
 };
+
+const personRow: CSSProperties = { display: 'flex', alignItems: 'center', gap: '0.75rem', minWidth: 0 };

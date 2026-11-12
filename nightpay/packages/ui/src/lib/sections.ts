@@ -1,7 +1,7 @@
 /**
  * Colores de las secciones (de qué es cada cobro), los de las maquetas de
  * OxioCard. Los mismos que las variables --np-sec-* de styles.css (un test
- * comprueba que coinciden). Familia pastel con tinta encima; la lima es la
+ * comprueba que coinciden). Familia viva con tinta oscura encima; la lima es la
  * marca y nunca es una sección. El saldo / la recarga va en gris y a trazos.
  */
 
@@ -31,12 +31,12 @@ export interface Section {
 }
 
 const SECTION_LIST: readonly Section[] = [
-  { key: 'copas', label: 'Copas', color: '#3fe0c0', cssVar: 'var(--np-sec-copas)', dashed: false },
-  { key: 'habitaciones', label: 'Habitaciones', color: '#c4b0f5', cssVar: 'var(--np-sec-habitaciones)', dashed: false },
-  { key: 'comida', label: 'Comida', color: '#f2b49b', cssVar: 'var(--np-sec-comida)', dashed: false },
-  { key: 'servicios', label: 'Servicios', color: '#d24fd8', cssVar: 'var(--np-sec-servicios)', dashed: false },
-  { key: 'entradas', label: 'Entradas', color: '#8fc3f2', cssVar: 'var(--np-sec-entradas)', dashed: false },
-  { key: 'propinas', label: 'Propinas', color: '#3fa9f5', cssVar: 'var(--np-sec-propinas)', dashed: false },
+  { key: 'copas', label: 'Copas', color: '#00e0ae', cssVar: 'var(--np-sec-copas)', dashed: false },
+  { key: 'habitaciones', label: 'Habitaciones', color: '#a98bff', cssVar: 'var(--np-sec-habitaciones)', dashed: false },
+  { key: 'comida', label: 'Comida', color: '#ff8a3d', cssVar: 'var(--np-sec-comida)', dashed: false },
+  { key: 'servicios', label: 'Servicios', color: '#e447f0', cssVar: 'var(--np-sec-servicios)', dashed: false },
+  { key: 'entradas', label: 'Entradas', color: '#3d9bff', cssVar: 'var(--np-sec-entradas)', dashed: false },
+  { key: 'propinas', label: 'Propinas', color: '#ffc94d', cssVar: 'var(--np-sec-propinas)', dashed: false },
   { key: 'saldo', label: 'Saldo', color: '#9aa4ad', cssVar: 'var(--np-sec-saldo)', dashed: true },
   { key: 'otros', label: 'Otros', color: '#7c8893', cssVar: 'var(--np-sec-otros)', dashed: false },
 ];
@@ -55,8 +55,8 @@ export const SECTION_BY_CODE: Readonly<Record<SectionCode, SectionKey>> = Object
   EXTRA: 'otros',
 });
 
-/** Tinta sobre cualquier color de sección (≥ 5:1 en todas). */
-export const SECTION_ON_COLOR = '#0f1112';
+/** Tinta sobre cualquier color de sección (≥ 4,5:1 en todas). */
+export const SECTION_ON_COLOR = '#0b0d0e';
 
 /** Gris neutro para lo que no tiene sección conocida (nunca lima). */
 export const SECTION_FALLBACK_COLOR = '#7c8893';
@@ -86,8 +86,8 @@ export function sectionVar(code: string | null | undefined): string {
  * con el color exacto de la sección (sectionColor / sectionVar).
  */
 export const SECTION_TILE_COLORS: Readonly<Partial<Record<SectionKey, string>>> = Object.freeze({
-  servicios: '#df73e4',
-  propinas: '#55b4f7',
+  servicios: '#e447f0',
+  propinas: '#ffc94d',
 });
 
 /** El color de una loseta (hex): el de la sección o, en Servicios y Propinas, su tono de loseta. */

@@ -27,7 +27,8 @@ describe('escala de letra de Grafito 3', () => {
   });
 
   it('los tokens --np-fs-N son exactamente los siete de la escala', () => {
-    const css = readFileSync(STYLES, 'utf8');
+    // Sin el bloque de «Letra más grande» (un paso más sobre la misma escala; ver ui-letra-grande.test.ts).
+    const css = readFileSync(STYLES, 'utf8').replace(/html\[data-bigfont='1'\]\s*\{[^}]*\}/, '');
     const px = [...css.matchAll(/--np-fs-(\d+):\s*([\d.]+)rem/g)].map((m) => [Number(m[1]), Number(m[2]) * 16]);
     expect(px.map(([n]) => n)).toEqual(SCALE);
     for (const [n, p] of px) expect(p).toBe(n);

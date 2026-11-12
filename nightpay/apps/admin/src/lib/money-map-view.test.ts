@@ -66,11 +66,20 @@ describe('importes del mapa', () => {
 
 describe('colores de las secciones', () => {
   it('el de la marca (sectionColor) y el nombre del local; el del dueño si lo cambió', () => {
-    expect(sectionPaint(SECTIONS, 'CHICA_SERVICE')).toEqual({ label: 'Servicios', color: '#d24fd8' });
-    expect(sectionPaint(SECTIONS, 'TIPS')).toEqual({ label: 'Propinas', color: '#3fa9f5' });
+    expect(sectionPaint(SECTIONS, 'CHICA_SERVICE')).toEqual({ label: 'Servicios', color: '#e447f0' });
+    expect(sectionPaint(SECTIONS, 'TIPS')).toEqual({ label: 'Propinas', color: '#ffc94d' });
     expect(sectionPaint(SECTIONS, 'EXTRA')).toEqual({ label: 'Otros', color: '#7c8893' });
     const own = SECTIONS.map((s) => (s.code === 'VENUE_BAR' ? { ...s, label: 'Barra', color: '#123456' } : s));
     expect(sectionPaint(own, 'VENUE_BAR')).toEqual({ label: 'Barra', color: '#123456' });
+  });
+
+  it('un color guardado de fábrica antiguo no cuenta como cambiado: sale el vivo; el del dueño se respeta', () => {
+    const old = SECTIONS.map((s) =>
+      s.code === 'VENUE_BAR' ? { ...s, color: '#3fe0c0' } : s.code === 'CHICA_SERVICE' ? { ...s, color: '#DF73E4' } : s.code === 'VENUE_FOOD' ? { ...s, color: '#abcdef' } : s,
+    );
+    expect(sectionPaint(old, 'VENUE_BAR').color).toBe('#00e0ae');
+    expect(sectionPaint(old, 'CHICA_SERVICE').color).toBe('#e447f0');
+    expect(sectionPaint(old, 'VENUE_FOOD').color).toBe('#abcdef');
   });
 });
 

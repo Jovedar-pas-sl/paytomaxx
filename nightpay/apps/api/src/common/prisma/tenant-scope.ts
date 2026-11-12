@@ -23,6 +23,7 @@ export const TENANT_SCOPED_MODELS: ReadonlySet<string> = new Set([
   'OperatorPayout',
   'ServiceItem',
   'ServiceItemImage',
+  'UserPhoto',
   'VenueNight',
   'IncidentAck',
   'PosTerminalOp',

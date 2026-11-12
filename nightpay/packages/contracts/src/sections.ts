@@ -35,17 +35,37 @@ export const SECTION_COLOR_RE = /^#[0-9a-fA-F]{6}$/;
 const MAX_LABEL = 24;
 
 export const DEFAULT_SECTIONS: Readonly<Record<SectionCode, Readonly<Omit<VenueSection, 'code'>>>> = {
-  CHICA_SERVICE: { enabled: true, label: 'Servicios', color: '#d24fd8' },
-  VENUE_BAR: { enabled: true, label: 'Copas', color: '#3fe0c0' },
-  VENUE_ROOM: { enabled: true, label: 'Habitaciones', color: '#c4b0f5' },
-  VENUE_FOOD: { enabled: true, label: 'Comida', color: '#f2b49b' },
-  VENUE_ENTRY: { enabled: true, label: 'Entradas', color: '#8fc3f2' },
+  CHICA_SERVICE: { enabled: true, label: 'Servicios', color: '#e447f0' },
+  VENUE_BAR: { enabled: true, label: 'Copas', color: '#00e0ae' },
+  VENUE_ROOM: { enabled: true, label: 'Habitaciones', color: '#a98bff' },
+  VENUE_FOOD: { enabled: true, label: 'Comida', color: '#ff8a3d' },
+  VENUE_ENTRY: { enabled: true, label: 'Entradas', color: '#3d9bff' },
 };
+
+/**
+ * Colores de fábrica de antes de «colores con más vida». Muchos locales los
+ * tienen guardados en `venues.sections` sin haberlos elegido: un color igual a
+ * uno de estos cuenta como «el de fábrica» y sale el actual. Un color que el
+ * dueño eligió a mano (cualquier otro) se respeta.
+ */
+export const OLD_DEFAULT_SECTION_COLORS: Readonly<Record<SectionCode, readonly string[]>> = {
+  CHICA_SERVICE: ['#d24fd8', '#df73e4'],
+  VENUE_BAR: ['#3fe0c0'],
+  VENUE_ROOM: ['#c4b0f5'],
+  VENUE_FOOD: ['#f2b49b'],
+  VENUE_ENTRY: ['#8fc3f2'],
+};
+
+/** ¿Este color guardado es el de fábrica (el actual o uno antiguo)? Entonces no lo eligió el dueño. */
+export function isDefaultSectionColor(code: SectionCode, color: string): boolean {
+  const c = color.toLowerCase();
+  return c === DEFAULT_SECTIONS[code].color || OLD_DEFAULT_SECTION_COLORS[code].includes(c);
+}
 
 /** «Otros»: solo para enseñar los cobros antiguos. */
 export const LEGACY_SECTION_META = { label: 'Otros', color: '#7c8893' } as const;
 /** Propinas: no son una línea; en los informes y el panel salen como su propia sección. */
-export const TIPS_SECTION_META = { label: 'Propinas', color: '#3fa9f5' } as const;
+export const TIPS_SECTION_META = { label: 'Propinas', color: '#ffc94d' } as const;
 /** Recarga de saldo: no es venta (va al saldo vivo); se enseña así en la lista de cobros. */
 export const TOP_UP_SECTION_META = { label: 'Recarga de saldo', color: '#9aa4ad' } as const;
 
@@ -56,7 +76,9 @@ export function sectionsOf(raw: unknown): VenueSection[] {
     const base = DEFAULT_SECTIONS[code];
     const own = stored[code] && typeof stored[code] === 'object' ? (stored[code] as Record<string, unknown>) : {};
     const label = typeof own.label === 'string' ? own.label.trim().slice(0, MAX_LABEL) : '';
-    const color = typeof own.color === 'string' && SECTION_COLOR_RE.test(own.color) ? own.color.toLowerCase() : '';
+    const saved = typeof own.color === 'string' && SECTION_COLOR_RE.test(own.color) ? own.color.toLowerCase() : '';
+    // Un color de fábrica (también uno antiguo) cuenta como «sin elegir»: sale el actual.
+    const color = saved && !isDefaultSectionColor(code, saved) ? saved : '';
     return {
       code,
       enabled: typeof own.enabled === 'boolean' ? own.enabled : base.enabled,
@@ -113,7 +135,7 @@ export function mergeSections(current: unknown, patch: UpdateSectionsDto): Recor
 /** Nombre y color de una sección (también «Otros» de los antiguos y una desconocida). */
 export function sectionMeta(sections: readonly VenueSection[], code: string): { label: string; color: string } {
   const own = sections.find((s) => s.code === code);
-  if (own) return { label: own.label, color: own.color };
+  if (own) return { label: own.label, color: isDefaultSectionColor(own.code, own.color) ? DEFAULT_SECTIONS[own.code].color : own.color };
   if (isSectionCode(code)) return { label: DEFAULT_SECTIONS[code].label, color: DEFAULT_SECTIONS[code].color };
   return { ...LEGACY_SECTION_META };
 }

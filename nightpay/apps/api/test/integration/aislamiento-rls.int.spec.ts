@@ -89,6 +89,10 @@ async function seed(tag: string): Promise<{ tenantId: string; rows: Rows }> {
           checkoutLink: 'https://pay.ejemplo.es/i/x', qrLink: 'bitcoin:bc1qx?amount=0.001', expiresAt: new Date(Date.now() + 900_000),
         },
       });
+      // La foto de perfil de la compañera (bytes de mentira; la base solo mira tipo, tamaño, medidas y huella).
+      await tx.userPhoto.create({
+        data: { userId: chica, tenantId, contentType: 'image/jpeg', data: Buffer.alloc(64, 2), contentHash: 'b'.repeat(64), width: 128, height: 128 },
+      });
       return {
         tenantId,
         rows: {
@@ -107,6 +111,7 @@ async function seed(tag: string): Promise<{ tenantId: string; rows: Rows }> {
           service_item_images: item.id,
           btcpay_stores: btcStore.id,
           btcpay_invoices: btcInvoice.id,
+          user_photos: chica,
         },
       };
     }),
@@ -124,7 +129,9 @@ async function visibleTenants(tx: { $queryRawUnsafe: PrismaService['$queryRawUns
         ? '"tenantId"::text'
         : table === 'service_item_images'
           ? '"serviceItemId"::text'
-          : 'id::text';
+          : table === 'user_photos'
+            ? '"userId"::text'
+            : 'id::text';
   const rows = await tx.$queryRawUnsafe<Array<{ t: string }>>(
     `SELECT "tenantId"::text AS t FROM ${table} WHERE ${key} = ANY($1::text[]) ORDER BY 1`,
     [rowsA[table], rowsB[table]],

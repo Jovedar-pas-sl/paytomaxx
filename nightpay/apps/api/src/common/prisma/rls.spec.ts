@@ -17,6 +17,7 @@ describe('tablas con FORCE RLS', () => {
       'payment_lines',
       'peanpe_calls',
       'service_item_images',
+      'user_photos',
       'wallet_cash_topups',
       'wallet_consumptions',
     ]);
@@ -34,6 +35,7 @@ describe('tablas con FORCE RLS', () => {
       'PaymentLine',
       'PeanpeCall',
       'ServiceItemImage',
+      'UserPhoto',
       'WalletCashTopUp',
       'WalletConsumption',
     ]);
