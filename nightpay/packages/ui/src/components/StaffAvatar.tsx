@@ -102,8 +102,8 @@ export function StaffAvatar({ userId, hash, name, size = 40, src, style }: Staff
     color: '#f4f2ec',
     fontFamily: 'var(--np-font-mono, inherit)',
     fontWeight: 700,
-    // Las iniciales no bajan de 14 px aunque el círculo sea pequeño.
-    fontSize: Math.max(14, Math.round(size * 0.38)),
+    // Las iniciales, con la escala de letra (nunca menos de 14 px).
+    fontSize: size >= 96 ? 'var(--np-fs-40)' : size >= 56 ? 'var(--np-fs-22)' : 'var(--np-fs-14)',
     lineHeight: 1,
     userSelect: 'none',
     ...style,

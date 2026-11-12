@@ -4,6 +4,7 @@ import localFont from 'next/font/local';
 import '@nightpay/ui/styles.css';
 import { SALA_INIT_SCRIPT } from '@/lib/sala-contrast';
 import { appleAppMetadata } from '@nightpay/ui/app-manifest';
+import { deviceInitScript } from '@nightpay/ui/device-settings';
 
 // Fuentes dentro del repo (packages/ui/fonts, licencia OFL): el build no
 // descarga nada de Google Fonts. Variables, con los mismos pesos de antes.
@@ -37,10 +38,12 @@ export const viewport: Viewport = {
   themeColor: '#0b0d0e',
 };
 
-// Siempre oscuro (Grafito): dentro del local, un móvil en modo claro enseñaba
-// la crema a toda luz. Y, si el local lo tiene, el modo «sala» (contraste
-// alto): antes de pintar, para que no cambie al cargar.
-const themeInitScript = `${SALA_INIT_SCRIPT}(function(){document.documentElement.setAttribute('data-theme','dark');})();`;
+// Oscuro (Grafito) de partida: dentro del local, un móvil en modo claro enseñaba
+// la crema a toda luz. Quien lo cambia en «Mi perfil» (claro o como el móvil)
+// lo recuerda este móvil (np-theme), igual que la letra más grande. Y, si el
+// local lo tiene, el modo «sala» (contraste alto): antes de pintar, para que
+// no cambie al cargar.
+const themeInitScript = `${SALA_INIT_SCRIPT}${deviceInitScript('dark')}`;
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (

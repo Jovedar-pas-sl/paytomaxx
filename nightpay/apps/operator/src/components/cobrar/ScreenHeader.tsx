@@ -2,6 +2,7 @@
 
 import type { CSSProperties, ReactNode } from 'react';
 import { Logo } from '@nightpay/ui';
+import { MenuAvatar } from '../my-profile';
 import { IconBack } from './icons';
 import styles from './cobrar.module.css';
 
@@ -56,7 +57,7 @@ export function ScreenHeader({
         </button>
       ) : onLogo ? (
         <button type="button" className={styles.logoTile} onClick={onLogo} aria-label="Menú">
-          <Logo variant="symbol" height="2.625rem" alt="" />
+          <MenuAvatar />
         </button>
       ) : (
         <Logo variant="symbol" height="2.625rem" />

@@ -20,7 +20,9 @@ function walk(dir: string): string[] {
 const files = walk(SRC).filter((f) => !/\.test\.(ts|tsx)$/.test(f));
 const read = (f: string) => readFileSync(f, 'utf8');
 const sources = files.map((f) => ({ file: f, text: read(f) }));
-const code = sources.filter((s) => /\.tsx$/.test(s.file) && !s.file.endsWith('tours.ts')).map((s) => s.text).join('\n');
+// «Mi perfil» se pinta con la pantalla común de @nightpay/ui: sus marcas data-tour viven allí.
+const sharedProfile = readFileSync(join(SRC, '..', '..', '..', 'packages', 'ui', 'src', 'components', 'ProfileScreen.tsx'), 'utf8');
+const code = [...sources.filter((s) => /\.tsx$/.test(s.file) && !s.file.endsWith('tours.ts')).map((s) => s.text), sharedProfile].join('\n');
 
 /** Las marcas `data-tour="x"`, `'data-tour': 'x'` o `tour="x"` que hay en las pantallas. */
 const marks = new Set([...code.matchAll(/(?:data-tour|tour)['"]?\s*[=:][^'"\n]{0,40}['"]([a-z0-9-]+)['"]/g)].map((m) => m[1]!));

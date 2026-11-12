@@ -149,9 +149,9 @@
   --np-banner-ink: #0f1112;
 }
 
-:root,
-/* «Letra más grande» (Mi perfil → Este móvil, solo en el móvil): sube un paso
-   la escala --np-fs-* de 14 a 28. Los importes (40 y 64) ya se ajustan al ancho. */
+/* «Letra más grande» (Mi perfil, Este móvil; solo en el móvil): sube un paso la
+   escala de 14 a 28. Los importes (40 y 64) ya se ajustan al ancho. Más
+   específico que :root y que el tema, así que gana en cualquier orden. */
 html[data-bigfont='1'] {
   --np-fs-14: 1rem;
   --np-fs-16: 1.125rem;
@@ -160,6 +160,7 @@ html[data-bigfont='1'] {
   --np-fs-28: 1.875rem;
 }
 
+:root,
 [data-theme='dark'] {
   color-scheme: dark;
 
