@@ -12,9 +12,17 @@ export const TONE_COLORS: Record<Tone, { color: string; background: string }> = 
 };
 
 /** Etiqueta de estado con texto y color (en vez de emojis como marcador). */
-export function Pill({ tone, children, style }: { tone: Tone; children: ReactNode; style?: CSSProperties }) {
-  return <span style={{ ...pillStyle, ...TONE_COLORS[tone], ...style }}>{children}</span>;
+export function Pill({ tone, children, style, dot }: { tone: Tone; children: ReactNode; style?: CSSProperties; dot?: boolean }) {
+  return (
+    <span style={{ ...pillStyle, ...(dot ? { gap: '0.375rem' } : {}), ...TONE_COLORS[tone], ...style }}>
+      {dot ? <span aria-hidden="true" style={dotStyle} /> : null}
+      {children}
+    </span>
+  );
 }
+
+/** El punto de color del estado (el del texto de la etiqueta). */
+const dotStyle: CSSProperties = { flex: 'none', width: '0.4375rem', height: '0.4375rem', borderRadius: '50%', background: 'currentColor' };
 
 // Grafito: del tamaño del texto de la tabla (14/500), radio de chip (6).
 const pillStyle: CSSProperties = {
