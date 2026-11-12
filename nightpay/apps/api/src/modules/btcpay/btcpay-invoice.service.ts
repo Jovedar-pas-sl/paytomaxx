@@ -20,6 +20,8 @@ export const INVOICE_MINUTES = 15;
 export const INVOICE_POLL_MIN_MS = 5_000;
 /** Cuántas facturas abiertas repasa cada vuelta de la tarea de respaldo. */
 const SWEEP_BATCH = 200;
+/** Pasadas tantas horas de su caducidad, el repaso deja de mirar una factura abierta (la verá una persona). */
+const SWEEP_GIVE_UP_AFTER_MS = 6 * 3_600_000;
 
 const OPENABLE_STATES: ReadonlySet<string> = new Set(['CREATED', 'AWAITING_CAPTURE']);
 const PAID_STATES: ReadonlySet<string> = new Set(['AUTHORIZED', 'PARTIALLY_REFUNDED', 'REFUNDED']);
@@ -408,8 +410,10 @@ export class BtcpayInvoiceService implements OnModuleInit {
   async sweepOpen(now: Date = new Date()): Promise<{ checked: number; failed: number }> {
     const rows = await this.prisma.asSystem((tx) =>
       tx.btcpayInvoice.findMany({
-        where: { status: { in: ['New', 'Processing'] } },
-        orderBy: { createdAt: 'asc' },
+        // Las abiertas que BTCPay aún vigila: pasadas unas horas de su caducidad, una factura que no se deja
+        // comprobar (el local ya no tiene BTCPay…) no tapa a las demás ni se reintenta para siempre.
+        where: { status: { in: ['New', 'Processing'] }, expiresAt: { gt: new Date(now.getTime() - SWEEP_GIVE_UP_AFTER_MS) } },
+        orderBy: [{ lastCheckedAt: { sort: 'asc', nulls: 'first' } }, { createdAt: 'asc' }],
         take: SWEEP_BATCH,
         select: { id: true, tenantId: true, invoiceId: true },
       }),
