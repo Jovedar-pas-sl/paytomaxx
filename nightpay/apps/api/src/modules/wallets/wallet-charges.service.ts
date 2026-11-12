@@ -2663,6 +2663,8 @@ export class WalletChargesService {
           tenantId: actor.tenantId,
           status: { in: ['AUTHORIZED', 'PARTIALLY_REFUNDED'] },
           availableAmountCents: { gt: 0 },
+          // Una recarga pagada con bitcoin no se devuelve «a la tarjeta»: no pasó por el banco.
+          OR: [{ provider: null }, { provider: { not: 'BTCPAY' } }],
         },
         orderBy: { createdAt: 'desc' },
         select: { id: true, availableAmountCents: true },

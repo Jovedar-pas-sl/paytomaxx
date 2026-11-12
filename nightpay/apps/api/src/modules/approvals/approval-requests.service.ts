@@ -599,6 +599,12 @@ function assertRefundableByApi(payment: { provider: string | null; providerTxId:
       'Redsys no devuelve por API: el dueño la hace en el portal de BBVA y la apunta en «Devolución BBVA».',
     );
   }
+  // Bitcoin: ni por el banco ni por la pasarela (devolver desde la cartera es de la fase siguiente).
+  if (payment.provider === 'BTCPAY') {
+    throw new ConflictException(
+      'Este cobro se pagó con bitcoin: de momento no se devuelve desde la aplicación. Hazlo desde la cartera del local.',
+    );
+  }
 }
 
 /**

@@ -285,6 +285,7 @@ export class RefundsService {
       where: { id: request.paymentId },
     });
     if (!payment) throw new NotFoundException('Payment not found');
+    assertNotBitcoin(payment.provider);
     if (!REFUNDABLE_STATUSES.has(payment.status)) {
       throw new ConflictException(`Cannot refund payment in state ${payment.status}`);
     }
@@ -591,6 +592,7 @@ export class RefundsService {
       },
     });
     if (!payment || payment.tenantId !== actor.tenantId) throw new NotFoundException('Payment not found');
+    assertNotBitcoin(payment.provider);
     if (!REFUNDABLE_STATUSES.has(payment.status)) {
       throw new ConflictException('Solo se registran devoluciones de cobros pagados');
     }
@@ -820,4 +822,14 @@ async function assertBelowApprovalThreshold(
 
 function eur(cents: number): string {
   return `${(cents / 100).toFixed(2).replace('.', ',')} €`;
+}
+
+/** Código del 409 de un cobro en bitcoin (las apps lo distinguen sin leer el texto). */
+export const BITCOIN_REFUND_CODE = 'BITCOIN_REFUND_NOT_AVAILABLE';
+export const BITCOIN_REFUND_TEXT =
+  'Este cobro se pagó con bitcoin: de momento no se devuelve desde la aplicación (ni por el banco). Si hay que devolverlo, hazlo desde la cartera del local; apuntarlo como «devuelto fuera» llegará en la siguiente versión.';
+
+/** Un cobro en bitcoin no se devuelve por la pasarela ni como «Devolución BBVA» (el dinero no pasó por el banco). */
+export function assertNotBitcoin(provider: string | null | undefined): void {
+  if (provider === 'BTCPAY') throw new ConflictException({ code: BITCOIN_REFUND_CODE, message: BITCOIN_REFUND_TEXT });
 }

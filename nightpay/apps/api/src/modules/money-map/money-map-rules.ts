@@ -22,7 +22,7 @@ import type { TimeWindow } from '../reports/report-period';
  */
 
 /** Cómo pagó un cobro (los del saldo, SALDO). */
-export type SaleMethod = 'CARD' | 'MOBILE_WALLET' | 'POS' | 'CASH' | 'SALDO';
+export type SaleMethod = 'CARD' | 'MOBILE_WALLET' | 'POS' | 'CASH' | 'SALDO' | 'BITCOIN';
 
 export interface SaleLineLike {
   category: string;
@@ -65,8 +65,21 @@ export interface MoneyMapInput {
   now: Date;
   frozen: boolean;
   sales: readonly SaleRow[];
-  /** Recargas (el saldo) y su «Comisión del servicio» (con tarjeta y en efectivo). */
-  topUps: { cardCents: number; cardCount: number; cashCents: number; cashCount: number; cardFeeCents?: number; cashFeeCents?: number };
+  /**
+   * Recargas (el saldo) y su «Comisión del servicio» (con tarjeta, en efectivo y con bitcoin).
+   * Las de bitcoin no entran en el banco: están en la cartera del local.
+   */
+  topUps: {
+    cardCents: number;
+    cardCount: number;
+    cashCents: number;
+    cashCount: number;
+    cardFeeCents?: number;
+    cashFeeCents?: number;
+    bitcoinCents?: number;
+    bitcoinCount?: number;
+    bitcoinFeeCents?: number;
+  };
   staff: { chicas: StaffShare; camareros: StaffShare };
   /**
    * Devoluciones hechas en el banco en el periodo (de cobros y de recargas), con
@@ -74,6 +87,8 @@ export interface MoneyMapInput {
    * comisión (salesNetCents): lo que el local deja de ganar.
    */
   cardRefunds: { cents: number; count: number; serviceFeeCents?: number; salesNetCents?: number };
+  /** Devuelto fuera en bitcoin (desde la cartera del local): baja el bitcoin, no el banco. */
+  bitcoinRefunds?: { cents: number; count: number };
   /** Saldo devuelto al cliente en el periodo (hechas). */
   walletPayouts: { cashCents: number; cashCount: number; cardCents: number };
   payouts: readonly MoneyMapPayoutGroup[];
@@ -137,19 +152,26 @@ export function platformCommissionCents(sales: readonly SaleRow[]): number {
  * (las del saldo no la llevan), la de las recargas (tarjeta y efectivo), la
  * devuelta y lo que se debe a OxioPay. Sin ella, todo a 0.
  */
-export function serviceFeeOf(i: Pick<MoneyMapInput, 'sales' | 'topUps' | 'cardRefunds'>): MoneyMapServiceFee & { cardCents: number } {
+export function serviceFeeOf(
+  i: Pick<MoneyMapInput, 'sales' | 'topUps' | 'cardRefunds'>,
+): MoneyMapServiceFee & { cardCents: number; bitcoinCents: number } {
   const salesCents = sum(i.sales, (s) => s.serviceFeeCents ?? 0);
+  // La de bitcoin se cobra en la cartera del local, no en el banco.
+  const bitcoinSalesCents = sum(i.sales.filter((s) => s.method === 'BITCOIN'), (s) => s.serviceFeeCents ?? 0);
+  const bitcoinTopUps = i.topUps.bitcoinFeeCents ?? 0;
   const cardTopUps = i.topUps.cardFeeCents ?? 0;
   const cashCents = i.topUps.cashFeeCents ?? 0;
   const refundedCents = i.cardRefunds.serviceFeeCents ?? 0;
   return {
     salesCents,
-    topUpsCents: cardTopUps + cashCents,
+    topUpsCents: cardTopUps + cashCents + bitcoinTopUps,
     cashCents,
     refundedCents,
-    owedCents: salesCents + cardTopUps + cashCents - refundedCents,
+    owedCents: salesCents + cardTopUps + cashCents + bitcoinTopUps - refundedCents,
     // La que entró por el banco (ventas con tarjeta y recargas con tarjeta).
-    cardCents: salesCents + cardTopUps,
+    cardCents: salesCents - bitcoinSalesCents + cardTopUps,
+    // La que entró en la cartera de bitcoin (ventas y recargas).
+    bitcoinCents: bitcoinSalesCents + bitcoinTopUps,
   };
 }
 
@@ -186,8 +208,15 @@ export function buildMoneyMap(i: MoneyMapInput): MoneyMap {
   const cardRailCents = cardCents + mobileWalletCents + posCents;
   const cashCents = byMethod('CASH');
   const saldoCents = byMethod('SALDO');
-  const salesCents = cardRailCents + cashCents + saldoCents;
-  const { cardCents: feeCardCents, ...serviceFee } = serviceFeeOf(i);
+  const bitcoinCents = byMethod('BITCOIN');
+  const salesCents = cardRailCents + cashCents + saldoCents + bitcoinCents;
+  const { cardCents: feeCardCents, bitcoinCents: feeBitcoinCents, ...serviceFee } = serviceFeeOf(i);
+  // Bitcoin (BTCPay): vendido y recargado con bitcoin + su comisión del servicio - lo devuelto fuera. No pasa por el banco.
+  const bitcoinTopUpCents = i.topUps.bitcoinCents ?? 0;
+  const bitcoinRefundedCents = i.bitcoinRefunds?.cents ?? 0;
+  const bitcoinWalletCents = bitcoinCents + bitcoinTopUpCents + feeBitcoinCents - bitcoinRefundedCents;
+  const hasBitcoin =
+    bitcoinCents !== 0 || bitcoinTopUpCents !== 0 || feeBitcoinCents !== 0 || bitcoinRefundedCents !== 0 || (i.topUps.bitcoinCount ?? 0) > 0;
 
   const platformCents = platformCommissionCents(i.sales);
   // El banco cobra sobre todo lo que pasa por él: ventas con tarjeta, recargas
@@ -201,9 +230,9 @@ export function buildMoneyMap(i: MoneyMapInput): MoneyMap {
   // El dinero entra entero (también la comisión del servicio): al banco, la de tarjeta.
   const bbvaCents = cardRailCents + i.topUps.cardCents + feeCardCents - i.cardRefunds.cents;
   const cashBoxCents = i.cashBox.expectedCents;
-  const totalCents = bbvaCents + cashBoxCents;
+  const totalCents = bbvaCents + cashBoxCents + bitcoinWalletCents;
   const staffCents = i.staff.chicas.unpaidCents + i.staff.camareros.unpaidCents;
-  const topUpsCents = i.topUps.cardCents + i.topUps.cashCents;
+  const topUpsCents = i.topUps.cardCents + i.topUps.cashCents + bitcoinTopUpCents;
   const saldoLeftCents = topUpsCents - saldoCents - i.walletPayouts.cashCents - i.walletPayouts.cardCents;
   // …pero la comisión del servicio no es del local: se debe a OxioPay.
   const oxioPayCents = serviceFee.owedCents;
@@ -225,11 +254,13 @@ export function buildMoneyMap(i: MoneyMapInput): MoneyMap {
       posCents,
       cashCents,
       saldoCents,
+      ...(hasBitcoin ? { bitcoinCents } : {}),
       topUps: {
         totalCents: topUpsCents,
         cardCents: i.topUps.cardCents,
         cashCents: i.topUps.cashCents,
-        count: i.topUps.cardCount + i.topUps.cashCount,
+        ...(hasBitcoin ? { bitcoinCents: bitcoinTopUpCents } : {}),
+        count: i.topUps.cardCount + i.topUps.cashCount + (i.topUps.bitcoinCount ?? 0),
       },
       ...withServiceFee({ serviceFeeCents: serviceFee.salesCents + serviceFee.topUpsCents }),
     },
@@ -242,6 +273,7 @@ export function buildMoneyMap(i: MoneyMapInput): MoneyMap {
     },
     where: {
       bbvaCents,
+      ...(hasBitcoin ? { bitcoinCents: bitcoinWalletCents } : {}),
       cashBoxCents,
       cashBox: { openingFloatCents: i.cashBox.openingFloatCents, inCents: i.cashBox.inCents, outCents: i.cashBox.outCents },
       totalCents,
@@ -275,7 +307,14 @@ export function buildMoneyMap(i: MoneyMapInput): MoneyMap {
 }
 
 /** Cómo pagó un cobro con tarjeta (como la lista de cobros: cobros-rows.paymentMethodOf). */
-export function saleMethodOf(p: { captureMethod: string | null; posOperationNumber: string | null; approvedPayMethod: string | null }): SaleMethod {
+export function saleMethodOf(p: {
+  captureMethod: string | null;
+  posOperationNumber: string | null;
+  approvedPayMethod: string | null;
+  /** El proveedor del cobro: BTCPAY = pagado con bitcoin (no pasa por el banco). */
+  provider?: string | null;
+}): SaleMethod {
+  if (p.provider === 'BTCPAY' || p.approvedPayMethod === 'bitcoin') return 'BITCOIN';
   if (p.captureMethod === 'CASH') return 'CASH';
   if (p.captureMethod === 'POS_EXTERNAL' || p.posOperationNumber) return 'POS';
   if (p.approvedPayMethod === 'wallet') return 'MOBILE_WALLET';

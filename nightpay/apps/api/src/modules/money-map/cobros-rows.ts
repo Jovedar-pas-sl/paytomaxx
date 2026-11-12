@@ -159,6 +159,8 @@ export function paymentMethodOf(p: {
 }): ChargeMethod | null {
   if (p.captureMethod === 'POS_EXTERNAL' || p.posOperationNumber) return 'POS';
   const approved = p.attempts.find((a) => a.status === 'APPROVED');
+  // Bitcoin (BTCPay): el intento que cobró lo dice; el dinero no pasó por el banco.
+  if (approved?.payMethod === 'bitcoin') return 'BITCOIN';
   if (approved?.payMethod === 'wallet') return 'MOBILE_WALLET';
   if (approved || p.authorizedAt) return 'CARD';
   return null;

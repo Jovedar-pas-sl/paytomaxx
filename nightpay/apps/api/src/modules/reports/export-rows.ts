@@ -294,6 +294,7 @@ export function captureLabel(captureMethod: string | null): string {
 /** Botón que pulsó el cliente; en datáfono, el propio datáfono. */
 export function methodLabel(r: Pick<CobroRow, 'payMethod' | 'captureMethod'>): string {
   if (r.payMethod === 'wallet') return 'Apple Pay / Google Pay';
+  if (r.payMethod === 'bitcoin') return 'Bitcoin';
   if (r.payMethod === 'card') return 'Tarjeta';
   if (r.captureMethod === 'POS_EXTERNAL') return 'Datáfono';
   return '';

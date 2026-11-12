@@ -48,8 +48,14 @@ export interface MoneyMapInflow {
   cashCents: number;
   /** Consumos del saldo del cliente (el dinero entró con la recarga). */
   saldoCents: number;
+  /**
+   * Cobros pagados con bitcoin (BTCPay): es venta, pero el dinero NO pasa por el
+   * banco: está en la cartera del local (where.bitcoinCents). Solo sale si hubo
+   * alguno; los mapas de antes no lo traen.
+   */
+  bitcoinCents?: number;
   /** Recargas del saldo: dinero del cliente aún sin gastar, no es venta. */
-  topUps: { totalCents: number; cardCents: number; cashCents: number; count: number };
+  topUps: { totalCents: number; cardCents: number; cashCents: number; count: number; bitcoinCents?: number };
   /**
    * «Comisión del servicio» que pagaron los clientes encima (pagos directos y
    * recargas, con tarjeta y en efectivo): entra con el resto, pero se debe a
@@ -93,6 +99,12 @@ export interface MoneyMapCommissions {
 export interface MoneyMapWhere {
   /** Lo cobrado por el banco en el periodo (ventas y recargas) − lo devuelto a la tarjeta: lo abona mañana. */
   bbvaCents: number;
+  /**
+   * Bitcoin en la cartera del local (ventas y recargas pagadas con BTCPay, con su
+   * comisión del servicio, menos lo devuelto fuera): no entra en el banco ni en
+   * la caja, pero suma al total. Solo sale si hubo bitcoin; los mapas de antes no lo traen.
+   */
+  bitcoinCents?: number;
   /** Lo que debería haber en la caja (como el arqueo del cierre: fondo + entradas − salidas en efectivo). */
   cashBoxCents: number;
   cashBox: { openingFloatCents: number | null; inCents: number; outCents: number };
