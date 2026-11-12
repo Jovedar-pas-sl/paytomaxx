@@ -645,6 +645,10 @@ const STATUS_TEXT: Record<string, string> = {
   CANCELED: 'cancelado',
   CREATED: 'sin empezar',
   AWAITING_CAPTURE: 'sin empezar',
+  // Bitcoin que llega a un cobro que el cliente ya pagó con tarjeta (o de otra forma): ese bitcoin sobra.
+  AUTHORIZED: 'ya pagado de otra forma',
+  PARTIALLY_REFUNDED: 'ya pagado de otra forma',
+  REFUNDED: 'ya pagado de otra forma',
 };
 
 function num(payload: unknown, key: string): number | null {

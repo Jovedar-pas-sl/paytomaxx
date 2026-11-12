@@ -3,9 +3,10 @@
 // fallo del NFC en este móvil. Gana el primero que se paga: el servidor
 // cancela el otro. Función pura (se prueba sin pantalla).
 
-import { bankWaitPhase, type PaymentStatus } from '@nightpay/contracts';
+import { bankWaitPhase, type BitcoinPayState, type PaymentStatus } from '@nightpay/contracts';
 import type { SaldoState } from './api-cobro';
 import type { FailReason, PaidMethod } from './cobro-view';
+import { advanceStatus } from './payment-status';
 
 export type CobroOutcome =
   | { kind: 'waiting' }
@@ -144,6 +145,81 @@ export function serverToLocalMs(serverMs: number, anchor: { serverMs: number; lo
 
 /** Con el cliente pagando en su banco no se puede cancelar (el API no lo deja): se dice y se espera. */
 export const CANCEL_WHILE_PAYING_TEXT = 'El cliente está pagando en su banco: espera su respuesta. Hasta entonces no se puede cancelar.';
+
+// ─── El cliente paga con bitcoin (BTCPay) ─────────────────────────────
+
+/**
+ * Con bitcoin no hay banco de por medio: el cobro pasa a AUTHORIZING al abrir
+ * la factura, pero mientras espera el pago se puede cancelar (el API la cierra).
+ * Con el pago ya en la red, no (llegaría igual); con un problema (pago a medias
+ * o fuera de plazo), lo mira el encargado. En los dos, quien cobra puede salir
+ * de la pantalla sin cancelar (el cobro sigue su curso y sale en «Cobros»).
+ */
+export const BITCOIN_CONFIRMING_TEXT = 'El cliente ya ha pagado con bitcoin: falta que la red lo confirme. Ya no se puede cancelar.';
+export const BITCOIN_PROBLEM_TEXT = 'Hay un problema con el pago en bitcoin: avisa al encargado. No cobres otra vez.';
+/** Salir de la pantalla sin cancelar ni cobrar otra vez (como con el banco sin confirmar). */
+export const LEAVE_WITHOUT_CHARGING = 'Salir sin cobrar otra vez';
+
+/** El código del 409 del API al cancelar con el pago en bitcoin ya en la red. */
+export const BITCOIN_CONFIRMING_CODE = 'BITCOIN_CONFIRMING';
+
+/** El cobro con tarjeta (el QR) en la pantalla: su estado y, pagando con bitcoin, el de su factura. */
+export interface CardLive {
+  status: PaymentStatus;
+  /** null: no paga con bitcoin (o aún no se sabe). */
+  bitcoin: BitcoinPayState | null;
+}
+
+/**
+ * Lo que dicen el tiempo real y el sondeo. El estado nunca va hacia atrás
+ * (advanceStatus), salvo con bitcoin: la factura se cerró sin pagarse (caducó o
+ * el cliente eligió pagar de otra forma) y el cobro vuelve a estar abierto. Se
+ * sabe por lo que dijo antes el sondeo (pagaba con bitcoin) o porque lo dice
+ * ahora ('closed'). La factura solo la dice el sondeo; fuera de AUTHORIZING deja de contar.
+ */
+export function cardAfter(card: CardLive, update: { status: PaymentStatus; bitcoin?: BitcoinPayState | null }): CardLive {
+  const wasBitcoin = card.bitcoin !== null || update.bitcoin === 'closed';
+  const reopened = wasBitcoin && card.status === 'AUTHORIZING' && update.status === 'AWAITING_CAPTURE';
+  const status = reopened ? update.status : advanceStatus(card.status, update.status);
+  // Sin dato nuevo se mantiene lo que había mientras siga pagando; un pago nuevo tras cerrarse la factura, aún no se sabe.
+  const kept = status === 'AUTHORIZING' && card.bitcoin !== 'closed' ? card.bitcoin : null;
+  const bitcoin = update.bitcoin !== undefined ? update.bitcoin : kept;
+  return status === card.status && bitcoin === card.bitcoin ? card : { status, bitcoin };
+}
+
+/** Paga con bitcoin ahora mismo (AUTHORIZING con su factura): sin las fases ni el reloj del banco. */
+export function payingWithBitcoin(card: CardLive): Exclude<BitcoinPayState, 'closed'> | null {
+  return card.status === 'AUTHORIZING' && card.bitcoin !== null && card.bitcoin !== 'closed' ? card.bitcoin : null;
+}
+
+/**
+ * El pie de Esperando: el botón «Cancelar cobro», o por qué no se puede (y,
+ * con bitcoin en la red o con un problema, salir sin cancelar: si no, la
+ * pantalla se quedaría ahí hasta que se confirme o lo resuelva el encargado).
+ */
+export type CancelOffer = { kind: 'button' } | { kind: 'text'; text: string } | { kind: 'leave'; text: string };
+
+export function cancelOffer(card: CardLive): CancelOffer {
+  if (card.status !== 'AUTHORIZING' || card.bitcoin === 'open') return { kind: 'button' };
+  if (card.bitcoin === 'confirming') return { kind: 'leave', text: BITCOIN_CONFIRMING_TEXT };
+  if (card.bitcoin === 'problem') return { kind: 'leave', text: BITCOIN_PROBLEM_TEXT };
+  return { kind: 'text', text: CANCEL_WHILE_PAYING_TEXT };
+}
+
+/** El aviso cuando «Cancelar cobro» falla: sin hablar del banco si paga con bitcoin. */
+export function cancelFailedText(card: CardLive, code: string | null): string {
+  if (code === BITCOIN_CONFIRMING_CODE || (card.status === 'AUTHORIZING' && card.bitcoin === 'confirming')) return BITCOIN_CONFIRMING_TEXT;
+  if (card.status === 'AUTHORIZING' && card.bitcoin) return 'No se ha podido cancelar: puede que el cliente acabe de pagar con bitcoin. Mira si ya está pagado.';
+  if (card.status === 'AUTHORIZING') return 'No se puede cancelar mientras el cliente paga en su banco: espera su respuesta.';
+  return 'No se ha podido cancelar: mira si ya está pagado.';
+}
+
+/** La pastilla viva mientras paga con bitcoin (en vez de las fases del banco, que no aplican). */
+export function bitcoinWaitText(bitcoin: Exclude<BitcoinPayState, 'closed'>): string {
+  if (bitcoin === 'confirming') return 'Pagado con bitcoin · falta 1 confirmación de la red';
+  if (bitcoin === 'problem') return 'Problema con el pago en bitcoin';
+  return 'El cliente está pagando con bitcoin…';
+}
 
 /** La pantalla ámbar del cobro que el banco no confirmó (ORPHAN). */
 export const UNCONFIRMED_TITLE = 'El banco no lo ha confirmado';

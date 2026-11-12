@@ -346,8 +346,20 @@ export const PublicPaymentViewSchema = z.object({
    * banco no dice cuál de los dos); «card» = tarjeta. Opcional.
    */
   payMethod: z.enum(['card', 'wallet']).optional(),
+  /**
+   * El cliente paga con bitcoin (una factura de BTCPay). Opcional (API anterior).
+   * Lo usa la pantalla del personal:
+   *  - 'open' (AUTHORIZING): la factura espera el pago → se puede cancelar el cobro (la cierra);
+   *  - 'confirming' (AUTHORIZING): el pago ya está en la red, falta su confirmación → no se cancela;
+   *  - 'problem' (AUTHORIZING): la factura se cerró con un pago a medias, tardío o que no cuadra (Incidencias);
+   *  - 'closed' (AWAITING_CAPTURE): la factura se cerró sin pagarse (caducó o el cliente eligió
+   *    pagar de otra forma) y el cobro vuelve a estar abierto.
+   */
+  bitcoin: z.enum(['open', 'confirming', 'problem', 'closed']).optional(),
 });
 export type PublicPaymentView = z.infer<typeof PublicPaymentViewSchema>;
+/** Cómo va el pago con bitcoin de un cobro (PublicPaymentView.bitcoin). */
+export type BitcoinPayState = NonNullable<PublicPaymentView['bitcoin']>;
 
 // ─── Detalle interno (admin ve esto) ─────────────────────────────────
 export const PaymentDetailSchema = z.object({

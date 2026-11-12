@@ -25,6 +25,7 @@ import { SafeBtcpayNet } from '../../src/modules/btcpay/btcpay-net';
 import { BtcpayClients } from '../../src/modules/btcpay/btcpay-client';
 import { BtcpayStoreService } from '../../src/modules/btcpay/btcpay-store.service';
 import { BtcpayInvoiceService } from '../../src/modules/btcpay/btcpay-invoice.service';
+import { BtcpayPayController } from '../../src/modules/btcpay/btcpay-pay.controller';
 import { BtcpayWebhookController } from '../../src/modules/btcpay/btcpay-webhook.controller';
 import { BtcpayEnabledGuard } from '../../src/modules/btcpay/btcpay-flag';
 import { WebhookIngestProcessor } from '../../src/modules/queues/webhook-ingest.processor';
@@ -271,6 +272,18 @@ const settle = (invoiceId: string, extra: Record<string, unknown> = {}) => ({
 async function runQueued(): Promise<void> {
   const deliveries = await prisma.webhookDelivery.findMany({ where: { provider: 'BTCPAY', processedAt: null, tenantId: A }, orderBy: { id: 'asc' } });
   for (const d of deliveries) await processor.process({ data: { deliveryId: d.id.toString() } } as never);
+}
+
+/**
+ * El repaso (cada 2 min en producción), sin aviso de BTCPay, hasta que `done`.
+ * Cada vuelta mira como mucho 200 facturas y la base de pruebas guarda las de
+ * otras ejecuciones: se repite unas pocas veces con esta factura por mirar.
+ */
+async function sweepUntil(invoiceId: string, done: () => Promise<boolean>): Promise<void> {
+  for (let round = 0; round < 10 && !(await done()); round += 1) {
+    await sys((tx) => tx.$executeRaw`UPDATE btcpay_invoices SET "lastCheckedAt" = now() - interval '10 minutes' WHERE "invoiceId" = ${invoiceId}`);
+    await invoices.sweepOpen();
+  }
 }
 
 beforeAll(async () => {
@@ -698,6 +711,193 @@ describe('cancelar el cobro con la factura abierta', () => {
     await sys((tx) => tx.payment.update({ where: { id: p.id }, data: { status: 'AUTHORIZING', provider: 'REDSYS', providerTxId: `RS${r}${n}` } }));
     await expect(inCtx(A, () => payments.cancel(p.id, { userId: waiter, role: 'WAITER', tenantId: A }))).rejects.toBeInstanceOf(ConflictException);
   });
+
+  it('con el bitcoin ya en la red (Processing) NO se cancela: 409 BITCOIN_CONFIRMING y no se toca nada', async () => {
+    const p = await newPayment(3600);
+    const res = await startFor(p.token);
+    if (res.kind !== 'invoice') throw new Error('sin factura');
+    fake.setState(res.view.invoiceId, 'Processing');
+    await invoices.processInvoice(A, res.view.invoiceId, 'poll');
+    await expect(inCtx(A, () => payments.cancel(p.id, { userId: waiter, role: 'WAITER', tenantId: A }))).rejects.toMatchObject({
+      status: 409,
+      response: { code: 'BITCOIN_CONFIRMING' },
+    });
+    expect((await statusOf(p.id)).status).toBe('AUTHORIZING');
+    expect((await rowsOf(p.id))[0]).toMatchObject({ status: 'Processing', closedAt: null });
+  });
+
+  it('cancelado sin poder invalidarla en BTCPay: el repaso la sigue mirando y un pago que llega después es incidencia', async () => {
+    const p = await newPayment(3700);
+    const res = await startFor(p.token);
+    if (res.kind !== 'invoice') throw new Error('sin factura');
+    await inCtx(A, () => payments.cancel(p.id, { userId: waiter, role: 'WAITER', tenantId: A }));
+    // Cerrada aquí, abierta allí (la clave no tiene ese permiso): sin closedAt, el repaso la vigila.
+    expect((await rowsOf(p.id))[0]).toMatchObject({ status: 'Invalid', closedAt: null });
+    fake.setState(res.view.invoiceId, 'Settled');
+    await sweepUntil(res.view.invoiceId, async () => Boolean((await rowsOf(p.id))[0]?.closedAt));
+    expect((await statusOf(p.id)).status).toBe('CANCELED');
+    const ev = await sys((tx) => tx.paymentEvent.findMany({ where: { paymentId: p.id, eventType: 'payment.approval_unbooked' } }));
+    expect(ev).toHaveLength(1);
+    expect(ev[0]?.payload).toMatchObject({ provider: 'BTCPAY', providerTxId: res.view.invoiceId, fromStatus: 'CANCELED' });
+    expect((await rowsOf(p.id))[0]).toMatchObject({ status: 'Settled' });
+  });
+
+  it('cancelado sin pago: mientras siga abierta en BTCPay se queda cerrada aquí (no vuelve a «New») y al caducar allí se da por cerrada', async () => {
+    const p = await newPayment(3800);
+    const res = await startFor(p.token);
+    if (res.kind !== 'invoice') throw new Error('sin factura');
+    await inCtx(A, () => payments.cancel(p.id, { userId: waiter, role: 'WAITER', tenantId: A }));
+    await invoices.processInvoice(A, res.view.invoiceId, 'sweep');
+    expect((await rowsOf(p.id))[0]).toMatchObject({ status: 'Invalid', closedAt: null });
+    fake.setState(res.view.invoiceId, 'Expired');
+    await invoices.processInvoice(A, res.view.invoiceId, 'sweep');
+    expect((await rowsOf(p.id))[0]).toMatchObject({ status: 'Expired' });
+    expect((await rowsOf(p.id))[0]?.closedAt).toBeTruthy();
+    expect((await statusOf(p.id)).status).toBe('CANCELED');
+  });
+});
+
+describe('la pantalla del personal sabe si el cliente paga con bitcoin (GET /payments/public/:qrToken)', () => {
+  const pub = (token: string) => inCtx(undefined, () => payments.getByToken(token));
+
+  it('factura esperando el pago → «open» (se puede cancelar); en la red → «confirming»; pagado → nada', async () => {
+    const p = await newPayment(3900);
+    expect(await pub(p.token)).not.toHaveProperty('bitcoin');
+    const res = await startFor(p.token);
+    if (res.kind !== 'invoice') throw new Error('sin factura');
+    expect(await pub(p.token)).toMatchObject({ status: 'AUTHORIZING', bitcoin: 'open' });
+    fake.setState(res.view.invoiceId, 'Processing');
+    await invoices.processInvoice(A, res.view.invoiceId, 'poll');
+    expect(await pub(p.token)).toMatchObject({ status: 'AUTHORIZING', bitcoin: 'confirming' });
+    fake.setState(res.view.invoiceId, 'Settled');
+    await invoices.processInvoice(A, res.view.invoiceId, 'poll');
+    const paid = await pub(p.token);
+    expect(paid.status).toBe('AUTHORIZED');
+    expect(paid).not.toHaveProperty('bitcoin');
+  });
+
+  it('pago a medias (la factura se cerró con incidencia y el cobro sigue AUTHORIZING) → «problem»; con tarjeta en su banco → nada', async () => {
+    const p = await newPayment(4000);
+    const res = await startFor(p.token);
+    if (res.kind !== 'invoice') throw new Error('sin factura');
+    fake.setState(res.view.invoiceId, 'Expired', 'PaidPartial');
+    await invoices.processInvoice(A, res.view.invoiceId, 'poll');
+    expect(await pub(p.token)).toMatchObject({ status: 'AUTHORIZING', bitcoin: 'problem' });
+    const card = await newPayment(4100);
+    await sys((tx) => tx.payment.update({ where: { id: card.id }, data: { status: 'AUTHORIZING', provider: 'REDSYS', providerTxId: `RSP${r}${n}` } }));
+    expect(await pub(card.token)).not.toHaveProperty('bitcoin');
+  });
+});
+
+describe('«Pagar de otra forma» desde la página del QR', () => {
+  const leave = (token: string) => inCtx(undefined, () => invoices.leaveForToken(token));
+
+  it('cierra la factura, el cobro vuelve a estar abierto y /pay/:token ya no lleva al QR (no rebota); se puede volver al bitcoin con otra factura', async () => {
+    const p = await newPayment(4200);
+    const res = await startFor(p.token);
+    if (res.kind !== 'invoice') throw new Error('sin factura');
+    fake.calls.length = 0;
+    expect(await leave(p.token)).toEqual({ kind: 'choose' });
+    expect((await statusOf(p.id)).status).toBe('AWAITING_CAPTURE');
+    // La pantalla del personal lo sabe aunque no hubiera visto antes que era bitcoin: vuelve a estar abierto.
+    expect(await inCtx(undefined, () => payments.getByToken(p.token))).toMatchObject({ status: 'AWAITING_CAPTURE', bitcoin: 'closed' });
+    // Se pidió a BTCPay que la invalidara; esta clave no puede: cerrada aquí y vigilada por el repaso.
+    expect(fake.calls).toContain(`POST /api/v1/stores/STORE1/invoices/${res.view.invoiceId}/status`);
+    expect((await rowsOf(p.id))[0]).toMatchObject({ status: 'Invalid', closedAt: null });
+    // La página de pago enseña las formas de pago (con el bitcoin también), sin volver al QR.
+    expect(await inCtx(undefined, () => payments.getPayPage(p.token))).toMatchObject({ kind: 'choose', bitcoin: true });
+    expect((await inCtx(undefined, () => invoices.viewForToken(p.token))).view).toBeNull();
+    expect(await invoices.pollForToken(p.token)).toEqual({ state: 'closed', reopened: true });
+    // Y otra vez con bitcoin: una factura nueva.
+    const again = await startFor(p.token);
+    expect(again.kind === 'invoice' && again.view.invoiceId).not.toBe(res.view.invoiceId);
+    expect(await inCtx(undefined, () => payments.getPayPage(p.token))).toEqual({ kind: 'bitcoin' });
+  });
+
+  it('con permiso en la clave, la factura queda Invalid también en BTCPay y se da por cerrada', async () => {
+    fake.canMarkInvalid = true;
+    const p = await newPayment(4300);
+    const res = await startFor(p.token);
+    if (res.kind !== 'invoice') throw new Error('sin factura');
+    expect(await leave(p.token)).toEqual({ kind: 'choose' });
+    expect(fake.invoices.get(res.view.invoiceId)?.status).toBe('Invalid');
+    expect((await rowsOf(p.id))[0]?.closedAt).toBeTruthy();
+  });
+
+  it('con el pago ya en la red no se cierra (vuelve al QR, que dice que se confirma); si ya llegó, «Pagado»', async () => {
+    const p = await newPayment(4400);
+    const res = await startFor(p.token);
+    if (res.kind !== 'invoice') throw new Error('sin factura');
+    fake.setState(res.view.invoiceId, 'Processing');
+    expect(await leave(p.token)).toEqual({ kind: 'confirming' });
+    expect((await statusOf(p.id)).status).toBe('AUTHORIZING');
+    expect((await rowsOf(p.id))[0]).toMatchObject({ status: 'Processing', closedAt: null });
+    fake.setState(res.view.invoiceId, 'Settled');
+    expect(await leave(p.token)).toEqual({ kind: 'paid' });
+    expect((await statusOf(p.id)).status).toBe('AUTHORIZED');
+  });
+
+  it('pagada en BTCPay justo antes de tocar el botón: se pregunta antes de cerrar y sale «Pagado» (nunca se cierra pagada)', async () => {
+    const p = await newPayment(4500);
+    const res = await startFor(p.token);
+    if (res.kind !== 'invoice') throw new Error('sin factura');
+    fake.setState(res.view.invoiceId, 'Settled');
+    expect(await leave(p.token)).toEqual({ kind: 'paid' });
+    expect((await statusOf(p.id)).status).toBe('AUTHORIZED');
+    expect((await rowsOf(p.id))[0]).toMatchObject({ status: 'Settled' });
+  });
+
+  it('el cliente paga esa factura después de todo (la clave no la invalidó): el repaso lo ve y queda en Incidencias, nunca «Pagado» a ciegas', async () => {
+    const p = await newPayment(4600);
+    const res = await startFor(p.token);
+    if (res.kind !== 'invoice') throw new Error('sin factura');
+    await leave(p.token);
+    fake.setState(res.view.invoiceId, 'Settled');
+    await sweepUntil(res.view.invoiceId, async () => Boolean((await rowsOf(p.id))[0]?.closedAt));
+    expect((await statusOf(p.id)).status).toBe('AWAITING_CAPTURE');
+    const ev = await sys((tx) => tx.paymentEvent.findMany({ where: { paymentId: p.id, eventType: 'payment.approval_unbooked' } }));
+    expect(ev).toHaveLength(1);
+    expect(ev[0]?.payload).toMatchObject({ provider: 'BTCPAY', providerTxId: res.view.invoiceId, fromStatus: 'AWAITING_CAPTURE' });
+  });
+
+  it('pagado con tarjeta y además con esa factura de bitcoin: el bitcoin de más queda en Incidencias (antes se perdía en silencio)', async () => {
+    const p = await newPayment(4700);
+    const res = await startFor(p.token);
+    if (res.kind !== 'invoice') throw new Error('sin factura');
+    await leave(p.token);
+    // El cliente paga con tarjeta (Redsys lo aprueba).
+    await sys((tx) => tx.payment.update({ where: { id: p.id }, data: { status: 'AUTHORIZED', provider: 'REDSYS', providerTxId: `RSB${r}${n}`, authorizedAt: new Date() } }));
+    fake.setState(res.view.invoiceId, 'Settled');
+    await sweepUntil(res.view.invoiceId, async () => Boolean((await rowsOf(p.id))[0]?.closedAt));
+    expect(await statusOf(p.id)).toMatchObject({ status: 'AUTHORIZED', provider: 'REDSYS' });
+    const ev = await sys((tx) => tx.paymentEvent.findMany({ where: { paymentId: p.id, eventType: 'payment.approval_unbooked' } }));
+    expect(ev).toHaveLength(1);
+    expect(ev[0]?.payload).toMatchObject({ provider: 'BTCPAY', providerTxId: res.view.invoiceId, fromStatus: 'AUTHORIZED', paidWith: 'REDSYS' });
+    // Otro repaso o aviso no repite la incidencia.
+    await invoices.processInvoice(A, res.view.invoiceId, 'poll');
+    expect(await sys((tx) => tx.paymentEvent.count({ where: { paymentId: p.id, eventType: 'payment.approval_unbooked' } }))).toBe(1);
+  });
+
+  it('POST /pay/:token/bitcoin/other: 303 a /pay/:token (o al QR si el pago está en la red)', async () => {
+    const controller = new BtcpayPayController(invoices, { get: () => 'secreto-de-cookies-de-pruebas-0123456789' } as never);
+    const reply = () => {
+      const r2 = { code: 0, headers: {} as Record<string, string>, status(c: number) { r2.code = c; return r2; }, header(k: string, v: string) { r2.headers[k] = v; return r2; }, send() { return r2; } };
+      return r2;
+    };
+    const p = await newPayment(4800);
+    await startFor(p.token);
+    const out = reply();
+    await inCtx(undefined, () => controller.other(p.token, 'es', undefined, out as never));
+    expect(out.code).toBe(303);
+    expect(out.headers.Location).toBe(`/pay/${p.token}?lang=es`);
+    const q = await newPayment(4900);
+    const res = await startFor(q.token);
+    if (res.kind !== 'invoice') throw new Error('sin factura');
+    fake.setState(res.view.invoiceId, 'Processing');
+    const back = reply();
+    await inCtx(undefined, () => controller.other(q.token, 'en', undefined, back as never));
+    expect(back.headers.Location).toBe(`/pay/${q.token}/bitcoin?lang=en`);
+  });
 });
 
 describe('recarga del saldo pagada con bitcoin', () => {
@@ -953,6 +1153,55 @@ describe('el dinero con un cobro en bitcoin', () => {
     // Y el listado de Cobros lo etiqueta «Bitcoin».
     const sales = await sys((tx) => tx.payment.findMany({ where: { tenantId: T }, include: { attempts: true } }));
     expect(sales.filter((s) => s.attempts.some((a) => a.payMethod === 'bitcoin'))).toHaveLength(1);
+  });
+
+  it('con la «Comisión del servicio» del local (como el C-0049): 1,00 € + 0,10 €; la factura es de 1,10 €, BTCPay la da por pagada («1.1») y el repaso, sin aviso, la apunta; la comisión, de OxioPay', async () => {
+    const { sealBtcpaySecret } = await import('../../src/modules/btcpay/btcpay-secrets');
+    const F = await sys(async (tx) => {
+      const id = (await tx.venue.create({ data: { name: 'Sala Comisión BTC', slug: `btc-f-${r}`, walletGroup: `gbtc-f-${r}`, serviceFeeEnabled: true, serviceFeeBps: 1000 } })).id;
+      const own = (await tx.user.create({ data: { tenantId: id, email: `own-f-${r}@x.es`, passwordHash: 'x', role: 'OWNER' } })).id;
+      const wai = (await tx.user.create({ data: { tenantId: id, email: `wai-f-${r}@x.es`, passwordHash: 'x', role: 'WAITER' } })).id;
+      await tx.terminal.create({ data: { tenantId: id, externalId: `BTCF-${r}`, label: 'Copas', zone: 'BARRA' } });
+      await tx.venueNight.create({ data: { tenantId: id, openedAt: new Date(Date.now() - 2 * 3_600_000), openingFloatCents: 0, openedBy: own } });
+      await tx.btcpayStore.create({
+        data: {
+          tenantId: id, baseUrl: 'https://btcpay.sala-test.es', storeId: fake.storeId, apiKeyEnc: sealBtcpaySecret(KEK, id, 'apikey', fake.apiKey),
+          webhookSecretEnc: sealBtcpaySecret(KEK, id, 'webhook', 'secreto-comision-0123456789abcdef'), hookToken: `hk-f-${r}-0123456789abcdefghij`, enabled: true, lastCheckOk: true,
+        },
+      });
+      return { id, wai };
+    });
+    // Como lo cobra el personal desde su app: la comisión la pone el servidor.
+    const created = await inCtx(F.id, () =>
+      payments.create(F.id, key(), { currency: 'EUR', terminalExternalId: `BTCF-${r}`, amountCents: 100 } as never, { userId: F.wai, role: 'WAITER' }),
+    );
+    expect(created).toMatchObject({ amountCents: 100, serviceFeeCents: 10 });
+    const res = await startFor(created.qrToken);
+    if (res.kind !== 'invoice') throw new Error('sin factura');
+    // La factura es lo mismo que pagaría con tarjeta: importe + comisión (1,10 €).
+    expect(res.view.amountCents).toBe(110);
+    const inv = fake.invoices.get(res.view.invoiceId)!;
+    expect(inv.amount).toBe('1.10');
+    // BTCPay puede devolver el importe sin el cero del final: sigue cuadrando.
+    inv.amount = '1.1';
+    fake.setState(inv.id, 'Settled');
+    await sweepUntil(inv.id, async () => (await statusOf(created.id)).status === 'AUTHORIZED');
+    expect(await statusOf(created.id)).toMatchObject({
+      status: 'AUTHORIZED', provider: 'BTCPAY', providerTxId: inv.id, amountCents: 100, serviceFeeCents: 10, tipCents: 0, availableAmountCents: 110,
+    });
+    expect(await sys((tx) => tx.paymentAttempt.findMany({ where: { paymentId: created.id } }))).toEqual([
+      expect.objectContaining({ provider: 'BTCPAY', providerTxId: inv.id, amountCents: 110, status: 'APPROVED', payMethod: 'bitcoin' }),
+    ]);
+    expect((await rowsOf(created.id))[0]).toMatchObject({ status: 'Settled', amountCents: 110 });
+    expect((await rowsOf(created.id))[0]?.closedAt).toBeTruthy();
+    const events = await sys((tx) => tx.paymentEvent.findMany({ where: { paymentId: created.id } }));
+    expect(events.filter((e) => e.eventType.startsWith('payment.approval'))).toHaveLength(0);
+    // El reparto: la venta de 1 € con bitcoin; los 0,10 € de comisión son de OxioPay (están en la cartera del local).
+    const map = await moneyMap.forQuery(F.id, { night: 'current' } as never, new Date(Date.now() + 1_000));
+    expect(map.salesCents).toBe(100);
+    expect(map.inflow).toMatchObject({ bitcoinCents: 100 });
+    expect(map.where.bitcoinCents).toBe(110);
+    expect(map.serviceFee).toMatchObject({ salesCents: 10, owedCents: 10 });
   });
 });
 

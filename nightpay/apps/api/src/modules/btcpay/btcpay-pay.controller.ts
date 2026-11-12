@@ -82,6 +82,33 @@ export class BtcpayPayController {
     }
   }
 
+  /**
+   * «Pagar de otra forma»: cierra la factura abierta y vuelve a /pay/:token con
+   * las demás formas de pago. Con el pago ya en la red no se cierra: vuelve al QR,
+   * que dice que se está confirmando. Ya pagado: /pay/:token enseña el «Pagado».
+   */
+  @Public()
+  @Post(':token/bitcoin/other')
+  @HttpCode(200)
+  @IpRateLimit({ max: 60, windowSec: 60, scope: 'pay-bitcoin' })
+  async other(
+    @Param('token') token: string,
+    @Query('lang') langQuery: string | undefined,
+    @Headers('cookie') cookies: string | undefined,
+    @Res() res: FastifyReply,
+  ): Promise<void> {
+    const lang = this.language(res, langQuery, cookies);
+    const back = `/pay/${encodeURIComponent(token)}?lang=${lang}`;
+    try {
+      const result = await this.invoices.leaveForToken(token);
+      const next = result.kind === 'confirming' ? `/pay/${encodeURIComponent(token)}/bitcoin?lang=${lang}` : back;
+      res.status(303).header('Location', next).header('Cache-Control', 'no-store').send();
+    } catch (err) {
+      this.logger.warn(`/pay/${token.slice(0, 4)}…/bitcoin/other: ${(err as Error).message}`);
+      sendHtml(res, 409, renderErrorPage(payErrorKeyOf(err), lang, back));
+    }
+  }
+
   @Public()
   @Get(':token/bitcoin')
   @IpRateLimit(PAGE_LIMIT)

@@ -44,6 +44,14 @@ export type BitcoinStartResult =
   | { kind: 'paid' }
   | { kind: 'closed'; reason: 'expired' | 'canceled' | 'failed' };
 
+/**
+ * «Pagar de otra forma» en la página del QR:
+ *  - 'choose': la factura se cerró (o ya no había) y el cobro vuelve a la página de pago;
+ *  - 'paid': el bitcoin ya llegó (se ve el «Pagado»);
+ *  - 'confirming': el pago ya está en la red esperando su confirmación: no se cierra.
+ */
+export type BitcoinLeaveResult = { kind: 'choose' } | { kind: 'paid' } | { kind: 'confirming' };
+
 type InvoiceRow = {
   id: string;
   tenantId: string;
@@ -154,6 +162,67 @@ export class BtcpayInvoiceService implements OnModuleInit {
     if (fresh.status === 'FAILED') return { kind: 'closed', reason: 'failed' };
     const row = await this.coalesced(fresh, access, claimHash);
     return { kind: 'invoice', view: await this.toView(row, (await this.paymentByToken(fresh.id, 'id')).status) };
+  }
+
+  /**
+   * El cliente toca «Pagar de otra forma» en la página del QR: la factura se
+   * cierra aquí (la página deja de enseñarla) y el cobro vuelve a estar abierto
+   * para pagarlo con tarjeta o con el saldo. Antes se pregunta a BTCPay: un pago
+   * que acaba de llegar, o que ya está en la red, no se pierde al cerrarla.
+   */
+  async leaveForToken(qrToken: string): Promise<BitcoinLeaveResult> {
+    const payment = await this.paymentByToken(qrToken);
+    if (PAID_STATES.has(payment.status)) return { kind: 'paid' };
+    const open = await this.openInvoiceOf(payment.id);
+    if (!open) return { kind: 'choose' };
+    await this.processInvoice(open.tenantId, open.invoiceId, 'poll').catch((err: unknown) =>
+      this.logger.warn(`«Pagar de otra forma» con la factura ${open.invoiceId}: BTCPay no contestó (${(err as Error).message})`),
+    );
+    if (await this.closeForOtherWay(payment.id)) return { kind: 'choose' };
+    // Otro camino se adelantó (ya pagado, el pago en la red o la factura ya cerrada): lo dice el estado de ahora.
+    const now = await this.paymentByToken(payment.id, 'id');
+    if (PAID_STATES.has(now.status)) return { kind: 'paid' };
+    return (await this.openInvoiceOf(payment.id))?.status === 'Processing' ? { kind: 'confirming' } : { kind: 'choose' };
+  }
+
+  /**
+   * Cierra la factura abierta (solo si sigue «New»: sin pago en la red) y reabre
+   * el cobro, todo con el cobro bloqueado. Después la invalida en BTCPay si la
+   * clave deja; si no, el repaso la sigue mirando hasta que caduque allí: un pago
+   * que llegue a pesar de todo queda en Incidencias, nunca se pierde.
+   */
+  private async closeForOtherWay(paymentId: string): Promise<boolean> {
+    const row = await this.openInvoiceOf(paymentId);
+    if (!row || row.status !== 'New') return false;
+    try {
+      await this.payments.transition(paymentId, { type: 'INVOICE_CLOSED' }, row.tenantId, {
+        prepare: async (tx, locked) => {
+          if (locked.status !== 'AUTHORIZING' || locked.provider !== 'BTCPAY' || locked.providerTxId !== row.invoiceId) {
+            throw new InvalidTransitionError(locked.status, 'INVOICE_CLOSED');
+          }
+          const closed = await tx.$executeRaw`
+            UPDATE btcpay_invoices SET status = 'Invalid', "lastCheckedAt" = now(), "updatedAt" = now()
+             WHERE id = ${row.id}::uuid AND status = 'New'`;
+          if (closed !== 1) throw new InvalidTransitionError(locked.status, 'INVOICE_CLOSED');
+        },
+      });
+    } catch (err) {
+      if (err instanceof InvalidTransitionError) return false;
+      throw err;
+    }
+    this.logger.log(`Cobro ${paymentId}: el cliente eligió pagar de otra forma; factura ${row.invoiceId} cerrada`);
+    await this.expireIfPastDeadline(paymentId, row.tenantId);
+    await this.invalidateInBtcpay(row);
+    return true;
+  }
+
+  /** El cobro reabierto ya había pasado su plazo: caduca (como al caducar la factura). */
+  private async expireIfPastDeadline(paymentId: string, tenantId: string): Promise<void> {
+    const payment = await this.paymentByToken(paymentId, 'id').catch(() => null);
+    if (!payment || payment.qrExpiresAt.getTime() > Date.now()) return;
+    await this.payments.transition(paymentId, { type: 'TIMEOUT' }, tenantId).catch((err: unknown) => {
+      if (!(err instanceof InvalidTransitionError)) throw err;
+    });
   }
 
   private coalesced(payment: PaymentCtx, access: BtcpayAccess, claimHash: string | null): Promise<InvoiceRow> {
@@ -304,7 +373,8 @@ export class BtcpayInvoiceService implements OnModuleInit {
         await this.touch(row.id, { status: 'Settled', additionalStatus: additional, closedAt: new Date() });
         return;
       case 'OPEN':
-        await this.touch(row.id, { status: invoice.status, additionalStatus: additional });
+        // Cerrada aquí (cobro cancelado o «Pagar de otra forma») y aún abierta en BTCPay: sigue cerrada; el repaso la vigila.
+        await this.touch(row.id, row.status === 'Invalid' ? { additionalStatus: additional } : { status: invoice.status, additionalStatus: additional });
         return;
       case 'CLOSED':
         await this.reopen(row);
@@ -329,10 +399,25 @@ export class BtcpayInvoiceService implements OnModuleInit {
       await this.payments.transition(row.paymentId, { type: 'AUTHORIZED', provider: 'BTCPAY', providerTxId: row.invoiceId }, row.tenantId);
     } catch (err) {
       if (!(err instanceof InvalidTransitionError)) throw err;
-      if (isIdempotentTransition(err)) return;
+      if (isIdempotentTransition(err)) {
+        await this.flagIfPaidOtherWay(row, err.fromState);
+        return;
+      }
       // El bitcoin ya llegó y el cobro no se puede dar por pagado: nunca «Pagado», siempre incidencia.
       await this.recordIncident(row, APPROVAL_UNBOOKED_EVENT, { fromStatus: err.fromState });
     }
+  }
+
+  /**
+   * El cobro ya estaba pagado. Con esta factura (un aviso repetido) o con otra de
+   * bitcoin (transition() apunta el doble cobro), nada más. Pagado con tarjeta u
+   * otra forma y ADEMÁS con esta factura (el cliente pagó de las dos maneras): ese
+   * bitcoin sobra y nadie lo apuntaría, así que queda en Incidencias para devolverlo.
+   */
+  private async flagIfPaidOtherWay(row: InvoiceRow, fromStatus: string): Promise<void> {
+    const payment = await this.paymentByToken(row.paymentId, 'id').catch(() => null);
+    if (!payment || payment.provider === 'BTCPAY') return;
+    await this.recordIncident(row, APPROVAL_UNBOOKED_EVENT, { fromStatus, paidWith: payment.provider });
   }
 
   /** La factura se cerró sin pagarse: si el cobro la esperaba, vuelve a estar abierto (o caduca si ya era su hora). */
@@ -345,11 +430,7 @@ export class BtcpayInvoiceService implements OnModuleInit {
       if (err instanceof InvalidTransitionError) return;
       throw err;
     }
-    if (payment.qrExpiresAt.getTime() <= Date.now()) {
-      await this.payments.transition(row.paymentId, { type: 'TIMEOUT' }, row.tenantId).catch((err: unknown) => {
-        if (!(err instanceof InvalidTransitionError)) throw err;
-      });
-    }
+    await this.expireIfPastDeadline(row.paymentId, row.tenantId);
   }
 
   /** Apunta la incidencia una sola vez por factura y motivo (el aviso, la pantalla y la tarea pueden coincidir). */
@@ -418,8 +499,14 @@ export class BtcpayInvoiceService implements OnModuleInit {
         // Las abiertas que BTCPay aún vigila: pasadas unas horas de su caducidad, una factura que no se deja
         // comprobar (el local ya no tiene BTCPay…) no tapa a las demás ni se reintenta para siempre.
         // Las Processing (pago ya en la red, esperando su confirmación) se vigilan siempre.
+        // También las cerradas aquí que BTCPay no dejó invalidar (cobro cancelado, «Pagar de otra
+        // forma»): siguen pagables allí hasta caducar y un pago que llegue tiene que quedar en Incidencias.
         where: {
-          OR: [{ status: 'Processing' }, { status: 'New', expiresAt: { gt: new Date(now.getTime() - SWEEP_GIVE_UP_AFTER_MS) } }],
+          OR: [
+            { status: 'Processing' },
+            { status: 'New', expiresAt: { gt: new Date(now.getTime() - SWEEP_GIVE_UP_AFTER_MS) } },
+            { status: 'Invalid', closedAt: null, expiresAt: { gt: new Date(now.getTime() - SWEEP_GIVE_UP_AFTER_MS) } },
+          ],
         },
         orderBy: [{ lastCheckedAt: { sort: 'asc', nulls: 'first' } }, { createdAt: 'asc' }],
         take: SWEEP_BATCH,
@@ -446,19 +533,37 @@ export class BtcpayInvoiceService implements OnModuleInit {
   /** El personal canceló el cobro: la factura abierta se cierra aquí y, si la clave deja, en BTCPay (si no, caduca). */
   async closeOnCancel(paymentId: string, tenantId: string): Promise<void> {
     const rows = await this.prisma.asSystem((tx) =>
-      tx.btcpayInvoice.findMany({ where: { paymentId, tenantId, status: { in: ['New', 'Processing'] } }, select: { id: true, invoiceId: true } }),
+      tx.btcpayInvoice.findMany({ where: { paymentId, tenantId, status: { in: ['New', 'Processing'] } }, select: { id: true, invoiceId: true, tenantId: true } }),
     );
     if (rows.length === 0) return;
     const access = await this.stores.accessFor(tenantId);
     for (const r of rows) {
-      await this.touch(r.id, { status: 'Invalid', closedAt: new Date() });
-      if (!access) continue;
-      try {
-        const done = await this.stores.clientFor(access).markInvalid(r.invoiceId);
-        if (!done) this.logger.log(`Factura ${r.invoiceId}: la clave no puede invalidarla; caducará sola`);
-      } catch (err) {
-        this.logger.warn(`Factura ${r.invoiceId}: no se pudo invalidar en BTCPay (${(err as Error).message}); caducará sola`);
+      await this.touch(r.id, { status: 'Invalid' });
+      await this.invalidateInBtcpay(r, access);
+    }
+  }
+
+  /**
+   * Una factura ya cerrada aquí: se invalida en BTCPay si la clave deja y se da
+   * por cerrada del todo. Si no (la clave no tiene ese permiso, BTCPay no
+   * contesta), queda sin `closedAt`: el repaso la sigue mirando hasta que caduque
+   * allí, y un pago que llegue entretanto acaba en Incidencias.
+   */
+  private async invalidateInBtcpay(row: { id: string; invoiceId: string; tenantId: string }, known?: BtcpayAccess | null): Promise<void> {
+    const access = known === undefined ? await this.stores.accessFor(row.tenantId) : known;
+    // Sin la conexión del local no hay a quién preguntar: nada que vigilar.
+    if (!access) {
+      await this.touch(row.id, { closedAt: new Date() });
+      return;
+    }
+    try {
+      if (await this.stores.clientFor(access).markInvalid(row.invoiceId)) {
+        await this.touch(row.id, { closedAt: new Date() });
+        return;
       }
+      this.logger.log(`Factura ${row.invoiceId}: la clave no puede invalidarla; caducará sola (el repaso la sigue mirando)`);
+    } catch (err) {
+      this.logger.warn(`Factura ${row.invoiceId}: no se pudo invalidar en BTCPay (${(err as Error).message}); caducará sola (el repaso la sigue mirando)`);
     }
   }
 

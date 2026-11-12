@@ -323,6 +323,15 @@ describe('avisos de cobro aprobado que no se dieron por buenos', () => {
     expect(i.detail).toContain('tu BTCPay y la cartera del local');
   });
 
+  it('bitcoin llegado a un cobro que ya se pagó con tarjeta: «ya pagado de otra forma», no «cerrado»', () => {
+    for (const fromStatus of ['AUTHORIZED', 'PARTIALLY_REFUNDED', 'REFUNDED']) {
+      const i = paymentAnomalyIncident(row('payment.approval_unbooked', { provider: 'BTCPAY', providerTxId: 'INV1', fromStatus, paidWith: 'REDSYS' }));
+      expect(i).toMatchObject({ kind: 'approval_unbooked', ackable: true });
+      expect(i.detail).toContain('El cobro estaba ya pagado de otra forma cuando llegó la aprobación (pedido INV1)');
+      expect(i.detail).toContain('tu BTCPay y la cartera del local');
+    }
+  });
+
   it('importe distinto: los dos importes, y se marca como revisada', () => {
     const i = paymentAnomalyIncident(
       row('payment.amount_mismatch', {

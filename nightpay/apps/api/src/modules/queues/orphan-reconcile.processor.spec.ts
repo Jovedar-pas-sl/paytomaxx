@@ -221,6 +221,15 @@ describe('OrphanReconcileProcessor — cada intento cuenta (#6)', () => {
     m.payments.transition.mockRejectedValueOnce(new InvalidTransitionError('AUTHORIZED', 'AUTHORIZED'));
     await expect(m.processor.process(m.job)).resolves.toBeUndefined();
   });
+
+  it('cobro con bitcoin (BTCPAY) → no se toca: lo vigila el repaso de BTCPay; agotado, ya no queda «Sin confirmar»', async () => {
+    for (const attemptsMade of [0, 4]) {
+      const m = makeProcessor({ provider: 'BTCPAY', providerTxId: 'FTFZZzx1jMkega1HSTsMxs', attemptsMade, attempts: [{ providerTxId: 'FTFZZzx1jMkega1HSTsMxs', status: 'PENDING' }] });
+      await expect(m.processor.process(m.job)).resolves.toBeUndefined();
+      expect(m.adapter.getStatus).not.toHaveBeenCalled();
+      expect(m.payments.transition).not.toHaveBeenCalled();
+    }
+  });
 });
 
 describe('OrphanReconcileProcessor — importe (P3)', () => {

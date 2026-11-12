@@ -25,6 +25,7 @@ const pay: PayText = {
   or: 'ou',
   payWithSaldo: 'Pagar com o meu saldo',
   payWithBitcoin: 'Pagar com bitcoin',
+  bitcoinHint: 'Lightning: na hora · na rede: 1 confirmação',
   bitcoin: {
     title: 'Pagar com bitcoin',
     scan: 'Leia o código com a sua carteira de bitcoin',
@@ -42,6 +43,7 @@ const pay: PayText = {
     problemTitle: 'Há um problema com o pagamento',
     problemBody: 'Recebemos um pagamento que não corresponde ao valor. Avise o funcionário: não foi dado como pago.',
     other: 'Escolher outra forma de pagar',
+    payOtherWay: 'Pagar de outra forma',
     offline: 'Sem ligação. Continuamos a tentar.',
     qrAlt: 'Código QR para pagar com bitcoin',
   },

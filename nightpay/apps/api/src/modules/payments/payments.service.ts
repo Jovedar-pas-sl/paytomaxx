@@ -32,6 +32,7 @@ import {
   methodsNeededForPayment,
   postRulesOf,
   paymentMethodsOf,
+  type BitcoinPayState,
   type ChargeRights,
   type CreatePaymentDto,
   type CreatedPaymentResponse,
@@ -347,6 +348,25 @@ function isIdempotencyKeyClash(err: unknown): boolean {
   return JSON.stringify(err.meta?.target ?? '').includes('idempotencyKey');
 }
 
+/** El código del 409 al cancelar con el bitcoin ya en la red (la app del personal lo explica). */
+export const BITCOIN_CONFIRMING_CODE = 'BITCOIN_CONFIRMING';
+
+/**
+ * Cancelar un cobro con su factura de bitcoin «Processing» (el pago ya está en
+ * la red y falta su confirmación): no, el dinero llegaría igual. Dentro de
+ * transition(), con el cobro bloqueado.
+ */
+async function assertBitcoinNotOnTheWay(tx: TransactionalClient, paymentId: string): Promise<void> {
+  const onTheWay = await tx.$queryRaw<Array<{ one: number }>>`
+    SELECT 1 AS one FROM btcpay_invoices WHERE "paymentId" = ${paymentId}::uuid AND status = 'Processing' LIMIT 1
+  `;
+  if (onTheWay.length === 0) return;
+  throw new ConflictException({
+    code: BITCOIN_CONFIRMING_CODE,
+    message: 'El cliente ya ha pagado con bitcoin y falta la confirmación de la red: no se puede cancelar. Espera unos minutos.',
+  });
+}
+
 /** Fila del cobro bloqueada (FOR UPDATE) dentro de transition(). */
 export interface LockedPaymentRow {
   id: string;
@@ -448,6 +468,9 @@ export class PaymentsService implements OnApplicationBootstrap {
 
     try {
       const cutoff = new Date(Date.now() - 2 * 60 * 1000);
+      // Bitcoin no: su factura la vigila el repaso de BTCPay (btcpay-sweep). La
+      // conciliación de las pasarelas no sabe preguntar a BTCPay y, agotada, lo
+      // dejaba «Sin confirmar» (ORPHAN) mientras el cliente aún podía pagar.
       const stuck = await this.prisma.$queryRawUnsafe<Array<{
         id: string;
         tenantId: string;
@@ -456,6 +479,7 @@ export class PaymentsService implements OnApplicationBootstrap {
          FROM payments
          WHERE status = 'AUTHORIZING'
            AND provider IS NOT NULL
+           AND provider::text <> 'BTCPAY'
            AND "providerTxId" IS NOT NULL
            AND "createdAt" < $1
          ORDER BY "createdAt" ASC
@@ -1409,6 +1433,8 @@ export class PaymentsService implements OnApplicationBootstrap {
     // Esperando al banco o sin su respuesta: desde cuándo (sin intentos, cobros
     // de antes de la Fase 0: desde que cambió de estado). No dice nada más del intento.
     const waiting = payment.status === 'AUTHORIZING' || payment.status === 'ORPHAN';
+    // Pagando con bitcoin: la pantalla del personal deja cancelar mientras la factura espera el pago.
+    const bitcoin = payment.provider === 'BTCPAY' ? await this.bitcoinStateOf(payment.id, payment.status) : null;
     const attemptAt = payment.attempts?.[0]?.createdAt ?? payment.updatedAt;
     // Ya pagado: cómo se pagó, para el PAGADO del personal («Con tarjeta»).
     // Esta ruta es pública por el token del QR: nunca lleva cifras de la tarjeta.
@@ -1437,7 +1463,23 @@ export class PaymentsService implements OnApplicationBootstrap {
       // Ya pagado: la propina que dejó (el PAGADO del personal sin tiempo real la necesita).
       ...(paid ? { tipCents: payment.tipCents } : {}),
       ...(waiting ? { attemptStartedAt: attemptAt.toISOString() } : {}),
+      ...(bitcoin ? { bitcoin } : {}),
     };
+  }
+
+  /**
+   * La factura de bitcoin del cobro: esperando el pago, con el pago en la red o
+   * cerrada con un problema (AUTHORIZING); cerrada sin pagarse y el cobro otra vez
+   * abierto (AWAITING_CAPTURE: solo se llega así con BTCPAY). En otro estado, nada.
+   */
+  private async bitcoinStateOf(paymentId: string, status: string): Promise<BitcoinPayState | null> {
+    if (status === 'AWAITING_CAPTURE') return 'closed';
+    if (status !== 'AUTHORIZING') return null;
+    const open = await this.prisma.asSystem((tx) =>
+      tx.btcpayInvoice.findFirst({ where: { paymentId, status: { in: ['New', 'Processing'] } }, select: { status: true } }),
+    );
+    if (!open) return 'problem';
+    return open.status === 'Processing' ? 'confirming' : 'open';
   }
 
   /**
@@ -2008,6 +2050,7 @@ export class PaymentsService implements OnApplicationBootstrap {
       // Quién lo canceló (en el evento) y con qué móvil, en la misma transacción.
       await this.transition(paymentId, { type: 'CANCELED', reason: 'user-canceled', byUserId: actor.userId }, actor.tenantId, {
         prepare: async (tx, locked) => {
+          if (locked.status === 'AUTHORIZING' && locked.provider === 'BTCPAY') await assertBitcoinNotOnTheWay(tx, locked.id);
           await recordPaymentDevice(tx, this.cls.get('ctx'), { id: locked.id, tenantId: locked.tenantId }, 'cancel');
         },
       });

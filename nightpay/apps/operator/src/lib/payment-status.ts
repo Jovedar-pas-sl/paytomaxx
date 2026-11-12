@@ -1,4 +1,4 @@
-import type { PaymentStatus } from '@nightpay/contracts';
+import type { BitcoinPayState, PaymentStatus } from '@nightpay/contracts';
 import { isPolledPayment } from '@nightpay/ui';
 
 // El orden de los estados vive en @nightpay/ui (lo usa también el TPV).
@@ -15,7 +15,11 @@ export interface PolledPayment {
   attemptStartedAt?: string | null;
   /** Ya pagado: «wallet» = Apple Pay o Google Pay; «card» = tarjeta. */
   payMethod?: 'card' | 'wallet';
+  /** Paga con bitcoin (AUTHORIZING con su factura): si se puede cancelar. API nuevo. */
+  bitcoin?: BitcoinPayState;
 }
+
+const BITCOIN_STATES: ReadonlySet<string> = new Set<BitcoinPayState>(['open', 'confirming', 'problem', 'closed']);
 
 /** Lo que el sondeo cuenta de cómo se pagó (para el PAGADO). */
 export interface PaidCardFacts {
@@ -32,17 +36,26 @@ export function cardFactsOf(current: PolledPayment): PaidCardFacts {
 /**
  * La respuesta del sondeo, como la del tiempo real: el estado y, si el API la
  * da, la propina. Sin ella, no se inventa un 0 (la propina sigue sin saberse).
- * La de otro cobro no cuenta.
+ * La de otro cobro no cuenta. Pagando (AUTHORIZING): el estado de su factura de
+ * bitcoin, o null si paga en su banco (o el API es anterior y no lo dice). Y si
+ * la factura se cerró sin pagarse ('closed'), también: el cobro vuelve a estar abierto.
  */
 export function pollUpdate(
   current: PolledPayment,
   id: string,
-): ({ status: PaymentStatus; tipCents?: number; attemptStartedAt?: string } & PaidCardFacts) | null {
+): ({ status: PaymentStatus; tipCents?: number; attemptStartedAt?: string; bitcoin?: BitcoinPayState | null } & PaidCardFacts) | null {
   if (!isPolledPayment(current, id)) return null;
+  const bitcoin = bitcoinStateOf(current.bitcoin);
   return {
     status: current.status,
     ...(typeof current.tipCents === 'number' ? { tipCents: current.tipCents } : {}),
     ...(typeof current.attemptStartedAt === 'string' ? { attemptStartedAt: current.attemptStartedAt } : {}),
+    ...(current.status === 'AUTHORIZING' || bitcoin === 'closed' ? { bitcoin } : {}),
     ...cardFactsOf(current),
   };
+}
+
+/** Solo un estado que se conoce: lo demás, como si no pagara con bitcoin. */
+function bitcoinStateOf(value: unknown): BitcoinPayState | null {
+  return typeof value === 'string' && BITCOIN_STATES.has(value) ? (value as BitcoinPayState) : null;
 }

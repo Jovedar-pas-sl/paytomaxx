@@ -92,6 +92,12 @@ export class OrphanReconcileProcessor extends WorkerHost {
     // Sin petición no hay local en el contexto: lectura de sistema (si no, cuenta
     // como consulta sin local y con TENANCY_UNSCOPED_QUERIES=throw se cortaría).
     const payment: ReconcilablePayment = await this.prisma.asSystem(() => this.payments.findById(paymentId));
+    // Bitcoin: su factura la vigila el repaso de BTCPay. Aquí no se puede preguntar
+    // a BTCPay y, agotados los reintentos, el cobro quedaría «Sin confirmar» (ORPHAN).
+    if (payment.provider === 'BTCPAY') {
+      this.logger.debug(`Orphan ${paymentId}: cobro con bitcoin — lo vigila el repaso de BTCPay`);
+      return;
+    }
     // Cobro único: lo pagó el saldo con la tarjeta en el banco. Si el banco la
     // aprobó sin avisar (aviso perdido), se trata como el aviso tardío.
     if (payment.status === 'CANCELED' && payment.provider && (await wasPaidWithSaldo(this.prisma, payment.id))) {

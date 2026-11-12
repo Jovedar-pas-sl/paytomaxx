@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
-import { confirmationCode, type PaymentStatus } from '@nightpay/contracts';
+import { confirmationCode, type BitcoinPayState, type PaymentStatus } from '@nightpay/contracts';
 import { cardHow, countdownPhase, formatClock, qrDeadline, saldoHow, secondsLeft, useNow, useWakeLock, ScreenHelp } from '@nightpay/ui';
 import { fetchPaymentStatus, getUser } from '@/lib/api';
 import { clearFichaContext, saveFichaContext } from '@/lib/ficha-context';
@@ -9,7 +9,7 @@ import { formatEur } from '@/lib/money';
 import { nfcSupported, readCard, waitingListensNfc } from '@/lib/nfc';
 import { useHealthReport } from '@/lib/connection-health';
 import { useOpenCharge } from '@/lib/open-charges';
-import { advanceStatus, cardFactsOf, type PaidCardFacts } from '@/lib/payment-status';
+import { cardFactsOf, type PaidCardFacts } from '@/lib/payment-status';
 import { fichaContextOf, iphoneFichaHint, pinDetail, showsSinMovil, SIN_MOVIL_LABEL, type PinVia } from '@/lib/sin-movil';
 import { useVenueMethods, useVenueNight } from '@/lib/venue-methods';
 import { useWalletChargeLive } from '../use-wallet-charge-live';
@@ -43,14 +43,21 @@ import {
   type FailReason,
 } from '@/lib/cobro-view';
 import {
-  CANCEL_WHILE_PAYING_TEXT,
+  BITCOIN_CONFIRMING_CODE,
+  LEAVE_WITHOUT_CHARGING,
   UNCONFIRMED_SENTENCE,
   UNCONFIRMED_TITLE,
+  bitcoinWaitText,
+  cancelFailedText,
+  cancelOffer,
+  cardAfter,
   cardWait,
   cardWaitParts,
   cobroOutcome,
+  payingWithBitcoin,
   serverToLocalMs,
   showsBankStrip,
+  type CardLive,
 } from '@/lib/cobro-state';
 import { fetchBankRef, notifiedText, notifyManager, type BankRef } from '@/lib/api-bank-wait';
 import { useShown } from '../reception/desk/use-shown';
@@ -144,7 +151,9 @@ export function Esperando({ cobro, onNew, onRetry, retrying = false, retryError 
     flatCents: methods.tipFlatCents,
     percents: methods.tipPercents,
   });
-  const [cardStatus, setCardStatus] = useState<PaymentStatus>((cobro.card?.status as PaymentStatus) ?? 'CREATED');
+  // El cobro con tarjeta (el QR): su estado y, si el cliente paga con bitcoin, el de su factura.
+  const [card, setCard] = useState<CardLive>(() => ({ status: (cobro.card?.status as PaymentStatus) ?? 'CREATED', bitcoin: null }));
+  const cardStatus = card.status;
   // La propina del cliente con tarjeta: undefined hasta que la diga el API (no es 0).
   const [cardTip, setCardTip] = useState<number | undefined>(undefined);
   // Pagado con tarjeta: lo que el banco dio de cómo (4 últimas cifras, Apple o Google Pay).
@@ -192,7 +201,7 @@ export function Esperando({ cobro, onNew, onRetry, retrying = false, retryError 
 
   // Tarjeta: tiempo real + sondeo de respaldo.
   const { reachable } = usePaymentLive(cobro.card, (update) => {
-    setCardStatus((current) => advanceStatus(current, update.status));
+    setCard((current) => cardAfter(current, update));
     if (update.tipCents !== undefined) setCardTip(update.tipCents);
     if (update.payMethod) {
       setCardFacts((facts) => ({
@@ -379,14 +388,12 @@ export function Esperando({ cobro, onNew, onRetry, retrying = false, retryError 
       if (cobro.card) await cancelCard(cobro.card.id);
       else if (chargeId) await cancelSaldo(chargeId);
       setCanceledByMe(true);
-    } catch {
-      // Ya no se podía cancelar: quizá lo acaba de pagar. Lo dice el estado.
+    } catch (err) {
+      // Ya no se podía cancelar: quizá lo acaba de pagar (con bitcoin, o ya está en la red). Lo dice el estado.
       refreshSaldo();
-      setToast(
-        cardStatus === 'AUTHORIZING'
-          ? 'No se puede cancelar mientras el cliente paga en su banco: espera su respuesta.'
-          : 'No se ha podido cancelar: mira si ya está pagado.',
-      );
+      const code = err instanceof CobroApiError ? err.code : null;
+      if (code === BITCOIN_CONFIRMING_CODE) setCard((current) => cardAfter(current, { status: current.status, bitcoin: 'confirming' }));
+      setToast(cancelFailedText(card, code));
     } finally {
       setCanceling(false);
     }
@@ -396,6 +403,9 @@ export function Esperando({ cobro, onNew, onRetry, retrying = false, retryError 
   useEffect(() => {
     if (outcome.kind === 'canceled' && canceledByMe) onNew();
   }, [outcome.kind, canceledByMe, onNew]);
+
+  // «Cancelar cobro»: con el cliente en su banco no se puede; con bitcoin, mientras la factura espera el pago, sí.
+  const offer = cancelOffer(card);
 
   // Las secciones con su color: el punto del chip del PIN.
   const pinColors = cobro.sections.map((s) => ({ color: colorOf(s.section), weight: s.cents }));
@@ -565,14 +575,23 @@ export function Esperando({ cobro, onNew, onRetry, retrying = false, retryError 
         reading={reading}
         checking={checking}
         toast={toast}
-        bank={{ status: cobro.card ? cardStatus : null, attemptIso, seenAt: authorizingSeenAt }}
+        bank={{ status: cobro.card ? cardStatus : null, attemptIso, seenAt: authorizingSeenAt, bitcoin: cobro.card ? payingWithBitcoin(card) : null }}
         fichaHint={fichaHint}
         onSinMovil={sinMovilOn && !checking ? () => setSinMovil(true) : undefined}
       >
-        {cardStatus === 'AUTHORIZING' ? (
+        {offer.kind !== 'button' ? (
           // Con el cliente en la página de su banco el API no deja cancelar (lo resuelve el banco:
           // PAGADO, fallido o sin confirmar), así que no se ofrece un botón que siempre fallaría.
-          <p className={styles.altHint}>{CANCEL_WHILE_PAYING_TEXT}</p>
+          // Con bitcoin, tampoco con el pago ya en la red; mientras la factura espera el pago, sí.
+          <>
+            <p className={styles.altHint}>{offer.text}</p>
+            {offer.kind === 'leave' ? (
+              // Bitcoin en la red o con un problema: se puede salir sin cancelar (sigue en «Cobros»).
+              <button type="button" className={`${styles.btn} ${styles.ghost} ${styles.cancelLink}`} onClick={onNew}>
+                {LEAVE_WITHOUT_CHARGING}
+              </button>
+            ) : null}
+          </>
         ) : (
           <button type="button" className={`${styles.btn} ${styles.ghost} ${styles.cancelLink}`} onClick={() => void cancel()} disabled={canceling}>
             {canceling ? 'Cancelando…' : 'Cancelar cobro'}
@@ -612,8 +631,11 @@ function Waiting({
   /** Un pago con el NFC o el PIN se quedó sin respuesta: se comprueba si se cobró. */
   checking: boolean;
   toast: string | null;
-  /** Con tarjeta: su estado y desde cuándo espera al banco (servidor o, si aún no lo dice, aquí). */
-  bank?: { status: PaymentStatus | null; attemptIso: string | null; seenAt: number | null };
+  /**
+   * Con tarjeta: su estado y desde cuándo espera al banco (servidor o, si aún no
+   * lo dice, aquí). Con bitcoin, el estado de su factura (sin banco ni sus fases).
+   */
+  bank?: { status: PaymentStatus | null; attemptIso: string | null; seenAt: number | null; bitcoin?: Exclude<BitcoinPayState, 'closed'> | null };
   /** iPhone: cómo se paga con la ficha (la app no la lee; el iPhone abre su enlace). */
   fichaHint?: string | null;
   /** «Sin móvil ni ficha»: su código o su pase y su PIN aquí. Sin él, no se ofrece. */
@@ -630,7 +652,9 @@ function Waiting({
   const night = useVenueNight();
   const left = deadline ? secondsLeft(deadline, now) : 0;
   const phase = deadline ? countdownPhase(left) : 'ok';
-  const ending = phase !== 'ok';
+  // Pagando con bitcoin: ni las fases del banco ni el reloj del QR (la factura tiene su plazo).
+  const bitcoin = bank?.status === 'AUTHORIZING' ? (bank.bitcoin ?? null) : null;
+  const ending = !bitcoin && phase !== 'ok';
   // El QR se dibuja aquí con su enlace de pago; el PNG del API, solo si no hay enlace.
   const qrUrl = cobro.card?.qrUrl ?? cobro.saldoUrl ?? null;
   const qrPng = cobro.card?.qrPngDataUrl ?? cobro.saldoQr ?? null;
@@ -642,7 +666,7 @@ function Waiting({
   const anchor = deadline && Number.isFinite(serverExpires) ? { serverMs: serverExpires, localMs: deadline.endMs } : null;
   const attemptMs = bank?.attemptIso ? serverToLocalMs(Date.parse(bank.attemptIso), anchor) : (bank?.seenAt ?? null);
   const wait = cardWait({
-    status: bank?.status ?? null,
+    status: bitcoin ? null : (bank?.status ?? null),
     attemptStartedAtMs: Number.isFinite(attemptMs) ? attemptMs : null,
     qrExpiresAtMs: deadline?.endMs ?? null,
     nowMs: now,
@@ -650,9 +674,10 @@ function Waiting({
   const waitParts = checking ? null : cardWaitParts(wait);
   const slowBank = showsBankStrip(wait);
   // Un solo reloj en la línea: el de la espera del banco si lo lleva; si no (también con el banco
-  // tardando o en reintento), lo que le queda al QR.
+  // tardando o en reintento), lo que le queda al QR. Con bitcoin, ninguno.
   const expiry = deadline && left > 0 ? `Caduca en ${formatClock(left)}` : null;
-  const clock = waitParts?.clock ?? expiry;
+  const clock = bitcoin ? null : (waitParts?.clock ?? expiry);
+  const liveText = bitcoin && !checking ? bitcoinWaitText(bitcoin) : waitParts ? waitParts.label : waitingLiveText(phase, checking);
 
   return (
     <div className={styles.screen}>
@@ -700,7 +725,7 @@ function Waiting({
           {/* Viva: un punto que late y lo que pasa, también para el lector de pantalla (cambia solo al cambiar de fase). */}
           <span className={styles.liveNow} role="status" aria-live="polite" data-bank-wait={wait.stage}>
             <i aria-hidden="true" />
-            {waitParts ? waitParts.label : waitingLiveText(phase, checking)}
+            {liveText}
           </span>
           {/* El reloj, fuera de la región viva: se lee al pasar por él, sin anunciarse cada segundo. */}
           {clock ? <span className={styles.clock}>{clock}</span> : null}
