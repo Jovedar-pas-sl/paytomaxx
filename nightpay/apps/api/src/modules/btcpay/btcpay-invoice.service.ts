@@ -139,7 +139,10 @@ export class BtcpayInvoiceService implements OnModuleInit {
       throw new ConflictException({ code: 'BTCPAY_NOT_OFFERED', message: 'Este local no cobra con bitcoin.' });
     }
     const existing = await this.openInvoiceOf(payment.id);
-    if (existing && existing.expiresAt.getTime() > Date.now()) return { kind: 'invoice', view: await this.toView(existing, payment.status) };
+    // (Una factura Processing ya tiene el pago en la red: espera su confirmación aunque pase de los 15 min.)
+    if (existing && (existing.expiresAt.getTime() > Date.now() || existing.status === 'Processing')) {
+      return { kind: 'invoice', view: await this.toView(existing, payment.status) };
+    }
     if (existing) {
       // Caducada y aún sin cerrar: se mira qué pasó antes de abrir otra (puede haberse pagado a última hora).
       await this.processInvoice(existing.tenantId, existing.invoiceId, 'poll').catch(() => undefined);
@@ -163,7 +166,7 @@ export class BtcpayInvoiceService implements OnModuleInit {
 
   private async openInvoice(payment: PaymentCtx, access: BtcpayAccess, claimHash: string | null): Promise<InvoiceRow> {
     const open = await this.openInvoiceOf(payment.id);
-    if (open && open.expiresAt.getTime() > Date.now()) return open;
+    if (open && (open.expiresAt.getTime() > Date.now() || open.status === 'Processing')) return open;
     if (!OPENABLE_STATES.has(payment.status)) throw new ConflictException({ code: 'PAYMENT_ALREADY_STARTED', message: 'Este cobro ya se está pagando de otra forma.' });
     if (payment.qrExpiresAt.getTime() < Date.now()) throw new ConflictException('QR expired');
     await this.assertVenueCharges(payment.tenantId);
@@ -294,26 +297,28 @@ export class BtcpayInvoiceService implements OnModuleInit {
   private async apply(row: InvoiceRow, invoice: InvoiceData, verdict: InvoiceVerdict): Promise<void> {
     const additional = invoice.additionalStatus ?? null;
     switch (verdict.kind) {
+      // Primero el efecto y después cerrar la fila: si el efecto falla (base, Redis), la factura sigue
+      // abierta y el repaso la vuelve a mirar. Los efectos son idempotentes (AUTHORIZED→AUTHORIZED, una incidencia por factura y motivo).
       case 'PAID':
-        await this.touch(row.id, { status: 'Settled', additionalStatus: additional, closedAt: new Date() });
         await this.settle(row);
+        await this.touch(row.id, { status: 'Settled', additionalStatus: additional, closedAt: new Date() });
         return;
       case 'OPEN':
         await this.touch(row.id, { status: invoice.status, additionalStatus: additional });
         return;
       case 'CLOSED':
-        await this.touch(row.id, { status: verdict.status, additionalStatus: additional, closedAt: new Date() });
         await this.reopen(row);
+        await this.touch(row.id, { status: verdict.status, additionalStatus: additional, closedAt: new Date() });
         return;
       case 'INCIDENT':
         // Pago a medias o tardío: la factura se cierra, el cobro NO se da por pagado ni se reabre (lo resuelve una persona).
-        await this.touch(row.id, { status: invoice.status === 'Settled' ? 'Settled' : invoice.status === 'Invalid' ? 'Invalid' : 'Expired', additionalStatus: additional, closedAt: new Date() });
         await this.recordIncident(row, APPROVAL_UNVERIFIED_EVENT, { reason: `btcpay-${verdict.reason.toLowerCase()}`, source: 'btcpay', paidStatus: additional });
+        await this.touch(row.id, { status: invoice.status === 'Settled' ? 'Settled' : invoice.status === 'Invalid' ? 'Invalid' : 'Expired', additionalStatus: additional, closedAt: new Date() });
         return;
       case 'REJECTED':
         // La factura no es lo que pedimos: se cierra para no volver a mirarla y queda en Incidencias.
-        await this.touch(row.id, { status: 'Invalid', additionalStatus: additional, closedAt: new Date() });
         await this.recordIncident(row, APPROVAL_UNVERIFIED_EVENT, { reason: `btcpay-${verdict.reason.toLowerCase()}`, source: 'btcpay' });
+        await this.touch(row.id, { status: 'Invalid', additionalStatus: additional, closedAt: new Date() });
         return;
     }
   }
@@ -412,7 +417,10 @@ export class BtcpayInvoiceService implements OnModuleInit {
       tx.btcpayInvoice.findMany({
         // Las abiertas que BTCPay aún vigila: pasadas unas horas de su caducidad, una factura que no se deja
         // comprobar (el local ya no tiene BTCPay…) no tapa a las demás ni se reintenta para siempre.
-        where: { status: { in: ['New', 'Processing'] }, expiresAt: { gt: new Date(now.getTime() - SWEEP_GIVE_UP_AFTER_MS) } },
+        // Las Processing (pago ya en la red, esperando su confirmación) se vigilan siempre.
+        where: {
+          OR: [{ status: 'Processing' }, { status: 'New', expiresAt: { gt: new Date(now.getTime() - SWEEP_GIVE_UP_AFTER_MS) } }],
+        },
         orderBy: [{ lastCheckedAt: { sort: 'asc', nulls: 'first' } }, { createdAt: 'asc' }],
         take: SWEEP_BATCH,
         select: { id: true, tenantId: true, invoiceId: true },

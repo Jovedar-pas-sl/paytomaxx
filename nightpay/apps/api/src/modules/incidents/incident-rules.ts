@@ -704,6 +704,7 @@ export function paymentAnomalyIncident(r: PaymentAnomalyRow): Incident {
     const reason = str(r.payload, 'reason') ?? '';
     const BTC_REASONS: Record<string, { title: string; what: string }> = {
       'btcpay-paid_partial': { title: 'Pago de bitcoin a medias', what: 'El cliente envió menos bitcoin de lo que costaba el cobro.' },
+      'btcpay-marked': { title: 'Factura de bitcoin marcada como pagada a mano', what: 'Marcada como pagada a mano en BTCPay: compruébalo antes de darla por buena.' },
       'btcpay-paid_late': { title: 'Pago de bitcoin fuera de plazo', what: 'El cliente pagó cuando la factura de bitcoin ya había caducado.' },
     };
     const known = BTC_REASONS[reason];

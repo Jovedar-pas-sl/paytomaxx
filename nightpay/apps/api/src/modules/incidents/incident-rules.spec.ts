@@ -305,6 +305,11 @@ describe('avisos de cobro aprobado que no se dieron por buenos', () => {
       row('payment.approval_unverified', { provider: 'BTCPAY', providerTxId: 'INV1', reason: 'btcpay-paid_late', source: 'btcpay' }),
     );
     expect(late.title).toBe('Pago de bitcoin fuera de plazo');
+    const marked = paymentAnomalyIncident(
+      row('payment.approval_unverified', { provider: 'BTCPAY', providerTxId: 'INV1', reason: 'btcpay-marked', source: 'btcpay' }),
+    );
+    expect(marked.detail).toContain('Marcada como pagada a mano en BTCPay: compruébalo antes de darla por buena.');
+    expect(marked.detail).toContain('NO se ha dado por pagado');
     const mismatch = paymentAnomalyIncident(
       row('payment.approval_unverified', { provider: 'BTCPAY', providerTxId: 'INV1', reason: 'btcpay-amount_mismatch', source: 'btcpay' }),
     );

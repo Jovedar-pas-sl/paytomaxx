@@ -82,7 +82,7 @@ export interface ExpectedInvoice {
 }
 
 export type InvoiceRejectReason = 'STORE_MISMATCH' | 'ORDER_MISMATCH' | 'CURRENCY_MISMATCH' | 'AMOUNT_MISMATCH';
-export type InvoiceIncidentReason = 'PAID_PARTIAL' | 'PAID_LATE';
+export type InvoiceIncidentReason = 'PAID_PARTIAL' | 'PAID_LATE' | 'MARKED';
 
 export type InvoiceVerdict =
   | { kind: 'PAID' }
@@ -107,6 +107,8 @@ export function judgeInvoice(invoice: InvoiceData, expected: ExpectedInvoice): I
   const extra = invoice.additionalStatus ?? 'None';
   if (extra === 'PaidPartial') return { kind: 'INCIDENT', reason: 'PAID_PARTIAL' };
   if (extra === 'PaidLate') return { kind: 'INCIDENT', reason: 'PAID_LATE' };
+  // Alguien la marcó como pagada a mano en BTCPay: no llegó dinero que lo pruebe.
+  if (extra === 'Marked' && invoice.status === 'Settled') return { kind: 'INCIDENT', reason: 'MARKED' };
   switch (invoice.status) {
     case 'Settled':
       return { kind: 'PAID' };

@@ -57,7 +57,7 @@ describe('BtcpayClient', () => {
     expect(net.calls[0]?.path).toBe('/api/v1/stores/ST1/invoices?take=1');
   });
 
-  it('createInvoice: importe exacto en texto, EUR, orderId, HighSpeed y 15 minutos', async () => {
+  it('createInvoice: importe exacto en texto, EUR, orderId, MediumSpeed (1 confirmación, nunca 0-conf) y 15 minutos', async () => {
     const { net, client } = make();
     net.answers.push(json(200, invoiceBody));
     const inv = await client.createInvoice({ amountCents: 1250, orderId: 'pay-1', expirationMinutes: 15 });
@@ -68,7 +68,7 @@ describe('BtcpayClient', () => {
       amount: '12.50',
       currency: 'EUR',
       metadata: { orderId: 'pay-1' },
-      checkout: { speedPolicy: 'HighSpeed', expirationMinutes: 15 },
+      checkout: { speedPolicy: 'MediumSpeed', expirationMinutes: 15 },
     });
   });
 

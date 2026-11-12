@@ -36,7 +36,7 @@ const pay: PayText = {
     fullPage: 'Ver a página de pagamento completa',
     timeLeft: 'Tempo restante',
     waiting: 'A aguardar o seu pagamento…',
-    confirming: 'Pagamento recebido. A confirmar…',
+    confirming: 'Pagamento recebido. Falta 1 confirmação da rede (cerca de 10 minutos). Pode fechar esta página.',
     expiredTitle: 'O tempo acabou',
     expiredBody: 'Não foi cobrado nada. Pode escolher outra forma de pagar.',
     problemTitle: 'Há um problema com o pagamento',

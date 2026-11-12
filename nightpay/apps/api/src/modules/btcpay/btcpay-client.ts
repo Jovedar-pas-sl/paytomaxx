@@ -129,7 +129,7 @@ export class BtcpayClient {
       amount,
       currency: 'EUR',
       metadata: { orderId: input.orderId },
-      checkout: { speedPolicy: 'HighSpeed', expirationMinutes: input.expirationMinutes },
+      checkout: { speedPolicy: 'MediumSpeed', expirationMinutes: input.expirationMinutes },
     });
     return this.invoiceFrom(json);
   }

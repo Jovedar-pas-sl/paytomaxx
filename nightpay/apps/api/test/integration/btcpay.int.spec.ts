@@ -55,6 +55,7 @@ class FakeBtcpay {
   readonly storeId = 'STORE1';
   readonly apiKey = 'clave-btcpay-de-prueba-0000';
   invoices = new Map<string, FakeInvoice>();
+  lastCreate: unknown = null;
   calls: string[] = [];
   permissions: string[] = ['btcpay.store.cancreateinvoice:STORE1', 'btcpay.store.canviewinvoices:STORE1', 'btcpay.store.webhooks.canmodifywebhooks:STORE1'];
   walletLinked = true;
@@ -103,6 +104,7 @@ class FakeBtcpay {
     if (rest === '/invoices' && req.method === 'GET') return this.send(res, 200, []);
     if (rest === '/invoices' && req.method === 'POST') {
       if (!this.walletLinked) return this.send(res, 400, { code: 'generic-error', message: 'No wallet has been linked to your BTCPay Store.' });
+      this.lastCreate = body;
       this.seq += 1;
       const id = `INV${this.seq}${randomUUID().slice(0, 6)}`;
       const inv: FakeInvoice = {
@@ -426,7 +428,7 @@ describe('Ajustes → Bitcoin (BTCPay)', () => {
 // ─── La factura del cobro ───────────────────────────────────────────────
 
 describe('la factura del cobro', () => {
-  it('importe EXACTO del servidor (con la comisión del servicio), EUR, orderId = cobro, HighSpeed; el cobro pasa a AUTHORIZING con BTCPAY', async () => {
+  it('importe EXACTO del servidor (con la comisión del servicio), EUR, orderId = cobro, MediumSpeed; el cobro pasa a AUTHORIZING con BTCPAY', async () => {
     const p = await newPayment(4500);
     await sys((tx) => tx.payment.update({ where: { id: p.id }, data: { serviceFeeCents: 450, serviceFeeBps: 1000 } }));
     const res = await startFor(p.token);
@@ -726,6 +728,104 @@ describe('recarga del saldo pagada con bitcoin', () => {
   });
 });
 
+describe('fallos pasajeros, 1 confirmación y avisos por local', () => {
+  const stale = (invoiceId: string) =>
+    sys((tx) => tx.$executeRaw`UPDATE btcpay_invoices SET "lastCheckedAt" = now() - interval '10 minutes' WHERE "invoiceId" = ${invoiceId}`);
+
+  it('las facturas se crean con MediumSpeed (1 confirmación): nunca 0-conf', async () => {
+    const p = await newPayment(2900);
+    await startFor(p.token);
+    expect((fake.lastCreate as { checkout: { speedPolicy: string } }).checkout.speedPolicy).toBe('MediumSpeed');
+  });
+
+  it('si dar el cobro por pagado falla con un error que no es de la máquina, la factura sigue abierta y el siguiente repaso lo apunta', async () => {
+    const p = await newPayment(2800);
+    const res = await startFor(p.token);
+    if (res.kind !== 'invoice') throw new Error('sin factura');
+    fake.setState(res.view.invoiceId, 'Settled');
+    await stale(res.view.invoiceId);
+    const spy = vi.spyOn(payments, 'transition').mockRejectedValueOnce(new Error('blip de la base'));
+    expect(await invoices.pollForToken(p.token)).toMatchObject({ state: 'open' });
+    spy.mockRestore();
+    expect((await rowsOf(p.id))[0]).toMatchObject({ closedAt: null });
+    expect((await statusOf(p.id)).status).toBe('AUTHORIZING');
+    await stale(res.view.invoiceId);
+    expect(await invoices.pollForToken(p.token)).toEqual({ state: 'paid' });
+    expect((await statusOf(p.id)).status).toBe('AUTHORIZED');
+    expect((await rowsOf(p.id))[0]).toMatchObject({ status: 'Settled' });
+  });
+
+  it('lo mismo al reabrir una factura caducada: si falla, no se cierra la fila y el siguiente repaso reabre el cobro', async () => {
+    const p = await newPayment(2810);
+    const res = await startFor(p.token);
+    if (res.kind !== 'invoice') throw new Error('sin factura');
+    fake.setState(res.view.invoiceId, 'Expired');
+    await stale(res.view.invoiceId);
+    const spy = vi.spyOn(payments, 'transition').mockRejectedValueOnce(new Error('blip de la base'));
+    await invoices.pollForToken(p.token);
+    spy.mockRestore();
+    expect((await rowsOf(p.id))[0]).toMatchObject({ closedAt: null });
+    await stale(res.view.invoiceId);
+    await invoices.pollForToken(p.token);
+    expect((await statusOf(p.id)).status).toBe('AWAITING_CAPTURE');
+  });
+
+  it('Settled marcada a mano en BTCPay (Marked): incidencia, nunca «Pagado»', async () => {
+    const p = await newPayment(2820);
+    const res = await startFor(p.token);
+    if (res.kind !== 'invoice') throw new Error('sin factura');
+    fake.setState(res.view.invoiceId, 'Settled', 'Marked');
+    await invoices.processInvoice(A, res.view.invoiceId, 'poll');
+    expect((await statusOf(p.id)).status).toBe('AUTHORIZING');
+    const ev = await sys((tx) => tx.paymentEvent.findMany({ where: { paymentId: p.id, eventType: 'payment.approval_unverified' } }));
+    expect(ev).toHaveLength(1);
+    expect(ev[0]?.payload).toMatchObject({ reason: 'btcpay-marked', source: 'btcpay' });
+  });
+
+  it('una factura Processing (pago en la red, falta 1 confirmación) mantiene el cobro vivo pasados los 15 min y el repaso la sigue mirando', async () => {
+    const p = await newPayment(2830);
+    const res = await startFor(p.token);
+    if (res.kind !== 'invoice') throw new Error('sin factura');
+    fake.setState(res.view.invoiceId, 'Processing');
+    await sys((tx) => tx.$executeRaw`UPDATE btcpay_invoices SET "expiresAt" = now() - interval '2 hours' WHERE "invoiceId" = ${res.view.invoiceId}`);
+    await stale(res.view.invoiceId);
+    await invoices.sweepOpen();
+    expect((await rowsOf(p.id))[0]).toMatchObject({ status: 'Processing', closedAt: null });
+    expect((await statusOf(p.id)).status).toBe('AUTHORIZING');
+    // Sigue abierta para la pantalla (no se abre otra factura) y sigue en «Processing».
+    const again = await startFor(p.token);
+    expect(again.kind === 'invoice' && again.view.invoiceId).toBe(res.view.invoiceId);
+    expect(await invoices.pollForToken(p.token)).toMatchObject({ state: 'open', status: 'Processing' });
+    // Al confirmarse la red, el repaso lo da por pagado.
+    fake.setState(res.view.invoiceId, 'Settled');
+    await stale(res.view.invoiceId);
+    await invoices.sweepOpen();
+    expect((await statusOf(p.id)).status).toBe('AUTHORIZED');
+  });
+
+  it('el mismo deliveryId de dos locales se procesa en los dos (la clave de avisos va acotada al local)', async () => {
+    const { sealBtcpaySecret } = await import('../../src/modules/btcpay/btcpay-secrets');
+    const secretB = 'secreto-del-local-b-0123456789abcdef';
+    await sys((tx) =>
+      tx.btcpayStore.create({
+        data: {
+          tenantId: B, baseUrl: 'https://btcpay.sala-test.es', storeId: 'STORE1', apiKeyEnc: sealBtcpaySecret(KEK, B, 'apikey', fake.apiKey),
+          webhookSecretEnc: sealBtcpaySecret(KEK, B, 'webhook', secretB), hookToken: `hk-b-${r}-0123456789abcdefghij`, enabled: true,
+        },
+      }),
+    );
+    const event = { type: 'InvoiceSettled', deliveryId: `igual-${r}`, originalDeliveryId: `orig-igual-${r}`, storeId: 'STORE1', invoiceId: 'DESCONOCIDA' };
+    const bodyA = Buffer.from(JSON.stringify(event), 'utf8');
+    const { secret, token } = await secretOf(A);
+    hookQueue.add.mockClear();
+    expect(await hookController.receive(token, sign(secret, bodyA), { rawBody: bodyA } as never)).toEqual({ received: true });
+    expect(await hookController.receive(`hk-b-${r}-0123456789abcdefghij`, sign(secretB, bodyA), { rawBody: bodyA } as never)).toEqual({ received: true });
+    expect(hookQueue.add).toHaveBeenCalledTimes(2);
+    const rows = await sys((tx) => tx.webhookDelivery.findMany({ where: { provider: 'BTCPAY', externalEventId: { endsWith: `:orig-igual-${r}` } } }));
+    expect(rows.map((x) => x.tenantId).sort()).toEqual([A, B].sort());
+  });
+});
+
 describe('respaldo si el aviso no llega', () => {
   it('al consultar el estado se pregunta a BTCPay como mucho una vez cada 5 s por factura', async () => {
     const p = await newPayment(2200);
@@ -791,9 +891,10 @@ describe('respaldo si el aviso no llega', () => {
 
 describe('aislamiento entre locales', () => {
   it('el local B no ve la conexión ni las facturas de A (RLS) y no tiene acceso a su BTCPay', async () => {
-    expect(await stores.accessFor(B)).toBeNull();
+    // (B puede tener su propia conexión por otras pruebas; nunca la de A.)
+    expect((await stores.accessFor(B))?.tenantId ?? B).toBe(B);
     const seen = await inCtx(B, () => prisma.withTenant(B, (tx) => tx.btcpayStore.findMany()));
-    expect(seen).toHaveLength(0);
+    expect(seen.every((x) => x.tenantId === B)).toBe(true);
     const inv = await inCtx(B, () => prisma.withTenant(B, (tx) => tx.btcpayInvoice.findMany()));
     expect(inv).toHaveLength(0);
     // Procesar una factura de A diciendo que es de B no hace nada.

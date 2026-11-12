@@ -116,6 +116,11 @@ describe('judgeInvoice: lo que se comprueba de la factura que vuelve a pedirse',
   it('Settled con pago tardío también es incidencia: llegó después de caducar', () => {
     expect(judgeInvoice(invoice({ additionalStatus: 'PaidLate' }), expected)).toMatchObject({ kind: 'INCIDENT', reason: 'PAID_LATE' });
   });
+  it('Settled marcada a mano en BTCPay (Marked) es incidencia, nunca pagada; PaidOver sigue siendo pagada', () => {
+    expect(judgeInvoice(invoice({ additionalStatus: 'Marked' }), expected)).toEqual({ kind: 'INCIDENT', reason: 'MARKED' });
+    expect(judgeInvoice(invoice({ additionalStatus: 'PaidOver' }), expected)).toEqual({ kind: 'PAID' });
+    expect(judgeInvoice(invoice({ status: 'Invalid', additionalStatus: 'Marked' }), expected)).toEqual({ kind: 'CLOSED', status: 'Invalid' });
+  });
   it('Settled pero a medias no puede darse por pagada', () => {
     expect(judgeInvoice(invoice({ additionalStatus: 'PaidPartial' }), expected)).toMatchObject({ kind: 'INCIDENT', reason: 'PAID_PARTIAL' });
   });

@@ -130,7 +130,8 @@ export class BtcpayWebhookController {
       return { received: true, ignored: 'store' };
     }
 
-    const externalEventId = event.originalDeliveryId ?? event.deliveryId;
+    // El id de la entrega lo elige quien manda: se acota al local para que el de otro local no pise el suyo.
+    const externalEventId = `${access.tenantId}:${event.originalDeliveryId ?? event.deliveryId}`;
     try {
       const existing = await this.prisma.webhookDelivery.findUnique({
         where: { provider_externalEventId: { provider: 'BTCPAY', externalEventId } },

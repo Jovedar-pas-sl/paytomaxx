@@ -80,7 +80,7 @@ describe('POST /v1/webhooks/btcpay/:hookToken', () => {
     expect(res.statusCode).toBe(200);
     expect(res.json()).toEqual({ received: true });
     expect(prisma.webhookDelivery.create).toHaveBeenCalledWith({
-      data: expect.objectContaining({ provider: 'BTCPAY', externalEventId: 'o-1', tenantId: 't-1' }),
+      data: expect.objectContaining({ provider: 'BTCPAY', externalEventId: 't-1:o-1', tenantId: 't-1' }),
     });
     expect(queue.add).toHaveBeenCalledTimes(1);
   });

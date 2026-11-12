@@ -160,6 +160,8 @@ function prefixMatches(bytes: readonly number[], prefix: readonly number[], bits
 const FORBIDDEN_V6: ReadonlyArray<readonly [number[], number]> = [
   [[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], 128], // ::
   [[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1], 128], // ::1
+  [[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], 96], // ::/96 IPv4-compatible (::a.b.c.d)
+  [[0x00, 0x64, 0xff, 0x9b, 0, 0x01], 48], // 64:ff9b:1::/48 NAT64 local
   [[0x01, 0, 0, 0, 0, 0, 0, 0], 64], // 100::/64 descarte
   [[0x20, 0x01, 0, 0], 32], // 2001::/32 Teredo
   [[0x20, 0x01, 0x0d, 0xb8], 32], // 2001:db8::/32 documentación
