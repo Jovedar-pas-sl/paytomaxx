@@ -15,6 +15,7 @@
   --vv-how-saldo: #00e0ae;
   --vv-how-cash: var(--np-success);
   --vv-how-pos: #a98bff;
+  --vv-how-btc: #f7931a;
   /* Cuánto del color entra en el fondo de la tarjeta y en su borde. */
   --vv-tint: 16%;
   --vv-edge: 40%;
@@ -26,6 +27,7 @@
   --vv-how-card: #1f5c93;
   --vv-how-saldo: #0b6b57;
   --vv-how-pos: #5e36a3;
+  --vv-how-btc: #8a4b00;
   --vv-tint: 10%;
   --vv-edge: 30%;
 }
@@ -100,6 +102,7 @@
 .np-how[data-tone='saldo'] { --vv-how: var(--vv-how-saldo); }
 .np-how[data-tone='cash'] { --vv-how: var(--vv-how-cash); }
 .np-how[data-tone='pos'] { --vv-how: var(--vv-how-pos); }
+.np-how[data-tone='btc'] { --vv-how: var(--vv-how-btc); }
 
 .np-how-text {
   min-width: 0;

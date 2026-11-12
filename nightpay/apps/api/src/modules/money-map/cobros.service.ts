@@ -409,8 +409,11 @@ function paymentMethodWhere(method: string): Prisma.PaymentWhereInput {
     AND: [{ OR: [{ captureMethod: null }, { captureMethod: { not: 'POS_EXTERNAL' } }] }, { posOperationNumber: null }],
   };
   const mobile = { status: 'APPROVED', payMethod: 'wallet' };
+  const bitcoin = { status: 'APPROVED', payMethod: 'bitcoin' };
   if (method === 'MOBILE_WALLET') return { AND: [notPos, { attempts: { some: mobile } }] };
-  return { AND: [notPos, { attempts: { none: mobile } }] };
+  // Bitcoin: el intento aprobado lo dice. La tarjeta es el resto, sin los de bitcoin.
+  if (method === 'BITCOIN') return { AND: [notPos, { attempts: { some: bitcoin } }] };
+  return { AND: [notPos, { attempts: { none: mobile } }, { attempts: { none: bitcoin } }] };
 }
 
 /** Los estados del filtro que existen (uno inventado no rompe la consulta). Null = todos. */

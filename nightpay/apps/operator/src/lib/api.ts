@@ -22,6 +22,7 @@ import {
   SESSION_EXPIRED_EVENT,
   SessionExpiredError,
   createApiClient,
+  createProfileApi,
   isTransientStatus,
   parseProblemDetails,
   tokenExpiresSoon,
@@ -366,6 +367,9 @@ export function freshAccessToken(): Promise<string | null> {
 export function authedFetch(path: string, init: RequestInit = {}): Promise<Response> {
   return client.authedFetch(path, init);
 }
+
+/** «Mi perfil»: foto, nombre, teléfono, correo y contraseña de quien tiene la sesión. */
+export const profileApi = createProfileApi((path, init) => authedFetch(path, init));
 
 // ─── Endpoints ────────────────────────────────────────────────────
 

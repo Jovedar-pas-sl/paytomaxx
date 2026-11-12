@@ -18,6 +18,7 @@ import {
 } from './queue-tokens';
 import { PaymentsModule } from '../payments/payments.module';
 import { WalletsModule } from '../wallets/wallets.module';
+import { BtcpayModule } from '../btcpay/btcpay.module';
 
 /**
  * Setup global de BullMQ + procesadores.
@@ -59,6 +60,8 @@ import { WalletsModule } from '../wallets/wallets.module';
     ),
     forwardRef(() => PaymentsModule),
     WalletsModule,
+    // Los avisos de BTCPay (bitcoin) los procesa BtcpayInvoiceService.
+    BtcpayModule,
   ],
   providers: [
     QrExpireProcessor,

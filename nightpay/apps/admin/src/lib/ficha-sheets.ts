@@ -51,6 +51,7 @@ const METHOD_WORD: Readonly<Record<ChargeMethod, string>> = {
   POS: 'datáfono',
   SALDO: 'saldo',
   CASH: 'efectivo',
+  BITCOIN: 'bitcoin',
 };
 
 /** «96», «9,50», sin el símbolo (la parte en pequeño de la maqueta). */

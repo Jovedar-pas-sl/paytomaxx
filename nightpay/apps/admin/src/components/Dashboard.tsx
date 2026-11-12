@@ -3,6 +3,7 @@
 import { useEffect, useState, type CSSProperties } from 'react';
 import { Button, Logo, ScreenHelp, ThemeToggle } from '@nightpay/ui';
 import { TAB_TOURS } from '@/lib/tours';
+import { MyProfileButton, ProfileProvider } from './MyProfileButton';
 import {
   fetchMyPermissions,
   fetchPaymentMethods,
@@ -145,6 +146,7 @@ export function Dashboard({ user, onLogout }: Props) {
   const hoyBadge = navBadge('hoy', avisos);
 
   return (
+    <ProfileProvider>
     <VenueContext.Provider value={venue}>
       <IncidentsContext.Provider value={incidents}>
         <ApprovalsContext.Provider value={approvals}>
@@ -180,6 +182,8 @@ export function Dashboard({ user, onLogout }: Props) {
                 </div>
                 {/* El «?» de la pestaña que se ve: su tutorial, en la barra de arriba. Las páginas son lentas en cargar: espera un poco más antes de salir solo. */}
                 {TAB_TOURS[tab] ? <ScreenHelp key={tab} {...TAB_TOURS[tab]} delayMs={1500} /> : null}
+                {/* Mi foto: abre «Mi perfil» (también en el móvil, donde la cuenta y «Salir» se esconden). */}
+                <MyProfileButton user={user} onLogout={() => void logout()} />
                 {/* 36 px como «Salir»; en el móvil, 44 (panel-nav.css). */}
                 <span className="np-theme-toggle">
                   <ThemeToggle size="sm" />
@@ -244,6 +248,7 @@ export function Dashboard({ user, onLogout }: Props) {
         </ApprovalsContext.Provider>
       </IncidentsContext.Provider>
     </VenueContext.Provider>
+    </ProfileProvider>
   );
 }
 

@@ -23,6 +23,7 @@ export const TENANT_SCOPED_MODELS: ReadonlySet<string> = new Set([
   'OperatorPayout',
   'ServiceItem',
   'ServiceItemImage',
+  'UserPhoto',
   'VenueNight',
   'IncidentAck',
   'PosTerminalOp',
@@ -37,6 +38,9 @@ export const TENANT_SCOPED_MODELS: ReadonlySet<string> = new Set([
   // «Liquidación OxioPay» (20261031100000): lo que el local debe a OxioPay y sus pagos.
   'OxioPaySettlement',
   'OxioPaySettlementPayment',
+  // «Pagar con bitcoin»: la conexión del local a su BTCPay y sus facturas.
+  'BtcpayStore',
+  'BtcpayInvoice',
 ]);
 
 // Operaciones de lectura a filtrar y de escritura a inyectar tenantId

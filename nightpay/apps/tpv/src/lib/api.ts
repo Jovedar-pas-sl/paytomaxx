@@ -10,6 +10,7 @@ import {
   createApiClient,
   type LoginResult,
 } from '@nightpay/api-client';
+import type { BtcpayInvoiceView } from '@nightpay/contracts';
 import type { PaymentStatus } from '@nightpay/ui';
 import { MESSAGES, commonError, readError } from './http';
 
@@ -193,6 +194,23 @@ export async function fetchPaymentStatus(
   });
   if (!res.ok) throw new Error(commonError(res.status) ?? `No se pudo consultar el cobro (error ${res.status}).`);
   return (await res.json()) as { id?: string; status: PaymentStatus; payMethod?: 'card' | 'wallet' };
+}
+
+/**
+ * «Pagar con bitcoin» (fase 2: las pantallas). Crea la factura de bitcoin del cobro (o devuelve la abierta):
+ * QR ya dibujado, importe en euros y en BTC y el enlace. El importe lo pone el servidor.
+ */
+export async function createBitcoinInvoice(paymentId: string): Promise<BtcpayInvoiceView> {
+  const res = await authedFetch(`/v1/payments/${encodeURIComponent(paymentId)}/bitcoin`, { method: 'POST' });
+  if (res.ok) return (await res.json()) as BtcpayInvoiceView;
+  throw new Error(commonError(res.status) ?? (await readError(res, `No se pudo preparar el pago con bitcoin (error ${res.status}).`)));
+}
+
+/** La factura de bitcoin abierta del cobro y su estado (null si no hay). */
+export async function fetchBitcoinInvoice(paymentId: string, signal?: AbortSignal): Promise<BtcpayInvoiceView | null> {
+  const res = await authedFetch(`/v1/payments/${encodeURIComponent(paymentId)}/bitcoin`, { signal });
+  if (!res.ok) throw new Error(commonError(res.status) ?? `No se pudo consultar el pago con bitcoin (error ${res.status}).`);
+  return ((await res.json()) as { invoice: BtcpayInvoiceView | null }).invoice;
 }
 
 /** Anula un cobro que aún no se ha pagado: su QR deja de valer. */

@@ -63,6 +63,7 @@ export function moneyMapDetails(m: MoneyMap): MoneyDetails {
         { label: 'Salidas en efectivo', cents: w.cashBox.outCents },
         { label: 'Caja esperada', cents: w.cashBoxCents },
         { label: 'Cobrado por banco, neto de devoluciones', cents: w.bbvaCents },
+        ...(w.bitcoinCents ? [{ label: 'Bitcoin, en la cartera del local', cents: w.bitcoinCents }] : []),
       ],
     },
     owed: {

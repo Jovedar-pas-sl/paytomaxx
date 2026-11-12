@@ -46,7 +46,7 @@ export interface LinkedCardRow {
   amountCents: number;
   availableAmountCents: number;
   providerTxId: string | null;
-  provider: 'WIPAY' | 'PEANPE' | 'PAYTEF' | 'REDSYS' | null;
+  provider: 'WIPAY' | 'PEANPE' | 'PAYTEF' | 'REDSYS' | 'BTCPAY' | null;
 }
 
 export async function lockLinkedCard(tx: RawTx, paymentId: string): Promise<LinkedCardRow | null> {

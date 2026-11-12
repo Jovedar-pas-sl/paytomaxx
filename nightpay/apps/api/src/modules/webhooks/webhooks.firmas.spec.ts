@@ -134,13 +134,21 @@ describe('POST /webhooks/:provider (ruta genérica)', () => {
   // Cada pasarela conocida tiene ruta propia: la genérica las rechaza todas
   // antes de verificar nada, así que su tramo de verificación (líneas 185-239)
   // es inalcanzable con el enum Provider actual.
-  it.each(ProviderSchema.options)('%s → 401 sin tocar adapter, BD ni cola', async (provider) => {
+  it.each(ProviderSchema.options.filter((p) => p !== 'BTCPAY'))('%s → 401 sin tocar adapter, BD ni cola', async (provider) => {
     const h = makeHarness();
     for (const name of [provider, provider.toLowerCase()]) {
       await expect(h.controller.receive(name, req({}))).rejects.toBeInstanceOf(UnauthorizedException);
     }
     expect(h.gateways.get).not.toHaveBeenCalled();
     expect(h.prisma.webhookDelivery.findUnique).not.toHaveBeenCalled();
+    nothingStored(h);
+  });
+
+  // Bitcoin (BTCPay) solo avisa por POST /webhooks/btcpay/:hookToken, con el token de cada local.
+  it.each(['BTCPAY', 'btcpay'])('%s → 400 por la ruta genérica: tiene su propia ruta con token', async (name) => {
+    const h = makeHarness();
+    await expect(h.controller.receive(name, req({}))).rejects.toBeInstanceOf(BadRequestException);
+    expect(h.gateways.get).not.toHaveBeenCalled();
     nothingStored(h);
   });
 

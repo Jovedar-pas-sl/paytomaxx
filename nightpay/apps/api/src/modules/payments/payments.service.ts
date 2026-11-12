@@ -103,6 +103,8 @@ import { isOtherOrder, markAttemptApproved, recordSecondApproval } from './secon
 import { sweepUnpaidTopUpWallet } from './topup-wallet-sweep';
 import { closeLinkedSaldo } from './cobro-link';
 import { serviceFeeQuote } from '@nightpay/contracts';
+import { btcpayEnabled } from '../btcpay/btcpay-flag';
+import { purposeAllows } from '../btcpay/btcpay-logic';
 import { VENUE_SERVICE_FEE_SELECT, refundableFeeCents, venueServiceFeeOf } from './service-fee';
 
 const POS_AUTH_CODE_REUSED =
@@ -353,7 +355,7 @@ export interface LockedPaymentRow {
   amountCents: number;
   availableAmountCents: number;
   providerTxId: string | null;
-  provider: 'WIPAY' | 'PEANPE' | 'PAYTEF' | 'REDSYS' | null;
+  provider: 'WIPAY' | 'PEANPE' | 'PAYTEF' | 'REDSYS' | 'BTCPAY' | null;
   createdByUserId: string | null;
   walletId: string | null;
   tipCents: number;
@@ -998,6 +1000,23 @@ export class PaymentsService implements OnApplicationBootstrap {
   }
 
   /** Pasarela activa del local (la que cobrará cuando el cliente pague). */
+  /**
+   * «Pagar con bitcoin» en la página de pago: el servidor lo tiene encendido
+   * (BTCPAY_ENABLED), el local lo activó en Ajustes y lo usa para esto (cobros o
+   * recargas). Apagado el servidor, ni se mira la base.
+   */
+  private async bitcoinOffered(tenantId: string, topUp: boolean): Promise<boolean> {
+    if (!btcpayEnabled()) return false;
+    const store = await this.prisma.asSystem((tx) => tx.btcpayStore.findUnique({ where: { tenantId }, select: { enabled: true, purpose: true } }));
+    return Boolean(store?.enabled) && purposeAllows(store?.purpose, topUp);
+  }
+
+  /** Cosas que hacer cuando se cancela un cobro (BTCPay: cerrar su factura). Las registra quien las necesita. */
+  private readonly cancelHooks: Array<(paymentId: string, tenantId: string) => Promise<void>> = [];
+  registerCancelHook(hook: (paymentId: string, tenantId: string) => Promise<void>): void {
+    this.cancelHooks.push(hook);
+  }
+
   private async activeProvider(tenantId: string): Promise<Provider | null> {
     const credential = await this.prisma.asSystem((tx) =>
       tx.gatewayCredential.findFirst({
@@ -1023,6 +1042,8 @@ export class PaymentsService implements OnApplicationBootstrap {
     const settled = settledPayView(payment);
     if (settled) return settled;
     if (payment.status !== 'AUTHORIZING') return choosePayPage(payment);
+    // Factura de bitcoin abierta: su página (QR y cuenta atrás), no la del banco.
+    if (payment.provider === 'BTCPAY') return { kind: 'bitcoin' };
     // Otras pasarelas: se reenvía lo guardado, como antes.
     if (payment.provider !== 'REDSYS') return this.checkoutOf(payment.id);
 
@@ -1072,6 +1093,7 @@ export class PaymentsService implements OnApplicationBootstrap {
       const view = await this.checkoutOf(payment.id);
       return view.kind === 'form' && providerTxId ? { kind: 'checkout', order: providerTxId } : view;
     }
+    if (payment.provider === 'BTCPAY') return { kind: 'bitcoin' };
     if (payment.provider !== 'REDSYS') return this.checkoutOf(payment.id);
 
     let outcome: { decision: RetryDecision | 'replay'; order: string | null; attempts: number };
@@ -1196,7 +1218,8 @@ export class PaymentsService implements OnApplicationBootstrap {
     if (!payment) throw new NotFoundException('Payment not found');
     // Pasarela que cobrará: la del cobro o, si aún no ha ido al banco, la
     // activa del local. La propina solo se cobra (y se reparte) con Redsys.
-    const provider = payment.provider ?? (await this.activeProvider(payment.tenantId));
+    // (Una factura de bitcoin cerrada deja el cobro con BTCPAY: para la tarjeta cuenta la pasarela del local.)
+    const provider = payment.provider && payment.provider !== 'BTCPAY' ? payment.provider : await this.activeProvider(payment.tenantId);
     const { walletId, wallet, attempts, venue, createdBy, serviceName, tipGoesTo, idempotencyKey, linkedWalletCharge, ...rest } =
       payment;
     const firstTopUp = wallet !== null && !selfTopUpClaimHash(idempotencyKey) && (await this.isFirstTopUp(walletId, payment.id));
@@ -1204,8 +1227,10 @@ export class PaymentsService implements OnApplicationBootstrap {
     const methods = paymentMethodsOf(venue?.paymentMethods);
     // Y el puesto de quien cobra (recepción no lleva propinas).
     const creatorTips = createdBy ? chargeRightsOf(createdBy, postRulesOf(venue?.postRules)).tips : true;
+    const bitcoin = await this.bitcoinOffered(payment.tenantId, walletId !== null);
     return {
       ...rest,
+      ...(bitcoin ? { bitcoin: true } : {}),
       walletId,
       topUp: Boolean(walletId),
       status: payment.status as PaymentMachineState,
@@ -1529,7 +1554,7 @@ export class PaymentsService implements OnApplicationBootstrap {
              SET status = ${result.nextState}::"PaymentStatus",
                  "availableAmountCents" = ${result.nextContext.availableAmountCents},
                  "providerTxId" = ${result.nextContext.providerTxId ?? p.providerTxId},
-                 provider = ${(result.nextContext.provider ?? p.provider) as 'WIPAY' | 'PEANPE' | 'PAYTEF' | 'REDSYS' | null}::"Provider",
+                 provider = ${(result.nextContext.provider ?? p.provider) as 'WIPAY' | 'PEANPE' | 'PAYTEF' | 'REDSYS' | 'BTCPAY' | null}::"Provider",
                  "authorizedAt" = CASE WHEN ${result.nextState}::text = 'AUTHORIZED'
                                        THEN COALESCE("authorizedAt", NOW()) ELSE "authorizedAt" END,
                  "updatedAt" = NOW()
@@ -1993,6 +2018,13 @@ export class PaymentsService implements OnApplicationBootstrap {
         );
       }
       throw err;
+    }
+    // Bitcoin: la factura abierta se cierra (en BTCPay, si la clave deja; si no, caduca sola).
+    // (`?? []`: las pruebas arman el servicio sin pasar por el constructor.)
+    for (const hook of this.cancelHooks ?? []) {
+      await hook(paymentId, payment.tenantId).catch((e: unknown) =>
+        this.logger.error(`Cancelar ${paymentId}: el cierre de la factura de bitcoin falló: ${(e as Error).message}`),
+      );
     }
     return { status: 'CANCELED' };
   }

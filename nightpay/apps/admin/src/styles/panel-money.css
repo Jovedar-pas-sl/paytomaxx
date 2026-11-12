@@ -9,6 +9,7 @@
   /* Canales (tarjeta, efectivo, saldo) y destinos (tuyo, del personal): grises. */
   --np-mm-tarjeta: #efe9df;
   --np-mm-efectivo: #a9b3bc;
+  --np-mm-bitcoin: #c7d301;
   --np-mm-saldo: #7c8893;
   --np-mm-tuyo: #efe9df;
   --np-mm-personal: #a9b3bc;
@@ -19,6 +20,7 @@
 [data-theme='light'] {
   --np-mm-tarjeta: #1f2c36;
   --np-mm-efectivo: #5d6a75;
+  --np-mm-bitcoin: #8a7f00;
   --np-mm-saldo: #9aa4ad;
   --np-mm-tuyo: #1f2c36;
   --np-mm-personal: #5d6a75;

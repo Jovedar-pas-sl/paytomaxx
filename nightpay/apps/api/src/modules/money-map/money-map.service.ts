@@ -70,6 +70,8 @@ interface PaymentSaleRow {
   posOperationNumber: string | null;
   platformBps: number | null;
   approvedPayMethod: string | null;
+  /** BTCPAY = pagado con bitcoin (no pasa por el banco). */
+  provider: string | null;
   lines: SaleLineLike[] | null;
 }
 
@@ -216,6 +218,7 @@ export class MoneyMapService {
       topUps: money.topUps,
       staff: money.staff,
       cardRefunds: money.cardRefunds,
+      bitcoinRefunds: money.bitcoinRefunds,
       walletPayouts: money.walletPayouts,
       payouts: money.payouts,
       cashBox: {
@@ -311,7 +314,7 @@ export class MoneyMapService {
     const payments = await tx.$queryRaw<PaymentSaleRow[]>`
       SELECT p."amountCents", p."tipCents", p."serviceFeeCents", p."revenueCategory" AS category, p."captureMethod",
              p."posOperationNumber", p."platformCommissionBps" AS "platformBps",
-             a."payMethod" AS "approvedPayMethod", l.lines
+             a."payMethod" AS "approvedPayMethod", p.provider::text AS provider, l.lines
         FROM payments p
         LEFT JOIN LATERAL (
           SELECT pa."payMethod" FROM payment_attempts pa
@@ -413,8 +416,13 @@ export class MoneyMapService {
     const recordedCash = asOf ? Prisma.sql`AND ct."createdAt" < ${asOf}` : Prisma.empty;
     const [totals] = await tx.$queryRaw<Array<Record<string, Num>>>`
       WITH recargas AS (
-        SELECT COUNT(*)::int AS "cardCount", COALESCE(SUM(p."amountCents" + p."tipCents"), 0)::bigint AS "cardCents",
-               COALESCE(SUM(p."serviceFeeCents"), 0)::bigint AS "cardFeeCents"
+        -- Pagadas con tarjeta (por el banco) y, aparte, con bitcoin (BTCPay: en la cartera del local).
+        SELECT COUNT(*) FILTER (WHERE p.provider::text IS DISTINCT FROM 'BTCPAY')::int AS "cardCount",
+               COALESCE(SUM(p."amountCents" + p."tipCents") FILTER (WHERE p.provider::text IS DISTINCT FROM 'BTCPAY'), 0)::bigint AS "cardCents",
+               COALESCE(SUM(p."serviceFeeCents") FILTER (WHERE p.provider::text IS DISTINCT FROM 'BTCPAY'), 0)::bigint AS "cardFeeCents",
+               COUNT(*) FILTER (WHERE p.provider::text = 'BTCPAY')::int AS "bitcoinCount",
+               COALESCE(SUM(p."amountCents" + p."tipCents") FILTER (WHERE p.provider::text = 'BTCPAY'), 0)::bigint AS "bitcoinCents",
+               COALESCE(SUM(p."serviceFeeCents") FILTER (WHERE p.provider::text = 'BTCPAY'), 0)::bigint AS "bitcoinFeeCents"
           FROM payments p WHERE ${paid} AND p."walletId" IS NOT NULL
       ), efectivo AS (
         SELECT ${cashTopUpCount('ct')}::int AS "cashCount", COALESCE(SUM(ct."amountCents"), 0)::bigint AS "cashCents",
@@ -422,10 +430,14 @@ export class MoneyMapService {
           FROM wallet_cash_topups ct
          WHERE ct."tenantId" = ${tenantId}::uuid AND ct."createdAt" >= ${w.from} AND ct."createdAt" < ${w.to} ${recordedCash}
       ), devoluciones AS (
-        SELECT COUNT(*)::int AS "refundCount", COALESCE(SUM(r."amountCents"), 0)::bigint AS "refundCents",
-               COALESCE(SUM(r."serviceFeeCents"), 0)::bigint AS "refundFeeCents",
+        -- Lo devuelto por el banco; lo de un cobro en bitcoin (devuelto fuera, desde la cartera) va aparte.
+        SELECT COUNT(*) FILTER (WHERE p.provider::text IS DISTINCT FROM 'BTCPAY')::int AS "refundCount",
+               COALESCE(SUM(r."amountCents") FILTER (WHERE p.provider::text IS DISTINCT FROM 'BTCPAY'), 0)::bigint AS "refundCents",
+               COALESCE(SUM(r."serviceFeeCents") FILTER (WHERE p.provider::text IS DISTINCT FROM 'BTCPAY'), 0)::bigint AS "refundFeeCents",
                -- De ventas (no recargas) y sin la comisión del servicio devuelta: lo que el local deja de ganar.
-               COALESCE(SUM(r."amountCents" - r."serviceFeeCents") FILTER (WHERE p."walletId" IS NULL), 0)::bigint AS "saleRefundNetCents"
+               COALESCE(SUM(r."amountCents" - r."serviceFeeCents") FILTER (WHERE p."walletId" IS NULL AND p.provider::text IS DISTINCT FROM 'BTCPAY'), 0)::bigint AS "saleRefundNetCents",
+               COUNT(*) FILTER (WHERE p.provider::text = 'BTCPAY')::int AS "bitcoinRefundCount",
+               COALESCE(SUM(r."amountCents") FILTER (WHERE p.provider::text = 'BTCPAY'), 0)::bigint AS "bitcoinRefundCents"
           FROM refunds r
           LEFT JOIN payments p ON p.id = r."paymentId"
          WHERE r."tenantId" = ${tenantId}::uuid AND r.status = 'SUCCEEDED'
@@ -449,8 +461,12 @@ export class MoneyMapService {
         cashCount: n(t.cashCount),
         cardFeeCents: n(t.cardFeeCents),
         cashFeeCents: n(t.cashFeeCents),
+        bitcoinCents: n(t.bitcoinCents),
+        bitcoinCount: n(t.bitcoinCount),
+        bitcoinFeeCents: n(t.bitcoinFeeCents),
       },
       cardRefunds: { cents: n(t.refundCents), count: n(t.refundCount), serviceFeeCents: n(t.refundFeeCents), salesNetCents: n(t.saleRefundNetCents) },
+      bitcoinRefunds: { cents: n(t.bitcoinRefundCents), count: n(t.bitcoinRefundCount) },
       walletPayouts: { cashCents: n(t.walletCashCents), cashCount: n(t.walletCashCount), cardCents: n(t.walletCardCents) },
     };
   }

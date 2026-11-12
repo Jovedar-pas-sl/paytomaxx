@@ -1,3 +1,4 @@
+import { displayNameSchema } from './profile';
 import { z } from 'zod';
 import { UuidSchema } from './common';
 
@@ -346,6 +347,8 @@ export const OperatorPublicViewSchema = z.object({
   needsHelpDocs: z.boolean().optional(),
   onboardingStatus: OnboardingStatusSchema.optional(),
   onboardingNotes: z.string().nullable().optional(),
+  /** Huella de su foto de perfil (Mi perfil); null o ausente = sin foto. */
+  photoHash: z.string().length(64).nullable().optional(),
 });
 export type OperatorPublicView = z.infer<typeof OperatorPublicViewSchema>;
 
@@ -419,7 +422,7 @@ export type OperatorWithBalance = z.infer<typeof OperatorWithBalanceSchema>;
 
 export const CreateOperatorSchema = z.object({
   email: z.string().email(),
-  displayName: z.string().min(1).max(80),
+  displayName: displayNameSchema(1, 80),
   /**
    * basis points (1500 = 15 %). Solo la fija el DUEÑO: si da de alta un
    * encargado se ignora y se aplica la del local. Sin ella, la del local.
@@ -429,7 +432,7 @@ export const CreateOperatorSchema = z.object({
 export type CreateOperatorDto = z.infer<typeof CreateOperatorSchema>;
 
 export const UpdateOperatorSchema = z.object({
-  displayName: z.string().min(1).max(80).optional(),
+  displayName: displayNameSchema(1, 80).optional(),
   commissionBps: z.number().int().min(0).max(10_000).optional(),
   active: z.boolean().optional(),
   // Phase 1A — payout routing

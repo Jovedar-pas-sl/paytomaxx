@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState, type CSSProperties, type ReactNode } from 'react';
-import { Card, Logo, ScreenHelp } from '@nightpay/ui';
+import { Card, ScreenHelp } from '@nightpay/ui';
 import { primeAlertSound } from '@/lib/alert-sound';
 import type { OperatorUser } from '@/lib/api';
 import { clearFichaContext } from '@/lib/ficha-context';
@@ -25,6 +25,7 @@ import { HomeTab } from './HomeTab';
 import { InvitationToast } from './InvitationToast';
 import { TAB_BAR_HEIGHT } from './layout';
 import { MyCobros } from './MyCobros';
+import { MenuAvatar } from './my-profile';
 import { PassScanned } from './PassScanned';
 import { PendingPos } from './PendingPos';
 import { ReceptionTab } from './reception/ReceptionTab';
@@ -108,7 +109,7 @@ export function Dashboard({ user, onLogout }: Props) {
       {ownHeader ? null : (
         <header style={headerStyle}>
           <button type="button" className={cobrarStyles.logoTile} onClick={openMenu} aria-label="Menú">
-            <Logo variant="symbol" height="2.625rem" alt="" />
+            <MenuAvatar />
           </button>
           {/* El «?» de Cobros y de Ganancias, junto al logo (cada pantalla con su tutorial). */}
           {tab === 'payments' && showing('payments') ? <ScreenHelp {...TOURS.cobros} ready={!charges.open} /> : null}

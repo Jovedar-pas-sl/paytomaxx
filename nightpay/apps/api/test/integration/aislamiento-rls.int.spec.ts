@@ -79,6 +79,20 @@ async function seed(tag: string): Promise<{ tenantId: string; rows: Rows }> {
       await tx.serviceItemImage.create({
         data: { serviceItemId: item.id, tenantId, contentType: 'image/png', data: Buffer.alloc(64, 1), contentHash: 'a'.repeat(64), width: 64, height: 64 },
       });
+      // «Pagar con bitcoin»: la conexión a su BTCPay (con la clave cifrada) y una factura del cobro.
+      const btcStore = await tx.btcpayStore.create({
+        data: { tenantId, baseUrl: 'https://pay.ejemplo.es', storeId: `st${tag}${r}`, apiKeyEnc: 'x:y:z', hookToken: `hk-${tag}-${r}` },
+      });
+      const btcInvoice = await tx.btcpayInvoice.create({
+        data: {
+          tenantId, paymentId: payment.id, invoiceId: `inv-${tag}-${r}`, storeId: btcStore.storeId, amountCents: 1000,
+          checkoutLink: 'https://pay.ejemplo.es/i/x', qrLink: 'bitcoin:bc1qx?amount=0.001', expiresAt: new Date(Date.now() + 900_000),
+        },
+      });
+      // La foto de perfil de la compañera (bytes de mentira; la base solo mira tipo, tamaño, medidas y huella).
+      await tx.userPhoto.create({
+        data: { userId: chica, tenantId, contentType: 'image/jpeg', data: Buffer.alloc(64, 2), contentHash: 'b'.repeat(64), width: 128, height: 128 },
+      });
       return {
         tenantId,
         rows: {
@@ -95,6 +109,9 @@ async function seed(tag: string): Promise<{ tenantId: string; rows: Rows }> {
           oxiopay_settlements: settlement.id,
           oxiopay_settlement_payments: settlementPayment.id,
           service_item_images: item.id,
+          btcpay_stores: btcStore.id,
+          btcpay_invoices: btcInvoice.id,
+          user_photos: chica,
         },
       };
     }),
@@ -112,7 +129,9 @@ async function visibleTenants(tx: { $queryRawUnsafe: PrismaService['$queryRawUns
         ? '"tenantId"::text'
         : table === 'service_item_images'
           ? '"serviceItemId"::text'
-          : 'id::text';
+          : table === 'user_photos'
+            ? '"userId"::text'
+            : 'id::text';
   const rows = await tx.$queryRawUnsafe<Array<{ t: string }>>(
     `SELECT "tenantId"::text AS t FROM ${table} WHERE ${key} = ANY($1::text[]) ORDER BY 1`,
     [rowsA[table], rowsB[table]],

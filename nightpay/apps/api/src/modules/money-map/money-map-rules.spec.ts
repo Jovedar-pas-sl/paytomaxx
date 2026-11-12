@@ -380,3 +380,81 @@ describe('lo de OxioPay (la «Liquidación OxioPay»): la misma cuenta que el ma
     expect(oxioPayCentsOf(m)).toBe(m.split.commissions.platformCents);
   });
 });
+
+describe('mapa del dinero con un cobro en bitcoin (BTCPay)', () => {
+  const withBitcoin = (o: Partial<MoneyMapInput> = {}) =>
+    input({
+      sales: [
+        ...input().sales,
+        // 2 copas pagadas con bitcoin, con comisión del servicio del 10 %.
+        sale({ amountCents: 5_000, tipCents: 0, method: 'BITCOIN', platformBps: 0, serviceFeeCents: 500, lines: [{ category: 'VENUE_BAR', amountCents: 5_000 }] }),
+      ],
+      ...o,
+    });
+
+  it('es una venta con método nuevo: suma a lo vendido y a sus secciones, pero no al carril del banco', () => {
+    const m = buildMoneyMap(withBitcoin());
+    expect(m.salesCents).toBe(36_000);
+    expect(m.inflow.bitcoinCents).toBe(5_000);
+    expect(m.inflow.cardRailCents).toBe(19_000);
+    expect(m.inflow.cardRailCents + m.inflow.cashCents + m.inflow.saldoCents + (m.inflow.bitcoinCents ?? 0)).toBe(m.salesCents);
+    expect(m.sections.reduce((a, s) => a + s.amountCents, 0)).toBe(m.salesCents);
+    const s = m.split;
+    expect(s.venueCents + s.chicasCents + s.camarerosCents + s.commissions.totalCents).toBe(m.salesCents);
+  });
+
+  it('el dinero no entra en el banco: va en «Bitcoin, en la cartera del local» (venta + su comisión del servicio) y suma al total', () => {
+    const m = buildMoneyMap(withBitcoin());
+    expect(m.where.bbvaCents).toBe(19_000 + 20_000 - 1_000);
+    expect(m.where.bitcoinCents).toBe(5_500);
+    expect(m.where.totalCents).toBe(m.where.bbvaCents + m.where.cashBoxCents + 5_500);
+  });
+
+  it('banco + caja + bitcoin = lo de cada dueño', () => {
+    const m = buildMoneyMap(withBitcoin());
+    const o = m.where.owners;
+    expect(o.venueCents + o.staffCents + o.saldoCents + (o.oxioPayCents ?? 0) + (o.paidOutCents ?? 0) + (o.commissionsCents ?? 0)).toBe(m.where.totalCents);
+  });
+
+  it('la comisión del servicio en bitcoin se debe a OxioPay igual, pero no cuenta como entrada del banco ni paga comisión de banco', () => {
+    const base = buildMoneyMap(input({ bankFeeBps: 50 }));
+    const m = buildMoneyMap(withBitcoin({ bankFeeBps: 50 }));
+    expect(m.serviceFee).toMatchObject({ salesCents: 500, owedCents: 500 });
+    expect(m.split.commissions.bankCents).toBe(base.split.commissions.bankCents);
+    expect(m.where.owners.oxioPayCents).toBe(500);
+  });
+
+  it('una recarga pagada con bitcoin suma al saldo vivo una sola vez y no entra en el banco', () => {
+    const m = buildMoneyMap(
+      input({ topUps: { cardCents: 20_000, cardCount: 1, cashCents: 10_000, cashCount: 1, bitcoinCents: 4_000, bitcoinCount: 1, bitcoinFeeCents: 400 } }),
+    );
+    expect(m.inflow.topUps).toEqual({ totalCents: 34_000, cardCents: 20_000, cashCents: 10_000, bitcoinCents: 4_000, count: 3 });
+    expect(m.where.bbvaCents).toBe(19_000 + 20_000 - 1_000);
+    expect(m.where.bitcoinCents).toBe(4_400);
+    // Saldo que deja el periodo: 340 € de recargas − 120 gastados − 20 devueltos.
+    expect(m.where.owners.saldoCents).toBe(34_000 - 12_000 - 2_000);
+    const o = m.where.owners;
+    expect(o.venueCents + o.staffCents + o.saldoCents + (o.oxioPayCents ?? 0) + (o.paidOutCents ?? 0) + (o.commissionsCents ?? 0)).toBe(m.where.totalCents);
+  });
+
+  it('lo devuelto fuera en bitcoin baja la cartera, no el banco', () => {
+    const m = buildMoneyMap(withBitcoin({ bitcoinRefunds: { cents: 1_000, count: 1 } }));
+    expect(m.where.bbvaCents).toBe(19_000 + 20_000 - 1_000);
+    expect(m.where.bitcoinCents).toBe(4_500);
+  });
+
+  it('sin bitcoin el mapa es el de siempre: ni un campo nuevo', () => {
+    const m = buildMoneyMap(input());
+    expect(m.inflow).not.toHaveProperty('bitcoinCents');
+    expect(m.inflow.topUps).not.toHaveProperty('bitcoinCents');
+    expect(m.where).not.toHaveProperty('bitcoinCents');
+  });
+
+  it('saleMethodOf: por el proveedor del cobro, antes que el resto', () => {
+    const p = { captureMethod: 'QR', posOperationNumber: null, approvedPayMethod: null };
+    expect(saleMethodOf({ ...p, provider: 'BTCPAY' })).toBe('BITCOIN');
+    expect(saleMethodOf({ ...p, provider: 'REDSYS' })).toBe('CARD');
+    expect(saleMethodOf({ ...p, approvedPayMethod: 'bitcoin', provider: 'BTCPAY' })).toBe('BITCOIN');
+    expect(saleMethodOf(p)).toBe('CARD');
+  });
+});

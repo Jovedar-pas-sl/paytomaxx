@@ -108,7 +108,7 @@ export function packComponentsOf(raw: unknown): PackComponent[] | null {
  * Cómo pagó el cliente. Apple Pay y Google Pay llegan del banco como «pago
  * con el móvil» (sin distinguir cuál hasta confirmar los códigos con BBVA).
  */
-export const CHARGE_METHODS = ['CARD', 'MOBILE_WALLET', 'POS', 'SALDO', 'CASH'] as const;
+export const CHARGE_METHODS = ['CARD', 'MOBILE_WALLET', 'POS', 'SALDO', 'CASH', 'BITCOIN'] as const;
 export type ChargeMethod = (typeof CHARGE_METHODS)[number];
 
 export const CHARGE_METHOD_LABELS: Readonly<Record<ChargeMethod, string>> = {
@@ -117,6 +117,7 @@ export const CHARGE_METHOD_LABELS: Readonly<Record<ChargeMethod, string>> = {
   POS: 'Datáfono',
   SALDO: 'Saldo',
   CASH: 'Efectivo',
+  BITCOIN: 'Bitcoin',
 };
 
 // ─── Lista de cobros del panel (Cobros, ficha de la chica y del saldo) ──

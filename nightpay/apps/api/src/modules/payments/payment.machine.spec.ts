@@ -233,3 +233,44 @@ describe('paymentMachine — la pasarela no pudo abrir el pago (CHECKOUT_FAILED)
     }
   });
 });
+
+describe('paymentMachine: factura de bitcoin abierta (BTCPAY)', () => {
+  const btc = (over: Partial<PaymentContext> = {}) => baseCtx({ provider: 'BTCPAY', providerTxId: 'INV1', ...over });
+
+  it('AUTHORIZING + INVOICE_CLOSED → AWAITING_CAPTURE: el cobro sigue abierto para pagarlo de otra forma', () => {
+    const r = applyEvent('AUTHORIZING', btc(), { type: 'INVOICE_CLOSED' });
+    expect(r?.nextState).toBe('AWAITING_CAPTURE');
+  });
+
+  it('INVOICE_CLOSED solo vale con una factura de bitcoin: con tarjeta no se vuelve atrás', () => {
+    expect(applyEvent('AUTHORIZING', baseCtx({ provider: 'REDSYS' }), { type: 'INVOICE_CLOSED' })).toBeNull();
+    expect(applyEvent('AUTHORIZING', baseCtx(), { type: 'INVOICE_CLOSED' })).toBeNull();
+  });
+
+  it('INVOICE_CLOSED en cualquier otro estado es ilegal', () => {
+    for (const s of ['CREATED', 'AWAITING_CAPTURE', 'AUTHORIZED', 'ORPHAN', 'FAILED', 'CANCELED', 'EXPIRED'] as const) {
+      expect(applyEvent(s, btc(), { type: 'INVOICE_CLOSED' }), s).toBeNull();
+    }
+  });
+
+  it('el personal puede cancelar un cobro con la factura de bitcoin abierta', () => {
+    const r = applyEvent('AUTHORIZING', btc(), { type: 'CANCELED', reason: 'user-canceled', byUserId: 'u1' });
+    expect(r?.nextState).toBe('CANCELED');
+  });
+
+  it('con tarjeta (banco) un cobro AUTHORIZING sigue sin poder cancelarse', () => {
+    expect(applyEvent('AUTHORIZING', baseCtx({ provider: 'REDSYS' }), { type: 'CANCELED' })).toBeNull();
+    expect(applyEvent('AUTHORIZING', baseCtx({ provider: 'PAYTEF' }), { type: 'CANCELED' })).toBeNull();
+  });
+
+  it('el bitcoin que llega a un cobro cancelado no se da por pagado: no es idempotente (queda en Incidencias)', () => {
+    const err = new InvalidTransitionError('CANCELED', 'AUTHORIZED');
+    expect(isIdempotentTransition(err)).toBe(false);
+  });
+
+  it('AUTHORIZING + AUTHORIZED con BTCPAY guarda proveedor y factura', () => {
+    const r = applyEvent('AUTHORIZING', btc(), { type: 'AUTHORIZED', providerTxId: 'INV1', provider: 'BTCPAY' });
+    expect(r?.nextState).toBe('AUTHORIZED');
+    expect(r?.nextContext).toMatchObject({ provider: 'BTCPAY', providerTxId: 'INV1' });
+  });
+});

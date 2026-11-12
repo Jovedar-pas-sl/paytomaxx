@@ -14,6 +14,38 @@ import type { PayClosedReason } from '../pay-redirect';
  * Pay», «Face ID» y «Google Wallet» nunca se traducen (normas de las marcas).
  */
 
+/** La página «Pagar con bitcoin»: el QR, los importes y los estados. */
+export interface BitcoinText {
+  title: string;
+  /** Debajo del QR. */
+  scan: string;
+  /** «En bitcoin»: el importe en BTC. */
+  inBtc: string;
+  /** «1 BTC = 64.000 €». */
+  rate: (rate: string) => string;
+  openWallet: string;
+  copyAddress: string;
+  copied: string;
+  /** Enlace a la página de pago completa de la tienda. */
+  fullPage: string;
+  timeLeft: string;
+  waiting: string;
+  /** El pago ya llegó y se está confirmando. */
+  confirming: string;
+  /** La factura caducó: no se ha cobrado nada. */
+  expiredTitle: string;
+  expiredBody: string;
+  /** Pago a medias o tardío: lo ve el personal. */
+  problemTitle: string;
+  problemBody: string;
+  /** Volver a elegir cómo pagar. */
+  other: string;
+  /** Sin red. */
+  offline: string;
+  /** Texto que lee el lector de pantalla del QR. */
+  qrAlt: string;
+}
+
 export type PayErrorKey =
   | 'expired'
   | 'notFound'
@@ -105,6 +137,9 @@ export interface PayText {
   or: string;
   /** Cobro único: pagar el mismo cobro con el saldo (Face ID), en otra página. */
   payWithSaldo: string;
+  /** «Pagar con bitcoin» (BTCPay): el botón de la página de pago, si el local lo tiene encendido. */
+  payWithBitcoin: string;
+  bitcoin: BitcoinText;
   tipLegend: string;
   noTip: string;
   tipOther: string;

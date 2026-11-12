@@ -519,6 +519,8 @@ export const stepUpActions = {
   operatorPayout: (operatorId: string) => `operator-payout:${operatorId}`,
   nightFloat: (nightId: string) => `night-float:${nightId}`,
   bankHoldRelease: (paymentId: string) => `bank-hold:${paymentId}`,
+  /** Guardar o cambiar la conexión del local a su BTCPay. */
+  btcpay: (venueId: string) => `btcpay:${venueId}`,
 } as const;
 
 export const STEP_UP_ACTION_RE = /^[a-z-]{3,32}(?::[A-Za-z0-9-]{1,64}){1,3}$/;

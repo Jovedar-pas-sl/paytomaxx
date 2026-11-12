@@ -207,6 +207,8 @@ export function moneyMapView(m: MoneyMap, sections: readonly VenueSection[]): Mo
         { key: 'card', label: 'Tarjeta', cents: i.cardRailCents, color: 'var(--np-mm-tarjeta)' },
         { key: 'cash', label: 'Efectivo', cents: i.cashCents, color: 'var(--np-mm-efectivo)' },
         { key: 'saldo', label: 'Del saldo', cents: i.saldoCents, color: 'var(--np-mm-saldo)' },
+        // Bitcoin (BTCPay): es venta, pero no entra en el banco. Los mapas de antes no lo traen.
+        { key: 'bitcoin', label: 'Bitcoin', cents: i.bitcoinCents ?? 0, color: 'var(--np-mm-bitcoin)' },
       ] satisfies Segment[]
     ).filter((s) => s.cents !== 0),
     topUps:
@@ -216,6 +218,7 @@ export function moneyMapView(m: MoneyMap, sections: readonly VenueSection[]): Mo
             detail: [
               i.topUps.cashCents ? `efectivo ${eurShort(i.topUps.cashCents)}` : null,
               i.topUps.cardCents ? `tarjeta ${eurShort(i.topUps.cardCents)}` : null,
+              i.topUps.bitcoinCents ? `bitcoin ${eurShort(i.topUps.bitcoinCents)}` : null,
             ]
               .filter(Boolean)
               .join(' · '),
@@ -229,6 +232,10 @@ export function moneyMapView(m: MoneyMap, sections: readonly VenueSection[]): Mo
       places: [
         { key: 'bbva', label: 'Banco', cents: m.where.bbvaCents, color: 'var(--np-mm-tarjeta)' },
         { key: 'cash', label: 'Caja esperada', cents: m.where.cashBoxCents, color: 'var(--np-mm-efectivo)' },
+        // El bitcoin no pasa por el banco ni por la caja: está en la cartera del local (solo si hubo).
+        ...(m.where.bitcoinCents
+          ? [{ key: 'bitcoin', label: 'Bitcoin, en la cartera del local', cents: m.where.bitcoinCents, color: 'var(--np-mm-bitcoin)' }]
+          : []),
       ],
       owners: [
         { key: 'venue', label: 'Tuyo', cents: m.where.owners.venueCents, color: 'var(--np-mm-tuyo)' },

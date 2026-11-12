@@ -105,6 +105,9 @@ model Venue {
   peanpeCalls        PeanpeCall[]
   serviceItems       ServiceItem[]
   serviceItemImages  ServiceItemImage[]
+  btcpayStore        BtcpayStore?
+  btcpayInvoices     BtcpayInvoice[]
+  userPhotos         UserPhoto[]
   nights             VenueNight[]
   incidentAcks       IncidentAck[]
   posTerminalOps     PosTerminalOp[]
@@ -231,7 +234,10 @@ model User {
   invitedLines          PaymentLine[]       @relation("PaymentLineBeneficiary")
   // Sus llaves de acceso (20261109100000): verificarse sin 2FA.
   staffPasskeys         StaffPasskey[]
+  // Su foto de perfil (20261113100000).
+  photo                 UserPhoto?
 
+  @@unique([id, tenantId])
   @@index([tenantId])
   @@map("users")
 }
@@ -290,6 +296,71 @@ enum Provider {
   PAYTEF  // pasarela omnicanal Paytef (Payment LINK API) — único activo hoy
   REDSYS  // Redsys SIS — protocolo estándar de bancos ES (BBVA, Santander,
           // CaixaBank, Sabadell). Form POST hosted + HMAC-SHA256-3DES.
+  BTCPAY  // BTCPay Server del propio local: «Pagar con bitcoin». No es la
+          // pasarela de tarjeta del local, es una forma de pago más.
+}
+
+// «Pagar con bitcoin» (BTCPay Server): la conexión de CADA local a SU BTCPay.
+// La clave de API y el secreto del aviso van cifrados (AES-256-GCM, clave
+// derivada de ENCRYPTION_KEK) y no vuelven nunca al navegador. FORCE RLS: solo
+// dentro de una transacción de PrismaService.
+model BtcpayStore {
+  id                 String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId           String    @unique @db.Uuid
+  baseUrl            String
+  storeId            String
+  apiKeyEnc          String
+  webhookSecretEnc   String?
+  webhookId          String?
+  // Token aleatorio de la ruta del aviso: identifica al local antes de verificar la firma.
+  hookToken          String    @unique
+  enabled            Boolean   @default(false)
+  // PAYMENTS (cobros) | TOPUPS (recargas) | BOTH
+  purpose            String    @default("BOTH")
+  lastCheckAt        DateTime? @db.Timestamptz
+  lastCheckOk        Boolean?
+  lastCheckMessage   String?
+  createdAt          DateTime  @default(now()) @db.Timestamptz
+  updatedAt          DateTime  @default(now()) @updatedAt @db.Timestamptz
+
+  venue Venue @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@map("btcpay_stores")
+}
+
+// Las facturas de bitcoin de los cobros. Una abierta (New/Processing) por cobro.
+// FORCE RLS como el resto del dinero del local.
+model BtcpayInvoice {
+  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId       String    @db.Uuid
+  paymentId      String    @db.Uuid
+  invoiceId      String    @unique
+  storeId        String
+  // New | Processing | Settled | Expired | Invalid
+  status         String    @default("New")
+  // None | PaidLate | PaidPartial | Marked | PaidOver
+  additionalStatus String?
+  // Lo facturado en céntimos de euro (importe + comisión del servicio).
+  amountCents    Int
+  // Importe en BTC (texto decimal) y cambio EUR por BTC al crear la factura.
+  amountBtc      String?
+  rate           String?
+  checkoutLink   String
+  // El enlace del QR: bitcoin normal y Lightning juntos si la tienda tiene los dos.
+  qrLink         String
+  chainAddress   String?
+  expiresAt      DateTime  @db.Timestamptz
+  closedAt       DateTime? @db.Timestamptz
+  lastCheckedAt  DateTime? @db.Timestamptz
+  createdAt      DateTime  @default(now()) @db.Timestamptz
+  updatedAt      DateTime  @default(now()) @updatedAt @db.Timestamptz
+
+  venue   Venue   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  payment Payment @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([paymentId])
+  @@map("btcpay_invoices")
 }
 
 model GatewayCredential {
@@ -467,6 +538,7 @@ model Payment {
   peanpeCall         PeanpeCall?
   attempts           PaymentAttempt[]
   lines              PaymentLine[]
+  btcpayInvoices     BtcpayInvoice[]
   // Cobro único: la otra forma de pagar este mismo cobro (el saldo).
   linkedWalletCharge WalletChargeRequest? @relation("CobroUnico")
 
@@ -811,6 +883,27 @@ model ServiceItemImage {
   @@unique([serviceItemId, tenantId])
   @@index([tenantId])
   @@map("service_item_images")
+}
+
+// Foto de perfil del personal (20261113100000): WebP o JPEG de 256×256 como mucho y
+// 150 KB, en la base. La clave ajena lleva el local. FORCE RLS: solo dentro de una
+// transacción de PrismaService.
+model UserPhoto {
+  userId      String   @id @db.Uuid
+  tenantId    String   @db.Uuid
+  contentType String   @default("image/webp") @db.VarChar(16)
+  data        Bytes
+  contentHash String   @db.Char(64)
+  width       Int
+  height      Int
+  updatedAt   DateTime @default(now()) @updatedAt @db.Timestamptz
+
+  user  User  @relation(fields: [userId, tenantId], references: [id, tenantId], onDelete: Cascade)
+  venue Venue @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, tenantId])
+  @@index([tenantId])
+  @@map("user_photos")
 }
 
 // El mapa del dinero (20261023100000): las líneas de cada cobro, cada una en

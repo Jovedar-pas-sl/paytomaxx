@@ -81,6 +81,15 @@ export type PayRedirect =
        * propina» marcada, como siempre.
        */
       presetTipCents?: number;
+      /** «Pagar con bitcoin»: el local lo tiene encendido para este cobro (y el servidor también). */
+      bitcoin?: boolean;
+    }
+  | {
+      /**
+       * Hay una factura de bitcoin abierta: el cliente va a /pay/:token/bitcoin
+       * (el QR, el importe en euros y en BTC y el tiempo que queda).
+       */
+      kind: 'bitcoin';
     }
   | {
       kind: 'paid';
@@ -238,6 +247,8 @@ export function switchesMethod(
 /** Lo que hace falta del cobro para decidir qué página ve el cliente. */
 export interface PayablePayment {
   id: string;
+  /** «Pagar con bitcoin» se ofrece en este cobro (ver BTCPAY_ENABLED y Ajustes del local). */
+  bitcoin?: boolean;
   status: PaymentMachineState;
   amountCents: number;
   tipCents: number;
@@ -352,6 +363,7 @@ export function choosePayPage(p: PayablePayment, now: Date = new Date()): PayRed
     ...(p.tipPresets ? { tipPresets: p.tipPresets } : {}),
     ...(saldoPayToken ? { saldoPayToken } : {}),
     ...(p.saldo && p.allowTip && p.tipCents > 0 ? { presetTipCents: p.tipCents } : {}),
+    ...(p.bitcoin ? { bitcoin: true } : {}),
   };
 }
 

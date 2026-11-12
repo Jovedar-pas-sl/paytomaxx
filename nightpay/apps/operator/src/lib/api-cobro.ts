@@ -6,6 +6,7 @@
 import {
   ALREADY_PAID_CODE,
   PIN_REQUIRED_CODE,
+  type BtcpayInvoiceView,
   type ChargeAuthMethod,
   type ChargeLineInput,
   type InvitableStaff,
@@ -134,6 +135,20 @@ export function fetchSaldoState(id: string, signal?: AbortSignal): Promise<Saldo
 
 export function cancelSaldo(id: string): Promise<void> {
   return call<void>(`/v1/wallet-charges/${encodeURIComponent(id)}/cancel`, { method: 'POST' }, 'Cancelar cobro');
+}
+
+/**
+ * «Pagar con bitcoin» (fase 2: las pantallas). Crea la factura de bitcoin del cobro (o devuelve la que está
+ * abierta): el QR ya dibujado, el importe en euros y en BTC y el enlace. El importe lo pone el servidor.
+ */
+export function createBitcoinInvoice(paymentId: string): Promise<BtcpayInvoiceView> {
+  return call<BtcpayInvoiceView>(`/v1/payments/${encodeURIComponent(paymentId)}/bitcoin`, { method: 'POST' }, 'Pago con bitcoin');
+}
+
+/** La factura de bitcoin abierta del cobro y su estado (null si no hay). */
+export async function fetchBitcoinInvoice(paymentId: string, signal?: AbortSignal): Promise<BtcpayInvoiceView | null> {
+  const out = await call<{ invoice: BtcpayInvoiceView | null }>(`/v1/payments/${encodeURIComponent(paymentId)}/bitcoin`, { signal }, 'Pago con bitcoin');
+  return out.invoice;
 }
 
 export function cancelCard(paymentId: string): Promise<void> {

@@ -38,6 +38,7 @@ const SAME_EVERYWHERE = new Set([
   'wallet.htmlLang',
   'wallet.locale',
   'pay.total',
+  'pay.bitcoin.rate',
   'pay.receipt.date',
   'pay.receipt.code',
   'pay.methods',
