@@ -353,7 +353,7 @@ export interface LockedPaymentRow {
   amountCents: number;
   availableAmountCents: number;
   providerTxId: string | null;
-  provider: 'WIPAY' | 'PEANPE' | 'PAYTEF' | 'REDSYS' | null;
+  provider: 'WIPAY' | 'PEANPE' | 'PAYTEF' | 'REDSYS' | 'BTCPAY' | null;
   createdByUserId: string | null;
   walletId: string | null;
   tipCents: number;
@@ -1529,7 +1529,7 @@ export class PaymentsService implements OnApplicationBootstrap {
              SET status = ${result.nextState}::"PaymentStatus",
                  "availableAmountCents" = ${result.nextContext.availableAmountCents},
                  "providerTxId" = ${result.nextContext.providerTxId ?? p.providerTxId},
-                 provider = ${(result.nextContext.provider ?? p.provider) as 'WIPAY' | 'PEANPE' | 'PAYTEF' | 'REDSYS' | null}::"Provider",
+                 provider = ${(result.nextContext.provider ?? p.provider) as 'WIPAY' | 'PEANPE' | 'PAYTEF' | 'REDSYS' | 'BTCPAY' | null}::"Provider",
                  "authorizedAt" = CASE WHEN ${result.nextState}::text = 'AUTHORIZED'
                                        THEN COALESCE("authorizedAt", NOW()) ELSE "authorizedAt" END,
                  "updatedAt" = NOW()

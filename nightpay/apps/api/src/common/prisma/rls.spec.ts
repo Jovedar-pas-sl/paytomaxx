@@ -5,6 +5,8 @@ describe('tablas con FORCE RLS', () => {
   it('las de las migraciones (y sus modelos)', () => {
     expect([...FORCED_RLS_TABLES].sort()).toEqual([
       'approval_requests',
+      'btcpay_invoices',
+      'btcpay_stores',
       'charge_ref_counters',
       'client_wallets',
       'earning_reversals',
@@ -20,6 +22,8 @@ describe('tablas con FORCE RLS', () => {
     ]);
     expect([...FORCED_RLS_MODELS].sort()).toEqual([
       'ApprovalRequest',
+      'BtcpayInvoice',
+      'BtcpayStore',
       'ChargeRefCounter',
       'ClientWallet',
       'EarningReversal',
