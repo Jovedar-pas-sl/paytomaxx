@@ -103,6 +103,25 @@ describe('BtcpayClient', () => {
     expect(net.calls[0]?.path).toBe('/api/v1/stores/ST1/invoices/INV1/payment-methods');
   });
 
+  it('getPaymentMethods: una tienda con LNURL (destino null) o con un método raro no tumba la factura', async () => {
+    // Lo que contesta de verdad un BTCPay con Lightning, cadena y LNURL activados (12-nov-2026).
+    const { net, client } = make();
+    net.answers.push(
+      json(200, [
+        { paymentMethodId: 'BTC-LN', destination: 'lnbc20n1p', paymentLink: 'lightning:lnbc20n1p', amount: '0.00002', rate: '90000', activated: true },
+        { paymentMethodId: 'BTC-CHAIN', destination: 'bc1q', paymentLink: 'bitcoin:bc1q?amount=0.00002', amount: '0.00002', rate: '90000', activated: true },
+        { paymentMethodId: 'BTC-LNURL', destination: null, paymentLink: 'lightning:LNURL1', amount: '0.00002', rate: '90000', activated: true },
+        { paymentMethodId: { raro: true }, destination: 'x' },
+      ]),
+    );
+    const methods = await client.getPaymentMethods('INV1');
+    expect(methods.map((m) => m.paymentMethodId)).toEqual(['BTC-LN', 'BTC-CHAIN', 'BTC-LNURL']);
+    expect(methods[2]?.destination).toBe('');
+    // Lo que no es una lista sigue siendo una respuesta rara.
+    net.answers.push(json(200, { no: 'lista' }));
+    await expect(client.getPaymentMethods('INV1')).rejects.toBeInstanceOf(BtcpayApiError);
+  });
+
   it('createWebhook: solo los eventos que se usan, con reenvío automático, y devuelve id y secreto', async () => {
     const { net, client } = make();
     net.answers.push(json(200, { id: 'WH1', secret: 'S3CRETO' }));

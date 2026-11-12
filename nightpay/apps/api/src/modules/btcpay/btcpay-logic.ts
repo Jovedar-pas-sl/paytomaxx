@@ -62,13 +62,21 @@ export const InvoiceDataSchema = z.object({
 });
 export type InvoiceData = z.input<typeof InvoiceDataSchema> & { metadata?: Record<string, unknown> | null };
 
+/** Un texto que BTCPay puede mandar vacío (null), como el destino de BTC-LNURL: se lee como ''. */
+const optionalText = (max: number) =>
+  z
+    .string()
+    .max(max)
+    .nullish()
+    .transform((v) => v ?? '');
+
 export const PaymentMethodSchema = z.object({
   paymentMethodId: z.string().max(40),
-  destination: z.string().max(2000).default(''),
-  paymentLink: z.string().max(4000).default(''),
-  amount: z.string().max(40).default(''),
-  rate: z.string().max(40).default(''),
-  activated: z.boolean().default(true),
+  destination: optionalText(2000),
+  paymentLink: optionalText(4000),
+  amount: optionalText(40),
+  rate: optionalText(40),
+  activated: z.boolean().nullish().transform((v) => v ?? true),
 });
 export type InvoicePaymentMethod = z.input<typeof PaymentMethodSchema>;
 

@@ -141,9 +141,14 @@ export class BtcpayClient {
 
   async getPaymentMethods(invoiceId: string): Promise<InvoicePaymentMethod[]> {
     const { json } = await this.call('GET', this.store(`/invoices/${safeId(invoiceId, 'La factura')}/payment-methods`));
-    const parsed = z.array(PaymentMethodSchema).max(20).safeParse(json);
-    if (!parsed.success) throw this.invalidAnswer();
-    return parsed.data;
+    const list = z.array(z.unknown()).max(20).safeParse(json);
+    if (!list.success) throw this.invalidAnswer();
+    // Una tienda puede tener métodos que aquí no se usan (BTC-LNURL, plugins…): el que no encaja se
+    // deja fuera en vez de tumbar la factura entera. Solo se usan BTC-CHAIN y BTC-LN.
+    return list.data.flatMap((m) => {
+      const parsed = PaymentMethodSchema.safeParse(m);
+      return parsed.success ? [parsed.data] : [];
+    });
   }
 
   /** Marca la factura como inválida si la clave puede; si no (403/404), caducará sola. */
