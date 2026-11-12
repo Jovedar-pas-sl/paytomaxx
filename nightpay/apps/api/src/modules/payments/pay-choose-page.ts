@@ -2,7 +2,7 @@ import { MONEY_JS, clientMoney, escapeHtml, jsConfig } from './club-ui';
 import type { PayLanguage } from './customer-lang';
 import type { PayDevice } from './pay-device';
 import { PAY_TEXT, type PayText } from './pay-i18n';
-import { CARD_IC, CARD_MARKS, GPAY_MARK, LOCK_IC, PAY_MARKS_CSS } from './pay-marks';
+import { BTC_IC, CARD_IC, CARD_MARKS, GPAY_MARK, LOCK_IC, PAY_MARKS_CSS } from './pay-marks';
 import type { PayRedirect } from './pay-redirect';
 import { tipPresetsFor } from './tip';
 
@@ -94,6 +94,8 @@ ${BREAKDOWN_CSS}.warn{border:1px solid var(--warn);border-radius:var(--r-tile);b
 .paybar .alts{display:grid;grid-template-columns:1fr;gap:.5rem}
 .paybar .alts .btn{min-height:3rem;font-size:.9375rem;padding:.55rem .7rem}
 .methods{font-size:.8125rem;color:var(--mute)}
+.btn.btc .btclbl{display:flex;flex-direction:column;align-items:center;gap:.1rem}
+.btn.btc .btchint{font-size:.75rem;font-weight:400;line-height:1.25;color:var(--mute)}
 .nofee{font-size:.8125rem;color:var(--mute)}
 .btn.gpay[aria-disabled=true]:not(.busy){opacity:.55}
 .btn.gpay{background:#fff;border-color:#fff;color:#1f1f1f;box-shadow:0 1px 2px rgb(0 0 0/.35)}
@@ -130,6 +132,7 @@ legend{margin-bottom:.45rem;font-size:.9375rem}
 .paybar .alts .btn{min-height:3rem;padding:.5rem;line-height:1.15}
 .paybar .or{display:none}
 .paybar .alts:has(>.btn+.btn){grid-template-columns:1fr 1fr}
+.paybar .alts:has(>.btn+.btn) .btn.btc .btchint{display:none}
 .methods,.nofee,.trust{font-size:.75rem}
 }
 .secure{display:flex;align-items:center;justify-content:center;gap:.4rem;font-size:.8125rem;color:var(--dim)}
@@ -269,9 +272,10 @@ function payButtons(view: ChooseView, t: PayText, ctx: ChooseContext): string {
   const saldo = view.saldoPayToken
     ? `<a class="btn alt saldo" id="saldoBtn" href="${escapeHtml(`/s/${encodeURIComponent(view.saldoPayToken)}?lang=${ctx.lang}`)}">${escapeHtml(t.payWithSaldo)}</a>`
     : '';
-  // «Pagar con bitcoin»: otro botón del mismo formulario que va a su propia página (formaction).
+  // «Pagar con bitcoin»: otro botón del mismo formulario que va a su propia página (formaction),
+  // con su icono y una línea corta de cuánto tarda (Lightning al momento, en la red con 1 confirmación).
   const bitcoin = view.bitcoin
-    ? `<button class="btn alt" id="btcBtn" type="submit" formaction="${escapeHtml(`/pay/${encodeURIComponent(ctx.token)}/bitcoin?lang=${ctx.lang}`)}" formmethod="post"><span aria-hidden="true">₿</span><span>${escapeHtml(t.payWithBitcoin)}</span></button>`
+    ? `<button class="btn alt btc" id="btcBtn" type="submit" formaction="${escapeHtml(`/pay/${encodeURIComponent(ctx.token)}/bitcoin?lang=${ctx.lang}`)}" formmethod="post">${BTC_IC}<span class="btclbl"><span>${escapeHtml(t.payWithBitcoin)}</span><small class="btchint">${escapeHtml(t.bitcoinHint)}</small></span></button>`
     : '';
   const alts =
     card || saldo || bitcoin

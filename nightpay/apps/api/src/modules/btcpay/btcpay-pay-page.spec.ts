@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import type { BtcpayInvoiceView } from '@nightpay/contracts';
 import { PAY_LANGUAGES } from '../payments/customer-lang';
+import { PAY_TEXT } from '../payments/pay-i18n';
 import { renderBitcoinPage, safeHttpsLink, safeQrLink } from './btcpay-pay-page';
 
 const view = (over: Partial<BtcpayInvoiceView> = {}): BtcpayInvoiceView => ({
@@ -94,5 +95,45 @@ describe('página «Pagar con bitcoin»', () => {
   it('el token del cobro va codificado en las rutas', () => {
     const page = html(view(), { token: 'a/b c' });
     expect(page).toContain('/pay/a%2Fb%20c/bitcoin/status');
+    expect(page).toContain('action="/pay/a%2Fb%20c/bitcoin/other?lang=es"');
+  });
+});
+
+describe('«Pagar de otra forma» con el QR a la vista', () => {
+  const form = (page: string): string => /<form[^>]*id="btcOther"[\s\S]*?<\/form>/.exec(page)?.[0] ?? '';
+
+  it('mientras la factura espera el pago: un botón que cierra la factura y vuelve a las demás formas (POST)', () => {
+    const f = form(html());
+    expect(f).toContain('method="post"');
+    expect(f).toContain('action="/pay/tok-1/bitcoin/other?lang=es"');
+    expect(f).toContain('>Pagar de otra forma<');
+    expect(f).not.toMatch(/<form[^>]*hidden/);
+  });
+
+  it('con el pago ya en la red (Processing) no se ofrece: se está confirmando', () => {
+    expect(form(html(view({ status: 'Processing' })))).toMatch(/<form[^>]*id="btcOther"[^>]*hidden/);
+  });
+
+  it('la página lo esconde sola si el pago llega a la red mientras se mira, y no se envía dos veces', () => {
+    const page = html();
+    expect(page).toContain("if(other)other.hidden=d.status==='Processing';");
+    expect(page).toContain("other.addEventListener('submit'");
+    // Al volver atrás (caché del navegador), la página se recarga: nada de un QR viejo.
+    expect(page).toContain("window.addEventListener('pageshow',function(e){if(e.persisted)location.reload();});");
+  });
+
+  it.each(PAY_LANGUAGES)('en %s, con el texto de su idioma', (lang) => {
+    const f = form(html(view(), {}, lang));
+    expect(f).toContain(`/bitcoin/other?lang=${lang}`);
+    expect(f).toContain(`>${PAY_TEXT[lang].bitcoin.payOtherWay}<`);
+  });
+
+  it('en inglés: «Pay another way»', () => {
+    expect(form(html(view(), {}, 'en'))).toContain('>Pay another way<');
+  });
+
+  it('factura caducada o con problema: sin el botón (ya lleva «elegir otra forma de pagar»)', () => {
+    expect(html(view(), { closed: 'expired' })).not.toContain('id="btcOther"');
+    expect(html(view(), { closed: 'problem' })).not.toContain('id="btcOther"');
   });
 });

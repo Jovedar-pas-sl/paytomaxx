@@ -92,6 +92,8 @@ describe('onApplicationBootstrap — barrido de cobros atascados', () => {
     expect(sql).toContain(`status = 'AUTHORIZING'`);
     expect(sql).toContain('"providerTxId" IS NOT NULL');
     expect(sql).toContain('LIMIT 100');
+    // Bitcoin no: su factura la vigila el repaso de BTCPay (la conciliación lo dejaba «Sin confirmar»).
+    expect(sql).toContain(`provider::text <> 'BTCPAY'`);
     // Solo los de hace 2 min o más (los recientes los vigila su propio job).
     expect(cutoff).toEqual(new Date('2026-10-17T01:28:00+02:00'));
 

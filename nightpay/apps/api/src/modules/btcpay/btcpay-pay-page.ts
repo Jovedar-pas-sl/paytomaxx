@@ -49,12 +49,13 @@ const BTC_CSS = `
 .btc-msg{display:flex;flex-direction:column;gap:.5rem;padding:1rem;border:1px solid var(--line);border-radius:var(--r);background:var(--surface);width:100%}
 .btc-msg h2{margin:0;font-size:1.25rem}
 .btc-msg p{margin:0;color:var(--label)}
+.btc-other{width:100%;margin:0}
 .btc [hidden]{display:none!important}
 `;
 
 const BTC_JS = `
 var C=JSON.parse(document.getElementById('btcCfg').textContent),clock=document.getElementById('btcClock'),stateEl=document.getElementById('btcState'),
- off=document.getElementById('btcOffline'),end=Date.parse(C.expiresAt),done=false,busy=false;
+ off=document.getElementById('btcOffline'),other=document.getElementById('btcOther'),end=Date.parse(C.expiresAt),done=false,busy=false;
 function pad(n){return n<10?'0'+n:''+n;}
 function tick(){var s=Math.max(0,Math.floor((end-Date.now())/1000));clock.textContent=Math.floor(s/60)+':'+pad(s%60);if(s===0)poll();}
 function go(){done=true;location.replace(C.payHref);}
@@ -62,7 +63,10 @@ function offline(on){if(off)off.hidden=!on;}
 function problem(){done=true;document.getElementById('btcLive').hidden=true;document.getElementById('btcProblem').hidden=false;}
 function apply(d){if(d.state==='paid'||d.state==='closed'||d.state==='gone'){go();return;}
  if(d.state==='incident'){problem();return;}
- stateEl.textContent=d.status==='Processing'?C.t.confirming:C.t.waiting;}
+ stateEl.textContent=d.status==='Processing'?C.t.confirming:C.t.waiting;
+ if(other)other.hidden=d.status==='Processing';}
+if(other)other.addEventListener('submit',function(e){if(done){e.preventDefault();return;}done=true;
+ var b=other.querySelector('button');if(b){b.setAttribute('aria-disabled','true');b.classList.add('busy');}});
 function poll(){if(busy||done)return;busy=true;var x=new XMLHttpRequest();x.open('GET',C.statusUrl,true);x.timeout=8000;x.setRequestHeader('Accept','application/json');
  x.onload=function(){busy=false;offline(false);if(x.status!==200)return;var d;try{d=JSON.parse(x.responseText);}catch(e){return;}apply(d);};
  x.onerror=function(){busy=false;offline(true);};x.ontimeout=function(){busy=false;offline(true);};x.send();}
@@ -73,6 +77,7 @@ if(cp)cp.addEventListener('click',function(){function ok(){cp.textContent=C.t.co
 tick();setInterval(tick,1000);setInterval(poll,3000);
 document.addEventListener('visibilitychange',function(){if(!document.hidden)poll();});
 window.addEventListener('online',poll);
+window.addEventListener('pageshow',function(e){if(e.persisted)location.reload();});
 `;
 
 /** El JSON del <script type=application/json>: «<» como su escape JSON (no puede cerrar la etiqueta). */
@@ -113,6 +118,9 @@ ${i.venueName ? `<p class="btc-venue">${escapeHtml(i.venueName)}</p>` : ''}
   }
 
   const copyValue = v.chainAddress ?? qrLink;
+  // «Pagar de otra forma»: cierra la factura y vuelve a /pay/:token. Con el pago ya en la red, no se ofrece.
+  const otherAction = `/pay/${encodeURIComponent(i.token)}/bitcoin/other?lang=${i.lang}`;
+  const otherWay = `<form class="btc-other" id="btcOther" method="post" action="${escapeHtml(otherAction)}"${v.status === 'Processing' ? ' hidden' : ''}><button class="btn alt" type="submit">${escapeHtml(b.payOtherWay)}</button></form>`;
   const config = {
     expiresAt: v.expiresAt,
     statusUrl: `/pay/${encodeURIComponent(i.token)}/bitcoin/status`,
@@ -137,6 +145,7 @@ ${full ? `<p><a class="btc-full" href="${escapeHtml(full)}" target="_blank" rel=
 <p class="btc-time">${escapeHtml(b.timeLeft)}: <b id="btcClock" aria-hidden="true">--:--</b></p>
 <p class="btc-state" id="btcState" aria-live="polite">${escapeHtml(v.status === 'Processing' ? b.confirming : b.waiting)}</p>
 <p class="btc-offline" id="btcOffline" role="status" hidden>${escapeHtml(b.offline)}</p>
+${otherWay}
 </div>
 <div class="btc-msg" id="btcProblem" role="alert" hidden><h2>${escapeHtml(b.problemTitle)}</h2><p>${escapeHtml(b.problemBody)}</p></div>
 <p class="foot secure">${LOCK_ICON}${escapeHtml(t.secure)}</p>

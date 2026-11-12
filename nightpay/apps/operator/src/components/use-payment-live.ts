@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { io } from 'socket.io-client';
-import type { PaymentStatus } from '@nightpay/contracts';
+import type { BitcoinPayState, PaymentStatus } from '@nightpay/contracts';
 import { fetchPaymentStatus, freshAccessToken, ServerUnavailableError, wsBase } from '@/lib/api';
 import { isFinalStatus, pollUpdate } from '@/lib/payment-status';
 import { createPaymentLive, type PaymentSocket } from '@nightpay/ui';
@@ -16,6 +16,11 @@ export interface PaymentUpdate {
   attemptStartedAt?: string;
   /** Ya pagado (el sondeo): cómo pagó, si el banco lo dio. */
   payMethod?: 'card' | 'wallet';
+  /**
+   * Pagando (AUTHORIZING, solo el sondeo): el estado de su factura de bitcoin, o
+   * null si paga en su banco. Sin la clave (el tiempo real), no se sabe: no cambia.
+   */
+  bitcoin?: BitcoinPayState | null;
 }
 
 export interface PaymentLiveState {

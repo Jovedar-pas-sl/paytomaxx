@@ -25,10 +25,12 @@ export const UNPREFIXED_ROUTES: readonly UnprefixedRoute[] = Object.freeze([
   // «Comprobando el pago»: su estado en JSON (por el QR y por la vuelta del banco).
   { path: 'pay/:token/status', method: RequestMethod.GET },
   { path: 'pay/result/status', method: RequestMethod.GET },
-  // «Pagar con bitcoin» (BTCPay): abrir la factura, la página con el QR y su estado en JSON.
+  // «Pagar con bitcoin» (BTCPay): abrir la factura, la página con el QR, su estado en JSON
+  // y «Pagar de otra forma» (cierra la factura y vuelve a las demás formas de pago).
   { path: 'pay/:token/bitcoin', method: RequestMethod.GET },
   { path: 'pay/:token/bitcoin', method: RequestMethod.POST },
   { path: 'pay/:token/bitcoin/status', method: RequestMethod.GET },
+  { path: 'pay/:token/bitcoin/other', method: RequestMethod.POST },
   // Las letras de la marca (Instrument Sans y Manrope) de las páginas del cliente.
   { path: 'pay/assets/manrope.woff2', method: RequestMethod.GET },
   { path: 'pay/assets/instrument-sans.woff2', method: RequestMethod.GET },

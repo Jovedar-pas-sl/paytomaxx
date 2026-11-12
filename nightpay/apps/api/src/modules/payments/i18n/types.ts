@@ -40,6 +40,8 @@ export interface BitcoinText {
   problemBody: string;
   /** Volver a elegir cómo pagar. */
   other: string;
+  /** Con el QR a la vista: cerrar la factura y volver a las demás formas de pago. */
+  payOtherWay: string;
   /** Sin red. */
   offline: string;
   /** Texto que lee el lector de pantalla del QR. */
@@ -139,6 +141,8 @@ export interface PayText {
   payWithSaldo: string;
   /** «Pagar con bitcoin» (BTCPay): el botón de la página de pago, si el local lo tiene encendido. */
   payWithBitcoin: string;
+  /** La línea corta debajo de «Pagar con bitcoin»: cuánto tarda cada forma. */
+  bitcoinHint: string;
   bitcoin: BitcoinText;
   tipLegend: string;
   noTip: string;
