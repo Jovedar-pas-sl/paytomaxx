@@ -38,6 +38,7 @@ const party: PartyPageData = {
     allowDonation: true,
     balanceCents: 1300,
     available: { CARD: 800, TRANSFER: 500, DONATE: 1300 },
+    faceId: true,
     locked: false,
     requests: [],
   },
@@ -126,6 +127,19 @@ describe('el JS de la pulsera', () => {
     expect(ibanOk('DE89370400440532013000')).toBe(true);
     expect(ibanOk('ES9121000418450200051333')).toBe(false);
     expect(ibanOk('ES91')).toBe(false);
+  });
+
+  it('«Lo que sobra» sin Face ID: solo a la tarjeta; transferencia y donar, con Face ID', () => {
+    const src = PARTY_JS.slice(PARTY_JS.indexOf('function sbOk('), PARTY_JS.indexOf('function sbMark('));
+    const ways = (faceId: boolean, available: Record<string, number>) =>
+      (new Function('P', `${src}return sbAvail;`)({ refund: { faceId, available } }) as () => string[])();
+    expect(ways(false, { CARD: 800, TRANSFER: 500, DONATE: 1300 })).toEqual(['CARD']);
+    expect(ways(true, { CARD: 800, TRANSFER: 500, DONATE: 1300 })).toEqual(['CARD', 'TRANSFER', 'DONATE']);
+    expect(ways(false, { CARD: 0, TRANSFER: 500, DONATE: 500 })).toEqual([]);
+    // Y la página lo dice en claro (el texto va en la hoja; el JS lo enseña).
+    const html = renderWalletPage('tok', 'es', state(), { party });
+    expect(html).toContain('<p class="sbwhy" id="sobraFace" hidden>Para transferencia o donar, activa Face ID o pásate por la taquilla.</p>');
+    expect(PARTY_JS).toContain("$('sobraFace').hidden=!face");
   });
 
   it('cada movimiento con la caseta delante y lo pedido debajo; sin caseta, como siempre', () => {

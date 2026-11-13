@@ -3,6 +3,7 @@ import {
   Body,
   ConflictException,
   Controller,
+  ForbiddenException,
   Get,
   Header,
   Headers,
@@ -16,7 +17,13 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { FastifyReply } from 'fastify';
-import { PartyRefundAskSchema, type PartyRefundView } from '@nightpay/contracts';
+import {
+  PARTY_REFUND_ERRORS,
+  PartyRefundAskSchema,
+  REFUND_NEEDS_FACE_ID_MESSAGE,
+  refundNeedsFaceId,
+  type PartyRefundView,
+} from '@nightpay/contracts';
 import { Public } from '../../common/decorators/public.decorator';
 import { IpRateLimit } from '../../common/guards/ip-rate-limit.guard';
 import { WalletChargesService } from '../wallets/wallet-charges.service';
@@ -29,8 +36,11 @@ import { PartyRefundsService } from './party-refunds.service';
  * «Lo que sobra» desde la página de la pulsera (/w/:token, OxioParty; con
  * EDITION=club, 404). La credencial es la de la página: el enlace y, si el
  * saldo tiene Face ID, su sesión de consulta (como /state) y además su llave
- * al pedirlo (como «Me voy»: con solo el enlace no se manda el dinero a otro
- * IBAN). Topes por IP y por pulsera.
+ * al pedirlo (como «Me voy»). Quien solo tenga una foto del QR tiene el
+ * enlace: con él, a la tarjeta sí (vuelve a la tarjeta que pagó); la
+ * transferencia y donar, solo con Face ID verificado en la misma petición
+ * (sin Face ID, 409 REFUND_NEEDS_FACE_ID: que lo active o vaya a la taquilla,
+ * que devuelve el efectivo). Topes por IP y por pulsera.
  *  - GET  /w/:token/sobra             lo que puede pedir y sus peticiones
  *  - POST /w/:token/sobra/challenge   reto para su llave (409 FACE_ID_NOT_SET sin Face ID)
  *  - POST /w/:token/sobra             pedirlo { method, iban?, email?, expectedAmountCents?, response? }
@@ -89,9 +99,25 @@ export class PartyWalletController {
       const issue = parsed.error.issues[0];
       throw new BadRequestException({ message: issue?.message ?? 'Revisa los datos', code: 'REFUND_INVALID', field: issue?.path.join('.') || null });
     }
-    // Con Face ID, su llave (atada a esta acción y a este saldo): el enlace solo no basta.
-    await this.passkeys.assertOwner(walletId, `sobra:${walletId}`, host, body?.response);
+    const scope = `sobra:${walletId}`;
+    if (refundNeedsFaceId(parsed.data.method)) {
+      // Transferencia o donar: el dinero no vuelve a la tarjeta que pagó.
+      // Con solo el enlace (una foto del QR) no: Face ID y su llave ahora.
+      await this.assertFaceIdNow(walletId, scope, host, body?.response);
+    } else {
+      // A la tarjeta: con Face ID, su llave (como siempre); sin él, el enlace.
+      await this.passkeys.assertOwner(walletId, scope, host, body?.response);
+    }
     return this.refunds.ask(walletId, parsed.data);
+  }
+
+  /** El saldo tiene Face ID y su llave se acaba de verificar para esta acción (si no, 409 o 403). */
+  private async assertFaceIdNow(walletId: string, scope: string, host: string | undefined, response: unknown): Promise<void> {
+    if (!(await this.passkeys.hasPasskey(walletId))) {
+      throw new ConflictException({ message: REFUND_NEEDS_FACE_ID_MESSAGE, code: PARTY_REFUND_ERRORS.faceId });
+    }
+    const owner = await this.passkeys.verify(scope, host, response);
+    if (owner !== walletId) throw new ForbiddenException({ message: 'Confirma con el Face ID de este saldo.', code: 'FACE_ID_WRONG' });
   }
 
   /** El saldo, si se puede leer (sin Face ID, con el enlace; con él, con su sesión). */

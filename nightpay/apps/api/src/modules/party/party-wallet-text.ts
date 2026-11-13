@@ -56,8 +56,10 @@ export interface PartyWalletText {
   lostNow: string;
   lostOk: string;
   topUpLocked: string;
+  /** Sin Face ID: transferencia y donar, solo en la taquilla. */
+  faceIdNeeded: string;
   err: Record<
-    'REFUND_CLOSED' | 'NOTHING_TO_REFUND' | 'REFUND_METHOD_UNAVAILABLE' | 'DONATION_OFF' | 'REFUND_AMOUNT_CHANGED' | 'REFUND_INVALID' | 'TOPUP_IN_PROGRESS',
+    'REFUND_CLOSED' | 'NOTHING_TO_REFUND' | 'REFUND_METHOD_UNAVAILABLE' | 'DONATION_OFF' | 'REFUND_AMOUNT_CHANGED' | 'REFUND_INVALID' | 'TOPUP_IN_PROGRESS' | 'REFUND_NEEDS_FACE_ID',
     string
   >;
 }
@@ -113,6 +115,7 @@ export const PARTY_WALLET_TEXT: Readonly<Record<PayLanguage, PartyWalletText>> =
     lostNow: 'Bloquearla ya con mi móvil',
     lostOk: 'Entendido',
     topUpLocked: 'Con una devolución pedida no se puede recargar.',
+    faceIdNeeded: 'Para transferencia o donar, activa Face ID o pásate por la taquilla.',
     err: {
       REFUND_CLOSED: 'El plazo para pedir lo que sobra ya terminó.',
       NOTHING_TO_REFUND: 'No te queda nada por pedir.',
@@ -121,6 +124,7 @@ export const PARTY_WALLET_TEXT: Readonly<Record<PayLanguage, PartyWalletText>> =
       REFUND_AMOUNT_CHANGED: 'Tu saldo ha cambiado: revisa el importe y vuelve a pedirlo.',
       REFUND_INVALID: 'Revisa los datos.',
       TOPUP_IN_PROGRESS: 'Tienes una recarga a medias: espera unos minutos a que termine y vuelve a pedirlo.',
+      REFUND_NEEDS_FACE_ID: 'Para transferencia o donar, activa Face ID o pásate por la taquilla.',
     },
   },
   en: {
@@ -173,6 +177,7 @@ export const PARTY_WALLET_TEXT: Readonly<Record<PayLanguage, PartyWalletText>> =
     lostNow: 'Block it now with my phone',
     lostOk: 'Got it',
     topUpLocked: 'You can’t top up while a refund is pending.',
+    faceIdNeeded: 'For a transfer or to donate, turn on Face ID or come by the ticket booth.',
     err: {
       REFUND_CLOSED: 'The deadline to ask for what’s left has ended.',
       NOTHING_TO_REFUND: 'There’s nothing left to ask for.',
@@ -181,6 +186,7 @@ export const PARTY_WALLET_TEXT: Readonly<Record<PayLanguage, PartyWalletText>> =
       REFUND_AMOUNT_CHANGED: 'Your balance has changed: check the amount and ask again.',
       REFUND_INVALID: 'Check your details.',
       TOPUP_IN_PROGRESS: 'You have a top-up still going through: wait a few minutes for it to finish and ask again.',
+      REFUND_NEEDS_FACE_ID: 'For a transfer or to donate, turn on Face ID or come by the ticket booth.',
     },
   },
   fr: {
@@ -233,6 +239,7 @@ export const PARTY_WALLET_TEXT: Readonly<Record<PayLanguage, PartyWalletText>> =
     lostNow: 'Le bloquer tout de suite avec mon téléphone',
     lostOk: 'Compris',
     topUpLocked: 'Impossible de recharger pendant un remboursement en attente.',
+    faceIdNeeded: 'Pour un virement ou un don, activez Face ID ou passez à la billetterie.',
     err: {
       REFUND_CLOSED: 'Le délai pour demander ce qui reste a pris fin.',
       NOTHING_TO_REFUND: 'Il ne vous reste rien à demander.',
@@ -241,6 +248,7 @@ export const PARTY_WALLET_TEXT: Readonly<Record<PayLanguage, PartyWalletText>> =
       REFUND_AMOUNT_CHANGED: 'Votre solde a changé : vérifiez le montant et redemandez-le.',
       REFUND_INVALID: 'Vérifiez vos données.',
       TOPUP_IN_PROGRESS: 'Une recharge est encore en cours : attendez quelques minutes qu’elle se termine et redemandez-le.',
+      REFUND_NEEDS_FACE_ID: 'Pour un virement ou un don, activez Face ID ou passez à la billetterie.',
     },
   },
   pt: {
@@ -293,6 +301,7 @@ export const PARTY_WALLET_TEXT: Readonly<Record<PayLanguage, PartyWalletText>> =
     lostNow: 'Bloqueá-la já com o meu telemóvel',
     lostOk: 'Entendido',
     topUpLocked: 'Com uma devolução pedida não se pode carregar.',
+    faceIdNeeded: 'Para transferência ou doar, ative o Face ID ou passe pela bilheteira.',
     err: {
       REFUND_CLOSED: 'O prazo para pedir o que sobra já terminou.',
       NOTHING_TO_REFUND: 'Não lhe resta nada para pedir.',
@@ -301,6 +310,7 @@ export const PARTY_WALLET_TEXT: Readonly<Record<PayLanguage, PartyWalletText>> =
       REFUND_AMOUNT_CHANGED: 'O seu saldo mudou: verifique o valor e volte a pedir.',
       REFUND_INVALID: 'Verifique os dados.',
       TOPUP_IN_PROGRESS: 'Tem um carregamento a meio: espere uns minutos até terminar e volte a pedir.',
+      REFUND_NEEDS_FACE_ID: 'Para transferência ou doar, ative o Face ID ou passe pela bilheteira.',
     },
   },
 };

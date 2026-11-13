@@ -423,12 +423,14 @@ export class PartyRefundsService {
       select: REQUEST_SELECT,
     });
     const usable = wallet.status === 'ACTIVE' && !wallet.mergedIntoId && (!wallet.blockedAt || blockedByRefund(wallet));
+    const faceId = (await tx.walletPasskey.count({ where: { walletId: wallet.id } })) > 0;
     return {
       deadline,
       open: isRefundWindowOpen(deadline, now),
       allowDonation,
       balanceCents: Math.max(0, wallet.balanceCents),
       available: usable ? refundAvailability(money, allowDonation) : { ...ZERO_BY_METHOD },
+      faceId,
       locked: mine.some((r) => r.status === 'PENDING'),
       requests: mine.map(mineView),
     };

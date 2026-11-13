@@ -23,11 +23,23 @@ import { normalizeIban } from './superadmin';
 // su IBAN) y DONATE (a la comisión de fiestas, si el local lo deja: hecha al
 // momento). Al pedirla, el saldo queda bloqueado (no se gasta ni se recarga).
 // El plazo: venues.refundDeadline (último día, hora de Madrid); pasado, no se pide.
+//
+// Quien solo tenga una foto del QR tiene el enlace: por internet, la tarjeta
+// sí (el dinero vuelve a la tarjeta que pagó), pero la transferencia y donar
+// solo con Face ID verificado en la misma petición (sin él, 409
+// REFUND_NEEDS_FACE_ID: Face ID o la taquilla, que devuelve el efectivo).
 // ═══════════════════════════════════════════════════════════════════════
 
 export const PARTY_REFUND_METHODS = ['CARD', 'TRANSFER', 'DONATE'] as const;
 export type PartyRefundMethod = (typeof PARTY_REFUND_METHODS)[number];
 export const PartyRefundMethodSchema = z.enum(PARTY_REFUND_METHODS);
+
+/** Por internet, ¿pide Face ID? La tarjeta no (vuelve a la que pagó); la transferencia y donar, sí. */
+export function refundNeedsFaceId(method: PartyRefundMethod): boolean {
+  return method !== 'CARD';
+}
+
+export const REFUND_NEEDS_FACE_ID_MESSAGE = 'Para transferencia o donar, activa Face ID o pásate por la taquilla.';
 
 export const PARTY_REFUND_STATUSES = ['PENDING', 'DONE', 'CANCELED'] as const;
 export type PartyRefundStatus = (typeof PARTY_REFUND_STATUSES)[number];
@@ -57,6 +69,8 @@ export const PARTY_REFUND_ERRORS = {
   balance: 'REFUND_BALANCE_CHANGED',
   /** Una recarga del saldo a medias (aún sin respuesta del banco): primero que termine. */
   topUp: 'TOPUP_IN_PROGRESS',
+  /** Transferencia o donar por internet con un saldo sin Face ID. */
+  faceId: 'REFUND_NEEDS_FACE_ID',
 } as const;
 
 /** IBAN del asistente: sin espacios y en mayúsculas, con su dígito de control (mod-97). */
@@ -110,8 +124,13 @@ export interface PartyRefundView {
   /** El local deja donar lo que sobra a la comisión. */
   allowDonation: boolean;
   balanceCents: number;
-  /** Lo que se puede pedir ahora por cada vía (0: por esa vía, nada). */
+  /**
+   * Lo que hay ahora por cada vía (0: por esa vía, nada). Sin Face ID, la
+   * transferencia y donar no se piden por internet (refundNeedsFaceId).
+   */
   available: Record<PartyRefundMethod, number>;
+  /** El saldo tiene Face ID: con él, también transferencia y donar por internet. */
+  faceId: boolean;
   /** El saldo está bloqueado por una petición pendiente: no se gasta ni se recarga. */
   locked: boolean;
   /** Sus peticiones pendientes y hechas (las anuladas no). */

@@ -130,6 +130,7 @@ ${opt('CARD', t.card, t.cardNote)}
 ${opt('TRANSFER', t.transfer, t.transferNote)}
 ${opt('DONATE', t.donate, t.donateNote)}
 </fieldset>
+<p class="sbwhy" id="sobraFace" hidden>${h(t.faceIdNeeded)}</p>
 <div class="field" id="ibanBox" hidden><label for="sobraIban">${h(t.iban)}</label><input id="sobraIban" type="text" autocomplete="off" autocapitalize="characters" spellcheck="false" inputmode="text" maxlength="42" placeholder="ES00 0000 0000 0000 0000 0000"></div>
 <div class="field"><label for="sobraMail">${h(t.mail)}</label><input id="sobraMail" type="email" autocomplete="email" maxlength="254" placeholder="nombre@correo.com"></div>
 <p class="err" id="sobraErr" role="alert" hidden></p>
@@ -193,7 +194,8 @@ function partyRender(s){$('balanceLabel').textContent=PT.balance;
  $('heroCode').textContent=s.pulsera?fill(PT.pulsera,'n',s.pulsera):s.code;$('heroFicha').textContent=pRange(P.eventStartsAt,P.eventEndsAt);
  $('leaveOpen').hidden=true;$('lostOpen').hidden=true;$('lostAsk').hidden=true;
  pRefundRender();pDoneRows();pNote();}
-function sbAvail(){var A=P.refund.available;return ['CARD','TRANSFER','DONATE'].filter(function(k){return A[k]>0;});}
+function sbOk(k){return P.refund.available[k]>0&&(k==='CARD'||P.refund.faceId);}
+function sbAvail(){return ['CARD','TRANSFER','DONATE'].filter(sbOk);}
 function sbMark(){Array.prototype.forEach.call(document.querySelectorAll('input[name=sobraHow]'),function(r){r.checked=r.value===SB.m;r.parentNode.classList.toggle('on',r.checked);});}
 function sbShow(w){$('sobraForm').hidden=w!=='form';$('sobraNone').hidden=w!=='none';$('sobraOk').hidden=w!=='ok';}
 function sbUpd(){var A=P.refund.available,c=SB.m?A[SB.m]:0,b=$('sobraGo'),label=fill(SB.m==='DONATE'?PT.give:PT.ask,'amount',eurPay(c));
@@ -203,11 +205,12 @@ function sbWhy(){var R=P.refund,p=$('sobraWhy');p.textContent='';
  if(R.deadline){var parts=PT.sobraUntil.split('{date}'),st=document.createElement('strong');st.textContent=pDay(R.deadline);
   p.appendChild(document.createTextNode(parts[0]));p.appendChild(st);p.appendChild(document.createTextNode((parts[1]||'')+' '));}
  p.appendChild(document.createTextNode(PT.noFees));}
-function sbFill(){var R=P.refund,A=R.available,ks=sbAvail();
+function sbFill(){var R=P.refund,A=R.available,ks=sbAvail(),face=!R.faceId&&(A.TRANSFER>0||A.DONATE>0);
  if(!R.open){$('sobraNoneT').textContent=fill(PT.closed,'date',pDay(R.deadline));sbShow('none');return;}
- if(!ks.length){$('sobraNoneT').textContent=R.locked?PT.nothingPending:PT.nothing;sbShow('none');return;}
- ['CARD','TRANSFER','DONATE'].forEach(function(k){$('opt'+k).hidden=!(A[k]>0);$('opt'+k+'Amt').textContent=A[k]>0?eurPay(A[k]):'';});
- if(!SB.m||!(A[SB.m]>0))SB.m=ks[0];
+ if(!ks.length){$('sobraNoneT').textContent=face?PT.faceIdNeeded:R.locked?PT.nothingPending:PT.nothing;sbShow('none');return;}
+ ['CARD','TRANSFER','DONATE'].forEach(function(k){$('opt'+k).hidden=!sbOk(k);$('opt'+k+'Amt').textContent=sbOk(k)?eurPay(A[k]):'';});
+ $('sobraFace').hidden=!face;
+ if(!SB.m||!sbOk(SB.m))SB.m=ks[0];
  $('sobraAmt').textContent=eurPay(Math.max(A.CARD+A.TRANSFER,A.DONATE));sbWhy();sbMark();sbUpd();sbShow('form');}
 function sbLoad(){return fetch(C.base+'/sobra',{headers:{Accept:'application/json'}}).then(function(r){if(!r.ok)throw new Error(String(r.status));return r.json();})
  .then(function(v){P.refund=v;pRefundRender();pNote();if($('sobraSheet').open&&$('sobraOk').hidden&&!busy)sbFill();}).catch(function(){});}

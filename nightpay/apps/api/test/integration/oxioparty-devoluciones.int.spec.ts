@@ -121,7 +121,7 @@ describe('«Lo que sobra» con EDITION=party', () => {
     // 13 € en el saldo: 5 € entraron en efectivo, 8 € con tarjeta.
     const w = await wallet(1300, 500);
     const before = await refunds.view(w.id);
-    expect(before).toMatchObject({ open: true, deadline: '2099-06-30', allowDonation: true, locked: false, available: { CARD: 800, TRANSFER: 500, DONATE: 1300 } });
+    expect(before).toMatchObject({ open: true, deadline: '2099-06-30', allowDonation: true, locked: false, faceId: false, available: { CARD: 800, TRANSFER: 500, DONATE: 1300 } });
 
     const asked = await refunds.ask(w.id, { method: 'CARD', email: 'ana@correo.es', expectedAmountCents: 800 });
     expect(asked).toMatchObject({ locked: true, available: { CARD: 0, TRANSFER: 500, DONATE: 500 } });
