@@ -14,6 +14,7 @@ import {
   type User,
 } from '@/lib/api';
 import { DEFAULT_TIMEZONE } from '@/lib/dates';
+import { isPartyEdition } from '@/lib/edition';
 import { decidableCount } from '@/lib/approvals';
 import { avisosCount, navBadge } from '@/lib/bottom-nav';
 import {
@@ -58,6 +59,12 @@ import { FichasProvider } from './fichas/FichasProvider';
 import { MoneyMapPanel } from './money-map/MoneyMapPanel';
 import { SectionsPanel } from './settings/SectionsPanel';
 import { OverdueSettlementsBanner } from './settlements/OverdueBanner';
+import { CierreSection } from './party/CierreSection';
+import { DevolucionesSection } from './party/DevolucionesSection';
+import { PartyLiveSection } from './party/PartyLiveSection';
+import { PartySettingsSection } from './party/PartySettingsSection';
+import { PulserasSection } from './party/PulserasSection';
+import { StallsSection } from './party/StallsSection';
 
 interface Props {
   user: User;
@@ -79,6 +86,9 @@ const ROLE_LABELS: Record<User['role'], string> = {
  * El panel: cinco secciones (Hoy, Chicas, Clientes, Informes, Ajustes)
  * arriba en el escritorio y abajo en el móvil, y dentro de cada una sus
  * pestañas. «Hoy» lleva un solo globo: incidencias + lo que hay por aprobar.
+ * OxioParty (NEXT_PUBLIC_EDITION=party): el panel del organizador, con sus
+ * seis secciones (En directo, Casetas, Pulseras, Devoluciones, Cierre y
+ * Ajustes; lib/roles) y el globo en En directo.
  */
 export function Dashboard({ user, onLogout }: Props) {
   const [venue, venueSettled] = useVenueInfo(user);
@@ -143,7 +153,10 @@ export function Dashboard({ user, onLogout }: Props) {
     goTo('payments');
   }
 
-  const hoyBadge = navBadge('hoy', avisos);
+  const party = isPartyEdition();
+  // La sección que lleva Avisos y su globo: Hoy (en OxioParty, En directo).
+  const avisosSection: SectionKey = party ? 'directo' : 'hoy';
+  const hoyBadge = navBadge(avisosSection, avisos);
 
   return (
     <ProfileProvider>
@@ -155,10 +168,10 @@ export function Dashboard({ user, onLogout }: Props) {
           <main className="np-app-root" style={mainStyle}>
             <header className="np-panel-header" style={headerStyle}>
               <div className="np-brand" style={{ display: 'flex', alignItems: 'center', gap: '1rem', minWidth: 0 }}>
-                {/* El logo, pequeño (≈ 18 px de letra): lo que manda es el local. */}
-                <Logo height="1.875rem" />
+                {/* El logo, pequeño (≈ 18 px de letra): lo que manda es el local. En OxioParty, su nombre. */}
+                {party ? <span className="np-party-mark">OxioParty</span> : <Logo height="1.875rem" />}
                 <div style={{ borderLeft: '1px solid var(--np-border)', paddingLeft: '1rem', minWidth: 0 }}>
-                  <p style={brandKicker}>Panel · local activo</p>
+                  <p style={brandKicker}>{party ? 'Panel del organizador · la fiesta' : 'Panel · local activo'}</p>
                   {/* El local en grande: con varios locales, que nadie opere en el que no es. */}
                   {/* Hasta que llega el nombre, una silueta del mismo alto: nunca el slug («sala-aurora») antes que el nombre. */}
                   {venue.name || venueSettled ? (
@@ -195,16 +208,16 @@ export function Dashboard({ user, onLogout }: Props) {
             </header>
 
             {missing2fa ? <Missing2faBanner onEnable={() => goTo('security')} /> : null}
-            {isOwner ? <OverdueSettlementsBanner tenantId={user.tenantId} onOpen={() => goTo('oxiopay')} /> : null}
+            {isOwner && !party ? <OverdueSettlementsBanner tenantId={user.tenantId} onOpen={() => goTo('oxiopay')} /> : null}
 
             <TabBar
               tabs={sections}
-              active={section?.key ?? 'hoy'}
+              active={section?.key ?? avisosSection}
               onChange={goToSection}
               ariaLabel="Secciones del panel"
               idPrefix={SECTIONS_ID}
               className="np-tabbar-main"
-              badges={{ hoy: hoyBadge }}
+              badges={{ [avisosSection]: hoyBadge }}
             />
 
             {section ? (
@@ -242,7 +255,7 @@ export function Dashboard({ user, onLogout }: Props) {
             ) : null}
           </main>
 
-          <BottomNav sections={sections} active={section?.key ?? 'hoy'} onChange={goToSection} avisos={avisos} />
+          <BottomNav sections={sections} active={section?.key ?? avisosSection} onChange={goToSection} avisos={avisos} />
           </FichasProvider>
           </SectionsContext.Provider>
         </ApprovalsContext.Provider>
@@ -376,6 +389,19 @@ function ActivePanel(props: ActivePanelProps) {
       return <SecurityPanel user={user} onLogout={props.onLogout} loggingOut={props.loggingOut} />;
     case 'superadmin':
       return user.isSuperAdmin ? <SuperAdminPanel user={user} onNavigate={onNavigate} /> : null;
+    // OxioParty (lib/roles: PARTY_TABS; con OxioPay no salen nunca).
+    case 'live':
+      return <PartyLiveSection onNavigate={onNavigate} />;
+    case 'stalls':
+      return <StallsSection />;
+    case 'wristbands':
+      return <PulserasSection />;
+    case 'partyRefunds':
+      return <DevolucionesSection />;
+    case 'settlement':
+      return <CierreSection />;
+    case 'party':
+      return <PartySettingsSection isOwner={isOwner} />;
   }
 }
 
