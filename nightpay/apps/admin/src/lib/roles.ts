@@ -2,6 +2,13 @@
 // Informes, Ajustes) y, dentro, sus pestañas. Refleja los @Roles del API: lo
 // que es solo del dueño no se enseña al encargado (antes lo veía y todo le
 // daba 403); los informes, solo si el dueño se los deja (Ajustes → Permisos).
+//
+// OxioParty (NEXT_PUBLIC_EDITION=party): otras seis secciones (En directo,
+// Casetas, Pulseras, Devoluciones, Cierre y Ajustes) y nada de lo que es solo
+// de OxioPay (compañeras y sus pagos, invitaciones, habitaciones, bitcoin…).
+
+import type { Edition } from '@nightpay/contracts';
+import { PANEL_EDITION } from './edition';
 
 export type PanelRole = 'OWNER' | 'MANAGER';
 
@@ -10,7 +17,10 @@ export function canUsePanel(role: string | null | undefined): role is PanelRole 
   return role === 'OWNER' || role === 'MANAGER';
 }
 
-export type SectionKey = 'hoy' | 'chicas' | 'clientes' | 'informes' | 'ajustes';
+export type ClubSectionKey = 'hoy' | 'chicas' | 'clientes' | 'informes' | 'ajustes';
+/** Las de OxioParty (Ajustes es la misma: ?s=ajustes en las dos). */
+export type PartySectionKey = 'directo' | 'casetas' | 'pulseras' | 'devoluciones' | 'cierre' | 'ajustes';
+export type SectionKey = ClubSectionKey | PartySectionKey;
 
 /** Pestaña dentro de una sección. */
 export type TabKey =
@@ -34,7 +44,14 @@ export type TabKey =
   | 'permissions'
   | 'alerts'
   | 'security'
-  | 'superadmin';
+  | 'superadmin'
+  // OxioParty.
+  | 'live'
+  | 'stalls'
+  | 'wristbands'
+  | 'partyRefunds'
+  | 'settlement'
+  | 'party';
 
 /**
  *  - staff: dueño y encargado.
@@ -66,9 +83,15 @@ export const SECTION_LABELS: Readonly<Record<SectionKey, string>> = {
   clientes: 'Clientes',
   informes: 'Informes',
   ajustes: 'Ajustes',
+  directo: 'En directo',
+  casetas: 'Casetas',
+  pulseras: 'Pulseras',
+  devoluciones: 'Devoluciones',
+  cierre: 'Cierre',
 };
 
 const SECTION_ORDER: readonly SectionKey[] = ['hoy', 'chicas', 'clientes', 'informes', 'ajustes'];
+const PARTY_SECTION_ORDER: readonly PartySectionKey[] = ['directo', 'casetas', 'pulseras', 'devoluciones', 'cierre', 'ajustes'];
 
 export const PANEL_TABS: readonly PanelTab[] = [
   // Hoy: los cobros en vivo y una sola bandeja (incidencias + «Por aprobar»).
@@ -104,6 +127,39 @@ export const PANEL_TABS: readonly PanelTab[] = [
   { key: 'superadmin', label: 'Super admin', section: 'ajustes', access: 'superadmin' },
 ];
 
+/**
+ * OxioParty: el panel del organizador. Las pestañas genéricas de OxioPay que
+ * sirven en una fiesta (cobros, avisos, formas de cobro sin bitcoin, la
+ * noche, datáfonos, seguridad) van en su sección; lo que es solo de OxioPay
+ * (compañeras y sus pagos, saldos y fichas —ahora pulseras—, informes con la
+ * parte de las compañeras, reglas, invitaciones, habitaciones, permisos y
+ * Telegram de las compañeras) no sale.
+ */
+export const PARTY_TABS: readonly PanelTab[] = [
+  // /v1/party/live: dueño y encargado.
+  { key: 'live', label: 'En directo', section: 'directo', access: 'staff' },
+  { key: 'payments', label: 'Cobros', section: 'directo', access: 'staff' },
+  { key: 'incidents', label: 'Avisos', section: 'directo', access: 'staff' },
+  // /v1/admin/party/stalls y /staff: dueño y encargado.
+  { key: 'stalls', label: 'Casetas', section: 'casetas', access: 'staff' },
+  { key: 'wristbands', label: 'Pulseras', section: 'pulseras', access: 'staff' },
+  { key: 'partyRefunds', label: 'Devoluciones', section: 'devoluciones', access: 'staff' },
+  // /v1/party/settlement: dueño y encargado.
+  { key: 'settlement', label: 'Cierre', section: 'cierre', access: 'staff' },
+  // /v1/admin/party/settings: los dos la ven; solo el dueño la cambia.
+  { key: 'party', label: 'La fiesta', section: 'ajustes', access: 'staff' },
+  { key: 'methods', label: 'Formas de cobro', section: 'ajustes', access: 'owner' },
+  { key: 'night', label: 'Pulseras y PIN', section: 'ajustes', access: 'owner' },
+  { key: 'terminals', label: 'Datáfonos', section: 'ajustes', access: 'staff', needsPos: true },
+  { key: 'security', label: 'Seguridad', section: 'ajustes', access: 'staff' },
+  { key: 'superadmin', label: 'Super admin', section: 'ajustes', access: 'superadmin' },
+];
+
+/** Las pestañas de una edición. */
+export function tabsOf(edition: Edition = PANEL_EDITION): readonly PanelTab[] {
+  return edition === 'party' ? PARTY_TABS : PANEL_TABS;
+}
+
 export interface PanelViewer {
   role: string;
   isSuperAdmin?: boolean;
@@ -113,10 +169,10 @@ export interface PanelViewer {
   posOn?: boolean;
 }
 
-export function visibleTabs(user: PanelViewer): PanelTab[] {
+export function visibleTabs(user: PanelViewer, edition: Edition = PANEL_EDITION): PanelTab[] {
   if (!canUsePanel(user.role)) return [];
   const isOwner = user.role === 'OWNER';
-  return PANEL_TABS.filter((t) => {
+  return tabsOf(edition).filter((t) => {
     if (t.needsPos && user.posOn === false) return false;
     if (t.access === 'owner') return isOwner;
     if (t.access === 'reports') return isOwner || Boolean(user.canSeeReports);
@@ -126,15 +182,16 @@ export function visibleTabs(user: PanelViewer): PanelTab[] {
 }
 
 /** Las secciones con alguna pestaña para este rol, en orden. */
-export function visibleSections(user: PanelViewer): PanelSection[] {
-  const tabs = visibleTabs(user);
-  return SECTION_ORDER.map((key) => ({ key, label: SECTION_LABELS[key], tabs: tabs.filter((t) => t.section === key) })).filter(
+export function visibleSections(user: PanelViewer, edition: Edition = PANEL_EDITION): PanelSection[] {
+  const tabs = visibleTabs(user, edition);
+  const order: readonly SectionKey[] = edition === 'party' ? PARTY_SECTION_ORDER : SECTION_ORDER;
+  return order.map((key) => ({ key, label: SECTION_LABELS[key], tabs: tabs.filter((t) => t.section === key) })).filter(
     (s) => s.tabs.length > 0,
   );
 }
 
-export function sectionOf(key: TabKey): SectionKey {
-  return PANEL_TABS.find((t) => t.key === key)?.section ?? 'hoy';
+export function sectionOf(key: TabKey, edition: Edition = PANEL_EDITION): SectionKey {
+  return tabsOf(edition).find((t) => t.key === key)?.section ?? (edition === 'party' ? 'directo' : 'hoy');
 }
 
 /**
@@ -147,7 +204,8 @@ const LEGACY_TABS: Readonly<Record<string, TabKey>> = {
   settings: 'security',
 };
 
-export function resolveTab(key: string): TabKey | null {
-  if (PANEL_TABS.some((t) => t.key === key)) return key as TabKey;
-  return LEGACY_TABS[key] ?? null;
+export function resolveTab(key: string, edition: Edition = PANEL_EDITION): TabKey | null {
+  if (tabsOf(edition).some((t) => t.key === key)) return key as TabKey;
+  const legacy = LEGACY_TABS[key];
+  return legacy && tabsOf(edition).some((t) => t.key === legacy) ? legacy : null;
 }
