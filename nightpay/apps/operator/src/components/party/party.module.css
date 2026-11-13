@@ -782,6 +782,47 @@
   color: var(--np-text-mute);
 }
 
+/* ─── «Efectivo en esta caja» (taquilla) ─── */
+
+.cashDesk {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 14px;
+  border-radius: var(--np-r-md);
+  background: var(--np-surface);
+  border: 1px solid var(--np-border);
+}
+
+.cashDesk[data-over='true'] {
+  background: var(--np-pill-warning-bg);
+  border-color: transparent;
+}
+
+.cashDeskRow {
+  margin: 0;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+  font-size: var(--np-fs-14);
+  color: var(--np-text-dim);
+}
+
+.cashDeskRow b {
+  font: 700 var(--np-fs-16) / 1.2 var(--np-font-num);
+  color: var(--np-text);
+  font-variant-numeric: tabular-nums;
+}
+
+.cashDeskNote {
+  margin: 0;
+  font-size: var(--np-fs-14);
+  font-weight: 600;
+  color: var(--np-warning);
+}
+
 @media (prefers-reduced-motion: reduce) {
   .tile,
   .cobrar,

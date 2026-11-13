@@ -72,6 +72,7 @@ import {
 import { undoCashTopUp, type CashUndoReason } from '@/lib/cash-undo';
 import { isParty, pulseraText } from '@/lib/edition';
 import { fichaShort, photoHint } from '@/lib/ficha-number';
+import { useCashDesk } from '@/lib/party-cash-desk';
 import { PARTY_DEFAULT_AMOUNT, loadedRows, pulseraCard } from '@/lib/party-taquilla';
 import { placeName, useVenueIdentity } from '@/lib/venue-identity';
 import { handOverOf, loadedHelp } from '@/lib/reception-help';
@@ -86,6 +87,7 @@ import {
   type ReceptionPayoutPlan,
 } from '@/lib/reception-cash-payout';
 import { PinPad } from '../../PinPad';
+import { CashDeskLine } from '../../party/CashDeskLine';
 import { OnlinePill } from '../../party/OnlinePill';
 import { OutcomeRows } from '../../party/PartyPaid';
 import { TaquillaForm } from '../../party/TaquillaForm';
@@ -151,6 +153,9 @@ export function ReceptionDesk({ user, active, footer, onGiveFicha, onScanHome, h
   const { sections } = useMySections();
   const [mode, setMode] = useState<Mode>('entrada');
   const [step, setStep] = useState<Step>({ kind: 'tap' });
+  // OxioParty: «Efectivo en esta caja», pedido otra vez después de cada carga, devolución o anulación.
+  const [cashDeskKey, setCashDeskKey] = useState(0);
+  const cashDesk = useCashDesk(party, cashDeskKey);
   const [options, setOptions] = useState<ReceptionOptions | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -208,6 +213,9 @@ export function ReceptionDesk({ user, active, footer, onGiveFicha, onScanHome, h
   useEffect(() => {
     if (step.kind === 'loaded') home?.onDone();
   }, [step.kind]);
+  useEffect(() => {
+    if (party && (step.kind === 'loaded' || step.kind === 'refunded' || step.kind === 'undone')) setCashDeskKey((n) => n + 1);
+  }, [party, step.kind]);
   const amounts = quickAmounts(night.receptionQuickAmountsCents);
 
   function go(next: Step): void {
@@ -724,6 +732,7 @@ export function ReceptionDesk({ user, active, footer, onGiveFicha, onScanHome, h
 
       {step.kind === 'tap' ? (
         <>
+          {party ? <CashDeskLine desk={cashDesk} /> : null}
           <TapStage
             mode={mode}
             noReader={!nfc.reader.loading && !nfc.reader.via ? noReaderStage(mode) : null}
