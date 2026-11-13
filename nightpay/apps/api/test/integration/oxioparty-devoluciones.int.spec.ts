@@ -288,6 +288,28 @@ describe('pulseras en lote', () => {
     await expect(pulseras.sheet(OTHER, { from: made.first, to: made.last })).rejects.toMatchObject({ status: 404 });
   });
 
+  it('la hoja solo lleva las sin entregar: la que ya tiene saldo no sale (su QR es el enlace de un asistente)', async () => {
+    vi.stubEnv('EDITION', 'party');
+    const made = await pulseras.prepare(actor(), 4);
+    const [given, returned] = [made.first + 1, made.first + 2];
+    await sys(async (tx) => {
+      const w = await tx.clientWallet.create({
+        data: { tenantId: V, balanceCents: 1500, qrToken: `pdev-hoja-${r}-abcdefgh`, shortCode: code6(), walletGroup: `gpdev-${r}` },
+      });
+      await tx.walletCard.update({ where: { number: given }, data: { walletId: w.id, status: 'ISSUED', linkedAt: new Date() } });
+      await tx.walletCard.update({ where: { number: returned }, data: { status: 'RETURNED' } });
+    });
+    const html = await pulseras.sheet(V, { from: made.first, to: made.last });
+    const label = (x: number) => `P-${String(x).padStart(4, '0')}`;
+    expect(html.match(/<svg/g)?.length).toBe(3);
+    expect(html).toContain(label(made.first));
+    expect(html).toContain(label(returned));
+    expect(html).toContain(label(made.last));
+    expect(html).not.toContain(label(given));
+    // Solo la entregada en el rango: nada que imprimir.
+    await expect(pulseras.sheet(V, { from: given, to: given })).rejects.toMatchObject({ status: 404 });
+  });
+
   it('perdida: se bloquea y su saldo pasa a otra del stock (la nueva paga, la vieja no)', async () => {
     vi.stubEnv('EDITION', 'party');
     const w = await wallet(1000);

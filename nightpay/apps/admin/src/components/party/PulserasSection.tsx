@@ -161,7 +161,7 @@ function PrepareCard(props: { onPrepared: () => void }) {
   }
 
   return (
-    <DayCard title="Preparar pulseras" labelId="pa-preparar" aside={<p className="pa-sub">Como mucho 500 de una vez · cada una con su número y su QR</p>}>
+    <DayCard title="Preparar pulseras" labelId="pa-preparar" aside={<p className="pa-sub">Como mucho 500 de una vez · cada una con su número y su QR · en la hoja, solo las que aún no se han entregado</p>}>
       <form className="pa-row" onSubmit={(e) => void prepare(e)}>
         <DayField id="pa-count" label="Cuántas" inputMode="numeric" value={count} onChange={(e) => setCount(e.target.value.replace(/\D/g, '').slice(0, 4))} style={{ width: '8rem' }} />
         <DayButton type="submit" variant="primary" disabled={busy}>

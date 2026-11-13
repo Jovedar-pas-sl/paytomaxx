@@ -108,6 +108,13 @@ export function sheetRange(desde: string | undefined, hasta: string | undefined)
 const NOT_PENDING_CODE: Prisma.WalletCardWhereInput = { NOT: { status: 'STOCK', stockedAt: null } };
 
 /**
+ * Las que salen en la hoja para imprimir: sin entregar (en el stock o
+ * devueltas, sin saldo). El QR lleva el enlace del saldo: el de una entregada
+ * es el de un asistente, y no se imprime.
+ */
+export const SHEET_PRINTABLE: Prisma.WalletCardWhereInput = { walletId: null, status: { in: ['STOCK', 'RETURNED'] } };
+
+/**
  * Las pulseras de OxioParty en el panel (Pulseras): son las fichas NFC del
  * saldo (wallet_cards, sin RLS: el local va siempre explícito, venueId).
  *  - Preparar N de una vez: N códigos nuevos, ya en el stock del local (se
@@ -170,7 +177,7 @@ export class PulserasService {
     return { count: made._count._all, first, last, firstLabel: pulseraLabel(first), lastLabel: pulseraLabel(last) };
   }
 
-  /** La hoja para imprimir: las pulseras del local de un número a otro, con su QR. */
+  /** La hoja para imprimir: las pulseras sin entregar del local de un número a otro, con su QR. */
   async sheet(tenantId: string, range: { from: number; to: number }): Promise<string> {
     const base = operatorAppBaseUrl({
       operatorBaseUrl: this.config.get<string>('OPERATOR_BASE_URL'),
@@ -183,13 +190,13 @@ export class PulserasService {
       this.prisma.venue.findUnique({ where: { id: tenantId }, select: { name: true } }),
       this.prisma.acrossVenues((tx) =>
         tx.walletCard.findMany({
-          where: { venueId: tenantId, number: { gte: range.from, lte: range.to }, ...NOT_PENDING_CODE },
+          where: { venueId: tenantId, number: { gte: range.from, lte: range.to }, AND: [NOT_PENDING_CODE, SHEET_PRINTABLE] },
           orderBy: { number: 'asc' },
           select: { number: true, token: true },
         }),
       ),
     ]);
-    if (cards.length === 0) throw new NotFoundException('No hay pulseras de este local con esos números');
+    if (cards.length === 0) throw new NotFoundException('No hay pulseras sin entregar de este local con esos números');
     const pulseras = await Promise.all(
       cards.map(async (c) => ({
         label: pulseraLabel(c.number),
