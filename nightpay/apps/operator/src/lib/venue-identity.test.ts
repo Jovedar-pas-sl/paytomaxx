@@ -9,12 +9,12 @@ describe('OxioParty: la caseta y el local de quien cobra (GET /v1/venues/me)', (
     });
   });
 
-  it('un API que aún no dice la caseta (o sin ella): solo el local', () => {
+  it('sin caseta: solo el local; sin nada, nada', () => {
     expect(venueIdentityOf({ name: 'Fallas Ruzafa' })).toEqual({ venueName: 'Fallas Ruzafa', stallName: null });
     expect(venueIdentityOf({ name: 'Fallas Ruzafa', stall: null })).toEqual({ venueName: 'Fallas Ruzafa', stallName: null });
-    expect(venueIdentityOf({ name: '  ', stall: { name: 42 } })).toEqual(NO_IDENTITY);
+    expect(venueIdentityOf({ name: '  ', stall: { id: 's1', name: ' ' } })).toEqual(NO_IDENTITY);
+    expect(venueIdentityOf({ name: null, stall: null })).toEqual(NO_IDENTITY);
     expect(venueIdentityOf(null)).toEqual(NO_IDENTITY);
-    expect(venueIdentityOf('x')).toEqual(NO_IDENTITY);
   });
 
   it('la cabecera: la caseta; si no hay, el nombre del local', () => {

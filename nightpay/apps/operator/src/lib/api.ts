@@ -12,6 +12,7 @@ import {
   type ReceptionOptions,
   type SectionCode,
   type StaffQrView,
+  type StallRef,
   type StockOutcome,
   type VenueSection,
 } from '@nightpay/contracts';
@@ -606,13 +607,20 @@ export async function fetchVenueFeed(): Promise<{
   nightSettings: unknown;
   myPost: unknown;
   myRights: unknown;
-  /** OxioParty: el nombre del local y la caseta de quien entra (aún sin tipo: se leen con venueIdentityOf). */
-  name: unknown;
-  stall: unknown;
+  /** OxioParty: el nombre del local y la caseta de quien entra (null: sin caseta). */
+  name: string | null;
+  stall: StallRef | null;
 }> {
   const res = await authedFetch('/v1/venues/me');
   if (!res.ok) throw loadError(res, 'Error cargando el local');
-  const venue = (await res.json()) as { paymentMethods?: unknown; nightSettings?: unknown; myPost?: unknown; myRights?: unknown; name?: unknown; stall?: unknown };
+  const venue = (await res.json()) as {
+    paymentMethods?: unknown;
+    nightSettings?: unknown;
+    myPost?: unknown;
+    myRights?: unknown;
+    name?: string | null;
+    stall?: StallRef | null;
+  };
   return {
     paymentMethods: venue.paymentMethods ?? null,
     nightSettings: venue.nightSettings ?? null,

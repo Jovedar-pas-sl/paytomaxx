@@ -1,33 +1,35 @@
 'use client';
 
 // OxioParty: cómo se llama el sitio donde cobra quien ha entrado. La caseta
-// del personal (stall) la añade el API a GET /v1/venues/me; mientras no
-// llegue (o en un API anterior), el nombre del local. Se lee con cuidado: el
-// campo aún no está en los tipos.
+// del personal (`stall`, StallRef de @nightpay/contracts) llega en
+// GET /v1/venues/me; sin caseta, el nombre del local.
 
 import { createContext, useContext } from 'react';
+import type { StallRef } from '@nightpay/contracts';
 
 export interface VenueIdentity {
   /** El nombre del local (la fiesta o el organizador). */
   venueName: string | null;
-  /** La caseta de quien cobra (null: sin caseta o un API que aún no la dice). */
+  /** La caseta de quien cobra (null: sin caseta). */
   stallName: string | null;
 }
 
 export const NO_IDENTITY: VenueIdentity = { venueName: null, stallName: null };
 
-function text(value: unknown): string | null {
-  return typeof value === 'string' && value.trim() ? value.trim() : null;
+/** Lo que usa de GET /v1/venues/me: el nombre del local y la caseta de quien entra. */
+export interface VenueIdentitySource {
+  name?: string | null;
+  stall?: StallRef | null;
+}
+
+function text(value: string | null | undefined): string | null {
+  return value?.trim() || null;
 }
 
 /** La respuesta de /v1/venues/me → el local y la caseta (lo que falte, null). */
-export function venueIdentityOf(me: unknown): VenueIdentity {
-  if (!me || typeof me !== 'object') return NO_IDENTITY;
-  const stall = (me as { stall?: { name?: unknown } | null }).stall;
-  return {
-    venueName: text((me as { name?: unknown }).name),
-    stallName: stall && typeof stall === 'object' ? text(stall.name) : null,
-  };
+export function venueIdentityOf(me: VenueIdentitySource | null | undefined): VenueIdentity {
+  if (!me) return NO_IDENTITY;
+  return { venueName: text(me.name), stallName: text(me.stall?.name) };
 }
 
 /** El nombre de la cabecera: la caseta; sin ella, el local; sin nada, `fallback`. */

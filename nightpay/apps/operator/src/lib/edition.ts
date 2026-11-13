@@ -1,14 +1,17 @@
 // Edición de la app: OxioPay (de siempre) u OxioParty (fiestas: barras de
 // caseta y taquilla de pulseras). La fija el build con NEXT_PUBLIC_EDITION;
 // solo 'party' enciende OxioParty y cualquier otro valor (o ninguno) es
-// OxioPay, que no cambia en nada. Se lee con el nombre literal para que Next
-// lo ponga al compilar. Más adelante irá a @nightpay/contracts.
+// OxioPay, que no cambia en nada (parseEdition de @nightpay/contracts, la
+// misma regla que el API y el panel). Se lee con el nombre literal para que
+// Next lo ponga al compilar.
 
-export type Edition = 'club' | 'party';
+import { parseEdition, type Edition } from '@nightpay/contracts';
+
+export type { Edition };
 
 /** La edición de un valor de NEXT_PUBLIC_EDITION: solo 'party' es OxioParty. */
 export function editionOf(raw: string | null | undefined): Edition {
-  return raw?.trim().toLowerCase() === 'party' ? 'party' : 'club';
+  return parseEdition(raw);
 }
 
 /** ¿Es OxioParty? (NEXT_PUBLIC_EDITION=party). */
