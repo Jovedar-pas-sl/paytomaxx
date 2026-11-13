@@ -10,7 +10,7 @@ import { normalizeIban } from './superadmin';
 // su sesión y su llave):
 //   GET  /w/:token/sobra              lo que puede pedir, por qué vía y sus peticiones
 //   POST /w/:token/sobra/challenge    reto para su llave (solo si el saldo tiene Face ID)
-//   POST /w/:token/sobra              pedirlo { method, iban?, email?, expectedAmountCents?, response? }
+//   POST /w/:token/sobra              pedirlo { method, iban?, holderName?, email?, expectedAmountCents?, response? }
 // El organizador (dueño y encargado):
 //   GET  /v1/admin/party/refunds?status=&method=      la lista con los totales
 //   POST /v1/admin/party/refunds/:id/done             «Hecha» (tarjeta: ya devuelta en el banco; transferencia: ya enviada)
@@ -89,10 +89,39 @@ const RefundEmailSchema = z
   .refine((v) => v === '' || z.string().email().safeParse(v).success, 'Ese correo no es válido')
   .transform((v) => (v === '' ? null : v));
 
+/** El nombre del titular de la cuenta: va en la transferencia (el banco lo compara con el IBAN). Tope de SEPA: 70. */
+export const REFUND_HOLDER_MAX = 70;
+
+/** Sin caracteres de control ni espacios de más (NFC: «Peña» siempre igual). */
+export function cleanHolderName(raw: string): string {
+  return raw
+    .normalize('NFC')
+    .replace(/\p{Cc}|\p{Cf}/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/** Letras (con tildes y ñ), espacios y . , ' ’ - (como en un nombre o una razón social). */
+const HOLDER_RE = /^\p{L}[\p{L}\p{M} .,'’-]*$/u;
+
+export const RefundHolderSchema = z
+  .string()
+  .max(200)
+  .transform(cleanHolderName)
+  .pipe(
+    z
+      .string()
+      .min(2, 'Escribe el nombre del titular de la cuenta, como sale en tu banco')
+      .max(REFUND_HOLDER_MAX, `El nombre del titular, como mucho ${REFUND_HOLDER_MAX} letras`)
+      .regex(HOLDER_RE, 'El nombre del titular, solo con letras, como sale en tu banco'),
+  );
+
 export const PartyRefundAskSchema = z
   .object({
     method: PartyRefundMethodSchema,
     iban: RefundIbanSchema.nullable().optional(),
+    /** El titular de la cuenta (solo con la transferencia, y siempre con ella). */
+    holderName: RefundHolderSchema.nullable().optional(),
     email: RefundEmailSchema.nullable().optional(),
     /** El importe que vio el asistente: si ya es otro, 409 REFUND_AMOUNT_CHANGED en vez de pedir otra cosa. */
     expectedAmountCents: z.number().int().positive().max(100_000_000).optional(),
@@ -100,6 +129,10 @@ export const PartyRefundAskSchema = z
   .superRefine((v, ctx) => {
     if (v.method === 'TRANSFER' && !v.iban) ctx.addIssue({ code: 'custom', path: ['iban'], message: 'Escribe tu IBAN para la transferencia' });
     if (v.method !== 'TRANSFER' && v.iban) ctx.addIssue({ code: 'custom', path: ['iban'], message: 'El IBAN solo va con la transferencia' });
+    if (v.method === 'TRANSFER' && !v.holderName) {
+      ctx.addIssue({ code: 'custom', path: ['holderName'], message: 'Escribe el nombre del titular de la cuenta, como sale en tu banco' });
+    }
+    if (v.method !== 'TRANSFER' && v.holderName) ctx.addIssue({ code: 'custom', path: ['holderName'], message: 'El titular solo va con la transferencia' });
   });
 export type PartyRefundAskDto = z.infer<typeof PartyRefundAskSchema>;
 
@@ -151,8 +184,14 @@ export interface PartyRefundRow {
   pulsera: string | null;
   /** El código del saldo (K7Q-4M2). */
   walletCode: string | null;
-  /** Tapado («ES91 •••• •••• 1332»): el entero, solo en el CSV para el banco. */
+  /**
+   * Tapado («ES91 •••• •••• 1332»): el entero, solo en el CSV y el SEPA para
+   * el banco. El IBAN, el titular y el correo, solo mientras está pendiente:
+   * hecha o anulada, se borran (null).
+   */
   ibanHint: string | null;
+  /** El titular de la cuenta (transferencia pendiente). */
+  holderName: string | null;
   email: string | null;
 }
 

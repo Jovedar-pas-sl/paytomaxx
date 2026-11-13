@@ -35,9 +35,9 @@ function input(extra: Partial<RefundSepaInput> = {}): RefundSepaInput {
     brand: 'OxioParty',
     debtor: { name: 'Comisión de Fiestas San Juan', iban: DEBTOR_IBAN },
     transfers: [
-      { id: ID_A, amountCents: 500, iban: IBAN_A, pulsera: 'P-0412' },
-      { id: ID_B, amountCents: 1_234, iban: IBAN_B, pulsera: null },
-      { id: ID_C, amountCents: 99_999, iban: IBAN_A, pulsera: 'P-0007' },
+      { id: ID_A, amountCents: 500, iban: IBAN_A, holderName: 'Ana Pérez Núñez', pulsera: 'P-0412' },
+      { id: ID_B, amountCents: 1_234, iban: IBAN_B, holderName: 'Jordi Puig i Ferrer', pulsera: null },
+      { id: ID_C, amountCents: 99_999, iban: IBAN_A, holderName: 'Ana Pérez Núñez', pulsera: 'P-0007' },
     ],
     ...extra,
   };
@@ -55,7 +55,7 @@ describe('refundTransfersSepa (puro)', () => {
   });
 
   it('una sola: NbOfTxs 1 y CtrlSum su importe', () => {
-    const file = refundTransfersSepa(input({ transfers: [{ id: ID_A, amountCents: 1, iban: IBAN_A, pulsera: 'P-0412' }] }));
+    const file = refundTransfersSepa(input({ transfers: [{ id: ID_A, amountCents: 1, iban: IBAN_A, holderName: 'Ana Pérez', pulsera: 'P-0412' }] }));
     expect(all(file.xml, 'NbOfTxs')).toEqual(['1', '1']);
     expect(all(file.xml, 'CtrlSum')).toEqual(['0.01', '0.01']);
   });
@@ -67,10 +67,10 @@ describe('refundTransfersSepa (puro)', () => {
     expect(all(xml, 'ReqdExctnDt')).toEqual(['2027-06-30']);
   });
 
-  it('cada una con el id de la petición como referencia, sin datos del asistente más allá de la pulsera', () => {
-    expect(refundTransfer({ id: ID_A, amountCents: 500, iban: IBAN_A, pulsera: 'P-0412' }, 'OxioParty')).toEqual({
+  it('cada una a nombre del titular (el banco lo compara con el IBAN) y con el id de la petición como referencia', () => {
+    expect(refundTransfer({ id: ID_A, amountCents: 500, iban: IBAN_A, holderName: 'Ana Pérez Núñez', pulsera: 'P-0412' }, 'OxioParty')).toEqual({
       endToEndId: ID_A.replace(/-/g, ''),
-      creditorName: 'Asistente OxioParty P-0412',
+      creditorName: 'Ana Pérez Núñez',
       creditorIban: IBAN_A,
       amountCents: 500,
       remittance: 'Devolución OxioParty P-0412',
@@ -78,7 +78,10 @@ describe('refundTransfersSepa (puro)', () => {
     const { xml } = refundTransfersSepa(input());
     expect(all(xml, 'EndToEndId')).toEqual([ID_A, ID_B, ID_C].map((id) => id.replace(/-/g, '')));
     expect(all(xml, 'Ustrd')).toEqual(['Devolucion OxioParty P-0412', `Devolucion OxioParty ${ID_B.slice(0, 8)}`, 'Devolucion OxioParty P-0007']);
-    expect(all(xml, 'Nm')).toContain('Asistente OxioParty');
+    // El titular, al juego de caracteres de SEPA (sin tildes) y por cada transferencia.
+    expect(all(xml, 'Nm').slice(-3)).toEqual(['Ana Perez Nunez', 'Jordi Puig i Ferrer', 'Ana Perez Nunez']);
+    // Sin titular (no debería: la base lo exige en una pendiente), el de siempre.
+    expect(refundTransfer({ id: ID_A, amountCents: 500, iban: IBAN_A, holderName: null, pulsera: 'P-0412' }, 'OxioParty').creditorName).toBe('Asistente OxioParty P-0412');
   });
 
   it('sin transferencias, no hay fichero', () => {
@@ -100,6 +103,7 @@ function pending(id: string, amountCents: number, iban: string, walletId = `w-${
     amountCents,
     method: 'TRANSFER',
     iban,
+    holderName: walletId === 'w-a' ? 'Ana Pérez Núñez' : 'Jordi Puig i Ferrer',
     email: null,
     status: 'PENDING',
     createdAt: NOW,
@@ -147,6 +151,7 @@ describe('PartyRefundsService.transfersSepa', () => {
     expect(all(file.xml, 'CtrlSum')).toEqual(['17.34', '17.34']);
     expect(all(file.xml, 'IBAN')).toEqual([DEBTOR_IBAN, IBAN_A, IBAN_B]);
     expect(all(file.xml, 'Nm')[0]).toBe('Comision San Juan');
+    expect(all(file.xml, 'Nm').slice(-2)).toEqual(['Ana Perez Nunez', 'Jordi Puig i Ferrer']);
     expect(file.xml).toContain('Devolucion OxioParty P-0412');
     expect(file.messageId).toMatch(/^OXPD20270630081500[0-9A-F]{6}$/);
     // El registro, en la misma transacción que la comprobación, con las peticiones que lleva.
@@ -160,8 +165,9 @@ describe('PartyRefundsService.transfersSepa', () => {
       targetId: T,
       payload: { messageId: file.messageId, transfers: 2, totalCents: 1_734, ids: [ID_A, ID_B] },
     });
-    // En el registro no van los IBAN.
+    // En el registro no van ni los IBAN ni los titulares.
     expect(JSON.stringify(audit.logInTx.mock.calls[0]![1])).not.toContain(IBAN_A);
+    expect(JSON.stringify(audit.logInTx.mock.calls[0]![1])).not.toContain('Ana');
   });
 
   it('con alguna ya en un fichero descargado antes: 409 ALREADY_EXPORTED con cuándo y quién; con again, otra vez', async () => {

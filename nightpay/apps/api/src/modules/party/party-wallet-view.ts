@@ -132,6 +132,7 @@ ${opt('DONATE', t.donate, t.donateNote)}
 </fieldset>
 <p class="sbwhy" id="sobraFace" hidden>${h(t.faceIdNeeded)}</p>
 <div class="field" id="ibanBox" hidden><label for="sobraIban">${h(t.iban)}</label><input id="sobraIban" type="text" autocomplete="off" autocapitalize="characters" spellcheck="false" inputmode="text" maxlength="42" placeholder="ES00 0000 0000 0000 0000 0000"></div>
+<div class="field" id="holderBox" hidden><label for="sobraHolder">${h(t.holder)}</label><input id="sobraHolder" type="text" autocomplete="name" autocapitalize="words" spellcheck="false" maxlength="70"></div>
 <div class="field"><label for="sobraMail">${h(t.mail)}</label><input id="sobraMail" type="email" autocomplete="email" maxlength="254" placeholder="nombre@correo.com"></div>
 <p class="err" id="sobraErr" role="alert" hidden></p>
 <span class="grow"></span>
@@ -173,7 +174,7 @@ var P=C.party,PT=P.text,SB={m:null};
 function pDay(d){try{return new Date(d+'T12:00:00Z').toLocaleDateString(C.locale,{day:'numeric',month:'long',timeZone:'UTC'});}catch(e){return d;}}
 function pRange(a,b){if(!a)return '';try{var f=new Intl.DateTimeFormat(C.locale,{day:'numeric',month:'long',timeZone:'Europe/Madrid'}),x=new Date(a);
  if(!b)return f.format(x);var y=new Date(b);return f.formatRange?f.formatRange(x,y):f.format(x)+' – '+f.format(y);}catch(e){return '';}}
-function pErr(e){var k=e&&e.code;if(k==='REFUND_INVALID')return e.reason==='iban'?PT.ibanBad:e.reason==='email'?PT.mailBad:PT.err.REFUND_INVALID;
+function pErr(e){var k=e&&e.code;if(k==='REFUND_INVALID')return e.reason==='iban'?PT.ibanBad:e.reason==='holderName'?PT.holderBad:e.reason==='email'?PT.mailBad:PT.err.REFUND_INVALID;
  if(k&&Object.prototype.hasOwnProperty.call(PT.err,k))return PT.err[k];return msg(e);}
 function ibanOk(v){if(!/^[A-Z]{2}[0-9]{2}[A-Z0-9]{11,30}$/.test(v))return false;var r=v.slice(4)+v.slice(0,4),m=0;
  for(var i=0;i<r.length;i++){var c=r.charCodeAt(i),d=c>=65?c-55:c-48;m=(d>9?m*100+d:m*10+d)%97;}return m===1;}
@@ -199,7 +200,7 @@ function sbAvail(){return ['CARD','TRANSFER','DONATE'].filter(sbOk);}
 function sbMark(){Array.prototype.forEach.call(document.querySelectorAll('input[name=sobraHow]'),function(r){r.checked=r.value===SB.m;r.parentNode.classList.toggle('on',r.checked);});}
 function sbShow(w){$('sobraForm').hidden=w!=='form';$('sobraNone').hidden=w!=='none';$('sobraOk').hidden=w!=='ok';}
 function sbUpd(){var A=P.refund.available,c=SB.m?A[SB.m]:0,b=$('sobraGo'),label=fill(SB.m==='DONATE'?PT.give:PT.ask,'amount',eurPay(c));
- $('ibanBox').hidden=SB.m!=='TRANSFER';b.setAttribute('data-label',label);if(!busy)b.textContent=label;}
+ $('ibanBox').hidden=SB.m!=='TRANSFER';$('holderBox').hidden=SB.m!=='TRANSFER';b.setAttribute('data-label',label);if(!busy)b.textContent=label;}
 function sbWhy(){var R=P.refund,p=$('sobraWhy');p.textContent='';
  if(S.pulsera)p.appendChild(document.createTextNode(fill(PT.pulsera,'n',S.pulsera)+'. '));
  if(R.deadline){var parts=PT.sobraUntil.split('{date}'),st=document.createElement('strong');st.textContent=pDay(R.deadline);
@@ -218,14 +219,15 @@ $('pSobra').addEventListener('click',function(){show('sobraErr','');sbFill();ope
 $('sobraOpts').addEventListener('change',function(e){var r=e.target;if(!r||r.name!=='sobraHow')return;SB.m=r.value;sbMark();show('sobraErr','');sbUpd();if(SB.m==='TRANSFER')$('sobraIban').focus();});
 $('sobraGo').addEventListener('click',function(){var b=$('sobraGo');if(busy||!SB.m)return;show('sobraErr','');
  var m=SB.m,c=P.refund.available[m],body={method:m,expectedAmountCents:c},mail=$('sobraMail').value.trim();
- if(m==='TRANSFER'){var ib=$('sobraIban').value.toUpperCase().replace(/[^A-Z0-9]/g,'');if(!ibanOk(ib)){show('sobraErr',PT.ibanBad);$('sobraIban').focus();return;}body.iban=ib;}
+ if(m==='TRANSFER'){var ib=$('sobraIban').value.toUpperCase().replace(/[^A-Z0-9]/g,'');if(!ibanOk(ib)){show('sobraErr',PT.ibanBad);$('sobraIban').focus();return;}body.iban=ib;
+  var hn=$('sobraHolder').value.replace(/ +/g,' ').trim();if(hn.length<2){show('sobraErr',PT.holderBad);$('sobraHolder').focus();return;}body.holderName=hn;}
  if(mail){if(!/^[^@ ]+@[^@ ]+[.][^@ ]+$/.test(mail)){show('sobraErr',PT.mailBad);$('sobraMail').focus();return;}body.email=mail;}
  if(S.hasFaceId&&!pkSupported()){show('sobraErr',T.faceIdNeeded);return;}
  busy=true;busyBtn(b,true,S.hasFaceId?T.unlockWaiting:T.sending);
  withKey('/sobra',body).then(function(v){P.refund=v;var give=m==='DONATE';
    $('sobraOkT').textContent=give?PT.thanksTitle:PT.okTitle;
    $('sobraOkX').textContent=fill(give?PT.thanksText:mail?PT.okTextMail:PT.okText,'amount',eurPay(c));
-   $('sobraIban').value='';sbShow('ok');busy=false;busyBtn(b,false);refresh();})
+   $('sobraIban').value='';$('sobraHolder').value='';sbShow('ok');busy=false;busyBtn(b,false);refresh();})
   .catch(function(e){busy=false;busyBtn(b,false);if(!pkCancelled(e))show('sobraErr',pErr(e));if(e&&(e.code==='REFUND_AMOUNT_CHANGED'||e.code==='REFUND_METHOD_UNAVAILABLE'))sbLoad();});});
 $('pTop').addEventListener('click',function(){if(topCan(S)){setView('top',true);$('seg').scrollIntoView({block:'start'});}else toast(P.refund.locked?PT.topUpLocked:T.topUpOff);});
 $('pLost').addEventListener('click',function(){$('pLostCode').textContent=S.code;

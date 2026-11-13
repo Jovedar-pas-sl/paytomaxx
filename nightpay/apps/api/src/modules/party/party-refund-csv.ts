@@ -12,12 +12,14 @@ export interface TransferCsvRow {
   createdAt: Date;
   amountCents: number;
   iban: string;
+  /** El titular de la cuenta (lo que pide el banco junto al IBAN). */
+  holderName: string | null;
   email: string | null;
   pulsera: string | null;
   walletCode: string | null;
 }
 
-export const TRANSFERS_CSV_HEADER = ['Pedida el', 'Hora', 'Pulsera', 'Código del saldo', 'Importe', 'IBAN', 'Concepto', 'Correo', 'Referencia'] as const;
+export const TRANSFERS_CSV_HEADER = ['Pedida el', 'Hora', 'Pulsera', 'Código del saldo', 'Importe', 'Titular', 'IBAN', 'Concepto', 'Correo', 'Referencia'] as const;
 
 /** «Devolución OxioParty P-0412»: el concepto de la transferencia (sin datos del asistente). */
 export function transferConcept(brand: string, pulsera: string | null, id: string): string {
@@ -33,6 +35,7 @@ export function transfersCsv(rows: ReadonlyArray<TransferCsvRow>, brand: string)
       code(r.pulsera),
       code(r.walletCode),
       money(r.amountCents),
+      text(r.holderName),
       code(r.iban),
       text(transferConcept(brand, r.pulsera, r.id)),
       text(r.email),

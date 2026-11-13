@@ -19,6 +19,7 @@ const refund = (o: Partial<PartyRefundRow>): PartyRefundRow => ({
   pulsera: 'P-0412',
   walletCode: 'K7Q-4M2',
   ibanHint: null,
+  holderName: null,
   email: null,
   ...o,
 });
@@ -48,7 +49,7 @@ describe('Devoluciones con datos', () => {
         onAct={() => undefined}
         rows={[
           refund({ id: 'a' }),
-          refund({ id: 'b', method: 'TRANSFER', ibanHint: 'ES91 •••• •••• 1332', email: 'ana@correo.es' }),
+          refund({ id: 'b', method: 'TRANSFER', ibanHint: 'ES91 •••• •••• 1332', holderName: 'Ana Pérez Núñez', email: 'ana@correo.es' }),
           refund({ id: 'c', method: 'DONATE', status: 'DONE', doneAt: '2027-06-25T09:00:00.000Z' }),
           refund({ id: 'd', status: 'DONE', doneAt: '2027-06-26T10:00:00.000Z', doneByName: 'Lola' }),
         ]}
@@ -57,6 +58,7 @@ describe('Devoluciones con datos', () => {
     expect(html.match(/>Hecha<\/button>/g)).toHaveLength(2);
     expect(html.match(/>Anular<\/button>/g)).toHaveLength(2);
     expect(html).toContain('ES91 •••• •••• 1332');
+    expect(html).toContain('Ana Pérez Núñez');
     expect(html).toContain('Donado');
     expect(html).toContain('· Lola');
     expect(html).not.toContain('ES9121000418450200051332');

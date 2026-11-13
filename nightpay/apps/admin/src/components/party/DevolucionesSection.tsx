@@ -132,8 +132,9 @@ function Devoluciones() {
         }
       >
         <p className="pa-note">
-          El fichero SEPA lleva todas las transferencias pendientes para subirlas a tu banco de una vez, desde la cuenta del local. El CSV trae las mismas con el IBAN
-          entero, el importe y el concepto («Devolución … P-0412»), por si las haces a mano. Después, márcalas «Hecha» aquí.
+          El fichero SEPA lleva todas las transferencias pendientes para subirlas a tu banco de una vez, desde la cuenta del local, a nombre del titular que
+          escribió cada asistente. El CSV trae las mismas con el titular, el IBAN entero, el importe y el concepto («Devolución … P-0412»), por si las haces a mano.
+          Después, márcalas «Hecha» aquí: al hacerla o anularla se borran su IBAN, el titular y el correo.
         </p>
       </DayCard>
 
@@ -196,6 +197,7 @@ export function RefundTable(props: { rows: PartyRefundRow[]; tz: string; disable
                 </td>
                 <td>
                   {refundMethodLabel(r.method)}
+                  {r.holderName ? <div className="dim">{r.holderName}</div> : null}
                   {r.ibanHint ? <div className="dim">{r.ibanHint}</div> : null}
                   {r.email ? <div className="dim">{r.email}</div> : null}
                 </td>

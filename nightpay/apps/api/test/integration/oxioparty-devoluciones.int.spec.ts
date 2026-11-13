@@ -37,6 +37,7 @@ const sys = <T>(fn: (tx: Parameters<Parameters<PrismaService['asSystem']>[0]>[0]
 
 const r = randomUUID().slice(0, 6);
 const IBAN = 'ES9121000418450200051332';
+const HOLDER = 'Ana Pérez Núñez';
 let V: string, OTHER: string, owner: string, toni: string;
 let n = 0;
 const actor = () => ({ userId: owner, role: 'OWNER' as const, tenantId: V, email: `org-${r}@x.es` });
@@ -135,7 +136,7 @@ describe('«Lo que sobra» con EDITION=party', () => {
 
     // La tarjeta ya está pedida; la transferencia, con su IBAN, sí.
     await expect(refunds.ask(w.id, { method: 'CARD' })).rejects.toMatchObject({ response: expect.objectContaining({ code: 'REFUND_METHOD_UNAVAILABLE' }) });
-    const both = await refunds.ask(w.id, { method: 'TRANSFER', iban: IBAN });
+    const both = await refunds.ask(w.id, { method: 'TRANSFER', iban: IBAN, holderName: HOLDER });
     expect(both).toMatchObject({ locked: true, available: { CARD: 0, TRANSFER: 0, DONATE: 0 } });
     expect(both.requests.find((q) => q.method === 'TRANSFER')).toMatchObject({ amountCents: 500, ibanHint: 'ES91 •••• •••• 1332' });
 
@@ -144,13 +145,16 @@ describe('«Lo que sobra» con EDITION=party', () => {
     const card = list.rows.find((x) => x.method === 'CARD')!;
     expect(card).toMatchObject({ amountCents: 800, pulsera: `P-${String(w.number).padStart(4, '0')}`, email: 'ana@correo.es' });
     const done = await refunds.markDone(actor(), card.id);
-    expect(done).toMatchObject({ status: 'DONE', doneByName: 'Lola' });
+    // Hecha: sin el correo (el justificante ya salió con él).
+    expect(done).toMatchObject({ status: 'DONE', doneByName: 'Lola', email: null, ibanHint: null, holderName: null });
+    expect(mail.send).toHaveBeenLastCalledWith(expect.objectContaining({ to: 'ana@correo.es', subject: expect.stringMatching(/Hecho/) }));
     expect(await walletRow(w.id)).toMatchObject({ balanceCents: 500, status: 'ACTIVE', blockedReason: PARTY_REFUND_BLOCK_REASON });
     await expect(refunds.markDone(actor(), card.id)).rejects.toMatchObject({ response: expect.objectContaining({ code: 'REFUND_NOT_PENDING' }) });
 
-    // El CSV de las transferencias pendientes lleva el IBAN entero.
+    // El CSV de las transferencias pendientes lleva el titular y el IBAN entero.
     const csv = await refunds.transfersCsv(V);
     expect(csv).toContain(IBAN);
+    expect(csv).toContain(HOLDER);
     expect(csv).toContain('5,00');
 
     // Anular la transferencia: no sale nada y el saldo vuelve a pagar.
@@ -225,6 +229,42 @@ describe('«Lo que sobra» con EDITION=party', () => {
     await expect(refunds.ask(w.id, { method: 'CARD', expectedAmountCents: 1500 })).resolves.toMatchObject({ locked: true });
   });
 
+  it('datos del asistente: al hacerla o anularla se borran el IBAN, el titular y el correo; el registro no los lleva; donar no guarda el correo', async () => {
+    vi.stubEnv('EDITION', 'party');
+    const stored = (walletId: string) =>
+      sys((tx) => tx.partyRefundRequest.findMany({ where: { walletId }, select: { id: true, status: true, iban: true, holderName: true, email: true } }));
+    const logged = (id: string) => sys((tx) => tx.auditEvent.findMany({ where: { targetType: 'PartyRefundRequest', targetId: id } }));
+
+    // Pedida: lo justo para hacerla (IBAN, titular y, si quiso, el correo).
+    const a = await wallet(900, 900);
+    await refunds.ask(a.id, { method: 'TRANSFER', iban: IBAN, holderName: HOLDER, email: 'ana@correo.es' });
+    const [pending] = await stored(a.id);
+    expect(pending).toMatchObject({ status: 'PENDING', iban: IBAN, holderName: HOLDER, email: 'ana@correo.es' });
+    // Hecha: se borra todo; el justificante sale igual, con el IBAN tapado.
+    mail.send.mockClear();
+    await refunds.markDone(actor(), pending!.id);
+    expect(await stored(a.id)).toEqual([{ id: pending!.id, status: 'DONE', iban: null, holderName: null, email: null }]);
+    expect(mail.send).toHaveBeenCalledWith(expect.objectContaining({ to: 'ana@correo.es', text: expect.stringContaining('ES91 •••• •••• 1332') }));
+    // Anulada: igual.
+    const b = await wallet(600, 600);
+    await refunds.ask(b.id, { method: 'TRANSFER', iban: IBAN, holderName: 'Jordi Puig i Ferrer', email: 'jordi@correo.es' });
+    const [other] = await stored(b.id);
+    await refunds.cancel(actor(), other!.id);
+    expect(await stored(b.id)).toEqual([{ id: other!.id, status: 'CANCELED', iban: null, holderName: null, email: null }]);
+    // En el registro (que no se puede borrar), ni el IBAN, ni el titular, ni el correo.
+    for (const ev of [...(await logged(pending!.id)), ...(await logged(other!.id))]) {
+      const text = JSON.stringify(ev.payload);
+      for (const secret of [IBAN, '1332', HOLDER, 'Pérez', 'Jordi', 'correo.es']) expect(text).not.toContain(secret);
+    }
+    expect((await logged(pending!.id)).map((e) => e.action).sort()).toEqual(['party.refund.done', 'party.refund.requested']);
+    // Donar se hace al momento: su correo no se guarda, pero el justificante le llega.
+    mail.send.mockClear();
+    const c = await wallet(300);
+    await refunds.ask(c.id, { method: 'DONATE', email: 'lu@correo.es' });
+    expect(await stored(c.id)).toEqual([expect.objectContaining({ status: 'DONE', email: null, iban: null, holderName: null })]);
+    expect(mail.send).toHaveBeenCalledWith(expect.objectContaining({ to: 'lu@correo.es' }));
+  });
+
   it('el panel de un local no ve las de otro', async () => {
     const other = await refunds.list(OTHER);
     expect(other.rows).toEqual([]);
@@ -244,10 +284,10 @@ describe('el fichero SEPA de las transferencias pendientes', () => {
     const b = await wallet(1250, 1250);
     const c = await wallet(900);
     const d = await wallet(300, 300);
-    await refunds.ask(a.id, { method: 'TRANSFER', iban: IBAN });
-    await refunds.ask(b.id, { method: 'TRANSFER', iban: IBAN_2 });
+    await refunds.ask(a.id, { method: 'TRANSFER', iban: IBAN, holderName: HOLDER });
+    await refunds.ask(b.id, { method: 'TRANSFER', iban: IBAN_2, holderName: 'Jordi Puig i Ferrer' });
     await refunds.ask(c.id, { method: 'CARD' });
-    await refunds.ask(d.id, { method: 'TRANSFER', iban: IBAN });
+    await refunds.ask(d.id, { method: 'TRANSFER', iban: IBAN, holderName: HOLDER });
     const ids = await sys(async (tx) =>
       Object.fromEntries(
         (await tx.partyRefundRequest.findMany({ where: { walletId: { in: [a.id, b.id, c.id, d.id] } }, select: { id: true, walletId: true } })).map((x) => [
@@ -280,6 +320,8 @@ describe('el fichero SEPA de las transferencias pendientes', () => {
       expect(tags(file.xml, 'EndToEndId')).not.toContain(e2e(ids[c.id]!));
       expect(tags(file.xml, 'EndToEndId')).not.toContain(e2e(ids[d.id]!));
       expect(file.xml).toContain(IBAN_2);
+      // A nombre del titular de cada una (el banco compara nombre e IBAN).
+      expect(tags(file.xml, 'Nm')).toEqual(expect.arrayContaining(['Ana Perez Nunez', 'Jordi Puig i Ferrer']));
       // No marca nada: siguen pendientes.
       expect(await sys((tx) => tx.partyRefundRequest.count({ where: { id: { in: [ids[a.id]!, ids[b.id]!] }, status: 'PENDING' } }))).toBe(2);
       const logged = await sys((tx) => tx.auditEvent.findFirst({ where: { tenantId: V, action: 'party.refunds.sepa_exported' }, orderBy: { occurredAt: 'desc' } }));
@@ -293,7 +335,7 @@ describe('el fichero SEPA de las transferencias pendientes', () => {
       });
       // Una nueva junto a las de antes también avisa (las de antes irían dos veces).
       const e = await wallet(400, 400);
-      await refunds.ask(e.id, { method: 'TRANSFER', iban: IBAN });
+      await refunds.ask(e.id, { method: 'TRANSFER', iban: IBAN, holderName: HOLDER });
       await expect(inVenue(V, () => refunds.transfersSepa(actor()))).rejects.toMatchObject({ response: expect.objectContaining({ code: 'ALREADY_EXPORTED' }) });
       // A propósito (el panel lo confirma): sale con todas, y queda en el registro como repetido.
       const again = await inVenue(V, () => refunds.transfersSepa(actor(), new Date(), { again: true }));
@@ -393,9 +435,19 @@ describe('la base', () => {
     const w = await wallet(100);
     const row = (data: Record<string, unknown>) =>
       sys((tx) => tx.partyRefundRequest.create({ data: { tenantId: V, walletId: w.id, amountCents: 100, method: 'CARD', ...data } as never }));
-    await expect(row({ method: 'TRANSFER' })).rejects.toThrow(/party_refund_requests_iban_check/);
+    await expect(row({ method: 'TRANSFER', holderName: HOLDER })).rejects.toThrow(/party_refund_requests_iban_check/);
     await expect(row({ method: 'CARD', iban: IBAN })).rejects.toThrow(/party_refund_requests_iban_check/);
-    await expect(row({ method: 'TRANSFER', iban: 'es91 2100' })).rejects.toThrow(/party_refund_requests_iban_check/);
+    await expect(row({ method: 'TRANSFER', iban: 'es91 2100', holderName: HOLDER })).rejects.toThrow(/party_refund_requests_iban_check/);
+    // El titular, igual: siempre en una transferencia pendiente, nunca en otra cosa, y no vacío.
+    await expect(row({ method: 'TRANSFER', iban: IBAN })).rejects.toThrow(/party_refund_requests_holder_check/);
+    await expect(row({ method: 'CARD', holderName: HOLDER })).rejects.toThrow(/party_refund_requests_holder_check/);
+    await expect(row({ method: 'TRANSFER', iban: IBAN, holderName: '  ' })).rejects.toThrow(/party_refund_requests_holder_check/);
+    await expect(row({ method: 'TRANSFER', iban: IBAN, holderName: HOLDER })).resolves.toMatchObject({ holderName: HOLDER });
+    // Hecha o anulada: sin datos del asistente (sin IBAN ni titular sí vale).
+    const done = { status: 'DONE', doneAt: new Date() };
+    await expect(row({ method: 'TRANSFER', iban: IBAN, holderName: HOLDER, ...done })).rejects.toThrow(/party_refund_requests_personal_data_check/);
+    await expect(row({ method: 'CARD', email: 'ana@correo.es', status: 'CANCELED' })).rejects.toThrow(/party_refund_requests_personal_data_check/);
+    await expect(row({ method: 'TRANSFER', ...done })).resolves.toMatchObject({ iban: null, holderName: null, email: null });
     await expect(row({ method: 'BIZUM' })).rejects.toThrow(/party_refund_requests_method_check/);
     await expect(row({ status: 'DONE' })).rejects.toThrow(/party_refund_requests_done_check/);
     await expect(row({ amountCents: 0 })).rejects.toThrow(/party_refund_requests_amount_check/);

@@ -77,6 +77,7 @@ const REQUEST_SELECT = {
   amountCents: true,
   method: true,
   iban: true,
+  holderName: true,
   email: true,
   status: true,
   createdAt: true,
@@ -223,14 +224,18 @@ export class PartyRefundsService {
           now,
         });
         if (!plan.ok) throw conflict(plan.code, plan.message);
+        const transfer = dto.method === 'TRANSFER';
         const row = await tx.partyRefundRequest.create({
           data: {
             tenantId: wallet.tenantId,
             walletId,
             amountCents: plan.amountCents,
             method: dto.method,
-            iban: dto.method === 'TRANSFER' ? (dto.iban ?? null) : null,
-            email: dto.email ?? null,
+            // Del asistente, lo mínimo y solo mientras está pendiente: donar se
+            // hace ya, así que su correo (para el justificante) no se guarda.
+            iban: transfer ? (dto.iban ?? null) : null,
+            holderName: transfer ? (dto.holderName ?? null) : null,
+            email: plan.doneNow ? null : (dto.email ?? null),
             status: plan.doneNow ? 'DONE' : 'PENDING',
             ...(plan.doneNow ? { doneAt: now } : {}),
           },
@@ -250,7 +255,8 @@ export class PartyRefundsService {
           targetId: row.id,
           payload: { walletId, method: dto.method, amountCents: plan.amountCents, withEmail: Boolean(dto.email) },
         });
-        return { row, venueName: venue.name, pulsera: await walletPulsera(tx, walletId) };
+        // El justificante va al correo que dio, aunque (donado) ya no se guarde.
+        return { row: { ...row, email: dto.email ?? null }, venueName: venue.name, pulsera: await walletPulsera(tx, walletId) };
       });
     } catch (err) {
       // La misma vía pedida a la vez dos veces: la otra ya la pidió.
@@ -314,6 +320,7 @@ export class PartyRefundsService {
         createdAt: r.createdAt,
         amountCents: r.amountCents,
         iban: r.iban ?? '',
+        holderName: r.holderName,
         email: r.email,
         pulsera: views[i]?.pulsera ?? null,
         walletCode: views[i]?.walletCode ?? null,
@@ -348,6 +355,7 @@ export class PartyRefundsService {
         id: r.id,
         amountCents: r.amountCents,
         iban: r.iban as string,
+        holderName: r.holderName,
         pulsera: views[i]?.pulsera ?? null,
       }));
       return { venue, transfers };
@@ -407,11 +415,14 @@ export class PartyRefundsService {
       } else if (otherPending === 0 && blockedByRefund(wallet)) {
         await tx.clientWallet.update({ where: { id: wallet.id }, data: { blockedAt: null, blockedReason: null } });
       }
+      // Hecha o anulada, sin datos del asistente: el IBAN, el titular y el
+      // correo ya no hacen falta (el CHECK personal_data de la tabla lo exige).
       const updated = await tx.partyRefundRequest.update({
         where: { id },
-        data: { status: to, ...(to === 'DONE' ? { doneAt: now } : {}), doneById: actor.userId },
+        data: { status: to, ...(to === 'DONE' ? { doneAt: now } : {}), doneById: actor.userId, iban: null, holderName: null, email: null },
         select: REQUEST_SELECT,
       });
+      // En el registro, lo justo: ni el IBAN, ni el titular, ni el correo.
       await this.audit.logInTx(tx, {
         action: to === 'DONE' ? 'party.refund.done' : 'party.refund.canceled',
         tenantId: actor.tenantId,
@@ -423,7 +434,8 @@ export class PartyRefundsService {
       });
       const venue = await tx.venue.findUniqueOrThrow({ where: { id: actor.tenantId }, select: { name: true } });
       const [view] = await rowViews(tx, [updated]);
-      return { row: updated, view: view!, venueName: venue.name, pulsera: view?.pulsera ?? null };
+      // El justificante (si dejó correo) sale con lo de antes de borrarlo, solo en memoria.
+      return { row: { ...updated, email: row.email, iban: row.iban }, view: view!, venueName: venue.name, pulsera: view?.pulsera ?? null };
     });
     return result;
   }
@@ -559,6 +571,7 @@ async function rowViews(tx: TransactionalClient, rows: ReadonlyArray<RequestRow>
     pulsera: pulsera.get(r.walletId) ?? null,
     walletCode: code.get(r.walletId) ?? null,
     ibanHint: maskIban(r.iban),
+    holderName: r.holderName,
     email: r.email,
   }));
 }

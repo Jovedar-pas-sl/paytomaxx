@@ -40,21 +40,22 @@ describe('devoluciones: lo que ve el asistente y el panel', () => {
 });
 
 describe('el CSV de las transferencias pendientes', () => {
-  it('para Excel en español, con el IBAN entero y el concepto (sin datos del asistente)', () => {
+  it('para Excel en español, con el titular, el IBAN entero y el concepto (sin datos del asistente)', () => {
     const csv = transfersCsv(
       [
-        { id: 'abcdef12-0000-4000-8000-000000000000', createdAt: new Date('2027-06-25T09:05:00Z'), amountCents: 1250, iban: IBAN, email: 'ana@correo.es', pulsera: 'P-0412', walletCode: 'K7Q-4M2' },
-        { id: '12345678-0000-4000-8000-000000000000', createdAt: new Date('2027-06-25T10:00:00Z'), amountCents: 300, iban: IBAN, email: '=HYPERLINK("x")', pulsera: null, walletCode: null },
+        { id: 'abcdef12-0000-4000-8000-000000000000', createdAt: new Date('2027-06-25T09:05:00Z'), amountCents: 1250, iban: IBAN, holderName: 'Ana Pérez Núñez', email: 'ana@correo.es', pulsera: 'P-0412', walletCode: 'K7Q-4M2' },
+        { id: '12345678-0000-4000-8000-000000000000', createdAt: new Date('2027-06-25T10:00:00Z'), amountCents: 300, iban: IBAN, holderName: '=CMD()', email: '=HYPERLINK("x")', pulsera: null, walletCode: null },
       ],
       'OxioParty',
     );
     const lines = csv.replace('﻿', '').trim().split('\r\n');
-    expect(lines[0]).toBe('Pedida el;Hora;Pulsera;Código del saldo;Importe;IBAN;Concepto;Correo;Referencia');
+    expect(lines[0]).toBe('Pedida el;Hora;Pulsera;Código del saldo;Importe;Titular;IBAN;Concepto;Correo;Referencia');
     // Los códigos como ="…" (Excel no les quita los ceros ni los toma por números; reports/csv.ts).
     const code = (v: string) => `"=""${v}"""`;
-    expect(lines[1]).toBe(`25/06/2027;11:05;${code('P-0412')};${code('K7Q-4M2')};12,50;${code(IBAN)};Devolución OxioParty P-0412;ana@correo.es;${code('abcdef12')}`);
+    expect(lines[1]).toBe(`25/06/2027;11:05;${code('P-0412')};${code('K7Q-4M2')};12,50;Ana Pérez Núñez;${code(IBAN)};Devolución OxioParty P-0412;ana@correo.es;${code('abcdef12')}`);
     // Lo que escribe una persona nunca se ejecuta como fórmula en Excel.
     expect(lines[2]).toContain(`;"'=HYPERLINK(""x"")";`);
+    expect(lines[2]).toContain(`;'=CMD();`);
     expect(lines[2]).toContain('Devolución OxioParty 12345678');
     expect(csv.startsWith('﻿')).toBe(true);
   });

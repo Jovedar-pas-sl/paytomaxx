@@ -49,6 +49,7 @@ const refund = (o: Partial<PartyRefundRow> = {}): PartyRefundRow => ({
   pulsera: 'P-0412',
   walletCode: 'K7Q-4M2',
   ibanHint: null,
+  holderName: null,
   email: null,
   ...o,
 });
@@ -115,6 +116,9 @@ describe('devoluciones en el panel', () => {
   it('lo que se pregunta antes: a la tarjeta, en el portal del banco; la transferencia, ya enviada', () => {
     expect(refundDoneConfirm(refund())).toContain(`${E(1300)} a la tarjeta de P-0412 en el portal del banco`);
     expect(refundDoneConfirm(refund({ method: 'TRANSFER', ibanHint: 'ES91 •••• •••• 1332' }))).toContain(`transferencia de ${E(1300)} a ES91 •••• •••• 1332`);
+    expect(refundDoneConfirm(refund({ method: 'TRANSFER', ibanHint: 'ES91 •••• •••• 1332', holderName: 'Ana Pérez' }))).toContain(
+      `transferencia de ${E(1300)} a Ana Pérez (ES91 •••• •••• 1332)`,
+    );
     expect(refundCancelConfirm(refund())).toContain('su saldo vuelve a poder gastarse');
   });
 

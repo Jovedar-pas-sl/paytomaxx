@@ -1626,7 +1626,10 @@ model PartyRefundRequest {
   amountCents Int
   /// CARD | TRANSFER | DONATE
   method      String    @db.VarChar(10)
+  /// Solo TRANSFER y solo mientras está pendiente (al hacerse o anularse, null; CHECK en SQL).
   iban        String?   @db.VarChar(34)
+  /// El titular de la cuenta (TRANSFER): el nombre del acreedor en el SEPA. Igual que el IBAN.
+  holderName  String?   @db.VarChar(70)
   email       String?   @db.VarChar(254)
   /// PENDING | DONE | CANCELED
   status      String    @default("PENDING") @db.VarChar(10)

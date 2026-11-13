@@ -6,9 +6,14 @@
 --                           cargado con tarjeta, la hace el organizador a mano
 --                           en el banco; TRANSFER: lo cargado en efectivo, a
 --                           su IBAN; DONATE: a la comisión, hecha al momento),
---                           el IBAN (solo TRANSFER), un correo opcional para
---                           el justificante y el estado (PENDING → DONE |
---                           CANCELED), con quién y cuándo se hizo.
+--                           el IBAN y el nombre del titular (solo TRANSFER: el
+--                           banco comprueba que nombre e IBAN coinciden), un
+--                           correo opcional para el justificante y el estado
+--                           (PENDING → DONE | CANCELED), con quién y cuándo.
+--
+-- Del asistente, lo mínimo y solo mientras hace falta: el IBAN, el titular y
+-- el correo se borran al pasar a DONE o CANCELED (lo hace el API; el CHECK
+-- party_refund_requests_personal_data_check lo exige).
 --
 -- El saldo queda bloqueado mientras hay una pendiente (client_wallets."blockedAt"
 -- con el motivo de OxioParty, que ya respetan los pagos y las recargas): no hace
@@ -27,6 +32,7 @@ CREATE TABLE IF NOT EXISTS "party_refund_requests" (
   "amountCents" INTEGER      NOT NULL,
   "method"      VARCHAR(10)  NOT NULL,
   "iban"        VARCHAR(34),
+  "holderName"  VARCHAR(70),
   "email"       VARCHAR(254),
   "status"      VARCHAR(10)  NOT NULL DEFAULT 'PENDING',
   "createdAt"   TIMESTAMPTZ  NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -42,10 +48,22 @@ CREATE TABLE IF NOT EXISTS "party_refund_requests" (
   CONSTRAINT "party_refund_requests_amount_check" CHECK ("amountCents" > 0 AND "amountCents" <= 100000000),
   CONSTRAINT "party_refund_requests_method_check" CHECK ("method" IN ('CARD', 'TRANSFER', 'DONATE')),
   CONSTRAINT "party_refund_requests_status_check" CHECK ("status" IN ('PENDING', 'DONE', 'CANCELED')),
-  -- El IBAN, solo y siempre en una transferencia; como lo guarda el API (sin espacios, en mayúsculas).
+  -- El IBAN, solo en una transferencia, y siempre en una pendiente; como lo
+  -- guarda el API (sin espacios, en mayúsculas). Hecha o anulada, ya no está.
   CONSTRAINT "party_refund_requests_iban_check" CHECK (
-    ("method" = 'TRANSFER') = ("iban" IS NOT NULL)
+    ("iban" IS NULL OR "method" = 'TRANSFER')
+    AND ("method" <> 'TRANSFER' OR "status" <> 'PENDING' OR "iban" IS NOT NULL)
     AND ("iban" IS NULL OR "iban" ~ '^[A-Z]{2}[0-9]{2}[A-Z0-9]{11,30}$')
+  ),
+  -- El titular de la cuenta, igual: solo en una transferencia, siempre en una pendiente (de 2 a 70).
+  CONSTRAINT "party_refund_requests_holder_check" CHECK (
+    ("holderName" IS NULL OR "method" = 'TRANSFER')
+    AND ("method" <> 'TRANSFER' OR "status" <> 'PENDING' OR "holderName" IS NOT NULL)
+    AND ("holderName" IS NULL OR char_length(btrim("holderName")) BETWEEN 2 AND 70)
+  ),
+  -- Hecha o anulada: sin datos del asistente (ni IBAN, ni titular, ni correo).
+  CONSTRAINT "party_refund_requests_personal_data_check" CHECK (
+    "status" = 'PENDING' OR ("iban" IS NULL AND "holderName" IS NULL AND "email" IS NULL)
   ),
   CONSTRAINT "party_refund_requests_email_check" CHECK ("email" IS NULL OR "email" ~ '^[^@[:space:]]+@[^@[:space:]]+$'),
   -- Hecha ⇔ con fecha; una cancelada no lleva fecha de hecha.

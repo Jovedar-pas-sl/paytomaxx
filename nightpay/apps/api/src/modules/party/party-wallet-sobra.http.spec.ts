@@ -22,6 +22,7 @@ const TOKEN = 'privateWalletToken0123456';
 const WALLET = '6f1c2a4e-1b7d-4c3a-9e2f-0a1b2c3d4e5f';
 const SECRET = 'secreto-de-las-cookies-de-pruebas-0123456789';
 const IBAN = 'ES9121000418450200051332';
+const HOLDER = 'Ana Pérez Núñez';
 const VIEW = { deadline: null, open: true, allowDonation: true, balanceCents: 1300, available: { CARD: 0, TRANSFER: 0, DONATE: 0 }, faceId: false, locked: true, requests: [] };
 
 const charges = { walletRefByToken: vi.fn(async () => ({ id: WALLET, shortCode: 'K7Q4M2' })) };
@@ -78,7 +79,7 @@ describe('POST /w/:token/sobra: sin Face ID (solo el enlace, o una foto del QR)'
   });
 
   it.each([
-    ['transferencia', { method: 'TRANSFER', iban: IBAN }],
+    ['transferencia', { method: 'TRANSFER', iban: IBAN, holderName: HOLDER }],
     ['donar', { method: 'DONATE' }],
   ])('%s, no: 409 REFUND_NEEDS_FACE_ID con el texto para la página, y no se pide nada', async (_what, payload) => {
     const res = await ask(payload);
@@ -93,6 +94,17 @@ describe('POST /w/:token/sobra: sin Face ID (solo el enlace, o una foto del QR)'
   });
 });
 
+describe('POST /w/:token/sobra: los datos', () => {
+  it('la transferencia sin titular: 400 REFUND_INVALID con el campo (la página dice cuál)', async () => {
+    passkeys.hasPasskey.mockResolvedValue(true);
+    passkeys.verify.mockResolvedValue(WALLET);
+    const res = await ask({ method: 'TRANSFER', iban: IBAN, response: { id: 'su-llave' } }, viewCookie());
+    expect(res.statusCode).toBe(400);
+    expect(res.json()).toMatchObject({ code: 'REFUND_INVALID', field: 'holderName', reason: 'holderName' });
+    expect(refunds.ask).not.toHaveBeenCalled();
+  });
+});
+
 describe('POST /w/:token/sobra: con Face ID', () => {
   beforeEach(() => {
     passkeys.hasPasskey.mockResolvedValue(true);
@@ -100,19 +112,19 @@ describe('POST /w/:token/sobra: con Face ID', () => {
 
   it('transferencia y donar con su llave verificada en esa petición (atada a «sobra» y a este saldo)', async () => {
     passkeys.verify.mockResolvedValue(WALLET);
-    for (const payload of [{ method: 'TRANSFER', iban: IBAN }, { method: 'DONATE' }]) {
+    for (const payload of [{ method: 'TRANSFER', iban: IBAN, holderName: HOLDER }, { method: 'DONATE' }]) {
       const res = await ask({ ...payload, response: { id: 'su-llave' } }, viewCookie());
       expect(res.statusCode).toBe(200);
     }
     expect(passkeys.verify).toHaveBeenCalledTimes(2);
     expect(passkeys.verify).toHaveBeenCalledWith(`sobra:${WALLET}`, 'fiesta.example', { id: 'su-llave' });
-    expect(refunds.ask).toHaveBeenCalledWith(WALLET, { method: 'TRANSFER', iban: IBAN });
+    expect(refunds.ask).toHaveBeenCalledWith(WALLET, { method: 'TRANSFER', iban: IBAN, holderName: HOLDER });
     expect(refunds.ask).toHaveBeenCalledWith(WALLET, { method: 'DONATE' });
   });
 
   it('sin la llave en la petición, o con la de otro saldo, no: 403 y no se pide nada', async () => {
     passkeys.verify.mockRejectedValueOnce(new ForbiddenException({ message: 'Confirma con Face ID', code: 'FACE_ID_REQUIRED' }));
-    const none = await ask({ method: 'TRANSFER', iban: IBAN }, viewCookie());
+    const none = await ask({ method: 'TRANSFER', iban: IBAN, holderName: HOLDER }, viewCookie());
     expect(none.statusCode).toBe(403);
     expect(none.json()).toMatchObject({ code: 'FACE_ID_REQUIRED' });
     passkeys.verify.mockResolvedValueOnce('otro-saldo');
@@ -123,7 +135,7 @@ describe('POST /w/:token/sobra: con Face ID', () => {
   });
 
   it('sin la sesión de la página (solo el enlace), ni se llega a pedir: 401', async () => {
-    const res = await ask({ method: 'TRANSFER', iban: IBAN, response: { id: 'su-llave' } });
+    const res = await ask({ method: 'TRANSFER', iban: IBAN, holderName: HOLDER, response: { id: 'su-llave' } });
     expect(res.statusCode).toBe(401);
     expect(res.json()).toMatchObject({ code: 'WALLET_VIEW_REQUIRED' });
     expect(refunds.ask).not.toHaveBeenCalled();

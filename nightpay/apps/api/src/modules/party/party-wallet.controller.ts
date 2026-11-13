@@ -97,7 +97,9 @@ export class PartyWalletController {
     const parsed = PartyRefundAskSchema.safeParse(body ?? {});
     if (!parsed.success) {
       const issue = parsed.error.issues[0];
-      throw new BadRequestException({ message: issue?.message ?? 'Revisa los datos', code: 'REFUND_INVALID', field: issue?.path.join('.') || null });
+      const field = issue?.path.join('.') || null;
+      // `reason`: el campo, para que la página diga cuál (IBAN, titular o correo) en su idioma.
+      throw new BadRequestException({ message: issue?.message ?? 'Revisa los datos', code: 'REFUND_INVALID', field, reason: field });
     }
     const scope = `sobra:${walletId}`;
     if (refundNeedsFaceId(parsed.data.method)) {

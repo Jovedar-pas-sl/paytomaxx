@@ -173,17 +173,36 @@ describe('«Lo que sobra»: el saldo', () => {
 
 describe('«Lo que sobra»: lo que manda el asistente', () => {
   it('el IBAN se guarda sin espacios y en mayúsculas, con su dígito de control (mod-97)', () => {
-    const ok = PartyRefundAskSchema.safeParse({ method: 'TRANSFER', iban: 'es91 2100 0418 4502 0005 1332' });
+    const ok = PartyRefundAskSchema.safeParse({ method: 'TRANSFER', iban: 'es91 2100 0418 4502 0005 1332', holderName: 'Ana Pérez' });
     expect(ok.success && ok.data.iban).toBe(IBAN);
-    expect(PartyRefundAskSchema.safeParse({ method: 'TRANSFER', iban: 'ES9121000418450200051333' }).success).toBe(false);
-    expect(PartyRefundAskSchema.safeParse({ method: 'TRANSFER', iban: 'hola' }).success).toBe(false);
+    expect(PartyRefundAskSchema.safeParse({ method: 'TRANSFER', iban: 'ES9121000418450200051333', holderName: 'Ana Pérez' }).success).toBe(false);
+    expect(PartyRefundAskSchema.safeParse({ method: 'TRANSFER', iban: 'hola', holderName: 'Ana Pérez' }).success).toBe(false);
   });
 
-  it('la transferencia pide IBAN; la tarjeta y donar no lo llevan', () => {
+  it('la transferencia pide IBAN y titular; la tarjeta y donar no los llevan', () => {
     expect(PartyRefundAskSchema.safeParse({ method: 'TRANSFER' }).success).toBe(false);
+    const noHolder = PartyRefundAskSchema.safeParse({ method: 'TRANSFER', iban: IBAN });
+    expect(noHolder.success).toBe(false);
+    expect(noHolder.error?.issues[0]?.path).toEqual(['holderName']);
     expect(PartyRefundAskSchema.safeParse({ method: 'CARD', iban: IBAN }).success).toBe(false);
+    expect(PartyRefundAskSchema.safeParse({ method: 'CARD', holderName: 'Ana Pérez' }).success).toBe(false);
+    expect(PartyRefundAskSchema.safeParse({ method: 'DONATE', holderName: 'Ana Pérez' }).success).toBe(false);
     expect(PartyRefundAskSchema.safeParse({ method: 'DONATE' }).success).toBe(true);
     expect(PartyRefundAskSchema.safeParse({ method: 'BIZUM' }).success).toBe(false);
+  });
+
+  it('el titular: saneado (sin caracteres de control ni espacios de más), con letras y como mucho 70', () => {
+    const holder = (v: string) => {
+      const r = PartyRefundAskSchema.safeParse({ method: 'TRANSFER', iban: IBAN, holderName: v });
+      return r.success ? r.data.holderName : null;
+    };
+    expect(holder('  Ana   Pérez\tNúñez  ')).toBe('Ana Pérez Núñez');
+    expect(holder('María José O’Neill-García')).toBe('María José O’Neill-García');
+    expect(holder('Peña\u0000 El\u200b Cántaro, S.L.')).toBe('Peña El Cántaro, S.L.');
+    // NFC: la «ñ» de un código y la de dos (n + tilde), iguales.
+    expect(holder('Pen\u0303a')).toBe('Peña');
+    expect(holder('A'.repeat(70))).toHaveLength(70);
+    for (const bad of ['', ' ', 'A', 'A'.repeat(71), '1234', '<script>', '=SUM(A1)', 'Ana\nPérez <x@y.z>']) expect(holder(bad)).toBeNull();
   });
 
   it('el correo es opcional: vacío = sin correo; uno malo, no', () => {

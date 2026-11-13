@@ -132,7 +132,13 @@ export function refundDoneConfirm(row: PartyRefundRow): string {
   const who = row.pulsera ?? row.walletCode ?? 'esta pulsera';
   return row.method === 'CARD'
     ? `¿Ya devolviste ${eur(row.amountCents)} a la tarjeta de ${who} en el portal del banco? Al marcarla «Hecha», ese dinero sale de su saldo.`
-    : `¿Ya enviaste la transferencia de ${eur(row.amountCents)} a ${row.ibanHint ?? 'su IBAN'} (${who})? Al marcarla «Hecha», ese dinero sale de su saldo.`;
+    : `¿Ya enviaste la transferencia de ${eur(row.amountCents)} a ${transferTo(row)} (${who})? Al marcarla «Hecha», ese dinero sale de su saldo.`;
+}
+
+/** «Ana Pérez (ES91 •••• •••• 1332)»: el titular y el IBAN tapado (lo que haya). */
+function transferTo(row: Pick<PartyRefundRow, 'holderName' | 'ibanHint'>): string {
+  const iban = row.ibanHint ?? 'su IBAN';
+  return row.holderName ? `${row.holderName} (${iban})` : iban;
 }
 
 export function refundCancelConfirm(row: PartyRefundRow): string {

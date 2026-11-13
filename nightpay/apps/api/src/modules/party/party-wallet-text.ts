@@ -29,6 +29,9 @@ export interface PartyWalletText {
   donateNote: string;
   iban: string;
   ibanBad: string;
+  /** El titular de la cuenta (el banco lo compara con el IBAN). */
+  holder: string;
+  holderBad: string;
   mail: string;
   mailBad: string;
   ask: string;
@@ -83,11 +86,13 @@ export const PARTY_WALLET_TEXT: Readonly<Record<PayLanguage, PartyWalletText>> =
     card: 'A mi tarjeta',
     cardNote: 'Lo que cargaste con tarjeta vuelve a esa tarjeta, solo. Tarda unos días.',
     transfer: 'Por transferencia',
-    transferNote: 'Para lo que cargaste en efectivo. Escribe tu IBAN.',
+    transferNote: 'Para lo que cargaste en efectivo. Escribe tu IBAN y el titular de la cuenta.',
     donate: 'Donarlo a la comisión de fiestas',
     donateNote: 'Se queda para las fiestas del año que viene.',
     iban: 'Tu IBAN',
     ibanBad: 'Ese IBAN no es válido: revisa que esté completo.',
+    holder: 'Titular de la cuenta (como sale en tu banco)',
+    holderBad: 'Escribe el nombre del titular como sale en tu banco (solo letras).',
     mail: 'Tu correo (para el justificante, si quieres)',
     mailBad: 'Ese correo no es válido.',
     ask: 'Pedir mis {amount}',
@@ -145,11 +150,13 @@ export const PARTY_WALLET_TEXT: Readonly<Record<PayLanguage, PartyWalletText>> =
     card: 'To my card',
     cardNote: 'What you loaded by card goes back to that card only. It takes a few days.',
     transfer: 'By bank transfer',
-    transferNote: 'For what you loaded in cash. Enter your IBAN.',
+    transferNote: 'For what you loaded in cash. Enter your IBAN and the account holder.',
     donate: 'Donate it to the festival committee',
     donateNote: 'It stays for next year’s festival.',
     iban: 'Your IBAN',
     ibanBad: 'That IBAN isn’t valid: check that it’s complete.',
+    holder: 'Account holder (as it appears at your bank)',
+    holderBad: 'Write the account holder’s name as it appears at your bank (letters only).',
     mail: 'Your email (for the receipt, if you like)',
     mailBad: 'That email isn’t valid.',
     ask: 'Ask for my {amount}',
@@ -207,11 +214,13 @@ export const PARTY_WALLET_TEXT: Readonly<Record<PayLanguage, PartyWalletText>> =
     card: 'Sur ma carte',
     cardNote: 'Ce que vous avez chargé par carte revient sur cette carte uniquement. Cela prend quelques jours.',
     transfer: 'Par virement',
-    transferNote: 'Pour ce que vous avez chargé en espèces. Saisissez votre IBAN.',
+    transferNote: 'Pour ce que vous avez chargé en espèces. Saisissez votre IBAN et le titulaire du compte.',
     donate: 'Le donner au comité des fêtes',
     donateNote: 'Il reste pour les fêtes de l’an prochain.',
     iban: 'Votre IBAN',
     ibanBad: 'Cet IBAN n’est pas valable : vérifiez qu’il est complet.',
+    holder: 'Titulaire du compte (comme à votre banque)',
+    holderBad: 'Écrivez le nom du titulaire comme à votre banque (lettres uniquement).',
     mail: 'Votre e-mail (pour le justificatif, si vous voulez)',
     mailBad: 'Cet e-mail n’est pas valable.',
     ask: 'Demander mes {amount}',
@@ -269,11 +278,13 @@ export const PARTY_WALLET_TEXT: Readonly<Record<PayLanguage, PartyWalletText>> =
     card: 'No meu cartão',
     cardNote: 'O que carregou com cartão volta apenas a esse cartão. Demora alguns dias.',
     transfer: 'Por transferência',
-    transferNote: 'Para o que carregou em dinheiro. Escreva o seu IBAN.',
+    transferNote: 'Para o que carregou em dinheiro. Escreva o seu IBAN e o titular da conta.',
     donate: 'Doá-lo à comissão de festas',
     donateNote: 'Fica para as festas do próximo ano.',
     iban: 'O seu IBAN',
     ibanBad: 'Esse IBAN não é válido: verifique se está completo.',
+    holder: 'Titular da conta (como aparece no seu banco)',
+    holderBad: 'Escreva o nome do titular como aparece no seu banco (só letras).',
     mail: 'O seu e-mail (para o comprovativo, se quiser)',
     mailBad: 'Esse e-mail não é válido.',
     ask: 'Pedir os meus {amount}',
