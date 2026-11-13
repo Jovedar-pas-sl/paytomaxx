@@ -601,15 +601,25 @@ export async function fetchMySections(): Promise<MySections> {
  * Y el puesto de quien entra y lo que puede (cargar saldos, efectivo): la
  * recepción solo sale a quien la puede hacer.
  */
-export async function fetchVenueFeed(): Promise<{ paymentMethods: unknown; nightSettings: unknown; myPost: unknown; myRights: unknown }> {
+export async function fetchVenueFeed(): Promise<{
+  paymentMethods: unknown;
+  nightSettings: unknown;
+  myPost: unknown;
+  myRights: unknown;
+  /** OxioParty: el nombre del local y la caseta de quien entra (aún sin tipo: se leen con venueIdentityOf). */
+  name: unknown;
+  stall: unknown;
+}> {
   const res = await authedFetch('/v1/venues/me');
   if (!res.ok) throw loadError(res, 'Error cargando el local');
-  const venue = (await res.json()) as { paymentMethods?: unknown; nightSettings?: unknown; myPost?: unknown; myRights?: unknown };
+  const venue = (await res.json()) as { paymentMethods?: unknown; nightSettings?: unknown; myPost?: unknown; myRights?: unknown; name?: unknown; stall?: unknown };
   return {
     paymentMethods: venue.paymentMethods ?? null,
     nightSettings: venue.nightSettings ?? null,
     myPost: venue.myPost ?? null,
     myRights: venue.myRights ?? null,
+    name: venue.name ?? null,
+    stall: venue.stall ?? null,
   };
 }
 
