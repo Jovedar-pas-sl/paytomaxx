@@ -25,6 +25,7 @@ import { PrismaService, type TransactionalClient } from '../../common/prisma/pri
 import { AuditService } from '../audit/audit.service';
 import { assertCanTopUp } from '../venues/charge-rights';
 import { assertVenueAcceptsMethods } from '../venues/venue-methods';
+import { stallIdForStaff, stallSeal } from '../party/stall-seal';
 import { ISSUED_CARD_STATUSES, attachCardInTx, isIssuedCard } from '../wallets/wallet-card-ops';
 import { WalletChargesService } from '../wallets/wallet-charges.service';
 import { FichaNumbersService } from '../wallets/ficha-numbers.service';
@@ -306,6 +307,8 @@ async function chargeLostFicha(
       authMethod: a.via === 'pin' ? 'pin' : 'staff',
       ...(feeSaldo > 0 ? { serviceFeeSaldoCents: feeSaldo } : {}),
       ...(venue ? { platformCommissionBps: venue.platformCommissionBps } : {}),
+      // OxioParty: la caseta de quien la cobra, si tiene (OxioPay: nada).
+      ...stallSeal(await stallIdForStaff(tx, { tenantId: a.actor.tenantId, userId: a.actor.userId })),
     },
   });
 }

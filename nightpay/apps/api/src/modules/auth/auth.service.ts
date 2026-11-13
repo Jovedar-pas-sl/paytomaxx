@@ -25,6 +25,7 @@ import {
 import { TotpService } from './totp.service';
 import { ACCESS_TOKEN_TTL_SECONDS } from './access-revocation.service';
 import { TotpEnrollmentService } from './totp-enrollment.service';
+import { currentEdition } from '../../config/edition';
 import {
   LOGIN_ENROLL_TICKET_TTL_SECONDS,
   LOGIN_TICKET_TTL_SECONDS,
@@ -329,6 +330,8 @@ export class AuthService {
         venueSlug: user.venue.slug,
         isSuperAdmin: user.isSuperAdmin,
         displayName: visibleName(user.displayName),
+        // 'club' (OxioPay) o 'party' (OxioParty): las apps comprueban que es la suya.
+        edition: currentEdition(),
       },
     };
   }

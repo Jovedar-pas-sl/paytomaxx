@@ -28,6 +28,7 @@ import { TotpService } from '../auth/totp.service';
 import { assertCanHandleCash, chargeRightsFor } from '../venues/charge-rights';
 import { assertVenueAcceptsMethods } from '../venues/venue-methods';
 import { assertVenueAcceptsCharges } from '../venues/venue-pause';
+import { assertEventOpen } from '../party/event-window';
 import { insertEmptyWallet } from './empty-wallet';
 import { attachCardInTx, isIssuedCard, type CardBy } from './wallet-card-ops';
 import { reopenData } from './wallet-activation';
@@ -265,6 +266,8 @@ export class CashTopUpService {
   private async assertAllowed(venueId: string, by: CashTopUpBy): Promise<void> {
     const { staffPermissions, rights } = await this.prisma.asSystem(async (tx) => {
       await assertVenueAcceptsCharges(tx, venueId);
+      // OxioParty: con la fiesta terminada, sin recargas nuevas (423 EVENT_ENDED). OxioPay: nada.
+      await assertEventOpen(tx, venueId);
       await assertVenueAcceptsMethods(tx, venueId, CASH_TOP_UP_METHODS);
       const venue = await tx.venue.findUnique({ where: { id: venueId }, select: { staffPermissions: true } });
       return {

@@ -49,6 +49,9 @@ import { RealtimeGateway } from '../realtime/realtime.gateway';
 import { MetricsService } from '../metrics/metrics.service';
 import { VENUE_PAUSE_SELECT, assertVenueNotPaused } from '../venues/venue-pause';
 import { VENUE_METHODS_SELECT, assertMethodsEnabled } from '../venues/venue-methods';
+import { isPartyEdition } from '../../config/edition';
+import { assertEventOpen } from '../party/event-window';
+import { stallIdForStaff, stallSeal } from '../party/stall-seal';
 import { resolveBpsForOperator, type OperatorCommissionDefaults, type RevenueCategory } from './commission';
 import { lineCommission, lineViews, type DraftLine } from './charge-lines';
 import { linesWithOperatorBps, resolveChargeOrThrow, type LineWithBps } from './charge-request';
@@ -270,6 +273,8 @@ interface PaymentDraft {
   operatorCommissionBps: number | null;
   /** Cobro único: también se puede pagar con el saldo (cobro del saldo enlazado; su propina la elige el cliente al pagar). */
   withSaldo: boolean;
+  /** OxioParty: la caseta de quien cobra (también la del cobro del saldo enlazado). Null en OxioPay y en las recargas. */
+  stallId: string | null;
 }
 
 /**
@@ -651,6 +656,9 @@ export class PaymentsService implements OnApplicationBootstrap {
     );
     // Local (o su negocio) en pausa: ni cobros ni recargas nuevos (423 VENUE_PAUSED).
     assertVenueNotPaused(venue);
+    // OxioParty: con la fiesta terminada, tampoco (423 EVENT_ENDED); y la
+    // caseta de quien cobra. OxioPay: no se mira nada.
+    const stallId = await this.partyDraft(tenantId, creator.userId, isWalletTopUp);
     // Forma de cobro apagada en Ajustes (QR con tarjeta, datáfono; la recarga
     // también necesita el saldo): 409 PAYMENT_METHOD_DISABLED.
     const methods = assertMethodsEnabled(venue, methodsNeededForPayment({ isWalletTopUp, isPosExternal: byDatafono }));
@@ -708,7 +716,23 @@ export class PaymentsService implements OnApplicationBootstrap {
       // Cobro único: con el saldo encendido en el local y quien cobra con
       // nombre (el cobro del saldo es suyo). Ni recargas ni datáfono.
       withSaldo: Boolean(dto.withSaldo) && !isWalletTopUp && !byDatafono && methods.wallet && creator.userId !== null,
+      stallId,
     };
+  }
+
+  /**
+   * OxioParty (EDITION=party): la fiesta no ha terminado (si no, 423
+   * EVENT_ENDED: ni cobros ni recargas nuevos) y la caseta de quien cobra,
+   * para sellarla en el cobro. Una recarga no es venta de ninguna caseta: sin
+   * caseta (el consumo del saldo ya llevará la suya). OxioPay: null sin mirar
+   * la base.
+   */
+  private async partyDraft(tenantId: string, creatorUserId: string | null, isWalletTopUp: boolean): Promise<string | null> {
+    if (!isPartyEdition()) return null;
+    return this.prisma.asSystem(async (tx) => {
+      await assertEventOpen(tx, tenantId);
+      return isWalletTopUp ? null : stallIdForStaff(tx, { tenantId, userId: creatorUserId });
+    });
   }
 
   /**
@@ -904,6 +928,8 @@ export class PaymentsService implements OnApplicationBootstrap {
           ...(draft.captureMethod ? { captureMethod: draft.captureMethod } : {}),
           ...(walletId ? { walletId } : {}),
           ...(draft.service ?? {}),
+          // OxioParty: la caseta de quien cobra (en OxioPay no se añade nada).
+          ...stallSeal(draft.stallId),
         },
         select: { id: true, amountCents: true },
       });
@@ -925,6 +951,7 @@ export class PaymentsService implements OnApplicationBootstrap {
                 ref,
                 expiresAt: qrExpiresAt,
                 linkedPaymentId: p.id,
+                ...stallSeal(draft.stallId),
               },
               select: { id: true },
             })

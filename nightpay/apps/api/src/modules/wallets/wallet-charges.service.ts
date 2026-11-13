@@ -89,6 +89,8 @@ import {
 } from './wallet-nopin';
 import { assertVenueAcceptsCharges } from '../venues/venue-pause';
 import { assertVenueAcceptsMethods } from '../venues/venue-methods';
+import { assertEventOpen } from '../party/event-window';
+import { stallIdForStaff, stallSeal } from '../party/stall-seal';
 import { chargeRightsFor } from '../venues/charge-rights';
 import { customerTipError, staffTipRemoved } from '../payments/tip';
 import { TotpService } from '../auth/totp.service';
@@ -870,6 +872,8 @@ export class WalletChargesService {
           // dinero y «Liquidación OxioPay»). Va solo sobre lo cargado sin
           // comisión del servicio (serviceFeeSaldoCents fuera).
           ...(venue ? { platformCommissionBps: venue.platformCommissionBps } : {}),
+          // OxioParty: la caseta fijada al crear el cobro del saldo (OxioPay: nada).
+          ...stallSeal(request.stallId),
         },
       });
       if (provider?.role === 'OPERATOR') {
@@ -1020,6 +1024,8 @@ export class WalletChargesService {
     // Pago con saldo apagado en Ajustes: 409 PAYMENT_METHOD_DISABLED.
     await this.prisma.asSystem(async (tx) => {
       await assertVenueAcceptsCharges(tx, actor.tenantId);
+      // OxioParty: con la fiesta terminada, tampoco (423 EVENT_ENDED). OxioPay: nada.
+      await assertEventOpen(tx, actor.tenantId);
       await assertVenueAcceptsMethods(tx, actor.tenantId, ['wallet']);
     });
     const { amountCents, category, serviceName, lines } = await this.resolveCharge(actor, input);
@@ -1027,6 +1033,8 @@ export class WalletChargesService {
     // Cobro, su referencia (C-0001) y sus líneas: todo o nada.
     const request = await this.prisma.asSystem(async (tx) => {
       const ref = await nextChargeRef(tx, actor.tenantId);
+      // OxioParty: la caseta de quien cobra, fijada ya (pasa al consumo al pagarse).
+      const stallId = await stallIdForStaff(tx, { tenantId: actor.tenantId, userId: actor.userId });
       const created = await tx.walletChargeRequest.create({
         data: {
           tenantId: actor.tenantId,
@@ -1038,6 +1046,7 @@ export class WalletChargesService {
           payToken,
           ref,
           expiresAt: new Date(Date.now() + QR_CHARGE_TTL_MS),
+          ...stallSeal(stallId),
         },
       });
       await insertChargeLines(tx, actor.tenantId, { walletChargeId: created.id }, lines);
