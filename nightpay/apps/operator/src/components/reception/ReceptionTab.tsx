@@ -3,6 +3,7 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import type { OperatorUser } from '@/lib/api';
 import { fetchPendingTopUps } from '@/lib/api-noche';
+import { isParty, pulseraText } from '@/lib/edition';
 import { receptionChip, useMySections } from '@/lib/sections';
 import { useVenueMethods } from '@/lib/venue-methods';
 import { ScreenHelp } from '@nightpay/ui';
@@ -64,7 +65,12 @@ export function ReceptionTab({ user, active, onOwnHeader }: Props) {
   // Lo de dentro, con la cabecera del mostrador y sin flecha: cada pantalla vuelve con su «Volver».
   const inner = (body: ReactNode, tour: TourDef | null) => (
     <div className={s.screen}>
-      <DeskHead title="Recepción" sub={user.displayName ?? 'Recepción'} chip={receptionChip(sections)} help={tour ? <ScreenHelp {...tour} /> : undefined} />
+      <DeskHead
+        title={isParty() ? 'Taquilla' : 'Recepción'}
+        sub={user.displayName ?? (isParty() ? 'Taquilla' : 'Recepción')}
+        chip={receptionChip(sections)}
+        help={tour ? <ScreenHelp {...tour} /> : undefined}
+      />
       {body}
     </div>
   );
@@ -94,10 +100,10 @@ export function ReceptionTab({ user, active, onOwnHeader }: Props) {
   const canPrepare = methods.nfc && reader.via !== null && reader.canWrite;
   // Lo secundario, junto y abajo en una sola fila (Grafito 2): los mismos tres, y las pendientes con su número.
   const footer = (
-    <nav className={s.more} aria-label="Fichas y recargas pendientes" data-tour="recep-mas">
+    <nav className={s.more} aria-label={pulseraText('Fichas y recargas pendientes')} data-tour="recep-mas">
       {canPrepare ? (
         <button type="button" className={s.moreBtn} onClick={() => setView('prepare')}>
-          Preparar fichas
+          {pulseraText('Preparar fichas')}
         </button>
       ) : null}
       <button type="button" className={`${s.moreBtn} ${pending > 0 ? s.moreBtnOn : ''}`} onClick={() => setView('pending')}>
@@ -105,12 +111,12 @@ export function ReceptionTab({ user, active, onOwnHeader }: Props) {
       </button>
       {methods.nfc ? (
         <button type="button" className={s.moreBtn} onClick={() => setView('ficha')}>
-          Dar ficha a un saldo
+          {pulseraText('Dar ficha a un saldo')}
         </button>
       ) : null}
       {methods.nfc ? (
         <button type="button" className={s.moreBtn} onClick={() => setView('lost')}>
-          Ficha perdida
+          {pulseraText('Ficha perdida')}
         </button>
       ) : null}
       {user.role === 'MANAGER' || user.role === 'OWNER' ? (
