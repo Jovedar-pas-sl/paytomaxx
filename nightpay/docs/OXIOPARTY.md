@@ -99,3 +99,16 @@ suya), también lo cargado desde casa antes de empezar.
   vendido sin caseta, fuera; ninguna, 409 `NO_TRANSFERS`). Concepto
   «OxioParty <fiesta> <caseta>». Cada descarga queda en el registro
   (`party.settlement.sepa_exported`).
+
+## El panel (`apps/admin`, `NEXT_PUBLIC_EDITION=party`)
+
+Seis secciones con el `?s=` de siempre (`lib/roles.ts` → `PARTY_TABS`,
+`lib/nav-url.ts`): **En directo** (`?s=directo`: el directo, Cobros y Avisos;
+es donde se empieza), **Casetas** (alta, cambios y archivo con % o «barra
+propia» e IBAN, y el personal de cada una), **Pulseras** y **Devoluciones**
+(«Próximamente»: otra rama), **Cierre** (la liquidación por caseta, el fichero
+SEPA y el CSV) y **Ajustes** (La fiesta, Formas de cobro sin bitcoin, Pulseras
+y PIN, Datáfonos, Seguridad). No salen las compañeras ni sus pagos, saldos y
+fichas, informes, reglas, secciones, permisos, Telegram ni las liquidaciones
+de OxioPay. Código en `components/party/` y `lib/party-*.ts`; estilos en
+`styles/panel-party.css` (tokens Grafito). Con `club`, el panel es el de siempre.
