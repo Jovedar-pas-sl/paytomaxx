@@ -3,7 +3,7 @@
 // con su detalle. Funciones puras sobre la cuenta de siempre (lib/cuenta): el
 // cobro con varias líneas es el mismo (POST /v1/payments con `lines`).
 
-import type { SectionCode, VenueSection } from '@nightpay/contracts';
+import type { SaldoChargePartyExtras, SectionCode, VenueSection } from '@nightpay/contracts';
 import { cartaTiles } from './carta-tiles';
 import { lineCents, removeLine, setQty, type CartaItem, type Cuenta } from './cuenta';
 import { formatEur } from './money';
@@ -125,6 +125,22 @@ export interface PaidRow {
 /** La hora del pago («01:47», en la hora de España como el resto de la app). */
 export function paidClock(at: Date): string {
   return at.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Madrid' });
+}
+
+/**
+ * La pulsera y lo que le queda para el PAGADO pagado con el saldo. Lo manda
+ * GET /v1/wallet-charges/:id (y la respuesta del pago) con OxioParty
+ * (SaldoChargePartyExtras): la pulsera también si pagó con el QR o con su
+ * código y PIN. Sin eso (un API anterior), el número de la ficha acercada y
+ * el saldo de siempre (newBalanceCents).
+ */
+export function partyPaidSaldo(
+  saldo: (SaldoChargePartyExtras & { fichaNumber?: string; newBalanceCents?: number | null }) | null,
+): { pulsera: string | null; balanceCents: number | null } {
+  return {
+    pulsera: saldo?.pulsera ?? saldo?.fichaNumber ?? null,
+    balanceCents: saldo?.balanceLeftCents ?? saldo?.newBalanceCents ?? null,
+  };
 }
 
 /**

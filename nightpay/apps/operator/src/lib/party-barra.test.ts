@@ -9,6 +9,7 @@ import {
   barraTiles,
   filterTiles,
   partyPaidRows,
+  partyPaidSaldo,
   partySections,
   resolveFilter,
   stepLine,
@@ -171,6 +172,41 @@ describe('OxioParty · barra: el detalle del PAGADO', () => {
     expect(partyPaidRows({ method: 'card', pulsera: null, newBalanceCents: null, wallet: true, code: 'K7Q', at: AT })).toEqual([
       { label: 'Pagado con', value: 'Apple Pay o Google Pay' },
       { label: 'Código del cobro', value: 'K7Q' },
+      { label: 'Hora', value: '01:47' },
+    ]);
+  });
+});
+
+describe('OxioParty · barra: la pulsera y lo que le queda en el PAGADO (GET /v1/wallet-charges/:id)', () => {
+  const AT = new Date('2026-11-14T00:47:00Z');
+
+  it('pagado con el QR: la pulsera y lo que le queda los dice el API (pulsera, balanceLeftCents)', () => {
+    const paid = partyPaidSaldo({ newBalanceCents: 1300, pulsera: 'P-0412', balanceLeftCents: 1300 });
+    expect(paid).toEqual({ pulsera: 'P-0412', balanceCents: 1300 });
+    expect(partyPaidRows({ method: 'saldo', pulsera: paid.pulsera, newBalanceCents: paid.balanceCents, at: AT })).toEqual([
+      { label: 'Pulsera', value: 'P-0412' },
+      { label: 'Le quedan', value: nb('13,00 €') },
+      { label: 'Hora', value: '01:47' },
+    ]);
+  });
+
+  it('lo del API manda sobre el número de la ficha acercada y el saldo de siempre', () => {
+    expect(partyPaidSaldo({ fichaNumber: '0412', newBalanceCents: 900, pulsera: 'P-0412', balanceLeftCents: 800 })).toEqual({
+      pulsera: 'P-0412',
+      balanceCents: 800,
+    });
+  });
+
+  it('un API sin esos campos: la ficha acercada y newBalanceCents, como antes', () => {
+    expect(partyPaidSaldo({ fichaNumber: '0412', newBalanceCents: 900 })).toEqual({ pulsera: '0412', balanceCents: 900 });
+    expect(partyPaidSaldo({ newBalanceCents: null })).toEqual({ pulsera: null, balanceCents: null });
+    expect(partyPaidSaldo(null)).toEqual({ pulsera: null, balanceCents: null });
+  });
+
+  it('sin pulsera dada (pagó con su código y PIN): lo que le queda, sin fila de pulsera', () => {
+    const paid = partyPaidSaldo({ newBalanceCents: 0, balanceLeftCents: 0 });
+    expect(partyPaidRows({ method: 'saldo', pulsera: paid.pulsera, newBalanceCents: paid.balanceCents, at: AT })).toEqual([
+      { label: 'Le quedan', value: nb('0,00 €') },
       { label: 'Hora', value: '01:47' },
     ]);
   });

@@ -61,7 +61,7 @@ import {
 } from '@/lib/cobro-state';
 import { fetchBankRef, notifiedText, notifyManager, type BankRef } from '@/lib/api-bank-wait';
 import { isParty, pulseraText } from '@/lib/edition';
-import { partyPaidRows } from '@/lib/party-barra';
+import { partyPaidRows, partyPaidSaldo } from '@/lib/party-barra';
 import { PartyPaidDetail } from '../party/PartyPaid';
 import { useShown } from '../reception/desk/use-shown';
 import { StaffOutcome } from '../StaffOutcome';
@@ -427,10 +427,12 @@ export function Esperando({ cobro, onNew, onRetry, retrying = false, retryError 
     const at = paidAt ?? new Date();
     if (party) {
       // La maqueta «Pagado»: la pulsera, lo que le queda y la hora (lo que dé el API) y vuelve sola a la carta.
+      // La pulsera y lo que le queda los dice el estado del cobro del saldo, también si pagó con el QR.
+      const paidSaldo = partyPaidSaldo(saldo);
       const rows = partyPaidRows({
         method: outcome.method === 'card' ? 'card' : 'saldo',
-        pulsera: fichaNo,
-        newBalanceCents: outcome.newBalanceCents,
+        pulsera: paidSaldo.pulsera ?? fichaNo,
+        newBalanceCents: paidSaldo.balanceCents ?? outcome.newBalanceCents,
         wallet: cardFacts.payMethod === 'wallet',
         code,
         at,
@@ -832,9 +834,17 @@ function PaidDetail({ cobro, what }: { cobro: CobroAbierto; what: string | null 
   );
 }
 
-/** El sondeo no trae la ficha (solo la respuesta del pago con ficha): se conserva. */
+/**
+ * El sondeo no trae la ficha (solo la respuesta del pago con ficha): se
+ * conserva. Con OxioParty, la pulsera acercada tampoco se pierde.
+ */
 function keepFicha(fresh: SaldoState, prev: SaldoState | null): SaldoState {
-  return fresh.fichaNumber || !prev?.fichaNumber ? fresh : { ...fresh, fichaNumber: prev.fichaNumber };
+  if (!prev) return fresh;
+  return {
+    ...fresh,
+    ...(!fresh.fichaNumber && prev.fichaNumber ? { fichaNumber: prev.fichaNumber } : {}),
+    ...(!fresh.pulsera && prev.pulsera ? { pulsera: prev.pulsera } : {}),
+  };
 }
 
 /**
