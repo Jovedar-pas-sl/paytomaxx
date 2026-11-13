@@ -4,6 +4,7 @@
 
 import type { PartyRefundList, PartyRefundMethod, PartyRefundRow, PartyRefundStatus } from '@nightpay/contracts';
 import { apiError, authedFetch } from '../http';
+import { sepaFile } from '../sepa-again';
 
 export type { PartyRefundList, PartyRefundMethod, PartyRefundRow, PartyRefundStatus, PartyRefundTotals } from '@nightpay/contracts';
 
@@ -46,10 +47,9 @@ export async function downloadTransfersCsv(): Promise<Blob> {
 /**
  * Las mismas en un fichero SEPA (pain.001.001.03) para subirlas al banco de
  * una vez, desde la cuenta del local. Sin esa cuenta, 409 NO_DEBTOR_IBAN
- * (el mensaje del API lo dice). Queda en el registro.
+ * (el mensaje del API lo dice). Queda en el registro. Con alguna ya en un
+ * fichero descargado antes: SepaAlreadyExportedError; `again` lo pide otra vez.
  */
-export async function downloadTransfersSepa(): Promise<Blob> {
-  const res = await authedFetch(`${BASE}/transferencias.sepa`);
-  if (!res.ok) throw await apiError(res);
-  return res.blob();
+export async function downloadTransfersSepa(again = false): Promise<Blob> {
+  return sepaFile(await authedFetch(`${BASE}/transferencias.sepa${again ? '?again=1' : ''}`));
 }

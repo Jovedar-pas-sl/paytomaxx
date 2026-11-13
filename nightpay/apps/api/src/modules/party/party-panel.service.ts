@@ -34,6 +34,7 @@ import {
   buildPain001,
   type Pain001Transfer,
 } from './sepa';
+import { SETTLEMENT_SEPA_ACTION, alreadyExported, lastSettlementExport, lockSepaExports } from './sepa-exports';
 
 /** Lo que se lee del local (la fiesta). */
 const VENUE_SELECT = {
@@ -165,8 +166,11 @@ export class PartyPanelService {
    * El fichero SEPA (pain.001.001.03) de la liquidación: el deudor es el
    * local (su cuenta de cobro, que pone OxioPay), los acreedores las casetas
    * con IBAN y algo que pagar («barra propia» fuera). Queda en el registro.
+   * Ya descargado con las mismas noches: 409 ALREADY_EXPORTED (cuándo y
+   * quién), salvo `again` (el panel lo confirma antes): subirlo dos veces al
+   * banco paga dos veces (sepa-exports.ts).
    */
-  async sepa(actor: JwtPayload, q: PartySettlementQuery, now: Date = new Date()): Promise<PartySepaFile> {
+  async sepa(actor: JwtPayload, q: PartySettlementQuery, now: Date = new Date(), opts: { again?: boolean } = {}): Promise<PartySepaFile> {
     const { settlement, ibans, venue } = await this.settlementWithIbans(actor.tenantId, q, now);
     if (!venue.settlementIban) {
       throw new ConflictException({ code: NO_DEBTOR_IBAN_CODE, message: NO_DEBTOR_IBAN_MESSAGE });
@@ -194,20 +198,27 @@ export class PartyPanelService {
       debtor: { name: venue.settlementHolder?.trim() || venue.name, iban: venue.settlementIban },
       transfers,
     });
-    await this.audit.log({
-      action: 'party.settlement.sepa_exported',
-      tenantId: actor.tenantId,
-      actorId: actor.sub,
-      actorEmail: actor.email,
-      targetType: 'Venue',
-      targetId: actor.tenantId,
-      payload: {
-        messageId,
-        transfers: transfers.length,
-        totalCents: settlement.totals.transfersCents,
-        fromNight: settlement.fromNight,
-        toNight: settlement.toNight,
-      },
+    const range = { fromNight: settlement.fromNight, toNight: settlement.toNight };
+    await this.prisma.asSystem(async (tx) => {
+      await lockSepaExports(tx, actor.tenantId, SETTLEMENT_SEPA_ACTION);
+      const prev = await lastSettlementExport(tx, actor.tenantId, range);
+      if (prev && !opts.again) throw await alreadyExported(tx, prev);
+      // En la misma transacción: sin registro no hay fichero (lo que avisa la próxima vez).
+      await this.audit.logInTx(tx, {
+        action: SETTLEMENT_SEPA_ACTION,
+        tenantId: actor.tenantId,
+        actorId: actor.sub,
+        actorEmail: actor.email,
+        targetType: 'Venue',
+        targetId: actor.tenantId,
+        payload: {
+          messageId,
+          transfers: transfers.length,
+          totalCents: settlement.totals.transfersCents,
+          ...range,
+          ...(prev ? { again: true, previousAt: prev.at.toISOString() } : {}),
+        },
+      });
     });
     return { settlement, xml };
   }

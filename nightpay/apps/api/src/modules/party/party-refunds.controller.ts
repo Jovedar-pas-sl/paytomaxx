@@ -24,7 +24,8 @@ import { PartyRefundsService } from './party-refunds.service';
  *  - POST /v1/admin/party/refunds/:id/cancel           anularla (el saldo vuelve a poder gastarse)
  *  - GET  /v1/admin/party/refunds/transferencias.csv   las transferencias pendientes para el banco
  *  - GET  /v1/admin/party/refunds/transferencias.sepa  las mismas en un fichero SEPA (pain.001.001.03) para subirlas de una vez;
- *                                                      deudor, la cuenta del local (sin ella, 409 NO_DEBTOR_IBAN)
+ *                                                      deudor, la cuenta del local (sin ella, 409 NO_DEBTOR_IBAN);
+ *                                                      con alguna ya descargada antes, 409 ALREADY_EXPORTED salvo ?again=1
  * «Hecha», anular y el fichero SEPA quedan en el registro.
  */
 @Controller('admin/party')
@@ -55,8 +56,12 @@ export class PartyRefundsController {
 
   @Get('refunds/transferencias.sepa')
   @Roles('OWNER', 'MANAGER')
-  async transfersSepa(@CurrentUser() user: JwtPayload, @Res() res: FastifyReply): Promise<void> {
-    const file = await this.refunds.transfersSepa({ userId: user.sub, role: user.role, tenantId: user.tenantId, email: user.email });
+  async transfersSepa(@CurrentUser() user: JwtPayload, @Res() res: FastifyReply, @Query('again') again?: string): Promise<void> {
+    const file = await this.refunds.transfersSepa(
+      { userId: user.sub, role: user.role, tenantId: user.tenantId, email: user.email },
+      new Date(),
+      { again: again === '1' },
+    );
     res
       .status(200)
       .header('Content-Type', 'application/xml; charset=utf-8')

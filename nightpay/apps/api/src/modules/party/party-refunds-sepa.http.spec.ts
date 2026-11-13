@@ -65,7 +65,19 @@ describe('GET /v1/admin/party/refunds/transferencias.sepa', () => {
     expect(res.headers['content-disposition']).toMatch(/^attachment; filename="transferencias-pendientes-\d{4}-\d{2}-\d{2}\.xml"$/);
     expect(res.headers['cache-control']).toBe('no-store');
     expect(res.headers['x-content-type-options']).toBe('nosniff');
-    expect(refunds.transfersSepa).toHaveBeenCalledWith({ userId: 'u-1', role, tenantId: 'venue-1', email: 'org@fiesta.es' });
+    expect(refunds.transfersSepa).toHaveBeenCalledWith({ userId: 'u-1', role, tenantId: 'venue-1', email: 'org@fiesta.es' }, expect.any(Date), { again: false });
+  });
+
+  it('ya descargado: el 409 ALREADY_EXPORTED con cuándo y quién; con ?again=1, el fichero otra vez', async () => {
+    refunds.transfersSepa.mockRejectedValueOnce(
+      new ConflictException({ code: 'ALREADY_EXPORTED', message: 'Este fichero ya se descargó', exportedAt: '2027-06-29T19:30:00.000Z', exportedBy: 'Paco' }),
+    );
+    const first = await app.inject({ method: 'GET', url: URL, headers: { 'x-test-role': 'OWNER' } });
+    expect(first.statusCode).toBe(409);
+    expect(first.json()).toMatchObject({ code: 'ALREADY_EXPORTED', exportedAt: '2027-06-29T19:30:00.000Z', exportedBy: 'Paco' });
+    const again = await app.inject({ method: 'GET', url: `${URL}?again=1`, headers: { 'x-test-role': 'OWNER' } });
+    expect(again.statusCode).toBe(200);
+    expect(refunds.transfersSepa).toHaveBeenLastCalledWith(expect.objectContaining({ userId: 'u-1' }), expect.any(Date), { again: true });
   });
 
   it.each(['WAITER', 'OPERATOR'])('%s: 403 y no se hace nada', async (role) => {

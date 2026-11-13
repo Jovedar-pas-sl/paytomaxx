@@ -220,3 +220,22 @@ export function organizerShareCents(soldCents: number, organizerBps: number): nu
   const share = Math.round(raw);
   return soldCents < 0 && share !== 0 ? -share : share;
 }
+
+// ─── Ficheros SEPA ya descargados ───────────────────────────────────────
+
+/**
+ * Un fichero SEPA para el banco ya descargado antes (el del cierre con las
+ * mismas noches; el de las devoluciones con alguna de las mismas
+ * transferencias): 409 ALREADY_EXPORTED con cuándo y quién, salvo que se
+ * pida otra vez a propósito (`?again=1`). Subirlo dos veces al banco paga
+ * dos veces. Lo dice el registro (audit_events), sin tabla nueva.
+ */
+export const ALREADY_EXPORTED_CODE = 'ALREADY_EXPORTED';
+
+/** Lo que trae el 409 ALREADY_EXPORTED además de `code` y el mensaje. */
+export interface SepaAlreadyExported {
+  /** Cuándo se descargó la última vez (ISO). */
+  exportedAt: string;
+  /** Quién (su nombre, o lo de antes de la @ de su correo); null si no se sabe. */
+  exportedBy: string | null;
+}

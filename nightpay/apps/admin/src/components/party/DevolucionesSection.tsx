@@ -24,6 +24,7 @@ import {
   sectionError,
 } from '@/lib/party-asistente';
 import { saveBlob } from '@/lib/save-file';
+import { downloadSepaAsking } from '@/lib/sepa-again';
 import { usePolling } from '@/lib/use-polling';
 import { useVenueTimezone } from '@/lib/venue-context';
 import { Chip, DayButton, DayCard, DayMessage, DaySelect, DayStyles, Kpi, type ChipTone } from './asistente-ui';
@@ -92,7 +93,12 @@ function Devoluciones() {
     setBusy(kind);
     setMsg(null);
     try {
-      const blob = kind === 'sepa' ? await downloadTransfersSepa() : await downloadTransfersCsv();
+      // El SEPA con alguna ya descargada: pregunta antes (subirla dos veces al banco paga dos veces).
+      const blob =
+        kind === 'sepa'
+          ? await downloadSepaAsking((again) => downloadTransfersSepa(again), (q) => window.confirm(q), tz)
+          : await downloadTransfersCsv();
+      if (!blob) return;
       saveBlob(blob, transfersFileName(dayInZone(new Date(), tz), kind));
     } catch (err) {
       setMsg({ tone: 'bad', text: (err as Error).message });

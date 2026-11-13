@@ -1,6 +1,7 @@
 import 'reflect-metadata';
 import { describe, expect, it, vi } from 'vitest';
 import { ConflictException } from '@nestjs/common';
+import { Prisma } from '@nightpay/db';
 import { ROLES_KEY } from '../../common/decorators/roles.decorator';
 import { PartyRefundsController } from './party-refunds.controller';
 import { PartyRefundsService } from './party-refunds.service';
@@ -107,18 +108,28 @@ function pending(id: string, amountCents: number, iban: string, walletId = `w-${
   };
 }
 
-function make(venue: { settlementIban: string | null; settlementHolder?: string | null } = { settlementIban: DEBTOR_IBAN }) {
+function make(venue: { settlementIban: string | null; settlementHolder?: string | null } = { settlementIban: DEBTOR_IBAN }, previous: unknown[] = []) {
+  const sql: string[] = [];
+  const values: unknown[][] = [];
   const tx = {
+    $queryRaw: vi.fn(async (strings: TemplateStringsArray, ...vals: unknown[]) => {
+      const q = Prisma.sql(strings, ...(vals as Prisma.Sql[]));
+      sql.push(q.sql);
+      values.push(q.values);
+      if (q.sql.includes('pg_advisory_xact_lock')) return [{ ok: 1 }];
+      if (q.sql.includes('audit_events')) return previous;
+      throw new Error(`consulta inesperada: ${q.sql}`);
+    }),
     venue: { findUniqueOrThrow: vi.fn().mockResolvedValue({ name: 'Fiestas de San Juan', settlementHolder: null, ...venue }) },
     partyRefundRequest: { findMany: vi.fn().mockResolvedValue([pending(ID_A, 500, IBAN_A, 'w-a'), pending(ID_B, 1_234, IBAN_B, 'w-b')]) },
     clientWallet: { findMany: vi.fn().mockResolvedValue([{ id: 'w-a', shortCode: 'K7Q4M2' }]) },
     walletCard: { findMany: vi.fn().mockResolvedValue([{ walletId: 'w-a', number: 412 }]) },
-    user: { findMany: vi.fn().mockResolvedValue([]) },
+    user: { findMany: vi.fn().mockResolvedValue([]), findUnique: vi.fn().mockResolvedValue(null) },
   };
   const prisma = { asSystem: vi.fn(async (fn: (t: typeof tx) => unknown) => fn(tx)) };
-  const audit = { log: vi.fn().mockResolvedValue(undefined) };
+  const audit = { log: vi.fn().mockResolvedValue(undefined), logInTx: vi.fn().mockResolvedValue(undefined) };
   const svc = new PartyRefundsService(prisma as never, audit as never);
-  return { svc, tx, audit };
+  return { svc, tx, audit, sql, values };
 }
 
 const owner = { userId: 'owner-1', role: 'OWNER' as const, tenantId: T, email: 'org@fiesta.es' };
@@ -138,18 +149,34 @@ describe('PartyRefundsService.transfersSepa', () => {
     expect(all(file.xml, 'Nm')[0]).toBe('Comision San Juan');
     expect(file.xml).toContain('Devolucion OxioParty P-0412');
     expect(file.messageId).toMatch(/^OXPD20270630081500[0-9A-F]{6}$/);
-    expect(audit.log).toHaveBeenCalledTimes(1);
-    expect(audit.log.mock.calls[0]![0]).toMatchObject({
+    // El registro, en la misma transacción que la comprobación, con las peticiones que lleva.
+    expect(audit.logInTx).toHaveBeenCalledTimes(1);
+    expect(audit.logInTx.mock.calls[0]![1]).toMatchObject({
       action: 'party.refunds.sepa_exported',
       tenantId: T,
       actorId: 'owner-1',
       actorEmail: 'org@fiesta.es',
       targetType: 'Venue',
       targetId: T,
-      payload: { messageId: file.messageId, transfers: 2, totalCents: 1_734 },
+      payload: { messageId: file.messageId, transfers: 2, totalCents: 1_734, ids: [ID_A, ID_B] },
     });
     // En el registro no van los IBAN.
-    expect(JSON.stringify(audit.log.mock.calls[0]![0])).not.toContain(IBAN_A);
+    expect(JSON.stringify(audit.logInTx.mock.calls[0]![1])).not.toContain(IBAN_A);
+  });
+
+  it('con alguna ya en un fichero descargado antes: 409 ALREADY_EXPORTED con cuándo y quién; con again, otra vez', async () => {
+    const at = new Date('2027-06-29T19:30:00Z');
+    const { svc, audit, sql, values } = make(undefined, [{ at, actorId: null, actorEmail: 'paco@fiesta.es' }]);
+    const err = await svc.transfersSepa(owner, NOW).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ConflictException);
+    expect((err as ConflictException).getResponse()).toMatchObject({ code: 'ALREADY_EXPORTED', exportedAt: at.toISOString(), exportedBy: 'paco' });
+    expect(audit.logInTx).not.toHaveBeenCalled();
+    // Se busca por las peticiones de este fichero, en el registro de este local.
+    const i = sql.findIndex((x) => x.includes('audit_events'));
+    expect(values[i]).toEqual([T, 'party.refunds.sepa_exported', [ID_A, ID_B]]);
+    const again = await svc.transfersSepa(owner, NOW, { again: true });
+    expect(again.count).toBe(2);
+    expect(audit.logInTx.mock.calls[0]![1]).toMatchObject({ payload: { again: true, previousAt: at.toISOString(), ids: [ID_A, ID_B] } });
   });
 
   it('sin la cuenta del local: 409 NO_DEBTOR_IBAN, como en el cierre, y sin registro', async () => {
@@ -157,7 +184,7 @@ describe('PartyRefundsService.transfersSepa', () => {
     const err = await svc.transfersSepa(owner, NOW).catch((e: unknown) => e);
     expect(err).toBeInstanceOf(ConflictException);
     expect((err as ConflictException).getResponse()).toMatchObject({ code: NO_DEBTOR_IBAN_CODE });
-    expect(audit.log).not.toHaveBeenCalled();
+    expect(audit.logInTx).not.toHaveBeenCalled();
   });
 
   it('ninguna pendiente: 409 NO_TRANSFERS y sin registro', async () => {
@@ -166,7 +193,7 @@ describe('PartyRefundsService.transfersSepa', () => {
     const err = await svc.transfersSepa(owner, NOW).catch((e: unknown) => e);
     expect(err).toBeInstanceOf(ConflictException);
     expect((err as ConflictException).getResponse()).toMatchObject({ code: NO_TRANSFERS_CODE });
-    expect(audit.log).not.toHaveBeenCalled();
+    expect(audit.logInTx).not.toHaveBeenCalled();
   });
 });
 

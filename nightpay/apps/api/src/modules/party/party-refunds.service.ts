@@ -40,6 +40,7 @@ import {
 import { transfersCsv, type TransferCsvRow } from './party-refund-csv';
 import { refundTransfersSepa, type RefundSepaFile, type RefundTransfer } from './party-refund-sepa';
 import { NO_DEBTOR_IBAN_CODE, NO_DEBTOR_IBAN_MESSAGE, NO_TRANSFERS_CODE } from './sepa';
+import { REFUNDS_SEPA_ACTION, alreadyExported, lastRefundsExport, lockSepaExports } from './sepa-exports';
 
 type Actor = { userId: string; role: Role; tenantId: string; email?: string };
 
@@ -326,9 +327,12 @@ export class PartyRefundsService {
    * IBAN, para subirlas al banco de una vez. El deudor es el local (su cuenta,
    * `settlementIban`, que pone OxioPay; sin ella, 409 NO_DEBTOR_IBAN, como el
    * cierre); sin ninguna pendiente, 409 NO_TRANSFERS. No marca nada «Hecha».
-   * Cada descarga queda en el registro (`party.refunds.sepa_exported`).
+   * Cada descarga queda en el registro (`party.refunds.sepa_exported`, con
+   * los ids de las peticiones). Si alguna ya iba en un fichero descargado
+   * antes: 409 ALREADY_EXPORTED (cuándo y quién), salvo `again` (el panel lo
+   * confirma antes): subirlo dos veces al banco paga dos veces.
    */
-  async transfersSepa(actor: Actor, now: Date = new Date()): Promise<RefundSepaFile> {
+  async transfersSepa(actor: Actor, now: Date = new Date(), opts: { again?: boolean } = {}): Promise<RefundSepaFile> {
     const { venue, transfers } = await this.prisma.asSystem(async (tx) => {
       const venue = await tx.venue.findUniqueOrThrow({
         where: { id: actor.tenantId },
@@ -361,14 +365,27 @@ export class PartyRefundsService {
       debtor: { name: venue.settlementHolder?.trim() || venue.name, iban: venue.settlementIban },
       transfers,
     });
-    await this.audit.log({
-      action: 'party.refunds.sepa_exported',
-      tenantId: actor.tenantId,
-      actorId: actor.userId,
-      actorEmail: actor.email,
-      targetType: 'Venue',
-      targetId: actor.tenantId,
-      payload: { messageId: file.messageId, transfers: file.count, totalCents: file.totalCents },
+    const ids = transfers.map((t) => t.id);
+    await this.prisma.asSystem(async (tx) => {
+      await lockSepaExports(tx, actor.tenantId, REFUNDS_SEPA_ACTION);
+      const prev = await lastRefundsExport(tx, actor.tenantId, ids);
+      if (prev && !opts.again) throw await alreadyExported(tx, prev);
+      // En la misma transacción: sin registro no hay fichero (lo que avisa la próxima vez).
+      await this.audit.logInTx(tx, {
+        action: REFUNDS_SEPA_ACTION,
+        tenantId: actor.tenantId,
+        actorId: actor.userId,
+        actorEmail: actor.email,
+        targetType: 'Venue',
+        targetId: actor.tenantId,
+        payload: {
+          messageId: file.messageId,
+          transfers: file.count,
+          totalCents: file.totalCents,
+          ids,
+          ...(prev ? { again: true, previousAt: prev.at.toISOString() } : {}),
+        },
+      });
     });
     return file;
   }

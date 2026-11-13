@@ -26,7 +26,8 @@ import { partySettlementCsv, partySettlementFileName } from './party-settlement-
  *  - GET /v1/party/cash-desk/me
  *      el efectivo de la caja de quien lo pide en la noche de ahora (la taquilla del personal).
  *  - GET /v1/party/settlement?from=AAAA-MM-DD&to=AAAA-MM-DD  (sin fechas: la fiesta entera)
- *  - GET /v1/party/settlement/sepa   transferencias para el banco (pain.001.001.03; queda en el registro)
+ *  - GET /v1/party/settlement/sepa   transferencias para el banco (pain.001.001.03; queda en el registro).
+ *      Ya descargado con las mismas noches: 409 ALREADY_EXPORTED (cuándo y quién), salvo `?again=1`.
  *  - GET /v1/party/settlement/csv
  *      la liquidación por caseta: dueño y encargado. Descargar no mueve dinero
  *      (lo hace el banco con su firma), como los demás CSV del panel: sin 2FA.
@@ -66,8 +67,9 @@ export class PartyPanelController {
     @CurrentUser() user: JwtPayload,
     @Query(new ZodValidationPipe(PartySettlementQuerySchema)) q: PartySettlementQuery,
     @Res() res: FastifyReply,
+    @Query('again') again?: string,
   ): Promise<void> {
-    const file = await this.panel.sepa(user, q);
+    const file = await this.panel.sepa(user, q, new Date(), { again: again === '1' });
     res
       .status(200)
       .header('Content-Type', 'application/xml; charset=utf-8')

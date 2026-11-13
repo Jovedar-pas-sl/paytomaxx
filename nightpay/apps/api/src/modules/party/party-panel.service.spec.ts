@@ -32,6 +32,8 @@ interface Answers {
   payouts?: unknown[];
   payoutsTotal?: unknown[];
   wristbands?: unknown[];
+  /** La descarga anterior del mismo fichero en el registro (audit_events). */
+  previous?: unknown[];
 }
 
 function make(venue: Record<string, unknown> = {}, answers: Answers = {}) {
@@ -43,6 +45,8 @@ function make(venue: Record<string, unknown> = {}, answers: Answers = {}) {
     const text = q.sql;
     sql.push(text);
     values.push(q.values);
+    if (text.includes('pg_advisory_xact_lock')) return [{ ok: 1 }];
+    if (text.includes('audit_events')) return answers.previous ?? [];
     if (text.includes('WITH ventas')) return answers.sales ?? [];
     if (text.includes('client_wallets')) return answers.wristbands ?? [{ cents: 0n, active: 0 }];
     if (text.includes('wallet_cash_topups')) return answers.cash ?? [];
@@ -54,7 +58,10 @@ function make(venue: Record<string, unknown> = {}, answers: Answers = {}) {
   const tx = {
     $queryRaw: queryRaw,
     stall: { findMany: vi.fn().mockResolvedValue(STALLS) },
-    user: { findMany: vi.fn().mockResolvedValue([{ id: 'u-1', displayName: 'Lucía', email: 'lucia@fiesta.es' }]) },
+    user: {
+      findMany: vi.fn().mockResolvedValue([{ id: 'u-1', displayName: 'Lucía', email: 'lucia@fiesta.es' }]),
+      findUnique: vi.fn().mockResolvedValue({ displayName: 'Lucía', email: 'lucia@fiesta.es' }),
+    },
     terminal: { findMany: vi.fn().mockResolvedValue([]) },
     venue: {
       findUniqueOrThrow: vi.fn().mockResolvedValue({
@@ -72,7 +79,7 @@ function make(venue: Record<string, unknown> = {}, answers: Answers = {}) {
     withTenant: vi.fn(async (_t: string, fn: (t: typeof tx) => unknown) => fn(tx)),
     asSystem: vi.fn(async (fn: (t: typeof tx) => unknown) => fn(tx)),
   };
-  const audit = { log: vi.fn().mockResolvedValue(undefined) };
+  const audit = { log: vi.fn().mockResolvedValue(undefined), logInTx: vi.fn().mockResolvedValue(undefined) };
   const svc = new PartyPanelService(prisma as never, audit as never);
   return { svc, tx, prisma, audit, sql, values };
 }
@@ -221,16 +228,39 @@ describe('la liquidación y su fichero', () => {
     expect(xml).toContain('<Dbtr><Nm>Comision de Fiestas</Nm></Dbtr>');
     expect(xml).toContain('<ReqdExctnDt>2027-06-24</ReqdExctnDt>');
     expect(settlement.totals.transfers).toBe(1);
-    expect(audit.log).toHaveBeenCalledWith(
+    // El registro, en la misma transacción que la comprobación (si no se escribe, no hay fichero).
+    expect(audit.logInTx).toHaveBeenCalledWith(
+      expect.anything(),
       expect.objectContaining({
         action: 'party.settlement.sepa_exported',
         tenantId: T,
         actorId: 'owner-1',
-        payload: expect.objectContaining({ transfers: 1, totalCents: 712_800, fromNight: null }),
+        payload: expect.objectContaining({ transfers: 1, totalCents: 712_800, fromNight: null, toNight: null }),
       }),
     );
+    expect(audit.logInTx.mock.calls[0]![1].payload).not.toHaveProperty('again');
     // Ni el IBAN entero ni el XML en el registro.
-    expect(JSON.stringify(audit.log.mock.calls)).not.toContain(STALL_IBAN);
+    expect(JSON.stringify(audit.logInTx.mock.calls)).not.toContain(STALL_IBAN);
+  });
+
+  it('el SEPA ya descargado con las mismas noches: 409 ALREADY_EXPORTED con cuándo y quién, sin registro; con again, otra vez', async () => {
+    const at = new Date('2027-06-23T22:10:00Z');
+    const { svc, audit, sql, values } = make({}, { ...answers, previous: [{ at, actorId: 'u-1', actorEmail: 'lucia@fiesta.es' }] });
+    const q = PartySettlementQuerySchema.parse({ from: '2027-06-22', to: '2027-06-23' });
+    const err = await svc.sepa(owner, q, NOW).catch((e: unknown) => e);
+    expect(err).toMatchObject({
+      status: 409,
+      response: expect.objectContaining({ code: 'ALREADY_EXPORTED', exportedAt: '2027-06-23T22:10:00.000Z', exportedBy: 'Lucía' }),
+    });
+    expect(audit.logInTx).not.toHaveBeenCalled();
+    // La anterior se busca en el registro del local, con el mismo rango de noches y bajo candado.
+    const i = sql.findIndex((x) => x.includes('audit_events'));
+    expect(sql[i]).toMatch(/"tenantId" = \S+::uuid/);
+    expect(values[i]).toEqual([T, 'party.settlement.sepa_exported', '2027-06-22', '2027-06-23']);
+    expect(sql.findIndex((x) => x.includes('pg_advisory_xact_lock'))).toBeLessThan(i);
+    const again = await svc.sepa(owner, q, NOW, { again: true });
+    expect(again.xml).toContain('<CdtTrfTxInf>');
+    expect(audit.logInTx.mock.calls[0]![1]).toMatchObject({ payload: { fromNight: '2027-06-22', toNight: '2027-06-23', again: true, previousAt: at.toISOString() } });
   });
 
   it('sin la cuenta del local, 409 NO_DEBTOR_IBAN (sin registro)', async () => {
@@ -240,6 +270,7 @@ describe('la liquidación y su fichero', () => {
       response: expect.objectContaining({ code: NO_DEBTOR_IBAN_CODE }),
     });
     expect(audit.log).not.toHaveBeenCalled();
+    expect(audit.logInTx).not.toHaveBeenCalled();
   });
 
   it('sin ninguna caseta que pagar, 409 NO_TRANSFERS', async () => {

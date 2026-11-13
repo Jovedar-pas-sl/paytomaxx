@@ -15,6 +15,7 @@ import { PaymentsService } from '../../src/modules/payments/payments.service';
 import { WalletChargesService } from '../../src/modules/wallets/wallet-charges.service';
 import { StallsService } from '../../src/modules/party/stalls.service';
 import { PartyPanelService } from '../../src/modules/party/party-panel.service';
+import { AuditService } from '../../src/modules/audit/audit.service';
 
 const cls = new ClsService(new AsyncLocalStorage());
 const prisma = new PrismaService(cls as never);
@@ -35,7 +36,8 @@ const payments = new PaymentsService(
 );
 const charges = new WalletChargesService(prisma as never, audit as never, { get: () => ({}) } as never, {} as never);
 const stalls = new StallsService(prisma, { assertIfEnrolledForUser: vi.fn(async () => undefined) } as never, audit as never);
-const panel = new PartyPanelService(prisma, audit as never);
+// El registro de verdad: las descargas del fichero SEPA se miran en audit_events.
+const panel = new PartyPanelService(prisma, new AuditService(prisma, cls as never));
 
 const inVenue = <T>(tenantId: string | undefined, fn: () => Promise<T>): Promise<T> =>
   cls.run(async () => {
@@ -275,7 +277,33 @@ describe('la liquidación por caseta', () => {
     expect(xml).toContain(`<CdtrAcct><Id><IBAN>${STALL_IBAN}</IBAN></Id></CdtrAcct>`);
     expect(xml).toContain('<Ustrd>OxioParty Fiestas de San Juan Pena El Trago</Ustrd>');
     expect(xml).not.toContain('Barra de la Comision');
-    expect(audit.log).toHaveBeenCalledWith(expect.objectContaining({ action: 'party.settlement.sepa_exported', tenantId: V }));
+    const logged = await sys((tx) => tx.auditEvent.findMany({ where: { tenantId: V, action: 'party.settlement.sepa_exported' } }));
+    expect(logged).toHaveLength(1);
+    expect(logged[0]).toMatchObject({ actorId: owner, payload: expect.objectContaining({ transfers: 1, totalCents: 1_620, fromNight: null, toNight: null }) });
+  });
+
+  it('el fichero SEPA otra vez con las mismas noches: 409 ALREADY_EXPORTED (cuándo y quién) salvo again; otras noches, no', async () => {
+    const whole = PartySettlementQuerySchema.parse({});
+    const err = await inVenue(V, () => panel.sepa(ownerJwt(), whole)).catch((e: unknown) => e);
+    const first = await sys((tx) => tx.auditEvent.findFirstOrThrow({ where: { tenantId: V, action: 'party.settlement.sepa_exported' } }));
+    expect(err).toMatchObject({
+      status: 409,
+      response: expect.objectContaining({ code: 'ALREADY_EXPORTED', exportedAt: first.occurredAt.toISOString(), exportedBy: `org-${r}` }),
+    });
+    expect(await sys((tx) => tx.auditEvent.count({ where: { tenantId: V, action: 'party.settlement.sepa_exported' } }))).toBe(1);
+    // A propósito (el panel lo confirma): sale y queda en el registro como repetido.
+    const again = await inVenue(V, () => panel.sepa(ownerJwt(), whole, new Date(), { again: true }));
+    expect(again.xml).toContain('<CtrlSum>16.20</CtrlSum>');
+    const last = await sys((tx) => tx.auditEvent.findFirstOrThrow({ where: { tenantId: V, action: 'party.settlement.sepa_exported' }, orderBy: { id: 'desc' } }));
+    expect(last.payload).toMatchObject({ again: true, previousAt: first.occurredAt.toISOString() });
+    // Otro rango de noches es otro fichero (aquí sin nada que pagar: 409 NO_TRANSFERS, no ALREADY_EXPORTED).
+    await expect(inVenue(V, () => panel.sepa(ownerJwt(), PartySettlementQuerySchema.parse({ from: '2020-01-01', to: '2020-01-02' })))).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'NO_TRANSFERS' }),
+    });
+    // Ni el de otro local cuenta.
+    await expect(inVenue(OTHER, () => panel.sepa({ ...ownerJwt(), tenantId: OTHER }, whole))).rejects.not.toMatchObject({
+      response: expect.objectContaining({ code: 'ALREADY_EXPORTED' }),
+    });
   });
 
   it('cambiar la parte de la caseta cambia la liquidación (es la de ahora); unas noches sin ventas, a 0', async () => {

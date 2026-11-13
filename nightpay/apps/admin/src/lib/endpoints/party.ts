@@ -15,6 +15,7 @@ import type {
   UpdateStallDto,
 } from '@nightpay/contracts';
 import { apiError, authedFetch, totpAwareError } from '../http';
+import { sepaFile } from '../sepa-again';
 
 const ADMIN = '/v1/admin/party';
 const id = (value: string): string => encodeURIComponent(value);
@@ -105,9 +106,20 @@ export function fetchPartySettlement(r: PartyRange, signal?: AbortSignal): Promi
   return json(`/v1/party/settlement${partyRangeQuery(r)}`, signal);
 }
 
-/** El fichero del banco (SEPA, XML) o el CSV, como archivo. */
-export async function downloadPartySettlement(kind: 'sepa' | 'csv', r: PartyRange): Promise<Blob> {
+/** La liquidación en CSV, como archivo. */
+export async function downloadPartySettlement(kind: 'csv', r: PartyRange): Promise<Blob> {
   const res = await authedFetch(`/v1/party/settlement/${kind}${partyRangeQuery(r)}`);
   if (!res.ok) throw await apiError(res);
   return res.blob();
+}
+
+/**
+ * El fichero del banco (SEPA, XML). Ya descargado con esas noches:
+ * SepaAlreadyExportedError (cuándo y quién); `again` lo pide otra vez.
+ */
+export async function downloadPartySettlementSepa(r: PartyRange, again = false): Promise<Blob> {
+  const params = new URLSearchParams(r.from && r.to ? { from: r.from, to: r.to } : {});
+  if (again) params.set('again', '1');
+  const qs = params.toString();
+  return sepaFile(await authedFetch(`/v1/party/settlement/sepa${qs ? `?${qs}` : ''}`));
 }

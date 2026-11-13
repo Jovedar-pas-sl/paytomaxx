@@ -284,6 +284,22 @@ describe('el fichero SEPA de las transferencias pendientes', () => {
       expect(await sys((tx) => tx.partyRefundRequest.count({ where: { id: { in: [ids[a.id]!, ids[b.id]!] }, status: 'PENDING' } }))).toBe(2);
       const logged = await sys((tx) => tx.auditEvent.findFirst({ where: { tenantId: V, action: 'party.refunds.sepa_exported' }, orderBy: { occurredAt: 'desc' } }));
       expect(logged).toMatchObject({ actorId: owner, payload: expect.objectContaining({ transfers: expected.length, totalCents: total }) });
+      expect((logged!.payload as { ids: string[] }).ids.sort()).toEqual(expected.map((x) => x.id).sort());
+      // Otra vez con las mismas pendientes (no marca «Hecha»): 409 ALREADY_EXPORTED con cuándo y quién.
+      const twice = await inVenue(V, () => refunds.transfersSepa(actor())).catch((e: unknown) => e);
+      expect(twice).toMatchObject({
+        status: 409,
+        response: expect.objectContaining({ code: 'ALREADY_EXPORTED', exportedAt: logged!.occurredAt.toISOString(), exportedBy: 'Lola' }),
+      });
+      // Una nueva junto a las de antes también avisa (las de antes irían dos veces).
+      const e = await wallet(400, 400);
+      await refunds.ask(e.id, { method: 'TRANSFER', iban: IBAN });
+      await expect(inVenue(V, () => refunds.transfersSepa(actor()))).rejects.toMatchObject({ response: expect.objectContaining({ code: 'ALREADY_EXPORTED' }) });
+      // A propósito (el panel lo confirma): sale con todas, y queda en el registro como repetido.
+      const again = await inVenue(V, () => refunds.transfersSepa(actor(), new Date(), { again: true }));
+      expect(again.count).toBe(expected.length + 1);
+      const last = await sys((tx) => tx.auditEvent.findFirstOrThrow({ where: { tenantId: V, action: 'party.refunds.sepa_exported' }, orderBy: { id: 'desc' } }));
+      expect(last.payload).toMatchObject({ again: true, previousAt: logged!.occurredAt.toISOString() });
       // Otro local: sin su cuenta, no hay fichero (y nunca lleva las de este).
       await expect(refunds.transfersSepa({ ...actor(), tenantId: OTHER })).rejects.toMatchObject({ status: 409 });
     } finally {

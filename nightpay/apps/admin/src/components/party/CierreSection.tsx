@@ -4,10 +4,17 @@ import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import type { PartySettings, PartySettlement } from '@nightpay/contracts';
 import { Button, Input } from '@nightpay/ui';
 import { formatDateTime } from '@/lib/dates';
-import { downloadPartySettlement, fetchPartySettings, fetchPartySettlement, type PartyRange } from '@/lib/endpoints/party';
+import {
+  downloadPartySettlement,
+  downloadPartySettlementSepa,
+  fetchPartySettings,
+  fetchPartySettlement,
+  type PartyRange,
+} from '@/lib/endpoints/party';
 import { formatEur } from '@/lib/money';
 import { leftoverView, rangeProblem, sepaReadiness, settlementRowView, transfersText } from '@/lib/party-settlement';
 import { saveBlob } from '@/lib/save-file';
+import { downloadSepaAsking } from '@/lib/sepa-again';
 import { useVenueTimezone } from '@/lib/venue-context';
 import { Notice } from '../Notice';
 
@@ -56,7 +63,12 @@ export function CierreSection() {
     setDownloading(kind);
     setDownloadError(null);
     try {
-      const blob = await downloadPartySettlement(kind, range);
+      // El SEPA ya descargado con esas noches: pregunta antes (subirlo dos veces al banco paga dos veces).
+      const blob =
+        kind === 'sepa'
+          ? await downloadSepaAsking((again) => downloadPartySettlementSepa(range, again), (q) => window.confirm(q), timeZone)
+          : await downloadPartySettlement(kind, range);
+      if (!blob) return;
       const slug = range.from && range.to ? (range.from === range.to ? range.from : `${range.from}_${range.to}`) : 'fiesta';
       saveBlob(blob, kind === 'sepa' ? `oxioparty-transferencias-${slug}.xml` : `oxioparty-liquidacion-${slug}.csv`);
     } catch (err) {
