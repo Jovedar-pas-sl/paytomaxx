@@ -174,8 +174,16 @@ la de antes.
   aparte), `POST …/refunds/:id/done` («Hecha»: el importe sale del saldo; a
   cero, el saldo se cierra) y `POST …/refunds/:id/cancel` (no sale nada y el
   saldo se desbloquea). `GET …/refunds/transferencias.csv`: las
-  transferencias pendientes con el IBAN entero. **No hay fichero SEPA aquí**:
-  el CSV se lleva al banco a mano.
+  transferencias pendientes con el IBAN entero. `GET
+  …/refunds/transferencias.sepa`: las mismas (pendientes con IBAN) en un
+  fichero SEPA pain.001.001.03 para subirlas de una vez (`buildPain001` de
+  `sepa.ts`, como el cierre; `party-refund-sepa.ts`): el deudor es el local
+  (`settlementIban`; sin él, 409 `NO_DEBTOR_IBAN`), cada transferencia lleva
+  el id de la petición como referencia y «Devolución <marca> P-0412» como
+  concepto, y el beneficiario es «Asistente <marca> P-0412» (del asistente no
+  se guarda el nombre). Solo dueño y encargado; cada descarga queda en el
+  registro (`party.refunds.sepa_exported`). Subirlo no marca nada: después,
+  «Hecha» en el panel.
 - Pendiente: lo hecho no crea `wallet_payouts` ni `refunds` de OxioPay (el
   cuadre con el banco no enlaza una devolución a la tarjeta hecha a mano con
   su recarga) y el cierre debería contar lo pendiente de devolver como deuda

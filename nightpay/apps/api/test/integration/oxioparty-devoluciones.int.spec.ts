@@ -2,7 +2,8 @@
 // 20261115200000_oxioparty_devoluciones). Con EDITION=party: pedir la devolución bloquea el
 // saldo de verdad (la pulsera ya no paga), a la tarjeta solo lo cargado con tarjeta, la
 // transferencia con su IBAN, donar al momento (y apagado, no), «Hecha» saca el dinero del
-// saldo, anular lo desbloquea, el plazo, los totales y el CSV. Pulseras: preparar en lote,
+// saldo, anular lo desbloquea, el plazo, los totales, el CSV y el fichero SEPA de las
+// transferencias. Pulseras: preparar en lote,
 // recuento, hoja con QR y pasar el saldo de una perdida a otra. El estado del cobro del saldo
 // con la pulsera y lo que le queda. Las reglas de la base y repetir la migración. np_app y FORCE RLS.
 import { describe, it, expect, beforeAll, afterAll, afterEach, vi } from 'vitest';
@@ -185,6 +186,66 @@ describe('«Lo que sobra» con EDITION=party', () => {
     const other = await refunds.list(OTHER);
     expect(other.rows).toEqual([]);
     expect(other.totals.pending.CARD.count).toBe(0);
+  });
+});
+
+describe('el fichero SEPA de las transferencias pendientes', () => {
+  const DEBTOR = 'ES7921000813610123456789';
+  const IBAN_2 = 'ES6000491500051234567892';
+  const tags = (xml: string, tag: string) => [...xml.matchAll(new RegExp(`<${tag}(?: [^>]*)?>([^<]*)</${tag}>`, 'g'))].map((m) => m[1]);
+  const e2e = (id: string) => id.replace(/-/g, '');
+
+  it('sin la cuenta del local, 409 NO_DEBTOR_IBAN; con ella, solo las transferencias pendientes con IBAN (NbOfTxs y CtrlSum) y queda en el registro', async () => {
+    vi.stubEnv('EDITION', 'party');
+    const a = await wallet(700, 700);
+    const b = await wallet(1250, 1250);
+    const c = await wallet(900);
+    const d = await wallet(300, 300);
+    await refunds.ask(a.id, { method: 'TRANSFER', iban: IBAN });
+    await refunds.ask(b.id, { method: 'TRANSFER', iban: IBAN_2 });
+    await refunds.ask(c.id, { method: 'CARD' });
+    await refunds.ask(d.id, { method: 'TRANSFER', iban: IBAN });
+    const ids = await sys(async (tx) =>
+      Object.fromEntries(
+        (await tx.partyRefundRequest.findMany({ where: { walletId: { in: [a.id, b.id, c.id, d.id] } }, select: { id: true, walletId: true } })).map((x) => [
+          x.walletId,
+          x.id,
+        ]),
+      ),
+    );
+    // La de d, ya hecha: no va.
+    await refunds.markDone(actor(), ids[d.id]!);
+
+    await expect(refunds.transfersSepa(actor())).rejects.toMatchObject({ status: 409, response: expect.objectContaining({ code: 'NO_DEBTOR_IBAN' }) });
+
+    await sys((tx) => tx.venue.update({ where: { id: V }, data: { settlementIban: DEBTOR, settlementHolder: 'Comisión de Fiestas' } }));
+    try {
+      const expected = await sys((tx) =>
+        tx.partyRefundRequest.findMany({ where: { tenantId: V, status: 'PENDING', method: 'TRANSFER', iban: { not: null } }, select: { id: true, amountCents: true } }),
+      );
+      const total = expected.reduce((acc, x) => acc + x.amountCents, 0);
+      const file = await inVenue(V, () => refunds.transfersSepa(actor()));
+      expect(file.count).toBe(expected.length);
+      expect(file.count).toBeGreaterThanOrEqual(2);
+      expect(file.totalCents).toBe(total);
+      expect(tags(file.xml, 'NbOfTxs')).toEqual([String(expected.length), String(expected.length)]);
+      const ctrl = `${Math.floor(total / 100)}.${String(total % 100).padStart(2, '0')}`;
+      expect(tags(file.xml, 'CtrlSum')).toEqual([ctrl, ctrl]);
+      expect(tags(file.xml, 'IBAN')[0]).toBe(DEBTOR);
+      expect(tags(file.xml, 'EndToEndId').sort()).toEqual(expected.map((x) => e2e(x.id)).sort());
+      expect(tags(file.xml, 'EndToEndId')).toEqual(expect.arrayContaining([e2e(ids[a.id]!), e2e(ids[b.id]!)]));
+      expect(tags(file.xml, 'EndToEndId')).not.toContain(e2e(ids[c.id]!));
+      expect(tags(file.xml, 'EndToEndId')).not.toContain(e2e(ids[d.id]!));
+      expect(file.xml).toContain(IBAN_2);
+      // No marca nada: siguen pendientes.
+      expect(await sys((tx) => tx.partyRefundRequest.count({ where: { id: { in: [ids[a.id]!, ids[b.id]!] }, status: 'PENDING' } }))).toBe(2);
+      const logged = await sys((tx) => tx.auditEvent.findFirst({ where: { tenantId: V, action: 'party.refunds.sepa_exported' }, orderBy: { occurredAt: 'desc' } }));
+      expect(logged).toMatchObject({ actorId: owner, payload: expect.objectContaining({ transfers: expected.length, totalCents: total }) });
+      // Otro local: sin su cuenta, no hay fichero (y nunca lleva las de este).
+      await expect(refunds.transfersSepa({ ...actor(), tenantId: OTHER })).rejects.toMatchObject({ status: 409 });
+    } finally {
+      await sys((tx) => tx.venue.update({ where: { id: V }, data: { settlementIban: null, settlementHolder: null } }));
+    }
   });
 });
 

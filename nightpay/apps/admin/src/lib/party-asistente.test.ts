@@ -16,6 +16,7 @@ import {
   sectionError,
   sheetFileName,
   sheetRangeProblem,
+  transfersFileName,
 } from './party-asistente';
 
 /** El importe como lo escribe el panel (con su espacio fino antes del €). */
@@ -134,6 +135,14 @@ describe('devoluciones en el panel', () => {
     ]);
     expect(tiles[0]?.strong).toBe(true);
     expect(tiles[3]?.hint).toBe('3 asistentes');
+  });
+});
+
+describe('las transferencias para el banco', () => {
+  it('el CSV y el fichero SEPA (XML), con el día', () => {
+    expect(transfersFileName('2027-06-30')).toBe('transferencias-pendientes-2027-06-30.csv');
+    expect(transfersFileName('2027-06-30', 'csv')).toBe('transferencias-pendientes-2027-06-30.csv');
+    expect(transfersFileName('2027-06-30', 'sepa')).toBe('transferencias-pendientes-2027-06-30.xml');
   });
 });
 

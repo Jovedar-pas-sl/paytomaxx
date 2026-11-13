@@ -2,7 +2,7 @@ import React from 'react';
 import { describe, expect, it } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import type { PartyRefundRow, PulseraRow } from '@nightpay/contracts';
-import { RefundTable } from './DevolucionesSection';
+import { DevolucionesSection, RefundTable } from './DevolucionesSection';
 import { PulseraList } from './PulserasSection';
 
 // Pulseras y Devoluciones con datos: qué botón sale en cada fila y que nada
@@ -60,6 +60,16 @@ describe('Devoluciones con datos', () => {
     expect(html).toContain('Donado');
     expect(html).toContain('· Lola');
     expect(html).not.toContain('ES9121000418450200051332');
+  });
+});
+
+describe('Devoluciones: las transferencias para el banco', () => {
+  it('el botón del fichero SEPA junto al CSV (apagados mientras no hay pendientes)', () => {
+    const html = renderToStaticMarkup(<DevolucionesSection />).replace(/<!-- -->/g, '');
+    expect(html).toMatch(/<button[^>]*disabled=""[^>]*>Fichero SEPA \(0\)<\/button>/);
+    expect(html).toMatch(/<button[^>]*disabled=""[^>]*>Exportar CSV<\/button>/);
+    expect(html).toContain('subirlas a tu banco de una vez');
+    expect(html).not.toContain('no sale de aquí');
   });
 });
 

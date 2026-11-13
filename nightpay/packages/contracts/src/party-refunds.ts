@@ -16,6 +16,7 @@ import { normalizeIban } from './superadmin';
 //   POST /v1/admin/party/refunds/:id/done             «Hecha» (tarjeta: ya devuelta en el banco; transferencia: ya enviada)
 //   POST /v1/admin/party/refunds/:id/cancel           anularla (el saldo vuelve a poder gastarse)
 //   GET  /v1/admin/party/refunds/transferencias.csv   las transferencias pendientes, para el banco
+//   GET  /v1/admin/party/refunds/transferencias.sepa  las mismas en un fichero SEPA (pain.001.001.03; 409 NO_DEBTOR_IBAN sin la cuenta del local)
 //
 // Vías: CARD (solo lo cargado con tarjeta; el organizador la hace a mano en el
 // banco: hoy Redsys no devuelve por API), TRANSFER (lo cargado en efectivo, a

@@ -2,7 +2,13 @@
 
 import { useState } from 'react';
 import type { PartyRefundList, PartyRefundMethod, PartyRefundRow, PartyRefundStatus } from '@nightpay/contracts';
-import { cancelPartyRefund, downloadTransfersCsv, fetchPartyRefunds, markPartyRefundDone } from '@/lib/endpoints/party-devoluciones';
+import {
+  cancelPartyRefund,
+  downloadTransfersCsv,
+  downloadTransfersSepa,
+  fetchPartyRefunds,
+  markPartyRefundDone,
+} from '@/lib/endpoints/party-devoluciones';
 import { dayInZone, formatDateTime } from '@/lib/dates';
 import { formatEur } from '@/lib/money';
 import {
@@ -31,7 +37,8 @@ const STATUS_TONE: Readonly<Record<PartyRefundStatus, ChipTone>> = { PENDING: 'w
  * pendiente a la tarjeta y por transferencia, lo hecho y lo donado; la lista
  * por estado y forma; «Hecha» (la tarjeta, después de devolverla en el portal
  * del banco: hoy Redsys no devuelve por API; la transferencia, después de
- * enviarla) y el CSV de las transferencias pendientes para el banco.
+ * enviarla) y las transferencias pendientes para el banco: el fichero SEPA
+ * (todas de una vez) o el CSV.
  */
 export function DevolucionesSection() {
   return <Devoluciones />;
@@ -81,11 +88,12 @@ function Devoluciones() {
     }
   }
 
-  async function exportCsv(): Promise<void> {
-    setBusy('csv');
+  async function exportTransfers(kind: 'csv' | 'sepa'): Promise<void> {
+    setBusy(kind);
     setMsg(null);
     try {
-      saveBlob(await downloadTransfersCsv(), transfersFileName(dayInZone(new Date(), tz)));
+      const blob = kind === 'sepa' ? await downloadTransfersSepa() : await downloadTransfersCsv();
+      saveBlob(blob, transfersFileName(dayInZone(new Date(), tz), kind));
     } catch (err) {
       setMsg({ tone: 'bad', text: (err as Error).message });
     } finally {
@@ -107,14 +115,19 @@ function Devoluciones() {
         title="Transferencias"
         labelId="pa-transferencias"
         aside={
-          <DayButton variant="primary" disabled={busy !== null || pendingTransfers === 0} onClick={() => void exportCsv()}>
-            Exportar CSV ({pendingTransfers})
-          </DayButton>
+          <div className="pa-row">
+            <DayButton variant="primary" disabled={busy !== null || pendingTransfers === 0} onClick={() => void exportTransfers('sepa')}>
+              Fichero SEPA ({pendingTransfers})
+            </DayButton>
+            <DayButton disabled={busy !== null || pendingTransfers === 0} onClick={() => void exportTransfers('csv')}>
+              Exportar CSV
+            </DayButton>
+          </div>
         }
       >
         <p className="pa-note">
-          El CSV trae las transferencias pendientes con el IBAN entero, el importe y el concepto («Devolución … P-0412»). Hazlas desde tu banco y márcalas «Hecha» aquí.
-          El fichero SEPA para subirlas todas de una vez no sale de aquí: de momento, este CSV.
+          El fichero SEPA lleva todas las transferencias pendientes para subirlas a tu banco de una vez, desde la cuenta del local. El CSV trae las mismas con el IBAN
+          entero, el importe y el concepto («Devolución … P-0412»), por si las haces a mano. Después, márcalas «Hecha» aquí.
         </p>
       </DayCard>
 

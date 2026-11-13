@@ -168,6 +168,6 @@ export function refundTiles(t: PartyRefundTotals): Array<{ key: string; label: s
   ];
 }
 
-export function transfersFileName(day: string): string {
-  return `transferencias-pendientes-${day}.csv`;
+export function transfersFileName(day: string, kind: 'csv' | 'sepa' = 'csv'): string {
+  return `transferencias-pendientes-${day}.${kind === 'sepa' ? 'xml' : 'csv'}`;
 }

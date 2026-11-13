@@ -1,7 +1,9 @@
+import { randomBytes } from 'node:crypto';
 import { ConflictException, Inject, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
 import {
   PARTY_REFUND_ERRORS,
   isRefundWindowOpen,
+  madridDay,
   maskIban,
   pulseraLabel,
   type PartyRefundAskDto,
@@ -35,6 +37,8 @@ import {
   type RefundWallet,
 } from './party-refund-rules';
 import { transfersCsv, type TransferCsvRow } from './party-refund-csv';
+import { refundTransfersSepa, type RefundSepaFile, type RefundTransfer } from './party-refund-sepa';
+import { NO_DEBTOR_IBAN_CODE, NO_DEBTOR_IBAN_MESSAGE, NO_TRANSFERS_CODE } from './sepa';
 
 type Actor = { userId: string; role: Role; tenantId: string; email?: string };
 
@@ -303,6 +307,58 @@ export class PartyRefundsService {
       }));
     });
     return transfersCsv(rows, partyBrand());
+  }
+
+  /**
+   * El fichero SEPA (pain.001.001.03) de las transferencias pendientes con
+   * IBAN, para subirlas al banco de una vez. El deudor es el local (su cuenta,
+   * `settlementIban`, que pone OxioPay; sin ella, 409 NO_DEBTOR_IBAN, como el
+   * cierre); sin ninguna pendiente, 409 NO_TRANSFERS. No marca nada «Hecha».
+   * Cada descarga queda en el registro (`party.refunds.sepa_exported`).
+   */
+  async transfersSepa(actor: Actor, now: Date = new Date()): Promise<RefundSepaFile> {
+    const { venue, transfers } = await this.prisma.asSystem(async (tx) => {
+      const venue = await tx.venue.findUniqueOrThrow({
+        where: { id: actor.tenantId },
+        select: { name: true, settlementIban: true, settlementHolder: true },
+      });
+      const pending = await tx.partyRefundRequest.findMany({
+        where: { tenantId: actor.tenantId, status: 'PENDING', method: 'TRANSFER', iban: { not: null } },
+        orderBy: { createdAt: 'asc' },
+        select: REQUEST_SELECT,
+      });
+      const views = await rowViews(tx, pending);
+      const transfers = pending.map<RefundTransfer>((r, i) => ({
+        id: r.id,
+        amountCents: r.amountCents,
+        iban: r.iban as string,
+        pulsera: views[i]?.pulsera ?? null,
+      }));
+      return { venue, transfers };
+    });
+    if (!venue.settlementIban) throw new ConflictException({ code: NO_DEBTOR_IBAN_CODE, message: NO_DEBTOR_IBAN_MESSAGE });
+    if (transfers.length === 0) {
+      throw new ConflictException({ code: NO_TRANSFERS_CODE, message: 'No hay transferencias pendientes que hacer.' });
+    }
+    const stamp = now.toISOString().replace(/\D/g, '').slice(0, 14);
+    const file = refundTransfersSepa({
+      messageId: `OXPD${stamp}${randomBytes(3).toString('hex').toUpperCase()}`,
+      createdAt: now,
+      executionDate: madridDay(now),
+      brand: partyBrand(),
+      debtor: { name: venue.settlementHolder?.trim() || venue.name, iban: venue.settlementIban },
+      transfers,
+    });
+    await this.audit.log({
+      action: 'party.refunds.sepa_exported',
+      tenantId: actor.tenantId,
+      actorId: actor.userId,
+      actorEmail: actor.email,
+      targetType: 'Venue',
+      targetId: actor.tenantId,
+      payload: { messageId: file.messageId, transfers: file.count, totalCents: file.totalCents },
+    });
+    return file;
   }
 
   private async settle(actor: Actor, id: string, to: 'DONE' | 'CANCELED', now: Date) {

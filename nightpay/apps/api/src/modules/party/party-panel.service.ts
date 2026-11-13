@@ -27,7 +27,13 @@ import {
 } from './party-money-sql';
 import { buildPartySettlement, type SettlementStall } from './party-settlement-rules';
 import { currentNightWindow, eventNights, eventWindow, nightOf, nightWindow, nightsRange, type PartyWindow } from './party-windows';
-import { buildPain001, type Pain001Transfer } from './sepa';
+import {
+  NO_DEBTOR_IBAN_CODE,
+  NO_DEBTOR_IBAN_MESSAGE,
+  NO_TRANSFERS_CODE,
+  buildPain001,
+  type Pain001Transfer,
+} from './sepa';
 
 /** Lo que se lee del local (la fiesta). */
 const VENUE_SELECT = {
@@ -48,8 +54,7 @@ interface VenueRow {
   settlementHolder: string | null;
 }
 
-export const NO_DEBTOR_IBAN_CODE = 'NO_DEBTOR_IBAN';
-export const NO_TRANSFERS_CODE = 'NO_TRANSFERS';
+export { NO_DEBTOR_IBAN_CODE, NO_TRANSFERS_CODE } from './sepa';
 
 /** El fichero del banco: la liquidación y el XML. */
 export interface PartySepaFile {
@@ -164,10 +169,7 @@ export class PartyPanelService {
   async sepa(actor: JwtPayload, q: PartySettlementQuery, now: Date = new Date()): Promise<PartySepaFile> {
     const { settlement, ibans, venue } = await this.settlementWithIbans(actor.tenantId, q, now);
     if (!venue.settlementIban) {
-      throw new ConflictException({
-        code: NO_DEBTOR_IBAN_CODE,
-        message: 'El local no tiene su cuenta (IBAN) para hacer las transferencias: la pone OxioPay. Pídesela y vuelve a probar.',
-      });
+      throw new ConflictException({ code: NO_DEBTOR_IBAN_CODE, message: NO_DEBTOR_IBAN_MESSAGE });
     }
     const ready = settlement.rows.filter((r) => r.status === 'READY' && r.stallId !== null);
     if (ready.length === 0) {

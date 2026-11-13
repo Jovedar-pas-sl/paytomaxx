@@ -1,8 +1,8 @@
 /**
  * Fichero de transferencias SEPA para el banco: ISO 20022 pain.001.001.03
  * (el que aceptan todos los bancos españoles para subir transferencias en
- * lote). Puro y reutilizable: la liquidación de las casetas lo usa y las
- * devoluciones del saldo lo usarán. Solo IBAN (sin BIC: en SEPA no hace
+ * lote). Puro y reutilizable: lo usan la liquidación de las casetas y las
+ * transferencias de «Lo que sobra». Solo IBAN (sin BIC: en SEPA no hace
  * falta desde 2016; el banco del deudor va como NOTPROVIDED).
  *
  * Los textos se pasan al juego de caracteres de SEPA (letras sin acentos,
@@ -31,6 +31,13 @@ export interface Pain001Input {
 }
 
 export class SepaInputError extends Error {}
+
+/** Sin la cuenta del local (la pone OxioPay) no hay deudor: 409, en el cierre y en las devoluciones. */
+export const NO_DEBTOR_IBAN_CODE = 'NO_DEBTOR_IBAN';
+export const NO_DEBTOR_IBAN_MESSAGE =
+  'El local no tiene su cuenta (IBAN) para hacer las transferencias: la pone OxioPay. Pídesela y vuelve a probar.';
+/** Ninguna transferencia que hacer: 409. */
+export const NO_TRANSFERS_CODE = 'NO_TRANSFERS';
 
 const NAME_MAX = 70;
 const ID_MAX = 35;

@@ -1,6 +1,6 @@
 // OxioParty · Devoluciones de «Lo que sobra» (EDITION=party): la lista con
-// los totales, «Hecha», anular y el CSV de las transferencias pendientes.
-// Dueño y encargado.
+// los totales, «Hecha», anular y las transferencias pendientes en CSV o en
+// un fichero SEPA para el banco. Dueño y encargado.
 
 import type { PartyRefundList, PartyRefundMethod, PartyRefundRow, PartyRefundStatus } from '@nightpay/contracts';
 import { apiError, authedFetch } from '../http';
@@ -36,9 +36,20 @@ export async function cancelPartyRefund(id: string): Promise<PartyRefundRow> {
   return res.json();
 }
 
-/** Las transferencias pendientes en CSV (para el banco; el fichero SEPA va aparte). */
+/** Las transferencias pendientes en CSV (con el IBAN entero, para hacerlas a mano). */
 export async function downloadTransfersCsv(): Promise<Blob> {
   const res = await authedFetch(`${BASE}/transferencias.csv`);
+  if (!res.ok) throw await apiError(res);
+  return res.blob();
+}
+
+/**
+ * Las mismas en un fichero SEPA (pain.001.001.03) para subirlas al banco de
+ * una vez, desde la cuenta del local. Sin esa cuenta, 409 NO_DEBTOR_IBAN
+ * (el mensaje del API lo dice). Queda en el registro.
+ */
+export async function downloadTransfersSepa(): Promise<Blob> {
+  const res = await authedFetch(`${BASE}/transferencias.sepa`);
   if (!res.ok) throw await apiError(res);
   return res.blob();
 }

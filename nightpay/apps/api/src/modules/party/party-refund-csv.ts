@@ -2,9 +2,9 @@ import { code, date, money, text, time, toCsv, type CsvCell } from '../reports/c
 
 /**
  * Las transferencias pendientes de «Lo que sobra», en CSV para hacerlas desde
- * el banco (Excel en español: «;», coma decimal y BOM; reports/csv.ts). El
- * fichero SEPA para subir de una vez no se hace aquí: este CSV se teclea o se
- * importa a mano. Después, cada una se marca «Hecha» en el panel.
+ * el banco (Excel en español: «;», coma decimal y BOM; reports/csv.ts). Para
+ * subirlas de una vez, el fichero SEPA (party-refund-sepa.ts). Después, cada
+ * una se marca «Hecha» en el panel.
  */
 
 export interface TransferCsvRow {

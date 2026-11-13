@@ -13,6 +13,7 @@ import { Roles } from '../../common/decorators/roles.decorator';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { ZodValidationPipe } from '../../common/pipes/zod.pipe';
 import { PartyEditionGuard } from './party-edition.guard';
+import { refundSepaFileName } from './party-refund-sepa';
 import { PartyRefundsService } from './party-refunds.service';
 
 /**
@@ -21,8 +22,10 @@ import { PartyRefundsService } from './party-refunds.service';
  *  - GET  /v1/admin/party/refunds?status=&method=      la lista (las 300 más recientes) y los totales
  *  - POST /v1/admin/party/refunds/:id/done             «Hecha»: la tarjeta ya devuelta en el banco o la transferencia enviada
  *  - POST /v1/admin/party/refunds/:id/cancel           anularla (el saldo vuelve a poder gastarse)
- *  - GET  /v1/admin/party/refunds/transferencias.csv   las transferencias pendientes para el banco (el fichero SEPA, aparte)
- * Todo queda en el registro.
+ *  - GET  /v1/admin/party/refunds/transferencias.csv   las transferencias pendientes para el banco
+ *  - GET  /v1/admin/party/refunds/transferencias.sepa  las mismas en un fichero SEPA (pain.001.001.03) para subirlas de una vez;
+ *                                                      deudor, la cuenta del local (sin ella, 409 NO_DEBTOR_IBAN)
+ * «Hecha», anular y el fichero SEPA quedan en el registro.
  */
 @Controller('admin/party')
 @UseGuards(PartyEditionGuard, RolesGuard)
@@ -48,6 +51,19 @@ export class PartyRefundsController {
       .header('Content-Disposition', `attachment; filename="transferencias-pendientes-${madridDay()}.csv"`)
       .header('Cache-Control', 'no-store')
       .send(csv);
+  }
+
+  @Get('refunds/transferencias.sepa')
+  @Roles('OWNER', 'MANAGER')
+  async transfersSepa(@CurrentUser() user: JwtPayload, @Res() res: FastifyReply): Promise<void> {
+    const file = await this.refunds.transfersSepa({ userId: user.sub, role: user.role, tenantId: user.tenantId, email: user.email });
+    res
+      .status(200)
+      .header('Content-Type', 'application/xml; charset=utf-8')
+      .header('Content-Disposition', `attachment; filename="${refundSepaFileName(madridDay())}"`)
+      .header('Cache-Control', 'no-store')
+      .header('X-Content-Type-Options', 'nosniff')
+      .send(file.xml);
   }
 
   @Post('refunds/:id/done')
