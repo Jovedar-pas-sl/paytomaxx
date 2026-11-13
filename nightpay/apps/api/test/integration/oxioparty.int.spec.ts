@@ -215,6 +215,43 @@ describe('la fiesta terminada (EVENT_ENDED)', () => {
     }
   });
 
+  it('un cobro hecho antes del fin no se paga después: Face ID, PIN, pulsera, datáfono, el encargado sin Face ID y la tarjeta (423)', async () => {
+    vi.stubEnv('EDITION', 'party');
+    const w = await wallet(5000);
+    const waiter = { userId: toni, role: 'WAITER' as const, tenantId: V };
+    const qr = () => inVenue(V, () => charges.createQrCharge(waiter, { amountCents: 500, category: 'VENUE_BAR' } as never));
+    const [faceId, pin, band, terminalPin, terminalBand, manager] = [await qr(), await qr(), await qr(), await qr(), await qr(), await qr()];
+    const card = await cobro(toni);
+    const terminal = { tenantId: V, terminalId: (await sys((tx) => tx.terminal.findFirstOrThrow({ where: { tenantId: V, externalId: `PARTY-${r}` } }))).id };
+    await sys((tx) =>
+      tx.venue.update({ where: { id: V }, data: { eventStartsAt: new Date(Date.now() - 86_400_000), eventEndsAt: new Date(Date.now() - 60_000) } }),
+    );
+    const ended = { status: 423, response: expect.objectContaining({ code: 'EVENT_ENDED' }) };
+    try {
+      await expect(inVenue(V, () => charges.payQrCharge(faceId.payToken!, w.id))).rejects.toMatchObject(ended);
+      await expect(inVenue(V, () => charges.payQrChargeWithPin(waiter, pin.id, { card: w.card, uid: w.uid, pin: '1234' }))).rejects.toMatchObject(ended);
+      await expect(inVenue(V, () => charges.payQrChargeWithCard(waiter, band.id, { card: w.card, uid: w.uid }))).rejects.toMatchObject(ended);
+      await expect(inVenue(V, () => charges.checkWalletForTerminal(terminal, terminalPin.id, { card: w.card, uid: w.uid }))).rejects.toMatchObject(ended);
+      await expect(inVenue(V, () => charges.payQrChargeFromTerminal(terminal, terminalPin.id, { card: w.card, uid: w.uid, pin: '1234' }))).rejects.toMatchObject(ended);
+      await expect(inVenue(V, () => charges.payQrChargeFromTerminalWithCard(terminal, terminalBand.id, { card: w.card, uid: w.uid }))).rejects.toMatchObject(ended);
+      await expect(
+        inVenue(V, () => charges.approveWithoutFaceId({ userId: owner, role: 'OWNER', tenantId: V }, manager.id, w.id, '000000')),
+      ).rejects.toMatchObject(ended);
+      // El cobro con tarjeta (y su QR) de antes del fin tampoco va al banco.
+      const qrToken = (await sys((tx) => tx.payment.findUniqueOrThrow({ where: { id: card.id }, select: { qrToken: true } }))).qrToken;
+      await expect(payments.startAuthorization(qrToken)).rejects.toMatchObject(ended);
+      // Nada se cobró: el saldo entero y los cobros, pendientes.
+      expect((await sys((tx) => tx.clientWallet.findUniqueOrThrow({ where: { id: w.id } }))).balanceCents).toBe(5000);
+      const ids = [faceId, pin, band, terminalPin, terminalBand, manager].map((x) => x.id);
+      expect(await sys((tx) => tx.walletChargeRequest.count({ where: { id: { in: ids }, status: 'PENDING', walletId: null } }))).toBe(6);
+      // Con OxioPay (club) el fin de la fiesta no cuenta: se paga.
+      vi.stubEnv('EDITION', 'club');
+      await expect(inVenue(V, () => charges.payQrChargeWithCard(waiter, band.id, { card: w.card, uid: w.uid }))).resolves.toMatchObject({ status: 'ACCEPTED' });
+    } finally {
+      await sys((tx) => tx.venue.update({ where: { id: V }, data: { eventStartsAt: null, eventEndsAt: null } }));
+    }
+  });
+
   it('con el fin pasado, el % de la organización de una caseta queda fijo (409 STALL_BPS_LOCKED); el resto se cambia', async () => {
     vi.stubEnv('EDITION', 'party');
     await sys((tx) =>

@@ -2374,13 +2374,16 @@ export class PaymentsService implements OnApplicationBootstrap {
    * Al ir al banco se vuelve a mirar lo que se miró al crear el cobro: el
    * local (o su negocio) en pausa → 423, y la forma de cobro apagada en
    * Ajustes («QR con tarjeta»; la recarga, también «Saldo») → 409. Un QR
-   * creado antes no se cobra después, como el cobro con el saldo.
+   * creado antes no se cobra después, como el cobro con el saldo. OxioParty:
+   * creado antes del fin de la fiesta y pagado después, tampoco (423
+   * EVENT_ENDED). OxioPay: no se mira nada más.
    */
   private async assertVenueStillCharges(payment: { tenantId: string; walletId: string | null }): Promise<void> {
     const venue = await this.prisma.asSystem((tx) =>
       tx.venue.findUnique({ where: { id: payment.tenantId }, select: { ...VENUE_PAUSE_SELECT, ...VENUE_METHODS_SELECT } }),
     );
     assertVenueNotPaused(venue);
+    if (isPartyEdition()) await this.prisma.asSystem((tx) => assertEventOpen(tx, payment.tenantId));
     assertMethodsEnabled(venue, methodsNeededForPayment({ isWalletTopUp: payment.walletId !== null, isPosExternal: false }));
   }
 

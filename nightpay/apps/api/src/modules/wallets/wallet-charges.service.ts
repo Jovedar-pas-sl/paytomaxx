@@ -1251,6 +1251,8 @@ export class WalletChargesService {
     if (request.requestedByUserId === actor.userId) {
       throw new ForbiddenException('Este cobro lo has hecho tú: lo tiene que aprobar otro encargado o el dueño');
     }
+    // OxioParty: con la fiesta terminada, 423 EVENT_ENDED antes de pedir la 2FA.
+    if (isPartyEdition()) await this.prisma.asSystem((tx) => assertEventOpen(tx, request.tenantId));
     await assertTwoFactorCode(this.totp, actor.userId, totpCode, 'Para cobrar sin que el cliente confirme,', stepUpActions.chargeWithoutFaceId(requestId, walletId));
     await this.bindAndSettle(request, walletId, 'staff');
     await this.audit.log({
@@ -1394,6 +1396,8 @@ export class WalletChargesService {
     if (effectiveRequestStatus(request, new Date()) !== 'PENDING' || request.walletId) {
       throw await this.notPendingError(request);
     }
+    // OxioParty: con la fiesta terminada, tampoco (423 EVENT_ENDED), y sin gastar un intento.
+    if (isPartyEdition()) await this.prisma.asSystem((tx) => assertEventOpen(tx, request.tenantId));
     // Con el cobro: si la ficha es una copia, la sospecha queda apuntada en él (detalle del pago).
     const wallet = await this.walletByStaffRef(actor.tenantId, 'card' in input ? { ...input, requestId: request.id } : input);
     // Un PIN que puso el encargado sin el cliente: ni él cobra con ese PIN ni
@@ -1682,6 +1686,7 @@ export class WalletChargesService {
   }
 
   private async assertPayable(request: {
+    tenantId: string;
     status: string;
     expiresAt: Date;
     walletId: string | null;
@@ -1690,6 +1695,8 @@ export class WalletChargesService {
     const status = effectiveRequestStatus(request, new Date());
     if (status === 'EXPIRED') throw requestError('expired');
     if (status !== 'PENDING' || request.walletId) throw await this.notPendingError(request);
+    // OxioParty: la fiesta terminó (antes de leer la pulsera o de gastar un intento de PIN).
+    if (isPartyEdition()) await this.prisma.asSystem((tx) => assertEventOpen(tx, request.tenantId));
   }
 
   /**
@@ -2234,9 +2241,13 @@ export class WalletChargesService {
       throw await this.notPendingError(request);
     }
     // Un cobro hecho antes de la pausa tampoco se cobra mientras dure (423),
-    // ni con el pago con saldo apagado en Ajustes (409).
+    // ni con el pago con saldo apagado en Ajustes (409). OxioParty: hecho
+    // antes del fin de la fiesta y pagado después, tampoco (423 EVENT_ENDED).
+    // Todos los caminos de pagar pasan por aquí: Face ID, PIN (app y
+    // datáfono), pulsera sin PIN y el cobro sin Face ID del encargado.
     await this.prisma.asSystem(async (tx) => {
       await assertVenueAcceptsCharges(tx, request.tenantId);
+      await assertEventOpen(tx, request.tenantId);
       await assertVenueAcceptsMethods(tx, request.tenantId, ['wallet']);
     });
     const [wallet, venue] = await Promise.all([
