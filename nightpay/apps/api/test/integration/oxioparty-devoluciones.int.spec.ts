@@ -81,8 +81,31 @@ beforeAll(async () => {
     OTHER = (await tx.venue.create({ data: { name: 'Otra fiesta', slug: `pdev-otra-${r}` } })).id;
     owner = (await tx.user.create({ data: { tenantId: V, email: `org-${r}@x.es`, passwordHash: 'x', role: 'OWNER', displayName: 'Lola' } })).id;
     toni = (await tx.user.create({ data: { tenantId: V, email: `toni-${r}@x.es`, passwordHash: 'x', role: 'WAITER' } })).id;
+    terminal = (await tx.terminal.create({ data: { tenantId: V, externalId: `PDEV-${r}`, label: 'Taquilla', zone: 'BARRA' } })).id;
   });
 });
+
+let terminal: string;
+
+/** Una recarga con tarjeta del saldo en ese estado (CREATED, AUTHORIZING…: sin respuesta del banco aún). */
+async function topUp(walletId: string, status: 'CREATED' | 'AWAITING_CAPTURE' | 'AUTHORIZING' | 'AUTHORIZED' | 'FAILED' | 'EXPIRED', amountCents = 2000) {
+  return sys((tx) =>
+    tx.payment.create({
+      data: {
+        tenantId: V,
+        terminalId: terminal,
+        idempotencyKey: `pdev-top-${randomBytes(8).toString('hex')}`,
+        amountCents,
+        availableAmountCents: amountCents,
+        status,
+        qrToken: `pdev-qr-${randomBytes(8).toString('hex')}`,
+        qrExpiresAt: new Date(Date.now() + 300_000),
+        walletId,
+        captureMethod: 'WALLET_TOPUP',
+      },
+    }),
+  );
+}
 
 afterEach(() => {
   vi.unstubAllEnvs();
@@ -180,6 +203,26 @@ describe('«Lo que sobra» con EDITION=party', () => {
     const res = await Promise.allSettled([refunds.ask(w.id, { method: 'CARD' }), refunds.ask(w.id, { method: 'CARD' })]);
     expect(res.filter((x) => x.status === 'fulfilled')).toHaveLength(1);
     expect(await sys((tx) => tx.partyRefundRequest.count({ where: { walletId: w.id, status: 'PENDING' } }))).toBe(1);
+  });
+
+  it('con una recarga a medias (CREATED, AWAITING_CAPTURE o AUTHORIZING), 409 TOPUP_IN_PROGRESS sin pedir ni bloquear nada', async () => {
+    vi.stubEnv('EDITION', 'party');
+    const w = await wallet(1500);
+    // Una ya sumada o que el banco no aprobó no cuenta.
+    await topUp(w.id, 'AUTHORIZED');
+    await topUp(w.id, 'FAILED');
+    await topUp(w.id, 'EXPIRED');
+    for (const status of ['CREATED', 'AWAITING_CAPTURE', 'AUTHORIZING'] as const) {
+      const open = await topUp(w.id, status);
+      for (const method of ['CARD', 'DONATE'] as const) {
+        await expect(refunds.ask(w.id, { method })).rejects.toMatchObject({ status: 409, response: expect.objectContaining({ code: 'TOPUP_IN_PROGRESS' }) });
+      }
+      expect(await sys((tx) => tx.partyRefundRequest.count({ where: { walletId: w.id } }))).toBe(0);
+      expect(await walletRow(w.id)).toMatchObject({ balanceCents: 1500, blockedAt: null });
+      // El banco dice que no: ya se puede pedir.
+      await sys((tx) => tx.payment.update({ where: { id: open.id }, data: { status: 'FAILED' } }));
+    }
+    await expect(refunds.ask(w.id, { method: 'CARD', expectedAmountCents: 1500 })).resolves.toMatchObject({ locked: true });
   });
 
   it('el panel de un local no ve las de otro', async () => {

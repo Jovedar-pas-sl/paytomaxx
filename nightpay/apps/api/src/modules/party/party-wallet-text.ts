@@ -56,7 +56,10 @@ export interface PartyWalletText {
   lostNow: string;
   lostOk: string;
   topUpLocked: string;
-  err: Record<'REFUND_CLOSED' | 'NOTHING_TO_REFUND' | 'REFUND_METHOD_UNAVAILABLE' | 'DONATION_OFF' | 'REFUND_AMOUNT_CHANGED' | 'REFUND_INVALID', string>;
+  err: Record<
+    'REFUND_CLOSED' | 'NOTHING_TO_REFUND' | 'REFUND_METHOD_UNAVAILABLE' | 'DONATION_OFF' | 'REFUND_AMOUNT_CHANGED' | 'REFUND_INVALID' | 'TOPUP_IN_PROGRESS',
+    string
+  >;
 }
 
 export const PARTY_WALLET_TEXT: Readonly<Record<PayLanguage, PartyWalletText>> = {
@@ -117,6 +120,7 @@ export const PARTY_WALLET_TEXT: Readonly<Record<PayLanguage, PartyWalletText>> =
       DONATION_OFF: 'En esta fiesta no se puede donar: elige otra forma.',
       REFUND_AMOUNT_CHANGED: 'Tu saldo ha cambiado: revisa el importe y vuelve a pedirlo.',
       REFUND_INVALID: 'Revisa los datos.',
+      TOPUP_IN_PROGRESS: 'Tienes una recarga a medias: espera unos minutos a que termine y vuelve a pedirlo.',
     },
   },
   en: {
@@ -176,6 +180,7 @@ export const PARTY_WALLET_TEXT: Readonly<Record<PayLanguage, PartyWalletText>> =
       DONATION_OFF: 'Donations aren’t possible at this festival: choose another option.',
       REFUND_AMOUNT_CHANGED: 'Your balance has changed: check the amount and ask again.',
       REFUND_INVALID: 'Check your details.',
+      TOPUP_IN_PROGRESS: 'You have a top-up still going through: wait a few minutes for it to finish and ask again.',
     },
   },
   fr: {
@@ -235,6 +240,7 @@ export const PARTY_WALLET_TEXT: Readonly<Record<PayLanguage, PartyWalletText>> =
       DONATION_OFF: 'Les dons ne sont pas possibles à cette fête : choisissez une autre option.',
       REFUND_AMOUNT_CHANGED: 'Votre solde a changé : vérifiez le montant et redemandez-le.',
       REFUND_INVALID: 'Vérifiez vos données.',
+      TOPUP_IN_PROGRESS: 'Une recharge est encore en cours : attendez quelques minutes qu’elle se termine et redemandez-le.',
     },
   },
   pt: {
@@ -294,6 +300,7 @@ export const PARTY_WALLET_TEXT: Readonly<Record<PayLanguage, PartyWalletText>> =
       DONATION_OFF: 'Nesta festa não se pode doar: escolha outra forma.',
       REFUND_AMOUNT_CHANGED: 'O seu saldo mudou: verifique o valor e volte a pedir.',
       REFUND_INVALID: 'Verifique os dados.',
+      TOPUP_IN_PROGRESS: 'Tem um carregamento a meio: espere uns minutos até terminar e volte a pedir.',
     },
   },
 };

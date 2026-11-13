@@ -18,10 +18,20 @@ import {
  *  - Mientras hay una pendiente, el saldo está bloqueado (blockedAt con el
  *    motivo de OxioParty): ni se gasta ni se recarga. Lo pedido sigue en el
  *    saldo hasta que el organizador la hace (y entonces sale).
+ *  - Con una recarga del saldo a medias (TOPUP_OPEN_STATUSES), no se pide:
+ *    el banco aún puede aprobarla y sumarla después, con el saldo ya
+ *    repartido entre las vías.
  */
 
 /** El motivo del bloqueo del saldo mientras hay una devolución pendiente. */
 export const PARTY_REFUND_BLOCK_REASON = 'OxioParty: devolución pedida';
+
+/**
+ * Los estados de una recarga (payments con walletId) aún abierta: creada
+ * (QR o enlace sin pagar), esperando al cliente o pedida al banco sin
+ * respuesta. AUTHORIZED ya está sumada; FAILED, EXPIRED y CANCELED no suman.
+ */
+export const TOPUP_OPEN_STATUSES = ['CREATED', 'AWAITING_CAPTURE', 'AUTHORIZING'] as const;
 
 export type ByMethod = Record<PartyRefundMethod, number>;
 
@@ -81,6 +91,8 @@ export function planRefundAsk(input: {
   deadline: string | null;
   allowDonation: boolean;
   money: RefundMoney;
+  /** El saldo tiene una recarga a medias (TOPUP_OPEN_STATUSES). */
+  topUpInProgress: boolean;
   dto: Pick<PartyRefundAskDto, 'method' | 'expectedAmountCents'>;
   now: Date;
 }): RefundAskPlan {
@@ -93,6 +105,9 @@ export function planRefundAsk(input: {
   }
   if (wallet.blockedAt && !blockedByRefund(wallet)) {
     return fail(PARTY_REFUND_ERRORS.blocked, 'Este saldo está bloqueado: pásate por la taquilla.');
+  }
+  if (input.topUpInProgress) {
+    return fail(PARTY_REFUND_ERRORS.topUp, 'Tienes una recarga a medias: espera unos minutos a que termine y vuelve a pedirlo.');
   }
   if (dto.method === 'DONATE' && !input.allowDonation) {
     return fail(PARTY_REFUND_ERRORS.donation, 'En esta fiesta no se puede donar: elige otra forma.');

@@ -55,6 +55,8 @@ export const PARTY_REFUND_ERRORS = {
   blocked: 'WALLET_BLOCKED',
   notPending: 'REFUND_NOT_PENDING',
   balance: 'REFUND_BALANCE_CHANGED',
+  /** Una recarga del saldo a medias (aún sin respuesta del banco): primero que termine. */
+  topUp: 'TOPUP_IN_PROGRESS',
 } as const;
 
 /** IBAN del asistente: sin espacios y en mayúsculas, con su dígito de control (mod-97). */

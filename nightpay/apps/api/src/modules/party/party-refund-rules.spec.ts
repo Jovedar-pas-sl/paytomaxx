@@ -23,12 +23,24 @@ function money(o: Partial<RefundMoney> = {}): RefundMoney {
   return { balanceCents: 1300, cashLeftCents: 0, pending: { ...ZERO_BY_METHOD }, ...o };
 }
 
-function plan(o: { wallet?: RefundWallet; deadline?: string | null; allowDonation?: boolean; money?: RefundMoney; method?: 'CARD' | 'TRANSFER' | 'DONATE'; expected?: number; now?: Date } = {}) {
+function plan(
+  o: {
+    wallet?: RefundWallet;
+    deadline?: string | null;
+    allowDonation?: boolean;
+    money?: RefundMoney;
+    topUp?: boolean;
+    method?: 'CARD' | 'TRANSFER' | 'DONATE';
+    expected?: number;
+    now?: Date;
+  } = {},
+) {
   return planRefundAsk({
     wallet: o.wallet ?? wallet(),
     deadline: o.deadline === undefined ? '2027-06-30' : o.deadline,
     allowDonation: o.allowDonation ?? true,
     money: o.money ?? money(),
+    topUpInProgress: o.topUp ?? false,
     dto: { method: o.method ?? 'CARD', expectedAmountCents: o.expected },
     now: o.now ?? NOW,
   });
@@ -115,6 +127,13 @@ describe('«Lo que sobra»: el saldo', () => {
     const admin = wallet({ blockedAt: NOW, blockedReason: 'Fraude' });
     expect(blockedByRefund(admin)).toBe(false);
     expect(plan({ wallet: admin })).toMatchObject({ ok: false, code: 'WALLET_BLOCKED' });
+  });
+
+  it('con una recarga a medias, no se pide por ninguna vía (409 TOPUP_IN_PROGRESS)', () => {
+    for (const method of ['CARD', 'TRANSFER', 'DONATE'] as const) {
+      expect(plan({ method, topUp: true, money: money({ cashLeftCents: 500 }) })).toMatchObject({ ok: false, code: 'TOPUP_IN_PROGRESS' });
+    }
+    expect(plan({ topUp: false })).toMatchObject({ ok: true });
   });
 
   it('cerrado o sumado a otro: nada que devolver', () => {

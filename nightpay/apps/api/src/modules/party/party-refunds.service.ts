@@ -27,6 +27,7 @@ import { partyBrand } from './party-brand';
 import { refundMail, type RefundMailKind } from './party-refund-email';
 import {
   PARTY_REFUND_BLOCK_REASON,
+  TOPUP_OPEN_STATUSES,
   ZERO_BY_METHOD,
   blockedByRefund,
   pendingByMethod,
@@ -208,7 +209,18 @@ export class PartyRefundsService {
         if ((await tx.walletPayout.count({ where: { walletId, status: 'PENDING' } })) > 0) {
           throw conflict(PARTY_REFUND_ERRORS.nothing, 'Tu saldo tiene una devolución en marcha: pásate por la taquilla.');
         }
-        const plan = planRefundAsk({ wallet, deadline: dayOf(venue.refundDeadline), allowDonation: venue.allowDonation, money, dto, now });
+        // Una recarga a medias: el banco aún puede aprobarla y sumarla. Con el
+        // saldo ya bloqueado, la que se apruebe ahora espera a esta transacción.
+        const topUpInProgress = (await tx.payment.count({ where: { walletId, status: { in: [...TOPUP_OPEN_STATUSES] } } })) > 0;
+        const plan = planRefundAsk({
+          wallet,
+          deadline: dayOf(venue.refundDeadline),
+          allowDonation: venue.allowDonation,
+          money,
+          topUpInProgress,
+          dto,
+          now,
+        });
         if (!plan.ok) throw conflict(plan.code, plan.message);
         const row = await tx.partyRefundRequest.create({
           data: {
