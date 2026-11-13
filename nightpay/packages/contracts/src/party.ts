@@ -32,6 +32,28 @@ export function isEventEnded(eventEndsAt: Date | string | null | undefined, now:
   return !Number.isNaN(end.getTime()) && end.getTime() <= now.getTime();
 }
 
+/**
+ * Terminada la fiesta, el fin no se quita ni se retrasa (409 EVENT_LOCKED):
+ * reabrirla dejaría cambiar otra vez el % de las casetas (STALL_BPS_LOCKED)
+ * y el cierre. Adelantarlo sí (sigue terminada); lo demás de los ajustes, también.
+ */
+export const EVENT_LOCKED_CODE = 'EVENT_LOCKED';
+export const EVENT_LOCKED_MESSAGE =
+  'La fiesta ya ha terminado: el fin no se puede quitar ni retrasar (así el cierre y el % de cada caseta no cambian). Lo demás sí se puede cambiar.';
+
+/** ¿Este nuevo fin reabriría la fiesta? `next` undefined: no se cambia; null: se quita. */
+export function reopensEvent(
+  current: Date | string | null | undefined,
+  next: Date | string | null | undefined,
+  now: Date = new Date(),
+): boolean {
+  if (next === undefined || !isEventEnded(current, now)) return false;
+  if (next === null) return true;
+  const end = new Date(current as Date | string).getTime();
+  const after = (next instanceof Date ? next : new Date(next)).getTime();
+  return Number.isNaN(after) || after > end;
+}
+
 // ─── Casetas ────────────────────────────────────────────────────────────
 
 /** La parte del organizador entera: «barra propia». */

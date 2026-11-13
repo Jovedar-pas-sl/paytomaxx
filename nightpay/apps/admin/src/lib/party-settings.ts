@@ -3,6 +3,7 @@
 // si se puede donar lo que sobra y el umbral del aviso de efectivo.
 
 import {
+  EVENT_LOCKED_MESSAGE,
   MAX_CASH_ALERT_CENTS,
   parseEuroCents,
   partySettingsProblem,
@@ -110,6 +111,7 @@ export function partySettingsChange(form: PartySettingsForm, current: PartySetti
   if (deadline && !/^\d{4}-\d{2}-\d{2}$/.test(deadline)) return { ok: false, problem: 'El último día para pedir la devolución: una fecha.' };
   const cash = parseEurosAllowZero(form.cashAlertEur);
   if (cash === null) return { ok: false, problem: 'El aviso de efectivo: un importe de 0 a 100.000 € (0 = sin aviso).' };
+  if (reopens(current, endsAt)) return { ok: false, problem: EVENT_LOCKED_MESSAGE };
   const problem = partySettingsProblem({ eventStartsAt: startsAt, eventEndsAt: endsAt });
   if (problem) return { ok: false, problem: `${problem}.` };
   // El día del fin en la hora del local (el del formulario), no el de UTC.
@@ -125,6 +127,15 @@ export function partySettingsChange(form: PartySettingsForm, current: PartySetti
     ...(cash !== current.cashAlertCents ? { cashAlertCents: cash } : {}),
   };
   return { ok: true, change };
+}
+
+/**
+ * Terminada la fiesta (lo dice el API: `eventEnded`), el fin no se quita ni
+ * se retrasa: el API daría 409 EVENT_LOCKED. Adelantarlo, sí.
+ */
+export function reopens(current: Pick<PartySettings, 'eventEnded' | 'eventEndsAt'>, endsAt: string | null): boolean {
+  if (!current.eventEnded || !current.eventEndsAt) return false;
+  return endsAt === null || Date.parse(endsAt) > Date.parse(current.eventEndsAt);
 }
 
 export function hasPartySettingsChange(dto: UpdatePartySettingsDto): boolean {

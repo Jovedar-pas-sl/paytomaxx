@@ -1,4 +1,4 @@
-import { BadRequestException, Body, Controller, Get, Inject, Patch, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, ConflictException, Controller, Get, Inject, Patch, UseGuards } from '@nestjs/common';
 import { UpdatePartySettingsSchema, type JwtPayload, type PartySettings, type UpdatePartySettingsDto } from '@nightpay/contracts';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
@@ -14,7 +14,8 @@ import { PartyEditionGuard } from './party-edition.guard';
  * Ajustes de la fiesta (OxioParty; con EDITION=club, 404):
  *  - GET   /v1/admin/party/settings  las fechas, el plazo de devolución, si se dona y el umbral de efectivo.
  *  - PATCH /v1/admin/party/settings  solo el dueño; con la 2FA activada, el código (son reglas del dinero).
- * Con el fin ya pasado no hay cobros ni recargas nuevos (423 EVENT_ENDED). El cambio queda en el registro.
+ * Con el fin ya pasado no hay cobros ni recargas nuevos (423 EVENT_ENDED) y el fin ya no se quita
+ * ni se retrasa (409 EVENT_LOCKED, antes de la 2FA): lo demás sí. El cambio queda en el registro.
  */
 @Controller('admin/party')
 @UseGuards(PartyEditionGuard, RolesGuard)
@@ -39,6 +40,8 @@ export class PartySettingsController {
   ): Promise<PartySettings> {
     const current = await this.current(user.tenantId);
     const plan = planPartySettingsChange(current, dto);
+    // Antes de pedir la 2FA: terminada la fiesta, el fin no se quita ni se retrasa (409 EVENT_LOCKED).
+    if (!plan.ok && plan.code) throw new ConflictException({ message: plan.problem, code: plan.code });
     if (!plan.ok) throw new BadRequestException(plan.problem);
     if (Object.keys(plan.change).length === 0) return partySettingsView(current);
     await this.totp.assertIfEnrolledForUser(user.sub, dto.totpCode);

@@ -1,4 +1,12 @@
-import { isEventEnded, partySettingsProblem, type PartySettings, type UpdatePartySettingsDto } from '@nightpay/contracts';
+import {
+  EVENT_LOCKED_CODE,
+  EVENT_LOCKED_MESSAGE,
+  isEventEnded,
+  partySettingsProblem,
+  reopensEvent,
+  type PartySettings,
+  type UpdatePartySettingsDto,
+} from '@nightpay/contracts';
 
 /** Lo que se lee del local para los ajustes de la fiesta. */
 export const PARTY_SETTINGS_SELECT = {
@@ -34,13 +42,17 @@ export function partySettingsView(row: PartySettingsRow, now: Date = new Date())
   };
 }
 
-export type PartySettingsPlan = { ok: true; change: Partial<PartySettingsRow> } | { ok: false; problem: string };
+export type PartySettingsPlan =
+  | { ok: true; change: Partial<PartySettingsRow> }
+  /** `code`: 409 con ese código (EVENT_LOCKED); sin él, 400. */
+  | { ok: false; problem: string; code?: typeof EVENT_LOCKED_CODE };
 
 /**
  * El cambio (solo lo que cambia de verdad) y si lo que queda vale: el fin de
- * la fiesta, después del inicio.
+ * la fiesta, después del inicio; y, terminada, el fin ni se quita ni se
+ * retrasa (EVENT_LOCKED: así el % de las casetas y el cierre quedan fijos).
  */
-export function planPartySettingsChange(current: PartySettingsRow, dto: UpdatePartySettingsDto): PartySettingsPlan {
+export function planPartySettingsChange(current: PartySettingsRow, dto: UpdatePartySettingsDto, now: Date = new Date()): PartySettingsPlan {
   const next: Partial<PartySettingsRow> = {};
   if (dto.eventStartsAt !== undefined) next.eventStartsAt = dto.eventStartsAt === null ? null : new Date(dto.eventStartsAt);
   if (dto.eventEndsAt !== undefined) next.eventEndsAt = dto.eventEndsAt === null ? null : new Date(dto.eventEndsAt);
@@ -53,6 +65,9 @@ export function planPartySettingsChange(current: PartySettingsRow, dto: UpdatePa
   const change: Partial<PartySettingsRow> = {};
   for (const [key, value] of Object.entries(next) as Array<[keyof PartySettingsRow, PartySettingsRow[keyof PartySettingsRow]]>) {
     if (!sameValue(current[key], value)) (change as Record<string, unknown>)[key] = value;
+  }
+  if (reopensEvent(current.eventEndsAt, change.eventEndsAt, now)) {
+    return { ok: false, problem: EVENT_LOCKED_MESSAGE, code: EVENT_LOCKED_CODE };
   }
   const merged = { ...current, ...change };
   const problem = partySettingsProblem(merged);

@@ -275,6 +275,13 @@ describe('La fiesta (Ajustes)', () => {
     expect(html).toContain('Guardar');
   });
 
+  it('terminada: avisa de que el fin ya no se quita ni se retrasa (lo demás sí)', () => {
+    const open = text(renderToStaticMarkup(<PartySettingsView settings={settings} onSaved={noop} isOwner />));
+    expect(open).toContain('Cuando termine, ya no se podrá quitar ni retrasar.');
+    const ended = text(renderToStaticMarkup(<PartySettingsView settings={{ ...settings, eventEnded: true }} onSaved={noop} isOwner />));
+    expect(ended).toContain('Ya terminó: el fin no se puede quitar ni retrasar, para que el cierre y el % de cada caseta no cambien. Lo demás sí se puede cambiar.');
+  });
+
   it('el encargado la ve, pero no la cambia', () => {
     const html = text(renderToStaticMarkup(<PartySettingsView settings={settings} onSaved={noop} isOwner={false} />));
     expect(html).toContain('Solo el dueño puede cambiar la fiesta.');

@@ -88,6 +88,9 @@ export function PartySettingsView({
   const status = settings.eventEnded
     ? 'La fiesta ya ha terminado: no se pueden hacer cobros ni recargas nuevos. Las consultas, el cierre y las devoluciones siguen.'
     : 'Al pasar la hora del fin, se cierra sola: ya no se cobra ni se recarga.';
+  const endHint = settings.eventEnded
+    ? 'Ya terminó: el fin no se puede quitar ni retrasar, para que el cierre y el % de cada caseta no cambien. Lo demás sí se puede cambiar.'
+    : 'Vacío: no se cierra sola. Cuando termine, ya no se podrá quitar ni retrasar.';
 
   return (
     <form onSubmit={onSubmit} className="np-set-stack" noValidate>
@@ -106,7 +109,7 @@ export function PartySettingsView({
             value={current.endsAt}
             onChange={(e) => update({ endsAt: e.target.value })}
             disabled={readOnly}
-            hint="Vacío: no se cierra sola."
+            hint={endHint}
           />
         </div>
       </SettingsCard>

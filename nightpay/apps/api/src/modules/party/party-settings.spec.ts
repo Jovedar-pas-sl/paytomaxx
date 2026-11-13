@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { BadRequestException } from '@nestjs/common';
+import { BadRequestException, ConflictException } from '@nestjs/common';
 import type { JwtPayload } from '@nightpay/contracts';
 import { PartySettingsController } from './party-settings.controller';
 import { partySettingsView, planPartySettingsChange, type PartySettingsRow } from './party-settings';
@@ -16,6 +16,9 @@ const STORED: PartySettingsRow = {
   allowDonation: true,
   cashAlertCents: 200_000,
 };
+/** Con la fiesta en marcha y ya terminada (el fin guardado es el 20 a las 05:00 UTC). */
+const DURING = new Date('2026-03-18T00:00:00Z');
+const AFTER = new Date('2026-03-21T00:00:00Z');
 
 describe('vista', () => {
   it('fechas ISO, el plazo como AAAA-MM-DD y si ya terminó', () => {
@@ -45,7 +48,7 @@ describe('cambio', () => {
   });
 
   it('borrar fechas (null) vale', () => {
-    const plan = planPartySettingsChange(STORED, { eventStartsAt: null, eventEndsAt: null, refundDeadline: null });
+    const plan = planPartySettingsChange(STORED, { eventStartsAt: null, eventEndsAt: null, refundDeadline: null }, DURING);
     expect(plan).toEqual({ ok: true, change: { eventStartsAt: null, eventEndsAt: null, refundDeadline: null } });
   });
 
@@ -53,6 +56,25 @@ describe('cambio', () => {
     expect(planPartySettingsChange(STORED, { eventEndsAt: '2026-03-15T09:00:00Z' })).toMatchObject({ ok: false });
     expect(planPartySettingsChange(STORED, { eventStartsAt: '2026-03-21T00:00:00Z' })).toMatchObject({ ok: false });
     expect(planPartySettingsChange(STORED, { cashAlertCents: 50_000 })).toEqual({ ok: true, change: { cashAlertCents: 50_000 } });
+  });
+
+  it('terminada la fiesta, el fin no se quita ni se retrasa (EVENT_LOCKED); adelantarlo y lo demás, sí', () => {
+    const locked = { ok: false, code: 'EVENT_LOCKED', problem: expect.stringMatching(/no se puede quitar ni retrasar/) };
+    expect(planPartySettingsChange(STORED, { eventEndsAt: null }, AFTER)).toEqual(locked);
+    expect(planPartySettingsChange(STORED, { eventEndsAt: '2026-03-20T05:00:01Z' }, AFTER)).toEqual(locked);
+    expect(planPartySettingsChange(STORED, { eventEndsAt: '2026-12-31T22:00:00Z', allowDonation: false }, AFTER)).toEqual(locked);
+    expect(planPartySettingsChange(STORED, { eventEndsAt: '2026-03-20T04:00:00Z' }, AFTER)).toEqual({
+      ok: true,
+      change: { eventEndsAt: new Date('2026-03-20T04:00:00Z') },
+    });
+    // El mismo fin (con otra zona) no es un cambio; el resto de ajustes se sigue cambiando.
+    expect(planPartySettingsChange(STORED, { eventEndsAt: '2026-03-20T06:00:00+01:00', refundDeadline: '2026-05-31', cashAlertCents: 0 }, AFTER)).toEqual({
+      ok: true,
+      change: { refundDeadline: new Date('2026-05-31T00:00:00Z'), cashAlertCents: 0 },
+    });
+    // Con la fiesta en marcha, retrasarlo o quitarlo, sí.
+    expect(planPartySettingsChange(STORED, { eventEndsAt: '2026-03-22T05:00:00Z' }, DURING)).toMatchObject({ ok: true });
+    expect(planPartySettingsChange(STORED, { eventEndsAt: null }, DURING)).toMatchObject({ ok: true });
   });
 });
 
@@ -91,6 +113,25 @@ describe('PartySettingsController', () => {
     await ctrl.update(owner, { allowDonation: true });
     expect(totp.assertIfEnrolledForUser).not.toHaveBeenCalled();
     expect(update).not.toHaveBeenCalled();
+  });
+
+  it('terminada la fiesta, quitar o retrasar el fin: 409 EVENT_LOCKED antes de la 2FA y sin guardar; lo demás, sí', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(AFTER);
+    try {
+      const { ctrl, update, totp, audit } = make();
+      for (const eventEndsAt of [null, '2026-03-27T05:00:00Z']) {
+        const err = await ctrl.update(owner, { eventEndsAt, totpCode: '123456' }).catch((e: unknown) => e);
+        expect(err).toBeInstanceOf(ConflictException);
+        expect((err as ConflictException).getResponse()).toMatchObject({ code: 'EVENT_LOCKED' });
+      }
+      expect(totp.assertIfEnrolledForUser).not.toHaveBeenCalled();
+      expect(update).not.toHaveBeenCalled();
+      expect(audit.log).not.toHaveBeenCalled();
+      await expect(ctrl.update(owner, { allowDonation: false })).resolves.toMatchObject({ allowDonation: false, eventEnded: true });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('el fin antes del inicio: 400 y no se guarda', async () => {

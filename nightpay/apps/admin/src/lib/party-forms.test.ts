@@ -133,6 +133,18 @@ describe('la fiesta: las horas en la del local', () => {
     expect(partySettingsChange({ ...form, cashAlertEur: 'mucho' }, settings, TZ)).toMatchObject({ ok: false, problem: expect.stringContaining('0 = sin aviso') });
     expect(partySettingsChange({ ...form, startsAt: '2027-13-01T20:00' }, settings, TZ)).toMatchObject({ ok: false });
   });
+
+  it('terminada la fiesta, el fin no se quita ni se retrasa (como el API: EVENT_LOCKED); adelantarlo y lo demás, sí', () => {
+    const ended = { ...settings, eventEnded: true };
+    const form = partySettingsFormFrom(ended, TZ);
+    const locked = { ok: false, problem: expect.stringContaining('no se puede quitar ni retrasar') };
+    expect(partySettingsChange({ ...form, endsAt: '' }, ended, TZ)).toEqual(locked);
+    expect(partySettingsChange({ ...form, endsAt: '2027-06-25T07:00' }, ended, TZ)).toEqual(locked);
+    expect(partySettingsChange({ ...form, endsAt: '2027-06-25T05:00' }, ended, TZ)).toEqual({ ok: true, change: { eventEndsAt: '2027-06-25T03:00:00.000Z' } });
+    expect(partySettingsChange({ ...form, allowDonation: false, cashAlertEur: '0' }, ended, TZ)).toEqual({ ok: true, change: { allowDonation: false, cashAlertCents: 0 } });
+    // Con la fiesta en marcha, retrasarlo o quitarlo vale.
+    expect(partySettingsChange({ ...form, endsAt: '' }, settings, TZ)).toMatchObject({ ok: true });
+  });
 });
 
 describe('el cierre', () => {
