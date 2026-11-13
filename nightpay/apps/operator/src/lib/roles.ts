@@ -4,8 +4,9 @@ export type StaffRole = OperatorUser['role'];
 /**
  * Pestañas de abajo. Ya no hay «Saldo» (wallet): Inicio es la única pantalla
  * de cobrar (el QR, la ficha NFC y, discreto, su código o su pase con su PIN).
+ * «Ajustes» (settings) solo sale en OxioParty (lib/party-tabs).
  */
-export type TabKey = 'home' | 'reception' | 'pos' | 'payments' | 'earnings';
+export type TabKey = 'home' | 'reception' | 'pos' | 'payments' | 'earnings' | 'settings';
 
 /**
  * «Cobros»: la lista de /staff/me/cobros (la del panel: un cobro = una fila,

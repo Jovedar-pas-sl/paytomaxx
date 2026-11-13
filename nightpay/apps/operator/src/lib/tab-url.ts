@@ -17,6 +17,8 @@ const TAB_SLUG: Readonly<Record<TabKey, string>> = {
   pos: 'pos',
   payments: 'cobros',
   earnings: 'ganancias',
+  // Solo en OxioParty: en OxioPay no se ve y su enlace lleva a Inicio (resolveTab).
+  settings: 'ajustes',
 };
 
 /**

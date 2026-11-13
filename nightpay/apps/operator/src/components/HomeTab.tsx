@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import type { MyNight, OperatorUser } from '@/lib/api';
+import { isParty } from '@/lib/edition';
 import { canTopUp, useMyRights } from '@/lib/venue-methods';
 import { CobrarFlow } from './cobrar/CobrarFlow';
 import { HomeTopUpDesk } from './reception/HomeTopUpDesk';
@@ -21,12 +22,15 @@ interface Props {
  * cuenta y el cobro único (QR y NFC a la vez). La chica, además, «Mi QR»
  * para que la inviten a una copa. Quien carga saldos (recepción, encargado,
  * dueño), «Recargar saldo» con las mismas pantallas que el mostrador de
- * Recepción (B12).
+ * Recepción (B12). En OxioParty, Inicio es la barra de la caseta: sin «Mi QR»
+ * (no hay chicas) ni «Recargar saldo» (las pulseras se cargan en la Taquilla).
  */
 export function HomeTab({ user, night, onCobroDone, onLogout }: Props) {
   const [miQr, setMiQr] = useState(false);
   const [recargar, setRecargar] = useState(false);
-  const topUps = canTopUp(useMyRights(), user.role);
+  const party = isParty();
+  const rights = useMyRights();
+  const topUps = !party && canTopUp(rights, user.role);
   if (recargar && topUps) {
     return (
       <div className={styles.home}>
@@ -42,7 +46,7 @@ export function HomeTab({ user, night, onCobroDone, onLogout }: Props) {
         onCobroDone={onCobroDone}
         onLogout={onLogout}
         miQrOpen={miQr}
-        onMiQr={user.role === 'OPERATOR' ? setMiQr : undefined}
+        onMiQr={user.role === 'OPERATOR' && !party ? setMiQr : undefined}
         onRecargar={topUps ? () => setRecargar(true) : undefined}
       />
     </div>

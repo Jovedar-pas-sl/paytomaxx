@@ -34,8 +34,12 @@ import {
 import { useMySections } from '@/lib/sections';
 import { useVenueMethods, useVenueNight } from '@/lib/venue-methods';
 import { nfcSupported } from '@/lib/nfc';
+import { isParty } from '@/lib/edition';
+import { partySections, stepLine, ticketSummary } from '@/lib/party-barra';
+import { placeName, useVenueIdentity } from '@/lib/venue-identity';
 import { ActivePayment } from '../ActivePayment';
 import { useCarta } from '../carta';
+import { Barra } from '../party/Barra';
 import { Carta } from './Carta';
 import { customerTipsOn, labelOf, type CobrarContext } from './cobrar-context';
 import { ElegirChica } from './ElegirChica';
@@ -94,6 +98,9 @@ export function CobrarFlow({ user, onCobroDone, onLogout, night, miQrOpen = fals
   const methods = useVenueMethods();
   const nightSettings = useVenueNight();
   const carta = useCarta();
+  // OxioParty: la barra de la caseta (sin chicas, habitaciones ni servicios).
+  const party = isParty();
+  const identity = useVenueIdentity();
   const [rules, setRules] = useState<InvitationRules | null>(null);
   const [terminals, setTerminals] = useState<Array<{ externalId: string }>>([]);
   const [stage, setStage] = useState<Stage>({ kind: 'carta' });
@@ -136,7 +143,7 @@ export function CobrarFlow({ user, onCobroDone, onLogout, night, miQrOpen = fals
   const ctx: CobrarContext = useMemo(
     () => ({
       user,
-      sections: mine.sections,
+      sections: party ? partySections(mine.sections) : mine.sections,
       allowed: mine.allowed,
       post: mine.post ?? null,
       defaultCategory: mine.defaultCategory,
@@ -148,7 +155,7 @@ export function CobrarFlow({ user, onCobroDone, onLogout, night, miQrOpen = fals
       cartaLoaded: carta.loaded,
       cartaFailed: carta.failed,
     }),
-    [user, mine, methods, nightSettings, rules, carta.services, carta.loaded, carta.failed],
+    [user, mine, party, methods, nightSettings, rules, carta.services, carta.loaded, carta.failed],
   );
   const who = whoLine(user.displayName, user.role);
   const name = user.displayName?.trim() || who;
@@ -257,13 +264,16 @@ export function CobrarFlow({ user, onCobroDone, onLogout, night, miQrOpen = fals
         tipsOn: customerTipsOn(ctx),
         sections,
         // El título de Esperando, sin mayúsculas (Grafito): «Copas + Comida».
-        band: {
-          title: sections
-            .slice(0, 2)
-            .map((s) => labelOf(ctx, s.section))
-            .join(' + '),
-          detail: `${what} · ${name}`,
-        },
+        // OxioParty: la caseta y lo que se cobra («2 × caña · 1 × tinto de verano»).
+        band: party
+          ? { title: placeName(identity, 'Barra'), detail: ticketSummary(c) }
+          : {
+              title: sections
+                .slice(0, 2)
+                .map((s) => labelOf(ctx, s.section))
+                .join(' + '),
+              detail: `${what} · ${name}`,
+            },
         what,
         who: name,
         pinChip: `${labelOf(ctx, top)} · ${name}`,
@@ -521,7 +531,27 @@ export function CobrarFlow({ user, onCobroDone, onLogout, night, miQrOpen = fals
       );
     case 'carta':
     default:
-      return (
+      return party ? (
+        <>
+          <Barra
+            ctx={ctx}
+            cuenta={cuenta}
+            onItem={pickItem}
+            onStep={(key, delta) => setCuenta((c) => stepLine(c, key, delta))}
+            onVaciar={() => setCuenta(EMPTY_CUENTA)}
+            onOtro={() => {
+              setError(null);
+              go({ kind: 'otro' });
+            }}
+            onCobrar={() => void cobrarCuenta()}
+            busy={busy}
+            error={error}
+            onMenu={() => setMenu(true)}
+            onRetryCarta={carta.retry}
+          />
+          {menuModal}
+        </>
+      ) : (
         <>
           <Carta
             ctx={ctx}

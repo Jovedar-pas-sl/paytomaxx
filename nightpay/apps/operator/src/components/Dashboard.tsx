@@ -4,11 +4,14 @@ import { useCallback, useEffect, useState, type CSSProperties, type ReactNode } 
 import { Card, ScreenHelp } from '@nightpay/ui';
 import { primeAlertSound } from '@/lib/alert-sound';
 import type { OperatorUser } from '@/lib/api';
+import { isParty } from '@/lib/edition';
 import { clearFichaContext } from '@/lib/ficha-context';
 import { tabForOpenCharge, useOpenCharges } from '@/lib/open-charges';
+import { editionAccess } from '@/lib/party-tabs';
 import { roleAccess, type TabKey } from '@/lib/roles';
 import { TOURS } from '@/lib/tours';
 import { useUrlTab } from '@/lib/use-url-tab';
+import { VenueIdentityContext } from '@/lib/venue-identity';
 import {
   MyRightsContext,
   VenueMethodsContext,
@@ -27,6 +30,7 @@ import { TAB_BAR_HEIGHT } from './layout';
 import { MyCobros } from './MyCobros';
 import { MenuAvatar } from './my-profile';
 import { PassScanned } from './PassScanned';
+import { PartySettings } from './party/PartySettings';
 import { PendingPos } from './PendingPos';
 import { ReceptionTab } from './reception/ReceptionTab';
 import { SafariNotice } from './SafariNotice';
@@ -42,10 +46,12 @@ interface Props {
 }
 
 export function Dashboard({ user, onLogout }: Props) {
-  // Cada rol ve sus pestañas y pide solo lo suyo (sin 403 de fondo).
-  const access = roleAccess(user.role);
+  // Cada rol ve sus pestañas y pide solo lo suyo (sin 403 de fondo). OxioParty:
+  // Cobrar (la barra), Taquilla, Cobros y Ajustes, sin nada de las chicas.
+  const party = isParty();
+  const access = editionAccess(roleAccess(user.role), party);
   // Formas de cobro apagadas por el dueño: sus pestañas no salen.
-  const { methods, night: nightSettings, rights } = useVenueMethodsFeed(user.id);
+  const { methods, night: nightSettings, rights, identity } = useVenueMethodsFeed(user.id);
   // Recepción (cargar saldos y el efectivo), solo a quien la hace por su puesto.
   const tabs = visibleTabsFor(access.tabs, methods, canTopUp(rights, user.role));
   // La pestaña va en la URL (?t=cobros): recargar o volver a entrar deja donde se estaba (?t=saldo, a Inicio).
@@ -94,12 +100,14 @@ export function Dashboard({ user, onLogout }: Props) {
   const openMenu = useCallback(() => setMenuOpen(true), []);
   // En Inicio manda la cabecera de «Cobrar» y en Recepción la suya: una sola
   // cabecera; el logo abre el menú («Salir»).
-  const ownHeader = showing('home') || (showing('reception') && deskHead);
+  // OxioParty: Ajustes lleva lo del menú dentro (sin la cabecera del logo).
+  const ownHeader = showing('home') || (showing('reception') && deskHead) || (party && showing('settings'));
 
   return (
     <VenueMethodsContext.Provider value={methods}>
     <VenueNightContext.Provider value={nightSettings}>
     <MyRightsContext.Provider value={rights}>
+    <VenueIdentityContext.Provider value={identity}>
     <main className="np-app-root np-screen" style={mainStyle}>
       {/* Sin internet / OxioPay sin responder / el banco tardando: arriba, en ámbar. */}
       <ConnectionStatus serverDown={own.error?.transient === true} />
@@ -171,10 +179,12 @@ export function Dashboard({ user, onLogout }: Props) {
       {access.ownEarnings && showing('earnings') ? (
         <Earnings night={night.night} balance={own.balance} nightError={night.error} />
       ) : null}
+      {party && showing('settings') ? <PartySettings onLogout={logout} /> : null}
 
       <TabBar tabs={tabs} active={tab} onSelect={(next) => setTab(next)} />
       <StaffMenu open={menuOpen} onClose={() => setMenuOpen(false)} onLogout={logout} />
     </main>
+    </VenueIdentityContext.Provider>
     </MyRightsContext.Provider>
     </VenueNightContext.Provider>
     </VenueMethodsContext.Provider>

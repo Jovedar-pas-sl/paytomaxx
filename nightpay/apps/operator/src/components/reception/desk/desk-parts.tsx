@@ -2,6 +2,7 @@
 
 import type { CSSProperties, ReactNode } from 'react';
 import { Logo, SectionChip } from '@nightpay/ui';
+import { pulseraText } from '@/lib/edition';
 import { fichaDigits } from '@/lib/ficha-number';
 import { codeBoxes, codeInput } from '@/lib/reception-desk';
 import { MenuAvatar } from '../../my-profile';
@@ -97,6 +98,8 @@ interface HeadProps {
   noMenu?: boolean;
   /** El «?» con el tutorial de la pantalla (ScreenHelp), junto al logo. */
   help?: ReactNode;
+  /** OxioParty: lo de la derecha en vez del chip («En línea»). */
+  aside?: ReactNode;
 }
 
 /**
@@ -105,7 +108,7 @@ interface HeadProps {
  * hay franja de color debajo). Es la única de Recepción: el símbolo abre el
  * menú («Salir»), como en «Cobrar».
  */
-export function DeskHead({ title, sub, onBack, chip, noMenu = false, help }: HeadProps) {
+export function DeskHead({ title, sub, onBack, chip, noMenu = false, help, aside }: HeadProps) {
   const menu = useStaffMenu();
   const openMenu = noMenu ? null : menu;
   return (
@@ -126,7 +129,7 @@ export function DeskHead({ title, sub, onBack, chip, noMenu = false, help }: Hea
         <b>{title}</b>
         <span>{sub}</span>
       </div>
-      <SectionChip section={chip.section}>{chip.label}</SectionChip>
+      {aside ?? <SectionChip section={chip.section}>{chip.label}</SectionChip>}
     </div>
   );
 }
@@ -150,7 +153,7 @@ export function NfcMark({ size }: { size: 's' | 'l' }) {
 export function FichaNumber({ printed, className }: { printed: string; className?: string }) {
   return (
     <span className={`${s.fichaNum} ${className ?? ''}`}>
-      <span className="np-sr-only">Ficha nº {printed}</span>
+      <span className="np-sr-only">{pulseraText('Ficha')} nº {printed}</span>
       <span aria-hidden="true">
         {fichaDigits(printed).map((part, i) =>
           part.strong ? <b key={i}>{part.text}</b> : <span key={i} className={s.fichaWeak}>{part.text}</span>,
