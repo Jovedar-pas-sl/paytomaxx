@@ -93,6 +93,10 @@ async function seed(tag: string): Promise<{ tenantId: string; rows: Rows }> {
       await tx.userPhoto.create({
         data: { userId: chica, tenantId, contentType: 'image/jpeg', data: Buffer.alloc(64, 2), contentHash: 'b'.repeat(64), width: 128, height: 128 },
       });
+      // OxioParty: una caseta con su IBAN.
+      const stall = await tx.stall.create({
+        data: { tenantId, name: `Caseta ${tag}`, managerName: 'Responsable', organizerBps: 2500, iban: 'ES9121000418450200051332' },
+      });
       return {
         tenantId,
         rows: {
@@ -112,6 +116,7 @@ async function seed(tag: string): Promise<{ tenantId: string; rows: Rows }> {
           btcpay_stores: btcStore.id,
           btcpay_invoices: btcInvoice.id,
           user_photos: chica,
+          stalls: stall.id,
         },
       };
     }),

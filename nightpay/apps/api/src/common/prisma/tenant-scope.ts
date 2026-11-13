@@ -41,6 +41,8 @@ export const TENANT_SCOPED_MODELS: ReadonlySet<string> = new Set([
   // «Pagar con bitcoin»: la conexión del local a su BTCPay y sus facturas.
   'BtcpayStore',
   'BtcpayInvoice',
+  // OxioParty (20261115100000): las casetas del local.
+  'Stall',
 ]);
 
 // Operaciones de lectura a filtrar y de escritura a inyectar tenantId

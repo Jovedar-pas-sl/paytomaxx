@@ -89,6 +89,17 @@ model Venue {
   // «Enlace nuevo» lo cambia. CHECK en SQL: encendido ⇒ con código.
   homeTopUpEnabled      Boolean   @default(false)
   homeTopUpCode         String?   @unique
+  // OxioParty (20261115100000, EDITION=party; docs/OXIOPARTY.md): la fiesta.
+  // Con EDITION=club no se usan. Con eventEndsAt ya pasado no hay cobros ni
+  // recargas nuevos (EVENT_ENDED). refundDeadline: último día para pedir la
+  // devolución del saldo. allowDonation: el cliente puede donar lo que le
+  // sobra. cashAlertCents: aviso de efectivo acumulado (2.000 € de serie).
+  // CHECK en SQL: fin después del inicio, umbral ≥ 0.
+  eventStartsAt         DateTime? @db.Timestamptz
+  eventEndsAt           DateTime? @db.Timestamptz
+  refundDeadline        DateTime? @db.Date
+  allowDonation         Boolean   @default(true)
+  cashAlertCents        Int       @default(200000)
   createdAt             DateTime  @default(now()) @db.Timestamptz
   updatedAt             DateTime  @updatedAt @db.Timestamptz
   deletedAt             DateTime? @db.Timestamptz
@@ -118,6 +129,7 @@ model Venue {
   paymentLines       PaymentLine[]
   chargeRefCounter   ChargeRefCounter?
   oxioPaySettlements OxioPaySettlement[]
+  stalls             Stall[]
 
   @@index([businessId])
   @@map("venues")
@@ -215,11 +227,16 @@ model User {
   // Da la sección por defecto de sus cobros (Sala → Servicios, Barra →
   // Copas…). Null = el de su rol (chica → Sala, resto → Barra).
   post                String?
+  // OxioParty (20261115100000): la caseta en la que trabaja. Sus cobros y los
+  // consumos del saldo que cobra llevan esta caseta (stallId). La clave ajena
+  // lleva el local: nunca una caseta de otro local.
+  stallId             String?   @db.Uuid
   createdAt    DateTime  @default(now()) @db.Timestamptz
   updatedAt    DateTime  @updatedAt @db.Timestamptz
   deletedAt    DateTime? @db.Timestamptz
 
-  venue Venue @relation(fields: [tenantId], references: [id])
+  venue Venue  @relation(fields: [tenantId], references: [id])
+  stall Stall? @relation("StallStaff", fields: [stallId, tenantId], references: [id, tenantId], onDelete: Restrict)
 
   // Relaciones para OPERATOR
   earnings              OperatorEarning[]   @relation("OperatorEarnings")
@@ -526,8 +543,12 @@ model Payment {
   // Referencia corta por local (C-0001), del contador charge_ref_counters
   // (compartido con los cobros del saldo). Null en los cobros antiguos.
   ref           Int?
+  // OxioParty (20261115100000): la caseta de quien creó el cobro, fijada al
+  // crearlo (EDITION=party). Null: OxioPay, una recarga o sin caseta.
+  stallId       String?   @db.Uuid
 
   venue              Venue            @relation(fields: [tenantId], references: [id])
+  stall              Stall?           @relation(fields: [stallId, tenantId], references: [id, tenantId], onDelete: Restrict)
   terminal           Terminal         @relation(fields: [terminalId], references: [id])
   createdBy          User?            @relation("PaymentCreatedBy", fields: [createdByUserId], references: [id])
   wallet             ClientWallet?    @relation(fields: [walletId], references: [id])
@@ -620,8 +641,12 @@ model WalletChargeRequest {
   // Propina que pidió el cliente (20261024100100), aparte del importe: el
   // saldo paga importe + propina y el consumo la guarda en su "tipCents".
   tipCents          Int       @default(0)
+  // OxioParty (20261115100000): la caseta de quien pidió el cobro, fijada al
+  // crearlo; pasa al consumo al pagarse. Null: OxioPay o sin caseta.
+  stallId           String?   @db.Uuid
 
   wallet        ClientWallet? @relation(fields: [walletId], references: [id], onDelete: Cascade)
+  stall         Stall?        @relation(fields: [stallId, tenantId], references: [id, tenantId], onDelete: Restrict)
   linkedPayment Payment?      @relation("CobroUnico", fields: [linkedPaymentId], references: [id], onDelete: Cascade)
   lines         PaymentLine[]
 
@@ -904,6 +929,37 @@ model UserPhoto {
   @@unique([userId, tenantId])
   @@index([tenantId])
   @@map("user_photos")
+}
+
+// OxioParty (20261115100000, EDITION=party; docs/OXIOPARTY.md): la caseta de
+// una fiesta (peña, falla, barra). organizerBps: la parte de lo vendido que se
+// queda el organizador (0–10000; 10000 = «barra propia»); el resto, para la
+// caseta, a su IBAN (sin espacios y en mayúsculas, mod-97 en el API). Las
+// claves ajenas que llegan aquí llevan el local (id, tenantId). FORCE RLS:
+// solo dentro de una transacción de PrismaService. CHECK en SQL: % de 0 a
+// 10000, nombres no vacíos, IBAN con forma de IBAN.
+model Stall {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId       String   @db.Uuid
+  name           String
+  managerName    String
+  managerContact String?
+  organizerBps   Int
+  iban           String?
+  active         Boolean  @default(true)
+  sortOrder      Int      @default(0)
+  createdAt      DateTime @default(now()) @db.Timestamptz
+  updatedAt      DateTime @default(now()) @updatedAt @db.Timestamptz
+
+  venue        Venue                 @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  staff        User[]                @relation("StallStaff")
+  payments     Payment[]
+  charges      WalletChargeRequest[]
+  consumptions WalletConsumption[]
+
+  @@unique([id, tenantId])
+  @@index([tenantId, active, sortOrder])
+  @@map("stalls")
 }
 
 // El mapa del dinero (20261023100000): las líneas de cada cobro, cada una en
@@ -1526,9 +1582,13 @@ model WalletConsumption {
   // del servicio» (20261030110000; wallet-fee-saldo.ts): el % antiguo va
   // solo sobre el resto. 0 = todo del saldo sin ella (o de antes).
   serviceFeeSaldoCents Int   @default(0)
+  // OxioParty (20261115100000): la caseta del consumo (la del cobro del saldo,
+  // o la de quien lo cobró). Null: OxioPay o sin caseta.
+  stallId          String?   @db.Uuid
   createdAt        DateTime  @default(now()) @db.Timestamptz
 
   venue       Venue            @relation(fields: [tenantId], references: [id])
+  stall       Stall?           @relation(fields: [stallId, tenantId], references: [id, tenantId], onDelete: Restrict)
   wallet      ClientWallet     @relation(fields: [walletId], references: [id])
   providedBy  User             @relation("ConsumptionProvider", fields: [providedByUserId], references: [id])
   reversedBy  User?            @relation("ConsumptionReversedBy", fields: [reversedByUserId], references: [id])
