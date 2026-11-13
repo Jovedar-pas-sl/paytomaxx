@@ -43,6 +43,8 @@ export const FORCED_RLS_TABLES = [
   'user_photos',
   // OxioParty (20261115100000): las casetas, con la parte del organizador y su IBAN.
   'stalls',
+  // OxioParty (20261115200000): «Lo que sobra», las devoluciones que piden los asistentes (con su IBAN).
+  'party_refund_requests',
 ] as const;
 
 export const FORCED_RLS_MODELS: ReadonlySet<string> = new Set([
@@ -63,6 +65,7 @@ export const FORCED_RLS_MODELS: ReadonlySet<string> = new Set([
   'BtcpayInvoice',
   'UserPhoto',
   'Stall',
+  'PartyRefundRequest',
 ]);
 
 const FORCED_TABLE_RE = new RegExp(`\\b(${FORCED_RLS_TABLES.join('|')})\\b`);

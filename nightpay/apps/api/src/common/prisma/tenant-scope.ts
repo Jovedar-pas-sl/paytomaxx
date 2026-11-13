@@ -43,6 +43,8 @@ export const TENANT_SCOPED_MODELS: ReadonlySet<string> = new Set([
   'BtcpayInvoice',
   // OxioParty (20261115100000): las casetas del local.
   'Stall',
+  // OxioParty (20261115200000): «Lo que sobra», las devoluciones que piden los asistentes.
+  'PartyRefundRequest',
 ]);
 
 // Operaciones de lectura a filtrar y de escritura a inyectar tenantId

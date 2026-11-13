@@ -12,7 +12,7 @@ import { StallsView, type StallsViewProps } from './StallsSection';
 /**
  * Las secciones del panel de OxioParty pintadas con datos de ejemplo (sin
  * DOM: el HTML que sale). En directo (cifras, avisos con su acción, casetas,
- * taquillas), Casetas, Cierre, La fiesta y los dos «Próximamente».
+ * taquillas), Casetas, Cierre, La fiesta, y Pulseras y Devoluciones en su sitio.
  */
 
 const noop = () => undefined;
@@ -259,9 +259,13 @@ describe('La fiesta (Ajustes)', () => {
   });
 });
 
-describe('Pulseras y Devoluciones: su sitio, «Próximamente»', () => {
-  it('se pintan sin datos', () => {
-    expect(renderToStaticMarkup(<PulserasSection />)).toContain('Próximamente');
-    expect(renderToStaticMarkup(<DevolucionesSection />)).toContain('Próximamente');
+describe('Pulseras y Devoluciones: las de verdad en su sitio', () => {
+  it('se pintan sin datos, sin «Próximamente»', () => {
+    const pulseras = renderToStaticMarkup(<PulserasSection />);
+    expect(pulseras).toContain('Pulseras por estado');
+    expect(pulseras).not.toContain('Próximamente');
+    const devoluciones = renderToStaticMarkup(<DevolucionesSection />);
+    expect(devoluciones).toContain('Totales de las devoluciones');
+    expect(devoluciones).not.toContain('Próximamente');
   });
 });

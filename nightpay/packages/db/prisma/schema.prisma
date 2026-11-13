@@ -126,6 +126,7 @@ model Venue {
   walletCashTopUps   WalletCashTopUp[]
   walletCards        WalletCard[]
   walletCardEvents   WalletCardEvent[]
+  partyRefunds       PartyRefundRequest[]
   paymentLines       PaymentLine[]
   chargeRefCounter   ChargeRefCounter?
   oxioPaySettlements OxioPaySettlement[]
@@ -1354,6 +1355,7 @@ model ClientWallet {
   cards          WalletCard[]
   passes         WalletPass[]
   activationTokens WalletActivationToken[]
+  partyRefunds     PartyRefundRequest[]
 
   @@index([tenantId, status])
   @@index([tenantId, identifier])
@@ -1602,6 +1604,42 @@ model WalletConsumption {
   // Consumos del Z y de los informes por fecha (20261029400000_indices_informes).
   @@index([tenantId, createdAt])
   @@map("wallet_consumptions")
+}
+
+// OxioParty (20261115200000, EDITION=party): «Lo que sobra», la devolución
+// que pide el asistente desde la página de su pulsera, hasta el último día
+// del local (venues.refundDeadline). method: CARD (solo lo cargado con
+// tarjeta; el organizador la hace a mano en el banco y la marca «Hecha»),
+// TRANSFER (lo cargado en efectivo, a su IBAN: sin espacios y en mayúsculas,
+// mod-97 en el API) o DONATE (a la comisión, si allowDonation: hecha al
+// momento). status: PENDING → DONE | CANCELED. Al pedirla, el saldo queda
+// bloqueado (client_wallets.blockedAt con el motivo de OxioParty): no se
+// gasta ni se recarga; al hacerla, el importe sale del saldo. Lo mínimo del
+// asistente: el IBAN (solo TRANSFER) y un correo opcional para el
+// justificante. doneById: quién la marcó (sin clave ajena: el registro lo
+// guarda también). FORCE RLS por local. CHECK en SQL: importe > 0, método y
+// estado conocidos, IBAN solo y siempre en TRANSFER, hecha ⇔ doneAt.
+model PartyRefundRequest {
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId    String    @db.Uuid
+  walletId    String    @db.Uuid
+  amountCents Int
+  /// CARD | TRANSFER | DONATE
+  method      String    @db.VarChar(10)
+  iban        String?   @db.VarChar(34)
+  email       String?   @db.VarChar(254)
+  /// PENDING | DONE | CANCELED
+  status      String    @default("PENDING") @db.VarChar(10)
+  createdAt   DateTime  @default(now()) @db.Timestamptz
+  doneAt      DateTime? @db.Timestamptz
+  doneById    String?   @db.Uuid
+
+  venue  Venue        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  wallet ClientWallet @relation(fields: [walletId], references: [id], onDelete: Restrict)
+
+  @@index([tenantId, status, createdAt(sort: Desc)])
+  @@index([walletId, status])
+  @@map("party_refund_requests")
 }
 
 // ─── Cuadre con el banco (2026-10-14) ────────────────────────────────────

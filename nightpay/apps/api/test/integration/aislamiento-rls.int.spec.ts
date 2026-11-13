@@ -97,6 +97,10 @@ async function seed(tag: string): Promise<{ tenantId: string; rows: Rows }> {
       const stall = await tx.stall.create({
         data: { tenantId, name: `Caseta ${tag}`, managerName: 'Responsable', organizerBps: 2500, iban: 'ES9121000418450200051332' },
       });
+      // OxioParty: «Lo que sobra», una devolución pedida por transferencia (con su IBAN).
+      const refund = await tx.partyRefundRequest.create({
+        data: { tenantId, walletId: wallet.id, amountCents: 300, method: 'TRANSFER', iban: 'ES9121000418450200051332' },
+      });
       return {
         tenantId,
         rows: {
@@ -117,6 +121,7 @@ async function seed(tag: string): Promise<{ tenantId: string; rows: Rows }> {
           btcpay_invoices: btcInvoice.id,
           user_photos: chica,
           stalls: stall.id,
+          party_refund_requests: refund.id,
         },
       };
     }),

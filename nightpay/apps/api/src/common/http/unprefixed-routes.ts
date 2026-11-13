@@ -77,6 +77,10 @@ export const UNPREFIXED_ROUTES: readonly UnprefixedRoute[] = Object.freeze([
   // «He perdido mi NFC»: el cliente lo bloquea con su Face ID.
   { path: 'w/:token/lost-nfc/challenge', method: RequestMethod.POST },
   { path: 'w/:token/lost-nfc', method: RequestMethod.POST },
+  // OxioParty: «Lo que sobra» desde la página de la pulsera (con su Face ID si lo tiene).
+  { path: 'w/:token/sobra', method: RequestMethod.GET },
+  { path: 'w/:token/sobra/challenge', method: RequestMethod.POST },
+  { path: 'w/:token/sobra', method: RequestMethod.POST },
   // «Recargar» desde la página del saldo (con su Face ID si lo tiene).
   { path: 'w/:token/topup/challenge', method: RequestMethod.POST },
   { path: 'w/:token/topup', method: RequestMethod.POST },

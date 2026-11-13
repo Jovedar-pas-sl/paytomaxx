@@ -730,22 +730,6 @@
   border: 1px solid var(--np-border-hi);
 }
 
-/* Lo que es «Próximamente» (pulseras y devoluciones, en otra rama). */
-.np-party-soon {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-  padding: 2rem 1.5rem;
-  border: 1px dashed var(--np-border-hi);
-  border-radius: var(--np-r-md);
-  background: var(--np-surface);
-}
-
-.np-party-soon p {
-  margin: 0;
-  color: var(--np-text-mute);
-}
-
 @media (prefers-reduced-motion: no-preference) {
   .np-party-kpi-value,
   .np-party-amount {

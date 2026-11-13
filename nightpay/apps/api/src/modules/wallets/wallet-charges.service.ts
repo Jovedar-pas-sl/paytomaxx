@@ -21,6 +21,7 @@ import {
   normalizeWalletCardUid,
   maxTipCents,
   paymentMethodsOf,
+  pulseraLabel,
   sectionMeta,
   sectionsOf,
   stepUpActions,
@@ -29,6 +30,7 @@ import {
   type TipPreset,
   type ChargeLineInput,
   type Role,
+  type SaldoChargePartyExtras,
 } from '@nightpay/contracts';
 import type { Prisma } from '@nightpay/db';
 import { ClsService } from 'nestjs-cls';
@@ -90,6 +92,7 @@ import {
 import { assertVenueAcceptsCharges } from '../venues/venue-pause';
 import { assertVenueAcceptsMethods } from '../venues/venue-methods';
 import { assertEventOpen } from '../party/event-window';
+import { isPartyEdition } from '../../config/edition';
 import { stallIdForStaff, stallSeal } from '../party/stall-seal';
 import { chargeRightsFor } from '../venues/charge-rights';
 import { customerTipError, staffTipRemoved } from '../payments/tip';
@@ -253,7 +256,8 @@ export interface ReceptionWalletView {
   hasCard: boolean;
 }
 
-export interface ChargeRequestView {
+/** Con OxioParty, pagado: además la pulsera y lo que le queda (SaldoChargePartyExtras; con OxioPay no van). */
+export interface ChargeRequestView extends SaldoChargePartyExtras {
   id: string;
   /** Referencia corta (C-0001): la de la chica en el PAGADO y la del cliente en sus movimientos. */
   ref: string | null;
@@ -362,6 +366,8 @@ export interface ClientWalletState {
   refund: ClientRefundState | null;
   /** Últimas 4 cifras de las tarjetas de sus recargas (a ellas se devuelve a la tarjeta). */
   cards: string[];
+  /** OxioParty: «P-0412», el número de su pulsera (solo con EDITION=party y pulsera dada). */
+  pulsera?: string;
   movements: Array<{
     kind: 'topup' | 'consumption' | 'payout';
     amountCents: number;
@@ -388,6 +394,8 @@ export interface ClientWalletState {
      * (la fila lo dice, «Devuelto a tu saldo»; sin quién ni por qué).
      */
     returned?: boolean;
+    /** OxioParty: la caseta donde se gastó («Peña El Cántaro»); solo en consumos con caseta. */
+    stallName?: string;
   }>;
 }
 
@@ -562,7 +570,7 @@ export class WalletChargesService {
     const request = await this.ownRequest(actor, requestId);
     const walletId = request.walletId;
     const accepted = request.status === 'ACCEPTED';
-    const [wallet, consumption, elsewhere, fichaNumber] = await Promise.all([
+    const [wallet, consumption, elsewhere, fichaNumber, pulsera] = await Promise.all([
       walletId
         ? this.prisma.acrossVenues((tx) =>
             tx.clientWallet.findUnique({ where: { id: walletId }, select: { balanceCents: true, shortCode: true } }),
@@ -571,6 +579,7 @@ export class WalletChargesService {
       accepted && request.consumptionId ? this.consumptionAuth(request.consumptionId) : null,
       accepted ? false : this.paidByCard(request),
       accepted && walletId && via?.cardToken ? this.printedFichaNumber(walletId, via.cardToken) : null,
+      accepted && walletId && isPartyEdition() ? this.partyPulsera(walletId, via?.cardToken) : null,
     ]);
     return {
       ...this.requestView(request, accepted ? (wallet?.balanceCents ?? null) : null),
@@ -579,7 +588,26 @@ export class WalletChargesService {
       // Solo los datos que existen: sin código o sin número impreso, no se inventa nada.
       ...(accepted && wallet?.shortCode ? { walletCodeHint: codeHintOf(wallet.shortCode) } : {}),
       ...(fichaNumber ? { fichaNumber } : {}),
+      // OxioParty: la pulsera (también pagado con el QR) y lo que le queda, para el PAGADO.
+      ...(pulsera ? { pulsera } : {}),
+      ...(accepted && isPartyEdition() && wallet ? { balanceLeftCents: wallet.balanceCents } : {}),
     };
+  }
+
+  /**
+   * OxioParty: «P-0412», la pulsera con la que se pagó (si se acercó) o, si
+   * no (QR, código + PIN), la que tiene dada el saldo. Sin pulsera, null.
+   */
+  private async partyPulsera(walletId: string, cardToken?: string): Promise<string | null> {
+    const card = await this.prisma.acrossVenues(async (tx) =>
+      (cardToken ? await tx.walletCard.findFirst({ where: { token: cardToken, walletId }, select: { number: true } }) : null) ??
+      tx.walletCard.findFirst({
+        where: { walletId, status: { in: ISSUED_CARD_STATUSES } },
+        orderBy: { linkedAt: { sort: 'desc', nulls: 'last' } },
+        select: { number: true },
+      }),
+    );
+    return card ? pulseraLabel(card.number) : null;
   }
 
   /** El número impreso de la ficha con la que se pagó (null si la ficha no lo tiene o no es de ese saldo). */
@@ -653,8 +681,11 @@ export class WalletChargesService {
         where: { walletId: wallet.id },
         orderBy: { createdAt: 'desc' },
         take: 30,
-        select: { id: true, amountCents: true, tipCents: true, category: true, notes: true, tenantId: true, createdAt: true, reversedAt: true },
+        select: { id: true, amountCents: true, tipCents: true, category: true, notes: true, tenantId: true, createdAt: true, reversedAt: true, stallId: true },
       });
+      // OxioParty: el nombre de la caseta de cada consumo (con OxioPay no hay casetas: ni se mira).
+      const stallIds = [...new Set(consumptions.flatMap((c) => (c.stallId ? [c.stallId] : [])))];
+      const stalls = stallIds.length > 0 ? await tx.stall.findMany({ where: { id: { in: stallIds } }, select: { id: true, name: true } }) : [];
       const topUps = await tx.payment.findMany({
         where: { walletId: wallet.id, status: { in: ['AUTHORIZED', 'PARTIALLY_REFUNDED', 'REFUNDED'] } },
         orderBy: { createdAt: 'desc' },
@@ -691,7 +722,7 @@ export class WalletChargesService {
               where: { consumptionId: { in: consumptions.map((c) => c.id) } },
               select: { id: true, consumptionId: true, ref: true },
             });
-      return { wallet, consumptions, topUps, allPayouts, cashTopUps, issuedCards, passkeys, venues, refRows };
+      return { wallet, consumptions, topUps, allPayouts, cashTopUps, issuedCards, passkeys, venues, refRows, stalls };
     });
     if (!read) throw new NotFoundException({ message: 'Saldo no encontrado', code: 'WALLET_NOT_FOUND' });
     const { wallet, consumptions, topUps, allPayouts, cashTopUps, issuedCards, venues } = read;
@@ -704,6 +735,7 @@ export class WalletChargesService {
       sectionMeta(sectionsOf(venues.find((v) => v.id === id)?.sections), category);
     const refs = new Map(read.refRows.flatMap((x) => (x.consumptionId && x.ref ? [[x.consumptionId, formatChargeRef(x.ref)!]] : [])));
     const chargeOf = new Map(read.refRows.flatMap((x) => (x.consumptionId ? [[x.consumptionId, x.id]] : [])));
+    const stallName = new Map(read.stalls.map((x) => [x.id, x.name]));
 
     const movements: ClientWalletState['movements'] = [
       ...consumptions.map((c) => ({
@@ -716,6 +748,7 @@ export class WalletChargesService {
         color: sectionOfVenue(c.tenantId, c.category).color,
         detail: chargeOf.has(c.id) ? { kind: 'SALDO' as const, id: chargeOf.get(c.id)! } : null,
         ...(c.reversedAt ? { returned: true } : {}),
+        ...(c.stallId && stallName.has(c.stallId) ? { stallName: stallName.get(c.stallId)! } : {}),
       })),
       ...topUps.map((t) => ({
         kind: 'topup' as const,
@@ -765,6 +798,7 @@ export class WalletChargesService {
       merged: Boolean(wallet.mergedIntoId),
       refund: clientRefundState({ status: wallet.status, balanceCents: wallet.balanceCents, closeRequested }, allPayouts),
       cards: refundCards(topUps.map((t) => t.cardLast4)),
+      ...(isPartyEdition() && issuedCards[0] ? { pulsera: pulseraLabel(issuedCards[0].number) } : {}),
       movements,
     };
   }

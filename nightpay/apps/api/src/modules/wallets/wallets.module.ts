@@ -42,6 +42,7 @@ import { WalletEventsModule } from '../wallet-events/wallet-events.module';
 import { PublicWalletEventsController } from './public-wallet-events.controller';
 import { WalletWelcomeService } from '../home-topup/wallet-welcome.service';
 import { CobroDetailModule } from '../money-map/cobro-detail.module';
+import { PartyRefundsService } from '../party/party-refunds.service';
 
 @Module({
   // AuthModule: TotpService (2FA del encargado al anular y al devolver en efectivo).
@@ -77,6 +78,8 @@ import { CobroDetailModule } from '../money-map/cobro-detail.module';
     WalletLostCardService,
     // «Cargar saldo antes de llegar» en la página del saldo: el QR de la ficha y la cookie del enlace del local.
     WalletWelcomeService,
+    // OxioParty: «Lo que sobra» en la página de la pulsera (y Devoluciones en el panel, PartyModule).
+    PartyRefundsService,
   ],
   controllers: [
     // El teléfono opcional al dar una ficha nueva (y buscar un saldo por él).
@@ -109,6 +112,6 @@ import { CobroDetailModule } from '../money-map/cobro-detail.module';
   ],
   // GoogleWalletService: lo usa el repaso de la cola google-wallet-sync (QueuesModule).
   // CashTopUpService y WalletCardsService: la recepción del datáfono (PosDeviceModule).
-  exports: [WalletsService, WalletChargesService, WalletPasskeysService, GoogleWalletService, CashTopUpService, WalletCardsService, FichaNumbersService],
+  exports: [WalletsService, WalletChargesService, WalletPasskeysService, GoogleWalletService, CashTopUpService, WalletCardsService, FichaNumbersService, PartyRefundsService],
 })
 export class WalletsModule {}
