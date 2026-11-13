@@ -1,7 +1,10 @@
 import { ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@nightpay/db';
 import {
+  STALL_BPS_LOCKED_CODE,
+  STALL_BPS_LOCKED_MESSAGE,
   STALL_STAFF_ROLES,
+  isEventEnded,
   stallChangeTouchesMoney,
   type AssignStallDto,
   type CreateStallDto,
@@ -27,8 +30,10 @@ const WITH_STAFF_COUNT = { ...STALL_SELECT, _count: { select: { staff: { where: 
 /**
  * Casetas de OxioParty (stalls, FORCE RLS: siempre dentro de withTenant) y el
  * personal de cada una. La parte del organizador y el IBAN son dinero: con la
- * 2FA activada, cambiarlos pide el código (como las reglas del local). Todo
- * cambio queda en el registro, con el IBAN tapado.
+ * 2FA activada, cambiarlos pide el código (como las reglas del local). Con la
+ * fiesta terminada, la parte del organizador ya no cambia (409
+ * STALL_BPS_LOCKED: el cierre queda fijo); lo demás, sí. Todo cambio queda en
+ * el registro, con el IBAN tapado.
  */
 @Injectable()
 export class StallsService {
@@ -58,6 +63,8 @@ export class StallsService {
     const current = await this.findOrThrow(actor.tenantId, id);
     const change = stallChange(current, dto);
     if (Object.keys(change).length === 0) return stallView(current);
+    // Antes de la 2FA: no se pide el código para algo que no se va a guardar.
+    if (change.organizerBps !== undefined) await this.assertBpsUnlocked(actor.tenantId);
     if (stallChangeTouchesMoney(change)) await this.totp.assertIfEnrolledForUser(actor.sub, dto.totpCode);
     const row = await this.prisma.withTenant(actor.tenantId, (tx) =>
       tx.stall.update({ where: { id }, data: change, select: WITH_STAFF_COUNT }),
@@ -128,6 +135,14 @@ export class StallsService {
   }
 
   // ─── internos ──────────────────────────────────────────────────────
+
+  /** Con la fiesta terminada (eventEndsAt pasado), 409 STALL_BPS_LOCKED: el cierre ya no cambia. */
+  private async assertBpsUnlocked(tenantId: string, now: Date = new Date()): Promise<void> {
+    const venue = await this.prisma.asSystem((tx) => tx.venue.findUnique({ where: { id: tenantId }, select: { eventEndsAt: true } }));
+    if (isEventEnded(venue?.eventEndsAt, now)) {
+      throw new ConflictException({ message: STALL_BPS_LOCKED_MESSAGE, code: STALL_BPS_LOCKED_CODE });
+    }
+  }
 
   private async findOrThrow(tenantId: string, id: string) {
     const row = await this.prisma.withTenant(tenantId, (tx) => tx.stall.findFirst({ where: { id, tenantId }, select: WITH_STAFF_COUNT }));

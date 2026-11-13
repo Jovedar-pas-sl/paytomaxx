@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { ConflictException, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@nightpay/db';
-import type { JwtPayload } from '@nightpay/contracts';
+import { STALL_BPS_LOCKED_CODE, type JwtPayload } from '@nightpay/contracts';
 import { STALL_IN_USE_CODE, StallsService } from './stalls.service';
 import { stallAudit, stallChange, stallCreateData, stallView } from './stall-views';
 
@@ -50,8 +50,12 @@ function make() {
       })),
       updateMany: vi.fn().mockResolvedValue({ count: 2 }),
     },
+    venue: { findUnique: vi.fn().mockResolvedValue({ eventEndsAt: null }) },
   };
-  const prisma = { withTenant: vi.fn(async (_t: string, fn: (t: typeof tx) => unknown) => fn(tx)) };
+  const prisma = {
+    withTenant: vi.fn(async (_t: string, fn: (t: typeof tx) => unknown) => fn(tx)),
+    asSystem: vi.fn(async (fn: (t: typeof tx) => unknown) => fn(tx)),
+  };
   const totp = { assertIfEnrolledForUser: vi.fn().mockResolvedValue(undefined) };
   const audit = { log: vi.fn().mockResolvedValue(undefined) };
   const svc = new StallsService(prisma as never, totp as never, audit as never);
@@ -130,6 +134,56 @@ describe('StallsService', () => {
     expect(totp.assertIfEnrolledForUser).not.toHaveBeenCalled();
     expect(tx.stall.update).not.toHaveBeenCalled();
     expect(audit.log).not.toHaveBeenCalled();
+  });
+
+  describe('con la fiesta terminada, el % de la organización queda fijo (STALL_BPS_LOCKED)', () => {
+    const ended = { eventEndsAt: new Date(Date.now() - 60_000) };
+
+    it('cambiar organizerBps: 409, sin pedir la 2FA, sin escribir y sin registro', async () => {
+      const { svc, tx, totp, audit } = make();
+      tx.venue.findUnique.mockResolvedValue(ended);
+      const err = await svc.update(owner, 's-1', { organizerBps: 3000, totpCode: '123456' }).catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(ConflictException);
+      expect((err as ConflictException).getStatus()).toBe(409);
+      expect((err as ConflictException).getResponse()).toMatchObject({ code: STALL_BPS_LOCKED_CODE });
+      expect(tx.venue.findUnique).toHaveBeenCalledWith({ where: { id: T }, select: { eventEndsAt: true } });
+      expect(totp.assertIfEnrolledForUser).not.toHaveBeenCalled();
+      expect(tx.stall.update).not.toHaveBeenCalled();
+      expect(audit.log).not.toHaveBeenCalled();
+      // «Barra propia» también es la parte del organizador.
+      await expect(svc.update(owner, 's-1', { organizerBps: 10_000 })).rejects.toBeInstanceOf(ConflictException);
+    });
+
+    it('junto con otros cambios, tampoco se guarda nada', async () => {
+      const { svc, tx } = make();
+      tx.venue.findUnique.mockResolvedValue(ended);
+      await expect(svc.update(owner, 's-1', { name: 'Peña Nueva', organizerBps: 0 })).rejects.toBeInstanceOf(ConflictException);
+      expect(tx.stall.update).not.toHaveBeenCalled();
+    });
+
+    it('el resto se sigue cambiando: nombre, responsable, IBAN (con su 2FA), activa', async () => {
+      const { svc, tx, totp } = make();
+      tx.venue.findUnique.mockResolvedValue(ended);
+      await expect(svc.update(owner, 's-1', { name: 'Peña Nueva', managerName: 'Pep', active: false })).resolves.toMatchObject({ name: 'Peña Nueva' });
+      await expect(svc.update(owner, 's-1', { iban: null, totpCode: '654321' })).resolves.toMatchObject({ iban: null });
+      expect(totp.assertIfEnrolledForUser).toHaveBeenCalledWith('owner-1', '654321');
+      expect(tx.stall.update).toHaveBeenCalledTimes(2);
+      // Ni siquiera mira la fiesta si el % no cambia.
+      expect(tx.venue.findUnique).not.toHaveBeenCalled();
+    });
+
+    it('mandar el mismo % que tiene no es un cambio: no da 409', async () => {
+      const { svc, tx } = make();
+      tx.venue.findUnique.mockResolvedValue(ended);
+      await expect(svc.update(owner, 's-1', { organizerBps: 2500, name: 'Peña Nueva' })).resolves.toMatchObject({ organizerBps: 2500, name: 'Peña Nueva' });
+    });
+
+    it('sin fecha de fin o con la fiesta en marcha, el % se cambia', async () => {
+      const { svc, tx } = make();
+      await expect(svc.update(owner, 's-1', { organizerBps: 3000 })).resolves.toMatchObject({ organizerBps: 3000 });
+      tx.venue.findUnique.mockResolvedValue({ eventEndsAt: new Date(Date.now() + 3_600_000) });
+      await expect(svc.update(owner, 's-1', { organizerBps: 1000 })).resolves.toMatchObject({ organizerBps: 1000 });
+    });
   });
 
   it('una caseta de otro local (o que no existe): 404', async () => {

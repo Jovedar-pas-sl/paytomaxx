@@ -4,10 +4,12 @@ import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import type { StallStaffPerson, StallView, UpdateStallDto } from '@nightpay/contracts';
 import { Button, Input } from '@nightpay/ui';
 import { totpRetryState } from '@/lib/api-errors';
-import { assignStall, createStall, deleteStall, fetchStallStaff, fetchStalls, updateStall } from '@/lib/endpoints/party';
+import { assignStall, createStall, deleteStall, fetchPartySettings, fetchStallStaff, fetchStalls, updateStall } from '@/lib/endpoints/party';
 import { OTP_LENGTH } from '@/lib/otp';
 import {
   EMPTY_STALL_FORM,
+  STALL_BPS_LOCKED_HINT,
+  STALL_BPS_LOCKED_NOTE,
   assignableStalls,
   createStallDto,
   hasStallChange,
@@ -30,7 +32,8 @@ type Editing = { kind: 'new' } | { kind: 'edit'; stall: StallView } | null;
  * cambiar y archivar las casetas, con la parte del organizador (un % o
  * «barra propia») y el IBAN para pagarles; y el personal de cada una (sus
  * cobros llevan esa caseta). La parte del organizador y el IBAN son dinero:
- * con la 2FA activada, guardarlos pide el código.
+ * con la 2FA activada, guardarlos pide el código. Con la fiesta terminada,
+ * el % de las que ya existen queda fijo (el cierre no cambia) y se avisa.
  */
 export function StallsSection() {
   const [stalls, setStalls] = useState<StallView[] | null>(null);
@@ -38,13 +41,22 @@ export function StallsSection() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [editing, setEditing] = useState<Editing>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [bpsLocked, setBpsLocked] = useState(false);
 
   const load = useCallback(async () => {
     setLoadError(null);
     try {
-      const [s, p] = await Promise.all([fetchStalls(), fetchStallStaff()]);
+      // La fiesta solo para saber si ya terminó: si no llega, el API igual dice que no (409) al guardar.
+      const [s, p, ended] = await Promise.all([
+        fetchStalls(),
+        fetchStallStaff(),
+        fetchPartySettings()
+          .then((settings) => settings.eventEnded)
+          .catch(() => false),
+      ]);
       setStalls(s);
       setStaff(p);
+      setBpsLocked(ended);
     } catch (err) {
       setLoadError((err as Error).message);
     }
@@ -107,6 +119,7 @@ export function StallsSection() {
       staff={staff}
       editing={editing}
       notice={notice}
+      bpsLocked={bpsLocked}
       onNew={() => setEditing({ kind: 'new' })}
       onEdit={(stall) => setEditing({ kind: 'edit', stall })}
       onCancel={() => setEditing(null)}
@@ -123,6 +136,8 @@ export interface StallsViewProps {
   staff: StallStaffPerson[] | null;
   editing: Editing;
   notice: string | null;
+  /** La fiesta ya terminó: el % de cada caseta ya no se cambia (409 STALL_BPS_LOCKED). */
+  bpsLocked?: boolean;
   onNew: () => void;
   onEdit: (s: StallView) => void;
   onCancel: () => void;
@@ -143,9 +158,16 @@ export function StallsView(p: StallsViewProps) {
         {p.editing?.kind !== 'new' ? <Button onClick={p.onNew}>Añadir caseta</Button> : null}
       </div>
 
+      {p.bpsLocked ? <Notice tone="warning">{STALL_BPS_LOCKED_NOTE}</Notice> : null}
       {p.notice ? <Notice tone="info">{p.notice}</Notice> : null}
       {p.editing ? (
-        <StallFormCard key={p.editing.kind === 'edit' ? p.editing.stall.id : 'new'} editing={p.editing} onCancel={p.onCancel} onSaved={p.onSaved} />
+        <StallFormCard
+          key={p.editing.kind === 'edit' ? p.editing.stall.id : 'new'}
+          editing={p.editing}
+          bpsLocked={p.bpsLocked ?? false}
+          onCancel={p.onCancel}
+          onSaved={p.onSaved}
+        />
       ) : null}
 
       <section className="np-party-card" aria-labelledby="np-party-h-list">
@@ -261,14 +283,18 @@ function StallRow({
 
 function StallFormCard({
   editing,
+  bpsLocked,
   onCancel,
   onSaved,
 }: {
   editing: NonNullable<Editing>;
+  bpsLocked: boolean;
   onCancel: () => void;
   onSaved: (s: StallView, created: boolean) => void;
 }) {
   const current = editing.kind === 'edit' ? editing.stall : null;
+  // Fiesta terminada: el % de una que ya existe no se toca (una nueva no tiene ventas: sí).
+  const bpsFixed = bpsLocked && current !== null;
   const [form, setForm] = useState<StallForm>(current ? stallFormFrom(current) : EMPTY_STALL_FORM);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -340,11 +366,11 @@ function StallFormCard({
             onChange={(e) => update({ percent: e.target.value })}
             placeholder="10"
             inputMode="decimal"
-            disabled={form.ownBar}
-            hint="De lo que venda, lo que se queda la organización."
+            disabled={form.ownBar || bpsFixed}
+            hint={bpsFixed ? STALL_BPS_LOCKED_HINT : 'De lo que venda, lo que se queda la organización.'}
           />
           <label className="np-party-check">
-            <input type="checkbox" checked={form.ownBar} onChange={(e) => update({ ownBar: e.target.checked })} />
+            <input type="checkbox" checked={form.ownBar} disabled={bpsFixed} onChange={(e) => update({ ownBar: e.target.checked })} />
             Barra propia (todo para la organización; no se le paga)
           </label>
         </div>

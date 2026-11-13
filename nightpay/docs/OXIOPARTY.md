@@ -43,6 +43,10 @@ no cambia.
   - `GET/POST /v1/admin/party/stalls`, `PATCH/DELETE /v1/admin/party/stalls/:id`.
     Crear o cambiar la parte del organizador o el IBAN pide la 2FA si la
     persona la tiene activada. Borrar una con cobros: 409 `STALL_IN_USE`.
+    Con la fiesta terminada (`eventEndsAt` pasado), cambiar el `organizerBps`
+    de una caseta da 409 `STALL_BPS_LOCKED` (antes de pedir la 2FA): así el
+    cierre ya no cambia. El resto de campos se sigue cambiando, y el panel
+    (Casetas) lo avisa y bloquea el % al editar.
   - `GET /v1/admin/party/staff` y `PATCH /v1/admin/party/staff/:userId`
     (`{ stallId }` o `null`): la caseta de cada persona (solo casetas activas).
 - **Ajustes de la fiesta**: `GET /v1/admin/party/settings` (dueño y
@@ -92,7 +96,8 @@ suya), también lo cargado desde casa antes de empezar.
   encargado; descargar no mueve dinero, como los demás CSV: sin 2FA). Por
   caseta: vendido, `organizerBps`, parte del organizador =
   round(vendido · bps / 10000), a pagar = vendido − parte, y si tiene IBAN. La
-  parte es la de la caseta **ahora** (no se fija en cada cobro). El SEPA
+  parte es la de la caseta **ahora** (no se fija en cada cobro); con la fiesta
+  terminada ya no se puede cambiar (`STALL_BPS_LOCKED`), así que el cierre queda fijo. El SEPA
   (pain.001.001.03, `sepa.ts` → `buildPain001`, reutilizable): el deudor es
   el local (`settlementIban`, que pone OxioPay; sin él, 409 `NO_DEBTOR_IBAN`)
   y los acreedores, las casetas con IBAN y algo que pagar («barra propia» y lo

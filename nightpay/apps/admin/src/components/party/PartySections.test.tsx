@@ -168,6 +168,30 @@ describe('Casetas', () => {
   it('sin casetas, cómo empezar', () => {
     expect(stalls({ stalls: [], staff: [] })).toContain('Aún no hay casetas.');
   });
+
+  it('con la fiesta en marcha, ni aviso ni % bloqueado', () => {
+    const html = stalls({ editing: { kind: 'edit', stall: sampleStall() } });
+    expect(html).not.toContain('La fiesta ha terminado');
+    expect(html).not.toMatch(/disabled=""[^>]*value="10,00"|value="10,00"[^>]*disabled=""/);
+  });
+
+  it('con la fiesta terminada: el aviso, y al cambiar una, el % y «barra propia» bloqueados', () => {
+    expect(stalls({ bpsLocked: true })).toContain(
+      'La fiesta ha terminado: el % de la organización de cada caseta ya no se puede cambiar, así el cierre no cambia.',
+    );
+    const html = stalls({ bpsLocked: true, editing: { kind: 'edit', stall: sampleStall() } });
+    expect(html).toMatch(/disabled=""[^>]*value="10,00"|value="10,00"[^>]*disabled=""/);
+    expect(html).toContain('La fiesta ha terminado: el % ya no se cambia.');
+    expect(html).toMatch(/<input type="checkbox" disabled=""/);
+    // El nombre, el IBAN y lo demás, sí.
+    expect(html).not.toMatch(/disabled=""[^>]*value="ES9121000418450200051332"|value="ES9121000418450200051332"[^>]*disabled=""/);
+  });
+
+  it('con la fiesta terminada, una caseta nueva sí lleva su % (aún no ha vendido nada)', () => {
+    const html = stalls({ bpsLocked: true, editing: { kind: 'new' } });
+    expect(html).not.toContain('el % ya no se cambia');
+    expect(html).toContain('De lo que venda, lo que se queda la organización.');
+  });
 });
 
 function cierre(props: Partial<CierreViewProps> = {}): string {

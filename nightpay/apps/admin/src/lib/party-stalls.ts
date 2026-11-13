@@ -100,6 +100,14 @@ export function updateStallDto(form: StallForm, current: StallView): Parsed<Upda
   return { ok: true, value: change };
 }
 
+/**
+ * Con la fiesta terminada, el % de la organización de cada caseta queda fijo
+ * (el API da 409 STALL_BPS_LOCKED): así el cierre no cambia. Lo demás, sí.
+ */
+export const STALL_BPS_LOCKED_NOTE =
+  'La fiesta ha terminado: el % de la organización de cada caseta ya no se puede cambiar, así el cierre no cambia. El nombre, el responsable, el IBAN y lo demás, sí.';
+export const STALL_BPS_LOCKED_HINT = 'La fiesta ha terminado: el % ya no se cambia.';
+
 /** ¿Hay algo que guardar? (el 2FA no cuenta). */
 export function hasStallChange(dto: UpdateStallDto): boolean {
   return Object.entries(dto).some(([k, v]) => k !== 'totpCode' && v !== undefined);

@@ -101,6 +101,14 @@ export const UpdateStallSchema = z
   .refine((v) => Object.entries(v).some(([k, x]) => k !== 'totpCode' && x !== undefined), 'No hay nada que cambiar');
 export type UpdateStallDto = z.infer<typeof UpdateStallSchema>;
 
+/**
+ * Con la fiesta terminada (eventEndsAt pasado), la parte del organizador de
+ * una caseta ya no cambia: así el cierre tampoco. El resto de datos, sí. 409.
+ */
+export const STALL_BPS_LOCKED_CODE = 'STALL_BPS_LOCKED';
+export const STALL_BPS_LOCKED_MESSAGE =
+  'La fiesta ya ha terminado: el % de la organización de cada caseta ya no se puede cambiar, para que el cierre no cambie. El resto de datos, sí.';
+
 /** ¿El cambio toca dinero (la parte del organizador o el IBAN)? Entonces, 2FA si la tiene. */
 export function stallChangeTouchesMoney(dto: { organizerBps?: number; iban?: string | null }): boolean {
   return dto.organizerBps !== undefined || dto.iban !== undefined;

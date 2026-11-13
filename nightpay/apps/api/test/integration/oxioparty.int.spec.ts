@@ -2,7 +2,8 @@
 // Con EDITION=party: casetas con FORCE RLS (dueño y encargado, dentro de withTenant), la caseta
 // del personal sellada en el cobro, en su cobro del saldo y en el consumo (pagado con la pulsera
 // NFC) y en el cobro con QR del saldo; con la fiesta terminada, 423 EVENT_ENDED (las consultas
-// siguen). Con EDITION=club (OxioPay) nada se sella. Las reglas de la base: la parte del
+// siguen) y el % de la organización de las casetas queda fijo (409 STALL_BPS_LOCKED). Con
+// EDITION=club (OxioPay) nada se sella. Las reglas de la base: la parte del
 // organizador de 0 a 10000, la caseta siempre del mismo local, una caseta con cobros no se borra
 // y la migración se puede repetir. np_app y FORCE RLS. Ver README.md.
 import { describe, it, expect, beforeAll, afterAll, afterEach, vi } from 'vitest';
@@ -212,6 +213,32 @@ describe('la fiesta terminada (EVENT_ENDED)', () => {
     } finally {
       await sys((tx) => tx.venue.update({ where: { id: V }, data: { eventStartsAt: null, eventEndsAt: null } }));
     }
+  });
+
+  it('con el fin pasado, el % de la organización de una caseta queda fijo (409 STALL_BPS_LOCKED); el resto se cambia', async () => {
+    vi.stubEnv('EDITION', 'party');
+    await sys((tx) =>
+      tx.venue.update({ where: { id: V }, data: { eventStartsAt: new Date(Date.now() - 86_400_000), eventEndsAt: new Date(Date.now() - 60_000) } }),
+    );
+    try {
+      await expect(inVenue(V, () => stalls.update(ownerJwt(), stallId, { organizerBps: 3000 }))).rejects.toMatchObject({
+        status: 409,
+        response: expect.objectContaining({ code: 'STALL_BPS_LOCKED' }),
+      });
+      await expect(inVenue(V, () => stalls.update(ownerJwt(), stallId, { name: 'Peña El Trago', organizerBps: 10_000 }))).rejects.toMatchObject({ status: 409 });
+      const renamed = await inVenue(V, () => stalls.update(ownerJwt(), stallId, { name: 'Peña El Trago Nuevo', managerName: 'Lola M.', iban: null }));
+      expect(renamed).toMatchObject({ name: 'Peña El Trago Nuevo', managerName: 'Lola M.', iban: null, organizerBps: 2500 });
+      const row = await sys((tx) => tx.stall.findUniqueOrThrow({ where: { id: stallId }, select: { organizerBps: true } }));
+      expect(row.organizerBps).toBe(2500);
+    } finally {
+      await sys((tx) => tx.venue.update({ where: { id: V }, data: { eventStartsAt: null, eventEndsAt: null } }));
+    }
+    // Sin fecha de fin (o con la fiesta en marcha), se vuelve a poder cambiar.
+    await expect(inVenue(V, () => stalls.update(ownerJwt(), stallId, { organizerBps: 3000 }))).resolves.toMatchObject({ organizerBps: 3000 });
+    await expect(inVenue(V, () => stalls.update(ownerJwt(), stallId, { name: 'Peña El Trago', iban: IBAN, organizerBps: 2500 }))).resolves.toMatchObject({
+      name: 'Peña El Trago',
+      organizerBps: 2500,
+    });
   });
 
   it('la base no deja un fin antes del inicio', async () => {
