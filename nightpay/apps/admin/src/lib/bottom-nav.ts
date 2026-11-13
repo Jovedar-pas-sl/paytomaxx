@@ -41,9 +41,12 @@ export function inboxHiddenKinds(isOwner: boolean): ReadonlySet<string> {
   return isOwner ? APPROVAL_INCIDENT_KINDS : NONE;
 }
 
-/** Globo de una sección y lo que lee el lector de pantalla (null = sin globo). Solo «Hoy» lleva. */
+/** La sección que lleva Avisos (y su globo): Hoy; en OxioParty, En directo. */
+export const AVISOS_SECTIONS: ReadonlySet<SectionKey> = new Set<SectionKey>(['hoy', 'directo']);
+
+/** Globo de una sección y lo que lee el lector de pantalla (null = sin globo). Solo la de Avisos lleva. */
 export function navBadge(key: SectionKey, avisos: number | null): { text: string; spoken: string } | null {
-  if (key !== 'hoy' || avisos === null) return null;
+  if (!AVISOS_SECTIONS.has(key) || avisos === null) return null;
   const text = badgeText(avisos);
   return text ? { text, spoken: `${avisos} ${avisos === 1 ? 'aviso' : 'avisos'}` } : null;
 }

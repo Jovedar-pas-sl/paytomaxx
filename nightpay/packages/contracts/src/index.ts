@@ -40,3 +40,4 @@ export * from './btcpay';
 export * from './profile';
 export * from './edition';
 export * from './party';
+export * from './party-panel';

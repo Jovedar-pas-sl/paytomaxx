@@ -62,3 +62,53 @@ no cambia.
 Código: `apps/api/src/modules/party/` (casetas, ajustes, `stall-seal.ts`,
 `event-window.ts`), `apps/api/src/config/edition.ts` y
 `packages/contracts/src/{edition,party}.ts`.
+
+## El panel del organizador (`apps/api/src/modules/party/party-panel.*`)
+
+Con `EDITION=party` (con `club`, 404). Las noches van de las 08:00 a las 08:00
+de Madrid (como el cierre automático): «la noche del 23» empieza el 23 a las
+08:00. «La fiesta entera» es todo lo de esta instalación (cada fiesta va en la
+suya), también lo cargado desde casa antes de empezar.
+
+- `GET /v1/party/live?scope=night|event&night=AAAA-MM-DD&idleMin=15` (dueño y
+  encargado): cargado (efectivo, tarjeta en taquilla y desde el móvil),
+  vendido, lo que queda en las pulseras (saldos vivos), pulseras activas (con
+  saldo o que ya han pagado), ventas por hora, casetas (vendido, cobros y hora
+  del último), taquillas (por persona o datáfono de recepción: efectivo,
+  tarjeta y el efectivo de su caja) y avisos.
+  - **Vendido** (reglas del mapa del dinero, sin contar dos veces): cobros
+    pagados que no son recargas + consumos del saldo no anulados, con su
+    propina y sin la «Comisión del servicio», menos lo devuelto de esos cobros
+    (sin la comisión devuelta). Las recargas son «cargado», nunca venta.
+  - **Avisos**, solo en la noche en curso y con la fiesta en marcha: el
+    efectivo de una caja por encima de `cashAlertCents` (0 = sin aviso) y las
+    casetas «sin cobros desde hace N min» (las que ya cobraron esa noche,
+    mientras otras siguen cobrando). No hay latido de conexión.
+- `GET /v1/party/cash-desk/me` (todo el personal): el efectivo de la caja de
+  quien lo pide en la noche de ahora (recargas en efectivo con su comisión −
+  saldo devuelto en efectivo) y si pasa del umbral. Para la taquilla del operator.
+- `GET /v1/party/settlement?from=AAAA-MM-DD&to=AAAA-MM-DD` (noches; sin
+  fechas, la fiesta entera), `…/settlement/csv` y `…/settlement/sepa` (dueño y
+  encargado; descargar no mueve dinero, como los demás CSV: sin 2FA). Por
+  caseta: vendido, `organizerBps`, parte del organizador =
+  round(vendido · bps / 10000), a pagar = vendido − parte, y si tiene IBAN. La
+  parte es la de la caseta **ahora** (no se fija en cada cobro). El SEPA
+  (pain.001.001.03, `sepa.ts` → `buildPain001`, reutilizable): el deudor es
+  el local (`settlementIban`, que pone OxioPay; sin él, 409 `NO_DEBTOR_IBAN`)
+  y los acreedores, las casetas con IBAN y algo que pagar («barra propia» y lo
+  vendido sin caseta, fuera; ninguna, 409 `NO_TRANSFERS`). Concepto
+  «OxioParty <fiesta> <caseta>». Cada descarga queda en el registro
+  (`party.settlement.sepa_exported`).
+
+## El panel (`apps/admin`, `NEXT_PUBLIC_EDITION=party`)
+
+Seis secciones con el `?s=` de siempre (`lib/roles.ts` → `PARTY_TABS`,
+`lib/nav-url.ts`): **En directo** (`?s=directo`: el directo, Cobros y Avisos;
+es donde se empieza), **Casetas** (alta, cambios y archivo con % o «barra
+propia» e IBAN, y el personal de cada una), **Pulseras** y **Devoluciones**
+(«Próximamente»: otra rama), **Cierre** (la liquidación por caseta, el fichero
+SEPA y el CSV) y **Ajustes** (La fiesta, Formas de cobro sin bitcoin, Pulseras
+y PIN, Datáfonos, Seguridad). No salen las compañeras ni sus pagos, saldos y
+fichas, informes, reglas, secciones, permisos, Telegram ni las liquidaciones
+de OxioPay. Código en `components/party/` y `lib/party-*.ts`; estilos en
+`styles/panel-party.css` (tokens Grafito). Con `club`, el panel es el de siempre.

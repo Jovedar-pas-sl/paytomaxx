@@ -1,0 +1,758 @@
+/* OxioParty · el panel del organizador (En directo, Casetas, Cierre y La
+   fiesta). Solo clases np-party-*: con OxioPay no se pinta nada de aquí.
+   Los colores de las maquetas, en los tokens de Grafito (papel y tinta en
+   claro, grafito en oscuro); las cifras en Manrope (--np-font-num) y el
+   texto en Instrument Sans; botones de 40 y 36 px (Button md y sm).
+   Solo se anima opacity, y nada con prefers-reduced-motion. */
+
+.np-party {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  min-width: 0;
+}
+
+.np-party-num {
+  font-family: var(--np-font-num);
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+}
+
+/* ─── Marca y cabecera ─────────────────────────────────────────────── */
+
+.np-party-mark {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  font-family: var(--np-font-num);
+  font-size: 1.375rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: var(--np-text);
+}
+
+.np-party-mark::after {
+  content: '';
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  background: var(--np-accent);
+}
+
+.np-party-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem 1.5rem;
+}
+
+.np-party-head-text {
+  min-width: 12rem;
+  flex: 1 1 16rem;
+}
+
+.np-party-title {
+  margin: 0;
+  font-size: var(--gf-t-h2, 1.375rem);
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.np-party-sub {
+  margin: 0.25rem 0 0;
+  font-size: var(--np-fs-14);
+  color: var(--np-text-dim);
+}
+
+.np-party-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
+}
+
+/* Elegir noche: un grupo de botones de 36 px. */
+.np-party-seg {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  padding: 3px;
+  border-radius: var(--np-r-sm);
+  background: var(--np-surface-2);
+}
+
+.np-party-seg button {
+  height: 2.25rem;
+  padding: 0 0.75rem;
+  border: none;
+  border-radius: calc(var(--np-r-sm) - 2px);
+  background: transparent;
+  color: var(--np-text-mute);
+  font: inherit;
+  font-size: var(--np-fs-14);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.np-party-seg button:hover {
+  color: var(--np-text);
+}
+
+.np-party-seg button[aria-pressed='true'] {
+  background: var(--np-chosen);
+  color: var(--np-on-chosen);
+}
+
+.np-party-live {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  height: 2.25rem;
+  padding: 0 0.75rem;
+  border-radius: var(--np-r-pill);
+  background: var(--np-pill-mute-bg);
+  color: var(--np-text-mute);
+  font-size: var(--np-fs-14);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.np-party-live::before {
+  content: '';
+  width: 0.4375rem;
+  height: 0.4375rem;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.np-party-live[data-on='true'] {
+  background: var(--np-pill-success-bg);
+  color: var(--np-success);
+}
+
+.np-party-select {
+  height: 2.25rem;
+  padding: 0 2rem 0 0.75rem;
+  border: 1px solid var(--np-border-hi);
+  border-radius: var(--np-r-sm);
+  background-color: var(--np-surface);
+  color: var(--np-text);
+  font: inherit;
+  font-size: var(--np-fs-14);
+}
+
+/* ─── Cifras de arriba ─────────────────────────────────────────────── */
+
+.np-party-kpis {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(15rem, 100%), 1fr));
+  gap: 0.75rem;
+}
+
+.np-party-kpi {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+  padding: 1rem 1.125rem;
+  border: 1px solid var(--np-border);
+  border-radius: var(--np-r-md);
+  background: var(--np-surface);
+}
+
+.np-party-kpi[data-dark='true'] {
+  border-color: var(--np-chosen);
+  background: var(--np-chosen);
+  color: var(--np-on-chosen);
+}
+
+.np-party-kpi-label,
+.np-party-kpi-hint {
+  margin: 0;
+  font-size: var(--np-fs-14);
+  line-height: 1.4;
+  color: var(--np-text-dim);
+}
+
+.np-party-kpi[data-dark='true'] .np-party-kpi-label,
+.np-party-kpi[data-dark='true'] .np-party-kpi-hint {
+  color: inherit;
+  opacity: 0.82;
+}
+
+.np-party-kpi-value {
+  margin: 0;
+  font-family: var(--np-font-num);
+  font-size: clamp(1.75rem, 1.4rem + 1.2vw, 2rem);
+  line-height: 1.05;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ─── Tarjetas de la pantalla ──────────────────────────────────────── */
+
+.np-party-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  align-items: stretch;
+}
+
+.np-party-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  min-width: 0;
+  padding: 1.125rem 1.25rem;
+  border: 1px solid var(--np-border);
+  border-radius: var(--np-r-md);
+  background: var(--np-surface);
+}
+
+.np-party-card[data-wide='true'] {
+  flex: 999 1 35rem;
+}
+
+.np-party-card[data-side='true'] {
+  flex: 1 1 18.75rem;
+}
+
+.np-party-card-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem 0.75rem;
+}
+
+.np-party-card-title {
+  margin: 0;
+  font-size: var(--np-fs-18);
+  font-weight: 600;
+}
+
+.np-party-card-note {
+  font-size: var(--np-fs-14);
+  color: var(--np-text-dim);
+}
+
+.np-party-empty {
+  margin: 0;
+  padding: 0.75rem 0;
+  font-size: var(--np-fs-14);
+  color: var(--np-text-dim);
+}
+
+/* ─── Ventas por hora ──────────────────────────────────────────────── */
+
+.np-party-chart {
+  overflow-x: auto;
+}
+
+.np-party-bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.5rem;
+  height: 12.5rem;
+  min-width: min-content;
+  border-bottom: 1px solid var(--np-border);
+}
+
+.np-party-bar {
+  flex: 1 0 2.25rem;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 0.375rem;
+}
+
+.np-party-bar-label {
+  font-family: var(--np-font-num);
+  font-size: var(--np-fs-14);
+  font-weight: 700;
+  color: var(--np-text-mute);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.np-party-bar-fill {
+  width: 100%;
+  max-width: 4rem;
+  min-height: 2px;
+  border-radius: 4px 4px 0 0;
+  background: var(--np-text);
+}
+
+.np-party-bar[data-open='true'] .np-party-bar-fill {
+  background: var(--np-text-dim);
+}
+
+.np-party-hours {
+  display: flex;
+  gap: 0.5rem;
+  min-width: min-content;
+  margin-top: 0.375rem;
+}
+
+.np-party-hours span {
+  flex: 1 0 2.25rem;
+  text-align: center;
+  font-size: var(--np-fs-14);
+  color: var(--np-text-dim);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.np-party-hours b {
+  display: block;
+  font-weight: 600;
+  color: var(--np-text-mute);
+}
+
+.np-party-legend {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.875rem;
+  font-size: var(--np-fs-14);
+  color: var(--np-text-dim);
+}
+
+.np-party-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+}
+
+.np-party-legend i {
+  width: 0.625rem;
+  height: 0.625rem;
+  border-radius: 2px;
+  background: var(--np-text);
+}
+
+.np-party-legend i[data-open='true'] {
+  background: var(--np-text-dim);
+}
+
+/* ─── Avisos ───────────────────────────────────────────────────────── */
+
+.np-party-count {
+  min-width: 1.5rem;
+  height: 1.5rem;
+  padding: 0 0.4375rem;
+  border-radius: 0.75rem;
+  background: var(--np-chosen);
+  color: var(--np-on-chosen);
+  font-family: var(--np-font-num);
+  font-size: var(--np-fs-14);
+  font-weight: 700;
+  line-height: 1.5rem;
+  text-align: center;
+}
+
+.np-party-alert {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.75rem 0.875rem;
+  border: 1px solid var(--np-danger);
+  border-radius: var(--np-r-sm);
+  background: var(--np-pill-danger-bg);
+}
+
+.np-party-alert[data-tone='warning'] {
+  border-color: var(--np-warning);
+  background: var(--np-pill-warning-bg);
+}
+
+.np-party-alert-body {
+  display: flex;
+  gap: 0.625rem;
+}
+
+.np-party-alert-body svg {
+  flex: none;
+  margin-top: 1px;
+  color: var(--np-danger);
+}
+
+.np-party-alert[data-tone='warning'] .np-party-alert-body svg {
+  color: var(--np-warning);
+}
+
+.np-party-alert-title {
+  margin: 0;
+  font-size: var(--np-fs-14);
+  font-weight: 600;
+  color: var(--np-text);
+}
+
+.np-party-alert-text {
+  margin: 0.125rem 0 0;
+  font-size: var(--np-fs-14);
+  line-height: 1.4;
+  color: var(--np-text-mute);
+}
+
+.np-party-alert-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  padding-left: 1.875rem;
+}
+
+/* Un enlace con forma de botón de 36 px (Llamar). */
+.np-party-linkbtn {
+  display: inline-flex;
+  align-items: center;
+  height: 2.25rem;
+  padding: 0 0.875rem;
+  border: 1px solid var(--np-border-hi);
+  border-radius: var(--np-r-sm);
+  background: var(--np-surface);
+  color: var(--np-text);
+  font-size: var(--np-fs-14);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.np-party-linkbtn:hover {
+  border-color: var(--np-text);
+}
+
+/* ─── Casetas en directo ───────────────────────────────────────────── */
+
+.np-party-stalls {
+  overflow-x: auto;
+}
+
+.np-party-stall {
+  display: grid;
+  grid-template-columns: 1.25rem minmax(10rem, 12rem) minmax(6rem, 1fr) 6.5rem 6.5rem 9rem;
+  align-items: center;
+  gap: 0.875rem;
+  min-width: 46rem;
+  padding: 0.75rem 0;
+  border-top: 1px solid var(--np-border);
+}
+
+.np-party-stall:first-child {
+  border-top: none;
+}
+
+.np-party-rank {
+  font-family: var(--np-font-num);
+  font-size: var(--np-fs-14);
+  font-weight: 800;
+  color: var(--np-text-dim);
+  text-align: right;
+}
+
+.np-party-stall-name {
+  margin: 0;
+  font-weight: 600;
+}
+
+.np-party-stall-meta {
+  margin: 0.125rem 0 0;
+  font-size: var(--np-fs-14);
+  color: var(--np-text-dim);
+}
+
+.np-party-share {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+}
+
+.np-party-track {
+  flex: 1 1 auto;
+  height: 0.5rem;
+  border-radius: 4px;
+  background: var(--np-surface-3);
+  overflow: hidden;
+}
+
+.np-party-track > span {
+  display: block;
+  height: 100%;
+  border-radius: 4px;
+  background: var(--np-text);
+}
+
+.np-party-share small {
+  width: 2.5rem;
+  font-size: var(--np-fs-14);
+  font-weight: 600;
+  color: var(--np-text-dim);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.np-party-amount {
+  margin: 0;
+  text-align: right;
+  font-family: var(--np-font-num);
+  font-size: var(--np-fs-16);
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.np-party-chip {
+  justify-self: start;
+  display: inline-block;
+  padding: 0.25rem 0.5rem;
+  border-radius: var(--np-r-xs);
+  background: var(--np-surface-2);
+  font-size: var(--np-fs-14);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+/* ─── De dónde entra el dinero ─────────────────────────────────────── */
+
+.np-party-desk {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem 0;
+  border-top: 1px solid var(--np-border);
+}
+
+.np-party-desk:first-of-type {
+  border-top: none;
+}
+
+.np-party-desk[data-over='true'] .np-party-desk-name::after {
+  content: ' · mucho efectivo';
+  color: var(--np-warning);
+  font-weight: 600;
+}
+
+.np-party-desk-name {
+  margin: 0;
+  font-weight: 600;
+}
+
+.np-party-desk-detail {
+  margin: 0.125rem 0 0;
+  font-size: var(--np-fs-14);
+  color: var(--np-text-dim);
+}
+
+#np-party-desks:focus {
+  outline: 2px solid var(--np-focus);
+  outline-offset: 2px;
+}
+
+/* ─── Casetas (alta y edición) ─────────────────────────────────────── */
+
+.np-party-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--np-fs-14);
+}
+
+.np-party-table th {
+  padding: 0.75rem;
+  text-align: left;
+  font-size: var(--np-fs-14);
+  font-weight: 600;
+  color: var(--np-text-dim);
+  white-space: nowrap;
+}
+
+.np-party-table td,
+.np-party-table tbody th {
+  padding: 0.75rem;
+  border-top: 1px solid var(--np-border);
+  vertical-align: middle;
+}
+
+.np-party-table tbody th {
+  font-weight: 400;
+}
+
+.np-party-table [data-num='true'] {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.np-party-table tfoot th,
+.np-party-table tfoot td {
+  padding: 0.875rem 0.75rem;
+  border-top: 2px solid var(--np-text);
+  background: var(--np-surface-2);
+  font-weight: 600;
+}
+
+.np-party-strong {
+  display: block;
+  font-size: var(--np-fs-16);
+  font-weight: 600;
+}
+
+.np-party-dim {
+  display: block;
+  margin-top: 0.125rem;
+  font-size: var(--np-fs-14);
+  color: var(--np-text-dim);
+}
+
+.np-party-scroll {
+  overflow-x: auto;
+}
+
+.np-party-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+
+.np-party-form {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(14rem, 100%), 1fr));
+  gap: 0.875rem;
+}
+
+.np-party-form-wide {
+  grid-column: 1 / -1;
+}
+
+.np-party-inline {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
+}
+
+.np-party-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-height: 2.5rem;
+  font-size: var(--np-fs-14);
+}
+
+.np-party-check input {
+  width: 1.125rem;
+  height: 1.125rem;
+}
+
+.np-party-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  font-size: var(--np-fs-14);
+  font-weight: 600;
+  white-space: nowrap;
+  color: var(--np-text-dim);
+}
+
+.np-party-status::before {
+  content: '';
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  background: var(--np-border-hi);
+}
+
+.np-party-status[data-tone='success'] {
+  color: var(--np-success);
+}
+
+.np-party-status[data-tone='success']::before {
+  background: var(--np-success);
+}
+
+.np-party-status[data-tone='danger'] {
+  color: var(--np-danger-text);
+}
+
+.np-party-status[data-tone='danger']::before {
+  background: var(--np-danger);
+}
+
+/* ─── Cierre ───────────────────────────────────────────────────────── */
+
+.np-party-big {
+  font-family: var(--np-font-num);
+  font-size: var(--np-fs-18);
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+.np-party-split {
+  display: flex;
+  height: 1rem;
+  border-radius: 0.5rem;
+  overflow: hidden;
+  background: var(--np-surface-3);
+}
+
+.np-party-split > span {
+  display: block;
+  height: 100%;
+  background: var(--np-text);
+}
+
+.np-party-legend-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.625rem 1.5rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--np-fs-14);
+}
+
+.np-party-legend-list li {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.np-party-legend-list i {
+  width: 0.75rem;
+  height: 0.75rem;
+  border-radius: 3px;
+  background: var(--np-text);
+}
+
+.np-party-legend-list i[data-kind='left'] {
+  background: var(--np-surface-3);
+  border: 1px solid var(--np-border-hi);
+}
+
+/* Lo que es «Próximamente» (pulseras y devoluciones, en otra rama). */
+.np-party-soon {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 2rem 1.5rem;
+  border: 1px dashed var(--np-border-hi);
+  border-radius: var(--np-r-md);
+  background: var(--np-surface);
+}
+
+.np-party-soon p {
+  margin: 0;
+  color: var(--np-text-mute);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .np-party-kpi-value,
+  .np-party-amount {
+    transition: opacity var(--np-d-fast);
+  }
+
+  .np-party[aria-busy='true'] .np-party-kpi-value {
+    opacity: 0.6;
+  }
+}
