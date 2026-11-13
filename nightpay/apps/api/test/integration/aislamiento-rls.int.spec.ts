@@ -97,9 +97,9 @@ async function seed(tag: string): Promise<{ tenantId: string; rows: Rows }> {
       const stall = await tx.stall.create({
         data: { tenantId, name: `Caseta ${tag}`, managerName: 'Responsable', organizerBps: 2500, iban: 'ES9121000418450200051332' },
       });
-      // OxioParty: «Lo que sobra», una devolución pedida por transferencia (con su IBAN).
+      // OxioParty: «Lo que sobra», una devolución pedida por transferencia (con su IBAN y su titular).
       const refund = await tx.partyRefundRequest.create({
-        data: { tenantId, walletId: wallet.id, amountCents: 300, method: 'TRANSFER', iban: 'ES9121000418450200051332' },
+        data: { tenantId, walletId: wallet.id, amountCents: 300, method: 'TRANSFER', iban: 'ES9121000418450200051332', holderName: 'Ana Pérez' },
       });
       return {
         tenantId,
