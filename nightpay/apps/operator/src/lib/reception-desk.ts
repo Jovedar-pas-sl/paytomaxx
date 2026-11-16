@@ -527,10 +527,21 @@ export interface ExitPlan {
   keepDetail: string;
 }
 
-/** Tras devolver: el NFC vuelve al stock, o lo que le queda (entró con tarjeta) y quién lo devuelve. */
-export function refundDoneLine(remainingCents: number): string {
+/**
+ * Tras devolver: el NFC vuelve al stock, o lo que le queda y quién lo devuelve:
+ * lo de tarjeta, el dueño «A la tarjeta»; lo que entró con bitcoin
+ * (`bitcoinCents`), aún no se devuelve desde la app: con el encargado.
+ */
+export function refundDoneLine(remainingCents: number, bitcoinCents = 0): string {
   if (remainingCents <= 0) return 'El NFC vuelve al stock: guárdalo.';
-  return `Le quedan ${formatEur(remainingCents, { compact: true })} (con tarjeta): los devuelve el dueño «A la tarjeta». Se lleva su NFC.`;
+  const eur = (cents: number) => formatEur(cents, { compact: true });
+  const btc = Math.max(0, Math.min(remainingCents, bitcoinCents));
+  const card = remainingCents - btc;
+  if (btc === 0) return `Le quedan ${eur(remainingCents)} (con tarjeta): los devuelve el dueño «A la tarjeta». Se lleva su NFC.`;
+  if (card === 0) {
+    return `Le quedan ${eur(remainingCents)} (con bitcoin): no se devuelven en efectivo ni a la tarjeta. Habla con el encargado: la devolución de bitcoin aún no está en la app. Se lleva su NFC.`;
+  }
+  return `Le quedan ${eur(remainingCents)}: ${eur(card)} con tarjeta (los devuelve el dueño «A la tarjeta») y ${eur(btc)} con bitcoin (habla con el encargado: la devolución de bitcoin aún no está en la app). Se lleva su NFC.`;
 }
 
 // ─── El código tecleado ───────────────────────────────────────────────────

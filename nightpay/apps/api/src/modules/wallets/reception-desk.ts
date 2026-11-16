@@ -7,7 +7,7 @@ import {
 } from '@nightpay/contracts';
 import type { TransactionalClient } from '../../common/prisma/prisma.service';
 import { ISSUED_CARD_STATUSES, cardInGroup, cardUnusableText, isIssuedCard } from './wallet-card-ops';
-import { cashPayoutCapCents, cashPayoutNote, walletCash, type WalletCash } from './wallet-cash-limits';
+import { bitcoinPartCents, cashPayoutCapCents, cashPayoutNote, walletCash, type WalletCash } from './wallet-cash-limits';
 import { formatWalletCode, normalizeWalletCode, sameWalletGroup } from './wallet-rules';
 
 /**
@@ -83,6 +83,7 @@ export function deskSaldoView(
     closeRequested: wallet.closeRequestedAt !== null,
     cashOutCents: cashPayoutCapCents(wallet.balanceCents, cash),
     cashOutNote: cashPayoutNote(wallet.balanceCents, cash),
+    ...(bitcoinPartCents(wallet.balanceCents, cash) > 0 ? { bitcoinCents: bitcoinPartCents(wallet.balanceCents, cash) } : {}),
     fichaNumber,
     ...(printedNumber ? { printedNumber } : {}),
     hasPasskey,

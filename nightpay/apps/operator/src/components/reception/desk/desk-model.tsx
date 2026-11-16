@@ -73,7 +73,8 @@ export type Step =
   | { kind: 'managerPending'; exit: Exit; message: string }
   | { kind: 'exitNew'; view: ReceptionDeskNew; nfc: { card: string; uid: string | null } }
   | { kind: 'exitNumber'; view: NumberSaldo }
-  | { kind: 'refunded'; code: string; refundedCents: number; remainingCents: number }
+  /** `bitcoinCents`: de lo que le queda, lo que entró con bitcoin (no sale ni en efectivo ni a la tarjeta). */
+  | { kind: 'refunded'; code: string; refundedCents: number; remainingCents: number; bitcoinCents?: number }
   /** Efectivo sin respuesta: no se sabe si se cargó. Se comprueba con la misma clave antes de seguir. */
   | { kind: 'cashUnsure'; read: Read; amountCents: number; checking: boolean; leaveArmed?: boolean; how?: FichaCheck }
   /** B4: «Me he equivocado»: el motivo y, después, la misma ficha. */

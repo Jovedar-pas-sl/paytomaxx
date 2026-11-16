@@ -262,6 +262,12 @@ export interface ReceptionDeskSaldo {
   cashOutCents: number;
   /** Por qué no se devuelve todo en efectivo (null: se devuelve todo, o no tiene nada). */
   cashOutNote: string | null;
+  /**
+   * De ese saldo, lo que entró con bitcoin: no sale en efectivo ni a la tarjeta
+   * (la devolución de bitcoin aún no está en la app). Sin el campo (API de
+   * antes) o 0: nada.
+   */
+  bitcoinCents?: number;
   /** El número de su NFC (null: no tiene). */
   fichaNumber: number | null;
   /** Tiene Face ID: a la salida lo confirma en su móvil (el PIN no basta). */

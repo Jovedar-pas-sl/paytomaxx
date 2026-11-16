@@ -563,7 +563,7 @@ export function ReceptionDesk({ user, active, footer, onGiveFicha, onScanHome, h
     if (out.kind === 'totp') return go({ kind: 'exitTotp', exit, plan: o.plan ?? null, passkey: o.passkey === true, pin: o.pin, message: out.message });
     if (out.kind === 'passkey') return go({ kind: 'exitPasskey', exit, plan: await fetchPayoutPlan(view.walletId) });
     if (out.kind === 'manager') return go({ kind: 'managerPending', exit, message: out.message });
-    go({ kind: 'refunded', code: view.code, refundedCents: out.refundedCents, remainingCents: out.remainingCents });
+    go({ kind: 'refunded', code: view.code, refundedCents: out.refundedCents, remainingCents: out.remainingCents, bitcoinCents: view.bitcoinCents ?? 0 });
   }
 
   function keep(view: { balanceCents: number }, label: string): void {
@@ -638,7 +638,7 @@ export function ReceptionDesk({ user, active, footer, onGiveFicha, onScanHome, h
         amountCents={step.refundedCents}
         reference={step.code}
         money={{ icon: 'cash', label: 'Efectivo:', amount: eur(step.refundedCents), tail: 'de la caja' }}
-        meta={refundDoneLine(step.remainingCents)}
+        meta={refundDoneLine(step.remainingCents, step.bitcoinCents ?? 0)}
         primary={{ label: 'Siguiente cliente', onClick: () => restart('salida') }}
       />
     );

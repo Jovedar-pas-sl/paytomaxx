@@ -1,10 +1,12 @@
 import { describe, it, expect, vi } from 'vitest';
 import {
+  bitcoinPartCents,
   cardRefundCapCents,
   cashPayoutCapCents,
   cashPayoutNote,
   cashPayoutRefusal,
   cashTopUpOverLimit,
+  payoutAmounts,
   unspentCashCents,
   walletCash,
   type WalletCash,
@@ -61,6 +63,36 @@ describe('devolver en efectivo y a la tarjeta', () => {
   });
 });
 
+describe('saldo cargado con bitcoin: ni a la tarjeta ni en efectivo («habla con el encargado»)', () => {
+  it('lo que entró con bitcoin no sale «A la tarjeta»: el bitcoin no pasó por el banco', () => {
+    // 50 € con tarjeta + 30 € con bitcoin, nada gastado.
+    const c = cash({ bitcoinInCents: 3_000 });
+    expect(bitcoinPartCents(8_000, c)).toBe(3_000);
+    expect(cardRefundCapCents(8_000, c)).toBe(5_000);
+    expect(payoutAmounts(8_000, c)).toEqual({ cashOutCents: 0, cardRefundCents: 5_000, cashLaterCents: 0, bitcoinCents: 3_000 });
+    // Lo gastado cuenta antes como dinero de la tarjeta: con 20 € gastados quedan 30 € de tarjeta y los 30 € de bitcoin.
+    expect(cardRefundCapCents(6_000, c)).toBe(3_000);
+    // Gastado casi todo: lo que queda es bitcoin, no tarjeta.
+    expect(cardRefundCapCents(2_000, c)).toBe(0);
+    expect(bitcoinPartCents(2_000, c)).toBe(2_000);
+  });
+
+  it('los textos dicen «entró con bitcoin» y qué hacer; nunca «entró con tarjeta» por el bitcoin', () => {
+    const solo = cash({ bitcoinInCents: 3_000 });
+    const refusal = cashPayoutRefusal(3_000, solo);
+    expect(refusal).toBe('Este saldo entró con bitcoin: no se devuelve en efectivo ni a la tarjeta. Para devolverlo, habla con el encargado: la devolución de bitcoin aún no está en la app.');
+    expect(cashPayoutNote(3_000, solo)).toBe(refusal);
+    const mixto = cashPayoutRefusal(8_000, cash({ bitcoinInCents: 3_000 }));
+    expect(mixto).toContain('50,00 € entraron con tarjeta (los devuelve el dueño «A la tarjeta»)');
+    expect(mixto).toContain('30,00 € con bitcoin');
+    expect(mixto).toContain('habla con el encargado');
+    // 20 € en efectivo y 15 € con bitcoin: los 15 €, con el encargado.
+    expect(cashPayoutNote(3_500, cash({ inCents: 2_000, bitcoinInCents: 1_500 }))).toBe(
+      'Los otros 15,00 € entraron con bitcoin: no se devuelven en efectivo ni a la tarjeta. Para devolverlos, habla con el encargado: la devolución de bitcoin aún no está en la app.',
+    );
+  });
+});
+
 describe('recargar en efectivo: el total de 24 h no llega a 1.000 €', () => {
   it('cabe, no cabe y cuánto cabe aún', () => {
     expect(cashTopUpOverLimit(99_999, cash())).toBeNull();
@@ -83,6 +115,8 @@ describe('la lectura: el saldo y los sumados a él, en una consulta', () => {
       inWindowPaidCents: 5_000,
       outCents: 3_000,
       outWindowCents: 0,
+      // Sin la columna, nada entró con bitcoin.
+      bitcoinInCents: 0,
     });
     const [strings, ...values] = $queryRaw.mock.calls[0]!;
     const sql = (strings as TemplateStringsArray).join('?');
