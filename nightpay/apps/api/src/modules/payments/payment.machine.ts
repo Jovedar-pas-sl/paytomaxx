@@ -21,7 +21,18 @@ import type { PaymentStatus } from '@nightpay/contracts';
 export type PaymentEvent =
   | { type: 'QR_VIEWED' }
   | { type: 'AUTHORIZING' }
-  | { type: 'AUTHORIZED'; providerTxId: string; provider: 'WIPAY' | 'PEANPE' | 'PAYTEF' | 'REDSYS' | 'BTCPAY' }
+  | {
+      type: 'AUTHORIZED';
+      providerTxId: string;
+      provider: 'WIPAY' | 'PEANPE' | 'PAYTEF' | 'REDSYS' | 'BTCPAY';
+      /**
+       * «Dar por bueno» (paid-after-cancel.ts): el encargado o el dueño, con su
+       * 2FA, acepta un pago que el banco cobró DESPUÉS de cancelar el cobro.
+       * Solo con esta marca sale un cobro de CANCELED; los avisos y la
+       * conciliación nunca la ponen (un pago tardío queda en Incidencias).
+       */
+      acceptedAfterCancel?: true;
+    }
   /**
    * POS confirmation event — camarero/manager confirma cobrado tras procesar
    * la tarjeta en el datáfono del bar. No hay PSP de NightPay involucrado,
@@ -106,6 +117,8 @@ export const paymentMachine = setup({
   guards: {
     // La factura de bitcoin es lo único que se abre y se cierra sin banco de por medio.
     isBitcoinPayment: ({ context }) => context.provider === 'BTCPAY',
+    // Un pago cobrado después de cancelar solo se da por bueno a mano (con la marca).
+    isAcceptedAfterCancel: ({ event }) => event.type === 'AUTHORIZED' && event.acceptedAfterCancel === true,
     refundIsTotal: ({ context, event }) => {
       if (event.type !== 'REFUND_PARTIAL') return false;
       return context.availableAmountCents - event.amountCents <= 0;
@@ -148,8 +161,11 @@ export const paymentMachine = setup({
         FAILED: { target: 'FAILED', actions: 'persistFailure' },
         TIMEOUT: 'ORPHAN',
         PAID_WITH_SALDO: { target: 'CANCELED', actions: 'persistPaidWithSaldo' },
-        // Bitcoin: el personal cancela el cobro y el cobro vuelve a estar abierto si la factura se cierra.
-        CANCELED: { target: 'CANCELED', guard: 'isBitcoinPayment', actions: 'persistCancel' },
+        // El personal cancela el cobro también con el cliente en su banco (o pagando con
+        // bitcoin: el servicio no deja si el bitcoin ya está en la red). Si el banco lo
+        // cobra después, el cobro sigue cancelado y queda en Incidencias (paid-after-cancel.ts).
+        CANCELED: { target: 'CANCELED', actions: 'persistCancel' },
+        // Bitcoin: el cobro vuelve a estar abierto si la factura se cierra.
         INVOICE_CLOSED: { target: 'AWAITING_CAPTURE', guard: 'isBitcoinPayment', actions: 'persistInvoiceClosed' },
       },
     },
@@ -188,7 +204,13 @@ export const paymentMachine = setup({
     },
     EXPIRED: { type: 'final' },
     REFUNDED: { type: 'final' },
-    CANCELED: { type: 'final' },
+    // Ya no se cobra: un pago del banco que llega después NO lo pasa a pagado
+    // (queda en Incidencias). Solo «Dar por bueno», a mano y con la marca.
+    CANCELED: {
+      on: {
+        AUTHORIZED: { target: 'AUTHORIZED', guard: 'isAcceptedAfterCancel', actions: 'persistAuth' },
+      },
+    },
   },
 });
 

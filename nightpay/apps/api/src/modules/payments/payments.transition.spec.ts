@@ -379,14 +379,37 @@ describe('cancel — quién puede cancelar', () => {
     expect(updates('SET status')[0]!.values[0]).toBe('CANCELED');
   });
 
-  it('el camarero no cancela los de otro (ni la chica los de otra)', async () => {
-    const { service, updates } = makeTransitionService({ locked, payment: { ...created, createdByUserId: 'op-1' } });
-    await expect(service.cancel(PAYMENT_ID, { userId: 'waiter-1', role: 'WAITER', tenantId: 'tenant-1' })).rejects.toThrow(
-      /que has creado tú/,
-    );
-    await expect(service.cancel(PAYMENT_ID, { userId: 'op-2', role: 'OPERATOR', tenantId: 'tenant-1' })).rejects.toThrow(
-      /otra operadora/,
-    );
+  it('el camarero cancela el de otra persona (antes 403) y la chica el de otra chica', async () => {
+    for (const actor of [
+      { userId: 'waiter-1', role: 'WAITER' },
+      { userId: 'op-2', role: 'OPERATOR' },
+    ]) {
+      const { service, updates, executed } = makeTransitionService({ locked, payment: { ...created, createdByUserId: 'op-1' } });
+      await expect(service.cancel(PAYMENT_ID, { ...actor, tenantId: 'tenant-1' })).resolves.toEqual({ status: 'CANCELED' });
+      expect(updates('SET status')[0]!.values[0]).toBe('CANCELED');
+      // Queda quién lo canceló.
+      const ev = executed.find((e) => e.sql.includes('INSERT INTO payment_events'))!;
+      expect(JSON.parse(ev.values[3] as string)).toMatchObject({ type: 'CANCELED', reason: 'user-canceled', byUserId: actor.userId });
+    }
+  });
+
+  it('con el cliente en su banco (AUTHORIZING, Redsys) también se cancela', async () => {
+    const { service, updates } = makeTransitionService({
+      locked: { ...baseRow, status: 'AUTHORIZING' as const, provider: 'REDSYS' },
+      payment: { ...created, status: 'AUTHORIZING', createdByUserId: 'op-1' },
+    });
+    await expect(service.cancel(PAYMENT_ID, { userId: 'waiter-1', role: 'WAITER', tenantId: 'tenant-1' })).resolves.toEqual({
+      status: 'CANCELED',
+    });
+    expect(updates('SET status')[0]!.values[0]).toBe('CANCELED');
+  });
+
+  it('pagado: 409, no se cancela', async () => {
+    const { service, updates } = makeTransitionService({
+      locked: { ...baseRow, status: 'AUTHORIZED' as const },
+      payment: { ...created, status: 'AUTHORIZED' },
+    });
+    await expect(service.cancel(PAYMENT_ID, { userId: 'waiter-1', role: 'WAITER', tenantId: 'tenant-1' })).rejects.toThrow(/cannot be canceled/);
     expect(updates('SET status')).toHaveLength(0);
   });
 

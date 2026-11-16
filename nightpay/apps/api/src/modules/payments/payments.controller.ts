@@ -100,9 +100,8 @@ export class PaymentsController {
   }
 
   /**
-   * Cancela un pago en estado CREATED|AWAITING_CAPTURE.
-   * - OPERATOR y WAITER solo cancelan los suyos (createdByUserId === userId).
-   * - OWNER/MANAGER cancelan cualquiera del venue.
+   * Cancela un cobro sin pagar del local (también con el cliente en su banco).
+   * Cualquiera del personal del local, sea suyo o de otra persona.
    */
   @Post(':id/cancel')
   @HttpCode(200)

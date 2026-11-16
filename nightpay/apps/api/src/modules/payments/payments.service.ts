@@ -2043,10 +2043,15 @@ export class PaymentsService implements OnApplicationBootstrap {
   }
 
   /**
-   * Cancela un pago en estado CREATED|AWAITING_CAPTURE.
-   * - OPERATOR solo puede cancelar payments creados por ella; WAITER, los suyos.
-   * - OWNER/MANAGER pueden cancelar cualquier payment del venue.
-   * Returns 409 si el FSM no permite (estado terminal).
+   * «Cancelar cobro»: cualquier cobro SIN PAGAR del local (CREATED,
+   * AWAITING_CAPTURE o AUTHORIZING: también con el cliente en su banco o con
+   * el datáfono), lo cancele quien lo cancele del personal del local (chica,
+   * camarero, recepción, encargado o dueño). Antes la chica y el camarero solo
+   * cancelaban los suyos. El cobro de otro local no se encuentra (404).
+   * Queda quién lo canceló (en el evento) y con qué móvil.
+   * Si el banco lo cobra después, sigue CANCELED y queda en Incidencias
+   * (paid-after-cancel.ts). Con bitcoin ya en la red, 409 BITCOIN_CONFIRMING.
+   * Pagado o cerrado: 409.
    */
   async cancel(
     paymentId: string,
@@ -2054,14 +2059,6 @@ export class PaymentsService implements OnApplicationBootstrap {
   ): Promise<{ status: PaymentMachineState }> {
     const payment = await this.prisma.payment.findUnique({ where: { id: paymentId } });
     if (!payment) throw new NotFoundException('Payment not found');
-
-    if (actor.role === 'OPERATOR' && payment.createdByUserId !== actor.userId) {
-      throw new ForbiddenException('No puedes cancelar cobros de otra operadora');
-    }
-    // El camarero solo cancela los cobros que ha creado él (los de la chica no).
-    if (actor.role === 'WAITER' && payment.createdByUserId !== actor.userId) {
-      throw new ForbiddenException('Solo puedes cancelar los cobros que has creado tú');
-    }
 
     try {
       // H2: pasamos expectedTenantId — transition() valida que payment.tenantId
