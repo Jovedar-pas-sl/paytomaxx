@@ -39,6 +39,8 @@ export const FORCED_RLS_TABLES = [
   // «Pagar con bitcoin» (20261114100100): la conexión del local a su BTCPay (con la clave cifrada) y sus facturas.
   'btcpay_stores',
   'btcpay_invoices',
+  // Bitcoin sin cobro devuelto en efectivo (20261117100100): dinero que sale de la caja.
+  'btc_cash_returns',
   // La foto de perfil del personal (20261113100000).
   'user_photos',
 ] as const;
@@ -59,6 +61,7 @@ export const FORCED_RLS_MODELS: ReadonlySet<string> = new Set([
   'ServiceItemImage',
   'BtcpayStore',
   'BtcpayInvoice',
+  'BtcCashReturn',
   'UserPhoto',
 ]);
 

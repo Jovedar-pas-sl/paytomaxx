@@ -9,6 +9,7 @@ import { madridDay } from '../../common/time/madrid';
 import type { BackupVerdict } from '../db-backups/backup-check';
 import { SALDOS_TAB_PATH } from '../wallets/saldo-texts';
 import { formatWalletCode } from '../wallets/wallet-rules';
+import { bitcoinAnomalyIncident } from './bitcoin-incidents';
 
 export type IncidentKind =
   | 'stuck_payment'
@@ -36,7 +37,8 @@ export type IncidentKind =
   | 'reception_payout_cap'
   | 'wallet_topup_unassigned'
   | 'wallet_card_lost'
-  | 'sensitive_action';
+  | 'sensitive_action'
+  | 'bitcoin_overpaid';
 
 /** Las que desaparecen solas al resolverse (no se marcan como revisadas). */
 export const SELF_RESOLVING: ReadonlySet<IncidentKind> = new Set<IncidentKind>([
@@ -73,6 +75,7 @@ export const ACKABLE_KINDS = [
   'reception_payout_cap',
   'wallet_card_lost',
   'sensitive_action',
+  'bitcoin_overpaid',
 ] as const satisfies readonly IncidentKind[];
 
 /**
@@ -94,6 +97,7 @@ const MONEY_ACK_KINDS: ReadonlySet<IncidentKind> = new Set<IncidentKind>([
   'cash_split_suspected',
   'reception_payout_cap',
   'bank_mismatch',
+  'bitcoin_overpaid',
 ]);
 
 /** Letras mínimas de la nota de un aviso de dinero (como la del cierre con cobros sin terminar). */
@@ -126,6 +130,11 @@ export interface Incident {
    * el local no quiere nombres (Ajustes → Avisos). Sin él, el detalle no lleva nombres.
    */
   alertDetail?: string;
+  /**
+   * Bitcoin sin cobro que se puede devolver en efectivo (si el local lo tiene
+   * encendido): la factura de BTCPay y lo máximo, lo que llegó en € de la factura.
+   */
+  cashReturn?: { invoiceId: string; maxCents: number };
 }
 
 /** Filas crudas que lee el servicio, una por tipo. */
@@ -634,6 +643,8 @@ export function backupIncidents(verdict: BackupVerdict, now: Date, production: b
  */
 export interface PaymentAnomalyRow extends EventRow {
   eventType: string;
+  /** El estado del cobro ahora (bitcoin: si ya estaba cerrado cuando llegó). Sin el campo, no se sabe. */
+  paymentStatus?: string;
 }
 
 /** Quién avisa y dónde comprobarlo, por pasarela. */
@@ -668,6 +679,10 @@ export function paymentAnomalyIncident(r: PaymentAnomalyRow): Incident {
   const order = str(r.payload, 'providerTxId');
   const orderText = order ? ` (pedido ${order})` : '';
   const base = { occurredAt: r.occurredAt.toISOString(), paymentId: r.paymentId };
+  if (str(r.payload, 'provider') === 'BTCPAY') {
+    const btc = bitcoinAnomalyIncident(r, base);
+    if (btc) return btc;
+  }
 
   if (r.eventType === 'payment.amount_mismatch') {
     const charged = num(r.payload, 'chargedCents');

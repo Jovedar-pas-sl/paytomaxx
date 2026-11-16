@@ -338,7 +338,8 @@ describe('avisos de cobro aprobado que no se dieron por buenos', () => {
     );
     expect(partial).toMatchObject({ kind: 'approval_unverified', ackable: false, title: 'Pago de bitcoin a medias' });
     expect(partial.detail).toContain('NO se ha dado por pagado');
-    expect(partial.detail).toContain('tu BTCPay y la cartera del local');
+    expect(partial.detail).toContain('Míralo en tu BTCPay');
+    expect(partial.detail).not.toMatch(/banco/);
     const late = paymentAnomalyIncident(
       row('payment.approval_unverified', { provider: 'BTCPAY', providerTxId: 'INV1', reason: 'btcpay-paid_late', source: 'btcpay' }),
     );
@@ -358,16 +359,47 @@ describe('avisos de cobro aprobado que no se dieron por buenos', () => {
     const i = paymentAnomalyIncident(row('payment.approval_unbooked', { provider: 'BTCPAY', providerTxId: 'INV1', fromStatus: 'CANCELED' }));
     expect(i).toMatchObject({ kind: 'approval_unbooked', ackable: true });
     expect(i.detail).toContain('cancelado');
-    expect(i.detail).toContain('tu BTCPay y la cartera del local');
+    expect(i.detail).toContain('cartera del local');
+    expect(`${i.title} ${i.detail}`).not.toMatch(/banco/i);
   });
 
   it('bitcoin llegado a un cobro que ya se pagó con tarjeta: «ya pagado de otra forma», no «cerrado»', () => {
     for (const fromStatus of ['AUTHORIZED', 'PARTIALLY_REFUNDED', 'REFUNDED']) {
       const i = paymentAnomalyIncident(row('payment.approval_unbooked', { provider: 'BTCPAY', providerTxId: 'INV1', fromStatus, paidWith: 'REDSYS' }));
       expect(i).toMatchObject({ kind: 'approval_unbooked', ackable: true });
-      expect(i.detail).toContain('El cobro estaba ya pagado de otra forma cuando llegó la aprobación (pedido INV1)');
-      expect(i.detail).toContain('tu BTCPay y la cartera del local');
+      expect(i.title).toBe('El cliente pagó dos veces: también con bitcoin');
+      expect(i.detail).toContain('cuando el cobro ya estaba pagado de otra forma (factura INV1)');
+      expect(i.detail).toContain('cartera del local');
     }
+  });
+
+  it('bitcoin: enseña lo que LLEGÓ; con el cobro ya cerrado, aviso de dinero con nota y «Devolver en efectivo»', () => {
+    const closed = paymentAnomalyIncident({
+      ...row('payment.approval_unverified', { provider: 'BTCPAY', providerTxId: 'INV9', reason: 'btcpay-paid_late', source: 'btcpay', paidCents: 2_500 }),
+      paymentStatus: 'EXPIRED',
+    });
+    expect(closed).toMatchObject({ kind: 'approval_unbooked', ackable: true, amountCents: 2_500, cashReturn: { invoiceId: 'INV9', maxCents: 2_500 } });
+    expect(closed.detail).toContain('caducado');
+    expect(closed.detail).toContain('Llegaron 25,00 €');
+    // A medias con el cobro aún esperando: lo recibido, «Resolver», y también se puede devolver.
+    const waiting = paymentAnomalyIncident({
+      ...row('payment.approval_unverified', { provider: 'BTCPAY', providerTxId: 'INV8', reason: 'btcpay-paid_partial', source: 'btcpay', paidCents: 1_000 }),
+      paymentStatus: 'AUTHORIZING',
+    });
+    expect(waiting).toMatchObject({ kind: 'approval_unverified', ackable: false, amountCents: 1_000, cashReturn: { invoiceId: 'INV8', maxCents: 1_000 } });
+    // Sin saber cuánto llegó, o marcada a mano: sin botón de devolver.
+    expect(paymentAnomalyIncident(row('payment.approval_unverified', { provider: 'BTCPAY', providerTxId: 'INV7', reason: 'btcpay-paid_partial', source: 'btcpay' })).cashReturn).toBeUndefined();
+    expect(paymentAnomalyIncident(row('payment.approval_unverified', { provider: 'BTCPAY', providerTxId: 'INV6', reason: 'btcpay-marked', source: 'btcpay', paidCents: 900 })).cashReturn).toBeUndefined();
+  });
+
+  it('bitcoin pagado de más: solo un aviso para el cuadre (se cierra con nota), sin devolver', () => {
+    const i = paymentAnomalyIncident(
+      row('payment.bitcoin_overpaid', { provider: 'BTCPAY', providerTxId: 'INV5', reason: 'btcpay-paid_over', source: 'btcpay', amountCents: 3_000, paidCents: 3_250, extraCents: 250 }),
+    );
+    expect(i).toMatchObject({ kind: 'bitcoin_overpaid', ackable: true, amountCents: 250, title: 'Pago de bitcoin de más' });
+    expect(i.detail).toContain('2,50 € de más');
+    expect(i.detail).toContain('no se devuelve');
+    expect(i.cashReturn).toBeUndefined();
   });
 
   it('importe distinto: los dos importes, y se marca como revisada', () => {

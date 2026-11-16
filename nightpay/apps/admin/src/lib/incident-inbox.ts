@@ -65,6 +65,12 @@ export const INCIDENT_KINDS: Record<IncidentKind, KindMeta> = {
     tab: 'wallets',
     hint: 'Su saldo sigue valiendo con su código. Si viene a recepción, dale un NFC nuevo.',
   },
+  bitcoin_overpaid: {
+    group: 'Cobro',
+    title: 'Pago de bitcoin de más',
+    tab: 'payments',
+    hint: 'El cobro está pagado. Lo de más se queda en la cartera del local y no se devuelve: ciérralo con una nota para el cuadre.',
+  },
   sensitive_action: {
     group: 'Saldo',
     title: 'Acción delicada',

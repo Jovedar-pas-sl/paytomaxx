@@ -107,6 +107,7 @@ model Venue {
   serviceItemImages  ServiceItemImage[]
   btcpayStore        BtcpayStore?
   btcpayInvoices     BtcpayInvoice[]
+  btcCashReturns     BtcCashReturn[]
   userPhotos         UserPhoto[]
   nights             VenueNight[]
   incidentAcks       IncidentAck[]
@@ -317,6 +318,8 @@ model BtcpayStore {
   enabled            Boolean   @default(false)
   // PAYMENTS (cobros) | TOPUPS (recargas) | BOTH
   purpose            String    @default("BOTH")
+  // Devolver en efectivo los pagos con bitcoin (20261117100000). Apagado de fábrica.
+  cashRefundEnabled  Boolean   @default(false)
   lastCheckAt        DateTime? @db.Timestamptz
   lastCheckOk        Boolean?
   lastCheckMessage   String?
@@ -345,6 +348,10 @@ model BtcpayInvoice {
   // Importe en BTC (texto decimal) y cambio EUR por BTC al crear la factura.
   amountBtc      String?
   rate           String?
+  // Lo que llegó de verdad (20261117100000): en BTC (texto decimal) y en céntimos
+  // de euro al cambio de la factura. Null: aún no se ha mirado (o una de antes).
+  paidBtc        String?
+  paidCents      Int?
   checkoutLink   String
   // El enlace del QR: bitcoin normal y Lightning juntos si la tienda tiene los dos.
   qrLink         String
@@ -361,6 +368,31 @@ model BtcpayInvoice {
   @@index([tenantId])
   @@index([paymentId])
   @@map("btcpay_invoices")
+}
+
+// Bitcoin que llegó SIN cobro (tarde, dos veces o a medias en un cobro que no se
+// pagó) y se devolvió en efectivo (20261117100100). Una por factura. FORCE RLS.
+model BtcCashReturn {
+  id                String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId          String   @db.Uuid
+  paymentId         String   @db.Uuid
+  // El id de la factura de BTCPay (único: una sola devolución por factura).
+  invoiceId         String   @unique
+  amountCents       Int
+  reason            String
+  receiptCode       String
+  requestedById     String   @db.Uuid
+  paidById          String   @db.Uuid
+  approvalRequestId String?  @db.Uuid
+  createdAt         DateTime @default(now()) @db.Timestamptz
+
+  venue   Venue   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  payment Payment @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+
+  // CHECK solo en SQL: 0 < amountCents < 100000.
+  @@index([tenantId, createdAt])
+  @@index([paymentId])
+  @@map("btc_cash_returns")
 }
 
 model GatewayCredential {
@@ -539,6 +571,7 @@ model Payment {
   attempts           PaymentAttempt[]
   lines              PaymentLine[]
   btcpayInvoices     BtcpayInvoice[]
+  btcCashReturns     BtcCashReturn[]
   // Cobro único: la otra forma de pagar este mismo cobro (el saldo).
   linkedWalletCharge WalletChargeRequest? @relation("CobroUnico")
 
@@ -1013,6 +1046,11 @@ model Refund {
   // en proporción a lo cobrado, por lo acumulado (sin céntimos sueltos). Se fija
   // al darla por hecha, con el cobro bloqueado. 0 en las recargas y sin comisión.
   serviceFeeCents    Int         @default(0)
+  // Devuelta en efectivo (20261117100000): un cobro pagado con bitcoin. Sale de
+  // la caja; no del banco ni de la cartera de bitcoin. Con el código del recibo
+  // que enseñó el cliente.
+  paidInCash         Boolean     @default(false)
+  receiptCode        String?
   createdAt        DateTime     @default(now()) @db.Timestamptz
 
   payment   Payment           @relation(fields: [paymentId], references: [id])
