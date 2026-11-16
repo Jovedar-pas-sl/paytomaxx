@@ -406,6 +406,20 @@ html[data-contrast='sala'] .lastRow[data-n='4']:not([data-big]) {
   border-top: 1px solid var(--np-border);
 }
 
+/* La carta vacía: el pie se queda en una línea fina con la instrucción. */
+.footEmpty {
+  padding-block: 0.5rem;
+}
+
+.footHint {
+  margin: 0;
+  font-size: var(--np-fs-14);
+  font-weight: 500;
+  line-height: 1.3;
+  color: var(--np-text-mute);
+  text-align: center;
+}
+
 .footFlat {
   /* Del color de la página: si la pantalla no cabe (un móvil bajo), lo de
      abajo pasa por debajo del botón sin verse a través. */

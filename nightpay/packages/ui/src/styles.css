@@ -8,6 +8,7 @@
    de importe, cuenta atrás del QR). @import va antes de cualquier regla. */
 @import './staff.css';
 @import './tour.css';
+@import './ticket.css';
 
 :root {
   /* Spacing — 4px base */

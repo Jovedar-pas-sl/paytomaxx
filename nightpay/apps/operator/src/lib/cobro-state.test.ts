@@ -174,6 +174,10 @@ describe('el cliente paga con bitcoin: «Cancelar cobro» mientras la factura es
     expect(cancelOffer(card('AUTHORIZING'), 'late')).toEqual({ kind: 'late', text: 'El banco tarda. Si el cliente no ha pagado, puedes cancelar' });
   });
 
+  it('cobrado en el datáfono sin comprobar: nunca el botón, se sale sin cancelar', () => {
+    expect(cancelOffer(card('AUTHORIZING'), 'held')).toEqual({ kind: 'leave', text: 'Cobrado en el datáfono, pendiente de comprobar' });
+  });
+
   it('el reloj es el de la espera del banco (el de la pastilla): 2 minutos desde que salió el intento', () => {
     const at = (stage: 'scan' | 'paying' | 'still' | 'retry', sec: number) => ({ stage, elapsedMs: sec * 1000 });
     expect(bankCancelOf(true, at('paying', 5))).toBe('wait');

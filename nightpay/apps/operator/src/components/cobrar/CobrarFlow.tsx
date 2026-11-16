@@ -45,7 +45,7 @@ import { IconPlus, IconQr } from './icons';
 import { LaCuenta } from './LaCuenta';
 import { MiQr } from './MiQr';
 import { OtroImporte } from './OtroImporte';
-import { GuiaMenuLink, InstallMenuItem } from '../staff-menu';
+import { GuiaMenuLink, InstallMenuItem, LogoutMenuItem, useDeviceMenu } from '../staff-menu';
 import { CustomerDisplaySheet } from '../CustomerDisplaySheet';
 import { ProfileSheet } from '../ProfileSheet';
 import styles from './cobrar.module.css';
@@ -112,6 +112,7 @@ export function CobrarFlow({ user, onCobroDone, onLogout, night, miQrOpen = fals
   const [profile, setProfile] = useState(false);
   // «Pantalla del cliente» (Menú): la tablet de la barra.
   const [display, setDisplay] = useState(false);
+  const device = useDeviceMenu(() => setMenu(false));
   const attempt = useRef<{ key: string; what: string } | null>(null);
   /** Lo último que se tocó en la carta: el pie ofrece «Deshacer» durante 4 s (decisión D3). */
   const [undo, setUndo] = useState<UndoTap | null>(null);
@@ -391,6 +392,7 @@ export function CobrarFlow({ user, onCobroDone, onLogout, night, miQrOpen = fals
     <>
     <ProfileSheet open={profile} onClose={() => setProfile(false)} onLogout={onLogout} />
     <CustomerDisplaySheet open={display} onClose={() => setDisplay(false)} />
+    {device.sheet}
     <Modal open={menu} onClose={() => setMenu(false)} title="Menú">
       {/* El tema se elige en «Mi perfil» (por defecto, oscuro). */}
       <div className={styles.menu}>
@@ -423,11 +425,10 @@ export function CobrarFlow({ user, onCobroDone, onLogout, night, miQrOpen = fals
         >
           Pantalla del cliente
         </Button>
+        {device.item}
         <InstallMenuItem />
         <GuiaMenuLink />
-        <Button variant="ghost" onClick={onLogout}>
-          Salir
-        </Button>
+        <LogoutMenuItem onLogout={onLogout} />
       </div>
     </Modal>
     </>

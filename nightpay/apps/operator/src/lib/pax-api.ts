@@ -66,7 +66,7 @@ export type SaleOutcome =
   | { status: 'PENDING'; message: string; operationNumber: string };
 
 /** Cobrado en el lector y sin confirmar aún: nunca se ofrece cobrarlo otra vez. */
-export const PENDING_CONFIRM_TEXT = 'Cobrado en el datáfono · pendiente de confirmar por el encargado. No cobres otra vez.';
+export const PENDING_CONFIRM_TEXT = 'Pagado en el datáfono · pendiente de confirmar por el encargado. No cobres otra vez.';
 
 export interface ShiftSummary {
   total: number;

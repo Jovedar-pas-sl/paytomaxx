@@ -1,6 +1,7 @@
 import { formatChargeRef } from '@nightpay/contracts';
 import type { PrismaService } from '../../common/prisma/prisma.service';
 import { bankVisitsSince, cancelWaitMsOf, isAtBank } from './cancel-at-bank';
+import { isHeldOnReader } from './reader-hold';
 
 /** Sin pagar: el QR o el datáfono esperando, o el cliente en su banco (o pagando con bitcoin). */
 export const UNPAID_STATUSES = ['CREATED', 'AWAITING_CAPTURE', 'AUTHORIZING'] as const;
@@ -30,6 +31,12 @@ export interface UnpaidCobro {
    * banco, siempre 0.
    */
   cancelableInMs: number;
+  /**
+   * Recarga cobrada en el datáfono sin comprobar (reader-hold.ts): la tarjeta
+   * ya pagó. No está en su banco y no se cancela nunca (409
+   * CANCEL_HELD_ON_READER, tampoco pasados los 2 minutos); la resuelven en el panel.
+   */
+  heldOnReader: boolean;
 }
 
 /**
@@ -38,7 +45,8 @@ export interface UnpaidCobro {
  * del dueño: cualquiera del personal cancela cualquier cobro sin pagar; con el
  * cliente en su banco, pasados 2 minutos). Solo lo justo para reconocerlo:
  * referencia, importe, hora y quién lo creó. Un QR caducado sin empezar ya no
- * sale (se cierra solo).
+ * sale (se cierra solo). La recarga cobrada en el datáfono sin comprobar sí
+ * sale, pero sin poder cancelarla.
  */
 export async function listUnpaidCobros(
   prisma: PrismaService,
@@ -58,6 +66,7 @@ export async function listUnpaidCobros(
       ref: true,
       status: true,
       provider: true,
+      posOperationNumber: true,
       amountCents: true,
       serviceFeeCents: true,
       tipCents: true,
@@ -73,6 +82,8 @@ export async function listUnpaidCobros(
     rows.filter((p) => isAtBank(p)).map((p) => p.id),
   );
   return rows.map((p) => {
+    // Cobrada en el datáfono y sin comprobar: ni «en su banco» (isAtBank la deja fuera) ni cancelable.
+    const heldOnReader = isHeldOnReader(p);
     const atBank = isAtBank(p);
     return {
       id: p.id,
@@ -86,6 +97,7 @@ export async function listUnpaidCobros(
       bitcoin: p.status === 'AUTHORIZING' && p.provider === 'BTCPAY',
       atBankSince: atBank ? (visits.since.get(p.id)?.toISOString() ?? null) : null,
       cancelableInMs: cancelWaitMsOf(p, visits),
+      heldOnReader,
     };
   });
 }

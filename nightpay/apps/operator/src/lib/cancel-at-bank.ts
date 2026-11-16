@@ -2,8 +2,10 @@
 // dueño): los primeros 2 minutos (CANCEL_AT_BANK_AFTER_MS) no; pasados sin
 // respuesta del banco, sí, avisando de que si su banco lo cobra después se
 // devuelve. Antes de ir al banco y con la factura de bitcoin abierta, como
-// siempre. El API lo hace cumplir igual (409 CANCEL_AT_BANK_TOO_SOON): esto
-// es lo que ve el personal, con UN solo reloj por pantalla.
+// siempre. La recarga cobrada en el datáfono sin comprobar no está en su
+// banco y no se cancela nunca. El API lo hace cumplir igual (409
+// CANCEL_AT_BANK_TOO_SOON y CANCEL_HELD_ON_READER): esto es lo que ve el
+// personal, con UN solo reloj por pantalla.
 
 import { CANCEL_AT_BANK_AFTER_MS, CANCEL_AT_BANK_TOO_SOON_CODE } from '@nightpay/contracts';
 
@@ -17,19 +19,32 @@ export const AT_BANK_SLOW_TEXT = 'El banco tarda. Si el cliente no ha pagado, pu
 export const CANCEL_AT_BANK_TEXT = 'Si su banco lo cobra después, te avisaremos para devolverlo';
 /** El API dijo que aún no (el reloj de este móvil iba adelantado): se espera un poco. */
 export const CANCEL_TOO_SOON_TEXT = 'El cliente sigue pagando en su banco: aún no se puede cancelar. Espera un poco.';
+/** La recarga cobrada en el datáfono sin comprobar: sin botón, nunca (la resuelven en el panel). */
+export const HELD_ON_READER_TEXT = 'Cobrado en el datáfono, pendiente de comprobar';
 
 /**
  * Qué ofrece «Cancelar cobro»:
  *  - 'free': no está en su banco (sin empezar a pagar, o con bitcoin): el botón, como siempre;
  *  - 'wait': en su banco, los primeros 2 minutos (o sin saber aún desde cuándo): sin botón;
- *  - 'late': en su banco pasados 2 minutos: el texto y el botón.
+ *  - 'late': en su banco pasados 2 minutos: el texto y el botón;
+ *  - 'held': cobrado en el datáfono sin comprobar (la tarjeta ya pagó): el texto y nunca el botón.
+ * El botón sale solo con 'free' o 'late'.
  */
-export type BankCancel = 'free' | 'wait' | 'late';
+export type BankCancel = 'free' | 'wait' | 'late' | 'held';
 
-/** `cancelableAtMs`: desde cuándo se puede (en el reloj de este móvil); null = aún no se sabe. */
-export function bankCancel(atBank: boolean, cancelableAtMs: number | null, nowMs: number): BankCancel {
+/**
+ * `cancelableAtMs`: desde cuándo se puede (en el reloj de este móvil); null = aún no se sabe.
+ * `heldOnReader`: la recarga cobrada en el datáfono sin comprobar (lo dice el API).
+ */
+export function bankCancel(atBank: boolean, cancelableAtMs: number | null, nowMs: number, heldOnReader = false): BankCancel {
+  if (heldOnReader) return 'held';
   if (!atBank) return 'free';
   return cancelableAtMs !== null && nowMs >= cancelableAtMs ? 'late' : 'wait';
+}
+
+/** ¿Sale el botón «Cancelar»? Fuera del banco, o en su banco pasados 2 minutos. */
+export function offersCancel(bank: BankCancel | null): boolean {
+  return bank === 'free' || bank === 'late';
 }
 
 /** Desde cuándo se puede cancelar, sabiendo cuándo salió al banco (en el reloj de este móvil). */

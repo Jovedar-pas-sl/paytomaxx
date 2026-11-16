@@ -3,8 +3,8 @@
 import { useState } from 'react';
 import { Button, Card } from '@nightpay/ui';
 import { cancelPayment } from '@/lib/api';
-import { unpaidLine, unpaidState, unpaidToShow, type UnpaidRow } from '@/lib/api-sin-pagar';
-import { bankCancel } from '@/lib/cancel-at-bank';
+import { unpaidBank, unpaidLine, unpaidState, unpaidToShow, type UnpaidRow } from '@/lib/api-sin-pagar';
+import { offersCancel } from '@/lib/cancel-at-bank';
 import { timeLabel } from '@/lib/earnings-view';
 import { CancelCobroConfirm } from './CancelCobroConfirm';
 import styles from './my-cobros.module.css';
@@ -14,8 +14,9 @@ import styles from './my-cobros.module.css';
  * también los de otra persona. Cualquiera del personal cancela cualquiera
  * (decisión del dueño), siempre confirmando. Con el cliente en su banco, los
  * primeros 2 minutos sin botón («El cliente está pagando en su banco»); después,
- * «El banco tarda…» y el botón. Los datos y el reloj vienen de «Mis cobros»
- * (useUnpaidInVenue y un solo useNow). Sin ninguno, no sale nada.
+ * «El banco tarda…» y el botón. La recarga cobrada en el datáfono sin comprobar
+ * sale sin botón, nunca (la resuelven en el panel). Los datos y el reloj vienen
+ * de «Mis cobros» (useUnpaidInVenue y un solo useNow). Sin ninguno, no sale nada.
  */
 export function UnpaidInVenue({
   items,
@@ -60,7 +61,7 @@ export function UnpaidInVenue({
         Sin pagar en el local
       </h3>
       {shown.map((u) => {
-        const bank = bankCancel(u.atBank, u.cancelableAtMs, nowMs);
+        const bank = unpaidBank(u, nowMs);
         return (
           <div key={u.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.75rem' }}>
             <div style={{ display: 'grid', gap: '0.125rem', minWidth: 0 }}>
@@ -71,12 +72,12 @@ export function UnpaidInVenue({
                 {timeLabel(new Date(u.createdAt))} · {unpaidState(u, bank)}
               </span>
             </div>
-            {/* En su banco, los primeros 2 minutos: sin botón (lo dice la línea de arriba). */}
-            {bank === 'wait' ? null : (
+            {/* En su banco los primeros 2 minutos, o cobrado en el datáfono sin comprobar: sin botón (lo dice la línea de arriba). */}
+            {offersCancel(bank) ? (
               <Button variant="ghost" size="md" onClick={() => setTarget(u)} aria-label={`Cancelar el cobro ${unpaidLine(u)}`}>
                 Cancelar
               </Button>
-            )}
+            ) : null}
           </div>
         );
       })}

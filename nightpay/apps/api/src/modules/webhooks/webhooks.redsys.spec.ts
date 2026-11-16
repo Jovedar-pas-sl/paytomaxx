@@ -128,7 +128,7 @@ describe('receiveRedsys — idempotencia', () => {
     expect(h.queue.add).toHaveBeenCalledWith(
       'process-webhook',
       { deliveryId: '88' },
-      { jobId: `webhook-REDSYS-${DS_ORDER}-0000`, attempts: 5, backoff: { type: 'exponential', delay: 5000 } },
+      { jobId: `webhook-REDSYS-${DS_ORDER}-0000`, attempts: 8, backoff: { type: 'exponential', delay: 1000 } },
     );
   });
 

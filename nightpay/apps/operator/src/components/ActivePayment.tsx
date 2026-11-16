@@ -399,7 +399,7 @@ function PaidBlock({ payment, tipCents, onNew }: { payment: CreatedPayment; tipC
         </p>
       ) : null}
       <Button onClick={onNew} size="lg">
-        ✓ Cobrado — nuevo
+        ✓ Pagado — nuevo
       </Button>
     </>
   );

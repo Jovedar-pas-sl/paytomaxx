@@ -49,7 +49,8 @@ describe('«¿Cancelar este cobro?»', () => {
     expect(list).toContain('ownRowBank(r, unpaid.items, now)');
     const unpaid = read('../components/UnpaidInVenue.tsx');
     expect(unpaid).not.toMatch(/useNow\(|usePolling\(|setInterval\(/);
-    expect(unpaid).toContain("bank === 'wait' ? null");
+    expect(unpaid).toContain('const bank = unpaidBank(u, nowMs);');
+    expect(unpaid).toContain('{offersCancel(bank) ? (');
     // El QR del cobro (recepción): sin botón en los primeros 2 minutos.
     const active = read('../components/ActivePayment.tsx');
     expect(active).toContain("bank === 'free' || bank === 'late'");
@@ -95,6 +96,15 @@ describe('«Sin pagar en el local» con el cliente en su banco', () => {
     expect(html).toContain('Pagando con bitcoin');
     expect(html).toContain('Cancelar el cobro C-0031');
     expect(html).toContain('Cancelar el cobro C-0032');
+  });
+
+  it('la recarga cobrada en el datáfono sin comprobar: lo dice y nunca lleva el botón, ni pasados los 2 minutos', () => {
+    const held: UnpaidRow = { ...banco, id: 'p4', ref: 'C-0033', atBank: false, heldOnReader: true, atBankSince: null, cancelableInMs: 0, cancelableAtMs: null };
+    for (const nowMs of [T0, T0 + 10 * 60_000]) {
+      const html = list(nowMs, [held]);
+      expect(html).toContain('Cobrado en el datáfono, pendiente de comprobar');
+      expect(html).not.toContain('Cancelar el cobro');
+    }
   });
 });
 

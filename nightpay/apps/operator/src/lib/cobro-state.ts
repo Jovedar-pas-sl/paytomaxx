@@ -5,7 +5,7 @@
 
 import { CANCEL_AT_BANK_AFTER_MS, bankWaitPhase, type BitcoinPayState, type PaymentStatus } from '@nightpay/contracts';
 import type { SaldoState } from './api-cobro';
-import { AT_BANK_PAYING_TEXT, AT_BANK_SLOW_TEXT, cancelTooSoonText, type BankCancel } from './cancel-at-bank';
+import { AT_BANK_PAYING_TEXT, AT_BANK_SLOW_TEXT, HELD_ON_READER_TEXT, cancelTooSoonText, type BankCancel } from './cancel-at-bank';
 import type { FailReason, PaidMethod } from './cobro-view';
 import { advanceStatus, type BitcoinLive } from './payment-status';
 
@@ -231,6 +231,8 @@ export function cancelOffer(card: CardLive, bank: BankCancel = 'free'): CancelOf
   // Con bitcoin ya en la red o con un problema, no; con la factura esperando el pago, sí (sin esperar).
   if (card.status === 'AUTHORIZING' && card.bitcoin === 'confirming') return { kind: 'leave', text: BITCOIN_CONFIRMING_TEXT };
   if (card.status === 'AUTHORIZING' && card.bitcoin === 'problem') return { kind: 'leave', text: BITCOIN_PROBLEM_TEXT };
+  // Cobrado en el datáfono sin comprobar: nunca se cancela (lo resuelven en el panel); se sale sin cancelar.
+  if (bank === 'held') return { kind: 'leave', text: HELD_ON_READER_TEXT };
   if (bank === 'wait') return { kind: 'text', text: AT_BANK_PAYING_TEXT };
   if (bank === 'late') return { kind: 'late', text: AT_BANK_SLOW_TEXT };
   return { kind: 'button' };

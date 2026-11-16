@@ -28,11 +28,17 @@ describe('la regla: 2 minutos con el cliente en su banco', () => {
 
   it('en su banco: AUTHORIZING con una pasarela; con bitcoin o sin empezar, no', () => {
     expect(isAtBank({ status: 'AUTHORIZING', provider: 'REDSYS' })).toBe(true);
-    expect(isAtBank({ status: 'AUTHORIZING', provider: 'PAYTEF' })).toBe(true);
+    expect(isAtBank({ status: 'AUTHORIZING', provider: 'PAYTEF', posOperationNumber: null })).toBe(true);
     expect(isAtBank({ status: 'AUTHORIZING', provider: null })).toBe(true);
     expect(isAtBank({ status: 'AUTHORIZING', provider: 'BTCPAY' })).toBe(false);
     expect(isAtBank({ status: 'CREATED', provider: null })).toBe(false);
     expect(isAtBank({ status: 'AWAITING_CAPTURE', provider: 'BTCPAY' })).toBe(false);
+  });
+
+  it('la recarga cobrada en el datáfono sin comprobar (con su operación) no está en su banco: ni espera ni se cancela', () => {
+    expect(isAtBank({ status: 'AUTHORIZING', provider: 'PAYTEF', posOperationNumber: '99812' })).toBe(false);
+    const visits = { now: NOW, since: new Map([[C1, ago(10)]]) };
+    expect(cancelWaitMsOf({ id: C1, status: 'AUTHORIZING', provider: 'PAYTEF', posOperationNumber: '99812' }, visits)).toBe(0);
   });
 
   it('cancelWaitMsOf: con la hora de la base, no la del servidor', () => {
@@ -87,5 +93,9 @@ describe('desde cuándo está en su banco (la base)', () => {
     const bitcoin = db(ago(1));
     await expect(assertBankWaitOver(bitcoin as never, { ...locked, provider: 'BTCPAY' })).resolves.toBeUndefined();
     expect(bitcoin.$queryRaw).not.toHaveBeenCalled();
+    // La recarga cobrada en el datáfono no cuenta aquí: cancel() la rechaza antes (CANCEL_HELD_ON_READER).
+    const reader = db(ago(1));
+    await expect(assertBankWaitOver(reader as never, { ...locked, provider: 'PAYTEF', posOperationNumber: '99812' })).resolves.toBeUndefined();
+    expect(reader.$queryRaw).not.toHaveBeenCalled();
   });
 });

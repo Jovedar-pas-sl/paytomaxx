@@ -19,6 +19,11 @@ import { CLAIM_STEP_LUA, TotpAttemptsService } from '../../src/modules/auth/totp
 import { LockoutService } from '../../src/modules/auth/lockout.service';
 import { claimStepScript, createFakeRedis } from '../../src/modules/auth/testing/fake-redis';
 import { totpCodeAt } from '../../src/modules/auth/testing/totp-kit';
+import { posReference } from '../../src/modules/pos-device/paytef';
+import { PosDeviceService } from '../../src/modules/pos-device/pos-device.service';
+import { PosDeviceReceptionService } from '../../src/modules/pos-device/pos-device-reception.service';
+import { PaytefDeviceSaleProver } from '../../src/modules/pos-device/pos-sale-proof';
+import { CashTopUpService } from '../../src/modules/wallets/wallet-cash-topup.service';
 
 const cls = new ClsService(new AsyncLocalStorage());
 const prisma = new PrismaService(cls as never);
@@ -61,6 +66,23 @@ const totpRedis = createFakeRedis();
 totpRedis.defineScript(CLAIM_STEP_LUA, claimStepScript);
 const totp = new TotpService(prisma, new TotpAttemptsService(new LockoutService(totpRedis as never), totpRedis as never));
 const accept = new AcceptAfterCancelController(prisma, payments, totp, audit as never);
+// La recepción del datáfono (PAX), como en producción: Paytef no deja comprobar
+// la venta desde el servidor, así que la recarga con tarjeta queda «sin comprobar».
+const paxQueue = { add: vi.fn(async () => undefined) };
+const paxPayments = new PaymentsService(
+  prisma as never,
+  cls as never,
+  paxQueue as never,
+  paxQueue as never,
+  {} as never,
+  { emitPaymentUpdate: noop, emitPaymentCompleted: noop } as never,
+  { paymentsCreated: { inc: noop }, paymentsTransitioned: { inc: noop }, walletCreditSkipped: { inc: noop } } as never,
+  {} as never,
+  {} as never,
+  {} as never,
+);
+const pax = new PosDeviceService(prisma, paxPayments, audit as never, cls as never, new PaytefDeviceSaleProver());
+const paxReception = new PosDeviceReceptionService(prisma, paxPayments, new CashTopUpService(prisma, audit as never), audit as never, cls as never);
 
 const r = randomUUID().slice(0, 6);
 const refBase = 1000 + Math.floor(Math.random() * 8000) * 10;
@@ -222,9 +244,10 @@ describe('con el cliente en su banco: 2 minutos sin poder cancelar', () => {
     expect(await statusOf(id)).toBe('AUTHORIZING');
   });
 
-  it('sin intento (el datáfono): cuenta desde que el cobro entró en AUTHORIZING (su evento), no desde updatedAt', async () => {
+  // (La recarga cobrada en el datáfono no es esto: esa no se cancela nunca, abajo.)
+  it('sin intento (un cobro con pasarela al que le falta): cuenta desde que entró en AUTHORIZING (su evento), no desde updatedAt', async () => {
     const { id } = await cobro({ status: 'AUTHORIZING', amount: 2500 });
-    await sys((tx) => tx.payment.update({ where: { id }, data: { provider: 'PAYTEF', providerTxId: `OP${r}` } }));
+    await sys((tx) => tx.payment.update({ where: { id }, data: { provider: 'REDSYS', providerTxId: `OP${r}` } }));
     await sys((tx) =>
       tx.$executeRaw`INSERT INTO payment_events ("paymentId", "tenantId", "eventType", payload, "traceId", "occurredAt")
                      VALUES (${id}::uuid, ${A}::uuid, 'payment.authorizing', '{"type":"AUTHORIZING"}'::jsonb, 't-cancel', now() - interval '40 seconds')`,
@@ -353,5 +376,94 @@ describe('el banco cobra después de cancelar', () => {
     await inCtx(A, () => incidents.ackPaidAfterCancel(A, encargado, { refId: ev!.id.toString(), note: 'Devuelto en el portal del banco' }));
     expect(await statusOf(id)).toBe('CANCELED');
     expect((await incidents.receptionInbox(A, 'MANAGER')).some((i) => i.paymentId === id)).toBe(false);
+  });
+});
+
+describe('la recarga cobrada en el datáfono sin comprobar: nadie del personal la cancela', () => {
+  // Su propio local (con el datáfono encendido): sus incidencias no se mezclan con las de arriba.
+  let C: string, recepcion: string;
+  const staffC: Array<[string, string]> = [];
+  const heldOnReader = {
+    status: 409,
+    response: { code: 'CANCEL_HELD_ON_READER', message: 'Cobrado en el datáfono: lo resuelve el encargado en Pagos → Resolver' },
+  };
+  const walletOf = (id: string) => sys<{ balanceCents: number; status: string } | null>((tx) => tx.clientWallet.findUnique({ where: { id } }));
+
+  beforeAll(async () => {
+    await sys(async (tx) => {
+      C = (await tx.venue.create({ data: { name: 'Sala Datáfono', slug: `cancelar-pax-${r}`, walletGroup: `gpax-${r}`, paymentMethods: { pos: true } } })).id;
+      recepcion = (await tx.terminal.create({ data: { tenantId: C, externalId: `RC-${r}`, label: 'Recepción', reception: true } })).id;
+      for (const [role, name] of [
+        ['WAITER', 'Raul'],
+        ['OPERATOR', 'Nerea'],
+        ['MANAGER', 'Ines'],
+        ['OWNER', 'Dueno'],
+      ] as const) {
+        const u = await tx.user.create({ data: { tenantId: C, email: `${name}-pax-${r}@x.es`, passwordHash: 'x', role: role as never, displayName: name } });
+        staffC.push([u.id, role]);
+      }
+    });
+  });
+
+  it('la tarjeta ya pagó y el saldo espera: «Sin pagar» la enseña sin poder cancelarla, el API dice 409 (también pasados 2 minutos) y sigue en Incidencias', async () => {
+    const device = { terminalId: recepcion, tenantId: C, label: 'Recepción', zone: null, tokenHash: 'x' };
+    // Recarga de 50 € con tarjeta en el datáfono de recepción, con un saldo nuevo.
+    const sale = await inCtx(C, () => paxReception.cardTopUp(device, { amountCents: 5_000, idempotencyKey: `pax-${r}`, wallet: { create: true } }));
+    const op = `P${r}1`;
+    const result = {
+      approved: true,
+      authorisationCode: '047215',
+      paytefOperationNumber: op,
+      transactionReference: posReference(sale.paymentId),
+      requestedAmount: sale.amountCents,
+      cardInformation: { hiddenCardNumber: '************4242', cardTypeCode: 'VI', isContactless: true },
+    };
+    await expect(inCtx(C, () => pax.reportResult(device, sale.paymentId, result))).resolves.toMatchObject({ status: 'PENDING', operationNumber: op });
+    const held = await sys<{ status: string; provider: string | null; posOperationNumber: string | null; posTerminalId: string | null } | null>(
+      (tx) => tx.payment.findUnique({ where: { id: sale.paymentId } }),
+    );
+    expect(held).toMatchObject({ status: 'AUTHORIZING', provider: 'PAYTEF', posOperationNumber: op, posTerminalId: recepcion });
+
+    // «Sin pagar en el local»: sale, pero ni «en su banco» (sin reloj de los 2 minutos) ni con «Cancelar».
+    const [camareroC] = staffC[0]!;
+    const row = (await inCtx(C, () => listUnpaidCobros(prisma, { tenantId: C, userId: camareroC }))).find((u) => u.id === sale.paymentId);
+    expect(row).toMatchObject({
+      status: 'AUTHORIZING',
+      heldOnReader: true,
+      atBank: false,
+      bitcoin: false,
+      atBankSince: null,
+      cancelableInMs: 0,
+      totalCents: sale.amountCents,
+    });
+
+    // Nadie: ni el camarero, ni la chica, ni el encargado, ni el dueño; ni enseguida ni pasados
+    // los 2 minutos de «con el cliente en su banco» (no está en su banco: ya pagó en el datáfono).
+    for (const after3min of [false, true]) {
+      if (after3min) {
+        await sys((tx) =>
+          tx.$executeRaw`UPDATE payment_events SET "occurredAt" = now() - interval '3 minutes'
+                          WHERE "paymentId" = ${sale.paymentId}::uuid AND "eventType" = 'payment.authorizing'`,
+        );
+      }
+      for (const [userId, role] of staffC) {
+        await expect(cancelAs(userId, role, sale.paymentId, C)).rejects.toMatchObject(heldOnReader);
+      }
+    }
+    expect(await statusOf(sale.paymentId)).toBe('AUTHORIZING');
+    expect(await sys<unknown[]>((tx) => tx.paymentEvent.findMany({ where: { paymentId: sale.paymentId, eventType: 'payment.canceled' } }))).toHaveLength(0);
+    // Su saldo nuevo no se cierra (sigue esperando la recarga).
+    expect(await walletOf(sale.walletId)).toMatchObject({ balanceCents: 0, status: 'ACTIVE' });
+    // Y la incidencia sigue ahí, para resolverla.
+    expect((await incidents.list(C)).find((i) => i.kind === 'approval_unverified' && i.paymentId === sale.paymentId)).toMatchObject({
+      title: 'Recarga del datáfono sin comprobar',
+      amountCents: sale.amountCents,
+    });
+
+    // Se resuelve en el panel (Resolver: dada por cobrada): se suma al saldo y la incidencia se va.
+    await inCtx(C, () => payments.transition(sale.paymentId, { type: 'AUTHORIZED', provider: 'PAYTEF', providerTxId: op }, C));
+    expect(await walletOf(sale.walletId)).toMatchObject({ balanceCents: 5_000, status: 'ACTIVE' });
+    expect((await incidents.list(C)).some((i) => i.kind === 'approval_unverified' && i.paymentId === sale.paymentId)).toBe(false);
+    expect((await inCtx(C, () => listUnpaidCobros(prisma, { tenantId: C, userId: camareroC }))).some((u) => u.id === sale.paymentId)).toBe(false);
   });
 });

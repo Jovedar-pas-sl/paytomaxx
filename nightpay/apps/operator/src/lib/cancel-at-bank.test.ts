@@ -4,9 +4,11 @@ import {
   AT_BANK_SLOW_TEXT,
   CANCEL_AT_BANK_TEXT,
   CANCEL_TOO_SOON_TEXT,
+  HELD_ON_READER_TEXT,
   bankCancel,
   cancelTooSoonText,
   cancelableAtFrom,
+  offersCancel,
   withCancelableAt,
 } from './cancel-at-bank';
 
@@ -33,6 +35,17 @@ describe('«Cancelar cobro» con el cliente en su banco (decisión del dueño)',
     expect(cancelableAtFrom(null)).toBeNull();
     expect(cancelableAtFrom(Number.NaN)).toBeNull();
     expect(bankCancel(true, null, T0)).toBe('wait');
+  });
+
+  it('cobrado en el datáfono sin comprobar: «held», con su texto y nunca el botón; el botón, solo «free» o «late»', () => {
+    expect(HELD_ON_READER_TEXT).toBe('Cobrado en el datáfono, pendiente de comprobar');
+    expect(bankCancel(false, null, T0, true)).toBe('held');
+    expect(bankCancel(true, T0, T0 + 600_000, true)).toBe('held');
+    expect(offersCancel('held')).toBe(false);
+    expect(offersCancel('wait')).toBe(false);
+    expect(offersCancel(null)).toBe(false);
+    expect(offersCancel('free')).toBe(true);
+    expect(offersCancel('late')).toBe(true);
   });
 
   it('el 409 del API (el reloj de este móvil iba adelantado) tiene su texto; otro error, no', () => {

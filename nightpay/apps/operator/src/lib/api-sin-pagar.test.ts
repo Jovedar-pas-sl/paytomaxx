@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { unpaidLine, unpaidState, unpaidToShow, type UnpaidCobro } from './api-sin-pagar';
+import { unpaidCancelable, unpaidLine, unpaidState, unpaidToShow, type UnpaidCobro } from './api-sin-pagar';
 
 const u = (o: Partial<UnpaidCobro> = {}): UnpaidCobro => ({
   id: 'p1',
@@ -25,6 +25,16 @@ describe('«Sin pagar en el local»', () => {
     expect(unpaidState(u({ status: 'AUTHORIZING', atBank: true }), 'late')).toBe('El banco tarda. Si el cliente no ha pagado, puedes cancelar');
     expect(unpaidState(u({ status: 'AUTHORIZING', bitcoin: true }))).toBe('Pagando con bitcoin');
     expect(unpaidState(u())).toBe('Esperando el pago');
+  });
+
+  it('la recarga cobrada en el datáfono sin comprobar: lo dice y no lleva «Cancelar»', () => {
+    const held = u({ status: 'AUTHORIZING', heldOnReader: true });
+    expect(unpaidState(held)).toBe('Cobrado en el datáfono, pendiente de comprobar');
+    expect(unpaidCancelable(held)).toBe(false);
+    // El resto, sí (también un API de antes, sin el campo).
+    expect(unpaidCancelable(u({ status: 'AUTHORIZING', atBank: true, heldOnReader: false }))).toBe(true);
+    expect(unpaidCancelable(u({ status: 'AUTHORIZING', bitcoin: true }))).toBe(true);
+    expect(unpaidCancelable(u())).toBe(true);
   });
 
   it('la chica ya cancela los suyos en su lista: aquí, solo los de otras personas; el resto los ve todos', () => {

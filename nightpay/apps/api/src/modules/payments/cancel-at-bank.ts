@@ -1,25 +1,32 @@
 import { ConflictException } from '@nestjs/common';
 import { CANCEL_AT_BANK_AFTER_MS, CANCEL_AT_BANK_TOO_SOON_CODE, cancelAtBankWaitMs } from '@nightpay/contracts';
 import type { Prisma } from '@nightpay/db';
+import { isHeldOnReader } from './reader-hold';
 
 /**
  * «Cancelar cobro» con el cliente en la página de su banco (decisión del
  * dueño): no durante los primeros 2 minutos (CANCEL_AT_BANK_AFTER_MS) desde
  * que salió al banco; pasados sin respuesta del banco, sí. Con bitcoin no hay
- * banco: su factura abierta se cancela sin esperar.
+ * banco: su factura abierta se cancela sin esperar. La recarga cobrada en el
+ * datáfono sin comprobar tampoco está en su banco (la tarjeta ya pagó): esa no
+ * se cancela nunca (reader-hold.ts).
  *
  * «Salió al banco» = lo más reciente de dos marcas que se escriben en la MISMA
  * transacción que pone el cobro en AUTHORIZING y que nada más mueve: el
  * `createdAt` del último intento (payment_attempts; un reintento de Redsys es
- * otra visita al banco) y el evento `payment.authorizing` (payment_events; el
- * datáfono sin intento). No `updatedAt`: cambia con cualquier otra cosa.
+ * otra visita al banco) y el evento `payment.authorizing` (payment_events; por
+ * si el cobro no tiene intento). No `updatedAt`: cambia con cualquier otra cosa.
  */
 
 type RawDb = Pick<Prisma.TransactionClient, '$queryRaw'>;
 
-/** El cliente en la página de su banco: AUTHORIZING con una pasarela (con bitcoin, no). */
-export function isAtBank(p: { status: string; provider: string | null }): boolean {
-  return p.status === 'AUTHORIZING' && p.provider !== 'BTCPAY';
+/**
+ * El cliente en la página de su banco: AUTHORIZING con una pasarela. Con
+ * bitcoin, no; ni la recarga cobrada en el datáfono sin comprobar (con su
+ * operación del datáfono: ya está cobrada y no se cancela).
+ */
+export function isAtBank(p: { status: string; provider: string | null; posOperationNumber?: string | null }): boolean {
+  return p.status === 'AUTHORIZING' && p.provider !== 'BTCPAY' && !isHeldOnReader(p);
 }
 
 /** Desde cuándo está cada cobro en su banco (según la base) y la hora de la base. */
@@ -51,7 +58,10 @@ export async function bankVisitsSince(db: RawDb, tenantId: string, paymentIds: r
 }
 
 /** Lo que falta (ms) para poder cancelar este cobro; 0 = ya se puede (no está en su banco, o pasaron los 2 min). */
-export function cancelWaitMsOf(p: { id: string; status: string; provider: string | null }, visits: BankVisits): number {
+export function cancelWaitMsOf(
+  p: { id: string; status: string; provider: string | null; posOperationNumber?: string | null },
+  visits: BankVisits,
+): number {
   if (!isAtBank(p)) return 0;
   return cancelAtBankWaitMs(visits.since.get(p.id)?.getTime() ?? null, visits.now.getTime());
 }
@@ -73,7 +83,7 @@ export function cancelTooSoon(waitMs: number): ConflictException {
  */
 export async function assertBankWaitOver(
   tx: RawDb,
-  locked: { id: string; tenantId: string; status: string; provider: string | null },
+  locked: { id: string; tenantId: string; status: string; provider: string | null; posOperationNumber?: string | null },
 ): Promise<void> {
   if (!isAtBank(locked)) return;
   const wait = cancelWaitMsOf(locked, await bankVisitsSince(tx, locked.tenantId, [locked.id]));
