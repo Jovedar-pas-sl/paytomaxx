@@ -198,6 +198,14 @@ export class PublicPayController {
       redirectTo(res, walletWelcomeHref(view.walletToken, view.qrToken, lang));
       return;
     }
+    // Reservado pagado desde este navegador: de vuelta a la página del reservado.
+    if (view?.reservation && PAID_STATES.has(view.status) && this.hasWalletClaim(res, view.qrToken, view.approvedClaimHash ?? null)) {
+      const back = await this.payments.reservationManageToken(view.paymentId);
+      if (back) {
+        redirectTo(res, `/reservas/${encodeURIComponent(back)}?pagado=1`);
+        return;
+      }
+    }
     const refreshUrl = `/pay/result?op=${encodeURIComponent(op ?? '')}&lang=${lang}`;
     // Esperando al banco o sin su confirmación: «Comprobando el pago», que se pone al día sola.
     if (op && view && !PAID_STATES.has(view.status) && view.attemptStatus !== 'DENIED') {

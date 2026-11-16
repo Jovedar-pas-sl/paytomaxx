@@ -119,6 +119,8 @@ export type PayRedirect =
 
 export interface PayResultView {
   paymentId: string;
+  /** Reservados: el pago es de una reserva (al pagarse, vuelta a su página). */
+  reservation?: true;
   status: PaymentMachineState;
   amountCents: number;
   tipCents: number;

@@ -101,4 +101,12 @@ export const UNPREFIXED_ROUTES: readonly UnprefixedRoute[] = Object.freeze([
   // El QR del cartel de la cola (B16): la misma carga, con los topes por móvil y por noche.
   { path: 'r/:code/cola', method: RequestMethod.POST },
   { path: 'r/:code/mi-saldo', method: RequestMethod.GET },
+  // Reservados: reservar (enlace del local o de un RRPP), la página del grupo,
+  // pagar, cambiar la fecha y el QR de cada persona.
+  { path: 'reservar/:code', method: RequestMethod.GET },
+  { path: 'reservar/:code', method: RequestMethod.POST },
+  { path: 'reservas/q/:token', method: RequestMethod.GET },
+  { path: 'reservas/:token', method: RequestMethod.GET },
+  { path: 'reservas/:token/pago', method: RequestMethod.POST },
+  { path: 'reservas/:token/fecha', method: RequestMethod.POST },
 ]);

@@ -1344,7 +1344,16 @@ export class PaymentsService implements OnApplicationBootstrap {
       }),
       attemptStatus,
       approvedClaimHash: payment.attempts[0]?.claimHash ?? null,
+      ...(isReservationPaymentKey(payment.idempotencyKey) ? { reservation: true as const } : {}),
     };
+  }
+
+  /** Reservados: el enlace de la reserva de este pago (para volver a ella después de pagar). */
+  async reservationManageToken(paymentId: string): Promise<string | null> {
+    const row = await this.prisma.asSystem((tx) =>
+      tx.reservationPayment.findUnique({ where: { paymentId }, select: { reservation: { select: { manageToken: true } } } }),
+    );
+    return row?.reservation.manageToken ?? null;
   }
 
   /** Justificante del cliente (solo cobros pagados). Sin datos personales. */

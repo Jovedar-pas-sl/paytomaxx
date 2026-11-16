@@ -4,6 +4,7 @@ import { AuditModule } from '../audit/audit.module';
 import { PaymentsModule } from '../payments/payments.module';
 import { ReservationCatalogService } from './reservation-catalog.service';
 import { ReservationOpsService } from './reservation-ops.service';
+import { PublicBookingController, PublicReservationController } from './public-reservations.controller';
 import { ReservationsController } from './reservations.controller';
 import { ReservationsService } from './reservations.service';
 
@@ -15,6 +16,6 @@ import { ReservationsService } from './reservations.service';
 @Module({
   imports: [PrismaModule, AuditModule, PaymentsModule],
   providers: [ReservationsService, ReservationOpsService, ReservationCatalogService],
-  controllers: [ReservationsController],
+  controllers: [ReservationsController, PublicBookingController, PublicReservationController],
 })
 export class ReservationsModule {}

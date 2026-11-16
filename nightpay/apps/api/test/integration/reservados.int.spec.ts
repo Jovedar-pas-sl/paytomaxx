@@ -226,6 +226,9 @@ describe('pagar: solo con la aprobación del banco', () => {
     const view = await pub(() => payments.getResultView(order));
     expect(view?.walletToken ?? null).toBeNull();
     expect(view && 'walletFromHome' in view).toBe(false);
+    // Al pagarse, el navegador que pagó vuelve a la página del reservado.
+    expect(view?.reservation).toBe(true);
+    expect(await pub(() => payments.reservationManageToken(p.id))).toBe(res.manageToken);
     // Contabilidad aparte: en reservation_payments, con su hora de pago.
     expect(await sys((tx) => tx.reservationPayment.findUniqueOrThrow({ where: { paymentId: p.id } }))).toMatchObject({ kind: 'DEPOSIT', amountCents: 9000 });
     // Señal pagada: ya no se puede pagar otra señal; sí el resto.
