@@ -266,6 +266,10 @@ describe('cobros sin resolver al cerrar: qué hacer con cada uno (no todos tiene
     expect(pendingTodo({ status: 'AUTHORIZING', captureMethod: 'REDSYS' })).toContain('si a los 15 min sigue, «Resolver»');
     expect(pendingTodo({ status: 'CREATED', captureMethod: 'WALLET_TOPUP' })).toBe('recarga en el datáfono a medias: se termina en el datáfono o caduca sola');
     expect(pendingTodo({ status: 'CREATED', captureMethod: 'WALLET_TOPUP' })).not.toContain('Resolver');
+    // Con bitcoin: su factura en BTCPay, ni banco ni BBVA.
+    const btc = pendingTodo({ status: 'AUTHORIZING', captureMethod: null, provider: 'BTCPAY' });
+    expect(btc).toContain('factura en tu BTCPay');
+    expect(btc).not.toMatch(/banco|BBVA/);
   });
 
   it('Noches los usa (ya no dice «resuélvelos en Hoy → Cobros»)', () => {

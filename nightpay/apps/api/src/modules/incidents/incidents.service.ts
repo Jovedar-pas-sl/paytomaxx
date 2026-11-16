@@ -115,7 +115,7 @@ export class IncidentsService {
       unassignedTopUps,
     ] = await runLimited([
       () => this.prisma.$queryRaw<StuckRow[]>`
-        SELECT id, status::text AS status, "amountCents", "updatedAt"
+        SELECT id, status::text AS status, "amountCents", "updatedAt", provider::text AS provider
           FROM payments
          WHERE "tenantId" = ${tenantId}::uuid
            AND "createdAt" >= ${since}

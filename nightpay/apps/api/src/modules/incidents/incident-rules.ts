@@ -134,6 +134,8 @@ export interface StuckRow {
   status: string;
   amountCents: number;
   updatedAt: Date;
+  /** BTCPAY: paga con bitcoin (no hay banco: se mira su factura en BTCPay). Sin el campo, el banco. */
+  provider?: string | null;
 }
 export interface EventRow {
   id: string;
@@ -161,11 +163,15 @@ function str(payload: unknown, key: string): string | null {
 
 export function stuckIncident(r: StuckRow): Incident {
   const orphan = r.status === 'ORPHAN';
+  const bitcoin = r.provider === 'BTCPAY';
   return {
     kind: 'stuck_payment',
     refId: r.id,
-    title: orphan ? 'Cobro sin confirmar por el banco' : 'Cobro atascado esperando al banco',
-    detail: `${eur(r.amountCents)}. Búscalo en el portal de BBVA y resuélvelo en Hoy → Cobros → Resolver.`,
+    title: bitcoin ? 'Cobro con bitcoin sin terminar' : orphan ? 'Cobro sin confirmar por el banco' : 'Cobro atascado esperando al banco',
+    // Con bitcoin no hay banco: su factura en BTCPay dice si se pagó (y su id es lo que pide «Resolver»).
+    detail: bitcoin
+      ? `${eur(r.amountCents)}. Mira su factura en tu BTCPay (Facturas, por importe y hora) y resuélvelo en Hoy → Cobros → Resolver con el id de la factura.`
+      : `${eur(r.amountCents)}. Búscalo en el portal de BBVA y resuélvelo en Hoy → Cobros → Resolver.`,
     occurredAt: r.updatedAt.toISOString(),
     amountCents: r.amountCents,
     paymentId: r.id,

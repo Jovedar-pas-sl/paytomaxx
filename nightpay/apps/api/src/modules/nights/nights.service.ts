@@ -61,6 +61,8 @@ export interface PendingPayment {
   amountCents: number;
   createdAt: Date;
   captureMethod: string | null;
+  /** BTCPAY: paga con bitcoin (se mira su factura en BTCPay, no el banco). */
+  provider?: string | null;
 }
 
 export interface NightView {
@@ -712,7 +714,7 @@ export class NightsService {
    */
   private async pending(tenantId: string, window: TimeWindow): Promise<PendingResult> {
     const rows = await this.prisma.$queryRaw<Array<PendingPayment & { total: number }>>`
-      SELECT id, status::text AS status, "amountCents", "createdAt", "captureMethod",
+      SELECT id, status::text AS status, "amountCents", "createdAt", "captureMethod", provider::text AS provider,
              (COUNT(*) OVER ())::int AS total
         FROM payments
        WHERE ${unresolvedPaymentsWhere(tenantId, window)}

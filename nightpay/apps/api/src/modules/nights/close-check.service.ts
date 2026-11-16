@@ -186,7 +186,7 @@ export class CloseCheckService {
   private unresolvedPayments(tenantId: string, window: TimeWindow): Promise<UnresolvedPaymentRow[]> {
     return this.prisma.$queryRaw<UnresolvedPaymentRow[]>`
       SELECT id, status::text AS status, "amountCents", "captureMethod", "createdAt", "updatedAt",
-             ("posOperationNumber" IS NOT NULL) AS "deviceSale"
+             ("posOperationNumber" IS NOT NULL) AS "deviceSale", provider::text AS provider
         FROM payments
        WHERE ${unresolvedPaymentsWhere(tenantId, window)}
        ORDER BY "createdAt" ASC

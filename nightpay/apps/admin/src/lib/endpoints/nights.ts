@@ -129,7 +129,8 @@ export interface NightView {
   /** Fondo de caja con el que empezó (null = no se apuntó). */
   openingFloatCents?: number | null;
   z: NightZ;
-  pending: Array<{ id: string; status: string; amountCents: number; createdAt: string; captureMethod: string | null }>;
+  /** `provider` BTCPAY: paga con bitcoin (sin banco). Un API de antes no lo trae. */
+  pending: Array<{ id: string; status: string; amountCents: number; createdAt: string; captureMethod: string | null; provider?: string | null }>;
 }
 
 export interface NightListItem {

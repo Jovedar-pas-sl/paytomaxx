@@ -85,6 +85,15 @@ describe('incidencias', () => {
     expect(orphan.title).toContain('sin confirmar');
   });
 
+  it('cobro con bitcoin atascado: su factura en BTCPay, sin hablar del banco ni de BBVA', () => {
+    const btc = stuckIncident({ id: 'p-9', status: 'AUTHORIZING', amountCents: 3_000, updatedAt: at('2026-10-13T22:00:00Z'), provider: 'BTCPAY' });
+    expect(btc).toMatchObject({ kind: 'stuck_payment', ackable: false, paymentId: 'p-9', title: 'Cobro con bitcoin sin terminar' });
+    expect(btc.detail).toContain('factura en tu BTCPay');
+    expect(btc.detail).toContain('id de la factura');
+    expect(`${btc.title} ${btc.detail}`).not.toMatch(/banco|BBVA/);
+    expect(stuck.detail).toContain('BBVA');
+  });
+
   it('doble cobro: dice qué pedido devolver', () => {
     expect(dup).toMatchObject({ kind: 'duplicate_charge', ackable: true, paymentId: 'p-3' });
     expect(dup.detail).toContain('1234ABCD5678');
