@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useId, useState, type FormEvent } from 'react';
-import { Button, FormError, Input } from '@nightpay/ui';
+import { Button, FormError, Input, PrivacyNote } from '@nightpay/ui';
 import {
   LoginCodeRequiredError,
   LoginSetupRequiredError,
@@ -12,6 +12,7 @@ import {
   type LoginResponse,
   type User,
 } from '@/lib/api';
+import { API_BASE } from '@/lib/http';
 import { ApiError, totpLockedUntil } from '@/lib/api-errors';
 import { OTP_LENGTH } from '@/lib/otp';
 import { useLockActive } from '@/lib/use-lock';
@@ -173,6 +174,7 @@ export function LoginForm({ onSuccess }: Props) {
       <Button type="submit" loading={busy} size="lg">
         Entrar
       </Button>
+      <PrivacyNote apiBase={API_BASE} />
     </form>
   );
 }

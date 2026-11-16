@@ -1,6 +1,7 @@
 import { brandWordmark, escapeHtml } from './club-ui';
 import { LANGUAGE_NAMES, LANG_COOKIE, LANG_COOKIE_MAX_AGE_S, PAY_LANGUAGES, type PayLanguage } from './customer-lang';
 import { CUSTOMER_TEXT } from './i18n';
+import { LEGAL_LINKS_CSS } from '../legal/legal-links';
 
 /**
  * Lo común de arriba de las páginas del cliente: el logo y, arriba a la
@@ -48,7 +49,7 @@ export const CHROME_CSS = `
 .lang a[aria-current=true]::after{content:'✓';color:var(--fg);font-weight:600}
 .lang a:focus-visible{outline:3px solid var(--fg);outline-offset:-3px}
 @media print{.top{display:none!important}}
-`;
+${LEGAL_LINKS_CSS}`;
 
 const GLOBE =
   '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></svg>';

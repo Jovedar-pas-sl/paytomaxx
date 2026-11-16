@@ -111,4 +111,6 @@ export const UNPREFIXED_ROUTES: readonly UnprefixedRoute[] = Object.freeze([
   // El QR del cartel de la cola (B16): la misma carga, con los topes por móvil y por noche.
   { path: 'r/:code/cola', method: RequestMethod.POST },
   { path: 'r/:code/mi-saldo', method: RequestMethod.GET },
+  // Aviso legal, Privacidad, Cookies y Condiciones (enlazadas desde el pie de las páginas del cliente).
+  { path: 'legal/:doc', method: RequestMethod.GET },
 ]);
