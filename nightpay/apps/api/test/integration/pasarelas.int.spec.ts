@@ -222,6 +222,28 @@ describe('procesador de avisos contra Postgres real', () => {
     expect(p?.tipCents).toBe(1000);
   });
 
+  it('avisos del mismo cobro a la vez (la cola procesa hasta 8): se paga una sola vez, con una comisión', async () => {
+    for (let round = 0; round < 3; round += 1) {
+      const order = `CC${round}${r}`;
+      const id = await payment({ status: 'AUTHORIZING', provider: 'REDSYS', amount: 3000, order, attempts: [{ order, amount: 3000, tip: 0 }] });
+      const body = Buffer.from(signedRedsys(order, '3000', id));
+      const ids: string[] = [];
+      for (let n = 0; n < 3; n += 1) {
+        const d = await prisma.webhookDelivery.create({
+          data: { provider: 'REDSYS', tenantId: A, externalEventId: `ev-${randomUUID()}`, rawBody: body, signature: 'x' },
+        });
+        ids.push(d.id.toString());
+      }
+      await Promise.all(ids.map((deliveryId) => processor.process({ data: { deliveryId } } as Job<{ deliveryId: string }>)));
+      expect((await statusOf(id))?.status).toBe('AUTHORIZED');
+      expect(await eventsOf(id, 'payment.authorized')).toHaveLength(1);
+      expect(await eventsOf(id, 'payment.duplicate_charge')).toHaveLength(0);
+      expect(await sys((tx) => tx.operatorEarning.count({ where: { paymentId: id } }))).toBe(1);
+      const done = await prisma.webhookDelivery.findMany({ where: { id: { in: ids.map((x) => BigInt(x)) } } });
+      expect(done.every((d) => d.processedAt !== null)).toBe(true);
+    }
+  });
+
   it('aprobación para un cobro caducado → incidencia "no se pudo apuntar", aviso cerrado', async () => {
     const order = `EX${r}`;
     const id = await payment({ status: 'EXPIRED', provider: 'REDSYS', amount: 2500, order, attempts: [{ order, amount: 2500, tip: 0 }] });
@@ -273,6 +295,20 @@ describe('conciliación de huérfanos contra Postgres real (#6)', () => {
     const id = await payment({ status: 'AUTHORIZING', provider: 'REDSYS', amount: 1000, order: o, attempts: [{ order: o, amount: 1000, tip: 0 }] });
     await reconcile.process({ data: { paymentId: id, tenantId: A }, attemptsMade: 4, opts: { attempts: 5 } } as never);
     expect((await statusOf(id))?.status).toBe('ORPHAN');
+  });
+
+  it('con la consulta de Redsys de verdad (hoy no disponible: UNKNOWN, sin llamar al banco) → reintenta y acaba «sin confirmar»', async () => {
+    const realRedsys = new OrphanReconcileProcessor(prisma as never, payments as never, { get: () => redsys } as never);
+    const o = `R4${r}`;
+    const id = await payment({ status: 'AUTHORIZING', provider: 'REDSYS', amount: 1500, order: o, attempts: [{ order: o, amount: 1500, tip: 0 }] });
+    await expect(
+      realRedsys.process({ data: { paymentId: id, tenantId: A }, attemptsMade: 0, opts: { attempts: 5 } } as never),
+    ).rejects.toThrow('still-pending');
+    expect((await statusOf(id))?.status).toBe('AUTHORIZING');
+    await realRedsys.process({ data: { paymentId: id, tenantId: A }, attemptsMade: 4, opts: { attempts: 5 } } as never);
+    expect((await statusOf(id))?.status).toBe('ORPHAN');
+    const att = await sys((tx) => tx.paymentAttempt.findMany({ where: { paymentId: id } }));
+    expect(att.map((a) => a.status)).toEqual(['PENDING']);
   });
 });
 
