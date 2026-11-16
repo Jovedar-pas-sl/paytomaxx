@@ -15,8 +15,8 @@ import type { ApprovalClaim, ApprovalProof, GatewayAdapter, WebhookFsmEvent } fr
  * local: lo abre, vigila y da por pagado BtcpayInvoiceService (modules/btcpay),
  * con la conexión de CADA local. Aquí solo está lo que el resto del API espera de
  * toda pasarela y no puede hacerse con bitcoin:
- *  - refund: lanza, como Redsys y Paytef (la devolución se hace fuera: desde la
- *    cartera del local);
+ *  - refund: lanza, como Redsys y Paytef (el bitcoin no se devuelve en bitcoin:
+ *    solo en euros, regla del dueño);
  *  - authorize / verifyWebhook: no aplican (la factura no pasa por este camino
  *    y el aviso tiene su ruta, con el token del local);
  *  - proveApproval: nunca da nada por probado (el aviso se comprueba contra la
@@ -36,7 +36,7 @@ export class BtcpayAdapter implements GatewayAdapter {
 
   refund(_input: RefundInput): Promise<RefundResult> {
     return Promise.reject(
-      new Error('Bitcoin: la devolución no se hace por el API. Devuélvelo desde la cartera del local y apúntalo como «devuelto fuera».'),
+      new Error('Bitcoin: no se devuelve por la pasarela ni en bitcoin, solo en euros («Devolver en efectivo» en un cobro; en una carga o un reservado, el dueño).'),
     );
   }
 

@@ -25,7 +25,7 @@ const STATUS_WORD: Record<string, string> = {
 
 /** Qué hacer con el bitcoin que está en la cartera sin cobro. */
 const RETURN_TEXT =
-  'Devuélveselo en efectivo con «Devolver en efectivo» (si el local lo tiene encendido) o desde tu BTCPay, y cierra el aviso con una nota.';
+  'Devuélveselo en euros con «Devolver en efectivo» (si el local lo tiene encendido; el bitcoin no se devuelve en bitcoin) y cierra el aviso con una nota.';
 
 function eur(cents: number): string {
   return `${(cents / 100).toFixed(2).replace('.', ',')} €`;

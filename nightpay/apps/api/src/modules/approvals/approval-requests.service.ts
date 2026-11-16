@@ -39,6 +39,7 @@ import { isAutoVerifiable } from '../treasury/verifiers/payout-verifier.interfac
 import { ApprovalNotifier } from './approval-notifier';
 import { assertRefundIntent, findRefundApproval, lockRefundIntent, refundApprovalKey, refundIntent } from '../refunds/refund-intent';
 import { TOPUP_REFUND_TEXT } from '../wallets/saldo-texts';
+import { BITCOIN_REFUND_TEXT } from '../refunds/bitcoin-refund';
 import {
   buildPayoutPayload,
   toApprovalView,
@@ -608,11 +609,9 @@ function assertRefundableByApi(payment: { provider: string | null; providerTxId:
       'Redsys no devuelve por API: el dueño la hace en el portal de BBVA y la apunta en «Devolución BBVA».',
     );
   }
-  // Bitcoin: ni por el banco ni por la pasarela (devolver desde la cartera es de la fase siguiente).
+  // Bitcoin: ni por el banco ni por la pasarela ni en bitcoin; solo en euros (regla del dueño).
   if (payment.provider === 'BTCPAY') {
-    throw new ConflictException(
-      'Este cobro se pagó con bitcoin: de momento no se devuelve desde la aplicación. Hazlo desde la cartera del local.',
-    );
+    throw new ConflictException(BITCOIN_REFUND_TEXT);
   }
 }
 

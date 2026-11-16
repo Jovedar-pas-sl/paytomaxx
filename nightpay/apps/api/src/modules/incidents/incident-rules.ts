@@ -830,7 +830,7 @@ export function paymentAnomalyIncident(r: PaymentAnomalyRow): Incident {
       kind: 'approval_unverified',
       refId: r.paymentId ?? r.id,
       title: known?.title ?? 'Una factura de bitcoin no cuadra con el cobro',
-      detail: `${known?.what ?? 'BTCPay avisa de una factura cuyo importe, moneda o tienda no coinciden con el cobro.'} NO se ha dado por pagado${r.amountCents === null ? '' : ` (${eur(r.amountCents)})`}${orderText}. Míralo en ${provider.where}: devuelve el bitcoin recibido desde la cartera del local y cancela el cobro, o, si ya está todo cobrado, resuélvelo en Hoy → Cobros → Resolver.`,
+      detail: `${known?.what ?? 'BTCPay avisa de una factura cuyo importe, moneda o tienda no coinciden con el cobro.'} NO se ha dado por pagado${r.amountCents === null ? '' : ` (${eur(r.amountCents)})`}${orderText}. Míralo en ${provider.where}: lo recibido se devuelve en euros (nunca en bitcoin) y se cancela el cobro, o, si ya está todo cobrado, resuélvelo en Hoy → Cobros → Resolver.`,
       amountCents: r.amountCents,
       ackable: false,
     };
