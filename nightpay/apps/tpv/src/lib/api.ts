@@ -213,6 +213,14 @@ export async function fetchBitcoinInvoice(paymentId: string, signal?: AbortSigna
   return ((await res.json()) as { invoice: BtcpayInvoiceView | null }).invoice;
 }
 
+/** El nombre del local, para el ticket impreso. Si no llega, null: el ticket sale sin él. */
+export async function fetchVenueName(): Promise<string | null> {
+  const res = await authedFetch('/v1/venues/me');
+  if (!res.ok) return null;
+  const venue = (await res.json()) as { name?: unknown };
+  return typeof venue.name === 'string' && venue.name.trim() ? venue.name.trim() : null;
+}
+
 /** Anula un cobro que aún no se ha pagado: su QR deja de valer. */
 export async function cancelPayment(id: string): Promise<void> {
   const res = await authedFetch(`/v1/payments/${encodeURIComponent(id)}/cancel`, { method: 'POST' });

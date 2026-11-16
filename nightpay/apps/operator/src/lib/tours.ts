@@ -75,7 +75,7 @@ export const TOURS = {
     steps: [
       { target: 'cobros-total', title: 'Tu noche', text: 'Arriba, lo vendido esta noche, con propinas y sin devoluciones. Las recargas se cuentan aparte: no son venta.' },
       { target: 'cobros-fila', title: 'Cada cobro', text: 'Tus cobros, del último al primero. Toca uno para ver su detalle.' },
-      { target: 'cobros-estado', title: 'El estado', text: 'Cobrado: ya cuenta en tu noche. Pendiente o Pagando: aún no ha pagado, espera. Fallido, Caducado o Cancelado: no se ha cobrado nada.' },
+      { target: 'cobros-estado', title: 'El estado', text: 'Pagado: ya cuenta en tu noche. Pendiente o Pagando: aún no ha pagado, espera. Fallido, Caducado o Cancelado: no se ha cobrado nada.' },
       { target: 'cobros-cancelar', title: 'Cancelar', text: 'Si un cobro sigue pendiente y el cliente ya no paga, toca «Cancelar».' },
       { target: 'cobros-lista', title: 'Si pasa esto', text: 'Si el banco tarda, no cobres otra vez. Para devolver un cobro, avisa al encargado o al dueño: se hace desde el panel.' },
     ],

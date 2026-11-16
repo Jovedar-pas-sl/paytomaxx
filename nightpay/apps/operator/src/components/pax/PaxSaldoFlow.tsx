@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, type CSSProperties, type FormEvent } from 'react';
 import { Button, Card, Input } from '@nightpay/ui';
 import { formatEur } from '@/lib/money';
+import { fichaPlace, useReaderSpot } from '@/lib/lector-nfc';
 import { nfcSupported } from '@/lib/nfc';
 import { callReader, hasBridgeMethod } from '@/lib/pax-bridge';
 import {
@@ -149,7 +150,7 @@ export function PaxSaldoFlow({ onDone }: { onDone: () => void }) {
         <StaffOutcome
           kind={outcome}
           amountCents={charge.amountCents}
-          message={message ?? (outcome === 'paid' ? 'Cobrado del saldo.' : undefined)}
+          message={message ?? (outcome === 'paid' ? 'Pagado con el saldo.' : undefined)}
           detail={
             <>
               {charge.serviceName ? <p>{charge.serviceName}</p> : null}
@@ -282,6 +283,7 @@ function IdentifyWallet({
   onChecked: (ref: SaldoRef, check: SaldoCheck) => void | Promise<void>;
   onBack: () => void;
 }) {
+  const readerSpot = useReaderSpot();
   const [code, setCode] = useState('');
   const [busy, setBusy] = useState(false);
   const [reading, setReading] = useState<AbortController | null>(null);
@@ -341,7 +343,7 @@ function IdentifyWallet({
       <ChargeHeader charge={charge} />
       {reading ? (
         <>
-          <p style={big}>Acerca la ficha a la parte de atrás del datáfono…</p>
+          <p style={big}>Acerca la ficha {fichaPlace(readerSpot, 'datáfono')}…</p>
           <Button variant="ghost" onClick={() => reading.abort()}>
             Cancelar
           </Button>
