@@ -1,4 +1,4 @@
-import { BadRequestException, Inject, Injectable, NotFoundException, Optional } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
 import { APPROVAL_INCIDENT_MINUTES, APPROVAL_TTL_MS, PENDING_TOPUP_INCIDENT_MINUTES } from '@nightpay/contracts';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { lastNightCutoff } from '../../common/time/madrid';
@@ -50,6 +50,7 @@ import {
   type StuckRow,
 } from './incident-rules';
 import { runLimited } from './run-limited';
+import { bitcoinPartCents, walletCash } from '../wallets/wallet-cash-limits';
 
 /** Hasta dónde se mira atrás, y cuántas de cada tipo como mucho. */
 const LOOKBACK_DAYS = 60;
@@ -418,7 +419,7 @@ export class IncidentsService {
       ...posUnmatched.map(posUnmatchedOpIncident),
       ...posUnreconciled.map(posUnreconciledIncident),
       ...posVoidedPaid.map(posVoidedPaidIncident),
-      ...walletsToClose.map(walletCloseRequestedIncident),
+      ...(await this.withBitcoinParts(walletsToClose)).map(walletCloseRequestedIncident),
       ...walletsLeftOpen.map(walletOpenBalanceIncident),
       ...unassignedTopUps.map(walletTopUpUnassignedIncident),
       // La misma diferencia repetida (dos subidas a la vez) sale una vez.
@@ -471,7 +472,27 @@ export class IncidentsService {
       payload: { note: input.note ?? null },
     });
   }
+
+  /**
+   * «Me voy»: la parte de cada saldo que entró con bitcoin (no se devuelve: se
+   * queda como saldo para otra noche). Si todo es bitcoin, no hay nada que hacer
+   * y no sale. Si no se puede leer, como antes (todo por devolver).
+   */
+  private async withBitcoinParts(rows: WalletBalanceRow[]): Promise<WalletBalanceRow[]> {
+    if (rows.length === 0) return rows;
+    try {
+      const out = await this.prisma.asSystem((tx) =>
+        Promise.all(rows.map(async (r) => ({ ...r, bitcoinCents: bitcoinPartCents(r.balanceCents, await walletCash(tx, r.id)) }))),
+      );
+      return out.filter((r) => r.balanceCents - r.bitcoinCents > 0);
+    } catch (err) {
+      meVoyLogger.warn(`«Me voy»: no se pudo separar la parte de bitcoin (${(err as Error).message})`);
+      return rows;
+    }
+  }
 }
+
+const meVoyLogger = new Logger('IncidentsService');
 
 function uniqueBy<T>(list: T[], key: (t: T) => string): T[] {
   const seen = new Set<string>();

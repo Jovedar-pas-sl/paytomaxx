@@ -562,6 +562,18 @@ describe('avisos del saldo: «Saldos» (nunca «Wallets») y el código con guio
     );
   });
 
+  it('«Me voy» con parte cargada con bitcoin: se devuelve el resto; esa parte se queda como saldo para otra noche', () => {
+    const mixed = walletCloseRequestedIncident({ ...row, balanceCents: 8_000, bitcoinCents: 3_000 });
+    expect(mixed.detail).toBe(
+      '80,00 € · código UYS-J5G. Devuélvele 50,00 € en Clientes → Saldos → Devolver saldo (tarjeta o efectivo). Los otros 30,00 €: esta parte entró con bitcoin: se queda como saldo para otra noche, no se devuelve.',
+    );
+    expect(mixed.amountCents).toBe(5_000);
+    const allBtc = walletCloseRequestedIncident({ ...row, bitcoinCents: 2_900 });
+    expect(allBtc.detail).toBe('29,00 € · código UYS-J5G: todo entró con bitcoin. Esta parte entró con bitcoin: se queda como saldo para otra noche, no se devuelve.');
+    expect(allBtc.amountCents).toBe(0);
+    expect(walletCloseRequestedIncident({ ...row, bitcoinCents: 0 }).detail).toBe(walletCloseRequestedIncident(row).detail);
+  });
+
   it('saldo sin devolver tras cerrar: también con el código con guion y «Saldos»', () => {
     expect(walletOpenBalanceIncident(row).detail).toBe(
       '29,00 € · código UYS-J5G. Si el cliente ya se fue, devuélveselo a la tarjeta en Clientes → Saldos → Devolver saldo.',

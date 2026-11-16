@@ -22,6 +22,7 @@ import { totpCodeAt } from '../../src/modules/auth/testing/totp-kit';
 import { BitcoinCashService } from '../../src/modules/bitcoin-cash/bitcoin-cash.service';
 import { bitcoinCashOut } from '../../src/modules/bitcoin-cash/bitcoin-cash-rows';
 import { CloseCheckService } from '../../src/modules/nights/close-check.service';
+import { IncidentsService } from '../../src/modules/incidents/incidents.service';
 
 process.env.BTCPAY_ENABLED = 'true';
 
@@ -49,7 +50,10 @@ const payments = new PaymentsService(
 const notifier = { enabled: () => false, requested: vi.fn() };
 const requests = new ApprovalRequestsService(prisma, audit as never, config as never, notifier as never);
 const approvals = new ApprovalsService(prisma, requests, {} as never, {} as never, totp, audit as never);
-const cash = new BitcoinCashService(prisma, payments, totp, audit as never, requests);
+// Telegram de mentira: cada devolución en efectivo manda su aviso.
+const telegram = { hasBot: () => true, isConfigured: () => true, send: vi.fn(async (_text: string) => true) };
+const sent = () => telegram.send.mock.calls.map((c) => c[0]);
+const cash = new BitcoinCashService(prisma, payments, totp, audit as never, requests, telegram as never);
 const checks = new CloseCheckService(prisma, {} as never, config as never);
 
 function asStaff<T>(tenantId: string, fn: () => Promise<T>): Promise<T> {
@@ -150,6 +154,9 @@ describe('devolver en efectivo un cobro pagado con bitcoin', () => {
     const refund = await asStaff(V, () => prisma.withTenant(V, (tx) => tx.refund.findFirstOrThrow({ where: { paymentId } })));
     expect(refund).toMatchObject({ paidInCash: true, status: 'SUCCEEDED', amountCents: 2_000, receiptCode: confirmationCode(paymentId) });
     expect(auditLog.some((e) => e.action === 'refund.cash_registered')).toBe(true);
+    // El aviso por Telegram: quién, cuánto, el motivo y el cobro; sin el código del recibo del cliente.
+    await vi.waitFor(() => expect(sent().some((t) => t.includes('20,00 € de la caja · Cobro') && t.includes('Motivo: Cobro equivocado'))).toBe(true));
+    expect(sent().join(' | ')).not.toContain(confirmationCode(paymentId));
   });
 
   it('el encargado, de más de 100 €: lo pide al dueño; el dueño aprueba (no sale nada) y al pulsar «Entregado» se apunta, una sola vez', async () => {
@@ -174,6 +181,8 @@ describe('devolver en efectivo un cobro pagado con bitcoin', () => {
     expect(again).toMatchObject({ id: handed.id, message: 'Ya estaba apuntada como entregada.' });
     const refunds = await asStaff(V, () => prisma.withTenant(V, (tx) => tx.refund.count({ where: { paymentId } })));
     expect(refunds).toBe(1);
+    // Pasaba de 100 €: el aviso dice también quién la aprobó.
+    await vi.waitFor(() => expect(sent().some((t) => t.includes('120,00 € de la caja') && t.includes('la aprobó'))).toBe(true));
   });
 });
 
@@ -186,6 +195,7 @@ describe('el bitcoin que llegó sin cobro', () => {
     expect((await failure(asStaff(V, () => cash.returnInvoice(owner, invoiceId, body({ amountCents: 4_001, receiptCode: invoiceId, totpCode: codeOf(owner) }))))).status).toBe(409);
     const done = await asStaff(V, () => cash.returnInvoice(owner, invoiceId, body({ amountCents: 4_000, reason: 'CHARGED_TWICE', receiptCode: invoiceId.slice(-8), totpCode: codeOf(owner) })));
     expect(done).toMatchObject({ kind: 'done', amountCents: 4_000 });
+    await vi.waitFor(() => expect(sent().some((t) => t.includes(`Bitcoin sin cobro (factura ${invoiceId})`))).toBe(true));
     const again = await failure(asStaff(V, () => cash.returnInvoice(owner2, invoiceId, body({ amountCents: 1_000, receiptCode: invoiceId, totpCode: codeOf(owner2) }))));
     expect(again).toMatchObject({ status: 409, body: { message: expect.stringContaining('ya se devolvió') } });
   });
@@ -195,6 +205,37 @@ describe('el bitcoin que llegó sin cobro', () => {
     const { invoiceId } = await newBitcoinPayment({ amountCents: 3_000, status: 'AUTHORIZED', invoice: { status: 'Settled', paidCents: 3_500 } });
     const res = await failure(asStaff(V, () => cash.returnInvoice(owner, invoiceId, body({ amountCents: 500, receiptCode: invoiceId, totpCode: codeOf(owner) }))));
     expect(res).toMatchObject({ status: 409, body: { message: expect.stringContaining('pagó el cobro') } });
+  });
+});
+
+describe('«Me voy» con saldo cargado con bitcoin', () => {
+  it('el aviso separa la parte de bitcoin (se queda como saldo); si todo es bitcoin, no sale', async () => {
+    const incidents = new IncidentsService(prisma, audit as never);
+    const wallets = await sys<{ mixed: string; onlyBtc: string }>(async (tx) => {
+      const mk = async (tag: string, balanceCents: number, topUps: Array<{ provider: 'BTCPAY' | 'REDSYS'; cents: number }>) => {
+        const w = await tx.clientWallet.create({ data: { tenantId: V, balanceCents, qrToken: uniq(`w-${tag}`), closeRequestedAt: new Date() } as never });
+        for (const t of topUps) {
+          await tx.payment.create({
+            data: {
+              tenantId: V, terminalId: term, idempotencyKey: uniq('k'), qrToken: uniq('q'), qrExpiresAt: new Date(Date.now() + HOUR),
+              status: 'AUTHORIZED', provider: t.provider, providerTxId: uniq('TX'), amountCents: t.cents, availableAmountCents: t.cents,
+              walletId: w.id, revenueCategory: 'VENUE_BAR', authorizedAt: new Date(),
+            } as never,
+          });
+        }
+        return w.id;
+      };
+      return {
+        mixed: await mk('mix', 8_000, [{ provider: 'REDSYS', cents: 5_000 }, { provider: 'BTCPAY', cents: 3_000 }]),
+        onlyBtc: await mk('btc', 2_000, [{ provider: 'BTCPAY', cents: 2_000 }]),
+      };
+    });
+    const items = await asStaff(V, () => incidents.list(V));
+    const closing = items.filter((i) => i.kind === 'wallet_close_requested');
+    const mixed = closing.find((i) => i.refId === wallets.mixed);
+    expect(mixed).toMatchObject({ amountCents: 5_000 });
+    expect(mixed!.detail).toContain('Los otros 30,00 €: esta parte entró con bitcoin: se queda como saldo para otra noche, no se devuelve.');
+    expect(closing.some((i) => i.refId === wallets.onlyBtc)).toBe(false);
   });
 });
 
