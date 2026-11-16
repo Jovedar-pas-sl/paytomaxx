@@ -34,6 +34,7 @@ import type { JwtPayload } from '@nightpay/contracts';
 import { PaymentsService } from './payments.service';
 import { mayReadCobro } from './payment-read-access';
 import { staffBankRef, type StaffBankRef } from './staff-bank-ref';
+import { listUnpaidCobros, type UnpaidCobro } from './unpaid-cobros';
 
 @Controller('payments')
 export class PaymentsController {
@@ -76,6 +77,17 @@ export class PaymentsController {
     @Query('zone') zone?: string,
   ) {
     return this.payments.listPendingPos(tenantId, zone);
+  }
+
+  /**
+   * Los cobros sin pagar de todo el local (app del personal → Cobros): para
+   * cancelar también los de otra persona. Cualquiera del personal del local.
+   */
+  @Get('sin-pagar')
+  @UseGuards(RolesGuard)
+  @Roles('OWNER', 'MANAGER', 'OPERATOR', 'WAITER')
+  async unpaid(@Tenant() tenantId: string, @CurrentUser() user: JwtPayload): Promise<{ items: UnpaidCobro[] }> {
+    return { items: await listUnpaidCobros(this.prisma, { tenantId, userId: user.sub }) };
   }
 
   /**
