@@ -340,9 +340,9 @@ describe('la salida (4.5)', () => {
     expect(eur(refundDoneLine(1_500))).toMatch(/^Le quedan 15 € \(con tarjeta\)/);
     // Lo que entró con bitcoin: ni efectivo ni tarjeta, con el encargado.
     expect(eur(refundDoneLine(1_500, 1_500))).toBe(
-      'Le quedan 15 € (con bitcoin): no se devuelven en efectivo ni a la tarjeta. Habla con el encargado: la devolución de bitcoin aún no está en la app. Se lleva su NFC.',
+      'Le quedan 15 € (con bitcoin): se quedan como saldo para otra noche, no se devuelven. Se lleva su NFC.',
     );
-    expect(eur(refundDoneLine(5_000, 2_000))).toMatch(/^Le quedan 50 €: 30 € con tarjeta \(los devuelve el dueño «A la tarjeta»\) y 20 € con bitcoin \(habla con el encargado/);
+    expect(eur(refundDoneLine(5_000, 2_000))).toMatch(/^Le quedan 50 €: 30 € con tarjeta \(los devuelve el dueño «A la tarjeta»\) y 20 € con bitcoin \(se quedan como saldo para otra noche/);
   });
 });
 

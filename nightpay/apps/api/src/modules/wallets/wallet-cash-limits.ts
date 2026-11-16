@@ -9,10 +9,11 @@ import type { Prisma } from '@nightpay/db';
  *  - en efectivo solo se devuelve lo que entró en efectivo y no ha salido, y
  *    lo devuelto en efectivo en 24 h tampoco llega a 1.000 €;
  *  - a la tarjeta, como mucho el saldo menos ese efectivo (lo gastado cuenta
- *    primero como dinero de la tarjeta) y menos lo que entró con bitcoin: eso no
- *    pasó por el banco y no se devuelve a ninguna tarjeta (ni en efectivo: la
- *    devolución de bitcoin aún no está en la app; lo gastado cuenta antes como
- *    dinero de la tarjeta, así el bitcoin nunca acaba saliendo por el banco).
+ *    primero como dinero de la tarjeta) y menos lo que entró con bitcoin;
+ *  - lo que entró con bitcoin NO se devuelve (decisión del dueño, 17-nov-2026):
+ *    ni en efectivo ni en bitcoin; se queda como saldo para otra noche. Lo
+ *    gastado cuenta primero contra el bitcoin (luego la tarjeta, y el efectivo
+ *    lo último), y nunca sale por el banco más de lo que entró con tarjeta.
  * Funciones puras más una lectura. Llamar con el saldo ya bloqueado (FOR
  * UPDATE), dentro de una transacción con bypass de RLS (acrossVenues).
  */
@@ -39,10 +40,12 @@ export interface WalletCash {
   outWindowCents: number;
   /** Entró con bitcoin (recargas pagadas con BTCPay) desde siempre. Sin el campo, nada. */
   bitcoinInCents?: number;
+  /** Lo que queda por devolver de las recargas con tarjeta (sin las de bitcoin). Sin el campo, 0. */
+  cardInCents?: number;
 }
 
-/** Qué hacer con la parte que entró con bitcoin (la devolución de bitcoin aún no está en la app). */
-export const BITCOIN_PAYOUT_TEXT = 'habla con el encargado: la devolución de bitcoin aún no está en la app';
+/** La parte del saldo que entró con bitcoin (decisión del dueño): no se devuelve. */
+export const BITCOIN_STAYS_TEXT = 'Esta parte entró con bitcoin: se queda como saldo para otra noche, no se devuelve.';
 
 /** El efectivo del saldo y de los sumados a él (en una sola lectura). */
 export async function walletCash(tx: RawTx, walletId: string, now: Date = new Date()): Promise<WalletCash> {
@@ -68,7 +71,10 @@ export async function walletCash(tx: RawTx, walletId: string, now: Date = new Da
           AND p."createdAt" >= ${since})::bigint AS "outWindowCents",
       (SELECT COALESCE(SUM(b."amountCents"), 0) FROM payments b
         WHERE b."walletId" IN (SELECT id FROM chain) AND b.provider = 'BTCPAY'
-          AND b.status IN ('AUTHORIZED', 'PARTIALLY_REFUNDED'))::bigint AS "bitcoinInCents"
+          AND b.status IN ('AUTHORIZED', 'PARTIALLY_REFUNDED'))::bigint AS "bitcoinInCents",
+      (SELECT COALESCE(SUM(LEAST(c."availableAmountCents", c."amountCents")), 0) FROM payments c
+        WHERE c."walletId" IN (SELECT id FROM chain) AND c.provider IS DISTINCT FROM 'BTCPAY'
+          AND c.status IN ('AUTHORIZED', 'PARTIALLY_REFUNDED'))::bigint AS "cardInCents"
   `;
   const r = rows[0];
   return {
@@ -78,6 +84,7 @@ export async function walletCash(tx: RawTx, walletId: string, now: Date = new Da
     outCents: Number(r?.outCents ?? 0),
     outWindowCents: Number(r?.outWindowCents ?? 0),
     bitcoinInCents: Number(r?.bitcoinInCents ?? 0),
+    cardInCents: Number(r?.cardInCents ?? 0),
   };
 }
 
@@ -92,15 +99,18 @@ export function cashPayoutCapCents(balanceCents: number, cash: WalletCash): numb
   return Math.max(0, Math.min(unspentCashCents(balanceCents, cash), legal));
 }
 
-type CashAndBitcoin = Pick<WalletCash, 'inCents' | 'outCents' | 'bitcoinInCents'>;
+type CashAndBitcoin = Pick<WalletCash, 'inCents' | 'outCents' | 'bitcoinInCents' | 'cardInCents'>;
 
 /**
- * Lo que entró con bitcoin y sigue en el saldo: lo que no es efectivo, hasta lo
- * que entró con bitcoin (lo gastado cuenta antes como dinero de la tarjeta).
+ * Lo que entró con bitcoin y sigue en el saldo. Lo gastado cuenta primero
+ * contra el bitcoin: queda de bitcoin lo que no es efectivo ni lo cubren las
+ * recargas con tarjeta (como mucho, lo que entró con bitcoin).
  */
 export function bitcoinPartCents(balanceCents: number, cash: CashAndBitcoin): number {
+  const bitcoinIn = cash.bitcoinInCents ?? 0;
+  if (bitcoinIn <= 0) return 0;
   const notCash = Math.max(0, balanceCents - unspentCashCents(balanceCents, cash));
-  return Math.max(0, Math.min(notCash, cash.bitcoinInCents ?? 0));
+  return Math.max(0, Math.min(bitcoinIn, notCash - (cash.cardInCents ?? 0)));
 }
 
 /** Lo que se puede devolver a la tarjeta: el saldo menos el efectivo que sigue en él y lo que entró con bitcoin. */
@@ -116,7 +126,7 @@ export interface PayoutAmounts {
   cardRefundCents: number;
   /** Efectivo que hoy no puede salir por el tope de 24 h: sale más tarde, en efectivo (no a la tarjeta). */
   cashLaterCents: number;
-  /** Entró con bitcoin: ni a la tarjeta ni en efectivo (la devolución de bitcoin aún no está en la app). */
+  /** Entró con bitcoin: no se devuelve (ni a la tarjeta ni en efectivo); se queda como saldo para otra noche. */
   bitcoinCents: number;
 }
 
@@ -150,7 +160,7 @@ export function cashTopUpOverLimit(
 
 /** Por qué no se devuelve nada en efectivo (cap = 0). */
 export function cashPayoutRefusal(balanceCents: number, cash: WalletCash): string {
-  if (unspentCashCents(balanceCents, cash) === 0) return notCashText(balanceCents, cash);
+  if (unspentCashCents(balanceCents, cash) === 0) return notCashText(balanceCents, cash, balanceCents);
   return `A este saldo ya se le devolvieron ${eur(cash.outWindowCents)} en efectivo en 24 h y no puede llegar a 1.000 €: el resto, «A la tarjeta» (el dueño) o mañana.`;
 }
 
@@ -166,16 +176,16 @@ export function cashPayoutNote(balanceCents: number, cash: WalletCash): string |
   if (cap < unspentCashCents(balanceCents, cash)) {
     return `En efectivo, como mucho ${eur(cap)}: a este saldo ya se le devolvieron ${eur(cash.outWindowCents)} en efectivo en 24 h. El resto, «A la tarjeta» (el dueño) o mañana.`;
   }
-  return notCashText(balanceCents - cap, cash, true);
+  return notCashText(balanceCents - cap, cash, balanceCents, true);
 }
 
 /**
- * Lo que no entró en efectivo, y quién lo devuelve: lo de tarjeta, el dueño «A
- * la tarjeta»; lo de bitcoin no se devuelve en efectivo ni a la tarjeta (aún no
- * está en la app: BITCOIN_PAYOUT_TEXT). `rest`: lo que queda tras el efectivo.
+ * Lo que no entró en efectivo, y qué pasa con ello: lo de tarjeta lo devuelve
+ * el dueño «A la tarjeta»; lo de bitcoin no se devuelve (BITCOIN_STAYS_TEXT).
+ * `rest`: lo que queda tras el efectivo.
  */
-function notCashText(notCashCents: number, cash: WalletCash, rest = false): string {
-  const bitcoin = Math.max(0, Math.min(notCashCents, cash.bitcoinInCents ?? 0));
+function notCashText(notCashCents: number, cash: WalletCash, balanceCents: number, rest = false): string {
+  const bitcoin = Math.min(notCashCents, bitcoinPartCents(balanceCents, cash));
   const card = notCashCents - bitcoin;
   if (bitcoin === 0) {
     return rest
@@ -184,11 +194,11 @@ function notCashText(notCashCents: number, cash: WalletCash, rest = false): stri
   }
   if (card === 0) {
     return rest
-      ? `Los otros ${eur(notCashCents)} entraron con bitcoin: no se devuelven en efectivo ni a la tarjeta. Para devolverlos, ${BITCOIN_PAYOUT_TEXT}.`
-      : `Este saldo entró con bitcoin: no se devuelve en efectivo ni a la tarjeta. Para devolverlo, ${BITCOIN_PAYOUT_TEXT}.`;
+      ? `Los otros ${eur(notCashCents)} entraron con bitcoin. ${BITCOIN_STAYS_TEXT}`
+      : `Este saldo entró con bitcoin: se queda como saldo para otra noche, no se devuelve (ni en efectivo ni a la tarjeta).`;
   }
-  const split = `${eur(card)} entraron con tarjeta (los devuelve el dueño «A la tarjeta») y ${eur(bitcoin)} con bitcoin (no se devuelven en efectivo ni a la tarjeta; para devolverlos, ${BITCOIN_PAYOUT_TEXT})`;
-  return rest ? `De los otros ${eur(notCashCents)}, ${split}.` : `Este saldo no entró en efectivo: ${split}.`;
+  const split = `${eur(card)} entraron con tarjeta (los devuelve el dueño «A la tarjeta») y ${eur(bitcoin)} con bitcoin. ${BITCOIN_STAYS_TEXT}`;
+  return rest ? `De los otros ${eur(notCashCents)}, ${split}` : `Este saldo no entró en efectivo: ${split}`;
 }
 
 function eur(cents: number): string {

@@ -49,13 +49,13 @@ const EMPTY = 'Este saldo no tiene nada que devolver.';
 const TO_CARD = 'los devuelve el dueño en el banco («A su tarjeta»)';
 const CASH_LIMIT = 'lo devuelto en efectivo no llega a 1.000 € en 24 h';
 /** Qué hacer con lo que entró con bitcoin. */
-export const BITCOIN_PAYOUT_TEXT = 'habla con el encargado: la devolución de bitcoin aún no está en la app';
+export const BITCOIN_STAYS_TEXT = 'Esta parte entró con bitcoin: se queda como saldo para otra noche, no se devuelve.';
 
 /** «Los 30,00 € que entraron con bitcoin no se devuelven…» (sin bitcoin, null). */
 function bitcoinReason(p: WalletPayoutPreview): string | null {
   const btc = p.bitcoinCents ?? 0;
   return btc > 0
-    ? `Los ${formatEur(btc)} que entraron con bitcoin no se devuelven en efectivo ni a la tarjeta. Para devolverlos, ${BITCOIN_PAYOUT_TEXT}.`
+    ? `Los ${formatEur(btc)} que entraron con bitcoin se quedan como saldo para otra noche: no se devuelven (ni en efectivo ni a la tarjeta).`
     : null;
 }
 
@@ -94,7 +94,7 @@ function cashBlocked(p: WalletPayoutPreview): string {
     const card = p.cardRefundCents > 0 ? ` Los ${formatEur(p.cardRefundCents)} que entraron con tarjeta, ${TO_CARD}.` : '';
     return `Hoy no se puede devolver más en efectivo a este saldo (${CASH_LIMIT}): los ${formatEur(p.cashLaterCents)} se le devuelven mañana.${card}${btc ? ` ${btc}` : ''}`;
   }
-  if (btc && p.cardRefundCents <= 0) return `Este saldo entró con bitcoin: no se devuelve en efectivo ni a la tarjeta. Para devolverlo, ${BITCOIN_PAYOUT_TEXT}.`;
+  if (btc && p.cardRefundCents <= 0) return `Este saldo entró con bitcoin: se queda como saldo para otra noche, no se devuelve (ni en efectivo ni a la tarjeta).`;
   if (btc) return `Este saldo no entró en efectivo: en efectivo no se devuelve nada. Los ${formatEur(p.cardRefundCents)} que entraron con tarjeta, ${TO_CARD}. ${btc}`;
   return `Este saldo entró con tarjeta: en efectivo no se devuelve nada. Lo devuelve el dueño en el banco («A su tarjeta»).`;
 }
@@ -118,7 +118,7 @@ function cardPlan(p: WalletPayoutPreview): PayoutPlan {
       p.balanceCents <= 0
         ? EMPTY
         : btc > 0 && btc >= p.balanceCents
-          ? `Este saldo entró con bitcoin: no se devuelve a la tarjeta. Para devolverlo, ${BITCOIN_PAYOUT_TEXT}.`
+          ? `Este saldo entró con bitcoin: no se devuelve a la tarjeta. ${BITCOIN_STAYS_TEXT}`
           : btc > 0
             ? `Este saldo no entró con tarjeta: lo de efectivo se devuelve en efectivo («Efectivo»). ${bitcoinReason(p)}`
             : 'Este saldo entró en efectivo: se devuelve en efectivo («Efectivo»), no a la tarjeta.';

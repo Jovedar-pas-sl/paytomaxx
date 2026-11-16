@@ -71,7 +71,7 @@ import {
   type CardBy,
 } from './wallet-card-ops';
 import {
-  BITCOIN_PAYOUT_TEXT,
+  BITCOIN_STAYS_TEXT,
   bitcoinPartCents,
   cardRefundCapCents,
   cashPayoutCapCents,
@@ -2518,7 +2518,7 @@ export class WalletChargesService {
       if (amount <= 0) {
         throw new ConflictException(
           bitcoinPartCents(w.balanceCents, cash) > 0
-            ? `Este saldo entró con bitcoin: no se devuelve a la tarjeta. Para devolverlo, ${BITCOIN_PAYOUT_TEXT}.`
+            ? `Este saldo entró con bitcoin: no se devuelve a la tarjeta. ${BITCOIN_STAYS_TEXT}`
             : 'Este saldo entró en efectivo: se devuelve en efectivo, no a la tarjeta',
         );
       }

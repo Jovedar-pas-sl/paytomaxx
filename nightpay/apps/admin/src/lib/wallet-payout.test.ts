@@ -134,12 +134,12 @@ describe('la cabecera «Saldo» del modal tras devolver (prueba real: seguía en
   });
 });
 
-describe('saldo cargado con bitcoin: esa parte ni «A su tarjeta» ni en efectivo', () => {
+describe('saldo cargado con bitcoin: esa parte no se devuelve, se queda como saldo para otra noche', () => {
   it('todo con bitcoin: sin botón a la tarjeta ni en efectivo, y dice qué hacer', () => {
     const btc: WalletPayoutPreview = { balanceCents: 3_000, cashOutCents: 0, cardRefundCents: 0, cashLaterCents: 0, pendingCardCents: null, bitcoinCents: 3_000 };
     const card = payoutPlan(btc, 'CARD');
     expect(card.amountCents).toBe(0);
-    expect(card.blocked).toBe('Este saldo entró con bitcoin: no se devuelve a la tarjeta. Para devolverlo, habla con el encargado: la devolución de bitcoin aún no está en la app.');
+    expect(card.blocked).toBe('Este saldo entró con bitcoin: no se devuelve a la tarjeta. Esta parte entró con bitcoin: se queda como saldo para otra noche, no se devuelve.');
     const cash = payoutPlan(btc, 'CASH');
     expect(cash.amountCents).toBe(0);
     expect(cash.blocked).toContain('entró con bitcoin');
@@ -150,7 +150,7 @@ describe('saldo cargado con bitcoin: esa parte ni «A su tarjeta» ni en efectiv
     const p: WalletPayoutPreview = { balanceCents: 8_000, cashOutCents: 0, cardRefundCents: 5_000, cashLaterCents: 0, pendingCardCents: null, bitcoinCents: 3_000 };
     const card = payoutPlan(p, 'CARD');
     expect(card.amountCents).toBe(5_000);
-    expect(eur(card.remainder)).toBe('El saldo no se cierra: quedan 30,00 €. Los 30,00 € que entraron con bitcoin no se devuelven en efectivo ni a la tarjeta. Para devolverlos, habla con el encargado: la devolución de bitcoin aún no está en la app.');
+    expect(eur(card.remainder)).toBe('El saldo no se cierra: quedan 30,00 €. Los 30,00 € que entraron con bitcoin se quedan como saldo para otra noche: no se devuelven (ni en efectivo ni a la tarjeta).');
     expect(eur(payoutPlan(p, 'CASH').blocked)).toContain('Los 50,00 € que entraron con tarjeta');
   });
 });
