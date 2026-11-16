@@ -241,6 +241,19 @@ describe('pagar: solo con la aprobación del banco', () => {
     expect((await walletOf(p.walletId!)).balanceCents).toBe(30000);
   });
 
+  it('aprobado pero sin sumar al saldo (cerrado al caducar): la reserva no se da por pagada y queda la incidencia', async () => {
+    const entry = await entryWeb();
+    const res = await book(entry, creditPkg, plusDays(tonight(), 4));
+    const started = await pub(() => reservations.startPayment(res.manageToken, 'DEPOSIT', 'es'));
+    const p = await sys((tx) => tx.payment.findUniqueOrThrow({ where: { qrToken: started.payToken } }));
+    // Como el barrido de una recarga sin pagar: su saldo vacío se cierra.
+    await sys((tx) => tx.clientWallet.update({ where: { id: p.walletId! }, data: { status: 'EXPIRED' } }));
+    await payAtBank(p.id, A, p.amountCents);
+    expect(await resvOf(res.id)).toMatchObject({ status: 'PENDING', paidCents: 0, walletId: null });
+    const incident = await sys((tx) => tx.auditEvent.findFirst({ where: { targetId: res.id, action: 'reservation.payment_unapplied' } }));
+    expect(incident?.payload).toMatchObject({ reason: 'not_credited', paymentId: p.id });
+  });
+
   it('cambiar de «señal» a «todo» con un pago a medias: el de antes se cancela', async () => {
     const entry = await entryWeb();
     const res = await book(entry, creditPkg, plusDays(tonight(), 6));

@@ -1,4 +1,5 @@
 import type { TransactionalClient } from '../../common/prisma/prisma.service';
+import { WALLET_CREDITED_EVENT } from '../payments/payment-device';
 import { applyPaid, commissionDue, promoterCommissionCents } from './reservation-rules';
 
 /**
@@ -49,7 +50,15 @@ export async function applyReservationPayment(
   const r = rows[0];
   if (!r) return;
   await tx.$executeRaw`UPDATE reservation_payments SET "paidAt" = now() WHERE id = ${link.id}::uuid`;
-  const outcome = applyPaid(r, p.amountCents);
+  // Solo si la recarga llegó de verdad al saldo del grupo (si estaba cerrado, la
+  // transición ya abrió su incidencia: cobrado y sin saldo).
+  const credited = await tx.$queryRaw<Array<{ walletId: string | null }>>`
+    SELECT payload->>'walletId' AS "walletId" FROM payment_events
+     WHERE "paymentId" = ${p.id}::uuid AND "eventType" = ${WALLET_CREDITED_EVENT}
+     ORDER BY "occurredAt" DESC LIMIT 1
+  `;
+  const walletId = credited[0]?.walletId ?? null;
+  const outcome = walletId ? applyPaid(r, p.amountCents) : ({ ok: false, reason: 'not_credited' } as const);
   if (!outcome.ok) {
     await audit(tx, p.tenantId, 'reservation.payment_unapplied', r.id, {
       paymentId: p.id,
@@ -65,7 +74,7 @@ export async function applyReservationPayment(
     UPDATE reservations
        SET "paidCents" = ${outcome.paidCents}::int,
            status = ${outcome.status},
-           "walletId" = COALESCE("walletId", ${p.walletId}::uuid),
+           "walletId" = COALESCE("walletId", ${walletId}::uuid),
            "updatedAt" = now()
      WHERE id = ${r.id}::uuid
   `;
