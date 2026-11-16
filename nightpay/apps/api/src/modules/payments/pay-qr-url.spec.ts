@@ -23,14 +23,18 @@ describe('el enlace del QR de un cobro con tarjeta', () => {
 });
 
 describe('/pay con la propina elegida en la pantalla de la barra (?tip=)', () => {
-  const choose = { kind: 'choose', amountCents: 3300, tipOptionsCents: [0, 200, 500] } as unknown as PayRedirect;
+  const choose = { kind: 'choose', amountCents: 3300, tipOptionsCents: [0, 200, 500], tipMaxCents: 3300 } as unknown as PayRedirect;
 
   it('sale marcada si es una de las que se ofrecen', () => {
-    expect(withChosenTip(choose, '500')).toMatchObject({ presetTipCents: 500 });
+    expect(withChosenTip(choose, '500')).toMatchObject({ presetTipCents: 500, tipOptionsCents: [0, 200, 500] });
   });
 
-  it('otra cualquiera, nada, 0 o basura: la página como siempre (nada marcado)', () => {
-    for (const raw of [undefined, '0', '700', '-200', 'abc', '2.5']) expect(withChosenTip(choose, raw)).toBe(choose);
+  it('«Otra» de la tablet (euros enteros hasta el tope): un botón más, marcado', () => {
+    expect(withChosenTip(choose, '700')).toMatchObject({ presetTipCents: 700, tipOptionsCents: [0, 200, 500, 700] });
+  });
+
+  it('céntimos sueltos, por encima del tope, nada, 0 o basura: la página como siempre (nada marcado)', () => {
+    for (const raw of [undefined, '0', '750', '3400', '-200', 'abc', '2.5']) expect(withChosenTip(choose, raw)).toBe(choose);
     const paid = { kind: 'paid' } as unknown as PayRedirect;
     expect(withChosenTip(paid, '500')).toBe(paid);
   });

@@ -180,11 +180,15 @@ describe('pantalla del cliente: qué enseña', () => {
     expect(big).toMatchObject({ tip: { presets: [{ cents: 1000, percent: 10 }] } });
   });
 
-  it('una propina que no se ofrece no cuenta; sin propinas, en una recarga o con datáfono: sin propina', () => {
-    expect(screenViewOf(input({ payment: card(), tip: { on: true, presets: {}, toStaff: false, chosenCents: 700 } }))).toMatchObject({
-      totalCents: 3300,
-      tip: { chosenCents: 0 },
-    });
+  it('«Otra»: euros enteros hasta el tope (como en /pay); céntimos sueltos o de más no cuentan', () => {
+    const other = (chosenCents: number) =>
+      screenViewOf(input({ payment: card(), tip: { on: true, presets: {}, toStaff: false, chosenCents } }));
+    expect(other(700)).toMatchObject({ totalCents: 4000, tip: { chosenCents: 700 }, qrUrl: 'https://api.oxio.test/pay/tok-qr-123?tip=700' });
+    expect(other(3300)).toMatchObject({ totalCents: 6600 });
+    for (const bad of [750, 3400]) expect(other(bad)).toMatchObject({ totalCents: 3300, tip: { chosenCents: 0 } });
+  });
+
+  it('sin propinas, en una recarga o con datáfono: sin propina', () => {
     expect(screenViewOf(input({ payment: card(), tip: { on: false, presets: {}, toStaff: false, chosenCents: 0 } }))).toMatchObject({
       tip: null,
     });

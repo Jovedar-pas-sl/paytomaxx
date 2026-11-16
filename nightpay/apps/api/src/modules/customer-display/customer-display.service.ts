@@ -22,7 +22,7 @@ import { RealtimeGateway } from '../realtime/realtime.gateway';
 import { chargeRightsFor } from '../venues/charge-rights';
 import { WalletChargesService } from '../wallets/wallet-charges.service';
 import { PinRequiredException } from '../wallets/wallet-nopin';
-import { displayKey, screenViewOf } from './customer-screen';
+import { displayKey, screenViewOf, tipAllowed } from './customer-screen';
 import { followedRooms, nightClosedSince, pairingExpiresAt, type DisplaySession } from './display-auth';
 import { formatDisplayCode, newDisplayCode, newDisplayToken, normalizeDisplayCode, sha256 } from './display-code';
 
@@ -293,7 +293,8 @@ export class CustomerDisplayService {
   async setTip(display: DisplaySession, dto: CustomerDisplayTipDto): Promise<CustomerScreenView> {
     const view = await this.screen(display);
     if (view.state !== 'waiting' || view.key !== dto.key || view.paying) throw notCurrent();
-    const allowed = dto.tipCents === 0 || Boolean(view.tip?.presets.some((t) => t.cents === dto.tipCents));
+    // «Sin propina», una sugerida u «Otra» (euros enteros hasta el tope, como en /pay).
+    const allowed = dto.tipCents === 0 || (view.tip !== null && tipAllowed(dto.tipCents, view.tip.presets, view.tip.maxCents));
     if (!allowed) throw new BadRequestException(BAD_TIP_MESSAGE);
     await this.prisma.asSystem(async (tx) => {
       const saved = await tx.customerDisplay.updateMany({
@@ -329,7 +330,8 @@ export class CustomerDisplayService {
       const wallet = await this.charges.lookupCard(display.tenantId, ref);
       if (wallet.pinLocked) return { status: 'pin_locked' };
       if (!wallet.hasPin) return { status: 'no_pin' };
-      return { status: 'pin', reason: err.reason === 'night_cap' || err.reason === 'no_uid' ? pinRequiredMessage(err) : null };
+      const told = err.reason === 'night_cap' || err.reason === 'no_uid' || err.reason === 'tip';
+      return { status: 'pin', reason: told ? pinRequiredMessage(err) : null };
     }
   }
 

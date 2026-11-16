@@ -131,9 +131,20 @@ export function screenTipOf(input: ScreenInput, amountCents: number): CustomerSc
   const p = input.payment;
   if (!input.tip.on || p?.walletId || p?.captureMethod === 'POS_EXTERNAL') return null;
   const presets = tipPresetsFor(amountCents, input.tip.presets);
+  const maxCents = maxTipCents(amountCents);
   const chosen = input.tip.chosenCents;
-  const chosenCents = chosen > 0 && presets.some((t) => t.cents === chosen) ? chosen : 0;
-  return { presets, maxCents: maxTipCents(amountCents), chosenCents, toStaff: input.tip.toStaff };
+  const chosenCents = tipAllowed(chosen, presets, maxCents) ? chosen : 0;
+  return { presets, maxCents, chosenCents, toStaff: input.tip.toStaff };
+}
+
+/**
+ * ¿Vale esta propina? «Sin propina», una sugerida o «Otra»: euros enteros,
+ * más de 0 y hasta el tope (lo mismo que npTipOther en /pay y que el PIN).
+ */
+export function tipAllowed(cents: number, presets: readonly { cents: number }[], maxCents: number): boolean {
+  if (!Number.isInteger(cents) || cents < 0) return false;
+  if (cents === 0 || presets.some((t) => t.cents === cents)) return true;
+  return cents % 100 === 0 && cents <= maxCents;
 }
 
 export function screenViewOf(input: ScreenInput): CustomerScreenView {

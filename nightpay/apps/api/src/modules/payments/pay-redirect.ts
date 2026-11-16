@@ -375,8 +375,11 @@ export function choosePayPage(p: PayablePayment, now: Date = new Date()): PayRed
 export function withChosenTip(view: PayRedirect, raw: string | undefined): PayRedirect {
   if (view.kind !== 'choose' || raw === undefined) return view;
   const cents = Number(raw);
-  if (!Number.isInteger(cents) || cents <= 0 || !view.tipOptionsCents.includes(cents)) return view;
-  return { ...view, presetTipCents: cents };
+  if (!Number.isInteger(cents) || cents <= 0) return view;
+  if (view.tipOptionsCents.includes(cents)) return { ...view, presetTipCents: cents };
+  // «Otra» en la tablet (euros enteros hasta el tope, como npTipOther): un botón más, marcado.
+  if (cents % 100 !== 0 || cents > view.tipMaxCents) return view;
+  return { ...view, tipOptionsCents: [...view.tipOptionsCents, cents].sort((a, b) => a - b), presetTipCents: cents };
 }
 
 /**
