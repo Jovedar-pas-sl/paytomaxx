@@ -15,8 +15,20 @@ export const APPROVAL_STATUS: Record<ApprovalStatus, { label: string; tone: Tone
   FAILED: { label: 'No se pudo hacer', tone: 'danger' },
 };
 
-export function kindLabel(v: Pick<ApprovalView, 'kind'>): string {
-  return v.kind === 'PAYOUT' ? 'Pago a compañera' : 'Devolución';
+export function kindLabel(v: ApprovalView | Pick<ApprovalView, 'kind'>): string {
+  if (v.kind === 'PAYOUT') return 'Pago a compañera';
+  return 'refund' in v && v.refund.cash ? 'Devolución en efectivo (bitcoin)' : 'Devolución';
+}
+
+/**
+ * En efectivo y aprobada: «Entregado» mientras no se haya dado (24 h desde
+ * que el dueño la aprobó). null: no toca.
+ */
+export function handOverState(v: ApprovalView, now: Date): 'ready' | 'done' | 'late' | null {
+  if (v.kind !== 'REFUND' || !v.refund.cash || v.status !== 'APPROVED') return null;
+  if (v.refund.cash.handed) return 'done';
+  const until = v.refund.cash.handUntil ? Date.parse(v.refund.cash.handUntil) : NaN;
+  return Number.isFinite(until) && until > now.getTime() ? 'ready' : 'late';
 }
 
 /** Nombre corto del método ("USDT TRC20"); quien llama pasa la tabla de nombres. */
@@ -29,6 +41,8 @@ export function approvalTarget(v: ApprovalView, methodLabel: MethodLabel): strin
     return [p.operatorName, p.method ? methodLabel(p.method) : null, p.accountMasked].filter(Boolean).join(' · ');
   }
   const r = v.refund;
+  if (r.cash?.source === 'invoice') return `Bitcoin sin cobro · factura ${r.cash.invoiceId ?? '?'}`;
+  if (r.cash) return `Cobro de ${formatEur(r.paymentAmountCents)} pagado con bitcoin`;
   const card = r.cardLast4 ? ` · tarjeta ••${r.cardLast4}` : '';
   return `Cobro de ${formatEur(r.paymentAmountCents)}${card}`;
 }
@@ -50,6 +64,9 @@ export function approveSummary(v: ApprovalView, venueName: string, methodLabel: 
     // Ya viene tapada del API (la de cuando se pidió).
     const to = p.accountMasked ? ` a ${p.accountMasked}` : '';
     return `Vas a aprobar el pago de ${amount} a ${p.operatorName}${via}${to} desde ${venueName}. ${IRREVERSIBLE}`;
+  }
+  if (v.refund.cash) {
+    return `Vas a aprobar devolver ${amount} en efectivo de la caja de ${venueName} (lo pagó con bitcoin; el bitcoin se queda en la cartera). Lo apunta quien lo pidió al pulsar «Entregado».`;
   }
   const to = v.refund.cardLast4 ? `a la tarjeta ••${v.refund.cardLast4}` : 'al cliente de ese cobro';
   return `Vas a aprobar devolver ${amount} ${to} desde ${venueName}. ${IRREVERSIBLE}`;
@@ -113,8 +130,9 @@ export function decidableCount(items: readonly ApprovalView[] | null): number | 
 /** Lo que se le dice al dueño al aprobarla. */
 export function approvedMessage(v: ApprovalView): string {
   const amount = formatEur(v.amountCents);
-  return v.kind === 'PAYOUT'
-    ? `Aprobado: pago de ${amount} a ${v.payout.operatorName} apuntado.`
+  if (v.kind === 'PAYOUT') return `Aprobado: pago de ${amount} a ${v.payout.operatorName} apuntado.`;
+  return v.refund.cash
+    ? `Aprobada: ${amount} en efectivo. Quien lo pidió lo da y pulsa «Entregado».`
     : `Aprobada: devolución de ${amount} hecha.`;
 }
 

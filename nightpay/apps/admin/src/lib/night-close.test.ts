@@ -114,6 +114,10 @@ describe('efectivo tecleado', () => {
     expect(sp(cajaOutText({ ...out, camareroCashPayoutsCount: 0, camareroCashPayoutsCents: 0 }))).toBe(
       'Saldo devuelto en efectivo: 45,00 € (1) · pagos a las compañeras en efectivo: 7,51 € (1).',
     );
+    // Lo pagado con bitcoin y devuelto en efectivo: también sale de la caja.
+    expect(sp(cajaOutText({ ...out, camareroCashPayoutsCount: 0, camareroCashPayoutsCents: 0, bitcoinCashOutCount: 1, bitcoinCashOutCents: 4500 }))).toContain(
+      'pagos con bitcoin devueltos en efectivo: 45,00 € (1)',
+    );
     // Un Z congelado antes (sin el campo): sus pagos eran de todo el personal.
     expect(sp(cajaOutText(out))).toBe('Saldo devuelto en efectivo: 45,00 € (1) · pagos al personal en efectivo: 7,51 € (1).');
   });

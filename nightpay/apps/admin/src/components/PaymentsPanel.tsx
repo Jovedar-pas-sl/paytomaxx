@@ -21,6 +21,8 @@ import { CobrosTable } from './fichas/CobrosTable';
 import { CobroDetailPanel } from './fichas/CobroDetailPanel';
 import { Notice } from './Notice';
 import { RefundModal, ResolveModal } from './PaymentModals';
+import { BitcoinCashModal, type BitcoinCashTarget } from './BitcoinCashModal';
+import { useBitcoinCash } from '@/lib/use-bitcoin-cash';
 import { RefundsModal } from './RefundsModal';
 import { ReverseChargeModal } from './ReverseChargeModal';
 import { TonightStrip } from './TonightStrip';
@@ -66,6 +68,8 @@ export function PaymentsPanel({ user, onNavigate, focusPaymentId = null, onFocus
   const [refundFor, setRefundFor] = useState<PaymentRow | null>(null);
   const [resolveFor, setResolveFor] = useState<PaymentRow | null>(null);
   const [refundsFor, setRefundsFor] = useState<PaymentRow | null>(null);
+  const [cashFor, setCashFor] = useState<BitcoinCashTarget | null>(null);
+  const bitcoinCash = useBitcoinCash(user.role);
   const [reverseFor, setReverseFor] = useState<CobroRow | null>(null);
   /** «Abrir cobro» de una incidencia que no está entre los cobros cargados. */
   const [focusMissing, setFocusMissing] = useState(false);
@@ -249,6 +253,8 @@ export function PaymentsPanel({ user, onNavigate, focusPaymentId = null, onFocus
                 onResolve={setResolveFor}
                 onRefund={setRefundFor}
                 onRefunds={setRefundsFor}
+                bitcoinCash={bitcoinCash}
+                onCashRefund={(p) => setCashFor(cashTargetOf(p))}
               />
             )}
           />
@@ -271,6 +277,13 @@ export function PaymentsPanel({ user, onNavigate, focusPaymentId = null, onFocus
       <Modal open={Boolean(detailFor)} onClose={() => setDetailFor(null)} title="Detalle del cobro">
         {detailFor ? <CobroDetailPanel key={`${detailFor.kind}:${detailFor.id}`} row={detailFor} /> : null}
       </Modal>
+
+      <BitcoinCashModal
+        target={cashFor}
+        config={bitcoinCash}
+        onClose={() => setCashFor(null)}
+        onDone={afterAction(() => undefined)}
+      />
 
       <ResolveModal
         payment={resolveFor}
@@ -354,3 +367,14 @@ const cellMeta: CSSProperties = {
   color: 'var(--np-text-mute)',
 };
 
+/** El cobro con bitcoin que se devuelve en efectivo: lo que queda y lo ya devuelto (cuenta para el dueño). */
+function cashTargetOf(p: PaymentRow): BitcoinCashTarget {
+  const charged = p.amountCents + (p.serviceFeeCents ?? 0) + (p.tipCents ?? 0);
+  return {
+    kind: 'payment',
+    paymentId: p.id,
+    leftCents: p.availableAmountCents,
+    alreadyCents: Math.max(0, charged - p.availableAmountCents),
+    label: `Cobro de ${(charged / 100).toFixed(2).replace('.', ',')} €`,
+  };
+}

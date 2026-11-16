@@ -107,13 +107,13 @@ export function BtcpayPanel() {
     }
   }
 
-  async function toggleEnabled(next: boolean): Promise<void> {
+  async function toggleEnabled(next: boolean, cashRefund?: boolean): Promise<void> {
     if (busy) return;
     if (code.length !== OTP_LENGTH) return setError('Pon primero los 6 números de tu app de verificación (abajo) para cambiar esto.');
     setBusy('mode');
     setError(null);
     try {
-      const updated = await updateBtcpayMode({ enabled: next, purpose: form.purpose, totpCode: code });
+      const updated = await updateBtcpayMode({ enabled: next, purpose: form.purpose, totpCode: code, ...(cashRefund === undefined ? {} : { cashRefund }) });
       setView(updated);
       setForm({ ...form, enabled: updated.enabled, purpose: updated.purpose });
       setCode('');
@@ -140,6 +140,13 @@ export function BtcpayPanel() {
           checked={current.enabled}
           disabled={busy !== null || !current.configured}
           onChange={(v) => void toggleEnabled(v)}
+        />
+        <Switch
+          label="Devolver en efectivo lo pagado con bitcoin"
+          hint="Solo el encargado y tú, con su 2FA y el código del recibo del cliente; de más de tu límite de devoluciones, lo apruebas tú. Siempre en euros (lo de la factura), hasta 7 días y por debajo de 1.000 €. El bitcoin se queda en tu cartera. Enciéndelo cuando lo confirme tu abogado."
+          checked={current.cashRefund === true}
+          disabled={busy !== null || !current.configured}
+          onChange={(v) => void toggleEnabled(current.enabled, v)}
         />
         <Input label="Dirección de tu BTCPay" placeholder="https://pay.tulocal.es" inputMode="url" autoComplete="off" value={form.baseUrl} onChange={(e) => change({ baseUrl: e.target.value })} hint="Solo el dominio, con https." />
         <div className="np-set-grid">

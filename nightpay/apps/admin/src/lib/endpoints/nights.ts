@@ -112,6 +112,9 @@ export interface NightCaja {
   /** Pagos en efectivo a los camareros. Los Z congelados antes del 28-oct-2026 no lo traen (sus pagos a las chicas son los de todo el personal). */
   camareroCashPayoutsCount?: number;
   camareroCashPayoutsCents?: number;
+  /** Lo pagado con bitcoin y devuelto en efectivo (los Z de antes del 17-nov-2026 no lo traen). */
+  bitcoinCashOutCount?: number;
+  bitcoinCashOutCents?: number;
   cashOutCents: number;
   expectedCents: number;
   /** null = no se contó (cierre automático o sin efectivo). */

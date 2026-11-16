@@ -261,6 +261,12 @@ function CashMoves({ cash }: { cash: NightCash }) {
           <span className="np-num">{formatEur(-(cash.camareroCashPayoutsCents ?? 0))}</span>
         </li>
       ) : null}
+      {(cash.bitcoinCashOutCount ?? 0) > 0 ? (
+        <li>
+          <span>Pagos con bitcoin devueltos en efectivo ({cash.bitcoinCashOutCount})</span>
+          <span className="np-num">{formatEur(-(cash.bitcoinCashOutCents ?? 0))}</span>
+        </li>
+      ) : null}
     </>
   );
 }
