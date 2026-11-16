@@ -39,6 +39,8 @@ function makeService(
 ) {
   const w = opts.wallet === undefined ? wallet() : opts.wallet;
   const tx = {
+    // Reservados: el saldo de un reservado no se devuelve en dinero («Me voy»).
+    reservation: { count: vi.fn().mockResolvedValue(0) },
     clientWallet: {
       findFirst: vi.fn().mockResolvedValue(w),
       findUnique: vi.fn().mockResolvedValue(w),

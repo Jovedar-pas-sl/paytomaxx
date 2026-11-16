@@ -2240,6 +2240,14 @@ export class WalletChargesService {
   async requestClose(qrToken: string): Promise<ClientWalletState> {
     const wallet = await this.walletByToken(qrToken);
     if (wallet.balanceCents <= 0) throw new ConflictException({ message: 'No te queda saldo que devolver', code: 'NOTHING_TO_REFUND' });
+    // Reservados: lo que sobra queda como saldo para otra noche, sin devolución en
+    // dinero (salvo que el local anulara la reserva: eso lo devuelve el encargado).
+    const reserved = await this.prisma.asSystem((tx) =>
+      tx.reservation.count({ where: { walletId: wallet.id, status: { not: 'CANCELED' } } }),
+    );
+    if (reserved > 0) {
+      throw new ConflictException({ message: 'El saldo de un reservado no se devuelve en dinero: úsalo otra noche.', code: 'RESERVATION_NO_REFUND' });
+    }
     const res = await this.prisma.asSystem((tx) =>
       tx.clientWallet.updateMany({
         where: { id: wallet.id, status: 'ACTIVE', closeRequestedAt: null },

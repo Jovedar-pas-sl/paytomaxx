@@ -43,6 +43,7 @@ import { OxioPaySettlementsModule } from './modules/oxiopay-settlements/oxiopay-
 import { WalletsModule } from './modules/wallets/wallets.module';
 import { WebhooksModule } from './modules/webhooks/webhooks.module';
 import { HomeTopUpModule } from './modules/home-topup/home-topup.module';
+import { ReservationsModule } from './modules/reservations/reservations.module';
 
 @Module({
   imports: [
@@ -106,6 +107,7 @@ import { HomeTopUpModule } from './modules/home-topup/home-topup.module';
     WebhooksModule,
     // «Cargar saldo antes de llegar»: el enlace del local (/r/<código>) y la ficha en recepción.
     HomeTopUpModule,
+    ReservationsModule,
   ],
   controllers: [HealthController],
   // Orden importa: IpRateLimit corre antes que AuthGuard para que un ataque de
