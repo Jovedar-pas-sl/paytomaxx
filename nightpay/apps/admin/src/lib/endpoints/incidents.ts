@@ -58,6 +58,23 @@ export interface Incident {
   noteRequired?: boolean;
   /** Bitcoin sin cobro que se puede devolver en efectivo: su factura y lo máximo (lo que llegó). */
   cashReturn?: { invoiceId: string; maxCents: number };
+  /** «Pagó después de cancelar» con el cobro aún cancelado: «Dar por bueno» (encargado o dueño, con 2FA). */
+  acceptable?: boolean;
+}
+
+/**
+ * «Dar por bueno» un cobro que el banco cobró después de cancelarlo: pasa a
+ * pagado y el aviso se cierra con la nota (encargado o dueño, con su 2FA).
+ */
+export async function acceptAfterCancel(
+  paymentId: string,
+  input: { eventId: string; note: string; totpCode: string },
+): Promise<void> {
+  const res = await authedFetch(`/v1/admin/payments/${paymentId}/accept-after-cancel`, {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+  if (!res.ok) throw await apiError(res);
 }
 
 export async function fetchIncidents(): Promise<{ items: Incident[]; telegram: boolean }> {
