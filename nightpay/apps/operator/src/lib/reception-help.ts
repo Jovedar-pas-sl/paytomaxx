@@ -87,7 +87,7 @@ const capital = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);
  * cliente y, si pasa del tope sin PIN, que elija su PIN. Si el PIN lo pone el
  * encargado (`manager`), ya lo dice el aviso de debajo: aquí no se repite.
  */
-export function loadedHelp(o: { method: 'cash' | 'card'; handOver: HandOver; pin: PinAfterLoad }): string {
+export function loadedHelp(o: { method: 'cash' | 'card' | 'bitcoin'; handOver: HandOver; pin: PinAfterLoad }): string {
   const parts = [
     o.method === 'cash' ? 'mete el efectivo en la caja' : null,
     HAND_OVER_TEXT[o.handOver],

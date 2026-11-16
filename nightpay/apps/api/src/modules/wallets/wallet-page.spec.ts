@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { renderWalletPage } from './wallet-page';
 import { SCAN_JS } from './wallet-scan';
 import { WALLET_TEXT } from './wallet-text';
+import { AVISO_JS, SERVICE_WORKER_JS } from './charge-alert/charge-alert-view';
 import type { ClientWalletState } from './wallet-charges.service';
 
 function state(o: Partial<ClientWalletState> = {}): ClientWalletState {
@@ -31,6 +32,35 @@ const topView = (html: string): string => between(html, 'id="viewTop"', 'id="mor
 const BACKSLASH = String.fromCharCode(92);
 
 const topUp = { allowed: true, block: null, presetsCents: [2000, 5000, 10000], minCents: 1000, maxCents: 30000 };
+
+describe('«Aviso en cada cobro» en la página del saldo', () => {
+  const KEY = 'BPk' + 'a'.repeat(84);
+
+  it('con las claves: la fila en «Más», la hoja de iPhone, el manifiesto y la clave para el navegador', () => {
+    const html = renderWalletPage('tok-1', 'es', state(), { chargeAlertKey: KEY });
+    expect(html).toContain('<link rel="manifest" href="/w/tok-1/manifest.webmanifest">');
+    expect(between(html, 'id="more"', 'id="movOpen"')).toContain('Avisarme de cada cobro');
+    expect(html).toContain('id="avisoSheet"');
+    expect(html).toContain('Añadir a pantalla de inicio');
+    // Sin Face ID ni huella no se apunta: la hoja explica que primero hay que activarlo.
+    expect(html).toContain('id="avisoKey"');
+    expect(html).toContain('Pide en recepción el QR de activación.');
+    expect(script(html)).toContain("pkGet(C.base+'/aviso/challenge')");
+    expect(script(html)).toContain('function avisoRender(');
+    expect(script(html)).toContain(KEY);
+    expect(script(html)).toContain('/w/aviso-sw.js');
+    // El JS va en plantillas de TypeScript: sin barras invertidas.
+    expect(AVISO_JS.includes(BACKSLASH)).toBe(false);
+    expect(SERVICE_WORKER_JS.includes(BACKSLASH)).toBe(false);
+  });
+
+  it('sin claves (apagado): ni fila, ni manifiesto, ni JS del aviso', () => {
+    const html = renderWalletPage('tok-1', 'es', state());
+    expect(html).not.toContain('manifest.webmanifest');
+    expect(html).not.toContain('avisoOpen');
+    expect(script(html)).not.toContain('function avisoRender(');
+  });
+});
 
 describe('página del saldo del cliente', () => {
   it('lleva el estado inicial, el idioma y las rutas del saldo', () => {

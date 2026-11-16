@@ -13,6 +13,7 @@ import { earningBankHeldSql, earningNetSql } from '../operators/bank-hold-sql';
 import { PrismaService, type TransactionalClient } from '../../common/prisma/prisma.service';
 import { lastNightCutoff } from '../../common/time/madrid';
 import { cashFromRows, zStart } from '../nights/night-rules';
+import { bitcoinCashOut } from '../bitcoin-cash/bitcoin-cash-rows';
 import { parseReportPeriod, type TimeWindow } from '../reports/report-period';
 import { MAX_EXPORT_ROWS, ReportsService } from '../reports/reports.service';
 import { PAID_STATUSES_SQL, REPORT_TX, cashTopUpCount, linesJson, paymentAt, paymentRecordedAt, refundAt } from '../reports/reporting-sql';
@@ -219,6 +220,7 @@ export class MoneyMapService {
       staff: money.staff,
       cardRefunds: money.cardRefunds,
       bitcoinRefunds: money.bitcoinRefunds,
+      bitcoinReturnedCents: money.bitcoinReturnedCents,
       walletPayouts: money.walletPayouts,
       payouts: money.payouts,
       cashBox: {
@@ -297,12 +299,13 @@ export class MoneyMapService {
 
   /** La caja con la misma cuenta que el arqueo del cierre (las mismas filas que el Z). */
   private async cashOf(tenantId: string, window: TimeWindow, asOf: Date | undefined, float: number | null): Promise<CashBoxLike> {
-    const [recargasEfectivo, pagosSaldo, liquidaciones] = await Promise.all([
+    const [recargasEfectivo, pagosSaldo, liquidaciones, btcCash] = await Promise.all([
       this.reports.recargasEfectivo(tenantId, window, { recordedBefore: asOf }),
       this.reports.pagosSaldo(tenantId, window),
       this.reports.liquidaciones(tenantId, window),
+      this.prisma.withTenant(tenantId, (tx) => bitcoinCashOut(tx, tenantId, window, asOf), REPORT_TX),
     ]);
-    return cashFromRows(float, { recargasEfectivo, pagosSaldo, liquidaciones });
+    return cashFromRows(float, { recargasEfectivo, pagosSaldo, liquidaciones, bitcoinCashOut: btcCash });
   }
 
   /** Las ventas: cobros con tarjeta (sin recargas) y consumos del saldo, con sus líneas. */
@@ -435,13 +438,21 @@ export class MoneyMapService {
                COALESCE(SUM(r."amountCents") FILTER (WHERE p.provider::text IS DISTINCT FROM 'BTCPAY'), 0)::bigint AS "refundCents",
                COALESCE(SUM(r."serviceFeeCents") FILTER (WHERE p.provider::text IS DISTINCT FROM 'BTCPAY'), 0)::bigint AS "refundFeeCents",
                -- De ventas (no recargas) y sin la comisión del servicio devuelta: lo que el local deja de ganar.
-               COALESCE(SUM(r."amountCents" - r."serviceFeeCents") FILTER (WHERE p."walletId" IS NULL AND p.provider::text IS DISTINCT FROM 'BTCPAY'), 0)::bigint AS "saleRefundNetCents",
-               COUNT(*) FILTER (WHERE p.provider::text = 'BTCPAY')::int AS "bitcoinRefundCount",
-               COALESCE(SUM(r."amountCents") FILTER (WHERE p.provider::text = 'BTCPAY'), 0)::bigint AS "bitcoinRefundCents"
+               -- Con bitcoin, solo lo devuelto en efectivo (sale de la caja; el bitcoin se queda).
+               COALESCE(SUM(r."amountCents" - r."serviceFeeCents") FILTER (WHERE p."walletId" IS NULL AND (p.provider::text IS DISTINCT FROM 'BTCPAY' OR r."paidInCash")), 0)::bigint AS "saleRefundNetCents",
+               -- Devuelto fuera en bitcoin (desde la cartera): baja la cartera. En efectivo, no: sale de la caja.
+               COUNT(*) FILTER (WHERE p.provider::text = 'BTCPAY' AND NOT r."paidInCash")::int AS "bitcoinRefundCount",
+               COALESCE(SUM(r."amountCents") FILTER (WHERE p.provider::text = 'BTCPAY' AND NOT r."paidInCash"), 0)::bigint AS "bitcoinRefundCents"
           FROM refunds r
           LEFT JOIN payments p ON p.id = r."paymentId"
          WHERE r."tenantId" = ${tenantId}::uuid AND r.status = 'SUCCEEDED'
            AND ${refundAt('r')} >= ${w.from} AND ${refundAt('r')} < ${w.to} ${recordedRefund}
+      ), devuelto_sin_cobro AS (
+        -- Bitcoin que llegó sin cobro y se devolvió en efectivo: ese bitcoin sigue en la cartera.
+        SELECT COALESCE(SUM(c."amountCents"), 0)::bigint AS "bitcoinReturnedCents"
+          FROM btc_cash_returns c
+         WHERE c."tenantId" = ${tenantId}::uuid AND c."createdAt" >= ${w.from} AND c."createdAt" < ${w.to}
+           ${asOf ? Prisma.sql`AND c."createdAt" < ${asOf}` : Prisma.empty}
       ), saldo AS (
         SELECT COUNT(*) FILTER (WHERE wp.method = 'CASH')::int AS "walletCashCount",
                COALESCE(SUM(wp."amountCents") FILTER (WHERE wp.method = 'CASH'), 0)::bigint AS "walletCashCents",
@@ -450,7 +461,7 @@ export class MoneyMapService {
          WHERE wp."tenantId" = ${tenantId}::uuid AND wp.status = 'DONE'
            AND wp."createdAt" >= ${w.from} AND wp."createdAt" < ${w.to}
       )
-      SELECT * FROM recargas, efectivo, devoluciones, saldo
+      SELECT * FROM recargas, efectivo, devoluciones, devuelto_sin_cobro, saldo
     `;
     const t = totals ?? {};
     return {
@@ -467,6 +478,7 @@ export class MoneyMapService {
       },
       cardRefunds: { cents: n(t.refundCents), count: n(t.refundCount), serviceFeeCents: n(t.refundFeeCents), salesNetCents: n(t.saleRefundNetCents) },
       bitcoinRefunds: { cents: n(t.bitcoinRefundCents), count: n(t.bitcoinRefundCount) },
+      bitcoinReturnedCents: n(t.bitcoinReturnedCents),
       walletPayouts: { cashCents: n(t.walletCashCents), cashCount: n(t.walletCashCount), cardCents: n(t.walletCardCents) },
     };
   }

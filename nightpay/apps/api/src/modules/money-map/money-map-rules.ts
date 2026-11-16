@@ -89,6 +89,11 @@ export interface MoneyMapInput {
   cardRefunds: { cents: number; count: number; serviceFeeCents?: number; salesNetCents?: number };
   /** Devuelto fuera en bitcoin (desde la cartera del local): baja el bitcoin, no el banco. */
   bitcoinRefunds?: { cents: number; count: number };
+  /**
+   * Bitcoin que llegó sin cobro y se devolvió en efectivo: sale de la caja y
+   * ese bitcoin se queda en la cartera (aquí se suma, como contrapartida).
+   */
+  bitcoinReturnedCents?: number;
   /** Saldo devuelto al cliente en el periodo (hechas). */
   walletPayouts: { cashCents: number; cashCount: number; cardCents: number };
   payouts: readonly MoneyMapPayoutGroup[];
@@ -214,9 +219,10 @@ export function buildMoneyMap(i: MoneyMapInput): MoneyMap {
   // Bitcoin (BTCPay): vendido y recargado con bitcoin + su comisión del servicio - lo devuelto fuera. No pasa por el banco.
   const bitcoinTopUpCents = i.topUps.bitcoinCents ?? 0;
   const bitcoinRefundedCents = i.bitcoinRefunds?.cents ?? 0;
-  const bitcoinWalletCents = bitcoinCents + bitcoinTopUpCents + feeBitcoinCents - bitcoinRefundedCents;
+  const bitcoinReturnedCents = i.bitcoinReturnedCents ?? 0;
+  const bitcoinWalletCents = bitcoinCents + bitcoinTopUpCents + feeBitcoinCents - bitcoinRefundedCents + bitcoinReturnedCents;
   const hasBitcoin =
-    bitcoinCents !== 0 || bitcoinTopUpCents !== 0 || feeBitcoinCents !== 0 || bitcoinRefundedCents !== 0 || (i.topUps.bitcoinCount ?? 0) > 0;
+    bitcoinCents !== 0 || bitcoinTopUpCents !== 0 || feeBitcoinCents !== 0 || bitcoinRefundedCents !== 0 || bitcoinReturnedCents !== 0 || (i.topUps.bitcoinCount ?? 0) > 0;
 
   const platformCents = platformCommissionCents(i.sales);
   // El banco cobra sobre todo lo que pasa por él: ventas con tarjeta, recargas

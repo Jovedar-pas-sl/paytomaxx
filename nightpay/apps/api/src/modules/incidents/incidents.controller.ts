@@ -12,6 +12,7 @@ import { ACKABLE_KINDS, type Incident } from './incident-rules';
 import { IncidentsService } from './incidents.service';
 import { TelegramService } from './telegram.service';
 import { BRAND_NAME } from '../../common/brand';
+import { assertCanTopUp } from '../venues/charge-rights';
 
 const AckSchema = z.object({
   kind: z.enum(ACKABLE_KINDS),
@@ -21,6 +22,13 @@ const AckSchema = z.object({
   note: z.string().trim().max(300).optional(),
 });
 type AckBody = z.infer<typeof AckSchema>;
+
+/** Recepción cierra un «No he sido yo» con su nota. */
+const ReceptionAckSchema = z.object({
+  refId: z.string().uuid(),
+  note: z.string().trim().max(300).optional(),
+});
+type ReceptionAckBody = z.infer<typeof ReceptionAckSchema>;
 
 const NotifySchema = z.object({ paymentId: z.string().uuid() });
 type NotifyBody = z.infer<typeof NotifySchema>;
@@ -74,6 +82,37 @@ export class IncidentsController {
   ): Promise<{ ok: true }> {
     await this.incidents.ack(user.tenantId, user.sub, body);
     return { ok: true };
+  }
+
+  /**
+   * Recepción (app del personal): los «El cliente dice que no ha sido él» del
+   * local. Quien carga saldos (recepción, el encargado o el dueño) los ve y
+   * los cierra con su nota; desbloquear el PIN sigue siendo del encargado.
+   */
+  @Get('recepcion')
+  @Roles('WAITER', 'MANAGER', 'OWNER')
+  @IpRateLimit({ max: 60, windowSec: 60, scope: 'incidents-reception' })
+  async receptionList(@CurrentUser() user: JwtPayload): Promise<{ items: Incident[] }> {
+    await this.assertReception(user);
+    return { items: await this.incidents.disputedCharges(user.tenantId) };
+  }
+
+  @Post('recepcion/ack')
+  @HttpCode(200)
+  @Roles('WAITER', 'MANAGER', 'OWNER')
+  @IpRateLimit({ max: 30, windowSec: 60, scope: 'incidents-reception' })
+  async receptionAck(
+    @CurrentUser() user: JwtPayload,
+    @Body(new ZodValidationPipe(ReceptionAckSchema)) body: ReceptionAckBody,
+  ): Promise<{ ok: true }> {
+    await this.assertReception(user);
+    await this.incidents.ackDisputed(user.tenantId, user.sub, body);
+    return { ok: true };
+  }
+
+  /** Solo quien carga saldos en este local (como las recargas de recepción). */
+  private async assertReception(user: JwtPayload): Promise<void> {
+    await this.prisma.asSystem((tx) => assertCanTopUp(tx, user.tenantId, { userId: user.sub, role: user.role }));
   }
 
   @Post('telegram-test')

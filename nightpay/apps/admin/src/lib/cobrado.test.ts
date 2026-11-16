@@ -1,5 +1,15 @@
 import { describe, expect, it } from 'vitest';
-import { COBRADO_HELP, COBRADO_PARTS_HINT, cobradoNote, metricsCobradoParts, tonightCobradoNote, zClosedLines, zCobradoParts } from './cobrado';
+import {
+  COBRADO_HELP,
+  COBRADO_PARTS_HINT,
+  bitcoinWalletLine,
+  cardPaymentsCount,
+  cobradoNote,
+  metricsCobradoParts,
+  tonightCobradoNote,
+  zClosedLines,
+  zCobradoParts,
+} from './cobrado';
 import { formatEur } from './money';
 
 // «Hoy · cobrado» y el Z: lo cobrado incluye las recargas (con tarjeta, ya en
@@ -62,12 +72,13 @@ describe('la línea del Z congelado (prueba real: «17 pagos con tarjeta · cobr
     expect(zClosedLines(z, formatEur)).toEqual({
       cobrado: `Cobrado: ${formatEur(245_000)} (${formatEur(58_200)} de ventas con tarjeta + ${formatEur(2_800)} de propinas con tarjeta + ${formatEur(184_000)} de recargas)`,
       card: `Con tarjeta: 17 pagos · ${formatEur(78_000)}`,
+      bitcoin: null,
     });
   });
 
   it('un pago; y un Z de antes sin las recargas con tarjeta aparte: «Cobrado» sin desglose', () => {
     const old = { count: 1, chargedCents: 3_000, grossCents: 3_000, tipsCents: 0 };
-    expect(zClosedLines(old, formatEur)).toEqual({ cobrado: `Cobrado: ${formatEur(3_000)}`, card: `Con tarjeta: 1 pago · ${formatEur(3_000)}` });
+    expect(zClosedLines(old, formatEur)).toEqual({ cobrado: `Cobrado: ${formatEur(3_000)}`, card: `Con tarjeta: 1 pago · ${formatEur(3_000)}`, bitcoin: null });
   });
 });
 
@@ -124,5 +135,36 @@ describe('«Cobrado» en «Esta noche»: qué cuenta, sin otra línea de ayuda',
   it('la frase entera (al pasar el ratón) nombra todo lo que suma, también el efectivo y la comisión', () => {
     for (const part of ['ventas', 'propinas', 'recargas', 'efectivo', 'comisión del servicio']) expect(COBRADO_HELP).toContain(part);
     expect(COBRADO_HELP).not.toMatch(/[!¡]/);
+  });
+});
+
+describe('el Z con bitcoin: aparte, en la cartera del local (nunca «con tarjeta»)', () => {
+  // 11 pagos: 1 venta de 40 € + 2 € de propina y 1 recarga de 50 € fueron con bitcoin.
+  const s = {
+    count: 11,
+    chargedCents: 110_900,
+    grossCents: 63_300,
+    tipsCents: 2_600,
+    walletCashTopUpsCents: 45_000,
+    walletCardTopUpsCents: 10_000,
+    bitcoin: { count: 2, salesCents: 4_000, tipsCents: 200, topUpsCount: 1, topUpsCents: 5_000, serviceFeeCents: 0, totalCents: 9_200 },
+  };
+  const eur = (c: number) => formatEur(c);
+
+  it('«Cobrado» lo separa y «Con tarjeta» no lo cuenta; su línea dice dónde está', () => {
+    expect(zCobradoParts(s)).toEqual({ salesCents: 49_300, tipCents: 2_400, bitcoinCents: 4_200, topUpCents: 55_000 });
+    expect(cobradoNote(zCobradoParts(s), eur)).toContain(`${eur(4_200)} de ventas y propinas con bitcoin`);
+    const lines = zClosedLines(s, eur);
+    expect(lines.card).toBe(`Con tarjeta: 9 pagos · ${eur(56_700)}`);
+    expect(lines.bitcoin).toBe(`Bitcoin: ${eur(9_200)}, en la cartera del local (2 pagos)`);
+    expect(cardPaymentsCount(s)).toBe(9);
+  });
+
+  it('sin bitcoin, como siempre (y sin su línea)', () => {
+    const { bitcoin: _b, ...plain } = s;
+    expect(zClosedLines(plain, eur).bitcoin).toBeNull();
+    expect(cardPaymentsCount(plain)).toBe(11);
+    expect(bitcoinWalletLine(undefined, eur)).toBeNull();
+    expect(bitcoinWalletLine(1_250, eur)).toBe(`Bitcoin: ${eur(1_250)}, en la cartera del local`);
   });
 });

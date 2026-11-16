@@ -71,6 +71,8 @@ import {
   type CardBy,
 } from './wallet-card-ops';
 import {
+  BITCOIN_STAYS_TEXT,
+  bitcoinPartCents,
   cardRefundCapCents,
   cashPayoutCapCents,
   cashPayoutRefusal,
@@ -112,6 +114,7 @@ import {
   type ChargeRequestStatus,
   type WalletPayoutMethod,
 } from './wallet-rules';
+import { ChargeAlertService } from './charge-alert/charge-alert.service';
 
 type Actor = { userId: string; role: Role; tenantId: string };
 
@@ -453,18 +456,23 @@ export class WalletChargesService {
   /** El contexto de la petición: el dispositivo con el que se paga (detalle del pago). */
   private readonly cls: Pick<ClsService<{ ctx: RequestContext }>, 'get'> | null;
 
+  /** «Aviso en cada cobro»: el aviso al móvil del cliente, después de cobrar (sin esperarlo). */
+  private readonly alerts: Pick<ChargeAlertService, 'chargePaid'> | null;
+
   constructor(
     @Inject(PrismaService) prisma: PrismaService,
     @Inject(AuditService) audit: AuditService,
     @Inject(ModuleRef) moduleRef: ModuleRef,
     @Inject(TotpService) totp: TotpService,
     @Optional() @Inject(ClsService) cls?: ClsService<{ ctx: RequestContext }>,
+    @Optional() @Inject(ChargeAlertService) alerts?: ChargeAlertService,
   ) {
     this.prisma = prisma;
     this.audit = audit;
     this.moduleRef = moduleRef;
     this.totp = totp;
     this.cls = cls ?? null;
+    this.alerts = alerts ?? null;
   }
 
   // ─── Personal del local ────────────────────────────────────────────────
@@ -2205,7 +2213,15 @@ export class WalletChargesService {
     if (!wallet || !sameWalletGroup(wallet, { id: request.tenantId, walletGroup: venue?.walletGroup ?? null })) {
       throw new ConflictException({ message: 'Tu saldo no vale en este local', code: 'CHARGE_OTHER_VENUE' });
     }
-    return this.settleRequest(walletId, request.id, auth, pinVia, tipChoice);
+    const settled = await this.settleRequest(walletId, request.id, auth, pinVia, tipChoice);
+    // Ya pagado (la transacción hecha): el aviso al móvil del cliente sale aparte.
+    // Si tarda o falla, el cobro no se entera.
+    try {
+      this.alerts?.chargePaid(request.id);
+    } catch (err) {
+      this.logger.warn(`Aviso del cobro ${request.id}: ${(err as Error)?.message ?? err}`);
+    }
+    return settled;
   }
 
   /**
@@ -2322,11 +2338,11 @@ export class WalletChargesService {
       const pending = await tx.walletPayout.findFirst({ where: { walletId, status: 'PENDING' } });
       if (pending) {
         // payoutCash no paga nada hasta terminarla; «A la tarjeta» la retoma con su importe.
-        return { balanceCents, cashOutCents: 0, cardRefundCents: pending.amountCents, cashLaterCents: 0, pendingCardCents: pending.amountCents };
+        return { balanceCents, cashOutCents: 0, cardRefundCents: pending.amountCents, cashLaterCents: 0, bitcoinCents: 0, pendingCardCents: pending.amountCents };
       }
       const amounts = balanceCents > 0
         ? payoutAmounts(balanceCents, await walletCash(tx, walletId))
-        : { cashOutCents: 0, cardRefundCents: 0, cashLaterCents: 0 };
+        : { cashOutCents: 0, cardRefundCents: 0, cashLaterCents: 0, bitcoinCents: 0 };
       return { balanceCents, ...amounts, pendingCardCents: null };
     });
   }
@@ -2518,9 +2534,15 @@ export class WalletChargesService {
       }
       if (w.status !== 'ACTIVE' || w.balanceCents <= 0) throw new ConflictException('Este saldo no tiene nada que devolver');
       // El efectivo que sigue en el saldo no sale por el banco: se devuelve en efectivo.
-      const amount = cardRefundCapCents(w.balanceCents, await walletCash(tx, walletId));
+      // Lo que entró con bitcoin, tampoco (no pasó por el banco).
+      const cash = await walletCash(tx, walletId);
+      const amount = cardRefundCapCents(w.balanceCents, cash);
       if (amount <= 0) {
-        throw new ConflictException('Este saldo entró en efectivo: se devuelve en efectivo, no a la tarjeta');
+        throw new ConflictException(
+          bitcoinPartCents(w.balanceCents, cash) > 0
+            ? `Este saldo entró con bitcoin: no se devuelve a la tarjeta. ${BITCOIN_STAYS_TEXT}`
+            : 'Este saldo entró en efectivo: se devuelve en efectivo, no a la tarjeta',
+        );
       }
       assertExpectedPayout(input.expectedAmountCents, amount);
       await tx.clientWallet.update({ where: { id: walletId }, data: { balanceCents: w.balanceCents - amount } });

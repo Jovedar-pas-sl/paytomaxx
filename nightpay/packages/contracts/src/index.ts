@@ -37,5 +37,6 @@ export * from './cobro-detail';
 export * from './cobro-detail-text';
 export * from './carta-icons';
 export * from './btcpay';
+export * from './bitcoin-cash';
 export * from './profile';
 export * from './reservations';

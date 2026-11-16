@@ -5,6 +5,7 @@ describe('tablas con FORCE RLS', () => {
   it('las de las migraciones (y sus modelos)', () => {
     expect([...FORCED_RLS_TABLES].sort()).toEqual([
       'approval_requests',
+      'btc_cash_returns',
       'btcpay_invoices',
       'btcpay_stores',
       'charge_ref_counters',
@@ -26,9 +27,11 @@ describe('tablas con FORCE RLS', () => {
       'user_photos',
       'wallet_cash_topups',
       'wallet_consumptions',
+      'wallet_push_subscriptions',
     ]);
     expect([...FORCED_RLS_MODELS].sort()).toEqual([
       'ApprovalRequest',
+      'BtcCashReturn',
       'BtcpayInvoice',
       'BtcpayStore',
       'ChargeRefCounter',
@@ -50,6 +53,7 @@ describe('tablas con FORCE RLS', () => {
       'UserPhoto',
       'WalletCashTopUp',
       'WalletConsumption',
+      'WalletPushSubscription',
     ]);
   });
 

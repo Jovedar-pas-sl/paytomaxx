@@ -11,6 +11,7 @@ import {
   PayoutPayloadSchema,
   RefundPayloadSchema,
   accountFingerprint,
+  isCashRefundPayload,
   type ApprovalRow,
   type PayoutPayload,
 } from './approval-payload';
@@ -83,6 +84,8 @@ export class ApprovalsService {
     await this.totp.assertForUser(actor.userId, totpCode, stepUpActions.approve(id));
     try {
       if (row.kind === 'PAYOUT') await this.executePayout(actor, row, now);
+      // En efectivo (bitcoin): aprobarla no mueve nada; se apunta al pulsar «Entregado».
+      else if (isCashRefundPayload(row.payload)) await this.prisma.withTenant(row.tenantId, (tx) => claimApproval(tx, row.id, actor.userId, now));
       else await this.executeRefund(actor, row, now);
     } catch (err) {
       return this.afterFailure(actor, row, err);

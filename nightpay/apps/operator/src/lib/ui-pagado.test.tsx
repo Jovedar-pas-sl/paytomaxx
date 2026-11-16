@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
-import { PaymentOutcome } from '../../../../packages/ui/src/components/PaymentOutcome';
+import { OutcomeHowCard, PaymentOutcome } from '../../../../packages/ui/src/components/PaymentOutcome';
 import { cardHow, cashHow, chargedBy, saldoHow } from '../../../../packages/ui/src/lib/outcome-how';
 import { cardFactsOf, pollUpdate } from './payment-status';
 
@@ -98,6 +98,20 @@ describe('punto 6: «cómo se pagó» sin inventar nada', () => {
     const how = cardHow({ code: 'K7Q', who: 'Carlos', at: AT });
     expect(how.title).toBe('Con tarjeta');
     expect(how.sub).not.toMatch(/Apple|Google/);
+  });
+
+  it('bitcoin: «Con bitcoin», en la cartera del local (ni tarjeta ni banco), con su icono naranja', () => {
+    const how = cardHow({ payMethod: 'bitcoin', code: 'K7Q', who: 'Carlos', at: AT });
+    expect(how).toMatchObject({ kind: 'bitcoin', title: 'Con bitcoin', sub: 'En la cartera del local, no en el banco' });
+    expect(JSON.stringify(how)).not.toMatch(/tarjeta|Autorizado/i);
+    expect(how.rows).toEqual([
+      { label: 'Código del cobro', value: 'K7Q', num: true },
+      { label: 'Cobró', value: 'Carlos · 01:22' },
+    ]);
+    expect(cardFactsOf({ status: 'AUTHORIZED', payMethod: 'bitcoin' })).toEqual({ payMethod: 'bitcoin' });
+    const html = renderToStaticMarkup(<OutcomeHowCard how={how} />);
+    expect(html).toContain('data-kind="bitcoin"');
+    expect(html).toContain('Con bitcoin');
   });
 
   it('sin nombre (el TPV), la fila es «Hora»; sin nada, ninguna', () => {

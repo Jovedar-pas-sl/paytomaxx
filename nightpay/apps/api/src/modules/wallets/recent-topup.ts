@@ -26,6 +26,11 @@ export function firstName(displayName: string | null | undefined): string | null
   return first.length > 0 ? first : null;
 }
 
+/** La recarga pagada en su móvil: con bitcoin (BTCPay) o con tarjeta (el banco). */
+export function paidTopUpMethod(provider: string | null): RecentTopUp['method'] {
+  return provider === 'BTCPAY' ? 'bitcoin' : 'card';
+}
+
 /** La más reciente de las que caen en la ventana (null: ninguna). */
 export function latestTopUp(candidates: ReadonlyArray<TopUpCandidate | null>, now: Date): TopUpCandidate | null {
   const since = now.getTime() - RECENT_TOP_UP_MINUTES * 60_000;
@@ -49,12 +54,12 @@ export async function recentTopUp(tx: RecentTopUpTx, walletId: string, now: Date
   const card = await tx.payment.findFirst({
     where: { walletId, status: 'AUTHORIZED', authorizedAt: { gte: since } },
     orderBy: { authorizedAt: 'desc' },
-    select: { authorizedAt: true, amountCents: true, createdByUserId: true },
+    select: { authorizedAt: true, amountCents: true, createdByUserId: true, provider: true },
   });
   const pick = latestTopUp(
     [
       cash ? { at: cash.createdAt, amountCents: cash.amountCents, method: 'cash', byUserId: cash.takenByUserId } : null,
-      card?.authorizedAt ? { at: card.authorizedAt, amountCents: card.amountCents, method: 'card', byUserId: card.createdByUserId } : null,
+      card?.authorizedAt ? { at: card.authorizedAt, amountCents: card.amountCents, method: paidTopUpMethod(card.provider), byUserId: card.createdByUserId } : null,
     ],
     now,
   );

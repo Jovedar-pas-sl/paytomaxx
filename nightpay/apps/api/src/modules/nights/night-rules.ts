@@ -73,6 +73,9 @@ export interface NightCaja {
   /** Los Z congelados antes del 28-oct-2026 no lo traen: sus pagos a las chicas son todos los del personal. */
   camareroCashPayoutsCount?: number;
   camareroCashPayoutsCents?: number;
+  /** Lo pagado con bitcoin y devuelto en efectivo (solo si lo hubo; los Z de antes del 17-nov-2026 no lo traen). */
+  bitcoinCashOutCount?: number;
+  bitcoinCashOutCents?: number;
   cashOutCents: number;
   expectedCents: number;
   /** null = nadie la contó (cierre automático, o sin efectivo). */
@@ -153,6 +156,7 @@ export function buildNightCaja(
     chicaCashPayoutsCents: cash.chicaCashPayoutsCents,
     camareroCashPayoutsCount: cash.camareroCashPayoutsCount ?? 0,
     camareroCashPayoutsCents: cash.camareroCashPayoutsCents ?? 0,
+    ...(cash.bitcoinCashOutCount ? { bitcoinCashOutCount: cash.bitcoinCashOutCount, bitcoinCashOutCents: cash.bitcoinCashOutCents ?? 0 } : {}),
     cashOutCents: cash.cashOutCents,
     expectedCents: outcome.expectedCents,
     countedCents: outcome.countedCents,
@@ -176,6 +180,8 @@ export function cashFromRows(
     recargasEfectivo: ReadonlyArray<RecargaEfectivoRow>;
     pagosSaldo: ReadonlyArray<PagoSaldoRow>;
     liquidaciones: ReadonlyArray<LiquidacionRow>;
+    /** Lo pagado con bitcoin y devuelto en efectivo (sale de la caja). */
+    bitcoinCashOut?: { count: number; cents: number };
   },
 ): NightCash {
   const sum = <T>(xs: ReadonlyArray<T>, f: (x: T) => number): number => xs.reduce((a, x) => a + f(x), 0);
@@ -191,7 +197,8 @@ export function cashFromRows(
   const walletCashPayoutsCents = sum(walletCash, (p) => p.amountCents);
   const chicaCashPayoutsCents = sum(chicaCash, (l) => l.totalCents);
   const camareroCashPayoutsCents = sum(camareroCash, (l) => l.totalCents);
-  const cashOutCents = walletCashPayoutsCents + chicaCashPayoutsCents + camareroCashPayoutsCents;
+  const btc = rows.bitcoinCashOut ?? { count: 0, cents: 0 };
+  const cashOutCents = walletCashPayoutsCents + chicaCashPayoutsCents + camareroCashPayoutsCents + btc.cents;
   return {
     openingFloatCents,
     cashInCents,
@@ -204,6 +211,7 @@ export function cashFromRows(
     chicaCashPayoutsCents,
     camareroCashPayoutsCount: camareroCash.length,
     camareroCashPayoutsCents,
+    ...(btc.count > 0 ? { bitcoinCashOutCount: btc.count, bitcoinCashOutCents: btc.cents } : {}),
     cashOutCents,
     expectedCents: expectedCashCents(openingFloatCents, { cashInCents, cashOutCents }),
   };

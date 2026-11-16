@@ -2,7 +2,7 @@
 
 import { useEffect, useId, useState } from 'react';
 import { fetchCurrentNight, fetchTreasuryStats } from '@/lib/api';
-import { COBRADO_HELP, cobradoNote, tonightCobradoNote, zCobradoParts } from '@/lib/cobrado';
+import { COBRADO_HELP, cardPaymentsCount, cobradoNote, tonightCobradoNote, zCobradoParts } from '@/lib/cobrado';
 import { formatDateTime } from '@/lib/dates';
 import { keepIfSame } from '@/lib/diff';
 import { formatEur } from '@/lib/money';
@@ -70,7 +70,8 @@ export function TonightStrip({
                 openedAt: v.openedAt,
                 chargedCents: s.chargedCents,
                 chargedNote: cobradoNote(zCobradoParts(s), formatEur),
-                count: s.count,
+                // Pagos con tarjeta: sin los de bitcoin (no pasan por el banco).
+                count: cardPaymentsCount(s),
               }
             : null;
         setNight((prev) => keepIfSame(prev, next));

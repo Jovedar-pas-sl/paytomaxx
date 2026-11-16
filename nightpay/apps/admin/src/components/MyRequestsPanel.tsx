@@ -3,8 +3,9 @@
 import { useId, useState } from 'react';
 import { useNow } from '@nightpay/ui';
 import type { PayoutMethod } from '@nightpay/contracts';
-import { fetchApprovals, type ApprovalView } from '@/lib/api';
-import { APPROVAL_STATUS, approvalTarget, decisionLine, kindLabel, sortApprovals } from '@/lib/approvals';
+import { Button } from '@nightpay/ui';
+import { fetchApprovals, handOverCash, type ApprovalView } from '@/lib/api';
+import { APPROVAL_STATUS, approvalTarget, decisionLine, handOverState, kindLabel, sortApprovals } from '@/lib/approvals';
 import { keepIfSame } from '@/lib/diff';
 import { formatEur } from '@/lib/money';
 import { usePolling } from '@/lib/use-polling';
@@ -74,7 +75,7 @@ export function MyRequestsPanel({ hideWhenEmpty = false }: { hideWhenEmpty?: boo
           </p>
           <ul className="np-approvals">
             {items.map((item) => (
-              <RequestRow key={item.id} item={item} now={now} />
+              <RequestRow key={item.id} item={item} now={now} onChanged={refresh} />
             ))}
           </ul>
         </>
@@ -83,8 +84,23 @@ export function MyRequestsPanel({ hideWhenEmpty = false }: { hideWhenEmpty?: boo
   );
 }
 
-function RequestRow({ item, now }: { item: ApprovalView; now: Date }) {
+function RequestRow({ item, now, onChanged }: { item: ApprovalView; now: Date; onChanged: () => void }) {
   const status = APPROVAL_STATUS[item.status];
+  const hand = handOverState(item, now);
+  const [busy, setBusy] = useState(false);
+  const [handError, setHandError] = useState<string | null>(null);
+  async function handed() {
+    setBusy(true);
+    setHandError(null);
+    try {
+      await handOverCash(item.id);
+      onChanged();
+    } catch (err) {
+      setHandError((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
   return (
     <li className="np-approval" data-state={item.status === 'PENDING' ? 'waiting' : 'done'}>
       <p className="np-inbox-meta">
@@ -94,6 +110,25 @@ function RequestRow({ item, now }: { item: ApprovalView; now: Date }) {
       <p className="np-approval-amount np-num">{formatEur(item.amountCents)}</p>
       <p className="np-approval-target">{approvalTarget(item, methodLabel)}</p>
       <p className="np-approval-meta">{decisionLine(item, now)}</p>
+      {hand === 'ready' ? (
+        <>
+          <p className="np-approval-meta">
+            Aprobada: saca {formatEur(item.amountCents)} de la caja, dáselos al cliente y pulsa «Entregado» (si no, caduca a las 24 h).
+          </p>
+          <Button onClick={() => void handed()} loading={busy}>
+            Entregado
+          </Button>
+        </>
+      ) : hand === 'done' ? (
+        <p className="np-approval-meta">Entregado: apuntado en la caja.</p>
+      ) : hand === 'late' ? (
+        <p className="np-approval-meta">No se entregó a tiempo (24 h): si aún hay que devolverlo, pídelo otra vez.</p>
+      ) : null}
+      {handError ? (
+        <p role="alert" className="np-approval-meta" style={{ color: 'var(--np-danger)' }}>
+          {handError}
+        </p>
+      ) : null}
     </li>
   );
 }

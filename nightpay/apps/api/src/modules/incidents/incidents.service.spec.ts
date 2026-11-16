@@ -809,3 +809,33 @@ describe('cerrar un aviso de dinero pide nota (B11)', () => {
     ]);
   });
 });
+
+describe('recepción: «El cliente dice que no ha sido él» (app del personal)', () => {
+  const row = { id: 'a-21', paymentId: 'charge-1', amountCents: 1_200, occurredAt: at('2026-11-17T00:10:00Z'), payload: { ref: 'C-0042', code: 'K7Q-4M2' } };
+  function make(rows: unknown[]) {
+    const query = vi.fn(async () => rows);
+    const prisma = { $queryRaw: query, incidentAck: { upsert: vi.fn(async () => ({})) } };
+    const audit = { log: vi.fn(async () => undefined) };
+    return { svc: new IncidentsService(prisma as never, audit as never), prisma, audit, query };
+  }
+
+  it('solo los «No he sido yo» del local sin cerrar, y piden nota', async () => {
+    const t = make([row]);
+    const items = await t.svc.disputedCharges('t-1', at('2026-11-17T01:00:00Z'));
+    expect(items).toEqual([expect.objectContaining({ kind: 'wallet_charge_disputed', refId: 'a-21', amountCents: 1_200, noteRequired: true })]);
+    const sql = (t.query.mock.calls[0] as unknown as [string[]])[0].join('?');
+    expect(sql).toContain("a.action = 'wallet.charge_disputed_by_client'");
+    expect(sql).toContain("k.kind = 'wallet_charge_disputed'");
+  });
+
+  it('se cierra con su nota (como en el panel); sin nota no, y uno que no está, 404', async () => {
+    const t = make([row]);
+    await expect(t.svc.ackDisputed('t-1', 'rocio', { refId: 'a-21' })).rejects.toMatchObject({ response: expect.objectContaining({ code: 'INCIDENT_NOTE_REQUIRED' }) });
+    await t.svc.ackDisputed('t-1', 'rocio', { refId: 'a-21', note: 'Era suyo: pagó la copa de su amiga' });
+    expect(t.prisma.incidentAck.upsert).toHaveBeenCalledWith(expect.objectContaining({
+      create: expect.objectContaining({ tenantId: 't-1', kind: 'wallet_charge_disputed', refId: 'a-21', ackedBy: 'rocio' }),
+    }));
+    expect(t.audit.log).toHaveBeenCalledWith(expect.objectContaining({ action: 'incident.acked', targetId: 'wallet_charge_disputed:a-21' }));
+    await expect(make([]).svc.ackDisputed('t-1', 'rocio', { refId: 'a-21', note: 'nota' })).rejects.toMatchObject({ status: 404 });
+  });
+});

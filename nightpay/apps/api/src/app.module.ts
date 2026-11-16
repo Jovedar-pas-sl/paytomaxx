@@ -18,6 +18,7 @@ import { ApprovalsModule } from './modules/approvals/approvals.module';
 import { AuditModule } from './modules/audit/audit.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { BtcpayModule } from './modules/btcpay/btcpay.module';
+import { BitcoinCashModule } from './modules/bitcoin-cash/bitcoin-cash.module';
 import { GatewaysModule } from './modules/gateways/gateways.module';
 import { HealthController } from './modules/health/health.controller';
 import { MetricsModule } from './modules/metrics/metrics.module';
@@ -87,6 +88,7 @@ import { ReservationsModule } from './modules/reservations/reservations.module';
     PaymentsModule,
     // «Pagar con bitcoin» (BTCPay): apagado salvo BTCPAY_ENABLED.
     BtcpayModule,
+    BitcoinCashModule,
     RefundsModule,
     OperatorsModule,
     AdminModule,
