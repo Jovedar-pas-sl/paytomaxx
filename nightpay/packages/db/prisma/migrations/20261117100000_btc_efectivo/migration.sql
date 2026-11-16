@@ -1,7 +1,7 @@
 -- Devolver en efectivo los pagos con bitcoin (17-nov-2026), parte 1: columnas
 -- nuevas en tablas que ya existen. Ninguna se rellena con datos (las de antes
--- quedan NULL o con su valor de fábrica) y los CHECK van NOT VALID: no bloquean
--- el arranque. Se puede repetir.
+-- quedan NULL o con su valor de fábrica) y el CHECK se añade NOT VALID y se
+-- valida después (sin bloquear las escrituras). Se puede repetir.
 --  - btcpay_invoices: lo que llegó de verdad en la factura (pago a medias, de
 --    más o tardío), en BTC y en céntimos de euro al cambio de la factura.
 --  - btcpay_stores: el interruptor del local para devolver en efectivo
@@ -19,6 +19,8 @@ BEGIN
     ADD CONSTRAINT "btcpay_invoices_paid_nonnegative" CHECK ("paidCents" IS NULL OR "paidCents" >= 0) NOT VALID;
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
+-- La columna es nueva (todo NULL): validarla no bloquea las escrituras y es inmediato.
+ALTER TABLE "btcpay_invoices" VALIDATE CONSTRAINT "btcpay_invoices_paid_nonnegative";
 
 ALTER TABLE "btcpay_stores" ADD COLUMN IF NOT EXISTS "cashRefundEnabled" BOOLEAN NOT NULL DEFAULT false;
 
