@@ -108,6 +108,7 @@ model Venue {
   btcpayStore        BtcpayStore?
   btcpayInvoices     BtcpayInvoice[]
   userPhotos         UserPhoto[]
+  customerDisplays   CustomerDisplay[]
   nights             VenueNight[]
   incidentAcks       IncidentAck[]
   posTerminalOps     PosTerminalOp[]
@@ -236,6 +237,8 @@ model User {
   staffPasskeys         StaffPasskey[]
   // Su foto de perfil (20261113100000).
   photo                 UserPhoto?
+  // Su «Pantalla del cliente» (20261117400000): una como mucho (userId único).
+  customerDisplays      CustomerDisplay[]
 
   @@unique([id, tenantId])
   @@index([tenantId])
@@ -904,6 +907,38 @@ model UserPhoto {
   @@unique([userId, tenantId])
   @@index([tenantId])
   @@map("user_photos")
+}
+
+// «Pantalla del cliente» (20261117400000): la tablet de la barra que mira al
+// cliente, unida a una persona del personal (una por persona). Solo guarda
+// las huellas (sha256) del código para emparejar y de la credencial. Enseña
+// el cobro paymentId / chargeId (sin clave ajena a propósito: el API comprueba
+// que es de esa persona). FORCE RLS: solo dentro de una transacción de PrismaService.
+model CustomerDisplay {
+  id                   String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId             String    @db.Uuid
+  userId               String    @unique @db.Uuid
+  pairingCodeHash      String?   @unique
+  pairingCodeExpiresAt DateTime? @db.Timestamptz
+  tokenHash            String?   @unique
+  pairedAt             DateTime? @db.Timestamptz
+  // La unión caduca sola (12 h tras emparejar).
+  expiresAt            DateTime? @db.Timestamptz
+  revokedAt            DateTime? @db.Timestamptz
+  lastSeenAt           DateTime? @db.Timestamptz
+  paymentId            String?   @db.Uuid
+  chargeId             String?   @db.Uuid
+  shownAt              DateTime? @db.Timestamptz
+  // El camarero salió de ese cobro: se recuerda para enseñar su «Pagado» unos segundos.
+  clearedAt            DateTime? @db.Timestamptz
+  createdAt            DateTime  @default(now()) @db.Timestamptz
+  updatedAt            DateTime  @default(now()) @updatedAt @db.Timestamptz
+
+  user  User  @relation(fields: [userId, tenantId], references: [id, tenantId], onDelete: Cascade)
+  venue Venue @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@map("customer_displays")
 }
 
 // El mapa del dinero (20261023100000): las líneas de cada cobro, cada una en

@@ -41,6 +41,8 @@ export const TENANT_SCOPED_MODELS: ReadonlySet<string> = new Set([
   // «Pagar con bitcoin»: la conexión del local a su BTCPay y sus facturas.
   'BtcpayStore',
   'BtcpayInvoice',
+  // «Pantalla del cliente»: la tablet de la barra de cada persona.
+  'CustomerDisplay',
 ]);
 
 // Operaciones de lectura a filtrar y de escritura a inyectar tenantId

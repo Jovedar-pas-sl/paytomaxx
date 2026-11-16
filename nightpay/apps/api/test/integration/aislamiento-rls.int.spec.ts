@@ -93,6 +93,10 @@ async function seed(tag: string): Promise<{ tenantId: string; rows: Rows }> {
       await tx.userPhoto.create({
         data: { userId: chica, tenantId, contentType: 'image/jpeg', data: Buffer.alloc(64, 2), contentHash: 'b'.repeat(64), width: 128, height: 128 },
       });
+      // «Pantalla del cliente» del camarero (solo huellas: la base mira que lo sean).
+      const display = await tx.customerDisplay.create({
+        data: { tenantId, userId: owner, tokenHash: randomUUID().replace(/-/g, '').repeat(2), expiresAt: new Date(Date.now() + 3600_000), paymentId: payment.id },
+      });
       return {
         tenantId,
         rows: {
@@ -112,6 +116,7 @@ async function seed(tag: string): Promise<{ tenantId: string; rows: Rows }> {
           btcpay_stores: btcStore.id,
           btcpay_invoices: btcInvoice.id,
           user_photos: chica,
+          customer_displays: display.id,
         },
       };
     }),
