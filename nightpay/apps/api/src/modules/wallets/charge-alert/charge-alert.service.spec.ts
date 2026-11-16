@@ -81,6 +81,13 @@ describe('«Aviso en cada cobro»: apuntarse', () => {
     expect(tx.walletPushSubscription.upsert).not.toHaveBeenCalled();
   });
 
+  it('¿apuntado? solo este navegador en este saldo', async () => {
+    const { svc, tx } = harness();
+    Object.assign(tx.walletPushSubscription, { count: vi.fn(async () => 1) });
+    expect(await svc.isSubscribed(WALLET, { endpoint: FCM })).toBe(true);
+    expect(await svc.isSubscribed(WALLET, { endpoint: 'https://intranet.local/x' })).toBe(false);
+  });
+
   it('quitarlo borra solo este navegador de este saldo', async () => {
     const { svc, tx } = harness();
     await svc.unsubscribe(WALLET, { endpoint: FCM });

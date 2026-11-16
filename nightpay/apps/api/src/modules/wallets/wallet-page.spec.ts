@@ -42,6 +42,10 @@ describe('«Aviso en cada cobro» en la página del saldo', () => {
     expect(between(html, 'id="more"', 'id="movOpen"')).toContain('Avisarme de cada cobro');
     expect(html).toContain('id="avisoSheet"');
     expect(html).toContain('Añadir a pantalla de inicio');
+    // Sin Face ID ni huella no se apunta: la hoja explica que primero hay que activarlo.
+    expect(html).toContain('id="avisoKey"');
+    expect(html).toContain('Pide en recepción el QR de activación.');
+    expect(script(html)).toContain("pkGet(C.base+'/aviso/challenge')");
     expect(script(html)).toContain('function avisoRender(');
     expect(script(html)).toContain(KEY);
     expect(script(html)).toContain('/w/aviso-sw.js');

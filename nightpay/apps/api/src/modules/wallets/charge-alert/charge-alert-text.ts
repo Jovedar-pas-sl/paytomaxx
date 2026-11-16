@@ -19,6 +19,13 @@ export interface ChargeAlertText {
   rowOff: string;
   rowOn: string;
   rowIos: string;
+  rowNeedKey: string;
+  needKeyTitle: string;
+  needKeyText: string;
+  confirmTitle: string;
+  confirmText: string;
+  confirmGo: string;
+  close: string;
   on: string;
   off: string;
   denied: string;
@@ -62,6 +69,13 @@ export const CHARGE_ALERT_TEXT: Readonly<Record<PayLanguage, ChargeAlertText>> =
     rowOff: 'Te llega un aviso al móvil cada vez que se paga con tu saldo.',
     rowOn: 'Activado en este móvil. Toca para quitarlo.',
     rowIos: 'En iPhone, primero añade esta página a tu pantalla de inicio.',
+    rowNeedKey: 'Primero activa Face ID o huella en este saldo.',
+    needKeyTitle: 'Primero, Face ID o huella',
+    needKeyText: 'Para activar el aviso hace falta el Face ID o la huella de este saldo: así solo te apuntas tú. Pide en recepción el QR de activación.',
+    confirmTitle: 'Confirma que eres tú',
+    confirmText: 'Con tu Face ID o tu huella activamos el aviso en este móvil.',
+    confirmGo: 'Activar con Face ID',
+    close: 'Cerrar',
     on: 'Listo: te avisaremos de cada cobro.',
     off: 'Hecho: ya no te avisaremos en este móvil.',
     denied: 'Has bloqueado los avisos de esta página. Actívalos en los ajustes del navegador.',
@@ -106,6 +120,13 @@ export const CHARGE_ALERT_TEXT: Readonly<Record<PayLanguage, ChargeAlertText>> =
     rowOff: 'Get a notification on your phone every time your balance is used.',
     rowOn: 'On for this phone. Tap to turn it off.',
     rowIos: 'On iPhone, first add this page to your Home Screen.',
+    rowNeedKey: 'First turn on Face ID or fingerprint for this balance.',
+    needKeyTitle: 'First, Face ID or fingerprint',
+    needKeyText: 'To turn on notifications you need this balance’s Face ID or fingerprint, so only you can sign up. Ask reception for the activation QR.',
+    confirmTitle: 'Confirm it’s you',
+    confirmText: 'We turn on notifications on this phone with your Face ID or fingerprint.',
+    confirmGo: 'Turn on with Face ID',
+    close: 'Close',
     on: 'Done: we’ll notify you of every charge.',
     off: 'Done: no more notifications on this phone.',
     denied: 'You’ve blocked notifications for this page. Turn them on in your browser settings.',
@@ -150,6 +171,13 @@ export const CHARGE_ALERT_TEXT: Readonly<Record<PayLanguage, ChargeAlertText>> =
     rowOff: 'Recevez une notification sur votre téléphone à chaque paiement avec votre solde.',
     rowOn: 'Activé sur ce téléphone. Touchez pour le retirer.',
     rowIos: 'Sur iPhone, ajoutez d’abord cette page à l’écran d’accueil.',
+    rowNeedKey: 'Activez d’abord Face ID ou l’empreinte pour ce solde.',
+    needKeyTitle: 'D’abord, Face ID ou l’empreinte',
+    needKeyText: 'Pour activer les notifications, il faut le Face ID ou l’empreinte de ce solde : ainsi vous seul pouvez vous inscrire. Demandez le QR d’activation à l’accueil.',
+    confirmTitle: 'Confirmez que c’est vous',
+    confirmText: 'Avec votre Face ID ou votre empreinte, nous activons les notifications sur ce téléphone.',
+    confirmGo: 'Activer avec Face ID',
+    close: 'Fermer',
     on: 'C’est fait : nous vous avertirons de chaque paiement.',
     off: 'C’est fait : plus de notifications sur ce téléphone.',
     denied: 'Vous avez bloqué les notifications de cette page. Activez-les dans les réglages du navigateur.',
@@ -194,6 +222,13 @@ export const CHARGE_ALERT_TEXT: Readonly<Record<PayLanguage, ChargeAlertText>> =
     rowOff: 'Recebes um aviso no telemóvel sempre que se paga com o teu saldo.',
     rowOn: 'Ativado neste telemóvel. Toca para o tirar.',
     rowIos: 'No iPhone, primeiro adiciona esta página ao ecrã principal.',
+    rowNeedKey: 'Primeiro ativa o Face ID ou a impressão digital neste saldo.',
+    needKeyTitle: 'Primeiro, Face ID ou impressão digital',
+    needKeyText: 'É preciso o Face ID ou a impressão digital deste saldo para ativar o aviso: assim só tu te inscreves. Pede na receção o QR de ativação.',
+    confirmTitle: 'Confirma que és tu',
+    confirmText: 'Com o teu Face ID ou a tua impressão digital ativamos o aviso neste telemóvel.',
+    confirmGo: 'Ativar com Face ID',
+    close: 'Fechar',
     on: 'Pronto: vamos avisar-te de cada cobrança.',
     off: 'Feito: já não te avisamos neste telemóvel.',
     denied: 'Bloqueaste os avisos desta página. Ativa-os nas definições do navegador.',

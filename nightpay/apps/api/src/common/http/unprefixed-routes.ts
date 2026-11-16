@@ -81,7 +81,9 @@ export const UNPREFIXED_ROUTES: readonly UnprefixedRoute[] = Object.freeze([
   // apuntar o quitar este navegador y «No he sido yo» (el enlace firmado del aviso).
   { path: 'w/aviso-sw.js', method: RequestMethod.GET },
   { path: 'w/:token/manifest.webmanifest', method: RequestMethod.GET },
+  { path: 'w/:token/aviso/challenge', method: RequestMethod.POST },
   { path: 'w/:token/aviso', method: RequestMethod.POST },
+  { path: 'w/:token/aviso/estado', method: RequestMethod.POST },
   { path: 'w/:token/aviso/off', method: RequestMethod.POST },
   { path: 'w/no/:token', method: RequestMethod.GET },
   { path: 'w/no/:token', method: RequestMethod.POST },

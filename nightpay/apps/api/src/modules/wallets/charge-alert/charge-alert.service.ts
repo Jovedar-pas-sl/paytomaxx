@@ -123,6 +123,14 @@ export class ChargeAlertService {
     return { ok: true };
   }
 
+  /** ¿Este navegador está apuntado a este saldo? (la fila de la página dice «Activado»). */
+  async isSubscribed(walletId: string, body: unknown): Promise<boolean> {
+    const endpoint = pushEndpoint((body as { endpoint?: unknown } | null)?.endpoint);
+    if (!endpoint || !this.settings) return false;
+    const n = await this.prisma.acrossVenues((tx) => tx.walletPushSubscription.count({ where: { walletId, endpoint } }));
+    return n > 0;
+  }
+
   /** Quita este navegador del saldo («Avisarme de cada cobro» apagado). */
   async unsubscribe(walletId: string, body: unknown): Promise<{ ok: true }> {
     const endpoint = pushEndpoint((body as { endpoint?: unknown } | null)?.endpoint);

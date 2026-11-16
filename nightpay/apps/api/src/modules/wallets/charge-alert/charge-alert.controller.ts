@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Header, Headers, HttpCode, Inject, NotFoundException, Param, Post, Query, Res, UnauthorizedException } from '@nestjs/common';
+import { Body, ConflictException, Controller, ForbiddenException, Get, Header, Headers, HttpCode, Inject, NotFoundException, Param, Post, Query, Res, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { FastifyReply } from 'fastify';
 import { Public } from '../../../common/decorators/public.decorator';
@@ -10,6 +10,13 @@ import { walletViewAccess } from '../wallet-view-access';
 import { ChargeAlertService } from './charge-alert.service';
 import { SERVICE_WORKER_JS, renderNotMePage, walletManifest } from './charge-alert-view';
 import { ChargeDisputeService } from './charge-dispute.service';
+
+export const AVISO_NEEDS_KEY_MESSAGE = 'Para activar el aviso, primero activa Face ID o huella en este saldo: pide en recepción el QR de activación.';
+
+/** El reto de la llave, atado a apuntarse a los avisos y a este saldo. */
+function avisoScope(walletId: string): string {
+  return `aviso:${walletId}`;
+}
 
 /** Forma del enlace del saldo (antes de devolver un manifiesto con él). */
 const WALLET_TOKEN_RE = /^[A-Za-z0-9_-]{16,128}$/;
@@ -27,7 +34,10 @@ function sendHtml(res: FastifyReply, html: string): void {
  * «Aviso en cada cobro» (páginas del cliente, fuera de /v1):
  *  - GET  /w/aviso-sw.js                  → el service worker (enseña el aviso con la página cerrada).
  *  - GET  /w/:token/manifest.webmanifest  → para añadir el saldo a la pantalla de inicio (iPhone: así llegan los avisos).
- *  - POST /w/:token/aviso                 → apunta este navegador al saldo (con el mismo acceso que ver el saldo).
+ *  - POST /w/:token/aviso/challenge       → reto para su Face ID o huella (409 FACE_ID_NOT_SET si el saldo no tiene).
+ *  - POST /w/:token/aviso                 → apunta este navegador al saldo: con el acceso de ver el saldo Y su
+ *                                           Face ID o huella (con solo el enlace privado, no).
+ *  - POST /w/:token/aviso/estado          → ¿este navegador está apuntado a este saldo? (la fila de la página).
  *  - POST /w/:token/aviso/off             → lo quita.
  *  - GET  /w/no/:token                    → «No he sido yo»: enseña el cobro y pide confirmar (no cambia nada).
  *  - POST /w/no/:token                    → confirmado: bloquea su ficha y su PIN y avisa al local.
@@ -73,18 +83,49 @@ export class PublicChargeAlertController {
   }
 
   @Public()
+  @Post(':token/aviso/challenge')
+  @HttpCode(200)
+  @Header('Cache-Control', 'no-store')
+  @IpRateLimit({ max: 20, windowSec: 60, scope: 'wallet-aviso' })
+  async challenge(@Param('token') token: string, @Headers('host') host: string | undefined): Promise<unknown> {
+    const wallet = await this.charges.walletRefByToken(token);
+    await this.requireKey(wallet.id);
+    return this.passkeys.challenge(avisoScope(wallet.id), host);
+  }
+
+  /** Apuntarse: con su Face ID o huella (la llave del saldo), nunca con el enlace solo. */
+  @Public()
   @Post(':token/aviso')
   @HttpCode(200)
   @Header('Cache-Control', 'no-store')
-  @IpRateLimit({ max: 30, windowSec: 60, scope: 'wallet-aviso' })
+  @IpRateLimit({ max: 20, windowSec: 60, scope: 'wallet-aviso' })
   async subscribe(
+    @Param('token') token: string,
+    @Body() body: { subscription?: unknown; response?: unknown } | undefined,
+    @Res({ passthrough: true }) res: FastifyReply,
+    @Headers('host') host: string | undefined,
+    @Headers('cookie') cookies?: string,
+  ): Promise<{ ok: true }> {
+    const walletId = await this.allowedWallet(token, cookies, res);
+    await this.requireKey(walletId);
+    const owner = await this.passkeys.verify(avisoScope(walletId), host, body?.response);
+    if (owner !== walletId) throw new ForbiddenException({ message: 'Confirma con el Face ID de este saldo.', code: 'FACE_ID_WRONG' });
+    return this.alerts.subscribe(walletId, body?.subscription, resolveLanguage(undefined, cookies));
+  }
+
+  @Public()
+  @Post(':token/aviso/estado')
+  @HttpCode(200)
+  @Header('Cache-Control', 'no-store')
+  @IpRateLimit({ max: 60, windowSec: 60, scope: 'wallet-aviso-estado', failOpen: true })
+  async status(
     @Param('token') token: string,
     @Body() body: unknown,
     @Res({ passthrough: true }) res: FastifyReply,
     @Headers('cookie') cookies?: string,
-  ): Promise<{ ok: true }> {
+  ): Promise<{ on: boolean }> {
     const walletId = await this.allowedWallet(token, cookies, res);
-    return this.alerts.subscribe(walletId, body, resolveLanguage(undefined, cookies));
+    return { on: await this.alerts.isSubscribed(walletId, body) };
   }
 
   @Public()
@@ -128,6 +169,13 @@ export class PublicChargeAlertController {
   ): Promise<void> {
     const lang = resolveLanguage(langQuery, cookies);
     sendHtml(res, renderNotMePage(`/w/no/${encodeURIComponent(token)}`, lang, await this.disputes.dispute(token)));
+  }
+
+  /** Sin Face ID ni huella no se apunta: primero, activarlo (recepción o el QR de activación). */
+  private async requireKey(walletId: string): Promise<void> {
+    if (!(await this.passkeys.hasPasskey(walletId))) {
+      throw new ConflictException({ message: AVISO_NEEDS_KEY_MESSAGE, code: 'FACE_ID_NOT_SET' });
+    }
   }
 
   /** El saldo, con el mismo acceso que ver su estado (/w/:token/state). */

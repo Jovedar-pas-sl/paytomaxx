@@ -29,7 +29,7 @@ const LOCK_ICON =
 export interface AvisoConfig {
   key: string;
   sw: string;
-  t: Pick<ChargeAlertText, 'rowOff' | 'rowOn' | 'rowIos' | 'on' | 'off' | 'denied' | 'unsupported' | 'failed'>;
+  t: Pick<ChargeAlertText, 'rowOff' | 'rowOn' | 'rowIos' | 'rowNeedKey' | 'on' | 'off' | 'denied' | 'unsupported' | 'failed'>;
 }
 
 export function avisoConfig(lang: PayLanguage, publicKey: string | null | undefined): AvisoConfig | null {
@@ -38,14 +38,14 @@ export function avisoConfig(lang: PayLanguage, publicKey: string | null | undefi
   return {
     key: publicKey,
     sw: SERVICE_WORKER_PATH,
-    t: { rowOff: t.rowOff, rowOn: t.rowOn, rowIos: t.rowIos, on: t.on, off: t.off, denied: t.denied, unsupported: t.unsupported, failed: t.failed },
+    t: { rowOff: t.rowOff, rowOn: t.rowOn, rowIos: t.rowIos, rowNeedKey: t.rowNeedKey, on: t.on, off: t.off, denied: t.denied, unsupported: t.unsupported, failed: t.failed },
   };
 }
 
 export const AVISO_CSS = `
 #avisoHint{font-size:.875rem}
 #avisoSheet ol{margin:0;padding-left:1.25rem;display:grid;gap:.5rem;color:var(--fg);text-align:left}
-#avisoSheet h2{text-align:left}
+#avisoSheet h2,#avisoKey h2,#avisoFace h2,#avisoKey p,#avisoFace p{text-align:left}
 `;
 
 /** La fila de «Más» (la enseña el JS si el navegador puede o es un iPhone que aún no la tiene en inicio). */
@@ -54,7 +54,12 @@ export function avisoRow(lang: PayLanguage): string {
   return `<button class="row" type="button" id="avisoOpen" hidden>${escapeHtml(t.row)}<small id="avisoHint">${escapeHtml(t.rowOff)}</small></button>\n`;
 }
 
-/** iPhone fuera de la pantalla de inicio: los pasos para poder activarlo. */
+/**
+ * Las hojas del aviso: los pasos en un iPhone fuera de la pantalla de inicio,
+ * «primero, Face ID o huella» (un saldo sin llave no se apunta: con el enlace
+ * solo, nadie) y la confirmación con su Face ID o huella (un toque aparte del
+ * permiso del navegador: en iPhone cada uno pide su propio toque).
+ */
 export function avisoSheet(lang: PayLanguage): string {
   const t = CHARGE_ALERT_TEXT[lang];
   const h = escapeHtml;
@@ -63,6 +68,18 @@ export function avisoSheet(lang: PayLanguage): string {
 <ol>${t.iosSteps.map((s) => `<li>${h(s)}</li>`).join('')}</ol>
 <p>${h(t.iosNote)}</p>
 <button class="btn alt" type="button" data-close>${h(t.iosClose)}</button>
+</dialog>
+<dialog class="sheet" id="avisoKey" aria-labelledby="avisoKeyTitle">
+<h2 id="avisoKeyTitle">${h(t.needKeyTitle)}</h2>
+<p>${h(t.needKeyText)}</p>
+<button class="btn alt" type="button" data-close>${h(t.close)}</button>
+</dialog>
+<dialog class="sheet" id="avisoFace" aria-labelledby="avisoFaceTitle">
+<h2 id="avisoFaceTitle">${h(t.confirmTitle)}</h2>
+<p>${h(t.confirmText)}</p>
+<p class="err" id="avisoErr" role="alert" hidden></p>
+<button class="btn" type="button" id="avisoGo" data-label="${h(t.confirmGo)}">${h(t.confirmGo)}</button>
+<button class="link" type="button" data-close>${h(t.close)}</button>
 </dialog>
 `;
 }
@@ -87,41 +104,47 @@ export function walletManifest(base: string, lang: PayLanguage): string {
 
 /**
  * avisoRender(s): la fila sale con el aviso encendido en el servidor, en un
- * saldo vivo (o gastado) y si este navegador puede (o es un iPhone fuera de
- * la pantalla de inicio: entonces enseña los pasos). Encendido en este
- * navegador para ESTE saldo: su suscripción y la marca local del saldo (dos
- * saldos en el mismo móvil no se encienden solos). Apagar quita este saldo en
- * el servidor; el navegador sigue apuntado para los demás.
+ * saldo vivo (o gastado). Sin Face ID ni huella, explica que primero hay que
+ * activarlo (con el enlace solo no se apunta nadie). Activar: un toque para
+ * el permiso del navegador y otro para su Face ID o huella (POST /aviso con
+ * la firma). «Activado» lo dice el servidor para este navegador y este saldo
+ * (/aviso/estado, sin pedir nada). Apagar quita este saldo en el servidor; el
+ * navegador sigue apuntado para los demás saldos del móvil.
  */
 export const AVISO_JS = `
-var AV=C.aviso,avOn=false,avMark='np-aviso:'+C.base;
+var AV=C.aviso,avOn=false;
 function avIos(){var u=navigator.userAgent||'';return /iPhone|iPad|iPod/.test(u)||(navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1);}
 function avHome(){return navigator.standalone===true||(!!window.matchMedia&&matchMedia('(display-mode: standalone)').matches);}
 function avCan(){return 'serviceWorker' in navigator&&'PushManager' in window&&'Notification' in window;}
-function avStore(on){try{if(on)localStorage.setItem(avMark,'1');else localStorage.removeItem(avMark);}catch(e){}}
-function avStored(){try{return localStorage.getItem(avMark)==='1';}catch(e){return false;}}
-function avHint(){if(!AV)return;$('avisoHint').textContent=!avCan()&&avIos()&&!avHome()?AV.t.rowIos:avOn?AV.t.rowOn:AV.t.rowOff;}
-function avisoRender(s){var ok=!!AV&&(s.status==='ACTIVE'||s.status==='DEPLETED')&&!s.merged&&(avCan()||(avIos()&&!avHome()));
+function avHint(){if(!AV)return;$('avisoHint').textContent=!S.hasFaceId?AV.t.rowNeedKey:!avCan()&&avIos()&&!avHome()?AV.t.rowIos:avOn?AV.t.rowOn:AV.t.rowOff;}
+function avisoRender(s){var ok=!!AV&&(s.status==='ACTIVE'||s.status==='DEPLETED')&&!s.merged&&(!s.hasFaceId||avCan()||(avIos()&&!avHome()));
  $('avisoOpen').hidden=!ok;if(ok)avHint();}
 function avReg(){return navigator.serviceWorker.register(AV.sw,{scope:'/w/'});}
 function avKey(){var b=AV.key.replace(/-/g,'+').replace(/_/g,'/');while(b.length%4)b+='=';
  var r=atob(b),a=new Uint8Array(r.length);for(var i=0;i<r.length;i++)a[i]=r.charCodeAt(i);return a;}
 function avAsk(){return new Promise(function(ok){var p=Notification.requestPermission(ok);if(p&&p.then)p.then(ok);});}
-function avStart(){return avAsk().then(function(p){if(p!=='granted'){var e=new Error('denied');e.avText=AV.t.denied;throw e;}return avReg();})
- .then(function(){return navigator.serviceWorker.ready;})
- .then(function(r){return r.pushManager.getSubscription().then(function(s){return s||r.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:avKey()});});})
- .then(function(s){return post('/aviso',s.toJSON());}).then(function(){avOn=true;avStore(true);return AV.t.on;});}
+function avSubscription(){return avReg().then(function(){return navigator.serviceWorker.ready;})
+ .then(function(r){return r.pushManager.getSubscription().then(function(s){return s||r.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:avKey()});});});}
+function avConfirm(){var b=$('avisoGo');if(busy)return;show('avisoErr','');
+ if(!pkSupported()){show('avisoErr',T.faceIdNeeded);return;}
+ busy=true;busyBtn(b,true,T.unlockWaiting);
+ pkGet(C.base+'/aviso/challenge').then(function(k){return avSubscription().then(function(s){return post('/aviso',{subscription:s.toJSON(),response:k});});})
+  .then(function(){avOn=true;closeSheet($('avisoFace'));toast(AV.t.on);})
+  .catch(function(e){if(!pkCancelled(e))show('avisoErr',e&&e.code?msg(e):AV.t.failed);})
+  .then(function(){busy=false;busyBtn(b,false);avHint();});}
 function avStop(){return avReg().then(function(r){return r.pushManager.getSubscription();})
  .then(function(s){return s?post('/aviso/off',{endpoint:s.toJSON().endpoint}):null;})
- .then(function(){avOn=false;avStore(false);return AV.t.off;});}
-if(AV&&avCan()&&avStored()){avReg().then(function(r){return r.pushManager.getSubscription();}).then(function(s){
- avOn=!!s&&Notification.permission==='granted';if(avOn)post('/aviso',s.toJSON()).catch(function(){});else avStore(false);avHint();}).catch(function(){});}
+ .then(function(){avOn=false;return AV.t.off;});}
+if(AV&&S.hasFaceId&&avCan()&&Notification.permission==='granted'){avReg().then(function(r){return r.pushManager.getSubscription();})
+ .then(function(s){return s?post('/aviso/estado',{endpoint:s.toJSON().endpoint}):{on:false};})
+ .then(function(r){avOn=!!(r&&r.on);avHint();}).catch(function(){});}
 $('avisoOpen').addEventListener('click',function(){var b=$('avisoOpen');if(busy||!AV)return;
+ if(!S.hasFaceId){openSheet($('avisoKey'));return;}
  if(!avCan()){if(avIos()&&!avHome())openSheet($('avisoSheet'));else toast(AV.t.unsupported);return;}
- busy=true;b.disabled=true;
- (avOn?avStop():avStart()).then(function(text){toast(text);})
-  .catch(function(e){toast(e&&e.avText?e.avText:e&&e.code?msg(e):AV.t.failed);})
-  .then(function(){busy=false;b.disabled=false;avHint();});});`;
+ if(avOn){busy=true;b.disabled=true;avStop().then(toast).catch(function(e){toast(e&&e.code?msg(e):AV.t.failed);})
+  .then(function(){busy=false;b.disabled=false;avHint();});return;}
+ avAsk().then(function(p){if(p!=='granted'){toast(AV.t.denied);return;}show('avisoErr','');openSheet($('avisoFace'));});});
+$('avisoGo').addEventListener('click',avConfirm);`;
 
 /**
  * El service worker: enseña el aviso (también con la página cerrada) y, al

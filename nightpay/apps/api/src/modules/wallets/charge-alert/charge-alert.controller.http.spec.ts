@@ -9,12 +9,20 @@ import { WalletPasskeysService } from '../wallet-passkeys.service';
 import { PublicChargeAlertController } from './charge-alert.controller';
 import { ChargeAlertService } from './charge-alert.service';
 import { ChargeDisputeService } from './charge-dispute.service';
+import { walletViewSetCookies } from '../wallet-view-session';
 
 const TOKEN = 'privateWalletToken0123456';
 const NOT_ME = 'eyJjIjoiMSJ9.firmaFirmaFirmaFirmaFirmaFirmaFirmaFirmaFirma12';
 const charges = { walletRefByToken: vi.fn(async () => ({ id: 'w1', shortCode: 'K7Q4M2' })) };
-const passkeys = { hasPasskey: vi.fn(async () => false) };
-const alerts = { subscribe: vi.fn(async () => ({ ok: true })), unsubscribe: vi.fn(async () => ({ ok: true })) };
+const SECRET = 'secreto-de-pruebas-0123456789abcdef';
+const passkeys = {
+  hasPasskey: vi.fn(async () => true),
+  challenge: vi.fn(async () => ({ challenge: 'reto' })),
+  verify: vi.fn(async () => 'w1'),
+};
+/** La sesión de consulta del saldo (tras desbloquear con su Face ID). */
+const session = walletViewSetCookies(SECRET, { id: 'w1', qrToken: TOKEN }).map((c) => c.split(';')[0]).join('; ');
+const alerts = { subscribe: vi.fn(async () => ({ ok: true })), unsubscribe: vi.fn(async () => ({ ok: true })), isSubscribed: vi.fn(async () => true) };
 const at = new Date('2026-11-16T22:40:00Z');
 const disputes = {
   view: vi.fn(async () => ({ state: 'ask', ref: 'C-0042', totalCents: 1_200, venueName: 'Sala Aurora', at })),
@@ -28,7 +36,7 @@ beforeAll(async () => {
     providers: [
       { provide: WalletChargesService, useValue: charges },
       { provide: WalletPasskeysService, useValue: passkeys },
-      { provide: ConfigService, useValue: { get: () => 'secreto-de-pruebas-0123456789abcdef' } },
+      { provide: ConfigService, useValue: { get: () => SECRET } },
       { provide: ChargeAlertService, useValue: alerts },
       { provide: ChargeDisputeService, useValue: disputes },
     ],
@@ -55,21 +63,37 @@ describe('«Aviso en cada cobro»: rutas del cliente (fuera de /v1)', () => {
     expect((await app.inject({ method: 'GET', url: '/w/no%20vale/manifest.webmanifest' })).statusCode).toBe(404);
   });
 
-  it('apuntarse y quitarlo, con el acceso de ver el saldo y el idioma de la página', async () => {
+  it('apuntarse: con la sesión del saldo Y su Face ID o huella (reto atado a «aviso» y a este saldo)', async () => {
     const sub = { endpoint: 'https://fcm.googleapis.com/fcm/send/x', keys: { p256dh: 'p', auth: 'a' } };
-    const on = await app.inject({ method: 'POST', url: `/w/${TOKEN}/aviso`, payload: sub, headers: { cookie: 'np_lang=fr' } });
+    const ch = await app.inject({ method: 'POST', url: `/w/${TOKEN}/aviso/challenge`, headers: { host: 'api.example' } });
+    expect(ch.statusCode).toBe(200);
+    expect(passkeys.challenge).toHaveBeenCalledWith('aviso:w1', 'api.example');
+    const on = await app.inject({
+      method: 'POST', url: `/w/${TOKEN}/aviso`, payload: { subscription: sub, response: { id: 'llave' } }, headers: { cookie: `${session}; np_lang=fr`, host: 'api.example' },
+    });
     expect(on.statusCode).toBe(200);
+    expect(passkeys.verify).toHaveBeenCalledWith('aviso:w1', 'api.example', { id: 'llave' });
     expect(alerts.subscribe).toHaveBeenCalledWith('w1', sub, 'fr');
-    const off = await app.inject({ method: 'POST', url: `/w/${TOKEN}/aviso/off`, payload: { endpoint: sub.endpoint } });
+    const state = await app.inject({ method: 'POST', url: `/w/${TOKEN}/aviso/estado`, payload: { endpoint: sub.endpoint }, headers: { cookie: session } });
+    expect(state.json()).toEqual({ on: true });
+    const off = await app.inject({ method: 'POST', url: `/w/${TOKEN}/aviso/off`, payload: { endpoint: sub.endpoint }, headers: { cookie: session } });
     expect(off.statusCode).toBe(200);
     expect(alerts.unsubscribe).toHaveBeenCalledWith('w1', { endpoint: sub.endpoint });
-    expect((await app.inject({ method: 'POST', url: `/v1/w/${TOKEN}/aviso`, payload: sub })).statusCode).toBe(404);
+    expect((await app.inject({ method: 'POST', url: `/v1/w/${TOKEN}/aviso`, payload: {} })).statusCode).toBe(404);
   });
 
-  it('un saldo con Face ID sin la sesión de consulta no se apunta (401)', async () => {
-    passkeys.hasPasskey.mockResolvedValueOnce(true);
-    const r = await app.inject({ method: 'POST', url: `/w/${TOKEN}/aviso`, payload: {} });
-    expect(r.statusCode).toBe(401);
+  it('con solo el enlace privado no se apunta nadie: sin Face ID 409, sin sesión 401, llave de otro saldo 403', async () => {
+    passkeys.hasPasskey.mockResolvedValue(false);
+    const ch = await app.inject({ method: 'POST', url: `/w/${TOKEN}/aviso/challenge` });
+    expect(ch.statusCode).toBe(409);
+    expect(ch.json()).toMatchObject({ code: 'FACE_ID_NOT_SET' });
+    const noKey = await app.inject({ method: 'POST', url: `/w/${TOKEN}/aviso`, payload: { subscription: {} } });
+    expect(noKey.statusCode).toBe(409);
+    passkeys.hasPasskey.mockResolvedValue(true);
+    expect((await app.inject({ method: 'POST', url: `/w/${TOKEN}/aviso`, payload: { subscription: {} } })).statusCode).toBe(401);
+    passkeys.verify.mockResolvedValueOnce('otro-saldo');
+    const wrong = await app.inject({ method: 'POST', url: `/w/${TOKEN}/aviso`, payload: { subscription: {}, response: {} }, headers: { cookie: session } });
+    expect(wrong.statusCode).toBe(403);
     expect(alerts.subscribe).not.toHaveBeenCalled();
   });
 
