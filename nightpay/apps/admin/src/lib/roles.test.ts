@@ -28,8 +28,8 @@ describe('cinco secciones', () => {
   it('Hoy: cobros, el mapa del dinero y una sola bandeja de avisos; Chicas: las chicas y sus pagos; Clientes: los saldos y las fichas', () => {
     expect(sectionTabs({ role: 'OWNER' }, 'hoy')).toEqual(['payments', 'money', 'incidents']);
     expect(sectionTabs({ role: 'OWNER' }, 'chicas')).toEqual(['operators', 'treasury']);
-    expect(sectionTabs({ role: 'OWNER' }, 'clientes')).toEqual(['wallets', 'fichas']);
-    expect(sectionTabs({ role: 'MANAGER' }, 'clientes')).toEqual(['wallets', 'fichas']);
+    expect(sectionTabs({ role: 'OWNER' }, 'clientes')).toEqual(['wallets', 'fichas', 'reservations']);
+    expect(sectionTabs({ role: 'MANAGER' }, 'clientes')).toEqual(['wallets', 'fichas', 'reservations']);
     expect(sectionOf('fichas')).toBe('clientes');
     expect(sectionTabs({ role: 'OWNER' }, 'informes')).toEqual(['nights', 'reports', 'bank', 'oxiopay']);
   });

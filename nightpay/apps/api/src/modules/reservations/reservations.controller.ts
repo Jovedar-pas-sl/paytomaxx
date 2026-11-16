@@ -104,10 +104,14 @@ export class ReservationsController {
   /** El dueño o el encargado reservan para un cliente (vendido por: el panel). */
   @Post()
   @Roles('OWNER', 'MANAGER')
-  async book(@CurrentUser() u: JwtPayload, @Body(new ZodValidationPipe(CreateReservationSchema)) dto: CreateReservationDto): Promise<ReservationView> {
+  async book(
+    @CurrentUser() u: JwtPayload,
+    @Body(new ZodValidationPipe(CreateReservationSchema)) dto: CreateReservationDto,
+  ): Promise<{ reservation: ReservationView; link: string }> {
     const entry = await this.reservations.entryForPanel(u.tenantId);
     const created = await this.reservations.book(entry, dto, u.sub);
-    return this.ops.detail(actorOf(u), created.id);
+    // El enlace para mandárselo al cliente: desde ahí paga la señal o todo.
+    return { reservation: await this.ops.detail(actorOf(u), created.id), link: `${this.catalog.origin}/reservas/${created.manageToken}` };
   }
 
   // ─── La noche y la puerta ───────────────────────────────────────────
