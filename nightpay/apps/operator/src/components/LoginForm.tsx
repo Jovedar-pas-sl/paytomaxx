@@ -1,8 +1,8 @@
 'use client';
 
 import { useId, useState, type FormEvent } from 'react';
-import { Button, FormError, Input } from '@nightpay/ui';
-import { BAD_CREDENTIALS_MESSAGE, LoginCodeRequiredError, login, loginWithCode, setSession, type OperatorUser } from '@/lib/api';
+import { Button, FormError, Input, PrivacyNote } from '@nightpay/ui';
+import { BAD_CREDENTIALS_MESSAGE, LoginCodeRequiredError, apiBase, login, loginWithCode, setSession, type OperatorUser } from '@/lib/api';
 
 interface Props {
   onSuccess: (user: OperatorUser) => void;
@@ -121,6 +121,7 @@ export function LoginForm({ onSuccess, initialEmail = '', submitLabel = 'Entrar'
       <Button type="submit" loading={busy} size="lg">
         {submitLabel}
       </Button>
+      <PrivacyNote apiBase={apiBase} />
     </form>
   );
 }

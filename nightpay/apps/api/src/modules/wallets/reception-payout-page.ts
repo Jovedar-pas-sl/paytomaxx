@@ -1,5 +1,6 @@
 import { CLUB_BASE_CSS, clientMoney, escapeHtml, jsConfig } from '../payments/club-ui';
 import { CHROME_CSS, LANG_JS, topBar } from '../payments/customer-chrome';
+import { legalFooter } from '../legal/legal-links';
 import { CUSTOMER_TEXT } from '../payments/i18n';
 import { PAY_TEXT, type PayLanguage } from '../payments/pay-i18n';
 import { myBalanceBlock, myBalanceButton, myBalanceScript } from './my-balance';
@@ -46,5 +47,5 @@ b.disabled=false;b.textContent=C.t.button;prepared=pkPrepare(C.base+'/challenge'
 })();
 ${LANG_JS}</script>${myBalanceScript(lang)}` : '';
   return `<!doctype html><html lang="${lang}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="robots" content="noindex,nofollow"><meta name="referrer" content="no-referrer"><meta name="theme-color" content="#0b0d0e"><title>${escapeHtml(t.title)}</title><style>${CLUB_BASE_CSS}${CHROME_CSS}
-main{max-width:28rem;min-height:calc(100svh - 3.5rem);margin:auto;padding:1rem 1rem 2rem;display:flex;flex-direction:column;justify-content:center;gap:1.5rem}.box{padding:1.5rem 1.25rem;border:1px solid var(--line);border-radius:var(--r);background:var(--surface);display:grid;gap:1rem}.box h1{font-size:1.375rem}.kick{margin:0}.amt{margin:0;font:600 3rem/1 var(--num);letter-spacing:-.02em;color:var(--fg)}.sub{margin:0;color:var(--mute)}.ok{color:var(--ok);font-weight:600}.foot{line-height:1.5;color:var(--dim)}</style></head><body>${topBar(lang, (l) => `${base}?lang=${l}`)}<main><section class="box"><h1>${escapeHtml(t.title)}</h1>${body}</section></main>${script}</body></html>`;
+main{max-width:28rem;min-height:calc(100svh - 3.5rem);margin:auto;padding:1rem 1rem 2rem;display:flex;flex-direction:column;justify-content:center;gap:1.5rem}.box{padding:1.5rem 1.25rem;border:1px solid var(--line);border-radius:var(--r);background:var(--surface);display:grid;gap:1rem}.box h1{font-size:1.375rem}.kick{margin:0}.amt{margin:0;font:600 3rem/1 var(--num);letter-spacing:-.02em;color:var(--fg)}.sub{margin:0;color:var(--mute)}.ok{color:var(--ok);font-weight:600}.foot{line-height:1.5;color:var(--dim)}</style></head><body>${topBar(lang, (l) => `${base}?lang=${l}`)}<main><section class="box"><h1>${escapeHtml(t.title)}</h1>${body}</section></main>${legalFooter(lang)}${script}</body></html>`;
 }

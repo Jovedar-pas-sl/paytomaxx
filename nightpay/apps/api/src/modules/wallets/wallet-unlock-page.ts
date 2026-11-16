@@ -1,5 +1,6 @@
 import { CLUB_BASE_CSS, escapeHtml, jsConfig } from '../payments/club-ui';
 import { CHROME_CSS, LANG_JS, topBar } from '../payments/customer-chrome';
+import { legalFooter } from '../legal/legal-links';
 import { CUSTOMER_TEXT } from '../payments/i18n';
 import type { UnlockPageText } from '../payments/i18n/types';
 import type { PayLanguage } from '../payments/pay-i18n';
@@ -136,5 +137,5 @@ export function renderWalletUnlockPage(base: string, lang: PayLanguage, view: Wa
   return `<!doctype html><html lang="${lang}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="robots" content="noindex,nofollow"><meta name="referrer" content="no-referrer"><meta name="theme-color" content="#0b0d0e"><title>${h(t.title)}</title><style>${CLUB_BASE_CSS}${CHROME_CSS}${UNLOCK_CSS}${hasExtras(view) ? CARD_EXTRAS_CSS : ''}</style></head><body><main>`
     + topBar(lang, langHref)
     + body(view, t, lang, locale)
-    + `</main>${view.kind === 'locked' ? unlockScript(base, lang, t, paid) : ''}${hasExtras(view) ? cardExtrasScript(base, lang, locale, t.ficha) : ''}</body></html>`;
+    + `</main>${legalFooter(lang)}${view.kind === 'locked' ? unlockScript(base, lang, t, paid) : ''}${hasExtras(view) ? cardExtrasScript(base, lang, locale, t.ficha) : ''}</body></html>`;
 }
