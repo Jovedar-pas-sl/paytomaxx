@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type { FichaCheck, ReceptionOptions } from '@nightpay/contracts';
-import { ScreenHelp } from '@nightpay/ui';
+import { ScreenHelp, topUpTicket } from '@nightpay/ui';
 import { TOURS } from '@/lib/tours';
 import { createPayment, fetchTerminals, type CreatedPayment, type OperatorUser } from '@/lib/api';
 import { playOutcomeSound } from '@/lib/alert-sound';
@@ -72,7 +72,7 @@ import { undoCashTopUp, type CashUndoReason } from '@/lib/cash-undo';
 import { fichaShort, photoHint } from '@/lib/ficha-number';
 import { handOverOf, loadedHelp } from '@/lib/reception-help';
 import { receptionChip, useMySections } from '@/lib/sections';
-import { useVenueNight } from '@/lib/venue-methods';
+import { useVenueName, useVenueNight } from '@/lib/venue-methods';
 import {
   canSkipPasskey,
   cashExitPlan,
@@ -136,6 +136,7 @@ interface Props {
  */
 export function ReceptionDesk({ user, active, footer, onGiveFicha, onScanHome, home }: Props) {
   const night = useVenueNight();
+  const venueName = useVenueName();
   const { sections } = useMySections();
   const [mode, setMode] = useState<Mode>('entrada');
   const [step, setStep] = useState<Step>({ kind: 'tap' });
@@ -946,6 +947,17 @@ export function ReceptionDesk({ user, active, footer, onGiveFicha, onScanHome, h
         reference={reference}
         money={{ icon: done.method, ...money }}
         cashBy={done.method === 'cash' ? user.displayName ?? null : null}
+        print={topUpTicket({
+          venue: venueName,
+          amountCents: done.amountCents,
+          feeCents: done.feeCents,
+          method: done.method,
+          ficha,
+          code,
+          balanceCents: done.wallet?.balanceCents ?? null,
+          reference,
+          at: new Date(done.loadedAt ?? Date.now()),
+        })}
         meta={meta}
         ids={ids}
         warn={done.warn}

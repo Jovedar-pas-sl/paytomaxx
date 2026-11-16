@@ -103,6 +103,8 @@ export interface VenueFeed {
   methods: VenuePaymentMethods;
   night: VenueNightSettings;
   rights: MyRights | null;
+  /** El nombre del local (null: aún no llega). */
+  venueName: string | null;
 }
 
 /** El almacenamiento del navegador, o null si no se deja (navegación privada estricta). */
@@ -116,7 +118,7 @@ function localStorageOrNull(): Storage | null {
 
 /** Las formas de cobro, los ajustes de la noche y lo que puede quien entra, pedidos una vez al entrar (y si cambia el usuario). */
 export function useVenueMethodsFeed(userId: string): VenueFeed {
-  const [feed, setFeed] = useState<VenueFeed>({ methods: DEFAULT_PAYMENT_METHODS, night: DEFAULT_NIGHT_SETTINGS, rights: null });
+  const [feed, setFeed] = useState<VenueFeed>({ methods: DEFAULT_PAYMENT_METHODS, night: DEFAULT_NIGHT_SETTINGS, rights: null, venueName: null });
   useEffect(() => {
     let cancelled = false;
     fetchVenueFeed()
@@ -126,7 +128,7 @@ export function useVenueMethodsFeed(userId: string): VenueFeed {
         setVenueFeedback({ sound: night.feedbackSound, vibration: night.feedbackVibration });
         // Modo «sala» (contraste alto) si el local lo tiene; si no responde, se queda como estaba.
         applySalaContrast(document.documentElement, localStorageOrNull(), night.highContrast);
-        setFeed({ methods: paymentMethodsOf(venue.paymentMethods), night, rights: myRightsOf(venue.myPost, venue.myRights) });
+        setFeed({ methods: paymentMethodsOf(venue.paymentMethods), night, rights: myRightsOf(venue.myPost, venue.myRights), venueName: venue.name });
       })
       .catch(() => {
         // Sin respuesta: lo de fábrica (sin datáfono); el API rechaza lo apagado.
@@ -136,4 +138,11 @@ export function useVenueMethodsFeed(userId: string): VenueFeed {
     };
   }, [userId]);
   return feed;
+}
+
+/** El nombre del local, para el ticket impreso (null: aún no se sabe). */
+export const VenueNameContext = createContext<string | null>(null);
+
+export function useVenueName(): string | null {
+  return useContext(VenueNameContext);
 }

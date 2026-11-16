@@ -609,11 +609,13 @@ export async function fetchMySections(): Promise<MySections> {
  * Y el puesto de quien entra y lo que puede (cargar saldos, efectivo): la
  * recepción solo sale a quien la puede hacer.
  */
-export async function fetchVenueFeed(): Promise<{ paymentMethods: unknown; nightSettings: unknown; myPost: unknown; myRights: unknown }> {
+export async function fetchVenueFeed(): Promise<{ name: string | null; paymentMethods: unknown; nightSettings: unknown; myPost: unknown; myRights: unknown }> {
   const res = await authedFetch('/v1/venues/me');
   if (!res.ok) throw loadError(res, 'Error cargando el local');
-  const venue = (await res.json()) as { paymentMethods?: unknown; nightSettings?: unknown; myPost?: unknown; myRights?: unknown };
+  const venue = (await res.json()) as { name?: unknown; paymentMethods?: unknown; nightSettings?: unknown; myPost?: unknown; myRights?: unknown };
   return {
+    // El nombre del local: arriba en el ticket impreso.
+    name: typeof venue.name === 'string' && venue.name.trim() ? venue.name.trim() : null,
     paymentMethods: venue.paymentMethods ?? null,
     nightSettings: venue.nightSettings ?? null,
     myPost: venue.myPost ?? null,

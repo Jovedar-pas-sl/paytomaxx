@@ -7,6 +7,8 @@ import { agoLabel } from '../lib/countdown';
 import { clockTime, OUTCOME_TITLE, type OutcomeKind } from '../lib/outcome';
 import { sectionsChipText, sectionVar } from '../lib/sections';
 import { SectionChip } from './SectionChip';
+import { PrintButton, usePrintTicket } from './PrintTicket';
+import type { Ticket } from '../lib/ticket';
 
 export interface OutcomeAction {
   label: string;
@@ -70,6 +72,8 @@ export interface PaymentOutcomeProps {
   /** El botón grande: «Nuevo cobro», «Otro QR · mismo importe»… */
   primary: OutcomeAction;
   secondary?: OutcomeAction;
+  /** Pagado: el ticket que sale con «Imprimir comprobante» (papel de 58 mm). Sin él, no hay botón. */
+  print?: Ticket | null;
   error?: string | null;
 }
 
@@ -109,10 +113,12 @@ export function PaymentOutcome({
   reference,
   primary,
   secondary,
+  print,
   error,
 }: PaymentOutcomeProps) {
   const titleId = useId();
   const primaryRef = useRef<HTMLButtonElement>(null);
+  const printer = usePrintTicket();
   const [shownAt] = useState(() => Date.now());
   const since = sinceMs ?? shownAt;
   const now = useNow(true);
@@ -192,12 +198,14 @@ export function PaymentOutcome({
         <div className="np-outcome-actions">
           <OutcomeButton ref={primaryRef} action={primary} variant="primary" />
           {secondary ? <OutcomeButton action={secondary} variant="secondary" /> : null}
+          {print ? <PrintButton label="Imprimir comprobante" onClick={() => printer.print(print)} /> : null}
         </div>
       </div>
 
       <p role="status" aria-live="polite" aria-atomic="true" className="np-sr-only">
         {announce}
       </p>
+      {printer.ticketNode}
     </section>
   );
 }
