@@ -62,6 +62,7 @@ import {
   type CardLive,
   type CardWait,
 } from '@/lib/cobro-state';
+import { CANCEL_AT_BANK_TOO_SOON_CODE } from '@/lib/cancel-at-bank';
 import { fetchBankRef, notifiedText, notifyManager, type BankRef } from '@/lib/api-bank-wait';
 import { useShown } from '../reception/desk/use-shown';
 import { StaffOutcome } from '../StaffOutcome';
@@ -410,6 +411,9 @@ export function Esperando({ cobro, onNew, onRetry, retrying = false, retryError 
       refreshSaldo();
       const code = err instanceof CobroApiError ? err.code : null;
       if (code === BITCOIN_CONFIRMING_CODE) setCard((current) => cardAfter(current, { status: current.status, bitcoin: 'confirming' }));
+      // Aún en su banco (los 2 minutos): de vuelta a la espera, que lo dice y enseña el botón a su hora
+      // (desde la pantalla de un NFC que no pagó, el aviso no se vería).
+      if (code === CANCEL_AT_BANK_TOO_SOON_CODE) setLocalFail(null);
       setToast(cancelFailedText(card, code));
     } finally {
       setCanceling(false);

@@ -40,6 +40,8 @@ describe('«¿Cancelar este cobro?»', () => {
     const esperando = read('../components/cobrar/Esperando.tsx');
     expect(esperando).toContain('cancelOffer(card, bankCancelOf(atBank, wait))');
     expect(esperando).toContain('{children(wait)}');
+    // Si el API dice que aún no (el reloj del móvil iba adelantado), vuelve a la espera, donde se ve el aviso.
+    expect(esperando).toContain('if (code === CANCEL_AT_BANK_TOO_SOON_CODE) setLocalFail(null);');
     expect(esperando.match(/useNow\(/g)).toHaveLength(1);
     // «Cobros»: un solo useNow para «Sin pagar» y las filas suyas; «Sin pagar» no lleva reloj propio.
     const list = read('../components/MyCobros.tsx');
