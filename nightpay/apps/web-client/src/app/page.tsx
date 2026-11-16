@@ -25,7 +25,7 @@ const STEPS = [
   ['Escanea el QR', 'El personal te lo enseña en su móvil o en el datáfono. No hace falta instalar nada ni registrarse.'],
   [
     'Elige cómo pagar',
-    'Tarjeta, Apple Pay, Google Pay, tu saldo o bitcoin, donde lo aceptan. Ves el total antes de pagar y la propina la decides tú.',
+    'Tarjeta, Apple Pay, Google Pay o tu saldo. Ves el total antes de pagar y la propina la decides tú.',
   ],
   ['Pagado', 'En cuanto el banco lo confirma, lo ves en pantalla y puedes guardar el justificante.'],
 ] as const;
@@ -35,11 +35,12 @@ const FOR_CLIENTS = [
   'La tarjeta la escribes en la página segura del banco, no en OxioPay.',
   'Saldo prepago, protegido con PIN o Face ID.',
   'Si te sobra saldo, te lo devolvemos cuando lo pidas.',
+  'En recepción puedes cargar tu saldo con bitcoin, donde lo aceptan; ese saldo se devuelve en euros.',
 ] as const;
 
 const FOR_VENUES = [
   'Cobra con QR, con datáfono o con el saldo del cliente.',
-  'Cobra también en bitcoin, si quieres: con Lightning, al momento.',
+  'Si quieres, tus clientes cargan su saldo con bitcoin en recepción.',
   'Fideliza: el saldo de tus clientes vale en todos tus locales y les espera para la próxima visita, también en Google Wallet.',
   'Un panel con lo cobrado cada noche.',
   'Las comisiones del personal se calculan solas.',
@@ -71,7 +72,7 @@ export default function HomePage() {
             </h1>
             <p className={s.lead}>
               OxioPay es la forma de pagar en los locales que la usan: escaneas el QR que te enseña el personal y
-              pagas desde tu móvil con tarjeta, Apple Pay, Google Pay, tu saldo o bitcoin, donde lo aceptan.
+              pagas desde tu móvil con tarjeta, Apple Pay, Google Pay o tu saldo.
             </p>
             <p className={s.leadEn} lang="en">
               Scan the QR code the staff show you and pay from your phone.
