@@ -856,9 +856,11 @@ button.det {
    48 px como mínimo. Con pendientes, la suya en t1 (el número se ve). */
 /* Con más de tres (Ficha perdida, Anular una recarga del encargado), en filas
    de tres: las líneas entre casillas son el hueco de 1 px sobre el filete. */
+/* Dos columnas siempre (en 360 px, 3 columnas con 5 botones dejaban una celda
+   vacía que parecía rota): si quedan impares, el último ocupa la fila entera. */
 .more {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(6.25rem, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 1px;
   background: var(--np-border);
   border: 1px solid var(--np-border);
@@ -879,6 +881,10 @@ button.det {
   -webkit-tap-highlight-color: transparent;
 }
 
+
+.moreBtn:last-child:nth-child(odd) {
+  grid-column: 1 / -1;
+}
 
 .moreBtn:active {
   background: var(--np-surface-2);

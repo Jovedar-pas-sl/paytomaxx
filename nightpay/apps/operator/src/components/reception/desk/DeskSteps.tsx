@@ -39,7 +39,7 @@ export function TapStage(props: {
   const mark = props.noReader ? null : <NfcMark size="l" />;
   const words = (
     <>
-      <p className={s.stageTitle}>{props.noReader?.title ?? (props.busy ? 'Leyendo…' : 'Acerca el NFC')}</p>
+      <p className={s.stageTitle}>{props.noReader?.title ?? (props.busy ? 'Leyendo…' : 'Acerca la ficha')}</p>
       {props.error ? (
         <p role="alert" className={s.stageError}>
           {props.error}
@@ -56,7 +56,7 @@ export function TapStage(props: {
   // Web NFC pide el permiso con un toque: entonces el escenario es el botón.
   if (props.stopped) {
     return (
-      <button type="button" className={s.stage} onClick={props.onRestart} aria-label="Tocar para leer el NFC">
+      <button type="button" className={s.stage} onClick={props.onRestart} aria-label="Tocar para leer la ficha">
         {mark}
         {words}
       </button>
@@ -321,7 +321,7 @@ export function ExitStep(props: {
         />
       ) : null}
       {plan.note && !plan.refundBlocked?.includes(plan.note) ? <p className={s.lbl}>{plan.note}</p> : null}
-      {props.onReadNfc ? <DeskBtn kind="gho" label="Acercar NFC original" onClick={props.onReadNfc} disabled={props.busy} /> : null}
+      {props.onReadNfc ? <DeskBtn kind="gho" label="Acercar la ficha original" onClick={props.onReadNfc} disabled={props.busy} /> : null}
     </>
   );
 }
@@ -339,7 +339,7 @@ export function NumberStep({ busy, error, onFind }: { busy: boolean; error: stri
         value={number} onChange={(event) => setNumber(event.target.value.replace(/\D/g, '').slice(0, 12))} style={DESK_FIELD} />
       {/* Lo tecleado, en grande y en grupos de 4 como en la ficha (A6): una cifra mal se ve. */}
       {number ? <FichaNumber printed={number} className={s.typedFicha} /> : null}
-      <p className={s.hint}>Como aparece en la ficha. Solo para saldos que ya existen: una ficha nueva se carga acercándola, y para devolver efectivo hace falta el NFC original.</p>
+      <p className={s.hint}>Como aparece en la ficha. Solo para saldos que ya existen: una ficha nueva se carga acercándola, y para devolver efectivo hace falta la ficha original.</p>
       {error ? <p role="alert" className={s.error}>{error}</p> : null}
       <DeskBtn kind="pri" label="Buscar ficha" disabled={!ok} busy={busy} onClick={() => onFind(number)} />
     </form>
@@ -369,7 +369,7 @@ export function CodeStep(props: {
       {props.onNewWithout ? (
         <div className={s.links}>
           <button type="button" className={s.txtlink} onClick={props.onNewWithout}>
-            Saldo nuevo sin NFC
+            Saldo nuevo sin ficha
           </button>
         </div>
       ) : null}

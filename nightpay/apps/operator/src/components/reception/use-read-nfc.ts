@@ -38,7 +38,7 @@ export function useReadNfc(): {
   );
 
   async function read(options: ReadOptions = {}): Promise<NfcRead> {
-    if (!reader.via) throw new Error(reader.note ?? 'Aquí no se pueden leer NFC: teclea su código.');
+    if (!reader.via) throw new Error(reader.note ?? 'Aquí no se pueden leer fichas: teclea su código.');
     const controller = new AbortController();
     setReading(controller);
     let timedOut = false;
