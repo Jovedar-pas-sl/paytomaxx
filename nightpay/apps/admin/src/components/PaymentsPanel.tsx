@@ -200,7 +200,8 @@ export function PaymentsPanel({ user, onNavigate, focusPaymentId = null, onFocus
         {/* Solo si dicen otra cosa que «Esta noche» (y nada hasta saberlo: no aparecen para desaparecer). */}
         {todayTiles(nightTotals, metrics?.today) !== 'show' ? null : (
           <>
-            <MetricTile title="Hoy · pagos con tarjeta" value={metrics ? String(metrics.today.count) : '—'} />
+            {/* Sin los pagados con bitcoin: no pasan por el banco. */}
+            <MetricTile title="Hoy · pagos con tarjeta" value={metrics ? String(metrics.today.count - (metrics.today.bitcoinCount ?? 0)) : '—'} />
             <MetricTile
               title="Hoy · cobrado"
               value={eurOrDash(metrics ? (metrics.today.chargedCents ?? metrics.today.grossCents) : undefined)}

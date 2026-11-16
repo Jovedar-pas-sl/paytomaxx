@@ -42,6 +42,8 @@ export interface PaymentRow {
 
 export interface MetricsPeriod {
   count: number;
+  /** De ellos, pagados con bitcoin (no pasan por el banco). Un API de antes no lo trae. */
+  bitcoinCount?: number;
   /** Sin propinas. */
   grossCents: number;
   refundedCents: number;
