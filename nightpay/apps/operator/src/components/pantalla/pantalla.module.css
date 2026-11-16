@@ -76,7 +76,8 @@
   height: 100%;
   display: grid;
   grid-template-columns: 1fr;
-  grid-template-rows: auto 1fr;
+  grid-template-rows: auto auto;
+  align-content: center;
   align-items: center;
   justify-items: center;
   gap: clamp(1rem, 3vmin, 2.5rem);
@@ -187,7 +188,7 @@
 
 .paidWord {
   margin: 0;
-  font: 700 clamp(var(--np-fs-64), 18vmin, 32vmin) / 0.95 var(--np-font-num);
+  font: 700 clamp(var(--np-fs-64), 18vmin, 32vmin) / 1.1 var(--np-font-num);
   letter-spacing: -0.03em;
 }
 
@@ -229,6 +230,11 @@
   letter-spacing: 0.18em;
   text-align: center;
   text-transform: uppercase;
+}
+
+.codeInput::placeholder {
+  color: var(--np-text-dim);
+  letter-spacing: 0.04em;
 }
 
 .codeInput:focus-visible {

@@ -95,7 +95,7 @@ function PairForm({ notice, onPaired }: { notice: string | null; onPaired: (toke
           className={s.codeInput}
           value={code}
           onChange={(e) => setCode(e.target.value.toUpperCase().slice(0, 9))}
-          placeholder="K7P-4QX"
+          placeholder="Código"
           aria-label="Código para emparejar"
           autoCapitalize="characters"
           autoComplete="off"
