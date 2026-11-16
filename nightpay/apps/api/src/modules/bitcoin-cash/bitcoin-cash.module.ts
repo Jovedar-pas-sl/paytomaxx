@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ApprovalsCoreModule } from '../approvals/approvals-core.module';
 import { AuthModule } from '../auth/auth.module';
+import { TelegramService } from '../incidents/telegram.service';
 import { PaymentsModule } from '../payments/payments.module';
 import { BitcoinCashController } from './bitcoin-cash.controller';
 import { BitcoinCashService } from './bitcoin-cash.service';
@@ -9,6 +10,6 @@ import { BitcoinCashService } from './bitcoin-cash.service';
 @Module({
   imports: [ApprovalsCoreModule, AuthModule, PaymentsModule],
   controllers: [BitcoinCashController],
-  providers: [BitcoinCashService],
+  providers: [BitcoinCashService, TelegramService],
 })
 export class BitcoinCashModule {}

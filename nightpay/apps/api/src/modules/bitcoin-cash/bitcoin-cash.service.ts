@@ -1,12 +1,14 @@
 import { randomUUID } from 'node:crypto';
-import { BadRequestException, ConflictException, ForbiddenException, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Inject, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
 import {
   APPROVAL_REQUESTED_MESSAGE,
   APPROVAL_TTL_MS,
   BITCOIN_CASH_MAX_CENTS,
   BITCOIN_CASH_REFUND_DAYS,
+  alertSettingsOf,
   bitcoinCashDoneMessage,
   bitcoinCashReasonText,
+  formatChargeRef,
   stepUpActions,
   type ApprovalRequestedResponse,
   type BitcoinCashConfig,
@@ -18,15 +20,27 @@ import { PrismaService, type TransactionalClient } from '../../common/prisma/pri
 import { ApprovalRequestsService, type ApprovalActor } from '../approvals/approval-requests.service';
 import { CashApprovalPayloadSchema, type CashApprovalPayload } from '../approvals/approval-payload';
 import { expiryCutoff } from '../approvals/approval-store';
+import { personName } from '../approvals/approval-rules';
 import { AuditService } from '../audit/audit.service';
+import { TelegramService } from '../incidents/telegram.service';
 import { TotpService } from '../auth/totp.service';
 import { btcpayEnabled } from '../btcpay/btcpay-flag';
 import { InvalidTransitionError } from '../payments/payment.machine';
 import { PaymentsService } from '../payments/payments.service';
 import { assertRefundFits, lockPaymentForRefund, REFUNDABLE_STATUSES, stampRefundServiceFee } from '../refunds/refund-ledger';
+import { cashRefundAlertText, type CashRefundAlert } from './bitcoin-cash-alert';
 import { cashAmountProblem, eur, needsOwnerApproval, paymentCashProblem, receiptMatches, strayCashMax } from './bitcoin-cash-rules';
 
 type Actor = ApprovalActor;
+
+/** Lo que dice el aviso de una devolución en efectivo (sin datos del cliente). */
+interface AlertInput {
+  amountCents: number;
+  reason: string;
+  target: { kind: 'payment'; paymentId: string } | { kind: 'invoice'; invoiceId: string };
+  doneById: string;
+  approvalId?: string;
+}
 
 /** Lo que se apunta de una devolución en efectivo (directa o al pulsar «Entregado»). */
 interface CashInput {
@@ -61,6 +75,8 @@ export class BitcoinCashService {
     @Inject(TotpService) private readonly totp: TotpService,
     @Inject(AuditService) private readonly audit: AuditService,
     @Inject(ApprovalRequestsService) private readonly approvals: ApprovalRequestsService,
+    /** Sin él (pruebas), no hay aviso por Telegram. */
+    @Optional() @Inject(TelegramService) private readonly telegram?: Pick<TelegramService, 'hasBot' | 'isConfigured' | 'send'>,
   ) {}
 
   async config(actor: Actor): Promise<BitcoinCashConfig> {
@@ -264,6 +280,7 @@ export class BitcoinCashService {
       },
     });
     this.logger.warn(`Devolución en efectivo ${refundId}: ${input.amountCents}c del cobro con bitcoin ${paymentId} (entrega ${paidById})`);
+    this.alertInBackground(actor.tenantId, { amountCents: input.amountCents, reason: input.reason, target: { kind: 'payment', paymentId }, doneById: paidById, approvalId: input.approvalId });
     return refundId;
   }
 
@@ -305,7 +322,53 @@ export class BitcoinCashService {
       payload: { returnId: id, invoiceId: target.invoiceId, amountCents: input.amountCents, reason: input.reason, receiptCode: input.receiptCode, approvalRequestId: input.approvalId ?? null },
     });
     this.logger.warn(`Bitcoin sin cobro devuelto en efectivo ${id}: ${input.amountCents}c de la factura ${target.invoiceId}`);
+    this.alertInBackground(actor.tenantId, {
+      amountCents: input.amountCents,
+      reason: input.reason,
+      target: { kind: 'invoice', invoiceId: target.invoiceId },
+      doneById: actor.userId,
+      approvalId: input.approvalId,
+    });
     return id;
+  }
+
+  // ─── Aviso por Telegram de cada una ──────────────────────────────────
+
+  /** Sin esperar y sin romper nada: si Telegram falla, queda en el registro (audit) igual. */
+  private alertInBackground(tenantId: string, a: AlertInput): void {
+    void this.alert(tenantId, a).catch((err: unknown) => this.logger.warn(`Aviso de la devolución en efectivo sin mandar: ${(err as Error).message}`));
+  }
+
+  /** Al chat del local (Ajustes → Avisos), si tiene los avisos de cobros encendidos. */
+  async alert(tenantId: string, a: AlertInput): Promise<boolean> {
+    if (!this.telegram || process.env.NIGHTPAY_DISABLE_ALERTS === '1' || !this.telegram.hasBot()) return false;
+    const venue = await this.prisma.asSystem((tx) => tx.venue.findUnique({ where: { id: tenantId }, select: { name: true, alertSettings: true } }));
+    if (!venue) return false;
+    const settings = alertSettingsOf(venue.alertSettings);
+    if (!settings.kinds.payments || !this.telegram.isConfigured(settings.chatId)) return false;
+    const approval = a.approvalId
+      ? await this.prisma.withTenant(tenantId, (tx) => tx.approvalRequest.findFirst({ where: { id: a.approvalId }, select: { decidedById: true } }))
+      : null;
+    const ids = [a.doneById, approval?.decidedById].filter((x): x is string => Boolean(x));
+    const users = await this.prisma.acrossVenues((tx) => tx.user.findMany({ where: { id: { in: ids } }, select: { id: true, displayName: true, email: true } }));
+    const nameOf = (id: string | null | undefined) => personName(users.find((u) => u.id === id) ?? null);
+    let target: CashRefundAlert['target'];
+    if (a.target.kind === 'payment') {
+      const paymentId = a.target.paymentId;
+      const p = await this.prisma.payment.findFirst({ where: { id: paymentId, tenantId }, select: { ref: true } });
+      target = { kind: 'payment', ref: formatChargeRef(p?.ref ?? null) };
+    } else {
+      target = { kind: 'invoice', invoiceId: a.target.invoiceId };
+    }
+    const text = cashRefundAlertText({
+      venueName: venue.name,
+      amountCents: a.amountCents,
+      reason: a.reason,
+      target,
+      doneBy: nameOf(a.doneById),
+      approvedBy: approval?.decidedById ? nameOf(approval.decidedById) : null,
+    });
+    return this.telegram.send(text, settings.chatId);
   }
 
   // ─── Pedirlo al dueño ────────────────────────────────────────────────
