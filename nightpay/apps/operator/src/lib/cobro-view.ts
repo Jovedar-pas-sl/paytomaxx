@@ -16,8 +16,8 @@ import { formatEur } from './money';
 export type PaidMethod = ChargeAuthMethod | 'card';
 
 export const METHOD_LABEL: Readonly<Record<PaidMethod, string>> = {
-  nfc_nopin: 'NFC',
-  pin: 'NFC + PIN',
+  nfc_nopin: 'Ficha sin PIN',
+  pin: 'Ficha + PIN',
   passkey: 'Saldo en su móvil',
   staff: 'Encargado',
   card: 'Tarjeta',
@@ -151,7 +151,7 @@ export function tipLine(amounts: PaidAmounts): { base: string; tip: string } | n
  */
 export const CHECKING_TEXT = 'Comprobando si se ha cobrado…';
 /** Ya se sabe: el cobro sigue pendiente (no llegó a cobrarse). */
-export const NOT_CHARGED_RETRY_TEXT = 'No llegó a cobrarse: que vuelva a acercar el NFC o escanee el QR.';
+export const NOT_CHARGED_RETRY_TEXT = 'No llegó a cobrarse: que vuelva a acercar la ficha o escanee el QR.';
 
 /** La ficha pasa del máximo sin PIN y no lo tiene. No es un rechazo: su saldo sigue ahí y hay salida. */
 export const NO_PIN_TITLE = 'Falta el PIN de esta ficha';

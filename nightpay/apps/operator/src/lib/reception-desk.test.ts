@@ -66,12 +66,12 @@ const saldo = (o: Partial<ReceptionDeskSaldo> = {}): ReceptionDeskSaldo => ({
 
 describe('el NFC leído (4.2 y 4.5)', () => {
   it('nuevo: «NFC nuevo · Ficha nº 00736903 · sin saldo»: el número impreso, tal cual', () => {
-    expect(deskRow(NUEVO, 'entrada')).toEqual({ title: 'NFC nuevo', detail: 'Ficha nº 00736903 · sin saldo' });
+    expect(deskRow(NUEVO, 'entrada')).toEqual({ title: 'Ficha nueva', detail: 'Ficha nº 00736903 · sin saldo' });
     expect(fichaText('0007')).toBe('ficha nº 0007');
   });
 
   it('el número interno no se enseña como si fuera el impreso: «sin número impreso»', () => {
-    expect(deskRow(NUEVO_SIN, 'entrada')).toEqual({ title: 'NFC nuevo', detail: 'Ficha sin número impreso · sin saldo' });
+    expect(deskRow(NUEVO_SIN, 'entrada')).toEqual({ title: 'Ficha nueva', detail: 'Ficha sin número impreso · sin saldo' });
     expect(fichaText(null)).toBe('ficha sin número impreso');
     expect(deskRow(saldo({ printedNumber: undefined }), 'salida').title).toBe('Ficha sin número impreso');
     expect(handOverLine(NUEVO_SIN, true)).toBe('Dale la ficha · ficha sin número impreso');
@@ -82,7 +82,7 @@ describe('el NFC leído (4.2 y 4.5)', () => {
     expect(deskRow(saldo({ balanceCents: 0 }), 'entrada').detail).toBe('Sin saldo · R3D-8LP');
     expect(deskRow(saldo(), 'salida')).toEqual({ title: 'Ficha nº 0388', detail: 'Saldo R3D-8LP · leída' });
     // Por el código (sin NFC): el saldo en el título.
-    expect(deskRow(saldo({ fichaNumber: null }), 'salida')).toEqual({ title: 'Saldo R3D-8LP', detail: 'Sin NFC · por su código' });
+    expect(deskRow(saldo({ fichaNumber: null }), 'salida')).toEqual({ title: 'Saldo R3D-8LP', detail: 'Sin ficha · por su código' });
   });
 
   it('el chip de 4.3: «Recarga» (la ficha va en grande debajo), su código o un saldo nuevo sin ficha', () => {
@@ -340,7 +340,7 @@ describe('por el número impreso (sin acercar el NFC)', () => {
   it('por número, solo en efectivo', () => {
     expect(numberMethodButtons(OPTIONS)).toEqual([
       { method: 'cash', primary: true, problem: null },
-      { method: 'card', primary: false, problem: 'Con tarjeta, acerca su NFC o escribe su código.' },
+      { method: 'card', primary: false, problem: 'Con tarjeta, acerca su ficha o escribe su código.' },
     ]);
     expect(numberMethodButtons({ ...OPTIONS, cash: false, cashBlockedReason: 'No' })[0]?.problem).toBe('No');
     expect(numberMethodButtons(null)).toEqual([]);
@@ -480,8 +480,8 @@ describe('la fila de arriba mientras no se sabe si se cargó (prueba real: con �
   };
 
   it('ficha nueva: ni «sin saldo» (el servidor puede haberla cargado ya) ni nada que no se sepa: que se está comprobando', () => {
-    expect(row({ view: NUEVO, nfc: FICHA }, true)).toEqual({ title: 'NFC nuevo', detail: 'Ficha nº 00736903 · comprobando la recarga de 50 €' });
-    expect(row({ view: NUEVO, nfc: FICHA }, false)).toEqual({ title: 'NFC nuevo', detail: 'Ficha nº 00736903 · recarga de 50 € por comprobar' });
+    expect(row({ view: NUEVO, nfc: FICHA }, true)).toEqual({ title: 'Ficha nueva', detail: 'Ficha nº 00736903 · comprobando la recarga de 50 €' });
+    expect(row({ view: NUEVO, nfc: FICHA }, false)).toEqual({ title: 'Ficha nueva', detail: 'Ficha nº 00736903 · recarga de 50 € por comprobar' });
     expect(row({ view: NUEVO_SIN, nfc: FICHA }, true).detail).toBe('Ficha sin número impreso · comprobando la recarga de 50 €');
   });
 
@@ -494,7 +494,7 @@ describe('la fila de arriba mientras no se sabe si se cargó (prueba real: con �
     const porNumero = { kind: 'saldo' as const, printedNumber: '00017', codeHint: 'K7Q-•••', balanceCents: 3_500, cashOutCents: 3_500, cashOutNote: null,
       hasPin: true, blocked: false, closeRequested: false, isHomeVenue: true };
     expect(row({ view: null, nfc: null, number: porNumero }, true)).toEqual({ title: 'Ficha nº 00017', detail: 'Comprobando la recarga de 50 € · K7Q-•••' });
-    expect(row({ view: null, nfc: null }, true)).toEqual({ title: 'Saldo nuevo', detail: 'Sin NFC · comprobando la recarga de 50 €' });
+    expect(row({ view: null, nfc: null }, true)).toEqual({ title: 'Saldo nuevo', detail: 'Sin ficha · comprobando la recarga de 50 €' });
   });
 
   it('nunca «sin saldo» ni «Le quedan»', () => {

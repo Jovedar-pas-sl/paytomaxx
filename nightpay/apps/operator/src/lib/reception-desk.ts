@@ -94,10 +94,10 @@ export interface DeskRow {
  * el impreso; sin él, «sin número impreso».
  */
 export function deskRow(view: ReceptionDeskView, mode: 'entrada' | 'salida'): DeskRow {
-  if (view.kind === 'new') return { title: 'NFC nuevo', detail: `${fichaLabel(view.printedNumber)} · sin saldo` };
+  if (view.kind === 'new') return { title: 'Ficha nueva', detail: `${fichaLabel(view.printedNumber)} · sin saldo` };
   const title = view.fichaNumber === null ? `Saldo ${view.code}` : fichaLabel(view.printedNumber);
   const saldo = view.fichaNumber === null ? null : view.code;
-  if (mode === 'salida') return { title, detail: saldo ? `Saldo ${saldo} · leída` : 'Sin NFC · por su código' };
+  if (mode === 'salida') return { title, detail: saldo ? `Saldo ${saldo} · leída` : 'Sin ficha · por su código' };
   const left = view.balanceCents > 0 ? `Le quedan ${formatEur(view.balanceCents, { compact: true })}` : 'Sin saldo';
   return { title, detail: [left, saldo].filter(Boolean).join(' · ') };
 }
@@ -252,7 +252,7 @@ export function numberMethodButtons(options: ReceptionOptions | null): MethodBut
   if (!options) return [];
   return [
     { method: 'cash', primary: true, problem: options.cash ? null : (options.cashBlockedReason ?? 'Aquí no se cobran recargas en efectivo.') },
-    { method: 'card', primary: false, problem: 'Con tarjeta, acerca su NFC o escribe su código.' },
+    { method: 'card', primary: false, problem: 'Con tarjeta, acerca su ficha o escribe su código.' },
   ];
 }
 
@@ -435,8 +435,8 @@ export function cashUnsureRow(
   const lead = status.charAt(0).toUpperCase() + status.slice(1);
   if (read.number) return { title: fichaLabel(read.number.printedNumber), detail: `${lead} · ${read.number.codeHint}` };
   const view = read.view;
-  if (!view) return { title: 'Saldo nuevo', detail: `Sin NFC · ${status}` };
-  if (view.kind === 'new') return { title: 'NFC nuevo', detail: `${fichaLabel(view.printedNumber)} · ${status}` };
+  if (!view) return { title: 'Saldo nuevo', detail: `Sin ficha · ${status}` };
+  if (view.kind === 'new') return { title: 'Ficha nueva', detail: `${fichaLabel(view.printedNumber)} · ${status}` };
   if (view.fichaNumber === null) return { title: `Saldo ${view.code}`, detail: lead };
   return { title: fichaLabel(view.printedNumber), detail: `${lead} · ${view.code}` };
 }
@@ -517,8 +517,8 @@ export interface ExitPlan {
 
 /** Tras devolver: el NFC vuelve al stock, o lo que le queda (entró con tarjeta) y quién lo devuelve. */
 export function refundDoneLine(remainingCents: number): string {
-  if (remainingCents <= 0) return 'El NFC vuelve al stock: guárdalo.';
-  return `Le quedan ${formatEur(remainingCents, { compact: true })} (con tarjeta): los devuelve el dueño «A la tarjeta». Se lleva su NFC.`;
+  if (remainingCents <= 0) return 'La ficha vuelve al stock: guárdala.';
+  return `Le quedan ${formatEur(remainingCents, { compact: true })} (con tarjeta): los devuelve el dueño «A la tarjeta». Se lleva su ficha.`;
 }
 
 // ─── El código tecleado ───────────────────────────────────────────────────

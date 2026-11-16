@@ -70,7 +70,7 @@ export function PendingTopUps({ onDone }: { onDone: () => void }) {
   return (
     <div className={r.card}>
       <p className={r.kicker}>Pendientes de asignar</p>
-      <p className={r.text}>Recargas cobradas sin el NFC del cliente. Toca una y acerca su NFC (o teclea su código).</p>
+      <p className={r.text}>Recargas cobradas sin la ficha del cliente. Toca una y acerca su ficha (o teclea su código).</p>
       {rows === null && !error ? <p className={r.text}>Cargando…</p> : null}
       {rows?.length === 0 ? <p className={r.lead}>No hay ninguna pendiente.</p> : null}
       {(rows ?? []).map((row) => (

@@ -69,6 +69,7 @@ import { IconLock, IconNfc, IconQr } from './icons';
 import { PinScreen } from './PinScreen';
 import { pinTipSetup } from '@/lib/pin-tip';
 import { WAIT_TITLE_EN } from '@/lib/pin-pad';
+import { nfcWayLabel, useReaderSpot, waitTitleEnNfc } from '@/lib/lector-nfc';
 import { TOURS } from '@/lib/tours';
 import { ScreenHeader } from './ScreenHeader';
 import { SinMovil, type SaldoForPin } from './SinMovil';
@@ -365,7 +366,7 @@ export function Esperando({ cobro, onNew, onRetry, retrying = false, retryError 
         const read = await readCard(ctrl.signal);
         if (ctrl.signal.aborted) return;
         if (!read.token) {
-          setToast('Este NFC está vacío: se carga en recepción.');
+          setToast('Esta ficha está vacía: se carga en recepción.');
           setNfcRound((n) => n + 1);
           return;
         }
@@ -650,6 +651,8 @@ function Waiting({
   }, [cobro.card?.qrExpiresAt, cobro.card?.createdAt, cobro.saldo?.expiresAt, receivedAt]);
   const now = useNow(true);
   const night = useVenueNight();
+  // Dónde está el lector NFC de este aparato (Menú → Este aparato).
+  const readerSpot = useReaderSpot();
   const left = deadline ? secondsLeft(deadline, now) : 0;
   const phase = deadline ? countdownPhase(left) : 'ok';
   // Pagando con bitcoin: ni las fases del banco ni el reloj del QR (la factura tiene su plazo).
@@ -698,10 +701,10 @@ function Waiting({
             {pinWarning(night)}
           </p>
         ) : null}
-        <h2 className={styles.waitTitle}>{nfcOn ? 'Acerca el NFC o escanea' : 'Escanea el QR con tu móvil'}</h2>
-        {/* Lo lee el cliente: su línea en inglés (PS-A10). */}
+        <h2 className={styles.waitTitle}>{nfcOn ? 'Acerca la ficha o escanea' : 'Escanea el QR con tu móvil'}</h2>
+        {/* Lo lee el cliente: su línea en inglés (PS-A10), con dónde está el lector de este aparato. */}
         <p lang="en" className={styles.waitEn}>
-          {nfcOn ? WAIT_TITLE_EN.nfc : WAIT_TITLE_EN.qr}
+          {nfcOn ? waitTitleEnNfc(readerSpot) : WAIT_TITLE_EN.qr}
         </p>
         {hasQr ? (
           <div className={left > 0 ? `${styles.qr} np-breathe` : styles.qr} style={{ opacity: left <= 0 ? 0.3 : 1 }} data-tour="esperando-qr">
@@ -716,7 +719,7 @@ function Waiting({
             {nfcOn ? (
               <span className={`${styles.nfcWay}${reading || checking ? ` ${styles.nfcReading}` : ''}`}>
                 <IconNfc />
-                {checking ? 'Comprobando…' : reading ? 'Leyendo…' : invite ? (hasQr ? 'ficha, sin PIN' : 'Ficha, sin PIN') : 'Por detrás'}
+                {checking ? 'Comprobando…' : reading ? 'Leyendo…' : invite ? (hasQr ? 'ficha, sin PIN' : 'Ficha, sin PIN') : nfcWayLabel(readerSpot)}
               </span>
             ) : null}
           </p>

@@ -56,11 +56,11 @@ export function AssignTopUp({ walletId, amountCents, paidWith = null, onAssigned
       <p className={r.amount}>{formatEur(amountCents)}</p>
       {paidWith ? <p className={r.text}>Pagó con {paidWith.replace(/^(Tarjeta|Datáfono)/, (w) => w.toLowerCase())}</p> : null}
       <p className={r.lead}>Ahora, su saldo</p>
-      <p className={r.text}>Acerca su NFC o teclea su código: la recarga se suma a su saldo.</p>
+      <p className={r.text}>Acerca su ficha o teclea su código: la recarga se suma a su saldo.</p>
       {nfcOn ? (
         reading ? (
           <Button variant="ghost" onClick={() => reading.abort()}>
-            Acerca su NFC… (cancelar)
+            Acerca su ficha… (cancelar)
           </Button>
         ) : (
           <Button
@@ -73,7 +73,7 @@ export function AssignTopUp({ walletId, amountCents, paidWith = null, onAssigned
               })
             }
           >
-            Acercar su NFC
+            Acercar su ficha
           </Button>
         )
       ) : null}

@@ -1,6 +1,6 @@
 'use client';
 
-import type { CSSProperties, ReactNode } from 'react';
+import { useLayoutEffect, useRef, type CSSProperties, type ReactNode } from 'react';
 import type { TabKey } from '@/lib/roles';
 import { TAB_BAR_HEIGHT } from './layout';
 
@@ -20,10 +20,36 @@ const TAB_LABEL: Record<TabKey, string> = {
 const TAB_ACTIVE_COLOR = 'var(--np-chosen)';
 const TAB_IDLE_COLOR = 'var(--np-text-mute)';
 
+/**
+ * Lo que ocupa la barra de verdad (con la zona segura y el filete), en
+ * --np-tabbar-space: las páginas dejan ese hueco al final (PAGE_BOTTOM_SPACE)
+ * y nada queda tapado debajo de la barra.
+ */
+function useMeasuredSpace() {
+  const ref = useRef<HTMLElement>(null);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return undefined;
+    const root = document.documentElement;
+    const measure = () => root.style.setProperty('--np-tabbar-space', `${Math.ceil(el.getBoundingClientRect().height)}px`);
+    measure();
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measure);
+    observer?.observe(el);
+    window.addEventListener('resize', measure);
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener('resize', measure);
+      root.style.removeProperty('--np-tabbar-space');
+    };
+  }, []);
+  return ref;
+}
+
 /** Barra de pestañas de abajo: solo las del rol (ver roleAccess). */
 export function TabBar({ tabs, active, onSelect }: { tabs: readonly TabKey[]; active: TabKey; onSelect: (tab: TabKey) => void }) {
+  const ref = useMeasuredSpace();
   return (
-    <nav style={tabBarStyle} aria-label="Navegación principal">
+    <nav ref={ref} style={tabBarStyle} aria-label="Navegación principal">
       {tabs.map((key) => (
         <TabBtn
           key={key}

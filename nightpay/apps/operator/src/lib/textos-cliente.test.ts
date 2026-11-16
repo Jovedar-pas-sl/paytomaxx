@@ -30,7 +30,7 @@ describe('el PIN (PS-A2 / S-3, PS-A10)', () => {
 describe('el cobro abierto, para el cliente (PS-A10, PS-A1)', () => {
   it('el título con su línea en inglés', () => {
     const wait = read('../components/cobrar/Esperando.tsx');
-    expect(wait).toMatch(/<p lang="en" className=\{styles\.waitEn\}>\s*\{nfcOn \? WAIT_TITLE_EN\.nfc : WAIT_TITLE_EN\.qr\}/);
+    expect(wait).toMatch(/<p lang="en" className=\{styles\.waitEn\}>\s*\{nfcOn \? waitTitleEnNfc\(readerSpot\) : WAIT_TITLE_EN\.qr\}/);
     expect(WAIT_TITLE_EN.qr).toBe('Scan the QR with your phone');
   });
 

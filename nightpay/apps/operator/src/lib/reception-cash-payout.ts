@@ -25,7 +25,7 @@ export type CashExitResult =
   | { kind: 'passkey'; message: string };
 
 /** Un saldo solo con su código (sin NFC): la salida la hace el panel. */
-export const NO_NFC_EXIT_TEXT = 'Este saldo no tiene NFC: lo devuelve el encargado en el panel (Clientes → Saldos).';
+export const NO_NFC_EXIT_TEXT = 'Este saldo no tiene ficha: lo devuelve el encargado en el panel (Clientes → Saldos).';
 
 const eur = (cents: number) => formatEur(cents, { compact: true });
 
@@ -48,7 +48,7 @@ export function cashExitPlan(view: ReceptionDeskSaldo, nfc: CashExitNfc): ExitPl
     refundLabel: `Devolver ${eur(cash)} en efectivo`,
     refundDetail: rest > 0
       ? `Sacas ${eur(cash)} de la caja · los otros ${eur(rest)} vuelven a su tarjeta`
-      : `Sacas ${eur(cash)} de la caja · el NFC vuelve al stock`,
+      : `Sacas ${eur(cash)} de la caja · la ficha vuelve al stock`,
     refundBlocked: refundBlocked(view, nfc),
     // «Los otros 15 € entraron con tarjeta…» ya lo dice la línea del botón.
     note: rest > 0 && view.cashOutNote?.startsWith('Los otros') ? null : view.cashOutNote,
@@ -56,8 +56,8 @@ export function cashExitPlan(view: ReceptionDeskSaldo, nfc: CashExitNfc): ExitPl
 }
 
 function refundBlocked(view: ReceptionDeskSaldo, nfc: CashExitNfc): string | null {
-  if (!nfc) return 'Acerca el NFC original del cliente para devolver efectivo.';
-  if (!nfc.uid) return 'Este lector no ha leído su número de serie (UID): acerca el NFC original con un Android.';
+  if (!nfc) return 'Acerca la ficha original del cliente para devolver efectivo.';
+  if (!nfc.uid) return 'Este lector no ha leído su número de serie (UID): acerca la ficha original con un Android.';
   if (view.blocked) return 'Saldo bloqueado: la salida la revisa el encargado.';
   if (!view.hasPin && !view.hasPasskey) return 'El cliente aún no tiene PIN: que lo devuelva el encargado.';
   return null;
