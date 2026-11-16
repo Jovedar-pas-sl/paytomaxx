@@ -52,7 +52,13 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
  * silencio ni se agota en reintentos.
  */
 // Tras un error de Redis, no esperar los 15 s por defecto para reanudar la cola.
-@Processor(WEBHOOKS_INGEST_QUEUE, { runRetryDelay: 1000 })
+// Hasta 8 avisos a la vez (por réplica): uno lento no frena a los demás. Es
+// seguro: cada aviso tiene un solo trabajo (id fijo), el que ya está procesado
+// no se repite, y transition() bloquea la fila del cobro (SELECT … FOR UPDATE):
+// dos avisos del mismo cobro se ponen en fila; el segundo ve el cobro pagado
+// (idempotente) o, si es otro pedido, lo apunta como doble cobro. El orden no
+// importa: FAILED → AUTHORIZED se acepta y AUTHORIZED + FAILED se ignora.
+@Processor(WEBHOOKS_INGEST_QUEUE, { runRetryDelay: 1000, concurrency: 8 })
 export class WebhookIngestProcessor extends WorkerHost {
   private readonly logger = new Logger(WebhookIngestProcessor.name);
   private readonly prisma: PrismaService;
