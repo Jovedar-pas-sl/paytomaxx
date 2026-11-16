@@ -77,8 +77,65 @@ export const PaymentMethodSchema = z.object({
   amount: optionalText(40),
   rate: optionalText(40),
   activated: z.boolean().nullish().transform((v) => v ?? true),
+  /** Lo pagado por este método, en BTC (texto decimal). BTCPay lo da desde la 1.x; si no, ''. */
+  paymentMethodPaid: optionalText(40),
 });
 export type InvoicePaymentMethod = z.input<typeof PaymentMethodSchema>;
+
+// ─── Lo que llegó de verdad ──────────────────────────────────────────
+
+/** Satoshis por BTC. */
+const SATS_PER_BTC = 100_000_000n;
+
+/** «0.00071234» → 71234 satoshis (null si no es un decimal de BTC: más de 8 decimales, negativo…). */
+export function btcToSats(text: string): bigint | null {
+  const m = /^(\d{1,8})(?:\.(\d{1,8}))?$/.exec(text.trim());
+  if (!m) return null;
+  return BigInt(m[1]!) * SATS_PER_BTC + BigInt((m[2] ?? '').padEnd(8, '0'));
+}
+
+/** 71234 satoshis → «0.00071234». */
+export function satsToBtc(sats: bigint): string {
+  const whole = sats / SATS_PER_BTC;
+  const frac = (sats % SATS_PER_BTC).toString().padStart(8, '0');
+  return `${whole}.${frac}`;
+}
+
+/**
+ * Lo que llegó en la factura, sumando sus métodos (BTC en la cadena y
+ * Lightning): en BTC y en céntimos de euro al cambio de cada método (el de la
+ * factura; hacia abajo, sin inventar céntimos). Null si BTCPay no lo dice
+ * (ningún método trae lo pagado) o algo no se entiende: no se adivina.
+ */
+export function paidOfMethods(methods: ReadonlyArray<{ paymentMethodPaid?: string | null; rate?: string | null }>): { paidBtc: string; paidCents: number } | null {
+  let sats = 0n;
+  let micro = 0n;
+  let seen = false;
+  for (const m of methods) {
+    const paidText = (m.paymentMethodPaid ?? '').trim();
+    if (paidText === '') continue;
+    const paid = btcToSats(paidText);
+    if (paid === null) return null;
+    seen = true;
+    if (paid === 0n) continue;
+    const rate = rateToMicroEur(m.rate ?? '');
+    if (rate === null) return null;
+    sats += paid;
+    // satoshis × (euros por BTC en millonésimas) / 1e8 = millonésimas de euro.
+    micro += (paid * rate) / SATS_PER_BTC;
+  }
+  if (!seen) return null;
+  const cents = micro / 10_000n;
+  return cents > BigInt(Number.MAX_SAFE_INTEGER) ? null : { paidBtc: satsToBtc(sats), paidCents: Number(cents) };
+}
+
+/** «63200.5» euros por BTC → millonésimas de euro (null si no es un número positivo). */
+function rateToMicroEur(text: string): bigint | null {
+  const m = /^(\d{1,12})(?:\.(\d{1,}))?$/.exec(text.trim());
+  if (!m) return null;
+  const value = BigInt(m[1]!) * 1_000_000n + BigInt((m[2] ?? '').slice(0, 6).padEnd(6, '0'));
+  return value > 0n ? value : null;
+}
 
 // ─── ¿Qué dice la factura? ────────────────────────────────────────────
 

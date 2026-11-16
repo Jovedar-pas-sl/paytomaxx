@@ -45,6 +45,7 @@ interface Intento {
   providerTxId: string;
   tipCents: number | null;
   status: string;
+  provider?: string;
 }
 type Body = Parameters<AdminController['manualReconcile']>[3];
 
@@ -62,9 +63,10 @@ function pago(overrides: Partial<Pago> = {}): Pago {
 
 function montar(p: Pago | null, intentos: Intento[] = []) {
   const updateMany = vi.fn(async (_args: unknown) => ({ count: 1 }));
-  const findMany = vi.fn(async (args: { where: { paymentId: string; status: { not: string } } }) =>
+  const findMany = vi.fn(async (args: { where: { paymentId: string; status?: { not: string }; provider?: string } }) =>
     intentos
-      .filter((a) => a.paymentId === args.where.paymentId && a.status !== args.where.status.not)
+      .filter((a) => a.paymentId === args.where.paymentId && a.status !== args.where.status?.not)
+      .filter((a) => !args.where.provider || (a.provider ?? 'REDSYS') === args.where.provider)
       .map(({ providerTxId, tipCents }) => ({ providerTxId, tipCents })),
   );
   const prisma = {
@@ -331,6 +333,35 @@ describe('manualReconcile — validación del cuerpo (ZodValidationPipe de la ru
       decision: 'FAILED',
       reason: 'Sin cargo en el banco',
     });
+  });
+});
+
+describe('manualReconcile — cobro con bitcoin (BTCPay): el id de su factura, no el código del banco', () => {
+  const FACTURA = 'Kd8sY5DN6jLHfQfqHkFBnQ';
+  const atascado = () => pago({ status: 'AUTHORIZING', provider: 'BTCPAY', providerTxId: FACTURA, updatedAt: new Date(AHORA.getTime() - 20 * MIN) });
+  const intento = { paymentId: PAGO, providerTxId: FACTURA, tipCents: 0, status: 'PENDING', provider: 'BTCPAY' };
+  const conFactura = (ref: string): Body => ({ decision: 'AUTHORIZED', reason: 'Factura pagada en BTCPay', btcpayInvoiceRef: ref, totpCode: '123456' });
+
+  it('un trozo del id de la factura vale: queda pagado con esa factura, sin código del banco, y se audita', async () => {
+    const h = montar(atascado(), [intento]);
+    await expect(h.resolver(conFactura('fqhkfb'))).resolves.toEqual({ ok: true, newStatus: 'AUTHORIZED' });
+    expect(h.eventos).toEqual([{ type: 'AUTHORIZED', provider: 'BTCPAY', providerTxId: FACTURA }]);
+    expect(h.updateMany).not.toHaveBeenCalled();
+    expect(h.audit.log.mock.calls[0]![0]).toMatchObject({ payload: { btcpayInvoiceId: FACTURA, bankAuthCode: null } });
+  });
+
+  it('el código del banco no sirve con bitcoin; otra factura tampoco: 400 diciendo dónde mirarlo, sin gastar el 2FA', async () => {
+    const h = montar(atascado(), [intento]);
+    await expect(h.resolver({ ...COBRADO, bankOrder: undefined })).rejects.toBeInstanceOf(BadRequestException);
+    await expect(h.resolver(conFactura('ZZZZZZZZ'))).rejects.toThrow(/BTCPay/);
+    expect(h.totp.assertForUser).not.toHaveBeenCalled();
+    expect(h.payments.transition).not.toHaveBeenCalled();
+  });
+
+  it('con el banco, el id de una factura no sustituye a su código', async () => {
+    const h = montar(pago());
+    await expect(h.resolver(conFactura('2610AB12'))).rejects.toThrow(/código de autorización del banco/);
+    expect(h.payments.transition).not.toHaveBeenCalled();
   });
 });
 

@@ -82,6 +82,7 @@ export class PeriodReportsService {
     const rows = await this.prisma.withTenant(tenantId, (tx) => tx.$queryRaw<PeriodTotalsRow[]>`
       WITH cobros AS (
         SELECT COUNT(*)::int AS "paymentCount",
+               COUNT(*) FILTER (WHERE p.provider::text = 'BTCPAY')::int AS "bitcoinCount",
                COALESCE(SUM(p."amountCents"), 0)::bigint AS "grossCents",
                COALESCE(SUM(p."tipCents"), 0)::bigint AS "tipCents",
                COUNT(*) FILTER (WHERE p."walletId" IS NOT NULL)::int AS "walletCardTopUpCount",

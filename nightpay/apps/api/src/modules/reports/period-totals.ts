@@ -7,6 +7,8 @@ import { withServiceFee } from '@nightpay/contracts';
 export interface PeriodTotals {
   /** Cobros pagados (incluye las recargas de saldo). */
   paymentCount: number;
+  /** …de ellos, pagados con bitcoin (no pasan por el banco). Solo si los hubo. */
+  bitcoinCount?: number;
   /** Importe sin propinas. */
   grossCents: number;
   tipCents: number;
@@ -74,6 +76,7 @@ export function totalsFromRow(row: PeriodTotalsRow | undefined): PeriodTotals {
   const base = Object.fromEntries(keys.map((k) => [k, n(k)])) as unknown as PeriodTotals;
   return {
     ...base,
+    ...(n('bitcoinCount') > 0 ? { bitcoinCount: n('bitcoinCount') } : {}),
     ...withServiceFee({
       serviceFeeCents: n('serviceFeeCents'),
       walletCashTopUpFeeCents: n('walletCashTopUpFeeCents'),

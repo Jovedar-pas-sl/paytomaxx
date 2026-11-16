@@ -24,6 +24,7 @@ import {
   type PaymentMachineState,
 } from './payment.machine';
 import { insertPaymentEvent, recordPaymentDevice, WALLET_CREDITED_EVENT } from './payment-device';
+import { paidMethodOf } from './paid-method';
 import {
   chargeBreakdownText,
   chargeRightsOf,
@@ -102,6 +103,8 @@ import {
 } from './topup-credit';
 import { BRAND_NAME } from '../../common/brand';
 import { isOtherOrder, markAttemptApproved, recordSecondApproval } from './second-approval';
+import { applyReservationPayment } from '../reservations/reservation-ledger';
+import { isReservationPaymentKey } from '../reservations/reservation-payment-key';
 import { sweepUnpaidTopUpWallet } from './topup-wallet-sweep';
 import { closeLinkedSaldo } from './cobro-link';
 import { serviceFeeQuote } from '@nightpay/contracts';
@@ -331,7 +334,9 @@ export function payerWalletFields(args: {
   'walletToken' | 'walletClaimHash' | 'walletCode' | 'walletHasFaceId' | 'walletHasPin' | 'walletReturnToken' | 'walletFromHome'
 > {
   const returnClaimHash = args.wallet ? selfTopUpClaimHash(args.idempotencyKey) : null;
-  const wallet = args.wallet && args.firstTopUp && !returnClaimHash ? args.wallet : null;
+  // Reservados: el saldo del grupo no se enseña a quien paga (la señal es saldo al llegar).
+  const reservation = isReservationPaymentKey(args.idempotencyKey);
+  const wallet = args.wallet && args.firstTopUp && !returnClaimHash && !reservation ? args.wallet : null;
   return {
     walletToken: wallet?.qrToken ?? null,
     walletClaimHash: returnClaimHash ?? (wallet ? args.approvedClaimHash : null),
@@ -1252,7 +1257,8 @@ export class PaymentsService implements OnApplicationBootstrap {
     const methods = paymentMethodsOf(venue?.paymentMethods);
     // Y el puesto de quien cobra (recepción no lleva propinas).
     const creatorTips = createdBy ? chargeRightsOf(createdBy, postRulesOf(venue?.postRules)).tips : true;
-    const bitcoin = await this.bitcoinOffered(payment.tenantId, walletId !== null);
+    // Reservados: solo con tarjeta (sin bitcoin).
+    const bitcoin = !isReservationPaymentKey(idempotencyKey) && (await this.bitcoinOffered(payment.tenantId, walletId !== null));
     return {
       ...rest,
       ...(bitcoin ? { bitcoin: true } : {}),
@@ -1340,7 +1346,16 @@ export class PaymentsService implements OnApplicationBootstrap {
       }),
       attemptStatus,
       approvedClaimHash: payment.attempts[0]?.claimHash ?? null,
+      ...(isReservationPaymentKey(payment.idempotencyKey) ? { reservation: true as const } : {}),
     };
+  }
+
+  /** Reservados: el enlace de la reserva de este pago (para volver a ella después de pagar). */
+  async reservationManageToken(paymentId: string): Promise<string | null> {
+    const row = await this.prisma.asSystem((tx) =>
+      tx.reservationPayment.findUnique({ where: { paymentId }, select: { reservation: { select: { manageToken: true } } } }),
+    );
+    return row?.reservation.manageToken ?? null;
   }
 
   /** Justificante del cliente (solo cobros pagados). Sin datos personales. */
@@ -1448,10 +1463,11 @@ export class PaymentsService implements OnApplicationBootstrap {
           }),
         )
       : null;
+    const payMethod = paid ? paidMethodOf(payment.provider, charged?.payMethod ?? null) : null;
     return {
       ...(paid ? { id: payment.id } : {}),
-      // 'wallet': pagó con Apple Pay o Google Pay (el banco no dice cuál de los dos).
-      ...(paid && (charged?.payMethod === 'wallet' || charged?.payMethod === 'card') ? { payMethod: charged.payMethod } : {}),
+      // 'wallet': pagó con Apple Pay o Google Pay (el banco no dice cuál de los dos); 'bitcoin': con BTCPay.
+      ...(payMethod ? { payMethod } : {}),
       amountCents: payment.amountCents,
       // La fija el cobro al crearse (no cambia): el personal la enseña aparte.
       serviceFeeCents: payment.serviceFeeCents,
@@ -1464,7 +1480,8 @@ export class PaymentsService implements OnApplicationBootstrap {
       // Ya pagado: la propina que dejó (el PAGADO del personal sin tiempo real la necesita).
       ...(paid ? { tipCents: payment.tipCents } : {}),
       ...(waiting ? { attemptStartedAt: attemptAt.toISOString() } : {}),
-      ...(bitcoin ? { bitcoin } : {}),
+      // Pagando en su banco: se dice ('none'), para que la pantalla no lo deduzca de que falte el campo.
+      ...(bitcoin ? { bitcoin } : payment.status === 'AUTHORIZING' ? { bitcoin: 'none' as const } : {}),
     };
   }
 
@@ -1629,6 +1646,8 @@ export class PaymentsService implements OnApplicationBootstrap {
         // SEPARADO del balance: propinas no son saldo gastable por el cliente.
         if (result.nextState === 'AUTHORIZED' && p.walletId) {
           await this.creditTopUp(tx, { ...p, walletId: p.walletId }, paymentId);
+          // Reservados: el pago (señal, resto o todo) se apunta en su reserva aquí mismo.
+          await applyReservationPayment(tx, p, traceId);
         }
 
         // Comisión de la chica / propina a otra chica: misma transacción.

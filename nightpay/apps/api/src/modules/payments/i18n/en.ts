@@ -21,6 +21,7 @@ const pay: PayText = {
   or: 'or',
   payWithSaldo: 'Pay with my balance',
   payWithBitcoin: 'Pay with bitcoin',
+  payWithBitcoinPrefix: 'Pay with',
   bitcoinHint: 'Lightning: instant · on-chain: 1 confirmation',
   bitcoin: {
     title: 'Pay with bitcoin',

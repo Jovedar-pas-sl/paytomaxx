@@ -1,4 +1,4 @@
-// «Cómo se pagó» en el PAGADO (Grafito 3): ficha, efectivo o tarjeta. Funciones
+// «Cómo se pagó» en el PAGADO (Grafito 3): ficha, efectivo, tarjeta o bitcoin. Funciones
 // puras. Solo con datos que el API ya tiene: lo que falta no se pone (ni se
 // inventa), y «le das de cambio» no existe porque la app no sabe cuánto
 // entregó el cliente.
@@ -71,20 +71,24 @@ export function saldoHow(i: SaldoHowInput): OutcomeHow {
   return { kind: 'ficha', title, sub: sub || null, rows };
 }
 
+/** Lo que dice el bitcoin en el PAGADO: no pasa por el banco, está en la cartera del local. */
+export const BITCOIN_HOW_SUB = 'En la cartera del local, no en el banco';
+
 export interface CardHowInput {
-  /** «wallet»: Apple Pay o Google Pay (el banco no dice cuál). */
-  payMethod?: 'card' | 'wallet' | null;
+  /** «wallet»: Apple Pay o Google Pay (el banco no dice cuál); «bitcoin»: con BTCPay. */
+  payMethod?: 'card' | 'wallet' | 'bitcoin' | null;
   /** El código del cobro (el que ve el cliente en su móvil). */
   code?: string | null;
   who?: string | null;
   at?: Date | null;
 }
 
-/** Pagó con tarjeta (también Apple Pay o Google Pay). */
+/** Pagó con el QR: con tarjeta (también Apple Pay o Google Pay) o con bitcoin. */
 export function cardHow(i: CardHowInput): OutcomeHow {
   const rows: Row[] = [];
   if (i.code) rows.push({ label: 'Código del cobro', value: i.code, num: true });
   rows.push(...cobroRow(i.who, i.at));
+  if (i.payMethod === 'bitcoin') return { kind: 'bitcoin', title: 'Con bitcoin', sub: BITCOIN_HOW_SUB, rows };
   return {
     kind: 'card',
     title: i.payMethod === 'wallet' ? 'Con Apple Pay o Google Pay' : 'Con tarjeta',

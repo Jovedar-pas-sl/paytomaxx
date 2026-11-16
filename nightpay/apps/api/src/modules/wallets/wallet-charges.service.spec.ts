@@ -39,6 +39,8 @@ function makeService(
 ) {
   const w = opts.wallet === undefined ? wallet() : opts.wallet;
   const tx = {
+    // Reservados: el saldo de un reservado no se devuelve en dinero («Me voy»).
+    reservation: { count: vi.fn().mockResolvedValue(0) },
     clientWallet: {
       findFirst: vi.fn().mockResolvedValue(w),
       findUnique: vi.fn().mockResolvedValue(w),
@@ -345,6 +347,23 @@ describe('el cliente paga el QR con su Face ID', () => {
     await expect(linked.svc.payQrCharge('pay-tok', 'w-1')).resolves.toMatchObject({ code: '0C1' });
     const alone = qrService();
     await expect(alone.svc.payQrCharge('pay-tok', 'w-1')).resolves.toMatchObject({ code: null });
+  });
+
+  it('«Aviso en cada cobro»: sale después de cobrar y, aunque falle, el cobro queda hecho; sin cobro, no sale', async () => {
+    const made = qrService();
+    const alerts = { chargePaid: vi.fn(() => { throw new Error('servicio de avisos roto'); }) };
+    const svc = new WalletChargesService(made.prisma as never, made.audit as never, { get: vi.fn() } as never, made.totp as never, undefined, alerts as never);
+    await expect(svc.payQrCharge('pay-tok', 'w-1')).resolves.toBeDefined();
+    expect(alerts.chargePaid).toHaveBeenCalledWith('req-1');
+    // El aviso, cuando el cobro ya está apuntado (después de la transacción).
+    expect(made.tx.walletChargeRequest.updateMany.mock.invocationCallOrder.at(-1)!).toBeLessThan(alerts.chargePaid.mock.invocationCallOrder[0]!);
+
+    const canceled = qrService();
+    const quiet = { chargePaid: vi.fn() };
+    const svc2 = new WalletChargesService(canceled.prisma as never, canceled.audit as never, { get: vi.fn() } as never, canceled.totp as never, undefined, quiet as never);
+    canceled.tx.walletChargeRequest.updateMany.mockResolvedValueOnce({ count: 1 }).mockResolvedValueOnce({ count: 0 });
+    await expect(svc2.payQrCharge('pay-tok', 'w-1')).rejects.toThrow(/ya no está pendiente/);
+    expect(quiet.chargePaid).not.toHaveBeenCalled();
   });
 
   it('si la chica lo canceló mientras el cliente pagaba, no se cobra', async () => {
@@ -921,6 +940,7 @@ describe('devolver el saldo al cliente que se va', () => {
         cashOutCents: 10_000,
         cardRefundCents: 20_000,
         cashLaterCents: 0,
+        bitcoinCents: 0,
         pendingCardCents: null,
       });
       expect(payoutMock.create).not.toHaveBeenCalled();
@@ -963,6 +983,7 @@ describe('devolver el saldo al cliente que se va', () => {
         cashOutCents: 0,
         cardRefundCents: 0,
         cashLaterCents: 0,
+        bitcoinCents: 0,
         pendingCardCents: null,
       });
     });

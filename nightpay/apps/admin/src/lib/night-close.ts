@@ -185,6 +185,8 @@ export function cajaOutText(caja: {
   chicaCashPayoutsCents: number;
   camareroCashPayoutsCount?: number;
   camareroCashPayoutsCents?: number;
+  bitcoinCashOutCount?: number;
+  bitcoinCashOutCents?: number;
 }): string {
   const wallet = `Saldo devuelto en efectivo: ${formatEur(caja.walletCashPayoutsCents)} (${caja.walletCashPayoutsCount})`;
   const staff = `${formatEur(caja.chicaCashPayoutsCents)} (${caja.chicaCashPayoutsCount})`;
@@ -193,7 +195,12 @@ export function cajaOutText(caja: {
     caja.camareroCashPayoutsCount > 0
       ? ` · a los camareros: ${formatEur(caja.camareroCashPayoutsCents ?? 0)} (${caja.camareroCashPayoutsCount})`
       : '';
-  return `${wallet} · pagos a las compañeras en efectivo: ${staff}${camareros}.`;
+  // Lo pagado con bitcoin y devuelto en efectivo (el bitcoin se queda en la cartera).
+  const bitcoin =
+    (caja.bitcoinCashOutCount ?? 0) > 0
+      ? ` · pagos con bitcoin devueltos en efectivo: ${formatEur(caja.bitcoinCashOutCents ?? 0)} (${caja.bitcoinCashOutCount})`
+      : '';
+  return `${wallet} · pagos a las compañeras en efectivo: ${staff}${camareros}${bitcoin}.`;
 }
 
 /** Un aviso confirmado: el paso y cómo estaba al confirmarlo (su huella). */
@@ -323,8 +330,10 @@ export function pendingHeading(count: number): string {
 }
 
 /** Qué es cada pendiente y qué hacer con él. */
-export function pendingTodo(p: { status: string; captureMethod: string | null }): string {
+export function pendingTodo(p: { status: string; captureMethod: string | null; provider?: string | null }): string {
   if (p.captureMethod === 'POS_EXTERNAL') return 'datáfono sin confirmar: que quien cobró lo confirme con el ticket en la app, o caduca solo';
+  // Con bitcoin no hay banco: su factura en BTCPay dice si se pagó.
+  if (p.provider === 'BTCPAY') return 'pagando con bitcoin: mira su factura en tu BTCPay; si a los 15 min sigue, «Resolver» en Hoy → Cobros con el id de la factura';
   if (p.status === 'ORPHAN') return 'el banco no lo confirmó: búscalo en BBVA y dilo con «Resolver» en Hoy → Cobros';
   if (p.status === 'AUTHORIZING') return 'esperando al banco: suele llegar solo; si a los 15 min sigue, «Resolver» en Hoy → Cobros';
   return 'recarga en el datáfono a medias: se termina en el datáfono o caduca sola';

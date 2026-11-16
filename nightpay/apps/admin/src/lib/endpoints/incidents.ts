@@ -39,8 +39,11 @@ export type IncidentKind =
   | 'wallet_topup_unassigned'
   /** El cliente bloqueó su NFC en su móvil («He perdido mi NFC»): darle uno nuevo en recepción (se marca como revisada). */
   | 'wallet_card_lost'
+  /** El cliente pulsó «No he sido yo» en el aviso de un cobro: su ficha y su PIN ya no pagan; revisar y, si procede, devolver. */
+  | 'wallet_charge_disputed'
   /** Algo que mueve dinero o abre un saldo sin que el cliente lo confirme (se marca como revisada). */
-  | 'sensitive_action';
+  | 'sensitive_action'
+  | 'bitcoin_overpaid';
 
 export interface Incident {
   kind: IncidentKind;
@@ -53,6 +56,8 @@ export interface Incident {
   ackable: boolean;
   /** Aviso de dinero (B11): se cierra escribiendo qué se hizo. Sin el campo (API anterior): no. */
   noteRequired?: boolean;
+  /** Bitcoin sin cobro que se puede devolver en efectivo: su factura y lo máximo (lo que llegó). */
+  cashReturn?: { invoiceId: string; maxCents: number };
 }
 
 export async function fetchIncidents(): Promise<{ items: Incident[]; telegram: boolean }> {

@@ -161,6 +161,25 @@ describe('detalle de un cobro con tarjeta', () => {
     ]);
   });
 
+  it('pagado con bitcoin: el historial dice bitcoin y su factura de BTCPay, no tarjeta ni banco', () => {
+    const f = paymentDetailFacts(
+      card({
+        provider: 'BTCPAY',
+        providerTxId: 'Kd8sY5DN6jLHfQfqHkFBnQ',
+        attempts: [{ providerTxId: 'Kd8sY5DN6jLHfQfqHkFBnQ', status: 'APPROVED', createdAt: at('00:22'), amountCents: 4950, tipCents: 0, payMethod: 'bitcoin' }],
+        events: [
+          { eventType: 'payment.created', payload: { amountCents: 4500 }, occurredAt: at('00:20') },
+          { eventType: 'payment.authorizing', payload: {}, occurredAt: at('00:21') },
+        ],
+        refunds: [],
+      }),
+    );
+    const texts = f.history.map((h) => `${h.what} · ${h.detail ?? ''}`).join(' | ');
+    expect(texts).toContain('El cliente fue a pagar con bitcoin');
+    expect(texts).toContain('Intento de pago con bitcoin: aprobado · Factura de BTCPay Kd8sY5DN6jLHfQfqHkFBnQ');
+    expect(texts).not.toMatch(/tarjeta|banco/i);
+  });
+
   it('cancelado sin pagar: quién lo canceló', () => {
     const f = paymentDetailFacts(
       card({

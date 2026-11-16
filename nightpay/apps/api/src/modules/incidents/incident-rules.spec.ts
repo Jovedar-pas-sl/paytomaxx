@@ -18,12 +18,14 @@ import {
   receptionPayoutCapIncident,
   stuckIncident,
   walletCardLostIncident,
+  walletChargeDisputedIncident,
   ackNeedsNote,
   walletCloseRequestedIncident,
   walletCreditSkippedIncident,
   walletOpenBalanceIncident,
 } from './incident-rules';
 import { incidentMessage, morningSummaryMessage } from './alert-messages';
+import { bitcoinSummary, cardPaymentsCount } from '../reports/export-summary';
 import type { ExportSummary } from '../reports/export-csv';
 
 const at = (iso: string) => new Date(iso);
@@ -83,6 +85,15 @@ describe('incidencias', () => {
   it('cobro atascado: se resuelve en Hoy → Cobros, no se marca como revisado', () => {
     expect(stuck).toMatchObject({ kind: 'stuck_payment', ackable: false, paymentId: 'p-1' });
     expect(orphan.title).toContain('sin confirmar');
+  });
+
+  it('cobro con bitcoin atascado: su factura en BTCPay, sin hablar del banco ni de BBVA', () => {
+    const btc = stuckIncident({ id: 'p-9', status: 'AUTHORIZING', amountCents: 3_000, updatedAt: at('2026-10-13T22:00:00Z'), provider: 'BTCPAY' });
+    expect(btc).toMatchObject({ kind: 'stuck_payment', ackable: false, paymentId: 'p-9', title: 'Cobro con bitcoin sin terminar' });
+    expect(btc.detail).toContain('factura en tu BTCPay');
+    expect(btc.detail).toContain('id de la factura');
+    expect(`${btc.title} ${btc.detail}`).not.toMatch(/banco|BBVA/);
+    expect(stuck.detail).toContain('BBVA');
   });
 
   it('doble cobro: dice qué pedido devolver', () => {
@@ -230,6 +241,34 @@ describe('resumen de las 9:00: las cifras dicen lo que cuentan', () => {
   });
 });
 
+describe('resumen de las 9:00 con bitcoin: aparte, en la cartera del local (nunca «con tarjeta»)', () => {
+  it('de 11 pagos, 1 venta de 40 € + 2 € de propina y 1 recarga de 50 € con bitcoin: salen de «Con tarjeta» y de «Recargas con tarjeta»', () => {
+    const base: ExportSummary = {
+      count: 11, grossCents: 63_300, tipsCents: 2_600, chargedCents: 110_900, refundsCount: 0, refundsCents: 0, netCents: 110_900,
+      walletCashTopUpsCount: 6, walletCashTopUpsCents: 45_000, walletCardTopUpsCount: 2, walletCardTopUpsCents: 10_000, byType: [],
+      chicaCommissionCents: 0, chicaTipsCents: 0, chicaReversalsCents: 0, chicaNetCents: 0, venueTipsCents: 2_600, venueNetCents: 110_900,
+      payoutsCount: 0, payoutsCents: 0, perChica: [], walletCashPayoutsCount: 0, walletCashPayoutsCents: 0, walletCardPayoutsCount: 0,
+      walletCardPayoutsCents: 0, consumptionsCount: 0, consumptionsCents: 0, saldoByType: [],
+      bitcoin: { count: 2, salesCents: 4_000, tipsCents: 200, topUpsCount: 1, topUpsCents: 5_000, serviceFeeCents: 0, totalCents: 9_200 },
+    };
+    const text = morningSummaryMessage('Sala Aurora', base, 0);
+    expect(text).toContain('Cobrado: 1109,00 € (493,00 € de ventas con tarjeta + 24,00 € de propinas con tarjeta + 42,00 € de ventas y propinas con bitcoin + 550,00 € de recargas)');
+    expect(text).toContain('Con tarjeta: 9 pagos · 567,00 €');
+    expect(text).toContain('Bitcoin: 2 pagos · 92,00 €, en la cartera del local');
+    expect(text).toContain('Recargas con tarjeta: 1 · 50,00 €');
+  });
+
+  it('el resumen cuenta el bitcoin por el intento que cobró (ventas, propinas, recargas y su comisión)', () => {
+    const row = (o: Record<string, unknown>) => ({ payMethod: 'card', walletId: null, amountCents: 1_000, tipCents: 0, serviceFeeCents: 0, ...o }) as never;
+    expect(bitcoinSummary([row({})])).toBeNull();
+    expect(
+      bitcoinSummary([row({}), row({ payMethod: 'bitcoin', tipCents: 100, serviceFeeCents: 50 }), row({ payMethod: 'bitcoin', walletId: 'w', amountCents: 5_000, serviceFeeCents: 300 })]),
+    ).toEqual({ count: 2, salesCents: 1_000, tipsCents: 100, topUpsCount: 1, topUpsCents: 5_000, serviceFeeCents: 350, totalCents: 6_450 });
+    expect(cardPaymentsCount({ count: 5, bitcoin: { count: 2 } as never })).toBe(3);
+    expect(cardPaymentsCount({ count: 5 })).toBe(5);
+  });
+});
+
 describe('resumen de las 9:00: qué tramo resume (DIN-4)', () => {
   const s: ExportSummary = {
     count: 1, grossCents: 1000, tipsCents: 0, chargedCents: 1000, refundsCount: 0, refundsCents: 0, netCents: 1000,
@@ -300,7 +339,8 @@ describe('avisos de cobro aprobado que no se dieron por buenos', () => {
     );
     expect(partial).toMatchObject({ kind: 'approval_unverified', ackable: false, title: 'Pago de bitcoin a medias' });
     expect(partial.detail).toContain('NO se ha dado por pagado');
-    expect(partial.detail).toContain('tu BTCPay y la cartera del local');
+    expect(partial.detail).toContain('Míralo en tu BTCPay');
+    expect(partial.detail).not.toMatch(/banco/);
     const late = paymentAnomalyIncident(
       row('payment.approval_unverified', { provider: 'BTCPAY', providerTxId: 'INV1', reason: 'btcpay-paid_late', source: 'btcpay' }),
     );
@@ -320,16 +360,47 @@ describe('avisos de cobro aprobado que no se dieron por buenos', () => {
     const i = paymentAnomalyIncident(row('payment.approval_unbooked', { provider: 'BTCPAY', providerTxId: 'INV1', fromStatus: 'CANCELED' }));
     expect(i).toMatchObject({ kind: 'approval_unbooked', ackable: true });
     expect(i.detail).toContain('cancelado');
-    expect(i.detail).toContain('tu BTCPay y la cartera del local');
+    expect(i.detail).toContain('cartera del local');
+    expect(`${i.title} ${i.detail}`).not.toMatch(/banco/i);
   });
 
   it('bitcoin llegado a un cobro que ya se pagó con tarjeta: «ya pagado de otra forma», no «cerrado»', () => {
     for (const fromStatus of ['AUTHORIZED', 'PARTIALLY_REFUNDED', 'REFUNDED']) {
       const i = paymentAnomalyIncident(row('payment.approval_unbooked', { provider: 'BTCPAY', providerTxId: 'INV1', fromStatus, paidWith: 'REDSYS' }));
       expect(i).toMatchObject({ kind: 'approval_unbooked', ackable: true });
-      expect(i.detail).toContain('El cobro estaba ya pagado de otra forma cuando llegó la aprobación (pedido INV1)');
-      expect(i.detail).toContain('tu BTCPay y la cartera del local');
+      expect(i.title).toBe('El cliente pagó dos veces: también con bitcoin');
+      expect(i.detail).toContain('cuando el cobro ya estaba pagado de otra forma (factura INV1)');
+      expect(i.detail).toContain('cartera del local');
     }
+  });
+
+  it('bitcoin: enseña lo que LLEGÓ; con el cobro ya cerrado, aviso de dinero con nota y «Devolver en efectivo»', () => {
+    const closed = paymentAnomalyIncident({
+      ...row('payment.approval_unverified', { provider: 'BTCPAY', providerTxId: 'INV9', reason: 'btcpay-paid_late', source: 'btcpay', paidCents: 2_500 }),
+      paymentStatus: 'EXPIRED',
+    });
+    expect(closed).toMatchObject({ kind: 'approval_unbooked', ackable: true, amountCents: 2_500, cashReturn: { invoiceId: 'INV9', maxCents: 2_500 } });
+    expect(closed.detail).toContain('caducado');
+    expect(closed.detail).toContain('Llegaron 25,00 €');
+    // A medias con el cobro aún esperando: lo recibido, «Resolver», y también se puede devolver.
+    const waiting = paymentAnomalyIncident({
+      ...row('payment.approval_unverified', { provider: 'BTCPAY', providerTxId: 'INV8', reason: 'btcpay-paid_partial', source: 'btcpay', paidCents: 1_000 }),
+      paymentStatus: 'AUTHORIZING',
+    });
+    expect(waiting).toMatchObject({ kind: 'approval_unverified', ackable: false, amountCents: 1_000, cashReturn: { invoiceId: 'INV8', maxCents: 1_000 } });
+    // Sin saber cuánto llegó, o marcada a mano: sin botón de devolver.
+    expect(paymentAnomalyIncident(row('payment.approval_unverified', { provider: 'BTCPAY', providerTxId: 'INV7', reason: 'btcpay-paid_partial', source: 'btcpay' })).cashReturn).toBeUndefined();
+    expect(paymentAnomalyIncident(row('payment.approval_unverified', { provider: 'BTCPAY', providerTxId: 'INV6', reason: 'btcpay-marked', source: 'btcpay', paidCents: 900 })).cashReturn).toBeUndefined();
+  });
+
+  it('bitcoin pagado de más: solo un aviso para el cuadre (se cierra con nota), sin devolver', () => {
+    const i = paymentAnomalyIncident(
+      row('payment.bitcoin_overpaid', { provider: 'BTCPAY', providerTxId: 'INV5', reason: 'btcpay-paid_over', source: 'btcpay', amountCents: 3_000, paidCents: 3_250, extraCents: 250 }),
+    );
+    expect(i).toMatchObject({ kind: 'bitcoin_overpaid', ackable: true, amountCents: 250, title: 'Pago de bitcoin de más' });
+    expect(i.detail).toContain('2,50 € de más');
+    expect(i.detail).toContain('no se devuelve');
+    expect(i.cashReturn).toBeUndefined();
   });
 
   it('importe distinto: los dos importes, y se marca como revisada', () => {
@@ -478,6 +549,23 @@ describe('«He perdido mi NFC»', () => {
   });
 });
 
+describe('«No he sido yo» (aviso en cada cobro)', () => {
+  it('sale en la bandeja del local del cobro, pide nota para cerrarse y a Telegram va sin el código', () => {
+    const i = walletChargeDisputedIncident({
+      id: 'audit-11', paymentId: 'charge-1', amountCents: 1_200, occurredAt: new Date('2026-11-17T00:10:00Z'),
+      payload: { ref: 'C-0042', code: 'K7Q-4M2', cards: 1, pinLocked: true, via: 'push_not_me' },
+    });
+    expect(i).toMatchObject({ kind: 'wallet_charge_disputed', refId: 'audit-11', amountCents: 1_200, ackable: true, paymentId: null, title: 'Un cliente dice que no ha sido él' });
+    expect(i.detail).toContain('El cliente dice que no ha sido él: cobro C-0042 de 12,00 € (saldo K7Q-4M2)');
+    expect(i.detail).toContain('si procede, devuélvelo');
+    expect(i.alertDetail).not.toContain('K7Q');
+    expect(incidentMessage('Sala', i)).not.toContain('K7Q');
+    expect(ACKABLE_KINDS as readonly string[]).toContain('wallet_charge_disputed');
+    expect(SELF_RESOLVING.has('wallet_charge_disputed')).toBe(false);
+    expect(ackNeedsNote({ kind: 'wallet_charge_disputed', amountCents: 1_200 })).toBe(true);
+  });
+});
+
 describe('avisos del saldo: «Saldos» (nunca «Wallets») y el código con guion', () => {
   const row = { id: 'w-1', shortCode: 'UYSJ5G', balanceCents: 2_900, occurredAt: new Date('2026-10-22T16:29:00Z') };
 
@@ -490,6 +578,18 @@ describe('avisos del saldo: «Saldos» (nunca «Wallets») y el código con guio
     expect(walletCloseRequestedIncident({ ...row, shortCode: null }).detail).toBe(
       '29,00 €. Devuélveselo en Clientes → Saldos → Devolver saldo (tarjeta o efectivo).',
     );
+  });
+
+  it('«Me voy» con parte cargada con bitcoin: se devuelve el resto; esa parte se queda como saldo para otra noche', () => {
+    const mixed = walletCloseRequestedIncident({ ...row, balanceCents: 8_000, bitcoinCents: 3_000 });
+    expect(mixed.detail).toBe(
+      '80,00 € · código UYS-J5G. Devuélvele 50,00 € en Clientes → Saldos → Devolver saldo (tarjeta o efectivo). Los otros 30,00 €: esta parte entró con bitcoin: se queda como saldo para otra noche, no se devuelve.',
+    );
+    expect(mixed.amountCents).toBe(5_000);
+    const allBtc = walletCloseRequestedIncident({ ...row, bitcoinCents: 2_900 });
+    expect(allBtc.detail).toBe('29,00 € · código UYS-J5G: todo entró con bitcoin. Esta parte entró con bitcoin: se queda como saldo para otra noche, no se devuelve.');
+    expect(allBtc.amountCents).toBe(0);
+    expect(walletCloseRequestedIncident({ ...row, bitcoinCents: 0 }).detail).toBe(walletCloseRequestedIncident(row).detail);
   });
 
   it('saldo sin devolver tras cerrar: también con el código con guion y «Saldos»', () => {

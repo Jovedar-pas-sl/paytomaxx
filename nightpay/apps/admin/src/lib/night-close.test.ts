@@ -114,6 +114,10 @@ describe('efectivo tecleado', () => {
     expect(sp(cajaOutText({ ...out, camareroCashPayoutsCount: 0, camareroCashPayoutsCents: 0 }))).toBe(
       'Saldo devuelto en efectivo: 45,00 € (1) · pagos a las compañeras en efectivo: 7,51 € (1).',
     );
+    // Lo pagado con bitcoin y devuelto en efectivo: también sale de la caja.
+    expect(sp(cajaOutText({ ...out, camareroCashPayoutsCount: 0, camareroCashPayoutsCents: 0, bitcoinCashOutCount: 1, bitcoinCashOutCents: 4500 }))).toContain(
+      'pagos con bitcoin devueltos en efectivo: 45,00 € (1)',
+    );
     // Un Z congelado antes (sin el campo): sus pagos eran de todo el personal.
     expect(sp(cajaOutText(out))).toBe('Saldo devuelto en efectivo: 45,00 € (1) · pagos al personal en efectivo: 7,51 € (1).');
   });
@@ -266,6 +270,10 @@ describe('cobros sin resolver al cerrar: qué hacer con cada uno (no todos tiene
     expect(pendingTodo({ status: 'AUTHORIZING', captureMethod: 'REDSYS' })).toContain('si a los 15 min sigue, «Resolver»');
     expect(pendingTodo({ status: 'CREATED', captureMethod: 'WALLET_TOPUP' })).toBe('recarga en el datáfono a medias: se termina en el datáfono o caduca sola');
     expect(pendingTodo({ status: 'CREATED', captureMethod: 'WALLET_TOPUP' })).not.toContain('Resolver');
+    // Con bitcoin: su factura en BTCPay, ni banco ni BBVA.
+    const btc = pendingTodo({ status: 'AUTHORIZING', captureMethod: null, provider: 'BTCPAY' });
+    expect(btc).toContain('factura en tu BTCPay');
+    expect(btc).not.toMatch(/banco|BBVA/);
   });
 
   it('Noches los usa (ya no dice «resuélvelos en Hoy → Cobros»)', () => {

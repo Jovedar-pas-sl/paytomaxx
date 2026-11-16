@@ -12,25 +12,30 @@ import type { PayLanguage } from '../payments/pay-i18n';
  * `TOPUP_<motivo>`: el 409 WALLET_TOPUP_UNAVAILABLE con su `reason`.
  */
 /**
- * Los de la propina que elige el cliente en /s (B1) y de «Ver mi saldo»
- * (my-balance.ts). Aparte de payments/i18n/ para no pisar sus textos.
+ * Los de la propina que elige el cliente en /s (B1), de «Ver mi saldo»
+ * (my-balance.ts) y el «Me voy» de un reservado. Aparte de payments/i18n/
+ * para no pisar sus textos.
  */
-const MORE_ERRORS: Readonly<Record<PayLanguage, Record<'TIP_NOT_VALID' | 'WALLET_NOT_FOUND', string>>> = {
+const MORE_ERRORS: Readonly<Record<PayLanguage, Record<'TIP_NOT_VALID' | 'WALLET_NOT_FOUND' | 'RESERVATION_NO_REFUND', string>>> = {
   es: {
     TIP_NOT_VALID: 'Esa propina no vale: elige otra o «Sin propina».',
     WALLET_NOT_FOUND: 'No encontramos tu saldo. Pregunta en recepción.',
+    RESERVATION_NO_REFUND: 'El saldo de un reservado no se devuelve en dinero: úsalo otra noche.',
   },
   en: {
     TIP_NOT_VALID: 'That tip isn’t valid: choose another one or “No tip”.',
     WALLET_NOT_FOUND: 'We couldn’t find your balance. Ask at reception.',
+    RESERVATION_NO_REFUND: 'The balance of a reserved table isn’t refunded in cash: use it another night.',
   },
   fr: {
     TIP_NOT_VALID: 'Ce pourboire n’est pas valable : choisissez-en un autre ou « Sans pourboire ».',
     WALLET_NOT_FOUND: 'Nous ne trouvons pas votre solde. Demandez à l’accueil.',
+    RESERVATION_NO_REFUND: 'Le solde d’une réservation n’est pas remboursé en argent : utilisez-le un autre soir.',
   },
   pt: {
     TIP_NOT_VALID: 'Essa gorjeta não é válida: escolha outra ou «Sem gorjeta».',
     WALLET_NOT_FOUND: 'Não encontramos o seu saldo. Pergunte na receção.',
+    RESERVATION_NO_REFUND: 'O saldo de uma reserva não é devolvido em dinheiro: use-o noutra noite.',
   },
 };
 

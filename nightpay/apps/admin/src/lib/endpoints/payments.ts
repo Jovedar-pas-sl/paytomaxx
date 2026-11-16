@@ -42,6 +42,8 @@ export interface PaymentRow {
 
 export interface MetricsPeriod {
   count: number;
+  /** De ellos, pagados con bitcoin (no pasan por el banco). Un API de antes no lo trae. */
+  bitcoinCount?: number;
   /** Sin propinas. */
   grossCents: number;
   refundedCents: number;
@@ -153,11 +155,19 @@ export async function refundPayment(
 
 /**
  * Resolver a mano un pago atascado (sin confirmar, o >15 min esperando al
- * banco). Para darlo por cobrado hace falta el código de autorización del banco.
+ * banco). Para darlo por cobrado hace falta el código de autorización del banco
+ * (con bitcoin, el id de su factura de BTCPay).
  */
 export async function resolveStuckPayment(
   paymentId: string,
-  input: { decision: 'AUTHORIZED' | 'FAILED'; reason: string; bankAuthCode?: string; bankOrder?: string; totpCode?: string },
+  input: {
+    decision: 'AUTHORIZED' | 'FAILED';
+    reason: string;
+    bankAuthCode?: string;
+    btcpayInvoiceRef?: string;
+    bankOrder?: string;
+    totpCode?: string;
+  },
 ): Promise<{ ok: true; newStatus: string }> {
   const res = await authedFetch(`/v1/admin/payments/${paymentId}/manual-reconcile`, {
     method: 'POST',

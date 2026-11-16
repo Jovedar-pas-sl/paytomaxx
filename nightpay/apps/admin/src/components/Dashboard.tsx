@@ -38,6 +38,7 @@ import { NightsPanel } from './NightsPanel';
 import { OxioPaySettlementsPanel } from './OxioPaySettlementsPanel';
 import { OperatorsPanel } from './OperatorsPanel';
 import { PaymentsPanel } from './PaymentsPanel';
+import { ReservationsPanel } from './reservations/ReservationsPanel';
 import { ReportsPanel } from './ReportsPanel';
 import { AlertsPanel } from './settings/AlertsPanel';
 import { NightPanel } from './settings/NightPanel';
@@ -343,6 +344,8 @@ function ActivePanel(props: ActivePanelProps) {
       return <WalletsPanel isOwner={isOwner} />;
     case 'fichas':
       return <FichasPanel />;
+    case 'reservations':
+      return <ReservationsPanel isOwner={isOwner} />;
     case 'nights':
       return <NightsPanel tabs={tabs} onNavigate={onNavigate} isOwner={isOwner} onOpenCobros={props.onOpenCobros} />;
     case 'reports':

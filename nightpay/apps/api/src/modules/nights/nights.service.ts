@@ -24,6 +24,8 @@ import { AuditService } from '../audit/audit.service';
 import { totpForbidden } from '../auth/totp-code';
 import { TotpService } from '../auth/totp.service';
 import { summarize } from '../reports/export-csv';
+import { cardPaymentsCount } from '../reports/export-summary';
+import { bitcoinCashOut, type BitcoinCashOut } from '../bitcoin-cash/bitcoin-cash-rows';
 import type {
   AdjustmentRows,
   CobroRow,
@@ -61,6 +63,8 @@ export interface PendingPayment {
   amountCents: number;
   createdAt: Date;
   captureMethod: string | null;
+  /** BTCPAY: paga con bitcoin (se mira su factura en BTCPay, no el banco). */
+  provider?: string | null;
 }
 
 export interface NightView {
@@ -151,6 +155,8 @@ interface ZRows {
   fichas: FichasCounts;
   /** Los nombres de sección del local (Ajustes → Secciones): el Z se congela con ellos. */
   labelOf: SectionLabeler;
+  /** Lo pagado con bitcoin y devuelto en efectivo: sale de la caja. */
+  bitcoinCashOut: BitcoinCashOut;
 }
 
 /** Caja que se guarda en venue_nights al cerrar (además de en el Z). */
@@ -254,7 +260,39 @@ export class NightsService {
     if (!night) throw new NotFoundException('No hay ninguna noche abierta');
     const now = new Date();
     const start = await this.zBounds(tenantId, night.openedAt);
-    return this.checks.check(tenantId, night, { from: start.from, to: now }, now);
+    const window = { from: start.from, to: now };
+    const [check, bitcoinCents] = await Promise.all([
+      this.checks.check(tenantId, night, window, now),
+      this.bitcoinOfNight(tenantId, night, window, now),
+    ]);
+    return bitcoinCents === null ? check : { ...check, bitcoinCents };
+  }
+
+  /**
+   * El bitcoin de la noche en la cartera del local: el mismo dato que el mapa
+   * del dinero (where.bitcoinCents), con la ventana y el corte del Z en vivo.
+   * Sin bitcoin (o si el mapa falla: el cierre sigue), null.
+   */
+  private async bitcoinOfNight(
+    tenantId: string,
+    night: { id: string; openingFloatCents: number | null },
+    window: TimeWindow,
+    now: Date,
+  ): Promise<number | null> {
+    if (!this.moneyMap) return null;
+    try {
+      const map = await this.moneyMap.compute(tenantId, window, {
+        scope: { kind: 'night', nightId: night.id, open: true },
+        now,
+        recordedBefore: now,
+        openingFloatCents: night.openingFloatCents,
+        withLiveBalances: false,
+      });
+      return map.where.bitcoinCents ?? null;
+    } catch (err) {
+      this.logger.error(`Noche ${night.id}: no se pudo leer el bitcoin del mapa del dinero para el cierre: ${(err as Error).message}`);
+      return null;
+    }
   }
 
   /**
@@ -349,7 +387,8 @@ export class NightsService {
         closedAt: n.closedAt?.toISOString() ?? null,
         autoClosed: n.autoClosed,
         pendingAtClose: n.pendingAtClose,
-        count: z?.summary.count ?? null,
+        // «Pagos con tarjeta» en Noches: sin los de bitcoin (no pasan por el banco).
+        count: z ? cardPaymentsCount(z.summary) : null,
         chargedCents: z?.summary.chargedCents ?? null,
         netCents: z?.summary.netCents ?? null,
         cashDiffCents: n.cashDiffCents,
@@ -691,7 +730,7 @@ export class NightsService {
   /** Las filas del Z de la noche en `now`. */
   private async zRows(tenantId: string, window: TimeWindow, now: Date, since: Date): Promise<ZRows> {
     const asOf = { recordedBefore: now };
-    const [cobros, devoluciones, liquidaciones, consumos, pagosSaldo, recargasEfectivo, late, fichas, labelOf] = await Promise.all([
+    const [cobros, devoluciones, liquidaciones, consumos, pagosSaldo, recargasEfectivo, late, fichas, labelOf, btcCash] = await Promise.all([
       this.reports.cobros(tenantId, window, asOf),
       this.reports.devoluciones(tenantId, window, asOf),
       this.reports.liquidaciones(tenantId, window),
@@ -702,8 +741,9 @@ export class NightsService {
       // Fichas de la noche: al cerrar se congelan en el Z (sus fechas cambian si se vuelven a dar).
       this.prisma.acrossVenues((tx) => fichasCounts(tx, tenantId, window)),
       this.reports.sectionLabeler(tenantId),
+      this.prisma.withTenant(tenantId, (tx) => bitcoinCashOut(tx, tenantId, window, now)),
     ]);
-    return { cobros, devoluciones, liquidaciones, consumos, pagosSaldo, recargasEfectivo, late, fichas, labelOf };
+    return { cobros, devoluciones, liquidaciones, consumos, pagosSaldo, recargasEfectivo, late, fichas, labelOf, bitcoinCashOut: btcCash };
   }
 
   /**
@@ -712,7 +752,7 @@ export class NightsService {
    */
   private async pending(tenantId: string, window: TimeWindow): Promise<PendingResult> {
     const rows = await this.prisma.$queryRaw<Array<PendingPayment & { total: number }>>`
-      SELECT id, status::text AS status, "amountCents", "createdAt", "captureMethod",
+      SELECT id, status::text AS status, "amountCents", "createdAt", "captureMethod", provider::text AS provider,
              (COUNT(*) OVER ())::int AS total
         FROM payments
        WHERE ${unresolvedPaymentsWhere(tenantId, window)}

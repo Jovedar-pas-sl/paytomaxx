@@ -14,6 +14,7 @@ export const HOME_TAB: TabKey = 'home';
 const TAB_SLUG: Readonly<Record<TabKey, string>> = {
   home: 'inicio',
   reception: 'recepcion',
+  reservas: 'reservados',
   pos: 'pos',
   payments: 'cobros',
   earnings: 'ganancias',

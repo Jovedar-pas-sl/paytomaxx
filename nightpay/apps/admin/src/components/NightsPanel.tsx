@@ -13,7 +13,7 @@ import {
   type NightSummary,
   type NightView,
 } from '@/lib/api';
-import { cobradoNote, zCobradoParts } from '@/lib/cobrado';
+import { cardPaymentsCount, cobradoNote, zClosedLines, zCobradoParts } from '@/lib/cobrado';
 import { formatDateTime } from '@/lib/dates';
 import { formatEur } from '@/lib/money';
 import { diffLabel, parseCashInput, pendingHeading, pendingTodo } from '@/lib/night-close';
@@ -319,8 +319,9 @@ function ZSummary({ summary: s }: { summary: NightSummary }) {
           que le toca al local de lo vendido es «Para el local» del mapa del dinero.
         </p>
       ) : null}
+      {s.bitcoin ? <p style={hintSmall}>{zClosedLines(s, formatEur).bitcoin}. No está en el banco ni en la caja.</p> : null}
       <p style={hintSmall}>
-        {s.count} pagos con tarjeta
+        {cardPaymentsCount(s)} pagos con tarjeta
         {s.byType.length > 0 ? ' · ' : ''}
         {s.byType.map((t) => `${zTypeLabel(t.label)}: ${t.count} (${formatEur(t.chargedCents)})`).join(' · ')}
       </p>

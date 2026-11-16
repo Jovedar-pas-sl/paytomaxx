@@ -72,6 +72,13 @@ describe('1 · cobros sin terminar', () => {
     expect(s.items[0]!.label).toContain('el cliente está pagando');
   });
 
+  it('con bitcoin: «pagando con bitcoin» y, atascado, su factura en BTCPay (sin hablar del banco)', () => {
+    const s = cobrosStep([payment({ id: 'x', updatedAt: ago(5), provider: 'BTCPAY' }), payment({ id: 'y', updatedAt: ago(20), provider: 'BTCPAY' })], [], NOW);
+    expect(s.items[0]!.label).toContain('el cliente está pagando con bitcoin');
+    expect(s.items[1]!.label).toContain('mira su factura en BTCPay');
+    expect(s.items.map((i) => i.label).join(' ')).not.toMatch(/banco|BBVA/);
+  });
+
   it('atascado (15 min o más), sin confirmar por el banco, datáfono o devolución pendiente → aviso', () => {
     const s = cobrosStep(
       [
