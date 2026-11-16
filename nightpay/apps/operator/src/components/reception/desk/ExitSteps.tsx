@@ -181,7 +181,7 @@ export function NumberExitStep({ view, onKeep, onTap }: { view: NumberSaldo; onK
       </div>
       <DeskBtn kind="pri" label="Guardar para la próxima" small="Para otra noche · se lleva su ficha" onClick={onKeep} tour="recep-guardar" />
       {view.cashOutCents > 0 ? (
-        <DeskBtn kind="gho" label={`Devolver ${eur(view.cashOutCents)} en efectivo`} small="Para devolver, acerca su NFC original" onClick={onTap} tour="recep-devolver" />
+        <DeskBtn kind="gho" label={`Devolver ${eur(view.cashOutCents)} en efectivo`} small="Para devolver, acerca su ficha original" onClick={onTap} tour="recep-devolver" />
       ) : null}
     </>
   );

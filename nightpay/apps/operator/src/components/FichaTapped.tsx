@@ -126,7 +126,7 @@ export function FichaTapped({ token, userId, onClose }: { token: string; userId:
       <StaffOutcome
         kind="paid"
         amountCents={view.amountCents}
-        message="Cobrado del saldo."
+        message="Pagado con el saldo."
         detail={
           <>
             {view.serviceName ? <p>{view.serviceName}</p> : null}

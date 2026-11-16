@@ -232,7 +232,7 @@ export function ReceptionDesk({ user, active, footer, onGiveFicha, onScanHome, h
     if (mode === 'salida') {
       if (view.kind === 'saldo') go({ kind: 'exit', view, nfc: card, requestKey: crypto.randomUUID() });
       else if (card) go({ kind: 'exitNew', view, nfc: card });
-      else restart('salida', 'Esta ficha no tiene saldo. Acerca su NFC original para devolverla al stock.');
+      else restart('salida', 'Esta ficha no tiene saldo. Acerca su ficha original para devolverla al stock.');
       return;
     }
     const problem = rechargeProblem(view);
@@ -255,9 +255,9 @@ export function ReceptionDesk({ user, active, footer, onGiveFicha, onScanHome, h
 
   /** El NFC acercado (en blanco, en Entrada ya viene grabado). */
   async function onTap(tap: ChipTap): Promise<void> {
-    if (tap.other) return setError('Este NFC tiene otra cosa grabada: usa otro.');
+    if (tap.other) return setError('Esta ficha tiene otra cosa grabada: usa otra.');
     if (!tap.token) {
-      return setError(mode === 'entrada' ? (nfc.reader.note ?? 'Este NFC está en blanco y aquí no se puede grabar: usa otro.') : 'Este NFC está en blanco: no tiene saldo.');
+      return setError(mode === 'entrada' ? (nfc.reader.note ?? 'Esta ficha está en blanco y aquí no se puede grabar: usa otra.') : 'Esta ficha está en blanco: no tiene saldo.');
     }
     const card = { card: tap.token, uid: tap.uid };
     await run(async () => {
@@ -393,14 +393,14 @@ export function ReceptionDesk({ user, active, footer, onGiveFicha, onScanHome, h
   ): Promise<void> {
     let linked = read.view?.kind === 'saldo' || cardLinked;
     let warn: string | null =
-      wallet === null && read.view?.kind === 'new' ? 'Cobrado y sumado a su saldo nuevo. El NFC y el PIN, con el encargado.' : null;
+      wallet === null && read.view?.kind === 'new' ? 'Pagado y sumado a su saldo nuevo. La ficha y el PIN, con el encargado.' : null;
     let w = wallet;
     if (w && read.view?.kind === 'new' && read.nfc && !cardLinked) {
       try {
         w = await staffBackend.link(w, read.nfc.card, read.nfc.uid);
         linked = true;
       } catch (err) {
-        warn = `El NFC no se ha podido dar: ${errText(err)} Que apunte su código ${w.code}.`;
+        warn = `La ficha no se ha podido dar: ${errText(err)} Que apunte su código ${w.code}.`;
       }
     }
     attempt.current = null;
@@ -534,7 +534,7 @@ export function ReceptionDesk({ user, active, footer, onGiveFicha, onScanHome, h
   /** «Devolver»: antes del PIN, qué hace falta (su Face ID, el encargado…). */
   async function startRefund(exit: Exit): Promise<void> {
     const plan = await fetchPayoutPlan(exit.view.walletId);
-    if (plan.amountCents !== exit.view.cashOutCents) throw new Error('El importe ha cambiado: vuelve a acercar el NFC.');
+    if (plan.amountCents !== exit.view.cashOutCents) throw new Error('El importe ha cambiado: vuelve a acercar la ficha.');
     const next = exitNext(plan);
     if (next === 'passkey') return go({ kind: 'exitPasskey', exit, plan });
     if (next === 'totp') return go({ kind: 'exitTotp', exit, plan, passkey: false });
@@ -545,7 +545,7 @@ export function ReceptionDesk({ user, active, footer, onGiveFicha, onScanHome, h
   /** Devolver en efectivo: con su PIN o su Face ID ya confirmado (y el 2FA del encargado si hace falta). */
   async function sendPayout(exit: Exit, o: { pin?: string; totpCode?: string; passkey?: boolean; plan?: ReceptionPayoutPlan | null }): Promise<void> {
     const { view, nfc: card, requestKey } = exit;
-    if (!card?.uid) throw new Error('Acerca el NFC original.');
+    if (!card?.uid) throw new Error('Acerca la ficha original.');
     const out = await receptionCashPayout(view.walletId, {
       card: card.card, uid: card.uid, expectedAmountCents: view.cashOutCents, requestKey,
       ...(o.pin ? { pin: o.pin } : {}),
@@ -800,7 +800,7 @@ export function ReceptionDesk({ user, active, footer, onGiveFicha, onScanHome, h
       ) : null}
 
       {step.kind === 'exitNumber' ? (
-        <NumberExitStep view={step.view} onKeep={() => keep(step.view, step.view.codeHint)} onTap={() => restart('salida', 'Para devolver efectivo, acerca su NFC original.')} />
+        <NumberExitStep view={step.view} onKeep={() => keep(step.view, step.view.codeHint)} onTap={() => restart('salida', 'Para devolver efectivo, acerca su ficha original.')} />
       ) : null}
 
       {step.kind === 'exitPasskey' ? renderPasskey(step) : null}
@@ -837,7 +837,7 @@ export function ReceptionDesk({ user, active, footer, onGiveFicha, onScanHome, h
 
       {step.kind === 'exitNew' ? (
         <>
-          <DeskRowView title="NFC sin saldo" detail={deskRow(step.view, 'salida').detail} check={false} />
+          <DeskRowView title="Ficha sin saldo" detail={deskRow(step.view, 'salida').detail} check={false} />
           <p className={s.lbl}>No tiene saldo: guárdalo con los del stock.</p>
           <DeskBtn
             kind="pri"

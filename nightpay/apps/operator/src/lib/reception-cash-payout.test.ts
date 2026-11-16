@@ -26,7 +26,7 @@ describe('la salida (4.5)', () => {
   it('«Devolver 35 € en efectivo · Sacas 35 € de la caja · el NFC vuelve al stock»; guardar, lo de fábrica', () => {
     const plan = cashExitPlan(view(), NFC);
     expect(eur(plan.refundLabel)).toBe('Devolver 35 € en efectivo');
-    expect(eur(plan.refundDetail)).toBe('Sacas 35 € de la caja · el NFC vuelve al stock');
+    expect(eur(plan.refundDetail)).toBe('Sacas 35 € de la caja · la ficha vuelve al stock');
     expect(plan.refundBlocked).toBeNull();
     expect(plan.keepDetail).toBe('Para otra noche · se lleva su ficha');
   });
@@ -52,11 +52,11 @@ describe('la salida (4.5)', () => {
     const plan = cashExitPlan(view({ fichaNumber: null }), null);
     expect(plan.refundLabel).toBeNull();
     expect(plan.note).toBe(NO_NFC_EXIT_TEXT);
-    expect(NO_NFC_EXIT_TEXT).toBe('Este saldo no tiene NFC: lo devuelve el encargado en el panel (Clientes → Saldos).');
+    expect(NO_NFC_EXIT_TEXT).toBe('Este saldo no tiene ficha: lo devuelve el encargado en el panel (Clientes → Saldos).');
     expect(plan.keepDetail).toBe('Para otra noche · que guarde su código');
   });
   it('para devolver: el NFC original con su número de serie y su PIN o su Face ID', () => {
-    expect(cashExitPlan(view(), null).refundBlocked).toContain('NFC original');
+    expect(cashExitPlan(view(), null).refundBlocked).toContain('ficha original');
     expect(cashExitPlan(view(), { card: 'token', uid: null }).refundBlocked).toContain('UID');
     expect(cashExitPlan(view({ hasPin: false }), NFC).refundBlocked).toContain('PIN');
     expect(cashExitPlan(view({ hasPin: false, hasPasskey: true }), NFC).refundBlocked).toBeNull();

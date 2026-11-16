@@ -37,7 +37,7 @@ export function showsSinMovil(p: { chargeId: string | null; wallet: boolean }): 
  */
 export function iphoneFichaHint(p: { chargeId: string | null; venueNfc: boolean; webNfc: boolean }): string | null {
   if (p.chargeId === null || !p.venueNfc || p.webNfc) return null;
-  return '¿Ficha NFC? En iPhone, acércala a la parte de arriba del móvil y toca el aviso: pondrá su PIN.';
+  return '¿Tiene ficha? En iPhone, acércala a la parte de arriba del móvil y toca el aviso: pondrá su PIN.';
 }
 
 /** El código del cliente tal como se teclea: mayúsculas, solo letras, cifras y el guion (K7Q-4M2). */
