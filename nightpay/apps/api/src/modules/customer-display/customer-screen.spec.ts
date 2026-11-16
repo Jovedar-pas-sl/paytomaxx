@@ -37,6 +37,8 @@ function input(over: Partial<ScreenInput> = {}): ScreenInput {
     cleared: false,
     now: NOW,
     urls: URLS,
+    tip: { on: true, presets: {}, toStaff: false, chosenCents: 0 },
+    pinKeypad: 'fixed',
     ...over,
   };
 }
@@ -141,8 +143,8 @@ describe('pantalla del cliente: qué enseña', () => {
       screenViewOf(input({ payment: card({ status: 'CANCELED' }) })),
     ];
     const allowed = new Set([
-      'state', 'venueName', 'fichas', 'pairedUntil', 'key', 'currency', 'amountCents', 'cardAmountCents',
-      'qrUrl', 'ficha', 'paying', 'topUp', 'reason',
+      'state', 'venueName', 'fichas', 'pairedUntil', 'key', 'currency', 'amountCents', 'totalCents', 'cardAmountCents',
+      'qrUrl', 'tip', 'pinKeypad', 'ficha', 'paying', 'topUp', 'reason',
     ]);
     for (const view of views) {
       for (const field of Object.keys(view)) expect(allowed.has(field), field).toBe(true);
@@ -155,5 +157,42 @@ describe('pantalla del cliente: qué enseña', () => {
     expect(displayKey(PAY_ID, CHARGE_ID)).toBe(displayKey(PAY_ID, CHARGE_ID));
     expect(displayKey(PAY_ID, null)).not.toBe(displayKey(PAY_ID, CHARGE_ID));
     expect(displayKey(PAY_ID, null)).toMatch(/^[0-9a-f]{16}$/);
+  });
+
+  it('propina: las sugeridas de siempre, sin nada marcado; la elegida va al total y al QR, nunca a la comisión', () => {
+    const none = screenViewOf(input({ payment: card({ serviceFeeCents: 330 }), charge: saldo() }));
+    expect(none).toMatchObject({
+      totalCents: 3300,
+      cardAmountCents: 3630,
+      tip: { presets: [{ cents: 200, percent: null }, { cents: 500, percent: null }], maxCents: 3300, chosenCents: 0 },
+    });
+    const chosen = screenViewOf(
+      input({ payment: card({ serviceFeeCents: 330 }), charge: saldo(), tip: { on: true, presets: {}, toStaff: true, chosenCents: 500 } }),
+    );
+    // 33 € + 3,30 € de comisión (sobre los 33) + 5 € de propina.
+    expect(chosen).toMatchObject({ totalCents: 3800, cardAmountCents: 4130, tip: { chosenCents: 500, toStaff: true } });
+    expect(chosen.state === 'waiting' ? chosen.qrUrl : null).toBe('https://api.oxio.test/pay/tok-qr-123?tip=500');
+    // Por encima de 40 €, los porcentajes del local.
+    const big = screenViewOf(
+      input({ payment: card({ amountCents: 10000 }), tip: { on: true, presets: { percents: [10] }, toStaff: false, chosenCents: 0 } }),
+    );
+    expect(big).toMatchObject({ tip: { presets: [{ cents: 1000, percent: 10 }] } });
+  });
+
+  it('una propina que no se ofrece no cuenta; sin propinas, en una recarga o con datáfono: sin propina', () => {
+    expect(screenViewOf(input({ payment: card(), tip: { on: true, presets: {}, toStaff: false, chosenCents: 700 } }))).toMatchObject({
+      totalCents: 3300,
+      tip: { chosenCents: 0 },
+    });
+    expect(screenViewOf(input({ payment: card(), tip: { on: false, presets: {}, toStaff: false, chosenCents: 0 } }))).toMatchObject({
+      tip: null,
+    });
+    expect(screenViewOf(input({ payment: card({ walletId: 'w1' }) }))).toMatchObject({ tip: null });
+    expect(screenViewOf(input({ payment: card({ captureMethod: 'POS_EXTERNAL' }) }))).toMatchObject({ tip: null });
+  });
+
+  it('solo saldo con propina: el QR del saldo la lleva (?tip=) y el total la suma', () => {
+    const view = screenViewOf(input({ charge: saldo({ payToken: 'pt1' }), tip: { on: true, presets: {}, toStaff: false, chosenCents: 200 } }));
+    expect(view).toMatchObject({ qrUrl: 'https://api.oxio.test/s/pt1?tip=200', totalCents: 3500, pinKeypad: 'fixed' });
   });
 });

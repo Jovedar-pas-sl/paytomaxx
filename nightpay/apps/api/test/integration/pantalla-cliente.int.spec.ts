@@ -1,22 +1,30 @@
 // Integración (Postgres real, FORCE RLS, rol sin superusuario): «Pantalla del cliente».
-// Emparejar con el código (una vez, 5 min), la credencial (12 h, revocable desde los dos
-// lados), solo los cobros de esa persona y lo que ve la tablet sin datos personales.
+// Emparejar con el código (una vez, 5 min), la credencial (hasta el cierre de la noche, 12 h
+// como mucho, revocable desde los dos lados), solo los cobros de esa persona, lo que ve la
+// tablet sin datos personales, la propina que elige el cliente y pagar con la ficha en la tablet.
 import { describe, it, expect, beforeAll, vi } from 'vitest';
 import { AsyncLocalStorage } from 'node:async_hooks';
-import { randomUUID } from 'node:crypto';
-import { NotFoundException } from '@nestjs/common';
+import { randomBytes, randomUUID } from 'node:crypto';
+import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
 import { ClsService } from 'nestjs-cls';
 import { PrismaService } from '../../src/common/prisma/prisma.service';
 import { AuditService } from '../../src/modules/audit/audit.service';
 import { CustomerDisplayService, type DisplayOwner } from '../../src/modules/customer-display/customer-display.service';
-import { findActiveDisplay } from '../../src/modules/customer-display/display-auth';
+import { findActiveDisplay, pairingExpiresAt } from '../../src/modules/customer-display/display-auth';
 import { sha256 } from '../../src/modules/customer-display/display-code';
+import { WalletChargesService } from '../../src/modules/wallets/wallet-charges.service';
 
 const cls = new ClsService(new AsyncLocalStorage());
 const prisma = new PrismaService(cls as never);
 const audit = new AuditService(prisma, cls as never);
 const realtime = { showOnDisplay: vi.fn(), closeDisplay: vi.fn() };
-const svc = new CustomerDisplayService(prisma, audit, realtime as never);
+const charges = new WalletChargesService(
+  prisma as never,
+  audit as never,
+  { get: () => ({}) } as never,
+  { isEnabled: async () => true, assertForUser: async () => undefined } as never,
+);
+const svc = new CustomerDisplayService(prisma, audit, realtime as never, charges);
 
 /** Como una petición: con contexto CLS (sin local; el servicio usa asSystem). */
 function run<T>(fn: () => Promise<T>): Promise<T> {
@@ -74,7 +82,7 @@ beforeAll(async () => {
   await run(() =>
     prisma.asSystem(async (tx) => {
       const venue = await tx.venue.create({
-        data: { name: 'Sala Luna', slug: `pantalla-${r}`, paymentMethods: { wallet: true, nfc: true } },
+        data: { name: 'Sala Luna', slug: `pantalla-${r}`, walletGroup: `gpc-${r}`, paymentMethods: { wallet: true, nfc: true } },
       });
       const venueB = await tx.venue.create({ data: { name: 'Otro local', slug: `pantalla-b-${r}` } });
       const mk = (tenantId: string, tag: string, displayName?: string) =>
@@ -132,9 +140,10 @@ describe('pantalla del cliente (Postgres)', () => {
 
     const status = await run(() => svc.status(camarero));
     expect(status.paired).toBe(true);
-    const hours = (new Date(status.pairedUntil!).getTime() - Date.now()) / 3600_000;
-    expect(hours).toBeGreaterThan(11.9);
-    expect(hours).toBeLessThanOrEqual(12);
+    // Hasta el corte de la noche (08:00 de Madrid) y 12 h como mucho: sea la hora que sea al lanzar la prueba.
+    const until = new Date(status.pairedUntil ?? 0).getTime();
+    expect(Math.abs(until - pairingExpiresAt(new Date()).getTime())).toBeLessThan(60_000);
+    expect(until - Date.now()).toBeLessThanOrEqual(12 * 3600_000);
 
     const row = await run(() =>
       prisma.asSystem((tx) => tx.customerDisplay.findUniqueOrThrow({ where: { userId: camarero.userId } })),
@@ -227,10 +236,12 @@ describe('pantalla del cliente (Postgres)', () => {
     await run(() => svc.unpairByOwner(camarero));
     expect(await run(() => findActiveDisplay(prisma, third))).toBeNull();
 
-    // Caduca sola a las 12 h.
-    const fourth = (await run(async () => svc.pair((await svc.createCode(camarero)).code))).token;
-    expect(await screenOf(fourth, new Date(Date.now() + 11 * 3600_000))).not.toBeNull();
-    expect(await screenOf(fourth, new Date(Date.now() + 12 * 3600_000 + 60_000))).toBeNull();
+    // Caduca sola (el corte de la noche o las 12 h).
+    const fourthPair = await run(async () => svc.pair((await svc.createCode(camarero)).code));
+    const fourth = fourthPair.token;
+    const fourthUntil = new Date(fourthPair.pairedUntil).getTime();
+    expect(await screenOf(fourth, new Date(fourthUntil - 60_000))).not.toBeNull();
+    expect(await screenOf(fourth, new Date(fourthUntil + 60_000))).toBeNull();
 
     // La persona, de baja: su pantalla deja de valer.
     const setDeleted = (deletedAt: Date | null) =>
@@ -247,5 +258,130 @@ describe('pantalla del cliente (Postgres)', () => {
     expect(new Set(events.map((e) => e.action))).toEqual(
       new Set(['customer_display.code_created', 'customer_display.paired', 'customer_display.unpaired']),
     );
+  });
+});
+
+describe('propina y ficha en la tablet (Postgres)', () => {
+  const waiter = () => ({ userId: camarero.userId, role: 'WAITER' as const, tenantId: camarero.tenantId });
+  let token = '';
+  let n = 0;
+
+  /** Saldo con PIN 4827 y su ficha (con o sin número de serie guardado). */
+  async function walletWithFicha(balanceCents: number, withUid = true) {
+    n += 1;
+    const code = Array.from(randomBytes(6), (b) => 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'[b % 31]).join('');
+    const card = randomBytes(16).toString('base64url');
+    const uid = randomBytes(7).toString('hex').toUpperCase();
+    const id = await run(() =>
+      prisma.asSystem(async (tx) => {
+        const w = await tx.clientWallet.create({
+          data: { tenantId: camarero.tenantId, balanceCents, qrToken: `pcw-${r}-${n}`, shortCode: code, walletGroup: `gpc-${r}` },
+        });
+        await tx.walletCard.create({ data: { token: card, uid: withUid ? uid : null, walletId: w.id, status: 'ISSUED', venueId: camarero.tenantId } });
+        return w.id;
+      }),
+    );
+    await run(() => charges.setPinFromPayer(id, '4827'));
+    return { id, card, uid, code };
+  }
+
+  async function showSaldo(amountCents: number) {
+    const charge = await run(() => charges.createQrCharge(waiter(), { amountCents }));
+    await run(() => svc.show(camarero, { chargeId: charge.id }));
+    const session = await run(() => findActiveDisplay(prisma, token));
+    const view = await run(() => svc.screen(session!));
+    if (view.state !== 'waiting') throw new Error(`esperaba el cobro en la pantalla: ${view.state}`);
+    return { chargeId: charge.id, key: view.key, view };
+  }
+
+  const session = async () => {
+    const s = await run(() => findActiveDisplay(prisma, token));
+    if (!s) throw new Error('pantalla sin emparejar');
+    return s;
+  };
+  const balanceOf = (id: string) =>
+    run(() => prisma.asSystem((tx) => tx.clientWallet.findUniqueOrThrow({ where: { id }, select: { balanceCents: true } })));
+  const chargeRow = (id: string) =>
+    run(() => prisma.asSystem((tx) => tx.walletChargeRequest.findUniqueOrThrow({ where: { id }, select: { status: true, tipCents: true } })));
+
+  beforeAll(async () => {
+    token = (await run(async () => svc.pair((await svc.createCode(camarero)).code))).token;
+  });
+
+  it('el cliente elige la propina (sin nada marcado): va al total, al QR y al cobro con ficha', async () => {
+    const { chargeId, key, view } = await showSaldo(1500);
+    expect(view.tip).toMatchObject({ chosenCents: 0, presets: [{ cents: 200 }, { cents: 500 }] });
+    expect(view.totalCents).toBe(1500);
+    const after = await run(async () => svc.setTip(await session(), { key, tipCents: 200 }));
+    expect(after).toMatchObject({ state: 'waiting', totalCents: 1700, tip: { chosenCents: 200 } });
+    expect((await chargeRow(chargeId)).tipCents).toBe(200);
+    // Solo las que se ofrecen, y solo en el cobro que enseña.
+    await expect(run(async () => svc.setTip(await session(), { key, tipCents: 700 }))).rejects.toBeInstanceOf(BadRequestException);
+    await expect(run(async () => svc.setTip(await session(), { key: '0'.repeat(16), tipCents: 200 }))).rejects.toBeInstanceOf(
+      ConflictException,
+    );
+  });
+
+  it('la ficha en la tablet paga sin PIN (hasta el tope) lo vendido + la propina; la tablet no ve el saldo', async () => {
+    const w = await walletWithFicha(5000);
+    const { chargeId, key } = await showSaldo(1500);
+    await run(async () => svc.setTip(await session(), { key, tipCents: 200 }));
+    const result = await run(async () => svc.payWithFicha(await session(), { key, card: w.card, uid: w.uid }));
+    expect(result).toEqual({ status: 'paid' });
+    expect(await chargeRow(chargeId)).toEqual({ status: 'ACCEPTED', tipCents: 200 });
+    expect((await balanceOf(w.id)).balanceCents).toBe(5000 - 1700);
+    expect(await run(async () => svc.screen(await session()))).toMatchObject({ state: 'paid' });
+  });
+
+  it('por encima del tope sin PIN: el PIN en la tablet, con sus fallos, y la propina de la pantalla del PIN', async () => {
+    const w = await walletWithFicha(10000);
+    const { chargeId, key } = await showSaldo(3300);
+    expect(await run(async () => svc.payWithFicha(await session(), { key, card: w.card, uid: w.uid }))).toEqual({
+      status: 'pin',
+      reason: null,
+    });
+    await expect(
+      run(async () => svc.payWithFichaPin(await session(), { key, card: w.card, uid: w.uid, pin: '1111', tipCents: 500 })),
+    ).rejects.toThrow();
+    expect((await chargeRow(chargeId)).status).toBe('PENDING');
+    expect((await balanceOf(w.id)).balanceCents).toBe(10000);
+    const paid = await run(async () => svc.payWithFichaPin(await session(), { key, card: w.card, uid: w.uid, pin: '4827', tipCents: 500 }));
+    expect(paid).toEqual({ status: 'paid' });
+    expect(await chargeRow(chargeId)).toEqual({ status: 'ACCEPTED', tipCents: 500 });
+    expect((await balanceOf(w.id)).balanceCents).toBe(10000 - 3800);
+  });
+
+  it('una ficha sin número de serie guardado pide el PIN y dice por qué (sin saldo ni código)', async () => {
+    const w = await walletWithFicha(5000, false);
+    const { key } = await showSaldo(1000);
+    const result = await run(async () => svc.payWithFicha(await session(), { key, card: w.card, uid: w.uid }));
+    expect(result.status).toBe('pin');
+    const json = JSON.stringify(result);
+    for (const secret of ['5000', '50,00', w.code, w.id]) expect(json).not.toContain(secret);
+  });
+
+  it('solo el cobro activo de su camarero: otro cobro o tras salir de él, no paga', async () => {
+    const w = await walletWithFicha(5000);
+    const { chargeId, key } = await showSaldo(1000);
+    await expect(run(async () => svc.payWithFicha(await session(), { key: 'f'.repeat(16), card: w.card, uid: w.uid }))).rejects.toBeInstanceOf(
+      ConflictException,
+    );
+    await run(() => svc.clear(camarero, { chargeId }));
+    await expect(run(async () => svc.payWithFicha(await session(), { key, card: w.card, uid: w.uid }))).rejects.toBeInstanceOf(
+      ConflictException,
+    );
+    expect((await chargeRow(chargeId)).status).toBe('PENDING');
+    expect((await balanceOf(w.id)).balanceCents).toBe(5000);
+  });
+
+  it('cerrar la noche corta la unión aunque no hayan pasado 12 h', async () => {
+    expect(await run(() => findActiveDisplay(prisma, token))).not.toBeNull();
+    await run(() =>
+      prisma.asSystem((tx) =>
+        tx.venueNight.create({ data: { tenantId: camarero.tenantId, openedAt: new Date(Date.now() - 3600_000), closedAt: new Date() } }),
+      ),
+    );
+    expect(await run(() => findActiveDisplay(prisma, token))).toBeNull();
+    expect(await run(() => svc.status(camarero))).toEqual({ paired: false, pairedUntil: null });
   });
 });

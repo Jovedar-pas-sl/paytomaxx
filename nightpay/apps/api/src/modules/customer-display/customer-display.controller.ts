@@ -1,10 +1,17 @@
 import { Body, Controller, Delete, Get, HttpCode, Inject, Post, Put, UseGuards } from '@nestjs/common';
 import {
   CustomerDisplayCurrentSchema,
+  CustomerDisplayFichaSchema,
   CustomerDisplayPairSchema,
+  CustomerDisplayPinSchema,
+  CustomerDisplayTipSchema,
   type CustomerDisplayCode,
   type CustomerDisplayCurrentDto,
+  type CustomerDisplayFichaDto,
+  type CustomerDisplayFichaResult,
   type CustomerDisplayPairDto,
+  type CustomerDisplayPinDto,
+  type CustomerDisplayTipDto,
   type CustomerDisplayPairResult,
   type CustomerDisplayStatus,
   type CustomerScreenView,
@@ -32,9 +39,13 @@ const ownerOf = (user: JwtPayload): DisplayOwner => ({ userId: user.sub, tenantI
  *   - POST   /v1/customer-display/current/clear → salió de ese cobro.
  *  Tablet (Authorization: Pantalla <credencial>):
  *   - POST /v1/customer-display/pair   → canjea el código por la credencial (con tope de intentos).
- *   - GET  /v1/customer-display/screen → lo que enseña: importe, QR y estado (sin datos personales).
+ *   - GET  /v1/customer-display/screen → lo que enseña: importe, propina, QR y estado (sin datos personales).
+ *   - POST /v1/customer-display/tip    → la propina que elige el cliente (0 = «Sin propina»).
+ *   - POST /v1/customer-display/ficha  → su ficha (Web NFC de la tablet) paga el cobro activo; o pide el PIN.
+ *   - POST /v1/customer-display/ficha/pin → con su PIN, tecleado en la tablet.
  *   - POST /v1/customer-display/unpair → desemparejarse.
- *  La credencial de la tablet no sirve para nada más: no crea, no cancela, no devuelve.
+ *  Todo, solo sobre el cobro activo de su camarero (su «key») y como él: las
+ *  mismas comprobaciones que su móvil. La credencial no crea, no cancela y no devuelve nada.
  */
 @Controller('customer-display')
 export class CustomerDisplayController {
@@ -103,13 +114,51 @@ export class CustomerDisplayController {
     return this.displays.pair(body.code);
   }
 
-  /** Solo leer: sin saldo ni nombres. Con el tiempo real conectado, la tablet pregunta poco. */
+  /** Sin saldo ni nombres. Con el tiempo real conectado, la tablet pregunta poco. */
   @Get('screen')
   @Public()
   @UseGuards(DisplayGuard)
   @IpRateLimit({ max: 240, windowSec: 60, scope: 'customer-display-screen', failOpen: true })
   screen(@CurrentDisplay() display: DisplaySession): Promise<CustomerScreenView> {
     return this.displays.screen(display);
+  }
+
+  /** La propina que elige el cliente: solo una de las que se ofrecen, en el cobro que enseña. */
+  @Post('tip')
+  @Public()
+  @HttpCode(200)
+  @UseGuards(DisplayGuard)
+  @IpRateLimit({ max: 60, windowSec: 60, scope: 'customer-display-tip' })
+  setTip(
+    @CurrentDisplay() display: DisplaySession,
+    @Body(new ZodValidationPipe(CustomerDisplayTipSchema)) body: CustomerDisplayTipDto,
+  ): Promise<CustomerScreenView> {
+    return this.displays.setTip(display, body);
+  }
+
+  /** La ficha en la tablet: los mismos topes por IP que el pago con ficha del móvil del personal. */
+  @Post('ficha')
+  @Public()
+  @HttpCode(200)
+  @UseGuards(DisplayGuard)
+  @IpRateLimit({ max: 30, windowSec: 60, scope: 'wallet-pin' })
+  payWithFicha(
+    @CurrentDisplay() display: DisplaySession,
+    @Body(new ZodValidationPipe(CustomerDisplayFichaSchema)) body: CustomerDisplayFichaDto,
+  ): Promise<CustomerDisplayFichaResult> {
+    return this.displays.payWithFicha(display, body);
+  }
+
+  @Post('ficha/pin')
+  @Public()
+  @HttpCode(200)
+  @UseGuards(DisplayGuard)
+  @IpRateLimit({ max: 30, windowSec: 60, scope: 'wallet-pin' })
+  payWithFichaPin(
+    @CurrentDisplay() display: DisplaySession,
+    @Body(new ZodValidationPipe(CustomerDisplayPinSchema)) body: CustomerDisplayPinDto,
+  ): Promise<CustomerDisplayFichaResult> {
+    return this.displays.payWithFichaPin(display, body);
   }
 
   @Post('unpair')

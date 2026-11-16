@@ -30,20 +30,26 @@ function makeGateway() {
       id: DISPLAY_ID,
       tenantId: 't1',
       userId: 'u1',
+      pairedAt: new Date(Date.now() - 60_000),
+      tipCents: 0,
       expiresAt: new Date(Date.now() + 3600_000),
       revokedAt: null,
       paymentId: PAY,
       chargeId: CHARGE,
       clearedAt: null,
       lastSeenAt: null,
-      user: { deletedAt: null },
+      user: { deletedAt: null, role: 'WAITER' },
     },
   };
   const findDisplay = vi.fn(({ where }: { where: { tokenHash: string } }) => Promise.resolve(displays[where.tokenHash] ?? null));
   const findPayment = vi.fn(() => Promise.resolve({ tenantId: 't1', createdAt: new Date() }));
   const prisma = {
     asSystem: vi.fn((fn: (tx: unknown) => unknown) =>
-      fn({ customerDisplay: { findUnique: findDisplay }, payment: { findUnique: findPayment } }),
+      fn({
+        customerDisplay: { findUnique: findDisplay },
+        payment: { findUnique: findPayment },
+        venueNight: { findFirst: vi.fn(() => Promise.resolve(null)) },
+      }),
     ),
   };
   const jwt = { verifyAsync: vi.fn(() => Promise.reject(new Error('invalid'))) };

@@ -5,29 +5,33 @@ import { IS_PUBLIC_KEY } from '../../common/decorators/public.decorator';
 import { bearerToken, verifyStaffToken } from '../../common/guards/staff-token';
 import { IP_RATE_LIMIT_META } from '../../common/guards/ip-rate-limit.guard';
 import { CustomerDisplayController } from './customer-display.controller';
-import { cleanToken, displayRoom, displayTokenFromHeader, findActiveDisplay, followedRooms } from './display-auth';
+import { cleanToken, displayRoom, displayTokenFromHeader, findActiveDisplay, followedRooms, pairingExpiresAt } from './display-auth';
 import { formatDisplayCode, newDisplayCode, newDisplayToken, normalizeDisplayCode, sha256 } from './display-code';
 import { DisplayGuard } from './display.guard';
 
 const NOW = new Date('2026-11-17T23:00:00Z');
 const TOKEN = newDisplayToken();
 
-function prismaWith(row: unknown) {
+function prismaWith(row: unknown, closedNight: unknown = null) {
   const findUnique = vi.fn(() => Promise.resolve(row));
-  return { prisma: { asSystem: vi.fn((fn: (tx: unknown) => unknown) => fn({ customerDisplay: { findUnique } })) }, findUnique };
+  const findNight = vi.fn(() => Promise.resolve(closedNight));
+  const tx = { customerDisplay: { findUnique }, venueNight: { findFirst: findNight } };
+  return { prisma: { asSystem: vi.fn((fn: (t: unknown) => unknown) => fn(tx)) }, findUnique, findNight };
 }
 
 const ACTIVE = {
   id: 'd1',
   tenantId: 't1',
   userId: 'u1',
+  pairedAt: new Date(NOW.getTime() - 3600_000),
+  tipCents: 0,
   expiresAt: new Date(NOW.getTime() + 3600_000),
   revokedAt: null,
   paymentId: 'P1',
   chargeId: null,
   clearedAt: null,
   lastSeenAt: null,
-  user: { deletedAt: null },
+  user: { deletedAt: null, role: 'WAITER' },
 };
 
 describe('pantalla del cliente: código y credencial', () => {
@@ -87,6 +91,21 @@ describe('pantalla del cliente: ¿vale la credencial?', () => {
     ];
     for (const row of cases) expect(await findActiveDisplay(prismaWith(row).prisma as never, TOKEN, NOW)).toBeNull();
   });
+
+  it('la noche se cerró después de emparejar: ya no vale (aunque no hayan pasado 12 h)', async () => {
+    const { prisma, findNight } = prismaWith(ACTIVE, { id: 'n1' });
+    expect(await findActiveDisplay(prisma as never, TOKEN, NOW)).toBeNull();
+    expect(findNight).toHaveBeenCalledWith(expect.objectContaining({ where: { tenantId: 't1', closedAt: { gt: ACTIVE.pairedAt } } }));
+  });
+
+  it('caduca en el corte de la noche (08:00 de Madrid) y nunca después de 12 h', () => {
+    // 23:00 de Madrid (UTC+1 en noviembre): a las 08:00 del día siguiente (9 h).
+    expect(pairingExpiresAt(new Date('2026-11-17T22:00:00Z')).toISOString()).toBe('2026-11-18T07:00:00.000Z');
+    // 18:00 de Madrid: a las 12 h (06:00), antes del corte.
+    expect(pairingExpiresAt(new Date('2026-11-17T17:00:00Z')).toISOString()).toBe('2026-11-18T05:00:00.000Z');
+    // 07:30 de Madrid: en el corte, a la media hora.
+    expect(pairingExpiresAt(new Date('2026-11-18T06:30:00Z')).toISOString()).toBe('2026-11-18T07:00:00.000Z');
+  });
 });
 
 describe('pantalla del cliente: rutas', () => {
@@ -101,13 +120,19 @@ describe('pantalla del cliente: rutas', () => {
   });
 
   it('la tablet solo lee su pantalla y se desempareja (con su guarda); nada más es público', () => {
-    for (const name of ['screen', 'unpairDisplay']) {
+    for (const name of ['screen', 'unpairDisplay', 'setTip', 'payWithFicha', 'payWithFichaPin']) {
       expect(isPublic(name)).toBe(true);
       expect(guards(name)).toContain(DisplayGuard);
     }
     for (const name of ['status', 'createCode', 'unpair', 'show', 'clear']) {
       expect(isPublic(name), name).toBe(false);
       expect(guards(name)).not.toContain(DisplayGuard);
+    }
+  });
+
+  it('pagar con ficha desde la tablet: el mismo tope por IP que el PIN del móvil del personal', () => {
+    for (const name of ['payWithFicha', 'payWithFichaPin']) {
+      expect(Reflect.getMetadata(IP_RATE_LIMIT_META, proto[name])).toMatchObject({ max: 30, windowSec: 60, scope: 'wallet-pin' });
     }
   });
 });

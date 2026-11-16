@@ -1,13 +1,17 @@
-import { Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import {
   CUSTOMER_DISPLAY_CODE_LENGTH,
   CUSTOMER_DISPLAY_CODE_TTL_MS,
-  CUSTOMER_DISPLAY_PAIRING_TTL_MS,
+  nightSettingsOf,
   paymentMethodsOf,
   type CustomerDisplayCode,
   type CustomerDisplayCurrentDto,
+  type CustomerDisplayFichaDto,
+  type CustomerDisplayFichaResult,
   type CustomerDisplayPairResult,
+  type CustomerDisplayPinDto,
   type CustomerDisplayStatus,
+  type CustomerDisplayTipDto,
   type CustomerScreenView,
 } from '@nightpay/contracts';
 import { Prisma } from '@nightpay/db';
@@ -15,8 +19,11 @@ import { PrismaService } from '../../common/prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { publicBaseUrls } from '../payments/pay-qr-url';
 import { RealtimeGateway } from '../realtime/realtime.gateway';
-import { screenViewOf } from './customer-screen';
-import { followedRooms, type DisplaySession } from './display-auth';
+import { chargeRightsFor } from '../venues/charge-rights';
+import { WalletChargesService } from '../wallets/wallet-charges.service';
+import { PinRequiredException } from '../wallets/wallet-nopin';
+import { displayKey, screenViewOf } from './customer-screen';
+import { followedRooms, nightClosedSince, pairingExpiresAt, type DisplaySession } from './display-auth';
 import { formatDisplayCode, newDisplayCode, newDisplayToken, normalizeDisplayCode, sha256 } from './display-code';
 
 /** Quien usa la app del personal (de su sesión). */
@@ -27,6 +34,10 @@ export interface DisplayOwner {
 
 export const BAD_CODE_MESSAGE = 'Código no válido o caducado. Pide otro en la app del personal.';
 export const CHARGE_NOT_FOUND_MESSAGE = 'Cobro no encontrado';
+/** La tablet actuó sobre un cobro que ya no es el que enseña (otro cobro, o el camarero salió). */
+export const NOT_CURRENT_MESSAGE = 'Este cobro ya no está en la pantalla';
+export const NOT_CURRENT_CODE = 'DISPLAY_NOT_CURRENT';
+export const BAD_TIP_MESSAGE = 'Propina no válida';
 /** Dos códigos iguales a la vez (casi imposible): se prueba otro. */
 const CODE_ATTEMPTS = 3;
 
@@ -38,9 +49,10 @@ function isUniqueViolation(err: unknown): boolean {
 }
 
 /**
- * «Pantalla del cliente»: emparejar (código de 5 minutos → credencial de
- * 12 horas), desemparejar desde los dos lados, el cobro que enseña (lo pone
- * la app del personal; solo uno suyo) y lo que ve la tablet. Todo con
+ * «Pantalla del cliente»: emparejar (código de 5 minutos → credencial hasta
+ * el cierre de la noche, 12 h como mucho), desemparejar desde los dos lados,
+ * el cobro que enseña (lo pone la app del personal; solo uno suyo), lo que ve
+ * la tablet, la propina que elige el cliente y pagar ese cobro con su ficha. Todo con
  * asSystem: la tablet no tiene sesión y la tabla lleva FORCE RLS; el local y
  * la persona salen siempre de la sesión o de la fila, nunca del cuerpo.
  */
@@ -49,15 +61,18 @@ export class CustomerDisplayService {
   private readonly prisma: PrismaService;
   private readonly audit: AuditService;
   private readonly realtime: RealtimeGateway;
+  private readonly charges: WalletChargesService;
 
   constructor(
     @Inject(PrismaService) prisma: PrismaService,
     @Inject(AuditService) audit: AuditService,
     @Inject(RealtimeGateway) realtime: RealtimeGateway,
+    @Inject(WalletChargesService) charges: WalletChargesService,
   ) {
     this.prisma = prisma;
     this.audit = audit;
     this.realtime = realtime;
+    this.charges = charges;
   }
 
   // ─── App del personal ──────────────────────────────────────────────
@@ -119,8 +134,12 @@ export class CustomerDisplayService {
     const status = { paired: true, pairedUntil: row.expiresAt?.toISOString() ?? null };
     // El mismo cobro (la pantalla de espera se vuelve a montar): nada que avisar.
     if (row.paymentId === paymentId && row.chargeId === chargeId && row.clearedAt === null) return status;
+    // Cobro nuevo: sin propina elegida (la elige el cliente, nada marcado de antemano).
     await this.prisma.asSystem((tx) =>
-      tx.customerDisplay.update({ where: { id: row.id }, data: { paymentId, chargeId, shownAt: now, clearedAt: null } }),
+      tx.customerDisplay.update({
+        where: { id: row.id },
+        data: { paymentId, chargeId, shownAt: now, clearedAt: null, tipCents: 0 },
+      }),
     );
     const follow = followedRooms({ paymentId, chargeId });
     const unfollow = followedRooms(row).filter((room) => !follow.includes(room));
@@ -169,7 +188,8 @@ export class CustomerDisplayService {
     );
     if (!row || row.user.deletedAt) throw new NotFoundException(BAD_CODE_MESSAGE);
     const token = newDisplayToken();
-    const expiresAt = new Date(now.getTime() + CUSTOMER_DISPLAY_PAIRING_TTL_MS);
+    // Hasta el corte de la noche (08:00) y nunca más de 12 h; cerrarla antes también la corta.
+    const expiresAt = pairingExpiresAt(now);
     // Canje condicionado: dos tablets con el mismo código, solo una gana.
     const redeemed = await this.prisma.asSystem((tx) =>
       tx.customerDisplay.updateMany({
@@ -182,6 +202,7 @@ export class CustomerDisplayService {
           lastSeenAt: now,
           pairingCodeHash: null,
           pairingCodeExpiresAt: null,
+          tipCents: 0,
           ...NO_SHOW,
         },
       }),
@@ -207,11 +228,16 @@ export class CustomerDisplayService {
 
   /** Lo que enseña la tablet ahora. */
   async screen(display: DisplaySession, now = new Date()): Promise<CustomerScreenView> {
-    const { venue, payment, charge } = await this.prisma.asSystem(async (tx) => ({
+    const { venue, payment, charge, tipsRight } = await this.prisma.asSystem(async (tx) => ({
       venue: await tx.venue.findUniqueOrThrow({
         where: { id: display.tenantId },
-        select: { name: true, paymentMethods: true },
+        select: { name: true, paymentMethods: true, nightSettings: true },
       }),
+      // Propinas en el puesto de quien cobra (como en /s y en el PIN): solo con un cobro delante.
+      tipsRight:
+        display.paymentId || display.chargeId
+          ? (await chargeRightsFor(tx, display.tenantId, { userId: display.userId, role: display.role })).tips
+          : false,
       payment: display.paymentId
         ? await tx.payment.findFirst({
             where: { id: display.paymentId, tenantId: display.tenantId, createdByUserId: display.userId },
@@ -245,22 +271,101 @@ export class CustomerDisplayService {
       cleared: display.clearedAt !== null,
       now,
       urls: publicBaseUrls(),
+      tip: {
+        on: methods.tips && tipsRight,
+        presets: { flatCents: methods.tipFlatCents, percents: methods.tipPercents },
+        // Como al pagar: la propina es entera de la chica que cobra; si cobra otra persona, del local.
+        toStaff: display.role === 'OPERATOR',
+        chosenCents: display.tipCents,
+      },
+      pinKeypad: nightSettingsOf(venue.nightSettings).pinKeypad,
     });
+  }
+
+  /**
+   * El cliente elige su propina en la tablet (0: «Sin propina»). Solo una de
+   * las que se ofrecen y solo en el cobro que enseña. Va en el QR (?tip=) y,
+   * si hay cobro del saldo, en él: la ficha (en la tablet o en el móvil del
+   * camarero) paga lo vendido + esa propina, también sin PIN.
+   */
+  async setTip(display: DisplaySession, dto: CustomerDisplayTipDto): Promise<CustomerScreenView> {
+    const view = await this.screen(display);
+    if (view.state !== 'waiting' || view.key !== dto.key || view.paying) throw notCurrent();
+    const allowed = dto.tipCents === 0 || Boolean(view.tip?.presets.some((t) => t.cents === dto.tipCents));
+    if (!allowed) throw new BadRequestException(BAD_TIP_MESSAGE);
+    await this.prisma.asSystem(async (tx) => {
+      const saved = await tx.customerDisplay.updateMany({
+        where: { id: display.id, tokenHash: display.tokenHash, paymentId: display.paymentId, chargeId: display.chargeId },
+        data: { tipCents: dto.tipCents },
+      });
+      if (saved.count === 0) throw notCurrent();
+      // El cobro con ficha, mientras nadie lo esté pagando (sin saldo atado aún).
+      if (display.chargeId) {
+        await tx.walletChargeRequest.updateMany({
+          where: { id: display.chargeId, tenantId: display.tenantId, status: 'PENDING', walletId: null },
+          data: { tipCents: dto.tipCents },
+        });
+      }
+    });
+    return this.screen({ ...display, tipCents: dto.tipCents });
+  }
+
+  /**
+   * La ficha acercada a la tablet paga el cobro activo de su camarero, como si
+   * la leyera su móvil (mismas reglas: sin PIN hasta el tope de la noche, ficha
+   * original, bloqueos). Si hace falta el PIN, dice por qué, sin enseñar nunca
+   * el saldo ni el código del cliente.
+   */
+  async payWithFicha(display: DisplaySession, dto: CustomerDisplayFichaDto): Promise<CustomerDisplayFichaResult> {
+    const { chargeId, actor } = fichaTarget(display, dto.key);
+    const ref = { card: dto.card, uid: dto.uid ?? null };
+    try {
+      await this.charges.payQrChargeWithCard(actor, chargeId, ref);
+      return { status: 'paid' };
+    } catch (err) {
+      if (!(err instanceof PinRequiredException)) throw err;
+      const wallet = await this.charges.lookupCard(display.tenantId, ref);
+      if (wallet.pinLocked) return { status: 'pin_locked' };
+      if (!wallet.hasPin) return { status: 'no_pin' };
+      return { status: 'pin', reason: err.reason === 'night_cap' || err.reason === 'no_uid' ? pinRequiredMessage(err) : null };
+    }
+  }
+
+  /** Con su PIN, tecleado en la tablet delante del cliente (fallos, bloqueo y topes: los del PIN de siempre). */
+  async payWithFichaPin(display: DisplaySession, dto: CustomerDisplayPinDto): Promise<CustomerDisplayFichaResult> {
+    const { chargeId, actor } = fichaTarget(display, dto.key);
+    await this.charges.payQrChargeWithPin(actor, chargeId, {
+      card: dto.card,
+      uid: dto.uid ?? null,
+      pin: dto.pin,
+      ...(typeof dto.tipCents === 'number' ? { tipCents: dto.tipCents } : {}),
+    });
+    return { status: 'paid' };
   }
 
   // ─── Lo de dentro ──────────────────────────────────────────────────
 
-  /** La pantalla emparejada de esta persona (sin revocar ni caducar), o null. */
+  /** La pantalla emparejada de esta persona (sin revocar, caducar ni noche cerrada desde entonces), o null. */
   private async activeOf(owner: DisplayOwner, now: Date) {
-    const row = await this.prisma.asSystem((tx) =>
-      tx.customerDisplay.findUnique({
+    return this.prisma.asSystem(async (tx) => {
+      const row = await tx.customerDisplay.findUnique({
         where: { userId: owner.userId },
-        select: { id: true, tenantId: true, tokenHash: true, expiresAt: true, revokedAt: true, paymentId: true, chargeId: true, clearedAt: true },
-      }),
-    );
-    if (!row || row.tenantId !== owner.tenantId || !row.tokenHash || row.revokedAt) return null;
-    if (!row.expiresAt || row.expiresAt.getTime() <= now.getTime()) return null;
-    return row;
+        select: {
+          id: true,
+          tenantId: true,
+          tokenHash: true,
+          pairedAt: true,
+          expiresAt: true,
+          revokedAt: true,
+          paymentId: true,
+          chargeId: true,
+          clearedAt: true,
+        },
+      });
+      if (!row || row.tenantId !== owner.tenantId || !row.tokenHash || row.revokedAt) return null;
+      if (!row.expiresAt || row.expiresAt.getTime() <= now.getTime()) return null;
+      return (await nightClosedSince(tx, row.tenantId, row.pairedAt)) ? null : row;
+    });
   }
 
   /** Solo un cobro suyo y de su local (el de tarjeta y/o el del saldo). */
@@ -309,4 +414,21 @@ export class CustomerDisplayService {
       payload: { by },
     });
   }
+}
+
+/** 409: lo que pidió la tablet era para otro cobro (o ya no está en la pantalla). */
+function notCurrent(): ConflictException {
+  return new ConflictException({ message: NOT_CURRENT_MESSAGE, code: NOT_CURRENT_CODE });
+}
+
+/** Solo el cobro del saldo que enseña ahora (sin que el camarero haya salido), y como su camarero. */
+function fichaTarget(display: DisplaySession, key: string) {
+  if (!display.chargeId || display.clearedAt || displayKey(display.paymentId, display.chargeId) !== key) throw notCurrent();
+  return { chargeId: display.chargeId, actor: { userId: display.userId, role: display.role, tenantId: display.tenantId } };
+}
+
+/** El texto del 409 PIN_REQUIRED («Ya lleva el tope sin PIN de esta noche…»). */
+function pinRequiredMessage(err: PinRequiredException): string | null {
+  const body = err.getResponse() as { message?: unknown };
+  return typeof body?.message === 'string' ? body.message : null;
 }

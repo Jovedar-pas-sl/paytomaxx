@@ -1,5 +1,13 @@
 import { createHash } from 'node:crypto';
-import type { CustomerScreenEnd, CustomerScreenView } from '@nightpay/contracts';
+import {
+  maxTipCents,
+  tipPresetsFor,
+  type CustomerScreenEnd,
+  type CustomerScreenTip,
+  type CustomerScreenView,
+  type PinKeypadLayout,
+  type TipPresetConfig,
+} from '@nightpay/contracts';
 import { PAID_STATES } from '../payments/pay-redirect';
 import type { PaymentMachineState } from '../payments/payment.machine';
 import { cardQrUrl } from '../payments/pay-qr-url';
@@ -8,7 +16,7 @@ import { cardQrUrl } from '../payments/pay-qr-url';
  * Lo que enseña la «Pantalla del cliente», calculado aquí con lo de la base
  * (nunca con lo que diga el móvil del camarero): «Pagado» solo si el cobro
  * está pagado de verdad. Sin datos personales: ni el saldo del cliente ni
- * quién cobra; solo el importe, el QR y el estado.
+ * quién cobra; solo el importe, la propina que puede elegir, el QR y el estado.
  */
 
 /** El cobro con tarjeta (su QR). */
@@ -44,6 +52,13 @@ export interface ScreenInput {
   charge: ScreenCharge | null;
   /** El camarero ya salió de ese cobro (Nuevo cobro, otra pantalla). */
   cleared: boolean;
+  /**
+   * Propinas: encendidas en el local y en el puesto de quien cobra (`on`), las
+   * sugeridas del local, si van enteras a quien cobra y la que eligió el
+   * cliente en la tablet (0: «Sin propina»).
+   */
+  tip: { on: boolean; presets: TipPresetConfig; toStaff: boolean; chosenCents: number };
+  pinKeypad: PinKeypadLayout;
   now: Date;
   urls: { api: string; client: string; operator: string };
 }
@@ -92,12 +107,31 @@ function endReason(input: ScreenInput): CustomerScreenEnd {
   return 'canceled';
 }
 
-/** El QR que se enseña: el de la tarjeta (el mismo del camarero); si no, el del saldo suelto. */
-function qrOf(input: ScreenInput, openCard: boolean, openCharge: boolean): string | null {
+/**
+ * El QR que se enseña: el de la tarjeta (el mismo del camarero); si no, el
+ * del saldo suelto. Con la propina que eligió en la tablet (?tip=): la página
+ * de pago sale con ella marcada y su total ya la incluye.
+ */
+function qrOf(input: ScreenInput, openCard: boolean, openCharge: boolean, tipCents: number): string | null {
   const { payment: p, charge: c, urls } = input;
-  if (p && openCard) return p.captureMethod === 'POS_EXTERNAL' ? null : cardQrUrl(p, urls);
-  if (c && openCharge && c.payToken) return `${urls.api}/s/${encodeURIComponent(c.payToken)}`;
+  const tip = tipCents > 0 ? `?tip=${tipCents}` : '';
+  if (p && openCard) return p.captureMethod === 'POS_EXTERNAL' ? null : `${cardQrUrl(p, urls)}${tip}`;
+  if (c && openCharge && c.payToken) return `${urls.api}/s/${encodeURIComponent(c.payToken)}${tip}`;
   return null;
+}
+
+/**
+ * La propina que se ofrece (la lógica de siempre: sugeridas del local para
+ * este importe, tope = el importe y 500 €). Nunca en una recarga ni con
+ * datáfono. La elegida solo si sigue siendo una de las que se ofrecen.
+ */
+export function screenTipOf(input: ScreenInput, amountCents: number): CustomerScreenTip | null {
+  const p = input.payment;
+  if (!input.tip.on || p?.walletId || p?.captureMethod === 'POS_EXTERNAL') return null;
+  const presets = tipPresetsFor(amountCents, input.tip.presets);
+  const chosen = input.tip.chosenCents;
+  const chosenCents = chosen > 0 && presets.some((t) => t.cents === chosen) ? chosen : 0;
+  return { presets, maxCents: maxTipCents(amountCents), chosenCents, toStaff: input.tip.toStaff };
 }
 
 export function screenViewOf(input: ScreenInput): CustomerScreenView {
@@ -118,14 +152,20 @@ export function screenViewOf(input: ScreenInput): CustomerScreenView {
   const paying = p !== null && openCard && CARD_PAYING.has(p.status);
   const amountCents = p?.amountCents ?? c?.amountCents ?? 0;
   const fee = p ? Math.max(0, p.serviceFeeCents) : 0;
+  const tip = screenTipOf(input, amountCents);
+  const tipCents = tip?.chosenCents ?? 0;
   return {
     ...base,
     state: 'waiting',
     key,
     currency: p?.currency ?? 'EUR',
     amountCents,
-    cardAmountCents: p && openCard && fee > 0 && p.captureMethod !== 'POS_EXTERNAL' ? amountCents + fee : null,
-    qrUrl: paying ? null : qrOf(input, openCard, openCharge),
+    totalCents: amountCents + tipCents,
+    // La comisión del servicio va sobre lo vendido, nunca sobre la propina.
+    cardAmountCents: p && openCard && fee > 0 && p.captureMethod !== 'POS_EXTERNAL' ? amountCents + fee + tipCents : null,
+    qrUrl: paying ? null : qrOf(input, openCard, openCharge, tipCents),
+    tip,
+    pinKeypad: input.pinKeypad,
     ficha: input.fichas && openCharge,
     paying,
     topUp: Boolean(p?.walletId),
