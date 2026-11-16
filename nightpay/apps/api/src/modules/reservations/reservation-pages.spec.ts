@@ -20,7 +20,7 @@ function reservation(over: Partial<ReservationView> = {}): ReservationView {
     id: 'r1', ref: 'K7Q4M2', status: 'PENDING', statusText: 'Sin pagar', nightDate: '2026-11-21', previousNightDate: null, dateChanged: false,
     packageName: 'Mesa consumo', kind: 'CREDIT', priceCents: 50000, creditCents: 40000, depositCents: 15000, paidCents: 0, pendingCents: 50000,
     entries: 2, items: [], customerName: 'Laura', customerPhone: '600112233', notes: null, tableLabel: null, source: 'WEB', soldBy: 'Web',
-    promoterName: null, balanceCents: null, itemsLeft: [], arrivedAt: null, canceledAt: null, cancelReason: null, createdAt: '2026-11-16T10:00:00Z',
+    promoterName: null, balanceCents: null, itemsLeft: [], arrivedAt: null, noShowAuto: false, canceledAt: null, cancelReason: null, createdAt: '2026-11-16T10:00:00Z',
     guests: [
       { id: 'g1', seq: 1, label: null, checkedIn: false, spentCents: 0, items: [] },
       { id: 'g2', seq: 2, label: null, checkedIn: false, spentCents: 0, items: [] },
@@ -36,6 +36,8 @@ function group(over: Partial<GroupView> = {}, r: Partial<ReservationView> = {}):
     payable: ['DEPOSIT', 'FULL'],
     openPayUrl: null,
     canChangeDate: false,
+    cancel: 'Cancelar',
+    cancelBlocked: null,
     saldoHref: null,
     guestTokens: [
       { seq: 1, token: 'AAAAAAAAAAAAAAAAAAAAAAAA' },
@@ -119,6 +121,31 @@ describe('la página del reservado', () => {
     expect(html).toContain('Persona 1 · ha gastado 50 €');
     expect(html).toContain('No caduca y no se devuelve en dinero.');
     expect(html).not.toContain('id="payf"');
+  });
+
+  it('anular: sin pagar, «Cancelar»; pagada con 48 h, «Anular» perdiendo la señal; sin las 48 h, no', () => {
+    expect(renderGroupPage(TOKEN, group(), 'https://api.prueba.es', '2026-11-16', '2027-03-16')).toContain('Cancelar la reserva');
+    const paid = plain(
+      renderGroupPage(
+        TOKEN,
+        group({ payable: ['REST'], cancel: 'Anular' }, { status: 'PAID', statusText: 'Pagado', paidCents: 50000, pendingCents: 0 }),
+        'https://api.prueba.es',
+        '2026-11-16',
+        '2027-03-16',
+      ),
+    );
+    expect(paid).toContain('Anular mi reserva');
+    expect(paid).toContain('Pierdes la señal (150 €).');
+    expect(paid).toContain('Lo demás (350 €) te queda como saldo para otra noche');
+    const late = renderGroupPage(
+      TOKEN,
+      group({ payable: [], cancel: null, cancelBlocked: 'Se anula avisando con 48 horas. Si no venís, se queda como «No vino».' }, { status: 'PAID', paidCents: 50000 }),
+      'https://api.prueba.es',
+      '2026-11-16',
+      '2027-03-16',
+    );
+    expect(late).not.toContain('id="cancelf"');
+    expect(late).toContain('Se anula avisando con 48 horas');
   });
 
   it('un pago a medias: «Seguir pagando»', () => {

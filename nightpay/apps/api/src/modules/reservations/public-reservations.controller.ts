@@ -121,6 +121,17 @@ export class PublicReservationController {
     return { payUrl: started.payUrl };
   }
 
+  /** El cliente anula: sin pagar, «Cancelar»; pagada, con 48 h (pierde la señal; lo demás, saldo). */
+  @Public()
+  @Post(':token/anular')
+  @HttpCode(200)
+  @Header('Cache-Control', 'no-store')
+  @IpRateLimit(PAY_LIMIT)
+  async cancel(@Param('token') token: string): Promise<{ ok: true }> {
+    await this.reservations.clientCancel(token);
+    return { ok: true };
+  }
+
   @Public()
   @Post(':token/fecha')
   @HttpCode(200)

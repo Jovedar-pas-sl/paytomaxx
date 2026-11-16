@@ -123,6 +123,9 @@ if(pf){var ok=document.getElementById('ack'),pb=document.getElementById('payb');
 function sync(){var k=pf.querySelector('input[name=kind]:checked');pb.disabled=!ok.checked||!k;if(k)pb.textContent='Pagar '+k.getAttribute('data-eur');}
 pf.addEventListener('change',sync);sync();
 pf.addEventListener('submit',function(ev){ev.preventDefault();var k=pf.querySelector('input[name=kind]:checked');if(!k||!ok.checked)return;post(C.pay,{kind:k.value,acceptedNoRefund:true},'payerr',pb);});}
+var cf=document.getElementById('cancelf');
+if(cf){var ck=document.getElementById('cack'),cb=document.getElementById('cancelb');ck.addEventListener('change',function(){cb.disabled=!ck.checked;});
+cf.addEventListener('submit',function(ev){ev.preventDefault();if(!ck.checked)return;post(C.cancel,{},'cancelerr',cb);});}
 var df=document.getElementById('datef');
 if(df){df.addEventListener('submit',function(ev){ev.preventDefault();var v=df.querySelector('input[name=night]').value;post(C.date,{nightDate:v},'dateerr',document.getElementById('dateb'));});}
 document.querySelectorAll('[data-share]').forEach(function(b){b.addEventListener('click',function(){var u=b.getAttribute('data-share');
@@ -147,7 +150,7 @@ function payCard(v: GroupView): string {
     : `<p>Si pagas la señal, el resto (${h(eur(r.priceCents - r.depositCents))}) lo pagas antes de ir o al llegar.</p>`;
   return `<form id="payf" class="card warn">
 <h2>Pagar</h2>${opts}${rest}
-<p><b>La señal (${h(eur(r.depositCents))}) no se devuelve.</b> Si no vienes, la pierdes. Puedes cambiar la fecha una vez, avisando con 48 horas.</p>
+<p><b>La señal (${h(eur(r.depositCents))}) no se devuelve.</b> Si no vienes, la pierdes. Puedes cambiar la fecha una vez o anular la reserva (pierdes la señal), avisando con 48 horas antes de que abra el local.</p>
 <p>Si pagas todo y no vienes sin avisar con 48 horas, pierdes la señal y el resto queda como saldo para otra noche (no se devuelve en dinero).</p>
 <label class="chk"><input type="checkbox" id="ack"> Lo entiendo: la señal no se devuelve</label>
 <p class="err" id="payerr" role="alert" hidden></p>
@@ -157,7 +160,7 @@ function payCard(v: GroupView): string {
 
 function qrCard(v: GroupView, origin: string): string {
   const r = v.reservation;
-  if (r.status === 'PENDING' || r.status === 'CANCELED') return '';
+  if (r.status === 'PENDING' || r.status === 'CANCELED' || r.status === 'CLIENT_CANCELED' || r.status === 'NO_SHOW') return '';
   const list = v.guestTokens
     .map((g) => {
       const url = `${origin}/reservas/q/${g.token}`;
@@ -180,6 +183,22 @@ function leftCard(v: GroupView): string {
   return `<section class="card"><h2>Lo que queda</h2>${what}</section>`;
 }
 
+/** El cliente anula: sin pagar, «Cancelar»; pagada, con 48 h (pierde la señal; lo demás le queda de saldo). */
+function cancelCard(v: GroupView): string {
+  const r = v.reservation;
+  if (!v.cancel) {
+    return v.cancelBlocked ? `<p class="small">${h(v.cancelBlocked)}</p>` : '';
+  }
+  const paid = v.cancel === 'Anular';
+  const left = r.paidCents - Math.min(r.depositCents, r.paidCents);
+  const what = paid
+    ? `<p><b>Pierdes la señal (${h(eur(Math.min(r.depositCents, r.paidCents)))}).</b>${left > 0 ? ` Lo demás (${h(eur(left))}) te queda como saldo para otra noche: no se devuelve en dinero.` : ''}</p>`
+    : '<p>No has pagado nada: se cancela sin más.</p>';
+  return `<form id="cancelf" class="card warn"><h2>${paid ? 'Anular mi reserva' : 'Cancelar la reserva'}</h2>${what}
+<label class="chk"><input type="checkbox" id="cack"> ${paid ? 'Lo entiendo: pierdo la señal' : 'Sí, quiero cancelarla'}</label>
+<p class="err" id="cancelerr" role="alert" hidden></p><button class="btn alt" id="cancelb" type="submit" disabled>${paid ? 'Anular mi reserva' : 'Cancelar la reserva'}</button></form>`;
+}
+
 function dateCard(v: GroupView, minDay: string, maxDay: string): string {
   if (!v.canChangeDate) return '';
   return `<form id="datef" class="card"><h2>Cambiar la fecha</h2><p>Solo una vez y avisando con 48 horas.</p>
@@ -193,7 +212,12 @@ export function renderGroupPage(token: string, v: GroupView, origin: string, min
   const saldo = v.saldoHref
     ? `<section class="card"><h2>Tu saldo para otra noche</h2><p>Te queda saldo en ${h(v.venueName)}. No caduca y no se devuelve en dinero.</p><a class="btn alt" href="${h(v.saldoHref)}">Ver mi saldo</a></section>`
     : '';
-  const canceled = r.status === 'CANCELED' && r.paidCents > 0 ? `<p>El local ha anulado la reserva: te devolverán ${h(eur(r.paidCents))}.</p>` : '';
+  const canceled =
+    r.status === 'CANCELED' && r.paidCents > 0
+      ? `<p>El local ha anulado la reserva: te devolverán ${h(eur(r.paidCents))}.</p>`
+      : r.status === 'CLIENT_CANCELED'
+        ? '<p>Has anulado la reserva: la señal no se devuelve.</p>'
+        : '';
   const body = `<section><h1>Tu reservado en ${h(v.venueName)}</h1><p><span class="pill${ok ? ' ok' : ''}">${h(r.statusText)}</span> · Referencia <b class="num">${h(r.ref)}</b></p></section>
 <section class="card">
 <div class="row"><span>Noche</span><b>${h(nightText(r.nightDate))}</b></div>
@@ -202,11 +226,11 @@ export function renderGroupPage(token: string, v: GroupView, origin: string, min
 ${r.tableLabel ? `<div class="row"><span>Mesa</span><b>${h(r.tableLabel)}</b></div>` : ''}
 <div class="row"><span>Total</span><b>${h(eur(r.priceCents))}</b></div>
 <div class="row"><span>Pagado</span><b>${h(eur(r.paidCents))}</b></div>
-${r.pendingCents > 0 && r.status !== 'CANCELED' ? `<div class="row"><span>Falta</span><b>${h(eur(r.pendingCents))}</b></div>` : ''}
+${r.pendingCents > 0 && (r.status === 'PENDING' || r.status === 'DEPOSIT_PAID') ? `<div class="row"><span>Falta</span><b>${h(eur(r.pendingCents))}</b></div>` : ''}
 ${canceled}</section>
-${payCard(v)}${leftCard(v)}${qrCard(v, origin)}${saldo}${dateCard(v, minDay, maxDay)}
+${payCard(v)}${leftCard(v)}${qrCard(v, origin)}${saldo}${dateCard(v, minDay, maxDay)}${cancelCard(v)}
 <p class="small">Guarda este enlace: es tu reservado.</p>
-<script type="application/json" id="cfg">${JSON.stringify({ pay: `/reservas/${token}/pago`, date: `/reservas/${token}/fecha` })}</script>`;
+<script type="application/json" id="cfg">${JSON.stringify({ pay: `/reservas/${token}/pago`, date: `/reservas/${token}/fecha`, cancel: `/reservas/${token}/anular` })}</script>`;
   return page(`Tu reservado · ${v.venueName}`, body, GROUP_JS);
 }
 
