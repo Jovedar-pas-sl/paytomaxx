@@ -62,6 +62,7 @@ import {
 import { fetchBankRef, notifiedText, notifyManager, type BankRef } from '@/lib/api-bank-wait';
 import { useShown } from '../reception/desk/use-shown';
 import { StaffOutcome } from '../StaffOutcome';
+import { useCustomerDisplay } from '../use-customer-display';
 import { usePaymentLive } from '../use-payment-live';
 import { colorOf } from './cobrar-context';
 import { CobroQr } from './CobroQr';
@@ -274,6 +275,8 @@ export function Esperando({ cobro, onNew, onRetry, retrying = false, retryError 
   // Sin confirmar por el banco se sigue mirando (si lo aprueba, PAGADO): pantalla encendida.
   const watching = waiting || outcome.kind === 'unconfirmed';
   useWakeLock(watching);
+  // La «Pantalla del cliente» de la barra (si hay una emparejada): este importe y este QR.
+  useCustomerDisplay({ paymentId: cobro.card?.id ?? null, chargeId });
   useOpenCharge('cobro', true, watching);
   // Arriba, solo «OxioPay no responde»: la espera del banco y el «sin confirmar»
   // los dice esta pantalla (su franja y «El banco no lo ha confirmado»); la
