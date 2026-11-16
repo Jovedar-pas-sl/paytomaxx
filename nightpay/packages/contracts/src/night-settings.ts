@@ -170,9 +170,10 @@ export const PIN_REQUIRED_CODE = 'PIN_REQUIRED';
  *  - over_max: el cobro pasa del máximo sin PIN;
  *  - night_cap: con este cobro pasaría del tope de la noche;
  *  - no_uid: el NFC no se pudo comprobar (sin número de serie: un iPhone, o el NFC no lo tiene guardado);
- *  - pin_locked: su PIN está bloqueado por fallos (puede que no lo lleve su dueño).
+ *  - pin_locked: su PIN está bloqueado por fallos (puede que no lo lleve su dueño);
+ *  - tip: lleva propina: la confirma el cliente con su PIN (nadie del personal la marca por él).
  */
-export const PIN_REQUIRED_REASONS = ['off', 'over_max', 'night_cap', 'no_uid', 'pin_locked'] as const;
+export const PIN_REQUIRED_REASONS = ['off', 'over_max', 'night_cap', 'no_uid', 'pin_locked', 'tip'] as const;
 export type PinRequiredReason = (typeof PIN_REQUIRED_REASONS)[number];
 
 export const PIN_REQUIRED_MESSAGES: Readonly<Record<PinRequiredReason, string>> = {
@@ -181,4 +182,5 @@ export const PIN_REQUIRED_MESSAGES: Readonly<Record<PinRequiredReason, string>> 
   night_cap: 'Ya lleva el tope sin PIN de esta noche: que ponga su PIN una vez.',
   no_uid: 'Este NFC no se puede comprobar: que ponga su PIN.',
   pin_locked: 'Su PIN está bloqueado por fallos: avisa al encargado.',
+  tip: 'Con propina, el cliente la confirma con su PIN.',
 };

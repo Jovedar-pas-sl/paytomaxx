@@ -13,6 +13,7 @@ import { CustomerDisplayService, type DisplayOwner } from '../../src/modules/cus
 import { findActiveDisplay, pairingExpiresAt } from '../../src/modules/customer-display/display-auth';
 import { sha256 } from '../../src/modules/customer-display/display-code';
 import { WalletChargesService } from '../../src/modules/wallets/wallet-charges.service';
+import { PinRequiredException } from '../../src/modules/wallets/wallet-nopin';
 
 const cls = new ClsService(new AsyncLocalStorage());
 const prisma = new PrismaService(cls as never);
@@ -23,6 +24,8 @@ const charges = new WalletChargesService(
   audit as never,
   { get: () => ({}) } as never,
   { isEnabled: async () => true, assertForUser: async () => undefined } as never,
+  // Con el contexto de la petición: el registro del pago apunta si se hizo desde la pantalla.
+  cls as never,
 );
 const svc = new CustomerDisplayService(prisma, audit, realtime as never, charges);
 
@@ -304,6 +307,22 @@ describe('propina y ficha en la tablet (Postgres)', () => {
   const chargeRow = (id: string) =>
     run(() => prisma.asSystem((tx) => tx.walletChargeRequest.findUniqueOrThrow({ where: { id }, select: { status: true, tipCents: true } })));
 
+  /** Como una petición de la tablet: su local, su camarero y la marca de la pantalla (DisplayGuard). */
+  const runScreen = <T>(fn: () => Promise<T>): Promise<T> =>
+    cls.run(async () => {
+      cls.set('ctx', { traceId: 't-pantalla', tenantId: camarero.tenantId, userId: camarero.userId, role: 'WAITER', customerScreen: true });
+      return fn();
+    });
+  /** El registro del pago con el saldo suelto (wallet.charge_settled). */
+  const settledPayload = async (chargeId: string) =>
+    (
+      await run(() =>
+        prisma.asSystem((tx) =>
+          tx.auditEvent.findFirst({ where: { action: 'wallet.charge_settled', targetId: chargeId }, select: { payload: true } }),
+        ),
+      )
+    )?.payload;
+
   beforeAll(async () => {
     token = (await run(async () => svc.pair((await svc.createCode(camarero)).code))).token;
   });
@@ -315,22 +334,52 @@ describe('propina y ficha en la tablet (Postgres)', () => {
     const after = await run(async () => svc.setTip(await session(), { key, tipCents: 200 }));
     expect(after).toMatchObject({ state: 'waiting', totalCents: 1700, tip: { chosenCents: 200 } });
     expect((await chargeRow(chargeId)).tipCents).toBe(200);
-    // Solo las que se ofrecen, y solo en el cobro que enseña.
-    await expect(run(async () => svc.setTip(await session(), { key, tipCents: 700 }))).rejects.toBeInstanceOf(BadRequestException);
+    // «Otra»: euros enteros hasta el tope (15 €), como en /pay.
+    expect(await run(async () => svc.setTip(await session(), { key, tipCents: 700 }))).toMatchObject({ totalCents: 2200 });
+    await run(async () => svc.setTip(await session(), { key, tipCents: 200 }));
+    // Céntimos sueltos o de más, no; y solo en el cobro que enseña.
+    for (const bad of [750, 1600]) {
+      await expect(run(async () => svc.setTip(await session(), { key, tipCents: bad }))).rejects.toBeInstanceOf(BadRequestException);
+    }
     await expect(run(async () => svc.setTip(await session(), { key: '0'.repeat(16), tipCents: 200 }))).rejects.toBeInstanceOf(
       ConflictException,
     );
   });
 
-  it('la ficha en la tablet paga sin PIN (hasta el tope) lo vendido + la propina; la tablet no ve el saldo', async () => {
+  it('sin propina, la ficha en la tablet paga sin PIN (hasta el tope); la tablet no ve el saldo y el registro lo dice', async () => {
     const w = await walletWithFicha(5000);
     const { chargeId, key } = await showSaldo(1500);
-    await run(async () => svc.setTip(await session(), { key, tipCents: 200 }));
-    const result = await run(async () => svc.payWithFicha(await session(), { key, card: w.card, uid: w.uid }));
+    const result = await runScreen(async () => svc.payWithFicha(await session(), { key, card: w.card, uid: w.uid }));
     expect(result).toEqual({ status: 'paid' });
-    expect(await chargeRow(chargeId)).toEqual({ status: 'ACCEPTED', tipCents: 200 });
-    expect((await balanceOf(w.id)).balanceCents).toBe(5000 - 1700);
+    expect(await chargeRow(chargeId)).toEqual({ status: 'ACCEPTED', tipCents: 0 });
+    expect((await balanceOf(w.id)).balanceCents).toBe(5000 - 1500);
     expect(await run(async () => svc.screen(await session()))).toMatchObject({ state: 'paid' });
+    // En el registro del pago: hecho desde la pantalla (el detalle y el historial lo dicen).
+    expect(await settledPayload(chargeId)).toMatchObject({ screen: true, authMethod: 'nfc_nopin' });
+  });
+
+  it('con propina, la ficha SIEMPRE pide el PIN (original y por debajo del tope), también en el móvil; con el PIN, pagado con ella', async () => {
+    const w = await walletWithFicha(5000);
+    const { chargeId, key } = await showSaldo(1000);
+    await run(async () => svc.setTip(await session(), { key, tipCents: 200 }));
+    // En la tablet: pide el PIN y dice por qué.
+    expect(await runScreen(async () => svc.payWithFicha(await session(), { key, card: w.card, uid: w.uid }))).toEqual({
+      status: 'pin',
+      reason: 'Con propina, el cliente la confirma con su PIN.',
+    });
+    // En el móvil del camarero (el API, no la pantalla): tampoco sin PIN.
+    await expect(run(() => charges.payQrChargeWithCard(waiter(), chargeId, { card: w.card, uid: w.uid }))).rejects.toBeInstanceOf(
+      PinRequiredException,
+    );
+    expect(await chargeRow(chargeId)).toEqual({ status: 'PENDING', tipCents: 200 });
+    expect((await balanceOf(w.id)).balanceCents).toBe(5000);
+    const paid = await runScreen(async () =>
+      svc.payWithFichaPin(await session(), { key, card: w.card, uid: w.uid, pin: '4827', tipCents: 200 }),
+    );
+    expect(paid).toEqual({ status: 'paid' });
+    expect(await chargeRow(chargeId)).toEqual({ status: 'ACCEPTED', tipCents: 200 });
+    expect((await balanceOf(w.id)).balanceCents).toBe(5000 - 1200);
+    expect(await settledPayload(chargeId)).toMatchObject({ screen: true, authMethod: 'pin', pinVia: 'ficha' });
   });
 
   it('por encima del tope sin PIN: el PIN en la tablet, con sus fallos, y la propina de la pantalla del PIN', async () => {

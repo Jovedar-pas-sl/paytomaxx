@@ -277,6 +277,7 @@ export function saldoDetailFacts(i: SaldoDetailInput): CobroDetailFacts {
     flags.push('CARD_COPY_SUSPECTED');
   }
   const pinVia = stringOf(settled?.pinVia);
+  const screenBy = screenTextOf(settled, i.people.get(r.requestedByUserId));
   const paidWithFicha = c ? FICHA_VIAS.has(c.authMethod ?? '') || (c.authMethod === 'pin' && pinVia === 'ficha') : false;
   const undo: CobroDetailUndo[] =
     c?.reversedAt
@@ -315,7 +316,7 @@ export function saldoDetailFacts(i: SaldoDetailInput): CobroDetailFacts {
         cardBrand: null,
         cardLast4: null,
         fichaNumber: paidWithFicha ? i.fichaNumber : null,
-        via: saldoVia(c?.authMethod ?? null),
+        via: [saldoVia(c?.authMethod ?? null), screenBy].filter(Boolean).join(' · ') || null,
         walletHint: hint,
       },
       undo,
@@ -389,6 +390,13 @@ function balanceOf(p: Record<string, unknown> | null): { beforeCents: number; af
 }
 
 /** Cómo se pagó este cobro del saldo: el evento del cobro enlazado o, saldo suelto, el registro. */
+/** Pagado con la ficha en la «Pantalla del cliente»: «desde la pantalla de Pablo» (o null). */
+export function screenTextOf(settled: Record<string, unknown> | null, requester: Parameters<typeof nameOf>[0]): string | null {
+  if (settled?.screen !== true) return null;
+  const name = nameOf(requester);
+  return name ? `desde la pantalla de ${name}` : 'desde la pantalla del cliente';
+}
+
 function settledPayloadOf(requestId: string, linkedEvents: readonly EventRow[], audits: readonly AuditRow[]): Record<string, unknown> | null {
   const fromEvent = linkedEvents.find(
     (e) => e.eventType === PAYMENT_DEVICE_EVENT && payloadOf(e).step === 'saldo' && payloadOf(e).walletChargeId === requestId,
@@ -529,9 +537,10 @@ function saldoHistory(i: SaldoDetailInput, settled: Record<string, unknown> | nu
   if (r.status === 'ACCEPTED' && r.decidedAt) {
     const via = saldoVia(i.consumption?.authMethod ?? null);
     const balance = balanceOf(settled);
+    const screenBy = screenTextOf(settled, i.people.get(r.requestedByUserId));
     items.push({
       at: r.decidedAt.toISOString(),
-      what: 'Pagado con el saldo',
+      what: screenBy ? `Pagado con ficha ${screenBy}` : 'Pagado con el saldo',
       detail: [via, balance ? `saldo ${eurText(balance.beforeCents)} → ${eurText(balance.afterCents)}` : null].filter(Boolean).join(' · ') || null,
     });
   } else if (r.status !== 'PENDING' && r.status !== 'ACCEPTED') {

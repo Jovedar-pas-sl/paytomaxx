@@ -46,8 +46,9 @@ export class DisplayGuard implements CanActivate {
     const display = await findActiveDisplay(this.prisma, token);
     if (!display) throw new UnauthorizedException(DISPLAY_NOT_PAIRED);
     req.customerDisplay = display;
-    // Contexto del local para el middleware de Prisma (como el datáfono).
-    bindTenantContext(this.cls, { tenantId: display.tenantId });
+    // Contexto del local para el middleware de Prisma (como el datáfono), y
+    // quién: su camarero, desde la pantalla (el registro del pago lo dice).
+    bindTenantContext(this.cls, { tenantId: display.tenantId, userId: display.userId, role: display.role, customerScreen: true });
     if (!display.lastSeenAt || Date.now() - display.lastSeenAt.getTime() > LAST_SEEN_EVERY_MS) {
       await this.prisma.asSystem((tx) =>
         tx.customerDisplay.update({ where: { id: display.id }, data: { lastSeenAt: new Date() } }),

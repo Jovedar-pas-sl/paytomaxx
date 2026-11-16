@@ -825,6 +825,9 @@ export class WalletChargesService {
         await tx.walletChargeRequest.update({ where: { id: request.id }, data: { tipCents } });
       }
       const totalCents = request.amountCents + tipCents;
+      // Con propina, la ficha siempre con su PIN (también por debajo del tope y
+      // con la ficha original): la confirma el cliente, nadie la marca por él.
+      if (auth === 'nfc_nopin' && tipCents > 0) throw new PinRequiredException('tip');
       const decision = decideAccept({ ...request, amountCents: totalCents }, w, new Date());
       if (!decision.ok) throw requestError(decision.reason);
       // Cobro único: un solo juego de líneas, del que se paga.
@@ -963,6 +966,8 @@ export class WalletChargesService {
       'saldo',
       {
         ...(s.auth === 'passkey' ? { who: 'client' as const } : {}),
+        // Pagado con la ficha en la «Pantalla del cliente» de la barra (su credencial).
+        ...(ctx?.customerScreen ? { screen: true } : {}),
         walletChargeId: s.request.id,
         authMethod: s.auth,
         ...(s.pinVia ? { pinVia: s.pinVia } : {}),
@@ -1539,7 +1544,12 @@ export class WalletChargesService {
       pinLocked: wallet.pinLockedAt !== null,
       pinByStaff: wallet.pinSetById !== null,
       enough,
-      noPin: 'card' in ref && enough && (await this.noPinLikely(terminal.tenantId, ref, wallet, request.amountCents)),
+      // Con propina elegida, siempre el PIN (como al cobrar).
+      noPin:
+        'card' in ref &&
+        enough &&
+        !(request.tipCents > 0) &&
+        (await this.noPinLikely(terminal.tenantId, ref, wallet, request.amountCents)),
     };
   }
 

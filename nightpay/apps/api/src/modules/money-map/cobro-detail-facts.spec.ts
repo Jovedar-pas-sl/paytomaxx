@@ -238,6 +238,20 @@ function saldo(over: Partial<SaldoDetailInput> = {}): SaldoDetailInput {
 }
 
 describe('detalle de un cobro del saldo', () => {
+  it('pagado con la ficha en la pantalla de la barra: el detalle y el historial lo dicen', () => {
+    const settled = {
+      action: 'wallet.charge_settled',
+      actorId: LOLA,
+      payload: { who: 'staff', step: 'saldo', screen: true, userId: LOLA, authMethod: 'pin', pinVia: 'ficha', balanceBeforeCents: 10000, balanceAfterCents: 3500 },
+      occurredAt: at('02:01'),
+    };
+    const f = saldoDetailFacts(saldo({ consumption: { ...saldo().consumption!, authMethod: 'pin' }, audits: [settled] }));
+    expect(f.base.method.via).toBe('PIN · desde la pantalla de Lola');
+    expect(f.history.find((h) => h.what.startsWith('Pagado'))?.what).toBe('Pagado con ficha desde la pantalla de Lola');
+    // Sin la marca (el móvil del personal), como siempre.
+    expect(saldoDetailFacts(saldo()).history.find((h) => h.what.startsWith('Pagado'))?.what).toBe('Pagado con el saldo');
+  });
+
   it('pagado con el NFC sin PIN: la ficha, la señal, el saldo antes y después y lo de la chica', () => {
     const f = saldoDetailFacts(saldo());
     expect(f.base).toMatchObject({
