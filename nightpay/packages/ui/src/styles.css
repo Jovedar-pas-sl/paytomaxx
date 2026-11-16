@@ -819,6 +819,21 @@ html.np-touch {
   --np-field-h: 3.25rem;
 }
 
+/* ─── Tablet y ordenador: la app táctil crece con la pantalla ────────
+   Todo va en rem: subir la letra base agranda a la vez letras, losetas,
+   botones, el QR y el ancho de la columna. Se mide por el lado corto de la
+   pantalla (vmin): el móvil y el datáfono (360-430) se quedan en 16 px; una
+   tablet (768-1024) llega a 18-20 px; nunca más de 20. El panel (sin
+   np-touch) no cambia. */
+html.np-touch {
+  font-size: clamp(100%, 2.3vmin, 125%);
+}
+
+/* Modo «sala» (un paso más de letra): también crece, desde los 18 px. */
+html.np-touch[data-contrast='sala'] {
+  font-size: clamp(112.5%, 2.6vmin, 137.5%);
+}
+
 /* El pequeño también se toca con el dedo: 44 px como mínimo (26 usos). */
 .np-touch .np-btn[data-size='sm'] {
   height: 2.75rem;
