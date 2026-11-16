@@ -1,5 +1,6 @@
 import { formatChargeRef } from '@nightpay/contracts';
 import type { PrismaService } from '../../common/prisma/prisma.service';
+import { isHeldOnReader } from './reader-hold';
 
 /** Sin pagar: el QR o el datáfono esperando, o el cliente en su banco (o pagando con bitcoin). */
 export const UNPAID_STATUSES = ['CREATED', 'AWAITING_CAPTURE', 'AUTHORIZING'] as const;
@@ -21,6 +22,11 @@ export interface UnpaidCobro {
   atBank: boolean;
   /** Pagando con bitcoin (la factura abierta). */
   bitcoin: boolean;
+  /**
+   * Recarga cobrada en el datáfono sin comprobar (reader-hold.ts): la tarjeta
+   * ya pagó. No se cancela (409 CANCEL_HELD_ON_READER); la resuelven en el panel.
+   */
+  heldOnReader: boolean;
 }
 
 /**
@@ -28,7 +34,8 @@ export interface UnpaidCobro {
  * pagar de todo el local, para cancelar también los de otra persona (decisión
  * del dueño: cualquiera del personal cancela cualquier cobro sin pagar). Solo
  * lo justo para reconocerlo: referencia, importe, hora y quién lo creó. Un QR
- * caducado sin empezar ya no sale (se cierra solo).
+ * caducado sin empezar ya no sale (se cierra solo). La recarga cobrada en el
+ * datáfono sin comprobar sí sale, pero sin poder cancelarla.
  */
 export async function listUnpaidCobros(
   prisma: PrismaService,
@@ -48,6 +55,7 @@ export async function listUnpaidCobros(
       ref: true,
       status: true,
       provider: true,
+      posOperationNumber: true,
       amountCents: true,
       serviceFeeCents: true,
       tipCents: true,
@@ -56,15 +64,20 @@ export async function listUnpaidCobros(
       createdBy: { select: { displayName: true } },
     },
   });
-  return rows.map((p) => ({
-    id: p.id,
-    ref: formatChargeRef(p.ref),
-    totalCents: p.amountCents + p.serviceFeeCents + p.tipCents,
-    status: p.status as UnpaidCobro['status'],
-    createdAt: p.createdAt.toISOString(),
-    createdByName: p.createdBy?.displayName?.trim() || 'El cliente, desde su móvil',
-    mine: p.createdByUserId === input.userId,
-    atBank: p.status === 'AUTHORIZING' && p.provider !== 'BTCPAY',
-    bitcoin: p.status === 'AUTHORIZING' && p.provider === 'BTCPAY',
-  }));
+  return rows.map((p) => {
+    // Cobrada en el datáfono y sin comprobar: ni «en su banco» ni cancelable.
+    const heldOnReader = isHeldOnReader(p);
+    return {
+      id: p.id,
+      ref: formatChargeRef(p.ref),
+      totalCents: p.amountCents + p.serviceFeeCents + p.tipCents,
+      status: p.status as UnpaidCobro['status'],
+      createdAt: p.createdAt.toISOString(),
+      createdByName: p.createdBy?.displayName?.trim() || 'El cliente, desde su móvil',
+      mine: p.createdByUserId === input.userId,
+      atBank: !heldOnReader && p.status === 'AUTHORIZING' && p.provider !== 'BTCPAY',
+      bitcoin: p.status === 'AUTHORIZING' && p.provider === 'BTCPAY',
+      heldOnReader,
+    };
+  });
 }
