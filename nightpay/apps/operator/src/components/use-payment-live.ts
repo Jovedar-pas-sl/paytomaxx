@@ -57,6 +57,8 @@ export function usePaymentLive(
   useEffect(() => {
     if (!id || !qrToken) return undefined;
     let final = false;
+    // El cliente está en su banco: el respaldo pregunta cada 4 s, no cada 10 s.
+    let authorizing = false;
     // Cerrado por nosotros (otro cobro, pantalla fuera): nada de reconectar.
     let closed = false;
     setConnected(true);
@@ -64,12 +66,14 @@ export function usePaymentLive(
 
     const emit = (update: PaymentUpdate) => {
       if (isFinalStatus(update.status)) final = true;
+      authorizing = update.status === 'AUTHORIZING';
       onUpdateRef.current(update);
     };
 
     const live = createPaymentLive({
       paymentId: id,
       isHidden,
+      isAuthorizing: () => authorizing,
       onLiveChange: (isLive) => {
         if (!closed) setConnected(isLive);
       },

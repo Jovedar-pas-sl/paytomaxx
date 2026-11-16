@@ -205,8 +205,10 @@ export class RedsysDebugController {
   }
 
   /**
-   * Como `consult/:paymentId` pero con detalles del error (mensaje, código).
-   * Útil cuando consult devuelve UNKNOWN — el adapter se traga el error.
+   * Antes mandaba al banco `trataPeticion` con TransactionType=44, que en
+   * Redsys es «Borrar Referencia», no una consulta (contestaba SIS0105). Ya
+   * no llama al banco: la consulta de verdad (SOAP SerClsWSConsulta) está
+   * pendiente de BBVA. Dice solo eso.
    */
   @Get('consult-raw/:paymentId')
   async consultRaw(@Param('paymentId', new ParseUUIDPipe()) paymentId: string): Promise<unknown> {
@@ -214,54 +216,20 @@ export class RedsysDebugController {
     if (payment.provider !== 'REDSYS' || !payment.providerTxId) {
       return { error: 'not-a-redsys-payment', payment };
     }
-
-    // Acceder a internals del adapter para bypass circuit breaker y exponer
-    // detalle del error sin que lo swallow doGetStatus.
-    const adapter = this.redsys as unknown as {
-      getApi: () => {
-        restTrataPeticion: (params: Record<string, string>) => Promise<unknown>;
-      };
-      requireCreds: () => { merchantCode: string; terminal: string };
+    return {
+      ok: false,
+      paymentId,
+      providerTxId: payment.providerTxId,
+      error: 'consulta-no-disponible',
+      message: 'consulta de Redsys no disponible: falta el servicio de consulta de operaciones (pendiente de BBVA)',
     };
-
-    let creds;
-    try {
-      creds = adapter.requireCreds();
-    } catch (e) {
-      return { error: 'creds-missing', message: (e as Error).message };
-    }
-
-    const params = {
-      DS_MERCHANT_AMOUNT: '1',
-      DS_MERCHANT_ORDER: payment.providerTxId,
-      DS_MERCHANT_MERCHANTCODE: creds.merchantCode,
-      DS_MERCHANT_CURRENCY: '978',
-      DS_MERCHANT_TRANSACTIONTYPE: '44',
-      DS_MERCHANT_TERMINAL: creds.terminal.padStart(3, '0'),
-    };
-
-    try {
-      const result = await adapter.getApi().restTrataPeticion(params);
-      return { ok: true, paymentId, providerTxId: payment.providerTxId, paramsSent: params, redsysResponse: result };
-    } catch (e) {
-      const err = e as Error & { code?: string; cause?: unknown };
-      return {
-        ok: false,
-        paymentId,
-        providerTxId: payment.providerTxId,
-        paramsSent: params,
-        errorName: err.name,
-        errorMessage: err.message,
-        errorCode: err.code ?? null,
-        errorCause: err.cause ? String(err.cause) : null,
-      };
-    }
   }
 
   /**
-   * Pregunta a Redsys el estado real de un payment (REST trataPeticion,
-   * TransactionType=44) sin tocar la BD. Para reconciliar de verdad, el
-   * orphan-reconcile processor avanza el FSM.
+   * Estado del cobro según la consulta del adapter de Redsys, sin tocar la BD.
+   * Hoy siempre UNKNOWN: la consulta no está disponible (ver
+   * RedsysAdapter.doGetStatus). Para conciliar de verdad, el orphan-reconcile
+   * processor avanza el FSM.
    */
   @Get('consult/:paymentId')
   async consult(@Param('paymentId', new ParseUUIDPipe()) paymentId: string): Promise<{
