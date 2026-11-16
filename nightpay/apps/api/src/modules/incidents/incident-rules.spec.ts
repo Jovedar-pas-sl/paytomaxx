@@ -24,6 +24,7 @@ import {
   walletOpenBalanceIncident,
 } from './incident-rules';
 import { incidentMessage, morningSummaryMessage } from './alert-messages';
+import { bitcoinSummary, cardPaymentsCount } from '../reports/export-summary';
 import type { ExportSummary } from '../reports/export-csv';
 
 const at = (iso: string) => new Date(iso);
@@ -236,6 +237,34 @@ describe('resumen de las 9:00: las cifras dicen lo que cuentan', () => {
     // Ningún otro «neto» suelto que se confunda con «Neto (cobrado − devuelto)» del Z.
     expect(text.split(Z_NET_WITHOUT_STAFF_LABEL.toLowerCase()).join('')).not.toMatch(/neto/i);
     expect(Z_NET_WITHOUT_STAFF_LABEL).not.toBe(Z_NET_LABEL);
+  });
+});
+
+describe('resumen de las 9:00 con bitcoin: aparte, en la cartera del local (nunca «con tarjeta»)', () => {
+  it('de 11 pagos, 1 venta de 40 € + 2 € de propina y 1 recarga de 50 € con bitcoin: salen de «Con tarjeta» y de «Recargas con tarjeta»', () => {
+    const base: ExportSummary = {
+      count: 11, grossCents: 63_300, tipsCents: 2_600, chargedCents: 110_900, refundsCount: 0, refundsCents: 0, netCents: 110_900,
+      walletCashTopUpsCount: 6, walletCashTopUpsCents: 45_000, walletCardTopUpsCount: 2, walletCardTopUpsCents: 10_000, byType: [],
+      chicaCommissionCents: 0, chicaTipsCents: 0, chicaReversalsCents: 0, chicaNetCents: 0, venueTipsCents: 2_600, venueNetCents: 110_900,
+      payoutsCount: 0, payoutsCents: 0, perChica: [], walletCashPayoutsCount: 0, walletCashPayoutsCents: 0, walletCardPayoutsCount: 0,
+      walletCardPayoutsCents: 0, consumptionsCount: 0, consumptionsCents: 0, saldoByType: [],
+      bitcoin: { count: 2, salesCents: 4_000, tipsCents: 200, topUpsCount: 1, topUpsCents: 5_000, serviceFeeCents: 0, totalCents: 9_200 },
+    };
+    const text = morningSummaryMessage('Sala Aurora', base, 0);
+    expect(text).toContain('Cobrado: 1109,00 € (493,00 € de ventas con tarjeta + 24,00 € de propinas con tarjeta + 42,00 € de ventas y propinas con bitcoin + 550,00 € de recargas)');
+    expect(text).toContain('Con tarjeta: 9 pagos · 567,00 €');
+    expect(text).toContain('Bitcoin: 2 pagos · 92,00 €, en la cartera del local');
+    expect(text).toContain('Recargas con tarjeta: 1 · 50,00 €');
+  });
+
+  it('el resumen cuenta el bitcoin por el intento que cobró (ventas, propinas, recargas y su comisión)', () => {
+    const row = (o: Record<string, unknown>) => ({ payMethod: 'card', walletId: null, amountCents: 1_000, tipCents: 0, serviceFeeCents: 0, ...o }) as never;
+    expect(bitcoinSummary([row({})])).toBeNull();
+    expect(
+      bitcoinSummary([row({}), row({ payMethod: 'bitcoin', tipCents: 100, serviceFeeCents: 50 }), row({ payMethod: 'bitcoin', walletId: 'w', amountCents: 5_000, serviceFeeCents: 300 })]),
+    ).toEqual({ count: 2, salesCents: 1_000, tipsCents: 100, topUpsCount: 1, topUpsCents: 5_000, serviceFeeCents: 350, totalCents: 6_450 });
+    expect(cardPaymentsCount({ count: 5, bitcoin: { count: 2 } as never })).toBe(3);
+    expect(cardPaymentsCount({ count: 5 })).toBe(5);
   });
 });
 

@@ -7,6 +7,18 @@ import { stepsFromBody } from '../night-close';
 
 // ─── Noches (Fase 1D) ──────────────────────────────────────────────
 
+/** Lo pagado con bitcoin en la noche (NightSummary.bitcoin). */
+export interface BitcoinSummary {
+  count: number;
+  salesCents: number;
+  tipsCents: number;
+  topUpsCount: number;
+  topUpsCents: number;
+  serviceFeeCents: number;
+  /** Ventas + propinas + recargas + comisión: lo que entró en la cartera del local. */
+  totalCents: number;
+}
+
 export interface NightSummary {
   count: number;
   grossCents: number;
@@ -59,6 +71,11 @@ export interface NightSummary {
   /** Recargas del saldo con tarjeta (ya en count y grossCents). Los Z de antes del 23-oct-2026 no lo traen. */
   walletCardTopUpsCount?: number;
   walletCardTopUpsCents?: number;
+  /**
+   * Lo pagado con bitcoin (ya en count, grossCents, tipsCents y las recargas «con
+   * tarjeta»): no pasa por el banco, está en la cartera del local. Solo si lo hubo.
+   */
+  bitcoin?: BitcoinSummary;
   /** Saldo devuelto a la tarjeta: ya está en las devoluciones (solo se informa). */
   walletCardPayoutsCents?: number;
   /** Consumos del saldo (ventas, no dinero nuevo). */

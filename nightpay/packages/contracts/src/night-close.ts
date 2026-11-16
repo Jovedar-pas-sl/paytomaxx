@@ -127,6 +127,13 @@ export interface NightCloseCheck {
   steps: NightCloseStep[];
   cash: NightCash;
   chicas: NightChicaPay[];
+  /**
+   * Bitcoin de la noche en la cartera del local (el del mapa del dinero:
+   * ventas y recargas pagadas con BTCPay, con su comisión, menos lo devuelto
+   * fuera). No es efectivo ni banco: no se cuenta con la caja. Solo si hubo
+   * bitcoin; un API de antes no lo trae.
+   */
+  bitcoinCents?: number;
 }
 
 /** Efectivo tecleado: de 0 a 100.000 €, en céntimos. */

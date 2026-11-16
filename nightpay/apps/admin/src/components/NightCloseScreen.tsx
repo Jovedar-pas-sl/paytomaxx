@@ -9,7 +9,7 @@ import { NightCloseRefused, closeNight, fetchCloseCheck, type NightView, type Pa
 import { ApiError, totpRetryState } from '@/lib/api-errors';
 import { formatDateTime } from '@/lib/dates';
 import { sameValue } from '@/lib/diff';
-import { zClosedLines } from '@/lib/cobrado';
+import { bitcoinWalletLine, zClosedLines } from '@/lib/cobrado';
 import { formatEur } from '@/lib/money';
 import {
   STATUS_LABEL,
@@ -180,6 +180,13 @@ export function NightCloseScreen({ night, isOwner, tabs, onNavigate, onClose, on
               disabled={busy}
             >
               {step.key === 'efectivo' ? (
+                <>
+                {/* El bitcoin de la noche (el del mapa del dinero): ni caja ni banco, no se cuenta. */}
+                {check.bitcoinCents !== undefined ? (
+                  <p className="np-close-btc" role="note">
+                    {bitcoinWalletLine(check.bitcoinCents, formatEur)}. No es efectivo ni va al banco: no lo cuentes con la caja.
+                  </p>
+                ) : null}
                 <NightCashStep
                   cash={check.cash}
                   draft={draft}
@@ -198,6 +205,7 @@ export function NightCloseScreen({ night, isOwner, tabs, onNavigate, onClose, on
                   onFloatCode={setFloatCode}
                   floatCodeLockedUntil={floatLockedUntil}
                 />
+                </>
               ) : step.key === 'chicas' ? (
                 <NightChicasStep chicas={check.chicas} holdDays={check.holdDays} onPay={setPayFor} disabled={busy} />
               ) : step.key === 'cobros' && freeze.noteRequired ? (
@@ -379,6 +387,7 @@ function ClosedResult({ night, onDone }: { night: NightView; onDone: () => void 
         <strong className="np-num">{formatEur(s.netCents)}</strong>.
       </p>
       <p className="np-close-done-lead">{lines.card}</p>
+      {lines.bitcoin ? <p className="np-close-done-lead">{lines.bitcoin}</p> : null}
       {night.z.caja ? <NightCajaBlock caja={night.z.caja} /> : null}
       {night.pendingAtClose > 0 ? (
         <Notice tone="warning">

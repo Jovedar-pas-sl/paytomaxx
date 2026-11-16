@@ -24,6 +24,7 @@ import { AuditService } from '../audit/audit.service';
 import { totpForbidden } from '../auth/totp-code';
 import { TotpService } from '../auth/totp.service';
 import { summarize } from '../reports/export-csv';
+import { cardPaymentsCount } from '../reports/export-summary';
 import type {
   AdjustmentRows,
   CobroRow,
@@ -256,7 +257,39 @@ export class NightsService {
     if (!night) throw new NotFoundException('No hay ninguna noche abierta');
     const now = new Date();
     const start = await this.zBounds(tenantId, night.openedAt);
-    return this.checks.check(tenantId, night, { from: start.from, to: now }, now);
+    const window = { from: start.from, to: now };
+    const [check, bitcoinCents] = await Promise.all([
+      this.checks.check(tenantId, night, window, now),
+      this.bitcoinOfNight(tenantId, night, window, now),
+    ]);
+    return bitcoinCents === null ? check : { ...check, bitcoinCents };
+  }
+
+  /**
+   * El bitcoin de la noche en la cartera del local: el mismo dato que el mapa
+   * del dinero (where.bitcoinCents), con la ventana y el corte del Z en vivo.
+   * Sin bitcoin (o si el mapa falla: el cierre sigue), null.
+   */
+  private async bitcoinOfNight(
+    tenantId: string,
+    night: { id: string; openingFloatCents: number | null },
+    window: TimeWindow,
+    now: Date,
+  ): Promise<number | null> {
+    if (!this.moneyMap) return null;
+    try {
+      const map = await this.moneyMap.compute(tenantId, window, {
+        scope: { kind: 'night', nightId: night.id, open: true },
+        now,
+        recordedBefore: now,
+        openingFloatCents: night.openingFloatCents,
+        withLiveBalances: false,
+      });
+      return map.where.bitcoinCents ?? null;
+    } catch (err) {
+      this.logger.error(`Noche ${night.id}: no se pudo leer el bitcoin del mapa del dinero para el cierre: ${(err as Error).message}`);
+      return null;
+    }
   }
 
   /**
@@ -351,7 +384,8 @@ export class NightsService {
         closedAt: n.closedAt?.toISOString() ?? null,
         autoClosed: n.autoClosed,
         pendingAtClose: n.pendingAtClose,
-        count: z?.summary.count ?? null,
+        // «Pagos con tarjeta» en Noches: sin los de bitcoin (no pasan por el banco).
+        count: z ? cardPaymentsCount(z.summary) : null,
         chargedCents: z?.summary.chargedCents ?? null,
         netCents: z?.summary.netCents ?? null,
         cashDiffCents: n.cashDiffCents,
