@@ -222,7 +222,7 @@ describe('procesador de avisos contra Postgres real', () => {
     expect(p?.tipCents).toBe(1000);
   });
 
-  it('avisos del mismo cobro a la vez (la cola procesa hasta 8): se paga una sola vez, con una comisión', async () => {
+  it('avisos del mismo cobro a la vez (la cola procesa hasta 4): se paga una sola vez, con una comisión', async () => {
     for (let round = 0; round < 3; round += 1) {
       const order = `CC${round}${r}`;
       const id = await payment({ status: 'AUTHORIZING', provider: 'REDSYS', amount: 3000, order, attempts: [{ order, amount: 3000, tip: 0 }] });
