@@ -18,6 +18,7 @@ import {
 } from '@nightpay/ui';
 import { confirmationCode } from '@nightpay/contracts';
 import { cancelPayment, type CreatedPayment } from '@/lib/api';
+import { CancelCobroConfirm } from './CancelCobroConfirm';
 import { useHealthReport } from '@/lib/connection-health';
 import { formatEur, formatEurAmount } from '@/lib/money';
 import { chargeWithFeeCents, paymentFeeLine, posChargeLine } from '@/lib/cobro-view';
@@ -70,6 +71,8 @@ export function ActivePayment({
   const [tipCents, setTipCents] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [canceling, setCanceling] = useState(false);
+  // «¿Cancelar este cobro?»: siempre se confirma antes de cancelar.
+  const [confirming, setConfirming] = useState(false);
   const [copied, setCopied] = useState(false);
   const [paidSeen, setPaidSeen] = useState(false);
   // Recarga de saldo pagada: tras el «PAGADO», su código y su PIN.
@@ -125,10 +128,12 @@ export function ActivePayment({
     setError(null);
     try {
       await cancelPayment(payment.id);
+      setConfirming(false);
       onClose();
     } catch (err) {
       setError((err as Error).message);
       setCanceling(false);
+      setConfirming(false);
     }
   }
 
@@ -244,8 +249,9 @@ export function ActivePayment({
 
       {shown === 'AUTHORIZED' ? (
         <PaidBlock payment={payment} tipCents={tipCents} onNew={onClose} />
-      ) : preCobro ? (
-        <Button onClick={() => void cancel()} variant="danger" size="md" loading={canceling}>
+      ) : preCobro || shown === 'AUTHORIZING' ? (
+        // Sin pagar, siempre (también con el cliente en su banco): pide confirmar.
+        <Button onClick={() => setConfirming(true)} variant="danger" size="md" loading={canceling}>
           Cancelar cobro
         </Button>
       ) : (
@@ -259,6 +265,13 @@ export function ActivePayment({
           {error}
         </p>
       ) : null}
+      <CancelCobroConfirm
+        open={confirming}
+        atBank={shown === 'AUTHORIZING'}
+        busy={canceling}
+        onConfirm={() => void cancel()}
+        onClose={() => setConfirming(false)}
+      />
     </Card>
   );
 }

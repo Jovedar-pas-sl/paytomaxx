@@ -48,6 +48,7 @@ import {
   UNCONFIRMED_SENTENCE,
   UNCONFIRMED_TITLE,
   bitcoinWaitText,
+  cancelAtBank,
   cancelFailedText,
   cancelOffer,
   cardAfter,
@@ -62,6 +63,7 @@ import {
 import { fetchBankRef, notifiedText, notifyManager, type BankRef } from '@/lib/api-bank-wait';
 import { useShown } from '../reception/desk/use-shown';
 import { StaffOutcome } from '../StaffOutcome';
+import { CancelCobroConfirm } from '../CancelCobroConfirm';
 import { useCustomerDisplay } from '../use-customer-display';
 import { usePaymentLive } from '../use-payment-live';
 import { colorOf } from './cobrar-context';
@@ -169,6 +171,8 @@ export function Esperando({ cobro, onNew, onRetry, retrying = false, retryError 
   const [localFail, setLocalFail] = useState<FailReason | null>(null);
   const [canceledByMe, setCanceledByMe] = useState(false);
   const [canceling, setCanceling] = useState(false);
+  // «¿Cancelar este cobro?»: siempre se confirma antes de cancelar.
+  const [confirming, setConfirming] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [pin, setPin] = useState<PinStep | null>(null);
   // «Sin móvil ni ficha»: su código o su pase (lo que antes solo tenía «Saldo»).
@@ -397,7 +401,9 @@ export function Esperando({ cobro, onNew, onRetry, retrying = false, retryError 
       if (cobro.card) await cancelCard(cobro.card.id);
       else if (chargeId) await cancelSaldo(chargeId);
       setCanceledByMe(true);
+      setConfirming(false);
     } catch (err) {
+      setConfirming(false);
       // Ya no se podía cancelar: quizá lo acaba de pagar (con bitcoin, o ya está en la red). Lo dice el estado.
       refreshSaldo();
       const code = err instanceof CobroApiError ? err.code : null;
@@ -413,8 +419,17 @@ export function Esperando({ cobro, onNew, onRetry, retrying = false, retryError 
     if (outcome.kind === 'canceled' && canceledByMe) onNew();
   }, [outcome.kind, canceledByMe, onNew]);
 
-  // «Cancelar cobro»: con el cliente en su banco no se puede; con bitcoin, mientras la factura espera el pago, sí.
+  // «Cancelar cobro»: sin pagar, siempre (también con el cliente en su banco); con bitcoin ya en la red, no.
   const offer = cancelOffer(card);
+  const confirmSheet = (
+    <CancelCobroConfirm
+      open={confirming}
+      atBank={Boolean(cobro.card) && cancelAtBank(card)}
+      busy={canceling}
+      onConfirm={() => void cancel()}
+      onClose={() => setConfirming(false)}
+    />
+  );
 
   // Las secciones con su color: el punto del chip del PIN.
   const pinColors = cobro.sections.map((s) => ({ color: colorOf(s.section), weight: s.cents }));
@@ -475,6 +490,7 @@ export function Esperando({ cobro, onNew, onRetry, retrying = false, retryError 
   if (outcome.kind === 'failed') {
     const backToQr = outcome.qrStillOpen;
     return (
+      <>
       <StaffOutcome
         kind="failed"
         amountCents={cobro.totalCents}
@@ -499,9 +515,11 @@ export function Esperando({ cobro, onNew, onRetry, retrying = false, retryError 
               }
             : { label: 'Otro QR · mismo importe', onClick: onRetry, loading: retrying }
         }
-        secondary={{ label: 'Cancelar', onClick: backToQr ? () => void cancel() : onNew, disabled: retrying || canceling }}
+        secondary={{ label: 'Cancelar', onClick: backToQr ? () => setConfirming(true) : onNew, disabled: retrying || canceling }}
         error={retryError}
       />
+      {confirmSheet}
+      </>
     );
   }
 
@@ -589,9 +607,7 @@ export function Esperando({ cobro, onNew, onRetry, retrying = false, retryError 
         onSinMovil={sinMovilOn && !checking ? () => setSinMovil(true) : undefined}
       >
         {offer.kind !== 'button' ? (
-          // Con el cliente en la página de su banco el API no deja cancelar (lo resuelve el banco:
-          // PAGADO, fallido o sin confirmar), así que no se ofrece un botón que siempre fallaría.
-          // Con bitcoin, tampoco con el pago ya en la red; mientras la factura espera el pago, sí.
+          // Con el bitcoin ya en la red (o con un problema) no se cancela: se puede salir sin cobrar otra vez.
           <>
             <p className={styles.altHint}>{offer.text}</p>
             {offer.kind === 'leave' ? (
@@ -602,11 +618,12 @@ export function Esperando({ cobro, onNew, onRetry, retrying = false, retryError 
             ) : null}
           </>
         ) : (
-          <button type="button" className={`${styles.btn} ${styles.ghost} ${styles.cancelLink}`} onClick={() => void cancel()} disabled={canceling}>
+          <button type="button" className={`${styles.btn} ${styles.ghost} ${styles.cancelLink}`} onClick={() => setConfirming(true)} disabled={canceling}>
             {canceling ? 'Cancelando…' : 'Cancelar cobro'}
           </button>
         )}
       </Waiting>
+      {confirmSheet}
     </div>
   );
 }

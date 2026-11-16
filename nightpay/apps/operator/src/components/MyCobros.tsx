@@ -20,7 +20,9 @@ import {
 } from '@/lib/my-cobros';
 import { formatEur } from '@/lib/money';
 import { usePolling } from '@/lib/use-polling';
+import { CancelCobroConfirm } from './CancelCobroConfirm';
 import { CobroDetailSheet } from './CobroDetailSheet';
+import { UnpaidInVenue } from './UnpaidInVenue';
 import detailStyles from './cobro-detail.module.css';
 import styles from './my-cobros.module.css';
 
@@ -46,6 +48,8 @@ export function MyCobros({ cancelPending = false, pollMs = 15_000 }: Props) {
   const [{ items, cursor, error, moreBusy, night }, setState] = useState<OwnCobrosSnapshot>({ items: null, cursor: null, error: null, moreBusy: false, night: null });
   const [busyId, setBusyId] = useState<string | null>(null);
   const [cancelError, setCancelError] = useState<string | null>(null);
+  // «¿Cancelar este cobro?» de una fila suya: siempre se confirma.
+  const [confirmRow, setConfirmRow] = useState<OwnCobro | null>(null);
   /** El cobro abierto («Detalle del pago»): se toca la fila. */
   const [opened, setOpened] = useState<{ kind: CobroKind; id: string } | null>(null);
   const feed = useRef<ReturnType<typeof createOwnCobrosFeed> | null>(null);
@@ -76,12 +80,14 @@ export function MyCobros({ cancelPending = false, pollMs = 15_000 }: Props) {
       setCancelError((err as Error).message);
     } finally {
       setBusyId(null);
+      setConfirmRow(null);
     }
   }
 
   return (
     <section className={styles.list} aria-label="Mis cobros" data-tour="cobros-lista">
       <h2 className={styles.title}>Mis cobros</h2>
+      <UnpaidInVenue ownListCancels={cancelPending} onCanceled={refresh} />
       {night && items ? <NightTotal items={items} night={night} cursor={cursor} /> : null}
       {error ? (
         <Card role="alert" style={{ padding: '1rem' }}>
@@ -103,7 +109,7 @@ export function MyCobros({ cancelPending = false, pollMs = 15_000 }: Props) {
           row={r}
           night={night}
           onOpen={() => setOpened({ kind: r.kind, id: r.id })}
-          cancel={cancelPending && ownCobroCancelable(r) ? { busy: busyId === r.id, run: () => void onCancel(r.id) } : null}
+          cancel={cancelPending && ownCobroCancelable(r) ? { busy: busyId === r.id, run: () => setConfirmRow(r) } : null}
           cancelFirst={cancelPending && ownCobroCancelable(r) && i === firstCancelable}
         />
       ))}
@@ -113,6 +119,14 @@ export function MyCobros({ cancelPending = false, pollMs = 15_000 }: Props) {
         </Button>
       ) : null}
       <CobroDetailSheet target={opened} onClose={() => setOpened(null)} />
+      <CancelCobroConfirm
+        open={confirmRow !== null}
+        atBank={confirmRow?.status === 'AUTHORIZING'}
+        busy={confirmRow !== null && busyId === confirmRow.id}
+        detail={confirmRow ? [confirmRow.ref, formatEur(confirmRow.amountCents, { compact: true })].filter(Boolean).join(' · ') : null}
+        onConfirm={() => confirmRow && void onCancel(confirmRow.id)}
+        onClose={() => setConfirmRow(null)}
+      />
     </section>
   );
 }

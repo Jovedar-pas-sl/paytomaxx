@@ -143,8 +143,18 @@ export function serverToLocalMs(serverMs: number, anchor: { serverMs: number; lo
   return anchor ? serverMs - (anchor.serverMs - anchor.localMs) : serverMs;
 }
 
-/** Con el cliente pagando en su banco no se puede cancelar (el API no lo deja): se dice y se espera. */
-export const CANCEL_WHILE_PAYING_TEXT = 'El cliente está pagando en su banco: espera su respuesta. Hasta entonces no se puede cancelar.';
+/**
+ * «Cancelar cobro» siempre pide confirmar. Con el cliente en su banco se puede
+ * cancelar igual (decisión del dueño): si lo termina, el pago entra, el cobro
+ * sigue cancelado y queda en Incidencias para devolverlo o darlo por bueno.
+ */
+export const CANCEL_CONFIRM_TITLE = '¿Cancelar este cobro?';
+export const CANCEL_AT_BANK_TEXT = 'Está pagando en su banco. Si lo termina, el pago entrará igual y te avisaremos para devolverlo.';
+
+/** ¿El cliente puede estar en la página de su banco? (con bitcoin esperando el pago, no: no hay banco). */
+export function cancelAtBank(card: CardLive): boolean {
+  return card.status === 'AUTHORIZING' && card.bitcoin !== 'open';
+}
 
 // ─── El cliente paga con bitcoin (BTCPay) ─────────────────────────────
 
@@ -201,11 +211,10 @@ export function payingWithBitcoin(card: CardLive): Exclude<BitcoinPayState, 'clo
 export type CancelOffer = { kind: 'button' } | { kind: 'text'; text: string } | { kind: 'leave'; text: string };
 
 export function cancelOffer(card: CardLive): CancelOffer {
-  // Sin saber si paga con bitcoin (el API no lo dice): el botón, y decide el servidor (con el banco, no deja).
-  if (card.status !== 'AUTHORIZING' || card.bitcoin === 'open' || card.bitcoin === 'unknown') return { kind: 'button' };
-  if (card.bitcoin === 'confirming') return { kind: 'leave', text: BITCOIN_CONFIRMING_TEXT };
-  if (card.bitcoin === 'problem') return { kind: 'leave', text: BITCOIN_PROBLEM_TEXT };
-  return { kind: 'text', text: CANCEL_WHILE_PAYING_TEXT };
+  // Sin pagar, siempre el botón (también con el cliente en su banco). Con bitcoin ya en la red o con un problema, no.
+  if (card.status === 'AUTHORIZING' && card.bitcoin === 'confirming') return { kind: 'leave', text: BITCOIN_CONFIRMING_TEXT };
+  if (card.status === 'AUTHORIZING' && card.bitcoin === 'problem') return { kind: 'leave', text: BITCOIN_PROBLEM_TEXT };
+  return { kind: 'button' };
 }
 
 /** El aviso cuando «Cancelar cobro» falla: sin hablar del banco si paga con bitcoin. */
@@ -215,7 +224,6 @@ export function cancelFailedText(card: CardLive, code: string | null): string {
     return 'No se ha podido cancelar: el cliente está pagando (en su banco o con bitcoin). Espera y mira si ya está pagado.';
   }
   if (card.status === 'AUTHORIZING' && card.bitcoin) return 'No se ha podido cancelar: puede que el cliente acabe de pagar con bitcoin. Mira si ya está pagado.';
-  if (card.status === 'AUTHORIZING') return 'No se puede cancelar mientras el cliente paga en su banco: espera su respuesta.';
   return 'No se ha podido cancelar: mira si ya está pagado.';
 }
 

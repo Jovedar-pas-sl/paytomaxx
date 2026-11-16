@@ -157,10 +157,13 @@ export function ownCobroState(status: string): { label: string; tone: OwnCobroTo
 
 export const ownCobroStatus = (status: string): string => ownCobroState(status).label;
 
-/** Un cobro con tarjeta que aún nadie ha pagado (el QR o el datáfono esperando): se puede cancelar. */
-const CANCELABLE = new Set(['CREATED', 'AWAITING_CAPTURE']);
+/**
+ * Un cobro con tarjeta que aún nadie ha pagado (el QR o el datáfono esperando,
+ * o el cliente en su banco): se puede cancelar (pide confirmar).
+ */
+const CANCELABLE = new Set(['CREATED', 'AWAITING_CAPTURE', 'AUTHORIZING']);
 
-/** ¿Se puede cancelar desde la lista? (POST /payments/:id/cancel: los suyos, sin pagar). */
+/** ¿Se puede cancelar desde la lista? (POST /payments/:id/cancel: sin pagar). */
 export function ownCobroCancelable(row: Pick<OwnCobro, 'kind' | 'status'>): boolean {
   return row.kind === 'PAYMENT' && CANCELABLE.has(row.status);
 }

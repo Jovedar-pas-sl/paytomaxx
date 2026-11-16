@@ -211,10 +211,11 @@ it('refresco sin llegar al final (tope de páginas): lo más antiguo que lo refr
 
 describe('lo que la chica tenía en su lista de antes, y el «cobrado dos veces» del panel', () => {
   const at = '2026-10-21T22:00:00.000Z';
-  it('se cancela un cobro con tarjeta sin pagar (o esperando el datáfono); uno en el banco, pagado, cerrado o del saldo, no', () => {
+  it('se cancela un cobro con tarjeta sin pagar (esperando el datáfono o con el cliente en su banco); pagado, cerrado o del saldo, no', () => {
     expect(ownCobroCancelable(row('a', 'PAYMENT', at, 'CREATED'))).toBe(true);
     expect(ownCobroCancelable(row('b', 'PAYMENT', at, 'AWAITING_CAPTURE'))).toBe(true);
-    for (const status of ['AUTHORIZING', 'AUTHORIZED', 'CANCELED', 'EXPIRED', 'FAILED', 'REFUNDED']) {
+    expect(ownCobroCancelable(row('e', 'PAYMENT', at, 'AUTHORIZING'))).toBe(true);
+    for (const status of ['AUTHORIZED', 'CANCELED', 'EXPIRED', 'FAILED', 'REFUNDED']) {
       expect(ownCobroCancelable(row('c', 'PAYMENT', at, status))).toBe(false);
     }
     expect(ownCobroCancelable(row('d', 'SALDO', at, 'ACCEPTED'))).toBe(false);
