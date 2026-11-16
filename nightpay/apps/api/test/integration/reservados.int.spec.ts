@@ -19,6 +19,8 @@ import { ReservationsService, type BookingEntry } from '../../src/modules/reserv
 import { ReservationOpsService } from '../../src/modules/reservations/reservation-ops.service';
 import { ReservationCatalogService } from '../../src/modules/reservations/reservation-catalog.service';
 import { nightOf, nightEnd } from '../../src/modules/reservations/reservation-rules';
+import { PromotersService } from '../../src/modules/reservations/promoters.service';
+import { lockPayableEarnings } from '../../src/modules/operators/payout-selection';
 
 const cls = new ClsService(new AsyncLocalStorage());
 const prisma = new PrismaService(cls as never);
@@ -53,6 +55,7 @@ const audit = new AuditService(prisma, cls as never);
 const reservations = new ReservationsService(prisma, payments, redis as never, audit);
 const ops = new ReservationOpsService(prisma, audit, reservations, payments);
 const catalog = new ReservationCatalogService(prisma, audit, { get: () => 'https://api.prueba.es' } as never);
+const promoters = new PromotersService(prisma, audit, catalog);
 const charges = new WalletChargesService(prisma, audit as never, { get: () => null } as never, {} as never);
 
 const pub = <T>(fn: () => Promise<T>): Promise<T> =>
@@ -381,6 +384,31 @@ describe('RRPP: «vendido por» y la comisión con el paquete pagado entero', ()
     expect((await resvOf(res.id)).commissionEarnedAt).not.toBeNull();
     const list = await pub(() => ops.detail(owner, res.id));
     expect(list.soldBy).toBe('RRPP: rrpp-resv-' + r + '@x.es');
+  });
+});
+
+describe('RRPP: alta, su enlace y el reparto', () => {
+  it('alta solo del dueño y de alguien que cobra en el reparto; una vez por persona', async () => {
+    const chica = await sys((tx) => tx.user.create({ data: { tenantId: A, email: `chica-resv-${r}@x.es`, passwordHash: 'x', role: 'OPERATOR', displayName: 'Marina' } }));
+    const manager = await sys((tx) => tx.user.create({ data: { tenantId: A, email: `enc-resv-${r}@x.es`, passwordHash: 'x', role: 'MANAGER' } }));
+    await expect(as(door, () => promoters.create(door, { userId: chica.id, commissionBps: 1500 }))).rejects.toThrow('El % de los RRPP lo pone el dueño');
+    await expect(as(owner, () => promoters.create(owner, { userId: manager.id, commissionBps: 1500 }))).rejects.toThrow('compañera o un camarero');
+    const created = await as(owner, () => promoters.create(owner, { userId: chica.id, commissionBps: 1500 }));
+    expect(created).toMatchObject({ name: 'Marina', commissionBps: 1500, active: true, soldCount: 0 });
+    expect(created.url).toMatch(/^https:\/\/api\.prueba\.es\/reservar\/[A-Za-z0-9_-]{12}$/);
+    await expect(as(owner, () => promoters.create(owner, { userId: chica.id, commissionBps: 1000 }))).rejects.toThrow('Esa persona ya es RRPP');
+    // De baja: su enlace deja de valer.
+    const code = created.url.split('/reservar/')[1]!;
+    expect(await pub(() => reservations.entryByPromoterCode(code))).not.toBeNull();
+    await as(owner, () => promoters.update(owner, created.id, { active: false }));
+    expect(await pub(() => reservations.entryByPromoterCode(code))).toBeNull();
+  });
+
+  it('lo vendido y su comisión salen en su ficha y entran en el reparto de siempre', async () => {
+    const list = await as(owner, () => promoters.list(owner));
+    expect(list.find((p) => p.id === promoterId)).toMatchObject({ soldCount: 1, commissionCents: 5000 });
+    const payable = await sys((tx) => lockPayableEarnings(tx, A, rrppUser, new Date(Date.now() + 60_000)));
+    expect(payable).toEqual([expect.objectContaining({ commissionCents: 5000, tipCents: 0, reversedCents: 0 })]);
   });
 });
 

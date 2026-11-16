@@ -3,6 +3,7 @@
 
 import type {
   CreateReservationDto,
+  PromoterView,
   ReservationAccounting,
   ReservationPackageInput,
   ReservationPackageView,
@@ -45,3 +46,8 @@ export const setReservationsEnabled = (enabled: boolean) =>
   call<ReservationSettings>('/v1/reservations/settings', { method: 'PATCH', body: JSON.stringify({ enabled }) });
 export const fetchAccounting = (from: string, to: string) =>
   call<ReservationAccounting & { toSaldoCents: number }>(`/v1/reservations/accounting?from=${from}&to=${to}`);
+
+export const fetchPromoters = () => call<PromoterView[]>('/v1/reservations/promoters');
+export const createPromoter = (userId: string, commissionBps: number) => call<PromoterView>('/v1/reservations/promoters', post({ userId, commissionBps }));
+export const updatePromoter = (id: string, patch: { commissionBps?: number; active?: boolean }) =>
+  call<PromoterView>(`/v1/reservations/promoters/${id}`, { method: 'PATCH', body: JSON.stringify(patch) });

@@ -6,20 +6,23 @@ import type { ReservationPackageView } from '@nightpay/contracts';
 import { fetchPackages } from '@/lib/endpoints/reservations';
 import { NightList } from './NightList';
 import { PackagesEditor } from './PackagesEditor';
+import { PromotersCard } from './PromotersCard';
 import { ReservationsLinkCard } from './ReservationsLinkCard';
 
-type View = 'night' | 'packages' | 'link';
+type View = 'night' | 'packages' | 'promoters' | 'link';
 
 const VIEWS: ReadonlyArray<{ key: View; label: string }> = [
   { key: 'night', label: 'Reservas' },
   { key: 'packages', label: 'Paquetes' },
+  { key: 'promoters', label: 'RRPP' },
   { key: 'link', label: 'Enlace y señales' },
 ];
 
 /**
  * Clientes → Reservados (dueño y encargado): las reservas de la noche (mesa,
- * cambiar la fecha, anular, «No vino»), los paquetes y el enlace web con
- * «Señales de reservas». La puerta y la barra van en la app del personal.
+ * cambiar la fecha, anular, «No vino»), los paquetes, los RRPP (su % y su
+ * enlace) y el enlace web con «Señales de reservas». La puerta y la barra van
+ * en la app del personal.
  */
 export function ReservationsPanel({ isOwner }: { isOwner: boolean }) {
   const [view, setView] = useState<View>('night');
@@ -47,6 +50,7 @@ export function ReservationsPanel({ isOwner }: { isOwner: boolean }) {
       ) : null}
       {view === 'night' ? <NightList packages={packages} /> : null}
       {view === 'packages' ? <PackagesEditor packages={packages} onChanged={load} /> : null}
+      {view === 'promoters' ? <PromotersCard isOwner={isOwner} /> : null}
       {view === 'link' ? <ReservationsLinkCard isOwner={isOwner} /> : null}
     </div>
   );

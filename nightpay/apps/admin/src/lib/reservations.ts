@@ -1,6 +1,7 @@
 // Reservados en el panel: lo que se calcula sin red (reservations.test.ts).
 
 import {
+  PROMOTER_MAX_BPS,
   RESERVATION_MAX_PRICE_CENTS,
   RESERVATION_MIN_PRICE_CENTS,
   formatMoney,
@@ -147,4 +148,17 @@ export function statusTone(status: ReservationView['status']): 'ok' | 'warn' | '
   if (status === 'DEPOSIT_PAID' || status === 'PENDING') return 'warn';
   if (status === 'NO_SHOW') return 'bad';
   return 'mute';
+}
+
+/** 1000 bps → «10»; 1250 → «12,5». */
+export function bpsToPercent(bps: number): string {
+  return String(bps / 100).replace('.', ',');
+}
+
+/** «10», «12,5» → bps (del 0 % al 50 %; null si no vale). */
+export function percentToBps(text: string): number | null {
+  const t = text.trim().replace('%', '').replace(',', '.').trim();
+  if (!/^\d{1,2}(\.\d{1,2})?$/.test(t)) return null;
+  const bps = Math.round(Number(t) * 100);
+  return bps >= 0 && bps <= PROMOTER_MAX_BPS ? bps : null;
 }

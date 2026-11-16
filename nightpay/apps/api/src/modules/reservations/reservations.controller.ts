@@ -1,6 +1,8 @@
 import { Body, Controller, Get, HttpCode, Inject, Param, ParseUUIDPipe, Patch, Post, Put, Query, UseGuards } from '@nestjs/common';
 import {
   CreateReservationSchema,
+  PromoterCreateSchema,
+  PromoterUpdateSchema,
   ReservationChangeDateSchema,
   ReservationChargeSchema,
   ReservationPackageActiveSchema,
@@ -10,6 +12,7 @@ import {
   ReservationVenueCancelSchema,
   type CreateReservationDto,
   type JwtPayload,
+  type PromoterView,
   type ReservationAccounting,
   type ReservationPackageInput,
   type ReservationPackageView,
@@ -23,6 +26,7 @@ import { RolesGuard } from '../../common/guards/roles.guard';
 import { ZodValidationPipe } from '../../common/pipes/zod.pipe';
 import { ReservationCatalogService, type ReservationSettingsView } from './reservation-catalog.service';
 import { ReservationOpsService, type StaffActor } from './reservation-ops.service';
+import { PromotersService } from './promoters.service';
 import { ReservationsService } from './reservations.service';
 
 const actorOf = (u: JwtPayload): StaffActor => ({ userId: u.sub, role: u.role, tenantId: u.tenantId });
@@ -47,7 +51,32 @@ export class ReservationsController {
     @Inject(ReservationsService) private readonly reservations: ReservationsService,
     @Inject(ReservationOpsService) private readonly ops: ReservationOpsService,
     @Inject(ReservationCatalogService) private readonly catalog: ReservationCatalogService,
+    @Inject(PromotersService) private readonly promoters: PromotersService,
   ) {}
+
+  // ─── RRPP ───────────────────────────────────────────────────────────
+
+  @Get('promoters')
+  @Roles('OWNER', 'MANAGER')
+  listPromoters(@CurrentUser() u: JwtPayload): Promise<PromoterView[]> {
+    return this.promoters.list(actorOf(u));
+  }
+
+  @Post('promoters')
+  @Roles('OWNER')
+  createPromoter(@CurrentUser() u: JwtPayload, @Body(new ZodValidationPipe(PromoterCreateSchema)) dto: { userId: string; commissionBps: number }): Promise<PromoterView> {
+    return this.promoters.create(actorOf(u), dto);
+  }
+
+  @Patch('promoters/:id')
+  @Roles('OWNER')
+  updatePromoter(
+    @CurrentUser() u: JwtPayload,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body(new ZodValidationPipe(PromoterUpdateSchema)) dto: { commissionBps?: number; active?: boolean },
+  ): Promise<PromoterView> {
+    return this.promoters.update(actorOf(u), id, dto);
+  }
 
   // ─── Paquetes y enlace ──────────────────────────────────────────────
 

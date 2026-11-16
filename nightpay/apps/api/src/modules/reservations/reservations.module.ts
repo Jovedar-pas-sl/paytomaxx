@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { PrismaModule } from '../../common/prisma/prisma.module';
 import { AuditModule } from '../audit/audit.module';
 import { PaymentsModule } from '../payments/payments.module';
+import { PromotersService } from './promoters.service';
 import { ReservationCatalogService } from './reservation-catalog.service';
 import { ReservationOpsService } from './reservation-ops.service';
 import { PublicBookingController, PublicReservationController } from './public-reservations.controller';
@@ -15,7 +16,7 @@ import { ReservationsService } from './reservations.service';
  */
 @Module({
   imports: [PrismaModule, AuditModule, PaymentsModule],
-  providers: [ReservationsService, ReservationOpsService, ReservationCatalogService],
+  providers: [ReservationsService, ReservationOpsService, ReservationCatalogService, PromotersService],
   controllers: [ReservationsController, PublicBookingController, PublicReservationController],
 })
 export class ReservationsModule {}
