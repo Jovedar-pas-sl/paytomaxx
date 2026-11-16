@@ -24,7 +24,7 @@ import { PaymentsService } from './payments.service';
 import { WalletChargesService } from '../wallets/wallet-charges.service';
 import { WalletPasskeysService } from '../wallets/wallet-passkeys.service';
 import { IpRateLimit } from '../../common/guards/ip-rate-limit.guard';
-import { PAID_STATES, confirmationCode, type CheckoutChoice, type PayRedirect } from './pay-redirect';
+import { PAID_STATES, confirmationCode, withChosenTip, type CheckoutChoice, type PayRedirect } from './pay-redirect';
 import { detectPayDevice, type PayDevice } from './pay-device';
 import { payErrorKeyOf, type PayLanguage } from './pay-i18n';
 import { PAY_LANGUAGES, customerLanguage } from './customer-lang';
@@ -269,10 +269,12 @@ export class PublicPayController {
     @Headers('cookie') cookies: string | undefined,
     @Headers('user-agent') userAgent: string | undefined,
     @Res() res: FastifyReply,
+    // La propina que eligió en la pantalla de la barra (?tip=): sale marcada.
+    @Query('tip') tipQuery?: string,
   ): Promise<void> {
     const lang = this.language(res, langQuery, cookies);
     try {
-      const view = await this.payments.getPayPage(token);
+      const view = withChosenTip(await this.payments.getPayPage(token), tipQuery);
       await this.send(res, token, lang, view, userAgent);
     } catch (err) {
       this.sendError(res, token, lang, err);

@@ -368,6 +368,18 @@ export function choosePayPage(p: PayablePayment, now: Date = new Date()): PayRed
 }
 
 /**
+ * La propina que el cliente ya eligió en la «Pantalla del cliente» de la barra
+ * (su QR lleva ?tip=): sale marcada y el total ya la incluye. Solo si es una
+ * de las que se ofrecen en este cobro; si no, la página como siempre (nada marcado).
+ */
+export function withChosenTip(view: PayRedirect, raw: string | undefined): PayRedirect {
+  if (view.kind !== 'choose' || raw === undefined) return view;
+  const cents = Number(raw);
+  if (!Number.isInteger(cents) || cents <= 0 || !view.tipOptionsCents.includes(cents)) return view;
+  return { ...view, presetTipCents: cents };
+}
+
+/**
  * Un pedido recién abierto se puede volver a enseñar durante este tiempo: un
  * doble toque o el paso del POST al formulario llevan al mismo pedido en vez
  * de abrir otro. Pasado, "atrás" vuelve a la página del cobro.
