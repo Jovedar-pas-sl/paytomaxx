@@ -1,5 +1,11 @@
 import { randomBytes } from 'node:crypto';
-import { reservationDepositCents, type ReservationPayKind, type ReservationStatus } from '@nightpay/contracts';
+import {
+  DEFAULT_OPEN_MINUTE,
+  SAME_NIGHT_CUTOFF_MS,
+  reservationDepositCents,
+  type ReservationPayKind,
+  type ReservationStatus,
+} from '@nightpay/contracts';
 import { NIGHT_CUTOFF_HOUR, madridAt, madridDay, nextDay } from '../../common/time/madrid';
 
 /**
@@ -11,9 +17,7 @@ import { NIGHT_CUTOFF_HOUR, madridAt, madridDay, nextDay } from '../../common/ti
  * después de que acabe.
  */
 
-/** Hora en que empieza la noche (para el aviso de 48 h). */
-export const RESERVATION_NIGHT_START_HOUR = 20;
-/** El cliente cambia la fecha avisando con 48 h. */
+/** El cliente cambia la fecha o anula avisando con 48 h (desde la hora de apertura). */
 export const CHANGE_NOTICE_MS = 48 * 60 * 60 * 1000;
 /** Hasta cuántos días por delante se reserva. */
 export const MAX_DAYS_AHEAD = 120;
@@ -23,8 +27,19 @@ export const PENDING_HOLD_MS = 30 * 60 * 1000;
 /** Estados en los que la reserva cuenta (ocupa sitio y se puede pagar o usar). */
 export const LIVE_STATUSES: ReadonlySet<ReservationStatus> = new Set(['DEPOSIT_PAID', 'PAID', 'ARRIVED']);
 
-export function nightStart(nightDate: string): Date {
-  return madridAt(nightDate, RESERVATION_NIGHT_START_HOUR);
+/**
+ * La apertura del local esa noche (su hora de apertura, 20:00 por defecto).
+ * Una apertura de madrugada (antes de las 08:00) es ya del día siguiente.
+ */
+export function nightStart(nightDate: string, openMinute: number = DEFAULT_OPEN_MINUTE): Date {
+  const day = openMinute < NIGHT_CUTOFF_HOUR * 60 ? nextDay(nightDate) : nightDate;
+  return new Date(madridAt(day, Math.floor(openMinute / 60)).getTime() + (openMinute % 60) * 60_000);
+}
+
+/** «No vino» se pone solo a las 12:00 de Madrid del día siguiente si el grupo no ha llegado. */
+export const AUTO_NO_SHOW_HOUR = 12;
+export function autoNoShowAt(nightDate: string): Date {
+  return madridAt(nextDay(nightDate), AUTO_NO_SHOW_HOUR);
 }
 
 export function nightEnd(nightDate: string): Date {
@@ -60,13 +75,19 @@ export function isRealDay(day: string): boolean {
   return t.getUTCFullYear() === y && t.getUTCMonth() === m - 1 && t.getUTCDate() === d;
 }
 
-/** ¿Se puede reservar esa noche ahora? (desde esta noche hasta MAX_DAYS_AHEAD) */
-export function bookableNightProblem(nightDate: string, now: Date): string | null {
+/**
+ * ¿Se puede reservar esa noche ahora? Desde esta noche hasta MAX_DAYS_AHEAD;
+ * para esta misma noche, hasta 2 h antes de la apertura.
+ */
+export function bookableNightProblem(nightDate: string, now: Date, openMinute: number = DEFAULT_OPEN_MINUTE): string | null {
   if (!isRealDay(nightDate)) return 'Esa fecha no vale';
   const tonight = nightOf(now);
   const ahead = daysBetween(tonight, nightDate);
   if (ahead < 0) return 'Esa noche ya ha pasado';
   if (ahead > MAX_DAYS_AHEAD) return `Se reserva como mucho con ${MAX_DAYS_AHEAD} días`;
+  if (now.getTime() > nightStart(nightDate, openMinute).getTime() - SAME_NIGHT_CUTOFF_MS) {
+    return 'Para esta noche se reserva hasta 2 horas antes de abrir';
+  }
   return null;
 }
 
@@ -128,8 +149,15 @@ export function promoterCommissionCents(priceCents: number, bps: number): number
 }
 
 /** La comisión se gana cuando el paquete está pagado entero (una vez). */
-export function commissionDue(r: { paidCents: number; priceCents: number; promoterId: string | null; commissionEarnedAt: Date | null }): boolean {
-  return r.promoterId !== null && r.commissionEarnedAt === null && r.paidCents === r.priceCents;
+export function commissionDue(r: {
+  paidCents: number;
+  priceCents: number;
+  promoterId: string | null;
+  commissionEarnedAt: Date | null;
+  /** El local cambió la fecha o anuló: el RRPP la pierde siempre. */
+  commissionVoidedAt?: Date | null;
+}): boolean {
+  return r.promoterId !== null && r.commissionEarnedAt === null && !r.commissionVoidedAt && r.paidCents === r.priceCents;
 }
 
 export interface DateChangeState {
@@ -139,10 +167,10 @@ export interface DateChangeState {
 }
 
 /** ¿Por qué no puede cambiar la fecha ahora? (null: puede) */
-export function clientChangeBlocker(r: DateChangeState, now: Date): string | null {
+export function clientChangeBlocker(r: DateChangeState, now: Date, openMinute: number = DEFAULT_OPEN_MINUTE): string | null {
   if (r.status !== 'DEPOSIT_PAID' && r.status !== 'PAID') return 'Esta reserva ya no se puede cambiar';
   if (r.dateChangedAt) return 'La fecha solo se puede cambiar una vez';
-  if (now.getTime() > nightStart(r.nightDate).getTime() - CHANGE_NOTICE_MS) {
+  if (now.getTime() > nightStart(r.nightDate, openMinute).getTime() - CHANGE_NOTICE_MS) {
     return 'La fecha se cambia avisando con 48 horas';
   }
   return null;
@@ -152,19 +180,39 @@ export function clientChangeBlocker(r: DateChangeState, now: Date): string | nul
  * ¿Puede el cliente cambiar la fecha? Una sola vez, con la reserva pagada (al
  * menos la señal) y avisando con 48 h antes de que empiece la noche.
  */
-export function clientChangeProblem(r: DateChangeState, newDate: string, now: Date): string | null {
-  const blocked = clientChangeBlocker(r, now);
+export function clientChangeProblem(r: DateChangeState, newDate: string, now: Date, openMinute: number = DEFAULT_OPEN_MINUTE): string | null {
+  const blocked = clientChangeBlocker(r, now, openMinute);
   if (blocked) return blocked;
   if (newDate === r.nightDate) return 'Elige otra noche';
-  return bookableNightProblem(newDate, now);
+  return bookableNightProblem(newDate, now, openMinute);
+}
+
+/**
+ * ¿Puede el cliente anular? Sin pagar, siempre («Cancelar»). Pagada, avisando
+ * con 48 h antes de la apertura: pierde la señal (pasa a venta, como «No vino»)
+ * y lo demás le queda de saldo. Sin las 48 h no puede: si no viene, «No vino».
+ */
+export function clientCancelProblem(r: { status: string; nightDate: string }, now: Date, openMinute: number = DEFAULT_OPEN_MINUTE): string | null {
+  if (r.status === 'PENDING') return null;
+  if (r.status !== 'DEPOSIT_PAID' && r.status !== 'PAID') return 'Esta reserva ya no se puede anular';
+  if (now.getTime() > nightStart(r.nightDate, openMinute).getTime() - CHANGE_NOTICE_MS) {
+    return 'Se anula avisando con 48 horas. Si no venís, se queda como «No vino».';
+  }
+  return null;
 }
 
 /** ¿Se puede dar la llegada? Pagado entero y en su noche (desde la víspera por si llegan pronto). */
-export function arrivalProblem(r: { status: string; paidCents: number; priceCents: number; nightDate: string }, now: Date): string | null {
+export function arrivalProblem(
+  r: { status: string; paidCents: number; priceCents: number; nightDate: string },
+  now: Date,
+  /** El encargado apunta tarde una llegada de una noche ya pasada (p. ej. tras deshacer «No vino»). */
+  allowLate = false,
+): string | null {
   if (r.status === 'ARRIVED') return 'Ya ha llegado';
   if (r.status !== 'PAID' && r.status !== 'DEPOSIT_PAID') return 'Esta reserva no está pagada';
   if (r.paidCents < r.priceCents) return 'Falta por pagar el resto';
-  if (nightOf(now) !== r.nightDate) return `Esta reserva es de la noche del ${r.nightDate}`;
+  const tonight = nightOf(now);
+  if (tonight !== r.nightDate && !(allowLate && r.nightDate < tonight)) return `Esta reserva es de la noche del ${r.nightDate}`;
   return null;
 }
 

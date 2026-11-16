@@ -2,6 +2,8 @@ import { Module } from '@nestjs/common';
 import { PrismaModule } from '../../common/prisma/prisma.module';
 import { AuditModule } from '../audit/audit.module';
 import { PaymentsModule } from '../payments/payments.module';
+import { WalletsModule } from '../wallets/wallets.module';
+import { ReservationsNoShowService } from './reservations-noshow.service';
 import { PromotersService } from './promoters.service';
 import { ReservationCatalogService } from './reservation-catalog.service';
 import { ReservationOpsService } from './reservation-ops.service';
@@ -15,8 +17,8 @@ import { ReservationsService } from './reservations.service';
  * transición del cobro con el aviso del banco (reservation-ledger.ts).
  */
 @Module({
-  imports: [PrismaModule, AuditModule, PaymentsModule],
-  providers: [ReservationsService, ReservationOpsService, ReservationCatalogService, PromotersService],
+  imports: [PrismaModule, AuditModule, PaymentsModule, WalletsModule],
+  providers: [ReservationsService, ReservationOpsService, ReservationCatalogService, PromotersService, ReservationsNoShowService],
   controllers: [ReservationsController, PublicBookingController, PublicReservationController],
 })
 export class ReservationsModule {}

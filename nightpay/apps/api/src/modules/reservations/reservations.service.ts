@@ -28,6 +28,7 @@ import {
   LIVE_STATUSES,
   PENDING_HOLD_MS,
   bookableNightProblem,
+  clientCancelProblem,
   clientChangeBlocker,
   clientChangeProblem,
   dateOfDay,
@@ -43,11 +44,14 @@ import {
   payableKinds,
 } from './reservation-rules';
 import { RESERVATION_VIEW_INCLUDE, packageView, reservationView, type ReservationRow } from './reservation-views';
+import { loseDeposit, venueOwnerId } from './reservation-wallet';
 
 /** Desde dónde se reserva: el enlace del local, el de un RRPP o el panel. */
 export interface BookingEntry {
   venueId: string;
   venueName: string;
+  /** Hora de apertura (minutos desde las 00:00): las 48 h y el «hasta 2 h antes». */
+  openMinute: number;
   source: 'WEB' | 'RRPP' | 'PANEL';
   promoter: { id: string; bps: number } | null;
   packages: ReservationPackageView[];
@@ -63,6 +67,10 @@ export interface GroupView {
   /** El pago a medias (para volver a él). */
   openPayUrl: string | null;
   canChangeDate: boolean;
+  /** «Cancelar» (sin pagar) o «Anular» (pagada, con 48 h: pierde la señal); null: no puede. */
+  cancel: 'Cancelar' | 'Anular' | null;
+  /** Por qué no puede anular (pagada y sin las 48 h). */
+  cancelBlocked: string | null;
   /** El enlace al saldo del grupo: después de llegar (o si no vino y le queda). */
   saldoHref: string | null;
   guestTokens: Array<{ seq: number; token: string }>;
@@ -140,14 +148,22 @@ export class ReservationsService {
     return this.prisma.asSystem(async (tx) => {
       const venue = await tx.venue.findUnique({
         where: { id: venueId },
-        select: { id: true, name: true, deletedAt: true, paymentMethods: true, ...VENUE_PAUSE_SELECT },
+        select: { id: true, name: true, deletedAt: true, paymentMethods: true, reservationsOpenMinute: true, ...VENUE_PAUSE_SELECT },
       });
       if (!venue || venue.deletedAt) return null;
       const packages = await tx.reservationPackage.findMany({
         where: { tenantId: venueId, active: true },
         orderBy: [{ priceCents: 'asc' }, { name: 'asc' }],
       });
-      return { venueId, venueName: venue.name, source, promoter, packages: packages.map(packageView), problem: await this.venueProblem(tx, venue) };
+      return {
+        venueId,
+        venueName: venue.name,
+        openMinute: venue.reservationsOpenMinute,
+        source,
+        promoter,
+        packages: packages.map(packageView),
+        problem: await this.venueProblem(tx, venue),
+      };
     });
   }
 
@@ -175,7 +191,7 @@ export class ReservationsService {
     if (entry.problem) throw new ConflictException({ message: entry.problem, code: 'RESERVATIONS_UNAVAILABLE' });
     const replay = await this.byCreateKey(entry.venueId, dto.key);
     if (replay) return replay;
-    const problem = bookableNightProblem(dto.nightDate, new Date());
+    const problem = bookableNightProblem(dto.nightDate, new Date(), entry.openMinute);
     if (problem) throw new BadRequestException({ message: problem, code: 'RESERVATION_DATE' });
     const phone = normalizeContactPhone(dto.customerPhone);
     if (!phone) throw new BadRequestException({ message: 'Ese teléfono no parece bueno', code: 'RESERVATION_PHONE' });
@@ -340,7 +356,7 @@ export class ReservationsService {
       }),
     );
     const row = rows[0];
-    return row ? { paymentId: row.paymentId, kind: row.kind, status: row.payment.status, qrToken: row.payment.qrToken } : null;
+    return row?.paymentId && row.payment ? { paymentId: row.paymentId, kind: row.kind, status: row.payment.status, qrToken: row.payment.qrToken } : null;
   }
 
   /** Otro tipo de pago con uno a medias: el de antes se cancela (si ya está en el banco, hay que esperar). */
@@ -368,19 +384,25 @@ export class ReservationsService {
     const row = await this.prisma.asSystem((tx) =>
       tx.reservation.findUnique({
         where: { manageToken },
-        include: { ...RESERVATION_VIEW_INCLUDE, venue: { select: { name: true } } },
+        include: { ...RESERVATION_VIEW_INCLUDE, venue: { select: { name: true, reservationsOpenMinute: true } } },
       }),
     );
     if (!row) return null;
     const view = reservationView(row as unknown as ReservationRow);
     const open = await this.openPaymentOf(row.id);
-    const saldo = row.wallet && (row.status === 'ARRIVED' || row.status === 'NO_SHOW') && row.wallet.balanceCents > 0 ? row.wallet.qrToken : null;
+    const openMinute = row.venue.reservationsOpenMinute;
+    const day = dayOf(row.nightDate);
+    const cancelBlocked = clientCancelProblem({ status: row.status, nightDate: day }, now, openMinute);
+    const leftover = ['ARRIVED', 'NO_SHOW', 'CLIENT_CANCELED'].includes(row.status);
+    const saldo = row.wallet && leftover && row.wallet.balanceCents > 0 ? row.wallet.qrToken : null;
     return {
       venueName: row.venue.name,
       reservation: view,
       payable: payableKinds(row),
       openPayUrl: open?.status === 'CREATED' ? `/pay/${encodeURIComponent(open.qrToken)}` : null,
-      canChangeDate: clientChangeBlocker({ ...row, nightDate: dayOf(row.nightDate) }, now) === null,
+      canChangeDate: clientChangeBlocker({ ...row, nightDate: day }, now, openMinute) === null,
+      cancel: cancelBlocked ? null : row.status === 'PENDING' ? 'Cancelar' : 'Anular',
+      cancelBlocked: row.status === 'DEPOSIT_PAID' || row.status === 'PAID' ? cancelBlocked : null,
       saldoHref: saldo ? `/w/${encodeURIComponent(saldo)}` : null,
       guestTokens: row.guests.map((g) => ({ seq: g.seq, token: g.qrToken })),
     };
@@ -420,8 +442,11 @@ export class ReservationsService {
     await this.prisma.asSystem(async (tx) => {
       const rows = await tx.$queryRaw<Array<{ id: string }>>`SELECT id FROM reservations WHERE id = ${ref.id}::uuid FOR UPDATE`;
       if (rows.length === 0) throw new NotFoundException({ message: RESERVATION_GONE, code: 'RESERVATION_GONE' });
-      const r = await tx.reservation.findUniqueOrThrow({ where: { id: ref.id }, include: { package: { select: { id: true, maxPerNight: true } } } });
-      const problem = clientChangeProblem({ ...r, nightDate: dayOf(r.nightDate) }, nightDate, new Date());
+      const r = await tx.reservation.findUniqueOrThrow({
+        where: { id: ref.id },
+        include: { package: { select: { id: true, maxPerNight: true } }, venue: { select: { reservationsOpenMinute: true } } },
+      });
+      const problem = clientChangeProblem({ ...r, nightDate: dayOf(r.nightDate) }, nightDate, new Date(), r.venue.reservationsOpenMinute);
       if (problem) throw new ConflictException({ message: problem, code: 'RESERVATION_CHANGE' });
       await this.assertRoom(tx, r.tenantId, r.package, nightDate, r.id);
       await tx.reservation.update({
@@ -436,5 +461,40 @@ export class ReservationsService {
         payload: { by: 'client', from: dayOf(r.nightDate), to: nightDate },
       });
     });
+  }
+
+  /**
+   * El cliente anula su reserva. Sin pagar: «Cancelar» (nada que devolver; el
+   * pago a medias se cancela). Pagada y avisando con 48 h antes de la apertura:
+   * pierde la señal (pasa a venta, como «No vino», firmado por el dueño del
+   * local) y lo demás le queda de saldo para otra noche, sin devolución en
+   * dinero. Sin las 48 h no puede (si no viene, «No vino»).
+   */
+  async clientCancel(manageToken: string): Promise<void> {
+    const ref = await this.byManageToken(manageToken);
+    if (!ref) throw new NotFoundException({ message: RESERVATION_GONE, code: 'RESERVATION_GONE' });
+    const openPayment = await this.prisma.asSystem(async (tx) => {
+      const rows = await tx.$queryRaw<Array<{ id: string }>>`SELECT id FROM reservations WHERE id = ${ref.id}::uuid FOR UPDATE`;
+      if (rows.length === 0) throw new NotFoundException({ message: RESERVATION_GONE, code: 'RESERVATION_GONE' });
+      const r = await tx.reservation.findUniqueOrThrow({ where: { id: ref.id }, include: { venue: { select: { reservationsOpenMinute: true } } } });
+      const problem = clientCancelProblem({ status: r.status, nightDate: dayOf(r.nightDate) }, new Date(), r.venue.reservationsOpenMinute);
+      if (problem) throw new ConflictException({ message: problem, code: 'RESERVATION_CANCEL' });
+      if (r.status === 'PENDING') {
+        await tx.reservation.update({ where: { id: r.id }, data: { status: 'CANCELED', canceledAt: new Date(), cancelReason: 'El cliente la canceló sin pagar' } });
+        await this.audit.logInTx(tx, { action: 'reservation.canceled_by_client', tenantId: r.tenantId, targetType: 'Reservation', targetId: r.id, payload: { paidCents: 0 } });
+        const open = await tx.reservationPayment.findFirst({ where: { reservationId: r.id, paidAt: null, payment: { status: 'CREATED' } }, select: { paymentId: true } });
+        return open?.paymentId ? { paymentId: open.paymentId, tenantId: r.tenantId } : null;
+      }
+      const outcome = await loseDeposit(tx, r, await venueOwnerId(tx, r.tenantId), 'cancel');
+      await tx.reservation.update({
+        where: { id: r.id },
+        data: { status: 'CLIENT_CANCELED', canceledAt: new Date(), cancelReason: 'Anulada por el cliente con 48 h', recognizedAt: new Date() },
+      });
+      await this.audit.logInTx(tx, { action: 'reservation.canceled_by_client', tenantId: r.tenantId, targetType: 'Reservation', targetId: r.id, payload: { ...outcome } });
+      return null;
+    });
+    if (openPayment) {
+      await this.payments.transition(openPayment.paymentId, { type: 'CANCELED', reason: 'Reserva cancelada por el cliente' }, openPayment.tenantId).catch(() => undefined);
+    }
   }
 }

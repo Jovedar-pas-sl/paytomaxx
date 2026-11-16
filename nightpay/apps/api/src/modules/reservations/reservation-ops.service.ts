@@ -1,9 +1,12 @@
 import { BadRequestException, ConflictException, ForbiddenException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@nightpay/db';
-import type { ReservationView } from '@nightpay/contracts';
+import { serviceFeeQuote, type ReservationCashQuote, type ReservationView } from '@nightpay/contracts';
 import { PrismaService, type TransactionalClient } from '../../common/prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { PaymentsService } from '../payments/payments.service';
+import { VENUE_SERVICE_FEE_SELECT, venueServiceFeeOf } from '../payments/service-fee';
+import { CashTopUpService } from '../wallets/wallet-cash-topup.service';
+import { applyReservationCash, voidPromoterCommission } from './reservation-ledger';
 import {
   arrivalProblem,
   arrivalSaleCents,
@@ -13,12 +16,12 @@ import {
   guestTokenFrom,
   itemsLeft,
   itemsOf,
+  autoNoShowAt,
   nightOf,
-  noShowOutcome,
   noShowProblem,
 } from './reservation-rules';
 import { RESERVATION_VIEW_INCLUDE, reservationView, servedItems, type ReservationRow } from './reservation-views';
-import { spendFromGroupWallet } from './reservation-wallet';
+import { loseDeposit, spendFromGroupWallet, venueOwnerId } from './reservation-wallet';
 import { ReservationsService } from './reservations.service';
 
 export interface StaffActor {
@@ -43,6 +46,7 @@ export class ReservationOpsService {
     @Inject(AuditService) private readonly audit: AuditService,
     @Inject(ReservationsService) private readonly reservations: ReservationsService,
     @Inject(PaymentsService) private readonly payments: PaymentsService,
+    @Inject(CashTopUpService) private readonly cash: CashTopUpService,
   ) {}
 
   // ─── Leer ──────────────────────────────────────────────────────────
@@ -114,7 +118,8 @@ export class ReservationOpsService {
   async arrive(actor: StaffActor, id: string, guestId?: string): Promise<ReservationView> {
     await this.locked(actor, id, async (tx, r) => {
       if (r.status !== 'ARRIVED') {
-        const problem = arrivalProblem({ ...r, nightDate: dayOf(r.nightDate) }, new Date());
+        // El encargado puede apuntar tarde la llegada de una noche pasada (p. ej. tras deshacer «No vino»).
+        const problem = arrivalProblem({ ...r, nightDate: dayOf(r.nightDate) }, new Date(), MANAGERS.has(actor.role));
         if (problem) throw new ConflictException({ message: problem, code: 'RESERVATION_ARRIVAL' });
         const saleCents = arrivalSaleCents(r);
         if (saleCents > 0) {
@@ -155,22 +160,139 @@ export class ReservationOpsService {
     await this.locked(actor, id, async (tx, r) => {
       const problem = noShowProblem({ ...r, nightDate: dayOf(r.nightDate) }, new Date());
       if (problem) throw new ConflictException({ message: problem, code: 'RESERVATION_NO_SHOW' });
-      const outcome = noShowOutcome(r);
-      if (outcome.lostCents > 0) {
-        await spendFromGroupWallet(tx, {
-          tenantId: r.tenantId,
-          walletId: this.walletOf(r),
-          amountCents: outcome.lostCents,
-          providedByUserId: actor.userId,
-          category: 'VENUE_ENTRY',
-          notes: `Señal no devuelta: reservado ${r.ref}`,
-          idempotencyKey: `resv-noshow:${r.id}`,
-        });
-      }
-      await tx.reservation.update({ where: { id: r.id }, data: { status: 'NO_SHOW', noShowAt: new Date(), recognizedAt: new Date() } });
+      const outcome = await loseDeposit(tx, r, actor.userId, 'noshow');
+      await tx.reservation.update({ where: { id: r.id }, data: { status: 'NO_SHOW', noShowAt: new Date(), noShowAuto: false, recognizedAt: new Date() } });
       await this.audit.logInTx(tx, { action: 'reservation.no_show', tenantId: r.tenantId, actorId: actor.userId, targetType: 'Reservation', targetId: r.id, payload: { ...outcome } });
     });
     return this.detail(actor, id);
+  }
+
+  /**
+   * «No vino» solo: a las 12:00 de Madrid del día siguiente, las reservas
+   * pagadas cuyo grupo no ha llegado (lo firma el dueño del local). Una a una,
+   * con la reserva bloqueada: dos réplicas a la vez no lo hacen dos veces.
+   */
+  async autoNoShowDue(now: Date = new Date()): Promise<number> {
+    const due = await this.prisma.asSystem((tx) =>
+      tx.reservation.findMany({
+        where: { status: { in: ['DEPOSIT_PAID', 'PAID'] }, nightDate: { lt: dateOfDay(nightOf(now)) } },
+        select: { id: true, tenantId: true, nightDate: true },
+        take: 200,
+      }),
+    );
+    let marked = 0;
+    for (const d of due.filter((x) => autoNoShowAt(dayOf(x.nightDate)).getTime() <= now.getTime())) {
+      const done = await this.prisma.withTenant(d.tenantId, async (tx) => {
+        const rows = await tx.$queryRaw<Array<{ status: string }>>`SELECT status FROM reservations WHERE id = ${d.id}::uuid FOR UPDATE`;
+        if (rows[0]?.status !== 'DEPOSIT_PAID' && rows[0]?.status !== 'PAID') return false;
+        const r = await tx.reservation.findUniqueOrThrow({ where: { id: d.id } });
+        const outcome = await loseDeposit(tx, r, await venueOwnerId(tx, r.tenantId), 'noshow');
+        await tx.reservation.update({ where: { id: r.id }, data: { status: 'NO_SHOW', noShowAt: now, noShowAuto: true, recognizedAt: now } });
+        await this.audit.logInTx(tx, { action: 'reservation.no_show', tenantId: r.tenantId, targetType: 'Reservation', targetId: r.id, payload: { ...outcome, auto: true } });
+        return true;
+      });
+      if (done) marked += 1;
+    }
+    return marked;
+  }
+
+  /**
+   * Deshacer «No vino» (encargado o dueño): la señal vuelve al saldo del grupo
+   * (se anula su consumo) y la reserva queda como estaba (pagada). Si vinieron,
+   * después se apunta la llegada.
+   */
+  async undoNoShow(actor: StaffActor, id: string): Promise<ReservationView> {
+    this.assertManager(actor);
+    await this.locked(actor, id, async (tx, r) => {
+      if (r.status !== 'NO_SHOW') throw new ConflictException({ message: 'Esta reserva no está como «No vino»', code: 'RESERVATION_NO_SHOW' });
+      const lost = r.walletId
+        ? await tx.walletConsumption.findFirst({
+            where: { tenantId: r.tenantId, walletId: r.walletId, idempotencyKey: { startsWith: `resv-noshow:${r.id}:` }, reversedAt: null },
+            select: { id: true, amountCents: true },
+          })
+        : null;
+      if (lost && r.walletId) {
+        await tx.walletConsumption.update({ where: { id: lost.id }, data: { reversedAt: new Date(), reversedByUserId: actor.userId } });
+        await tx.$executeRaw`
+          UPDATE client_wallets SET "balanceCents" = "balanceCents" + ${lost.amountCents}::int, status = 'ACTIVE'::"WalletStatus", "updatedAt" = now()
+           WHERE id = ${r.walletId}::uuid
+        `;
+      }
+      await tx.reservation.update({
+        where: { id: r.id },
+        data: { status: r.paidCents >= r.priceCents ? 'PAID' : 'DEPOSIT_PAID', noShowAt: null, noShowAuto: false, recognizedAt: null },
+      });
+      await this.audit.logInTx(tx, {
+        action: 'reservation.no_show_undone',
+        tenantId: r.tenantId,
+        actorId: actor.userId,
+        targetType: 'Reservation',
+        targetId: r.id,
+        payload: { restoredCents: lost?.amountCents ?? 0 },
+      });
+    });
+    return this.detail(actor, id);
+  }
+
+  // ─── El resto en efectivo (puerta o recepción) ─────────────────────
+
+  /** Cuánto se cobra en efectivo del resto (con la comisión del servicio de las recargas) y si se puede. */
+  async cashQuote(actor: StaffActor, id: string): Promise<ReservationCashQuote> {
+    const r = await this.detail(actor, id);
+    const venue = await this.prisma.venue.findUnique({ where: { id: actor.tenantId }, select: VENUE_SERVICE_FEE_SELECT });
+    const pending = r.status === 'DEPOSIT_PAID' ? r.pendingCents : 0;
+    const fee = pending > 0 ? serviceFeeQuote(venueServiceFeeOf(venue), 'topUp', pending).feeCents : 0;
+    const blocked = pending <= 0 ? 'Este reservado no tiene el resto pendiente' : await this.cash.cashBlockedReason(actor.tenantId, { userId: actor.userId, role: actor.role });
+    return { amountCents: pending, serviceFeeCents: fee, totalCents: pending + fee, blocked };
+  }
+
+  /**
+   * El resto en efectivo: una recarga en efectivo del saldo del grupo (la de
+   * recepción: entra en la caja de la noche y en el cierre a ciegas, con sus
+   * permisos y su tope legal) y, con ella, la reserva pagada entera.
+   * Repetir con la misma `key` no cobra dos veces.
+   */
+  async payRestCash(actor: StaffActor, id: string, input: { key: string; serviceFeeCents: number }): Promise<ReservationView> {
+    const r = await this.prisma.withTenant(actor.tenantId, (tx) =>
+      tx.reservation.findFirst({ where: { id, tenantId: actor.tenantId }, include: { wallet: { select: { shortCode: true } } } }),
+    );
+    if (!r) throw new NotFoundException(NOT_FOUND);
+    if (await this.cashDone(actor.tenantId, input.key)) return this.detail(actor, id);
+    const pending = r.priceCents - r.paidCents;
+    const code = r.wallet?.shortCode;
+    if (r.status !== 'DEPOSIT_PAID' || pending <= 0 || !code) {
+      throw new ConflictException({ message: 'Este reservado no tiene el resto pendiente', code: 'RESERVATION_NOT_PAYABLE' });
+    }
+    const top = await this.cash.topUp(actor.tenantId, { userId: actor.userId, role: actor.role }, {
+      amountCents: pending,
+      idempotencyKey: `resv-cash:${input.key}`,
+      wallet: { code },
+      serviceFeeCents: input.serviceFeeCents,
+    });
+    await this.prisma.withTenant(actor.tenantId, async (tx) => {
+      const link = await tx.reservationPayment.findUnique({ where: { cashTopUpId: top.topUpId }, select: { id: true } });
+      if (link) return;
+      const created = await tx.reservationPayment.create({
+        data: { tenantId: actor.tenantId, reservationId: r.id, cashTopUpId: top.topUpId, kind: 'REST', amountCents: pending },
+        select: { id: true },
+      });
+      await applyReservationCash(tx, {
+        tenantId: actor.tenantId,
+        linkId: created.id,
+        reservationId: r.id,
+        amountCents: pending,
+        walletId: top.walletId,
+        cashTopUpId: top.topUpId,
+      });
+    });
+    return this.detail(actor, id);
+  }
+
+  private async cashDone(tenantId: string, key: string): Promise<boolean> {
+    const n = await this.prisma.withTenant(tenantId, (tx) =>
+      tx.reservationPayment.count({ where: { tenantId, cashTopUp: { idempotencyKey: `resv-cash:${key}` } } }),
+    );
+    return n > 0;
   }
 
   // ─── El local cambia la fecha o anula ──────────────────────────────
@@ -180,11 +302,14 @@ export class ReservationOpsService {
     this.assertManager(actor);
     await this.locked(actor, id, async (tx, r) => {
       if (!['PENDING', 'DEPOSIT_PAID', 'PAID'].includes(r.status)) throw new ConflictException({ message: 'Esta reserva ya no se puede cambiar', code: 'RESERVATION_CHANGE' });
-      const problem = bookableNightProblem(nightDate, new Date());
+      const venue = await tx.venue.findUniqueOrThrow({ where: { id: r.tenantId }, select: { reservationsOpenMinute: true } });
+      const problem = bookableNightProblem(nightDate, new Date(), venue.reservationsOpenMinute);
       if (problem) throw new BadRequestException({ message: problem, code: 'RESERVATION_DATE' });
       const pkg = await tx.reservationPackage.findUniqueOrThrow({ where: { id: r.packageId }, select: { id: true, maxPerNight: true } });
       await this.reservations.assertRoom(tx, r.tenantId, pkg, nightDate, r.id);
       await tx.reservation.update({ where: { id: r.id }, data: { nightDate: dateOfDay(nightDate), previousNightDate: r.nightDate } });
+      // El local cambia la fecha: el RRPP pierde la comisión (siempre).
+      await voidPromoterCommission(tx, r, actor.userId);
       await this.audit.logInTx(tx, {
         action: 'reservation.date_changed',
         tenantId: r.tenantId,
@@ -208,6 +333,8 @@ export class ReservationOpsService {
     const out = await this.locked(actor, id, async (tx, r) => {
       if (!['PENDING', 'DEPOSIT_PAID', 'PAID'].includes(r.status)) throw new ConflictException({ message: 'Esta reserva ya no se puede anular', code: 'RESERVATION_CANCEL' });
       await tx.reservation.update({ where: { id: r.id }, data: { status: 'CANCELED', canceledAt: new Date(), canceledByUserId: actor.userId, cancelReason: reason } });
+      // Anula el local: el RRPP pierde la comisión (si ya estaba apuntada, sale del reparto).
+      await voidPromoterCommission(tx, r, actor.userId);
       const pending = await tx.reservationPayment.findFirst({ where: { reservationId: r.id, paidAt: null, payment: { status: 'CREATED' } }, select: { paymentId: true } });
       open = pending?.paymentId ?? null;
       await this.audit.logInTx(tx, { action: 'reservation.canceled_by_venue', tenantId: r.tenantId, actorId: actor.userId, targetType: 'Reservation', targetId: r.id, payload: { reason, paidCents: r.paidCents } });

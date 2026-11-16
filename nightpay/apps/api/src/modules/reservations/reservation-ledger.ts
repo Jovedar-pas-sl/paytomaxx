@@ -3,22 +3,33 @@ import { WALLET_CREDITED_EVENT } from '../payments/payment-device';
 import { applyPaid, commissionDue, promoterCommissionCents } from './reservation-rules';
 
 /**
- * Un pago de una reserva aprobado por el banco: lo apunta en la reserva DENTRO
- * de la transacción de la transición del cobro a AUTHORIZED (PaymentsService.
- * transition, con el cobro bloqueado). Así nada se da por pagado sin el aviso
- * firmado del banco, y una sola vez (paidAt).
+ * Lo pagado de una reserva, apuntado en la misma transacción que mueve el
+ * dinero, una vez (paidAt):
+ *  - con tarjeta: en la transición del cobro a AUTHORIZED (aviso firmado del
+ *    banco; PaymentsService.transition, con el cobro bloqueado). Solo si la
+ *    recarga llegó de verdad al saldo del grupo;
+ *  - en efectivo (el resto en la puerta o en recepción): en la transacción de
+ *    la recarga en efectivo del saldo del grupo (entra en la caja de la noche).
  *
- *  - suma lo pagado y pone el estado (Señal pagada / Pagado);
- *  - el saldo del grupo es el de la recarga (el primer pago lo crea);
- *  - con el paquete pagado entero y vendido por un RRPP: su comisión (su % del
- *    paquete) como una ganancia más de la persona, que cobra en el reparto de
- *    siempre (operator_earnings, una vez: commissionEarnedAt);
- *  - si ya no cabe (anulada, ya pagada o de más): incidencia en el registro; el
- *    dinero está en el saldo del grupo y el encargado lo devuelve desde Saldos.
- *
- * SQL crudo, como el resto de transition(): no depende del local del contexto.
- * No lanza por la reserva: un rollback dejaría el aviso del banco reintentando.
+ * Suma lo pagado y pone el estado (Señal pagada / Pagado). Con el paquete
+ * pagado entero y vendido por un RRPP (si el local no le quitó la comisión):
+ * su comisión, una ganancia más de la persona que cobra en el reparto de
+ * siempre. Si ya no cabe (anulada, ya pagada o de más): incidencia; el dinero
+ * está en el saldo del grupo. SQL crudo, como el resto de transition().
  */
+
+interface LockedReservation {
+  id: string;
+  status: string;
+  priceCents: number;
+  depositCents: number;
+  paidCents: number;
+  promoterId: string | null;
+  promoterBps: number | null;
+  commissionEarnedAt: Date | null;
+  commissionVoidedAt: Date | null;
+}
+
 export async function applyReservationPayment(
   tx: TransactionalClient,
   p: { id: string; tenantId: string; walletId: string | null; amountCents: number },
@@ -31,25 +42,6 @@ export async function applyReservationPayment(
   `;
   const link = links[0];
   if (!link || link.paidAt) return;
-  const rows = await tx.$queryRaw<
-    Array<{
-      id: string;
-      status: string;
-      priceCents: number;
-      depositCents: number;
-      paidCents: number;
-      promoterId: string | null;
-      promoterBps: number | null;
-      commissionEarnedAt: Date | null;
-      walletId: string | null;
-    }>
-  >`
-    SELECT id, status, "priceCents", "depositCents", "paidCents", "promoterId", "promoterBps", "commissionEarnedAt", "walletId"
-      FROM reservations WHERE id = ${link.reservationId}::uuid FOR UPDATE
-  `;
-  const r = rows[0];
-  if (!r) return;
-  await tx.$executeRaw`UPDATE reservation_payments SET "paidAt" = now() WHERE id = ${link.id}::uuid`;
   // Solo si la recarga llegó de verdad al saldo del grupo (si estaba cerrado, la
   // transición ya abrió su incidencia: cobrado y sin saldo).
   const credited = await tx.$queryRaw<Array<{ walletId: string | null }>>`
@@ -57,34 +49,90 @@ export async function applyReservationPayment(
      WHERE "paymentId" = ${p.id}::uuid AND "eventType" = ${WALLET_CREDITED_EVENT}
      ORDER BY "occurredAt" DESC LIMIT 1
   `;
-  const walletId = credited[0]?.walletId ?? null;
-  const outcome = walletId ? applyPaid(r, p.amountCents) : ({ ok: false, reason: 'not_credited' } as const);
+  await applyToReservation(tx, {
+    tenantId: p.tenantId,
+    linkId: link.id,
+    reservationId: link.reservationId,
+    kind: link.kind,
+    amountCents: p.amountCents,
+    walletId: credited[0]?.walletId ?? null,
+    earningPaymentId: p.id,
+    source: { paymentId: p.id },
+    traceId,
+  });
+}
+
+/** El resto pagado en efectivo (ya sumado al saldo del grupo en esta misma transacción). */
+export async function applyReservationCash(
+  tx: TransactionalClient,
+  c: { tenantId: string; linkId: string; reservationId: string; amountCents: number; walletId: string; cashTopUpId: string },
+): Promise<void> {
+  // La comisión del RRPP va en el primer pago con tarjeta de la reserva (la señal).
+  const first = await tx.$queryRaw<Array<{ paymentId: string }>>`
+    SELECT "paymentId" FROM reservation_payments
+     WHERE "reservationId" = ${c.reservationId}::uuid AND "paymentId" IS NOT NULL AND "paidAt" IS NOT NULL
+     ORDER BY "paidAt" ASC LIMIT 1
+  `;
+  await applyToReservation(tx, {
+    tenantId: c.tenantId,
+    linkId: c.linkId,
+    reservationId: c.reservationId,
+    kind: 'REST',
+    amountCents: c.amountCents,
+    walletId: c.walletId,
+    earningPaymentId: first[0]?.paymentId ?? null,
+    source: { cashTopUpId: c.cashTopUpId },
+  });
+}
+
+async function applyToReservation(
+  tx: TransactionalClient,
+  a: {
+    tenantId: string;
+    linkId: string;
+    reservationId: string;
+    kind: string;
+    amountCents: number;
+    walletId: string | null;
+    earningPaymentId: string | null;
+    source: Record<string, string>;
+    traceId?: string;
+  },
+): Promise<void> {
+  const rows = await tx.$queryRaw<LockedReservation[]>`
+    SELECT id, status, "priceCents", "depositCents", "paidCents", "promoterId", "promoterBps", "commissionEarnedAt", "commissionVoidedAt"
+      FROM reservations WHERE id = ${a.reservationId}::uuid FOR UPDATE
+  `;
+  const r = rows[0];
+  if (!r) return;
+  await tx.$executeRaw`UPDATE reservation_payments SET "paidAt" = now() WHERE id = ${a.linkId}::uuid`;
+  const outcome = a.walletId ? applyPaid(r, a.amountCents) : ({ ok: false, reason: 'not_credited' } as const);
   if (!outcome.ok) {
-    await audit(tx, p.tenantId, 'reservation.payment_unapplied', r.id, {
-      paymentId: p.id,
-      walletId: p.walletId,
-      amountCents: p.amountCents,
-      kind: link.kind,
+    await audit(tx, a.tenantId, 'reservation.payment_unapplied', r.id, {
+      ...a.source,
+      walletId: a.walletId,
+      amountCents: a.amountCents,
+      kind: a.kind,
       status: r.status,
       reason: outcome.reason,
-    }, traceId);
+    }, a.traceId);
     return;
   }
   await tx.$executeRaw`
     UPDATE reservations
        SET "paidCents" = ${outcome.paidCents}::int,
            status = ${outcome.status},
-           "walletId" = COALESCE("walletId", ${walletId}::uuid),
+           "walletId" = COALESCE("walletId", ${a.walletId}::uuid),
            "updatedAt" = now()
      WHERE id = ${r.id}::uuid
   `;
-  await audit(tx, p.tenantId, 'reservation.paid', r.id, { paymentId: p.id, kind: link.kind, amountCents: p.amountCents, paidCents: outcome.paidCents }, traceId);
-  if (commissionDue({ ...r, paidCents: outcome.paidCents }) && r.promoterId) {
-    await earnCommission(tx, { ...r, promoterId: r.promoterId }, p, traceId);
+  await audit(tx, a.tenantId, 'reservation.paid', r.id, { ...a.source, kind: a.kind, amountCents: a.amountCents, paidCents: outcome.paidCents }, a.traceId);
+  if (commissionDue({ ...r, paidCents: outcome.paidCents }) && r.promoterId && a.earningPaymentId) {
+    await earnCommission(tx, { ...r, promoterId: r.promoterId }, { id: a.earningPaymentId, tenantId: a.tenantId }, a.traceId);
   }
 }
 
-/** La comisión del RRPP con el paquete pagado entero: una ganancia en el pago que lo completa. */
+/** La comisión del RRPP con el paquete pagado entero: una ganancia en un pago de la reserva. */
 async function earnCommission(
   tx: TransactionalClient,
   r: { id: string; priceCents: number; promoterId: string; promoterBps: number | null },
@@ -104,6 +152,36 @@ async function earnCommission(
   }
   await tx.$executeRaw`UPDATE reservations SET "commissionEarnedAt" = now() WHERE id = ${r.id}::uuid`;
   await audit(tx, p.tenantId, 'reservation.commission_earned', r.id, { paymentId: p.id, userId: userId ?? null, bps, commissionCents }, traceId);
+}
+
+/**
+ * El local cambió la fecha o anuló: el RRPP pierde la comisión, siempre. Si ya
+ * estaba apuntada y sin pagar, se anula del reparto (su neto queda a 0); si ya
+ * se le pagó, queda la incidencia para descontársela a mano.
+ */
+export async function voidPromoterCommission(tx: TransactionalClient, r: { id: string; tenantId: string; promoterId: string | null }, actorId: string): Promise<void> {
+  if (!r.promoterId) return;
+  const done = await tx.$executeRaw`
+    UPDATE reservations SET "commissionVoidedAt" = now() WHERE id = ${r.id}::uuid AND "commissionVoidedAt" IS NULL
+  `;
+  if (done === 0) return;
+  const earnings = await tx.$queryRaw<Array<{ id: string; commissionCents: number; payoutId: string | null }>>`
+    SELECT e.id, e."commissionCents", e."payoutId"
+      FROM operator_earnings e
+      JOIN promoters pr ON pr.id = ${r.promoterId}::uuid AND pr."userId" = e."operatorId"
+     WHERE e."paymentId" IN (SELECT "paymentId" FROM reservation_payments WHERE "reservationId" = ${r.id}::uuid AND "paymentId" IS NOT NULL)
+     FOR UPDATE OF e
+  `;
+  for (const e of earnings) {
+    if (e.payoutId === null) {
+      await tx.$executeRaw`UPDATE operator_earnings SET "reversedCents" = "commissionCents" WHERE id = ${e.id}::uuid`;
+    }
+    await audit(tx, r.tenantId, e.payoutId === null ? 'reservation.commission_voided' : 'reservation.commission_voided_after_payout', r.id, {
+      earningId: e.id,
+      commissionCents: e.commissionCents,
+      actorId,
+    });
+  }
 }
 
 async function audit(

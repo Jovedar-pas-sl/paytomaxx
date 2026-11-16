@@ -1,7 +1,7 @@
 import { ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Prisma } from '@nightpay/db';
-import type { ReservationAccounting, ReservationPackageInput, ReservationPackageView } from '@nightpay/contracts';
+import { openMinuteOf, openTimeText, type ReservationAccounting, type ReservationPackageInput, type ReservationPackageView } from '@nightpay/contracts';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { madridAt, nextDay, NIGHT_CUTOFF_HOUR } from '../../common/time/madrid';
 import { AuditService } from '../audit/audit.service';
@@ -15,6 +15,8 @@ const MAX_CODE_ATTEMPTS = 5;
 
 export interface ReservationSettingsView {
   enabled: boolean;
+  /** La hora de apertura («22:30»): las 48 h y el «hasta 2 h antes» cuentan desde ella. */
+  openTime: string;
   /** El enlace para reservar desde la web (null: aún sin código). */
   url: string | null;
 }
@@ -74,9 +76,25 @@ export class ReservationCatalogService {
   // ─── El enlace del local ───────────────────────────────────────────
 
   async settings(venueId: string): Promise<ReservationSettingsView> {
-    const v = await this.prisma.venue.findUnique({ where: { id: venueId }, select: { reservationsEnabled: true, reservationsCode: true } });
+    const v = await this.prisma.venue.findUnique({
+      where: { id: venueId },
+      select: { reservationsEnabled: true, reservationsCode: true, reservationsOpenMinute: true },
+    });
     if (!v) throw new NotFoundException('Local no encontrado');
-    return { enabled: v.reservationsEnabled, url: v.reservationsCode ? `${this.origin}/reservar/${v.reservationsCode}` : null };
+    return {
+      enabled: v.reservationsEnabled,
+      openTime: openTimeText(v.reservationsOpenMinute),
+      url: v.reservationsCode ? `${this.origin}/reservar/${v.reservationsCode}` : null,
+    };
+  }
+
+  /** La hora de apertura del local (dueño o encargado). */
+  async setOpenTime(actor: StaffActor, openTime: string): Promise<ReservationSettingsView> {
+    const minute = openMinuteOf(openTime);
+    if (minute === null) throw new ConflictException('Pon la hora como 22:30');
+    await this.prisma.venue.update({ where: { id: actor.tenantId }, data: { reservationsOpenMinute: minute } });
+    await this.audit.log({ action: 'reservations.open_time', tenantId: actor.tenantId, actorId: actor.userId, targetType: 'Venue', targetId: actor.tenantId, payload: { openTime } });
+    return this.settings(actor.tenantId);
   }
 
   /** Encender crea el código (si no tiene); apagar lo conserva. */
@@ -119,12 +137,12 @@ export class ReservationCatalogService {
           (SELECT COALESCE(SUM(CASE WHEN r.status = 'ARRIVED' THEN r."priceCents" - r."creditCents"
                                     ELSE LEAST(r."depositCents", r."paidCents") END), 0)
              FROM reservations r
-            WHERE r."tenantId" = ${actor.tenantId}::uuid AND r.status IN ('ARRIVED', 'NO_SHOW')
+            WHERE r."tenantId" = ${actor.tenantId}::uuid AND r.status IN ('ARRIVED', 'NO_SHOW', 'CLIENT_CANCELED')
               AND r."recognizedAt" >= ${start} AND r."recognizedAt" < ${end}) AS recognized,
           (SELECT COALESCE(SUM(CASE WHEN r.status = 'ARRIVED' THEN r."creditCents"
                                     ELSE r."paidCents" - LEAST(r."depositCents", r."paidCents") END), 0)
              FROM reservations r
-            WHERE r."tenantId" = ${actor.tenantId}::uuid AND r.status IN ('ARRIVED', 'NO_SHOW')
+            WHERE r."tenantId" = ${actor.tenantId}::uuid AND r.status IN ('ARRIVED', 'NO_SHOW', 'CLIENT_CANCELED')
               AND r."recognizedAt" >= ${start} AND r."recognizedAt" < ${end}) AS "toSaldo",
           (SELECT COALESCE(SUM(r."paidCents"), 0) FROM reservations r
             WHERE r."tenantId" = ${actor.tenantId}::uuid AND r.status IN ('DEPOSIT_PAID', 'PAID')) AS outstanding,

@@ -15,12 +15,21 @@ import { PrismaService } from '../../src/common/prisma/prisma.service';
 import { AuditService } from '../../src/modules/audit/audit.service';
 import { PaymentsService } from '../../src/modules/payments/payments.service';
 import { WalletChargesService } from '../../src/modules/wallets/wallet-charges.service';
+import { CashTopUpService } from '../../src/modules/wallets/wallet-cash-topup.service';
 import { ReservationsService, type BookingEntry } from '../../src/modules/reservations/reservations.service';
 import { ReservationOpsService } from '../../src/modules/reservations/reservation-ops.service';
 import { ReservationCatalogService } from '../../src/modules/reservations/reservation-catalog.service';
 import { nightOf, nightEnd } from '../../src/modules/reservations/reservation-rules';
+import { madridAt, madridDay } from '../../src/common/time/madrid';
 import { PromotersService } from '../../src/modules/reservations/promoters.service';
 import { lockPayableEarnings } from '../../src/modules/operators/payout-selection';
+
+// La hora, fija a las 12:00 de Madrid de hoy: «esta noche» se puede reservar
+// (hasta 2 h antes de abrir) a cualquier hora que se lancen las pruebas.
+const REAL_NOW = Date.now();
+const BASE_NOW = madridAt(madridDay(new Date(REAL_NOW)), 12);
+vi.useFakeTimers({ toFake: ['Date'] });
+vi.setSystemTime(BASE_NOW);
 
 const cls = new ClsService(new AsyncLocalStorage());
 const prisma = new PrismaService(cls as never);
@@ -53,7 +62,7 @@ const redis = {
 };
 const audit = new AuditService(prisma, cls as never);
 const reservations = new ReservationsService(prisma, payments, redis as never, audit);
-const ops = new ReservationOpsService(prisma, audit, reservations, payments);
+const ops = new ReservationOpsService(prisma, audit, reservations, payments, new CashTopUpService(prisma, audit, {} as never));
 const catalog = new ReservationCatalogService(prisma, audit, { get: () => 'https://api.prueba.es' } as never);
 const promoters = new PromotersService(prisma, audit, catalog);
 const charges = new WalletChargesService(prisma, audit as never, { get: () => null } as never, {} as never);
@@ -164,10 +173,11 @@ beforeAll(async () => {
 });
 
 afterEach(() => {
-  vi.useRealTimers();
+  vi.setSystemTime(BASE_NOW);
 });
 
 afterAll(async () => {
+  vi.useRealTimers();
   await prisma.$disconnect();
 });
 
@@ -350,13 +360,12 @@ describe('la noche: puerta, barra, «No vino» y el local anula', () => {
     expect(code(await as(owner, () => ops.noShow(owner, full.id)).catch((e: unknown) => e))).toBe('RESERVATION_NO_SHOW');
     // El camarero no puede.
     await expect(as(door, () => ops.noShow(door, full.id))).rejects.toThrow('Solo el encargado o el dueño');
-    vi.useFakeTimers({ toFake: ['Date'] });
     vi.setSystemTime(new Date(nightEnd(night).getTime() + 60_000));
     expect((await as(owner, () => ops.noShow(owner, full.id))).status).toBe('NO_SHOW');
     expect((await walletOf(payment.walletId!)).balanceCents).toBe(21000);
     await as(owner, () => ops.noShow(owner, dep.id));
     expect((await walletOf(depPaid.payment.walletId!)).balanceCents).toBe(0);
-    const lost = await sys((tx) => tx.walletConsumption.findFirstOrThrow({ where: { idempotencyKey: `resv-noshow:${full.id}` } }));
+    const lost = await sys((tx) => tx.walletConsumption.findFirstOrThrow({ where: { idempotencyKey: { startsWith: `resv-noshow:${full.id}:` } } }));
     expect(lost).toMatchObject({ amountCents: 9000, category: 'VENUE_ENTRY' });
     // La página del grupo le da el enlace a su saldo para otra noche.
     expect((await pub(() => reservations.groupView(full.manageToken)))?.saldoHref).toMatch(/^\/w\//);
@@ -420,7 +429,7 @@ describe('RRPP: alta, su enlace y el reparto', () => {
   it('lo vendido y su comisión salen en su ficha y entran en el reparto de siempre', async () => {
     const list = await as(owner, () => promoters.list(owner));
     expect(list.find((p) => p.id === promoterId)).toMatchObject({ soldCount: 1, commissionCents: 5000 });
-    const payable = await sys((tx) => lockPayableEarnings(tx, A, rrppUser, new Date(Date.now() + 60_000)));
+    const payable = await sys((tx) => lockPayableEarnings(tx, A, rrppUser, new Date(Math.max(REAL_NOW, Date.now()) + 86_400_000)));
     expect(payable).toEqual([expect.objectContaining({ commissionCents: 5000, tipCents: 0, reversedCents: 0 })]);
   });
 });

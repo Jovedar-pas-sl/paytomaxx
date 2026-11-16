@@ -64,3 +64,43 @@ export async function spendFromGroupWallet(tx: TransactionalClient, s: GroupSpen
   `;
   return consumption.id;
 }
+
+/** Quien firma lo que hace el sistema (el cliente que anula, «No vino» automático): el dueño del local. */
+export async function venueOwnerId(tx: TransactionalClient, tenantId: string): Promise<string> {
+  const rows = await tx.$queryRaw<Array<{ id: string }>>`
+    SELECT id FROM users
+     WHERE "tenantId" = ${tenantId}::uuid AND role IN ('OWNER', 'MANAGER') AND "deletedAt" IS NULL
+     ORDER BY (role = 'OWNER') DESC, "createdAt" ASC LIMIT 1
+  `;
+  const id = rows[0]?.id;
+  if (!id) throw new ConflictException({ message: 'El local no tiene dueño ni encargado', code: 'RESERVATION_NO_OWNER' });
+  return id;
+}
+
+/**
+ * La señal se pierde («No vino» o el cliente anula): pasa a venta como un
+ * consumo del saldo del grupo; lo pagado de más queda de saldo. Devuelve lo
+ * perdido y lo que queda.
+ */
+export async function loseDeposit(
+  tx: TransactionalClient,
+  r: { id: string; ref: string; tenantId: string; walletId: string | null; depositCents: number; paidCents: number },
+  providedByUserId: string,
+  what: 'noshow' | 'cancel',
+): Promise<{ lostCents: number; leftCents: number }> {
+  const lostCents = Math.min(r.depositCents, r.paidCents);
+  if (lostCents > 0) {
+    if (!r.walletId) throw new ConflictException({ message: 'Esta reserva aún no tiene saldo', code: 'RESERVATION_WALLET' });
+    await spendFromGroupWallet(tx, {
+      tenantId: r.tenantId,
+      walletId: r.walletId,
+      amountCents: lostCents,
+      providedByUserId,
+      category: 'VENUE_ENTRY',
+      notes: what === 'noshow' ? `Señal no devuelta: reservado ${r.ref}` : `Señal no devuelta (anulada por el cliente): reservado ${r.ref}`,
+      // Con la hora: «No vino» se puede deshacer y volver a poner.
+      idempotencyKey: `resv-${what}:${r.id}:${Date.now()}`,
+    });
+  }
+  return { lostCents, leftCents: r.paidCents - lostCents };
+}

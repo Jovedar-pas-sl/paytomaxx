@@ -70,6 +70,7 @@ export interface ReservationRow {
   source: string;
   soldByUserId: string | null;
   arrivedAt: Date | null;
+  noShowAuto: boolean;
   canceledAt: Date | null;
   cancelReason: string | null;
   createdAt: Date;
@@ -134,6 +135,7 @@ export function reservationView(r: ReservationRow, panelUser: string | null = nu
     itemsLeft: itemsLeft(items, servedItems(r.spends)),
     guests: r.guests.map((g) => guestView(g, r.spends)),
     arrivedAt: r.arrivedAt?.toISOString() ?? null,
+    noShowAuto: r.noShowAuto,
     canceledAt: r.canceledAt?.toISOString() ?? null,
     cancelReason: r.cancelReason,
     createdAt: r.createdAt.toISOString(),

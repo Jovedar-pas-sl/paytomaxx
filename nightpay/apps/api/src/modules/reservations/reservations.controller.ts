@@ -1,6 +1,8 @@
-import { Body, Controller, Get, HttpCode, Inject, Param, ParseUUIDPipe, Patch, Post, Put, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, ForbiddenException, Get, HttpCode, Inject, Param, ParseUUIDPipe, Patch, Post, Put, Query, UseGuards } from '@nestjs/common';
 import {
   CreateReservationSchema,
+  ReservationCashSchema,
+  ReservationSettingsSchema,
   PromoterCreateSchema,
   PromoterUpdateSchema,
   ReservationChangeDateSchema,
@@ -14,6 +16,7 @@ import {
   type JwtPayload,
   type PromoterView,
   type ReservationAccounting,
+  type ReservationCashQuote,
   type ReservationPackageInput,
   type ReservationPackageView,
   type ReservationView,
@@ -33,7 +36,6 @@ const actorOf = (u: JwtPayload): StaffActor => ({ userId: u.sub, role: u.role, t
 const DayQuery = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional();
 const GuestQuery = z.object({ qr: z.string().trim().min(16).max(400) }).strict();
 const ArriveSchema = z.object({ guestId: z.string().uuid().optional() }).strict();
-const EnabledSchema = z.object({ enabled: z.boolean() }).strict();
 
 /**
  * Reservados (panel y app del personal), en /v1/reservations:
@@ -118,10 +120,16 @@ export class ReservationsController {
     return this.catalog.settings(u.tenantId);
   }
 
+  /** El enlace web (solo el dueño) y la hora de apertura (dueño o encargado). */
   @Patch('settings')
-  @Roles('OWNER')
-  setEnabled(@CurrentUser() u: JwtPayload, @Body(new ZodValidationPipe(EnabledSchema)) dto: { enabled: boolean }): Promise<ReservationSettingsView> {
-    return this.catalog.setEnabled(actorOf(u), dto.enabled);
+  @Roles('OWNER', 'MANAGER')
+  async updateSettings(
+    @CurrentUser() u: JwtPayload,
+    @Body(new ZodValidationPipe(ReservationSettingsSchema)) dto: { enabled?: boolean; openTime?: string },
+  ): Promise<ReservationSettingsView> {
+    if (dto.enabled !== undefined && u.role !== 'OWNER') throw new ForbiddenException('El enlace web lo enciende el dueño');
+    if (dto.openTime !== undefined) await this.catalog.setOpenTime(actorOf(u), dto.openTime);
+    return dto.enabled !== undefined ? this.catalog.setEnabled(actorOf(u), dto.enabled) : this.catalog.settings(u.tenantId);
   }
 
   @Get('accounting')
@@ -200,6 +208,31 @@ export class ReservationsController {
   @Roles('OWNER', 'MANAGER')
   noShow(@CurrentUser() u: JwtPayload, @Param('id', ParseUUIDPipe) id: string): Promise<ReservationView> {
     return this.ops.noShow(actorOf(u), id);
+  }
+
+  @Post(':id/no-show/undo')
+  @HttpCode(200)
+  @Roles('OWNER', 'MANAGER')
+  undoNoShow(@CurrentUser() u: JwtPayload, @Param('id', ParseUUIDPipe) id: string): Promise<ReservationView> {
+    return this.ops.undoNoShow(actorOf(u), id);
+  }
+
+  /** El resto en efectivo: cuánto (con la comisión del servicio) y si quien lo pide puede cobrarlo. */
+  @Get(':id/rest-cash')
+  @Roles('OWNER', 'MANAGER', 'WAITER')
+  cashQuote(@CurrentUser() u: JwtPayload, @Param('id', ParseUUIDPipe) id: string): Promise<ReservationCashQuote> {
+    return this.ops.cashQuote(actorOf(u), id);
+  }
+
+  @Post(':id/rest-cash')
+  @HttpCode(200)
+  @Roles('OWNER', 'MANAGER', 'WAITER')
+  payRestCash(
+    @CurrentUser() u: JwtPayload,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body(new ZodValidationPipe(ReservationCashSchema)) dto: { key: string; serviceFeeCents: number },
+  ): Promise<ReservationView> {
+    return this.ops.payRestCash(actorOf(u), id, dto);
   }
 
   @Post(':id/date')
