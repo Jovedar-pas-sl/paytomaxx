@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { confirmationCode, type BitcoinPayState, type PaymentStatus } from '@nightpay/contracts';
-import { cardHow, countdownPhase, formatClock, qrDeadline, saldoHow, secondsLeft, useNow, useWakeLock, ScreenHelp } from '@nightpay/ui';
+import { cardHow, countdownPhase, formatClock, paidTicket, qrDeadline, saldoHow, secondsLeft, useNow, useWakeLock, ScreenHelp } from '@nightpay/ui';
 import { fetchPaymentStatus, getUser } from '@/lib/api';
 import { clearFichaContext, saveFichaContext } from '@/lib/ficha-context';
 import { formatEur } from '@/lib/money';
@@ -11,7 +11,7 @@ import { useHealthReport } from '@/lib/connection-health';
 import { useOpenCharge } from '@/lib/open-charges';
 import { cardFactsOf, type PaidCardFacts } from '@/lib/payment-status';
 import { fichaContextOf, iphoneFichaHint, pinDetail, showsSinMovil, SIN_MOVIL_LABEL, type PinVia } from '@/lib/sin-movil';
-import { useVenueMethods, useVenueNight } from '@/lib/venue-methods';
+import { useVenueMethods, useVenueName, useVenueNight } from '@/lib/venue-methods';
 import { useWalletChargeLive } from '../use-wallet-charge-live';
 import {
   CobroApiError,
@@ -144,6 +144,7 @@ type PinStep = SaldoForPin & { reason: string | null };
  */
 export function Esperando({ cobro, onNew, onRetry, retrying = false, retryError = null, onPaid, sectionLabel }: Props) {
   const methods = useVenueMethods();
+  const venueName = useVenueName();
   // B1: la propina la elige el cliente en la pantalla del PIN (sin nada marcado).
   const pinTip = pinTipSetup({
     totalCents: cobro.totalCents,
@@ -455,6 +456,14 @@ export function Esperando({ cobro, onNew, onRetry, retrying = false, retryError 
           ) : null
         }
         detail={<PaidDetail cobro={cobro} what={cobro.invitation ? null : cobro.what} />}
+        print={paidTicket({
+          venue: venueName,
+          amountCents: amounts.totalCents,
+          how,
+          breakdown: breakdown ?? (tip ? `${tip.base} + ${tip.tip} de propina` : null),
+          reference: cobro.ref,
+          at,
+        })}
         primary={{ label: 'Nuevo cobro', onClick: onNew }}
       />
     );

@@ -1,15 +1,16 @@
 'use client';
 
 import { useEffect, useState, type CSSProperties } from 'react';
-import { Button, Modal, Segmented } from '@nightpay/ui';
+import { Button, Modal, Segmented, testTicket, usePrintTicket } from '@nightpay/ui';
 import { fichaPlace, READER_SPOT_CHOICES, useReaderSpot, writeReaderSpot } from '@/lib/lector-nfc';
 import { nfcSupported, readCard } from '@/lib/nfc';
 import { testReadResult, type TestRead as TestReadResult } from '@/lib/prueba-lectura';
+import { useVenueName } from '@/lib/venue-methods';
 
 /**
  * Menú → «Este aparato»: lo de ESTE móvil o datáfono, guardado en él. Dónde
  * está su lector NFC (cambia dónde se pide acercar la ficha) y una prueba de
- * lectura que no cobra nada. Más adelante, aquí irá la impresora.
+ * lectura que no cobra nada. Y la prueba de la impresora (un ticket de ejemplo).
  */
 export function DeviceSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
   const spot = useReaderSpot();
@@ -19,6 +20,7 @@ export function DeviceSheet({ open, onClose }: { open: boolean; onClose: () => v
         <Segmented label="¿Dónde está el lector NFC?" value={spot} options={READER_SPOT_CHOICES} onChange={writeReaderSpot} />
         <p style={hint}>Un móvil lo lleva detrás; un datáfono de mano suele llevarlo arriba.</p>
         {open ? <ReadTest /> : null}
+        <PrintTest />
       </div>
     </Modal>
   );
@@ -66,6 +68,26 @@ function ReadTest() {
           {result.text}
         </p>
       ) : null}
+    </section>
+  );
+}
+
+/**
+ * «Prueba de impresión»: un ticket de ejemplo (no es un cobro) para ver que el
+ * aparato llega a su impresora. Android pregunta la impresora: la del datáfono
+ * suele llamarse «InnerPrinter»; si no sale, con RawBT (Play Store) sí.
+ */
+function PrintTest() {
+  const venue = useVenueName();
+  const printer = usePrintTicket();
+  return (
+    <section aria-label="Impresora" style={stack}>
+      <span style={label}>Impresora</span>
+      <p style={hint}>Sale un ticket de ejemplo. Elige la impresora del aparato (suele llamarse «InnerPrinter»).</p>
+      <Button variant="ghost" onClick={() => printer.print(testTicket(new Date(), window.location.origin, venue))}>
+        Prueba de impresión
+      </Button>
+      {printer.ticketNode}
     </section>
   );
 }

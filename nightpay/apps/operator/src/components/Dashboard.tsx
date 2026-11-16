@@ -12,6 +12,7 @@ import { useUrlTab } from '@/lib/use-url-tab';
 import {
   MyRightsContext,
   VenueMethodsContext,
+  VenueNameContext,
   VenueNightContext,
   canTopUp,
   useVenueMethodsFeed,
@@ -45,7 +46,7 @@ export function Dashboard({ user, onLogout }: Props) {
   // Cada rol ve sus pestañas y pide solo lo suyo (sin 403 de fondo).
   const access = roleAccess(user.role);
   // Formas de cobro apagadas por el dueño: sus pestañas no salen.
-  const { methods, night: nightSettings, rights } = useVenueMethodsFeed(user.id);
+  const { methods, night: nightSettings, rights, venueName } = useVenueMethodsFeed(user.id);
   // Recepción (cargar saldos y el efectivo), solo a quien la hace por su puesto.
   const tabs = visibleTabsFor(access.tabs, methods, canTopUp(rights, user.role));
   // La pestaña va en la URL (?t=cobros): recargar o volver a entrar deja donde se estaba (?t=saldo, a Inicio).
@@ -100,6 +101,7 @@ export function Dashboard({ user, onLogout }: Props) {
     <VenueMethodsContext.Provider value={methods}>
     <VenueNightContext.Provider value={nightSettings}>
     <MyRightsContext.Provider value={rights}>
+    <VenueNameContext.Provider value={venueName}>
     <main className="np-app-root np-screen" style={mainStyle}>
       {/* Sin internet / OxioPay sin responder / el banco tardando: arriba, en ámbar. */}
       <ConnectionStatus serverDown={own.error?.transient === true} />
@@ -175,6 +177,7 @@ export function Dashboard({ user, onLogout }: Props) {
       <TabBar tabs={tabs} active={tab} onSelect={(next) => setTab(next)} />
       <StaffMenu open={menuOpen} onClose={() => setMenuOpen(false)} onLogout={logout} />
     </main>
+    </VenueNameContext.Provider>
     </MyRightsContext.Provider>
     </VenueNightContext.Provider>
     </VenueMethodsContext.Provider>
