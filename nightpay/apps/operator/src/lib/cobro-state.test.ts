@@ -8,6 +8,7 @@ import {
   LEAVE_WITHOUT_CHARGING,
   UNCONFIRMED_TITLE,
   bitcoinWaitText,
+  bankCancelOf,
   cancelAtBank,
   cancelFailedText,
   cancelOffer,
@@ -150,9 +151,9 @@ describe('el cliente paga con tarjeta: lo que ve el camarero mientras el banco c
     expect(serverToLocalMs(1_000, null)).toBe(1_000);
   });
 
-  it('«Cancelar cobro» siempre pide confirmar; con el cliente en su banco, además, avisa de que el pago puede entrar', () => {
+  it('«Cancelar cobro» siempre pide confirmar; con el cliente en su banco, además, avisa de que si lo cobra después se devuelve', () => {
     expect(CANCEL_CONFIRM_TITLE).toBe('¿Cancelar este cobro?');
-    expect(CANCEL_AT_BANK_TEXT).toBe('Está pagando en su banco. Si lo termina, el pago entrará igual y te avisaremos para devolverlo.');
+    expect(CANCEL_AT_BANK_TEXT).toBe('Si su banco lo cobra después, te avisaremos para devolverlo');
     expect(cancelAtBank({ status: 'AUTHORIZING', bitcoin: null })).toBe(true);
     expect(cancelAtBank({ status: 'AUTHORIZING', bitcoin: 'unknown' })).toBe(true);
     expect(cancelAtBank({ status: 'AUTHORIZING', bitcoin: 'open' })).toBe(false);
@@ -167,9 +168,29 @@ describe('el cliente paga con bitcoin: «Cancelar cobro» mientras la factura es
     expect(cancelOffer(card('AUTHORIZING', 'open'))).toEqual({ kind: 'button' });
   });
 
-  it('con tarjeta, en su banco: también el botón (decisión del dueño; si paga, queda en Incidencias)', () => {
-    expect(cancelOffer(card('AUTHORIZING'))).toEqual({ kind: 'button' });
-    expect(cancelOffer(card('AUTHORIZING', 'unknown'))).toEqual({ kind: 'button' });
+  it('con tarjeta, en su banco: los primeros 2 minutos solo el texto; después, el texto y el botón', () => {
+    expect(cancelOffer(card('AUTHORIZING'), 'wait')).toEqual({ kind: 'text', text: 'El cliente está pagando en su banco' });
+    expect(cancelOffer(card('AUTHORIZING', 'unknown'), 'wait')).toEqual({ kind: 'text', text: 'El cliente está pagando en su banco' });
+    expect(cancelOffer(card('AUTHORIZING'), 'late')).toEqual({ kind: 'late', text: 'El banco tarda. Si el cliente no ha pagado, puedes cancelar' });
+  });
+
+  it('el reloj es el de la espera del banco (el de la pastilla): 2 minutos desde que salió el intento', () => {
+    const at = (stage: 'scan' | 'paying' | 'still' | 'retry', sec: number) => ({ stage, elapsedMs: sec * 1000 });
+    expect(bankCancelOf(true, at('paying', 5))).toBe('wait');
+    expect(bankCancelOf(true, at('still', 119))).toBe('wait');
+    expect(bankCancelOf(true, at('still', 120))).toBe('late');
+    expect(bankCancelOf(true, at('retry', 200))).toBe('late');
+    // Sin saber aún desde cuándo (antes del primer sondeo): sin botón.
+    expect(bankCancelOf(true, at('scan', 0))).toBe('wait');
+    // Fuera del banco (sin empezar o con bitcoin), como siempre.
+    expect(bankCancelOf(false, at('scan', 0))).toBe('free');
+    expect(cancelOffer(card('AUTHORIZING', 'open'), bankCancelOf(cancelAtBank(card('AUTHORIZING', 'open')), at('scan', 0)))).toEqual({ kind: 'button' });
+  });
+
+  it('el API dice que aún no (409 CANCEL_AT_BANK_TOO_SOON): se dice que espere', () => {
+    expect(cancelFailedText(card('AUTHORIZING'), 'CANCEL_AT_BANK_TOO_SOON')).toBe(
+      'El cliente sigue pagando en su banco: aún no se puede cancelar. Espera un poco.',
+    );
   });
 
   it('con el bitcoin ya en la red (falta la confirmación) o con un problema: sin «Cancelar», sin hablar del banco y con «Salir sin cobrar otra vez»', () => {
@@ -183,12 +204,10 @@ describe('el cliente paga con bitcoin: «Cancelar cobro» mientras la factura es
     expect(cancelOffer(card('AWAITING_CAPTURE', 'open'))).toEqual({ kind: 'button' });
   });
 
-  it('si el API no dice si paga con bitcoin (uno de antes): «Cancelar cobro» se ofrece y decide el servidor', () => {
-    expect(cancelOffer(card('AUTHORIZING', 'unknown'))).toEqual({ kind: 'button' });
+  it('si el API no dice si paga con bitcoin (uno de antes): cuenta como en su banco y decide el servidor', () => {
+    expect(cancelAtBank(card('AUTHORIZING', 'unknown'))).toBe(true);
     expect(payingWithBitcoin(card('AUTHORIZING', 'unknown'))).toBeNull();
     expect(cancelFailedText(card('AUTHORIZING', 'unknown'), null)).toMatch(/en su banco o con bitcoin/);
-    // En su banco, dicho por el API: también el botón (y al confirmar, el aviso del banco).
-    expect(cancelOffer(card('AUTHORIZING', null))).toEqual({ kind: 'button' });
   });
 
   it('si cancelar falla: la razón sin «banco» cuando paga con bitcoin; la de siempre con tarjeta', () => {
@@ -238,8 +257,8 @@ describe('el estado del cobro en pantalla con bitcoin (tiempo real y sondeo)', (
     const reopened = cardAfter({ status: 'AUTHORIZING', bitcoin: 'open' }, { status: 'AWAITING_CAPTURE' });
     const bank = cardAfter(cardAfter(reopened, { status: 'AUTHORIZING' }), { status: 'AUTHORIZING', bitcoin: null });
     expect(bank).toEqual({ status: 'AUTHORIZING', bitcoin: null });
-    expect(cancelOffer(bank)).toEqual({ kind: 'button' });
     expect(cancelAtBank(bank)).toBe(true);
+    expect(cancelOffer(bank, 'wait')).toEqual({ kind: 'text', text: 'El cliente está pagando en su banco' });
   });
 
   it('pagado: PAGADO (la factura deja de contar)', () => {

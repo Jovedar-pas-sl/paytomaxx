@@ -3,8 +3,9 @@
 // fallo del NFC en este móvil. Gana el primero que se paga: el servidor
 // cancela el otro. Función pura (se prueba sin pantalla).
 
-import { bankWaitPhase, type BitcoinPayState, type PaymentStatus } from '@nightpay/contracts';
+import { CANCEL_AT_BANK_AFTER_MS, bankWaitPhase, type BitcoinPayState, type PaymentStatus } from '@nightpay/contracts';
 import type { SaldoState } from './api-cobro';
+import { AT_BANK_PAYING_TEXT, AT_BANK_SLOW_TEXT, cancelTooSoonText, type BankCancel } from './cancel-at-bank';
 import type { FailReason, PaidMethod } from './cobro-view';
 import { advanceStatus, type BitcoinLive } from './payment-status';
 
@@ -144,16 +145,26 @@ export function serverToLocalMs(serverMs: number, anchor: { serverMs: number; lo
 }
 
 /**
- * «Cancelar cobro» siempre pide confirmar. Con el cliente en su banco se puede
- * cancelar igual (decisión del dueño): si lo termina, el pago entra, el cobro
- * sigue cancelado y queda en Incidencias para devolverlo o darlo por bueno.
+ * «Cancelar cobro» siempre pide confirmar. Con el cliente en su banco, solo
+ * pasados 2 minutos (decisión del dueño, cancel-at-bank.ts): si el banco lo
+ * cobra después, el cobro sigue cancelado y queda en Incidencias para
+ * devolverlo o darlo por bueno.
  */
 export const CANCEL_CONFIRM_TITLE = '¿Cancelar este cobro?';
-export const CANCEL_AT_BANK_TEXT = 'Está pagando en su banco. Si lo termina, el pago entrará igual y te avisaremos para devolverlo.';
+export { CANCEL_AT_BANK_TEXT } from './cancel-at-bank';
 
 /** ¿El cliente puede estar en la página de su banco? (con bitcoin esperando el pago, no: no hay banco). */
 export function cancelAtBank(card: CardLive): boolean {
   return card.status === 'AUTHORIZING' && card.bitcoin !== 'open';
+}
+
+/**
+ * En Esperando, con el reloj de la espera del banco (el mismo de la pastilla):
+ * en su banco, sin saber aún desde cuándo, «wait»; desde los 2 minutos, «late».
+ */
+export function bankCancelOf(atBank: boolean, wait: Pick<CardWait, 'stage' | 'elapsedMs'>): BankCancel {
+  if (!atBank) return 'free';
+  return wait.stage !== 'scan' && wait.elapsedMs >= CANCEL_AT_BANK_AFTER_MS ? 'late' : 'wait';
 }
 
 // ─── El cliente paga con bitcoin (BTCPay) ─────────────────────────────
@@ -207,18 +218,28 @@ export function payingWithBitcoin(card: CardLive): Exclude<BitcoinPayState, 'clo
  * El pie de Esperando: el botón «Cancelar cobro», o por qué no se puede (y,
  * con bitcoin en la red o con un problema, salir sin cancelar: si no, la
  * pantalla se quedaría ahí hasta que se confirme o lo resuelva el encargado).
+ * Con el cliente en su banco: los primeros 2 minutos solo el texto; después,
+ * el texto y el botón.
  */
-export type CancelOffer = { kind: 'button' } | { kind: 'text'; text: string } | { kind: 'leave'; text: string };
+export type CancelOffer =
+  | { kind: 'button' }
+  | { kind: 'text'; text: string }
+  | { kind: 'late'; text: string }
+  | { kind: 'leave'; text: string };
 
-export function cancelOffer(card: CardLive): CancelOffer {
-  // Sin pagar, siempre el botón (también con el cliente en su banco). Con bitcoin ya en la red o con un problema, no.
+export function cancelOffer(card: CardLive, bank: BankCancel = 'free'): CancelOffer {
+  // Con bitcoin ya en la red o con un problema, no; con la factura esperando el pago, sí (sin esperar).
   if (card.status === 'AUTHORIZING' && card.bitcoin === 'confirming') return { kind: 'leave', text: BITCOIN_CONFIRMING_TEXT };
   if (card.status === 'AUTHORIZING' && card.bitcoin === 'problem') return { kind: 'leave', text: BITCOIN_PROBLEM_TEXT };
+  if (bank === 'wait') return { kind: 'text', text: AT_BANK_PAYING_TEXT };
+  if (bank === 'late') return { kind: 'late', text: AT_BANK_SLOW_TEXT };
   return { kind: 'button' };
 }
 
 /** El aviso cuando «Cancelar cobro» falla: sin hablar del banco si paga con bitcoin. */
 export function cancelFailedText(card: CardLive, code: string | null): string {
+  const tooSoon = cancelTooSoonText(code);
+  if (tooSoon) return tooSoon;
   if (code === BITCOIN_CONFIRMING_CODE || (card.status === 'AUTHORIZING' && card.bitcoin === 'confirming')) return BITCOIN_CONFIRMING_TEXT;
   if (card.status === 'AUTHORIZING' && card.bitcoin === 'unknown') {
     return 'No se ha podido cancelar: el cliente está pagando (en su banco o con bitcoin). Espera y mira si ya está pagado.';

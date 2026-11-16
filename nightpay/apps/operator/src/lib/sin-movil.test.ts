@@ -181,7 +181,7 @@ describe('Esperando, la única pantalla de cobrar, lo usa', () => {
     expect(alt).toBeGreaterThan(foot);
     // Cada uno con su marca del tutorial: la de «Cancelar cobro» no envuelve al otro botón.
     expect(cancel).toBeGreaterThan(alt);
-    expect(src.indexOf('{children}', cancel)).toBeGreaterThan(cancel);
+    expect(src.indexOf('{children(wait)}', cancel)).toBeGreaterThan(cancel);
   });
 
   it('lo que no cabe pasa por debajo del pie sin verse a través: el pie, del color de la página', () => {

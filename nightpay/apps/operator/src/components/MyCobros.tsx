@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import type { CobroKind, OwnCobro } from '@nightpay/contracts';
-import { Button, Card } from '@nightpay/ui';
+import { Button, Card, useNow } from '@nightpay/ui';
 import { cancelPayment } from '@/lib/api';
 import { paymentTimeLabel, timeLabel } from '@/lib/earnings-view';
 import {
@@ -14,15 +14,18 @@ import {
   ownNightTotals,
   ownPaidTwiceNote,
   ownCobrosPollMs,
+  ownRowBank,
   type OwnCobroIcon,
   type OwnCobrosSnapshot,
   type OwnNight,
 } from '@/lib/my-cobros';
+import { AT_BANK_PAYING_TEXT, AT_BANK_SLOW_TEXT, type BankCancel } from '@/lib/cancel-at-bank';
 import { formatEur } from '@/lib/money';
 import { usePolling } from '@/lib/use-polling';
 import { CancelCobroConfirm } from './CancelCobroConfirm';
 import { CobroDetailSheet } from './CobroDetailSheet';
 import { UnpaidInVenue } from './UnpaidInVenue';
+import { useUnpaidInVenue } from './use-unpaid-in-venue';
 import detailStyles from './cobro-detail.module.css';
 import styles from './my-cobros.module.css';
 
@@ -53,6 +56,10 @@ export function MyCobros({ cancelPending = false, pollMs = 15_000 }: Props) {
   /** El cobro abierto («Detalle del pago»): se toca la fila. */
   const [opened, setOpened] = useState<{ kind: CobroKind; id: string } | null>(null);
   const feed = useRef<ReturnType<typeof createOwnCobrosFeed> | null>(null);
+  // Los cobros sin pagar del local (para «Sin pagar» y, con el cliente en su banco, para las filas suyas).
+  const unpaid = useUnpaidInVenue();
+  // Un solo reloj para toda la pantalla: corre solo mientras algún cobro está en su banco.
+  const now = useNow(unpaid.items?.some((u) => u.atBank) ?? false);
   useEffect(() => {
     const current = createOwnCobrosFeed(fetchOwnCobros, setState);
     feed.current = current;
@@ -76,8 +83,10 @@ export function MyCobros({ cancelPending = false, pollMs = 15_000 }: Props) {
     try {
       await cancelPayment(id);
       refresh();
+      unpaid.refresh();
     } catch (err) {
       setCancelError((err as Error).message);
+      unpaid.refresh();
     } finally {
       setBusyId(null);
       setConfirmRow(null);
@@ -87,7 +96,7 @@ export function MyCobros({ cancelPending = false, pollMs = 15_000 }: Props) {
   return (
     <section className={styles.list} aria-label="Mis cobros" data-tour="cobros-lista">
       <h2 className={styles.title}>Mis cobros</h2>
-      <UnpaidInVenue ownListCancels={cancelPending} onCanceled={refresh} />
+      <UnpaidInVenue items={unpaid.items} nowMs={now} refresh={unpaid.refresh} ownListCancels={cancelPending} onCanceled={refresh} />
       {night && items ? <NightTotal items={items} night={night} cursor={cursor} /> : null}
       {error ? (
         <Card role="alert" style={{ padding: '1rem' }}>
@@ -102,17 +111,22 @@ export function MyCobros({ cancelPending = false, pollMs = 15_000 }: Props) {
       ) : null}
       {items === null && !error ? <p className={styles.note}>Cargando tu historial…</p> : null}
       {items?.length === 0 ? <p className={styles.note}>Aún no has hecho cobros.</p> : null}
-      {items?.map((r, i) => (
-        <CobroRow
-          key={`${r.kind}-${r.id}`}
-          first={i === 0}
-          row={r}
-          night={night}
-          onOpen={() => setOpened({ kind: r.kind, id: r.id })}
-          cancel={cancelPending && ownCobroCancelable(r) ? { busy: busyId === r.id, run: () => setConfirmRow(r) } : null}
-          cancelFirst={cancelPending && ownCobroCancelable(r) && i === firstCancelable}
-        />
-      ))}
+      {items?.map((r, i) => {
+        // En su banco: los primeros 2 minutos sin botón; después, con «El banco tarda…» (null: aún no se sabe).
+        const bank = cancelPending && ownCobroCancelable(r) ? ownRowBank(r, unpaid.items, now) : null;
+        return (
+          <CobroRow
+            key={`${r.kind}-${r.id}`}
+            first={i === 0}
+            row={r}
+            night={night}
+            onOpen={() => setOpened({ kind: r.kind, id: r.id })}
+            bank={bank}
+            cancel={bank !== null && bank !== 'wait' ? { busy: busyId === r.id, run: () => setConfirmRow(r) } : null}
+            cancelFirst={cancelPending && ownCobroCancelable(r) && i === firstCancelable}
+          />
+        );
+      })}
       {cursor ? (
         <Button variant="ghost" onClick={() => void feed.current?.loadMore()} loading={moreBusy} disabled={moreBusy}>
           Ver anteriores
@@ -121,7 +135,7 @@ export function MyCobros({ cancelPending = false, pollMs = 15_000 }: Props) {
       <CobroDetailSheet target={opened} onClose={() => setOpened(null)} />
       <CancelCobroConfirm
         open={confirmRow !== null}
-        atBank={confirmRow?.status === 'AUTHORIZING'}
+        atBank={confirmRow !== null && ownRowBank(confirmRow, unpaid.items, now) === 'late'}
         busy={confirmRow !== null && busyId === confirmRow.id}
         detail={confirmRow ? [confirmRow.ref, formatEur(confirmRow.amountCents, { compact: true })].filter(Boolean).join(' · ') : null}
         onConfirm={() => confirmRow && void onCancel(confirmRow.id)}
@@ -163,6 +177,7 @@ function CobroRow({
   night,
   onOpen,
   cancel,
+  bank = null,
   first = false,
   cancelFirst = false,
 }: {
@@ -170,6 +185,8 @@ function CobroRow({
   night: OwnNight | null;
   onOpen: () => void;
   cancel: RowCancel | null;
+  /** Con el cliente en su banco: «wait» (sin botón) o «late» (con el botón). */
+  bank?: BankCancel | null;
   /** La primera fila lleva las marcas del tutorial (data-tour). */
   first?: boolean;
   /** El primer cobro que se puede cancelar lleva la marca de «Cancelar». */
@@ -215,6 +232,11 @@ function CobroRow({
       </span>
       {r.invitedName ? <span className={styles.invited}>Invitación a {r.invitedName}</span> : null}
       {meta ? <span className={styles.meta}>{meta}</span> : null}
+      {bank === 'wait' || bank === 'late' ? (
+        <span className={styles.meta} role="status">
+          {bank === 'wait' ? AT_BANK_PAYING_TEXT : AT_BANK_SLOW_TEXT}
+        </span>
+      ) : null}
       {cancel ? (
         <div className={`${styles.actions} ${detailStyles.rowAbove}`} {...(cancelFirst ? { 'data-tour': 'cobros-cancelar' } : {})}>
           <Button

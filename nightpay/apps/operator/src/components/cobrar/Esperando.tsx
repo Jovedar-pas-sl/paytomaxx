@@ -48,6 +48,7 @@ import {
   UNCONFIRMED_SENTENCE,
   UNCONFIRMED_TITLE,
   bitcoinWaitText,
+  bankCancelOf,
   cancelAtBank,
   cancelFailedText,
   cancelOffer,
@@ -59,6 +60,7 @@ import {
   serverToLocalMs,
   showsBankStrip,
   type CardLive,
+  type CardWait,
 } from '@/lib/cobro-state';
 import { fetchBankRef, notifiedText, notifyManager, type BankRef } from '@/lib/api-bank-wait';
 import { useShown } from '../reception/desk/use-shown';
@@ -419,12 +421,13 @@ export function Esperando({ cobro, onNew, onRetry, retrying = false, retryError 
     if (outcome.kind === 'canceled' && canceledByMe) onNew();
   }, [outcome.kind, canceledByMe, onNew]);
 
-  // «Cancelar cobro»: sin pagar, siempre (también con el cliente en su banco); con bitcoin ya en la red, no.
-  const offer = cancelOffer(card);
+  // «Cancelar cobro»: sin pagar, sí; con el cliente en su banco, pasados 2 minutos (el reloj
+  // de la espera del banco, en Waiting); con bitcoin esperando el pago, sí; ya en la red, no.
+  const atBank = Boolean(cobro.card) && cancelAtBank(card);
   const confirmSheet = (
     <CancelCobroConfirm
       open={confirming}
-      atBank={Boolean(cobro.card) && cancelAtBank(card)}
+      atBank={atBank}
       busy={canceling}
       onConfirm={() => void cancel()}
       onClose={() => setConfirming(false)}
@@ -606,22 +609,30 @@ export function Esperando({ cobro, onNew, onRetry, retrying = false, retryError 
         fichaHint={fichaHint}
         onSinMovil={sinMovilOn && !checking ? () => setSinMovil(true) : undefined}
       >
-        {offer.kind !== 'button' ? (
-          // Con el bitcoin ya en la red (o con un problema) no se cancela: se puede salir sin cobrar otra vez.
-          <>
-            <p className={styles.altHint}>{offer.text}</p>
-            {offer.kind === 'leave' ? (
-              // Bitcoin en la red o con un problema: se puede salir sin cancelar (sigue en «Cobros»).
-              <button type="button" className={`${styles.btn} ${styles.ghost} ${styles.cancelLink}`} onClick={onNew}>
-                {LEAVE_WITHOUT_CHARGING}
-              </button>
-            ) : null}
-          </>
-        ) : (
-          <button type="button" className={`${styles.btn} ${styles.ghost} ${styles.cancelLink}`} onClick={() => setConfirming(true)} disabled={canceling}>
-            {canceling ? 'Cancelando…' : 'Cancelar cobro'}
-          </button>
-        )}
+        {(wait) => {
+          // Un solo reloj: el de la espera del banco (la pastilla), también si la pantalla se abrió a mitad.
+          const offer = cancelOffer(card, bankCancelOf(atBank, wait));
+          const cancelButton = (
+            <button type="button" className={`${styles.btn} ${styles.ghost} ${styles.cancelLink}`} onClick={() => setConfirming(true)} disabled={canceling}>
+              {canceling ? 'Cancelando…' : 'Cancelar cobro'}
+            </button>
+          );
+          if (offer.kind === 'button') return cancelButton;
+          return (
+            <>
+              <p className={styles.altHint} role={offer.kind === 'leave' ? undefined : 'status'}>
+                {offer.text}
+              </p>
+              {offer.kind === 'late' ? cancelButton : null}
+              {offer.kind === 'leave' ? (
+                // Bitcoin en la red o con un problema: se puede salir sin cancelar (sigue en «Cobros»).
+                <button type="button" className={`${styles.btn} ${styles.ghost} ${styles.cancelLink}`} onClick={onNew}>
+                  {LEAVE_WITHOUT_CHARGING}
+                </button>
+              ) : null}
+            </>
+          );
+        }}
       </Waiting>
       {confirmSheet}
     </div>
@@ -666,7 +677,8 @@ function Waiting({
   fichaHint?: string | null;
   /** «Sin móvil ni ficha»: su código o su pase y su PIN aquí. Sin él, no se ofrece. */
   onSinMovil?: () => void;
-  children: ReactNode;
+  /** El pie («Cancelar cobro»): con la espera del banco de esta pantalla (un solo reloj). */
+  children: (wait: CardWait) => ReactNode;
 }) {
   const staffTip = staffTipOf(cobro);
   const [receivedAt] = useState(() => Date.now());
@@ -781,7 +793,7 @@ function Waiting({
           </button>
         ) : null}
         <div className={styles.footCancel} data-tour="esperando-cancelar">
-          {children}
+          {children(wait)}
         </div>
       </div>
     </div>

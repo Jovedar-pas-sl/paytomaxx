@@ -20,8 +20,9 @@ describe('«Sin pagar en el local»', () => {
     expect(unpaidLine(u({ mine: true, ref: null }))).toMatch(/^12\s?€ · tuyo$/);
   });
 
-  it('dice si el cliente está en su banco o pagando con bitcoin', () => {
-    expect(unpaidState(u({ status: 'AUTHORIZING', atBank: true }))).toBe('El cliente está en su banco');
+  it('dice si el cliente está en su banco (los 2 primeros minutos y después) o pagando con bitcoin', () => {
+    expect(unpaidState(u({ status: 'AUTHORIZING', atBank: true }), 'wait')).toBe('El cliente está pagando en su banco');
+    expect(unpaidState(u({ status: 'AUTHORIZING', atBank: true }), 'late')).toBe('El banco tarda. Si el cliente no ha pagado, puedes cancelar');
     expect(unpaidState(u({ status: 'AUTHORIZING', bitcoin: true }))).toBe('Pagando con bitcoin');
     expect(unpaidState(u())).toBe('Esperando el pago');
   });

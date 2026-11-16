@@ -12,6 +12,7 @@ import {
   ownNightTotals,
   ownPaidTwiceNote,
   ownCobrosPollMs,
+  ownRowBank,
 } from './my-cobros';
 
 const row = (id: string, kind: OwnCobro['kind'], createdAt: string, status = 'AUTHORIZED'): OwnCobro => ({ id, kind, createdAt, status, ref: null, amountCents: 2000, tipCents: 0, methodLabel: kind === 'SALDO' ? 'Saldo' : 'Tarjeta', service: 'Copa con invitación', via: null, isTopUp: false, invitedName: 'Lola', refundedCents: 0 });
@@ -246,5 +247,27 @@ describe('cada cuánto se refresca «Cobros»', () => {
   });
   it('el resto del personal, como siempre', () => {
     expect(ownCobrosPollMs(resto, [{ kind: 'PAYMENT', status: 'CREATED' }])).toBe(15_000);
+  });
+});
+
+describe('«Cancelar» de una fila suya con el cliente en su banco', () => {
+  const at = '2026-10-21T20:00:00Z';
+  const T0 = Date.parse('2026-11-16T23:40:00.000Z');
+  const unpaid = [
+    { id: 'banco', atBank: true, cancelableAtMs: T0 + 60_000 },
+    { id: 'btc', atBank: false, cancelableAtMs: null },
+  ];
+
+  it('sin ir al banco, como siempre; en su banco, lo que diga «Sin pagar» con el mismo reloj', () => {
+    expect(ownRowBank(row('q', 'PAYMENT', at, 'CREATED'), unpaid, T0)).toBe('free');
+    expect(ownRowBank(row('banco', 'PAYMENT', at, 'AUTHORIZING'), unpaid, T0)).toBe('wait');
+    expect(ownRowBank(row('banco', 'PAYMENT', at, 'AUTHORIZING'), unpaid, T0 + 60_000)).toBe('late');
+    // Pagando con bitcoin: sin esperar.
+    expect(ownRowBank(row('btc', 'PAYMENT', at, 'AUTHORIZING'), unpaid, T0)).toBe('free');
+  });
+
+  it('aún sin saberlo («Sin pagar» sin cargar o sin ese cobro): ni botón ni texto', () => {
+    expect(ownRowBank(row('otro', 'PAYMENT', at, 'AUTHORIZING'), unpaid, T0)).toBeNull();
+    expect(ownRowBank(row('banco', 'PAYMENT', at, 'AUTHORIZING'), null, T0)).toBeNull();
   });
 });
