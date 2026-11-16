@@ -446,6 +446,46 @@ export class IncidentsService {
     if (!found) {
       throw new NotFoundException('Esa incidencia no está en la bandeja de este local');
     }
+    await this.close(tenantId, actorId, found, input);
+  }
+
+  /**
+   * Recepción (app del personal): los «No he sido yo» del local sin cerrar.
+   * Solo esos (no la bandeja entera del dueño): el cliente pasa por recepción.
+   */
+  async disputedCharges(tenantId: string, now: Date = new Date()): Promise<Incident[]> {
+    const since = new Date(now.getTime() - LOOKBACK_DAYS * 24 * 60 * 60 * 1000);
+    const rows = await this.prisma.$queryRaw<EventRow[]>`
+      SELECT a.id::text AS id, a."targetId" AS "paymentId",
+             CASE WHEN jsonb_typeof(a.payload -> 'amountCents') = 'number'
+                  THEN (a.payload ->> 'amountCents')::int END AS "amountCents",
+             a."occurredAt", a.payload
+        FROM audit_events a
+       WHERE a."tenantId" = ${tenantId}::uuid
+         AND a.action = 'wallet.charge_disputed_by_client'
+         AND NOT EXISTS (SELECT 1 FROM incident_acks k
+                          WHERE k."tenantId" = a."tenantId" AND k.kind = 'wallet_charge_disputed' AND k."refId" = a.id::text)
+         AND a."occurredAt" >= ${since}
+       ORDER BY a."occurredAt" DESC
+       LIMIT ${PER_KIND_LIMIT}
+    `;
+    return rows.map(walletChargeDisputedIncident).map((i) => ({ ...i, noteRequired: ackNeedsNote(i) }));
+  }
+
+  /** Recepción lo cierra con su nota (como en el panel). Quitar el bloqueo del PIN sigue siendo del encargado. */
+  async ackDisputed(tenantId: string, actorId: string, input: { refId: string; note?: string }): Promise<void> {
+    const found = (await this.disputedCharges(tenantId)).find((i) => i.refId === input.refId);
+    if (!found) throw new NotFoundException('Ese aviso ya no está en la bandeja de este local');
+    await this.close(tenantId, actorId, found, { kind: 'wallet_charge_disputed', refId: input.refId, note: input.note });
+  }
+
+  /** Cerrar una que está en la bandeja: la nota de los de dinero, la marca y el registro. */
+  private async close(
+    tenantId: string,
+    actorId: string,
+    found: Incident,
+    input: { kind: IncidentKind; refId: string; note?: string },
+  ): Promise<void> {
     // Aviso de dinero (B11): se cierra diciendo qué se hizo.
     if (ackNeedsNote(found) && (input.note?.trim().length ?? 0) < MIN_ACK_NOTE_LENGTH) {
       throw new BadRequestException({

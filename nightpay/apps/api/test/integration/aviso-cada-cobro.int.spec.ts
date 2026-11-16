@@ -19,6 +19,8 @@ import { ChargeAlertService, type ChargePushPayload } from '../../src/modules/wa
 import { CHARGE_DISPUTED_ACTION, ChargeDisputeService } from '../../src/modules/wallets/charge-alert/charge-dispute.service';
 import { signNotMeToken } from '../../src/modules/wallets/charge-alert/not-me-token';
 import type { PushSender } from '../../src/modules/wallets/charge-alert/push-sender';
+import { IncidentsController } from '../../src/modules/incidents/incidents.controller';
+import { IncidentsService } from '../../src/modules/incidents/incidents.service';
 
 const ENV = {
   WEB_PUSH_VAPID_PUBLIC_KEY: Buffer.concat([Buffer.from([4]), Buffer.alloc(64, 9)]).toString('base64url'),
@@ -50,6 +52,8 @@ const disputes = new ChargeDisputeService(prisma, audit, ENV as never);
 const cash = new CashTopUpService(prisma, audit, totp as never);
 const cards = new WalletCardsService(prisma, audit);
 const charges = new WalletChargesService(prisma as never, audit, { get: () => ({}) } as never, totp as never, undefined, alerts);
+const incidents = new IncidentsService(prisma, audit);
+const incidentsApi = new IncidentsController(incidents, {} as never, prisma, {} as never);
 
 const inVenue = <T>(tenantId: string | undefined, fn: () => Promise<T>): Promise<T> =>
   cls.run(async () => {
@@ -65,6 +69,7 @@ const key = () => `av-${r}-${(k += 1)}`;
 let V: string;
 let rocio: string;
 let chica: string;
+let barra: string;
 let walletId: string;
 let ficha: { card: string; uid: string };
 const chicaActor = () => ({ userId: chica, role: 'OPERATOR' as const, tenantId: V });
@@ -80,6 +85,7 @@ beforeAll(async () => {
   await sys(async (tx) => {
     V = (await tx.venue.create({ data: { name: 'Sala Aviso', slug: `av-${r}`, walletGroup: `gav-${r}` } })).id;
     rocio = (await tx.user.create({ data: { tenantId: V, email: `rocio-av-${r}@x.es`, passwordHash: 'x', role: 'WAITER', post: 'RECEPCION' } as never })).id;
+    barra = (await tx.user.create({ data: { tenantId: V, email: `barra-av-${r}@x.es`, passwordHash: 'x', role: 'WAITER', post: 'BARRA' } as never })).id;
     chica = (await tx.user.create({ data: { tenantId: V, email: `chica-av-${r}@x.es`, passwordHash: 'x', role: 'OPERATOR', displayName: 'Nerea' } as never })).id;
   });
   // Un saldo de 50 € con su ficha y PIN 2468 (como en recepción).
@@ -184,5 +190,20 @@ describe('«Aviso en cada cobro» (Postgres real)', () => {
     // Con la ficha y el PIN ya no paga nadie.
     await expect(charge(300)).rejects.toBeDefined();
     expect((await sys((tx) => tx.clientWallet.findUniqueOrThrow({ where: { id: walletId }, select: { balanceCents: true } }))).balanceCents).toBe(3_300);
+  });
+
+  it('recepción ve el aviso en su bandeja y lo cierra con nota; la barra no; el PIN sigue bloqueado', async () => {
+    const jwt = (sub: string, role: string) => ({ sub, role, tenantId: V }) as never;
+    const list = await inVenue(V, () => incidentsApi.receptionList(jwt(rocio, 'WAITER')));
+    expect(list.items).toEqual([expect.objectContaining({ kind: 'wallet_charge_disputed', amountCents: 1_200, noteRequired: true })]);
+    expect(list.items[0]!.detail).toContain('El cliente dice que no ha sido él');
+    await expect(inVenue(V, () => incidentsApi.receptionList(jwt(barra, 'WAITER')))).rejects.toMatchObject({ status: 403 });
+    const refId = list.items[0]!.refId;
+    await expect(inVenue(V, () => incidentsApi.receptionAck(jwt(rocio, 'WAITER'), { refId }))).rejects.toMatchObject({ status: 400 });
+    await inVenue(V, () => incidentsApi.receptionAck(jwt(rocio, 'WAITER'), { refId, note: 'Revisado con el cliente: devuelto' }));
+    expect((await inVenue(V, () => incidentsApi.receptionList(jwt(rocio, 'WAITER')))).items).toEqual([]);
+    // Cerrar el aviso no quita el bloqueo: el PIN lo desbloquea el encargado.
+    const w = await sys((tx) => tx.clientWallet.findUniqueOrThrow({ where: { id: walletId }, select: { pinLockedAt: true } }));
+    expect(w.pinLockedAt).toBeInstanceOf(Date);
   });
 });
