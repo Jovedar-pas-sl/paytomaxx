@@ -1,200 +1,96 @@
-import type { Metadata } from 'next';
-import { Logo } from '@nightpay/ui';
-import { CONTACT_EMAIL, LEGAL_LINKS, legalUrl, staffAppUrl, type StaffApp } from '@/lib/customer-pages';
+import type { Metadata, Viewport } from 'next';
+import localFont from 'next/font/local';
+import { cx } from './_portada/bits';
+import { Footer, Header, Topbar } from './_portada/chrome';
+import { Access, Contact, Faq, Party } from './_portada/closing';
+import { Hero } from './_portada/Hero';
+import { Bitcoin, Clients, HowItWorks, Intro, Venues, Versus } from './_portada/sections';
 import s from './landing.module.css';
 
 /**
- * Portada de OxioPay: qué es, cómo se paga, para locales, la entrada del
- * personal y los textos legales. Al pago y al saldo se sigue llegando con el
+ * Portada de OxioPay con el aspecto de oxiocard.com (mismo dueño, JOVEDAR PAS
+ * S.L.): mismos colores, letra, estilo de logo y tipo de secciones; el
+ * contenido es el de OxioPay. Al pago y al saldo se sigue llegando con el
  * enlace del QR (/pay/…, /wallet/…), no desde aquí.
  * Solo cuenta lo que OxioPay hace hoy: sin cifras, reseñas ni promesas.
+ * Página estática: sin JavaScript propio (el menú del móvil y las preguntas
+ * son <details>).
  */
 
+// Manrope en todos los pesos (400-800), solo en la portada: el layout carga
+// Manrope 600-800 para cifras, y aquí hace falta el 400 del texto. Es el
+// subconjunto latino de Google Fonts (licencia OFL: packages/ui/fonts/OFL-manrope.txt),
+// dentro del repo: el build no descarga nada.
+const manrope = localFont({
+  src: './_portada/manrope-latin-400-800.woff2',
+  weight: '400 800',
+  variable: '--font-landing',
+  display: 'swap',
+});
+
+const TITLE = 'OxioPay — Pagar con el móvil en locales de ocio';
+const DESCRIPTION =
+  'Escanea el QR del personal y paga desde tu móvil con tarjeta, Apple Pay, Google Pay o tu saldo, sin app ni registro. Carga tu saldo con bitcoin donde lo aceptan.';
+const OG_IMAGE = { url: '/portada/og.jpg', width: 1200, height: 630, alt: 'OxioPay: escanea, paga desde tu móvil y sigue la noche' };
+
+/**
+ * pay.<dominio>, sacado de NEXT_PUBLIC_API_URL (api.<dominio>), igual que las
+ * entradas del personal: así la URL canónica y la imagen para compartir son
+ * absolutas. En local no hay dominio y Next usa localhost.
+ */
+function landingBase(): URL | undefined {
+  try {
+    const api = new URL(process.env.NEXT_PUBLIC_API_URL ?? '');
+    return api.hostname.startsWith('api.') ? new URL(`${api.protocol}//pay.${api.hostname.slice(4)}`) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export const metadata: Metadata = {
-  title: 'OxioPay — Pagar con el móvil en locales de ocio',
-  description:
-    'Escanea el QR que te enseña el personal y paga desde tu móvil con tarjeta, Apple Pay, Google Pay o tu saldo. Sin app ni registro.',
+  metadataBase: landingBase(),
+  title: TITLE,
+  description: DESCRIPTION,
   // La portada sí se puede encontrar; las páginas de pago siguen fuera de los buscadores (layout).
   robots: { index: true, follow: true },
+  alternates: { canonical: '/' },
+  openGraph: {
+    type: 'website',
+    locale: 'es_ES',
+    siteName: 'OxioPay',
+    url: '/',
+    title: TITLE,
+    description: DESCRIPTION,
+    images: [OG_IMAGE],
+  },
+  twitter: { card: 'summary_large_image', title: TITLE, description: DESCRIPTION, images: [OG_IMAGE.url] },
 };
 
-const MAIL = `mailto:${CONTACT_EMAIL}?subject=${encodeURIComponent('OxioPay para mi local')}`;
-const PARTY_MAIL = `mailto:${CONTACT_EMAIL}?subject=${encodeURIComponent('OxioParty para mi fiesta')}`;
-
-const STEPS = [
-  ['Escanea el QR', 'El personal te lo enseña en su móvil o en el datáfono. No hace falta instalar nada ni registrarse.'],
-  [
-    'Elige cómo pagar',
-    'Tarjeta, Apple Pay, Google Pay o tu saldo. Ves el total antes de pagar y la propina la decides tú.',
-  ],
-  ['Pagado', 'En cuanto el banco lo confirma, lo ves en pantalla y puedes guardar el justificante.'],
-] as const;
-
-const FOR_CLIENTS = [
-  'Sin app ni registro: solo tu móvil.',
-  'La tarjeta la escribes en la página segura del banco, no en OxioPay.',
-  'Saldo prepago, protegido con PIN o Face ID.',
-  'Si te sobra saldo, te lo devolvemos cuando lo pidas.',
-  'En recepción puedes cargar tu saldo con bitcoin, donde lo aceptan; ese saldo se devuelve en euros.',
-] as const;
-
-const FOR_VENUES = [
-  'Cobra con QR, con datáfono o con el saldo del cliente.',
-  'Si quieres, tus clientes cargan su saldo con bitcoin en recepción.',
-  'Fideliza: el saldo de tus clientes vale en todos tus locales y les espera para la próxima visita, también en Google Wallet.',
-  'Un panel con lo cobrado cada noche.',
-  'Las comisiones del personal se calculan solas.',
-  'Avisos al momento en Telegram.',
-] as const;
-
-const STAFF: readonly (readonly [StaffApp, string, string])[] = [
-  ['admin', 'Panel', 'Dueños y encargados'],
-  ['operator', 'App de cobro', 'Personal del local'],
-  ['tpv', 'TPV', 'Caja y barra'],
-];
+// Solo la barra del navegador del móvil, del color de la portada (lo demás, del layout).
+export const viewport: Viewport = { themeColor: '#19272b' };
 
 export default function HomePage() {
   return (
-    <div className={s.page}>
-      <header className={s.top}>
-        <Logo height="1.75rem" />
-        <a className={s.topLink} href="#acceso">
-          Acceso del personal
-        </a>
-      </header>
-
-      <main>
-        <section className={s.hero} aria-labelledby="hero-title">
-          <div className={s.heroText}>
-            <p className={s.eyebrow}>Pagos y fidelización para locales de ocio</p>
-            <h1 id="hero-title" className={s.title}>
-              Escanea, paga y <span className={s.accent}>sigue la noche.</span>
-            </h1>
-            <p className={s.lead}>
-              OxioPay es la forma de pagar en los locales que la usan: escaneas el QR que te enseña el personal y
-              pagas desde tu móvil con tarjeta, Apple Pay, Google Pay o tu saldo.
-            </p>
-            <p className={s.leadEn} lang="en">
-              Scan the QR code the staff show you and pay from your phone.
-            </p>
-            <div className={s.actions}>
-              <a className={s.btn} href={MAIL}>
-                ¿Tienes un local? Escríbenos
-              </a>
-              <a className={s.btnGhost} href="#como-funciona">
-                Cómo funciona
-              </a>
-            </div>
-          </div>
-          <PhoneMock />
-        </section>
-
-        <section id="como-funciona" className={s.section} aria-labelledby="steps-title">
-          <h2 id="steps-title" className={s.h2}>
-            Cómo funciona
-          </h2>
-          <ol className={s.steps}>
-            {STEPS.map(([title, text], i) => (
-              <li key={title} className={s.step}>
-                <span className={s.stepNum} aria-hidden="true">
-                  {i + 1}
-                </span>
-                <h3 className={s.h3}>{title}</h3>
-                <p className={s.text}>{text}</p>
-              </li>
-            ))}
-          </ol>
-        </section>
-
-        <section className={`${s.section} ${s.split}`} aria-label="Para clientes y para locales">
-          <div className={s.panel}>
-            <h2 className={s.h2}>Para clientes</h2>
-            <List items={FOR_CLIENTS} />
-          </div>
-          <div className={`${s.panel} ${s.panelVenue}`}>
-            <h2 className={s.h2}>Para locales</h2>
-            <List items={FOR_VENUES} />
-            <a className={s.btn} href={MAIL}>
-              Escríbenos
-            </a>
-          </div>
-        </section>
-
-        <section className={s.section} aria-labelledby="party-title">
-          <div className={s.party}>
-            <div>
-              <p className={s.eyebrow}>OxioParty</p>
-              <h2 id="party-title" className={s.h2}>
-                ¿Peñas, fiestas o casetas?
-              </h2>
-              <p className={s.text}>
-                Para eso tenemos OxioParty: la versión de OxioPay pensada para peñas, fiestas populares y casetas.
-              </p>
-            </div>
-            <a className={s.btn} href={PARTY_MAIL}>
-              Pregúntanos por OxioParty
-            </a>
-          </div>
-        </section>
-
-        <section id="acceso" className={s.section} aria-labelledby="access-title">
-          <h2 id="access-title" className={s.h2}>
-            Acceso del personal
-          </h2>
-          <p className={s.text}>Cada uno entra con su email y su contraseña en su app.</p>
-          <ul className={s.access}>
-            {STAFF.map(([app, name, who]) => (
-              <li key={app}>
-                <a className={s.accessCard} href={staffAppUrl(app)}>
-                  <span className={s.accessName}>{name}</span>
-                  <span className={s.accessWho}>{who}</span>
-                  <span className={s.arrow} aria-hidden="true">
-                    →
-                  </span>
-                </a>
-              </li>
-            ))}
-          </ul>
-        </section>
+    <div className={cx(s.page, manrope.variable)}>
+      <a className={s.skip} href="#contenido">
+        Saltar al contenido
+      </a>
+      <Topbar />
+      <Header />
+      <main id="contenido">
+        <Hero />
+        <Intro />
+        <HowItWorks />
+        <Clients />
+        <Venues />
+        <Bitcoin />
+        <Versus />
+        <Party />
+        <Contact />
+        <Faq />
+        <Access />
       </main>
-
-      <footer className={s.foot}>
-        <nav aria-label="Textos legales" className={s.legal}>
-          {LEGAL_LINKS.map(([doc, label]) => (
-            <a key={doc} href={legalUrl(doc)}>
-              {label}
-            </a>
-          ))}
-        </nav>
-        <p className={s.owner}>
-          OxioPay es un servicio de JOVEDAR PAS S.L. · <a href={`mailto:${CONTACT_EMAIL}`}>{CONTACT_EMAIL}</a>
-        </p>
-      </footer>
-    </div>
-  );
-}
-
-function List({ items }: { items: readonly string[] }) {
-  return (
-    <ul className={s.list}>
-      {items.map((item) => (
-        <li key={item}>{item}</li>
-      ))}
-    </ul>
-  );
-}
-
-/** La pantalla de pago, dibujada (decorativa: un ejemplo, no un cobro). */
-function PhoneMock() {
-  return (
-    <div className={s.phone} aria-hidden="true">
-      <p className={s.phoneLabel}>Total</p>
-      <p className={s.phoneAmount}>35,00 €</p>
-      <p className={s.phoneTip}>Propina: la eliges tú</p>
-      <span className={s.phonePay}>Pagar con tarjeta</span>
-      <span className={s.phoneAlt}>Apple Pay · Google Pay</span>
-      <span className={s.phoneAlt}>Pagar con mi saldo</span>
-      <p className={s.phoneSecure}>Pago seguro</p>
+      <Footer />
     </div>
   );
 }

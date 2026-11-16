@@ -1,0 +1,771 @@
+/* Las secciones de la portada, de «Pagos y fidelización» a «Acceso del
+   personal». Las fichas (colores, radios, márgenes) son variables de .page, en
+   ../landing.module.css. Cuando una clase de aquí retoca una de allí (.h2,
+   .eyebrow, .btn), va con dos clases para no depender del orden del CSS. */
+
+.section {
+  padding: var(--section-y) 0;
+  scroll-margin-top: var(--anchor-offset);
+}
+
+.split {
+  display: grid;
+  align-items: center;
+  gap: 48px;
+}
+
+.art {
+  display: flex;
+  justify-content: center;
+}
+
+.artFrame {
+  position: relative;
+}
+
+/* ── «Pagos y fidelización»: titular centrado y tres tarjetas lima ── */
+
+.intro {
+  padding-top: 60px;
+}
+
+.introHead {
+  max-width: 640px;
+  margin: 0 auto 40px;
+  text-align: center;
+}
+
+.cards {
+  display: grid;
+  gap: 24px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 30px;
+  border-radius: var(--r-2);
+  background: var(--c-lime);
+  color: var(--c-ink);
+  text-align: center;
+}
+
+.cardIcon {
+  margin-bottom: 16px;
+}
+
+.cardTitle {
+  margin: 0;
+  color: var(--c-ink);
+  font-size: 19px;
+  font-weight: 700;
+  line-height: 1.6;
+}
+
+/* ── Cómo funciona: tres pasos con la raya a la izquierda del texto ── */
+
+.how {
+  background: var(--c-dark-2);
+}
+
+.how .howTitle {
+  margin-bottom: 44px;
+}
+
+.steps {
+  display: grid;
+  gap: 56px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.stepArt {
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  height: 280px;
+  margin-bottom: 28px;
+}
+
+.stepCrop {
+  height: 100%;
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(180deg, #000 68%, transparent);
+  mask-image: linear-gradient(180deg, #000 68%, transparent);
+}
+
+.stepPhone {
+  --pw: 210px;
+}
+
+.qrTile {
+  display: grid;
+  place-items: center;
+  width: 210px;
+  height: 210px;
+  margin-top: 28px;
+  border-radius: var(--r-2);
+  background: var(--c-lime);
+  color: var(--c-ink);
+  box-shadow: 0 30px 60px -24px rgb(0 0 0 / 0.6);
+}
+
+.stepText {
+  padding-left: 30px;
+  border-left: 1px solid var(--c-rule);
+}
+
+.stepText .stepEyebrow {
+  margin-bottom: 8px;
+}
+
+.stepTitle {
+  margin: 0 0 10px;
+  color: #fff;
+  font-size: 28px;
+  font-weight: 700;
+  line-height: 1.3;
+}
+
+/* ── Para clientes («Beneficios de oxiocard») ── */
+
+.clients {
+  background:
+    radial-gradient(34% 40% at 18% 34%, rgb(149 196 212 / 0.1), transparent 70%),
+    radial-gradient(30% 36% at 62% 64%, rgb(77 108 119 / 0.3), transparent 70%),
+    #142125;
+}
+
+.clientsPhone {
+  --pw: clamp(220px, 62vw, 300px);
+}
+
+/* La placa lima de oxiocard («SIN costes periódicos»). */
+.badge {
+  position: absolute;
+  right: -32px;
+  bottom: 40px;
+  z-index: 2;
+  width: 120px;
+  margin: 0;
+  padding: 16px;
+  border-radius: var(--r-1);
+  background: var(--c-lime);
+  color: var(--c-ink);
+  text-align: center;
+  box-shadow: 0 20px 40px -12px rgb(0 0 0 / 0.55);
+}
+
+.badgeBig {
+  display: block;
+  font-size: 48px;
+  font-weight: 700;
+  line-height: 1.1;
+  text-transform: uppercase;
+}
+
+.badgeLine {
+  display: block;
+  margin: 8px 0;
+  border-bottom: 1px solid var(--c-ink);
+}
+
+.badgeText {
+  display: block;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.5;
+  text-transform: uppercase;
+}
+
+.h2Logo {
+  display: inline-block;
+  width: 170px;
+  height: auto;
+  margin-left: 4px;
+  vertical-align: -6px;
+}
+
+.points {
+  display: grid;
+  gap: 20px;
+  margin: 8px 0 32px;
+  padding: 0;
+  list-style: none;
+}
+
+.points li {
+  font-size: 18px;
+  line-height: 32px;
+  letter-spacing: -0.2px;
+}
+
+.points strong,
+.vsLine strong,
+.callout strong {
+  color: #fff;
+  font-weight: 700;
+}
+
+.pointIcon {
+  display: inline-block;
+  margin-right: 8px;
+  color: var(--c-lime-bright);
+  vertical-align: -4px;
+}
+
+.callout {
+  position: relative;
+  padding: 24px 24px 24px 72px;
+  border: 1px solid var(--c-line);
+  border-radius: 12px;
+  background: var(--c-dark-3);
+}
+
+.calloutIcon {
+  position: absolute;
+  top: 26px;
+  left: 22px;
+  color: var(--c-lime-bright);
+}
+
+.callout p {
+  margin: 0;
+  color: var(--c-cream);
+  font-size: 18px;
+  font-weight: 500;
+  line-height: 1.6;
+}
+
+/* ── Para locales: losetas oscuras con el icono en lima ── */
+
+/* En el móvil, icono a la izquierda (más corto); desde tableta, arriba. */
+.tiles {
+  display: grid;
+  gap: 24px;
+  margin: 40px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.tile {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: start;
+  column-gap: 16px;
+  padding: 20px;
+  border: 1px solid var(--c-line);
+  border-radius: var(--r-2);
+  background: var(--c-dark-2);
+}
+
+.tileIcon {
+  display: inline-grid;
+  grid-row: span 2;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: rgb(198 231 108 / 0.12);
+  color: var(--c-lime);
+}
+
+.tileTitle {
+  margin: 0 0 4px;
+  color: #fff;
+  font-size: 19px;
+  font-weight: 700;
+  line-height: 1.6;
+}
+
+.tileText {
+  margin: 0;
+}
+
+.ctaRow {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 12px;
+  margin-top: 40px;
+}
+
+/* ── Bitcoin ── */
+
+.btc {
+  background:
+    radial-gradient(40% 55% at 82% 45%, rgb(198 231 108 / 0.07), transparent 70%),
+    var(--c-dark-2);
+}
+
+/* Los dos móviles, cortados y fundidos abajo (la carga deja hueco al final). */
+.btcArt {
+  --btc-pw: clamp(180px, 50vw, 270px);
+  align-items: flex-start;
+  height: calc(var(--btc-pw) * 1.72);
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(180deg, #000 76%, transparent);
+  mask-image: linear-gradient(180deg, #000 76%, transparent);
+}
+
+.btcFront {
+  --pw: var(--btc-pw);
+  z-index: 2;
+}
+
+.btcBack {
+  --pw: calc(var(--btc-pw) * 0.89);
+  z-index: 1;
+  margin-top: 56px;
+  margin-left: calc(var(--pw) * -0.26);
+}
+
+.soon {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  gap: 20px;
+  padding: 18px 22px;
+  border: 1px dashed rgb(198 231 108 / 0.45);
+  border-radius: var(--r-2);
+  background: var(--c-dark-3);
+}
+
+.soonCrop {
+  height: 150px;
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(180deg, #000 62%, transparent);
+  mask-image: linear-gradient(180deg, #000 62%, transparent);
+}
+
+.soonPhone {
+  --pw: 104px;
+}
+
+.soonTag {
+  display: inline-block;
+  margin: 0 0 6px;
+  padding: 2px 12px;
+  border-radius: var(--r-pill);
+  background: var(--c-lime);
+  color: var(--c-ink);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.6;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+}
+
+.soonTitle {
+  margin: 0;
+  color: #fff;
+  font-size: 19px;
+  font-weight: 700;
+  line-height: 1.6;
+}
+
+.soonText {
+  margin: 0;
+}
+
+/* ── Comparativa: «Efectivo y datáfono VS OxioPay» ── */
+
+.vs {
+  background:
+    radial-gradient(32% 34% at 12% 30%, rgb(149 196 212 / 0.08), transparent 70%),
+    radial-gradient(28% 34% at 88% 68%, rgb(77 108 119 / 0.22), transparent 70%),
+    #142125;
+}
+
+.vsWord {
+  color: var(--c-lime-bright);
+  text-transform: uppercase;
+}
+
+.vsGrid {
+  display: grid;
+  gap: 48px;
+  margin-top: 24px;
+}
+
+.vsTopic + .vsTopic {
+  margin-top: 48px;
+}
+
+.vsTopicTitle {
+  margin: 0 0 24px;
+  color: #fff;
+  font-size: 26px;
+  font-weight: 700;
+  line-height: 1.5;
+}
+
+.vsSide {
+  margin: 0 0 8px;
+  color: #fff;
+  font-size: 19px;
+  font-weight: 700;
+  line-height: 1.6;
+}
+
+.vsLine {
+  margin: 0;
+  font-size: 18px;
+  line-height: 32px;
+  letter-spacing: -0.2px;
+}
+
+.vsMark {
+  display: inline-grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  margin-right: 8px;
+  border-radius: 50%;
+  vertical-align: -6px;
+}
+
+.vsNo {
+  background: var(--c-red);
+  color: #fff;
+}
+
+.vsYes {
+  background: var(--c-lime-bright);
+  color: var(--c-ink);
+}
+
+.vsRule {
+  height: 1px;
+  margin: 24px 0;
+  border: 0;
+  background: var(--c-rule);
+}
+
+/* ── OxioParty: la franja lima ── */
+
+.partySection {
+  padding-bottom: 0;
+}
+
+.party {
+  display: grid;
+  gap: 28px;
+  padding: 40px 28px;
+  border-radius: var(--r-2);
+  background: var(--c-lime);
+  color: var(--c-ink);
+}
+
+.party .inkText {
+  color: var(--c-ink);
+}
+
+.partyText {
+  margin: 0;
+  color: rgb(25 39 43 / 0.82);
+  font-size: 18px;
+  line-height: 32px;
+}
+
+.partyBtn {
+  justify-self: start;
+}
+
+.party .partyBtn:focus-visible {
+  outline-color: var(--c-ink);
+}
+
+/* ── Contacto: tarjeta de cristal sobre luces azules ── */
+
+.contact {
+  background:
+    radial-gradient(46% 60% at 82% 50%, rgb(77 108 119 / 0.4), transparent 70%),
+    radial-gradient(28% 36% at 8% 62%, rgb(149 196 212 / 0.08), transparent 70%),
+    var(--c-dark-1);
+}
+
+.contactCard {
+  padding: 28px 24px;
+  border: 1px solid var(--c-line);
+  border-radius: var(--r-2);
+  background: rgb(25 39 43 / 0.75);
+  box-shadow: 0 20px 40px rgb(0 0 0 / 0.3);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+.contactList {
+  margin: 0 0 24px;
+}
+
+.contactRow {
+  padding: 14px 0;
+  border-bottom: 1px solid var(--c-line);
+}
+
+.contactRow dt {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #fff;
+  font-weight: 700;
+}
+
+.contactRow dt svg {
+  color: var(--c-lime);
+}
+
+.contactRow dd {
+  margin: 2px 0 0;
+  color: var(--c-text-2);
+  font-size: 20px;
+  font-weight: 600;
+}
+
+.contactActions {
+  display: grid;
+  gap: 12px;
+}
+
+/* ── Preguntas: acordeón con <details> ── */
+
+.faqList {
+  margin-top: 24px;
+}
+
+.faqItem {
+  border-bottom: 1px solid rgb(255 255 255 / 0.75);
+}
+
+.faqQ {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-height: 60px;
+  padding: 15px 0;
+  color: #fff;
+  font-size: 18px;
+  font-weight: 600;
+  line-height: 1.5;
+  cursor: pointer;
+  list-style: none;
+  transition: color 0.3s;
+}
+
+.faqQ::-webkit-details-marker {
+  display: none;
+}
+
+.faqQ:hover {
+  color: var(--c-lime);
+}
+
+.faqItem[open] .faqQ {
+  color: var(--c-lime-bright);
+}
+
+.faqChev {
+  flex: none;
+  transition: transform 0.3s var(--ease);
+}
+
+.faqItem[open] .faqChev {
+  transform: rotate(180deg);
+}
+
+.faqA {
+  margin: 0;
+  padding: 0 0 22px;
+}
+
+.faqA a,
+.faqA a:hover {
+  color: var(--c-lime);
+  text-decoration: underline;
+  text-underline-offset: 0.15em;
+}
+
+/* ── Acceso del personal ── */
+
+.access {
+  border-top: 1px solid var(--c-line);
+}
+
+.accessList {
+  display: grid;
+  gap: 16px;
+  margin: 32px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.accessCard,
+.accessCard:hover {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  column-gap: 16px;
+  min-height: 92px;
+  padding: 20px 24px;
+  border: 1px solid var(--c-line);
+  border-radius: var(--r-2);
+  background: var(--c-dark-2);
+  color: #fff;
+  text-decoration: none;
+  transition:
+    border-color 0.3s,
+    background-color 0.3s,
+    transform 0.3s var(--ease);
+}
+
+.accessCard:hover {
+  border-color: rgb(198 231 108 / 0.6);
+  background: #26373d;
+  transform: translateY(-2px);
+}
+
+.accessName {
+  font-size: 19px;
+  font-weight: 700;
+  line-height: 1.4;
+}
+
+.accessWho {
+  grid-row: 2;
+  color: var(--c-text);
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+.accessArrow {
+  grid-row: 1 / span 2;
+  grid-column: 2;
+  color: var(--c-lime);
+  transition: transform 0.3s var(--ease);
+}
+
+.accessCard:hover .accessArrow {
+  transform: translateX(4px);
+}
+
+/* ── Más ancho ──────────────────────────────────────── */
+
+@media (min-width: 480px) {
+  .contactActions {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+@media (min-width: 600px) {
+  .tiles {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .tile {
+    display: block;
+    padding: 30px;
+  }
+
+  .tileIcon {
+    width: 52px;
+    height: 52px;
+    margin-bottom: 18px;
+  }
+}
+
+/* Tableta: cada paso con su imagen al lado, como el carrusel de oxiocard. */
+@media (min-width: 600px) and (max-width: 992px) {
+  .step {
+    display: grid;
+    grid-template-columns: 220px 1fr;
+    align-items: center;
+    column-gap: 32px;
+  }
+
+  .stepArt {
+    height: 260px;
+    margin-bottom: 0;
+  }
+}
+
+@media (min-width: 768px) {
+  .cards {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .h2Logo {
+    width: 200px;
+    vertical-align: -8px;
+  }
+
+  .party {
+    padding: 48px 44px;
+  }
+
+  .contactCard {
+    padding: 44px 48px;
+  }
+
+  .accessList {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+@media (min-width: 993px) {
+  .split {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .splitText {
+    padding-left: 48px;
+  }
+
+  .splitTextStart {
+    padding-right: 24px;
+  }
+
+  .cards,
+  .tiles {
+    grid-template-columns: repeat(3, 1fr);
+  }
+
+  .steps {
+    grid-template-columns: repeat(3, 1fr);
+    gap: 32px;
+  }
+
+  .stepArt {
+    height: 320px;
+  }
+
+  .stepPhone {
+    --pw: 230px;
+  }
+
+  .qrTile {
+    width: 230px;
+    height: 230px;
+  }
+
+  .vsGrid {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .party {
+    grid-template-columns: 1fr auto;
+    align-items: center;
+    gap: 48px;
+    padding: 56px 60px;
+  }
+
+  .partyBtn {
+    justify-self: end;
+  }
+}
