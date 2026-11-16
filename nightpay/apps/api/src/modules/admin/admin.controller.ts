@@ -453,10 +453,13 @@ export class AdminController {
   /**
    * Reconciliación manual de un pago atascado en ORPHAN.
    *
-   * Cuando el webhook de la pasarela no llega y la consulta REST tampoco
-   * funciona (SIS0105 — operador no autorizado, banco con feature off),
-   * los pagos quedan ORPHAN. El admin verifica el estado en el panel del
-   * banco y aquí lo marca como AUTHORIZED o FAILED para cerrar el ciclo.
+   * Cuando el aviso de la pasarela no llega y la consulta a la pasarela no
+   * lo confirma, los pagos quedan ORPHAN. Con Redsys hoy siempre: su
+   * consulta no está disponible (el SIS0105 de antes venía de mandar el tipo
+   * 44, «Borrar Referencia», no de un permiso que faltara en BBVA; la
+   * consulta de verdad, SOAP SerClsWSConsulta, está pendiente de BBVA). El
+   * admin verifica el estado en el panel del banco y aquí lo marca como
+   * AUTHORIZED o FAILED para cerrar el ciclo.
    *
    * Solo OWNER puede hacerlo (impacto financiero directo). Auditado.
    * Solo pagos en ORPHAN — no se puede manipular otros estados.
