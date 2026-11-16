@@ -56,7 +56,7 @@ export const GUIA_COBRAR: GuiaSection = {
     },
     {
       ...img('cobrar-3-qr', 480, 787),
-      alt: 'El cobro abierto: el importe, «Acerca el NFC o escanea» y el QR.',
+      alt: 'El cobro abierto: el importe, «Acerca la ficha o escanea» y el QR.',
       text: 'El cliente escanea el QR con su móvil o acerca su ficha por detrás del tuyo.',
     },
     {
@@ -80,7 +80,7 @@ export const GUIA_CARGAR: GuiaSection = {
   steps: [
     {
       ...img('cargar-1-nfc', 480, 587),
-      alt: 'Recepción en «Entrada»: «Acerca el NFC».',
+      alt: 'Recepción en «Entrada»: «Acerca la ficha».',
       text: tapHelp('entrada'),
     },
     {

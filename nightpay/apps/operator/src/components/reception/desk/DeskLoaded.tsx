@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useId, useRef, useState, type CSSProperties, type ReactNode } from 'react';
-import { cashHow, OutcomeHowCard, ScreenHelp, SectionChip } from '@nightpay/ui';
+import { cashHow, OutcomeHowCard, PrintButton, ScreenHelp, SectionChip, usePrintTicket, type Ticket } from '@nightpay/ui';
 import { playOutcomeSound } from '@/lib/alert-sound';
 import { formatEur } from '@/lib/money';
 import { TOURS } from '@/lib/tours';
@@ -46,6 +46,8 @@ interface Props {
    * ser la tarjeta de «cómo se pagó» (En efectivo · Mételo en la caja · Cobró…).
    */
   cashBy?: string | null;
+  /** CARGADO: el comprobante de la carga que sale con «Imprimir comprobante» (papel de 58 mm). */
+  print?: Ticket | null;
 }
 
 /** «En efectivo · Mételo en la caja»; con comisión, también cuánto va a la caja (no es el mismo importe). */
@@ -90,7 +92,9 @@ export function DeskLoaded({
   aviso = null,
   tertiary = null,
   cashBy = null,
+  print = null,
 }: Props) {
+  const printer = usePrintTicket();
   // La hora a la que salió la pantalla (no cambia al repintar).
   const [shownAt] = useState(() => new Date());
   const titleId = useId();
@@ -166,9 +170,11 @@ export function DeskLoaded({
               {secondary.label}
             </button>
           ) : null}
+          {print ? <PrintButton label="Imprimir comprobante" onClick={() => printer.print(print)} /> : null}
         </div>
         {tertiary}
       </div>
+      {printer.ticketNode}
       <p role="status" aria-live="polite" className="np-sr-only">
         {announce}
       </p>
