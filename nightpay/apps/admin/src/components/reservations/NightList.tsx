@@ -43,7 +43,7 @@ export function NightList({ packages }: { packages: ReservationPackageView[] }) 
   const people = live.reduce((a, r) => a + r.entries, 0);
   return (
     <div style={stack}>
-      <div style={row} role="group" aria-label="Noche">
+      <div style={row} role="group" aria-label="Noche" data-tour="reservados-noche">
         <Button variant="ghost" size="sm" onClick={() => setNight(addDays(night, -1))} aria-label="Noche anterior">
           ‹
         </Button>

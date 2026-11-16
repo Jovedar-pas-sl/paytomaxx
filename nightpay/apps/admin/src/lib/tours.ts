@@ -186,6 +186,14 @@ export const TOURS = {
       { target: 'perfil-movil', title: 'Este equipo', text: 'El tema del panel: oscuro, claro o como el equipo. Se guarda solo en este navegador.' },
     ],
   },
+  reservations: {
+    screen: 'panel-reservados',
+    steps: [
+      { target: 'reservados-vistas', title: 'Cuatro vistas', text: 'Las reservas de cada noche, los paquetes que vendes, tus RRPP y el enlace para reservar con señal.' },
+      { target: 'reservados-noche', title: 'La noche', text: 'Cambia de noche con las flechas o la fecha. Debajo salen sus reservas y «Reservar para un cliente».' },
+      { target: 'reservados-reserva', title: 'Cada reserva', text: 'El cliente, su referencia y lo pagado. Cuando llega, «Ha venido»; si no aparece, «No vino» (se puede deshacer).' },
+    ],
+  },
 } as const satisfies Record<string, TourDef>;
 
 
@@ -211,4 +219,5 @@ export const TAB_TOURS: Readonly<Partial<Record<TabKey, TourDef>>> = {
   permissions: TOURS.permissions,
   alerts: TOURS.alerts,
   security: TOURS.security,
+  reservations: TOURS.reservations,
 };

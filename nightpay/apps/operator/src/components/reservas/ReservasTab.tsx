@@ -324,12 +324,12 @@ function Bar({
 }
 
 const page: CSSProperties = { display: 'flex', flexDirection: 'column', gap: '1rem', padding: '1rem', maxWidth: '32rem', margin: '0 auto' };
-const h1: CSSProperties = { margin: 0, fontSize: '1.5rem', fontWeight: 700 };
-const h2: CSSProperties = { margin: 0, fontSize: '1.125rem', fontWeight: 700 };
-const note: CSSProperties = { margin: 0, fontSize: '0.9375rem', color: 'var(--np-text-mute)' };
-const line: CSSProperties = { margin: 0, fontSize: '0.9375rem' };
-const ok: CSSProperties = { margin: 0, fontSize: '0.9375rem', color: 'var(--np-success)', fontWeight: 600 };
-const bad: CSSProperties = { margin: 0, fontSize: '0.9375rem', color: 'var(--np-danger-text)', fontWeight: 600 };
+const h1: CSSProperties = { margin: 0, fontSize: 'var(--np-t-h1)', fontWeight: 700 };
+const h2: CSSProperties = { margin: 0, fontSize: 'var(--np-t-h3)', fontWeight: 700 };
+const note: CSSProperties = { margin: 0, fontSize: 'var(--np-fs-16)', color: 'var(--np-text-mute)' };
+const line: CSSProperties = { margin: 0, fontSize: 'var(--np-fs-16)' };
+const ok: CSSProperties = { margin: 0, fontSize: 'var(--np-fs-16)', color: 'var(--np-success)', fontWeight: 600 };
+const bad: CSSProperties = { margin: 0, fontSize: 'var(--np-fs-16)', color: 'var(--np-danger-text)', fontWeight: 600 };
 const row: CSSProperties = { display: 'flex', gap: '0.5rem', alignItems: 'center' };
 const card: CSSProperties = {
   display: 'flex',
@@ -352,5 +352,5 @@ const input: CSSProperties = {
   background: 'var(--np-surface-2, transparent)',
   color: 'inherit',
   font: 'inherit',
-  fontSize: '1rem',
+  fontSize: 'var(--np-fs-16)',
 };

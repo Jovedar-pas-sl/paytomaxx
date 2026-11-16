@@ -48,7 +48,7 @@ export function ReservationCard({
 
   const tone = statusTone(r.status);
   return (
-    <article style={card} aria-labelledby={`resv-${r.id}`}>
+    <article style={card} aria-labelledby={`resv-${r.id}`} data-tour="reservados-reserva">
       <header style={head}>
         <h3 id={`resv-${r.id}`} style={title}>
           {r.customerName} <span style={mute}>· {r.ref}</span>
