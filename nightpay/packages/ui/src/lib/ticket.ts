@@ -147,7 +147,8 @@ export interface TopUpTicketInput {
   amountCents: number;
   /** La comisión del servicio que pagó encima (0: sin ella). */
   feeCents?: number;
-  method: 'cash' | 'card';
+  /** «bitcoin»: el QR de la carga, que el cliente pagó con bitcoin desde su móvil. */
+  method: 'cash' | 'card' | 'bitcoin';
   /** El número impreso de la ficha (null: sin ficha). */
   ficha?: string | null;
   /** El código del saldo (K7Q-4M2), si se enseña en pantalla. */
@@ -157,6 +158,13 @@ export interface TopUpTicketInput {
   reference?: string | null;
   at: Date;
 }
+
+/** Cómo se pagó la carga, tal como sale en el papel. */
+const TOP_UP_HOW: Readonly<Record<TopUpTicketInput['method'], string>> = {
+  cash: 'En efectivo',
+  card: 'Con tarjeta',
+  bitcoin: 'Con bitcoin',
+};
 
 /** El comprobante de una carga de saldo en recepción. */
 export function topUpTicket(i: TopUpTicketInput): Ticket {
@@ -171,7 +179,7 @@ export function topUpTicket(i: TopUpTicketInput): Ticket {
     title: 'Carga de saldo',
     venue: i.venue ?? null,
     amountCents: i.amountCents,
-    how: i.method === 'cash' ? 'En efectivo' : 'Con tarjeta',
+    how: TOP_UP_HOW[i.method],
     rows,
     reference: i.reference ?? null,
     at: i.at,

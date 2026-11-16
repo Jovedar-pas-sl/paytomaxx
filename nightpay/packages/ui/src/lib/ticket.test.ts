@@ -82,6 +82,22 @@ describe('ticket impreso', () => {
     ]);
   });
 
+  it('pagado con bitcoin desde su móvil: el papel dice «Con bitcoin», nunca «Con tarjeta»', () => {
+    // La carga con el QR que el cliente pagó con bitcoin (lo dice el sondeo del QR).
+    const carga = topUpTicket({ amountCents: 5000, feeCents: 600, method: 'bitcoin', ficha: '0522', balanceCents: 5000, at: AT });
+    expect(carga.how).toBe('Con bitcoin');
+    expect(carga.rows).toEqual([
+      { label: 'Comisión del servicio', value: eur(600) },
+      { label: 'Pagado', value: eur(5600) },
+      { label: 'Ficha', value: 'nº 0522' },
+      { label: 'Saldo ahora', value: eur(5000) },
+    ]);
+    // Y el comprobante de un cobro: lo que diga la tarjeta de «cómo se pagó».
+    const cobro = paidTicket({ amountCents: 2000, how: cardHow({ payMethod: 'bitcoin', code: 'K7Q4', who: 'Carlos', at: AT }), at: AT });
+    expect(cobro.how).toBe('Con bitcoin');
+    expect(cobro.rows).toEqual([{ label: 'Código del cobro', value: 'K7Q4' }]);
+  });
+
   it('la prueba de impresión no es un cobro y su QR es la propia app', () => {
     const t = testTicket(AT, 'https://operator.example');
     expect(t.amountCents).toBe(0);
