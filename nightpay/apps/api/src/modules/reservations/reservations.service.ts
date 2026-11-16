@@ -98,6 +98,31 @@ const MAX_REF_ATTEMPTS = 4;
 export const RESERVATION_GONE = 'Este enlace no existe o ya no vale';
 
 /**
+ * Un pago de la reserva sin empezar: CREATED o, tras cerrarse su factura de
+ * bitcoin sin pagarse («Pagar de otra forma» o caducada), AWAITING_CAPTURE. Se
+ * puede seguir pagando o cancelar para abrir otro.
+ */
+export const NOT_STARTED = ['CREATED', 'AWAITING_CAPTURE'] as const;
+const notStarted = (status: string): boolean => (NOT_STARTED as readonly string[]).includes(status);
+
+interface OpenReservationPayment {
+  paymentId: string;
+  kind: string;
+  status: string;
+  qrToken: string;
+  provider: string | null;
+}
+
+/**
+ * Se puede volver a él desde la página del grupo («Seguir pagando»): sin
+ * empezar, o pagando con su factura de bitcoin abierta (su página con el QR).
+ * En el banco con tarjeta, no: se espera a que conteste.
+ */
+export function continuable(open: Pick<OpenReservationPayment, 'status' | 'provider'>): boolean {
+  return notStarted(open.status) || (open.status === 'AUTHORIZING' && open.provider === 'BTCPAY');
+}
+
+/**
  * Reservados con señal (la parte del cliente): la entrada (el enlace del local
  * o el de un RRPP), reservar, pagar con tarjeta (señal, resto o todo: un cobro
  * de recarga del saldo del grupo, la maquinaria de /r y /pay, sin bitcoin), la
@@ -317,7 +342,8 @@ export class ReservationsService {
     const r = await this.prisma.asSystem((tx) => tx.reservation.findUnique({ where: { id: reservationId } }));
     if (!r) throw new NotFoundException({ message: RESERVATION_GONE, code: 'RESERVATION_GONE' });
     const open = await this.openPaymentOf(r.id);
-    if (open?.kind === kind && open.status === 'CREATED') return open.qrToken;
+    // El mismo pago a medias: sin empezar (o de vuelta tras cerrar su factura de bitcoin) o con su factura de bitcoin abierta.
+    if (open?.kind === kind && continuable(open)) return open.qrToken;
     if (open) await this.dropOpen(open, r.tenantId);
     const amountCents = payAmount(r, kind);
     if (amountCents === null) throw new ConflictException({ message: 'Ese pago ya no toca en esta reserva', code: 'RESERVATION_NOT_PAYABLE' });
@@ -341,27 +367,33 @@ export class ReservationsService {
     return created.qrToken;
   }
 
-  /** El pago a medias de la reserva (sin pagar y sin caducar, o en el banco). */
-  private async openPaymentOf(reservationId: string): Promise<{ paymentId: string; kind: string; status: string; qrToken: string } | null> {
+  /**
+   * El pago a medias de la reserva: sin pagar y sin caducar (también de vuelta
+   * a AWAITING_CAPTURE al cerrarse su factura de bitcoin sin pagar), o pagando
+   * (en el banco o con su factura de bitcoin abierta).
+   */
+  private async openPaymentOf(reservationId: string): Promise<OpenReservationPayment | null> {
     const rows = await this.prisma.asSystem((tx) =>
       tx.reservationPayment.findMany({
         where: {
           reservationId,
           paidAt: null,
-          payment: { OR: [{ status: 'AUTHORIZING' }, { status: 'CREATED', qrExpiresAt: { gt: new Date() } }] },
+          payment: { OR: [{ status: 'AUTHORIZING' }, { status: { in: [...NOT_STARTED] }, qrExpiresAt: { gt: new Date() } }] },
         },
         orderBy: { createdAt: 'desc' },
         take: 1,
-        select: { paymentId: true, kind: true, payment: { select: { status: true, qrToken: true } } },
+        select: { paymentId: true, kind: true, payment: { select: { status: true, qrToken: true, provider: true } } },
       }),
     );
     const row = rows[0];
-    return row?.paymentId && row.payment ? { paymentId: row.paymentId, kind: row.kind, status: row.payment.status, qrToken: row.payment.qrToken } : null;
+    return row?.paymentId && row.payment
+      ? { paymentId: row.paymentId, kind: row.kind, status: row.payment.status, qrToken: row.payment.qrToken, provider: row.payment.provider }
+      : null;
   }
 
-  /** Otro tipo de pago con uno a medias: el de antes se cancela (si ya está en el banco, hay que esperar). */
+  /** Otro tipo de pago con uno a medias: el de antes se cancela (si ya está en el banco o con bitcoin, hay que esperar). */
   private async dropOpen(open: { paymentId: string; status: string }, tenantId: string): Promise<void> {
-    if (open.status === 'CREATED') {
+    if (notStarted(open.status)) {
       try {
         await this.payments.transition(open.paymentId, { type: 'CANCELED', reason: 'Otro pago del reservado' }, tenantId);
         return;
@@ -399,7 +431,7 @@ export class ReservationsService {
       venueName: row.venue.name,
       reservation: view,
       payable: payableKinds(row),
-      openPayUrl: open?.status === 'CREATED' ? `/pay/${encodeURIComponent(open.qrToken)}` : null,
+      openPayUrl: open && continuable(open) ? `/pay/${encodeURIComponent(open.qrToken)}` : null,
       canChangeDate: clientChangeBlocker({ ...row, nightDate: day }, now, openMinute) === null,
       cancel: cancelBlocked ? null : row.status === 'PENDING' ? 'Cancelar' : 'Anular',
       cancelBlocked: row.status === 'DEPOSIT_PAID' || row.status === 'PAID' ? cancelBlocked : null,
@@ -482,7 +514,7 @@ export class ReservationsService {
       if (r.status === 'PENDING') {
         await tx.reservation.update({ where: { id: r.id }, data: { status: 'CANCELED', canceledAt: new Date(), cancelReason: 'El cliente la canceló sin pagar' } });
         await this.audit.logInTx(tx, { action: 'reservation.canceled_by_client', tenantId: r.tenantId, targetType: 'Reservation', targetId: r.id, payload: { paidCents: 0 } });
-        const open = await tx.reservationPayment.findFirst({ where: { reservationId: r.id, paidAt: null, payment: { status: 'CREATED' } }, select: { paymentId: true } });
+        const open = await tx.reservationPayment.findFirst({ where: { reservationId: r.id, paidAt: null, payment: { status: { in: [...NOT_STARTED] } } }, select: { paymentId: true } });
         return open?.paymentId ? { paymentId: open.paymentId, tenantId: r.tenantId } : null;
       }
       const outcome = await loseDeposit(tx, r, await venueOwnerId(tx, r.tenantId), 'cancel');

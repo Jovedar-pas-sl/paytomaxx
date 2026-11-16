@@ -46,6 +46,8 @@ export const RESERVATION_VIEW_INCLUDE = {
   spends: { orderBy: { createdAt: 'asc' as const } },
   wallet: { select: { balanceCents: true, status: true, qrToken: true } },
   promoter: { select: { user: { select: { displayName: true, email: true } } } },
+  // Lo pagado con bitcoin (si hay que devolverlo: solo en euros, nunca por la pasarela ni en bitcoin).
+  payments: { where: { paidAt: { not: null }, payment: { provider: 'BTCPAY' as const } }, select: { amountCents: true } },
 };
 
 export interface ReservationRow {
@@ -78,6 +80,8 @@ export interface ReservationRow {
   spends: Array<{ guestId: string; kind: string; itemName: string | null; qty: number | null; amountCents: number }>;
   wallet: { balanceCents: number; status: string; qrToken: string } | null;
   promoter: { user: { displayName: string | null; email: string } } | null;
+  /** Los pagos de la reserva hechos con bitcoin (RESERVATION_VIEW_INCLUDE). */
+  payments?: Array<{ amountCents: number }>;
 }
 
 /** Lo servido de cada cosa (paquetes de cosas fijas). */
@@ -121,6 +125,7 @@ export function reservationView(r: ReservationRow, panelUser: string | null = nu
     creditCents: r.creditCents,
     depositCents: r.depositCents,
     paidCents: r.paidCents,
+    paidWithBitcoinCents: (r.payments ?? []).reduce((sum, p) => sum + p.amountCents, 0),
     pendingCents: Math.max(0, r.priceCents - r.paidCents),
     entries: r.entries,
     items,

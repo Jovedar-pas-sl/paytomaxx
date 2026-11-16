@@ -22,7 +22,7 @@ import {
 } from './reservation-rules';
 import { RESERVATION_VIEW_INCLUDE, reservationView, servedItems, type ReservationRow } from './reservation-views';
 import { loseDeposit, spendFromGroupWallet, venueOwnerId } from './reservation-wallet';
-import { ReservationsService } from './reservations.service';
+import { NOT_STARTED, ReservationsService } from './reservations.service';
 
 export interface StaffActor {
   userId: string;
@@ -335,7 +335,7 @@ export class ReservationOpsService {
       await tx.reservation.update({ where: { id: r.id }, data: { status: 'CANCELED', canceledAt: new Date(), canceledByUserId: actor.userId, cancelReason: reason } });
       // Anula el local: el RRPP pierde la comisión (si ya estaba apuntada, sale del reparto).
       await voidPromoterCommission(tx, r, actor.userId);
-      const pending = await tx.reservationPayment.findFirst({ where: { reservationId: r.id, paidAt: null, payment: { status: 'CREATED' } }, select: { paymentId: true } });
+      const pending = await tx.reservationPayment.findFirst({ where: { reservationId: r.id, paidAt: null, payment: { status: { in: [...NOT_STARTED] } } }, select: { paymentId: true } });
       open = pending?.paymentId ?? null;
       await this.audit.logInTx(tx, { action: 'reservation.canceled_by_venue', tenantId: r.tenantId, actorId: actor.userId, targetType: 'Reservation', targetId: r.id, payload: { reason, paidCents: r.paidCents } });
       return { refundCents: r.paidCents, walletId: r.walletId };

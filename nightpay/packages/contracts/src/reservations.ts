@@ -211,6 +211,11 @@ export interface ReservationView {
   creditCents: number;
   depositCents: number;
   paidCents: number;
+  /**
+   * De lo pagado, lo que se pagó con bitcoin. Si hay que devolverlo (el local
+   * anula), nunca por la pasarela ni en bitcoin: solo en euros. Opcional: API anterior.
+   */
+  paidWithBitcoinCents?: number;
   pendingCents: number;
   entries: number;
   items: PackageItem[];
