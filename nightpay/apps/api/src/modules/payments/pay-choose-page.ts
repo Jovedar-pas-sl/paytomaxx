@@ -5,6 +5,7 @@ import { PAY_TEXT, type PayText } from './pay-i18n';
 import { BTC_IC, CARD_IC, CARD_MARKS, GPAY_MARK, LOCK_IC, PAY_MARKS_CSS } from './pay-marks';
 import type { PayRedirect } from './pay-redirect';
 import { tipPresetsFor } from './tip';
+import { legalConsent } from '../legal/legal-links';
 
 /**
  * La página de pago (/pay/:token), pensada para el móvil de noche:
@@ -285,6 +286,7 @@ function payButtons(view: ChooseView, t: PayText, ctx: ChooseContext): string {
 ${main}
 ${methods}${alts}${saldo && fee > 0 ? `<p class="nofee">${escapeHtml(t.saldoNoFee)}</p>` : ''}
 <p class="trust">${escapeHtml(t.secure)}${CARD_MARKS}</p>
+${legalConsent(ctx.lang)}
 </div></div>`;
 }
 

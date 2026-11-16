@@ -1,5 +1,6 @@
 import { CLUB_BASE_CSS, MONEY_JS, clientMoney, escapeHtml, jsConfig } from '../payments/club-ui';
 import { CHROME_CSS, LANG_JS, topBar } from '../payments/customer-chrome';
+import { legalConsent, legalFooter } from '../legal/legal-links';
 import { PAY_TEXT, type PayLanguage } from '../payments/pay-i18n';
 import { CARD_MARKS, LOCK_IC, PAY_MARKS_CSS } from '../payments/pay-marks';
 import { CLIENT_ERROR_JS, clientErrorConfig } from '../wallets/client-errors';
@@ -133,6 +134,7 @@ function amountCard(lang: PayLanguage, view: HomeTopUpPageView): string {
 ${breakdown}
 <div class="paybar"><p class="err" id="err" role="alert" hidden></p>
 <button class="${view.mine ? 'btn alt' : 'btn'}" type="submit" id="go">${LOCK_IC}<span id="goLbl"></span></button>
+${legalConsent(lang)}
 <p class="small">${h(t.methods)}</p></div>
 </form>
 </section>
@@ -301,6 +303,7 @@ ${LANG_JS}
 </script>`
     : `<script>${LANG_JS}</script>`
 }
+${legalFooter(lang)}
 </body></html>`;
 }
 
@@ -320,6 +323,7 @@ ${topBar(lang)}
 ${/* Salida: su saldo con su Face ID (desde allí también se recarga). No dice nada del local. */ ''}${myBalanceBlock(lang, { withPasskeyJs: true })}
 </section>
 </main>
+${legalFooter(lang)}
 <script>${LANG_JS}</script>
 </body></html>`;
 }

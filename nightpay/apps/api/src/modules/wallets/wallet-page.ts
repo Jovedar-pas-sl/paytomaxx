@@ -2,6 +2,7 @@ import { DETAIL_TIP_AND_FEE_APART } from '@nightpay/contracts';
 import { PAY_TEXT, type PayLanguage } from '../payments/pay-i18n';
 import { CLUB_BASE_CSS, MONEY_JS, clientMoney, escapeHtml, jsConfig } from '../payments/club-ui';
 import { CHROME_CSS, LANG_JS, topBar } from '../payments/customer-chrome';
+import { legalFooter } from '../legal/legal-links';
 import type { ClientWalletState } from './wallet-charges.service';
 import { PASSKEY_BROWSER_JS } from './passkey-browser';
 import { CLIENT_ERROR_JS, clientErrorConfig } from './client-errors';
@@ -508,5 +509,6 @@ LV.start();
 ${proof ? paidProofScript(lang) : ''}
 ${LANG_JS}
 </script>
+${legalFooter(lang)}
 ${myBalanceScript(lang, { showIf: 'window.npMineWanted' })}</body></html>`;
 }

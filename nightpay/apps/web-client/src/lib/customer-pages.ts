@@ -21,3 +21,15 @@ export function customerPageUrl(page: CustomerPage, token: string, lang: unknown
   const url = `${API_BASE}/${page}/${encodeURIComponent(token)}`;
   return typeof lang === 'string' && LANGUAGES.has(lang) ? `${url}?lang=${lang}` : url;
 }
+
+/** Los textos legales también los sirve el API: /legal/<página>. */
+export const LEGAL_LINKS = [
+  ['aviso-legal', 'Aviso legal'],
+  ['privacidad', 'Privacidad'],
+  ['cookies', 'Cookies'],
+  ['condiciones', 'Condiciones'],
+] as const;
+
+export function legalUrl(doc: (typeof LEGAL_LINKS)[number][0]): string {
+  return `${API_BASE}/legal/${doc}`;
+}
