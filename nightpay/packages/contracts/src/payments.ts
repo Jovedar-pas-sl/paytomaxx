@@ -343,9 +343,11 @@ export const PublicPaymentViewSchema = z.object({
   attemptStartedAt: z.string().datetime().nullable().optional(),
   /**
    * Solo ya pagado: cómo pagó el cliente. «wallet» = Apple Pay o Google Pay (el
-   * banco no dice cuál de los dos); «card» = tarjeta. Opcional.
+   * banco no dice cuál de los dos); «card» = tarjeta; «bitcoin» = con su factura
+   * de BTCPay (el dinero está en la cartera del local, no en el banco). Opcional:
+   * las apps de antes no conocen «bitcoin» y lo ignoran.
    */
-  payMethod: z.enum(['card', 'wallet']).optional(),
+  payMethod: z.enum(['card', 'wallet', 'bitcoin']).optional(),
   /**
    * El cliente paga con bitcoin (una factura de BTCPay). Opcional (API anterior).
    * Lo usa la pantalla del personal:

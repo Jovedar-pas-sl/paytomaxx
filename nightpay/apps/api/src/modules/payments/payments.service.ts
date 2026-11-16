@@ -24,6 +24,7 @@ import {
   type PaymentMachineState,
 } from './payment.machine';
 import { insertPaymentEvent, recordPaymentDevice, WALLET_CREDITED_EVENT } from './payment-device';
+import { paidMethodOf } from './paid-method';
 import {
   chargeBreakdownText,
   chargeRightsOf,
@@ -1447,10 +1448,11 @@ export class PaymentsService implements OnApplicationBootstrap {
           }),
         )
       : null;
+    const payMethod = paid ? paidMethodOf(payment.provider, charged?.payMethod ?? null) : null;
     return {
       ...(paid ? { id: payment.id } : {}),
-      // 'wallet': pagó con Apple Pay o Google Pay (el banco no dice cuál de los dos).
-      ...(paid && (charged?.payMethod === 'wallet' || charged?.payMethod === 'card') ? { payMethod: charged.payMethod } : {}),
+      // 'wallet': pagó con Apple Pay o Google Pay (el banco no dice cuál de los dos); 'bitcoin': con BTCPay.
+      ...(payMethod ? { payMethod } : {}),
       amountCents: payment.amountCents,
       // La fija el cobro al crearse (no cambia): el personal la enseña aparte.
       serviceFeeCents: payment.serviceFeeCents,

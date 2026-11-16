@@ -285,7 +285,8 @@ export interface RecentTopUp {
   at: string;
   /** Lo que se cargó en el saldo (sin la comisión del servicio). */
   amountCents: number;
-  method: 'cash' | 'card';
+  /** «bitcoin»: la pagó con bitcoin (BTCPay); las apps de antes la dicen «con tarjeta». */
+  method: 'cash' | 'card' | 'bitcoin';
   /** El nombre de pila de quien la cargó (nunca el email). null: sin nombre, el datáfono o el propio cliente. */
   byName: string | null;
 }
