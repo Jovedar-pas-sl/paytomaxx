@@ -89,6 +89,11 @@ model Venue {
   // «Enlace nuevo» lo cambia. CHECK en SQL: encendido ⇒ con código.
   homeTopUpEnabled      Boolean   @default(false)
   homeTopUpCode         String?   @unique
+  // Reservados (20261117300000, apps/api/src/modules/reservations): el enlace
+  // público para reservar (/reservar/<código>). Apagado de serie; código al
+  // azar (16 letras de base64url). CHECK en SQL: encendido ⇒ con código.
+  reservationsEnabled   Boolean   @default(false)
+  reservationsCode      String?   @unique
   createdAt             DateTime  @default(now()) @db.Timestamptz
   updatedAt             DateTime  @updatedAt @db.Timestamptz
   deletedAt             DateTime? @db.Timestamptz
@@ -118,6 +123,12 @@ model Venue {
   paymentLines       PaymentLine[]
   chargeRefCounter   ChargeRefCounter?
   oxioPaySettlements OxioPaySettlement[]
+  reservationPackages ReservationPackage[]
+  promoters           Promoter[]
+  reservations        Reservation[]
+  reservationGuests   ReservationGuest[]
+  reservationPayments ReservationPayment[]
+  reservationSpends   ReservationSpend[]
 
   @@index([businessId])
   @@map("venues")
@@ -236,6 +247,8 @@ model User {
   staffPasskeys         StaffPasskey[]
   // Su foto de perfil (20261113100000).
   photo                 UserPhoto?
+  // Reservados: su ficha de RRPP (su % y su enlace).
+  promoters             Promoter[]
 
   @@unique([id, tenantId])
   @@index([tenantId])
@@ -541,6 +554,8 @@ model Payment {
   btcpayInvoices     BtcpayInvoice[]
   // Cobro único: la otra forma de pagar este mismo cobro (el saldo).
   linkedWalletCharge WalletChargeRequest? @relation("CobroUnico")
+  // Reservados: el pago (señal, resto o todo) de una reserva.
+  reservationPayment ReservationPayment?
 
   @@unique([tenantId, idempotencyKey])
   @@unique([tenantId, ref])
@@ -1298,6 +1313,8 @@ model ClientWallet {
   cards          WalletCard[]
   passes         WalletPass[]
   activationTokens WalletActivationToken[]
+  // Reservados: el saldo del grupo de una reserva.
+  reservations     Reservation[]
 
   @@index([tenantId, status])
   @@index([tenantId, identifier])
@@ -1533,6 +1550,8 @@ model WalletConsumption {
   providedBy  User             @relation("ConsumptionProvider", fields: [providedByUserId], references: [id])
   reversedBy  User?            @relation("ConsumptionReversedBy", fields: [reversedByUserId], references: [id])
   earnings    OperatorEarning[]
+  // Reservados: el gasto de una persona del grupo con el saldo del grupo.
+  reservationSpend ReservationSpend?
 
   @@unique([tenantId, idempotencyKey])
   @@index([tenantId, walletId, createdAt(sort: Desc)])
@@ -1711,4 +1730,186 @@ model OxioPaySettlementSettings {
   updatedById String?  @db.Uuid
 
   @@map("oxiopay_settlement_settings")
+}
+
+// ─── Reservados con señal y RRPP (20261117300000) ─────────────────────────
+// apps/api/src/modules/reservations. FORCE RLS en las seis tablas: solo dentro
+// de una transacción de PrismaService. Los CHECK, solo en SQL.
+
+// Un paquete: de cosas fijas (ITEMS: entradas, botellas…, creditCents = 0) o de
+// un importe para consumir (CREDIT, creditCents > 0 y ≤ precio). entries =
+// personas = un QR por persona. items: [{ name, qty }].
+model ReservationPackage {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId    String   @db.Uuid
+  name        String
+  kind        String
+  priceCents  Int
+  creditCents Int      @default(0)
+  entries     Int
+  items       Json     @default("[]")
+  description String?
+  maxPerNight Int?
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now()) @db.Timestamptz
+  updatedAt   DateTime @default(now()) @updatedAt @db.Timestamptz
+
+  venue        Venue         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  reservations Reservation[]
+
+  @@index([tenantId])
+  @@map("reservation_packages")
+}
+
+// Un RRPP: una persona del equipo (cobra en el reparto de siempre), su % del
+// paquete (0–50 %) y su enlace (/rp/<code>).
+model Promoter {
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId      String   @db.Uuid
+  userId        String   @db.Uuid
+  commissionBps Int
+  code          String   @unique
+  active        Boolean  @default(true)
+  createdAt     DateTime @default(now()) @db.Timestamptz
+  updatedAt     DateTime @default(now()) @updatedAt @db.Timestamptz
+
+  venue        Venue         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user         User          @relation(fields: [userId], references: [id], onDelete: Restrict)
+  reservations Reservation[]
+
+  @@unique([tenantId, userId])
+  @@index([userId])
+  @@map("promoters")
+}
+
+// Una reserva: copia del paquete, la noche, la señal (30 %), lo pagado (solo
+// con el aviso del banco), «vendido por» y el saldo del grupo.
+// status: PENDING | DEPOSIT_PAID | PAID | ARRIVED | NO_SHOW | CANCELED.
+// source: WEB | RRPP | PANEL.
+model Reservation {
+  id                 String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId           String    @db.Uuid
+  ref                String
+  // La clave de quien reservó (navegador o app): pedirla dos veces = la misma reserva.
+  createKey          String
+  packageId          String    @db.Uuid
+  packageName        String
+  kind               String
+  priceCents         Int
+  creditCents        Int
+  depositCents       Int
+  entries            Int
+  items              Json      @default("[]")
+  nightDate          DateTime  @db.Date
+  previousNightDate  DateTime? @db.Date
+  dateChangedAt      DateTime? @db.Timestamptz
+  customerName       String
+  customerPhone      String?   @db.VarChar(16)
+  notes              String?
+  status             String    @default("PENDING")
+  paidCents          Int       @default(0)
+  source             String
+  promoterId         String?   @db.Uuid
+  promoterBps        Int?
+  soldByUserId       String?   @db.Uuid
+  commissionEarnedAt DateTime? @db.Timestamptz
+  walletId           String?   @db.Uuid
+  manageToken        String    @unique
+  tableLabel         String?
+  arrivedAt          DateTime? @db.Timestamptz
+  arrivedByUserId    String?   @db.Uuid
+  noShowAt           DateTime? @db.Timestamptz
+  canceledAt         DateTime? @db.Timestamptz
+  canceledByUserId   String?   @db.Uuid
+  cancelReason       String?
+  recognizedAt       DateTime? @db.Timestamptz
+  payAttempts        Int       @default(0)
+  createdAt          DateTime  @default(now()) @db.Timestamptz
+  updatedAt          DateTime  @default(now()) @updatedAt @db.Timestamptz
+
+  venue    Venue                @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  package  ReservationPackage   @relation(fields: [packageId], references: [id], onDelete: Restrict)
+  promoter Promoter?            @relation(fields: [promoterId], references: [id], onDelete: Restrict)
+  wallet   ClientWallet?        @relation(fields: [walletId], references: [id], onDelete: SetNull)
+  guests   ReservationGuest[]
+  payments ReservationPayment[]
+  spends   ReservationSpend[]
+
+  @@unique([tenantId, ref])
+  @@unique([tenantId, createKey])
+  @@index([tenantId, nightDate])
+  @@index([tenantId, status])
+  @@index([packageId])
+  @@index([promoterId])
+  @@index([walletId])
+  @@map("reservations")
+}
+
+// Una persona del grupo: su QR (qrToken) gasta del paquete.
+model ReservationGuest {
+  id            String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId      String    @db.Uuid
+  reservationId String    @db.Uuid
+  seq           Int
+  label         String?
+  qrToken       String    @unique
+  checkedInAt   DateTime? @db.Timestamptz
+  createdAt     DateTime  @default(now()) @db.Timestamptz
+
+  venue       Venue              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  reservation Reservation        @relation(fields: [reservationId], references: [id], onDelete: Cascade)
+  spends      ReservationSpend[]
+
+  @@unique([reservationId, seq])
+  @@index([tenantId])
+  @@map("reservation_guests")
+}
+
+// Un pago con tarjeta de una reserva (kind DEPOSIT | REST | FULL): un cobro de
+// recarga del saldo del grupo. paidAt lo pone la transición del cobro a
+// AUTHORIZED (aviso firmado del banco), en su misma transacción.
+model ReservationPayment {
+  id            String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId      String    @db.Uuid
+  reservationId String    @db.Uuid
+  paymentId     String    @unique @db.Uuid
+  kind          String
+  amountCents   Int
+  paidAt        DateTime? @db.Timestamptz
+  createdAt     DateTime  @default(now()) @db.Timestamptz
+
+  venue       Venue       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  reservation Reservation @relation(fields: [reservationId], references: [id], onDelete: Restrict)
+  payment     Payment     @relation(fields: [paymentId], references: [id], onDelete: Restrict)
+
+  @@index([reservationId])
+  @@index([tenantId, paidAt])
+  @@map("reservation_payments")
+}
+
+// Lo que gasta una persona del grupo: una cosa del paquete (ITEM) o un importe
+// del saldo del grupo (AMOUNT, con su consumo).
+model ReservationSpend {
+  id               String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId         String   @db.Uuid
+  reservationId    String   @db.Uuid
+  guestId          String   @db.Uuid
+  kind             String
+  itemName         String?
+  qty              Int?
+  amountCents      Int      @default(0)
+  consumptionId    String?  @unique @db.Uuid
+  providedByUserId String   @db.Uuid
+  idempotencyKey   String
+  createdAt        DateTime @default(now()) @db.Timestamptz
+
+  venue       Venue              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  reservation Reservation        @relation(fields: [reservationId], references: [id], onDelete: Restrict)
+  guest       ReservationGuest   @relation(fields: [guestId], references: [id], onDelete: Restrict)
+  consumption WalletConsumption? @relation(fields: [consumptionId], references: [id], onDelete: Restrict)
+
+  @@unique([tenantId, idempotencyKey])
+  @@index([reservationId])
+  @@index([guestId])
+  @@map("reservation_spends")
 }

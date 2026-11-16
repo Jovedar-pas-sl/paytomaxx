@@ -41,6 +41,13 @@ export const TENANT_SCOPED_MODELS: ReadonlySet<string> = new Set([
   // «Pagar con bitcoin»: la conexión del local a su BTCPay y sus facturas.
   'BtcpayStore',
   'BtcpayInvoice',
+  // Reservados con señal y RRPP (20261117300000).
+  'ReservationPackage',
+  'Promoter',
+  'Reservation',
+  'ReservationGuest',
+  'ReservationPayment',
+  'ReservationSpend',
 ]);
 
 // Operaciones de lectura a filtrar y de escritura a inyectar tenantId

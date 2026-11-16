@@ -41,6 +41,13 @@ export const FORCED_RLS_TABLES = [
   'btcpay_invoices',
   // La foto de perfil del personal (20261113100000).
   'user_photos',
+  // Reservados con señal y RRPP (20261117300000): paquetes, RRPP, reservas, sus QR, sus pagos y sus gastos.
+  'reservation_packages',
+  'promoters',
+  'reservations',
+  'reservation_guests',
+  'reservation_payments',
+  'reservation_spends',
 ] as const;
 
 export const FORCED_RLS_MODELS: ReadonlySet<string> = new Set([
@@ -60,6 +67,12 @@ export const FORCED_RLS_MODELS: ReadonlySet<string> = new Set([
   'BtcpayStore',
   'BtcpayInvoice',
   'UserPhoto',
+  'ReservationPackage',
+  'Promoter',
+  'Reservation',
+  'ReservationGuest',
+  'ReservationPayment',
+  'ReservationSpend',
 ]);
 
 const FORCED_TABLE_RE = new RegExp(`\\b(${FORCED_RLS_TABLES.join('|')})\\b`);

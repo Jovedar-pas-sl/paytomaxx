@@ -93,9 +93,31 @@ async function seed(tag: string): Promise<{ tenantId: string; rows: Rows }> {
       await tx.userPhoto.create({
         data: { userId: chica, tenantId, contentType: 'image/jpeg', data: Buffer.alloc(64, 2), contentHash: 'b'.repeat(64), width: 128, height: 128 },
       });
+      // Reservados: un paquete, un RRPP, una reserva, su QR, su pago y un gasto.
+      const pkg = await tx.reservationPackage.create({ data: { tenantId, name: `RLS ${tag}`, kind: 'CREDIT', priceCents: 10000, creditCents: 10000, entries: 2 } });
+      const promoter = await tx.promoter.create({ data: { tenantId, userId: owner, commissionBps: 1000, code: `rp${tag}${r}xxxxxxxx`.slice(0, 12) } });
+      const reservation = await tx.reservation.create({
+        data: {
+          tenantId, ref: `RL${tag}${r}`.toUpperCase().replace(/[^A-Z0-9]/g, '7').slice(0, 6).padEnd(6, '7'), createKey: `rls-${tag}-${r}`,
+          packageId: pkg.id, packageName: pkg.name, kind: 'CREDIT', priceCents: 10000, creditCents: 10000, depositCents: 3000,
+          entries: 2, nightDate: new Date('2026-12-01T00:00:00Z'), customerName: 'Cliente', source: 'RRPP', promoterId: promoter.id,
+          promoterBps: 1000, manageToken: `m-${tag}-${r}`, walletId: wallet.id, status: 'ARRIVED', paidCents: 10000,
+        },
+      });
+      const guest = await tx.reservationGuest.create({ data: { tenantId, reservationId: reservation.id, seq: 1, qrToken: `g-${tag}-${r}` } });
+      const resvPayment = await tx.reservationPayment.create({ data: { tenantId, reservationId: reservation.id, paymentId: payment.id, kind: 'FULL', amountCents: 10000 } });
+      const spend = await tx.reservationSpend.create({
+        data: { tenantId, reservationId: reservation.id, guestId: guest.id, kind: 'AMOUNT', amountCents: 100, consumptionId: consumption.id, providedByUserId: owner, idempotencyKey: `rls-${tag}-${r}` },
+      });
       return {
         tenantId,
         rows: {
+          reservation_packages: pkg.id,
+          promoters: promoter.id,
+          reservations: reservation.id,
+          reservation_guests: guest.id,
+          reservation_payments: resvPayment.id,
+          reservation_spends: spend.id,
           client_wallets: wallet.id,
           wallet_consumptions: consumption.id,
           operator_earnings: earning.id,
