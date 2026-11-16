@@ -187,13 +187,13 @@ export async function createPayment(
 export async function fetchPaymentStatus(
   qrToken: string,
   signal?: AbortSignal,
-): Promise<{ id?: string; status: PaymentStatus; payMethod?: 'card' | 'wallet' }> {
+): Promise<{ id?: string; status: PaymentStatus; payMethod?: 'card' | 'wallet' | 'bitcoin' }> {
   const res = await client.publicFetch(`/v1/payments/public/${encodeURIComponent(qrToken)}`, {
     cache: 'no-store',
     signal,
   });
   if (!res.ok) throw new Error(commonError(res.status) ?? `No se pudo consultar el cobro (error ${res.status}).`);
-  return (await res.json()) as { id?: string; status: PaymentStatus; payMethod?: 'card' | 'wallet' };
+  return (await res.json()) as { id?: string; status: PaymentStatus; payMethod?: 'card' | 'wallet' | 'bitcoin' };
 }
 
 /**

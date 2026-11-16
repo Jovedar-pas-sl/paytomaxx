@@ -79,7 +79,7 @@ export function ActivePayment({ payment, status, reachable, checkNow, onDone, on
   useWakeLock(!finished);
 
   // Pagado: cómo pagó (tarjeta, Apple o Google Pay), solo si el banco lo dio. Una consulta, una vez.
-  const [cardFacts, setCardFacts] = useState<{ payMethod?: 'card' | 'wallet' }>({});
+  const [cardFacts, setCardFacts] = useState<{ payMethod?: 'card' | 'wallet' | 'bitcoin' }>({});
   const paid = shown === 'AUTHORIZED';
   const [paidAt, setPaidAt] = useState<Date | null>(null);
   useEffect(() => {

@@ -8,9 +8,9 @@ import { useRef, useState } from 'react';
 import type { CashUndoReason, FichaCheck, ReceptionDeskNew } from '@nightpay/contracts';
 import type { CreatedPayment } from '@/lib/api';
 import { counterFicha, type CounterFicha } from '@/lib/counter-tap';
-import { browserSessionStorage, cashAttemptRef, type PayMethod, type ReceptionAttempt, type ReceptionWallet } from '@/lib/reception';
+import { browserSessionStorage, cashAttemptRef, type ReceptionAttempt, type ReceptionWallet } from '@/lib/reception';
 import type { CashExitNfc, ReceptionPayoutPlan } from '@/lib/reception-cash-payout';
-import { entryRow, type NumberSaldo, type ReceptionDeskSaldo, type ReceptionDeskView } from '@/lib/reception-desk';
+import { entryRow, type LoadedMethod, type NumberSaldo, type ReceptionDeskSaldo, type ReceptionDeskView } from '@/lib/reception-desk';
 import { ActivationQr } from './ActivationQr';
 import { DeskBtn } from './desk-parts';
 
@@ -33,7 +33,8 @@ export interface Loaded {
   amountCents: number;
   /** La «Comisión del servicio» que pagó encima (la que cobró el servidor; 0 sin ella). */
   feeCents: number;
-  method: PayMethod;
+  /** En efectivo, o con el QR en su móvil: con tarjeta o con bitcoin. */
+  method: LoadedMethod;
   wallet: ReceptionWallet | null;
   linked: boolean;
   warn: string | null;

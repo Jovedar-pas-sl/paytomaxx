@@ -176,7 +176,7 @@ export function recentTopUpLine(topUp: RecentTopUp | null | undefined, now: numb
   const minutes = Math.floor((now - Date.parse(topUp.at)) / 60_000);
   if (!Number.isFinite(minutes) || minutes >= RECENT_TOP_UP_MINUTES) return null;
   const when = minutes <= 0 ? 'hace un momento' : `hace ${minutes} min`;
-  const how = topUp.method === 'cash' ? 'en efectivo' : 'con tarjeta';
+  const how = topUp.method === 'cash' ? 'en efectivo' : topUp.method === 'bitcoin' ? 'con bitcoin' : 'con tarjeta';
   const who = topUp.byName ? ` (${topUp.byName})` : '';
   return `${ficha ? 'Cargada' : 'Cargado'} ${when}: ${formatEur(topUp.amountCents, { compact: true })} ${how}${who}`;
 }
@@ -477,13 +477,25 @@ export function rechargeProblem(view: ReceptionDeskView | null): string | null {
  * cobró el servidor), saldo + comisión: «Efectivo: 56 € a la caja (con 6 € de
  * comisión)»; antes decía 50 € y a la caja iban 56 €.
  */
-export function loadedMoneyLine(method: PayMethod, amountCents: number, feeCents = 0): { label: string; amount: string; tail: string } {
+export function loadedMoneyLine(method: LoadedMethod, amountCents: number, feeCents = 0): { label: string; amount: string; tail: string } {
   const fee = feeCents > 0 ? feeCents : 0;
   const amount = formatEur(amountCents + fee, { compact: true });
   const withFee = fee > 0 ? ` (con ${formatEur(fee, { compact: true })} de comisión)` : '';
-  return method === 'cash'
-    ? { label: 'Efectivo:', amount, tail: `a la caja${withFee}` }
-    : { label: 'Tarjeta:', amount, tail: `en su móvil${withFee}` };
+  if (method === 'cash') return { label: 'Efectivo:', amount, tail: `a la caja${withFee}` };
+  // Con bitcoin no pasa por el banco ni por la caja: queda en la cartera del local.
+  if (method === 'bitcoin') return { label: 'Bitcoin:', amount, tail: `en la cartera del local${withFee}` };
+  return { label: 'Tarjeta:', amount, tail: `en su móvil${withFee}` };
+}
+
+/**
+ * Cómo se cargó (el CARGADO): en efectivo o con el QR en su móvil; con el QR,
+ * con tarjeta o con bitcoin (el cliente lo elige en su página de pago).
+ */
+export type LoadedMethod = PayMethod | 'bitcoin';
+
+/** Cómo se pagó el QR de la recarga, por lo que dijo el sondeo (sin respuesta, como siempre: tarjeta). */
+export function qrTopUpMethod(polled: { payMethod?: string } | null): LoadedMethod {
+  return polled?.payMethod === 'bitcoin' ? 'bitcoin' : 'card';
 }
 
 /**

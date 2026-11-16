@@ -13,24 +13,28 @@ export interface PolledPayment {
   tipCents?: number;
   /** Esperando al banco (AUTHORIZING) o sin su respuesta (ORPHAN): cuándo salió el intento. API nuevo. */
   attemptStartedAt?: string | null;
-  /** Ya pagado: «wallet» = Apple Pay o Google Pay; «card» = tarjeta. */
-  payMethod?: 'card' | 'wallet';
+  /** Ya pagado: «wallet» = Apple Pay o Google Pay; «card» = tarjeta; «bitcoin» = con BTCPay. */
+  payMethod?: PaidQrMethod;
   /** Paga con bitcoin (AUTHORIZING con su factura): si se puede cancelar. API nuevo. */
   bitcoin?: BitcoinPayState;
 }
 
 const BITCOIN_STATES: ReadonlySet<string> = new Set<BitcoinPayState>(['open', 'confirming', 'problem', 'closed']);
 
+/** Cómo se pagó el QR: tarjeta, Apple Pay o Google Pay, o bitcoin (en la cartera del local). */
+export type PaidQrMethod = 'card' | 'wallet' | 'bitcoin';
+
+const PAID_QR_METHODS: ReadonlySet<string> = new Set<PaidQrMethod>(['card', 'wallet', 'bitcoin']);
+
 /** Lo que el sondeo cuenta de cómo se pagó (para el PAGADO). */
 export interface PaidCardFacts {
-  payMethod?: 'card' | 'wallet';
+  payMethod?: PaidQrMethod;
 }
 
 /** Solo lo que el API dijo y con forma válida: nada se inventa. */
 export function cardFactsOf(current: PolledPayment): PaidCardFacts {
-  return {
-    ...(current.payMethod === 'card' || current.payMethod === 'wallet' ? { payMethod: current.payMethod } : {}),
-  };
+  const method = current.payMethod as unknown;
+  return typeof method === 'string' && PAID_QR_METHODS.has(method) ? { payMethod: method as PaidQrMethod } : {};
 }
 
 /**

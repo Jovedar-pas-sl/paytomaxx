@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type { FichaCheck, ReceptionOptions } from '@nightpay/contracts';
 import { ScreenHelp } from '@nightpay/ui';
 import { TOURS } from '@/lib/tours';
-import { createPayment, fetchTerminals, type CreatedPayment, type OperatorUser } from '@/lib/api';
+import { createPayment, fetchPaymentStatus, fetchTerminals, type CreatedPayment, type OperatorUser } from '@/lib/api';
 import { playOutcomeSound } from '@/lib/alert-sound';
 import type { ChipTap } from '@/lib/chip-tap';
 import {
@@ -49,6 +49,8 @@ import {
   fetchReceptionDesk,
   handOverLine,
   loadedMoneyLine,
+  qrTopUpMethod,
+  type LoadedMethod,
   METHOD_ARM_MS,
   methodButtons,
   noPinLimitCents,
@@ -123,6 +125,9 @@ interface Props {
   home?: { onExit: () => void; onDone: () => void };
 }
 
+/** Lo más que espera el CARGADO de una recarga con QR a saber si se pagó con bitcoin. */
+const PAID_FACTS_TIMEOUT_MS = 3_000;
+
 /**
  * Recepción exprés (maquetas 4.1–4.5). Entrada: se acerca el NFC y la app
  * sabe sola si es nuevo o si ya tiene saldo; el importe (tocar uno ya sigue)
@@ -134,6 +139,7 @@ interface Props {
  * su Face ID, así el cliente teclea el PIN una sola vez.
  * Solo recepción carga saldos y cobra efectivo (el servidor lo exige igual).
  */
+
 export function ReceptionDesk({ user, active, footer, onGiveFicha, onScanHome, home }: Props) {
   const night = useVenueNight();
   const { sections } = useMySections();
@@ -385,7 +391,7 @@ export function ReceptionDesk({ user, active, footer, onGiveFicha, onScanHome, h
   async function finish(
     read: Read,
     amountCents: number,
-    method: PayMethod,
+    method: LoadedMethod,
     wallet: ReceptionWallet | null,
     cardLinked = false,
     feeCents = 0,
@@ -520,13 +526,15 @@ export function ReceptionDesk({ user, active, footer, onGiveFicha, onScanHome, h
 
   async function cardPaid(read: Read, payment: CreatedPayment): Promise<void> {
     const view = read.view;
+    // Con el QR, el cliente pudo pagar con tarjeta o con bitcoin: lo dice el sondeo (sin respuesta, tarjeta).
+    const method = qrTopUpMethod(await paidQrFacts(payment.qrToken));
     if (view?.kind === 'saldo') {
       const w = { walletId: view.walletId, code: view.code, balanceCents: view.balanceCents + payment.amountCents, hasPin: view.hasPin, hasCard: read.nfc !== null };
-      return finish(read, payment.amountCents, 'card', w, false, payment.serviceFeeCents ?? 0);
+      return finish(read, payment.amountCents, method, w, false, payment.serviceFeeCents ?? 0);
     }
     // Saldo nuevo: su código para darle el NFC (y el PIN).
     const w = payment.walletId ? await staffBackend.wallet(payment.walletId).catch(() => null) : null;
-    return finish(read, payment.amountCents, 'card', w, false, payment.serviceFeeCents ?? 0);
+    return finish(read, payment.amountCents, method, w, false, payment.serviceFeeCents ?? 0);
   }
 
   // ─── Salida (4.5) ───────────────────────────────────────────────────────
@@ -1044,5 +1052,18 @@ export function ReceptionDesk({ user, active, footer, onGiveFicha, onScanHome, h
         }}
       />
     );
+  }
+}
+
+/** Lo que dice el sondeo del QR ya pagado (cómo se pagó). Sin respuesta en 3 s, null: el CARGADO no espera. */
+async function paidQrFacts(qrToken: string): Promise<{ payMethod?: string } | null> {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), PAID_FACTS_TIMEOUT_MS);
+  try {
+    return await fetchPaymentStatus(qrToken, ctrl.signal);
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
   }
 }
