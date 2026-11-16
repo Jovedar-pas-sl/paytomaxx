@@ -39,6 +39,8 @@ export type IncidentKind =
   | 'wallet_topup_unassigned'
   /** El cliente bloqueó su NFC en su móvil («He perdido mi NFC»): darle uno nuevo en recepción (se marca como revisada). */
   | 'wallet_card_lost'
+  /** El cliente pulsó «No he sido yo» en el aviso de un cobro: su ficha y su PIN ya no pagan; revisar y, si procede, devolver. */
+  | 'wallet_charge_disputed'
   /** Algo que mueve dinero o abre un saldo sin que el cliente lo confirme (se marca como revisada). */
   | 'sensitive_action';
 

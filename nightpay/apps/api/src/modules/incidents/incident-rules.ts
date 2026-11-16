@@ -36,6 +36,7 @@ export type IncidentKind =
   | 'reception_payout_cap'
   | 'wallet_topup_unassigned'
   | 'wallet_card_lost'
+  | 'wallet_charge_disputed'
   | 'sensitive_action';
 
 /** Las que desaparecen solas al resolverse (no se marcan como revisadas). */
@@ -72,6 +73,7 @@ export const ACKABLE_KINDS = [
   'cash_split_suspected',
   'reception_payout_cap',
   'wallet_card_lost',
+  'wallet_charge_disputed',
   'sensitive_action',
 ] as const satisfies readonly IncidentKind[];
 
@@ -94,6 +96,8 @@ const MONEY_ACK_KINDS: ReadonlySet<IncidentKind> = new Set<IncidentKind>([
   'cash_split_suspected',
   'reception_payout_cap',
   'bank_mismatch',
+  // «No he sido yo»: se cierra diciendo qué se hizo (devuelto, era suyo…).
+  'wallet_charge_disputed',
 ]);
 
 /** Letras mínimas de la nota de un aviso de dinero (como la del cierre con cobros sin terminar). */
@@ -270,6 +274,32 @@ export function walletCardLostIncident(r: EventRow): Incident {
     detail: `Lo marcó como perdido en su móvil, con su Face ID: ya no paga. Su saldo${code ? ` ${code}` : ''}${saldo} ${keeps}`,
     // Telegram es un tercero: sin el código del cliente.
     alertDetail: `Lo marcó como perdido en su móvil, con su Face ID: ya no paga. Su saldo${saldo} ${keeps}`,
+    occurredAt: r.occurredAt.toISOString(),
+    amountCents: r.amountCents,
+    paymentId: null,
+    ackable: true,
+  };
+}
+
+/**
+ * «No he sido yo»: el cliente dice, desde el aviso de un cobro en su móvil,
+ * que ese cobro de su saldo no lo hizo él (ChargeDisputeService). Su ficha y
+ * su PIN ya no pagan; el dinero no se ha devuelto: lo decide el local.
+ */
+export function walletChargeDisputedIncident(r: EventRow): Incident {
+  const ref = str(r.payload, 'ref');
+  const code = str(r.payload, 'code');
+  const amount = r.amountCents !== null ? ` de ${eur(r.amountCents)}` : '';
+  const what = `El cliente dice que no ha sido él: cobro ${ref ?? 'del saldo'}${amount}`;
+  const blocked = 'Su ficha y su PIN ya no pagan (con su Face ID, sí).';
+  const todo = 'Revisa el cobro con quien lo hizo y, si procede, devuélvelo. Después, el encargado desbloquea su PIN en Saldos y recepción le da una ficha nueva.';
+  return {
+    kind: 'wallet_charge_disputed',
+    refId: r.id,
+    title: 'Un cliente dice que no ha sido él',
+    detail: `${what}${code ? ` (saldo ${code})` : ''}. ${blocked} ${todo}`,
+    // Telegram es un tercero: sin el código del cliente.
+    alertDetail: `${what}. ${blocked} ${todo}`,
     occurredAt: r.occurredAt.toISOString(),
     amountCents: r.amountCents,
     paymentId: null,

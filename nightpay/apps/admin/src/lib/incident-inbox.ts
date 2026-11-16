@@ -65,6 +65,12 @@ export const INCIDENT_KINDS: Record<IncidentKind, KindMeta> = {
     tab: 'wallets',
     hint: 'Su saldo sigue valiendo con su código. Si viene a recepción, dale un NFC nuevo.',
   },
+  wallet_charge_disputed: {
+    group: 'Saldo',
+    title: 'Un cliente dice que no ha sido él',
+    tab: 'wallets',
+    hint: 'Revisa el cobro y, si procede, devuélvelo. Su ficha y su PIN ya no pagan: desbloquea el PIN en Saldos y dale una ficha nueva en recepción.',
+  },
   sensitive_action: {
     group: 'Saldo',
     title: 'Acción delicada',

@@ -18,6 +18,7 @@ import {
   receptionPayoutCapIncident,
   stuckIncident,
   walletCardLostIncident,
+  walletChargeDisputedIncident,
   ackNeedsNote,
   walletCloseRequestedIncident,
   walletCreditSkippedIncident,
@@ -475,6 +476,23 @@ describe('«He perdido mi NFC»', () => {
     expect(SELF_RESOLVING.has('wallet_card_lost')).toBe(false);
     const bare = walletCardLostIncident({ id: 'a', paymentId: null, amountCents: null, occurredAt: new Date(), payload: null });
     expect(bare.detail).toContain('Su saldo sigue valiendo');
+  });
+});
+
+describe('«No he sido yo» (aviso en cada cobro)', () => {
+  it('sale en la bandeja del local del cobro, pide nota para cerrarse y a Telegram va sin el código', () => {
+    const i = walletChargeDisputedIncident({
+      id: 'audit-11', paymentId: 'charge-1', amountCents: 1_200, occurredAt: new Date('2026-11-17T00:10:00Z'),
+      payload: { ref: 'C-0042', code: 'K7Q-4M2', cards: 1, pinLocked: true, via: 'push_not_me' },
+    });
+    expect(i).toMatchObject({ kind: 'wallet_charge_disputed', refId: 'audit-11', amountCents: 1_200, ackable: true, paymentId: null, title: 'Un cliente dice que no ha sido él' });
+    expect(i.detail).toContain('El cliente dice que no ha sido él: cobro C-0042 de 12,00 € (saldo K7Q-4M2)');
+    expect(i.detail).toContain('si procede, devuélvelo');
+    expect(i.alertDetail).not.toContain('K7Q');
+    expect(incidentMessage('Sala', i)).not.toContain('K7Q');
+    expect(ACKABLE_KINDS as readonly string[]).toContain('wallet_charge_disputed');
+    expect(SELF_RESOLVING.has('wallet_charge_disputed')).toBe(false);
+    expect(ackNeedsNote({ kind: 'wallet_charge_disputed', amountCents: 1_200 })).toBe(true);
   });
 });
 
