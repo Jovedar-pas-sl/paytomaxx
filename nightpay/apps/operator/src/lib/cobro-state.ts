@@ -6,7 +6,7 @@
 import { bankWaitPhase, type BitcoinPayState, type PaymentStatus } from '@nightpay/contracts';
 import type { SaldoState } from './api-cobro';
 import type { FailReason, PaidMethod } from './cobro-view';
-import { advanceStatus } from './payment-status';
+import { advanceStatus, type BitcoinLive } from './payment-status';
 
 export type CobroOutcome =
   | { kind: 'waiting' }
@@ -166,8 +166,8 @@ export const BITCOIN_CONFIRMING_CODE = 'BITCOIN_CONFIRMING';
 /** El cobro con tarjeta (el QR) en la pantalla: su estado y, pagando con bitcoin, el de su factura. */
 export interface CardLive {
   status: PaymentStatus;
-  /** null: no paga con bitcoin (o aún no se sabe). */
-  bitcoin: BitcoinPayState | null;
+  /** null: no paga con bitcoin (o aún no lo dijo el sondeo); 'unknown': el API no lo dice. */
+  bitcoin: BitcoinLive | null;
 }
 
 /**
@@ -177,7 +177,7 @@ export interface CardLive {
  * sabe por lo que dijo antes el sondeo (pagaba con bitcoin) o porque lo dice
  * ahora ('closed'). La factura solo la dice el sondeo; fuera de AUTHORIZING deja de contar.
  */
-export function cardAfter(card: CardLive, update: { status: PaymentStatus; bitcoin?: BitcoinPayState | null }): CardLive {
+export function cardAfter(card: CardLive, update: { status: PaymentStatus; bitcoin?: BitcoinLive | null }): CardLive {
   const wasBitcoin = card.bitcoin !== null || update.bitcoin === 'closed';
   const reopened = wasBitcoin && card.status === 'AUTHORIZING' && update.status === 'AWAITING_CAPTURE';
   const status = reopened ? update.status : advanceStatus(card.status, update.status);
@@ -189,7 +189,8 @@ export function cardAfter(card: CardLive, update: { status: PaymentStatus; bitco
 
 /** Paga con bitcoin ahora mismo (AUTHORIZING con su factura): sin las fases ni el reloj del banco. */
 export function payingWithBitcoin(card: CardLive): Exclude<BitcoinPayState, 'closed'> | null {
-  return card.status === 'AUTHORIZING' && card.bitcoin !== null && card.bitcoin !== 'closed' ? card.bitcoin : null;
+  const b = card.bitcoin;
+  return card.status === 'AUTHORIZING' && b !== null && b !== 'closed' && b !== 'unknown' ? b : null;
 }
 
 /**
@@ -200,7 +201,8 @@ export function payingWithBitcoin(card: CardLive): Exclude<BitcoinPayState, 'clo
 export type CancelOffer = { kind: 'button' } | { kind: 'text'; text: string } | { kind: 'leave'; text: string };
 
 export function cancelOffer(card: CardLive): CancelOffer {
-  if (card.status !== 'AUTHORIZING' || card.bitcoin === 'open') return { kind: 'button' };
+  // Sin saber si paga con bitcoin (el API no lo dice): el botón, y decide el servidor (con el banco, no deja).
+  if (card.status !== 'AUTHORIZING' || card.bitcoin === 'open' || card.bitcoin === 'unknown') return { kind: 'button' };
   if (card.bitcoin === 'confirming') return { kind: 'leave', text: BITCOIN_CONFIRMING_TEXT };
   if (card.bitcoin === 'problem') return { kind: 'leave', text: BITCOIN_PROBLEM_TEXT };
   return { kind: 'text', text: CANCEL_WHILE_PAYING_TEXT };
@@ -209,6 +211,9 @@ export function cancelOffer(card: CardLive): CancelOffer {
 /** El aviso cuando «Cancelar cobro» falla: sin hablar del banco si paga con bitcoin. */
 export function cancelFailedText(card: CardLive, code: string | null): string {
   if (code === BITCOIN_CONFIRMING_CODE || (card.status === 'AUTHORIZING' && card.bitcoin === 'confirming')) return BITCOIN_CONFIRMING_TEXT;
+  if (card.status === 'AUTHORIZING' && card.bitcoin === 'unknown') {
+    return 'No se ha podido cancelar: el cliente está pagando (en su banco o con bitcoin). Espera y mira si ya está pagado.';
+  }
   if (card.status === 'AUTHORIZING' && card.bitcoin) return 'No se ha podido cancelar: puede que el cliente acabe de pagar con bitcoin. Mira si ya está pagado.';
   if (card.status === 'AUTHORIZING') return 'No se puede cancelar mientras el cliente paga en su banco: espera su respuesta.';
   return 'No se ha podido cancelar: mira si ya está pagado.';

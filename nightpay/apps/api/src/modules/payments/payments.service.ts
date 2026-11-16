@@ -1465,7 +1465,8 @@ export class PaymentsService implements OnApplicationBootstrap {
       // Ya pagado: la propina que dejó (el PAGADO del personal sin tiempo real la necesita).
       ...(paid ? { tipCents: payment.tipCents } : {}),
       ...(waiting ? { attemptStartedAt: attemptAt.toISOString() } : {}),
-      ...(bitcoin ? { bitcoin } : {}),
+      // Pagando en su banco: se dice ('none'), para que la pantalla no lo deduzca de que falte el campo.
+      ...(bitcoin ? { bitcoin } : payment.status === 'AUTHORIZING' ? { bitcoin: 'none' as const } : {}),
     };
   }
 
