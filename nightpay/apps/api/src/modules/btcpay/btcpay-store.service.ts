@@ -3,7 +3,6 @@ import { BadRequestException, ConflictException, Inject, Injectable, Logger } fr
 import { ConfigService } from '@nestjs/config';
 import {
   stepUpActions,
-  type BtcpayPurpose,
   type BtcpaySettingsView,
   type BtcpayTestResult,
   type BtcpayTestStep,
@@ -32,7 +31,6 @@ export interface BtcpayAccess {
   webhookSecret: string | null;
   hookToken: string;
   enabled: boolean;
-  purpose: BtcpayPurpose;
 }
 
 const HOOK_TOKEN_BYTES = 24;
@@ -77,7 +75,6 @@ export class BtcpayStoreService {
         available,
         configured: false,
         enabled: false,
-        purpose: 'BOTH',
         baseUrl: null,
         storeId: null,
         apiKeyHint: null,
@@ -92,7 +89,6 @@ export class BtcpayStoreService {
       available,
       configured: true,
       enabled: row.enabled,
-      purpose: row.purpose as BtcpayPurpose,
       baseUrl: row.baseUrl,
       storeId: row.storeId,
       apiKeyHint: this.hintOf(tenantId, row.apiKeyEnc),
@@ -135,7 +131,6 @@ export class BtcpayStoreService {
     webhookSecretEnc: string | null;
     hookToken: string;
     enabled: boolean;
-    purpose: string;
   }): BtcpayAccess | null {
     try {
       return {
@@ -146,7 +141,6 @@ export class BtcpayStoreService {
         webhookSecret: row.webhookSecretEnc ? openBtcpaySecret(this.kek(), row.tenantId, 'webhook', row.webhookSecretEnc) : null,
         hookToken: row.hookToken,
         enabled: row.enabled,
-        purpose: row.purpose as BtcpayPurpose,
       };
     } catch (err) {
       // Nunca el valor: solo que no se pudo abrir (ENCRYPTION_KEK cambiada, fila tocada).
@@ -272,7 +266,6 @@ export class BtcpayStoreService {
       webhookId,
       hookToken,
       enabled: dto.enabled,
-      purpose: dto.purpose,
       lastCheckAt: now,
       lastCheckOk: true,
       lastCheckMessage: 'Conexión correcta.',
@@ -294,12 +287,16 @@ export class BtcpayStoreService {
       targetType: 'Venue',
       targetId: tenantId,
       // Nunca la clave ni el secreto: solo qué se tocó.
-      payload: { baseUrl: origin, storeId: dto.storeId, enabled: dto.enabled, purpose: dto.purpose, apiKeyChanged: dto.apiKey !== undefined, previouslyConfigured: Boolean(saved) },
+      payload: { baseUrl: origin, storeId: dto.storeId, enabled: dto.enabled, apiKeyChanged: dto.apiKey !== undefined, previouslyConfigured: Boolean(saved) },
     });
     return this.view(tenantId);
   }
 
-  /** Solo el interruptor y el uso, con 2FA. Para encender hace falta que la última comprobación saliera bien. */
+  /**
+   * Solo el interruptor (y devolver en efectivo), con 2FA. Para encender hace
+   * falta que la última comprobación saliera bien. El «para qué» ya no se
+   * guarda: bitcoin es para cargar saldo y para los reservados (btcpay-logic).
+   */
   async updateMode(user: JwtPayload, dto: UpdateBtcpayModeDto): Promise<BtcpaySettingsView> {
     this.assertAvailable();
     const tenantId = user.tenantId;
@@ -311,7 +308,7 @@ export class BtcpayStoreService {
     }
     const cashRefund = dto.cashRefund ?? row.cashRefundEnabled;
     await this.prisma.asSystem((tx) =>
-      tx.btcpayStore.update({ where: { tenantId }, data: { enabled: dto.enabled, purpose: dto.purpose, cashRefundEnabled: cashRefund } }),
+      tx.btcpayStore.update({ where: { tenantId }, data: { enabled: dto.enabled, cashRefundEnabled: cashRefund } }),
     );
     await this.audit.log({
       action: 'venue.btcpay.mode_updated',
@@ -321,8 +318,8 @@ export class BtcpayStoreService {
       targetType: 'Venue',
       targetId: tenantId,
       payload: {
-        before: { enabled: row.enabled, purpose: row.purpose, cashRefund: row.cashRefundEnabled },
-        after: { enabled: dto.enabled, purpose: dto.purpose, cashRefund },
+        before: { enabled: row.enabled, cashRefund: row.cashRefundEnabled },
+        after: { enabled: dto.enabled, cashRefund },
       },
     });
     return this.view(tenantId);

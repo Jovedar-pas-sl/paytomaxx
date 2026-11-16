@@ -13,8 +13,9 @@ import { choosePayPage, type PayRedirect } from './pay-redirect';
 
 type ChooseView = Extract<PayRedirect, { kind: 'choose' }>;
 
-function view(bitcoin: boolean): ChooseView {
+function view(bitcoin: boolean, topUp = false): ChooseView {
   return choosePayPage({
+    ...(topUp ? { topUp: true } : {}),
     id: '11111111-2222-4333-8444-555555555555',
     status: 'CREATED',
     amountCents: 100,
@@ -34,8 +35,8 @@ function view(bitcoin: boolean): ChooseView {
   }) as ChooseView;
 }
 
-const page = (bitcoin: boolean, lang: PayLanguage = 'es', wallet: 'Apple Pay' | null = 'Apple Pay') =>
-  renderChooseBody(view(bitcoin), { token: 'tok-1', lang, device: { wallet, inApp: null }, statementName: null, now: new Date() });
+const page = (bitcoin: boolean, lang: PayLanguage = 'es', wallet: 'Apple Pay' | null = 'Apple Pay', topUp = false) =>
+  renderChooseBody(view(bitcoin, topUp), { token: 'tok-1', lang, device: { wallet, inApp: null }, statementName: null, now: new Date() });
 
 /** El botón de bitcoin tal cual sale en la página. */
 const button = (html: string): string => /<button[^>]*id="btcBtn"[\s\S]*?<\/button>/.exec(html)?.[0] ?? '';
@@ -66,6 +67,13 @@ describe('«Pagar con bitcoin» en la página de pago', () => {
     expect(btn).toContain(`>${PAY_TEXT[lang].payWithBitcoinPrefix}<`);
     expect(PAY_TEXT[lang].bitcoinHint.length).toBeGreaterThan(10);
     expect(html).toContain('class="btchint"');
+  });
+
+  it('en una carga de saldo y en la página de pago de un reservado (también recargas): el mismo botón, igual que en todas', () => {
+    const carga = page(true, 'es', 'Apple Pay', true);
+    expect(carga).toContain('Recarga');
+    expect(button(carga)).toBe(button(page(true)));
+    expect(button(carga)).toContain(BTC_MARK);
   });
 
   it('sin bitcoin en el local, no sale el botón', () => {

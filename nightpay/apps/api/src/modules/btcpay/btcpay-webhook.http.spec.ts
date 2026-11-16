@@ -17,7 +17,7 @@ import { BtcpayStoreService } from './btcpay-store.service';
  */
 const SECRET = 'secreto-del-aviso-de-prueba-0123456789';
 const TOKEN = 'token-del-local-0123456789abcdef';
-const access = { tenantId: 't-1', storeId: 'ST1', webhookSecret: SECRET, hookToken: TOKEN, origin: 'https://x.es', apiKey: 'k', enabled: true, purpose: 'BOTH' };
+const access = { tenantId: 't-1', storeId: 'ST1', webhookSecret: SECRET, hookToken: TOKEN, origin: 'https://x.es', apiKey: 'k', enabled: true };
 
 const prisma = {
   webhookDelivery: {

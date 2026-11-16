@@ -4,7 +4,9 @@ import type { ReservationPayKind } from '@nightpay/contracts';
  * La Idempotency-Key de los pagos con tarjeta de una reserva:
  * `resv:<id de la reserva>:<DEPOSIT|REST|FULL>:<intento>`. Con ella la página
  * de pago (/pay) sabe que es de un reservado: no enseña el saldo del grupo a
- * quien paga (la señal es saldo solo al llegar) y no ofrece bitcoin.
+ * quien paga (la señal es saldo solo al llegar) y, al pagarse, vuelve a la
+ * página del reservado. Ofrece bitcoin como una carga de saldo (decisión del
+ * dueño: bitcoin para cargar saldo y para los reservados, nunca en la barra).
  */
 export const RESERVATION_KEY_PREFIX = 'resv:';
 

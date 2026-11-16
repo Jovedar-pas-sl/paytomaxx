@@ -111,7 +111,7 @@ import { wasPaidAfterCancel } from './paid-after-cancel';
 import { assertBankWaitOver } from './cancel-at-bank';
 import { serviceFeeQuote } from '@nightpay/contracts';
 import { btcpayEnabled } from '../btcpay/btcpay-flag';
-import { purposeAllows } from '../btcpay/btcpay-logic';
+import { bitcoinOfferedFor } from '../btcpay/btcpay-logic';
 import { VENUE_SERVICE_FEE_SELECT, refundableFeeCents, venueServiceFeeOf } from './service-fee';
 
 const POS_AUTH_CODE_REUSED =
@@ -1033,14 +1033,15 @@ export class PaymentsService implements OnApplicationBootstrap {
 
   /** Pasarela activa del local (la que cobrará cuando el cliente pague). */
   /**
-   * «Pagar con bitcoin» en la página de pago: el servidor lo tiene encendido
-   * (BTCPAY_ENABLED), el local lo activó en Ajustes y lo usa para esto (cobros o
-   * recargas). Apagado el servidor, ni se mira la base.
+   * «Pagar con bitcoin» en la página de pago: solo al cargar saldo y en los
+   * reservados (bitcoinOfferedFor: los dos llevan su saldo), nunca en un cobro de
+   * la barra; con el servidor encendido (BTCPAY_ENABLED) y el local en Ajustes.
+   * Apagado el servidor, o en un cobro de la barra, ni se mira la base.
    */
-  private async bitcoinOffered(tenantId: string, topUp: boolean): Promise<boolean> {
-    if (!btcpayEnabled()) return false;
-    const store = await this.prisma.asSystem((tx) => tx.btcpayStore.findUnique({ where: { tenantId }, select: { enabled: true, purpose: true } }));
-    return Boolean(store?.enabled) && purposeAllows(store?.purpose, topUp);
+  private async bitcoinOffered(tenantId: string, payment: { walletId: string | null }): Promise<boolean> {
+    if (!btcpayEnabled() || !bitcoinOfferedFor(payment)) return false;
+    const store = await this.prisma.asSystem((tx) => tx.btcpayStore.findUnique({ where: { tenantId }, select: { enabled: true } }));
+    return Boolean(store?.enabled);
   }
 
   /** Cosas que hacer cuando se cancela un cobro (BTCPay: cerrar su factura). Las registra quien las necesita. */
@@ -1259,8 +1260,8 @@ export class PaymentsService implements OnApplicationBootstrap {
     const methods = paymentMethodsOf(venue?.paymentMethods);
     // Y el puesto de quien cobra (recepción no lleva propinas).
     const creatorTips = createdBy ? chargeRightsOf(createdBy, postRulesOf(venue?.postRules)).tips : true;
-    // Reservados: solo con tarjeta (sin bitcoin).
-    const bitcoin = !isReservationPaymentKey(idempotencyKey) && (await this.bitcoinOffered(payment.tenantId, walletId !== null));
+    // Bitcoin: al cargar saldo y en los reservados (la señal, el resto o todo); en un cobro de la barra, nunca.
+    const bitcoin = await this.bitcoinOffered(payment.tenantId, { walletId });
     // Cancelado por el personal y cobrado después por el banco: el cliente no ve «cancelado» a secas.
     const paidAfterCancel = payment.status === 'CANCELED' && (await this.prisma.asSystem((tx) => wasPaidAfterCancel(tx, payment.id)));
     return {

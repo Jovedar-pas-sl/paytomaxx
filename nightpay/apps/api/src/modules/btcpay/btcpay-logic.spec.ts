@@ -7,7 +7,7 @@ import {
   decimalToCents,
   describeBtcpayFailure,
   judgeInvoice,
-  purposeAllows,
+  bitcoinOfferedFor,
   unifiedPaymentLink,
   verifyBtcpaySignature,
   type InvoiceData, btcToSats, paidOfMethods, satsToBtc } from './btcpay-logic';
@@ -244,19 +244,13 @@ describe('describeBtcpayFailure: mensajes para el dueño', () => {
   });
 });
 
-describe('purposeAllows: cobros, recargas o los dos', () => {
-  it.each([
-    ['PAYMENTS', false, true],
-    ['PAYMENTS', true, false],
-    ['TOPUPS', true, true],
-    ['TOPUPS', false, false],
-    ['BOTH', true, true],
-    ['BOTH', false, true],
-    ['RARO', true, false],
-    [undefined, false, false],
-    [null, true, false],
-  ])('%s con recarga=%s → %s', (purpose, topUp, expected) => {
-    expect(purposeAllows(purpose, topUp)).toBe(expected);
+describe('bitcoinOfferedFor: solo cargar saldo y reservados, nunca un cobro de la barra', () => {
+  it('una carga de saldo (la ficha o un reservado: los dos llevan su saldo) sí', () => {
+    expect(bitcoinOfferedFor({ walletId: '3f2a1b4c-0000-4000-8000-000000000001' })).toBe(true);
+  });
+
+  it('un cobro de la barra (sin saldo) no, nunca', () => {
+    expect(bitcoinOfferedFor({ walletId: null })).toBe(false);
   });
 });
 

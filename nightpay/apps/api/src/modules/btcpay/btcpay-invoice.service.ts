@@ -11,11 +11,10 @@ import { GatewayTransientError } from '../gateways/gateway-errors';
 import { InvalidTransitionError, isIdempotentTransition } from '../payments/payment.machine';
 import { PaymentsService } from '../payments/payments.service';
 import { assertVenueNotPaused, VENUE_PAUSE_SELECT } from '../venues/venue-pause';
-import { isReservationPaymentKey } from '../reservations/reservation-payment-key';
 import {
+  bitcoinOfferedFor,
   judgeInvoice,
   paidOfMethods,
-  purposeAllows,
   unifiedPaymentLink,
   type InvoiceData,
   type InvoicePaymentMethod,
@@ -97,8 +96,6 @@ interface PaymentCtx {
   qrExpiresAt: Date;
   walletId: string | null;
   createdByUserId: string | null;
-  /** Reservados (resv:…): solo con tarjeta. */
-  idempotencyKey?: string;
 }
 
 export interface StaffActor {
@@ -159,8 +156,8 @@ export class BtcpayInvoiceService implements OnModuleInit {
   private async start(payment: PaymentCtx, claimHash: string | null): Promise<BitcoinStartResult> {
     if (PAID_STATES.has(payment.status)) return { kind: 'paid' };
     const access = await this.stores.accessFor(payment.tenantId);
-    const reservation = isReservationPaymentKey(payment.idempotencyKey);
-    if (reservation || !access || !access.enabled || !purposeAllows(access.purpose, payment.walletId !== null)) {
+    // Solo para cargar saldo y en los reservados (los dos llevan su saldo); nunca en un cobro de la barra.
+    if (!access || !access.enabled || !bitcoinOfferedFor(payment)) {
       throw new ConflictException({ code: 'BTCPAY_NOT_OFFERED', message: 'Este local no cobra con bitcoin.' });
     }
     const existing = await this.openInvoiceOf(payment.id);
@@ -611,7 +608,7 @@ export class BtcpayInvoiceService implements OnModuleInit {
         where: by === 'token' ? { qrToken: key } : { id: key },
         select: {
           id: true, tenantId: true, status: true, provider: true, providerTxId: true, amountCents: true,
-          serviceFeeCents: true, currency: true, qrExpiresAt: true, walletId: true, createdByUserId: true, idempotencyKey: true,
+          serviceFeeCents: true, currency: true, qrExpiresAt: true, walletId: true, createdByUserId: true,
         },
       }),
     );

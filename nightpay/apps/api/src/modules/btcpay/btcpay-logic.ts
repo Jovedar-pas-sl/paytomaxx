@@ -300,10 +300,16 @@ export function describeBtcpayFailure(status: number, body: unknown): BtcpayFail
   return { code: 'UNKNOWN', transient: false, message: 'BTCPay ha contestado algo inesperado. Revisa la dirección, la tienda y la clave.' };
 }
 
-// ─── ¿Para qué usa el local el bitcoin? ───────────────────────────────
+// ─── ¿Dónde se ofrece el bitcoin? ─────────────────────────────────────
 
-/** Cobros, recargas del saldo o los dos (Ajustes). Un valor desconocido no deja nada. */
-export function purposeAllows(purpose: string | null | undefined, topUp: boolean): boolean {
-  if (purpose === 'BOTH') return true;
-  return topUp ? purpose === 'TOPUPS' : purpose === 'PAYMENTS';
+/**
+ * Decisión del dueño: «Pagar con bitcoin» solo para cargar saldo (la ficha, en
+ * recepción o desde casa) y para los reservados (la señal, el resto o todo: son
+ * recargas del saldo del grupo). Nunca en un cobro de la barra. Las dos son
+ * cobros con saldo (walletId); un cobro de la barra no lo tiene. Además hace
+ * falta el bitcoin encendido en el servidor y en el local. El «para qué»
+ * (purpose) de Ajustes ya no cuenta: la columna se queda, sin uso.
+ */
+export function bitcoinOfferedFor(payment: { walletId: string | null }): boolean {
+  return payment.walletId !== null;
 }
