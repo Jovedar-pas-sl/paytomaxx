@@ -12,12 +12,13 @@ export function Party() {
       <div className={s.container}>
         <div className={c.party}>
           <div>
-            <Eyebrow className={c.inkText}>OxioParty</Eyebrow>
+            <Eyebrow className={c.inkText}>OxioParty · Próximamente</Eyebrow>
             <h2 id="party-title" className={cx(s.h2, c.inkText)}>
               ¿Peñas, fiestas o casetas?
             </h2>
             <p className={c.partyText}>
-              Para eso tenemos OxioParty: la versión de OxioPay pensada para peñas, fiestas populares y casetas.
+              Estamos preparando OxioParty: la versión de OxioPay para peñas, fiestas populares y casetas. Si te
+              interesa, pregúntanos.
             </p>
           </div>
           <a className={cx(s.btn, s.btnDark, c.partyBtn)} href={PARTY_MAIL}>
@@ -29,7 +30,7 @@ export function Party() {
   );
 }
 
-/** Contacto sin formulario: teléfono y email. */
+/** Contacto sin formulario: teléfono y correo. */
 export function Contact() {
   return (
     <section id="contacto" className={cx(c.section, c.contact)} aria-labelledby="contact-title">
@@ -53,7 +54,7 @@ export function Contact() {
             <div className={c.contactRow}>
               <dt>
                 <Icon name="mail" size={18} stroke={2.2} />
-                Email
+                Correo
               </dt>
               <dd>{CONTACT_EMAIL}</dd>
             </div>
@@ -63,7 +64,7 @@ export function Contact() {
               Llamar al {PHONE_DISPLAY}
             </a>
             <a className={cx(s.btn, s.btnLine, s.btnBig)} href={MAIL}>
-              Escribir un email
+              Escribir un correo
             </a>
           </div>
         </div>
@@ -80,19 +81,19 @@ const FAQ: readonly { q: string; a: ReactNode }[] = [
   },
   {
     q: '¿Es seguro pagar?',
-    a: 'La tarjeta la escribes en la página segura del banco, no en OxioPay. Antes de pagar ves el total, y tu saldo está protegido con PIN o Face ID.',
+    a: 'La tarjeta la escribes en la página segura del banco, no en OxioPay. Antes de pagar ves el total. Con tu saldo pagas con tu PIN o con Face ID o huella; con la ficha, los importes pequeños pueden ir sin PIN si el local lo permite.',
   },
   {
     q: '¿Qué es la ficha?',
-    a: 'Es tu saldo en una ficha: te la dan en recepción, en los locales que la usan. Para pagar, acércala al móvil del personal y pon tu PIN. Si la pierdes, avisa al personal: bloqueamos el saldo para que nadie lo use.',
+    a: 'Es tu saldo en una ficha: te la dan en recepción, en los locales que la usan. Para pagar, acércala al móvil del personal y pon tu PIN; los importes pequeños pueden ir sin PIN si el local lo permite. Si la pierdes, bloquéala desde tu saldo o avisa en el local: deja de pagar al momento y lo que te queda no se pierde. En recepción te dan otra; el local puede cobrarla de tu saldo.',
   },
   {
     q: '¿Puedo pagar con bitcoin?',
-    a: 'Con bitcoin puedes cargar tu saldo en recepción, en los locales que lo aceptan, y después pagas con ese saldo. En la barra no se paga con bitcoin. Próximamente también podrás pagar tu reservado con bitcoin: la señal y el resto.',
+    a: 'En los locales que lo aceptan, puedes cargar tu saldo con bitcoin y después pagar con ese saldo. Próximamente también podrás pagar tu reservado con bitcoin: la señal y el resto.',
   },
   {
     q: '¿Qué pasa con el saldo que me sobra?',
-    a: 'Si te sobra saldo, te lo devolvemos cuando lo pidas. El saldo que cargaste con bitcoin se devuelve en euros.',
+    a: 'Te lo devolvemos cuando lo pidas: lo cargado en efectivo, en efectivo en recepción; lo cargado con tarjeta, a tu tarjeta.',
   },
   {
     q: '¿En qué idiomas está la página de pago?',
@@ -143,7 +144,7 @@ export function Access() {
         <h2 id="access-title" className={s.h2}>
           Acceso del personal
         </h2>
-        <p className={s.lead}>Cada uno entra con su email y su contraseña en su app.</p>
+        <p className={s.lead}>Cada uno entra con su correo y su contraseña en su app.</p>
         <ul className={c.accessList}>
           {STAFF.map(([app, name, who]) => (
             <li key={app}>

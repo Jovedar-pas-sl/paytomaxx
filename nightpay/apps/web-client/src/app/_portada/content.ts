@@ -6,9 +6,12 @@ import type { StaffApp } from '@/lib/customer-pages';
  * ni promesas. Una palabra por cosa: ficha, saldo, cargar, cobro, Pagado,
  * personal.
  *
- * Bitcoin (decisión del 16-nov): solo para cargar saldo en recepción y, cuando
- * salgan, para pagar reservados (señal y resto). Nunca para pagar en la barra.
- * Cada local elige si lo acepta y ese saldo se devuelve en euros.
+ * Bitcoin (decisión del 16-nov): solo para cargar saldo y, cuando salgan, para
+ * pagar reservados (señal y resto). Cada local elige si lo acepta. Hasta que se
+ * publique la rama que lo limita (feat/btc-recarga-reservas) y haya forma de
+ * devolver en euros ese saldo, aquí no se dice «nunca en la barra» ni «se
+ * devuelve en euros»: solo lo que ya es cierto (comprobación del 16-nov,
+ * scratchpad/landing-oxiocard/COMPROBACION-TEXTOS.md).
  */
 
 /** [texto en negrita, resto de la frase]. */
@@ -43,7 +46,7 @@ export const MENU = [
 export const STEPS = [
   {
     title: 'Escanea el QR',
-    text: 'El personal te lo enseña en su móvil o en el datáfono. No hace falta instalar nada ni registrarse.',
+    text: 'El personal te lo enseña en su móvil o en la caja. No hace falta instalar nada ni registrarse.',
   },
   {
     title: 'Elige cómo pagar',
@@ -58,30 +61,25 @@ export const STEPS = [
 export const FOR_CLIENTS: readonly Point[] = [
   ['Sin app ni registro:', 'solo tu móvil.'],
   ['Pago seguro:', 'la tarjeta la escribes en la página segura del banco, no en OxioPay.'],
-  ['Tu saldo:', 'prepago, protegido con PIN o Face ID.'],
-  ['Lo que te sobra:', 'te lo devolvemos cuando lo pidas.'],
+  ['Tu saldo:', 'prepago. Pagas con tu PIN o con Face ID o huella; con la ficha, los importes pequeños pueden ir sin PIN si el local lo permite.'],
+  ['Lo que te sobra:', 'te lo devolvemos cuando lo pidas: lo cargado en efectivo, en efectivo; lo cargado con tarjeta, a tu tarjeta.'],
 ];
 
 export type VenueIcon = 'qr' | 'bitcoin' | 'heart' | 'chart' | 'percent' | 'bell';
 
 export const FOR_VENUES: readonly (readonly [VenueIcon, string, string])[] = [
   ['qr', 'Cobra como quieras', 'Con QR, con datáfono o con el saldo del cliente.'],
-  ['bitcoin', 'Bitcoin, si quieres', 'Tus clientes cargan su saldo con bitcoin en recepción.'],
-  [
-    'heart',
-    'Fideliza',
-    'El saldo de tus clientes vale en todos tus locales y les espera para la próxima visita, también en Google Wallet.',
-  ],
+  ['bitcoin', 'Bitcoin, si quieres', 'Tus clientes cargan su saldo con bitcoin y tú lo recibes en tu propio BTCPay.'],
+  ['heart', 'Fideliza', 'El saldo de tus clientes les espera para la próxima visita y puede valer en todos tus locales.'],
   ['chart', 'Lo cobrado, cada noche', 'Un panel con lo cobrado cada noche.'],
   ['percent', 'Comisiones del personal', 'Se calculan solas.'],
-  ['bell', 'Avisos al momento', 'En Telegram.'],
+  ['bell', 'Avisos en Telegram', 'Lo que tienes que aprobar o revisar te llega en minutos y, cada mañana, el resumen de la noche.'],
 ];
 
 export const BITCOIN_POINTS: readonly Point[] = [
-  ['Solo para cargar saldo:', 'en la barra no se paga con bitcoin; pagas con tu saldo.'],
+  ['Para cargar saldo:', 'cargas tu saldo con bitcoin y después pagas con él.'],
   ['El local decide:', 'cada local elige si acepta bitcoin.'],
-  ['Lightning o en la red:', 'con Lightning llega al momento; en la red, con 1 confirmación.'],
-  ['En euros:', 'el saldo que cargas con bitcoin se devuelve en euros.'],
+  ['Lightning o en la red:', 'con Lightning, si el local lo tiene, llega al momento; en la red, con 1 confirmación.'],
 ];
 
 /** Efectivo y datáfono frente a OxioPay: solo hechos. */
@@ -89,20 +87,23 @@ export const VERSUS: readonly (readonly { topic: string; before: Point; after: P
   [
     {
       topic: 'El justificante',
-      before: ['En papel:', 'un ticket, si lo pides.'],
+      before: ['En papel:', 'el ticket de la caja o del datáfono.'],
       after: ['En tu móvil:', 'ves «Pagado» en pantalla y puedes guardar el justificante.'],
     },
     {
       topic: 'Si se pierde',
-      before: ['Sin vuelta atrás:', 'el efectivo que se pierde no se recupera.'],
-      after: ['Saldo bloqueado:', 'si pierdes la ficha o el móvil, avisa al personal y bloqueamos el saldo para que nadie lo use.'],
+      before: ['Efectivo:', 'el que se pierde no se recupera.'],
+      after: [
+        'Ficha bloqueada:',
+        'si pierdes la ficha, avisa en el local y la bloquean: lo que te queda de saldo no se pierde y en recepción te dan otra (el local puede cobrarla).',
+      ],
     },
   ],
   [
     {
       topic: 'Al cerrar la noche',
-      before: ['A mano:', 'el efectivo se cuenta a mano y cada datáfono da su propio cierre.'],
-      after: ['Un panel:', 'con lo cobrado cada noche.'],
+      before: ['Por separado:', 'el efectivo por un lado y cada datáfono con su propio cierre.'],
+      after: ['Un solo cierre:', 'lo cobrado cada noche en un panel, con el arqueo de caja.'],
     },
     {
       topic: 'Comisiones del personal',

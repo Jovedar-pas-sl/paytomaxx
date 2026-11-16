@@ -118,7 +118,7 @@ export function Footer() {
           </a>
           <p className={s.footTitle}>
             <Icon name="mail" size={16} stroke={2.2} />
-            Email
+            Correo
           </p>
           <a className={s.footLink} href={`mailto:${CONTACT_EMAIL}`}>
             {CONTACT_EMAIL}

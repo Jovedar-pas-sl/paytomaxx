@@ -18,7 +18,7 @@ import s from '../landing.module.css';
 const INTRO_CARDS: readonly (readonly [IconName, string])[] = [
   ['phoneQr', 'Sin app ni registro'],
   ['cards', 'Tarjeta, Apple Pay, Google Pay o saldo'],
-  ['shield', 'Saldo con PIN o Face ID'],
+  ['shield', 'Saldo con PIN, Face ID o huella'],
 ];
 
 /** Como «Tarjeta global» en oxiocard: titular centrado y tres tarjetas lima. */
@@ -118,7 +118,8 @@ export function Clients() {
             <Icon name="tap" size={32} stroke={1.8} className={c.calloutIcon} />
             <p>
               <strong>La ficha:</strong> en los locales que la usan, te la dan en recepción, unida a tu saldo. Para
-              pagar, acércala al móvil del personal y pon tu PIN.
+              pagar, acércala al móvil del personal y pon tu PIN. Los importes pequeños pueden ir sin PIN, si el
+              local lo permite.
             </p>
           </div>
         </div>
@@ -162,7 +163,7 @@ export function Venues() {
   );
 }
 
-/** Bitcoin: solo para cargar saldo (y, cuando salgan, reservados). Nunca en la barra. */
+/** Bitcoin: para cargar saldo (y, cuando salgan, reservados). Ver la nota de content.ts. */
 export function Bitcoin() {
   return (
     <section id="bitcoin" className={cx(c.section, c.btc)} aria-labelledby="btc-title">
@@ -173,7 +174,7 @@ export function Bitcoin() {
             <span className={s.dim}>Carga tu saldo </span>con bitcoin
           </h2>
           <p className={cx(s.lead, s.leadGap)}>
-            En recepción, en los locales que lo aceptan. Después pagas con tu saldo, como siempre.
+            En los locales que lo aceptan. Después pagas con tu saldo, como siempre.
           </p>
           <Points items={BITCOIN_POINTS} />
           <div className={c.soon}>
@@ -215,7 +216,7 @@ export function Versus() {
         <div className={s.center}>
           <Eyebrow>Comparativa</Eyebrow>
           <h2 id="vs-title" className={s.h2}>
-            Efectivo y datáfono <span className={c.vsWord}>vs</span> OxioPay
+            Efectivo y datáfono de siempre <span className={c.vsWord}>vs</span> OxioPay
           </h2>
         </div>
         <div className={c.vsGrid}>
@@ -224,10 +225,10 @@ export function Versus() {
               {column.map((row) => (
                 <div key={row.topic} className={c.vsTopic}>
                   <h3 className={c.vsTopicTitle}>{row.topic}</h3>
-                  <h4 className={c.vsSide}>Efectivo y datáfono</h4>
+                  <h4 className={c.vsSide}>De siempre</h4>
                   <VersusLine point={row.before} yes={false} />
                   <hr className={c.vsRule} />
-                  <h4 className={c.vsSide}>OxioPay</h4>
+                  <h4 className={c.vsSide}>Con OxioPay</h4>
                   <VersusLine point={row.after} yes />
                 </div>
               ))}
