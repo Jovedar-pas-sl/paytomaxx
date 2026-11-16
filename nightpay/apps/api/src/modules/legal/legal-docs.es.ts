@@ -26,7 +26,7 @@ export function legalDocsEs(o: LegalOwner): LegalDocs {
         },
         { h: 'Qué es OxioPay' },
         {
-          p: 'OxioPay es la herramienta con la que pagas en los locales que la usan: con tarjeta, con saldo prepago y, si el local lo ofrece, con bitcoin. Lo que compras te lo vende el local; OxioPay gestiona el cobro y el saldo.',
+          p: 'OxioPay es la herramienta con la que pagas en los locales que la usan: con tarjeta, con saldo prepago y, si el local lo ofrece, con bitcoin para cargar saldo o pagar un reservado. Lo que compras te lo vende el local; OxioPay gestiona el cobro y el saldo.',
         },
         { h: 'Propiedad intelectual' },
         {
@@ -180,7 +180,7 @@ export function legalDocsEs(o: LegalOwner): LegalDocs {
             'Antes de pagar ves el total: el precio, la comisión del servicio si el local la aplica y la propina, que es voluntaria. No hay cargos ocultos.',
             'La tarjeta (o Apple Pay y Google Pay) la escribes en la página segura del banco, no en OxioPay.',
             'Cuando el banco lo confirma, ves «Pagado» y puedes guardar el justificante.',
-            'Si el local acepta bitcoin, el importe en bitcoin se fija durante unos minutos. Un pago en bitcoin no se puede anular desde la red.',
+            'Si el local acepta bitcoin (solo para cargar saldo y para pagar un reservado, no en la barra), el importe en bitcoin se fija durante unos minutos. Un pago en bitcoin no se puede anular desde la red.',
           ],
         },
         { h: 'El saldo', id: 'saldo' },
