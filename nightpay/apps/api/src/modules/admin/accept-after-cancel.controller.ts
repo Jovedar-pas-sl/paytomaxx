@@ -42,7 +42,7 @@ type AcceptAfterCancelBody = z.infer<typeof AcceptAfterCancelSchema>;
  * «Dar por bueno» (paid-after-cancel.ts): el banco cobró un cobro que el
  * personal ya había cancelado y el local se lo queda. Solo el encargado o el
  * dueño, con su 2FA (o su llave). El cobro pasa a pagado con el pedido que
- * cobró el banco (su propina y la comisión de la chica, como un pago normal),
+ * cobró el banco (su propina y la comisión de la compañera, como un pago normal),
  * el aviso se cierra con la nota y queda en el registro (y en Avisos, como
  * acción delicada). Lo que no es de este caso, 404; ya no cancelado, 409.
  */

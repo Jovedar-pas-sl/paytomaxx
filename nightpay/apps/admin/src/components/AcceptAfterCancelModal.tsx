@@ -52,7 +52,7 @@ export function AcceptAfterCancelModal({ incident, onClose, onDone }: { incident
       <form onSubmit={(e) => void submit(e)} style={{ display: 'grid', gap: '0.75rem' }}>
         <p style={{ margin: 0, fontSize: '1rem', fontWeight: 600 }}>{incident?.title}</p>
         <p style={{ margin: 0, fontSize: '0.875rem', color: 'var(--np-text-mute)' }}>
-          El cobro pasa a pagado con lo que cobró el banco (su propina y la comisión de la chica, como un pago normal). Si prefieres
+          El cobro pasa a pagado con lo que cobró el banco (su propina y la comisión de la compañera, como un pago normal). Si prefieres
           devolverlo, hazlo en el banco y cierra el aviso con una nota.
         </p>
         <Input
