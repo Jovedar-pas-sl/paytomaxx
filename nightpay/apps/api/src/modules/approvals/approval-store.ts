@@ -35,8 +35,17 @@ export async function pendingRefundApprovalCents(
   paymentId: string,
   now: Date = new Date(),
 ): Promise<number> {
+  const cutoff = expiryCutoff(now);
   const agg = await tx.approvalRequest.aggregate({
-    where: { kind: 'REFUND', targetId: paymentId, status: 'PENDING', requestedAt: { gt: expiryCutoff(now) } },
+    where: {
+      kind: 'REFUND',
+      targetId: paymentId,
+      OR: [
+        { status: 'PENDING', requestedAt: { gt: cutoff } },
+        // En efectivo: aprobada y aún sin «Entregado» (24 h) sigue reservando.
+        { status: 'APPROVED', resultRef: null, decidedAt: { gt: cutoff } },
+      ],
+    },
     _sum: { amountCents: true },
   });
   return agg._sum.amountCents ?? 0;

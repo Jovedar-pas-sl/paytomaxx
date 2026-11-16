@@ -21,11 +21,18 @@ describe('approval_requests dentro de la transacción', () => {
     expect(expiryCutoff(now)).toEqual(dayBefore);
   });
 
-  it('lo pedido para devolver de un cobro: solo pendientes y sin caducar', async () => {
+  it('lo pedido para devolver de un cobro: pendientes sin caducar y, en efectivo, aprobadas sin «Entregado» (24 h)', async () => {
     const aggregate = vi.fn().mockResolvedValue({ _sum: { amountCents: 15_000 } });
     expect(await pendingRefundApprovalCents(txWith({ aggregate }), 'pay-1', now)).toBe(15_000);
     expect(aggregate).toHaveBeenCalledWith({
-      where: { kind: 'REFUND', targetId: 'pay-1', status: 'PENDING', requestedAt: { gt: dayBefore } },
+      where: {
+        kind: 'REFUND',
+        targetId: 'pay-1',
+        OR: [
+          { status: 'PENDING', requestedAt: { gt: dayBefore } },
+          { status: 'APPROVED', resultRef: null, decidedAt: { gt: dayBefore } },
+        ],
+      },
       _sum: { amountCents: true },
     });
     aggregate.mockResolvedValueOnce({ _sum: { amountCents: null } });

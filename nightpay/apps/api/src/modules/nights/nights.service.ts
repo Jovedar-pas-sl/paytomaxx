@@ -25,6 +25,7 @@ import { totpForbidden } from '../auth/totp-code';
 import { TotpService } from '../auth/totp.service';
 import { summarize } from '../reports/export-csv';
 import { cardPaymentsCount } from '../reports/export-summary';
+import { bitcoinCashOut, type BitcoinCashOut } from '../bitcoin-cash/bitcoin-cash-rows';
 import type {
   AdjustmentRows,
   CobroRow,
@@ -154,6 +155,8 @@ interface ZRows {
   fichas: FichasCounts;
   /** Los nombres de sección del local (Ajustes → Secciones): el Z se congela con ellos. */
   labelOf: SectionLabeler;
+  /** Lo pagado con bitcoin y devuelto en efectivo: sale de la caja. */
+  bitcoinCashOut: BitcoinCashOut;
 }
 
 /** Caja que se guarda en venue_nights al cerrar (además de en el Z). */
@@ -727,7 +730,7 @@ export class NightsService {
   /** Las filas del Z de la noche en `now`. */
   private async zRows(tenantId: string, window: TimeWindow, now: Date, since: Date): Promise<ZRows> {
     const asOf = { recordedBefore: now };
-    const [cobros, devoluciones, liquidaciones, consumos, pagosSaldo, recargasEfectivo, late, fichas, labelOf] = await Promise.all([
+    const [cobros, devoluciones, liquidaciones, consumos, pagosSaldo, recargasEfectivo, late, fichas, labelOf, btcCash] = await Promise.all([
       this.reports.cobros(tenantId, window, asOf),
       this.reports.devoluciones(tenantId, window, asOf),
       this.reports.liquidaciones(tenantId, window),
@@ -738,8 +741,9 @@ export class NightsService {
       // Fichas de la noche: al cerrar se congelan en el Z (sus fechas cambian si se vuelven a dar).
       this.prisma.acrossVenues((tx) => fichasCounts(tx, tenantId, window)),
       this.reports.sectionLabeler(tenantId),
+      this.prisma.withTenant(tenantId, (tx) => bitcoinCashOut(tx, tenantId, window, now)),
     ]);
-    return { cobros, devoluciones, liquidaciones, consumos, pagosSaldo, recargasEfectivo, late, fichas, labelOf };
+    return { cobros, devoluciones, liquidaciones, consumos, pagosSaldo, recargasEfectivo, late, fichas, labelOf, bitcoinCashOut: btcCash };
   }
 
   /**

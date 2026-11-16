@@ -20,6 +20,7 @@ import {
   type WalletPayoutPendingRow,
 } from './close-check-rules';
 import { unresolvedPaymentsWhere } from './night-rules';
+import { bitcoinCashOut } from '../bitcoin-cash/bitcoin-cash-rows';
 
 /** Cuántas filas de cada cosa como mucho (el número de la lista es aparte). */
 const ROW_LIMIT = 100;
@@ -164,7 +165,9 @@ export class CloseCheckService {
     // Entra el saldo + la «Comisión del servicio» de las recargas en efectivo.
     const feeCents = r.topUpFeeCents ?? 0;
     const cashInCents = r.topUpCents + feeCents;
-    const cashOutCents = r.walletCents + r.chicaCents + r.camareroCents;
+    // Sale también lo pagado con bitcoin y devuelto en efectivo (el bitcoin se queda en la cartera).
+    const btc = await this.prisma.withTenant(tenantId, (tx) => bitcoinCashOut(tx, tenantId, window));
+    const cashOutCents = r.walletCents + r.chicaCents + r.camareroCents + btc.cents;
     return {
       openingFloatCents,
       cashInCents,
@@ -177,6 +180,7 @@ export class CloseCheckService {
       chicaCashPayoutsCents: r.chicaCents,
       camareroCashPayoutsCount: r.camareroCount,
       camareroCashPayoutsCents: r.camareroCents,
+      ...(btc.count > 0 ? { bitcoinCashOutCount: btc.count, bitcoinCashOutCents: btc.cents } : {}),
       cashOutCents,
       expectedCents: expectedCashCents(openingFloatCents, { cashInCents, cashOutCents }),
     };

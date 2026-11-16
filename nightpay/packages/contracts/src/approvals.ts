@@ -102,6 +102,20 @@ export const RefundApprovalTargetSchema = z.object({
   cardBrand: z.string().nullable(),
   provider: z.string().nullable(),
   reason: z.string().nullable(),
+  /**
+   * En efectivo (lo pagado con bitcoin): al aprobarla no sale nada; quien lo
+   * pidió da el dinero y pulsa «Entregado» (hasta `handUntil`). Sin el campo,
+   * una devolución de siempre.
+   */
+  cash: z
+    .object({
+      /** Un cobro pagado con bitcoin, o el bitcoin que llegó sin cobro (su factura). */
+      source: z.enum(['payment', 'invoice']),
+      invoiceId: z.string().nullable(),
+      handed: z.boolean(),
+      handUntil: z.string().datetime().nullable(),
+    })
+    .optional(),
 });
 export type RefundApprovalTarget = z.infer<typeof RefundApprovalTargetSchema>;
 

@@ -89,6 +89,13 @@ export interface NightCash {
    */
   camareroCashPayoutsCount?: number;
   camareroCashPayoutsCents?: number;
+  /**
+   * Lo pagado con bitcoin y devuelto en efectivo (cobros y bitcoin que llegó
+   * sin cobro): sale de la caja; el bitcoin se queda en la cartera. Sin el
+   * campo (API anterior, o sin ninguna): nada.
+   */
+  bitcoinCashOutCount?: number;
+  bitcoinCashOutCents?: number;
   cashOutCents: number;
   /** Fondo + entradas − salidas (con el fondo guardado; sin él, como si fuera 0). */
   expectedCents: number;
@@ -298,7 +305,13 @@ function cashMovesText(moves: { cashInCents: number; cashOutCents: number }): st
 
 /** Movimientos de efectivo de la noche (recargas, saldo devuelto y pagos a chicas). */
 export function cashMovesCount(cash: NightCash): number {
-  return (cash.walletCashTopUpsCount ?? 0) + cash.walletCashPayoutsCount + cash.chicaCashPayoutsCount + (cash.camareroCashPayoutsCount ?? 0);
+  return (
+    (cash.walletCashTopUpsCount ?? 0) +
+    cash.walletCashPayoutsCount +
+    cash.chicaCashPayoutsCount +
+    (cash.camareroCashPayoutsCount ?? 0) +
+    (cash.bitcoinCashOutCount ?? 0)
+  );
 }
 
 /** Los pasos con el de «Efectivo» recalculado con lo tecleado (no cambia el array de entrada). */
