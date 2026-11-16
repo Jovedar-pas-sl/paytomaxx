@@ -42,6 +42,9 @@ import { WalletEventsModule } from '../wallet-events/wallet-events.module';
 import { PublicWalletEventsController } from './public-wallet-events.controller';
 import { WalletWelcomeService } from '../home-topup/wallet-welcome.service';
 import { CobroDetailModule } from '../money-map/cobro-detail.module';
+import { ChargeAlertService } from './charge-alert/charge-alert.service';
+import { ChargeDisputeService } from './charge-alert/charge-dispute.service';
+import { PublicChargeAlertController } from './charge-alert/charge-alert.controller';
 
 @Module({
   // AuthModule: TotpService (2FA del encargado al anular y al devolver en efectivo).
@@ -77,6 +80,9 @@ import { CobroDetailModule } from '../money-map/cobro-detail.module';
     WalletLostCardService,
     // «Cargar saldo antes de llegar» en la página del saldo: el QR de la ficha y la cookie del enlace del local.
     WalletWelcomeService,
+    // «Aviso en cada cobro»: el aviso al móvil del cliente (Web Push) y «No he sido yo».
+    ChargeAlertService,
+    ChargeDisputeService,
   ],
   controllers: [
     // El teléfono opcional al dar una ficha nueva (y buscar un saldo por él).
@@ -93,6 +99,8 @@ import { CobroDetailModule } from '../money-map/cobro-detail.module';
     // «Saldo al momento»: la página del saldo se entera de los cambios (SSE).
     PublicWalletEventsController,
     PublicWalletLostCardController,
+    // «Aviso en cada cobro»: el service worker, apuntarse y «No he sido yo» (/w/no/:token).
+    PublicChargeAlertController,
     PublicSaldoController,
     GoogleWalletController,
     // El QR del pase leído con la cámara del móvil (/c/<token>) → la app del personal.

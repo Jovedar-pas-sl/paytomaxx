@@ -39,6 +39,7 @@ import { GoogleWalletService } from './google-wallet/google-wallet.service';
 import { activationRequired } from './wallet-activation-token';
 import { WalletActivationUseService } from './wallet-activation-use.service';
 import { WalletWelcomeService } from '../home-topup/wallet-welcome.service';
+import { ChargeAlertService } from './charge-alert/charge-alert.service';
 
 /**
  * Saldo NightPay — páginas del cliente (fuera de /v1). Sin cuenta: el enlace
@@ -81,6 +82,7 @@ export class PublicWalletController {
   private readonly activation: WalletActivationUseService | null;
   private readonly welcome: WalletWelcomeService | null;
   private readonly details: CobroDetailService | null;
+  private readonly alerts: ChargeAlertService | null;
 
   constructor(
     @Inject(WalletChargesService) charges: WalletChargesService,
@@ -94,6 +96,8 @@ export class PublicWalletController {
     @Optional() @Inject(WalletWelcomeService) welcome?: WalletWelcomeService,
     // El detalle de un pago del saldo (GET /w/:token/movements/:kind/:id); en el API siempre está.
     @Optional() @Inject(CobroDetailService) details?: CobroDetailService,
+    // «Aviso en cada cobro»: la clave pública para ofrecerlo; en el API siempre está (apagado sin claves).
+    @Optional() @Inject(ChargeAlertService) alerts?: ChargeAlertService,
   ) {
     this.charges = charges;
     this.passkeys = passkeys;
@@ -103,6 +107,7 @@ export class PublicWalletController {
     this.activation = activation ?? null;
     this.welcome = welcome ?? null;
     this.details = details ?? null;
+    this.alerts = alerts ?? null;
   }
 
   /**
@@ -296,6 +301,7 @@ export class PublicWalletController {
           payer,
           welcome: Boolean(newToken) && paid !== null,
           fichaQr,
+          chargeAlertKey: this.alerts?.publicKey ?? null,
         }),
       );
   }
