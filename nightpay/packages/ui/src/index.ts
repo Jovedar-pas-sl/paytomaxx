@@ -76,6 +76,7 @@ export { createPoller } from './lib/poller';
 export type { PollOutcome, Poller, PollerOptions } from './lib/poller';
 export {
   createPaymentLive,
+  PAYMENT_POLL_AUTHORIZING_MS,
   PAYMENT_POLL_LIVE_MS,
   PAYMENT_POLL_OFFLINE_MS,
   PAYMENT_POLL_TIMEOUT_MS,

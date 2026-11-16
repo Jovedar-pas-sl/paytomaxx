@@ -46,12 +46,15 @@ export function usePaymentStatus(payment: CreatedPayment | null): LivePaymentSta
     setPollOk(true);
     if (!id || !qrToken) return undefined;
     let final = initial !== null && isFinalStatus(initial);
+    // El estado que se ve (nunca hacia atrás): en el banco (AUTHORIZING), el respaldo pregunta cada 4 s.
+    let shown: PaymentStatus | null = initial;
     let beeped = false;
     let closed = false;
 
     const emit = (next: PaymentStatus) => {
       if (closed) return;
       if (isFinalStatus(next)) final = true;
+      shown = advanceStatus(shown, next);
       setStatus((current) => advanceStatus(current, next));
       if (next === 'AUTHORIZED' && !beeped) {
         beeped = true;
@@ -62,6 +65,7 @@ export function usePaymentStatus(payment: CreatedPayment | null): LivePaymentSta
     const link = createPaymentLive({
       paymentId: id,
       isHidden,
+      isAuthorizing: () => shown === 'AUTHORIZING',
       onLiveChange: (isLive) => {
         if (!closed) setLive(isLive);
       },
