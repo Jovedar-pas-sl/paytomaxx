@@ -38,11 +38,11 @@ export function ReceptionIncidents({ onDone }: { onDone: () => void }) {
     void load();
   }, []);
 
-  async function close(refId: string): Promise<void> {
+  async function close(row: ReceptionIncident): Promise<void> {
     if (!noteReady(note) || saving) return;
     setSaving(true);
     try {
-      await closeReceptionIncident(refId, note);
+      await closeReceptionIncident(row.refId, note, row.kind);
       setOpen(null);
       setNote('');
       await load();
@@ -56,7 +56,10 @@ export function ReceptionIncidents({ onDone }: { onDone: () => void }) {
   return (
     <div className={r.card}>
       <p className={r.kicker}>Incidencias</p>
-      <p className={r.text}>Clientes que dicen que un cobro de su saldo no lo hicieron ellos. Su ficha y su PIN ya no pagan.</p>
+      <p className={r.text}>
+        Clientes que dicen que un cobro de su saldo no lo hicieron ellos (su ficha y su PIN ya no pagan) y cobros cancelados que el
+        banco cobró después.
+      </p>
       {rows === null && !error ? <p className={r.text}>Cargando…</p> : null}
       {rows?.length === 0 ? <p className={r.lead}>No hay ninguna.</p> : null}
       {(rows ?? []).map((row) => (
@@ -72,10 +75,14 @@ export function ReceptionIncidents({ onDone }: { onDone: () => void }) {
             ) : null}
           </p>
           <p className={r.text}>{row.detail}</p>
-          {open === row.refId ? (
+          {row.ackable === false ? (
+            <p className={r.note}>Lo cierra el encargado o el dueño: devuelto en el banco o dado por bueno.</p>
+          ) : open === row.refId ? (
             <div className={r.form}>
               <label className={r.kicker} htmlFor={`nota-${row.refId}`}>
-                Qué has hecho (por ejemplo, «devuelto» o «era suyo»)
+                {row.kind === 'approval_unbooked'
+                  ? 'Qué has hecho (por ejemplo, «devuelto en el banco» o «dado por bueno»)'
+                  : 'Qué has hecho (por ejemplo, «devuelto» o «era suyo»)'}
               </label>
               <textarea
                 id={`nota-${row.refId}`}
@@ -85,8 +92,10 @@ export function ReceptionIncidents({ onDone }: { onDone: () => void }) {
                 value={note}
                 onChange={(e) => setNote(e.target.value)}
               />
-              <p className={r.note}>Para quitar el bloqueo del PIN, avisa al encargado (panel → Saldos).</p>
-              <Button onClick={() => void close(row.refId)} disabled={!noteReady(note)} loading={saving} loadingLabel="Cerrando">
+              {row.kind === 'wallet_charge_disputed' ? (
+                <p className={r.note}>Para quitar el bloqueo del PIN, avisa al encargado (panel → Saldos).</p>
+              ) : null}
+              <Button onClick={() => void close(row)} disabled={!noteReady(note)} loading={saving} loadingLabel="Cerrando">
                 Cerrar aviso
               </Button>
               <Button
