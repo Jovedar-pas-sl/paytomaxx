@@ -74,10 +74,10 @@ export function legalConsent(lang: PayLanguage): string {
 export const LEGAL_LINKS_CSS = `
 .legal-foot{width:100%;max-width:26rem;margin:0 auto;padding:.5rem 1rem calc(1rem + env(safe-area-inset-bottom))}
 .legal-foot nav{display:flex;flex-wrap:wrap;justify-content:center;column-gap:1rem}
-.legal-foot a{display:inline-flex;align-items:center;min-height:2.75rem;font-size:.75rem}
+.legal-foot a{display:inline-flex;align-items:center;min-height:2.75rem;font-size:.8125rem}
 .legal-foot a,.legal-ok a{color:var(--dim);text-decoration:underline;text-underline-offset:.15em}
 .legal-foot a:hover,.legal-ok a:hover{color:var(--fg)}
 .legal-foot a:focus-visible,.legal-ok a:focus-visible{outline:3px solid var(--fg);outline-offset:2px;border-radius:4px}
-.legal-ok{margin:.375rem 0 0;font-size:.75rem;line-height:1.5;color:var(--dim);text-align:center}
+.legal-ok{margin:.375rem 0 0;font-size:.8125rem;line-height:1.5;color:var(--dim);text-align:center}
 @media print{.legal-foot{display:none!important}}
 `;

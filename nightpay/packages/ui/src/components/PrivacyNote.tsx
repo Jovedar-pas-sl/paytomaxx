@@ -19,7 +19,7 @@ export function PrivacyNote({ apiBase, lead = 'Cómo tratamos tus datos:' }: { a
 
 const noteStyle: CSSProperties = {
   margin: 0,
-  fontSize: '0.75rem',
+  fontSize: 'var(--np-fs-14)',
   lineHeight: 1.5,
   color: 'var(--np-text-mute)',
   textAlign: 'center',

@@ -54,7 +54,7 @@ const legalLinkStyle: CSSProperties = {
   display: 'inline-flex',
   alignItems: 'center',
   minHeight: '2.75rem',
-  fontSize: '0.75rem',
+  fontSize: 'var(--np-fs-14)',
   color: 'var(--np-text-mute)',
   textDecoration: 'underline',
   textUnderlineOffset: '0.15em',
