@@ -54,6 +54,7 @@ import { lineCommission, lineViews, type DraftLine } from './charge-lines';
 import { linesWithOperatorBps, resolveChargeOrThrow, type LineWithBps } from './charge-request';
 import { insertChargeLines, insertInvitationEarnings, linesOf, nextChargeRef } from './charge-store';
 import { invitationEarnings } from './invitation-lines';
+import { cardQrUrl } from './pay-qr-url';
 import { assertCanTopUp } from '../venues/charge-rights';
 import type { AuthorizeResult, Provider } from '@nightpay/contracts';
 import {
@@ -2619,36 +2620,9 @@ export class PaymentsService implements OnApplicationBootstrap {
       lines: await linesOf(tx, { paymentIds: [paymentId] }),
     }));
     const saldo = p.linkedWalletCharge ?? null;
-    // Helper para tratar string vacío y whitespace como "no configurado".
-    // process.env.X devuelve undefined si no existe, pero "" si Dokploy
-    // tiene la variable definida sin valor → ?? no la captura.
-    const nonEmpty = (v: string | undefined): string | undefined =>
-      v && v.trim().length > 0 ? v.trim().replace(/\/+$/, '') : undefined;
-    const ensureProto = (u: string): string =>
-      /^https?:\/\//i.test(u) ? u : `https://${u}`;
-    const baseUrl = ensureProto(
-      nonEmpty(process.env.NEXT_PUBLIC_API_URL) ??
-        `http://localhost:${process.env.PORT ?? 4100}`,
-    );
-    // Preferimos web-client si está configurado (UX nicer); si no, el API
-    // mismo expone /pay/{token} con redirect 302 al checkout del PSP.
-    const clientUrl = ensureProto(
-      nonEmpty(process.env.NEXT_PUBLIC_WEB_CLIENT_URL) ?? baseUrl,
-    );
-    // Operator app URL — para QR de POS_EXTERNAL (camarero escanea, abre app
-    // del operator pre-focused en el cobro a confirmar). Si NEXT_PUBLIC_OPERATOR_URL
-    // no está, derivamos cambiando api. → operator. en el baseUrl.
-    const operatorUrl = ensureProto(
-      nonEmpty(process.env.NEXT_PUBLIC_OPERATOR_URL) ??
-        baseUrl.replace(/^https?:\/\/api\./i, 'https://operator.'),
-    );
-    // Para POS_EXTERNAL: el QR NO debe llevar a Paytef (eso cobraría dos veces).
-    // En su lugar, encodea URL del operator app que abre el cobro para que el
-    // camarero lo confirme tras pasar la tarjeta por su datáfono físico.
-    const qrUrl =
-      p.captureMethod === 'POS_EXTERNAL'
-        ? `${operatorUrl}/?pos=${p.id}`
-        : `${clientUrl}/pay/${p.qrToken}`;
+    // Con datáfono (POS_EXTERNAL) el QR abre la app del personal para confirmar
+    // la venta del lector; si no, la página de pago (ver pay-qr-url.ts).
+    const qrUrl = cardQrUrl(p);
     const qrPngDataUrl = await QRCode.toDataURL(qrUrl, {
       errorCorrectionLevel: 'M',
       margin: 2,
