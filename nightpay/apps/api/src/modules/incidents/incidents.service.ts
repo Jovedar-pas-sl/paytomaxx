@@ -51,6 +51,7 @@ import {
   type StuckRow,
 } from './incident-rules';
 import { runLimited } from './run-limited';
+import { PAID_AFTER_CANCEL_REASON } from '../payments/paid-after-cancel';
 import { bitcoinPartCents, walletCash } from '../wallets/wallet-cash-limits';
 
 /** Hasta dónde se mira atrás, y cuántas de cada tipo como mucho. */
@@ -286,7 +287,7 @@ export class IncidentsService {
       () => this.prisma.asSystem((tx) => tx.$queryRaw<PaymentAnomalyRow[]>`
         SELECT e.id::text AS id, e."eventType", e."paymentId",
                (p."amountCents" + p."serviceFeeCents" + p."tipCents")::int AS "amountCents", e."occurredAt", e.payload,
-               p.status::text AS "paymentStatus"
+               p.status::text AS "paymentStatus", p.ref
           FROM payment_events e
           JOIN payments p ON p.id = e."paymentId"
          WHERE e."tenantId" = ${tenantId}::uuid
@@ -487,6 +488,49 @@ export class IncidentsService {
     const found = (await this.disputedCharges(tenantId)).find((i) => i.refId === input.refId);
     if (!found) throw new NotFoundException('Ese aviso ya no está en la bandeja de este local');
     await this.close(tenantId, actorId, found, { kind: 'wallet_charge_disputed', refId: input.refId, note: input.note });
+  }
+
+  /**
+   * «Pagó después de cancelar» sin cerrar (paid-after-cancel.ts): el banco
+   * cobró un cobro que el personal ya había cancelado. Para la bandeja de
+   * recepción (la del panel los saca con los demás avisos de cobros).
+   */
+  async paidAfterCancel(tenantId: string, now: Date = new Date()): Promise<Incident[]> {
+    const since = new Date(now.getTime() - LOOKBACK_DAYS * 24 * 60 * 60 * 1000);
+    const rows = await this.prisma.asSystem((tx) => tx.$queryRaw<PaymentAnomalyRow[]>`
+      SELECT e.id::text AS id, e."eventType", e."paymentId",
+             (p."amountCents" + p."serviceFeeCents" + p."tipCents")::int AS "amountCents", e."occurredAt", e.payload,
+             p.status::text AS "paymentStatus", p.ref
+        FROM payment_events e
+        JOIN payments p ON p.id = e."paymentId"
+       WHERE e."tenantId" = ${tenantId}::uuid
+         AND e."eventType" = 'payment.approval_unbooked'
+         AND e.payload->>'reason' = ${PAID_AFTER_CANCEL_REASON}
+         AND e."occurredAt" >= ${since}
+         AND NOT EXISTS (SELECT 1 FROM incident_acks k
+                          WHERE k."tenantId" = e."tenantId" AND k.kind = 'approval_unbooked' AND k."refId" = e.id::text)
+       ORDER BY e."occurredAt" DESC
+       LIMIT ${PER_KIND_LIMIT}
+    `);
+    return rows.map(paymentAnomalyIncident).map((i) => ({ ...i, noteRequired: ackNeedsNote(i) }));
+  }
+
+  /**
+   * Bandeja de recepción: los «No he sido yo» y los «Pagó después de
+   * cancelar». Estos últimos solo los cierra el encargado o el dueño (los
+   * demás los ven, para saberlo cuando el cliente pase por recepción).
+   */
+  async receptionInbox(tenantId: string, role: string): Promise<Incident[]> {
+    const [disputed, paidLate] = await Promise.all([this.disputedCharges(tenantId), this.paidAfterCancel(tenantId)]);
+    const canClose = role === 'MANAGER' || role === 'OWNER';
+    return [...paidLate.map((i) => ({ ...i, ackable: canClose })), ...disputed];
+  }
+
+  /** Cerrar un «Pagó después de cancelar» con la nota de qué se hizo (encargado o dueño). */
+  async ackPaidAfterCancel(tenantId: string, actorId: string, input: { refId: string; note?: string }): Promise<void> {
+    const found = (await this.paidAfterCancel(tenantId)).find((i) => i.refId === input.refId);
+    if (!found) throw new NotFoundException('Ese aviso ya no está en la bandeja de este local');
+    await this.close(tenantId, actorId, found, { kind: 'approval_unbooked', refId: input.refId, note: input.note });
   }
 
   /** Cerrar una que está en la bandeja: la nota de los de dinero, la marca y el registro. */

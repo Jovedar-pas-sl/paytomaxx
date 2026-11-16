@@ -106,7 +106,8 @@ import { isOtherOrder, markAttemptApproved, recordSecondApproval } from './secon
 import { applyReservationPayment } from '../reservations/reservation-ledger';
 import { isReservationPaymentKey } from '../reservations/reservation-payment-key';
 import { sweepUnpaidTopUpWallet } from './topup-wallet-sweep';
-import { closeLinkedSaldo } from './cobro-link';
+import { PAID_WITH_SALDO_EVENT, closeLinkedSaldo } from './cobro-link';
+import { wasPaidAfterCancel } from './paid-after-cancel';
 import { serviceFeeQuote } from '@nightpay/contracts';
 import { btcpayEnabled } from '../btcpay/btcpay-flag';
 import { purposeAllows } from '../btcpay/btcpay-logic';
@@ -1259,9 +1260,12 @@ export class PaymentsService implements OnApplicationBootstrap {
     const creatorTips = createdBy ? chargeRightsOf(createdBy, postRulesOf(venue?.postRules)).tips : true;
     // Reservados: solo con tarjeta (sin bitcoin).
     const bitcoin = !isReservationPaymentKey(idempotencyKey) && (await this.bitcoinOffered(payment.tenantId, walletId !== null));
+    // Cancelado por el personal y cobrado después por el banco: el cliente no ve «cancelado» a secas.
+    const paidAfterCancel = payment.status === 'CANCELED' && (await this.prisma.asSystem((tx) => wasPaidAfterCancel(tx, payment.id)));
     return {
       ...rest,
       ...(bitcoin ? { bitcoin: true } : {}),
+      ...(paidAfterCancel ? { paidAfterCancel: true } : {}),
       walletId,
       topUp: Boolean(walletId),
       status: payment.status as PaymentMachineState,
@@ -1291,7 +1295,7 @@ export class PaymentsService implements OnApplicationBootstrap {
    * Para la página /pay/result a la que vuelve el cliente desde el banco:
    * estado REAL del pago a partir del pedido de la pasarela (Ds_Order).
    */
-  async getResultView(providerTxId: string): Promise<PayResultView | null> {
+  async getResultView(providerTxId: string, opts: { bankApproved?: boolean } = {}): Promise<PayResultView | null> {
     if (!providerTxId) return null;
     const found = await this.prisma.asSystem(async (tx) => {
       const attempt = await tx.paymentAttempt.findFirst({
@@ -1325,12 +1329,19 @@ export class PaymentsService implements OnApplicationBootstrap {
         where: { paymentId: payment.id, providerTxId },
         select: { status: true },
       });
-      return { payment, attemptStatus: thisAttempt?.status ?? null };
+      // Cancelado por el personal y cobrado por el banco: ya apuntado (el aviso llegó) o lo
+      // dice la vuelta firmada del banco (el aviso aún está en la cola). Lo del saldo, no.
+      const paidAfterCancel =
+        payment.status === 'CANCELED' &&
+        ((await wasPaidAfterCancel(tx, payment.id)) ||
+          (opts.bankApproved === true && (await tx.paymentEvent.count({ where: { paymentId: payment.id, eventType: PAID_WITH_SALDO_EVENT } })) === 0));
+      return { payment, attemptStatus: thisAttempt?.status ?? null, paidAfterCancel };
     });
     if (!found) return null;
-    const { payment, attemptStatus } = found;
+    const { payment, attemptStatus, paidAfterCancel } = found;
     return {
       paymentId: payment.id,
+      ...(paidAfterCancel ? { paidAfterCancel: true } : {}),
       status: payment.status as PaymentMachineState,
       amountCents: payment.amountCents,
       tipCents: payment.tipCents,

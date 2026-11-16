@@ -4,11 +4,13 @@
  * solas (un doble cobro, un descuento que falló…) se marcan como revisadas.
  */
 
+import { formatChargeRef } from '@nightpay/contracts';
 import { BRAND_NAME } from '../../common/brand';
 import { madridDay } from '../../common/time/madrid';
 import type { BackupVerdict } from '../db-backups/backup-check';
 import { SALDOS_TAB_PATH } from '../wallets/saldo-texts';
 import { formatWalletCode } from '../wallets/wallet-rules';
+import { PAID_AFTER_CANCEL_REASON } from '../payments/paid-after-cancel';
 import { bitcoinAnomalyIncident } from './bitcoin-incidents';
 
 export type IncidentKind =
@@ -139,6 +141,11 @@ export interface Incident {
    * encendido): la factura de BTCPay y lo máximo, lo que llegó en € de la factura.
    */
   cashReturn?: { invoiceId: string; maxCents: number };
+  /**
+   * «Pagó después de cancelar» con el cobro aún cancelado: el encargado o el
+   * dueño, con su 2FA, lo puede dar por bueno (pasa a pagado con su nota).
+   */
+  acceptable?: boolean;
 }
 
 /** Filas crudas que lee el servicio, una por tipo. */
@@ -352,6 +359,10 @@ const SENSITIVE_ACTIONS: Readonly<Record<string, { title: string; detail: string
     title: 'Cobro dado por pagado a mano',
     detail: 'ha marcado un cobro como pagado, con su 2FA. Comprueba que está en el portal del banco.',
   },
+  'payment.accepted_after_cancel': {
+    title: 'Cobro cancelado dado por bueno',
+    detail: 'ha dado por bueno un cobro que el banco cobró después de cancelarlo, con su 2FA. Ahora cuenta como pagado.',
+  },
   'operator.left_with_balance': {
     title: 'Baja con dinero sin cobrar',
     detail: 'Se ha dado de baja a alguien a quien aún se le debe dinero. Ya no sale en las listas: para pagarle, actívala en Personal, págale y vuelve a darla de baja.',
@@ -387,7 +398,7 @@ export function sensitiveActionIncident(r: EventRow & { action: string; actorNam
     alertDetail: startsLower ? `Alguien del personal ${copy.detail}` : copy.detail,
     occurredAt: r.occurredAt.toISOString(),
     amountCents: r.amountCents,
-    paymentId: r.action === 'payment.manual_reconcile' ? r.paymentId : null,
+    paymentId: r.action === 'payment.manual_reconcile' || r.action === 'payment.accepted_after_cancel' ? r.paymentId : null,
     ackable: true,
   };
 }
@@ -692,6 +703,8 @@ export interface PaymentAnomalyRow extends EventRow {
   eventType: string;
   /** El estado del cobro ahora (bitcoin: si ya estaba cerrado cuando llegó). Sin el campo, no se sabe. */
   paymentStatus?: string;
+  /** La referencia corta del cobro (17 → «C-0017»). */
+  ref?: number | null;
 }
 
 /** Quién avisa y dónde comprobarlo, por pasarela. */
@@ -719,6 +732,35 @@ function num(payload: unknown, key: string): number | null {
   if (!payload || typeof payload !== 'object') return null;
   const v = (payload as Record<string, unknown>)[key];
   return typeof v === 'number' && Number.isFinite(v) ? v : null;
+}
+
+/**
+ * «Pagó después de cancelar: C-0012, 12,00 €» (paid-after-cancel.ts): el
+ * personal canceló el cobro y el banco lo cobró después. Sigue cancelado; se
+ * cierra con una nota (devuelto en el banco o dado por bueno). Sin datos del
+ * cliente: va también a Telegram.
+ */
+function paidAfterCancelIncident(
+  r: PaymentAnomalyRow,
+  base: { occurredAt: string; paymentId: string | null },
+  where: string,
+  orderText: string,
+): Incident {
+  const charged = num(r.payload, 'amountCents') ?? r.amountCents;
+  const ref = formatChargeRef(r.ref ?? null) ?? 'un cobro';
+  const still = r.paymentStatus === undefined || r.paymentStatus === 'CANCELED';
+  return {
+    ...base,
+    kind: 'approval_unbooked',
+    refId: r.id,
+    title: `Pagó después de cancelar: ${ref}${charged === null ? '' : `, ${eur(charged)}`}`,
+    detail: still
+      ? `El cliente terminó de pagar en su banco después de cancelar el cobro${orderText}. El cobro sigue cancelado: no se ha devuelto ni se ha dado por pagado. Devuélveselo desde ${where} o, si se queda, dalo por bueno. Ciérrala diciendo qué hiciste.`
+      : `El cliente terminó de pagar en su banco después de cancelar el cobro${orderText}. Ya está dado por bueno: ciérrala con una nota.`,
+    amountCents: charged,
+    ackable: true,
+    ...(still ? { acceptable: true } : {}),
+  };
 }
 
 export function paymentAnomalyIncident(r: PaymentAnomalyRow): Incident {
@@ -758,6 +800,9 @@ export function paymentAnomalyIncident(r: PaymentAnomalyRow): Incident {
       amountCents: charged,
       ackable: true,
     };
+  }
+  if (r.eventType === 'payment.approval_unbooked' && str(r.payload, 'reason') === PAID_AFTER_CANCEL_REASON) {
+    return paidAfterCancelIncident(r, base, provider.where, orderText);
   }
   if (r.eventType === 'payment.approval_unbooked') {
     const status = STATUS_TEXT[str(r.payload, 'fromStatus') ?? ''] ?? 'cerrado';

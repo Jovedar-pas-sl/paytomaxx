@@ -162,6 +162,12 @@ const pay: PayText = {
       notCharged: true,
       hint: 'If you still need to pay, ask the staff for a new one.',
     },
+    // Cancelado por el personal y el banco lo cobró después (paid-after-cancel.ts): nunca «Pagado» sin más.
+    'paid-after-cancel': {
+      title: 'The payment was cancelled, but your bank has paid it',
+      body: 'Talk to the staff: we will refund it or accept it.',
+      notCharged: false,
+    },
     unconfirmed: {
       title: 'No confirmation from the bank',
       body: 'We do not know yet whether the bank charged it.',

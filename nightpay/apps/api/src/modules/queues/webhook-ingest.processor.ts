@@ -17,6 +17,7 @@ import {
   settleLateCardApproval,
   wasPaidWithSaldo,
 } from '../payments/late-card-approval';
+import { recordPaidAfterCancel } from '../payments/paid-after-cancel';
 import {
   APPROVAL_UNBOOKED_EVENT,
   expectedCharge,
@@ -164,6 +165,17 @@ export class WebhookIngestProcessor extends WorkerHost {
           event.providerTxId,
         );
         await this.recordAndClose(deliveryId, target, outcome.eventType, outcome.payload);
+        return;
+      }
+      if (event.type === 'AUTHORIZED' && err.fromState === 'CANCELED') {
+        // Pagó después de cancelar (el personal canceló con el cliente en su
+        // banco): sigue CANCELED, sin devolverlo solo; una incidencia por
+        // pedido aunque el aviso se repita (paid-after-cancel.ts).
+        await recordPaidAfterCancel(
+          { prisma: this.prisma, logger: this.logger },
+          target,
+          { provider: target.provider, providerTxId: event.providerTxId, source: 'aviso', deliveryId },
+        );
         return;
       }
       if (event.type === 'AUTHORIZED') {

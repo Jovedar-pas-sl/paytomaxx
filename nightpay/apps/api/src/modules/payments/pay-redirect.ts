@@ -12,7 +12,9 @@ export type PayClosedReason =
   | 'unconfirmed'
   | 'too-many-attempts'
   /** Cobro único: ya lo pagó con su saldo (NFC, PIN o Face ID): la tarjeta no. */
-  | 'paid-with-saldo';
+  | 'paid-with-saldo'
+  /** El personal lo canceló y el banco lo cobró después: hablar con el personal. */
+  | 'paid-after-cancel';
 
 /** Botón que pulsa el cliente: Apple Pay / Google Pay o tarjeta. */
 export type PayMethodChoice = 'wallet' | 'card';
@@ -119,6 +121,8 @@ export type PayRedirect =
 
 export interface PayResultView {
   paymentId: string;
+  /** Cancelado y el banco lo cobró después (paid-after-cancel.ts): ni «Pagado» ni «cancelado» a secas. */
+  paidAfterCancel?: boolean;
   /** Reservados: el pago es de una reserva (al pagarse, vuelta a su página). */
   reservation?: true;
   status: PaymentMachineState;
@@ -249,6 +253,8 @@ export function switchesMethod(
 /** Lo que hace falta del cobro para decidir qué página ve el cliente. */
 export interface PayablePayment {
   id: string;
+  /** Cancelado y el banco lo cobró después (paid-after-cancel.ts). */
+  paidAfterCancel?: boolean;
   /** «Pagar con bitcoin» se ofrece en este cobro (ver BTCPAY_ENABLED y Ajustes del local). */
   bitcoin?: boolean;
   status: PaymentMachineState;
@@ -328,6 +334,8 @@ export function settledPayView(p: PayablePayment, now: Date = new Date()): PayRe
   }
   // Cobro único: lo pagó el saldo (el cobro con tarjeta se canceló entonces).
   if (p.status === 'CANCELED' && p.saldo?.status === 'ACCEPTED') return { kind: 'closed', reason: 'paid-with-saldo' };
+  // Cancelado por el personal y cobrado después por el banco: lo resuelve el personal.
+  if (p.status === 'CANCELED' && p.paidAfterCancel) return { kind: 'closed', reason: 'paid-after-cancel' };
   const closed = CLOSED_REASON[p.status];
   if (closed) return { kind: 'closed', reason: closed };
   if (p.status !== 'AUTHORIZING' && p.qrExpiresAt <= now) return { kind: 'closed', reason: 'expired' };

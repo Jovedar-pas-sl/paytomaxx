@@ -178,7 +178,8 @@ export class PublicPayController {
       sendHtml(res, 200, renderProcessingPage(lang, `/pay/result?${retry}`));
       return;
     }
-    const view = op ? await this.payments.getResultView(op) : null;
+    // `enviado`: la vuelta firmada del banco dice aprobado (aunque el cobro se cancelara antes).
+    const view = op ? await this.payments.getResultView(op, { bankApproved: result === 'enviado' }) : null;
     // Recarga empezada en /w y pagada desde ese navegador: de vuelta a su saldo.
     if (
       view?.walletReturnToken &&

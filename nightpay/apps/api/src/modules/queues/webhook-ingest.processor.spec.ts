@@ -292,6 +292,44 @@ describe('WebhookIngestProcessor — cobro único: la tarjeta aprobada después 
   });
 });
 
+describe('WebhookIngestProcessor — pagó después de cancelar (el personal canceló con el cliente en su banco)', () => {
+  /** Cobro cancelado por el personal (no por el saldo); `already`: el pedido ya tiene su incidencia. */
+  function canceledByStaff(already = false) {
+    const m = makeProcessor();
+    Object.assign(m.tx.paymentEvent, { count: vi.fn().mockResolvedValue(0) });
+    const queryRaw = vi.fn(async (strings: TemplateStringsArray) =>
+      strings.join('?').includes('FROM payment_events') && already ? [{ one: 1 }] : [],
+    );
+    Object.assign(m.tx, { $queryRaw: queryRaw });
+    const refund = vi.fn();
+    Object.assign(m.adapter, { refund });
+    m.payments.transition.mockRejectedValueOnce(new InvalidTransitionError('CANCELED', 'AUTHORIZED'));
+    return { ...m, queryRaw, refund };
+  }
+
+  it('aviso firmado tardío → incidencia «paid_after_cancel» con el importe del intento, sin devolver, aviso cerrado', async () => {
+    const m = canceledByStaff();
+    await m.processor.process(m.job);
+    expect(m.refund).not.toHaveBeenCalled();
+    expect(m.tx.paymentEvent.create).toHaveBeenCalledTimes(1);
+    expect(m.tx.paymentEvent.create.mock.calls[0]![0].data).toMatchObject({
+      eventType: 'payment.approval_unbooked',
+      payload: { reason: 'paid_after_cancel', fromStatus: 'CANCELED', providerTxId: 'abc123def456', amountCents: 4850, source: 'aviso', deliveryId: '7' },
+    });
+    // Con el cobro bloqueado y en la misma transacción que cierra el aviso.
+    expect(String(m.queryRaw.mock.calls[0]![0].join('?'))).toContain('FOR UPDATE');
+    expect(m.tx.webhookDelivery.update).toHaveBeenCalled();
+  });
+
+  it('el mismo pedido otra vez → solo se cierra el aviso (una sola incidencia)', async () => {
+    const m = canceledByStaff(true);
+    await m.processor.process(m.job);
+    expect(m.tx.paymentEvent.create).not.toHaveBeenCalled();
+    expect(m.refund).not.toHaveBeenCalled();
+    expect(m.tx.webhookDelivery.update).toHaveBeenCalled();
+  });
+});
+
 describe('WebhookIngestProcessor — avisos que nombran el intento, no el cobro (Paytef clientID, Cecabank Num_operacion; FSD-02)', () => {
   const ATTEMPT_ID = '0d4e7c21-58f3-4b19-8e02-9c7d6b5e4f30';
 
