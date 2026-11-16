@@ -364,7 +364,7 @@ describe('RedsysAdapter webhook — notificación firmada', () => {
     expect(adapter.mapWebhookToFsmEvent(body)).toBeNull();
   });
 
-  it('denegación → null: el estado final lo decide la conciliación (type 44)', () => {
+  it('denegación → null: el estado final lo decide la conciliación (o se resuelve a mano)', () => {
     // Redsys deja reintentar en su página con el mismo pedido. Si marcáramos
     // FAILED (estado final) y luego llegara el OK, el cobro quedaría perdido.
     const body = parseFormUrlEncoded(
@@ -529,5 +529,32 @@ describe('redsysCodeToCurrency', () => {
     expect(redsysCodeToCurrency('978')).toBe('EUR');
     expect(redsysCodeToCurrency('999')).toBe('999');
     expect(redsysCodeToCurrency(null)).toBeNull();
+  });
+});
+
+describe('RedsysAdapter.getStatus() — consulta no disponible (pendiente de BBVA)', () => {
+  it('no llama al banco (nada del tipo 44, «Borrar Referencia») y devuelve UNKNOWN', async () => {
+    const adapter = makeAdapter();
+    const getApi = vi.spyOn(adapter as unknown as { getApi: () => unknown }, 'getApi');
+    const fetchSpy = vi.spyOn(globalThis, 'fetch');
+    try {
+      expect(await adapter.getStatus('v1', '1234abcdefgh')).toBe('UNKNOWN');
+      expect(getApi).not.toHaveBeenCalled();
+      expect(fetchSpy).not.toHaveBeenCalled();
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
+
+  it('lo dice en el log una vez, no en cada consulta', async () => {
+    const adapter = makeAdapter();
+    const logger = (adapter as unknown as { logger: { warn: (msg: string) => void } }).logger;
+    const warn = vi.spyOn(logger, 'warn').mockImplementation(() => undefined);
+    await adapter.getStatus('v1', '1234aaaa');
+    await adapter.getStatus('v1', '1234bbbb');
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(String(warn.mock.calls[0]?.[0])).toContain(
+      'consulta de Redsys no disponible: falta el servicio de consulta de operaciones',
+    );
   });
 });

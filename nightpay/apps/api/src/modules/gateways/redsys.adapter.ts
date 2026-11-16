@@ -25,6 +25,8 @@ import { MetricsService } from '../metrics/metrics.service';
 import { BRAND_NAME } from '../../common/brand';
 
 const PROVIDER_LABEL = 'REDSYS' as const;
+/** El aviso de que la consulta de Redsys no está disponible, como mucho una vez por hora. */
+const QUERY_UNAVAILABLE_LOG_EVERY_MS = 60 * 60 * 1000;
 function stateToNumber(s: 'closed' | 'halfOpen' | 'open'): number {
   return s === 'closed' ? 0 : s === 'halfOpen' ? 1 : 2;
 }
@@ -73,6 +75,8 @@ export class RedsysAdapter implements GatewayAdapter {
   // API instance cacheado — se construye lazy en el primer authorize porque
   // el secret se lee de env vars y puede no estar al boot.
   private cachedApi: RedsysAPI | null = null;
+  /** Último aviso de «consulta no disponible» (uno por hora como mucho). */
+  private queryUnavailableLoggedAt = Number.NEGATIVE_INFINITY;
 
   constructor(
     @Inject(ConfigService) config: ConfigService,
@@ -240,52 +244,28 @@ export class RedsysAdapter implements GatewayAdapter {
   }
 
   /**
-   * Consulta el estado real de una operación en Redsys vía REST trataPeticion
-   * con TransactionType=44 (consulta).
+   * Consulta del estado de una operación en Redsys: HOY NO DISPONIBLE.
    *
-   * Returns:
-   *  - 'AUTHORIZED' si Ds_Response 0000-0099
-   *  - 'FAILED' si Ds_Response >= 100: denegado AHORA. No es definitivo —
-   *    Redsys deja reintentar en su página con el mismo pedido — y solo
-   *    habla de ESE pedido: la conciliación nunca da un cobro por fallido
-   *    con esto (lo deja ORPHAN para resolver a mano).
-   *  - 'UNKNOWN' en cualquier otro caso (sin respuesta, red caída, etc.)
-   *    → el caller (orphan-reconcile) reintentará más tarde.
+   * Antes se mandaba `trataPeticion` con DS_MERCHANT_TRANSACTIONTYPE=44, pero
+   * en Redsys el 44 es «Borrar Referencia» (redsys-easy lo llama
+   * DELETE_REFERENCE), no una consulta: el banco contestaba SIS0105 y nunca
+   * sirvió. La consulta de verdad es otro servicio (SOAP SerClsWSConsulta),
+   * pendiente de que BBVA lo active.
+   *
+   * Mientras, no se llama al banco y se devuelve 'UNKNOWN': la conciliación
+   * lo trata como «no se sabe» (reintenta y, agotada, deja el cobro ORPHAN
+   * para resolverlo a mano), igual que con el SIS0105 de antes. Nunca da un
+   * cobro por pagado ni por fallido.
    */
-  private async doGetStatus(
-    _tenantId: string,
-    providerTxId: string,
-  ): Promise<GatewayStatus> {
-    try {
-      const creds = this.requireCreds();
-      const api = this.getApi();
-      const terminal = creds.terminal.padStart(3, '0');
-
-      const result = await api.restTrataPeticion({
-        DS_MERCHANT_AMOUNT: '1',
-        DS_MERCHANT_ORDER: providerTxId,
-        DS_MERCHANT_MERCHANTCODE: creds.merchantCode,
-        DS_MERCHANT_CURRENCY: '978',
-        DS_MERCHANT_TRANSACTIONTYPE: '44',
-        DS_MERCHANT_TERMINAL: terminal,
-      });
-
-      const dsResponse = (result.Ds_Response ?? '').toString().trim();
-      this.logger.log(
-        `Redsys consult ${providerTxId} → Ds_Response=${dsResponse || '<empty>'}`,
-      );
-
-      if (dsResponse === '') return 'UNKNOWN';
-      const responseNum = Number(dsResponse);
-      if (!Number.isFinite(responseNum)) return 'UNKNOWN';
-      if (responseNum >= 0 && responseNum <= 99) return 'AUTHORIZED';
-      return 'FAILED';
-    } catch (err) {
+  private async doGetStatus(_tenantId: string, _providerTxId: string): Promise<GatewayStatus> {
+    const now = Date.now();
+    if (now - this.queryUnavailableLoggedAt >= QUERY_UNAVAILABLE_LOG_EVERY_MS) {
+      this.queryUnavailableLoggedAt = now;
       this.logger.warn(
-        `Redsys consult failed for ${providerTxId}: ${(err as Error).message}`,
+        'consulta de Redsys no disponible: falta el servicio de consulta de operaciones (pendiente de BBVA). Los cobros sin aviso quedan «sin confirmar».',
       );
-      return 'UNKNOWN';
     }
+    return 'UNKNOWN';
   }
 
   private async doRefund(_input: RefundInput): Promise<RefundResult> {

@@ -26,8 +26,8 @@ import type { PayStatusView } from './pay-status';
  *    hora del envío y referencia corta. «¿Ves el cargo en tu app del banco?»
  *    (desde los 60 s) con el nombre del extracto.
  *  - Consulta su estado en JSON (/pay/:token/status o /pay/result/status?op=)
- *    a 1, 1, 2, 2, 3 s y luego cada 5 s (cada 15 s durante 30 min si el banco
- *    no lo ha confirmado), con 8 s de plazo por consulta y al volver a la
+ *    a 1, 1, 2, 2, 3 s y luego cada 5 s (también cada 5 s, durante 30 min, si
+ *    el banco no lo ha confirmado), con 8 s de plazo por consulta y al volver a la
  *    pestaña; al llegar a un estado final, location.replace() a la página del
  *    servidor (el «Pagado» con su cookie, el aviso o el cobro).
  *  - Sin red, la página no se mueve: franja «Sin conexión» y vuelve a
@@ -70,8 +70,8 @@ export type CheckingPhase = 'start' | 'slow' | 'still' | 'retry' | 'unconfirmed'
 /** Consultas mientras espera: rápido al principio (lo normal es que conteste en segundos). */
 export const POLL_DELAYS_MS: readonly number[] = [1_000, 1_000, 2_000, 2_000, 3_000];
 export const POLL_EVERY_MS = 5_000;
-/** Sin confirmación del banco: cada 15 s durante 30 min. */
-export const UNCONFIRMED_EVERY_MS = 15_000;
+/** Sin confirmación del banco: cada 5 s (antes 15 s) durante 30 min. */
+export const UNCONFIRMED_EVERY_MS = 5_000;
 export const UNCONFIRMED_FOR_MS = 30 * 60_000;
 /** Plazo de cada consulta. */
 export const POLL_TIMEOUT_MS = 8_000;
@@ -235,7 +235,7 @@ ${sentAt ? `<p>${escapeHtml(c.sentAt(sentAt))}</p>` : ''}
 <script type="application/json" id="ckCfg">${jsConfigJson(config)}</script>
 <script>${CHECKING_JS}</script>`;
 
-  // Sin JS, la misma página se recarga sola (cada 5 s; sin confirmación, cada 15 s).
+  // Sin JS, la misma página se recarga sola (cada 5 s; sin confirmación, cada UNCONFIRMED_EVERY_MS).
   const refresh = i.mode === 'unconfirmed' ? Math.round(UNCONFIRMED_EVERY_MS / 1000) : 5;
   const head = `<noscript><meta http-equiv="refresh" content="${refresh};url=${escapeHtml(i.finalUrl)}"></noscript><style>${CHECKING_CSS}</style>`;
   // La pestaña siempre dice qué es («Comprobando el pago»); la fase, en la página.

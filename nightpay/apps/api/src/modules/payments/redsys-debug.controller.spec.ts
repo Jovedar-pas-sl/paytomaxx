@@ -78,4 +78,15 @@ describe('RedsysDebugController: sin secretos ni datos de tarjeta', () => {
       expect(pipes.some((p) => p === ParseUUIDPipe || p instanceof ParseUUIDPipe)).toBe(true);
     }
   });
+
+  it('consult-raw ya no manda nada al banco (antes, el tipo 44 «Borrar Referencia»)', async () => {
+    const payment = { id: 'p1', status: 'AUTHORIZING', provider: 'REDSYS', providerTxId: '1234abcdefgh', tenantId: 't1' };
+    const { controller } = makeController({}, [payment]);
+    const getApi = vi.fn();
+    Object.assign((controller as unknown as { redsys: object }).redsys, { getApi, requireCreds: vi.fn() });
+    const res = (await controller.consultRaw('7d0f4f9e-0000-4000-8000-000000000001')) as Record<string, unknown>;
+    expect(res).toMatchObject({ ok: false, error: 'consulta-no-disponible', providerTxId: '1234abcdefgh' });
+    expect(res).not.toHaveProperty('paramsSent');
+    expect(getApi).not.toHaveBeenCalled();
+  });
 });
