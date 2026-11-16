@@ -39,9 +39,9 @@ describe('esperando y resultado', () => {
 
   it('PAGADO: quién, qué, cómo y la hora de Madrid', () => {
     const at = new Date('2026-10-20T23:10:00Z');
-    expect(paidMeta({ who: 'Carlos', what: '2 copas', method: 'nfc_nopin', at })).toBe('Carlos · 2 copas · NFC · 01:10');
+    expect(paidMeta({ who: 'Carlos', what: '2 copas', method: 'nfc_nopin', at })).toBe('Carlos · 2 copas · Ficha sin PIN · 01:10');
     expect(paidMeta({ who: null, what: null, method: 'card', at })).toBe('Tarjeta · 01:10');
-    expect(methodLabel('pin')).toBe('NFC + PIN');
+    expect(methodLabel('pin')).toBe('Ficha + PIN');
     expect(methodLabel(null)).toBeNull();
   });
 

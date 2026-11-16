@@ -434,7 +434,7 @@ export function ReceptionFlow({ on, onDone }: Props) {
           <p className={r.lead}>{topUpCharge(options, amountCents).text} en efectivo</p>
           <p className={r.text}>
             {step.target.kind === 'card' ? `A su saldo ${step.target.view.codeHint}.` : 'Saldo nuevo.'} Guarda el dinero en la caja y
-            pulsa «Cobrado».
+            pulsa «Pagado».
           </p>
           <Button
             size="lg"
@@ -458,7 +458,7 @@ export function ReceptionFlow({ on, onDone }: Props) {
               })
             }
           >
-            Cobrado
+            Pagado
           </Button>
           <Button variant="ghost" disabled={busy} onClick={() => setStep({ kind: 'target', method: 'cash' })}>
             Atrás

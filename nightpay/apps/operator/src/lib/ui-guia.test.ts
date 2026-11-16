@@ -66,9 +66,9 @@ describe('la entrada del menú del logo', () => {
   it('está en los dos menús (Recepción e Inicio), justo antes de «Salir»', () => {
     const staff = source('../components/staff-menu.tsx');
     const menu = staff.slice(staff.indexOf('export function StaffMenu('));
-    expect(menu).toMatch(/<GuiaMenuLink \/>\s*<Button variant="ghost" onClick=\{onLogout\}>\s*Salir/);
+    expect(menu).toMatch(/<GuiaMenuLink \/>\s*<LogoutMenuItem onLogout=\{onLogout\} \/>/);
     const cobrar = source('../components/cobrar/CobrarFlow.tsx');
     const inicio = cobrar.slice(cobrar.indexOf('const menuModal'));
-    expect(inicio).toMatch(/<GuiaMenuLink \/>\s*<Button variant="ghost" onClick=\{onLogout\}>\s*Salir/);
+    expect(inicio).toMatch(/<GuiaMenuLink \/>\s*<LogoutMenuItem onLogout=\{onLogout\} \/>/);
   });
 });

@@ -12,6 +12,7 @@ import { useUrlTab } from '@/lib/use-url-tab';
 import {
   MyRightsContext,
   VenueMethodsContext,
+  VenueNameContext,
   VenueNightContext,
   canTopUp,
   useVenueMethodsFeed,
@@ -23,7 +24,7 @@ import { Earnings } from './Earnings';
 import { FichaTapped } from './FichaTapped';
 import { HomeTab } from './HomeTab';
 import { InvitationToast } from './InvitationToast';
-import { TAB_BAR_HEIGHT } from './layout';
+import { PAGE_BOTTOM_SPACE } from './layout';
 import { MyCobros } from './MyCobros';
 import { MenuAvatar } from './my-profile';
 import { PassScanned } from './PassScanned';
@@ -46,7 +47,7 @@ export function Dashboard({ user, onLogout }: Props) {
   // Cada rol ve sus pestañas y pide solo lo suyo (sin 403 de fondo).
   const access = roleAccess(user.role);
   // Formas de cobro apagadas por el dueño: sus pestañas no salen.
-  const { methods, night: nightSettings, rights } = useVenueMethodsFeed(user.id);
+  const { methods, night: nightSettings, rights, venueName } = useVenueMethodsFeed(user.id);
   // Recepción (cargar saldos y el efectivo), solo a quien la hace por su puesto.
   const tabs = visibleTabsFor(access.tabs, methods, canTopUp(rights, user.role));
   // La pestaña va en la URL (?t=cobros): recargar o volver a entrar deja donde se estaba (?t=saldo, a Inicio).
@@ -101,6 +102,7 @@ export function Dashboard({ user, onLogout }: Props) {
     <VenueMethodsContext.Provider value={methods}>
     <VenueNightContext.Provider value={nightSettings}>
     <MyRightsContext.Provider value={rights}>
+    <VenueNameContext.Provider value={venueName}>
     <main className="np-app-root np-screen" style={mainStyle}>
       {/* Sin internet / OxioPay sin responder / el banco tardando: arriba, en ámbar. */}
       <ConnectionStatus serverDown={own.error?.transient === true} />
@@ -177,6 +179,7 @@ export function Dashboard({ user, onLogout }: Props) {
       <TabBar tabs={tabs} active={tab} onSelect={(next) => setTab(next)} />
       <StaffMenu open={menuOpen} onClose={() => setMenuOpen(false)} onLogout={logout} />
     </main>
+    </VenueNameContext.Provider>
     </MyRightsContext.Provider>
     </VenueNightContext.Provider>
     </VenueMethodsContext.Provider>
@@ -203,10 +206,10 @@ function PollErrorBanner({ error }: { error: PollError }) {
 const mainStyle: CSSProperties = {
   display: 'flex',
   flexDirection: 'column',
-  // Padding bottom = altura nav + safe-area home indicator iOS.
-  // Sin esto los iPhones modernos solapan la barra home con la tab bar.
-  // Arriba y entre bloques, --np-gap (más justo en el móvil).
-  padding: `var(--np-gap) 1rem calc(${TAB_BAR_HEIGHT} + var(--np-gap) + env(safe-area-inset-bottom))`,
+  // Abajo, el hueco de la barra de pestañas medida (con la zona segura) y un
+  // respiro: lo último de cada página (Recepción, Mis cobros) se ve entero al
+  // bajar. Arriba y entre bloques, --np-gap (más justo en el móvil).
+  padding: `var(--np-gap) 1rem ${PAGE_BOTTOM_SPACE}`,
   gap: 'var(--np-gap)',
   maxWidth: '32rem',
   margin: '0 auto',

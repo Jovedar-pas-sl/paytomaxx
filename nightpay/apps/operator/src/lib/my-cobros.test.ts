@@ -22,7 +22,7 @@ it('actualiza estados sin duplicar páginas y conserva cobros de ambos canales',
   expect(merged[0]!.kind).toBe('SALDO');
   expect(merged[1]!.status).toBe('AUTHORIZED');
   expect(merged[2]!.id).toBe('older');
-  expect(ownCobroStatus('ACCEPTED')).toBe('Cobrado');
+  expect(ownCobroStatus('ACCEPTED')).toBe('Pagado');
   expect(ownCobroStatus('REVERSED')).toBe('Anulado');
 });
 
@@ -133,8 +133,8 @@ it('un fallo de la segunda página conserva el historial y el cursor completos p
 
 describe('de un vistazo, a oscuras', () => {
   it('cada estado con su color y su icono: cobrado verde, pendiente ámbar, fallido rojo, anulado o devuelto gris', () => {
-    expect(ownCobroState('AUTHORIZED')).toEqual({ label: 'Cobrado', tone: 'ok', icon: 'check' });
-    expect(ownCobroState('ACCEPTED')).toEqual({ label: 'Cobrado', tone: 'ok', icon: 'check' });
+    expect(ownCobroState('AUTHORIZED')).toEqual({ label: 'Pagado', tone: 'ok', icon: 'check' });
+    expect(ownCobroState('ACCEPTED')).toEqual({ label: 'Pagado', tone: 'ok', icon: 'check' });
     expect(ownCobroState('CREATED')).toEqual({ label: 'Pendiente', tone: 'wait', icon: 'clock' });
     expect(ownCobroState('AUTHORIZING')).toMatchObject({ tone: 'wait' });
     expect(ownCobroState('FAILED')).toEqual({ label: 'Fallido', tone: 'bad', icon: 'x' });
@@ -225,10 +225,10 @@ describe('lo que la chica tenía en su lista de antes, y el «cobrado dos veces�
     const eur = (cents: number) => `${cents / 100} €`;
     const card = row('t', 'PAYMENT', at, 'CANCELED');
     expect(ownPaidTwiceNote({ ...card, paidTwice: { amountCents: 12_000, refunded: true } }, eur)).toBe(
-      'Cobrado dos veces: la tarjeta se devolvió sola (120 €)',
+      'Pagado dos veces: la tarjeta se devolvió sola (120 €)',
     );
     expect(ownPaidTwiceNote({ ...card, paidTwice: { amountCents: 12_000, refunded: false } }, eur)).toBe(
-      'Cobrado dos veces: hay que devolver 120 € a la tarjeta (avisa al encargado: está en Incidencias)',
+      'Pagado dos veces: hay que devolver 120 € a la tarjeta (avisa al encargado: está en Incidencias)',
     );
     expect(ownPaidTwiceNote({ ...card, paidTwice: null }, eur)).toBeNull();
     // Un API de antes no trae el campo: nada que decir.

@@ -14,6 +14,8 @@ import {
   ownNightTotals,
   ownPaidTwiceNote,
   ownCobrosPollMs,
+  pendingLabel,
+  staffVia,
   type OwnCobroIcon,
   type OwnCobrosSnapshot,
   type OwnNight,
@@ -136,7 +138,7 @@ function NightTotal({ items, night, cursor }: { items: readonly OwnCobro[]; nigh
   const extras = [
     t.tipCents > 0 ? <span key="tip" className={styles.tipTag}>Propinas {formatEur(t.tipCents, { compact: true })}</span> : null,
     t.topUpCount > 0 ? <span key="topup" className={styles.saleTag}>Recargas {formatEur(t.topUpCents, { compact: true })} · no es venta</span> : null,
-    t.pending > 0 ? <span key="pending" className={styles.waitTag}>{t.pending === 1 ? '1 pendiente' : `${t.pending} pendientes`}</span> : null,
+    t.pending > 0 ? <span key="pending" className={styles.waitTag}>{pendingLabel(t.pending)}</span> : null,
   ].filter(Boolean);
   return (
     <div className={styles.night} data-tour="cobros-total">
@@ -179,7 +181,7 @@ function CobroRow({
   const when = new Date(r.createdAt);
   const tonight = night ? r.createdAt >= night.from : false;
   const left = ownChargedCents(r);
-  const meta = [r.ref, r.methodLabel, r.via].filter(Boolean).join(' · ');
+  const meta = [r.ref, r.methodLabel, staffVia(r.via)].filter(Boolean).join(' · ');
   const twice = ownPaidTwiceNote(r, (cents) => formatEur(cents, { compact: true }));
   return (
     <article className={`${styles.row} ${detailStyles.rowHost}`} data-tone={state.tone} {...(first ? { 'data-tour': 'cobros-fila' } : {})}>
