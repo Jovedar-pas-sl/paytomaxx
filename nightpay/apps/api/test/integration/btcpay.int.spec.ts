@@ -706,10 +706,10 @@ describe('cancelar el cobro con la factura abierta', () => {
     expect(await sys((tx) => tx.paymentEvent.count({ where: { paymentId: p.id, eventType: 'payment.approval_unbooked' } }))).toBe(1);
   });
 
-  it('con tarjeta (AUTHORIZING en el banco) sigue sin poder cancelarse', async () => {
+  it('con tarjeta (AUTHORIZING en el banco) también se cancela (decisión del dueño: si paga, queda en Incidencias)', async () => {
     const p = await newPayment(900);
     await sys((tx) => tx.payment.update({ where: { id: p.id }, data: { status: 'AUTHORIZING', provider: 'REDSYS', providerTxId: `RS${r}${n}` } }));
-    await expect(inCtx(A, () => payments.cancel(p.id, { userId: waiter, role: 'WAITER', tenantId: A }))).rejects.toBeInstanceOf(ConflictException);
+    await expect(inCtx(A, () => payments.cancel(p.id, { userId: waiter, role: 'WAITER', tenantId: A }))).resolves.toEqual({ status: 'CANCELED' });
   });
 
   it('con el bitcoin ya en la red (Processing) NO se cancela: 409 BITCOIN_CONFIRMING y no se toca nada', async () => {
