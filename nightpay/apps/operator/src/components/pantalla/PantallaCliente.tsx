@@ -8,8 +8,10 @@ import {
   DisplayApiError,
   forgetDisplayToken,
   pairDisplay,
+  setScreenTip,
   unpairThisDisplay,
 } from '@/lib/customer-display-api';
+import { askNfcPermission, nfcSupported } from '@/lib/nfc';
 import {
   INITIAL_MEMORY,
   amountText,
@@ -17,12 +19,16 @@ import {
   expireMemory,
   idleHint,
   nextMemory,
+  tipBreakdown,
+  tipButtonLabel,
   waitingHint,
   type PantallaMemory,
   type WaitingView,
 } from '@/lib/pantalla-state';
 import { CobroQr } from '../cobrar/CobroQr';
+import { TabletPin } from './TabletPin';
 import { usePantallaLive } from './use-pantalla-live';
+import { useTabletFicha } from './use-tablet-ficha';
 import s from './pantalla.module.css';
 
 const UNPAIRED_NOTICE = 'Esta pantalla se ha desemparejado. Pide un código nuevo en el móvil del camarero.';
@@ -74,6 +80,8 @@ function PairForm({ notice, onPaired }: { notice: string | null; onPaired: (toke
     if (code.replace(/[^a-z0-9]/gi, '').length < 6) return setError('Escribe las 6 letras y números del código.');
     setBusy(true);
     setError(null);
+    // Con NFC (Android con Chrome): el permiso para leer fichas se pide ya, dentro de este toque.
+    if (nfcSupported()) void askNfcPermission();
     try {
       onPaired((await pairDisplay(code)).token);
     } catch (err) {
@@ -123,9 +131,27 @@ function Screen({ token, onUnpaired }: { token: string; onUnpaired: () => void }
     setVenue({ name: view.venueName, fichas: view.fichas });
     setMem((m) => nextMemory(m, view, Date.now()));
   }, []);
-  const { reachable } = usePantallaLive(token, onView, onUnpaired);
+  const { reachable, refresh } = usePantallaLive(token, onView, onUnpaired);
   // Emparejada: la pantalla no se apaga (si el navegador deja).
   useWakeLock(true);
+  const waitingView = mem.shown.kind === 'waiting' ? mem.shown.view : null;
+  // La ficha acercada a esta tablet (Web NFC): paga el cobro activo o pide aquí su PIN.
+  const ficha = useTabletFicha(waitingView, refresh);
+  const [tipBusy, setTipBusy] = useState(false);
+  const chooseTip = useCallback(
+    async (key: string, tipCents: number) => {
+      setTipBusy(true);
+      try {
+        onView(await setScreenTip(key, tipCents));
+      } catch (err) {
+        ficha.setNote(err instanceof DisplayApiError ? err.message : 'No se ha podido elegir la propina.');
+        refresh();
+      } finally {
+        setTipBusy(false);
+      }
+    },
+    [onView, refresh, ficha.setNote],
+  );
 
   // El «Pagado» y el texto corto se van solos.
   const until = 'until' in mem.shown ? mem.shown.until : null;
@@ -143,10 +169,35 @@ function Screen({ token, onUnpaired }: { token: string; onUnpaired: () => void }
           Sin conexión. Reintentando…
         </p>
       ) : null}
-      <Corner onUnpaired={onUnpaired} />
+      <Corner onUnpaired={onUnpaired} nfc={ficha.needsPermission ? () => void ficha.enable() : null} />
+      {ficha.note && shown.kind === 'waiting' ? (
+        <p className={s.toast} role="status">
+          {ficha.note}
+        </p>
+      ) : null}
       <div className={s.stage} aria-live="polite">
-        {shown.kind === 'waiting' ? (
-          <Waiting view={shown.view} />
+        {shown.kind === 'waiting' && ficha.pin ? (
+          <TabletPin
+            view={shown.view}
+            step={ficha.pin}
+            onPaid={() => {
+              ficha.closePin();
+              refresh();
+            }}
+            onClose={(note) => {
+              ficha.closePin();
+              if (note) ficha.setNote(note);
+              refresh();
+            }}
+          />
+        ) : shown.kind === 'waiting' ? (
+          <Waiting
+            view={shown.view}
+            nfcHere={ficha.nfcHere}
+            reading={ficha.busy}
+            tipBusy={tipBusy}
+            onTip={(cents) => void chooseTip(shown.view.key, cents)}
+          />
         ) : shown.kind === 'paid' ? (
           <Paid />
         ) : venue ? (
@@ -176,17 +227,32 @@ function Idle({ name, fichas, note }: { name: string; fichas: boolean; note: str
   );
 }
 
-function Waiting({ view }: { view: WaitingView }) {
+function Waiting({
+  view,
+  nfcHere,
+  reading,
+  tipBusy,
+  onTip,
+}: {
+  view: WaitingView;
+  nfcHere: boolean;
+  reading: boolean;
+  tipBusy: boolean;
+  onTip: (cents: number) => void;
+}) {
   const card = cardLine(view);
+  const breakdown = tipBreakdown(view);
   return (
     <section className={s.waiting} aria-label="Cobro">
       <div className={s.amountBlock}>
         <p className={s.label}>{view.topUp ? 'Recarga de saldo' : 'Total'}</p>
         <p className={s.amount}>{amountText(view)}</p>
+        {breakdown ? <p className={s.cardLine}>{breakdown}</p> : null}
         {card ? <p className={s.cardLine}>{card}</p> : null}
+        {view.tip && !view.paying ? <TipChoice view={view} busy={tipBusy || reading} onTip={onTip} /> : null}
         <p className={s.hint}>
           {view.ficha && !view.paying ? <NfcIcon /> : null}
-          {waitingHint(view)}
+          {reading ? 'Leyendo la ficha…' : waitingHint(view, nfcHere)}
         </p>
         {view.ficha && view.qrUrl && !view.paying ? <p className={s.cardLine}>o escanea el QR con tu móvil</p> : null}
       </div>
@@ -198,6 +264,39 @@ function Waiting({ view }: { view: WaitingView }) {
         </div>
       ) : null}
     </section>
+  );
+}
+
+/**
+ * La propina: la elige el cliente, nada marcado de antemano («Sin propina» de
+ * partida). Las sugeridas del local para este importe; va al total, al QR y
+ * al cobro con ficha.
+ */
+function TipChoice({ view, busy, onTip }: { view: WaitingView; busy: boolean; onTip: (cents: number) => void }) {
+  const tip = view.tip;
+  if (!tip) return null;
+  const options = [{ cents: 0, label: 'Sin propina' }, ...tip.presets.map((p) => ({ cents: p.cents, label: tipButtonLabel(p) }))];
+  return (
+    <div className={s.tips}>
+      <p className={s.tipsTitle}>¿Propina?</p>
+      <div className={s.tipRow} role="radiogroup" aria-label="Propina">
+        {options.map((o) => (
+          <button
+            key={o.cents}
+            type="button"
+            role="radio"
+            aria-checked={tip.chosenCents === o.cents}
+            className={s.tipBtn}
+            data-on={tip.chosenCents === o.cents ? '1' : undefined}
+            disabled={busy}
+            onClick={() => tip.chosenCents !== o.cents && onTip(o.cents)}
+          >
+            {o.label}
+          </button>
+        ))}
+      </div>
+      {tip.toStaff ? <p className={s.tipNote}>La propina va entera para el personal.</p> : null}
+    </div>
   );
 }
 
@@ -214,8 +313,12 @@ function Paid() {
   );
 }
 
-/** Menú discreto: pantalla completa y desemparejar (con confirmación: la tablet la tiene el cliente delante). */
-function Corner({ onUnpaired }: { onUnpaired: () => void }) {
+/**
+ * Menú discreto: pantalla completa, leer fichas en esta tablet (si Chrome aún
+ * no dio permiso) y desemparejar (con confirmación: la tablet la tiene el
+ * cliente delante).
+ */
+function Corner({ onUnpaired, nfc }: { onUnpaired: () => void; nfc: (() => void) | null }) {
   const [open, setOpen] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [full, setFull] = useState(false);
@@ -264,6 +367,17 @@ function Corner({ onUnpaired }: { onUnpaired: () => void }) {
             </>
           ) : (
             <>
+              {nfc ? (
+                <Button
+                  variant="ghost"
+                  onClick={() => {
+                    close();
+                    nfc();
+                  }}
+                >
+                  Leer fichas en esta tablet
+                </Button>
+              ) : null}
               {canFull ? (
                 <Button
                   variant="ghost"

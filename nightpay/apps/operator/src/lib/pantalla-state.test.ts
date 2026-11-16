@@ -9,6 +9,8 @@ import {
   expireMemory,
   idleHint,
   nextMemory,
+  tipBreakdown,
+  tipButtonLabel,
   waitingHint,
   type PantallaMemory,
   type WaitingView,
@@ -23,8 +25,11 @@ function waiting(key = 'k1', over: Partial<WaitingView> = {}): WaitingView {
     key,
     currency: 'EUR',
     amountCents: 3300,
+    totalCents: 3300,
     cardAmountCents: null,
     qrUrl: 'https://api.oxio.test/pay/tok',
+    tip: { presets: [{ cents: 200, percent: null }, { cents: 500, percent: null }], maxCents: 3300, chosenCents: 0, toStaff: false },
+    pinKeypad: 'fixed',
     ficha: true,
     paying: false,
     topUp: false,
@@ -91,5 +96,19 @@ describe('pantalla del cliente: qué se enseña y cuánto rato', () => {
     expect(amountText(waiting())).toMatch(/^33\s?€$/);
     expect(cardLine(waiting())).toBeNull();
     expect(cardLine(waiting('k', { cardAmountCents: 3630 }))).toMatch(/^Con tarjeta, 36,30\s?€$/);
+  });
+
+  it('la ficha en esta tablet (Web NFC) o en el móvil del camarero', () => {
+    expect(waitingHint(waiting(), true)).toBe('Acerca tu ficha a esta pantalla o al móvil del camarero');
+    expect(waitingHint(waiting(), false)).toBe('Acerca tu ficha al móvil del camarero');
+  });
+
+  it('propina: el total la suma, se desglosa y los botones dicen cuánto', () => {
+    const chosen = waiting('k', { totalCents: 3800, tip: { ...waiting().tip!, chosenCents: 500 } });
+    expect(amountText(chosen)).toMatch(/^38\s?€$/);
+    expect(tipBreakdown(chosen)).toMatch(/^33\s?€ \+ 5\s?€ de propina$/);
+    expect(tipBreakdown(waiting())).toBeNull();
+    expect(tipButtonLabel({ cents: 200, percent: null })).toMatch(/^\+2\s?€$/);
+    expect(tipButtonLabel({ cents: 1000, percent: 10 })).toMatch(/^10 % · \+10\s?€$/);
   });
 });

@@ -2,12 +2,15 @@
 //  - La app del personal (su sesión): emparejar, desemparejar y decirle qué
 //    cobro enseñar (Esperando y la recarga de recepción).
 //  - La tablet (/pantalla): sin usuario; se identifica con su credencial
-//    (Authorization: Pantalla …), que se obtiene una vez con el código.
+//    (Authorization: Pantalla …), que se obtiene una vez con el código. Solo
+//    actúa sobre el cobro activo de su camarero: la propina que elige el
+//    cliente y pagarlo con su ficha (y su PIN).
 
 import { parseProblemDetails } from '@nightpay/api-client';
 import {
   CUSTOMER_DISPLAY_AUTH_SCHEME,
   type CustomerDisplayCode,
+  type CustomerDisplayFichaResult,
   type CustomerDisplayPairResult,
   type CustomerDisplayStatus,
   type CustomerScreenView,
@@ -130,7 +133,10 @@ async function displayCall<T>(path: string, init: RequestInit = {}, signal?: Abo
   try {
     res = await fetch(`${API_BASE}${path}`, {
       ...init,
-      headers: { Authorization: `${CUSTOMER_DISPLAY_AUTH_SCHEME} ${token}` },
+      headers: {
+        Authorization: `${CUSTOMER_DISPLAY_AUTH_SCHEME} ${token}`,
+        ...(init.body ? { 'Content-Type': 'application/json' } : {}),
+      },
       cache: 'no-store',
       signal,
     });
@@ -144,6 +150,25 @@ async function displayCall<T>(path: string, init: RequestInit = {}, signal?: Abo
 
 export const fetchScreen = (signal?: AbortSignal): Promise<CustomerScreenView> =>
   displayCall('/v1/customer-display/screen', {}, signal);
+
+const postJson = (body: unknown): RequestInit => ({ method: 'POST', body: JSON.stringify(body) });
+
+/** El cliente elige la propina (0 = «Sin propina»): lo que enseña la pantalla después. */
+export const setScreenTip = (key: string, tipCents: number): Promise<CustomerScreenView> =>
+  displayCall('/v1/customer-display/tip', postJson({ key, tipCents }));
+
+/** La ficha acercada a la tablet paga el cobro activo (o pide su PIN). */
+export const payScreenFicha = (key: string, card: string, uid: string | null): Promise<CustomerDisplayFichaResult> =>
+  displayCall('/v1/customer-display/ficha', postJson({ key, card, uid }));
+
+/** Con su PIN, tecleado en la tablet (y la propina de la pantalla del PIN). */
+export const payScreenFichaPin = (
+  key: string,
+  ficha: { card: string; uid: string | null },
+  pin: string,
+  tipCents: number | null,
+): Promise<CustomerDisplayFichaResult> =>
+  displayCall('/v1/customer-display/ficha/pin', postJson({ key, ...ficha, pin, tipCents }));
 
 /** Desde la tablet: fuera la credencial (aunque el API no conteste, aquí se olvida). */
 export async function unpairThisDisplay(): Promise<void> {

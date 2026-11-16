@@ -166,6 +166,94 @@
   }
 }
 
+/* ─── Propina (la elige el cliente; «Sin propina» de partida) ─────────── */
+
+.tips {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-top: clamp(0.25rem, 1vmin, 0.75rem);
+}
+
+.tipsTitle {
+  margin: 0;
+  font: 600 clamp(var(--np-fs-16), 2.4vmin, 3.2vmin) / 1.2 var(--np-font-sans);
+  color: var(--np-text-mute);
+}
+
+.tipRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+}
+
+.tipBtn {
+  min-height: 3.5rem;
+  min-width: 6rem;
+  padding: 0.5rem 1.25rem;
+  border-radius: var(--np-r-md);
+  border: 1px solid var(--np-border-hi, var(--np-border));
+  background: var(--np-surface);
+  color: var(--np-text);
+  font: 600 clamp(var(--np-fs-18), 2.8vmin, 3.6vmin) / 1.1 var(--np-font-sans);
+  cursor: pointer;
+  transition:
+    background var(--np-d-fast, 120ms) var(--np-ease, ease-out),
+    transform var(--np-d-fast, 120ms) var(--np-ease, ease-out);
+}
+
+.tipBtn:active {
+  transform: scale(var(--np-press-scale, 0.97));
+}
+
+.tipBtn:focus-visible {
+  outline: 3px solid var(--np-lime);
+  outline-offset: 2px;
+}
+
+/* La elegida: como en la página de pago (crema sobre negro, sin lima). */
+.tipBtn[data-on='1'] {
+  background: var(--np-text);
+  color: var(--np-bg);
+  border-color: var(--np-text);
+}
+
+.tipBtn:disabled {
+  cursor: progress;
+  opacity: 0.7;
+}
+
+.tipNote {
+  margin: 0;
+  font: 400 var(--np-fs-14) / 1.3 var(--np-font-sans);
+  color: var(--np-text-dim);
+}
+
+/* ─── PIN en la tablet (la pantalla del PIN del móvil, centrada) ──────── */
+
+.pinWrap {
+  width: min(30rem, 100%);
+  height: 100%;
+  overflow-y: auto;
+  animation: npPantallaIn var(--np-d-base, 240ms) var(--np-ease, ease-out) both;
+}
+
+.toast {
+  position: absolute;
+  left: 50%;
+  bottom: max(1rem, env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  z-index: 2;
+  max-width: min(40rem, 90vw);
+  margin: 0;
+  padding: 0.75rem 1.25rem;
+  border-radius: var(--np-r-md);
+  border: 1px solid var(--np-border);
+  background: var(--np-surface);
+  font: 600 var(--np-fs-18) / 1.35 var(--np-font-sans);
+  text-align: center;
+}
+
 /* ─── Pagado ─────────────────────────────────────────────────────────── */
 
 .paid {

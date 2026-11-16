@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { io } from 'socket.io-client';
 import type { CustomerScreenView } from '@nightpay/contracts';
 import { createPoller } from '@nightpay/ui';
@@ -20,14 +20,16 @@ const isHidden = (): boolean => document.visibilityState === 'hidden';
  * Lo que enseña la tablet, al momento: el tiempo real (socket, con la
  * credencial de la pantalla) solo avisa de que algo cambió y entonces se
  * pregunta al API; de respaldo, cada 15 s (cada 5 s sin tiempo real). Un 401
- * es que se desemparejó (o caducó): `onUnpaired`.
+ * es que se desemparejó (o caducó): `onUnpaired`. `refresh` pregunta ya
+ * (tras elegir propina o pagar con la ficha en la tablet).
  */
 export function usePantallaLive(
   token: string | null,
   onView: (view: CustomerScreenView) => void,
   onUnpaired: () => void,
-): { live: boolean; reachable: boolean } {
+): { live: boolean; reachable: boolean; refresh: () => void } {
   const [live, setLive] = useState(false);
+  const pokeRef = useRef<() => void>(() => undefined);
   const [reachable, setReachable] = useState(true);
   const onViewRef = useRef(onView);
   const onUnpairedRef = useRef(onUnpaired);
@@ -65,6 +67,7 @@ export function usePantallaLive(
       isHidden,
     });
     const poke = () => poller.poke();
+    pokeRef.current = poke;
 
     const socket = io(`${wsBase}/rt`, {
       // Si el WebSocket no conecta (proxy, wifi del local), cae a polling HTTP.
@@ -108,8 +111,10 @@ export function usePantallaLive(
       window.removeEventListener('online', poke);
       poller.stop();
       socket.disconnect();
+      pokeRef.current = () => undefined;
     };
   }, [token]);
 
-  return { live, reachable };
+  const refresh = useCallback(() => pokeRef.current(), []);
+  return { live, reachable, refresh };
 }

@@ -3,7 +3,7 @@
 // se enseña cada cosa: «Pagado» unos segundos y vuelta sola al reposo;
 // cancelado, caducado o fallido: el reposo con un texto corto.
 
-import type { CustomerScreenEnd, CustomerScreenView } from '@nightpay/contracts';
+import type { CustomerScreenEnd, CustomerScreenView, TipPreset } from '@nightpay/contracts';
 import { formatEur } from './money';
 
 /** «Pagado» a pantalla completa. */
@@ -77,17 +77,33 @@ export function idleHint(fichas: boolean): string {
   return fichas ? 'Paga con tu ficha o con el QR' : 'Paga con el QR';
 }
 
-/** Debajo del importe: qué hacer. */
-export function waitingHint(view: WaitingView): string {
+/**
+ * Debajo del importe: qué hacer. `nfcHere`: esta tablet lee fichas (Android
+ * con Chrome): la ficha vale en ella o en el móvil del camarero.
+ */
+export function waitingHint(view: WaitingView, nfcHere = false): string {
   if (view.paying) return 'Terminando el pago…';
-  if (view.ficha) return 'Acerca tu ficha al móvil del camarero';
+  if (view.ficha) return nfcHere ? 'Acerca tu ficha a esta pantalla o al móvil del camarero' : 'Acerca tu ficha al móvil del camarero';
   if (!view.qrUrl) return 'Paga en el datáfono';
   return 'Escanea el QR con tu móvil';
 }
 
-/** El importe grande («33 €», «12,50 €»). */
+/** El importe grande: lo vendido + la propina elegida («33 €», «35 €»). */
 export function amountText(view: WaitingView): string {
-  return formatEur(view.amountCents, { compact: true });
+  return formatEur(view.totalCents, { compact: true });
+}
+
+/** «33 € + 2 € de propina» cuando eligió una; sin propina, null. */
+export function tipBreakdown(view: WaitingView): string | null {
+  const tip = view.tip?.chosenCents ?? 0;
+  if (tip <= 0) return null;
+  return `${formatEur(view.amountCents, { compact: true })} + ${formatEur(tip, { compact: true })} de propina`;
+}
+
+/** El botón de una propina sugerida: «+2 €» o «10 % · +3 €». */
+export function tipButtonLabel(preset: TipPreset): string {
+  const plus = `+${formatEur(preset.cents, { compact: true })}`;
+  return preset.percent ? `${preset.percent} % · ${plus}` : plus;
 }
 
 /** Con «Comisión del servicio»: lo que paga la tarjeta («Con tarjeta, 36,30 €»). */

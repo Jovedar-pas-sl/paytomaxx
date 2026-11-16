@@ -42,6 +42,25 @@ export function nfcSupported(): boolean {
 }
 
 /**
+ * Pide permiso para leer fichas (Chrome lo pide la primera vez y solo con un
+ * toque en la pantalla): se llama dentro del toque. Con el permiso, las
+ * lecturas siguientes ya no lo piden. true si quedó concedido.
+ */
+export async function askNfcPermission(): Promise<boolean> {
+  const Reader = readerCtor();
+  if (!Reader) return false;
+  const ctrl = new AbortController();
+  try {
+    await new Reader().scan({ signal: ctrl.signal });
+    return true;
+  } catch {
+    return false;
+  } finally {
+    ctrl.abort();
+  }
+}
+
+/**
  * ¿«Esperando» escucha el NFC? Solo con el cobro esperando, sin el PIN
  * delante, sin un pago a medio comprobar y con su pantalla a la vista: las
  * pestañas de abajo siguen montadas (con `hidden`) y una oculta cobraría la
