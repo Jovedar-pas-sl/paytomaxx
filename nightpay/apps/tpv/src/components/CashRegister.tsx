@@ -21,7 +21,7 @@ import {
   haptic,
 } from '@nightpay/ui';
 import { MAX_TYPED_AMOUNT_CENTS } from '@nightpay/contracts';
-import { createPayment, fetchTerminals, logout as apiLogout, type CreatedPayment } from '@/lib/api';
+import { createPayment, fetchTerminals, fetchVenueName, logout as apiLogout, type CreatedPayment } from '@/lib/api';
 import { attemptFor, chargeFingerprint, type ChargeAttempt } from '@/lib/charge-attempt';
 import { unlockBeep } from '@/lib/beep';
 import { usePaymentStatus } from '@/lib/usePaymentStatus';
@@ -49,6 +49,8 @@ interface Active {
 export function CashRegister({ venueSlug, onLogout }: Props) {
   const [terminals, setTerminals] = useState<Terminal[]>([]);
   const [terminal, setTerminal] = useState<string>('');
+  // El nombre del local: arriba en el ticket impreso (sin él, el ticket sale igual).
+  const [venueName, setVenueName] = useState<string | null>(null);
   // Importe del teclado propio, en céntimos (0: aún nada).
   const [amountCents, setAmountCents] = useState(0);
   const [active, setActive] = useState<Active | null>(null);
@@ -72,6 +74,9 @@ export function CashRegister({ venueSlug, onLogout }: Props) {
         if (list.length > 0) setTerminal(list[0]!.externalId);
       })
       .catch((err) => setError((err as Error).message));
+    fetchVenueName()
+      .then(setVenueName)
+      .catch(() => setVenueName(null));
   }, []);
 
   async function handleSubmit(e?: FormEvent) {
@@ -174,6 +179,7 @@ export function CashRegister({ venueSlug, onLogout }: Props) {
         <ActivePayment
           key={active.payment.id}
           payment={active.payment}
+          venueName={venueName}
           status={status}
           reachable={reachable}
           checkNow={checkNow}

@@ -136,3 +136,17 @@ export {
 } from './lib/device-settings';
 export type { ThemeChoice } from './lib/device-settings';
 export { PHOTO_MAX_BYTES, PHOTO_OUT_SIDE, PhotoPrepareError, encodeProfilePhoto, photoPlan, prepareProfilePhoto } from './lib/profile-photo';
+export { PRINTING_CLASS, PrintButton, TicketPaper, ticketPageCss, ticketPageHeightMm, usePrintTicket } from './components/PrintTicket';
+export type { PrintTicketApi } from './components/PrintTicket';
+export {
+  RECEIPT_FOOTER,
+  TOP_UP_FOOTER,
+  howRows,
+  paidTicket,
+  payQrTicket,
+  testTicket,
+  ticketDateTime,
+  ticketTime,
+  topUpTicket,
+} from './lib/ticket';
+export type { PaidTicketInput, PayQrTicketInput, Ticket, TicketRow, TopUpTicketInput } from './lib/ticket';
