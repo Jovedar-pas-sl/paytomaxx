@@ -102,7 +102,7 @@ export class CustomerDisplayService {
     const row = await this.prisma.asSystem((tx) =>
       tx.customerDisplay.findUnique({ where: { userId: owner.userId }, select: { id: true, tenantId: true, tokenHash: true } }),
     );
-    if (row && row.tenantId === owner.tenantId) await this.revoke(row.id, owner.tenantId, owner.userId, 'staff');
+    if (row && row.tenantId === owner.tenantId) await this.revoke(row.id, owner, owner.userId, 'staff');
     return { ok: true };
   }
 
@@ -201,7 +201,7 @@ export class CustomerDisplayService {
 
   /** «Desemparejar» desde la tablet (solo su credencial). */
   async unpairByDisplay(display: DisplaySession): Promise<{ ok: true }> {
-    await this.revoke(display.id, display.tenantId, null, 'display', display.tokenHash);
+    await this.revoke(display.id, display, null, 'display', display.tokenHash);
     return { ok: true };
   }
 
@@ -285,7 +285,7 @@ export class CustomerDisplayService {
   /** Fuera la credencial y el cobro; sus conexiones del tiempo real, cortadas. */
   private async revoke(
     displayId: string,
-    tenantId: string,
+    owner: DisplayOwner,
     actorId: string | null,
     by: 'staff' | 'display',
     tokenHash?: string,
@@ -301,10 +301,11 @@ export class CustomerDisplayService {
     if (revoked.count === 0) return;
     await this.audit.log({
       action: 'customer_display.unpaired',
-      tenantId,
+      tenantId: owner.tenantId,
       actorId,
+      // Como al pedir el código y al emparejar: la persona de esa pantalla.
       targetType: 'CustomerDisplay',
-      targetId: displayId,
+      targetId: owner.userId,
       payload: { by },
     });
   }
