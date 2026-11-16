@@ -1,11 +1,12 @@
 import { afterEach, describe, it, expect, vi } from 'vitest';
-import { GRACE_MS, SWEEP_EVERY_MS, WebhookRedriveSweepService } from './webhook-redrive-sweep.service';
+import { FAST_WINDOW_MS, GRACE_MS, SLOW_SWEEP_EVERY_MS, SWEEP_EVERY_MS, WebhookRedriveSweepService } from './webhook-redrive-sweep.service';
 import { WEBHOOK_JOB_RETRY } from './webhook-enqueue';
 
 const NOW = new Date('2026-10-19T12:00:00Z');
 
 function makeSweep(opts: { pending?: Array<{ id: bigint; provider: string; externalEventId: string }>; failedJob?: boolean; addFails?: string } = {}) {
-  const prisma = { webhookDelivery: { findMany: vi.fn().mockResolvedValue(opts.pending ?? []) } };
+  // `pending`: lo que devuelve la primera consulta (los recientes); las demás, nada.
+  const prisma = { webhookDelivery: { findMany: vi.fn().mockResolvedValueOnce(opts.pending ?? []).mockResolvedValue([]) } };
   const job = { isFailed: vi.fn().mockResolvedValue(opts.failedJob ?? false), remove: vi.fn().mockResolvedValue(undefined) };
   const queue = {
     getJob: vi.fn().mockResolvedValue(opts.failedJob === undefined ? undefined : job),
@@ -19,18 +20,45 @@ function makeSweep(opts: { pending?: Array<{ id: bigint; provider: string; exter
 describe('repaso de avisos sin procesar (P5)', () => {
   afterEach(() => vi.useRealTimers());
 
-  it('busca los no procesados de las últimas 24 h, con 2 min de margen, los más viejos primero', async () => {
+  it('busca los no procesados de las últimas 24 h, con 2 min de margen: primero los recientes y luego los antiguos', async () => {
     const { svc, prisma } = makeSweep();
     await expect(svc.sweep(NOW)).resolves.toEqual({ redriven: 0, failed: 0 });
-    expect(prisma.webhookDelivery.findMany).toHaveBeenCalledWith({
-      where: {
-        processedAt: null,
-        createdAt: { lt: new Date('2026-10-19T11:58:00Z'), gt: new Date('2026-10-18T12:00:00Z') },
-      },
+    const query = (createdAt: object) => ({
+      where: { processedAt: null, createdAt },
       orderBy: { createdAt: 'asc' },
       take: 100,
       select: { id: true, provider: true, externalEventId: true },
     });
+    expect(prisma.webhookDelivery.findMany).toHaveBeenNthCalledWith(
+      1,
+      query({ gte: new Date('2026-10-19T11:50:00Z'), lt: new Date('2026-10-19T11:58:00Z') }),
+    );
+    expect(prisma.webhookDelivery.findMany).toHaveBeenNthCalledWith(
+      2,
+      query({ gt: new Date('2026-10-18T12:00:00Z'), lt: new Date('2026-10-19T11:50:00Z') }),
+    );
+  });
+
+  it('sin includeOld solo mira los recientes (de 2 a 10 min)', async () => {
+    const { svc, prisma } = makeSweep();
+    await svc.sweep(NOW, { includeOld: false });
+    expect(prisma.webhookDelivery.findMany).toHaveBeenCalledTimes(1);
+    expect(prisma.webhookDelivery.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { processedAt: null, createdAt: { gte: new Date('2026-10-19T11:50:00Z'), lt: new Date('2026-10-19T11:58:00Z') } } }),
+    );
+  });
+
+  it('cada minuto los recientes y cada hora también los antiguos: un aviso que falla siempre deja su fallido a la vista', async () => {
+    const { svc, prisma } = makeSweep();
+    const tick = (at: Date) => (svc as unknown as { tick: (now: Date) => Promise<void> }).tick.call(svc, at);
+    const plus = (ms: number) => new Date(NOW.getTime() + ms);
+    await tick(NOW); // el primero (al arrancar) lo mira todo
+    expect(prisma.webhookDelivery.findMany).toHaveBeenCalledTimes(2);
+    await tick(plus(SWEEP_EVERY_MS)); // al minuto: solo los recientes
+    await tick(plus(SLOW_SWEEP_EVERY_MS - 1));
+    expect(prisma.webhookDelivery.findMany).toHaveBeenCalledTimes(4);
+    await tick(plus(SLOW_SWEEP_EVERY_MS)); // a la hora: otra vez todo
+    expect(prisma.webhookDelivery.findMany).toHaveBeenCalledTimes(6);
   });
 
   it('un aviso que agotó los reintentos: se quita el trabajo fallido y se vuelve a encolar con su id', async () => {
@@ -64,6 +92,9 @@ describe('repaso de avisos sin procesar (P5)', () => {
   it('cada minuto; los reintentos de un aviso (8, desde 1 s, doblando) acaban en unos 2 min', () => {
     expect(SWEEP_EVERY_MS).toBe(60_000);
     expect(GRACE_MS).toBe(120_000);
+    expect(FAST_WINDOW_MS).toBe(10 * 60_000);
+    // Más que los 10 min de la alerta QueueFailedJobs (fallidos > 0 durante 10 min).
+    expect(SLOW_SWEEP_EVERY_MS).toBe(60 * 60_000);
     const { attempts, backoff } = WEBHOOK_JOB_RETRY;
     expect(attempts).toBe(8);
     expect(backoff).toEqual({ type: 'exponential', delay: 1_000 });
@@ -76,15 +107,17 @@ describe('repaso de avisos sin procesar (P5)', () => {
   it('un repaso lento no se solapa con el siguiente', async () => {
     const { svc, prisma } = makeSweep();
     let release: (v: never[]) => void = () => undefined;
-    prisma.webhookDelivery.findMany.mockReturnValueOnce(new Promise((r) => (release = r)));
+    prisma.webhookDelivery.findMany.mockReset();
+    prisma.webhookDelivery.findMany.mockReturnValueOnce(new Promise((r) => (release = r))).mockResolvedValue([]);
     const tick = (svc as unknown as { tick: () => Promise<void> }).tick.bind(svc);
     const first = tick();
     await tick();
     expect(prisma.webhookDelivery.findMany).toHaveBeenCalledTimes(1);
     release([]);
-    await first;
-    await tick();
+    await first; // el primero también mira los antiguos: 2 consultas
     expect(prisma.webhookDelivery.findMany).toHaveBeenCalledTimes(2);
+    await tick(); // el siguiente, dentro de la hora: solo los recientes
+    expect(prisma.webhookDelivery.findMany).toHaveBeenCalledTimes(3);
   });
 
   it('si uno no se puede encolar, sigue con los demás', async () => {
@@ -118,6 +151,7 @@ describe('repaso de avisos sin procesar (P5)', () => {
 
   it('un fallo de la base en el repaso programado no tumba el proceso', async () => {
     const { svc, prisma } = makeSweep();
+    prisma.webhookDelivery.findMany.mockReset();
     prisma.webhookDelivery.findMany.mockRejectedValueOnce(new Error('db caída'));
     await expect((svc as unknown as { tick: () => Promise<void> }).tick()).resolves.toBeUndefined();
   });
