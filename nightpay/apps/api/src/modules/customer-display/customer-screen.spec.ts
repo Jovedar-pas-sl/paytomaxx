@@ -39,6 +39,7 @@ function input(over: Partial<ScreenInput> = {}): ScreenInput {
     urls: URLS,
     tip: { on: true, presets: {}, toStaff: false, chosenCents: 0 },
     pinKeypad: 'fixed',
+    noPinMaxCents: 2000,
     ...over,
   };
 }
@@ -144,7 +145,7 @@ describe('pantalla del cliente: qué enseña', () => {
     ];
     const allowed = new Set([
       'state', 'venueName', 'fichas', 'pairedUntil', 'key', 'currency', 'amountCents', 'totalCents', 'cardAmountCents',
-      'qrUrl', 'tip', 'pinKeypad', 'ficha', 'paying', 'topUp', 'reason',
+      'qrUrl', 'tip', 'pinKeypad', 'noPinMaxCents', 'ficha', 'paying', 'topUp', 'reason',
     ]);
     for (const view of views) {
       for (const field of Object.keys(view)) expect(allowed.has(field), field).toBe(true);

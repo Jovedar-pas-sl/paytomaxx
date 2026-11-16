@@ -30,6 +30,7 @@ function waiting(key = 'k1', over: Partial<WaitingView> = {}): WaitingView {
     qrUrl: 'https://api.oxio.test/pay/tok',
     tip: { presets: [{ cents: 200, percent: null }, { cents: 500, percent: null }], maxCents: 3300, chosenCents: 0, toStaff: false },
     pinKeypad: 'fixed',
+    noPinMaxCents: 2000,
     ficha: true,
     paying: false,
     topUp: false,

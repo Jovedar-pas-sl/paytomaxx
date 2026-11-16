@@ -136,6 +136,8 @@ export type CustomerScreenView =
       tip: CustomerScreenTip | null;
       /** El teclado del PIN del local (Ajustes → Noche): fijo o con las cifras cambiando de sitio. */
       pinKeypad: PinKeypadLayout;
+      /** Hasta este importe la ficha paga sin PIN (Ajustes → Noche): el pie de la pantalla del PIN. */
+      noPinMaxCents: number;
       /** Se puede pagar acercando la ficha al móvil del camarero. */
       ficha: boolean;
       /** El cliente ya está pagando en su móvil (su banco): sin QR, «Terminando el pago…». */

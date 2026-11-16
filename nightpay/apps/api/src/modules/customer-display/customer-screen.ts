@@ -59,6 +59,8 @@ export interface ScreenInput {
    */
   tip: { on: boolean; presets: TipPresetConfig; toStaff: boolean; chosenCents: number };
   pinKeypad: PinKeypadLayout;
+  /** Hasta este importe la ficha paga sin PIN (Ajustes → Noche). */
+  noPinMaxCents: number;
   now: Date;
   urls: { api: string; client: string; operator: string };
 }
@@ -166,6 +168,7 @@ export function screenViewOf(input: ScreenInput): CustomerScreenView {
     qrUrl: paying ? null : qrOf(input, openCard, openCharge, tipCents),
     tip,
     pinKeypad: input.pinKeypad,
+    noPinMaxCents: input.noPinMaxCents,
     ficha: input.fichas && openCharge,
     paying,
     topUp: Boolean(p?.walletId),

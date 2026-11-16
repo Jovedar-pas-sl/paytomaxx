@@ -262,6 +262,7 @@ export class CustomerDisplayService {
         : null,
     }));
     const methods = paymentMethodsOf(venue.paymentMethods);
+    const night = nightSettingsOf(venue.nightSettings);
     return screenViewOf({
       venueName: venue.name,
       fichas: methods.wallet && methods.nfc,
@@ -278,7 +279,8 @@ export class CustomerDisplayService {
         toStaff: display.role === 'OPERATOR',
         chosenCents: display.tipCents,
       },
-      pinKeypad: nightSettingsOf(venue.nightSettings).pinKeypad,
+      pinKeypad: night.pinKeypad,
+      noPinMaxCents: night.nfcNoPinMaxCents,
     });
   }
 

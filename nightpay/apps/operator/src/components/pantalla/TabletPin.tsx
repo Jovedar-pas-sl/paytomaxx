@@ -29,7 +29,9 @@ export function TabletPin({
     ? { baseCents: view.amountCents, previousCents: view.tip.chosenCents, maxCents: view.tip.maxCents, presets: view.tip.presets }
     : null;
   return (
-    <VenueNightContext.Provider value={{ ...DEFAULT_NIGHT_SETTINGS, pinKeypad: view.pinKeypad }}>
+    <VenueNightContext.Provider
+      value={{ ...DEFAULT_NIGHT_SETTINGS, pinKeypad: view.pinKeypad, nfcNoPinMaxCents: view.noPinMaxCents }}
+    >
       <div className={s.pinWrap}>
         <PinScreen
           colors={[{ color: 'var(--np-lime)', weight: 1 }]}
