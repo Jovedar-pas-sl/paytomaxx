@@ -285,10 +285,11 @@ export class CustomerDisplayService {
   }
 
   /**
-   * El cliente elige su propina en la tablet (0: «Sin propina»). Solo una de
-   * las que se ofrecen y solo en el cobro que enseña. Va en el QR (?tip=) y,
+   * El cliente elige su propina en la tablet (0: «Sin propina»): una de las
+   * sugeridas u «Otra», y solo en el cobro que enseña. Va en el QR (?tip=) y,
    * si hay cobro del saldo, en él: la ficha (en la tablet o en el móvil del
-   * camarero) paga lo vendido + esa propina, también sin PIN.
+   * camarero) paga lo vendido + esa propina. Con propina, la ficha pide
+   * SIEMPRE el PIN (409 PIN_REQUIRED, motivo `tip`), aunque esté por debajo del tope.
    */
   async setTip(display: DisplaySession, dto: CustomerDisplayTipDto): Promise<CustomerScreenView> {
     const view = await this.screen(display);
