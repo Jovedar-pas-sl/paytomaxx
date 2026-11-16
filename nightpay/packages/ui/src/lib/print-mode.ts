@@ -1,3 +1,5 @@
+'use client';
+
 // «¿Cómo imprime este aparato?» (Menú → Este aparato): «Con ventana» (el
 // diálogo de imprimir de Android; vale en cualquier móvil, tablet u ordenador)
 // o «Directo» (con la app RawBT: un toque y sale el ticket, del largo justo; el
