@@ -42,8 +42,10 @@ export async function pendingRefundApprovalCents(
       targetId: paymentId,
       OR: [
         { status: 'PENDING', requestedAt: { gt: cutoff } },
-        // En efectivo: aprobada y aún sin «Entregado» (24 h) sigue reservando.
-        { status: 'APPROVED', resultRef: null, decidedAt: { gt: cutoff } },
+        // En efectivo: aprobada y aún sin «Entregado» (24 h) sigue reservando. Solo esas: una
+        // devolución por la pasarela queda APPROVED sin resultado un instante, dentro de la
+        // transacción que la reserva (no se puede contar dos veces).
+        { status: 'APPROVED', resultRef: null, decidedAt: { gt: cutoff }, payload: { path: ['method'], equals: 'CASH' } },
       ],
     },
     _sum: { amountCents: true },

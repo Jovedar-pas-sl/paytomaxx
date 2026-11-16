@@ -30,7 +30,7 @@ describe('approval_requests dentro de la transacción', () => {
         targetId: 'pay-1',
         OR: [
           { status: 'PENDING', requestedAt: { gt: dayBefore } },
-          { status: 'APPROVED', resultRef: null, decidedAt: { gt: dayBefore } },
+          { status: 'APPROVED', resultRef: null, decidedAt: { gt: dayBefore }, payload: { path: ['method'], equals: 'CASH' } },
         ],
       },
       _sum: { amountCents: true },
