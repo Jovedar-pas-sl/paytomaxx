@@ -80,10 +80,10 @@ function closed(m: ReturnType<typeof makeProcessor>): boolean {
 }
 
 describe('recuperación rápida de la cola de avisos', () => {
-  it('reintenta una conexión fallida en un segundo, manteniendo el orden de la cola', () => {
+  it('reintenta una conexión fallida en un segundo y procesa hasta 4 avisos a la vez', () => {
     const options = Reflect.getMetadata('bullmq:worker_metadata', WebhookIngestProcessor) as { runRetryDelay?: number; concurrency?: number } | undefined;
     expect(options?.runRetryDelay).toBe(1000);
-    expect(options?.concurrency ?? 1).toBe(1);
+    expect(options?.concurrency).toBe(4);
   });
 });
 

@@ -9,8 +9,9 @@ import { createPoller, type PollOutcome } from './poller';
  *    socket, al volver la red (evento 'online') y al volver a verse la
  *    pantalla, se pregunta ya;
  *  - de respaldo, cada PAYMENT_POLL_LIVE_MS con el tiempo real y cada
- *    PAYMENT_POLL_OFFLINE_MS sin él; tras un fallo, igual de a menudo
- *    (antes se triplicaba la espera);
+ *    PAYMENT_POLL_OFFLINE_MS sin él; mientras el cliente está en su banco
+ *    (AUTHORIZING), cada PAYMENT_POLL_AUTHORIZING_MS aunque haya tiempo real;
+ *    tras un fallo, igual de a menudo (antes se triplicaba la espera);
  *  - si el servidor cierra la conexión a propósito (un despliegue) se
  *    reconecta casi ya, no a los 10 s.
  */
@@ -19,6 +20,11 @@ import { createPoller, type PollOutcome } from './poller';
 export const PAYMENT_POLL_LIVE_MS = 10_000;
 /** Sin tiempo real (wifi del local, servidor reiniciando), se pregunta a menudo. */
 export const PAYMENT_POLL_OFFLINE_MS = 4_000;
+/**
+ * El cliente está en su banco (AUTHORIZING): el «Pagado» puede llegar en
+ * cualquier momento y, si el socket se cayó sin avisar, se vería tarde.
+ */
+export const PAYMENT_POLL_AUTHORIZING_MS = 4_000;
 /** Plazo de cada consulta: una colgada (sin cobertura) no frena la siguiente. */
 export const PAYMENT_POLL_TIMEOUT_MS = 6_000;
 /** El servidor rechazó la conexión (p. ej. token caducado): socket.io no reintenta solo. */
@@ -47,6 +53,8 @@ export interface PaymentLiveOptions {
   /** Una consulta del cobro: 'stop' cuando ya no hay nada que vigilar. */
   poll: (signal: AbortSignal) => Promise<PollOutcome>;
   isHidden?: () => boolean;
+  /** ¿El cobro está en el banco del cliente (AUTHORIZING)? Entonces el respaldo pregunta más a menudo. */
+  isAuthorizing?: () => boolean;
   /** El tiempo real se conectó o se cayó (para el aviso de conexión). */
   onLiveChange: (live: boolean) => void;
 }
@@ -67,7 +75,10 @@ export function createPaymentLive(o: PaymentLiveOptions): PaymentLive {
 
   const poller = createPoller({
     task: (signal) => o.poll(signal),
-    intervalMs: () => (live ? PAYMENT_POLL_LIVE_MS : PAYMENT_POLL_OFFLINE_MS),
+    intervalMs: () => {
+      if (!live) return PAYMENT_POLL_OFFLINE_MS;
+      return o.isAuthorizing?.() ? PAYMENT_POLL_AUTHORIZING_MS : PAYMENT_POLL_LIVE_MS;
+    },
     // Tras un fallo se vuelve a preguntar igual de pronto (por defecto: el triple).
     slowIntervalMs: PAYMENT_POLL_OFFLINE_MS,
     timeoutMs: PAYMENT_POLL_TIMEOUT_MS,
