@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { pinTipButtons, pinTipCents, pinTipInitial, pinTipSetup } from './pin-tip';
+import { pinTipButtons, pinTipCents, pinTipInitial, pinTipSetup, withScreenTip } from './pin-tip';
 
 // B1: la propina la elige el cliente en la pantalla del PIN (en el móvil del
 // personal), sin nada marcado; con la ficha sin PIN no hay propina.
@@ -49,5 +49,22 @@ describe('la propina en la pantalla del PIN', () => {
     expect(pinTipCents({ kind: 'other', text: '0' }, setup)).toEqual({ cents: 0, error: 'empty' });
     expect(pinTipCents({ kind: 'other', text: '34' }, setup)).toEqual({ cents: 0, error: 'max' });
     expect(pinTipCents({ kind: 'other', text: '3a3' }, setup)).toEqual({ cents: 3300, error: null });
+  });
+});
+
+describe('la propina elegida en la pantalla de la barra, en el PIN del móvil', () => {
+  const setup = pinTipSetup({ totalCents: 3300, tipsOn: true, flatCents: [200, 500], percents: [10, 15] });
+
+  it('sale marcada (y se puede quitar); el total del PIN es lo vendido + ella', () => {
+    const shown = withScreenTip(setup, 500);
+    expect(shown).toMatchObject({ baseCents: 3300, previousCents: 500 });
+    expect(pinTipInitial(shown!)).toEqual({ kind: 'button', cents: 500 });
+  });
+
+  it('sin elegir, sin propinas, o por encima del tope: lo de siempre (nada marcado)', () => {
+    expect(withScreenTip(setup, 0)).toBe(setup);
+    expect(withScreenTip(null, 500)).toBeNull();
+    expect(withScreenTip(setup, 999_00)).toBe(setup);
+    expect(pinTipInitial(withScreenTip(setup, 0)!)).toEqual({ kind: 'none' });
   });
 });

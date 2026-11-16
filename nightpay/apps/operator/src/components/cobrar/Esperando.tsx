@@ -68,7 +68,7 @@ import { colorOf } from './cobrar-context';
 import { CobroQr } from './CobroQr';
 import { IconLock, IconNfc, IconQr } from './icons';
 import { PinScreen } from './PinScreen';
-import { pinTipSetup } from '@/lib/pin-tip';
+import { pinTipSetup, withScreenTip } from '@/lib/pin-tip';
 import { WAIT_TITLE_EN } from '@/lib/pin-pad';
 import { TOURS } from '@/lib/tours';
 import { ScreenHeader } from './ScreenHeader';
@@ -145,7 +145,7 @@ type PinStep = SaldoForPin & { reason: string | null };
 export function Esperando({ cobro, onNew, onRetry, retrying = false, retryError = null, onPaid, sectionLabel }: Props) {
   const methods = useVenueMethods();
   // B1: la propina la elige el cliente en la pantalla del PIN (sin nada marcado).
-  const pinTip = pinTipSetup({
+  const basePinTip = pinTipSetup({
     totalCents: cobro.totalCents,
     tipCents: cobro.tipCents,
     tipsOn: methods.tips && cobro.tipsOn === true,
@@ -164,6 +164,8 @@ export function Esperando({ cobro, onNew, onRetry, retrying = false, retryError 
   // Pagado con su PIN aquí: con qué se identificó el saldo (la ficha, su código o su pase). El sondeo no lo dice.
   const [paidVia, setPaidVia] = useState<PinVia | null>(null);
   const [saldo, setSaldo] = useState<SaldoState | null>(null);
+  // La propina que el cliente ya eligió en la pantalla de la barra (va en el cobro del saldo): marcada en el PIN.
+  const pinTip = withScreenTip(basePinTip, saldo?.status === 'PENDING' ? (saldo.tipCents ?? 0) : 0);
   const [localFail, setLocalFail] = useState<FailReason | null>(null);
   const [canceledByMe, setCanceledByMe] = useState(false);
   const [canceling, setCanceling] = useState(false);
@@ -316,6 +318,9 @@ export function Esperando({ cobro, onNew, onRetry, retrying = false, retryError 
           return;
         }
         const reason = out.reason === 'night_cap' || out.reason === 'no_uid' ? out.message : null;
+        // La propina que el cliente eligió en la pantalla de la barra (si la hay): marcada en el PIN.
+        const fresh = await fetchSaldoState(chargeId).catch(() => null);
+        if (fresh) setSaldo((prev) => keepFicha(fresh, prev));
         setPin({ ref: { card, uid }, walletCode: w.code, via: 'nfc', reason });
       } catch (err) {
         await failFrom(err, { card, uid });
