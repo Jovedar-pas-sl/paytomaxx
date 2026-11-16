@@ -36,6 +36,7 @@ const BTC_CSS = `
 .btc-venue{margin:0;color:var(--label);font-size:.9375rem}
 .btc-eur{font-family:var(--num);font-size:clamp(2.5rem,12vw,3rem);font-weight:600;letter-spacing:-.02em;line-height:1.05;color:var(--fg);margin:0}
 .btc-btc{margin:0;color:var(--label);font-size:.9375rem;font-variant-numeric:tabular-nums}
+.btc-live{width:100%;display:flex;flex-direction:column;align-items:center;gap:.9rem}
 .btc-qr{background:#fff;border-radius:var(--r);padding:.75rem;width:min(100%,19rem);line-height:0;box-shadow:var(--sh-dialog)}
 .btc-qr img{display:block;width:100%;height:auto;image-rendering:pixelated}
 .btc-scan{margin:0;font-size:.9375rem;color:var(--label)}

@@ -37,6 +37,15 @@ describe('página «Pagar con bitcoin»', () => {
     expect(page).toContain('Sala Bambú');
   });
 
+  it('el bloque del QR va centrado y con aire, como el resto de la página (y se sigue pudiendo esconder)', () => {
+    const page = html();
+    // #btcLive envuelve el QR, los botones y el tiempo: sin esta regla salían pegados y el QR a la izquierda.
+    expect(page).toContain('<div id="btcLive" class="btc-live">');
+    expect(page).toMatch(/\.btc-live\{[^}]*display:flex[^}]*flex-direction:column[^}]*align-items:center[^}]*gap:\.9rem[^}]*\}/);
+    // El «hidden» que pone el JS al fallar la factura gana al display:flex.
+    expect(page).toContain('.btc [hidden]{display:none!important}');
+  });
+
   it.each(PAY_LANGUAGES)('sale en %s con su título y su botón', (lang) => {
     const page = html(view(), {}, lang);
     expect(page).toContain(`<html lang="${lang}"`);
