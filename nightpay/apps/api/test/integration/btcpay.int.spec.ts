@@ -2,11 +2,14 @@
 // (BTCPay Server, fase 1). Un BTCPay de mentira es un servidor HTTP local; el
 // cliente de red es el de producción (SafeBtcpayNet) con la comprobación del
 // DNS y la IP fijada, solo que apuntando a ese servidor. Cubre: Ajustes del
-// dueño (conexión, permisos, aviso registrado, clave cifrada), la factura del
-// cobro, el aviso firmado (Settled → Pagado una vez; repetido, nada; firma mala,
-// 401), importe/tienda/orderId que no cuadran, recarga (saldo una sola vez),
-// cobro cancelado y luego pagado (incidencia), caducada, respaldo por consulta
-// y por tarea, el aislamiento entre locales y el mapa del dinero. Ver README.md.
+// dueño (conexión, permisos, aviso registrado, clave cifrada), dónde se ofrece
+// (decisión del dueño: al cargar saldo y en los reservados, nunca en un cobro de
+// la barra), la factura de una carga, el aviso firmado (Settled → Pagado una
+// vez; repetido, nada; firma mala, 401), importe/tienda/orderId que no cuadran,
+// recarga (saldo una sola vez), cancelada y luego pagada (incidencia), caducada,
+// respaldo por consulta y por tarea, reservados pagados con bitcoin (señal,
+// resto, anular: solo en euros), el aislamiento entre locales y el mapa del
+// dinero. Ver README.md.
 import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
@@ -31,6 +34,13 @@ import { BtcpayEnabledGuard } from '../../src/modules/btcpay/btcpay-flag';
 import { WebhookIngestProcessor } from '../../src/modules/queues/webhook-ingest.processor';
 import { GatewayRegistry } from '../../src/modules/gateways/gateway.registry';
 import { BtcpayAdapter } from '../../src/modules/gateways/btcpay.adapter';
+import { AuditService } from '../../src/modules/audit/audit.service';
+import { ReservationsService } from '../../src/modules/reservations/reservations.service';
+import { ReservationOpsService } from '../../src/modules/reservations/reservation-ops.service';
+import { ReservationCatalogService } from '../../src/modules/reservations/reservation-catalog.service';
+import { nightOf } from '../../src/modules/reservations/reservation-rules';
+import { CashTopUpService } from '../../src/modules/wallets/wallet-cash-topup.service';
+import { payoutAmounts, walletCash } from '../../src/modules/wallets/wallet-cash-limits';
 
 process.env.BTCPAY_ENABLED = 'true';
 const KEK = 'clave-del-servidor-para-las-pruebas-0123456789';
@@ -241,12 +251,27 @@ async function secretOf(tenantId: string): Promise<{ secret: string; token: stri
   return { secret: access.webhookSecret, token: access.hookToken };
 }
 
-async function newPayment(amountCents = 4500, o: { tenant?: string; user?: string } = {}) {
+/** Un cobro de la barra (sin saldo): bitcoin ya no se ofrece aquí (decisión del dueño). */
+async function newCobro(amountCents = 4500, o: { tenant?: string; user?: string } = {}) {
   const tenant = o.tenant ?? A;
   const created = await inCtx(tenant, () =>
     payments.create(tenant, key(), { currency: 'EUR', terminalExternalId: `BTC-${r}`, amountCents } as never, { userId: o.user ?? waiter, role: 'WAITER' }),
   );
   return { id: created.id, token: created.qrToken };
+}
+
+/**
+ * Una carga de saldo con QR (la de recepción: un cobro con su saldo nuevo),
+ * hecha por `o.user` (el camarero de recepción): bitcoin solo se ofrece al
+ * cargar saldo y en los reservados.
+ */
+async function newPayment(amountCents = 4500, o: { tenant?: string; user?: string } = {}) {
+  const tenant = o.tenant ?? A;
+  const created = await inCtx(tenant, () =>
+    payments.create(tenant, key(), { currency: 'EUR', terminalExternalId: `BTC-${r}`, amountCents, wallet: { create: true } } as never, { userId: owner, role: 'OWNER' }),
+  );
+  await sys((tx) => tx.payment.update({ where: { id: created.id }, data: { createdByUserId: o.user ?? waiter } }));
+  return { id: created.id, token: created.qrToken, walletId: created.walletId as string };
 }
 
 const startFor = (token: string) => inCtx(undefined, () => invoices.startForToken(token, 'claim-hash'));
@@ -318,7 +343,7 @@ beforeEach(async () => {
   hookQueue.add.mockClear();
 });
 
-const SAVE = { baseUrl: 'https://btcpay.sala-test.es', storeId: 'STORE1', apiKey: 'clave-btcpay-de-prueba-0000', enabled: true, purpose: 'BOTH' as const, totpCode: '123456' };
+const SAVE = { baseUrl: 'https://btcpay.sala-test.es', storeId: 'STORE1', apiKey: 'clave-btcpay-de-prueba-0000', enabled: true, totpCode: '123456' };
 
 // ─── Ajustes del dueño ──────────────────────────────────────────────────
 
@@ -331,7 +356,9 @@ describe('Ajustes → Bitcoin (BTCPay)', () => {
   it('guardar: pide la 2FA, prueba la conexión, registra solo el aviso con los eventos que se usan y guarda la clave cifrada', async () => {
     const view = await stores.save(OWNER(), SAVE);
     expect(totp.assertForUser).toHaveBeenCalledWith(owner, '123456', `btcpay:${A}`);
-    expect(view).toMatchObject({ configured: true, enabled: true, purpose: 'BOTH', baseUrl: 'https://btcpay.sala-test.es', storeId: 'STORE1', webhookRegistered: true, lastCheckOk: true });
+    expect(view).toMatchObject({ configured: true, enabled: true, baseUrl: 'https://btcpay.sala-test.es', storeId: 'STORE1', webhookRegistered: true, lastCheckOk: true });
+    // El «para qué» ya no se elige (bitcoin: cargar saldo y reservados).
+    expect(view).not.toHaveProperty('purpose');
     // La clave no vuelve: solo cómo termina.
     expect(view.apiKeyHint).toBe('…0000');
     expect(JSON.stringify(view)).not.toContain('clave-btcpay-de-prueba');
@@ -353,11 +380,10 @@ describe('Ajustes → Bitcoin (BTCPay)', () => {
 
   it('volver a guardar sin escribir la clave la mantiene y actualiza el mismo aviso (no crea otro)', async () => {
     const before = fake.webhooks.size;
-    const view = await stores.save(OWNER(), { ...SAVE, apiKey: undefined, purpose: 'PAYMENTS' });
-    expect(view).toMatchObject({ purpose: 'PAYMENTS', webhookRegistered: true });
+    const view = await stores.save(OWNER(), { ...SAVE, apiKey: undefined });
+    expect(view).toMatchObject({ webhookRegistered: true });
     expect(fake.webhooks.size).toBe(before);
     expect(hookUrlOf()).toContain('/v1/webhooks/btcpay/');
-    await stores.save(OWNER(), { ...SAVE, apiKey: undefined, purpose: 'BOTH' });
   });
 
   it('cambiar la dirección o la tienda sin escribir la clave de nuevo se rechaza (la clave vieja no viaja a otra dirección)', async () => {
@@ -495,17 +521,40 @@ describe('la factura del cobro', () => {
     await expect(inCtx(B, () => invoices.viewForStaff(p.id, { userId: owner, role: 'OWNER', tenantId: B }))).rejects.toBeInstanceOf(NotFoundException);
   });
 
-  it('un local con el bitcoin apagado (o para otra cosa) no abre facturas ni ofrece el botón', async () => {
-    await stores.updateMode(OWNER(), { enabled: false, purpose: 'BOTH', totpCode: '123456' });
+  it('un local con el bitcoin apagado no abre facturas ni ofrece el botón', async () => {
+    await stores.updateMode(OWNER(), { enabled: false, totpCode: '123456' });
     const p = await newPayment(700);
     await expect(startFor(p.token)).rejects.toMatchObject({ response: { code: 'BTCPAY_NOT_OFFERED' } });
     expect(await inCtx(undefined, () => payments.getPayPage(p.token))).toMatchObject({ kind: 'choose' });
     expect(((await inCtx(undefined, () => payments.getPayPage(p.token))) as { bitcoin?: boolean }).bitcoin).toBeUndefined();
-    await stores.updateMode(OWNER(), { enabled: true, purpose: 'TOPUPS', totpCode: '123456' });
-    await expect(startFor(p.token)).rejects.toMatchObject({ response: { code: 'BTCPAY_NOT_OFFERED' } });
-    await stores.updateMode(OWNER(), { enabled: true, purpose: 'PAYMENTS', totpCode: '123456' });
+    await stores.updateMode(OWNER(), { enabled: true, totpCode: '123456' });
     expect(((await inCtx(undefined, () => payments.getPayPage(p.token))) as { bitcoin?: boolean }).bitcoin).toBe(true);
-    await stores.updateMode(OWNER(), { enabled: true, purpose: 'BOTH', totpCode: '123456' });
+  });
+
+  it('un cobro de la barra: ni el botón ni la factura, ni por la página ni por el personal (409 BTCPAY_NOT_OFFERED)', async () => {
+    const c = await newCobro(1800);
+    const page = (await inCtx(undefined, () => payments.getPayPage(c.token))) as { kind: string; bitcoin?: boolean };
+    expect(page.kind).toBe('choose');
+    expect(page.bitcoin).toBeUndefined();
+    await expect(startFor(c.token)).rejects.toMatchObject({ response: { code: 'BTCPAY_NOT_OFFERED' } });
+    await expect(inCtx(A, () => invoices.startForStaff(c.id, { userId: waiter, role: 'WAITER', tenantId: A }))).rejects.toMatchObject({
+      response: { code: 'BTCPAY_NOT_OFFERED' },
+    });
+    expect(await rowsOf(c.id)).toHaveLength(0);
+    expect((await statusOf(c.id)).status).toBe('CREATED');
+  });
+
+  it('el «para qué» de antes ya no cuenta: con «Cobros» guardado, la barra sigue sin bitcoin y las cargas lo tienen', async () => {
+    await sys((tx) => tx.$executeRaw`UPDATE btcpay_stores SET purpose = 'PAYMENTS' WHERE "tenantId" = ${A}::uuid`);
+    const c = await newCobro(1900);
+    await expect(startFor(c.token)).rejects.toMatchObject({ response: { code: 'BTCPAY_NOT_OFFERED' } });
+    const carga = await newPayment(1900);
+    expect(((await inCtx(undefined, () => payments.getPayPage(carga.token))) as { bitcoin?: boolean }).bitcoin).toBe(true);
+    expect((await startFor(carga.token)).kind).toBe('invoice');
+    // Un panel antiguo que aún manda el «para qué»: se acepta y no se guarda.
+    await stores.updateMode(OWNER(), { enabled: true, purpose: 'TOPUPS', totpCode: '123456' });
+    expect((await sys((tx) => tx.btcpayStore.findUniqueOrThrow({ where: { tenantId: A } }))).purpose).toBe('PAYMENTS');
+    expect(await stores.view(A)).not.toHaveProperty('purpose');
   });
 
   it('la página de pago de un cobro con factura abierta lleva a la de bitcoin, no a la del banco', async () => {
@@ -939,6 +988,159 @@ describe('recarga del saldo pagada con bitcoin', () => {
   });
 });
 
+// ─── Reservados pagados con bitcoin ─────────────────────────────────────
+
+describe('reservados pagados con bitcoin (la señal y el resto), como con tarjeta', () => {
+  // Las piezas de los reservados, como en producción (reservados.int.spec.ts), sobre el mismo local con bitcoin.
+  const memo = new Map<string, string>();
+  const redis = {
+    set: async (k: string, v: string, ...flags: unknown[]) => {
+      if (flags.includes('NX') && memo.has(k)) return null;
+      memo.set(k, v);
+      return 'OK';
+    },
+    del: async (k: string) => (memo.delete(k) ? 1 : 0),
+  };
+  const realAudit = new AuditService(prisma, cls as never);
+  const reservations = new ReservationsService(prisma, payments, redis as never, realAudit);
+  const ops = new ReservationOpsService(prisma, realAudit, reservations, payments, new CashTopUpService(prisma, realAudit, {} as never));
+  const catalog = new ReservationCatalogService(prisma, realAudit, { get: () => 'https://api.prueba.es' } as never);
+  const ownerActor = () => ({ userId: owner, role: 'OWNER' as const, tenantId: A });
+  const plusDays = (day: string, d: number) => new Date(Date.parse(`${day}T00:00:00Z`) + d * 86_400_000).toISOString().slice(0, 10);
+  const resvOf = (id: string) => sys((tx) => tx.reservation.findUniqueOrThrow({ where: { id } }));
+  const balanceOf = async (walletId: string) => (await sys((tx) => tx.clientWallet.findUniqueOrThrow({ where: { id: walletId } }))).balanceCents;
+  let pkg = '';
+  let nights = 0;
+
+  afterAll(async () => {
+    // El resto de pruebas, con el local sin pasarela de tarjeta (como antes).
+    await sys((tx) => tx.gatewayCredential.updateMany({ where: { tenantId: A }, data: { active: false } }));
+  });
+
+  async function booked() {
+    if (!pkg) {
+      // Reservar pide la pasarela de tarjeta del local (la señal también se puede pagar con tarjeta).
+      await sys((tx) =>
+        tx.gatewayCredential.create({
+          data: { tenantId: A, provider: 'REDSYS', encKey: Buffer.from('k'), encNonce: Buffer.from('n'), encTag: Buffer.from('t'), kekVersion: 1 },
+        }),
+      );
+      pkg = (
+        await inCtx(A, () =>
+          catalog.createPackage(ownerActor(), { name: 'Mesa bitcoin', kind: 'CREDIT', priceCents: 40000, creditCents: 30000, entries: 4, items: [] }),
+        )
+      ).id;
+      await inCtx(A, () => catalog.setEnabled(ownerActor(), true));
+    }
+    const settings = await inCtx(A, () => catalog.settings(A));
+    const code = (settings.url ?? '').split('/reservar/')[1] ?? '';
+    const entry = await inCtx(undefined, () => reservations.entryByVenueCode(code));
+    if (!entry) throw new Error('sin entrada web');
+    nights += 1;
+    const night = plusDays(nightOf(new Date()), 5 + nights);
+    return inCtx(undefined, () =>
+      reservations.book(entry, {
+        packageId: pkg,
+        nightDate: night,
+        customerName: 'Laura Gómez',
+        customerPhone: '600 11 22 33',
+        key: `kb${randomUUID().replace(/-/g, '')}`.slice(0, 24),
+      }),
+    );
+  }
+
+  /** «Pagar la señal / el resto / todo» en la página del grupo y, en /pay, «Pagar con bitcoin». */
+  async function payWithBitcoin(manageToken: string, kind: 'DEPOSIT' | 'REST' | 'FULL') {
+    const started = await inCtx(undefined, () => reservations.startPayment(manageToken, kind, 'es'));
+    const page = (await inCtx(undefined, () => payments.getPayPage(started.payToken))) as { kind: string; bitcoin?: boolean; topUp?: boolean };
+    expect(page).toMatchObject({ kind: 'choose', bitcoin: true, topUp: true });
+    const res = await startFor(started.payToken);
+    if (res.kind !== 'invoice') throw new Error('sin factura');
+    const payment = await sys((tx) => tx.payment.findUniqueOrThrow({ where: { qrToken: started.payToken } }));
+    return { token: started.payToken, invoiceId: res.view.invoiceId, payment };
+  }
+
+  it('la señal con bitcoin: en la red aún no cuenta; pagada → Señal pagada y al saldo del grupo; el resto con bitcoin → Pagada', async () => {
+    const res = await booked();
+    const dep = await payWithBitcoin(res.manageToken, 'DEPOSIT');
+    expect(dep.payment).toMatchObject({ amountCents: 12000, status: 'AUTHORIZING', provider: 'BTCPAY' });
+    expect(dep.payment.walletId).not.toBeNull();
+    expect(dep.payment.idempotencyKey).toBe(`resv:${res.id}:DEPOSIT:1`);
+    // Con el pago en la red (falta 1 confirmación): nada pagado todavía.
+    fake.setState(dep.invoiceId, 'Processing');
+    await invoices.processInvoice(A, dep.invoiceId, 'poll');
+    expect(await resvOf(res.id)).toMatchObject({ status: 'PENDING', paidCents: 0, walletId: null });
+    // Confirmado: como con tarjeta.
+    fake.setState(dep.invoiceId, 'Settled');
+    await sendHook(A, settle(dep.invoiceId));
+    await runQueued();
+    expect((await statusOf(dep.payment.id)).status).toBe('AUTHORIZED');
+    expect(await resvOf(res.id)).toMatchObject({ status: 'DEPOSIT_PAID', paidCents: 12000, walletId: dep.payment.walletId });
+    expect(await balanceOf(dep.payment.walletId!)).toBe(12000);
+    expect(await sys((tx) => tx.reservationPayment.findUniqueOrThrow({ where: { paymentId: dep.payment.id } }))).toMatchObject({ kind: 'DEPOSIT', amountCents: 12000 });
+    // El aviso repetido no lo cuenta dos veces.
+    await sendHook(A, { ...settle(dep.invoiceId), type: 'InvoiceProcessing' });
+    await runQueued();
+    await invoices.processInvoice(A, dep.invoiceId, 'sweep');
+    expect((await resvOf(res.id)).paidCents).toBe(12000);
+    expect(await balanceOf(dep.payment.walletId!)).toBe(12000);
+    // Al pagarse, el navegador que pagó vuelve a la página del reservado (como con tarjeta).
+    expect(await inCtx(undefined, () => payments.reservationManageToken(dep.payment.id))).toBe(res.manageToken);
+
+    const rest = await payWithBitcoin(res.manageToken, 'REST');
+    expect(rest.payment).toMatchObject({ amountCents: 28000, walletId: dep.payment.walletId });
+    fake.setState(rest.invoiceId, 'Settled');
+    await invoices.processInvoice(A, rest.invoiceId, 'poll');
+    expect(await resvOf(res.id)).toMatchObject({ status: 'PAID', paidCents: 40000 });
+    expect(await balanceOf(dep.payment.walletId!)).toBe(40000);
+    // El panel sabe cuánto se pagó con bitcoin.
+    expect(await inCtx(A, () => ops.detail(ownerActor(), res.id))).toMatchObject({ paidCents: 40000, paidWithBitcoinCents: 40000 });
+  });
+
+  it('el local anula una reserva pagada con bitcoin: nada sale por la pasarela ni en bitcoin; «Devolver saldo» no lo saca y el panel lo sabe', async () => {
+    const res = await booked();
+    const full = await payWithBitcoin(res.manageToken, 'FULL');
+    fake.setState(full.invoiceId, 'Settled');
+    await invoices.processInvoice(A, full.invoiceId, 'poll');
+    expect(await resvOf(res.id)).toMatchObject({ status: 'PAID', paidCents: 40000 });
+
+    const out = await inCtx(A, () => ops.venueCancel(ownerActor(), res.id, 'Cerramos esa noche'));
+    expect(out).toMatchObject({ refundCents: 40000, walletId: full.payment.walletId });
+    expect(out.reservation).toMatchObject({ status: 'CANCELED', paidWithBitcoinCents: 40000 });
+    // Por la pasarela: 409 con su código (solo en euros); no se crea ninguna devolución.
+    const actor = { userId: owner, role: 'OWNER', tenantId: A } as never;
+    await expect(inCtx(A, () => refunds.refund({ paymentId: full.payment.id, amountCents: 40000, reason: 'Anulada' } as never, actor))).rejects.toMatchObject({
+      response: { code: 'BITCOIN_REFUND_NOT_AVAILABLE' },
+    });
+    expect(await sys((tx) => tx.refund.count({ where: { paymentId: full.payment.id } }))).toBe(0);
+    // «Devolver saldo»: ni a la tarjeta ni en efectivo (entró con bitcoin): en euros, lo decide el dueño.
+    const amounts = await inCtx(undefined, () => prisma.acrossVenues(async (tx) => payoutAmounts(40000, await walletCash(tx, full.payment.walletId!))));
+    expect(amounts).toMatchObject({ cardRefundCents: 0, cashOutCents: 0, bitcoinCents: 40000 });
+    expect((await statusOf(full.payment.id)).status).toBe('AUTHORIZED');
+  });
+
+  it('el pago a medias: con la factura abierta, «Seguir pagando» vuelve a ella; cerrada sin pagar, otro tipo de pago la cancela', async () => {
+    const res = await booked();
+    const dep = await payWithBitcoin(res.manageToken, 'DEPOSIT');
+    const group = await inCtx(undefined, () => reservations.groupView(res.manageToken));
+    expect(group?.openPayUrl).toBe(`/pay/${encodeURIComponent(dep.token)}`);
+    // El mismo pago: el mismo cobro (su factura); otro tipo con el bitcoin abierto: hay que esperar.
+    expect((await inCtx(undefined, () => reservations.startPayment(res.manageToken, 'DEPOSIT', 'es'))).payToken).toBe(dep.token);
+    await expect(inCtx(undefined, () => reservations.startPayment(res.manageToken, 'FULL', 'es'))).rejects.toMatchObject({
+      response: { code: 'RESERVATION_PAY_OPEN' },
+    });
+    // «Pagar de otra forma»: la factura se cierra y el cobro vuelve a estar abierto (AWAITING_CAPTURE).
+    expect(await inCtx(undefined, () => invoices.leaveForToken(dep.token))).toEqual({ kind: 'choose' });
+    expect((await statusOf(dep.payment.id)).status).toBe('AWAITING_CAPTURE');
+    expect((await inCtx(undefined, () => reservations.groupView(res.manageToken)))?.openPayUrl).toBe(`/pay/${encodeURIComponent(dep.token)}`);
+    expect((await inCtx(undefined, () => reservations.startPayment(res.manageToken, 'DEPOSIT', 'es'))).payToken).toBe(dep.token);
+    // Cambia a «todo»: el de antes se cancela (antes se quedaba abierto y se podía pagar dos veces).
+    const all = await inCtx(undefined, () => reservations.startPayment(res.manageToken, 'FULL', 'es'));
+    expect(all.payToken).not.toBe(dep.token);
+    expect((await statusOf(dep.payment.id)).status).toBe('CANCELED');
+  });
+});
+
 describe('fallos pasajeros, 1 confirmación y avisos por local', () => {
   const stale = (invoiceId: string) =>
     sys((tx) => tx.$executeRaw`UPDATE btcpay_invoices SET "lastCheckedAt" = now() - interval '10 minutes' WHERE "invoiceId" = ${invoiceId}`);
@@ -1117,7 +1319,7 @@ describe('aislamiento entre locales', () => {
 });
 
 describe('devoluciones', () => {
-  it('un cobro en bitcoin NO ofrece «Devolución BBVA» ni devolución por la pasarela: 409 con su código', async () => {
+  it('lo pagado con bitcoin NO ofrece «Devolución BBVA» ni devolución por la pasarela: 409 con su código (solo en euros)', async () => {
     const p = await newPayment(1700);
     const res = await startFor(p.token);
     if (res.kind !== 'invoice') throw new Error('sin factura');
@@ -1128,9 +1330,11 @@ describe('devoluciones', () => {
     await expect(inCtx(A, () => refunds.registerBankRefund({ paymentId: p.id, amountCents: 500, reason: 'prueba' } as never, actor))).rejects.toMatchObject({
       response: { code: 'BITCOIN_REFUND_NOT_AVAILABLE' },
     });
-    await expect(inCtx(A, () => refunds.refund({ paymentId: p.id, amountCents: 500, reason: 'prueba' } as never, actor))).rejects.toMatchObject({
-      response: { code: 'BITCOIN_REFUND_NOT_AVAILABLE' },
-    });
+    const viaGateway = await inCtx(A, () => refunds.refund({ paymentId: p.id, amountCents: 500, reason: 'prueba' } as never, actor)).catch((e: unknown) => e);
+    expect(viaGateway).toMatchObject({ response: { code: 'BITCOIN_REFUND_NOT_AVAILABLE' } });
+    // Regla del dueño: nunca en bitcoin, solo en euros.
+    expect((viaGateway as { response: { message: string } }).response.message).toMatch(/solo en euros/);
+    expect(await sys((tx) => tx.refund.count({ where: { paymentId: p.id } }))).toBe(0);
   });
 });
 
@@ -1166,7 +1370,7 @@ describe('el dinero con un cobro en bitcoin', () => {
     expect(sales.filter((s) => s.attempts.some((a) => a.payMethod === 'bitcoin'))).toHaveLength(1);
   });
 
-  it('con la «Comisión del servicio» del local (como el C-0049): 1,00 € + 0,10 €; la factura es de 1,10 €, BTCPay la da por pagada («1.1») y el repaso, sin aviso, la apunta; la comisión, de OxioPay', async () => {
+  it('con la «Comisión del servicio» del local: un cobro de la barra (como el C-0049) ya no se paga con bitcoin; una carga de 1,00 € + 0,10 € sí: la factura es de 1,10 €, BTCPay la da por pagada («1.1») y el repaso, sin aviso, la apunta; la comisión, de OxioPay', async () => {
     const { sealBtcpaySecret } = await import('../../src/modules/btcpay/btcpay-secrets');
     const F = await sys(async (tx) => {
       const id = (await tx.venue.create({ data: { name: 'Sala Comisión BTC', slug: `btc-f-${r}`, walletGroup: `gbtc-f-${r}`, serviceFeeEnabled: true, serviceFeeBps: 1000 } })).id;
@@ -1180,11 +1384,17 @@ describe('el dinero con un cobro en bitcoin', () => {
           webhookSecretEnc: sealBtcpaySecret(KEK, id, 'webhook', 'secreto-comision-0123456789abcdef'), hookToken: `hk-f-${r}-0123456789abcdefghij`, enabled: true, lastCheckOk: true,
         },
       });
-      return { id, wai };
+      return { id, wai, own };
     });
-    // Como lo cobra el personal desde su app: la comisión la pone el servidor.
-    const created = await inCtx(F.id, () =>
+    // El cobro de la barra (C-0049): la comisión la pone el servidor, pero bitcoin ya no se ofrece.
+    const barra = await inCtx(F.id, () =>
       payments.create(F.id, key(), { currency: 'EUR', terminalExternalId: `BTCF-${r}`, amountCents: 100 } as never, { userId: F.wai, role: 'WAITER' }),
+    );
+    expect(barra).toMatchObject({ amountCents: 100, serviceFeeCents: 10 });
+    await expect(startFor(barra.qrToken)).rejects.toMatchObject({ response: { code: 'BTCPAY_NOT_OFFERED' } });
+    // Una carga de saldo con QR (recepción): la comisión de las cargas la pone el servidor.
+    const created = await inCtx(F.id, () =>
+      payments.create(F.id, key(), { currency: 'EUR', terminalExternalId: `BTCF-${r}`, amountCents: 100, wallet: { create: true } } as never, { userId: F.own, role: 'OWNER' }),
     );
     expect(created).toMatchObject({ amountCents: 100, serviceFeeCents: 10 });
     const res = await startFor(created.qrToken);
@@ -1198,8 +1408,11 @@ describe('el dinero con un cobro en bitcoin', () => {
     fake.setState(inv.id, 'Settled');
     await sweepUntil(inv.id, async () => (await statusOf(created.id)).status === 'AUTHORIZED');
     expect(await statusOf(created.id)).toMatchObject({
-      status: 'AUTHORIZED', provider: 'BTCPAY', providerTxId: inv.id, amountCents: 100, serviceFeeCents: 10, tipCents: 0, availableAmountCents: 110,
+      // En una carga, la comisión no se devuelve: lo devolvible es el saldo (1 €).
+      status: 'AUTHORIZED', provider: 'BTCPAY', providerTxId: inv.id, amountCents: 100, serviceFeeCents: 10, tipCents: 0, availableAmountCents: 100,
     });
+    // Al saldo va 1 € (la comisión no es saldo).
+    expect((await sys((tx) => tx.clientWallet.findUniqueOrThrow({ where: { id: created.walletId! } }))).balanceCents).toBe(100);
     expect(await sys((tx) => tx.paymentAttempt.findMany({ where: { paymentId: created.id } }))).toEqual([
       expect.objectContaining({ provider: 'BTCPAY', providerTxId: inv.id, amountCents: 110, status: 'APPROVED', payMethod: 'bitcoin' }),
     ]);
@@ -1207,12 +1420,13 @@ describe('el dinero con un cobro en bitcoin', () => {
     expect((await rowsOf(created.id))[0]?.closedAt).toBeTruthy();
     const events = await sys((tx) => tx.paymentEvent.findMany({ where: { paymentId: created.id } }));
     expect(events.filter((e) => e.eventType.startsWith('payment.approval'))).toHaveLength(0);
-    // El reparto: la venta de 1 € con bitcoin; los 0,10 € de comisión son de OxioPay (están en la cartera del local).
+    // El reparto: 1 € de saldo cargado con bitcoin (no es venta); los 0,10 € de comisión son de OxioPay (están en la cartera del local).
     const map = await moneyMap.forQuery(F.id, { night: 'current' } as never, new Date(Date.now() + 1_000));
-    expect(map.salesCents).toBe(100);
-    expect(map.inflow).toMatchObject({ bitcoinCents: 100 });
+    expect(map.salesCents).toBe(0);
+    expect(map.inflow.topUps).toMatchObject({ totalCents: 100, bitcoinCents: 100, count: 1 });
     expect(map.where.bitcoinCents).toBe(110);
-    expect(map.serviceFee).toMatchObject({ salesCents: 10, owedCents: 10 });
+    expect(map.where.owners).toMatchObject({ saldoCents: 100, oxioPayCents: 10 });
+    expect(map.serviceFee).toMatchObject({ salesCents: 0, topUpsCents: 10, owedCents: 10 });
   });
 });
 
