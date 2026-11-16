@@ -169,3 +169,23 @@ describe('el QR de una persona y el enlace que no vale', () => {
     expect(renderReservationGone()).toContain('Este enlace no existe o ya no vale');
   });
 });
+
+describe('el pie legal', () => {
+  it('lo llevan las cuatro páginas: reservar, la del reservado, el QR de una persona y el enlace que no vale', () => {
+    const pages = [
+      renderBookPage('ABCDEFGHIJKLMNOP', entry, '2026-11-16', '2027-03-16'),
+      renderGroupPage(TOKEN, group(), 'https://api.prueba.es', '2026-11-16', '2027-03-16'),
+      renderGuestPage(
+        { venueName: 'Sala Aurora', token: 'x', seq: 1, entries: 2, packageName: 'Mesa consumo', nightDate: '2026-11-21', status: 'CONFIRMED', statusText: 'Pagada', kind: 'CREDIT', balanceCents: 0, itemsLeft: [], mySpentCents: 0 },
+        'data:image/png;base64,AAAA',
+      ),
+      renderReservationGone(),
+    ];
+    for (const html of pages) {
+      expect(html).toContain('<footer class="legal-foot"><nav aria-label="Textos legales">');
+      for (const doc of ['aviso-legal', 'privacidad', 'cookies', 'condiciones']) expect(html).toContain(`href="/legal/${doc}?lang=es"`);
+      expect(html).toContain('.legal-foot{');
+      expect(html.indexOf('class="legal-foot"')).toBeGreaterThan(html.indexOf('</main>'));
+    }
+  });
+});

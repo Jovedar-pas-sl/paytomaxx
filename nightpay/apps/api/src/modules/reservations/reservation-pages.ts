@@ -1,4 +1,5 @@
 import type { ReservationPackageView } from '@nightpay/contracts';
+import { LEGAL_LINKS_CSS, legalFooter } from '../legal/legal-links';
 import { CLUB_BASE_CSS, brandBar, clientMoney, escapeHtml as h } from '../payments/club-ui';
 import type { BookingEntry, GroupView, GuestPageView } from './reservations.service';
 
@@ -10,6 +11,7 @@ import type { BookingEntry, GroupView, GuestPageView } from './reservations.serv
  *    señal no se devuelve), los QR del grupo, lo que queda y lo que gasta cada
  *    uno, y cambiar la fecha (una vez, con 48 h);
  *  - /reservas/q/<qr>    el QR de una persona del grupo.
+ * Todas llevan el pie legal (Aviso legal · Privacidad · Cookies · Condiciones).
  */
 
 const LOCALE = 'es-ES';
@@ -47,9 +49,10 @@ function page(title: string, body: string, script = ''): string {
   return `<!DOCTYPE html>
 <html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="robots" content="noindex"><meta name="referrer" content="no-referrer"><meta name="theme-color" content="#0b0d0e"><title>${h(title)}</title>
-<style>${CLUB_BASE_CSS}${CSS}</style></head><body>
+<style>${CLUB_BASE_CSS}${LEGAL_LINKS_CSS}${CSS}</style></head><body>
 ${brandBar()}
 <main class="m">${body}</main>
+${legalFooter('es')}
 ${script ? `<script>${script}</script>` : ''}
 </body></html>`;
 }
