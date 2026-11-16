@@ -38,6 +38,7 @@ import { payoutRequestHash } from '../operators/payout-idempotency';
 import { touchesPayoutAccount } from '../operators/payout-routing';
 import { PaymentsService } from '../payments/payments.service';
 import { InvalidTransitionError } from '../payments/payment.machine';
+import { isHeldOnReader } from '../payments/reader-hold';
 import { chargedAttemptTip } from '../payments/tip';
 import { planVenueRulesChange } from '../superadmin/superadmin-rules';
 import { resolveHoldDays } from '../operators/payout-math';
@@ -500,9 +501,10 @@ export class AdminController {
     // 15 min sin aviso del banco. Antes de eso el aviso aún puede llegar.
     // Una venta del datáfono sin la prueba de Paytef (recarga en la recepción)
     // no espera a ningún aviso: se resuelve al momento, mirando el panel de Paytef.
+    // Es la misma marca que impide al personal cancelarla (reader-hold.ts).
     const stuckAuthorizing =
-      payment.status === 'AUTHORIZING' &&
-      (Boolean(payment.posOperationNumber) || Date.now() - payment.updatedAt.getTime() >= STUCK_AUTHORIZING_MS);
+      isHeldOnReader(payment) ||
+      (payment.status === 'AUTHORIZING' && Date.now() - payment.updatedAt.getTime() >= STUCK_AUTHORIZING_MS);
     if (payment.status !== 'ORPHAN' && !stuckAuthorizing) {
       throw new ConflictException(
         payment.status === 'AUTHORIZING'

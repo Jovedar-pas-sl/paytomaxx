@@ -108,6 +108,7 @@ import { isReservationPaymentKey } from '../reservations/reservation-payment-key
 import { sweepUnpaidTopUpWallet } from './topup-wallet-sweep';
 import { PAID_WITH_SALDO_EVENT, closeLinkedSaldo } from './cobro-link';
 import { wasPaidAfterCancel } from './paid-after-cancel';
+import { heldOnReaderConflict, isHeldOnReader } from './reader-hold';
 import { serviceFeeQuote } from '@nightpay/contracts';
 import { btcpayEnabled } from '../btcpay/btcpay-flag';
 import { purposeAllows } from '../btcpay/btcpay-logic';
@@ -393,6 +394,8 @@ export interface LockedPaymentRow {
   operatorCommissionBps?: number | null;
   /** «Comisión del servicio» fijada al crear (0 sin ella o en cobros anteriores). */
   serviceFeeCents?: number;
+  /** Operación del datáfono (PAX): con AUTHORIZING, recarga cobrada sin comprobar (reader-hold.ts). */
+  posOperationNumber?: string | null;
 }
 
 export interface TransitionOptions {
@@ -1562,7 +1565,8 @@ export class PaymentsService implements OnApplicationBootstrap {
           SELECT id, "tenantId", status, "amountCents", "availableAmountCents",
                  "providerTxId", provider, "createdByUserId", "walletId",
                  "tipCents", "tipGoesTo", "tipBeneficiaryUserId",
-                 "revenueCategory", "operatorCommissionBps", "serviceFeeCents"
+                 "revenueCategory", "operatorCommissionBps", "serviceFeeCents",
+                 "posOperationNumber"
             FROM payments
            WHERE id = ${paymentId}::uuid
            FOR UPDATE
@@ -2062,6 +2066,8 @@ export class PaymentsService implements OnApplicationBootstrap {
    * Queda quién lo canceló (en el evento) y con qué móvil.
    * Si el banco lo cobra después, sigue CANCELED y queda en Incidencias
    * (paid-after-cancel.ts). Con bitcoin ya en la red, 409 BITCOIN_CONFIRMING.
+   * La recarga cobrada en el datáfono sin comprobar (la tarjeta ya pagó), nunca:
+   * 409 CANCEL_HELD_ON_READER, la resuelven en el panel (reader-hold.ts).
    * Pagado o cerrado: 409.
    */
   async cancel(
@@ -2078,6 +2084,8 @@ export class PaymentsService implements OnApplicationBootstrap {
       // Quién lo canceló (en el evento) y con qué móvil, en la misma transacción.
       await this.transition(paymentId, { type: 'CANCELED', reason: 'user-canceled', byUserId: actor.userId }, actor.tenantId, {
         prepare: async (tx, locked) => {
+          // Cobrada en el datáfono y esperando a que la comprueben: con el cobro bloqueado, no se cancela.
+          if (isHeldOnReader(locked)) throw heldOnReaderConflict();
           if (locked.status === 'AUTHORIZING' && locked.provider === 'BTCPAY') await assertBitcoinNotOnTheWay(tx, locked.id);
           await recordPaymentDevice(tx, this.cls.get('ctx'), { id: locked.id, tenantId: locked.tenantId }, 'cancel');
         },

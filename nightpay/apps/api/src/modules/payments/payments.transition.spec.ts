@@ -419,6 +419,41 @@ describe('cancel — quién puede cancelar', () => {
       service.cancel(PAYMENT_ID, { userId: 'manager-1', role: 'MANAGER', tenantId: 'tenant-1' }),
     ).resolves.toEqual({ status: 'CANCELED' });
   });
+
+  it('la recarga cobrada en el datáfono sin comprobar (la tarjeta ya pagó): nadie la cancela, 409 CANCEL_HELD_ON_READER sin escribir nada', async () => {
+    // Como la deja PosDeviceService.holdUnproven: AUTHORIZING, Paytef y la operación del datáfono.
+    const hold: LockedPaymentRow = {
+      ...baseRow,
+      status: 'AUTHORIZING',
+      provider: 'PAYTEF',
+      providerTxId: '99812',
+      posOperationNumber: '99812',
+      createdByUserId: null,
+    };
+    for (const role of ['OPERATOR', 'WAITER', 'MANAGER', 'OWNER']) {
+      const { service, executed } = makeTransitionService({
+        locked: hold,
+        payment: { ...created, status: 'AUTHORIZING', createdByUserId: null },
+      });
+      const err = await service.cancel(PAYMENT_ID, { userId: 'u-1', role, tenantId: 'tenant-1' }).catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(ConflictException);
+      expect((err as ConflictException).getResponse()).toEqual({
+        code: 'CANCEL_HELD_ON_READER',
+        message: 'Cobrado en el datáfono: lo resuelve el encargado en Pagos → Resolver',
+      });
+      // Ni el estado, ni el evento, ni el móvil de quien lo intentó.
+      expect(executed).toHaveLength(0);
+    }
+  });
+
+  it('la operación del datáfono solo frena con el cobro esperando a que la comprueben: pagada, el 409 de siempre', async () => {
+    const { service, updates } = makeTransitionService({
+      locked: { ...baseRow, status: 'AUTHORIZED', provider: 'PAYTEF', posOperationNumber: '99812' },
+      payment: { ...created, status: 'AUTHORIZED' },
+    });
+    await expect(service.cancel(PAYMENT_ID, { userId: 'waiter-1', role: 'WAITER', tenantId: 'tenant-1' })).rejects.toThrow(/cannot be canceled/);
+    expect(updates('SET status')).toHaveLength(0);
+  });
 });
 
 describe('transition — doble cobro: otro pedido aprobado con el cobro ya pagado (P1)', () => {
