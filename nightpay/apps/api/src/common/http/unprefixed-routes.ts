@@ -120,4 +120,6 @@ export const UNPREFIXED_ROUTES: readonly UnprefixedRoute[] = Object.freeze([
   { path: 'reservas/:token/pago', method: RequestMethod.POST },
   { path: 'reservas/:token/fecha', method: RequestMethod.POST },
   { path: 'reservas/:token/anular', method: RequestMethod.POST },
+  // Aviso legal, Privacidad, Cookies y Condiciones (enlazadas desde el pie de las páginas del cliente).
+  { path: 'legal/:doc', method: RequestMethod.GET },
 ]);

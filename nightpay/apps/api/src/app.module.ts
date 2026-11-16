@@ -46,6 +46,7 @@ import { WebhooksModule } from './modules/webhooks/webhooks.module';
 import { HomeTopUpModule } from './modules/home-topup/home-topup.module';
 import { CustomerDisplayModule } from './modules/customer-display/customer-display.module';
 import { ReservationsModule } from './modules/reservations/reservations.module';
+import { LegalModule } from './modules/legal/legal.module';
 
 @Module({
   imports: [
@@ -113,6 +114,7 @@ import { ReservationsModule } from './modules/reservations/reservations.module';
     // «Pantalla del cliente»: la tablet de la barra con el importe y el QR del cobro.
     CustomerDisplayModule,
     ReservationsModule,
+    LegalModule,
   ],
   controllers: [HealthController],
   // Orden importa: IpRateLimit corre antes que AuthGuard para que un ataque de
