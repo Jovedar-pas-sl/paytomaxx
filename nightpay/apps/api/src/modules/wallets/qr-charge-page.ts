@@ -1,5 +1,6 @@
 import { CLUB_BASE_CSS, MONEY_JS, clientMoney, escapeHtml, jsConfig } from '../payments/club-ui';
 import { CHROME_CSS, langScript, topBar } from '../payments/customer-chrome';
+import { legalFooter } from '../legal/legal-links';
 import { CUSTOMER_TEXT } from '../payments/i18n';
 import { PAID_SCREEN_CSS, PAID_SCREEN_JS, paidScreenJsText, renderPaidScreen } from '../payments/paid-screen';
 import { LOCK_ICON, TIP_JS } from '../payments/pay-choose-page';
@@ -227,5 +228,6 @@ $('reload').addEventListener('click',function(){location.reload();});
 })();
 </script>
 ${myBalanceScript(lang, { visible: view.status !== 'PENDING' })}
+${legalFooter(lang)}
 ${langScript()}</body></html>`;
 }

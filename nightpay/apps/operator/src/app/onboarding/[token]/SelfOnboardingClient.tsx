@@ -1,9 +1,10 @@
 'use client';
 
 import { useEffect, useId, useState, type CSSProperties, type FormEvent } from 'react';
-import { Button, Card, Input, Logo, Select } from '@nightpay/ui';
+import { Button, Card, Input, Logo, PrivacyNote, Select } from '@nightpay/ui';
 import {
   SelfOnboardingSavedError,
+  apiBase,
   fetchSelfOnboardingProfile,
   submitSelfOnboarding,
   type SelfOnboardingProfile,
@@ -396,6 +397,7 @@ export function SelfOnboardingClient({ token }: Props) {
             </p>
           ) : null}
 
+          <PrivacyNote apiBase={apiBase} lead="Lo que guardas aquí se trata como explica la" />
           <Button type="submit" loading={submitting} size="lg">
             Guardar mi perfil
           </Button>

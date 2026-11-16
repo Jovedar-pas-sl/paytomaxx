@@ -1,6 +1,7 @@
 import { CLUB_BASE_CSS, escapeHtml } from './club-ui';
 import { CHROME_CSS, defaultLangHref, langScript, topBar, type LangHref } from './customer-chrome';
 import type { PayText } from './pay-i18n';
+import { legalFooter } from '../legal/legal-links';
 
 /**
  * El esqueleto de las páginas de /pay (public-pay.pages.ts y «Comprobando
@@ -42,6 +43,7 @@ export function customerPage(
 <style>${CLUB_BASE_CSS}${CHROME_CSS}${PAGE_CSS}</style>${opts.head ?? ''}
 </head><body>
 ${main}
+${legalFooter(lang)}
 ${langScript()}
 </body></html>`;
 }
