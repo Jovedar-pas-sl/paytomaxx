@@ -516,6 +516,8 @@ export const stepUpActions = {
   receptionCashOut: (walletId: string) => `cash-out:${walletId}`,
   cashTopUpVoid: (topUpId: string) => `cash-void:${topUpId}`,
   resolvePayment: (paymentId: string) => `resolve:${paymentId}`,
+  /** «Dar por bueno» un cobro que el banco cobró después de cancelarlo. */
+  acceptAfterCancel: (paymentId: string) => `accept-late:${paymentId}`,
   operatorPayout: (operatorId: string) => `operator-payout:${operatorId}`,
   nightFloat: (nightId: string) => `night-float:${nightId}`,
   bankHoldRelease: (paymentId: string) => `bank-hold:${paymentId}`,
