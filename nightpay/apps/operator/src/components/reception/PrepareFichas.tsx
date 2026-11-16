@@ -84,7 +84,7 @@ export function PrepareFichas({ on, onDone }: Props) {
     const outcome = await backend.stock(tap.token, tap.uid);
     if ('printedNumber' in outcome && outcome.printedNumber) setLastPrinted(outcome.printedNumber);
     if (backend.labelStock && needsPrintedNumber(outcome)) {
-      if (!tap.uid) throw new Error('No se pudo leer la serie NFC: acerca la ficha otra vez');
+      if (!tap.uid) throw new Error('No se pudo leer el número de serie de la ficha: acércala otra vez');
       setPending({ card: tap.token, uid: tap.uid, line: stockOutcomeLine(outcome) });
       // B11: propone el siguiente al de la anterior (se acepta con un toque o se cambia); sin anterior, se teclea.
       setPrintedNumber(nextPrintedNumber(lastPrintedRef.current) ?? '');

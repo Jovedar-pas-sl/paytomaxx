@@ -129,7 +129,7 @@ export function Carta({
           </p>
         ) : null}
       </div>
-      <div className={styles.foot} style={{ '--np-foot-bottom': STICKY_ACTION_BOTTOM } as CSSProperties}>
+      <div className={`${styles.foot}${cuenta.length === 0 && !busy ? ` ${styles.footEmpty}` : ''}`} style={{ '--np-foot-bottom': STICKY_ACTION_BOTTOM } as CSSProperties}>
         {/* Lo que se acaba de añadir, para el lector de pantalla (la región existe siempre: así se anuncia). */}
         <span className="np-sr-only" aria-live="polite">
           {undo ? undo.spoken : ''}
@@ -160,17 +160,24 @@ export function Carta({
             </button>
           </div>
         ) : null}
-        {/* Vacío: gris, a trazos y con la instrucción dentro (decisión D1); la lima, solo con algo que cobrar. */}
-        <button
-          type="button"
-          className={`${styles.btn} ${styles.primary}`}
-          disabled={!canCharge}
-          aria-busy={busy || undefined}
-          onClick={onCobrar}
-          data-tour="cobrar-cobrar"
-        >
-          {busy ? <BusyWord word={cobrarLabel({ busy, empty: false, totalCents: 0 })} /> : cobrarLabel({ busy, empty: cuenta.length === 0, totalCents: totals.totalCents })}
-        </button>
+        {/* Vacío: solo la instrucción, en una línea fina (en un datáfono de 360×720 el botón
+            gris tapaba la fila de abajo de la carta); con algo en la cuenta, «Cobrar» en lima. */}
+        {cuenta.length === 0 && !busy ? (
+          <p className={styles.footHint} data-tour="cobrar-cobrar">
+            {cobrarLabel({ busy, empty: true, totalCents: 0 })}
+          </p>
+        ) : (
+          <button
+            type="button"
+            className={`${styles.btn} ${styles.primary}`}
+            disabled={!canCharge}
+            aria-busy={busy || undefined}
+            onClick={onCobrar}
+            data-tour="cobrar-cobrar"
+          >
+            {busy ? <BusyWord word={cobrarLabel({ busy, empty: false, totalCents: 0 })} /> : cobrarLabel({ busy, empty: false, totalCents: totals.totalCents })}
+          </button>
+        )}
         {cuenta.length > 0 && !chargeable(cuenta) ? (
           <p className={styles.error}>Una propina sola no se cobra: añade lo que se lleva.</p>
         ) : null}

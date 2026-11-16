@@ -12,6 +12,10 @@ import {
   StatusPill,
   awaitingServerExpiry,
   encodeQr,
+  paidTicket,
+  payQrTicket,
+  PrintButton,
+  usePrintTicket,
   isPreCobro,
   outcomeKindOf,
   qrDeadline,
@@ -40,6 +44,8 @@ const EXPIRY_CHECK_MS = 4_000;
 
 interface Props {
   payment: CreatedPayment;
+  /** El nombre del local, para el ticket impreso (null: sin él). */
+  venueName?: string | null;
   status: PaymentStatus | null;
   /** Se llega al servidor (socket o sondeo). */
   reachable: boolean;
@@ -62,7 +68,7 @@ interface Props {
  * sin que lo diga el servidor: un «pagado» perdido con la wifi haría cobrar
  * dos veces al cliente con «Otro QR».
  */
-export function ActivePayment({ payment, status, reachable, checkNow, onDone, onRetry, retrying, retryError }: Props) {
+export function ActivePayment({ payment, venueName = null, status, reachable, checkNow, onDone, onRetry, retrying, retryError }: Props) {
   const [canceling, setCanceling] = useState(false);
   const [cancelError, setCancelError] = useState<string | null>(null);
   // El plazo cuenta desde que llegó la respuesta, con la duración que dio el servidor.
@@ -117,6 +123,7 @@ export function ActivePayment({ payment, status, reachable, checkNow, onDone, on
   const outcome = outcomeKindOf(shown);
   if (outcome) {
     // El TPV no sabe quién cobra: sale la hora, sin nombre.
+    const how = outcome === 'paid' ? cardHow({ ...cardFacts, code: confirmationCode(payment.id), at: paidAt }) : null;
     return (
       <PaymentOutcome
         key={outcome}
@@ -125,7 +132,19 @@ export function ActivePayment({ payment, status, reachable, checkNow, onDone, on
         currency={payment.currency}
         detail={breakdown ? <p style={hintStyle}>{breakdown}</p> : undefined}
         message={outcome === 'failed' ? 'Que el cliente pruebe con otra tarjeta.' : undefined}
-        how={outcome === 'paid' ? cardHow({ ...cardFacts, code: confirmationCode(payment.id), at: paidAt }) : null}
+        how={how}
+        print={
+          how
+            ? paidTicket({
+                venue: venueName,
+                amountCents: payment.amountCents + feeCents,
+                currency: payment.currency,
+                how,
+                breakdown,
+                at: paidAt ?? new Date(),
+              })
+            : null
+        }
         primary={
           outcome === 'paid'
             ? { label: 'Nuevo cobro', onClick: onDone }
@@ -139,7 +158,13 @@ export function ActivePayment({ payment, status, reachable, checkNow, onDone, on
 
   return (
     <div className={styles.grid}>
-      <QrCard payment={payment} deadline={isPreCobro(shown) ? deadline : null} now={now} />
+      <QrCard
+        payment={payment}
+        venueName={venueName}
+        amountCents={payment.amountCents + feeCents}
+        deadline={isPreCobro(shown) ? deadline : null}
+        now={now}
+      />
 
       {/* En el móvil, el importe va arriba y «Cancelar cobro» en una barra fija abajo. */}
       <Card className={styles.amount} style={{ padding: CARD_PAD, textAlign: 'center' }} data-tour="tpv-importe">
@@ -196,8 +221,32 @@ export function ActivePayment({ payment, status, reachable, checkNow, onDone, on
 
 type CopyState = 'idle' | 'copied' | 'failed';
 
-function QrCard({ payment, deadline, now }: { payment: CreatedPayment; deadline: QrDeadline | null; now: number }) {
+interface QrCardProps {
+  payment: CreatedPayment;
+  venueName: string | null;
+  /** Lo que paga con tarjeta (con la comisión del servicio): lo que sale en el ticket. */
+  amountCents: number;
+  deadline: QrDeadline | null;
+  now: number;
+}
+
+function QrCard({ payment, venueName, amountCents, deadline, now }: QrCardProps) {
   const [copy, setCopy] = useState<CopyState>('idle');
+  const printer = usePrintTicket();
+
+  // El QR en papel: el cliente lo escanea del ticket y paga en su móvil.
+  function printQr() {
+    printer.print(
+      payQrTicket({
+        venue: venueName,
+        amountCents,
+        currency: payment.currency,
+        qrUrl: payment.qrUrl,
+        expiresAt: payment.qrExpiresAt ? new Date(payment.qrExpiresAt) : null,
+        at: new Date(payment.createdAt),
+      }),
+    );
+  }
 
   useEffect(() => {
     if (copy === 'idle') return;
@@ -234,7 +283,9 @@ function QrCard({ payment, deadline, now }: { payment: CreatedPayment; deadline:
             {copy === 'copied' ? '✓ Copiado' : copy === 'failed' ? 'Cópiala a mano' : 'Copiar'}
           </Button>
         </div>
+        {deadline ? <PrintButton label="Imprimir QR" onClick={printQr} /> : null}
       </div>
+      {printer.ticketNode}
     </Card>
   );
 }

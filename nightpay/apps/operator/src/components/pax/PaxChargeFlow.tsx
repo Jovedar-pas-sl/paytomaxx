@@ -340,7 +340,7 @@ export function PaxChargeFlow({ charge, onDone, start, onPaid }: Props) {
 
       {step.kind === 'unsent' ? (
         <>
-          <p style={{ ...big, color: 'var(--np-warning)' }}>Cobrado en el datáfono, falta que llegue a OxioPay</p>
+          <p style={{ ...big, color: 'var(--np-warning)' }}>Pagado en el datáfono, falta que llegue a OxioPay</p>
           <p style={muted}>
             {step.message} {UNSENT_NOTE}
           </p>

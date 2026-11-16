@@ -1,0 +1,430 @@
+/* Portada de OxioPay (Grafito oscuro, como las páginas de pago). Móvil primero. */
+
+.page {
+  min-height: 100vh;
+  background: var(--np-bg);
+  color: var(--np-text);
+}
+
+.top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  max-width: 72rem;
+  margin: 0 auto;
+  padding: calc(0.75rem + env(safe-area-inset-top)) 1.25rem 0.75rem;
+}
+
+.topLink {
+  display: inline-flex;
+  align-items: center;
+  min-height: 2.75rem;
+  padding: 0 1rem;
+  border: 1px solid var(--np-surface-3);
+  border-radius: var(--np-r-pill);
+  color: var(--np-text);
+  font-size: var(--np-fs-14);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+/* ── Arriba ─────────────────────────────────────────── */
+
+.hero {
+  display: grid;
+  gap: 2.5rem;
+  max-width: 72rem;
+  margin: 0 auto;
+  padding: 2.5rem 1.25rem 3.5rem;
+}
+
+.eyebrow {
+  margin: 0 0 1rem;
+  color: var(--np-accent);
+  font-size: var(--np-fs-14);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.title {
+  margin: 0;
+  font-size: clamp(2.5rem, 10vw, 4.5rem);
+  font-weight: 600;
+  line-height: 1.02;
+  letter-spacing: -0.035em;
+}
+
+.accent {
+  color: var(--np-accent);
+}
+
+.lead {
+  max-width: 34rem;
+  margin: 1.5rem 0 0;
+  color: var(--np-text-mute);
+  font-size: var(--np-fs-18);
+  line-height: 1.55;
+}
+
+.leadEn {
+  margin: 0.75rem 0 0;
+  color: var(--np-text-dim);
+  font-size: var(--np-fs-14);
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-top: 2rem;
+}
+
+.btn,
+.btnGhost {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 3rem;
+  padding: 0 1.4rem;
+  border-radius: var(--np-r-pill);
+  font-size: var(--np-fs-16);
+  font-weight: 600;
+  text-decoration: none;
+  transition: transform 150ms ease, background-color 150ms ease;
+}
+
+.btn {
+  background: var(--np-accent);
+  color: var(--np-bg);
+}
+
+.btn:hover {
+  background: var(--np-accent-2);
+}
+
+.btnGhost {
+  border: 1px solid var(--np-surface-3);
+  color: var(--np-text);
+}
+
+.btnGhost:hover {
+  background: var(--np-surface-2);
+}
+
+.btn:active,
+.btnGhost:active,
+.accessCard:active {
+  transform: scale(0.98);
+}
+
+/* La pantalla de pago dibujada: tarjeta con profundidad, girada un poco. */
+.phone {
+  justify-self: center;
+  display: grid;
+  gap: 0.6rem;
+  width: min(100%, 19rem);
+  padding: 1.75rem 1.4rem 1.4rem;
+  border: 1px solid var(--np-surface-3);
+  border-radius: 2rem;
+  background: linear-gradient(180deg, var(--np-surface-2), var(--np-surface));
+  box-shadow:
+    0 2rem 4rem -1.5rem rgb(0 0 0 / 0.7),
+    0 0 0 0.5rem var(--np-surface);
+  transform: rotate(-2deg);
+}
+
+.phoneLabel,
+.phoneTip,
+.phoneSecure {
+  margin: 0;
+  color: var(--np-text-dim);
+  font-size: var(--np-fs-14);
+  text-align: center;
+}
+
+.phoneAmount {
+  margin: 0 0 0.25rem;
+  font-family: var(--font-mono), sans-serif;
+  font-size: var(--np-fs-40);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  text-align: center;
+}
+
+.phonePay,
+.phoneAlt {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 3rem;
+  border-radius: var(--np-r-md);
+  font-size: var(--np-fs-16);
+  font-weight: 600;
+}
+
+.phonePay {
+  margin-top: 0.5rem;
+  background: var(--np-accent);
+  color: var(--np-bg);
+}
+
+.phoneAlt {
+  border: 1px solid var(--np-surface-3);
+  color: var(--np-text);
+}
+
+/* ── Secciones ──────────────────────────────────────── */
+
+.section {
+  max-width: 72rem;
+  margin: 0 auto;
+  padding: 3rem 1.25rem;
+  border-top: 1px solid var(--np-surface-2);
+}
+
+.h2 {
+  margin: 0 0 1.25rem;
+  font-size: var(--np-fs-28);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.h3 {
+  margin: 0.9rem 0 0.4rem;
+  font-size: var(--np-fs-18);
+  font-weight: 600;
+}
+
+.text {
+  margin: 0;
+  color: var(--np-text-mute);
+  font-size: var(--np-fs-16);
+  line-height: 1.55;
+}
+
+.steps {
+  display: grid;
+  gap: 1.75rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.stepNum {
+  display: inline-grid;
+  place-items: center;
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: var(--np-r-pill);
+  background: var(--np-lime-soft);
+  color: var(--np-accent);
+  font-family: var(--font-mono), sans-serif;
+  font-size: var(--np-fs-18);
+  font-weight: 700;
+}
+
+.split {
+  display: grid;
+  gap: 1rem;
+}
+
+.panel {
+  display: grid;
+  align-content: start;
+  gap: 0.25rem;
+  padding: 1.75rem 1.5rem;
+  border: 1px solid var(--np-surface-3);
+  border-radius: var(--np-r-card);
+  background: var(--np-surface);
+}
+
+.panelVenue {
+  border-color: var(--np-lime-edge);
+}
+
+.panelVenue .btn {
+  justify-self: start;
+  margin-top: 1rem;
+}
+
+.list {
+  display: grid;
+  gap: 0.75rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  color: var(--np-text-mute);
+  font-size: var(--np-fs-16);
+  line-height: 1.5;
+}
+
+.list li {
+  position: relative;
+  padding-left: 1.5rem;
+}
+
+.list li::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0.55em;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: var(--np-r-pill);
+  background: var(--np-accent);
+}
+
+/* ── OxioParty: franja con el tono lima, para que se distinga del resto ── */
+
+.party {
+  display: grid;
+  gap: 1.5rem;
+  padding: 2rem 1.5rem;
+  border-radius: var(--np-r-card);
+  background: var(--np-lime-soft);
+}
+
+.party .h2 {
+  margin-bottom: 0.75rem;
+}
+
+.party .btn {
+  justify-self: start;
+}
+
+/* ── Acceso del personal ────────────────────────────── */
+
+.access {
+  display: grid;
+  gap: 0.75rem;
+  margin: 1.5rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.accessCard {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  column-gap: 1rem;
+  min-height: 4.5rem;
+  padding: 1rem 1.25rem;
+  border: 1px solid var(--np-surface-3);
+  border-radius: var(--np-r-tile);
+  background: var(--np-surface);
+  color: var(--np-text);
+  text-decoration: none;
+  transition: transform 150ms ease, border-color 150ms ease;
+}
+
+.accessCard:hover {
+  border-color: var(--np-lime-edge);
+}
+
+.accessName {
+  font-size: var(--np-fs-18);
+  font-weight: 600;
+}
+
+.accessWho {
+  grid-row: 2;
+  color: var(--np-text-dim);
+  font-size: var(--np-fs-14);
+}
+
+.arrow {
+  grid-row: 1 / span 2;
+  grid-column: 2;
+  color: var(--np-accent);
+  font-size: var(--np-fs-22);
+  transition: transform 150ms ease;
+}
+
+.accessCard:hover .arrow {
+  transform: translateX(0.25rem);
+}
+
+/* ── Pie ─────────────────────────────────────────────── */
+
+.foot {
+  max-width: 72rem;
+  margin: 0 auto;
+  padding: 2rem 1.25rem calc(2rem + env(safe-area-inset-bottom));
+  border-top: 1px solid var(--np-surface-2);
+}
+
+.legal {
+  display: flex;
+  flex-wrap: wrap;
+  column-gap: 1.25rem;
+}
+
+.legal a,
+.owner a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 2.75rem;
+  color: var(--np-text-mute);
+  font-size: var(--np-fs-14);
+  text-decoration: underline;
+  text-underline-offset: 0.15em;
+}
+
+.owner {
+  margin: 0.25rem 0 0;
+  color: var(--np-text-dim);
+  font-size: var(--np-fs-14);
+}
+
+.topLink:focus-visible,
+.btn:focus-visible,
+.btnGhost:focus-visible,
+.accessCard:focus-visible,
+.legal a:focus-visible,
+.owner a:focus-visible {
+  outline: 3px solid var(--np-text);
+  outline-offset: 3px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .btn,
+  .btnGhost,
+  .accessCard,
+  .arrow {
+    transition: none;
+  }
+}
+
+/* ── Pantallas anchas ───────────────────────────────── */
+
+@media (min-width: 56rem) {
+  .hero {
+    grid-template-columns: 1.25fr 1fr;
+    align-items: center;
+    gap: 4rem;
+    padding-top: 4.5rem;
+    padding-bottom: 5rem;
+  }
+
+  .steps,
+  .access {
+    grid-template-columns: repeat(3, 1fr);
+  }
+
+  .split {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .party {
+    grid-template-columns: 1fr auto;
+    align-items: center;
+    gap: 3rem;
+    padding: 2.5rem;
+  }
+
+  .party .btn {
+    justify-self: end;
+  }
+}
