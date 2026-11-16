@@ -23,7 +23,7 @@ import { Earnings } from './Earnings';
 import { FichaTapped } from './FichaTapped';
 import { HomeTab } from './HomeTab';
 import { InvitationToast } from './InvitationToast';
-import { TAB_BAR_HEIGHT } from './layout';
+import { PAGE_BOTTOM_SPACE } from './layout';
 import { MyCobros } from './MyCobros';
 import { MenuAvatar } from './my-profile';
 import { PassScanned } from './PassScanned';
@@ -201,10 +201,10 @@ function PollErrorBanner({ error }: { error: PollError }) {
 const mainStyle: CSSProperties = {
   display: 'flex',
   flexDirection: 'column',
-  // Padding bottom = altura nav + safe-area home indicator iOS.
-  // Sin esto los iPhones modernos solapan la barra home con la tab bar.
-  // Arriba y entre bloques, --np-gap (más justo en el móvil).
-  padding: `var(--np-gap) 1rem calc(${TAB_BAR_HEIGHT} + var(--np-gap) + env(safe-area-inset-bottom))`,
+  // Abajo, el hueco de la barra de pestañas medida (con la zona segura) y un
+  // respiro: lo último de cada página (Recepción, Mis cobros) se ve entero al
+  // bajar. Arriba y entre bloques, --np-gap (más justo en el móvil).
+  padding: `var(--np-gap) 1rem ${PAGE_BOTTOM_SPACE}`,
   gap: 'var(--np-gap)',
   maxWidth: '32rem',
   margin: '0 auto',
