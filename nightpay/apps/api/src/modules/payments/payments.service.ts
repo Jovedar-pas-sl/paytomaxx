@@ -108,6 +108,7 @@ import { isReservationPaymentKey } from '../reservations/reservation-payment-key
 import { sweepUnpaidTopUpWallet } from './topup-wallet-sweep';
 import { PAID_WITH_SALDO_EVENT, closeLinkedSaldo } from './cobro-link';
 import { wasPaidAfterCancel } from './paid-after-cancel';
+import { assertBankWaitOver } from './cancel-at-bank';
 import { serviceFeeQuote } from '@nightpay/contracts';
 import { btcpayEnabled } from '../btcpay/btcpay-flag';
 import { purposeAllows } from '../btcpay/btcpay-logic';
@@ -2054,14 +2055,17 @@ export class PaymentsService implements OnApplicationBootstrap {
   }
 
   /**
-   * «Cancelar cobro»: cualquier cobro SIN PAGAR del local (CREATED,
-   * AWAITING_CAPTURE o AUTHORIZING: también con el cliente en su banco o con
-   * el datáfono), lo cancele quien lo cancele del personal del local (chica,
-   * camarero, recepción, encargado o dueño). Antes la chica y el camarero solo
-   * cancelaban los suyos. El cobro de otro local no se encuentra (404).
-   * Queda quién lo canceló (en el evento) y con qué móvil.
-   * Si el banco lo cobra después, sigue CANCELED y queda en Incidencias
-   * (paid-after-cancel.ts). Con bitcoin ya en la red, 409 BITCOIN_CONFIRMING.
+   * «Cancelar cobro»: cualquier cobro SIN PAGAR del local, lo cancele quien lo
+   * cancele del personal del local (chica, camarero, recepción, encargado o
+   * dueño). El cobro de otro local no se encuentra (404).
+   *  - Antes de que el cliente vaya a su banco (CREATED, AWAITING_CAPTURE): sí.
+   *  - Con el cliente en su banco (AUTHORIZING con una pasarela): no durante
+   *    los primeros 2 minutos (409 CANCEL_AT_BANK_TOO_SOON, cancel-at-bank.ts);
+   *    pasados sin respuesta del banco, sí.
+   *  - Con la factura de bitcoin abierta: sí, sin esperar; con el bitcoin ya en
+   *    la red, 409 BITCOIN_CONFIRMING.
+   * Queda quién lo canceló (en el evento) y con qué móvil. Si el banco lo cobra
+   * después, sigue CANCELED y queda en Incidencias (paid-after-cancel.ts).
    * Pagado o cerrado: 409.
    */
   async cancel(
@@ -2079,6 +2083,8 @@ export class PaymentsService implements OnApplicationBootstrap {
       await this.transition(paymentId, { type: 'CANCELED', reason: 'user-canceled', byUserId: actor.userId }, actor.tenantId, {
         prepare: async (tx, locked) => {
           if (locked.status === 'AUTHORIZING' && locked.provider === 'BTCPAY') await assertBitcoinNotOnTheWay(tx, locked.id);
+          // Con el cliente en su banco, no antes de 2 minutos (con el cobro bloqueado: la marca no cambia mientras).
+          await assertBankWaitOver(tx, locked);
           await recordPaymentDevice(tx, this.cls.get('ctx'), { id: locked.id, tenantId: locked.tenantId }, 'cancel');
         },
       });

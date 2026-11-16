@@ -46,6 +46,8 @@ export interface FakeDb {
   reusedAuthCode?: boolean;
   /** Segunda aprobación: ¿el pedido es un intento de este cobro? ¿ya apuntada? */
   secondApproval?: { isAttempt: boolean; recorded: boolean };
+  /** Cancelar con el cliente en su banco: desde cuándo está allí (null: sin marca) y la hora de la base. */
+  bank?: { since: Date | null; now: Date };
 }
 
 function sqlOf(strings: unknown): string {
@@ -58,6 +60,8 @@ function makeTransitionService(db: FakeDb) {
     const sql = sqlOf(strings);
     if (sql.includes('FROM payments') && sql.includes('FOR UPDATE')) return [db.locked];
     if (sql.includes('AS "isAttempt"')) return [db.secondApproval ?? { isAttempt: false, recorded: false }];
+    // Desde cuándo está el cliente en su banco (cancel-at-bank.ts).
+    if (sql.includes(`'payment.authorizing'`)) return db.bank ? [{ id: PAYMENT_ID, since: db.bank.since, now: db.bank.now }] : [];
     if (sql.includes('FROM payment_attempts')) {
       return db.attemptTip === undefined ? [] : [{ tipCents: db.attemptTip, creatorRole: db.creatorRole ?? 'OPERATOR' }];
     }
@@ -393,15 +397,66 @@ describe('cancel — quién puede cancelar', () => {
     }
   });
 
-  it('con el cliente en su banco (AUTHORIZING, Redsys) también se cancela', async () => {
-    const { service, updates } = makeTransitionService({
-      locked: { ...baseRow, status: 'AUTHORIZING' as const, provider: 'REDSYS' },
-      payment: { ...created, status: 'AUTHORIZING', createdByUserId: 'op-1' },
+  describe('con el cliente en su banco (AUTHORIZING): 2 minutos sin poder cancelar', () => {
+    const dbNow = new Date('2026-11-16T23:40:00.000Z');
+    const ago = (s: number) => new Date(dbNow.getTime() - s * 1000);
+    const atBank = (provider: LockedPaymentRow['provider'], since: Date | null) =>
+      makeTransitionService({
+        locked: { ...baseRow, status: 'AUTHORIZING' as const, provider },
+        payment: { ...created, status: 'AUTHORIZING', createdByUserId: 'op-1' },
+        bank: { since, now: dbNow },
+      });
+    const waiter = { userId: 'waiter-1', role: 'WAITER', tenantId: 'tenant-1' };
+
+    it('antes de los 2 minutos: 409 CANCEL_AT_BANK_TOO_SOON con lo que falta, y no se toca nada', async () => {
+      const { service, updates } = atBank('REDSYS', ago(30));
+      const err = await service.cancel(PAYMENT_ID, waiter).catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(ConflictException);
+      expect((err as ConflictException).getResponse()).toMatchObject({ code: 'CANCEL_AT_BANK_TOO_SOON', retryInSeconds: 90 });
+      expect(updates('SET status')).toHaveLength(0);
+      expect(updates('INSERT INTO payment_events')).toHaveLength(0);
     });
-    await expect(service.cancel(PAYMENT_ID, { userId: 'waiter-1', role: 'WAITER', tenantId: 'tenant-1' })).resolves.toEqual({
-      status: 'CANCELED',
+
+    it('justo a los 2 minutos y después: se cancela (si el banco lo cobra luego, queda en Incidencias)', async () => {
+      for (const since of [ago(120), ago(121), ago(900)]) {
+        const { service, updates } = atBank('REDSYS', since);
+        await expect(service.cancel(PAYMENT_ID, waiter)).resolves.toEqual({ status: 'CANCELED' });
+        expect(updates('SET status')[0]!.values[0]).toBe('CANCELED');
+      }
     });
-    expect(updates('SET status')[0]!.values[0]).toBe('CANCELED');
+
+    it('cualquier pasarela con banco (Paytef, Peanpe): la misma espera', async () => {
+      for (const provider of ['PAYTEF', 'PEANPE'] as const) {
+        const { service } = atBank(provider, ago(119));
+        await expect(service.cancel(PAYMENT_ID, waiter)).rejects.toMatchObject({ response: { code: 'CANCEL_AT_BANK_TOO_SOON', retryInSeconds: 1 } });
+      }
+    });
+
+    it('con la factura de bitcoin abierta: sin espera', async () => {
+      const { service, updates, tx } = atBank('BTCPAY', ago(5));
+      await expect(service.cancel(PAYMENT_ID, waiter)).resolves.toEqual({ status: 'CANCELED' });
+      expect(updates('SET status')[0]!.values[0]).toBe('CANCELED');
+      // Ni siquiera se mira desde cuándo.
+      const asked = tx.$queryRaw.mock.calls.map((c) => sqlOf(c[0]));
+      expect(asked.some((sql) => sql.includes(`'payment.authorizing'`))).toBe(false);
+    });
+
+    it('sin marca de cuándo salió al banco (un cobro muy antiguo): no se frena', async () => {
+      const { service } = atBank('REDSYS', null);
+      await expect(service.cancel(PAYMENT_ID, waiter)).resolves.toEqual({ status: 'CANCELED' });
+    });
+
+    it('la espera se mira con el cobro bloqueado y en el local del cobro', async () => {
+      const { service, tx } = atBank('REDSYS', ago(10));
+      await service.cancel(PAYMENT_ID, waiter).catch(() => undefined);
+      const calls = tx.$queryRaw.mock.calls.map((c) => ({ sql: sqlOf(c[0]), values: c.slice(1) }));
+      const lock = calls.findIndex((c) => c.sql.includes('FOR UPDATE'));
+      const since = calls.findIndex((c) => c.sql.includes(`'payment.authorizing'`));
+      expect(lock).toBeGreaterThanOrEqual(0);
+      expect(since).toBeGreaterThan(lock);
+      expect(calls[since]!.sql).toContain('"tenantId" = ?');
+      expect(calls[since]!.values).toEqual(['tenant-1', [PAYMENT_ID]]);
+    });
   });
 
   it('pagado: 409, no se cancela', async () => {
