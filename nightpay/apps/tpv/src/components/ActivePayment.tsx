@@ -15,6 +15,7 @@ import {
   paidTicket,
   payQrTicket,
   PrintButton,
+  receiptFromDetail,
   usePrintTicket,
   isPreCobro,
   outcomeKindOf,
@@ -25,8 +26,8 @@ import {
   type PaymentStatus,
   type QrDeadline,
 } from '@nightpay/ui';
-import { chargeBreakdownText, confirmationCode, formatMoney } from '@nightpay/contracts';
-import { cancelPayment, fetchPaymentStatus, type CreatedPayment } from '@/lib/api';
+import { chargeBreakdownText, confirmationCode, formatMoney, type CobroDetail } from '@nightpay/contracts';
+import { cancelPayment, fetchPaidDetail, fetchPaymentStatus, type CreatedPayment } from '@/lib/api';
 import styles from './active-payment.module.css';
 
 /** Estados en los que el QR ya no se puede pagar: basta con "Nuevo cobro". */
@@ -88,6 +89,8 @@ export function ActivePayment({ payment, venueName = null, status, reachable, ch
   const [cardFacts, setCardFacts] = useState<{ payMethod?: 'card' | 'wallet' }>({});
   const paid = shown === 'AUTHORIZED';
   const [paidAt, setPaidAt] = useState<Date | null>(null);
+  // El detalle del cobro pagado (su número, la tarjeta): para el ticket impreso.
+  const [paidDetail, setPaidDetail] = useState<CobroDetail | null>(null);
   useEffect(() => {
     if (!paid) return undefined;
     setPaidAt((at) => at ?? new Date());
@@ -95,8 +98,11 @@ export function ActivePayment({ payment, venueName = null, status, reachable, ch
     fetchPaymentStatus(payment.qrToken, ctrl.signal)
       .then((current) => setCardFacts({ payMethod: current.payMethod }))
       .catch(() => undefined);
+    fetchPaidDetail(payment.id, ctrl.signal)
+      .then(setPaidDetail)
+      .catch(() => undefined);
     return () => ctrl.abort();
-  }, [paid, payment.qrToken]);
+  }, [paid, payment.qrToken, payment.id]);
 
   useEffect(() => {
     if (!awaiting) return undefined;
@@ -134,16 +140,19 @@ export function ActivePayment({ payment, venueName = null, status, reachable, ch
         message={outcome === 'failed' ? 'Que el cliente pruebe con otra tarjeta.' : undefined}
         how={how}
         print={
-          how
-            ? paidTicket({
-                venue: venueName,
-                amountCents: payment.amountCents + feeCents,
-                currency: payment.currency,
-                how,
-                breakdown,
-                at: paidAt ?? new Date(),
-              })
-            : null
+          !how
+            ? null
+            : paidDetail
+              ? receiptFromDetail(paidDetail)
+              : paidTicket({
+                  venue: venueName,
+                  amountCents: payment.amountCents,
+                  serviceFeeCents: feeCents,
+                  totalCents: payment.amountCents + feeCents,
+                  currency: payment.currency,
+                  how,
+                  at: paidAt ?? new Date(),
+                })
         }
         primary={
           outcome === 'paid'
@@ -284,6 +293,7 @@ function QrCard({ payment, venueName, amountCents, deadline, now }: QrCardProps)
           </Button>
         </div>
         {deadline ? <PrintButton label="Imprimir QR" onClick={printQr} /> : null}
+        {printer.error ? <FormError>{printer.error}</FormError> : null}
       </div>
       {printer.ticketNode}
     </Card>

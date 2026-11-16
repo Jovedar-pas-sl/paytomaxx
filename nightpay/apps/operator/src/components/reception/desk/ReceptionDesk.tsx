@@ -955,7 +955,7 @@ export function ReceptionDesk({ user, active, footer, onGiveFicha, onScanHome, h
           ficha,
           code,
           balanceCents: done.wallet?.balanceCents ?? null,
-          reference,
+          number: reference,
           at: new Date(done.loadedAt ?? Date.now()),
         })}
         meta={meta}

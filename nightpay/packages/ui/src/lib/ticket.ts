@@ -1,10 +1,20 @@
-// El ticket impreso (papel de 58 mm): lo que se le da al cliente en la mano.
-// Funciones puras: qué lleva cada ticket, solo con datos que la pantalla ya
-// tiene. Va al cliente, así que nunca lleva el nombre de quien cobra ni la
-// sección del cobro: solo el local, el importe, cómo se pagó y sus códigos.
+// El ticket impreso (papel de 58 mm, 48 mm de impresión): lo que se le da al
+// cliente en la mano. Como un ticket normal: el local, el número y la hora, lo
+// que se compró, los importes, el total y cómo se pagó. Funciones puras, solo
+// con datos que la app ya tiene. Nunca lleva el nombre de quien cobra ni el
+// reparto: el papel se lo lleva el cliente.
 
-import { formatMoney } from '@nightpay/contracts';
+import { formatMoney, type CobroDetail } from '@nightpay/contracts';
 import type { OutcomeHow } from '../components/PaymentOutcome';
+
+/** Una línea de lo comprado: «2× Gin tonic … 24,00 €». */
+export interface TicketLine {
+  label: string;
+  qty: number;
+  /** El precio de una (para «12,00 € c/u» si son varias). */
+  unitCents?: number | null;
+  amountCents: number;
+}
 
 export interface TicketRow {
   label: string;
@@ -12,40 +22,36 @@ export interface TicketRow {
 }
 
 export interface Ticket {
-  /** «Comprobante de pago», «Carga de saldo», «Escanea para pagar». */
-  title: string;
-  /** El nombre del local, arriba (si se sabe). */
+  /** El nombre del local, arriba y grande. */
   venue?: string | null;
-  amountCents: number;
+  /** «Ticket», «Carga de saldo», «Escanea para pagar», «Prueba de impresión». */
+  title: string;
+  /** El número del cobro («C-0063»). */
+  number?: string | null;
+  /** La fecha y la hora (de Madrid). */
+  at: Date;
+  lines: readonly TicketLine[];
+  /** Entre las líneas y el total: «Subtotal», «Propina», «Comisión del servicio». */
+  amounts: readonly TicketRow[];
+  /** El total (null: sin total, como la prueba). */
+  totalCents: number | null;
   currency?: string;
-  /** Bajo el importe: «Con tarjeta», «Con ficha nº 1013», «En efectivo». */
-  how?: string | null;
-  /** Frases bajo el importe: «33 € + 3 € de propina». */
-  notes?: readonly string[];
-  /** Las filas de abajo: «Código del cobro  K7Q4», «Le quedan  26 €». */
-  rows: readonly TicketRow[];
+  /** Debajo del total: cómo se pagó y sus códigos. */
+  payment: readonly TicketRow[];
   /** Un QR para escanear con el móvil (el enlace del cobro). */
   qrUrl?: string | null;
   /** Bajo el QR: «Vale hasta las 01:27». */
   qrNote?: string | null;
-  /** Cuándo: la fecha y la hora de Madrid, arriba. */
-  at: Date;
-  /** La referencia del cobro o del saldo («C-0023»), arriba. */
-  reference?: string | null;
-  /** Las líneas del pie. */
+  /** Las líneas del pie (centradas). */
   footer: readonly string[];
 }
 
-/** El pie de un pago: es un comprobante, no una factura (la factura, si se pide, la hace el local). */
-export const RECEIPT_FOOTER: readonly string[] = ['Comprobante de pago.', 'No es una factura.'];
+/** El pie de un pago: es un comprobante, no una factura (la factura, si la pide, la hace el local). */
+export const RECEIPT_FOOTER: readonly string[] = ['¡Gracias por tu visita!', 'Comprobante de pago, no factura.'];
 
 /** El pie de una carga de saldo. */
-export const TOP_UP_FOOTER: readonly string[] = ['Comprobante de la carga.', 'No es una factura.', 'Guárdalo con tu ficha.'];
+export const TOP_UP_FOOTER: readonly string[] = ['Guarda tu ficha y este ticket.', 'Comprobante de carga, no factura.'];
 
-/**
- * Hora de Madrid (la del local), no la del aparato: un datáfono en UTC la
- * daría 1-2 h mal.
- */
 const MADRID_DATE_TIME = new Intl.DateTimeFormat('es-ES', {
   timeZone: 'Europe/Madrid',
   day: '2-digit',
@@ -63,7 +69,7 @@ const MADRID_TIME = new Intl.DateTimeFormat('es-ES', {
   hourCycle: 'h23',
 });
 
-/** «16/11/2026 16:20», hora de Madrid. */
+/** «16/11/2026 16:20», hora de Madrid (un datáfono en UTC la daría mal). */
 export function ticketDateTime(at: Date): string {
   const parts = MADRID_DATE_TIME.formatToParts(at);
   const part = (type: Intl.DateTimeFormatPartTypes) => parts.find((p) => p.type === type)?.value ?? '00';
@@ -75,40 +81,117 @@ export function ticketTime(at: Date): string {
   return MADRID_TIME.format(at);
 }
 
-/** Etiquetas de «cómo se pagó» que no van al papel: quién cobró (el cliente no lo necesita) y la hora (ya va arriba). */
-const STAFF_ONLY_ROWS = new Set(['Cobró', 'Hora']);
+/** Importe del ticket: siempre con céntimos («24,00 €»), como un ticket de caja. */
+export function ticketMoney(cents: number, currency = 'EUR'): string {
+  return formatMoney(cents, { currency });
+}
 
-/** Las filas de «cómo se pagó» que sí van al ticket del cliente. */
+/** Subtotal, propina y comisión, solo si hay propina o comisión (si no, el total basta). */
+function amountRows(amountCents: number, tipCents: number, feeCents: number, currency?: string): TicketRow[] {
+  if (tipCents <= 0 && feeCents <= 0) return [];
+  const rows: TicketRow[] = [{ label: 'Subtotal', value: ticketMoney(amountCents, currency) }];
+  if (tipCents > 0) rows.push({ label: 'Propina', value: ticketMoney(tipCents, currency) });
+  if (feeCents > 0) rows.push({ label: 'Comisión del servicio', value: ticketMoney(feeCents, currency) });
+  return rows;
+}
+
+/** Etiquetas de «cómo se pagó» que no van al papel: quién cobró y la hora (ya va arriba). */
+const STAFF_ONLY_ROWS = new Set(['Cobró', 'Hora']);
+/** Las del PAGADO dichas como en un ticket. */
+const ROW_WORDS: Readonly<Record<string, string>> = { 'Le quedan': 'Saldo restante', 'Código del cobro': 'Código' };
+
+/** «Con tarjeta» → «Tarjeta»; «Con ficha nº 1013» → «Ficha nº 1013». */
+function methodWord(title: string): string {
+  const bare = title.replace(/^Con (su |la |el )?/i, '').replace(/^En /i, '');
+  return bare.charAt(0).toUpperCase() + bare.slice(1);
+}
+
+/** Cómo se pagó, desde la tarjeta del PAGADO: la forma de pago y sus filas (sin quién cobró). */
 export function howRows(how: OutcomeHow): TicketRow[] {
-  return how.rows.filter((r) => !STAFF_ONLY_ROWS.has(r.label)).map(({ label, value }) => ({ label, value }));
+  const rows: TicketRow[] = [{ label: 'Pago', value: methodWord(how.title) }];
+  for (const r of how.rows) {
+    if (STAFF_ONLY_ROWS.has(r.label)) continue;
+    rows.push({ label: ROW_WORDS[r.label] ?? r.label, value: r.value });
+  }
+  return rows;
 }
 
 export interface PaidTicketInput {
   venue?: string | null;
-  /** Lo que pagó en total (con la comisión y la propina, si las hubo). */
-  amountCents: number;
+  number?: string | null;
+  /** Lo comprado (la cuenta); sin ella, una línea con el total. */
+  lines?: readonly TicketLine[];
+  /** Lo de la cuenta, sin propina ni comisión (por defecto, el total). */
+  amountCents?: number;
+  tipCents?: number;
+  serviceFeeCents?: number;
+  /** Lo que pagó en total. */
+  totalCents: number;
   currency?: string;
-  /** La tarjeta de «cómo se pagó» del PAGADO: su título y sus filas. */
+  /** La tarjeta de «cómo se pagó» del PAGADO. */
   how?: OutcomeHow | null;
-  /** «33 € + 3 € de propina», si lo hay. */
-  breakdown?: string | null;
-  reference?: string | null;
   at: Date;
 }
 
-/** El comprobante de un cobro pagado (con tarjeta, Apple/Google Pay, el saldo o la ficha). */
+/** El ticket de un cobro pagado con lo que sabe la pantalla del PAGADO. */
 export function paidTicket(i: PaidTicketInput): Ticket {
+  const tip = Math.max(0, i.tipCents ?? 0);
+  const fee = Math.max(0, i.serviceFeeCents ?? 0);
+  const amount = i.amountCents ?? i.totalCents - tip - fee;
   return {
-    title: 'Comprobante de pago',
+    title: 'Ticket',
     venue: i.venue ?? null,
-    amountCents: i.amountCents,
-    currency: i.currency,
-    how: i.how?.title ?? null,
-    notes: i.breakdown ? [i.breakdown] : [],
-    rows: i.how ? howRows(i.how) : [],
-    reference: i.reference ?? null,
+    number: i.number ?? null,
     at: i.at,
+    lines: i.lines && i.lines.length > 0 ? i.lines : [{ label: 'Consumición', qty: 1, amountCents: amount }],
+    amounts: amountRows(amount, tip, fee, i.currency),
+    totalCents: i.totalCents,
+    currency: i.currency,
+    payment: i.how ? howRows(i.how) : [],
     footer: RECEIPT_FOOTER,
+  };
+}
+
+/** Lo que sabe la pantalla y el detalle no dice al personal. */
+export interface ReceiptExtra {
+  /** El saldo que le queda tras pagar (lo da el cobro al pagarse; null: no se sabe). */
+  balanceAfterCents?: number | null;
+}
+
+/** Cómo se pagó, desde el detalle del cobro (Cobros). */
+function detailPaymentRows(d: CobroDetail, extra: ReceiptExtra): TicketRow[] {
+  const rows: TicketRow[] = [];
+  const m = d.method;
+  if (m.cardLast4) rows.push({ label: 'Tarjeta', value: `${m.cardBrand ?? ''} •••• ${m.cardLast4}`.trim() });
+  else if (m.fichaNumber) rows.push({ label: 'Pago', value: `Ficha nº ${m.fichaNumber}` });
+  else if (m.label && m.label !== '—') rows.push({ label: 'Pago', value: m.label });
+  if (d.bank?.authCode) rows.push({ label: 'Autorización', value: d.bank.authCode });
+  if (d.confirmationCode) rows.push({ label: 'Código', value: d.confirmationCode });
+  const balanceAfter = d.balance?.afterCents ?? extra.balanceAfterCents ?? null;
+  if (balanceAfter !== null) rows.push({ label: d.isTopUp ? 'Saldo ahora' : 'Saldo restante', value: ticketMoney(balanceAfter) });
+  for (const u of d.undo) {
+    if (u.amountCents === null) continue;
+    const label = u.kind === 'REFUND' ? 'Devuelto a la tarjeta' : u.kind === 'VOID' ? 'Devuelto al saldo' : 'Anulado';
+    rows.push({ label, value: ticketMoney(u.amountCents) });
+  }
+  return rows;
+}
+
+/** El ticket de un cobro desde su detalle (pestaña Cobros, o el PAGADO cuando ya ha llegado). */
+export function receiptFromDetail(d: CobroDetail, extra: ReceiptExtra = {}): Ticket {
+  const lines: TicketLine[] = d.isTopUp
+    ? [{ label: 'Carga de saldo', qty: 1, amountCents: d.amountCents }]
+    : d.lines.map((l) => ({ label: l.label, qty: l.qty, unitCents: l.unitCents, amountCents: l.amountCents }));
+  return {
+    title: d.isTopUp ? 'Carga de saldo' : 'Ticket',
+    venue: d.venueName,
+    number: d.ref,
+    at: new Date(d.paidAt ?? d.createdAt),
+    lines: lines.length > 0 ? lines : [{ label: d.service ?? 'Consumición', qty: 1, amountCents: d.amountCents }],
+    amounts: amountRows(d.amountCents, d.tipCents, d.serviceFeeCents),
+    totalCents: d.totalCents,
+    payment: detailPaymentRows(d, extra),
+    footer: d.isTopUp ? TOP_UP_FOOTER : RECEIPT_FOOTER,
   };
 }
 
@@ -120,29 +203,29 @@ export interface PayQrTicketInput {
   qrUrl: string;
   /** Hasta cuándo vale el QR (null: no se sabe). */
   expiresAt: Date | null;
-  reference?: string | null;
   at: Date;
 }
 
-/** El QR del cobro en papel: el cliente lo escanea con su móvil y paga allí. */
+/** El QR del cobro en papel: el cliente lo escanea y paga en su móvil. */
 export function payQrTicket(i: PayQrTicketInput): Ticket {
   return {
     title: 'Escanea para pagar',
     venue: i.venue ?? null,
-    amountCents: i.amountCents,
+    at: i.at,
+    lines: [],
+    amounts: [],
+    totalCents: i.amountCents,
     currency: i.currency,
-    how: 'Con la cámara de tu móvil',
-    rows: [],
+    payment: [],
     qrUrl: i.qrUrl,
     qrNote: i.expiresAt ? `Vale hasta las ${ticketTime(i.expiresAt)}` : null,
-    reference: i.reference ?? null,
-    at: i.at,
-    footer: ['Pagas en tu móvil: tarjeta, Apple Pay,', 'Google Pay o tu saldo.'],
+    footer: ['Escanéalo con la cámara de tu móvil.', 'Tarjeta, Apple Pay, Google Pay o tu saldo.'],
   };
 }
 
 export interface TopUpTicketInput {
   venue?: string | null;
+  number?: string | null;
   /** Lo que se cargó en el saldo. */
   amountCents: number;
   /** La comisión del servicio que pagó encima (0: sin ella). */
@@ -154,27 +237,25 @@ export interface TopUpTicketInput {
   code?: string | null;
   /** Lo que tiene ahora (null: no se sabe). */
   balanceCents?: number | null;
-  reference?: string | null;
   at: Date;
 }
 
-/** El comprobante de una carga de saldo en recepción. */
+/** El ticket de una carga de saldo en recepción. */
 export function topUpTicket(i: TopUpTicketInput): Ticket {
-  const eur = (cents: number) => formatMoney(cents, { compact: true });
   const fee = Math.max(0, i.feeCents ?? 0);
-  const rows: TicketRow[] = [];
-  if (fee > 0) rows.push({ label: 'Comisión del servicio', value: eur(fee) }, { label: 'Pagado', value: eur(i.amountCents + fee) });
-  if (i.ficha) rows.push({ label: 'Ficha', value: `nº ${i.ficha}` });
-  if (i.code) rows.push({ label: 'Código del saldo', value: i.code });
-  if (i.balanceCents !== null && i.balanceCents !== undefined) rows.push({ label: 'Saldo ahora', value: eur(i.balanceCents) });
+  const payment: TicketRow[] = [{ label: 'Pago', value: i.method === 'cash' ? 'Efectivo' : 'Tarjeta' }];
+  if (i.ficha) payment.push({ label: 'Ficha', value: `nº ${i.ficha}` });
+  if (i.code) payment.push({ label: 'Código del saldo', value: i.code });
+  if (i.balanceCents !== null && i.balanceCents !== undefined) payment.push({ label: 'Saldo ahora', value: ticketMoney(i.balanceCents) });
   return {
     title: 'Carga de saldo',
     venue: i.venue ?? null,
-    amountCents: i.amountCents,
-    how: i.method === 'cash' ? 'En efectivo' : 'Con tarjeta',
-    rows,
-    reference: i.reference ?? null,
+    number: i.number ?? null,
     at: i.at,
+    lines: [{ label: 'Carga de saldo', qty: 1, amountCents: i.amountCents }],
+    amounts: amountRows(i.amountCents, 0, fee),
+    totalCents: i.amountCents + fee,
+    payment,
     footer: TOP_UP_FOOTER,
   };
 }
@@ -187,12 +268,16 @@ export function testTicket(at: Date, qrUrl: string, venue?: string | null): Tick
   return {
     title: 'Prueba de impresión',
     venue: venue ?? null,
-    amountCents: 0,
-    how: 'Esto no es un cobro',
-    rows: [{ label: 'Si lo lees bien', value: 'la impresora va' }],
+    at,
+    lines: [
+      { label: 'Gin tonic', qty: 2, unitCents: 1200, amountCents: 2400 },
+      { label: 'Nachos', qty: 1, unitCents: 900, amountCents: 900 },
+    ],
+    amounts: [],
+    totalCents: 3300,
+    payment: [{ label: 'Pago', value: 'Esto no es un cobro' }],
     qrUrl,
     qrNote: 'El QR debe leerse con el móvil',
-    at,
-    footer: ['OxioPay'],
+    footer: ['Si lo lees bien, la impresora va.'],
   };
 }

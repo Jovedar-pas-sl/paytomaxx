@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, type CSSProperties } from 'react';
-import { Button, Modal, Segmented, testTicket, usePrintTicket } from '@nightpay/ui';
+import { Button, Modal, PRINT_MODE_CHOICES, Segmented, testTicket, usePrintMode, usePrintTicket, writePrintMode } from '@nightpay/ui';
 import { fichaPlace, READER_SPOT_CHOICES, useReaderSpot, writeReaderSpot } from '@/lib/lector-nfc';
 import { nfcSupported, readCard } from '@/lib/nfc';
 import { testReadResult, type TestRead as TestReadResult } from '@/lib/prueba-lectura';
@@ -73,20 +73,32 @@ function ReadTest() {
 }
 
 /**
- * «Prueba de impresión»: un ticket de ejemplo (no es un cobro) para ver que el
- * aparato llega a su impresora. Android pregunta la impresora: la del datáfono
- * suele llamarse «InnerPrinter»; si no sale, con RawBT (Play Store) sí.
+ * La impresora de ESTE aparato: cómo imprime y una prueba (un ticket de
+ * ejemplo, no es un cobro).
+ * - «Directo»: un toque y sale el ticket, sin ventanas y del largo justo.
+ *   Hace falta la app RawBT (Play Store) con la impresora elegida.
+ * - «Con ventana»: la ventana de imprimir de Android (cualquier aparato).
  */
 function PrintTest() {
   const venue = useVenueName();
+  const mode = usePrintMode();
   const printer = usePrintTicket();
   return (
     <section aria-label="Impresora" style={stack}>
-      <span style={label}>Impresora</span>
-      <p style={hint}>Sale un ticket de ejemplo. Elige la impresora del aparato (suele llamarse «InnerPrinter»).</p>
+      <Segmented label="¿Cómo imprime este aparato?" value={mode} options={PRINT_MODE_CHOICES} onChange={writePrintMode} />
+      <p style={hint}>
+        {mode === 'rawbt'
+          ? 'Un toque y sale el ticket, sin ventanas. Hace falta la app RawBT (gratis, en Play Store) con la impresora del aparato elegida.'
+          : 'Sale la ventana de imprimir de Android: elige la impresora (en el datáfono, «InnerPrinter»).'}
+      </p>
       <Button variant="ghost" onClick={() => printer.print(testTicket(new Date(), window.location.origin, venue))}>
         Prueba de impresión
       </Button>
+      {printer.error ? (
+        <p role="alert" style={{ ...resultStyle, color: 'var(--np-danger-text)' }}>
+          {printer.error}
+        </p>
+      ) : null}
       {printer.ticketNode}
     </section>
   );

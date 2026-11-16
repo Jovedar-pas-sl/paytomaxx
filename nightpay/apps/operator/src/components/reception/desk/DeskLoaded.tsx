@@ -46,7 +46,7 @@ interface Props {
    * ser la tarjeta de «cómo se pagó» (En efectivo · Mételo en la caja · Cobró…).
    */
   cashBy?: string | null;
-  /** CARGADO: el comprobante de la carga que sale con «Imprimir comprobante» (papel de 58 mm). */
+  /** CARGADO: el ticket de la carga que sale con «Imprimir ticket» (papel de 58 mm). */
   print?: Ticket | null;
 }
 
@@ -170,7 +170,7 @@ export function DeskLoaded({
               {secondary.label}
             </button>
           ) : null}
-          {print ? <PrintButton label="Imprimir comprobante" onClick={() => printer.print(print)} /> : null}
+          {print ? <PrintButton label="Imprimir ticket" onClick={() => printer.print(print)} /> : null}
         </div>
         {tertiary}
       </div>

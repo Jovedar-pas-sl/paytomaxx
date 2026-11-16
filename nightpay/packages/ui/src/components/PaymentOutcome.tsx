@@ -72,7 +72,7 @@ export interface PaymentOutcomeProps {
   /** El botón grande: «Nuevo cobro», «Otro QR · mismo importe»… */
   primary: OutcomeAction;
   secondary?: OutcomeAction;
-  /** Pagado: el ticket que sale con «Imprimir comprobante» (papel de 58 mm). Sin él, no hay botón. */
+  /** Pagado: el ticket que sale con «Imprimir ticket» (papel de 58 mm). Sin él, no hay botón. */
   print?: Ticket | null;
   error?: string | null;
 }
@@ -198,7 +198,12 @@ export function PaymentOutcome({
         <div className="np-outcome-actions">
           <OutcomeButton ref={primaryRef} action={primary} variant="primary" />
           {secondary ? <OutcomeButton action={secondary} variant="secondary" /> : null}
-          {print ? <PrintButton label="Imprimir comprobante" onClick={() => printer.print(print)} /> : null}
+          {print ? <PrintButton label="Imprimir ticket" onClick={() => printer.print(print)} /> : null}
+          {printer.error ? (
+            <p role="alert" className="np-outcome-error">
+              {printer.error}
+            </p>
+          ) : null}
         </div>
       </div>
 
