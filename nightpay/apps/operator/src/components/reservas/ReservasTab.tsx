@@ -2,11 +2,13 @@
 
 import { useCallback, useState, type CSSProperties } from 'react';
 import { Button } from '@nightpay/ui';
-import { formatMoney, type ReservationView } from '@nightpay/contracts';
+import { formatMoney, type ReservationCashQuote, type ReservationView } from '@nightpay/contracts';
 import {
   arriveReservation,
   chargeReservation,
   collectRest,
+  fetchCashQuote,
+  payRestCash,
   fetchReservation,
   scanReservation,
   serveReservation,
@@ -179,6 +181,7 @@ function Door({
   onRefresh: () => Promise<void>;
 }) {
   const [payUrl, setPayUrl] = useState<string | null>(null);
+  const [cash, setCash] = useState<(ReservationCashQuote & { key: string }) | null>(null);
   const [error, setError] = useState<string | null>(null);
   const step = doorStep(r, tonightInMadrid());
 
@@ -201,7 +204,7 @@ function Door({
   }
   return (
     <div style={card}>
-      <p style={line}>Falta por pagar {formatMoney(step.pendingCents)}. Lo paga con su móvil: que escanee este QR.</p>
+      <p style={line}>Falta por pagar {formatMoney(step.pendingCents)}: con tarjeta (su móvil, con el QR) o en efectivo.</p>
       {payUrl ? (
         <>
           <div style={qrBox}>
@@ -211,17 +214,49 @@ function Door({
             Ya ha pagado: comprobar
           </Button>
         </>
+      ) : cash ? (
+        <>
+          <p style={line}>
+            Coge {formatMoney(cash.totalCents)} en efectivo
+            {cash.serviceFeeCents > 0 ? ` (${formatMoney(cash.amountCents)} + ${formatMoney(cash.serviceFeeCents)} de comisión del servicio)` : ''} y pulsa el botón: entra en la caja de la noche.
+          </p>
+          <Button
+            size="lg"
+            loading={busy}
+            onClick={() => void onAct(() => payRestCash(r.id, cash.key, cash.serviceFeeCents), `Pagado: ${formatMoney(cash.totalCents)} en efectivo. Ya puedes dar la llegada.`)}
+          >
+            Cobrar {formatMoney(cash.totalCents)} en efectivo
+          </Button>
+          <Button variant="ghost" disabled={busy} onClick={() => setCash(null)}>
+            Volver
+          </Button>
+        </>
       ) : (
-        <Button
-          size="lg"
-          loading={busy}
-          onClick={() => {
-            setError(null);
-            collectRest(r.id).then((out) => setPayUrl(out.payUrl), (err: Error) => setError(err.message));
-          }}
-        >
-          Cobrar el resto
-        </Button>
+        <>
+          <Button
+            size="lg"
+            loading={busy}
+            onClick={() => {
+              setError(null);
+              collectRest(r.id).then((out) => setPayUrl(out.payUrl), (err: Error) => setError(err.message));
+            }}
+          >
+            Cobrar el resto con tarjeta
+          </Button>
+          <Button
+            variant="ghost"
+            disabled={busy}
+            onClick={() => {
+              setError(null);
+              fetchCashQuote(r.id).then(
+                (q) => (q.blocked ? setError(q.blocked) : setCash({ ...q, key: newSpendKey() })),
+                (err: Error) => setError(err.message),
+              );
+            }}
+          >
+            En efectivo
+          </Button>
+        </>
       )}
       {error ? <p style={bad}>{error}</p> : null}
     </div>

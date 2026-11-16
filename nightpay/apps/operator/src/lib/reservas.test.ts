@@ -13,6 +13,7 @@ describe('la puerta', () => {
   it('sin señal, anulada, «No vino» u otra noche: no pasa', () => {
     expect(doorStep({ status: 'PENDING', pendingCents: 30000, nightDate: tonight }, tonight).kind).toBe('blocked');
     expect(doorStep({ status: 'CANCELED', pendingCents: 0, nightDate: tonight }, tonight).kind).toBe('blocked');
+    expect(doorStep({ status: 'CLIENT_CANCELED', pendingCents: 0, nightDate: tonight }, tonight)).toEqual({ kind: 'blocked', reason: 'Anulada por el cliente' });
     expect(doorStep({ status: 'PAID', pendingCents: 0, nightDate: '2026-11-22' }, tonight)).toEqual({ kind: 'blocked', reason: 'Es de otra noche (2026-11-22)' });
   });
 });

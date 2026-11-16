@@ -15,7 +15,8 @@ export type DoorStep =
 export function doorStep(r: Pick<ReservationView, 'status' | 'pendingCents' | 'nightDate'>, tonight: string): DoorStep {
   if (r.status === 'ARRIVED') return { kind: 'arrived' };
   if (r.status === 'CANCELED') return { kind: 'blocked', reason: 'Reserva anulada' };
-  if (r.status === 'NO_SHOW') return { kind: 'blocked', reason: 'Marcada como «No vino»' };
+  if (r.status === 'NO_SHOW') return { kind: 'blocked', reason: 'Marcada como «No vino»: el encargado lo puede deshacer' };
+  if (r.status === 'CLIENT_CANCELED') return { kind: 'blocked', reason: 'Anulada por el cliente' };
   if (r.status === 'PENDING') return { kind: 'blocked', reason: 'Sin pagar: no tiene la señal' };
   if (r.nightDate !== tonight) return { kind: 'blocked', reason: `Es de otra noche (${r.nightDate})` };
   if (r.pendingCents > 0) return { kind: 'pay-rest', pendingCents: r.pendingCents };

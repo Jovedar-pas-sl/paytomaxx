@@ -3,7 +3,7 @@
 import { useEffect, useState, type CSSProperties } from 'react';
 import { Button } from '@nightpay/ui';
 import { formatMoney, type ReservationAccounting } from '@nightpay/contracts';
-import { fetchAccounting, fetchReservationSettings, setReservationsEnabled, type ReservationSettings } from '@/lib/endpoints/reservations';
+import { fetchAccounting, fetchReservationSettings, setOpenTime, setReservationsEnabled, type ReservationSettings } from '@/lib/endpoints/reservations';
 import { addDays, currentNight } from '@/lib/reservations';
 
 /**
@@ -19,10 +19,17 @@ export function ReservationsLinkCard({ isOwner }: { isOwner: boolean }) {
   const [acc, setAcc] = useState<(ReservationAccounting & { toSaldoCents: number }) | null>(null);
   const [busy, setBusy] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [openTime, setOpenTimeText] = useState('');
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    fetchReservationSettings().then(setSettings, (err: Error) => setError(err.message));
+    fetchReservationSettings().then(
+      (s) => {
+        setSettings(s);
+        setOpenTimeText(s.openTime);
+      },
+      (err: Error) => setError(err.message),
+    );
   }, []);
   useEffect(() => {
     if (from > to) return;
@@ -42,8 +49,32 @@ export function ReservationsLinkCard({ isOwner }: { isOwner: boolean }) {
     }
   }
 
+  async function saveOpenTime(): Promise<void> {
+    setBusy(true);
+    setError(null);
+    try {
+      setSettings(await setOpenTime(openTime));
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <div style={stack}>
+      <section style={box} aria-label="Hora de apertura">
+        <h3 style={h3}>Hora de apertura</h3>
+        <p className="np-set-note" style={{ margin: 0 }}>
+          Las 48 h para cambiar la fecha o anular cuentan desde aquí. Para esta misma noche se reserva hasta 2 h antes.
+        </p>
+        <div style={row}>
+          <input type="time" style={{ ...input, flex: '0 1 9rem' }} value={openTime} onChange={(e) => setOpenTimeText(e.target.value)} aria-label="Hora de apertura" />
+          <Button variant="ghost" size="sm" loading={busy} disabled={!settings || openTime === settings.openTime || !openTime} onClick={() => void saveOpenTime()}>
+            Guardar hora
+          </Button>
+        </div>
+      </section>
       <section style={box} aria-label="Reservar desde la web">
         <h3 style={h3}>Reservar desde la web</h3>
         <p className="np-set-note" style={{ margin: 0 }}>

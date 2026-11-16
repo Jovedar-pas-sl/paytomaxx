@@ -11,6 +11,7 @@ import {
   parseItems,
   percentToBps,
   reservationActions,
+  statusTone,
 } from './reservations';
 
 describe('el % de los RRPP', () => {
@@ -86,5 +87,7 @@ describe('la noche y los botones', () => {
     expect(reservationActions({ status: 'DEPOSIT_PAID', paidCents: 9000 }).cancel).toBe('Devolver');
     expect(reservationActions({ status: 'ARRIVED', paidCents: 30000 })).toEqual({ table: true, changeDate: false, cancel: null });
     expect(reservationActions({ status: 'NO_SHOW', paidCents: 9000 })).toEqual({ table: false, changeDate: false, cancel: null });
+    expect(reservationActions({ status: 'CLIENT_CANCELED', paidCents: 30000 }).cancel).toBeNull();
+    expect(statusTone('CLIENT_CANCELED')).toBe('bad');
   });
 });

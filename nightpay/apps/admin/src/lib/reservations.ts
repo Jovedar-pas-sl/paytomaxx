@@ -146,7 +146,7 @@ export function reservationActions(r: Pick<ReservationView, 'status' | 'paidCent
 export function statusTone(status: ReservationView['status']): 'ok' | 'warn' | 'mute' | 'bad' {
   if (status === 'PAID' || status === 'ARRIVED') return 'ok';
   if (status === 'DEPOSIT_PAID' || status === 'PENDING') return 'warn';
-  if (status === 'NO_SHOW') return 'bad';
+  if (status === 'NO_SHOW' || status === 'CLIENT_CANCELED') return 'bad';
   return 'mute';
 }
 

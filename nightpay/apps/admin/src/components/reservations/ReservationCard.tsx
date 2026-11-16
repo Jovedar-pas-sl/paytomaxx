@@ -3,7 +3,7 @@
 import { useState, type CSSProperties } from 'react';
 import { Button } from '@nightpay/ui';
 import { formatMoney, type ReservationView } from '@nightpay/contracts';
-import { markNoShow, setTable, venueCancel, venueChangeDate } from '@/lib/endpoints/reservations';
+import { arriveFromPanel, markNoShow, setTable, undoNoShow, venueCancel, venueChangeDate } from '@/lib/endpoints/reservations';
 import { nightLabel, reservationActions, statusTone } from '@/lib/reservations';
 
 type Ask = 'date' | 'cancel' | null;
@@ -53,7 +53,10 @@ export function ReservationCard({
         <h3 id={`resv-${r.id}`} style={title}>
           {r.customerName} <span style={mute}>· {r.ref}</span>
         </h3>
-        <span style={{ ...pill, color: TONE[tone].ink, background: TONE[tone].bg }}>{r.statusText}</span>
+        <span style={{ ...pill, color: TONE[tone].ink, background: TONE[tone].bg }}>
+          {r.statusText}
+          {r.status === 'NO_SHOW' && r.noShowAuto ? ' (a las 12:00)' : ''}
+        </span>
       </header>
       <p style={line}>
         {r.packageName} · {r.entries} {r.entries === 1 ? 'persona' : 'personas'} · {nightLabel(r.nightDate)}
@@ -100,8 +103,18 @@ export function ReservationCard({
           </Button>
         ) : null}
         {overdue ? (
-          <Button variant="danger" size="sm" loading={busy} onClick={() => void run(async () => ({ view: await markNoShow(r.id), notice: `${r.ref}: no vino. La señal no se devuelve.` }))}>
-            No vino
+          <>
+            <Button variant="ghost" size="sm" disabled={busy || r.pendingCents > 0} onClick={() => void run(async () => ({ view: await arriveFromPanel(r.id), notice: `${r.ref}: llegada apuntada.` }))}>
+              Ha venido
+            </Button>
+            <Button variant="danger" size="sm" loading={busy} onClick={() => void run(async () => ({ view: await markNoShow(r.id), notice: `${r.ref}: no vino. La señal no se devuelve.` }))}>
+              No vino
+            </Button>
+          </>
+        ) : null}
+        {r.status === 'NO_SHOW' ? (
+          <Button variant="ghost" size="sm" loading={busy} onClick={() => void run(async () => ({ view: await undoNoShow(r.id), notice: `${r.ref}: «No vino» deshecho. La señal vuelve a su saldo.` }))}>
+            Deshacer «No vino»
           </Button>
         ) : null}
       </div>

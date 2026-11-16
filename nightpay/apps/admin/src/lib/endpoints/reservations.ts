@@ -21,6 +21,8 @@ const post = (body: unknown): RequestInit => ({ method: 'POST', body: JSON.strin
 
 export interface ReservationSettings {
   enabled: boolean;
+  /** Hora de apertura («22:30»): las 48 h y «esta noche hasta 2 h antes» cuentan desde ella. */
+  openTime: string;
   url: string | null;
 }
 
@@ -40,6 +42,11 @@ export const venueChangeDate = (id: string, nightDate: string) => call<Reservati
 export const venueCancel = (id: string, reason: string) =>
   call<{ reservation: ReservationView; refundCents: number; walletId: string | null }>(`/v1/reservations/${id}/cancel`, post({ reason }));
 export const markNoShow = (id: string) => call<ReservationView>(`/v1/reservations/${id}/no-show`, post({}));
+export const undoNoShow = (id: string) => call<ReservationView>(`/v1/reservations/${id}/no-show/undo`, post({}));
+/** «Ha venido»: el encargado apunta la llegada (también la de una noche pasada). */
+export const arriveFromPanel = (id: string) => call<ReservationView>(`/v1/reservations/${id}/arrive`, post({}));
+export const setOpenTime = (openTime: string) =>
+  call<ReservationSettings>('/v1/reservations/settings', { method: 'PATCH', body: JSON.stringify({ openTime }) });
 
 export const fetchReservationSettings = () => call<ReservationSettings>('/v1/reservations/settings');
 export const setReservationsEnabled = (enabled: boolean) =>
