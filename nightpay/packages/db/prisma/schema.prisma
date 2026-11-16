@@ -94,6 +94,9 @@ model Venue {
   // azar (16 letras de base64url). CHECK en SQL: encendido ⇒ con código.
   reservationsEnabled   Boolean   @default(false)
   reservationsCode      String?   @unique
+  // Hora de apertura (minutos desde las 00:00; 20261117300100): las 48 h y el
+  // «hasta 2 h antes» de los reservados cuentan desde ella. CHECK 0–1439.
+  reservationsOpenMinute Int      @default(1200)
   createdAt             DateTime  @default(now()) @db.Timestamptz
   updatedAt             DateTime  @updatedAt @db.Timestamptz
   deletedAt             DateTime? @db.Timestamptz
@@ -719,6 +722,8 @@ model WalletCashTopUp {
   voidOf   WalletCashTopUp? @relation("CashTopUpVoid", fields: [voidOfId], references: [id], onDelete: Cascade)
   voidedBy WalletCashTopUp? @relation("CashTopUpVoid")
 
+  // Reservados: el resto de una reserva pagado en efectivo.
+  reservationPayment ReservationPayment?
   @@unique([tenantId, idempotencyKey])
   @@index([tenantId, createdAt(sort: Desc)])
   @@index([walletId, createdAt])
@@ -1813,6 +1818,10 @@ model Reservation {
   promoterBps        Int?
   soldByUserId       String?   @db.Uuid
   commissionEarnedAt DateTime? @db.Timestamptz
+  // El local cambió la fecha o anuló: el RRPP pierde la comisión (20261117300100).
+  commissionVoidedAt DateTime? @db.Timestamptz
+  // «No vino» puesto solo (a las 12:00 del día siguiente).
+  noShowAuto         Boolean   @default(false)
   walletId           String?   @db.Uuid
   manageToken        String    @unique
   tableLabel         String?
@@ -1872,15 +1881,18 @@ model ReservationPayment {
   id            String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   tenantId      String    @db.Uuid
   reservationId String    @db.Uuid
-  paymentId     String    @unique @db.Uuid
+  // Con tarjeta (paymentId) o el resto en efectivo (cashTopUpId): uno de los dos (CHECK en SQL).
+  paymentId     String?   @unique @db.Uuid
+  cashTopUpId   String?   @unique @db.Uuid
   kind          String
   amountCents   Int
   paidAt        DateTime? @db.Timestamptz
   createdAt     DateTime  @default(now()) @db.Timestamptz
 
-  venue       Venue       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  reservation Reservation @relation(fields: [reservationId], references: [id], onDelete: Restrict)
-  payment     Payment     @relation(fields: [paymentId], references: [id], onDelete: Restrict)
+  venue       Venue            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  reservation Reservation      @relation(fields: [reservationId], references: [id], onDelete: Restrict)
+  payment     Payment?         @relation(fields: [paymentId], references: [id], onDelete: Restrict)
+  cashTopUp   WalletCashTopUp? @relation(fields: [cashTopUpId], references: [id], onDelete: Restrict)
 
   @@index([reservationId])
   @@index([tenantId, paidAt])

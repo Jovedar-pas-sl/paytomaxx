@@ -24,7 +24,7 @@ export function reservationDepositCents(priceCents: number): number {
   return Math.round((priceCents * RESERVATION_DEPOSIT_BPS) / 10_000);
 }
 
-export const RESERVATION_STATUSES = ['PENDING', 'DEPOSIT_PAID', 'PAID', 'ARRIVED', 'NO_SHOW', 'CANCELED'] as const;
+export const RESERVATION_STATUSES = ['PENDING', 'DEPOSIT_PAID', 'PAID', 'ARRIVED', 'NO_SHOW', 'CANCELED', 'CLIENT_CANCELED'] as const;
 export type ReservationStatus = (typeof RESERVATION_STATUSES)[number];
 
 /** Cómo se dice cada estado en la app (español sencillo). */
@@ -35,7 +35,45 @@ export const RESERVATION_STATUS_TEXT: Record<ReservationStatus, string> = {
   ARRIVED: 'Ha llegado',
   NO_SHOW: 'No vino',
   CANCELED: 'Anulada',
+  CLIENT_CANCELED: 'Anulada por el cliente',
 };
+
+/** Hora de apertura por defecto (20:00), en minutos desde las 00:00. */
+export const DEFAULT_OPEN_MINUTE = 20 * 60;
+/** Se reserva para esta misma noche hasta 2 h antes de abrir. */
+export const SAME_NIGHT_CUTOFF_MS = 2 * 60 * 60 * 1000;
+
+/** «22:30» → 1350 (null si no es una hora). */
+export function openMinuteOf(text: string): number | null {
+  const m = /^([01]?\d|2[0-3]):([0-5]\d)$/.exec(text.trim());
+  return m ? Number(m[1]) * 60 + Number(m[2]) : null;
+}
+
+/** 1350 → «22:30». */
+export function openTimeText(minute: number): string {
+  return `${String(Math.floor(minute / 60)).padStart(2, '0')}:${String(minute % 60).padStart(2, '0')}`;
+}
+
+/** Lo que se cobra en efectivo del resto (con la «Comisión del servicio» de las recargas si está encendida). */
+export interface ReservationCashQuote {
+  amountCents: number;
+  serviceFeeCents: number;
+  totalCents: number;
+  /** null: se puede cobrar en efectivo; si no, por qué no. */
+  blocked: string | null;
+}
+
+export const ReservationCashSchema = z
+  .object({
+    key: z.string().regex(/^[A-Za-z0-9_:-]{8,80}$/),
+    /** La comisión del servicio que enseñó la pantalla (0 sin ella). */
+    serviceFeeCents: z.number().int().min(0).max(RESERVATION_MAX_PRICE_CENTS),
+  })
+  .strict();
+
+export const ReservationSettingsSchema = z
+  .object({ enabled: z.boolean().optional(), openTime: z.string().regex(/^([01]?\d|2[0-3]):[0-5]\d$/, 'Pon la hora como 22:30').optional() })
+  .strict();
 
 export type ReservationKind = 'ITEMS' | 'CREDIT';
 export type ReservationSource = 'WEB' | 'RRPP' | 'PANEL';
@@ -189,6 +227,8 @@ export interface ReservationView {
   itemsLeft: Array<{ name: string; qty: number; left: number }>;
   guests: ReservationGuestView[];
   arrivedAt: string | null;
+  /** «No vino» puesto solo (a las 12:00 del día siguiente). */
+  noShowAuto: boolean;
   canceledAt: string | null;
   cancelReason: string | null;
   createdAt: string;
