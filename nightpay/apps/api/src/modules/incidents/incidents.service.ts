@@ -1,4 +1,4 @@
-import { BadRequestException, Inject, Injectable, NotFoundException, Optional } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
 import { APPROVAL_INCIDENT_MINUTES, APPROVAL_TTL_MS, PENDING_TOPUP_INCIDENT_MINUTES } from '@nightpay/contracts';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { lastNightCutoff } from '../../common/time/madrid';
@@ -51,6 +51,7 @@ import {
   type StuckRow,
 } from './incident-rules';
 import { runLimited } from './run-limited';
+import { bitcoinPartCents, walletCash } from '../wallets/wallet-cash-limits';
 
 /** Hasta dónde se mira atrás, y cuántas de cada tipo como mucho. */
 const LOOKBACK_DAYS = 60;
@@ -116,7 +117,7 @@ export class IncidentsService {
       unassignedTopUps,
     ] = await runLimited([
       () => this.prisma.$queryRaw<StuckRow[]>`
-        SELECT id, status::text AS status, "amountCents", "updatedAt"
+        SELECT id, status::text AS status, "amountCents", "updatedAt", provider::text AS provider
           FROM payments
          WHERE "tenantId" = ${tenantId}::uuid
            AND "createdAt" >= ${since}
@@ -278,23 +279,32 @@ export class IncidentsService {
          LIMIT ${PER_KIND_LIMIT}
       `,
       // Avisos de cobro aprobado que no se dieron por buenos (webhook-ingest).
-      // "Sin comprobar" se quita sola cuando el cobro se resuelve.
-      () => this.prisma.$queryRaw<PaymentAnomalyRow[]>`
+      // "Sin comprobar" se quita sola cuando el cobro se resuelve; la de una
+      // factura de bitcoin con el cobro ya cerrado (pago tardío o a medias),
+      // no: el bitcoin está en la cartera y se cierra con una nota. El bitcoin
+      // ya devuelto en efectivo (btc_cash_returns) deja de salir.
+      () => this.prisma.asSystem((tx) => tx.$queryRaw<PaymentAnomalyRow[]>`
         SELECT e.id::text AS id, e."eventType", e."paymentId",
-               (p."amountCents" + p."serviceFeeCents" + p."tipCents")::int AS "amountCents", e."occurredAt", e.payload
+               (p."amountCents" + p."serviceFeeCents" + p."tipCents")::int AS "amountCents", e."occurredAt", e.payload,
+               p.status::text AS "paymentStatus"
           FROM payment_events e
           JOIN payments p ON p.id = e."paymentId"
          WHERE e."tenantId" = ${tenantId}::uuid
-           AND e."eventType" IN ('payment.approval_unverified', 'payment.amount_mismatch', 'payment.approval_unbooked')
+           AND e."eventType" IN ('payment.approval_unverified', 'payment.amount_mismatch', 'payment.approval_unbooked', 'payment.bitcoin_overpaid')
            AND e."occurredAt" >= ${since}
-           AND (e."eventType" <> 'payment.approval_unverified' OR p.status::text IN ('AUTHORIZING', 'ORPHAN'))
+           AND (e."eventType" <> 'payment.approval_unverified' OR p.status::text IN ('AUTHORIZING', 'ORPHAN')
+                OR e.payload->>'source' = 'btcpay')
            AND NOT EXISTS (SELECT 1 FROM incident_acks k
                             WHERE k."tenantId" = e."tenantId"
-                              AND k.kind IN ('amount_mismatch', 'approval_unbooked')
+                              AND k.kind IN ('amount_mismatch', 'approval_unbooked', 'bitcoin_overpaid')
                               AND k."refId" = e.id::text)
+           AND NOT EXISTS (SELECT 1 FROM btc_cash_returns x
+                            WHERE x."tenantId" = e."tenantId"
+                              AND e.payload->>'provider' = 'BTCPAY'
+                              AND x."invoiceId" = e.payload->>'providerTxId')
          ORDER BY e."occurredAt" DESC
          LIMIT ${PER_KIND_LIMIT}
-      `,
+      `),
       // Devoluciones por la pasarela sin confirmar (refund.outcome_unknown) o
       // hechas y sin apuntar (refund.settle_failed). Sin límite de antigüedad:
       // mientras sigan PENDING reservan importe del cobro. Se quitan al resolverlas.
@@ -414,7 +424,7 @@ export class IncidentsService {
       ...posUnmatched.map(posUnmatchedOpIncident),
       ...posUnreconciled.map(posUnreconciledIncident),
       ...posVoidedPaid.map(posVoidedPaidIncident),
-      ...walletsToClose.map(walletCloseRequestedIncident),
+      ...(await this.withBitcoinParts(walletsToClose)).map(walletCloseRequestedIncident),
       ...walletsLeftOpen.map(walletOpenBalanceIncident),
       ...unassignedTopUps.map(walletTopUpUnassignedIncident),
       // La misma diferencia repetida (dos subidas a la vez) sale una vez.
@@ -507,7 +517,27 @@ export class IncidentsService {
       payload: { note: input.note ?? null },
     });
   }
+
+  /**
+   * «Me voy»: la parte de cada saldo que entró con bitcoin (no se devuelve: se
+   * queda como saldo para otra noche). Si todo es bitcoin, no hay nada que hacer
+   * y no sale. Si no se puede leer, como antes (todo por devolver).
+   */
+  private async withBitcoinParts(rows: WalletBalanceRow[]): Promise<WalletBalanceRow[]> {
+    if (rows.length === 0) return rows;
+    try {
+      const out = await this.prisma.asSystem((tx) =>
+        Promise.all(rows.map(async (r) => ({ ...r, bitcoinCents: bitcoinPartCents(r.balanceCents, await walletCash(tx, r.id)) }))),
+      );
+      return out.filter((r) => r.balanceCents - r.bitcoinCents > 0);
+    } catch (err) {
+      meVoyLogger.warn(`«Me voy»: no se pudo separar la parte de bitcoin (${(err as Error).message})`);
+      return rows;
+    }
+  }
 }
+
+const meVoyLogger = new Logger('IncidentsService');
 
 function uniqueBy<T>(list: T[], key: (t: T) => string): T[] {
   const seen = new Set<string>();

@@ -71,6 +71,12 @@ export const INCIDENT_KINDS: Record<IncidentKind, KindMeta> = {
     tab: 'wallets',
     hint: 'Revisa el cobro y, si procede, devuélvelo. Su ficha y su PIN ya no pagan: desbloquea el PIN en Saldos y dale una ficha nueva en recepción.',
   },
+  bitcoin_overpaid: {
+    group: 'Cobro',
+    title: 'Pago de bitcoin de más',
+    tab: 'payments',
+    hint: 'El cobro está pagado. Lo de más se queda en la cartera del local y no se devuelve: ciérralo con una nota para el cuadre.',
+  },
   sensitive_action: {
     group: 'Saldo',
     title: 'Acción delicada',

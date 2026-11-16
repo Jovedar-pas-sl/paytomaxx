@@ -18,6 +18,7 @@ import { formatDateTime } from '@/lib/dates';
 import { useLockActive } from '@/lib/use-lock';
 import { centsToInput, formatEur, formatMoney } from '@/lib/money';
 import { proofFor, refundAutoSends, refundButtonText } from '@/lib/refund-confirm';
+import { resolveProofFor, resolveProofValue } from '@/lib/resolve-stuck';
 import { refundServiceFeeHint } from '@/lib/service-fee-text';
 import { useStepUpMethod } from '@/lib/use-step-up-method';
 import { useVenue, useVenueTimezone } from '@/lib/venue-context';
@@ -71,16 +72,19 @@ export function ResolveModal({
   // cobró el banco (la propina es de la chica). Los denegados no cuentan.
   const attempts = payment.attempts ?? [];
   const chargeable = attempts.filter((a) => a.status !== 'DENIED');
+  // Con bitcoin no hay banco: la factura de BTCPay dice cuál se cobró.
+  const proof = resolveProofFor(payment.provider);
+  const bitcoin = proof.field === 'btcpayInvoiceRef';
   const tipsDiffer = new Set(chargeable.map((a) => a.tipCents ?? null)).size > 1;
-  const needsOrder = decision === 'AUTHORIZED' && tipsDiffer;
+  const needsOrder = decision === 'AUTHORIZED' && tipsDiffer && !bitcoin;
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     if (!payment) return;
     setError(null);
-    const code = authCode.replace(/\s+/g, '').toUpperCase();
-    if (decision === 'AUTHORIZED' && !/^[A-Z0-9]{6}$/.test(code)) {
-      setError('Pon el código de autorización del banco: 6 letras o números.');
+    const typed = resolveProofValue(proof, authCode);
+    if (decision === 'AUTHORIZED' && !typed.ok) {
+      setError(typed.error);
       return;
     }
     if (needsOrder && !bankOrder) {
@@ -100,7 +104,7 @@ export function ResolveModal({
       await resolveStuckPayment(payment.id, {
         decision,
         reason: reason.trim(),
-        ...(decision === 'AUTHORIZED' ? { bankAuthCode: code, totpCode: totp } : {}),
+        ...(decision === 'AUTHORIZED' && typed.ok ? { [proof.field]: typed.value, totpCode: totp } : {}),
         ...(needsOrder ? { bankOrder } : {}),
       });
       onDone();
@@ -120,14 +124,15 @@ export function ResolveModal({
         <span className="np-num">{formatMoney(payment.amountCents, payment.currency)}</span>
         {' · '}
         {formatDateTime(payment.createdAt, tz, 'short')}
-        {payment.providerTxId ? (
+        {payment.providerTxId && !bitcoin ? (
           <>
             {' '}
             · pedido <code style={codeStyle}>{payment.providerTxId}</code>
           </>
         ) : null}
+        {bitcoin ? ' · pagado con bitcoin' : null}
       </p>
-      {payment.attempts && payment.attempts.length > 0 ? (
+      {payment.attempts && payment.attempts.length > 0 && !bitcoin ? (
         <ul style={{ ...metaStyle, margin: '0.5rem 0 0', paddingLeft: '1.1rem' }}>
           {payment.attempts.map((a) => (
             <li key={a.providerTxId}>
@@ -138,9 +143,7 @@ export function ResolveModal({
           ))}
         </ul>
       ) : null}
-      <p style={{ ...metaStyle, marginTop: '0.5rem' }}>
-        Búscalo en el portal del banco por importe, hora o número de pedido.
-      </p>
+      <p style={{ ...metaStyle, marginTop: '0.5rem' }}>{proof.where}</p>
       <form onSubmit={handleSubmit} style={formStyle}>
         <div
           role="radiogroup"
@@ -166,12 +169,14 @@ export function ResolveModal({
         </div>
         {decision === 'AUTHORIZED' ? (
           <Input
-            label="Código de autorización del banco"
+            label={proof.label}
             value={authCode}
             onChange={(e) => setAuthCode(e.target.value)}
-            placeholder="ej: 047215"
-            maxLength={8}
-            autoCapitalize="characters"
+            placeholder={proof.placeholder}
+            maxLength={proof.maxLength}
+            autoCapitalize={bitcoin ? 'off' : 'characters'}
+            autoCorrect="off"
+            spellCheck={false}
             required
           />
         ) : null}
@@ -196,7 +201,7 @@ export function ResolveModal({
           label="Cómo lo has comprobado"
           value={reason}
           onChange={(e) => setReason(e.target.value)}
-          placeholder="ej: aparece en el portal BBVA a las 09:50"
+          placeholder={proof.reasonPlaceholder}
           maxLength={500}
           required
         />

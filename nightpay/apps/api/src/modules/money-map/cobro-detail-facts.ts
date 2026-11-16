@@ -499,14 +499,21 @@ function paymentHistory(
   audits: readonly AuditRow[],
 ): CobroDetailHistoryItem[] {
   const items: CobroDetailHistoryItem[] = [];
+  // Con bitcoin (BTCPay) no hay banco: el cliente va a pagar su factura de bitcoin.
+  const bitcoin = p.provider === 'BTCPAY';
   for (const e of p.events) {
     if (e.eventType === PAYMENT_DEVICE_EVENT) continue;
     const payload = payloadOf(e);
-    items.push({ at: e.occurredAt.toISOString(), what: EVENT_TEXT[e.eventType] ?? e.eventType, detail: eventDetail(e.eventType, payload, people) });
+    const what = bitcoin && e.eventType === 'payment.authorizing' ? 'El cliente fue a pagar con bitcoin' : (EVENT_TEXT[e.eventType] ?? e.eventType);
+    items.push({ at: e.occurredAt.toISOString(), what, detail: eventDetail(e.eventType, payload, people) });
   }
   for (const a of p.attempts) {
-    const how = a.payMethod === 'wallet' ? 'Apple Pay / Google Pay' : 'tarjeta';
     const status = a.status === 'APPROVED' ? 'aprobado' : a.status === 'DENIED' ? 'denegado' : 'sin respuesta';
+    if (a.payMethod === 'bitcoin') {
+      items.push({ at: a.createdAt.toISOString(), what: `Intento de pago con bitcoin: ${status}`, detail: `Factura de BTCPay ${a.providerTxId}` });
+      continue;
+    }
+    const how = a.payMethod === 'wallet' ? 'Apple Pay / Google Pay' : 'tarjeta';
     items.push({ at: a.createdAt.toISOString(), what: `Intento de pago con ${how}: ${status}`, detail: `Pedido ${a.providerTxId}` });
   }
   for (const r of p.refunds) {

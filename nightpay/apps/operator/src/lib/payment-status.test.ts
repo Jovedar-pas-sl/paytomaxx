@@ -34,7 +34,7 @@ describe('el sondeo de respaldo (sin tiempo real)', () => {
   });
 
   it('esperando al banco: cuándo salió el intento (la espera se cuenta desde ahí); un API viejo, sin él', () => {
-    expect(pollUpdate({ status: 'AUTHORIZING', attemptStartedAt: '2026-10-14T00:00:05.000Z' }, ID)).toEqual({
+    expect(pollUpdate({ status: 'AUTHORIZING', attemptStartedAt: '2026-10-14T00:00:05.000Z', bitcoin: 'none' }, ID)).toEqual({
       status: 'AUTHORIZING',
       attemptStartedAt: '2026-10-14T00:00:05.000Z',
       bitcoin: null,
@@ -53,15 +53,17 @@ describe('el sondeo de respaldo (sin tiempo real)', () => {
   });
 
   it('sin pagar, el API ya no da el id (de él sale el código del «Pagado»): la respuesta de su QR vale', () => {
-    expect(pollUpdate({ status: 'AUTHORIZING' }, ID)).toEqual({ status: 'AUTHORIZING', bitcoin: null });
+    expect(pollUpdate({ status: 'AUTHORIZING', bitcoin: 'none' }, ID)).toEqual({ status: 'AUTHORIZING', bitcoin: null });
     expect(pollUpdate({ status: 'FAILED' }, ID)).toEqual({ status: 'FAILED' });
   });
 
-  it('pagando con bitcoin: el estado de su factura (open, confirming, problem); con tarjeta (o un API viejo), null', () => {
+  it('pagando con bitcoin: el estado de su factura (open, confirming, problem); en su banco (none), null; un API viejo sin el campo, «no se sabe»', () => {
     expect(pollUpdate({ status: 'AUTHORIZING', bitcoin: 'open' }, ID)).toEqual({ status: 'AUTHORIZING', bitcoin: 'open' });
     expect(pollUpdate({ status: 'AUTHORIZING', bitcoin: 'confirming' }, ID)).toMatchObject({ bitcoin: 'confirming' });
     expect(pollUpdate({ status: 'AUTHORIZING', bitcoin: 'problem' }, ID)).toMatchObject({ bitcoin: 'problem' });
-    expect(pollUpdate({ status: 'AUTHORIZING' }, ID)).toMatchObject({ bitcoin: null });
+    expect(pollUpdate({ status: 'AUTHORIZING', bitcoin: 'none' }, ID)).toMatchObject({ bitcoin: null });
+    // Sin el campo no se da por hecho que paga en su banco (y se esconda «Cancelar»): no se sabe.
+    expect(pollUpdate({ status: 'AUTHORIZING' }, ID)).toMatchObject({ bitcoin: 'unknown' });
     // Un valor que no se conoce no abre la puerta a cancelar.
     expect(pollUpdate({ status: 'AUTHORIZING', bitcoin: 'otra-cosa' as never }, ID)).toMatchObject({ bitcoin: null });
   });

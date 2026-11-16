@@ -31,6 +31,8 @@ export interface BtcpaySettingsView {
   lastCheckAt: string | null;
   lastCheckOk: boolean | null;
   lastCheckMessage: string | null;
+  /** Devolver en efectivo lo pagado con bitcoin (encargado y dueño). Apagado de fábrica. */
+  cashRefund: boolean;
 }
 
 const StoreIdSchema = z
@@ -90,7 +92,13 @@ export interface BtcpayTestResult {
 
 /** Cambiar solo el interruptor o el uso (sin tocar la conexión). Con 2FA, como el resto. */
 export const UpdateBtcpayModeSchema = z
-  .object({ enabled: z.boolean(), purpose: z.enum(BTCPAY_PURPOSES), totpCode: TotpSchema })
+  .object({
+    enabled: z.boolean(),
+    purpose: z.enum(BTCPAY_PURPOSES),
+    /** Devolver en efectivo lo pagado con bitcoin. Sin el campo, no se cambia. */
+    cashRefund: z.boolean().optional(),
+    totpCode: TotpSchema,
+  })
   .strict();
 export type UpdateBtcpayModeDto = z.infer<typeof UpdateBtcpayModeSchema>;
 

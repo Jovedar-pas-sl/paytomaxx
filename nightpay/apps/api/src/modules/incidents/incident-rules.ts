@@ -9,6 +9,7 @@ import { madridDay } from '../../common/time/madrid';
 import type { BackupVerdict } from '../db-backups/backup-check';
 import { SALDOS_TAB_PATH } from '../wallets/saldo-texts';
 import { formatWalletCode } from '../wallets/wallet-rules';
+import { bitcoinAnomalyIncident } from './bitcoin-incidents';
 
 export type IncidentKind =
   | 'stuck_payment'
@@ -37,7 +38,8 @@ export type IncidentKind =
   | 'wallet_topup_unassigned'
   | 'wallet_card_lost'
   | 'wallet_charge_disputed'
-  | 'sensitive_action';
+  | 'sensitive_action'
+  | 'bitcoin_overpaid';
 
 /** Las que desaparecen solas al resolverse (no se marcan como revisadas). */
 export const SELF_RESOLVING: ReadonlySet<IncidentKind> = new Set<IncidentKind>([
@@ -75,6 +77,7 @@ export const ACKABLE_KINDS = [
   'wallet_card_lost',
   'wallet_charge_disputed',
   'sensitive_action',
+  'bitcoin_overpaid',
 ] as const satisfies readonly IncidentKind[];
 
 /**
@@ -98,6 +101,7 @@ const MONEY_ACK_KINDS: ReadonlySet<IncidentKind> = new Set<IncidentKind>([
   'bank_mismatch',
   // «No he sido yo»: se cierra diciendo qué se hizo (devuelto, era suyo…).
   'wallet_charge_disputed',
+  'bitcoin_overpaid',
 ]);
 
 /** Letras mínimas de la nota de un aviso de dinero (como la del cierre con cobros sin terminar). */
@@ -130,6 +134,11 @@ export interface Incident {
    * el local no quiere nombres (Ajustes → Avisos). Sin él, el detalle no lleva nombres.
    */
   alertDetail?: string;
+  /**
+   * Bitcoin sin cobro que se puede devolver en efectivo (si el local lo tiene
+   * encendido): la factura de BTCPay y lo máximo, lo que llegó en € de la factura.
+   */
+  cashReturn?: { invoiceId: string; maxCents: number };
 }
 
 /** Filas crudas que lee el servicio, una por tipo. */
@@ -138,6 +147,8 @@ export interface StuckRow {
   status: string;
   amountCents: number;
   updatedAt: Date;
+  /** BTCPAY: paga con bitcoin (no hay banco: se mira su factura en BTCPay). Sin el campo, el banco. */
+  provider?: string | null;
 }
 export interface EventRow {
   id: string;
@@ -165,11 +176,15 @@ function str(payload: unknown, key: string): string | null {
 
 export function stuckIncident(r: StuckRow): Incident {
   const orphan = r.status === 'ORPHAN';
+  const bitcoin = r.provider === 'BTCPAY';
   return {
     kind: 'stuck_payment',
     refId: r.id,
-    title: orphan ? 'Cobro sin confirmar por el banco' : 'Cobro atascado esperando al banco',
-    detail: `${eur(r.amountCents)}. Búscalo en el portal de BBVA y resuélvelo en Hoy → Cobros → Resolver.`,
+    title: bitcoin ? 'Cobro con bitcoin sin terminar' : orphan ? 'Cobro sin confirmar por el banco' : 'Cobro atascado esperando al banco',
+    // Con bitcoin no hay banco: su factura en BTCPay dice si se pagó (y su id es lo que pide «Resolver»).
+    detail: bitcoin
+      ? `${eur(r.amountCents)}. Mira su factura en tu BTCPay (Facturas, por importe y hora) y resuélvelo en Hoy → Cobros → Resolver con el id de la factura.`
+      : `${eur(r.amountCents)}. Búscalo en el portal de BBVA y resuélvelo en Hoy → Cobros → Resolver.`,
     occurredAt: r.updatedAt.toISOString(),
     amountCents: r.amountCents,
     paymentId: r.id,
@@ -463,22 +478,39 @@ export interface WalletBalanceRow {
   shortCode: string | null;
   balanceCents: number;
   occurredAt: Date;
+  /** De ese saldo, lo que entró con bitcoin: no se devuelve (se queda como saldo para otra noche). */
+  bitcoinCents?: number;
 }
+
+/** La parte del saldo que entró con bitcoin (decisión del dueño, fase D). */
+export const BITCOIN_STAYS_TEXT = 'esta parte entró con bitcoin: se queda como saldo para otra noche, no se devuelve';
 
 /** « · código K7Q-4M2»: como lo ve el cliente en su móvil (con guion); sin código, nada. */
 function codeText(shortCode: string | null): string {
   return shortCode ? ` · código ${formatWalletCode(shortCode)}` : '';
 }
 
-/** El cliente pulsó "Me voy": hay que devolverle el saldo. */
+/**
+ * El cliente pulsó "Me voy": hay que devolverle el saldo. La parte que entró
+ * con bitcoin no se devuelve (se queda como saldo para otra noche): se dice
+ * aparte y no cuenta en lo que hay que devolver.
+ */
 export function walletCloseRequestedIncident(r: WalletBalanceRow): Incident {
+  const bitcoin = Math.max(0, Math.min(r.balanceCents, r.bitcoinCents ?? 0));
+  const refundable = r.balanceCents - bitcoin;
+  const detail =
+    bitcoin === 0
+      ? `${eur(r.balanceCents)}${codeText(r.shortCode)}. Devuélveselo en ${SALDOS_TAB_PATH} → Devolver saldo (tarjeta o efectivo).`
+      : refundable === 0
+        ? `${eur(r.balanceCents)}${codeText(r.shortCode)}: todo entró con bitcoin. ${capitalize(BITCOIN_STAYS_TEXT)}.`
+        : `${eur(r.balanceCents)}${codeText(r.shortCode)}. Devuélvele ${eur(refundable)} en ${SALDOS_TAB_PATH} → Devolver saldo (tarjeta o efectivo). Los otros ${eur(bitcoin)}: ${BITCOIN_STAYS_TEXT}.`;
   return {
     kind: 'wallet_close_requested',
     refId: r.id,
     title: 'Un cliente pide que le devuelvan su saldo',
-    detail: `${eur(r.balanceCents)}${codeText(r.shortCode)}. Devuélveselo en ${SALDOS_TAB_PATH} → Devolver saldo (tarjeta o efectivo).`,
+    detail,
     occurredAt: r.occurredAt.toISOString(),
-    amountCents: r.balanceCents,
+    amountCents: refundable,
     paymentId: null,
     ackable: false,
   };
@@ -658,6 +690,8 @@ export function backupIncidents(verdict: BackupVerdict, now: Date, production: b
  */
 export interface PaymentAnomalyRow extends EventRow {
   eventType: string;
+  /** El estado del cobro ahora (bitcoin: si ya estaba cerrado cuando llegó). Sin el campo, no se sabe. */
+  paymentStatus?: string;
 }
 
 /** Quién avisa y dónde comprobarlo, por pasarela. */
@@ -692,6 +726,10 @@ export function paymentAnomalyIncident(r: PaymentAnomalyRow): Incident {
   const order = str(r.payload, 'providerTxId');
   const orderText = order ? ` (pedido ${order})` : '';
   const base = { occurredAt: r.occurredAt.toISOString(), paymentId: r.paymentId };
+  if (str(r.payload, 'provider') === 'BTCPAY') {
+    const btc = bitcoinAnomalyIncident(r, base);
+    if (btc) return btc;
+  }
 
   if (r.eventType === 'payment.amount_mismatch') {
     const charged = num(r.payload, 'chargedCents');
@@ -919,4 +957,8 @@ export function openIncidents(all: ReadonlyArray<Incident>, acked: ReadonlySet<s
 
 export function ackKey(kind: string, refId: string): string {
   return `${kind}:${refId}`;
+}
+
+function capitalize(text: string): string {
+  return text.charAt(0).toUpperCase() + text.slice(1);
 }

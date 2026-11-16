@@ -26,6 +26,7 @@ import {
   fichaText,
   handOverLine,
   loadedMoneyLine,
+  qrTopUpMethod,
   methodButtons,
   noPinLimitCents,
   noReaderStage,
@@ -240,6 +241,16 @@ describe('CARGADO (4.4)', () => {
     expect(loadedMoneyLine('cash', 5_000, 0)).toEqual(loadedMoneyLine('cash', 5_000));
   });
 
+  it('pagada con bitcoin desde su móvil: «Bitcoin: … en la cartera del local», ni tarjeta ni caja', () => {
+    const btc = loadedMoneyLine('bitcoin', 5_000, 600);
+    expect({ ...btc, amount: eur(btc.amount), tail: eur(btc.tail) }).toEqual({ label: 'Bitcoin:', amount: '56 €', tail: 'en la cartera del local (con 6 € de comisión)' });
+    // Lo dice el sondeo del QR; sin respuesta (o un API de antes), como siempre: tarjeta.
+    expect(qrTopUpMethod({ payMethod: 'bitcoin' })).toBe('bitcoin');
+    expect(qrTopUpMethod({ payMethod: 'card' })).toBe('card');
+    expect(qrTopUpMethod({})).toBe('card');
+    expect(qrTopUpMethod(null)).toBe('card');
+  });
+
   it('y con la ficha: dársela (nueva), devolvérsela (la suya) o el código si no tiene (su número va en grande encima)', () => {
     expect(handOverLine(NUEVO, true)).toBe('Dale la ficha');
     expect(handOverLine(saldo(), true)).toBe('Devuélvele su ficha');
@@ -277,6 +288,7 @@ describe('¿Cuánto carga? con el número de la ficha en grande (A1)', () => {
     const sergio = { at: at(2), amountCents: 5_000, method: 'cash' as const, byName: 'Sergio' };
     expect(eur(recentTopUpLine(sergio, now) ?? '')).toBe('Cargada hace 2 min: 50 € en efectivo (Sergio)');
     expect(eur(recentTopUpLine({ ...sergio, method: 'card', byName: null }, now) ?? '')).toBe('Cargada hace 2 min: 50 € con tarjeta');
+    expect(eur(recentTopUpLine({ ...sergio, method: 'bitcoin', byName: null }, now) ?? '')).toBe('Cargada hace 2 min: 50 € con bitcoin');
     expect(eur(recentTopUpLine({ ...sergio, at: at(0) }, now, false) ?? '')).toBe('Cargado hace un momento: 50 € en efectivo (Sergio)');
     // El reloj del móvil algo atrasado: «hace un momento», nunca «hace -1 min».
     expect(recentTopUpLine({ ...sergio, at: at(-1) }, now)).toMatch(/hace un momento/);
@@ -326,6 +338,11 @@ describe('la salida (4.5)', () => {
   it('devuelto: el NFC al stock, o lo que le queda (con tarjeta) y quién lo devuelve', () => {
     expect(refundDoneLine(0)).toMatch(/vuelve al stock/);
     expect(eur(refundDoneLine(1_500))).toMatch(/^Le quedan 15 € \(con tarjeta\)/);
+    // Lo que entró con bitcoin: ni efectivo ni tarjeta, con el encargado.
+    expect(eur(refundDoneLine(1_500, 1_500))).toBe(
+      'Le quedan 15 € (con bitcoin): se quedan como saldo para otra noche, no se devuelven. Se lleva su NFC.',
+    );
+    expect(eur(refundDoneLine(5_000, 2_000))).toMatch(/^Le quedan 50 €: 30 € con tarjeta \(los devuelve el dueño «A la tarjeta»\) y 20 € con bitcoin \(se quedan como saldo para otra noche/);
   });
 });
 

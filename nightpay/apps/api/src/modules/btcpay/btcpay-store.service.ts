@@ -85,6 +85,7 @@ export class BtcpayStoreService {
         lastCheckAt: null,
         lastCheckOk: null,
         lastCheckMessage: null,
+        cashRefund: false,
       };
     }
     return {
@@ -99,6 +100,7 @@ export class BtcpayStoreService {
       lastCheckAt: row.lastCheckAt?.toISOString() ?? null,
       lastCheckOk: row.lastCheckOk,
       lastCheckMessage: row.lastCheckMessage,
+      cashRefund: row.cashRefundEnabled,
     };
   }
 
@@ -307,7 +309,10 @@ export class BtcpayStoreService {
     if (dto.enabled && row.lastCheckOk !== true) {
       throw new ConflictException({ code: 'BTCPAY_NOT_TESTED', message: 'Pulsa «Probar conexión» y que salga bien antes de encender el pago con bitcoin.' });
     }
-    await this.prisma.asSystem((tx) => tx.btcpayStore.update({ where: { tenantId }, data: { enabled: dto.enabled, purpose: dto.purpose } }));
+    const cashRefund = dto.cashRefund ?? row.cashRefundEnabled;
+    await this.prisma.asSystem((tx) =>
+      tx.btcpayStore.update({ where: { tenantId }, data: { enabled: dto.enabled, purpose: dto.purpose, cashRefundEnabled: cashRefund } }),
+    );
     await this.audit.log({
       action: 'venue.btcpay.mode_updated',
       tenantId,
@@ -315,7 +320,10 @@ export class BtcpayStoreService {
       actorEmail: user.email,
       targetType: 'Venue',
       targetId: tenantId,
-      payload: { before: { enabled: row.enabled, purpose: row.purpose }, after: { enabled: dto.enabled, purpose: dto.purpose } },
+      payload: {
+        before: { enabled: row.enabled, purpose: row.purpose, cashRefund: row.cashRefundEnabled },
+        after: { enabled: dto.enabled, purpose: dto.purpose, cashRefund },
+      },
     });
     return this.view(tenantId);
   }

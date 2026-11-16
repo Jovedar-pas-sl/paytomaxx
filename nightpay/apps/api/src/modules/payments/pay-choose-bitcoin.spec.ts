@@ -2,13 +2,13 @@ import { describe, expect, it } from 'vitest';
 import { PAY_LANGUAGES, type PayLanguage } from './customer-lang';
 import { CHOOSE_CSS, renderChooseBody } from './pay-choose-page';
 import { PAY_TEXT } from './pay-i18n';
-import { BTC_IC } from './pay-marks';
+import { BTC_MARK } from './pay-marks';
 import { choosePayPage, type PayRedirect } from './pay-redirect';
 
 /**
- * «Pagar con bitcoin» en la página de pago (/pay/:token): su icono (el ₿ de
- * trazo, como la tarjeta), el texto y una línea corta de cuánto tarda cada
- * forma. Con los estilos de la página: un botón secundario más.
+ * «Pagar con bitcoin» en la página de pago (/pay/:token): un botón blanco al
+ * estilo del de Apple Pay («Pagar con» + el logo naranja de bitcoin + «bitcoin»),
+ * y debajo una línea corta de cuánto tarda cada forma.
  */
 
 type ChooseView = Extract<PayRedirect, { kind: 'choose' }>;
@@ -41,25 +41,31 @@ const page = (bitcoin: boolean, lang: PayLanguage = 'es', wallet: 'Apple Pay' | 
 const button = (html: string): string => /<button[^>]*id="btcBtn"[\s\S]*?<\/button>/.exec(html)?.[0] ?? '';
 
 describe('«Pagar con bitcoin» en la página de pago', () => {
-  it('lleva su icono, el texto y la línea corta, y abre la página del QR (POST, el mismo formulario)', () => {
-    const btn = button(page(true));
+  it('al estilo de Apple Pay: «Pagar con» + el logo + «bitcoin», y abre la página del QR (POST, el mismo formulario)', () => {
+    const html = page(true);
+    const btn = button(html);
     expect(btn).toContain('formaction="/pay/tok-1/bitcoin?lang=es"');
     expect(btn).toContain('formmethod="post"');
-    expect(btn).toContain(BTC_IC);
-    expect(btn).toContain('>Pagar con bitcoin<');
-    expect(btn).toContain('<small class="btchint">Lightning al momento · en la red, con 1 confirmación</small>');
-    // Con las clases de la página: un botón secundario («alt»), como «Pagar con tarjeta».
-    expect(btn).toMatch(/class="btn alt btc"/);
-    // El ₿ suelto de antes ya no va: el icono es el de trazo.
-    expect(btn).not.toContain('<span aria-hidden="true">₿</span>');
+    expect(btn).toContain(BTC_MARK);
+    expect(btn).toContain('aria-label="Pagar con bitcoin"');
+    expect(btn).toContain('<span class="btcpre">Pagar con</span>');
+    expect(btn).toContain('<span class="btcword">bitcoin</span>');
+    // Botón propio (blanco, como Apple Pay en esta página oscura), no el secundario «alt».
+    expect(btn).toMatch(/class="btn btc"/);
+    // La línea corta va debajo de los botones, no dentro.
+    expect(btn).not.toContain('btchint');
+    expect(html).toContain('<p class="btchint">Lightning al momento · en la red, con 1 confirmación</p>');
   });
 
   it.each(PAY_LANGUAGES)('en %s, con el texto y la línea corta de su idioma', (lang) => {
-    const btn = button(page(true, lang));
+    const html = page(true, lang);
+    const btn = button(html);
     expect(btn).toContain(`?lang=${lang}`);
-    expect(btn).toContain(PAY_TEXT[lang].payWithBitcoin);
+    expect(btn).toContain(`aria-label="${PAY_TEXT[lang].payWithBitcoin}"`);
+    expect(PAY_TEXT[lang].payWithBitcoin.startsWith(PAY_TEXT[lang].payWithBitcoinPrefix)).toBe(true);
+    expect(btn).toContain(`>${PAY_TEXT[lang].payWithBitcoinPrefix}<`);
     expect(PAY_TEXT[lang].bitcoinHint.length).toBeGreaterThan(10);
-    expect(btn).toContain('btchint');
+    expect(html).toContain('class="btchint"');
   });
 
   it('sin bitcoin en el local, no sale el botón', () => {
@@ -68,12 +74,14 @@ describe('«Pagar con bitcoin» en la página de pago', () => {
   });
 
   it('también sin Apple Pay ni Google Pay (solo tarjeta y bitcoin)', () => {
-    expect(button(page(true, 'en', null))).toContain('Lightning: instant · on-chain: 1 confirmation');
+    expect(page(true, 'en', null)).toContain('Lightning: instant · on-chain: 1 confirmation');
   });
 
-  it('estilos de la página: la línea corta en pequeño y apagada; en pantallas bajas con los botones lado a lado, se esconde', () => {
-    expect(CHOOSE_CSS).toContain('.btn.btc .btchint{font-size:.75rem;font-weight:400;line-height:1.25;color:var(--mute)}');
+  it('estilos: blanco con el logo como Apple Pay; en pantallas bajas con los botones lado a lado, solo logo + «bitcoin» y sin la línea corta', () => {
+    expect(CHOOSE_CSS).toContain('.btn.btc{background:#fff;border-color:#fff;color:#000;');
+    expect(CHOOSE_CSS).toContain('.btchint{font-size:.75rem;line-height:1.3;color:var(--mute)}');
     const low = CHOOSE_CSS.slice(CHOOSE_CSS.indexOf('@media (max-height:780px){'));
-    expect(low).toContain('.paybar .alts:has(>.btn+.btn) .btn.btc .btchint{display:none}');
+    expect(low).toContain('.paybar .alts:has(>.btn+.btn) .btn.btc .btcpre{display:none}');
+    expect(low).toContain('.paybar .alts:has(>.btn+.btn)+.btchint{display:none}');
   });
 });

@@ -66,7 +66,7 @@ export type { KeypadKey } from './lib/amount-keypad';
 export { BANK_SLOW_AFTER_MS, classifyConnection, SERVER_DOWN_GRACE_MS } from './lib/connection';
 export type { ConnectionDevice, ConnectionIssue, ConnectionIssueKind, ConnectionSignals } from './lib/connection';
 export { createWakeLock, wakeLockFrom } from './lib/wake-lock';
-export { cardHow, cashHow, chargedBy, saldoHow } from './lib/outcome-how';
+export { BITCOIN_HOW_SUB, cardHow, cashHow, chargedBy, saldoHow } from './lib/outcome-how';
 export type { CardHowInput, CashHowInput, SaldoHowInput } from './lib/outcome-how';
 export { haptic, HAPTIC_BAD, HAPTIC_TAP_MS } from './lib/haptic';
 export { pinFailed, shakeClass } from './lib/shake';

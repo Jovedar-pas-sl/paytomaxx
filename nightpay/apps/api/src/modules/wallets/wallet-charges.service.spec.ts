@@ -938,6 +938,7 @@ describe('devolver el saldo al cliente que se va', () => {
         cashOutCents: 10_000,
         cardRefundCents: 20_000,
         cashLaterCents: 0,
+        bitcoinCents: 0,
         pendingCardCents: null,
       });
       expect(payoutMock.create).not.toHaveBeenCalled();
@@ -980,6 +981,7 @@ describe('devolver el saldo al cliente que se va', () => {
         cashOutCents: 0,
         cardRefundCents: 0,
         cashLaterCents: 0,
+        bitcoinCents: 0,
         pendingCardCents: null,
       });
     });

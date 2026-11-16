@@ -343,9 +343,11 @@ export const PublicPaymentViewSchema = z.object({
   attemptStartedAt: z.string().datetime().nullable().optional(),
   /**
    * Solo ya pagado: cómo pagó el cliente. «wallet» = Apple Pay o Google Pay (el
-   * banco no dice cuál de los dos); «card» = tarjeta. Opcional.
+   * banco no dice cuál de los dos); «card» = tarjeta; «bitcoin» = con su factura
+   * de BTCPay (el dinero está en la cartera del local, no en el banco). Opcional:
+   * las apps de antes no conocen «bitcoin» y lo ignoran.
    */
-  payMethod: z.enum(['card', 'wallet']).optional(),
+  payMethod: z.enum(['card', 'wallet', 'bitcoin']).optional(),
   /**
    * El cliente paga con bitcoin (una factura de BTCPay). Opcional (API anterior).
    * Lo usa la pantalla del personal:
@@ -353,13 +355,16 @@ export const PublicPaymentViewSchema = z.object({
    *  - 'confirming' (AUTHORIZING): el pago ya está en la red, falta su confirmación → no se cancela;
    *  - 'problem' (AUTHORIZING): la factura se cerró con un pago a medias, tardío o que no cuadra (Incidencias);
    *  - 'closed' (AWAITING_CAPTURE): la factura se cerró sin pagarse (caducó o el cliente eligió
-   *    pagar de otra forma) y el cobro vuelve a estar abierto.
+   *    pagar de otra forma) y el cobro vuelve a estar abierto;
+   *  - 'none' (AUTHORIZING): paga en su banco, no con bitcoin. Así la pantalla no lo
+   *    deduce de que falte el campo (un API de antes no lo manda: no se sabe).
+   *    Las apps de antes no conocen 'none' y lo tratan como el banco.
    */
-  bitcoin: z.enum(['open', 'confirming', 'problem', 'closed']).optional(),
+  bitcoin: z.enum(['open', 'confirming', 'problem', 'closed', 'none']).optional(),
 });
 export type PublicPaymentView = z.infer<typeof PublicPaymentViewSchema>;
-/** Cómo va el pago con bitcoin de un cobro (PublicPaymentView.bitcoin). */
-export type BitcoinPayState = NonNullable<PublicPaymentView['bitcoin']>;
+/** Cómo va el pago con bitcoin de un cobro (PublicPaymentView.bitcoin, sin 'none': ese es el banco). */
+export type BitcoinPayState = Exclude<NonNullable<PublicPaymentView['bitcoin']>, 'none'>;
 
 // ─── Detalle interno (admin ve esto) ─────────────────────────────────
 export const PaymentDetailSchema = z.object({

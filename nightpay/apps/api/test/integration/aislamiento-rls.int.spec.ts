@@ -89,6 +89,13 @@ async function seed(tag: string): Promise<{ tenantId: string; rows: Rows }> {
           checkoutLink: 'https://pay.ejemplo.es/i/x', qrLink: 'bitcoin:bc1qx?amount=0.001', expiresAt: new Date(Date.now() + 900_000),
         },
       });
+      // Bitcoin sin cobro devuelto en efectivo (una por factura).
+      const btcReturn = await tx.btcCashReturn.create({
+        data: {
+          tenantId, paymentId: payment.id, invoiceId: `ret-${tag}-${r}`, amountCents: 1000, reason: 'Cobrado dos veces',
+          receiptCode: 'ABC', requestedById: chica, paidById: chica,
+        },
+      });
       // La foto de perfil de la compañera (bytes de mentira; la base solo mira tipo, tamaño, medidas y huella).
       await tx.userPhoto.create({
         data: { userId: chica, tenantId, contentType: 'image/jpeg', data: Buffer.alloc(64, 2), contentHash: 'b'.repeat(64), width: 128, height: 128 },
@@ -115,6 +122,7 @@ async function seed(tag: string): Promise<{ tenantId: string; rows: Rows }> {
           service_item_images: item.id,
           btcpay_stores: btcStore.id,
           btcpay_invoices: btcInvoice.id,
+          btc_cash_returns: btcReturn.id,
           user_photos: chica,
           wallet_push_subscriptions: pushSub.id,
         },

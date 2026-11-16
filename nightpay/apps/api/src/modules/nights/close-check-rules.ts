@@ -37,6 +37,8 @@ export interface UnresolvedPaymentRow {
   updatedAt: Date;
   /** Venta del datáfono apuntada (tiene operación de Paytef). */
   deviceSale?: boolean;
+  /** BTCPAY: paga con bitcoin (sin banco). Sin el campo, el banco. */
+  provider?: string | null;
 }
 
 /** Devolución por la pasarela que sigue sin confirmar. */
@@ -170,6 +172,7 @@ function unresolvedWhat(p: UnresolvedPaymentRow, unproven: boolean, fresh: boole
   if (p.captureMethod === 'POS_EXTERNAL') return 'datáfono sin confirmar';
   if (unproven) return 'recarga del datáfono sin comprobar con Paytef: resuélvela en Hoy → Cobros';
   if (p.captureMethod === 'WALLET_TOPUP' && p.status === 'CREATED') return 'recarga a medio cobrar en el datáfono: mira el lector';
+  if (p.provider === 'BTCPAY') return fresh ? 'el cliente está pagando con bitcoin' : 'con bitcoin sin terminar: mira su factura en BTCPay';
   if (p.status === 'ORPHAN') return 'el banco no lo confirmó: búscalo en BBVA';
   return fresh ? 'el cliente está pagando' : 'atascado esperando al banco';
 }

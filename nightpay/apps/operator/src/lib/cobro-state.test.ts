@@ -175,6 +175,14 @@ describe('el cliente paga con bitcoin: «Cancelar cobro» mientras la factura es
     expect(cancelOffer(card('AWAITING_CAPTURE', 'open'))).toEqual({ kind: 'button' });
   });
 
+  it('si el API no dice si paga con bitcoin (uno de antes): «Cancelar cobro» se ofrece y decide el servidor', () => {
+    expect(cancelOffer(card('AUTHORIZING', 'unknown'))).toEqual({ kind: 'button' });
+    expect(payingWithBitcoin(card('AUTHORIZING', 'unknown'))).toBeNull();
+    expect(cancelFailedText(card('AUTHORIZING', 'unknown'), null)).toMatch(/en su banco o con bitcoin/);
+    // En su banco, dicho por el API: como siempre, sin el botón.
+    expect(cancelOffer(card('AUTHORIZING', null))).toMatchObject({ kind: 'text' });
+  });
+
   it('si cancelar falla: la razón sin «banco» cuando paga con bitcoin; la de siempre con tarjeta', () => {
     expect(cancelFailedText(card('AUTHORIZING', 'open'), null)).toBe(
       'No se ha podido cancelar: puede que el cliente acabe de pagar con bitcoin. Mira si ya está pagado.',

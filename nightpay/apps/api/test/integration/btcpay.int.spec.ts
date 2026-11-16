@@ -776,7 +776,7 @@ describe('la pantalla del personal sabe si el cliente paga con bitcoin (GET /pay
     expect(paid).not.toHaveProperty('bitcoin');
   });
 
-  it('pago a medias (la factura se cerró con incidencia y el cobro sigue AUTHORIZING) → «problem»; con tarjeta en su banco → nada', async () => {
+  it('pago a medias (la factura se cerró con incidencia y el cobro sigue AUTHORIZING) → «problem»; con tarjeta en su banco → «none»', async () => {
     const p = await newPayment(4000);
     const res = await startFor(p.token);
     if (res.kind !== 'invoice') throw new Error('sin factura');
@@ -785,7 +785,8 @@ describe('la pantalla del personal sabe si el cliente paga con bitcoin (GET /pay
     expect(await pub(p.token)).toMatchObject({ status: 'AUTHORIZING', bitcoin: 'problem' });
     const card = await newPayment(4100);
     await sys((tx) => tx.payment.update({ where: { id: card.id }, data: { status: 'AUTHORIZING', provider: 'REDSYS', providerTxId: `RSP${r}${n}` } }));
-    expect(await pub(card.token)).not.toHaveProperty('bitcoin');
+    // En su banco, se dice ('none'): la pantalla no lo deduce de que falte el campo.
+    expect(await pub(card.token)).toMatchObject({ bitcoin: 'none' });
   });
 });
 

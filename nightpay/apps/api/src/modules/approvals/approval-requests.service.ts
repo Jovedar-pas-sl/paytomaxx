@@ -368,6 +368,15 @@ export class ApprovalRequestsService {
     };
   }
 
+  /** Una solicitud creada en otro sitio (devolver en efectivo lo pagado con bitcoin): registro y aviso al dueño. */
+  async announce(
+    actor: ApprovalActor,
+    row: ApprovalRow,
+    detail: { paymentId?: string; paymentAmountCents?: number | null },
+  ): Promise<void> {
+    await this.requested(actor, row, detail);
+  }
+
   /** Registro y aviso al dueño (Telegram, una vez; sin esperar a que salga). */
   private async requested(
     actor: ApprovalActor,

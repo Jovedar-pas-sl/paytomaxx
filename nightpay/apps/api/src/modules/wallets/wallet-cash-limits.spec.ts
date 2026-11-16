@@ -1,10 +1,12 @@
 import { describe, it, expect, vi } from 'vitest';
 import {
+  bitcoinPartCents,
   cardRefundCapCents,
   cashPayoutCapCents,
   cashPayoutNote,
   cashPayoutRefusal,
   cashTopUpOverLimit,
+  payoutAmounts,
   unspentCashCents,
   walletCash,
   type WalletCash,
@@ -61,6 +63,38 @@ describe('devolver en efectivo y a la tarjeta', () => {
   });
 });
 
+describe('saldo cargado con bitcoin: no se devuelve, se queda como saldo para otra noche (decisión del dueño)', () => {
+  it('lo gastado cuenta primero contra el bitcoin; a la tarjeta, como mucho lo que entró con tarjeta', () => {
+    // 50 € con tarjeta + 30 € con bitcoin, nada gastado: 30 € de bitcoin se quedan, 50 € a la tarjeta.
+    const c = cash({ bitcoinInCents: 3_000, cardInCents: 5_000 });
+    expect(bitcoinPartCents(8_000, c)).toBe(3_000);
+    expect(cardRefundCapCents(8_000, c)).toBe(5_000);
+    expect(payoutAmounts(8_000, c)).toEqual({ cashOutCents: 0, cardRefundCents: 5_000, cashLaterCents: 0, bitcoinCents: 3_000 });
+    // Gastados 20 €: salen del bitcoin (quedan 10 € de bitcoin y los 50 € de tarjeta).
+    expect(bitcoinPartCents(6_000, c)).toBe(1_000);
+    expect(cardRefundCapCents(6_000, c)).toBe(5_000);
+    // Gastados 30 € o más: ya no queda bitcoin.
+    expect(bitcoinPartCents(5_000, c)).toBe(0);
+    expect(cardRefundCapCents(2_000, c)).toBe(2_000);
+  });
+
+  it('los textos: «Esta parte entró con bitcoin: se queda como saldo para otra noche, no se devuelve»', () => {
+    const solo = cash({ bitcoinInCents: 3_000 });
+    const refusal = cashPayoutRefusal(3_000, solo);
+    expect(refusal).toBe('Este saldo entró con bitcoin: se queda como saldo para otra noche, no se devuelve (ni en efectivo ni a la tarjeta).');
+    expect(cashPayoutNote(3_000, solo)).toBe(refusal);
+    const mixto = cashPayoutRefusal(8_000, cash({ bitcoinInCents: 3_000, cardInCents: 5_000 }));
+    expect(mixto).toBe(
+      'Este saldo no entró en efectivo: 50,00 € entraron con tarjeta (los devuelve el dueño «A la tarjeta») y 30,00 € con bitcoin. Esta parte entró con bitcoin: se queda como saldo para otra noche, no se devuelve.',
+    );
+    // 20 € en efectivo y 15 € con bitcoin: los 15 €, se quedan.
+    expect(cashPayoutNote(3_500, cash({ inCents: 2_000, bitcoinInCents: 1_500 }))).toBe(
+      'Los otros 15,00 € entraron con bitcoin. Esta parte entró con bitcoin: se queda como saldo para otra noche, no se devuelve.',
+    );
+    expect(`${refusal} ${mixto}`).not.toMatch(/encargado|efectivo al cliente/);
+  });
+});
+
 describe('recargar en efectivo: el total de 24 h no llega a 1.000 €', () => {
   it('cabe, no cabe y cuánto cabe aún', () => {
     expect(cashTopUpOverLimit(99_999, cash())).toBeNull();
@@ -83,6 +117,9 @@ describe('la lectura: el saldo y los sumados a él, en una consulta', () => {
       inWindowPaidCents: 5_000,
       outCents: 3_000,
       outWindowCents: 0,
+      // Sin las columnas, nada entró con bitcoin ni con tarjeta.
+      bitcoinInCents: 0,
+      cardInCents: 0,
     });
     const [strings, ...values] = $queryRaw.mock.calls[0]!;
     const sql = (strings as TemplateStringsArray).join('?');

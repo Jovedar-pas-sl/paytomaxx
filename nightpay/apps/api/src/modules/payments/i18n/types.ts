@@ -141,6 +141,8 @@ export interface PayText {
   payWithSaldo: string;
   /** «Pagar con bitcoin» (BTCPay): el botón de la página de pago, si el local lo tiene encendido. */
   payWithBitcoin: string;
+  /** «Pagar con» del botón de bitcoin al estilo de Apple Pay: va delante del logo y de «bitcoin». */
+  payWithBitcoinPrefix: string;
   /** La línea corta debajo de «Pagar con bitcoin»: cuánto tarda cada forma. */
   bitcoinHint: string;
   bitcoin: BitcoinText;
