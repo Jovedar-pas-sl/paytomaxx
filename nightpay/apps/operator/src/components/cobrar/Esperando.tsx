@@ -317,7 +317,8 @@ export function Esperando({ cobro, onNew, onRetry, retrying = false, retryError 
           setLocalFail({ title: NO_PIN_TITLE, sentence: NO_PIN_SENTENCE });
           return;
         }
-        const reason = out.reason === 'night_cap' || out.reason === 'no_uid' ? out.message : null;
+        // Con propina (la eligió en la pantalla de la barra), siempre el PIN: se le dice por qué.
+        const reason = out.reason === 'night_cap' || out.reason === 'no_uid' || out.reason === 'tip' ? out.message : null;
         // La propina que el cliente eligió en la pantalla de la barra (si la hay): marcada en el PIN.
         const fresh = await fetchSaldoState(chargeId).catch(() => null);
         if (fresh) setSaldo((prev) => keepFicha(fresh, prev));

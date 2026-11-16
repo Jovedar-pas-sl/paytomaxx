@@ -18,7 +18,9 @@ import {
   cardLine,
   expireMemory,
   idleHint,
+  isOtherTip,
   nextMemory,
+  otherTipOffered,
   tipBreakdown,
   tipButtonLabel,
   waitingHint,
@@ -26,7 +28,9 @@ import {
   type WaitingView,
 } from '@/lib/pantalla-state';
 import { CobroQr } from '../cobrar/CobroQr';
+import { formatEur } from '@/lib/money';
 import { TabletPin } from './TabletPin';
+import { TipOther } from './TipOther';
 import { usePantallaLive } from './use-pantalla-live';
 import { useTabletFicha } from './use-tablet-ficha';
 import s from './pantalla.module.css';
@@ -269,13 +273,16 @@ function Waiting({
 
 /**
  * La propina: la elige el cliente, nada marcado de antemano («Sin propina» de
- * partida). Las sugeridas del local para este importe; va al total, al QR y
- * al cobro con ficha.
+ * partida). Las sugeridas del local para este importe u «Otra» (teclado
+ * grande, euros enteros hasta el tope); va al total, al QR y al cobro con
+ * ficha (que entonces pide siempre el PIN).
  */
 function TipChoice({ view, busy, onTip }: { view: WaitingView; busy: boolean; onTip: (cents: number) => void }) {
+  const [typing, setTyping] = useState(false);
   const tip = view.tip;
   if (!tip) return null;
   const options = [{ cents: 0, label: 'Sin propina' }, ...tip.presets.map((p) => ({ cents: p.cents, label: tipButtonLabel(p) }))];
+  const other = isOtherTip(view);
   return (
     <div className={s.tips}>
       <p className={s.tipsTitle}>¿Propina?</p>
@@ -294,8 +301,33 @@ function TipChoice({ view, busy, onTip }: { view: WaitingView; busy: boolean; on
             {o.label}
           </button>
         ))}
+        {otherTipOffered(view) ? (
+          <button
+            type="button"
+            role="radio"
+            aria-checked={other}
+            className={s.tipBtn}
+            data-on={other ? '1' : undefined}
+            disabled={busy}
+            onClick={() => setTyping(true)}
+          >
+            {other ? `Otra · +${formatEur(tip.chosenCents, { compact: true })}` : 'Otra'}
+          </button>
+        ) : null}
       </div>
       {tip.toStaff ? <p className={s.tipNote}>La propina va entera para el personal.</p> : null}
+      {typing ? (
+        <TipOther
+          maxCents={tip.maxCents}
+          initialCents={other ? tip.chosenCents : 0}
+          busy={busy}
+          onClose={() => setTyping(false)}
+          onDone={(cents) => {
+            setTyping(false);
+            if (cents !== tip.chosenCents) onTip(cents);
+          }}
+        />
+      ) : null}
     </div>
   );
 }

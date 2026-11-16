@@ -6,6 +6,10 @@ import {
   PAID_SHOW_MS,
   amountText,
   cardLine,
+  isOtherTip,
+  otherTipMaxText,
+  otherTipOf,
+  otherTipOffered,
   expireMemory,
   idleHint,
   nextMemory,
@@ -111,5 +115,27 @@ describe('pantalla del cliente: qué se enseña y cuánto rato', () => {
     expect(tipBreakdown(waiting())).toBeNull();
     expect(tipButtonLabel({ cents: 200, percent: null })).toMatch(/^\+2\s?€$/);
     expect(tipButtonLabel({ cents: 1000, percent: 10 })).toMatch(/^10 % · \+10\s?€$/);
+  });
+});
+
+describe('«Otra» propina en la tablet (como npTipOther en /pay)', () => {
+  it('euros enteros, más de 0 y hasta el tope', () => {
+    expect(otherTipOf('7', 3300)).toEqual({ cents: 700, error: null });
+    expect(otherTipOf('33', 3300)).toEqual({ cents: 3300, error: null });
+    expect(otherTipOf('34', 3300)).toEqual({ cents: 0, error: 'max' });
+    expect(otherTipOf('', 3300)).toEqual({ cents: 0, error: 'empty' });
+    expect(otherTipOf('0', 3300)).toEqual({ cents: 0, error: 'empty' });
+    expect(otherTipMaxText(3350)).toMatch(/^Como mucho 33\s?€$/);
+  });
+
+  it('marcada como «Otra» si no es una sugerida; se ofrece si cabe 1 €; con propina, la ficha pide el PIN', () => {
+    const base = waiting();
+    const other = { ...base, tip: { ...base.tip!, chosenCents: 700 } };
+    expect(isOtherTip(other)).toBe(true);
+    expect(isOtherTip({ ...base, tip: { ...base.tip!, chosenCents: 500 } })).toBe(false);
+    expect(isOtherTip(base)).toBe(false);
+    expect(otherTipOffered(base)).toBe(true);
+    expect(otherTipOffered({ ...base, tip: { ...base.tip!, maxCents: 50 } })).toBe(false);
+    expect(waitingHint(other, true)).toBe('Acerca tu ficha a esta pantalla o al móvil del camarero y pon tu PIN');
   });
 });

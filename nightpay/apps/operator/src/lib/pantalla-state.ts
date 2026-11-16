@@ -83,7 +83,11 @@ export function idleHint(fichas: boolean): string {
  */
 export function waitingHint(view: WaitingView, nfcHere = false): string {
   if (view.paying) return 'Terminando el pago…';
-  if (view.ficha) return nfcHere ? 'Acerca tu ficha a esta pantalla o al móvil del camarero' : 'Acerca tu ficha al móvil del camarero';
+  if (view.ficha) {
+    const where = nfcHere ? 'Acerca tu ficha a esta pantalla o al móvil del camarero' : 'Acerca tu ficha al móvil del camarero';
+    // Con propina, la ficha siempre pide el PIN (la confirma el cliente).
+    return (view.tip?.chosenCents ?? 0) > 0 ? `${where} y pon tu PIN` : where;
+  }
   if (!view.qrUrl) return 'Paga en el datáfono';
   return 'Escanea el QR con tu móvil';
 }
@@ -109,4 +113,32 @@ export function tipButtonLabel(preset: TipPreset): string {
 /** Con «Comisión del servicio»: lo que paga la tarjeta («Con tarjeta, 36,30 €»). */
 export function cardLine(view: WaitingView): string | null {
   return view.cardAmountCents !== null ? `Con tarjeta, ${formatEur(view.cardAmountCents, { compact: true })}` : null;
+}
+
+/** La sugerida o «Otra» que sale marcada: «Otra» si la elegida no es una sugerida. */
+export function isOtherTip(view: WaitingView): boolean {
+  const chosen = view.tip?.chosenCents ?? 0;
+  return chosen > 0 && !(view.tip?.presets ?? []).some((p) => p.cents === chosen);
+}
+
+/** «Otra» se ofrece si caben al menos 1 € (como en /pay). */
+export function otherTipOffered(view: WaitingView): boolean {
+  return (view.tip?.maxCents ?? 0) >= 100;
+}
+
+/**
+ * La propina de «Otra» tecleada en la tablet: euros enteros, más de 0 y hasta
+ * el tope (lo mismo que npTipOther en /pay), o por qué aún no vale.
+ */
+export function otherTipOf(text: string, maxCents: number): { cents: number; error: 'empty' | 'max' | null } {
+  const digits = text.replace(/[^0-9]/g, '');
+  const euros = digits ? Number.parseInt(digits, 10) : 0;
+  if (!(euros > 0)) return { cents: 0, error: 'empty' };
+  if (euros * 100 > maxCents) return { cents: 0, error: 'max' };
+  return { cents: euros * 100, error: null };
+}
+
+/** «Como mucho 33 €» (el tope en euros enteros). */
+export function otherTipMaxText(maxCents: number): string {
+  return `Como mucho ${formatEur(Math.floor(maxCents / 100) * 100, { compact: true })}`;
 }
