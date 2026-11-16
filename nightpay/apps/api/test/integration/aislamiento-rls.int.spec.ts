@@ -93,6 +93,10 @@ async function seed(tag: string): Promise<{ tenantId: string; rows: Rows }> {
       await tx.userPhoto.create({
         data: { userId: chica, tenantId, contentType: 'image/jpeg', data: Buffer.alloc(64, 2), contentHash: 'b'.repeat(64), width: 128, height: 128 },
       });
+      // «Aviso en cada cobro»: un navegador apuntado al saldo.
+      const pushSub = await tx.walletPushSubscription.create({
+        data: { tenantId, walletId: wallet.id, endpoint: `https://push.ejemplo.es/${tag}-${r}`, p256dh: 'BPk', auth: 'au' },
+      });
       return {
         tenantId,
         rows: {
@@ -112,6 +116,7 @@ async function seed(tag: string): Promise<{ tenantId: string; rows: Rows }> {
           btcpay_stores: btcStore.id,
           btcpay_invoices: btcInvoice.id,
           user_photos: chica,
+          wallet_push_subscriptions: pushSub.id,
         },
       };
     }),

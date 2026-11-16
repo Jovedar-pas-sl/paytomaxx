@@ -107,6 +107,7 @@ model Venue {
   serviceItemImages  ServiceItemImage[]
   btcpayStore        BtcpayStore?
   btcpayInvoices     BtcpayInvoice[]
+  walletPushSubscriptions WalletPushSubscription[]
   userPhotos         UserPhoto[]
   nights             VenueNight[]
   incidentAcks       IncidentAck[]
@@ -361,6 +362,33 @@ model BtcpayInvoice {
   @@index([tenantId])
   @@index([paymentId])
   @@map("btcpay_invoices")
+}
+
+// «Aviso en cada cobro» (20261117200000): cada navegador que el cliente apunta
+// para recibir un aviso (Web Push) en cada cobro de su saldo o de su ficha.
+// Solo la dirección del servicio de avisos y sus claves públicas; nada del
+// cliente. FORCE RLS: solo dentro de una transacción de PrismaService.
+model WalletPushSubscription {
+  id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId   String    @db.Uuid
+  walletId   String    @db.Uuid
+  endpoint   String
+  p256dh     String
+  auth       String
+  // es | en | fr | pt: el idioma de la página al apuntarse (el del aviso).
+  lang       String    @default("es")
+  failCount  Int       @default(0)
+  lastSentAt DateTime? @db.Timestamptz
+  createdAt  DateTime  @default(now()) @db.Timestamptz
+  updatedAt  DateTime  @default(now()) @updatedAt @db.Timestamptz
+
+  venue  Venue        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  wallet ClientWallet @relation(fields: [walletId], references: [id], onDelete: Cascade)
+
+  @@unique([walletId, endpoint])
+  @@index([endpoint])
+  @@index([tenantId])
+  @@map("wallet_push_subscriptions")
 }
 
 model GatewayCredential {
@@ -1298,6 +1326,7 @@ model ClientWallet {
   cards          WalletCard[]
   passes         WalletPass[]
   activationTokens WalletActivationToken[]
+  pushSubscriptions WalletPushSubscription[]
 
   @@index([tenantId, status])
   @@index([tenantId, identifier])

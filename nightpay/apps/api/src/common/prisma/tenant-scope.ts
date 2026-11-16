@@ -4,8 +4,8 @@
  * Si añades un modelo con tenantId, agrégalo aquí o el middleware no lo protegerá.
  *
  * NO están (y no deben estar) los que cruzan locales por diseño o no tienen
- * local al llegar: ClientWallet, WalletConsumption, WalletPasskey, WalletCard
- * (el saldo vale en todo el grupo), WebhookDelivery y PeanpeCall (los avisos
+ * local al llegar: ClientWallet, WalletConsumption, WalletPasskey, WalletCard,
+ * WalletPushSubscription (el saldo vale en todo el grupo), WebhookDelivery y PeanpeCall (los avisos
  * del banco llegan sin local), AuditEvent (lo escribe el sistema con el local
  * explícito).
  */

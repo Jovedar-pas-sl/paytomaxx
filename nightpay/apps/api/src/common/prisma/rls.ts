@@ -41,6 +41,8 @@ export const FORCED_RLS_TABLES = [
   'btcpay_invoices',
   // La foto de perfil del personal (20261113100000).
   'user_photos',
+  // «Aviso en cada cobro» (20261117200000): los navegadores apuntados para el aviso del saldo.
+  'wallet_push_subscriptions',
 ] as const;
 
 export const FORCED_RLS_MODELS: ReadonlySet<string> = new Set([
@@ -60,6 +62,7 @@ export const FORCED_RLS_MODELS: ReadonlySet<string> = new Set([
   'BtcpayStore',
   'BtcpayInvoice',
   'UserPhoto',
+  'WalletPushSubscription',
 ]);
 
 const FORCED_TABLE_RE = new RegExp(`\\b(${FORCED_RLS_TABLES.join('|')})\\b`);
