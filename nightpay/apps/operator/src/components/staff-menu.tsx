@@ -1,10 +1,11 @@
 'use client';
 
-import { createContext, useContext, useState } from 'react';
+import { createContext, useContext, useState, type CSSProperties, type ReactNode } from 'react';
 import { Button, Modal, useInstall } from '@nightpay/ui';
 import { GUIA_PATH } from '../lib/guia';
 import { useOpenCharges, type OpenCharges } from '../lib/open-charges';
 import { offerStaffInstall } from '../lib/staff-install';
+import { DeviceSheet } from './DeviceSheet';
 import { PasskeySheet } from './PasskeySheet';
 import { ProfileSheet } from './ProfileSheet';
 
@@ -53,16 +54,65 @@ export function InstallMenuItem() {
 }
 
 /**
+ * «Este aparato» en los dos menús del logo: el botón y su hoja (dónde está el
+ * lector NFC y la prueba de lectura). La hoja vive fuera del menú: se abre al
+ * cerrarlo.
+ */
+export function useDeviceMenu(closeMenu: () => void): { item: ReactNode; sheet: ReactNode } {
+  const [open, setOpen] = useState(false);
+  return {
+    item: (
+      <Button
+        variant="ghost"
+        onClick={() => {
+          closeMenu();
+          setOpen(true);
+        }}
+      >
+        Este aparato
+      </Button>
+    ),
+    sheet: <DeviceSheet open={open} onClose={() => setOpen(false)} />,
+  };
+}
+
+/** «Salir», el último y aparte: acción peligrosa en rojo (solo la letra y el filete, sin llenar). */
+export function LogoutMenuItem({ onLogout }: { onLogout: () => void }) {
+  return (
+    <div style={logoutWrap}>
+      <Button variant="ghost" onClick={onLogout} style={logoutStyle}>
+        Salir
+      </Button>
+    </div>
+  );
+}
+
+const logoutWrap: CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  marginTop: '0.75rem',
+  paddingTop: '1rem',
+  borderTop: '1px solid var(--np-border)',
+};
+
+const logoutStyle: CSSProperties = {
+  color: 'var(--np-danger-text)',
+  boxShadow: 'inset 0 0 0 1px var(--np-danger)',
+};
+
+/**
  * La hoja del menú: «Mi perfil» (foto, nombre y ajustes), la llave de acceso (verificarse con el móvil sin 2FA),
- * instalar como app (en Android, si aún no lo está), la guía y «Salir». Sin
+ * «Este aparato», instalar como app (en Android, si aún no lo está), la guía y, aparte, «Salir». Sin
  * tema: se elige en «Mi perfil» (por defecto, oscuro).
  */
 export function StaffMenu({ open, onClose, onLogout }: { open: boolean; onClose: () => void; onLogout: () => void }) {
   const [passkeys, setPasskeys] = useState(false);
   const [profile, setProfile] = useState(false);
+  const device = useDeviceMenu(onClose);
   return (
     <>
     <ProfileSheet open={profile} onClose={() => setProfile(false)} onLogout={onLogout} />
+    {device.sheet}
     <PasskeySheet open={passkeys} onClose={() => setPasskeys(false)} />
     <Modal open={open} onClose={onClose} title="Menú">
       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
@@ -84,11 +134,10 @@ export function StaffMenu({ open, onClose, onLogout }: { open: boolean; onClose:
         >
           Llave de acceso
         </Button>
+        {device.item}
         <InstallMenuItem />
         <GuiaMenuLink />
-        <Button variant="ghost" onClick={onLogout}>
-          Salir
-        </Button>
+        <LogoutMenuItem onLogout={onLogout} />
       </div>
     </Modal>
     </>
