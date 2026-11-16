@@ -89,11 +89,11 @@ export function renderBookPage(code: string, entry: BookingEntry, minDay: string
   const pkgs = entry.packages
     .map(
       (p, i) => `<label class="pk"><input type="radio" name="pk" value="${h(p.id)}"${i === 0 ? ' checked' : ''}><b>${h(p.name)}</b> · <b class="num">${h(eur(p.priceCents))}</b>
-<p>${h(packageLine(p))}</p>${p.description ? `<p>${h(p.description)}</p>` : ''}<p>Señal para reservar: <b class="num">${h(eur(p.depositCents))}</b> (30 %)</p></label>`,
+<p>${h(packageLine(p))}</p>${p.description ? `<p>${h(p.description)}</p>` : ''}<p>Señal para reservar: <b class="num">${h(eur(p.depositCents))}</b> (30&nbsp;%)</p></label>`,
     )
     .join('');
   const closed = entry.problem ?? (entry.packages.length === 0 ? 'Ahora no hay reservados a la venta' : null);
-  const body = `<section><h1>Reserva en ${h(entry.venueName)}</h1><p>Elige tu reservado y la noche. Pagas la señal (30 %) o todo, y te damos un QR para cada persona del grupo.</p></section>
+  const body = `<section><h1>Reserva en ${h(entry.venueName)}</h1><p>Elige tu reservado y la noche. Pagas la señal (30&nbsp;%) o todo, y te damos un QR para cada persona del grupo.</p></section>
 ${
   closed
     ? `<section class="card warn"><p>${h(closed)}</p></section>`
@@ -144,7 +144,7 @@ function payCard(v: GroupView): string {
   const opts = v.payable
     .map((k, i) => {
       const cents = k === 'DEPOSIT' ? r.depositCents : k === 'FULL' ? r.priceCents : r.pendingCents;
-      const label = k === 'DEPOSIT' ? 'Pagar la señal (30 %)' : k === 'FULL' ? 'Pagar todo ahora' : 'Pagar el resto';
+      const label = k === 'DEPOSIT' ? 'Pagar la señal (30&nbsp;%)' : k === 'FULL' ? 'Pagar todo ahora' : 'Pagar el resto';
       return `<label class="pk"><input type="radio" name="kind" value="${k}" data-eur="${h(eur(cents))}"${i === 0 ? ' checked' : ''}><b>${label}</b> · <b class="num">${h(eur(cents))}</b></label>`;
     })
     .join('');

@@ -48,10 +48,19 @@ function group(over: Partial<GroupView> = {}, r: Partial<ReservationView> = {}):
 }
 
 const TOKEN = 'T'.repeat(32);
-/** Los importes llevan espacio duro (Intl): aquí, espacio normal. */
-const plain = (html: string) => html.replace(/[\u00a0\u202f]/g, ' ');
+/** Los importes llevan espacio duro (Intl) y «30&nbsp;%» también: aquí, espacio normal. */
+const plain = (html: string) => html.replace(/&nbsp;|[\u00a0\u202f]/g, ' ');
 
 describe('la página para reservar', () => {
+  it('«30 %» no se parte en dos líneas: lleva espacio duro en las dos páginas', () => {
+    const book = renderBookPage('ABCDEFGHIJKLMNOP', entry, '2026-11-16', '2027-03-16');
+    const groupPage = renderGroupPage(TOKEN, group(), 'https://api.prueba.es', '2026-11-16', '2027-03-16');
+    expect(book).toContain('Pagas la señal (30&nbsp;%) o todo');
+    expect(book).toContain('</b> (30&nbsp;%)</p>');
+    expect(groupPage).toContain('Pagar la señal (30&nbsp;%)');
+    expect(book + groupPage).not.toContain('30 %');
+  });
+
   it('los paquetes con su precio, lo que incluye y la señal del 30 %; el nombre del local escapado', () => {
     const html = plain(renderBookPage('ABCDEFGHIJKLMNOP', entry, '2026-11-16', '2027-03-16'));
     expect(html).toContain('Reserva en Sala &lt;Aurora&gt;');
