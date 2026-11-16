@@ -1,6 +1,8 @@
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import {
   addDays,
+  bitcoinRefundNote,
   bpsToPercent,
   currentNight,
   emptyPackageForm,
@@ -89,5 +91,34 @@ describe('la noche y los botones', () => {
     expect(reservationActions({ status: 'NO_SHOW', paidCents: 9000 })).toEqual({ table: false, changeDate: false, cancel: null });
     expect(reservationActions({ status: 'CLIENT_CANCELED', paidCents: 30000 }).cancel).toBeNull();
     expect(statusTone('CLIENT_CANCELED')).toBe('bad');
+  });
+});
+
+describe('el local anula un reservado pagado con bitcoin: solo se devuelve en euros', () => {
+  it('sin bitcoin, nada que avisar', () => {
+    expect(bitcoinRefundNote({ paidWithBitcoinCents: 0 })).toBeNull();
+    expect(bitcoinRefundNote({})).toBeNull();
+  });
+
+  it('con bitcoin: cuánto, que no va por el banco ni en bitcoin, y que hable con el dueño', () => {
+    const note = bitcoinRefundNote({ paidWithBitcoinCents: 28000 });
+    expect(note).toMatch(/280(,00)?\s?€ se pagaron con bitcoin/);
+    expect(note).toContain('no se devuelven por el banco ni en bitcoin, solo en euros');
+    expect(note).toContain('habla con el dueño');
+  });
+
+  it('la tarjeta del reservado lo dice antes de anular y en el aviso de después', () => {
+    const card = readFileSync(new URL('../components/reservations/ReservationCard.tsx', import.meta.url), 'utf8');
+    expect(card).toContain('bitcoinRefundNote(r)');
+    expect(card).toContain('bitcoinRefundNote(out.reservation)');
+  });
+});
+
+describe('Ajustes → Bitcoin: para qué sirve ya no se elige', () => {
+  it('sin el selector de antes y con la frase: cargar saldo y reservados, en la barra no', () => {
+    const panel = readFileSync(new URL('../components/settings/BtcpayPanel.tsx', import.meta.url), 'utf8');
+    expect(panel).not.toContain('Para qué lo usa este local');
+    expect(panel).not.toMatch(/purpose/);
+    expect(panel).toContain('{BITCOIN_USE_TEXT}');
   });
 });

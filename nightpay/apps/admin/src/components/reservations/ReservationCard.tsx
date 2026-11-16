@@ -4,7 +4,7 @@ import { useState, type CSSProperties } from 'react';
 import { Button } from '@nightpay/ui';
 import { formatMoney, type ReservationView } from '@nightpay/contracts';
 import { arriveFromPanel, markNoShow, setTable, undoNoShow, venueCancel, venueChangeDate } from '@/lib/endpoints/reservations';
-import { nightLabel, reservationActions, statusTone } from '@/lib/reservations';
+import { bitcoinRefundNote, nightLabel, reservationActions, statusTone } from '@/lib/reservations';
 
 type Ask = 'date' | 'cancel' | null;
 
@@ -47,6 +47,8 @@ export function ReservationCard({
   }
 
   const tone = statusTone(r.status);
+  // Pagado (en parte) con bitcoin: solo se devuelve en euros (aviso al encargado al anular).
+  const bitcoinNote = bitcoinRefundNote(r);
   return (
     <article style={card} aria-labelledby={`resv-${r.id}`} data-tour="reservados-reserva">
       <header style={head}>
@@ -136,6 +138,11 @@ export function ReservationCard({
               ? `El local anula el reservado y devuelve ${formatMoney(r.paidCents)}: el dinero queda en su saldo y se devuelve desde Clientes → Saldos («Devolver saldo»).`
               : 'Se anula la reserva sin pagar.'}
           </p>
+          {actions.cancel === 'Devolver' && bitcoinNote ? (
+            <p style={{ ...line, color: 'var(--np-warning)' }} role="note">
+              {bitcoinNote}
+            </p>
+          ) : null}
           <input style={input} placeholder="Motivo" value={reason} maxLength={200} onChange={(e) => setReason(e.target.value)} aria-label="Motivo" />
           <Button
             variant="danger"
@@ -147,7 +154,12 @@ export function ReservationCard({
                 const out = await venueCancel(r.id, reason.trim());
                 return {
                   view: out.reservation,
-                  notice: out.refundCents > 0 ? `Devuelve ${formatMoney(out.refundCents)} en Clientes → Saldos (saldo «Reservado ${r.ref}»).` : undefined,
+                  notice:
+                    out.refundCents > 0
+                      ? [`Devuelve ${formatMoney(out.refundCents)} en Clientes → Saldos (saldo «Reservado ${r.ref}»).`, bitcoinRefundNote(out.reservation)]
+                          .filter(Boolean)
+                          .join(' ')
+                      : undefined,
                 };
               })
             }

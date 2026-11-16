@@ -162,3 +162,16 @@ export function percentToBps(text: string): number | null {
   const bps = Math.round(Number(t) * 100);
   return bps >= 0 && bps <= PROMOTER_MAX_BPS ? bps : null;
 }
+
+/**
+ * La parte pagada con bitcoin de un reservado que el local anula (decisión del
+ * dueño): el bitcoin no se devuelve en bitcoin ni por la pasarela, solo en
+ * euros. «Devolver saldo» no la saca (ni a la tarjeta ni en efectivo) y la app
+ * aún no apunta una devolución en euros de un saldo cargado con bitcoin: aviso
+ * claro al encargado. Sin bitcoin, null.
+ */
+export function bitcoinRefundNote(r: Pick<ReservationView, 'paidWithBitcoinCents'>): string | null {
+  const cents = r.paidWithBitcoinCents ?? 0;
+  if (cents <= 0) return null;
+  return `De eso, ${formatMoney(cents)} se pagaron con bitcoin: no se devuelven por el banco ni en bitcoin, solo en euros. «Devolver saldo» no los saca; antes de dar ese dinero, habla con el dueño.`;
+}
