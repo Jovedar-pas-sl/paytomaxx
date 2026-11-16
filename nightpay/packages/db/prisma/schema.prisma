@@ -931,6 +931,8 @@ model CustomerDisplay {
   shownAt              DateTime? @db.Timestamptz
   // El camarero salió de ese cobro: se recuerda para enseñar su «Pagado» unos segundos.
   clearedAt            DateTime? @db.Timestamptz
+  // La propina que eligió el cliente en la tablet para ese cobro (20261117400100; 0 = «Sin propina»).
+  tipCents             Int       @default(0)
   createdAt            DateTime  @default(now()) @db.Timestamptz
   updatedAt            DateTime  @default(now()) @updatedAt @db.Timestamptz
 
