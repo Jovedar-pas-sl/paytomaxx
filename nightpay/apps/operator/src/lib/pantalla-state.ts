@@ -1,0 +1,96 @@
+// «Pantalla del cliente» (/pantalla): qué se enseña según lo que dice el API.
+// El API manda (el «Pagado» sale de la base); aquí solo se decide cuánto rato
+// se enseña cada cosa: «Pagado» unos segundos y vuelta sola al reposo;
+// cancelado, caducado o fallido: el reposo con un texto corto.
+
+import type { CustomerScreenEnd, CustomerScreenView } from '@nightpay/contracts';
+import { formatEur } from './money';
+
+/** «Pagado» a pantalla completa. */
+export const PAID_SHOW_MS = 6_000;
+/** El texto corto de un cobro que no se pagó. */
+export const ENDED_SHOW_MS = 4_000;
+/** Cobros que se recuerdan (para no repetir su «Pagado»). */
+const MEMORY = 20;
+
+export type WaitingView = Extract<CustomerScreenView, { state: 'waiting' }>;
+
+export type Shown =
+  | { kind: 'idle'; note: string | null; until: number | null }
+  | { kind: 'waiting'; view: WaitingView }
+  | { kind: 'paid'; until: number };
+
+export interface PantallaMemory {
+  shown: Shown;
+  /** Cobros que esta tablet vio esperando: solo de esos se enseña cómo acabaron. */
+  seen: readonly string[];
+  /** Cobros cuyo final ya se enseñó. */
+  done: readonly string[];
+}
+
+export const INITIAL_MEMORY: PantallaMemory = { shown: { kind: 'idle', note: null, until: null }, seen: [], done: [] };
+
+const remember = (list: readonly string[], key: string): readonly string[] =>
+  list.includes(key) ? list : [...list, key].slice(-MEMORY);
+
+const IDLE: Shown = { kind: 'idle', note: null, until: null };
+
+/** Algo que se está enseñando unos segundos (el «Pagado» o el texto corto) y aún no ha acabado. */
+function holding(shown: Shown, now: number): boolean {
+  return 'until' in shown && shown.until !== null && shown.until > now;
+}
+
+export function endedNote(reason: CustomerScreenEnd): string {
+  if (reason === 'expired') return 'El QR ha caducado';
+  if (reason === 'failed') return 'No se ha podido pagar';
+  return 'Cobro cancelado';
+}
+
+/** Lo nuevo del API sobre lo que ya se enseña. */
+export function nextMemory(mem: PantallaMemory, view: CustomerScreenView, now: number): PantallaMemory {
+  if (view.state === 'waiting') {
+    // Un cobro nuevo manda sobre el «Pagado» del anterior.
+    return { ...mem, shown: { kind: 'waiting', view }, seen: remember(mem.seen, view.key) };
+  }
+  if (view.state === 'idle') {
+    return holding(mem.shown, now) ? mem : { ...mem, shown: IDLE };
+  }
+  // Pagado o sin pagar: solo si esta tablet lo vio esperando y aún no enseñó su final.
+  if (mem.done.includes(view.key) || !mem.seen.includes(view.key)) {
+    return holding(mem.shown, now) ? mem : { ...mem, shown: IDLE };
+  }
+  const shown: Shown =
+    view.state === 'paid'
+      ? { kind: 'paid', until: now + PAID_SHOW_MS }
+      : { kind: 'idle', note: endedNote(view.reason), until: now + ENDED_SHOW_MS };
+  return { ...mem, shown, done: remember(mem.done, view.key) };
+}
+
+/** Pasó el rato del «Pagado» o del texto corto: al reposo. */
+export function expireMemory(mem: PantallaMemory, now: number): PantallaMemory {
+  const timed = 'until' in mem.shown && mem.shown.until !== null;
+  return timed && !holding(mem.shown, now) ? { ...mem, shown: IDLE } : mem;
+}
+
+/** En reposo: cómo se paga en este local. */
+export function idleHint(fichas: boolean): string {
+  return fichas ? 'Paga con tu ficha o con el QR' : 'Paga con el QR';
+}
+
+/** Debajo del importe: qué hacer. */
+export function waitingHint(view: WaitingView): string {
+  if (view.paying) return 'Terminando el pago…';
+  if (view.ficha) return 'Acerca tu ficha al móvil del camarero';
+  if (!view.qrUrl) return 'Paga en el datáfono';
+  return 'Escanea el QR con tu móvil';
+}
+
+/** El importe grande («33 €», «12,50 €»). */
+export function amountText(view: WaitingView): string {
+  return formatEur(view.amountCents, { compact: true });
+}
+
+/** Con «Comisión del servicio»: lo que paga la tarjeta («Con tarjeta, 36,30 €»). */
+export function cardLine(view: WaitingView): string | null {
+  return view.cardAmountCents !== null ? `Con tarjeta, ${formatEur(view.cardAmountCents, { compact: true })}` : null;
+}
