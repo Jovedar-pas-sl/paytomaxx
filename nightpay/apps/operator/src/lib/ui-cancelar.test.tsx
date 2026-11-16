@@ -32,6 +32,12 @@ describe('«¿Cancelar este cobro?»', () => {
     expect(list).toContain('<UnpaidInVenue');
     expect(list).toContain('run: () => setConfirmRow(r)');
   });
+
+  it('«Sin pagar en el local»: la recarga cobrada en el datáfono sin comprobar sale sin «Cancelar», con lo que es', () => {
+    const unpaid = read('../components/UnpaidInVenue.tsx');
+    expect(unpaid).toContain('{unpaidCancelable(u) ? (');
+    expect(unpaid).toContain('{unpaidState(u)}');
+  });
 });
 
 describe('Recepción → Incidencias: «Pagó después de cancelar»', () => {

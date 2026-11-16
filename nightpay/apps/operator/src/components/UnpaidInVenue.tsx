@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { Button, Card } from '@nightpay/ui';
 import { cancelPayment } from '@/lib/api';
-import { fetchUnpaidCobros, unpaidLine, unpaidState, unpaidToShow, type UnpaidCobro } from '@/lib/api-sin-pagar';
+import { fetchUnpaidCobros, unpaidCancelable, unpaidLine, unpaidState, unpaidToShow, type UnpaidCobro } from '@/lib/api-sin-pagar';
 import { timeLabel } from '@/lib/earnings-view';
 import { usePolling } from '@/lib/use-polling';
 import { CancelCobroConfirm } from './CancelCobroConfirm';
@@ -12,7 +12,9 @@ import styles from './my-cobros.module.css';
 /**
  * «Cobros» → «Sin pagar en el local»: los cobros sin pagar de todo el local,
  * también los de otra persona. Cualquiera del personal cancela cualquiera
- * (decisión del dueño), siempre confirmando. Sin ninguno, no sale nada.
+ * (decisión del dueño), siempre confirmando, menos la recarga cobrada en el
+ * datáfono sin comprobar: sale sin botón (la resuelven en el panel). Sin
+ * ninguno, no sale nada.
  */
 export function UnpaidInVenue({ ownListCancels, onCanceled }: { ownListCancels: boolean; onCanceled: () => void }) {
   const [items, setItems] = useState<UnpaidCobro[] | null>(null);
@@ -61,9 +63,12 @@ export function UnpaidInVenue({ ownListCancels, onCanceled }: { ownListCancels: 
               {timeLabel(new Date(u.createdAt))} · {unpaidState(u)}
             </span>
           </div>
-          <Button variant="ghost" size="md" onClick={() => setTarget(u)} aria-label={`Cancelar el cobro ${unpaidLine(u)}`}>
-            Cancelar
-          </Button>
+          {/* Cobrado en el datáfono sin comprobar: sin botón (lo dice la línea de arriba). */}
+          {unpaidCancelable(u) ? (
+            <Button variant="ghost" size="md" onClick={() => setTarget(u)} aria-label={`Cancelar el cobro ${unpaidLine(u)}`}>
+              Cancelar
+            </Button>
+          ) : null}
         </div>
       ))}
       {error ? (
