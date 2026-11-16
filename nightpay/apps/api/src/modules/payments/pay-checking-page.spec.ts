@@ -115,15 +115,15 @@ describe('«Comprobando el pago»: lo que se pinta en cada fase (05-ui-ux §4.3)
     expect(visible(noRetry, 'ckRetryIn')).toBe(false);
   });
 
-  it('sin confirmación del banco: la misma plantilla, «Tu banco aún no lo ha confirmado», sin reintentar, cada 15 s', () => {
+  it('sin confirmación del banco: la misma plantilla, «Tu banco aún no lo ha confirmado», sin reintentar, cada 5 s', () => {
     const html = page({ mode: 'unconfirmed', retryHref: null, saldoHref: null }, { state: 'unconfirmed', retryAt: null, attemptStartedAt: sent(400) });
     expect(html).toContain('data-mode="unconfirmed"');
     expect(html).toContain('Tu banco aún no lo ha confirmado');
     expect(html).toContain('Esta pantalla lo sigue comprobando sola.');
     expect(html).not.toContain('id="ckRetry"');
     expect(visible(html, 'ckBank')).toBe(true);
-    expect(html).toContain('content="15;url=/pay/tok-1?lang=es"');
-    expect(html).toContain('"unconfirmedEveryMs":15000');
+    expect(html).toContain('content="5;url=/pay/tok-1?lang=es"');
+    expect(html).toContain('"unconfirmedEveryMs":5000');
     expect(html).toContain('"unconfirmedForMs":1800000');
   });
 

@@ -177,7 +177,7 @@ describe('receivePaytef — URL secreta', () => {
     expect(h.queue.add).toHaveBeenCalledWith(
       'process-webhook',
       { deliveryId: '314' },
-      { jobId: 'webhook-PAYTEF-PL-77812_TXN-90311', attempts: 5, backoff: { type: 'exponential', delay: 5000 } },
+      { jobId: 'webhook-PAYTEF-PL-77812_TXN-90311', attempts: 8, backoff: { type: 'exponential', delay: 1000 } },
     );
     expect(h.metrics.webhooksReceived.inc).toHaveBeenCalledWith({ provider: 'PAYTEF', outcome: 'valid' });
   });

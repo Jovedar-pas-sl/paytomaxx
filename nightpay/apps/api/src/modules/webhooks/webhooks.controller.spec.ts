@@ -261,15 +261,15 @@ describe('WebhooksController.receiveWipay — Cecabank form POST', () => {
     );
   });
 
-  it('configura retries con backoff exponencial', async () => {
+  it('configura retries con backoff exponencial: 8 intentos, el primero a 1 s', async () => {
     const { controller, queue } = makeController();
     await controller.receiveWipay(fakeWipayRequest());
     expect(queue.add).toHaveBeenCalledWith(
       expect.any(String),
       expect.any(Object),
       expect.objectContaining({
-        attempts: 5,
-        backoff: { type: 'exponential', delay: 5000 },
+        attempts: 8,
+        backoff: { type: 'exponential', delay: 1000 },
       }),
     );
   });

@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   createPaymentLive,
+  PAYMENT_POLL_AUTHORIZING_MS,
   PAYMENT_POLL_LIVE_MS,
   PAYMENT_POLL_OFFLINE_MS,
   PAYMENT_POLL_TIMEOUT_MS,
@@ -45,7 +46,7 @@ class FakeSocket implements PaymentSocket {
   }
 }
 
-function setup(pollImpl?: () => Promise<void | 'stop' | 'slow'>) {
+function setup(pollImpl?: () => Promise<void | 'stop' | 'slow'>, isAuthorizing?: () => boolean) {
   const socket = new FakeSocket();
   const poll = vi.fn(pollImpl ?? (async () => undefined));
   const liveChanges: boolean[] = [];
@@ -54,6 +55,7 @@ function setup(pollImpl?: () => Promise<void | 'stop' | 'slow'>) {
     socket: () => socket,
     poll,
     onLiveChange: (v) => liveChanges.push(v),
+    ...(isAuthorizing ? { isAuthorizing } : {}),
   });
   return { socket, poll, liveChanges, link };
 }
@@ -134,6 +136,38 @@ describe('createPaymentLive', () => {
     link.start(60_000);
     socket.fire('connect');
     await tick(0);
+    poll.mockClear();
+    await tick(PAYMENT_POLL_LIVE_MS - 1);
+    expect(poll).not.toHaveBeenCalled();
+    await tick(1);
+    expect(poll).toHaveBeenCalledTimes(1);
+  });
+
+  it('con tiempo real y el cliente en su banco (AUTHORIZING), el respaldo pregunta cada 4 s, no cada 10 s', async () => {
+    expect(PAYMENT_POLL_AUTHORIZING_MS).toBe(4_000);
+    let authorizing = false;
+    const { socket, poll, link } = setup(undefined, () => authorizing);
+    link.start(60_000);
+    socket.fire('connect');
+    await tick(0);
+    // Aún no ha ido al banco: cada 10 s, como siempre.
+    poll.mockClear();
+    await tick(PAYMENT_POLL_LIVE_MS);
+    expect(poll).toHaveBeenCalledTimes(1);
+    // Se va a su banco: desde la siguiente vuelta, cada 4 s.
+    authorizing = true;
+    link.poke();
+    await tick(0);
+    poll.mockClear();
+    await tick(PAYMENT_POLL_AUTHORIZING_MS - 1);
+    expect(poll).not.toHaveBeenCalled();
+    await tick(1);
+    expect(poll).toHaveBeenCalledTimes(1);
+    await tick(PAYMENT_POLL_AUTHORIZING_MS);
+    expect(poll).toHaveBeenCalledTimes(2);
+    // Vuelve del banco sin pagar (p. ej. «sin confirmar»): otra vez cada 10 s.
+    authorizing = false;
+    await tick(PAYMENT_POLL_AUTHORIZING_MS);
     poll.mockClear();
     await tick(PAYMENT_POLL_LIVE_MS - 1);
     expect(poll).not.toHaveBeenCalled();
