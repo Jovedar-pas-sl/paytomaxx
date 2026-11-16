@@ -706,9 +706,19 @@ describe('cancelar el cobro con la factura abierta', () => {
     expect(await sys((tx) => tx.paymentEvent.count({ where: { paymentId: p.id, eventType: 'payment.approval_unbooked' } }))).toBe(1);
   });
 
-  it('con tarjeta (AUTHORIZING en el banco) también se cancela (decisión del dueño: si paga, queda en Incidencias)', async () => {
+  it('con tarjeta (AUTHORIZING en el banco): no antes de 2 minutos (409); después, sí (si paga, queda en Incidencias). Con bitcoin, sin esperar (arriba)', async () => {
     const p = await newPayment(900);
-    await sys((tx) => tx.payment.update({ where: { id: p.id }, data: { status: 'AUTHORIZING', provider: 'REDSYS', providerTxId: `RS${r}${n}` } }));
+    const order = `RS${r}${n}`;
+    await sys(async (tx) => {
+      await tx.payment.update({ where: { id: p.id }, data: { status: 'AUTHORIZING', provider: 'REDSYS', providerTxId: order } });
+      await tx.paymentAttempt.create({ data: { paymentId: p.id, tenantId: A, provider: 'REDSYS', providerTxId: order, amountCents: 900, tipCents: 0, status: 'PENDING' } });
+    });
+    await expect(inCtx(A, () => payments.cancel(p.id, { userId: waiter, role: 'WAITER', tenantId: A }))).rejects.toMatchObject({
+      status: 409,
+      response: { code: 'CANCEL_AT_BANK_TOO_SOON' },
+    });
+    expect((await statusOf(p.id)).status).toBe('AUTHORIZING');
+    await sys((tx) => tx.$executeRaw`UPDATE payment_attempts SET "createdAt" = now() - interval '3 minutes' WHERE "paymentId" = ${p.id}::uuid`);
     await expect(inCtx(A, () => payments.cancel(p.id, { userId: waiter, role: 'WAITER', tenantId: A }))).resolves.toEqual({ status: 'CANCELED' });
   });
 

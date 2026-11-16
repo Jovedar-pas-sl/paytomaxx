@@ -75,7 +75,7 @@ const inCtx = <T>(tenantId: string, fn: () => Promise<T>): Promise<T> =>
     return fn();
   });
 
-async function cobro(o: { status: string; amount: number; order?: string; tip?: number; by?: string }): Promise<{ id: string; ref: number }> {
+async function cobro(o: { status: string; amount: number; order?: string; tip?: number; by?: string; atBankFor?: number }): Promise<{ id: string; ref: number }> {
   const ref = refBase + ++refSeq;
   const id = await sys<string>(async (tx) => {
     const p = await tx.payment.create({
@@ -96,8 +96,10 @@ async function cobro(o: { status: string; amount: number; order?: string; tip?: 
       },
     });
     if (o.order) {
+      // El cliente salió a su banco hace `atBankFor` s (por defecto, pasados los 2 minutos: ya se puede cancelar).
+      const createdAt = new Date(Date.now() - (o.atBankFor ?? 180) * 1000);
       await tx.paymentAttempt.create({
-        data: { paymentId: p.id, tenantId: A, provider: 'REDSYS', providerTxId: o.order, amountCents: o.amount + (o.tip ?? 0), tipCents: o.tip ?? 0, status: 'PENDING' },
+        data: { paymentId: p.id, tenantId: A, provider: 'REDSYS', providerTxId: o.order, amountCents: o.amount + (o.tip ?? 0), tipCents: o.tip ?? 0, status: 'PENDING', createdAt },
       });
     }
     return p.id;
@@ -162,15 +164,97 @@ describe('cualquiera del personal cancela cualquier cobro sin pagar de su local'
     await expect(cancelAs(chica, 'OPERATOR', id)).resolves.toEqual({ status: 'CANCELED' });
   });
 
-  it('Redsys con el cliente en su banco (AUTHORIZING): se cancela; pagado, 409', async () => {
+  it('Redsys con el cliente en su banco (AUTHORIZING) pasados los 2 minutos: se cancela; pagado, 409', async () => {
     const order = `AB${r}`;
-    const { id } = await cobro({ status: 'AUTHORIZING', amount: 2000, order });
+    const { id } = await cobro({ status: 'AUTHORIZING', amount: 2000, order, atBankFor: 150 });
     const unpaid = await inCtx(A, () => listUnpaidCobros(prisma, { tenantId: A, userId: camarero }));
-    expect(unpaid.find((u) => u.id === id)).toMatchObject({ atBank: true, bitcoin: false });
+    expect(unpaid.find((u) => u.id === id)).toMatchObject({ atBank: true, bitcoin: false, cancelableInMs: 0 });
     await expect(cancelAs(camarero, 'WAITER', id)).resolves.toEqual({ status: 'CANCELED' });
     expect(await statusOf(id)).toBe('CANCELED');
     const paid = await cobro({ status: 'AUTHORIZED', amount: 700 });
     await expect(cancelAs(camarero, 'WAITER', paid.id)).rejects.toMatchObject({ status: 409 });
+  });
+});
+
+describe('con el cliente en su banco: 2 minutos sin poder cancelar', () => {
+  /** Lleva al cliente a su banco hace `s` segundos (el intento más reciente). */
+  const backdate = (id: string, s: number) =>
+    sys((tx) => tx.$executeRaw`UPDATE payment_attempts SET "createdAt" = now() - make_interval(secs => ${s}::int) WHERE "paymentId" = ${id}::uuid`);
+  const tooSoon = { status: 409, response: { code: 'CANCEL_AT_BANK_TOO_SOON' } };
+
+  it('antes de los 2 minutos, 409 con su código y el cobro sigue en el banco; «Sin pagar» dice cuánto falta; pasados, se cancela', async () => {
+    const order = `TS${r}`;
+    const { id } = await cobro({ status: 'AUTHORIZING', amount: 1800, order, atBankFor: 30 });
+    const row = (await inCtx(A, () => listUnpaidCobros(prisma, { tenantId: A, userId: camarero }))).find((u) => u.id === id);
+    expect(row).toMatchObject({ atBank: true, bitcoin: false });
+    expect(row!.cancelableInMs).toBeGreaterThan(80_000);
+    expect(row!.cancelableInMs).toBeLessThanOrEqual(90_000);
+    expect(Date.parse(row!.atBankSince!)).toBeLessThan(Date.now() - 25_000);
+
+    // Nadie del personal: ni el camarero, ni la chica que lo creó, ni el encargado.
+    for (const [user, role] of [
+      [camarero, 'WAITER'],
+      [chica, 'OPERATOR'],
+      [encargado, 'MANAGER'],
+    ] as const) {
+      await expect(cancelAs(user, role, id)).rejects.toMatchObject(tooSoon);
+    }
+    expect(await statusOf(id)).toBe('AUTHORIZING');
+    const canceledEvents = await sys<unknown[]>((tx) => tx.paymentEvent.findMany({ where: { paymentId: id, eventType: 'payment.canceled' } }));
+    expect(canceledEvents).toHaveLength(0);
+
+    await backdate(id, 121);
+    expect((await inCtx(A, () => listUnpaidCobros(prisma, { tenantId: A, userId: camarero }))).find((u) => u.id === id)?.cancelableInMs).toBe(0);
+    await expect(cancelAs(camarero, 'WAITER', id)).resolves.toEqual({ status: 'CANCELED' });
+    expect(await statusOf(id)).toBe('CANCELED');
+  });
+
+  it('cuenta desde el intento MÁS RECIENTE: si vuelve a intentarlo en su banco, otra vez 2 minutos', async () => {
+    const order = `RT${r}`;
+    const { id } = await cobro({ status: 'AUTHORIZING', amount: 2100, order, atBankFor: 400 });
+    // Un segundo pedido (reintento de Redsys) hace 20 s.
+    await sys((tx) =>
+      tx.paymentAttempt.create({
+        data: { paymentId: id, tenantId: A, provider: 'REDSYS', providerTxId: `${order}B`, amountCents: 2100, tipCents: 0, status: 'PENDING', createdAt: new Date(Date.now() - 20_000) },
+      }),
+    );
+    await expect(cancelAs(camarero, 'WAITER', id)).rejects.toMatchObject(tooSoon);
+    expect(await statusOf(id)).toBe('AUTHORIZING');
+  });
+
+  it('sin intento (el datáfono): cuenta desde que el cobro entró en AUTHORIZING (su evento), no desde updatedAt', async () => {
+    const { id } = await cobro({ status: 'AUTHORIZING', amount: 2500 });
+    await sys((tx) => tx.payment.update({ where: { id }, data: { provider: 'PAYTEF', providerTxId: `OP${r}` } }));
+    await sys((tx) =>
+      tx.$executeRaw`INSERT INTO payment_events ("paymentId", "tenantId", "eventType", payload, "traceId", "occurredAt")
+                     VALUES (${id}::uuid, ${A}::uuid, 'payment.authorizing', '{"type":"AUTHORIZING"}'::jsonb, 't-cancel', now() - interval '40 seconds')`,
+    );
+    await expect(cancelAs(camarero, 'WAITER', id)).rejects.toMatchObject(tooSoon);
+    await sys((tx) => tx.$executeRaw`UPDATE payment_events SET "occurredAt" = now() - interval '3 minutes' WHERE "paymentId" = ${id}::uuid`);
+    // Mover updatedAt (otra cosa toca el cobro) no cambia nada.
+    await sys((tx) => tx.payment.update({ where: { id }, data: { serviceName: 'Tocado' } }));
+    await expect(cancelAs(camarero, 'WAITER', id)).resolves.toEqual({ status: 'CANCELED' });
+  });
+
+  it('bitcoin (factura abierta, sin pago en la red): se cancela al momento, sin esperar', async () => {
+    const { id } = await cobro({ status: 'AUTHORIZING', amount: 1300 });
+    await sys(async (tx) => {
+      await tx.payment.update({ where: { id }, data: { provider: 'BTCPAY', providerTxId: `INV${r}` } });
+      await tx.paymentAttempt.create({ data: { paymentId: id, tenantId: A, provider: 'BTCPAY', providerTxId: `INV${r}`, amountCents: 1300, tipCents: 0, status: 'PENDING', payMethod: 'bitcoin' } });
+    });
+    const row = (await inCtx(A, () => listUnpaidCobros(prisma, { tenantId: A, userId: camarero }))).find((u) => u.id === id);
+    expect(row).toMatchObject({ atBank: false, bitcoin: true, cancelableInMs: 0, atBankSince: null });
+    await expect(cancelAs(camarero, 'WAITER', id)).resolves.toEqual({ status: 'CANCELED' });
+  });
+
+  it('antes de ir al banco (el QR sin pagar): se cancela como siempre', async () => {
+    const { id } = await cobro({ status: 'CREATED', amount: 950 });
+    expect((await inCtx(A, () => listUnpaidCobros(prisma, { tenantId: A, userId: camarero }))).find((u) => u.id === id)).toMatchObject({
+      atBank: false,
+      cancelableInMs: 0,
+      atBankSince: null,
+    });
+    await expect(cancelAs(chica, 'OPERATOR', id)).resolves.toEqual({ status: 'CANCELED' });
   });
 });
 
