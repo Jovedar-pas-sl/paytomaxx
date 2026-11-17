@@ -22,6 +22,7 @@ import {
 } from './reservation-rules';
 import { RESERVATION_VIEW_INCLUDE, reservationView, servedItems, type ReservationRow } from './reservation-views';
 import { loseDeposit, spendFromGroupWallet, venueOwnerId } from './reservation-wallet';
+import { REST_PAYING_TEXT, RESERVATION_PAY_OPEN_CODE, conflictCode, restPayingText } from './reservation-open-payments';
 import { NOT_STARTED, ReservationsService } from './reservations.service';
 
 export interface StaffActor {
@@ -32,6 +33,8 @@ export interface StaffActor {
 
 const MANAGERS = new Set(['OWNER', 'MANAGER']);
 const NOT_FOUND = 'Reserva no encontrada';
+/** Un pago de la reserva a medias: sin empezar o pagándose (en el banco o con bitcoin). */
+const PAYING = ['CREATED', 'AWAITING_CAPTURE', 'AUTHORIZING'] as const;
 
 /**
  * Reservados (la parte del local): la lista de la noche, la mesa, la puerta
@@ -236,13 +239,21 @@ export class ReservationOpsService {
 
   // ─── El resto en efectivo (puerta o recepción) ─────────────────────
 
-  /** Cuánto se cobra en efectivo del resto (con la comisión del servicio de las recargas) y si se puede. */
+  /**
+   * Cuánto se cobra en efectivo del resto (con la comisión del servicio de las
+   * recargas) y si se puede: con el resto pagándose aún con bitcoin en la red o
+   * con el cliente en su banco (los 2 minutos), no (lo que diría «Cancelar cobro»).
+   */
   async cashQuote(actor: StaffActor, id: string): Promise<ReservationCashQuote> {
     const r = await this.detail(actor, id);
     const venue = await this.prisma.venue.findUnique({ where: { id: actor.tenantId }, select: VENUE_SERVICE_FEE_SELECT });
     const pending = r.status === 'DEPOSIT_PAID' ? r.pendingCents : 0;
     const fee = pending > 0 ? serviceFeeQuote(venueServiceFeeOf(venue), 'topUp', pending).feeCents : 0;
-    const blocked = pending <= 0 ? 'Este reservado no tiene el resto pendiente' : await this.cash.cashBlockedReason(actor.tenantId, { userId: actor.userId, role: actor.role });
+    const blocked =
+      pending <= 0
+        ? 'Este reservado no tiene el resto pendiente'
+        : ((await this.restPayingBlocker(actor.tenantId, id)) ??
+          (await this.cash.cashBlockedReason(actor.tenantId, { userId: actor.userId, role: actor.role })));
     return { amountCents: pending, serviceFeeCents: fee, totalCents: pending + fee, blocked };
   }
 
@@ -250,7 +261,9 @@ export class ReservationOpsService {
    * El resto en efectivo: una recarga en efectivo del saldo del grupo (la de
    * recepción: entra en la caja de la noche y en el cierre a ciegas, con sus
    * permisos y su tope legal) y, con ella, la reserva pagada entera.
-   * Repetir con la misma `key` no cobra dos veces.
+   * Repetir con la misma `key` no cobra dos veces. Si el resto se estaba pagando
+   * con tarjeta o con bitcoin, ese pago se cancela antes (como «Cancelar cobro»);
+   * si no se puede (bitcoin en la red, el cliente en su banco), 409 y no se cobra.
    */
   async payRestCash(actor: StaffActor, id: string, input: { key: string; serviceFeeCents: number }): Promise<ReservationView> {
     const r = await this.prisma.withTenant(actor.tenantId, (tx) =>
@@ -261,6 +274,15 @@ export class ReservationOpsService {
     const pending = r.priceCents - r.paidCents;
     const code = r.wallet?.shortCode;
     if (r.status !== 'DEPOSIT_PAID' || pending <= 0 || !code) {
+      throw new ConflictException({ message: 'Este reservado no tiene el resto pendiente', code: 'RESERVATION_NOT_PAYABLE' });
+    }
+    // Para no cobrar el resto dos veces: el pago del resto a medias (tarjeta o bitcoin), cancelado antes.
+    await this.cancelRestPaying(actor, r.id);
+    // Por si se pagó mientras tanto: la reserva tiene que seguir igual.
+    const still = await this.prisma.withTenant(actor.tenantId, (tx) =>
+      tx.reservation.findFirst({ where: { id, tenantId: actor.tenantId }, select: { status: true, priceCents: true, paidCents: true } }),
+    );
+    if (!still || still.status !== 'DEPOSIT_PAID' || still.priceCents - still.paidCents !== pending) {
       throw new ConflictException({ message: 'Este reservado no tiene el resto pendiente', code: 'RESERVATION_NOT_PAYABLE' });
     }
     const top = await this.cash.topUp(actor.tenantId, { userId: actor.userId, role: actor.role }, {
@@ -293,6 +315,46 @@ export class ReservationOpsService {
       tx.reservationPayment.count({ where: { tenantId, cashTopUp: { idempotencyKey: `resv-cash:${key}` } } }),
     );
     return n > 0;
+  }
+
+  /** Los pagos de la reserva a medias (con tarjeta o bitcoin): sin pagar, sin empezar o pagándose. */
+  private async payingOf(tenantId: string, reservationId: string): Promise<string[]> {
+    const rows = await this.prisma.withTenant(tenantId, (tx) =>
+      tx.reservationPayment.findMany({
+        where: { tenantId, reservationId, paidAt: null, payment: { status: { in: [...PAYING] } } },
+        select: { paymentId: true },
+      }),
+    );
+    return rows.flatMap((x) => (x.paymentId ? [x.paymentId] : []));
+  }
+
+  /** Por qué no se cobra ahora el resto en efectivo: su pago a medias no se puede cancelar todavía (null: sí). */
+  private async restPayingBlocker(tenantId: string, reservationId: string): Promise<string | null> {
+    for (const paymentId of await this.payingOf(tenantId, reservationId)) {
+      const blocker = await this.payments.cancelBlocker(paymentId, tenantId);
+      if (blocker) return restPayingText(blocker) ?? REST_PAYING_TEXT;
+    }
+    return null;
+  }
+
+  /**
+   * El resto en efectivo con su pago con tarjeta o bitcoin a medias: se cancela
+   * como «Cancelar cobro» (quién y con qué móvil; con bitcoin, la factura se
+   * cierra). Con el bitcoin en la red o el cliente en su banco (2 minutos), 409
+   * RESERVATION_PAY_OPEN: no se cobra en efectivo.
+   */
+  private async cancelRestPaying(actor: StaffActor, reservationId: string): Promise<void> {
+    for (const paymentId of await this.payingOf(actor.tenantId, reservationId)) {
+      try {
+        await this.payments.cancel(paymentId, { userId: actor.userId, role: actor.role, tenantId: actor.tenantId });
+      } catch (err) {
+        const text = restPayingText(err);
+        if (text) throw new ConflictException({ code: RESERVATION_PAY_OPEN_CODE, message: text });
+        // Pagado o cerrado entretanto (el 409 sin código): lo dice la reserva, que se mira otra vez después.
+        if (err instanceof ConflictException && conflictCode(err) === null) continue;
+        throw err;
+      }
+    }
   }
 
   // ─── El local cambia la fecha o anula ──────────────────────────────
