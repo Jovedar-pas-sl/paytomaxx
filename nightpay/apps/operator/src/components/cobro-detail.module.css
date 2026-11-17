@@ -63,10 +63,31 @@
   color: var(--np-warning);
 }
 
-.actions {
+/* Botones del detalle, del mismo alto: «Imprimir ticket» (si está pagado) a
+   todo lo ancho; debajo, «Compartir» y «Ver más» a medias (uno solo, a todo
+   lo ancho). Nunca dos filas desiguales. */
+.buttons {
   display: flex;
-  flex-wrap: wrap;
-  gap: 0.75rem;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.buttons > button {
+  width: 100%;
+}
+
+.actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.5rem;
+}
+
+.actions > * {
+  width: 100%;
+}
+
+.actions > :only-child {
+  grid-column: 1 / -1;
 }
 
 /* Toda la fila de «Mis cobros» abre el detalle; «Cancelar» queda por encima. */

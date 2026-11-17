@@ -17,4 +17,10 @@
   .logoMark {
     display: block;
   }
+
+  /* «Local sala-aurora» fuera: con él, «?», el tema y «Salir» bajaban a otra
+     línea y el QR del cobro quedaba cortado en el datáfono (360 × 720). */
+  .venueLine {
+    display: none;
+  }
 }

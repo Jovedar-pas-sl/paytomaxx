@@ -156,7 +156,7 @@ export function CashRegister({ venueSlug, onLogout }: Props) {
           </span>
           <div style={{ borderLeft: '1px solid var(--np-border)', paddingLeft: '0.75rem', minWidth: 0 }}>
             <p style={brandLabel}>TPV</p>
-            <p style={brandSub}>
+            <p className={styles.venueLine} style={brandSub}>
               Local <code style={code}>{venueSlug}</code>
             </p>
           </div>

@@ -176,17 +176,24 @@ export function ActivePayment({ payment, venueName = null, status, reachable, ch
       />
 
       {/* En el móvil, el importe va arriba y «Cancelar cobro» en una barra fija abajo. */}
-      <Card className={styles.amount} style={{ padding: CARD_PAD, textAlign: 'center' }} data-tour="tpv-importe">
-        <p style={sectionLabel}>Importe</p>
-        <AmountDisplay amountCents={payment.amountCents} currency={payment.currency} status={shown} />
+      <Card className={styles.amount} data-tour="tpv-importe">
+        {/* En el datáfono, importe y estado en una línea: el QR cabe entero sin bajar. */}
+        <div className={styles.amountHead}>
+          <p className={styles.amountLabel} style={sectionLabel}>
+            Importe
+          </p>
+          <div className={styles.amountValue}>
+            <AmountDisplay amountCents={payment.amountCents} currency={payment.currency} status={shown} />
+          </div>
+          <div className={styles.status} data-tour="tpv-estado">
+            <StatusPill status={shown} />
+          </div>
+        </div>
         {breakdown ? (
           <p style={hintStyle}>
             Con tarjeta paga {formatMoney(payment.amountCents + feeCents, { compact: true, currency: payment.currency })} ({breakdown})
           </p>
         ) : null}
-        <div style={{ marginTop: '1rem', display: 'flex', justifyContent: 'center' }} data-tour="tpv-estado">
-          <StatusPill status={shown} />
-        </div>
         {awaiting ? (
           <p role="status" style={awaitStyle}>
             {reachable
@@ -274,27 +281,31 @@ function QrCard({ payment, venueName, amountCents, deadline, now }: QrCardProps)
   }
 
   return (
-    <Card style={{ padding: CARD_PAD }} data-tour="tpv-qr">
-      <p style={sectionLabel}>QR del cobro</p>
+    <Card className={styles.qrCard} data-tour="tpv-qr">
+      <p className={styles.qrLabel} style={sectionLabel}>
+        QR del cobro
+      </p>
       {/* Fondo blanco en los dos temas: el lector del móvil lo necesita para leer el QR. */}
-      <div style={{ marginTop: '1rem' }}>
+      <div className={styles.qrWrap}>
         <QrCountdown deadline={deadline} nowMs={now}>
           <div className={deadline ? 'np-breathe' : undefined} style={qrBox}>
             <QrImage url={payment.qrUrl} fallbackSrc={payment.qrPngDataUrl} />
           </div>
         </QrCountdown>
       </div>
-      <div style={{ marginTop: '1rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-        <p style={sectionLabel}>URL</p>
-        <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'stretch' }}>
-          <code style={urlCode}>{payment.qrUrl}</code>
-          <Button variant="ghost" size="md" onClick={copyUrl}>
-            {copy === 'copied' ? '✓ Copiado' : copy === 'failed' ? 'Cópiala a mano' : 'Copiar'}
-          </Button>
-        </div>
+      {/* El enlace a la vista, solo donde sobra sitio (en el datáfono, con «Copiar enlace» basta). */}
+      <code className={styles.url} style={urlCode}>
+        {payment.qrUrl}
+      </code>
+      {/* Dos botones iguales, uno al lado del otro. */}
+      <div className={styles.qrActions}>
+        <Button variant="ghost" size="md" onClick={copyUrl}>
+          {copy === 'copied' ? '✓ Copiado' : copy === 'failed' ? 'Cópialo a mano' : 'Copiar enlace'}
+        </Button>
         {deadline ? <PrintButton label="Imprimir QR" onClick={printQr} /> : null}
-        {printer.error ? <FormError>{printer.error}</FormError> : null}
       </div>
+      {copy === 'failed' ? <p style={hintStyle}>{payment.qrUrl}</p> : null}
+      {printer.error ? <FormError>{printer.error}</FormError> : null}
       {printer.ticketNode}
     </Card>
   );
@@ -319,8 +330,6 @@ function QrImage({ url, fallbackSrc }: { url: string; fallbackSrc: string }) {
   );
 }
 
-// Relleno de las tarjetas: 16 en el móvil (el importe y «Cancelar cobro» suben), 32 en la tableta.
-const CARD_PAD = 'clamp(1rem, 4vw, 2rem)';
 
 // Etiquetas 14/500 en t2, sin mayúsculas ni espaciado (Grafito).
 const sectionLabel: CSSProperties = {
@@ -330,7 +339,8 @@ const sectionLabel: CSSProperties = {
   margin: 0,
 };
 
-// Blanco con un margen de 8 px y el QR de 240 px útiles (vector).
+// Blanco con un margen de 8 px y el QR en vector: 16 rem en el datáfono y el
+// móvil (256 px), 20 rem en la tablet (--tpv-qr, en la hoja).
 const qrBox: CSSProperties = {
   background: 'white',
   borderRadius: 'var(--np-r-md)',
@@ -339,11 +349,11 @@ const qrBox: CSSProperties = {
   justifyContent: 'center',
 };
 
-const qrImg: CSSProperties = { width: '100%', maxWidth: 240, height: 'auto', aspectRatio: '1', display: 'block' };
+const qrImg: CSSProperties = { width: '100%', maxWidth: 'min(100%, var(--tpv-qr, 16rem))', height: 'auto', aspectRatio: '1', display: 'block' };
 
+// Sin «display»: lo pone la hoja (.url), que lo esconde en el datáfono.
 const urlCode: CSSProperties = {
   flex: 1,
-  display: 'flex',
   alignItems: 'center',
   padding: '0 0.875rem',
   fontFamily: 'var(--np-font-mono)',

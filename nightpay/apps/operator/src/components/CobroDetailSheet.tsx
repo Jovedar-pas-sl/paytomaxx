@@ -149,20 +149,22 @@ function DetailBody({ d, onShare, shared, onMore }: { d: CobroDetail; onShare: (
         </Block>
       ) : null}
 
-      <div className={styles.actions}>
+      <div className={styles.buttons}>
         {d.paidAt ? (
           <Button variant="ghost" onClick={() => printer.print(receiptFromDetail(d))}>
             Imprimir ticket
           </Button>
         ) : null}
-        <Button variant="ghost" onClick={onShare}>
-          Compartir
-        </Button>
-        {d.sensitive ? null : (
-          <Button variant="ghost" onClick={onMore}>
-            Ver más
+        <div className={styles.actions}>
+          <Button variant="ghost" onClick={onShare}>
+            Compartir
           </Button>
-        )}
+          {d.sensitive ? null : (
+            <Button variant="ghost" onClick={onMore}>
+              Ver más
+            </Button>
+          )}
+        </div>
       </div>
       {printer.error ? (
         <p role="alert" className={styles.mute} style={{ color: 'var(--np-danger)' }}>
