@@ -79,6 +79,8 @@ export interface RefundRow {
   registeredManually: boolean;
   bankRefundedAt: Date | null;
   serviceFeeCents: number;
+  /** Se dio en efectivo («Devolver en efectivo» de lo pagado con bitcoin), no a la tarjeta. */
+  paidInCash?: boolean;
 }
 
 export interface PaymentDetailInput {
@@ -170,6 +172,8 @@ export function paymentDetailFacts(i: PaymentDetailInput): CobroDetailFacts {
       by: nameOf(i.people.get(r.requestedBy)),
       reason: r.reason?.trim() || null,
       status: r.status,
+      // Lo pagado con bitcoin devuelto en efectivo: el detalle y el ticket no dicen «a la tarjeta».
+      ...(r.paidInCash === true ? { paidInCash: true } : {}),
     })),
     ...(p.status === 'CANCELED' && canceled && !p.events.some((e) => e.eventType === 'payment.paid_with_saldo')
       ? [

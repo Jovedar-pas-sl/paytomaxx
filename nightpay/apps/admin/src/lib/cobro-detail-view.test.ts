@@ -97,6 +97,16 @@ describe('palabras únicas', () => {
     expect(undoText({ kind: 'CANCEL', at, amountCents: null, by: 'Ana', reason: null, status: null }, eur, when)).toBe('Cancelado sin pagar · 01:10 · Ana');
   });
 
+  it('lo pagado con bitcoin devuelto en efectivo dice «Devuelto en efectivo», no «a la tarjeta»', () => {
+    const at = '2026-11-08T01:10:00.000Z';
+    expect(undoText({ kind: 'REFUND', at, amountCents: 1000, by: 'Javi', reason: null, status: 'SUCCEEDED', paidInCash: true }, eur, when)).toBe(
+      'Devuelto en efectivo: 10,00 € · 01:10 · Javi · hecha',
+    );
+    expect(undoText({ kind: 'REFUND', at, amountCents: 1000, by: null, reason: null, status: null, paidInCash: false }, eur, when)).toBe(
+      'Devuelto a la tarjeta: 10,00 € · 01:10',
+    );
+  });
+
   it('un consumo del saldo deshecho sale «Devuelto», no «Anulado»', () => {
     expect(detailStatus({ kind: 'SALDO', status: 'REVERSED' }).label).toBe('Devuelto');
     expect(detailStatus({ kind: 'SALDO', status: 'ACCEPTED' }).label).toBe('Pagado');

@@ -23,6 +23,7 @@ import { BitcoinCashService } from '../../src/modules/bitcoin-cash/bitcoin-cash.
 import { bitcoinCashOut } from '../../src/modules/bitcoin-cash/bitcoin-cash-rows';
 import { CloseCheckService } from '../../src/modules/nights/close-check.service';
 import { IncidentsService } from '../../src/modules/incidents/incidents.service';
+import { CobroDetailService } from '../../src/modules/money-map/cobro-detail.service';
 
 process.env.BTCPAY_ENABLED = 'true';
 
@@ -55,6 +56,7 @@ const telegram = { hasBot: () => true, isConfigured: () => true, send: vi.fn(asy
 const sent = () => telegram.send.mock.calls.map((c) => c[0]);
 const cash = new BitcoinCashService(prisma, payments, totp, audit as never, requests, telegram as never);
 const checks = new CloseCheckService(prisma, {} as never, config as never);
+const details = new CobroDetailService(prisma, undefined, { get: () => undefined } as never);
 
 function asStaff<T>(tenantId: string, fn: () => Promise<T>): Promise<T> {
   return cls.run(async () => {
@@ -153,6 +155,10 @@ describe('devolver en efectivo un cobro pagado con bitcoin', () => {
     expect(await paymentOf(paymentId)).toMatchObject({ status: 'PARTIALLY_REFUNDED', availableAmountCents: 3_000 });
     const refund = await asStaff(V, () => prisma.withTenant(V, (tx) => tx.refund.findFirstOrThrow({ where: { paymentId } })));
     expect(refund).toMatchObject({ paidInCash: true, status: 'SUCCEEDED', amountCents: 2_000, receiptCode: confirmationCode(paymentId) });
+    // El detalle del cobro (y su ticket) dice «Devuelto en efectivo», no «a la tarjeta».
+    const me = { sub: owner.userId, role: 'OWNER', tenantId: V } as never;
+    const detail = await asStaff(V, () => details.forManager(me, 'PAYMENT', paymentId));
+    expect(detail.undo).toEqual([expect.objectContaining({ kind: 'REFUND', amountCents: 2_000, paidInCash: true })]);
     expect(auditLog.some((e) => e.action === 'refund.cash_registered')).toBe(true);
     // El aviso por Telegram: quién, cuánto, el motivo y el cobro; sin el código del recibo del cliente.
     await vi.waitFor(() => expect(sent().some((t) => t.includes('20,00 € de la caja · Cobro') && t.includes('Motivo: Cobro equivocado'))).toBe(true));
