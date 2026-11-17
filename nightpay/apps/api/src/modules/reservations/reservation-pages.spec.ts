@@ -162,28 +162,33 @@ describe('la página del reservado', () => {
     expect(html).toContain('href="/pay/xyz">Seguir pagando');
   });
 
-  it('anulada por el local: le devolverán lo pagado; lo pagado con bitcoin, en euros y hablando con el local', () => {
-    const page = (r: Partial<ReservationView>) =>
+  it('anulada por el local: lo pagado le queda como saldo para otra noche (con tarjeta o con bitcoin), con el enlace a su saldo', () => {
+    const page = (r: Partial<ReservationView>, saldoHref: string | null = '/w/abc') =>
       plain(
         renderGroupPage(
           TOKEN,
-          group({ payable: [], cancel: null }, { status: 'CANCELED', statusText: 'Anulada', pendingCents: 0, ...r }),
+          group({ payable: [], cancel: null, saldoHref }, { status: 'CANCELED', statusText: 'Anulada por el local', pendingCents: 0, ...r }),
           'https://api.prueba.es',
           '2026-11-16',
           '2027-03-16',
         ),
       );
     const card = page({ paidCents: 15000 });
-    expect(card).toContain('El local ha anulado la reserva: te devolverán 150 €.');
+    expect(card).toContain('El local ha anulado la reserva. Lo pagado (150 €) te queda como saldo para otra noche.');
+    expect(card).toContain('href="/w/abc"');
     expect(card).not.toContain('bitcoin');
-    expect(page({ paidCents: 50000, paidWithBitcoinCents: 50000 })).toContain(
-      'te devolverán 500 €. Lo pagaste con bitcoin: te lo devuelven en euros, no en bitcoin. Habla con el local.',
-    );
-    expect(page({ paidCents: 50000, paidWithBitcoinCents: 35000 })).toContain(
-      'te devolverán 500 €. De eso, 350 € los pagaste con bitcoin: esos te los devuelven en euros, no en bitcoin. Habla con el local.',
-    );
-    // Sin nada pagado, nada que devolver.
-    expect(page({ paidCents: 0 })).not.toContain('te devolverán');
+    // Lo pagado con bitcoin, igual: se queda como saldo (ya no «se devuelve en euros hablando con el local»).
+    for (const bitcoin of [50000, 35000]) {
+      const html = page({ paidCents: 50000, paidWithBitcoinCents: bitcoin });
+      expect(html).toContain('El local ha anulado la reserva. Lo pagado (500 €) te queda como saldo para otra noche.');
+      expect(html).not.toContain('bitcoin');
+      expect(html).not.toContain('Habla con el local');
+    }
+    for (const html of [card, page({ paidCents: 50000, paidWithBitcoinCents: 50000 })]) expect(html).not.toMatch(/te devolver|te lo devuelven/);
+    // Con el saldo ya gastado (sin enlace): la frase, sin botón.
+    expect(page({ paidCents: 15000 }, null)).not.toContain('href="/w/');
+    // Sin nada pagado, nada pasa a saldo.
+    expect(page({ paidCents: 0 }, null)).not.toContain('te queda como saldo');
   });
 });
 

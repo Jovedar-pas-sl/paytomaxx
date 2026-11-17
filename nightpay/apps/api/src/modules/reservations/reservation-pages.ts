@@ -210,28 +210,25 @@ function dateCard(v: GroupView, minDay: string, maxDay: string): string {
 }
 
 /**
- * El local anuló una reserva pagada: el local devuelve lo pagado. Lo pagado con
- * bitcoin se devuelve en euros (nunca en bitcoin ni por la pasarela), hablando
- * con el local: la app aún no lo devuelve sola.
+ * El local anuló una reserva pagada (decisión del dueño del 17-nov): nada se
+ * devuelve; lo pagado, con tarjeta o con bitcoin, le queda como saldo del grupo
+ * para otra noche.
  */
-export function venueRefundText(r: Pick<GroupView['reservation'], 'paidCents' | 'paidWithBitcoinCents'>): string {
-  const base = `El local ha anulado la reserva: te devolverán ${eur(r.paidCents)}.`;
-  const bitcoin = Math.min(r.paidWithBitcoinCents ?? 0, r.paidCents);
-  if (bitcoin <= 0) return base;
-  return bitcoin >= r.paidCents
-    ? `${base} Lo pagaste con bitcoin: te lo devuelven en euros, no en bitcoin. Habla con el local.`
-    : `${base} De eso, ${eur(bitcoin)} los pagaste con bitcoin: esos te los devuelven en euros, no en bitcoin. Habla con el local.`;
+export function venueCanceledText(r: Pick<GroupView['reservation'], 'paidCents'>): string {
+  return `El local ha anulado la reserva. Lo pagado (${eur(r.paidCents)}) te queda como saldo para otra noche.`;
 }
 
 export function renderGroupPage(token: string, v: GroupView, origin: string, minDay: string, maxDay: string): string {
   const r = v.reservation;
   const ok = r.status === 'PAID' || r.status === 'ARRIVED';
-  const saldo = v.saldoHref
-    ? `<section class="card"><h2>Tu saldo para otra noche</h2><p>Te queda saldo en ${h(v.venueName)}. No caduca y no se devuelve en dinero.</p><a class="btn alt" href="${h(v.saldoHref)}">Ver mi saldo</a></section>`
-    : '';
+  const venueCanceled = r.status === 'CANCELED' && r.paidCents > 0;
+  const saldo =
+    v.saldoHref && !venueCanceled
+      ? `<section class="card"><h2>Tu saldo para otra noche</h2><p>Te queda saldo en ${h(v.venueName)}. No caduca y no se devuelve en dinero.</p><a class="btn alt" href="${h(v.saldoHref)}">Ver mi saldo</a></section>`
+      : '';
   const canceled =
-    r.status === 'CANCELED' && r.paidCents > 0
-      ? `<p>${h(venueRefundText(r))}</p>`
+    venueCanceled
+      ? `<p>${h(venueCanceledText(r))}</p>${v.saldoHref ? `<a class="btn" href="${h(v.saldoHref)}">Ver mi saldo</a>` : ''}`
       : r.status === 'CLIENT_CANCELED'
         ? '<p>Has anulado la reserva: la señal no se devuelve.</p>'
         : '';
