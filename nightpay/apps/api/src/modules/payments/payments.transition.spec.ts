@@ -439,7 +439,7 @@ describe('cancel — quién puede cancelar', () => {
       expect(err).toBeInstanceOf(ConflictException);
       expect((err as ConflictException).getResponse()).toEqual({
         code: 'CANCEL_HELD_ON_READER',
-        message: 'Cobrado en el datáfono: lo resuelve el encargado en Pagos → Resolver',
+        message: 'Cobrado en el datáfono: lo comprueba el dueño en Hoy → Cobros → Resolver',
       });
       // Ni el estado, ni el evento, ni el móvil de quien lo intentó.
       expect(executed).toHaveLength(0);

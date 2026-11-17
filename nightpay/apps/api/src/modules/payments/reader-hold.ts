@@ -18,7 +18,7 @@ export function isHeldOnReader(p: { status: string; posOperationNumber?: string 
 /** El código del 409 al cancelar una recarga cobrada en el datáfono sin comprobar. */
 export const CANCEL_HELD_ON_READER_CODE = 'CANCEL_HELD_ON_READER';
 
-export const CANCEL_HELD_ON_READER_MESSAGE = 'Cobrado en el datáfono: lo resuelve el encargado en Pagos → Resolver';
+export const CANCEL_HELD_ON_READER_MESSAGE = 'Cobrado en el datáfono: lo comprueba el dueño en Hoy → Cobros → Resolver';
 
 export function heldOnReaderConflict(): ConflictException {
   return new ConflictException({ code: CANCEL_HELD_ON_READER_CODE, message: CANCEL_HELD_ON_READER_MESSAGE });
