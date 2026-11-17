@@ -385,7 +385,7 @@ describe('la recarga cobrada en el datáfono sin comprobar: nadie del personal l
   const staffC: Array<[string, string]> = [];
   const heldOnReader = {
     status: 409,
-    response: { code: 'CANCEL_HELD_ON_READER', message: 'Cobrado en el datáfono: lo resuelve el encargado en Pagos → Resolver' },
+    response: { code: 'CANCEL_HELD_ON_READER', message: 'Cobrado en el datáfono: lo comprueba el dueño en Hoy → Cobros → Resolver' },
   };
   const walletOf = (id: string) => sys<{ balanceCents: number; status: string } | null>((tx) => tx.clientWallet.findUnique({ where: { id } }));
 

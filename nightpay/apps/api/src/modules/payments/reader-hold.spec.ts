@@ -20,7 +20,7 @@ describe('recarga cobrada en el datáfono sin comprobar', () => {
     expect(err).toBeInstanceOf(ConflictException);
     expect(err.getResponse()).toEqual({
       code: CANCEL_HELD_ON_READER_CODE,
-      message: 'Cobrado en el datáfono: lo resuelve el encargado en Pagos → Resolver',
+      message: 'Cobrado en el datáfono: lo comprueba el dueño en Hoy → Cobros → Resolver',
     });
     expect(CANCEL_HELD_ON_READER_CODE).toBe('CANCEL_HELD_ON_READER');
   });
