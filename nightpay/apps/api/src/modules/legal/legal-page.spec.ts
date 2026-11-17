@@ -16,7 +16,7 @@ describe('textos legales', () => {
       const html = renderLegalPage(doc, 'es');
       expect(html).toContain('<html lang="es">');
       expect(html).toContain(`href="/legal/${doc}?lang=es" aria-current="page"`);
-      expect(html).toContain('Actualizado el 16 de noviembre de 2026');
+      expect(html).toContain('Actualizado el 17 de noviembre de 2026');
       const main = html.slice(html.indexOf('<main'), html.indexOf('</main>'));
       expect(main).not.toMatch(/\]\(/);
     }
@@ -57,6 +57,82 @@ describe('textos legales', () => {
     expect(renderLegalPage('aviso-legal', 'es', { ...owner, registry: 'RM Valencia, tomo 1' })).toContain(
       'Datos registrales: RM Valencia, tomo 1',
     );
+  });
+
+  it('condiciones: el saldo se queda para las próximas visitas y no se devuelve en dinero; un cobro con error, sí', () => {
+    const es = renderLegalPage('condiciones', 'es');
+    expect(es).not.toContain('que te devolvamos el saldo');
+    expect(es).not.toContain('a la tarjeta con la que lo cargaste');
+    expect(es).toContain('Lo que no gastes se queda en tu saldo para tus próximas visitas');
+    expect(es).toContain('El saldo no se devuelve en dinero, ni en efectivo ni a la tarjeta');
+    expect(es).toContain('con bitcoin o al pagar una reserva');
+    expect(es).toContain('Si un cobro tiene un error');
+    expect(es).toContain('te devolvemos ese cobro');
+    expect(es).toContain('solo para cargar saldo y para pagar un reservado, no en la barra');
+    const en = renderLegalPage('condiciones', 'en');
+    expect(en).not.toContain('unspent balance back');
+    expect(en).not.toContain('to the card you loaded it with');
+    expect(en).toContain('What you do not spend stays in your balance for your next visits');
+    expect(en).toContain('Your balance is not refunded in money, neither in cash nor to your card');
+    expect(en).toContain('If a charge has an error');
+    expect(en).toContain('we refund that charge');
+    expect(en).toContain('only to load your balance and to pay for a reservation, not at the bar');
+  });
+
+  it('condiciones: los reservados (señal, cambio de fecha, anular, no venir y si anula el local)', () => {
+    const es = renderLegalPage('condiciones', 'es');
+    expect(es).toContain('<h2 id="reservados">Reservados</h2>');
+    for (const text of [
+      'una señal del 30 % del precio',
+      'La señal no se devuelve.',
+      'cambiar la fecha una sola vez',
+      'al menos 48 horas antes de la hora de apertura del local',
+      'pierdes la señal y lo demás que hayas pagado se queda como saldo para otra noche',
+      'Si no vienes esa noche',
+      'Si el local anula la reserva, lo que hayas pagado se queda como saldo para otra noche.',
+    ]) {
+      expect(es).toContain(text);
+    }
+    const en = renderLegalPage('condiciones', 'en');
+    expect(en).toContain('<h2 id="reservados">Reservations</h2>');
+    for (const text of [
+      'a deposit of 30 % of the price',
+      'The deposit is not refunded.',
+      'change the date once',
+      'at least 48 hours before the venue’s opening time',
+      'you lose the deposit and anything else you paid stays as balance for another night',
+      'If you do not show up',
+      'If the venue cancels the reservation, what you paid stays as balance for another night.',
+    ]) {
+      expect(en).toContain(text);
+    }
+  });
+
+  it('privacidad: los datos de la reserva y el aviso de cada cobro (opcional, con consentimiento)', () => {
+    const es = renderLegalPage('privacidad', 'es');
+    for (const text of [
+      'Si reservas: tu nombre, tu teléfono y las notas que escribas al reservar.',
+      'Gestionar tu reserva y hablar contigo sobre ella: hace falta para la reserva que haces (contrato).',
+      'Si activas «Avisarme de cada cobro» en tu saldo (es opcional)',
+      'Avisarte de cada cobro de tu saldo: tu consentimiento',
+      'Los datos de tu reserva (nombre, teléfono y notas)',
+      'La suscripción de «Avisarme de cada cobro»: hasta que la quites',
+    ]) {
+      expect(es).toContain(text);
+    }
+    expect(es).not.toContain('gestionar tu saldo y sus devoluciones');
+    const en = renderLegalPage('privacidad', 'en');
+    for (const text of [
+      'If you make a reservation: your name, your phone number and the notes you write when booking.',
+      'To manage your reservation and contact you about it: needed for the reservation you make (contract).',
+      'If you turn on “Notify me of every charge” in your balance (it is optional)',
+      'To notify you of every charge on your balance: your consent',
+      'Your reservation details (name, phone number and notes)',
+      'Your “Notify me of every charge” subscription: until you turn it off',
+    ]) {
+      expect(en).toContain(text);
+    }
+    expect(en).not.toContain('manage your balance and its refunds');
   });
 
   it('el castellano y el inglés tienen los mismos bloques, en el mismo orden', () => {

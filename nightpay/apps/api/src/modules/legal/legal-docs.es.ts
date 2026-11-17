@@ -68,16 +68,20 @@ export function legalDocsEs(o: LegalOwner): LegalDocs {
             'Si usas saldo: el saldo y sus movimientos, el código de tu QR o de tu ficha y, si los activas, tu PIN (guardado cifrado: nadie puede leerlo) y la llave de Face ID o huella de tu móvil. Tu cara y tu huella nunca salen del teléfono: solo guardamos una llave pública que no sirve para identificarte fuera de OxioPay.',
             'Tu teléfono, solo si nos lo das, para ayudarte a recuperar el saldo si pierdes la ficha.',
             'Si cargas saldo desde casa: lo mismo que en un pago, y una cookie que recuerda en tu móvil los saldos que has cargado.',
+            'Si reservas: tu nombre, tu teléfono y las notas que escribas al reservar.',
+            'Si activas «Avisarme de cada cobro» en tu saldo (es opcional): los datos que da tu navegador para mandarte los avisos (su dirección de avisos y sus claves) y el idioma del aviso.',
             'Datos técnicos: dirección IP, tipo de navegador y registros de seguridad.',
           ],
         },
         { p: 'Para qué los usamos y con qué base legal:' },
         {
           ul: [
-            'Cobrar, darte el justificante y gestionar tu saldo y sus devoluciones: hace falta para el servicio que pides (contrato).',
+            'Cobrar, darte el justificante, gestionar tu saldo y devolver los cobros con error: hace falta para el servicio que pides (contrato).',
+            'Gestionar tu reserva y hablar contigo sobre ella: hace falta para la reserva que haces (contrato).',
             'Llevar la contabilidad y cumplir con Hacienda: obligación legal.',
             'Proteger el servicio, evitar fraudes y arreglar errores: interés legítimo.',
             'Guardar tu teléfono para recuperar el saldo: tu consentimiento, que puedes retirar cuando quieras.',
+            'Avisarte de cada cobro de tu saldo: tu consentimiento. Puedes quitarlo cuando quieras en tu saldo, en «Avisarme de cada cobro».',
           ],
         },
         {
@@ -97,6 +101,7 @@ export function legalDocsEs(o: LegalOwner): LegalDocs {
             'El banco y las pasarelas de pago (Redsys y el banco del local) y los datáfonos (Paytef), para cobrar y devolver.',
             'Proveedores técnicos: el alojamiento del servidor y las copias de seguridad, Cloudflare (red y seguridad), Sentry (aviso de errores, con los datos personales tapados), Resend (envío de emails) y Telegram (avisos al personal).',
             'Google, si añades tu saldo a Google Wallet.',
+            'El servicio de avisos de tu navegador (de Google, Apple, Mozilla o Microsoft), si activas «Avisarme de cada cobro»: lleva el aviso cifrado a tu móvil y no puede leerlo.',
             'Las autoridades, cuando la ley lo exige.',
           ],
         },
@@ -108,13 +113,15 @@ export function legalDocsEs(o: LegalOwner): LegalDocs {
           ul: [
             'Pagos, recargas, devoluciones y comisiones: 6 años, porque lo exige la ley mercantil (art. 30 del Código de Comercio).',
             'Tu saldo, tu teléfono y tus llaves: mientras el saldo exista. Si pides cerrarlo o borrar tus datos, quitamos el teléfono y las llaves y guardamos solo lo que pide la contabilidad durante el plazo anterior.',
+            'Los datos de tu reserva (nombre, teléfono y notas): igual que los de tu saldo, mientras la reserva o su saldo existan. Si pides borrarlos, los quitamos y guardamos solo lo que pide la contabilidad durante el plazo anterior.',
+            'La suscripción de «Avisarme de cada cobro»: hasta que la quites o hasta que tu navegador deje de aceptarla.',
             'Registros técnicos y de seguridad: el tiempo necesario para proteger el servicio y aclarar incidencias.',
             'Datos del personal: mientras dure la relación con el local y, después, los plazos que marca la ley.',
           ],
         },
         { h: 'Tus derechos', id: 'derechos' },
         {
-          p: `Puedes pedirnos ver tus datos, corregirlos, borrarlos, limitar su uso, oponerte a que los usemos o llevártelos a otro sitio. Escríbenos a ${mail} con el asunto «Privacidad OxioPay» y, si lo tienes, el código de tu saldo o de tu justificante. Te contestamos en un mes como máximo y borramos todo lo que la ley no nos obligue a guardar.`,
+          p: `Puedes pedirnos ver tus datos, corregirlos, borrarlos, limitar su uso, oponerte a que los usemos o llevártelos a otro sitio. Escríbenos a ${mail} con el asunto «Privacidad OxioPay» y, si lo tienes, el código de tu saldo, de tu justificante o de tu reserva. Te contestamos en un mes como máximo y borramos todo lo que la ley no nos obligue a guardar.`,
         },
         {
           p: 'Si crees que no hemos atendido bien tu petición, puedes reclamar ante la Agencia Española de Protección de Datos: [www.aepd.es](https://www.aepd.es).',
@@ -167,7 +174,7 @@ export function legalDocsEs(o: LegalOwner): LegalDocs {
     condiciones: {
       title: 'Condiciones de uso',
       blocks: [
-        { p: 'Estas condiciones se aplican cuando pagas o usas saldo con OxioPay en un local. Al pagar, las aceptas.' },
+        { p: 'Estas condiciones se aplican cuando pagas, usas saldo o reservas con OxioPay en un local. Al pagar, las aceptas.' },
         { h: 'Quién presta el servicio' },
         {
           p: `OxioPay es un servicio de ${o.name} (NIF ${o.taxId}). Lo que compras (bebidas, servicios…) te lo vende el local; OxioPay gestiona el cobro y el saldo. Más datos en el [Aviso legal](/legal/aviso-legal).`,
@@ -189,15 +196,26 @@ export function legalDocsEs(o: LegalOwner): LegalDocs {
             'El saldo es dinero que cargas por adelantado para pagar en el local o en los locales del mismo grupo que lo aceptan. No es una cuenta bancaria y no da intereses.',
             'Lo identifica tu QR o tu ficha. Protégelo con PIN o con Face ID o huella, y no compartas tu PIN.',
             'Si pierdes la ficha o el móvil, avisa al personal: bloqueamos el saldo para que nadie lo use.',
-            `Puedes pedir cuando quieras que te devolvamos el saldo que no hayas gastado: en recepción, en efectivo al momento, o escribiendo a ${mail}, y te lo devolvemos a la tarjeta con la que lo cargaste en un plazo máximo de 14 días.`,
+            'Lo que no gastes se queda en tu saldo para tus próximas visitas al local (y a los locales del mismo grupo, si comparten el saldo). El saldo no se devuelve en dinero, ni en efectivo ni a la tarjeta, lo hayas cargado como lo hayas cargado: en efectivo, con tarjeta, con bitcoin o al pagar una reserva.',
             'La comisión del servicio de una recarga, si la hubo, no forma parte del saldo.',
+          ],
+        },
+        { h: 'Reservados', id: 'reservados' },
+        {
+          ul: [
+            'Para reservar pagas una señal del 30 % del precio del reservado, o el precio entero. La señal no se devuelve.',
+            'Puedes cambiar la fecha una sola vez, avisando al menos 48 horas antes de la hora de apertura del local esa noche.',
+            'Puedes anular la reserva avisando al menos 48 horas antes de la hora de apertura del local: pierdes la señal y lo demás que hayas pagado se queda como saldo para otra noche. Con menos de 48 horas ya no se puede anular.',
+            'Si no vienes esa noche, pierdes la señal y lo demás que hayas pagado se queda como saldo para otra noche.',
+            'Si el local anula la reserva, lo que hayas pagado se queda como saldo para otra noche.',
+            'Ese saldo sigue las reglas del saldo: no se devuelve en dinero.',
           ],
         },
         { h: 'Devoluciones y reclamaciones', id: 'devoluciones' },
         {
           ul: [
             'Lo que ya se ha consumido o el servicio ya prestado no se devuelve, salvo que haya un error.',
-            `Si ves un cobro repetido, un importe equivocado o un cargo que no reconoces, díselo al personal del local o escríbenos a ${mail}. Si hay un error, te devolvemos el dinero a la misma tarjeta, o al saldo, en un plazo máximo de 14 días desde que lo comprobamos.`,
+            `Si un cobro tiene un error (te lo cobran dos veces, lo pagas después de que lo cancelen, el importe está mal o no reconoces el cargo), díselo al personal del local o escríbenos a ${mail}. Si hay un error, te devolvemos ese cobro a la misma tarjeta, o al saldo, en un plazo máximo de 14 días desde que lo comprobamos.`,
             'Tienes hojas de reclamaciones a tu disposición en el local.',
           ],
         },
