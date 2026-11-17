@@ -202,6 +202,11 @@ describe('paquetes y reservar', () => {
   });
 
   it('tope por noche del paquete: la cuarta de la misma noche no entra', async () => {
+    // Las sin pagar cuentan 30 min desde su createdAt, que pone la base con su
+    // hora real: con el reloj de las 12:00, de 00:00 a 11:30 no contaban y la
+    // cuarta entraba. Con la hora real vale a cualquier hora (la noche es dentro
+    // de 20 días; afterEach vuelve a las 12:00).
+    vi.setSystemTime(vi.getRealSystemTime());
     const entry = await entryWeb();
     const night = plusDays(tonight(), 20);
     for (let i = 0; i < 3; i += 1) await book(entry, itemsPkg, night);
