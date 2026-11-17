@@ -1,0 +1,218 @@
+/* Hero de la portada y el móvil dibujado. Las fichas (colores, alturas de la
+   cabecera) son variables de .page, en ../landing.module.css. */
+
+/* ── Hero ───────────────────────────────────────────── */
+
+.hero {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  margin-top: calc(-1 * (var(--topbar-h) + var(--header-h)));
+  padding-top: calc(var(--topbar-h) + var(--header-h) + 36px);
+  border-radius: 0 0 40px 40px;
+  color: #fff;
+  text-align: center;
+}
+
+/* Sin foto: luz azulada arriba, el azul de la marca a un lado y un brillo
+   lima detrás de los móviles. Arriba, el borde se funde con la cabecera. */
+.heroBg {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  overflow: hidden;
+  background:
+    radial-gradient(42% 38% at 78% 24%, rgb(149 196 212 / 0.22), transparent 72%),
+    radial-gradient(50% 46% at 14% 56%, rgb(77 108 119 / 0.55), transparent 72%),
+    radial-gradient(38% 30% at 50% 98%, rgb(198 231 108 / 0.16), transparent 75%),
+    linear-gradient(180deg, #19272b 0%, #1e3036 50%, #22363d 100%);
+  pointer-events: none;
+}
+
+.heroBg::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 auto;
+  height: 30%;
+  background: linear-gradient(180deg, var(--c-dark-1), rgb(25 39 43 / 0));
+}
+
+/* La marca gigante y translúcida detrás (decoración). En el móvil, más abajo:
+   detrás de los móviles, no del texto pequeño. */
+.wm {
+  position: absolute;
+  top: 66%;
+  left: 50%;
+  font-size: clamp(190px, 31vw, 400px);
+  font-weight: 700;
+  line-height: 1.5;
+  letter-spacing: -0.08em;
+  white-space: nowrap;
+  background: linear-gradient(180deg, rgb(255 255 255 / 0) 20%, rgb(255 255 255 / 0.5) 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+  transform: translate(-50%, -50%);
+  user-select: none;
+}
+
+.heroInner {
+  position: relative;
+}
+
+.heroTitle {
+  max-width: 680px;
+  margin: 0 auto;
+  color: #fff;
+  font-size: clamp(40px, 12.3vw, 48px);
+  font-weight: 700;
+  line-height: 1.35;
+  letter-spacing: -2px;
+}
+
+.heroSub {
+  max-width: 560px;
+  margin: 40px auto 0;
+  color: #fff;
+  font-size: 18px;
+  font-weight: 700;
+  line-height: 1.5;
+}
+
+.heroEn {
+  margin: 6px auto 0;
+  color: var(--c-text-2);
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.heroCta {
+  width: 100%;
+  max-width: 420px;
+  margin-top: 20px;
+}
+
+/* Tres móviles que asoman por abajo, como las tres tarjetas de oxiocard. */
+.heroPhones {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  height: clamp(250px, 66vw, 440px);
+  margin-top: 44px;
+}
+
+.heroMain {
+  --pw: clamp(172px, 47vw, 290px);
+  z-index: 2;
+}
+
+.heroSide {
+  --pw: clamp(142px, 39vw, 240px);
+  z-index: 1;
+  margin-top: clamp(30px, 9vw, 70px);
+}
+
+.heroLeft {
+  margin-right: calc(var(--pw) * -0.3);
+}
+
+.heroRight {
+  margin-left: calc(var(--pw) * -0.3);
+}
+
+/* Abajo, los móviles se funden con la sección siguiente. */
+.hero::after {
+  content: '';
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 3;
+  height: 22%;
+  background: linear-gradient(0deg, rgb(25 39 43 / 0.9), rgb(25 39 43 / 0));
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .heroCta {
+    animation: rise 0.8s var(--ease) 0.1s both;
+  }
+
+  .heroPhones {
+    animation: rise 1s var(--ease) 0.2s both;
+  }
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(28px);
+  }
+}
+
+@media (min-width: 768px) {
+  .hero {
+    border-radius: 0 0 60px 60px;
+  }
+
+  .wm {
+    top: 60%;
+  }
+
+  .heroTitle {
+    max-width: 760px;
+    font-size: 60px;
+    letter-spacing: -0.5px;
+  }
+
+  .heroCta {
+    width: auto;
+    min-width: 300px;
+  }
+}
+
+@media (min-width: 993px) {
+  .heroTitle {
+    max-width: 640px;
+    font-size: 48px;
+    letter-spacing: normal;
+  }
+}
+
+/* ── Móvil dibujado (marco de CSS, captura real dentro) ── */
+
+/* El ancho lo pone quien lo usa con --pw (sin él, 240 px): así ningún módulo
+   pisa a otro por el orden del CSS. */
+.phone {
+  position: relative;
+  flex: none;
+  width: var(--pw, 240px);
+  padding: calc(var(--pw, 240px) * 0.034);
+  border-radius: calc(var(--pw, 240px) * 0.165);
+  background: linear-gradient(145deg, #3a4b52 0%, #11191c 22%, #0b1214 62%, #26353b 100%);
+  box-shadow:
+    inset 0 0 0 1px rgb(255 255 255 / 0.1),
+    0 40px 70px -28px rgb(0 0 0 / 0.75);
+}
+
+/* El botón lateral. */
+.phone::after {
+  content: '';
+  position: absolute;
+  top: 24%;
+  right: -2px;
+  width: 3px;
+  height: 13%;
+  border-radius: 0 3px 3px 0;
+  background: #2c3c42;
+}
+
+.phone img {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: calc(var(--pw, 240px) * 0.132);
+  background: #0c0f10;
+}
