@@ -28,6 +28,19 @@
 
 /* ─── Reposo ─────────────────────────────────────────────────────────── */
 
+/* La tablet pasa horas en reposo: todo se mueve un poco cada minuto (2 vmin
+   como mucho desde el centro) para que no se quede marcado. Despacio; con
+   «reducir movimiento», de golpe (sin animación). */
+.rest {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: clamp(3.5rem, 9vmin, 6rem) clamp(1rem, 4vw, 3rem);
+  transform: translate(var(--rest-x, 0), var(--rest-y, 0));
+  transition: transform 50s ease-in-out;
+}
+
 .idle {
   display: flex;
   flex-direction: column;
@@ -37,17 +50,57 @@
   max-width: 90vw;
 }
 
+/* Se lee a 1-2 m: el nombre, lo más grande. */
 .venue {
   margin: 0;
-  font: 700 clamp(var(--np-fs-40), 10vmin, 18vmin) / 1.05 var(--np-font-num);
+  font: 700 clamp(var(--np-fs-40), 12vmin, 18vmin) / 1.05 var(--np-font-num);
   letter-spacing: -0.02em;
   overflow-wrap: anywhere;
+  text-wrap: balance;
+}
+
+/* El mensaje del local (una promoción, una fiesta): bajo una línea fina. */
+.message {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: clamp(0.25rem, 1.2vmin, 0.75rem);
+  max-width: min(90vw, 64rem);
+  padding-top: clamp(1rem, 3vmin, 2rem);
+  border-top: 1px solid var(--np-border);
+}
+
+.messageMain {
+  margin: 0;
+  font: 700 clamp(var(--np-fs-22), 6vmin, 9vmin) / 1.15 var(--np-font-sans);
+  color: var(--np-text);
+  overflow-wrap: anywhere;
+  text-wrap: balance;
+}
+
+/* Una línea larga (hasta 120 letras): algo más pequeña para que quepa sin cortar. */
+.messageMain[data-long='1'] {
+  font-size: clamp(var(--np-fs-18), 4.4vmin, 6vmin);
+}
+
+.messageSub {
+  margin: 0;
+  font: 600 clamp(var(--np-fs-18), 3.6vmin, 5vmin) / 1.3 var(--np-font-sans);
+  color: var(--np-text-mute);
+  overflow-wrap: anywhere;
+  text-wrap: balance;
 }
 
 .idleHint {
   margin: 0;
   font: 600 clamp(var(--np-fs-22), 4vmin, 6vmin) / 1.3 var(--np-font-sans);
   color: var(--np-text-mute);
+}
+
+/* Con mensaje, cómo se paga queda en segundo plano. */
+.message + .idleHint {
+  font-size: clamp(var(--np-fs-18), 3vmin, 4.5vmin);
+  color: var(--np-text-dim);
 }
 
 .note {
@@ -512,5 +565,10 @@
   .paid,
   .note {
     animation: none;
+  }
+
+  /* Se sigue moviendo cada minuto (la pantalla no se marca), pero sin animación. */
+  .rest {
+    transition: none;
   }
 }

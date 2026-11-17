@@ -5,7 +5,7 @@ import type { TipPreset } from './customer-tip';
 /**
  * «Pantalla del cliente» (tablet o móvil viejo en la barra, mirando al
  * cliente): enseña el importe y el QR del cobro que está esperando el
- * camarero, «Pagado» al pagarse y, en reposo, el nombre del local.
+ * camarero, «Pagado» al pagarse y, en reposo, el nombre del local y su mensaje.
  *
  * Se empareja con un código corto que enseña la app del personal y la
  * tablet canjea por su credencial (`Authorization: Pantalla <credencial>`).
@@ -62,6 +62,40 @@ export const CustomerDisplayPinSchema = z.object({
 });
 export type CustomerDisplayPinDto = z.infer<typeof CustomerDisplayPinSchema>;
 
+/** El mensaje del reposo: una promoción o una fiesta, como mucho 120 letras por línea. */
+export const DISPLAY_MESSAGE_MAX = 120;
+
+/** Una línea: saltos, tabuladores y caracteres de control, un espacio; vacía = sin ella. */
+const DisplayLine = z
+  .string()
+  .max(1000, `Como mucho ${DISPLAY_MESSAGE_MAX} letras por línea`)
+  .transform((v) => v.replace(/[\s\p{Cc}]+/gu, ' ').trim())
+  .pipe(z.string().max(DISPLAY_MESSAGE_MAX, `Como mucho ${DISPLAY_MESSAGE_MAX} letras por línea`))
+  .nullish();
+
+/** Lo que enseña la tablet en reposo bajo el nombre del local (null: sin esa línea). */
+export interface CustomerDisplayMessage {
+  line1: string | null;
+  line2: string | null;
+}
+
+/** Ajustes → Carta → «Pantalla del cliente»: el mensaje y el nombre del local (para la vista previa). */
+export interface CustomerDisplayMessageSettings extends CustomerDisplayMessage {
+  venueName: string;
+}
+
+/**
+ * El dueño o el encargado cambian el mensaje. Vacías = sin mensaje; la
+ * segunda sola pasa a ser la primera.
+ */
+export const UpdateDisplayMessageSchema = z
+  .object({ line1: DisplayLine, line2: DisplayLine })
+  .transform(({ line1, line2 }): CustomerDisplayMessage => {
+    const lines = [line1, line2].filter((l): l is string => Boolean(l));
+    return { line1: lines[0] ?? null, line2: lines[1] ?? null };
+  });
+export type UpdateDisplayMessageDto = z.input<typeof UpdateDisplayMessageSchema>;
+
 /**
  * Lo que pasó con la ficha en la tablet. Nunca el saldo ni el código del
  * cliente: «paid», hace falta su PIN (y por qué), no tiene PIN o lo tiene bloqueado.
@@ -111,6 +145,8 @@ interface ScreenBase {
   venueName: string;
   /** El local cobra con ficha (saldo + NFC): «Paga con tu ficha o con el QR». */
   fichas: boolean;
+  /** El mensaje del local para el reposo (Ajustes → Carta → «Pantalla del cliente»). */
+  message: CustomerDisplayMessage;
   pairedUntil: string;
 }
 

@@ -13,6 +13,9 @@ import {
   expireMemory,
   idleHint,
   nextMemory,
+  REST_SHIFT_MS,
+  restOf,
+  restShift,
   tipBreakdown,
   tipButtonLabel,
   waitingHint,
@@ -20,7 +23,12 @@ import {
   type WaitingView,
 } from './pantalla-state';
 
-const base = { venueName: 'Sala Luna', fichas: true, pairedUntil: '2026-11-18T11:00:00.000Z' };
+const base = {
+  venueName: 'Sala Luna',
+  fichas: true,
+  message: { line1: null, line2: null },
+  pairedUntil: '2026-11-18T11:00:00.000Z',
+};
 const idle: CustomerScreenView = { ...base, state: 'idle' };
 function waiting(key = 'k1', over: Partial<WaitingView> = {}): WaitingView {
   return {
@@ -137,5 +145,39 @@ describe('«Otra» propina en la tablet (como npTipOther en /pay)', () => {
     expect(otherTipOffered(base)).toBe(true);
     expect(otherTipOffered({ ...base, tip: { ...base.tip!, maxCents: 50 } })).toBe(false);
     expect(waitingHint(other, true)).toBe('Acerca tu ficha a esta pantalla o al móvil del camarero y pon tu PIN');
+  });
+});
+
+describe('pantalla del cliente: el reposo', () => {
+  it('el nombre del local, cómo se paga y el mensaje que puso el local (de cualquier vista)', () => {
+    const message = { line1: '2x1 en copas hasta la 1', line2: 'Sábado: fiesta blanca' };
+    expect(restOf({ ...idle, message })).toEqual({ name: 'Sala Luna', fichas: true, line1: message.line1, line2: message.line2 });
+    expect(restOf({ ...waiting(), fichas: false, message: { line1: 'Hoy DJ', line2: null } })).toEqual({
+      name: 'Sala Luna',
+      fichas: false,
+      line1: 'Hoy DJ',
+      line2: null,
+    });
+    expect(restOf(idle)).toMatchObject({ line1: null, line2: null });
+  });
+
+  it('con un API de antes (sin mensaje) o solo con la segunda línea: lo que se pueda enseñar', () => {
+    const { message: _old, ...before } = idle as Extract<CustomerScreenView, { state: 'idle' }>;
+    expect(restOf(before as CustomerScreenView)).toEqual({ name: 'Sala Luna', fichas: true, line1: null, line2: null });
+    expect(restOf({ ...idle, message: { line1: null, line2: 'Solo esta' } })).toMatchObject({ line1: 'Solo esta', line2: null });
+  });
+
+  it('se mueve un poco cada minuto (que no se quede marcado): cerca del centro, sin repetir enseguida', () => {
+    expect(REST_SHIFT_MS).toBe(60_000);
+    const shifts = Array.from({ length: 16 }, (_, i) => restShift(i));
+    for (const { x, y } of shifts) {
+      expect(Math.abs(x)).toBeLessThanOrEqual(2);
+      expect(Math.abs(y)).toBeLessThanOrEqual(2);
+    }
+    // Cada minuto en otro sitio, y vuelta a empezar a los 8.
+    for (let i = 1; i < shifts.length; i += 1) expect(shifts[i]).not.toEqual(shifts[i - 1]);
+    expect(new Set(shifts.slice(0, 8).map((p) => `${p.x},${p.y}`)).size).toBe(8);
+    expect(restShift(8)).toEqual(restShift(0));
+    expect(restShift(-1)).toEqual(restShift(7));
   });
 });

@@ -97,6 +97,11 @@ model Venue {
   // Hora de apertura (minutos desde las 00:00; 20261117300100): las 48 h y el
   // «hasta 2 h antes» de los reservados cuentan desde ella. CHECK 0–1439.
   reservationsOpenMinute Int      @default(1200)
+  // «Pantalla del cliente» en reposo (20261117500000): el mensaje del local
+  // bajo su nombre (una promoción, una fiesta). Lo cambian el dueño y el
+  // encargado (Ajustes → Carta). Null = sin esa línea.
+  displayLine1          String?   @db.VarChar(120)
+  displayLine2          String?   @db.VarChar(120)
   createdAt             DateTime  @default(now()) @db.Timestamptz
   updatedAt             DateTime  @updatedAt @db.Timestamptz
   deletedAt             DateTime? @db.Timestamptz

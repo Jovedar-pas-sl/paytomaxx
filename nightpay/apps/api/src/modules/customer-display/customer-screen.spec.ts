@@ -31,6 +31,7 @@ function input(over: Partial<ScreenInput> = {}): ScreenInput {
   return {
     venueName: 'Sala Luna',
     fichas: true,
+    message: { line1: null, line2: null },
     pairedUntil: new Date(NOW.getTime() + 12 * 3600_000),
     payment: null,
     charge: null,
@@ -45,13 +46,18 @@ function input(over: Partial<ScreenInput> = {}): ScreenInput {
 }
 
 describe('pantalla del cliente: qué enseña', () => {
-  it('sin cobro: reposo con el nombre del local y si cobra con ficha', () => {
+  it('sin cobro: reposo con el nombre del local, si cobra con ficha y el mensaje del local', () => {
     expect(screenViewOf(input())).toEqual({
       state: 'idle',
       venueName: 'Sala Luna',
       fichas: true,
+      message: { line1: null, line2: null },
       pairedUntil: '2026-11-18T11:00:00.000Z',
     });
+    const message = { line1: '2x1 en copas hasta la 1', line2: 'Sábado: fiesta blanca' };
+    expect(screenViewOf(input({ message }))).toMatchObject({ state: 'idle', message });
+    // También con un cobro delante: la tablet lo tiene para cuando vuelva al reposo.
+    expect(screenViewOf(input({ message, payment: card() }))).toMatchObject({ state: 'waiting', message });
   });
 
   it('cobro único esperando: importe, el mismo QR que el camarero y la ficha', () => {
@@ -144,7 +150,8 @@ describe('pantalla del cliente: qué enseña', () => {
       screenViewOf(input({ payment: card({ status: 'CANCELED' }) })),
     ];
     const allowed = new Set([
-      'state', 'venueName', 'fichas', 'pairedUntil', 'key', 'currency', 'amountCents', 'totalCents', 'cardAmountCents',
+      // `message`: el texto que el local escribe para su reposo (nada del cliente ni del personal).
+      'state', 'venueName', 'fichas', 'message', 'pairedUntil', 'key', 'currency', 'amountCents', 'totalCents', 'cardAmountCents',
       'qrUrl', 'tip', 'pinKeypad', 'noPinMaxCents', 'ficha', 'paying', 'topUp', 'reason',
     ]);
     for (const view of views) {

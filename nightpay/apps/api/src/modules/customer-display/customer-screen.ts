@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import {
   maxTipCents,
   tipPresetsFor,
+  type CustomerDisplayMessage,
   type CustomerScreenEnd,
   type CustomerScreenTip,
   type CustomerScreenView,
@@ -47,6 +48,8 @@ export interface ScreenInput {
   venueName: string;
   /** El local cobra con ficha (saldo y NFC encendidos). */
   fichas: boolean;
+  /** El mensaje del local para el reposo (texto suyo, sin datos de nadie). */
+  message: CustomerDisplayMessage;
   pairedUntil: Date;
   payment: ScreenPayment | null;
   charge: ScreenCharge | null;
@@ -148,7 +151,12 @@ export function tipAllowed(cents: number, presets: readonly { cents: number }[],
 }
 
 export function screenViewOf(input: ScreenInput): CustomerScreenView {
-  const base = { venueName: input.venueName, fichas: input.fichas, pairedUntil: input.pairedUntil.toISOString() };
+  const base = {
+    venueName: input.venueName,
+    fichas: input.fichas,
+    message: input.message,
+    pairedUntil: input.pairedUntil.toISOString(),
+  };
   const { payment: p, charge: c, now } = input;
   if (!p && !c) return { ...base, state: 'idle' };
   const key = displayKey(p?.id ?? null, c?.id ?? null);

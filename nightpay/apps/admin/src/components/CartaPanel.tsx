@@ -12,6 +12,7 @@ import { enabledSections, sectionLabelOf } from '@/lib/money-map';
 import { useSections } from '@/lib/use-sections';
 import { SectionDot } from './fichas/SectionChip';
 import { Notice } from './Notice';
+import { DisplayMessageCard } from './settings/DisplayMessageCard';
 import { SwitchLine } from './ToggleSwitch';
 
 /**
@@ -57,6 +58,13 @@ export function CartaPanel() {
         <p style={hintStyle}>
           Lo que el personal toca en su app para cobrar, sección por sección. El precio y la sección salen de aquí: nadie
           los teclea a mano. Los nombres y colores de las secciones, en Ajustes → Secciones.
+        </p>
+        <p style={hintStyle}>
+          ¿Una promoción o una fiesta en la tablet que mira al cliente?{' '}
+          <a href="#pantalla-cliente" style={{ color: 'var(--np-text)', textDecoration: 'underline' }}>
+            Pantalla del cliente: mensaje
+          </a>
+          , al final de esta página.
         </p>
       </div>
 
@@ -161,6 +169,11 @@ export function CartaPanel() {
           </div>
         ))
       )}
+
+      {/* Dueño y encargado (la pestaña Carta es de los dos): el mensaje del reposo de la tablet. */}
+      <div id="pantalla-cliente" style={{ maxWidth: '44rem', scrollMarginTop: '1rem' }}>
+        <DisplayMessageCard />
+      </div>
     </section>
   );
 }

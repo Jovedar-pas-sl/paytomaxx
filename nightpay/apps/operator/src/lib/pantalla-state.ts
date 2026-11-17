@@ -3,7 +3,7 @@
 // se enseña cada cosa: «Pagado» unos segundos y vuelta sola al reposo;
 // cancelado, caducado o fallido: el reposo con un texto corto.
 
-import type { CustomerScreenEnd, CustomerScreenView, TipPreset } from '@nightpay/contracts';
+import type { CustomerDisplayMessage, CustomerScreenEnd, CustomerScreenView, TipPreset } from '@nightpay/contracts';
 import { formatEur } from './money';
 
 /** «Pagado» a pantalla completa. */
@@ -75,6 +75,44 @@ export function expireMemory(mem: PantallaMemory, now: number): PantallaMemory {
 /** En reposo: cómo se paga en este local. */
 export function idleHint(fichas: boolean): string {
   return fichas ? 'Paga con tu ficha o con el QR' : 'Paga con el QR';
+}
+
+/** El reposo: el nombre del local, cómo se paga y su mensaje (Ajustes → Carta → «Pantalla del cliente»). */
+export interface RestView {
+  name: string;
+  fichas: boolean;
+  line1: string | null;
+  line2: string | null;
+}
+
+/** Lo del reposo de cualquier vista del API (llega en todas: se tiene para cuando vuelva). */
+export function restOf(view: CustomerScreenView): RestView {
+  // Un API de antes no manda el mensaje: solo el nombre.
+  const m: Partial<CustomerDisplayMessage> = view.message ?? {};
+  const lines = [m.line1, m.line2].filter((l): l is string => Boolean(l));
+  return { name: view.venueName, fichas: view.fichas, line1: lines[0] ?? null, line2: lines[1] ?? null };
+}
+
+/** Cada cuánto se mueve un poco el reposo, para que no se quede marcado en la pantalla. */
+export const REST_SHIFT_MS = 60_000;
+
+/** Los sitios por los que pasa (vmin desde el centro, 2 como mucho): una vuelta cada 8 minutos. */
+const REST_SHIFTS: readonly (readonly [number, number])[] = [
+  [0, 0],
+  [1.5, -1],
+  [-1, 1.5],
+  [2, 1],
+  [-1.5, -1.5],
+  [1, 2],
+  [-2, 0.5],
+  [0.5, -2],
+];
+
+/** Dónde va el reposo en el minuto `step` (cualquier entero, también negativo). */
+export function restShift(step: number): { x: number; y: number } {
+  const n = REST_SHIFTS.length;
+  const [x, y] = REST_SHIFTS[((step % n) + n) % n]!;
+  return { x, y };
 }
 
 /**

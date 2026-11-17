@@ -5,7 +5,10 @@ import {
   CustomerDisplayPairSchema,
   CustomerDisplayPinSchema,
   CustomerDisplayTipSchema,
+  UpdateDisplayMessageSchema,
   type CustomerDisplayCode,
+  type CustomerDisplayMessage,
+  type CustomerDisplayMessageSettings,
   type CustomerDisplayCurrentDto,
   type CustomerDisplayFichaDto,
   type CustomerDisplayFichaResult,
@@ -37,6 +40,7 @@ const ownerOf = (user: JwtPayload): DisplayOwner => ({ userId: user.sub, tenantI
  *   - DELETE /v1/customer-display              → desemparejarla.
  *   - PUT    /v1/customer-display/current      → el cobro que enseña (uno suyo).
  *   - POST   /v1/customer-display/current/clear → salió de ese cobro.
+ *   - GET/PUT /v1/customer-display/message     → el mensaje del reposo (dueño y encargado).
  *  Tablet (Authorization: Pantalla <credencial>):
  *   - POST /v1/customer-display/pair   → canjea el código por la credencial (con tope de intentos).
  *   - GET  /v1/customer-display/screen → lo que enseña: importe, propina, QR y estado (sin datos personales).
@@ -101,6 +105,25 @@ export class CustomerDisplayController {
     @Body(new ZodValidationPipe(CustomerDisplayCurrentSchema)) body: CustomerDisplayCurrentDto,
   ): Promise<{ ok: true }> {
     return this.displays.clear(ownerOf(user), body);
+  }
+
+  /** Ajustes → Carta → «Pantalla del cliente»: el mensaje bajo el nombre del local, con su vista previa. */
+  @Get('message')
+  @UseGuards(RolesGuard)
+  @Roles('OWNER', 'MANAGER')
+  message(@CurrentUser() user: JwtPayload): Promise<CustomerDisplayMessageSettings> {
+    return this.displays.message(ownerOf(user));
+  }
+
+  @Put('message')
+  @HttpCode(200)
+  @UseGuards(RolesGuard)
+  @Roles('OWNER', 'MANAGER')
+  setMessage(
+    @CurrentUser() user: JwtPayload,
+    @Body(new ZodValidationPipe(UpdateDisplayMessageSchema)) body: CustomerDisplayMessage,
+  ): Promise<CustomerDisplayMessageSettings> {
+    return this.displays.setMessage(ownerOf(user), body);
   }
 
   // ─── La tablet ─────────────────────────────────────────────────────
