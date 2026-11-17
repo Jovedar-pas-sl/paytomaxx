@@ -243,9 +243,26 @@ describe('la página del reservado en el móvil (rediseño del 17-nov)', () => {
     expect(text).not.toMatch(/Laura|600112233/);
   });
 
+  it('sin pagar (solo ocupa sitio un rato): ni calendario ni WhatsApp; solo «Copiar enlace», en gris y debajo de «Pagar»', () => {
+    for (const over of [{}, { openPayUrl: '/pay/xyz' }]) {
+      const html = render(over);
+      expect(html).not.toContain('Guarda tu reservado');
+      expect(html).not.toContain('/calendario');
+      expect(html).not.toContain('wa.me');
+      expect(html).toContain(`class="btn alt" type="button" data-copy="https://api.prueba.es/reservas/${TOKEN}"`);
+      expect(html).toContain('Copiar enlace');
+      const pay = Math.max(html.indexOf('id="payb"'), html.indexOf('Seguir pagando'));
+      expect(pay).toBeGreaterThan(0);
+      expect(html.indexOf('data-copy=')).toBeGreaterThan(pay);
+      expect(html).not.toMatch(/es tu reservado|Guarda este enlace/);
+    }
+  });
+
   it('sin «Guarda tu reservado» si ya llegó, se anuló o no vino', () => {
     for (const r of [{ status: 'ARRIVED' }, { status: 'CANCELED' }, { status: 'CLIENT_CANCELED' }, { status: 'NO_SHOW' }] as const) {
-      expect(render({ payable: [], cancel: null }, r)).not.toContain('Guarda tu reservado');
+      const html = render({ payable: [], cancel: null }, r);
+      expect(html).not.toContain('Guarda tu reservado');
+      expect(html).not.toContain('data-copy=');
     }
   });
 

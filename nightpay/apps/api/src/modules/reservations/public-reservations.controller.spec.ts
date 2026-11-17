@@ -75,8 +75,8 @@ describe('GET /reservas/:token/calendario («Añadir a mi calendario»)', () => 
     expect(ics).not.toMatch(/Laura|600112233/);
   });
 
-  it('un enlace que no existe o un reservado anulado: 404 sin pistas', async () => {
-    for (const v of [null, view('CANCELED'), view('CLIENT_CANCELED'), view('NO_SHOW'), view('ARRIVED')]) {
+  it('un enlace que no existe, sin pagar o un reservado anulado: 404 sin pistas', async () => {
+    for (const v of [null, view('PENDING'), view('CANCELED'), view('CLIENT_CANCELED'), view('NO_SHOW'), view('ARRIVED')]) {
       const { reply, sent } = fakeReply();
       await controller(v).calendar(TOKEN, reply);
       expect(sent.status).toBe(404);

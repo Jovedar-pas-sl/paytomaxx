@@ -117,7 +117,7 @@ export class PublicReservationController {
     sendHtml(res, 200, renderGroupPage(token, view, this.catalog.origin, min, max, qrs));
   }
 
-  /** «Añadir a mi calendario»: el .ics de la noche del reservado (mientras sigue en pie). */
+  /** «Añadir a mi calendario»: el .ics de la noche del reservado (pagado y por llegar). */
   @Public()
   @Get(':token/calendario')
   @IpRateLimit(PAGE_LIMIT)

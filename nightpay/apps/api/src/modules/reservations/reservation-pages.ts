@@ -8,7 +8,7 @@ import type { BookingEntry, GroupView, GuestPageView } from './reservations.serv
  * Las páginas del cliente de los reservados (HTML desde el API, móvil primero,
  * en español sencillo, con la marca de las páginas de pago):
  *  - /reservar/<código>  elegir paquete y noche, y dejar nombre y teléfono;
- *  - /reservas/<enlace>  la del que reservó: guardarla (calendario, WhatsApp,
+ *  - /reservas/<enlace>  la del que reservó: guardarla (pagada: calendario, WhatsApp,
  *    copiar), pagar (con el aviso de que la señal no se devuelve), los QR del
  *    grupo, lo que queda y lo que gasta cada uno, y, plegado en «Cambiar o
  *    anular», cambiar la fecha (una vez, con 48 h) o anular;
@@ -212,6 +212,12 @@ function saveCard(token: string, v: GroupView, origin: string): string {
 </div></section>`;
 }
 
+/** Sin pagar solo ocupa sitio un rato: ni calendario ni WhatsApp; «Copiar enlace» en gris, debajo de «Pagar». */
+function linkCard(token: string, v: GroupView, origin: string): string {
+  if (v.reservation.status !== 'PENDING') return '';
+  return `<section class="sec"><p class="small">Guarda el enlace para volver a esta página.</p><button class="btn alt" type="button" data-copy="${h(`${origin}/reservas/${token}`)}">${icon('link')}<span>Copiar enlace</span></button></section>`;
+}
+
 function payCard(v: GroupView): string {
   const r = v.reservation;
   if (v.openPayUrl) {
@@ -342,7 +348,7 @@ ${r.tableLabel ? `<div class="row"><span>Mesa</span><b>${h(r.tableLabel)}</b></d
 <div class="row"><span>Pagado</span><b>${h(eur(r.paidCents))}</b></div>
 ${r.pendingCents > 0 && (r.status === 'PENDING' || r.status === 'DEPOSIT_PAID') ? `<div class="row"><span>Falta</span><b>${h(eur(r.pendingCents))}</b></div>` : ''}
 </section>
-${payCard(v)}${qrCard(v, origin, qrs)}${saldo}${changeOrCancel(v, minDay, maxDay)}
+${payCard(v)}${linkCard(token, v, origin)}${qrCard(v, origin, qrs)}${saldo}${changeOrCancel(v, minDay, maxDay)}
 <p class="sr" id="live" aria-live="polite"></p>
 <script type="application/json" id="cfg">${JSON.stringify({ pay: `/reservas/${token}/pago`, date: `/reservas/${token}/fecha`, cancel: `/reservas/${token}/anular` })}</script>`;
   return page(`Tu reservado · ${v.venueName}`, body, GROUP_JS);

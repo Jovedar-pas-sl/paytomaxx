@@ -8,9 +8,12 @@ import { nightEnd, nightStart } from './reservation-rules';
  * nada del cliente (ni nombre ni teléfono).
  */
 
-/** Mientras el reservado está por llegar se puede guardar (calendario, WhatsApp, enlace). */
+/**
+ * Al calendario o a WhatsApp, solo pagado (la señal o todo) y por llegar: sin
+ * pagar solo ocupa sitio un rato (PENDING_HOLD_MS) y en la puerta no entra.
+ */
 export function canSaveReservation(status: string): boolean {
-  return status === 'PENDING' || status === 'DEPOSIT_PAID' || status === 'PAID';
+  return status === 'DEPOSIT_PAID' || status === 'PAID';
 }
 
 export interface CalendarReservation {

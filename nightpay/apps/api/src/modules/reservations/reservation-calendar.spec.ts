@@ -49,8 +49,8 @@ describe('«Añadir a mi calendario»: el .ics del reservado', () => {
     expect(ics.replace(/\r\n/g, '')).not.toContain('\n');
   });
 
-  it('se guarda mientras el reservado está por llegar; ya en el local, anulado o «No vino», no', () => {
-    for (const s of ['PENDING', 'DEPOSIT_PAID', 'PAID']) expect(canSaveReservation(s)).toBe(true);
-    for (const s of ['ARRIVED', 'CANCELED', 'CLIENT_CANCELED', 'NO_SHOW']) expect(canSaveReservation(s)).toBe(false);
+  it('se guarda pagado (la señal o todo) y por llegar; sin pagar (solo ocupa sitio un rato), ya en el local, anulado o «No vino», no', () => {
+    for (const s of ['DEPOSIT_PAID', 'PAID']) expect(canSaveReservation(s)).toBe(true);
+    for (const s of ['PENDING', 'ARRIVED', 'CANCELED', 'CLIENT_CANCELED', 'NO_SHOW']) expect(canSaveReservation(s)).toBe(false);
   });
 });
