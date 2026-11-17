@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { canUsePanel, resolveTab, sectionOf, visibleSections, visibleTabs, type PanelViewer } from './roles';
+import { canUsePanel, resolveTab, SECTION_HINTS, sectionOf, visibleSections, visibleTabs, type PanelViewer } from './roles';
 
 const keys = (user: PanelViewer) => visibleTabs(user).map((t) => t.key);
 const sections = (user: PanelViewer) => visibleSections(user).map((s) => s.key);
@@ -28,8 +28,8 @@ describe('cinco secciones', () => {
   it('Hoy: cobros, el mapa del dinero y una sola bandeja de avisos; Chicas: las chicas y sus pagos; Clientes: los saldos y las fichas', () => {
     expect(sectionTabs({ role: 'OWNER' }, 'hoy')).toEqual(['payments', 'money', 'incidents']);
     expect(sectionTabs({ role: 'OWNER' }, 'chicas')).toEqual(['operators', 'treasury']);
-    expect(sectionTabs({ role: 'OWNER' }, 'clientes')).toEqual(['wallets', 'fichas', 'reservations']);
-    expect(sectionTabs({ role: 'MANAGER' }, 'clientes')).toEqual(['wallets', 'fichas', 'reservations']);
+    expect(sectionTabs({ role: 'OWNER' }, 'clientes')).toEqual(['wallets', 'reservations', 'fichas']);
+    expect(sectionTabs({ role: 'MANAGER' }, 'clientes')).toEqual(['wallets', 'reservations', 'fichas']);
     expect(sectionOf('fichas')).toBe('clientes');
     expect(sectionTabs({ role: 'OWNER' }, 'informes')).toEqual(['nights', 'reports', 'bank', 'oxiopay']);
   });
@@ -111,5 +111,33 @@ describe('datáfono apagado en Formas de cobro', () => {
     expect(keys({ role: 'OWNER' })).toContain('terminals');
     // Un enlace guardado a Datáfonos sigue resolviendo (el panel vuelve a Cobros si no se ve).
     expect(resolveTab('terminals')).toBe('terminals');
+  });
+});
+
+describe('encontrar los reservados y los RRPP a la primera', () => {
+  it('Clientes: «Reservados y RRPP» justo después de Saldos (con su nombre, también para el encargado)', () => {
+    for (const role of ['OWNER', 'MANAGER']) {
+      const clientes = visibleSections({ role }).find((s) => s.key === 'clientes');
+      expect(clientes?.tabs.map((t) => t.label)).toEqual(['Saldos', 'Reservados y RRPP', 'Fichas']);
+    }
+  });
+
+  it('cada sección lleva una línea corta con lo que hay dentro; la de Clientes nombra los RRPP', () => {
+    for (const s of visibleSections({ role: 'OWNER' })) {
+      const hint = SECTION_HINTS[s.key];
+      expect(hint.length, s.key).toBeLessThanOrEqual(80);
+      expect(hint, s.key).toMatch(/^[A-ZÁÉÍÓÚ].*\.$/);
+      expect(hint, s.key).not.toMatch(/chica/i);
+    }
+    expect(SECTION_HINTS.clientes).toContain('RRPP');
+  });
+
+  it('la línea no nombra pestañas que el encargado no ve (Mapa del dinero, Banco, Formas de cobro, Permisos…)', () => {
+    // «Noche» y «Secciones» (del dueño) son también palabras de todos los días: fuera de la cuenta.
+    const ownerOnly = visibleTabs({ role: 'OWNER' }).filter((t) => !keys({ role: 'MANAGER' }).includes(t.key) && !['night', 'sections'].includes(t.key));
+    expect(ownerOnly.map((t) => t.key)).toContain('money');
+    for (const s of visibleSections({ role: 'MANAGER' })) {
+      for (const t of ownerOnly) expect(SECTION_HINTS[s.key].toLowerCase(), `${s.key}: ${t.label}`).not.toContain(t.label.toLowerCase());
+    }
   });
 });
