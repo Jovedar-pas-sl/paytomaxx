@@ -46,7 +46,7 @@ export const RESERVATION_VIEW_INCLUDE = {
   spends: { orderBy: { createdAt: 'asc' as const } },
   wallet: { select: { balanceCents: true, status: true, qrToken: true } },
   promoter: { select: { user: { select: { displayName: true, email: true } } } },
-  // Lo pagado con bitcoin (si hay que devolverlo: solo en euros, nunca por la pasarela ni en bitcoin).
+  // Lo pagado con bitcoin (lo ve el panel; si el local anula, se queda como saldo del grupo, como lo de tarjeta).
   payments: { where: { paidAt: { not: null }, payment: { provider: 'BTCPAY' as const } }, select: { amountCents: true } },
 };
 

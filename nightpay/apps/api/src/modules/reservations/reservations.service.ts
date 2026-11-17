@@ -73,7 +73,7 @@ export interface GroupView {
   cancel: 'Cancelar' | 'Anular' | null;
   /** Por qué no puede anular (pagada y sin las 48 h). */
   cancelBlocked: string | null;
-  /** El enlace al saldo del grupo: después de llegar (o si no vino y le queda). */
+  /** El enlace al saldo del grupo: después de llegar, o si le queda tras «No vino», anular él o anular el local. */
   saldoHref: string | null;
   guestTokens: Array<{ seq: number; token: string }>;
 }
@@ -482,7 +482,8 @@ export class ReservationsService {
     const openMinute = row.venue.reservationsOpenMinute;
     const day = dayOf(row.nightDate);
     const cancelBlocked = clientCancelProblem({ status: row.status, nightDate: day }, now, openMinute);
-    const leftover = ['ARRIVED', 'NO_SHOW', 'CLIENT_CANCELED'].includes(row.status);
+    // Con saldo para otra noche: lo que sobró, lo que quedó tras perder la señal o lo pagado si anuló el local.
+    const leftover = ['ARRIVED', 'NO_SHOW', 'CLIENT_CANCELED', 'CANCELED'].includes(row.status);
     const saldo = row.wallet && leftover && row.wallet.balanceCents > 0 ? row.wallet.qrToken : null;
     const payable = payableKinds(row);
     return {

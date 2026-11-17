@@ -1097,7 +1097,7 @@ describe('reservados pagados con bitcoin (la señal y el resto), como con tarjet
     expect(await inCtx(A, () => ops.detail(ownerActor(), res.id))).toMatchObject({ paidCents: 40000, paidWithBitcoinCents: 40000 });
   });
 
-  it('el local anula una reserva pagada con bitcoin: nada sale por la pasarela ni en bitcoin; «Devolver saldo» no lo saca y el panel lo sabe', async () => {
+  it('el local anula una reserva pagada con bitcoin: queda como saldo del grupo; nada sale por la pasarela ni en bitcoin y «Devolver saldo» no lo saca', async () => {
     const res = await booked();
     const full = await payWithBitcoin(res.manageToken, 'FULL');
     fake.setState(full.invoiceId, 'Settled');
@@ -1105,8 +1105,10 @@ describe('reservados pagados con bitcoin (la señal y el resto), como con tarjet
     expect(await resvOf(res.id)).toMatchObject({ status: 'PAID', paidCents: 40000 });
 
     const out = await inCtx(A, () => ops.venueCancel(ownerActor(), res.id, 'Cerramos esa noche'));
-    expect(out).toMatchObject({ refundCents: 40000, walletId: full.payment.walletId });
+    expect(out).toMatchObject({ saldoCents: 40000, walletId: full.payment.walletId });
     expect(out.reservation).toMatchObject({ status: 'CANCELED', paidWithBitcoinCents: 40000 });
+    // Lo pagado con bitcoin se queda en el saldo del grupo para otra noche (decisión del dueño del 17-nov).
+    expect(await balanceOf(full.payment.walletId!)).toBe(40000);
     // Por la pasarela: 409 con su código (solo en euros); no se crea ninguna devolución.
     const actor = { userId: owner, role: 'OWNER', tenantId: A } as never;
     await expect(inCtx(A, () => refunds.refund({ paymentId: full.payment.id, amountCents: 40000, reason: 'Anulada' } as never, actor))).rejects.toMatchObject({
@@ -1163,7 +1165,7 @@ describe('reservados pagados con bitcoin (la señal y el resto), como con tarjet
     const res = await booked();
     const dep = await payWithBitcoin(res.manageToken, 'DEPOSIT');
     const out = await inCtx(A, () => ops.venueCancel(ownerActor(), res.id, 'Cerramos esa noche'));
-    expect(out).toMatchObject({ refundCents: 0, reservation: { status: 'CANCELED' } });
+    expect(out).toMatchObject({ saldoCents: 0, reservation: { status: 'CANCELED' } });
     expect((await statusOf(dep.payment.id)).status).toBe('CANCELED');
     expect((await rowsOf(dep.payment.id))[0]).toMatchObject({ status: 'Invalid' });
     expect((await canceledEvent(dep.payment.id))?.payload).toMatchObject({ reason: 'Reserva anulada por el local', byUserId: owner });
