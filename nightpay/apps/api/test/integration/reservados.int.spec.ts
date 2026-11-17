@@ -200,6 +200,9 @@ describe('paquetes y reservar', () => {
     const row = await resvOf(one.id);
     expect(row).toMatchObject({ status: 'PENDING', paidCents: 0, priceCents: 30000, depositCents: 9000, source: 'WEB', promoterId: null, customerPhone: '600112233' });
     expect(await sys((tx) => tx.reservationGuest.count({ where: { reservationId: one.id } }))).toBe(6);
+    // «Añadir a mi calendario»: la página del grupo sabe la hora de apertura del local.
+    const venue = await sys((tx) => tx.venue.findUniqueOrThrow({ where: { id: A }, select: { reservationsOpenMinute: true } }));
+    expect((await pub(() => reservations.groupView(one.manageToken)))?.openMinute).toBe(venue.reservationsOpenMinute);
   });
 
   it('tope por noche del paquete: la cuarta de la misma noche no entra', async () => {
