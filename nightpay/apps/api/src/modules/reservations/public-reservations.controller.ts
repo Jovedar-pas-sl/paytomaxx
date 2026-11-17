@@ -12,7 +12,8 @@ import { Public } from '../../common/decorators/public.decorator';
 import { IpRateLimit } from '../../common/guards/ip-rate-limit.guard';
 import { ZodValidationPipe } from '../../common/pipes/zod.pipe';
 import { ReservationCatalogService } from './reservation-catalog.service';
-import { renderBookPage, renderGroupPage, renderGuestPage, renderReservationGone } from './reservation-pages';
+import { canSaveReservation, reservationIcs } from './reservation-calendar';
+import { renderBookPage, renderGroupPage, renderGuestPage, renderReservationGone, showsGroupQrs } from './reservation-pages';
 import { MAX_DAYS_AHEAD, nightOf } from './reservation-rules';
 import { RESERVATION_GONE, ReservationsService, type BookingEntry } from './reservations.service';
 
@@ -77,6 +78,7 @@ export class PublicBookingController {
 /**
  * El reservado del cliente (fuera de /v1):
  *  - GET  /reservas/:token        su página: pagar, los QR, lo que queda, cambiar la fecha.
+ *  - GET  /reservas/:token/calendario  «Añadir a mi calendario» (.ics).
  *  - POST /reservas/:token/pago   abre el pago con tarjeta (señal, resto o todo): a /pay.
  *  - POST /reservas/:token/fecha  cambia la fecha (una vez, con 48 h).
  *  - GET  /reservas/q/:token      el QR de una persona del grupo.
@@ -105,7 +107,36 @@ export class PublicReservationController {
     const view = await this.reservations.groupView(token);
     if (!view) return sendHtml(res, 404, renderReservationGone());
     const { min, max } = dayRange();
-    sendHtml(res, 200, renderGroupPage(token, view, this.catalog.origin, min, max));
+    // La miniatura del QR de cada persona (SVG hecho aquí: nada de fuera).
+    const qrs: Record<number, string> = {};
+    if (showsGroupQrs(view.reservation.status)) {
+      for (const g of view.guestTokens) {
+        qrs[g.seq] = await QRCode.toString(`${this.catalog.origin}/reservas/q/${g.token}`, { type: 'svg', errorCorrectionLevel: 'M', margin: 1 });
+      }
+    }
+    sendHtml(res, 200, renderGroupPage(token, view, this.catalog.origin, min, max, qrs));
+  }
+
+  /** «Añadir a mi calendario»: el .ics de la noche del reservado (mientras sigue en pie). */
+  @Public()
+  @Get(':token/calendario')
+  @IpRateLimit(PAGE_LIMIT)
+  async calendar(@Param('token') token: string, @Res() res: FastifyReply): Promise<void> {
+    const view = await this.reservations.groupView(token);
+    if (!view || !canSaveReservation(view.reservation.status)) return sendHtml(res, 404, renderReservationGone());
+    const r = view.reservation;
+    res
+      .status(200)
+      .header('Content-Type', 'text/calendar; charset=utf-8')
+      .header('Content-Disposition', 'attachment; filename="reservado.ics"')
+      .header('Cache-Control', 'no-store')
+      .header('Referrer-Policy', 'no-referrer')
+      .send(
+        reservationIcs(
+          { venueName: view.venueName, ref: r.ref, nightDate: r.nightDate, packageName: r.packageName, entries: r.entries, openMinute: view.openMinute },
+          `${this.catalog.origin}/reservas/${token}`,
+        ),
+      );
   }
 
   @Public()

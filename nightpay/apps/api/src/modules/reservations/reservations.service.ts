@@ -64,6 +64,8 @@ export interface BookingEntry {
 /** La página del grupo (la de quien reservó). */
 export interface GroupView {
   venueName: string;
+  /** Hora de apertura del local (minutos desde las 00:00): «Añadir a mi calendario». */
+  openMinute: number;
   reservation: ReservationView;
   payable: ReservationPayKind[];
   /** El pago a medias (para volver a él). */
@@ -488,6 +490,7 @@ export class ReservationsService {
     const payable = payableKinds(row);
     return {
       venueName: row.venue.name,
+      openMinute,
       reservation: view,
       payable,
       // «Seguir pagando», solo mientras la reserva se pueda pagar (anulada o ya pagada, nunca).
