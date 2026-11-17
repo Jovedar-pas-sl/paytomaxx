@@ -88,6 +88,15 @@ describe('los tutoriales del panel', () => {
       expect(cobros.text).toContain(`«${label}»`);
     }
   });
+
+  it('Compañeras enseña dónde están los RRPP, y Reservados nombra sus vistas tal cual', () => {
+    const rrpp = TOURS.operators.steps.find((s) => s.target === 'chicas-rrpp');
+    expect(rrpp?.text).toContain('Clientes → Reservados y RRPP');
+    const vistas = TOURS.reservations.steps.find((s) => s.target === 'reservados-vistas')!;
+    for (const label of ['Reservas de la noche', 'Paquetes', 'RRPP y sus enlaces', 'Enlace web y señales']) {
+      expect(vistas.text).toContain(`«${label}»`);
+    }
+  });
 });
 
 describe('ya no queda la ayuda fija de Cobros', () => {

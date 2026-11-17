@@ -58,6 +58,7 @@ export const TOURS = {
       { target: 'chicas-tabla', title: 'Tus compañeras', text: 'Cada fila es una compañera, con su comisión, lo que se le debe y lo que ya se le ha pagado. Toca una para abrir su ficha.' },
       { target: 'chicas-estado', title: 'Estado', text: 'Si ya ha entrado y tiene todo listo para cobrar, o si le falta algo (cuenta, documentos).' },
       { target: 'chicas-camareros', title: 'Camareros', text: 'Los camareros salen aparte, con la misma ficha.' },
+      { target: 'chicas-rrpp', title: 'Tus RRPP', text: 'Un RRPP es alguien de tu equipo con su % y su enlace para reservar. Se llevan en Clientes → Reservados y RRPP: este botón te lleva.' },
     ],
   },
   wallets: {
@@ -189,7 +190,7 @@ export const TOURS = {
   reservations: {
     screen: 'panel-reservados',
     steps: [
-      { target: 'reservados-vistas', title: 'Cuatro vistas', text: 'Las reservas de cada noche, los paquetes que vendes, tus RRPP y el enlace para reservar con señal.' },
+      { target: 'reservados-vistas', title: 'Cuatro vistas', text: '«Reservas de la noche», los «Paquetes» que vendes, «RRPP y sus enlaces» (su % y su enlace) y el «Enlace web y señales» para reservar con señal.' },
       { target: 'reservados-noche', title: 'La noche', text: 'Cambia de noche con las flechas o la fecha. Debajo salen sus reservas y «Reservar para un cliente».' },
       { target: 'reservados-reserva', title: 'Cada reserva', text: 'El cliente, su referencia y lo pagado. Cuando llega, «Ha venido»; si no aparece, «No vino» (se puede deshacer).' },
     ],
