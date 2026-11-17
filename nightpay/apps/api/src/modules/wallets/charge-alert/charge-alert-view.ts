@@ -1,4 +1,5 @@
 import { BRAND_NAME } from '../../../common/brand';
+import { legalFooter } from '../../legal/legal-links';
 import { CLUB_BASE_CSS, clientMoney, escapeHtml } from '../../payments/club-ui';
 import { CHROME_CSS, LANG_JS, topBar } from '../../payments/customer-chrome';
 import type { PayLanguage } from '../../payments/customer-lang';
@@ -203,8 +204,9 @@ function messageBox(title: string, text: string): string {
   return `<section class="box"><span class="lockc">${LOCK_ICON}</span><h1>${escapeHtml(title)}</h1><p class="txt">${escapeHtml(text)}</p></section>`;
 }
 
+/** Como las demás páginas del cliente: la barra de arriba, el contenido y el pie legal (su CSS va en CHROME_CSS). */
 function page(lang: PayLanguage, base: string, title: string, body: string, script = ''): string {
-  return `<!doctype html><html lang="${lang}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="robots" content="noindex,nofollow"><meta name="referrer" content="no-referrer"><meta name="theme-color" content="#0b0d0e"><title>${escapeHtml(title)}</title><style>${CLUB_BASE_CSS}${CHROME_CSS}${LOST_CSS}${NOT_ME_CSS}</style></head><body>${topBar(lang, (l) => `${base}?lang=${l}`)}<main>${body}</main><script>${script}${LANG_JS}</script></body></html>`;
+  return `<!doctype html><html lang="${lang}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="robots" content="noindex,nofollow"><meta name="referrer" content="no-referrer"><meta name="theme-color" content="#0b0d0e"><title>${escapeHtml(title)}</title><style>${CLUB_BASE_CSS}${CHROME_CSS}${LOST_CSS}${NOT_ME_CSS}</style></head><body>${topBar(lang, (l) => `${base}?lang=${l}`)}<main>${body}</main>${legalFooter(lang)}<script>${script}${LANG_JS}</script></body></html>`;
 }
 
 /** La página: el cobro y «No he sido yo» (formulario: funciona sin JS); o por qué el enlace no sirve. */
