@@ -5,6 +5,7 @@ import type { MyNight, OperatorUser } from '@/lib/api';
 import { canTopUp, useMyRights } from '@/lib/venue-methods';
 import { CobrarFlow } from './cobrar/CobrarFlow';
 import { HomeTopUpDesk } from './reception/HomeTopUpDesk';
+import { RrppHomeCard } from './rrpp/RrppHomeCard';
 import styles from './home.module.css';
 
 interface Props {
@@ -44,6 +45,7 @@ export function HomeTab({ user, night, onCobroDone, onLogout }: Props) {
         miQrOpen={miQr}
         onMiQr={user.role === 'OPERATOR' ? setMiQr : undefined}
         onRecargar={topUps ? () => setRecargar(true) : undefined}
+        banner={<RrppHomeCard />}
       />
     </div>
   );
