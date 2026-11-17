@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { AmountKeypad, Input } from '@nightpay/ui';
-import { MAX_TYPED_AMOUNT_CENTS } from '@nightpay/contracts';
+import { MAX_TYPED_AMOUNT_CENTS, SALDO_SE_QUEDA_TEXT } from '@nightpay/contracts';
 import { formatEur } from '@/lib/money';
 import type { RecentTopUp } from '@nightpay/contracts';
 import { methodArmed, recentTopUpLine, type EntryRow, type MethodButton, type ExitPlan } from '@/lib/reception-desk';
@@ -198,6 +198,10 @@ export function MethodStep(props: {
             <Icon name="phone" />
             {turnPhoneText(Boolean(props.ficha))}
           </p>
+          {/* Y la regla, antes de pagar: nadie carga pensando que se le devuelve. */}
+          <p className={s.lbl} data-tour="recep-regla-carga">
+            {SALDO_SE_QUEDA_TEXT}
+          </p>
         </div>
         <StepQuestion text="¿Cómo paga?" />
       </div>
@@ -291,14 +295,16 @@ export function CashConfirmStep(props: {
   );
 }
 
-/** 4.5: a la salida, lo que le queda; guardar (de fábrica, en lima) o devolverlo en efectivo. */
+/**
+ * 4.5: a la salida, lo que le queda y «Guardar para la próxima» (en lima).
+ * Donde estaba «Devolver», la regla: el saldo no se devuelve (decisión del
+ * dueño, 17-nov-2026), se queda para la próxima visita.
+ */
 export function ExitStep(props: {
   row: { title: string; detail: string };
   plan: ExitPlan;
   busy: boolean;
   onKeep: () => void;
-  onRefund: () => void;
-  onReadNfc?: () => void;
 }) {
   const { plan } = props;
   return (
@@ -309,19 +315,11 @@ export function ExitStep(props: {
         <p className={s.bignum}>{formatEur(plan.balanceCents, { compact: true })}</p>
       </div>
       <DeskBtn kind="pri" label="Guardar para la próxima" small={plan.keepDetail} onClick={props.onKeep} disabled={props.busy} tour="recep-guardar" />
-      {plan.refundLabel ? (
-        <DeskBtn
-          kind="gho"
-          label={plan.refundLabel}
-          small={plan.refundBlocked ?? plan.refundDetail}
-          onClick={props.onRefund}
-          disabled={plan.refundBlocked !== null}
-          busy={props.busy}
-          tour="recep-devolver"
-        />
+      {plan.rule ? (
+        <p className={s.lbl} data-tour="recep-regla">
+          {plan.rule}
+        </p>
       ) : null}
-      {plan.note && !plan.refundBlocked?.includes(plan.note) ? <p className={s.lbl}>{plan.note}</p> : null}
-      {props.onReadNfc ? <DeskBtn kind="gho" label="Acercar la ficha original" onClick={props.onReadNfc} disabled={props.busy} /> : null}
     </>
   );
 }
@@ -339,7 +337,7 @@ export function NumberStep({ busy, error, onFind }: { busy: boolean; error: stri
         value={number} onChange={(event) => setNumber(event.target.value.replace(/\D/g, '').slice(0, 12))} style={DESK_FIELD} />
       {/* Lo tecleado, en grande y en grupos de 4 como en la ficha (A6): una cifra mal se ve. */}
       {number ? <FichaNumber printed={number} className={s.typedFicha} /> : null}
-      <p className={s.hint}>Como aparece en la ficha. Solo para saldos que ya existen: una ficha nueva se carga acercándola, y para devolver efectivo hace falta la ficha original.</p>
+      <p className={s.hint}>Como aparece en la ficha. Solo para saldos que ya existen: una ficha nueva se carga acercándola.</p>
       {error ? <p role="alert" className={s.error}>{error}</p> : null}
       <DeskBtn kind="pri" label="Buscar ficha" disabled={!ok} busy={busy} onClick={() => onFind(number)} />
     </form>

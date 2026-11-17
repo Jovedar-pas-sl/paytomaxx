@@ -9,7 +9,6 @@ import type { CashUndoReason, FichaCheck, ReceptionDeskNew } from '@nightpay/con
 import type { CreatedPayment } from '@/lib/api';
 import { counterFicha, type CounterFicha } from '@/lib/counter-tap';
 import { browserSessionStorage, cashAttemptRef, type ReceptionAttempt, type ReceptionWallet } from '@/lib/reception';
-import type { CashExitNfc, ReceptionPayoutPlan } from '@/lib/reception-cash-payout';
 import { entryRow, type LoadedMethod, type NumberSaldo, type ReceptionDeskSaldo, type ReceptionDeskView } from '@/lib/reception-desk';
 import { ActivationQr } from './ActivationQr';
 import { DeskBtn } from './desk-parts';
@@ -49,7 +48,8 @@ export interface Loaded {
   loadedAt?: number;
 }
 
-export type Exit = { kind: 'exit'; view: ReceptionDeskSaldo; nfc: CashExitNfc; requestKey: string };
+/** La salida de un saldo: lo que le queda (el saldo no se devuelve: se guarda para la próxima). */
+export type Exit = { kind: 'exit'; view: ReceptionDeskSaldo; nfc: { card: string; uid: string | null } | null };
 
 export type Step =
   | { kind: 'tap' }
@@ -66,15 +66,8 @@ export type Step =
   /** Encargado o dueño: el PIN de una ficha que ya tenía saldo, sin cargar nada. */
   | { kind: 'setPin'; read: Read; view: ReceptionDeskSaldo }
   | Exit
-  | { kind: 'exitPasskey'; exit: Exit; plan: ReceptionPayoutPlan }
-  | { kind: 'exitTotp'; exit: Exit; plan: ReceptionPayoutPlan | null; passkey: boolean; pin?: string; message?: string }
-  | { kind: 'exitManager'; exit: Exit; plan: ReceptionPayoutPlan }
-  | { kind: 'exitPin'; exit: Exit; totpCode?: string }
-  | { kind: 'managerPending'; exit: Exit; message: string }
   | { kind: 'exitNew'; view: ReceptionDeskNew; nfc: { card: string; uid: string | null } }
   | { kind: 'exitNumber'; view: NumberSaldo }
-  /** `bitcoinCents`: de lo que le queda, lo que entró con bitcoin (no sale ni en efectivo ni a la tarjeta). */
-  | { kind: 'refunded'; code: string; refundedCents: number; remainingCents: number; bitcoinCents?: number }
   /** Efectivo sin respuesta: no se sabe si se cargó. Se comprueba con la misma clave antes de seguir. */
   | { kind: 'cashUnsure'; read: Read; amountCents: number; checking: boolean; leaveArmed?: boolean; how?: FichaCheck }
   /** B4: «Me he equivocado»: el motivo y, después, la misma ficha. */
@@ -83,7 +76,7 @@ export type Step =
   | { kind: 'undone'; reason: CashUndoReason; cents: number };
 
 /** Desde que se cobra hasta el resultado: si la sesión caduca, se entra encima sin perderlo. */
-export const CHARGING = new Set<Step['kind']>(['card', 'loaded', 'pin', 'cashUnsure', 'exitPasskey', 'exitTotp', 'exitPin', 'managerPending', 'refunded']);
+export const CHARGING = new Set<Step['kind']>(['card', 'loaded', 'pin', 'cashUnsure']);
 
 /** Quien prefiere pagar con el móvil: el QR de Face ID, solo si lo pide (gasta un enlace de un solo uso). */
 export function PhoneOption({ walletId, read, onOpen }: { walletId: string; read: Read['nfc']; onOpen?: (open: boolean) => void }) {
@@ -127,14 +120,13 @@ export function counterOf(step: Step): CounterFicha | null {
   }
 }
 
-/** Volver un paso (la cabecera): del importe al NFC, del teclado y de cómo paga al importe; de la salida, a lo que le queda. */
+/** Volver un paso (la cabecera): del importe al NFC, y del teclado y de cómo paga al importe. */
 export function backOf(step: Step): Step {
   if (step.kind === 'keypad') return { kind: 'amount', read: step.read };
   if (step.kind === 'method') return { kind: 'amount', read: step.read };
   if (step.kind === 'cashConfirm') return { kind: 'method', read: step.read, amountCents: step.amountCents };
   // Desde la primera pantalla, a ella; desde CARGADO, a CARGADO (sin sonar otra vez).
   if (step.kind === 'undo') return step.fromTap ? { kind: 'tap' } : { kind: 'loaded', done: { ...step.done, seen: true } };
-  if (step.kind === 'exitPasskey' || step.kind === 'exitTotp' || step.kind === 'exitManager' || step.kind === 'managerPending') return step.exit;
   return { kind: 'tap' };
 }
 
