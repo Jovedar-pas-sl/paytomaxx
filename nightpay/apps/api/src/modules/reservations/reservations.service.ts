@@ -77,6 +77,8 @@ export interface GroupView {
   cancelBlocked: string | null;
   /** El enlace al saldo del grupo: después de llegar, o si le queda tras «No vino», anular él o anular el local. */
   saldoHref: string | null;
+  /** La anuló el local con la regla del 17-nov (lo pagado quedó como saldo: recognizedAt); las de antes se devolvían desde Saldos. */
+  venueCanceledToSaldo: boolean;
   guestTokens: Array<{ seq: number; token: string }>;
 }
 
@@ -499,6 +501,7 @@ export class ReservationsService {
       cancel: cancelBlocked ? null : row.status === 'PENDING' ? 'Cancelar' : 'Anular',
       cancelBlocked: row.status === 'DEPOSIT_PAID' || row.status === 'PAID' ? cancelBlocked : null,
       saldoHref: saldo ? `/w/${encodeURIComponent(saldo)}` : null,
+      venueCanceledToSaldo: row.status === 'CANCELED' && row.recognizedAt !== null,
       guestTokens: row.guests.map((g) => ({ seq: g.seq, token: g.qrToken })),
     };
   }

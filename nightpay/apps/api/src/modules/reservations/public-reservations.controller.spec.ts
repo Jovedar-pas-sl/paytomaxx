@@ -46,6 +46,7 @@ function view(status: ReservationView['status']): GroupView {
     cancel: null,
     cancelBlocked: null,
     saldoHref: null,
+    venueCanceledToSaldo: false,
     guestTokens: [
       { seq: 1, token: 'A'.repeat(24) },
       { seq: 2, token: 'B'.repeat(24) },

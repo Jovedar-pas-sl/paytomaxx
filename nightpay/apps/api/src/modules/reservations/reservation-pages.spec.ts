@@ -40,6 +40,7 @@ function group(over: Partial<GroupView> = {}, r: Partial<ReservationView> = {}):
     cancel: 'Cancelar',
     cancelBlocked: null,
     saldoHref: null,
+    venueCanceledToSaldo: false,
     guestTokens: [
       { seq: 1, token: 'AAAAAAAAAAAAAAAAAAAAAAAA' },
       { seq: 2, token: 'BBBBBBBBBBBBBBBBBBBBBBBB' },
@@ -168,7 +169,7 @@ describe('la página del reservado', () => {
       plain(
         renderGroupPage(
           TOKEN,
-          group({ payable: [], cancel: null, saldoHref }, { status: 'CANCELED', statusText: 'Anulada por el local', pendingCents: 0, ...r }),
+          group({ payable: [], cancel: null, saldoHref, venueCanceledToSaldo: true }, { status: 'CANCELED', statusText: 'Anulada por el local', pendingCents: 0, ...r }),
           'https://api.prueba.es',
           '2026-11-16',
           '2027-03-16',
@@ -190,6 +191,28 @@ describe('la página del reservado', () => {
     expect(page({ paidCents: 15000 }, null)).not.toContain('href="/w/');
     // Sin nada pagado, nada pasa a saldo.
     expect(page({ paidCents: 0 }, null)).not.toContain('te queda como saldo');
+  });
+
+  it('anulada por el local antes del 17-nov (se devolvía desde Saldos): solo «El local ha anulado la reserva.», sin decir que queda como saldo', () => {
+    const old = (saldoHref: string | null) =>
+      plain(
+        renderGroupPage(
+          TOKEN,
+          group({ payable: [], cancel: null, saldoHref, venueCanceledToSaldo: false }, { status: 'CANCELED', statusText: 'Anulada por el local', paidCents: 15000, pendingCents: 0 }),
+          'https://api.prueba.es',
+          '2026-11-16',
+          '2027-03-16',
+        ),
+      );
+    // Ya devuelto (el saldo a 0, sin enlace): ni la frase del saldo ni el botón.
+    const refunded = old(null);
+    expect(refunded).toContain('<section class="card warn"><p>El local ha anulado la reserva.</p></section>');
+    expect(refunded).not.toContain('te queda como saldo');
+    expect(refunded).not.toContain('href="/w/');
+    // Si aún le queda saldo, el enlace a su saldo (sin prometer cuánto).
+    const left = old('/w/abc');
+    expect(left).not.toContain('te queda como saldo');
+    expect(left).toContain('href="/w/abc"');
   });
 });
 

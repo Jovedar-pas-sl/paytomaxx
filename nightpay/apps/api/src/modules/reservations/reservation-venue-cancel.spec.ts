@@ -144,4 +144,10 @@ describe('la página del grupo de una reserva anulada por el local', () => {
     expect((await groupOf({ status: 'CANCELED', paidCents: 0, walletId: null, wallet: null }))?.saldoHref).toBeNull();
     expect((await groupOf({ status: 'CANCELED', paidCents: 15000, wallet: { balanceCents: 0, status: 'DEPLETED', qrToken: 'w-tok' } }))?.saldoHref).toBeNull();
   });
+
+  it('«lo pagado te queda como saldo» solo si la anuló con la regla de ahora (recognizedAt); las de antes se devolvían desde Saldos', async () => {
+    expect((await groupOf({ status: 'CANCELED', paidCents: 15000, recognizedAt: new Date('2026-11-17T10:00:00Z') }))?.venueCanceledToSaldo).toBe(true);
+    expect((await groupOf({ status: 'CANCELED', paidCents: 15000, recognizedAt: null }))?.venueCanceledToSaldo).toBe(false);
+    expect((await groupOf({ status: 'NO_SHOW', paidCents: 15000, recognizedAt: new Date('2026-11-17T10:00:00Z') }))?.venueCanceledToSaldo).toBe(false);
+  });
 });

@@ -311,7 +311,8 @@ function changeOrCancel(v: GroupView, minDay: string, maxDay: string): string {
 /**
  * El local anuló una reserva pagada (decisión del dueño del 17-nov): nada se
  * devuelve; lo pagado, con tarjeta o con bitcoin, le queda como saldo del grupo
- * para otra noche.
+ * para otra noche. Solo con esa regla (venueCanceledToSaldo): las anuladas antes
+ * se devolvían desde Saldos.
  */
 export function venueCanceledText(r: Pick<GroupView['reservation'], 'paidCents'>): string {
   return `El local ha anulado la reserva. Lo pagado (${eur(r.paidCents)}) te queda como saldo para otra noche.`;
@@ -326,7 +327,7 @@ export function renderGroupPage(token: string, v: GroupView, origin: string, min
       ? `<section class="card"><h2>Tu saldo para otra noche</h2><p>Te queda saldo en ${h(v.venueName)}. No caduca y no se devuelve en dinero.</p><a class="btn alt" href="${h(v.saldoHref)}">Ver mi saldo</a></section>`
       : '';
   const canceled = venueCanceled
-    ? `<section class="card warn"><p>${h(venueCanceledText(r))}</p>${v.saldoHref ? `<a class="btn" href="${h(v.saldoHref)}">Ver mi saldo</a>` : ''}</section>`
+    ? `<section class="card warn"><p>${h(v.venueCanceledToSaldo ? venueCanceledText(r) : 'El local ha anulado la reserva.')}</p>${v.saldoHref ? `<a class="btn" href="${h(v.saldoHref)}">Ver mi saldo</a>` : ''}</section>`
     : r.status === 'CLIENT_CANCELED'
       ? '<section class="card warn"><p>Has anulado la reserva: la señal no se devuelve.</p></section>'
       : '';
