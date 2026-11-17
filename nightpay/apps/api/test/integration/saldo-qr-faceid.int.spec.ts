@@ -533,8 +533,10 @@ describe('ficha NFC (Postgres real)', () => {
   });
 });
 
-describe('devolver el saldo (Postgres real)', () => {
+describe('terminar una devolución del saldo pedida antes (Postgres real)', () => {
   const ownerActor = () => ({ userId: ownerA, role: 'OWNER' as const, tenantId: A });
+  /** El saldo no se devuelve (17-nov-2026): solo se termina una pedida antes (el «Me voy» de antes). */
+  const askedBefore = (walletId: string) => sys((tx) => tx.clientWallet.update({ where: { id: walletId }, data: { closeRequestedAt: new Date() } }));
   /** Recarga ya pagada del saldo (cobrada en `tenantId`). */
   const paidTopUp = (walletId: string, amountCents: number, tag: string, tenantId = A) =>
     sys(async (tx) => {
@@ -550,12 +552,25 @@ describe('devolver el saldo (Postgres real)', () => {
       ).id;
     });
 
+  it('sin una devolución pedida antes: 409 SALDO_NO_SE_DEVUELVE, antes del 2FA, y no se apunta nada', async () => {
+    const w = await wallet(A, 2_500, `fg-${r}`, 'D0');
+    await paidTopUp(w, 2_500, 'd0');
+    bank.calls = [];
+    for (const method of ['CASH', 'CARD'] as const) {
+      await expect(inVenue(A, () => charges.payout(ownerActor(), w, { method }))).rejects.toMatchObject({ status: 409, response: { code: 'SALDO_NO_SE_DEVUELVE' } });
+    }
+    expect(bank.calls).toEqual([]);
+    expect(await balanceOf(w)).toMatchObject({ balanceCents: 2_500, status: 'ACTIVE' });
+    expect(await sys((tx) => tx.walletPayout.count({ where: { walletId: w } }))).toBe(0);
+  });
+
   it('#22 a la tarjeta tras sumar una recarga (Face ID): se reparte también entre las recargas del saldo sumado', async () => {
     const tgt = await wallet(A, 2_000, `fg-${r}`, 'D1');
     const src = await wallet(A, 5_000, `fg-${r}`, 'D2');
     const ownTop = await paidTopUp(tgt, 2_000, 'd1');
     const srcTop = await paidTopUp(src, 5_000, 'd2');
     await inVenue(undefined, () => charges.mergeInto(src, tgt));
+    await askedBefore(tgt);
     bank.calls = [];
     const out = await inVenue(A, () => charges.payout(ownerActor(), tgt, { totpCode: '123456', method: 'CARD', bankReference: 'DEV-22' }));
     expect(out).toEqual({ refundedCents: 7_000, method: 'CARD' });
@@ -576,6 +591,7 @@ describe('devolver el saldo (Postgres real)', () => {
         data: { tenantId: A, walletId: w, amountCents: 3_300, takenByUserId: ownerA, idempotencyKey: `d3-${r}`, createdAt: new Date(Date.now() - 86_400_000) },
       }),
     );
+    await askedBefore(w);
     const out = await inVenue(A, () => charges.payout(ownerActor(), w, { totpCode: '123456', method: 'CASH', note: 'en mano' }));
     expect(out).toEqual({ refundedCents: 3_300, method: 'CASH' });
     expect(await balanceOf(w)).toMatchObject({ balanceCents: 0, status: 'REFUNDED' });
@@ -586,6 +602,7 @@ describe('devolver el saldo (Postgres real)', () => {
   it('#38 a la tarjeta, dos clics a la vez: se apunta una sola vez', async () => {
     const w = await wallet(A, 4_000, `fg-${r}`, 'D4');
     await paidTopUp(w, 4_000, 'd4');
+    await askedBefore(w);
     bank.calls = [];
     const go = () => inVenue(A, () => charges.payout(ownerActor(), w, { totpCode: '123456', method: 'CARD' }));
     const res = await Promise.allSettled([go(), go()]);
@@ -633,6 +650,7 @@ describe('devolver el saldo (Postgres real)', () => {
     const w = await wallet(A, 6_000, `fg-${r}`, 'D6');
     await paidTopUp(w, 1_000, 'd6a');
     const bad = await paidTopUp(w, 5_000, 'd6b');
+    await askedBefore(w);
     bank.calls = [];
     bank.failOn = bad;
     try {

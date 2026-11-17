@@ -349,9 +349,9 @@ describe('la noche: puerta, barra, «No vino» y el local anula', () => {
     expect(view.guests.find((g) => g.seq === 2)?.spentCents).toBe(5000);
     const tooMuch = await as(barman, () => ops.charge(barman, { guestToken: guests[2]!.qrToken, amountCents: 40000, key: key() })).catch((e: unknown) => e);
     expect(code(tooMuch)).toBe('RESERVATION_BALANCE');
-    // «Me voy» (devolver el saldo): no en un reservado.
+    // «Me voy» (devolver el saldo): el saldo no se devuelve, tampoco el de un reservado.
     const w = await walletOf(payment.walletId!);
-    expect(code(await pub(() => charges.requestClose(w.qrToken)).catch((e: unknown) => e))).toBe('RESERVATION_NO_REFUND');
+    expect(code(await pub(() => charges.requestClose(w.qrToken)).catch((e: unknown) => e))).toBe('SALDO_NO_SE_DEVUELVE');
   });
 
   it('«No vino» con el 100 % pagado: pierde la señal y el 70 % queda como saldo; con la señal sola, la pierde', async () => {
@@ -388,8 +388,8 @@ describe('la noche: puerta, barra, «No vino» y el local anula', () => {
     const out = await as(owner, () => ops.venueCancel(owner, paid.id, 'No le vale otra fecha'));
     expect(out).toMatchObject({ refundCents: 15000, walletId: payment.walletId });
     const w = await walletOf(payment.walletId!);
-    await pub(() => charges.requestClose(w.qrToken));
-    expect((await walletOf(payment.walletId!)).closeRequestedAt).not.toBeNull();
+    expect(code(await pub(() => charges.requestClose(w.qrToken)).catch((e: unknown) => e))).toBe('SALDO_NO_SE_DEVUELVE');
+    expect((await walletOf(payment.walletId!)).closeRequestedAt).toBeNull();
   });
 });
 

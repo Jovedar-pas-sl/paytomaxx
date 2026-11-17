@@ -117,8 +117,12 @@ describe('saldo contra Postgres real (RLS forzado, rol dueño no superusuario)',
     await expect(asPublic(() => svc.payQrCharge(payToken, walletId))).rejects.toThrow(/ya no está pendiente/);
   });
 
-  it('"Me voy" sale en Incidencias del local de la recarga', async () => {
-    await asPublic(() => svc.requestClose(TOKEN));
+  it('«Me voy» ya no pide nada (409); una devolución pedida antes sale en Incidencias del local de la recarga', async () => {
+    await expect(asPublic(() => svc.requestClose(TOKEN))).rejects.toMatchObject({ status: 409, response: { code: 'SALDO_NO_SE_DEVUELVE' } });
+    const before = await asPublic(() => prisma.asSystem((tx) => tx.clientWallet.findUniqueOrThrow({ where: { id: walletId } })));
+    expect(before.closeRequestedAt).toBeNull();
+    // Una pedida antes de la nueva regla (el «Me voy» de antes).
+    await asPublic(() => prisma.asSystem((tx) => tx.clientWallet.update({ where: { id: walletId }, data: { closeRequestedAt: new Date() } })));
     const items = await asTenant(A, () => incidents.list(A, new Date()));
     expect(items.map((i) => i.kind)).toContain('wallet_close_requested');
   });
