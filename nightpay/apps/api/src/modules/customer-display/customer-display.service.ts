@@ -8,6 +8,8 @@ import {
   type CustomerDisplayCurrentDto,
   type CustomerDisplayFichaDto,
   type CustomerDisplayFichaResult,
+  type CustomerDisplayMessage,
+  type CustomerDisplayMessageSettings,
   type CustomerDisplayPairResult,
   type CustomerDisplayPinDto,
   type CustomerDisplayStatus,
@@ -166,6 +168,38 @@ export class CustomerDisplayService {
     return { ok: true };
   }
 
+  /** Ajustes → Carta → «Pantalla del cliente»: el mensaje del reposo y el nombre del local (vista previa). */
+  async message(owner: DisplayOwner): Promise<CustomerDisplayMessageSettings> {
+    const venue = await this.prisma.asSystem((tx) =>
+      tx.venue.findUniqueOrThrow({ where: { id: owner.tenantId }, select: { name: true, displayLine1: true, displayLine2: true } }),
+    );
+    return { venueName: venue.name, ...messageOf(venue) };
+  }
+
+  /**
+   * El dueño o el encargado cambian el mensaje (ya validado: 120 letras por
+   * línea). Las tablets lo cogen en su próxima consulta (15 s como mucho).
+   */
+  async setMessage(owner: DisplayOwner, next: CustomerDisplayMessage): Promise<CustomerDisplayMessageSettings> {
+    const before = await this.message(owner);
+    await this.prisma.asSystem((tx) =>
+      tx.venue.update({
+        where: { id: owner.tenantId },
+        data: { displayLine1: next.line1, displayLine2: next.line2 },
+        select: { id: true },
+      }),
+    );
+    await this.audit.log({
+      action: 'venue.display_message.updated',
+      tenantId: owner.tenantId,
+      actorId: owner.userId,
+      targetType: 'Venue',
+      targetId: owner.tenantId,
+      payload: { before: { line1: before.line1, line2: before.line2 }, after: next },
+    });
+    return { venueName: before.venueName, ...next };
+  }
+
   // ─── La tablet ─────────────────────────────────────────────────────
 
   /** Canjea el código (una sola vez) por la credencial. Si la persona ya tenía otra pantalla, esa queda fuera. */
@@ -231,7 +265,7 @@ export class CustomerDisplayService {
     const { venue, payment, charge, tipsRight } = await this.prisma.asSystem(async (tx) => ({
       venue: await tx.venue.findUniqueOrThrow({
         where: { id: display.tenantId },
-        select: { name: true, paymentMethods: true, nightSettings: true },
+        select: { name: true, paymentMethods: true, nightSettings: true, displayLine1: true, displayLine2: true },
       }),
       // Propinas en el puesto de quien cobra (como en /s y en el PIN): solo con un cobro delante.
       tipsRight:
@@ -266,6 +300,7 @@ export class CustomerDisplayService {
     return screenViewOf({
       venueName: venue.name,
       fichas: methods.wallet && methods.nfc,
+      message: messageOf(venue),
       pairedUntil: display.expiresAt,
       payment,
       charge,
@@ -419,6 +454,11 @@ export class CustomerDisplayService {
       payload: { by },
     });
   }
+}
+
+/** El mensaje guardado del local (sus dos columnas). */
+function messageOf(v: { displayLine1: string | null; displayLine2: string | null }): CustomerDisplayMessage {
+  return { line1: v.displayLine1, line2: v.displayLine2 };
 }
 
 /** 409: lo que pidió la tablet era para otro cobro (o ya no está en la pantalla). */

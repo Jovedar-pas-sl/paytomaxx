@@ -2,6 +2,8 @@ import { describe, it, expect, vi } from 'vitest';
 import { Reflector } from '@nestjs/core';
 import { CUSTOMER_DISPLAY_CODE_ALPHABET } from '@nightpay/contracts';
 import { IS_PUBLIC_KEY } from '../../common/decorators/public.decorator';
+import { ROLES_KEY } from '../../common/decorators/roles.decorator';
+import { RolesGuard } from '../../common/guards/roles.guard';
 import { bearerToken, verifyStaffToken } from '../../common/guards/staff-token';
 import { IP_RATE_LIMIT_META } from '../../common/guards/ip-rate-limit.guard';
 import { CustomerDisplayController } from './customer-display.controller';
@@ -124,9 +126,16 @@ describe('pantalla del cliente: rutas', () => {
       expect(isPublic(name)).toBe(true);
       expect(guards(name)).toContain(DisplayGuard);
     }
-    for (const name of ['status', 'createCode', 'unpair', 'show', 'clear']) {
+    for (const name of ['status', 'createCode', 'unpair', 'show', 'clear', 'message', 'setMessage']) {
       expect(isPublic(name), name).toBe(false);
       expect(guards(name)).not.toContain(DisplayGuard);
+    }
+  });
+
+  it('el mensaje del reposo: solo el dueño y el encargado lo leen y lo cambian (la tablet lo recibe en su pantalla)', () => {
+    for (const name of ['message', 'setMessage']) {
+      expect(guards(name), name).toContain(RolesGuard);
+      expect(reflector.get<string[]>(ROLES_KEY, proto[name]), name).toEqual(['OWNER', 'MANAGER']);
     }
   });
 
