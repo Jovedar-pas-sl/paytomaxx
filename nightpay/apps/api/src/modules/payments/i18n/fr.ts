@@ -79,6 +79,7 @@ const pay: PayText = {
   agoSuffix: '',
   agoUnits: { min: 'min', h: 'h', d: 'j' },
   notNewPayment: 'Ce n’est pas un nouveau paiement.',
+  paidClosed: 'Paiement terminé. Merci !',
   confirmedAt: (time) => `Confirmé par la banque à ${time}`,
   paidFromBalanceAt: (time) => `Payé avec votre solde à ${time}`,
   thanksTip: 'Merci pour le pourboire !',

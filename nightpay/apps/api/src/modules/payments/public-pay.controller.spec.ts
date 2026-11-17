@@ -233,17 +233,17 @@ describe('GET /pay/result — el "Pagado" ya no se puede falsificar', () => {
     expect(forwarded.sent.body).toContain(PAID_STALE);
   });
 
-  it('«Ya pagado»: abrir otra vez un enlace pagado hace rato → gris, «hace 23 min» y «No es un pago nuevo»', async () => {
+  it('«Ya pagado»: abrir otra vez un enlace pagado hace 4 min → gris, «hace 4:00» y «No es un pago nuevo»', async () => {
     vi.useFakeTimers({ toFake: ['Date'] });
     vi.setSystemTime(new Date('2026-10-13T08:38:02Z'));
     const { controller } = makeController({
-      view: view({ status: 'AUTHORIZED', authorizedAt: new Date('2026-10-13T08:15:02Z') }),
+      view: view({ status: 'AUTHORIZED', authorizedAt: new Date('2026-10-13T08:34:02Z') }),
     });
     const { reply, sent } = fakeReply();
     await controller.paymentResult('a1b2c3d4e5f6', 'es', undefined, reply);
     expect(sent.body).toContain(PAID_STALE);
     expect(sent.body).toContain('aria-live="polite">Ya pagado</h1>');
-    expect(sent.body).toContain('hace 23 min');
+    expect(sent.body).toContain('hace 4:00');
     expect(sent.body).toContain('No es un pago nuevo');
     expect(sent.body).not.toContain(PAID_FRESH);
   });

@@ -28,6 +28,9 @@ import type { PayText } from './pay-i18n';
 /** Tiempo durante el que «Pagado» se ve en verde con el aro lima (recién pagado). */
 export const PAID_FRESH_MS = 3 * 60_000;
 
+/** A los 5 min el «Pagado» se cierra: solo «Pago terminado» y el justificante (decisión del dueño, 17-nov). */
+export const PAID_CLOSE_MS = 5 * 60_000;
+
 /**
  * La marquesina antifraude (aquí y en el «Pagado» de la recarga, en /w): una
  * franja fina con la palabra y la hora que se desplaza despacio (unos 60
@@ -90,6 +93,9 @@ export const PAID_SCREEN_CSS = `${BAND_CSS}
 .paid.stale .tick{background:transparent;color:var(--fg);box-shadow:inset 0 0 0 2px currentColor}
 .paid.stale .pline,.paid.stale .prows{background:rgb(0 0 0/.2)}
 .paid.stale .pstale{display:block}
+.paid .pthanks{display:none;font-size:1.375rem;font-weight:600}
+.paid.closed>:not(.pthanks):not(.pfoot){display:none}
+.paid.closed .pthanks{display:block}
 `;
 
 /**
@@ -102,7 +108,7 @@ function npAgo(ms,T){var s=Math.max(0,Math.floor(ms/1000)),m=Math.floor(s/60),h=
  if(s<600)v=m+':'+('0'+s%60).slice(-2);else if(m<60)v=m+' '+u.min;else if(h<24)v=h+' '+u.h+' '+('0'+m%60).slice(-2)+' '+u.min;else v=Math.floor(h/24)+' '+u.d;
  return T.agoPrefix+v+T.agoSuffix;}
 function npPaid(el,T){
- var at=+el.getAttribute('data-at')||0,skew=(+el.getAttribute('data-now')||Date.now())-Date.now(),fresh=+el.getAttribute('data-fresh'),
+ var at=+el.getAttribute('data-at')||0,skew=(+el.getAttribute('data-now')||Date.now())-Date.now(),fresh=+el.getAttribute('data-fresh'),close=+el.getAttribute('data-close')||0,
   ago=el.querySelector('[data-ago]'),clock=el.querySelector('[data-clock]'),title=el.querySelector('[data-title]'),
   stale=el.classList.contains('stale'),lock=null,iv;
  function release(){if(lock){lock.release().catch(function(){});lock=null;}}
@@ -110,6 +116,7 @@ function npPaid(el,T){
   navigator.wakeLock.request('screen').then(function(l){if(stale){l.release().catch(function(){});return;}lock=l;l.addEventListener('release',function(){lock=null;});}).catch(function(){});}
  function goStale(){stale=true;el.classList.add('stale');title.textContent=T.alreadyPaidTitle;release();}
  function tick(){var now=Date.now()+skew;
+  if(at&&close&&now-at>=close){if(!stale)goStale();el.classList.add('closed');clearInterval(el.npIv);return;}
   clock.textContent=new Date(now).toLocaleTimeString(T.locale,{timeZone:'Europe/Madrid',hour:'2-digit',minute:'2-digit',second:'2-digit'});
   if(at){ago.textContent=npAgo(now-at,T);if(!stale&&now-at>=fresh)goStale();}}
  document.addEventListener('visibilitychange',function(){if(document.visibilityState==='visible')wake();});
@@ -185,13 +192,14 @@ export function renderPaidScreen(a: PaidScreenArgs): string {
   const id = a.id ?? 'paid';
   const at = a.authorizedAt?.getTime() ?? null;
   const fresh = a.viewerPaid === true && at !== null && a.now.getTime() - at < PAID_FRESH_MS;
+  const closed = at !== null && a.now.getTime() - at >= PAID_CLOSE_MS;
   // La marquesina: «Pagado · 23:15» (sin la hora si aún no consta: /s la pone al pagar).
   const bandText = a.authorizedAt ? `${t.paidTitle} · ${formatTime(a.authorizedAt, t)}` : t.paidTitle;
   const lines = (a.lines ?? []).map((l) => `<p class="pline">${escapeHtml(l)}</p>`).join('');
   const rows = a.rows?.length
     ? `<dl class="prows">${a.rows.map(([k, v]) => `<div><dt>${escapeHtml(k)}</dt><dd class="num">${escapeHtml(v)}</dd></div>`).join('')}</dl>`
     : '';
-  return `<section class="paid${fresh ? '' : ' stale'}" id="${id}" data-at="${at ?? ''}" data-now="${a.now.getTime()}" data-fresh="${PAID_FRESH_MS}" aria-labelledby="${id}Title"${a.hidden ? ' hidden' : ''}>
+  return `<section class="paid${fresh ? '' : ' stale'}${closed ? ' closed' : ''}" id="${id}" data-at="${at ?? ''}" data-now="${a.now.getTime()}" data-fresh="${PAID_FRESH_MS}" data-close="${PAID_CLOSE_MS}" aria-labelledby="${id}Title"${a.hidden ? ' hidden' : ''}>
 ${paidBand(bandText)}
 <div class="phead"><svg class="tick" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 13l4 4L19 7"/></svg><h1 class="ptitle" id="${id}Title" data-title aria-live="polite">${escapeHtml(fresh ? t.paidTitle : t.alreadyPaidTitle)}</h1></div>
 <p class="pamount num" data-amount>${escapeHtml(a.amount)}</p>
@@ -200,6 +208,7 @@ ${a.code ? codePlate(a.code, t) : ''}
 <div class="ptime"><p class="pago num" data-ago>${at !== null ? escapeHtml(formatAgo(a.now.getTime() - at, t)) : ''}</p><p class="pclock num" data-clock aria-label="${escapeHtml(t.clockLabel)}">${escapeHtml(formatClock(a.now, t))}</p></div>
 ${rows}<div data-lines>${lines}</div>
 ${a.authorizedAt ? `<p class="pnote">${escapeHtml((a.fromBalance ? t.paidFromBalanceAt : t.confirmedAt)(formatTime(a.authorizedAt, t)))}</p>` : ''}
+<p class="pthanks" role="status">${escapeHtml(t.paidClosed)}</p>
 ${a.footer ? `<div class="pfoot">${a.footer}</div>` : ''}
 </section>`;
 }
