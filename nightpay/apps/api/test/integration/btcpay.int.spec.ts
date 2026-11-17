@@ -1139,6 +1139,140 @@ describe('reservados pagados con bitcoin (la señal y el resto), como con tarjet
     expect(all.payToken).not.toBe(dep.token);
     expect((await statusOf(dep.payment.id)).status).toBe('CANCELED');
   });
+
+  /** El cliente paga la factura al final (ya anulada la reserva o cobrado el resto): el cobro sigue cancelado y queda en Incidencias. */
+  async function paysAnyway(invoiceId: string, paymentId: string): Promise<void> {
+    fake.setState(invoiceId, 'Settled');
+    await sendHook(A, settle(invoiceId));
+    await runQueued();
+    expect((await statusOf(paymentId)).status).toBe('CANCELED');
+    expect(await sys((tx) => tx.paymentEvent.count({ where: { paymentId, eventType: 'payment.approval_unbooked' } }))).toBe(1);
+  }
+  const canceledEvent = (paymentId: string) => sys((tx) => tx.paymentEvent.findFirst({ where: { paymentId, eventType: 'payment.canceled' } }));
+  /** La señal pagada con bitcoin (Señal pagada). */
+  async function withDeposit() {
+    const res = await booked();
+    const dep = await payWithBitcoin(res.manageToken, 'DEPOSIT');
+    fake.setState(dep.invoiceId, 'Settled');
+    await invoices.processInvoice(A, dep.invoiceId, 'poll');
+    expect(await resvOf(res.id)).toMatchObject({ status: 'DEPOSIT_PAID', paidCents: 12000 });
+    return { res, walletId: dep.payment.walletId! };
+  }
+
+  it('el local anula con la factura abierta: el pago se cancela y la factura se cierra, sin «Seguir pagando»; si el bitcoin llega después, Incidencias (no a un saldo)', async () => {
+    const res = await booked();
+    const dep = await payWithBitcoin(res.manageToken, 'DEPOSIT');
+    const out = await inCtx(A, () => ops.venueCancel(ownerActor(), res.id, 'Cerramos esa noche'));
+    expect(out).toMatchObject({ refundCents: 0, reservation: { status: 'CANCELED' } });
+    expect((await statusOf(dep.payment.id)).status).toBe('CANCELED');
+    expect((await rowsOf(dep.payment.id))[0]).toMatchObject({ status: 'Invalid' });
+    expect((await canceledEvent(dep.payment.id))?.payload).toMatchObject({ reason: 'Reserva anulada por el local', byUserId: owner });
+    expect(await inCtx(undefined, () => reservations.groupView(res.manageToken))).toMatchObject({ openPayUrl: null, payable: [] });
+    await paysAnyway(dep.invoiceId, dep.payment.id);
+    expect(await balanceOf(dep.payment.walletId!)).toBe(0);
+    expect(await resvOf(res.id)).toMatchObject({ status: 'CANCELED', paidCents: 0, walletId: null });
+  });
+
+  it('con el bitcoin ya en la red: ni el local ni el cliente anulan (409 BITCOIN_CONFIRMING) y no se toca nada; confirmado, cuenta', async () => {
+    const res = await booked();
+    const dep = await payWithBitcoin(res.manageToken, 'DEPOSIT');
+    fake.setState(dep.invoiceId, 'Processing');
+    await invoices.processInvoice(A, dep.invoiceId, 'poll');
+    await expect(inCtx(A, () => ops.venueCancel(ownerActor(), res.id, 'Cerramos'))).rejects.toMatchObject({
+      response: { code: 'BITCOIN_CONFIRMING', message: expect.stringContaining('aún no se puede anular la reserva') },
+    });
+    await expect(inCtx(undefined, () => reservations.clientCancel(res.manageToken))).rejects.toMatchObject({
+      response: { code: 'BITCOIN_CONFIRMING', message: expect.stringMatching(/^Tu pago con bitcoin ya está en la red/) },
+    });
+    expect(await resvOf(res.id)).toMatchObject({ status: 'PENDING', paidCents: 0 });
+    expect((await statusOf(dep.payment.id)).status).toBe('AUTHORIZING');
+    expect((await rowsOf(dep.payment.id))[0]).toMatchObject({ status: 'Processing' });
+    fake.setState(dep.invoiceId, 'Settled');
+    await invoices.processInvoice(A, dep.invoiceId, 'poll');
+    expect(await resvOf(res.id)).toMatchObject({ status: 'DEPOSIT_PAID', paidCents: 12000 });
+  });
+
+  it('el cliente cancela con la factura abierta: se cancela y se cierra; con la señal pagada y el resto abierto con bitcoin, al anular (48 h) también', async () => {
+    const res = await booked();
+    const dep = await payWithBitcoin(res.manageToken, 'DEPOSIT');
+    await inCtx(undefined, () => reservations.clientCancel(res.manageToken));
+    expect(await resvOf(res.id)).toMatchObject({ status: 'CANCELED' });
+    expect((await statusOf(dep.payment.id)).status).toBe('CANCELED');
+    expect((await rowsOf(dep.payment.id))[0]).toMatchObject({ status: 'Invalid' });
+    // Sin persona del personal: solo el porqué.
+    expect((await canceledEvent(dep.payment.id))?.payload).toEqual({ type: 'CANCELED', reason: 'Reserva cancelada por el cliente' });
+    expect((await inCtx(undefined, () => reservations.groupView(res.manageToken)))?.openPayUrl).toBeNull();
+
+    const { res: paid, walletId } = await withDeposit();
+    const rest = await payWithBitcoin(paid.manageToken, 'REST');
+    await inCtx(undefined, () => reservations.clientCancel(paid.manageToken));
+    expect(await resvOf(paid.id)).toMatchObject({ status: 'CLIENT_CANCELED', paidCents: 12000 });
+    expect((await statusOf(rest.payment.id)).status).toBe('CANCELED');
+    expect((await inCtx(undefined, () => reservations.groupView(paid.manageToken)))?.openPayUrl).toBeNull();
+    const before = await balanceOf(walletId);
+    await paysAnyway(rest.invoiceId, rest.payment.id);
+    expect(await balanceOf(walletId)).toBe(before);
+  });
+
+  it('el resto en efectivo con el resto pagándose con bitcoin: en la red, no se cobra (409, y «En efectivo» lo dice antes); confirmado, ya está pagado', async () => {
+    const { res, walletId } = await withDeposit();
+    const rest = await payWithBitcoin(res.manageToken, 'REST');
+    fake.setState(rest.invoiceId, 'Processing');
+    await invoices.processInvoice(A, rest.invoiceId, 'poll');
+    const confirming = 'El cliente ya pagó el resto con bitcoin y falta que la red lo confirme: no cobres en efectivo. Espera unos minutos.';
+    expect((await inCtx(A, () => ops.cashQuote(ownerActor(), res.id))).blocked).toBe(confirming);
+    await expect(inCtx(A, () => ops.payRestCash(ownerActor(), res.id, { key: key(), serviceFeeCents: 0 }))).rejects.toMatchObject({
+      response: { code: 'RESERVATION_PAY_OPEN', message: confirming },
+    });
+    expect(await resvOf(res.id)).toMatchObject({ status: 'DEPOSIT_PAID', paidCents: 12000 });
+    expect(await balanceOf(walletId)).toBe(12000);
+    expect((await statusOf(rest.payment.id)).status).toBe('AUTHORIZING');
+    fake.setState(rest.invoiceId, 'Settled');
+    await invoices.processInvoice(A, rest.invoiceId, 'poll');
+    expect(await resvOf(res.id)).toMatchObject({ status: 'PAID', paidCents: 40000 });
+    expect(await balanceOf(walletId)).toBe(40000);
+    expect((await inCtx(A, () => ops.cashQuote(ownerActor(), res.id))).blocked).toBe('Este reservado no tiene el resto pendiente');
+  });
+
+  it('el resto en efectivo con la factura del resto sin pagar: se cancela (y se cierra) y se cobra; si el bitcoin llega después, Incidencias: el resto, una sola vez', async () => {
+    const { res, walletId } = await withDeposit();
+    const rest = await payWithBitcoin(res.manageToken, 'REST');
+    expect((await inCtx(A, () => ops.cashQuote(ownerActor(), res.id))).blocked).toBeNull();
+    const view = await inCtx(A, () => ops.payRestCash(ownerActor(), res.id, { key: key(), serviceFeeCents: 0 }));
+    expect(view).toMatchObject({ status: 'PAID', paidCents: 40000 });
+    expect((await statusOf(rest.payment.id)).status).toBe('CANCELED');
+    expect((await rowsOf(rest.payment.id))[0]).toMatchObject({ status: 'Invalid' });
+    expect((await canceledEvent(rest.payment.id))?.payload).toMatchObject({ reason: 'user-canceled', byUserId: owner });
+    expect(await balanceOf(walletId)).toBe(40000);
+    await paysAnyway(rest.invoiceId, rest.payment.id);
+    expect(await balanceOf(walletId)).toBe(40000);
+    expect(await resvOf(res.id)).toMatchObject({ status: 'PAID', paidCents: 40000 });
+  });
+
+  it('el resto en efectivo con el resto en el banco con tarjeta: los primeros 2 minutos no (409); después, se cancela y se cobra', async () => {
+    const { res } = await withDeposit();
+    const started = await inCtx(undefined, () => reservations.startPayment(res.manageToken, 'REST', 'es'));
+    const card = await sys((tx) => tx.payment.findUniqueOrThrow({ where: { qrToken: started.payToken } }));
+    const order = `RC${randomUUID().slice(0, 8)}`;
+    // El cliente acaba de ir a su banco con tarjeta.
+    await sys(async (tx) => {
+      await tx.payment.update({ where: { id: card.id }, data: { status: 'AUTHORIZING', provider: 'REDSYS', providerTxId: order } });
+      await tx.paymentAttempt.create({
+        data: { paymentId: card.id, tenantId: A, provider: 'REDSYS', providerTxId: order, amountCents: card.amountCents, tipCents: 0, status: 'PENDING' },
+      });
+    });
+    const atBank = 'El cliente está pagando el resto en su banco: no cobres en efectivo. Si en 2 minutos no responde, ya podrás.';
+    expect((await inCtx(A, () => ops.cashQuote(ownerActor(), res.id))).blocked).toBe(atBank);
+    await expect(inCtx(A, () => ops.payRestCash(ownerActor(), res.id, { key: key(), serviceFeeCents: 0 }))).rejects.toMatchObject({
+      response: { code: 'RESERVATION_PAY_OPEN', message: atBank },
+    });
+    expect((await statusOf(card.id)).status).toBe('AUTHORIZING');
+    // Pasados 2 minutos sin respuesta del banco: se cancela (si el banco lo cobra luego, Incidencias) y se cobra en efectivo.
+    await sys((tx) => tx.$executeRaw`UPDATE payment_attempts SET "createdAt" = now() - interval '3 minutes' WHERE "paymentId" = ${card.id}::uuid`);
+    expect((await inCtx(A, () => ops.cashQuote(ownerActor(), res.id))).blocked).toBeNull();
+    await expect(inCtx(A, () => ops.payRestCash(ownerActor(), res.id, { key: key(), serviceFeeCents: 0 }))).resolves.toMatchObject({ status: 'PAID' });
+    expect((await statusOf(card.id)).status).toBe('CANCELED');
+  });
 });
 
 describe('fallos pasajeros, 1 confirmación y avisos por local', () => {
