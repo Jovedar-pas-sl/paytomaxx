@@ -23,7 +23,7 @@ export const MAX_CASH_TOP_UP_CENTS = 99_999;
 export const CASH_LIMIT_CENTS = 100_000;
 export const CASH_LIMIT_WINDOW_HOURS = 24;
 
-/** Una recarga en efectivo mal tecleada se anula en este tiempo (después, «Me voy» o el dueño). */
+/** Una recarga en efectivo mal tecleada se anula en este tiempo (después, ya no: el dueño). */
 export const CASH_TOP_UP_VOID_WINDOW_MINUTES = 120;
 
 /** Una Idempotency-Key por intento: la genera la pantalla y la repite si se reintenta. */
@@ -252,21 +252,16 @@ export interface ReceptionDeskSaldo {
   isHomeVenue: boolean;
   /** Bloqueado: no se recarga ni paga (sí se le puede devolver). */
   blocked: boolean;
-  /** El cliente pulsó «Me voy» en su móvil. */
+  /** Tiene una devolución del saldo pedida antes de la nueva regla («Me voy» de antes), sin terminar. */
   closeRequested: boolean;
   /**
-   * Lo que se le puede devolver ahora en efectivo: solo lo que entró en
-   * efectivo y sin llegar a 1.000 € en 24 h (lo mismo que el «Devolver en
-   * efectivo» del encargado).
+   * Lo que se le puede devolver ahora en efectivo: 0. El saldo no se devuelve
+   * (SALDO_SE_QUEDA_TEXT); el campo sigue para las apps de antes.
    */
   cashOutCents: number;
-  /** Por qué no se devuelve todo en efectivo (null: se devuelve todo, o no tiene nada). */
+  /** La regla del saldo (con saldo) o null (sin saldo). Antes: por qué no se devolvía todo. */
   cashOutNote: string | null;
-  /**
-   * De ese saldo, lo que entró con bitcoin: no sale en efectivo ni a la tarjeta
-   * (la devolución de bitcoin aún no está en la app). Sin el campo (API de
-   * antes) o 0: nada.
-   */
+  /** Ya no se manda (era la parte que entró con bitcoin, para la salida). */
   bitcoinCents?: number;
   /** El número de su NFC (null: no tiene). */
   fichaNumber: number | null;

@@ -71,7 +71,7 @@ describe('el NFC acercado en la recepción', () => {
     });
   });
 
-  it('de un saldo vivo: lo que tiene, su código y lo que sale en efectivo (solo lo que entró en efectivo)', async () => {
+  it('de un saldo vivo: lo que tiene y su código; en efectivo no sale nada (el saldo no se devuelve)', async () => {
     const tx = db({ cards: [card({ status: 'ISSUED', walletId: 'w-1', number: 388 })], wallets: [wallet()], cashIn: 2_000 });
     const view = await readReceptionDesk(tx as never, venue, { card: FICHA });
     expect(view).toMatchObject({
@@ -83,11 +83,12 @@ describe('el NFC acercado en la recepción', () => {
       isHomeVenue: true,
       blocked: false,
       closeRequested: false,
-      cashOutCents: 2_000,
+      // Aunque entraran 20 € en efectivo: una app del personal de antes no enseña «Devolver».
+      cashOutCents: 0,
+      cashOutNote: 'El saldo no se devuelve: se queda para la próxima visita.',
       fichaNumber: 388,
       hasPasskey: false,
     });
-    expect(view.kind === 'saldo' ? view.cashOutNote : null).toMatch(/15,00 € entraron con tarjeta/);
     const withFaceId = db({ cards: [card({ status: 'ISSUED', walletId: 'w-1' })], wallets: [wallet()], passkeys: ['w-1'] });
     await expect(readReceptionDesk(withFaceId as never, venue, { card: FICHA })).resolves.toMatchObject({ hasPasskey: true });
   });
@@ -105,7 +106,7 @@ describe('el NFC acercado en la recepción', () => {
       wallets: [wallet({ id: 'w-old', balanceCents: 0, mergedIntoId: 'w-1' }), wallet({ balanceCents: 8_000 })],
       cashIn: 8_000,
     });
-    await expect(readReceptionDesk(tx as never, venue, { card: FICHA })).resolves.toMatchObject({ walletId: 'w-1', balanceCents: 8_000, cashOutCents: 8_000 });
+    await expect(readReceptionDesk(tx as never, venue, { card: FICHA })).resolves.toMatchObject({ walletId: 'w-1', balanceCents: 8_000, cashOutCents: 0 });
   });
 
   it('perdido, bloqueado, copiado o de otro local: no se usa', async () => {

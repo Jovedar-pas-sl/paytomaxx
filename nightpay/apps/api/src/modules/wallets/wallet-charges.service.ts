@@ -153,7 +153,11 @@ export interface WalletLookup {
   homeVenueName: string;
   /** El saldo se cargó en este local (la devolución a la tarjeta solo desde aquí). */
   isHomeVenue: boolean;
-  /** El cliente pulsó "Me voy". */
+  /**
+   * Una devolución del saldo pedida antes de la nueva regla («Me voy» o
+   * recepción), sin terminar. Una a la tarjeta a medias la dice la vista
+   * previa del panel (payoutPreview.pendingCardCents).
+   */
   closeRequested: boolean;
   /**
    * @deprecated Siempre false: ya no hay cobros que el cliente acepte en su

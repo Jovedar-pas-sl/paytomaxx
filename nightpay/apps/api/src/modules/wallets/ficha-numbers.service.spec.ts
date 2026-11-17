@@ -43,8 +43,9 @@ describe('buscar una ficha por su número impreso (sin acercarla)', () => {
     const { svc, audit } = setup();
     const view = await svc.lookup(actor, '00017');
     expect(view).toEqual({
-      kind: 'saldo', printedNumber: '00017', codeHint: 'K7Q-•••', balanceCents: 8_000, cashOutCents: 5_000,
-      cashOutNote: expect.stringContaining('tarjeta'), hasPin: true, blocked: false, closeRequested: false, isHomeVenue: false,
+      // En efectivo no sale nada: el saldo no se devuelve (una app de antes no enseña «Devolver»).
+      kind: 'saldo', printedNumber: '00017', codeHint: 'K7Q-•••', balanceCents: 8_000, cashOutCents: 0,
+      cashOutNote: 'El saldo no se devuelve: se queda para la próxima visita.', hasPin: true, blocked: false, closeRequested: false, isHomeVenue: false,
       lastTopUp: null,
     });
     expect(JSON.stringify(view)).not.toMatch(/w-1|K7Q-4M2|K7Q4M2|c-1/);

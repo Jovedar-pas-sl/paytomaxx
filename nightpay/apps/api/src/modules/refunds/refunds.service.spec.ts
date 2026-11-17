@@ -984,11 +984,26 @@ describe('RefundsService.registerBankRefund — devolución hecha en el portal d
     ).rejects.toThrow(ConflictException);
   });
 
-  it('recarga de saldo → se devuelve desde Clientes → Saldos (si no, el saldo seguiría gastable)', async () => {
-    const { svc } = makeService({ payment: { ...redsysPayment, walletId: 'w-1' } });
-    await expect(
-      svc.registerBankRefund({ paymentId: 'pay-1', amountCents: 100, reason: 'motivo' }, owner),
-    ).rejects.toThrow('Es una recarga de saldo: se devuelve desde Clientes → Saldos → Devolver saldo');
+  it('recarga de saldo → 409 SALDO_NO_SE_DEVUELVE: el saldo no se devuelve (tampoco una recarga con bitcoin)', async () => {
+    for (const provider of ['REDSYS', 'BTCPAY'] as const) {
+      const { svc, prismaMock } = makeService({ payment: { ...redsysPayment, provider: provider as never, walletId: 'w-1' } });
+      await expect(
+        svc.registerBankRefund({ paymentId: 'pay-1', amountCents: 100, reason: 'motivo' }, owner),
+      ).rejects.toMatchObject({
+        status: 409,
+        response: { code: 'SALDO_NO_SE_DEVUELVE', message: 'El saldo no se devuelve: se guarda para la próxima visita.' },
+      });
+      expect(prismaMock.refund.create).not.toHaveBeenCalled();
+    }
+  });
+
+  it('recarga de saldo por la pasarela (no BBVA) → el mismo 409, sin ir al banco', async () => {
+    const { svc, prismaMock } = makeService({ payment: { ...okPayment, walletId: 'w-1' } });
+    await expect(svc.refund({ paymentId: 'pay-1', amountCents: 100 }, owner)).rejects.toMatchObject({
+      status: 409,
+      response: { code: 'SALDO_NO_SE_DEVUELVE' },
+    });
+    expect(prismaMock.refund.create).not.toHaveBeenCalled();
   });
 
   it('misma devolución ya registrada esta semana → pide confirmar; confirmada, se apunta', async () => {

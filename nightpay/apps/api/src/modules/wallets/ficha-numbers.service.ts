@@ -13,11 +13,10 @@ import { AuditService } from '../audit/audit.service';
 import { assertCanTopUp } from '../venues/charge-rights';
 import { assertVenueAcceptsMethods } from '../venues/venue-methods';
 import { PRINTED_NUMBER_INVALID, printedLookupScopes } from './ficha-numbers';
-import { LIVE_WALLET_STATUSES, liveWallet, type DeskWallet } from './reception-desk';
+import { LIVE_WALLET_STATUSES, liveWallet, noCashOut, type DeskWallet } from './reception-desk';
 import { recentTopUp } from './recent-topup';
 import { cardInGroup, cardUnusableText, isIssuedCard } from './wallet-card-ops';
 import { CashTopUpService } from './wallet-cash-topup.service';
-import { cashPayoutCapCents, cashPayoutNote, walletCash } from './wallet-cash-limits';
 import { sameWalletGroup } from './wallet-rules';
 
 type Actor = { userId: string; role: Role; tenantId: string };
@@ -127,15 +126,14 @@ export class FichaNumbersService {
   private async view(venueId: string, printedNumber: string, found: Found): Promise<ReceptionNumberView> {
     const w = found.wallet;
     if (!w) return { kind: 'new', printedNumber };
-    const cash = await this.prisma.acrossVenues((tx) => walletCash(tx, w.id));
     const lastTopUp = await this.prisma.acrossVenues((tx) => recentTopUp(tx, w.id));
     return {
       kind: 'saldo',
       printedNumber,
       codeHint: maskedWalletCode(w.shortCode ?? ''),
       balanceCents: w.balanceCents,
-      cashOutCents: cashPayoutCapCents(w.balanceCents, cash),
-      cashOutNote: cashPayoutNote(w.balanceCents, cash),
+      // En efectivo no sale nada: el saldo no se devuelve (saldo-rule.ts).
+      ...noCashOut(w.balanceCents),
       hasPin: w.pinHash !== null,
       blocked: w.blockedAt !== null,
       closeRequested: w.closeRequestedAt !== null,
