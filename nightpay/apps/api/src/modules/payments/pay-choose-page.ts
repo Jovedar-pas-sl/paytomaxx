@@ -1,6 +1,7 @@
 import { MONEY_JS, clientMoney, escapeHtml, jsConfig } from './club-ui';
 import type { PayLanguage } from './customer-lang';
 import type { PayDevice } from './pay-device';
+import { CUSTOMER_TEXT } from './i18n';
 import { PAY_TEXT, type PayText } from './pay-i18n';
 import { BTC_MARK, CARD_IC, CARD_MARKS, GPAY_MARK, LOCK_IC, PAY_MARKS_CSS } from './pay-marks';
 import type { PayRedirect } from './pay-redirect';
@@ -100,6 +101,7 @@ ${BREAKDOWN_CSS}.warn{border:1px solid var(--warn);border-radius:var(--r-tile);b
 .btn.btc .btcword{font-family:var(--num);font-weight:700;font-size:1.0625rem;letter-spacing:-.01em}
 .btchint{font-size:.75rem;line-height:1.3;color:var(--mute)}
 .nofee{font-size:.8125rem;color:var(--mute)}
+.keep{margin:.75rem 0 0;font-size:.875rem;line-height:1.4;color:var(--label);text-align:center}
 .btn.gpay[aria-disabled=true]:not(.busy){opacity:.55}
 .btn.gpay{background:#fff;border-color:#fff;color:#1f1f1f;box-shadow:0 1px 2px rgb(0 0 0/.35)}
 .btn.gpay .gmark{display:block;width:auto;height:1.55rem}
@@ -347,6 +349,16 @@ function tick(){var s=Math.max(0,Math.floor((exp-Date.now()-skew)/1000));left.te
 if(left){iv=setInterval(tick,1000);tick();}
 `;
 
+/**
+ * Una carga de saldo: la regla del dueño (17-nov-2026) antes de pagar, para que
+ * nadie cargue pensando que se le devuelve. Un cobro de la barra no la lleva;
+ * un reservado tampoco (sus páginas dicen sus reglas).
+ */
+function keepRuleLine(view: ChooseView, lang: PayLanguage): string {
+  if (!view.topUp || view.reservation) return '';
+  return `<p class="keep" id="keepRule">${escapeHtml(CUSTOMER_TEXT[lang].wallet.keepRule)}</p>`;
+}
+
 export function renderChooseBody(view: ChooseView, ctx: ChooseContext): string {
   const t = PAY_TEXT[ctx.lang];
   const withTips = (view.tipMaxCents ?? 0) > 0;
@@ -392,6 +404,7 @@ ${withTips ? tipChoices(view, t) : '<input type="hidden" name="tip" value="0">'}
 ${breakdown(view, t, withTips)}
 <p class="sr" id="live" aria-live="polite" aria-atomic="true"></p>
 ${inApp ? `<p class="warn" role="note">${escapeHtml(t.inAppWarning(inApp))}</p>` : ''}
+${keepRuleLine(view, ctx.lang)}
 ${payButtons(view, t, ctx)}
 </form>
 </main>

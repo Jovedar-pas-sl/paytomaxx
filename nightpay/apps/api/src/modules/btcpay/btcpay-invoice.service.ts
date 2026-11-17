@@ -96,6 +96,8 @@ interface PaymentCtx {
   qrExpiresAt: Date;
   walletId: string | null;
   createdByUserId: string | null;
+  /** La de un pago de un reservado lleva su marca (isReservationPaymentKey). */
+  idempotencyKey: string;
 }
 
 export interface StaffActor {
@@ -608,7 +610,7 @@ export class BtcpayInvoiceService implements OnModuleInit {
         where: by === 'token' ? { qrToken: key } : { id: key },
         select: {
           id: true, tenantId: true, status: true, provider: true, providerTxId: true, amountCents: true,
-          serviceFeeCents: true, currency: true, qrExpiresAt: true, walletId: true, createdByUserId: true,
+          serviceFeeCents: true, currency: true, qrExpiresAt: true, walletId: true, createdByUserId: true, idempotencyKey: true,
         },
       }),
     );

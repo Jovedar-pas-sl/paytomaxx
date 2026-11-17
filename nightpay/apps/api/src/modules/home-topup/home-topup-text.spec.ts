@@ -74,14 +74,16 @@ describe('textos de «Cargar saldo antes de llegar»', () => {
     expect(HOME_TOPUP_TEXT.fr.amountLegend).toBe(`Combien voulez-vous charger${String.fromCharCode(0x202f)}?`);
   });
 
-  it('las condiciones antes de pagar: no caduca y cómo se devuelve (lo que hace hoy «Me voy»)', () => {
+  it('las condiciones antes de pagar: no caduca y el saldo no se devuelve (decisión del dueño, 17-nov)', () => {
     expect(HOME_TOPUP_TEXT.es.noExpiry).toContain('no caduca');
-    expect(HOME_TOPUP_TEXT.es.refund).toContain('«Me voy»');
-    // Se cargó con tarjeta: no sale en efectivo, y no lo hace el encargado.
-    expect(HOME_TOPUP_TEXT.es.refund).toContain('a tu tarjeta');
-    expect(HOME_TOPUP_TEXT.es.refund).not.toContain('efectivo');
-    expect(HOME_TOPUP_TEXT.es.refund).not.toContain('encargado');
-    expect(HOME_TOPUP_TEXT.es.refundFee).toContain('la comisión del servicio no se devuelve');
+    expect(HOME_TOPUP_TEXT.es.keepRule).toBe('El saldo no se devuelve: se queda para la próxima visita.');
+    expect(HOME_TOPUP_TEXT.en.keepRule).toBe('Your balance is not refunded: it stays for your next visit.');
+    expect(HOME_TOPUP_TEXT.pt.keepRule).toBe('O saldo não é devolvido: fica para a sua próxima visita.');
+    expect(HOME_TOPUP_TEXT.fr.keepRule.replace(/ /g, ' ')).toBe('Le solde n’est pas remboursé : il reste pour votre prochaine visite.');
+    for (const lang of PAY_LANGUAGES) {
+      // Ya no se habla de «Me voy» ni de devolver a la tarjeta.
+      expect(JSON.stringify(HOME_TOPUP_TEXT[lang])).not.toMatch(/Me voy|I’m leaving|Je pars|Vou embora/);
+    }
     // Lo que no gaste no se pierde: delante de que no caduca.
     expect(HOME_TOPUP_TEXT.es.keep).toBe('Lo que no gastes no se pierde.');
   });
