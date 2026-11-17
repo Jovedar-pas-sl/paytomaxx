@@ -33,6 +33,12 @@ describe('mensaje de la pantalla del cliente: lo que se guarda', () => {
     expect(parse({ line1: 'x'.repeat(5000) }).success).toBe(false);
   });
 
+  it('un texto pegado de más de 1000 letras: el mismo aviso en español', () => {
+    for (const n of [1001, 5000]) {
+      expect(parse({ line1: 'x'.repeat(n) }).error?.issues[0]?.message).toBe('Como mucho 120 letras por línea');
+    }
+  });
+
   it('solo texto: lo que no es texto no vale; el HTML se guarda tal cual (se escapa al enseñarlo)', () => {
     expect(parse({ line1: 42 }).success).toBe(false);
     expect(parse({ line1: ['a'] }).success).toBe(false);

@@ -12,6 +12,7 @@ describe('mensaje de la pantalla del cliente en el panel', () => {
   it('más de 120 letras en una línea: no se guarda y dice por qué', () => {
     expect(displayMessagePlan({ line1: 'a'.repeat(121), line2: '' })).toEqual({ ok: false, problem: 'Como mucho 120 letras por línea' });
     expect(displayMessagePlan({ line1: 'ok', line2: 'b'.repeat(121) })).toMatchObject({ ok: false });
+    expect(displayMessagePlan({ line1: 'a'.repeat(1001), line2: '' })).toEqual({ ok: false, problem: 'Como mucho 120 letras por línea' });
   });
 
   it('el contador cuenta como se guarda (los espacios de sobra no)', () => {

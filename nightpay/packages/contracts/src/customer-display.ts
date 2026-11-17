@@ -68,7 +68,7 @@ export const DISPLAY_MESSAGE_MAX = 120;
 /** Una línea: saltos, tabuladores y caracteres de control, un espacio; vacía = sin ella. */
 const DisplayLine = z
   .string()
-  .max(1000)
+  .max(1000, `Como mucho ${DISPLAY_MESSAGE_MAX} letras por línea`)
   .transform((v) => v.replace(/[\s\p{Cc}]+/gu, ' ').trim())
   .pipe(z.string().max(DISPLAY_MESSAGE_MAX, `Como mucho ${DISPLAY_MESSAGE_MAX} letras por línea`))
   .nullish();
