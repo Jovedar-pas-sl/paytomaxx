@@ -385,6 +385,15 @@ export class PublicPayController {
           redirectTo(res, walletWelcomeHref(view.walletToken, token, lang));
           return;
         }
+        // Reservado pagado desde este navegador (también con bitcoin, que vuelve aquí desde su QR):
+        // a la página del reservado, como al volver del banco (/pay/result).
+        if (view.reservation && this.hasWalletClaim(res, token, view.approvedClaimHash ?? null)) {
+          const back = await this.payments.reservationManageToken(view.paymentId);
+          if (back) {
+            redirectTo(res, `/reservas/${encodeURIComponent(back)}?pagado=1`);
+            return;
+          }
+        }
         const payer = Boolean(view.walletToken) && claimed;
         sendHtml(
           res,

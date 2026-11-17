@@ -115,6 +115,8 @@ export type PayRedirect =
       walletFromHome?: boolean;
       /** Huella del navegador del intento aprobado (solo él ve el «Pagado» lima). */
       approvedClaimHash?: string | null;
+      /** Reservados: el navegador que lo pagó (con tarjeta o con bitcoin) vuelve a la página del reservado. */
+      reservation?: true;
     }
   | { kind: 'processing' }
   | { kind: 'closed'; reason: PayClosedReason };
@@ -301,6 +303,8 @@ export interface PayablePayment {
   walletFromHome?: boolean;
   /** Huella del navegador del intento aprobado (de cualquier cobro, con o sin saldo). */
   approvedClaimHash?: string | null;
+  /** Un pago de un reservado (señal, resto o todo): al pagarse, vuelve a su página. */
+  reservation?: true;
   /**
    * Cobro único: el cobro del saldo enlazado (su enlace /s, su estado y su
    * plazo) y si el local cobra con saldo. Sin él, solo tarjeta.
@@ -330,6 +334,7 @@ export function settledPayView(p: PayablePayment, now: Date = new Date()): PayRe
       ...(p.walletReturnToken ? { walletReturnToken: p.walletReturnToken } : {}),
       ...(p.walletFromHome ? { walletFromHome: true } : {}),
       approvedClaimHash: p.approvedClaimHash ?? null,
+      ...(p.reservation ? { reservation: true as const } : {}),
     };
   }
   // Cobro único: lo pagó el saldo (el cobro con tarjeta se canceló entonces).

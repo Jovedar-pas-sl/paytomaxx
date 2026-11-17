@@ -1307,6 +1307,8 @@ export class PaymentsService implements OnApplicationBootstrap {
       tipToStaff: tipGoesToStaff({ tipGoesTo: tipGoesTo ?? null, creatorRole: createdBy?.role ?? null }),
       approvedClaimHash: attempts[0]?.claimHash ?? null,
       ...payerWalletFields({ wallet, firstTopUp, idempotencyKey, approvedClaimHash: attempts[0]?.claimHash ?? null }),
+      // Reservados: al pagarse (también con bitcoin), el navegador que pagó vuelve a la página del reservado.
+      ...(isReservationPaymentKey(idempotencyKey) ? { reservation: true as const } : {}),
       saldo: linkedWalletCharge ? { ...linkedWalletCharge, enabled: methods.wallet } : null,
     };
   }
