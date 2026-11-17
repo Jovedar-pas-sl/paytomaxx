@@ -209,6 +209,20 @@ function dateCard(v: GroupView, minDay: string, maxDay: string): string {
 <p class="err" id="dateerr" role="alert" hidden></p><button class="btn alt" id="dateb" type="submit">Cambiar la fecha</button></form>`;
 }
 
+/**
+ * El local anuló una reserva pagada: el local devuelve lo pagado. Lo pagado con
+ * bitcoin se devuelve en euros (nunca en bitcoin ni por la pasarela), hablando
+ * con el local: la app aún no lo devuelve sola.
+ */
+export function venueRefundText(r: Pick<GroupView['reservation'], 'paidCents' | 'paidWithBitcoinCents'>): string {
+  const base = `El local ha anulado la reserva: te devolverán ${eur(r.paidCents)}.`;
+  const bitcoin = Math.min(r.paidWithBitcoinCents ?? 0, r.paidCents);
+  if (bitcoin <= 0) return base;
+  return bitcoin >= r.paidCents
+    ? `${base} Lo pagaste con bitcoin: te lo devuelven en euros, no en bitcoin. Habla con el local.`
+    : `${base} De eso, ${eur(bitcoin)} los pagaste con bitcoin: esos te los devuelven en euros, no en bitcoin. Habla con el local.`;
+}
+
 export function renderGroupPage(token: string, v: GroupView, origin: string, minDay: string, maxDay: string): string {
   const r = v.reservation;
   const ok = r.status === 'PAID' || r.status === 'ARRIVED';
@@ -217,7 +231,7 @@ export function renderGroupPage(token: string, v: GroupView, origin: string, min
     : '';
   const canceled =
     r.status === 'CANCELED' && r.paidCents > 0
-      ? `<p>El local ha anulado la reserva: te devolverán ${h(eur(r.paidCents))}.</p>`
+      ? `<p>${h(venueRefundText(r))}</p>`
       : r.status === 'CLIENT_CANCELED'
         ? '<p>Has anulado la reserva: la señal no se devuelve.</p>'
         : '';

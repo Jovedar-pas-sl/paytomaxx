@@ -161,6 +161,30 @@ describe('la página del reservado', () => {
     const html = renderGroupPage(TOKEN, group({ openPayUrl: '/pay/xyz' }), 'https://api.prueba.es', '2026-11-16', '2027-03-16');
     expect(html).toContain('href="/pay/xyz">Seguir pagando');
   });
+
+  it('anulada por el local: le devolverán lo pagado; lo pagado con bitcoin, en euros y hablando con el local', () => {
+    const page = (r: Partial<ReservationView>) =>
+      plain(
+        renderGroupPage(
+          TOKEN,
+          group({ payable: [], cancel: null }, { status: 'CANCELED', statusText: 'Anulada', pendingCents: 0, ...r }),
+          'https://api.prueba.es',
+          '2026-11-16',
+          '2027-03-16',
+        ),
+      );
+    const card = page({ paidCents: 15000 });
+    expect(card).toContain('El local ha anulado la reserva: te devolverán 150 €.');
+    expect(card).not.toContain('bitcoin');
+    expect(page({ paidCents: 50000, paidWithBitcoinCents: 50000 })).toContain(
+      'te devolverán 500 €. Lo pagaste con bitcoin: te lo devuelven en euros, no en bitcoin. Habla con el local.',
+    );
+    expect(page({ paidCents: 50000, paidWithBitcoinCents: 35000 })).toContain(
+      'te devolverán 500 €. De eso, 350 € los pagaste con bitcoin: esos te los devuelven en euros, no en bitcoin. Habla con el local.',
+    );
+    // Sin nada pagado, nada que devolver.
+    expect(page({ paidCents: 0 })).not.toContain('te devolverán');
+  });
 });
 
 describe('el QR de una persona y el enlace que no vale', () => {
