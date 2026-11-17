@@ -70,12 +70,15 @@ export const FOR_CLIENTS: readonly Point[] = [
   ['Lo que te sobra:', 'se queda en tu saldo para tu próxima visita. No se devuelve en dinero.'],
 ];
 
-export type VenueIcon = 'qr' | 'bitcoin' | 'heart' | 'chart' | 'percent' | 'bell';
+export type VenueIcon = 'qr' | 'screen' | 'bitcoin' | 'heart' | 'calendar' | 'people' | 'chart' | 'percent' | 'bell';
 
 export const FOR_VENUES: readonly (readonly [VenueIcon, string, string])[] = [
   ['qr', 'Cobra como quieras', 'Con QR, con datáfono o con el saldo del cliente.'],
+  ['screen', 'Pantalla del cliente', 'Una tablet enseña al cliente el importe y el QR para pagar.'],
   ['bitcoin', 'Bitcoin, si quieres', 'Tus clientes cargan su saldo y pagan su reservado con bitcoin, y tú lo recibes en tu propio BTCPay.'],
   ['heart', 'Fideliza', 'El saldo de tus clientes les espera para la próxima visita y puede valer en todos tus locales.'],
+  ['calendar', 'Reservados', 'Tus clientes reservan desde el móvil y pagan la señal o todo. Cada persona del grupo tiene su QR.'],
+  ['people', 'RRPP', 'Cada RRPP tiene su enlace para reservar y su comisión se calcula sola.'],
   ['chart', 'Lo cobrado, cada noche', 'Un panel con lo cobrado cada noche.'],
   ['percent', 'Comisiones del personal', 'Se calculan solas.'],
   ['bell', 'Avisos en Telegram', 'Lo que tienes que aprobar o revisar te llega en minutos y, cada mañana, el resumen de la noche.'],

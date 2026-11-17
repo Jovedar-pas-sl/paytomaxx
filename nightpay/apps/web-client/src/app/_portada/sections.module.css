@@ -680,6 +680,11 @@
     height: 260px;
     margin-bottom: 0;
   }
+
+  /* Dos columnas: la última ficha, si queda sola, ocupa la fila entera. */
+  .tile:last-child:nth-child(odd) {
+    grid-column: 1 / -1;
+  }
 }
 
 @media (min-width: 768px) {

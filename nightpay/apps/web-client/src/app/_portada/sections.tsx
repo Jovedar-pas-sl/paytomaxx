@@ -137,7 +137,7 @@ export function Venues() {
           <h2 id="venues-title" className={s.h2}>
             Lo que OxioPay hace por tu local
           </h2>
-          <p className={s.lead}>Cobros, saldo de tus clientes y comisiones del personal.</p>
+          <p className={s.lead}>Cobros, saldo de tus clientes, reservados y comisiones del personal.</p>
         </div>
         <ul className={c.tiles}>
           {FOR_VENUES.map(([icon, title, text]) => (
