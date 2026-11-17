@@ -345,6 +345,25 @@
   white-space: nowrap;
 }
 
+/* La línea de cada sección (SectionHint): lo que hay dentro, apagada, pegada
+   a sus pestañas. En Compañeras, el atajo a los RRPP va detrás (o debajo en
+   el móvil). */
+.np-section-hint {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+  margin-top: -0.75rem;
+}
+
+.np-section-hint p {
+  margin: 0;
+  min-width: 0;
+  font-size: 0.875rem;
+  line-height: 1.4;
+  color: var(--np-text-mute);
+}
+
 /* ─── Diálogos por encima de la barra de abajo ───────────────────────
    <main> (z-index 2, styles.css) es una capa propia: un diálogo dentro
    (Modal, cerrar la noche…) no podía pasar por encima de la barra de abajo

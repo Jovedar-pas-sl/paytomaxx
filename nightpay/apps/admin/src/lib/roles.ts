@@ -69,6 +69,18 @@ export const SECTION_LABELS: Readonly<Record<SectionKey, string>> = {
   ajustes: 'Ajustes',
 };
 
+/**
+ * Una línea bajo las pestañas de cada sección: lo que hay dentro. Cierta para
+ * el dueño y para el encargado (no nombra lo que solo ve el dueño).
+ */
+export const SECTION_HINTS: Readonly<Record<SectionKey, string>> = {
+  hoy: 'Lo que pasa esta noche: los cobros y los avisos.',
+  chicas: 'Tu equipo y lo que se le paga a cada uno.',
+  clientes: 'Los saldos y las fichas de tus clientes, y los reservados con sus RRPP.',
+  informes: 'Las noches, una a una, y lo que se cobró en cada una.',
+  ajustes: 'La carta, cómo funciona el local y tu cuenta.',
+};
+
 const SECTION_ORDER: readonly SectionKey[] = ['hoy', 'chicas', 'clientes', 'informes', 'ajustes'];
 
 export const PANEL_TABS: readonly PanelTab[] = [
@@ -80,10 +92,11 @@ export const PANEL_TABS: readonly PanelTab[] = [
   { key: 'operators', label: 'Compañeras', section: 'chicas', access: 'staff' },
   { key: 'treasury', label: 'Pagos a compañeras', section: 'chicas', access: 'staff' },
   { key: 'wallets', label: 'Saldos', section: 'clientes', access: 'staff' },
+  // Reservados con señal: la noche, los paquetes, los RRPP y su enlace, el enlace web y las señales (/v1/reservations).
+  // Con «RRPP» en el nombre y antes de Fichas: el dueño no encontraba a sus RRPP.
+  { key: 'reservations', label: 'Reservados y RRPP', section: 'clientes', access: 'staff' },
   // Fichas NFC: stock, entregadas y perdidas por noche (/v1/wallet-cards).
   { key: 'fichas', label: 'Fichas', section: 'clientes', access: 'staff' },
-  // Reservados con señal: la noche, los paquetes, el enlace web y las señales (/v1/reservations).
-  { key: 'reservations', label: 'Reservados', section: 'clientes', access: 'staff' },
   { key: 'nights', label: 'Noches', section: 'informes', access: 'staff' },
   // /v1/admin/export/*: el dueño (y el encargado con permiso).
   { key: 'reports', label: 'Informes', section: 'informes', access: 'reports' },

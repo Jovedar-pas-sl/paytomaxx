@@ -3,7 +3,7 @@ import * as React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { Guia } from '../components/guia/Guia';
-import { GuiaMenuLink } from '../components/staff-menu';
+import { GuiaMenuLink, MENU_HINTS } from '../components/staff-menu';
 import { GUIA_SECTIONS, guiaSituations } from './guia';
 
 // La «Guía rápida» pintada (/guia) y su entrada en los dos menús del logo:
@@ -58,9 +58,11 @@ describe('la página de la guía', () => {
 });
 
 describe('la entrada del menú del logo', () => {
-  it('«Guía rápida» lleva a /guia, con aspecto de botón secundario', () => {
+  it('«Guía rápida» lleva a /guia: una fila del menú, con su línea de para qué sirve', () => {
     const html = renderToStaticMarkup(React.createElement(GuiaMenuLink));
-    expect(html).toBe('<a href="/guia" class="np-btn" data-variant="ghost" data-size="md">Guía rápida</a>');
+    expect(html).toMatch(/^<a href="\/guia" class="[^"]*row[^"]*">/);
+    expect(html).toContain('>Guía rápida</span>');
+    expect(html).toContain(`>${MENU_HINTS.guia}</span>`);
   });
 
   it('está en los dos menús (Recepción e Inicio), justo antes de «Salir»', () => {
