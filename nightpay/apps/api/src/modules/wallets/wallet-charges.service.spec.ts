@@ -70,7 +70,7 @@ function makeService(
     },
     paymentLine: { createMany: vi.fn().mockResolvedValue({ count: 1 }), findMany: vi.fn().mockResolvedValue([]) },
     chargeRefCounter: { upsert: vi.fn().mockResolvedValue({ lastRef: 41 }) },
-    walletPayout: { create: vi.fn().mockResolvedValue({}), findMany: vi.fn().mockResolvedValue([]) },
+    walletPayout: { create: vi.fn().mockResolvedValue({}), findMany: vi.fn().mockResolvedValue([]), findFirst: vi.fn().mockResolvedValue(null) },
     walletPasskey: { deleteMany: vi.fn().mockResolvedValue({ count: 0 }), count: vi.fn().mockResolvedValue(0) },
     walletCard: {
       count: vi.fn().mockResolvedValue(0),
@@ -440,15 +440,23 @@ describe('la página del saldo del cliente', () => {
     await expect(svc.clientState('tok')).resolves.toMatchObject({ merged: true, refund: null });
   });
 
-  it('"me voy" se apunta una sola vez', async () => {
+  it('«Me voy» ya no pide nada (el saldo no se devuelve): 409 SALDO_NO_SE_DEVUELVE y no se apunta nada', async () => {
     const { svc, tx, audit } = makeService();
-    await svc.requestClose('tok');
-    expect(tx.clientWallet.updateMany.mock.calls[0]![0]).toMatchObject({ where: { id: 'w-1', closeRequestedAt: null } });
-    expect(audit.log).toHaveBeenCalledWith(expect.objectContaining({ action: 'wallet.close_requested' }));
-    // Pulsarlo otra vez no apunta nada nuevo.
-    tx.clientWallet.updateMany.mockResolvedValueOnce({ count: 0 });
-    await svc.requestClose('tok');
-    expect(audit.log).toHaveBeenCalledTimes(1);
+    const err = await svc.requestClose('tok').catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ConflictException);
+    expect((err as ConflictException).getResponse()).toEqual({
+      code: 'SALDO_NO_SE_DEVUELVE',
+      message: 'El saldo no se devuelve: se guarda para la próxima visita.',
+    });
+    expect(tx.clientWallet.updateMany).not.toHaveBeenCalled();
+    expect(audit.log).not.toHaveBeenCalled();
+  });
+
+  it('el saldo de un reservado sigue la misma regla (el mismo 409)', async () => {
+    const { svc, tx } = makeService();
+    tx.reservation.count.mockResolvedValue(1);
+    await expect(svc.requestClose('tok')).rejects.toMatchObject({ response: { code: 'SALDO_NO_SE_DEVUELVE' } });
+    expect(tx.clientWallet.updateMany).not.toHaveBeenCalled();
   });
 });
 
@@ -568,9 +576,9 @@ describe('juntar saldos desde la página del saldo: el enlace no prueba que sea 
 });
 
 describe('lo que el cliente no confirma pide el 2FA de quien lo hace', () => {
-  it('el dueño no devuelve un saldo sin su código, ni en efectivo ni a la tarjeta', async () => {
+  it('el dueño no termina una devolución pedida antes sin su código, ni en efectivo ni a la tarjeta', async () => {
     for (const method of ['CASH', 'CARD'] as const) {
-      const { svc, totp, tx } = makeService();
+      const { svc, totp, tx } = makeService({ wallet: wallet({ closeRequestedAt: new Date() }) });
       await expect(svc.payout(owner, 'w-1', { method })).rejects.toMatchObject({ response: { code: 'TOTP_REQUIRED' } });
       expect(totp.assertForUser).not.toHaveBeenCalled();
       expect(tx.walletPayout.create).not.toHaveBeenCalled();
@@ -578,7 +586,7 @@ describe('lo que el cliente no confirma pide el 2FA de quien lo hace', () => {
   });
 
   it('el dueño sin 2FA activada: se lo dice, no se hace', async () => {
-    const { svc, totp } = makeService();
+    const { svc, totp } = makeService({ wallet: wallet({ closeRequestedAt: new Date() }) });
     totp.isEnabled.mockResolvedValue(false);
     await expect(svc.payout(owner, 'w-1', { method: 'CASH' })).rejects.toMatchObject({ response: { code: 'TOTP_NOT_ENROLLED' } });
   });
@@ -762,12 +770,47 @@ describe('devolver el saldo al cliente que se va', () => {
     expect(left.totp.assertForUser).toHaveBeenCalledWith('man-1', '123456', expect.stringMatching(/^wallet-payout:/));
   });
 
-  it('el encargado no devuelve sin el "Me voy" del cliente; el dueño sí', async () => {
-    const { svc, tx } = makeService();
-    await expect(svc.payout(manager, 'w-1', { method: 'CASH' })).rejects.toThrow(/Me voy/);
-    expect(tx.clientWallet.update).not.toHaveBeenCalled();
-    const ok = payoutService({ wallet: { closeRequestedAt: null }, cashIn: 30_000 });
-    await expect(ok.svc.payout(owner, 'w-1', { totpCode: '123456', method: 'CASH' })).resolves.toEqual({ refundedCents: 30_000, method: 'CASH' });
+  it('el saldo no se devuelve: sin una devolución pedida antes, nadie la empieza (ni el encargado ni el dueño) y no se toca nada', async () => {
+    for (const [who, method] of [[manager, 'CASH'], [owner, 'CASH'], [owner, 'CARD']] as const) {
+      const { svc, state, payoutMock, refunds, totp } = payoutService({ wallet: { closeRequestedAt: null }, cashIn: 15_000 });
+      const err = await svc.payout(who, 'w-1', { totpCode: '123456', method }).catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(ConflictException);
+      expect((err as ConflictException).getResponse()).toEqual({
+        code: 'SALDO_NO_SE_DEVUELVE',
+        message: 'El saldo no se devuelve: se guarda para la próxima visita.',
+      });
+      expect(state.wallet).toMatchObject({ balanceCents: 30_000, status: 'ACTIVE' });
+      expect(payoutMock.create).not.toHaveBeenCalled();
+      expect(refunds.registerBankRefund).not.toHaveBeenCalled();
+      // Antes del 2FA: no gasta un intento del código.
+      expect(totp.assertForUser).not.toHaveBeenCalled();
+    }
+  });
+
+  it('el saldo de un reservado (también anulado por el local) sigue la misma regla', async () => {
+    const { svc, tx, state, payoutMock } = payoutService({ wallet: { closeRequestedAt: null }, cashIn: 30_000 });
+    tx.reservation.count.mockResolvedValue(1);
+    await expect(svc.payout(owner, 'w-1', { totpCode: '123456', method: 'CASH' })).rejects.toMatchObject({ response: { code: 'SALDO_NO_SE_DEVUELVE' } });
+    expect(state.wallet).toMatchObject({ balanceCents: 30_000, status: 'ACTIVE' });
+    expect(payoutMock.create).not.toHaveBeenCalled();
+  });
+
+  it('una devolución a la tarjeta que quedó a medias (de antes) la termina el dueño aunque no hubiera «Me voy»; el encargado, no', async () => {
+    const half = {
+      id: 'po-1', walletId: 'w-1', amountCents: 30_000, method: 'CARD', status: 'PENDING',
+      claimedAt: new Date(Date.now() - 10 * 60 * 1000), createdAt: new Date(Date.now() - 20 * 60 * 1000), bankReference: null,
+    };
+    const { svc, state } = payoutService({ wallet: { closeRequestedAt: null, balanceCents: 0 }, payouts: [half] });
+    await expect(svc.payout(manager, 'w-1', { method: 'CASH' })).rejects.toThrow(ForbiddenException);
+    await expect(svc.payout(owner, 'w-1', { totpCode: '123456', method: 'CARD' })).resolves.toEqual({ refundedCents: 30_000, method: 'CARD' });
+    expect(state.payouts).toEqual([expect.objectContaining({ status: 'DONE', amountCents: 30_000 })]);
+  });
+
+  it('pedida antes con «Me voy»: el encargado y el dueño la terminan como siempre', async () => {
+    const byManager = payoutService({ cashIn: 30_000 });
+    await expect(byManager.svc.payout(manager, 'w-1', { method: 'CASH', totpCode: '123456' })).resolves.toEqual({ refundedCents: 30_000, method: 'CASH' });
+    const byOwner = payoutService({ cashIn: 30_000 });
+    await expect(byOwner.svc.payout(owner, 'w-1', { totpCode: '123456', method: 'CASH' })).resolves.toEqual({ refundedCents: 30_000, method: 'CASH' });
   });
 
   it('a la tarjeta: primero el saldo pasa a una devolución PENDING (saldo abierto a 0), luego el banco y al final se cierra', async () => {

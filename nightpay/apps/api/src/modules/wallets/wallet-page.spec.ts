@@ -169,9 +169,27 @@ describe('página del saldo del cliente', () => {
       expect(html).not.toContain('id="pending"');
       expect(html).not.toContain('id="accept"');
       expect(script(html)).not.toContain('/requests/');
-      // "Me voy" sigue.
-      expect(script(html)).toContain("withKey('/close',{})");
+      // «Me voy» ya no está (el saldo no se devuelve): ni el botón, ni su hoja, ni la llamada.
+      expect(html).not.toMatch(/id="leave(Open|Sheet|Go)"/);
+      expect(script(html)).not.toContain('/close');
     }
+  });
+
+  it('el saldo no se devuelve: donde estaba «Me voy», la regla en su idioma (sin botón)', () => {
+    const rules = {
+      es: 'El saldo no se devuelve: se queda para la próxima visita.',
+      en: 'Your balance is not refunded: it stays for your next visit.',
+      fr: `Le solde n’est pas remboursé${String.fromCharCode(0xa0)}: il reste pour votre prochaine visite.`,
+      pt: 'O saldo não é devolvido: fica para a sua próxima visita.',
+    } as const;
+    for (const [lang, rule] of Object.entries(rules) as Array<[keyof typeof rules, string]>) {
+      const html = renderWalletPage('tok-1', lang, state());
+      const more = html.slice(html.indexOf('id="more"'), html.indexOf('</main>'));
+      expect(more).toContain(`<p class="keep" id="keepRule">${rule}</p>`);
+      expect(html).not.toMatch(/Me voy|I'm leaving|Je pars|Vou embora/);
+    }
+    // Con una devolución pedida antes y aún en curso, su tarjeta lo dice: la regla se aparta.
+    expect(script(renderWalletPage('tok-1', 'es', state()))).toContain("$('keepRule').hidden=Boolean(r);");
   });
 
   it('el saldo es el protagonista: grande, en el HTML desde el principio y anunciado al cambiar', () => {
@@ -179,18 +197,18 @@ describe('página del saldo del cliente', () => {
     expect(html).toMatch(/<p class="balance num" id="balance" aria-live="polite">200\s€<\/p>/);
   });
 
-  it('sin confirm() ni alert(): «Me voy», PIN y sumar se hacen en hojas dentro de la página', () => {
+  it('sin confirm() ni alert(): PIN y sumar se hacen en hojas dentro de la página', () => {
     for (const lang of ['es', 'en', 'fr', 'pt'] as const) {
       const html = renderWalletPage('tok-1', lang, state());
       const js = script(html);
       expect(js).not.toContain('confirm(');
       expect(js).not.toContain('alert(');
-      for (const id of ['leaveSheet', 'pinSheet', 'mergeSheet']) expect(html).toContain(`<dialog class="sheet" id="${id}"`);
+      for (const id of ['pinSheet', 'mergeSheet']) expect(html).toContain(`<dialog class="sheet" id="${id}"`);
       expect(js).toContain('showModal');
     }
   });
 
-  it('«Me voy»: cuánto, cómo (tarjeta ••4242 o efectivo) y en qué paso (Pedido → Aprobado → Devuelto)', () => {
+  it('una devolución pedida antes del cambio («Me voy» de antes): cuánto, cómo (tarjeta ••4242 o efectivo) y en qué paso', () => {
     const html = renderWalletPage(
       'tok-1',
       'es',
@@ -390,21 +408,22 @@ describe('«Escanear QR» dentro de la página', () => {
 });
 
 describe('«Más»: debajo de las dos vistas', () => {
-  it('elegir PIN, juntar saldos, «Me voy» y los movimientos, con sus rutas en /w', () => {
+  it('elegir PIN, juntar saldos, la regla del saldo y los movimientos, con sus rutas en /w', () => {
     const html = renderWalletPage('tok-1', 'es', state(), { topUp });
     const more = html.slice(html.indexOf('id="more"'), html.indexOf('</main>'));
     expect(more).toContain('<h2 class="kick" id="moreTitle">Más</h2>');
-    for (const id of ['pinOpen', 'mergeOpen', 'leaveOpen', 'movOpen', 'movements']) expect(more).toContain(`id="${id}"`);
+    for (const id of ['pinOpen', 'mergeOpen', 'keepRule', 'movOpen', 'movements']) expect(more).toContain(`id="${id}"`);
     expect(more).toContain('Elegir un PIN');
     expect(more).toContain('Juntar saldos');
-    expect(more).toContain('Me voy: devolver mi saldo');
+    expect(more).toContain('El saldo no se devuelve: se queda para la próxima visita.');
+    expect(more).not.toContain('Me voy');
     // Los movimientos se ven de entrada (maqueta 5.1); se pueden plegar.
     expect(more).toContain('<button class="row" type="button" id="movOpen" aria-expanded="true" aria-controls="movBox">Movimientos');
     expect(more).toContain('<div id="movBox"><ul id="movements"></ul></div>');
     const js = script(html);
     expect(js).toContain("b.setAttribute('aria-expanded',String(open));$('movBox').hidden=!open;");
     expect(js).toContain("withKey('/pin',{pin:a,pin2:c})");
-    // Con Face ID, PIN y «Me voy» piden desbloquear el móvil (reto de /pin/challenge o /close/challenge).
+    // Con Face ID, elegir PIN pide desbloquear el móvil (reto de /pin/challenge).
     expect(js).toContain("pkGet(C.base+path+'/challenge')");
     expect(js).toContain('if(S.hasFaceId&&!pkSupported()){show(\'pinErr\',T.faceIdNeeded);return;}');
     expect(js).toContain("pkGet(C.base+'/merge/challenge')");
@@ -473,10 +492,11 @@ describe('«Recargar»: solo lo de recargar', () => {
     expect(top).toContain('id="amtOther"');
     expect(top).toMatch(/De 10\s€ a 300\s€\./);
     expect(top).toContain('Apple Pay, Google Pay o tarjeta');
-    // Una línea con lo que pasa (elige, paga sin propina, el saldo sube al momento) y, debajo del
-    // botón, qué pasa con lo que no gaste.
+    // Una línea con lo que pasa (elige, paga sin propina, el saldo sube al momento) y, antes del
+    // botón, que el saldo no se devuelve.
     expect(top).toContain('Elige cuánto y paga con Apple Pay, Google Pay o tarjeta, sin propina. Tu saldo sube al momento.');
-    expect(top).toContain('Lo que no gastes no se pierde: se queda para otro día o, con «Me voy», el local te lo devuelve a tu tarjeta.');
+    expect(top).toContain('El saldo no se devuelve: se queda para la próxima visita.');
+    expect(top).not.toContain('Me voy');
     for (const id of ['codeCard', 'payCard', 'scanGo', 'gwCard', 'pinOpen']) expect(top).not.toContain(`id="${id}"`);
     const en = renderWalletPage('tok-1', 'en', state(), { topUp });
     // Las mismas palabras que la recepción y /r (A9): «Cargar saldo», «Otro», «Cargar 50 €».
