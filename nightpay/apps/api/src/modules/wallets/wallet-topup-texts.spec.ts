@@ -18,7 +18,7 @@ describe('textos de «Recargar» en la página del saldo', () => {
     expect(WALLET_TEXT.es.keepRule).toBe('El saldo no se devuelve: se queda para la próxima visita.');
     expect(WALLET_TEXT.en.keepRule).toBe('Your balance is not refunded: it stays for your next visit.');
     expect(WALLET_TEXT.pt.keepRule).toBe('O saldo não é devolvido: fica para a sua próxima visita.');
-    expect(WALLET_TEXT.fr.keepRule.replace(/ /g, ' ')).toBe('Le solde n’est pas remboursé : il reste pour votre prochaine visite.');
+    expect(WALLET_TEXT.fr.keepRule.replace(/\s/g, ' ')).toBe('Le solde n’est pas remboursé : il reste pour votre prochaine visite.');
     for (const lang of PAY_LANGUAGES) {
       // Ni «Me voy», ni la tarjeta, ni si caduca o no: nada que el código no haga.
       expect(WALLET_TEXT[lang].keepRule).not.toMatch(/Me voy|leaving|Je pars|Vou embora|tarjeta|card|carte|cartão|caduc|expir/i);

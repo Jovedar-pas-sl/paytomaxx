@@ -1110,7 +1110,7 @@ describe('reservados pagados con bitcoin (la señal y el resto), como con tarjet
     // Por la pasarela: 409 con su código (solo en euros); no se crea ninguna devolución.
     const actor = { userId: owner, role: 'OWNER', tenantId: A } as never;
     await expect(inCtx(A, () => refunds.refund({ paymentId: full.payment.id, amountCents: 40000, reason: 'Anulada' } as never, actor))).rejects.toMatchObject({
-      response: { code: 'BITCOIN_REFUND_NOT_AVAILABLE' },
+      response: { code: 'SALDO_NO_SE_DEVUELVE' }, // es una carga del saldo del grupo: el saldo no se devuelve
     });
     expect(await sys((tx) => tx.refund.count({ where: { paymentId: full.payment.id } }))).toBe(0);
     // «Devolver saldo»: ni a la tarjeta ni en efectivo (entró con bitcoin): en euros, lo decide el dueño.
@@ -1461,6 +1461,12 @@ describe('devoluciones', () => {
     await invoices.processInvoice(A, res.view.invoiceId, 'poll');
     expect((await statusOf(p.id)).status).toBe('AUTHORIZED');
     const actor = { userId: owner, role: 'OWNER', tenantId: A } as never;
+    // Es una carga de saldo: el saldo no se devuelve (se mira antes que el bitcoin).
+    for (const tryIt of [() => refunds.registerBankRefund({ paymentId: p.id, amountCents: 500, reason: 'prueba' } as never, actor), () => refunds.refund({ paymentId: p.id, amountCents: 500, reason: 'prueba' } as never, actor)]) {
+      await expect(inCtx(A, tryIt)).rejects.toMatchObject({ response: { code: 'SALDO_NO_SE_DEVUELVE' } });
+    }
+    // Un cobro de la barra pagado con bitcoin (de antes de «solo al cargar saldo»): 409 con su código, solo en euros.
+    await sys((tx) => tx.payment.update({ where: { id: p.id }, data: { walletId: null } }));
     await expect(inCtx(A, () => refunds.registerBankRefund({ paymentId: p.id, amountCents: 500, reason: 'prueba' } as never, actor))).rejects.toMatchObject({
       response: { code: 'BITCOIN_REFUND_NOT_AVAILABLE' },
     });

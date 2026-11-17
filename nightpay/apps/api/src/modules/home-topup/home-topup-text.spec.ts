@@ -79,7 +79,7 @@ describe('textos de «Cargar saldo antes de llegar»', () => {
     expect(HOME_TOPUP_TEXT.es.keepRule).toBe('El saldo no se devuelve: se queda para la próxima visita.');
     expect(HOME_TOPUP_TEXT.en.keepRule).toBe('Your balance is not refunded: it stays for your next visit.');
     expect(HOME_TOPUP_TEXT.pt.keepRule).toBe('O saldo não é devolvido: fica para a sua próxima visita.');
-    expect(HOME_TOPUP_TEXT.fr.keepRule.replace(/ /g, ' ')).toBe('Le solde n’est pas remboursé : il reste pour votre prochaine visite.');
+    expect(HOME_TOPUP_TEXT.fr.keepRule.replace(/\s/g, ' ')).toBe('Le solde n’est pas remboursé : il reste pour votre prochaine visite.');
     for (const lang of PAY_LANGUAGES) {
       // Ya no se habla de «Me voy» ni de devolver a la tarjeta.
       expect(JSON.stringify(HOME_TOPUP_TEXT[lang])).not.toMatch(/Me voy|I’m leaving|Je pars|Vou embora/);
