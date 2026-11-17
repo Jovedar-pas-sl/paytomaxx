@@ -22,15 +22,15 @@ export function useStaffMenu(): (() => void) | null {
   return useContext(StaffMenuContext);
 }
 
-/** Lo que dice cada opción de los dos menús del logo, debajo de su nombre: para qué sirve, en una línea. */
+/** Lo que dice cada opción de los dos menús del logo, debajo de su nombre: para qué sirve, en una línea (cabe a 360 px). */
 export const MENU_HINTS = {
-  profile: 'Tu foto, tu nombre, tu contraseña y el tema.',
-  passkey: 'Confirmar lo delicado con Face ID o huella.',
-  topUp: 'Cargar dinero en el saldo de un cliente.',
-  display: 'La tablet de la barra que ve el cliente.',
+  profile: 'Foto, nombre, contraseña y tema.',
+  passkey: 'Confirmar con Face ID o huella.',
+  topUp: 'Cargar el saldo de un cliente.',
+  display: 'La tablet que ve el cliente.',
   device: 'El lector de fichas y la impresora.',
   install: 'Tener OxioPay como una app más.',
-  guia: 'Cómo cobrar y qué hacer si algo falla.',
+  guia: 'Cómo cobrar y qué hacer si falla.',
   logout: 'Cerrar tu sesión en este aparato.',
 } as const;
 

@@ -31,7 +31,7 @@ describe('el menú del logo: cada opción dice para qué sirve', () => {
 
   it('las líneas son cortas (una línea en el móvil), sin «chica» y sin punto y aparte', () => {
     for (const [key, hint] of Object.entries(MENU_HINTS)) {
-      expect(hint.length, key).toBeLessThanOrEqual(46);
+      expect(hint.length, key).toBeLessThanOrEqual(35);
       expect(hint, key).not.toMatch(/chica/i);
       expect(hint, key).toMatch(/^[A-ZÁÉÍÓÚ¿].*\.$/);
     }
