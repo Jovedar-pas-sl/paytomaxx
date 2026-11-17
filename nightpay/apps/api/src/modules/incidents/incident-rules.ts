@@ -24,6 +24,7 @@ export type IncidentKind =
   | 'pos_unreconciled'
   | 'pos_voided_paid'
   | 'wallet_close_requested'
+  // Ya no sale: el saldo que queda tras la noche es para la próxima visita (17-nov-2026).
   | 'wallet_open_balance'
   | 'bank_mismatch'
   | 'backup_stale'
@@ -502,23 +503,26 @@ function codeText(shortCode: string | null): string {
 }
 
 /**
- * El cliente pulsó "Me voy": hay que devolverle el saldo. La parte que entró
- * con bitcoin no se devuelve (se queda como saldo para otra noche): se dice
- * aparte y no cuenta en lo que hay que devolver.
+ * Una devolución del saldo pedida ANTES de que el saldo dejara de devolverse
+ * (17-nov-2026: «Me voy», o recepción la dejó para el encargado o «A la
+ * tarjeta») y aún sin terminar: se termina en Saldos → «Terminar devolución».
+ * Nada nuevo pide una. La parte que entró con bitcoin no se devuelve (se
+ * queda como saldo para otra noche): se dice aparte y no cuenta.
  */
 export function walletCloseRequestedIncident(r: WalletBalanceRow): Incident {
   const bitcoin = Math.max(0, Math.min(r.balanceCents, r.bitcoinCents ?? 0));
   const refundable = r.balanceCents - bitcoin;
+  const where = `${SALDOS_TAB_PATH} → Terminar devolución (en efectivo o a la tarjeta)`;
   const detail =
     bitcoin === 0
-      ? `${eur(r.balanceCents)}${codeText(r.shortCode)}. Devuélveselo en ${SALDOS_TAB_PATH} → Devolver saldo (tarjeta o efectivo).`
+      ? `${eur(r.balanceCents)}${codeText(r.shortCode)}. Termínala en ${where}.`
       : refundable === 0
         ? `${eur(r.balanceCents)}${codeText(r.shortCode)}: todo entró con bitcoin. ${capitalize(BITCOIN_STAYS_TEXT)}.`
-        : `${eur(r.balanceCents)}${codeText(r.shortCode)}. Devuélvele ${eur(refundable)} en ${SALDOS_TAB_PATH} → Devolver saldo (tarjeta o efectivo). Los otros ${eur(bitcoin)}: ${BITCOIN_STAYS_TEXT}.`;
+        : `${eur(r.balanceCents)}${codeText(r.shortCode)}. Termina la devolución de ${eur(refundable)} en ${where}. Los otros ${eur(bitcoin)}: ${BITCOIN_STAYS_TEXT}.`;
   return {
     kind: 'wallet_close_requested',
     refId: r.id,
-    title: 'Un cliente pide que le devuelvan su saldo',
+    title: 'Devolución de saldo pedida antes de la nueva regla',
     detail,
     occurredAt: r.occurredAt.toISOString(),
     amountCents: refundable,
@@ -540,20 +544,6 @@ export function walletTopUpUnassignedIncident(r: PendingTopUpRow): Incident {
     refId: r.id,
     title: 'Recarga pendiente de asignar',
     detail: `${eur(r.balanceCents)} cobrados sin el NFC del cliente. Asígnala a su saldo: en Recepción → Pendientes de asignar (acercando su NFC) o en Clientes → Saldos (con su código). El dinero no se pierde: sigue en esa recarga.`,
-    occurredAt: r.occurredAt.toISOString(),
-    amountCents: r.balanceCents,
-    paymentId: null,
-    ackable: false,
-  };
-}
-
-/** Saldo que nadie ha devuelto tras cerrar la noche (08:00): que no se olvide. */
-export function walletOpenBalanceIncident(r: WalletBalanceRow): Incident {
-  return {
-    kind: 'wallet_open_balance',
-    refId: r.id,
-    title: 'Saldo de un cliente sin devolver',
-    detail: `${eur(r.balanceCents)}${codeText(r.shortCode)}. Si el cliente ya se fue, devuélveselo a la tarjeta en ${SALDOS_TAB_PATH} → Devolver saldo.`,
     occurredAt: r.occurredAt.toISOString(),
     amountCents: r.balanceCents,
     paymentId: null,
@@ -613,7 +603,7 @@ const BANK_TEXT: Record<string, { title: string; hint: string }> = {
   },
   REFUND_NOT_IN_OXIOPAY: {
     title: 'Devolución hecha en el banco sin apuntar',
-    hint: 'Si es de un cobro, apúntala en Hoy → Cobros → Devolución BBVA para que cuadre la parte de la chica. Si es de una recarga, esa pantalla no la admite: devuelve lo que quede con «Devolver saldo»; si ya se gastó, es dinero perdido: apúntalo aparte y márcala como revisada.',
+    hint: 'Si es de un cobro, apúntala en Hoy → Cobros → Devolución BBVA para que cuadre la parte de la compañera. Si es de una recarga, el saldo no se devuelve: averigua quién la hizo en el banco, apúntalo aparte y márcala como revisada.',
   },
   REFUND_NOT_IN_BANK: {
     title: 'Devolución apuntada que el banco no tiene',

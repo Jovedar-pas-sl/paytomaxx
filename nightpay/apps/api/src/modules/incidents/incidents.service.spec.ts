@@ -9,9 +9,9 @@ const at = (iso: string) => new Date(iso);
 
 /**
  * $queryRaw devuelve, en orden: atascados, dobles cobros, registros, noches,
- * revisadas, datáfono (3), saldos (2), banco, avisos de cobro no dados por buenos
- * devoluciones sin confirmar y solicitudes de «Por aprobar» sin decidir (y,
- * al final, las recargas pendientes de asignar).
+ * revisadas, datáfono (3), devoluciones del saldo pedidas antes, banco, avisos
+ * de cobro no dados por buenos, devoluciones sin confirmar y solicitudes de
+ * «Por aprobar» sin decidir (y, al final, las recargas pendientes de asignar).
  */
 function makeIncidents(rows: {
   stuck?: unknown[];
@@ -23,7 +23,6 @@ function makeIncidents(rows: {
   posUnmatched?: unknown[];
   posUnreconciled?: unknown[];
   walletsToClose?: unknown[];
-  walletsLeftOpen?: unknown[];
   bankItems?: unknown[];
   anomalies?: unknown[];
   pendingRefunds?: unknown[];
@@ -44,7 +43,6 @@ function makeIncidents(rows: {
       .mockResolvedValueOnce(rows.posUnmatched ?? [])
       .mockResolvedValueOnce(rows.posUnreconciled ?? [])
       .mockResolvedValueOnce(rows.walletsToClose ?? [])
-      .mockResolvedValueOnce(rows.walletsLeftOpen ?? [])
       .mockResolvedValueOnce(rows.bankItems ?? [])
       .mockResolvedValueOnce(rows.anomalies ?? [])
       .mockResolvedValueOnce(rows.pendingRefunds ?? [])
@@ -204,19 +202,18 @@ describe('bandeja de incidencias', () => {
     expect(i!.detail).toContain('Cuadrar con el datáfono');
   });
 
-  it('saldo: el cliente pidió la devolución, o quedó saldo tras la noche (se quitan solas al devolverlo)', async () => {
-    const { svc } = makeIncidents({
+  it('saldo: una devolución pedida antes de la nueva regla (se quita sola al terminarla); el saldo que queda tras la noche ya no es aviso', async () => {
+    const { svc, prisma } = makeIncidents({
       walletsToClose: [{ id: 'w-1', shortCode: 'K7Q4M2', balanceCents: 8000, occurredAt: at('2026-10-14T01:00:00Z') }],
-      walletsLeftOpen: [{ id: 'w-2', shortCode: 'ABCDEF', balanceCents: 2000, occurredAt: at('2026-10-13T01:00:00Z') }],
     });
     const items = await svc.list('t-1', at('2026-10-14T09:00:00Z'));
-    expect(items.map((i) => [i.kind, i.ackable])).toEqual([
-      ['wallet_close_requested', false],
-      ['wallet_open_balance', false],
-    ]);
+    expect(items.map((i) => [i.kind, i.ackable])).toEqual([['wallet_close_requested', false]]);
     expect(items[0]!.detail).toContain('80,00 €');
     // El código como lo ve el cliente (con guion).
     expect(items[0]!.detail).toContain('código K7Q-4M2');
+    // Ya no se busca el saldo «sin devolver» tras la noche: es para la próxima visita.
+    const sql = prisma.$queryRaw.mock.calls.map(([s]) => (s as string[]).join('?'));
+    expect(sql.some((q) => q.includes('"closeRequestedAt" IS NULL'))).toBe(false);
   });
 
   it('cuadre con el banco: cada diferencia con su explicación, y se puede marcar como revisada', async () => {
@@ -761,7 +758,8 @@ describe('bandeja de incidencias — consultas a la base (DI-04)', () => {
     const prisma = { $queryRaw: query, asSystem: vi.fn(async (fn: (tx: unknown) => unknown) => fn({ $queryRaw: query })) };
     const svc = new IncidentsService(prisma as never, { log: vi.fn() } as never);
     await expect(svc.list('t-1', at('2026-10-17T01:00:00Z'))).resolves.toEqual([]);
-    expect(total).toBe(17);
+    // 16: el saldo que queda tras la noche ya no se busca (es para la próxima visita).
+    expect(total).toBe(16);
     expect(maxInFlight).toBeLessThanOrEqual(INCIDENT_QUERY_CONCURRENCY);
     expect(INCIDENT_QUERY_CONCURRENCY).toBe(4);
   });

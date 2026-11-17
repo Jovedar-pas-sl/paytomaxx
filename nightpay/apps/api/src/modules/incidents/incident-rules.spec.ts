@@ -22,8 +22,8 @@ import {
   ackNeedsNote,
   walletCloseRequestedIncident,
   walletCreditSkippedIncident,
-  walletOpenBalanceIncident,
 } from './incident-rules';
+import * as rules from './incident-rules';
 import { incidentMessage, morningSummaryMessage } from './alert-messages';
 import { bitcoinSummary, cardPaymentsCount } from '../reports/export-summary';
 import type { ExportSummary } from '../reports/export-csv';
@@ -444,6 +444,18 @@ describe('avisos de cobro aprobado que no se dieron por buenos', () => {
   });
 });
 
+describe('una devolución hecha en el banco sin apuntar', () => {
+  it('de una recarga: no manda a «Devolver saldo» (el saldo no se devuelve) y no dice «chica»', () => {
+    const i = bankMismatchIncident({
+      id: 'bi-2', status: 'REFUND_NOT_IN_OXIOPAY', kind: 'REFUND', source: 'REDSYS', bankAmountCents: 5000, oursAmountCents: null,
+      reference: '2610REFUND01', authCode: null, paymentId: null, operationAt: at('2026-10-13T21:18:59Z'), occurredAt: at('2026-10-13T21:18:59Z'),
+    });
+    expect(i.detail).toContain('Si es de una recarga, el saldo no se devuelve');
+    expect(i.detail).not.toMatch(/Devolver saldo|\bchica\b/);
+    expect(i.detail).toContain('la parte de la compañera');
+  });
+});
+
 describe('qué se puede marcar como revisada', () => {
   it('toda incidencia marcable sale en ACKABLE_KINDS (las del banco y copias incluidas) y ninguna se quita sola', () => {
     const bank = bankMismatchIncident({
@@ -569,21 +581,21 @@ describe('«No he sido yo» (aviso en cada cobro)', () => {
 describe('avisos del saldo: «Saldos» (nunca «Wallets») y el código con guion', () => {
   const row = { id: 'w-1', shortCode: 'UYSJ5G', balanceCents: 2_900, occurredAt: new Date('2026-10-22T16:29:00Z') };
 
-  it('un cliente pide su saldo: dónde se devuelve y su código como lo ve él (UYS-J5G)', () => {
+  it('una devolución pedida antes de la nueva regla: dónde se termina y su código como lo ve él (UYS-J5G)', () => {
     const i = walletCloseRequestedIncident(row);
-    expect(i.title).toBe('Un cliente pide que le devuelvan su saldo');
-    expect(i.detail).toBe('29,00 € · código UYS-J5G. Devuélveselo en Clientes → Saldos → Devolver saldo (tarjeta o efectivo).');
+    expect(i.title).toBe('Devolución de saldo pedida antes de la nueva regla');
+    expect(i.detail).toBe('29,00 € · código UYS-J5G. Termínala en Clientes → Saldos → Terminar devolución (en efectivo o a la tarjeta).');
     // Telegram lleva el mismo texto.
-    expect(incidentMessage('Sala Aurora', i)).toContain('código UYS-J5G. Devuélveselo en Clientes → Saldos');
+    expect(incidentMessage('Sala Aurora', i)).toContain('código UYS-J5G. Termínala en Clientes → Saldos');
     expect(walletCloseRequestedIncident({ ...row, shortCode: null }).detail).toBe(
-      '29,00 €. Devuélveselo en Clientes → Saldos → Devolver saldo (tarjeta o efectivo).',
+      '29,00 €. Termínala en Clientes → Saldos → Terminar devolución (en efectivo o a la tarjeta).',
     );
   });
 
-  it('«Me voy» con parte cargada con bitcoin: se devuelve el resto; esa parte se queda como saldo para otra noche', () => {
+  it('pedida antes con parte cargada con bitcoin: se termina el resto; esa parte se queda como saldo para otra noche', () => {
     const mixed = walletCloseRequestedIncident({ ...row, balanceCents: 8_000, bitcoinCents: 3_000 });
     expect(mixed.detail).toBe(
-      '80,00 € · código UYS-J5G. Devuélvele 50,00 € en Clientes → Saldos → Devolver saldo (tarjeta o efectivo). Los otros 30,00 €: esta parte entró con bitcoin: se queda como saldo para otra noche, no se devuelve.',
+      '80,00 € · código UYS-J5G. Termina la devolución de 50,00 € en Clientes → Saldos → Terminar devolución (en efectivo o a la tarjeta). Los otros 30,00 €: esta parte entró con bitcoin: se queda como saldo para otra noche, no se devuelve.',
     );
     expect(mixed.amountCents).toBe(5_000);
     const allBtc = walletCloseRequestedIncident({ ...row, bitcoinCents: 2_900 });
@@ -592,17 +604,15 @@ describe('avisos del saldo: «Saldos» (nunca «Wallets») y el código con guio
     expect(walletCloseRequestedIncident({ ...row, bitcoinCents: 0 }).detail).toBe(walletCloseRequestedIncident(row).detail);
   });
 
-  it('saldo sin devolver tras cerrar: también con el código con guion y «Saldos»', () => {
-    expect(walletOpenBalanceIncident(row).detail).toBe(
-      '29,00 € · código UYS-J5G. Si el cliente ya se fue, devuélveselo a la tarjeta en Clientes → Saldos → Devolver saldo.',
-    );
+  it('el saldo que queda tras cerrar la noche ya no es un aviso: se queda para la próxima visita', () => {
+    expect(Object.keys(rules)).not.toContain('walletOpenBalanceIncident');
   });
 
   it('recarga cobrada que no llegó al saldo: sin «wallet»', () => {
     const i = walletCreditSkippedIncident({ id: 'e-1', paymentId: 'p-1', amountCents: 1_000, occurredAt: row.occurredAt, payload: null });
     expect(i.title).toBe('Recarga cobrada que no llegó al saldo');
     expect(i.detail).toBe('El cliente pagó pero su saldo no estaba activo. Devuélvelo en BBVA o reactiva el saldo.');
-    for (const text of [i.title, i.detail, walletCloseRequestedIncident(row).detail, walletOpenBalanceIncident(row).detail]) {
+    for (const text of [i.title, i.detail, walletCloseRequestedIncident(row).detail]) {
       expect(text).not.toMatch(/wallet/i);
       expect(text).not.toMatch(/código [A-Z0-9]{6}\b/);
     }
