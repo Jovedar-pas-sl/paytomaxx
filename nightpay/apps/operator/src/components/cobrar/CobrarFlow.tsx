@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { haptic, Modal } from '@nightpay/ui';
 import type { InvitationRules } from '@nightpay/contracts';
 import { fetchTerminals, newIdempotencyKey, type CreatedPayment, type MyNight, type OperatorUser } from '@/lib/api';
@@ -79,6 +79,8 @@ interface Props {
   onMiQr?: (open: boolean) => void;
   /** «Recargar saldo» (maquetas 4.6–4.7): solo quien carga saldos (recepción, encargado, dueño). */
   onRecargar?: () => void;
+  /** Encima de la carta (el RRPP: «Tus reservas de RRPP»). */
+  banner?: ReactNode;
 }
 
 /**
@@ -91,7 +93,7 @@ interface Props {
  * se sale de la invitación («Atrás») mientras se crea su cobro, no se abre
  * «Esperando» y se cancela (lib/cobro-attempt).
  */
-export function CobrarFlow({ user, onCobroDone, onLogout, night, miQrOpen = false, onMiQr, onRecargar }: Props) {
+export function CobrarFlow({ user, onCobroDone, onLogout, night, miQrOpen = false, onMiQr, onRecargar, banner }: Props) {
   const mine = useMySections();
   const methods = useVenueMethods();
   const nightSettings = useVenueNight();
@@ -555,6 +557,7 @@ export function CobrarFlow({ user, onCobroDone, onLogout, night, miQrOpen = fals
             onLogo={() => setMenu(true)}
             headerExtra={headerExtra}
             onRetryCarta={carta.retry}
+            banner={banner}
           />
           {menuModal}
           {miQr}

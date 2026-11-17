@@ -42,3 +42,4 @@ export * from './bitcoin-cash';
 export * from './profile';
 export * from './customer-display';
 export * from './reservations';
+export * from './rrpp';

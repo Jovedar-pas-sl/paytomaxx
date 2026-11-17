@@ -33,6 +33,8 @@ interface Props {
   /** Un botón más en la cabecera (la chica: «Mi QR»). */
   headerExtra?: ReactNode;
   onRetryCarta: () => void;
+  /** Encima de las losetas (el RRPP: «Tus reservas de RRPP»). */
+  banner?: ReactNode;
 }
 
 /**
@@ -59,6 +61,7 @@ export function Carta({
   onLogo,
   headerExtra,
   onRetryCarta,
+  banner,
 }: Props) {
   const codes = offeredCodes(ctx);
   const items = cartaTiles(ctx.carta, codes);
@@ -88,6 +91,7 @@ export function Carta({
         chip={chip ? <Chip color={chip.color}>{chip.label}</Chip> : null}
       />
       <div className={styles.body}>
+        {banner}
         <div className={styles.tiles} data-tour="cobrar-carta">
           {/* Clave con el orden: un pack de una sección ajena puede repetir sección más abajo. */}
           {groups.map((group, i) => (

@@ -4,6 +4,8 @@ import { AuditModule } from '../audit/audit.module';
 import { PaymentsModule } from '../payments/payments.module';
 import { WalletsModule } from '../wallets/wallets.module';
 import { ReservationsNoShowService } from './reservations-noshow.service';
+import { MyPromoterController } from './my-promoter.controller';
+import { MyPromoterService } from './my-promoter.service';
 import { PromotersService } from './promoters.service';
 import { ReservationCatalogService } from './reservation-catalog.service';
 import { ReservationOpsService } from './reservation-ops.service';
@@ -18,7 +20,7 @@ import { ReservationsService } from './reservations.service';
  */
 @Module({
   imports: [PrismaModule, AuditModule, PaymentsModule, WalletsModule],
-  providers: [ReservationsService, ReservationOpsService, ReservationCatalogService, PromotersService, ReservationsNoShowService],
-  controllers: [ReservationsController, PublicBookingController, PublicReservationController],
+  providers: [ReservationsService, ReservationOpsService, ReservationCatalogService, PromotersService, ReservationsNoShowService, MyPromoterService],
+  controllers: [ReservationsController, PublicBookingController, PublicReservationController, MyPromoterController],
 })
 export class ReservationsModule {}
