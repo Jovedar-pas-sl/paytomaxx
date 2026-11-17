@@ -325,43 +325,30 @@
   margin-left: calc(var(--pw) * -0.26);
 }
 
-.soon {
+/* Los reservados también se pagan con bitcoin: la página de reservar, en pequeño. */
+.rsv {
   display: grid;
   grid-template-columns: auto 1fr;
   align-items: center;
   gap: 20px;
   padding: 18px 22px;
-  border: 1px dashed rgb(198 231 108 / 0.45);
+  border: 1px solid var(--c-line);
   border-radius: var(--r-2);
   background: var(--c-dark-3);
 }
 
-.soonCrop {
+.rsvCrop {
   height: 150px;
   overflow: hidden;
   -webkit-mask-image: linear-gradient(180deg, #000 62%, transparent);
   mask-image: linear-gradient(180deg, #000 62%, transparent);
 }
 
-.soonPhone {
+.rsvPhone {
   --pw: 104px;
 }
 
-.soonTag {
-  display: inline-block;
-  margin: 0 0 6px;
-  padding: 2px 12px;
-  border-radius: var(--r-pill);
-  background: var(--c-lime);
-  color: var(--c-ink);
-  font-size: 12px;
-  font-weight: 700;
-  line-height: 1.6;
-  letter-spacing: 1.5px;
-  text-transform: uppercase;
-}
-
-.soonTitle {
+.rsvTitle {
   margin: 0;
   color: #fff;
   font-size: 19px;
@@ -369,7 +356,7 @@
   line-height: 1.6;
 }
 
-.soonText {
+.rsvText {
   margin: 0;
 }
 
@@ -692,6 +679,11 @@
   .stepArt {
     height: 260px;
     margin-bottom: 0;
+  }
+
+  /* Dos columnas: la última ficha, si queda sola, ocupa la fila entera. */
+  .tile:last-child:nth-child(odd) {
+    grid-column: 1 / -1;
   }
 }
 

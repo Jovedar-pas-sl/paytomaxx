@@ -18,8 +18,11 @@ export type IconName =
   | 'cards'
   | 'shield'
   | 'tap'
+  | 'screen'
   | 'bitcoin'
   | 'heart'
+  | 'calendar'
+  | 'people'
   | 'chart'
   | 'percent'
   | 'bell';
@@ -75,7 +78,26 @@ const PATHS: Record<IconName, ReactNode> = {
       <path d="M9.5 7.5v9M9.5 7.5H13a2.25 2.25 0 0 1 0 4.5H9.5M9.5 12h4a2.25 2.25 0 0 1 0 4.5h-4M11 6v1.5M13 6v1.5M11 16.5V18M13 16.5V18" />
     </>
   ),
+  /** La tablet de la pantalla del cliente, con el importe y el QR. */
+  screen: (
+    <>
+      <rect x="2.5" y="4.5" width="19" height="14" rx="2" />
+      <path d="M6 8.5h5M6 11.5h3.5M14.5 8.5h3v3h-3zM9.5 21h5" />
+    </>
+  ),
   heart: <path d="M12 20s-7.5-4.6-7.5-10A4.2 4.2 0 0 1 12 7.6 4.2 4.2 0 0 1 19.5 10c0 5.4-7.5 10-7.5 10Z" />,
+  calendar: (
+    <>
+      <rect x="3.5" y="5" width="17" height="15.5" rx="2" />
+      <path d="M3.5 10h17M8 3v4M16 3v4M8 14h.01M12 14h.01M16 14h.01M8 17h.01M12 17h.01" />
+    </>
+  ),
+  people: (
+    <>
+      <circle cx="9" cy="8" r="3.25" />
+      <path d="M3 19.5a6 6 0 0 1 12 0M15.5 4.9a3.25 3.25 0 0 1 0 6.2M17.5 13.9a6 6 0 0 1 3.5 5.6" />
+    </>
+  ),
   chart: <path d="M4 20h16M7 16v-4M12 16V7M17 16v-7" />,
   percent: (
     <>

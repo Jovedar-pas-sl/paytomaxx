@@ -21,4 +21,4 @@ export const LEGAL_OWNER: LegalOwner = Object.freeze({
 });
 
 /** Última revisión de los textos (sale arriba de cada página). */
-export const LEGAL_UPDATED = '2026-11-16';
+export const LEGAL_UPDATED = '2026-11-17';

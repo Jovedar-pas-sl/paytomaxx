@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
-import { CHARGE_DISPUTED_ACTION, ChargeDisputeService } from './charge-dispute.service';
+import { legalFooter } from '../../legal/legal-links';
+import { CHARGE_DISPUTED_ACTION, ChargeDisputeService, type NotMeResult, type NotMeView } from './charge-dispute.service';
 import { renderNotMePage } from './charge-alert-view';
 import { NOT_ME_TTL_MS, signNotMeToken } from './not-me-token';
 
@@ -130,5 +131,25 @@ describe('la página «No he sido yo»', () => {
     const invalid = renderNotMePage('/w/no/t', 'en', { state: 'invalid' });
     expect(invalid).toContain('This link isn’t valid');
     expect(invalid).not.toContain('<form');
+  });
+
+  it('lleva el pie legal en su idioma, como las demás páginas del cliente', () => {
+    const views: (NotMeView | NotMeResult)[] = [
+      { state: 'ask', ...charge },
+      { state: 'done', blockedCards: 1, pinLocked: true, ...charge },
+      { state: 'already', ...charge },
+      { state: 'expired' },
+      { state: 'invalid' },
+      { state: 'not-paid' },
+    ];
+    for (const view of views) {
+      const html = renderNotMePage('/w/no/t', 'pt', view);
+      expect(html).toContain(legalFooter('pt'));
+      expect(html).toContain('href="/legal/condiciones?lang=pt"');
+      // Debajo del contenido, antes del script, y con su CSS (va en CHROME_CSS).
+      expect(html.indexOf('</main>')).toBeLessThan(html.indexOf('class="legal-foot"'));
+      expect(html.indexOf('class="legal-foot"')).toBeLessThan(html.indexOf('<script>'));
+      expect(html).toContain('.legal-foot{');
+    }
   });
 });

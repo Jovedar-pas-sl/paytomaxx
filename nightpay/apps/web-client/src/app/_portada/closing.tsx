@@ -89,11 +89,11 @@ const FAQ: readonly { q: string; a: ReactNode }[] = [
   },
   {
     q: '¿Puedo pagar con bitcoin?',
-    a: 'En los locales que lo aceptan, puedes cargar tu saldo con bitcoin y después pagar con ese saldo. Próximamente también podrás pagar tu reservado con bitcoin: la señal y el resto.',
+    a: 'En los locales que lo aceptan, sí: para cargar tu saldo y para pagar tu reservado (la señal y el resto). En la barra no se paga con bitcoin: pagas con el saldo que cargaste.',
   },
   {
     q: '¿Qué pasa con el saldo que me sobra?',
-    a: 'Te lo devolvemos cuando lo pidas: lo cargado en efectivo, en efectivo en recepción; lo cargado con tarjeta, a tu tarjeta.',
+    a: 'Se queda en tu saldo para tu próxima visita. No se devuelve en dinero, ni en efectivo ni a la tarjeta. Si un cobro tiene un error, ese cobro sí se devuelve.',
   },
   {
     q: '¿En qué idiomas está la página de pago?',

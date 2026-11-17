@@ -137,7 +137,7 @@ export function Venues() {
           <h2 id="venues-title" className={s.h2}>
             Lo que OxioPay hace por tu local
           </h2>
-          <p className={s.lead}>Cobros, saldo de tus clientes y comisiones del personal.</p>
+          <p className={s.lead}>Cobros, saldo de tus clientes, reservados y comisiones del personal.</p>
         </div>
         <ul className={c.tiles}>
           {FOR_VENUES.map(([icon, title, text]) => (
@@ -163,7 +163,7 @@ export function Venues() {
   );
 }
 
-/** Bitcoin: para cargar saldo (y, cuando salgan, reservados). Ver la nota de content.ts. */
+/** Bitcoin: para cargar saldo y para pagar el reservado, nunca en la barra. Ver la nota de content.ts. */
 export function Bitcoin() {
   return (
     <section id="bitcoin" className={cx(c.section, c.btc)} aria-labelledby="btc-title">
@@ -177,14 +177,13 @@ export function Bitcoin() {
             En los locales que lo aceptan. Después pagas con tu saldo, como siempre.
           </p>
           <Points items={BITCOIN_POINTS} />
-          <div className={c.soon}>
-            <div className={c.soonCrop}>
-              <Phone shot={SHOTS.reservado} className={c.soonPhone} />
+          <div className={c.rsv}>
+            <div className={c.rsvCrop}>
+              <Phone shot={SHOTS.reservado} className={c.rsvPhone} />
             </div>
             <div>
-              <p className={c.soonTag}>Próximamente</p>
-              <h3 className={c.soonTitle}>Reservados</h3>
-              <p className={c.soonText}>Paga tu reservado con bitcoin: la señal y el resto.</p>
+              <h3 className={c.rsvTitle}>Reservados</h3>
+              <p className={c.rsvText}>Paga tu reservado con bitcoin: la señal y el resto.</p>
             </div>
           </div>
         </div>

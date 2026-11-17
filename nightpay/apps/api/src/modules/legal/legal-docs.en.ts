@@ -66,16 +66,20 @@ export function legalDocsEn(o: LegalOwner): LegalDocs {
             'If you use a balance: the balance and its movements, the code of your QR or card and, if you turn them on, your PIN (stored encrypted: nobody can read it) and your phone’s Face ID or fingerprint key. Your face and fingerprint never leave your phone: we only store a public key that cannot identify you outside OxioPay.',
             'Your phone number, only if you give it to us, to help you recover your balance if you lose your card.',
             'If you top up from home: the same as for a payment, plus a cookie that remembers on your phone the balances you topped up.',
+            'If you make a reservation: your name, your phone number and the notes you write when booking.',
+            'If you turn on “Notify me of every charge” in your balance (it is optional): the details your browser gives us to send you notifications (its notification address and keys) and the language of the notification.',
             'Technical data: IP address, browser type and security logs.',
           ],
         },
         { p: 'Why we use it and on what legal basis:' },
         {
           ul: [
-            'To charge you, give you the receipt and manage your balance and its refunds: needed for the service you ask for (contract).',
+            'To charge you, give you the receipt, manage your balance and refund charges with errors: needed for the service you ask for (contract).',
+            'To manage your reservation and contact you about it: needed for the reservation you make (contract).',
             'To keep accounts and meet tax rules: legal obligation.',
             'To protect the service, prevent fraud and fix errors: legitimate interest.',
             'To keep your phone number for balance recovery: your consent, which you can withdraw at any time.',
+            'To notify you of every charge on your balance: your consent. You can turn it off at any time in your balance, under “Notify me of every charge”.',
           ],
         },
         {
@@ -95,6 +99,7 @@ export function legalDocsEn(o: LegalOwner): LegalDocs {
             'The bank and payment gateways (Redsys and the venue’s bank) and card terminals (Paytef), to take and refund payments.',
             'Technical providers: server hosting and backups, Cloudflare (network and security), Sentry (error reports, with personal data masked), Resend (email delivery) and Telegram (staff alerts).',
             'Google, if you add your balance to Google Wallet.',
+            'Your browser’s notification service (from Google, Apple, Mozilla or Microsoft), if you turn on “Notify me of every charge”: it carries the notification to your phone encrypted and cannot read it.',
             'Public authorities, when the law requires it.',
           ],
         },
@@ -106,13 +111,15 @@ export function legalDocsEn(o: LegalOwner): LegalDocs {
           ul: [
             'Payments, top-ups, refunds and commissions: 6 years, as required by Spanish commercial law (art. 30 of the Commercial Code).',
             'Your balance, phone number and keys: while the balance exists. If you ask us to close it or delete your data, we remove the phone number and keys and keep only what accounting requires, for the period above.',
+            'Your reservation details (name, phone number and notes): like your balance data, while the reservation or its balance exists. If you ask us to delete them, we remove them and keep only what accounting requires, for the period above.',
+            'Your “Notify me of every charge” subscription: until you turn it off or your browser stops accepting it.',
             'Technical and security logs: as long as needed to protect the service and look into incidents.',
             'Staff data: for as long as the relationship with the venue lasts and then for the periods set by law.',
           ],
         },
         { h: 'Your rights', id: 'derechos' },
         {
-          p: `You can ask us to see your data, correct it, delete it, restrict its use, object to its use or take it elsewhere. Write to ${mail} with the subject "OxioPay privacy" and, if you have it, the code of your balance or receipt. We reply within one month and delete everything the law does not require us to keep.`,
+          p: `You can ask us to see your data, correct it, delete it, restrict its use, object to its use or take it elsewhere. Write to ${mail} with the subject "OxioPay privacy" and, if you have it, the code of your balance, receipt or reservation. We reply within one month and delete everything the law does not require us to keep.`,
         },
         {
           p: 'If you think we have not handled your request properly, you can complain to the Spanish Data Protection Agency: [www.aepd.es](https://www.aepd.es).',
@@ -163,7 +170,7 @@ export function legalDocsEn(o: LegalOwner): LegalDocs {
     condiciones: {
       title: 'Terms of use',
       blocks: [
-        { p: 'These terms apply when you pay or use a balance with OxioPay at a venue. By paying, you accept them.' },
+        { p: 'These terms apply when you pay, use a balance or make a reservation with OxioPay at a venue. By paying, you accept them.' },
         { h: 'Who provides the service' },
         {
           p: `OxioPay is a service of ${o.name} (Tax ID ${o.taxId}). The venue sells you what you buy (drinks, services…); OxioPay handles the payment and the balance. More details in the [Legal notice](/legal/aviso-legal).`,
@@ -185,15 +192,26 @@ export function legalDocsEn(o: LegalOwner): LegalDocs {
             'Your balance is money you load in advance to pay at the venue, or at venues of the same group that accept it. It is not a bank account and it earns no interest.',
             'It is identified by your QR code or card. Protect it with a PIN or with Face ID or fingerprint, and do not share your PIN.',
             'If you lose your card or phone, tell the staff: we block the balance so nobody can use it.',
-            `You can ask for your unspent balance back at any time: at reception, in cash on the spot, or by writing to ${mail}, and we refund it to the card you loaded it with within 14 days at most.`,
+            'What you do not spend stays in your balance for your next visits to the venue (and to venues of the same group, if they share the balance). Your balance is not refunded in money, neither in cash nor to your card, however you loaded it: in cash, by card, with bitcoin or by paying for a reservation.',
             'The service fee on a top-up, if there was one, is not part of the balance.',
+          ],
+        },
+        { h: 'Reservations', id: 'reservados' },
+        {
+          ul: [
+            'To book, you pay a deposit of 30 % of the price of the reservation, or the full price. The deposit is not refunded.',
+            'You can change the date once, at least 48 hours before the venue’s opening time that night.',
+            'You can cancel the reservation at least 48 hours before the venue’s opening time: you lose the deposit and anything else you paid stays as balance for another night. With less than 48 hours to go, you can no longer cancel.',
+            'If you do not show up that night, you lose the deposit and anything else you paid stays as balance for another night.',
+            'If the venue cancels the reservation, what you paid stays as balance for another night.',
+            'That balance follows the balance rules: it is not refunded in money.',
           ],
         },
         { h: 'Refunds and complaints', id: 'devoluciones' },
         {
           ul: [
             'What has already been consumed, or a service already provided, is not refunded unless there is an error.',
-            `If you see a duplicate charge, a wrong amount or a charge you do not recognise, tell the venue staff or write to ${mail}. If there is an error, we refund the money to the same card, or to your balance, within 14 days of checking it.`,
+            `If a charge has an error (you are charged twice, you pay after it was cancelled, the amount is wrong or you do not recognise the charge), tell the venue staff or write to ${mail}. If there is an error, we refund that charge to the same card, or to your balance, within 14 days of checking it.`,
             'Official complaint forms (hojas de reclamaciones) are available at the venue.',
           ],
         },
