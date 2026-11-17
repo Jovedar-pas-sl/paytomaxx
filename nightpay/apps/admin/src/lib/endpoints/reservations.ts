@@ -39,8 +39,9 @@ export const bookFromPanel = (dto: CreateReservationDto) => call<{ reservation: 
 export const setTable = (id: string, tableLabel: string | null) =>
   call<ReservationView>(`/v1/reservations/${id}/table`, { method: 'PATCH', body: JSON.stringify({ tableLabel }) });
 export const venueChangeDate = (id: string, nightDate: string) => call<ReservationView>(`/v1/reservations/${id}/date`, post({ nightDate }));
+/** El local anula: lo pagado (saldoCents) queda como saldo del cliente; nada se devuelve. */
 export const venueCancel = (id: string, reason: string) =>
-  call<{ reservation: ReservationView; refundCents: number; walletId: string | null }>(`/v1/reservations/${id}/cancel`, post({ reason }));
+  call<{ reservation: ReservationView; saldoCents: number; walletId: string | null }>(`/v1/reservations/${id}/cancel`, post({ reason }));
 export const markNoShow = (id: string) => call<ReservationView>(`/v1/reservations/${id}/no-show`, post({}));
 export const undoNoShow = (id: string) => call<ReservationView>(`/v1/reservations/${id}/no-show/undo`, post({}));
 /** «Ha venido»: el encargado apunta la llegada (también la de una noche pasada). */

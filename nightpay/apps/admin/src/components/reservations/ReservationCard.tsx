@@ -4,7 +4,7 @@ import { useState, type CSSProperties } from 'react';
 import { Button } from '@nightpay/ui';
 import { formatMoney, type ReservationView } from '@nightpay/contracts';
 import { arriveFromPanel, markNoShow, setTable, undoNoShow, venueCancel, venueChangeDate } from '@/lib/endpoints/reservations';
-import { bitcoinRefundNote, nightLabel, reservationActions, statusTone } from '@/lib/reservations';
+import { nightLabel, reservationActions, statusTone, venueCanceledNotice, venueCancelText } from '@/lib/reservations';
 
 type Ask = 'date' | 'cancel' | null;
 
@@ -12,8 +12,8 @@ type Ask = 'date' | 'cancel' | null;
  * Una reserva en la lista de la noche: quién, qué paquete, lo pagado y lo que
  * falta, «vendido por», la mesa (la pone el local), y las acciones del
  * encargado: cambiar la fecha (el local la ofrece), «Cancelar» si no está
- * pagada o «Devolver» si lo está (el dinero está en el saldo del grupo:
- * se devuelve en Clientes → Saldos), y «No vino» cuando su noche ha acabado.
+ * pagada o «Anular» si lo está (lo pagado queda como saldo del cliente para
+ * otra noche: nada se devuelve), y «No vino» cuando su noche ha acabado.
  */
 export function ReservationCard({
   r,
@@ -47,8 +47,6 @@ export function ReservationCard({
   }
 
   const tone = statusTone(r.status);
-  // Pagado (en parte) con bitcoin: solo se devuelve en euros (aviso al encargado al anular).
-  const bitcoinNote = bitcoinRefundNote(r);
   return (
     <article style={card} aria-labelledby={`resv-${r.id}`} data-tour="reservados-reserva">
       <header style={head}>
@@ -133,15 +131,9 @@ export function ReservationCard({
       ) : null}
       {ask === 'cancel' ? (
         <div style={{ ...confirm, borderColor: 'var(--np-danger)' }} role="group" aria-label={actions.cancel ?? ''}>
-          <p style={line}>
-            {actions.cancel === 'Devolver'
-              ? `El local anula el reservado y devuelve ${formatMoney(r.paidCents)}: el dinero queda en su saldo y se devuelve desde Clientes → Saldos («Devolver saldo»).`
-              : 'Se anula la reserva sin pagar.'}
-          </p>
-          {actions.cancel === 'Devolver' && bitcoinNote ? (
-            <p style={{ ...line, color: 'var(--np-warning)' }} role="note">
-              {bitcoinNote}
-            </p>
+          <p style={line}>{venueCancelText(r)}</p>
+          {actions.cancel === 'Anular' ? (
+            <p style={{ ...line, ...mute }}>Nada se devuelve: el cliente lo gasta otra noche. En su página del reservado verá «Ver mi saldo».</p>
           ) : null}
           <input style={input} placeholder="Motivo" value={reason} maxLength={200} onChange={(e) => setReason(e.target.value)} aria-label="Motivo" />
           <Button
@@ -152,19 +144,11 @@ export function ReservationCard({
             onClick={() =>
               void run(async () => {
                 const out = await venueCancel(r.id, reason.trim());
-                return {
-                  view: out.reservation,
-                  notice:
-                    out.refundCents > 0
-                      ? [`Devuelve ${formatMoney(out.refundCents)} en Clientes → Saldos (saldo «Reservado ${r.ref}»).`, bitcoinRefundNote(out.reservation)]
-                          .filter(Boolean)
-                          .join(' ')
-                      : undefined,
-                };
+                return { view: out.reservation, notice: venueCanceledNotice(r.ref, out.saldoCents) };
               })
             }
           >
-            Sí, {actions.cancel === 'Devolver' ? 'anular y devolver' : 'cancelar'}
+            Sí, {actions.cancel === 'Anular' ? 'anular' : 'cancelar'}
           </Button>
         </div>
       ) : null}
