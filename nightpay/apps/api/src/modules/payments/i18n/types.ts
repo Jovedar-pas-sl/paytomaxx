@@ -180,6 +180,8 @@ export interface PayText {
   /** Unidades de «hace 23 min», «hace 1 h 05 min», «hace 2 d». */
   agoUnits: { min: string; h: string; d: string };
   notNewPayment: string;
+  /** A los 5 min el «Pagado» se cierra: solo esta frase y el justificante. */
+  paidClosed: string;
   confirmedAt: (time: string) => string;
   paidFromBalanceAt: (time: string) => string;
   /** «¡Gracias por la propina!» (en el PAGADO, si dejó). */

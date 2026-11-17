@@ -70,6 +70,7 @@ const pay: PayText = {
   agoSuffix: ' ago',
   agoUnits: { min: 'min', h: 'h', d: 'd' },
   notNewPayment: 'This is not a new payment.',
+  paidClosed: 'Payment complete. Thank you!',
   confirmedAt: (time) => `Confirmed by the bank at ${time}`,
   paidFromBalanceAt: (time) => `Paid from your balance at ${time}`,
   thanksTip: 'Thank you for the tip!',

@@ -76,17 +76,17 @@ describe('pagar con el saldo escaneando el QR del personal', () => {
     expect(html).toContain('Enséñaselo al personal');
   });
 
-  it('cobro ya pagado hace rato → «Ya pagado · hace 23 min» en gris, sin botón de pagar', () => {
+  it('cobro ya pagado hace 4 min → «Ya pagado · hace 4:00» en gris, sin botón de pagar', () => {
     const html = renderQrChargePage(
       'tok-1',
       'es',
-      { ...view, status: 'ACCEPTED', paidAt: new Date(NOW.getTime() - 23 * 60_000).toISOString() },
+      { ...view, status: 'ACCEPTED', paidAt: new Date(NOW.getTime() - 4 * 60_000).toISOString() },
       NOW,
     );
     expect(html).toContain('class="paid stale" id="paid"');
     expect(html).not.toMatch(/id="paid"[^>]* hidden>/);
     expect(html).toContain('Ya pagado');
-    expect(html).toContain('hace 23 min');
+    expect(html).toContain('hace 4:00');
     expect(html).toContain('Pagado con tu saldo a las');
     expect(html).not.toContain('Confirmado por el banco');
     expect(html).not.toContain('id="pay"');
