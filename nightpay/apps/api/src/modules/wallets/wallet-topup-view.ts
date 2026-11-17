@@ -72,8 +72,9 @@ export function topUpOffNote(): string {
 /**
  * Elegir cuánto: las sugeridas, «Otra» y los límites. Por defecto, la del
  * medio. Arriba, una línea con lo que pasa (elige, paga, el saldo sube al
- * momento); debajo del botón, qué pasa con lo que no gaste (y, con comisión,
- * que esa no se devuelve). La comisión, en el desglose con su «¿Qué es?».
+ * momento); justo encima del botón, la regla del saldo («El saldo no se
+ * devuelve: se queda para la próxima visita»), para que nadie cargue
+ * pensando que se le devuelve. La comisión, en el desglose con su «¿Qué es?».
  */
 export function topUpCard(lang: PayLanguage, options: TopUpOptions | null): string {
   const t = WALLET_TEXT[lang];
@@ -111,8 +112,8 @@ export function topUpCard(lang: PayLanguage, options: TopUpOptions | null): stri
 ${breakdown}
 <p class="small" id="topupKey" hidden></p>
 <p class="err" id="topupErr" role="alert" hidden></p>
+<p class="small" id="topupRule">${h(t.keepRule)}</p>
 <button class="btn" type="submit" id="topupGo">${h(t.topUp)}</button>
-<p class="small">${h(withFee ? t.topUpLeftoverFee : t.topUpLeftover)}</p>
 </form>
 </section>
 `;

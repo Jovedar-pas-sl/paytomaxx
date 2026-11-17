@@ -2,6 +2,7 @@ import type { BtcpayInvoiceView } from '@nightpay/contracts';
 import { clientMoney, escapeHtml } from '../payments/club-ui';
 import { customerPage } from '../payments/customer-page';
 import type { LangHref } from '../payments/customer-chrome';
+import { CUSTOMER_TEXT } from '../payments/i18n';
 import { LOCK_ICON } from '../payments/pay-choose-page';
 import { PAY_TEXT, type PayLanguage } from '../payments/pay-i18n';
 
@@ -28,6 +29,12 @@ export interface BitcoinPageInput {
   langHref: LangHref;
   /** El cobro se canceló o la factura se cerró: sin QR, «Elegir otra forma de pagar». */
   closed?: 'expired' | 'problem' | null;
+  /**
+   * Una carga de saldo (no un reservado: sus páginas dicen sus reglas): la
+   * regla del saldo antes del QR («El saldo no se devuelve: se queda para la
+   * próxima visita»).
+   */
+  topUp?: boolean;
 }
 
 const BTC_CSS = `
@@ -36,6 +43,7 @@ const BTC_CSS = `
 .btc-venue{margin:0;color:var(--label);font-size:.9375rem}
 .btc-eur{font-family:var(--num);font-size:clamp(2.5rem,12vw,3rem);font-weight:600;letter-spacing:-.02em;line-height:1.05;color:var(--fg);margin:0}
 .btc-btc{margin:0;color:var(--label);font-size:.9375rem;font-variant-numeric:tabular-nums}
+.btc-keep{margin:0;color:var(--label);font-size:.875rem;line-height:1.4}
 .btc-live{width:100%;display:flex;flex-direction:column;align-items:center;gap:.9rem}
 .btc-qr{background:#fff;border-radius:var(--r);padding:.75rem;width:min(100%,19rem);line-height:0;box-shadow:var(--sh-dialog)}
 .btc-qr img{display:block;width:100%;height:auto;image-rendering:pixelated}
@@ -134,6 +142,7 @@ ${i.venueName ? `<p class="btc-venue">${escapeHtml(i.venueName)}</p>` : ''}
 ${i.venueName ? `<p class="btc-venue">${escapeHtml(i.venueName)}${i.concept ? ` · ${escapeHtml(i.concept)}` : ''}</p>` : i.concept ? `<p class="btc-venue">${escapeHtml(i.concept)}</p>` : ''}
 <p class="btc-eur num">${escapeHtml(eur)}</p>
 ${btcLine}
+${i.topUp ? `<p class="btc-keep" id="keepRule">${escapeHtml(CUSTOMER_TEXT[i.lang].wallet.keepRule)}</p>` : ''}
 <div id="btcLive" class="btc-live">
 <div class="btc-qr"><img src="${escapeHtml(v.qrImage)}" width="260" height="260" alt="${escapeHtml(b.qrAlt)}"></div>
 <p class="btc-scan">${escapeHtml(b.scan)}</p>

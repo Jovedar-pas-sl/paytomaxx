@@ -1,41 +1,42 @@
 import { describe, expect, it } from 'vitest';
 import { PAY_LANGUAGES } from '../payments/customer-lang';
 import { WALLET_TEXT } from './wallet-text';
-import { topUpFeeExplain } from './wallet-topup-view';
+import { topUpCard, topUpFeeExplain } from './wallet-topup-view';
+import type { TopUpOptions } from './wallet-topup.service';
 
 /**
  * Los textos de «Recargar» (/w) que explican la recarga: la línea de arriba,
- * qué pasa con lo que no gaste y el «¿Qué es?» de la comisión de la recarga.
- * Lo que vale para todos los textos del cliente (claves, huecos, marcas…) ya
- * lo prueba payments/i18n/i18n.spec.ts.
+ * la regla del saldo antes de pagar y el «¿Qué es?» de la comisión de la
+ * recarga. Lo que vale para todos los textos del cliente (claves, huecos,
+ * marcas…) ya lo prueba payments/i18n/i18n.spec.ts.
  */
 
-const NEW_KEYS = ['topUpWhy', 'topUpLeftover', 'topUpLeftoverFee', 'topUpFeeExplain'] as const;
+const NEW_KEYS = ['topUpWhy', 'keepRule', 'topUpFeeExplain'] as const;
 
 describe('textos de «Recargar» en la página del saldo', () => {
-  it.each(PAY_LANGUAGES)('%s: lo que no gaste nombra «Me voy» como el botón de la página', (lang) => {
-    const t = WALLET_TEXT[lang];
-    // «Me voy: devolver mi saldo» → «Me voy» (en francés, con su espacio irrompible antes de «:»).
-    const button = t.leaveRow.split(':')[0]?.trim() ?? '';
-    expect(button.length).toBeGreaterThan(3);
-    expect(t.topUpLeftover).toContain(button);
-    expect(t.topUpLeftoverFee).toContain(button);
+  it('la regla del dueño (17-nov): el saldo no se devuelve, se queda para la próxima visita', () => {
+    expect(WALLET_TEXT.es.keepRule).toBe('El saldo no se devuelve: se queda para la próxima visita.');
+    expect(WALLET_TEXT.en.keepRule).toBe('Your balance is not refunded: it stays for your next visit.');
+    expect(WALLET_TEXT.pt.keepRule).toBe('O saldo não é devolvido: fica para a sua próxima visita.');
+    expect(WALLET_TEXT.fr.keepRule.replace(/\s/g, ' ')).toBe('Le solde n’est pas remboursé : il reste pour votre prochaine visite.');
+    for (const lang of PAY_LANGUAGES) {
+      // Ni «Me voy», ni la tarjeta, ni si caduca o no: nada que el código no haga.
+      expect(WALLET_TEXT[lang].keepRule).not.toMatch(/Me voy|leaving|Je pars|Vou embora|tarjeta|card|carte|cartão|caduc|expir/i);
+    }
   });
 
-  it.each(PAY_LANGUAGES)('%s: con comisión, lo mismo y además que la comisión no se devuelve', (lang) => {
-    const t = WALLET_TEXT[lang];
-    expect(t.topUpLeftoverFee.startsWith(t.topUpLeftover)).toBe(true);
-    expect(t.topUpLeftoverFee.length).toBeGreaterThan(t.topUpLeftover.length + 20);
+  it.each(PAY_LANGUAGES)('%s: la regla va justo antes del botón de pagar la recarga (con y sin comisión)', (lang) => {
+    for (const serviceFeeBps of [null, 1200]) {
+      const options: TopUpOptions = { allowed: true, block: null, presetsCents: [2000, 5000], minCents: 1000, maxCents: 30000, serviceFeeBps, feesCents: null };
+      const html = topUpCard(lang, options);
+      const rule = html.indexOf(`<p class="small" id="topupRule">${WALLET_TEXT[lang].keepRule}</p>`);
+      expect(rule).toBeGreaterThan(-1);
+      expect(rule).toBeLessThan(html.indexOf('id="topupGo"'));
+    }
   });
 
-  it('en castellano, lo que hace el código: no caduca, a la tarjeta con «Me voy» y la comisión no se devuelve', () => {
-    const t = WALLET_TEXT.es;
-    expect(t.topUpWhy).toBe('Elige cuánto y paga con Apple Pay, Google Pay o tarjeta, sin propina. Tu saldo sube al momento.');
-    expect(t.topUpLeftover).toContain('no se pierde');
-    expect(t.topUpLeftover).toContain('a tu tarjeta');
-    // Se cargó con tarjeta: no sale en efectivo.
-    expect(t.topUpLeftover).not.toContain('efectivo');
-    expect(t.topUpLeftoverFee).toContain('La comisión del servicio no se devuelve.');
+  it('en castellano, la línea de arriba sigue diciendo cómo se recarga', () => {
+    expect(WALLET_TEXT.es.topUpWhy).toBe('Elige cuánto y paga con Apple Pay, Google Pay o tarjeta, sin propina. Tu saldo sube al momento.');
   });
 
   it.each(PAY_LANGUAGES)('%s: «¿Qué es?» de la recarga lleva el % dentro y no deja huecos', (lang) => {

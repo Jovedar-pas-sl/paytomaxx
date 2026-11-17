@@ -29,9 +29,12 @@ import { RECEIPT_JS, WELCOME_CSS, WELCOME_JS, fichaQrBlock, welcomeCard } from '
  *  - «Recargar»: cuánto, los límites y Apple Pay / Google Pay o tarjeta
  *    (wallet-topup-view.ts). Al volver del banco se abre aquí con su «Pagado».
  *    Si el local no deja recargar, no hay opciones: solo «Pagar».
- * Debajo de las dos, «Más»: elegir PIN, juntar saldos, «Me voy» (en hojas
- * dentro de la página: nada de confirm()/alert()) y los movimientos (tocar
- * uno abre su «Detalle del pago»; uno deshecho dice «Devuelto a tu saldo»). El
+ * Debajo de las dos, «Más»: elegir PIN, juntar saldos (en hojas dentro de la
+ * página: nada de confirm()/alert()), la regla del saldo donde estaba «Me
+ * voy» («El saldo no se devuelve: se queda para la próxima visita»; con una
+ * devolución pedida antes y aún en curso sale su tarjeta en su lugar) y los
+ * movimientos (tocar uno abre su «Detalle del pago»; uno deshecho dice
+ * «Devuelto a tu saldo»). El
  * estado se pone al día al momento: la página escucha los avisos de su saldo
  * (GET /w/:token/events) y solo entonces pide /state; de respaldo, cada
  * 20–30 s, y «Reconectando…» si no lo consigue (wallet-live.ts). Aquí no se
@@ -79,6 +82,7 @@ const WALLET_CSS = `
 .row[aria-expanded]{position:relative;padding-right:2rem}
 .row[aria-expanded]::after{content:'+';position:absolute;right:.5rem;top:50%;transform:translateY(-50%);font-size:1.25rem;color:var(--mute)}
 .row[aria-expanded=true]::after{content:'−'}
+.keep{margin:0;padding:.75rem .25rem;border-bottom:1px solid var(--line);color:var(--mute);font-size:.875rem;line-height:1.4}
 ul{list-style:none;margin:0;padding:0;display:flex;flex-direction:column}
 li.mv{display:flex;align-items:center;gap:.75rem;padding:.55rem 0;border-bottom:1px solid var(--line);font-size:.9375rem}
 li.mv .sw{align-self:stretch;flex:none;width:4px;min-height:2.4rem;border-radius:2px;background:var(--c,var(--dim))}
@@ -245,7 +249,7 @@ function moreList(lang: PayLanguage, aviso: boolean): string {
 <div class="rows">
 <button class="row" type="button" id="pinOpen" hidden>${h(t.pinRow)}<small>${h(t.pinRowHint)}</small></button>
 <button class="row" type="button" id="mergeOpen" hidden>${h(t.mergeRow)}<small>${h(t.mergeRowHint)}</small></button>
-<button class="row" type="button" id="leaveOpen" hidden>${h(t.leaveRow)}<small>${h(t.leaveRowHint)}</small></button>
+<p class="keep" id="keepRule">${h(t.keepRule)}</p>
 ${aviso ? avisoRow(lang) : ''}<button class="row" type="button" id="movOpen" aria-expanded="true" aria-controls="movBox">${h(t.movements)}<small>${h(t.movementsHint)}</small></button>
 <div id="movBox"><ul id="movements"></ul></div>
 </div>
@@ -327,13 +331,7 @@ ${welcome && proof ? `${paidProofSection(lang, proof, options.now ?? new Date())
 </section>
 ${viewTabs(lang)}${payView(lang, state, gw, options.fichaQr ?? null)}${topUpView(lang, options)}${moreList(lang, aviso)}<p class="small">${h(t.saveHint)}</p>
 </main>
-${lostSheet(lang)}${aviso ? avisoSheet(lang) : ''}<dialog class="sheet" id="leaveSheet" aria-labelledby="leaveTitle">
-<h2 id="leaveTitle"></h2><p id="leaveHow"></p>
-<p class="err" id="leaveErr" role="alert" hidden></p>
-<button class="btn" type="button" id="leaveGo">${h(t.leaveGo)}</button>
-<button class="link" type="button" data-close>${h(t.cancel)}</button>
-</dialog>
-<dialog class="sheet" id="pinSheet" aria-labelledby="pinTitle">
+${lostSheet(lang)}${aviso ? avisoSheet(lang) : ''}<dialog class="sheet" id="pinSheet" aria-labelledby="pinTitle">
 <h2 id="pinTitle">${h(t.pinTitle)}</h2><p id="pinWhy"></p>
 <form id="pinForm" autocomplete="off" style="display:flex;flex-direction:column;gap:.8rem">
 <div class="pins"><input id="pin1" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="4" autocomplete="off" aria-label="${h(t.pinLabel)}" placeholder="${h(t.pinLabel)}"><input id="pin2" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="4" autocomplete="off" aria-label="${h(t.pinRepeat)}" placeholder="${h(t.pinRepeat)}"></div>
@@ -377,7 +375,7 @@ function closeSheet(d){if(d.close&&d.open)d.close();else d.removeAttribute('open
 Array.prototype.forEach.call(document.querySelectorAll('dialog.sheet'),function(d){
  d.addEventListener('click',function(e){if(e.target===d||e.target.hasAttribute('data-close'))closeSheet(d);});});
 function busyBtn(b,on,label){b.disabled=on;b.classList.toggle('busy',on);b.textContent=on?label:b.getAttribute('data-label');}
-['leaveGo','pinGo','mergeGo'].forEach(function(id){$(id).setAttribute('data-label',$(id).textContent);});
+['pinGo','mergeGo'].forEach(function(id){$(id).setAttribute('data-label',$(id).textContent);});
 $('faceOn').textContent=U.button;$('faceOn').setAttribute('data-label',U.button);
 $('pinWhy').textContent=fill(T.pinWhy,'code',S.code);
 function refundView(r){
@@ -412,7 +410,8 @@ function render(s){S=s;S.cards=s.cards||[];
  payRender(s,active,r);
  $('pinOpen').hidden=!(active&&!r&&!s.hasPin&&(s.hasFaceId||C.payer));
  $('mergeOpen').hidden=!(active&&!r&&!s.hasFaceId&&!s.merged&&s.balanceCents>0&&(C.payer||s.hasPin));
- $('leaveOpen').hidden=!(active&&s.balanceCents>0&&!s.closeRequested);
+ // La regla del saldo; con una devolución pedida antes y aún en curso, su tarjeta lo dice.
+ $('keepRule').hidden=Boolean(r);
  var ul=$('movements');ul.textContent='';
  if(!s.movements.length){var e=document.createElement('li');e.className='mv';e.textContent=T.noMovements;ul.appendChild(e);}
  s.movements.forEach(function(m){var li=document.createElement('li'),sw=document.createElement('i'),mt=document.createElement('span'),a=document.createElement('b'),sub=document.createElement('span'),b=document.createElement('span'),host=li;li.className='mv';
@@ -460,7 +459,7 @@ var LV=npLive({base:C.base,busy:function(){return busy;},state:function(s){rende
  gone:function(){busy=true;show('notice',T.linkGone);}});
 function refresh(){LV.refresh();}
 function msg(e){return npErr(e,C.errors);}
-// Saldo con Face ID: elegir PIN y «Me voy» piden desbloquear el móvil (reto atado a la acción).
+// Saldo con Face ID: elegir PIN pide desbloquear el móvil (reto atado a la acción).
 function withKey(path,body){if(!S.hasFaceId)return post(path,body);
  return pkGet(C.base+path+'/challenge').then(function(k){body.response=k;return post(path,body);});}
 // Sin Face ID, el primero solo por la vía del móvil que pagó la recarga (C.payer, M-2): con
@@ -471,15 +470,6 @@ $('faceOn').addEventListener('click',function(){var b=$('faceOn');if(busy||!C.pa
   .then(function(){toast('✓ '+U.done);busy=true;window.location.replace(C.base+'?lang='+C.lang);})
   .catch(function(e){busy=false;if(!pkCancelled(e)&&!notPayer(e))show('faceErr',msg(e));})
   .then(function(){if(!busy)busyBtn(b,false);});});
-$('leaveOpen').addEventListener('click',function(){
- $('leaveTitle').textContent=fill(T.leaveTitle,'amount',eur(S.balanceCents));
- $('leaveHow').textContent=S.cards.length?fill(T.leaveWaysCards,'cards',cards()):T.leaveWays;
- show('leaveErr','');openSheet($('leaveSheet'));});
-$('leaveGo').addEventListener('click',function(){var b=$('leaveGo');if(busy)return;show('leaveErr','');
- if(S.hasFaceId&&!pkSupported()){show('leaveErr',T.faceIdNeeded);return;}
- busy=true;busyBtn(b,true,S.hasFaceId?T.unlockWaiting:T.sending);
- withKey('/close',{}).then(function(s){render(s);closeSheet($('leaveSheet'));toast(T.leaveDone);}).catch(function(e){if(!pkCancelled(e))show('leaveErr',msg(e));})
-  .then(function(){busy=false;busyBtn(b,false);});});
 $('pinOpen').addEventListener('click',function(){$('pin1').value='';$('pin2').value='';show('pinErr','');openSheet($('pinSheet'));$('pin1').focus();});
 $('pinForm').addEventListener('submit',function(ev){ev.preventDefault();if(busy)return;show('pinErr','');
  var a=$('pin1').value,c=$('pin2').value;

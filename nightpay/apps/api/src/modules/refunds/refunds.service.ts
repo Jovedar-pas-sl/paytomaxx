@@ -45,7 +45,7 @@ import type { TransactionalClient } from '../../common/prisma/prisma.service';
 import type { Refund } from '@nightpay/db';
 import { findRefundApproval, lockRefundIntent, refundIntent } from './refund-intent';
 import { replayOfRefund, savedResponse, type RefundReplay, type RefundResult } from './refund-replay';
-import { TOPUP_REFUND_TEXT } from '../wallets/saldo-texts';
+import { saldoNoSeDevuelve } from '../wallets/saldo-rule';
 import { assertNotBitcoin } from './bitcoin-refund';
 
 /**
@@ -286,6 +286,8 @@ export class RefundsService {
       where: { id: request.paymentId },
     });
     if (!payment) throw new NotFoundException('Payment not found');
+    // Una recarga del saldo: el saldo no se devuelve (saldo-rule.ts), entrara como entrara.
+    if (payment.walletId) throw saldoNoSeDevuelve();
     assertNotBitcoin(payment.provider);
     if (!REFUNDABLE_STATUSES.has(payment.status)) {
       throw new ConflictException(`Cannot refund payment in state ${payment.status}`);
@@ -297,9 +299,6 @@ export class RefundsService {
     }
     if (!payment.providerTxId || !payment.provider) {
       throw new ConflictException('Payment has no provider transaction id');
-    }
-    if (payment.walletId) {
-      throw new ConflictException(TOPUP_REFUND_TEXT);
     }
     const target: RefundTarget = {
       id: payment.id,
@@ -593,13 +592,13 @@ export class RefundsService {
       },
     });
     if (!payment || payment.tenantId !== actor.tenantId) throw new NotFoundException('Payment not found');
+    // Una recarga del saldo: el saldo no se devuelve (saldo-rule.ts). Solo la
+    // devolución «A la tarjeta» que se pidió antes y se termina ahora
+    // (WalletChargesService.payout) apunta en sus recargas.
+    if (payment.walletId && !opts.walletPayout) throw saldoNoSeDevuelve();
     assertNotBitcoin(payment.provider);
     if (!REFUNDABLE_STATUSES.has(payment.status)) {
       throw new ConflictException('Solo se registran devoluciones de cobros pagados');
-    }
-    if (payment.walletId && !opts.walletPayout) {
-      // El saldo seguiría disponible para gastar.
-      throw new ConflictException(TOPUP_REFUND_TEXT);
     }
     if (request.amountCents > payment.availableAmountCents) {
       throw new BadRequestException(

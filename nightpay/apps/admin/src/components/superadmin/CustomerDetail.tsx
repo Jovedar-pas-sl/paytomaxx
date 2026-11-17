@@ -57,7 +57,7 @@ export function CustomerDetailView({ walletId, onOpenWallet, onBack }: Props) {
                     <span className="np-sa-btn-row">
                       <Pill tone={status.tone}>{status.label}</Pill>
                       {w.blocked ? <Pill tone="danger">Bloqueado</Pill> : null}
-                      {w.closeRequestedAt ? <Pill tone="warning">Pidió «Me voy»</Pill> : null}
+                      {w.closeRequestedAt ? <Pill tone="warning">Devolución pedida antes</Pill> : null}
                     </span>
                   </div>
                   <p className="np-sa-balance np-num">{formatEur(w.balanceCents)}</p>
@@ -65,8 +65,8 @@ export function CustomerDetailView({ walletId, onOpenWallet, onBack }: Props) {
                     <Notice tone="danger">
                       Bloqueado
                       {w.blockedAt ? ` desde ${formatDateTime(w.blockedAt, tz, 'datetime')}` : ''}
-                      {w.blockedReason ? ` por «${w.blockedReason}»` : ''}: no puede pagar (ni Face ID ni PIN). Se le
-                      puede seguir devolviendo el saldo.
+                      {w.blockedReason ? ` por «${w.blockedReason}»` : ''}: no puede pagar (ni Face ID ni PIN). El saldo
+                      sigue siendo suyo.
                     </Notice>
                   ) : null}
                   {w.mergedIntoId ? (

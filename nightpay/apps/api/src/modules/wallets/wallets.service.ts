@@ -284,14 +284,25 @@ export class WalletsService {
           closeRequestedAt: true,
           pinHash: true,
           pinLockedAt: true,
-          _count: { select: { consumptions: true, passkeys: true, cards: { where: { status: { in: ISSUED_CARD_STATUSES } } } } },
+          _count: {
+            select: {
+              consumptions: true,
+              passkeys: true,
+              cards: { where: { status: { in: ISSUED_CARD_STATUSES } } },
+              // Una devolución a la tarjeta que quedó a medias (de antes de la nueva regla).
+              payouts: { where: { status: 'PENDING' } },
+            },
+          },
         },
       }),
     );
     return wallets.map((w) => ({
       id: w.id,
       code: w.shortCode ? formatWalletCode(w.shortCode) : null,
+      /** Una devolución del saldo pedida antes de la nueva regla («Me voy» o recepción), sin terminar. */
       closeRequestedAt: w.closeRequestedAt?.toISOString() ?? null,
+      /** Una devolución a la tarjeta a medias: la termina el dueño («Terminar devolución»). */
+      payoutPending: w._count.payouts > 0,
       identifier: w.identifier,
       balanceCents: w.balanceCents,
       status: w.status as 'ACTIVE' | 'EXPIRED' | 'REFUNDED' | 'DEPLETED',

@@ -1,7 +1,6 @@
 import { BadRequestException, Inject, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
 import { APPROVAL_INCIDENT_MINUTES, APPROVAL_TTL_MS, PENDING_TOPUP_INCIDENT_MINUTES } from '@nightpay/contracts';
 import { PrismaService } from '../../common/prisma/prisma.service';
-import { lastNightCutoff } from '../../common/time/madrid';
 import { AuditService } from '../audit/audit.service';
 import { BackupMonitorService } from '../db-backups/backup-monitor.service';
 import { paymentBankHeldSql } from '../operators/bank-hold-sql';
@@ -23,7 +22,6 @@ import {
   posUnreconciledIncident,
   posVoidedPaidIncident,
   walletCloseRequestedIncident,
-  walletOpenBalanceIncident,
   bankMismatchIncident,
   backupIncidents,
   paymentAnomalyIncident,
@@ -94,7 +92,6 @@ export class IncidentsService {
     const stuckBefore = new Date(now.getTime() - STUCK_MINUTES * 60 * 1000);
     const reconcileBefore = new Date(now.getTime() - RECONCILE_WITHIN_HOURS * 60 * 60 * 1000);
     const refundPendingBefore = new Date(now.getTime() - REFUND_PENDING_MINUTES * 60 * 1000);
-    const nightStart = lastNightCutoff(now);
     const approvalPendingBefore = new Date(now.getTime() - APPROVAL_INCIDENT_MINUTES * 60 * 1000);
     const approvalExpiredBefore = new Date(now.getTime() - APPROVAL_TTL_MS);
     const unassignedBefore = new Date(now.getTime() - PENDING_TOPUP_INCIDENT_MINUTES * 60 * 1000);
@@ -108,7 +105,6 @@ export class IncidentsService {
       posUnmatched,
       posUnreconciled,
       walletsToClose,
-      walletsLeftOpen,
       bankItems,
       anomalies,
       pendingRefunds,
@@ -235,7 +231,9 @@ export class IncidentsService {
          ORDER BY p."authorizedAt" DESC
          LIMIT ${PER_KIND_LIMIT}
       `,
+      // Devoluciones del saldo pedidas antes de que dejara de devolverse, sin terminar.
       // client_wallets tiene FORCE RLS: se lee con bypass y se filtra por local aquí.
+      // (El saldo que se queda tras la noche ya no es un aviso: es para la próxima visita.)
       () => this.prisma.asSystem((tx) => tx.$queryRaw<WalletBalanceRow[]>`
         SELECT id, "shortCode", "balanceCents", "closeRequestedAt" AS "occurredAt"
           FROM client_wallets
@@ -244,20 +242,6 @@ export class IncidentsService {
            AND "balanceCents" > 0
            AND "closeRequestedAt" IS NOT NULL
          ORDER BY "closeRequestedAt" DESC
-         LIMIT ${PER_KIND_LIMIT}
-      `),
-      // Saldo con dinero que no se ha movido desde antes de las últimas 08:00.
-      () => this.prisma.asSystem((tx) => tx.$queryRaw<WalletBalanceRow[]>`
-        SELECT id, "shortCode", "balanceCents", "updatedAt" AS "occurredAt"
-          FROM client_wallets
-         WHERE "tenantId" = ${tenantId}::uuid
-           AND status = 'ACTIVE'
-           AND "balanceCents" > 0
-           AND "closeRequestedAt" IS NULL
-           AND "pendingAssignAt" IS NULL
-           AND "updatedAt" < ${nightStart}
-           AND "updatedAt" >= ${since}
-         ORDER BY "updatedAt" DESC
          LIMIT ${PER_KIND_LIMIT}
       `),
       // Cuadre con el banco: lo que no cuadra (si un fichero posterior cubre
@@ -426,7 +410,6 @@ export class IncidentsService {
       ...posUnreconciled.map(posUnreconciledIncident),
       ...posVoidedPaid.map(posVoidedPaidIncident),
       ...(await this.withBitcoinParts(walletsToClose)).map(walletCloseRequestedIncident),
-      ...walletsLeftOpen.map(walletOpenBalanceIncident),
       ...unassignedTopUps.map(walletTopUpUnassignedIncident),
       // La misma diferencia repetida (dos subidas a la vez) sale una vez.
       ...uniqueBy(bankItems.map(bankMismatchIncident), (i) => i.refId),
@@ -563,9 +546,10 @@ export class IncidentsService {
   }
 
   /**
-   * «Me voy»: la parte de cada saldo que entró con bitcoin (no se devuelve: se
-   * queda como saldo para otra noche). Si todo es bitcoin, no hay nada que hacer
-   * y no sale. Si no se puede leer, como antes (todo por devolver).
+   * Devoluciones pedidas antes de la nueva regla: la parte de cada saldo que
+   * entró con bitcoin (no se devuelve: se queda como saldo para otra noche).
+   * Si todo es bitcoin, no hay nada que hacer y no sale. Si no se puede leer,
+   * como antes (todo por terminar).
    */
   private async withBitcoinParts(rows: WalletBalanceRow[]): Promise<WalletBalanceRow[]> {
     if (rows.length === 0) return rows;
@@ -575,7 +559,7 @@ export class IncidentsService {
       );
       return out.filter((r) => r.balanceCents - r.bitcoinCents > 0);
     } catch (err) {
-      meVoyLogger.warn(`«Me voy»: no se pudo separar la parte de bitcoin (${(err as Error).message})`);
+      meVoyLogger.warn(`Devolución pedida antes: no se pudo separar la parte de bitcoin (${(err as Error).message})`);
       return rows;
     }
   }

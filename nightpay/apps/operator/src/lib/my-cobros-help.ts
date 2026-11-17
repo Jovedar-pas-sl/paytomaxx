@@ -37,7 +37,8 @@ export function myCobrosSituations(viewer: MyCobrosViewer): Situation[] {
     },
     {
       when: 'Quiere lo que le queda en el saldo',
-      todo: 'Que vaya a recepción: allí, en «Salida», se lo devuelven en efectivo.',
+      // Decisión del dueño (17-nov-2026): el saldo no se devuelve.
+      todo: 'El saldo no se devuelve: se queda para la próxima visita. Que guarde su ficha o su código.',
     },
   ];
 }

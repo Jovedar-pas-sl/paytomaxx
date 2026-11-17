@@ -1,15 +1,15 @@
 // Integración (Postgres real, np_app y FORCE RLS): recepción exprés.
 //  - El número de la ficha (20261024200000): sale solo al crearla, seguido y único.
-//  - El NFC acercado: del stock → nuevo; dado a un saldo → ese saldo, lo que tiene y
-//    lo que se le puede devolver en efectivo; por el código, lo mismo y el número de su NFC.
+//  - El NFC acercado: del stock → nuevo; dado a un saldo → ese saldo y lo que tiene
+//    (en efectivo no sale nada: el saldo no se devuelve); por el código, lo mismo y el número de su NFC.
 //  - Solo quien carga saldos (recepción, encargado, dueño); el camarero de barra, 403.
-//  - A la salida, «Devolver en efectivo» deja el saldo a 0 y el NFC vuelve al stock: nuevo otra vez.
+//  - Una devolución pedida antes de la nueva regla, terminada en efectivo, deja el saldo a 0 y el NFC vuelve al stock: nuevo otra vez.
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { randomUUID } from 'node:crypto';
 import { ClsService } from 'nestjs-cls';
 import { ForbiddenException } from '@nestjs/common';
-import { TOP_UP_RECEPTION_ONLY_CODE } from '@nightpay/contracts';
+import { SALDO_SE_QUEDA_TEXT, TOP_UP_RECEPTION_ONLY_CODE } from '@nightpay/contracts';
 import { PrismaService } from '../../src/common/prisma/prisma.service';
 import { CashTopUpService } from '../../src/modules/wallets/wallet-cash-topup.service';
 import { WalletCardsService } from '../../src/modules/wallets/wallet-cards.service';
@@ -79,7 +79,7 @@ describe('el número de la ficha (20261024200000)', () => {
 });
 
 describe('recepción exprés: el NFC acercado (Postgres real)', () => {
-  it('del stock → nuevo; tras cobrar en efectivo y darlo → su saldo, lo que tiene y lo que sale en efectivo', async () => {
+  it('del stock → nuevo; tras cobrar en efectivo y darlo → su saldo y lo que tiene (en efectivo no sale nada: la regla)', async () => {
     const nfc = await stockedCard();
     await expect(inVenue(V, () => cards.desk(V, recepcion(), { card: nfc.card, uid: nfc.uid }))).resolves.toEqual({
       kind: 'new',
@@ -100,8 +100,8 @@ describe('recepción exprés: el NFC acercado (Postgres real)', () => {
       isHomeVenue: true,
       blocked: false,
       closeRequested: false,
-      cashOutCents: 5_000,
-      cashOutNote: null,
+      cashOutCents: 0,
+      cashOutNote: SALDO_SE_QUEDA_TEXT,
       fichaNumber: nfc.number,
     });
     // Por su código: lo mismo, con el número de su NFC.
@@ -118,11 +118,13 @@ describe('recepción exprés: el NFC acercado (Postgres real)', () => {
     expect((err as ForbiddenException).getResponse()).toMatchObject({ code: TOP_UP_RECEPTION_ONLY_CODE });
   });
 
-  it('a la salida, devolver en efectivo lo deja a 0 y el NFC vuelve al stock: nuevo otra vez, con su número', async () => {
+  it('una devolución pedida antes, terminada en efectivo, lo deja a 0 y el NFC vuelve al stock: nuevo otra vez, con su número', async () => {
     const nfc = await stockedCard();
     const out = await inVenue(V, () => cash.topUp(V, recepcion(), { amountCents: 3_500, idempotencyKey: key(), wallet: { create: true } }));
     await inVenue(V, () => charges.linkCard({ ...recepcion(), tenantId: V }, { code: out.code, card: nfc.card, uid: nfc.uid }));
 
+    // El saldo ya no se devuelve (17-nov-2026): solo se termina una pedida antes (el «Me voy» de antes).
+    await sys((tx) => tx.clientWallet.update({ where: { id: out.walletId }, data: { closeRequestedAt: new Date() } }));
     const paid = await inVenue(V, () => charges.payout({ userId: owner, role: 'OWNER', tenantId: V }, out.walletId, { totpCode: '123456', method: 'CASH' }));
     expect(paid).toEqual({ refundedCents: 3_500, method: 'CASH' });
     await expect(inVenue(V, () => cards.desk(V, recepcion(), { card: nfc.card, uid: nfc.uid }))).resolves.toEqual({

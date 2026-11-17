@@ -30,6 +30,7 @@ import { walletClaimSetCookie } from '../payments/wallet-claim';
 import { WalletChargesService, codeHintOf, type ClientWalletState } from './wallet-charges.service';
 import { WalletPasskeysService } from './wallet-passkeys.service';
 import { WalletTopUpService } from './wallet-topup.service';
+import { saldoNoSeDevuelve } from './saldo-rule';
 import { renderWalletPage } from './wallet-page';
 import { checkedPin } from './client-pin';
 import { walletViewSetCookies } from './wallet-view-session';
@@ -55,10 +56,11 @@ import { ChargeAlertService } from './charge-alert/charge-alert.service';
  *  - POST /w/:token/pin/challenge, /pin      → elegir PIN (si aún no tiene): con
  *    Face ID, con su llave; sin él, ya no con el enlace solo (403 ACTIVATION_REQUIRED).
  *  - POST /w/:token/merge/challenge, /merge  → sumar este saldo al de su Face ID, con su PIN.
- *  - POST /w/:token/close/challenge, /close  → "Me voy: devolver mi saldo".
- *    Elegir PIN y «Me voy» con un saldo que tiene Face ID piden además su
- *    llave (el reto de /challenge, atado a `pin:` / `close:` y a este saldo):
- *    con solo el enlace no se le pone PIN para gastarlo con código + PIN.
+ *  - POST /w/:token/close/challenge, /close  → era «Me voy: devolver mi saldo».
+ *    Ya no: 409 SALDO_NO_SE_DEVUELVE (el saldo se queda para la próxima visita).
+ *    Elegir PIN con un saldo que tiene Face ID pide además su llave (el reto
+ *    de /challenge, atado a `pin:` y a este saldo): con solo el enlace no se
+ *    le pone PIN para gastarlo con código + PIN.
  *  - POST /w/:token/topup/challenge, /topup  → «Recargar»: crea la recarga de
  *    este saldo (con su Face ID si lo tiene) y se paga en /pay/:token; al
  *    pagar, este navegador vuelve aquí con ?pagado=<cobro> (WalletTopUpService).
@@ -145,7 +147,7 @@ export class PublicWalletController {
     return this.charges.clientState(token);
   }
 
-  /** Elegir PIN o «Me voy» con Face ID, paso 1: reto para su llave (solo si el saldo tiene Face ID). */
+  /** Elegir PIN con Face ID, paso 1: reto para su llave (solo si el saldo tiene Face ID). */
   @Public()
   @Post(':token/pin/challenge')
   @HttpCode(200)
@@ -380,28 +382,28 @@ export class PublicWalletController {
     }, token, cookies);
   }
 
+  /**
+   * «Me voy» ya no se pide: el saldo no se devuelve, se queda para la próxima
+   * visita (saldo-rule.ts). Las páginas de antes que aún lo llamen reciben el
+   * 409 SALDO_NO_SE_DEVUELVE sin que se les pida el Face ID para nada.
+   */
   @Public()
   @Post(':token/close/challenge')
   @HttpCode(200)
   @Header('Cache-Control', 'no-store')
   @IpRateLimit({ max: 20, windowSec: 60, scope: 'wallet-close' })
-  async closeChallenge(@Param('token') token: string, @Headers('host') host: string | undefined): Promise<unknown> {
-    return this.ownerChallenge(token, 'close', host);
+  async closeChallenge(@Param('token') token: string): Promise<unknown> {
+    await this.charges.walletRefByToken(token);
+    throw saldoNoSeDevuelve();
   }
 
-  /** «Me voy»: con Face ID, solo desbloqueando el móvil del saldo. */
   @Public()
   @Post(':token/close')
   @HttpCode(200)
   @Header('Cache-Control', 'no-store')
   @IpRateLimit({ max: 20, windowSec: 60, scope: 'wallet-close' })
-  async close(
-    @Param('token') token: string,
-    @Body() body: { response?: unknown } | undefined,
-    @Headers('host') host: string | undefined,
-  ): Promise<ClientWalletState> {
-    const wallet = await this.charges.walletRefByToken(token);
-    await this.passkeys.assertOwner(wallet.id, `close:${wallet.id}`, host, body?.response);
+  async close(@Param('token') token: string): Promise<ClientWalletState> {
+    await this.charges.walletRefByToken(token);
     return this.charges.requestClose(token);
   }
 
@@ -411,7 +413,7 @@ export class PublicWalletController {
   }
 
   /** Reto atado a esta acción y a este saldo; 409 si el saldo no tiene Face ID (no hace falta). */
-  private async ownerChallenge(token: string, action: 'pin' | 'close', host: string | undefined): Promise<unknown> {
+  private async ownerChallenge(token: string, action: 'pin', host: string | undefined): Promise<unknown> {
     const wallet = await this.charges.walletRefByToken(token);
     if (!(await this.passkeys.hasPasskey(wallet.id))) {
       throw new ConflictException({ message: 'Este saldo no tiene Face ID', code: 'FACE_ID_NOT_SET' });

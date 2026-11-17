@@ -52,15 +52,14 @@ describe('/w «Recargar» con la comisión del servicio', () => {
     expect(html).toContain('>¿Qué es?</button>');
     expect(html).toContain('Es un 12 % de la recarga, para la plataforma de pago. No va a tu saldo y no es una propina.');
     expect(html).not.toContain('del consumo');
-    // Debajo del botón: lo que no gaste no se pierde, y la comisión no se devuelve.
-    expect(html).toContain(WALLET_TEXT.es.topUpLeftoverFee);
-    expect(html).toContain('La comisión del servicio no se devuelve.');
+    // Antes del botón: el saldo no se devuelve (tampoco la comisión: nada).
+    expect(html).toContain(WALLET_TEXT.es.keepRule);
   });
 
-  it('sin comisión: lo que no gaste no se pierde, sin hablar de comisión', () => {
+  it('sin comisión: la misma regla antes de pagar, sin hablar de comisión', () => {
     const html = topUpCard('es', { ...base, serviceFeeBps: null, feesCents: null });
     expect(html).not.toContain('id="topupFee"');
-    expect(html).toContain(WALLET_TEXT.es.topUpLeftover);
+    expect(html).toContain(WALLET_TEXT.es.keepRule);
     expect(html).not.toContain('comisión');
   });
 

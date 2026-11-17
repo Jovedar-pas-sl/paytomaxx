@@ -51,8 +51,9 @@ export const INCIDENT_KINDS: Record<IncidentKind, KindMeta> = {
     hint: 'Si no es el datáfono de la recepción o no lo reconoces, desvincúlalo en Datáfonos.',
   },
   wallet_credit_skipped: { group: 'Saldo', title: 'Recarga cobrada sin saldo', tab: 'wallets' },
-  wallet_close_requested: { group: 'Saldo', title: 'Un cliente pide su saldo', tab: 'wallets' },
-  wallet_open_balance: { group: 'Saldo', title: 'Saldo de un cliente sin devolver', tab: 'wallets' },
+  wallet_close_requested: { group: 'Saldo', title: 'Devolución de saldo pedida antes', tab: 'wallets', hint: 'Termínala en Saldos («Terminar devolución»).' },
+  // Ya no sale (el saldo se queda para la próxima visita); un API de antes aún puede mandarlo.
+  wallet_open_balance: { group: 'Saldo', title: 'Saldo de un cliente (aviso de antes)', tab: 'wallets' },
   wallet_topup_unassigned: {
     group: 'Saldo',
     title: 'Recarga pendiente de asignar',

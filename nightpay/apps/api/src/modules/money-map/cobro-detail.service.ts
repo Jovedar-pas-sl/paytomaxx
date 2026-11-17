@@ -180,6 +180,8 @@ export class CobroDetailService {
             registeredManually: true,
             bankRefundedAt: true,
             serviceFeeCents: true,
+            // «Devolver en efectivo» (bitcoin): el detalle y el ticket dicen «Devuelto en efectivo».
+            paidInCash: true,
           },
           orderBy: { createdAt: 'asc' },
         },

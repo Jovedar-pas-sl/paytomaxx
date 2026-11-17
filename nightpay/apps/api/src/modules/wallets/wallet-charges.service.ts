@@ -96,6 +96,7 @@ import { customerTipError, staffTipRemoved } from '../payments/tip';
 import { TotpService } from '../auth/totp.service';
 import { assertManagerTwoFactor, assertTwoFactorCode, cashApprovalThreshold } from './wallet-two-factor';
 import { receptionAskedManager } from './reception-payout-rules';
+import { refundPendingFromBefore, saldoNoSeDevuelve } from './saldo-rule';
 import { WalletBlockedException } from './wallet-blocked';
 import { activationPath, issueActivationToken } from './wallet-activation-token';
 import { saldoCredits, serviceFeeSaldoCents, serviceFeeSpendCents } from './wallet-fee-saldo';
@@ -152,7 +153,11 @@ export interface WalletLookup {
   homeVenueName: string;
   /** El saldo se cargó en este local (la devolución a la tarjeta solo desde aquí). */
   isHomeVenue: boolean;
-  /** El cliente pulsó "Me voy". */
+  /**
+   * Una devolución del saldo pedida antes de la nueva regla («Me voy» o
+   * recepción), sin terminar. Una a la tarjeta a medias la dice la vista
+   * previa del panel (payoutPreview.pendingCardCents).
+   */
   closeRequested: boolean;
   /**
    * @deprecated Siempre false: ya no hay cobros que el cliente acepte en su
@@ -1307,9 +1312,10 @@ export class WalletChargesService {
       const keys = await tx.walletPasskey.count({ where: { walletId: sourceWalletId } });
       if (keys > 0) throw mergeError('Esta recarga ya tiene su propio Face ID');
       // A 0 (DEPLETED) se reabre; si su código lo tiene ya otro cliente, con uno nuevo.
+      // Le entra dinero: un «Me voy» pendiente ya no vale (como al recargar).
       await tx.clientWallet.update({
         where: { id: targetWalletId },
-        data: { balanceCents: { increment: source.balanceCents }, ...(await reopenData(tx, target)) },
+        data: { balanceCents: { increment: source.balanceCents }, closeRequestedAt: null, ...(await reopenData(tx, target)) },
       });
       // Una recarga pendiente de asignar (cobrada sin el NFC del cliente) deja de estarlo.
       await tx.clientWallet.update({
@@ -2262,49 +2268,19 @@ export class WalletChargesService {
     }
   }
 
-  /** "Me voy": el cliente pide que le devuelvan el saldo (sale en Incidencias). */
+  /**
+   * «Me voy» ya no pide nada: el saldo no se devuelve, se queda para la
+   * próxima visita (saldo-rule.ts), también el de un reservado. Un enlace que
+   * no existe sigue siendo 404. Las páginas de antes que aún lo llamen
+   * reciben el 409 SALDO_NO_SE_DEVUELVE.
+   */
   async requestClose(qrToken: string): Promise<ClientWalletState> {
-    const wallet = await this.walletByToken(qrToken);
-    if (wallet.balanceCents <= 0) throw new ConflictException({ message: 'No te queda saldo que devolver', code: 'NOTHING_TO_REFUND' });
-    // Reservados: lo que sobra queda como saldo para otra noche, sin devolución en
-    // dinero (salvo que el local anulara la reserva: eso lo devuelve el encargado).
-    const reserved = await this.prisma.asSystem((tx) =>
-      tx.reservation.count({ where: { walletId: wallet.id, status: { not: 'CANCELED' } } }),
-    );
-    if (reserved > 0) {
-      throw new ConflictException({ message: 'El saldo de un reservado no se devuelve en dinero: úsalo otra noche.', code: 'RESERVATION_NO_REFUND' });
-    }
-    const res = await this.prisma.asSystem((tx) =>
-      tx.clientWallet.updateMany({
-        where: { id: wallet.id, status: 'ACTIVE', closeRequestedAt: null },
-        data: { closeRequestedAt: new Date() },
-      }),
-    );
-    if (res.count > 0) {
-      await this.audit.log({
-        action: 'wallet.close_requested',
-        tenantId: wallet.tenantId,
-        targetType: 'ClientWallet',
-        targetId: wallet.id,
-        payload: { balanceCents: wallet.balanceCents },
-      });
-    }
-    return this.clientState(qrToken);
+    await this.walletByToken(qrToken);
+    throw saldoNoSeDevuelve();
   }
 
-  // ─── Devolver el saldo (encargado o dueño) ─────────────────────────────
+  // ─── Terminar una devolución del saldo pedida antes (encargado o dueño) ───
 
-  /**
-   * Devuelve el saldo (y lo cierra si queda a 0).
-   *  - CASH: en efectivo en el local (dueño o encargado), en una transacción.
-   *    Solo lo que entró en efectivo y sin llegar a 1.000 € en 24 h
-   *    (wallet-cash-limits): lo que entró con tarjeta sigue en el saldo y lo
-   *    devuelve el dueño «A la tarjeta». El encargado, desde el umbral del
-   *    local, con su código 2FA.
-   *  - CARD: ya hecho en el portal de BBVA (solo el dueño): se reparte entre
-   *    las recargas y se apunta como devolución de cada una (payoutCard). Como
-   *    mucho el saldo menos el efectivo que sigue en él (ese, en efectivo).
-   */
   /**
    * El PIN del cliente para la salida de recepción (ReceptionPayoutService):
    * el de siempre, con su contador de fallos y quién lo tecleó.
@@ -2357,6 +2333,21 @@ export class WalletChargesService {
     });
   }
 
+  /**
+   * Termina una devolución del saldo pedida ANTES de que el saldo dejara de
+   * devolverse (saldo-rule.ts): el cliente pulsó «Me voy», recepción la dejó
+   * para el encargado o el resto «A la tarjeta» (closeRequestedAt), o una
+   * devolución a la tarjeta quedó a medias. Sin eso, 409 SALDO_NO_SE_DEVUELVE
+   * (también un reservado): nada empieza una nueva. Lo pendiente, como siempre:
+   *  - CASH: en efectivo en el local (dueño o encargado), en una transacción.
+   *    Solo lo que entró en efectivo y sin llegar a 1.000 € en 24 h
+   *    (wallet-cash-limits): lo que entró con tarjeta sigue en el saldo y lo
+   *    devuelve el dueño «A la tarjeta». El encargado, desde el umbral del
+   *    local, con su código 2FA.
+   *  - CARD: ya hecho en el portal de BBVA (solo el dueño): se reparte entre
+   *    las recargas y se apunta como devolución de cada una (payoutCard). Como
+   *    mucho el saldo menos el efectivo que sigue en él (ese, en efectivo).
+   */
   async payout(actor: Actor, walletId: string, input: WalletPayoutInput): Promise<WalletPayoutResult> {
     if (input.method === 'CARD' && actor.role !== 'OWNER') {
       throw new ForbiddenException('La devolución a la tarjeta la registra el dueño (se hace en el portal de BBVA)');
@@ -2370,22 +2361,28 @@ export class WalletChargesService {
       where: { id: actor.tenantId },
       select: { walletGroup: true, refundApprovalThresholdCents: true },
     });
-    const wallet = await this.prisma.acrossVenues((tx) => tx.clientWallet.findUnique({ where: { id: walletId } }));
+    const { wallet, halfDone } = await this.prisma.acrossVenues(async (tx) => {
+      const found = await tx.clientWallet.findUnique({ where: { id: walletId } });
+      const pending = found ? await tx.walletPayout.findFirst({ where: { walletId, status: 'PENDING' }, select: { id: true } }) : null;
+      return { wallet: found, halfDone: pending !== null };
+    });
     if (!wallet || !sameWalletGroup(wallet, { id: actor.tenantId, walletGroup: venue?.walletGroup ?? null })) {
       throw new NotFoundException('Saldo no encontrado');
     }
+    // El saldo no se devuelve: solo se termina lo pedido antes (antes del 2FA: no gasta un intento).
+    if (!refundPendingFromBefore(wallet, halfDone)) throw saldoNoSeDevuelve();
     // Las recargas (y sus devoluciones) son del local donde se cargó el saldo.
     if (input.method === 'CARD' && wallet.tenantId !== actor.tenantId) {
       throw new ConflictException('La devolución a la tarjeta se apunta desde el local donde el cliente cargó el saldo');
     }
-    // Sin el "Me voy" del cliente, solo el dueño puede devolver su saldo.
+    // Sin la petición del cliente (solo una devolución a la tarjeta a medias), la termina el dueño.
     if (actor.role === 'MANAGER' && !wallet.closeRequestedAt) {
-      throw new ForbiddenException('El cliente tiene que pulsar «Me voy» en su página de saldo (o que lo haga el dueño)');
+      throw new ForbiddenException('Esta devolución a la tarjeta quedó a medias: la termina el dueño («A la tarjeta»)');
     }
-    // El dueño devuelve sin que el cliente lo pida ni esté delante: su 2FA, siempre.
+    // El dueño la termina sin que el cliente esté delante: su 2FA, siempre.
     if (actor.role === 'OWNER') await assertTwoFactorCode(this.totp, actor.userId, input.totpCode, 'Para devolver un saldo,', stepUpActions.walletPayout(walletId));
     return input.method === 'CASH'
-      ? this.payoutCash(actor, walletId, input, venue?.refundApprovalThresholdCents, wallet.closeRequestedAt)
+      ? this.payoutCash(actor, walletId, input, venue?.refundApprovalThresholdCents)
       : this.payoutCard(actor, walletId, input);
   }
 
@@ -2402,7 +2399,6 @@ export class WalletChargesService {
     walletId: string,
     input: Omit<WalletPayoutInput, 'method'>,
     thresholdCents: number | undefined,
-    closeRequestedAt: Date | null = null,
   ): Promise<WalletPayoutResult> {
     const { amount, remaining, twoFactor } = await this.prisma.acrossVenues(async (tx) => {
       const w = await lockWallet(tx, walletId);
@@ -2415,11 +2411,13 @@ export class WalletChargesService {
       if (!w || w.status !== 'ACTIVE' || w.balanceCents <= 0) {
         throw new ConflictException('Este saldo no tiene nada que devolver');
       }
+      // Otra vez con el saldo bloqueado: una recarga desde la lectura de payout() quitó el «Me voy».
+      if (!refundPendingFromBefore(w, false)) throw saldoNoSeDevuelve();
       const cash = await walletCash(tx, walletId);
       const cap = cashPayoutCapCents(w.balanceCents, cash);
       if (cap <= 0) throw new ConflictException(cashPayoutRefusal(w.balanceCents, cash));
       assertExpectedPayout(input.expectedAmountCents, cap);
-      const fromReception = actor.role === 'MANAGER' && (await receptionAskedManager(tx, walletId, closeRequestedAt));
+      const fromReception = actor.role === 'MANAGER' && (await receptionAskedManager(tx, walletId, w.closeRequestedAt));
       if (fromReception) {
         await assertTwoFactorCode(
           this.totp,
@@ -2532,6 +2530,8 @@ export class WalletChargesService {
       const w = await lockWallet(tx, walletId);
       if (!w) throw new NotFoundException('Saldo no encontrado');
       const open = await tx.walletPayout.findFirst({ where: { walletId, status: 'PENDING' } });
+      // Otra vez con el saldo bloqueado: una recarga desde la lectura de payout() quitó el «Me voy».
+      if (!refundPendingFromBefore(w, open !== null)) throw saldoNoSeDevuelve();
       if (open) {
         if (open.claimedAt && Date.now() - open.claimedAt.getTime() < PAYOUT_CLAIM_MS) {
           throw new ConflictException('Ya se está apuntando la devolución de este saldo: espera un momento');
@@ -2797,12 +2797,14 @@ const PAYOUT_CLAIM_MS = 2 * 60 * 1000;
 type RawTx = Pick<Prisma.TransactionClient, '$queryRaw'>;
 
 /** La wallet bloqueada (FOR UPDATE), con lo que hace falta para devolver o reabrir. */
+type LockedWallet = { id: string; balanceCents: number; status: string; shortCode: string | null; closeRequestedAt: Date | null };
+
 async function lockWallet(
   tx: RawTx,
   walletId: string,
-): Promise<{ id: string; balanceCents: number; status: string; shortCode: string | null } | null> {
-  const rows = await tx.$queryRaw<Array<{ id: string; balanceCents: number; status: string; shortCode: string | null }>>`
-    SELECT id, "balanceCents", status::text AS status, "shortCode" FROM client_wallets WHERE id = ${walletId}::uuid FOR UPDATE
+): Promise<LockedWallet | null> {
+  const rows = await tx.$queryRaw<LockedWallet[]>`
+    SELECT id, "balanceCents", status::text AS status, "shortCode", "closeRequestedAt" FROM client_wallets WHERE id = ${walletId}::uuid FOR UPDATE
   `;
   return rows[0] ?? null;
 }

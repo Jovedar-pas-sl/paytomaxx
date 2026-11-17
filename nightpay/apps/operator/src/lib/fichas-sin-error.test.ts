@@ -74,10 +74,10 @@ describe('B5: «Escanear su QR (cargó en casa)» en la primera pantalla y la fi
 });
 
 describe('auditoría gráfica en recepción: como el resto de la app', () => {
-  it('«Cargado» y «Devuelto», como «Pagado» (sin mayúsculas)', () => {
+  it('«Cargado», como «Pagado» (sin mayúsculas); «Devuelto» ya no sale: el saldo no se devuelve', () => {
     const desk = read('../components/reception/desk/ReceptionDesk.tsx');
     expect(desk).toContain('word="Cargado"');
-    expect(desk).toContain('word="Devuelto"');
+    expect(desk).not.toContain('word="Devuelto"');
     expect(desk).not.toMatch(/word="(CARGADO|DEVUELTO)"/);
   });
 

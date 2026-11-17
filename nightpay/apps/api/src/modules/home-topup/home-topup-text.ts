@@ -34,12 +34,11 @@ export interface HomeTopUpText {
   opening: string;
   methods: string;
   conditionsTitle: string;
-  /** Lo que no gaste: delante de que no caduca y de cómo se devuelve. */
+  /** Lo que no gaste: delante de que no caduca. */
   keep: string;
   noExpiry: string;
-  refund: string;
-  /** Solo con la comisión del servicio encendida. */
-  refundFee: string;
+  /** La regla del dueño (17-nov-2026): el saldo no se devuelve, se queda para la próxima visita. */
+  keepRule: string;
   mineTitle: string;
   /** «Tu saldo {code} está en este móvil…». */
   mineBody: string;
@@ -99,8 +98,7 @@ const ES: HomeTopUpText = {
   conditionsTitle: 'Antes de pagar',
   keep: 'Lo que no gastes no se pierde.',
   noExpiry: 'Tu saldo no caduca: lo gastas cuando vengas, hoy u otro día.',
-  refund: 'Si te sobra, pide la devolución en tu saldo («Me voy»): el local te lo devuelve a tu tarjeta, y el banco puede tardar unos días en enseñarlo.',
-  refundFee: 'Se devuelve el saldo; la comisión del servicio no se devuelve.',
+  keepRule: 'El saldo no se devuelve: se queda para la próxima visita.',
   mineTitle: 'Ya tienes un saldo aquí',
   mineBody: 'Tu saldo {code} está en este móvil. Recárgalo en vez de crear otro.',
   mineGo: 'Recargar mi saldo',
@@ -156,8 +154,7 @@ const EN: HomeTopUpText = {
   conditionsTitle: 'Before you pay',
   keep: 'What you don’t spend isn’t lost.',
   noExpiry: 'Your balance does not expire: spend it whenever you come, today or another day.',
-  refund: 'If you have some left, ask for a refund on your balance page (“I’m leaving”): the venue refunds it to your card, and your bank may take a few days to show it.',
-  refundFee: 'The balance is refunded; the service fee is not.',
+  keepRule: 'Your balance is not refunded: it stays for your next visit.',
   mineTitle: 'You already have a balance here',
   mineBody: 'Your balance {code} is on this phone. Top it up instead of creating another one.',
   mineGo: 'Top up my balance',
@@ -213,8 +210,7 @@ const FR: HomeTopUpText = withFrenchSpacing({
   conditionsTitle: 'Avant de payer',
   keep: 'Ce que vous ne dépensez pas n’est pas perdu.',
   noExpiry: 'Votre solde n’expire pas : utilisez-le quand vous venez, aujourd’hui ou un autre jour.',
-  refund: 'S’il vous en reste, demandez le remboursement depuis votre solde (« Je pars ») : l’établissement vous rembourse sur votre carte, et votre banque peut mettre quelques jours à l’afficher.',
-  refundFee: 'Le solde est remboursé ; les frais de service ne le sont pas.',
+  keepRule: 'Le solde n’est pas remboursé : il reste pour votre prochaine visite.',
   mineTitle: 'Vous avez déjà un solde ici',
   mineBody: 'Votre solde {code} est sur ce téléphone. Rechargez-le au lieu d’en créer un autre.',
   mineGo: 'Recharger mon solde',
@@ -270,8 +266,7 @@ const PT: HomeTopUpText = {
   conditionsTitle: 'Antes de pagar',
   keep: 'O que não gastar não se perde.',
   noExpiry: 'O seu saldo não expira: gaste-o quando vier, hoje ou noutro dia.',
-  refund: 'Se lhe sobrar, peça a devolução na página do saldo («Vou embora»): o estabelecimento devolve-lhe no cartão, e o banco pode demorar alguns dias a mostrá-lo.',
-  refundFee: 'Devolve-se o saldo; a taxa de serviço não é devolvida.',
+  keepRule: 'O saldo não é devolvido: fica para a sua próxima visita.',
   mineTitle: 'Já tem um saldo aqui',
   mineBody: 'O seu saldo {code} está neste telefone. Carregue-o em vez de criar outro.',
   mineGo: 'Carregar o meu saldo',

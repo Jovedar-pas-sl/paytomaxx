@@ -394,7 +394,9 @@ describe('con la comisión del servicio ENCENDIDA (10 % tarjeta y datáfono, 12 
     expect(await earningsOf(posPay)).toMatchObject([{ reversedCents: 2970 }]);
   });
 
-  it('«Devolver saldo»: solo el saldo (a la tarjeta lo que entró con tarjeta, en efectivo lo de efectivo); la comisión se queda', async () => {
+  it('«Terminar devolución» pedida antes: solo el saldo (a la tarjeta lo que entró con tarjeta, en efectivo lo de efectivo); la comisión se queda', async () => {
+    // El saldo ya no se devuelve (17-nov-2026): solo se termina una pedida antes (el «Me voy» de antes).
+    await sys((tx) => tx.clientWallet.updateMany({ where: { id: { in: [cardWallet, cashWallet] } }, data: { closeRequestedAt: new Date() } }));
     const preview = await inVenue(L.V, () => charges.payoutPreview(ownerActor(L), cardWallet));
     expect(preview).toMatchObject({ balanceCents: 5000, cashOutCents: 0, cardRefundCents: 5000 });
     await expect(inVenue(L.V, () => charges.payout(ownerActor(L), cardWallet, { totpCode: '123456', method: 'CARD' }))).resolves.toMatchObject({ refundedCents: 5000 });
