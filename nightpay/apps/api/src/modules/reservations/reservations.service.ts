@@ -45,6 +45,8 @@ import {
 } from './reservation-rules';
 import { RESERVATION_VIEW_INCLUDE, packageView, reservationView, type ReservationRow } from './reservation-views';
 import { loseDeposit, venueOwnerId } from './reservation-wallet';
+import { CLIENT_BITCOIN_CONFIRMING, bitcoinConfirming, conflictCode } from './reservation-open-payments';
+import { BITCOIN_CONFIRMING_CODE } from '../payments/payments.service';
 
 /** Desde dónde se reserva: el enlace del local, el de un RRPP o el panel. */
 export interface BookingEntry {
@@ -104,6 +106,13 @@ export const RESERVATION_GONE = 'Este enlace no existe o ya no vale';
  */
 export const NOT_STARTED = ['CREATED', 'AWAITING_CAPTURE'] as const;
 const notStarted = (status: string): boolean => (NOT_STARTED as readonly string[]).includes(status);
+
+/**
+ * Al anular la reserva se cancelan sus pagos a medias sin empezar o con su
+ * factura de bitcoin abierta (PaymentsService.reservationPaymentCancelable).
+ * Con la tarjeta ya en el banco, no: lo resuelve el banco.
+ */
+const OPEN_TO_CANCEL: Prisma.PaymentWhereInput = { OR: [{ status: { in: [...NOT_STARTED] } }, { status: 'AUTHORIZING', provider: 'BTCPAY' }] };
 
 interface OpenReservationPayment {
   paymentId: string;
@@ -391,17 +400,65 @@ export class ReservationsService {
       : null;
   }
 
-  /** Otro tipo de pago con uno a medias: el de antes se cancela (si ya está en el banco o con bitcoin, hay que esperar). */
+  /**
+   * Otro tipo de pago con uno a medias: el de antes se cancela (si ya está en el
+   * banco o con bitcoin, hay que esperar). Con el cobro bloqueado: si entretanto
+   * fue al banco no se toca, y si abrió una factura de bitcoin se cierra.
+   */
   private async dropOpen(open: { paymentId: string; status: string }, tenantId: string): Promise<void> {
     if (notStarted(open.status)) {
-      try {
-        await this.payments.transition(open.paymentId, { type: 'CANCELED', reason: 'Otro pago del reservado' }, tenantId);
-        return;
-      } catch {
-        // Se pagó o caducó mientras tanto: abajo se mira otra vez.
-      }
+      const canceled = await this.payments
+        .cancelReservationPayment(open.paymentId, tenantId, { reason: 'Otro pago del reservado' })
+        .catch((err: unknown) => {
+          if (conflictCode(err) === BITCOIN_CONFIRMING_CODE) return false;
+          throw err;
+        });
+      if (canceled) return;
+      // Se pagó, caducó o fue al banco mientras tanto: hay que esperar.
     }
     throw new ConflictException({ message: 'Tienes un pago a medias: termínalo o espera unos minutos.', code: 'RESERVATION_PAY_OPEN' });
+  }
+
+  /**
+   * Al anular la reserva (el local o el cliente), antes de anularla: sus pagos a
+   * medias (sin empezar o con su factura de bitcoin abierta) se cancelan como
+   * «Cancelar cobro» y su factura de bitcoin se cierra. Con el bitcoin ya en la
+   * red, 409 BITCOIN_CONFIRMING (con `confirmingMessage`) y la reserva no se
+   * anula: el dinero llegaría igual. Con la tarjeta ya en el banco no se tocan.
+   */
+  async cancelOpenPayments(
+    reservationId: string,
+    tenantId: string,
+    opts: { reason: string; byUserId?: string; confirmingMessage: string },
+  ): Promise<void> {
+    for (const paymentId of await this.openToCancel(reservationId)) {
+      try {
+        await this.payments.cancelReservationPayment(paymentId, tenantId, { reason: opts.reason, ...(opts.byUserId ? { byUserId: opts.byUserId } : {}) });
+      } catch (err) {
+        if (conflictCode(err) === BITCOIN_CONFIRMING_CODE) throw bitcoinConfirming(opts.confirmingMessage);
+        throw err;
+      }
+    }
+  }
+
+  /**
+   * Ya anulada: un pago a medias que se abrió entretanto (otra pestaña) también
+   * se cancela. Sin frenar nada: lo que no se pueda cancelar, si llega a pagarse,
+   * queda apuntado en la reserva como no aplicado.
+   */
+  async cancelLeftoverPayments(reservationId: string, tenantId: string, reason: string, byUserId?: string): Promise<void> {
+    for (const paymentId of await this.openToCancel(reservationId)) {
+      await this.payments
+        .cancelReservationPayment(paymentId, tenantId, { reason, ...(byUserId ? { byUserId } : {}) })
+        .catch((err: unknown) => this.logger.warn(`Reserva ${reservationId} anulada: el pago ${paymentId} no se pudo cancelar: ${(err as Error).message}`));
+    }
+  }
+
+  private async openToCancel(reservationId: string): Promise<string[]> {
+    const rows = await this.prisma.asSystem((tx) =>
+      tx.reservationPayment.findMany({ where: { reservationId, paidAt: null, payment: OPEN_TO_CANCEL }, select: { paymentId: true } }),
+    );
+    return rows.flatMap((r) => (r.paymentId ? [r.paymentId] : []));
   }
 
   // ─── La página del grupo y la de cada QR ────────────────────────────
@@ -427,11 +484,13 @@ export class ReservationsService {
     const cancelBlocked = clientCancelProblem({ status: row.status, nightDate: day }, now, openMinute);
     const leftover = ['ARRIVED', 'NO_SHOW', 'CLIENT_CANCELED'].includes(row.status);
     const saldo = row.wallet && leftover && row.wallet.balanceCents > 0 ? row.wallet.qrToken : null;
+    const payable = payableKinds(row);
     return {
       venueName: row.venue.name,
       reservation: view,
-      payable: payableKinds(row),
-      openPayUrl: open && continuable(open) ? `/pay/${encodeURIComponent(open.qrToken)}` : null,
+      payable,
+      // «Seguir pagando», solo mientras la reserva se pueda pagar (anulada o ya pagada, nunca).
+      openPayUrl: open && continuable(open) && payable.length > 0 ? `/pay/${encodeURIComponent(open.qrToken)}` : null,
       canChangeDate: clientChangeBlocker({ ...row, nightDate: day }, now, openMinute) === null,
       cancel: cancelBlocked ? null : row.status === 'PENDING' ? 'Cancelar' : 'Anular',
       cancelBlocked: row.status === 'DEPOSIT_PAID' || row.status === 'PAID' ? cancelBlocked : null,
@@ -496,26 +555,29 @@ export class ReservationsService {
   }
 
   /**
-   * El cliente anula su reserva. Sin pagar: «Cancelar» (nada que devolver; el
-   * pago a medias se cancela). Pagada y avisando con 48 h antes de la apertura:
-   * pierde la señal (pasa a venta, como «No vino», firmado por el dueño del
-   * local) y lo demás le queda de saldo para otra noche, sin devolución en
-   * dinero. Sin las 48 h no puede (si no viene, «No vino»).
+   * El cliente anula su reserva. Sin pagar: «Cancelar» (nada que devolver).
+   * Pagada y avisando con 48 h antes de la apertura: pierde la señal (pasa a
+   * venta, como «No vino», firmado por el dueño del local) y lo demás le queda
+   * de saldo para otra noche, sin devolución en dinero. Sin las 48 h no puede
+   * (si no viene, «No vino»). En los dos casos, su pago a medias se cancela
+   * antes (y su factura de bitcoin se cierra); con su bitcoin ya en la red, 409
+   * BITCOIN_CONFIRMING y no se anula (llegaría igual).
    */
   async clientCancel(manageToken: string): Promise<void> {
     const ref = await this.byManageToken(manageToken);
     if (!ref) throw new NotFoundException({ message: RESERVATION_GONE, code: 'RESERVATION_GONE' });
-    const openPayment = await this.prisma.asSystem(async (tx) => {
+    // ¿Se puede anular? Antes de tocar sus pagos (se mira otra vez con la reserva bloqueada).
+    await this.prisma.asSystem((tx) => this.clientCancelable(tx, ref.id));
+    const reason = 'Reserva cancelada por el cliente';
+    await this.cancelOpenPayments(ref.id, ref.tenantId, { reason, confirmingMessage: CLIENT_BITCOIN_CONFIRMING });
+    await this.prisma.asSystem(async (tx) => {
       const rows = await tx.$queryRaw<Array<{ id: string }>>`SELECT id FROM reservations WHERE id = ${ref.id}::uuid FOR UPDATE`;
       if (rows.length === 0) throw new NotFoundException({ message: RESERVATION_GONE, code: 'RESERVATION_GONE' });
-      const r = await tx.reservation.findUniqueOrThrow({ where: { id: ref.id }, include: { venue: { select: { reservationsOpenMinute: true } } } });
-      const problem = clientCancelProblem({ status: r.status, nightDate: dayOf(r.nightDate) }, new Date(), r.venue.reservationsOpenMinute);
-      if (problem) throw new ConflictException({ message: problem, code: 'RESERVATION_CANCEL' });
+      const r = await this.clientCancelable(tx, ref.id);
       if (r.status === 'PENDING') {
         await tx.reservation.update({ where: { id: r.id }, data: { status: 'CANCELED', canceledAt: new Date(), cancelReason: 'El cliente la canceló sin pagar' } });
         await this.audit.logInTx(tx, { action: 'reservation.canceled_by_client', tenantId: r.tenantId, targetType: 'Reservation', targetId: r.id, payload: { paidCents: 0 } });
-        const open = await tx.reservationPayment.findFirst({ where: { reservationId: r.id, paidAt: null, payment: { status: { in: [...NOT_STARTED] } } }, select: { paymentId: true } });
-        return open?.paymentId ? { paymentId: open.paymentId, tenantId: r.tenantId } : null;
+        return;
       }
       const outcome = await loseDeposit(tx, r, await venueOwnerId(tx, r.tenantId), 'cancel');
       await tx.reservation.update({
@@ -523,10 +585,15 @@ export class ReservationsService {
         data: { status: 'CLIENT_CANCELED', canceledAt: new Date(), cancelReason: 'Anulada por el cliente con 48 h', recognizedAt: new Date() },
       });
       await this.audit.logInTx(tx, { action: 'reservation.canceled_by_client', tenantId: r.tenantId, targetType: 'Reservation', targetId: r.id, payload: { ...outcome } });
-      return null;
     });
-    if (openPayment) {
-      await this.payments.transition(openPayment.paymentId, { type: 'CANCELED', reason: 'Reserva cancelada por el cliente' }, openPayment.tenantId).catch(() => undefined);
-    }
+    await this.cancelLeftoverPayments(ref.id, ref.tenantId, reason);
+  }
+
+  /** La reserva, si el cliente la puede anular ahora; si no, 409 con el porqué. */
+  private async clientCancelable(tx: TransactionalClient, id: string) {
+    const r = await tx.reservation.findUniqueOrThrow({ where: { id }, include: { venue: { select: { reservationsOpenMinute: true } } } });
+    const problem = clientCancelProblem({ status: r.status, nightDate: dayOf(r.nightDate) }, new Date(), r.venue.reservationsOpenMinute);
+    if (problem) throw new ConflictException({ message: problem, code: 'RESERVATION_CANCEL' });
+    return r;
   }
 }

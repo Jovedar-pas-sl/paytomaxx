@@ -22,8 +22,8 @@ import {
 } from './reservation-rules';
 import { RESERVATION_VIEW_INCLUDE, reservationView, servedItems, type ReservationRow } from './reservation-views';
 import { loseDeposit, spendFromGroupWallet, venueOwnerId } from './reservation-wallet';
-import { REST_PAYING_TEXT, RESERVATION_PAY_OPEN_CODE, conflictCode, restPayingText } from './reservation-open-payments';
-import { NOT_STARTED, ReservationsService } from './reservations.service';
+import { REST_PAYING_TEXT, RESERVATION_PAY_OPEN_CODE, VENUE_BITCOIN_CONFIRMING, conflictCode, restPayingText } from './reservation-open-payments';
+import { ReservationsService } from './reservations.service';
 
 export interface StaffActor {
   userId: string;
@@ -33,6 +33,8 @@ export interface StaffActor {
 
 const MANAGERS = new Set(['OWNER', 'MANAGER']);
 const NOT_FOUND = 'Reserva no encontrada';
+/** Lo que el local puede anular. */
+const VENUE_CANCELABLE = new Set(['PENDING', 'DEPOSIT_PAID', 'PAID']);
 /** Un pago de la reserva a medias: sin empezar o pagándose (en el banco o con bitcoin). */
 const PAYING = ['CREATED', 'AWAITING_CAPTURE', 'AUTHORIZING'] as const;
 
@@ -385,24 +387,30 @@ export class ReservationOpsService {
   }
 
   /**
-   * El local anula la reserva. Sin pagar: «Cancelar». Pagada: el dinero está en
-   * el saldo del grupo y se devuelve desde Saldos → «Devolver saldo» (el saldo
-   * de una reserva anulada por el local sí se devuelve).
+   * El local anula la reserva. Sin pagar: «Cancelar». Pagada: el local devuelve
+   * lo pagado: el dinero está en el saldo del grupo y se devuelve desde Saldos →
+   * «Devolver saldo»; lo pagado con bitcoin, solo en euros y hablando con el local
+   * («Devolver saldo» no lo saca). Antes de anular, su pago a medias (sin empezar
+   * o con su factura de bitcoin abierta) se cancela como «Cancelar cobro» y su
+   * factura se cierra; con el bitcoin ya en la red, 409 BITCOIN_CONFIRMING y no
+   * se anula (el dinero llegaría igual).
    */
   async venueCancel(actor: StaffActor, id: string, reason: string): Promise<{ reservation: ReservationView; refundCents: number; walletId: string | null }> {
     this.assertManager(actor);
-    let open: string | null = null;
+    // ¿Se puede anular? Antes de tocar sus pagos (se mira otra vez con la reserva bloqueada).
+    if (!VENUE_CANCELABLE.has((await this.detail(actor, id)).status)) throw cannotCancel();
+    const cancelReason = 'Reserva anulada por el local';
+    await this.reservations.cancelOpenPayments(id, actor.tenantId, { reason: cancelReason, byUserId: actor.userId, confirmingMessage: VENUE_BITCOIN_CONFIRMING });
     const out = await this.locked(actor, id, async (tx, r) => {
-      if (!['PENDING', 'DEPOSIT_PAID', 'PAID'].includes(r.status)) throw new ConflictException({ message: 'Esta reserva ya no se puede anular', code: 'RESERVATION_CANCEL' });
+      if (!VENUE_CANCELABLE.has(r.status)) throw cannotCancel();
       await tx.reservation.update({ where: { id: r.id }, data: { status: 'CANCELED', canceledAt: new Date(), canceledByUserId: actor.userId, cancelReason: reason } });
       // Anula el local: el RRPP pierde la comisión (si ya estaba apuntada, sale del reparto).
       await voidPromoterCommission(tx, r, actor.userId);
-      const pending = await tx.reservationPayment.findFirst({ where: { reservationId: r.id, paidAt: null, payment: { status: { in: [...NOT_STARTED] } } }, select: { paymentId: true } });
-      open = pending?.paymentId ?? null;
       await this.audit.logInTx(tx, { action: 'reservation.canceled_by_venue', tenantId: r.tenantId, actorId: actor.userId, targetType: 'Reservation', targetId: r.id, payload: { reason, paidCents: r.paidCents } });
       return { refundCents: r.paidCents, walletId: r.walletId };
     });
-    if (open) await this.payments.transition(open, { type: 'CANCELED', reason: 'Reserva anulada por el local' }, actor.tenantId).catch(() => undefined);
+    // Un pago a medias que se abrió entretanto (el cliente en otra pestaña): también.
+    await this.reservations.cancelLeftoverPayments(id, actor.tenantId, cancelReason, actor.userId);
     return { reservation: await this.detail(actor, id), ...out };
   }
 
@@ -498,4 +506,8 @@ export class ReservationOpsService {
 
 function isUniqueClash(err: unknown): boolean {
   return err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002';
+}
+
+function cannotCancel(): ConflictException {
+  return new ConflictException({ message: 'Esta reserva ya no se puede anular', code: 'RESERVATION_CANCEL' });
 }

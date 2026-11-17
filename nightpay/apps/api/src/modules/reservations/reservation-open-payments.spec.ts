@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { ConflictException } from '@nestjs/common';
-import { REST_PAYING_TEXT, conflictCode, restPayingText } from './reservation-open-payments';
+import {
+  CLIENT_BITCOIN_CONFIRMING,
+  REST_PAYING_TEXT,
+  VENUE_BITCOIN_CONFIRMING,
+  bitcoinConfirming,
+  conflictCode,
+  restPayingText,
+} from './reservation-open-payments';
 
 const conflict = (code: string) => new ConflictException({ code, message: 'x' });
 
@@ -23,8 +30,16 @@ describe('el pago a medias de un reservado: lo que se dice si aún no se puede c
     expect(restPayingText(new ConflictException('Payment cannot be canceled in state AUTHORIZED'))).toBeNull();
   });
 
+  it('anular con el bitcoin en la red: el mismo código, con el texto de quien anula', () => {
+    expect(bitcoinConfirming(CLIENT_BITCOIN_CONFIRMING).getResponse()).toEqual({ code: 'BITCOIN_CONFIRMING', message: CLIENT_BITCOIN_CONFIRMING });
+    expect(CLIENT_BITCOIN_CONFIRMING).toMatch(/^Tu pago con bitcoin/);
+    expect(VENUE_BITCOIN_CONFIRMING).toMatch(/^El cliente ya pagó con bitcoin/);
+  });
+
   it('frases de menos de 120 letras: la app del personal no enseña un 409 más largo', () => {
     const texts = [
+      CLIENT_BITCOIN_CONFIRMING,
+      VENUE_BITCOIN_CONFIRMING,
       REST_PAYING_TEXT,
       restPayingText(conflict('BITCOIN_CONFIRMING')),
       restPayingText(conflict('CANCEL_AT_BANK_TOO_SOON')),

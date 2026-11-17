@@ -1,6 +1,7 @@
-// El pago a medias de un reservado (con tarjeta o con bitcoin) cuando se cobra
-// el resto en efectivo: lo que se dice si no se puede cancelar todavía (el
-// bitcoin ya en la red, el cliente en su banco). Cancelar lo hace PaymentsService, con las reglas de «Cancelar cobro».
+// El pago a medias de un reservado (con tarjeta o con bitcoin) cuando se anula
+// la reserva (el local o el cliente) o se cobra el resto en efectivo: lo que se
+// dice si no se puede cancelar todavía (el bitcoin ya en la red, el cliente en
+// su banco). Cancelar lo hace PaymentsService, con las reglas de «Cancelar cobro».
 
 import { ConflictException } from '@nestjs/common';
 import { CANCEL_AT_BANK_AFTER_MS, CANCEL_AT_BANK_TOO_SOON_CODE } from '@nightpay/contracts';
@@ -15,6 +16,19 @@ export function conflictCode(err: unknown): string | null {
 }
 
 // Los textos, cortos (menos de 120 letras): la app del personal no enseña un 409 más largo.
+
+/** El cliente anula su reserva con su pago con bitcoin ya en la red: llegaría igual. */
+export const CLIENT_BITCOIN_CONFIRMING =
+  'Tu pago con bitcoin ya está en la red y falta su confirmación: aún no se puede cancelar. Espera unos minutos.';
+
+/** El local anula con el pago con bitcoin del cliente ya en la red: llegaría igual. */
+export const VENUE_BITCOIN_CONFIRMING =
+  'El cliente ya pagó con bitcoin y falta que la red lo confirme: aún no se puede anular la reserva. Espera unos minutos.';
+
+/** Ese 409 del bitcoin en la red, con el texto de quien anula (mismo código). */
+export function bitcoinConfirming(message: string): ConflictException {
+  return new ConflictException({ code: BITCOIN_CONFIRMING_CODE, message });
+}
 
 /**
  * El resto en efectivo en la puerta con el pago del resto aún en marcha (lo que
