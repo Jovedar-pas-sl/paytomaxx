@@ -1312,9 +1312,10 @@ export class WalletChargesService {
       const keys = await tx.walletPasskey.count({ where: { walletId: sourceWalletId } });
       if (keys > 0) throw mergeError('Esta recarga ya tiene su propio Face ID');
       // A 0 (DEPLETED) se reabre; si su código lo tiene ya otro cliente, con uno nuevo.
+      // Le entra dinero: un «Me voy» pendiente ya no vale (como al recargar).
       await tx.clientWallet.update({
         where: { id: targetWalletId },
-        data: { balanceCents: { increment: source.balanceCents }, ...(await reopenData(tx, target)) },
+        data: { balanceCents: { increment: source.balanceCents }, closeRequestedAt: null, ...(await reopenData(tx, target)) },
       });
       // Una recarga pendiente de asignar (cobrada sin el NFC del cliente) deja de estarlo.
       await tx.clientWallet.update({
@@ -2381,7 +2382,7 @@ export class WalletChargesService {
     // El dueño la termina sin que el cliente esté delante: su 2FA, siempre.
     if (actor.role === 'OWNER') await assertTwoFactorCode(this.totp, actor.userId, input.totpCode, 'Para devolver un saldo,', stepUpActions.walletPayout(walletId));
     return input.method === 'CASH'
-      ? this.payoutCash(actor, walletId, input, venue?.refundApprovalThresholdCents, wallet.closeRequestedAt)
+      ? this.payoutCash(actor, walletId, input, venue?.refundApprovalThresholdCents)
       : this.payoutCard(actor, walletId, input);
   }
 
@@ -2398,7 +2399,6 @@ export class WalletChargesService {
     walletId: string,
     input: Omit<WalletPayoutInput, 'method'>,
     thresholdCents: number | undefined,
-    closeRequestedAt: Date | null = null,
   ): Promise<WalletPayoutResult> {
     const { amount, remaining, twoFactor } = await this.prisma.acrossVenues(async (tx) => {
       const w = await lockWallet(tx, walletId);
@@ -2411,11 +2411,13 @@ export class WalletChargesService {
       if (!w || w.status !== 'ACTIVE' || w.balanceCents <= 0) {
         throw new ConflictException('Este saldo no tiene nada que devolver');
       }
+      // Otra vez con el saldo bloqueado: una recarga desde la lectura de payout() quitó el «Me voy».
+      if (!refundPendingFromBefore(w, false)) throw saldoNoSeDevuelve();
       const cash = await walletCash(tx, walletId);
       const cap = cashPayoutCapCents(w.balanceCents, cash);
       if (cap <= 0) throw new ConflictException(cashPayoutRefusal(w.balanceCents, cash));
       assertExpectedPayout(input.expectedAmountCents, cap);
-      const fromReception = actor.role === 'MANAGER' && (await receptionAskedManager(tx, walletId, closeRequestedAt));
+      const fromReception = actor.role === 'MANAGER' && (await receptionAskedManager(tx, walletId, w.closeRequestedAt));
       if (fromReception) {
         await assertTwoFactorCode(
           this.totp,
@@ -2528,6 +2530,8 @@ export class WalletChargesService {
       const w = await lockWallet(tx, walletId);
       if (!w) throw new NotFoundException('Saldo no encontrado');
       const open = await tx.walletPayout.findFirst({ where: { walletId, status: 'PENDING' } });
+      // Otra vez con el saldo bloqueado: una recarga desde la lectura de payout() quitó el «Me voy».
+      if (!refundPendingFromBefore(w, open !== null)) throw saldoNoSeDevuelve();
       if (open) {
         if (open.claimedAt && Date.now() - open.claimedAt.getTime() < PAYOUT_CLAIM_MS) {
           throw new ConflictException('Ya se está apuntando la devolución de este saldo: espera un momento');
@@ -2793,12 +2797,14 @@ const PAYOUT_CLAIM_MS = 2 * 60 * 1000;
 type RawTx = Pick<Prisma.TransactionClient, '$queryRaw'>;
 
 /** La wallet bloqueada (FOR UPDATE), con lo que hace falta para devolver o reabrir. */
+type LockedWallet = { id: string; balanceCents: number; status: string; shortCode: string | null; closeRequestedAt: Date | null };
+
 async function lockWallet(
   tx: RawTx,
   walletId: string,
-): Promise<{ id: string; balanceCents: number; status: string; shortCode: string | null } | null> {
-  const rows = await tx.$queryRaw<Array<{ id: string; balanceCents: number; status: string; shortCode: string | null }>>`
-    SELECT id, "balanceCents", status::text AS status, "shortCode" FROM client_wallets WHERE id = ${walletId}::uuid FOR UPDATE
+): Promise<LockedWallet | null> {
+  const rows = await tx.$queryRaw<LockedWallet[]>`
+    SELECT id, "balanceCents", status::text AS status, "shortCode", "closeRequestedAt" FROM client_wallets WHERE id = ${walletId}::uuid FOR UPDATE
   `;
   return rows[0] ?? null;
 }

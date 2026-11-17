@@ -4,6 +4,7 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import { randomUUID } from 'node:crypto';
 import { ClsService } from 'nestjs-cls';
 import { PrismaService } from '../../src/common/prisma/prisma.service';
+import { PaymentsService } from '../../src/modules/payments/payments.service';
 import { WalletChargesService } from '../../src/modules/wallets/wallet-charges.service';
 import { WalletsService } from '../../src/modules/wallets/wallets.service';
 
@@ -46,6 +47,18 @@ const refundsStub = {
   }),
 };
 const charges = new WalletChargesService(prisma as never, audit as never, { get: () => refundsStub } as never, { isEnabled: async () => true, assertForUser: async () => undefined } as never);
+const noop = () => undefined;
+const payments = new PaymentsService(
+  prisma as never,
+  cls as never,
+  { add: vi.fn(async () => undefined) } as never,
+  { add: vi.fn(async () => undefined) } as never,
+  {} as never,
+  { emitPaymentUpdate: noop, emitPaymentCompleted: noop } as never,
+  { paymentsCreated: { inc: noop }, paymentsTransitioned: { inc: noop }, walletCreditSkipped: { inc: noop }, duplicateCharges: { inc: noop } } as never,
+  {} as never,
+  {} as never,
+);
 
 const r = randomUUID().slice(0, 6);
 let A: string, B: string, X: string, chicaB: string, managerB: string, ownerA: string, svcB: string;
@@ -562,6 +575,53 @@ describe('terminar una devolución del saldo pedida antes (Postgres real)', () =
     expect(bank.calls).toEqual([]);
     expect(await balanceOf(w)).toMatchObject({ balanceCents: 2_500, status: 'ACTIVE' });
     expect(await sys((tx) => tx.walletPayout.count({ where: { walletId: w } }))).toBe(0);
+  });
+
+  /** Recarga con tarjeta en recepción que el banco aprueba ahora: se suma al saldo como en producción. */
+  const cardTopUpNow = async (walletId: string, amountCents: number, tag: string) => {
+    const order = `FDN${tag}${r}`.toUpperCase();
+    const id = await sys(async (tx) => {
+      const term = (await tx.terminal.create({ data: { tenantId: A, externalId: `FDN-${tag}-${r}`, label: 'Recepción' } })).id;
+      return (
+        await tx.payment.create({
+          data: {
+            tenantId: A, terminalId: term, idempotencyKey: `fdn-${tag}-${r}`, amountCents, availableAmountCents: amountCents,
+            qrToken: `fqdn-${tag}-${r}`, qrExpiresAt: new Date(Date.now() + 300_000), walletId,
+          },
+        })
+      ).id;
+    });
+    await inVenue(undefined, () => payments.transition(id, { type: 'AUTHORIZING' }));
+    await sys((tx) => tx.payment.update({ where: { id }, data: { provider: 'REDSYS', providerTxId: order } }));
+    await inVenue(undefined, () => payments.transition(id, { type: 'AUTHORIZED', provider: 'REDSYS', providerTxId: order }));
+  };
+
+  it('«Me voy» de antes y luego le entra saldo (recarga con tarjeta o Face ID): ya no vale, 409 y nada se devuelve', async () => {
+    const card = await wallet(A, 2_000, `fg-${r}`, 'D7');
+    await paidTopUp(card, 2_000, 'd7');
+    await askedBefore(card);
+    await cardTopUpNow(card, 10_000, 'd7n');
+
+    const merged = await wallet(A, 2_000, `fg-${r}`, 'D8');
+    const src = await wallet(A, 10_000, `fg-${r}`, 'D9');
+    await paidTopUp(merged, 2_000, 'd8');
+    await paidTopUp(src, 10_000, 'd9');
+    await askedBefore(merged);
+    await inVenue(undefined, () => charges.mergeInto(src, merged));
+
+    bank.calls = [];
+    for (const w of [card, merged]) {
+      expect(await balanceOf(w)).toMatchObject({ balanceCents: 12_000, status: 'ACTIVE', closeRequestedAt: null });
+      for (const method of ['CASH', 'CARD'] as const) {
+        await expect(inVenue(A, () => charges.payout(ownerActor(), w, { totpCode: '123456', method }))).rejects.toMatchObject({
+          status: 409,
+          response: { code: 'SALDO_NO_SE_DEVUELVE' },
+        });
+      }
+      expect(await balanceOf(w)).toMatchObject({ balanceCents: 12_000, status: 'ACTIVE' });
+      expect(await sys((tx) => tx.walletPayout.count({ where: { walletId: w } }))).toBe(0);
+    }
+    expect(bank.calls).toEqual([]);
   });
 
   it('#22 a la tarjeta tras sumar una recarga (Face ID): se reparte también entre las recargas del saldo sumado', async () => {

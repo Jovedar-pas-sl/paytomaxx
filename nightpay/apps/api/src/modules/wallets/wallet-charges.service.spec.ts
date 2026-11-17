@@ -504,7 +504,8 @@ describe('sumar una recarga al saldo de su Face ID', () => {
     const { svc, tx } = mergeService({ codeTaken: true });
     expect(await svc.mergeInto('src', 'tgt')).toEqual({ balanceCents: 8000 });
     const targetUpdate = tx.clientWallet.update.mock.calls.find((c) => c[0].where.id === 'tgt')![0];
-    expect(targetUpdate.data).toMatchObject({ balanceCents: { increment: 8000 }, status: 'ACTIVE' });
+    // Le entra dinero: un «Me voy» de antes ya no vale (como al recargar).
+    expect(targetUpdate.data).toMatchObject({ balanceCents: { increment: 8000 }, status: 'ACTIVE', closeRequestedAt: null });
     expect(targetUpdate.data.shortCode).toMatch(/^[A-HJKMNP-Z2-9]{6}$/);
     expect(targetUpdate.data.shortCode).not.toBe('K7Q4M2');
     // Si era una recarga pendiente de asignar, deja de estarlo.
@@ -672,7 +673,7 @@ describe('devolver el saldo al cliente que se va', () => {
   ) {
     const made = makeService({ wallet: wallet({ closeRequestedAt: new Date(), ...o.wallet }), threshold: o.threshold });
     const state = {
-      wallet: { id: 'w-1', balanceCents: 30_000, status: 'ACTIVE', shortCode: 'K7Q4M2', ...o.wallet },
+      wallet: { id: 'w-1', balanceCents: 30_000, status: 'ACTIVE', shortCode: 'K7Q4M2', closeRequestedAt: new Date() as Date | null, ...o.wallet },
       payouts: [...(o.payouts ?? [])],
       registered: o.registered ?? 0,
     };
@@ -789,6 +790,18 @@ describe('devolver el saldo al cliente que se va', () => {
       expect(refunds.registerBankRefund).not.toHaveBeenCalled();
       // Antes del 2FA: no gasta un intento del código.
       expect(totp.assertForUser).not.toHaveBeenCalled();
+    }
+  });
+
+  it('una recarga entre la lectura y el bloqueo del saldo quita el «Me voy»: con el saldo bloqueado, 409 y no se devuelve nada', async () => {
+    for (const [who, method] of [[manager, 'CASH'], [owner, 'CASH'], [owner, 'CARD']] as const) {
+      const { svc, state, payoutMock, refunds } = payoutService({ cashIn: 15_000 });
+      // La lectura de payout() vio el «Me voy»; la fila bloqueada ya no (la recarga lo quitó).
+      state.wallet.closeRequestedAt = null;
+      await expect(svc.payout(who, 'w-1', { totpCode: '123456', method })).rejects.toMatchObject({ response: { code: 'SALDO_NO_SE_DEVUELVE' } });
+      expect(state.wallet).toMatchObject({ balanceCents: 30_000, status: 'ACTIVE' });
+      expect(payoutMock.create).not.toHaveBeenCalled();
+      expect(refunds.registerBankRefund).not.toHaveBeenCalled();
     }
   });
 

@@ -299,6 +299,12 @@ describe('transition — recarga de saldo cobrada (#7, #56)', () => {
     expect(audits(executed)).toHaveLength(0);
   });
 
+  it('el cliente recarga: un «Me voy» de antes ya no vale (como en efectivo), el saldo se queda', async () => {
+    const { service, executed } = makeTransitionService({ locked: topUp, attemptTip: 0, wallets: { [WALLET]: w() } });
+    await service.transition(PAYMENT_ID, authorized);
+    expect(credits(executed)[0]!.sql).toMatch(/"closeRequestedAt" = NULL/);
+  });
+
   it('saldo ya sumado a otro (Face ID) → al saldo bueno, con constancia', async () => {
     const { service, executed } = makeTransitionService({
       locked: topUp,

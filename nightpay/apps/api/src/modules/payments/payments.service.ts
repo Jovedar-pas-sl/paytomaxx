@@ -2028,6 +2028,8 @@ export class PaymentsService implements OnApplicationBootstrap {
          SET "balanceCents" = "balanceCents" + ${p.amountCents}::int,
              status = 'ACTIVE'::"WalletStatus",
              "shortCode" = ${shortCode},
+             -- Recarga: el cliente se queda (un «Me voy» pendiente ya no vale, como en efectivo).
+             "closeRequestedAt" = NULL,
              "updatedAt" = now()
        WHERE id = ${w.id}::uuid
     `;
