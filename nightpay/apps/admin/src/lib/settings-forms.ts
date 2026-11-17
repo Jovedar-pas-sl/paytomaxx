@@ -177,14 +177,15 @@ export const PERMISSION_LABELS: Readonly<Record<StaffPermissionKey, string>> = {
   payouts: 'Pedir y hacer pagos a las compañeras',
   reports: 'Ver informes',
   cashTopUp: 'Cobrar recargas en efectivo',
-  cashPayout: 'Devolver saldo en efectivo a la salida',
+  // Ya no se enseña (editablePermissions): el saldo no se devuelve en la salida.
+  cashPayout: 'Salida en efectivo (ya no se usa)',
 };
 
 /** La línea de ayuda de un permiso (solo los que lo necesitan). */
-export const PERMISSION_HINTS: Readonly<Partial<Record<StaffPermissionKey, string>>> = {
-  cashPayout:
-    'Con el NFC y el PIN del cliente (o su Face ID). Solo si su puesto lo hace: de fábrica, Recepción. Quitarlo no le quita las recargas.',
-};
+export const PERMISSION_HINTS: Readonly<Partial<Record<StaffPermissionKey, string>>> = {};
+
+/** Permisos que ya no hacen nada: no se enseñan (el saldo no se devuelve, decisión del dueño del 17-nov-2026). */
+const RETIRED_PERMISSIONS: ReadonlySet<StaffPermissionKey> = new Set<StaffPermissionKey>(['cashPayout']);
 
 export const ROLE_LABELS: Readonly<Record<PermissionRole, string>> = {
   MANAGER: 'Encargados',
@@ -194,12 +195,12 @@ export const ROLE_LABELS: Readonly<Record<PermissionRole, string>> = {
 
 /** Lo que hacen los camareros (confirmar el datáfono, solo si el local cobra con él). */
 export function waiterHint(posOn: boolean): string {
-  return `${posOn ? 'Cobran y confirman datáfonos desde su app' : 'Cobran desde su app'}; de esto, solo pueden cobrar recargas en efectivo si se lo das y, los de recepción, devolver el saldo en efectivo a la salida.`;
+  return `${posOn ? 'Cobran y confirman datáfonos desde su app' : 'Cobran desde su app'}; de esto, solo pueden cobrar recargas en efectivo si se lo das.`;
 }
 
-/** Permisos que se pueden tocar para ese rol (camareros: las recargas y la salida en efectivo; datáfonos: las recargas). */
+/** Permisos que se pueden tocar para ese rol (camareros y datáfonos: las recargas en efectivo). */
 export function editablePermissions(role: PermissionRole): readonly StaffPermissionKey[] {
-  return STAFF_PERMISSION_KEYS.filter((k) => PERMISSION_CEILING[role].includes(k));
+  return STAFF_PERMISSION_KEYS.filter((k) => PERMISSION_CEILING[role].includes(k) && !RETIRED_PERMISSIONS.has(k));
 }
 
 /** Lo que vale para una persona: su excepción o lo de su rol. */

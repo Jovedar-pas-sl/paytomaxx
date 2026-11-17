@@ -65,7 +65,7 @@ export const TOURS = {
     steps: [
       { target: 'saldos-resumen', title: 'Saldos de hoy', text: 'Cuántos saldos activos hay y cuánto suman, y lo recargado, consumido y devuelto hoy.' },
       { target: 'saldos-lista', title: 'Lista de saldos', text: 'Cada fila es el saldo de un cliente, con su código. Arriba puedes buscar uno por su teléfono.' },
-      { target: 'saldos-acciones', title: 'Acciones de un saldo', text: 'En cada saldo, según el caso: «Devolver saldo», «Enlace nuevo», «Cobrar sin Face ID», «Desbloquear PIN», «Borrar PIN» y «Bloquear ficha».' },
+      { target: 'saldos-acciones', title: 'Acciones de un saldo', text: 'El saldo no se devuelve: se queda para la próxima visita. En cada saldo, según el caso: «Terminar devolución» (solo las pedidas antes), «Enlace nuevo», «Cobrar sin Face ID», «Desbloquear PIN», «Borrar PIN» y «Bloquear ficha».' },
     ],
   },
   fichas: {
@@ -140,7 +140,7 @@ export const TOURS = {
     steps: [
       { target: 'noche-nfc', title: 'Ficha sin PIN', text: 'El cliente solo acerca su ficha y queda pagado. Por encima de un importe, o al pasar el tope de la noche, pone su PIN.' },
       { target: 'noche-pin', title: 'Teclado del PIN', text: 'Lo que ve el cliente al poner su PIN en el móvil del personal o en el datáfono.' },
-      { target: 'noche-recepcion', title: 'Recepción', text: 'Al recargar un saldo: los importes de un toque. A la salida: hasta cuánto se devuelve solo.' },
+      { target: 'noche-recepcion', title: 'Recepción', text: 'Al recargar un saldo: los importes de un toque y el botón grande.' },
       { target: 'noche-cobrar', title: 'Al cobrar', text: 'El aviso de pagado o no pagado en las apps del personal.' },
       { target: 'noche-pantallas', title: 'Pantallas del personal', text: 'Cómo se ven los móviles del personal en este local, por ejemplo con contraste alto para salas con poca luz.' },
     ],
