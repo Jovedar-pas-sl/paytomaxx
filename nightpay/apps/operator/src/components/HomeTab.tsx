@@ -5,7 +5,7 @@ import type { MyNight, OperatorUser } from '@/lib/api';
 import { canTopUp, useMyRights } from '@/lib/venue-methods';
 import { CobrarFlow } from './cobrar/CobrarFlow';
 import { HomeTopUpDesk } from './reception/HomeTopUpDesk';
-import { RrppHomeCard } from './rrpp/RrppHomeCard';
+import { RrppHomeCard, useRrppUpcoming } from './rrpp/RrppHomeCard';
 import styles from './home.module.css';
 
 interface Props {
@@ -28,6 +28,7 @@ export function HomeTab({ user, night, onCobroDone, onLogout }: Props) {
   const [miQr, setMiQr] = useState(false);
   const [recargar, setRecargar] = useState(false);
   const topUps = canTopUp(useMyRights(), user.role);
+  const rrppUpcoming = useRrppUpcoming();
   if (recargar && topUps) {
     return (
       <div className={styles.home}>
@@ -45,7 +46,7 @@ export function HomeTab({ user, night, onCobroDone, onLogout }: Props) {
         miQrOpen={miQr}
         onMiQr={user.role === 'OPERATOR' ? setMiQr : undefined}
         onRecargar={topUps ? () => setRecargar(true) : undefined}
-        banner={<RrppHomeCard />}
+        banner={<RrppHomeCard upcoming={rrppUpcoming} />}
       />
     </div>
   );

@@ -14,6 +14,20 @@ export async function fetchMyPromoter(signal?: AbortSignal): Promise<MyPromoterV
   return ((await res.json()) as MyPromoterPage).promoter;
 }
 
+/** Las que siguen en pie: con la señal, pagadas o ya llegadas (como LIVE_STATUSES de la API). */
+const LIVE: ReadonlySet<ReservationStatus> = new Set(['DEPOSIT_PAID', 'PAID', 'ARRIVED']);
+
+/** Las de la tarjeta de Inicio: sin anuladas ni las que nunca se pagaron (la lista de /rrpp las enseña todas, con su estado). */
+export function liveUpcoming(view: MyPromoterView): number {
+  return view.upcoming.filter((r) => LIVE.has(r.status)).length;
+}
+
+/** El número de la tarjeta de Inicio; null si no es RRPP. */
+export async function loadHomeUpcoming(signal?: AbortSignal): Promise<number | null> {
+  const view = await fetchMyPromoter(signal);
+  return view ? liveUpcoming(view) : null;
+}
+
 const DAYS = ['dom', 'lun', 'mar', 'mié', 'jue', 'vie', 'sáb'];
 const MONTHS = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
 

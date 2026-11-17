@@ -2,9 +2,10 @@ import { readFileSync } from 'node:fs';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
 import type { MyPromoterReservation, MyPromoterView } from '@nightpay/contracts';
+import { RrppHomeCard } from '@/components/rrpp/RrppHomeCard';
 import { RrppHomeLink, RrppView, NotPromoter } from '@/components/rrpp/RrppView';
 import { authedFetch } from './api';
-import { commissionText, fetchMyPromoter, nightLabel, RRPP_PATH, statusTone, upcomingText } from './rrpp';
+import { commissionText, fetchMyPromoter, liveUpcoming, loadHomeUpcoming, nightLabel, RRPP_PATH, statusTone, upcomingText } from './rrpp';
 
 vi.mock('./api', async (original) => ({ ...(await original<typeof import('./api')>()), authedFetch: vi.fn() }));
 
@@ -123,8 +124,30 @@ describe('la entrada en Inicio', () => {
     expect(html).toContain('2 reservas para las próximas noches');
   });
 
+  it('cuenta solo las que siguen en pie: sin anuladas ni las que nunca se pagaron', () => {
+    const upcoming = (['PENDING', 'CANCELED', 'CLIENT_CANCELED', 'DEPOSIT_PAID', 'PAID', 'ARRIVED'] as const).map((status) => res({ status }));
+    expect(liveUpcoming(view({ upcoming }))).toBe(3);
+    expect(liveUpcoming(view({ upcoming: upcoming.slice(0, 3) }))).toBe(0);
+  });
+
+  it('pide al servidor el número de la tarjeta (null si no es RRPP)', async () => {
+    const upcoming = [res({ status: 'PAID' }), res({ status: 'CANCELED' })];
+    vi.mocked(authedFetch).mockResolvedValueOnce(new Response(JSON.stringify({ promoter: view({ upcoming }) }), { status: 200 }));
+    await expect(loadHomeUpcoming()).resolves.toBe(1);
+    vi.mocked(authedFetch).mockResolvedValueOnce(new Response(JSON.stringify({ promoter: null }), { status: 200 }));
+    await expect(loadHomeUpcoming()).resolves.toBeNull();
+  });
+
+  it('al volver a la carta la tarjeta ya está: no espera al servidor y las losetas no se mueven', () => {
+    expect(renderToStaticMarkup(<RrppHomeCard upcoming={2} />)).toContain('2 reservas para las próximas noches');
+    expect(renderToStaticMarkup(<RrppHomeCard upcoming={null} />)).toBe('');
+    // Se pregunta una vez en Inicio (que sigue montado toda la sesión), no cada vez que se monta la carta.
+    const home = read('../components/HomeTab.tsx');
+    expect(home).toContain('const rrppUpcoming = useRrppUpcoming();');
+    expect(home).toContain('banner={<RrppHomeCard upcoming={rrppUpcoming} />}');
+  });
+
   it('va arriba de la carta (sin tocar el menú del logo)', () => {
-    expect(read('../components/HomeTab.tsx')).toContain('banner={<RrppHomeCard />}');
     expect(read('../components/cobrar/Carta.tsx')).toMatch(/<div className=\{styles\.body\}>\s*\{banner\}/);
   });
 });
