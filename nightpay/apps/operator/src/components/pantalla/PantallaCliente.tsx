@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useState, type CSSProperties, type FormEvent } from 'react';
 import type { CustomerScreenView } from '@nightpay/contracts';
 import { Button, Logo, useWakeLock } from '@nightpay/ui';
 import {
@@ -21,10 +21,14 @@ import {
   isOtherTip,
   nextMemory,
   otherTipOffered,
+  REST_SHIFT_MS,
+  restOf,
+  restShift,
   tipBreakdown,
   tipButtonLabel,
   waitingHint,
   type PantallaMemory,
+  type RestView,
   type WaitingView,
 } from '@/lib/pantalla-state';
 import { CobroQr } from '../cobrar/CobroQr';
@@ -41,8 +45,8 @@ const UNPAIRED_NOTICE = 'Esta pantalla se ha desemparejado. Pide un código nuev
  * «Pantalla del cliente» (/pantalla): la tablet (o un móvil viejo) de la
  * barra, mirando al cliente. Sin emparejar: el código que enseña el móvil
  * del camarero (Menú → Pantalla del cliente → Emparejar). Emparejada: el
- * reposo con el nombre del local, el importe y el QR del cobro que espera el
- * camarero, y «Pagado» unos segundos. Nunca el saldo ni quién cobra.
+ * reposo con el nombre del local y su mensaje, el importe y el QR del cobro
+ * que espera el camarero, y «Pagado» unos segundos. Nunca el saldo ni quién cobra.
  */
 export function PantallaCliente() {
   // undefined: aún sin mirar el almacenamiento (el servidor no lo tiene).
@@ -100,6 +104,10 @@ function PairForm({ notice, onPaired }: { notice: string | null; onPaired: (toke
         <h1 className={s.pairTitle}>Pantalla del cliente</h1>
         {notice ? <p className={s.pairNotice}>{notice}</p> : null}
         <p className={s.pairText}>
+          Esta tablet se pone en la barra mirando al cliente: le enseña cuánto paga y el QR de cada cobro, y entre cobros el nombre
+          del local.
+        </p>
+        <p className={s.pairText}>
           En el móvil del camarero: <strong>Menú → Pantalla del cliente → Emparejar</strong>. Escribe aquí el código que
           sale.
         </p>
@@ -129,10 +137,10 @@ function PairForm({ notice, onPaired }: { notice: string | null; onPaired: (toke
 }
 
 function Screen({ token, onUnpaired }: { token: string; onUnpaired: () => void }) {
-  const [venue, setVenue] = useState<{ name: string; fichas: boolean } | null>(null);
+  const [rest, setRest] = useState<RestView | null>(null);
   const [mem, setMem] = useState<PantallaMemory>(INITIAL_MEMORY);
   const onView = useCallback((view: CustomerScreenView) => {
-    setVenue({ name: view.venueName, fichas: view.fichas });
+    setRest(restOf(view));
     setMem((m) => nextMemory(m, view, Date.now()));
   }, []);
   const { reachable, refresh } = usePantallaLive(token, onView, onUnpaired);
@@ -204,30 +212,55 @@ function Screen({ token, onUnpaired }: { token: string; onUnpaired: () => void }
           />
         ) : shown.kind === 'paid' ? (
           <Paid />
-        ) : venue ? (
-          <Idle name={venue.name} fichas={venue.fichas} note={shown.note} />
+        ) : rest ? (
+          <Idle rest={rest} note={shown.note} />
         ) : null}
       </div>
     </>
   );
 }
 
-function Idle({ name, fichas, note }: { name: string; fichas: boolean; note: string | null }) {
+/** El minuto de ahora (para el sitio del reposo): cambia cada REST_SHIFT_MS. */
+function useRestStep(): number {
+  const [step, setStep] = useState(() => Math.floor(Date.now() / REST_SHIFT_MS));
+  useEffect(() => {
+    const t = setInterval(() => setStep(Math.floor(Date.now() / REST_SHIFT_MS)), REST_SHIFT_MS);
+    return () => clearInterval(t);
+  }, []);
+  return step;
+}
+
+/**
+ * El reposo: el nombre del local en grande, su mensaje (si puso) y cómo se
+ * paga. Todo se mueve un poco cada minuto (que no se quede marcado en la
+ * pantalla): despacio, o de golpe con «reducir movimiento».
+ */
+function Idle({ rest, note }: { rest: RestView; note: string | null }) {
+  const { x, y } = restShift(useRestStep());
+  const drift = { '--rest-x': `${x}vmin`, '--rest-y': `${y}vmin` } as CSSProperties;
   return (
-    <>
+    <div className={s.rest} style={drift}>
       <div className={s.idle}>
         {note ? (
           <p className={s.note} role="status">
             {note}
           </p>
         ) : null}
-        <h1 className={s.venue}>{name}</h1>
-        <p className={s.idleHint}>{idleHint(fichas)}</p>
+        <h1 className={s.venue}>{rest.name}</h1>
+        {rest.line1 ? (
+          <div className={s.message}>
+            <p className={s.messageMain} data-long={rest.line1.length > 60 ? '1' : undefined}>
+              {rest.line1}
+            </p>
+            {rest.line2 ? <p className={s.messageSub}>{rest.line2}</p> : null}
+          </div>
+        ) : null}
+        <p className={s.idleHint}>{idleHint(rest.fichas)}</p>
       </div>
       <div className={s.brand}>
         <Logo height="2rem" />
       </div>
-    </>
+    </div>
   );
 }
 
