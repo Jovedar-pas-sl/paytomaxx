@@ -399,6 +399,32 @@ export interface LockedPaymentRow {
   posOperationNumber?: string | null;
 }
 
+/**
+ * Lo que mira «Cancelar cobro» antes de cancelar (con el cobro bloqueado; o,
+ * para avisar antes, leído sin bloquear): la recarga cobrada en el datáfono sin
+ * comprobar, nunca (409 CANCEL_HELD_ON_READER); con el bitcoin ya en la red, no
+ * (409 BITCOIN_CONFIRMING); con el cliente en su banco, no antes de 2 minutos
+ * (409 CANCEL_AT_BANK_TOO_SOON).
+ */
+async function assertCancelable(
+  tx: TransactionalClient,
+  p: Pick<LockedPaymentRow, 'id' | 'tenantId' | 'status' | 'provider' | 'posOperationNumber'>,
+): Promise<void> {
+  if (isHeldOnReader(p)) throw heldOnReaderConflict();
+  if (p.status === 'AUTHORIZING' && p.provider === 'BTCPAY') await assertBitcoinNotOnTheWay(tx, p.id);
+  // Con el cliente en su banco, no antes de 2 minutos (con el cobro bloqueado: la marca no cambia mientras).
+  await assertBankWaitOver(tx, p);
+}
+
+/**
+ * El pago a medias de un reservado que se cancela al anular la reserva o al
+ * elegir otro pago: sin empezar o con su factura de bitcoin abierta. Con la
+ * tarjeta ya en el banco, no (lo resuelve el banco); pagado o cerrado, tampoco.
+ */
+export function reservationPaymentCancelable(p: { status: string; provider: string | null }): boolean {
+  return p.status === 'CREATED' || p.status === 'AWAITING_CAPTURE' || (p.status === 'AUTHORIZING' && p.provider === 'BTCPAY');
+}
+
 export interface TransitionOptions {
   /**
    * Se ejecuta con la fila ya bloqueada, antes de aplicar el evento: escribe
@@ -2090,11 +2116,8 @@ export class PaymentsService implements OnApplicationBootstrap {
       // Quién lo canceló (en el evento) y con qué móvil, en la misma transacción.
       await this.transition(paymentId, { type: 'CANCELED', reason: 'user-canceled', byUserId: actor.userId }, actor.tenantId, {
         prepare: async (tx, locked) => {
-          // Cobrada en el datáfono y esperando a que la comprueben: con el cobro bloqueado, no se cancela.
-          if (isHeldOnReader(locked)) throw heldOnReaderConflict();
-          if (locked.status === 'AUTHORIZING' && locked.provider === 'BTCPAY') await assertBitcoinNotOnTheWay(tx, locked.id);
-          // Con el cliente en su banco, no antes de 2 minutos (con el cobro bloqueado: la marca no cambia mientras).
-          await assertBankWaitOver(tx, locked);
+          // Con el cobro bloqueado: la recarga del datáfono sin comprobar, el bitcoin en la red y los 2 minutos en su banco.
+          await assertCancelable(tx, locked);
           await recordPaymentDevice(tx, this.cls.get('ctx'), { id: locked.id, tenantId: locked.tenantId }, 'cancel');
         },
       });
@@ -2106,14 +2129,65 @@ export class PaymentsService implements OnApplicationBootstrap {
       }
       throw err;
     }
-    // Bitcoin: la factura abierta se cierra (en BTCPay, si la clave deja; si no, caduca sola).
+    await this.afterCancel(paymentId, payment.tenantId);
+    return { status: 'CANCELED' };
+  }
+
+  /**
+   * El pago a medias de un reservado, al anular la reserva (el local o el
+   * cliente) o al elegir otro pago: con las mismas comprobaciones que «Cancelar
+   * cobro» (con el cobro bloqueado: con el bitcoin ya en la red, 409
+   * BITCOIN_CONFIRMING) y cerrando su factura de bitcoin (cancelHooks). Solo si
+   * sigue sin empezar o con su factura de bitcoin abierta: con la tarjeta ya en
+   * el banco, pagado o cerrado no se toca y devuelve false. Un bitcoin que llegue
+   * después da con el cobro cancelado: Incidencias, nunca a un saldo en silencio.
+   */
+  async cancelReservationPayment(paymentId: string, tenantId: string, event: { reason: string; byUserId?: string }): Promise<boolean> {
+    try {
+      await this.transition(paymentId, { type: 'CANCELED', ...event }, tenantId, {
+        prepare: async (tx, locked) => {
+          if (!reservationPaymentCancelable(locked)) throw new InvalidTransitionError(locked.status, 'CANCELED');
+          await assertCancelable(tx, locked);
+        },
+      });
+    } catch (err) {
+      if (err instanceof InvalidTransitionError) return false;
+      throw err;
+    }
+    await this.afterCancel(paymentId, tenantId);
+    return true;
+  }
+
+  /**
+   * Lo que diría ahora «Cancelar cobro» de este cobro, sin cancelar nada (para
+   * avisar antes, p. ej. el resto en efectivo en la puerta): el 409, o null si
+   * se podría cancelar.
+   */
+  async cancelBlocker(paymentId: string, tenantId: string): Promise<ConflictException | null> {
+    return this.prisma.asSystem(async (tx) => {
+      const p = await tx.payment.findFirst({
+        where: { id: paymentId, tenantId },
+        select: { id: true, tenantId: true, status: true, provider: true, posOperationNumber: true },
+      });
+      if (!p) return null;
+      try {
+        await assertCancelable(tx, { ...p, status: p.status as PaymentMachineState });
+        return null;
+      } catch (err) {
+        if (err instanceof ConflictException) return err;
+        throw err;
+      }
+    });
+  }
+
+  /** Cancelado: la factura de bitcoin abierta se cierra (en BTCPay, si la clave deja; si no, caduca sola). */
+  private async afterCancel(paymentId: string, tenantId: string): Promise<void> {
     // (`?? []`: las pruebas arman el servicio sin pasar por el constructor.)
     for (const hook of this.cancelHooks ?? []) {
-      await hook(paymentId, payment.tenantId).catch((e: unknown) =>
+      await hook(paymentId, tenantId).catch((e: unknown) =>
         this.logger.error(`Cancelar ${paymentId}: el cierre de la factura de bitcoin falló: ${(e as Error).message}`),
       );
     }
-    return { status: 'CANCELED' };
   }
 
   /**

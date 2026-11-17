@@ -48,6 +48,8 @@ export interface FakeDb {
   secondApproval?: { isAttempt: boolean; recorded: boolean };
   /** Cancelar con el cliente en su banco: desde cuándo está allí (null: sin marca) y la hora de la base. */
   bank?: { since: Date | null; now: Date };
+  /** Su factura de bitcoin ya está en la red (Processing). */
+  bitcoinProcessing?: boolean;
 }
 
 function sqlOf(strings: unknown): string {
@@ -62,6 +64,7 @@ function makeTransitionService(db: FakeDb) {
     if (sql.includes('AS "isAttempt"')) return [db.secondApproval ?? { isAttempt: false, recorded: false }];
     // Desde cuándo está el cliente en su banco (cancel-at-bank.ts).
     if (sql.includes(`'payment.authorizing'`)) return db.bank ? [{ id: PAYMENT_ID, since: db.bank.since, now: db.bank.now }] : [];
+    if (sql.includes('FROM btcpay_invoices')) return db.bitcoinProcessing ? [{ one: 1 }] : [];
     if (sql.includes('FROM payment_attempts')) {
       return db.attemptTip === undefined ? [] : [{ tipCents: db.attemptTip, creatorRole: db.creatorRole ?? 'OPERATOR' }];
     }
@@ -508,6 +511,64 @@ describe('cancel — quién puede cancelar', () => {
     });
     await expect(service.cancel(PAYMENT_ID, { userId: 'waiter-1', role: 'WAITER', tenantId: 'tenant-1' })).rejects.toThrow(/cannot be canceled/);
     expect(updates('SET status')).toHaveLength(0);
+  });
+});
+
+describe('cancelReservationPayment — el pago a medias de un reservado al anularlo o al elegir otro pago', () => {
+  /** El servicio con un cierre de factura de bitcoin apuntado (como BtcpayInvoiceService.closeOnCancel). */
+  function withHook(db: FakeDb) {
+    const made = makeTransitionService(db);
+    const hook = vi.fn(async (_paymentId: string, _tenantId: string) => undefined);
+    Object.assign(made.service, { cancelHooks: [hook] });
+    return { ...made, hook };
+  }
+  const event = { reason: 'Reserva anulada por el local', byUserId: 'manager-1' };
+
+  it('sin empezar (CREATED o AWAITING_CAPTURE): se cancela, queda quién y por qué, y se cierra su factura', async () => {
+    for (const status of ['CREATED', 'AWAITING_CAPTURE'] as const) {
+      const { service, updates, executed, hook } = withHook({ locked: { ...baseRow, status, provider: null } });
+      await expect(service.cancelReservationPayment(PAYMENT_ID, 'tenant-1', event)).resolves.toBe(true);
+      expect(updates('SET status')[0]!.values[0]).toBe('CANCELED');
+      const ev = executed.find((e) => e.sql.includes('INSERT INTO payment_events'))!;
+      expect(JSON.parse(ev.values[3] as string)).toMatchObject({ type: 'CANCELED', ...event });
+      expect(hook).toHaveBeenCalledWith(PAYMENT_ID, 'tenant-1');
+    }
+  });
+
+  it('con la factura de bitcoin abierta (sin pago en la red): se cancela al momento y su factura se cierra', async () => {
+    const { service, updates, hook } = withHook({ locked: { ...baseRow, status: 'AUTHORIZING', provider: 'BTCPAY' } });
+    await expect(service.cancelReservationPayment(PAYMENT_ID, 'tenant-1', event)).resolves.toBe(true);
+    expect(updates('SET status')[0]!.values[0]).toBe('CANCELED');
+    expect(hook).toHaveBeenCalledTimes(1);
+  });
+
+  it('con el bitcoin ya en la red: 409 BITCOIN_CONFIRMING, nada escrito y la factura sigue abierta', async () => {
+    const { service, executed, hook } = withHook({ locked: { ...baseRow, status: 'AUTHORIZING', provider: 'BTCPAY' }, bitcoinProcessing: true });
+    const err = await service.cancelReservationPayment(PAYMENT_ID, 'tenant-1', event).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ConflictException);
+    expect((err as ConflictException).getResponse()).toMatchObject({ code: 'BITCOIN_CONFIRMING' });
+    expect(executed).toHaveLength(0);
+    expect(hook).not.toHaveBeenCalled();
+  });
+
+  it('con la tarjeta ya en el banco, pagado o cerrado: no se toca (false), ni se cierra nada', async () => {
+    for (const locked of [
+      { ...baseRow, status: 'AUTHORIZING' as const, provider: 'REDSYS' as const },
+      { ...baseRow, status: 'AUTHORIZED' as const, provider: 'BTCPAY' as const },
+      { ...baseRow, status: 'EXPIRED' as const, provider: null },
+    ]) {
+      const { service, executed, hook } = withHook({ locked });
+      await expect(service.cancelReservationPayment(PAYMENT_ID, 'tenant-1', event)).resolves.toBe(false);
+      expect(executed).toHaveLength(0);
+      expect(hook).not.toHaveBeenCalled();
+    }
+  });
+
+  it('el cliente que anula (sin persona del personal): sin byUserId en el evento', async () => {
+    const { service, executed } = withHook({ locked: { ...baseRow, status: 'CREATED', provider: null } });
+    await service.cancelReservationPayment(PAYMENT_ID, 'tenant-1', { reason: 'Reserva cancelada por el cliente' });
+    const ev = executed.find((e) => e.sql.includes('INSERT INTO payment_events'))!;
+    expect(JSON.parse(ev.values[3] as string)).toEqual({ type: 'CANCELED', reason: 'Reserva cancelada por el cliente' });
   });
 });
 
