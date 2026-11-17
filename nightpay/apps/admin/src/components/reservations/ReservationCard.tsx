@@ -185,14 +185,15 @@ const pill: CSSProperties = { padding: '0.125rem 0.625rem', borderRadius: 'var(-
 const row: CSSProperties = { display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'center' };
 const label: CSSProperties = { fontSize: '0.875rem', fontWeight: 600 };
 const input: CSSProperties = {
-  minHeight: '2.5rem',
+  minWidth: 0,
+  minHeight: '2.75rem',
   padding: '0 0.625rem',
   border: '1px solid var(--np-border)',
   borderRadius: 'var(--np-r-md)',
   background: 'var(--np-surface-2, transparent)',
   color: 'inherit',
   font: 'inherit',
-  fontSize: '0.875rem',
+  fontSize: '1rem',
 };
 const confirm: CSSProperties = {
   display: 'flex',

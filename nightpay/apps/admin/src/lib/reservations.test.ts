@@ -118,6 +118,18 @@ describe('el local anula un reservado pagado: lo pagado queda como saldo del cli
   });
 });
 
+describe('Reservados en el móvil: los campos no hacen zoom ni se salen en el iPhone', () => {
+  it('los campos de las cinco pantallas: letra de 16 px, 44 px de alto y sin ancho mínimo', () => {
+    for (const file of ['NightList', 'PackagesEditor', 'PromotersCard', 'ReservationCard', 'ReservationsLinkCard']) {
+      const src = readFileSync(new URL(`../components/reservations/${file}.tsx`, import.meta.url), 'utf8');
+      const style = src.match(/const input: CSSProperties = \{([^}]*)\};/)?.[1] ?? '';
+      expect(style, file).toContain("fontSize: '1rem'");
+      expect(style, file).toContain("minHeight: '2.75rem'");
+      expect(style, file).toContain('minWidth: 0');
+    }
+  });
+});
+
 describe('Ajustes → Bitcoin: para qué sirve ya no se elige', () => {
   it('sin el selector de antes y con la frase: cargar saldo y reservados, en la barra no', () => {
     const panel = readFileSync(new URL('../components/settings/BtcpayPanel.tsx', import.meta.url), 'utf8');
