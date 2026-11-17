@@ -387,15 +387,16 @@ export class ReservationOpsService {
   }
 
   /**
-   * El local anula la reserva. Sin pagar: «Cancelar». Pagada: el local devuelve
-   * lo pagado: el dinero está en el saldo del grupo y se devuelve desde Saldos →
-   * «Devolver saldo»; lo pagado con bitcoin, solo en euros y hablando con el local
-   * («Devolver saldo» no lo saca). Antes de anular, su pago a medias (sin empezar
-   * o con su factura de bitcoin abierta) se cancela como «Cancelar cobro» y su
-   * factura se cierra; con el bitcoin ya en la red, 409 BITCOIN_CONFIRMING y no
-   * se anula (el dinero llegaría igual).
+   * El local anula la reserva. Sin pagar: «Cancelar». Pagada: NO se devuelve
+   * nada (decisión del dueño del 17-nov): lo pagado, con tarjeta o con bitcoin,
+   * ya está en el saldo del grupo y ahí se queda para otra noche. No se mueve
+   * dinero (ni devolución ni venta): el mapa del dinero y el Z no cambian; en
+   * «Señales de reservas» pasa a saldo ahora (recognizedAt). Antes de anular,
+   * su pago a medias (sin empezar o con su factura de bitcoin abierta) se
+   * cancela como «Cancelar cobro» y su factura se cierra; con el bitcoin ya en
+   * la red, 409 BITCOIN_CONFIRMING y no se anula (el dinero llegaría igual).
    */
-  async venueCancel(actor: StaffActor, id: string, reason: string): Promise<{ reservation: ReservationView; refundCents: number; walletId: string | null }> {
+  async venueCancel(actor: StaffActor, id: string, reason: string): Promise<{ reservation: ReservationView; saldoCents: number; walletId: string | null }> {
     this.assertManager(actor);
     // ¿Se puede anular? Antes de tocar sus pagos (se mira otra vez con la reserva bloqueada).
     if (!VENUE_CANCELABLE.has((await this.detail(actor, id)).status)) throw cannotCancel();
@@ -403,11 +404,24 @@ export class ReservationOpsService {
     await this.reservations.cancelOpenPayments(id, actor.tenantId, { reason: cancelReason, byUserId: actor.userId, confirmingMessage: VENUE_BITCOIN_CONFIRMING });
     const out = await this.locked(actor, id, async (tx, r) => {
       if (!VENUE_CANCELABLE.has(r.status)) throw cannotCancel();
-      await tx.reservation.update({ where: { id: r.id }, data: { status: 'CANCELED', canceledAt: new Date(), canceledByUserId: actor.userId, cancelReason: reason } });
+      const now = new Date();
+      // Lo pagado queda en el saldo del grupo: pasa a saldo ahora (contabilidad aparte).
+      const saldoCents = r.paidCents;
+      await tx.reservation.update({
+        where: { id: r.id },
+        data: { status: 'CANCELED', canceledAt: now, canceledByUserId: actor.userId, cancelReason: reason, ...(saldoCents > 0 ? { recognizedAt: now } : {}) },
+      });
       // Anula el local: el RRPP pierde la comisión (si ya estaba apuntada, sale del reparto).
       await voidPromoterCommission(tx, r, actor.userId);
-      await this.audit.logInTx(tx, { action: 'reservation.canceled_by_venue', tenantId: r.tenantId, actorId: actor.userId, targetType: 'Reservation', targetId: r.id, payload: { reason, paidCents: r.paidCents } });
-      return { refundCents: r.paidCents, walletId: r.walletId };
+      await this.audit.logInTx(tx, {
+        action: 'reservation.canceled_by_venue',
+        tenantId: r.tenantId,
+        actorId: actor.userId,
+        targetType: 'Reservation',
+        targetId: r.id,
+        payload: { reason, paidCents: r.paidCents, saldoCents },
+      });
+      return { saldoCents, walletId: r.walletId };
     });
     // Un pago a medias que se abrió entretanto (el cliente en otra pestaña): también.
     await this.reservations.cancelLeftoverPayments(id, actor.tenantId, cancelReason, actor.userId);

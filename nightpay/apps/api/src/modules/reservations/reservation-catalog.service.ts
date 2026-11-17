@@ -122,8 +122,9 @@ export class ReservationCatalogService {
   /**
    * Contabilidad aparte de las ventas: lo cobrado de reservas, lo que pasó a
    * venta (al llegar, y las señales perdidas), lo que pasó a saldo (el importe
-   * para consumir) y lo que se debe hoy a clientes que aún no han venido.
-   * Noches de `from` a `to` (de 08:00 a 08:00 de Madrid).
+   * para consumir, lo que queda tras perder la señal y, si anuló el local, todo
+   * lo pagado: es saldo, no una devolución) y lo que se debe hoy a clientes que
+   * aún no han venido. Noches de `from` a `to` (de 08:00 a 08:00 de Madrid).
    */
   async accounting(actor: StaffActor, from: string, to: string): Promise<ReservationAccounting & { toSaldoCents: number }> {
     if (!isRealDay(from) || !isRealDay(to) || from > to) throw new ConflictException('Fechas no válidas');
@@ -140,9 +141,10 @@ export class ReservationCatalogService {
             WHERE r."tenantId" = ${actor.tenantId}::uuid AND r.status IN ('ARRIVED', 'NO_SHOW', 'CLIENT_CANCELED')
               AND r."recognizedAt" >= ${start} AND r."recognizedAt" < ${end}) AS recognized,
           (SELECT COALESCE(SUM(CASE WHEN r.status = 'ARRIVED' THEN r."creditCents"
+                                    WHEN r.status = 'CANCELED' THEN r."paidCents"
                                     ELSE r."paidCents" - LEAST(r."depositCents", r."paidCents") END), 0)
              FROM reservations r
-            WHERE r."tenantId" = ${actor.tenantId}::uuid AND r.status IN ('ARRIVED', 'NO_SHOW', 'CLIENT_CANCELED')
+            WHERE r."tenantId" = ${actor.tenantId}::uuid AND r.status IN ('ARRIVED', 'NO_SHOW', 'CLIENT_CANCELED', 'CANCELED')
               AND r."recognizedAt" >= ${start} AND r."recognizedAt" < ${end}) AS "toSaldo",
           (SELECT COALESCE(SUM(r."paidCents"), 0) FROM reservations r
             WHERE r."tenantId" = ${actor.tenantId}::uuid AND r.status IN ('DEPOSIT_PAID', 'PAID')) AS outstanding,

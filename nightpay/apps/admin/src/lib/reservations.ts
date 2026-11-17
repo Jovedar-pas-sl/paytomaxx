@@ -129,8 +129,8 @@ export function nightLabel(day: string): string {
 export interface ReservationActions {
   table: boolean;
   changeDate: boolean;
-  /** «Cancelar» (sin pagar) o «Devolver» (pagada: el saldo del grupo se devuelve en Saldos). */
-  cancel: 'Cancelar' | 'Devolver' | null;
+  /** «Cancelar» (sin pagar) o «Anular» (pagada: lo pagado queda como saldo del cliente, nada se devuelve). */
+  cancel: 'Cancelar' | 'Anular' | null;
 }
 
 export function reservationActions(r: Pick<ReservationView, 'status' | 'paidCents'>): ReservationActions {
@@ -138,8 +138,22 @@ export function reservationActions(r: Pick<ReservationView, 'status' | 'paidCent
   return {
     table: open || r.status === 'ARRIVED',
     changeDate: open,
-    cancel: open ? (r.paidCents > 0 ? 'Devolver' : 'Cancelar') : null,
+    cancel: open ? (r.paidCents > 0 ? 'Anular' : 'Cancelar') : null,
   };
+}
+
+/**
+ * Antes de anular (decisión del dueño del 17-nov): si el local anula un
+ * reservado pagado, nada se devuelve; lo pagado (con tarjeta o con bitcoin)
+ * queda como saldo del cliente para otra noche.
+ */
+export function venueCancelText(r: Pick<ReservationView, 'paidCents'> & Partial<Pick<ReservationView, 'paidWithBitcoinCents'>>): string {
+  return r.paidCents > 0 ? `Lo pagado (${formatMoney(r.paidCents)}) queda como saldo del cliente.` : 'Se anula la reserva sin pagar.';
+}
+
+/** El aviso después de anular. */
+export function venueCanceledNotice(ref: string, saldoCents: number): string {
+  return saldoCents > 0 ? `${ref}: anulada. Lo pagado (${formatMoney(saldoCents)}) queda como saldo del cliente.` : `${ref}: anulada.`;
 }
 
 /** Color de la etiqueta del estado (tokens Grafito). */
@@ -161,17 +175,4 @@ export function percentToBps(text: string): number | null {
   if (!/^\d{1,2}(\.\d{1,2})?$/.test(t)) return null;
   const bps = Math.round(Number(t) * 100);
   return bps >= 0 && bps <= PROMOTER_MAX_BPS ? bps : null;
-}
-
-/**
- * La parte pagada con bitcoin de un reservado que el local anula (decisión del
- * dueño): el bitcoin no se devuelve en bitcoin ni por la pasarela, solo en
- * euros. «Devolver saldo» no la saca (ni a la tarjeta ni en efectivo) y la app
- * aún no apunta una devolución en euros de un saldo cargado con bitcoin: aviso
- * claro al encargado. Sin bitcoin, null.
- */
-export function bitcoinRefundNote(r: Pick<ReservationView, 'paidWithBitcoinCents'>): string | null {
-  const cents = r.paidWithBitcoinCents ?? 0;
-  if (cents <= 0) return null;
-  return `De eso, ${formatMoney(cents)} se pagaron con bitcoin: no se devuelven por el banco ni en bitcoin, solo en euros. «Devolver saldo» no los saca; antes de dar ese dinero, habla con el dueño.`;
 }

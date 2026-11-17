@@ -64,6 +64,8 @@ export interface BookingEntry {
 /** La página del grupo (la de quien reservó). */
 export interface GroupView {
   venueName: string;
+  /** Hora de apertura del local (minutos desde las 00:00): «Añadir a mi calendario». */
+  openMinute: number;
   reservation: ReservationView;
   payable: ReservationPayKind[];
   /** El pago a medias (para volver a él). */
@@ -73,8 +75,10 @@ export interface GroupView {
   cancel: 'Cancelar' | 'Anular' | null;
   /** Por qué no puede anular (pagada y sin las 48 h). */
   cancelBlocked: string | null;
-  /** El enlace al saldo del grupo: después de llegar (o si no vino y le queda). */
+  /** El enlace al saldo del grupo: después de llegar, o si le queda tras «No vino», anular él o anular el local. */
   saldoHref: string | null;
+  /** La anuló el local con la regla del 17-nov (lo pagado quedó como saldo: recognizedAt); las de antes se devolvían desde Saldos. */
+  venueCanceledToSaldo: boolean;
   guestTokens: Array<{ seq: number; token: string }>;
 }
 
@@ -482,11 +486,13 @@ export class ReservationsService {
     const openMinute = row.venue.reservationsOpenMinute;
     const day = dayOf(row.nightDate);
     const cancelBlocked = clientCancelProblem({ status: row.status, nightDate: day }, now, openMinute);
-    const leftover = ['ARRIVED', 'NO_SHOW', 'CLIENT_CANCELED'].includes(row.status);
+    // Con saldo para otra noche: lo que sobró, lo que quedó tras perder la señal o lo pagado si anuló el local.
+    const leftover = ['ARRIVED', 'NO_SHOW', 'CLIENT_CANCELED', 'CANCELED'].includes(row.status);
     const saldo = row.wallet && leftover && row.wallet.balanceCents > 0 ? row.wallet.qrToken : null;
     const payable = payableKinds(row);
     return {
       venueName: row.venue.name,
+      openMinute,
       reservation: view,
       payable,
       // «Seguir pagando», solo mientras la reserva se pueda pagar (anulada o ya pagada, nunca).
@@ -495,6 +501,7 @@ export class ReservationsService {
       cancel: cancelBlocked ? null : row.status === 'PENDING' ? 'Cancelar' : 'Anular',
       cancelBlocked: row.status === 'DEPOSIT_PAID' || row.status === 'PAID' ? cancelBlocked : null,
       saldoHref: saldo ? `/w/${encodeURIComponent(saldo)}` : null,
+      venueCanceledToSaldo: row.status === 'CANCELED' && row.recognizedAt !== null,
       guestTokens: row.guests.map((g) => ({ seq: g.seq, token: g.qrToken })),
     };
   }

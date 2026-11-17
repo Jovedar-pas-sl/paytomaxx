@@ -32,6 +32,7 @@ function reservation(over: Partial<ReservationView> = {}): ReservationView {
 function group(over: Partial<GroupView> = {}, r: Partial<ReservationView> = {}): GroupView {
   return {
     venueName: 'Sala Aurora',
+    openMinute: 23 * 60,
     reservation: reservation(r),
     payable: ['DEPOSIT', 'FULL'],
     openPayUrl: null,
@@ -39,6 +40,7 @@ function group(over: Partial<GroupView> = {}, r: Partial<ReservationView> = {}):
     cancel: 'Cancelar',
     cancelBlocked: null,
     saldoHref: null,
+    venueCanceledToSaldo: false,
     guestTokens: [
       { seq: 1, token: 'AAAAAAAAAAAAAAAAAAAAAAAA' },
       { seq: 2, token: 'BBBBBBBBBBBBBBBBBBBBBBBB' },
@@ -127,7 +129,7 @@ describe('la página del reservado', () => {
       '2027-03-16',
     ));
     expect(html).toContain('<p class="big">350 €</p>');
-    expect(html).toContain('Persona 1 · ha gastado 50 €');
+    expect(html).toContain('<b>Persona 1</b><span>ha gastado 50 €</span>');
     expect(html).toContain('No caduca y no se devuelve en dinero.');
     expect(html).not.toContain('id="payf"');
   });
@@ -162,28 +164,158 @@ describe('la página del reservado', () => {
     expect(html).toContain('href="/pay/xyz">Seguir pagando');
   });
 
-  it('anulada por el local: le devolverán lo pagado; lo pagado con bitcoin, en euros y hablando con el local', () => {
-    const page = (r: Partial<ReservationView>) =>
+  it('anulada por el local: lo pagado le queda como saldo para otra noche (con tarjeta o con bitcoin), con el enlace a su saldo', () => {
+    const page = (r: Partial<ReservationView>, saldoHref: string | null = '/w/abc') =>
       plain(
         renderGroupPage(
           TOKEN,
-          group({ payable: [], cancel: null }, { status: 'CANCELED', statusText: 'Anulada', pendingCents: 0, ...r }),
+          group({ payable: [], cancel: null, saldoHref, venueCanceledToSaldo: true }, { status: 'CANCELED', statusText: 'Anulada por el local', pendingCents: 0, ...r }),
           'https://api.prueba.es',
           '2026-11-16',
           '2027-03-16',
         ),
       );
     const card = page({ paidCents: 15000 });
-    expect(card).toContain('El local ha anulado la reserva: te devolverán 150 €.');
+    expect(card).toContain('El local ha anulado la reserva. Lo pagado (150 €) te queda como saldo para otra noche.');
+    expect(card).toContain('href="/w/abc"');
     expect(card).not.toContain('bitcoin');
-    expect(page({ paidCents: 50000, paidWithBitcoinCents: 50000 })).toContain(
-      'te devolverán 500 €. Lo pagaste con bitcoin: te lo devuelven en euros, no en bitcoin. Habla con el local.',
-    );
-    expect(page({ paidCents: 50000, paidWithBitcoinCents: 35000 })).toContain(
-      'te devolverán 500 €. De eso, 350 € los pagaste con bitcoin: esos te los devuelven en euros, no en bitcoin. Habla con el local.',
-    );
-    // Sin nada pagado, nada que devolver.
-    expect(page({ paidCents: 0 })).not.toContain('te devolverán');
+    // Lo pagado con bitcoin, igual: se queda como saldo (ya no «se devuelve en euros hablando con el local»).
+    for (const bitcoin of [50000, 35000]) {
+      const html = page({ paidCents: 50000, paidWithBitcoinCents: bitcoin });
+      expect(html).toContain('El local ha anulado la reserva. Lo pagado (500 €) te queda como saldo para otra noche.');
+      expect(html).not.toContain('bitcoin');
+      expect(html).not.toContain('Habla con el local');
+    }
+    for (const html of [card, page({ paidCents: 50000, paidWithBitcoinCents: 50000 })]) expect(html).not.toMatch(/te devolver|te lo devuelven/);
+    // Con el saldo ya gastado (sin enlace): la frase, sin botón.
+    expect(page({ paidCents: 15000 }, null)).not.toContain('href="/w/');
+    // Sin nada pagado, nada pasa a saldo.
+    expect(page({ paidCents: 0 }, null)).not.toContain('te queda como saldo');
+  });
+
+  it('anulada por el local antes del 17-nov (se devolvía desde Saldos): solo «El local ha anulado la reserva.», sin decir que queda como saldo', () => {
+    const old = (saldoHref: string | null) =>
+      plain(
+        renderGroupPage(
+          TOKEN,
+          group({ payable: [], cancel: null, saldoHref, venueCanceledToSaldo: false }, { status: 'CANCELED', statusText: 'Anulada por el local', paidCents: 15000, pendingCents: 0 }),
+          'https://api.prueba.es',
+          '2026-11-16',
+          '2027-03-16',
+        ),
+      );
+    // Ya devuelto (el saldo a 0, sin enlace): ni la frase del saldo ni el botón.
+    const refunded = old(null);
+    expect(refunded).toContain('<section class="card warn"><p>El local ha anulado la reserva.</p></section>');
+    expect(refunded).not.toContain('te queda como saldo');
+    expect(refunded).not.toContain('href="/w/');
+    // Si aún le queda saldo, el enlace a su saldo (sin prometer cuánto).
+    const left = old('/w/abc');
+    expect(left).not.toContain('te queda como saldo');
+    expect(left).toContain('href="/w/abc"');
+  });
+});
+
+describe('la página del reservado en el móvil (rediseño del 17-nov)', () => {
+  const render = (over: Partial<GroupView> = {}, r: Partial<ReservationView> = {}, qrs: Record<number, string> = {}) =>
+    plain(renderGroupPage(TOKEN, group(over, r), 'https://api.prueba.es', '2026-11-16', '2027-03-16', qrs));
+  const paid = { status: 'PAID', statusText: 'Pagado', paidCents: 50000, pendingCents: 0 } as const;
+
+  it('«Guarda tu reservado» arriba: calendario (.ics), WhatsApp (wa.me con el texto y el enlace) y «Copiar enlace»', () => {
+    const html = render({ payable: [], cancel: 'Anular', canChangeDate: true }, paid);
+    const url = `https://api.prueba.es/reservas/${TOKEN}`;
+    expect(html).toContain('Guarda tu reservado');
+    expect(html).toContain(`href="/reservas/${TOKEN}/calendario"`);
+    expect(html).toContain('Añadir a mi calendario');
+    const wa = html.match(/href="(https:\/\/wa\.me\/\?text=[^"]+)"/)?.[1];
+    expect(wa).toBeTruthy();
+    const text = decodeURIComponent(wa!.split('?text=')[1]!);
+    expect(text).toContain('Sala Aurora');
+    expect(text).toContain(url);
+    expect(html).toContain('Enviármelo por WhatsApp');
+    expect(html).toContain(`data-copy="${url}"`);
+    expect(html).toContain('Copiar enlace');
+    // Arriba: antes del resumen y de los QR; y ya no «Guarda este enlace» al final.
+    expect(html.indexOf('Guarda tu reservado')).toBeLessThan(html.indexOf('Los QR de tu grupo'));
+    expect(html.indexOf('Guarda tu reservado')).toBeLessThan(html.indexOf('<span>Noche</span>'));
+    expect(html).not.toContain('Guarda este enlace');
+    // Sin datos del cliente en el texto de WhatsApp.
+    expect(text).not.toMatch(/Laura|600112233/);
+  });
+
+  it('sin pagar (solo ocupa sitio un rato): ni calendario ni WhatsApp; solo «Copiar enlace», en gris y debajo de «Pagar»', () => {
+    for (const over of [{}, { openPayUrl: '/pay/xyz' }]) {
+      const html = render(over);
+      expect(html).not.toContain('Guarda tu reservado');
+      expect(html).not.toContain('/calendario');
+      expect(html).not.toContain('wa.me');
+      expect(html).toContain(`class="btn alt" type="button" data-copy="https://api.prueba.es/reservas/${TOKEN}"`);
+      expect(html).toContain('Copiar enlace');
+      const pay = Math.max(html.indexOf('id="payb"'), html.indexOf('Seguir pagando'));
+      expect(pay).toBeGreaterThan(0);
+      expect(html.indexOf('data-copy=')).toBeGreaterThan(pay);
+      expect(html).not.toMatch(/es tu reservado|Guarda este enlace/);
+    }
+  });
+
+  it('sin «Guarda tu reservado» si ya llegó, se anuló o no vino', () => {
+    for (const r of [{ status: 'ARRIVED' }, { status: 'CANCELED' }, { status: 'CLIENT_CANCELED' }, { status: 'NO_SHOW' }] as const) {
+      const html = render({ payable: [], cancel: null }, r);
+      expect(html).not.toContain('Guarda tu reservado');
+      expect(html).not.toContain('data-copy=');
+    }
+  });
+
+  it('pagar: dos o tres líneas cortas y lo demás en «Ver condiciones»; el «Pagar» es lo único en lima', () => {
+    const html = render();
+    const pay = html.slice(html.indexOf('id="payf"'), html.indexOf('</form>', html.indexOf('id="payf"')));
+    expect(pay).toContain('<details class="dis"><summary>Ver condiciones</summary>');
+    const short = pay.slice(0, pay.indexOf('Ver condiciones'));
+    expect(short).toContain('La señal (150 €) no se devuelve.');
+    expect(short).toContain('Puedes cambiar la fecha una vez o anular, avisando con 48 horas.');
+    expect(short).not.toContain('Si pagas todo y no vienes');
+    const terms = pay.slice(pay.indexOf('Ver condiciones'));
+    expect(terms).toContain('Si pagas todo y no vienes sin avisar con 48 horas, pierdes la señal y el resto queda como saldo para otra noche');
+    expect(terms).toContain('Si el local anula la reserva, lo pagado te queda como saldo para otra noche.');
+    expect((html.match(/class="btn"/g) ?? []).length).toBe(1);
+    expect(pay).toContain('class="btn" id="payb"');
+  });
+
+  it('«Pagar el resto» sola, sin un botón de opción único; con dos opciones, a elegir', () => {
+    const rest = render({ payable: ['REST'] }, { status: 'DEPOSIT_PAID', paidCents: 15000, pendingCents: 35000 });
+    expect(rest).not.toContain('type="radio" name="kind"');
+    expect(rest).toContain('<input type="hidden" name="kind" value="REST" data-eur="350 €">');
+    const two = render();
+    expect((two.match(/type="radio" name="kind"/g) ?? []).length).toBe(2);
+  });
+
+  it('cambiar la fecha y anular, plegados en «Cambiar o anular» (debajo de todo, nunca en lima)', () => {
+    const html = render({ payable: ['REST'], cancel: 'Anular', canChangeDate: true }, { status: 'DEPOSIT_PAID', paidCents: 15000, pendingCents: 35000 });
+    const more = html.indexOf('<details class="dis more"><summary>Cambiar o anular</summary>');
+    expect(more).toBeGreaterThan(html.indexOf('id="payf"'));
+    expect(html.indexOf('id="datef"')).toBeGreaterThan(more);
+    expect(html.indexOf('id="cancelf"')).toBeGreaterThan(more);
+    expect(html).toContain('class="btn alt" id="cancelb"');
+    // Sin pagar, solo se puede cancelar: el pliegue lo dice así.
+    expect(render()).toContain('<details class="dis more"><summary>Cancelar la reserva</summary>');
+  });
+
+  it('el grupo: una fila por persona con la miniatura de su QR y un «Compartir» grande (compartir del móvil o copiar)', () => {
+    const html = render({ payable: [] }, paid, { 1: '<svg viewBox="0 0 1 1"></svg>', 2: '<svg viewBox="0 0 1 1"></svg>' });
+    expect((html.match(/<span class="qr" aria-hidden="true"><svg /g) ?? []).length).toBe(2);
+    expect(html).toContain('<a class="who" href="https://api.prueba.es/reservas/q/AAAAAAAAAAAAAAAAAAAAAAAA">');
+    expect((html.match(/class="btn alt share" type="button" data-share="/g) ?? []).length).toBe(2);
+    expect(html).toContain('navigator.share');
+    expect(html).toContain('navigator.clipboard');
+  });
+
+  it('casillas grandes y campos que no hacen zoom ni se salen en el iPhone (16 px, fecha al 100 %)', () => {
+    const book = renderBookPage('ABCDEFGHIJKLMNOP', entry, '2026-11-16', '2027-03-16');
+    for (const html of [book, render()]) {
+      expect(html).toMatch(/input\.i,textarea\.i\{[^}]*width:100%;min-width:0;[^}]*font-size:1rem;[^}]*-webkit-appearance:none;appearance:none/);
+      expect(html).toMatch(/\.chk\{[^}]*min-height:3\.5rem/);
+    }
+    expect(book).not.toContain('class="card"><h2>Tu reservado');
   });
 });
 

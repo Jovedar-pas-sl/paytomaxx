@@ -100,7 +100,7 @@ describe('la página del grupo: «Seguir pagando» solo mientras la reserva se p
   });
 });
 
-describe('la vista de la reserva dice lo pagado con bitcoin (solo se devuelve en euros)', () => {
+describe('la vista de la reserva dice lo pagado con bitcoin (para el panel)', () => {
   const row = (payments?: Array<{ amountCents: number }>): ReservationRow => ({
     id: '8c1d2e3f-4a5b-4c6d-8e7f-9a0b1c2d3e4f',
     ref: 'R-0042',
