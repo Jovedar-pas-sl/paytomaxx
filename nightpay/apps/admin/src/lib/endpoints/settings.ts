@@ -3,6 +3,8 @@
 import type {
   BtcpaySettingsView,
   BtcpayTestResult,
+  CustomerDisplayMessage,
+  CustomerDisplayMessageSettings,
   PermissionSet,
   SaveBtcpaySettingsDto,
   TestBtcpaySettingsDto,
@@ -157,6 +159,20 @@ export async function fetchNightSettings(): Promise<VenueNightSettings> {
 
 export async function updateNightSettings(input: UpdateNightSettingsDto): Promise<VenueNightSettings> {
   const res = await authedFetch('/v1/admin/venue/night', { method: 'PATCH', body: JSON.stringify(input) });
+  if (!res.ok) throw await apiError(res);
+  return res.json();
+}
+
+// ─── Pantalla del cliente: el mensaje del reposo (dueño y encargado) ─
+
+export async function fetchDisplayMessage(): Promise<CustomerDisplayMessageSettings> {
+  const res = await authedFetch('/v1/customer-display/message');
+  if (!res.ok) throw await apiError(res);
+  return res.json();
+}
+
+export async function updateDisplayMessage(input: CustomerDisplayMessage): Promise<CustomerDisplayMessageSettings> {
+  const res = await authedFetch('/v1/customer-display/message', { method: 'PUT', body: JSON.stringify(input) });
   if (!res.ok) throw await apiError(res);
   return res.json();
 }
