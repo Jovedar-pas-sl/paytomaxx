@@ -1,14 +1,8 @@
 'use client';
 
 import { useEffect, useState, type FormEvent } from 'react';
-import { Button, Input, Select } from '@nightpay/ui';
-import {
-  BTCPAY_PURPOSES,
-  BTCPAY_PURPOSE_LABELS,
-  type BtcpayPurpose,
-  type BtcpaySettingsView,
-  type BtcpayTestResult,
-} from '@nightpay/contracts';
+import { Button, Input } from '@nightpay/ui';
+import { BITCOIN_USE_TEXT, type BtcpaySettingsView, type BtcpayTestResult } from '@nightpay/contracts';
 import { fetchBtcpaySettings, saveBtcpaySettings, testBtcpaySettings, updateBtcpayMode } from '@/lib/api';
 import { totpRetryState } from '@/lib/api-errors';
 import { OTP_LENGTH } from '@/lib/otp';
@@ -22,11 +16,12 @@ import { SaveRow, SettingsCard, Switch, useSavedFlash } from './SettingsBits';
  * que sobran) y la tienda. Guardar o cambiar los datos pide la 2FA, vuelve a
  * probar y registra el aviso en BTCPay. La clave no vuelve nunca a esta pantalla:
  * solo se ve cómo termina. Si el servidor no tiene el bitcoin encendido
- * (BTCPAY_ENABLED), la sección no sale.
+ * (BTCPAY_ENABLED), la sección no sale. Para qué sirve no se elige (decisión del
+ * dueño): cargar saldo y pagar reservados, nunca en la barra (BITCOIN_USE_TEXT).
  */
 export function BtcpayPanel() {
   const [view, setView] = useState<BtcpaySettingsView | null | undefined>(undefined);
-  const [form, setForm] = useState({ baseUrl: '', storeId: '', apiKey: '', purpose: 'BOTH' as BtcpayPurpose, enabled: false });
+  const [form, setForm] = useState({ baseUrl: '', storeId: '', apiKey: '', enabled: false });
   const [code, setCode] = useState('');
   const [lockedUntil, setLockedUntil] = useState<number | null>(null);
   const [busy, setBusy] = useState<'save' | 'test' | 'mode' | null>(null);
@@ -40,7 +35,7 @@ export function BtcpayPanel() {
       (v) => {
         if (cancelled) return;
         setView(v);
-        if (v) setForm({ baseUrl: v.baseUrl ?? '', storeId: v.storeId ?? '', apiKey: '', purpose: v.purpose, enabled: v.enabled });
+        if (v) setForm({ baseUrl: v.baseUrl ?? '', storeId: v.storeId ?? '', apiKey: '', enabled: v.enabled });
       },
       () => !cancelled && setView(null),
     );
@@ -90,11 +85,10 @@ export function BtcpayPanel() {
         storeId: form.storeId.trim(),
         ...(form.apiKey.trim() ? { apiKey: form.apiKey.trim() } : {}),
         enabled: form.enabled,
-        purpose: form.purpose,
         totpCode: code,
       });
       setView(next);
-      setForm({ baseUrl: next.baseUrl ?? '', storeId: next.storeId ?? '', apiKey: '', purpose: next.purpose, enabled: next.enabled });
+      setForm({ baseUrl: next.baseUrl ?? '', storeId: next.storeId ?? '', apiKey: '', enabled: next.enabled });
       setCode('');
       setTest(null);
       flashSaved();
@@ -107,15 +101,15 @@ export function BtcpayPanel() {
     }
   }
 
-  async function toggleEnabled(next: boolean): Promise<void> {
+  async function toggleEnabled(next: boolean, cashRefund?: boolean): Promise<void> {
     if (busy) return;
     if (code.length !== OTP_LENGTH) return setError('Pon primero los 6 números de tu app de verificación (abajo) para cambiar esto.');
     setBusy('mode');
     setError(null);
     try {
-      const updated = await updateBtcpayMode({ enabled: next, purpose: form.purpose, totpCode: code });
+      const updated = await updateBtcpayMode({ enabled: next, totpCode: code, ...(cashRefund === undefined ? {} : { cashRefund }) });
       setView(updated);
-      setForm({ ...form, enabled: updated.enabled, purpose: updated.purpose });
+      setForm({ ...form, enabled: updated.enabled });
       setCode('');
       flashSaved();
     } catch (err) {
@@ -132,14 +126,24 @@ export function BtcpayPanel() {
       <SettingsCard
         title="Bitcoin (BTCPay)"
         tour="formas-bitcoin"
-        hint="El cliente puede pagar con bitcoin desde la página de pago. Va a tu BTCPay y a tu cartera: no pasa por el banco. Apagado de fábrica."
+        hint="El cliente puede pagar con bitcoin desde la página de pago al cargar saldo y en los reservados. Va a tu BTCPay y a tu cartera: no pasa por el banco. Apagado de fábrica."
       >
+        <p className="np-set-hint">
+          {BITCOIN_USE_TEXT}
+        </p>
         <Switch
           label="Aceptar pagos con bitcoin en este local"
           hint={current.configured ? undefined : 'Primero guarda los datos de tu BTCPay.'}
           checked={current.enabled}
           disabled={busy !== null || !current.configured}
           onChange={(v) => void toggleEnabled(v)}
+        />
+        <Switch
+          label="Devolver en efectivo lo pagado con bitcoin"
+          hint="Solo el encargado y tú, con su 2FA y el código del recibo del cliente; de más de tu límite de devoluciones, lo apruebas tú. Siempre en euros (lo de la factura), hasta 7 días y por debajo de 1.000 €. El bitcoin se queda en tu cartera. Enciéndelo cuando lo confirme tu abogado."
+          checked={current.cashRefund === true}
+          disabled={busy !== null || !current.configured}
+          onChange={(v) => void toggleEnabled(current.enabled, v)}
         />
         <Input label="Dirección de tu BTCPay" placeholder="https://pay.tulocal.es" inputMode="url" autoComplete="off" value={form.baseUrl} onChange={(e) => change({ baseUrl: e.target.value })} hint="Solo el dominio, con https." />
         <div className="np-set-grid">
@@ -154,14 +158,6 @@ export function BtcpayPanel() {
             hint={keyNeeded ? 'Créala en BTCPay con solo estos 3 permisos: crear facturas, ver facturas y gestionar avisos (webhooks) de esta tienda.' : 'Déjala vacía para mantener la guardada.'}
           />
         </div>
-        <Select label="Para qué lo usa este local" value={form.purpose} onChange={(e) => change({ purpose: e.target.value as BtcpayPurpose })}>
-          {BTCPAY_PURPOSES.map((p) => (
-            <option key={p} value={p}>
-              {BTCPAY_PURPOSE_LABELS[p]}
-            </option>
-          ))}
-        </Select>
-
         {current.configured && current.lastCheckAt ? (
           <p className="np-set-hint" role="status">
             Última comprobación: {current.lastCheckOk ? 'bien' : 'con problemas'}

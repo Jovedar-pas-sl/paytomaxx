@@ -5,6 +5,7 @@ import { Button, Modal, useInstall } from '@nightpay/ui';
 import { GUIA_PATH } from '../lib/guia';
 import { useOpenCharges, type OpenCharges } from '../lib/open-charges';
 import { offerStaffInstall } from '../lib/staff-install';
+import { CustomerDisplaySheet } from './CustomerDisplaySheet';
 import { DeviceSheet } from './DeviceSheet';
 import { PasskeySheet } from './PasskeySheet';
 import { ProfileSheet } from './ProfileSheet';
@@ -102,18 +103,21 @@ const logoutStyle: CSSProperties = {
 
 /**
  * La hoja del menú: «Mi perfil» (foto, nombre y ajustes), la llave de acceso (verificarse con el móvil sin 2FA),
+ * la «Pantalla del cliente» (la tablet de la barra con el importe y el QR),
  * «Este aparato», instalar como app (en Android, si aún no lo está), la guía y, aparte, «Salir». Sin
  * tema: se elige en «Mi perfil» (por defecto, oscuro).
  */
 export function StaffMenu({ open, onClose, onLogout }: { open: boolean; onClose: () => void; onLogout: () => void }) {
   const [passkeys, setPasskeys] = useState(false);
   const [profile, setProfile] = useState(false);
+  const [display, setDisplay] = useState(false);
   const device = useDeviceMenu(onClose);
   return (
     <>
     <ProfileSheet open={profile} onClose={() => setProfile(false)} onLogout={onLogout} />
     {device.sheet}
     <PasskeySheet open={passkeys} onClose={() => setPasskeys(false)} />
+    <CustomerDisplaySheet open={display} onClose={() => setDisplay(false)} />
     <Modal open={open} onClose={onClose} title="Menú">
       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
         <Button
@@ -133,6 +137,15 @@ export function StaffMenu({ open, onClose, onLogout }: { open: boolean; onClose:
           }}
         >
           Llave de acceso
+        </Button>
+        <Button
+          variant="ghost"
+          onClick={() => {
+            onClose();
+            setDisplay(true);
+          }}
+        >
+          Pantalla del cliente
         </Button>
         {device.item}
         <InstallMenuItem />

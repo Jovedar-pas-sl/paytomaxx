@@ -11,7 +11,7 @@ import { TENANT_SCOPED_MODELS, scopeToTenant } from './tenant-scope';
 const TENANT_A = '3f6c2a1e-8b4d-4c7e-9a10-5d2e7f8a9b01';
 const TENANT_B = 'b7e1d2c3-0000-4000-8000-00000000beef';
 /** Los que cruzan locales por diseño o llegan sin local (ver tenant-scope.ts). */
-const CROSS_VENUE = new Set(['ClientWallet', 'WalletConsumption', 'WalletPasskey', 'WalletCard', 'WebhookDelivery', 'PeanpeCall', 'AuditEvent']);
+const CROSS_VENUE = new Set(['ClientWallet', 'WalletConsumption', 'WalletPasskey', 'WalletCard', 'WalletPushSubscription', 'WebhookDelivery', 'PeanpeCall', 'AuditEvent']);
 
 type Params = { model?: string; action: string; args?: Record<string, unknown>; runInTransaction?: boolean };
 type Middleware = (p: Params, next: (p: Params) => Promise<Params>) => Promise<Params>;

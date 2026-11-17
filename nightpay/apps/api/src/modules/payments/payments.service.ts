@@ -24,6 +24,7 @@ import {
   type PaymentMachineState,
 } from './payment.machine';
 import { insertPaymentEvent, recordPaymentDevice, WALLET_CREDITED_EVENT } from './payment-device';
+import { paidMethodOf } from './paid-method';
 import {
   chargeBreakdownText,
   chargeRightsOf,
@@ -54,6 +55,7 @@ import { lineCommission, lineViews, type DraftLine } from './charge-lines';
 import { linesWithOperatorBps, resolveChargeOrThrow, type LineWithBps } from './charge-request';
 import { insertChargeLines, insertInvitationEarnings, linesOf, nextChargeRef } from './charge-store';
 import { invitationEarnings } from './invitation-lines';
+import { cardQrUrl } from './pay-qr-url';
 import { assertCanTopUp } from '../venues/charge-rights';
 import type { AuthorizeResult, Provider } from '@nightpay/contracts';
 import {
@@ -101,11 +103,16 @@ import {
 } from './topup-credit';
 import { BRAND_NAME } from '../../common/brand';
 import { isOtherOrder, markAttemptApproved, recordSecondApproval } from './second-approval';
+import { applyReservationPayment } from '../reservations/reservation-ledger';
+import { isReservationPaymentKey } from '../reservations/reservation-payment-key';
 import { sweepUnpaidTopUpWallet } from './topup-wallet-sweep';
-import { closeLinkedSaldo } from './cobro-link';
+import { PAID_WITH_SALDO_EVENT, closeLinkedSaldo } from './cobro-link';
+import { wasPaidAfterCancel } from './paid-after-cancel';
+import { assertBankWaitOver } from './cancel-at-bank';
+import { heldOnReaderConflict, isHeldOnReader } from './reader-hold';
 import { serviceFeeQuote } from '@nightpay/contracts';
 import { btcpayEnabled } from '../btcpay/btcpay-flag';
-import { purposeAllows } from '../btcpay/btcpay-logic';
+import { bitcoinOfferedFor } from '../btcpay/btcpay-logic';
 import { VENUE_SERVICE_FEE_SELECT, refundableFeeCents, venueServiceFeeOf } from './service-fee';
 
 const POS_AUTH_CODE_REUSED =
@@ -330,7 +337,9 @@ export function payerWalletFields(args: {
   'walletToken' | 'walletClaimHash' | 'walletCode' | 'walletHasFaceId' | 'walletHasPin' | 'walletReturnToken' | 'walletFromHome'
 > {
   const returnClaimHash = args.wallet ? selfTopUpClaimHash(args.idempotencyKey) : null;
-  const wallet = args.wallet && args.firstTopUp && !returnClaimHash ? args.wallet : null;
+  // Reservados: el saldo del grupo no se enseña a quien paga (la señal es saldo al llegar).
+  const reservation = isReservationPaymentKey(args.idempotencyKey);
+  const wallet = args.wallet && args.firstTopUp && !returnClaimHash && !reservation ? args.wallet : null;
   return {
     walletToken: wallet?.qrToken ?? null,
     walletClaimHash: returnClaimHash ?? (wallet ? args.approvedClaimHash : null),
@@ -386,6 +395,34 @@ export interface LockedPaymentRow {
   operatorCommissionBps?: number | null;
   /** «Comisión del servicio» fijada al crear (0 sin ella o en cobros anteriores). */
   serviceFeeCents?: number;
+  /** Operación del datáfono (PAX): con AUTHORIZING, recarga cobrada sin comprobar (reader-hold.ts). */
+  posOperationNumber?: string | null;
+}
+
+/**
+ * Lo que mira «Cancelar cobro» antes de cancelar (con el cobro bloqueado; o,
+ * para avisar antes, leído sin bloquear): la recarga cobrada en el datáfono sin
+ * comprobar, nunca (409 CANCEL_HELD_ON_READER); con el bitcoin ya en la red, no
+ * (409 BITCOIN_CONFIRMING); con el cliente en su banco, no antes de 2 minutos
+ * (409 CANCEL_AT_BANK_TOO_SOON).
+ */
+async function assertCancelable(
+  tx: TransactionalClient,
+  p: Pick<LockedPaymentRow, 'id' | 'tenantId' | 'status' | 'provider' | 'posOperationNumber'>,
+): Promise<void> {
+  if (isHeldOnReader(p)) throw heldOnReaderConflict();
+  if (p.status === 'AUTHORIZING' && p.provider === 'BTCPAY') await assertBitcoinNotOnTheWay(tx, p.id);
+  // Con el cliente en su banco, no antes de 2 minutos (con el cobro bloqueado: la marca no cambia mientras).
+  await assertBankWaitOver(tx, p);
+}
+
+/**
+ * El pago a medias de un reservado que se cancela al anular la reserva o al
+ * elegir otro pago: sin empezar o con su factura de bitcoin abierta. Con la
+ * tarjeta ya en el banco, no (lo resuelve el banco); pagado o cerrado, tampoco.
+ */
+export function reservationPaymentCancelable(p: { status: string; provider: string | null }): boolean {
+  return p.status === 'CREATED' || p.status === 'AWAITING_CAPTURE' || (p.status === 'AUTHORIZING' && p.provider === 'BTCPAY');
 }
 
 export interface TransitionOptions {
@@ -1025,14 +1062,15 @@ export class PaymentsService implements OnApplicationBootstrap {
 
   /** Pasarela activa del local (la que cobrará cuando el cliente pague). */
   /**
-   * «Pagar con bitcoin» en la página de pago: el servidor lo tiene encendido
-   * (BTCPAY_ENABLED), el local lo activó en Ajustes y lo usa para esto (cobros o
-   * recargas). Apagado el servidor, ni se mira la base.
+   * «Pagar con bitcoin» en la página de pago: solo al cargar saldo y en los
+   * reservados (bitcoinOfferedFor: los dos llevan su saldo), nunca en un cobro de
+   * la barra; con el servidor encendido (BTCPAY_ENABLED) y el local en Ajustes.
+   * Apagado el servidor, o en un cobro de la barra, ni se mira la base.
    */
-  private async bitcoinOffered(tenantId: string, topUp: boolean): Promise<boolean> {
-    if (!btcpayEnabled()) return false;
-    const store = await this.prisma.asSystem((tx) => tx.btcpayStore.findUnique({ where: { tenantId }, select: { enabled: true, purpose: true } }));
-    return Boolean(store?.enabled) && purposeAllows(store?.purpose, topUp);
+  private async bitcoinOffered(tenantId: string, payment: { walletId: string | null }): Promise<boolean> {
+    if (!btcpayEnabled() || !bitcoinOfferedFor(payment)) return false;
+    const store = await this.prisma.asSystem((tx) => tx.btcpayStore.findUnique({ where: { tenantId }, select: { enabled: true } }));
+    return Boolean(store?.enabled);
   }
 
   /** Cosas que hacer cuando se cancela un cobro (BTCPay: cerrar su factura). Las registra quien las necesita. */
@@ -1251,10 +1289,14 @@ export class PaymentsService implements OnApplicationBootstrap {
     const methods = paymentMethodsOf(venue?.paymentMethods);
     // Y el puesto de quien cobra (recepción no lleva propinas).
     const creatorTips = createdBy ? chargeRightsOf(createdBy, postRulesOf(venue?.postRules)).tips : true;
-    const bitcoin = await this.bitcoinOffered(payment.tenantId, walletId !== null);
+    // Bitcoin: al cargar saldo y en los reservados (la señal, el resto o todo); en un cobro de la barra, nunca.
+    const bitcoin = await this.bitcoinOffered(payment.tenantId, { walletId });
+    // Cancelado por el personal y cobrado después por el banco: el cliente no ve «cancelado» a secas.
+    const paidAfterCancel = payment.status === 'CANCELED' && (await this.prisma.asSystem((tx) => wasPaidAfterCancel(tx, payment.id)));
     return {
       ...rest,
       ...(bitcoin ? { bitcoin: true } : {}),
+      ...(paidAfterCancel ? { paidAfterCancel: true } : {}),
       walletId,
       topUp: Boolean(walletId),
       status: payment.status as PaymentMachineState,
@@ -1265,6 +1307,8 @@ export class PaymentsService implements OnApplicationBootstrap {
       tipToStaff: tipGoesToStaff({ tipGoesTo: tipGoesTo ?? null, creatorRole: createdBy?.role ?? null }),
       approvedClaimHash: attempts[0]?.claimHash ?? null,
       ...payerWalletFields({ wallet, firstTopUp, idempotencyKey, approvedClaimHash: attempts[0]?.claimHash ?? null }),
+      // Reservados: al pagarse (también con bitcoin), el navegador que pagó vuelve a la página del reservado.
+      ...(isReservationPaymentKey(idempotencyKey) ? { reservation: true as const } : {}),
       saldo: linkedWalletCharge ? { ...linkedWalletCharge, enabled: methods.wallet } : null,
     };
   }
@@ -1284,7 +1328,7 @@ export class PaymentsService implements OnApplicationBootstrap {
    * Para la página /pay/result a la que vuelve el cliente desde el banco:
    * estado REAL del pago a partir del pedido de la pasarela (Ds_Order).
    */
-  async getResultView(providerTxId: string): Promise<PayResultView | null> {
+  async getResultView(providerTxId: string, opts: { bankApproved?: boolean } = {}): Promise<PayResultView | null> {
     if (!providerTxId) return null;
     const found = await this.prisma.asSystem(async (tx) => {
       const attempt = await tx.paymentAttempt.findFirst({
@@ -1318,12 +1362,19 @@ export class PaymentsService implements OnApplicationBootstrap {
         where: { paymentId: payment.id, providerTxId },
         select: { status: true },
       });
-      return { payment, attemptStatus: thisAttempt?.status ?? null };
+      // Cancelado por el personal y cobrado por el banco: ya apuntado (el aviso llegó) o lo
+      // dice la vuelta firmada del banco (el aviso aún está en la cola). Lo del saldo, no.
+      const paidAfterCancel =
+        payment.status === 'CANCELED' &&
+        ((await wasPaidAfterCancel(tx, payment.id)) ||
+          (opts.bankApproved === true && (await tx.paymentEvent.count({ where: { paymentId: payment.id, eventType: PAID_WITH_SALDO_EVENT } })) === 0));
+      return { payment, attemptStatus: thisAttempt?.status ?? null, paidAfterCancel };
     });
     if (!found) return null;
-    const { payment, attemptStatus } = found;
+    const { payment, attemptStatus, paidAfterCancel } = found;
     return {
       paymentId: payment.id,
+      ...(paidAfterCancel ? { paidAfterCancel: true } : {}),
       status: payment.status as PaymentMachineState,
       amountCents: payment.amountCents,
       tipCents: payment.tipCents,
@@ -1339,7 +1390,16 @@ export class PaymentsService implements OnApplicationBootstrap {
       }),
       attemptStatus,
       approvedClaimHash: payment.attempts[0]?.claimHash ?? null,
+      ...(isReservationPaymentKey(payment.idempotencyKey) ? { reservation: true as const } : {}),
     };
+  }
+
+  /** Reservados: el enlace de la reserva de este pago (para volver a ella después de pagar). */
+  async reservationManageToken(paymentId: string): Promise<string | null> {
+    const row = await this.prisma.asSystem((tx) =>
+      tx.reservationPayment.findUnique({ where: { paymentId }, select: { reservation: { select: { manageToken: true } } } }),
+    );
+    return row?.reservation.manageToken ?? null;
   }
 
   /** Justificante del cliente (solo cobros pagados). Sin datos personales. */
@@ -1447,10 +1507,11 @@ export class PaymentsService implements OnApplicationBootstrap {
           }),
         )
       : null;
+    const payMethod = paid ? paidMethodOf(payment.provider, charged?.payMethod ?? null) : null;
     return {
       ...(paid ? { id: payment.id } : {}),
-      // 'wallet': pagó con Apple Pay o Google Pay (el banco no dice cuál de los dos).
-      ...(paid && (charged?.payMethod === 'wallet' || charged?.payMethod === 'card') ? { payMethod: charged.payMethod } : {}),
+      // 'wallet': pagó con Apple Pay o Google Pay (el banco no dice cuál de los dos); 'bitcoin': con BTCPay.
+      ...(payMethod ? { payMethod } : {}),
       amountCents: payment.amountCents,
       // La fija el cobro al crearse (no cambia): el personal la enseña aparte.
       serviceFeeCents: payment.serviceFeeCents,
@@ -1463,7 +1524,8 @@ export class PaymentsService implements OnApplicationBootstrap {
       // Ya pagado: la propina que dejó (el PAGADO del personal sin tiempo real la necesita).
       ...(paid ? { tipCents: payment.tipCents } : {}),
       ...(waiting ? { attemptStartedAt: attemptAt.toISOString() } : {}),
-      ...(bitcoin ? { bitcoin } : {}),
+      // Pagando en su banco: se dice ('none'), para que la pantalla no lo deduzca de que falte el campo.
+      ...(bitcoin ? { bitcoin } : payment.status === 'AUTHORIZING' ? { bitcoin: 'none' as const } : {}),
     };
   }
 
@@ -1533,7 +1595,8 @@ export class PaymentsService implements OnApplicationBootstrap {
           SELECT id, "tenantId", status, "amountCents", "availableAmountCents",
                  "providerTxId", provider, "createdByUserId", "walletId",
                  "tipCents", "tipGoesTo", "tipBeneficiaryUserId",
-                 "revenueCategory", "operatorCommissionBps", "serviceFeeCents"
+                 "revenueCategory", "operatorCommissionBps", "serviceFeeCents",
+                 "posOperationNumber"
             FROM payments
            WHERE id = ${paymentId}::uuid
            FOR UPDATE
@@ -1628,6 +1691,8 @@ export class PaymentsService implements OnApplicationBootstrap {
         // SEPARADO del balance: propinas no son saldo gastable por el cliente.
         if (result.nextState === 'AUTHORIZED' && p.walletId) {
           await this.creditTopUp(tx, { ...p, walletId: p.walletId }, paymentId);
+          // Reservados: el pago (señal, resto o todo) se apunta en su reserva aquí mismo.
+          await applyReservationPayment(tx, p, traceId);
         }
 
         // Comisión de la chica / propina a otra chica: misma transacción.
@@ -2023,10 +2088,21 @@ export class PaymentsService implements OnApplicationBootstrap {
   }
 
   /**
-   * Cancela un pago en estado CREATED|AWAITING_CAPTURE.
-   * - OPERATOR solo puede cancelar payments creados por ella; WAITER, los suyos.
-   * - OWNER/MANAGER pueden cancelar cualquier payment del venue.
-   * Returns 409 si el FSM no permite (estado terminal).
+   * «Cancelar cobro»: cualquier cobro SIN PAGAR del local, lo cancele quien lo
+   * cancele del personal del local (chica, camarero, recepción, encargado o
+   * dueño). El cobro de otro local no se encuentra (404).
+   *  - Antes de que el cliente vaya a su banco (CREATED, AWAITING_CAPTURE): sí.
+   *  - Con el cliente en su banco (AUTHORIZING con una pasarela): no durante
+   *    los primeros 2 minutos (409 CANCEL_AT_BANK_TOO_SOON, cancel-at-bank.ts);
+   *    pasados sin respuesta del banco, sí.
+   *  - Con la factura de bitcoin abierta: sí, sin esperar; con el bitcoin ya en
+   *    la red, 409 BITCOIN_CONFIRMING.
+   *  - La recarga cobrada en el datáfono sin comprobar (la tarjeta ya pagó):
+   *    nunca, ni pasados los 2 minutos (no está en su banco): 409
+   *    CANCEL_HELD_ON_READER, la resuelven en el panel (reader-hold.ts).
+   * Queda quién lo canceló (en el evento) y con qué móvil. Si el banco lo cobra
+   * después, sigue CANCELED y queda en Incidencias (paid-after-cancel.ts).
+   * Pagado o cerrado: 409.
    */
   async cancel(
     paymentId: string,
@@ -2035,14 +2111,6 @@ export class PaymentsService implements OnApplicationBootstrap {
     const payment = await this.prisma.payment.findUnique({ where: { id: paymentId } });
     if (!payment) throw new NotFoundException('Payment not found');
 
-    if (actor.role === 'OPERATOR' && payment.createdByUserId !== actor.userId) {
-      throw new ForbiddenException('No puedes cancelar cobros de otra operadora');
-    }
-    // El camarero solo cancela los cobros que ha creado él (los de la chica no).
-    if (actor.role === 'WAITER' && payment.createdByUserId !== actor.userId) {
-      throw new ForbiddenException('Solo puedes cancelar los cobros que has creado tú');
-    }
-
     try {
       // H2: pasamos expectedTenantId — transition() valida que payment.tenantId
       // coincide con el del actor, defensa cross-tenant aunque la query previa
@@ -2050,7 +2118,8 @@ export class PaymentsService implements OnApplicationBootstrap {
       // Quién lo canceló (en el evento) y con qué móvil, en la misma transacción.
       await this.transition(paymentId, { type: 'CANCELED', reason: 'user-canceled', byUserId: actor.userId }, actor.tenantId, {
         prepare: async (tx, locked) => {
-          if (locked.status === 'AUTHORIZING' && locked.provider === 'BTCPAY') await assertBitcoinNotOnTheWay(tx, locked.id);
+          // Con el cobro bloqueado: la recarga del datáfono sin comprobar, el bitcoin en la red y los 2 minutos en su banco.
+          await assertCancelable(tx, locked);
           await recordPaymentDevice(tx, this.cls.get('ctx'), { id: locked.id, tenantId: locked.tenantId }, 'cancel');
         },
       });
@@ -2062,14 +2131,65 @@ export class PaymentsService implements OnApplicationBootstrap {
       }
       throw err;
     }
-    // Bitcoin: la factura abierta se cierra (en BTCPay, si la clave deja; si no, caduca sola).
+    await this.afterCancel(paymentId, payment.tenantId);
+    return { status: 'CANCELED' };
+  }
+
+  /**
+   * El pago a medias de un reservado, al anular la reserva (el local o el
+   * cliente) o al elegir otro pago: con las mismas comprobaciones que «Cancelar
+   * cobro» (con el cobro bloqueado: con el bitcoin ya en la red, 409
+   * BITCOIN_CONFIRMING) y cerrando su factura de bitcoin (cancelHooks). Solo si
+   * sigue sin empezar o con su factura de bitcoin abierta: con la tarjeta ya en
+   * el banco, pagado o cerrado no se toca y devuelve false. Un bitcoin que llegue
+   * después da con el cobro cancelado: Incidencias, nunca a un saldo en silencio.
+   */
+  async cancelReservationPayment(paymentId: string, tenantId: string, event: { reason: string; byUserId?: string }): Promise<boolean> {
+    try {
+      await this.transition(paymentId, { type: 'CANCELED', ...event }, tenantId, {
+        prepare: async (tx, locked) => {
+          if (!reservationPaymentCancelable(locked)) throw new InvalidTransitionError(locked.status, 'CANCELED');
+          await assertCancelable(tx, locked);
+        },
+      });
+    } catch (err) {
+      if (err instanceof InvalidTransitionError) return false;
+      throw err;
+    }
+    await this.afterCancel(paymentId, tenantId);
+    return true;
+  }
+
+  /**
+   * Lo que diría ahora «Cancelar cobro» de este cobro, sin cancelar nada (para
+   * avisar antes, p. ej. el resto en efectivo en la puerta): el 409, o null si
+   * se podría cancelar.
+   */
+  async cancelBlocker(paymentId: string, tenantId: string): Promise<ConflictException | null> {
+    return this.prisma.asSystem(async (tx) => {
+      const p = await tx.payment.findFirst({
+        where: { id: paymentId, tenantId },
+        select: { id: true, tenantId: true, status: true, provider: true, posOperationNumber: true },
+      });
+      if (!p) return null;
+      try {
+        await assertCancelable(tx, { ...p, status: p.status as PaymentMachineState });
+        return null;
+      } catch (err) {
+        if (err instanceof ConflictException) return err;
+        throw err;
+      }
+    });
+  }
+
+  /** Cancelado: la factura de bitcoin abierta se cierra (en BTCPay, si la clave deja; si no, caduca sola). */
+  private async afterCancel(paymentId: string, tenantId: string): Promise<void> {
     // (`?? []`: las pruebas arman el servicio sin pasar por el constructor.)
     for (const hook of this.cancelHooks ?? []) {
-      await hook(paymentId, payment.tenantId).catch((e: unknown) =>
+      await hook(paymentId, tenantId).catch((e: unknown) =>
         this.logger.error(`Cancelar ${paymentId}: el cierre de la factura de bitcoin falló: ${(e as Error).message}`),
       );
     }
-    return { status: 'CANCELED' };
   }
 
   /**
@@ -2619,36 +2739,9 @@ export class PaymentsService implements OnApplicationBootstrap {
       lines: await linesOf(tx, { paymentIds: [paymentId] }),
     }));
     const saldo = p.linkedWalletCharge ?? null;
-    // Helper para tratar string vacío y whitespace como "no configurado".
-    // process.env.X devuelve undefined si no existe, pero "" si Dokploy
-    // tiene la variable definida sin valor → ?? no la captura.
-    const nonEmpty = (v: string | undefined): string | undefined =>
-      v && v.trim().length > 0 ? v.trim().replace(/\/+$/, '') : undefined;
-    const ensureProto = (u: string): string =>
-      /^https?:\/\//i.test(u) ? u : `https://${u}`;
-    const baseUrl = ensureProto(
-      nonEmpty(process.env.NEXT_PUBLIC_API_URL) ??
-        `http://localhost:${process.env.PORT ?? 4100}`,
-    );
-    // Preferimos web-client si está configurado (UX nicer); si no, el API
-    // mismo expone /pay/{token} con redirect 302 al checkout del PSP.
-    const clientUrl = ensureProto(
-      nonEmpty(process.env.NEXT_PUBLIC_WEB_CLIENT_URL) ?? baseUrl,
-    );
-    // Operator app URL — para QR de POS_EXTERNAL (camarero escanea, abre app
-    // del operator pre-focused en el cobro a confirmar). Si NEXT_PUBLIC_OPERATOR_URL
-    // no está, derivamos cambiando api. → operator. en el baseUrl.
-    const operatorUrl = ensureProto(
-      nonEmpty(process.env.NEXT_PUBLIC_OPERATOR_URL) ??
-        baseUrl.replace(/^https?:\/\/api\./i, 'https://operator.'),
-    );
-    // Para POS_EXTERNAL: el QR NO debe llevar a Paytef (eso cobraría dos veces).
-    // En su lugar, encodea URL del operator app que abre el cobro para que el
-    // camarero lo confirme tras pasar la tarjeta por su datáfono físico.
-    const qrUrl =
-      p.captureMethod === 'POS_EXTERNAL'
-        ? `${operatorUrl}/?pos=${p.id}`
-        : `${clientUrl}/pay/${p.qrToken}`;
+    // Con datáfono (POS_EXTERNAL) el QR abre la app del personal para confirmar
+    // la venta del lector; si no, la página de pago (ver pay-qr-url.ts).
+    const qrUrl = cardQrUrl(p);
     const qrPngDataUrl = await QRCode.toDataURL(qrUrl, {
       errorCorrectionLevel: 'M',
       margin: 2,

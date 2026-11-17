@@ -5,7 +5,7 @@ export type StaffRole = OperatorUser['role'];
  * Pestañas de abajo. Ya no hay «Saldo» (wallet): Inicio es la única pantalla
  * de cobrar (el QR, la ficha NFC y, discreto, su código o su pase con su PIN).
  */
-export type TabKey = 'home' | 'reception' | 'pos' | 'payments' | 'earnings';
+export type TabKey = 'home' | 'reception' | 'reservas' | 'pos' | 'payments' | 'earnings';
 
 /**
  * «Cobros»: la lista de /staff/me/cobros (la del panel: un cobro = una fila,
@@ -46,9 +46,12 @@ const OPERATOR_ACCESS: RoleAccess = {
   posQueue: false,
 };
 
-/** Camarero, encargado y dueño: además, la recepción (recargar saldo, ficha y PIN; preparar fichas). */
+/**
+ * Camarero, encargado y dueño: además, la recepción (recargar saldo, ficha y
+ * PIN; preparar fichas) y los reservados (la puerta y la barra).
+ */
 const STAFF_ACCESS: RoleAccess = {
-  tabs: ['home', 'payments', 'reception', 'pos'],
+  tabs: ['home', 'payments', 'reception', 'reservas', 'pos'],
   ownEarnings: false,
   ownPayments: true,
   history: { cancelPending: false, pollMs: 15_000 },

@@ -20,7 +20,7 @@ interface Props {
   /** La referencia de arriba: el código del saldo (P9H-2XT). */
   reference: string | null;
   /** El bloque de debajo del importe: «Efectivo: 50 € a la caja». */
-  money: { icon: 'cash' | 'card'; label: string; amount: string; tail: string } | null;
+  money: { icon: 'cash' | 'card' | 'bitcoin'; label: string; amount: string; tail: string } | null;
   /** «Dale el NFC · ficha nº 0522». */
   meta: string;
   /** Algo que no salió (el NFC no se pudo dar…): el dinero sí está. */

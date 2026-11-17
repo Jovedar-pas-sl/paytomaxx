@@ -178,6 +178,24 @@ describe('ticket impreso', () => {
     expect(conComision.amounts).toContainEqual({ label: 'Comisión del servicio', value: m(600) });
   });
 
+  it('pagado con bitcoin desde su móvil: el papel dice «Bitcoin», nunca «Tarjeta»', () => {
+    // La carga con el QR que el cliente pagó con bitcoin (lo dice el sondeo del QR).
+    const carga = topUpTicket({ amountCents: 5000, feeCents: 600, method: 'bitcoin', ficha: '0522', balanceCents: 5000, at: AT });
+    expect(carga.payment).toEqual([
+      { label: 'Pago', value: 'Bitcoin' },
+      { label: 'Ficha', value: 'nº 0522' },
+      { label: 'Saldo ahora', value: m(5000) },
+    ]);
+    expect(carga.amounts).toContainEqual({ label: 'Comisión del servicio', value: m(600) });
+    expect(carga.totalCents).toBe(5600);
+    // Y el ticket de un cobro: lo que diga la tarjeta de «cómo se pagó».
+    const cobro = paidTicket({ totalCents: 2000, how: cardHow({ payMethod: 'bitcoin', code: 'K7Q4', who: 'Carlos', at: AT }), at: AT });
+    expect(cobro.payment).toEqual([
+      { label: 'Pago', value: 'Bitcoin' },
+      { label: 'Código', value: 'K7Q4' },
+    ]);
+  });
+
   it('la prueba de impresión no es un cobro y su QR es la propia app', () => {
     const t = testTicket(AT, 'https://operator.example');
     expect(t.payment).toEqual([{ label: 'Pago', value: 'Esto no es un cobro' }]);

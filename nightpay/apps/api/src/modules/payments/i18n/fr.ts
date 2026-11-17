@@ -28,6 +28,7 @@ const pay: PayText = {
   or: 'ou',
   payWithSaldo: 'Payer avec mon solde',
   payWithBitcoin: 'Payer en bitcoin',
+  payWithBitcoinPrefix: 'Payer en',
   bitcoinHint: 'Lightning : immédiat · on-chain : 1 confirmation',
   bitcoin: {
     title: 'Payer en bitcoin',
@@ -171,6 +172,12 @@ const pay: PayText = {
       body: '',
       notCharged: true,
       hint: 'Si vous devez encore payer, demandez-en un nouveau au personnel.',
+    },
+    // Cancelado por el personal y el banco lo cobró después (paid-after-cancel.ts): nunca «Pagado» sin más.
+    'paid-after-cancel': {
+      title: 'Le paiement a été annulé, mais votre banque l’a payé',
+      body: 'Parlez au personnel : nous vous le remboursons ou nous le validons.',
+      notCharged: false,
     },
     unconfirmed: {
       title: 'Pas de confirmation de la banque',

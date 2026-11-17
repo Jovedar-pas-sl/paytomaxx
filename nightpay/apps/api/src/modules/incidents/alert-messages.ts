@@ -1,5 +1,6 @@
 import { Z_NET_WITHOUT_STAFF_LABEL } from '@nightpay/contracts';
 import type { ExportSummary } from '../reports/export-csv';
+import { cardPaymentsCount } from '../reports/export-summary';
 import type { Incident } from './incident-rules';
 import { scopeLabel, type SummaryScope } from './morning-summary';
 
@@ -44,10 +45,13 @@ export function incidentMessage(venueName: string, i: Incident, opts: { includeN
  */
 function cobradoParts(s: ExportSummary): string | null {
   if (s.walletCardTopUpsCents === undefined) return null;
+  // Lo de bitcoin va aparte: no es «con tarjeta» (está en la cartera del local).
+  const btc = s.bitcoin;
   const parts = [
     // «Con tarjeta», como en el panel: el Mapa del dinero cuenta también las del saldo (P-2).
-    [s.grossCents - s.walletCardTopUpsCents, 'de ventas con tarjeta'],
-    [s.tipsCents, 'de propinas con tarjeta'],
+    [s.grossCents - s.walletCardTopUpsCents - (btc?.salesCents ?? 0), 'de ventas con tarjeta'],
+    [s.tipsCents - (btc?.tipsCents ?? 0), 'de propinas con tarjeta'],
+    [(btc?.salesCents ?? 0) + (btc?.tipsCents ?? 0), 'de ventas y propinas con bitcoin'],
     [s.walletCardTopUpsCents + (s.walletCashTopUpsCents ?? 0), 'de recargas'],
     // La paga el cliente encima y se debe a OxioPay (sin ella, no sale).
     [s.serviceFeeCents ?? 0, 'de comisión del servicio'],
@@ -77,16 +81,21 @@ export function morningSummaryMessage(
   const parts = cobradoParts(s);
   // La comisión del servicio que pasó por la tarjeta (la de efectivo está en la caja).
   const cardFeeCents = (s.serviceFeeCents ?? 0) - (s.serviceFeeCashCents ?? 0);
+  const btc = s.bitcoin;
+  const cardCount = cardPaymentsCount(s);
   const lines = [
     `☀️ ${venueName} — ${scopeLabel(scope)}`,
     parts ? `Cobrado: ${eur(s.chargedCents)} (${parts})` : `Cobrado: ${eur(s.chargedCents)}`,
     // Los pagos con tarjeta (también las recargas con tarjeta) y sus propinas:
-    // lo pagado con el saldo no es dinero nuevo y no cuenta aquí.
-    `Con tarjeta: ${s.count} ${s.count === 1 ? 'pago' : 'pagos'} · ${eur(s.grossCents + s.tipsCents + cardFeeCents)}`,
+    // lo pagado con el saldo no es dinero nuevo y no cuenta aquí. Lo de bitcoin, aparte.
+    `Con tarjeta: ${cardCount} ${cardCount === 1 ? 'pago' : 'pagos'} · ${eur(s.grossCents + s.tipsCents + cardFeeCents - (btc?.totalCents ?? 0))}`,
   ];
+  // Bitcoin: no pasa por el banco ni por la caja, está en la cartera del local.
+  if (btc) lines.push(`Bitcoin: ${btc.count} ${btc.count === 1 ? 'pago' : 'pagos'} · ${eur(btc.totalCents)}, en la cartera del local`);
   if (!parts && s.tipsCents > 0) lines.push(`Propinas: ${eur(s.tipsCents)}`);
-  if (s.walletCardTopUpsCount) {
-    lines.push(`Recargas con tarjeta: ${s.walletCardTopUpsCount} · ${eur(s.walletCardTopUpsCents ?? 0)}`);
+  const cardTopUpsCount = (s.walletCardTopUpsCount ?? 0) - (btc?.topUpsCount ?? 0);
+  if (cardTopUpsCount > 0) {
+    lines.push(`Recargas con tarjeta: ${cardTopUpsCount} · ${eur((s.walletCardTopUpsCents ?? 0) - (btc?.topUpsCents ?? 0))}`);
   }
   if (s.walletCashTopUpsCount) {
     const n = s.walletCashTopUpsCount;

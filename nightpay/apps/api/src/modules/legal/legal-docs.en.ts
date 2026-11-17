@@ -26,7 +26,7 @@ export function legalDocsEn(o: LegalOwner): LegalDocs {
         },
         { h: 'What OxioPay is' },
         {
-          p: 'OxioPay is the tool you pay with at the venues that use it: by card, with prepaid balance and, where the venue offers it, with bitcoin. The venue sells you what you buy; OxioPay handles the payment and the balance.',
+          p: 'OxioPay is the tool you pay with at the venues that use it: by card, with prepaid balance and, where the venue offers it, with bitcoin to load your balance or pay for a reservation. The venue sells you what you buy; OxioPay handles the payment and the balance.',
         },
         { h: 'Intellectual property' },
         {
@@ -176,7 +176,7 @@ export function legalDocsEn(o: LegalOwner): LegalDocs {
             'Before paying you see the total: the price, the service fee if the venue applies one, and the tip, which is optional. There are no hidden charges.',
             'You enter your card (or Apple Pay and Google Pay) on the bank’s secure page, not on OxioPay.',
             'Once the bank confirms it, you see "Paid" and can save the receipt.',
-            'If the venue accepts bitcoin, the bitcoin amount is fixed for a few minutes. A bitcoin payment cannot be reversed on the network.',
+            'If the venue accepts bitcoin (only to load your balance and to pay for a reservation, not at the bar), the bitcoin amount is fixed for a few minutes. A bitcoin payment cannot be reversed on the network.',
           ],
         },
         { h: 'Your balance', id: 'saldo' },

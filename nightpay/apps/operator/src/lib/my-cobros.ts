@@ -1,5 +1,7 @@
 import type { OwnCobro, OwnCobrosPage } from '@nightpay/contracts';
 import { authedFetch } from './api';
+import { unpaidBank, type UnpaidRow } from './api-sin-pagar';
+import type { BankCancel } from './cancel-at-bank';
 
 export async function fetchOwnCobros(cursor?: string, signal?: AbortSignal): Promise<OwnCobrosPage> {
   const q = new URLSearchParams({ limit: '50' });
@@ -157,12 +159,33 @@ export function ownCobroState(status: string): { label: string; tone: OwnCobroTo
 
 export const ownCobroStatus = (status: string): string => ownCobroState(status).label;
 
-/** Un cobro con tarjeta que aún nadie ha pagado (el QR o el datáfono esperando): se puede cancelar. */
-const CANCELABLE = new Set(['CREATED', 'AWAITING_CAPTURE']);
+/**
+ * Un cobro con tarjeta que aún nadie ha pagado (el QR o el datáfono esperando,
+ * o el cliente en su banco): se puede cancelar (pide confirmar; en su banco,
+ * pasados 2 minutos: ownRowBank).
+ */
+const CANCELABLE = new Set(['CREATED', 'AWAITING_CAPTURE', 'AUTHORIZING']);
 
-/** ¿Se puede cancelar desde la lista? (POST /payments/:id/cancel: los suyos, sin pagar). */
+/** ¿Se puede cancelar desde la lista? (POST /payments/:id/cancel: sin pagar). */
 export function ownCobroCancelable(row: Pick<OwnCobro, 'kind' | 'status'>): boolean {
   return row.kind === 'PAYMENT' && CANCELABLE.has(row.status);
+}
+
+/**
+ * «Cancelar» de una fila suya: sin ir al banco, como siempre; con el cliente en
+ * su banco (o pagando con bitcoin), lo que dice «Sin pagar en el local» (desde
+ * cuándo, si es bitcoin y si es la recarga cobrada en el datáfono sin
+ * comprobar, que nunca se cancela), con el mismo reloj. null: aún no se sabe
+ * (no sale ni el botón ni el texto, para no decir algo que luego cambie).
+ */
+export function ownRowBank(
+  row: Pick<OwnCobro, 'id' | 'status'>,
+  unpaid: ReadonlyArray<Pick<UnpaidRow, 'id' | 'atBank' | 'cancelableAtMs' | 'heldOnReader'>> | null,
+  nowMs: number,
+): BankCancel | null {
+  if (row.status !== 'AUTHORIZING') return 'free';
+  const u = unpaid?.find((x) => x.id === row.id);
+  return u ? unpaidBank(u, nowMs) : null;
 }
 
 /**

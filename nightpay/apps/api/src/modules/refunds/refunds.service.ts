@@ -46,6 +46,7 @@ import type { Refund } from '@nightpay/db';
 import { findRefundApproval, lockRefundIntent, refundIntent } from './refund-intent';
 import { replayOfRefund, savedResponse, type RefundReplay, type RefundResult } from './refund-replay';
 import { TOPUP_REFUND_TEXT } from '../wallets/saldo-texts';
+import { assertNotBitcoin } from './bitcoin-refund';
 
 /**
  * Una devolución pendiente no se resuelve a mano hasta pasado este rato: la
@@ -824,12 +825,4 @@ function eur(cents: number): string {
   return `${(cents / 100).toFixed(2).replace('.', ',')} €`;
 }
 
-/** Código del 409 de un cobro en bitcoin (las apps lo distinguen sin leer el texto). */
-export const BITCOIN_REFUND_CODE = 'BITCOIN_REFUND_NOT_AVAILABLE';
-export const BITCOIN_REFUND_TEXT =
-  'Este cobro se pagó con bitcoin: de momento no se devuelve desde la aplicación (ni por el banco). Si hay que devolverlo, hazlo desde la cartera del local; apuntarlo como «devuelto fuera» llegará en la siguiente versión.';
-
-/** Un cobro en bitcoin no se devuelve por la pasarela ni como «Devolución BBVA» (el dinero no pasó por el banco). */
-export function assertNotBitcoin(provider: string | null | undefined): void {
-  if (provider === 'BTCPAY') throw new ConflictException({ code: BITCOIN_REFUND_CODE, message: BITCOIN_REFUND_TEXT });
-}
+export { BITCOIN_REFUND_CODE, BITCOIN_REFUND_TEXT, assertNotBitcoin } from './bitcoin-refund';

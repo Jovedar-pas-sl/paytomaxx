@@ -18,11 +18,14 @@ import {
 } from '@nightpay/ui';
 import { confirmationCode } from '@nightpay/contracts';
 import { cancelPayment, type CreatedPayment } from '@/lib/api';
+import { CancelCobroConfirm } from './CancelCobroConfirm';
 import { useHealthReport } from '@/lib/connection-health';
 import { formatEur, formatEurAmount } from '@/lib/money';
 import { chargeWithFeeCents, paymentFeeLine, posChargeLine } from '@/lib/cobro-view';
 import { useOpenCharge, type ChargeSpot } from '@/lib/open-charges';
-import { advanceStatus, isFinalStatus } from '@/lib/payment-status';
+import { advanceStatus, isFinalStatus, type BitcoinLive } from '@/lib/payment-status';
+import { AT_BANK_PAYING_TEXT, AT_BANK_SLOW_TEXT, bankCancel, cancelableAtFrom, type BankCancel } from '@/lib/cancel-at-bank';
+import { serverToLocalMs } from '@/lib/cobro-state';
 import { NewWalletCard } from './NewWalletCard';
 import { useVenueMethods } from '@/lib/venue-methods';
 import { chargeSectionLabel, useMySections } from '@/lib/sections';
@@ -70,6 +73,8 @@ export function ActivePayment({
   const [tipCents, setTipCents] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [canceling, setCanceling] = useState(false);
+  // «¿Cancelar este cobro?»: siempre se confirma antes de cancelar.
+  const [confirming, setConfirming] = useState(false);
   const [copied, setCopied] = useState(false);
   const [paidSeen, setPaidSeen] = useState(false);
   // Recarga de saldo pagada: tras el «PAGADO», su código y su PIN.
@@ -81,11 +86,17 @@ export function ActivePayment({
     [payment.qrExpiresAt, payment.createdAt, receivedAt],
   );
   const [authorizingSince, setAuthorizingSince] = useState<number | null>(null);
+  // En su banco: cuándo salió el intento (la hora del servidor, del sondeo) y si paga con bitcoin
+  // (undefined: el sondeo aún no lo ha dicho; null: en su banco).
+  const [attemptIso, setAttemptIso] = useState<string | null>(null);
+  const [bitcoin, setBitcoin] = useState<BitcoinLive | null | undefined>(undefined);
 
   const { reachable } = usePaymentLive(payment, (update) => {
     setStatus((current) => advanceStatus(current, update.status));
     if (update.tipCents !== undefined) setTipCents(update.tipCents);
     if (update.status === 'AUTHORIZED') setPaidSeen(true);
+    if (update.attemptStartedAt) setAttemptIso(update.attemptStartedAt);
+    if (update.bitcoin !== undefined) setBitcoin(update.bitcoin);
   });
 
   // Pagado (por el socket o por el sondeo, lo que llegue antes): una vez.
@@ -98,8 +109,8 @@ export function ActivePayment({
     if (status === 'AUTHORIZING') setAuthorizingSince((since) => since ?? Date.now());
   }, [status]);
 
-  // Mientras se puede pagar, la cuenta atrás.
-  const now = useNow(isPreCobro(status));
+  // Mientras se puede pagar, la cuenta atrás; en su banco, los 2 minutos antes de poder cancelar (un solo reloj).
+  const now = useNow(isPreCobro(status) || status === 'AUTHORIZING');
   // Nunca se da por caducado sin el servidor: un «pagado» perdido con la wifi
   // haría cobrar dos veces con «Otro QR». Pasado el plazo, se espera su respuesta.
   const shown = status;
@@ -125,10 +136,12 @@ export function ActivePayment({
     setError(null);
     try {
       await cancelPayment(payment.id);
+      setConfirming(false);
       onClose();
     } catch (err) {
       setError((err as Error).message);
       setCanceling(false);
+      setConfirming(false);
     }
   }
 
@@ -181,6 +194,7 @@ export function ActivePayment({
   // el cobro pendiente. Mostramos código corto humano-legible.
   const refCode = payment.id.slice(-6).toUpperCase();
   const preCobro = isPreCobro(shown);
+  const bank = shown === 'AUTHORIZING' ? atBankCancel({ bitcoin, attemptIso, seenAt: authorizingSince, payment, deadline, nowMs: now }) : 'free';
 
   return (
     // data-charge-open: en Inicio del móvil, lo de arriba se aparta mientras está el QR (home.module.css).
@@ -244,10 +258,20 @@ export function ActivePayment({
 
       {shown === 'AUTHORIZED' ? (
         <PaidBlock payment={payment} tipCents={tipCents} onNew={onClose} />
-      ) : preCobro ? (
-        <Button onClick={() => void cancel()} variant="danger" size="md" loading={canceling}>
-          Cancelar cobro
-        </Button>
+      ) : preCobro || shown === 'AUTHORIZING' ? (
+        // Sin pagar: pide confirmar. Con el cliente en su banco, los primeros 2 minutos sin botón; después, con el aviso.
+        <>
+          {bank === 'wait' || bank === 'late' ? (
+            <p role="status" style={{ margin: 0, textAlign: 'center', fontSize: 'var(--np-fs-14)', color: 'var(--np-text-mute)' }}>
+              {bank === 'wait' ? AT_BANK_PAYING_TEXT : AT_BANK_SLOW_TEXT}
+            </p>
+          ) : null}
+          {bank === 'free' || bank === 'late' ? (
+            <Button onClick={() => setConfirming(true)} variant="danger" size="md" loading={canceling}>
+              Cancelar cobro
+            </Button>
+          ) : null}
+        </>
       ) : (
         <Button onClick={onClose} variant="ghost" size="md">
           Nuevo cobro
@@ -259,8 +283,37 @@ export function ActivePayment({
           {error}
         </p>
       ) : null}
+      <CancelCobroConfirm
+        open={confirming}
+        atBank={bank === 'late'}
+        busy={canceling}
+        onConfirm={() => void cancel()}
+        onClose={() => setConfirming(false)}
+      />
     </Card>
   );
+}
+
+/**
+ * «Cancelar cobro» con el cobro en AUTHORIZING: con la factura de bitcoin, como
+ * siempre; en su banco, los 2 minutos desde que salió el intento (la hora del
+ * servidor pasada a este móvil con el plazo del QR; mientras el sondeo no la
+ * trae, desde que se vio aquí). null: aún no se sabe si es banco o bitcoin.
+ */
+function atBankCancel(i: {
+  bitcoin: BitcoinLive | null | undefined;
+  attemptIso: string | null;
+  seenAt: number | null;
+  payment: Pick<CreatedPayment, 'qrExpiresAt'>;
+  deadline: { endMs: number } | null;
+  nowMs: number;
+}): BankCancel | null {
+  if (i.bitcoin === undefined) return null;
+  if (i.bitcoin !== null && i.bitcoin !== 'unknown') return 'free';
+  const serverExpires = Date.parse(i.payment.qrExpiresAt);
+  const anchor = i.deadline && Number.isFinite(serverExpires) ? { serverMs: serverExpires, localMs: i.deadline.endMs } : null;
+  const since = i.attemptIso ? serverToLocalMs(Date.parse(i.attemptIso), anchor) : i.seenAt;
+  return bankCancel(true, cancelableAtFrom(since), i.nowMs);
 }
 
 interface ActionContext {

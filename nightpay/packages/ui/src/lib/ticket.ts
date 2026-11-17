@@ -230,7 +230,8 @@ export interface TopUpTicketInput {
   amountCents: number;
   /** La comisión del servicio que pagó encima (0: sin ella). */
   feeCents?: number;
-  method: 'cash' | 'card';
+  /** «bitcoin»: el QR de la carga, que el cliente pagó con bitcoin desde su móvil. */
+  method: 'cash' | 'card' | 'bitcoin';
   /** El número impreso de la ficha (null: sin ficha). */
   ficha?: string | null;
   /** El código del saldo (K7Q-4M2), si se enseña en pantalla. */
@@ -240,10 +241,17 @@ export interface TopUpTicketInput {
   at: Date;
 }
 
+/** Cómo se pagó la carga, tal como sale en el papel («bitcoin»: el QR de la carga pagado con bitcoin). */
+const TOP_UP_PAYMENT: Readonly<Record<TopUpTicketInput['method'], string>> = {
+  cash: 'Efectivo',
+  card: 'Tarjeta',
+  bitcoin: 'Bitcoin',
+};
+
 /** El ticket de una carga de saldo en recepción. */
 export function topUpTicket(i: TopUpTicketInput): Ticket {
   const fee = Math.max(0, i.feeCents ?? 0);
-  const payment: TicketRow[] = [{ label: 'Pago', value: i.method === 'cash' ? 'Efectivo' : 'Tarjeta' }];
+  const payment: TicketRow[] = [{ label: 'Pago', value: TOP_UP_PAYMENT[i.method] }];
   if (i.ficha) payment.push({ label: 'Ficha', value: `nº ${i.ficha}` });
   if (i.code) payment.push({ label: 'Código del saldo', value: i.code });
   if (i.balanceCents !== null && i.balanceCents !== undefined) payment.push({ label: 'Saldo ahora', value: ticketMoney(i.balanceCents) });

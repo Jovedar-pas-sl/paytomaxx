@@ -30,6 +30,7 @@ import { MenuAvatar } from './my-profile';
 import { PassScanned } from './PassScanned';
 import { PendingPos } from './PendingPos';
 import { ReceptionTab } from './reception/ReceptionTab';
+import { ReservasTab } from './reservas/ReservasTab';
 import { SafariNotice } from './SafariNotice';
 import { useSessionExpired } from './session-context';
 import { StaffMenu, StaffMenuContext } from './staff-menu';
@@ -163,6 +164,7 @@ export function Dashboard({ user, onLogout }: Props) {
           </StaffMenuContext.Provider>
         </TabPanel>
       ) : null}
+      {tabs.includes('reservas') && showing('reservas') ? <ReservasTab /> : null}
       {access.posQueue && showing('pos') ? (
         <PendingPos onConfirmed={refreshMoney} focusPaymentId={links.focusedPosId} onFocusConsumed={links.clearFocus} />
       ) : null}

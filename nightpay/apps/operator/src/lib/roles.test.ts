@@ -14,7 +14,7 @@ describe('qué ve cada rol', () => {
     '%s: cobra y confirma el datáfono; historial propio; sin ganancias de chica ni /nights/mine',
     (role) => {
       const access = roleAccess(role);
-      expect(access.tabs).toEqual(['home', 'payments', 'reception', 'pos']);
+      expect(access.tabs).toEqual(['home', 'payments', 'reception', 'reservas', 'pos']);
       expect(access.ownEarnings).toBe(false);
       expect(access.ownPayments).toBe(true);
       expect(access.posQueue).toBe(true);

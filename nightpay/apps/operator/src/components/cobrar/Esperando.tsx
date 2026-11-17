@@ -49,6 +49,8 @@ import {
   UNCONFIRMED_SENTENCE,
   UNCONFIRMED_TITLE,
   bitcoinWaitText,
+  bankCancelOf,
+  cancelAtBank,
   cancelFailedText,
   cancelOffer,
   cardAfter,
@@ -59,16 +61,20 @@ import {
   serverToLocalMs,
   showsBankStrip,
   type CardLive,
+  type CardWait,
 } from '@/lib/cobro-state';
+import { CANCEL_AT_BANK_TOO_SOON_CODE } from '@/lib/cancel-at-bank';
 import { fetchBankRef, notifiedText, notifyManager, type BankRef } from '@/lib/api-bank-wait';
 import { useShown } from '../reception/desk/use-shown';
 import { StaffOutcome } from '../StaffOutcome';
+import { CancelCobroConfirm } from '../CancelCobroConfirm';
+import { useCustomerDisplay } from '../use-customer-display';
 import { usePaymentLive } from '../use-payment-live';
 import { colorOf } from './cobrar-context';
 import { CobroQr } from './CobroQr';
 import { IconLock, IconNfc, IconQr } from './icons';
 import { PinScreen } from './PinScreen';
-import { pinTipSetup } from '@/lib/pin-tip';
+import { pinTipSetup, withScreenTip } from '@/lib/pin-tip';
 import { WAIT_TITLE_EN } from '@/lib/pin-pad';
 import { nfcWayLabel, useReaderSpot, waitTitleEnNfc } from '@/lib/lector-nfc';
 import { TOURS } from '@/lib/tours';
@@ -149,7 +155,7 @@ export function Esperando({ cobro, onNew, onRetry, retrying = false, retryError 
   const methods = useVenueMethods();
   const venueName = useVenueName();
   // B1: la propina la elige el cliente en la pantalla del PIN (sin nada marcado).
-  const pinTip = pinTipSetup({
+  const basePinTip = pinTipSetup({
     totalCents: cobro.totalCents,
     tipCents: cobro.tipCents,
     tipsOn: methods.tips && cobro.tipsOn === true,
@@ -168,9 +174,13 @@ export function Esperando({ cobro, onNew, onRetry, retrying = false, retryError 
   // Pagado con su PIN aquí: con qué se identificó el saldo (la ficha, su código o su pase). El sondeo no lo dice.
   const [paidVia, setPaidVia] = useState<PinVia | null>(null);
   const [saldo, setSaldo] = useState<SaldoState | null>(null);
+  // La propina que el cliente ya eligió en la pantalla de la barra (va en el cobro del saldo): marcada en el PIN.
+  const pinTip = withScreenTip(basePinTip, saldo?.status === 'PENDING' ? (saldo.tipCents ?? 0) : 0);
   const [localFail, setLocalFail] = useState<FailReason | null>(null);
   const [canceledByMe, setCanceledByMe] = useState(false);
   const [canceling, setCanceling] = useState(false);
+  // «¿Cancelar este cobro?»: siempre se confirma antes de cancelar.
+  const [confirming, setConfirming] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [pin, setPin] = useState<PinStep | null>(null);
   // «Sin móvil ni ficha»: su código o su pase (lo que antes solo tenía «Saldo»).
@@ -283,6 +293,8 @@ export function Esperando({ cobro, onNew, onRetry, retrying = false, retryError 
   // Sin confirmar por el banco se sigue mirando (si lo aprueba, PAGADO): pantalla encendida.
   const watching = waiting || outcome.kind === 'unconfirmed';
   useWakeLock(watching);
+  // La «Pantalla del cliente» de la barra (si hay una emparejada): este importe y este QR.
+  useCustomerDisplay({ paymentId: cobro.card?.id ?? null, chargeId });
   useOpenCharge('cobro', true, watching);
   // Arriba, solo «OxioPay no responde»: la espera del banco y el «sin confirmar»
   // los dice esta pantalla (su franja y «El banco no lo ha confirmado»); la
@@ -321,7 +333,11 @@ export function Esperando({ cobro, onNew, onRetry, retrying = false, retryError 
           setLocalFail({ title: NO_PIN_TITLE, sentence: NO_PIN_SENTENCE });
           return;
         }
-        const reason = out.reason === 'night_cap' || out.reason === 'no_uid' ? out.message : null;
+        // Con propina (la eligió en la pantalla de la barra), siempre el PIN: se le dice por qué.
+        const reason = out.reason === 'night_cap' || out.reason === 'no_uid' || out.reason === 'tip' ? out.message : null;
+        // La propina que el cliente eligió en la pantalla de la barra (si la hay): marcada en el PIN.
+        const fresh = await fetchSaldoState(chargeId).catch(() => null);
+        if (fresh) setSaldo((prev) => keepFicha(fresh, prev));
         setPin({ ref: { card, uid }, walletCode: w.code, via: 'nfc', reason });
       } catch (err) {
         await failFrom(err, { card, uid });
@@ -397,11 +413,16 @@ export function Esperando({ cobro, onNew, onRetry, retrying = false, retryError 
       if (cobro.card) await cancelCard(cobro.card.id);
       else if (chargeId) await cancelSaldo(chargeId);
       setCanceledByMe(true);
+      setConfirming(false);
     } catch (err) {
+      setConfirming(false);
       // Ya no se podía cancelar: quizá lo acaba de pagar (con bitcoin, o ya está en la red). Lo dice el estado.
       refreshSaldo();
       const code = err instanceof CobroApiError ? err.code : null;
       if (code === BITCOIN_CONFIRMING_CODE) setCard((current) => cardAfter(current, { status: current.status, bitcoin: 'confirming' }));
+      // Aún en su banco (los 2 minutos): de vuelta a la espera, que lo dice y enseña el botón a su hora
+      // (desde la pantalla de un NFC que no pagó, el aviso no se vería).
+      if (code === CANCEL_AT_BANK_TOO_SOON_CODE) setLocalFail(null);
       setToast(cancelFailedText(card, code));
     } finally {
       setCanceling(false);
@@ -413,8 +434,18 @@ export function Esperando({ cobro, onNew, onRetry, retrying = false, retryError 
     if (outcome.kind === 'canceled' && canceledByMe) onNew();
   }, [outcome.kind, canceledByMe, onNew]);
 
-  // «Cancelar cobro»: con el cliente en su banco no se puede; con bitcoin, mientras la factura espera el pago, sí.
-  const offer = cancelOffer(card);
+  // «Cancelar cobro»: sin pagar, sí; con el cliente en su banco, pasados 2 minutos (el reloj
+  // de la espera del banco, en Waiting); con bitcoin esperando el pago, sí; ya en la red, no.
+  const atBank = Boolean(cobro.card) && cancelAtBank(card);
+  const confirmSheet = (
+    <CancelCobroConfirm
+      open={confirming}
+      atBank={atBank}
+      busy={canceling}
+      onConfirm={() => void cancel()}
+      onClose={() => setConfirming(false)}
+    />
+  );
 
   // Las secciones con su color: el punto del chip del PIN.
   const pinColors = cobro.sections.map((s) => ({ color: colorOf(s.section), weight: s.cents }));
@@ -491,6 +522,7 @@ export function Esperando({ cobro, onNew, onRetry, retrying = false, retryError 
   if (outcome.kind === 'failed') {
     const backToQr = outcome.qrStillOpen;
     return (
+      <>
       <StaffOutcome
         kind="failed"
         amountCents={cobro.totalCents}
@@ -515,9 +547,11 @@ export function Esperando({ cobro, onNew, onRetry, retrying = false, retryError 
               }
             : { label: 'Otro QR · mismo importe', onClick: onRetry, loading: retrying }
         }
-        secondary={{ label: 'Cancelar', onClick: backToQr ? () => void cancel() : onNew, disabled: retrying || canceling }}
+        secondary={{ label: 'Cancelar', onClick: backToQr ? () => setConfirming(true) : onNew, disabled: retrying || canceling }}
         error={retryError}
       />
+      {confirmSheet}
+      </>
     );
   }
 
@@ -604,25 +638,32 @@ export function Esperando({ cobro, onNew, onRetry, retrying = false, retryError 
         fichaHint={fichaHint}
         onSinMovil={sinMovilOn && !checking ? () => setSinMovil(true) : undefined}
       >
-        {offer.kind !== 'button' ? (
-          // Con el cliente en la página de su banco el API no deja cancelar (lo resuelve el banco:
-          // PAGADO, fallido o sin confirmar), así que no se ofrece un botón que siempre fallaría.
-          // Con bitcoin, tampoco con el pago ya en la red; mientras la factura espera el pago, sí.
-          <>
-            <p className={styles.altHint}>{offer.text}</p>
-            {offer.kind === 'leave' ? (
-              // Bitcoin en la red o con un problema: se puede salir sin cancelar (sigue en «Cobros»).
-              <button type="button" className={`${styles.btn} ${styles.ghost} ${styles.cancelLink}`} onClick={onNew}>
-                {LEAVE_WITHOUT_CHARGING}
-              </button>
-            ) : null}
-          </>
-        ) : (
-          <button type="button" className={`${styles.btn} ${styles.ghost} ${styles.cancelLink}`} onClick={() => void cancel()} disabled={canceling}>
-            {canceling ? 'Cancelando…' : 'Cancelar cobro'}
-          </button>
-        )}
+        {(wait) => {
+          // Un solo reloj: el de la espera del banco (la pastilla), también si la pantalla se abrió a mitad.
+          const offer = cancelOffer(card, bankCancelOf(atBank, wait));
+          const cancelButton = (
+            <button type="button" className={`${styles.btn} ${styles.ghost} ${styles.cancelLink}`} onClick={() => setConfirming(true)} disabled={canceling}>
+              {canceling ? 'Cancelando…' : 'Cancelar cobro'}
+            </button>
+          );
+          if (offer.kind === 'button') return cancelButton;
+          return (
+            <>
+              <p className={styles.altHint} role={offer.kind === 'leave' ? undefined : 'status'}>
+                {offer.text}
+              </p>
+              {offer.kind === 'late' ? cancelButton : null}
+              {offer.kind === 'leave' ? (
+                // Bitcoin en la red o con un problema: se puede salir sin cancelar (sigue en «Cobros»).
+                <button type="button" className={`${styles.btn} ${styles.ghost} ${styles.cancelLink}`} onClick={onNew}>
+                  {LEAVE_WITHOUT_CHARGING}
+                </button>
+              ) : null}
+            </>
+          );
+        }}
       </Waiting>
+      {confirmSheet}
     </div>
   );
 }
@@ -665,7 +706,8 @@ function Waiting({
   fichaHint?: string | null;
   /** «Sin móvil ni ficha»: su código o su pase y su PIN aquí. Sin él, no se ofrece. */
   onSinMovil?: () => void;
-  children: ReactNode;
+  /** El pie («Cancelar cobro»): con la espera del banco de esta pantalla (un solo reloj). */
+  children: (wait: CardWait) => ReactNode;
 }) {
   const staffTip = staffTipOf(cobro);
   const [receivedAt] = useState(() => Date.now());
@@ -782,7 +824,7 @@ function Waiting({
           </button>
         ) : null}
         <div className={styles.footCancel} data-tour="esperando-cancelar">
-          {children}
+          {children(wait)}
         </div>
       </div>
     </div>

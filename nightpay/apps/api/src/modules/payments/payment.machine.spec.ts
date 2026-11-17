@@ -258,9 +258,10 @@ describe('paymentMachine: factura de bitcoin abierta (BTCPAY)', () => {
     expect(r?.nextState).toBe('CANCELED');
   });
 
-  it('con tarjeta (banco) un cobro AUTHORIZING sigue sin poder cancelarse', () => {
-    expect(applyEvent('AUTHORIZING', baseCtx({ provider: 'REDSYS' }), { type: 'CANCELED' })).toBeNull();
-    expect(applyEvent('AUTHORIZING', baseCtx({ provider: 'PAYTEF' }), { type: 'CANCELED' })).toBeNull();
+  it('con tarjeta (cliente en su banco) un cobro AUTHORIZING también se cancela (decisión del dueño)', () => {
+    for (const provider of ['REDSYS', 'PAYTEF', 'PEANPE', 'WIPAY'] as const) {
+      expect(applyEvent('AUTHORIZING', baseCtx({ provider }), { type: 'CANCELED', reason: 'user-canceled', byUserId: 'u2' })?.nextState).toBe('CANCELED');
+    }
   });
 
   it('el bitcoin que llega a un cobro cancelado no se da por pagado: no es idempotente (queda en Incidencias)', () => {
@@ -272,5 +273,27 @@ describe('paymentMachine: factura de bitcoin abierta (BTCPAY)', () => {
     const r = applyEvent('AUTHORIZING', btc(), { type: 'AUTHORIZED', providerTxId: 'INV1', provider: 'BTCPAY' });
     expect(r?.nextState).toBe('AUTHORIZED');
     expect(r?.nextContext).toMatchObject({ provider: 'BTCPAY', providerTxId: 'INV1' });
+  });
+});
+
+describe('paymentMachine: el banco cobra después de cancelar', () => {
+  const approval = { type: 'AUTHORIZED', providerTxId: 'TX9', provider: 'REDSYS' } as const;
+
+  it('el aviso del banco no lo saca de CANCELED (ni se da por procesado: queda en Incidencias)', () => {
+    expect(applyEvent('CANCELED', baseCtx({ provider: 'REDSYS' }), approval)).toBeNull();
+    expect(isIdempotentTransition(new InvalidTransitionError('CANCELED', 'AUTHORIZED'))).toBe(false);
+  });
+
+  it('«Dar por bueno» (con la marca) lo pasa a AUTHORIZED con su pedido; desde otro estado la marca no cambia nada', () => {
+    const r = applyEvent('CANCELED', baseCtx({ provider: 'REDSYS' }), { ...approval, acceptedAfterCancel: true });
+    expect(r?.nextState).toBe('AUTHORIZED');
+    expect(r?.nextContext).toMatchObject({ provider: 'REDSYS', providerTxId: 'TX9' });
+    expect(applyEvent('EXPIRED', baseCtx(), { ...approval, acceptedAfterCancel: true })).toBeNull();
+  });
+
+  it('CANCELED sigue sin aceptar nada más (ni otro cancelar, ni caducar, ni devolver)', () => {
+    for (const e of [{ type: 'CANCELED' }, { type: 'TIMEOUT' }, { type: 'FAILED', reason: 'x' }, { type: 'REFUND_PARTIAL', amountCents: 100 }] as const) {
+      expect(applyEvent('CANCELED', baseCtx(), e)).toBeNull();
+    }
   });
 });

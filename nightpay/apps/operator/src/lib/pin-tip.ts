@@ -63,3 +63,13 @@ export function pinTipCents(choice: PinTipChoice, setup: PinTipSetup): { cents: 
   if (euros * 100 > setup.maxCents) return { cents: 0, error: 'max' };
   return { cents: euros * 100, error: null };
 }
+
+/**
+ * La propina que el cliente ya eligió en la «Pantalla del cliente» de la barra
+ * (va en el cobro del saldo): sale marcada en la pantalla del PIN y se puede
+ * quitar, como la de un cobro de antes. Sin ella (o fuera del tope), lo de siempre.
+ */
+export function withScreenTip(setup: PinTipSetup | null, chosenCents: number): PinTipSetup | null {
+  if (!setup || chosenCents <= 0 || setup.previousCents > 0 || chosenCents > setup.maxCents) return setup;
+  return { ...setup, previousCents: chosenCents };
+}

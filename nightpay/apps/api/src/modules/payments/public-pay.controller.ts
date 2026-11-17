@@ -24,7 +24,7 @@ import { PaymentsService } from './payments.service';
 import { WalletChargesService } from '../wallets/wallet-charges.service';
 import { WalletPasskeysService } from '../wallets/wallet-passkeys.service';
 import { IpRateLimit } from '../../common/guards/ip-rate-limit.guard';
-import { PAID_STATES, confirmationCode, type CheckoutChoice, type PayRedirect } from './pay-redirect';
+import { PAID_STATES, confirmationCode, withChosenTip, type CheckoutChoice, type PayRedirect } from './pay-redirect';
 import { detectPayDevice, type PayDevice } from './pay-device';
 import { payErrorKeyOf, type PayLanguage } from './pay-i18n';
 import { PAY_LANGUAGES, customerLanguage } from './customer-lang';
@@ -178,7 +178,8 @@ export class PublicPayController {
       sendHtml(res, 200, renderProcessingPage(lang, `/pay/result?${retry}`));
       return;
     }
-    const view = op ? await this.payments.getResultView(op) : null;
+    // `enviado`: la vuelta firmada del banco dice aprobado (aunque el cobro se cancelara antes).
+    const view = op ? await this.payments.getResultView(op, { bankApproved: result === 'enviado' }) : null;
     // Recarga empezada en /w y pagada desde ese navegador: de vuelta a su saldo.
     if (
       view?.walletReturnToken &&
@@ -197,6 +198,14 @@ export class PublicPayController {
     ) {
       redirectTo(res, walletWelcomeHref(view.walletToken, view.qrToken, lang));
       return;
+    }
+    // Reservado pagado desde este navegador: de vuelta a la página del reservado.
+    if (view?.reservation && PAID_STATES.has(view.status) && this.hasWalletClaim(res, view.qrToken, view.approvedClaimHash ?? null)) {
+      const back = await this.payments.reservationManageToken(view.paymentId);
+      if (back) {
+        redirectTo(res, `/reservas/${encodeURIComponent(back)}?pagado=1`);
+        return;
+      }
     }
     const refreshUrl = `/pay/result?op=${encodeURIComponent(op ?? '')}&lang=${lang}`;
     // Esperando al banco o sin su confirmación: «Comprobando el pago», que se pone al día sola.
@@ -269,10 +278,12 @@ export class PublicPayController {
     @Headers('cookie') cookies: string | undefined,
     @Headers('user-agent') userAgent: string | undefined,
     @Res() res: FastifyReply,
+    // La propina que eligió en la pantalla de la barra (?tip=): sale marcada.
+    @Query('tip') tipQuery?: string,
   ): Promise<void> {
     const lang = this.language(res, langQuery, cookies);
     try {
-      const view = await this.payments.getPayPage(token);
+      const view = withChosenTip(await this.payments.getPayPage(token), tipQuery);
       await this.send(res, token, lang, view, userAgent);
     } catch (err) {
       this.sendError(res, token, lang, err);
@@ -373,6 +384,15 @@ export class PublicPayController {
         if (view.walletFromHome && view.walletToken && claimed) {
           redirectTo(res, walletWelcomeHref(view.walletToken, token, lang));
           return;
+        }
+        // Reservado pagado desde este navegador (también con bitcoin, que vuelve aquí desde su QR):
+        // a la página del reservado, como al volver del banco (/pay/result).
+        if (view.reservation && this.hasWalletClaim(res, token, view.approvedClaimHash ?? null)) {
+          const back = await this.payments.reservationManageToken(view.paymentId);
+          if (back) {
+            redirectTo(res, `/reservas/${encodeURIComponent(back)}?pagado=1`);
+            return;
+          }
         }
         const payer = Boolean(view.walletToken) && claimed;
         sendHtml(

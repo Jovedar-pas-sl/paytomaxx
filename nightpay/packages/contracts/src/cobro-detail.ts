@@ -516,11 +516,15 @@ export const stepUpActions = {
   receptionCashOut: (walletId: string) => `cash-out:${walletId}`,
   cashTopUpVoid: (topUpId: string) => `cash-void:${topUpId}`,
   resolvePayment: (paymentId: string) => `resolve:${paymentId}`,
+  /** «Dar por bueno» un cobro que el banco cobró después de cancelarlo. */
+  acceptAfterCancel: (paymentId: string) => `accept-late:${paymentId}`,
   operatorPayout: (operatorId: string) => `operator-payout:${operatorId}`,
   nightFloat: (nightId: string) => `night-float:${nightId}`,
   bankHoldRelease: (paymentId: string) => `bank-hold:${paymentId}`,
   /** Guardar o cambiar la conexión del local a su BTCPay. */
   btcpay: (venueId: string) => `btcpay:${venueId}`,
+  /** Devolver en efectivo lo pagado con bitcoin (un cobro o una factura sin cobro). */
+  bitcoinCash: (targetId: string, amountCents: number) => `btc-cash:${targetId}:${amountCents}`,
 } as const;
 
 export const STEP_UP_ACTION_RE = /^[a-z-]{3,32}(?::[A-Za-z0-9-]{1,64}){1,3}$/;

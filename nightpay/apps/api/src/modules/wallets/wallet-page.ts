@@ -12,6 +12,7 @@ import type { TopUpOptions, TopUpProof } from './wallet-topup.service';
 import { TOPUP_CSS, TOPUP_JS, paidProofScript, paidProofSection, topUpCard, topUpOffNote } from './wallet-topup-view';
 import { SCAN_CSS, SCAN_JS, scanArea } from './wallet-scan';
 import { LOST_CSS, LOST_JS, lostButton, lostSheet } from './wallet-lost-view';
+import { AVISO_CSS, AVISO_JS, avisoConfig, avisoRow, avisoSheet, manifestLink } from './charge-alert/charge-alert-view';
 import { WALLET_LIVE_JS } from './wallet-live';
 import { myBalanceButton, myBalanceScript } from './my-balance';
 import { RECEIPT_JS, WELCOME_CSS, WELCOME_JS, fichaQrBlock, welcomeCard } from '../home-topup/wallet-welcome-view';
@@ -160,6 +161,11 @@ export interface WalletPageOptions {
   welcome?: boolean;
   /** El QR de la ficha (SVG): sin ficha aún, recepción lo escanea para darle una. */
   fichaQr?: string | null;
+  /**
+   * «Aviso en cada cobro»: la clave pública VAPID del servidor. Sin ella
+   * (apagado), la página no ofrece el aviso.
+   */
+  chargeAlertKey?: string | null;
 }
 
 /**
@@ -231,7 +237,7 @@ ${proof ? paidProofSection(lang, proof, options.now ?? new Date()) : ''}${topUpC
 }
 
 /** «Más»: lo que no es pagar ni recargar (las hojas y los movimientos). */
-function moreList(lang: PayLanguage): string {
+function moreList(lang: PayLanguage, aviso: boolean): string {
   const t = WALLET_TEXT[lang];
   const h = escapeHtml;
   return `<section class="more" id="more" aria-labelledby="moreTitle">
@@ -240,7 +246,7 @@ function moreList(lang: PayLanguage): string {
 <button class="row" type="button" id="pinOpen" hidden>${h(t.pinRow)}<small>${h(t.pinRowHint)}</small></button>
 <button class="row" type="button" id="mergeOpen" hidden>${h(t.mergeRow)}<small>${h(t.mergeRowHint)}</small></button>
 <button class="row" type="button" id="leaveOpen" hidden>${h(t.leaveRow)}<small>${h(t.leaveRowHint)}</small></button>
-<button class="row" type="button" id="movOpen" aria-expanded="true" aria-controls="movBox">${h(t.movements)}<small>${h(t.movementsHint)}</small></button>
+${aviso ? avisoRow(lang) : ''}<button class="row" type="button" id="movOpen" aria-expanded="true" aria-controls="movBox">${h(t.movements)}<small>${h(t.movementsHint)}</small></button>
 <div id="movBox"><ul id="movements"></ul></div>
 </div>
 </section>
@@ -296,12 +302,15 @@ export function renderWalletPage(
     payer: options.payer ?? null,
     // «Detalle del pago»: propina y comisión del servicio cada una en su línea.
     apart: DETAIL_TIP_AND_FEE_APART,
+    // «Aviso en cada cobro» (null: apagado).
+    aviso: avisoConfig(lang, options.chargeAlertKey),
   });
+  const aviso = Boolean(options.chargeAlertKey);
   const h = escapeHtml;
   return `<!DOCTYPE html>
 <html lang="${t.htmlLang}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta name="robots" content="noindex"><meta name="theme-color" content="#0b0d0e"><title>${h(t.title)}</title>
-<style>${CLUB_BASE_CSS}${CHROME_CSS}${WALLET_CSS}${SCAN_CSS}${TOPUP_CSS}${LOST_CSS}${WELCOME_CSS}</style></head><body><main class="w">
+<meta name="robots" content="noindex"><meta name="theme-color" content="#0b0d0e"><title>${h(t.title)}</title>${aviso ? manifestLink(base) : ''}
+<style>${CLUB_BASE_CSS}${CHROME_CSS}${WALLET_CSS}${SCAN_CSS}${TOPUP_CSS}${LOST_CSS}${WELCOME_CSS}${aviso ? AVISO_CSS : ''}</style></head><body><main class="w">
 ${topBar(lang)}<h1 class="sr">${h(t.title)}</h1>
 <section class="hero" aria-labelledby="balanceLabel">
 <p id="balanceLabel">${h(state.venueName ? t.balanceOf.split('{venue}').join(state.venueName) : t.balance)}</p>
@@ -316,9 +325,9 @@ ${welcome && proof ? `${paidProofSection(lang, proof, options.now ?? new Date())
 <ol class="steps" id="steps">${t.steps.map((s, i) => `<li data-i="${i}">${h(s)}</li>`).join('')}</ol>
 <p id="refundHow"></p>
 </section>
-${viewTabs(lang)}${payView(lang, state, gw, options.fichaQr ?? null)}${topUpView(lang, options)}${moreList(lang)}<p class="small">${h(t.saveHint)}</p>
+${viewTabs(lang)}${payView(lang, state, gw, options.fichaQr ?? null)}${topUpView(lang, options)}${moreList(lang, aviso)}<p class="small">${h(t.saveHint)}</p>
 </main>
-${lostSheet(lang)}<dialog class="sheet" id="leaveSheet" aria-labelledby="leaveTitle">
+${lostSheet(lang)}${aviso ? avisoSheet(lang) : ''}<dialog class="sheet" id="leaveSheet" aria-labelledby="leaveTitle">
 <h2 id="leaveTitle"></h2><p id="leaveHow"></p>
 <p class="err" id="leaveErr" role="alert" hidden></p>
 <button class="btn" type="button" id="leaveGo">${h(t.leaveGo)}</button>
@@ -412,7 +421,7 @@ function render(s){S=s;S.cards=s.cards||[];
   b.textContent=(m.amountCents>0?'+':'')+eur(m.amountCents);b.className=(m.returned?'gone':m.amountCents>0?'plus':'minus')+' num';
   if(m.detail){host=document.createElement('button');host.type='button';host.className='mvb';host.addEventListener('click',function(){detOpen(m);});li.appendChild(host);}
   host.appendChild(sw);host.appendChild(mt);host.appendChild(b);ul.appendChild(li);});
- lostRender(s);welcomeRender(s);
+ lostRender(s);welcomeRender(s);if(C.aviso)avisoRender(s);
  var can=topRender(s);
  $('payEmpty').hidden=!(can&&s.status==='DEPLETED');
  segShow(can||C.paid);}
@@ -497,6 +506,7 @@ $('mergeGo').addEventListener('click',function(){var b=$('mergeGo');if(busy)retu
 ${SCAN_JS}
 ${TOPUP_JS}
 ${LOST_JS}
+${aviso ? AVISO_JS : ''}
 ${VIEWS_JS}
 ${welcome ? RECEIPT_JS : ''}${WELCOME_JS}
 if(!C.paid&&S.status==='DEPLETED'&&topCan(S))view='top';

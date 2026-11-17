@@ -24,6 +24,8 @@ export interface RequestContext {
   stepUpToken?: string;
   /** La acción para la que ya se gastó esa prueba en esta petición. */
   stepUpSpentFor?: string;
+  /** La petición llega de la «Pantalla del cliente» de la barra (su credencial), como su camarero. */
+  customerScreen?: boolean;
 }
 
 const logger = new Logger('RequestContext');
@@ -37,7 +39,7 @@ const logger = new Logger('RequestContext');
  */
 export function bindTenantContext(
   cls: ClsService<{ ctx: RequestContext }>,
-  ctx: Pick<RequestContext, 'tenantId' | 'userId' | 'role' | 'venueSlug' | 'sessionId' | 'stepUpToken'>,
+  ctx: Pick<RequestContext, 'tenantId' | 'userId' | 'role' | 'venueSlug' | 'sessionId' | 'stepUpToken' | 'customerScreen'>,
 ): void {
   if (!cls.isActive()) {
     logger.error('Contexto CLS inactivo en una petición con sesión: se rechaza (sin él no habría filtro por local)');

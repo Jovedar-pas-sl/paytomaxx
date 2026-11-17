@@ -7,6 +7,18 @@ import { stepsFromBody } from '../night-close';
 
 // ─── Noches (Fase 1D) ──────────────────────────────────────────────
 
+/** Lo pagado con bitcoin en la noche (NightSummary.bitcoin). */
+export interface BitcoinSummary {
+  count: number;
+  salesCents: number;
+  tipsCents: number;
+  topUpsCount: number;
+  topUpsCents: number;
+  serviceFeeCents: number;
+  /** Ventas + propinas + recargas + comisión: lo que entró en la cartera del local. */
+  totalCents: number;
+}
+
 export interface NightSummary {
   count: number;
   grossCents: number;
@@ -59,6 +71,11 @@ export interface NightSummary {
   /** Recargas del saldo con tarjeta (ya en count y grossCents). Los Z de antes del 23-oct-2026 no lo traen. */
   walletCardTopUpsCount?: number;
   walletCardTopUpsCents?: number;
+  /**
+   * Lo pagado con bitcoin (ya en count, grossCents, tipsCents y las recargas «con
+   * tarjeta»): no pasa por el banco, está en la cartera del local. Solo si lo hubo.
+   */
+  bitcoin?: BitcoinSummary;
   /** Saldo devuelto a la tarjeta: ya está en las devoluciones (solo se informa). */
   walletCardPayoutsCents?: number;
   /** Consumos del saldo (ventas, no dinero nuevo). */
@@ -95,6 +112,9 @@ export interface NightCaja {
   /** Pagos en efectivo a los camareros. Los Z congelados antes del 28-oct-2026 no lo traen (sus pagos a las chicas son los de todo el personal). */
   camareroCashPayoutsCount?: number;
   camareroCashPayoutsCents?: number;
+  /** Lo pagado con bitcoin y devuelto en efectivo (los Z de antes del 17-nov-2026 no lo traen). */
+  bitcoinCashOutCount?: number;
+  bitcoinCashOutCents?: number;
   cashOutCents: number;
   expectedCents: number;
   /** null = no se contó (cierre automático o sin efectivo). */
@@ -129,7 +149,8 @@ export interface NightView {
   /** Fondo de caja con el que empezó (null = no se apuntó). */
   openingFloatCents?: number | null;
   z: NightZ;
-  pending: Array<{ id: string; status: string; amountCents: number; createdAt: string; captureMethod: string | null }>;
+  /** `provider` BTCPAY: paga con bitcoin (sin banco). Un API de antes no lo trae. */
+  pending: Array<{ id: string; status: string; amountCents: number; createdAt: string; captureMethod: string | null; provider?: string | null }>;
 }
 
 export interface NightListItem {

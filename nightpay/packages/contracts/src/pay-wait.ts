@@ -22,6 +22,24 @@ export const BANK_STILL_WAITING_AFTER_MS = 60_000;
 /** El cliente: desde aquí, «Suele tardar unos segundos. No cierres esta página.». */
 export const BANK_CONFIRMING_HINT_AFTER_MS = 8_000;
 
+/**
+ * «Cancelar cobro» con el cliente en la página de su banco (AUTHORIZING con
+ * tarjeta, Redsys u otra pasarela; con bitcoin no hay banco): no se puede
+ * durante los primeros 2 minutos desde que salió al banco (decisión del dueño).
+ * Pasados sin respuesta del banco, sí. El API lo hace cumplir (409 con
+ * CANCEL_AT_BANK_TOO_SOON_CODE) y la app del personal cuenta con el mismo reloj.
+ */
+export const CANCEL_AT_BANK_AFTER_MS = 120_000;
+
+/** El código del 409 al cancelar antes de esos 2 minutos. */
+export const CANCEL_AT_BANK_TOO_SOON_CODE = 'CANCEL_AT_BANK_TOO_SOON';
+
+/** Lo que falta (ms) para poder cancelar desde que salió al banco; 0 = ya se puede (sin saber desde cuándo, también). */
+export function cancelAtBankWaitMs(sinceMs: number | null, nowMs: number): number {
+  if (sinceMs === null || !Number.isFinite(sinceMs)) return 0;
+  return Math.max(0, sinceMs + CANCEL_AT_BANK_AFTER_MS - nowMs);
+}
+
 /** Fases de la espera del banco (las mismas para el cliente y para el personal). */
 export type BankWaitPhase = 'confirming' | 'slow' | 'still' | 'retry';
 

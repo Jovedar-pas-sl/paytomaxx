@@ -339,6 +339,7 @@ export function renderResultView(
       lang,
     );
   }
+  if (view.status === 'CANCELED' && view.paidAfterCancel) return renderClosedPage('paid-after-cancel', lang, langHref);
   const closed = CLOSED_REASON[view.status];
   if (closed) return renderClosedPage(closed, lang, langHref);
   if (view.attemptStatus === 'DENIED') {

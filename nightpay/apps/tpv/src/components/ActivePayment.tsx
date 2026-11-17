@@ -86,7 +86,7 @@ export function ActivePayment({ payment, venueName = null, status, reachable, ch
   useWakeLock(!finished);
 
   // Pagado: cómo pagó (tarjeta, Apple o Google Pay), solo si el banco lo dio. Una consulta, una vez.
-  const [cardFacts, setCardFacts] = useState<{ payMethod?: 'card' | 'wallet' }>({});
+  const [cardFacts, setCardFacts] = useState<{ payMethod?: 'card' | 'wallet' | 'bitcoin' }>({});
   const paid = shown === 'AUTHORIZED';
   const [paidAt, setPaidAt] = useState<Date | null>(null);
   // El detalle del cobro pagado (su número, la tarjeta): para el ticket impreso.

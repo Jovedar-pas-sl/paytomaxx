@@ -6,15 +6,19 @@ import { z } from 'zod';
  * nunca del servidor: aquí solo hay lo que se puede ver o mandar.
  */
 
-/** Para qué usa el local el bitcoin: cobros, recargas del saldo o los dos. */
+/**
+ * Dónde se ofrece el bitcoin (decisión del dueño): para cargar saldo y para
+ * pagar los reservados; en la barra (los cobros), nunca. Lo mismo en todos los
+ * locales: ya no se elige en Ajustes.
+ */
+export const BITCOIN_USE_TEXT = 'Bitcoin sirve para cargar saldo y para pagar reservados. En la barra no se ofrece.';
+
+/**
+ * El «para qué» de antes (cobros, recargas o los dos). Ya no cuenta: el API lo
+ * acepta de un panel antiguo y no lo guarda. La columna sigue en la base, sin uso.
+ */
 export const BTCPAY_PURPOSES = ['PAYMENTS', 'TOPUPS', 'BOTH'] as const;
 export type BtcpayPurpose = (typeof BTCPAY_PURPOSES)[number];
-
-export const BTCPAY_PURPOSE_LABELS: Readonly<Record<BtcpayPurpose, string>> = {
-  PAYMENTS: 'Cobros',
-  TOPUPS: 'Recargas del saldo',
-  BOTH: 'Cobros y recargas',
-};
 
 /** Lo que ve el dueño de la conexión (sin la clave: solo cómo termina). */
 export interface BtcpaySettingsView {
@@ -22,7 +26,6 @@ export interface BtcpaySettingsView {
   available: boolean;
   configured: boolean;
   enabled: boolean;
-  purpose: BtcpayPurpose;
   baseUrl: string | null;
   storeId: string | null;
   /** «…a1b2» o null: para saber QUÉ clave hay sin enseñarla. */
@@ -31,6 +34,8 @@ export interface BtcpaySettingsView {
   lastCheckAt: string | null;
   lastCheckOk: boolean | null;
   lastCheckMessage: string | null;
+  /** Devolver en efectivo lo pagado con bitcoin (encargado y dueño). Apagado de fábrica. */
+  cashRefund: boolean;
 }
 
 const StoreIdSchema = z
@@ -58,7 +63,8 @@ export const SaveBtcpaySettingsSchema = z
     storeId: StoreIdSchema,
     apiKey: ApiKeySchema.optional(),
     enabled: z.boolean(),
-    purpose: z.enum(BTCPAY_PURPOSES),
+    /** Ya no cuenta (ver BTCPAY_PURPOSES): un panel antiguo lo manda y se ignora. */
+    purpose: z.enum(BTCPAY_PURPOSES).optional(),
     totpCode: TotpSchema,
   })
   .strict();
@@ -88,9 +94,16 @@ export interface BtcpayTestResult {
   extraPermissions: string[];
 }
 
-/** Cambiar solo el interruptor o el uso (sin tocar la conexión). Con 2FA, como el resto. */
+/** Cambiar solo el interruptor (sin tocar la conexión). Con 2FA, como el resto. */
 export const UpdateBtcpayModeSchema = z
-  .object({ enabled: z.boolean(), purpose: z.enum(BTCPAY_PURPOSES), totpCode: TotpSchema })
+  .object({
+    enabled: z.boolean(),
+    /** Ya no cuenta (ver BTCPAY_PURPOSES): un panel antiguo lo manda y se ignora. */
+    purpose: z.enum(BTCPAY_PURPOSES).optional(),
+    /** Devolver en efectivo lo pagado con bitcoin. Sin el campo, no se cambia. */
+    cashRefund: z.boolean().optional(),
+    totpCode: TotpSchema,
+  })
   .strict();
 export type UpdateBtcpayModeDto = z.infer<typeof UpdateBtcpayModeSchema>;
 

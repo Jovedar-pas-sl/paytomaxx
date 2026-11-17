@@ -1,4 +1,4 @@
-import { Body, ConflictException, Controller, Get, HttpCode, Inject, Logger, NotFoundException, Post, UseGuards } from '@nestjs/common';
+import { Body, ConflictException, Controller, ForbiddenException, Get, HttpCode, Inject, Logger, NotFoundException, Post, UseGuards } from '@nestjs/common';
 import { z } from 'zod';
 import { alertSettingsOf, type JwtPayload } from '@nightpay/contracts';
 import { PrismaService } from '../../common/prisma/prisma.service';
@@ -12,6 +12,7 @@ import { ACKABLE_KINDS, type Incident } from './incident-rules';
 import { IncidentsService } from './incidents.service';
 import { TelegramService } from './telegram.service';
 import { BRAND_NAME } from '../../common/brand';
+import { assertCanTopUp } from '../venues/charge-rights';
 
 const AckSchema = z.object({
   kind: z.enum(ACKABLE_KINDS),
@@ -21,6 +22,18 @@ const AckSchema = z.object({
   note: z.string().trim().max(300).optional(),
 });
 type AckBody = z.infer<typeof AckSchema>;
+
+/** Recepción cierra un «No he sido yo» con su nota. */
+const ReceptionAckSchema = z.preprocess(
+  (v) => (v && typeof v === 'object' && !('kind' in v) ? { ...v, kind: 'wallet_charge_disputed' } : v),
+  z.discriminatedUnion('kind', [
+  // «No he sido yo» (la app de antes no manda `kind`: se pone este).
+  z.object({ kind: z.literal('wallet_charge_disputed'), refId: z.string().uuid(), note: z.string().trim().max(300).optional() }),
+  // «Pagó después de cancelar»: su id es el del evento (un número).
+  z.object({ kind: z.literal('approval_unbooked'), refId: z.string().regex(/^\d{1,19}$/), note: z.string().trim().max(300).optional() }),
+  ]),
+);
+type ReceptionAckBody = z.infer<typeof ReceptionAckSchema>;
 
 const NotifySchema = z.object({ paymentId: z.string().uuid() });
 type NotifyBody = z.infer<typeof NotifySchema>;
@@ -74,6 +87,46 @@ export class IncidentsController {
   ): Promise<{ ok: true }> {
     await this.incidents.ack(user.tenantId, user.sub, body);
     return { ok: true };
+  }
+
+  /**
+   * Recepción (app del personal): los «El cliente dice que no ha sido él» del
+   * local y los «Pagó después de cancelar». Quien carga saldos (recepción, el
+   * encargado o el dueño) los ve; los primeros los cierra con su nota
+   * (desbloquear el PIN sigue siendo del encargado); los segundos, solo el
+   * encargado o el dueño (devuelto en el banco o dado por bueno).
+   */
+  @Get('recepcion')
+  @Roles('WAITER', 'MANAGER', 'OWNER')
+  @IpRateLimit({ max: 60, windowSec: 60, scope: 'incidents-reception' })
+  async receptionList(@CurrentUser() user: JwtPayload): Promise<{ items: Incident[] }> {
+    await this.assertReception(user);
+    return { items: await this.incidents.receptionInbox(user.tenantId, user.role) };
+  }
+
+  @Post('recepcion/ack')
+  @HttpCode(200)
+  @Roles('WAITER', 'MANAGER', 'OWNER')
+  @IpRateLimit({ max: 30, windowSec: 60, scope: 'incidents-reception' })
+  async receptionAck(
+    @CurrentUser() user: JwtPayload,
+    @Body(new ZodValidationPipe(ReceptionAckSchema)) body: ReceptionAckBody,
+  ): Promise<{ ok: true }> {
+    await this.assertReception(user);
+    if (body.kind === 'approval_unbooked') {
+      if (user.role !== 'MANAGER' && user.role !== 'OWNER') {
+        throw new ForbiddenException('Este aviso lo cierra el encargado o el dueño');
+      }
+      await this.incidents.ackPaidAfterCancel(user.tenantId, user.sub, body);
+    } else {
+      await this.incidents.ackDisputed(user.tenantId, user.sub, body);
+    }
+    return { ok: true };
+  }
+
+  /** Solo quien carga saldos en este local (como las recargas de recepción). */
+  private async assertReception(user: JwtPayload): Promise<void> {
+    await this.prisma.asSystem((tx) => assertCanTopUp(tx, user.tenantId, { userId: user.sub, role: user.role }));
   }
 
   @Post('telegram-test')

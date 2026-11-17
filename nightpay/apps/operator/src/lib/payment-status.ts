@@ -13,24 +13,34 @@ export interface PolledPayment {
   tipCents?: number;
   /** Esperando al banco (AUTHORIZING) o sin su respuesta (ORPHAN): cuándo salió el intento. API nuevo. */
   attemptStartedAt?: string | null;
-  /** Ya pagado: «wallet» = Apple Pay o Google Pay; «card» = tarjeta. */
-  payMethod?: 'card' | 'wallet';
-  /** Paga con bitcoin (AUTHORIZING con su factura): si se puede cancelar. API nuevo. */
-  bitcoin?: BitcoinPayState;
+  /** Ya pagado: «wallet» = Apple Pay o Google Pay; «card» = tarjeta; «bitcoin» = con BTCPay. */
+  payMethod?: PaidQrMethod;
+  /** Paga con bitcoin (AUTHORIZING con su factura): si se puede cancelar; 'none', en su banco. API nuevo. */
+  bitcoin?: BitcoinPayState | 'none';
 }
+
+/**
+ * Cómo paga mientras está AUTHORIZING: el estado de su factura de bitcoin, null
+ * (en su banco) o 'unknown' (el API no lo dijo: uno de antes, que no manda el campo).
+ */
+export type BitcoinLive = BitcoinPayState | 'unknown';
 
 const BITCOIN_STATES: ReadonlySet<string> = new Set<BitcoinPayState>(['open', 'confirming', 'problem', 'closed']);
 
+/** Cómo se pagó el QR: tarjeta, Apple Pay o Google Pay, o bitcoin (en la cartera del local). */
+export type PaidQrMethod = 'card' | 'wallet' | 'bitcoin';
+
+const PAID_QR_METHODS: ReadonlySet<string> = new Set<PaidQrMethod>(['card', 'wallet', 'bitcoin']);
+
 /** Lo que el sondeo cuenta de cómo se pagó (para el PAGADO). */
 export interface PaidCardFacts {
-  payMethod?: 'card' | 'wallet';
+  payMethod?: PaidQrMethod;
 }
 
 /** Solo lo que el API dijo y con forma válida: nada se inventa. */
 export function cardFactsOf(current: PolledPayment): PaidCardFacts {
-  return {
-    ...(current.payMethod === 'card' || current.payMethod === 'wallet' ? { payMethod: current.payMethod } : {}),
-  };
+  const method = current.payMethod as unknown;
+  return typeof method === 'string' && PAID_QR_METHODS.has(method) ? { payMethod: method as PaidQrMethod } : {};
 }
 
 /**
@@ -43,7 +53,7 @@ export function cardFactsOf(current: PolledPayment): PaidCardFacts {
 export function pollUpdate(
   current: PolledPayment,
   id: string,
-): ({ status: PaymentStatus; tipCents?: number; attemptStartedAt?: string; bitcoin?: BitcoinPayState | null } & PaidCardFacts) | null {
+): ({ status: PaymentStatus; tipCents?: number; attemptStartedAt?: string; bitcoin?: BitcoinLive | null } & PaidCardFacts) | null {
   if (!isPolledPayment(current, id)) return null;
   const bitcoin = bitcoinStateOf(current.bitcoin);
   return {
@@ -55,7 +65,11 @@ export function pollUpdate(
   };
 }
 
-/** Solo un estado que se conoce: lo demás, como si no pagara con bitcoin. */
-function bitcoinStateOf(value: unknown): BitcoinPayState | null {
+/**
+ * Solo un estado que se conoce; 'none' (o un valor raro), en su banco. Sin el
+ * campo, no se sabe ('unknown'): no se da por hecho que paga en su banco.
+ */
+function bitcoinStateOf(value: unknown): BitcoinLive | null {
+  if (value === undefined) return 'unknown';
   return typeof value === 'string' && BITCOIN_STATES.has(value) ? (value as BitcoinPayState) : null;
 }

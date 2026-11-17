@@ -7,6 +7,7 @@ import { TAB_BAR_HEIGHT } from './layout';
 const TAB_LABEL: Record<TabKey, string> = {
   home: 'Inicio',
   reception: 'Recepción',
+  reservas: 'Reservados',
   pos: 'POS',
   payments: 'Cobros',
   earnings: 'Ganancias',
@@ -119,6 +120,13 @@ const ICON_PATHS: Record<TabKey, ReactNode> = {
     <>
       <path d="M4 18a8 8 0 0116 0" />
       <path d="M2.5 18h19M12 10V7.5M10 7.5h4" />
+    </>
+  ),
+  // Una entrada (ticket) con su corte: los reservados.
+  reservas: (
+    <>
+      <path d="M3 8a2 2 0 002-2h14a2 2 0 002 2v2a2 2 0 000 4v2a2 2 0 01-2 2H5a2 2 0 01-2-2v-2a2 2 0 000-4V8z" />
+      <path d="M14 6v12" strokeDasharray="2 2" />
     </>
   ),
   pos: (

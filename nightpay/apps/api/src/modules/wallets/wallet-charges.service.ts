@@ -71,6 +71,8 @@ import {
   type CardBy,
 } from './wallet-card-ops';
 import {
+  BITCOIN_STAYS_TEXT,
+  bitcoinPartCents,
   cardRefundCapCents,
   cashPayoutCapCents,
   cashPayoutRefusal,
@@ -112,6 +114,7 @@ import {
   type ChargeRequestStatus,
   type WalletPayoutMethod,
 } from './wallet-rules';
+import { ChargeAlertService } from './charge-alert/charge-alert.service';
 
 type Actor = { userId: string; role: Role; tenantId: string };
 
@@ -453,18 +456,23 @@ export class WalletChargesService {
   /** El contexto de la petición: el dispositivo con el que se paga (detalle del pago). */
   private readonly cls: Pick<ClsService<{ ctx: RequestContext }>, 'get'> | null;
 
+  /** «Aviso en cada cobro»: el aviso al móvil del cliente, después de cobrar (sin esperarlo). */
+  private readonly alerts: Pick<ChargeAlertService, 'chargePaid'> | null;
+
   constructor(
     @Inject(PrismaService) prisma: PrismaService,
     @Inject(AuditService) audit: AuditService,
     @Inject(ModuleRef) moduleRef: ModuleRef,
     @Inject(TotpService) totp: TotpService,
     @Optional() @Inject(ClsService) cls?: ClsService<{ ctx: RequestContext }>,
+    @Optional() @Inject(ChargeAlertService) alerts?: ChargeAlertService,
   ) {
     this.prisma = prisma;
     this.audit = audit;
     this.moduleRef = moduleRef;
     this.totp = totp;
     this.cls = cls ?? null;
+    this.alerts = alerts ?? null;
   }
 
   // ─── Personal del local ────────────────────────────────────────────────
@@ -825,6 +833,9 @@ export class WalletChargesService {
         await tx.walletChargeRequest.update({ where: { id: request.id }, data: { tipCents } });
       }
       const totalCents = request.amountCents + tipCents;
+      // Con propina, la ficha siempre con su PIN (también por debajo del tope y
+      // con la ficha original): la confirma el cliente, nadie la marca por él.
+      if (auth === 'nfc_nopin' && tipCents > 0) throw new PinRequiredException('tip');
       const decision = decideAccept({ ...request, amountCents: totalCents }, w, new Date());
       if (!decision.ok) throw requestError(decision.reason);
       // Cobro único: un solo juego de líneas, del que se paga.
@@ -963,6 +974,8 @@ export class WalletChargesService {
       'saldo',
       {
         ...(s.auth === 'passkey' ? { who: 'client' as const } : {}),
+        // Pagado con la ficha en la «Pantalla del cliente» de la barra (su credencial).
+        ...(ctx?.customerScreen ? { screen: true } : {}),
         walletChargeId: s.request.id,
         authMethod: s.auth,
         ...(s.pinVia ? { pinVia: s.pinVia } : {}),
@@ -1539,7 +1552,12 @@ export class WalletChargesService {
       pinLocked: wallet.pinLockedAt !== null,
       pinByStaff: wallet.pinSetById !== null,
       enough,
-      noPin: 'card' in ref && enough && (await this.noPinLikely(terminal.tenantId, ref, wallet, request.amountCents)),
+      // Con propina elegida, siempre el PIN (como al cobrar).
+      noPin:
+        'card' in ref &&
+        enough &&
+        !(request.tipCents > 0) &&
+        (await this.noPinLikely(terminal.tenantId, ref, wallet, request.amountCents)),
     };
   }
 
@@ -2205,7 +2223,15 @@ export class WalletChargesService {
     if (!wallet || !sameWalletGroup(wallet, { id: request.tenantId, walletGroup: venue?.walletGroup ?? null })) {
       throw new ConflictException({ message: 'Tu saldo no vale en este local', code: 'CHARGE_OTHER_VENUE' });
     }
-    return this.settleRequest(walletId, request.id, auth, pinVia, tipChoice);
+    const settled = await this.settleRequest(walletId, request.id, auth, pinVia, tipChoice);
+    // Ya pagado (la transacción hecha): el aviso al móvil del cliente sale aparte.
+    // Si tarda o falla, el cobro no se entera.
+    try {
+      this.alerts?.chargePaid(request.id);
+    } catch (err) {
+      this.logger.warn(`Aviso del cobro ${request.id}: ${(err as Error)?.message ?? err}`);
+    }
+    return settled;
   }
 
   /**
@@ -2240,6 +2266,14 @@ export class WalletChargesService {
   async requestClose(qrToken: string): Promise<ClientWalletState> {
     const wallet = await this.walletByToken(qrToken);
     if (wallet.balanceCents <= 0) throw new ConflictException({ message: 'No te queda saldo que devolver', code: 'NOTHING_TO_REFUND' });
+    // Reservados: lo que sobra queda como saldo para otra noche, sin devolución en
+    // dinero (salvo que el local anulara la reserva: eso lo devuelve el encargado).
+    const reserved = await this.prisma.asSystem((tx) =>
+      tx.reservation.count({ where: { walletId: wallet.id, status: { not: 'CANCELED' } } }),
+    );
+    if (reserved > 0) {
+      throw new ConflictException({ message: 'El saldo de un reservado no se devuelve en dinero: úsalo otra noche.', code: 'RESERVATION_NO_REFUND' });
+    }
     const res = await this.prisma.asSystem((tx) =>
       tx.clientWallet.updateMany({
         where: { id: wallet.id, status: 'ACTIVE', closeRequestedAt: null },
@@ -2314,11 +2348,11 @@ export class WalletChargesService {
       const pending = await tx.walletPayout.findFirst({ where: { walletId, status: 'PENDING' } });
       if (pending) {
         // payoutCash no paga nada hasta terminarla; «A la tarjeta» la retoma con su importe.
-        return { balanceCents, cashOutCents: 0, cardRefundCents: pending.amountCents, cashLaterCents: 0, pendingCardCents: pending.amountCents };
+        return { balanceCents, cashOutCents: 0, cardRefundCents: pending.amountCents, cashLaterCents: 0, bitcoinCents: 0, pendingCardCents: pending.amountCents };
       }
       const amounts = balanceCents > 0
         ? payoutAmounts(balanceCents, await walletCash(tx, walletId))
-        : { cashOutCents: 0, cardRefundCents: 0, cashLaterCents: 0 };
+        : { cashOutCents: 0, cardRefundCents: 0, cashLaterCents: 0, bitcoinCents: 0 };
       return { balanceCents, ...amounts, pendingCardCents: null };
     });
   }
@@ -2510,9 +2544,15 @@ export class WalletChargesService {
       }
       if (w.status !== 'ACTIVE' || w.balanceCents <= 0) throw new ConflictException('Este saldo no tiene nada que devolver');
       // El efectivo que sigue en el saldo no sale por el banco: se devuelve en efectivo.
-      const amount = cardRefundCapCents(w.balanceCents, await walletCash(tx, walletId));
+      // Lo que entró con bitcoin, tampoco (no pasó por el banco).
+      const cash = await walletCash(tx, walletId);
+      const amount = cardRefundCapCents(w.balanceCents, cash);
       if (amount <= 0) {
-        throw new ConflictException('Este saldo entró en efectivo: se devuelve en efectivo, no a la tarjeta');
+        throw new ConflictException(
+          bitcoinPartCents(w.balanceCents, cash) > 0
+            ? `Este saldo entró con bitcoin: no se devuelve a la tarjeta. ${BITCOIN_STAYS_TEXT}`
+            : 'Este saldo entró en efectivo: se devuelve en efectivo, no a la tarjeta',
+        );
       }
       assertExpectedPayout(input.expectedAmountCents, amount);
       await tx.clientWallet.update({ where: { id: walletId }, data: { balanceCents: w.balanceCents - amount } });

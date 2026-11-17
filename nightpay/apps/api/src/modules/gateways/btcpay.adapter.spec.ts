@@ -9,8 +9,8 @@ describe('BtcpayAdapter', () => {
     expect(adapter.provider).toBe('BTCPAY');
   });
 
-  it('refund lanza como las otras pasarelas que devuelven fuera', async () => {
-    await expect(adapter.refund({ tenantId: 't', paymentId: 'p', providerTxId: 'i', amountCents: 100, reference: 'r' } as never)).rejects.toThrow(/devuelto fuera|cartera/i);
+  it('refund lanza: el bitcoin no se devuelve por la pasarela ni en bitcoin, solo en euros (regla del dueño)', async () => {
+    await expect(adapter.refund({ tenantId: 't', paymentId: 'p', providerTxId: 'i', amountCents: 100, reference: 'r' } as never)).rejects.toThrow(/solo en euros/i);
   });
 
   it('nunca da una aprobación por probada ni mapea avisos por la ruta genérica', async () => {

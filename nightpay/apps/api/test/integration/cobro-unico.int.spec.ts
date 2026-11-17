@@ -489,7 +489,7 @@ describe('la propina la elige el cliente al pagar (B1)', () => {
     expect(await balanceOf(w.id)).toBe(4000);
   });
 
-  it('un cobro de antes con la propina del personal: se respeta si no elige, y la puede quitar', async () => {
+  it('un cobro de antes con la propina del personal: con su PIN se respeta si no elige, y la puede quitar (sin PIN, no)', async () => {
     const legacy = async () => {
       const c = await cobro([{ serviceItemId: copa }]);
       await sys((tx) => tx.walletChargeRequest.update({ where: { id: c.saldo!.chargeId }, data: { tipCents: 300 } }));
@@ -497,7 +497,11 @@ describe('la propina la elige el cliente al pagar (B1)', () => {
     };
     const kept = await legacy();
     const w1 = await wallet(5000);
-    await expect(payNfc(kept.saldo!.chargeId, w1)).resolves.toMatchObject({ status: 'ACCEPTED', tipCents: 300, newBalanceCents: 3700 });
+    // Con propina, la ficha siempre pide el PIN (decisión del dueño, 17-nov): la confirma el cliente.
+    await expect(payNfc(kept.saldo!.chargeId, w1)).rejects.toMatchObject({ reason: 'tip' });
+    await expect(
+      inVenue(V, () => charges.payQrChargeWithPin(carlosActor(), kept.saldo!.chargeId, { card: w1.card, uid: w1.uid, pin: '4827' })),
+    ).resolves.toMatchObject({ status: 'ACCEPTED', tipCents: 300, newBalanceCents: 3700 });
     const removed = await legacy();
     const w2 = await wallet(5000);
     const paid = await inVenue(V, () =>
