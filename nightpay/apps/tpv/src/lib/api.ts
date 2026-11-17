@@ -10,7 +10,7 @@ import {
   createApiClient,
   type LoginResult,
 } from '@nightpay/api-client';
-import type { BtcpayInvoiceView } from '@nightpay/contracts';
+import type { BtcpayInvoiceView, CobroDetail } from '@nightpay/contracts';
 import type { PaymentStatus } from '@nightpay/ui';
 import { MESSAGES, commonError, readError } from './http';
 
@@ -219,6 +219,18 @@ export async function fetchVenueName(): Promise<string | null> {
   if (!res.ok) return null;
   const venue = (await res.json()) as { name?: unknown };
   return typeof venue.name === 'string' && venue.name.trim() ? venue.name.trim() : null;
+}
+
+/**
+ * El detalle de un cobro propio ya pagado, para su ticket: su número, la
+ * tarjeta (marca y últimos 4) y lo pagado. Si no llega, null: el ticket sale
+ * con lo que sabe la pantalla.
+ */
+export async function fetchPaidDetail(paymentId: string, signal?: AbortSignal): Promise<CobroDetail | null> {
+  const res = await authedFetch(`/v1/staff/me/cobros/PAYMENT/${encodeURIComponent(paymentId)}`, { signal, cache: 'no-store' });
+  if (!res.ok) return null;
+  const detail = (await res.json()) as CobroDetail;
+  return detail.paidAt ? detail : null;
 }
 
 /** Anula un cobro que aún no se ha pagado: su QR deja de valer. */

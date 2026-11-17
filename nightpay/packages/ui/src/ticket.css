@@ -1,123 +1,22 @@
-/* Ticket impreso (papel de 58 mm, impresora térmica del datáfono).
-   Es papel, no pantalla: medidas en mm y pt, negro sobre blanco, sin fondos ni
-   colores (la térmica solo pinta negro). Fuera de la pantalla mientras no se
-   imprime; al imprimir (html.np-printing, ver PrintTicket.tsx) solo se ve él.
-   Las letras del papel son sus propios tokens (--np-t-ticket-*): la escala de
-   Grafito (14 px mínimo) es para leer una pantalla a un metro, no un ticket. */
+/* Ticket impreso (térmica de 58 mm). El ticket es una imagen dibujada punto a
+   punto (ticket-raster.ts): aquí solo se esconde fuera de la pantalla y, al
+   imprimir con el diálogo (html.np-printing, ver PrintTicket.tsx), es lo único
+   que sale, arriba del todo y a todo el ancho del papel. */
 
 .np-ticket-root {
-  --np-t-ticket-xs: 7.5pt;
-  --np-t-ticket-sm: 8.5pt;
-  --np-t-ticket-md: 10pt;
-  --np-t-ticket-lg: 12pt;
-  --np-t-ticket-xl: 20pt;
-  --np-ticket-ink: #000;
-  --np-ticket-paper: #fff;
   position: fixed;
   top: 0;
   left: -100vw;
-  width: 58mm;
+  width: 48mm;
   visibility: hidden;
   pointer-events: none;
-  background: var(--np-ticket-paper);
-  color: var(--np-ticket-ink);
 }
 
-.np-ticket {
-  box-sizing: border-box;
-  width: 58mm;
-  padding: 2mm 3mm 0;
-  font-family: var(--np-font-sans);
-  font-size: var(--np-t-ticket-sm);
-  line-height: 1.3;
-  color: var(--np-ticket-ink);
-  text-align: center;
-}
-
-.np-ticket p {
-  margin: 0;
-}
-
-.np-ticket-venue {
-  font-size: var(--np-t-ticket-lg);
-  font-weight: 600;
-}
-
-.np-ticket-title {
-  margin-top: 1mm;
-  font-size: var(--np-t-ticket-md);
-  font-weight: 600;
-}
-
-.np-ticket-meta {
-  display: flex;
-  justify-content: space-between;
-  gap: 2mm;
-  margin-top: 1mm;
-  font-size: var(--np-t-ticket-xs);
-}
-
-.np-ticket-meta span:only-child {
-  margin: 0 auto;
-}
-
-.np-ticket-rule {
-  margin: 2mm 0;
-  border: 0;
-  border-top: 0.3mm dashed var(--np-ticket-ink);
-}
-
-/* El importe, lo primero que se mira: grande y en cifras (Manrope 700). */
-.np-ticket-amount {
-  font-family: var(--np-font-mono), var(--np-font-sans);
-  font-size: var(--np-t-ticket-xl);
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
-}
-
-.np-ticket-how {
-  margin-top: 0.5mm;
-  font-size: var(--np-t-ticket-md);
-  font-weight: 600;
-}
-
-.np-ticket-note {
-  margin-top: 1mm;
-}
-
-.np-ticket-qr {
+.np-ticket-root img {
   display: block;
-  width: 36mm;
-  height: 36mm;
-  margin: 2mm auto 1mm;
-}
-
-.np-ticket-rows {
-  margin: 0;
-  text-align: left;
-}
-
-.np-ticket-row {
-  display: flex;
-  justify-content: space-between;
-  gap: 2mm;
-  padding: 0.4mm 0;
-}
-
-.np-ticket-row dt,
-.np-ticket-row dd {
-  margin: 0;
-}
-
-.np-ticket-row dd {
-  font-weight: 600;
-  text-align: right;
-  overflow-wrap: anywhere;
-}
-
-.np-ticket-foot {
-  padding-bottom: 2mm;
-  font-size: var(--np-t-ticket-xs);
+  width: 100%;
+  height: auto;
+  image-rendering: pixelated;
 }
 
 @media print {
@@ -127,7 +26,7 @@
     height: auto !important;
     margin: 0 !important;
     padding: 0 !important;
-    background: var(--np-ticket-paper, #fff) !important;
+    background: #fff !important;
   }
 
   html.np-printing body > :not(.np-ticket-root) {
@@ -136,36 +35,50 @@
 
   html.np-printing .np-ticket-root {
     position: static;
+    width: 100%;
     visibility: visible;
   }
 }
 
-/* El botón «Imprimir»: discreto, bajo los botones grandes, con 44 px para el dedo. */
+/* El botón «Imprimir»: un botón de verdad (con su filete y la impresora), del
+   alto del secundario del resultado (48 px), para el dedo y a la vista. */
 .np-print-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  align-self: center;
-  gap: 0.5rem;
-  min-height: 2.75rem;
-  padding: 0 1rem;
+  gap: 0.625rem;
+  min-height: 3rem;
+  padding: 0.5rem 1.25rem;
   border: none;
   border-radius: var(--np-r-md);
   background: transparent;
   color: inherit;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, currentColor 60%, transparent);
   font-family: var(--np-font-sans);
   font-size: var(--np-fs-16);
   font-weight: 600;
-  text-decoration: underline;
-  text-underline-offset: 0.2em;
+  line-height: 1.2;
   touch-action: manipulation;
   -webkit-tap-highlight-color: transparent;
+  transition:
+    transform var(--np-press-ms, 120ms) ease-out,
+    background var(--np-d-fast, 150ms);
+}
+
+.np-outcome-actions .np-print-btn {
+  width: 100%;
 }
 
 .np-print-btn svg {
-  width: 1.25rem;
-  height: 1.25rem;
+  width: 1.375rem;
+  height: 1.375rem;
   flex: none;
+}
+
+@media (hover: hover) {
+  .np-print-btn:hover {
+    background: color-mix(in srgb, currentColor 10%, transparent);
+  }
 }
 
 .np-print-btn:active {
