@@ -2,16 +2,34 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { paidTicket, payQrTicket } from '../lib/ticket';
-import { cardHow } from '../lib/outcome-how';
-import { PRINTING_CLASS, PrintButton, ticketPageCss, ticketPageHeightMm, usePrintTicket } from './PrintTicket';
-import { PaymentOutcome } from './PaymentOutcome';
+import { paidTicket } from '../lib/ticket';
+import { PRINT_MODE_KEY } from '../lib/print-mode';
 import type { Ticket } from '../lib/ticket';
+
+// jsdom no dibuja en <canvas>: un lienzo de mentira de 384 × 2 (negro arriba, blanco abajo).
+vi.mock('../lib/ticket-raster', async (orig) => {
+  const real = await orig<typeof import('../lib/ticket-raster')>();
+  return {
+    ...real,
+    renderTicketCanvas: () => {
+      const data = new Uint8ClampedArray(384 * 2 * 4).fill(255);
+      for (let i = 0; i < 384 * 4; i += 4) data.set([0, 0, 0, 255], i);
+      return {
+        width: 384,
+        height: 2,
+        toDataURL: () => 'data:image/png;base64,AAAA',
+        getContext: () => ({ getImageData: () => ({ data }) }),
+      } as unknown as HTMLCanvasElement;
+    },
+  };
+});
+
+const { PRINTING_CLASS, PrintButton, printTarget, usePrintTicket } = await import('./PrintTicket');
+const { PaymentOutcome } = await import('./PaymentOutcome');
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
-const AT = new Date('2026-11-16T15:20:00Z');
-const TICKET: Ticket = paidTicket({ venue: 'Sala Uno', amountCents: 3630, how: cardHow({ code: 'K7Q4', who: 'Carlos', at: AT }), at: AT });
+const TICKET: Ticket = paidTicket({ venue: 'Sala Uno', totalCents: 3630, at: new Date('2026-11-16T15:20:00Z') });
 
 let host: HTMLDivElement;
 let root: Root;
@@ -23,6 +41,7 @@ beforeEach(() => {
   root = createRoot(host);
   printSpy = vi.fn();
   window.print = printSpy as unknown as typeof window.print;
+  localStorage.clear();
 });
 
 afterEach(() => {
@@ -30,68 +49,70 @@ afterEach(() => {
   host.remove();
   document.documentElement.classList.remove(PRINTING_CLASS);
   document.getElementById('np-ticket-page')?.remove();
+  vi.restoreAllMocks();
 });
 
 function Harness({ ticket }: { ticket: Ticket }) {
   const printer = usePrintTicket();
   return (
     <>
-      <PrintButton label="Imprimir comprobante" onClick={() => printer.print(ticket)} />
+      <PrintButton label="Imprimir ticket" onClick={() => printer.print(ticket)} />
       {printer.ticketNode}
     </>
   );
 }
 
 const buttonByText = (text: string) => Array.from(document.querySelectorAll('button')).find((b) => b.textContent === text) ?? null;
+const flush = () => act(async () => void (await Promise.resolve()));
 
 describe('imprimir un ticket', () => {
-  it('la página mide lo que mide el ticket (58 mm de ancho, sin metros en blanco)', () => {
-    // 377 px CSS = 99,7 mm → 100 mm de ticket + 8 mm para cortar.
-    expect(ticketPageHeightMm(377)).toBe(108);
-    expect(ticketPageCss(377)).toBe('@page { size: 58mm 108mm; margin: 0; }');
-  });
-
-  it('al tocar «Imprimir», pinta el ticket fuera de la pantalla y abre el diálogo', () => {
+  it('con Android: la imagen del ticket sola en la página, sin tamaño propio, y el diálogo', async () => {
     act(() => root.render(<Harness ticket={TICKET} />));
-    const root58 = document.querySelector('.np-ticket-root');
-    expect(root58?.parentElement).toBe(document.body);
-    expect(root58?.getAttribute('aria-hidden')).toBe('true');
-    expect(document.querySelector('.np-ticket')).toBeNull();
+    const ticketRoot = document.querySelector('.np-ticket-root');
+    expect(ticketRoot?.parentElement).toBe(document.body);
+    expect(ticketRoot?.querySelector('img')).toBeNull();
 
-    act(() => buttonByText('Imprimir comprobante')?.click());
+    act(() => buttonByText('Imprimir ticket')?.click());
+    await flush();
 
+    expect(ticketRoot?.querySelector('img')?.getAttribute('src')).toBe('data:image/png;base64,AAAA');
     expect(printSpy).toHaveBeenCalledTimes(1);
     expect(document.documentElement.classList.contains(PRINTING_CLASS)).toBe(true);
-    expect(document.getElementById('np-ticket-page')?.textContent).toContain('size: 58mm');
-    const paper = document.querySelector('.np-ticket')?.textContent ?? '';
-    expect(paper).toContain('Sala Uno');
-    expect(paper).toContain('Comprobante de pago');
-    expect(paper).toContain('36,30');
-    expect(paper).toContain('K7Q4');
-    expect(paper).not.toContain('Carlos');
+    const page = document.getElementById('np-ticket-page')?.textContent ?? '';
+    expect(page).toContain('margin: 0');
+    // Sin «size»: el papel lo pone la impresora y el ticket empieza arriba (antes salía centrado, con papel en blanco).
+    expect(page).not.toContain('size');
   });
 
-  it('al cerrar el diálogo, la app vuelve a verse', () => {
+  it('al cerrar el diálogo, la app vuelve a verse', async () => {
     act(() => root.render(<Harness ticket={TICKET} />));
-    act(() => buttonByText('Imprimir comprobante')?.click());
+    act(() => buttonByText('Imprimir ticket')?.click());
+    await flush();
     act(() => void window.dispatchEvent(new Event('afterprint')));
     expect(document.documentElement.classList.contains(PRINTING_CLASS)).toBe(false);
     expect(document.getElementById('np-ticket-page')).toBeNull();
   });
 
-  it('el QR en papel sale dibujado', () => {
-    const qr = payQrTicket({ amountCents: 2000, qrUrl: 'https://api.example/pay/abc', expiresAt: null, at: AT });
-    act(() => root.render(<Harness ticket={qr} />));
-    act(() => buttonByText('Imprimir comprobante')?.click());
-    expect(document.querySelector('.np-ticket-qr path')?.getAttribute('d')).toBeTruthy();
+  it('directo (RawBT): un toque manda los bytes a RawBT, sin diálogo', () => {
+    localStorage.setItem(PRINT_MODE_KEY, 'rawbt');
+    const open = vi.spyOn(printTarget, 'open').mockImplementation(() => undefined);
+    act(() => root.render(<Harness ticket={TICKET} />));
+    act(() => buttonByText('Imprimir ticket')?.click());
+    expect(printSpy).not.toHaveBeenCalled();
+    expect(open).toHaveBeenCalledTimes(1);
+    const url = open.mock.calls[0]![0];
+    expect(url).toMatch(/^intent:base64,[A-Za-z0-9+/=]+#Intent;scheme=rawbt;package=ru\.a402d\.rawbtprinter;end;$/);
+    // Empieza por ESC @ (G0A = 1B 40 en base64).
+    expect(url.startsWith('intent:base64,G0A')).toBe(true);
   });
 
-  it('PAGADO enseña «Imprimir comprobante» solo si hay ticket', () => {
+  it('PAGADO enseña «Imprimir ticket» solo si hay ticket', async () => {
     const primary = { label: 'Nuevo cobro', onClick: () => undefined };
     act(() => root.render(<PaymentOutcome kind="paid" amountCents={3630} primary={primary} />));
-    expect(buttonByText('Imprimir comprobante')).toBeNull();
+    expect(buttonByText('Imprimir ticket')).toBeNull();
     act(() => root.render(<PaymentOutcome kind="paid" amountCents={3630} primary={primary} print={TICKET} />));
-    act(() => buttonByText('Imprimir comprobante')?.click());
+    act(() => buttonByText('Imprimir ticket')?.click());
+    await flush();
     expect(printSpy).toHaveBeenCalledTimes(1);
   });
 });

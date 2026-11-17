@@ -4,6 +4,7 @@
 // una sola vez. Funciones puras: la pantalla guarda la cuenta y la cambia con
 // ellas (siempre una cuenta nueva, nunca la misma modificada).
 
+import type { TicketLine } from '@nightpay/ui';
 import type { ChargeLineInput, SectionCode } from '@nightpay/contracts';
 
 /** Lo que hace falta de un servicio de la carta. */
@@ -154,6 +155,15 @@ export function chargeLinesOf(cuenta: Cuenta): ChargeLineInput[] {
     if (l.kind === 'carta') return [{ serviceItemId: l.item.id, qty: l.qty }];
     if (l.kind === 'importe') return [{ category: l.category, amountCents: l.amountCents, label: 'Otro importe' }];
     return [];
+  });
+}
+
+/** La cuenta, línea a línea, para el ticket impreso: «2× Gin tonic … 24,00 €». */
+export function ticketLinesOf(cuenta: Cuenta): TicketLine[] {
+  return cuenta.map((l): TicketLine => {
+    if (l.kind === 'carta') return { label: itemLabel(l.item), qty: l.qty, unitCents: l.item.priceCents, amountCents: l.item.priceCents * l.qty };
+    if (l.kind === 'importe') return { label: 'Otro importe', qty: 1, amountCents: l.amountCents };
+    return { label: 'Propina', qty: 1, amountCents: l.amountCents };
   });
 }
 

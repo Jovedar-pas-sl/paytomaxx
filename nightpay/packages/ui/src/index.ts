@@ -137,7 +137,7 @@ export {
 } from './lib/device-settings';
 export type { ThemeChoice } from './lib/device-settings';
 export { PHOTO_MAX_BYTES, PHOTO_OUT_SIDE, PhotoPrepareError, encodeProfilePhoto, photoPlan, prepareProfilePhoto } from './lib/profile-photo';
-export { PRINTING_CLASS, PrintButton, TicketPaper, ticketPageCss, ticketPageHeightMm, usePrintTicket } from './components/PrintTicket';
+export { PRINTING_CLASS, PrintButton, TICKET_PAGE_CSS, printTarget, usePrintTicket } from './components/PrintTicket';
 export type { PrintTicketApi } from './components/PrintTicket';
 export {
   RECEIPT_FOOTER,
@@ -145,9 +145,27 @@ export {
   howRows,
   paidTicket,
   payQrTicket,
+  receiptFromDetail,
   testTicket,
   ticketDateTime,
+  ticketMoney,
   ticketTime,
   topUpTicket,
 } from './lib/ticket';
-export type { PaidTicketInput, PayQrTicketInput, Ticket, TicketRow, TopUpTicketInput } from './lib/ticket';
+export type { PaidTicketInput, PayQrTicketInput, ReceiptExtra, Ticket, TicketLine, TicketRow, TopUpTicketInput } from './lib/ticket';
+export {
+  PRINT_WIDTH_DOTS,
+  RAWBT_PACKAGE,
+  bytesToBase64,
+  canvasToEscPos,
+  escPosImage,
+  paintTicket,
+  rasterBits,
+  rawbtIntentUrl,
+  renderTicketCanvas,
+  wrapBalanced,
+  wrapText,
+} from './lib/ticket-raster';
+export type { TicketPainter } from './lib/ticket-raster';
+export { DEFAULT_PRINT_MODE, PRINT_MODE_CHOICES, PRINT_MODE_KEY, readPrintMode, usePrintMode, writePrintMode } from './lib/print-mode';
+export type { PrintMode } from './lib/print-mode';

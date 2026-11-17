@@ -2,13 +2,14 @@
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { confirmationCode, type BitcoinPayState, type PaymentStatus } from '@nightpay/contracts';
-import { cardHow, countdownPhase, formatClock, paidTicket, qrDeadline, saldoHow, secondsLeft, useNow, useWakeLock, ScreenHelp } from '@nightpay/ui';
+import { cardHow, countdownPhase, formatClock, paidTicket, qrDeadline, receiptFromDetail, saldoHow, secondsLeft, useNow, useWakeLock, ScreenHelp, type TicketLine } from '@nightpay/ui';
 import { fetchPaymentStatus, getUser } from '@/lib/api';
 import { clearFichaContext, saveFichaContext } from '@/lib/ficha-context';
 import { formatEur } from '@/lib/money';
 import { nfcSupported, readCard, waitingListensNfc } from '@/lib/nfc';
 import { useHealthReport } from '@/lib/connection-health';
 import { useOpenCharge } from '@/lib/open-charges';
+import { paidTargetOf, usePaidDetail } from '@/lib/paid-detail';
 import { cardFactsOf, type PaidCardFacts } from '@/lib/payment-status';
 import { fichaContextOf, iphoneFichaHint, pinDetail, showsSinMovil, SIN_MOVIL_LABEL, type PinVia } from '@/lib/sin-movil';
 import { useVenueMethods, useVenueName, useVenueNight } from '@/lib/venue-methods';
@@ -104,6 +105,8 @@ export interface CobroAbierto {
   band: { title: string; detail: string };
   /** «2 copas» (el PAGADO). */
   what: string;
+  /** Lo que se cobra, línea a línea (el ticket impreso). Sin ellas, una línea con el total. */
+  lines?: readonly TicketLine[];
   /** Quien cobra (el PAGADO y el PIN). */
   who: string;
   /** «Servicios · Lola» (el chip del PIN). */
@@ -210,6 +213,10 @@ export function Esperando({ cobro, onNew, onRetry, retrying = false, retryError 
     canceledByMe,
   });
   const waiting = outcome.kind === 'waiting';
+  // PAGADO: su detalle (líneas, tarjeta, saldo que queda) para el ticket impreso.
+  const paidDetail = usePaidDetail(
+    paidTargetOf(outcome.kind === 'paid', outcome.kind === 'paid' ? outcome.method : null, cobro.card, cobro.saldo),
+  );
 
   // Tarjeta: tiempo real + sondeo de respaldo.
   const { reachable } = usePaymentLive(cobro.card, (update) => {
@@ -487,14 +494,22 @@ export function Esperando({ cobro, onNew, onRetry, retrying = false, retryError 
           ) : null
         }
         detail={<PaidDetail cobro={cobro} what={cobro.invitation ? null : cobro.what} />}
-        print={paidTicket({
-          venue: venueName,
-          amountCents: amounts.totalCents,
-          how,
-          breakdown: breakdown ?? (tip ? `${tip.base} + ${tip.tip} de propina` : null),
-          reference: cobro.ref,
-          at,
-        })}
+        print={
+          paidDetail
+            ? // El saldo que le queda lo dice el cobro al pagarse (el detalle no se lo da al personal).
+              receiptFromDetail(paidDetail, { balanceAfterCents: outcome.method === 'card' ? null : outcome.newBalanceCents })
+            : paidTicket({
+                venue: venueName,
+                number: cobro.ref,
+                lines: cobro.lines,
+                amountCents: amounts.baseCents,
+                tipCents: amounts.tipCents ?? 0,
+                serviceFeeCents: amounts.serviceFeeCents ?? 0,
+                totalCents: amounts.totalCents,
+                how,
+                at,
+              })
+        }
         primary={{ label: 'Nuevo cobro', onClick: onNew }}
       />
     );

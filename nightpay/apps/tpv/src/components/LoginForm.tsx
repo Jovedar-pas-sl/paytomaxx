@@ -63,6 +63,7 @@ export function LoginForm({ onSuccess }: Props) {
       ) : (
         <>
           <Input
+            label="Email"
             type="email"
             autoComplete="email"
             placeholder="Email"
@@ -71,6 +72,7 @@ export function LoginForm({ onSuccess }: Props) {
             required
           />
           <Input
+            label="Contraseña"
             type="password"
             autoComplete="current-password"
             placeholder="Contraseña"

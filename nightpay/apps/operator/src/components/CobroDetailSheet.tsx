@@ -12,7 +12,7 @@ import {
   type CobroDetail,
   type CobroKind,
 } from '@nightpay/contracts';
-import { Button, Modal } from '@nightpay/ui';
+import { Button, Modal, receiptFromDetail, usePrintTicket } from '@nightpay/ui';
 import { paymentTimeLabel } from '@/lib/earnings-view';
 import { formatEur } from '@/lib/money';
 import { fetchOwnCobroDetail, ownDetailStatus, ownDeviceText, ownWhereText } from '@/lib/own-cobro-detail';
@@ -87,6 +87,8 @@ export function CobroDetailSheet({ target, onClose }: { target: { kind: CobroKin
 }
 
 function DetailBody({ d, onShare, shared, onMore }: { d: CobroDetail; onShare: () => void; shared: string | null; onMore: () => void }) {
+  // El ticket del cliente (solo de lo pagado): lo comprado, el total y cómo se pagó; nunca «lo tuyo».
+  const printer = usePrintTicket();
   return (
     <div className={styles.sheet}>
       <div className={styles.head}>
@@ -147,16 +149,29 @@ function DetailBody({ d, onShare, shared, onMore }: { d: CobroDetail; onShare: (
         </Block>
       ) : null}
 
-      <div className={styles.actions}>
-        <Button variant="ghost" onClick={onShare}>
-          Compartir
-        </Button>
-        {d.sensitive ? null : (
-          <Button variant="ghost" onClick={onMore}>
-            Ver más
+      <div className={styles.buttons}>
+        {d.paidAt ? (
+          <Button variant="ghost" onClick={() => printer.print(receiptFromDetail(d))}>
+            Imprimir ticket
           </Button>
-        )}
+        ) : null}
+        <div className={styles.actions}>
+          <Button variant="ghost" onClick={onShare}>
+            Compartir
+          </Button>
+          {d.sensitive ? null : (
+            <Button variant="ghost" onClick={onMore}>
+              Ver más
+            </Button>
+          )}
+        </div>
       </div>
+      {printer.error ? (
+        <p role="alert" className={styles.mute} style={{ color: 'var(--np-danger)' }}>
+          {printer.error}
+        </p>
+      ) : null}
+      {printer.ticketNode}
       {shared ? (
         <p role="status" className={styles.mute}>
           {shared}
