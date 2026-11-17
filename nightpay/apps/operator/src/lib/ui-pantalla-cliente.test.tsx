@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
-import { CustomerDisplaySheet } from '../components/CustomerDisplaySheet';
+import { CustomerDisplaySheet, PairingSteps } from '../components/CustomerDisplaySheet';
 
 // Menú → «Pantalla del cliente»: arriba, qué es y los 3 pasos para emparejarla.
 
@@ -30,5 +30,11 @@ describe('«Pantalla del cliente»: qué es y cómo emparejarla', () => {
     expect(words).toContain('el código de 6 letras y números');
     // La explicación va antes del botón.
     expect(html.indexOf('<ol')).toBeLessThan(html.indexOf('>Emparejar<'));
+  });
+
+  it('con una tablet ya emparejada, el paso 2 nombra el botón que sale: «Emparejar otra»', () => {
+    const words = text(renderToStaticMarkup(<PairingSteps url="/pantalla" paired />));
+    expect(words).toContain('toca «Emparejar otra»');
+    expect(text(renderToStaticMarkup(<PairingSteps url="/pantalla" paired={false} />))).toContain('toca «Emparejar» .');
   });
 });

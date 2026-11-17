@@ -11,6 +11,24 @@ const PAIRED_CHECK_MS = 4_000;
 const hourOf = (iso: string): string =>
   new Date(iso).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Madrid' });
 
+/** El botón; el paso 2 lo nombra igual. */
+const pairLabel = (paired: boolean): string => (paired ? 'Emparejar otra' : 'Emparejar');
+
+/** Los 3 pasos para emparejar la tablet. */
+export function PairingSteps({ url, paired }: { url: string; paired: boolean }) {
+  return (
+    <ol style={steps} aria-label="Cómo emparejarla">
+      <li>
+        En la tablet, abre <strong>{url}</strong>.
+      </li>
+      <li>
+        Aquí, toca <strong>«{pairLabel(paired)}»</strong>.
+      </li>
+      <li>En la tablet, escribe el código de {CUSTOMER_DISPLAY_CODE_LENGTH} letras y números que sale aquí.</li>
+    </ol>
+  );
+}
+
 /**
  * «Pantalla del cliente» (Menú): arriba, qué es y los 3 pasos para
  * emparejarla; emparejar la tablet de la barra con un código de 5 minutos,
@@ -93,15 +111,7 @@ export function CustomerDisplaySheet({ open, onClose }: { open: boolean; onClose
         </p>
         {/* Con el código ya en pantalla, sus propias instrucciones (abajo) bastan. */}
         {!codeLive ? (
-          <ol style={steps} aria-label="Cómo emparejarla">
-            <li>
-              En la tablet, abre <strong>{pantallaUrl}</strong>.
-            </li>
-            <li>
-              Aquí, toca <strong>«Emparejar»</strong>.
-            </li>
-            <li>En la tablet, escribe el código de {CUSTOMER_DISPLAY_CODE_LENGTH} letras y números que sale aquí.</li>
-          </ol>
+          <PairingSteps url={pantallaUrl} paired={status?.paired === true} />
         ) : null}
         {codeLive ? (
           <>
@@ -125,7 +135,7 @@ export function CustomerDisplaySheet({ open, onClose }: { open: boolean; onClose
         ) : null}
         {!codeLive ? (
           <Button onClick={() => void pair()} loading={busy}>
-            {status?.paired ? 'Emparejar otra' : 'Emparejar'}
+            {pairLabel(status?.paired === true)}
           </Button>
         ) : null}
         {status?.paired ? (
