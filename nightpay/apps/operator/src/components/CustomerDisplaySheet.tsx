@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState, type CSSProperties } from 'react';
-import type { CustomerDisplayCode, CustomerDisplayStatus } from '@nightpay/contracts';
+import { CUSTOMER_DISPLAY_CODE_LENGTH, type CustomerDisplayCode, type CustomerDisplayStatus } from '@nightpay/contracts';
 import { Button, Modal, formatClock, useNow } from '@nightpay/ui';
 import { createDisplayCode, fetchDisplayStatus, unpairDisplayFromStaff } from '@/lib/customer-display-api';
 
@@ -12,8 +12,9 @@ const hourOf = (iso: string): string =>
   new Date(iso).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Madrid' });
 
 /**
- * «Pantalla del cliente» (Menú): emparejar la tablet de la barra con un
- * código de 5 minutos, ver hasta cuándo vale (12 h) y desemparejarla.
+ * «Pantalla del cliente» (Menú): arriba, qué es y los 3 pasos para
+ * emparejarla; emparejar la tablet de la barra con un código de 5 minutos,
+ * ver hasta cuándo vale (12 h) y desemparejarla.
  */
 export function CustomerDisplaySheet({ open, onClose }: { open: boolean; onClose: () => void }) {
   const [status, setStatus] = useState<CustomerDisplayStatus | null>(null);
@@ -77,18 +78,35 @@ export function CustomerDisplaySheet({ open, onClose }: { open: boolean; onClose
       await load();
     });
 
+  const pantallaUrl = typeof window === 'undefined' ? '/pantalla' : `${window.location.host}/pantalla`;
+
   return (
     <Modal open={open} onClose={onClose} title="Pantalla del cliente">
       <div style={col}>
         <p style={text}>
-          Una tablet o un móvil viejo en la barra, mirando al cliente: enseña el importe y el QR de tus cobros y «Pagado» al
-          pagarse. Nunca el saldo ni tu nombre.
+          Una tablet en la barra, mirando al cliente (vale un móvil viejo). Cuando cobras, enseña el importe y el QR; ahí el
+          cliente puede elegir la propina y pagar acercando su ficha. Sale «Pagado» y vuelve a reposo.
         </p>
+        <p style={dim}>
+          Nunca enseña el saldo ni tu nombre, y desde ella no se puede cancelar ni devolver. Se desempareja sola al cerrar la
+          noche.
+        </p>
+        {/* Con el código ya en pantalla, sus propias instrucciones (abajo) bastan. */}
+        {!codeLive ? (
+          <ol style={steps} aria-label="Cómo emparejarla">
+            <li>
+              En la tablet, abre <strong>{pantallaUrl}</strong>.
+            </li>
+            <li>
+              Aquí, toca <strong>«Emparejar»</strong>.
+            </li>
+            <li>En la tablet, escribe el código de {CUSTOMER_DISPLAY_CODE_LENGTH} letras y números que sale aquí.</li>
+          </ol>
+        ) : null}
         {codeLive ? (
           <>
             <p style={text}>
-              En la tablet, abre <strong>{typeof window === 'undefined' ? '/pantalla' : `${window.location.host}/pantalla`}</strong> y
-              escribe:
+              En la tablet, abre <strong>{pantallaUrl}</strong> y escribe:
             </p>
             <p style={codeStyle} aria-label={`Código ${code.code.split('').join(' ')}`}>
               {code.code}
@@ -123,6 +141,15 @@ export function CustomerDisplaySheet({ open, onClose }: { open: boolean; onClose
 const col: CSSProperties = { display: 'flex', flexDirection: 'column', gap: '0.75rem' };
 const text: CSSProperties = { margin: 0, fontSize: 'var(--np-fs-16)', lineHeight: 1.45 };
 const dim: CSSProperties = { margin: 0, fontSize: 'var(--np-fs-14)', color: 'var(--np-text-mute)' };
+const steps: CSSProperties = {
+  margin: 0,
+  paddingLeft: '1.25rem',
+  display: 'flex',
+  flexDirection: 'column',
+  gap: '0.375rem',
+  fontSize: 'var(--np-fs-16)',
+  lineHeight: 1.4,
+};
 const ok: CSSProperties = { margin: 0, fontSize: 'var(--np-fs-16)', fontWeight: 600 };
 const err: CSSProperties = { margin: 0, fontSize: 'var(--np-fs-14)', color: 'var(--np-danger-text)' };
 const codeStyle: CSSProperties = {
