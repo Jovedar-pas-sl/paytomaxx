@@ -147,7 +147,7 @@ export function moneyMapQuestions(m: MoneyMap, sections: readonly VenueSection[]
       text:
         live === null
           ? 'No se sabe cuánto saldo de clientes queda sin gastar en estas fechas.'
-          : `${eurShort(live)} son saldo de clientes sin gastar${current ? '' : ' al corte'}: siguen siendo suyos hasta que lo gasten o se lo devuelvas.`,
+          : `${eurShort(live)} son saldo de clientes sin gastar${current ? '' : ' al corte'}: siguen siendo suyos para sus próximas visitas (el saldo no se devuelve).`,
     },
     sold: { label: v.salesLabel, cents: m.salesCents, parts: v.sections.filter((s) => s.cents !== 0) },
   };
