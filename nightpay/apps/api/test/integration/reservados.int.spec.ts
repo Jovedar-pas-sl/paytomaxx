@@ -399,9 +399,14 @@ describe('la noche: puerta, barra, «No vino» y el local anula', () => {
     expect(await sys((tx) => tx.walletPayout.count({ where: { walletId: payment.walletId! } }))).toBe(0);
     // Pasa a saldo ahora («Señales de reservas»: «Pasado a saldo del cliente»).
     expect((await resvOf(paid.id)).recognizedAt).not.toBeNull();
-    // La página del grupo le da el enlace a su saldo.
+    // La página del grupo le da el enlace a su saldo y dice que lo pagado queda como saldo (solo con la regla
+    // de ahora: recognizedAt; las anuladas antes se devolvían desde Saldos y la que no tenía nada pagado, tampoco).
     const w = await walletOf(payment.walletId!);
-    expect((await pub(() => reservations.groupView(paid.manageToken)))?.saldoHref).toBe(`/w/${encodeURIComponent(w.qrToken)}`);
+    expect(await pub(() => reservations.groupView(paid.manageToken))).toMatchObject({ saldoHref: `/w/${encodeURIComponent(w.qrToken)}`, venueCanceledToSaldo: true });
+    expect((await pub(() => reservations.groupView(unpaid.manageToken)))?.venueCanceledToSaldo).toBe(false);
+    // «Me voy» tampoco lo devuelve: no queda pedido para Incidencias.
+    expect(code(await pub(() => charges.requestClose(w.qrToken)).catch((e: unknown) => e))).toBe('RESERVATION_NO_REFUND');
+    expect((await walletOf(payment.walletId!)).closeRequestedAt).toBeNull();
     // Ya anulada: ni pagar, ni cambiar la fecha, ni otra anulación.
     expect(code(await pub(() => reservations.startPayment(paid.manageToken, 'REST', 'es')).catch((e: unknown) => e))).toBe('RESERVATION_NOT_PAYABLE');
     expect(code(await as(owner, () => ops.venueCancel(owner, paid.id, 'Otra vez')).catch((e: unknown) => e))).toBe('RESERVATION_CANCEL');
