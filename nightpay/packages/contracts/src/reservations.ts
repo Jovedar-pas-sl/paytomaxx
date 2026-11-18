@@ -212,8 +212,9 @@ export interface ReservationView {
   depositCents: number;
   paidCents: number;
   /**
-   * De lo pagado, lo que se pagó con bitcoin. Si hay que devolverlo (el local
-   * anula), nunca por la pasarela ni en bitcoin: solo en euros. Opcional: API anterior.
+   * De lo pagado, lo que se pagó con bitcoin. Si el local anula, se queda como
+   * saldo del grupo para otra noche, igual que lo pagado con tarjeta (nada se
+   * devuelve). Opcional: API anterior.
    */
   paidWithBitcoinCents?: number;
   pendingCents: number;

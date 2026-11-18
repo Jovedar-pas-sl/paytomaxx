@@ -85,6 +85,8 @@ export type PayRedirect =
       presetTipCents?: number;
       /** «Pagar con bitcoin»: el local lo tiene encendido para este cobro (y el servidor también). */
       bitcoin?: boolean;
+      /** Un pago de un reservado (señal, resto o todo): sus páginas dicen sus reglas. */
+      reservation?: true;
     }
   | {
       /**
@@ -379,6 +381,7 @@ export function choosePayPage(p: PayablePayment, now: Date = new Date()): PayRed
     ...(saldoPayToken ? { saldoPayToken } : {}),
     ...(p.saldo && p.allowTip && p.tipCents > 0 ? { presetTipCents: p.tipCents } : {}),
     ...(p.bitcoin ? { bitcoin: true } : {}),
+    ...(p.reservation ? { reservation: true as const } : {}),
   };
 }
 

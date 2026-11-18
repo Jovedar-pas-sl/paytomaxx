@@ -9,23 +9,24 @@ import { PackagesEditor } from './PackagesEditor';
 import { PromotersCard } from './PromotersCard';
 import { ReservationsLinkCard } from './ReservationsLinkCard';
 
-type View = 'night' | 'packages' | 'promoters' | 'link';
+export type ReservationsView = 'night' | 'packages' | 'promoters' | 'link';
 
-const VIEWS: ReadonlyArray<{ key: View; label: string }> = [
-  { key: 'night', label: 'Reservas' },
+const VIEWS: ReadonlyArray<{ key: ReservationsView; label: string }> = [
+  { key: 'night', label: 'Reservas de la noche' },
   { key: 'packages', label: 'Paquetes' },
-  { key: 'promoters', label: 'RRPP' },
-  { key: 'link', label: 'Enlace y señales' },
+  { key: 'promoters', label: 'RRPP y sus enlaces' },
+  { key: 'link', label: 'Enlace web y señales' },
 ];
 
 /**
- * Clientes → Reservados (dueño y encargado): las reservas de la noche (mesa,
- * cambiar la fecha, anular, «No vino»), los paquetes, los RRPP (su % y su
- * enlace) y el enlace web con «Señales de reservas». La puerta y la barra van
- * en la app del personal.
+ * Clientes → Reservados y RRPP (dueño y encargado): las reservas de la noche
+ * (mesa, cambiar la fecha, anular, «No vino»), los paquetes, los RRPP (su % y
+ * su enlace) y el enlace web con «Señales de reservas». La puerta y la barra
+ * van en la app del personal. `initialView`: la vista con la que se abre (el
+ * atajo de Compañeras abre los RRPP).
  */
-export function ReservationsPanel({ isOwner }: { isOwner: boolean }) {
-  const [view, setView] = useState<View>('night');
+export function ReservationsPanel({ isOwner, initialView = 'night' }: { isOwner: boolean; initialView?: ReservationsView }) {
+  const [view, setView] = useState<ReservationsView>(initialView);
   const [packages, setPackages] = useState<ReservationPackageView[]>([]);
   const [error, setError] = useState<string | null>(null);
 

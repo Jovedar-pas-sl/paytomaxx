@@ -4,7 +4,7 @@
 // con datos que la app ya tiene. Nunca lleva el nombre de quien cobra ni el
 // reparto: el papel se lo lleva el cliente.
 
-import { formatMoney, type CobroDetail } from '@nightpay/contracts';
+import { formatMoney, refundUndoLabel, type CobroDetail } from '@nightpay/contracts';
 import type { OutcomeHow } from '../components/PaymentOutcome';
 
 /** Una línea de lo comprado: «2× Gin tonic … 24,00 €». */
@@ -171,7 +171,8 @@ function detailPaymentRows(d: CobroDetail, extra: ReceiptExtra): TicketRow[] {
   if (balanceAfter !== null) rows.push({ label: d.isTopUp ? 'Saldo ahora' : 'Saldo restante', value: ticketMoney(balanceAfter) });
   for (const u of d.undo) {
     if (u.amountCents === null) continue;
-    const label = u.kind === 'REFUND' ? 'Devuelto a la tarjeta' : u.kind === 'VOID' ? 'Devuelto al saldo' : 'Anulado';
+    // Lo pagado con bitcoin que se devolvió en efectivo no dice «a la tarjeta».
+    const label = u.kind === 'REFUND' ? refundUndoLabel(u) : u.kind === 'VOID' ? 'Devuelto al saldo' : 'Anulado';
     rows.push({ label, value: ticketMoney(u.amountCents) });
   }
   return rows;

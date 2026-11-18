@@ -10,10 +10,10 @@ import { LoadState, SettingsCard, StatusLine, Switch, useSavedFlash, useSettings
 
 /**
  * Ajustes → Permisos del personal (dueño): qué deja hacer a los encargados
- * (devolver, dar efectivo, cerrar la noche, pagos a las chicas, informes,
+ * (devolver, dar efectivo, cerrar la noche, pagos a las compañeras, informes,
  * recargas en efectivo) y, si hace falta, a una persona en concreto. A los
- * camareros, las recargas en efectivo y devolver el saldo en efectivo a la
- * salida (los de recepción); a los datáfonos de recepción, las recargas.
+ * camareros y a los datáfonos de recepción, las recargas en efectivo (el
+ * saldo ya no se devuelve a la salida: decisión del dueño, 17-nov-2026).
  * Con el datáfono apagado en Formas de cobro, lo de los datáfonos no sale
  * (lo guardado se queda para cuando vuelva).
  * Por defecto, lo de siempre. El API lo aplica en cada petición.

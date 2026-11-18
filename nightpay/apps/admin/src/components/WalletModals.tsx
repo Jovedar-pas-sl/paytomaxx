@@ -16,7 +16,7 @@ import {
 } from '@/lib/api';
 import { totpLockedUntil, totpRetryState } from '@/lib/api-errors';
 import { walletPayoutSummary } from '@/lib/confirm-summary';
-import { balanceAfterPayout, isPayoutAmountChanged, payoutDoneText, payoutPlan } from '@/lib/wallet-payout';
+import { balanceAfterPayout, canFinishPayout, isPayoutAmountChanged, KEEP_RULE, payoutDoneText, payoutPlan } from '@/lib/wallet-payout';
 import { formatDateTime } from '@/lib/dates';
 import { formatEur } from '@/lib/money';
 import { useLockActive } from '@/lib/use-lock';
@@ -24,7 +24,7 @@ import { useVenue, useVenueTimezone } from '@/lib/venue-context';
 import { ConfirmLine } from './ConfirmLine';
 import { OtpInput } from './OtpInput';
 
-/** Saldo a devolver: de la lista o encontrado por el código del cliente. */
+/** Un saldo de la lista o encontrado por el código del cliente. */
 export interface PayoutTarget {
   walletId: string;
   code: string | null;
@@ -32,7 +32,10 @@ export interface PayoutTarget {
   label: string | null;
   /** Cargado en este local: solo desde aquí se apunta la devolución a la tarjeta. */
   isHomeVenue: boolean;
-  /** El cliente pulsó "Me voy" (sin eso, solo el dueño devuelve). */
+  /**
+   * Una devolución pedida antes de la nueva regla («Me voy» o recepción), sin
+   * terminar. Sin eso solo se termina una a la tarjeta a medias (el dueño).
+   */
   closeRequested: boolean;
 }
 
@@ -66,9 +69,10 @@ export function CodeSearch({ onFound }: { onFound: (target: PayoutTarget) => voi
 
   return (
     <Card style={{ padding: '1rem' }}>
-      <h3 style={sectionTitle}>Devolver el saldo a un cliente que se va</h3>
+      <h3 style={sectionTitle}>Buscar un saldo por su código</h3>
       <p style={{ margin: '0.25rem 0 0.75rem', fontSize: '0.875rem', color: 'var(--np-text-mute)' }}>
-        Pon el código que sale en su página de saldo (vale aunque cargara en otro local).
+        Pon el código que sale en su página de saldo (vale aunque cargara en otro local). Aquí se terminan las
+        devoluciones pedidas antes de la nueva regla.
       </p>
       <form onSubmit={handleSubmit} style={{ display: 'flex', gap: '0.5rem', alignItems: 'flex-start' }}>
         <Input
@@ -142,7 +146,7 @@ export function PayoutModal({
   const noteId = useId();
   const [method, setMethod] = useState<WalletPayoutMethod>('CASH');
   const canCard = isOwner && target.isHomeVenue;
-  // Sin el "Me voy" del cliente, solo el dueño puede devolver.
+  // Sin la petición de antes del cliente (solo una a la tarjeta a medias), la termina el dueño.
   const canPay = isOwner || target.closeRequested;
   const [bankReference, setBankReference] = useState('');
   const [note, setNote] = useState('');
@@ -164,6 +168,9 @@ export function PayoutModal({
   // El dueño, siempre (devuelve sin que el cliente lo pida); el encargado, desde el umbral en efectivo.
   const withCode = isOwner || (askedForCode && method === 'CASH');
   const balanceCents = afterCents ?? preview?.balanceCents ?? target.balanceCents;
+  // El saldo no se devuelve: aquí solo se termina una devolución pedida antes de la nueva regla.
+  const finishable = canFinishPayout(target, preview);
+  const checking = !finishable && preview === null && previewError === null;
 
   async function handleSubmit() {
     if (submitting || !plan || amountCents <= 0) return;
@@ -194,7 +201,7 @@ export function PayoutModal({
   }
 
   return (
-    <Modal open onClose={submitting ? () => undefined : onClose} title="Devolver saldo">
+    <Modal open onClose={submitting ? () => undefined : onClose} title={finishable ? 'Terminar devolución' : 'Saldo del cliente'}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
         <div style={summaryStyle}>
           <p style={{ margin: 0, fontSize: '0.875rem' }}>
@@ -218,8 +225,16 @@ export function PayoutModal({
             </p>
             <Button onClick={onClose}>Cerrar</Button>
           </>
+        ) : !finishable ? (
+          <>
+            <p style={helpStyle}>{checking ? 'Cargando…' : KEEP_RULE}</p>
+            <Button variant="ghost" onClick={onClose}>
+              Cerrar
+            </Button>
+          </>
         ) : (
           <>
+            <p style={helpStyle}>Se pidió antes de la nueva regla: termínala como siempre.</p>
             <div role="radiogroup" aria-label="Cómo se devuelve" style={methodRowStyle}>
               <MethodOption
                 active={method === 'CASH'}
@@ -244,7 +259,7 @@ export function PayoutModal({
 
             {canPay ? null : (
               <p style={{ ...helpStyle, color: 'var(--np-warning)' }}>
-                El cliente aún no ha pulsado «Me voy» en su página de saldo. Pídeselo, o que lo devuelva el dueño.
+                Esta devolución a la tarjeta quedó a medias: la termina el dueño.
               </p>
             )}
 
@@ -405,7 +420,7 @@ export function ChargeWithoutFaceIdModal({
         </div>
         <p style={helpStyle}>
           Para el cliente que no puede pagar con su móvil (sin batería, móvil antiguo). Elige el cobro que le ha hecho la
-          chica: se descuenta de este saldo con tu código 2FA, queda registrado que lo aprobaste tú y avisa al dueño.
+          compañera: se descuenta de este saldo con tu código 2FA, queda registrado que lo aprobaste tú y avisa al dueño.
         </p>
         {pending === null ? (
           error ? null : <p style={helpStyle}>Cargando cobros pendientes…</p>

@@ -163,5 +163,5 @@ const input: CSSProperties = {
   background: 'var(--np-surface-2, transparent)',
   color: 'inherit',
   font: 'inherit',
-  fontSize: '0.875rem',
+  fontSize: '1rem',
 };

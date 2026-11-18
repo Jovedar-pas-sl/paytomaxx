@@ -4,8 +4,9 @@
 // cobro de recarga del saldo del grupo: SOLO cuenta con la aprobación del
 // banco, sin saldo a la vista de quien paga); cambiar la fecha una vez con 48 h;
 // la llegada (pasa a venta) y la barra con el QR de cada persona; «No vino»
-// (la señal no se devuelve, el 70 % queda de saldo); el local anula; la
-// comisión del RRPP solo con el paquete pagado entero; «Señales de reservas».
+// (la señal no se devuelve, el 70 % queda de saldo); el local anula (lo pagado
+// queda como saldo del grupo, nada se devuelve); la comisión del RRPP solo con
+// el paquete pagado entero; «Señales de reservas».
 import { describe, it, expect, beforeAll, afterAll, afterEach, vi } from 'vitest';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { randomUUID } from 'node:crypto';
@@ -199,6 +200,9 @@ describe('paquetes y reservar', () => {
     const row = await resvOf(one.id);
     expect(row).toMatchObject({ status: 'PENDING', paidCents: 0, priceCents: 30000, depositCents: 9000, source: 'WEB', promoterId: null, customerPhone: '600112233' });
     expect(await sys((tx) => tx.reservationGuest.count({ where: { reservationId: one.id } }))).toBe(6);
+    // «Añadir a mi calendario»: la página del grupo sabe la hora de apertura del local.
+    const venue = await sys((tx) => tx.venue.findUniqueOrThrow({ where: { id: A }, select: { reservationsOpenMinute: true } }));
+    expect((await pub(() => reservations.groupView(one.manageToken)))?.openMinute).toBe(venue.reservationsOpenMinute);
   });
 
   it('tope por noche del paquete: la cuarta de la misma noche no entra', async () => {
@@ -349,9 +353,9 @@ describe('la noche: puerta, barra, «No vino» y el local anula', () => {
     expect(view.guests.find((g) => g.seq === 2)?.spentCents).toBe(5000);
     const tooMuch = await as(barman, () => ops.charge(barman, { guestToken: guests[2]!.qrToken, amountCents: 40000, key: key() })).catch((e: unknown) => e);
     expect(code(tooMuch)).toBe('RESERVATION_BALANCE');
-    // «Me voy» (devolver el saldo): no en un reservado.
+    // «Me voy» (devolver el saldo): el saldo no se devuelve, tampoco el de un reservado.
     const w = await walletOf(payment.walletId!);
-    expect(code(await pub(() => charges.requestClose(w.qrToken)).catch((e: unknown) => e))).toBe('RESERVATION_NO_REFUND');
+    expect(code(await pub(() => charges.requestClose(w.qrToken)).catch((e: unknown) => e))).toBe('SALDO_NO_SE_DEVUELVE');
   });
 
   it('«No vino» con el 100 % pagado: pierde la señal y el 70 % queda como saldo; con la señal sola, la pierde', async () => {
@@ -376,20 +380,36 @@ describe('la noche: puerta, barra, «No vino» y el local anula', () => {
     expect((await pub(() => reservations.groupView(full.manageToken)))?.saldoHref).toMatch(/^\/w\//);
   });
 
-  it('el local anula: sin pagar se cancela; pagada, el saldo del grupo se puede devolver', async () => {
+  it('el local anula: sin pagar se cancela; pagada, lo pagado queda como saldo del grupo para otra noche (no se devuelve)', async () => {
     const entry = await entryWeb();
     const unpaid = await book(entry, creditPkg, plusDays(tonight(), 3));
-    expect((await as(owner, () => ops.venueCancel(owner, unpaid.id, 'Cerramos esa noche'))).refundCents).toBe(0);
+    expect(await as(owner, () => ops.venueCancel(owner, unpaid.id, 'Cerramos esa noche'))).toMatchObject({ saldoCents: 0, walletId: null });
+    expect((await resvOf(unpaid.id)).recognizedAt).toBeNull();
     const paid = await book(entry, creditPkg, plusDays(tonight(), 3));
     const { payment } = await pay(paid.manageToken, 'DEPOSIT');
     // Primero se ofrece otra fecha (no gasta el cambio del cliente).
     await as(owner, () => ops.venueChangeDate(owner, paid.id, plusDays(tonight(), 8)));
     expect((await resvOf(paid.id)).dateChangedAt).toBeNull();
     const out = await as(owner, () => ops.venueCancel(owner, paid.id, 'No le vale otra fecha'));
-    expect(out).toMatchObject({ refundCents: 15000, walletId: payment.walletId });
+    expect(out).toMatchObject({ saldoCents: 15000, walletId: payment.walletId, reservation: { status: 'CANCELED', statusText: 'Anulada por el local', paidCents: 15000 } });
+    expect(out).not.toHaveProperty('refundCents');
+    // Nada sale ni pasa a venta: el saldo del grupo sigue entero y se puede gastar otra noche.
+    expect(await walletOf(payment.walletId!)).toMatchObject({ balanceCents: 15000, status: 'ACTIVE', closeRequestedAt: null });
+    expect(await sys((tx) => tx.walletConsumption.count({ where: { walletId: payment.walletId! } }))).toBe(0);
+    expect(await sys((tx) => tx.walletPayout.count({ where: { walletId: payment.walletId! } }))).toBe(0);
+    // Pasa a saldo ahora («Señales de reservas»: «Pasado a saldo del cliente»).
+    expect((await resvOf(paid.id)).recognizedAt).not.toBeNull();
+    // La página del grupo le da el enlace a su saldo y dice que lo pagado queda como saldo (solo con la regla
+    // de ahora: recognizedAt; las anuladas antes se devolvían desde Saldos y la que no tenía nada pagado, tampoco).
     const w = await walletOf(payment.walletId!);
-    await pub(() => charges.requestClose(w.qrToken));
-    expect((await walletOf(payment.walletId!)).closeRequestedAt).not.toBeNull();
+    expect(await pub(() => reservations.groupView(paid.manageToken))).toMatchObject({ saldoHref: `/w/${encodeURIComponent(w.qrToken)}`, venueCanceledToSaldo: true });
+    expect((await pub(() => reservations.groupView(unpaid.manageToken)))?.venueCanceledToSaldo).toBe(false);
+    // «Me voy» tampoco lo devuelve: no queda pedido para Incidencias.
+    expect(code(await pub(() => charges.requestClose(w.qrToken)).catch((e: unknown) => e))).toBe('SALDO_NO_SE_DEVUELVE');
+    expect((await walletOf(payment.walletId!)).closeRequestedAt).toBeNull();
+    // Ya anulada: ni pagar, ni cambiar la fecha, ni otra anulación.
+    expect(code(await pub(() => reservations.startPayment(paid.manageToken, 'REST', 'es')).catch((e: unknown) => e))).toBe('RESERVATION_NOT_PAYABLE');
+    expect(code(await as(owner, () => ops.venueCancel(owner, paid.id, 'Otra vez')).catch((e: unknown) => e))).toBe('RESERVATION_CANCEL');
   });
 });
 
@@ -443,9 +463,10 @@ describe('«Señales de reservas» y aislamiento', () => {
   it('lo cobrado, lo pasado a venta, a saldo, lo pendiente y la comisión, aparte de las ventas', async () => {
     const acc = await pub(() => catalog.accounting(owner, plusDays(tonight(), -1), plusDays(tonight(), 1)));
     expect(acc.collectedCents).toBeGreaterThan(0);
-    // Llegadas (30.000 + 10.000) y señales perdidas (9.000 + 15.000).
+    // Llegadas (30.000 + 10.000) y señales perdidas (9.000 + 15.000); la que anuló el local no es venta.
     expect(acc.recognizedCents).toBe(30000 + 10000 + 9000 + 15000);
-    expect(acc.toSaldoCents).toBe(40000 + 21000);
+    // A saldo: lo de consumir al llegar (40.000), el 70 % de «No vino» (21.000) y lo pagado de la que anuló el local (15.000).
+    expect(acc.toSaldoCents).toBe(40000 + 21000 + 15000);
     expect(acc.promoterCommissionCents).toBe(5000);
     const pending = await sys((tx) => tx.reservation.aggregate({ where: { tenantId: A, status: { in: ['DEPOSIT_PAID', 'PAID'] } }, _sum: { paidCents: true } }));
     expect(acc.outstandingCents).toBe(pending._sum.paidCents ?? 0);

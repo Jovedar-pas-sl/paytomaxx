@@ -176,6 +176,7 @@ const row: CSSProperties = { display: 'flex', flexWrap: 'wrap', gap: '0.5rem', a
 const radio: CSSProperties = { display: 'flex', gap: '0.375rem', alignItems: 'center', fontSize: '0.875rem' };
 const field: CSSProperties = { display: 'flex', flexDirection: 'column', gap: '0.25rem', flex: '1 1 10rem' };
 const input: CSSProperties = {
+  minWidth: 0,
   minHeight: '2.75rem',
   padding: '0 0.75rem',
   border: '1px solid var(--np-border)',
@@ -183,5 +184,5 @@ const input: CSSProperties = {
   background: 'var(--np-surface-2, transparent)',
   color: 'inherit',
   font: 'inherit',
-  fontSize: '0.875rem',
+  fontSize: '1rem',
 };

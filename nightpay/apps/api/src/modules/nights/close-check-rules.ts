@@ -76,7 +76,7 @@ export interface WalletPayoutPendingRow {
   shortCode: string | null;
 }
 
-/** Cliente que pulsó «Me voy» y espera su saldo. */
+/** Devolución del saldo pedida antes de la nueva regla («Me voy» o recepción) y aún sin terminar. */
 export interface WalletCloseRequestedRow {
   id: string;
   balanceCents: number;
@@ -225,6 +225,10 @@ export function datafonosStep(
 
 // ─── 3. Saldo devuelto pendiente ────────────────────────────────────
 
+/**
+ * El saldo ya no se devuelve (17-nov-2026): aquí solo salen las devoluciones
+ * pedidas antes y aún sin terminar (o una a la tarjeta que quedó a medias).
+ */
 export function saldoStep(
   payouts: ReadonlyArray<WalletPayoutPendingRow>,
   toClose: ReadonlyArray<WalletCloseRequestedRow>,
@@ -241,7 +245,7 @@ export function saldoStep(
     ...toClose.map((w) => ({
       id: w.id,
       status: 'warn' as const,
-      label: `Cliente esperando su saldo: ${eur(w.balanceCents)}${code(w.shortCode)}`,
+      label: `Devolución pedida antes de la nueva regla: ${eur(w.balanceCents)}${code(w.shortCode)}. Termínala en ${SALDOS_TAB_PATH}`,
       amountCents: w.balanceCents,
     })),
   ];
@@ -251,8 +255,8 @@ export function saldoStep(
     'Saldo devuelto pendiente',
     status,
     status === 'ok'
-      ? 'No queda saldo por devolver.'
-      : `Devuélvelo antes de contar la caja: en efectivo cuenta en el arqueo; a la tarjeta, en ${SALDOS_TAB_PATH}.`,
+      ? 'No hay devoluciones de saldo pendientes.'
+      : `Son de antes de la nueva regla (el saldo ya no se devuelve). Termínalas antes de contar la caja: en efectivo cuentan en el arqueo; a la tarjeta, en ${SALDOS_TAB_PATH}.`,
     items,
     'wallets',
   );

@@ -121,6 +121,15 @@ describe('detalle de un cobro con tarjeta', () => {
     ]);
   });
 
+  it('lo pagado con bitcoin devuelto en efectivo («Devolver en efectivo») lo dice: no es una devolución a la tarjeta', () => {
+    const paid = card();
+    const refund = { ...paid.payment.refunds[0]!, paidInCash: true };
+    const f = paymentDetailFacts({ ...paid, payment: { ...paid.payment, provider: 'BTCPAY', refunds: [refund] } });
+    expect(f.base.undo).toEqual([
+      { kind: 'REFUND', at: '2026-11-08T01:00:00.000Z', amountCents: 1000, by: 'javi@bambu.es', reason: 'Copa derramada', status: 'SUCCEEDED', paidInCash: true },
+    ]);
+  });
+
   it('el reparto: lo vendido, lo devuelto sin la comisión, OxioPay (comisión neta y su %), el personal y el local', () => {
     const f = paymentDetailFacts(
       card({}),

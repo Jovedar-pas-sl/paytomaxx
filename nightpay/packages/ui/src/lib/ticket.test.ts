@@ -138,6 +138,18 @@ describe('ticket impreso', () => {
     ]);
   });
 
+  it('desde el detalle: lo pagado con bitcoin que se devolvió en efectivo dice «Devuelto en efectivo», no «a la tarjeta»', () => {
+    const undo = (paidInCash?: boolean) =>
+      ({ kind: 'REFUND', at: '2026-11-16T15:30:00Z', amountCents: 2400, by: null, reason: null, status: 'SUCCEEDED', ...(paidInCash === undefined ? {} : { paidInCash }) }) as CobroDetail['undo'][number];
+    const bitcoin = { method: 'BITCOIN', label: 'Bitcoin', cardBrand: null, cardLast4: null, fichaNumber: null, via: 'QR', walletHint: null } as CobroDetail['method'];
+    const enEfectivo = receiptFromDetail(detail({ method: bitcoin, undo: [undo(true)] }));
+    expect(enEfectivo.payment).toContainEqual({ label: 'Devuelto en efectivo', value: m(2400) });
+    expect(enEfectivo.payment.map((r) => r.label)).not.toContain('Devuelto a la tarjeta');
+    // La devolución a la tarjeta de siempre (sin la marca, o con ella a false) sigue igual.
+    expect(receiptFromDetail(detail({ undo: [undo()] })).payment).toContainEqual({ label: 'Devuelto a la tarjeta', value: m(2400) });
+    expect(receiptFromDetail(detail({ undo: [undo(false)] })).payment).toContainEqual({ label: 'Devuelto a la tarjeta', value: m(2400) });
+  });
+
   it('en PAGADO, el saldo que queda lo pone la pantalla si el detalle no lo trae', () => {
     const saldo = detail({ kind: 'SALDO', tipCents: 0, serviceFeeCents: 0, totalCents: 3900, bank: null });
     expect(receiptFromDetail(saldo).payment.map((r) => r.label)).not.toContain('Saldo restante');

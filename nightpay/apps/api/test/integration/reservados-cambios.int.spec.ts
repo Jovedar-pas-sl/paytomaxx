@@ -219,13 +219,18 @@ describe('el RRPP pierde la comisión si el local cambia la fecha o anula', () =
     expect(await sys((tx) => tx.operatorEarning.count({ where: { operatorId: rrppUser } }))).toBe(before);
   });
 
-  it('el local anula después de ganarla: sale del reparto (neto 0)', async () => {
+  it('el local anula después de ganarla: sale del reparto (neto 0) y lo pagado queda como saldo del grupo', async () => {
     const res = await book(await entry(true), plusDays(tonight(), 7));
     const p = await pay(res.manageToken, 'FULL');
     const earning = await sys((tx) => tx.operatorEarning.findFirstOrThrow({ where: { operatorId: rrppUser, paymentId: p.id } }));
     expect(earning).toMatchObject({ commissionCents: 5000, reversedCents: 0 });
-    await as(owner, () => ops.venueCancel(owner, res.id, 'Cerramos esa noche'));
+    const out = await as(owner, () => ops.venueCancel(owner, res.id, 'Cerramos esa noche'));
+    expect(out).toMatchObject({ saldoCents: 50000, walletId: p.walletId });
     expect(await sys((tx) => tx.operatorEarning.findUniqueOrThrow({ where: { id: earning.id } }))).toMatchObject({ reversedCents: 5000 });
+    expect(await resvOf(res.id)).toMatchObject({ status: 'CANCELED' });
+    expect((await resvOf(res.id)).commissionVoidedAt).not.toBeNull();
+    // El saldo, entero: el local no lo devuelve ni lo cobra.
+    expect((await walletOf(p.walletId!)).balanceCents).toBe(50000);
   });
 });
 

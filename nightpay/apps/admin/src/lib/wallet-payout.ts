@@ -1,9 +1,26 @@
-// «Devolver saldo»: lo que se dice antes de confirmar y al apuntarlo (lógica
-// pura, probada en wallet-payout.test.ts). Las cifras son las que hará el API
-// (GET …/payout-preview), no el saldo entero: en efectivo solo sale lo que
-// entró en efectivo (y sin llegar a 1.000 € en 24 h); a la tarjeta, el resto.
+// «Terminar devolución»: el saldo ya no se devuelve (decisión del dueño,
+// 17-nov-2026); solo se terminan las devoluciones pedidas antes («Me voy» o
+// recepción) o una a la tarjeta que quedó a medias. Lo que se dice antes de
+// confirmar y al apuntarlo (lógica pura, probada en wallet-payout.test.ts).
+// Las cifras son las que hará el API (GET …/payout-preview), no el saldo
+// entero: en efectivo solo sale lo que entró en efectivo (y sin llegar a
+// 1.000 € en 24 h); a la tarjeta, el resto.
 
+import { SALDO_SE_QUEDA_TEXT } from '@nightpay/contracts';
 import { formatEur } from './money';
+
+/** La regla, donde antes se devolvía el saldo: «El saldo no se devuelve: se queda para la próxima visita». */
+export const KEEP_RULE = SALDO_SE_QUEDA_TEXT;
+
+/** ¿Tiene este saldo una devolución pedida antes de la nueva regla, sin terminar? (la lista de Saldos) */
+export function refundPendingFromBefore(w: { status: string; closeRequestedAt: string | null; payoutPending?: boolean }): boolean {
+  return w.status === 'ACTIVE' && (w.closeRequestedAt !== null || w.payoutPending === true);
+}
+
+/** ¿Se puede terminar aquí? Pedida antes por el cliente o recepción, o una a la tarjeta a medias. */
+export function canFinishPayout(target: { closeRequested: boolean }, preview: Pick<WalletPayoutPreview, 'pendingCardCents'> | null): boolean {
+  return target.closeRequested || (preview !== null && preview.pendingCardCents !== null);
+}
 
 export type WalletPayoutMethod = 'CASH' | 'CARD';
 

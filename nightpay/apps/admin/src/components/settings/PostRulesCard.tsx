@@ -8,11 +8,11 @@ import { useSections } from '@/lib/use-sections';
 import { SwitchLine } from '../ToggleSwitch';
 import { LoadState, SettingsCard, StatusLine, useSavedFlash, useSettingsLoad } from './SettingsBits';
 
-const FLAGS: ReadonlyArray<{ key: 'tips' | 'cash' | 'topUps' | 'cashPayout'; label: string }> = [
+// «Devolver saldo en efectivo» ya no sale: el saldo no se devuelve (decisión del dueño, 17-nov-2026).
+const FLAGS: ReadonlyArray<{ key: 'tips' | 'cash' | 'topUps'; label: string }> = [
   { key: 'tips', label: 'Propinas' },
   { key: 'cash', label: 'Efectivo' },
   { key: 'topUps', label: 'Recargas del saldo' },
-  { key: 'cashPayout', label: 'Devolver saldo en efectivo' },
 ];
 
 /**

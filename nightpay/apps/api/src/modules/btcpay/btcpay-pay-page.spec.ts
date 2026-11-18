@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import type { BtcpayInvoiceView } from '@nightpay/contracts';
 import { PAY_LANGUAGES } from '../payments/customer-lang';
+import { CUSTOMER_TEXT } from '../payments/i18n';
 import { PAY_TEXT } from '../payments/pay-i18n';
 import { renderBitcoinPage, safeHttpsLink, safeQrLink } from './btcpay-pay-page';
 
@@ -21,6 +22,21 @@ const view = (over: Partial<BtcpayInvoiceView> = {}): BtcpayInvoiceView => ({
 const base = { token: 'tok-1', lang: 'es' as const, venueName: 'Sala Bambú', concept: '2× Copa', langHref: (l: string) => `/pay/tok-1/bitcoin?lang=${l}` };
 const html = (v = view(), over: Record<string, unknown> = {}, lang: (typeof PAY_LANGUAGES)[number] = 'es') =>
   renderBitcoinPage({ ...base, lang, view: v, ...over } as never);
+
+describe('cargar saldo con bitcoin: la regla del saldo antes de pagar (decisión del dueño, 17-nov)', () => {
+  it.each(PAY_LANGUAGES)('%s: una carga de saldo dice que el saldo no se devuelve, antes del QR', (lang) => {
+    const page = html(view(), { topUp: true }, lang);
+    const rule = page.indexOf(`<p class="btc-keep" id="keepRule">${CUSTOMER_TEXT[lang].wallet.keepRule}</p>`);
+    expect(rule).toBeGreaterThan(-1);
+    expect(rule).toBeLessThan(page.indexOf('class="btc-qr"'));
+  });
+
+  it('un cobro o un reservado no la llevan; la página cerrada tampoco', () => {
+    expect(html()).not.toContain('id="keepRule"');
+    expect(html(view(), { topUp: false })).not.toContain('id="keepRule"');
+    expect(html(view(), { topUp: true, closed: 'expired' })).not.toContain('id="keepRule"');
+  });
+});
 
 describe('página «Pagar con bitcoin»', () => {
   it('enseña el QR, el importe en euros y en BTC, abrir en la cartera, copiar y el tiempo', () => {

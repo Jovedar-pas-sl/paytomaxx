@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { PAY_LANGUAGES, type PayLanguage } from './customer-lang';
 import { CHOOSE_CSS, renderChooseBody } from './pay-choose-page';
+import { CUSTOMER_TEXT } from './i18n';
 import { PAY_TEXT } from './pay-i18n';
 import { BTC_MARK } from './pay-marks';
 import { choosePayPage, type PayRedirect } from './pay-redirect';
@@ -13,9 +14,10 @@ import { choosePayPage, type PayRedirect } from './pay-redirect';
 
 type ChooseView = Extract<PayRedirect, { kind: 'choose' }>;
 
-function view(bitcoin: boolean, topUp = false): ChooseView {
+function view(bitcoin: boolean, topUp = false, reservation = false): ChooseView {
   return choosePayPage({
     ...(topUp ? { topUp: true } : {}),
+    ...(reservation ? { reservation: true as const } : {}),
     id: '11111111-2222-4333-8444-555555555555',
     status: 'CREATED',
     amountCents: 100,
@@ -35,11 +37,26 @@ function view(bitcoin: boolean, topUp = false): ChooseView {
   }) as ChooseView;
 }
 
-const page = (bitcoin: boolean, lang: PayLanguage = 'es', wallet: 'Apple Pay' | null = 'Apple Pay', topUp = false) =>
-  renderChooseBody(view(bitcoin, topUp), { token: 'tok-1', lang, device: { wallet, inApp: null }, statementName: null, now: new Date() });
+const page = (bitcoin: boolean, lang: PayLanguage = 'es', wallet: 'Apple Pay' | null = 'Apple Pay', topUp = false, reservation = false) =>
+  renderChooseBody(view(bitcoin, topUp, reservation), { token: 'tok-1', lang, device: { wallet, inApp: null }, statementName: null, now: new Date() });
 
 /** El botón de bitcoin tal cual sale en la página. */
 const button = (html: string): string => /<button[^>]*id="btcBtn"[\s\S]*?<\/button>/.exec(html)?.[0] ?? '';
+
+describe('una carga de saldo dice antes de pagar que el saldo no se devuelve (decisión del dueño, 17-nov)', () => {
+  it.each(PAY_LANGUAGES)('%s: la regla, en su idioma, encima de los botones de pagar (también con bitcoin)', (lang) => {
+    const html = page(true, lang, 'Apple Pay', true);
+    const rule = html.indexOf(`<p class="keep" id="keepRule">${CUSTOMER_TEXT[lang].wallet.keepRule}</p>`);
+    expect(rule).toBeGreaterThan(-1);
+    expect(rule).toBeLessThan(html.indexOf('id="payBtn"'));
+    expect(rule).toBeLessThan(html.indexOf('id="btcBtn"'));
+  });
+
+  it('un cobro de la barra no la lleva; un reservado tampoco (sus páginas dicen sus reglas)', () => {
+    expect(page(true)).not.toContain('id="keepRule"');
+    expect(page(true, 'es', 'Apple Pay', true, true)).not.toContain('id="keepRule"');
+  });
+});
 
 describe('«Pagar con bitcoin» en la página de pago', () => {
   it('al estilo de Apple Pay: «Pagar con» + el logo + «bitcoin», y abre la página del QR (POST, el mismo formulario)', () => {

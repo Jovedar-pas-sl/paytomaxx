@@ -160,6 +160,7 @@ const h3: CSSProperties = { margin: 0, fontSize: '1rem', fontWeight: 700 };
 const box: CSSProperties = { padding: '0.875rem 1rem', border: '1px solid var(--np-border)', borderRadius: 'var(--np-r-md)' };
 const noticeStyle: CSSProperties = { margin: 0, padding: '0.625rem 0.875rem', borderLeft: '4px solid var(--np-warning)', fontSize: '0.875rem' };
 const input: CSSProperties = {
+  minWidth: 0,
   minHeight: '2.75rem',
   padding: '0 0.75rem',
   border: '1px solid var(--np-border)',
@@ -167,5 +168,5 @@ const input: CSSProperties = {
   background: 'var(--np-surface-2, transparent)',
   color: 'inherit',
   font: 'inherit',
-  fontSize: '0.875rem',
+  fontSize: '1rem',
 };

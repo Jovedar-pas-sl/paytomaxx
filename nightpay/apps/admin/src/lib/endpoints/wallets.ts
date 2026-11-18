@@ -10,8 +10,10 @@ export interface WalletAdminRow {
   id: string;
   /** Código que el cliente ve en su página de saldo (K7Q-4M2). */
   code: string | null;
-  /** El cliente pulsó "Me voy: devolver mi saldo". */
+  /** Una devolución del saldo pedida antes de la nueva regla («Me voy» o recepción), sin terminar. */
   closeRequestedAt: string | null;
+  /** Una devolución a la tarjeta que quedó a medias (un API de antes no lo manda). */
+  payoutPending?: boolean;
   identifier: string | null;
   balanceCents: number;
   status: 'ACTIVE' | 'EXPIRED' | 'REFUNDED' | 'DEPLETED';
@@ -122,7 +124,7 @@ export interface WalletLookup {
   homeVenueName: string;
   /** El saldo se cargó en este local (la devolución a la tarjeta solo desde aquí). */
   isHomeVenue: boolean;
-  /** El cliente pulsó "Me voy". */
+  /** Una devolución del saldo pedida antes de la nueva regla, sin terminar. */
   closeRequested: boolean;
   pendingRequest: boolean;
 }
@@ -150,7 +152,7 @@ export type WalletPayoutMethod = 'CARD' | 'CASH';
 export type { WalletPayoutPreview };
 
 /**
- * Antes de confirmar «Devolver saldo»: lo que el API devolvería ahora en
+ * Antes de confirmar «Terminar devolución»: lo que el API devolvería ahora en
  * efectivo y a la tarjeta (no el saldo entero) y lo que hoy no puede salir.
  */
 export async function fetchPayoutPreview(walletId: string): Promise<WalletPayoutPreview> {
@@ -160,7 +162,8 @@ export async function fetchPayoutPreview(walletId: string): Promise<WalletPayout
 }
 
 /**
- * Devolver el saldo al cliente que se va. Efectivo: se lo das ahora (el
+ * Terminar una devolución del saldo pedida antes de la nueva regla (sin eso,
+ * 409 SALDO_NO_SE_DEVUELVE). Efectivo: se lo das ahora (el
  * encargado, desde el umbral del local, con su código 2FA: 403 TOTP_REQUIRED).
  * Tarjeta (solo el dueño): primero se devuelve en el portal de BBVA y aquí se
  * apunta, repartido entre sus recargas. expectedAmountCents: la cifra que se

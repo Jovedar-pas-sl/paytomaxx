@@ -2,7 +2,6 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import {
   addDays,
-  bitcoinRefundNote,
   bpsToPercent,
   currentNight,
   emptyPackageForm,
@@ -14,6 +13,8 @@ import {
   percentToBps,
   reservationActions,
   statusTone,
+  venueCancelText,
+  venueCanceledNotice,
 } from './reservations';
 
 describe('el % de los RRPP', () => {
@@ -84,9 +85,10 @@ describe('la noche y los botones', () => {
     expect(addDays('2026-11-30', 1)).toBe('2026-12-01');
   });
 
-  it('«Cancelar» solo lo que no está pagado; pagada, «Devolver»', () => {
+  it('«Cancelar» solo lo que no está pagado; pagada, «Anular» (ya no «Devolver»)', () => {
     expect(reservationActions({ status: 'PENDING', paidCents: 0 }).cancel).toBe('Cancelar');
-    expect(reservationActions({ status: 'DEPOSIT_PAID', paidCents: 9000 }).cancel).toBe('Devolver');
+    expect(reservationActions({ status: 'DEPOSIT_PAID', paidCents: 9000 }).cancel).toBe('Anular');
+    expect(reservationActions({ status: 'PAID', paidCents: 30000 }).cancel).toBe('Anular');
     expect(reservationActions({ status: 'ARRIVED', paidCents: 30000 })).toEqual({ table: true, changeDate: false, cancel: null });
     expect(reservationActions({ status: 'NO_SHOW', paidCents: 9000 })).toEqual({ table: false, changeDate: false, cancel: null });
     expect(reservationActions({ status: 'CLIENT_CANCELED', paidCents: 30000 }).cancel).toBeNull();
@@ -94,23 +96,37 @@ describe('la noche y los botones', () => {
   });
 });
 
-describe('el local anula un reservado pagado con bitcoin: solo se devuelve en euros', () => {
-  it('sin bitcoin, nada que avisar', () => {
-    expect(bitcoinRefundNote({ paidWithBitcoinCents: 0 })).toBeNull();
-    expect(bitcoinRefundNote({})).toBeNull();
+describe('el local anula un reservado pagado: lo pagado queda como saldo del cliente (decisión del 17-nov)', () => {
+  it('la confirmación dice cuánto queda como saldo; sin pagar, que se anula sin más', () => {
+    expect(venueCancelText({ paidCents: 15000 })).toMatch(/^Lo pagado \(150(,00)?\s?€\) queda como saldo del cliente\.$/);
+    // Con bitcoin, igual: también queda como saldo (ya no «solo en euros, habla con el dueño»).
+    expect(venueCancelText({ paidCents: 28000, paidWithBitcoinCents: 28000 })).toMatch(/^Lo pagado \(280(,00)?\s?€\) queda como saldo del cliente\.$/);
+    expect(venueCancelText({ paidCents: 0 })).toBe('Se anula la reserva sin pagar.');
   });
 
-  it('con bitcoin: cuánto, que no va por el banco ni en bitcoin, y que hable con el dueño', () => {
-    const note = bitcoinRefundNote({ paidWithBitcoinCents: 28000 });
-    expect(note).toMatch(/280(,00)?\s?€ se pagaron con bitcoin/);
-    expect(note).toContain('no se devuelven por el banco ni en bitcoin, solo en euros');
-    expect(note).toContain('habla con el dueño');
+  it('lo que dice el panel después de anular', () => {
+    expect(venueCanceledNotice('K7Q4M2', 15000)).toMatch(/^K7Q4M2: anulada\. Lo pagado \(150(,00)?\s?€\) queda como saldo del cliente\.$/);
+    expect(venueCanceledNotice('K7Q4M2', 0)).toBe('K7Q4M2: anulada.');
   });
 
-  it('la tarjeta del reservado lo dice antes de anular y en el aviso de después', () => {
+  it('la tarjeta del reservado ya no habla de devolver ni manda a «Devolver saldo»', () => {
     const card = readFileSync(new URL('../components/reservations/ReservationCard.tsx', import.meta.url), 'utf8');
-    expect(card).toContain('bitcoinRefundNote(r)');
-    expect(card).toContain('bitcoinRefundNote(out.reservation)');
+    expect(card).not.toMatch(/Devolver|y devuelve|se devuelve desde|bitcoinRefundNote|refundCents/);
+    expect(card).toContain('Nada se devuelve');
+    expect(card).toContain('venueCancelText(r)');
+    expect(card).toContain('venueCanceledNotice(r.ref, out.saldoCents)');
+  });
+});
+
+describe('Reservados en el móvil: los campos no hacen zoom ni se salen en el iPhone', () => {
+  it('los campos de las cinco pantallas: letra de 16 px, 44 px de alto y sin ancho mínimo', () => {
+    for (const file of ['NightList', 'PackagesEditor', 'PromotersCard', 'ReservationCard', 'ReservationsLinkCard']) {
+      const src = readFileSync(new URL(`../components/reservations/${file}.tsx`, import.meta.url), 'utf8');
+      const style = src.match(/const input: CSSProperties = \{([^}]*)\};/)?.[1] ?? '';
+      expect(style, file).toContain("fontSize: '1rem'");
+      expect(style, file).toContain("minHeight: '2.75rem'");
+      expect(style, file).toContain('minWidth: 0');
+    }
   });
 });
 

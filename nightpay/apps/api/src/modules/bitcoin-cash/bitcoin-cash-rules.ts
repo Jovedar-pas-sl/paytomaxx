@@ -64,8 +64,8 @@ export interface PaidInvoice {
 /** ¿Se puede devolver en efectivo este cobro? null = sí. */
 export function paymentCashProblem(p: CashRefundPayment, invoice: PaidInvoice | null, now: Date): string | null {
   if (p.provider !== 'BTCPAY') return 'Solo se devuelven en efectivo los cobros pagados con bitcoin.';
-  // Fase D (saldo cargado con bitcoin): pendiente de lo que decida el dueño.
-  if (p.walletId) return 'Una recarga del saldo con bitcoin no se devuelve aquí: habla con el encargado.';
+  // Saldo cargado con bitcoin: el saldo no se devuelve (decisión del dueño, 17-nov-2026).
+  if (p.walletId) return 'Es una carga de saldo: el saldo no se devuelve, se queda para la próxima visita.';
   if (!['AUTHORIZED', 'PARTIALLY_REFUNDED'].includes(p.status)) return 'Este cobro no está pagado: no hay nada que devolver.';
   if (p.availableAmountCents <= 0) return 'Este cobro ya está devuelto del todo.';
   if (!withinCashWindow(p.authorizedAt, now)) return `Han pasado más de ${BITCOIN_CASH_REFUND_DAYS} días desde el pago: ya no se devuelve en efectivo.`;

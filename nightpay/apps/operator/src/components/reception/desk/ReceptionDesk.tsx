@@ -64,7 +64,7 @@ import {
   readFicha,
   rechargeChip,
   rechargeProblem,
-  refundDoneLine,
+  exitPlan,
   topUpByNumber,
   type PinAfterLoad,
   type ReceptionDeskSaldo,
@@ -75,25 +75,17 @@ import { fichaShort, photoHint } from '@/lib/ficha-number';
 import { handOverOf, loadedHelp } from '@/lib/reception-help';
 import { receptionChip, useMySections } from '@/lib/sections';
 import { useVenueName, useVenueNight } from '@/lib/venue-methods';
-import {
-  canSkipPasskey,
-  cashExitPlan,
-  exitNext,
-  fetchPayoutPlan,
-  receptionCashPayout,
-  type ReceptionPayoutPlan,
-} from '@/lib/reception-cash-payout';
 import { PinPad } from '../../PinPad';
 import { ActivationQr } from './ActivationQr';
 import { CounterAviso, DeskHead, DeskBtn, DeskRowLink, DeskRowView } from './desk-parts';
 import { AmountStep, CashConfirmStep, CodeStep, ExitStep, KeypadStep, MethodStep, NumberStep, TapStage } from './DeskSteps';
 import { ContactPhoneField } from './ContactPhone';
 import { DeskLoaded, LoadedBand } from './DeskLoaded';
-import { ManagerExitStep, NumberExitStep, PasskeyExitStep, TotpExitStep } from './ExitSteps';
+import { NumberExitStep } from './ExitSteps';
 import { TopUpQr, useRetirePayment } from './TopUpQr';
 import { UndoLink, UndoneStep, UndoRow, UndoStep } from './UndoSteps';
 import { useDeskNfc, type TapMeta } from './use-desk-nfc';
-import { CHARGING, PhoneOption, backOf, counterOf, ignoreCounterError, readRow, useCashAttemptRef, type Exit, type Loaded, type Mode, type Read, type Step } from './desk-model';
+import { CHARGING, PhoneOption, backOf, counterOf, ignoreCounterError, readRow, useCashAttemptRef, type Loaded, type Mode, type Read, type Step } from './desk-model';
 import s from './desk.module.css';
 
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
@@ -134,9 +126,10 @@ const PAID_FACTS_TIMEOUT_MS = 3_000;
  * y cómo paga (la forma por defecto del local en grande): tres toques.
  * CARGADO en verde, con el efectivo a la caja, el NFC al cliente y, si pagó
  * en efectivo, el QR de activación (un solo uso, 10 min) para activar Face ID
- * en su móvil; el PIN, después y si quiere. Salida: lo que le queda; «Guardar para la próxima» (de fábrica) o
- * devolverlo en efectivo: antes del PIN se sabe si hace falta el encargado o
- * su Face ID, así el cliente teclea el PIN una sola vez.
+ * en su móvil; el PIN, después y si quiere. Salida: lo que le queda y
+ * «Guardar para la próxima»: el saldo no se devuelve (decisión del dueño,
+ * 17-nov-2026), se queda para la próxima visita; una ficha sin saldo vuelve
+ * al stock.
  * Solo recepción carga saldos y cobra efectivo (el servidor lo exige igual).
  */
 
@@ -237,7 +230,7 @@ export function ReceptionDesk({ user, active, footer, onGiveFicha, onScanHome, h
   function open(view: ReceptionDeskView, card: Read['nfc']): void {
     setNotice(null);
     if (mode === 'salida') {
-      if (view.kind === 'saldo') go({ kind: 'exit', view, nfc: card, requestKey: crypto.randomUUID() });
+      if (view.kind === 'saldo') go({ kind: 'exit', view, nfc: card });
       else if (card) go({ kind: 'exitNew', view, nfc: card });
       else restart('salida', 'Esta ficha no tiene saldo. Acerca su ficha original para devolverla al stock.');
       return;
@@ -538,34 +531,7 @@ export function ReceptionDesk({ user, active, footer, onGiveFicha, onScanHome, h
     return finish(read, payment.amountCents, method, w, false, payment.serviceFeeCents ?? 0);
   }
 
-  // ─── Salida (4.5) ───────────────────────────────────────────────────────
-
-  /** «Devolver»: antes del PIN, qué hace falta (su Face ID, el encargado…). */
-  async function startRefund(exit: Exit): Promise<void> {
-    const plan = await fetchPayoutPlan(exit.view.walletId);
-    if (plan.amountCents !== exit.view.cashOutCents) throw new Error('El importe ha cambiado: vuelve a acercar la ficha.');
-    const next = exitNext(plan);
-    if (next === 'passkey') return go({ kind: 'exitPasskey', exit, plan });
-    if (next === 'totp') return go({ kind: 'exitTotp', exit, plan, passkey: false });
-    if (next === 'manager') return go({ kind: 'exitManager', exit, plan });
-    go({ kind: 'exitPin', exit });
-  }
-
-  /** Devolver en efectivo: con su PIN o su Face ID ya confirmado (y el 2FA del encargado si hace falta). */
-  async function sendPayout(exit: Exit, o: { pin?: string; totpCode?: string; passkey?: boolean; plan?: ReceptionPayoutPlan | null }): Promise<void> {
-    const { view, nfc: card, requestKey } = exit;
-    if (!card?.uid) throw new Error('Acerca la ficha original.');
-    const out = await receptionCashPayout(view.walletId, {
-      card: card.card, uid: card.uid, expectedAmountCents: view.cashOutCents, requestKey,
-      ...(o.pin ? { pin: o.pin } : {}),
-      ...(o.totpCode ? { totpCode: o.totpCode } : {}),
-    });
-    // El encargado pone su 2FA y sigue (el PIN que ya puso el cliente no se vuelve a pedir).
-    if (out.kind === 'totp') return go({ kind: 'exitTotp', exit, plan: o.plan ?? null, passkey: o.passkey === true, pin: o.pin, message: out.message });
-    if (out.kind === 'passkey') return go({ kind: 'exitPasskey', exit, plan: await fetchPayoutPlan(view.walletId) });
-    if (out.kind === 'manager') return go({ kind: 'managerPending', exit, message: out.message });
-    go({ kind: 'refunded', code: view.code, refundedCents: out.refundedCents, remainingCents: out.remainingCents, bitcoinCents: view.bitcoinCents ?? 0 });
-  }
+  // ─── Salida (4.5): el saldo no se devuelve ──────────────────────────────
 
   function keep(view: { balanceCents: number }, label: string): void {
     restart('salida', `Guardado: ${label} sigue con ${eur(view.balanceCents)}.`);
@@ -584,14 +550,6 @@ export function ReceptionDesk({ user, active, footer, onGiveFicha, onScanHome, h
     return undefined;
   };
   const head = (onBack?: () => void) => <DeskHead title={home ? 'Recargar saldo' : 'Recepción'} sub={name} chip={chip} onBack={onBack} help={stepHelp(step)} />;
-
-  if (step.kind === 'exitPin') {
-    return <PinPad mode="enter"
-      title={`Devolver ${eur(step.exit.view.cashOutCents)} en efectivo`}
-      hint="Pásale el móvil al cliente para que confirme con su PIN"
-      onCancel={() => go(step.exit)}
-      onPin={async (pin) => { await sendPayout(step.exit, { pin, totpCode: step.totpCode }); return null; }} />;
-  }
 
   if (step.kind === 'loaded') return renderLoaded(step.done);
 
@@ -628,19 +586,6 @@ export function ReceptionDesk({ user, active, footer, onGiveFicha, onScanHome, h
           go({ kind: 'amount', read: { ...read, view: { ...view, hasPin: true } } });
           return null;
         }}
-      />
-    );
-  }
-
-  if (step.kind === 'refunded') {
-    return (
-      <DeskLoaded
-        word="Devuelto"
-        amountCents={step.refundedCents}
-        reference={step.code}
-        money={{ icon: 'cash', label: 'Efectivo:', amount: eur(step.refundedCents), tail: 'de la caja' }}
-        meta={refundDoneLine(step.remainingCents, step.bitcoinCents ?? 0)}
-        primary={{ label: 'Siguiente cliente', onClick: () => restart('salida') }}
       />
     );
   }
@@ -798,51 +743,10 @@ export function ReceptionDesk({ user, active, footer, onGiveFicha, onScanHome, h
       ) : null}
 
       {step.kind === 'exit' ? (
-        <ExitStep
-          row={deskRow(step.view, 'salida')}
-          plan={cashExitPlan(step.view, step.nfc)}
-          busy={busy}
-          onKeep={() => keep(step.view, step.view.code)}
-          onRefund={() => void run(() => startRefund(step))}
-          onReadNfc={!step.nfc?.uid && step.view.fichaNumber !== null ? () => restart('salida') : undefined}
-        />
+        <ExitStep row={deskRow(step.view, 'salida')} plan={exitPlan(step.view)} busy={busy} onKeep={() => keep(step.view, step.view.code)} />
       ) : null}
 
-      {step.kind === 'exitNumber' ? (
-        <NumberExitStep view={step.view} onKeep={() => keep(step.view, step.view.codeHint)} onTap={() => restart('salida', 'Para devolver efectivo, acerca su ficha original.')} />
-      ) : null}
-
-      {step.kind === 'exitPasskey' ? renderPasskey(step) : null}
-
-      {step.kind === 'exitTotp' ? (
-        <TotpExitStep
-          plan={step.plan}
-          amountCents={step.exit.view.cashOutCents}
-          message={step.message}
-          busy={busy}
-          then={step.passkey || step.pin ? 'Devolver' : 'Seguir con el PIN del cliente'}
-          onCode={(totpCode) => {
-            const { exit, passkey, pin, plan } = step;
-            if (passkey || pin) void run(() => sendPayout(exit, { pin, totpCode, passkey, plan }));
-            else go({ kind: 'exitPin', exit, totpCode });
-          }}
-        />
-      ) : null}
-
-      {step.kind === 'exitManager' ? (
-        <ManagerExitStep plan={step.plan} amountCents={step.exit.view.cashOutCents}
-          onAsk={() => go({ kind: 'exitPin', exit: step.exit })}
-          onKeep={() => keep(step.exit.view, step.exit.view.code)} />
-      ) : null}
-
-      {step.kind === 'managerPending' ? (
-        <>
-          <DeskRowView {...deskRow(step.exit.view, 'salida')} />
-          <p className={s.q} role="status">Pendiente del encargado; no se ha devuelto dinero</p>
-          <p className={s.lbl}>{step.message || 'El encargado confirma la devolución con su propio 2FA desde su panel.'}</p>
-          <DeskBtn kind="pri" label="Siguiente cliente" onClick={() => restart('salida')} />
-        </>
-      ) : null}
+      {step.kind === 'exitNumber' ? <NumberExitStep view={step.view} onKeep={() => keep(step.view, step.view.codeHint)} /> : null}
 
       {step.kind === 'exitNew' ? (
         <>
@@ -1039,32 +943,6 @@ export function ReceptionDesk({ user, active, footer, onGiveFicha, onScanHome, h
     );
   }
 
-  function renderPasskey(st: Extract<Step, { kind: 'exitPasskey' }>) {
-    const { exit, plan } = st;
-    const card = exit.nfc;
-    if (!card?.uid) return null;
-    const skip = canSkipPasskey(user.role)
-      ? {
-          label: user.role === 'OWNER' ? 'Sin su móvil: con su PIN' : 'Sin su móvil: tu 2FA y su PIN',
-          onClick: () => go(user.role === 'OWNER'
-            ? { kind: 'exitPin', exit }
-            : { kind: 'exitTotp', exit, plan: { ...plan, reasons: [...plan.reasons, 'no_passkey'] }, passkey: false }),
-        }
-      : undefined;
-    return (
-      <PasskeyExitStep
-        walletId={exit.view.walletId}
-        proof={{ card: card.card, uid: card.uid, expectedAmountCents: exit.view.cashOutCents, requestKey: exit.requestKey }}
-        plan={plan}
-        onWithoutPhone={skip}
-        onKeep={() => keep(exit.view, exit.view.code)}
-        onConfirmed={() => {
-          if (plan.needs === 'manager_2fa') go({ kind: 'exitTotp', exit, plan, passkey: true });
-          else void run(() => sendPayout(exit, { passkey: true, plan }));
-        }}
-      />
-    );
-  }
 }
 
 /** Lo que dice el sondeo del QR ya pagado (cómo se pagó). Sin respuesta en 3 s, null: el CARGADO no espera. */

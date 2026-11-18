@@ -4,9 +4,12 @@
 // tablet sin datos personales, la propina que elige el cliente y pagar con la ficha en la tablet.
 import { describe, it, expect, beforeAll, vi } from 'vitest';
 import { AsyncLocalStorage } from 'node:async_hooks';
+import { spawnSync } from 'node:child_process';
 import { randomBytes, randomUUID } from 'node:crypto';
+import { join } from 'node:path';
 import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
 import { ClsService } from 'nestjs-cls';
+import { UpdateDisplayMessageSchema } from '@nightpay/contracts';
 import { PrismaService } from '../../src/common/prisma/prisma.service';
 import { AuditService } from '../../src/modules/audit/audit.service';
 import { CustomerDisplayService, type DisplayOwner } from '../../src/modules/customer-display/customer-display.service';
@@ -432,5 +435,90 @@ describe('propina y ficha en la tablet (Postgres)', () => {
     );
     expect(await run(() => findActiveDisplay(prisma, token))).toBeNull();
     expect(await run(() => svc.status(camarero))).toEqual({ paired: false, pairedUntil: null });
+  });
+});
+
+describe('mensaje del reposo (Postgres)', () => {
+  let encargado: DisplayOwner;
+  let camareroSol: DisplayOwner;
+
+  beforeAll(async () => {
+    await run(() =>
+      prisma.asSystem(async (tx) => {
+        const venue = await tx.venue.create({ data: { name: 'Sala Sol', slug: `pantalla-sol-${r}` } });
+        const mk = (role: 'MANAGER' | 'WAITER', tag: string) =>
+          tx.user.create({ data: { tenantId: venue.id, email: `pantalla-sol-${tag}-${r}@x.es`, passwordHash: 'x', role } });
+        encargado = { userId: (await mk('MANAGER', 'enc')).id, tenantId: venue.id };
+        camareroSol = { userId: (await mk('WAITER', 'cam')).id, tenantId: venue.id };
+      }),
+    );
+  });
+
+  it('sin mensaje de partida; el encargado lo pone y queda en el registro (antes y después)', async () => {
+    expect(await run(() => svc.message(encargado))).toEqual({ venueName: 'Sala Sol', line1: null, line2: null });
+    const dto = UpdateDisplayMessageSchema.parse({ line1: ' 2x1 en copas\nhasta la 1 ', line2: 'Sábado: fiesta blanca' });
+    expect(await run(() => svc.setMessage(encargado, dto))).toEqual({
+      venueName: 'Sala Sol',
+      line1: '2x1 en copas hasta la 1',
+      line2: 'Sábado: fiesta blanca',
+    });
+    expect(await run(() => svc.message(encargado))).toMatchObject({ line1: '2x1 en copas hasta la 1' });
+
+    const events = await run(() =>
+      prisma.asSystem((tx) =>
+        tx.auditEvent.findMany({
+          where: { tenantId: encargado.tenantId, action: 'venue.display_message.updated' },
+          select: { actorId: true, payload: true },
+        }),
+      ),
+    );
+    expect(events).toEqual([
+      {
+        actorId: encargado.userId,
+        payload: {
+          before: { line1: null, line2: null },
+          after: { line1: '2x1 en copas hasta la 1', line2: 'Sábado: fiesta blanca' },
+        },
+      },
+    ]);
+  });
+
+  it('la tablet emparejada lo recibe en lo que enseña, sin datos personales; la del otro local, no', async () => {
+    const { token: sol } = await run(async () => svc.pair((await svc.createCode(camareroSol)).code));
+    const view = await screenOf(sol);
+    expect(view).toMatchObject({
+      state: 'idle',
+      venueName: 'Sala Sol',
+      message: { line1: '2x1 en copas hasta la 1', line2: 'Sábado: fiesta blanca' },
+    });
+    const json = JSON.stringify(view);
+    for (const secret of [camareroSol.userId, encargado.userId, 'pantalla-sol-']) expect(json).not.toContain(secret);
+
+    // Otro local (sin mensaje): no ve el de Sala Sol.
+    const { token: otra } = await run(async () => svc.pair((await svc.createCode(otroLocal)).code));
+    expect(await screenOf(otra)).toMatchObject({ venueName: 'Otro local', message: { line1: null, line2: null } });
+
+    // Quitarlo: la tablet vuelve a solo el nombre.
+    await run(() => svc.setMessage(encargado, UpdateDisplayMessageSchema.parse({ line1: '', line2: '' })));
+    expect(await screenOf(sol)).toMatchObject({ message: { line1: null, line2: null } });
+  });
+
+  it('la base no guarda más de 120 letras por línea; la migración se puede repetir', async () => {
+    const tooLong = (data: { displayLine1?: string; displayLine2?: string }) =>
+      run(() => prisma.asSystem((tx) => tx.venue.update({ where: { id: encargado.tenantId }, data, select: { id: true } })));
+    await expect(tooLong({ displayLine1: 'a'.repeat(121) })).rejects.toThrow();
+    await expect(tooLong({ displayLine2: 'b'.repeat(121) })).rejects.toThrow();
+    await expect(tooLong({ displayLine1: 'ñ'.repeat(120) })).resolves.toBeTruthy();
+
+    const cli = join(__dirname, '../../../../packages/db/node_modules/prisma/build/index.js');
+    const file = join(__dirname, '../../../../packages/db/prisma/migrations/20261117500000_pantalla_reposo/migration.sql');
+    for (let i = 0; i < 2; i += 1) {
+      const res = spawnSync(process.execPath, [cli, 'db', 'execute', '--url', String(process.env.DATABASE_URL), '--file', file], {
+        encoding: 'utf8',
+        env: { ...process.env, PRISMA_HIDE_UPDATE_MESSAGE: '1' },
+      });
+      expect(res.status, `${res.stdout}\n${res.stderr}`).toBe(0);
+    }
+    expect(await run(() => svc.message(encargado))).toMatchObject({ line1: 'ñ'.repeat(120) });
   });
 });

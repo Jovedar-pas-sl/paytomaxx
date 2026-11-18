@@ -39,7 +39,8 @@ import {
   numberMethodButtons,
   numberRow,
   rechargeProblem,
-  refundDoneLine,
+  exitPlan,
+  EXIT_RULE,
 } from './reception-desk';
 
 /** Recepción exprés (maquetas 4.1–4.7): lo que dice y decide cada paso. Los importes llevan un espacio que no se parte. */
@@ -188,8 +189,8 @@ describe('el PIN al terminar de cargar: que una ficha cargada no se quede sin po
     expect(canChoosePin(saldo(), 'OWNER')).toBe(true);
   });
 
-  it('dice qué pasa si no lo pone (la salida también admite su Face ID)', () => {
-    expect(eur(pinAfterLoadText('ask', 2_000))).toBe('Sin PIN solo paga hasta 20 €. Para devolverle el saldo hará falta su Face ID o el encargado.');
+  it('dice qué pasa si no lo pone (sin hablar de devolver el saldo: no se devuelve)', () => {
+    expect(eur(pinAfterLoadText('ask', 2_000))).toBe('Sin PIN solo paga hasta 20 €.');
     expect(pinAfterLoadText('ask', 0)).toMatch(/no puede pagar/);
     expect(eur(pinAfterLoadText('manager', 2_000))).toMatch(/que lo ponga con el encargado/);
   });
@@ -215,7 +216,9 @@ describe('un móvil que no lee fichas (iPhone)', () => {
     expect(noReaderStage('entrada').title).toBe('Este móvil no lee fichas');
     expect(noReaderStage('entrada').text).toMatch(/Android de recepción/);
     expect(noReaderStage('entrada').text).toMatch(/código o su número/);
-    expect(noReaderStage('salida').text).toMatch(/devolver efectivo/);
+    // En la salida no se devuelve nada: se ve lo que le queda.
+    expect(noReaderStage('salida').text).toBe('Aquí puedes ver lo que le queda con su código o su número.');
+    expect(noReaderStage('salida').text).not.toMatch(/devolver/);
   });
 
   it('una ficha sin saldo abierta desde el iPhone no dice «Ficha no encontrado»', () => {
@@ -334,15 +337,23 @@ describe('¿Cuánto carga? con el número de la ficha en grande (A1)', () => {
   });
 });
 
-describe('la salida (4.5)', () => {
-  it('devuelto: el NFC al stock, o lo que le queda (con tarjeta) y quién lo devuelve', () => {
-    expect(refundDoneLine(0)).toMatch(/vuelve al stock/);
-    expect(eur(refundDoneLine(1_500))).toMatch(/^Le quedan 15 € \(con tarjeta\)/);
-    // Lo que entró con bitcoin: ni efectivo ni tarjeta, con el encargado.
-    expect(eur(refundDoneLine(1_500, 1_500))).toBe(
-      'Le quedan 15 € (con bitcoin): se quedan como saldo para otra noche, no se devuelven. Se lleva su ficha.',
-    );
-    expect(eur(refundDoneLine(5_000, 2_000))).toMatch(/^Le quedan 50 €: 30 € con tarjeta \(los devuelve el dueño «A la tarjeta»\) y 20 € con bitcoin \(se quedan como saldo para otra noche/);
+describe('la salida (4.5): el saldo no se devuelve', () => {
+  it('lo que le queda, «Guardar para la próxima» y la regla donde estaba «Devolver» (aunque entrara en efectivo)', () => {
+    expect(exitPlan(saldo({ balanceCents: 3_500, cashOutCents: 3_500 }))).toEqual({
+      balanceCents: 3_500,
+      keepDetail: 'Para otra noche · se lleva su ficha',
+      rule: 'El saldo no se devuelve: se queda para la próxima visita.',
+    });
+    expect(EXIT_RULE).toBe('El saldo no se devuelve: se queda para la próxima visita.');
+    // Sin ficha: que guarde su código.
+    expect(exitPlan(saldo({ fichaNumber: null })).keepDetail).toBe('Para otra noche · que guarde su código');
+    // Sin saldo, nada que decir del saldo.
+    expect(exitPlan(saldo({ balanceCents: 0 })).rule).toBeNull();
+  });
+
+  it('nada de «Devolver», «A la tarjeta» ni sacar de la caja en lo que dice la salida', () => {
+    const text = JSON.stringify([exitPlan(saldo()), exitPlan(saldo({ fichaNumber: null }))]);
+    expect(text).not.toMatch(/Devolver|A la tarjeta|de la caja/);
   });
 });
 

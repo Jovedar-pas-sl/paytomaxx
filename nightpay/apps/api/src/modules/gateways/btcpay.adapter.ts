@@ -36,7 +36,7 @@ export class BtcpayAdapter implements GatewayAdapter {
 
   refund(_input: RefundInput): Promise<RefundResult> {
     return Promise.reject(
-      new Error('Bitcoin: no se devuelve por la pasarela ni en bitcoin, solo en euros («Devolver en efectivo» en un cobro; en una carga o un reservado, el dueño).'),
+      new Error('Bitcoin: no se devuelve por la pasarela ni en bitcoin, solo en euros («Devolver en efectivo» en un cobro; una carga de saldo o un reservado no se devuelve).'),
     );
   }
 

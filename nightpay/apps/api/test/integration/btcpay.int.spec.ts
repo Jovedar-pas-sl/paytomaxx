@@ -1097,7 +1097,7 @@ describe('reservados pagados con bitcoin (la señal y el resto), como con tarjet
     expect(await inCtx(A, () => ops.detail(ownerActor(), res.id))).toMatchObject({ paidCents: 40000, paidWithBitcoinCents: 40000 });
   });
 
-  it('el local anula una reserva pagada con bitcoin: nada sale por la pasarela ni en bitcoin; «Devolver saldo» no lo saca y el panel lo sabe', async () => {
+  it('el local anula una reserva pagada con bitcoin: queda como saldo del grupo; nada sale por la pasarela ni en bitcoin y «Devolver saldo» no lo saca', async () => {
     const res = await booked();
     const full = await payWithBitcoin(res.manageToken, 'FULL');
     fake.setState(full.invoiceId, 'Settled');
@@ -1105,12 +1105,14 @@ describe('reservados pagados con bitcoin (la señal y el resto), como con tarjet
     expect(await resvOf(res.id)).toMatchObject({ status: 'PAID', paidCents: 40000 });
 
     const out = await inCtx(A, () => ops.venueCancel(ownerActor(), res.id, 'Cerramos esa noche'));
-    expect(out).toMatchObject({ refundCents: 40000, walletId: full.payment.walletId });
+    expect(out).toMatchObject({ saldoCents: 40000, walletId: full.payment.walletId });
     expect(out.reservation).toMatchObject({ status: 'CANCELED', paidWithBitcoinCents: 40000 });
+    // Lo pagado con bitcoin se queda en el saldo del grupo para otra noche (decisión del dueño del 17-nov).
+    expect(await balanceOf(full.payment.walletId!)).toBe(40000);
     // Por la pasarela: 409 con su código (solo en euros); no se crea ninguna devolución.
     const actor = { userId: owner, role: 'OWNER', tenantId: A } as never;
     await expect(inCtx(A, () => refunds.refund({ paymentId: full.payment.id, amountCents: 40000, reason: 'Anulada' } as never, actor))).rejects.toMatchObject({
-      response: { code: 'BITCOIN_REFUND_NOT_AVAILABLE' },
+      response: { code: 'SALDO_NO_SE_DEVUELVE' }, // es una carga del saldo del grupo: el saldo no se devuelve
     });
     expect(await sys((tx) => tx.refund.count({ where: { paymentId: full.payment.id } }))).toBe(0);
     // «Devolver saldo»: ni a la tarjeta ni en efectivo (entró con bitcoin): en euros, lo decide el dueño.
@@ -1163,7 +1165,7 @@ describe('reservados pagados con bitcoin (la señal y el resto), como con tarjet
     const res = await booked();
     const dep = await payWithBitcoin(res.manageToken, 'DEPOSIT');
     const out = await inCtx(A, () => ops.venueCancel(ownerActor(), res.id, 'Cerramos esa noche'));
-    expect(out).toMatchObject({ refundCents: 0, reservation: { status: 'CANCELED' } });
+    expect(out).toMatchObject({ saldoCents: 0, reservation: { status: 'CANCELED' } });
     expect((await statusOf(dep.payment.id)).status).toBe('CANCELED');
     expect((await rowsOf(dep.payment.id))[0]).toMatchObject({ status: 'Invalid' });
     expect((await canceledEvent(dep.payment.id))?.payload).toMatchObject({ reason: 'Reserva anulada por el local', byUserId: owner });
@@ -1461,6 +1463,12 @@ describe('devoluciones', () => {
     await invoices.processInvoice(A, res.view.invoiceId, 'poll');
     expect((await statusOf(p.id)).status).toBe('AUTHORIZED');
     const actor = { userId: owner, role: 'OWNER', tenantId: A } as never;
+    // Es una carga de saldo: el saldo no se devuelve (se mira antes que el bitcoin).
+    for (const tryIt of [() => refunds.registerBankRefund({ paymentId: p.id, amountCents: 500, reason: 'prueba' } as never, actor), () => refunds.refund({ paymentId: p.id, amountCents: 500, reason: 'prueba' } as never, actor)]) {
+      await expect(inCtx(A, tryIt)).rejects.toMatchObject({ response: { code: 'SALDO_NO_SE_DEVUELVE' } });
+    }
+    // Un cobro de la barra pagado con bitcoin (de antes de «solo al cargar saldo»): 409 con su código, solo en euros.
+    await sys((tx) => tx.payment.update({ where: { id: p.id }, data: { walletId: null } }));
     await expect(inCtx(A, () => refunds.registerBankRefund({ paymentId: p.id, amountCents: 500, reason: 'prueba' } as never, actor))).rejects.toMatchObject({
       response: { code: 'BITCOIN_REFUND_NOT_AVAILABLE' },
     });

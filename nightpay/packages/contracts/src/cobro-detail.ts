@@ -105,6 +105,11 @@ export interface CobroDetailUndo {
   reason: string | null;
   /** Devoluciones: PENDING, SUCCEEDED o FAILED. */
   status: string | null;
+  /**
+   * Devoluciones: se dio en efectivo («Devolver en efectivo» de lo pagado con
+   * bitcoin), no a la tarjeta. Sin el campo (un API de antes), a la tarjeta.
+   */
+  paidInCash?: boolean;
 }
 
 /**

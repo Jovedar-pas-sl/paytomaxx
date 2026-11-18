@@ -63,10 +63,16 @@ const UNDO_KIND: Readonly<Record<CobroDetailUndo['kind'], string>> = {
 
 const UNDO_STATUS: Readonly<Record<string, string>> = { SUCCEEDED: 'hecha', FAILED: 'no se hizo', PENDING: 'sin confirmar' };
 
+/** Una devolución: a la tarjeta o, lo pagado con bitcoin («Devolver en efectivo»), en efectivo. */
+export function refundUndoLabel(u: Pick<CobroDetailUndo, 'paidInCash'>): string {
+  return u.paidInCash === true ? 'Devuelto en efectivo' : UNDO_KIND.REFUND;
+}
+
 /** «Devuelto a la tarjeta: 10,00 € · 08/11 01:00 · Javi · «Copa derramada» · hecha». */
 export function detailUndoText(u: CobroDetailUndo, eur: (cents: number) => string, when: (iso: string) => string): string {
+  const what = u.kind === 'REFUND' ? refundUndoLabel(u) : UNDO_KIND[u.kind];
   return [
-    u.amountCents !== null ? `${UNDO_KIND[u.kind]}: ${eur(u.amountCents)}` : UNDO_KIND[u.kind],
+    u.amountCents !== null ? `${what}: ${eur(u.amountCents)}` : what,
     when(u.at),
     u.by,
     u.reason ? `«${u.reason}»` : null,

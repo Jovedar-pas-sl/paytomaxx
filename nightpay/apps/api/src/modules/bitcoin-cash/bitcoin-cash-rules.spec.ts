@@ -19,7 +19,8 @@ describe('devolver en efectivo lo pagado con bitcoin: las reglas del dueño', ()
 
   it('no: tarjeta, recarga del saldo, sin pagar, ya devuelto, pasado el plazo, o sin la factura pagada (marcada o resuelta a mano)', () => {
     expect(paymentCashProblem({ ...paid, provider: 'REDSYS' }, settled, NOW)).toMatch(/bitcoin/);
-    expect(paymentCashProblem({ ...paid, walletId: 'w' }, settled, NOW)).toMatch(/recarga/);
+    // Una carga de saldo con bitcoin: el saldo no se devuelve (nada de «habla con el encargado»).
+    expect(paymentCashProblem({ ...paid, walletId: 'w' }, settled, NOW)).toBe('Es una carga de saldo: el saldo no se devuelve, se queda para la próxima visita.');
     expect(paymentCashProblem({ ...paid, status: 'AUTHORIZING' }, settled, NOW)).toMatch(/no está pagado/);
     expect(paymentCashProblem({ ...paid, availableAmountCents: 0 }, settled, NOW)).toMatch(/devuelto del todo/);
     expect(paymentCashProblem({ ...paid, authorizedAt: daysAgo(8) }, settled, NOW)).toMatch(/7 días/);

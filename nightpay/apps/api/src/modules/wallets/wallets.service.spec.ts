@@ -389,3 +389,25 @@ describe('estadísticas del panel de saldos', () => {
     }
   });
 });
+
+describe('lista de saldos del panel: lo pedido antes de la nueva regla', () => {
+  function listService(rows: Array<Record<string, unknown>>) {
+    const tx = { clientWallet: { findMany: vi.fn(async () => rows) } };
+    const prisma = { asSystem: vi.fn(async (fn: (t: typeof tx) => unknown) => fn(tx)) };
+    return { svc: new WalletsService(prisma as never, { log: vi.fn() } as never), tx };
+  }
+  const row = (o: Record<string, unknown> = {}) => ({
+    id: 'w-1', identifier: null, balanceCents: 3_000, status: 'ACTIVE', expiresAt: null, createdAt: new Date('2026-11-16T22:00:00Z'),
+    shortCode: 'K7Q4M2', closeRequestedAt: null, pinHash: null, pinLockedAt: null,
+    _count: { consumptions: 0, passkeys: 0, cards: 0, payouts: 0 }, ...o,
+  });
+
+  it('dice si tiene una devolución a la tarjeta a medias (la termina el dueño aunque no hubiera «Me voy»)', async () => {
+    const { svc, tx } = listService([row(), row({ id: 'w-2', balanceCents: 0, _count: { consumptions: 0, passkeys: 0, cards: 0, payouts: 1 } })]);
+    const list = await svc.listForAdmin({ tenantId: 't-1' });
+    expect(list.map((w) => [w.id, w.payoutPending])).toEqual([['w-1', false], ['w-2', true]]);
+    // Solo cuentan las PENDING (las hechas no).
+    const select = (tx.clientWallet.findMany.mock.calls[0] as unknown as [{ select: { _count: { select: { payouts: unknown } } } }])[0].select;
+    expect(select._count.select.payouts).toEqual({ where: { status: 'PENDING' } });
+  });
+});

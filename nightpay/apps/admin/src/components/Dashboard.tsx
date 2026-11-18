@@ -38,8 +38,9 @@ import { NightsPanel } from './NightsPanel';
 import { OxioPaySettlementsPanel } from './OxioPaySettlementsPanel';
 import { OperatorsPanel } from './OperatorsPanel';
 import { PaymentsPanel } from './PaymentsPanel';
-import { ReservationsPanel } from './reservations/ReservationsPanel';
+import { ReservationsPanel, type ReservationsView } from './reservations/ReservationsPanel';
 import { ReportsPanel } from './ReportsPanel';
+import { SectionHint } from './SectionHint';
 import { AlertsPanel } from './settings/AlertsPanel';
 import { NightPanel } from './settings/NightPanel';
 import { PaymentMethodsPanel } from './settings/PaymentMethodsPanel';
@@ -79,7 +80,8 @@ const ROLE_LABELS: Record<User['role'], string> = {
 /**
  * El panel: cinco secciones (Hoy, Chicas, Clientes, Informes, Ajustes)
  * arriba en el escritorio y abajo en el móvil, y dentro de cada una sus
- * pestañas. «Hoy» lleva un solo globo: incidencias + lo que hay por aprobar.
+ * pestañas y una línea con lo que hay (SectionHint). «Hoy» lleva un solo
+ * globo: incidencias + lo que hay por aprobar.
  */
 export function Dashboard({ user, onLogout }: Props) {
   const [venue, venueSettled] = useVenueInfo(user);
@@ -112,6 +114,8 @@ export function Dashboard({ user, onLogout }: Props) {
   const [focusPayment, setFocusPayment] = useState<string | null>(null);
   /** Filtros con los que abrir Cobros (desde una cifra del mapa del dinero). */
   const [cobrosFilter, setCobrosFilter] = useState<CobrosFilters | null>(null);
+  /** La vista con la que se abre Reservados y RRPP (el atajo de Compañeras: los RRPP); null = la de siempre. */
+  const [reservasView, setReservasView] = useState<ReservationsView | null>(null);
 
   async function logout() {
     setLoggingOut(true);
@@ -122,6 +126,7 @@ export function Dashboard({ user, onLogout }: Props) {
   function goTo(key: TabKey | string): void {
     const target = resolveTab(key);
     if (!target) return;
+    setReservasView(null);
     navigate(target);
     if (typeof window !== 'undefined') window.scrollTo({ top: 0 });
   }
@@ -142,6 +147,12 @@ export function Dashboard({ user, onLogout }: Props) {
   function openCobros(filter: CobrosFilters): void {
     setCobrosFilter(filter);
     goTo('payments');
+  }
+
+  /** Desde Compañeras: los RRPP y sus enlaces (Clientes → Reservados y RRPP). */
+  function openRrpp(): void {
+    goTo('reservations');
+    setReservasView('promoters');
   }
 
   const hoyBadge = navBadge('hoy', avisos);
@@ -216,6 +227,7 @@ export function Dashboard({ user, onLogout }: Props) {
                 aria-labelledby={tabId(SECTIONS_ID, section.key)}
               >
                 <SectionTabs section={section} active={tab} onChange={goTo} avisosBadge={hoyBadge} pending={posKnown ? [] : ['terminals']} />
+                <SectionHint section={section} tabs={tabs} onOpenRrpp={openRrpp} />
                 <div
                   className="np-panel-view"
                   {...(section.tabs.length > 1
@@ -233,6 +245,7 @@ export function Dashboard({ user, onLogout }: Props) {
                     onOpenCobros={openCobros}
                     cobrosFilter={cobrosFilter}
                     onCobrosFilterDone={() => setCobrosFilter(null)}
+                    reservasView={reservasView}
                     onLogout={() => void logout()}
                     loggingOut={loggingOut}
                     posOn={posOn}
@@ -309,6 +322,8 @@ interface ActivePanelProps {
   onOpenCobros: (filter: CobrosFilters) => void;
   cobrosFilter: CobrosFilters | null;
   onCobrosFilterDone: () => void;
+  /** La vista con la que se abre Reservados y RRPP (null: la de siempre). */
+  reservasView: ReservationsView | null;
   onLogout: () => void;
   loggingOut: boolean;
   /** El local cobra con datáfono (Formas de cobro). */
@@ -345,7 +360,7 @@ function ActivePanel(props: ActivePanelProps) {
     case 'fichas':
       return <FichasPanel />;
     case 'reservations':
-      return <ReservationsPanel isOwner={isOwner} />;
+      return <ReservationsPanel isOwner={isOwner} initialView={props.reservasView ?? undefined} />;
     case 'nights':
       return <NightsPanel tabs={tabs} onNavigate={onNavigate} isOwner={isOwner} onOpenCobros={props.onOpenCobros} />;
     case 'reports':

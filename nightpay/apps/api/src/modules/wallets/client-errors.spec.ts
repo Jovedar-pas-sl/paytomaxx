@@ -72,7 +72,6 @@ describe('textos de los errores', () => {
       'client-pin.ts',
       'wallet-blocked.ts',
       'wallet-lost-card.service.ts',
-      'reception-payout.service.ts',
       'wallet-view.guard.ts',
       'public-payout-confirm.controller.ts',
       'public-wallet-lost-card.controller.ts',
@@ -94,6 +93,8 @@ describe('textos de los errores', () => {
       'ALREADY_PAID',
       'RATE_LIMITED',
       'WALLET_BLOCKED',
+      // saldo-rule.ts (contracts): «Me voy» y la salida de recepción de antes.
+      'SALDO_NO_SE_DEVUELVE',
     ]);
     for (const file of files) {
       const src = readFileSync(join(dir, file), 'utf8');

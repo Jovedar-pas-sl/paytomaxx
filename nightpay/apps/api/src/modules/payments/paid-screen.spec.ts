@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { PAID_FRESH_MS, PAID_SCREEN_JS, formatAgo, renderPaidScreen } from './paid-screen';
+import { PAID_CLOSE_MS, PAID_FRESH_MS, PAID_SCREEN_CSS, PAID_SCREEN_JS, formatAgo, renderPaidScreen } from './paid-screen';
 import { PAY_TEXT } from './pay-i18n';
 
 const es = PAY_TEXT.es;
@@ -59,6 +59,20 @@ describe('pantalla «Pagado»', () => {
     expect(html).toContain('class="paid stale" id="paid"');
     expect(html).toContain('>Ya pagado</h1>');
     expect(renderPaidScreen({ ...base, viewerPaid: false, now: at })).toContain('class="paid stale"');
+  });
+
+  it('a los 5 min se cierra (también al recargar): solo «Pago terminado» y el justificante; el JS lo hace a la vista', () => {
+    const footer = '<a class="link" href="/r/x">Ver el justificante</a>';
+    const open = renderPaidScreen({ ...base, footer, viewerPaid: true, now: new Date(at.getTime() + PAID_CLOSE_MS - 1) });
+    expect(open).toContain('class="paid stale" id="paid"');
+    const closed = renderPaidScreen({ ...base, footer, viewerPaid: true, now: new Date(at.getTime() + PAID_CLOSE_MS) });
+    expect(closed).toContain('class="paid stale closed" id="paid"');
+    expect(closed).toContain('<p class="pthanks" role="status">Pago terminado. ¡Gracias!</p>');
+    expect(closed).toContain(footer);
+    expect(PAID_SCREEN_CSS).toContain('.paid.closed>:not(.pthanks):not(.pfoot){display:none}');
+    expect(PAID_SCREEN_JS).toContain("el.classList.add('closed')");
+    // Sin hora de autorización no se sabe cuándo cerrar: no se cierra.
+    expect(renderPaidScreen({ ...base, authorizedAt: null, now: new Date(at.getTime() + PAID_CLOSE_MS) })).not.toContain(' closed"');
   });
 
   it('sin hora de autorización no puede pasar por nuevo', () => {
