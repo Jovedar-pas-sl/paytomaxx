@@ -71,9 +71,9 @@ export function ReservasTab() {
 
   return (
     <section style={page} aria-labelledby="reservas-title">
-      <h1 id="reservas-title" style={h1}>
+      <h2 id="reservas-title" style={title}>
         Reservados
-      </h1>
+      </h2>
       {!scan ? (
         <>
           <p style={note}>Lee el QR de cualquiera del grupo: en la puerta das la llegada; en la barra, gastan del paquete.</p>
@@ -323,8 +323,10 @@ function Bar({
   );
 }
 
-const page: CSSProperties = { display: 'flex', flexDirection: 'column', gap: '1rem', padding: '1rem', maxWidth: '32rem', margin: '0 auto' };
-const h1: CSSProperties = { margin: 0, fontSize: 'var(--np-t-h1)', fontWeight: 700 };
+// Como Mis cobros: el margen y el ancho los pone la app (Dashboard). Con los
+// suyos encima, en el terminal se veía «ampliado» (título de 28 px y doble margen).
+const page: CSSProperties = { display: 'flex', flexDirection: 'column', gap: '0.75rem' };
+const title: CSSProperties = { margin: 0 };
 const h2: CSSProperties = { margin: 0, fontSize: 'var(--np-t-h3)', fontWeight: 700 };
 const note: CSSProperties = { margin: 0, fontSize: 'var(--np-fs-16)', color: 'var(--np-text-mute)' };
 const line: CSSProperties = { margin: 0, fontSize: 'var(--np-fs-16)' };
