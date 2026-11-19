@@ -48,6 +48,7 @@ import {
   accountForAudit,
   maskedPayoutAccount,
   openPayoutAccount,
+  payoutAccountChangedMeanwhile,
   planPayoutAccountChange,
   type PayoutAccountPlan,
   type StoredPayoutAccount,
@@ -1077,10 +1078,13 @@ export class OperatorsService {
     if (dto.onboardingStatus !== undefined) data.onboardingStatus = dto.onboardingStatus;
     if (dto.onboardingNotes !== undefined) data.onboardingNotes = dto.onboardingNotes;
 
-    const updated = await this.prisma.user.update({
-      where: { id: operatorId },
-      data,
-    });
+    // Con cambio de cuenta, solo si sigue como se leyó: dos cambios a la vez no
+    // se pisan (ni se saltan la espera, ni avisan con un «antes» que ya no era).
+    const updated = await this.prisma.user
+      .update({ where: { id: operatorId, ...plan?.ifUnchanged }, data })
+      .catch((err: unknown) => {
+        throw plan && isRecordNotFound(err) ? payoutAccountChangedMeanwhile() : err;
+      });
     // Baja: fuera al momento de la app (refresh y tokens de acceso ya emitidos).
     if (dto.active === false) await this.sessions.revokeAllForUser(operatorId);
     // Sale de las listas, pero se le sigue debiendo: que no se pierda de vista.
@@ -1244,9 +1248,11 @@ export class OperatorsService {
    * «Por aprobar»: con `exact` se pagan exactamente las comisiones y deudas que
    * fijó la petición y por ese total; si algo cambió (ya pagadas, devoluciones
    * nuevas…), 409 y no se apunta nada. `inTransaction` corre dentro de la
-   * transacción, con el candado de la chica tomado y antes de leer nada (la
-   * aprobación se marca ahí; el pago directo comprueba que no haya una
-   * petición pendiente); `afterCreate`, en la misma transacción, con el pago.
+   * transacción, con el candado de la chica tomado y antes de leer lo que se
+   * le paga (la aprobación se marca ahí; el pago directo comprueba que no haya
+   * una petición pendiente); `afterCreate`, en la misma transacción, con el pago.
+   * La cuenta de cobro y su espera de 48 h se leen también ahí dentro, con el
+   * candado tomado: valen las de ese momento.
    * `expectedTotalCents`: si lo pagable ya no es lo que vio quien paga, 409
    * PAYOUT_CHANGED. `idempotency`: la misma clave y petición devuelven el pago
    * ya apuntado (comprobado con el candado de la chica tomado).
@@ -1258,24 +1264,24 @@ export class OperatorsService {
     notes?: string,
     options?: PayoutOptions,
   ) {
-    // Verificar pertenencia + leer payoutMethod por defecto (chica o camarero)
-    const operator = await this.prisma.user.findFirst({
-      where: { id: operatorId, tenantId, role: { in: [...PAYEE_ROLES] } },
-    }) as unknown as {
-      id: string;
-      displayName?: string | null;
-      payoutMethod: string | null;
-      /** Como está guardada (cifrada): así va al pago, para verificarlo on-chain. */
-      payoutAddress?: string | null;
-      payoutHoldUntil?: Date | null;
-    } | null;
-    if (!operator) throw new NotFoundException('Operadora no encontrada');
+    // Que es del local (chica o camarero): 404 sin abrir la transacción.
+    const where = { id: operatorId, tenantId, role: { in: [...PAYEE_ROLES] } };
+    if (!(await this.prisma.user.findFirst({ where }))) throw new NotFoundException('Operadora no encontrada');
     const holdDays = await this.holdDays(tenantId);
-    // Rail efectivo: el del dto si viene, sino el preferido de la chica.
-    const rail = options?.externalRail ?? operator.payoutMethod ?? null;
 
     const result = await this.prisma.withTenant(tenantId, async (tx) => {
       await lockOperatorPayouts(tx, operatorId);
+      // Su cuenta y su espera se leen aquí, con el candado ya tomado: las de
+      // ahora, no las de antes de esperar el turno (un cambio de cuenta pudo
+      // entrar mientras). La cuenta, como está guardada (cifrada): así va al
+      // pago, para verificarlo on-chain.
+      const operator = await tx.user.findFirst({
+        where,
+        select: { displayName: true, payoutMethod: true, payoutAddress: true, payoutHoldUntil: true },
+      });
+      if (!operator) throw new NotFoundException('Operadora no encontrada');
+      // Rail efectivo: el del dto si viene, sino el preferido de la chica.
+      const rail = options?.externalRail ?? operator.payoutMethod ?? null;
       const idempotency = options?.idempotency;
       if (idempotency) {
         const replay = await replayPayout(tx, { tenantId, operatorId, paidByUserId, idempotency });

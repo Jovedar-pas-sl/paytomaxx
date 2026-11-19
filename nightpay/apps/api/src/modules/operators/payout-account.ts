@@ -1,4 +1,4 @@
-import { BadRequestException } from '@nestjs/common';
+import { BadRequestException, ConflictException } from '@nestjs/common';
 import { Prisma } from '@nightpay/db';
 import {
   PAYOUT_ACCOUNT_HOLD_HOURS,
@@ -195,6 +195,18 @@ export interface PayoutAccountPlan {
   first: boolean;
   /** Hasta cuándo no se le paga a la cuenta (la que queda tras el cambio). */
   holdUntil: Date | null;
+  /**
+   * Para el `where` al guardarlo: solo si la cuenta sigue como se leyó. Si
+   * otro cambio entró a la vez, no se pisa (P2025 → payoutAccountChangedMeanwhile)
+   * ni salen avisos con un «antes» que ya no era. Esa fecha solo la escribe
+   * este plan (en milisegundos, como la lee Prisma).
+   */
+  ifUnchanged: { payoutAccountChangedAt: Date | null };
+}
+
+/** 409 al guardar un plan: la cuenta cambió por otro lado después de leerla. */
+export function payoutAccountChangedMeanwhile(): ConflictException {
+  return new ConflictException('La cuenta de cobro de esta persona acaba de cambiar por otro lado: vuelve a abrir su ficha y repite el cambio.');
 }
 
 /**
@@ -283,6 +295,7 @@ export function planPayoutAccountChange(
     accountChanged,
     first,
     holdUntil,
+    ifUnchanged: { payoutAccountChangedAt: row.payoutAccountChangedAt ?? null },
   };
 }
 

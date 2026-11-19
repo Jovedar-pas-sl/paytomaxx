@@ -41,7 +41,20 @@ const DEFAULT_PENDING: Earning[] = [
 function makeService(opts: Opts = {}) {
   const queries: Prisma.Sql[] = [];
   const updates: Prisma.Sql[] = [];
+  // La persona se lee dos veces: antes (que es del local) y dentro del pago (su cuenta, con el candado tomado).
+  const user = {
+    findFirst: vi.fn().mockResolvedValue(
+      opts.operatorInVenue === false
+        ? null
+        : {
+            id: OPERATOR,
+            payoutMethod: opts.payoutMethod === undefined ? 'MANUAL_CASH' : opts.payoutMethod,
+            payoutAddress: opts.payoutAddress ?? null,
+          },
+    ),
+  };
   const tx = {
+    user,
     $queryRaw: vi.fn(async (strings: TemplateStringsArray, ...values: unknown[]) => {
       const q = Prisma.sql(strings, ...values);
       // El candado por chica (payout-selection) no es una lectura: no cuenta.
@@ -63,17 +76,7 @@ function makeService(opts: Opts = {}) {
     },
   };
   const prisma = {
-    user: {
-      findFirst: vi.fn().mockResolvedValue(
-        opts.operatorInVenue === false
-          ? null
-          : {
-              id: OPERATOR,
-              payoutMethod: opts.payoutMethod === undefined ? 'MANUAL_CASH' : opts.payoutMethod,
-              payoutAddress: opts.payoutAddress ?? null,
-            },
-      ),
-    },
+    user,
     venue: { findUnique: vi.fn().mockResolvedValue({ payoutHoldDays: opts.venueHoldDays ?? null }) },
     withTenant: vi.fn(async (_tenantId: string, fn: (t: typeof tx) => unknown) => fn(tx)),
   };

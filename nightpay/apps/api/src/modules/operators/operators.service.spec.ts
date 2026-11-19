@@ -256,6 +256,43 @@ describe('OperatorsService.updateOperator — dirección de cobro válida para s
     });
     expect(email.send).toHaveBeenCalledWith(expect.objectContaining({ to: 'chica@example.com' }));
   });
+
+  it('la cuenta se guarda solo si sigue como se leyó: si cambió por otro lado a la vez, 409 y ni registro ni correo', async () => {
+    const changedAt = new Date('2026-10-01T10:00:00Z');
+    const { svc, prisma, audit, email } = makeOps({
+      operator: { payoutMethod: 'USDT_TRC20', payoutAddress: TRON, payoutAccountChangedAt: changedAt },
+    });
+    const change = { payoutMethod: 'USDT_BEP20' as const, payoutAddress: EVM };
+    await svc.updateOperator('t-1', 'op-1', 'u-owner', 'OWNER', change);
+    expect(prisma.user.update.mock.calls[0]![0].where).toEqual({ id: 'op-1', payoutAccountChangedAt: changedAt });
+
+    // Otro cambio entró entre leerla y guardarla: la fila ya no está «como se leyó» (P2025).
+    vi.clearAllMocks();
+    prisma.user.update.mockRejectedValueOnce(Object.assign(new Error('Record to update not found'), { code: 'P2025' }));
+    const err = await svc.updateOperator('t-1', 'op-1', 'u-owner', 'OWNER', change).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ConflictException);
+    expect((err as Error).message).toMatch(/acaba de cambiar por otro lado/);
+    expect(audit.log).not.toHaveBeenCalled();
+    expect(email.send).not.toHaveBeenCalled();
+  });
+
+  it('la primera cuenta: solo si sigue sin ninguna (dos «primeras» a la vez no se saltan la espera)', async () => {
+    const { svc, prisma } = makeOps();
+    await svc.updateOperator('t-1', 'op-1', 'u-owner', 'OWNER', { payoutMethod: 'USDT_TRC20', payoutAddress: TRON });
+    expect(prisma.user.update.mock.calls[0]![0].where).toEqual({ id: 'op-1', payoutAccountChangedAt: null });
+  });
+
+  it('un fallo de la base que no es ese (o sin tocar la cuenta) sale tal cual', async () => {
+    const { svc, prisma } = makeOps();
+    const gone = Object.assign(new Error('Record to update not found'), { code: 'P2025' });
+    prisma.user.update.mockRejectedValueOnce(gone);
+    await expect(svc.updateOperator('t-1', 'op-1', 'u-owner', 'OWNER', { displayName: 'Ana B.' })).rejects.toBe(gone);
+    const down = new Error('base caída');
+    prisma.user.update.mockRejectedValueOnce(down);
+    await expect(
+      svc.updateOperator('t-1', 'op-1', 'u-owner', 'OWNER', { payoutMethod: 'USDT_TRC20', payoutAddress: TRON }),
+    ).rejects.toBe(down);
+  });
 });
 
 describe('OperatorsService.submitSelfOnboarding — la chica pone su cuenta de cobro', () => {
@@ -719,6 +756,38 @@ describe('Marcar pagado — 48 h de espera tras cambiar la cuenta', () => {
     const { svc, create } = payDb({ ...sealedSepa(), payoutHoldUntil: new Date('2026-11-21T21:30:00Z') });
     await svc.createPayout('t-1', 'op-1', 'u-owner', undefined, { externalRail: 'MANUAL_CASH' });
     expect(create).toHaveBeenCalled();
+  });
+
+  /** Lo que se lee DENTRO de la transacción del pago es otra cosa que fuera: la cuenta cambió mientras tanto. */
+  function changedMeanwhile(prisma: unknown, now: Partial<typeof baseOperator>) {
+    const db = prisma as { user: Record<string, unknown>; $queryRaw: ReturnType<typeof vi.fn>; withTenant: ReturnType<typeof vi.fn> };
+    const findFirst = vi.fn().mockResolvedValue({ ...baseOperator, ...now });
+    db.withTenant.mockImplementation(async (_tenantId: string, fn: (tx: unknown) => unknown) =>
+      fn({ ...db, user: { ...db.user, findFirst } }),
+    );
+    return { findFirst, lock: db.$queryRaw };
+  }
+
+  it('la espera se mira con el candado ya tomado: una cuenta cambiada mientras el pago esperaba su turno no se paga', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-11-19T22:00:00Z'));
+    // Al empezar la petición no había espera; al tocarle el turno, la cuenta acaba de cambiar.
+    const { svc, prisma, create } = payDb(sealedSepa());
+    const { findFirst, lock } = changedMeanwhile(prisma, { ...sealedSepa(), payoutHoldUntil: new Date('2026-11-21T21:30:00Z') });
+    const err = await svc.createPayout('t-1', 'op-1', 'u-owner', undefined, { externalRail: 'SEPA_IBAN' }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ConflictException);
+    expect(((err as ConflictException).getResponse() as { code: string }).code).toBe('PAYOUT_ACCOUNT_TOO_NEW');
+    expect(create).not.toHaveBeenCalled();
+    // Primero el candado de la persona, después su cuenta.
+    expect(findFirst.mock.invocationCallOrder[0]!).toBeGreaterThan(lock.mock.invocationCallOrder[0]!);
+  });
+
+  it('y el pago apunta la cuenta (y el método) de ese momento, no los de antes de esperar', async () => {
+    const { svc, prisma, create } = payDb(sealedSepa());
+    const tron = sealPayoutValue(TRON, { userId: 'op-1', field: 'address' });
+    changedMeanwhile(prisma, { payoutMethod: 'USDT_TRC20', payoutAddress: tron });
+    await svc.createPayout('t-1', 'op-1', 'u-owner');
+    expect(create.mock.calls[0]![0].data).toMatchObject({ paidToAddress: tron, externalRail: 'USDT_TRC20' });
   });
 
   it('pasadas las 48 h, sí; el pago guarda la cuenta como está guardada (cifrada), nunca en claro', async () => {

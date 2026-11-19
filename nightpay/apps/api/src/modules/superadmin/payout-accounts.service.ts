@@ -15,10 +15,12 @@ import { AuditService } from '../audit/audit.service';
 import {
   maskedPayoutAccount,
   openPayoutAccount,
+  payoutAccountChangedMeanwhile,
   planPayoutAccountChange,
   type OpenPayoutAccount,
 } from '../operators/payout-account';
 import { notifyPayoutAccountChanged } from '../operators/payout-account-notices';
+import { isRecordNotFound } from '../operators/self-onboarding-token';
 import { SuperAdminStepUpService } from './step-up.service';
 import { SuperAdminAuditService } from './superadmin-audit.service';
 import type { SuperAdminActor } from './superadmin.guard';
@@ -133,7 +135,12 @@ export class SuperAdminPayoutAccountsService {
       { method: dto.payoutMethod, address: dto.payoutAddress, label: dto.payoutLabel, metadata: dto.payoutMetadata },
       new Date(),
     );
-    const after = await this.prisma.acrossVenues((tx) => tx.user.update({ where: { id: userId }, data: plan.data, select: accountSelect }));
+    // Solo si sigue como se leyó: si el dueño la cambió a la vez, no se pisa (409).
+    const after = await this.prisma
+      .acrossVenues((tx) => tx.user.update({ where: { id: userId, ...plan.ifUnchanged }, data: plan.data, select: accountSelect }))
+      .catch((err: unknown) => {
+        throw isRecordNotFound(err) ? payoutAccountChangedMeanwhile() : err;
+      });
     await this.audit.write(actor, {
       action: 'payout_account.updated',
       tenantId: before.tenantId,

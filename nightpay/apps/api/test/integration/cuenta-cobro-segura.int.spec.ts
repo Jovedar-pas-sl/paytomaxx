@@ -25,6 +25,7 @@ import { TotpService } from '../../src/modules/auth/totp.service';
 import { IncidentsService } from '../../src/modules/incidents/incidents.service';
 import { OperatorsService } from '../../src/modules/operators/operators.service';
 import { PayoutAccountBackfill } from '../../src/modules/operators/payout-account-backfill';
+import { lockOperatorPayouts } from '../../src/modules/operators/payout-selection';
 import { TreasuryService } from '../../src/modules/treasury/treasury.service';
 
 const cls = new ClsService(new AsyncLocalStorage());
@@ -467,6 +468,81 @@ describe('transferencia internacional: el banco, el SWIFT y el país también so
     expect(row.payoutAccountChangedAt).toEqual(before.payoutAccountChangedAt);
     expect(sent.length).toBe(mailsBefore);
     expect(await asStaff(V, () => operators.getPayoutNotice(cami, V))).toBeNull();
+  });
+});
+
+describe('a la vez: ni dos cambios de cuenta se pisan, ni un pago se cuela mientras cambia', () => {
+  /**
+   * Dos cosas «a la vez» sin depender del reloj: `hold` toma algo (la fila o
+   * un candado) en una transacción; `request` arranca y se queda esperándolo;
+   * entonces `change` (en la misma transacción) y, al confirmarla, `request` sigue.
+   */
+  async function whileWaiting<T>(
+    hold: Parameters<PrismaService['asSystem']>[0],
+    request: () => Promise<T>,
+    change: Parameters<PrismaService['asSystem']>[0] = async () => undefined,
+  ): Promise<T> {
+    let pending!: Promise<T>;
+    await sys(async (tx) => {
+      await hold(tx);
+      const [me] = await tx.$queryRaw<Array<{ pid: number }>>`SELECT pg_backend_pid() AS pid`;
+      pending = request();
+      pending.catch(() => undefined);
+      for (;;) {
+        const [waiting] = await tx.$queryRaw<Array<{ n: number }>>`
+          SELECT count(*)::int AS n FROM pg_stat_activity WHERE ${me!.pid}::int = ANY(pg_blocking_pids(pid))`;
+        if (waiting!.n > 0) break;
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+      await change(tx);
+    });
+    return pending;
+  }
+
+  it('dos cambios de cuenta a la vez: el que leyó la cuenta de antes recibe 409, no pisa al otro y no avisa de nada', async () => {
+    const noa = await newChica('Noa');
+    await setSepa(noa, IBAN, 'Noa Gil');
+    const mailsBefore = sent.length;
+    const auditsBefore = (await auditOf(noa)).length;
+    const otherAt = new Date();
+    const code = await codeOf(boss);
+
+    const res = await failure(
+      whileWaiting(
+        // Otro cambio de su cuenta (p. ej. desde OxioPay), aún sin confirmar: el dueño lee la de antes...
+        (tx) => tx.user.update({ where: { id: noa }, data: { payoutAddressMasked: 'la del otro cambio', payoutAccountChangedAt: otherAt } as never }),
+        // ...y su guardado se queda esperando a que el otro termine.
+        () => patch(boss, 'OWNER', noa, { payoutMethod: 'SEPA_IBAN', payoutAddress: IBAN2, payoutMetadata: { accountHolder: 'Noa Gil' }, totpCode: code }),
+      ),
+    );
+    expect(res.status).toBe(409);
+    expect(String(res.body.message)).toMatch(/acaba de cambiar por otro lado/);
+    expect(await stored(noa)).toMatchObject({ payoutAddressMasked: 'la del otro cambio', payoutAccountChangedAt: otherAt, payoutHoldUntil: null });
+    expect(sent.length).toBe(mailsBefore);
+    expect((await auditOf(noa)).length).toBe(auditsBefore);
+    // Otra vez, ya con la cuenta de ahora delante: se guarda (con su espera).
+    await setSepa(noa, IBAN2, 'Noa Gil');
+    expect((await stored(noa)).payoutHoldUntil).toBeInstanceOf(Date);
+  });
+
+  it('«Marcar pagado» esperando su turno mientras la cuenta cambia: mira la espera al tocarle, no la de antes', async () => {
+    const lia = await newChica('Lía');
+    await setSepa(lia, IBAN, 'Lía Sanz');
+    await newEarning(lia, 10_000);
+    const hold = new Date(Date.now() + 48 * HOUR);
+    const code = await codeOf(boss);
+
+    const res = await failure(
+      whileWaiting(
+        // El candado de sus pagos, tomado (otro pago o una petición en marcha): «Marcar pagado» espera su turno...
+        (tx) => lockOperatorPayouts(tx, lia),
+        () => markPaid(boss, 'OWNER', lia, { externalRail: 'SEPA_IBAN', totpCode: code }),
+        // ...y, mientras espera, le cambian la cuenta.
+        (tx) => tx.user.update({ where: { id: lia }, data: { payoutHoldUntil: hold, payoutAccountChangedAt: new Date() } as never }),
+      ),
+    );
+    expect(res).toMatchObject({ status: 409, body: { code: 'PAYOUT_ACCOUNT_TOO_NEW', payableFrom: hold.toISOString() } });
+    expect(await payoutsOf(lia)).toEqual([]);
   });
 });
 

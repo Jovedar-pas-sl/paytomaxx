@@ -288,6 +288,15 @@ describe('planPayoutAccountChange — guardar un cambio de cuenta', () => {
     expect(plan.data).not.toHaveProperty('payoutHoldUntil');
   });
 
+  it('para guardarlo solo si la cuenta sigue como se leyó: la fecha del último cambio (null si nunca cambió)', () => {
+    const changedAt = new Date('2026-10-01T10:00:00.000Z');
+    expect(planPayoutAccountChange(savedSepa(), { label: 'x' }, NOW, KEK).ifUnchanged).toEqual({ payoutAccountChangedAt: changedAt });
+    // Sin la columna en lo leído, null (IS NULL), nunca undefined (Prisma no filtraría).
+    expect(planPayoutAccountChange(empty, { method: 'USDT_TRC20', address: TRON }, NOW, KEK).ifUnchanged).toStrictEqual({
+      payoutAccountChangedAt: null,
+    });
+  });
+
   it('IBAN SEPA nuevo sin titular → 400', () => {
     expect(() => planPayoutAccountChange(empty, { method: 'SEPA_IBAN', address: IBAN }, NOW, KEK)).toThrow(BadRequestException);
     expect(() => planPayoutAccountChange(empty, { method: 'SEPA_IBAN', address: IBAN }, NOW, KEK)).toThrow(

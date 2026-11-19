@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@nightpay/db';
 import { SuperAdminPayoutAccountsService } from './payout-accounts.service';
 import { openPayoutValue, sealPayoutValue } from '../operators/payout-account-crypto';
@@ -237,6 +237,26 @@ describe('SuperAdminPayoutAccountsService.update — cambiarla pide 2FA, motivo 
     );
     expect(email.send).toHaveBeenCalledWith(expect.objectContaining({ to: 'lucía@salabambu.es' }));
     expect(JSON.stringify([plainAudit.log.mock.calls, email.send.mock.calls])).not.toContain(IBAN);
+  });
+
+  it('se guarda solo si la cuenta sigue como se leyó: si el dueño la cambió a la vez, 409 y ni registro ni aviso', async () => {
+    const changedAt = new Date('2026-10-01T10:00:00Z');
+    const { svc, tx, audit, plainAudit, email } = setup({
+      found: account(LUCIA, 'Lucía', 'USDT_TRC20', TRON, { payoutAccountChangedAt: changedAt }),
+    });
+    const dto = { ...base, payoutMethod: 'SEPA_IBAN' as const, payoutAddress: IBAN, payoutMetadata: { accountHolder: 'Lucía Pérez' } };
+    await svc.update(actor, LUCIA, dto);
+    expect(tx.user.update.mock.calls[0]![0]).toMatchObject({ where: { id: LUCIA, payoutAccountChangedAt: changedAt } });
+
+    // El dueño la cambió entre leerla y guardarla: la fila ya no está «como se leyó» (P2025).
+    vi.clearAllMocks();
+    tx.user.update.mockRejectedValueOnce(Object.assign(new Error('Record to update not found'), { code: 'P2025' }));
+    const err = await svc.update(actor, LUCIA, dto).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ConflictException);
+    expect((err as Error).message).toMatch(/acaba de cambiar por otro lado/);
+    expect(audit.write).not.toHaveBeenCalled();
+    expect(plainAudit.log).not.toHaveBeenCalled();
+    expect(email.send).not.toHaveBeenCalled();
   });
 
   it('IBAN SEPA sin titular → 400 sin escribir', async () => {
