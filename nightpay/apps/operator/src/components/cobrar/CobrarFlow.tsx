@@ -35,6 +35,8 @@ import {
 import { useMySections } from '@/lib/sections';
 import { useVenueMethods, useVenueNight } from '@/lib/venue-methods';
 import { nfcSupported } from '@/lib/nfc';
+import { isPractice } from '@/lib/practice';
+import { setPracticeNextAmount } from '@/lib/practice-sim';
 import { ActivePayment } from '../ActivePayment';
 import { useCarta } from '../carta';
 import { Carta } from './Carta';
@@ -46,7 +48,7 @@ import { IconPlus, IconQr } from './icons';
 import { LaCuenta } from './LaCuenta';
 import { MiQr } from './MiQr';
 import { OtroImporte } from './OtroImporte';
-import { GuiaMenuLink, InstallMenuItem, LogoutMenuItem, MENU_HINTS, MenuOption, useDeviceMenu } from '../staff-menu';
+import { GuiaMenuLink, InstallMenuItem, LogoutMenuItem, MENU_HINTS, MenuOption, PracticeMenuItem, useDeviceMenu } from '../staff-menu';
 import { CustomerDisplaySheet } from '../CustomerDisplaySheet';
 import { ProfileSheet } from '../ProfileSheet';
 import styles from './cobrar.module.css';
@@ -165,6 +167,8 @@ export function CobrarFlow({ user, onCobroDone, onLogout, night, miQrOpen = fals
   const open = useCallback(
     async (pending: Pending, key: string): Promise<CobroAbierto> => {
       const totals = pending.view.totalCents;
+      // En práctica, el simulador no ve precios en las líneas de la carta: se le dice el importe.
+      if (isPractice()) setPracticeNextAmount(totals);
       if (methods.card) {
         // La lista se pide al entrar y puede haber fallado (mala cobertura): sin ella no se cobra, así que otra vez.
         const terminal = terminals[0]?.externalId ?? (await fetchTerminals().then((t) => (setTerminals(t), t[0]?.externalId), () => undefined));
@@ -428,6 +432,7 @@ export function CobrarFlow({ user, onCobroDone, onLogout, night, miQrOpen = fals
           }}
         />
         {device.item}
+        <PracticeMenuItem onClose={() => setMenu(false)} />
         <InstallMenuItem />
         <GuiaMenuLink />
         <LogoutMenuItem onLogout={onLogout} />

@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import { clearDisplay, showOnDisplay } from '@/lib/customer-display-api';
+import { isPractice } from '@/lib/practice';
 
 /**
  * La «Pantalla del cliente» de quien cobra enseña este cobro mientras la
@@ -12,7 +13,7 @@ export function useCustomerDisplay(target: { paymentId?: string | null; chargeId
   const paymentId = target?.paymentId ?? null;
   const chargeId = target?.chargeId ?? null;
   useEffect(() => {
-    if (!paymentId && !chargeId) return undefined;
+    if ((!paymentId && !chargeId) || isPractice()) return undefined;
     const ids = { paymentId, chargeId };
     let shown = false;
     let left = false;

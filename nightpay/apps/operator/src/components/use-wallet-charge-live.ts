@@ -2,6 +2,8 @@ import { useCallback, useEffect, useRef } from 'react';
 import { io } from 'socket.io-client';
 import { freshAccessToken, wsBase } from '@/lib/api';
 import type { PollOutcome } from '@/lib/poller';
+import { isPractice } from '@/lib/practice';
+import { practiceSocket } from '@/lib/practice-sim';
 import { WALLET_CHARGE_POLL_OFFLINE_MS, createWalletChargeLive, type ChargeSocket, type WalletChargeLive } from '@/lib/wallet-charge-live';
 
 export interface WalletChargeLiveOptions {
@@ -39,7 +41,8 @@ export function useWalletChargeLive(
       chargeId,
       poll: (signal) => taskRef.current(signal),
       socket: () =>
-        io(`${wsBase}/rt`, {
+        // En práctica, un socket de mentira (ningún aviso real entra).
+        (isPractice() ? practiceSocket() : io(`${wsBase}/rt`, {
           // Si el WebSocket no conecta (proxy, wifi del local), cae a polling HTTP.
           transports: ['websocket', 'polling'],
           tryAllTransports: true,
@@ -47,7 +50,7 @@ export function useWalletChargeLive(
           auth: (cb) => {
             void freshAccessToken().then((token) => cb(token ? { token } : {}));
           },
-        }) as unknown as ChargeSocket,
+        })) as unknown as ChargeSocket,
       isHidden,
       slowIntervalMs,
     });

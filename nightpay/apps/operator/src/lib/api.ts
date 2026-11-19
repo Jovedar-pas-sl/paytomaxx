@@ -30,6 +30,8 @@ import {
   type SessionEvent,
 } from '@nightpay/api-client';
 import { codeErrorText } from './api-codes';
+import { isPractice, setPractice } from './practice';
+import { practiceFetch } from './practice-sim';
 import type { PolledPayment } from './payment-status';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4100';
@@ -292,6 +294,8 @@ export function setSession(login: LoginResponse): void {
   client.setSession(login);
 }
 export function clearSession(): void {
+  // La práctica no sobrevive a la sesión: la siguiente persona empieza en real.
+  setPractice(false);
   client.clearSession();
 }
 
@@ -372,8 +376,13 @@ export function freshAccessToken(): Promise<string | null> {
   return client.freshAccessToken();
 }
 
+/**
+ * Por aquí pasa toda llamada del personal al API. En «Modo práctica» (lib/practice)
+ * la contesta el simulador y todo lo que cambia datos y no se simula se corta
+ * antes de la red.
+ */
 export function authedFetch(path: string, init: RequestInit = {}): Promise<Response> {
-  return client.authedFetch(path, init);
+  return practiceFetch(isPractice(), path, init, (p, i) => client.authedFetch(p, i));
 }
 
 /** «Mi perfil»: foto, nombre, teléfono, correo y contraseña de quien tiene la sesión. */
@@ -786,8 +795,8 @@ export interface WalletChargeRequest {
 // ─── Public — Self-onboarding ─────────────────────────────────────
 
 /** Petición sin sesión (enlaces de alta e invitación): sin red, un mensaje claro. */
-function publicFetch(path: string, init?: RequestInit): Promise<Response> {
-  return client.publicFetch(path, init);
+function publicFetch(path: string, init: RequestInit = {}): Promise<Response> {
+  return practiceFetch(isPractice(), path, init, (p, i) => client.publicFetch(p, i));
 }
 
 export type WalletProvider =

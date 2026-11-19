@@ -6,6 +6,7 @@ import { SALA_INIT_SCRIPT } from '@/lib/sala-contrast';
 import { appleAppMetadata } from '@nightpay/ui/app-manifest';
 import { deviceInitScript } from '@nightpay/ui/device-settings';
 import { NfcEscucha } from '@/components/NfcEscucha';
+import { PracticeBand } from '@/components/PracticeBand';
 
 // Fuentes dentro del repo (packages/ui/fonts, licencia OFL): el build no
 // descarga nada de Google Fonts. Variables, con los mismos pesos de antes.
@@ -54,6 +55,8 @@ export default function RootLayout({ children }: { children: ReactNode }) {
         <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
       </head>
       <body>
+        {/* «Modo práctica»: la franja fija de arriba (solo mientras se practica). */}
+        <PracticeBand />
         {children}
         {/* Una sola escucha NFC para toda la app: Android no abre el enlace de la ficha. */}
         <NfcEscucha />
