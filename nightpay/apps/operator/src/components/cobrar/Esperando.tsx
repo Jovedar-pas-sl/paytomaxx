@@ -67,6 +67,8 @@ import { CANCEL_AT_BANK_TOO_SOON_CODE } from '@/lib/cancel-at-bank';
 import { fetchBankRef, notifiedText, notifyManager, type BankRef } from '@/lib/api-bank-wait';
 import { useShown } from '../reception/desk/use-shown';
 import { StaffOutcome } from '../StaffOutcome';
+import { PracticeSimulate } from '../PracticeSimulate';
+import { PRACTICE_TAP } from '@/lib/practice-sim';
 import { CancelCobroConfirm } from '../CancelCobroConfirm';
 import { useCustomerDisplay } from '../use-customer-display';
 import { usePaymentLive } from '../use-payment-live';
@@ -637,6 +639,14 @@ export function Esperando({ cobro, onNew, onRetry, retrying = false, retryError 
         bank={{ status: cobro.card ? cardStatus : null, attemptIso, seenAt: authorizingSeenAt, bitcoin: cobro.card ? payingWithBitcoin(card) : null }}
         fichaHint={fichaHint}
         onSinMovil={sinMovilOn && !checking ? () => setSinMovil(true) : undefined}
+        practice={
+          // Solo en práctica: el papel del cliente (paga, no paga, acerca la ficha).
+          <PracticeSimulate
+            paymentId={cobro.card?.id}
+            chargeId={chargeId}
+            onFicha={chargeId && methods.wallet ? () => void handleCard(PRACTICE_TAP.token, PRACTICE_TAP.uid) : undefined}
+          />
+        }
       >
         {(wait) => {
           // Un solo reloj: el de la espera del banco (la pastilla), también si la pantalla se abrió a mitad.
@@ -689,6 +699,7 @@ function Waiting({
   bank,
   fichaHint = null,
   onSinMovil,
+  practice,
   children,
 }: {
   cobro: CobroAbierto;
@@ -706,6 +717,8 @@ function Waiting({
   fichaHint?: string | null;
   /** «Sin móvil ni ficha»: su código o su pase y su PIN aquí. Sin él, no se ofrece. */
   onSinMovil?: () => void;
+  /** Los botones de «Modo práctica» (se pintan solos solo en práctica). */
+  practice?: ReactNode;
   /** El pie («Cancelar cobro»): con la espera del banco de esta pantalla (un solo reloj). */
   children: (wait: CardWait) => ReactNode;
 }) {
@@ -815,6 +828,7 @@ function Waiting({
         ) : null}
       </div>
       <div className={`${styles.foot} ${styles.footFlat}`}>
+        {practice}
         {/* Lo raro (antes, solo en «Saldo»): sin móvil ni ficha, su código o su pase y su PIN aquí.
             En el pie, encima de «Cancelar cobro»: entero a la vista también en un móvil bajo
             (360 × 640), donde debajo del QR quedaba tapado por el propio pie. */}

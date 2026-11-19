@@ -134,3 +134,35 @@ describe('carta ordenada por lo más pedido, fija cada noche', () => {
     expect(await names(mine)).toEqual(['A', 'B', 'C', 'D']);
   });
 });
+
+describe('«Agotado» esta noche, con PostgreSQL y un rol sin superusuario', () => {
+  const soldOutNames = async (ctx: Ctx) => (await service.listForStaff(ctx.id, 'OWNER')).filter((i) => i.soldOut).map((i) => i.name);
+
+  it('vale mientras dure la noche abierta, y al cambiar la noche vuelve solo', async () => {
+    const ctx = await setup();
+    const night = await openNight(ctx);
+    await service.setSoldOut(ctx.id, randomUUID(), ctx.b.id, true);
+    expect(await soldOutNames(ctx)).toEqual(['B']);
+    expect((await service.listAll(ctx.id)).find((i) => i.name === 'B')?.soldOut).toBe(true);
+    // Se cierra la noche y se abre otra: sin tarea programada, ya hay otra vez.
+    await prisma.withTenant(ctx.id, (tx) => tx.venueNight.update({ where: { id: night.id }, data: { closedAt: new Date() } }));
+    await prisma.withTenant(ctx.id, (tx) => tx.venueNight.create({ data: { tenantId: ctx.id, openedAt: new Date(Date.now() + 1000) } }));
+    expect(await soldOutNames(ctx)).toEqual([]);
+  });
+
+  it('«Hay otra vez» lo quita en la misma noche', async () => {
+    const ctx = await setup();
+    await openNight(ctx);
+    await service.setSoldOut(ctx.id, randomUUID(), ctx.a.id, true);
+    await service.setSoldOut(ctx.id, randomUUID(), ctx.a.id, false);
+    expect(await soldOutNames(ctx)).toEqual([]);
+  });
+
+  it('otro local no puede marcar un producto que no es suyo', async () => {
+    const mine = await setup();
+    const other = await setup();
+    await openNight(mine);
+    await expect(service.setSoldOut(other.id, randomUUID(), mine.a.id, true)).rejects.toThrow();
+    expect(await soldOutNames(mine)).toEqual([]);
+  });
+});

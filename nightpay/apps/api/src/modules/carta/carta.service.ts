@@ -1,10 +1,11 @@
-import { BadRequestException, ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Inject, Injectable, NotFoundException, Optional } from '@nestjs/common';
 import { Prisma } from '@nightpay/db';
 import {
   canChargeSection,
   cartaTemplatePlan,
   initialOfferedSection,
   invitationItemProblem,
+  isSoldOutTonight,
   isCartaIcon,
   isSectionCode,
   packComponentsOf,
@@ -23,6 +24,7 @@ import {
 } from '@nightpay/contracts';
 import { PrismaService, type TransactionalClient } from '../../common/prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
+import { RealtimeGateway } from '../realtime/realtime.gateway';
 import { chargeRightsFor } from '../venues/charge-rights';
 import { checkCartaImage, decodeImageBase64 } from './carta-image';
 import { POPULARITY_NIGHTS, readSnapshot, sortByPopularity, unitsByItem, type CartaOrderSnapshot, type SoldLine } from './carta-popularity';
@@ -38,6 +40,7 @@ const SELECT = {
   components: true,
   isInvitation: true,
   icon: true,
+  soldOutAt: true,
   // Solo la huella: los bytes de la imagen no viajan con la carta.
   image: { select: { contentHash: true } },
 } as const;
@@ -71,10 +74,11 @@ function ticked(plan: TemplateChange<TemplateRow>[], update: NonNullable<ApplyCa
 }
 
 /** La fila tal como la ven las apps (el pack, ya validado; uno raro → sin pack). */
-function view<T extends { id: string; components: unknown; icon: string | null; image: { contentHash: string } | null }>(row: T): ServiceItem {
-  const { image, ...rest } = row;
+function view<T extends { id: string; components: unknown; icon: string | null; soldOutAt: Date | null; image: { contentHash: string } | null }>(row: T, nightOpenedAt: Date | null): ServiceItem {
+  const { image, soldOutAt, ...rest } = row;
   return {
     ...(rest as unknown as ServiceItem),
+    soldOut: isSoldOutTonight(soldOutAt, nightOpenedAt),
     components: packComponentsOf(row.components),
     icon: isCartaIcon(row.icon) ? row.icon : null,
     imageUrl: image ? serviceImagePath(row.id, image.contentHash.trim()) : null,
@@ -92,10 +96,12 @@ function view<T extends { id: string; components: unknown; icon: string | null; 
 export class CartaService {
   private readonly prisma: PrismaService;
   private readonly audit: AuditService;
+  private readonly realtime: RealtimeGateway | undefined;
 
-  constructor(@Inject(PrismaService) prisma: PrismaService, @Inject(AuditService) audit: AuditService) {
+  constructor(@Inject(PrismaService) prisma: PrismaService, @Inject(AuditService) audit: AuditService, @Optional() @Inject(RealtimeGateway) realtime?: RealtimeGateway) {
     this.prisma = prisma;
     this.audit = audit;
+    this.realtime = realtime;
   }
 
   /**
@@ -103,13 +109,13 @@ export class CartaService {
    * encendidas que su puesto puede cobrar (un pack, por su sección).
    */
   async listForStaff(tenantId: string, role: string, userId?: string): Promise<ServiceItem[]> {
-    const [rows, sections, rights] = await Promise.all([
+    const [{ rows, nightOpenedAt }, sections, rights] = await Promise.all([
       // En una transacción del local: la imagen (FORCE RLS) se lee con el local en la sesión.
       this.prisma.withTenant(tenantId, async (tx) => {
         const items = await tx.serviceItem.findMany({ where: { tenantId, active: true }, orderBy: ORDER, select: SELECT });
         // Los más pedidos arriba: el orden de la noche, calculado una vez y fijo hasta que se cierre.
         const snapshot = await this.nightSnapshot(tx, tenantId, items.map((i) => i.id));
-        return snapshot ? sortByPopularity(items, snapshot) : items;
+        return { rows: snapshot ? sortByPopularity(items, snapshot) : items, nightOpenedAt: await this.nightStart(tx, tenantId) };
       }),
       this.venueSections(tenantId),
       userId ? this.prisma.asSystem((tx) => chargeRightsFor(tx, tenantId, { userId, role })) : Promise.resolve(null),
@@ -120,7 +126,7 @@ export class CartaService {
     return rows
       .filter((r) => !off.has(r.category))
       .filter((r) => !rights || canChargeSection(rights, isSectionCode(r.category) ? r.category : (fallback ?? r.category)))
-      .map(view);
+      .map((r) => view(r, nightOpenedAt));
   }
 
   /**
@@ -180,10 +186,11 @@ export class CartaService {
 
   /** Carta completa (también desactivados) para el panel. */
   async listAll(tenantId: string): Promise<ServiceItem[]> {
-    const rows = await this.prisma.withTenant(tenantId, (tx) =>
-      tx.serviceItem.findMany({ where: { tenantId }, orderBy: ORDER, select: SELECT }),
-    );
-    return rows.map(view);
+    const { rows, nightOpenedAt } = await this.prisma.withTenant(tenantId, async (tx) => ({
+      rows: await tx.serviceItem.findMany({ where: { tenantId }, orderBy: ORDER, select: SELECT }),
+      nightOpenedAt: await this.nightStart(tx, tenantId),
+    }));
+    return rows.map((r) => view(r, nightOpenedAt));
   }
 
   /**
@@ -262,7 +269,7 @@ export class CartaService {
       targetId: row.id,
       payload: { name: row.name, priceCents: row.priceCents, category: row.category, components: dto.components ?? null },
     });
-    return view(row);
+    return this.viewOf(tenantId, row);
   }
 
   async update(
@@ -308,7 +315,7 @@ export class CartaService {
       targetId: id,
       payload: { before: existing, after: row },
     });
-    return view(row);
+    return this.viewOf(tenantId, row);
   }
 
   /**
@@ -339,7 +346,7 @@ export class CartaService {
       targetId: id,
       payload: { contentHash, contentType, bytes: data.length, width, height },
     });
-    return view(row);
+    return this.viewOf(tenantId, row);
   }
 
   /** Quita el logo o la foto (el producto vuelve a su icono). Sin imagen no hace nada. */
@@ -353,7 +360,7 @@ export class CartaService {
     if (removed > 0) {
       await this.audit.log({ action: 'carta.item.image_removed', tenantId, actorId, targetType: 'ServiceItem', targetId: id, payload: {} });
     }
-    return view(row);
+    return this.viewOf(tenantId, row);
   }
 
   /**
@@ -370,6 +377,28 @@ export class CartaService {
       }),
     );
     return row ? { data: Buffer.from(row.data), contentHash: row.contentHash.trim(), contentType: row.contentType } : null;
+  }
+
+  /** Marca o quita «Agotado»: vale esta noche (soldOutAt dentro de la noche abierta) y avisa a todos los móviles. */
+  async setSoldOut(tenantId: string, actorId: string, id: string, soldOut: boolean): Promise<ServiceItem> {
+    const row = await this.withCartaLock(tenantId, async (tx) => {
+      const { count } = await tx.serviceItem.updateMany({ where: { id, tenantId }, data: { soldOutAt: soldOut ? new Date() : null } });
+      if (count === 0) throw new NotFoundException('Ese servicio no está en la carta de este local');
+      return tx.serviceItem.findFirstOrThrow({ where: { id, tenantId }, select: SELECT });
+    });
+    await this.audit.log({ action: soldOut ? 'carta.item.sold_out' : 'carta.item.back_in_stock', tenantId, actorId, targetType: 'ServiceItem', targetId: id, payload: {} });
+    this.realtime?.emitCartaUpdate(tenantId);
+    return this.viewOf(tenantId, row);
+  }
+
+  /** Cuándo abrió la noche abierta (null = no hay). */
+  private async nightStart(tx: TransactionalClient, tenantId: string): Promise<Date | null> {
+    const night = await tx.venueNight.findFirst({ where: { tenantId, closedAt: null }, orderBy: { openedAt: 'desc' }, select: { openedAt: true } });
+    return night?.openedAt ?? null;
+  }
+
+  private async viewOf(tenantId: string, row: Parameters<typeof view>[0]): Promise<ServiceItem> {
+    return view(row, await this.prisma.withTenant(tenantId, (tx) => this.nightStart(tx, tenantId)));
   }
 
   /** La sección del servicio (y la de cada parte del pack) tiene que estar encendida en el local. */

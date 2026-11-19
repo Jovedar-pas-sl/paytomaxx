@@ -52,6 +52,8 @@ export const TENANT_SCOPED_MODELS: ReadonlySet<string> = new Set([
   'ReservationSpend',
   // Bitcoin sin cobro devuelto en efectivo (20261117100100).
   'BtcCashReturn',
+  // «Regala una noche» (20261120200000): el regalo es de su local (sin grupo).
+  'WalletGift',
 ]);
 
 // Operaciones de lectura a filtrar y de escritura a inyectar tenantId

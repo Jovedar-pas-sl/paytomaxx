@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useId, useRef, useState, type CSSProperties, type ReactNode } from 'react';
-import { cashHow, OutcomeHowCard, PrintButton, ScreenHelp, SectionChip, usePrintTicket, type Ticket } from '@nightpay/ui';
+import { cashHow, DoneMark, OutcomeHowCard, PrintButton, ScreenHelp, SectionChip, usePrintTicket, type Ticket } from '@nightpay/ui';
 import { playOutcomeSound } from '@/lib/alert-sound';
 import { formatEur } from '@/lib/money';
 import { TOURS } from '@/lib/tours';
@@ -122,11 +122,7 @@ export function DeskLoaded({
         {aviso ? <CounterAviso text={aviso} className={s.resAviso} /> : null}
         {/* La marca y la palabra: una debajo de otra; en una pantalla baja, en la misma fila. */}
         <div className={s.headline}>
-          <span className="np-outcome-ring" aria-hidden="true">
-            <svg className="np-outcome-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M5 12.5l4.5 4.5L19 7.5" pathLength={1} />
-            </svg>
-          </span>
+          <DoneMark />
           <h2 id={titleId} className="np-outcome-title" data-tour="recep-cargado" style={{ '--np-fit': Math.max(4, word.length * 0.74).toFixed(2) } as CSSProperties}>
             {word}
           </h2>
@@ -195,11 +191,7 @@ export function LoadedBand({ word, amountCents, line, aviso = null }: { word: st
   }, []);
   return (
     <div className={s.band} role="status">
-      <span className={s.bandTick} aria-hidden="true">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M5 12.5l4.5 4.5L19 7.5" pathLength={1} />
-        </svg>
-      </span>
+      <DoneMark className={s.bandTick} />
       <span className={s.bandText}>
         <b>
           {word} {amount}

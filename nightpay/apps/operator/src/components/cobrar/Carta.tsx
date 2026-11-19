@@ -1,12 +1,13 @@
 'use client';
 
-import { Fragment, useCallback, useEffect, useRef, type CSSProperties, type ReactNode } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useRef, type CSSProperties, type ReactNode } from 'react';
 import { BusyWord, ScreenHelp } from '@nightpay/ui';
 import { STICKY_ACTION_BOTTOM } from '../layout';
 import { TOURS } from '@/lib/tours';
 import { formatEur } from '@/lib/money';
+import { createLongPress } from '@/lib/long-press';
 import { cartaGroups, cartaTileColor, cartaTiles, tapOf } from '@/lib/carta-tiles';
-import { cobrarLabel, itemTileKey, tileLabel, undoFocusTarget, type UndoTap } from '@/lib/carta-view';
+import { cobrarLabel, itemTileKey, pickable, tileLabel, undoFocusTarget, type UndoTap } from '@/lib/carta-view';
 import { chargeable, itemLabel, cuentaSummary, cuentaTotals, qtyOf, type CartaItem, type Cuenta } from '@/lib/cuenta';
 import { colorOf, labelOf, offeredCodes, puestoChip, type CobrarContext } from './cobrar-context';
 import { IconQr, IconUndo } from './icons';
@@ -21,6 +22,8 @@ interface Props {
   who: string;
   /** Una loseta de la carta: «Copa» (y el resto) se suma a la cuenta; «Copa con invitación» va a escanear el QR de la chica. */
   onItem: (item: CartaItem) => void;
+  /** Mantener pulsada una loseta (o «Agotados»): marca o quita «Agotado». */
+  onSoldOut: (item: CartaItem, soldOut: boolean) => void;
   onOtro: () => void;
   onVerCuenta: () => void;
   onCobrar: () => void;
@@ -51,6 +54,7 @@ export function Carta({
   cuenta,
   who,
   onItem,
+  onSoldOut,
   onOtro,
   onVerCuenta,
   onCobrar,
@@ -101,7 +105,7 @@ export function Carta({
                 {labelOf(ctx, group.section)}
               </h2>
               {group.items.map((item) => (
-                <ItemTile key={item.id} item={item} qty={qtyOf(cuenta, item.id)} big={big} onPick={() => onItem(item)} />
+                <ItemTile key={item.id} item={item} qty={qtyOf(cuenta, item.id)} big={big} onPick={() => onItem(item)} onSoldOut={(v) => onSoldOut(item, v)} />
               ))}
             </Fragment>
           ))}
@@ -119,6 +123,22 @@ export function Carta({
             </div>
           ) : null}
         </div>
+        {items.length > 0 ? (
+          // La alternativa a mantener pulsada una loseta: nativa, con teclado y lector de pantalla.
+          <details className={styles.agotados}>
+            <summary>Agotados</summary>
+            <ul>
+              {items.map((item) => (
+                <li key={item.id}>
+                  <button type="button" aria-pressed={item.soldOut === true} onClick={() => onSoldOut(item, item.soldOut !== true)}>
+                    {itemLabel(item)}
+                    <span>{item.soldOut ? 'Agotado · toca para quitarlo' : 'Hay'}</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </details>
+        ) : null}
         {ctx.cartaFailed ? (
           <p role="status" className={styles.empty}>
             No se pudo cargar la carta: usa «Otro importe» o{' '}
@@ -227,31 +247,62 @@ function singular(label: string): string {
   return label.replace(/s$/i, '');
 }
 
-function ItemTile({
+export function ItemTile({
   item,
   qty,
   big,
   onPick,
+  onSoldOut,
 }: {
   item: CartaItem;
   qty: number;
   big: boolean;
   onPick: () => void;
+  onSoldOut: (soldOut: boolean) => void;
 }) {
+  const soldOut = item.soldOut === true;
+  // Mantener pulsada: marca o quita «Agotado» (el mismo gesto lo deshace). Siempre con lo último.
+  const toggle = useRef(onSoldOut);
+  useEffect(() => {
+    toggle.current = onSoldOut;
+  });
+  const soldRef = useRef(soldOut);
+  useEffect(() => {
+    soldRef.current = soldOut;
+  });
+  const press = useMemo(() => createLongPress(() => toggle.current(!soldRef.current)), []);
+  useEffect(() => press.cancel, [press]);
   // El color sólido de su sección (un pack, la suya), con tinta encima: el nombre de la sección va en el título del grupo.
   const style = { '--c': cartaTileColor(item.category) } as CSSProperties;
-  const cls = [styles.tile, styles.tileItem, big ? styles.tileBig : '', qty > 0 ? styles.tileOn : ''].filter(Boolean).join(' ');
+  const cls = [styles.tile, styles.tileItem, big ? styles.tileBig : '', qty > 0 ? styles.tileOn : '', soldOut ? styles.tileSoldOut : ''].filter(Boolean).join(' ');
   // La copa con invitación no va a la cuenta: se cobra aparte, con el QR de la chica.
   const invite = tapOf(item) === 'invitar';
-  const label = tileLabel(itemLabel(item), item.priceCents, { qty, invite });
+  const label = soldOut ? `${itemLabel(item)}, ${formatEur(item.priceCents)}, agotado` : tileLabel(itemLabel(item), item.priceCents, { qty, invite });
   return (
-    <button type="button" className={cls} style={style} data-tile={itemTileKey(item.id)} onClick={onPick} aria-label={label}>
+    <button
+      type="button"
+      className={cls}
+      style={style}
+      data-tile={itemTileKey(item.id)}
+      // aria-disabled (no disabled): sigue enfocable y se puede mantener pulsada para quitar «Agotado».
+      aria-disabled={soldOut || undefined}
+      onClick={() => {
+        if (press.click() && pickable(item)) onPick();
+      }}
+      onPointerDown={(e) => press.down(e.clientX, e.clientY)}
+      onPointerMove={(e) => press.move(e.clientX, e.clientY)}
+      onPointerUp={press.cancel}
+      onPointerLeave={press.cancel}
+      onPointerCancel={press.cancel}
+      onContextMenu={(e) => e.preventDefault()}
+      aria-label={label}
+    >
       {qty > 0 ? (
         <span className={styles.count} aria-hidden="true">
           {qty}
         </span>
       ) : null}
-      {invite ? (
+      {invite && !soldOut ? (
         <span className={styles.tileQr} aria-hidden="true">
           <IconQr />
         </span>
@@ -260,6 +311,7 @@ function ItemTile({
       <span className={styles.tileText}>
         <span className={`${styles.tileName}${qty > 0 || invite ? ` ${styles.tileNameBadge}` : ''}`}>{itemLabel(item)}</span>
         <span className={styles.price}>{formatEur(item.priceCents, { compact: true })}</span>
+        {soldOut ? <span className={styles.soldOutTag}>Agotado</span> : null}
       </span>
     </button>
   );

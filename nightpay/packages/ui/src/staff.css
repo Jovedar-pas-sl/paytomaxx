@@ -147,8 +147,8 @@
   font-variant-numeric: tabular-nums;
 }
 
-/* La marca, sin halo: lima con tinta en PAGADO; crema con el color del
-   fondo dentro en NO PAGADO y CADUCADO. 56-64 px según el alto. */
+/* La marca, sin halo, en NO PAGADO y CADUCADO: crema con el color del fondo
+   dentro (PAGADO y CARGADO usan .np-done, abajo). 56-64 px según el alto. */
 .np-outcome-ring {
   display: grid;
   place-items: center;
@@ -167,47 +167,8 @@
   color: var(--np-outcome-expired);
 }
 
-/* PAGADO (Grafito 3): el ✓ se dibuja. Aro verde y palo crema en un SVG de
-   104 × 104; el círculo se traza en 380 ms y el palo en 260 ms. */
-.np-outcome[data-kind='paid'] .np-outcome-ring {
-  width: clamp(5rem, 13vh, 7rem);
-  height: clamp(5rem, 13vh, 7rem);
-  background: transparent;
-  border-radius: 0;
-}
-
-.np-check {
-  width: 100%;
-  height: 100%;
-  animation: np-check-pop var(--np-d-moment) ease-out 1 both;
-}
-
-.np-check-ring {
-  stroke: var(--np-outcome-tick-ring);
-  stroke-dasharray: 302;
-  animation: np-check-ring 380ms ease-out 1 both;
-}
-
-.np-check-tick {
-  stroke: var(--np-outcome-ink);
-  stroke-dasharray: 60;
-  animation: np-check-tick 260ms ease-out 330ms 1 both;
-}
-
-@keyframes np-check-ring {
-  from { stroke-dashoffset: 302; }
-  to   { stroke-dashoffset: 0;   }
-}
-
-@keyframes np-check-tick {
-  from { stroke-dashoffset: 60; }
-  to   { stroke-dashoffset: 0;  }
-}
-
-@keyframes np-check-pop {
-  0%   { transform: scale(0.92); }
-  60%  { transform: scale(1.04); }
-  100% { transform: scale(1);    }
+.np-outcome[data-kind='paid'] {
+  --np-done-size: clamp(5rem, 13vh, 7rem);
 }
 
 .np-outcome-icon {
@@ -236,29 +197,41 @@
   100% { opacity: 0;    }
 }
 
-/* CARGADO sigue con su marca de siempre: aro lima que salta y ✓ que se dibuja
-   (pathLength="1"); queda dibujada al final. */
-.np-outcome[data-kind='paid'] .np-outcome-ring:not(:has(.np-check)) {
+/* La marca de «hecho», una sola en toda la app (PAGADO, CARGADO, la banda y
+   la pantalla del cliente): disco lima con ✓ de tinta. El disco salta y el ✓
+   se dibuja una vez (pathLength="1"); sin halo. */
+.np-done {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: var(--np-done-size, clamp(3.5rem, 8vh, 4rem));
+  height: var(--np-done-size, clamp(3.5rem, 8vh, 4rem));
+  border-radius: 50%;
   background: var(--np-lime);
   color: var(--np-ink);
-  border-radius: 50%;
-  animation: np-outcome-pop var(--np-d-moment) var(--np-ease-pop) 1 both;
+  animation: np-done-pop var(--np-d-moment) var(--np-ease-pop) 1 both;
 }
 
-@keyframes np-outcome-pop {
+.np-done svg {
+  width: 56%;
+  height: 56%;
+}
+
+.np-done path {
+  stroke-dasharray: 1;
+  stroke-dashoffset: 0;
+  animation: np-done-draw var(--np-d-moment) var(--np-ease) 120ms 1 both;
+}
+
+@keyframes np-done-pop {
   from { transform: scale(0.6); opacity: 0; }
   to   { transform: scale(1);   opacity: 1; }
 }
 
-.np-outcome[data-kind='paid'] .np-outcome-icon path {
-  stroke-dasharray: 1;
-  stroke-dashoffset: 0;
-  animation: np-outcome-draw var(--np-d-moment) var(--np-ease) 120ms 1 both;
-}
-
-@keyframes np-outcome-draw {
+@keyframes np-done-draw {
   from { stroke-dashoffset: 1; }
   to   { stroke-dashoffset: 0; }
+}
 }
 
 /* La palabra: 28/600 (cabe siempre en una línea). */
@@ -1118,11 +1091,8 @@
     display: none;
   }
 
-  .np-outcome[data-kind='paid'] .np-outcome-ring,
-  .np-outcome[data-kind='paid'] .np-outcome-icon path,
-  .np-check,
-  .np-check-ring,
-  .np-check-tick {
+  .np-done,
+  .np-done path {
     animation: none !important;
     stroke-dashoffset: 0;
   }

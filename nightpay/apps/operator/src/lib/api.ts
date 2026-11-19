@@ -30,6 +30,8 @@ import {
   type SessionEvent,
 } from '@nightpay/api-client';
 import { codeErrorText } from './api-codes';
+import { PracticeBlockedError, isPractice, setPractice } from './practice';
+import { practiceFetch } from './practice-sim';
 import type { PolledPayment } from './payment-status';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4100';
@@ -292,6 +294,8 @@ export function setSession(login: LoginResponse): void {
   client.setSession(login);
 }
 export function clearSession(): void {
+  // La práctica no sobrevive a la sesión: la siguiente persona empieza en real.
+  setPractice(false);
   client.clearSession();
 }
 
@@ -372,8 +376,13 @@ export function freshAccessToken(): Promise<string | null> {
   return client.freshAccessToken();
 }
 
+/**
+ * Por aquí pasa toda llamada del personal al API. En «Modo práctica» (lib/practice)
+ * la contesta el simulador y todo lo que cambia datos y no se simula se corta
+ * antes de la red.
+ */
 export function authedFetch(path: string, init: RequestInit = {}): Promise<Response> {
-  return client.authedFetch(path, init);
+  return practiceFetch(isPractice(), path, init, (p, i) => client.authedFetch(p, i));
 }
 
 /** «Mi perfil»: foto, nombre, teléfono, correo y contraseña de quien tiene la sesión. */
@@ -653,6 +662,19 @@ export interface ServiceItem {
   icon?: string | null;
   /** Ruta de su logo o foto (versionada por su huella), o null. */
   imageUrl?: string | null;
+  /** «Agotado esta noche»: no se puede añadir a la cuenta. */
+  soldOut?: boolean;
+}
+
+/** Marca o quita «Agotado» (lo ve todo el personal al momento). */
+export async function setServiceSoldOut(id: string, soldOut: boolean): Promise<void> {
+  if (isPractice()) throw new PracticeBlockedError('marcar «Agotado»');
+  const res = await authedFetch(`/v1/services/${encodeURIComponent(id)}/sold-out`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ soldOut }),
+  });
+  if (!res.ok) throw loadError(res, 'No se pudo marcar el producto');
 }
 
 /** Lo que quien llama puede cobrar (la chica solo ve sus servicios). */
@@ -786,8 +808,8 @@ export interface WalletChargeRequest {
 // ─── Public — Self-onboarding ─────────────────────────────────────
 
 /** Petición sin sesión (enlaces de alta e invitación): sin red, un mensaje claro. */
-function publicFetch(path: string, init?: RequestInit): Promise<Response> {
-  return client.publicFetch(path, init);
+function publicFetch(path: string, init: RequestInit = {}): Promise<Response> {
+  return practiceFetch(isPractice(), path, init, (p, i) => client.publicFetch(p, i));
 }
 
 export type WalletProvider =

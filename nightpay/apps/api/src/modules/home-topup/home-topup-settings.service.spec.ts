@@ -8,9 +8,11 @@ const VENUE = '11111111-1111-4111-8111-111111111111';
 const OWNER = { userId: 'u-owner', email: 'duena@sala.test', tenantId: VENUE };
 
 function make(o: { enabled?: boolean; code?: string | null; clashes?: number; problem?: boolean; fee?: boolean } = {}) {
-  const row = { homeTopUpEnabled: o.enabled ?? false, homeTopUpCode: o.code === undefined ? null : o.code };
+  const row = { homeTopUpEnabled: o.enabled ?? false, homeTopUpCode: o.code === undefined ? null : o.code, homeTopUpGiftsEnabled: false };
   let clashes = o.clashes ?? 0;
+  const gifts: unknown[] = [];
   const tx = {
+    walletGift: { findMany: vi.fn(async () => gifts) },
     venue: {
       findUniqueOrThrow: vi.fn(async () => ({ ...row })),
       update: vi.fn(async (args: { data: { homeTopUpCode?: string; homeTopUpEnabled?: boolean } }) => {
@@ -36,7 +38,7 @@ function make(o: { enabled?: boolean; code?: string | null; clashes?: number; pr
     ),
   };
   const service = new HomeTopUpSettingsService(prisma as never, audit as never, homeTopUps as never, config as never);
-  return { service, row, tx, audit };
+  return { service, row, tx, audit, gifts };
 }
 
 describe('Ajustes → «Cargar saldo desde casa»', () => {
@@ -87,6 +89,43 @@ describe('Ajustes → «Cargar saldo desde casa»', () => {
     const view = await make({ enabled: true, code: 'AbCdEfGhIjKlMnOp', problem: true, fee: true }).service.view(VENUE);
     expect(view.problem).toBe('methods');
     expect(view.serviceFeeBps).toBe(1200);
+  });
+});
+
+describe('Ajustes → «Regalos» («Regala una noche»)', () => {
+  it('apagado de serie; encender y apagar queda en el registro (y lo mismo otra vez, no)', async () => {
+    const m = make({ enabled: true, code: 'AbCdEfGhIjKlMnOp' });
+    expect((await m.service.view(VENUE)).giftsEnabled).toBe(false);
+    expect((await m.service.setGifts(OWNER, true)).giftsEnabled).toBe(true);
+    expect(m.audit.log).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'venue.home_topup.gifts_updated', payload: { before: { enabled: false }, after: { enabled: true } } }),
+    );
+    m.audit.log.mockClear();
+    await m.service.setGifts(OWNER, true);
+    expect(m.audit.log).not.toHaveBeenCalled();
+    expect((await m.service.setGifts(OWNER, false)).giftsEnabled).toBe(false);
+  });
+
+  it('los regalos pagados del local, los sin guardar primero y con su estado (sin nombre ni mensaje)', async () => {
+    const m = make({ enabled: true, code: 'AbCdEfGhIjKlMnOp' });
+    const now = Date.now();
+    const at = (d: number) => new Date(now + d * 86_400_000);
+    const wallet = (activated: boolean) => ({ pinHash: activated ? 'h' : null, _count: { passkeys: 0 } });
+    m.gifts.push(
+      { id: 'g1', createdAt: at(-1), expiresAt: at(89), claimedAt: null, payment: { amountCents: 5000 }, wallet: wallet(false) },
+      { id: 'g2', createdAt: at(-100), expiresAt: at(-10), claimedAt: null, payment: { amountCents: 2500 }, wallet: wallet(false) },
+      { id: 'g3', createdAt: at(-3), expiresAt: at(87), claimedAt: at(-2), payment: { amountCents: 10000 }, wallet: wallet(true) },
+    );
+    const view = await m.service.view(VENUE);
+    expect(view.gifts.map((g) => [g.id, g.state, g.amountCents])).toEqual([
+      ['g1', 'open', 5000],
+      ['g2', 'expired', 2500],
+      ['g3', 'claimed', 10000],
+    ]);
+    const query = m.tx.walletGift.findMany.mock.calls[0]![0] as { where: unknown; select: Record<string, unknown> };
+    expect(query.where).toEqual({ tenantId: VENUE, payment: { status: { in: ['AUTHORIZED', 'PARTIALLY_REFUNDED', 'REFUNDED'] } } });
+    expect(query.select).not.toHaveProperty('toName');
+    expect(query.select).not.toHaveProperty('message');
   });
 });
 
