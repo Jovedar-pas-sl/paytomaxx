@@ -93,7 +93,8 @@ describe('Schemas — método y dirección juntos se validan', () => {
   });
   it('SelfOnboardingSubmitSchema igual', () => {
     expect(SelfOnboardingSubmitSchema.safeParse({ payoutMethod: 'SEPA_IBAN', payoutAddress: 'ES00 1234' }).success).toBe(false);
-    expect(SelfOnboardingSubmitSchema.safeParse({ payoutMethod: 'SEPA_IBAN', payoutAddress: IBAN }).success).toBe(true);
+    // Con su titular (en SEPA es obligatorio: payout-holder.spec).
+    expect(SelfOnboardingSubmitSchema.safeParse({ payoutMethod: 'SEPA_IBAN', payoutAddress: IBAN, payoutMetadata: { accountHolder: 'Ana López' } }).success).toBe(true);
   });
 });
 

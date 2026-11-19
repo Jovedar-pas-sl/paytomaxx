@@ -253,6 +253,81 @@ export function normalizeWireDetails(meta: PayoutMetadata | null | undefined): P
   return entries.length > 0 ? Object.fromEntries(entries) : null;
 }
 
+// ─── Titular de la cuenta ────────────────────────────────────────────
+// En una transferencia el banco pide el nombre del titular (en SEPA, además,
+// comprueba que cuadre con el IBAN): sin él no se guarda una cuenta nueva.
+
+/** Métodos que llevan titular (SEPA y la transferencia internacional). */
+const HOLDER_METHODS: ReadonlySet<string> = new Set<PayoutMethod>(['SEPA_IBAN', 'WIRE_INTERNATIONAL']);
+
+export const PAYOUT_HOLDER_MISSING = 'Falta el titular de la cuenta';
+
+export function payoutHolderRequired(method: PayoutMethod | string | null | undefined): boolean {
+  return Boolean(method && HOLDER_METHODS.has(method));
+}
+
+/** null si el método no lleva titular o lo tiene; si no, el motivo. */
+export function payoutHolderProblem(
+  method: PayoutMethod | string | null | undefined,
+  meta: PayoutMetadata | null | undefined,
+): string | null {
+  return payoutHolderRequired(method) && !meta?.accountHolder?.trim() ? PAYOUT_HOLDER_MISSING : null;
+}
+
+/**
+ * Los datos del banco que se guardan con cada método: la transferencia
+ * internacional, los suyos (normalizeWireDetails); el IBAN SEPA, solo el
+ * titular; los demás, ninguno.
+ */
+export function payoutMetadataFor(
+  method: PayoutMethod | string | null | undefined,
+  meta: PayoutMetadata | null | undefined,
+): PayoutMetadata | null {
+  if (method === 'WIRE_INTERNATIONAL') return normalizeWireDetails(meta);
+  if (method === 'SEPA_IBAN') {
+    const holder = meta?.accountHolder?.trim();
+    return holder ? { accountHolder: holder } : null;
+  }
+  return null;
+}
+
+/** El titular tapado para los listados: la inicial de cada palabra («M••• L•••»). */
+export function maskHolderName(name: string | null | undefined): string | null {
+  const words = (name ?? '').trim().split(/\s+/).filter(Boolean);
+  if (words.length === 0) return null;
+  return words.map((w) => `${w.charAt(0).toUpperCase()}•••`).join(' ');
+}
+
+/** Palabras de un nombre para compararlo: sin acentos, en minúsculas y de 3 letras o más. */
+function nameWords(value: string): string[] {
+  return value
+    .normalize('NFD')
+    .replace(/\p{M}/gu, '')
+    .toLowerCase()
+    .split(/[^\p{L}]+/u)
+    .filter((w) => w.length >= 3);
+}
+
+/**
+ * ¿El titular se parece al nombre de la compañera? Basta una palabra en común
+ * (o que una empiece por la otra: «Ale» y «Alejandra»). Sin nombre o sin
+ * titular no se puede comparar: true (no se avisa). Es un aviso, no bloquea.
+ */
+export function holderMatchesName(holder: string | null | undefined, name: string | null | undefined): boolean {
+  const a = nameWords(holder ?? '');
+  const b = nameWords(name ?? '');
+  if (a.length === 0 || b.length === 0) return true;
+  return a.some((x) => b.some((y) => x === y || x.startsWith(y) || y.startsWith(x)));
+}
+
+// ─── Cambiar la cuenta de cobro: 48 h de espera ──────────────────────
+
+/** Horas tras un cambio de cuenta durante las que no se paga a la cuenta nueva (salvo en efectivo). */
+export const PAYOUT_ACCOUNT_HOLD_HOURS = 48;
+
+/** 409 de «Marcar pagado» a una cuenta cambiada hace menos de 48 h (lleva `payableFrom`). */
+export const PAYOUT_ACCOUNT_TOO_NEW = 'PAYOUT_ACCOUNT_TOO_NEW';
+
 /** El alta: con método, la cuenta es obligatoria (salvo efectivo) y con su forma; el SWIFT, con su banco. */
 function refineSelfOnboardingPayout(
   v: { payoutMethod?: PayoutMethod | null; payoutAddress?: string | null; payoutMetadata?: PayoutMetadata | null },
@@ -269,6 +344,9 @@ function refineSelfOnboardingPayout(
     for (const p of wireDetailsProblems(v.payoutMetadata)) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['payoutMetadata', p.field], message: p.message });
     }
+  } else {
+    const holder = payoutHolderProblem(method, v.payoutMetadata);
+    if (holder) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['payoutMetadata', 'accountHolder'], message: holder });
   }
 }
 
@@ -328,10 +406,22 @@ export const OperatorPublicViewSchema = z.object({
   createdAt: z.string().datetime(),
   invitedAt: z.string().datetime().nullable(),
   // Phase 1A — routing del payout. Null si la chica aún no lo configuró.
+  // La cuenta va siempre tapada: entera solo con «Ver cuenta para pagar»
+  // (el dueño, con 2FA: POST /admin/operators/:id/payout-account/reveal).
   payoutMethod: PayoutMethodSchema.nullable().optional(),
-  payoutAddress: z.string().nullable().optional(),
+  /** Tapada: IBAN "ES12 •••• •••• 1234", cripto "T…9f2a", email "a•••@dominio". */
+  payoutAddressMasked: z.string().nullable().optional(),
+  /** Banco, SWIFT y país (sin el titular: va tapado aparte). */
   payoutMetadata: PayoutMetadataSchema.nullable().optional(),
+  /** Titular tapado («M••• L•••»). */
+  payoutHolderMasked: z.string().nullable().optional(),
+  /** El titular no se parece a su nombre: aviso para el dueño (no bloquea). */
+  payoutHolderMismatch: z.boolean().optional(),
   payoutLabel: z.string().nullable().optional(),
+  /** Última vez que cambió su cuenta de cobro (null: antes de guardarlo). */
+  payoutAccountChangedAt: z.string().datetime().nullable().optional(),
+  /** Cuenta cambiada hace menos de 48 h: hasta entonces no se le paga a ella (salvo en efectivo). */
+  payoutHoldUntil: z.string().datetime().nullable().optional(),
   // Phase 1A.1 — Onboarding tracking
   phone: z.string().nullable().optional(),
   passportCountry: z.string().nullable().optional(),
@@ -570,7 +660,8 @@ export const SelfOnboardingProfileSchema = z.object({
   needsHelpDocs: z.boolean(),
   onboardingNotes: z.string().nullable(),
   payoutMethod: PayoutMethodSchema.nullable(),
-  payoutAddress: z.string().nullable(),
+  /** Su cuenta, tapada: el enlace nunca la devuelve entera. */
+  payoutAddressMasked: z.string().nullable().optional(),
   payoutLabel: z.string().nullable(),
   venueName: z.string(),
   /**
@@ -620,3 +711,23 @@ export const CreateOperatorResponseSchema = z.object({
   notice: z.string().optional(),
 });
 export type CreateOperatorResponse = z.infer<typeof CreateOperatorResponseSchema>;
+
+// ─── «Ver cuenta para pagar» y el aviso a la compañera ───────────────
+//   POST /admin/operators/:id/payout-account/reveal  { totpCode } → PayoutAccountFull (superadmin.ts)
+//     Solo el dueño y con su 2FA; queda en el registro sin la cuenta en claro.
+//   GET  /operators/me/payout-notice      → PayoutAccountNotice | null
+//   POST /operators/me/payout-notice/seen → { ok: true }
+
+export const RevealPayoutAccountSchema = z.object({
+  totpCode: z.string().regex(/^\d{6}$/, 'El código 2FA son 6 cifras').optional(),
+});
+export type RevealPayoutAccountDto = z.infer<typeof RevealPayoutAccountSchema>;
+
+/** «Tu cuenta de cobro ha cambiado»: lo ve la compañera al entrar en su app hasta que lo da por visto. */
+export const PayoutAccountNoticeSchema = z.object({
+  changedAt: z.string().datetime(),
+  method: PayoutMethodSchema.nullable(),
+  /** Tapada, como en «Ganancias»; null si no tiene (efectivo o la quitaron). */
+  masked: z.string().nullable(),
+});
+export type PayoutAccountNotice = z.infer<typeof PayoutAccountNoticeSchema>;
