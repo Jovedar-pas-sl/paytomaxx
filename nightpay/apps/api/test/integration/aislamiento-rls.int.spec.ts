@@ -124,7 +124,7 @@ async function seed(tag: string): Promise<{ tenantId: string; rows: Rows }> {
       const pushSub = await tx.walletPushSubscription.create({
         data: { tenantId, walletId: wallet.id, endpoint: `https://push.ejemplo.es/${tag}-${r}`, p256dh: 'BPk', auth: 'au' },
       });
-      // «Te han pagado»: el móvil de la chica apuntado al aviso del pago.
+      // «Te han pagado»: el móvil de la compañera apuntado al aviso del pago.
       const staffPush = await tx.staffPushSubscription.create({
         data: { tenantId, userId: chica, endpoint: `https://push.ejemplo.es/personal-${tag}-${r}`, p256dh: 'BPk', auth: 'au' },
       });
