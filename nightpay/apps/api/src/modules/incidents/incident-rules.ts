@@ -340,6 +340,10 @@ const SENSITIVE_ACTIONS: Readonly<Record<string, { title: string; detail: string
     title: 'PIN de un cliente borrado',
     detail: 'ha borrado el PIN de un saldo, con su 2FA. Comprueba que lo pidió el cliente.',
   },
+  'wallet.pin_unlocked': {
+    title: 'PIN de un cliente desbloqueado',
+    detail: 'ha desbloqueado el PIN de un saldo (tras los fallos o un «No he sido yo»), con su 2FA. Comprueba que el cliente estaba delante.',
+  },
   'wallet.relinked': {
     title: 'Enlace nuevo de un saldo',
     detail: 'ha dado un enlace nuevo: el anterior y su Face ID ya no valen. Comprueba que lo pidió el cliente.',

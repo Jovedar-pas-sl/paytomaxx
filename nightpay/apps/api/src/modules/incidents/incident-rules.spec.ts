@@ -59,8 +59,17 @@ describe('acciones delicadas: el dueño tiene que poder verlas', () => {
     expect(sensitiveActionIncident(row('payment.manual_reconcile')).paymentId).toBe('p1');
   });
 
+  it('desbloquear el PIN de un cliente sale como borrarlo: quién en el panel, no en Telegram', () => {
+    const i = sensitiveActionIncident(row('wallet.pin_unlocked', { amountCents: null }));
+    expect(i).toMatchObject({ kind: 'sensitive_action', title: 'PIN de un cliente desbloqueado', ackable: true });
+    expect(i.detail).toMatch(/^Javi ha desbloqueado el PIN de un saldo/);
+    expect(i.alertDetail).toMatch(/^Alguien del personal ha desbloqueado/);
+  });
+
   it('todas las que vigila tienen su texto', () => {
-    expect(SENSITIVE_AUDIT_ACTIONS).toEqual(expect.arrayContaining(['wallet.merged_large', 'wallet.activation_not_new', 'wallet.pin_reset', 'venue.night_settings.updated']));
+    expect(SENSITIVE_AUDIT_ACTIONS).toEqual(
+      expect.arrayContaining(['wallet.merged_large', 'wallet.activation_not_new', 'wallet.pin_reset', 'wallet.pin_unlocked', 'venue.night_settings.updated']),
+    );
     for (const a of SENSITIVE_AUDIT_ACTIONS) expect(sensitiveActionIncident(row(a)).title).not.toBe('Acción delicada');
   });
 });

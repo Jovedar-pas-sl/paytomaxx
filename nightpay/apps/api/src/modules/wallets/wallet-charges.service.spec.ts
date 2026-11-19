@@ -630,6 +630,21 @@ describe('lo que el cliente no confirma pide el 2FA de quien lo hace', () => {
     expect(totp.assertForUser).toHaveBeenCalledWith(owner.userId, '123456', expect.stringMatching(/^(wallet-payout|relink):/));
   });
 
+  it('desbloquear el PIN: como borrarlo, con el código del encargado o del dueño y atado a ese saldo', async () => {
+    const { svc, totp, tx, audit } = makeService();
+    await expect(svc.unlockPinWithCode(manager, 'w-1', undefined)).rejects.toMatchObject({ response: { code: 'TOTP_REQUIRED' } });
+    totp.assertForUser.mockRejectedValueOnce(new ForbiddenException({ code: 'TOTP_INVALID' }));
+    await expect(svc.unlockPinWithCode(manager, 'w-1', '000000')).rejects.toMatchObject({ response: { code: 'TOTP_INVALID' } });
+    await expect(svc.unlockPinWithCode({ ...manager, role: 'WAITER' as never }, 'w-1', '123456')).rejects.toThrow(ForbiddenException);
+    expect(tx.clientWallet.update).not.toHaveBeenCalled();
+    expect(audit.log).not.toHaveBeenCalled();
+    await expect(svc.unlockPinWithCode(manager, 'w-1', '123456')).resolves.toEqual({ ok: true });
+    expect(totp.assertForUser).toHaveBeenLastCalledWith(manager.userId, '123456', 'pin-unlock:w-1');
+    expect(tx.clientWallet.update).toHaveBeenCalledWith({ where: { id: 'w-1' }, data: { pinFails: 0, pinLockedAt: null } });
+    // Queda en el registro: sale en Incidencias (acción delicada).
+    expect(audit.log).toHaveBeenCalledWith(expect.objectContaining({ action: 'wallet.pin_unlocked', actorId: manager.userId }));
+  });
+
   it('un código malo no deja hacer nada', async () => {
     const { svc, totp, tx } = makeService();
     totp.assertForUser.mockRejectedValue(new ForbiddenException({ code: 'TOTP_INVALID' }));
