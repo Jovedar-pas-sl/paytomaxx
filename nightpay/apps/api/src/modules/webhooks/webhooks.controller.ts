@@ -9,12 +9,14 @@ import {
   Inject,
   Logger,
   NotFoundException,
+  Optional,
   Param,
   Post,
   Query,
   Req,
   UnauthorizedException,
 } from '@nestjs/common';
+import { ModuleRef } from '@nestjs/core';
 import { ConfigService } from '@nestjs/config';
 import { InjectQueue } from '@nestjs/bullmq';
 import type { Queue } from 'bullmq';
@@ -25,6 +27,7 @@ import { createHash, timingSafeEqual } from 'node:crypto';
 import type { Provider } from '@nightpay/contracts';
 import { Prisma } from '@nightpay/db';
 import { Public } from '../../common/decorators/public.decorator';
+import { IpRateLimit } from '../../common/guards/ip-rate-limit.guard';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { REDIS_CLIENT } from '../../common/redis/redis.module';
 import { GatewayRegistry } from '../gateways/gateway.registry';
@@ -36,6 +39,7 @@ import { boundedInput } from '../../common/pipes/input-limits';
 import { parseWebhookBody } from '../gateways/header-utils';
 import { WEBHOOKS_INGEST_QUEUE } from '../queues/queue-tokens';
 import { enqueueWebhookDelivery } from '../queues/webhook-enqueue';
+import { WebhookIngestProcessor } from '../queues/webhook-ingest.processor';
 import { MetricsService } from '../metrics/metrics.service';
 import { WebhookProviderGate, type GatedWebhookProvider } from './webhook-provider-gate';
 
@@ -92,6 +96,9 @@ function reencodeFormBody(body: Record<string, unknown>): Buffer {
 const PEANPE_NOTIFY_MAX_ATTEMPTS_PER_MIN = 5;
 const PEANPE_NOTIFY_WINDOW_SECONDS = 60;
 
+/** Lo más que la petición del aviso de Redsys espera a procesarlo: luego se contesta y termina aparte. */
+export const INLINE_NOTICE_MAX_MS = 5_000;
+
 /**
  * obs #3 (code review): rate-limiter atómico con Lua EVAL.
  *
@@ -124,6 +131,8 @@ export class WebhooksController {
   private readonly redsys: RedsysAdapter;
   /** null solo si se construye a mano (pruebas de antes): entonces no se cierra nada. */
   private readonly gate: WebhookProviderGate | null;
+  /** Para procesar el aviso de Redsys al llegar (WebhookIngestProcessor); sin él (pruebas de antes), solo la cola. */
+  private readonly moduleRef: ModuleRef | null;
 
   constructor(
     @Inject(PrismaService) prisma: PrismaService,
@@ -136,6 +145,7 @@ export class WebhooksController {
     @Inject(WipayAdapter) wipay: WipayAdapter,
     @Inject(RedsysAdapter) redsys: RedsysAdapter,
     @Inject(WebhookProviderGate) gate?: WebhookProviderGate,
+    @Optional() @Inject(ModuleRef) moduleRef?: ModuleRef,
   ) {
     this.prisma = prisma;
     this.gateways = gateways;
@@ -147,6 +157,7 @@ export class WebhooksController {
     this.wipay = wipay;
     this.redsys = redsys;
     this.gate = gate ?? null;
+    this.moduleRef = moduleRef ?? null;
   }
 
   /**
@@ -552,11 +563,13 @@ export class WebhooksController {
    *
    * Respuesta esperada por Redsys: 200 OK con cualquier cuerpo (suele ser
    * JSON simple o vacío). Sin formato especial obligatorio como Cecabank.
-   * Devolvemos OK INMEDIATAMENTE y procesamos en background.
+   * El aviso se procesa en la misma petición (processNowOrQueue); la cola, para reintentar.
+   * Fuera del límite global (global-rate-limit.ts): todos llegan desde unas pocas IP del banco.
    */
   @Public()
   @Post('redsys')
   @HttpCode(200)
+  @IpRateLimit({ max: 6_000, windowSec: 60, scope: 'webhook-redsys', failOpen: true })
   async receiveRedsys(@Req() req: FastifyRequest): Promise<{ received: true; duplicate?: boolean }> {
     const provider: Provider = 'REDSYS';
 
@@ -654,10 +667,53 @@ export class WebhooksController {
       );
     }
 
-    await this.enqueueDelivery(provider, verify.externalEventId, delivery.id);
+    await this.processNowOrQueue(provider, verify.externalEventId, delivery.id);
 
     this.metrics.webhooksReceived.inc({ provider, outcome: 'valid' });
     return { received: true };
+  }
+
+  /**
+   * El aviso firmado se procesa en la misma petición: el «Pagado» no espera a
+   * la cola (4 a la vez; con mucha gente pagando, minutos: carga del
+   * 19-11-2026). La cola queda para reintentar: si falla, o si otra petición
+   * tiene el mismo aviso (su candado, WebhookIngestProcessor.processDelivery).
+   * Con la base muy lenta, al banco se le contesta a los INLINE_NOTICE_MAX_MS
+   * y el aviso termina aparte. Uno ya procesado no cambia nada (processedAt).
+   */
+  private async processNowOrQueue(provider: Provider, externalEventId: string, deliveryId: bigint): Promise<void> {
+    const ingest = this.ingestProcessor();
+    if (!ingest) return this.enqueueDelivery(provider, externalEventId, deliveryId);
+    const run = ingest.processDelivery(deliveryId.toString()).then(
+      async (processed) => {
+        if (!processed) await this.enqueueDelivery(provider, externalEventId, deliveryId);
+      },
+      async (err: unknown) => {
+        this.logger.warn(`webhook ${provider} ${deliveryId}: no se pudo procesar al llegar, a la cola (${(err as Error).message})`);
+        await this.enqueueDelivery(provider, externalEventId, deliveryId);
+      },
+    );
+    let timer: NodeJS.Timeout | undefined;
+    const slow = new Promise<'slow'>((resolve) => {
+      timer = setTimeout(() => resolve('slow'), INLINE_NOTICE_MAX_MS);
+    });
+    try {
+      if ((await Promise.race([run.then(() => 'done' as const), slow])) === 'slow') {
+        run.catch((err: unknown) => this.logger.error(`webhook ${provider} ${deliveryId}: tampoco se pudo encolar: ${(err as Error).message}`));
+      }
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  /** El procesador de avisos de la cola (QueuesModule); null si no está (pruebas que construyen a mano). */
+  private ingestProcessor(): Pick<WebhookIngestProcessor, 'processDelivery'> | null {
+    if (!this.moduleRef) return null;
+    try {
+      return this.moduleRef.get(WebhookIngestProcessor, { strict: false });
+    } catch {
+      return null;
+    }
   }
 
   /**

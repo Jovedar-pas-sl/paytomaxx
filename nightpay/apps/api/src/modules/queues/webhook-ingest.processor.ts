@@ -1,9 +1,12 @@
 import { Processor, WorkerHost } from '@nestjs/bullmq';
 import { Inject, Logger, Optional } from '@nestjs/common';
 import type { Job } from 'bullmq';
+import type { Redis } from 'ioredis';
 import { randomUUID } from 'node:crypto';
 import type { Provider } from '@nightpay/contracts';
 import { PrismaService } from '../../common/prisma/prisma.service';
+import { REDIS_CLIENT } from '../../common/redis/redis.module';
+import { RELEASE_LOCK_LUA } from '../../common/redis/release-lock';
 import { PaymentsService } from '../payments/payments.service';
 import { GatewayRegistry } from '../gateways/gateway.registry';
 import type { GatewayAdapter } from '../gateways/gateway.adapter';
@@ -41,6 +44,9 @@ interface TargetPayment {
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+/** El candado de un aviso dura como mucho esto (procesarlo tarda milisegundos; con la base muy ocupada, segundos). */
+export const DELIVERY_LOCK_MS = 60_000;
+
 /**
  * Procesa webhooks ya verificados (HMAC OK + idempotente).
  * Mapea el payload del provider a un evento FSM y aplica la transición.
@@ -68,23 +74,58 @@ export class WebhookIngestProcessor extends WorkerHost {
   private readonly gateways: GatewayRegistry;
   /** Los avisos de BTCPay (bitcoin) los procesa BtcpayInvoiceService con la conexión de cada local. */
   private readonly btcpay: BtcpayInvoiceService | null;
+  /** El candado de cada aviso. Sin Redis (solo pruebas que construyen a mano), sin candado. */
+  private readonly redis: Pick<Redis, 'set' | 'eval'> | null;
 
   constructor(
     @Inject(PrismaService) prisma: PrismaService,
     @Inject(PaymentsService) payments: PaymentsService,
     @Inject(GatewayRegistry) gateways: GatewayRegistry,
     @Optional() @Inject(BtcpayInvoiceService) btcpay?: BtcpayInvoiceService,
+    @Optional() @Inject(REDIS_CLIENT) redis?: Redis,
   ) {
     super();
     this.prisma = prisma;
     this.payments = payments;
     this.gateways = gateways;
     this.btcpay = btcpay ?? null;
+    this.redis = redis ?? null;
   }
 
+  /** La cola: solo reintentos (la petición del banco ya lo procesa al llegar). Con el aviso en manos de otro, se reintenta en un momento. */
   async process(job: Job<WebhookIngestJobData>): Promise<void> {
-    const { deliveryId } = job.data;
+    if (!(await this.processDelivery(job.data.deliveryId))) {
+      throw new Error(`aviso ${job.data.deliveryId}: lo está procesando otra petición, se reintenta`);
+    }
+  }
 
+  /**
+   * Procesa un aviso guardado si nadie más lo tiene entre manos: la petición
+   * del banco (webhooks.controller, al llegar) y la cola (reintentos) nunca a
+   * la vez con el mismo aviso, como pasaba con un solo trabajo por aviso (una
+   * aprobación tardía tras pagar con el saldo se devuelve una sola vez).
+   * false = otro lo tiene. Un aviso ya procesado no cambia nada.
+   */
+  async processDelivery(deliveryId: string): Promise<boolean> {
+    if (!this.redis) {
+      await this.handleDelivery(deliveryId);
+      return true;
+    }
+    const key = `nightpay:webhook-delivery:${deliveryId}`;
+    const lock = randomUUID();
+    if ((await this.redis.set(key, lock, 'PX', DELIVERY_LOCK_MS, 'NX')) !== 'OK') return false;
+    try {
+      await this.handleDelivery(deliveryId);
+      return true;
+    } finally {
+      await this.redis.eval(RELEASE_LOCK_LUA, 1, key, lock).catch((err: unknown) => {
+        // Caduca solo (DELIVERY_LOCK_MS): no hace falta más.
+        this.logger.warn(`aviso ${deliveryId}: no se pudo soltar su candado: ${(err as Error).message}`);
+      });
+    }
+  }
+
+  private async handleDelivery(deliveryId: string): Promise<void> {
     // webhookDelivery NO esta en TENANT_SCOPED_MODELS — query directa sin asSystem.
     const delivery = await this.prisma.webhookDelivery.findUniqueOrThrow({
       where: { id: BigInt(deliveryId) },

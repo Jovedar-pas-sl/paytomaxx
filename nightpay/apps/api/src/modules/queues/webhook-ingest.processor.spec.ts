@@ -363,3 +363,56 @@ describe('WebhookIngestProcessor — avisos que nombran el intento, no el cobro 
     }
   });
 });
+
+describe('WebhookIngestProcessor — un aviso, uno a la vez (la petición del banco y la cola)', () => {
+  /** El mismo procesador con un Redis de mentira: `set` contesta OK (candado libre) o null (ocupado). */
+  function withLock(m: ReturnType<typeof makeProcessor>, free: boolean) {
+    const redis = { set: vi.fn().mockResolvedValue(free ? 'OK' : null), eval: vi.fn().mockResolvedValue(1) };
+    const gateways = { get: vi.fn().mockReturnValue(m.adapter) };
+    const processor = new WebhookIngestProcessor(m.prisma as never, m.payments as never, gateways as never, undefined, redis as never);
+    return { processor, redis };
+  }
+
+  it('con el candado libre lo procesa, dice true y suelta su candado', async () => {
+    const m = makeProcessor();
+    const { processor, redis } = withLock(m, true);
+    await expect(processor.processDelivery('7')).resolves.toBe(true);
+    expect(redis.set).toHaveBeenCalledWith('nightpay:webhook-delivery:7', expect.any(String), 'PX', 60_000, 'NX');
+    expect(m.payments.transition).toHaveBeenCalledTimes(1);
+    const lock = redis.set.mock.calls[0]![1];
+    expect(redis.eval).toHaveBeenCalledWith(expect.stringContaining("redis.call('get'"), 1, 'nightpay:webhook-delivery:7', lock);
+  });
+
+  it('si otro lo tiene (la otra petición del mismo aviso), no lo toca y dice false', async () => {
+    const m = makeProcessor();
+    const { processor, redis } = withLock(m, false);
+    await expect(processor.processDelivery('7')).resolves.toBe(false);
+    expect(m.prisma.webhookDelivery.findUniqueOrThrow).not.toHaveBeenCalled();
+    expect(m.payments.transition).not.toHaveBeenCalled();
+    expect(redis.eval).not.toHaveBeenCalled();
+  });
+
+  it('la cola: si otro lo tiene, lanza para que BullMQ lo reintente en un momento', async () => {
+    const m = makeProcessor();
+    const { processor } = withLock(m, false);
+    await expect(processor.process(m.job)).rejects.toThrow(/otra petición/);
+    expect(m.payments.transition).not.toHaveBeenCalled();
+  });
+
+  it('si procesarlo falla, el error sigue (para reintentar) y el candado se suelta igual', async () => {
+    const m = makeProcessor();
+    m.payments.transition.mockRejectedValueOnce(new Error('P2028 Unable to start a transaction in the given time'));
+    const { processor, redis } = withLock(m, true);
+    await expect(processor.processDelivery('7')).rejects.toThrow(/P2028/);
+    expect(redis.eval).toHaveBeenCalledTimes(1);
+  });
+
+  it('un aviso ya procesado no cambia nada', async () => {
+    const m = makeProcessor();
+    m.prisma.webhookDelivery.findUniqueOrThrow.mockResolvedValueOnce({ id: BigInt(7), provider: 'REDSYS', tenantId: TENANT_ID, processedAt: new Date(), rawBody: Buffer.from('') });
+    const { processor } = withLock(m, true);
+    await expect(processor.processDelivery('7')).resolves.toBe(true);
+    expect(m.payments.transition).not.toHaveBeenCalled();
+    expect(m.prisma.webhookDelivery.update).not.toHaveBeenCalled();
+  });
+});
