@@ -380,23 +380,50 @@ const SENSITIVE_ACTIONS: Readonly<Record<string, { title: string; detail: string
     title: 'Ajustes de la noche cambiados',
     detail: 'ha cambiado los topes sin PIN o la recepción (Ajustes → La noche).',
   },
+  // A dónde va el dinero de una compañera (panel, enlace de alta u OxioPay): el
+  // texto según por dónde (`via`, PAYOUT_ACCOUNT_CHANGE_VIA).
+  'operator.payout_account_changed': {
+    title: 'Cuenta de cobro cambiada',
+    detail: 'ha cambiado la cuenta de cobro de una compañera, con su 2FA. Le hemos avisado por email y en su app.',
+  },
 };
+
+/** La cuenta de cobro cambiada por el enlace de alta o por OxioPay (payload.via). */
+const PAYOUT_ACCOUNT_CHANGE_VIA: Readonly<Record<string, { title: string; detail: string }>> = {
+  enlace: {
+    title: 'Cuenta de cobro puesta con el enlace de alta',
+    detail: 'Una compañera ha puesto su cuenta de cobro con su enlace de alta. Le hemos avisado por email: comprueba que es suya antes de pagarle.',
+  },
+  oxiopay: {
+    title: 'OxioPay ha cambiado una cuenta de cobro',
+    detail: 'OxioPay ha cambiado la cuenta de cobro de una compañera (el motivo está en el registro). Le hemos avisado por email y en su app.',
+  },
+};
+
+const HOLDER_MISMATCH_NOTE = ' El titular no se parece a su nombre: comprueba que la cuenta es suya.';
 
 export const SENSITIVE_AUDIT_ACTIONS: readonly string[] = Object.keys(SENSITIVE_ACTIONS);
 
+function sensitiveCopy(r: EventRow & { action: string }): { title: string; detail: string } {
+  const via = r.action === 'operator.payout_account_changed' ? str(r.payload, 'via') : null;
+  const byVia = via ? PAYOUT_ACCOUNT_CHANGE_VIA[via] : undefined;
+  return byVia ?? SENSITIVE_ACTIONS[r.action] ?? { title: 'Acción delicada', detail: 'Revisa el registro.' };
+}
+
 /** Algo que mueve dinero o abre un saldo sin que el cliente lo confirme: el dueño tiene que poder verlo. */
 export function sensitiveActionIncident(r: EventRow & { action: string; actorName?: string | null }): Incident {
-  const copy = SENSITIVE_ACTIONS[r.action] ?? { title: 'Acción delicada', detail: 'Revisa el registro.' };
+  const copy = sensitiveCopy(r);
   const startsLower = /^[a-záéíóú]/.test(copy.detail);
   const who = r.actorName?.trim();
   const name = str(r.payload, 'name');
+  const note = (r.payload as { holderMismatch?: unknown } | null)?.holderMismatch === true ? HOLDER_MISMATCH_NOTE : '';
   return {
     kind: 'sensitive_action',
     refId: r.id,
     title: copy.title,
-    detail: `${startsLower ? `${who || 'Alguien del personal'} ${copy.detail}` : copy.detail}${name ? ` (${name})` : ''}`,
+    detail: `${startsLower ? `${who || 'Alguien del personal'} ${copy.detail}` : copy.detail}${name ? ` (${name})` : ''}${note}`,
     // Telegram es un tercero: sin el nombre.
-    alertDetail: startsLower ? `Alguien del personal ${copy.detail}` : copy.detail,
+    alertDetail: `${startsLower ? `Alguien del personal ${copy.detail}` : copy.detail}${note}`,
     occurredAt: r.occurredAt.toISOString(),
     amountCents: r.amountCents,
     paymentId: r.action === 'payment.manual_reconcile' || r.action === 'payment.accepted_after_cancel' ? r.paymentId : null,
