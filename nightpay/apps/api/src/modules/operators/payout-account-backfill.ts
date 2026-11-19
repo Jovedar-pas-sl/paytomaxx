@@ -35,6 +35,13 @@ interface PayoutRow {
 const PAGE = 200;
 const FIRST_ID = '00000000-0000-0000-0000-000000000000';
 
+/** Para el log. De un fallo de la base, solo su tipo y su código: su mensaje podría llevar la cuenta. */
+export function reasonOf(err: unknown): string {
+  if (!(err instanceof Error)) return 'error desconocido';
+  if (!err.name.startsWith('PrismaClient')) return err.message;
+  return `${err.name} ${(err as { code?: string }).code ?? ''}`.trim();
+}
+
 @Injectable()
 export class PayoutAccountBackfill implements OnApplicationBootstrap {
   private readonly logger = new Logger(PayoutAccountBackfill.name);
@@ -56,7 +63,7 @@ export class PayoutAccountBackfill implements OnApplicationBootstrap {
         this.logger.log(`Cuentas de cobro cifradas: ${done.accounts} personas y ${done.payouts} pagos (${done.failed} sin poder)`);
       }
     } catch (err) {
-      this.logger.error(`El relleno de las cuentas de cobro no ha terminado (se repite al arrancar): ${(err as Error).message}`);
+      this.logger.error(`El relleno de las cuentas de cobro no ha terminado (se repite al arrancar): ${reasonOf(err)}`);
     }
   }
 
@@ -79,7 +86,7 @@ export class PayoutAccountBackfill implements OnApplicationBootstrap {
       if (await seal()) result[key] += 1;
     } catch (err) {
       result.failed += 1;
-      this.logger.error(`No se pudo cifrar una cuenta de cobro (${key}): ${(err as Error).message}`);
+      this.logger.error(`No se pudo cifrar una cuenta de cobro (${key}): ${reasonOf(err)}`);
     }
   }
 
