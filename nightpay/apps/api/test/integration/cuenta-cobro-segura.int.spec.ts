@@ -706,13 +706,18 @@ describe('el relleno: cifra lo que estaba en claro, se puede repetir y no cuenta
     const rowBefore = await stored(wire);
     expect(await asPublic(() => backfill.run())).toEqual({ accounts: 0, payouts: 0, failed: 0 });
     expect(await stored(wire)).toEqual(rowBefore);
+    expect(await backfill.leftInClear()).toBe(0);
   });
 
   it('al arrancar el API se lanza solo, sin hacer esperar al arranque; si falla, no lo impide', async () => {
     const eli = await newChica('Eli', { payoutMethod: 'USDT_TRC20', payoutAddress: TRON });
+    // Lo que queda en claro se cuenta (es lo que el arranque avisa si no baja a cero): la cuenta de Eli y el titular de Sol.
+    await newChica('Sol', { payoutMethod: 'SEPA_IBAN', payoutMetadata: { accountHolder: 'Sol Vega' } });
+    expect(await backfill.leftInClear()).toBe(2);
     // Como en el arranque: sin petición ni local en el contexto.
     await backfill.runLogged();
     expect((await stored(eli)).payoutAddress).toMatch(/^pa1:/);
+    expect(await backfill.leftInClear()).toBe(0);
 
     // El arranque no lo espera: con la base sin contestar, vuelve al momento.
     const stuck = new PayoutAccountBackfill({ asSystem: () => new Promise(() => undefined) } as never);
