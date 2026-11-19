@@ -212,9 +212,19 @@ model User {
   // Phase 1A — routing de payout. Solo OPERATOR. Valores en migration 20260511 comment.
   // Si payoutMethod es null el modal "Marcar pagado" cae a MANUAL_CASH.
   payoutMethod   String?
+  // Cifrada (pa1:..., ENCRYPTION_KEK; ver apps/api/.../payout-account-crypto.ts).
+  // Las antiguas en claro se leen igual hasta que las cifra el relleno.
   payoutAddress  String?
+  // El titular (accountHolder) va cifrado igual dentro del JSON.
   payoutMetadata Json?
   payoutLabel    String?
+  // Cuenta segura (20261119100000): lo tapado para enseñar, el último cambio,
+  // la espera de 48 h para pagar a la cuenta nueva y el aviso a la compañera.
+  payoutAddressMasked    String?
+  payoutHolderMasked     String?
+  payoutAccountChangedAt DateTime? @db.Timestamptz
+  payoutHoldUntil        DateTime? @db.Timestamptz
+  payoutNoticeSeenAt     DateTime? @db.Timestamptz
   // Tip beneficiary relation (cliente añade propina dirigida a esta operadora/staff)
   tipsReceived        Payment[]           @relation("PaymentTipBeneficiary")
 
