@@ -145,7 +145,7 @@ NODE_ENV=production
 PORT=4100
 LOG_LEVEL=info
 
-DATABASE_URL=postgresql://np:<POSTGRES_PASSWORD>@nightpay-postgres:5432/nightpay
+DATABASE_URL=postgresql://np:<POSTGRES_PASSWORD>@nightpay-postgres:5432/nightpay?connection_limit=20&pool_timeout=10
 REDIS_URL=redis://default:<REDIS_PASSWORD>@nightpay-redis:6379
 
 JWT_SECRET=<Fase 0>
@@ -191,6 +191,24 @@ Notas:
 - `DATABASE_URL` con `np` (superusuario) es el montaje inicial. Para que el API
   entre con un rol sin superusuario (RLS de la base aísla los locales):
   [`DB-ROLE.md`](DB-ROLE.md).
+- Conexiones a la base, al final de `DATABASE_URL` (con cualquier usuario):
+  `?connection_limit=20&pool_timeout=10`.
+  - `connection_limit=20`: lo más que el API (peticiones y colas, un solo
+    proceso) tiene abierto a la vez. Sin ponerlo, Prisma abre «núcleos × 2 + 1»
+    (5 en un servidor de 2 núcleos): en la prueba de carga del 19-11-2026, con
+    10, a partir de unos 200 cobros por minuto todas estaban ocupadas y salía
+    «Hay mucha gente pagando a la vez». No subas de 40: Postgres admite 100 de
+    serie (`SHOW max_connections;`) y durante un Deploy pueden estar el API
+    viejo y el nuevo a la vez, más `db-heal`, las copias y un `psql`.
+  - `pool_timeout=10`: los segundos que una consulta suelta espera una conexión
+    libre antes de contestar 503 («Hay mucha gente…», que se reintenta sola).
+    Es lo que Prisma pone sin decir nada; se escribe para que se vea. Las
+    transacciones esperan como mucho 2 s (10 s los informes): lo pone el
+    código, no la URL. Esperar más no ayuda: quien está pagando ya se ha
+    cansado.
+  - Comprobar en una noche fuerte (**Terminal** de **nightpay-postgres**):
+    `psql -U np -d nightpay -c "SELECT state, count(*) FROM pg_stat_activity WHERE datname = 'nightpay' GROUP BY 1;"`.
+    Si casi siempre hay 20 `active` o `idle in transaction`, sube a 30.
 - `NODE_ENV` sin poner también arranca como producción; ponlo igual.
 - Sin `CORS_ORIGINS` o con una dirección mal escrita (cada una
   `https://dominio`, sin barra final ni ruta) el API **no arranca** en
