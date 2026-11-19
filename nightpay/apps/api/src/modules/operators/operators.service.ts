@@ -31,7 +31,7 @@ import {
 } from './payout-idempotency';
 import { debtView, payoutAccountView, type DebtRow, type MyPayoutInfo } from './my-payout-info';
 import { myPaymentsPage, type MyPaymentRow } from './my-payments';
-import { NO_HISTORY_RANGE, historyOrder, historyPage, historyRange, historyWhere, type HistoryRange } from './my-history';
+import { historyOrder, historyPage, historyRange, historyWhere, type HistoryRange } from './my-history';
 import { StaffPushService } from './staff-push.service';
 import { earningBankHeldSql, earningNetSql } from './bank-hold-sql';
 import { availableCentsOf, payoutCutoff, payoutTotalCents } from './payout-math';
@@ -280,7 +280,7 @@ export class OperatorsService {
     tenantId: string,
     limit = 50,
   ): Promise<EarningView[]> {
-    return this.earningRows(operatorId, tenantId, limit, NO_HISTORY_RANGE);
+    return this.earningRows(operatorId, tenantId, limit, null);
   }
 
   /** «Historial» de sus ganancias en la app: por páginas y entre dos fechas. */
@@ -288,7 +288,7 @@ export class OperatorsService {
     return historyPage(await this.earningRows(operatorId, tenantId, q.limit + 1, historyRange(q)), q.limit);
   }
 
-  private async earningRows(operatorId: string, tenantId: string, take: number, range: HistoryRange): Promise<EarningView[]> {
+  private async earningRows(operatorId: string, tenantId: string, take: number, range: HistoryRange | null): Promise<EarningView[]> {
     const rows = await this.prisma.withTenant(tenantId, (tx) => tx.$queryRaw<
       Array<{
         id: string;
@@ -315,7 +315,7 @@ export class OperatorsService {
        WHERE e."operatorId" = ${operatorId}::uuid
          AND e."tenantId" = ${tenantId}::uuid
          ${historyWhere('e', range)}
-       ORDER BY ${historyOrder('e')}
+       ORDER BY ${historyOrder('e', range)}
        LIMIT ${take}
     `);
     return rows.map((r) => ({
@@ -368,7 +368,7 @@ export class OperatorsService {
     tenantId: string,
     limit = 50,
   ): Promise<PayoutView[]> {
-    return this.payoutRows(operatorId, tenantId, limit, NO_HISTORY_RANGE);
+    return this.payoutRows(operatorId, tenantId, limit, null);
   }
 
   /** «Pagos recibidos» de la app: por páginas y entre dos fechas, con su justificante. */
@@ -376,7 +376,7 @@ export class OperatorsService {
     return historyPage(await this.payoutRows(operatorId, tenantId, q.limit + 1, historyRange(q)), q.limit);
   }
 
-  private async payoutRows(operatorId: string, tenantId: string, take: number, range: HistoryRange): Promise<PayoutView[]> {
+  private async payoutRows(operatorId: string, tenantId: string, take: number, range: HistoryRange | null): Promise<PayoutView[]> {
     const rows = await this.prisma.withTenant(tenantId, (tx) => tx.$queryRaw<
       Array<{
         id: string;
@@ -409,7 +409,7 @@ export class OperatorsService {
        WHERE po."operatorId" = ${operatorId}::uuid
          AND po."tenantId" = ${tenantId}::uuid
          ${historyWhere('po', range)}
-       ORDER BY ${historyOrder('po')}
+       ORDER BY ${historyOrder('po', range)}
        LIMIT ${take}
     `);
     return rows.map((r) => ({

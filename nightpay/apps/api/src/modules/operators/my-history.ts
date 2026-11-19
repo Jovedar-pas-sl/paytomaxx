@@ -14,8 +14,6 @@ export interface HistoryRange {
   cursor: FeedCursor | null;
 }
 
-export const NO_HISTORY_RANGE: HistoryRange = { from: null, to: null, cursor: null };
-
 /** Un cursor que no es de la lista da la primera página (como en «Cobros»). */
 export function historyRange(q: Pick<OwnHistoryQuery, 'cursor' | 'from' | 'to'>): HistoryRange {
   return { from: q.from ? new Date(q.from) : null, to: q.to ? new Date(q.to) : null, cursor: decodeCursor(q.cursor) };
@@ -25,16 +23,24 @@ export function historyRange(q: Pick<OwnHistoryQuery, 'cursor' | 'from' | 'to'>)
 // por milisegundo y, a la misma hora, por id; así ninguna fila se salta ni se repite.
 const atMs = (alias: string) => Prisma.raw(`date_trunc('milliseconds', ${alias}."createdAt")`);
 
-/** Lo que se añade al WHERE (`alias` es el de la tabla en la consulta, nunca algo de fuera). */
-export function historyWhere(alias: string, r: HistoryRange): Prisma.Sql {
+/**
+ * Lo que se añade al WHERE (`alias` es el de la tabla en la consulta, nunca
+ * algo de fuera). null: la lista de siempre (las últimas), sin nada.
+ */
+export function historyWhere(alias: string, r: HistoryRange | null): Prisma.Sql {
+  if (!r) return Prisma.empty;
   const created = Prisma.raw(`${alias}."createdAt"`);
   return Prisma.sql`${r.from ? Prisma.sql`AND ${created} >= ${r.from}` : Prisma.empty}
          ${r.to ? Prisma.sql`AND ${created} < ${r.to}` : Prisma.empty}
          ${r.cursor ? Prisma.sql`AND (${atMs(alias)}, ${Prisma.raw(`${alias}.id`)}) < (${r.cursor.at}::timestamptz, ${r.cursor.id}::uuid)` : Prisma.empty}`;
 }
 
-/** El ORDER BY que encaja con la página de historyWhere: la más reciente primero. */
-export function historyOrder(alias: string): Prisma.Sql {
+/**
+ * El ORDER BY que encaja con la página de historyWhere: la más reciente
+ * primero. null: el de siempre (por fecha, el índice da las últimas sin ordenar todas).
+ */
+export function historyOrder(alias: string, r: HistoryRange | null): Prisma.Sql {
+  if (!r) return Prisma.raw(`${alias}."createdAt" DESC`);
   return Prisma.sql`${atMs(alias)} DESC, ${Prisma.raw(`${alias}.id`)} DESC`;
 }
 

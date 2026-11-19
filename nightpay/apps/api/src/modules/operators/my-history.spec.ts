@@ -35,6 +35,11 @@ describe('historyWhere y historyOrder', () => {
     expect(sql.values).toEqual([]);
   });
 
+  it('la lista de siempre (null): ni condiciones ni otro orden (el índice da las últimas)', () => {
+    expect(historyWhere('e', null).text).toBe('');
+    expect(historyOrder('e', null).text).toBe('e."createdAt" DESC');
+  });
+
   it('las fechas [desde, hasta) y la página: por milisegundo y, a la misma hora, por id (como el orden)', () => {
     const from = new Date('2026-11-01T07:00:00.000Z');
     const to = new Date('2026-11-16T07:00:00.000Z');
@@ -44,7 +49,7 @@ describe('historyWhere y historyOrder', () => {
     expect(sql.text).toContain('po."createdAt" < $2');
     expect(sql.text).toContain(`(date_trunc('milliseconds', po."createdAt"), po.id) < ($3::timestamptz, $4::uuid)`);
     expect(sql.values).toEqual([from, to, at, ID_2]);
-    expect(historyOrder('po').text).toBe(`date_trunc('milliseconds', po."createdAt") DESC, po.id DESC`);
+    expect(historyOrder('po', { from, to, cursor: null }).text).toBe(`date_trunc('milliseconds', po."createdAt") DESC, po.id DESC`);
   });
 });
 
