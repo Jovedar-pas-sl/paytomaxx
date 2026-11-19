@@ -6,8 +6,12 @@ interface PayoutRouting {
   payoutAddress?: string | null;
 }
 
-/** Los campos de la cuenta de cobro de una chica: a dónde va su dinero. */
-export const PAYOUT_ACCOUNT_FIELDS = ['payoutMethod', 'payoutAddress', 'payoutMetadata', 'payoutLabel'] as const;
+/**
+ * Los campos de la cuenta de cobro de una chica: a dónde va su dinero. «La
+ * cuenta es suya» (titular que no coincide con su nombre legal) también: deja
+ * pagarle a esa cuenta, así que pide la misma 2FA.
+ */
+export const PAYOUT_ACCOUNT_FIELDS = ['payoutMethod', 'payoutAddress', 'payoutMetadata', 'payoutLabel', 'payoutHolderConfirmed'] as const;
 
 /** ¿El cambio toca la cuenta de cobro? (cambiarla pide 2FA y queda en el registro). */
 export function touchesPayoutAccount(dto: Partial<Record<(typeof PAYOUT_ACCOUNT_FIELDS)[number], unknown>>): boolean {

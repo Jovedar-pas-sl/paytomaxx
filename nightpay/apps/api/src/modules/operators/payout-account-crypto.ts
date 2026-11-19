@@ -19,7 +19,8 @@ const PREFIX = 'pa1';
 const KEY_PURPOSE = 'nightpay:payout-account:v1';
 const MIN_KEK_LENGTH = 32;
 
-export type PayoutSecretField = 'address' | 'holder';
+/** legalName: el nombre legal de la compañera (alta-identity.ts), con la misma clave y su propio campo. */
+export type PayoutSecretField = 'address' | 'holder' | 'legalName';
 
 export interface PayoutSecretRef {
   /** La persona dueña de la cuenta (users.id). */

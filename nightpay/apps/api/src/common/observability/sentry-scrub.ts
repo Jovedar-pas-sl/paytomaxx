@@ -59,6 +59,9 @@ const SECRET_BODY_KEYS: ReadonlySet<string> = new Set([
   'iban',
   'accountnumber',
   'passportcountry',
+  // El alta: nombre legal y fecha de nacimiento.
+  'legalname',
+  'birthdate',
 ]);
 /**
  * Y cualquiera que lo parezca: newPassword, accessToken, pinConfirm,

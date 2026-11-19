@@ -24,6 +24,7 @@ import {
 import { PrismaService, type TransactionalClient } from '../../common/prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import type { PayoutIdempotency } from '../operators/payout-idempotency';
+import { payoutHolderNotConfirmed } from '../operators/alta-identity';
 import { payoutAccountTooNew } from '../operators/payout-account-notices';
 import { payoutTotalCents } from '../operators/payout-math';
 import { lockOperatorPayouts, payableSelection, payoutTotalChanged } from '../operators/payout-selection';
@@ -242,14 +243,17 @@ export class ApprovalRequestsService {
         payoutAddressMasked: true,
         payoutLabel: true,
         payoutHoldUntil: true,
+        payoutMetadata: true,
+        legalName: true,
+        payoutHolderConfirmedAt: true,
       },
     });
     if (!operator) throw new NotFoundException('Operadora no encontrada');
     const method = dto.externalRail ?? operator.payoutMethod ?? null;
     if (!method) throw new BadRequestException('Elige cómo se le paga: la chica no tiene método de cobro guardado.');
-    // Cuenta cambiada hace menos de 48 h: ni se pide (al aprobarlo tampoco se apuntaría).
-    const tooNew = payoutAccountTooNew(operator, method, now);
-    if (tooNew) throw tooNew;
+    // Cuenta cambiada hace menos de 48 h, o titular sin confirmar: ni se pide (al aprobarlo tampoco se apuntaría).
+    const blocked = payoutAccountTooNew(operator, method, now) ?? payoutHolderNotConfirmed(operator, method);
+    if (blocked) throw blocked;
     // Un hash on-chain solo vale para un pago del local (se vuelve a mirar al aprobarlo).
     const txId = dto.externalTxId?.trim();
     if (txId && isAutoVerifiable(method as PayoutMethod)) {
