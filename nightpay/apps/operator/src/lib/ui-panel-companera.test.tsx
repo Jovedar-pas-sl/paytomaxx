@@ -1,8 +1,25 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { DateRange } from '../components/DateRange';
+import { PayoutAccountLine } from '../components/PayoutProfile';
 import { PayoutList, PayoutsReceived } from '../components/PayoutsReceived';
 import type { MyPayout } from './api';
+
+describe('su cuenta de cobro en «Mi perfil»', () => {
+  it('tapada, con el texto para cambiarla (sin botón: la cambia el encargado)', () => {
+    const html = renderToStaticMarkup(<PayoutAccountLine account={{ method: 'SEPA_IBAN', masked: 'ES91 •••• •••• 1332', label: 'Mi banco' }} />);
+    expect(html).toContain('ES91 •••• •••• 1332');
+    expect(html).toContain('Mi banco');
+    expect(html).toContain('Para cambiarla, pídeselo al encargado.');
+    expect(html).not.toContain('<button');
+    expect(html).not.toContain('21000418450200051332');
+  });
+
+  it('sin cuenta, o sin poder cargarla: lo dice', () => {
+    expect(renderToStaticMarkup(<PayoutAccountLine account={null} />)).toContain('Aún no tienes cuenta de cobro: pídesela al encargado.');
+    expect(renderToStaticMarkup(<PayoutAccountLine account={false} />)).toContain('No se ha podido cargar tu cuenta de cobro');
+  });
+});
 
 // El panel de la compañera (19-nov-2026): el justificante de cada pago (enlace
 // solo https) y «Buscar por fechas». Se pintan con react-dom/server: solo el marcado.

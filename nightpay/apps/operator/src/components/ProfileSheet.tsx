@@ -5,10 +5,12 @@ import { ProfileScreen, ScreenHelp } from '@nightpay/ui';
 import { profileApi } from '@/lib/api';
 import { TOURS } from '@/lib/tours';
 import { useMyProfile } from './my-profile';
+import { PayoutProfile } from './PayoutProfile';
 
 /**
  * «Mi perfil», a pantalla completa desde el menú del logo: foto, nombre,
- * contacto, seguridad y los ajustes de este móvil. «Atrás» (o Esc) vuelve a
+ * contacto, (la compañera) su cuenta de cobro y el aviso cuando le pagan,
+ * seguridad y los ajustes de este móvil. «Atrás» (o Esc) vuelve a
  * donde se estaba; «Cerrar sesión» sale como el «Salir» del menú.
  */
 export function ProfileSheet({ open, onClose, onLogout }: { open: boolean; onClose: () => void; onLogout: () => void }) {
@@ -34,7 +36,10 @@ export function ProfileSheet({ open, onClose, onLogout }: { open: boolean; onClo
         <ScreenHelp {...TOURS.perfil} />
       </header>
       <div style={body}>
-        <ProfileScreen api={profileApi} onLogout={onLogout} device="full" themeFallback="dark" bare onProfile={mine?.setProfile} />
+        <ProfileScreen api={profileApi} onLogout={onLogout} device="full" themeFallback="dark" bare onProfile={mine?.setProfile}>
+          {/* Solo la compañera tiene cuenta de cobro y pagos en la app (/operators/me/*). */}
+          {mine?.user.role === 'OPERATOR' ? <PayoutProfile /> : null}
+        </ProfileScreen>
       </div>
     </div>
   );
