@@ -78,7 +78,7 @@ function CobrosFeed({ cancelPending = false, pollMs = 15_000, days }: Props & { 
   // Un solo reloj para toda la pantalla: corre solo mientras algún cobro está en su banco.
   const now = useNow(unpaid.items?.some((u) => u.atBank) ?? false);
   useEffect(() => {
-    const current = createOwnCobrosFeed((more, signal) => fetchOwnCobros(more, signal, days), setState);
+    const current = createOwnCobrosFeed((page, signal) => fetchOwnCobros(page, signal, days), setState);
     feed.current = current;
     return () => { current.dispose(); if (feed.current === current) feed.current = null; };
     // Las fechas no cambian sin volver a montar (key en MyCobros).
