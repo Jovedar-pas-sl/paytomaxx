@@ -34,6 +34,7 @@ import {
   walletHref,
   walletReturnHref,
   payBase,
+  renderBusyPage,
   renderCheckoutForm,
   renderChoosePage,
   renderClosedPage,
@@ -44,7 +45,8 @@ import {
   renderResultView,
 } from './public-pay.pages';
 import { walletClaimCookieName, walletClaimSetCookie } from './wallet-claim';
-import { PayPageFilter } from './pay-page.filter';
+import { MIN_RETRY_S, PayPageFilter } from './pay-page.filter';
+import { isDatabaseBusy } from '../../common/filters/problem-details.filter';
 import { RedsysReturnService } from './redsys-return.service';
 import { renderCheckingPage } from './pay-checking-page';
 import { PayStatusService, isPayLookupKey, type PayStatusContext } from './pay-status.service';
@@ -592,6 +594,15 @@ export class PublicPayController {
   }
 
   private sendError(res: FastifyReply, token: string, lang: PayLanguage, err: unknown): void {
+    // La base sin conexión libre (mucha gente pagando a la vez): la página que
+    // espera y se recarga sola en la del cobro (un POST nunca se repite solo),
+    // no un 409 de error (carga del 19-11-2026).
+    if (isDatabaseBusy(err)) {
+      this.logger.warn(`/pay/${token.slice(0, 4)}…: base sin conexión libre (${err.code}), «Hay mucha gente pagando»`);
+      res.header('Retry-After', String(MIN_RETRY_S));
+      sendHtml(res, 503, renderBusyPage(lang, payHref(token, lang), MIN_RETRY_S));
+      return;
+    }
     const message = (err as Error).message || 'Error';
     // Logueamos detalles técnicos pero NO los mostramos al cliente
     this.logger.warn(`/pay/${token.slice(0, 4)}… failed: ${message}`);

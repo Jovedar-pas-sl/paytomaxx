@@ -1141,15 +1141,21 @@ export class PaymentsService implements OnApplicationBootstrap {
     await this.assertVenueStillCharges(payment);
 
     if (payment.status !== 'AUTHORIZING') {
-      let providerTxId: string | undefined;
+      let opened: Awaited<ReturnType<PaymentsService['startAuthorization']>>;
       try {
-        ({ providerTxId } = await this.startAuthorization(qrToken, choice));
+        opened = await this.startAuthorization(qrToken, choice);
       } catch (err) {
         // Doble toque: el otro POST (de este navegador) ya abrió el pedido → mismo formulario.
         const order = await this.freshOrderOf(payment.id, choice.claimHash ?? null);
         if (!order) throw err;
         return { kind: 'checkout', order };
       }
+      // Con el pedido abierto, sin volver a la base: si ahora no hay conexión
+      // libre, el cobro quedaba «esperando al banco» sin que el formulario
+      // llegara al cliente (carga del 19-11-2026).
+      const { providerTxId, result } = opened;
+      if (result?.checkoutForm && providerTxId) return { kind: 'checkout', order: providerTxId };
+      if (result?.paymentLinkUrl) return { kind: 'redirect', url: result.paymentLinkUrl, status: 'AUTHORIZING' };
       const view = await this.checkoutOf(payment.id);
       return view.kind === 'form' && providerTxId ? { kind: 'checkout', order: providerTxId } : view;
     }
@@ -2389,7 +2395,7 @@ export class PaymentsService implements OnApplicationBootstrap {
   async startAuthorization(
     qrToken: string,
     choice?: CheckoutChoice,
-  ): Promise<{ status: PaymentMachineState; providerTxId?: string }> {
+  ): Promise<{ status: PaymentMachineState; providerTxId?: string; result?: AuthorizeResult }> {
     // Lookup cross-tenant del pago via token (el cliente no esta autenticado)
     const payment = await this.prisma.asSystem((tx) =>
       tx.payment.findUnique({ where: { qrToken } }),
@@ -2450,17 +2456,23 @@ export class PaymentsService implements OnApplicationBootstrap {
     // Tras agotar, el processor transiciona el pago a ORPHAN (visible en
     // admin para reconciliación manual). Un trabajo anterior de este cobro que
     // agotó los reintentos por un error se quita antes (orphan-enqueue.ts).
-    await enqueueOrphanReconcile(
-      this.orphanReconcileQueue,
-      this.logger,
-      { paymentId: payment.id, tenantId: payment.tenantId },
-      ORPHAN_RECONCILE_DELAY_MS,
-    );
+    // El pedido ya está abierto: si Redis falla ahora, el cliente llega al banco
+    // igual (el aviso firmado lo cierra; el barrido del arranque lo concilia).
+    try {
+      await enqueueOrphanReconcile(
+        this.orphanReconcileQueue,
+        this.logger,
+        { paymentId: payment.id, tenantId: payment.tenantId },
+        ORPHAN_RECONCILE_DELAY_MS,
+      );
+    } catch (err) {
+      this.logger.error(`Payment ${payment.id}: abierto en el banco sin la conciliación encolada (${(err as Error).message})`);
+    }
 
     this.logger.log(
       `Payment ${payment.id} authorizing via ${credential.provider} (txId=${providerTxId})`,
     );
-    return { status: 'AUTHORIZING', providerTxId };
+    return { status: 'AUTHORIZING', providerTxId, result: opened.result };
   }
 
   /**

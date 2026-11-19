@@ -2,6 +2,7 @@ import { afterEach, describe, it, expect, vi } from 'vitest';
 import { createHash } from 'node:crypto';
 import type { FastifyReply } from 'fastify';
 import { ConflictException } from '@nestjs/common';
+import { Prisma } from '@nightpay/db';
 import { PublicPayController, walletClaimCookieName } from './public-pay.controller';
 import type { PayReceiptView, PayRedirect, PayResultView } from './pay-redirect';
 import type { PayStatusContext } from './pay-status.service';
@@ -738,6 +739,45 @@ describe('POST /pay/:token — el cliente pulsa un botón', () => {
     expect(sent.status).toBe(400);
     expect(sent.body).toContain('class="hint"');
     expect(sent.body).not.toContain('class="btn"');
+  });
+});
+
+describe('la base sin conexión libre (P2028/P2024): «Hay mucha gente pagando a la vez», no un error (carga del 19-11-2026)', () => {
+  const busy = (code = 'P2028') =>
+    new Prisma.PrismaClientKnownRequestError('Transaction API error: Unable to start a transaction in the given time.', { code, clientVersion: 'x' });
+
+  it('GET /pay/:token → 503 que se vuelve a cargar sola, en su idioma', async () => {
+    for (const [lang, text] of [['es', 'Hay mucha gente pagando a la vez'], ['en', 'Lots of people are paying at once']] as const) {
+      const { controller, payments } = makeController({ page: CHOOSE });
+      payments.getPayPage.mockRejectedValueOnce(busy());
+      const { reply, sent } = fakeReply();
+      await controller.payPage('qr-token-1', lang, undefined, IPHONE, reply);
+      expect(sent.status).toBe(503);
+      expect(sent.headers['Retry-After']).toBe('5');
+      expect(sent.body).toContain(text);
+      expect(sent.body).toContain(`content="5;url=/pay/qr-token-1?lang=${lang}"`);
+      expect(sent.body).not.toContain('Unable to start');
+    }
+  });
+
+  it('POST /pay/:token → la misma espera; al recargarse vuelve a la página de pago (nunca repite el POST)', async () => {
+    const { controller } = makeController({ checkout: busy('P2024') });
+    const { reply, sent } = fakeReply();
+    await controller.startCheckout('qr-token-1', { tip: '0', method: 'card', lang: 'es' }, undefined, reply);
+    expect(sent.status).toBe(503);
+    expect(sent.body).toContain('Hay mucha gente pagando a la vez');
+    expect(sent.body).toContain('content="5;url=/pay/qr-token-1?lang=es"');
+    // No dice «no se te ha cobrado nada»: no lo sabemos.
+    expect(sent.body).not.toContain('No se te ha cobrado nada');
+  });
+
+  it('otros errores de la base siguen siendo la página de error de siempre', async () => {
+    const { controller } = makeController({
+      checkout: new Prisma.PrismaClientKnownRequestError('Unique constraint failed', { code: 'P2002', clientVersion: 'x' }),
+    });
+    const { reply, sent } = fakeReply();
+    await controller.startCheckout('qr-token-1', { tip: '0', method: 'card', lang: 'es' }, undefined, reply);
+    expect(sent.status).toBe(409);
   });
 });
 

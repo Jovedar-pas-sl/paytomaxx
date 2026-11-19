@@ -149,7 +149,12 @@ describe('startAuthorization — lo que se cobra y se guarda', () => {
     const { service, adapter, attempts, updates, orphanQueue } = makeService({
       authorize: async () => ({ providerTxId: '2610170130A1', checkoutForm: { action: 'https://sis.redsys.es', fields: {} } }),
     });
-    await expect(service.startAuthorization(QR)).resolves.toEqual({ status: 'AUTHORIZING', providerTxId: '2610170130A1' });
+    // Con lo que abrió la pasarela: la página de pago va al formulario sin volver a leer la base.
+    await expect(service.startAuthorization(QR)).resolves.toEqual({
+      status: 'AUTHORIZING',
+      providerTxId: '2610170130A1',
+      result: { providerTxId: '2610170130A1', checkoutForm: { action: 'https://sis.redsys.es', fields: {} } },
+    });
     const sent = adapter.authorize.mock.calls[0]![0] as Row;
     expect(sent).toMatchObject({ tenantId: TENANT, paymentId: PAYMENT_ID, amountCents: 4_800, currency: 'EUR' });
     expect(sent).not.toHaveProperty('payMethod');

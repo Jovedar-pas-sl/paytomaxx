@@ -341,6 +341,40 @@ describe('startCheckout — el cliente pulsa «Pagar»', () => {
   });
 });
 
+describe('startCheckout — abierto el pedido, el formulario llega siempre al cliente (carga del 19-11-2026)', () => {
+  const busy = () =>
+    new Prisma.PrismaClientKnownRequestError('Transaction API error: Unable to start a transaction in the given time.', { code: 'P2028', clientVersion: 'x' });
+
+  /** Tras pasar a AUTHORIZING, la base se queda sin conexión libre: cualquier lectura más falla. */
+  function dbBusyAfterOpening(s: ReturnType<typeof makeService>) {
+    const open = s.transition.getMockImplementation()!;
+    s.transition.mockImplementation(async (...args) => {
+      await open(...args);
+      s.db.payment.findUnique.mockRejectedValue(busy());
+      s.db.paymentAttempt.findMany.mockRejectedValue(busy());
+    });
+  }
+
+  it('Redsys: no vuelve a leer la base después de abrir el pedido (si no, el cobro quedaba «esperando al banco» sin formulario)', async () => {
+    const s = makeService();
+    dbBusyAfterOpening(s);
+    await expect(s.service.startCheckout(QR, choice())).resolves.toEqual({ kind: 'checkout', order: '2610170130A1' });
+  });
+
+  it('Paytef (enlace): igual, a su enlace sin leer otra vez el cobro', async () => {
+    const s = makeService({ provider: 'PAYTEF', authorize: async () => ({ providerTxId: 'PTF-88121', paymentLinkUrl: PAYTEF_URL }) });
+    dbBusyAfterOpening(s);
+    await expect(s.service.startCheckout(QR, choice())).resolves.toEqual({ kind: 'redirect', url: PAYTEF_URL, status: 'AUTHORIZING' });
+  });
+
+  it('si no se puede encolar la conciliación (Redis), el pedido abierto llega igual al cliente y queda en el log', async () => {
+    const s = makeService();
+    s.orphanQueue.add.mockRejectedValueOnce(new Error('Connection is closed.'));
+    await expect(s.service.startCheckout(QR, choice())).resolves.toEqual({ kind: 'checkout', order: '2610170130A1' });
+    expect(s.logger.error).toHaveBeenCalledWith(expect.stringMatching(/conciliación/));
+  });
+});
+
 describe('startCheckout — la pasarela no abre el pago (primer intento)', () => {
   it('fallo pasajero → «el banco no responde» con reintento, el cobro sigue igual y el reintento SÍ abre el pago', async () => {
     let down = true;
