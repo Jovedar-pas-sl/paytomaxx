@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { encodeQr } from '@nightpay/ui';
-import { authedFetch, fetchPaymentStatus } from './api';
+import { authedFetch, fetchPaymentStatus, setServiceSoldOut } from './api';
 import { CobroApiError, createCobro, fetchSaldoState, payByNfc, payByPin, type CobroCreado } from './api-cobro';
 import { cobroOutcome } from './cobro-state';
 import { PracticeBandView } from '@/components/PracticeBand';
@@ -50,6 +50,12 @@ describe('Modo práctica: nada que cambie datos llega a la red', () => {
     expect(real).toHaveBeenCalledTimes(1);
     await practiceFetch(false, '/v1/anything', { method: 'POST' }, real);
     expect(real).toHaveBeenCalledTimes(2);
+  });
+
+  it('«Agotado» en práctica no se marca en el servidor: avisa de la práctica', async () => {
+    await expect(setServiceSoldOut('svc-1', true)).rejects.toBeInstanceOf(PracticeBlockedError);
+    await expect(setServiceSoldOut('svc-1', false)).rejects.toThrow(/práctica/);
+    expect(fetchSpy).not.toHaveBeenCalled();
   });
 
   it('los cobros reales que podrían salir solos (por confirmar, sin pagar) llegan vacíos', async () => {
