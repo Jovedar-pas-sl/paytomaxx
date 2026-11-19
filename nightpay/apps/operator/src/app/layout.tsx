@@ -5,6 +5,7 @@ import '@nightpay/ui/styles.css';
 import { SALA_INIT_SCRIPT } from '@/lib/sala-contrast';
 import { appleAppMetadata } from '@nightpay/ui/app-manifest';
 import { deviceInitScript } from '@nightpay/ui/device-settings';
+import { BrandSplash } from '@nightpay/ui/brand-splash';
 import { NfcEscucha } from '@/components/NfcEscucha';
 
 // Fuentes dentro del repo (packages/ui/fonts, licencia OFL): el build no
@@ -54,6 +55,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
         <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
       </head>
       <body>
+        <BrandSplash />
         {children}
         {/* Una sola escucha NFC para toda la app: Android no abre el enlace de la ficha. */}
         <NfcEscucha />
