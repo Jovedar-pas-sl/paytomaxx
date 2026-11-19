@@ -10,6 +10,7 @@ import {
   addedItemLabel,
   addedItemSpoken,
   itemTileKey,
+  pickable,
   undoTap,
   UNDO_MS,
   type UndoTap,
@@ -337,6 +338,7 @@ export function CobrarFlow({ user, onCobroDone, onLogout, night, miQrOpen = fals
 
   /** Tocar una loseta: «Copa» (y el resto) se suma a la cuenta; «Copa con invitación», a escanear el QR de la chica. */
   function pickItem(item: CartaItem) {
+    if (!pickable(item)) return;
     if (tapOf(item) === 'invitar') {
       setError(null);
       go({ kind: 'escanear', invite: item });
@@ -544,6 +546,11 @@ export function CobrarFlow({ user, onCobroDone, onLogout, night, miQrOpen = fals
             cuenta={cuenta}
             who={who}
             onItem={pickItem}
+            onSoldOut={(item, soldOut) => {
+              setError(null);
+              haptic();
+              carta.setSoldOut(item.id, soldOut).catch(() => setError('No se pudo marcar el producto. Prueba otra vez.'));
+            }}
             onOtro={() => {
               setError(null);
               go({ kind: 'otro' });

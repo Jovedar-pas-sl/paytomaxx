@@ -1,7 +1,8 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { fetchServices, type ServiceItem } from '@/lib/api';
+import { io } from 'socket.io-client';
+import { fetchServices, freshAccessToken, setServiceSoldOut, wsBase, type ServiceItem } from '@/lib/api';
 import { CARTA_START, cartaArrived, cartaFailed, type CartaState } from '@/lib/carta-state';
 
 export interface Carta {
@@ -11,6 +12,8 @@ export interface Carta {
   /** Ya contestó (con servicios, sin ninguno o con error): hasta entonces no se pinta ni carta ni teclado. */
   loaded: boolean;
   retry: () => void;
+  /** Marca o quita «Agotado» (el aviso a los demás móviles lo manda el servidor). */
+  setSoldOut: (id: string, soldOut: boolean) => Promise<void>;
 }
 
 /** La carta del local (lo que quien llama puede cobrar). */
@@ -51,6 +54,30 @@ export function useCarta(): Carta {
       document.removeEventListener('visibilitychange', onVisible);
     };
   }, [retry]);
+  // «Agotado» cambia en otro móvil: el servidor avisa y se vuelve a pedir la carta.
+  useEffect(() => {
+    const socket = io(`${wsBase}/rt`, {
+      transports: ['websocket', 'polling'],
+      tryAllTransports: true,
+      auth: (cb) => {
+        void freshAccessToken().then((token) => cb(token ? { token } : {}));
+      },
+    });
+    socket.on('carta:update', retry);
+    return () => {
+      socket.disconnect();
+    };
+  }, [retry]);
+  const setSoldOut = useCallback(
+    async (id: string, soldOut: boolean) => {
+      try {
+        await setServiceSoldOut(id, soldOut);
+      } finally {
+        retry();
+      }
+    },
+    [retry],
+  );
   const { services, failed, loaded } = state;
-  return useMemo(() => ({ services, failed, loaded, retry }), [services, failed, loaded, retry]);
+  return useMemo(() => ({ services, failed, loaded, retry, setSoldOut }), [services, failed, loaded, retry, setSoldOut]);
 }

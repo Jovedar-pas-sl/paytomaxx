@@ -4,6 +4,8 @@ import {
   CreateServiceItemSchema,
   ApplyCartaTemplateSchema,
   UpdateServiceItemSchema,
+  SetSoldOutSchema,
+  type SetSoldOutDto,
   UploadServiceImageSchema,
   type UploadServiceImageDto,
   type CreateServiceItemDto,
@@ -71,6 +73,19 @@ export class CartaController {
     @Body(new ZodValidationPipe(UpdateServiceItemSchema)) dto: UpdateServiceItemDto,
   ): Promise<ServiceItem> {
     return this.carta.update(user.tenantId, user.sub, id, dto);
+  }
+
+  /** «Agotado» / «Hay otra vez»: lo marca todo el personal que ve la carta (barra, camareros, compañeras, encargado, dueño). */
+  @Put(':id/sold-out')
+  @UseGuards(RolesGuard)
+  @Roles('OWNER', 'MANAGER', 'WAITER', 'OPERATOR')
+  @IpRateLimit({ max: 120, windowSec: 60, scope: 'carta-sold-out' })
+  async setSoldOut(
+    @CurrentUser() user: JwtPayload,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body(new ZodValidationPipe(SetSoldOutSchema)) dto: SetSoldOutDto,
+  ): Promise<ServiceItem> {
+    return this.carta.setSoldOut(user.tenantId, user.sub, id, dto.soldOut);
   }
 
   /** Sube el logo o la foto (el panel la manda ya reducida a WebP). Frenado por IP: la IP del local la comparte todo el personal. */

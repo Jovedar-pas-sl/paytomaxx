@@ -283,6 +283,66 @@
     inset 0 0 0 2px rgb(255 255 255 / 0.9);
 }
 
+/* «Agotado»: gris neutro (nunca lima ni el color de la sección), tinta llena: el
+   texto sigue a 14 px o más y por encima de 4,5:1 (tinta #0b0d0e sobre #c4c9cd). */
+.tile.tileSoldOut {
+  background: #c4c9cd;
+  box-shadow: none;
+}
+
+.tileSoldOut .thumb {
+  filter: grayscale(1);
+}
+
+.soldOutTag {
+  align-self: flex-start;
+  padding: 0.125rem 0.5rem;
+  border-radius: var(--np-r-pill);
+  background: var(--np-on-section);
+  color: #fff;
+  font: 700 var(--np-fs-14)/1.2 var(--np-font-sans);
+}
+
+.agotados {
+  margin-top: 1rem;
+  font: 500 var(--np-fs-14)/1.3 var(--np-font-sans);
+}
+
+.agotados summary {
+  min-height: 2.75rem;
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+}
+
+.agotados ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.375rem;
+}
+
+.agotados button {
+  width: 100%;
+  min-height: 2.75rem;
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  align-items: center;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid currentColor;
+  border-radius: var(--np-r-tile);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+
+.agotados button[aria-pressed='true'] {
+  font-weight: 700;
+}
+
 .tileName {
   font: 500 var(--np-fs-14)/1.25 var(--np-font-sans);
   overflow-wrap: anywhere;
