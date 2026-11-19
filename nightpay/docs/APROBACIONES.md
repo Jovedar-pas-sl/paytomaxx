@@ -47,7 +47,10 @@ Nuevos (contratos en `packages/contracts/src/approvals.ts`):
 Errores propios (409 salvo que se diga): `APPROVAL_ALREADY_PENDING` (ya hay un
 pago pedido para esa chica), `APPROVAL_NOT_PENDING`, `APPROVAL_EXPIRED`,
 `APPROVAL_FAILED` (no se pudo hacer: la solicitud queda fallida con la razón),
-`APPROVAL_OWN_REQUEST` / `APPROVAL_FORBIDDEN` (403).
+`APPROVAL_OWN_REQUEST` / `APPROVAL_FORBIDDEN` (403). Y `PAYOUT_ACCOUNT_TOO_NEW`:
+la cuenta de cobro cambió hace menos de 48 h y no se puede pedir ni pagar a
+ella hasta `payableFrom` (en efectivo, sí; ver
+[CUENTA-COBRO-SEGURA.md](CUENTA-COBRO-SEGURA.md)).
 
 ## Cómo se reserva
 
