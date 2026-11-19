@@ -92,7 +92,7 @@ import { firstTopUp } from '../wallets/wallet-fresh-topup';
 import { WalletBlockedException } from '../wallets/wallet-blocked';
 import { formatWalletCode, newWalletCode } from '../wallets/wallet-rules';
 import { selfTopUpClaimHash } from '../wallets/wallet-topup-rules';
-import { isHomeTopUpKey } from '../home-topup/home-topup-rules';
+import { isGiftPaymentKey, isHomeTopUpKey } from '../home-topup/home-topup-rules';
 import { idempotencyHashOf, sameIdempotentRequest } from './idempotency';
 import {
   findCreditTarget,
@@ -338,8 +338,9 @@ export function payerWalletFields(args: {
 > {
   const returnClaimHash = args.wallet ? selfTopUpClaimHash(args.idempotencyKey) : null;
   // Reservados: el saldo del grupo no se enseña a quien paga (la señal es saldo al llegar).
-  const reservation = isReservationPaymentKey(args.idempotencyKey);
-  const wallet = args.wallet && args.firstTopUp && !returnClaimHash && !reservation ? args.wallet : null;
+  // Regalos: quien regala nunca tiene el saldo (ni su enlace, ni su código, ni su Face ID o PIN).
+  const hidden = isReservationPaymentKey(args.idempotencyKey) || isGiftPaymentKey(args.idempotencyKey);
+  const wallet = args.wallet && args.firstTopUp && !returnClaimHash && !hidden ? args.wallet : null;
   return {
     walletToken: wallet?.qrToken ?? null,
     walletClaimHash: returnClaimHash ?? (wallet ? args.approvedClaimHash : null),
@@ -1309,6 +1310,8 @@ export class PaymentsService implements OnApplicationBootstrap {
       ...payerWalletFields({ wallet, firstTopUp, idempotencyKey, approvedClaimHash: attempts[0]?.claimHash ?? null }),
       // Reservados: al pagarse (también con bitcoin), el navegador que pagó vuelve a la página del reservado.
       ...(isReservationPaymentKey(idempotencyKey) ? { reservation: true as const } : {}),
+      // Regalos: al pagarse, el navegador que pagó va a «Comparte tu regalo» (giftToken).
+      ...(isGiftPaymentKey(idempotencyKey) ? { gift: true as const } : {}),
       saldo: linkedWalletCharge ? { ...linkedWalletCharge, enabled: methods.wallet } : null,
     };
   }
@@ -1391,7 +1394,14 @@ export class PaymentsService implements OnApplicationBootstrap {
       attemptStatus,
       approvedClaimHash: payment.attempts[0]?.claimHash ?? null,
       ...(isReservationPaymentKey(payment.idempotencyKey) ? { reservation: true as const } : {}),
+      ...(isGiftPaymentKey(payment.idempotencyKey) ? { gift: true as const } : {}),
     };
+  }
+
+  /** Regalos: el enlace del regalo de este pago (para «Comparte tu regalo» después de pagar). */
+  async giftToken(paymentId: string): Promise<string | null> {
+    const row = await this.prisma.asSystem((tx) => tx.walletGift.findUnique({ where: { paymentId }, select: { token: true } }));
+    return row?.token ?? null;
   }
 
   /** Reservados: el enlace de la reserva de este pago (para volver a ella después de pagar). */

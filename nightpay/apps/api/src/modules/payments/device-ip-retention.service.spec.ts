@@ -13,6 +13,7 @@ function setup(updated: number[] = []) {
       sql.push(Prisma.sql(strings, ...values));
       return queue.shift() ?? 0;
     }),
+    walletGift: { updateMany: vi.fn(async () => ({ count: 0 })) },
   };
   const prisma = { asSystem: vi.fn(async (fn: (t: typeof tx) => unknown) => fn(tx)) };
   const redis = createFakeRedis();
