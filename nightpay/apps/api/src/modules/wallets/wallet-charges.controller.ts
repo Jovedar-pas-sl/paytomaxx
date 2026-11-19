@@ -6,6 +6,7 @@ import { ChargeLinesSchema, RevenueCategorySchema, type JwtPayload } from '@nigh
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { IpRateLimit } from '../../common/guards/ip-rate-limit.guard';
+import { UserRateLimit, UserRateLimitGuard } from '../../common/guards/user-rate-limit.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { ZodValidationPipe } from '../../common/pipes/zod.pipe';
 import {
@@ -18,6 +19,12 @@ import {
   type WalletPayoutPreview,
 } from './wallet-charges.service';
 import { RequiresPermission, StaffPermissionGuard } from '../venues/staff-permission.guard';
+import {
+  WALLET_PAY_IP_LIMIT,
+  WALLET_PAY_LOOKUP_IP_LIMIT,
+  WALLET_PAY_LOOKUP_USER_LIMIT,
+  WALLET_PAY_USER_LIMIT,
+} from './wallet-pay-limits';
 
 /**
  * Cobro con QR: la chica elige el servicio (o un importe); el cliente paga
@@ -203,7 +210,9 @@ export class WalletChargesController {
   @Post(':id/pin')
   @Roles('OPERATOR', 'WAITER', 'MANAGER', 'OWNER')
   @HttpCode(200)
-  @IpRateLimit({ max: 30, windowSec: 60, scope: 'wallet-pin' })
+  @IpRateLimit(WALLET_PAY_IP_LIMIT)
+  @UseGuards(UserRateLimitGuard)
+  @UserRateLimit(WALLET_PAY_USER_LIMIT)
   async payWithPin(
     @CurrentUser() user: JwtPayload,
     @Param('id', ParseUUIDPipe) id: string,
@@ -229,7 +238,9 @@ export class WalletChargesController {
   @Post(':id/pass')
   @Roles('OPERATOR', 'WAITER', 'MANAGER', 'OWNER')
   @HttpCode(200)
-  @IpRateLimit({ max: 60, windowSec: 60, scope: 'wallet-lookup' })
+  @IpRateLimit(WALLET_PAY_LOOKUP_IP_LIMIT)
+  @UseGuards(UserRateLimitGuard)
+  @UserRateLimit(WALLET_PAY_LOOKUP_USER_LIMIT)
   async checkPass(
     @CurrentUser() user: JwtPayload,
     @Param('id', ParseUUIDPipe) id: string,
@@ -246,7 +257,9 @@ export class WalletChargesController {
   @Post(':id/nfc')
   @Roles('OPERATOR', 'WAITER', 'MANAGER', 'OWNER')
   @HttpCode(200)
-  @IpRateLimit({ max: 30, windowSec: 60, scope: 'wallet-pin' })
+  @IpRateLimit(WALLET_PAY_IP_LIMIT)
+  @UseGuards(UserRateLimitGuard)
+  @UserRateLimit(WALLET_PAY_USER_LIMIT)
   async payWithCard(
     @CurrentUser() user: JwtPayload,
     @Param('id', ParseUUIDPipe) id: string,
@@ -262,7 +275,9 @@ export class WalletChargesController {
   @Post('cards/lookup')
   @Roles('OPERATOR', 'WAITER', 'MANAGER', 'OWNER')
   @HttpCode(200)
-  @IpRateLimit({ max: 60, windowSec: 60, scope: 'wallet-lookup' })
+  @IpRateLimit(WALLET_PAY_LOOKUP_IP_LIMIT)
+  @UseGuards(UserRateLimitGuard)
+  @UserRateLimit(WALLET_PAY_LOOKUP_USER_LIMIT)
   async lookupCard(
     @CurrentUser() user: JwtPayload,
     @Body(new ZodValidationPipe(CardLookupSchema)) body: z.infer<typeof CardLookupSchema>,

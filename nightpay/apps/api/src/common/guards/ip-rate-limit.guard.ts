@@ -50,8 +50,10 @@ export interface IpRateLimitConfig {
    * /pay/:token/status). Los clientes del wifi del local consultan cada uno su
    * cobro: cada cobro tiene su cupo desde esa IP y la IP un tope más alto (que
    * corta a quien recorre tokens). El valor se guarda como huella: es un secreto.
+   * Con `body`, el primero de esos campos del cuerpo que venga (p. ej. la ficha,
+   * el código o el pase de un cobro con el saldo): cada saldo, su cupo.
    */
-  perKey?: { query?: string; param?: string; max: number };
+  perKey?: { query?: string; param?: string; body?: readonly string[]; max: number };
   /**
    * Si Redis no responde, dejar pasar (con aviso en el log) en vez de
    * fallar. Solo para las páginas y sondeos de LECTURA del cliente (pago,
@@ -230,9 +232,10 @@ function accountOf(body: MinimalReq['body'], field: string): string | null {
   return account ? createHash('sha256').update(account).digest('hex').slice(0, 32) : null;
 }
 
-/** El recurso de la petición (query o ruta), como huella: un token o un pedido nunca en claro en Redis. */
-function resourceOf(req: MinimalReq, spec: { query?: string; param?: string }): string | null {
-  const raw = spec.query ? req.query?.[spec.query] : spec.param ? req.params?.[spec.param] : undefined;
+/** El recurso de la petición (query, ruta o cuerpo), como huella: un token o un pedido nunca en claro en Redis. */
+function resourceOf(req: MinimalReq, spec: { query?: string; param?: string; body?: readonly string[] }): string | null {
+  const fromBody = spec.body?.map((field) => req.body?.[field]).find((v) => typeof v === 'string' && v.length > 0);
+  const raw = spec.query ? req.query?.[spec.query] : spec.param ? req.params?.[spec.param] : fromBody;
   if (typeof raw !== 'string' || raw.length === 0) return null;
   return createHash('sha256').update(raw.slice(0, 512)).digest('hex').slice(0, 32);
 }
