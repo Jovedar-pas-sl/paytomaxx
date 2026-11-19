@@ -3,8 +3,11 @@
 //    queda el IBAN en claro, ni en el registro, ni en lo que devuelve el panel.
 //  - Cambiarla pide siempre la 2FA del dueño; verla entera («Ver cuenta para pagar»), también.
 //  - Al cambiarla: correo a la compañera, aviso en su app, incidencia y 48 h sin «Marcar pagado»
-//    a la cuenta nueva (en efectivo sí; la primera cuenta, sin espera).
-//  - El relleno cifra lo que estaba en claro, se puede repetir y no cuenta como un cambio.
+//    a la cuenta nueva (en efectivo sí; la primera cuenta, sin espera). En una transferencia
+//    internacional, cambiar solo el banco o el SWIFT también cuenta.
+//  - A la vez: dos cambios de cuenta no se pisan (409) y «Marcar pagado» mira la espera al apuntar.
+//  - El relleno cifra lo que estaba en claro, se puede repetir, no cuenta como un cambio y dice
+//    cuántas quedan en claro.
 // Ver README.md.
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import { AsyncLocalStorage } from 'node:async_hooks';
@@ -523,6 +526,15 @@ describe('a la vez: ni dos cambios de cuenta se pisan, ni un pago se cuela mient
     // Otra vez, ya con la cuenta de ahora delante: se guarda (con su espera).
     await setSepa(noa, IBAN2, 'Noa Gil');
     expect((await stored(noa)).payoutHoldUntil).toBeInstanceOf(Date);
+  });
+
+  it('una fecha de cambio con microsegundos (puesta a mano en la base) no impide cambiar la cuenta', async () => {
+    const mar = await newChica('Mar');
+    await setSepa(mar, IBAN, 'Mar Soto');
+    // La base guarda microsegundos; el API los lee (y los escribe) en milisegundos.
+    await sys((tx) => tx.$executeRaw`UPDATE users SET "payoutAccountChangedAt" = '2026-11-01 10:00:00.123456+00' WHERE id = ${mar}::uuid`);
+    await setSepa(mar, IBAN2, 'Mar Soto');
+    expect((await stored(mar)).payoutAddressMasked).toBe('ES79 •••• •••• 6789');
   });
 
   it('«Marcar pagado» esperando su turno mientras la cuenta cambia: mira la espera al tocarle, no la de antes', async () => {

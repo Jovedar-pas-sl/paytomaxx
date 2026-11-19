@@ -288,9 +288,11 @@ describe('planPayoutAccountChange — guardar un cambio de cuenta', () => {
     expect(plan.data).not.toHaveProperty('payoutHoldUntil');
   });
 
-  it('para guardarlo solo si la cuenta sigue como se leyó: la fecha del último cambio (null si nunca cambió)', () => {
-    const changedAt = new Date('2026-10-01T10:00:00.000Z');
-    expect(planPayoutAccountChange(savedSepa(), { label: 'x' }, NOW, KEK).ifUnchanged).toEqual({ payoutAccountChangedAt: changedAt });
+  it('para guardarlo solo si la cuenta sigue como se leyó: el milisegundo de su último cambio (null si nunca cambió)', () => {
+    // El milisegundo entero: la base guarda microsegundos y Prisma lee milisegundos (una fecha puesta a mano no casaría con «igual»).
+    expect(planPayoutAccountChange(savedSepa(), { label: 'x' }, NOW, KEK).ifUnchanged).toEqual({
+      payoutAccountChangedAt: { gte: new Date('2026-10-01T10:00:00.000Z'), lt: new Date('2026-10-01T10:00:00.001Z') },
+    });
     // Sin la columna en lo leído, null (IS NULL), nunca undefined (Prisma no filtraría).
     expect(planPayoutAccountChange(empty, { method: 'USDT_TRC20', address: TRON }, NOW, KEK).ifUnchanged).toStrictEqual({
       payoutAccountChangedAt: null,

@@ -196,12 +196,14 @@ export interface PayoutAccountPlan {
   /** Hasta cuándo no se le paga a la cuenta (la que queda tras el cambio). */
   holdUntil: Date | null;
   /**
-   * Para el `where` al guardarlo: solo si la cuenta sigue como se leyó. Si
-   * otro cambio entró a la vez, no se pisa (P2025 → payoutAccountChangedMeanwhile)
-   * ni salen avisos con un «antes» que ya no era. Esa fecha solo la escribe
-   * este plan (en milisegundos, como la lee Prisma).
+   * Para el `where` al guardarlo: solo si la cuenta sigue como se leyó (la
+   * fecha de su último cambio, que cada cambio mueve). Si otro cambio entró a
+   * la vez, no se pisa (P2025 → payoutAccountChangedMeanwhile) ni salen avisos
+   * con un «antes» que ya no era. Va el milisegundo entero, no «igual»: la
+   * base guarda microsegundos y Prisma lee milisegundos (una fecha puesta a
+   * mano en la base no casaría nunca).
    */
-  ifUnchanged: { payoutAccountChangedAt: Date | null };
+  ifUnchanged: { payoutAccountChangedAt: { gte: Date; lt: Date } | null };
 }
 
 /** 409 al guardar un plan: la cuenta cambió por otro lado después de leerla. */
@@ -286,6 +288,7 @@ export function planPayoutAccountChange(
   }
   if (label !== before.label) data.payoutLabel = label;
   if (accountChanged) data.payoutAccountChangedAt = now;
+  const readAt = row.payoutAccountChangedAt ?? null;
 
   return {
     data,
@@ -295,7 +298,7 @@ export function planPayoutAccountChange(
     accountChanged,
     first,
     holdUntil,
-    ifUnchanged: { payoutAccountChangedAt: row.payoutAccountChangedAt ?? null },
+    ifUnchanged: { payoutAccountChangedAt: readAt && { gte: readAt, lt: new Date(readAt.getTime() + 1) } },
   };
 }
 

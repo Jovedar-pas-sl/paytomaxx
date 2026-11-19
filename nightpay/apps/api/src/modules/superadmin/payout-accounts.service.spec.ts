@@ -246,7 +246,9 @@ describe('SuperAdminPayoutAccountsService.update — cambiarla pide 2FA, motivo 
     });
     const dto = { ...base, payoutMethod: 'SEPA_IBAN' as const, payoutAddress: IBAN, payoutMetadata: { accountHolder: 'Lucía Pérez' } };
     await svc.update(actor, LUCIA, dto);
-    expect(tx.user.update.mock.calls[0]![0]).toMatchObject({ where: { id: LUCIA, payoutAccountChangedAt: changedAt } });
+    expect(tx.user.update.mock.calls[0]![0]).toMatchObject({
+      where: { id: LUCIA, payoutAccountChangedAt: { gte: changedAt, lt: new Date('2026-10-01T10:00:00.001Z') } },
+    });
 
     // El dueño la cambió entre leerla y guardarla: la fila ya no está «como se leyó» (P2025).
     vi.clearAllMocks();

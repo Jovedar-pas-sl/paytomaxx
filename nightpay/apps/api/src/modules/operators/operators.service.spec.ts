@@ -264,7 +264,10 @@ describe('OperatorsService.updateOperator — dirección de cobro válida para s
     });
     const change = { payoutMethod: 'USDT_BEP20' as const, payoutAddress: EVM };
     await svc.updateOperator('t-1', 'op-1', 'u-owner', 'OWNER', change);
-    expect(prisma.user.update.mock.calls[0]![0].where).toEqual({ id: 'op-1', payoutAccountChangedAt: changedAt });
+    expect(prisma.user.update.mock.calls[0]![0].where).toEqual({
+      id: 'op-1',
+      payoutAccountChangedAt: { gte: changedAt, lt: new Date('2026-10-01T10:00:00.001Z') },
+    });
 
     // Otro cambio entró entre leerla y guardarla: la fila ya no está «como se leyó» (P2025).
     vi.clearAllMocks();
