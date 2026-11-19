@@ -7,7 +7,9 @@ import { cobroOutcome } from './cobro-state';
 import { PracticeBandView } from '@/components/PracticeBand';
 import { PracticeSimulateView } from '@/components/PracticeSimulate';
 import { PracticeMenuItemView } from '@/components/staff-menu';
-import { PRACTICE_BAND_TEXT, PRACTICE_QR_TEXT, PracticeBlockedError, isPractice, setPractice } from './practice';
+import { call as paxCall, flushPendingResults, pairDevice } from './pax-api';
+import { callReader, hasReader } from './pax-bridge';
+import { PRACTICE_BAND_TEXT, PRACTICE_PAX_TEXT, PRACTICE_QR_TEXT, PracticeBlockedError, isPractice, setPractice } from './practice';
 import {
   PRACTICE_BALANCE_CENTS,
   PRACTICE_PIN,
@@ -151,5 +153,36 @@ describe('Modo práctica: la franja, el menú y los botones', () => {
     leavePractice(reload);
     expect(isPractice()).toBe(false);
     expect(reload).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('Modo práctica: el datáfono PAX no se toca', () => {
+  it('call() y pairDevice() no llaman a fetch (tampoco un GET)', async () => {
+    await expect(paxCall('/v1/pos-device/me')).rejects.toBeInstanceOf(PracticeBlockedError);
+    await expect(paxCall('/v1/pos-device/x', { method: 'POST', body: '{}' })).rejects.toThrow(PRACTICE_PAX_TEXT);
+    await expect(pairDevice('123456')).rejects.toBeInstanceOf(PracticeBlockedError);
+    await flushPendingResults();
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('el puente nativo no recibe ninguna venta, anulación ni lectura', async () => {
+    const startSale = vi.fn();
+    const voidSale = vi.fn();
+    vi.stubGlobal('window', { NightPayPax: { startSale, voidSale } });
+    const sale = await callReader('startSale', { amountCents: 500, reference: 'x' });
+    const voided = await callReader('voidSale', {});
+    expect(sale).toMatchObject({ ok: false, error: 'practice', message: PRACTICE_PAX_TEXT });
+    expect(voided.ok).toBe(false);
+    expect(hasReader()).toBe(false);
+    expect(startSale).not.toHaveBeenCalled();
+    expect(voidSale).not.toHaveBeenCalled();
+  });
+
+  it('con la práctica apagada el puente sí funciona (la guarda no estorba)', async () => {
+    setPractice(false);
+    const startSale = vi.fn();
+    vi.stubGlobal('window', { NightPayPax: { startSale } });
+    void callReader('startSale', {});
+    expect(startSale).toHaveBeenCalledTimes(1);
   });
 });

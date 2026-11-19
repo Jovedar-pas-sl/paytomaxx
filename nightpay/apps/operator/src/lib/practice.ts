@@ -14,6 +14,9 @@ export const PRACTICE_QR_TEXT = 'PRÁCTICA — no es un pago';
 
 export const PRACTICE_BAND_TEXT = 'PRÁCTICA · nada de esto es de verdad';
 
+/** Lo que se dice donde se cobraría con el datáfono (el lector real nunca se usa en práctica). */
+export const PRACTICE_PAX_TEXT = 'El datáfono no se usa en práctica.';
+
 /** Lo que se lanza si en práctica algo intenta cambiar datos en el servidor. */
 export class PracticeBlockedError extends Error {
   constructor(what: string) {
