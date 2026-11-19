@@ -54,6 +54,8 @@ export const FORCED_RLS_TABLES = [
   'reservation_spends',
   // «Aviso en cada cobro» (20261117200000): los navegadores apuntados para el aviso del saldo.
   'wallet_push_subscriptions',
+  // «Te han pagado» (20261119200000): los navegadores del personal apuntados para el aviso del pago.
+  'staff_push_subscriptions',
 ] as const;
 
 export const FORCED_RLS_MODELS: ReadonlySet<string> = new Set([
@@ -82,6 +84,7 @@ export const FORCED_RLS_MODELS: ReadonlySet<string> = new Set([
   'ReservationPayment',
   'ReservationSpend',
   'WalletPushSubscription',
+  'StaffPushSubscription',
 ]);
 
 const FORCED_TABLE_RE = new RegExp(`\\b(${FORCED_RLS_TABLES.join('|')})\\b`);

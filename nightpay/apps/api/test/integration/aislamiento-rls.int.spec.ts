@@ -124,6 +124,10 @@ async function seed(tag: string): Promise<{ tenantId: string; rows: Rows }> {
       const pushSub = await tx.walletPushSubscription.create({
         data: { tenantId, walletId: wallet.id, endpoint: `https://push.ejemplo.es/${tag}-${r}`, p256dh: 'BPk', auth: 'au' },
       });
+      // «Te han pagado»: el móvil de la chica apuntado al aviso del pago.
+      const staffPush = await tx.staffPushSubscription.create({
+        data: { tenantId, userId: chica, endpoint: `https://push.ejemplo.es/personal-${tag}-${r}`, p256dh: 'BPk', auth: 'au' },
+      });
       return {
         tenantId,
         rows: {
@@ -152,6 +156,7 @@ async function seed(tag: string): Promise<{ tenantId: string; rows: Rows }> {
           user_photos: chica,
           customer_displays: display.id,
           wallet_push_subscriptions: pushSub.id,
+          staff_push_subscriptions: staffPush.id,
         },
       };
     }),

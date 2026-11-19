@@ -52,6 +52,8 @@ export const TENANT_SCOPED_MODELS: ReadonlySet<string> = new Set([
   'ReservationSpend',
   // Bitcoin sin cobro devuelto en efectivo (20261117100100).
   'BtcCashReturn',
+  // «Te han pagado» (20261119200000): los navegadores del personal para el aviso del pago.
+  'StaffPushSubscription',
 ]);
 
 // Operaciones de lectura a filtrar y de escritura a inyectar tenantId
