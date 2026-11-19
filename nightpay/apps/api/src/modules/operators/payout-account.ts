@@ -151,18 +151,26 @@ export function sealLegacyPayoutAccount(
   return Object.keys(data).length > 0 ? data : null;
 }
 
-/** Para el registro: la cuenta y el titular tapados. */
+/**
+ * Para el registro: la cuenta y el titular tapados. De una transferencia
+ * internacional, también su banco, SWIFT y país (no son secretos): si solo
+ * cambian ellos, el antes y el después tapados saldrían iguales.
+ */
 export function accountForAudit(a: OpenPayoutAccount): {
   payoutMethod: string | null;
   payoutAddress: string | null;
   payoutHolder: string | null;
   payoutLabel: string | null;
+  payoutBank?: PayoutMetadata;
 } {
+  // Solo banco, SWIFT y país (payoutMetadataFor): nada más de lo que hubiera guardado.
+  const bank = withoutHolder(payoutMetadataFor(a.method, a.metadata));
   return {
     payoutMethod: a.method,
     payoutAddress: maskPayoutAddress(a.method, a.address),
     payoutHolder: maskHolderName(a.metadata?.accountHolder),
     payoutLabel: a.label,
+    ...(bank ? { payoutBank: bank } : {}),
   };
 }
 
@@ -179,7 +187,7 @@ export interface PayoutAccountPlan {
   data: Prisma.UserUpdateInput;
   before: OpenPayoutAccount;
   after: OpenPayoutAccount;
-  /** Cambió a dónde va el dinero (método o cuenta). */
+  /** Cambió a dónde va el dinero: el método, la cuenta o, en una transferencia internacional, su banco, SWIFT o país. */
   destinationChanged: boolean;
   /** Cambió la cuenta o el titular: avisos a la compañera, incidencia y Telegram. */
   accountChanged: boolean;
@@ -189,14 +197,27 @@ export interface PayoutAccountPlan {
   holdUntil: Date | null;
 }
 
+/**
+ * El banco, el SWIFT y el país de una transferencia internacional, limpios
+ * (lo guardado por el API de antes puede no estarlo): con la cuenta, deciden
+ * a dónde va el dinero. Los demás métodos no llevan.
+ */
+function bankOf(method: PayoutMethod | null, meta: PayoutMetadata | null): string {
+  const m = payoutMetadataFor(method, meta);
+  return JSON.stringify([m?.bankName ?? null, m?.swiftBic ?? null, m?.country ?? null]);
+}
+
 const sameJson = (a: unknown, b: unknown): boolean => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
 
 /**
  * Qué guardar al cambiar la cuenta de cobro (panel, enlace de alta o
  * super-admin). La cuenta, del método que queda (400 si no); en SEPA y SWIFT,
  * con titular (400 si falta al cambiar). Cambiar a dónde va el dinero de una
- * cuenta que ya existía para a la nueva 48 h (no la primera cuenta, ni el
- * efectivo). Todo lo nuevo se guarda cifrado y tapado aparte.
+ * cuenta que ya existía (el método, la cuenta o, con el mismo número, el
+ * banco, el SWIFT o el país de una transferencia internacional) para a la
+ * nueva 48 h (no la primera cuenta, ni el efectivo). Solo el titular o el
+ * alias no mueven el dinero: sin espera. Todo lo nuevo se guarda cifrado y
+ * tapado aparte.
  *
  * Si la guardada no se puede abrir (se cambió ENCRYPTION_KEK), cuenta como
  * «no se sabe cuál era»: así se puede poner otra vez, entera.
@@ -215,11 +236,12 @@ export function planPayoutAccountChange(
   const method = routing.payoutMethod !== undefined ? routing.payoutMethod : before.method;
   const address = routing.payoutAddress !== undefined ? routing.payoutAddress : before.address;
   const methodChanged = method !== before.method;
-  const destinationChanged = methodChanged || address !== before.address;
+  const addressChanged = methodChanged || address !== before.address;
   const metadata =
     change.metadata !== undefined || methodChanged
       ? payoutMetadataFor(method, change.metadata !== undefined ? change.metadata : before.metadata)
       : before.metadata;
+  const destinationChanged = addressChanged || bankOf(method, metadata) !== bankOf(method, before.metadata);
   const metadataChanged = !sameJson(metadata, before.metadata);
   const holderChanged = (metadata?.accountHolder ?? null) !== (before.metadata?.accountHolder ?? null);
   const accountChanged = destinationChanged || holderChanged;
@@ -231,7 +253,8 @@ export function planPayoutAccountChange(
   }
 
   const first = !before.method && !before.address && !row.payoutAccountChangedAt;
-  const paysToAccount = Boolean(method && method !== 'MANUAL_CASH' && address);
+  // Sin tocar la cuenta, la que hay guardada (aunque no se pueda abrir).
+  const paysToAccount = Boolean(method && method !== 'MANUAL_CASH' && (addressChanged ? address : row.payoutAddress));
   const holdUntil = destinationChanged
     ? paysToAccount && !first
       ? new Date(now.getTime() + HOLD_MS)
@@ -240,11 +263,11 @@ export function planPayoutAccountChange(
 
   const data: Prisma.UserUpdateInput = {};
   if (methodChanged) data.payoutMethod = method;
-  if (destinationChanged) {
+  if (addressChanged) {
     data.payoutAddress = address ? sealPayoutValue(address, { userId: row.id, field: 'address' }, kek) : null;
     data.payoutAddressMasked = maskPayoutAddress(method, address);
-    data.payoutHoldUntil = holdUntil;
   }
+  if (destinationChanged) data.payoutHoldUntil = holdUntil;
   if (metadataChanged) {
     data.payoutMetadata = sealedMetadata(row.id, metadata, kek);
     data.payoutHolderMasked = maskHolderName(metadata?.accountHolder);

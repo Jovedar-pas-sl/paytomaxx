@@ -37,6 +37,30 @@ function savedSepa(over: Partial<StoredPayoutAccount> = {}): StoredPayoutAccount
   };
 }
 
+const WIRE = 'GE29NB0000000101904917';
+const WIRE_BANK = { bankName: 'TBC Bank', swiftBic: 'TBCBGE22', country: 'Georgia', accountHolder: 'Camila Rodriguez' };
+
+/** Una transferencia internacional ya guardada (cifrada), con las claves en el orden en que las devuelve la base (jsonb). */
+function savedWire(over: Partial<StoredPayoutAccount> = {}): StoredPayoutAccount {
+  return {
+    id: ID,
+    payoutMethod: 'WIRE_INTERNATIONAL',
+    payoutAddress: sealPayoutValue(WIRE, { userId: ID, field: 'address' }, KEK),
+    payoutMetadata: {
+      country: 'Georgia',
+      bankName: 'TBC Bank',
+      swiftBic: 'TBCBGE22',
+      accountHolder: sealPayoutValue('Camila Rodriguez', { userId: ID, field: 'holder' }, KEK),
+    },
+    payoutLabel: 'TBC',
+    payoutAddressMasked: 'GE29 •••• •••• 4917',
+    payoutHolderMasked: 'C••• R•••',
+    payoutAccountChangedAt: new Date('2026-10-01T10:00:00.000Z'),
+    payoutHoldUntil: null,
+    ...over,
+  };
+}
+
 describe('abrir y tapar lo guardado', () => {
   it('cifrada: se abre con la clave; tapada, sale de las columnas tapadas', () => {
     const row = savedSepa();
@@ -105,6 +129,18 @@ describe('abrir y tapar lo guardado', () => {
     });
     expect(JSON.stringify(audit)).not.toContain(IBAN);
     expect(JSON.stringify(audit)).not.toContain('López');
+  });
+});
+
+describe('para el registro: el banco de una transferencia internacional', () => {
+  it('lleva el banco, el SWIFT y el país (no son secretos): si solo cambian ellos, el antes y el después no salen iguales', () => {
+    const plan = planPayoutAccountChange(savedWire(), { metadata: { ...WIRE_BANK, swiftBic: 'BAGAGE22' } }, NOW, KEK);
+    const before = accountForAudit(plan.before);
+    const after = accountForAudit(plan.after);
+    expect(before).toMatchObject({ payoutAddress: 'GE29 •••• •••• 4917', payoutBank: { bankName: 'TBC Bank', swiftBic: 'TBCBGE22', country: 'Georgia' } });
+    expect(after).toMatchObject({ payoutAddress: 'GE29 •••• •••• 4917', payoutBank: { bankName: 'TBC Bank', swiftBic: 'BAGAGE22', country: 'Georgia' } });
+    expect(JSON.stringify([before, after])).not.toContain('Rodriguez');
+    expect(JSON.stringify([before, after])).not.toContain(WIRE);
   });
 });
 
@@ -198,6 +234,58 @@ describe('planPayoutAccountChange — guardar un cambio de cuenta', () => {
     expect(plan.destinationChanged).toBe(false);
     expect((plan.data as Record<string, unknown>).payoutHoldUntil).toBeUndefined();
     expect((plan.data as Record<string, unknown>).payoutHolderMasked).toBe('E••• R•••');
+  });
+
+  it('transferencia internacional: cambiar solo el SWIFT (misma cuenta y mismo titular) es otro destino: aviso y 48 h', () => {
+    const plan = planPayoutAccountChange(savedWire(), { metadata: { ...WIRE_BANK, swiftBic: 'BAGAGE22' } }, NOW, KEK);
+    expect(plan.destinationChanged).toBe(true);
+    expect(plan.accountChanged).toBe(true);
+    expect(plan.holdUntil).toEqual(H48);
+    const data = plan.data as Record<string, unknown>;
+    expect(data.payoutHoldUntil).toEqual(H48);
+    expect(data.payoutAccountChangedAt).toEqual(NOW);
+    expect(data.payoutMetadata).toMatchObject({ bankName: 'TBC Bank', swiftBic: 'BAGAGE22', country: 'Georgia' });
+    // La cuenta es la misma: no se vuelve a escribir.
+    expect(data).not.toHaveProperty('payoutAddress');
+    expect(data).not.toHaveProperty('payoutAddressMasked');
+  });
+
+  it.each([
+    ['el banco', { bankName: 'Bank of Georgia' }],
+    ['el país', { country: 'Armenia' }],
+    ['quitar el país', { country: undefined }],
+  ])('transferencia internacional: cambiar solo %s también espera 48 h', (_what, change) => {
+    const plan = planPayoutAccountChange(savedWire(), { metadata: { ...WIRE_BANK, ...change } }, NOW, KEK);
+    expect(plan.accountChanged).toBe(true);
+    expect(plan.holdUntil).toEqual(H48);
+  });
+
+  it('transferencia internacional: los mismos datos otra vez (con otros espacios y mayúsculas) no cuentan como cambio', () => {
+    const again = {
+      method: 'WIRE_INTERNATIONAL' as const,
+      address: 'ge29 nb00 0000 0101 9049 17',
+      metadata: { bankName: ' TBC Bank ', swiftBic: 'tbcb ge22', country: 'Georgia', accountHolder: 'Camila Rodriguez' },
+      label: 'TBC',
+    };
+    // Guardada por el API de antes: en claro y sin limpiar.
+    const legacy: StoredPayoutAccount = {
+      ...savedWire(),
+      payoutAddress: WIRE,
+      payoutMetadata: { country: 'Georgia', bankName: 'TBC Bank ', swiftBic: 'tbcbge22', accountHolder: 'Camila Rodriguez' },
+    };
+    for (const row of [savedWire(), legacy]) {
+      const plan = planPayoutAccountChange(row, again, NOW, KEK);
+      expect(plan.destinationChanged).toBe(false);
+      expect(plan.accountChanged).toBe(false);
+      expect(plan.data).not.toHaveProperty('payoutHoldUntil');
+      expect(plan.data).not.toHaveProperty('payoutAccountChangedAt');
+    }
+  });
+
+  it('IBAN SEPA: no lleva datos del banco, mandarlos no cambia nada', () => {
+    const plan = planPayoutAccountChange(savedSepa(), { metadata: { accountHolder: 'Ana López', swiftBic: 'CAIXESBB' } }, NOW, KEK);
+    expect(plan.accountChanged).toBe(false);
+    expect(plan.data).not.toHaveProperty('payoutHoldUntil');
   });
 
   it('IBAN SEPA nuevo sin titular → 400', () => {
@@ -305,6 +393,19 @@ describe('la cuenta guardada no se puede abrir (se cambió ENCRYPTION_KEK): hay 
 
   it('sin el titular no vale (el guardado tampoco se puede leer)', () => {
     expect(() => planPayoutAccountChange(savedSepa(), { address: IBAN2 }, NOW, OTHER_KEK)).toThrow('Falta el titular de la cuenta');
+  });
+
+  it('cambiar solo el SWIFT de una que no se puede leer: no borra la cuenta guardada ni quita la espera (no se sabe cuál era: espera)', () => {
+    const plan = planPayoutAccountChange(
+      savedWire({ payoutHoldUntil: new Date('2026-11-20T10:00:00.000Z') }),
+      { metadata: { ...WIRE_BANK, swiftBic: 'BAGAGE22' } },
+      NOW,
+      OTHER_KEK,
+    );
+    expect(plan.data).not.toHaveProperty('payoutAddress');
+    expect(plan.accountChanged).toBe(true);
+    expect(plan.holdUntil).toEqual(H48);
+    expect((plan.data as Record<string, unknown>).payoutHoldUntil).toEqual(H48);
   });
 
   it('cambiar solo el alias no toca la cuenta que no se puede leer', () => {

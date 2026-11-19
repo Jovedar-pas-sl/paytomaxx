@@ -234,6 +234,28 @@ describe('OperatorsService.updateOperator — dirección de cobro válida para s
     expect(audit.log.mock.calls.map(([e]) => e.action)).toEqual(['operator.updated']);
     expect(email.send).not.toHaveBeenCalled();
   });
+
+  it('transferencia internacional: cambiar solo el SWIFT (misma cuenta y titular) también avisa, espera 48 h y deja en el registro el banco de antes', async () => {
+    const wire = {
+      payoutMethod: 'WIRE_INTERNATIONAL',
+      payoutAddress: 'GE29NB0000000101904917',
+      payoutMetadata: { country: 'Georgia', bankName: 'TBC Bank', swiftBic: 'TBCBGE22', accountHolder: 'Ana Beridze' },
+    };
+    const { svc, prisma, audit, email } = makeOps({ operator: wire });
+    await svc.updateOperator('t-1', 'op-1', 'u-owner', 'OWNER', {
+      payoutMetadata: { bankName: 'TBC Bank', swiftBic: 'BAGAGE22', country: 'Georgia', accountHolder: 'Ana Beridze' },
+    });
+    const data = prisma.user.update.mock.calls[0]![0].data as Record<string, unknown>;
+    expect(data.payoutHoldUntil).toBeInstanceOf(Date);
+    expect(data.payoutAccountChangedAt).toBeInstanceOf(Date);
+    const changed = audit.log.mock.calls.find(([e]) => e.action === 'operator.payout_account_changed')![0];
+    expect(changed.payload).toMatchObject({
+      before: { payoutAddress: 'GE29 •••• •••• 4917', payoutBank: { swiftBic: 'TBCBGE22' } },
+      after: { payoutAddress: 'GE29 •••• •••• 4917', payoutBank: { swiftBic: 'BAGAGE22' } },
+      holdUntil: (data.payoutHoldUntil as Date).toISOString(),
+    });
+    expect(email.send).toHaveBeenCalledWith(expect.objectContaining({ to: 'chica@example.com' }));
+  });
 });
 
 describe('OperatorsService.submitSelfOnboarding — la chica pone su cuenta de cobro', () => {

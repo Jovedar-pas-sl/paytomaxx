@@ -415,6 +415,61 @@ describe('48 h de espera: no se marca pagado a una cuenta recién cambiada', () 
   });
 });
 
+describe('transferencia internacional: el banco, el SWIFT y el país también son «a dónde va el dinero»', () => {
+  const WIRE = 'GE29NB0000000101904917';
+  const wire = (swiftBic: string) => ({
+    payoutMethod: 'WIRE_INTERNATIONAL',
+    payoutAddress: WIRE,
+    payoutMetadata: { bankName: 'TBC Bank', swiftBic, country: 'Georgia', accountHolder: 'Camila Rodriguez' },
+  });
+  let cami: string;
+
+  it('cambiar solo el SWIFT (misma cuenta y mismo titular): 48 h de espera, correo, aviso en su app y el banco de antes en el registro', async () => {
+    cami = await newChica('Camila');
+    await patch(boss, 'OWNER', cami, { ...wire('TBCBGE22'), totpCode: await codeOf(boss) });
+    const first = await stored(cami);
+    expect(first.payoutHoldUntil).toBeNull();
+    await asStaff(V, () => operators.markPayoutNoticeSeen(cami, V));
+    const mailsBefore = sent.length;
+
+    const before = Date.now();
+    const view = await patch(boss, 'OWNER', cami, { ...wire('BAGAGE22'), totpCode: await codeOf(boss) });
+    const row = await stored(cami);
+    expect(row.payoutHoldUntil!.getTime()).toBeGreaterThanOrEqual(before + 48 * HOUR);
+    expect(view.payoutHoldUntil).toBe(row.payoutHoldUntil!.toISOString());
+    expect(row.payoutAccountChangedAt!.getTime()).toBeGreaterThan(first.payoutAccountChangedAt!.getTime());
+    expect(row.payoutMetadata).toMatchObject({ swiftBic: 'BAGAGE22' });
+    // A ella: correo y aviso en su app.
+    expect(sent.length).toBe(mailsBefore + 1);
+    expect(await asStaff(V, () => operators.getPayoutNotice(cami, V))).toMatchObject({ masked: 'GE29 •••• •••• 4917' });
+    // En el registro (lo que enseña Incidencias), el banco de antes y el de ahora: la cuenta tapada es la misma.
+    const last = (await auditOf(cami)).filter((a) => a.action === 'operator.payout_account_changed').pop()!;
+    expect(last.payload).toMatchObject({
+      holdUntil: row.payoutHoldUntil!.toISOString(),
+      before: { payoutAddress: 'GE29 •••• •••• 4917', payoutBank: { swiftBic: 'TBCBGE22' } },
+      after: { payoutAddress: 'GE29 •••• •••• 4917', payoutBank: { swiftBic: 'BAGAGE22' } },
+    });
+    expect(JSON.stringify(last)).not.toContain(WIRE);
+    expect(JSON.stringify(last)).not.toContain('Rodriguez');
+    // Y no se le marca pagado a esa cuenta hasta pasadas las 48 h.
+    await newEarning(cami, 10_000);
+    const paid = await failure(markPaid(boss, 'OWNER', cami, { externalRail: 'WIRE_INTERNATIONAL', totpCode: await codeOf(boss) }));
+    expect(paid).toMatchObject({ status: 409, body: { code: 'PAYOUT_ACCOUNT_TOO_NEW', payableFrom: row.payoutHoldUntil!.toISOString() } });
+  });
+
+  it('los mismos datos otra vez (la base devuelve el JSON en otro orden): ni espera nueva, ni aviso, ni correo', async () => {
+    const before = await stored(cami);
+    await asStaff(V, () => operators.markPayoutNoticeSeen(cami, V));
+    const mailsBefore = sent.length;
+    await patch(boss, 'OWNER', cami, { ...wire('bagage22'), payoutAddress: 'ge29 nb00 0000 0101 9049 17', totpCode: await codeOf(boss) });
+    const row = await stored(cami);
+    expect(row.payoutHoldUntil).toEqual(before.payoutHoldUntil);
+    expect(row.payoutAccountChangedAt).toEqual(before.payoutAccountChangedAt);
+    expect(sent.length).toBe(mailsBefore);
+    expect(await asStaff(V, () => operators.getPayoutNotice(cami, V))).toBeNull();
+  });
+});
+
 describe('aviso a la compañera en su app: «Tu cuenta de cobro ha cambiado»', () => {
   it('al entrar lo ve (tapada) hasta que pulsa «Entendido»; un cambio nuevo vuelve a avisar', async () => {
     const ana = await newChica('Ana');
