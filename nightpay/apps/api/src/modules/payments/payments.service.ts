@@ -53,7 +53,7 @@ import { VENUE_METHODS_SELECT, assertMethodsEnabled } from '../venues/venue-meth
 import { resolveBpsForOperator, type OperatorCommissionDefaults, type RevenueCategory } from './commission';
 import { lineCommission, lineViews, type DraftLine } from './charge-lines';
 import { linesWithOperatorBps, resolveChargeOrThrow, type LineWithBps } from './charge-request';
-import { insertChargeLines, insertInvitationEarnings, linesOf, nextChargeRef } from './charge-store';
+import { assignChargeRef, insertChargeLines, insertInvitationEarnings, linesOf } from './charge-store';
 import { invitationEarnings } from './invitation-lines';
 import { cardQrUrl } from './pay-qr-url';
 import { assertCanTopUp } from '../venues/charge-rights';
@@ -910,12 +910,9 @@ export class PaymentsService implements OnApplicationBootstrap {
     const refundableFee = draft.topUp ? 0 : feeCents;
     return this.prisma.asSystem(async (tx) => {
       const walletId = await this.topUpWalletId(tx, tenantId, draft.topUp);
-      // Referencia corta (C-0001): el contador del local queda bloqueado hasta el commit.
-      const ref = await nextChargeRef(tx, tenantId);
       const p = await tx.payment.create({
         data: {
           tenantId,
-          ref,
           terminalId: draft.terminalId,
           createdByUserId: input.creatorUserId,
           idempotencyKey: input.idempotencyKey,
@@ -959,7 +956,6 @@ export class PaymentsService implements OnApplicationBootstrap {
                 category: draft.revenueCategory,
                 serviceName: draft.service?.serviceName ?? null,
                 payToken: randomBytes(24).toString('base64url'),
-                ref,
                 expiresAt: qrExpiresAt,
                 linkedPaymentId: p.id,
               },
@@ -986,6 +982,8 @@ export class PaymentsService implements OnApplicationBootstrap {
       // Detalle del pago: con qué móvil se creó (el del personal; el del
       // cliente en una recarga desde /w o desde casa; el datáfono).
       await recordPaymentDevice(tx, this.cls.get('ctx'), { id: p.id, tenantId }, 'create', saldo ? { walletChargeId: saldo.id } : {});
+      // Referencia corta (C-0001), la misma en los dos: lo último, el contador del local bloqueado solo hasta el commit.
+      await assignChargeRef(tx, tenantId, { paymentId: p.id, walletChargeId: saldo?.id ?? null });
       return p;
     });
   }

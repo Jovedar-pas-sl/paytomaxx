@@ -212,12 +212,18 @@ describe('un cobro solo lo sigue o lo retira quien lo hizo (o el encargado)', ()
 describe('la chica hace un cobro con QR', () => {
   it('con un servicio de la carta: precio y categoría del local; aún sin saldo (lo dice el cliente al pagar)', async () => {
     const { svc, tx } = makeService();
+    // El contador del local (charge-store.assignChargeRef) da la 41.
+    tx.$queryRaw.mockResolvedValueOnce([{ ref: 41 }]);
     const out = await svc.createQrCharge(chica, { serviceItemId: 'svc-1' });
     expect(out).toMatchObject({ status: 'PENDING', amountCents: 10_000, serviceName: '30 min', ref: 'C-0041' });
     expect(out.payToken.length).toBeGreaterThanOrEqual(32);
     expect(tx.walletChargeRequest.create.mock.calls[0]![0]).toMatchObject({
-      data: { tenantId: 'other', walletId: null, requestedByUserId: 'op-1', category: 'CHICA_SERVICE', ref: 41 },
+      data: { tenantId: 'other', walletId: null, requestedByUserId: 'op-1', category: 'CHICA_SERVICE' },
     });
+    // La referencia, lo último y en una sola sentencia: después del cobro y de su línea.
+    const refCall = tx.$queryRaw.mock.calls.findIndex((c) => sqlOf(c).includes('charge_ref_counters'));
+    expect(refCall).toBeGreaterThanOrEqual(0);
+    expect(tx.$queryRaw.mock.invocationCallOrder[refCall]!).toBeGreaterThan(tx.paymentLine.createMany.mock.invocationCallOrder[0]!);
     // Su línea, en Servicios, con el cobro del saldo.
     expect(tx.paymentLine.createMany.mock.calls[0]![0]).toEqual({
       data: [

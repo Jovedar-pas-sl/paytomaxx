@@ -46,7 +46,7 @@ import {
 import { resolveBpsForOperator, type RevenueCategory } from '../payments/commission';
 import { lineCommission, type DraftLine } from '../payments/charge-lines';
 import { resolveChargeOrThrow } from '../payments/charge-request';
-import { insertChargeLines, insertInvitationEarnings, linesOf, nextChargeRef } from '../payments/charge-store';
+import { assignChargeRef, insertChargeLines, insertInvitationEarnings, linesOf } from '../payments/charge-store';
 import { invitationEarnings } from '../payments/invitation-lines';
 import {
   alreadyPaid,
@@ -1044,7 +1044,6 @@ export class WalletChargesService {
     const payToken = randomBytes(24).toString('base64url');
     // Cobro, su referencia (C-0001) y sus líneas: todo o nada.
     const request = await this.prisma.asSystem(async (tx) => {
-      const ref = await nextChargeRef(tx, actor.tenantId);
       const created = await tx.walletChargeRequest.create({
         data: {
           tenantId: actor.tenantId,
@@ -1054,7 +1053,6 @@ export class WalletChargesService {
           category,
           serviceName,
           payToken,
-          ref,
           expiresAt: new Date(Date.now() + QR_CHARGE_TTL_MS),
         },
       });
@@ -1069,7 +1067,8 @@ export class WalletChargesService {
                   ${created.id}, ${JSON.stringify(withoutIp(device))}::jsonb, ${this.cls?.get('ctx')?.traceId ?? null}, now())
         `;
       }
-      return created;
+      // La referencia, lo último: el contador del local bloqueado solo hasta el commit.
+      return { ...created, ref: await assignChargeRef(tx, actor.tenantId, { walletChargeId: created.id }) };
     });
     return { ...this.requestView(request, null), payToken };
   }
