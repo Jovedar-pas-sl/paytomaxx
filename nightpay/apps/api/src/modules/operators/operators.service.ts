@@ -921,6 +921,7 @@ export class OperatorsService {
     data.selfOnboardingToken = usedTokenMarker(tokenHash);
 
     // Ruta pública (sin local en el contexto): como la lectura del token, con asSystem.
+    // shortcut: sin plan.ifUnchanged (el enlace solo pone la primera cuenta y es de un solo uso), añadirlo si un día deja cambiar una que ya existe.
     try {
       await this.prisma.asSystem((tx) =>
         tx.user.update({ where: { id: operator.id, selfOnboardingToken: tokenHash }, data }),
@@ -1248,7 +1249,7 @@ export class OperatorsService {
    * «Por aprobar»: con `exact` se pagan exactamente las comisiones y deudas que
    * fijó la petición y por ese total; si algo cambió (ya pagadas, devoluciones
    * nuevas…), 409 y no se apunta nada. `inTransaction` corre dentro de la
-   * transacción, con el candado de la chica tomado y antes de leer lo que se
+   * transacción, con el candado de la persona tomado y antes de leer lo que se
    * le paga (la aprobación se marca ahí; el pago directo comprueba que no haya
    * una petición pendiente); `afterCreate`, en la misma transacción, con el pago.
    * La cuenta de cobro y su espera de 48 h se leen también ahí dentro, con el
@@ -1264,7 +1265,7 @@ export class OperatorsService {
     notes?: string,
     options?: PayoutOptions,
   ) {
-    // Que es del local (chica o camarero): 404 sin abrir la transacción.
+    // Que es del local (compañera o camarero): 404 sin abrir la transacción.
     const where = { id: operatorId, tenantId, role: { in: [...PAYEE_ROLES] } };
     if (!(await this.prisma.user.findFirst({ where }))) throw new NotFoundException('Operadora no encontrada');
     const holdDays = await this.holdDays(tenantId);
@@ -1280,7 +1281,7 @@ export class OperatorsService {
         select: { displayName: true, payoutMethod: true, payoutAddress: true, payoutHoldUntil: true },
       });
       if (!operator) throw new NotFoundException('Operadora no encontrada');
-      // Rail efectivo: el del dto si viene, sino el preferido de la chica.
+      // Rail efectivo: el del dto si viene, sino el preferido de la persona.
       const rail = options?.externalRail ?? operator.payoutMethod ?? null;
       const idempotency = options?.idempotency;
       if (idempotency) {

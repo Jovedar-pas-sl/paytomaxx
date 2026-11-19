@@ -75,6 +75,7 @@ export class PayoutAccountBackfill implements OnApplicationBootstrap {
       if (done.accounts + done.payouts + done.failed > 0) {
         this.logger.log(`Cuentas de cobro cifradas: ${done.accounts} personas y ${done.payouts} pagos (${done.failed} sin poder)`);
       }
+      // shortcut: solo se cuenta al arrancar (lo que el API anterior guarde en claro después no se ve hasta el siguiente arranque), repetir la pasada a los minutos si reiniciar a mano no basta.
       const left = await this.leftInClear();
       if (left === 0) {
         this.logger.log('Cuentas de cobro: ninguna en claro');
