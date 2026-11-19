@@ -1,10 +1,10 @@
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
+import { maskedPayoutAccount, openPayoutAddress } from '../operators/payout-account';
 import {
   IdempotencyKeySchema,
   PayoutMethodSchema,
   approvalExpiresAt,
-  maskPayoutAddress,
   type ApprovalKind,
   type ApprovalStatus,
   type ApprovalView,
@@ -81,10 +81,20 @@ export function isCashRefundPayload(payload: unknown): boolean {
   return CashApprovalPayloadSchema.safeParse(payload).success;
 }
 
-/** Huella de la cuenta de cobro guardada de la chica (método + dirección). */
-export function accountFingerprint(saved: { payoutMethod: string | null; payoutAddress: string | null }): string {
+/**
+ * Huella de la cuenta de cobro guardada de la chica (método + dirección), con
+ * la cuenta en claro: cifrarla (pa1:…, distinto cada vez) no cuenta como cambio.
+ * Si no se puede abrir (se cambió ENCRYPTION_KEK), la de lo guardado tal cual.
+ */
+export function accountFingerprint(saved: { id: string; payoutMethod: string | null; payoutAddress: string | null }): string {
+  let address = saved.payoutAddress;
+  try {
+    address = openPayoutAddress(saved);
+  } catch {
+    // Se queda con lo guardado: pedir y aprobar siguen comparando lo mismo.
+  }
   return createHash('sha256')
-    .update(`${saved.payoutMethod ?? ''}|${saved.payoutAddress ?? ''}`)
+    .update(`${saved.payoutMethod ?? ''}|${address ?? ''}`)
     .digest('hex');
 }
 
@@ -94,7 +104,10 @@ export function buildPayoutPayload(input: {
     displayName: string | null;
     email: string;
     payoutMethod: string | null;
+    /** Como está guardada (cifrada o antigua en claro). */
     payoutAddress: string | null;
+    /** Lo tapado que se guardó con ella (la cifrada no se abre para enseñarla). */
+    payoutAddressMasked?: string | null;
     payoutLabel: string | null;
   };
   method: string;
@@ -108,12 +121,13 @@ export function buildPayoutPayload(input: {
 }): PayoutPayload {
   const { operator } = input;
   // La dirección guardada es la de su método guardado; pagando por otra vía no aplica.
-  const address = input.method === operator.payoutMethod ? operator.payoutAddress : null;
+  const accountMasked =
+    input.method === operator.payoutMethod ? maskedPayoutAccount({ ...operator, payoutMetadata: null }).addressMasked : null;
   return PayoutPayloadSchema.parse({
     operatorId: operator.id,
     operatorName: personName(operator),
     method: input.method,
-    accountMasked: maskPayoutAddress(input.method, address),
+    accountMasked,
     accountFingerprint: accountFingerprint(operator),
     payoutLabel: operator.payoutLabel,
     externalTxId: input.externalTxId?.trim() || null,

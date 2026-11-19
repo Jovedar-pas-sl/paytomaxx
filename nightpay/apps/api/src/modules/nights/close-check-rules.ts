@@ -8,6 +8,7 @@ import {
   type NightCloseStep,
 } from '@nightpay/contracts';
 import type { Incident } from '../incidents/incident-rules';
+import { maskedPayoutAccount } from '../operators/payout-account';
 import { availableCentsOf } from '../operators/payout-math';
 import { SALDOS_TAB_PATH } from '../wallets/saldo-texts';
 import { formatWalletCode } from '../wallets/wallet-rules';
@@ -88,7 +89,10 @@ export interface ChicaBalanceRow {
   operatorId: string;
   name: string;
   payoutMethod: string | null;
+  /** Como está guardada (cifrada; antigua en claro): solo para taparla, nunca sale. */
   payoutAddress: string | null;
+  payoutAddressMasked?: string | null;
+  payoutHoldUntil?: Date | null;
   payoutLabel: string | null;
   /** Todo lo no pagado (comisión + propinas − devuelto). */
   unpaidCents: number;
@@ -324,14 +328,25 @@ export function efectivoStep(cash: NightCash): NightCloseStep {
 // ─── 5. Pagar al personal (chicas y camareros) ──────────────────────
 
 /** Lo que se le paga ya a una chica (como createPayout): lo liberado menos la deuda. */
-export function chicaPay(r: ChicaBalanceRow): NightChicaPay {
+export function chicaPay(r: ChicaBalanceRow, now: Date = new Date()): NightChicaPay {
   const bankHeldCents = Math.max(0, r.bankHeldCents ?? 0);
   const available = availableCentsOf({ unpaidCents: r.unpaidCents, heldCents: r.heldCents, bankHeldCents, debtCents: r.debtCents });
+  // La cuenta, tapada (entera solo con «Ver cuenta para pagar», el dueño con 2FA).
+  const masked = maskedPayoutAccount({
+    id: r.operatorId,
+    payoutMethod: r.payoutMethod,
+    payoutAddress: r.payoutAddress,
+    payoutAddressMasked: r.payoutAddressMasked ?? null,
+    payoutMetadata: null,
+    payoutLabel: r.payoutLabel,
+  });
+  const holdUntil = r.payoutHoldUntil && r.payoutHoldUntil.getTime() > now.getTime() ? r.payoutHoldUntil.toISOString() : null;
   return {
     operatorId: r.operatorId,
     name: r.name,
     payoutMethod: r.payoutMethod,
-    payoutAddress: r.payoutAddress,
+    payoutAddressMasked: masked.addressMasked,
+    payoutHoldUntil: holdUntil,
     payoutLabel: r.payoutLabel,
     toPayCents: Math.max(0, available),
     heldCents: Math.max(0, r.heldCents),

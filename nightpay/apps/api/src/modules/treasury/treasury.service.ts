@@ -15,6 +15,7 @@ import { PayoutVerifierFactory } from './payout-verifier.factory';
 import { earningBankHeldSql, earningNetSql } from '../operators/bank-hold-sql';
 import { payableSummary, payoutCutoff } from '../operators/payout-math';
 import { venueHoldDays } from '../operators/venue-hold-days';
+import { isSealedPayoutValue, openPayoutValue } from '../operators/payout-account-crypto';
 import {
   isAutoVerifiable,
   type VerifyResult,
@@ -394,7 +395,7 @@ export class TreasuryService {
           externalRail: { in: ['USDT_TRC20', 'USDT_BEP20', 'USDC_POLY', 'USDC_SOL'] },
         },
         include: {
-          operator: { select: { payoutAddress: true } },
+          operator: { select: { id: true, payoutAddress: true } },
         },
         take: RECON_MAX_PER_RUN,
         orderBy: { createdAt: 'asc' },
@@ -428,7 +429,8 @@ export class TreasuryService {
     externalTxId: string | null;
     expectedAmountUsdt: { toString(): string } | null;
     paidToAddress?: string | null;
-    operator: { payoutAddress: string | null };
+    operatorId?: string;
+    operator: { id?: string; payoutAddress: string | null };
   }): Promise<boolean> {
     const addr = paidToAddressOf(p);
     const rail = p.externalRail as PayoutMethod | null;
@@ -464,8 +466,21 @@ export class TreasuryService {
  * persona al apuntarlo (paidToAddress, 20261029400200), no la de ahora (si
  * no, cambiarla después cambiaba el resultado). '' = no tenía: null (no se
  * verifica on-chain). Pagos de antes de guardarla (NULL): la actual.
+ * Va guardada cifrada (pa1:…, la de la persona: payout-account-crypto); las
+ * antiguas en claro se leen igual. Si no se puede abrir (otra ENCRYPTION_KEK), 400.
  */
-export function paidToAddressOf(p: { paidToAddress?: string | null; operator: { payoutAddress: string | null } }): string | null {
-  if (p.paidToAddress === null || p.paidToAddress === undefined) return p.operator.payoutAddress;
-  return p.paidToAddress.trim() || null;
+export function paidToAddressOf(p: {
+  operatorId?: string;
+  paidToAddress?: string | null;
+  operator: { id?: string; payoutAddress: string | null };
+}): string | null {
+  const stored = p.paidToAddress === null || p.paidToAddress === undefined ? p.operator.payoutAddress : p.paidToAddress.trim() || null;
+  if (!stored || !isSealedPayoutValue(stored)) return stored;
+  const userId = p.operatorId ?? p.operator.id;
+  if (!userId) throw new BadRequestException('No se sabe de quién es la cuenta de cobro guardada: no se puede verificar on-chain');
+  try {
+    return openPayoutValue(stored, { userId, field: 'address' });
+  } catch {
+    throw new BadRequestException('No se puede leer la cuenta de cobro guardada: no se puede verificar on-chain (confírmalo a mano)');
+  }
 }

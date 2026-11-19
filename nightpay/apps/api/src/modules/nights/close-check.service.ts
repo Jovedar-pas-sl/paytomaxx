@@ -308,7 +308,7 @@ export class CloseCheckService {
     const rows = await this.prisma.withTenant(tenantId, (tx) => tx.$queryRaw<ChicaBalanceRow[]>`
       SELECT u.id AS "operatorId",
              COALESCE(u."displayName", u.email) AS name,
-             u."payoutMethod", u."payoutAddress", u."payoutLabel",
+             u."payoutMethod", u."payoutAddress", u."payoutAddressMasked", u."payoutHoldUntil", u."payoutLabel",
              COALESCE(e.unpaid, 0)::int AS "unpaidCents",
              COALESCE(e.held, 0)::int AS "heldCents",
              COALESCE(e.bank, 0)::int AS "bankHeldCents",
@@ -354,6 +354,6 @@ export class CloseCheckService {
        ORDER BY name ASC
        LIMIT ${ROW_LIMIT}
     `);
-    return rows.map(chicaPay);
+    return rows.map((r) => chicaPay(r));
   }
 }
