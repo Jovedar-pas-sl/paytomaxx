@@ -35,9 +35,18 @@ describe('operatorCapProblem — tope del local para la chica', () => {
     expect(operatorCapProblem({ ...base, fromMenu: true, amountCents: 30_000, tipCents: 25_000 })).not.toBeNull();
   });
 
-  it('recargas de saldo y personal del local: sin tope', () => {
+  it('recargas de saldo, el dueño y los cobros sin persona (reservados, el cliente): sin tope', () => {
     expect(operatorCapProblem({ ...base, isWalletTopUp: true, amountCents: 90_000 })).toBeNull();
-    expect(operatorCapProblem({ ...base, creatorRole: 'MANAGER', amountCents: 90_000 })).toBeNull();
-    expect(operatorCapProblem({ ...base, creatorRole: 'WAITER', amountCents: 90_000, tipCents: 9_000 })).toBeNull();
+    expect(operatorCapProblem({ ...base, creatorRole: 'OWNER', amountCents: 90_000 })).toBeNull();
+    expect(operatorCapProblem({ ...base, creatorRole: undefined, amountCents: 90_000 })).toBeNull();
+  });
+
+  it('camarero y encargado (decisión del dueño, 19-11-2026): el mismo tope del local en «Otro importe»', () => {
+    for (const creatorRole of ['WAITER', 'MANAGER']) {
+      expect(operatorCapProblem({ ...base, creatorRole, amountCents: 25_000 }), creatorRole).toMatch(/^Importe 250\.00 € supera el límite del local/);
+      expect(operatorCapProblem({ ...base, creatorRole, amountCents: 20_000 }), creatorRole).toBeNull();
+      // La carta no cuenta: el precio lo pone el local.
+      expect(operatorCapProblem({ ...base, creatorRole, fromMenu: true, amountCents: 90_000 }), creatorRole).toBeNull();
+    }
   });
 });

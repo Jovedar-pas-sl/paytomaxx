@@ -265,6 +265,23 @@ describe('la chica hace un cobro con QR', () => {
     expect(tx.walletChargeRequest.create).not.toHaveBeenCalled();
   });
 
+  it('tope de «Otro importe» del local: también el camarero y el encargado (la carta no cuenta); el dueño, sin tope', async () => {
+    const { svc, tx, prisma } = makeService();
+    prisma.venue.findUnique.mockResolvedValue({ operatorMaxCobroCents: 20_000, walletGroup: 'principal' });
+    const waiter = { userId: 'wt-1', role: 'WAITER' as const, tenantId: 'other' };
+    const encargado = { ...manager, tenantId: 'other' };
+    await expect(svc.createQrCharge(waiter, { amountCents: 25_000 })).rejects.toThrow('El máximo que puedes cobrar de una vez es 200,00 €');
+    await expect(svc.createQrCharge(encargado, { amountCents: 25_000, category: 'VENUE_BAR' })).rejects.toBeInstanceOf(ForbiddenException);
+    expect(tx.walletChargeRequest.create).not.toHaveBeenCalled();
+    // La carta (el precio lo pone el local) y el dueño: sin tope.
+    tx.serviceItem.findMany.mockResolvedValueOnce([
+      { id: 'svc-2', name: 'Botella', durationMin: null, priceCents: 30_000, category: 'VENUE_BAR', active: true, components: null },
+    ]);
+    await expect(svc.createQrCharge(encargado, { serviceItemId: 'svc-2' })).resolves.toMatchObject({ amountCents: 30_000 });
+    await expect(svc.createQrCharge({ ...owner, tenantId: 'other' }, { amountCents: 90_000, category: 'VENUE_BAR' })).resolves.toMatchObject({ amountCents: 90_000 });
+    await expect(svc.createQrCharge(waiter, { amountCents: 20_000 })).resolves.toMatchObject({ amountCents: 20_000 });
+  });
+
   it('varias cosas en un cobro del saldo: cada línea a su sección y el total del servidor', async () => {
     const { svc, tx } = makeService();
     const out = await svc.createQrCharge(manager, {
