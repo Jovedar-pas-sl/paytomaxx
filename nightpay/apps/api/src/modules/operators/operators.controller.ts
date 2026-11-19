@@ -6,14 +6,18 @@ import {
   Inject,
   Param,
   Post,
+  Query,
   UseGuards,
 } from '@nestjs/common';
 import {
   AcceptInviteSchema,
+  OwnHistoryQuerySchema,
   SelfOnboardingSubmitSchema,
   type AcceptInviteDto,
   type EarningView,
   type OperatorBalance,
+  type OwnHistoryPage,
+  type OwnHistoryQuery,
   type PayoutAccountNotice,
   type PayoutView,
   type SelfOnboardingProfile,
@@ -56,6 +60,17 @@ export class OperatorsController {
     return this.operators.getMyEarnings(user.sub, user.tenantId);
   }
 
+  /** «Historial» de sus ganancias: por páginas y entre dos fechas [from, to). */
+  @Get('me/earnings/history')
+  @UseGuards(RolesGuard)
+  @Roles('OPERATOR')
+  async myEarningsHistory(
+    @CurrentUser() user: JwtPayload,
+    @Query(new ZodValidationPipe(OwnHistoryQuerySchema)) query: OwnHistoryQuery,
+  ): Promise<OwnHistoryPage<EarningView>> {
+    return this.operators.myEarningsPage(user.sub, user.tenantId, query);
+  }
+
   @Get('me/payments')
   @UseGuards(RolesGuard)
   @Roles('OPERATOR')
@@ -68,6 +83,17 @@ export class OperatorsController {
   @Roles('OPERATOR')
   async myPayouts(@CurrentUser() user: JwtPayload): Promise<PayoutView[]> {
     return this.operators.getMyPayouts(user.sub, user.tenantId);
+  }
+
+  /** «Pagos recibidos» con su justificante: por páginas y entre dos fechas [from, to). */
+  @Get('me/payouts/history')
+  @UseGuards(RolesGuard)
+  @Roles('OPERATOR')
+  async myPayoutsHistory(
+    @CurrentUser() user: JwtPayload,
+    @Query(new ZodValidationPipe(OwnHistoryQuerySchema)) query: OwnHistoryQuery,
+  ): Promise<OwnHistoryPage<PayoutView>> {
+    return this.operators.myPayoutsPage(user.sub, user.tenantId, query);
   }
 
   /** Días de espera, su cuenta de cobro (enmascarada) y sus deudas por devoluciones. */
