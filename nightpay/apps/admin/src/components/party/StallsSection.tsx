@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
-import type { StallStaffPerson, StallView, UpdateStallDto } from '@nightpay/contracts';
+import { STALL_SELLS_MAX, STALL_ZONE_MAX, type StallStaffPerson, type StallView, type UpdateStallDto } from '@nightpay/contracts';
 import { Button, Input } from '@nightpay/ui';
 import { totpRetryState } from '@/lib/api-errors';
 import { assignStall, createStall, deleteStall, fetchPartySettings, fetchStallStaff, fetchStalls, updateStall } from '@/lib/endpoints/party';
@@ -30,8 +30,9 @@ type Editing = { kind: 'new' } | { kind: 'edit'; stall: StallView } | null;
 /**
  * OxioParty · Casetas (maqueta Alta, «2 · Casetas y barras»): dar de alta,
  * cambiar y archivar las casetas, con la parte del organizador (un % o
- * «barra propia») y el IBAN para pagarles; y el personal de cada una (sus
- * cobros llevan esa caseta). La parte del organizador y el IBAN son dinero:
+ * «barra propia») y el IBAN para pagarles, y lo que ven los asistentes en la
+ * página de su pulsera (zona, qué vende y «Abierta ahora»); y el personal de
+ * cada una (sus cobros llevan esa caseta). La parte del organizador y el IBAN son dinero:
  * con la 2FA activada, guardarlos pide el código. Con la fiesta terminada,
  * el % de las que ya existen queda fijo (el cierre no cambia) y se avisa.
  */
@@ -225,6 +226,7 @@ function StallRow({
 }) {
   const [confirming, setConfirming] = useState(false);
   const iban = stallIbanText(stall);
+  const where = [stall.zone, stall.sells].filter(Boolean).join(' · ');
   return (
     <tr>
       <th scope="row">
@@ -233,6 +235,7 @@ function StallRow({
           {stall.managerName}
           {stall.managerContact ? ` · ${stall.managerContact}` : ''}
         </span>
+        {where ? <span className="np-party-dim">{where}</span> : null}
       </th>
       <td data-num="true">
         <span className="np-party-chip">{organizerText(stall.organizerBps)}</span>
@@ -249,6 +252,7 @@ function StallRow({
         <span className="np-party-status" data-tone={stall.active ? 'success' : 'neutral'}>
           {stall.active ? 'Activa' : 'Archivada'}
         </span>
+        {stall.active ? <span className="np-party-dim">{stall.openNow ? 'Abierta ahora' : 'Cerrada ahora'}</span> : null}
       </td>
       <td>
         <div className="np-party-actions">
@@ -359,6 +363,21 @@ function StallFormCard({
           inputMode="tel"
           maxLength={160}
         />
+        <Input
+          label="Zona (opcional)"
+          value={form.zone}
+          onChange={(e) => update({ zone: e.target.value })}
+          placeholder="Junto al escenario"
+          hint="Los asistentes ven la lista de casetas en la página de su pulsera."
+          maxLength={STALL_ZONE_MAX}
+        />
+        <Input
+          label="Qué vende (opcional)"
+          value={form.sells}
+          onChange={(e) => update({ sells: e.target.value })}
+          placeholder="Bocadillos, cerveza, refrescos"
+          maxLength={STALL_SELLS_MAX}
+        />
         <div>
           <Input
             label="% para la organización"
@@ -385,6 +404,10 @@ function StallFormCard({
             hint={form.ownBar ? 'Una barra propia no se paga: no hace falta.' : 'Sin IBAN se cuenta, pero no va en el fichero del banco.'}
           />
         </div>
+        <label className="np-party-check">
+          <input type="checkbox" checked={form.openNow} onChange={(e) => update({ openNow: e.target.checked })} />
+          Abierta ahora (lo ven los asistentes; su personal también lo cambia desde su app)
+        </label>
         {current ? (
           <label className="np-party-check">
             <input type="checkbox" checked={form.active} onChange={(e) => update({ active: e.target.checked })} />

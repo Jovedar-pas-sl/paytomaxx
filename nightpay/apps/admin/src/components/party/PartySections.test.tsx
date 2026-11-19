@@ -165,6 +165,18 @@ describe('Casetas', () => {
     expect(html).toContain('Activa (se le puede dar personal y cobrar)');
   });
 
+  it('lo que ven los asistentes: la zona y qué vende en la lista, «Abierta ahora» o «Cerrada ahora», y en el formulario', () => {
+    const html = stalls({ stalls: [sampleStall(), sampleStall({ id: 's-2', name: 'Falla Centro', zone: null, sells: null, openNow: false })] });
+    expect(html).toContain('Junto al escenario · Bocadillos, cerveza, refrescos');
+    expect(html).toContain('Abierta ahora');
+    expect(html).toContain('Cerrada ahora');
+    const form = stalls({ editing: { kind: 'edit', stall: sampleStall() } });
+    expect(form).toContain('Zona (opcional)');
+    expect(form).toContain('value="Junto al escenario"');
+    expect(form).toContain('Qué vende (opcional)');
+    expect(form).toContain('Abierta ahora (lo ven los asistentes; su personal también lo cambia desde su app)');
+  });
+
   it('sin casetas, cómo empezar', () => {
     expect(stalls({ stalls: [], staff: [] })).toContain('Aún no hay casetas.');
   });

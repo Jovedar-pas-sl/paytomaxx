@@ -1,9 +1,12 @@
 // OxioParty · Casetas (lógica pura del formulario): nombre, responsable, la
-// parte del organizador (un % o «barra propia») y el IBAN para pagarle. Lo
-// que se manda es lo que acepta /v1/admin/party/stalls (contracts/party.ts).
+// parte del organizador (un % o «barra propia»), el IBAN para pagarle y lo
+// que ven los asistentes (zona, qué vende y «Abierta ahora»). Lo que se manda
+// es lo que acepta /v1/admin/party/stalls (contracts/party.ts).
 
 import {
   ORGANIZER_OWN_BAR_BPS,
+  STALL_SELLS_MAX,
+  STALL_ZONE_MAX,
   isValidIban,
   maskIban,
   normalizeIban,
@@ -23,6 +26,10 @@ export interface StallForm {
   ownBar: boolean;
   iban: string;
   active: boolean;
+  /** Para los asistentes: dónde está y qué vende (vacío = sin decir). */
+  zone: string;
+  sells: string;
+  openNow: boolean;
 }
 
 export const EMPTY_STALL_FORM: StallForm = {
@@ -33,6 +40,9 @@ export const EMPTY_STALL_FORM: StallForm = {
   ownBar: false,
   iban: '',
   active: true,
+  zone: '',
+  sells: '',
+  openNow: false,
 };
 
 export function stallFormFrom(s: StallView): StallForm {
@@ -44,6 +54,9 @@ export function stallFormFrom(s: StallView): StallForm {
     ownBar: s.ownBar,
     iban: s.iban ?? '',
     active: s.active,
+    zone: s.zone ?? '',
+    sells: s.sells ?? '',
+    openNow: s.openNow,
   };
 }
 
@@ -60,6 +73,8 @@ function parsedFields(form: StallForm): Parsed<{
   managerContact: string | null;
   organizerBps: number;
   iban: string | null;
+  zone: string | null;
+  sells: string | null;
 }> {
   const name = form.name.trim();
   if (!name) return { ok: false, problem: 'Pon el nombre de la caseta.' };
@@ -74,14 +89,18 @@ function parsedFields(form: StallForm): Parsed<{
   const ibanRaw = form.iban.trim();
   const iban = ibanRaw ? normalizeIban(ibanRaw) : null;
   if (iban && !isValidIban(iban)) return { ok: false, problem: 'El IBAN no es válido: revisa que esté completo (el dígito de control no cuadra).' };
-  return { ok: true, value: { name, managerName, managerContact: contact || null, organizerBps, iban } };
+  const zone = form.zone.trim();
+  if (zone.length > STALL_ZONE_MAX) return { ok: false, problem: `La zona, como mucho ${STALL_ZONE_MAX} letras.` };
+  const sells = form.sells.trim();
+  if (sells.length > STALL_SELLS_MAX) return { ok: false, problem: `Qué vende, como mucho ${STALL_SELLS_MAX} letras.` };
+  return { ok: true, value: { name, managerName, managerContact: contact || null, organizerBps, iban, zone: zone || null, sells: sells || null } };
 }
 
 /** La caseta nueva o el motivo para no mandarla. */
 export function createStallDto(form: StallForm): Parsed<CreateStallDto> {
   const parsed = parsedFields(form);
   if (!parsed.ok) return parsed;
-  return { ok: true, value: { ...parsed.value, active: form.active } };
+  return { ok: true, value: { ...parsed.value, active: form.active, openNow: form.openNow } };
 }
 
 /** Solo lo que cambia (vacío: nada que guardar) o el motivo para no mandarlo. */
@@ -96,6 +115,9 @@ export function updateStallDto(form: StallForm, current: StallView): Parsed<Upda
     ...(v.organizerBps !== current.organizerBps ? { organizerBps: v.organizerBps } : {}),
     ...(v.iban !== current.iban ? { iban: v.iban } : {}),
     ...(form.active !== current.active ? { active: form.active } : {}),
+    ...(v.zone !== current.zone ? { zone: v.zone } : {}),
+    ...(v.sells !== current.sells ? { sells: v.sells } : {}),
+    ...(form.openNow !== current.openNow ? { openNow: form.openNow } : {}),
   };
   return { ok: true, value: change };
 }

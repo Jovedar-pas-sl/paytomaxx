@@ -26,7 +26,7 @@ describe('casetas', () => {
   it('una nueva: el % en bps, el IBAN sin espacios y en mayúsculas, el contacto vacío a null', () => {
     expect(createStallDto(form)).toEqual({
       ok: true,
-      value: { name: 'Peña El Cántaro', managerName: 'Ana R.', managerContact: null, organizerBps: 1250, iban: IBAN, active: true },
+      value: { name: 'Peña El Cántaro', managerName: 'Ana R.', managerContact: null, organizerBps: 1250, iban: IBAN, zone: null, sells: null, active: true, openNow: false },
     });
   });
 
@@ -53,6 +53,20 @@ describe('casetas', () => {
     expect(r.ok && hasStallChange(r.value)).toBe(true);
     expect(stallFormFrom(sampleStall({ organizerBps: 10_000, ownBar: true }))).toMatchObject({ ownBar: true, percent: '' });
     expect(stallFormFrom(stall).percent).toBe('10,00');
+  });
+
+  it('lo que ven los asistentes: zona y qué vende sin espacios sueltos (vacío = sin decir) y «Abierta ahora»', () => {
+    const r = createStallDto({ ...form, zone: '  Junto al escenario ', sells: ' Bocadillos ', openNow: true });
+    expect(r.ok && r.value).toMatchObject({ zone: 'Junto al escenario', sells: 'Bocadillos', openNow: true });
+    expect(createStallDto({ ...form, zone: 'x'.repeat(61) })).toEqual({ ok: false, problem: 'La zona, como mucho 60 letras.' });
+    expect(createStallDto({ ...form, sells: 'x'.repeat(121) })).toEqual({ ok: false, problem: 'Qué vende, como mucho 120 letras.' });
+    const stall = sampleStall();
+    expect(stallFormFrom(stall)).toMatchObject({ zone: 'Junto al escenario', sells: 'Bocadillos, cerveza, refrescos', openNow: true });
+    expect(updateStallDto({ ...stallFormFrom(stall), zone: '', sells: 'Horchata', openNow: false }, stall)).toEqual({
+      ok: true,
+      value: { zone: null, sells: 'Horchata', openNow: false },
+    });
+    expect(stallFormFrom(sampleStall({ zone: null, sells: null, openNow: false }))).toMatchObject({ zone: '', sells: '', openNow: false });
   });
 
   it('cómo se lee en la tabla y en el personal', () => {
