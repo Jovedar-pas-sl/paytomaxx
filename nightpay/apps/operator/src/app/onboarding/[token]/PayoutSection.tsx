@@ -2,6 +2,7 @@
 
 import { useId, type CSSProperties } from 'react';
 import { Input, Select } from '@nightpay/ui';
+import { payoutHolderRequired } from '@nightpay/contracts';
 import type { PayoutMethod } from '@/lib/api';
 import { needsPayoutConfirmation, type SavedPayout } from '@/lib/payout-address';
 import { PAYOUT_HINTS, needsAddress, payoutFieldProblems, type PayoutValues } from './onboarding-payout';
@@ -43,7 +44,8 @@ interface Props {
 /**
  * "Cómo quieres cobrar": método, dirección (comprobada según el método, con
  * las mismas reglas que el API) y etiqueta; en la transferencia internacional,
- * además, el banco, su SWIFT/BIC, el país y el titular.
+ * además, el banco, su SWIFT/BIC, el país y el titular; en el IBAN SEPA, el
+ * titular.
  */
 export function PayoutSection({ values, onChange, saved, showErrors, disabled }: Props) {
   const methodId = useId();
@@ -114,6 +116,8 @@ export function PayoutSection({ values, onChange, saved, showErrors, disabled }:
           ) : null}
           {method === 'WIRE_INTERNATIONAL' ? (
             <WireFields values={values} set={set} problems={problems} disabled={disabled} />
+          ) : payoutHolderRequired(method) ? (
+            <HolderField values={values} set={set} problems={problems} disabled={disabled} />
           ) : null}
           <div style={{ marginTop: '0.75rem' }}>
             <Input
@@ -177,17 +181,26 @@ function WireFields({
           disabled={disabled}
         />
       </div>
-      <div style={{ marginTop: '0.75rem' }}>
-        <Input
-          label="Titular de la cuenta"
-          value={values.accountHolder}
-          onChange={(e) => set({ accountHolder: e.target.value })}
-          placeholder="Nombre y apellidos como en el banco"
-          error={problems.accountHolder}
-          disabled={disabled}
-        />
-      </div>
+      <HolderField values={values} set={set} problems={problems} disabled={disabled} />
     </>
+  );
+}
+
+/** El titular: el banco comprueba que cuadre con la cuenta (IBAN SEPA y transferencia internacional). */
+function HolderField({ values, set, problems, disabled }: Parameters<typeof WireFields>[0]) {
+  return (
+    <div style={{ marginTop: '0.75rem' }}>
+      <Input
+        label="Titular de la cuenta"
+        value={values.accountHolder}
+        onChange={(e) => set({ accountHolder: e.target.value })}
+        placeholder="Nombre y apellidos como en el banco"
+        autoComplete="off"
+        maxLength={120}
+        error={problems.accountHolder}
+        disabled={disabled}
+      />
+    </div>
   );
 }
 

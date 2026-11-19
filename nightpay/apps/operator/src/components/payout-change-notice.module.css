@@ -1,0 +1,50 @@
+/* «Tu cuenta de cobro ha cambiado»: un aviso que hay que ver (borde ámbar), con «Entendido» de 44 px. */
+
+.box {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.875rem 1rem;
+  border: 1px solid var(--np-warning);
+  border-radius: var(--np-r-md);
+  background: var(--np-surface-2);
+}
+
+.title {
+  margin: 0;
+  font-size: var(--np-fs-16);
+  font-weight: 600;
+  color: var(--np-text);
+}
+
+.line {
+  margin: 0;
+  font-size: var(--np-fs-16);
+  line-height: 1.4;
+  color: var(--np-text-mute);
+  text-wrap: pretty;
+  overflow-wrap: anywhere;
+}
+
+.ok {
+  align-self: flex-start;
+  min-height: 2.75rem;
+  padding: 0 1.25rem;
+  border: 1px solid var(--np-border-hi);
+  border-radius: var(--np-r-md);
+  background: transparent;
+  color: var(--np-text);
+  font: 500 var(--np-fs-16)/1 var(--np-font-sans);
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.ok:active {
+  color: var(--np-text-mute);
+}
+
+.ok:focus-visible {
+  outline: 2px solid var(--np-text);
+  outline-offset: 2px;
+}

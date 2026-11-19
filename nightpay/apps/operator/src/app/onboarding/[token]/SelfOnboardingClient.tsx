@@ -78,10 +78,8 @@ export function SelfOnboardingClient({ token }: Props) {
   const [payoutIgnored, setPayoutIgnored] = useState(false);
   // API viejo (sin el campo): se puede, como antes.
   const canSetPayout = profile?.canSetPayout !== false;
-  const savedPayout: SavedPayout = {
-    method: profile?.payoutMethod ?? null,
-    address: profile?.payoutAddress ?? null,
-  };
+  // El enlace nunca devuelve la cuenta entera (y solo deja ponerla a quien no tiene).
+  const savedPayout: SavedPayout = { method: profile?.payoutMethod ?? null, address: null };
   // Cada etiqueta, unida a su campo (antes los desplegables no tenían nombre).
   const fieldId = useId();
   const ids = {
@@ -107,12 +105,7 @@ export function SelfOnboardingClient({ token }: Props) {
         setNeedsHelpWallet(p.needsHelpWallet);
         setNeedsHelpDocs(p.needsHelpDocs);
         setNotes(p.onboardingNotes ?? '');
-        setPayout({
-          ...EMPTY_PAYOUT,
-          method: p.payoutMethod ?? '',
-          address: p.payoutAddress ?? '',
-          label: p.payoutLabel ?? '',
-        });
+        setPayout({ ...EMPTY_PAYOUT, method: p.payoutMethod ?? '', label: p.payoutLabel ?? '' });
       })
       .catch((err) => {
         if (err instanceof SelfOnboardingSavedError) setDone('before');
