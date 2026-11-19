@@ -16,7 +16,7 @@ function pct(bps: number): string {
   return `${(bps / 100).toLocaleString('es-ES', { maximumFractionDigits: 2 })} %`;
 }
 
-function escapeHtml(s: string): string {
+export function escapeHtml(s: string): string {
   return s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c] ?? c);
 }
 
