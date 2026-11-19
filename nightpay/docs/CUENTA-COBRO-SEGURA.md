@@ -49,6 +49,9 @@ SELECT count(*) FROM users
 
 ## Ojo
 
+- **El dueño necesita la 2FA activada antes de publicar** (Ajustes →
+  Seguridad). Sin ella ya no puede ver una cuenta entera para pagar ni
+  cambiarla: el panel le dice que la active.
 - **`ENCRYPTION_KEK` no se puede perder ni cambiar.** Sin ella las cuentas
   guardadas no se pueden abrir (lo tapado sí se sigue viendo): habría que
   volver a escribirlas una a una en Editar. Guárdala en dos sitios.
@@ -69,6 +72,11 @@ SELECT count(*) FROM users
 2. **El nombre legal de la compañera.** Hoy el titular se compara con el
    nombre que tiene en el panel (a menudo un apodo). Cuando exista su ficha
    con el nombre legal, el aviso se hará contra él.
+3. **De efectivo a una cuenta.** Quien cobraba en efectivo y pasa a tener
+   cuenta también espera 48 h (cuenta como cambio: es lo más seguro, y se le
+   puede seguir pagando en efectivo). Solo no espera quien nunca tuvo nada
+   puesto. Si el dueño prefiere que tampoco espere, es una línea
+   (`first` en `payout-account.ts`).
 
 ## Dónde está
 
