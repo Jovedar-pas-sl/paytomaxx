@@ -87,6 +87,9 @@ export type PayRedirect =
       bitcoin?: boolean;
       /** Un pago de un reservado (señal, resto o todo): sus páginas dicen sus reglas. */
       reservation?: true;
+      /** Quién cobra (decisión del dueño, 19-11-2026): su nombre visible y su foto (data:image), si los tiene. */
+      staffName?: string;
+      staffPhoto?: string;
     }
   | {
       /**
@@ -282,6 +285,9 @@ export interface PayablePayment {
   concept?: string | null;
   /** La propina va entera a una persona del personal (no al local). */
   tipToStaff?: boolean;
+  /** Quién cobra: su nombre visible y su foto (data:image), solo para la página de pago. */
+  staffName?: string | null;
+  staffPhoto?: string | null;
   /** Recarga de saldo: token de la página del saldo del cliente. */
   walletToken: string | null;
   /** Huella del navegador que hizo el pago aprobado. */
@@ -382,6 +388,8 @@ export function choosePayPage(p: PayablePayment, now: Date = new Date()): PayRed
     ...(p.saldo && p.allowTip && p.tipCents > 0 ? { presetTipCents: p.tipCents } : {}),
     ...(p.bitcoin ? { bitcoin: true } : {}),
     ...(p.reservation ? { reservation: true as const } : {}),
+    ...(p.staffName ? { staffName: p.staffName } : {}),
+    ...(p.staffName && p.staffPhoto ? { staffPhoto: p.staffPhoto } : {}),
   };
 }
 

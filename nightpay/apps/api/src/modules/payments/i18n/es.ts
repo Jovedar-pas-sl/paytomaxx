@@ -60,6 +60,7 @@ const pay: PayText = {
   inAppWarning: (app) =>
     `Estás en el navegador de ${app}. Para pagar con Apple Pay o Google Pay, ábrelo en Safari o Chrome: toca ··· y «Abrir en el navegador». Con tarjeta puedes pagar aquí.`,
   statement: (name) => `En tu extracto: «${name}»`,
+  chargedBy: (name) => `Te cobra ${name}`,
   expiresIn: 'Caduca en',
   openingTitle: 'Abriendo el pago…',
   openingHint: 'Si no avanza en 2 segundos, pulsa el botón.',

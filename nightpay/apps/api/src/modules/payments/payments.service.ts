@@ -1101,7 +1101,7 @@ export class PaymentsService implements OnApplicationBootstrap {
     const payment = await this.findPayable(qrToken);
     const settled = settledPayView(payment);
     if (settled) return settled;
-    if (payment.status !== 'AUTHORIZING') return choosePayPage(payment);
+    if (payment.status !== 'AUTHORIZING') return this.withStaffPhoto(choosePayPage(payment), payment.createdByUserId);
     // Factura de bitcoin abierta: su página (QR y cuenta atrás), no la del banco.
     if (payment.provider === 'BTCPAY') return { kind: 'bitcoin' };
     // Otras pasarelas: se reenvía lo guardado, como antes.
@@ -1121,7 +1121,27 @@ export class PaymentsService implements OnApplicationBootstrap {
       paymentUpdatedAt: payment.updatedAt,
     });
     // Denegado o abandonado: puede volver a elegir (p. ej. tarjeta en vez de Apple Pay).
-    return decision === 'retry' ? choosePayPage(payment) : retryOutcome(decision);
+    return decision === 'retry' ? this.withStaffPhoto(choosePayPage(payment), payment.createdByUserId) : retryOutcome(decision);
+  }
+
+  /**
+   * La foto de quien cobra en la página de pago (va dentro, como data:, por la
+   * CSP y la mala red). Solo aquí: el POST no la necesita. Si no se puede
+   * leer, la página sale igual, con su nombre.
+   */
+  private async withStaffPhoto(view: PayRedirect, userId: string | null): Promise<PayRedirect> {
+    if (view.kind !== 'choose' || !view.staffName || !userId) return view;
+    try {
+      const photo = await this.prisma.asSystem((tx) =>
+        tx.userPhoto.findUnique({ where: { userId }, select: { contentType: true, data: true } }),
+      );
+      if (!photo) return view;
+      const type = photo.contentType === 'image/jpeg' ? 'image/jpeg' : 'image/webp';
+      return { ...view, staffPhoto: `data:${type};base64,${Buffer.from(photo.data).toString('base64')}` };
+    } catch (err) {
+      this.logger.warn(`Foto de quien cobra sin leer (user=${userId}): ${(err as Error).message}`);
+      return view;
+    }
   }
 
   /**
@@ -1245,7 +1265,9 @@ export class PaymentsService implements OnApplicationBootstrap {
 
   private async findPayable(
     qrToken: string,
-  ): Promise<PayablePayment & { tenantId: string; provider: Provider | null; updatedAt: Date; walletId: string | null }> {
+  ): Promise<
+    PayablePayment & { tenantId: string; provider: Provider | null; updatedAt: Date; walletId: string | null; createdByUserId: string | null }
+  > {
     const payment = await this.prisma.asSystem((tx) =>
       tx.payment.findUnique({
         where: { qrToken },
@@ -1268,7 +1290,9 @@ export class PaymentsService implements OnApplicationBootstrap {
           serviceName: true,
           tipGoesTo: true,
           venue: { select: { name: true, paymentMethods: true, postRules: true } },
-          createdBy: { select: { role: true, post: true } },
+          // Quién cobra: su nombre visible (nunca el correo) para la página de pago.
+          createdByUserId: true,
+          createdBy: { select: { role: true, post: true, displayName: true } },
           wallet: { select: { qrToken: true, shortCode: true, pinHash: true, _count: { select: { passkeys: true } } } },
           attempts: {
             where: { status: 'APPROVED' },
@@ -1309,6 +1333,7 @@ export class PaymentsService implements OnApplicationBootstrap {
       venueName: venue?.name ?? null,
       concept: serviceName ?? null,
       tipToStaff: tipGoesToStaff({ tipGoesTo: tipGoesTo ?? null, creatorRole: createdBy?.role ?? null }),
+      staffName: createdBy?.displayName?.trim() || null,
       approvedClaimHash: attempts[0]?.claimHash ?? null,
       ...payerWalletFields({ wallet, firstTopUp, idempotencyKey, approvedClaimHash: attempts[0]?.claimHash ?? null }),
       // Reservados: al pagarse (también con bitcoin), el navegador que pagó vuelve a la página del reservado.

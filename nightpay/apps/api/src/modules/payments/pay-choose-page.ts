@@ -60,6 +60,8 @@ export const CHOOSE_CSS = `
 .head{display:flex;flex-direction:column;align-items:center;gap:.3rem;text-align:center;padding-top:.25rem}
 .venue{color:var(--fg);font-weight:600;font-size:1.125rem}
 .concept{color:var(--mute);font-size:.875rem;max-width:22rem}
+.who{display:flex;align-items:center;gap:.5rem;color:var(--mute);font-size:.875rem}
+.who .face{width:2rem;height:2rem;border-radius:50%;object-fit:cover;flex:none}
 .head .kick{margin-top:.35rem}
 .amount{font-size:clamp(2.5rem,12vw,3rem);font-weight:600;letter-spacing:-.02em;line-height:1.05;color:var(--fg);font-variant-numeric:proportional-nums}
 .meta{display:flex;flex-wrap:wrap;justify-content:center;gap:.15rem .9rem;font-size:.8125rem;color:var(--dim)}
@@ -118,6 +120,7 @@ ${PAY_MARKS_CSS}/* Móviles bajos (360×740 y similares): todo más compacto par
 form{gap:.8rem}
 .head{gap:.15rem}
 .head .kick{margin-top:.15rem}
+.who .face{width:1.5rem;height:1.5rem}
 .amount{font-size:2.5rem}
 .meta{font-size:.75rem}
 legend{margin-bottom:.45rem;font-size:.9375rem}
@@ -359,6 +362,18 @@ function keepRuleLine(view: ChooseView, lang: PayLanguage): string {
   return `<p class="keep" id="keepRule">${escapeHtml(CUSTOMER_TEXT[lang].wallet.keepRule)}</p>`;
 }
 
+/**
+ * Quién cobra (decisión del dueño, 19-11-2026), como en /s: su nombre visible
+ * y su foto si tiene. La foto es de adorno (el nombre va al lado): alt vacío.
+ */
+function whoLine(view: ChooseView, t: PayText): string {
+  if (!view.staffName) return '';
+  const photo = view.staffPhoto?.startsWith('data:image/')
+    ? `<img class="face" src="${escapeHtml(view.staffPhoto)}" alt="" width="32" height="32">`
+    : '';
+  return `<p class="who">${photo}<span>${escapeHtml(t.chargedBy(view.staffName))}</span></p>`;
+}
+
 export function renderChooseBody(view: ChooseView, ctx: ChooseContext): string {
   const t = PAY_TEXT[ctx.lang];
   const withTips = (view.tipMaxCents ?? 0) > 0;
@@ -393,6 +408,7 @@ export function renderChooseBody(view: ChooseView, ctx: ChooseContext): string {
   return `<main class="pay">
 <header class="head">
 ${view.venueName ? `<p class="venue">${escapeHtml(view.venueName)}</p>` : ''}
+${whoLine(view, t)}
 <p class="kick" aria-hidden="true">${escapeHtml(t.totalToPay)}</p>
 <h1 class="amount num"><span class="sr">${escapeHtml(t.totalToPay)}: </span><span id="big">${escapeHtml(money(start, view, t, true))}</span></h1>
 ${view.concept ? `<p class="concept">${escapeHtml(view.concept)}</p>` : ''}
