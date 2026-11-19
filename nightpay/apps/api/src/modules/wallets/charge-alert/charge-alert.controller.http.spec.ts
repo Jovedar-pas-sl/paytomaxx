@@ -1,5 +1,6 @@
 import 'reflect-metadata';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { ForbiddenException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { FastifyAdapter, type NestFastifyApplication } from '@nestjs/platform-fastify';
 import { Test } from '@nestjs/testing';
@@ -19,6 +20,11 @@ const passkeys = {
   hasPasskey: vi.fn(async () => true),
   challenge: vi.fn(async () => ({ challenge: 'reto' })),
   verify: vi.fn(async () => 'w1'),
+  /** Como el de verdad: sin Face ID no pide nada; con él, la llave tiene que ser de este saldo. */
+  assertOwner: vi.fn(async (walletId: string, scope: string, host: string | undefined, response: unknown) => {
+    if (!(await passkeys.hasPasskey())) return;
+    if ((await passkeys.verify(scope, host, response)) !== walletId) throw new ForbiddenException({ code: 'FACE_ID_WRONG' });
+  }),
 };
 /** La sesión de consulta del saldo (tras desbloquear con su Face ID). */
 const session = walletViewSetCookies(SECRET, { id: 'w1', qrToken: TOKEN }).map((c) => c.split(';')[0]).join('; ');
@@ -27,6 +33,7 @@ const at = new Date('2026-11-16T22:40:00Z');
 const disputes = {
   view: vi.fn(async () => ({ state: 'ask', ref: 'C-0042', totalCents: 1_200, venueName: 'Sala Aurora', at })),
   dispute: vi.fn(async () => ({ state: 'done', ref: 'C-0042', totalCents: 1_200, venueName: 'Sala Aurora', at, blockedCards: 1, pinLocked: true })),
+  linkFor: vi.fn(async () => `/w/no/${NOT_ME}`),
 };
 let app: NestFastifyApplication;
 
@@ -111,5 +118,43 @@ describe('«Aviso en cada cobro»: rutas del cliente (fuera de /v1)', () => {
     expect(done.statusCode).toBe(200);
     expect(done.body).toContain('Ficha y PIN bloqueados');
     expect(disputes.dispute).toHaveBeenCalledWith(NOT_ME);
+  });
+});
+
+describe('«No he sido yo» desde los movimientos del saldo (/w)', () => {
+  const CHARGE = '11111111-2222-4333-8444-555555555555';
+
+  it('con Face ID: la sesión del saldo y su llave (reto atado a «no» y a este saldo) dan el enlace de su página', async () => {
+    const ch = await app.inject({ method: 'POST', url: `/w/${TOKEN}/no/${CHARGE}/challenge`, headers: { host: 'api.example' } });
+    expect(ch.statusCode).toBe(200);
+    expect(passkeys.challenge).toHaveBeenCalledWith('no:w1', 'api.example');
+    const out = await app.inject({ method: 'POST', url: `/w/${TOKEN}/no/${CHARGE}`, payload: { response: { id: 'llave' } }, headers: { cookie: session, host: 'api.example' } });
+    expect(out.statusCode).toBe(200);
+    expect(out.headers['cache-control']).toBe('no-store');
+    expect(out.json()).toEqual({ url: `/w/no/${NOT_ME}` });
+    expect(passkeys.verify).toHaveBeenCalledWith('no:w1', 'api.example', { id: 'llave' });
+    expect(disputes.linkFor).toHaveBeenCalledWith('w1', CHARGE);
+    // Pedir el enlace no bloquea nada: se confirma en su página.
+    expect(disputes.dispute).not.toHaveBeenCalled();
+  });
+
+  it('sin la sesión 401, sin la llave 403 y con la de otro saldo 403: no hay enlace', async () => {
+    expect((await app.inject({ method: 'POST', url: `/w/${TOKEN}/no/${CHARGE}`, payload: { response: {} } })).statusCode).toBe(401);
+    passkeys.verify.mockRejectedValueOnce(new ForbiddenException({ code: 'FACE_ID_REQUIRED' }));
+    expect((await app.inject({ method: 'POST', url: `/w/${TOKEN}/no/${CHARGE}`, payload: {}, headers: { cookie: session } })).statusCode).toBe(403);
+    passkeys.verify.mockResolvedValueOnce('otro-saldo');
+    expect((await app.inject({ method: 'POST', url: `/w/${TOKEN}/no/${CHARGE}`, payload: { response: {} }, headers: { cookie: session } })).statusCode).toBe(403);
+    expect((await app.inject({ method: 'POST', url: `/w/${TOKEN}/no/no-es-un-id`, payload: {}, headers: { cookie: session } })).statusCode).toBe(400);
+    expect(disputes.linkFor).not.toHaveBeenCalled();
+  });
+
+  it('sin Face ID en el saldo basta el enlace privado (como el aviso); el reto da 409', async () => {
+    passkeys.hasPasskey.mockResolvedValue(false);
+    const ch = await app.inject({ method: 'POST', url: `/w/${TOKEN}/no/${CHARGE}/challenge` });
+    expect(ch.statusCode).toBe(409);
+    const out = await app.inject({ method: 'POST', url: `/w/${TOKEN}/no/${CHARGE}`, payload: {} });
+    expect(out.statusCode).toBe(200);
+    expect(passkeys.verify).not.toHaveBeenCalled();
+    passkeys.hasPasskey.mockResolvedValue(true);
   });
 });

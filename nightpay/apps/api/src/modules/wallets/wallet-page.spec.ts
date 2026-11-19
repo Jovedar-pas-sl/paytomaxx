@@ -3,6 +3,7 @@ import { renderWalletPage } from './wallet-page';
 import { SCAN_JS } from './wallet-scan';
 import { WALLET_TEXT } from './wallet-text';
 import { AVISO_JS, SERVICE_WORKER_JS } from './charge-alert/charge-alert-view';
+import { CHARGE_ALERT_TEXT } from './charge-alert/charge-alert-text';
 import type { ClientWalletState } from './wallet-charges.service';
 
 function state(o: Partial<ClientWalletState> = {}): ClientWalletState {
@@ -648,6 +649,23 @@ describe('maqueta 5.1: tarjeta OxioCard y movimientos con su referencia', () => 
     for (const hidden of ['u.by', 'u.reason', 'sensitive', 'devices', '.ip']) expect(js).not.toContain(hidden);
     // Lo que se escribe, con textContent: nada de HTML.
     expect(js.slice(js.indexOf('function detRow'), js.indexOf('function detOpen'))).not.toContain('innerHTML');
+  });
+
+  it('«No he sido yo» en el detalle de un pago con el saldo: con su Face ID si lo tiene, lleva a la página del aviso', () => {
+    for (const lang of ['es', 'en', 'fr', 'pt'] as const) {
+      const html = renderWalletPage('tok-1', lang, state());
+      expect(html).toContain(`<button class="btn redo" type="button" id="detNo" hidden>${CHARGE_ALERT_TEXT[lang].pushNotMe}</button>`);
+      // Dentro de la hoja del detalle, antes de «Cerrar».
+      expect(html.indexOf('id="detNo"')).toBeGreaterThan(html.indexOf('id="detSheet"'));
+      expect(html.indexOf('id="detNo"')).toBeLessThan(html.indexOf(`data-close>${WALLET_TEXT[lang].detail.close}</button>`));
+    }
+    const js = script(renderWalletPage('tok-1', 'es', state()));
+    // Solo en un pago con el saldo que sigue pagado (ni recargas ni lo ya devuelto).
+    expect(js).toContain("$('detNo').hidden=!(detM&&detM.detail.kind==='SALDO'&&d.status==='ACCEPTED');");
+    // Con Face ID, el reto atado a este cobro (withKey); sin él, el enlace privado basta. Lleva a /w/no/….
+    expect(js).toContain("withKey('/no/'+encodeURIComponent(m.detail.id),{})");
+    expect(js).toContain('location.href=r.url');
+    expect(() => new Function(js)).not.toThrow();
   });
 
   it('el detalle en los cuatro idiomas, con las palabras únicas en castellano', () => {

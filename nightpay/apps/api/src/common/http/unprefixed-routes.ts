@@ -87,6 +87,9 @@ export const UNPREFIXED_ROUTES: readonly UnprefixedRoute[] = Object.freeze([
   { path: 'w/:token/aviso/off', method: RequestMethod.POST },
   { path: 'w/no/:token', method: RequestMethod.GET },
   { path: 'w/no/:token', method: RequestMethod.POST },
+  // «No he sido yo» desde un movimiento del saldo: su Face ID y el enlace de arriba.
+  { path: 'w/:token/no/:chargeId/challenge', method: RequestMethod.POST },
+  { path: 'w/:token/no/:chargeId', method: RequestMethod.POST },
   // «Recargar» desde la página del saldo (con su Face ID si lo tiene).
   { path: 'w/:token/topup/challenge', method: RequestMethod.POST },
   { path: 'w/:token/topup', method: RequestMethod.POST },

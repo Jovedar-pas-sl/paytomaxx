@@ -1,11 +1,11 @@
-import { Inject, Injectable, Optional } from '@nestjs/common';
+import { Inject, Injectable, NotFoundException, Optional } from '@nestjs/common';
 import { formatChargeRef } from '@nightpay/contracts';
 import { PrismaService, type TransactionalClient } from '../../../common/prisma/prisma.service';
 import { AuditService } from '../../audit/audit.service';
 import { ISSUED_CARD_STATUSES, recordCardEvents } from '../wallet-card-ops';
 import { lockLiveWallet } from '../wallet-merge-chain';
 import { formatWalletCode } from '../wallet-rules';
-import { notMeChargeId, notMeSecret, verifyNotMeToken } from './not-me-token';
+import { notMeChargeId, notMePath, notMeSecret, signNotMeToken, verifyNotMeToken } from './not-me-token';
 
 /** Lo que apunta el registro (y lee la incidencia de recepción y el encargado). */
 export const CHARGE_DISPUTED_ACTION = 'wallet.charge_disputed_by_client';
@@ -143,6 +143,20 @@ export class ChargeDisputeService {
       });
       return { state: 'done', blockedCards: cards.length, pinLocked, ...info };
     });
+  }
+
+  /**
+   * «No he sido yo» desde los movimientos del saldo (/w): el mismo enlace
+   * firmado que el aviso, para un cobro pagado de ESTE saldo (quien llama ya
+   * comprobó el acceso y su Face ID). Pedirlo no cambia nada: se confirma en
+   * su página. Otro saldo, sin pagar o que no existe: 404.
+   */
+  async linkFor(walletId: string, chargeId: string): Promise<string> {
+    const charge = await this.prisma.acrossVenues((tx) =>
+      tx.walletChargeRequest.findUnique({ where: { id: chargeId }, select: { walletId: true, status: true } }),
+    );
+    if (!charge || charge.walletId !== walletId || charge.status !== 'ACCEPTED') throw new NotFoundException('Cobro no encontrado');
+    return notMePath(signNotMeToken({ chargeId, walletId }, Date.now(), notMeSecret(this.env)));
   }
 
   /** null si el enlace vale para este cobro pagado; si no, por qué no. */
