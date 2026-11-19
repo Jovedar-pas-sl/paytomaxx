@@ -10,6 +10,19 @@ import { Prisma } from '@nightpay/db';
 import { WalletChargesService } from './wallet-charges.service';
 import { hashPin, verifyPin } from './wallet-pin';
 
+/** Cada comprobación del PIN (scrypt): si había una transacción abierta (con el saldo bloqueado). */
+const pinSpy = vi.hoisted(() => ({ openTx: 0, insideTx: [] as boolean[] }));
+vi.mock('./wallet-pin', async (importOriginal) => {
+  const real = await importOriginal<typeof import('./wallet-pin')>();
+  return {
+    ...real,
+    verifyPin: async (...args: Parameters<typeof real.verifyPin>) => {
+      pinSpy.insideTx.push(pinSpy.openTx > 0);
+      return real.verifyPin(...args);
+    },
+  };
+});
+
 /**
  * PIN del saldo (pagar sin sacar el móvil): bloqueo tras 5 fallos, fallos
  * viejos que caducan, quién lo elige y quién lo desbloquea. Base en memoria
@@ -125,11 +138,14 @@ function setup(wallet: Row = {}, topUp: Row | null = null) {
   // Todo o nada: si la transacción falla, la base vuelve a como estaba.
   const run = async (fn: (t: typeof tx) => unknown) => {
     const snap = all.map((t) => new Map(t.rows));
+    pinSpy.openTx += 1;
     try {
       return await fn(tx);
     } catch (err) {
       all.forEach((t, i) => (t.rows = snap[i] ?? new Map()));
       throw err;
+    } finally {
+      pinSpy.openTx -= 1;
     }
   };
   const prisma = { ...tx, asSystem: vi.fn(run), acrossVenues: vi.fn(run) };
@@ -255,6 +271,45 @@ describe('PIN fallado: bloqueo del saldo', () => {
     const pinQuery = queries.find((q) => q.text.includes('"pinHash"'))!;
     expect(pinQuery.text).toMatch(/FROM client_wallets WHERE id = \$1::uuid FOR UPDATE/);
     expect(pinQuery.values).toEqual([WALLET]);
+  });
+
+  it('el PIN (scrypt, decenas de ms) se comprueba sin ninguna transacción abierta: el saldo no queda bloqueado mientras (carga del 19-11-2026)', async () => {
+    const { svc, db } = setup();
+    pinSpy.insideTx.length = 0;
+    await expect(pagar(svc, lola, cobro(db), '9051')).rejects.toBeInstanceOf(UnprocessableEntityException);
+    expect(db.clientWallet.get(WALLET)).toMatchObject({ pinFails: 1 });
+    await expect(pagar(svc, lola, cobro(db), PIN)).resolves.toMatchObject({ status: 'ACCEPTED', newBalanceCents: 8_000 });
+    expect(db.clientWallet.get(WALLET)).toMatchObject({ pinFails: 0, pinFailedAt: null });
+    expect(pinSpy.insideTx).toEqual([false, false]);
+  });
+
+  it('bloqueado o sin PIN: ni se calcula el PIN', async () => {
+    pinSpy.insideTx.length = 0;
+    const bloqueado = setup({ pinFails: 5, pinFailedAt: NOW, pinLockedAt: NOW });
+    await expect(pagar(bloqueado.svc, lola, cobro(bloqueado.db), PIN)).rejects.toBeInstanceOf(UnprocessableEntityException);
+    const sinPin = setup({ pinHash: null });
+    await expect(pagar(sinPin.svc, lola, cobro(sinPin.db), PIN)).rejects.toBeInstanceOf(ConflictException);
+    expect(pinSpy.insideTx).toEqual([]);
+  });
+
+  it('si el PIN cambia mientras se comprueba (borrado y elegido otro), vale el de ahora y el contador sigue bien', async () => {
+    const { svc, db, $queryRaw } = setup();
+    const nuevo = await hashPin('5190', PEPPER);
+    const conElNuevo = async () => [{ ...db.clientWallet.get(WALLET), pinHash: nuevo }];
+    // El de antes ya no vale: un fallo.
+    $queryRaw.mockImplementationOnce(conElNuevo);
+    await expect(pagar(svc, lola, cobro(db), PIN)).rejects.toThrow(/Quedan 4 intentos/);
+    expect(db.clientWallet.get(WALLET)).toMatchObject({ pinFails: 1, balanceCents: 12_000 });
+    // El nuevo sí, aunque se leyera el de antes.
+    $queryRaw.mockImplementationOnce(conElNuevo);
+    await expect(pagar(svc, lola, cobro(db), '5190')).resolves.toMatchObject({ status: 'ACCEPTED', newBalanceCents: 8_000 });
+    expect(db.clientWallet.get(WALLET)).toMatchObject({ pinFails: 0 });
+  });
+
+  it('bloqueado al leerlo y desbloqueado por el encargado justo antes de apuntarlo: se comprueba el PIN y vale', async () => {
+    const { svc, db, $queryRaw } = setup({ pinFails: 5, pinFailedAt: NOW, pinLockedAt: NOW });
+    $queryRaw.mockImplementationOnce(async () => [{ ...db.clientWallet.get(WALLET), pinFails: 0, pinLockedAt: null }]);
+    await expect(pagar(svc, lola, cobro(db), PIN)).resolves.toMatchObject({ status: 'ACCEPTED', newBalanceCents: 8_000 });
   });
 
   it('si el saldo ya no está al ir a comprobar el PIN → 404 y no se cobra nada', async () => {

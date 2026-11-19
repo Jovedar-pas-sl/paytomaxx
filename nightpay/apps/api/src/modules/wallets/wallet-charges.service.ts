@@ -2090,8 +2090,12 @@ export class WalletChargesService {
   }
 
   /**
-   * Comprueba el PIN con el saldo bloqueado (dos intentos a la vez no se
-   * saltan el contador). Los fallos se guardan aunque el cobro no siga.
+   * Comprueba el PIN (scrypt, decenas de ms) SIN el saldo bloqueado y luego
+   * apunta el resultado con el saldo bloqueado: dos intentos a la vez no se
+   * saltan el contador, y un intento que llega con el saldo ya bloqueado no
+   * vale aunque acierte. Antes el scrypt iba dentro del bloqueo y los demás
+   * cobros de ese saldo esperaban (carga del 19-11-2026). Los fallos se
+   * guardan aunque el cobro no siga.
    */
   private async checkPin(
     walletId: string,
@@ -2099,6 +2103,10 @@ export class WalletChargesService {
     actor: { tenantId: string; userId: string | null; terminalId?: string },
   ): Promise<void> {
     const pepper = pinPepper();
+    const seen = await this.prisma.acrossVenues((tx) =>
+      tx.clientWallet.findUnique({ where: { id: walletId }, select: { pinHash: true, pinLockedAt: true } }),
+    );
+    const checked = seen?.pinHash && !seen.pinLockedAt ? { hash: seen.pinHash, ok: await verifyPin(pin, seen.pinHash, pepper) } : null;
     const outcome = await this.prisma.acrossVenues(async (tx) => {
       const rows = await tx.$queryRaw<
         Array<{ pinHash: string | null; pinFails: number; pinLockedAt: Date | null; pinFailedAt: Date | null }>
@@ -2109,7 +2117,8 @@ export class WalletChargesService {
       if (!w) return { kind: 'missing' as const };
       if (!w.pinHash) return { kind: 'no-pin' as const };
       if (w.pinLockedAt) return { kind: 'locked' as const };
-      if (await verifyPin(pin, w.pinHash, pepper)) {
+      // Cambió entre medias (PIN borrado y elegido otro, o desbloqueado): se comprueba el de ahora.
+      if (checked?.hash === w.pinHash ? checked.ok : await verifyPin(pin, w.pinHash, pepper)) {
         // PIN bueno: lo gastado con el NFC sin PIN esta noche vuelve a contar desde aquí.
         await tx.clientWallet.update({
           where: { id: walletId },
