@@ -1,5 +1,6 @@
 import { displayNameSchema } from './profile';
 import { z } from 'zod';
+import { BirthDateSchema, LegalNameSchema, OxiocardStatusSchema } from './alta';
 import { UuidSchema } from './common';
 
 // ─── Phase 1A — Payout routing ─────────────────────────────────────
@@ -415,8 +416,17 @@ export const OperatorPublicViewSchema = z.object({
   payoutMetadata: PayoutMetadataSchema.nullable().optional(),
   /** Titular tapado («M••• L•••»). */
   payoutHolderMasked: z.string().nullable().optional(),
-  /** El titular no se parece a su nombre: aviso para el dueño (no bloquea). */
+  /** El titular no se parece a su nombre (el legal si lo tiene; si no, el del panel): aviso para el dueño. */
   payoutHolderMismatch: z.boolean().optional(),
+  /** No coincide con su nombre legal y el dueño aún no confirmó que la cuenta es suya: no se le paga a ella (en efectivo, sí). */
+  payoutHolderUnconfirmed: z.boolean().optional(),
+  /** Nombre legal tapado («M••• L•••»); entero no sale del API. */
+  legalNameMasked: z.string().nullable().optional(),
+  /** «AAAA-MM-DD». */
+  birthDate: z.string().nullable().optional(),
+  /** Solo con OXIOCARD_ENABLED: si la pidió y cómo va. */
+  oxiocardStatus: OxiocardStatusSchema.optional(),
+  oxiocardStatusAt: z.string().datetime().nullable().optional(),
   payoutLabel: z.string().nullable().optional(),
   /** Última vez que cambió su cuenta de cobro (null: antes de guardarlo). */
   payoutAccountChangedAt: z.string().datetime().nullable().optional(),
@@ -544,6 +554,12 @@ export const UpdateOperatorSchema = z.object({
   needsHelpDocs: z.boolean().optional(),
   onboardingStatus: OnboardingStatusSchema.optional(),
   onboardingNotes: z.string().max(2000).nullable().optional(),
+  // Alta con tres caminos (solo el dueño): nombre legal, fecha de nacimiento,
+  // «la cuenta es suya» (con 2FA, como cambiar la cuenta) y la OxioCard.
+  legalName: LegalNameSchema.optional(),
+  birthDate: BirthDateSchema.optional(),
+  payoutHolderConfirmed: z.literal(true).optional(),
+  oxiocardStatus: OxiocardStatusSchema.optional(),
   /** Código 2FA: lo pide el API al cambiar la cuenta de cobro (payout*) si el dueño la tiene activada. */
   totpCode: z.string().regex(/^\d{6}$/, 'El código 2FA son 6 cifras').optional(),
 }).superRefine(refinePayoutAddress);
@@ -669,6 +685,12 @@ export const SelfOnboardingProfileSchema = z.object({
    * generado por el dueño y si aún no tiene una (cambiarla, en el panel).
    */
   canSetPayout: z.boolean().optional(),
+  /** Ya guardados (el nombre, tapado; la fecha no sale): si faltan, el alta los pide. */
+  legalNameMasked: z.string().nullable().optional(),
+  hasBirthDate: z.boolean().optional(),
+  /** La OxioCard (OXIOCARD_ENABLED): se puede pedir desde el alta si aún no la pidió. */
+  oxiocardEnabled: z.boolean().optional(),
+  oxiocardStatus: OxiocardStatusSchema.optional(),
 });
 export type SelfOnboardingProfile = z.infer<typeof SelfOnboardingProfileSchema>;
 
@@ -692,6 +714,10 @@ export const SelfOnboardingSubmitSchema = z.object({
   payoutLabel: z.string().max(120).nullable().optional(),
   /** Transferencia internacional (SWIFT): banco, SWIFT/BIC, titular y, si quiere, el país del banco. */
   payoutMetadata: PayoutMetadataSchema.nullable().optional(),
+  legalName: LegalNameSchema.optional(),
+  birthDate: BirthDateSchema.optional(),
+  /** «Abrir mi OxioCard» desde el alta (solo con OXIOCARD_ENABLED). */
+  oxiocard: z.literal(true).optional(),
 }).superRefine(refineSelfOnboardingPayout);
 export type SelfOnboardingSubmitDto = z.infer<typeof SelfOnboardingSubmitSchema>;
 
