@@ -184,8 +184,20 @@ function loadImage(src: string): Promise<HTMLImageElement> {
 
 /** El símbolo y el nombre escrito (claro, para fondo oscuro), cargados una vez. */
 export async function loadBrandImages(): Promise<{ symbol: HTMLImageElement; wordmark: HTMLImageElement }> {
-  const [symbol, wordmark] = await Promise.all([loadImage(KIT_ASSETS.symbol), loadImage(KIT_ASSETS.wordmarkLight)]);
+  const [symbol, wordmark] = await Promise.all([loadImage(KIT_ASSETS.symbolTile), loadImage(KIT_ASSETS.wordmarkLight)]);
   return { symbol, wordmark };
+}
+
+/**
+ * La familia real de la letra del panel (next/font le pone un nombre propio, no
+ * «Instrument Sans»): sale de la variable --np-font-sans. Se pide cargarla
+ * antes de dibujar: sin texto en la página que la use, el navegador no la baja.
+ */
+async function brandSans(): Promise<string> {
+  const raw = getComputedStyle(document.documentElement).getPropertyValue('--np-font-sans').trim();
+  const family = raw || "'Instrument Sans', system-ui, sans-serif";
+  await document.fonts.load(`600 40px ${family}`, 'Aá');
+  return family;
 }
 
 /** Dibuja la plantilla en el lienzo (se le pone el tamaño del formato). Espera a las letras de la página. */
@@ -196,7 +208,7 @@ export async function drawSocialTemplate(canvas: HTMLCanvasElement, o: SocialDra
   canvas.height = h;
   const ctx = canvas.getContext('2d');
   if (!ctx) throw new Error('Este navegador no puede dibujar la imagen.');
-  const sans = "'Instrument Sans', system-ui, sans-serif";
+  const sans = await brandSans();
   const measure: Measure = (text, px) => {
     ctx.font = `600 ${px}px ${sans}`;
     return ctx.measureText(text).width;

@@ -11,8 +11,10 @@ import { escapeHtml } from './home-topup';
 
 /** Las imágenes de marca, en un solo sitio (para cambiarlas por SVG cuando los haya). */
 export const KIT_ASSETS = {
-  /** El símbolo (512×512, nítido): para las marcas grandes. */
-  symbol: '/icons/icon-512.png',
+  /** El símbolo sin fondo (512×512, nítido): para lo impreso. Sale de scripts/brand/transparent-symbol.mjs. */
+  symbol: '/brand/oxio-simbolo-512.png',
+  /** El símbolo con su fondo crema (pastilla): para las plantillas de redes sobre foto. */
+  symbolTile: '/icons/icon-512.png',
   /** El nombre escrito (256×51): solo pequeño (≤ 45 mm impreso). */
   wordmarkDark: '/brand/oxiopay-wordmark-oscuro.png',
   wordmarkLight: '/brand/oxiopay-wordmark-claro.png',
@@ -25,6 +27,8 @@ export interface KitOptions {
   qr: string | null;
   /** Origen del panel (para las imágenes de marca en la ventana nueva); '' si son relativas. */
   assetBase?: string;
+  /** Las letras de la marca (URLs absolutas de los woff2): la hoja se abre desde un blob y no hereda las de la página. */
+  fonts?: { sans: string; num: string };
 }
 
 interface Line {
@@ -49,14 +53,14 @@ export const KIT_TEXT = {
   receptionTitle: { es: 'Carga tu saldo aquí', en: 'Top up here' },
   /** Recepción: importe, pago en efectivo o tarjeta y el saldo listo. */
   receptionSteps: [
-    { es: 'Dinos cuánto quieres cargar.', en: 'Tell us how much you want to load.' },
+    { es: 'Dinos cuánto quieres cargar.', en: 'Tell us how much you want to top up.' },
     { es: 'Paga en efectivo o con tarjeta.', en: 'Pay in cash or by card.' },
-    { es: 'Listo: paga con tu saldo en el local.', en: 'Done: pay with your balance at the venue.' },
+    { es: 'Listo: paga con tu saldo en el local.', en: 'All set: pay with your balance at the venue.' },
   ] as readonly Line[],
   receptionQrCaption: { es: 'O cárgalo antes de llegar, desde tu móvil', en: 'Or top up before you arrive, from your phone' },
   keepNote: {
     es: 'Lo que te sobra se queda en tu saldo para tu próxima visita.',
-    en: 'What is left stays in your balance for your next visit.',
+    en: 'Anything left over stays in your balance for your next visit.',
   },
 } as const;
 
@@ -64,18 +68,27 @@ const BASE_CSS = `
 @page{size:A4;margin:0}
 *{box-sizing:border-box}
 html{-webkit-print-color-adjust:exact;print-color-adjust:exact}
-body{margin:0;color:#1f2c36;background:#fff;font-family:'Instrument Sans',system-ui,'Segoe UI',sans-serif;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+body{margin:0;color:#1f2c36;background:#fff;font-family:OxioSans,'Instrument Sans',system-ui,'Segoe UI',sans-serif;-webkit-print-color-adjust:exact;print-color-adjust:exact}
 h1,h2,p,ol{margin:0}
 .en{color:#46525c;font-weight:400}
-.num{font-family:Manrope,'Instrument Sans',system-ui,sans-serif}
+.num{font-family:OxioNum,Manrope,'Instrument Sans',system-ui,sans-serif}
 .page{width:210mm;height:297mm;position:relative;overflow:hidden;page-break-after:always;break-after:page}
 .page:last-child{page-break-after:auto;break-after:auto}
 .cut{position:absolute;border:0 dashed #8a949c}
 .dot{display:inline-block;width:.42em;height:.42em;border-radius:.12em;background:#c7d301;margin-right:.35em;vertical-align:.05em}
 `;
 
-function head(title: string, css: string): string {
-  return `<!DOCTYPE html><html lang="es"><head><meta charset="utf-8"><title>${escapeHtml(title)}</title><style>${BASE_CSS}${css}</style></head>`;
+/** Instrument Sans (texto) y Manrope (cifras): las mismas que el panel, variables, con sus pesos. */
+function fontFaces(f: KitOptions['fonts']): string {
+  if (!f) return '';
+  const safe = (u: string): string => u.replace(/["'\s)]/g, '');
+  const face = (name: string, url: string, weight: string): string =>
+    `@font-face{font-family:${name};src:url("${safe(url)}") format('woff2');font-weight:${weight};font-display:block}`;
+  return face('OxioSans', f.sans, '400 700') + face('OxioNum', f.num, '600 800');
+}
+
+function head(title: string, css: string, o: KitOptions): string {
+  return `<!DOCTYPE html><html lang="es"><head><meta charset="utf-8"><title>${escapeHtml(title)}</title><style>${fontFaces(o.fonts)}${BASE_CSS}${css}</style></head>`;
 }
 
 function img(base: string | undefined, path: string, alt: string, cls: string): string {
@@ -123,7 +136,7 @@ h1{font-size:30pt;line-height:1.05;font-weight:600}.h1en{font-size:14pt;margin-t
 .qrcol{flex:none;width:62mm}.qr{width:62mm;height:62mm}
 .fold{left:0;top:148.5mm;width:210mm;border-top-width:.35mm}
 .m{width:6mm;border-top-width:.35mm}`;
-  return `${head(t.payTitle.es, css)}<body><div class="page">${face(true)}${face(false)}
+  return `${head(t.payTitle.es, css, o)}<body><div class="page">${face(true)}${face(false)}
 <div class="cut fold"></div><div class="cut m" style="left:0;top:0"></div><div class="cut m" style="right:0;top:0"></div><div class="cut m" style="left:0;bottom:0"></div><div class="cut m" style="right:0;bottom:0"></div>
 </div></body></html>`;
 }
@@ -140,7 +153,7 @@ export function doorStickersHtml(o: KitOptions): string {
 .sym{width:26mm;height:26mm;border-radius:5mm;margin-bottom:1.5mm}
 h1{font-size:17pt;line-height:1.08;font-weight:600}.h1en{font-size:11pt}
 .meth{font-size:8pt;line-height:1.25}.meth:not(.en){margin-top:2mm;font-weight:600}`;
-  return `${head(t.doorTitle.es, css)}<body><div class="page">${sticker.repeat(4)}</div></body></html>`;
+  return `${head(t.doorTitle.es, css, o)}<body><div class="page">${sticker.repeat(4)}</div></body></html>`;
 }
 
 /** El cartel de recepción: A4 con «Carga tu saldo aquí», tres pasos y, si se puede, el QR del local. */
@@ -156,7 +169,7 @@ h1{font-size:46pt;line-height:1;font-weight:600}.h1en{font-size:22pt;margin-top:
 .qrcol{align-self:center;margin-top:auto}.qr{width:80mm;height:80mm}figcaption p:first-child{font-size:14pt}figcaption p.en{font-size:11pt}
 .note{border-top:.4mm solid #1f2c36;padding-top:4mm;font-size:11pt}.note .en{font-size:9pt}
 .wm{height:9mm;width:auto;margin-top:2mm}`;
-  return `${head(t.receptionTitle.es, css)}<body><div class="page">
+  return `${head(t.receptionTitle.es, css, o)}<body><div class="page">
 <div class="top">${img(o.assetBase, KIT_ASSETS.symbol, 'OxioPay', 'sym')}<p class="venue">${escapeHtml(o.venueName)}</p></div>
 <div><h1><span class="dot"></span>${escapeHtml(t.receptionTitle.es)}</h1><p class="en h1en" lang="en">${escapeHtml(t.receptionTitle.en)}</p></div>
 ${steps(t.receptionSteps)}

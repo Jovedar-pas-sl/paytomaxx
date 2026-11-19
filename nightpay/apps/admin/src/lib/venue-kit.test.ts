@@ -56,6 +56,17 @@ describe('material para el local', () => {
     expect(html).not.toContain('<b>"Luna"');
   });
 
+  it('las letras de la marca van por @font-face si se pasan, y el inglés corregido', () => {
+    const fonts = { sans: 'https://x/s.woff2', num: 'https://x/n.woff2' };
+    const html = receptionPosterHtml({ ...on, fonts });
+    expect(html).toContain('@font-face{font-family:OxioSans;src:url("https://x/s.woff2")');
+    expect(html).toContain('font-family:OxioNum');
+    expect(receptionPosterHtml(on)).not.toContain('@font-face');
+    expect(html).toContain('Tell us how much you want to top up.');
+    expect(html).toContain('All set: pay with your balance at the venue.');
+    expect(html).toContain('Anything left over stays in your balance for your next visit.');
+  });
+
   it('el nombre del local se escapa en todas las hojas', () => {
     for (const build of Object.values(sheets)) expect(build({ venueName: '<script>x</script>', qr: null })).not.toContain('<script>');
   });

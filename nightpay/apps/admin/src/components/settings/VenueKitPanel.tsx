@@ -11,6 +11,12 @@ import { SettingsCard, StatusLine, useSettingsLoad } from './SettingsBits';
 
 type Sheet = (o: KitOptions) => string;
 
+// Las mismas letras que el panel (packages/ui/fonts), sin copiarlas: el empaquetador da la URL con su hash.
+const FONT_SANS = new URL('../../../../../packages/ui/fonts/instrument-sans.woff2', import.meta.url);
+const FONT_NUM = new URL('../../../../../packages/ui/fonts/manrope-var.woff2', import.meta.url);
+/** Tope de espera a las letras antes de imprimir. */
+const FONT_WAIT_MS = 1500;
+
 /**
  * Ajustes → Formas de cobro → «Material para el local» (dueño): tres hojas
  * A4 para imprimir (expositor de barra, pegatina de puerta, cartel de
@@ -30,11 +36,16 @@ export function VenueKitPanel() {
     const w = window.open('', '_blank', 'width=720,height=900');
     if (!w) return setError('El navegador no ha dejado abrir la hoja: permite las ventanas emergentes para imprimir.');
     setError(null);
-    w.document.write(build({ venueName, qr, assetBase: window.location.origin }));
+    // La hoja se abre desde un blob: las URLs de las letras tienen que ser absolutas.
+    const abs = (u: URL): string => new URL(u.pathname + u.search, window.location.origin).href;
+    w.document.write(build({ venueName, qr, assetBase: window.location.origin, fonts: { sans: abs(FONT_SANS), num: abs(FONT_NUM) } }));
     w.document.close();
     w.focus();
-    // Se imprime cuando han cargado las imágenes de marca (si no, saldría la hoja sin símbolo).
-    w.addEventListener('load', () => w.print());
+    // Se imprime cuando han cargado imágenes y letras (con un tope de espera).
+    w.addEventListener('load', () => {
+      const wait = new Promise((r) => setTimeout(r, FONT_WAIT_MS));
+      void Promise.race([w.document.fonts.ready, wait]).then(() => w.print());
+    });
   }
 
   return (
