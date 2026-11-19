@@ -653,6 +653,18 @@ export interface ServiceItem {
   icon?: string | null;
   /** Ruta de su logo o foto (versionada por su huella), o null. */
   imageUrl?: string | null;
+  /** «Agotado esta noche»: no se puede añadir a la cuenta. */
+  soldOut?: boolean;
+}
+
+/** Marca o quita «Agotado» (lo ve todo el personal al momento). */
+export async function setServiceSoldOut(id: string, soldOut: boolean): Promise<void> {
+  const res = await authedFetch(`/v1/services/${encodeURIComponent(id)}/sold-out`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ soldOut }),
+  });
+  if (!res.ok) throw loadError(res, 'No se pudo marcar el producto');
 }
 
 /** Lo que quien llama puede cobrar (la chica solo ve sus servicios). */

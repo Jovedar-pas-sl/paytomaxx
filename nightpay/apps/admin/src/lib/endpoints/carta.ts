@@ -24,6 +24,8 @@ export interface ServiceItem {
   icon?: CartaIconCode | null;
   /** Ruta de su logo o foto (versionada por su huella), o null. */
   imageUrl?: string | null;
+  /** «Agotado esta noche»: vuelve solo al cambiar la noche. */
+  soldOut?: boolean;
 }
 
 export interface ServiceItemInput {
@@ -82,6 +84,13 @@ export async function uploadServiceImage(id: string, base64: string): Promise<Se
 /** Quita el logo o la foto: el producto vuelve a su icono. */
 export async function removeServiceImage(id: string): Promise<ServiceItem> {
   const res = await authedFetch(`/v1/services/${id}/image`, { method: 'DELETE' });
+  if (!res.ok) throw await apiError(res);
+  return res.json();
+}
+
+/** «Agotado esta noche» (el personal lo ve al momento; vuelve solo al cambiar la noche). */
+export async function setServiceSoldOut(id: string, soldOut: boolean): Promise<ServiceItem> {
+  const res = await authedFetch(`/v1/services/${id}/sold-out`, { method: 'PUT', body: JSON.stringify({ soldOut }) });
   if (!res.ok) throw await apiError(res);
   return res.json();
 }

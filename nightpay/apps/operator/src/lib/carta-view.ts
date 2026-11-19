@@ -79,3 +79,8 @@ export function undoFocusTarget<T>(root: { querySelector(selector: string): T | 
 export function undoTap(undo: UndoTap | null, current: Cuenta): Cuenta {
   return undo ? undo.before : current;
 }
+
+/** ¿Se puede añadir a la cuenta? Un producto agotado esta noche, no. */
+export function pickable<T extends object>(item: T & { soldOut?: boolean }): boolean {
+  return item.soldOut !== true;
+}

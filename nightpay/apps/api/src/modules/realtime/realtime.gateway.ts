@@ -149,7 +149,7 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
     }
     client.data.staff = result.payload;
     // Salas para cortar sus conexiones al revocar la sesión o a la persona.
-    await client.join(sessionRooms(result.payload));
+    await client.join([...sessionRooms(result.payload), tenantRoom(result.payload.tenantId)]);
   }
 
   /** La tablet: con credencial válida, a su sala y a la de su cobro; si no, fuera (no baja a la vía antigua). */
@@ -256,6 +256,12 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
       status,
       timestamp: new Date().toISOString(),
     });
+  }
+
+  /** La carta cambió («Agotado»): solo el aviso, a todo el personal del local (todos los nodos); cada móvil la vuelve a pedir. */
+  emitCartaUpdate(tenantId: string): void {
+    if (!this.server) return;
+    this.server.to(tenantRoom(tenantId)).emit('carta:update', { type: 'carta:update', timestamp: new Date().toISOString() });
   }
 
   /** API publica para que PaymentsService emita updates. */
@@ -385,6 +391,11 @@ function handshakeToken(client: Socket): string | null {
   const auth = client.handshake?.auth as { token?: unknown } | undefined;
   if (typeof auth?.token === 'string' && auth.token.length > 0) return auth.token.replace(/^Bearer\s+/i, '');
   return bearerToken(client.handshake?.headers?.authorization);
+}
+
+/** Todo el personal conectado de un local (avisos que no son de un cobro: la carta). */
+export function tenantRoom(tenantId: string): string {
+  return `tenant:${tenantId}`;
 }
 
 function sessionRoom(sid: string): string {

@@ -941,6 +941,9 @@ model ServiceItem {
   isInvitation Boolean @default(false)
   // Icono de la colección cerrada (CARTA_ICON_CODES, 20261111100000); null = el de su sección.
   icon        String?  @db.VarChar(24)
+  // «Agotado» (20261120100000): cuándo se marcó. Solo vale si es de la noche abierta
+  // (soldOutAt >= su openedAt); al cambiar la noche vuelve solo. Null = hay.
+  soldOutAt   DateTime? @db.Timestamptz
   createdAt   DateTime @default(now()) @db.Timestamptz
   updatedAt   DateTime @default(now()) @updatedAt @db.Timestamptz
 
