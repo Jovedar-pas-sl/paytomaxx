@@ -12,9 +12,8 @@
   padding-top: 0.75rem;
 }
 
-.body :global(.np-outcome-ring) {
-  width: 3.5rem;
-  height: 3.5rem;
+.body {
+  --np-done-size: 3.5rem;
 }
 
 .body :global(.np-outcome-amount) {
@@ -160,18 +159,7 @@
 }
 
 .bandTick {
-  flex: none;
-  display: grid;
-  place-items: center;
-  width: 2rem;
-  height: 2rem;
-  border-radius: 50%;
-  border: 2px solid currentColor;
-}
-
-.bandTick svg {
-  width: 1.125rem;
-  height: 1.125rem;
+  --np-done-size: 2rem;
 }
 
 .bandText {
@@ -372,9 +360,8 @@
     gap: 0.625rem;
   }
 
-  .body :global(.np-outcome-ring) {
-    width: 2.5rem;
-    height: 2.5rem;
+  .body {
+    --np-done-size: 2.5rem;
   }
 
   .body :global(.np-outcome-amount) {

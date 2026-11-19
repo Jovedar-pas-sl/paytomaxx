@@ -68,6 +68,11 @@ export const PAID_SCREEN_CSS = `${BAND_CSS}
 .paid .band{position:absolute;top:calc(3.5rem + env(safe-area-inset-top));left:0;right:0;height:1.75rem}
 .paid .phead{display:flex;flex-direction:column;align-items:center;gap:.5rem}
 .paid .tick{flex:none;width:3.5rem;height:3.5rem;padding:.75rem;border-radius:50%;background:var(--lime);color:var(--on-lime);stroke:currentColor;stroke-width:3;fill:none;stroke-linecap:round;stroke-linejoin:round}
+.paid .tick{animation:np-done-pop 420ms cubic-bezier(.34,1.56,.64,1) both}
+.paid .tick path{stroke-dasharray:1;animation:np-done-draw 420ms ease-out 120ms both}
+@keyframes np-done-pop{from{transform:scale(.6);opacity:0}to{transform:scale(1);opacity:1}}
+@keyframes np-done-draw{from{stroke-dashoffset:1}to{stroke-dashoffset:0}}
+@media (prefers-reduced-motion:reduce){.paid .tick,.paid .tick path{animation:none}}
 .paid .ptitle{font-size:1.75rem;font-weight:600;line-height:1.1}
 .paid .pamount{font-size:clamp(3.5rem,17vw,4rem);font-weight:600;letter-spacing:-.02em;line-height:1.05;font-variant-numeric:proportional-nums}
 .paid .pcode{width:100%;max-width:21rem;margin:.375rem 0 .25rem;padding:.625rem 1rem .75rem;border-radius:var(--r);background:var(--cream);color:var(--ink);display:flex;flex-direction:column;align-items:center;gap:.125rem}
@@ -201,7 +206,7 @@ export function renderPaidScreen(a: PaidScreenArgs): string {
     : '';
   return `<section class="paid${fresh ? '' : ' stale'}${closed ? ' closed' : ''}" id="${id}" data-at="${at ?? ''}" data-now="${a.now.getTime()}" data-fresh="${PAID_FRESH_MS}" data-close="${PAID_CLOSE_MS}" aria-labelledby="${id}Title"${a.hidden ? ' hidden' : ''}>
 ${paidBand(bandText)}
-<div class="phead"><svg class="tick" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 13l4 4L19 7"/></svg><h1 class="ptitle" id="${id}Title" data-title aria-live="polite">${escapeHtml(fresh ? t.paidTitle : t.alreadyPaidTitle)}</h1></div>
+<div class="phead"><svg class="tick" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 13l4 4L19 7" pathLength="1"/></svg><h1 class="ptitle" id="${id}Title" data-title aria-live="polite">${escapeHtml(fresh ? t.paidTitle : t.alreadyPaidTitle)}</h1></div>
 <p class="pamount num" data-amount>${escapeHtml(a.amount)}</p>
 ${a.code ? codePlate(a.code, t) : ''}
 <p class="pstale">${escapeHtml(t.notNewPayment)}</p>
