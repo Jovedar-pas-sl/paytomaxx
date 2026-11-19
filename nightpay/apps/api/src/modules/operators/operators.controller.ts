@@ -28,10 +28,12 @@ import { Public } from '../../common/decorators/public.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { IpRateLimit } from '../../common/guards/ip-rate-limit.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
+import { UserRateLimit, UserRateLimitGuard } from '../../common/guards/user-rate-limit.guard';
 import { ZodValidationPipe } from '../../common/pipes/zod.pipe';
 import type { JwtPayload } from '@nightpay/contracts';
 import type { MyPayoutInfo } from './my-payout-info';
 import { OperatorsService } from './operators.service';
+import { StaffPushService } from './staff-push.service';
 
 /**
  * Endpoints self-service para la operadora.
@@ -41,9 +43,11 @@ import { OperatorsService } from './operators.service';
 @Controller('operators')
 export class OperatorsController {
   private readonly operators: OperatorsService;
+  private readonly push: StaffPushService;
 
-  constructor(@Inject(OperatorsService) operators: OperatorsService) {
+  constructor(@Inject(OperatorsService) operators: OperatorsService, @Inject(StaffPushService) push: StaffPushService) {
     this.operators = operators;
+    this.push = push;
   }
 
   @Get('me/balance')
@@ -110,6 +114,34 @@ export class OperatorsController {
   @Roles('OPERATOR')
   async myPayoutNotice(@CurrentUser() user: JwtPayload): Promise<PayoutAccountNotice | null> {
     return this.operators.getPayoutNotice(user.sub, user.tenantId);
+  }
+
+  /** La clave pública de los avisos; null: apagados (la app no ofrece «Avisarme cuando me paguen»). */
+  @Get('me/push')
+  @UseGuards(RolesGuard)
+  @Roles('OPERATOR')
+  myPushKey(): { publicKey: string | null } {
+    return { publicKey: this.push.publicKey };
+  }
+
+  /** «Avisarme cuando me paguen» en este móvil: la suscripción del navegador (PushSubscription.toJSON()). */
+  @Post('me/push')
+  @UseGuards(RolesGuard, UserRateLimitGuard)
+  @Roles('OPERATOR')
+  @UserRateLimit({ max: 20, windowSec: 60, scope: 'me-push' })
+  @HttpCode(200)
+  async subscribePush(@CurrentUser() user: JwtPayload, @Body() body: unknown): Promise<{ ok: true }> {
+    return this.push.subscribe(user.sub, user.tenantId, body);
+  }
+
+  /** «Quitar el aviso» en este móvil ({ endpoint }). */
+  @Post('me/push/off')
+  @UseGuards(RolesGuard, UserRateLimitGuard)
+  @Roles('OPERATOR')
+  @UserRateLimit({ max: 20, windowSec: 60, scope: 'me-push' })
+  @HttpCode(200)
+  async unsubscribePush(@CurrentUser() user: JwtPayload, @Body() body: unknown): Promise<{ ok: true }> {
+    return this.push.unsubscribe(user.sub, body);
   }
 
   /** «Entendido»: el aviso de la cuenta de cobro queda visto. */

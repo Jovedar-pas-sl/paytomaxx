@@ -2,8 +2,11 @@
 //  - «Historial» de sus ganancias y «Pagos recibidos», por páginas y entre dos fechas: cada fila una vez y en
 //    orden aunque dos tengan el mismo milisegundo, solo las suyas y de su local, y el pago con su justificante.
 //  - «Cobros» con fechas: solo los suyos de entre esas fechas, y sin el total de la noche.
+//  - «Te han pagado»: apuntar el móvil (tabla `staff_push_subscriptions` con FORCE RLS: otro local no la ve),
+//    el aviso «Te han pagado 37,50 €» al apuntarle un pago (solo a sus móviles, sin esperar al servicio de
+//    avisos), un móvil avisa a una sola persona, el que ya no existe (410) se borra; sin claves, apagado.
 // Ver README.md.
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { randomUUID } from 'node:crypto';
 import { ClsService } from 'nestjs-cls';
@@ -13,13 +16,29 @@ import { CobrosService } from '../../src/modules/money-map/cobros.service';
 import { OwnCobrosController } from '../../src/modules/money-map/own-cobros.controller';
 import { OperatorsController } from '../../src/modules/operators/operators.controller';
 import { OperatorsService } from '../../src/modules/operators/operators.service';
+import { StaffPushService } from '../../src/modules/operators/staff-push.service';
+import type { PushSender } from '../../src/modules/wallets/charge-alert/push-sender';
 
 const cls = new ClsService(new AsyncLocalStorage());
 const prisma = new PrismaService(cls as never);
 const audit = { log: async () => undefined };
 const config = { get: () => undefined, getOrThrow: () => undefined };
-const operators = new OperatorsService(prisma, {} as never, audit as never, config as never, {} as never, {} as never, {} as never);
-const controller = new OperatorsController(operators);
+// El servicio de avisos de mentira: apunta lo que se manda y contesta lo que diga `pushStatus`.
+const VAPID = {
+  WEB_PUSH_VAPID_PUBLIC_KEY: Buffer.concat([Buffer.from([4]), Buffer.alloc(64, 9)]).toString('base64url'),
+  WEB_PUSH_VAPID_PRIVATE_KEY: Buffer.alloc(32, 3).toString('base64url'),
+  WEB_PUSH_SUBJECT: 'mailto:soporte@ejemplo.es',
+};
+const pushed: Array<{ endpoint: string; payload: { title: string; url: string } }> = [];
+let pushStatus = 201;
+const sender: PushSender = async (target, payload) => {
+  pushed.push({ endpoint: target.endpoint, payload: JSON.parse(payload) as { title: string; url: string } });
+  return { statusCode: pushStatus };
+};
+const push = new StaffPushService(prisma, sender, VAPID);
+push.sleep = async () => undefined;
+const operators = new OperatorsService(prisma, {} as never, audit as never, config as never, {} as never, {} as never, {} as never, push);
+const controller = new OperatorsController(operators, push);
 // «Esta noche» no se pide con fechas: si se pidiera, la prueba lo diría.
 const own = new OwnCobrosController(new CobrosService(prisma), { currentWindow: async () => { throw new Error('sin noche con fechas'); } } as never);
 
@@ -183,5 +202,75 @@ describe('«Cobros» con fechas', () => {
     );
     expect(page.items.map((c) => c.id)).toEqual([C.nov12]);
     expect(page).not.toHaveProperty('night');
+  });
+});
+
+describe('«Te han pagado»', () => {
+  const P256DH = Buffer.concat([Buffer.from([4]), Buffer.alloc(64, 7)]).toString('base64url');
+  const AUTH = Buffer.alloc(16, 1).toString('base64url');
+  const FCM = `https://fcm.googleapis.com/fcm/send/panel-${r}`;
+  const APPLE = `https://web.push.apple.com/panel-${r}`;
+  const subscription = (endpoint: string) => ({ endpoint, keys: { p256dh: P256DH, auth: AUTH } });
+  /** Los títulos de los avisos a ese móvil, con espacio normal (los importes llevan espacio duro, de Intl). */
+  const hardSpaces = new RegExp(`[${String.fromCharCode(0xa0)}${String.fromCharCode(0x202f)}]`, 'g');
+  const titles = (endpoint: string) => pushed.filter((p) => p.endpoint === endpoint).map((p) => p.payload.title.replace(hardSpaces, ' '));
+  let X: string, boss: string, marta: string, nuria: string;
+
+  /** Una comisión sin pagar de `cents` (el local de X paga al cierre: sin días de espera). */
+  const unpaid = (operatorId: string, cents: number) => earningAt(X, operatorId, new Date(Date.now() - 60_000).toISOString(), cents);
+  const rows = (endpoint: string) => sys((tx) => tx.staffPushSubscription.findMany({ where: { endpoint }, select: { userId: true, tenantId: true } }));
+
+  beforeAll(async () => {
+    ({ X, boss, marta, nuria } = await sys(async (tx) => {
+      const x = (await tx.venue.create({ data: { name: `Aviso ${r}`, slug: `panel-aviso-${r}`, payoutHoldDays: 0 } })).id;
+      const user = async (role: 'OWNER' | 'OPERATOR', name: string) =>
+        (await tx.user.create({ data: { tenantId: x, email: `pc-${name}-${r}@x.es`, passwordHash: 'x', role, displayName: name } })).id;
+      return { X: x, boss: await user('OWNER', 'jefe'), marta: await user('OPERATOR', 'marta'), nuria: await user('OPERATOR', 'nuria') };
+    }));
+  });
+
+  it('la app sabe que está encendido y apunta este móvil a ella (otro local no lo ve)', async () => {
+    expect(controller.myPushKey()).toEqual({ publicKey: VAPID.WEB_PUSH_VAPID_PUBLIC_KEY });
+    await inVenue(X, () => controller.subscribePush(jwt(marta, X), subscription(FCM)));
+    await inVenue(X, () => controller.subscribePush(jwt(marta, X), subscription(APPLE)));
+    expect(await rows(FCM)).toEqual([{ userId: marta, tenantId: X }]);
+    const seen = await inVenue(V, () => prisma.withTenant(V, (tx) => tx.$queryRaw<Array<{ n: number }>>`SELECT count(*)::int AS n FROM staff_push_subscriptions WHERE "userId" = ${marta}::uuid`));
+    expect(seen).toEqual([{ n: 0 }]);
+  });
+
+  it('al apuntarle un pago: «Te han pagado 37,50 €» a sus dos móviles, abre «Ganancias»; el pago no espera', async () => {
+    await unpaid(marta, 3_750);
+    const paid = await inVenue(X, () => operators.createPayout(X, marta, boss, 'Noche del 18'));
+    expect(paid.totalCents).toBe(3_750);
+    await vi.waitFor(() => expect(titles(FCM)).toEqual(['Te han pagado 37,50 €']));
+    await vi.waitFor(() => expect(titles(APPLE)).toEqual(['Te han pagado 37,50 €']));
+    expect(pushed.find((p) => p.endpoint === FCM)?.payload.url).toBe('/?t=ganancias');
+  });
+
+  it('un móvil avisa a una sola persona: si otra lo activa, pasa a ella', async () => {
+    await inVenue(X, () => controller.subscribePush(jwt(nuria, X), subscription(FCM)));
+    expect(await rows(FCM)).toEqual([{ userId: nuria, tenantId: X }]);
+    pushed.length = 0;
+    await unpaid(marta, 1_000);
+    await inVenue(X, () => operators.createPayout(X, marta, boss));
+    await vi.waitFor(() => expect(titles(APPLE)).toEqual(['Te han pagado 10 €']));
+    expect(titles(FCM)).toEqual([]);
+  });
+
+  it('el móvil que ya no existe (410) se borra; «Quitar el aviso» lo quita', async () => {
+    pushStatus = 410;
+    await unpaid(marta, 500);
+    await inVenue(X, () => operators.createPayout(X, marta, boss));
+    await vi.waitFor(async () => expect(await rows(APPLE)).toEqual([]));
+    pushStatus = 201;
+    await inVenue(X, () => controller.unsubscribePush(jwt(nuria, X), { endpoint: FCM }));
+    expect(await rows(FCM)).toEqual([]);
+  });
+
+  it('sin claves VAPID: apagado (la app no lo ofrece y no se guarda nada)', async () => {
+    const off = new OperatorsController(operators, new StaffPushService(prisma, sender, {}));
+    expect(off.myPushKey()).toEqual({ publicKey: null });
+    await expect(inVenue(X, () => off.subscribePush(jwt(marta, X), subscription(FCM)))).rejects.toMatchObject({ response: { code: 'PUSH_OFF' } });
+    expect(await rows(FCM)).toEqual([]);
   });
 });

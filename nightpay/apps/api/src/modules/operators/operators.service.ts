@@ -6,6 +6,7 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  Optional,
   ServiceUnavailableException,
   UnauthorizedException,
 } from '@nestjs/common';
@@ -31,6 +32,7 @@ import {
 import { debtView, payoutAccountView, type DebtRow, type MyPayoutInfo } from './my-payout-info';
 import { myPaymentsPage, type MyPaymentRow } from './my-payments';
 import { NO_HISTORY_RANGE, historyOrder, historyPage, historyRange, historyWhere, type HistoryRange } from './my-history';
+import { StaffPushService } from './staff-push.service';
 import { earningBankHeldSql, earningNetSql } from './bank-hold-sql';
 import { availableCentsOf, payoutCutoff, payoutTotalCents } from './payout-math';
 import {
@@ -147,6 +149,8 @@ export class OperatorsService {
   private readonly jwt: JwtService;
   private readonly fxFactory: PayoutVerifierFactory;
   private readonly sessions: RefreshTokenService;
+  /** «Te han pagado» al móvil de la persona (sin él, p. ej. en las pruebas, no se avisa). */
+  private readonly staffPush: StaffPushService | undefined;
 
   constructor(
     @Inject(PrismaService) prisma: PrismaService,
@@ -156,6 +160,7 @@ export class OperatorsService {
     @Inject(JwtService) jwt: JwtService,
     @Inject(PayoutVerifierFactory) fxFactory: PayoutVerifierFactory,
     @Inject(RefreshTokenService) sessions: RefreshTokenService,
+    @Optional() @Inject(StaffPushService) staffPush?: StaffPushService,
   ) {
     this.prisma = prisma;
     this.email = email;
@@ -164,6 +169,7 @@ export class OperatorsService {
     this.jwt = jwt;
     this.fxFactory = fxFactory;
     this.sessions = sessions;
+    this.staffPush = staffPush;
   }
 
   /**
@@ -1390,6 +1396,8 @@ export class OperatorsService {
     this.logger.log(
       `Payout ${result.payout.id} created operator=${operatorId} total=${result.payout.totalCents}c earnings=${result.count}`,
     );
+    // «Te han pagado 37,50 €» a su móvil, sin esperar: el pago ya está apuntado.
+    this.staffPush?.payoutMade({ tenantId, operatorId, payoutId: result.payout.id, totalCents: result.payout.totalCents });
 
     return {
       id: result.payout.id,
