@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { io } from 'socket.io-client';
 import { fetchServices, freshAccessToken, setServiceSoldOut, wsBase, type ServiceItem } from '@/lib/api';
+import { isPractice } from '@/lib/practice';
+import { practiceSocket } from '@/lib/practice-sim';
 import { CARTA_START, cartaArrived, cartaFailed, type CartaState } from '@/lib/carta-state';
 
 export interface Carta {
@@ -56,7 +58,8 @@ export function useCarta(): Carta {
   }, [retry]);
   // «Agotado» cambia en otro móvil: el servidor avisa y se vuelve a pedir la carta.
   useEffect(() => {
-    const socket = io(`${wsBase}/rt`, {
+    // En práctica, un socket de mentira: un «Agotado» real de otro móvil no entra aquí.
+    const socket = isPractice() ? (practiceSocket() as unknown as ReturnType<typeof io>) : io(`${wsBase}/rt`, {
       transports: ['websocket', 'polling'],
       tryAllTransports: true,
       auth: (cb) => {

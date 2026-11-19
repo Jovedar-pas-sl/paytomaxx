@@ -30,7 +30,7 @@ import {
   type SessionEvent,
 } from '@nightpay/api-client';
 import { codeErrorText } from './api-codes';
-import { isPractice, setPractice } from './practice';
+import { PracticeBlockedError, isPractice, setPractice } from './practice';
 import { practiceFetch } from './practice-sim';
 import type { PolledPayment } from './payment-status';
 
@@ -668,6 +668,7 @@ export interface ServiceItem {
 
 /** Marca o quita «Agotado» (lo ve todo el personal al momento). */
 export async function setServiceSoldOut(id: string, soldOut: boolean): Promise<void> {
+  if (isPractice()) throw new PracticeBlockedError('marcar «Agotado»');
   const res = await authedFetch(`/v1/services/${encodeURIComponent(id)}/sold-out`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },

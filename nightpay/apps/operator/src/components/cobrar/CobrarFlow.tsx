@@ -36,7 +36,7 @@ import {
 import { useMySections } from '@/lib/sections';
 import { useVenueMethods, useVenueNight } from '@/lib/venue-methods';
 import { nfcSupported } from '@/lib/nfc';
-import { isPractice } from '@/lib/practice';
+import { PracticeBlockedError, isPractice } from '@/lib/practice';
 import { setPracticeNextAmount } from '@/lib/practice-sim';
 import { ActivePayment } from '../ActivePayment';
 import { useCarta } from '../carta';
@@ -554,7 +554,7 @@ export function CobrarFlow({ user, onCobroDone, onLogout, night, miQrOpen = fals
             onSoldOut={(item, soldOut) => {
               setError(null);
               haptic();
-              carta.setSoldOut(item.id, soldOut).catch(() => setError('No se pudo marcar el producto. Prueba otra vez.'));
+              carta.setSoldOut(item.id, soldOut).catch((err: unknown) => setError(err instanceof PracticeBlockedError ? err.message : 'No se pudo marcar el producto. Prueba otra vez.'));
             }}
             onOtro={() => {
               setError(null);
