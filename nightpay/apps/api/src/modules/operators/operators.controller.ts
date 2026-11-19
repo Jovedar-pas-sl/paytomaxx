@@ -14,6 +14,7 @@ import {
   type AcceptInviteDto,
   type EarningView,
   type OperatorBalance,
+  type PayoutAccountNotice,
   type PayoutView,
   type SelfOnboardingProfile,
   type SelfOnboardingSubmitDto,
@@ -75,6 +76,23 @@ export class OperatorsController {
   @Roles('OPERATOR')
   async myPayoutInfo(@CurrentUser() user: JwtPayload): Promise<MyPayoutInfo> {
     return this.operators.getMyPayoutInfo(user.sub, user.tenantId);
+  }
+
+  /** «Tu cuenta de cobro ha cambiado» (tapada), hasta que lo da por visto; null si no hay. */
+  @Get('me/payout-notice')
+  @UseGuards(RolesGuard)
+  @Roles('OPERATOR')
+  async myPayoutNotice(@CurrentUser() user: JwtPayload): Promise<PayoutAccountNotice | null> {
+    return this.operators.getPayoutNotice(user.sub, user.tenantId);
+  }
+
+  /** «Entendido»: el aviso de la cuenta de cobro queda visto. */
+  @Post('me/payout-notice/seen')
+  @UseGuards(RolesGuard)
+  @Roles('OPERATOR')
+  @HttpCode(200)
+  async seenPayoutNotice(@CurrentUser() user: JwtPayload): Promise<{ ok: true }> {
+    return this.operators.markPayoutNoticeSeen(user.sub, user.tenantId);
   }
 
   /**
