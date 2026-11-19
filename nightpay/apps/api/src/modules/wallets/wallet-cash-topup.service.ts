@@ -584,13 +584,13 @@ export class CashTopUpService {
     }
     if (Date.now() - topUp.createdAt.getTime() > CASH_TOP_UP_VOID_WINDOW_MINUTES * 60 * 1000) {
       throw new ConflictException(
-        `Solo se anulan las recargas de las últimas ${CASH_TOP_UP_VOID_WINDOW_MINUTES / 60} h: devuelve el saldo con «Me voy»`,
+        `Solo se anulan las recargas de las últimas ${CASH_TOP_UP_VOID_WINDOW_MINUTES / 60} h. Pasado ese tiempo ya no se anula: habla con el dueño.`,
       );
     }
     const w = await lockLiveWallet(tx, topUp.walletId);
     if (!w || w.status !== 'ACTIVE' || w.balanceCents < topUp.amountCents) {
       throw new ConflictException(
-        `El saldo ya no cubre la recarga (le quedan ${eur(w?.status === 'ACTIVE' ? w.balanceCents : 0)}): ya se ha gastado o devuelto. Devuelve lo que quede con «Me voy».`,
+        `El saldo ya no cubre la recarga (le quedan ${eur(w?.status === 'ACTIVE' ? w.balanceCents : 0)}): ya se ha gastado o devuelto. No se puede anular.`,
       );
     }
     const left = w.balanceCents - topUp.amountCents;

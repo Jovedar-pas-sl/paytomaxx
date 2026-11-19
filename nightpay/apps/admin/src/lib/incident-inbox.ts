@@ -51,8 +51,9 @@ export const INCIDENT_KINDS: Record<IncidentKind, KindMeta> = {
     hint: 'Si no es el datáfono de la recepción o no lo reconoces, desvincúlalo en Datáfonos.',
   },
   wallet_credit_skipped: { group: 'Saldo', title: 'Recarga cobrada sin saldo', tab: 'wallets' },
-  wallet_close_requested: { group: 'Saldo', title: 'Un cliente pide su saldo', tab: 'wallets' },
-  wallet_open_balance: { group: 'Saldo', title: 'Saldo de un cliente sin devolver', tab: 'wallets' },
+  wallet_close_requested: { group: 'Saldo', title: 'Devolución de saldo pedida antes', tab: 'wallets', hint: 'Termínala en Saldos («Terminar devolución»).' },
+  // Ya no sale (el saldo se queda para la próxima visita); un API de antes aún puede mandarlo.
+  wallet_open_balance: { group: 'Saldo', title: 'Saldo de un cliente (aviso de antes)', tab: 'wallets' },
   wallet_topup_unassigned: {
     group: 'Saldo',
     title: 'Recarga pendiente de asignar',
@@ -64,6 +65,18 @@ export const INCIDENT_KINDS: Record<IncidentKind, KindMeta> = {
     title: 'Un cliente ha bloqueado su NFC',
     tab: 'wallets',
     hint: 'Su saldo sigue valiendo con su código. Si viene a recepción, dale un NFC nuevo.',
+  },
+  wallet_charge_disputed: {
+    group: 'Saldo',
+    title: 'Un cliente dice que no ha sido él',
+    tab: 'wallets',
+    hint: 'Revisa el cobro y, si procede, devuélvelo. Su ficha y su PIN ya no pagan: desbloquea el PIN en Saldos y dale una ficha nueva en recepción.',
+  },
+  bitcoin_overpaid: {
+    group: 'Cobro',
+    title: 'Pago de bitcoin de más',
+    tab: 'payments',
+    hint: 'El cobro está pagado. Lo de más se queda en la cartera del local y no se devuelve: ciérralo con una nota para el cuadre.',
   },
   sensitive_action: {
     group: 'Saldo',

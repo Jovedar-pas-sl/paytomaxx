@@ -2,12 +2,12 @@ import { ConflictException, NotFoundException } from '@nestjs/common';
 import {
   isWalletCardToken,
   normalizeWalletCardUid,
+  SALDO_SE_QUEDA_TEXT,
   type ReceptionDeskSaldo,
   type ReceptionDeskView,
 } from '@nightpay/contracts';
 import type { TransactionalClient } from '../../common/prisma/prisma.service';
 import { ISSUED_CARD_STATUSES, cardInGroup, cardUnusableText, isIssuedCard } from './wallet-card-ops';
-import { cashPayoutCapCents, cashPayoutNote, walletCash, type WalletCash } from './wallet-cash-limits';
 import { formatWalletCode, normalizeWalletCode, sameWalletGroup } from './wallet-rules';
 
 /**
@@ -16,10 +16,19 @@ import { formatWalletCode, normalizeWalletCode, sameWalletGroup } from './wallet
  *  - NFC del stock, recién grabado o de un saldo ya cerrado → nuevo (se da
  *    a un saldo nuevo al cobrar: attachCard lo deja salir otra vez).
  *  - NFC de un saldo vivo (activo o a cero) → ese saldo (si se sumó a otro,
- *    aquel), con lo que tiene y lo que se le puede devolver en efectivo.
+ *    aquel), con lo que tiene. En efectivo no sale nada: el saldo no se
+ *    devuelve (saldo-rule.ts).
  *  - Perdido, bloqueado, copiado o de otro grupo de locales → error.
  * El código, igual que al recargar (topUpTarget): solo saldos activos.
  */
+
+/**
+ * Lo que «sale en efectivo» de un saldo: nada, y la regla en vez de la nota de
+ * antes. Así una app del personal de antes no enseña «Devolver».
+ */
+export function noCashOut(balanceCents: number): Pick<ReceptionDeskSaldo, 'cashOutCents' | 'cashOutNote'> {
+  return { cashOutCents: 0, cashOutNote: balanceCents > 0 ? SALDO_SE_QUEDA_TEXT : null };
+}
 
 /**
  * El NFC acercado o el código. El número impreso NO: se lee de la ficha y no
@@ -67,7 +76,6 @@ const WALLET_SELECT = {
 export function deskSaldoView(
   wallet: Omit<DeskWallet, 'mergedIntoId' | 'walletGroup' | 'status'>,
   venueId: string,
-  cash: WalletCash,
   fichaNumber: number | null,
   printedNumber?: string | null,
   hasPasskey = false,
@@ -81,8 +89,7 @@ export function deskSaldoView(
     isHomeVenue: wallet.tenantId === venueId,
     blocked: wallet.blockedAt !== null,
     closeRequested: wallet.closeRequestedAt !== null,
-    cashOutCents: cashPayoutCapCents(wallet.balanceCents, cash),
-    cashOutNote: cashPayoutNote(wallet.balanceCents, cash),
+    ...noCashOut(wallet.balanceCents),
     fichaNumber,
     ...(printedNumber ? { printedNumber } : {}),
     hasPasskey,
@@ -122,10 +129,10 @@ export async function readReceptionDesk(
   if (!wallet || !LIVE.has(wallet.status) || !sameWalletGroup(wallet, venue)) {
     return { kind: 'new', fichaNumber: card.number, ...(card.printedNumber ? { printedNumber: card.printedNumber } : {}) };
   }
-  return deskSaldoView(wallet, venue.id, await walletCash(tx, wallet.id), card.number, card.printedNumber, await hasPasskey(tx, wallet.id));
+  return deskSaldoView(wallet, venue.id, card.number, card.printedNumber, await hasPasskey(tx, wallet.id));
 }
 
-/** Tiene Face ID: a la salida lo confirma en su móvil. */
+/** Tiene Face ID (paga desde su móvil). */
 async function hasPasskey(tx: Pick<DeskTx, 'walletPasskey'>, walletId: string): Promise<boolean> {
   return (await tx.walletPasskey.count({ where: { walletId } })) > 0;
 }
@@ -147,5 +154,5 @@ async function deskByCode(
     orderBy: { linkedAt: { sort: 'desc', nulls: 'last' } },
     select: { number: true, printedNumber: true },
   });
-  return deskSaldoView(wallet, venue.id, await walletCash(tx, wallet.id), card?.number ?? null, card?.printedNumber, await hasPasskey(tx, wallet.id));
+  return deskSaldoView(wallet, venue.id, card?.number ?? null, card?.printedNumber, await hasPasskey(tx, wallet.id));
 }

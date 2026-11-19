@@ -6,7 +6,7 @@
 
 import { fichaShort } from './ficha-number';
 import { formatEur } from './money';
-import type { MethodButton, NumberSaldo, ReceptionDeskView } from './reception-desk';
+import type { LoadedMethod, MethodButton, NumberSaldo, ReceptionDeskView } from './reception-desk';
 import type { PayMethod } from './reception';
 
 /** Los importes rápidos de la taquilla. */
@@ -75,7 +75,7 @@ export interface LoadedRow {
  * en efectivo, el cambio a devolver (si se marcó con qué billete pagó); con
  * tarjeta, «Pagado con Tarjeta». Lo que no se sabe no sale.
  */
-export function loadedRows(o: { pulsera: string | null; balanceCents: number | null; method: PayMethod; changeCents: number | null }): LoadedRow[] {
+export function loadedRows(o: { pulsera: string | null; balanceCents: number | null; method: LoadedMethod; changeCents: number | null }): LoadedRow[] {
   const rows: LoadedRow[] = [];
   if (o.pulsera) rows.push({ label: 'Pulsera', value: o.pulsera });
   if (o.balanceCents !== null) rows.push({ label: 'Saldo ahora', value: formatEur(o.balanceCents) });

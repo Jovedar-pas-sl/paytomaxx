@@ -1,0 +1,51 @@
+/* El menú del logo (Recepción e Inicio): filas con el nombre y, debajo, para
+   qué sirve. Superficie con filete fino, como los botones secundarios; nada en
+   lima (no hay acción principal). Foco: el de todo (:focus-visible). */
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.row {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 0.125rem;
+  width: 100%;
+  min-height: 3.5rem;
+  padding: 0.625rem 1rem;
+  border: none;
+  border-radius: var(--np-r-md);
+  background: var(--np-surface-2);
+  color: var(--np-text);
+  box-shadow: inset 0 0 0 1px var(--np-border-hi);
+  font: inherit;
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+  transition:
+    background var(--np-d-fast),
+    transform var(--np-press-ms) ease-out;
+}
+
+.row:hover {
+  background: var(--np-surface-3);
+}
+
+.row:active {
+  transform: scale(var(--np-press-scale));
+}
+
+.title {
+  font-size: var(--np-fs-16);
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+.hint {
+  font-size: var(--np-fs-14);
+  color: var(--np-text-mute);
+  line-height: 1.3;
+}

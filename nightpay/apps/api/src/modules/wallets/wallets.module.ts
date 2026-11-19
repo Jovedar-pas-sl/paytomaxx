@@ -20,8 +20,6 @@ import { PassChargeLinkController } from './google-wallet/pass-charge-link.contr
 import { ReceptionController } from './reception.controller';
 import { ReceptionCashPayoutController } from './reception-cash-payout.controller';
 import { PublicPayoutConfirmController } from './public-payout-confirm.controller';
-import { ReceptionPayoutPasskeys } from './reception-payout-passkey';
-import { ReceptionPayoutService } from './reception-payout.service';
 import { FichaNumbersService } from './ficha-numbers.service';
 import { ReceptionContactController } from './reception-contact.controller';
 import { WalletContactService } from './wallet-contact.service';
@@ -42,6 +40,9 @@ import { WalletEventsModule } from '../wallet-events/wallet-events.module';
 import { PublicWalletEventsController } from './public-wallet-events.controller';
 import { WalletWelcomeService } from '../home-topup/wallet-welcome.service';
 import { CobroDetailModule } from '../money-map/cobro-detail.module';
+import { ChargeAlertService } from './charge-alert/charge-alert.service';
+import { ChargeDisputeService } from './charge-alert/charge-dispute.service';
+import { PublicChargeAlertController } from './charge-alert/charge-alert.controller';
 import { PartyRefundsService } from '../party/party-refunds.service';
 
 @Module({
@@ -65,9 +66,6 @@ import { PartyRefundsService } from '../party/party-refunds.service';
     WalletCardsService,
     // Recargas cobradas sin el NFC del cliente, pendientes de asignar (usa PaymentsService con ModuleRef).
     PendingTopUpService,
-    // Salida de recepción: NFC + PIN o Face ID del cliente, 2FA del encargado y tope de la noche.
-    ReceptionPayoutPasskeys,
-    ReceptionPayoutService,
     // El número impreso de las fichas: buscar sin acercarla (resumen) y recargar en efectivo.
     FichaNumbersService,
     // QR de activación de la pantalla «Cargado» de recepción.
@@ -78,6 +76,9 @@ import { PartyRefundsService } from '../party/party-refunds.service';
     WalletLostCardService,
     // «Cargar saldo antes de llegar» en la página del saldo: el QR de la ficha y la cookie del enlace del local.
     WalletWelcomeService,
+    // «Aviso en cada cobro»: el aviso al móvil del cliente (Web Push) y «No he sido yo».
+    ChargeAlertService,
+    ChargeDisputeService,
     // OxioParty: «Lo que sobra» en la página de la pulsera (y Devoluciones en el panel, PartyModule).
     PartyRefundsService,
   ],
@@ -96,14 +97,16 @@ import { PartyRefundsService } from '../party/party-refunds.service';
     // «Saldo al momento»: la página del saldo se entera de los cambios (SSE).
     PublicWalletEventsController,
     PublicWalletLostCardController,
+    // «Aviso en cada cobro»: el service worker, apuntarse y «No he sido yo» (/w/no/:token).
+    PublicChargeAlertController,
     PublicSaldoController,
     GoogleWalletController,
     // El QR del pase leído con la cámara del móvil (/c/<token>) → la app del personal.
     PassChargeLinkController,
     // Recepción (recarga en efectivo, «Preparar fichas») y Clientes → Fichas.
     ReceptionController,
+    // La salida de recepción ya no devuelve el saldo: sus rutas (y el QR de antes) dan la regla.
     ReceptionCashPayoutController,
-    // El cliente confirma la salida con su Face ID en su móvil (/w/salida/:token).
     PublicPayoutConfirmController,
     ReceptionFichaNumberController,
     ReceptionActivationLinkController,

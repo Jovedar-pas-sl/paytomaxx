@@ -20,6 +20,46 @@ import {
   type StaffPart,
 } from './export-rows';
 
+/** Lo pagado con bitcoin en el periodo (ExportSummary.bitcoin). */
+export interface BitcoinSummary {
+  /** Cobros y recargas pagados con bitcoin. */
+  count: number;
+  /** Ventas (sin propinas ni recargas). */
+  salesCents: number;
+  tipsCents: number;
+  topUpsCount: number;
+  /** El saldo de esas recargas. */
+  topUpsCents: number;
+  serviceFeeCents: number;
+  /** Todo lo que entró en la cartera: ventas + propinas + recargas + comisión. */
+  totalCents: number;
+}
+
+/** Lo pagado con bitcoin (el intento que cobró lo dice); null si no hubo. */
+export function bitcoinSummary(cobros: ReadonlyArray<Pick<CobroRow, 'payMethod' | 'walletId' | 'amountCents' | 'tipCents' | 'serviceFeeCents'>>): BitcoinSummary | null {
+  const btc = cobros.filter((r) => r.payMethod === 'bitcoin');
+  if (btc.length === 0) return null;
+  const topUps = btc.filter((r) => r.walletId);
+  const salesCents = sum(btc.filter((r) => !r.walletId), (r) => r.amountCents);
+  const tipsCents = sum(btc, (r) => r.tipCents);
+  const topUpsCents = sum(topUps, (r) => r.amountCents);
+  const serviceFeeCents = sum(btc, (r) => r.serviceFeeCents ?? 0);
+  return {
+    count: btc.length,
+    salesCents,
+    tipsCents,
+    topUpsCount: topUps.length,
+    topUpsCents,
+    serviceFeeCents,
+    totalCents: salesCents + tipsCents + topUpsCents + serviceFeeCents,
+  };
+}
+
+/** Los pagos que pasan por el banco (tarjeta, Apple Pay / Google Pay, datáfono): todos menos los de bitcoin. */
+export function cardPaymentsCount(s: Pick<ExportSummary, 'count' | 'bitcoin'>): number {
+  return s.count - (s.bitcoin?.count ?? 0);
+}
+
 /** Las recargas en efectivo, por tipo de cobro (junto a la «Recarga con tarjeta»). */
 export const CASH_TOP_UP_LABEL = 'Recarga en efectivo';
 
@@ -86,6 +126,13 @@ export interface ExportSummary {
    */
   walletCardTopUpsCount?: number;
   walletCardTopUpsCents?: number;
+  /**
+   * Lo pagado con bitcoin (BTCPay): ya está en `count`, `grossCents`,
+   * `tipsCents`, las recargas «con tarjeta» y la comisión, pero NO pasa por el
+   * banco: está en la cartera del local. Aparte, para que nada de bitcoin se
+   * diga «con tarjeta». Solo si lo hubo (los Z de antes no lo traen).
+   */
+  bitcoin?: BitcoinSummary;
   byType: TypeLine[];
   chicaCommissionCents: number;
   chicaTipsCents: number;
@@ -175,6 +222,7 @@ export function summarize(
   const cashTopUpsCents = sum(recargasEfectivo, (r) => r.amountCents);
   const cashTopUpsN = cashTopUpsCount(recargasEfectivo);
   const cardTopUps = cobros.filter((r) => r.walletId);
+  const bitcoin = bitcoinSummary(cobros);
   const saldo = saldoTotals(consumos, pagosSaldo);
   const { cardTipsCents, ...staff } = staffTotals(cobros, devoluciones, consumos);
   const fee = serviceFeeTotals(cobros, devoluciones, recargasEfectivo);
@@ -200,6 +248,7 @@ export function summarize(
     walletCashTopUpsCents: cashTopUpsCents,
     walletCardTopUpsCount: cardTopUps.length,
     walletCardTopUpsCents: sum(cardTopUps, (r) => r.amountCents),
+    ...(bitcoin ? { bitcoin } : {}),
     byType: [
       ...typeLines(cobros, cobroParts, labelOfKey),
       ...(recargasEfectivo.length > 0

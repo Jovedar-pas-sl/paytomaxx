@@ -1,7 +1,7 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Button, haptic, Modal } from '@nightpay/ui';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { haptic, Modal } from '@nightpay/ui';
 import type { InvitationRules } from '@nightpay/contracts';
 import { fetchTerminals, newIdempotencyKey, type CreatedPayment, type MyNight, type OperatorUser } from '@/lib/api';
 import { cancelCard, cancelSaldo, createCobro, createSaldoCobro, fetchInvitationRules, type CobroInput } from '@/lib/api-cobro';
@@ -27,6 +27,7 @@ import {
   qtyOf,
   removeLine,
   setQty,
+  ticketLinesOf,
   type CartaItem,
   type Cuenta,
   type CuentaSection,
@@ -49,7 +50,8 @@ import { IconPlus, IconQr } from './icons';
 import { LaCuenta } from './LaCuenta';
 import { MiQr } from './MiQr';
 import { OtroImporte } from './OtroImporte';
-import { GuiaMenuLink, InstallMenuItem } from '../staff-menu';
+import { GuiaMenuLink, InstallMenuItem, LogoutMenuItem, MENU_HINTS, MenuOption, useDeviceMenu } from '../staff-menu';
+import { CustomerDisplaySheet } from '../CustomerDisplaySheet';
 import { ProfileSheet } from '../ProfileSheet';
 import styles from './cobrar.module.css';
 
@@ -81,6 +83,8 @@ interface Props {
   onMiQr?: (open: boolean) => void;
   /** «Recargar saldo» (maquetas 4.6–4.7): solo quien carga saldos (recepción, encargado, dueño). */
   onRecargar?: () => void;
+  /** Encima de la carta (el RRPP: «Tus reservas de RRPP»). */
+  banner?: ReactNode;
 }
 
 /**
@@ -93,7 +97,7 @@ interface Props {
  * se sale de la invitación («Atrás») mientras se crea su cobro, no se abre
  * «Esperando» y se cancela (lib/cobro-attempt).
  */
-export function CobrarFlow({ user, onCobroDone, onLogout, night, miQrOpen = false, onMiQr, onRecargar }: Props) {
+export function CobrarFlow({ user, onCobroDone, onLogout, night, miQrOpen = false, onMiQr, onRecargar, banner }: Props) {
   const mine = useMySections();
   const methods = useVenueMethods();
   const nightSettings = useVenueNight();
@@ -116,6 +120,9 @@ export function CobrarFlow({ user, onCobroDone, onLogout, night, miQrOpen = fals
   const [menu, setMenu] = useState(false);
   // «Mi perfil» también desde el menú de Cobrar (la pantalla principal del personal).
   const [profile, setProfile] = useState(false);
+  // «Pantalla del cliente» (Menú): la tablet de la barra.
+  const [display, setDisplay] = useState(false);
+  const device = useDeviceMenu(() => setMenu(false));
   const attempt = useRef<{ key: string; what: string } | null>(null);
   /** Lo último que se tocó en la carta: el pie ofrece «Deshacer» durante 4 s (decisión D3). */
   const [undo, setUndo] = useState<UndoTap | null>(null);
@@ -275,6 +282,7 @@ export function CobrarFlow({ user, onCobroDone, onLogout, night, miQrOpen = fals
               detail: `${what} · ${name}`,
             },
         what,
+        lines: ticketLinesOf(c),
         who: name,
         pinChip: `${labelOf(ctx, top)} · ${name}`,
         invitation: null,
@@ -298,6 +306,7 @@ export function CobrarFlow({ user, onCobroDone, onLogout, night, miQrOpen = fals
         sections: [{ section: invite.category, cents: invite.priceCents }],
         band: { title: 'Invitación', detail: `${chica.name} · ${name}` },
         what: 'Invitación',
+        lines: [{ label: invite.name, qty: 1, unitCents: invite.priceCents, amountCents: invite.priceCents }],
         who: name,
         pinChip: `${labelOf(ctx, invite.category)} · ${name}`,
         invitation: { chica: chica.name, cells },
@@ -397,34 +406,41 @@ export function CobrarFlow({ user, onCobroDone, onLogout, night, miQrOpen = fals
   const menuModal = (
     <>
     <ProfileSheet open={profile} onClose={() => setProfile(false)} onLogout={onLogout} />
+    <CustomerDisplaySheet open={display} onClose={() => setDisplay(false)} />
+    {device.sheet}
     <Modal open={menu} onClose={() => setMenu(false)} title="Menú">
       {/* El tema se elige en «Mi perfil» (por defecto, oscuro). */}
       <div className={styles.menu}>
-        <Button
-          variant="ghost"
+        <MenuOption
+          title="Mi perfil"
+          hint={MENU_HINTS.profile}
           onClick={() => {
             setMenu(false);
             setProfile(true);
           }}
-        >
-          Mi perfil
-        </Button>
+        />
         {onRecargar ? (
-          <Button
-            variant="ghost"
+          <MenuOption
+            title="Recargar saldo"
+            hint={MENU_HINTS.topUp}
             onClick={() => {
               setMenu(false);
               onRecargar();
             }}
-          >
-            Recargar saldo
-          </Button>
+          />
         ) : null}
+        <MenuOption
+          title="Pantalla del cliente"
+          hint={MENU_HINTS.display}
+          onClick={() => {
+            setMenu(false);
+            setDisplay(true);
+          }}
+        />
+        {device.item}
         <InstallMenuItem />
         <GuiaMenuLink />
-        <Button variant="ghost" onClick={onLogout}>
-          Salir
-        </Button>
+        <LogoutMenuItem onLogout={onLogout} />
       </div>
     </Modal>
     </>
@@ -571,6 +587,7 @@ export function CobrarFlow({ user, onCobroDone, onLogout, night, miQrOpen = fals
             onLogo={() => setMenu(true)}
             headerExtra={headerExtra}
             onRetryCarta={carta.retry}
+            banner={banner}
           />
           {menuModal}
           {miQr}

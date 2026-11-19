@@ -4,8 +4,8 @@
  * Si añades un modelo con tenantId, agrégalo aquí o el middleware no lo protegerá.
  *
  * NO están (y no deben estar) los que cruzan locales por diseño o no tienen
- * local al llegar: ClientWallet, WalletConsumption, WalletPasskey, WalletCard
- * (el saldo vale en todo el grupo), WebhookDelivery y PeanpeCall (los avisos
+ * local al llegar: ClientWallet, WalletConsumption, WalletPasskey, WalletCard,
+ * WalletPushSubscription (el saldo vale en todo el grupo), WebhookDelivery y PeanpeCall (los avisos
  * del banco llegan sin local), AuditEvent (lo escribe el sistema con el local
  * explícito).
  */
@@ -41,9 +41,20 @@ export const TENANT_SCOPED_MODELS: ReadonlySet<string> = new Set([
   // «Pagar con bitcoin»: la conexión del local a su BTCPay y sus facturas.
   'BtcpayStore',
   'BtcpayInvoice',
-  // OxioParty (20261115100000): las casetas del local.
+  // «Pantalla del cliente»: la tablet de la barra de cada persona.
+  'CustomerDisplay',
+  // Reservados con señal y RRPP (20261117300000).
+  'ReservationPackage',
+  'Promoter',
+  'Reservation',
+  'ReservationGuest',
+  'ReservationPayment',
+  'ReservationSpend',
+  // Bitcoin sin cobro devuelto en efectivo (20261117100100).
+  'BtcCashReturn',
+  // OxioParty (20261120300000): las casetas del local.
   'Stall',
-  // OxioParty (20261115200000): «Lo que sobra», las devoluciones que piden los asistentes.
+  // OxioParty (20261120300100): «Lo que sobra», las devoluciones que piden los asistentes.
   'PartyRefundRequest',
 ]);
 

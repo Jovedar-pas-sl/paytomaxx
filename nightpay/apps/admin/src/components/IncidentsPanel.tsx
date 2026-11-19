@@ -11,6 +11,9 @@ import { UNDO_RESOLVE_MS, resolveNoteOk, undoMsLeft, undoSecondsLeft } from '@/l
 import { useIncidents } from '@/lib/use-incidents';
 import { useVenueTimezone } from '@/lib/venue-context';
 import { Notice } from './Notice';
+import { useBitcoinCash } from '@/lib/use-bitcoin-cash';
+import { BitcoinCashModal, type BitcoinCashTarget } from './BitcoinCashModal';
+import { AcceptAfterCancelModal } from './AcceptAfterCancelModal';
 
 interface Props {
   isOwner: boolean;
@@ -36,6 +39,11 @@ export function IncidentsPanel({ isOwner, tabs, onNavigate, onOpenPayment, hidde
   const openId = useId();
   const doneId = useId();
   const { refresh } = feed;
+  // Bitcoin sin cobro: «Devolver en efectivo» (si el local lo tiene encendido).
+  const bitcoinCash = useBitcoinCash(isOwner ? 'OWNER' : 'MANAGER');
+  const [cashFor, setCashFor] = useState<BitcoinCashTarget | null>(null);
+  // «Pagó después de cancelar»: «Dar por bueno» (encargado o dueño, con 2FA).
+  const [acceptFor, setAcceptFor] = useState<Incident | null>(null);
   const pendingUntil = new Map(feed.pending.map((p) => [p.key, p.until] as const));
   const openCount = open ? open.filter((i) => !pendingUntil.has(incidentKey(i))).length : null;
 
@@ -79,6 +87,18 @@ export function IncidentsPanel({ isOwner, tabs, onNavigate, onOpenPayment, hidde
                   onNavigate={onNavigate}
                   onOpenPayment={onOpenPayment}
                   failed={feed.failed[key] ?? null}
+                  onAccept={i.acceptable && i.paymentId ? () => setAcceptFor(i) : undefined}
+                  onCashReturn={
+                    bitcoinCash?.enabled && i.cashReturn
+                      ? () =>
+                          setCashFor({
+                            kind: 'invoice',
+                            invoiceId: i.cashReturn!.invoiceId,
+                            leftCents: i.cashReturn!.maxCents,
+                            label: `Bitcoin sin cobro (factura ${i.cashReturn!.invoiceId})`,
+                          })
+                      : undefined
+                  }
                 />
               );
             })}
@@ -103,6 +123,8 @@ export function IncidentsPanel({ isOwner, tabs, onNavigate, onOpenPayment, hidde
           Lo resuelto hoy desde este dispositivo y lo que se quitó solo. El registro completo queda en la actividad.
         </p>
       </section>
+      <BitcoinCashModal target={cashFor} config={bitcoinCash} onClose={() => setCashFor(null)} onDone={refresh} />
+      <AcceptAfterCancelModal incident={acceptFor} onClose={() => setAcceptFor(null)} onDone={refresh} />
     </section>
   );
 }
@@ -114,6 +136,8 @@ function OpenItem({
   onNavigate,
   onOpenPayment,
   failed,
+  onCashReturn,
+  onAccept,
 }: {
   incident: Incident;
   isOwner: boolean;
@@ -122,6 +146,10 @@ function OpenItem({
   onOpenPayment: (paymentId: string) => void;
   /** No se pudo marcar como resuelta (el API contestó con este error). */
   failed: string | null;
+  /** Bitcoin sin cobro que se puede devolver en efectivo. */
+  onCashReturn?: () => void;
+  /** «Pagó después de cancelar»: darlo por bueno (pasa a pagado). */
+  onAccept?: () => void;
 }) {
   const tz = useVenueTimezone();
   const { resolve } = useIncidents();
@@ -178,6 +206,8 @@ function OpenItem({
         </div>
       ) : (
         <div className="np-inbox-actions">
+          {onCashReturn ? <Button onClick={onCashReturn}>Devolver en efectivo</Button> : null}
+          {onAccept ? <Button onClick={onAccept}>Dar por bueno…</Button> : null}
           {i.ackable && isOwner ? (
             noteRequired ? (
               <Button onClick={() => setWithNote(true)}>Resolver con nota…</Button>

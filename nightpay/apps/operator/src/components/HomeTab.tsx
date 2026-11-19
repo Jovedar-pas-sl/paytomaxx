@@ -6,6 +6,7 @@ import { isParty } from '@/lib/edition';
 import { canTopUp, useMyRights } from '@/lib/venue-methods';
 import { CobrarFlow } from './cobrar/CobrarFlow';
 import { HomeTopUpDesk } from './reception/HomeTopUpDesk';
+import { RrppHomeCard, useRrppUpcoming } from './rrpp/RrppHomeCard';
 import styles from './home.module.css';
 
 interface Props {
@@ -31,6 +32,8 @@ export function HomeTab({ user, night, onCobroDone, onLogout }: Props) {
   const party = isParty();
   const rights = useMyRights();
   const topUps = !party && canTopUp(rights, user.role);
+  // En OxioParty no hay RRPP (su panel no los da de alta): /staff/me/promoter da null y la tarjeta no sale.
+  const rrppUpcoming = useRrppUpcoming();
   if (recargar && topUps) {
     return (
       <div className={styles.home}>
@@ -48,6 +51,7 @@ export function HomeTab({ user, night, onCobroDone, onLogout }: Props) {
         miQrOpen={miQr}
         onMiQr={user.role === 'OPERATOR' && !party ? setMiQr : undefined}
         onRecargar={topUps ? () => setRecargar(true) : undefined}
+        banner={<RrppHomeCard upcoming={rrppUpcoming} />}
       />
     </div>
   );

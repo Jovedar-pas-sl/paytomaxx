@@ -12,7 +12,9 @@ import {
   ownNightTotals,
   ownPaidTwiceNote,
   ownCobrosPollMs,
+  ownRowBank,
 } from './my-cobros';
+import { offersCancel } from './cancel-at-bank';
 
 const row = (id: string, kind: OwnCobro['kind'], createdAt: string, status = 'AUTHORIZED'): OwnCobro => ({ id, kind, createdAt, status, ref: null, amountCents: 2000, tipCents: 0, methodLabel: kind === 'SALDO' ? 'Saldo' : 'Tarjeta', service: 'Copa con invitación', via: null, isTopUp: false, invitedName: 'Lola', refundedCents: 0 });
 it('actualiza estados sin duplicar páginas y conserva cobros de ambos canales', () => {
@@ -22,7 +24,7 @@ it('actualiza estados sin duplicar páginas y conserva cobros de ambos canales',
   expect(merged[0]!.kind).toBe('SALDO');
   expect(merged[1]!.status).toBe('AUTHORIZED');
   expect(merged[2]!.id).toBe('older');
-  expect(ownCobroStatus('ACCEPTED')).toBe('Cobrado');
+  expect(ownCobroStatus('ACCEPTED')).toBe('Pagado');
   expect(ownCobroStatus('REVERSED')).toBe('Anulado');
 });
 
@@ -133,8 +135,8 @@ it('un fallo de la segunda página conserva el historial y el cursor completos p
 
 describe('de un vistazo, a oscuras', () => {
   it('cada estado con su color y su icono: cobrado verde, pendiente ámbar, fallido rojo, anulado o devuelto gris', () => {
-    expect(ownCobroState('AUTHORIZED')).toEqual({ label: 'Cobrado', tone: 'ok', icon: 'check' });
-    expect(ownCobroState('ACCEPTED')).toEqual({ label: 'Cobrado', tone: 'ok', icon: 'check' });
+    expect(ownCobroState('AUTHORIZED')).toEqual({ label: 'Pagado', tone: 'ok', icon: 'check' });
+    expect(ownCobroState('ACCEPTED')).toEqual({ label: 'Pagado', tone: 'ok', icon: 'check' });
     expect(ownCobroState('CREATED')).toEqual({ label: 'Pendiente', tone: 'wait', icon: 'clock' });
     expect(ownCobroState('AUTHORIZING')).toMatchObject({ tone: 'wait' });
     expect(ownCobroState('FAILED')).toEqual({ label: 'Fallido', tone: 'bad', icon: 'x' });
@@ -211,10 +213,11 @@ it('refresco sin llegar al final (tope de páginas): lo más antiguo que lo refr
 
 describe('lo que la chica tenía en su lista de antes, y el «cobrado dos veces» del panel', () => {
   const at = '2026-10-21T22:00:00.000Z';
-  it('se cancela un cobro con tarjeta sin pagar (o esperando el datáfono); uno en el banco, pagado, cerrado o del saldo, no', () => {
+  it('se cancela un cobro con tarjeta sin pagar (esperando el datáfono o con el cliente en su banco); pagado, cerrado o del saldo, no', () => {
     expect(ownCobroCancelable(row('a', 'PAYMENT', at, 'CREATED'))).toBe(true);
     expect(ownCobroCancelable(row('b', 'PAYMENT', at, 'AWAITING_CAPTURE'))).toBe(true);
-    for (const status of ['AUTHORIZING', 'AUTHORIZED', 'CANCELED', 'EXPIRED', 'FAILED', 'REFUNDED']) {
+    expect(ownCobroCancelable(row('e', 'PAYMENT', at, 'AUTHORIZING'))).toBe(true);
+    for (const status of ['AUTHORIZED', 'CANCELED', 'EXPIRED', 'FAILED', 'REFUNDED']) {
       expect(ownCobroCancelable(row('c', 'PAYMENT', at, status))).toBe(false);
     }
     expect(ownCobroCancelable(row('d', 'SALDO', at, 'ACCEPTED'))).toBe(false);
@@ -224,10 +227,10 @@ describe('lo que la chica tenía en su lista de antes, y el «cobrado dos veces�
     const eur = (cents: number) => `${cents / 100} €`;
     const card = row('t', 'PAYMENT', at, 'CANCELED');
     expect(ownPaidTwiceNote({ ...card, paidTwice: { amountCents: 12_000, refunded: true } }, eur)).toBe(
-      'Cobrado dos veces: la tarjeta se devolvió sola (120 €)',
+      'Pagado dos veces: la tarjeta se devolvió sola (120 €)',
     );
     expect(ownPaidTwiceNote({ ...card, paidTwice: { amountCents: 12_000, refunded: false } }, eur)).toBe(
-      'Cobrado dos veces: hay que devolver 120 € a la tarjeta (avisa al encargado: está en Incidencias)',
+      'Pagado dos veces: hay que devolver 120 € a la tarjeta (avisa al encargado: está en Incidencias)',
     );
     expect(ownPaidTwiceNote({ ...card, paidTwice: null }, eur)).toBeNull();
     // Un API de antes no trae el campo: nada que decir.
@@ -245,5 +248,36 @@ describe('cada cuánto se refresca «Cobros»', () => {
   });
   it('el resto del personal, como siempre', () => {
     expect(ownCobrosPollMs(resto, [{ kind: 'PAYMENT', status: 'CREATED' }])).toBe(15_000);
+  });
+});
+
+describe('«Cancelar» de una fila suya con el cliente en su banco', () => {
+  const at = '2026-10-21T20:00:00Z';
+  const T0 = Date.parse('2026-11-16T23:40:00.000Z');
+  const unpaid = [
+    { id: 'banco', atBank: true, cancelableAtMs: T0 + 60_000 },
+    { id: 'btc', atBank: false, cancelableAtMs: null },
+  ];
+
+  it('sin ir al banco, como siempre; en su banco, lo que diga «Sin pagar» con el mismo reloj', () => {
+    expect(ownRowBank(row('q', 'PAYMENT', at, 'CREATED'), unpaid, T0)).toBe('free');
+    expect(ownRowBank(row('banco', 'PAYMENT', at, 'AUTHORIZING'), unpaid, T0)).toBe('wait');
+    expect(ownRowBank(row('banco', 'PAYMENT', at, 'AUTHORIZING'), unpaid, T0 + 60_000)).toBe('late');
+    // Pagando con bitcoin: sin esperar.
+    expect(ownRowBank(row('btc', 'PAYMENT', at, 'AUTHORIZING'), unpaid, T0)).toBe('free');
+  });
+
+  it('aún sin saberlo («Sin pagar» sin cargar o sin ese cobro): ni botón ni texto', () => {
+    expect(ownRowBank(row('otro', 'PAYMENT', at, 'AUTHORIZING'), unpaid, T0)).toBeNull();
+    expect(ownRowBank(row('banco', 'PAYMENT', at, 'AUTHORIZING'), null, T0)).toBeNull();
+  });
+
+  it('cobrado en el datáfono sin comprobar: «held», nunca el botón (tampoco pasados los 2 minutos)', () => {
+    const held = [{ id: 'pax', atBank: false, cancelableAtMs: null, heldOnReader: true }];
+    for (const now of [T0, T0 + 10 * 60_000]) {
+      const bank = ownRowBank(row('pax', 'PAYMENT', at, 'AUTHORIZING'), held, now);
+      expect(bank).toBe('held');
+      expect(offersCancel(bank)).toBe(false);
+    }
   });
 });

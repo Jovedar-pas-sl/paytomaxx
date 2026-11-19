@@ -77,6 +77,16 @@ export const UNPREFIXED_ROUTES: readonly UnprefixedRoute[] = Object.freeze([
   // «He perdido mi NFC»: el cliente lo bloquea con su Face ID.
   { path: 'w/:token/lost-nfc/challenge', method: RequestMethod.POST },
   { path: 'w/:token/lost-nfc', method: RequestMethod.POST },
+  // «Aviso en cada cobro»: el service worker, el manifiesto (pantalla de inicio),
+  // apuntar o quitar este navegador y «No he sido yo» (el enlace firmado del aviso).
+  { path: 'w/aviso-sw.js', method: RequestMethod.GET },
+  { path: 'w/:token/manifest.webmanifest', method: RequestMethod.GET },
+  { path: 'w/:token/aviso/challenge', method: RequestMethod.POST },
+  { path: 'w/:token/aviso', method: RequestMethod.POST },
+  { path: 'w/:token/aviso/estado', method: RequestMethod.POST },
+  { path: 'w/:token/aviso/off', method: RequestMethod.POST },
+  { path: 'w/no/:token', method: RequestMethod.GET },
+  { path: 'w/no/:token', method: RequestMethod.POST },
   // OxioParty: «Lo que sobra» desde la página de la pulsera (con su Face ID si lo tiene).
   { path: 'w/:token/sobra', method: RequestMethod.GET },
   { path: 'w/:token/sobra/challenge', method: RequestMethod.POST },
@@ -105,4 +115,16 @@ export const UNPREFIXED_ROUTES: readonly UnprefixedRoute[] = Object.freeze([
   // El QR del cartel de la cola (B16): la misma carga, con los topes por móvil y por noche.
   { path: 'r/:code/cola', method: RequestMethod.POST },
   { path: 'r/:code/mi-saldo', method: RequestMethod.GET },
+  // Reservados: reservar (enlace del local o de un RRPP), la página del grupo,
+  // pagar, cambiar la fecha, «Añadir a mi calendario» y el QR de cada persona.
+  { path: 'reservar/:code', method: RequestMethod.GET },
+  { path: 'reservar/:code', method: RequestMethod.POST },
+  { path: 'reservas/q/:token', method: RequestMethod.GET },
+  { path: 'reservas/:token', method: RequestMethod.GET },
+  { path: 'reservas/:token/calendario', method: RequestMethod.GET },
+  { path: 'reservas/:token/pago', method: RequestMethod.POST },
+  { path: 'reservas/:token/fecha', method: RequestMethod.POST },
+  { path: 'reservas/:token/anular', method: RequestMethod.POST },
+  // Aviso legal, Privacidad, Cookies y Condiciones (enlazadas desde el pie de las páginas del cliente).
+  { path: 'legal/:doc', method: RequestMethod.GET },
 ]);

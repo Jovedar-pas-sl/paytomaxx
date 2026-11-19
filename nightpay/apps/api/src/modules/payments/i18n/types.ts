@@ -141,6 +141,8 @@ export interface PayText {
   payWithSaldo: string;
   /** «Pagar con bitcoin» (BTCPay): el botón de la página de pago, si el local lo tiene encendido. */
   payWithBitcoin: string;
+  /** «Pagar con» del botón de bitcoin al estilo de Apple Pay: va delante del logo y de «bitcoin». */
+  payWithBitcoinPrefix: string;
   /** La línea corta debajo de «Pagar con bitcoin»: cuánto tarda cada forma. */
   bitcoinHint: string;
   bitcoin: BitcoinText;
@@ -178,6 +180,8 @@ export interface PayText {
   /** Unidades de «hace 23 min», «hace 1 h 05 min», «hace 2 d». */
   agoUnits: { min: string; h: string; d: string };
   notNewPayment: string;
+  /** A los 5 min el «Pagado» se cierra: solo esta frase y el justificante. */
+  paidClosed: string;
   confirmedAt: (time: string) => string;
   paidFromBalanceAt: (time: string) => string;
   /** «¡Gracias por la propina!» (en el PAGADO, si dejó). */
@@ -300,13 +304,13 @@ export interface WalletText {
   /** «Juntar saldos» sin ser el móvil que pagó: el PIN de esta recarga. */
   mergePinLabel: string;
   mergeDone: string;
-  leaveRow: string;
-  leaveRowHint: string;
-  leaveTitle: string;
-  leaveGo: string;
-  leaveWaysCards: string;
-  leaveWays: string;
-  leaveDone: string;
+  /**
+   * La regla del saldo (decisión del dueño, 17-nov-2026): no se devuelve, se
+   * queda para la próxima visita. En «Más» (donde estaba «Me voy») y antes de
+   * cargar (debajo del botón de «Recargar»).
+   */
+  keepRule: string;
+  /** Una devolución del saldo pedida antes del cambio y aún en curso: su título, pasos y cómo va. */
   refundTitle: string;
   steps: [string, string, string];
   refundRequested: string;
@@ -329,15 +333,8 @@ export interface WalletText {
   topUpGo: string;
   /** Con la «Comisión del servicio»: el botón dice lo que paga, el total («Pagar 56 €»). */
   topUpGoFee: string;
-  /**
-   * Debajo del botón: qué pasa con lo que no gaste (no caduca; con «Me voy»,
-   * el local se lo devuelve a la tarjeta). El nombre de «Me voy» es el de `leaveRow`.
-   */
-  topUpLeftover: string;
   /** Con la «Comisión del servicio»: el desglose (Recarga · Comisión · Total a pagar). */
   topUpToBalance: string;
-  /** `topUpLeftover` y, además, que la comisión del servicio no se devuelve. */
-  topUpLeftoverFee: string;
   /** «¿Qué es?» de la comisión en una recarga (el de PayText habla del consumo); `{pct}` = «12 %». */
   topUpFeeExplain: string;
   topUpFaceId: string;
@@ -515,25 +512,6 @@ export interface FichaCardText {
   error: string;
 }
 
-/** La salida de recepción confirmada con Face ID en el móvil del cliente (/w/salida/:token). */
-export interface PayoutText {
-  title: string;
-  gives: string;
-  inCash: string;
-  intro: string;
-  button: string;
-  waiting: string;
-  done: string;
-  gone: string;
-  unsupported: string;
-  cancelled: string;
-  wrong: string;
-  expired: string;
-  rateLimited: string;
-  error: string;
-  security: string;
-}
-
 /**
  * Errores del API que ve el cliente, por su `code` (nunca el texto del API).
  * `TOPUP_<motivo>`: el 409 WALLET_TOPUP_UNAVAILABLE con su `reason`.
@@ -550,7 +528,8 @@ export const CLIENT_ERROR_KEYS = [
   'WALLET_CLOSED',
   'WALLET_VIEW_REQUIRED',
   'WALLET_INSUFFICIENT',
-  'NOTHING_TO_REFUND',
+  // El saldo no se devuelve (17-nov-2026): lo que antes era «Me voy» o la salida de recepción.
+  'SALDO_NO_SE_DEVUELVE',
   'WALLET_TOPUP_TOO_MANY',
   'WALLET_TOPUP_DAILY_LIMIT',
   'WALLET_TOPUP_PENDING_LIMIT',
@@ -585,8 +564,6 @@ export const CLIENT_ERROR_KEYS = [
   'CHARGE_EXPIRED',
   'CHARGE_OTHER_VENUE',
   'ALREADY_PAID',
-  'PAYOUT_QR_GONE',
-  'PAYOUT_CONFIRMED',
   'ACTIVATION_USED',
   'ACTIVATION_EXPIRED',
   'ACTIVATION_REQUIRED',
@@ -605,7 +582,6 @@ export interface CustomerTexts {
   wallet: WalletText;
   saldo: SaldoText;
   unlockPage: UnlockPageText;
-  payout: PayoutText;
   activation: ActivationText;
   errors: ClientErrorTexts;
 }

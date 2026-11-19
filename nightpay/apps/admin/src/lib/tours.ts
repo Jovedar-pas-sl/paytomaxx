@@ -58,6 +58,7 @@ export const TOURS = {
       { target: 'chicas-tabla', title: 'Tus compañeras', text: 'Cada fila es una compañera, con su comisión, lo que se le debe y lo que ya se le ha pagado. Toca una para abrir su ficha.' },
       { target: 'chicas-estado', title: 'Estado', text: 'Si ya ha entrado y tiene todo listo para cobrar, o si le falta algo (cuenta, documentos).' },
       { target: 'chicas-camareros', title: 'Camareros', text: 'Los camareros salen aparte, con la misma ficha.' },
+      { target: 'chicas-rrpp', title: 'Tus RRPP', text: 'Un RRPP es alguien de tu equipo con su % y su enlace para reservar. Se llevan en Clientes → Reservados y RRPP: este botón te lleva.' },
     ],
   },
   wallets: {
@@ -65,7 +66,7 @@ export const TOURS = {
     steps: [
       { target: 'saldos-resumen', title: 'Saldos de hoy', text: 'Cuántos saldos activos hay y cuánto suman, y lo recargado, consumido y devuelto hoy.' },
       { target: 'saldos-lista', title: 'Lista de saldos', text: 'Cada fila es el saldo de un cliente, con su código. Arriba puedes buscar uno por su teléfono.' },
-      { target: 'saldos-acciones', title: 'Acciones de un saldo', text: 'En cada saldo, según el caso: «Devolver saldo», «Enlace nuevo», «Cobrar sin Face ID», «Desbloquear PIN», «Borrar PIN» y «Bloquear ficha».' },
+      { target: 'saldos-acciones', title: 'Acciones de un saldo', text: 'El saldo no se devuelve: se queda para la próxima visita. En cada saldo, según el caso: «Terminar devolución» (solo las pedidas antes), «Enlace nuevo», «Cobrar sin Face ID», «Desbloquear PIN», «Borrar PIN» y «Bloquear ficha».' },
     ],
   },
   fichas: {
@@ -140,7 +141,7 @@ export const TOURS = {
     steps: [
       { target: 'noche-nfc', title: 'Ficha sin PIN', text: 'El cliente solo acerca su ficha y queda pagado. Por encima de un importe, o al pasar el tope de la noche, pone su PIN.' },
       { target: 'noche-pin', title: 'Teclado del PIN', text: 'Lo que ve el cliente al poner su PIN en el móvil del personal o en el datáfono.' },
-      { target: 'noche-recepcion', title: 'Recepción', text: 'Al recargar un saldo: los importes de un toque. A la salida: hasta cuánto se devuelve solo.' },
+      { target: 'noche-recepcion', title: 'Recepción', text: 'Al recargar un saldo: los importes de un toque y el botón grande.' },
       { target: 'noche-cobrar', title: 'Al cobrar', text: 'El aviso de pagado o no pagado en las apps del personal.' },
       { target: 'noche-pantallas', title: 'Pantallas del personal', text: 'Cómo se ven los móviles del personal en este local, por ejemplo con contraste alto para salas con poca luz.' },
     ],
@@ -186,6 +187,14 @@ export const TOURS = {
       { target: 'perfil-movil', title: 'Este equipo', text: 'El tema del panel: oscuro, claro o como el equipo. Se guarda solo en este navegador.' },
     ],
   },
+  reservations: {
+    screen: 'panel-reservados',
+    steps: [
+      { target: 'reservados-vistas', title: 'Cuatro vistas', text: '«Reservas de la noche», los «Paquetes» que vendes, «RRPP y sus enlaces» (su % y su enlace) y el «Enlace web y señales» para reservar con señal.' },
+      { target: 'reservados-noche', title: 'La noche', text: 'Cambia de noche con las flechas o la fecha. Debajo salen sus reservas y «Reservar para un cliente».' },
+      { target: 'reservados-reserva', title: 'Cada reserva', text: 'El cliente, su referencia y lo pagado. Cuando llega, «Ha venido»; si no aparece, «No vino» (se puede deshacer).' },
+    ],
+  },
 } as const satisfies Record<string, TourDef>;
 
 
@@ -211,4 +220,5 @@ export const TAB_TOURS: Readonly<Partial<Record<TabKey, TourDef>>> = {
   permissions: TOURS.permissions,
   alerts: TOURS.alerts,
   security: TOURS.security,
+  reservations: TOURS.reservations,
 };

@@ -10,6 +10,7 @@ import { payErrorKeyOf, type PayLanguage } from '../payments/pay-i18n';
 import { PayPageFilter } from '../payments/pay-page.filter';
 import { renderErrorPage } from '../payments/public-pay.pages';
 import { walletClaimCookieName, walletClaimSetCookie } from '../payments/wallet-claim';
+import { isReservationPaymentKey } from '../reservations/reservation-payment-key';
 import { BtcpayInvoiceService } from './btcpay-invoice.service';
 import { BtcpayEnabledGuard } from './btcpay-flag';
 import { renderBitcoinPage } from './btcpay-pay-page';
@@ -121,9 +122,11 @@ export class BtcpayPayController {
   ): Promise<void> {
     const lang = this.language(res, langQuery, cookies);
     const back = `/pay/${encodeURIComponent(token)}?lang=${lang}`;
-    const { view } = await this.invoices.viewForToken(token);
+    const { payment, view } = await this.invoices.viewForToken(token);
     if (view) {
-      sendHtml(res, 200, this.render(lang, token, view, null));
+      // Una carga de saldo (no un reservado): la regla del saldo antes del QR.
+      const topUp = payment.walletId !== null && !isReservationPaymentKey(payment.idempotencyKey);
+      sendHtml(res, 200, this.render(lang, token, view, null, topUp));
       return;
     }
     // Sin factura abierta: pagado, cerrado o elegir lo cuenta la página del cobro. Con un pago a medias, el aviso.
@@ -145,7 +148,7 @@ export class BtcpayPayController {
 
   // ─── Detalles ───────────────────────────────────────────────────────
 
-  private render(lang: PayLanguage, token: string, view: BtcpayInvoiceView, closed: 'problem' | null): string {
+  private render(lang: PayLanguage, token: string, view: BtcpayInvoiceView, closed: 'problem' | null, topUp = false): string {
     return renderBitcoinPage({
       token,
       lang,
@@ -154,6 +157,7 @@ export class BtcpayPayController {
       concept: null,
       langHref: (l) => `/pay/${encodeURIComponent(token)}/bitcoin?lang=${l}`,
       closed,
+      topUp,
     });
   }
 

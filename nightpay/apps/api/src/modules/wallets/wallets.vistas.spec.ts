@@ -62,7 +62,7 @@ describe('lista de saldos del panel', () => {
     const list = await svc.listForAdmin({ tenantId: SALA });
     expect(list).toEqual([
       {
-        id: WALLET, code: 'K7Q-4M2', closeRequestedAt: '2026-10-17T02:55:00.000Z', identifier: 'Mesa 4', balanceCents: 8_500,
+        id: WALLET, code: 'K7Q-4M2', closeRequestedAt: '2026-10-17T02:55:00.000Z', payoutPending: false, identifier: 'Mesa 4', balanceCents: 8_500,
         status: 'ACTIVE', expiresAt: null, consumptionCount: 3, createdAt: '2026-10-17T00:12:00.000Z',
         hasFaceId: true, hasPin: true, pinLocked: true, hasCard: true,
       },

@@ -17,6 +17,7 @@ import { sectionPaint } from '@/lib/money-map-view';
 import { usePolling } from '@/lib/use-polling';
 import { useSections } from '@/lib/use-sections';
 import { useVenueTimezone } from '@/lib/venue-context';
+import { KEEP_RULE, refundPendingFromBefore } from '@/lib/wallet-payout';
 import { useFichas } from './fichas/fichas-context';
 import { SectionChip } from './fichas/SectionChip';
 import { Notice } from './Notice';
@@ -177,7 +178,10 @@ export function WalletsPanel({ isOwner }: Props) {
 
       <Card className="np-table-host" style={{ padding: '1rem' }} data-tour="saldos-lista">
         <div style={listHeader}>
-          <h3 style={sectionTitle}>Lista de saldos</h3>
+          <div>
+            <h3 style={sectionTitle}>Lista de saldos</h3>
+            <p style={{ ...mutedText, marginTop: '0.25rem' }}>{KEEP_RULE}</p>
+          </div>
           <Select
             aria-label="Filtrar por estado"
             value={statusFilter}
@@ -231,7 +235,7 @@ export function WalletsPanel({ isOwner }: Props) {
                     <td data-label="Estado">
                       <div style={badgeRow}>
                         <Pill tone={STATUS_BADGES[w.status].tone}>{STATUS_BADGES[w.status].label}</Pill>
-                        {w.status === 'ACTIVE' && w.closeRequestedAt ? <Pill tone="warning">Pide devolución</Pill> : null}
+                        {refundPendingFromBefore(w) ? <Pill tone="warning">Devolución pedida antes</Pill> : null}
                         {w.hasFaceId ? <Pill tone="success">Face ID</Pill> : null}
                         {w.hasCard ? <Pill tone="success">Ficha</Pill> : null}
                         {w.pinLocked ? (
@@ -252,12 +256,10 @@ export function WalletsPanel({ isOwner }: Props) {
                     </td>
                     <td data-label="Acciones" data-card="actions">
                       <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
-                        {w.status === 'ACTIVE' && w.balanceCents > 0 ? (
-                          <Button
-                            variant={w.closeRequestedAt ? 'primary' : 'ghost'}
-                            onClick={() => setPayoutFor(rowTarget(w))}
-                          >
-                            Devolver saldo
+                        {/* El saldo no se devuelve: solo se termina una devolución pedida antes de la nueva regla. */}
+                        {refundPendingFromBefore(w) ? (
+                          <Button variant="primary" onClick={() => setPayoutFor(rowTarget(w))}>
+                            Terminar devolución
                           </Button>
                         ) : null}
                         {isOwner && w.status === 'ACTIVE' ? (
@@ -356,9 +358,9 @@ function rowTarget(w: WalletAdminRow): PayoutTarget {
   };
 }
 
-/** Lo que el cliente pidió devolver va primero. */
+/** Las devoluciones pedidas antes de la nueva regla, sin terminar, van primero. */
 function closeRequestsFirst(rows: WalletAdminRow[]): WalletAdminRow[] {
-  const asks = (w: WalletAdminRow) => (w.status === 'ACTIVE' && w.closeRequestedAt ? 0 : 1);
+  const asks = (w: WalletAdminRow) => (refundPendingFromBefore(w) ? 0 : 1);
   return [...rows].sort((x, y) => asks(x) - asks(y));
 }
 

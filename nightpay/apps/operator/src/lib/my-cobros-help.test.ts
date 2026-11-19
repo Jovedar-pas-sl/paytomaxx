@@ -38,7 +38,9 @@ describe('«Si pasa esto»', () => {
     expect(myCobros).toMatch(/>\s*Cancelar\s*</);
     expect(dosVeces!.todo).toContain('avisa al encargado');
     expect(devolver!.todo).toContain('avisa al encargado o al dueño');
-    expect(saldo!.todo).toContain('«Salida»');
+    // El saldo no se devuelve (decisión del dueño, 17-nov): se queda para la próxima visita.
+    expect(saldo!.todo).toBe('El saldo no se devuelve: se queda para la próxima visita. Que guarde su ficha o su código.');
+    expect(saldo!.todo).not.toMatch(/efectivo|Salida/);
     expect(desk).toContain("'Salida'");
   });
 

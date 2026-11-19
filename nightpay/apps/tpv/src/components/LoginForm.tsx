@@ -1,8 +1,8 @@
 'use client';
 
 import { useState, type FormEvent } from 'react';
-import { Button, FormError, Input } from '@nightpay/ui';
-import { LoginCodeRequiredError, login, loginWithCode, setSession } from '@/lib/api';
+import { Button, FormError, Input, PrivacyNote } from '@nightpay/ui';
+import { LoginCodeRequiredError, apiBase, login, loginWithCode, setSession } from '@/lib/api';
 
 interface Props {
   onSuccess: () => void;
@@ -63,6 +63,7 @@ export function LoginForm({ onSuccess }: Props) {
       ) : (
         <>
           <Input
+            label="Email"
             type="email"
             autoComplete="email"
             placeholder="Email"
@@ -71,6 +72,7 @@ export function LoginForm({ onSuccess }: Props) {
             required
           />
           <Input
+            label="Contraseña"
             type="password"
             autoComplete="current-password"
             placeholder="Contraseña"
@@ -84,6 +86,7 @@ export function LoginForm({ onSuccess }: Props) {
         Entrar
       </Button>
       {error ? <FormError>{error}</FormError> : null}
+      <PrivacyNote apiBase={apiBase} />
     </form>
   );
 }

@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { MAX_CASH_TOP_UP_CENTS, walletCardUrl, type ReceptionOptions } from '@nightpay/contracts';
+import { MAX_CASH_TOP_UP_CENTS, SALDO_SE_QUEDA_TEXT, walletCardUrl, type ReceptionOptions } from '@nightpay/contracts';
 import { AmountKeypad, Button } from '@nightpay/ui';
 import { createPayment, fetchTerminals, type CreatedPayment } from '@/lib/api';
 import { PENDING_CONFIRM_TEXT } from '@/lib/pax-api';
@@ -369,6 +369,8 @@ export function ReceptionFlow({ on, onDone }: Props) {
         <>
           <p className={r.amount}>{formatEur(amountCents)}</p>
           <p className={r.lead}>¿Cómo paga?</p>
+          {/* La regla antes de pagar: nadie carga pensando que se le devuelve. */}
+          <p className={r.note}>{SALDO_SE_QUEDA_TEXT}</p>
           {!options ? <p className={r.text}>Cargando…</p> : null}
           <Button size="lg" disabled={!options?.card} onClick={() => setStep({ kind: 'target', method: 'card' })}>
             {cardMethodLabel(on)}
@@ -434,7 +436,7 @@ export function ReceptionFlow({ on, onDone }: Props) {
           <p className={r.lead}>{topUpCharge(options, amountCents).text} en efectivo</p>
           <p className={r.text}>
             {step.target.kind === 'card' ? `A su saldo ${step.target.view.codeHint}.` : 'Saldo nuevo.'} Guarda el dinero en la caja y
-            pulsa «Cobrado».
+            pulsa «Pagado».
           </p>
           <Button
             size="lg"
@@ -458,7 +460,7 @@ export function ReceptionFlow({ on, onDone }: Props) {
               })
             }
           >
-            Cobrado
+            Pagado
           </Button>
           <Button variant="ghost" disabled={busy} onClick={() => setStep({ kind: 'target', method: 'cash' })}>
             Atrás

@@ -43,6 +43,8 @@ function makeController(opts: {
   directWallet?: string;
   /** «Comprobando el pago»: lo que da PayStatusService (sin él, la página de antes). */
   statusCtx?: PayStatusContext | null;
+  /** Reservados: el enlace de la reserva del pago. */
+  manageToken?: string | null;
 }) {
   const payments = {
     getResultView: vi.fn().mockResolvedValue(opts.view ?? null),
@@ -53,6 +55,7 @@ function makeController(opts: {
         : vi.fn().mockResolvedValue(opts.checkout),
     getReceipt: vi.fn().mockResolvedValue(opts.receipt ?? null),
     getCheckoutForm: vi.fn().mockResolvedValue(opts.checkoutForm ?? null),
+    reservationManageToken: vi.fn().mockResolvedValue(opts.manageToken ?? null),
   };
   const settings: Record<string, string | undefined> = {
     PAY_STATEMENT_NAME: opts.statementName,
@@ -230,17 +233,17 @@ describe('GET /pay/result — el "Pagado" ya no se puede falsificar', () => {
     expect(forwarded.sent.body).toContain(PAID_STALE);
   });
 
-  it('«Ya pagado»: abrir otra vez un enlace pagado hace rato → gris, «hace 23 min» y «No es un pago nuevo»', async () => {
+  it('«Ya pagado»: abrir otra vez un enlace pagado hace 4 min → gris, «hace 4:00» y «No es un pago nuevo»', async () => {
     vi.useFakeTimers({ toFake: ['Date'] });
     vi.setSystemTime(new Date('2026-10-13T08:38:02Z'));
     const { controller } = makeController({
-      view: view({ status: 'AUTHORIZED', authorizedAt: new Date('2026-10-13T08:15:02Z') }),
+      view: view({ status: 'AUTHORIZED', authorizedAt: new Date('2026-10-13T08:34:02Z') }),
     });
     const { reply, sent } = fakeReply();
     await controller.paymentResult('a1b2c3d4e5f6', 'es', undefined, reply);
     expect(sent.body).toContain(PAID_STALE);
     expect(sent.body).toContain('aria-live="polite">Ya pagado</h1>');
-    expect(sent.body).toContain('hace 23 min');
+    expect(sent.body).toContain('hace 4:00');
     expect(sent.body).toContain('No es un pago nuevo');
     expect(sent.body).not.toContain(PAID_FRESH);
   });
@@ -886,6 +889,61 @@ describe('«Recargar» desde /w: tras pagar, de vuelta al saldo (solo el navegad
     const { reply } = fakeReply(`${name}=${RETURN}`);
     await controller.startCheckout('qr-token-1', { tip: '0', method: 'wallet', lang: 'es' }, undefined, reply);
     expect(payments.startCheckout).toHaveBeenCalledWith('qr-token-1', expect.objectContaining({ claimHash: returnHash }));
+  });
+});
+
+describe('Reservados: tras pagar (con tarjeta o con bitcoin), el navegador que pagó vuelve a la página del reservado', () => {
+  const CLAIM = 'c'.repeat(43);
+  const claimHash = createHash('sha256').update(CLAIM).digest('hex');
+  const name = walletClaimCookieName('', 'qr-token-1');
+  /** El pago ya hecho, como lo da /pay/:token (p. ej. al volver de la página del QR de bitcoin). */
+  const paid = (over: Partial<Extract<PayRedirect, { kind: 'paid' }>> = {}): PayRedirect => ({
+    kind: 'paid',
+    paymentId: PAYMENT_ID,
+    amountCents: 12_000,
+    tipCents: 0,
+    currency: 'EUR',
+    authorizedAt: new Date(),
+    walletToken: null,
+    walletClaimHash: null,
+    walletCode: null,
+    walletHasFaceId: false,
+    walletHasPin: false,
+    approvedClaimHash: claimHash,
+    reservation: true,
+    ...over,
+  });
+
+  it('/pay/:token pagado (bitcoin: su QR vuelve aquí) → 303 a /reservas/<enlace>?pagado=1', async () => {
+    const { controller, payments } = makeController({ page: paid(), manageToken: 'M'.repeat(32) });
+    const { reply, sent } = fakeReply(`${name}=${CLAIM}`);
+    await controller.payPage('qr-token-1', 'es', undefined, IPHONE, reply);
+    expect(sent.status).toBe(303);
+    expect(sent.headers.Location).toBe(`/reservas/${'M'.repeat(32)}?pagado=1`);
+    expect(payments.reservationManageToken).toHaveBeenCalledWith(PAYMENT_ID);
+  });
+
+  it('otro navegador (sin la cookie del pago) o un pago que no es de un reservado: el «Pagado» de siempre', async () => {
+    for (const [page, cookie] of [
+      [paid(), undefined],
+      [paid(), `${name}=${'x'.repeat(43)}`],
+      [paid({ reservation: undefined }), `${name}=${CLAIM}`],
+    ] as const) {
+      const { controller, payments } = makeController({ page, manageToken: 'M'.repeat(32) });
+      const { reply, sent } = fakeReply(cookie);
+      await controller.payPage('qr-token-1', 'es', undefined, IPHONE, reply);
+      expect(sent.status).toBe(200);
+      expect(sent.body).toContain('class="paid');
+      expect(payments.reservationManageToken).not.toHaveBeenCalled();
+    }
+  });
+
+  it('/pay/result (con tarjeta, al volver del banco), igual', async () => {
+    const back = view({ status: 'AUTHORIZED', reservation: true, approvedClaimHash: claimHash });
+    const { reply, sent } = fakeReply(`${name}=${CLAIM}`);
+    await makeController({ view: back, manageToken: 'M'.repeat(32) }).controller.paymentResult('ORD-1', 'es', undefined, reply);
+    expect(sent.status).toBe(303);
+    expect(sent.headers.Location).toBe(`/reservas/${'M'.repeat(32)}?pagado=1`);
   });
 });
 

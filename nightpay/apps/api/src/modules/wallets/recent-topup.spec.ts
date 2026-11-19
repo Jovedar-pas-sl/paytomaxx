@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { firstName, latestTopUp, recentTopUp } from './recent-topup';
+import { firstName, latestTopUp, paidTopUpMethod, recentTopUp } from './recent-topup';
 
 const NOW = new Date('2026-11-10T01:00:00Z');
 const ago = (min: number) => new Date(NOW.getTime() - min * 60_000);
@@ -53,5 +53,16 @@ describe('la última recarga en la fila de la ficha (A4)', () => {
       user: { findUnique: vi.fn() },
     };
     await expect(recentTopUp(tx as never, 'w-1', NOW)).resolves.toEqual({ at: ago(1).toISOString(), amountCents: 3_000, method: 'card', byName: null });
+  });
+
+  it('pagada con bitcoin (BTCPay): «con bitcoin», no «con tarjeta»', async () => {
+    const tx = {
+      walletCashTopUp: { findFirst: vi.fn(async () => null) },
+      payment: { findFirst: vi.fn(async () => ({ authorizedAt: ago(2), amountCents: 5_000, createdByUserId: null, provider: 'BTCPAY' })) },
+      user: { findUnique: vi.fn() },
+    };
+    await expect(recentTopUp(tx as never, 'w-1', NOW)).resolves.toMatchObject({ amountCents: 5_000, method: 'bitcoin' });
+    expect(paidTopUpMethod('REDSYS')).toBe('card');
+    expect(paidTopUpMethod(null)).toBe('card');
   });
 });

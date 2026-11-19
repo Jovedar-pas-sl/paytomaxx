@@ -32,6 +32,14 @@ describe('btcpay-secrets: la clave de API y el secreto del aviso, cifrados', () 
   });
   it('un texto tocado no se abre', () => {
     const sealed = sealBtcpaySecret(KEK, T1, 'apikey', 'CLAVE');
-    expect(() => openBtcpaySecret(KEK, T1, 'apikey', `${sealed.slice(0, -2)}AA`)).toThrow();
+    // Se cambia un bit del cifrado de verdad. Cambiar los dos últimos caracteres
+    // por «AA» a veces no cambiaba ningún byte (los bits sobrantes del base64, o
+    // ya acababa en «AA»): 1 de cada 200 veces la prueba fallaba sola.
+    const [nonce = '', enc = '', tag = ''] = sealed.split(':');
+    const bytes = Buffer.from(enc, 'base64url');
+    bytes[0] = (bytes[0] ?? 0) ^ 1;
+    const tampered = [nonce, bytes.toString('base64url'), tag].join(':');
+    expect(tampered).not.toBe(sealed);
+    expect(() => openBtcpaySecret(KEK, T1, 'apikey', tampered)).toThrow();
   });
 });

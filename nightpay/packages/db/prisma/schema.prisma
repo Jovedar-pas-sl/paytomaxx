@@ -89,7 +89,7 @@ model Venue {
   // «Enlace nuevo» lo cambia. CHECK en SQL: encendido ⇒ con código.
   homeTopUpEnabled      Boolean   @default(false)
   homeTopUpCode         String?   @unique
-  // OxioParty (20261115100000, EDITION=party; docs/OXIOPARTY.md): la fiesta.
+  // OxioParty (20261120300000, EDITION=party; docs/OXIOPARTY.md): la fiesta.
   // Con EDITION=club no se usan. Con eventEndsAt ya pasado no hay cobros ni
   // recargas nuevos (EVENT_ENDED). refundDeadline: último día para pedir la
   // devolución del saldo. allowDonation: el cliente puede donar lo que le
@@ -100,6 +100,19 @@ model Venue {
   refundDeadline        DateTime? @db.Date
   allowDonation         Boolean   @default(true)
   cashAlertCents        Int       @default(200000)
+  // Reservados (20261117300000, apps/api/src/modules/reservations): el enlace
+  // público para reservar (/reservar/<código>). Apagado de serie; código al
+  // azar (16 letras de base64url). CHECK en SQL: encendido ⇒ con código.
+  reservationsEnabled   Boolean   @default(false)
+  reservationsCode      String?   @unique
+  // Hora de apertura (minutos desde las 00:00; 20261117300100): las 48 h y el
+  // «hasta 2 h antes» de los reservados cuentan desde ella. CHECK 0–1439.
+  reservationsOpenMinute Int      @default(1200)
+  // «Pantalla del cliente» en reposo (20261117500000): el mensaje del local
+  // bajo su nombre (una promoción, una fiesta). Lo cambian el dueño y el
+  // encargado (Ajustes → Carta). Null = sin esa línea.
+  displayLine1          String?   @db.VarChar(120)
+  displayLine2          String?   @db.VarChar(120)
   createdAt             DateTime  @default(now()) @db.Timestamptz
   updatedAt             DateTime  @updatedAt @db.Timestamptz
   deletedAt             DateTime? @db.Timestamptz
@@ -118,7 +131,10 @@ model Venue {
   serviceItemImages  ServiceItemImage[]
   btcpayStore        BtcpayStore?
   btcpayInvoices     BtcpayInvoice[]
+  walletPushSubscriptions WalletPushSubscription[]
+  btcCashReturns     BtcCashReturn[]
   userPhotos         UserPhoto[]
+  customerDisplays   CustomerDisplay[]
   nights             VenueNight[]
   incidentAcks       IncidentAck[]
   posTerminalOps     PosTerminalOp[]
@@ -131,6 +147,12 @@ model Venue {
   chargeRefCounter   ChargeRefCounter?
   oxioPaySettlements OxioPaySettlement[]
   stalls             Stall[]
+  reservationPackages ReservationPackage[]
+  promoters           Promoter[]
+  reservations        Reservation[]
+  reservationGuests   ReservationGuest[]
+  reservationPayments ReservationPayment[]
+  reservationSpends   ReservationSpend[]
 
   @@index([businessId])
   @@map("venues")
@@ -228,7 +250,7 @@ model User {
   // Da la sección por defecto de sus cobros (Sala → Servicios, Barra →
   // Copas…). Null = el de su rol (chica → Sala, resto → Barra).
   post                String?
-  // OxioParty (20261115100000): la caseta en la que trabaja. Sus cobros y los
+  // OxioParty (20261120300000): la caseta en la que trabaja. Sus cobros y los
   // consumos del saldo que cobra llevan esta caseta (stallId). La clave ajena
   // lleva el local: nunca una caseta de otro local.
   stallId             String?   @db.Uuid
@@ -254,6 +276,10 @@ model User {
   staffPasskeys         StaffPasskey[]
   // Su foto de perfil (20261113100000).
   photo                 UserPhoto?
+  // Su «Pantalla del cliente» (20261117400000): una como mucho (userId único).
+  customerDisplays      CustomerDisplay[]
+  // Reservados: su ficha de RRPP (su % y su enlace).
+  promoters             Promoter[]
 
   @@unique([id, tenantId])
   @@index([tenantId])
@@ -335,6 +361,8 @@ model BtcpayStore {
   enabled            Boolean   @default(false)
   // PAYMENTS (cobros) | TOPUPS (recargas) | BOTH
   purpose            String    @default("BOTH")
+  // Devolver en efectivo los pagos con bitcoin (20261117100000). Apagado de fábrica.
+  cashRefundEnabled  Boolean   @default(false)
   lastCheckAt        DateTime? @db.Timestamptz
   lastCheckOk        Boolean?
   lastCheckMessage   String?
@@ -363,6 +391,10 @@ model BtcpayInvoice {
   // Importe en BTC (texto decimal) y cambio EUR por BTC al crear la factura.
   amountBtc      String?
   rate           String?
+  // Lo que llegó de verdad (20261117100000): en BTC (texto decimal) y en céntimos
+  // de euro al cambio de la factura. Null: aún no se ha mirado (o una de antes).
+  paidBtc        String?
+  paidCents      Int?
   checkoutLink   String
   // El enlace del QR: bitcoin normal y Lightning juntos si la tienda tiene los dos.
   qrLink         String
@@ -379,6 +411,58 @@ model BtcpayInvoice {
   @@index([tenantId])
   @@index([paymentId])
   @@map("btcpay_invoices")
+}
+
+// «Aviso en cada cobro» (20261117200000): cada navegador que el cliente apunta
+// para recibir un aviso (Web Push) en cada cobro de su saldo o de su ficha.
+// Solo la dirección del servicio de avisos y sus claves públicas; nada del
+// cliente. FORCE RLS: solo dentro de una transacción de PrismaService.
+model WalletPushSubscription {
+  id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId   String    @db.Uuid
+  walletId   String    @db.Uuid
+  endpoint   String
+  p256dh     String
+  auth       String
+  // es | en | fr | pt: el idioma de la página al apuntarse (el del aviso).
+  lang       String    @default("es")
+  failCount  Int       @default(0)
+  lastSentAt DateTime? @db.Timestamptz
+  createdAt  DateTime  @default(now()) @db.Timestamptz
+  updatedAt  DateTime  @default(now()) @updatedAt @db.Timestamptz
+
+  venue  Venue        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  wallet ClientWallet @relation(fields: [walletId], references: [id], onDelete: Cascade)
+
+  @@unique([walletId, endpoint])
+  @@index([endpoint])
+  @@index([tenantId])
+  @@map("wallet_push_subscriptions")
+}
+
+// Bitcoin que llegó SIN cobro (tarde, dos veces o a medias en un cobro que no se
+// pagó) y se devolvió en efectivo (20261117100100). Una por factura. FORCE RLS.
+model BtcCashReturn {
+  id                String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId          String   @db.Uuid
+  paymentId         String   @db.Uuid
+  // El id de la factura de BTCPay (único: una sola devolución por factura).
+  invoiceId         String   @unique
+  amountCents       Int
+  reason            String
+  receiptCode       String
+  requestedById     String   @db.Uuid
+  paidById          String   @db.Uuid
+  approvalRequestId String?  @db.Uuid
+  createdAt         DateTime @default(now()) @db.Timestamptz
+
+  venue   Venue   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  payment Payment @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+
+  // CHECK solo en SQL: 0 < amountCents < 100000.
+  @@index([tenantId, createdAt])
+  @@index([paymentId])
+  @@map("btc_cash_returns")
 }
 
 model GatewayCredential {
@@ -544,7 +628,7 @@ model Payment {
   // Referencia corta por local (C-0001), del contador charge_ref_counters
   // (compartido con los cobros del saldo). Null en los cobros antiguos.
   ref           Int?
-  // OxioParty (20261115100000): la caseta de quien creó el cobro, fijada al
+  // OxioParty (20261120300000): la caseta de quien creó el cobro, fijada al
   // crearlo (EDITION=party). Null: OxioPay, una recarga o sin caseta.
   stallId       String?   @db.Uuid
 
@@ -561,8 +645,11 @@ model Payment {
   attempts           PaymentAttempt[]
   lines              PaymentLine[]
   btcpayInvoices     BtcpayInvoice[]
+  btcCashReturns     BtcCashReturn[]
   // Cobro único: la otra forma de pagar este mismo cobro (el saldo).
   linkedWalletCharge WalletChargeRequest? @relation("CobroUnico")
+  // Reservados: el pago (señal, resto o todo) de una reserva.
+  reservationPayment ReservationPayment?
 
   @@unique([tenantId, idempotencyKey])
   @@unique([tenantId, ref])
@@ -642,7 +729,7 @@ model WalletChargeRequest {
   // Propina que pidió el cliente (20261024100100), aparte del importe: el
   // saldo paga importe + propina y el consumo la guarda en su "tipCents".
   tipCents          Int       @default(0)
-  // OxioParty (20261115100000): la caseta de quien pidió el cobro, fijada al
+  // OxioParty (20261120300000): la caseta de quien pidió el cobro, fijada al
   // crearlo; pasa al consumo al pagarse. Null: OxioPay o sin caseta.
   stallId           String?   @db.Uuid
 
@@ -730,6 +817,8 @@ model WalletCashTopUp {
   voidOf   WalletCashTopUp? @relation("CashTopUpVoid", fields: [voidOfId], references: [id], onDelete: Cascade)
   voidedBy WalletCashTopUp? @relation("CashTopUpVoid")
 
+  // Reservados: el resto de una reserva pagado en efectivo.
+  reservationPayment ReservationPayment?
   @@unique([tenantId, idempotencyKey])
   @@index([tenantId, createdAt(sort: Desc)])
   @@index([walletId, createdAt])
@@ -932,7 +1021,7 @@ model UserPhoto {
   @@map("user_photos")
 }
 
-// OxioParty (20261115100000, EDITION=party; docs/OXIOPARTY.md): la caseta de
+// OxioParty (20261120300000, EDITION=party; docs/OXIOPARTY.md): la caseta de
 // una fiesta (peña, falla, barra). organizerBps: la parte de lo vendido que se
 // queda el organizador (0–10000; 10000 = «barra propia»); el resto, para la
 // caseta, a su IBAN (sin espacios y en mayúsculas, mod-97 en el API). Las
@@ -961,6 +1050,40 @@ model Stall {
   @@unique([id, tenantId])
   @@index([tenantId, active, sortOrder])
   @@map("stalls")
+}
+
+// «Pantalla del cliente» (20261117400000): la tablet de la barra que mira al
+// cliente, unida a una persona del personal (una por persona). Solo guarda
+// las huellas (sha256) del código para emparejar y de la credencial. Enseña
+// el cobro paymentId / chargeId (sin clave ajena a propósito: el API comprueba
+// que es de esa persona). FORCE RLS: solo dentro de una transacción de PrismaService.
+model CustomerDisplay {
+  id                   String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId             String    @db.Uuid
+  userId               String    @unique @db.Uuid
+  pairingCodeHash      String?   @unique
+  pairingCodeExpiresAt DateTime? @db.Timestamptz
+  tokenHash            String?   @unique
+  pairedAt             DateTime? @db.Timestamptz
+  // La unión caduca sola (12 h tras emparejar).
+  expiresAt            DateTime? @db.Timestamptz
+  revokedAt            DateTime? @db.Timestamptz
+  lastSeenAt           DateTime? @db.Timestamptz
+  paymentId            String?   @db.Uuid
+  chargeId             String?   @db.Uuid
+  shownAt              DateTime? @db.Timestamptz
+  // El camarero salió de ese cobro: se recuerda para enseñar su «Pagado» unos segundos.
+  clearedAt            DateTime? @db.Timestamptz
+  // La propina que eligió el cliente en la tablet para ese cobro (20261117400100; 0 = «Sin propina»).
+  tipCents             Int       @default(0)
+  createdAt            DateTime  @default(now()) @db.Timestamptz
+  updatedAt            DateTime  @default(now()) @updatedAt @db.Timestamptz
+
+  user  User  @relation(fields: [userId, tenantId], references: [id, tenantId], onDelete: Cascade)
+  venue Venue @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@map("customer_displays")
 }
 
 // El mapa del dinero (20261023100000): las líneas de cada cobro, cada una en
@@ -1070,6 +1193,11 @@ model Refund {
   // en proporción a lo cobrado, por lo acumulado (sin céntimos sueltos). Se fija
   // al darla por hecha, con el cobro bloqueado. 0 en las recargas y sin comisión.
   serviceFeeCents    Int         @default(0)
+  // Devuelta en efectivo (20261117100000): un cobro pagado con bitcoin. Sale de
+  // la caja; no del banco ni de la cartera de bitcoin. Con el código del recibo
+  // que enseñó el cliente.
+  paidInCash         Boolean     @default(false)
+  receiptCode        String?
   createdAt        DateTime     @default(now()) @db.Timestamptz
 
   payment   Payment           @relation(fields: [paymentId], references: [id])
@@ -1356,6 +1484,9 @@ model ClientWallet {
   passes         WalletPass[]
   activationTokens WalletActivationToken[]
   partyRefunds     PartyRefundRequest[]
+  // Reservados: el saldo del grupo de una reserva.
+  reservations     Reservation[]
+  pushSubscriptions WalletPushSubscription[]
 
   @@index([tenantId, status])
   @@index([tenantId, identifier])
@@ -1584,7 +1715,7 @@ model WalletConsumption {
   // del servicio» (20261030110000; wallet-fee-saldo.ts): el % antiguo va
   // solo sobre el resto. 0 = todo del saldo sin ella (o de antes).
   serviceFeeSaldoCents Int   @default(0)
-  // OxioParty (20261115100000): la caseta del consumo (la del cobro del saldo,
+  // OxioParty (20261120300000): la caseta del consumo (la del cobro del saldo,
   // o la de quien lo cobró). Null: OxioPay o sin caseta.
   stallId          String?   @db.Uuid
   createdAt        DateTime  @default(now()) @db.Timestamptz
@@ -1595,6 +1726,8 @@ model WalletConsumption {
   providedBy  User             @relation("ConsumptionProvider", fields: [providedByUserId], references: [id])
   reversedBy  User?            @relation("ConsumptionReversedBy", fields: [reversedByUserId], references: [id])
   earnings    OperatorEarning[]
+  // Reservados: el gasto de una persona del grupo con el saldo del grupo.
+  reservationSpend ReservationSpend?
 
   @@unique([tenantId, idempotencyKey])
   @@index([tenantId, walletId, createdAt(sort: Desc)])
@@ -1606,7 +1739,7 @@ model WalletConsumption {
   @@map("wallet_consumptions")
 }
 
-// OxioParty (20261115200000, EDITION=party): «Lo que sobra», la devolución
+// OxioParty (20261120300100, EDITION=party): «Lo que sobra», la devolución
 // que pide el asistente desde la página de su pulsera, hasta el último día
 // del local (venues.refundDeadline). method: CARD (solo lo cargado con
 // tarjeta; el organizador la hace a mano en el banco y la marca «Hecha»),
@@ -1812,4 +1945,193 @@ model OxioPaySettlementSettings {
   updatedById String?  @db.Uuid
 
   @@map("oxiopay_settlement_settings")
+}
+
+// ─── Reservados con señal y RRPP (20261117300000) ─────────────────────────
+// apps/api/src/modules/reservations. FORCE RLS en las seis tablas: solo dentro
+// de una transacción de PrismaService. Los CHECK, solo en SQL.
+
+// Un paquete: de cosas fijas (ITEMS: entradas, botellas…, creditCents = 0) o de
+// un importe para consumir (CREDIT, creditCents > 0 y ≤ precio). entries =
+// personas = un QR por persona. items: [{ name, qty }].
+model ReservationPackage {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId    String   @db.Uuid
+  name        String
+  kind        String
+  priceCents  Int
+  creditCents Int      @default(0)
+  entries     Int
+  items       Json     @default("[]")
+  description String?
+  maxPerNight Int?
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now()) @db.Timestamptz
+  updatedAt   DateTime @default(now()) @updatedAt @db.Timestamptz
+
+  venue        Venue         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  reservations Reservation[]
+
+  @@index([tenantId])
+  @@map("reservation_packages")
+}
+
+// Un RRPP: una persona del equipo (cobra en el reparto de siempre), su % del
+// paquete (0–50 %) y su enlace (/rp/<code>).
+model Promoter {
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId      String   @db.Uuid
+  userId        String   @db.Uuid
+  commissionBps Int
+  code          String   @unique
+  active        Boolean  @default(true)
+  createdAt     DateTime @default(now()) @db.Timestamptz
+  updatedAt     DateTime @default(now()) @updatedAt @db.Timestamptz
+
+  venue        Venue         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user         User          @relation(fields: [userId], references: [id], onDelete: Restrict)
+  reservations Reservation[]
+
+  @@unique([tenantId, userId])
+  @@index([userId])
+  @@map("promoters")
+}
+
+// Una reserva: copia del paquete, la noche, la señal (30 %), lo pagado (solo
+// con el aviso del banco), «vendido por» y el saldo del grupo.
+// status: PENDING | DEPOSIT_PAID | PAID | ARRIVED | NO_SHOW | CANCELED.
+// source: WEB | RRPP | PANEL.
+model Reservation {
+  id                 String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId           String    @db.Uuid
+  ref                String
+  // La clave de quien reservó (navegador o app): pedirla dos veces = la misma reserva.
+  createKey          String
+  packageId          String    @db.Uuid
+  packageName        String
+  kind               String
+  priceCents         Int
+  creditCents        Int
+  depositCents       Int
+  entries            Int
+  items              Json      @default("[]")
+  nightDate          DateTime  @db.Date
+  previousNightDate  DateTime? @db.Date
+  dateChangedAt      DateTime? @db.Timestamptz
+  customerName       String
+  customerPhone      String?   @db.VarChar(16)
+  notes              String?
+  status             String    @default("PENDING")
+  paidCents          Int       @default(0)
+  source             String
+  promoterId         String?   @db.Uuid
+  promoterBps        Int?
+  soldByUserId       String?   @db.Uuid
+  commissionEarnedAt DateTime? @db.Timestamptz
+  // El local cambió la fecha o anuló: el RRPP pierde la comisión (20261117300100).
+  commissionVoidedAt DateTime? @db.Timestamptz
+  // «No vino» puesto solo (a las 12:00 del día siguiente).
+  noShowAuto         Boolean   @default(false)
+  walletId           String?   @db.Uuid
+  manageToken        String    @unique
+  tableLabel         String?
+  arrivedAt          DateTime? @db.Timestamptz
+  arrivedByUserId    String?   @db.Uuid
+  noShowAt           DateTime? @db.Timestamptz
+  canceledAt         DateTime? @db.Timestamptz
+  canceledByUserId   String?   @db.Uuid
+  cancelReason       String?
+  recognizedAt       DateTime? @db.Timestamptz
+  payAttempts        Int       @default(0)
+  createdAt          DateTime  @default(now()) @db.Timestamptz
+  updatedAt          DateTime  @default(now()) @updatedAt @db.Timestamptz
+
+  venue    Venue                @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  package  ReservationPackage   @relation(fields: [packageId], references: [id], onDelete: Restrict)
+  promoter Promoter?            @relation(fields: [promoterId], references: [id], onDelete: Restrict)
+  wallet   ClientWallet?        @relation(fields: [walletId], references: [id], onDelete: SetNull)
+  guests   ReservationGuest[]
+  payments ReservationPayment[]
+  spends   ReservationSpend[]
+
+  @@unique([tenantId, ref])
+  @@unique([tenantId, createKey])
+  @@index([tenantId, nightDate])
+  @@index([tenantId, status])
+  @@index([packageId])
+  @@index([promoterId])
+  @@index([walletId])
+  @@map("reservations")
+}
+
+// Una persona del grupo: su QR (qrToken) gasta del paquete.
+model ReservationGuest {
+  id            String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId      String    @db.Uuid
+  reservationId String    @db.Uuid
+  seq           Int
+  label         String?
+  qrToken       String    @unique
+  checkedInAt   DateTime? @db.Timestamptz
+  createdAt     DateTime  @default(now()) @db.Timestamptz
+
+  venue       Venue              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  reservation Reservation        @relation(fields: [reservationId], references: [id], onDelete: Cascade)
+  spends      ReservationSpend[]
+
+  @@unique([reservationId, seq])
+  @@index([tenantId])
+  @@map("reservation_guests")
+}
+
+// Un pago con tarjeta de una reserva (kind DEPOSIT | REST | FULL): un cobro de
+// recarga del saldo del grupo. paidAt lo pone la transición del cobro a
+// AUTHORIZED (aviso firmado del banco), en su misma transacción.
+model ReservationPayment {
+  id            String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId      String    @db.Uuid
+  reservationId String    @db.Uuid
+  // Con tarjeta (paymentId) o el resto en efectivo (cashTopUpId): uno de los dos (CHECK en SQL).
+  paymentId     String?   @unique @db.Uuid
+  cashTopUpId   String?   @unique @db.Uuid
+  kind          String
+  amountCents   Int
+  paidAt        DateTime? @db.Timestamptz
+  createdAt     DateTime  @default(now()) @db.Timestamptz
+
+  venue       Venue            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  reservation Reservation      @relation(fields: [reservationId], references: [id], onDelete: Restrict)
+  payment     Payment?         @relation(fields: [paymentId], references: [id], onDelete: Restrict)
+  cashTopUp   WalletCashTopUp? @relation(fields: [cashTopUpId], references: [id], onDelete: Restrict)
+
+  @@index([reservationId])
+  @@index([tenantId, paidAt])
+  @@map("reservation_payments")
+}
+
+// Lo que gasta una persona del grupo: una cosa del paquete (ITEM) o un importe
+// del saldo del grupo (AMOUNT, con su consumo).
+model ReservationSpend {
+  id               String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId         String   @db.Uuid
+  reservationId    String   @db.Uuid
+  guestId          String   @db.Uuid
+  kind             String
+  itemName         String?
+  qty              Int?
+  amountCents      Int      @default(0)
+  consumptionId    String?  @unique @db.Uuid
+  providedByUserId String   @db.Uuid
+  idempotencyKey   String
+  createdAt        DateTime @default(now()) @db.Timestamptz
+
+  venue       Venue              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  reservation Reservation        @relation(fields: [reservationId], references: [id], onDelete: Restrict)
+  guest       ReservationGuest   @relation(fields: [guestId], references: [id], onDelete: Restrict)
+  consumption WalletConsumption? @relation(fields: [consumptionId], references: [id], onDelete: Restrict)
+
+  @@unique([tenantId, idempotencyKey])
+  @@index([reservationId])
+  @@index([guestId])
+  @@map("reservation_spends")
 }

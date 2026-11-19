@@ -75,7 +75,7 @@ export const TOURS = {
     steps: [
       { target: 'cobros-total', title: 'Tu noche', text: 'Arriba, lo vendido esta noche, con propinas y sin devoluciones. Las recargas se cuentan aparte: no son venta.' },
       { target: 'cobros-fila', title: 'Cada cobro', text: 'Tus cobros, del último al primero. Toca uno para ver su detalle.' },
-      { target: 'cobros-estado', title: 'El estado', text: 'Cobrado: ya cuenta en tu noche. Pendiente o Pagando: aún no ha pagado, espera. Fallido, Caducado o Cancelado: no se ha cobrado nada.' },
+      { target: 'cobros-estado', title: 'El estado', text: 'Pagado: ya cuenta en tu noche. Pendiente o Pagando: aún no ha pagado, espera. Fallido, Caducado o Cancelado: no se ha cobrado nada.' },
       { target: 'cobros-cancelar', title: 'Cancelar', text: 'Si un cobro sigue pendiente y el cliente ya no paga, toca «Cancelar».' },
       { target: 'cobros-lista', title: 'Si pasa esto', text: 'Si el banco tarda, no cobres otra vez. Para devolver un cobro, avisa al encargado o al dueño: se hace desde el panel.' },
     ],
@@ -92,7 +92,7 @@ export const TOURS = {
   recepcionLectura: {
     screen: 'recepcion-lectura',
     steps: [
-      { target: 'recep-modo', title: 'Entrada o salida', text: 'Entrada: el cliente carga saldo. Salida: ve lo que le queda y lo guarda o se lo devuelves.' },
+      { target: 'recep-modo', title: 'Entrada o salida', text: 'Entrada: el cliente carga saldo. Salida: ve lo que le queda y se lo guarda para la próxima visita.' },
       { target: 'recep-nfc', title: 'Acerca la ficha', text: tapHelp('entrada') },
       { target: 'recep-otras', title: 'Sin ficha a mano', text: 'Si no se puede leer, escribe su código o busca el número impreso en la ficha.' },
       { target: 'recep-mas', title: 'Fichas y pendientes', text: 'Preparar fichas nuevas, asignar recargas pendientes, dar una ficha a un saldo o cambiar una ficha perdida.' },
@@ -131,7 +131,7 @@ export const TOURS = {
     steps: [
       { target: 'recep-quedan', title: 'Lo que le queda', text: 'El saldo que el cliente tiene al salir.' },
       { target: 'recep-guardar', title: 'Guardar', text: 'Se queda en su ficha y su código para otra noche. No se toca nada.' },
-      { target: 'recep-devolver', title: 'Devolver', text: 'Le das ahora en efectivo lo que cargó en efectivo. Lo que cargó con tarjeta se lo devuelve el local a su tarjeta.' },
+      { target: 'recep-regla', title: 'No se devuelve', text: 'El saldo no se devuelve: se queda para la próxima visita. Ni en efectivo ni a la tarjeta.' },
     ],
   },
   prepararFichas: {

@@ -37,6 +37,8 @@ export interface UnresolvedPaymentRow {
   updatedAt: Date;
   /** Venta del datáfono apuntada (tiene operación de Paytef). */
   deviceSale?: boolean;
+  /** BTCPAY: paga con bitcoin (sin banco). Sin el campo, el banco. */
+  provider?: string | null;
 }
 
 /** Devolución por la pasarela que sigue sin confirmar. */
@@ -74,7 +76,7 @@ export interface WalletPayoutPendingRow {
   shortCode: string | null;
 }
 
-/** Cliente que pulsó «Me voy» y espera su saldo. */
+/** Devolución del saldo pedida antes de la nueva regla («Me voy» o recepción) y aún sin terminar. */
 export interface WalletCloseRequestedRow {
   id: string;
   balanceCents: number;
@@ -170,6 +172,7 @@ function unresolvedWhat(p: UnresolvedPaymentRow, unproven: boolean, fresh: boole
   if (p.captureMethod === 'POS_EXTERNAL') return 'datáfono sin confirmar';
   if (unproven) return 'recarga del datáfono sin comprobar con Paytef: resuélvela en Hoy → Cobros';
   if (p.captureMethod === 'WALLET_TOPUP' && p.status === 'CREATED') return 'recarga a medio cobrar en el datáfono: mira el lector';
+  if (p.provider === 'BTCPAY') return fresh ? 'el cliente está pagando con bitcoin' : 'con bitcoin sin terminar: mira su factura en BTCPay';
   if (p.status === 'ORPHAN') return 'el banco no lo confirmó: búscalo en BBVA';
   return fresh ? 'el cliente está pagando' : 'atascado esperando al banco';
 }
@@ -222,6 +225,10 @@ export function datafonosStep(
 
 // ─── 3. Saldo devuelto pendiente ────────────────────────────────────
 
+/**
+ * El saldo ya no se devuelve (17-nov-2026): aquí solo salen las devoluciones
+ * pedidas antes y aún sin terminar (o una a la tarjeta que quedó a medias).
+ */
 export function saldoStep(
   payouts: ReadonlyArray<WalletPayoutPendingRow>,
   toClose: ReadonlyArray<WalletCloseRequestedRow>,
@@ -238,7 +245,7 @@ export function saldoStep(
     ...toClose.map((w) => ({
       id: w.id,
       status: 'warn' as const,
-      label: `Cliente esperando su saldo: ${eur(w.balanceCents)}${code(w.shortCode)}`,
+      label: `Devolución pedida antes de la nueva regla: ${eur(w.balanceCents)}${code(w.shortCode)}. Termínala en ${SALDOS_TAB_PATH}`,
       amountCents: w.balanceCents,
     })),
   ];
@@ -248,8 +255,8 @@ export function saldoStep(
     'Saldo devuelto pendiente',
     status,
     status === 'ok'
-      ? 'No queda saldo por devolver.'
-      : `Devuélvelo antes de contar la caja: en efectivo cuenta en el arqueo; a la tarjeta, en ${SALDOS_TAB_PATH}.`,
+      ? 'No hay devoluciones de saldo pendientes.'
+      : `Son de antes de la nueva regla (el saldo ya no se devuelve). Termínalas antes de contar la caja: en efectivo cuentan en el arqueo; a la tarjeta, en ${SALDOS_TAB_PATH}.`,
     items,
     'wallets',
   );

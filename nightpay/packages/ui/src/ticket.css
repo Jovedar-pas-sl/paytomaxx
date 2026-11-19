@@ -1,0 +1,91 @@
+/* Ticket impreso (térmica de 58 mm). El ticket es una imagen dibujada punto a
+   punto (ticket-raster.ts): aquí solo se esconde fuera de la pantalla y, al
+   imprimir con el diálogo (html.np-printing, ver PrintTicket.tsx), es lo único
+   que sale, arriba del todo y a todo el ancho del papel. */
+
+.np-ticket-root {
+  position: fixed;
+  top: 0;
+  left: -100vw;
+  width: 48mm;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.np-ticket-root img {
+  display: block;
+  width: 100%;
+  height: auto;
+  image-rendering: pixelated;
+}
+
+@media print {
+  html.np-printing,
+  html.np-printing body {
+    min-height: 0 !important;
+    height: auto !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    background: #fff !important;
+  }
+
+  html.np-printing body > :not(.np-ticket-root) {
+    display: none !important;
+  }
+
+  html.np-printing .np-ticket-root {
+    position: static;
+    width: 100%;
+    visibility: visible;
+  }
+}
+
+/* El botón «Imprimir»: un botón de verdad (con su filete y la impresora), del
+   alto del secundario del resultado (48 px), para el dedo y a la vista. */
+.np-print-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.625rem;
+  min-height: 3rem;
+  padding: 0.5rem 1.25rem;
+  border: none;
+  border-radius: var(--np-r-md);
+  background: transparent;
+  color: inherit;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, currentColor 60%, transparent);
+  font-family: var(--np-font-sans);
+  font-size: var(--np-fs-16);
+  font-weight: 600;
+  line-height: 1.2;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  transition:
+    transform var(--np-press-ms, 120ms) ease-out,
+    background var(--np-d-fast, 150ms);
+}
+
+.np-outcome-actions .np-print-btn {
+  width: 100%;
+}
+
+.np-print-btn svg {
+  width: 1.375rem;
+  height: 1.375rem;
+  flex: none;
+}
+
+@media (hover: hover) {
+  .np-print-btn:hover {
+    background: color-mix(in srgb, currentColor 10%, transparent);
+  }
+}
+
+.np-print-btn:active {
+  transform: scale(var(--np-press-scale, 0.98));
+}
+
+.np-print-btn:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}

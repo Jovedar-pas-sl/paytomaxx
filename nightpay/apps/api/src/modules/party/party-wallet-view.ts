@@ -23,7 +23,10 @@ import { PARTY_WALLET_TEXT, type PartyWalletText } from './party-wallet-text';
 
 export const PARTY_THEME_COLOR = '#F3F1EC';
 
-/** Las fichas de diseño de día y lo que cambia de la página del saldo. */
+/**
+ * Las fichas de diseño de día y lo que cambia de la página del saldo. Sin la
+ * regla de OxioPay («el saldo no se devuelve»): en la fiesta, lo que sobra se pide.
+ */
 export const PARTY_CSS = `
 :root{--bg:#F3F1EC;--surface:#FFFFFF;--surface-2:#FFFFFF;--surface-3:#EEEAE2;--line:#E0DBD1;--line-hi:#8C96A0;--fg:#14181B;--label:#3F474E;--mute:#3F474E;--dim:#5C656D;--ink-0:#FFFFFF;--paid:#E2F1E8;--paid-ink:#14181B;--fail:#B0341A;--warn:#8A5A00;--err:#A8341A;--bad:#B0341A;--ok:#1F7A4D;--stale:#EEEAE2;--scrim:rgb(20 24 27/.45);--sh-sheet:0 -12px 32px rgb(20 24 27/.18);--sh-dialog:0 16px 40px -12px rgb(20 24 27/.28);--coral:#FF7A59;--night:#14181B;--night-2:#B8C0C6;--night-fg:#F4F2EC;color-scheme:light}
 .btn{background:var(--night);border-color:var(--night);color:var(--lime)}
@@ -81,6 +84,7 @@ dialog.sheet.full h2{font-family:var(--num);font-size:1.875rem;font-weight:700;l
 #pLostSheet{text-align:left}
 #pLostSheet h2{text-align:left}
 #pLostSheet .code{font-size:1.5rem;letter-spacing:.12em;text-align:left}
+#keepRule,#topupRule{display:none}
 `;
 
 const TOPUP_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>';
@@ -167,7 +171,7 @@ export function partyJsConfig(lang: PayLanguage, data: PartyPageData): PartyPage
  * withKey, msg, refresh, setView, topCan y eurPay de TOPUP_JS):
  *  - mvText(m,a,sub): la fila de un movimiento (la caseta delante);
  *  - partyRender(s): tras cada render: la pulsera y los días en el saldo,
- *    sin «Me voy» (aquí es «Lo que sobra»), la devolución pedida y el plazo.
+ *    la devolución pedida y el plazo.
  */
 export const PARTY_JS = `
 var P=C.party,PT=P.text,SB={m:null};
@@ -193,7 +197,7 @@ function pDoneRows(){var ul=$('movements'),done=P.refund.requests.filter(functio
   b.className='minus num';b.textContent=eur(-q.amountCents);mt.appendChild(a);mt.appendChild(sub);li.appendChild(sw);li.appendChild(mt);li.appendChild(b);ul.insertBefore(li,ul.firstChild);});}
 function partyRender(s){$('balanceLabel').textContent=PT.balance;
  $('heroCode').textContent=s.pulsera?fill(PT.pulsera,'n',s.pulsera):s.code;$('heroFicha').textContent=pRange(P.eventStartsAt,P.eventEndsAt);
- $('leaveOpen').hidden=true;$('lostOpen').hidden=true;$('lostAsk').hidden=true;
+ $('lostOpen').hidden=true;$('lostAsk').hidden=true;
  pRefundRender();pDoneRows();pNote();}
 function sbOk(k){return P.refund.available[k]>0&&(k==='CARD'||P.refund.faceId);}
 function sbAvail(){return ['CARD','TRANSFER','DONATE'].filter(sbOk);}

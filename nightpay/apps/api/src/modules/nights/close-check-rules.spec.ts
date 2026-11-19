@@ -72,6 +72,13 @@ describe('1 · cobros sin terminar', () => {
     expect(s.items[0]!.label).toContain('el cliente está pagando');
   });
 
+  it('con bitcoin: «pagando con bitcoin» y, atascado, su factura en BTCPay (sin hablar del banco)', () => {
+    const s = cobrosStep([payment({ id: 'x', updatedAt: ago(5), provider: 'BTCPAY' }), payment({ id: 'y', updatedAt: ago(20), provider: 'BTCPAY' })], [], NOW);
+    expect(s.items[0]!.label).toContain('el cliente está pagando con bitcoin');
+    expect(s.items[1]!.label).toContain('mira su factura en BTCPay');
+    expect(s.items.map((i) => i.label).join(' ')).not.toMatch(/banco|BBVA/);
+  });
+
   it('atascado (15 min o más), sin confirmar por el banco, datáfono o devolución pendiente → aviso', () => {
     const s = cobrosStep(
       [
@@ -143,21 +150,25 @@ describe('3 · saldo devuelto pendiente', () => {
     expect(s.items[0]!.label).toContain('código K7Q-4M2');
   });
 
-  it('dice dónde se hace en el panel («Clientes → Saldos») y el código va con guion, como lo ve el cliente', () => {
+  it('dice dónde se termina en el panel («Clientes → Saldos»), que son de antes de la nueva regla, y el código con guion', () => {
     const s = saldoStep(
       [{ id: 'wp', amountCents: 3000, createdAt: ago(10), shortCode: 'K7Q4M2' }],
       [{ id: 'w', balanceCents: 2900, shortCode: 'UYSJ5G' }],
     );
-    expect(s.detail).toBe('Devuélvelo antes de contar la caja: en efectivo cuenta en el arqueo; a la tarjeta, en Clientes → Saldos.');
+    expect(s.detail).toBe(
+      'Son de antes de la nueva regla (el saldo ya no se devuelve). Termínalas antes de contar la caja: en efectivo cuentan en el arqueo; a la tarjeta, en Clientes → Saldos.',
+    );
     expect(s.items.map((i) => i.label)).toEqual([
       'Devolución a la tarjeta a medias: 30,00 € · código K7Q-4M2. Termínala en Clientes → Saldos',
-      'Cliente esperando su saldo: 29,00 € · código UYS-J5G',
+      'Devolución pedida antes de la nueva regla: 29,00 € · código UYS-J5G. Termínala en Clientes → Saldos',
     ]);
     for (const text of [s.detail, ...s.items.map((i) => i.label)]) expect(text).not.toMatch(/wallet/i);
   });
 
-  it('nada por devolver → listo', () => {
-    expect(saldoStep([], []).status).toBe('ok');
+  it('nada pendiente → listo', () => {
+    const s = saldoStep([], []);
+    expect(s.status).toBe('ok');
+    expect(s.detail).toBe('No hay devoluciones de saldo pendientes.');
   });
 });
 

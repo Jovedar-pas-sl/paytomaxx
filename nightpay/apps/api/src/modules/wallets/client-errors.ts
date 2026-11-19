@@ -3,17 +3,18 @@ import type { ClientErrorTexts } from '../payments/i18n/types';
 import type { PayLanguage } from '../payments/pay-i18n';
 
 /**
- * Errores del API en las páginas del cliente (/w, /s, /w/salida y el «Pagado»
- * de /pay). El API responde con un `code` estable; la página enseña el texto
- * de ese `code` en SU idioma (payments/i18n/, un archivo por idioma). Sin
- * `code` conocido: uno genérico en su idioma. Nunca el texto del API: es
- * interno, en castellano y a veces con el vocabulario del personal.
+ * Errores del API en las páginas del cliente (/w, /s y el «Pagado» de /pay).
+ * El API responde con un `code` estable; la página enseña el texto de ese
+ * `code` en SU idioma (payments/i18n/, un archivo por idioma). Sin `code`
+ * conocido: uno genérico en su idioma. Nunca el texto del API: es interno, en
+ * castellano y a veces con el vocabulario del personal.
  *
  * `TOPUP_<motivo>`: el 409 WALLET_TOPUP_UNAVAILABLE con su `reason`.
  */
 /**
  * Los de la propina que elige el cliente en /s (B1) y de «Ver mi saldo»
- * (my-balance.ts). Aparte de payments/i18n/ para no pisar sus textos.
+ * (my-balance.ts). Aparte de payments/i18n/ para no pisar sus textos. El de
+ * un reservado que pedía «Me voy» es ya el de todos: SALDO_NO_SE_DEVUELVE.
  */
 const MORE_ERRORS: Readonly<Record<PayLanguage, Record<'TIP_NOT_VALID' | 'WALLET_NOT_FOUND', string>>> = {
   es: {

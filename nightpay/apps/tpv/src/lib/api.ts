@@ -10,7 +10,7 @@ import {
   createApiClient,
   type LoginResult,
 } from '@nightpay/api-client';
-import type { BtcpayInvoiceView } from '@nightpay/contracts';
+import type { BtcpayInvoiceView, CobroDetail } from '@nightpay/contracts';
 import type { PaymentStatus } from '@nightpay/ui';
 import { MESSAGES, commonError, readError } from './http';
 
@@ -187,13 +187,13 @@ export async function createPayment(
 export async function fetchPaymentStatus(
   qrToken: string,
   signal?: AbortSignal,
-): Promise<{ id?: string; status: PaymentStatus; payMethod?: 'card' | 'wallet' }> {
+): Promise<{ id?: string; status: PaymentStatus; payMethod?: 'card' | 'wallet' | 'bitcoin' }> {
   const res = await client.publicFetch(`/v1/payments/public/${encodeURIComponent(qrToken)}`, {
     cache: 'no-store',
     signal,
   });
   if (!res.ok) throw new Error(commonError(res.status) ?? `No se pudo consultar el cobro (error ${res.status}).`);
-  return (await res.json()) as { id?: string; status: PaymentStatus; payMethod?: 'card' | 'wallet' };
+  return (await res.json()) as { id?: string; status: PaymentStatus; payMethod?: 'card' | 'wallet' | 'bitcoin' };
 }
 
 /**
@@ -211,6 +211,26 @@ export async function fetchBitcoinInvoice(paymentId: string, signal?: AbortSigna
   const res = await authedFetch(`/v1/payments/${encodeURIComponent(paymentId)}/bitcoin`, { signal });
   if (!res.ok) throw new Error(commonError(res.status) ?? `No se pudo consultar el pago con bitcoin (error ${res.status}).`);
   return ((await res.json()) as { invoice: BtcpayInvoiceView | null }).invoice;
+}
+
+/** El nombre del local, para el ticket impreso. Si no llega, null: el ticket sale sin él. */
+export async function fetchVenueName(): Promise<string | null> {
+  const res = await authedFetch('/v1/venues/me');
+  if (!res.ok) return null;
+  const venue = (await res.json()) as { name?: unknown };
+  return typeof venue.name === 'string' && venue.name.trim() ? venue.name.trim() : null;
+}
+
+/**
+ * El detalle de un cobro propio ya pagado, para su ticket: su número, la
+ * tarjeta (marca y últimos 4) y lo pagado. Si no llega, null: el ticket sale
+ * con lo que sabe la pantalla.
+ */
+export async function fetchPaidDetail(paymentId: string, signal?: AbortSignal): Promise<CobroDetail | null> {
+  const res = await authedFetch(`/v1/staff/me/cobros/PAYMENT/${encodeURIComponent(paymentId)}`, { signal, cache: 'no-store' });
+  if (!res.ok) return null;
+  const detail = (await res.json()) as CobroDetail;
+  return detail.paidAt ? detail : null;
 }
 
 /** Anula un cobro que aún no se ha pagado: su QR deja de valer. */

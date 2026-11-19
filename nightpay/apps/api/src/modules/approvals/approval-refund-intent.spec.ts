@@ -34,6 +34,13 @@ describe('refund approval intention', () => {
     expect(audit.log).toHaveBeenCalledTimes(1);
   });
 
+  it('una recarga del saldo no se pide al dueño: 409 SALDO_NO_SE_DEVUELVE y no se crea nada', async () => {
+    const { svc, tx } = make();
+    tx.payment.findFirst.mockResolvedValueOnce({ id: 'payment', amountCents: 5000, tipCents: 0, provider: 'WIPAY', providerTxId: 'paid', walletId: 'w-1', createdAt: new Date(), cardBrand: null, cardLast4: null } as never);
+    await expect(svc.requestRefund(actor, request)).rejects.toMatchObject({ status: 409, response: { code: 'SALDO_NO_SE_DEVUELVE' } });
+    expect(tx.approvalRequest.create).not.toHaveBeenCalled();
+  });
+
   it.each(['actor', 'amount', 'payment'])('409 si cambia %s bajo la clave de aprobación', async (what) => {
     const { svc } = make();
     await svc.requestRefund(actor, request);

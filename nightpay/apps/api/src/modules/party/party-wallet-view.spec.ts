@@ -86,6 +86,20 @@ describe('página de la pulsera (OxioParty)', () => {
     expect(() => new Function(js)).not.toThrow();
   });
 
+  it('cada $(id) del JS de la pulsera está en la página (uno que falte rompe partyRender)', () => {
+    const html = renderWalletPage('tok-1', 'es', state(), { party });
+    const ids = new Set([...html.matchAll(/\sid="([^"]+)"/g)].map((m) => m[1]));
+    const used = [...PARTY_JS.matchAll(/\$\('([A-Za-z0-9]+)'\)/g)].map((m) => m[1]);
+    expect(used.length).toBeGreaterThan(10);
+    expect(used.filter((id) => !ids.has(id))).toEqual([]);
+  });
+
+  it('sin la regla de OxioPay («el saldo no se devuelve»): en la fiesta lo que sobra se pide', () => {
+    const html = renderWalletPage('tok-1', 'es', state(), { party });
+    expect(html).toContain('id="keepRule"');
+    expect(PARTY_CSS).toContain('#keepRule,#topupRule{display:none}');
+  });
+
   it('en los cuatro idiomas el JS se lee y lleva sus textos', () => {
     for (const lang of ['es', 'en', 'fr', 'pt'] as const) {
       const html = renderWalletPage('tok-1', lang, state(), { party });

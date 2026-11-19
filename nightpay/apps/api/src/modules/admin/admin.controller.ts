@@ -38,6 +38,7 @@ import { payoutRequestHash } from '../operators/payout-idempotency';
 import { touchesPayoutAccount } from '../operators/payout-routing';
 import { PaymentsService } from '../payments/payments.service';
 import { InvalidTransitionError } from '../payments/payment.machine';
+import { isHeldOnReader } from '../payments/reader-hold';
 import { chargedAttemptTip } from '../payments/tip';
 import { planVenueRulesChange } from '../superadmin/superadmin-rules';
 import { resolveHoldDays } from '../operators/payout-math';
@@ -60,6 +61,7 @@ import {
   type UpdateOperatorDto,
 } from '@nightpay/contracts';
 import type { RequestContext } from '../../common/context/request-context';
+import { MIN_INVOICE_REF_LENGTH, invoiceRefProblem, matchInvoiceRef } from '../btcpay/btcpay-resolve';
 
 const CreateVenueSchema = z.object({
   name: z.string().min(2).max(80),
@@ -157,7 +159,8 @@ const STUCK_AUTHORIZING_MS = 15 * 60 * 1000;
 /**
  * Resolver un pago atascado. Para darlo por cobrado hace falta el código de
  * autorización que muestra el portal del banco (o el ticket): sin él, nadie
- * puede "aprobar" un cobro que no existe.
+ * puede "aprobar" un cobro que no existe. Con bitcoin (BTCPay) no hay banco: el
+ * id de su factura de BTCPay (o un trozo), que se copia de la factura.
  */
 const ManualReconcileSchema = z
   .object({
@@ -171,11 +174,13 @@ const ManualReconcileSchema = z
     // Fase 1B: pedido que cobró el banco (si hubo varios intentos con
     // propinas distintas), para saber qué propina le toca a la chica.
     bankOrder: z.string().trim().regex(/^[0-9A-Za-z]{4,12}$/, 'Número de pedido no válido').optional(),
+    /** Bitcoin: el id de la factura de BTCPay (entero, un trozo o su enlace). */
+    btcpayInvoiceRef: z.string().trim().min(MIN_INVOICE_REF_LENGTH, `El id de la factura: al menos ${MIN_INVOICE_REF_LENGTH} letras o números`).max(300).optional(),
     /** Darlo por cobrado sube un saldo sin que el banco lo diga: con el 2FA del dueño. */
     totpCode: z.string().regex(/^\d{6}$/, 'El código 2FA son 6 cifras').optional(),
   })
-  .refine((b) => b.decision !== 'AUTHORIZED' || Boolean(b.bankAuthCode), {
-    message: 'Para marcarlo cobrado, pon el código de autorización del banco',
+  .refine((b) => b.decision !== 'AUTHORIZED' || Boolean(b.bankAuthCode) || Boolean(b.btcpayInvoiceRef), {
+    message: 'Para marcarlo cobrado, pon el código de autorización del banco (o, con bitcoin, el id de la factura de BTCPay)',
     path: ['bankAuthCode'],
   });
 
@@ -453,10 +458,13 @@ export class AdminController {
   /**
    * Reconciliación manual de un pago atascado en ORPHAN.
    *
-   * Cuando el webhook de la pasarela no llega y la consulta REST tampoco
-   * funciona (SIS0105 — operador no autorizado, banco con feature off),
-   * los pagos quedan ORPHAN. El admin verifica el estado en el panel del
-   * banco y aquí lo marca como AUTHORIZED o FAILED para cerrar el ciclo.
+   * Cuando el aviso de la pasarela no llega y la consulta a la pasarela no
+   * lo confirma, los pagos quedan ORPHAN. Con Redsys hoy siempre: su
+   * consulta no está disponible (el SIS0105 de antes venía de mandar el tipo
+   * 44, «Borrar Referencia», no de un permiso que faltara en BBVA; la
+   * consulta de verdad, SOAP SerClsWSConsulta, está pendiente de BBVA). El
+   * admin verifica el estado en el panel del banco y aquí lo marca como
+   * AUTHORIZED o FAILED para cerrar el ciclo.
    *
    * Solo OWNER puede hacerlo (impacto financiero directo). Auditado.
    * Solo pagos en ORPHAN — no se puede manipular otros estados.
@@ -493,9 +501,10 @@ export class AdminController {
     // 15 min sin aviso del banco. Antes de eso el aviso aún puede llegar.
     // Una venta del datáfono sin la prueba de Paytef (recarga en la recepción)
     // no espera a ningún aviso: se resuelve al momento, mirando el panel de Paytef.
+    // Es la misma marca que impide al personal cancelarla (reader-hold.ts).
     const stuckAuthorizing =
-      payment.status === 'AUTHORIZING' &&
-      (Boolean(payment.posOperationNumber) || Date.now() - payment.updatedAt.getTime() >= STUCK_AUTHORIZING_MS);
+      isHeldOnReader(payment) ||
+      (payment.status === 'AUTHORIZING' && Date.now() - payment.updatedAt.getTime() >= STUCK_AUTHORIZING_MS);
     if (payment.status !== 'ORPHAN' && !stuckAuthorizing) {
       throw new ConflictException(
         payment.status === 'AUTHORIZING'
@@ -504,20 +513,24 @@ export class AdminController {
       );
     }
 
+    // Antes del 2FA (no gasta un intento): con bitcoin, la factura; con el banco, su código.
+    const btcInvoice = body.decision === 'AUTHORIZED' ? await this.resolvedBitcoinInvoice(payment, body) : null;
     if (body.decision === 'AUTHORIZED') await this.totp.assertForUser(user.sub, body.totpCode, stepUpActions.resolvePayment(payment.id));
-    const authCode = body.decision === 'AUTHORIZED' ? body.bankAuthCode ?? null : null;
+    const authCode = body.decision === 'AUTHORIZED' && !btcInvoice ? body.bankAuthCode ?? null : null;
+    const chargedOrder = btcInvoice ?? body.bankOrder;
     try {
       if (body.decision === 'AUTHORIZED') {
         if (!payment.provider || !payment.providerTxId) {
           throw new ConflictException('Pago sin provider/providerTxId — no se puede marcar AUTHORIZED');
         }
-        await this.checkResolvedTip(paymentId, body.bankOrder, payment.providerTxId);
+        await this.checkResolvedTip(paymentId, chargedOrder, payment.providerTxId);
         // El pedido cobrado (si se eligió) fija la propina en transition()
-        // y queda como pedido del cobro, para devolverlo en el banco.
+        // y queda como pedido del cobro, para devolverlo en el banco. Con
+        // bitcoin, la factura que se copió de BTCPay.
         await this.payments.transition(paymentId, {
           type: 'AUTHORIZED',
           provider: payment.provider,
-          providerTxId: body.bankOrder ?? payment.providerTxId,
+          providerTxId: chargedOrder ?? payment.providerTxId,
         });
         // transition() ya puso authorizedAt. El código del banco solo se
         // apunta si no llegó antes con un aviso tardío (no se pisa).
@@ -557,15 +570,38 @@ export class AdminController {
         reason: body.reason,
         bankAuthCode: authCode,
         bankOrder: body.bankOrder ?? null,
+        ...(btcInvoice ? { btcpayInvoiceId: btcInvoice } : {}),
         fromStatus: payment.status,
       },
     });
 
     this.logger.warn(
-      `Manual reconcile by ${user.sub}: payment=${paymentId} ${payment.status} → ${body.decision} auth=${authCode ?? '-'} (reason: ${body.reason})`,
+      `Manual reconcile by ${user.sub}: payment=${paymentId} ${payment.status} → ${body.decision} auth=${authCode ?? '-'}${btcInvoice ? ` btcpay=${btcInvoice}` : ''} (reason: ${body.reason})`,
     );
 
     return { ok: true, newStatus: body.decision };
+  }
+
+  /**
+   * Darlo por cobrado: con bitcoin (BTCPay), la factura de este cobro que casa
+   * con lo que se copió de BTCPay (su id); con el banco, null, y hace falta su
+   * código de autorización. Lo que no cuadra, 400 diciendo dónde mirarlo.
+   */
+  private async resolvedBitcoinInvoice(
+    payment: { id: string; provider: string | null; providerTxId: string | null },
+    body: { bankAuthCode?: string; btcpayInvoiceRef?: string },
+  ): Promise<string | null> {
+    if (payment.provider !== 'BTCPAY') {
+      if (!body.bankAuthCode) throw new BadRequestException('Para marcarlo cobrado, pon el código de autorización del banco');
+      return null;
+    }
+    if (!body.btcpayInvoiceRef) throw new BadRequestException(invoiceRefProblem('short'));
+    const attempts = await this.prisma.asSystem((tx) =>
+      tx.paymentAttempt.findMany({ where: { paymentId: payment.id, provider: 'BTCPAY' }, select: { providerTxId: true } }),
+    );
+    const match = matchInvoiceRef(body.btcpayInvoiceRef, [payment.providerTxId, ...attempts.map((a) => a.providerTxId)]);
+    if (!match.ok) throw new BadRequestException(invoiceRefProblem(match.reason));
+    return match.invoiceId;
   }
 
   /**

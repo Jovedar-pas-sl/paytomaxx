@@ -12,6 +12,11 @@ import {
   StatusPill,
   awaitingServerExpiry,
   encodeQr,
+  paidTicket,
+  payQrTicket,
+  PrintButton,
+  receiptFromDetail,
+  usePrintTicket,
   isPreCobro,
   outcomeKindOf,
   qrDeadline,
@@ -21,8 +26,8 @@ import {
   type PaymentStatus,
   type QrDeadline,
 } from '@nightpay/ui';
-import { chargeBreakdownText, confirmationCode, formatMoney } from '@nightpay/contracts';
-import { cancelPayment, fetchPaymentStatus, type CreatedPayment } from '@/lib/api';
+import { chargeBreakdownText, confirmationCode, formatMoney, type CobroDetail } from '@nightpay/contracts';
+import { cancelPayment, fetchPaidDetail, fetchPaymentStatus, type CreatedPayment } from '@/lib/api';
 import styles from './active-payment.module.css';
 
 /** Estados en los que el QR ya no se puede pagar: basta con "Nuevo cobro". */
@@ -40,6 +45,8 @@ const EXPIRY_CHECK_MS = 4_000;
 
 interface Props {
   payment: CreatedPayment;
+  /** El nombre del local, para el ticket impreso (null: sin él). */
+  venueName?: string | null;
   status: PaymentStatus | null;
   /** Se llega al servidor (socket o sondeo). */
   reachable: boolean;
@@ -62,7 +69,7 @@ interface Props {
  * sin que lo diga el servidor: un «pagado» perdido con la wifi haría cobrar
  * dos veces al cliente con «Otro QR».
  */
-export function ActivePayment({ payment, status, reachable, checkNow, onDone, onRetry, retrying, retryError }: Props) {
+export function ActivePayment({ payment, venueName = null, status, reachable, checkNow, onDone, onRetry, retrying, retryError }: Props) {
   const [canceling, setCanceling] = useState(false);
   const [cancelError, setCancelError] = useState<string | null>(null);
   // El plazo cuenta desde que llegó la respuesta, con la duración que dio el servidor.
@@ -79,9 +86,11 @@ export function ActivePayment({ payment, status, reachable, checkNow, onDone, on
   useWakeLock(!finished);
 
   // Pagado: cómo pagó (tarjeta, Apple o Google Pay), solo si el banco lo dio. Una consulta, una vez.
-  const [cardFacts, setCardFacts] = useState<{ payMethod?: 'card' | 'wallet' }>({});
+  const [cardFacts, setCardFacts] = useState<{ payMethod?: 'card' | 'wallet' | 'bitcoin' }>({});
   const paid = shown === 'AUTHORIZED';
   const [paidAt, setPaidAt] = useState<Date | null>(null);
+  // El detalle del cobro pagado (su número, la tarjeta): para el ticket impreso.
+  const [paidDetail, setPaidDetail] = useState<CobroDetail | null>(null);
   useEffect(() => {
     if (!paid) return undefined;
     setPaidAt((at) => at ?? new Date());
@@ -89,8 +98,11 @@ export function ActivePayment({ payment, status, reachable, checkNow, onDone, on
     fetchPaymentStatus(payment.qrToken, ctrl.signal)
       .then((current) => setCardFacts({ payMethod: current.payMethod }))
       .catch(() => undefined);
+    fetchPaidDetail(payment.id, ctrl.signal)
+      .then(setPaidDetail)
+      .catch(() => undefined);
     return () => ctrl.abort();
-  }, [paid, payment.qrToken]);
+  }, [paid, payment.qrToken, payment.id]);
 
   useEffect(() => {
     if (!awaiting) return undefined;
@@ -117,6 +129,7 @@ export function ActivePayment({ payment, status, reachable, checkNow, onDone, on
   const outcome = outcomeKindOf(shown);
   if (outcome) {
     // El TPV no sabe quién cobra: sale la hora, sin nombre.
+    const how = outcome === 'paid' ? cardHow({ ...cardFacts, code: confirmationCode(payment.id), at: paidAt }) : null;
     return (
       <PaymentOutcome
         key={outcome}
@@ -125,7 +138,22 @@ export function ActivePayment({ payment, status, reachable, checkNow, onDone, on
         currency={payment.currency}
         detail={breakdown ? <p style={hintStyle}>{breakdown}</p> : undefined}
         message={outcome === 'failed' ? 'Que el cliente pruebe con otra tarjeta.' : undefined}
-        how={outcome === 'paid' ? cardHow({ ...cardFacts, code: confirmationCode(payment.id), at: paidAt }) : null}
+        how={how}
+        print={
+          !how
+            ? null
+            : paidDetail
+              ? receiptFromDetail(paidDetail)
+              : paidTicket({
+                  venue: venueName,
+                  amountCents: payment.amountCents,
+                  serviceFeeCents: feeCents,
+                  totalCents: payment.amountCents + feeCents,
+                  currency: payment.currency,
+                  how,
+                  at: paidAt ?? new Date(),
+                })
+        }
         primary={
           outcome === 'paid'
             ? { label: 'Nuevo cobro', onClick: onDone }
@@ -139,20 +167,33 @@ export function ActivePayment({ payment, status, reachable, checkNow, onDone, on
 
   return (
     <div className={styles.grid}>
-      <QrCard payment={payment} deadline={isPreCobro(shown) ? deadline : null} now={now} />
+      <QrCard
+        payment={payment}
+        venueName={venueName}
+        amountCents={payment.amountCents + feeCents}
+        deadline={isPreCobro(shown) ? deadline : null}
+        now={now}
+      />
 
       {/* En el móvil, el importe va arriba y «Cancelar cobro» en una barra fija abajo. */}
-      <Card className={styles.amount} style={{ padding: CARD_PAD, textAlign: 'center' }} data-tour="tpv-importe">
-        <p style={sectionLabel}>Importe</p>
-        <AmountDisplay amountCents={payment.amountCents} currency={payment.currency} status={shown} />
+      <Card className={styles.amount} data-tour="tpv-importe">
+        {/* En el datáfono, importe y estado en una línea: el QR cabe entero sin bajar. */}
+        <div className={styles.amountHead}>
+          <p className={styles.amountLabel} style={sectionLabel}>
+            Importe
+          </p>
+          <div className={styles.amountValue}>
+            <AmountDisplay amountCents={payment.amountCents} currency={payment.currency} status={shown} />
+          </div>
+          <div className={styles.status} data-tour="tpv-estado">
+            <StatusPill status={shown} />
+          </div>
+        </div>
         {breakdown ? (
           <p style={hintStyle}>
             Con tarjeta paga {formatMoney(payment.amountCents + feeCents, { compact: true, currency: payment.currency })} ({breakdown})
           </p>
         ) : null}
-        <div style={{ marginTop: '1rem', display: 'flex', justifyContent: 'center' }} data-tour="tpv-estado">
-          <StatusPill status={shown} />
-        </div>
         {awaiting ? (
           <p role="status" style={awaitStyle}>
             {reachable
@@ -196,8 +237,32 @@ export function ActivePayment({ payment, status, reachable, checkNow, onDone, on
 
 type CopyState = 'idle' | 'copied' | 'failed';
 
-function QrCard({ payment, deadline, now }: { payment: CreatedPayment; deadline: QrDeadline | null; now: number }) {
+interface QrCardProps {
+  payment: CreatedPayment;
+  venueName: string | null;
+  /** Lo que paga con tarjeta (con la comisión del servicio): lo que sale en el ticket. */
+  amountCents: number;
+  deadline: QrDeadline | null;
+  now: number;
+}
+
+function QrCard({ payment, venueName, amountCents, deadline, now }: QrCardProps) {
   const [copy, setCopy] = useState<CopyState>('idle');
+  const printer = usePrintTicket();
+
+  // El QR en papel: el cliente lo escanea del ticket y paga en su móvil.
+  function printQr() {
+    printer.print(
+      payQrTicket({
+        venue: venueName,
+        amountCents,
+        currency: payment.currency,
+        qrUrl: payment.qrUrl,
+        expiresAt: payment.qrExpiresAt ? new Date(payment.qrExpiresAt) : null,
+        at: new Date(payment.createdAt),
+      }),
+    );
+  }
 
   useEffect(() => {
     if (copy === 'idle') return;
@@ -216,25 +281,32 @@ function QrCard({ payment, deadline, now }: { payment: CreatedPayment; deadline:
   }
 
   return (
-    <Card style={{ padding: CARD_PAD }} data-tour="tpv-qr">
-      <p style={sectionLabel}>QR del cobro</p>
+    <Card className={styles.qrCard} data-tour="tpv-qr">
+      <p className={styles.qrLabel} style={sectionLabel}>
+        QR del cobro
+      </p>
       {/* Fondo blanco en los dos temas: el lector del móvil lo necesita para leer el QR. */}
-      <div style={{ marginTop: '1rem' }}>
+      <div className={styles.qrWrap}>
         <QrCountdown deadline={deadline} nowMs={now}>
           <div className={deadline ? 'np-breathe' : undefined} style={qrBox}>
             <QrImage url={payment.qrUrl} fallbackSrc={payment.qrPngDataUrl} />
           </div>
         </QrCountdown>
       </div>
-      <div style={{ marginTop: '1rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-        <p style={sectionLabel}>URL</p>
-        <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'stretch' }}>
-          <code style={urlCode}>{payment.qrUrl}</code>
-          <Button variant="ghost" size="md" onClick={copyUrl}>
-            {copy === 'copied' ? '✓ Copiado' : copy === 'failed' ? 'Cópiala a mano' : 'Copiar'}
-          </Button>
-        </div>
+      {/* El enlace a la vista, solo donde sobra sitio (en el datáfono, con «Copiar enlace» basta). */}
+      <code className={styles.url} style={urlCode}>
+        {payment.qrUrl}
+      </code>
+      {/* Dos botones iguales, uno al lado del otro. */}
+      <div className={styles.qrActions}>
+        <Button variant="ghost" size="md" onClick={copyUrl}>
+          {copy === 'copied' ? '✓ Copiado' : copy === 'failed' ? 'Cópialo a mano' : 'Copiar enlace'}
+        </Button>
+        {deadline ? <PrintButton label="Imprimir QR" onClick={printQr} /> : null}
       </div>
+      {copy === 'failed' ? <p style={hintStyle}>{payment.qrUrl}</p> : null}
+      {printer.error ? <FormError>{printer.error}</FormError> : null}
+      {printer.ticketNode}
     </Card>
   );
 }
@@ -258,8 +330,6 @@ function QrImage({ url, fallbackSrc }: { url: string; fallbackSrc: string }) {
   );
 }
 
-// Relleno de las tarjetas: 16 en el móvil (el importe y «Cancelar cobro» suben), 32 en la tableta.
-const CARD_PAD = 'clamp(1rem, 4vw, 2rem)';
 
 // Etiquetas 14/500 en t2, sin mayúsculas ni espaciado (Grafito).
 const sectionLabel: CSSProperties = {
@@ -269,7 +339,8 @@ const sectionLabel: CSSProperties = {
   margin: 0,
 };
 
-// Blanco con un margen de 8 px y el QR de 240 px útiles (vector).
+// Blanco con un margen de 8 px y el QR en vector: 16 rem en el datáfono y el
+// móvil (256 px), 20 rem en la tablet (--tpv-qr, en la hoja).
 const qrBox: CSSProperties = {
   background: 'white',
   borderRadius: 'var(--np-r-md)',
@@ -278,11 +349,11 @@ const qrBox: CSSProperties = {
   justifyContent: 'center',
 };
 
-const qrImg: CSSProperties = { width: '100%', maxWidth: 240, height: 'auto', aspectRatio: '1', display: 'block' };
+const qrImg: CSSProperties = { width: '100%', maxWidth: 'min(100%, var(--tpv-qr, 16rem))', height: 'auto', aspectRatio: '1', display: 'block' };
 
+// Sin «display»: lo pone la hoja (.url), que lo esconde en el datáfono.
 const urlCode: CSSProperties = {
   flex: 1,
-  display: 'flex',
   alignItems: 'center',
   padding: '0 0.875rem',
   fontFamily: 'var(--np-font-mono)',

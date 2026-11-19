@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { BadRequestException, ConflictException, ForbiddenException } from '@nestjs/common';
 import { PublicWalletController } from './public-wallet.controller';
+import { saldoNoSeDevuelve } from './saldo-rule';
 import { walletViewSetCookies } from './wallet-view-session';
 import { WalletPasskeysService } from './wallet-passkeys.service';
 
@@ -123,30 +124,26 @@ describe('/w/:token — PIN y sumar a otro saldo (acciones secundarias de la pá
     expect(charges.setPinFromPayer).toHaveBeenCalledWith('w-1', '1234');
   });
 
-  it('reto para el PIN o «Me voy»: atado a la acción y al saldo; sin Face ID no hace falta (409)', async () => {
+  it('reto para el PIN: atado a la acción y al saldo; sin Face ID no hace falta (409)', async () => {
     const { controller, passkeys } = makeController();
     await expect(controller.pinChallenge('tok', 'pay.example')).rejects.toThrow(ConflictException);
     passkeys.hasPasskey.mockResolvedValue(true);
     await controller.pinChallenge('tok', 'pay.example');
     expect(passkeys.challenge).toHaveBeenCalledWith('pin:w-1', 'pay.example');
-    await controller.closeChallenge('tok', 'pay.example');
-    expect(passkeys.challenge).toHaveBeenCalledWith('close:w-1', 'pay.example');
   });
 
-  it('«Me voy»: sin Face ID basta el enlace; con Face ID, solo con su llave (reto close:<saldo>)', async () => {
-    const plain = makeController();
-    await expect(plain.controller.close('tok', undefined, 'pay.example')).resolves.toMatchObject({ closeRequested: true });
-    expect(plain.passkeys.verify).not.toHaveBeenCalled();
-
-    const { controller, charges, passkeys } = makeController();
-    passkeys.hasPasskey.mockResolvedValue(true);
-    passkeys.verify.mockRejectedValueOnce(new ForbiddenException('Confirma con Face ID'));
-    await expect(controller.close('tok', {}, 'pay.example')).rejects.toThrow(ForbiddenException);
-    expect(charges.requestClose).not.toHaveBeenCalled();
-    passkeys.verify.mockResolvedValueOnce('w-1');
-    await controller.close('tok', { response: { id: 'k' } }, 'pay.example');
-    expect(passkeys.verify).toHaveBeenLastCalledWith('close:w-1', 'pay.example', { id: 'k' });
-    expect(charges.requestClose).toHaveBeenCalledWith('tok');
+  it('«Me voy» ya no se pide (el saldo no se devuelve): 409 SALDO_NO_SE_DEVUELVE sin pedir su Face ID, con o sin él', async () => {
+    for (const faceId of [false, true]) {
+      const { controller, charges, passkeys } = makeController();
+      passkeys.hasPasskey.mockResolvedValue(faceId);
+      charges.requestClose.mockRejectedValue(saldoNoSeDevuelve());
+      await expect(controller.closeChallenge('tok', 'pay.example')).rejects.toMatchObject({ status: 409, response: { code: 'SALDO_NO_SE_DEVUELVE' } });
+      await expect(controller.close('tok', { response: { id: 'k' } }, 'pay.example')).rejects.toMatchObject({ status: 409, response: { code: 'SALDO_NO_SE_DEVUELVE' } });
+      // Ni un reto ni una firma que pedir para algo que no se va a hacer.
+      expect(passkeys.challenge).not.toHaveBeenCalled();
+      expect(passkeys.verify).not.toHaveBeenCalled();
+      expect(charges.walletRefByToken).toHaveBeenCalledWith('tok');
+    }
   });
 
   it('sumar: el reto es solo para este saldo y la llave dice a cuál se suma', async () => {

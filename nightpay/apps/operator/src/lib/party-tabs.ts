@@ -34,6 +34,7 @@ export function editionAccess(access: RoleAccess, party: boolean): RoleAccess {
 export const PARTY_TAB_LABEL: Readonly<Record<TabKey, string>> = {
   home: 'Cobrar',
   reception: 'Taquilla',
+  reservas: 'Reservados',
   pos: 'POS',
   payments: 'Cobros',
   earnings: 'Ganancias',

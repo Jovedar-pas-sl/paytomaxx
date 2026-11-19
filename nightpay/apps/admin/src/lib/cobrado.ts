@@ -6,9 +6,11 @@
 // está hecho el total.
 
 export interface CobradoParts {
-  /** Ventas con tarjeta, sin propinas ni recargas. */
+  /** Ventas con tarjeta, sin propinas ni recargas (ni las de bitcoin). */
   salesCents: number;
   tipCents: number;
+  /** Ventas y propinas pagadas con bitcoin: aparte, no son «con tarjeta» (solo si las hubo). */
+  bitcoinCents?: number;
   /** Recargas del saldo, con tarjeta y en efectivo. */
   topUpCents: number;
   /** «Comisión del servicio» (solo si la hubo). */
@@ -36,6 +38,16 @@ export function metricsCobradoParts(m: {
   };
 }
 
+/** Lo pagado con bitcoin que trae el Z (NightSummary.bitcoin). */
+interface BitcoinPart {
+  count: number;
+  salesCents: number;
+  tipsCents: number;
+  topUpsCount: number;
+  topUpsCents: number;
+  totalCents: number;
+}
+
 /** El Z de una noche (los congelados antes del 23-oct-2026 no traen las recargas con tarjeta: null). */
 export function zCobradoParts(s: {
   grossCents: number;
@@ -43,14 +55,35 @@ export function zCobradoParts(s: {
   walletCashTopUpsCents?: number;
   walletCardTopUpsCents?: number;
   serviceFeeCents?: number;
+  bitcoin?: BitcoinPart;
 }): CobradoParts | null {
-  return metricsCobradoParts({
+  const parts = metricsCobradoParts({
     grossCents: s.grossCents,
     tipCents: s.tipsCents,
     walletCashTopUpCents: s.walletCashTopUpsCents,
     walletCardTopUpCents: s.walletCardTopUpsCents,
     serviceFeeCents: s.serviceFeeCents,
   });
+  const btc = s.bitcoin;
+  if (!parts || !btc) return parts;
+  // Lo de bitcoin sale de «con tarjeta» y va aparte (está en la cartera del local).
+  return {
+    ...parts,
+    salesCents: parts.salesCents - btc.salesCents,
+    tipCents: parts.tipCents - btc.tipsCents,
+    bitcoinCents: btc.salesCents + btc.tipsCents,
+  };
+}
+
+/** Los pagos que pasan por el banco: todos menos los de bitcoin. */
+export function cardPaymentsCount(s: { count: number; bitcoin?: Pick<BitcoinPart, 'count'> }): number {
+  return s.count - (s.bitcoin?.count ?? 0);
+}
+
+/** «Bitcoin: 12,00 €, en la cartera del local» (sin bitcoin, null): ni banco ni caja. */
+export function bitcoinWalletLine(cents: number | null | undefined, eur: (cents: number) => string): string | null {
+  if (cents === null || cents === undefined) return null;
+  return `Bitcoin: ${eur(cents)}, en la cartera del local`;
 }
 
 /**
@@ -65,6 +98,7 @@ export function cobradoNote(p: CobradoParts | null, eur: (cents: number) => stri
   const parts = [
     p.salesCents !== 0 ? `${eur(p.salesCents)} de ventas con tarjeta` : null,
     p.tipCents !== 0 ? `${eur(p.tipCents)} de propinas con tarjeta` : null,
+    p.bitcoinCents ? `${eur(p.bitcoinCents)} de ventas y propinas con bitcoin` : null,
     p.topUpCents !== 0 ? `${eur(p.topUpCents)} de recargas` : null,
     p.serviceFeeCents ? `${eur(p.serviceFeeCents)} de comisión del servicio` : null,
   ].filter((x): x is string => x !== null);
@@ -104,14 +138,19 @@ export function zClosedLines(
     walletCardTopUpsCents?: number;
     serviceFeeCents?: number;
     serviceFeeCashCents?: number;
+    bitcoin?: BitcoinPart;
   },
   eur: (cents: number) => string,
-): { cobrado: string; card: string } {
+): { cobrado: string; card: string; bitcoin: string | null } {
   const parts = cobradoNote(zCobradoParts(s), eur);
   // Con tarjeta va también la comisión del servicio de esos pagos (la de las recargas en efectivo está en la caja).
   const cardFee = (s.serviceFeeCents ?? 0) - (s.serviceFeeCashCents ?? 0);
+  // Lo de bitcoin no pasa por el banco: fuera de «Con tarjeta», en su línea.
+  const btc = s.bitcoin;
+  const cardCount = cardPaymentsCount(s);
   return {
     cobrado: parts ? `Cobrado: ${eur(s.chargedCents)} (${parts})` : `Cobrado: ${eur(s.chargedCents)}`,
-    card: `Con tarjeta: ${s.count} ${s.count === 1 ? 'pago' : 'pagos'} · ${eur(s.grossCents + s.tipsCents + cardFee)}`,
+    card: `Con tarjeta: ${cardCount} ${cardCount === 1 ? 'pago' : 'pagos'} · ${eur(s.grossCents + s.tipsCents + cardFee - (btc?.totalCents ?? 0))}`,
+    bitcoin: btc ? `${bitcoinWalletLine(btc.totalCents, eur)} (${btc.count} ${btc.count === 1 ? 'pago' : 'pagos'})` : null,
   };
 }

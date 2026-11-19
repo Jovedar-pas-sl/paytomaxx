@@ -3,6 +3,7 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import type { OperatorUser } from '@/lib/api';
 import { fetchPendingTopUps } from '@/lib/api-noche';
+import { fetchReceptionIncidents } from '@/lib/api-incidencias';
 import { isParty, pulseraText } from '@/lib/edition';
 import { receptionChip, useMySections } from '@/lib/sections';
 import { useVenueMethods } from '@/lib/venue-methods';
@@ -16,6 +17,7 @@ import { GiveFicha } from './GiveFicha';
 import { LostFicha } from './LostFicha';
 import { PendingTopUps } from './PendingTopUps';
 import { PrepareFichas } from './PrepareFichas';
+import { ReceptionIncidents } from './ReceptionIncidents';
 import { qrScanSupported } from '../QrScanner';
 import { useChipReader } from './use-chip-via';
 
@@ -36,12 +38,14 @@ interface Props {
 export function ReceptionTab({ user, active, onOwnHeader }: Props) {
   const methods = useVenueMethods();
   const reader = useChipReader();
-  const [view, setView] = useState<'desk' | 'prepare' | 'pending' | 'ficha' | 'voids' | 'lost'>('desk');
+  const [view, setView] = useState<'desk' | 'prepare' | 'pending' | 'ficha' | 'voids' | 'lost' | 'incidents'>('desk');
   // «Darle una» desde un saldo sin ficha (A7): su código, ya escrito en «Dar ficha a un saldo».
   const [fichaCode, setFichaCode] = useState<string | undefined>(undefined);
   // B5: «Escanear su QR (cargó en casa)» desde la primera pantalla: la cámara ya puesta.
   const [scanFirst, setScanFirst] = useState(false);
   const [pending, setPending] = useState(0);
+  // «El cliente dice que no ha sido él» sin cerrar (null: no se pudo saber; el botón sale igual).
+  const [incidents, setIncidents] = useState<number | null>(null);
   const { sections } = useMySections();
 
   // Una sola cabecera en toda Recepción: la del mostrador (el logo abre el
@@ -57,6 +61,9 @@ export function ReceptionTab({ user, active, onOwnHeader }: Props) {
     fetchPendingTopUps()
       .then((rows) => alive && setPending(rows.length))
       .catch(() => undefined);
+    fetchReceptionIncidents()
+      .then((rows) => alive && setIncidents(rows.length))
+      .catch(() => alive && setIncidents(null));
     return () => {
       alive = false;
     };
@@ -76,6 +83,8 @@ export function ReceptionTab({ user, active, onOwnHeader }: Props) {
   );
   if (view === 'prepare') return inner(<PrepareFichas on="staff" onDone={() => setView('desk')} />, TOURS.prepararFichas);
   if (view === 'pending') return inner(<PendingTopUps onDone={() => setView('desk')} />, null);
+  // «No he sido yo» del aviso de cada cobro: revisarlo con el cliente y cerrarlo con una nota.
+  if (view === 'incidents') return inner(<ReceptionIncidents onDone={() => setView('desk')} />, null);
   // B4: pasados los 2 minutos del «Me he equivocado», el encargado o el dueño, desde su móvil.
   if (view === 'voids') return inner(<CashVoids onDone={() => setView('desk')} />, null);
   // B6: ficha nueva para quien perdió la suya, con su QR o su PIN; se cobra del saldo.
@@ -108,6 +117,9 @@ export function ReceptionTab({ user, active, onOwnHeader }: Props) {
       ) : null}
       <button type="button" className={`${s.moreBtn} ${pending > 0 ? s.moreBtnOn : ''}`} onClick={() => setView('pending')}>
         {pending > 0 ? `Pendientes de asignar (${pending})` : 'Pendientes de asignar'}
+      </button>
+      <button type="button" className={`${s.moreBtn} ${incidents ? s.moreBtnOn : ''}`} onClick={() => setView('incidents')}>
+        {incidents ? `Incidencias (${incidents})` : 'Incidencias'}
       </button>
       {methods.nfc ? (
         <button type="button" className={s.moreBtn} onClick={() => setView('ficha')}>

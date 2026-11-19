@@ -80,10 +80,10 @@ function closed(m: ReturnType<typeof makeProcessor>): boolean {
 }
 
 describe('recuperación rápida de la cola de avisos', () => {
-  it('reintenta una conexión fallida en un segundo, manteniendo el orden de la cola', () => {
+  it('reintenta una conexión fallida en un segundo y procesa hasta 4 avisos a la vez', () => {
     const options = Reflect.getMetadata('bullmq:worker_metadata', WebhookIngestProcessor) as { runRetryDelay?: number; concurrency?: number } | undefined;
     expect(options?.runRetryDelay).toBe(1000);
-    expect(options?.concurrency ?? 1).toBe(1);
+    expect(options?.concurrency).toBe(4);
   });
 });
 
@@ -289,6 +289,44 @@ describe('WebhookIngestProcessor — cobro único: la tarjeta aprobada después 
     expect(refund).not.toHaveBeenCalled();
     expect(m.tx.paymentEvent.create).not.toHaveBeenCalled();
     expect(m.prisma.webhookDelivery.update).toHaveBeenCalled();
+  });
+});
+
+describe('WebhookIngestProcessor — pagó después de cancelar (el personal canceló con el cliente en su banco)', () => {
+  /** Cobro cancelado por el personal (no por el saldo); `already`: el pedido ya tiene su incidencia. */
+  function canceledByStaff(already = false) {
+    const m = makeProcessor();
+    Object.assign(m.tx.paymentEvent, { count: vi.fn().mockResolvedValue(0) });
+    const queryRaw = vi.fn(async (strings: TemplateStringsArray) =>
+      strings.join('?').includes('FROM payment_events') && already ? [{ one: 1 }] : [],
+    );
+    Object.assign(m.tx, { $queryRaw: queryRaw });
+    const refund = vi.fn();
+    Object.assign(m.adapter, { refund });
+    m.payments.transition.mockRejectedValueOnce(new InvalidTransitionError('CANCELED', 'AUTHORIZED'));
+    return { ...m, queryRaw, refund };
+  }
+
+  it('aviso firmado tardío → incidencia «paid_after_cancel» con el importe del intento, sin devolver, aviso cerrado', async () => {
+    const m = canceledByStaff();
+    await m.processor.process(m.job);
+    expect(m.refund).not.toHaveBeenCalled();
+    expect(m.tx.paymentEvent.create).toHaveBeenCalledTimes(1);
+    expect(m.tx.paymentEvent.create.mock.calls[0]![0].data).toMatchObject({
+      eventType: 'payment.approval_unbooked',
+      payload: { reason: 'paid_after_cancel', fromStatus: 'CANCELED', providerTxId: 'abc123def456', amountCents: 4850, source: 'aviso', deliveryId: '7' },
+    });
+    // Con el cobro bloqueado y en la misma transacción que cierra el aviso.
+    expect(String(m.queryRaw.mock.calls[0]![0].join('?'))).toContain('FOR UPDATE');
+    expect(m.tx.webhookDelivery.update).toHaveBeenCalled();
+  });
+
+  it('el mismo pedido otra vez → solo se cierra el aviso (una sola incidencia)', async () => {
+    const m = canceledByStaff(true);
+    await m.processor.process(m.job);
+    expect(m.tx.paymentEvent.create).not.toHaveBeenCalled();
+    expect(m.refund).not.toHaveBeenCalled();
+    expect(m.tx.webhookDelivery.update).toHaveBeenCalled();
   });
 });
 

@@ -1,5 +1,6 @@
 import { CLUB_BASE_CSS, escapeHtml, jsConfig } from '../payments/club-ui';
 import { CHROME_CSS, LANG_JS, topBar } from '../payments/customer-chrome';
+import { legalFooter } from '../legal/legal-links';
 import { CUSTOMER_TEXT } from '../payments/i18n';
 import { PAY_TEXT, type PayLanguage } from '../payments/pay-i18n';
 import { CLIENT_ERROR_JS, clientErrorConfig } from './client-errors';
@@ -128,5 +129,5 @@ export function renderActivationPage(base: string, lang: PayLanguage, view: Acti
   return `<!doctype html><html lang="${lang}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="robots" content="noindex,nofollow"><meta name="referrer" content="no-referrer"><meta name="theme-color" content="#0b0d0e"><title>${h(a.title)}</title><style>${CLUB_BASE_CSS}${CHROME_CSS}${UNLOCK_CSS}${ACTIVATION_CSS}</style></head><body><main>`
     + topBar(lang, (l: PayLanguage) => `${base}?lang=${l}`)
     + body(view, lang)
-    + `</main>${view.state === 'ok' ? activationScript(base, lang, view) : `<script>${LANG_JS}</script>`}</body></html>`;
+    + `</main>${legalFooter(lang)}${view.state === 'ok' ? activationScript(base, lang, view) : `<script>${LANG_JS}</script>`}</body></html>`;
 }

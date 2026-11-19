@@ -1,4 +1,61 @@
 /* El cobro abierto del TPV. En la tableta, el QR y el importe en dos columnas. */
+
+/* Relleno de las tarjetas: 16 en el móvil, hasta 32 en la tableta. */
+.amount,
+.qrCard {
+  padding: clamp(1rem, 4vw, 2rem);
+}
+
+.amount {
+  text-align: center;
+}
+
+.status {
+  margin-top: 1rem;
+  display: flex;
+  justify-content: center;
+}
+
+.qrWrap {
+  --tpv-qr: 16rem;
+  margin-top: 1rem;
+}
+
+/* En la tablet y el ordenador, el QR más grande (se lee desde más lejos). */
+@media (min-width: 48rem) {
+  .qrWrap {
+    --tpv-qr: 20rem;
+  }
+}
+
+.url {
+  display: flex;
+  margin-top: 1rem;
+}
+
+/* Una sola columna (tablet en vertical): el importe arriba, el QR debajo. */
+@media (max-width: 63.99rem) {
+  .amount {
+    order: -1;
+  }
+}
+
+/* «Copiar enlace» e «Imprimir QR»: del mismo ancho y alto, uno al lado del
+   otro también en el datáfono (360), cada etiqueta en una sola línea. */
+.qrActions {
+  margin-top: 0.75rem;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 8rem), 1fr));
+  gap: 0.5rem;
+}
+
+.qrActions > * {
+  width: 100%;
+  min-height: 3rem;
+  padding-inline: 0.75rem;
+  white-space: nowrap;
+}
+
 .grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 20rem), 1fr));
@@ -21,6 +78,44 @@
   .grid {
     grid-template-columns: minmax(0, 1fr);
     padding-bottom: calc(5rem + env(safe-area-inset-bottom));
+  }
+
+  /* Más justo: sin la palabra «Importe», sin «QR del cobro» ni el enlace a la
+     vista, y el importe sin su margen. Así el QR y sus dos botones caben
+     enteros en 360 × 720, por encima de «Cancelar cobro». */
+  .amount,
+  .qrCard {
+    padding: 0.75rem 1rem;
+  }
+
+  .amountHead {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.375rem;
+  }
+
+  .amountLabel,
+  .qrLabel,
+  .url {
+    display: none;
+  }
+
+  /* A todo lo ancho: el tamaño del importe sale del ancho que tiene. */
+  .amountValue {
+    width: 100%;
+  }
+
+  .amountValue > div {
+    padding: 0 !important;
+  }
+
+  .status {
+    margin-top: 0;
+  }
+
+  .qrWrap {
+    margin-top: 0;
   }
 
   /* z-index: la tarjeta (isolation: isolate) lleva dentro la barra fija;

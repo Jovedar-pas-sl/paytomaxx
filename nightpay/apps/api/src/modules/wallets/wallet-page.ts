@@ -2,6 +2,7 @@ import { DETAIL_TIP_AND_FEE_APART } from '@nightpay/contracts';
 import { PAY_TEXT, type PayLanguage } from '../payments/pay-i18n';
 import { CLUB_BASE_CSS, MONEY_JS, clientMoney, escapeHtml, jsConfig } from '../payments/club-ui';
 import { CHROME_CSS, LANG_JS, topBar } from '../payments/customer-chrome';
+import { legalFooter } from '../legal/legal-links';
 import type { ClientWalletState } from './wallet-charges.service';
 import { PASSKEY_BROWSER_JS } from './passkey-browser';
 import { CLIENT_ERROR_JS, clientErrorConfig } from './client-errors';
@@ -11,6 +12,7 @@ import type { TopUpOptions, TopUpProof } from './wallet-topup.service';
 import { TOPUP_CSS, TOPUP_JS, paidProofScript, paidProofSection, topUpCard, topUpOffNote } from './wallet-topup-view';
 import { SCAN_CSS, SCAN_JS, scanArea } from './wallet-scan';
 import { LOST_CSS, LOST_JS, lostButton, lostSheet } from './wallet-lost-view';
+import { AVISO_CSS, AVISO_JS, avisoConfig, avisoRow, avisoSheet, manifestLink } from './charge-alert/charge-alert-view';
 import { WALLET_LIVE_JS } from './wallet-live';
 import { myBalanceButton, myBalanceScript } from './my-balance';
 import { RECEIPT_JS, WELCOME_CSS, WELCOME_JS, fichaQrBlock, welcomeCard } from '../home-topup/wallet-welcome-view';
@@ -38,9 +40,12 @@ import {
  *  - «Recargar»: cuánto, los límites y Apple Pay / Google Pay o tarjeta
  *    (wallet-topup-view.ts). Al volver del banco se abre aquí con su «Pagado».
  *    Si el local no deja recargar, no hay opciones: solo «Pagar».
- * Debajo de las dos, «Más»: elegir PIN, juntar saldos, «Me voy» (en hojas
- * dentro de la página: nada de confirm()/alert()) y los movimientos (tocar
- * uno abre su «Detalle del pago»; uno deshecho dice «Devuelto a tu saldo»). El
+ * Debajo de las dos, «Más»: elegir PIN, juntar saldos (en hojas dentro de la
+ * página: nada de confirm()/alert()), la regla del saldo donde estaba «Me
+ * voy» («El saldo no se devuelve: se queda para la próxima visita»; con una
+ * devolución pedida antes y aún en curso sale su tarjeta en su lugar) y los
+ * movimientos (tocar uno abre su «Detalle del pago»; uno deshecho dice
+ * «Devuelto a tu saldo»). El
  * estado se pone al día al momento: la página escucha los avisos de su saldo
  * (GET /w/:token/events) y solo entonces pide /state; de respaldo, cada
  * 20–30 s, y «Reconectando…» si no lo consigue (wallet-live.ts). Aquí no se
@@ -88,6 +93,7 @@ const WALLET_CSS = `
 .row[aria-expanded]{position:relative;padding-right:2rem}
 .row[aria-expanded]::after{content:'+';position:absolute;right:.5rem;top:50%;transform:translateY(-50%);font-size:1.25rem;color:var(--mute)}
 .row[aria-expanded=true]::after{content:'−'}
+.keep{margin:0;padding:.75rem .25rem;border-bottom:1px solid var(--line);color:var(--mute);font-size:.875rem;line-height:1.4}
 ul{list-style:none;margin:0;padding:0;display:flex;flex-direction:column}
 li.mv{display:flex;align-items:center;gap:.75rem;padding:.55rem 0;border-bottom:1px solid var(--line);font-size:.9375rem}
 li.mv .sw{align-self:stretch;flex:none;width:4px;min-height:2.4rem;border-radius:2px;background:var(--c,var(--dim))}
@@ -176,6 +182,11 @@ export interface WalletPageOptions {
    * (party/party-wallet-view.ts). Sin esto, la de OxioPay tal cual.
    */
   party?: PartyPageData | null;
+  /**
+   * «Aviso en cada cobro»: la clave pública VAPID del servidor. Sin ella
+   * (apagado), la página no ofrece el aviso.
+   */
+  chargeAlertKey?: string | null;
 }
 
 /**
@@ -247,7 +258,7 @@ ${proof ? paidProofSection(lang, proof, options.now ?? new Date()) : ''}${topUpC
 }
 
 /** «Más»: lo que no es pagar ni recargar (las hojas y los movimientos). */
-function moreList(lang: PayLanguage): string {
+function moreList(lang: PayLanguage, aviso: boolean): string {
   const t = WALLET_TEXT[lang];
   const h = escapeHtml;
   return `<section class="more" id="more" aria-labelledby="moreTitle">
@@ -255,8 +266,8 @@ function moreList(lang: PayLanguage): string {
 <div class="rows">
 <button class="row" type="button" id="pinOpen" hidden>${h(t.pinRow)}<small>${h(t.pinRowHint)}</small></button>
 <button class="row" type="button" id="mergeOpen" hidden>${h(t.mergeRow)}<small>${h(t.mergeRowHint)}</small></button>
-<button class="row" type="button" id="leaveOpen" hidden>${h(t.leaveRow)}<small>${h(t.leaveRowHint)}</small></button>
-<button class="row" type="button" id="movOpen" aria-expanded="true" aria-controls="movBox">${h(t.movements)}<small>${h(t.movementsHint)}</small></button>
+<p class="keep" id="keepRule">${h(t.keepRule)}</p>
+${aviso ? avisoRow(lang) : ''}<button class="row" type="button" id="movOpen" aria-expanded="true" aria-controls="movBox">${h(t.movements)}<small>${h(t.movementsHint)}</small></button>
 <div id="movBox"><ul id="movements"></ul></div>
 </div>
 </section>
@@ -314,12 +325,15 @@ export function renderWalletPage(
     // «Detalle del pago»: propina y comisión del servicio cada una en su línea.
     apart: DETAIL_TIP_AND_FEE_APART,
     ...(party ? { party: partyJsConfig(lang, party) } : {}),
+    // «Aviso en cada cobro» (null: apagado).
+    aviso: avisoConfig(lang, options.chargeAlertKey),
   });
+  const aviso = Boolean(options.chargeAlertKey);
   const h = escapeHtml;
   return `<!DOCTYPE html>
 <html lang="${t.htmlLang}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta name="robots" content="noindex"><meta name="theme-color" content="${party ? PARTY_THEME_COLOR : '#0b0d0e'}"><title>${h(t.title)}</title>
-<style>${CLUB_BASE_CSS}${CHROME_CSS}${WALLET_CSS}${SCAN_CSS}${TOPUP_CSS}${LOST_CSS}${WELCOME_CSS}${party ? PARTY_CSS : ''}</style></head><body><main class="w">
+<meta name="robots" content="noindex"><meta name="theme-color" content="${party ? PARTY_THEME_COLOR : '#0b0d0e'}"><title>${h(t.title)}</title>${aviso ? manifestLink(base) : ''}
+<style>${CLUB_BASE_CSS}${CHROME_CSS}${WALLET_CSS}${SCAN_CSS}${TOPUP_CSS}${LOST_CSS}${WELCOME_CSS}${aviso ? AVISO_CSS : ''}${party ? PARTY_CSS : ''}</style></head><body><main class="w">
 ${party ? partyTopBar(lang, party) : topBar(lang)}<h1 class="sr">${h(t.title)}</h1>
 <section class="hero" aria-labelledby="balanceLabel">
 <p id="balanceLabel">${h(state.venueName ? t.balanceOf.split('{venue}').join(state.venueName) : t.balance)}</p>
@@ -334,15 +348,9 @@ ${party ? partyActions(lang) : ''}${welcome && proof ? `${paidProofSection(lang,
 <ol class="steps" id="steps">${t.steps.map((s, i) => `<li data-i="${i}">${h(s)}</li>`).join('')}</ol>
 <p id="refundHow"></p>
 </section>
-${viewTabs(lang)}${payView(lang, state, gw, options.fichaQr ?? null)}${topUpView(lang, options)}${moreList(lang)}<p class="small">${h(t.saveHint)}</p>
+${viewTabs(lang)}${payView(lang, state, gw, options.fichaQr ?? null)}${topUpView(lang, options)}${moreList(lang, aviso)}<p class="small">${h(t.saveHint)}</p>
 ${party ? partyNote() : ''}</main>
-${lostSheet(lang)}${party ? partySheets(lang) : ''}<dialog class="sheet" id="leaveSheet" aria-labelledby="leaveTitle">
-<h2 id="leaveTitle"></h2><p id="leaveHow"></p>
-<p class="err" id="leaveErr" role="alert" hidden></p>
-<button class="btn" type="button" id="leaveGo">${h(t.leaveGo)}</button>
-<button class="link" type="button" data-close>${h(t.cancel)}</button>
-</dialog>
-<dialog class="sheet" id="pinSheet" aria-labelledby="pinTitle">
+${lostSheet(lang)}${party ? partySheets(lang) : ''}${aviso ? avisoSheet(lang) : ''}<dialog class="sheet" id="pinSheet" aria-labelledby="pinTitle">
 <h2 id="pinTitle">${h(t.pinTitle)}</h2><p id="pinWhy"></p>
 <form id="pinForm" autocomplete="off" style="display:flex;flex-direction:column;gap:.8rem">
 <div class="pins"><input id="pin1" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="4" autocomplete="off" aria-label="${h(t.pinLabel)}" placeholder="${h(t.pinLabel)}"><input id="pin2" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="4" autocomplete="off" aria-label="${h(t.pinRepeat)}" placeholder="${h(t.pinRepeat)}"></div>
@@ -386,7 +394,7 @@ function closeSheet(d){if(d.close&&d.open)d.close();else d.removeAttribute('open
 Array.prototype.forEach.call(document.querySelectorAll('dialog.sheet'),function(d){
  d.addEventListener('click',function(e){if(e.target===d||e.target.hasAttribute('data-close'))closeSheet(d);});});
 function busyBtn(b,on,label){b.disabled=on;b.classList.toggle('busy',on);b.textContent=on?label:b.getAttribute('data-label');}
-['leaveGo','pinGo','mergeGo'].forEach(function(id){$(id).setAttribute('data-label',$(id).textContent);});
+['pinGo','mergeGo'].forEach(function(id){$(id).setAttribute('data-label',$(id).textContent);});
 $('faceOn').textContent=U.button;$('faceOn').setAttribute('data-label',U.button);
 $('pinWhy').textContent=fill(T.pinWhy,'code',S.code);
 function refundView(r){
@@ -421,7 +429,8 @@ function render(s){S=s;S.cards=s.cards||[];
  payRender(s,active,r);
  $('pinOpen').hidden=!(active&&!r&&!s.hasPin&&(s.hasFaceId||C.payer));
  $('mergeOpen').hidden=!(active&&!r&&!s.hasFaceId&&!s.merged&&s.balanceCents>0&&(C.payer||s.hasPin));
- $('leaveOpen').hidden=!(active&&s.balanceCents>0&&!s.closeRequested);
+ // La regla del saldo; con una devolución pedida antes y aún en curso, su tarjeta lo dice.
+ $('keepRule').hidden=Boolean(r);
  var ul=$('movements');ul.textContent='';
  if(!s.movements.length){var e=document.createElement('li');e.className='mv';e.textContent=T.noMovements;ul.appendChild(e);}
  s.movements.forEach(function(m){var li=document.createElement('li'),sw=document.createElement('i'),mt=document.createElement('span'),a=document.createElement('b'),sub=document.createElement('span'),b=document.createElement('span'),host=li;li.className='mv';
@@ -430,7 +439,7 @@ function render(s){S=s;S.cards=s.cards||[];
   b.textContent=(m.amountCents>0?'+':'')+eur(m.amountCents);b.className=(m.returned?'gone':m.amountCents>0?'plus':'minus')+' num';
   if(m.detail){host=document.createElement('button');host.type='button';host.className='mvb';host.addEventListener('click',function(){detOpen(m);});li.appendChild(host);}
   host.appendChild(sw);host.appendChild(mt);host.appendChild(b);ul.appendChild(li);});
- lostRender(s);welcomeRender(s);
+ lostRender(s);welcomeRender(s);if(C.aviso)avisoRender(s);
  var can=topRender(s);
  $('payEmpty').hidden=!(can&&s.status==='DEPLETED');
  segShow(can||C.paid);${party ? 'partyRender(s);' : ''}}
@@ -469,7 +478,7 @@ var LV=npLive({base:C.base,busy:function(){return busy;},state:function(s){rende
  gone:function(){busy=true;show('notice',T.linkGone);}});
 function refresh(){LV.refresh();}
 function msg(e){return npErr(e,C.errors);}
-// Saldo con Face ID: elegir PIN y «Me voy» piden desbloquear el móvil (reto atado a la acción).
+// Saldo con Face ID: elegir PIN pide desbloquear el móvil (reto atado a la acción).
 function withKey(path,body){if(!S.hasFaceId)return post(path,body);
  return pkGet(C.base+path+'/challenge').then(function(k){body.response=k;return post(path,body);});}
 // Sin Face ID, el primero solo por la vía del móvil que pagó la recarga (C.payer, M-2): con
@@ -480,15 +489,6 @@ $('faceOn').addEventListener('click',function(){var b=$('faceOn');if(busy||!C.pa
   .then(function(){toast('✓ '+U.done);busy=true;window.location.replace(C.base+'?lang='+C.lang);})
   .catch(function(e){busy=false;if(!pkCancelled(e)&&!notPayer(e))show('faceErr',msg(e));})
   .then(function(){if(!busy)busyBtn(b,false);});});
-$('leaveOpen').addEventListener('click',function(){
- $('leaveTitle').textContent=fill(T.leaveTitle,'amount',eur(S.balanceCents));
- $('leaveHow').textContent=S.cards.length?fill(T.leaveWaysCards,'cards',cards()):T.leaveWays;
- show('leaveErr','');openSheet($('leaveSheet'));});
-$('leaveGo').addEventListener('click',function(){var b=$('leaveGo');if(busy)return;show('leaveErr','');
- if(S.hasFaceId&&!pkSupported()){show('leaveErr',T.faceIdNeeded);return;}
- busy=true;busyBtn(b,true,S.hasFaceId?T.unlockWaiting:T.sending);
- withKey('/close',{}).then(function(s){render(s);closeSheet($('leaveSheet'));toast(T.leaveDone);}).catch(function(e){if(!pkCancelled(e))show('leaveErr',msg(e));})
-  .then(function(){busy=false;busyBtn(b,false);});});
 $('pinOpen').addEventListener('click',function(){$('pin1').value='';$('pin2').value='';show('pinErr','');openSheet($('pinSheet'));$('pin1').focus();});
 $('pinForm').addEventListener('submit',function(ev){ev.preventDefault();if(busy)return;show('pinErr','');
  var a=$('pin1').value,c=$('pin2').value;
@@ -515,6 +515,7 @@ $('mergeGo').addEventListener('click',function(){var b=$('mergeGo');if(busy)retu
 ${SCAN_JS}
 ${TOPUP_JS}
 ${LOST_JS}
+${aviso ? AVISO_JS : ''}
 ${VIEWS_JS}
 ${party ? `${PARTY_JS}
 ` : ''}${welcome ? RECEIPT_JS : ''}${WELCOME_JS}
@@ -528,5 +529,6 @@ LV.start();
 ${proof ? paidProofScript(lang) : ''}
 ${LANG_JS}
 </script>
+${legalFooter(lang)}
 ${myBalanceScript(lang, { showIf: 'window.npMineWanted' })}</body></html>`;
 }

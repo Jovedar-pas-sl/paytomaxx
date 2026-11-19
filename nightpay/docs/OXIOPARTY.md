@@ -16,7 +16,7 @@ En Dokploy: `EDITION=party` en el entorno del API y el build arg
 `NEXT_PUBLIC_EDITION=party` en las webs (y reconstruir). El API también la
 devuelve en el login (`user.edition`) y en `GET /v1/venues/me` (`edition`).
 
-## Modelo de datos (migración `20261115100000_oxioparty_base`)
+## Modelo de datos (migración `20261120300000_oxioparty_base`)
 
 - **`venues`** (la fiesta): `eventStartsAt`, `eventEndsAt` (timestamptz,
   nulos), `refundDeadline` (date, nulo: último día para pedir la devolución
@@ -144,7 +144,7 @@ fichas, informes, reglas, secciones, permisos, Telegram ni las liquidaciones
 de OxioPay. Código en `components/party/` y `lib/party-*.ts`; estilos en
 `styles/panel-party.css` (tokens Grafito). Con `club`, el panel es el de siempre.
 
-## Pulseras, página del asistente y «Lo que sobra» (migración `20261115200000_oxioparty_devoluciones`)
+## Pulseras, página del asistente y «Lo que sobra» (migración `20261120300100_oxioparty_devoluciones`)
 
 ### Pulseras (panel → Pulseras, dueño y encargado)
 
@@ -188,8 +188,12 @@ la de antes.
   pero `TRANSFER` y `DONATE` solo si el saldo tiene Face ID y su llave se
   verifica en esa misma petición; sin Face ID, 409 **`REFUND_NEEDS_FACE_ID`**
   y la página lo dice: «Para transferencia o donar, activa Face ID o pásate
-  por la taquilla» (allí se devuelve el efectivo como siempre). La vista
-  trae `faceId`. Activar Face ID no cambia.
+  por la taquilla». La vista trae `faceId`. Activar Face ID no cambia.
+  **Pendiente de decidir** (desde la fusión con main del 19-nov): main ya no
+  devuelve el saldo en la salida de recepción («el saldo se guarda», 409
+  `SALDO_NO_SE_DEVUELVE`), así que la taquilla tampoco da el efectivo. La
+  página de la pulsera no enseña la regla de OxioPay («el saldo no se
+  devuelve»): aquí lo que sobra se pide.
   - `CARD`: solo lo cargado con tarjeta que sigue en el saldo (lo gastado
     cuenta antes como tarjeta, `wallet-cash-limits.ts`). El organizador la
     hace **a mano en el portal del banco** (Redsys no devuelve por API) y la

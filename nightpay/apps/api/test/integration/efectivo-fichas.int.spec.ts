@@ -277,7 +277,7 @@ describe('devolver: el efectivo, en efectivo (Postgres real)', () => {
     const w = await newWallet(norte, 30_000);
     await seed((tx) => tx.clientWallet.update({ where: { id: w.walletId }, data: { balanceCents: 50_000, closeRequestedAt: new Date() } }));
     const seen = await inVenue(norte.id, () => charges.payoutPreview(managerActor(norte), w.walletId));
-    expect(seen).toEqual({ balanceCents: 50_000, cashOutCents: 30_000, cardRefundCents: 20_000, cashLaterCents: 0, pendingCardCents: null });
+    expect(seen).toEqual({ balanceCents: 50_000, cashOutCents: 30_000, cardRefundCents: 20_000, cashLaterCents: 0, bitcoinCents: 0, pendingCardCents: null });
     // Entre medias, otra persona le devuelve 100 € en efectivo (recepción).
     await seed(async (tx) => {
       await tx.walletPayout.create({

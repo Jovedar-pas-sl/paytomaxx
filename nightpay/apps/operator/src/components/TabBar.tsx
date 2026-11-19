@@ -1,6 +1,6 @@
 'use client';
 
-import type { CSSProperties, ReactNode } from 'react';
+import { useLayoutEffect, useRef, type CSSProperties, type ReactNode } from 'react';
 import { isParty } from '@/lib/edition';
 import { PARTY_TAB_LABEL } from '@/lib/party-tabs';
 import type { TabKey } from '@/lib/roles';
@@ -9,6 +9,7 @@ import { TAB_BAR_HEIGHT } from './layout';
 const TAB_LABEL: Record<TabKey, string> = {
   home: 'Inicio',
   reception: 'Recepción',
+  reservas: 'Reservados',
   pos: 'POS',
   payments: 'Cobros',
   earnings: 'Ganancias',
@@ -23,12 +24,38 @@ const TAB_LABEL: Record<TabKey, string> = {
 const TAB_ACTIVE_COLOR = 'var(--np-chosen)';
 const TAB_IDLE_COLOR = 'var(--np-text-mute)';
 
+/**
+ * Lo que ocupa la barra de verdad (con la zona segura y el filete), en
+ * --np-tabbar-space: las páginas dejan ese hueco al final (PAGE_BOTTOM_SPACE)
+ * y nada queda tapado debajo de la barra.
+ */
+function useMeasuredSpace() {
+  const ref = useRef<HTMLElement>(null);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return undefined;
+    const root = document.documentElement;
+    const measure = () => root.style.setProperty('--np-tabbar-space', `${Math.ceil(el.getBoundingClientRect().height)}px`);
+    measure();
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measure);
+    observer?.observe(el);
+    window.addEventListener('resize', measure);
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener('resize', measure);
+      root.style.removeProperty('--np-tabbar-space');
+    };
+  }, []);
+  return ref;
+}
+
 /** Barra de pestañas de abajo: solo las del rol (ver roleAccess). */
 export function TabBar({ tabs, active, onSelect }: { tabs: readonly TabKey[]; active: TabKey; onSelect: (tab: TabKey) => void }) {
+  const ref = useMeasuredSpace();
   // OxioParty: Cobrar, Taquilla, Cobros y Ajustes.
   const labels = isParty() ? PARTY_TAB_LABEL : TAB_LABEL;
   return (
-    <nav style={tabBarStyle} aria-label="Navegación principal">
+    <nav ref={ref} style={tabBarStyle} aria-label="Navegación principal">
       {tabs.map((key) => (
         <TabBtn
           key={key}
@@ -98,6 +125,13 @@ const ICON_PATHS: Record<TabKey, ReactNode> = {
     <>
       <path d="M4 18a8 8 0 0116 0" />
       <path d="M2.5 18h19M12 10V7.5M10 7.5h4" />
+    </>
+  ),
+  // Una entrada (ticket) con su corte: los reservados.
+  reservas: (
+    <>
+      <path d="M3 8a2 2 0 002-2h14a2 2 0 002 2v2a2 2 0 000 4v2a2 2 0 01-2 2H5a2 2 0 01-2-2v-2a2 2 0 000-4V8z" />
+      <path d="M14 6v12" strokeDasharray="2 2" />
     </>
   ),
   pos: (

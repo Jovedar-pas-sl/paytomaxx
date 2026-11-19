@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { navBadge } from './bottom-nav';
 import { PANEL_EDITION, isPartyEdition } from './edition';
 import { DEFAULT_TAB, defaultTabOf, navSearch, parseNav, resolveNav } from './nav-url';
-import { PANEL_TABS, PARTY_TABS, resolveTab, sectionOf, visibleSections, visibleTabs } from './roles';
+import { PANEL_TABS, PARTY_TABS, resolveTab, sectionHint, sectionOf, visibleSections, visibleTabs } from './roles';
 
 /**
  * OxioParty en el panel: seis secciones (En directo, Casetas, Pulseras,
@@ -31,6 +31,16 @@ describe('las secciones de OxioParty', () => {
       'Cierre',
       'Ajustes',
     ]);
+  });
+
+  it('cada sección lleva su línea corta, cierta también para el encargado (Ajustes sin la carta)', () => {
+    for (const s of visibleSections({ role: 'OWNER' }, 'party')) {
+      const hint = sectionHint(s.key, 'party');
+      expect(hint.length, s.key).toBeLessThanOrEqual(80);
+      expect(hint, s.key).toMatch(/^[A-ZÁÉÍÓÚ].*.$/);
+      expect(hint, s.key).not.toMatch(/chica|carta|formas de cobro/i);
+    }
+    expect(sectionHint('ajustes', 'club')).toContain('carta');
   });
 
   it('el encargado: lo mismo menos las formas de cobro y la noche (son del dueño); la fiesta la ve', () => {

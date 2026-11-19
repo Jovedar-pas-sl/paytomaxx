@@ -1,13 +1,15 @@
 // Recepción exprés en el móvil del personal (maquetas 4.1–4.7): Entrada
-// (acercar el NFC, el importe y cómo paga: tres toques) y Salida (guardar el
-// saldo para la próxima o devolverlo en efectivo); y «Recargar saldo» en
-// Inicio. NFC = tarjeta, ficha o pulsera: se trata igual. Las llamadas y la
-// lógica pura de cada paso (probada en reception-desk.test.ts).
+// (acercar el NFC, el importe y cómo paga: tres toques) y Salida (ver lo que
+// le queda y guardarlo para la próxima: el saldo no se devuelve, decisión del
+// dueño del 17-nov-2026); y «Recargar saldo» en Inicio. NFC = tarjeta, ficha o
+// pulsera: se trata igual. Las llamadas y la lógica pura de cada paso
+// (probada en reception-desk.test.ts).
 
 import {
   fichaLabel,
   MAX_CASH_TOP_UP_CENTS,
   RECENT_TOP_UP_MINUTES,
+  SALDO_SE_QUEDA_TEXT,
   type RecentTopUp,
   NEW_FICHA_BY_NUMBER_MESSAGE,
   type ReceptionDeskSaldo,
@@ -94,10 +96,10 @@ export interface DeskRow {
  * el impreso; sin él, «sin número impreso».
  */
 export function deskRow(view: ReceptionDeskView, mode: 'entrada' | 'salida'): DeskRow {
-  if (view.kind === 'new') return { title: 'NFC nuevo', detail: `${fichaLabel(view.printedNumber)} · sin saldo` };
+  if (view.kind === 'new') return { title: 'Ficha nueva', detail: `${fichaLabel(view.printedNumber)} · sin saldo` };
   const title = view.fichaNumber === null ? `Saldo ${view.code}` : fichaLabel(view.printedNumber);
   const saldo = view.fichaNumber === null ? null : view.code;
-  if (mode === 'salida') return { title, detail: saldo ? `Saldo ${saldo} · leída` : 'Sin NFC · por su código' };
+  if (mode === 'salida') return { title, detail: saldo ? `Saldo ${saldo} · leída` : 'Sin ficha · por su código' };
   const left = view.balanceCents > 0 ? `Le quedan ${formatEur(view.balanceCents, { compact: true })}` : 'Sin saldo';
   return { title, detail: [left, saldo].filter(Boolean).join(' · ') };
 }
@@ -176,7 +178,7 @@ export function recentTopUpLine(topUp: RecentTopUp | null | undefined, now: numb
   const minutes = Math.floor((now - Date.parse(topUp.at)) / 60_000);
   if (!Number.isFinite(minutes) || minutes >= RECENT_TOP_UP_MINUTES) return null;
   const when = minutes <= 0 ? 'hace un momento' : `hace ${minutes} min`;
-  const how = topUp.method === 'cash' ? 'en efectivo' : 'con tarjeta';
+  const how = topUp.method === 'cash' ? 'en efectivo' : topUp.method === 'bitcoin' ? 'con bitcoin' : 'con tarjeta';
   const who = topUp.byName ? ` (${topUp.byName})` : '';
   return `${ficha ? 'Cargada' : 'Cargado'} ${when}: ${formatEur(topUp.amountCents, { compact: true })} ${how}${who}`;
 }
@@ -252,7 +254,7 @@ export function numberMethodButtons(options: ReceptionOptions | null): MethodBut
   if (!options) return [];
   return [
     { method: 'cash', primary: true, problem: options.cash ? null : (options.cashBlockedReason ?? 'Aquí no se cobran recargas en efectivo.') },
-    { method: 'card', primary: false, problem: 'Con tarjeta, acerca su NFC o escribe su código.' },
+    { method: 'card', primary: false, problem: 'Con tarjeta, acerca su ficha o escribe su código.' },
   ];
 }
 
@@ -307,9 +309,8 @@ export function canChoosePinAfterLoad(view: ReceptionDeskView | null, role: stri
 
 /**
  * Qué hacer con el PIN al terminar de cargar. Una ficha que pasa del máximo
- * sin PIN no paga en barra y su saldo no se devuelve en la salida: `ask` lo
- * pide ya (con «Ahora no»); `manager` avisa de que lo pone el encargado;
- * `offer` lo deja como opción; `none`, nada.
+ * sin PIN no paga en barra: `ask` lo pide ya (con «Ahora no»); `manager`
+ * avisa de que lo pone el encargado; `offer` lo deja como opción; `none`, nada.
  */
 export type PinAfterLoad = 'none' | 'offer' | 'ask' | 'manager';
 
@@ -328,10 +329,7 @@ export function pinAfterLoad(o: {
 /** Lo que pasa si no lo pone (`ask`), o quién puede ponerlo (`manager`). */
 export function pinAfterLoadText(need: 'ask' | 'manager', noPinMaxCents: number): string {
   const max = formatEur(noPinMaxCents, { compact: true });
-  if (need === 'ask') {
-    const pay = noPinMaxCents <= 0 ? 'Sin PIN esta ficha no puede pagar.' : `Sin PIN solo paga hasta ${max}.`;
-    return `${pay} Para devolverle el saldo hará falta su Face ID o el encargado.`;
-  }
+  if (need === 'ask') return noPinMaxCents <= 0 ? 'Sin PIN esta ficha no puede pagar.' : `Sin PIN solo paga hasta ${max}.`;
   return noPinMaxCents <= 0
     ? 'Esta ficha no tiene PIN: no puede pagar hasta que lo ponga con el encargado.'
     : `Esta ficha no tiene PIN: solo paga hasta ${max}. Para más, que lo ponga con el encargado.`;
@@ -351,7 +349,7 @@ export function noReaderStage(mode: 'entrada' | 'salida'): { title: string; text
     text:
       mode === 'entrada'
         ? 'Para cargar una ficha nueva, usa el Android de recepción. Aquí puedes cargar un saldo con su código o su número.'
-        : 'Para devolver efectivo, usa el Android de recepción. Aquí puedes ver lo que le queda con su código o su número.',
+        : 'Aquí puedes ver lo que le queda con su código o su número.',
   };
 }
 
@@ -435,8 +433,8 @@ export function cashUnsureRow(
   const lead = status.charAt(0).toUpperCase() + status.slice(1);
   if (read.number) return { title: fichaLabel(read.number.printedNumber), detail: `${lead} · ${read.number.codeHint}` };
   const view = read.view;
-  if (!view) return { title: 'Saldo nuevo', detail: `Sin NFC · ${status}` };
-  if (view.kind === 'new') return { title: 'NFC nuevo', detail: `${fichaLabel(view.printedNumber)} · ${status}` };
+  if (!view) return { title: 'Saldo nuevo', detail: `Sin ficha · ${status}` };
+  if (view.kind === 'new') return { title: 'Ficha nueva', detail: `${fichaLabel(view.printedNumber)} · ${status}` };
   if (view.fichaNumber === null) return { title: `Saldo ${view.code}`, detail: lead };
   return { title: fichaLabel(view.printedNumber), detail: `${lead} · ${view.code}` };
 }
@@ -477,13 +475,25 @@ export function rechargeProblem(view: ReceptionDeskView | null): string | null {
  * cobró el servidor), saldo + comisión: «Efectivo: 56 € a la caja (con 6 € de
  * comisión)»; antes decía 50 € y a la caja iban 56 €.
  */
-export function loadedMoneyLine(method: PayMethod, amountCents: number, feeCents = 0): { label: string; amount: string; tail: string } {
+export function loadedMoneyLine(method: LoadedMethod, amountCents: number, feeCents = 0): { label: string; amount: string; tail: string } {
   const fee = feeCents > 0 ? feeCents : 0;
   const amount = formatEur(amountCents + fee, { compact: true });
   const withFee = fee > 0 ? ` (con ${formatEur(fee, { compact: true })} de comisión)` : '';
-  return method === 'cash'
-    ? { label: 'Efectivo:', amount, tail: `a la caja${withFee}` }
-    : { label: 'Tarjeta:', amount, tail: `en su móvil${withFee}` };
+  if (method === 'cash') return { label: 'Efectivo:', amount, tail: `a la caja${withFee}` };
+  // Con bitcoin no pasa por el banco ni por la caja: queda en la cartera del local.
+  if (method === 'bitcoin') return { label: 'Bitcoin:', amount, tail: `en la cartera del local${withFee}` };
+  return { label: 'Tarjeta:', amount, tail: `en su móvil${withFee}` };
+}
+
+/**
+ * Cómo se cargó (el CARGADO): en efectivo o con el QR en su móvil; con el QR,
+ * con tarjeta o con bitcoin (el cliente lo elige en su página de pago).
+ */
+export type LoadedMethod = PayMethod | 'bitcoin';
+
+/** Cómo se pagó el QR de la recarga, por lo que dijo el sondeo (sin respuesta, como siempre: tarjeta). */
+export function qrTopUpMethod(polled: { payMethod?: string } | null): LoadedMethod {
+  return polled?.payMethod === 'bitcoin' ? 'bitcoin' : 'card';
 }
 
 /**
@@ -499,26 +509,29 @@ export function handOverLine(view: ReceptionDeskView | null, linked: boolean): s
 
 // ─── Salida (4.5) ─────────────────────────────────────────────────────────
 
-/** Los dos botones de la salida: guardar (de fábrica) o devolver en efectivo. */
+/**
+ * La regla del saldo (decisión del dueño, 17-nov-2026), donde antes estaba
+ * «Devolver»: «El saldo no se devuelve: se queda para la próxima visita».
+ */
+export const EXIT_RULE = SALDO_SE_QUEDA_TEXT;
+
+/** La salida: lo que le queda, «Guardar para la próxima» y la regla (el saldo no se devuelve). */
 export interface ExitPlan {
   /** Lo que le queda. */
   balanceCents: number;
-  /** «Devolver 35 € en efectivo» (null: no le queda nada). */
-  refundLabel: string | null;
-  /** «Sacas 35 € de la caja · el NFC vuelve al stock». */
-  refundDetail: string | null;
-  /** Por qué no se puede devolver aquí (null: se puede). */
-  refundBlocked: string | null;
-  /** Lo que no sale en efectivo (lo entró con tarjeta…), dicho antes. */
-  note: string | null;
   /** Debajo de «Guardar para la próxima»: «Para otra noche · se lleva su ficha» (sin ficha: «que guarde su código»). Sin caducidad: no está decidida. */
   keepDetail: string;
+  /** La regla, con saldo; sin saldo, nada que decir (null). */
+  rule: string | null;
 }
 
-/** Tras devolver: el NFC vuelve al stock, o lo que le queda (entró con tarjeta) y quién lo devuelve. */
-export function refundDoneLine(remainingCents: number): string {
-  if (remainingCents <= 0) return 'El NFC vuelve al stock: guárdalo.';
-  return `Le quedan ${formatEur(remainingCents, { compact: true })} (con tarjeta): los devuelve el dueño «A la tarjeta». Se lleva su NFC.`;
+/** 4.5: lo que ve recepción a la salida. Nada sale de la caja: el saldo se queda para la próxima visita. */
+export function exitPlan(view: Pick<ReceptionDeskSaldo, 'balanceCents' | 'fichaNumber'>): ExitPlan {
+  return {
+    balanceCents: view.balanceCents,
+    keepDetail: view.fichaNumber === null ? 'Para otra noche · que guarde su código' : 'Para otra noche · se lleva su ficha',
+    rule: view.balanceCents > 0 ? EXIT_RULE : null,
+  };
 }
 
 // ─── El código tecleado ───────────────────────────────────────────────────

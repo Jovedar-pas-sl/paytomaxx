@@ -19,6 +19,7 @@ import { bearerToken, verifyStaffToken } from '../../common/guards/staff-token';
 import { AccessRevocationService, type AccessRevocation } from '../auth/access-revocation.service';
 import { MetricsService } from '../metrics/metrics.service';
 import type { PaymentMachineState } from '../payments/payment.machine';
+import { cleanToken, displayRoom, findActiveDisplay, followedRooms } from '../customer-display/display-auth';
 
 /** Cobros a los que puede estar suscrita una conexión a la vez. */
 export const MAX_ROOMS_PER_SOCKET = 20;
@@ -30,6 +31,8 @@ export const LEGACY_SUBSCRIBE_CLOSED_ERROR = 'Inicia sesión otra vez';
 export const SESSION_EXPIRED_ERROR = 'Sesión caducada: vuelve a conectar';
 /** La sesión del handshake se cerró (logout, revocada, baja): se corta la conexión. */
 export const SESSION_REVOKED_ERROR = 'Sesión cerrada: vuelve a iniciar sesión';
+/** La «Pantalla del cliente» no se suscribe a nada: el servidor la mete en la sala de SU cobro. */
+export const DISPLAY_READ_ONLY_ERROR = 'La pantalla del cliente solo ve su cobro';
 
 const SubscribeSchema = z.object({ paymentId: z.string().uuid() });
 const WalletChargeSubscribeSchema = z.object({ chargeId: z.string().uuid() });
@@ -41,7 +44,14 @@ export function walletChargeRoom(chargeId: string): string {
 
 type SubscribeResult = { ok: true; room: string } | { ok: false; error: string };
 type StaffSocket = Socket & {
-  data: { staff?: JwtPayload; legacyWarned?: boolean; legacyClosedLogged?: boolean; authReady?: Promise<void> };
+  data: {
+    staff?: JwtPayload;
+    /** Una «Pantalla del cliente» (no es del personal): solo recibe los avisos de su cobro. */
+    display?: { id: string };
+    legacyWarned?: boolean;
+    legacyClosedLogged?: boolean;
+    authReady?: Promise<void>;
+  };
 };
 type LegacyResult = 'allowed' | 'denied' | 'closed';
 
@@ -70,6 +80,12 @@ type LegacyResult = 'allowed' | 'denied' | 'closed';
  * Después se responde «Inicia sesión otra vez».
  * El id tiene que ser un UUID y hay un máximo de cobros por conexión.
  * Origen (CORS) restringido a CORS_ORIGINS en producción: ver realtime.adapter.ts.
+ *
+ * «Pantalla del cliente» (tablet de la barra): conecta con `auth: { displayToken }`
+ * (su credencial, no un JWT). No se suscribe a nada (los subscribe se le
+ * rechazan): el servidor la mete en la sala display:<id> y en la del cobro
+ * que enseña (showOnDisplay); los avisos solo le dicen «vuelve a preguntar».
+ * Desemparejada: closeDisplay corta sus conexiones.
  *
  * Sesión cerrada (logout, revocar sus sesiones, baja, contraseña nueva): al
  * revocarla se desconectan YA sus conexiones (salas session:<sid> y
@@ -116,6 +132,8 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
   }
 
   private async authenticate(client: StaffSocket): Promise<void> {
+    const displayToken = cleanToken((client.handshake?.auth as { displayToken?: unknown } | undefined)?.displayToken);
+    if (displayToken) return this.authenticateDisplay(client, displayToken);
     const token = handshakeToken(client);
     if (!token) return;
     const result = await verifyStaffToken(this.jwt, token);
@@ -134,6 +152,17 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
     await client.join(sessionRooms(result.payload));
   }
 
+  /** La tablet: con credencial válida, a su sala y a la de su cobro; si no, fuera (no baja a la vía antigua). */
+  private async authenticateDisplay(client: StaffSocket, token: string): Promise<void> {
+    const display = await findActiveDisplay(this.prisma, token);
+    if (!display) {
+      client.disconnect(true);
+      return;
+    }
+    client.data.display = { id: display.id };
+    await client.join([displayRoom(display.id), ...followedRooms(display)]);
+  }
+
   handleDisconnect(): void {
     this.metrics.wsConnectionsActive.dec();
   }
@@ -146,6 +175,7 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
 
     const { paymentId } = parsed.data;
     await client.data.authReady;
+    if (client.data.display) return { ok: false, error: DISPLAY_READ_ONLY_ERROR };
     const staff = client.data.staff;
     if (staff && tokenExpired(staff)) return { ok: false, error: SESSION_EXPIRED_ERROR };
     if (staff && (await this.sessionClosed(staff))) {
@@ -188,6 +218,7 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
     if (!parsed.success) return { ok: false, error: 'chargeId inválido' };
     if (subscribedRooms(client) >= MAX_ROOMS_PER_SOCKET) return { ok: false, error: 'Demasiadas suscripciones' };
     await client.data.authReady;
+    if (client.data.display) return { ok: false, error: DISPLAY_READ_ONLY_ERROR };
     const staff = client.data.staff;
     if (!staff) return { ok: false, error: LEGACY_SUBSCRIBE_CLOSED_ERROR };
     if (tokenExpired(staff)) return { ok: false, error: SESSION_EXPIRED_ERROR };
@@ -252,6 +283,27 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
       tipCents,
       timestamp: new Date().toISOString(),
     });
+  }
+
+  /**
+   * La «Pantalla del cliente» cambió de cobro (o el camarero salió de él): sus
+   * conexiones (en todos los nodos, por el adaptador) dejan la sala del
+   * anterior, entran en la del nuevo y vuelven a preguntar qué enseñar.
+   */
+  showOnDisplay(displayId: string, follow: readonly string[], unfollow: readonly string[]): void {
+    if (!this.server) return;
+    const room = displayRoom(displayId);
+    if (unfollow.length > 0) this.server.in(room).socketsLeave([...unfollow]);
+    if (follow.length > 0) this.server.in(room).socketsJoin([...follow]);
+    this.server.to(room).emit('display:update', { type: 'display:update', timestamp: new Date().toISOString() });
+  }
+
+  /** Desemparejada (o sustituida por otra): el aviso y fuera sus conexiones. */
+  closeDisplay(displayId: string): void {
+    if (!this.server) return;
+    const room = displayRoom(displayId);
+    this.server.to(room).emit('display:update', { type: 'display:update', timestamp: new Date().toISOString() });
+    this.server.in(room).disconnectSockets(true);
   }
 
   /** ¿Se cerró la sesión de este token? Sin Redis para saberlo, se da por cerrada (fail-closed). */

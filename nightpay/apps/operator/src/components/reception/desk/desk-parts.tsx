@@ -41,6 +41,8 @@ const ICONS = {
       <path d="M3 10h18M7 15h4" />
     </>
   ),
+  // Una moneda con la B de bitcoin (la marca del panel y del PAGADO).
+  bitcoin: <path d="M12 3a9 9 0 1 0 0 18a9 9 0 1 0 0-18ZM10 7.5v9M10 7.5h3a2 2 0 0 1 0 4h-3M10 11.5h3.5a2.5 2.5 0 0 1 0 5H10M11.5 6v1.5M11.5 16.5V18" />,
   lock: (
     <>
       <rect x="5" y="10.5" width="14" height="10" rx="2.5" strokeLinejoin="round" />

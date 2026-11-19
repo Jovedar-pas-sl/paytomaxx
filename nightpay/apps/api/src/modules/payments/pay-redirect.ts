@@ -12,7 +12,9 @@ export type PayClosedReason =
   | 'unconfirmed'
   | 'too-many-attempts'
   /** Cobro único: ya lo pagó con su saldo (NFC, PIN o Face ID): la tarjeta no. */
-  | 'paid-with-saldo';
+  | 'paid-with-saldo'
+  /** El personal lo canceló y el banco lo cobró después: hablar con el personal. */
+  | 'paid-after-cancel';
 
 /** Botón que pulsa el cliente: Apple Pay / Google Pay o tarjeta. */
 export type PayMethodChoice = 'wallet' | 'card';
@@ -83,6 +85,8 @@ export type PayRedirect =
       presetTipCents?: number;
       /** «Pagar con bitcoin»: el local lo tiene encendido para este cobro (y el servidor también). */
       bitcoin?: boolean;
+      /** Un pago de un reservado (señal, resto o todo): sus páginas dicen sus reglas. */
+      reservation?: true;
     }
   | {
       /**
@@ -113,12 +117,18 @@ export type PayRedirect =
       walletFromHome?: boolean;
       /** Huella del navegador del intento aprobado (solo él ve el «Pagado» lima). */
       approvedClaimHash?: string | null;
+      /** Reservados: el navegador que lo pagó (con tarjeta o con bitcoin) vuelve a la página del reservado. */
+      reservation?: true;
     }
   | { kind: 'processing' }
   | { kind: 'closed'; reason: PayClosedReason };
 
 export interface PayResultView {
   paymentId: string;
+  /** Cancelado y el banco lo cobró después (paid-after-cancel.ts): ni «Pagado» ni «cancelado» a secas. */
+  paidAfterCancel?: boolean;
+  /** Reservados: el pago es de una reserva (al pagarse, vuelta a su página). */
+  reservation?: true;
   status: PaymentMachineState;
   amountCents: number;
   tipCents: number;
@@ -247,6 +257,8 @@ export function switchesMethod(
 /** Lo que hace falta del cobro para decidir qué página ve el cliente. */
 export interface PayablePayment {
   id: string;
+  /** Cancelado y el banco lo cobró después (paid-after-cancel.ts). */
+  paidAfterCancel?: boolean;
   /** «Pagar con bitcoin» se ofrece en este cobro (ver BTCPAY_ENABLED y Ajustes del local). */
   bitcoin?: boolean;
   status: PaymentMachineState;
@@ -293,6 +305,8 @@ export interface PayablePayment {
   walletFromHome?: boolean;
   /** Huella del navegador del intento aprobado (de cualquier cobro, con o sin saldo). */
   approvedClaimHash?: string | null;
+  /** Un pago de un reservado (señal, resto o todo): al pagarse, vuelve a su página. */
+  reservation?: true;
   /**
    * Cobro único: el cobro del saldo enlazado (su enlace /s, su estado y su
    * plazo) y si el local cobra con saldo. Sin él, solo tarjeta.
@@ -322,10 +336,13 @@ export function settledPayView(p: PayablePayment, now: Date = new Date()): PayRe
       ...(p.walletReturnToken ? { walletReturnToken: p.walletReturnToken } : {}),
       ...(p.walletFromHome ? { walletFromHome: true } : {}),
       approvedClaimHash: p.approvedClaimHash ?? null,
+      ...(p.reservation ? { reservation: true as const } : {}),
     };
   }
   // Cobro único: lo pagó el saldo (el cobro con tarjeta se canceló entonces).
   if (p.status === 'CANCELED' && p.saldo?.status === 'ACCEPTED') return { kind: 'closed', reason: 'paid-with-saldo' };
+  // Cancelado por el personal y cobrado después por el banco: lo resuelve el personal.
+  if (p.status === 'CANCELED' && p.paidAfterCancel) return { kind: 'closed', reason: 'paid-after-cancel' };
   const closed = CLOSED_REASON[p.status];
   if (closed) return { kind: 'closed', reason: closed };
   if (p.status !== 'AUTHORIZING' && p.qrExpiresAt <= now) return { kind: 'closed', reason: 'expired' };
@@ -364,7 +381,23 @@ export function choosePayPage(p: PayablePayment, now: Date = new Date()): PayRed
     ...(saldoPayToken ? { saldoPayToken } : {}),
     ...(p.saldo && p.allowTip && p.tipCents > 0 ? { presetTipCents: p.tipCents } : {}),
     ...(p.bitcoin ? { bitcoin: true } : {}),
+    ...(p.reservation ? { reservation: true as const } : {}),
   };
+}
+
+/**
+ * La propina que el cliente ya eligió en la «Pantalla del cliente» de la barra
+ * (su QR lleva ?tip=): sale marcada y el total ya la incluye. Solo si es una
+ * de las que se ofrecen en este cobro; si no, la página como siempre (nada marcado).
+ */
+export function withChosenTip(view: PayRedirect, raw: string | undefined): PayRedirect {
+  if (view.kind !== 'choose' || raw === undefined) return view;
+  const cents = Number(raw);
+  if (!Number.isInteger(cents) || cents <= 0) return view;
+  if (view.tipOptionsCents.includes(cents)) return { ...view, presetTipCents: cents };
+  // «Otra» en la tablet (euros enteros hasta el tope, como npTipOther): un botón más, marcado.
+  if (cents % 100 !== 0 || cents > view.tipMaxCents) return view;
+  return { ...view, tipOptionsCents: [...view.tipOptionsCents, cents].sort((a, b) => a - b), presetTipCents: cents };
 }
 
 /**

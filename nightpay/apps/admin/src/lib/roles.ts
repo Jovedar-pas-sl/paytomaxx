@@ -31,6 +31,7 @@ export type TabKey =
   | 'treasury'
   | 'wallets'
   | 'fichas'
+  | 'reservations'
   | 'nights'
   | 'reports'
   | 'bank'
@@ -90,6 +91,29 @@ export const SECTION_LABELS: Readonly<Record<SectionKey, string>> = {
   cierre: 'Cierre',
 };
 
+/**
+ * Una línea bajo las pestañas de cada sección: lo que hay dentro. Cierta para
+ * el dueño y para el encargado (no nombra lo que solo ve el dueño).
+ */
+export const SECTION_HINTS: Readonly<Record<SectionKey, string>> = {
+  hoy: 'Lo que pasa esta noche: los cobros y los avisos.',
+  chicas: 'Tu equipo y lo que se le paga a cada uno.',
+  clientes: 'Los saldos y las fichas de tus clientes, y los reservados con sus RRPP.',
+  informes: 'Las noches, una a una, y lo que se cobró en cada una.',
+  ajustes: 'La carta, cómo funciona el local y tu cuenta.',
+  // OxioParty: el panel del organizador.
+  directo: 'Lo que pasa ahora en la fiesta: lo vendido, los cobros y los avisos.',
+  casetas: 'Las casetas, la parte del organizador, su IBAN y su personal.',
+  pulseras: 'Las pulseras: las del stock, las entregadas y las perdidas.',
+  devoluciones: 'Lo que piden devolver los asistentes cuando les sobra saldo.',
+  cierre: 'Lo que se paga a cada caseta y el fichero SEPA para el banco.',
+};
+
+/** La línea de una sección en esta edición: en OxioParty, Ajustes no tiene carta. */
+export function sectionHint(key: SectionKey, edition: Edition = PANEL_EDITION): string {
+  return edition === 'party' && key === 'ajustes' ? 'La fiesta y tu cuenta.' : SECTION_HINTS[key];
+}
+
 const SECTION_ORDER: readonly SectionKey[] = ['hoy', 'chicas', 'clientes', 'informes', 'ajustes'];
 const PARTY_SECTION_ORDER: readonly PartySectionKey[] = ['directo', 'casetas', 'pulseras', 'devoluciones', 'cierre', 'ajustes'];
 
@@ -102,6 +126,9 @@ export const PANEL_TABS: readonly PanelTab[] = [
   { key: 'operators', label: 'Compañeras', section: 'chicas', access: 'staff' },
   { key: 'treasury', label: 'Pagos a compañeras', section: 'chicas', access: 'staff' },
   { key: 'wallets', label: 'Saldos', section: 'clientes', access: 'staff' },
+  // Reservados con señal: la noche, los paquetes, los RRPP y su enlace, el enlace web y las señales (/v1/reservations).
+  // Con «RRPP» en el nombre y antes de Fichas: el dueño no encontraba a sus RRPP.
+  { key: 'reservations', label: 'Reservados y RRPP', section: 'clientes', access: 'staff' },
   // Fichas NFC: stock, entregadas y perdidas por noche (/v1/wallet-cards).
   { key: 'fichas', label: 'Fichas', section: 'clientes', access: 'staff' },
   { key: 'nights', label: 'Noches', section: 'informes', access: 'staff' },

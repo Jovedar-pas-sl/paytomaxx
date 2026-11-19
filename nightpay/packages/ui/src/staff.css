@@ -353,6 +353,12 @@
   color: #0b1a2a;
 }
 
+/* Bitcoin: el naranja de su marca (como en el panel); el dinero está en la cartera del local. */
+.np-outcome-how-icon[data-kind='bitcoin'] {
+  background: #f7931a;
+  color: #2a1600;
+}
+
 .np-outcome-how-text {
   display: flex;
   flex-direction: column;

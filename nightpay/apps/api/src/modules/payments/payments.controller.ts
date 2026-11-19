@@ -34,6 +34,7 @@ import type { JwtPayload } from '@nightpay/contracts';
 import { PaymentsService } from './payments.service';
 import { mayReadCobro } from './payment-read-access';
 import { staffBankRef, type StaffBankRef } from './staff-bank-ref';
+import { listUnpaidCobros, type UnpaidCobro } from './unpaid-cobros';
 
 @Controller('payments')
 export class PaymentsController {
@@ -79,6 +80,17 @@ export class PaymentsController {
   }
 
   /**
+   * Los cobros sin pagar de todo el local (app del personal → Cobros): para
+   * cancelar también los de otra persona. Cualquiera del personal del local.
+   */
+  @Get('sin-pagar')
+  @UseGuards(RolesGuard)
+  @Roles('OWNER', 'MANAGER', 'OPERATOR', 'WAITER')
+  async unpaid(@Tenant() tenantId: string, @CurrentUser() user: JwtPayload): Promise<{ items: UnpaidCobro[] }> {
+    return { items: await listUnpaidCobros(this.prisma, { tenantId, userId: user.sub }) };
+  }
+
+  /**
    * Camarero confirma cobrado tras procesar la tarjeta en el datáfono externo.
    * Solo válido para captureMethod=POS_EXTERNAL en estado CREATED.
    * La transición dispara el hook que crea OperatorEarning para la chica.
@@ -100,9 +112,8 @@ export class PaymentsController {
   }
 
   /**
-   * Cancela un pago en estado CREATED|AWAITING_CAPTURE.
-   * - OPERATOR y WAITER solo cancelan los suyos (createdByUserId === userId).
-   * - OWNER/MANAGER cancelan cualquiera del venue.
+   * Cancela un cobro sin pagar del local (también con el cliente en su banco).
+   * Cualquiera del personal del local, sea suyo o de otra persona.
    */
   @Post(':id/cancel')
   @HttpCode(200)

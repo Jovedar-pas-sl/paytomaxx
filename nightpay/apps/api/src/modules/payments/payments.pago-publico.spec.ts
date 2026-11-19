@@ -40,6 +40,8 @@ interface Setup {
   /** Pausa y formas de cobro del local (por defecto, abierto y todo encendido). */
   venue?: Row;
   authorize?: (input: Row) => Promise<Row>;
+  /** La conexión del local a BTCPay (null = sin conectar). */
+  btcpay?: Row | null;
 }
 
 function paymentRow(o: Row = {}): Row {
@@ -102,6 +104,7 @@ function makeService(setup: Setup = {}) {
     gatewayCredential: { findFirst: vi.fn(async () => (provider === null ? null : { provider })) },
     venue: { findUnique: vi.fn(async () => setup.venue ?? { pausedAt: null, business: null, paymentMethods: null }) },
     walletCashTopUp: { findFirst: vi.fn(async () => null) },
+    btcpayStore: { findUnique: vi.fn(async () => setup.btcpay ?? null) },
     $queryRaw: vi.fn(async (strings: TemplateStringsArray, ...values: unknown[]) => {
       locks.push(Prisma.sql(strings, ...values));
       return [{ ok: 1 }];
@@ -560,5 +563,52 @@ describe('getCheckoutForm — formulario hacia el banco del pedido recién abier
     await expect(unknown.service.getCheckoutForm(QR, 'ORD-2')).resolves.toBeNull();
     const link = makeService({ payment: { ...opened, gatewayCheckoutForm: null, gatewayPaymentUrl: PAYTEF_URL }, attempts: fresh });
     await expect(link.service.getCheckoutForm(QR, 'ORD-2')).resolves.toBeNull();
+  });
+});
+
+describe('getPayPage — «Pagar con bitcoin»: solo al cargar saldo y en los reservados, nunca en la barra', () => {
+  const WALLET = '2a3b4c5d-6e7f-4a8b-9c0d-1e2f3a4b5c6d';
+  const RESERVA = 'resv:8c1d2e3f-4a5b-4c6d-8e7f-9a0b1c2d3e4f:DEPOSIT:1';
+  beforeEach(() => {
+    vi.stubEnv('BTCPAY_ENABLED', 'true');
+  });
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+  const pageOf = async (payment: Row, btcpay: Row | null = { enabled: true }) => {
+    const made = makeService({ payment, btcpay });
+    return { page: (await made.service.getPayPage(QR)) as { kind: string; bitcoin?: boolean; topUp?: boolean }, db: made.db };
+  };
+
+  it('un cobro de la barra: nunca, aunque el local lo tenga encendido (ni se mira su BTCPay)', async () => {
+    const { page, db } = await pageOf({});
+    expect(page.kind).toBe('choose');
+    expect(page.bitcoin).toBeUndefined();
+    expect(db.btcpayStore.findUnique).not.toHaveBeenCalled();
+  });
+
+  it('cargar saldo (la ficha, en recepción o desde casa): sí', async () => {
+    const { page } = await pageOf({ walletId: WALLET, idempotencyKey: 'recepcion-1', serviceName: null });
+    expect(page).toMatchObject({ kind: 'choose', topUp: true, bitcoin: true });
+  });
+
+  it('un reservado (la señal, el resto o todo): sí, como una carga del saldo del grupo', async () => {
+    for (const kind of ['DEPOSIT', 'REST', 'FULL']) {
+      const { page } = await pageOf({ walletId: WALLET, idempotencyKey: RESERVA.replace('DEPOSIT', kind), serviceName: null });
+      expect(page).toMatchObject({ kind: 'choose', bitcoin: true });
+    }
+  });
+
+  it('el «para qué» de antes ya no cuenta: «Cobros» no lo pone en la barra ni lo quita de las cargas', async () => {
+    const store = { enabled: true, purpose: 'PAYMENTS' };
+    expect((await pageOf({}, store)).page.bitcoin).toBeUndefined();
+    expect((await pageOf({ walletId: WALLET, idempotencyKey: RESERVA }, { enabled: true, purpose: 'PAYMENTS' })).page.bitcoin).toBe(true);
+  });
+
+  it('con el local sin bitcoin (apagado o sin conectar) o el servidor apagado: no', async () => {
+    expect((await pageOf({ walletId: WALLET }, { enabled: false })).page.bitcoin).toBeUndefined();
+    expect((await pageOf({ walletId: WALLET }, null)).page.bitcoin).toBeUndefined();
+    vi.stubEnv('BTCPAY_ENABLED', 'false');
+    expect((await pageOf({ walletId: WALLET })).page.bitcoin).toBeUndefined();
   });
 });

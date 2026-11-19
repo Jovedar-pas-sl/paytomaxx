@@ -38,6 +38,8 @@ describe('mensajes de error del API para la chica', () => {
     expect(operatorErrorMessage(429, undefined, 'Cobro')).toMatch(/Demasiados intentos/);
     expect(operatorErrorMessage(503, 'Service Unavailable', 'Cobro')).toMatch(/servidor/);
     expect(operatorErrorMessage(404, undefined, 'Código de saldo')).toBe('Código de saldo no encontrado.');
+    expect(operatorErrorMessage(404, undefined, 'Ficha')).toBe('Ficha no encontrada.');
+    expect(operatorErrorMessage(404, undefined, 'Cobro')).toBe('Cobro no encontrado.');
   });
 });
 

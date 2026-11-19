@@ -55,8 +55,31 @@ export const RefundPayloadSchema = z.object({
   cardLast4: z.string().nullable(),
   cardBrand: z.string().nullable(),
   provider: z.string().nullable(),
+  /**
+   * En efectivo (lo pagado con bitcoin): al aprobarla no sale nada; se apunta
+   * cuando quien lo pidió pulsa «Entregado». `source`: un cobro pagado con
+   * bitcoin o el bitcoin que llegó sin cobro (`invoiceId`, su factura).
+   */
+  method: z.literal('CASH').optional(),
+  source: z.enum(['payment', 'invoice']).optional(),
+  invoiceId: z.string().nullable().optional(),
+  receiptCode: z.string().optional(),
 });
 export type RefundPayload = z.infer<typeof RefundPayloadSchema>;
+
+/** Una devolución en efectivo pedida al dueño: con todo lo necesario para «Entregado». */
+export const CashApprovalPayloadSchema = RefundPayloadSchema.extend({
+  method: z.literal('CASH'),
+  source: z.enum(['payment', 'invoice']),
+  invoiceId: z.string().nullable(),
+  receiptCode: z.string().min(1),
+});
+export type CashApprovalPayload = z.infer<typeof CashApprovalPayloadSchema>;
+
+/** ¿Es una devolución en efectivo (lo pagado con bitcoin)? */
+export function isCashRefundPayload(payload: unknown): boolean {
+  return CashApprovalPayloadSchema.safeParse(payload).success;
+}
 
 /** Huella de la cuenta de cobro guardada de la chica (método + dirección). */
 export function accountFingerprint(saved: { payoutMethod: string | null; payoutAddress: string | null }): string {
@@ -198,6 +221,17 @@ export function toApprovalView(
           cardBrand: r.data.cardBrand,
           provider: r.data.provider,
           reason: r.data.reason,
+          ...(r.data.method === 'CASH'
+            ? {
+                cash: {
+                  source: r.data.source ?? 'payment',
+                  invoiceId: r.data.invoiceId ?? null,
+                  handed: row.resultRef !== null,
+                  // Aprobada: se entrega en las 24 h siguientes.
+                  handUntil: row.status === 'APPROVED' && row.decidedAt ? approvalExpiresAt(row.decidedAt).toISOString() : null,
+                },
+              }
+            : {}),
         }
       : {
           paymentId: row.targetId,

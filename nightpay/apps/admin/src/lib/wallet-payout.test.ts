@@ -1,6 +1,41 @@
 import { describe, expect, it } from 'vitest';
 import { ApiError } from '@nightpay/api-client';
-import { balanceAfterPayout, isPayoutAmountChanged, payoutDoneText, payoutPlan, type WalletPayoutPreview } from './wallet-payout';
+import {
+  balanceAfterPayout,
+  canFinishPayout,
+  isPayoutAmountChanged,
+  payoutDoneText,
+  payoutPlan,
+  refundPendingFromBefore,
+  KEEP_RULE,
+  type WalletPayoutPreview,
+} from './wallet-payout';
+
+describe('el saldo no se devuelve (decisión del dueño, 17-nov): solo se terminan las devoluciones pedidas antes', () => {
+  it('la regla, la misma frase que en la app del personal y en la página del cliente', () => {
+    expect(KEEP_RULE).toBe('El saldo no se devuelve: se queda para la próxima visita.');
+  });
+
+  it('en la lista: «Terminar devolución» solo con una pedida antes («Me voy» o recepción) o una a la tarjeta a medias', () => {
+    const row = { status: 'ACTIVE' as const, closeRequestedAt: null as string | null, payoutPending: false };
+    expect(refundPendingFromBefore(row)).toBe(false);
+    expect(refundPendingFromBefore({ ...row, closeRequestedAt: '2026-11-16T23:00:00Z' })).toBe(true);
+    expect(refundPendingFromBefore({ ...row, payoutPending: true })).toBe(true);
+    // Un API de antes no manda payoutPending.
+    expect(refundPendingFromBefore({ status: 'ACTIVE', closeRequestedAt: null })).toBe(false);
+    // Un saldo ya cerrado no tiene nada que terminar.
+    expect(refundPendingFromBefore({ ...row, status: 'REFUNDED', closeRequestedAt: '2026-11-16T23:00:00Z' })).toBe(false);
+  });
+
+  it('en el modal: se termina si se pidió antes o hay una a la tarjeta a medias; si no, solo la regla', () => {
+    const preview = { balanceCents: 3_000, cashOutCents: 3_000, cardRefundCents: 0, cashLaterCents: 0, pendingCardCents: null };
+    expect(canFinishPayout({ closeRequested: true }, preview)).toBe(true);
+    expect(canFinishPayout({ closeRequested: false }, preview)).toBe(false);
+    expect(canFinishPayout({ closeRequested: false }, { ...preview, pendingCardCents: 3_000 })).toBe(true);
+    // Sin la vista previa aún: con la petición de antes ya se sabe.
+    expect(canFinishPayout({ closeRequested: false }, null)).toBe(false);
+  });
+});
 
 // Intl pone un espacio duro antes de «€».
 const eur = (s: string | null) => (s ?? '').replace(/\u00a0/g, ' ');
@@ -131,5 +166,26 @@ describe('la cabecera «Saldo» del modal tras devolver (prueba real: seguía en
     expect(balanceAfterPayout({ refundedCents: 3_000, method: 'CASH' }, { leftCents: 5_000 } as never, 8_000)).toBe(5_000);
     expect(balanceAfterPayout({ refundedCents: 3_000, method: 'CASH' }, undefined, 8_000)).toBe(5_000);
     expect(balanceAfterPayout({ refundedCents: 9_000, method: 'CARD' }, undefined, 8_000)).toBe(0);
+  });
+});
+
+describe('saldo cargado con bitcoin: esa parte no se devuelve, se queda como saldo para otra noche', () => {
+  it('todo con bitcoin: sin botón a la tarjeta ni en efectivo, y dice qué hacer', () => {
+    const btc: WalletPayoutPreview = { balanceCents: 3_000, cashOutCents: 0, cardRefundCents: 0, cashLaterCents: 0, pendingCardCents: null, bitcoinCents: 3_000 };
+    const card = payoutPlan(btc, 'CARD');
+    expect(card.amountCents).toBe(0);
+    expect(card.blocked).toBe('Este saldo entró con bitcoin: no se devuelve a la tarjeta. Esta parte entró con bitcoin: se queda como saldo para otra noche, no se devuelve.');
+    const cash = payoutPlan(btc, 'CASH');
+    expect(cash.amountCents).toBe(0);
+    expect(cash.blocked).toContain('entró con bitcoin');
+    expect(`${card.blocked} ${cash.blocked}`).not.toMatch(/entró (con tarjeta|en efectivo)/);
+  });
+
+  it('50 € con tarjeta + 30 € con bitcoin: a la tarjeta solo los 50 €, y lo que queda lo dice', () => {
+    const p: WalletPayoutPreview = { balanceCents: 8_000, cashOutCents: 0, cardRefundCents: 5_000, cashLaterCents: 0, pendingCardCents: null, bitcoinCents: 3_000 };
+    const card = payoutPlan(p, 'CARD');
+    expect(card.amountCents).toBe(5_000);
+    expect(eur(card.remainder)).toBe('El saldo no se cierra: quedan 30,00 €. Los 30,00 € que entraron con bitcoin se quedan como saldo para otra noche: no se devuelven (ni en efectivo ni a la tarjeta).');
+    expect(eur(payoutPlan(p, 'CASH').blocked)).toContain('Los 50,00 € que entraron con tarjeta');
   });
 });

@@ -7,6 +7,8 @@ import { agoLabel } from '../lib/countdown';
 import { clockTime, OUTCOME_TITLE, type OutcomeKind } from '../lib/outcome';
 import { sectionsChipText, sectionVar } from '../lib/sections';
 import { SectionChip } from './SectionChip';
+import { PrintButton, usePrintTicket } from './PrintTicket';
+import type { Ticket } from '../lib/ticket';
 
 export interface OutcomeAction {
   label: string;
@@ -21,12 +23,12 @@ export interface OutcomeAction {
 
 /**
  * «Cómo se pagó», la tarjeta bajo el importe del PAGADO (Grafito 3): ficha,
- * efectivo o tarjeta. Solo lleva datos que el API ya tiene; lo que no existe
+ * efectivo, tarjeta o bitcoin (en la cartera del local, no en el banco). Solo lleva datos que el API ya tiene; lo que no existe
  * no se pasa (y no se enseña).
  */
 export interface OutcomeHow {
-  kind: 'ficha' | 'cash' | 'card';
-  /** «Con ficha nº 1013», «En efectivo», «Con tarjeta». */
+  kind: 'ficha' | 'cash' | 'card' | 'bitcoin';
+  /** «Con ficha nº 1013», «En efectivo», «Con tarjeta», «Con bitcoin». */
   title: string;
   /** «Código del saldo K7Q-•••», «Mételo en la caja», «Apple Pay o Google Pay». */
   sub?: string | null;
@@ -70,6 +72,8 @@ export interface PaymentOutcomeProps {
   /** El botón grande: «Nuevo cobro», «Otro QR · mismo importe»… */
   primary: OutcomeAction;
   secondary?: OutcomeAction;
+  /** Pagado: el ticket que sale con «Imprimir ticket» (papel de 58 mm). Sin él, no hay botón. */
+  print?: Ticket | null;
   error?: string | null;
 }
 
@@ -109,10 +113,12 @@ export function PaymentOutcome({
   reference,
   primary,
   secondary,
+  print,
   error,
 }: PaymentOutcomeProps) {
   const titleId = useId();
   const primaryRef = useRef<HTMLButtonElement>(null);
+  const printer = usePrintTicket();
   const [shownAt] = useState(() => Date.now());
   const since = sinceMs ?? shownAt;
   const now = useNow(true);
@@ -192,12 +198,19 @@ export function PaymentOutcome({
         <div className="np-outcome-actions">
           <OutcomeButton ref={primaryRef} action={primary} variant="primary" />
           {secondary ? <OutcomeButton action={secondary} variant="secondary" /> : null}
+          {print ? <PrintButton label="Imprimir ticket" onClick={() => printer.print(print)} /> : null}
+          {printer.error ? (
+            <p role="alert" className="np-outcome-error">
+              {printer.error}
+            </p>
+          ) : null}
         </div>
       </div>
 
       <p role="status" aria-live="polite" aria-atomic="true" className="np-sr-only">
         {announce}
       </p>
+      {printer.ticketNode}
     </section>
   );
 }
@@ -206,6 +219,8 @@ const HOW_ICON: Record<OutcomeHow['kind'], ReactNode> = {
   ficha: <path d="M12 3a9 9 0 1 1 0 18a9 9 0 1 1 0-18M9 9.5c1.6-1.3 4.4-1.3 6 0M7.5 7.5c2.5-2.2 6.5-2.2 9 0M10.5 11.5c.8-.6 2.2-.6 3 0" />,
   cash: <path d="M3 7h18v10H3zM7 7v10M17 7v10M12 9.5a2.5 2.5 0 1 1 0 5a2.5 2.5 0 1 1 0-5" />,
   card: <path d="M3 6h18v12H3zM3 10h18M7 15h4" />,
+  // Una moneda con la B de bitcoin (la misma marca que en el panel).
+  bitcoin: <path d="M12 3a9 9 0 1 0 0 18a9 9 0 1 0 0-18ZM10 7.5v9M10 7.5h3a2 2 0 0 1 0 4h-3M10 11.5h3.5a2.5 2.5 0 0 1 0 5H10M11.5 6v1.5M11.5 16.5V18" />,
 };
 
 /** La tarjeta de cómo se pagó: el icono de su color, el título y sus filas. */

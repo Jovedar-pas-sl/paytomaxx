@@ -235,7 +235,7 @@ export function lookupNfc(card: string, uid: string | null): Promise<WalletLooku
   return call<WalletLookup>(
     '/v1/wallet-charges/cards/lookup',
     { method: 'POST', body: JSON.stringify({ card, ...(uid ? { uid } : {}) }) },
-    'NFC',
+    'Saldo de la ficha',
   );
 }
 

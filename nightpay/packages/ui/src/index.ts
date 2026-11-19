@@ -7,7 +7,9 @@ export type { PaymentStatus } from './components/StatusPill';
 export { Stage, StageMeta } from './components/Stage';
 export { Input, Select } from './components/Input';
 export { FormError } from './components/FormError';
+export { PrivacyNote } from './components/PrivacyNote';
 export { Modal } from './components/Modal';
+export { Segmented } from './components/profile-parts';
 export { ThemeToggle } from './components/ThemeToggle';
 export { Logo } from './components/Logo';
 export { CartaIcon, CartaItemIcon, CARTA_ICON_PATHS } from './components/CartaIcon';
@@ -66,7 +68,7 @@ export type { KeypadKey } from './lib/amount-keypad';
 export { BANK_SLOW_AFTER_MS, classifyConnection, SERVER_DOWN_GRACE_MS } from './lib/connection';
 export type { ConnectionDevice, ConnectionIssue, ConnectionIssueKind, ConnectionSignals } from './lib/connection';
 export { createWakeLock, wakeLockFrom } from './lib/wake-lock';
-export { cardHow, cashHow, chargedBy, saldoHow } from './lib/outcome-how';
+export { BITCOIN_HOW_SUB, cardHow, cashHow, chargedBy, saldoHow } from './lib/outcome-how';
 export type { CardHowInput, CashHowInput, SaldoHowInput } from './lib/outcome-how';
 export { haptic, HAPTIC_BAD, HAPTIC_TAP_MS } from './lib/haptic';
 export { pinFailed, shakeClass } from './lib/shake';
@@ -75,6 +77,7 @@ export { createPoller } from './lib/poller';
 export type { PollOutcome, Poller, PollerOptions } from './lib/poller';
 export {
   createPaymentLive,
+  PAYMENT_POLL_AUTHORIZING_MS,
   PAYMENT_POLL_LIVE_MS,
   PAYMENT_POLL_OFFLINE_MS,
   PAYMENT_POLL_TIMEOUT_MS,
@@ -134,3 +137,35 @@ export {
 } from './lib/device-settings';
 export type { ThemeChoice } from './lib/device-settings';
 export { PHOTO_MAX_BYTES, PHOTO_OUT_SIDE, PhotoPrepareError, encodeProfilePhoto, photoPlan, prepareProfilePhoto } from './lib/profile-photo';
+export { PRINTING_CLASS, PrintButton, TICKET_PAGE_CSS, printTarget, usePrintTicket } from './components/PrintTicket';
+export type { PrintTicketApi } from './components/PrintTicket';
+export {
+  RECEIPT_FOOTER,
+  TOP_UP_FOOTER,
+  howRows,
+  paidTicket,
+  payQrTicket,
+  receiptFromDetail,
+  testTicket,
+  ticketDateTime,
+  ticketMoney,
+  ticketTime,
+  topUpTicket,
+} from './lib/ticket';
+export type { PaidTicketInput, PayQrTicketInput, ReceiptExtra, Ticket, TicketLine, TicketRow, TopUpTicketInput } from './lib/ticket';
+export {
+  PRINT_WIDTH_DOTS,
+  RAWBT_PACKAGE,
+  bytesToBase64,
+  canvasToEscPos,
+  escPosImage,
+  paintTicket,
+  rasterBits,
+  rawbtIntentUrl,
+  renderTicketCanvas,
+  wrapBalanced,
+  wrapText,
+} from './lib/ticket-raster';
+export type { TicketPainter } from './lib/ticket-raster';
+export { DEFAULT_PRINT_MODE, PRINT_MODE_CHOICES, PRINT_MODE_KEY, readPrintMode, usePrintMode, writePrintMode } from './lib/print-mode';
+export type { PrintMode } from './lib/print-mode';

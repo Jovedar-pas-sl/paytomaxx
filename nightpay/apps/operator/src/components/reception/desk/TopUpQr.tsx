@@ -9,6 +9,7 @@ import { paymentFeeLine } from '@/lib/cobro-view';
 import { useOpenCharge, type ChargeSpot } from '@/lib/open-charges';
 import { advanceStatus, isFinalStatus } from '@/lib/payment-status';
 import { StaffOutcome } from '../../StaffOutcome';
+import { useCustomerDisplay } from '../../use-customer-display';
 import { usePaymentLive } from '../../use-payment-live';
 import { CounterAviso, DeskBtn, Icon } from './desk-parts';
 import { QrBox } from './QrBox';
@@ -84,6 +85,8 @@ export function TopUpQr(props: Props) {
   const open = payment !== null && !isFinalStatus(status);
   useWakeLock(open);
   useOpenCharge(props.spot ?? 'recepcion', payment !== null, open);
+  // La «Pantalla del cliente» de recepción (si hay una emparejada): el importe y el QR de la recarga.
+  useCustomerDisplay(payment ? { paymentId: payment.id } : null);
 
   const outcome = payment ? outcomeKindOf(status) : null;
   useEffect(() => {

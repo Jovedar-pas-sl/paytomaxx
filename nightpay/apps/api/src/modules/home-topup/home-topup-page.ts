@@ -1,5 +1,6 @@
 import { CLUB_BASE_CSS, MONEY_JS, clientMoney, escapeHtml, jsConfig } from '../payments/club-ui';
 import { CHROME_CSS, LANG_JS, topBar } from '../payments/customer-chrome';
+import { legalConsent, legalFooter } from '../legal/legal-links';
 import { PAY_TEXT, type PayLanguage } from '../payments/pay-i18n';
 import { CARD_MARKS, LOCK_IC, PAY_MARKS_CSS } from '../payments/pay-marks';
 import { CLIENT_ERROR_JS, clientErrorConfig } from '../wallets/client-errors';
@@ -24,8 +25,8 @@ import type { HomeTopUpPageView } from './home-topup.service';
  *    botón «Pagar 56 €» (la comisión la calcula el servidor: la tabla de
  *    cada importe va en la página, como en «Recargar»); sin ella, «Cargar 50 €».
  *  - Las condiciones antes de pagar: lo que no gaste no se pierde (no
- *    caduca), cómo se pide la devolución (lo que hace hoy «Me voy») y, con
- *    comisión, que esa no se devuelve.
+ *    caduca) y la regla del saldo: no se devuelve, se queda para la próxima
+ *    visita (decisión del dueño, 17-nov-2026).
  * El botón crea la carga (POST /r/<código>/topup) y lleva a la página de pago
  * de siempre (/pay/…): Apple Pay o Google Pay de entrada, o tarjeta.
  * Sin barras invertidas en el JS (va dentro de una plantilla).
@@ -70,7 +71,8 @@ ${PAY_MARKS_CSS}/* Móviles bajos (360×740): más compacto, para que el desglos
 /** Iconos de las condiciones (decorativos). */
 const ICON = {
   clock: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>',
-  back: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 14 4 9l5-5"/><path d="M4 9h11a5 5 0 0 1 0 10h-3"/></svg>',
+  // «i»: la regla del saldo (antes, una flecha de devolver).
+  info: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5v.01"/></svg>',
 };
 
 function eur(cents: number, locale: string): string {
@@ -133,6 +135,7 @@ function amountCard(lang: PayLanguage, view: HomeTopUpPageView): string {
 ${breakdown}
 <div class="paybar"><p class="err" id="err" role="alert" hidden></p>
 <button class="${view.mine ? 'btn alt' : 'btn'}" type="submit" id="go">${LOCK_IC}<span id="goLbl"></span></button>
+${legalConsent(lang)}
 <p class="small">${h(t.methods)}</p></div>
 </form>
 </section>
@@ -151,15 +154,19 @@ function howSteps(lang: PayLanguage, fichas: boolean): string {
 `;
 }
 
-/** Lo que tiene que saber antes de pagar: lo que no gaste no se pierde, y cómo se devuelve. */
-function termsCard(lang: PayLanguage, withFee: boolean): string {
+/**
+ * Lo que tiene que saber antes de pagar: lo que no gaste no se pierde y el
+ * saldo no se devuelve (se queda para la próxima visita). Con o sin comisión,
+ * lo mismo: nada se devuelve.
+ */
+function termsCard(lang: PayLanguage): string {
   const t = HOME_TOPUP_TEXT[lang];
   const h = escapeHtml;
   return `<section class="card" aria-labelledby="termsTitle">
 <h2 id="termsTitle">${h(t.conditionsTitle)}</h2>
 <ul class="terms">
 <li>${ICON.clock}<span><b>${h(t.keep)}</b> ${h(t.noExpiry)}</span></li>
-<li>${ICON.back}<span>${h(t.refund)}${withFee ? ` ${h(t.refundFee)}` : ''}</span></li>
+<li>${ICON.info}<span>${h(t.keepRule)}</span></li>
 </ul>
 </section>
 `;
@@ -231,7 +238,6 @@ export function renderHomeTopUpPage(code: string, lang: PayLanguage, view: HomeT
   const h = escapeHtml;
   const base = `/r/${encodeURIComponent(code)}`;
   const canLoad = view.problem === null;
-  const withFee = (view.serviceFeeBps ?? 0) > 0;
   // El QR del cartel de la cola (B16): el de esta noche carga por /cola; uno de otra noche, aviso y lo de siempre.
   const q = QUEUE_PAGE_TEXT[lang];
   // Sin cookie del móvil (muchos móviles nuevos desde esta IP esta noche): lo dice y carga como el enlace de siempre.
@@ -280,7 +286,7 @@ ${
    * del botón (C-3); «O carga un saldo nuevo:» queda pegado al importe. Si no
    * se puede cargar, primero lo dice y después las condiciones.
    */ ''
-}${canLoad ? `${howSteps(lang, view.fichas !== false)}${termsCard(lang, withFee)}${view.mine ? mineCard(lang, base, view.mine.codeHint) : ''}${amountCard(lang, view)}` : `${offCard(lang, base, Boolean(view.mine))}${termsCard(lang, withFee)}`}<p class="foot trust">${h(PAY_TEXT[lang].secure)}${CARD_MARKS}</p>
+}${canLoad ? `${howSteps(lang, view.fichas !== false)}${termsCard(lang)}${view.mine ? mineCard(lang, base, view.mine.codeHint) : ''}${amountCard(lang, view)}` : `${offCard(lang, base, Boolean(view.mine))}${termsCard(lang)}`}<p class="foot trust">${h(PAY_TEXT[lang].secure)}${CARD_MARKS}</p>
 </main>
 ${
   canLoad
@@ -301,6 +307,7 @@ ${LANG_JS}
 </script>`
     : `<script>${LANG_JS}</script>`
 }
+${legalFooter(lang)}
 </body></html>`;
 }
 
@@ -320,6 +327,7 @@ ${topBar(lang)}
 ${/* Salida: su saldo con su Face ID (desde allí también se recarga). No dice nada del local. */ ''}${myBalanceBlock(lang, { withPasskeyJs: true })}
 </section>
 </main>
+${legalFooter(lang)}
 <script>${LANG_JS}</script>
 </body></html>`;
 }

@@ -248,13 +248,13 @@ describe('M2 — el encargado desde el umbral pone su 2FA (Postgres real)', () =
     expect(await walletRow(w)).toMatchObject({ balanceCents: 0, status: 'REFUNDED' });
   });
 
-  it('por debajo del umbral el encargado devuelve en efectivo sin código; el dueño, siempre sin él', async () => {
+  it('por debajo del umbral el encargado termina en efectivo una devolución pedida antes sin código; el dueño, con el suyo', async () => {
     const small = await newWallet(9_999, { closeRequested: true });
     await cashIn(small, 9_999);
     await expect(inVenue(V, () => charges.payout(managerActor(managerNo2fa), small, { method: 'CASH' }))).resolves.toMatchObject({
       refundedCents: 9_999,
     });
-    const big = await newWallet(50_000);
+    const big = await newWallet(50_000, { closeRequested: true });
     await cashIn(big, 50_000);
     await expect(
       inVenue(V, () => charges.payout({ userId: ownerWith2fa, role: 'OWNER', tenantId: V }, big, { totpCode: totpCodeAt(SECRET, totpStepAt(Date.now())), method: 'CASH' })),

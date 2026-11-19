@@ -80,11 +80,12 @@ describe('mantener pulsado 1,2 s', () => {
 
   it('solo sustituye ventanas de «¿seguro?» sin dinero (quitar el aviso); con el cliente en su banco no se ofrece cancelar', () => {
     const esperando = read('../components/cobrar/Esperando.tsx');
-    // El API no deja cancelar en AUTHORIZING (con el banco): ni botón ni «¿seguro?», solo el aviso de esperar.
-    // Lo decide cancelOffer (cobro-state.test.ts): con bitcoin y la factura esperando el pago, sí hay botón.
+    // Con el cliente en su banco, los primeros 2 minutos: sin botón ni «¿seguro?», solo el aviso de esperar.
+    // Lo decide cancelOffer con el reloj de la espera del banco (cobro-state.test.ts): con bitcoin y la factura
+    // esperando el pago, sí hay botón; pasados los 2 minutos, también (con su «¿Cancelar este cobro?»).
     expect(esperando).not.toContain('<HoldButton');
-    expect(esperando).toContain('const offer = cancelOffer(card);');
-    expect(esperando).toContain('<p className={styles.altHint}>{offer.text}</p>');
+    expect(esperando).toContain('const offer = cancelOffer(card, bankCancelOf(atBank, wait));');
+    expect(esperando).toContain('{offer.text}');
     expect(esperando).not.toContain('No, seguir esperando');
     expect(esperando).not.toContain('confirmingCancel');
     const ventas = read('../components/pax/SalesToReview.tsx');

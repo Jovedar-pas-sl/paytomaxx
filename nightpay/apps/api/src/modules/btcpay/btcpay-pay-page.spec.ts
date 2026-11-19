@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import type { BtcpayInvoiceView } from '@nightpay/contracts';
 import { PAY_LANGUAGES } from '../payments/customer-lang';
+import { CUSTOMER_TEXT } from '../payments/i18n';
 import { PAY_TEXT } from '../payments/pay-i18n';
 import { renderBitcoinPage, safeHttpsLink, safeQrLink } from './btcpay-pay-page';
 
@@ -22,6 +23,21 @@ const base = { token: 'tok-1', lang: 'es' as const, venueName: 'Sala Bambú', co
 const html = (v = view(), over: Record<string, unknown> = {}, lang: (typeof PAY_LANGUAGES)[number] = 'es') =>
   renderBitcoinPage({ ...base, lang, view: v, ...over } as never);
 
+describe('cargar saldo con bitcoin: la regla del saldo antes de pagar (decisión del dueño, 17-nov)', () => {
+  it.each(PAY_LANGUAGES)('%s: una carga de saldo dice que el saldo no se devuelve, antes del QR', (lang) => {
+    const page = html(view(), { topUp: true }, lang);
+    const rule = page.indexOf(`<p class="btc-keep" id="keepRule">${CUSTOMER_TEXT[lang].wallet.keepRule}</p>`);
+    expect(rule).toBeGreaterThan(-1);
+    expect(rule).toBeLessThan(page.indexOf('class="btc-qr"'));
+  });
+
+  it('un cobro o un reservado no la llevan; la página cerrada tampoco', () => {
+    expect(html()).not.toContain('id="keepRule"');
+    expect(html(view(), { topUp: false })).not.toContain('id="keepRule"');
+    expect(html(view(), { topUp: true, closed: 'expired' })).not.toContain('id="keepRule"');
+  });
+});
+
 describe('página «Pagar con bitcoin»', () => {
   it('enseña el QR, el importe en euros y en BTC, abrir en la cartera, copiar y el tiempo', () => {
     const page = html();
@@ -35,6 +51,15 @@ describe('página «Pagar con bitcoin»', () => {
     expect(page).toContain('/pay/tok-1/bitcoin/status');
     expect(page).toContain('id="btcClock"');
     expect(page).toContain('Sala Bambú');
+  });
+
+  it('el bloque del QR va centrado y con aire, como el resto de la página (y se sigue pudiendo esconder)', () => {
+    const page = html();
+    // #btcLive envuelve el QR, los botones y el tiempo: sin esta regla salían pegados y el QR a la izquierda.
+    expect(page).toContain('<div id="btcLive" class="btc-live">');
+    expect(page).toMatch(/\.btc-live\{[^}]*display:flex[^}]*flex-direction:column[^}]*align-items:center[^}]*gap:\.9rem[^}]*\}/);
+    // El «hidden» que pone el JS al fallar la factura gana al display:flex.
+    expect(page).toContain('.btc [hidden]{display:none!important}');
   });
 
   it.each(PAY_LANGUAGES)('sale en %s con su título y su botón', (lang) => {

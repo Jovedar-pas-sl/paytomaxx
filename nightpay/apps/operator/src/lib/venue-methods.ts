@@ -104,6 +104,8 @@ export interface VenueFeed {
   methods: VenuePaymentMethods;
   night: VenueNightSettings;
   rights: MyRights | null;
+  /** El nombre del local (null: aún no llega). */
+  venueName: string | null;
   /** OxioParty: el local y la caseta de quien entra (la cabecera de la barra y la taquilla). */
   identity: VenueIdentity;
 }
@@ -119,7 +121,13 @@ function localStorageOrNull(): Storage | null {
 
 /** Las formas de cobro, los ajustes de la noche y lo que puede quien entra, pedidos una vez al entrar (y si cambia el usuario). */
 export function useVenueMethodsFeed(userId: string): VenueFeed {
-  const [feed, setFeed] = useState<VenueFeed>({ methods: DEFAULT_PAYMENT_METHODS, night: DEFAULT_NIGHT_SETTINGS, rights: null, identity: NO_IDENTITY });
+  const [feed, setFeed] = useState<VenueFeed>({
+    methods: DEFAULT_PAYMENT_METHODS,
+    night: DEFAULT_NIGHT_SETTINGS,
+    rights: null,
+    venueName: null,
+    identity: NO_IDENTITY,
+  });
   useEffect(() => {
     let cancelled = false;
     fetchVenueFeed()
@@ -133,6 +141,7 @@ export function useVenueMethodsFeed(userId: string): VenueFeed {
           methods: paymentMethodsOf(venue.paymentMethods),
           night,
           rights: myRightsOf(venue.myPost, venue.myRights),
+          venueName: venue.name,
           identity: venueIdentityOf({ name: venue.name, stall: venue.stall }),
         });
       })
@@ -144,4 +153,11 @@ export function useVenueMethodsFeed(userId: string): VenueFeed {
     };
   }, [userId]);
   return feed;
+}
+
+/** El nombre del local, para el ticket impreso (null: aún no se sabe). */
+export const VenueNameContext = createContext<string | null>(null);
+
+export function useVenueName(): string | null {
+  return useContext(VenueNameContext);
 }

@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useId, useRef, useState, type CSSProperties, type ReactNode } from 'react';
-import { cashHow, OutcomeHowCard, ScreenHelp, SectionChip } from '@nightpay/ui';
+import { cashHow, OutcomeHowCard, PrintButton, ScreenHelp, SectionChip, usePrintTicket, type Ticket } from '@nightpay/ui';
 import { playOutcomeSound } from '@/lib/alert-sound';
 import { isParty, pulseraText } from '@/lib/edition';
 import { formatEur } from '@/lib/money';
@@ -21,7 +21,7 @@ interface Props {
   /** La referencia de arriba: el código del saldo (P9H-2XT). */
   reference: string | null;
   /** El bloque de debajo del importe: «Efectivo: 50 € a la caja». */
-  money: { icon: 'cash' | 'card'; label: string; amount: string; tail: string } | null;
+  money: { icon: 'cash' | 'card' | 'bitcoin'; label: string; amount: string; tail: string } | null;
   /** «Dale el NFC · ficha nº 0522». */
   meta: string;
   /** Algo que no salió (el NFC no se pudo dar…): el dinero sí está. */
@@ -47,6 +47,8 @@ interface Props {
    * ser la tarjeta de «cómo se pagó» (En efectivo · Mételo en la caja · Cobró…).
    */
   cashBy?: string | null;
+  /** CARGADO: el ticket de la carga que sale con «Imprimir ticket» (papel de 58 mm). */
+  print?: Ticket | null;
 }
 
 /** «En efectivo · Mételo en la caja»; con comisión, también cuánto va a la caja (no es el mismo importe). */
@@ -91,7 +93,9 @@ export function DeskLoaded({
   aviso = null,
   tertiary = null,
   cashBy = null,
+  print = null,
 }: Props) {
+  const printer = usePrintTicket();
   // La hora a la que salió la pantalla (no cambia al repintar).
   const [shownAt] = useState(() => new Date());
   const titleId = useId();
@@ -167,9 +171,11 @@ export function DeskLoaded({
               {secondary.label}
             </button>
           ) : null}
+          {print ? <PrintButton label="Imprimir ticket" onClick={() => printer.print(print)} /> : null}
         </div>
         {tertiary}
       </div>
+      {printer.ticketNode}
       <p role="status" aria-live="polite" className="np-sr-only">
         {announce}
       </p>

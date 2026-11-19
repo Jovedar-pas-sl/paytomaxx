@@ -15,6 +15,8 @@ const n = (v: Num): number => Number(v ?? 0);
 
 export interface MetricsPeriod {
   count: number;
+  /** …de ellos, pagados con bitcoin: no son «pagos con tarjeta». Solo si los hubo. */
+  bitcoinCount?: number;
   /** Sin propinas (como en el Z, el IVA y la gestoría). */
   grossCents: number;
   tipCents: number;
@@ -34,6 +36,7 @@ export interface MetricsPeriod {
 export function metricsPeriod(t: PeriodTotals): MetricsPeriod {
   return {
     count: t.paymentCount,
+    ...(t.bitcoinCount ? { bitcoinCount: t.bitcoinCount } : {}),
     grossCents: t.grossCents,
     tipCents: t.tipCents,
     chargedCents: chargedCents(t),

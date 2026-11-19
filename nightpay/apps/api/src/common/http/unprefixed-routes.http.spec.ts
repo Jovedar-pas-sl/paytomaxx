@@ -18,7 +18,7 @@ import { UNPREFIXED_ROUTES } from './unprefixed-routes';
  * Así no vuelve a pasar lo de «Recargar»: POST /w/:token/topup quedó en
  * /v1/w/... y la página, que lo llama sin /v1, daba 404.
  */
-const CUSTOMER_SEGMENTS = new Set(['pay', 'w', 's', 'c', 'r']);
+const CUSTOMER_SEGMENTS = new Set(['pay', 'w', 's', 'c', 'r', 'reservar', 'reservas', 'legal']);
 const MODULES_DIR = join(__dirname, '..', '..', 'modules');
 
 interface PublicRoute {

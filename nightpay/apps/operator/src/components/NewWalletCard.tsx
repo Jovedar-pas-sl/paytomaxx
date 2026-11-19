@@ -6,6 +6,7 @@ import { walletCardUrl } from '@nightpay/contracts';
 import { fetchWalletById, getUser, issueWalletCard, linkWalletCard, setWalletPin, type WalletLookup } from '@/lib/api';
 import { blankCodeFrom, tapChip } from '@/lib/chip-tap';
 import { saveFichaContext } from '@/lib/ficha-context';
+import { fichaPlace, useReaderSpot } from '@/lib/lector-nfc';
 import { nfcSupported } from '@/lib/nfc';
 import { PinPad } from './PinPad';
 
@@ -22,6 +23,7 @@ export function NewWalletCard({ walletId, withCard = true }: { walletId: string;
   const [nfc, setNfc] = useState(false);
   const [reading, setReading] = useState<AbortController | null>(null);
   const [iphoneHint, setIphoneHint] = useState(false);
+  const readerSpot = useReaderSpot();
   // Código para una ficha vacía: se pide una vez y se guarda hasta intentar grabarlo.
   const blank = useMemo(() => blankCodeFrom(issueWalletCard, (token) => walletCardUrl(window.location.origin, token)), []);
 
@@ -110,15 +112,15 @@ export function NewWalletCard({ walletId, withCard = true }: { walletId: string;
         <p style={okStyle}>✓ Tiene ficha: la acerca y pone su PIN</p>
       ) : reading ? (
         <Button variant="ghost" onClick={() => reading.abort()}>
-          Acerca la ficha a la parte de atrás del móvil… (cancelar)
+          Acerca la ficha {fichaPlace(readerSpot, 'móvil')}… (cancelar)
         </Button>
       ) : nfc ? (
         <Button variant="ghost" onClick={() => void giveCard(wallet.code)}>
-          Darle una ficha NFC
+          Darle una ficha
         </Button>
       ) : (
         <Button variant="ghost" onClick={() => giveCardIphone(wallet.code)}>
-          Darle una ficha NFC
+          Darle una ficha
         </Button>
       )}
       {withCard && iphoneHint && !wallet.hasCard ? (

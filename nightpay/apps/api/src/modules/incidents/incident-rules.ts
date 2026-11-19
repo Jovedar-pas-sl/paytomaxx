@@ -4,11 +4,14 @@
  * solas (un doble cobro, un descuento que falló…) se marcan como revisadas.
  */
 
+import { formatChargeRef } from '@nightpay/contracts';
 import { BRAND_NAME } from '../../common/brand';
 import { madridDay } from '../../common/time/madrid';
 import type { BackupVerdict } from '../db-backups/backup-check';
 import { SALDOS_TAB_PATH } from '../wallets/saldo-texts';
 import { formatWalletCode } from '../wallets/wallet-rules';
+import { PAID_AFTER_CANCEL_REASON } from '../payments/paid-after-cancel';
+import { bitcoinAnomalyIncident } from './bitcoin-incidents';
 
 export type IncidentKind =
   | 'stuck_payment'
@@ -21,6 +24,7 @@ export type IncidentKind =
   | 'pos_unreconciled'
   | 'pos_voided_paid'
   | 'wallet_close_requested'
+  // Ya no sale: el saldo que queda tras la noche es para la próxima visita (17-nov-2026).
   | 'wallet_open_balance'
   | 'bank_mismatch'
   | 'backup_stale'
@@ -36,7 +40,9 @@ export type IncidentKind =
   | 'reception_payout_cap'
   | 'wallet_topup_unassigned'
   | 'wallet_card_lost'
-  | 'sensitive_action';
+  | 'wallet_charge_disputed'
+  | 'sensitive_action'
+  | 'bitcoin_overpaid';
 
 /** Las que desaparecen solas al resolverse (no se marcan como revisadas). */
 export const SELF_RESOLVING: ReadonlySet<IncidentKind> = new Set<IncidentKind>([
@@ -72,7 +78,9 @@ export const ACKABLE_KINDS = [
   'cash_split_suspected',
   'reception_payout_cap',
   'wallet_card_lost',
+  'wallet_charge_disputed',
   'sensitive_action',
+  'bitcoin_overpaid',
 ] as const satisfies readonly IncidentKind[];
 
 /**
@@ -94,6 +102,9 @@ const MONEY_ACK_KINDS: ReadonlySet<IncidentKind> = new Set<IncidentKind>([
   'cash_split_suspected',
   'reception_payout_cap',
   'bank_mismatch',
+  // «No he sido yo»: se cierra diciendo qué se hizo (devuelto, era suyo…).
+  'wallet_charge_disputed',
+  'bitcoin_overpaid',
 ]);
 
 /** Letras mínimas de la nota de un aviso de dinero (como la del cierre con cobros sin terminar). */
@@ -126,6 +137,16 @@ export interface Incident {
    * el local no quiere nombres (Ajustes → Avisos). Sin él, el detalle no lleva nombres.
    */
   alertDetail?: string;
+  /**
+   * Bitcoin sin cobro que se puede devolver en efectivo (si el local lo tiene
+   * encendido): la factura de BTCPay y lo máximo, lo que llegó en € de la factura.
+   */
+  cashReturn?: { invoiceId: string; maxCents: number };
+  /**
+   * «Pagó después de cancelar» con el cobro aún cancelado: el encargado o el
+   * dueño, con su 2FA, lo puede dar por bueno (pasa a pagado con su nota).
+   */
+  acceptable?: boolean;
 }
 
 /** Filas crudas que lee el servicio, una por tipo. */
@@ -134,6 +155,8 @@ export interface StuckRow {
   status: string;
   amountCents: number;
   updatedAt: Date;
+  /** BTCPAY: paga con bitcoin (no hay banco: se mira su factura en BTCPay). Sin el campo, el banco. */
+  provider?: string | null;
 }
 export interface EventRow {
   id: string;
@@ -161,11 +184,15 @@ function str(payload: unknown, key: string): string | null {
 
 export function stuckIncident(r: StuckRow): Incident {
   const orphan = r.status === 'ORPHAN';
+  const bitcoin = r.provider === 'BTCPAY';
   return {
     kind: 'stuck_payment',
     refId: r.id,
-    title: orphan ? 'Cobro sin confirmar por el banco' : 'Cobro atascado esperando al banco',
-    detail: `${eur(r.amountCents)}. Búscalo en el portal de BBVA y resuélvelo en Hoy → Cobros → Resolver.`,
+    title: bitcoin ? 'Cobro con bitcoin sin terminar' : orphan ? 'Cobro sin confirmar por el banco' : 'Cobro atascado esperando al banco',
+    // Con bitcoin no hay banco: su factura en BTCPay dice si se pagó (y su id es lo que pide «Resolver»).
+    detail: bitcoin
+      ? `${eur(r.amountCents)}. Mira su factura en tu BTCPay (Facturas, por importe y hora) y resuélvelo en Hoy → Cobros → Resolver con el id de la factura.`
+      : `${eur(r.amountCents)}. Búscalo en el portal de BBVA y resuélvelo en Hoy → Cobros → Resolver.`,
     occurredAt: r.updatedAt.toISOString(),
     amountCents: r.amountCents,
     paymentId: r.id,
@@ -277,6 +304,32 @@ export function walletCardLostIncident(r: EventRow): Incident {
   };
 }
 
+/**
+ * «No he sido yo»: el cliente dice, desde el aviso de un cobro en su móvil,
+ * que ese cobro de su saldo no lo hizo él (ChargeDisputeService). Su ficha y
+ * su PIN ya no pagan; el dinero no se ha devuelto: lo decide el local.
+ */
+export function walletChargeDisputedIncident(r: EventRow): Incident {
+  const ref = str(r.payload, 'ref');
+  const code = str(r.payload, 'code');
+  const amount = r.amountCents !== null ? ` de ${eur(r.amountCents)}` : '';
+  const what = `El cliente dice que no ha sido él: cobro ${ref ?? 'del saldo'}${amount}`;
+  const blocked = 'Su ficha y su PIN ya no pagan (con su Face ID, sí).';
+  const todo = 'Revisa el cobro con quien lo hizo y, si procede, devuélvelo. Después, el encargado desbloquea su PIN en Saldos y recepción le da una ficha nueva.';
+  return {
+    kind: 'wallet_charge_disputed',
+    refId: r.id,
+    title: 'Un cliente dice que no ha sido él',
+    detail: `${what}${code ? ` (saldo ${code})` : ''}. ${blocked} ${todo}`,
+    // Telegram es un tercero: sin el código del cliente.
+    alertDetail: `${what}. ${blocked} ${todo}`,
+    occurredAt: r.occurredAt.toISOString(),
+    amountCents: r.amountCents,
+    paymentId: null,
+    ackable: true,
+  };
+}
+
 /** Lo que dice cada acción delicada: quién (si el registro lo sabe) va delante en el panel, no en Telegram. */
 const SENSITIVE_ACTIONS: Readonly<Record<string, { title: string; detail: string }>> = {
   'wallet.charge_without_faceid': {
@@ -306,6 +359,10 @@ const SENSITIVE_ACTIONS: Readonly<Record<string, { title: string; detail: string
   'payment.manual_reconcile': {
     title: 'Cobro dado por pagado a mano',
     detail: 'ha marcado un cobro como pagado, con su 2FA. Comprueba que está en el portal del banco.',
+  },
+  'payment.accepted_after_cancel': {
+    title: 'Cobro cancelado dado por bueno',
+    detail: 'ha dado por bueno un cobro que el banco cobró después de cancelarlo, con su 2FA. Ahora cuenta como pagado.',
   },
   'operator.left_with_balance': {
     title: 'Baja con dinero sin cobrar',
@@ -342,7 +399,7 @@ export function sensitiveActionIncident(r: EventRow & { action: string; actorNam
     alertDetail: startsLower ? `Alguien del personal ${copy.detail}` : copy.detail,
     occurredAt: r.occurredAt.toISOString(),
     amountCents: r.amountCents,
-    paymentId: r.action === 'payment.manual_reconcile' ? r.paymentId : null,
+    paymentId: r.action === 'payment.manual_reconcile' || r.action === 'payment.accepted_after_cancel' ? r.paymentId : null,
     ackable: true,
   };
 }
@@ -433,22 +490,42 @@ export interface WalletBalanceRow {
   shortCode: string | null;
   balanceCents: number;
   occurredAt: Date;
+  /** De ese saldo, lo que entró con bitcoin: no se devuelve (se queda como saldo para otra noche). */
+  bitcoinCents?: number;
 }
+
+/** La parte del saldo que entró con bitcoin (decisión del dueño, fase D). */
+export const BITCOIN_STAYS_TEXT = 'esta parte entró con bitcoin: se queda como saldo para otra noche, no se devuelve';
 
 /** « · código K7Q-4M2»: como lo ve el cliente en su móvil (con guion); sin código, nada. */
 function codeText(shortCode: string | null): string {
   return shortCode ? ` · código ${formatWalletCode(shortCode)}` : '';
 }
 
-/** El cliente pulsó "Me voy": hay que devolverle el saldo. */
+/**
+ * Una devolución del saldo pedida ANTES de que el saldo dejara de devolverse
+ * (17-nov-2026: «Me voy», o recepción la dejó para el encargado o «A la
+ * tarjeta») y aún sin terminar: se termina en Saldos → «Terminar devolución».
+ * Nada nuevo pide una. La parte que entró con bitcoin no se devuelve (se
+ * queda como saldo para otra noche): se dice aparte y no cuenta.
+ */
 export function walletCloseRequestedIncident(r: WalletBalanceRow): Incident {
+  const bitcoin = Math.max(0, Math.min(r.balanceCents, r.bitcoinCents ?? 0));
+  const refundable = r.balanceCents - bitcoin;
+  const where = `${SALDOS_TAB_PATH} → Terminar devolución (en efectivo o a la tarjeta)`;
+  const detail =
+    bitcoin === 0
+      ? `${eur(r.balanceCents)}${codeText(r.shortCode)}. Termínala en ${where}.`
+      : refundable === 0
+        ? `${eur(r.balanceCents)}${codeText(r.shortCode)}: todo entró con bitcoin. ${capitalize(BITCOIN_STAYS_TEXT)}.`
+        : `${eur(r.balanceCents)}${codeText(r.shortCode)}. Termina la devolución de ${eur(refundable)} en ${where}. Los otros ${eur(bitcoin)}: ${BITCOIN_STAYS_TEXT}.`;
   return {
     kind: 'wallet_close_requested',
     refId: r.id,
-    title: 'Un cliente pide que le devuelvan su saldo',
-    detail: `${eur(r.balanceCents)}${codeText(r.shortCode)}. Devuélveselo en ${SALDOS_TAB_PATH} → Devolver saldo (tarjeta o efectivo).`,
+    title: 'Devolución de saldo pedida antes de la nueva regla',
+    detail,
     occurredAt: r.occurredAt.toISOString(),
-    amountCents: r.balanceCents,
+    amountCents: refundable,
     paymentId: null,
     ackable: false,
   };
@@ -467,20 +544,6 @@ export function walletTopUpUnassignedIncident(r: PendingTopUpRow): Incident {
     refId: r.id,
     title: 'Recarga pendiente de asignar',
     detail: `${eur(r.balanceCents)} cobrados sin el NFC del cliente. Asígnala a su saldo: en Recepción → Pendientes de asignar (acercando su NFC) o en Clientes → Saldos (con su código). El dinero no se pierde: sigue en esa recarga.`,
-    occurredAt: r.occurredAt.toISOString(),
-    amountCents: r.balanceCents,
-    paymentId: null,
-    ackable: false,
-  };
-}
-
-/** Saldo que nadie ha devuelto tras cerrar la noche (08:00): que no se olvide. */
-export function walletOpenBalanceIncident(r: WalletBalanceRow): Incident {
-  return {
-    kind: 'wallet_open_balance',
-    refId: r.id,
-    title: 'Saldo de un cliente sin devolver',
-    detail: `${eur(r.balanceCents)}${codeText(r.shortCode)}. Si el cliente ya se fue, devuélveselo a la tarjeta en ${SALDOS_TAB_PATH} → Devolver saldo.`,
     occurredAt: r.occurredAt.toISOString(),
     amountCents: r.balanceCents,
     paymentId: null,
@@ -540,7 +603,7 @@ const BANK_TEXT: Record<string, { title: string; hint: string }> = {
   },
   REFUND_NOT_IN_OXIOPAY: {
     title: 'Devolución hecha en el banco sin apuntar',
-    hint: 'Si es de un cobro, apúntala en Hoy → Cobros → Devolución BBVA para que cuadre la parte de la chica. Si es de una recarga, esa pantalla no la admite: devuelve lo que quede con «Devolver saldo»; si ya se gastó, es dinero perdido: apúntalo aparte y márcala como revisada.',
+    hint: 'Si es de un cobro, apúntala en Hoy → Cobros → Devolución BBVA para que cuadre la parte de la compañera. Si es de una recarga, el saldo no se devuelve: averigua quién la hizo en el banco, apúntalo aparte y márcala como revisada.',
   },
   REFUND_NOT_IN_BANK: {
     title: 'Devolución apuntada que el banco no tiene',
@@ -628,6 +691,10 @@ export function backupIncidents(verdict: BackupVerdict, now: Date, production: b
  */
 export interface PaymentAnomalyRow extends EventRow {
   eventType: string;
+  /** El estado del cobro ahora (bitcoin: si ya estaba cerrado cuando llegó). Sin el campo, no se sabe. */
+  paymentStatus?: string;
+  /** La referencia corta del cobro (17 → «C-0017»). */
+  ref?: number | null;
 }
 
 /** Quién avisa y dónde comprobarlo, por pasarela. */
@@ -657,11 +724,44 @@ function num(payload: unknown, key: string): number | null {
   return typeof v === 'number' && Number.isFinite(v) ? v : null;
 }
 
+/**
+ * «Pagó después de cancelar: C-0012, 12,00 €» (paid-after-cancel.ts): el
+ * personal canceló el cobro y el banco lo cobró después. Sigue cancelado; se
+ * cierra con una nota (devuelto en el banco o dado por bueno). Sin datos del
+ * cliente: va también a Telegram.
+ */
+function paidAfterCancelIncident(
+  r: PaymentAnomalyRow,
+  base: { occurredAt: string; paymentId: string | null },
+  where: string,
+  orderText: string,
+): Incident {
+  const charged = num(r.payload, 'amountCents') ?? r.amountCents;
+  const ref = formatChargeRef(r.ref ?? null) ?? 'un cobro';
+  const still = r.paymentStatus === undefined || r.paymentStatus === 'CANCELED';
+  return {
+    ...base,
+    kind: 'approval_unbooked',
+    refId: r.id,
+    title: `Pagó después de cancelar: ${ref}${charged === null ? '' : `, ${eur(charged)}`}`,
+    detail: still
+      ? `El cliente terminó de pagar en su banco después de cancelar el cobro${orderText}. El cobro sigue cancelado: no se ha devuelto ni se ha dado por pagado. Devuélveselo desde ${where} o, si se queda, dalo por bueno. Ciérrala diciendo qué hiciste.`
+      : `El cliente terminó de pagar en su banco después de cancelar el cobro${orderText}. Ya está dado por bueno: ciérrala con una nota.`,
+    amountCents: charged,
+    ackable: true,
+    ...(still ? { acceptable: true } : {}),
+  };
+}
+
 export function paymentAnomalyIncident(r: PaymentAnomalyRow): Incident {
   const provider = PROVIDER_TEXT[str(r.payload, 'provider') ?? ''] ?? UNKNOWN_PROVIDER_TEXT;
   const order = str(r.payload, 'providerTxId');
   const orderText = order ? ` (pedido ${order})` : '';
   const base = { occurredAt: r.occurredAt.toISOString(), paymentId: r.paymentId };
+  if (str(r.payload, 'provider') === 'BTCPAY') {
+    const btc = bitcoinAnomalyIncident(r, base);
+    if (btc) return btc;
+  }
 
   if (r.eventType === 'payment.amount_mismatch') {
     const charged = num(r.payload, 'chargedCents');
@@ -691,6 +791,9 @@ export function paymentAnomalyIncident(r: PaymentAnomalyRow): Incident {
       ackable: true,
     };
   }
+  if (r.eventType === 'payment.approval_unbooked' && str(r.payload, 'reason') === PAID_AFTER_CANCEL_REASON) {
+    return paidAfterCancelIncident(r, base, provider.where, orderText);
+  }
   if (r.eventType === 'payment.approval_unbooked') {
     const status = STATUS_TEXT[str(r.payload, 'fromStatus') ?? ''] ?? 'cerrado';
     return {
@@ -717,7 +820,7 @@ export function paymentAnomalyIncident(r: PaymentAnomalyRow): Incident {
       kind: 'approval_unverified',
       refId: r.paymentId ?? r.id,
       title: known?.title ?? 'Una factura de bitcoin no cuadra con el cobro',
-      detail: `${known?.what ?? 'BTCPay avisa de una factura cuyo importe, moneda o tienda no coinciden con el cobro.'} NO se ha dado por pagado${r.amountCents === null ? '' : ` (${eur(r.amountCents)})`}${orderText}. Míralo en ${provider.where}: devuelve el bitcoin recibido desde la cartera del local y cancela el cobro, o, si ya está todo cobrado, resuélvelo en Hoy → Cobros → Resolver.`,
+      detail: `${known?.what ?? 'BTCPay avisa de una factura cuyo importe, moneda o tienda no coinciden con el cobro.'} NO se ha dado por pagado${r.amountCents === null ? '' : ` (${eur(r.amountCents)})`}${orderText}. Míralo en ${provider.where}: lo recibido se devuelve en euros (nunca en bitcoin) y se cancela el cobro, o, si ya está todo cobrado, resuélvelo en Hoy → Cobros → Resolver.`,
       amountCents: r.amountCents,
       ackable: false,
     };
@@ -889,4 +992,8 @@ export function openIncidents(all: ReadonlyArray<Incident>, acked: ReadonlySet<s
 
 export function ackKey(kind: string, refId: string): string {
   return `${kind}:${refId}`;
+}
+
+function capitalize(text: string): string {
+  return text.charAt(0).toUpperCase() + text.slice(1);
 }

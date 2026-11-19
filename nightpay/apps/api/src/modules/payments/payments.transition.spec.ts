@@ -46,6 +46,10 @@ export interface FakeDb {
   reusedAuthCode?: boolean;
   /** Segunda aprobación: ¿el pedido es un intento de este cobro? ¿ya apuntada? */
   secondApproval?: { isAttempt: boolean; recorded: boolean };
+  /** Cancelar con el cliente en su banco: desde cuándo está allí (null: sin marca) y la hora de la base. */
+  bank?: { since: Date | null; now: Date };
+  /** Su factura de bitcoin ya está en la red (Processing). */
+  bitcoinProcessing?: boolean;
 }
 
 function sqlOf(strings: unknown): string {
@@ -58,6 +62,9 @@ function makeTransitionService(db: FakeDb) {
     const sql = sqlOf(strings);
     if (sql.includes('FROM payments') && sql.includes('FOR UPDATE')) return [db.locked];
     if (sql.includes('AS "isAttempt"')) return [db.secondApproval ?? { isAttempt: false, recorded: false }];
+    // Desde cuándo está el cliente en su banco (cancel-at-bank.ts).
+    if (sql.includes(`'payment.authorizing'`)) return db.bank ? [{ id: PAYMENT_ID, since: db.bank.since, now: db.bank.now }] : [];
+    if (sql.includes('FROM btcpay_invoices')) return db.bitcoinProcessing ? [{ one: 1 }] : [];
     if (sql.includes('FROM payment_attempts')) {
       return db.attemptTip === undefined ? [] : [{ tipCents: db.attemptTip, creatorRole: db.creatorRole ?? 'OPERATOR' }];
     }
@@ -292,6 +299,12 @@ describe('transition — recarga de saldo cobrada (#7, #56)', () => {
     expect(audits(executed)).toHaveLength(0);
   });
 
+  it('el cliente recarga: un «Me voy» de antes ya no vale (como en efectivo), el saldo se queda', async () => {
+    const { service, executed } = makeTransitionService({ locked: topUp, attemptTip: 0, wallets: { [WALLET]: w() } });
+    await service.transition(PAYMENT_ID, authorized);
+    expect(credits(executed)[0]!.sql).toMatch(/"closeRequestedAt" = NULL/);
+  });
+
   it('saldo ya sumado a otro (Face ID) → al saldo bueno, con constancia', async () => {
     const { service, executed } = makeTransitionService({
       locked: topUp,
@@ -379,14 +392,88 @@ describe('cancel — quién puede cancelar', () => {
     expect(updates('SET status')[0]!.values[0]).toBe('CANCELED');
   });
 
-  it('el camarero no cancela los de otro (ni la chica los de otra)', async () => {
-    const { service, updates } = makeTransitionService({ locked, payment: { ...created, createdByUserId: 'op-1' } });
-    await expect(service.cancel(PAYMENT_ID, { userId: 'waiter-1', role: 'WAITER', tenantId: 'tenant-1' })).rejects.toThrow(
-      /que has creado tú/,
-    );
-    await expect(service.cancel(PAYMENT_ID, { userId: 'op-2', role: 'OPERATOR', tenantId: 'tenant-1' })).rejects.toThrow(
-      /otra operadora/,
-    );
+  it('el camarero cancela el de otra persona (antes 403) y la chica el de otra chica', async () => {
+    for (const actor of [
+      { userId: 'waiter-1', role: 'WAITER' },
+      { userId: 'op-2', role: 'OPERATOR' },
+    ]) {
+      const { service, updates, executed } = makeTransitionService({ locked, payment: { ...created, createdByUserId: 'op-1' } });
+      await expect(service.cancel(PAYMENT_ID, { ...actor, tenantId: 'tenant-1' })).resolves.toEqual({ status: 'CANCELED' });
+      expect(updates('SET status')[0]!.values[0]).toBe('CANCELED');
+      // Queda quién lo canceló.
+      const ev = executed.find((e) => e.sql.includes('INSERT INTO payment_events'))!;
+      expect(JSON.parse(ev.values[3] as string)).toMatchObject({ type: 'CANCELED', reason: 'user-canceled', byUserId: actor.userId });
+    }
+  });
+
+  describe('con el cliente en su banco (AUTHORIZING): 2 minutos sin poder cancelar', () => {
+    const dbNow = new Date('2026-11-16T23:40:00.000Z');
+    const ago = (s: number) => new Date(dbNow.getTime() - s * 1000);
+    const atBank = (provider: LockedPaymentRow['provider'], since: Date | null) =>
+      makeTransitionService({
+        locked: { ...baseRow, status: 'AUTHORIZING' as const, provider },
+        payment: { ...created, status: 'AUTHORIZING', createdByUserId: 'op-1' },
+        bank: { since, now: dbNow },
+      });
+    const waiter = { userId: 'waiter-1', role: 'WAITER', tenantId: 'tenant-1' };
+
+    it('antes de los 2 minutos: 409 CANCEL_AT_BANK_TOO_SOON con lo que falta, y no se toca nada', async () => {
+      const { service, updates } = atBank('REDSYS', ago(30));
+      const err = await service.cancel(PAYMENT_ID, waiter).catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(ConflictException);
+      expect((err as ConflictException).getResponse()).toMatchObject({ code: 'CANCEL_AT_BANK_TOO_SOON', retryInSeconds: 90 });
+      expect(updates('SET status')).toHaveLength(0);
+      expect(updates('INSERT INTO payment_events')).toHaveLength(0);
+    });
+
+    it('justo a los 2 minutos y después: se cancela (si el banco lo cobra luego, queda en Incidencias)', async () => {
+      for (const since of [ago(120), ago(121), ago(900)]) {
+        const { service, updates } = atBank('REDSYS', since);
+        await expect(service.cancel(PAYMENT_ID, waiter)).resolves.toEqual({ status: 'CANCELED' });
+        expect(updates('SET status')[0]!.values[0]).toBe('CANCELED');
+      }
+    });
+
+    it('cualquier pasarela con banco (Paytef, Peanpe): la misma espera', async () => {
+      for (const provider of ['PAYTEF', 'PEANPE'] as const) {
+        const { service } = atBank(provider, ago(119));
+        await expect(service.cancel(PAYMENT_ID, waiter)).rejects.toMatchObject({ response: { code: 'CANCEL_AT_BANK_TOO_SOON', retryInSeconds: 1 } });
+      }
+    });
+
+    it('con la factura de bitcoin abierta: sin espera', async () => {
+      const { service, updates, tx } = atBank('BTCPAY', ago(5));
+      await expect(service.cancel(PAYMENT_ID, waiter)).resolves.toEqual({ status: 'CANCELED' });
+      expect(updates('SET status')[0]!.values[0]).toBe('CANCELED');
+      // Ni siquiera se mira desde cuándo.
+      const asked = tx.$queryRaw.mock.calls.map((c) => sqlOf(c[0]));
+      expect(asked.some((sql) => sql.includes(`'payment.authorizing'`))).toBe(false);
+    });
+
+    it('sin marca de cuándo salió al banco (un cobro muy antiguo): no se frena', async () => {
+      const { service } = atBank('REDSYS', null);
+      await expect(service.cancel(PAYMENT_ID, waiter)).resolves.toEqual({ status: 'CANCELED' });
+    });
+
+    it('la espera se mira con el cobro bloqueado y en el local del cobro', async () => {
+      const { service, tx } = atBank('REDSYS', ago(10));
+      await service.cancel(PAYMENT_ID, waiter).catch(() => undefined);
+      const calls = tx.$queryRaw.mock.calls.map((c) => ({ sql: sqlOf(c[0]), values: c.slice(1) }));
+      const lock = calls.findIndex((c) => c.sql.includes('FOR UPDATE'));
+      const since = calls.findIndex((c) => c.sql.includes(`'payment.authorizing'`));
+      expect(lock).toBeGreaterThanOrEqual(0);
+      expect(since).toBeGreaterThan(lock);
+      expect(calls[since]!.sql).toContain('"tenantId" = ?');
+      expect(calls[since]!.values).toEqual(['tenant-1', [PAYMENT_ID]]);
+    });
+  });
+
+  it('pagado: 409, no se cancela', async () => {
+    const { service, updates } = makeTransitionService({
+      locked: { ...baseRow, status: 'AUTHORIZED' as const },
+      payment: { ...created, status: 'AUTHORIZED' },
+    });
+    await expect(service.cancel(PAYMENT_ID, { userId: 'waiter-1', role: 'WAITER', tenantId: 'tenant-1' })).rejects.toThrow(/cannot be canceled/);
     expect(updates('SET status')).toHaveLength(0);
   });
 
@@ -395,6 +482,99 @@ describe('cancel — quién puede cancelar', () => {
     await expect(
       service.cancel(PAYMENT_ID, { userId: 'manager-1', role: 'MANAGER', tenantId: 'tenant-1' }),
     ).resolves.toEqual({ status: 'CANCELED' });
+  });
+
+  it('la recarga cobrada en el datáfono sin comprobar (la tarjeta ya pagó): nadie la cancela, 409 CANCEL_HELD_ON_READER sin escribir nada', async () => {
+    // Como la deja PosDeviceService.holdUnproven: AUTHORIZING, Paytef y la operación del datáfono.
+    const hold: LockedPaymentRow = {
+      ...baseRow,
+      status: 'AUTHORIZING',
+      provider: 'PAYTEF',
+      providerTxId: '99812',
+      posOperationNumber: '99812',
+      createdByUserId: null,
+    };
+    for (const role of ['OPERATOR', 'WAITER', 'MANAGER', 'OWNER']) {
+      const { service, executed } = makeTransitionService({
+        locked: hold,
+        payment: { ...created, status: 'AUTHORIZING', createdByUserId: null },
+      });
+      const err = await service.cancel(PAYMENT_ID, { userId: 'u-1', role, tenantId: 'tenant-1' }).catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(ConflictException);
+      expect((err as ConflictException).getResponse()).toEqual({
+        code: 'CANCEL_HELD_ON_READER',
+        message: 'Cobrado en el datáfono: lo comprueba el dueño en Hoy → Cobros → Resolver',
+      });
+      // Ni el estado, ni el evento, ni el móvil de quien lo intentó.
+      expect(executed).toHaveLength(0);
+    }
+  });
+
+  it('la operación del datáfono solo frena con el cobro esperando a que la comprueben: pagada, el 409 de siempre', async () => {
+    const { service, updates } = makeTransitionService({
+      locked: { ...baseRow, status: 'AUTHORIZED', provider: 'PAYTEF', posOperationNumber: '99812' },
+      payment: { ...created, status: 'AUTHORIZED' },
+    });
+    await expect(service.cancel(PAYMENT_ID, { userId: 'waiter-1', role: 'WAITER', tenantId: 'tenant-1' })).rejects.toThrow(/cannot be canceled/);
+    expect(updates('SET status')).toHaveLength(0);
+  });
+});
+
+describe('cancelReservationPayment — el pago a medias de un reservado al anularlo o al elegir otro pago', () => {
+  /** El servicio con un cierre de factura de bitcoin apuntado (como BtcpayInvoiceService.closeOnCancel). */
+  function withHook(db: FakeDb) {
+    const made = makeTransitionService(db);
+    const hook = vi.fn(async (_paymentId: string, _tenantId: string) => undefined);
+    Object.assign(made.service, { cancelHooks: [hook] });
+    return { ...made, hook };
+  }
+  const event = { reason: 'Reserva anulada por el local', byUserId: 'manager-1' };
+
+  it('sin empezar (CREATED o AWAITING_CAPTURE): se cancela, queda quién y por qué, y se cierra su factura', async () => {
+    for (const status of ['CREATED', 'AWAITING_CAPTURE'] as const) {
+      const { service, updates, executed, hook } = withHook({ locked: { ...baseRow, status, provider: null } });
+      await expect(service.cancelReservationPayment(PAYMENT_ID, 'tenant-1', event)).resolves.toBe(true);
+      expect(updates('SET status')[0]!.values[0]).toBe('CANCELED');
+      const ev = executed.find((e) => e.sql.includes('INSERT INTO payment_events'))!;
+      expect(JSON.parse(ev.values[3] as string)).toMatchObject({ type: 'CANCELED', ...event });
+      expect(hook).toHaveBeenCalledWith(PAYMENT_ID, 'tenant-1');
+    }
+  });
+
+  it('con la factura de bitcoin abierta (sin pago en la red): se cancela al momento y su factura se cierra', async () => {
+    const { service, updates, hook } = withHook({ locked: { ...baseRow, status: 'AUTHORIZING', provider: 'BTCPAY' } });
+    await expect(service.cancelReservationPayment(PAYMENT_ID, 'tenant-1', event)).resolves.toBe(true);
+    expect(updates('SET status')[0]!.values[0]).toBe('CANCELED');
+    expect(hook).toHaveBeenCalledTimes(1);
+  });
+
+  it('con el bitcoin ya en la red: 409 BITCOIN_CONFIRMING, nada escrito y la factura sigue abierta', async () => {
+    const { service, executed, hook } = withHook({ locked: { ...baseRow, status: 'AUTHORIZING', provider: 'BTCPAY' }, bitcoinProcessing: true });
+    const err = await service.cancelReservationPayment(PAYMENT_ID, 'tenant-1', event).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ConflictException);
+    expect((err as ConflictException).getResponse()).toMatchObject({ code: 'BITCOIN_CONFIRMING' });
+    expect(executed).toHaveLength(0);
+    expect(hook).not.toHaveBeenCalled();
+  });
+
+  it('con la tarjeta ya en el banco, pagado o cerrado: no se toca (false), ni se cierra nada', async () => {
+    for (const locked of [
+      { ...baseRow, status: 'AUTHORIZING' as const, provider: 'REDSYS' as const },
+      { ...baseRow, status: 'AUTHORIZED' as const, provider: 'BTCPAY' as const },
+      { ...baseRow, status: 'EXPIRED' as const, provider: null },
+    ]) {
+      const { service, executed, hook } = withHook({ locked });
+      await expect(service.cancelReservationPayment(PAYMENT_ID, 'tenant-1', event)).resolves.toBe(false);
+      expect(executed).toHaveLength(0);
+      expect(hook).not.toHaveBeenCalled();
+    }
+  });
+
+  it('el cliente que anula (sin persona del personal): sin byUserId en el evento', async () => {
+    const { service, executed } = withHook({ locked: { ...baseRow, status: 'CREATED', provider: null } });
+    await service.cancelReservationPayment(PAYMENT_ID, 'tenant-1', { reason: 'Reserva cancelada por el cliente' });
+    const ev = executed.find((e) => e.sql.includes('INSERT INTO payment_events'))!;
+    expect(JSON.parse(ev.values[3] as string)).toEqual({ type: 'CANCELED', reason: 'Reserva cancelada por el cliente' });
   });
 });
 

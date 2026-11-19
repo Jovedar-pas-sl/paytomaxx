@@ -7,11 +7,10 @@ import {
   decimalToCents,
   describeBtcpayFailure,
   judgeInvoice,
-  purposeAllows,
+  bitcoinOfferedFor,
   unifiedPaymentLink,
   verifyBtcpaySignature,
-  type InvoiceData,
-} from './btcpay-logic';
+  type InvoiceData, btcToSats, paidOfMethods, satsToBtc } from './btcpay-logic';
 
 describe('centsToDecimal / decimalToCents', () => {
   it.each([
@@ -245,18 +244,32 @@ describe('describeBtcpayFailure: mensajes para el dueño', () => {
   });
 });
 
-describe('purposeAllows: cobros, recargas o los dos', () => {
-  it.each([
-    ['PAYMENTS', false, true],
-    ['PAYMENTS', true, false],
-    ['TOPUPS', true, true],
-    ['TOPUPS', false, false],
-    ['BOTH', true, true],
-    ['BOTH', false, true],
-    ['RARO', true, false],
-    [undefined, false, false],
-    [null, true, false],
-  ])('%s con recarga=%s → %s', (purpose, topUp, expected) => {
-    expect(purposeAllows(purpose, topUp)).toBe(expected);
+describe('bitcoinOfferedFor: solo cargar saldo y reservados, nunca un cobro de la barra', () => {
+  it('una carga de saldo (la ficha o un reservado: los dos llevan su saldo) sí', () => {
+    expect(bitcoinOfferedFor({ walletId: '3f2a1b4c-0000-4000-8000-000000000001' })).toBe(true);
+  });
+
+  it('un cobro de la barra (sin saldo) no, nunca', () => {
+    expect(bitcoinOfferedFor({ walletId: null })).toBe(false);
+  });
+});
+
+describe('lo que llegó de verdad en la factura (pago a medias, de más o tarde)', () => {
+  it('suma la cadena y Lightning, en BTC y en € al cambio de cada método (hacia abajo)', () => {
+    expect(
+      paidOfMethods([
+        { paymentMethodPaid: '0.00050000', rate: '60000' },
+        { paymentMethodPaid: '0.00010001', rate: '60000.5' },
+      ]),
+    ).toEqual({ paidBtc: '0.00060001', paidCents: 3600 });
+    expect(btcToSats('1.5')).toBe(150_000_000n);
+    expect(satsToBtc(71_234n)).toBe('0.00071234');
+  });
+
+  it('sin dato (BTCPay viejo) o con algo raro, null: no se adivina', () => {
+    expect(paidOfMethods([{ rate: '60000' }])).toBeNull();
+    expect(paidOfMethods([{ paymentMethodPaid: '-1', rate: '60000' }])).toBeNull();
+    expect(paidOfMethods([{ paymentMethodPaid: '0.001', rate: '' }])).toBeNull();
+    expect(paidOfMethods([{ paymentMethodPaid: '0', rate: '' }])).toEqual({ paidBtc: '0.00000000', paidCents: 0 });
   });
 });

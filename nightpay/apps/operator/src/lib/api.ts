@@ -85,6 +85,14 @@ export async function operatorApiError(res: Response, context: string): Promise<
  * que puedes cobrar de una vez es 300 €", "Este PIN lo pusiste tú…").
  * NO devolvemos JSON crudo, stack, ni códigos técnicos.
  */
+/** «no encontrado» o «no encontrada», según la palabra (por ejemplo «Ficha no encontrada»). */
+const FEMININE_CONTEXTS = new Set(['ficha', 'recarga', 'cuenta', 'reserva', 'mesa', 'incidencia', 'devolución', 'factura', 'sesión', 'foto', 'pulsera']);
+
+export function notFoundWord(context: string): string {
+  const first = context.trim().split(/\s+/)[0]?.toLowerCase() ?? '';
+  return FEMININE_CONTEXTS.has(first) ? 'no encontrada' : 'no encontrado';
+}
+
 export function operatorErrorMessage(
   status: number,
   backendDetail: string | undefined,
@@ -97,7 +105,7 @@ export function operatorErrorMessage(
   if (known) return known;
   if (status === 401) return SESSION_EXPIRED_TEXT;
   if (status === 403) return detail ?? 'No tienes permiso para esta acción.';
-  if (status === 404) return `${context} no encontrado.`;
+  if (status === 404) return `${context} ${notFoundWord(context)}.`;
   if (status === 409) {
     return detail && detail.length < 120 ? detail : 'Esta operación ya está en curso o no se puede repetir.';
   }
@@ -603,30 +611,31 @@ export async function fetchMySections(): Promise<MySections> {
  * recepción solo sale a quien la puede hacer.
  */
 export async function fetchVenueFeed(): Promise<{
+  name: string | null;
   paymentMethods: unknown;
   nightSettings: unknown;
   myPost: unknown;
   myRights: unknown;
-  /** OxioParty: el nombre del local y la caseta de quien entra (null: sin caseta). */
-  name: string | null;
+  /** OxioParty: la caseta de quien entra (null: sin caseta). */
   stall: StallRef | null;
 }> {
   const res = await authedFetch('/v1/venues/me');
   if (!res.ok) throw loadError(res, 'Error cargando el local');
   const venue = (await res.json()) as {
+    name?: unknown;
     paymentMethods?: unknown;
     nightSettings?: unknown;
     myPost?: unknown;
     myRights?: unknown;
-    name?: string | null;
     stall?: StallRef | null;
   };
   return {
+    // El nombre del local: arriba en el ticket impreso.
+    name: typeof venue.name === 'string' && venue.name.trim() ? venue.name.trim() : null,
     paymentMethods: venue.paymentMethods ?? null,
     nightSettings: venue.nightSettings ?? null,
     myPost: venue.myPost ?? null,
     myRights: venue.myRights ?? null,
-    name: venue.name ?? null,
     stall: venue.stall ?? null,
   };
 }

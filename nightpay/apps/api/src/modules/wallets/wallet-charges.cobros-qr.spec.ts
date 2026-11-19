@@ -345,12 +345,18 @@ describe('referencias del saldo y su página', () => {
   });
 });
 
-describe('devolver el saldo: lo que se comprueba antes de tocar nada', () => {
-  it('la chica no devuelve en efectivo; el dueño de otro grupo no ve el saldo; sin nada que devolver → 409', async () => {
+describe('terminar una devolución del saldo: lo que se comprueba antes de tocar nada', () => {
+  it('la compañera no devuelve en efectivo; el dueño de otro grupo no ve el saldo; sin pedirla antes, el saldo no se devuelve', async () => {
     const { svc, db } = setup();
     await expect(svc.payout(lola, WALLET, { method: 'CASH' })).rejects.toBeInstanceOf(ForbiddenException);
     await expect(svc.payout(duenoNeon, WALLET, { totpCode: '123456', method: 'CASH' })).rejects.toBeInstanceOf(NotFoundException);
-    db.clientWallet.put({ ...db.clientWallet.get(WALLET), balanceCents: 0, status: 'DEPLETED' });
+    await expect(svc.payout(marta, WALLET, { totpCode: '123456', method: 'CASH' })).rejects.toMatchObject({ response: { code: 'SALDO_NO_SE_DEVUELVE' } });
+    expect(db.walletPayout.rows.size).toBe(0);
+  });
+
+  it('pedida antes del cambio pero ya sin nada que devolver → 409 y nada cambia', async () => {
+    const { svc, db } = setup();
+    db.clientWallet.put({ ...db.clientWallet.get(WALLET), balanceCents: 0, status: 'DEPLETED', closeRequestedAt: new Date(NOW.getTime() - MIN) });
     await expect(svc.payout(marta, WALLET, { totpCode: '123456', method: 'CASH' })).rejects.toThrow(/nada que devolver/);
     expect(db.walletPayout.rows.size).toBe(0);
     expect(db.clientWallet.get(WALLET)).toMatchObject({ balanceCents: 0, status: 'DEPLETED' });

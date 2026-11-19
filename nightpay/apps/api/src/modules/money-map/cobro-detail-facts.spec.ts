@@ -121,6 +121,15 @@ describe('detalle de un cobro con tarjeta', () => {
     ]);
   });
 
+  it('lo pagado con bitcoin devuelto en efectivo («Devolver en efectivo») lo dice: no es una devolución a la tarjeta', () => {
+    const paid = card();
+    const refund = { ...paid.payment.refunds[0]!, paidInCash: true };
+    const f = paymentDetailFacts({ ...paid, payment: { ...paid.payment, provider: 'BTCPAY', refunds: [refund] } });
+    expect(f.base.undo).toEqual([
+      { kind: 'REFUND', at: '2026-11-08T01:00:00.000Z', amountCents: 1000, by: 'javi@bambu.es', reason: 'Copa derramada', status: 'SUCCEEDED', paidInCash: true },
+    ]);
+  });
+
   it('el reparto: lo vendido, lo devuelto sin la comisión, OxioPay (comisión neta y su %), el personal y el local', () => {
     const f = paymentDetailFacts(
       card({}),
@@ -159,6 +168,25 @@ describe('detalle de un cobro con tarjeta', () => {
       'Pagado',
       'Devolución pedida',
     ]);
+  });
+
+  it('pagado con bitcoin: el historial dice bitcoin y su factura de BTCPay, no tarjeta ni banco', () => {
+    const f = paymentDetailFacts(
+      card({
+        provider: 'BTCPAY',
+        providerTxId: 'Kd8sY5DN6jLHfQfqHkFBnQ',
+        attempts: [{ providerTxId: 'Kd8sY5DN6jLHfQfqHkFBnQ', status: 'APPROVED', createdAt: at('00:22'), amountCents: 4950, tipCents: 0, payMethod: 'bitcoin' }],
+        events: [
+          { eventType: 'payment.created', payload: { amountCents: 4500 }, occurredAt: at('00:20') },
+          { eventType: 'payment.authorizing', payload: {}, occurredAt: at('00:21') },
+        ],
+        refunds: [],
+      }),
+    );
+    const texts = f.history.map((h) => `${h.what} · ${h.detail ?? ''}`).join(' | ');
+    expect(texts).toContain('El cliente fue a pagar con bitcoin');
+    expect(texts).toContain('Intento de pago con bitcoin: aprobado · Factura de BTCPay Kd8sY5DN6jLHfQfqHkFBnQ');
+    expect(texts).not.toMatch(/tarjeta|banco/i);
   });
 
   it('cancelado sin pagar: quién lo canceló', () => {
@@ -238,6 +266,20 @@ function saldo(over: Partial<SaldoDetailInput> = {}): SaldoDetailInput {
 }
 
 describe('detalle de un cobro del saldo', () => {
+  it('pagado con la ficha en la pantalla de la barra: el detalle y el historial lo dicen', () => {
+    const settled = {
+      action: 'wallet.charge_settled',
+      actorId: LOLA,
+      payload: { who: 'staff', step: 'saldo', screen: true, userId: LOLA, authMethod: 'pin', pinVia: 'ficha', balanceBeforeCents: 10000, balanceAfterCents: 3500 },
+      occurredAt: at('02:01'),
+    };
+    const f = saldoDetailFacts(saldo({ consumption: { ...saldo().consumption!, authMethod: 'pin' }, audits: [settled] }));
+    expect(f.base.method.via).toBe('PIN · desde la pantalla de Lola');
+    expect(f.history.find((h) => h.what.startsWith('Pagado'))?.what).toBe('Pagado con ficha desde la pantalla de Lola');
+    // Sin la marca (el móvil del personal), como siempre.
+    expect(saldoDetailFacts(saldo()).history.find((h) => h.what.startsWith('Pagado'))?.what).toBe('Pagado con el saldo');
+  });
+
   it('pagado con el NFC sin PIN: la ficha, la señal, el saldo antes y después y lo de la chica', () => {
     const f = saldoDetailFacts(saldo());
     expect(f.base).toMatchObject({

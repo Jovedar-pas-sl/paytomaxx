@@ -11,7 +11,15 @@ import { GatewayTransientError } from '../gateways/gateway-errors';
 import { InvalidTransitionError, isIdempotentTransition } from '../payments/payment.machine';
 import { PaymentsService } from '../payments/payments.service';
 import { assertVenueNotPaused, VENUE_PAUSE_SELECT } from '../venues/venue-pause';
-import { judgeInvoice, purposeAllows, unifiedPaymentLink, type InvoiceData, type InvoiceVerdict } from './btcpay-logic';
+import {
+  bitcoinOfferedFor,
+  judgeInvoice,
+  paidOfMethods,
+  unifiedPaymentLink,
+  type InvoiceData,
+  type InvoicePaymentMethod,
+  type InvoiceVerdict,
+} from './btcpay-logic';
 import { BtcpayStoreService, messageOfBtcpayError, type BtcpayAccess } from './btcpay-store.service';
 
 /** Lo que dura una factura de bitcoin: 15 minutos (el cambio queda fijo ese rato). */
@@ -28,6 +36,11 @@ const PAID_STATES: ReadonlySet<string> = new Set(['AUTHORIZED', 'PARTIALLY_REFUN
 
 export const APPROVAL_UNVERIFIED_EVENT = 'payment.approval_unverified';
 export const APPROVAL_UNBOOKED_EVENT = 'payment.approval_unbooked';
+/** El cliente pagó de más con bitcoin: el cobro está pagado; lo que sobra solo se apunta (no se devuelve). */
+export const BITCOIN_OVERPAID_EVENT = 'payment.bitcoin_overpaid';
+
+/** Lo que llegó de verdad en una factura (null: BTCPay no lo dijo o no se pudo preguntar). */
+type PaidAmounts = { paidBtc: string; paidCents: number } | null;
 
 /** Cómo va la factura de un cobro para la pantalla del cliente (JSON de /pay/:token/bitcoin/status). */
 export type BitcoinPollState =
@@ -83,6 +96,8 @@ interface PaymentCtx {
   qrExpiresAt: Date;
   walletId: string | null;
   createdByUserId: string | null;
+  /** La de un pago de un reservado lleva su marca (isReservationPaymentKey). */
+  idempotencyKey: string;
 }
 
 export interface StaffActor {
@@ -143,7 +158,8 @@ export class BtcpayInvoiceService implements OnModuleInit {
   private async start(payment: PaymentCtx, claimHash: string | null): Promise<BitcoinStartResult> {
     if (PAID_STATES.has(payment.status)) return { kind: 'paid' };
     const access = await this.stores.accessFor(payment.tenantId);
-    if (!access || !access.enabled || !purposeAllows(access.purpose, payment.walletId !== null)) {
+    // Solo para cargar saldo y en los reservados (los dos llevan su saldo); nunca en un cobro de la barra.
+    if (!access || !access.enabled || !bitcoinOfferedFor(payment)) {
       throw new ConflictException({ code: 'BTCPAY_NOT_OFFERED', message: 'Este local no cobra con bitcoin.' });
     }
     const existing = await this.openInvoiceOf(payment.id);
@@ -339,11 +355,24 @@ export class BtcpayInvoiceService implements OnModuleInit {
     if (!row || row.tenantId !== tenantId) return { kind: 'UNKNOWN' };
     const access = await this.stores.accessFor(tenantId);
     if (!access) throw new Error(`El local ${tenantId} ya no tiene BTCPay: no se puede comprobar la factura ${invoiceId}`);
-    const invoice = await this.stores.clientFor(access).getInvoice(invoiceId);
+    const client = this.stores.clientFor(access);
+    const invoice = await client.getInvoice(invoiceId);
     const verdict = judgeInvoice(invoice, { storeId: access.storeId, orderId: row.paymentId, amountCents: row.amountCents });
     this.logger.log(`Factura ${invoiceId} (${source}): ${invoice.status}${invoice.additionalStatus && invoice.additionalStatus !== 'None' ? `/${invoice.additionalStatus}` : ''} → ${verdict.kind}`);
-    await this.apply(row, invoice, verdict);
+    // Con dinero de por medio (pagada, a medias, de más o tarde), lo que llegó de verdad.
+    const paid = verdict.kind === 'PAID' || verdict.kind === 'INCIDENT' ? await this.paidOf(client, invoiceId) : null;
+    await this.apply(row, invoice, verdict, paid);
     return verdict;
+  }
+
+  /** Lo que llegó en la factura (sus métodos de pago). Si BTCPay no contesta, null: no para nada. */
+  private async paidOf(client: { getPaymentMethods(id: string): Promise<InvoicePaymentMethod[]> }, invoiceId: string): Promise<PaidAmounts> {
+    try {
+      return paidOfMethods(await client.getPaymentMethods(invoiceId));
+    } catch (err) {
+      this.logger.warn(`Factura ${invoiceId}: no se pudo leer lo pagado (${(err as Error).message})`);
+      return null;
+    }
   }
 
   /**
@@ -363,14 +392,20 @@ export class BtcpayInvoiceService implements OnModuleInit {
     await this.processInvoice(tenantId, invoiceId, 'webhook');
   }
 
-  private async apply(row: InvoiceRow, invoice: InvoiceData, verdict: InvoiceVerdict): Promise<void> {
+  private async apply(row: InvoiceRow, invoice: InvoiceData, verdict: InvoiceVerdict, paid: PaidAmounts = null): Promise<void> {
     const additional = invoice.additionalStatus ?? null;
+    // Lo que llegó va en la fila y en la incidencia (Incidencias enseña lo recibido, no el total del cobro).
+    const got = paid ? { paidBtc: paid.paidBtc, paidCents: paid.paidCents } : {};
     switch (verdict.kind) {
       // Primero el efecto y después cerrar la fila: si el efecto falla (base, Redis), la factura sigue
       // abierta y el repaso la vuelve a mirar. Los efectos son idempotentes (AUTHORIZED→AUTHORIZED, una incidencia por factura y motivo).
       case 'PAID':
-        await this.settle(row);
-        await this.touch(row.id, { status: 'Settled', additionalStatus: additional, closedAt: new Date() });
+        await this.settle(row, got);
+        // Pagó de más: el cobro está pagado; lo que sobra se apunta (aviso), no se devuelve.
+        if (paid && paid.paidCents > row.amountCents) {
+          await this.recordIncident(row, BITCOIN_OVERPAID_EVENT, { reason: 'btcpay-paid_over', source: 'btcpay', ...got, extraCents: paid.paidCents - row.amountCents });
+        }
+        await this.touch(row.id, { status: 'Settled', additionalStatus: additional, closedAt: new Date(), ...got });
         return;
       case 'OPEN':
         // Cerrada aquí (cobro cancelado o «Pagar de otra forma») y aún abierta en BTCPay: sigue cerrada; el repaso la vigila.
@@ -382,8 +417,8 @@ export class BtcpayInvoiceService implements OnModuleInit {
         return;
       case 'INCIDENT':
         // Pago a medias o tardío: la factura se cierra, el cobro NO se da por pagado ni se reabre (lo resuelve una persona).
-        await this.recordIncident(row, APPROVAL_UNVERIFIED_EVENT, { reason: `btcpay-${verdict.reason.toLowerCase()}`, source: 'btcpay', paidStatus: additional });
-        await this.touch(row.id, { status: invoice.status === 'Settled' ? 'Settled' : invoice.status === 'Invalid' ? 'Invalid' : 'Expired', additionalStatus: additional, closedAt: new Date() });
+        await this.recordIncident(row, APPROVAL_UNVERIFIED_EVENT, { reason: `btcpay-${verdict.reason.toLowerCase()}`, source: 'btcpay', paidStatus: additional, ...got });
+        await this.touch(row.id, { status: invoice.status === 'Settled' ? 'Settled' : invoice.status === 'Invalid' ? 'Invalid' : 'Expired', additionalStatus: additional, closedAt: new Date(), ...got });
         return;
       case 'REJECTED':
         // La factura no es lo que pedimos: se cierra para no volver a mirarla y queda en Incidencias.
@@ -394,17 +429,17 @@ export class BtcpayInvoiceService implements OnModuleInit {
   }
 
   /** El cobro pasa a pagado, una sola vez. Si ya no se puede (cancelado, caducado…), Incidencias. */
-  private async settle(row: InvoiceRow): Promise<void> {
+  private async settle(row: InvoiceRow, got: Record<string, unknown> = {}): Promise<void> {
     try {
       await this.payments.transition(row.paymentId, { type: 'AUTHORIZED', provider: 'BTCPAY', providerTxId: row.invoiceId }, row.tenantId);
     } catch (err) {
       if (!(err instanceof InvalidTransitionError)) throw err;
       if (isIdempotentTransition(err)) {
-        await this.flagIfPaidOtherWay(row, err.fromState);
+        await this.flagIfPaidOtherWay(row, err.fromState, got);
         return;
       }
       // El bitcoin ya llegó y el cobro no se puede dar por pagado: nunca «Pagado», siempre incidencia.
-      await this.recordIncident(row, APPROVAL_UNBOOKED_EVENT, { fromStatus: err.fromState });
+      await this.recordIncident(row, APPROVAL_UNBOOKED_EVENT, { fromStatus: err.fromState, ...got });
     }
   }
 
@@ -414,10 +449,10 @@ export class BtcpayInvoiceService implements OnModuleInit {
    * otra forma y ADEMÁS con esta factura (el cliente pagó de las dos maneras): ese
    * bitcoin sobra y nadie lo apuntaría, así que queda en Incidencias para devolverlo.
    */
-  private async flagIfPaidOtherWay(row: InvoiceRow, fromStatus: string): Promise<void> {
+  private async flagIfPaidOtherWay(row: InvoiceRow, fromStatus: string, got: Record<string, unknown> = {}): Promise<void> {
     const payment = await this.paymentByToken(row.paymentId, 'id').catch(() => null);
     if (!payment || payment.provider === 'BTCPAY') return;
-    await this.recordIncident(row, APPROVAL_UNBOOKED_EVENT, { fromStatus, paidWith: payment.provider });
+    await this.recordIncident(row, APPROVAL_UNBOOKED_EVENT, { fromStatus, paidWith: payment.provider, ...got });
   }
 
   /** La factura se cerró sin pagarse: si el cobro la esperaba, vuelve a estar abierto (o caduca si ya era su hora). */
@@ -575,7 +610,7 @@ export class BtcpayInvoiceService implements OnModuleInit {
         where: by === 'token' ? { qrToken: key } : { id: key },
         select: {
           id: true, tenantId: true, status: true, provider: true, providerTxId: true, amountCents: true,
-          serviceFeeCents: true, currency: true, qrExpiresAt: true, walletId: true, createdByUserId: true,
+          serviceFeeCents: true, currency: true, qrExpiresAt: true, walletId: true, createdByUserId: true, idempotencyKey: true,
         },
       }),
     );
@@ -613,7 +648,10 @@ export class BtcpayInvoiceService implements OnModuleInit {
     return row;
   }
 
-  private async touch(id: string, data: { status?: string; additionalStatus?: string | null; closedAt?: Date }): Promise<void> {
+  private async touch(
+    id: string,
+    data: { status?: string; additionalStatus?: string | null; closedAt?: Date; paidBtc?: string; paidCents?: number },
+  ): Promise<void> {
     await this.prisma.asSystem((tx) => tx.btcpayInvoice.update({ where: { id }, data: { ...data, lastCheckedAt: new Date() } }));
   }
 

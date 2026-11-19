@@ -1,5 +1,7 @@
 import type { OwnCobro, OwnCobrosPage } from '@nightpay/contracts';
 import { authedFetch } from './api';
+import { unpaidBank, type UnpaidRow } from './api-sin-pagar';
+import type { BankCancel } from './cancel-at-bank';
 
 export async function fetchOwnCobros(cursor?: string, signal?: AbortSignal): Promise<OwnCobrosPage> {
   const q = new URLSearchParams({ limit: '50' });
@@ -135,8 +137,8 @@ export type OwnCobroTone = 'ok' | 'wait' | 'bad' | 'void';
 export type OwnCobroIcon = 'check' | 'clock' | 'x' | 'back';
 
 const STATE: Readonly<Record<string, { label: string; tone: OwnCobroTone; icon: OwnCobroIcon }>> = {
-  AUTHORIZED: { label: 'Cobrado', tone: 'ok', icon: 'check' },
-  ACCEPTED: { label: 'Cobrado', tone: 'ok', icon: 'check' },
+  AUTHORIZED: { label: 'Pagado', tone: 'ok', icon: 'check' },
+  ACCEPTED: { label: 'Pagado', tone: 'ok', icon: 'check' },
   CREATED: { label: 'Pendiente', tone: 'wait', icon: 'clock' },
   AWAITING_CAPTURE: { label: 'Pendiente', tone: 'wait', icon: 'clock' },
   AUTHORIZING: { label: 'Pagando', tone: 'wait', icon: 'clock' },
@@ -157,12 +159,33 @@ export function ownCobroState(status: string): { label: string; tone: OwnCobroTo
 
 export const ownCobroStatus = (status: string): string => ownCobroState(status).label;
 
-/** Un cobro con tarjeta que aún nadie ha pagado (el QR o el datáfono esperando): se puede cancelar. */
-const CANCELABLE = new Set(['CREATED', 'AWAITING_CAPTURE']);
+/**
+ * Un cobro con tarjeta que aún nadie ha pagado (el QR o el datáfono esperando,
+ * o el cliente en su banco): se puede cancelar (pide confirmar; en su banco,
+ * pasados 2 minutos: ownRowBank).
+ */
+const CANCELABLE = new Set(['CREATED', 'AWAITING_CAPTURE', 'AUTHORIZING']);
 
-/** ¿Se puede cancelar desde la lista? (POST /payments/:id/cancel: los suyos, sin pagar). */
+/** ¿Se puede cancelar desde la lista? (POST /payments/:id/cancel: sin pagar). */
 export function ownCobroCancelable(row: Pick<OwnCobro, 'kind' | 'status'>): boolean {
   return row.kind === 'PAYMENT' && CANCELABLE.has(row.status);
+}
+
+/**
+ * «Cancelar» de una fila suya: sin ir al banco, como siempre; con el cliente en
+ * su banco (o pagando con bitcoin), lo que dice «Sin pagar en el local» (desde
+ * cuándo, si es bitcoin y si es la recarga cobrada en el datáfono sin
+ * comprobar, que nunca se cancela), con el mismo reloj. null: aún no se sabe
+ * (no sale ni el botón ni el texto, para no decir algo que luego cambie).
+ */
+export function ownRowBank(
+  row: Pick<OwnCobro, 'id' | 'status'>,
+  unpaid: ReadonlyArray<Pick<UnpaidRow, 'id' | 'atBank' | 'cancelableAtMs' | 'heldOnReader'>> | null,
+  nowMs: number,
+): BankCancel | null {
+  if (row.status !== 'AUTHORIZING') return 'free';
+  const u = unpaid?.find((x) => x.id === row.id);
+  return u ? unpaidBank(u, nowMs) : null;
 }
 
 /**
@@ -174,8 +197,8 @@ export function ownPaidTwiceNote(row: Pick<OwnCobro, 'paidTwice'>, eur: (cents: 
   const p = row.paidTwice;
   if (!p) return null;
   return p.refunded
-    ? `Cobrado dos veces: la tarjeta se devolvió sola (${eur(p.amountCents)})`
-    : `Cobrado dos veces: hay que devolver ${eur(p.amountCents)} a la tarjeta (avisa al encargado: está en Incidencias)`;
+    ? `Pagado dos veces: la tarjeta se devolvió sola (${eur(p.amountCents)})`
+    : `Pagado dos veces: hay que devolver ${eur(p.amountCents)} a la tarjeta (avisa al encargado: está en Incidencias)`;
 }
 
 /** Sin un cobro suyo esperando, «Cobros» se refresca como el del resto del personal. */
@@ -201,6 +224,21 @@ const PENDING = new Set(['CREATED', 'AWAITING_CAPTURE', 'AUTHORIZING', 'ORPHAN']
 export function ownChargedCents(row: Pick<OwnCobro, 'status' | 'amountCents' | 'tipCents' | 'refundedCents'>): number {
   if (!CHARGED.has(row.status)) return 0;
   return Math.max(0, row.amountCents + row.tipCents - (row.refundedCents ?? 0));
+}
+
+/**
+ * «4 pendientes de pago» del resumen de la noche: los cobros de esta noche que
+ * aún no se han pagado (Pendiente, Pagando o Sin confirmar). No cuentan en el
+ * total; los pagados no son pendientes de nada.
+ */
+export function pendingLabel(count: number): string {
+  return count === 1 ? '1 pendiente de pago' : `${count} pendientes de pago`;
+}
+
+/** Por dónde pagó, con las palabras de la casa: el API dice «NFC sin PIN»; la app, «Ficha sin PIN». */
+export function staffVia(via: string | null | undefined): string | null {
+  if (!via) return null;
+  return via.replace(/^NFC(?=\s|$)/, 'Ficha');
 }
 
 export interface OwnNightTotals {

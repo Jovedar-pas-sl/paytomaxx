@@ -30,6 +30,7 @@ const TAB_SLUG: Readonly<Record<TabKey, string>> = {
   treasury: 'pagos',
   wallets: 'saldos',
   fichas: 'fichas',
+  reservations: 'reservados',
   nights: 'noches',
   reports: 'informes',
   bank: 'banco',

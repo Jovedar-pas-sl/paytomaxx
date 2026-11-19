@@ -93,7 +93,7 @@ describe('la página del enlace del local (/r/<código>)', () => {
     const view = viewFor(null);
     const html = renderHomeTopUpPage(CODE, 'es', view);
     expect(html).not.toContain('id="brk"');
-    expect(html).not.toContain(HOME_TOPUP_TEXT.es.refundFee);
+    expect(html).not.toContain('comisión del servicio no se devuelve');
     expect(pageSays(view, 5000)).toEqual({ label: 'Cargar EUR5000', total: 5000 });
     expect(pageSays(view, 900)).toEqual({ label: 'Cargar saldo', total: 900 });
     expect(pageSays(view, 30_100)).toEqual({ label: 'Cargar saldo', total: 30_100 });
@@ -114,10 +114,14 @@ describe('la página del enlace del local (/r/<código>)', () => {
     expect(HOME_JS).toContain("b.classList.toggle('busy',on)");
   });
 
-  it('con comisión, antes de pagar dice que la comisión no se devuelve', () => {
-    const html = renderHomeTopUpPage(CODE, 'es', viewFor({ enabled: true, cardBps: 1000, topUpBps: 1200 }));
-    expect(html).toContain(HOME_TOPUP_TEXT.es.refundFee);
-    expect(html).toContain('¿Qué es?');
+  it('con o sin comisión, antes de pagar dice que el saldo no se devuelve (y nada de «Me voy»)', () => {
+    for (const fee of [{ enabled: true, cardBps: 1000, topUpBps: 1200 }, null]) {
+      const html = renderHomeTopUpPage(CODE, 'es', viewFor(fee));
+      expect(html).toContain(HOME_TOPUP_TEXT.es.keepRule);
+      expect(html).not.toContain('Me voy');
+      expect(html.indexOf(HOME_TOPUP_TEXT.es.keepRule)).toBeLessThan(html.indexOf('id="go"'));
+    }
+    expect(renderHomeTopUpPage(CODE, 'es', viewFor({ enabled: true, cardBps: 1000, topUpBps: 1200 }))).toContain('¿Qué es?');
   });
 
   it('este navegador ya tiene un saldo de aquí: «Recargar mi saldo» primero, con su código tapado', () => {
@@ -224,12 +228,12 @@ describe('/r explicada: la ventaja, cómo funciona y lo que no gaste', () => {
     expect(next.startsWith('<section class="card topup" aria-labelledby="amtTitle">')).toBe(true);
   });
 
-  it('antes de pagar: lo que no gaste no se pierde (no caduca) y cómo se devuelve; al llegar ya va en los pasos', () => {
+  it('antes de pagar: lo que no gaste no se pierde (no caduca) y el saldo no se devuelve; al llegar ya va en los pasos', () => {
     const t = HOME_TOPUP_TEXT.es;
     const html = renderHomeTopUpPage(CODE, 'es', viewFor(null));
     const terms = html.slice(html.indexOf('id="termsTitle"'), html.indexOf('</section>', html.indexOf('id="termsTitle"')));
     expect(terms).toContain(`<b>${t.keep}</b> ${t.noExpiry}`);
-    expect(terms).toContain(t.refund);
+    expect(terms).toContain(t.keepRule);
     expect(terms.match(/<li>/g)).toHaveLength(2);
     // Debajo del botón, solo lo que no dicen los pasos.
     expect(html).toContain(`<p class="small">${t.methods}</p></div>`);

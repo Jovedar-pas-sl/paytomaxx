@@ -195,6 +195,17 @@ const EnvSchema = z.object({
   GOOGLE_WALLET_SERVICE_ACCOUNT_JSON: z.string().optional(),
   GOOGLE_WALLET_SERVICE_ACCOUNT_JSON_B64: z.string().optional(),
   GOOGLE_WALLET_CLASS_SUFFIX: z.string().trim().default(DEFAULT_GOOGLE_WALLET_CLASS_SUFFIX),
+  // «Aviso en cada cobro» (Web Push): el móvil del cliente recibe un aviso en
+  // cada cobro de su saldo o ficha, con «No he sido yo». Opcional: sin las
+  // tres, apagado (la página no lo ofrece). Lo mal escrito no impide arrancar:
+  // se apaga y se avisa (config/web-push.ts, env-warnings.ts). Se generan con
+  // `npx web-push generate-vapid-keys`.
+  //   WEB_PUSH_VAPID_PUBLIC_KEY  — clave pública (base64url).
+  //   WEB_PUSH_VAPID_PRIVATE_KEY — clave privada (base64url): solo en el servidor.
+  //   WEB_PUSH_SUBJECT           — contacto: mailto:correo o https://.
+  WEB_PUSH_VAPID_PUBLIC_KEY: z.string().trim().optional(),
+  WEB_PUSH_VAPID_PRIVATE_KEY: z.string().trim().optional(),
+  WEB_PUSH_SUBJECT: z.string().trim().optional(),
   // Phase 1A — API keys de blockchain explorers (opcionales, free tier sirve).
   TRONSCAN_API_KEY: z.string().optional(),
   BSCSCAN_API_KEY: z.string().optional(),

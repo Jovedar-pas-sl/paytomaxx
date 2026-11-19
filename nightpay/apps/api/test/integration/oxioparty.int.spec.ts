@@ -1,4 +1,4 @@
-// Integración (Postgres real): OxioParty, la base (migración 20261115100000_oxioparty_base).
+// Integración (Postgres real): OxioParty, la base (migración 20261120300000_oxioparty_base).
 // Con EDITION=party: casetas con FORCE RLS (dueño y encargado, dentro de withTenant), la caseta
 // del personal sellada en el cobro, en su cobro del saldo y en el consumo (pagado con la pulsera
 // NFC) y en el cobro con QR del saldo; con la fiesta terminada, 423 EVENT_ENDED (las consultas
@@ -288,7 +288,7 @@ describe('la fiesta terminada (EVENT_ENDED)', () => {
 describe('la migración', () => {
   it('se puede repetir y los locales de antes quedan con los valores de serie', async () => {
     const cli = join(__dirname, '../../../../packages/db/node_modules/prisma/build/index.js');
-    const file = join(__dirname, '../../../../packages/db/prisma/migrations/20261115100000_oxioparty_base/migration.sql');
+    const file = join(__dirname, '../../../../packages/db/prisma/migrations/20261120300000_oxioparty_base/migration.sql');
     const res = spawnSync(process.execPath, [cli, 'db', 'execute', '--url', String(process.env.DATABASE_URL), '--file', file], {
       encoding: 'utf8',
       env: { ...process.env, PRISMA_HIDE_UPDATE_MESSAGE: '1' },

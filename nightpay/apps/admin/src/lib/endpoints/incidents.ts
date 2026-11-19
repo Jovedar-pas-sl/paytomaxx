@@ -39,8 +39,11 @@ export type IncidentKind =
   | 'wallet_topup_unassigned'
   /** El cliente bloqueó su NFC en su móvil («He perdido mi NFC»): darle uno nuevo en recepción (se marca como revisada). */
   | 'wallet_card_lost'
+  /** El cliente pulsó «No he sido yo» en el aviso de un cobro: su ficha y su PIN ya no pagan; revisar y, si procede, devolver. */
+  | 'wallet_charge_disputed'
   /** Algo que mueve dinero o abre un saldo sin que el cliente lo confirme (se marca como revisada). */
-  | 'sensitive_action';
+  | 'sensitive_action'
+  | 'bitcoin_overpaid';
 
 export interface Incident {
   kind: IncidentKind;
@@ -53,6 +56,25 @@ export interface Incident {
   ackable: boolean;
   /** Aviso de dinero (B11): se cierra escribiendo qué se hizo. Sin el campo (API anterior): no. */
   noteRequired?: boolean;
+  /** Bitcoin sin cobro que se puede devolver en efectivo: su factura y lo máximo (lo que llegó). */
+  cashReturn?: { invoiceId: string; maxCents: number };
+  /** «Pagó después de cancelar» con el cobro aún cancelado: «Dar por bueno» (encargado o dueño, con 2FA). */
+  acceptable?: boolean;
+}
+
+/**
+ * «Dar por bueno» un cobro que el banco cobró después de cancelarlo: pasa a
+ * pagado y el aviso se cierra con la nota (encargado o dueño, con su 2FA).
+ */
+export async function acceptAfterCancel(
+  paymentId: string,
+  input: { eventId: string; note: string; totpCode: string },
+): Promise<void> {
+  const res = await authedFetch(`/v1/admin/payments/${paymentId}/accept-after-cancel`, {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+  if (!res.ok) throw await apiError(res);
 }
 
 export async function fetchIncidents(): Promise<{ items: Incident[]; telegram: boolean }> {

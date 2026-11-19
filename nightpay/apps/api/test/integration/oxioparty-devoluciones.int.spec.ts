@@ -1,5 +1,5 @@
 // Integración (Postgres real): OxioParty, pulseras y «Lo que sobra» (migración
-// 20261115200000_oxioparty_devoluciones). Con EDITION=party: pedir la devolución bloquea el
+// 20261120300100_oxioparty_devoluciones). Con EDITION=party: pedir la devolución bloquea el
 // saldo de verdad (la pulsera ya no paga), a la tarjeta solo lo cargado con tarjeta, la
 // transferencia con su IBAN, donar al momento (y apagado, no), «Hecha» saca el dinero del
 // saldo, anular lo desbloquea, el plazo, los totales, el CSV y el fichero SEPA de las
@@ -456,7 +456,7 @@ describe('la base', () => {
 
   it('la migración se puede repetir', async () => {
     const cli = join(__dirname, '../../../../packages/db/node_modules/prisma/build/index.js');
-    const file = join(__dirname, '../../../../packages/db/prisma/migrations/20261115200000_oxioparty_devoluciones/migration.sql');
+    const file = join(__dirname, '../../../../packages/db/prisma/migrations/20261120300100_oxioparty_devoluciones/migration.sql');
     const res = spawnSync(process.execPath, [cli, 'db', 'execute', '--url', String(process.env.DATABASE_URL), '--file', file], {
       encoding: 'utf8',
       env: { ...process.env, PRISMA_HIDE_UPDATE_MESSAGE: '1' },

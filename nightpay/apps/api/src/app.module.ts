@@ -18,6 +18,7 @@ import { ApprovalsModule } from './modules/approvals/approvals.module';
 import { AuditModule } from './modules/audit/audit.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { BtcpayModule } from './modules/btcpay/btcpay.module';
+import { BitcoinCashModule } from './modules/bitcoin-cash/bitcoin-cash.module';
 import { GatewaysModule } from './modules/gateways/gateways.module';
 import { HealthController } from './modules/health/health.controller';
 import { MetricsModule } from './modules/metrics/metrics.module';
@@ -43,6 +44,9 @@ import { OxioPaySettlementsModule } from './modules/oxiopay-settlements/oxiopay-
 import { WalletsModule } from './modules/wallets/wallets.module';
 import { WebhooksModule } from './modules/webhooks/webhooks.module';
 import { HomeTopUpModule } from './modules/home-topup/home-topup.module';
+import { CustomerDisplayModule } from './modules/customer-display/customer-display.module';
+import { ReservationsModule } from './modules/reservations/reservations.module';
+import { LegalModule } from './modules/legal/legal.module';
 import { PartyModule } from './modules/party/party.module';
 
 @Module({
@@ -87,6 +91,7 @@ import { PartyModule } from './modules/party/party.module';
     PaymentsModule,
     // «Pagar con bitcoin» (BTCPay): apagado salvo BTCPAY_ENABLED.
     BtcpayModule,
+    BitcoinCashModule,
     RefundsModule,
     OperatorsModule,
     AdminModule,
@@ -107,6 +112,10 @@ import { PartyModule } from './modules/party/party.module';
     WebhooksModule,
     // «Cargar saldo antes de llegar»: el enlace del local (/r/<código>) y la ficha en recepción.
     HomeTopUpModule,
+    // «Pantalla del cliente»: la tablet de la barra con el importe y el QR del cobro.
+    CustomerDisplayModule,
+    ReservationsModule,
+    LegalModule,
     // OxioParty (EDITION=party): casetas y ajustes de la fiesta; con club, 404.
     PartyModule,
   ],

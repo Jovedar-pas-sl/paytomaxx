@@ -86,7 +86,7 @@ export function NightPanel() {
         />
       </SettingsCard>
 
-      <SettingsCard title="Recepción" tour="noche-recepcion" hint="Al recargar un saldo: los importes de un toque y el botón grande. A la salida: hasta cuánto devuelve sola.">
+      <SettingsCard title="Recepción" tour="noche-recepcion" hint="Al recargar un saldo: los importes de un toque y el botón grande.">
         <Input
           label="Importes rápidos (€)"
           inputMode="numeric"
@@ -120,13 +120,7 @@ export function NightPanel() {
             ))}
           </div>
         </div>
-        <Input
-          label="Salidas en efectivo por persona y noche (€)"
-          inputMode="decimal"
-          value={current.payoutNightCapEur}
-          onChange={(e) => update({ payoutNightCapEur: e.target.value })}
-          hint="Lo que cada persona de recepción devuelve en efectivo con el NFC y el PIN del cliente en una noche (de 08:00 a 08:00). Al pasarlo, cada salida la confirma el encargado con su 2FA y te llega un aviso. 0 = siempre el encargado."
-        />
+        {/* «Salidas en efectivo por persona y noche» ya no sale: el saldo no se devuelve (decisión del dueño, 17-nov-2026). */}
         <Input
           label="Ficha nueva por perdida (€)"
           inputMode="decimal"

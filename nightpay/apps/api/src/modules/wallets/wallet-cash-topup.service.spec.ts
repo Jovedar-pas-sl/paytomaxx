@@ -546,10 +546,15 @@ describe('anular una recarga en efectivo mal tecleada', () => {
     );
     // Ya se gastó parte: con 40 € en el saldo no se anula una recarga de 50 €.
     wallets.set(WALLET, { ...wallets.get(WALLET)!, balanceCents: 4_000 });
-    await expect(svc.voidTopUp(manager, top.topUpId, { reason: 'mal', totpCode: '123456' })).rejects.toThrow(/ya no cubre/);
+    const spent = await svc.voidTopUp(manager, top.topUpId, { reason: 'mal', totpCode: '123456' }).catch((e: unknown) => e);
+    expect((spent as Error).message).toMatch(/ya no cubre/);
+    // El saldo no se devuelve: ya no se manda a «Me voy».
+    expect((spent as Error).message).not.toMatch(/Me voy/);
     wallets.set(WALLET, { ...wallets.get(WALLET)!, balanceCents: 7_000 });
     topUps.set(top.topUpId, { ...topUps.get(top.topUpId)!, createdAt: new Date(NOW.getTime() - 3 * 60 * 60 * 1000) });
-    await expect(svc.voidTopUp(manager, top.topUpId, { reason: 'mal', totpCode: '123456' })).rejects.toThrow(/últimas 2 h/);
+    const late = await svc.voidTopUp(manager, top.topUpId, { reason: 'mal', totpCode: '123456' }).catch((e: unknown) => e);
+    expect((late as Error).message).toMatch(/últimas 2 h/);
+    expect((late as Error).message).not.toMatch(/Me voy/);
     expect([...topUps.values()].filter((t) => t.voidOfId)).toHaveLength(0);
   });
 });

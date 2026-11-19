@@ -699,3 +699,16 @@
   .np-close-done { animation: none; }
   .np-close-progress-bar { transition: none; }
 }
+
+/* El bitcoin de la noche en el paso «Efectivo»: aparte de la caja (no se cuenta), con la marca naranja de bitcoin. */
+.np-close-btc {
+  margin: 0 0 0.75rem;
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--np-border);
+  border-left: 4px solid #f7931a;
+  border-radius: var(--np-r-md);
+  background: var(--np-surface);
+  font-size: 0.875rem;
+  line-height: 1.5;
+  color: var(--np-text);
+}

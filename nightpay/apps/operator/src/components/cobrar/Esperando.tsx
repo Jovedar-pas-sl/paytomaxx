@@ -2,16 +2,17 @@
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { confirmationCode, type BitcoinPayState, type PaymentStatus } from '@nightpay/contracts';
-import { cardHow, countdownPhase, formatClock, qrDeadline, saldoHow, secondsLeft, useNow, useWakeLock, ScreenHelp } from '@nightpay/ui';
+import { cardHow, countdownPhase, formatClock, paidTicket, qrDeadline, receiptFromDetail, saldoHow, secondsLeft, useNow, useWakeLock, ScreenHelp, type TicketLine } from '@nightpay/ui';
 import { fetchPaymentStatus, getUser } from '@/lib/api';
 import { clearFichaContext, saveFichaContext } from '@/lib/ficha-context';
 import { formatEur } from '@/lib/money';
 import { nfcSupported, readCard, waitingListensNfc } from '@/lib/nfc';
 import { useHealthReport } from '@/lib/connection-health';
 import { useOpenCharge } from '@/lib/open-charges';
+import { paidTargetOf, usePaidDetail } from '@/lib/paid-detail';
 import { cardFactsOf, type PaidCardFacts } from '@/lib/payment-status';
 import { fichaContextOf, iphoneFichaHint, pinDetail, showsSinMovil, SIN_MOVIL_LABEL, type PinVia } from '@/lib/sin-movil';
-import { useVenueMethods, useVenueNight } from '@/lib/venue-methods';
+import { useVenueMethods, useVenueName, useVenueNight } from '@/lib/venue-methods';
 import { useWalletChargeLive } from '../use-wallet-charge-live';
 import {
   CobroApiError,
@@ -48,6 +49,8 @@ import {
   UNCONFIRMED_SENTENCE,
   UNCONFIRMED_TITLE,
   bitcoinWaitText,
+  bankCancelOf,
+  cancelAtBank,
   cancelFailedText,
   cancelOffer,
   cardAfter,
@@ -58,20 +61,25 @@ import {
   serverToLocalMs,
   showsBankStrip,
   type CardLive,
+  type CardWait,
 } from '@/lib/cobro-state';
+import { CANCEL_AT_BANK_TOO_SOON_CODE } from '@/lib/cancel-at-bank';
 import { fetchBankRef, notifiedText, notifyManager, type BankRef } from '@/lib/api-bank-wait';
 import { isParty, pulseraText } from '@/lib/edition';
 import { partyPaidRows, partyPaidSaldo } from '@/lib/party-barra';
 import { PartyPaidDetail } from '../party/PartyPaid';
 import { useShown } from '../reception/desk/use-shown';
 import { StaffOutcome } from '../StaffOutcome';
+import { CancelCobroConfirm } from '../CancelCobroConfirm';
+import { useCustomerDisplay } from '../use-customer-display';
 import { usePaymentLive } from '../use-payment-live';
 import { colorOf } from './cobrar-context';
 import { CobroQr } from './CobroQr';
 import { IconLock, IconNfc, IconQr } from './icons';
 import { PinScreen } from './PinScreen';
-import { pinTipSetup } from '@/lib/pin-tip';
+import { pinTipSetup, withScreenTip } from '@/lib/pin-tip';
 import { WAIT_TITLE_EN } from '@/lib/pin-pad';
+import { nfcWayLabel, useReaderSpot, waitTitleEnNfc, type ReaderSpot } from '@/lib/lector-nfc';
 import { TOURS } from '@/lib/tours';
 import { ScreenHeader } from './ScreenHeader';
 import { SinMovil, type SaldoForPin } from './SinMovil';
@@ -100,6 +108,8 @@ export interface CobroAbierto {
   band: { title: string; detail: string };
   /** «2 copas» (el PAGADO). */
   what: string;
+  /** Lo que se cobra, línea a línea (el ticket impreso). Sin ellas, una línea con el total. */
+  lines?: readonly TicketLine[];
   /** Quien cobra (el PAGADO y el PIN). */
   who: string;
   /** «Servicios · Lola» (el chip del PIN). */
@@ -148,8 +158,9 @@ export function Esperando({ cobro, onNew, onRetry, retrying = false, retryError 
   const methods = useVenueMethods();
   // OxioParty: «pulsera» en vez de «ficha» y el PAGADO con su detalle, que vuelve solo a la carta.
   const party = isParty();
+  const venueName = useVenueName();
   // B1: la propina la elige el cliente en la pantalla del PIN (sin nada marcado).
-  const pinTip = pinTipSetup({
+  const basePinTip = pinTipSetup({
     totalCents: cobro.totalCents,
     tipCents: cobro.tipCents,
     tipsOn: methods.tips && cobro.tipsOn === true,
@@ -168,9 +179,13 @@ export function Esperando({ cobro, onNew, onRetry, retrying = false, retryError 
   // Pagado con su PIN aquí: con qué se identificó el saldo (la ficha, su código o su pase). El sondeo no lo dice.
   const [paidVia, setPaidVia] = useState<PinVia | null>(null);
   const [saldo, setSaldo] = useState<SaldoState | null>(null);
+  // La propina que el cliente ya eligió en la pantalla de la barra (va en el cobro del saldo): marcada en el PIN.
+  const pinTip = withScreenTip(basePinTip, saldo?.status === 'PENDING' ? (saldo.tipCents ?? 0) : 0);
   const [localFail, setLocalFail] = useState<FailReason | null>(null);
   const [canceledByMe, setCanceledByMe] = useState(false);
   const [canceling, setCanceling] = useState(false);
+  // «¿Cancelar este cobro?»: siempre se confirma antes de cancelar.
+  const [confirming, setConfirming] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [pin, setPin] = useState<PinStep | null>(null);
   // «Sin móvil ni ficha»: su código o su pase (lo que antes solo tenía «Saldo»).
@@ -203,6 +218,10 @@ export function Esperando({ cobro, onNew, onRetry, retrying = false, retryError 
     canceledByMe,
   });
   const waiting = outcome.kind === 'waiting';
+  // PAGADO: su detalle (líneas, tarjeta, saldo que queda) para el ticket impreso.
+  const paidDetail = usePaidDetail(
+    paidTargetOf(outcome.kind === 'paid', outcome.kind === 'paid' ? outcome.method : null, cobro.card, cobro.saldo),
+  );
 
   // Tarjeta: tiempo real + sondeo de respaldo.
   const { reachable } = usePaymentLive(cobro.card, (update) => {
@@ -279,6 +298,8 @@ export function Esperando({ cobro, onNew, onRetry, retrying = false, retryError 
   // Sin confirmar por el banco se sigue mirando (si lo aprueba, PAGADO): pantalla encendida.
   const watching = waiting || outcome.kind === 'unconfirmed';
   useWakeLock(watching);
+  // La «Pantalla del cliente» de la barra (si hay una emparejada): este importe y este QR.
+  useCustomerDisplay({ paymentId: cobro.card?.id ?? null, chargeId });
   useOpenCharge('cobro', true, watching);
   // Arriba, solo «OxioPay no responde»: la espera del banco y el «sin confirmar»
   // los dice esta pantalla (su franja y «El banco no lo ha confirmado»); la
@@ -317,7 +338,11 @@ export function Esperando({ cobro, onNew, onRetry, retrying = false, retryError 
           setLocalFail({ title: NO_PIN_TITLE, sentence: NO_PIN_SENTENCE });
           return;
         }
-        const reason = out.reason === 'night_cap' || out.reason === 'no_uid' ? out.message : null;
+        // Con propina (la eligió en la pantalla de la barra), siempre el PIN: se le dice por qué.
+        const reason = out.reason === 'night_cap' || out.reason === 'no_uid' || out.reason === 'tip' ? out.message : null;
+        // La propina que el cliente eligió en la pantalla de la barra (si la hay): marcada en el PIN.
+        const fresh = await fetchSaldoState(chargeId).catch(() => null);
+        if (fresh) setSaldo((prev) => keepFicha(fresh, prev));
         setPin({ ref: { card, uid }, walletCode: w.code, via: 'nfc', reason });
       } catch (err) {
         await failFrom(err, { card, uid });
@@ -370,7 +395,7 @@ export function Esperando({ cobro, onNew, onRetry, retrying = false, retryError 
         const read = await readCard(ctrl.signal);
         if (ctrl.signal.aborted) return;
         if (!read.token) {
-          setToast(party ? 'Esta pulsera está vacía: se carga en la taquilla.' : 'Este NFC está vacío: se carga en recepción.');
+          setToast(party ? 'Esta pulsera está vacía: se carga en la taquilla.' : 'Esta ficha está vacía: se carga en recepción.');
           setNfcRound((n) => n + 1);
           return;
         }
@@ -393,11 +418,16 @@ export function Esperando({ cobro, onNew, onRetry, retrying = false, retryError 
       if (cobro.card) await cancelCard(cobro.card.id);
       else if (chargeId) await cancelSaldo(chargeId);
       setCanceledByMe(true);
+      setConfirming(false);
     } catch (err) {
+      setConfirming(false);
       // Ya no se podía cancelar: quizá lo acaba de pagar (con bitcoin, o ya está en la red). Lo dice el estado.
       refreshSaldo();
       const code = err instanceof CobroApiError ? err.code : null;
       if (code === BITCOIN_CONFIRMING_CODE) setCard((current) => cardAfter(current, { status: current.status, bitcoin: 'confirming' }));
+      // Aún en su banco (los 2 minutos): de vuelta a la espera, que lo dice y enseña el botón a su hora
+      // (desde la pantalla de un NFC que no pagó, el aviso no se vería).
+      if (code === CANCEL_AT_BANK_TOO_SOON_CODE) setLocalFail(null);
       setToast(cancelFailedText(card, code));
     } finally {
       setCanceling(false);
@@ -409,8 +439,18 @@ export function Esperando({ cobro, onNew, onRetry, retrying = false, retryError 
     if (outcome.kind === 'canceled' && canceledByMe) onNew();
   }, [outcome.kind, canceledByMe, onNew]);
 
-  // «Cancelar cobro»: con el cliente en su banco no se puede; con bitcoin, mientras la factura espera el pago, sí.
-  const offer = cancelOffer(card);
+  // «Cancelar cobro»: sin pagar, sí; con el cliente en su banco, pasados 2 minutos (el reloj
+  // de la espera del banco, en Waiting); con bitcoin esperando el pago, sí; ya en la red, no.
+  const atBank = Boolean(cobro.card) && cancelAtBank(card);
+  const confirmSheet = (
+    <CancelCobroConfirm
+      open={confirming}
+      atBank={atBank}
+      busy={canceling}
+      onConfirm={() => void cancel()}
+      onClose={() => setConfirming(false)}
+    />
+  );
 
   // Las secciones con su color: el punto del chip del PIN.
   const pinColors = cobro.sections.map((s) => ({ color: colorOf(s.section), weight: s.cents }));
@@ -485,6 +525,22 @@ export function Esperando({ cobro, onNew, onRetry, retrying = false, retryError 
           ) : null
         }
         detail={<PaidDetail cobro={cobro} what={cobro.invitation ? null : cobro.what} />}
+        print={
+          paidDetail
+            ? // El saldo que le queda lo dice el cobro al pagarse (el detalle no se lo da al personal).
+              receiptFromDetail(paidDetail, { balanceAfterCents: outcome.method === 'card' ? null : outcome.newBalanceCents })
+            : paidTicket({
+                venue: venueName,
+                number: cobro.ref,
+                lines: cobro.lines,
+                amountCents: amounts.baseCents,
+                tipCents: amounts.tipCents ?? 0,
+                serviceFeeCents: amounts.serviceFeeCents ?? 0,
+                totalCents: amounts.totalCents,
+                how,
+                at,
+              })
+        }
         primary={{ label: 'Nuevo cobro', onClick: onNew }}
       />
     );
@@ -497,6 +553,7 @@ export function Esperando({ cobro, onNew, onRetry, retrying = false, retryError 
   if (outcome.kind === 'failed') {
     const backToQr = outcome.qrStillOpen;
     return (
+      <>
       <StaffOutcome
         kind="failed"
         amountCents={cobro.totalCents}
@@ -521,9 +578,11 @@ export function Esperando({ cobro, onNew, onRetry, retrying = false, retryError 
               }
             : { label: 'Otro QR · mismo importe', onClick: onRetry, loading: retrying }
         }
-        secondary={{ label: 'Cancelar', onClick: backToQr ? () => void cancel() : onNew, disabled: retrying || canceling }}
+        secondary={{ label: 'Cancelar', onClick: backToQr ? () => setConfirming(true) : onNew, disabled: retrying || canceling }}
         error={retryError}
       />
+      {confirmSheet}
+      </>
     );
   }
 
@@ -610,25 +669,32 @@ export function Esperando({ cobro, onNew, onRetry, retrying = false, retryError 
         fichaHint={fichaHint}
         onSinMovil={sinMovilOn && !checking ? () => setSinMovil(true) : undefined}
       >
-        {offer.kind !== 'button' ? (
-          // Con el cliente en la página de su banco el API no deja cancelar (lo resuelve el banco:
-          // PAGADO, fallido o sin confirmar), así que no se ofrece un botón que siempre fallaría.
-          // Con bitcoin, tampoco con el pago ya en la red; mientras la factura espera el pago, sí.
-          <>
-            <p className={styles.altHint}>{offer.text}</p>
-            {offer.kind === 'leave' ? (
-              // Bitcoin en la red o con un problema: se puede salir sin cancelar (sigue en «Cobros»).
-              <button type="button" className={`${styles.btn} ${styles.ghost} ${styles.cancelLink}`} onClick={onNew}>
-                {LEAVE_WITHOUT_CHARGING}
-              </button>
-            ) : null}
-          </>
-        ) : (
-          <button type="button" className={`${styles.btn} ${styles.ghost} ${styles.cancelLink}`} onClick={() => void cancel()} disabled={canceling}>
-            {canceling ? 'Cancelando…' : 'Cancelar cobro'}
-          </button>
-        )}
+        {(wait) => {
+          // Un solo reloj: el de la espera del banco (la pastilla), también si la pantalla se abrió a mitad.
+          const offer = cancelOffer(card, bankCancelOf(atBank, wait));
+          const cancelButton = (
+            <button type="button" className={`${styles.btn} ${styles.ghost} ${styles.cancelLink}`} onClick={() => setConfirming(true)} disabled={canceling}>
+              {canceling ? 'Cancelando…' : 'Cancelar cobro'}
+            </button>
+          );
+          if (offer.kind === 'button') return cancelButton;
+          return (
+            <>
+              <p className={styles.altHint} role={offer.kind === 'leave' ? undefined : 'status'}>
+                {offer.text}
+              </p>
+              {offer.kind === 'late' ? cancelButton : null}
+              {offer.kind === 'leave' ? (
+                // Bitcoin en la red o con un problema: se puede salir sin cancelar (sigue en «Cobros»).
+                <button type="button" className={`${styles.btn} ${styles.ghost} ${styles.cancelLink}`} onClick={onNew}>
+                  {LEAVE_WITHOUT_CHARGING}
+                </button>
+              ) : null}
+            </>
+          );
+        }}
       </Waiting>
+      {confirmSheet}
     </div>
   );
 }
@@ -671,7 +737,8 @@ function Waiting({
   fichaHint?: string | null;
   /** «Sin móvil ni ficha»: su código o su pase y su PIN aquí. Sin él, no se ofrece. */
   onSinMovil?: () => void;
-  children: ReactNode;
+  /** El pie («Cancelar cobro»): con la espera del banco de esta pantalla (un solo reloj). */
+  children: (wait: CardWait) => ReactNode;
 }) {
   const staffTip = staffTipOf(cobro);
   const party = isParty();
@@ -682,6 +749,8 @@ function Waiting({
   }, [cobro.card?.qrExpiresAt, cobro.card?.createdAt, cobro.saldo?.expiresAt, receivedAt]);
   const now = useNow(true);
   const night = useVenueNight();
+  // Dónde está el lector NFC de este aparato (Menú → Este aparato).
+  const readerSpot = useReaderSpot();
   const left = deadline ? secondsLeft(deadline, now) : 0;
   const phase = deadline ? countdownPhase(left) : 'ok';
   // Pagando con bitcoin: ni las fases del banco ni el reloj del QR (la factura tiene su plazo).
@@ -731,14 +800,14 @@ function Waiting({
           </p>
         ) : null}
         <h2 className={styles.waitTitle}>{waitTitle({ party, nfcOn, fichaHint: Boolean(fichaHint) })}</h2>
-        {/* Lo lee el cliente: su línea en inglés (PS-A10). */}
+        {/* Lo lee el cliente: su línea en inglés (PS-A10), con dónde está el lector de este aparato. */}
         {party && (nfcOn || fichaHint) ? (
           <p lang="en" className={styles.waitEn}>
-            {PARTY_WAIT_EN}
+            {partyWaitEn(readerSpot)}
           </p>
         ) : (
           <p lang="en" className={styles.waitEn}>
-            {nfcOn ? WAIT_TITLE_EN.nfc : WAIT_TITLE_EN.qr}
+            {nfcOn ? waitTitleEnNfc(readerSpot) : WAIT_TITLE_EN.qr}
           </p>
         )}
         {hasQr ? (
@@ -754,7 +823,7 @@ function Waiting({
             {nfcOn ? (
               <span className={`${styles.nfcWay}${reading || checking ? ` ${styles.nfcReading}` : ''}`}>
                 <IconNfc />
-                {checking ? 'Comprobando…' : reading ? 'Leyendo…' : pulseraText(invite ? (hasQr ? 'ficha, sin PIN' : 'Ficha, sin PIN') : 'Por detrás', party)}
+                {checking ? 'Comprobando…' : reading ? 'Leyendo…' : pulseraText(invite ? (hasQr ? 'ficha, sin PIN' : 'Ficha, sin PIN') : nfcWayLabel(readerSpot), party)}
               </span>
             ) : null}
           </p>
@@ -793,15 +862,17 @@ function Waiting({
           </button>
         ) : null}
         <div className={styles.footCancel} data-tour="esperando-cancelar">
-          {children}
+          {children(wait)}
         </div>
       </div>
     </div>
   );
 }
 
-/** OxioParty: lo que lee el cliente en inglés junto a «Acerca la pulsera». */
-const PARTY_WAIT_EN = 'Hold your wristband to the phone or scan the QR';
+/** OxioParty: lo que lee el cliente en inglés junto a «Acerca la pulsera» (con dónde está el lector). */
+function partyWaitEn(spot: ReaderSpot): string {
+  return `Hold your wristband to the ${spot === 'arriba' ? 'top of the device' : 'phone'} or scan the QR`;
+}
 
 /**
  * El título de la espera. OxioParty: «Acerca la pulsera» (también en iPhone,
@@ -809,7 +880,7 @@ const PARTY_WAIT_EN = 'Hold your wristband to the phone or scan the QR';
  */
 function waitTitle({ party, nfcOn, fichaHint }: { party: boolean; nfcOn: boolean; fichaHint: boolean }): string {
   if (party && (nfcOn || fichaHint)) return 'Acerca la pulsera';
-  return nfcOn ? 'Acerca el NFC o escanea' : 'Escanea el QR con tu móvil';
+  return nfcOn ? 'Acerca la ficha o escanea' : 'Escanea el QR con tu móvil';
 }
 
 /** PAGADO (3.3 / 2.5): lo que le queda, quién / qué / cómo, y el reparto si es una invitación. */
