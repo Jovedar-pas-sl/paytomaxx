@@ -214,6 +214,23 @@ describe('avisos de Telegram: grupos, chat del local y nombres', () => {
     const merged = mergeAlertSettings({ chatId: '-1001234567890', kinds: { pos: false } }, { chatId: null, includeNames: true });
     expect(merged).toMatchObject({ chatId: null, includeNames: true, kinds: expect.objectContaining({ pos: false, bank: true }) });
   });
+
+  it('avisos por persona: de fábrica 5 cancelados, 500 € de «Otro importe», PIN mal en 3 saldos y 3 cobros al mismo saldo', () => {
+    expect(alertSettingsOf(null).staffWatch).toEqual({ cancels: 5, freeAmountCents: 500_00, pinFailSaldos: 3, sameSaldoCharges: 3 });
+    expect(alertKindForIncident('staff_pattern')).toBe('payments');
+    // Lo guardado manda; un valor raro vuelve al de fábrica; 0 = no avisar.
+    expect(alertSettingsOf({ staffWatch: { cancels: 0, freeAmountCents: 'mucho', pinFailSaldos: -2, sameSaldoCharges: 4 } }).staffWatch).toEqual({
+      cancels: 0,
+      freeAmountCents: 500_00,
+      pinFailSaldos: 3,
+      sameSaldoCharges: 4,
+    });
+    const merged = mergeAlertSettings({ staffWatch: { cancels: 8 }, includeNames: true }, { staffWatch: { freeAmountCents: 300_00 } });
+    expect(merged).toMatchObject({ includeNames: true, staffWatch: { cancels: 8, freeAmountCents: 300_00, pinFailSaldos: 3, sameSaldoCharges: 3 } });
+    expect(UpdateAlertSettingsSchema.safeParse({ staffWatch: { cancels: 100 } }).success).toBe(false);
+    expect(UpdateAlertSettingsSchema.safeParse({ staffWatch: { otra: 1 } }).success).toBe(false);
+    expect(UpdateAlertSettingsSchema.safeParse({ staffWatch: { sameSaldoCharges: 2 } }).success).toBe(true);
+  });
 });
 
 describe('VenueSettingsController', () => {

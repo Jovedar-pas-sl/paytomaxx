@@ -4,7 +4,7 @@
  * solas (un doble cobro, un descuento que falló…) se marcan como revisadas.
  */
 
-import { formatChargeRef } from '@nightpay/contracts';
+import { STAFF_WATCH_SAME_SALDO_MINUTES, formatChargeRef } from '@nightpay/contracts';
 import { BRAND_NAME } from '../../common/brand';
 import { madridDay } from '../../common/time/madrid';
 import type { BackupVerdict } from '../db-backups/backup-check';
@@ -42,7 +42,9 @@ export type IncidentKind =
   | 'wallet_card_lost'
   | 'wallet_charge_disputed'
   | 'sensitive_action'
-  | 'bitcoin_overpaid';
+  | 'bitcoin_overpaid'
+  // Avisos por persona (19-11-2026): cancelaciones, «Otro importe», PIN y cobros seguidos al mismo saldo.
+  | 'staff_pattern';
 
 /** Las que desaparecen solas al resolverse (no se marcan como revisadas). */
 export const SELF_RESOLVING: ReadonlySet<IncidentKind> = new Set<IncidentKind>([
@@ -81,6 +83,7 @@ export const ACKABLE_KINDS = [
   'wallet_charge_disputed',
   'sensitive_action',
   'bitcoin_overpaid',
+  'staff_pattern',
 ] as const satisfies readonly IncidentKind[];
 
 /**
@@ -105,6 +108,8 @@ const MONEY_ACK_KINDS: ReadonlySet<IncidentKind> = new Set<IncidentKind>([
   // «No he sido yo»: se cierra diciendo qué se hizo (devuelto, era suyo…).
   'wallet_charge_disputed',
   'bitcoin_overpaid',
+  // Avisos por persona: se cierran diciendo qué se hizo (hablado con esa persona…).
+  'staff_pattern',
 ]);
 
 /** Letras mínimas de la nota de un aviso de dinero (como la del cierre con cobros sin terminar). */
@@ -324,6 +329,71 @@ export function walletChargeDisputedIncident(r: EventRow): Incident {
     // Telegram es un tercero: sin el código del cliente.
     alertDetail: `${what}. ${blocked} ${todo}`,
     occurredAt: r.occurredAt.toISOString(),
+    amountCents: r.amountCents,
+    paymentId: null,
+    ackable: true,
+  };
+}
+
+/** Los avisos por persona (Ajustes → Telegram → Avisos por persona; umbrales en StaffWatchSettings). */
+export type StaffPatternRule = 'cancels' | 'free_amount' | 'pin_fails' | 'same_saldo';
+
+/** Una persona del personal que pasó un umbral en una noche (lo calcula IncidentsService.staffPatterns). */
+export interface StaffPatternRow {
+  rule: StaffPatternRule;
+  /** Noche (YYYY-MM-DD, la de las 08:00 de Madrid). */
+  night: string;
+  userId: string;
+  name: string | null;
+  /** Cancelados, cobros con «Otro importe», saldos con el PIN fallado o cobros al mismo saldo. */
+  count: number;
+  /** «Otro importe» cobrado o lo cobrado al mismo saldo en esos minutos; si no, null. */
+  amountCents: number | null;
+  /** Cobros al mismo saldo: cuál (su código sale solo en el panel). */
+  walletId?: string | null;
+  shortCode?: string | null;
+  lastAt: Date;
+}
+
+const SOMEONE = 'Alguien del personal';
+
+const STAFF_PATTERN: Readonly<Record<StaffPatternRule, { title: string; text: (who: string | null, r: StaffPatternRow, code: string) => string }>> = {
+  cancels: {
+    title: 'Muchas cancelaciones de una persona',
+    text: (who, r) => `${who ?? SOMEONE} ha cancelado ${r.count} cobros la noche del ${r.night}. Revisa esos cobros en Hoy → Cobros y habla con esa persona.`,
+  },
+  free_amount: {
+    title: 'Mucho «Otro importe» de una persona',
+    text: (who, r) =>
+      `${who ?? SOMEONE} ha cobrado ${eur(r.amountCents ?? 0)} con «Otro importe» (tecleado, sin la carta) en ${r.count} cobros la noche del ${r.night}. Comprueba que eran precios del local.`,
+  },
+  pin_fails: {
+    title: 'PIN fallado en varios saldos',
+    text: (who, r) =>
+      `En el móvil de ${who ?? SOMEONE.toLowerCase()} se ha fallado el PIN de ${r.count} saldos distintos la noche del ${r.night}. Si no lo tecleaban sus clientes, puede estar probando el PIN de otros: revísalo.`,
+  },
+  same_saldo: {
+    title: 'Cobros seguidos al mismo saldo',
+    text: (who, r, code) =>
+      `${who ?? SOMEONE} ha cobrado ${r.count} veces al mismo saldo${code} en ${STAFF_WATCH_SAME_SALDO_MINUTES} minutos (${eur(r.amountCents ?? 0)}) la noche del ${r.night}. Comprueba con el cliente que lo pidió todo.`,
+  },
+};
+
+/**
+ * Aviso por persona: uno por persona, regla y noche (y saldo, en los cobros
+ * seguidos). El nombre y el código del saldo, solo en el panel; en Telegram
+ * (un tercero), sin ellos. Se cierra escribiendo qué se hizo.
+ */
+export function staffPatternIncident(r: StaffPatternRow): Incident {
+  const copy = STAFF_PATTERN[r.rule];
+  const code = r.shortCode ? ` (${formatWalletCode(r.shortCode)})` : '';
+  return {
+    kind: 'staff_pattern',
+    refId: [r.rule, r.night, r.userId, ...(r.walletId ? [r.walletId] : [])].join(':'),
+    title: copy.title,
+    detail: copy.text(r.name?.trim() || null, r, code),
+    alertDetail: copy.text(null, r, ''),
+    occurredAt: r.lastAt.toISOString(),
     amountCents: r.amountCents,
     paymentId: null,
     ackable: true,

@@ -373,11 +373,42 @@ const INCIDENT_ALERT_KIND: Readonly<Record<string, AlertKindKey>> = {
   backup_stale: 'backups',
   backup_unmonitored: 'backups',
   approval_pending: 'approvals',
+  // Avisos por persona: cobros del personal que hay que mirar.
+  staff_pattern: 'payments',
 };
 
 export function alertKindForIncident(kind: string): AlertKindKey {
   return INCIDENT_ALERT_KIND[kind] ?? 'payments';
 }
+
+/**
+ * Avisos por persona (Incidencias y Telegram), por noche (de 08:00 a 08:00 de
+ * Madrid): desde cuántos sale el aviso de una persona del personal (el dueño
+ * no cuenta). 0 = no avisar. Solo los ve y los cambia el dueño (Ajustes →
+ * Telegram): el personal no los sabe.
+ */
+export interface StaffWatchSettings {
+  /** Cobros cancelados por la misma persona. */
+  cancels: number;
+  /** «Otro importe» (lo tecleado, sin la carta) cobrado por la misma persona, en céntimos. */
+  freeAmountCents: number;
+  /** Saldos distintos con el PIN fallado en el móvil de la misma persona. */
+  pinFailSaldos: number;
+  /** Cobros de la misma persona al mismo saldo en STAFF_WATCH_SAME_SALDO_MINUTES. */
+  sameSaldoCharges: number;
+}
+
+/** Los de fábrica (19-11-2026): 5 cancelados, 500 €, 3 saldos y 3 cobros. */
+export const DEFAULT_STAFF_WATCH: Readonly<StaffWatchSettings> = Object.freeze({
+  cancels: 5,
+  freeAmountCents: 500_00,
+  pinFailSaldos: 3,
+  sameSaldoCharges: 3,
+});
+/** Los cobros al mismo saldo cuentan si caben en este rato. */
+export const STAFF_WATCH_SAME_SALDO_MINUTES = 15;
+export const MAX_STAFF_WATCH_COUNT = 99;
+export const MAX_STAFF_WATCH_FREE_CENTS = 100_000_00;
 
 export interface VenueAlertSettings {
   kinds: Record<AlertKindKey, boolean>;
@@ -385,6 +416,8 @@ export interface VenueAlertSettings {
   chatId: string | null;
   /** Nombres de las chicas en los mensajes (Telegram es un tercero): por defecto, no. */
   includeNames: boolean;
+  /** Avisos por persona: desde cuántos. */
+  staffWatch: StaffWatchSettings;
 }
 
 /** Id numérico del chat (grupos en negativo) o @canal. */
@@ -394,7 +427,10 @@ export const DEFAULT_ALERT_SETTINGS: Readonly<VenueAlertSettings> = Object.freez
   kinds: Object.fromEntries(ALERT_KIND_KEYS.map((k) => [k, true])) as Record<AlertKindKey, boolean>,
   chatId: null,
   includeNames: false,
+  staffWatch: DEFAULT_STAFF_WATCH,
 });
+
+const watchCount = z.number().int().min(0).max(MAX_STAFF_WATCH_COUNT).optional();
 
 export const UpdateAlertSettingsSchema = z
   .object({
@@ -412,10 +448,35 @@ export const UpdateAlertSettingsSchema = z
       .nullable()
       .optional(),
     includeNames: z.boolean().optional(),
+    staffWatch: z
+      .object({
+        cancels: watchCount,
+        freeAmountCents: z.number().int().min(0).max(MAX_STAFF_WATCH_FREE_CENTS).optional(),
+        pinFailSaldos: watchCount,
+        sameSaldoCharges: watchCount,
+      })
+      .strict()
+      .optional(),
   })
   .strict()
   .refine((d) => Object.values(d).some((v) => v !== undefined), { message: 'No hay nada que cambiar' });
 export type UpdateAlertSettingsDto = z.infer<typeof UpdateAlertSettingsSchema>;
+
+function watchValue(v: unknown, max: number, fallback: number): number {
+  return typeof v === 'number' && Number.isInteger(v) && v >= 0 && v <= max ? v : fallback;
+}
+
+/** Lo guardado con lo de fábrica donde falte o no valga. */
+function staffWatchOf(raw: unknown): StaffWatchSettings {
+  const s = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
+  const d = DEFAULT_STAFF_WATCH;
+  return {
+    cancels: watchValue(s.cancels, MAX_STAFF_WATCH_COUNT, d.cancels),
+    freeAmountCents: watchValue(s.freeAmountCents, MAX_STAFF_WATCH_FREE_CENTS, d.freeAmountCents),
+    pinFailSaldos: watchValue(s.pinFailSaldos, MAX_STAFF_WATCH_COUNT, d.pinFailSaldos),
+    sameSaldoCharges: watchValue(s.sameSaldoCharges, MAX_STAFF_WATCH_COUNT, d.sameSaldoCharges),
+  };
+}
 
 export function alertSettingsOf(raw: unknown): VenueAlertSettings {
   const stored = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
@@ -429,6 +490,7 @@ export function alertSettingsOf(raw: unknown): VenueAlertSettings {
     kinds,
     chatId: TELEGRAM_CHAT_ID_RE.test(chat) ? chat : null,
     includeNames: stored.includeNames === true,
+    staffWatch: staffWatchOf(stored.staffWatch),
   };
 }
 
@@ -438,5 +500,6 @@ export function mergeAlertSettings(current: unknown, patch: UpdateAlertSettingsD
     kinds: { ...base.kinds, ...Object.fromEntries(Object.entries(patch.kinds ?? {}).filter(([, v]) => v !== undefined)) },
     chatId: patch.chatId === undefined ? base.chatId : patch.chatId,
     includeNames: patch.includeNames ?? base.includeNames,
+    staffWatch: { ...base.staffWatch, ...Object.fromEntries(Object.entries(patch.staffWatch ?? {}).filter(([, v]) => v !== undefined)) },
   });
 }

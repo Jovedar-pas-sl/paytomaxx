@@ -1,5 +1,6 @@
 import { afterEach, describe, it, expect, vi } from 'vitest';
 import { BadRequestException, NotFoundException } from '@nestjs/common';
+import { Prisma } from '@nightpay/db';
 import { INCIDENT_QUERY_CONCURRENCY, IncidentsService } from './incidents.service';
 import { AlertsService } from './alerts.service';
 import { TelegramService } from './telegram.service';
@@ -34,6 +35,8 @@ function makeIncidents(rows: {
   const prisma = {
     $queryRaw: vi
       .fn()
+      // Después, los avisos por persona (sin filas).
+      .mockResolvedValue([])
       .mockResolvedValueOnce(rows.stuck ?? [])
       .mockResolvedValueOnce(rows.dup ?? [])
       .mockResolvedValueOnce(rows.audit ?? [])
@@ -51,6 +54,8 @@ function makeIncidents(rows: {
       .mockResolvedValueOnce(rows.unprovenSales ?? [])
       .mockResolvedValueOnce(rows.unassignedTopUps ?? []),
     incidentAck: { upsert: vi.fn().mockResolvedValue({}) },
+    // Los umbrales de los avisos por persona (sin guardar: los de fábrica).
+    venue: { findUnique: vi.fn().mockResolvedValue(null) },
     asSystem: vi.fn(),
   };
   prisma.asSystem.mockImplementation((fn: (tx: typeof prisma) => unknown) => fn(prisma));
@@ -755,18 +760,19 @@ describe('bandeja de incidencias — consultas a la base (DI-04)', () => {
       inFlight -= 1;
       return [];
     });
-    const prisma = { $queryRaw: query, asSystem: vi.fn(async (fn: (tx: unknown) => unknown) => fn({ $queryRaw: query })) };
+    const prisma = { $queryRaw: query, venue: { findUnique: vi.fn(async () => null) }, asSystem: vi.fn(async (fn: (tx: unknown) => unknown) => fn({ $queryRaw: query })) };
     const svc = new IncidentsService(prisma as never, { log: vi.fn() } as never);
     await expect(svc.list('t-1', at('2026-10-17T01:00:00Z'))).resolves.toEqual([]);
-    // 16: el saldo que queda tras la noche ya no se busca (es para la próxima visita).
-    expect(total).toBe(16);
+    // 16 (el saldo que queda tras la noche ya no se busca: es para la próxima visita) + los 4 avisos
+    // por persona, que van en un solo hueco, una tras otra.
+    expect(total).toBe(20);
     expect(maxInFlight).toBeLessThanOrEqual(INCIDENT_QUERY_CONCURRENCY);
     expect(INCIDENT_QUERY_CONCURRENCY).toBe(4);
   });
 
   it('un fallo en una consulta hace fallar la bandeja (como antes): no se enseña una bandeja a medias', async () => {
     const query = vi.fn().mockResolvedValue([]).mockRejectedValueOnce(new Error('connection terminated'));
-    const prisma = { $queryRaw: query, asSystem: vi.fn(async (fn: (tx: unknown) => unknown) => fn({ $queryRaw: query })) };
+    const prisma = { $queryRaw: query, venue: { findUnique: vi.fn(async () => null) }, asSystem: vi.fn(async (fn: (tx: unknown) => unknown) => fn({ $queryRaw: query })) };
     const svc = new IncidentsService(prisma as never, { log: vi.fn() } as never);
     await expect(svc.list('t-1', at('2026-10-17T01:00:00Z'))).rejects.toThrow('connection terminated');
   });
@@ -835,5 +841,59 @@ describe('recepción: «El cliente dice que no ha sido él» (app del personal)'
     }));
     expect(t.audit.log).toHaveBeenCalledWith(expect.objectContaining({ action: 'incident.acked', targetId: 'wallet_charge_disputed:a-21' }));
     await expect(make([]).svc.ackDisputed('t-1', 'rocio', { refId: 'a-21', note: 'nota' })).rejects.toMatchObject({ status: 404 });
+  });
+});
+
+describe('bandeja de incidencias — avisos por persona', () => {
+  /** Cada consulta de los avisos por persona, por su regla; el resto de la bandeja, vacía. */
+  function staffIncidents(alertSettings: unknown, rows: Partial<Record<'cancels' | 'free_amount' | 'pin_fails' | 'same_saldo', unknown[]>>) {
+    const sqls: string[] = [];
+    const params: unknown[][] = [];
+    const query = vi.fn(async (strings: TemplateStringsArray, ...values: unknown[]) => {
+      // La consulta entera (con sus trozos: quién, el nombre, la noche) y sus valores.
+      const full = Prisma.sql(strings, ...values);
+      const sql = full.text;
+      const rule = /'(cancels|free_amount|pin_fails|same_saldo)' AS rule/.exec(sql)?.[1] as keyof typeof rows | undefined;
+      if (rule) {
+        sqls.push(sql);
+        params.push(full.values);
+      }
+      return rule ? (rows[rule] ?? []) : [];
+    });
+    const prisma = {
+      $queryRaw: query,
+      venue: { findUnique: vi.fn(async () => ({ alertSettings })) },
+      asSystem: vi.fn(async (fn: (tx: unknown) => unknown) => fn({ $queryRaw: query })),
+    };
+    return { svc: new IncidentsService(prisma as never, { log: vi.fn() } as never), sqls, params };
+  }
+  const lastAt = at('2026-11-19T02:10:00Z');
+
+  it('las cuatro reglas salen en la bandeja (marcables, con nota); el dueño no cuenta y solo lo de la última semana', async () => {
+    const { svc, sqls } = staffIncidents(null, {
+      cancels: [{ rule: 'cancels', night: '2026-11-18', userId: 'u-1', name: 'Ana', count: 6, amountCents: null, lastAt }],
+      same_saldo: [{ rule: 'same_saldo', night: '2026-11-18', userId: 'u-2', name: 'Leo', count: 3, amountCents: 6_000, walletId: 'w-1', shortCode: 'K7Q4M2', lastAt }],
+    });
+    const items = await svc.list('t-1', at('2026-11-19T03:00:00Z'));
+    expect(items.filter((i) => i.kind === 'staff_pattern').map((i) => [i.refId, i.noteRequired])).toEqual([
+      ['cancels:2026-11-18:u-1', true],
+      ['same_saldo:2026-11-18:u-2:w-1', true],
+    ]);
+    expect(sqls).toHaveLength(4);
+    for (const sql of sqls) {
+      expect(sql).toContain(`u.role::text <> 'OWNER'`);
+      expect(sql).toContain(`'Europe/Madrid') - interval '8 hours'`);
+    }
+    expect(sqls[3]).toContain(`RANGE BETWEEN interval '15 minutes' PRECEDING AND CURRENT ROW`);
+  });
+
+  it('los umbrales del local mandan; 0 = esa regla no se mira', async () => {
+    const { svc, sqls, params } = staffIncidents({ staffWatch: { cancels: 0, freeAmountCents: 300_00, pinFailSaldos: 0, sameSaldoCharges: 0 } }, {});
+    await svc.list('t-1', at('2026-11-19T03:00:00Z'));
+    expect(sqls).toHaveLength(1);
+    expect(sqls[0]).toContain("'free_amount' AS rule");
+    expect(params[0]).toContain(300_00);
+    // Desde hace 7 días.
+    expect(params[0]).toContainEqual(at('2026-11-12T03:00:00Z'));
   });
 });

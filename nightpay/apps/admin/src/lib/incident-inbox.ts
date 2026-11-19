@@ -99,6 +99,12 @@ export const INCIDENT_KINDS: Record<IncidentKind, KindMeta> = {
   bank_mismatch: { group: 'Banco', title: 'Diferencia con el banco', tab: 'bank' },
   backup_stale: { group: 'Copias', title: 'Sin copia de seguridad reciente', tab: null },
   backup_unmonitored: { group: 'Copias', title: 'Las copias de seguridad no se vigilan', tab: null },
+  staff_pattern: {
+    group: 'Personal',
+    title: 'Algo que mirar de una persona',
+    tab: 'payments',
+    hint: 'Revisa sus cobros de esa noche y habla con esa persona. Los números que lo hacen saltar se cambian en Ajustes → Telegram.',
+  },
   // Se decide en la misma bandeja (Avisos): la tarjeta de «Por aprobar».
   approval_pending: { group: 'Por aprobar', title: 'Solicitud del encargado sin decidir', tab: null },
 };

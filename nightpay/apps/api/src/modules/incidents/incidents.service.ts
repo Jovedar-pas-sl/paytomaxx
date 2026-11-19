@@ -1,5 +1,12 @@
 import { BadRequestException, Inject, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
-import { APPROVAL_INCIDENT_MINUTES, APPROVAL_TTL_MS, PENDING_TOPUP_INCIDENT_MINUTES } from '@nightpay/contracts';
+import { Prisma } from '@nightpay/db';
+import {
+  APPROVAL_INCIDENT_MINUTES,
+  APPROVAL_TTL_MS,
+  PENDING_TOPUP_INCIDENT_MINUTES,
+  STAFF_WATCH_SAME_SALDO_MINUTES,
+  alertSettingsOf,
+} from '@nightpay/contracts';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { BackupMonitorService } from '../db-backups/backup-monitor.service';
@@ -38,6 +45,8 @@ import {
   walletTopUpUnassignedIncident,
   walletCardLostIncident,
   walletChargeDisputedIncident,
+  staffPatternIncident,
+  type StaffPatternRow,
   type PendingTopUpRow,
   posReceptionLimitIncident,
   posUnprovenSalesIncident,
@@ -59,6 +68,8 @@ const PER_KIND_LIMIT = 100;
 const STUCK_MINUTES = 15;
 /** Un cobro del datáfono debería salir en un cuadre de ese datáfono en este tiempo. */
 const RECONCILE_WITHIN_HOURS = 24;
+/** Avisos por persona: lo de la última semana (al publicarlo no salen de golpe los de hace meses). */
+const STAFF_WATCH_DAYS = 7;
 /**
  * Consultas de la bandeja a la vez. Eran las 17 en un Promise.all: 17
  * conexiones del pool de Prisma en cada carga del panel y en cada vuelta de
@@ -112,6 +123,7 @@ export class IncidentsService {
       posVoidedPaid,
       unprovenSales,
       unassignedTopUps,
+      staffRows,
     ] = await runLimited([
       () => this.prisma.$queryRaw<StuckRow[]>`
         SELECT id, status::text AS status, "amountCents", "updatedAt", provider::text AS provider
@@ -381,6 +393,8 @@ export class IncidentsService {
          ORDER BY "pendingAssignAt" DESC
          LIMIT ${PER_KIND_LIMIT}
       `),
+      // Avisos por persona (al final: lee los umbrales del local y hace sus consultas).
+      () => this.staffPatterns(tenantId, now),
     ] as const, INCIDENT_QUERY_CONCURRENCY);
 
     const all: Incident[] = [
@@ -411,6 +425,7 @@ export class IncidentsService {
       ...posVoidedPaid.map(posVoidedPaidIncident),
       ...(await this.withBitcoinParts(walletsToClose)).map(walletCloseRequestedIncident),
       ...unassignedTopUps.map(walletTopUpUnassignedIncident),
+      ...staffRows.map(staffPatternIncident),
       // La misma diferencia repetida (dos subidas a la vez) sale una vez.
       ...uniqueBy(bankItems.map(bankMismatchIncident), (i) => i.refId),
       // "Sin comprobar" va por cobro: varios avisos del mismo cobro, uno solo.
@@ -514,6 +529,105 @@ export class IncidentsService {
     const found = (await this.paidAfterCancel(tenantId)).find((i) => i.refId === input.refId);
     if (!found) throw new NotFoundException('Ese aviso ya no está en la bandeja de este local');
     await this.close(tenantId, actorId, found, { kind: 'approval_unbooked', refId: input.refId, note: input.note });
+  }
+
+  /**
+   * Avisos por persona (decisión del dueño, 19-11-2026): quién del personal
+   * pasó un umbral del local (Ajustes → Telegram; 0 = no se mira) en una noche
+   * de 08:00 a 08:00 de Madrid, en los últimos STAFF_WATCH_DAYS días. El dueño
+   * no cuenta. Las líneas, los consumos y los saldos tienen FORCE RLS: con
+   * bypass y el local en cada consulta.
+   */
+  private async staffPatterns(tenantId: string, now: Date): Promise<StaffPatternRow[]> {
+    const venue = await this.prisma.venue.findUnique({ where: { id: tenantId }, select: { alertSettings: true } });
+    const watch = alertSettingsOf(venue?.alertSettings).staffWatch;
+    const since = new Date(now.getTime() - STAFF_WATCH_DAYS * 24 * 60 * 60 * 1000);
+    const night = (at: Prisma.Sql) => Prisma.sql`to_char(((${at} AT TIME ZONE 'Europe/Madrid') - interval '8 hours')::date, 'YYYY-MM-DD')`;
+    // Quién: su nombre visible (o lo de antes de la @), del mismo local y sin el dueño.
+    const person = (x: string) => Prisma.sql`
+      JOIN users u ON u.id::text = ${Prisma.raw(x)}."userId" AND u."tenantId" = ${tenantId}::uuid AND u.role::text <> 'OWNER'`;
+    const name = Prisma.sql`COALESCE(NULLIF(btrim(u."displayName"), ''), split_part(u.email, '@', 1)) AS name`;
+    return this.prisma.asSystem(async (tx) => {
+      const out: StaffPatternRow[] = [];
+      if (watch.cancels > 0) {
+        // «Cancelar cobro»: quién lo canceló va en el evento (byUserId); un cobro, una vez.
+        out.push(...(await tx.$queryRaw<StaffPatternRow[]>`
+          SELECT 'cancels' AS rule, x.night, x."userId", x.count, NULL::int AS "amountCents", x."lastAt", ${name}
+            FROM (SELECT ${night(Prisma.sql`e."occurredAt"`)} AS night, e.payload ->> 'byUserId' AS "userId",
+                         COUNT(DISTINCT e."paymentId")::int AS count, MAX(e."occurredAt") AS "lastAt"
+                    FROM payment_events e
+                   WHERE e."tenantId" = ${tenantId}::uuid AND e."eventType" = 'payment.canceled'
+                     AND e."occurredAt" >= ${since} AND e.payload ->> 'byUserId' IS NOT NULL
+                   GROUP BY 1, 2
+                  HAVING COUNT(DISTINCT e."paymentId") >= ${watch.cancels}) x
+            ${person('x')}
+           ORDER BY x."lastAt" DESC
+           LIMIT ${PER_KIND_LIMIT}
+        `));
+      }
+      if (watch.freeAmountCents > 0) {
+        // «Otro importe»: las líneas tecleadas (sin la carta) de lo cobrado, con tarjeta o con el saldo
+        // (la línea pasa al cobro del saldo si paga el saldo: cada una cuenta una vez).
+        const paidAt = Prisma.sql`COALESCE(p."authorizedAt", w."decidedAt", l."createdAt")`;
+        out.push(...(await tx.$queryRaw<StaffPatternRow[]>`
+          SELECT 'free_amount' AS rule, x.night, x."userId", x.count, x."amountCents", x."lastAt", ${name}
+            FROM (SELECT ${night(paidAt)} AS night, COALESCE(p."createdByUserId", w."requestedByUserId")::text AS "userId",
+                         COUNT(DISTINCT COALESCE(l."paymentId", l."walletChargeId"))::int AS count,
+                         SUM(l."amountCents")::int AS "amountCents", MAX(${paidAt}) AS "lastAt"
+                    FROM payment_lines l
+                    LEFT JOIN payments p ON p.id = l."paymentId"
+                    LEFT JOIN wallet_charge_requests w ON w.id = l."walletChargeId"
+                   WHERE l."tenantId" = ${tenantId}::uuid AND l."serviceItemId" IS NULL AND l."createdAt" >= ${since}
+                     AND (p.status::text IN ('AUTHORIZED', 'PARTIALLY_REFUNDED', 'REFUNDED') OR w.status = 'ACCEPTED')
+                   GROUP BY 1, 2
+                  HAVING SUM(l."amountCents") >= ${watch.freeAmountCents}) x
+            ${person('x')}
+           ORDER BY x."lastAt" DESC
+           LIMIT ${PER_KIND_LIMIT}
+        `));
+      }
+      if (watch.pinFailSaldos > 0) {
+        // PIN fallado (o que bloqueó el saldo) en el móvil de esa persona: saldos distintos.
+        out.push(...(await tx.$queryRaw<StaffPatternRow[]>`
+          SELECT 'pin_fails' AS rule, x.night, x."userId", x.count, NULL::int AS "amountCents", x."lastAt", ${name}
+            FROM (SELECT ${night(Prisma.sql`a."occurredAt"`)} AS night, a."actorId"::text AS "userId",
+                         COUNT(DISTINCT a."targetId")::int AS count, MAX(a."occurredAt") AS "lastAt"
+                    FROM audit_events a
+                   WHERE a."tenantId" = ${tenantId}::uuid AND a.action IN ('wallet.pin_failed', 'wallet.pin_locked')
+                     AND a."occurredAt" >= ${since} AND a."actorId" IS NOT NULL
+                   GROUP BY 1, 2
+                  HAVING COUNT(DISTINCT a."targetId") >= ${watch.pinFailSaldos}) x
+            ${person('x')}
+           ORDER BY x."lastAt" DESC
+           LIMIT ${PER_KIND_LIMIT}
+        `));
+      }
+      if (watch.sameSaldoCharges > 0) {
+        // Cobros de la misma persona al mismo saldo (sin los deshechos) dentro de los minutos: el peor rato de cada noche.
+        const span = Prisma.raw(`interval '${STAFF_WATCH_SAME_SALDO_MINUTES} minutes'`);
+        out.push(...(await tx.$queryRaw<StaffPatternRow[]>`
+          SELECT * FROM (
+            SELECT DISTINCT ON (y.night, y."userId", y."walletId")
+                   'same_saldo' AS rule, y.night, y."userId", y."walletId", y.n AS count, y.cents AS "amountCents",
+                   y.at AS "lastAt", cw."shortCode", ${name}
+              FROM (SELECT ${night(Prisma.sql`c."createdAt"`)} AS night, c."providedByUserId"::text AS "userId",
+                           c."walletId"::text AS "walletId", c."createdAt" AS at,
+                           (COUNT(*) OVER win)::int AS n, (SUM(c."amountCents" + c."tipCents") OVER win)::int AS cents
+                      FROM wallet_consumptions c
+                     WHERE c."tenantId" = ${tenantId}::uuid AND c."createdAt" >= ${since} AND c."reversedAt" IS NULL
+                    WINDOW win AS (PARTITION BY c."providedByUserId", c."walletId" ORDER BY c."createdAt"
+                                   RANGE BETWEEN ${span} PRECEDING AND CURRENT ROW)) y
+              ${person('y')}
+              LEFT JOIN client_wallets cw ON cw.id::text = y."walletId"
+             WHERE y.n >= ${watch.sameSaldoCharges}
+             ORDER BY y.night, y."userId", y."walletId", y.n DESC, y.at DESC
+          ) z
+          ORDER BY z."lastAt" DESC
+          LIMIT ${PER_KIND_LIMIT}
+        `));
+      }
+      return out;
+    });
   }
 
   /** Cerrar una que está en la bandeja: la nota de los de dinero, la marca y el registro. */
