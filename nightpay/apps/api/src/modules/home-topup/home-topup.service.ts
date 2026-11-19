@@ -24,6 +24,7 @@ import {
 } from '@nightpay/contracts';
 import { PrismaService, type TransactionalClient } from '../../common/prisma/prisma.service';
 import { REDIS_CLIENT } from '../../common/redis/redis.module';
+import { isPartyEdition } from '../../config/edition';
 import { PaymentsService } from '../payments/payments.service';
 import type { PayLanguage } from '../payments/customer-lang';
 import { VENUE_SERVICE_FEE_SELECT, venueServiceFeeOf } from '../payments/service-fee';
@@ -526,7 +527,8 @@ export class HomeTopUpService {
       terminalExternalId: terminal?.externalId ?? null,
       serviceFee: venueServiceFeeOf(venue),
       presetsCents: selfTopUpPresets(nightSettingsOf(venue.nightSettings).receptionQuickAmountsCents),
-      gifts: venue.homeTopUpGiftsEnabled === true,
+      // En OxioParty no hay regalos: «Lo que sobra» devolvería lo que sobre a la tarjeta de quien regaló.
+      gifts: venue.homeTopUpGiftsEnabled === true && !isPartyEdition(),
     };
   }
 

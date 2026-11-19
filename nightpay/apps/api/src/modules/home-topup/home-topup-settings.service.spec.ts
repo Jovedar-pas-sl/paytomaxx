@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { NotFoundException } from '@nestjs/common';
 import { Prisma } from '@nightpay/db';
 import { HOME_TOPUP_CODE_RE } from '@nightpay/contracts';
 import { queueTokenValid } from './home-topup-queue';
@@ -104,6 +105,18 @@ describe('Ajustes → «Regalos» («Regala una noche»)', () => {
     await m.service.setGifts(OWNER, true);
     expect(m.audit.log).not.toHaveBeenCalled();
     expect((await m.service.setGifts(OWNER, false)).giftsEnabled).toBe(false);
+  });
+
+  it('en OxioParty no hay regalos: se ve apagado aunque la base diga encendido, y encenderlo da 404', async () => {
+    const m = make({ enabled: true, code: 'AbCdEfGhIjKlMnOp' });
+    await m.service.setGifts(OWNER, true);
+    vi.stubEnv('EDITION', 'party');
+    try {
+      expect((await m.service.view(VENUE)).giftsEnabled).toBe(false);
+      await expect(m.service.setGifts(OWNER, true)).rejects.toBeInstanceOf(NotFoundException);
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 
   it('los regalos pagados del local, los sin guardar primero y con su estado (sin nombre ni mensaje)', async () => {
