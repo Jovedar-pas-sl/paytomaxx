@@ -394,7 +394,8 @@ function ActivePanel(props: ActivePanelProps) {
         <div className="np-set-stack">
           <PaymentMethodsPanel onSaved={(m) => props.onPosChange(m.pos)} />
           <HomeTopUpPanel />
-        <VenueKitPanel />
+          {/* El material del local dice «OxioPay»: en OxioParty no sale hasta que tenga el suyo. */}
+          {isPartyEdition() ? null : <VenueKitPanel />}
         </div>
       ) : null;
     case 'night':
