@@ -37,7 +37,8 @@ let seq = 0;
 function slotAt(i: number): Slot {
   const existing = slots[i];
   if (existing) return existing;
-  const worker = new Worker(WORKER_SOURCE, { eval: true, workerData: { bcryptPath: require.resolve('bcryptjs') } });
+  // execArgv vacío: el hilo es JS puro, sin heredar el `--import tsx` del arranque.
+  const worker = new Worker(WORKER_SOURCE, { eval: true, execArgv: [], workerData: { bcryptPath: require.resolve('bcryptjs') } });
   const slot: Slot = { worker, pending: new Map() };
   worker.unref(); // sin encargos, no retiene el proceso
   worker.on('message', (msg: { id: number; value?: unknown; error?: string }) => {
