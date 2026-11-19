@@ -1,5 +1,6 @@
 'use client';
 
+import { PracticeSimulate } from '../../PracticeSimulate';
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { AmountKeypad, outcomeKindOf, useWakeLock, type PaymentStatus } from '@nightpay/ui';
 import { MAX_TYPED_AMOUNT_CENTS } from '@nightpay/contracts';
@@ -178,6 +179,8 @@ export function TopUpQr(props: Props) {
             <Icon name="clock" />
             Si se corta, queda pendiente en su saldo. No se pierde.
           </p>
+          {/* Modo práctica: el papel del cliente. */}
+          {payment && !props.changing ? <PracticeSimulate paymentId={payment.id} /> : null}
         </>
       )}
 

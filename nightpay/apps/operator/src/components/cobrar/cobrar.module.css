@@ -1232,7 +1232,8 @@ html[data-contrast='sala'] .lastRow[data-n='4']:not([data-big]) {
   flex-direction: column;
   overflow-y: auto;
   background: var(--np-bg);
-  padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px) env(safe-area-inset-bottom, 0px)
+  /* En práctica, la franja de arriba (--np-practice-h) no tapa la cabecera. */
+  padding: max(env(safe-area-inset-top, 0px), var(--np-practice-h, 0px)) env(safe-area-inset-right, 0px) env(safe-area-inset-bottom, 0px)
     env(safe-area-inset-left, 0px);
 }
 

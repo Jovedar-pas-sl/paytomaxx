@@ -6,6 +6,7 @@
 //    actúa sobre el cobro activo de su camarero: la propina que elige el
 //    cliente y pagarlo con su ficha (y su PIN).
 
+import { PracticeBlockedError, isPractice } from './practice';
 import { parseProblemDetails } from '@nightpay/api-client';
 import {
   CUSTOMER_DISPLAY_AUTH_SCHEME,
@@ -107,6 +108,7 @@ export function forgetDisplayToken(): void {
 }
 
 export async function pairDisplay(code: string): Promise<CustomerDisplayPairResult> {
+  if (isPractice()) throw new PracticeBlockedError('emparejar la pantalla');
   let res: Response;
   try {
     res = await fetch(`${API_BASE}/v1/customer-display/pair`, {
@@ -127,6 +129,8 @@ export async function pairDisplay(code: string): Promise<CustomerDisplayPairResu
 }
 
 async function displayCall<T>(path: string, init: RequestInit = {}, signal?: AbortSignal): Promise<T> {
+  // En práctica la tablet del cliente real no se toca (ni se lee ni se escribe).
+  if (isPractice()) throw new PracticeBlockedError('la pantalla del cliente');
   const token = currentDisplayToken();
   if (!token) throw new DisplayApiError('Pantalla sin emparejar', 401);
   let res: Response;
