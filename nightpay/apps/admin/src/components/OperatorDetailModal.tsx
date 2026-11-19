@@ -186,7 +186,9 @@ export function OperatorDetailModal({
               payoutMethod={operator.payoutMethod ?? null}
               payoutAddressMasked={operator.payoutAddressMasked ?? null}
               payoutHolderMasked={operator.payoutHolderMasked ?? null}
-              payoutHolderMismatch={operator.payoutHolderMismatch ?? false}
+              // Con nombre legal, el aviso es el de confirmar (o ya confirmada: nada).
+              payoutHolderMismatch={(operator.payoutHolderMismatch ?? false) && !operator.legalNameMasked}
+              payoutHolderUnconfirmed={operator.payoutHolderUnconfirmed ?? false}
               payoutHoldUntil={operator.payoutHoldUntil ?? null}
               canReveal={isOwner}
               payoutLabel={operator.payoutLabel ?? null}
@@ -300,7 +302,7 @@ export function OperatorDetailModal({
           }}
         />
       ) : (
-        <OnboardingForm operator={operator} onSaved={onChanged} />
+        <OnboardingForm operator={operator} isOwner={isOwner} onSaved={onChanged} />
       )}
     </FichaSheet>
   );
