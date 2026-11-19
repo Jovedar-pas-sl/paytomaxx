@@ -144,9 +144,9 @@ describe('la carta de la noche (servicio)', () => {
     expect((await service.listForStaff('t1', 'WAITER')).map((i) => i.id)).toEqual(['b', 'c', 'a', 'nuevo']);
   });
 
-  it('el panel (listAll) sigue con el orden manual, sin mirar la noche', async () => {
+  it('el panel (listAll) sigue con el orden manual, sin calcular el orden de la noche', async () => {
     const { service, tx } = setup();
     expect((await service.listAll('t1')).map((i) => i.id)).toEqual(['a', 'b', 'c']);
-    expect(tx.venueNight.findFirst).not.toHaveBeenCalled();
+    expect(tx.venueNight.findMany).not.toHaveBeenCalled(); // solo mira cuándo abrió la noche (para «Agotado»), no calcula el orden
   });
 });

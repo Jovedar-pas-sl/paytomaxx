@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState, type CSSProperties, type FormEvent } from 'react';
 import type { CustomerScreenView } from '@nightpay/contracts';
-import { Button, Logo, useWakeLock } from '@nightpay/ui';
+import { Button, DoneMark, Logo, useWakeLock } from '@nightpay/ui';
 import {
   currentDisplayToken,
   DisplayApiError,
@@ -368,10 +368,7 @@ function TipChoice({ view, busy, onTip }: { view: WaitingView; busy: boolean; on
 function Paid() {
   return (
     <div className={s.paid} role="status">
-      <svg className={s.tick} viewBox="0 0 48 48" fill="none" aria-hidden>
-        <circle cx="24" cy="24" r="22" stroke="currentColor" strokeWidth="3" opacity="0.5" />
-        <path d="M14 24.5l7 7 13-14" stroke="currentColor" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" />
-      </svg>
+      <DoneMark className={s.tick} />
       <p className={s.paidWord}>Pagado</p>
       <p className={s.paidSub}>¡Gracias!</p>
     </div>

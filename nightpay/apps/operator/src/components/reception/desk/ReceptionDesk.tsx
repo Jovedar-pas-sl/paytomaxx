@@ -96,6 +96,8 @@ import { UndoLink, UndoneStep, UndoRow, UndoStep } from './UndoSteps';
 import { useDeskNfc, type TapMeta } from './use-desk-nfc';
 import { CHARGING, PhoneOption, backOf, counterOf, ignoreCounterError, readRow, useCashAttemptRef, type Loaded, type Mode, type Read, type Step } from './desk-model';
 import s from './desk.module.css';
+import { usePractice } from '@/lib/practice';
+import { PRACTICE_CODE } from '@/lib/practice-sim';
 
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
@@ -143,6 +145,7 @@ const PAID_FACTS_TIMEOUT_MS = 3_000;
  */
 
 export function ReceptionDesk({ user, active, footer, onGiveFicha, onScanHome, home }: Props) {
+  const practice = usePractice();
   const night = useVenueNight();
   // OxioParty: la taquilla (otra pantalla para cargar la pulsera; los mismos endpoints y pasos).
   const party = isParty();
@@ -712,6 +715,8 @@ export function ReceptionDesk({ user, active, footer, onGiveFicha, onScanHome, h
                     />
                   ))
                 : null}
+              {/* Modo práctica: una ficha de mentira en vez de leer el NFC. */}
+              {practice && mode === 'entrada' ? <DeskRowLink label="Simular ficha" onClick={() => void run(async () => open(await fetchReceptionDesk({ code: PRACTICE_CODE }), null))} /> : null}
               <DeskRowLink label="Escribir el código" onClick={() => go({ kind: 'code' })} />
               <DeskRowLink label={pulseraText('Buscar número de ficha', party)} onClick={() => go({ kind: 'number' })} />
             </div>

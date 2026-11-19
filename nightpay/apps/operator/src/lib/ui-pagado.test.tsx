@@ -138,8 +138,8 @@ describe('punto 6: «cómo se pagó» sin inventar nada', () => {
         primary={{ label: 'Nuevo cobro', onClick: () => undefined }}
       />,
     );
-    expect(html).toContain('np-check-ring');
-    expect(html).toContain('np-check-tick');
+    expect(html).toContain('np-done');
+    expect(html).not.toContain('np-check');
     expect(html).toContain('np-outcome-word');
     expect(html.indexOf('np-outcome-amount')).toBeLessThan(html.indexOf('np-outcome-how'));
     expect(html).toContain('Con ficha nº 1013');

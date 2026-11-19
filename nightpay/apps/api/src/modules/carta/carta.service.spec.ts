@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { BadRequestException, NotFoundException } from '@nestjs/common';
+import { isSoldOutTonight } from '@nightpay/contracts';
 import { CartaService } from './carta.service';
 
 function makeService(existing: Record<string, unknown> | null = null, sections: Record<string, unknown> | null = null) {
@@ -252,5 +253,51 @@ describe('CartaService: logo o foto e icono', () => {
     await service.update('tenant-1', 'owner', 'item-1', { icon: 'cerveza' });
     await service.update('tenant-1', 'owner', 'item-1', { icon: null });
     expect(prisma.serviceItem.update.mock.calls.map((c) => c[0].data.icon)).toEqual(['cerveza', null]);
+  });
+});
+
+describe('isSoldOutTonight', () => {
+  const opened = new Date('2026-11-20T20:00:00Z');
+  it('agotado si se marcó dentro de la noche abierta (también justo al abrir)', () => {
+    expect(isSoldOutTonight(new Date('2026-11-20T23:30:00Z'), opened)).toBe(true);
+    expect(isSoldOutTonight(opened, opened)).toBe(true);
+  });
+  it('marcado en una noche anterior: hay otra vez, sin tarea programada', () => {
+    expect(isSoldOutTonight(new Date('2026-11-19T23:30:00Z'), opened)).toBe(false);
+  });
+  it('sin marca o sin noche abierta: hay', () => {
+    expect(isSoldOutTonight(null, opened)).toBe(false);
+    expect(isSoldOutTonight(new Date(), null)).toBe(false);
+  });
+});
+
+describe('CartaService.setSoldOut', () => {
+  const row = { id: 'item-1', name: 'Copa', components: null, icon: null, image: null };
+  function withRealtime(count: number, soldOutAt: Date | null) {
+    const { prisma, audit } = makeService();
+    const realtime = { emitCartaUpdate: vi.fn() };
+    (prisma.serviceItem as any).updateMany = vi.fn().mockResolvedValue({ count });
+    (prisma.serviceItem as any).findFirstOrThrow = vi.fn().mockResolvedValue({ ...row, soldOutAt });
+    prisma.venueNight.findFirst.mockResolvedValue({ openedAt: new Date(Date.now() - 3600_000) });
+    return { prisma, audit, realtime, service: new CartaService(prisma as any, audit as any, realtime as any) };
+  }
+  it('marca con la hora de ahora, avisa al local y deja constancia', async () => {
+    const { prisma, audit, realtime, service } = withRealtime(1, new Date());
+    expect((await service.setSoldOut('tenant-1', 'actor', 'item-1', true)).soldOut).toBe(true);
+    expect((prisma.serviceItem as any).updateMany).toHaveBeenCalledWith({ where: { id: 'item-1', tenantId: 'tenant-1' }, data: { soldOutAt: expect.any(Date) } });
+    expect(realtime.emitCartaUpdate).toHaveBeenCalledWith('tenant-1');
+    expect(audit.log).toHaveBeenCalledWith(expect.objectContaining({ action: 'carta.item.sold_out', targetId: 'item-1' }));
+  });
+  it('«Hay otra vez» borra la marca', async () => {
+    const { prisma, audit, service } = withRealtime(1, null);
+    expect((await service.setSoldOut('tenant-1', 'actor', 'item-1', false)).soldOut).toBe(false);
+    expect((prisma.serviceItem as any).updateMany).toHaveBeenCalledWith({ where: { id: 'item-1', tenantId: 'tenant-1' }, data: { soldOutAt: null } });
+    expect(audit.log).toHaveBeenCalledWith(expect.objectContaining({ action: 'carta.item.back_in_stock' }));
+  });
+  it('un producto de otro local: 404, sin aviso ni auditoría', async () => {
+    const { audit, realtime, service } = withRealtime(0, null);
+    await expect(service.setSoldOut('tenant-1', 'actor', 'ajeno', true)).rejects.toBeInstanceOf(NotFoundException);
+    expect(realtime.emitCartaUpdate).not.toHaveBeenCalled();
+    expect(audit.log).not.toHaveBeenCalled();
   });
 });

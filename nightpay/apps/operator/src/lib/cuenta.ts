@@ -21,6 +21,8 @@ export interface CartaItem {
   icon?: string | null;
   /** Ruta de su logo o foto (versionada por su huella), o null. */
   imageUrl?: string | null;
+  /** «Agotado esta noche»: no se añade a la cuenta. */
+  soldOut?: boolean;
 }
 
 /** Propinas: no son una sección de línea, van aparte (tipCents); en la pantalla, con su color. */

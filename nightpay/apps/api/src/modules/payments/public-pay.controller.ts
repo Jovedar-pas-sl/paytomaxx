@@ -49,7 +49,7 @@ import { RedsysReturnService } from './redsys-return.service';
 import { renderCheckingPage } from './pay-checking-page';
 import { PayStatusService, isPayLookupKey, type PayStatusContext } from './pay-status.service';
 import { langHrefWith, type LangHref } from './customer-chrome';
-import { walletWelcomeHref } from '../home-topup/home-topup-rules';
+import { giftShareHref, walletWelcomeHref } from '../home-topup/home-topup-rules';
 
 /**
  * Páginas GET de /pay: fuera del límite global (global-rate-limit.ts) y con
@@ -204,6 +204,14 @@ export class PublicPayController {
       const back = await this.payments.reservationManageToken(view.paymentId);
       if (back) {
         redirectTo(res, `/reservas/${encodeURIComponent(back)}?pagado=1`);
+        return;
+      }
+    }
+    // Regalo pagado desde este navegador: «Comparte tu regalo» (nunca el saldo).
+    if (view?.gift && PAID_STATES.has(view.status) && this.hasWalletClaim(res, view.qrToken, view.approvedClaimHash ?? null)) {
+      const gift = await this.payments.giftToken(view.paymentId);
+      if (gift) {
+        redirectTo(res, giftShareHref(gift, lang));
         return;
       }
     }
@@ -391,6 +399,14 @@ export class PublicPayController {
           const back = await this.payments.reservationManageToken(view.paymentId);
           if (back) {
             redirectTo(res, `/reservas/${encodeURIComponent(back)}?pagado=1`);
+            return;
+          }
+        }
+        // Regalo pagado desde este navegador (también con bitcoin): «Comparte tu regalo».
+        if (view.gift && this.hasWalletClaim(res, token, view.approvedClaimHash ?? null)) {
+          const gift = await this.payments.giftToken(view.paymentId);
+          if (gift) {
+            redirectTo(res, giftShareHref(gift, lang));
             return;
           }
         }

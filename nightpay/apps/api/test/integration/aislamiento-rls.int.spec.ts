@@ -124,6 +124,13 @@ async function seed(tag: string): Promise<{ tenantId: string; rows: Rows }> {
       const pushSub = await tx.walletPushSubscription.create({
         data: { tenantId, walletId: wallet.id, endpoint: `https://push.ejemplo.es/${tag}-${r}`, p256dh: 'BPk', auth: 'au' },
       });
+      // «Regala una noche»: el regalo de ese saldo, con su nombre y su mensaje.
+      const gift = await tx.walletGift.create({
+        data: {
+          tenantId, walletId: wallet.id, paymentId: payment.id, token: `rlsgift${tag}${r}`.padEnd(32, 'x'),
+          toName: 'Ana', message: 'Para ti', expiresAt: new Date(Date.now() + 86_400_000),
+        },
+      });
       // OxioParty: una caseta con su IBAN.
       const stall = await tx.stall.create({
         data: { tenantId, name: `Caseta ${tag}`, managerName: 'Responsable', organizerBps: 2500, iban: 'ES9121000418450200051332' },
@@ -160,6 +167,7 @@ async function seed(tag: string): Promise<{ tenantId: string; rows: Rows }> {
           user_photos: chica,
           customer_displays: display.id,
           wallet_push_subscriptions: pushSub.id,
+          wallet_gifts: gift.id,
           stalls: stall.id,
           party_refund_requests: refund.id,
         },

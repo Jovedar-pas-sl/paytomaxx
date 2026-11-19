@@ -52,6 +52,8 @@ export const TENANT_SCOPED_MODELS: ReadonlySet<string> = new Set([
   'ReservationSpend',
   // Bitcoin sin cobro devuelto en efectivo (20261117100100).
   'BtcCashReturn',
+  // «Regala una noche» (20261120200000): el regalo es de su local (sin grupo).
+  'WalletGift',
   // OxioParty (20261120300000): las casetas del local.
   'Stall',
   // OxioParty (20261120300100): «Lo que sobra», las devoluciones que piden los asistentes.

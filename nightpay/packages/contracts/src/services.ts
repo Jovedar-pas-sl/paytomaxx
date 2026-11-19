@@ -29,6 +29,8 @@ export const ServiceItemSchema = z.object({
   isInvitation: z.boolean(),
   /** Icono de la colección; null = el de su sección. */
   icon: CartaIconSchema.nullable(),
+  /** «Agotado esta noche»: marcado durante la noche abierta (vuelve solo al cambiar la noche). */
+  soldOut: z.boolean(),
   /** Ruta de su logo o foto (versionada por la huella; el navegador la guarda), o null. */
   imageUrl: z.string().nullable(),
 });
@@ -74,3 +76,15 @@ export const UpdateServiceItemSchema = ServiceItemFieldsSchema.partial().extend(
   active: z.boolean().optional(),
 });
 export type UpdateServiceItemDto = z.infer<typeof UpdateServiceItemSchema>;
+
+/**
+ * ¿Está agotado esta noche? Solo si se marcó dentro de la noche abierta; sin
+ * noche abierta, o marcado en una anterior, hay (vuelve solo, sin tarea programada).
+ */
+export function isSoldOutTonight(soldOutAt: Date | null | undefined, nightOpenedAt: Date | null | undefined): boolean {
+  return Boolean(soldOutAt && nightOpenedAt && soldOutAt.getTime() >= nightOpenedAt.getTime());
+}
+
+/** Marcar o quitar «Agotado» (PUT /v1/services/:id/sold-out). */
+export const SetSoldOutSchema = z.object({ soldOut: z.boolean() });
+export type SetSoldOutDto = z.infer<typeof SetSoldOutSchema>;

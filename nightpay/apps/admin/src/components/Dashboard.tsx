@@ -46,6 +46,7 @@ import { AlertsPanel } from './settings/AlertsPanel';
 import { NightPanel } from './settings/NightPanel';
 import { PaymentMethodsPanel } from './settings/PaymentMethodsPanel';
 import { HomeTopUpPanel } from './settings/HomeTopUpPanel';
+import { VenueKitPanel } from './settings/VenueKitPanel';
 import { PermissionsPanel } from './settings/PermissionsPanel';
 import { RulesPanel } from './settings/RulesPanel';
 import { SecurityPanel } from './settings/SecurityPanel';
@@ -393,6 +394,7 @@ function ActivePanel(props: ActivePanelProps) {
         <div className="np-set-stack">
           <PaymentMethodsPanel onSaved={(m) => props.onPosChange(m.pos)} />
           <HomeTopUpPanel />
+        <VenueKitPanel />
         </div>
       ) : null;
     case 'night':

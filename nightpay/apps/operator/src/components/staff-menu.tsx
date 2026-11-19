@@ -4,6 +4,8 @@ import { createContext, useContext, useState, type CSSProperties, type ReactNode
 import { Modal, useInstall } from '@nightpay/ui';
 import { GUIA_PATH } from '../lib/guia';
 import { useOpenCharges, type OpenCharges } from '../lib/open-charges';
+import { setPractice, usePractice } from '../lib/practice';
+import { leavePractice } from '../lib/practice-sim';
 import { offerStaffInstall } from '../lib/staff-install';
 import { CustomerDisplaySheet } from './CustomerDisplaySheet';
 import { DeviceSheet } from './DeviceSheet';
@@ -31,6 +33,8 @@ export const MENU_HINTS = {
   device: 'El lector de fichas y la impresora.',
   install: 'Tener OxioPay como una app más.',
   guia: 'Cómo cobrar y qué hacer si falla.',
+  practice: 'Ensayar sin cobrar de verdad.',
+  practiceOff: 'Volver a la app de verdad.',
   logout: 'Cerrar tu sesión en este aparato.',
 } as const;
 
@@ -83,6 +87,34 @@ export function GuiaMenuLink() {
 /** La guía, solo sin un cobro ni una recarga abiertos (su QR, la ficha, «Comprobando…», CARGADO). */
 export function showGuiaLink(charges: OpenCharges): boolean {
   return !charges.open;
+}
+
+/**
+ * «Practicar» / «Salir de práctica» (Modo práctica): la opción según esté la
+ * práctica encendida. Se puede empezar a practicar solo sin un cobro ni una
+ * recarga abiertos (los de verdad se quedarían sin su tiempo real).
+ */
+export function PracticeMenuItemView({ on, canStart, onToggle }: { on: boolean; canStart: boolean; onToggle: () => void }) {
+  if (!on && !canStart) return null;
+  return <MenuOption title={on ? 'Salir de práctica' : 'Practicar'} hint={on ? MENU_HINTS.practiceOff : MENU_HINTS.practice} onClick={onToggle} />;
+}
+
+/** La opción de práctica en los dos menús del logo; `onClose` cierra el menú. */
+export function PracticeMenuItem({ onClose }: { onClose: () => void }) {
+  const on = usePractice();
+  const charges = useOpenCharges();
+  return (
+    <PracticeMenuItemView
+      on={on}
+      canStart={!charges.open}
+      onToggle={() => {
+        onClose();
+        // Al salir, la app arranca limpia (se recarga): nada de práctica queda en pantalla.
+        if (on) leavePractice();
+        else setPractice(true);
+      }}
+    />
+  );
 }
 
 /** «Instalar en el móvil», en los dos menús del logo: solo en Android (staff-install). */
@@ -180,6 +212,7 @@ export function StaffMenu({ open, onClose, onLogout }: { open: boolean; onClose:
           }}
         />
         {device.item}
+        <PracticeMenuItem onClose={onClose} />
         <InstallMenuItem />
         <GuiaMenuLink />
         <LogoutMenuItem onLogout={onLogout} />

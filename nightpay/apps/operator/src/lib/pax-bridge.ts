@@ -26,6 +26,8 @@
  * paytefOperationNumber, cardInformation…)
  */
 
+import { PRACTICE_PAX_TEXT, isPractice } from './practice';
+
 export type BridgeMethod =
   | 'startSale'
   | 'cancel'
@@ -126,7 +128,7 @@ function ensureCallback(): void {
 
 /** Estamos dentro de la app del datáfono (o en el simulador de pruebas). */
 export function hasReader(): boolean {
-  return typeof window !== 'undefined' && (Boolean(window.NightPayPax) || simulatorOn());
+  return !isPractice() && typeof window !== 'undefined' && (Boolean(window.NightPayPax) || simulatorOn());
 }
 
 function simulatorOn(): boolean {
@@ -135,12 +137,14 @@ function simulatorOn(): boolean {
 
 /** ¿La app del datáfono instalada tiene este método? (las versiones viejas no leen fichas ni QR). */
 export function hasBridgeMethod(method: BridgeMethod): boolean {
-  if (typeof window === 'undefined') return false;
+  if (typeof window === 'undefined' || isPractice()) return false;
   const native = window.NightPayPax;
   return native ? typeof native[method] === 'function' : simulatorOn();
 }
 
 export function callReader(method: BridgeMethod, data: Record<string, unknown> = {}): Promise<BridgeResponse> {
+  // Antes de tocar el puente nativo: en práctica ninguna venta, anulación ni lectura llega al lector.
+  if (isPractice()) return Promise.resolve({ ok: false, error: 'practice', message: PRACTICE_PAX_TEXT });
   if (typeof window === 'undefined') return Promise.resolve({ ok: false, error: 'noReader' });
   if (!window.NightPayPax) {
     return simulatorOn()
