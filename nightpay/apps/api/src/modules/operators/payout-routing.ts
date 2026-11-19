@@ -7,7 +7,7 @@ interface PayoutRouting {
 }
 
 /**
- * Los campos de la cuenta de cobro de una chica: a dónde va su dinero. «La
+ * Los campos de la cuenta de cobro de una compañera: a dónde va su dinero. «La
  * cuenta es suya» (titular que no coincide con su nombre legal) también: deja
  * pagarle a esa cuenta, así que pide la misma 2FA.
  */

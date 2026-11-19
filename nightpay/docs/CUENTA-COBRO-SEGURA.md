@@ -115,9 +115,10 @@ Variables nuevas: **ninguna**. Usa `ENCRYPTION_KEK`, que ya existe.
    enlace de alta) llevan cuentas en claro. La tabla solo admite añadir, así
    que **no se han tocado**. Borrarlas o taparlas exige quitar ese candado a
    mano: lo decide el dueño.
-2. **El nombre legal de la compañera.** Hoy el titular se compara con el
-   nombre que tiene en el panel (a menudo un apodo). Cuando exista su ficha
-   con el nombre legal, el aviso se hará contra él.
+2. ~~**El nombre legal de la compañera.**~~ Hecho en el alta con tres
+   caminos ([ALTA-TRES-CAMINOS.md](ALTA-TRES-CAMINOS.md)): con nombre legal, el
+   titular se compara con él y, si no coincide, no se le paga a esa cuenta
+   hasta que el dueño confirma que es suya. Sin nombre legal, como antes.
 3. **De efectivo a una cuenta.** Quien cobraba en efectivo y pasa a tener
    cuenta también espera 48 h (cuenta como cambio: es lo más seguro, y se le
    puede seguir pagando en efectivo). Solo no espera quien nunca tuvo nada
