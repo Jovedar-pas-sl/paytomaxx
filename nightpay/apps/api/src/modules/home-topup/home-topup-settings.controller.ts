@@ -13,6 +13,7 @@ import { HomeTopUpSettingsService, type HomeTopUpQueuePoster } from './home-topu
  *  - GET   /v1/admin/venue/home-topup         → interruptor, enlace y su QR.
  *  - PATCH /v1/admin/venue/home-topup         → { enabled }.
  *  - POST  /v1/admin/venue/home-topup/rotate  → «Enlace nuevo».
+ *  - PATCH /v1/admin/venue/home-topup/gifts   → «Regalos» { enabled } (apagado de serie).
  *  - GET   /v1/admin/venue/home-topup/queue   → el cartel de la cola de esta noche (B16).
  */
 @Controller('admin/venue/home-topup')
@@ -33,6 +34,16 @@ export class HomeTopUpSettingsController {
     @Body(new ZodValidationPipe(UpdateHomeTopUpSchema)) dto: UpdateHomeTopUpDto,
   ): Promise<HomeTopUpSettings> {
     return this.settings.setEnabled({ userId: user.sub, email: user.email, tenantId: user.tenantId }, dto.enabled);
+  }
+
+  /** «Regalos» («Regala una noche»): { enabled }. */
+  @Patch('gifts')
+  @Roles('OWNER')
+  async updateGifts(
+    @CurrentUser() user: JwtPayload,
+    @Body(new ZodValidationPipe(UpdateHomeTopUpSchema)) dto: UpdateHomeTopUpDto,
+  ): Promise<HomeTopUpSettings> {
+    return this.settings.setGifts({ userId: user.sub, email: user.email, tenantId: user.tenantId }, dto.enabled);
   }
 
   @Get('queue')

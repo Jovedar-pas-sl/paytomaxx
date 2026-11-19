@@ -4,8 +4,8 @@ import { useState, type CSSProperties } from 'react';
 import { Button } from '@nightpay/ui';
 import { HOME_TOPUP_PROBLEM_TEXT, type HomeTopUpSettings } from '@nightpay/contracts';
 import { formatDateTime } from '@/lib/dates';
-import { fetchHomeTopUp, fetchHomeTopUpQueue, rotateHomeTopUp, setHomeTopUp } from '@/lib/endpoints/home-topup';
-import { homeTopUpPrintHtml, homeTopUpSummary, queuePosterHtml } from '@/lib/home-topup';
+import { fetchHomeTopUp, fetchHomeTopUpQueue, rotateHomeTopUp, setHomeTopUp, setHomeTopUpGifts } from '@/lib/endpoints/home-topup';
+import { giftRowText, homeTopUpPrintHtml, homeTopUpSummary, queuePosterHtml } from '@/lib/home-topup';
 import { useVenueTimezone } from '@/lib/venue-context';
 import { LoadState, SettingsCard, StatusLine, Switch, useSavedFlash, useSettingsLoad } from './SettingsBits';
 
@@ -17,10 +17,12 @@ import { LoadState, SettingsCard, StatusLine, Switch, useSavedFlash, useSettings
  * deja de funcionar al momento). «Imprimir cartel de la cola» (B16): el QR
  * de esta noche para quien espera en la entrada (sin el tope por IP del
  * enlace: con topes por móvil y por noche); vale solo esta noche.
+ * «Regalos» («Regala una noche», apagado de serie): «Para regalar» en el
+ * enlace; debajo, los regalos comprados, los sin guardar primero.
  */
 export function HomeTopUpPanel() {
   const { data, setData, error: loadError, retry } = useSettingsLoad(fetchHomeTopUp);
-  const [busy, setBusy] = useState<'toggle' | 'rotate' | 'queue' | null>(null);
+  const [busy, setBusy] = useState<'toggle' | 'rotate' | 'queue' | 'gifts' | null>(null);
   const tz = useVenueTimezone();
   const [error, setError] = useState<string | null>(null);
   const [saved, flashSaved] = useSavedFlash();
@@ -30,7 +32,7 @@ export function HomeTopUpPanel() {
   if (!data) return <LoadState error={loadError} retry={retry} what="la carga de saldo desde casa" />;
   const settings: HomeTopUpSettings = data;
 
-  async function run(what: 'toggle' | 'rotate', task: () => Promise<HomeTopUpSettings>): Promise<void> {
+  async function run(what: 'toggle' | 'rotate' | 'gifts', task: () => Promise<HomeTopUpSettings>): Promise<void> {
     setBusy(what);
     setError(null);
     try {
@@ -151,6 +153,33 @@ export function HomeTopUpPanel() {
               Enlace nuevo
             </Button>
           )}
+          <div style={queueBox}>
+            <Switch
+              label="Regalos"
+              hint="«Para regalar» en el enlace: alguien paga saldo para otra persona y le manda el enlace del regalo, que lo guarda en su móvil. Solo vale en este local. Enciéndelo cuando el abogado dé el visto bueno."
+              checked={settings.giftsEnabled}
+              disabled={busy !== null}
+              onChange={(v) => void run('gifts', () => setHomeTopUpGifts(v))}
+            />
+          </div>
+        </div>
+      ) : null}
+      {settings.gifts.length > 0 ? (
+        <div style={box}>
+          <p style={labelStyle}>Regalos comprados</p>
+          <ul style={giftList}>
+            {settings.gifts.map((g) => {
+              const text = giftRowText(g, tz);
+              return (
+                <li key={g.id} style={giftItem}>
+                  <span>{text.amount}</span>
+                  <span className="np-set-note" style={g.state === 'claimed' ? undefined : { color: 'var(--np-warning)' }}>
+                    {text.state}
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
         </div>
       ) : null}
       <StatusLine saved={saved} error={error} />
@@ -169,6 +198,8 @@ const queueBox: CSSProperties = {
   borderRadius: 'var(--np-r-md)',
 };
 const row: CSSProperties = { display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'center' };
+const giftList: CSSProperties = { listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: '0.5rem' };
+const giftItem: CSSProperties = { display: 'flex', flexDirection: 'column', gap: '0.125rem', paddingBottom: '0.5rem', borderBottom: '1px solid var(--np-border)' };
 const labelStyle: CSSProperties = { fontWeight: 600, fontSize: '0.875rem' };
 const urlStyle: CSSProperties = {
   flex: '1 1 14rem',

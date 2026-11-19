@@ -16,6 +16,13 @@ export async function setHomeTopUp(enabled: boolean): Promise<HomeTopUpSettings>
   return res.json();
 }
 
+/** «Regalos» («Regala una noche»): «Para regalar» en el enlace. Los regalos ya pagados se siguen guardando. */
+export async function setHomeTopUpGifts(enabled: boolean): Promise<HomeTopUpSettings> {
+  const res = await authedFetch('/v1/admin/venue/home-topup/gifts', { method: 'PATCH', body: JSON.stringify({ enabled }) });
+  if (!res.ok) throw await apiError(res);
+  return res.json();
+}
+
 /** «Enlace nuevo»: el de ahora deja de funcionar al momento. */
 export async function rotateHomeTopUp(): Promise<HomeTopUpSettings> {
   const res = await authedFetch('/v1/admin/venue/home-topup/rotate', { method: 'POST' });
