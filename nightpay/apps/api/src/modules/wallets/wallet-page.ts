@@ -25,6 +25,7 @@ import {
   partyJsConfig,
   partyNote,
   partySheets,
+  partyStalls,
   partyTopBar,
 } from '../party/party-wallet-view';
 
@@ -349,7 +350,7 @@ ${party ? partyActions(lang) : ''}${welcome && proof ? `${paidProofSection(lang,
 <p id="refundHow"></p>
 </section>
 ${viewTabs(lang)}${payView(lang, state, gw, options.fichaQr ?? null)}${topUpView(lang, options)}${moreList(lang, aviso)}<p class="small">${h(t.saveHint)}</p>
-${party ? partyNote() : ''}</main>
+${party ? `${partyStalls(lang, party.stalls)}${partyNote()}` : ''}</main>
 ${lostSheet(lang)}${party ? partySheets(lang) : ''}${aviso ? avisoSheet(lang) : ''}<dialog class="sheet" id="pinSheet" aria-labelledby="pinTitle">
 <h2 id="pinTitle">${h(t.pinTitle)}</h2><p id="pinWhy"></p>
 <form id="pinForm" autocomplete="off" style="display:flex;flex-direction:column;gap:.8rem">

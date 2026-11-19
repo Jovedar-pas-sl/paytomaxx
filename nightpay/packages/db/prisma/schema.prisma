@@ -1038,6 +1038,11 @@ model Stall {
   iban           String?
   active         Boolean  @default(true)
   sortOrder      Int      @default(0)
+  // La lista de casetas del asistente (20261120300200): dónde está, qué vende
+  // y «Abierta ahora» (cerrada de serie). CHECK en SQL: ni vacías ni solo espacios.
+  zone           String?  @db.VarChar(60)
+  sells          String?  @db.VarChar(120)
+  openNow        Boolean  @default(false)
   createdAt      DateTime @default(now()) @db.Timestamptz
   updatedAt      DateTime @default(now()) @updatedAt @db.Timestamptz
 

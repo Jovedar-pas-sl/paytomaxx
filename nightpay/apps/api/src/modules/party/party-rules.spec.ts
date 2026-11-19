@@ -1,9 +1,11 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { NotFoundException } from '@nestjs/common';
+import { GUARDS_METADATA, MODULE_METADATA } from '@nestjs/common/constants';
 import {
   CreateStallSchema,
   EVENT_ENDED_CODE,
   LoginResponseSchema,
+  SetMyStallOpenSchema,
   StallIbanSchema,
   UpdatePartySettingsSchema,
   UpdateStallSchema,
@@ -16,6 +18,7 @@ import { currentEdition, isPartyEdition } from '../../config/edition';
 import { parseEnv } from '../../config/env';
 import { EventEndedException, assertEventNotEnded, assertEventOpen } from './event-window';
 import { PartyEditionGuard } from './party-edition.guard';
+import { PartyModule } from './party.module';
 import { myStall, stallIdForStaff, stallSeal } from './stall-seal';
 
 /** OxioParty: la edición, las reglas de contracts y los ayudantes que usan los cobros. */
@@ -67,6 +70,12 @@ describe('la edición', () => {
     party();
     expect(guard.canActivate()).toBe(true);
   });
+
+  it('todos los controladores del módulo de la fiesta llevan esa guarda (también «Abierta ahora»)', () => {
+    const controllers = Reflect.getMetadata(MODULE_METADATA.CONTROLLERS, PartyModule) as Array<new (...args: never[]) => unknown>;
+    expect(controllers.map((c) => c.name)).toContain('MyStallController');
+    for (const c of controllers) expect(Reflect.getMetadata(GUARDS_METADATA, c), c.name).toContain(PartyEditionGuard);
+  });
 });
 
 describe('casetas (contracts)', () => {
@@ -82,6 +91,25 @@ describe('casetas (contracts)', () => {
     for (const organizerBps of [-1, 10_001, 25.5]) expect(CreateStallSchema.safeParse({ ...base, organizerBps }).success).toBe(false);
     expect(CreateStallSchema.safeParse({ name: 'Sin responsable', organizerBps: 0 }).success).toBe(false);
     expect(CreateStallSchema.safeParse({ ...base, organizerBps: 0, name: '   ' }).success).toBe(false);
+  });
+
+  it('la lista del asistente: zona (60) y qué vende (120), sin espacios sueltos; «Abierta ahora», sí o no', () => {
+    const base = { name: 'Peña El Trago', managerName: 'Lola', organizerBps: 0 };
+    expect(CreateStallSchema.parse({ ...base, zone: '  Junto al escenario ', sells: ' Bocadillos, cerveza ', openNow: true })).toMatchObject({
+      zone: 'Junto al escenario',
+      sells: 'Bocadillos, cerveza',
+      openNow: true,
+    });
+    expect(CreateStallSchema.safeParse({ ...base, zone: 'x'.repeat(60), sells: 'x'.repeat(120) }).success).toBe(true);
+    expect(CreateStallSchema.safeParse({ ...base, zone: 'x'.repeat(61) }).success).toBe(false);
+    expect(CreateStallSchema.safeParse({ ...base, sells: 'x'.repeat(121) }).success).toBe(false);
+    expect(UpdateStallSchema.safeParse({ zone: '   ' }).success).toBe(false);
+    expect(UpdateStallSchema.safeParse({ zone: null, sells: null }).success).toBe(true);
+    expect(UpdateStallSchema.safeParse({ openNow: 'sí' }).success).toBe(false);
+    expect(UpdateStallSchema.safeParse({ openNow: false }).success).toBe(true);
+    expect(stallChangeTouchesMoney({ zone: 'Plaza', openNow: true } as never)).toBe(false);
+    expect(SetMyStallOpenSchema.safeParse({ openNow: true }).success).toBe(true);
+    for (const bad of [{}, { openNow: 'true' }, { openNow: null }]) expect(SetMyStallOpenSchema.safeParse(bad).success).toBe(false);
   });
 
   it('cambiar sin nada que cambiar no vale; el 2FA solo cuando toca dinero', () => {

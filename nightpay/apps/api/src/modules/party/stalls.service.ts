@@ -1,6 +1,8 @@
 import { ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@nightpay/db';
 import {
+  NO_STALL_CODE,
+  NO_STALL_MESSAGE,
   STALL_BPS_LOCKED_CODE,
   STALL_BPS_LOCKED_MESSAGE,
   STALL_STAFF_ROLES,
@@ -9,11 +11,12 @@ import {
   type AssignStallDto,
   type CreateStallDto,
   type JwtPayload,
+  type MyStall,
   type StallStaffPerson,
   type StallView,
   type UpdateStallDto,
 } from '@nightpay/contracts';
-import { PrismaService } from '../../common/prisma/prisma.service';
+import { PrismaService, type TransactionalClient } from '../../common/prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { TotpService } from '../auth/totp.service';
 import { STALL_SELECT, stallAudit, stallChange, stallCreateData, stallView } from './stall-views';
@@ -26,6 +29,7 @@ const PERSON_NOT_FOUND = 'Esa persona no es del personal de este local';
 
 const STAFF_SELECT = { id: true, email: true, displayName: true, role: true, stallId: true } as const;
 const WITH_STAFF_COUNT = { ...STALL_SELECT, _count: { select: { staff: { where: { deletedAt: null } } } } } as const;
+const MY_STALL_SELECT = { id: true, name: true, openNow: true } as const;
 
 /**
  * Casetas de OxioParty (stalls, FORCE RLS: siempre dentro de withTenant) y el
@@ -134,7 +138,36 @@ export class StallsService {
     return person;
   }
 
+  // ─── «Abierta ahora» desde la app del personal ──────────────────────
+
+  /** La caseta (activa) de quien lo pide; null sin caseta. */
+  async mine(actor: JwtPayload): Promise<MyStall | null> {
+    return this.prisma.withTenant(actor.tenantId, (tx) => this.mineIn(tx, actor));
+  }
+
+  /**
+   * Abrir o cerrar la suya y ninguna otra (la organización, cualquiera desde
+   * el panel). Sin caseta, o con la suya archivada, 409 NO_STALL. Al registro.
+   */
+  async setMineOpen(actor: JwtPayload, openNow: boolean): Promise<MyStall> {
+    const { stall, before } = await this.prisma.withTenant(actor.tenantId, async (tx) => {
+      const current = await this.mineIn(tx, actor);
+      if (!current) throw new ConflictException({ message: NO_STALL_MESSAGE, code: NO_STALL_CODE });
+      if (current.openNow === openNow) return { stall: current, before: openNow };
+      const updated = await tx.stall.update({ where: { id: current.id }, data: { openNow }, select: MY_STALL_SELECT });
+      return { stall: updated, before: current.openNow };
+    });
+    if (before !== openNow) await this.log(actor, 'party.stall.open_changed', stall.id, { before, after: openNow });
+    return stall;
+  }
+
   // ─── internos ──────────────────────────────────────────────────────
+
+  private async mineIn(tx: TransactionalClient, actor: JwtPayload): Promise<MyStall | null> {
+    const me = await tx.user.findFirst({ where: { id: actor.sub, tenantId: actor.tenantId, deletedAt: null }, select: { stallId: true } });
+    if (!me?.stallId) return null;
+    return tx.stall.findFirst({ where: { id: me.stallId, tenantId: actor.tenantId, active: true }, select: MY_STALL_SELECT });
+  }
 
   /** Con la fiesta terminada (eventEndsAt pasado), 409 STALL_BPS_LOCKED: el cierre ya no cambia. */
   private async assertBpsUnlocked(tenantId: string, now: Date = new Date()): Promise<void> {

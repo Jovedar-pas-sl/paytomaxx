@@ -2,6 +2,7 @@ import { randomBytes } from 'node:crypto';
 import { ConflictException, Inject, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
 import {
   PARTY_REFUND_ERRORS,
+  isEventEnded,
   isRefundWindowOpen,
   madridDay,
   maskIban,
@@ -53,6 +54,17 @@ export interface PartyPageData {
   eventStartsAt: string | null;
   eventEndsAt: string | null;
   refund: PartyRefundView;
+  /** «Casetas»: las activas, en su orden (la página las pinta; el JS no las usa). */
+  stalls: PartyStallLine[];
+}
+
+/** Una caseta en la lista del asistente: sin dinero ni datos del responsable. */
+export interface PartyStallLine {
+  name: string;
+  zone: string | null;
+  sells: string | null;
+  /** «Abierta ahora»; con la fiesta terminada, ninguna (ya no se puede cobrar). */
+  open: boolean;
 }
 
 interface LockedWallet extends RefundWallet {
@@ -173,7 +185,7 @@ export class PartyRefundsService {
     });
   }
 
-  /** Lo que la página de la pulsera pinta ya al abrirse: la fiesta y «Lo que sobra». */
+  /** Lo que la página de la pulsera pinta ya al abrirse: la fiesta, «Lo que sobra» y las casetas. */
   async pageData(walletId: string, now: Date = new Date()): Promise<PartyPageData> {
     return this.prisma.asSystem(async (tx) => {
       const wallet = await tx.clientWallet.findUnique({ where: { id: walletId }, select: WALLET_SELECT });
@@ -182,12 +194,19 @@ export class PartyRefundsService {
         where: { id: wallet.tenantId },
         select: { name: true, eventStartsAt: true, eventEndsAt: true },
       });
+      const ended = isEventEnded(venue?.eventEndsAt, now);
+      const stalls = await tx.stall.findMany({
+        where: { tenantId: wallet.tenantId, active: true },
+        orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
+        select: { name: true, zone: true, sells: true, openNow: true },
+      });
       return {
         brand: partyBrand(),
         venueName: venue?.name ?? '',
         eventStartsAt: venue?.eventStartsAt?.toISOString() ?? null,
         eventEndsAt: venue?.eventEndsAt?.toISOString() ?? null,
         refund: await this.viewIn(tx, { ...wallet, status: String(wallet.status) }, now),
+        stalls: stalls.map((s) => ({ name: s.name, zone: s.zone, sells: s.sells, open: s.openNow && !ended })),
       };
     });
   }

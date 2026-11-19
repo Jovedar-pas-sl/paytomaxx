@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { AuthModule } from '../auth/auth.module';
 import { WalletsModule } from '../wallets/wallets.module';
+import { MyStallController } from './my-stall.controller';
 import { PartyPanelController } from './party-panel.controller';
 import { PartyPanelService } from './party-panel.service';
 import { PartyRefundsController } from './party-refunds.controller';
@@ -27,6 +28,8 @@ import { StallsService } from './stalls.service';
   controllers: [
     PartySettingsController,
     StallsController,
+    // «Abierta ahora» de la caseta de quien entra (la app del personal).
+    MyStallController,
     PartyPanelController,
     PulserasController,
     PartyRefundsController,

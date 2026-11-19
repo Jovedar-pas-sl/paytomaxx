@@ -58,6 +58,10 @@ export interface PartyWalletText {
   lostCode: string;
   lostNow: string;
   lostOk: string;
+  /** «Casetas»: las de la fiesta, abiertas o cerradas (en palabras, no solo en color). */
+  stallsTitle: string;
+  stallOpen: string;
+  stallClosed: string;
   topUpLocked: string;
   /** Sin Face ID: transferencia y donar, solo en la taquilla. */
   faceIdNeeded: string;
@@ -119,6 +123,9 @@ export const PARTY_WALLET_TEXT: Readonly<Record<PayLanguage, PartyWalletText>> =
     lostCode: 'Diles tu código:',
     lostNow: 'Bloquearla ya con mi móvil',
     lostOk: 'Entendido',
+    stallsTitle: 'Casetas',
+    stallOpen: 'Abierta',
+    stallClosed: 'Cerrada',
     topUpLocked: 'Con una devolución pedida no se puede recargar.',
     faceIdNeeded: 'Para transferencia o donar, activa Face ID o pásate por la taquilla.',
     err: {
@@ -183,6 +190,9 @@ export const PARTY_WALLET_TEXT: Readonly<Record<PayLanguage, PartyWalletText>> =
     lostCode: 'Tell them your code:',
     lostNow: 'Block it now with my phone',
     lostOk: 'Got it',
+    stallsTitle: 'Stalls',
+    stallOpen: 'Open',
+    stallClosed: 'Closed',
     topUpLocked: 'You can’t top up while a refund is pending.',
     faceIdNeeded: 'For a transfer or to donate, turn on Face ID or come by the ticket booth.',
     err: {
@@ -247,6 +257,9 @@ export const PARTY_WALLET_TEXT: Readonly<Record<PayLanguage, PartyWalletText>> =
     lostCode: 'Donnez-leur votre code :',
     lostNow: 'Le bloquer tout de suite avec mon téléphone',
     lostOk: 'Compris',
+    stallsTitle: 'Stands',
+    stallOpen: 'Ouvert',
+    stallClosed: 'Fermé',
     topUpLocked: 'Impossible de recharger pendant un remboursement en attente.',
     faceIdNeeded: 'Pour un virement ou un don, activez Face ID ou passez à la billetterie.',
     err: {
@@ -311,6 +324,9 @@ export const PARTY_WALLET_TEXT: Readonly<Record<PayLanguage, PartyWalletText>> =
     lostCode: 'Diga-lhes o seu código:',
     lostNow: 'Bloqueá-la já com o meu telemóvel',
     lostOk: 'Entendido',
+    stallsTitle: 'Barracas',
+    stallOpen: 'Aberta',
+    stallClosed: 'Fechada',
     topUpLocked: 'Com uma devolução pedida não se pode carregar.',
     faceIdNeeded: 'Para transferência ou doar, ative o Face ID ou passe pela bilheteira.',
     err: {

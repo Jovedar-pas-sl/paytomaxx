@@ -15,6 +15,7 @@ import { normalizeIban } from './superadmin';
 //   PATCH/DELETE /v1/admin/party/stalls/:id
 //   GET        /v1/admin/party/staff           el personal con su caseta
 //   PATCH      /v1/admin/party/staff/:userId   cambiar la caseta de una persona
+//   GET/PATCH  /v1/party/my-stall              «Abierta ahora» de la caseta de quien entra
 // Con EDITION=club estas rutas no existen (404). La edición: ./edition.ts.
 // ═══════════════════════════════════════════════════════════════════════
 
@@ -72,6 +73,11 @@ const StallNameSchema = z.string().trim().min(1, 'Pon el nombre de la caseta').m
 const ManagerNameSchema = z.string().trim().min(1, 'Pon el nombre del responsable').max(120);
 const ManagerContactSchema = z.string().trim().min(1).max(160);
 const SortOrderSchema = z.number().int().min(0).max(10_000);
+/** Para la lista de casetas del asistente: dónde está («Junto al escenario») y qué vende. */
+export const STALL_ZONE_MAX = 60;
+export const STALL_SELLS_MAX = 120;
+const StallZoneSchema = z.string().trim().min(1).max(STALL_ZONE_MAX, `La zona, como mucho ${STALL_ZONE_MAX} letras`);
+const StallSellsSchema = z.string().trim().min(1).max(STALL_SELLS_MAX, `Qué vende, como mucho ${STALL_SELLS_MAX} letras`);
 /** 2FA de quien la cambia (si la tiene activada): la parte del organizador y el IBAN son dinero. */
 const StepUpCodeSchema = z.string().regex(/^\d{6}$/, 'El código 2FA son 6 cifras');
 
@@ -90,6 +96,12 @@ export const StallSchema = z.object({
   iban: z.string().nullable(),
   active: z.boolean(),
   sortOrder: z.number().int(),
+  /** Dónde está, para los asistentes (null: sin decir). */
+  zone: z.string().nullable(),
+  /** Qué vende, para los asistentes (null: sin decir). */
+  sells: z.string().nullable(),
+  /** «Abierta ahora»: la lista de los asistentes dice «Abierta» o «Cerrada». */
+  openNow: z.boolean(),
   /** Personas con esta caseta. */
   staffCount: z.number().int(),
   createdAt: z.string(),
@@ -105,6 +117,9 @@ export const CreateStallSchema = z.object({
   iban: StallIbanSchema.nullable().optional(),
   active: z.boolean().optional(),
   sortOrder: SortOrderSchema.optional(),
+  zone: StallZoneSchema.nullable().optional(),
+  sells: StallSellsSchema.nullable().optional(),
+  openNow: z.boolean().optional(),
   totpCode: StepUpCodeSchema.optional(),
 });
 export type CreateStallDto = z.infer<typeof CreateStallSchema>;
@@ -118,6 +133,9 @@ export const UpdateStallSchema = z
     iban: StallIbanSchema.nullable().optional(),
     active: z.boolean().optional(),
     sortOrder: SortOrderSchema.optional(),
+    zone: StallZoneSchema.nullable().optional(),
+    sells: StallSellsSchema.nullable().optional(),
+    openNow: z.boolean().optional(),
     totpCode: StepUpCodeSchema.optional(),
   })
   .refine((v) => Object.entries(v).some(([k, x]) => k !== 'totpCode' && x !== undefined), 'No hay nada que cambiar');
@@ -153,6 +171,25 @@ export type StallStaffPerson = z.infer<typeof StallStaffSchema>;
 /** null = sin caseta. */
 export const AssignStallSchema = z.object({ stallId: UuidSchema.nullable() });
 export type AssignStallDto = z.infer<typeof AssignStallSchema>;
+
+// ─── «Abierta ahora» desde la app del personal ─────────────────────────
+
+/** La caseta (activa) de quien entra, con su «Abierta ahora». */
+export const MyStallSchema = z.object({ id: UuidSchema, name: z.string(), openNow: z.boolean() });
+export type MyStall = z.infer<typeof MyStallSchema>;
+
+/** GET y PATCH /v1/party/my-stall: null = sin caseta (o archivada). */
+export interface MyStallResponse {
+  stall: MyStall | null;
+}
+
+/** Cómo queda (no «cambiar»): dos toques seguidos no la dejan al revés. */
+export const SetMyStallOpenSchema = z.object({ openNow: z.boolean() });
+export type SetMyStallOpenDto = z.infer<typeof SetMyStallOpenSchema>;
+
+/** Abrir o cerrar sin tener caseta (o con la suya archivada): 409. */
+export const NO_STALL_CODE = 'NO_STALL';
+export const NO_STALL_MESSAGE = 'No tienes caseta: pide a la organización que te dé una.';
 
 // ─── Ajustes de la fiesta ───────────────────────────────────────────────
 

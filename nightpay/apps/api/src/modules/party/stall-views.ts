@@ -16,6 +16,9 @@ export const STALL_SELECT = {
   iban: true,
   active: true,
   sortOrder: true,
+  zone: true,
+  sells: true,
+  openNow: true,
   createdAt: true,
   updatedAt: true,
 } as const;
@@ -29,6 +32,9 @@ export interface StallRow {
   iban: string | null;
   active: boolean;
   sortOrder: number;
+  zone: string | null;
+  sells: string | null;
+  openNow: boolean;
   createdAt: Date;
   updatedAt: Date;
   _count?: { staff: number };
@@ -45,6 +51,9 @@ export function stallView(row: StallRow): StallView {
     iban: row.iban,
     active: row.active,
     sortOrder: row.sortOrder,
+    zone: row.zone,
+    sells: row.sells,
+    openNow: row.openNow,
     staffCount: row._count?.staff ?? 0,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
@@ -60,13 +69,16 @@ export function stallCreateData(tenantId: string, dto: CreateStallDto) {
     managerContact: dto.managerContact ?? null,
     organizerBps: dto.organizerBps,
     iban: dto.iban ?? null,
+    zone: dto.zone ?? null,
+    sells: dto.sells ?? null,
     ...(dto.active !== undefined ? { active: dto.active } : {}),
+    ...(dto.openNow !== undefined ? { openNow: dto.openNow } : {}),
     ...(dto.sortOrder !== undefined ? { sortOrder: dto.sortOrder } : {}),
   };
 }
 
-type StallFields = Pick<StallRow, 'name' | 'managerName' | 'managerContact' | 'organizerBps' | 'iban' | 'active' | 'sortOrder'>;
-const EDITABLE = ['name', 'managerName', 'managerContact', 'organizerBps', 'iban', 'active', 'sortOrder'] as const;
+type StallFields = Pick<StallRow, 'name' | 'managerName' | 'managerContact' | 'organizerBps' | 'iban' | 'active' | 'sortOrder' | 'zone' | 'sells' | 'openNow'>;
+const EDITABLE = ['name', 'managerName', 'managerContact', 'organizerBps', 'iban', 'active', 'sortOrder', 'zone', 'sells', 'openNow'] as const;
 
 /** Solo lo que cambia de verdad (lo que llega igual que lo guardado no cuenta). */
 export function stallChange(current: StallFields, dto: UpdateStallDto): Partial<StallFields> {

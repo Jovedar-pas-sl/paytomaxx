@@ -49,6 +49,23 @@ no cambia.
     (Casetas) lo avisa y bloquea el % al editar.
   - `GET /v1/admin/party/staff` y `PATCH /v1/admin/party/staff/:userId`
     (`{ stallId }` o `null`): la caseta de cada persona (solo casetas activas).
+- **Casetas en lista** (migración `20261120300200_casetas_lista`; el mapa,
+  más adelante): en `stalls`, `zone` (VARCHAR 60, nula), `sells` (VARCHAR
+  120, nula) y `openNow` (bool, `false` de serie: cerrada hasta que alguien
+  la abra). CHECK: ni vacías ni solo espacios.
+  - La organización las pone con `POST`/`PATCH /v1/admin/party/stalls`
+    (`zone`, `sells`, `openNow`; no tocan dinero: sin 2FA). Panel → Casetas.
+  - El personal de una caseta (encargado, camarero o personal con esa caseta
+    asignada) la abre o la cierra desde su app (Ajustes):
+    `GET /v1/party/my-stall` (`{ stall: { id, name, openNow } }` o `null`) y
+    `PATCH /v1/party/my-stall` `{ openNow }` (cómo queda, no «cambiar»). La
+    caseta sale de la persona, nunca de la petición; sin caseta o archivada,
+    409 `NO_STALL`; el dueño, 403 (lo hace desde el panel). Queda en el
+    registro (`party.stall.open_changed`).
+  - La página de la pulsera (`/w/:token`) enseña «Casetas»: las activas de
+    su fiesta, en su orden, con la zona, lo que vende y «Abierta» o
+    «Cerrada» en palabras (todo escapado; sin precios, que los productos aún
+    no van por caseta). Con la fiesta terminada, todas «Cerrada».
 - **Ajustes de la fiesta**: `GET /v1/admin/party/settings` (dueño y
   encargado) y `PATCH` (solo el dueño; 2FA si la tiene): fechas, plazo de
   devolución, donar sí o no y umbral de efectivo. Con la fiesta terminada, el
@@ -136,7 +153,8 @@ suya), también lo cargado desde casa antes de empezar.
 Seis secciones con el `?s=` de siempre (`lib/roles.ts` → `PARTY_TABS`,
 `lib/nav-url.ts`): **En directo** (`?s=directo`: el directo, Cobros y Avisos;
 es donde se empieza), **Casetas** (alta, cambios y archivo con % o «barra
-propia» e IBAN, y el personal de cada una), **Pulseras** y **Devoluciones**
+propia» e IBAN, la zona, lo que vende y «Abierta ahora», y el personal de
+cada una), **Pulseras** y **Devoluciones**
 (más abajo), **Cierre** (la liquidación por caseta, el fichero
 SEPA y el CSV) y **Ajustes** (La fiesta, Formas de cobro sin bitcoin, Pulseras
 y PIN, Datáfonos, Seguridad). No salen las compañeras ni sus pagos, saldos y

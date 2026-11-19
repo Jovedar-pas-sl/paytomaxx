@@ -1,7 +1,7 @@
 import { escapeHtml } from '../payments/club-ui';
 import { langMenu } from '../payments/customer-chrome';
 import type { PayLanguage } from '../payments/pay-i18n';
-import type { PartyPageData } from './party-refunds.service';
+import type { PartyPageData, PartyStallLine } from './party-refunds.service';
 import { PARTY_WALLET_TEXT, type PartyWalletText } from './party-wallet-text';
 
 /**
@@ -85,6 +85,13 @@ dialog.sheet.full h2{font-family:var(--num);font-size:1.875rem;font-weight:700;l
 #pLostSheet h2{text-align:left}
 #pLostSheet .code{font-size:1.5rem;letter-spacing:.12em;text-align:left}
 #keepRule,#topupRule{display:none}
+.pst{display:flex;align-items:center;justify-content:space-between;gap:.75rem;padding:.625rem 0;border-top:1px solid var(--line)}
+.pst:first-child{border-top:0;padding-top:.25rem}
+.pstn{display:flex;flex-direction:column;gap:.125rem;min-width:0;overflow-wrap:anywhere}
+.pstn b{font-weight:700;color:var(--fg)}
+.pstn small{font-size:.8125rem;line-height:1.35;color:var(--dim)}
+.pstate{flex:none;padding:.2rem .625rem;border:1px solid var(--line-hi);border-radius:999px;font-size:.8125rem;font-weight:700;color:var(--dim)}
+.pstate.on{border-color:var(--ok);color:var(--ok)}
 `;
 
 const TOPUP_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>';
@@ -111,6 +118,28 @@ export function partyActions(lang: PayLanguage): string {
 <button class="pact" type="button" id="pLost">${LOST_ICON}<span>${h(t.lost)}</span></button>
 </nav>
 <section class="card pref" id="pRefund" hidden aria-labelledby="pRefundT"><h2 class="sub" id="pRefundT">${h(t.pendingTitle)}</h2><ul id="pRefundList"></ul><p class="small" id="pRefundLock" hidden></p></section>
+`;
+}
+
+/**
+ * «Casetas»: las activas, con dónde está cada una y qué vende, y «Abierta» o
+ * «Cerrada» en palabras (no solo en color). Lo escribe la organización:
+ * todo escapado. Sin casetas, nada.
+ * shortcut: se pinta al abrir la página, no cambia en directo con /state;
+ * si hace falta en directo, mandarla también en el estado.
+ */
+export function partyStalls(lang: PayLanguage, stalls: readonly PartyStallLine[]): string {
+  if (!stalls.length) return '';
+  const t = PARTY_WALLET_TEXT[lang];
+  const h = escapeHtml;
+  const rows = stalls.map((st) => {
+    const meta = [st.zone, st.sells]
+      .filter((x): x is string => Boolean(x))
+      .map((x) => h(x))
+      .join(' · ');
+    return `<li class="pst"><span class="pstn"><b>${h(st.name)}</b>${meta ? `<small>${meta}</small>` : ''}</span><span class="pstate${st.open ? ' on' : ''}">${h(st.open ? t.stallOpen : t.stallClosed)}</span></li>`;
+  });
+  return `<section class="card pstalls" aria-labelledby="pStallsT"><h2 class="sub" id="pStallsT">${h(t.stallsTitle)}</h2><ul>${rows.join('')}</ul></section>
 `;
 }
 
@@ -160,9 +189,10 @@ ${opt('DONATE', t.donate, t.donateNote)}
 `;
 }
 
-/** Lo que lee el JS: la fiesta, «Lo que sobra» y sus textos. */
-export function partyJsConfig(lang: PayLanguage, data: PartyPageData): PartyPageData & { text: PartyWalletText } {
-  return { ...data, text: PARTY_WALLET_TEXT[lang] };
+/** Lo que lee el JS: la fiesta, «Lo que sobra» y sus textos (las casetas no: van ya pintadas). */
+export function partyJsConfig(lang: PayLanguage, data: PartyPageData): Omit<PartyPageData, 'stalls'> & { text: PartyWalletText } {
+  const { stalls: _painted, ...rest } = data;
+  return { ...rest, text: PARTY_WALLET_TEXT[lang] };
 }
 
 /**

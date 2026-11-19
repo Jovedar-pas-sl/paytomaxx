@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { ConflictException, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@nightpay/db';
-import { STALL_BPS_LOCKED_CODE, type JwtPayload } from '@nightpay/contracts';
+import { NO_STALL_CODE, STALL_BPS_LOCKED_CODE, type JwtPayload } from '@nightpay/contracts';
 import { STALL_IN_USE_CODE, StallsService } from './stalls.service';
 import { stallAudit, stallChange, stallCreateData, stallView } from './stall-views';
 
@@ -22,6 +22,9 @@ function row(extra: Record<string, unknown> = {}) {
     iban: IBAN,
     active: true,
     sortOrder: 0,
+    zone: null,
+    sells: null,
+    openNow: false,
     createdAt: NOW,
     updatedAt: NOW,
     _count: { staff: 2 },
@@ -84,8 +87,21 @@ describe('vistas', () => {
       managerContact: null,
       organizerBps: 0,
       iban: null,
+      zone: null,
+      sells: null,
     });
     expect(stallCreateData(T, { name: 'A', managerName: 'B', organizerBps: 0, active: false, sortOrder: 3 })).toMatchObject({ active: false, sortOrder: 3 });
+    expect(stallCreateData(T, { name: 'A', managerName: 'B', organizerBps: 0, zone: 'Junto al escenario', sells: 'Bocadillos', openNow: true })).toMatchObject({
+      zone: 'Junto al escenario',
+      sells: 'Bocadillos',
+      openNow: true,
+    });
+  });
+
+  it('la lista del asistente: zona, qué vende y «Abierta ahora» en la vista y en los cambios (sin tocar dinero)', () => {
+    expect(stallView(row({ zone: 'Plaza', sells: 'Cerveza', openNow: true }))).toMatchObject({ zone: 'Plaza', sells: 'Cerveza', openNow: true });
+    expect(stallChange(row(), { zone: 'Plaza', sells: null, openNow: true })).toEqual({ zone: 'Plaza', openNow: true });
+    expect(stallChange(row({ zone: 'Plaza' }), { zone: null })).toEqual({ zone: null });
   });
 });
 
@@ -125,6 +141,17 @@ describe('StallsService', () => {
     expect(totp.assertIfEnrolledForUser).toHaveBeenCalledWith('owner-1', '654321');
     await svc.update(owner, 's-1', { iban: null });
     expect(totp.assertIfEnrolledForUser).toHaveBeenCalledTimes(2);
+  });
+
+  it('zona, qué vende y «Abierta ahora» desde el panel: sin 2FA y al registro', async () => {
+    const { svc, totp, audit, tx } = make();
+    await expect(svc.update(owner, 's-1', { zone: 'Junto al escenario', sells: 'Bocadillos, cerveza', openNow: true })).resolves.toMatchObject({
+      zone: 'Junto al escenario',
+      openNow: true,
+    });
+    expect(totp.assertIfEnrolledForUser).not.toHaveBeenCalled();
+    expect(tx.stall.update.mock.calls[0]![0].data).toEqual({ zone: 'Junto al escenario', sells: 'Bocadillos, cerveza', openNow: true });
+    expect(audit.log.mock.calls[0]![0]).toMatchObject({ action: 'party.stall.updated', payload: { before: { zone: null, sells: null, openNow: false } } });
   });
 
   it('sin cambios de verdad: ni 2FA, ni escritura, ni registro', async () => {
@@ -248,5 +275,57 @@ describe('StallsService', () => {
     tx.user.findFirst.mockResolvedValueOnce(null);
     await expect(svc.assign(owner, 'owner-1', { stallId: 's-1' })).rejects.toBeInstanceOf(NotFoundException);
     expect(tx.user.update).not.toHaveBeenCalled();
+  });
+});
+
+describe('«Abierta ahora» desde la app del personal (la suya y ninguna otra)', () => {
+  const waiter = { sub: 'u-1', email: 'camarero@fiesta.es', role: 'WAITER', tenantId: T, venueSlug: 'fiesta' } as JwtPayload;
+  const mine = { id: 's-1', name: 'Peña El Trago', openNow: false };
+
+  it('la suya: la caseta de la persona, activa y de su local (dentro de withTenant)', async () => {
+    const { svc, tx, prisma } = make();
+    tx.user.findFirst.mockResolvedValueOnce({ stallId: 's-1' });
+    tx.stall.findFirst.mockResolvedValueOnce(mine);
+    await expect(svc.mine(waiter)).resolves.toEqual(mine);
+    expect(prisma.withTenant).toHaveBeenCalledWith(T, expect.any(Function));
+    expect(tx.user.findFirst.mock.calls[0]![0].where).toEqual({ id: 'u-1', tenantId: T, deletedAt: null });
+    expect(tx.stall.findFirst.mock.calls[0]![0].where).toEqual({ id: 's-1', tenantId: T, active: true });
+  });
+
+  it('sin caseta: null y sin mirar casetas; archivada o de otro local: null', async () => {
+    const { svc, tx } = make();
+    await expect(svc.mine(waiter)).resolves.toBeNull();
+    expect(tx.stall.findFirst).not.toHaveBeenCalled();
+    tx.user.findFirst.mockResolvedValueOnce({ stallId: 's-1' });
+    tx.stall.findFirst.mockResolvedValueOnce(null);
+    await expect(svc.mine(waiter)).resolves.toBeNull();
+  });
+
+  it('abrirla: se guarda en la suya (el id sale de la persona) y queda en el registro', async () => {
+    const { svc, tx, audit } = make();
+    tx.user.findFirst.mockResolvedValueOnce({ stallId: 's-1' });
+    tx.stall.findFirst.mockResolvedValueOnce(mine);
+    tx.stall.update.mockResolvedValueOnce({ ...mine, openNow: true });
+    await expect(svc.setMineOpen(waiter, true)).resolves.toEqual({ ...mine, openNow: true });
+    expect(tx.stall.update).toHaveBeenCalledWith({ where: { id: 's-1' }, data: { openNow: true }, select: { id: true, name: true, openNow: true } });
+    expect(audit.log.mock.calls[0]![0]).toMatchObject({ action: 'party.stall.open_changed', actorId: 'u-1', targetId: 's-1', payload: { before: false, after: true } });
+  });
+
+  it('como ya está: ni escritura ni registro', async () => {
+    const { svc, tx, audit } = make();
+    tx.user.findFirst.mockResolvedValueOnce({ stallId: 's-1' });
+    tx.stall.findFirst.mockResolvedValueOnce(mine);
+    await expect(svc.setMineOpen(waiter, false)).resolves.toEqual(mine);
+    expect(tx.stall.update).not.toHaveBeenCalled();
+    expect(audit.log).not.toHaveBeenCalled();
+  });
+
+  it('sin caseta (o archivada): 409 NO_STALL y nada cambia', async () => {
+    const { svc, tx, audit } = make();
+    const err = await svc.setMineOpen(waiter, true).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ConflictException);
+    expect((err as ConflictException).getResponse()).toMatchObject({ code: NO_STALL_CODE });
+    expect(tx.stall.update).not.toHaveBeenCalled();
+    expect(audit.log).not.toHaveBeenCalled();
   });
 });

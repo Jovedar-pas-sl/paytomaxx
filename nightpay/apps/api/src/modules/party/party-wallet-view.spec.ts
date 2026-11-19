@@ -42,6 +42,7 @@ const party: PartyPageData = {
     locked: false,
     requests: [],
   },
+  stalls: [],
 };
 
 const script = (html: string): string => html.slice(html.indexOf('<script>') + 8, html.indexOf('</script>'));
@@ -98,6 +99,45 @@ describe('página de la pulsera (OxioParty)', () => {
     const html = renderWalletPage('tok-1', 'es', state(), { party });
     expect(html).toContain('id="keepRule"');
     expect(PARTY_CSS).toContain('#keepRule,#topupRule{display:none}');
+  });
+
+  it('«Casetas»: las activas con su zona y lo que vende, y «Abierta» o «Cerrada» en palabras', () => {
+    const stalls = [
+      { name: 'Peña El Cántaro', zone: 'Junto al escenario', sells: 'Bocadillos, cerveza, refrescos', open: true },
+      { name: 'Falla Centro', zone: null, sells: 'Horchata', open: false },
+      { name: 'Barra sin datos', zone: null, sells: null, open: false },
+    ];
+    const html = renderWalletPage('tok-1', 'es', state(), { party: { ...party, stalls } });
+    expect(html).toContain('<section class="card pstalls" aria-labelledby="pStallsT"><h2 class="sub" id="pStallsT">Casetas</h2>');
+    expect(html).toContain(
+      '<li class="pst"><span class="pstn"><b>Peña El Cántaro</b><small>Junto al escenario · Bocadillos, cerveza, refrescos</small></span><span class="pstate on">Abierta</span></li>',
+    );
+    expect(html).toContain('<b>Falla Centro</b><small>Horchata</small></span><span class="pstate">Cerrada</span>');
+    expect(html).toContain('<b>Barra sin datos</b></span><span class="pstate">Cerrada</span>');
+    // Va abajo, antes del plazo; y el JS no la lleva (ya va pintada).
+    expect(html.indexOf('id="pStallsT"')).toBeLessThan(html.indexOf('id="pNote"'));
+    expect(script(html)).not.toContain('Junto al escenario');
+  });
+
+  it('«Casetas»: lo que escribe la organización va escapado', () => {
+    const evil = { name: '<script>alert(1)</script>', zone: '"><img src=x onerror=alert(2)>', sells: 'Tapas & cañas', open: true };
+    const html = renderWalletPage('tok-1', 'es', state(), { party: { ...party, stalls: [evil] } });
+    expect(html).not.toContain('<script>alert(1)');
+    expect(html).not.toContain('<img src=x');
+    expect(html).toContain('&lt;script&gt;alert(1)&lt;/script&gt;');
+    expect(html).toContain('Tapas &amp; cañas');
+  });
+
+  it('«Casetas»: sin casetas no sale; en los cuatro idiomas, abierta y cerrada', () => {
+    expect(renderWalletPage('tok-1', 'es', state(), { party })).not.toContain('id="pStallsT"');
+    const stalls = [{ name: 'A', zone: null, sells: null, open: true }, { name: 'B', zone: null, sells: null, open: false }];
+    for (const lang of ['es', 'en', 'fr', 'pt'] as const) {
+      const html = renderWalletPage('tok-1', lang, state(), { party: { ...party, stalls } });
+      const t = PARTY_WALLET_TEXT[lang];
+      expect(html).toContain(`>${t.stallsTitle}</h2>`);
+      expect(html).toContain(`<span class="pstate on">${t.stallOpen}</span>`);
+      expect(html).toContain(`<span class="pstate">${t.stallClosed}</span>`);
+    }
   });
 
   it('en los cuatro idiomas el JS se lee y lleva sus textos', () => {
