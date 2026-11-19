@@ -94,11 +94,11 @@ let boss: string;
 let manager: string;
 let bossSecret: string;
 
-async function newChica(name: string, data: Record<string, unknown> = {}): Promise<string> {
+async function newCompanera(name: string, data: Record<string, unknown> = {}): Promise<string> {
   return sys<string>(async (tx) =>
     (
       await tx.user.create({
-        data: { tenantId: V, email: `${uniq('chica')}@x.es`, passwordHash: 'hash-de-verdad', role: 'OPERATOR', displayName: name, ...data } as never,
+        data: { tenantId: V, email: `${uniq('comp')}@x.es`, passwordHash: 'hash-de-verdad', role: 'OPERATOR', displayName: name, ...data } as never,
       })
     ).id,
   );
@@ -108,15 +108,15 @@ async function codeOfBoss(): Promise<string> {
   return totpCodeAt(bossSecret);
 }
 const jwtOf = (userId: string, role: 'OWNER' | 'MANAGER') => ({ sub: userId, role, tenantId: V }) as unknown as JwtPayload;
-const patch = (userId: string, role: 'OWNER' | 'MANAGER', chica: string, dto: Record<string, unknown>) =>
-  asStaff(V, () => admin.updateOperator(V, jwtOf(userId, role), chica, dto as never));
-const markPaid = (userId: string, role: 'OWNER' | 'MANAGER', chica: string, dto: Record<string, unknown>) =>
-  asStaff(V, () => admin.createOperatorPayout(V, jwtOf(userId, role), chica, dto as never));
+const patch = (userId: string, role: 'OWNER' | 'MANAGER', persona: string, dto: Record<string, unknown>) =>
+  asStaff(V, () => admin.updateOperator(V, jwtOf(userId, role), persona, dto as never));
+const markPaid = (userId: string, role: 'OWNER' | 'MANAGER', persona: string, dto: Record<string, unknown>) =>
+  asStaff(V, () => admin.createOperatorPayout(V, jwtOf(userId, role), persona, dto as never));
 /** El enlace de alta del dueño (puede poner su primera cuenta). */
-const linkFor = async (chica: string) =>
-  (await asStaff(V, () => operators.createSelfOnboardingLink(V, chica, boss, 'OWNER'))).url.split('/onboarding/')[1]!;
-const submit = async (chica: string, dto: Record<string, unknown>) => {
-  const token = await linkFor(chica);
+const linkFor = async (persona: string) =>
+  (await asStaff(V, () => operators.createSelfOnboardingLink(V, persona, boss, 'OWNER'))).url.split('/onboarding/')[1]!;
+const submit = async (persona: string, dto: Record<string, unknown>) => {
+  const token = await linkFor(persona);
   return asPublic(() => operators.submitSelfOnboarding(token, dto as never));
 };
 const rawUser = (id: string) =>
@@ -137,19 +137,19 @@ const auditOf = (targetId: string) =>
   sys<Array<{ action: string; payload: Record<string, unknown> | null }>>((tx) =>
     tx.auditEvent.findMany({ where: { targetId }, orderBy: { id: 'asc' }, select: { action: true, payload: true } }),
   );
-const viewOf = async (chica: string) => (await asStaff(V, () => operators.listVenueOperators(V))).find((o) => o.id === chica)!;
-async function newEarning(chica: string, amountCents: number): Promise<void> {
+const viewOf = async (persona: string) => (await asStaff(V, () => operators.listVenueOperators(V))).find((o) => o.id === persona)!;
+async function newEarning(persona: string, amountCents: number): Promise<void> {
   await sys(async (tx) => {
     const at = new Date(Date.now() - 2 * HOUR);
     const p = await tx.payment.create({
       data: {
         tenantId: V, terminalId: term, idempotencyKey: uniq('k'), qrToken: uniq('q'), qrExpiresAt: new Date(Date.now() + HOUR),
         status: 'AUTHORIZED', provider: 'PAYTEF', providerTxId: uniq('PT'), amountCents, availableAmountCents: amountCents,
-        createdByUserId: chica, revenueCategory: 'CHICA_SERVICE', authorizedAt: at, createdAt: at, cardLast4: '4242', cardBrand: 'VISA',
+        createdByUserId: persona, revenueCategory: 'CHICA_SERVICE', authorizedAt: at, createdAt: at, cardLast4: '4242', cardBrand: 'VISA',
       } as never,
     });
     await tx.operatorEarning.create({
-      data: { tenantId: V, operatorId: chica, paymentId: p.id, paymentAmountCents: amountCents, commissionBps: 9000, commissionCents: Math.round(amountCents * 0.9), createdAt: at },
+      data: { tenantId: V, operatorId: persona, paymentId: p.id, paymentAmountCents: amountCents, commissionBps: 9000, commissionCents: Math.round(amountCents * 0.9), createdAt: at },
     });
   });
 }
@@ -176,7 +176,7 @@ afterAll(async () => {
 
 describe('nombre legal y fecha de nacimiento', () => {
   it('por el enlace: el nombre queda cifrado, la fecha guardada y el registro sin ninguno de los dos', async () => {
-    const ana = await newChica('Lola');
+    const ana = await newCompanera('Lola');
     await expect(submit(ana, { legalName: 'Ana María López Pérez', birthDate: ADULT })).resolves.toEqual({ ok: true });
     const saved = await row(ana);
     expect(saved.legalName).toMatch(/^pa1:/);
@@ -190,7 +190,7 @@ describe('nombre legal y fecha de nacimiento', () => {
   });
 
   it('por el panel (solo el dueño): igual, y en el registro tapado', async () => {
-    const bea = await newChica('Bea');
+    const bea = await newCompanera('Bea');
     await patch(boss, 'OWNER', bea, { legalName: 'Beatriz Ruiz', birthDate: ADULT });
     expect((await row(bea)).legalName).toMatch(/^pa1:/);
     const [updated] = await auditOf(bea);
@@ -201,7 +201,7 @@ describe('nombre legal y fecha de nacimiento', () => {
 
 describe('menor de 18 años: no activa la cuenta y se avisa al dueño', () => {
   it('ya entraba y pone una fecha de menor en el alta: deja de entrar, sesiones fuera y aviso en Incidencias', async () => {
-    const cris = await newChica('Cris');
+    const cris = await newCompanera('Cris');
     sessions.revokeAllForUser.mockClear();
     await expect(submit(cris, { birthDate: MINOR })).resolves.toEqual({ ok: true, minor: true });
     const saved = await row(cris);
@@ -218,7 +218,7 @@ describe('menor de 18 años: no activa la cuenta y se avisa al dueño', () => {
   });
 
   it('con una invitación de antes no activa; ni contraseña nueva ni otra invitación', async () => {
-    const dani = await newChica('Dani', { invitedAt: new Date() });
+    const dani = await newCompanera('Dani', { invitedAt: new Date() });
     const token = await jwt.signAsync({ sub: dani, tenantId: V, purpose: 'operator-invite' }, { expiresIn: '24h' });
     await sys((tx) =>
       tx.user.update({
@@ -234,7 +234,7 @@ describe('menor de 18 años: no activa la cuenta y se avisa al dueño', () => {
   });
 
   it('el dueño pone una fecha de menor en el panel: lo mismo; si la corrige, vuelve a poder invitarla', async () => {
-    const eva = await newChica('Eva');
+    const eva = await newCompanera('Eva');
     await patch(boss, 'OWNER', eva, { birthDate: MINOR });
     expect(await row(eva)).toMatchObject({ onboardingStatus: 'BLOCKED', inviteToken: null });
     expect((await auditOf(eva)).map((a) => a.action)).toContain('operator.minor_blocked');
@@ -247,7 +247,7 @@ describe('el titular de su IBAN contra su nombre legal', () => {
   let flor: string;
 
   it('por el enlace, con otro titular: aviso en Incidencias de que hay que confirmarla', async () => {
-    flor = await newChica('Flor');
+    flor = await newCompanera('Flor');
     await submit(flor, {
       legalName: 'Florencia Díaz',
       birthDate: ADULT,
@@ -292,7 +292,7 @@ describe('el titular de su IBAN contra su nombre legal', () => {
   });
 
   it('con el titular que coincide no hay nada que confirmar', async () => {
-    const gema = await newChica('Gema');
+    const gema = await newCompanera('Gema');
     await submit(gema, { legalName: 'Gema Torres', birthDate: ADULT, payoutMethod: 'SEPA_IBAN', payoutAddress: IBAN, payoutMetadata: { accountHolder: 'GEMA TORRES SANZ' } });
     expect(await viewOf(gema)).toMatchObject({ payoutHolderMismatch: false, payoutHolderUnconfirmed: false });
   });
@@ -301,7 +301,7 @@ describe('el titular de su IBAN contra su nombre legal', () => {
 describe('OxioCard (OXIOCARD_ENABLED)', () => {
   it('apagada: no sale, su ruta no existe y el dueño no la cambia', async () => {
     settings.OXIOCARD_ENABLED = false;
-    const hana = await newChica('Hana');
+    const hana = await newCompanera('Hana');
     expect(await failure(asStaff(V, () => operators.requestMyOxiocard(hana, V)))).toMatchObject({ status: 404 });
     expect(await failure(patch(boss, 'OWNER', hana, { oxiocardStatus: 'APROBADA' }))).toMatchObject({ status: 400 });
     expect(await viewOf(hana)).not.toHaveProperty('oxiocardStatus');
@@ -310,7 +310,7 @@ describe('OxioCard (OXIOCARD_ENABLED)', () => {
 
   it('encendida: «Abrir mi OxioCard» la deja pedida una vez, el dueño la aprueba y ella lo ve', async () => {
     settings.OXIOCARD_ENABLED = 'true';
-    const ines = await newChica('Inés');
+    const ines = await newCompanera('Inés');
     const [a, b] = await Promise.all([
       asStaff(V, () => operators.requestMyOxiocard(ines, V)),
       asStaff(V, () => operators.requestMyOxiocard(ines, V)),
@@ -323,14 +323,14 @@ describe('OxioCard (OXIOCARD_ENABLED)', () => {
     expect((await asStaff(V, () => operators.getMyPayoutInfo(ines, V))).oxiocard).toMatchObject({ status: 'APROBADA', at: expect.any(String) });
     expect(await failure(patch(manager, 'MANAGER', ines, { oxiocardStatus: 'RECHAZADA' }))).toMatchObject({ status: 403 });
 
-    const juli = await newChica('Juli');
+    const juli = await newCompanera('Juli');
     await submit(juli, { oxiocard: true });
     expect((await row(juli)).oxiocardStatus).toBe('SOLICITADA');
     settings.OXIOCARD_ENABLED = false;
   });
 
   it('la base no admite un estado inventado', async () => {
-    const kia = await newChica('Kia');
+    const kia = await newCompanera('Kia');
     await expect(sys((tx) => tx.$executeRaw`UPDATE users SET "oxiocardStatus" = 'ENVIADA' WHERE id = ${kia}::uuid`)).rejects.toThrow();
     expect((await row(kia)).oxiocardStatus).toBe('NO_SOLICITADA');
   });
