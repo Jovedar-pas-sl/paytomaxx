@@ -289,7 +289,9 @@ export function NightCloseScreen({ night, isOwner, tabs, onNavigate, onClose, on
           operatorName={payFor.name}
           balanceCents={payFor.toPayCents}
           payoutMethod={(payFor.payoutMethod as PayoutMethod | null) ?? null}
-          payoutAddress={payFor.payoutAddress}
+          payoutAddressMasked={payFor.payoutAddressMasked ?? null}
+          payoutHoldUntil={payFor.payoutHoldUntil ?? null}
+          canReveal={isOwner}
           payoutLabel={payFor.payoutLabel}
           onClose={() => setPayFor(null)}
           onDone={() => {
