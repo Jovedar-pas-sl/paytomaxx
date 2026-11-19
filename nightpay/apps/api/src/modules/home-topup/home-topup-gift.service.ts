@@ -2,11 +2,11 @@ import { Inject, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService, type TransactionalClient } from '../../common/prisma/prisma.service';
 import { activationPath, issueActivationToken } from '../wallets/wallet-activation-token';
-import { GIFT_PAID_STATUSES, giftState, isGiftToken, type GiftState } from './home-topup-gift';
+import { GIFT_OPEN_STATUSES, giftState, isGiftToken, type GiftState } from './home-topup-gift';
 import type { GiftPageView } from './home-topup-gift-page';
 import { LOCAL_API_ORIGIN, originOf } from './home-topup-settings.service';
 
-const PAID = new Set<string>(GIFT_PAID_STATUSES);
+const OPEN = new Set<string>(GIFT_OPEN_STATUSES);
 
 /** «Guardar en mi móvil»: a dónde va el móvil (el QR de activación), o por qué no. */
 export type GiftClaim = { activationPath: string } | { state: Exclude<GiftState, 'open'> };
@@ -83,7 +83,7 @@ export class HomeTopUpGiftService {
         wallet: { select: { pinHash: true, _count: { select: { passkeys: true } } } },
       },
     });
-    return !gift || gift.venue.deletedAt || !PAID.has(gift.payment.status) ? null : gift;
+    return !gift || gift.venue.deletedAt || !OPEN.has(gift.payment.status) ? null : gift;
   }
 }
 

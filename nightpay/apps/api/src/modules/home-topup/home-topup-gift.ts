@@ -122,6 +122,8 @@ export function giftState(g: { claimedAt: Date | null; expiresAt: Date; walletAc
 
 /** Lo pagado de verdad (lo sin pagar no es un regalo: no sale en el panel ni se guarda). */
 export const GIFT_PAID_STATUSES = ['AUTHORIZED', 'PARTIALLY_REFUNDED', 'REFUNDED'] as const;
+/** Con estos el enlace del regalo se abre y se guarda. Devuelto entero, ya no (404); el panel sí lo lista. */
+export const GIFT_OPEN_STATUSES = GIFT_PAID_STATUSES.filter((s) => s !== 'REFUNDED');
 /** Filas del panel: primero las sin guardar (todas las que quepan), después las más nuevas. */
 const PANEL_MAX_ROWS = 100;
 

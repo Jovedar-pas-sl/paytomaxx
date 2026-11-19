@@ -318,7 +318,8 @@ describe('HomeTopUpGiftService: la página del regalo y «Guardar en mi móvil»
     expect(await bad.service.view('corto', NOW)).toBeNull();
     expect(await bad.service.claim('corto', NOW)).toBeNull();
     expect(bad.tx.walletGift.findUnique).not.toHaveBeenCalled();
-    for (const status of ['CREATED', 'AUTHORIZING', 'FAILED', 'EXPIRED', 'CANCELED']) {
+    // REFUNDED: devuelto entero a quien lo pagó, el enlace ya no da nada (el panel sí lo lista).
+    for (const status of ['CREATED', 'AUTHORIZING', 'FAILED', 'EXPIRED', 'CANCELED', 'REFUNDED']) {
       expect(await make({ status }).service.view(TOKEN, NOW)).toBeNull();
       expect(await make({ status }).service.claim(TOKEN, NOW)).toBeNull();
     }
