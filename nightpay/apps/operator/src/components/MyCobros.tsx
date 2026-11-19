@@ -22,10 +22,12 @@ import {
   type OwnNight,
 } from '@/lib/my-cobros';
 import { AT_BANK_PAYING_TEXT, AT_BANK_SLOW_TEXT, HELD_ON_READER_TEXT, offersCancel, type BankCancel } from '@/lib/cancel-at-bank';
+import { NO_DAYS, type DayRange } from '@/lib/history';
 import { formatEur } from '@/lib/money';
 import { usePolling } from '@/lib/use-polling';
 import { CancelCobroConfirm } from './CancelCobroConfirm';
 import { CobroDetailSheet } from './CobroDetailSheet';
+import { DateRange } from './DateRange';
 import { UnpaidInVenue } from './UnpaidInVenue';
 import { useUnpaidInVenue } from './use-unpaid-in-venue';
 import detailStyles from './cobro-detail.module.css';
@@ -49,7 +51,20 @@ interface Props {
  * `cancelPending`, cancela los suyos aún sin pagar. Su ayuda es el tutorial del
  * «?» de la cabecera (lib/tours.ts).
  */
-export function MyCobros({ cancelPending = false, pollMs = 15_000 }: Props) {
+export function MyCobros(props: Props) {
+  const [days, setDays] = useState<DayRange>(NO_DAYS);
+  return (
+    <section className={styles.list} aria-label="Mis cobros" data-tour="cobros-lista">
+      <h2 className={styles.title}>Mis cobros</h2>
+      <DateRange value={days} onChange={setDays} />
+      {/* Otras fechas, otra lista: se empieza de cero (con su sondeo y sus páginas). */}
+      <CobrosFeed key={`${days.fromDay}|${days.toDay}`} {...props} days={days} />
+    </section>
+  );
+}
+
+/** La lista en sí: con fechas, solo los de esas noches y sin el total de «Esta noche». */
+function CobrosFeed({ cancelPending = false, pollMs = 15_000, days }: Props & { days: DayRange }) {
   const [{ items, cursor, error, moreBusy, night }, setState] = useState<OwnCobrosSnapshot>({ items: null, cursor: null, error: null, moreBusy: false, night: null });
   const [busyId, setBusyId] = useState<string | null>(null);
   const [cancelError, setCancelError] = useState<string | null>(null);
@@ -63,9 +78,10 @@ export function MyCobros({ cancelPending = false, pollMs = 15_000 }: Props) {
   // Un solo reloj para toda la pantalla: corre solo mientras algún cobro está en su banco.
   const now = useNow(unpaid.items?.some((u) => u.atBank) ?? false);
   useEffect(() => {
-    const current = createOwnCobrosFeed(fetchOwnCobros, setState);
+    const current = createOwnCobrosFeed((more, signal) => fetchOwnCobros(more, signal, days), setState);
     feed.current = current;
     return () => { current.dispose(); if (feed.current === current) feed.current = null; };
+    // Las fechas no cambian sin volver a montar (key en MyCobros).
   }, []);
   // Revalida todo lo cargado (y la noche entera): puede ser más de una página.
   // Un «no se pudo cancelar» se va con el refresco siguiente, que ya trae cómo quedó el cobro.
@@ -96,8 +112,7 @@ export function MyCobros({ cancelPending = false, pollMs = 15_000 }: Props) {
   }
 
   return (
-    <section className={styles.list} aria-label="Mis cobros" data-tour="cobros-lista">
-      <h2 className={styles.title}>Mis cobros</h2>
+    <>
       <UnpaidInVenue items={unpaid.items} nowMs={now} refresh={unpaid.refresh} ownListCancels={cancelPending} onCanceled={refresh} />
       {night && items ? <NightTotal items={items} night={night} cursor={cursor} /> : null}
       {error ? (
@@ -112,7 +127,9 @@ export function MyCobros({ cancelPending = false, pollMs = 15_000 }: Props) {
         </Card>
       ) : null}
       {items === null && !error ? <p className={styles.note}>Cargando tu historial…</p> : null}
-      {items?.length === 0 ? <p className={styles.note}>Aún no has hecho cobros.</p> : null}
+      {items?.length === 0 ? (
+        <p className={styles.note}>{days.fromDay || days.toDay ? 'No hay cobros en esas fechas.' : 'Aún no has hecho cobros.'}</p>
+      ) : null}
       {items?.map((r, i) => {
         // En su banco: los primeros 2 minutos sin botón; después, con «El banco tarda…» (null: aún no se sabe).
         // Cobrado en el datáfono sin comprobar: sin botón, nunca.
@@ -144,7 +161,7 @@ export function MyCobros({ cancelPending = false, pollMs = 15_000 }: Props) {
         onConfirm={() => confirmRow && void onCancel(confirmRow.id)}
         onClose={() => setConfirmRow(null)}
       />
-    </section>
+    </>
   );
 }
 

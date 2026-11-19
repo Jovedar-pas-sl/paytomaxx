@@ -7,6 +7,7 @@ import {
   SELF_ONBOARDING_ALREADY_SAVED,
   type CashTopUpDto,
   type CashTopUpResult,
+  type OwnHistoryPage,
   type PayoutMetadata,
   type PostCode,
   type ReceptionOptions,
@@ -203,6 +204,9 @@ export interface MyPayout {
   createdAt: string;
   /** Cómo se le pagó (USDT_TRC20, SEPA_IBAN, MANUAL_CASH…). */
   externalRail?: PayoutMethod | null;
+  /** El justificante: la referencia de la transferencia (o el hash) y el enlace que puso quien pagó. */
+  externalTxId?: string | null;
+  receiptUrl?: string | null;
 }
 
 /** A dónde se le paga, sin la dirección entera («••••1332»). */
@@ -429,6 +433,20 @@ export async function fetchMyEarnings(): Promise<MyEarning[]> {
 export async function fetchMyPayouts(): Promise<MyPayout[]> {
   const res = await authedFetch('/v1/operators/me/payouts');
   if (!res.ok) throw loadError(res, 'Error cargando liquidaciones');
+  return res.json();
+}
+
+/** «Historial» de sus ganancias: una página, con las fechas y el cursor de `query` (lib/history.ts). */
+export async function fetchMyEarningsPage(query: URLSearchParams): Promise<OwnHistoryPage<MyEarning>> {
+  const res = await authedFetch(`/v1/operators/me/earnings/history?${query}`);
+  if (!res.ok) throw loadError(res, 'No se pudo cargar tu historial. Vuelve a intentarlo.');
+  return res.json();
+}
+
+/** «Pagos recibidos», todos: una página, con las fechas y el cursor de `query`. */
+export async function fetchMyPayoutsPage(query: URLSearchParams): Promise<OwnHistoryPage<MyPayout>> {
+  const res = await authedFetch(`/v1/operators/me/payouts/history?${query}`);
+  if (!res.ok) throw loadError(res, 'No se pudieron cargar tus pagos. Vuelve a intentarlo.');
   return res.json();
 }
 

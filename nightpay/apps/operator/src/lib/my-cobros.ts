@@ -2,10 +2,11 @@ import type { OwnCobro, OwnCobrosPage } from '@nightpay/contracts';
 import { authedFetch } from './api';
 import { unpaidBank, type UnpaidRow } from './api-sin-pagar';
 import type { BankCancel } from './cancel-at-bank';
+import { historyParams, NO_DAYS, type DayRange } from './history';
 
-export async function fetchOwnCobros(cursor?: string, signal?: AbortSignal): Promise<OwnCobrosPage> {
-  const q = new URLSearchParams({ limit: '50' });
-  if (cursor) q.set('cursor', cursor);
+/** Una página de sus cobros; con fechas, solo los de esas noches (y sin el total de «Esta noche»). */
+export async function fetchOwnCobros(cursor?: string, signal?: AbortSignal, days: DayRange = NO_DAYS): Promise<OwnCobrosPage> {
+  const q = historyParams(days, cursor);
   const res = await authedFetch(`/v1/staff/me/cobros?${q}`, { signal });
   if (!res.ok) throw new Error('No se pudo cargar tu historial de cobros. Vuelve a intentarlo.');
   return res.json();
