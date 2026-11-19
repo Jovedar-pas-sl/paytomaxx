@@ -23,6 +23,7 @@ import {
 } from '@/lib/earnings-view';
 import { formatEur, formatSignedEur } from '@/lib/money';
 import { EarningsDetail, type DetailKind } from './EarningsDetail';
+import { OxiocardCard } from './OxiocardCard';
 import { PayoutsReceived } from './PayoutsReceived';
 import { Chevron, TonightCard } from './TonightCard';
 import styles from './money.module.css';
@@ -96,6 +97,9 @@ export function Earnings({ night, balance, nightError }: Props) {
       <MoneyRows summary={summary} holdDays={holdDays} earnings={earnings} night={night} onOpen={setDetail} />
       <NextPayout summary={summary} />
       <PayoutsReceived payouts={payouts} account={info ? info.account : undefined} />
+      {info?.oxiocard ? (
+        <OxiocardCard view={info.oxiocard} onChange={(oxiocard) => setInfo((prev) => (prev ? { ...prev, oxiocard } : prev))} />
+      ) : null}
     </div>
   );
 }

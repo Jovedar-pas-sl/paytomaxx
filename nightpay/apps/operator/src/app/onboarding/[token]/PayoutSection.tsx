@@ -39,15 +39,17 @@ interface Props {
   /** Tras intentar guardar: se marcan los errores en cada campo. */
   showErrors: boolean;
   disabled: boolean;
+  /** Su IBAN (camino «Mi cuenta del banco»): el método ya viene puesto y no se elige. */
+  methodLocked?: boolean;
 }
 
 /**
- * "Cómo quieres cobrar": método, dirección (comprobada según el método, con
+ * La cuenta en «Cómo quieres cobrar» (PayoutPathSection): método, dirección (comprobada según el método, con
  * las mismas reglas que el API) y etiqueta; en la transferencia internacional,
  * además, el banco, su SWIFT/BIC, el país y el titular; en el IBAN SEPA, el
  * titular.
  */
-export function PayoutSection({ values, onChange, saved, showErrors, disabled }: Props) {
+export function PayoutSection({ values, onChange, saved, showErrors, disabled, methodLocked = false }: Props) {
   const methodId = useId();
   const set = (patch: Partial<PayoutValues>) => onChange({ ...values, ...patch });
   const problems = showErrors ? payoutFieldProblems(values, saved) : {};
@@ -57,36 +59,34 @@ export function PayoutSection({ values, onChange, saved, showErrors, disabled }:
   const hint = method ? PAYOUT_HINTS[method] : null;
 
   return (
-    <section>
-      <h2 style={sectionHead}>Cómo quieres cobrar (opcional)</h2>
-      <p style={hintStyle}>
-        Si ya sabes cómo quieres recibir tu dinero, dínoslo aquí. Si no, déjalo en blanco y el admin te ayuda.
-      </p>
-      <div style={{ marginTop: '0.5rem' }}>
-        <label htmlFor={methodId} style={selectLabel}>
-          Método
-        </label>
-        <Select
-          id={methodId}
-          value={method}
-          onChange={(e) => set({ method: e.target.value as PayoutMethod | '' })}
-          disabled={disabled}
-        >
-          <option value="">— No sé todavía —</option>
-          {(Object.keys(PAYOUT_METHOD_LABELS) as PayoutMethod[]).map((m) => (
-            <option key={m} value={m}>
-              {PAYOUT_METHOD_LABELS[m]}
-            </option>
-          ))}
-        </Select>
-        {method === 'MANUAL_CASH' && hint ? <p style={hintStyle}>{hint.hint}</p> : null}
-      </div>
+    <div>
+      {methodLocked ? null : (
+        <div style={{ marginTop: '0.5rem' }}>
+          <label htmlFor={methodId} style={selectLabel}>
+            Método
+          </label>
+          <Select
+            id={methodId}
+            value={method}
+            onChange={(e) => set({ method: e.target.value as PayoutMethod | '' })}
+            disabled={disabled}
+          >
+            <option value="">— No sé todavía —</option>
+            {(Object.keys(PAYOUT_METHOD_LABELS) as PayoutMethod[]).map((m) => (
+              <option key={m} value={m}>
+                {PAYOUT_METHOD_LABELS[m]}
+              </option>
+            ))}
+          </Select>
+          {method === 'MANUAL_CASH' && hint ? <p style={hintStyle}>{hint.hint}</p> : null}
+        </div>
+      )}
       {method ? (
         <>
           {withAddress && hint ? (
             <div style={{ marginTop: '0.75rem' }}>
               <Input
-                label="Dirección / IBAN / Email / Teléfono según método"
+                label={methodLocked ? 'Tu IBAN' : 'Dirección / IBAN / Email / Teléfono según método'}
                 value={values.address}
                 onChange={(e) => set({ address: e.target.value })}
                 placeholder={hint.placeholder}
@@ -130,7 +130,7 @@ export function PayoutSection({ values, onChange, saved, showErrors, disabled }:
           </div>
         </>
       ) : null}
-    </section>
+    </div>
   );
 }
 
@@ -203,13 +203,6 @@ function HolderField({ values, set, problems, disabled }: Parameters<typeof Wire
     </div>
   );
 }
-
-const sectionHead: CSSProperties = {
-  margin: 0,
-  fontSize: 'var(--np-fs-14)',
-  color: 'var(--np-text-dim)',
-  fontWeight: 500,
-};
 
 const selectLabel: CSSProperties = {
   display: 'block',

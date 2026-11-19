@@ -2,6 +2,7 @@
 
 import { useEffect, useId, useState, type CSSProperties, type FormEvent } from 'react';
 import { Button, Card, Input, Logo, PrivacyNote, Select } from '@nightpay/ui';
+import { isMinor, madridToday } from '@nightpay/contracts';
 import {
   SelfOnboardingSavedError,
   apiBase,
@@ -14,8 +15,17 @@ import {
 } from '@/lib/api';
 import type { SavedPayout } from '@/lib/payout-address';
 import { ONBOARDING_LINK_NOTE, savedScreen, type SavedKind } from './onboarding-copy';
-import { EMPTY_PAYOUT, payoutDto, payoutProblem, type PayoutValues } from './onboarding-payout';
-import { PayoutSection } from './PayoutSection';
+import { EMPTY_PAYOUT, type PayoutValues } from './onboarding-payout';
+import {
+  identityDto,
+  identityProblems,
+  pathDto,
+  pathPayout,
+  pathProblem,
+  payoutPaths,
+  type PayoutPath,
+} from './onboarding-path';
+import { PayoutPathSection } from './PayoutPathSection';
 
 const LATAM_COUNTRIES = [
   'Argentina', 'Bolivia', 'Brasil', 'Chile', 'Colombia',
@@ -71,6 +81,12 @@ export function SelfOnboardingClient({ token }: Props) {
   const [needsHelpDocs, setNeedsHelpDocs] = useState(false);
   const [notes, setNotes] = useState('');
   const [payout, setPayout] = useState<PayoutValues>(EMPTY_PAYOUT);
+  // Alta con tres caminos: nombre legal, fecha de nacimiento y cómo cobra.
+  const [legalName, setLegalName] = useState('');
+  const [birthDate, setBirthDate] = useState('');
+  const [path, setPath] = useState<PayoutPath>('NADA');
+  /** Guardado con menos de 18 años: su cuenta no se activa (el dueño ya está avisado). */
+  const [minorSaved, setMinorSaved] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   // Tras el primer intento de guardar, los errores se marcan en su campo.
   const [triedSubmit, setTriedSubmit] = useState(false);
@@ -105,7 +121,6 @@ export function SelfOnboardingClient({ token }: Props) {
         setNeedsHelpWallet(p.needsHelpWallet);
         setNeedsHelpDocs(p.needsHelpDocs);
         setNotes(p.onboardingNotes ?? '');
-        setPayout({ ...EMPTY_PAYOUT, method: p.payoutMethod ?? '', label: p.payoutLabel ?? '' });
       })
       .catch((err) => {
         if (err instanceof SelfOnboardingSavedError) setDone('before');
@@ -117,8 +132,9 @@ export function SelfOnboardingClient({ token }: Props) {
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setTriedSubmit(true);
-    // Cada método con su forma (las mismas reglas que el API) y el SWIFT con su banco.
-    const problem = canSetPayout ? payoutProblem(payout, savedPayout) : null;
+    // Nombre legal y fecha (si aún no estaban) y, la cuenta, con la forma de su método.
+    const identity = identityProblems({ legalName, birthDate }, profile ?? {});
+    const problem = identity.legalName ?? identity.birthDate ?? pathProblem(path, payout, savedPayout);
     if (problem) {
       setError(problem);
       return;
@@ -139,11 +155,13 @@ export function SelfOnboardingClient({ token }: Props) {
         needsHelpWallet,
         needsHelpDocs,
         onboardingNotes: notes.trim() || null,
-        // «No sé todavía»: sin método no se manda la dirección ni la etiqueta (ocultas).
-        ...(canSetPayout ? payoutDto(payout) : {}),
+        ...identityDto({ legalName, birthDate }),
+        // La cuenta (su IBAN u otra forma), la petición de la OxioCard o nada.
+        ...pathDto(path, payout),
       };
       const saved = await submitSelfOnboarding(token, dto);
-      setPayoutIgnored(saved.payoutIgnored === true);
+      setPayoutIgnored(Boolean(saved.payoutIgnored));
+      setMinorSaved(saved.minor === true);
       setDone('now');
     } catch (err) {
       // La primera vez sí se guardó (se perdió la respuesta): no es un error.
@@ -183,6 +201,11 @@ export function SelfOnboardingClient({ token }: Props) {
           <Logo height="2rem" />
           <h1 style={{ marginTop: '1rem', color: 'var(--np-success)', fontSize: 'var(--np-fs-22)' }}>{screen.title}</h1>
           <p style={{ color: 'var(--np-text-mute)', marginTop: '0.75rem' }}>{screen.text}</p>
+          {minorSaved ? (
+            <p role="status" style={{ marginTop: '0.75rem', color: 'var(--np-warning)' }}>
+              Con menos de 18 años no se puede activar la cuenta. Hemos avisado al dueño del local.
+            </p>
+          ) : null}
           {payoutIgnored ? (
             <p role="status" style={{ marginTop: '0.75rem', color: 'var(--np-warning)' }}>
               Tu forma de cobro no se ha cambiado: la configura el admin del local. Si quieres otra, díselo.
@@ -199,6 +222,7 @@ export function SelfOnboardingClient({ token }: Props) {
     );
   }
   if (!profile) return null;
+  const identityErrors = identityProblems({ legalName, birthDate }, profile);
 
   return (
     <main className="np-screen" style={pageStyle}>
@@ -215,7 +239,7 @@ export function SelfOnboardingClient({ token }: Props) {
         </h1>
         <p style={{ margin: '0.5rem 0 0', fontSize: 'var(--np-fs-14)', color: 'var(--np-text-mute)' }}>
           Hola{profile.displayName ? `, ${profile.displayName}` : ''} 👋. Esta página es para que
-          rellenes tu información (pasaporte, wallet, docs). Te ahorra que tu admin te lo pregunte.
+          rellenes tus datos (nombre, fecha de nacimiento, documentos) y digas cómo quieres cobrar.
         </p>
 
         <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem', marginTop: '1.5rem' }}>
@@ -223,14 +247,46 @@ export function SelfOnboardingClient({ token }: Props) {
           <section>
             <h2 style={sectionHead}>Datos personales</h2>
             <Input
-              label="Móvil"
-              value={phone}
-              onChange={(e) => setPhone(e.target.value)}
-              placeholder="+34 6XX XX XX XX"
+              label="Nombre y apellidos (como en tu documento)"
+              value={legalName}
+              onChange={(e) => setLegalName(e.target.value)}
+              placeholder={profile.legalNameMasked ? `Ya guardado: ${profile.legalNameMasked}` : 'María López Pérez'}
+              hint={profile.legalNameMasked ? 'Ya lo tenemos: escríbelo solo si hay que corregirlo.' : 'Como en tu pasaporte o tu NIE. Va cifrado.'}
+              error={triedSubmit ? identityErrors.legalName : undefined}
+              maxLength={120}
+              autoComplete="name"
               disabled={submitting}
-              type="tel"
-              inputMode="tel"
             />
+            <div style={{ marginTop: '0.75rem' }}>
+              <Input
+                label="Fecha de nacimiento"
+                type="date"
+                value={birthDate}
+                onChange={(e) => setBirthDate(e.target.value)}
+                min="1900-01-01"
+                max={madridToday()}
+                hint={profile.hasBirthDate ? 'Ya la tenemos: ponla solo si hay que corregirla.' : undefined}
+                error={triedSubmit ? identityErrors.birthDate : undefined}
+                autoComplete="bday"
+                disabled={submitting}
+              />
+              {isMinor(birthDate || null, madridToday()) ? (
+                <p role="status" style={{ ...hintStyle, color: 'var(--np-warning)' }}>
+                  Con menos de 18 años no se puede activar la cuenta. Si guardas, avisaremos al dueño del local.
+                </p>
+              ) : null}
+            </div>
+            <div style={{ marginTop: '0.75rem' }}>
+              <Input
+                label="Móvil"
+                value={phone}
+                onChange={(e) => setPhone(e.target.value)}
+                placeholder="+34 6XX XX XX XX"
+                disabled={submitting}
+                type="tel"
+                inputMode="tel"
+              />
+            </div>
             <div style={{ marginTop: '0.75rem' }}>
               <label htmlFor={ids.country} style={selectLabel}>País del pasaporte</label>
               <Select
@@ -330,21 +386,22 @@ export function SelfOnboardingClient({ token }: Props) {
             </div>
           </section>
 
-          {/* Método de payout: si el local no deja cambiarlo desde aquí, ni se enseña. */}
-          {canSetPayout ? (
-            <PayoutSection
-              values={payout}
-              onChange={setPayout}
-              saved={savedPayout}
-              showErrors={triedSubmit}
-              disabled={submitting}
-            />
-          ) : (
-            <section>
-              <h2 style={sectionHead}>Cómo cobras</h2>
-              <p style={hintStyle}>Tu forma de cobro la configura el admin del local: si quieres cambiarla, díselo.</p>
-            </section>
-          )}
+          {/* Cómo cobra: su IBAN (solo si el enlace deja poner la cuenta), la OxioCard, abrir una cuenta básica u otra forma. */}
+          <PayoutPathSection
+            paths={payoutPaths({ canSetPayout, oxiocardEnabled: profile.oxiocardEnabled, oxiocardStatus: profile.oxiocardStatus })}
+            path={path}
+            onPath={(p) => {
+              setPath(p);
+              setPayout(pathPayout(p));
+            }}
+            payout={payout}
+            onPayout={setPayout}
+            saved={savedPayout}
+            showErrors={triedSubmit}
+            disabled={submitting}
+            legalName={legalName}
+            canSetPayout={canSetPayout}
+          />
 
           {/* Ayuda */}
           <section>

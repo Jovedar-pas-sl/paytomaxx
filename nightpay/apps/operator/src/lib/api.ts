@@ -7,6 +7,8 @@ import {
   SELF_ONBOARDING_ALREADY_SAVED,
   type CashTopUpDto,
   type CashTopUpResult,
+  type OxiocardStatus,
+  type OxiocardView,
   type PayoutMetadata,
   type PostCode,
   type ReceptionOptions,
@@ -235,6 +237,8 @@ export interface MyPayoutInfo {
   account: PayoutAccount | null;
   /** Abiertas primero; luego las ya descontadas. */
   debts: MyDebt[];
+  /** Su OxioCard (null o sin el campo: apagada, o un API anterior). */
+  oxiocard?: OxiocardView | null;
 }
 
 export interface CreatedPayment {
@@ -828,6 +832,12 @@ export interface SelfOnboardingProfile {
   venueName: string;
   /** false: la forma de cobro no se cambia desde el enlace (la pone el admin). Sin el campo, sí. */
   canSetPayout?: boolean;
+  /** Ya guardados: el nombre legal, tapado; la fecha, solo si está. Si faltan, el alta los pide. */
+  legalNameMasked?: string | null;
+  hasBirthDate?: boolean;
+  /** La OxioCard se puede pedir desde el alta (encendida y sin pedir). */
+  oxiocardEnabled?: boolean;
+  oxiocardStatus?: OxiocardStatus;
 }
 
 export interface SelfOnboardingSubmitDto {
@@ -848,6 +858,11 @@ export interface SelfOnboardingSubmitDto {
   payoutLabel?: string | null;
   /** Transferencia internacional: banco, SWIFT/BIC, país y titular. IBAN SEPA: el titular. */
   payoutMetadata?: PayoutMetadata;
+  legalName?: string;
+  /** «AAAA-MM-DD». */
+  birthDate?: string;
+  /** «Abrir mi OxioCard» al guardar. */
+  oxiocard?: true;
 }
 
 /**
@@ -876,7 +891,13 @@ export async function fetchSelfOnboardingProfile(token: string): Promise<SelfOnb
 export async function submitSelfOnboarding(
   token: string,
   dto: SelfOnboardingSubmitDto,
-): Promise<{ ok: true; /** Se guardó todo menos la forma de cobro. */ payoutIgnored?: boolean }> {
+): Promise<{
+  ok: true;
+  /** Se guardó todo menos la forma de cobro. */
+  payoutIgnored?: boolean;
+  /** Menos de 18 años: su cuenta no se activa (el dueño ya está avisado). */
+  minor?: boolean;
+}> {
   const res = await publicFetch(`/v1/operators/self-onboarding/${encodeURIComponent(token)}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
