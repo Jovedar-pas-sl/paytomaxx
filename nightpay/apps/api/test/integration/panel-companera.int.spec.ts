@@ -218,6 +218,8 @@ describe('«Te han pagado»', () => {
 
   /** Una comisión sin pagar de `cents` (el local de X paga al cierre: sin días de espera). */
   const unpaid = (operatorId: string, cents: number) => earningAt(X, operatorId, new Date(Date.now() - 60_000).toISOString(), cents);
+  /** El aviso sale por detrás del pago: con la máquina cargada, 1 s (lo de serie) no llega. */
+  const WAIT = { timeout: 5_000 };
   const rows = (endpoint: string) => sys((tx) => tx.staffPushSubscription.findMany({ where: { endpoint }, select: { userId: true, tenantId: true } }));
 
   beforeAll(async () => {
@@ -242,8 +244,8 @@ describe('«Te han pagado»', () => {
     await unpaid(marta, 3_750);
     const paid = await inVenue(X, () => operators.createPayout(X, marta, boss, 'Noche del 18'));
     expect(paid.totalCents).toBe(3_750);
-    await vi.waitFor(() => expect(titles(FCM)).toEqual(['Te han pagado 37,50 €']));
-    await vi.waitFor(() => expect(titles(APPLE)).toEqual(['Te han pagado 37,50 €']));
+    await vi.waitFor(() => expect(titles(FCM)).toEqual(['Te han pagado 37,50 €']), WAIT);
+    await vi.waitFor(() => expect(titles(APPLE)).toEqual(['Te han pagado 37,50 €']), WAIT);
     expect(pushed.find((p) => p.endpoint === FCM)?.payload.url).toBe('/?t=ganancias');
   });
 
@@ -253,7 +255,7 @@ describe('«Te han pagado»', () => {
     pushed.length = 0;
     await unpaid(marta, 1_000);
     await inVenue(X, () => operators.createPayout(X, marta, boss));
-    await vi.waitFor(() => expect(titles(APPLE)).toEqual(['Te han pagado 10 €']));
+    await vi.waitFor(() => expect(titles(APPLE)).toEqual(['Te han pagado 10 €']), WAIT);
     expect(titles(FCM)).toEqual([]);
   });
 
@@ -261,7 +263,7 @@ describe('«Te han pagado»', () => {
     pushStatus = 410;
     await unpaid(marta, 500);
     await inVenue(X, () => operators.createPayout(X, marta, boss));
-    await vi.waitFor(async () => expect(await rows(APPLE)).toEqual([]));
+    await vi.waitFor(async () => expect(await rows(APPLE)).toEqual([]), WAIT);
     pushStatus = 201;
     await inVenue(X, () => controller.unsubscribePush(jwt(nuria, X), { endpoint: FCM }));
     expect(await rows(FCM)).toEqual([]);
