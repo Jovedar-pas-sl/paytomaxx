@@ -34,6 +34,7 @@ export type { Section, SectionCode, SectionKey } from './lib/sections';
 
 // Apps del personal (operadora y TPV): resultado a pantalla completa, aviso de
 // conexión, teclado de importe y cuenta atrás del QR, con su lógica pura.
+export { DoneMark } from './components/DoneMark';
 export { PaymentOutcome } from './components/PaymentOutcome';
 export { OutcomeHowCard } from './components/PaymentOutcome';
 export type { OutcomeAction, OutcomeHow, PaymentOutcomeProps } from './components/PaymentOutcome';

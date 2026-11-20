@@ -1,5 +1,22 @@
-import type { HomeTopUpSettings } from '@nightpay/contracts';
+import type { HomeTopUpGiftRow, HomeTopUpSettings } from '@nightpay/contracts';
+import { formatDateTime } from './dates';
 import { formatEur } from './money';
+
+/**
+ * «Regalos» en Ajustes, una línea por regalo: cuánto, cuándo se compró y si ya
+ * lo guardó quien lo recibe. Uno caducado sin guardar lo dice: el saldo sigue
+ * en el local (no se pierde en silencio).
+ */
+export function giftRowText(g: HomeTopUpGiftRow, timeZone?: string): { amount: string; state: string } {
+  const day = (iso: string) => formatDateTime(iso, timeZone, 'date');
+  const state =
+    g.state === 'claimed'
+      ? `Guardado${g.claimedAt ? ` el ${day(g.claimedAt)}` : ''}`
+      : g.state === 'expired'
+        ? `Caducado sin guardar (el ${day(g.expiresAt)}): el saldo sigue en el local`
+        : `Sin guardar: su enlace vale hasta el ${day(g.expiresAt)}`;
+  return { amount: `${formatEur(g.amountCents)} · comprado el ${day(g.createdAt)}`, state };
+}
 
 /**
  * «Cargar saldo desde casa» en Ajustes: lo que verá el cliente, en una frase
@@ -16,7 +33,7 @@ function pct(bps: number): string {
   return `${(bps / 100).toLocaleString('es-ES', { maximumFractionDigits: 2 })} %`;
 }
 
-function escapeHtml(s: string): string {
+export function escapeHtml(s: string): string {
   return s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c] ?? c);
 }
 

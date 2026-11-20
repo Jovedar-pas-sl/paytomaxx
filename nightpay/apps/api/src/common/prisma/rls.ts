@@ -54,6 +54,8 @@ export const FORCED_RLS_TABLES = [
   'reservation_spends',
   // «Aviso en cada cobro» (20261117200000): los navegadores apuntados para el aviso del saldo.
   'wallet_push_subscriptions',
+  // «Regala una noche» (20261120200000): el regalo, su enlace, y el nombre y el mensaje de quien lo recibe.
+  'wallet_gifts',
   // «Te han pagado» (20261119200000): los navegadores del personal apuntados para el aviso del pago.
   'staff_push_subscriptions',
 ] as const;
@@ -84,6 +86,7 @@ export const FORCED_RLS_MODELS: ReadonlySet<string> = new Set([
   'ReservationPayment',
   'ReservationSpend',
   'WalletPushSubscription',
+  'WalletGift',
   'StaffPushSubscription',
 ]);
 

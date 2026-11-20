@@ -1,5 +1,5 @@
 import { CLUB_BASE_CSS, MONEY_JS, clientMoney, escapeHtml, jsConfig } from '../payments/club-ui';
-import { CHROME_CSS, LANG_JS, topBar } from '../payments/customer-chrome';
+import { CHROME_CSS, LANG_JS, langHrefWith, topBar } from '../payments/customer-chrome';
 import { legalConsent, legalFooter } from '../legal/legal-links';
 import { PAY_TEXT, type PayLanguage } from '../payments/pay-i18n';
 import { CARD_MARKS, LOCK_IC, PAY_MARKS_CSS } from '../payments/pay-marks';
@@ -10,6 +10,7 @@ import { WALLET_TEXT } from '../wallets/wallet-text';
 import { TOPUP_CSS, topUpFeeExplain } from '../wallets/wallet-topup-view';
 import { HOME_TOPUP_TEXT } from './home-topup-text';
 import { QUEUE_PAGE_TEXT } from './home-topup-queue';
+import { GIFT_LEGAL_TEXT, GIFT_MESSAGE_MAX, GIFT_NAME_MAX, GIFT_PRESETS_CENTS, GIFT_UNCLAIMED_MAX_DAYS } from './home-topup-gift';
 import type { HomeTopUpPageView } from './home-topup.service';
 
 /**
@@ -27,6 +28,9 @@ import type { HomeTopUpPageView } from './home-topup.service';
  *  - Las condiciones antes de pagar: lo que no gaste no se pierde (no
  *    caduca) y la regla del saldo: no se devuelve, se queda para la próxima
  *    visita (decisión del dueño, 17-nov-2026).
+ *  - Con «Regalos» encendido: «Para mí» / «Para regalar» (?regalo=1): 25, 50
+ *    o 100 € u «Otro», su nombre y un mensaje (opcionales) y las condiciones
+ *    del regalo; el botón va por POST /r/<código>/regalo.
  * El botón crea la carga (POST /r/<código>/topup) y lleva a la página de pago
  * de siempre (/pay/…): Apple Pay o Google Pay de entrada, o tarjeta.
  * Sin barras invertidas en el JS (va dentro de una plantilla).
@@ -52,6 +56,11 @@ const HOME_CSS = `
 .terms li b{color:var(--fg)}
 .small{font-size:.875rem}
 .foot{text-align:center}
+.gchoice{display:grid;grid-template-columns:1fr 1fr;gap:.25rem;padding:.25rem;border:1px solid var(--line);border-radius:var(--r-btn);background:var(--surface)}
+.gchoice a{display:flex;align-items:center;justify-content:center;min-height:2.75rem;border:1px solid transparent;border-radius:calc(var(--r-btn) - 4px);color:var(--mute);font-weight:500;text-decoration:none}
+.gchoice a[aria-current=page]{background:var(--surface-2);border-color:var(--line-hi);color:var(--fg)}
+.gfields{display:flex;flex-direction:column;gap:.375rem}
+.gfields input,.gfields textarea{width:100%;min-height:2.75rem;padding:.625rem .75rem;border:1px solid var(--line-hi);border-radius:var(--r-tile);background:var(--surface-2);color:var(--fg);font:inherit;font-size:1rem;resize:none}
 .topup .paybar{position:sticky;bottom:0;z-index:5;display:flex;flex-direction:column;gap:.5rem;margin:0 -1rem -1rem;padding:.75rem 1rem calc(.875rem + env(safe-area-inset-bottom));border-radius:0 0 var(--r) var(--r);background:var(--surface);text-align:center}
 .topup .paybar::before{content:'';position:absolute;left:0;right:0;bottom:100%;height:.75rem;background:linear-gradient(to top,var(--surface),rgb(19 22 24/0));pointer-events:none}
 .topup .paybar .btn{font-size:1.0625rem}
@@ -101,13 +110,14 @@ function mineCard(lang: PayLanguage, base: string, codeHint: string): string {
  * el total. El botón va en una barra fija abajo, y el error dentro de ella,
  * encima del botón: fuera de la barra quedaría tapado por ella.
  */
-function amountCard(lang: PayLanguage, view: HomeTopUpPageView): string {
+function amountCard(lang: PayLanguage, view: HomeTopUpPageView, gift: boolean): string {
   const t = HOME_TOPUP_TEXT[lang];
   const w = WALLET_TEXT[lang];
   const p = PAY_TEXT[lang];
   const h = escapeHtml;
-  const middle = view.presetsCents[Math.floor((view.presetsCents.length - 1) / 2)];
-  const radios = view.presetsCents
+  const presets = gift ? GIFT_PRESETS_CENTS : view.presetsCents;
+  const middle = presets[Math.floor((presets.length - 1) / 2)];
+  const radios = presets
     .map(
       (c) =>
         `<label><input type="radio" name="amt" value="${c}"${c === middle ? ' checked' : ''}><span class="num">${h(eur(c, w.locale))}</span></label>`,
@@ -120,21 +130,28 @@ function amountCard(lang: PayLanguage, view: HomeTopUpPageView): string {
   const breakdown =
     feeBps > 0
       ? `<dl class="brk" id="brk" aria-live="off">
-<div><dt>${h(t.toBalance)}</dt><dd class="num" id="bAmount"></dd></div>
+<div><dt>${h(gift ? t.gift.choiceGift : t.toBalance)}</dt><dd class="num" id="bAmount"></dd></div>
 <div class="fee"><dt>${h(p.breakdown.serviceFee)} <button class="why" type="button" id="whyBtn" aria-expanded="true" aria-controls="whyText">${h(p.feeWhat)}</button></dt><dd class="num" id="bFee"></dd><dd class="whytext" id="whyText">${h(topUpFeeExplain(lang, pct))}</dd></div>
 <div class="tot"><dt>${h(p.totalToPay)}</dt><dd class="num" id="bTotal"></dd></div>
 </dl>`
       : '';
+  const legend = gift ? t.gift.amountLegend : t.amountLegend;
+  // Para regalar: su nombre y un mensaje, opcionales y en texto plano (el servidor los limpia y la página los escapa).
+  const giftFields = gift
+    ? `<div class="gfields"><label for="gName">${h(t.gift.nameLabel)}</label><input id="gName" type="text" maxlength="${GIFT_NAME_MAX}" autocomplete="off">
+<label for="gMsg">${h(t.gift.messageLabel)}</label><textarea id="gMsg" rows="2" maxlength="${GIFT_MESSAGE_MAX}"></textarea></div>
+`
+    : '';
   return `<section class="card topup" aria-labelledby="amtTitle">
-<h2 id="amtTitle">${h(t.amountLegend)}</h2>
+<h2 id="amtTitle">${h(legend)}</h2>
 <form id="f" class="tform" autocomplete="off" novalidate>
-<fieldset><legend class="sr">${h(t.amountLegend)}</legend><div class="amts">${radios}<label><input type="radio" name="amt" value="other" id="amtOther"><span>${h(w.topUpOther)}</span></label></div></fieldset>
+<fieldset><legend class="sr">${h(legend)}</legend><div class="amts">${radios}<label><input type="radio" name="amt" value="other" id="amtOther"><span>${h(w.topUpOther)}</span></label></div></fieldset>
 <div class="tother" id="otherBox" hidden><label for="otherIn">${h(w.topUpOtherLabel)}</label>
 <div class="teur"><input id="otherIn" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="3" autocomplete="off" aria-describedby="limits"><span aria-hidden="true">€</span></div></div>
 <p class="small" id="limits">${h(limits)}</p>
-${breakdown}
+${giftFields}${breakdown}
 <div class="paybar"><p class="err" id="err" role="alert" hidden></p>
-<button class="${view.mine ? 'btn alt' : 'btn'}" type="submit" id="go">${LOCK_IC}<span id="goLbl"></span></button>
+<button class="${view.mine && !gift ? 'btn alt' : 'btn'}" type="submit" id="go">${LOCK_IC}<span id="goLbl"></span></button>
 ${legalConsent(lang)}
 <p class="small">${h(t.methods)}</p></div>
 </form>
@@ -146,10 +163,10 @@ ${legalConsent(lang)}
  * Cómo funciona, en tres pasos: elige cuánto, paga y, al llegar, el móvil o
  * (si el local da fichas) el QR de su saldo en recepción, que le da la ficha.
  */
-function howSteps(lang: PayLanguage, fichas: boolean): string {
+function howSteps(lang: PayLanguage, fichas: boolean, gift: boolean): string {
   const t = HOME_TOPUP_TEXT[lang];
   const h = escapeHtml;
-  const steps = [t.stepChoose, t.stepPay, fichas ? t.stepArrive : t.stepArriveNoFicha];
+  const steps = gift ? [t.gift.stepChoose, t.stepPay, t.gift.stepShare] : [t.stepChoose, t.stepPay, fichas ? t.stepArrive : t.stepArriveNoFicha];
   return `<ol class="tsteps" aria-label="${h(t.howTitle)}">${steps.map((s) => `<li>${h(s)}</li>`).join('')}</ol>
 `;
 }
@@ -159,16 +176,42 @@ function howSteps(lang: PayLanguage, fichas: boolean): string {
  * saldo no se devuelve (se queda para la próxima visita). Con o sin comisión,
  * lo mismo: nada se devuelve.
  */
-function termsCard(lang: PayLanguage): string {
+function termsCard(lang: PayLanguage, giftVenue: string | null = null): string {
   const t = HOME_TOPUP_TEXT[lang];
   const h = escapeHtml;
+  // Para regalar: solo en este local, y lo que dirá el abogado (GIFT_LEGAL_TEXT).
+  const gift = giftVenue === null ? '' : `${giftTerms(lang, giftVenue)}\n`;
   return `<section class="card" aria-labelledby="termsTitle">
 <h2 id="termsTitle">${h(t.conditionsTitle)}</h2>
 <ul class="terms">
-<li>${ICON.clock}<span><b>${h(t.keep)}</b> ${h(t.noExpiry)}</span></li>
+${gift}<li>${ICON.clock}<span><b>${h(t.keep)}</b> ${h(t.noExpiry)}</span></li>
 <li>${ICON.info}<span>${h(t.keepRule)}</span></li>
 </ul>
 </section>
+`;
+}
+
+/** Las condiciones del regalo (también en «Comparte tu regalo»): solo en este local, no se devuelve y caduca sin guardar. */
+export function giftTerms(lang: PayLanguage, venueName: string): string {
+  const t = HOME_TOPUP_TEXT[lang].gift;
+  const legal = GIFT_LEGAL_TEXT[lang];
+  const h = escapeHtml;
+  return [
+    fill(t.onlyHere, 'venue', venueName),
+    legal.notRefundable,
+    fill(legal.unclaimedExpiry, 'days', String(GIFT_UNCLAIMED_MAX_DAYS)),
+  ]
+    .map((line) => `<li>${ICON.info}<span>${h(line)}</span></li>`)
+    .join('\n');
+}
+
+/** «Para mí» / «Para regalar»: la misma página, con ?regalo=1 (solo con «Regalos» encendido). */
+function giftChoice(lang: PayLanguage, base: string, gift: boolean): string {
+  const t = HOME_TOPUP_TEXT[lang].gift;
+  const h = escapeHtml;
+  const link = (href: string, label: string, current: boolean) =>
+    `<a href="${h(href)}"${current ? ' aria-current="page"' : ''}>${h(label)}</a>`;
+  return `<nav class="gchoice" aria-label="${h(t.choiceLabel)}">${link(`${base}?lang=${lang}`, t.choiceMe, !gift)}${link(`${base}?lang=${lang}&regalo=1`, t.choiceGift, gift)}</nav>
 `;
 }
 
@@ -192,11 +235,11 @@ ${mine}
 }
 
 /** Textos que necesita el JS. */
-function jsText(lang: PayLanguage): Record<string, string> {
+function jsText(lang: PayLanguage, gift: boolean): Record<string, string> {
   const t = HOME_TOPUP_TEXT[lang];
   const w = WALLET_TEXT[lang];
   return {
-    go: t.go,
+    go: gift ? t.gift.go : t.go,
     goFee: t.goFee,
     goPlain: t.title,
     opening: t.opening,
@@ -226,28 +269,37 @@ $('f').addEventListener('submit',function(ev){ev.preventDefault();if(busy)return
  var c=cents(),b=$('go');
  if(!ok(c)){show('err',fill(fill(T.range,'min',eur(C.min)),'max',eur(C.max)));return;}
  busy=true;setGo(T.opening,true);
- pkPost(C.base+(C.queue?'/cola':'/topup'),C.queue?{amountCents:c,key:K,lang:C.lang,queue:C.queue}:{amountCents:c,key:K,lang:C.lang})
+ (C.gift?pkPost(C.base+'/regalo',{amountCents:c,key:K,lang:C.lang,name:$('gName').value,message:$('gMsg').value})
+  :pkPost(C.base+(C.queue?'/cola':'/topup'),C.queue?{amountCents:c,key:K,lang:C.lang,queue:C.queue}:{amountCents:c,key:K,lang:C.lang}))
   .then(function(r){var u=r&&r.payUrl;if(typeof u==='string'&&u.indexOf('/pay/')===0){location.href=u;return;}throw new Error(T.error);})
   .catch(function(e){newKey();busy=false;setGo(b.getAttribute('data-label'),false);show('err',npErr(e,C.errors));});});
 window.addEventListener('pageshow',function(e){if(e.persisted){busy=false;newKey();setGo($('go').getAttribute('data-label'),false);}});
 newKey();upd();`;
 
-export function renderHomeTopUpPage(code: string, lang: PayLanguage, view: HomeTopUpPageView): string {
+/**
+ * `mode` 'gift' («Para regalar», ?regalo=1): solo con «Regalos» encendido;
+ * apagado, la página de siempre sin la elección. Sin el cartel de la cola.
+ */
+export function renderHomeTopUpPage(code: string, lang: PayLanguage, view: HomeTopUpPageView, mode: 'load' | 'gift' = 'load'): string {
   const t = HOME_TOPUP_TEXT[lang];
   const w = WALLET_TEXT[lang];
   const h = escapeHtml;
   const base = `/r/${encodeURIComponent(code)}`;
   const canLoad = view.problem === null;
+  const gift = mode === 'gift' && view.gifts === true;
   // El QR del cartel de la cola (B16): el de esta noche carga por /cola; uno de otra noche, aviso y lo de siempre.
   const q = QUEUE_PAGE_TEXT[lang];
   // Sin cookie del móvil (muchos móviles nuevos desde esta IP esta noche): lo dice y carga como el enlace de siempre.
   const noDevice = view.queue !== undefined && 'token' in view.queue && view.queue.noDevice === true;
-  const queueToken = view.queue && 'token' in view.queue && !noDevice ? view.queue.token : null;
-  const queueNote = queueToken
-    ? `<p class="qnote" role="note">${h(q.note)}</p>`
-    : view.queue
-      ? `<p class="qnote" role="status">${h(noDevice ? q.noDevice : q.expired)}</p>`
-      : '';
+  const queueToken = view.queue && 'token' in view.queue && !noDevice && !gift ? view.queue.token : null;
+  // «Para regalar» no va por el cartel: sin su nota.
+  const queueNote = gift
+    ? ''
+    : queueToken
+      ? `<p class="qnote" role="note">${h(q.note)}</p>`
+      : view.queue
+        ? `<p class="qnote" role="status">${h(noDevice ? q.noDevice : q.expired)}</p>`
+        : '';
   const config = jsConfig({
     base,
     lang,
@@ -255,7 +307,7 @@ export function renderHomeTopUpPage(code: string, lang: PayLanguage, view: HomeT
     min: view.minCents,
     max: view.maxCents,
     fees: view.feesCents,
-    text: jsText(lang),
+    text: jsText(lang, gift),
     errors: {
       ...clientErrorConfig(lang),
       ...t.errors,
@@ -267,18 +319,23 @@ export function renderHomeTopUpPage(code: string, lang: PayLanguage, view: HomeT
       HOME_TOPUP_QUEUE_OPEN: q.open,
     },
     ...(queueToken ? { queue: queueToken } : {}),
+    ...(gift ? { gift: true } : {}),
   });
   const venue = h(view.venueName);
-  const heading = h(t.heading).split('{venue}').join(`<span>${venue}</span>`);
+  const heading = h(gift ? t.gift.heading : t.heading).split('{venue}').join(`<span>${venue}</span>`);
+  const choice = view.gifts === true && canLoad ? giftChoice(lang, base, gift) : '';
+  const loadParts = gift
+    ? `${choice}${howSteps(lang, false, true)}${termsCard(lang, view.venueName)}${amountCard(lang, view, true)}`
+    : `${choice}${howSteps(lang, view.fichas !== false, false)}${termsCard(lang)}${view.mine ? mineCard(lang, base, view.mine.codeHint) : ''}${amountCard(lang, view, false)}`;
   return `<!DOCTYPE html>
 <html lang="${PAY_TEXT[lang].htmlLang}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="robots" content="noindex"><meta name="referrer" content="no-referrer"><meta name="theme-color" content="#0b0d0e"><title>${h(`${t.title} · ${view.venueName}`)}</title>
 <style>${CLUB_BASE_CSS}${CHROME_CSS}${HOME_CSS}</style></head><body>
-${topBar(lang)}
+${topBar(lang, gift ? langHrefWith(base, { regalo: '1' }) : undefined)}
 <main class="h">
 <section class="hh" aria-labelledby="hTitle">
 <h1 id="hTitle">${heading}</h1>
-<p>${h(t.advantage)}</p>
+<p>${h(gift ? t.gift.advantage : t.advantage)}</p>
 ${queueNote}</section>
 ${
   /*
@@ -286,7 +343,7 @@ ${
    * del botón (C-3); «O carga un saldo nuevo:» queda pegado al importe. Si no
    * se puede cargar, primero lo dice y después las condiciones.
    */ ''
-}${canLoad ? `${howSteps(lang, view.fichas !== false)}${termsCard(lang)}${view.mine ? mineCard(lang, base, view.mine.codeHint) : ''}${amountCard(lang, view)}` : `${offCard(lang, base, Boolean(view.mine))}${termsCard(lang)}`}<p class="foot trust">${h(PAY_TEXT[lang].secure)}${CARD_MARKS}</p>
+}${canLoad ? loadParts : `${offCard(lang, base, Boolean(view.mine))}${termsCard(lang)}`}<p class="foot trust">${h(PAY_TEXT[lang].secure)}${CARD_MARKS}</p>
 </main>
 ${
   canLoad

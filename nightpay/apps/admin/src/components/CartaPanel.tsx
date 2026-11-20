@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState, type CSSProperties, type FormEvent } from 'react';
 import { Button, Card, Input, Select } from '@nightpay/ui';
 import { MAX_PACK_COMPONENTS, parseEuroCents, type SectionCode } from '@nightpay/contracts';
-import { createServiceItem, fetchCarta, updateServiceItem, type ServiceItem, type ServiceItemInput } from '@/lib/api';
+import { createServiceItem, fetchCarta, setServiceSoldOut, updateServiceItem, type ServiceItem, type ServiceItemInput } from '@/lib/api';
 import { groupBySection, packFromDraft, packRemainder, type PartDraft } from '@/lib/carta-form';
 import { CartaTemplate } from './CartaTemplate';
 import { CartaImageEditor, CartaThumb } from './CartaImageEditor';
@@ -45,6 +45,16 @@ export function CartaPanel() {
     setError(null);
     try {
       await updateServiceItem(item.id, { active: !item.active });
+      reload();
+    } catch (err) {
+      setError((err as Error).message);
+    }
+  }
+
+  async function toggleSoldOut(item: ServiceItem) {
+    setError(null);
+    try {
+      await setServiceSoldOut(item.id, item.soldOut !== true);
       reload();
     } catch (err) {
       setError((err as Error).message);
@@ -150,7 +160,11 @@ export function CartaPanel() {
                     <span className="np-num" style={priceStyle}>
                       {formatEur(item.priceCents)}
                     </span>
-                    <div style={{ display: 'flex', gap: '0.5rem' }}>
+                    <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                      <label style={{ display: 'flex', gap: '0.375rem', alignItems: 'center', fontSize: '0.875rem' }}>
+                        <input type="checkbox" role="switch" checked={item.soldOut === true} onChange={() => void toggleSoldOut(item)} />
+                        Agotado esta noche
+                      </label>
                       <Button variant="ghost" size="sm" onClick={() => setEditing(item.id)} {...(gi === 0 && ii === 0 ? { 'data-tour': 'carta-editar' } : {})}>
                         Editar
                       </Button>

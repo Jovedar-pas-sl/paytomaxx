@@ -29,6 +29,7 @@ describe('tablas con FORCE RLS', () => {
       'user_photos',
       'wallet_cash_topups',
       'wallet_consumptions',
+      'wallet_gifts',
       'wallet_push_subscriptions',
     ]);
     expect([...FORCED_RLS_MODELS].sort()).toEqual([
@@ -57,6 +58,7 @@ describe('tablas con FORCE RLS', () => {
       'UserPhoto',
       'WalletCashTopUp',
       'WalletConsumption',
+      'WalletGift',
       'WalletPushSubscription',
     ]);
   });
