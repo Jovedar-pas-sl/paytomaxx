@@ -53,7 +53,9 @@ describe('el móvil (cookie firmada)', () => {
     const value = newQueueDevice(SECRET);
     const id = queueDeviceId(SECRET, `otra=1; ${QUEUE_DEVICE_COOKIE}=${value}`);
     expect(id).toMatch(/^[A-Za-z0-9_-]{22}$/);
-    expect(queueDeviceId(SECRET, `${QUEUE_DEVICE_COOKIE}=${value.slice(0, -1)}A`)).toBeNull();
+    // Tocada de verdad: si la firma ya acababa en «A», cambiarla por «A» no la tocaba (fallaba 1 de cada 64 veces).
+    const touched = `${value.slice(0, -1)}${value.endsWith('A') ? 'B' : 'A'}`;
+    expect(queueDeviceId(SECRET, `${QUEUE_DEVICE_COOKIE}=${touched}`)).toBeNull();
     expect(queueDeviceId(SECRET, undefined)).toBeNull();
     expect(queueDeviceId(SECRET, `${QUEUE_DEVICE_COOKIE}=nada`)).toBeNull();
   });
