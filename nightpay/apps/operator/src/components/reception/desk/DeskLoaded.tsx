@@ -3,6 +3,7 @@
 import { useEffect, useId, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { cashHow, DoneMark, OutcomeHowCard, PrintButton, ScreenHelp, SectionChip, usePrintTicket, type Ticket } from '@nightpay/ui';
 import { playOutcomeSound } from '@/lib/alert-sound';
+import { isParty, pulseraText } from '@/lib/edition';
 import { formatEur } from '@/lib/money';
 import { TOURS } from '@/lib/tours';
 import { CounterAviso, FichaNumber, Icon } from './desk-parts';
@@ -114,7 +115,7 @@ export function DeskLoaded({
       {/* s.body: la pantalla del resultado con más cosas, más junta (loaded.module.css). */}
       <div className={`np-outcome-body ${s.body}`}>
         <div className="np-outcome-top">
-          <SectionChip section="VENUE_ENTRY">Recepción</SectionChip>
+          <SectionChip section="VENUE_ENTRY">{isParty() ? 'Taquilla' : 'Recepción'}</SectionChip>
           {reference ? <span className="np-outcome-ref">{reference}</span> : null}
           {/* CARGADO es un resultado: el tutorial no sale solo, solo con el «?». */}
           <ScreenHelp {...TOURS.recepcionCargado} ready={false} />
@@ -211,7 +212,7 @@ function LoadedIdsView({ ids }: { ids: LoadedIds }) {
         <div className={s.ids} data-tour="recep-ids">
           {ids.ficha ? (
             <div className={s.idCell}>
-              <span className={s.idKey}>Ficha</span>
+              <span className={s.idKey}>{pulseraText('Ficha')}</span>
               <FichaNumber printed={ids.ficha} className={s.idFicha} />
             </div>
           ) : null}

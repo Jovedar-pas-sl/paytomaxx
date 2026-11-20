@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { UuidSchema } from './common';
+import { EditionSchema } from './edition';
 
 export const RoleSchema = z.enum(['OWNER', 'MANAGER', 'WAITER', 'OPERATOR']);
 export type Role = z.infer<typeof RoleSchema>;
@@ -62,6 +63,8 @@ export const LoginResponseSchema = z.object({
     isSuperAdmin: z.boolean().optional(),
     /** Nombre visible de Personal; null si no tiene → la app pinta el puesto. */
     displayName: z.string().nullable(),
+    /** 'club' (OxioPay) o 'party' (OxioParty): la edición del API. Falta en los API de antes. */
+    edition: EditionSchema.optional(),
   }),
 });
 export type LoginResponse = z.infer<typeof LoginResponseSchema>;

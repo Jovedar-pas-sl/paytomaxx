@@ -19,6 +19,7 @@ import { setVenueFeedback } from './alert-sound';
 import { applySalaContrast } from './sala-contrast';
 import { fetchVenueFeed } from './api';
 import type { TabKey } from './roles';
+import { NO_IDENTITY, venueIdentityOf, type VenueIdentity } from './venue-identity';
 
 export type CobroMode = 'qr' | 'wallet' | 'pos';
 
@@ -105,6 +106,8 @@ export interface VenueFeed {
   rights: MyRights | null;
   /** El nombre del local (null: aún no llega). */
   venueName: string | null;
+  /** OxioParty: el local y la caseta de quien entra (la cabecera de la barra y la taquilla). */
+  identity: VenueIdentity;
 }
 
 /** El almacenamiento del navegador, o null si no se deja (navegación privada estricta). */
@@ -118,7 +121,13 @@ function localStorageOrNull(): Storage | null {
 
 /** Las formas de cobro, los ajustes de la noche y lo que puede quien entra, pedidos una vez al entrar (y si cambia el usuario). */
 export function useVenueMethodsFeed(userId: string): VenueFeed {
-  const [feed, setFeed] = useState<VenueFeed>({ methods: DEFAULT_PAYMENT_METHODS, night: DEFAULT_NIGHT_SETTINGS, rights: null, venueName: null });
+  const [feed, setFeed] = useState<VenueFeed>({
+    methods: DEFAULT_PAYMENT_METHODS,
+    night: DEFAULT_NIGHT_SETTINGS,
+    rights: null,
+    venueName: null,
+    identity: NO_IDENTITY,
+  });
   useEffect(() => {
     let cancelled = false;
     fetchVenueFeed()
@@ -128,7 +137,13 @@ export function useVenueMethodsFeed(userId: string): VenueFeed {
         setVenueFeedback({ sound: night.feedbackSound, vibration: night.feedbackVibration });
         // Modo «sala» (contraste alto) si el local lo tiene; si no responde, se queda como estaba.
         applySalaContrast(document.documentElement, localStorageOrNull(), night.highContrast);
-        setFeed({ methods: paymentMethodsOf(venue.paymentMethods), night, rights: myRightsOf(venue.myPost, venue.myRights), venueName: venue.name });
+        setFeed({
+          methods: paymentMethodsOf(venue.paymentMethods),
+          night,
+          rights: myRightsOf(venue.myPost, venue.myRights),
+          venueName: venue.name,
+          identity: venueIdentityOf({ name: venue.name, stall: venue.stall }),
+        });
       })
       .catch(() => {
         // Sin respuesta: lo de fábrica (sin datáfono); el API rechaza lo apagado.

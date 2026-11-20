@@ -12,6 +12,7 @@ import {
   type ReceptionOptions,
   type SectionCode,
   type StaffQrView,
+  type StallRef,
   type StockOutcome,
   type VenueSection,
 } from '@nightpay/contracts';
@@ -618,10 +619,25 @@ export async function fetchMySections(): Promise<MySections> {
  * Y el puesto de quien entra y lo que puede (cargar saldos, efectivo): la
  * recepción solo sale a quien la puede hacer.
  */
-export async function fetchVenueFeed(): Promise<{ name: string | null; paymentMethods: unknown; nightSettings: unknown; myPost: unknown; myRights: unknown }> {
+export async function fetchVenueFeed(): Promise<{
+  name: string | null;
+  paymentMethods: unknown;
+  nightSettings: unknown;
+  myPost: unknown;
+  myRights: unknown;
+  /** OxioParty: la caseta de quien entra (null: sin caseta). */
+  stall: StallRef | null;
+}> {
   const res = await authedFetch('/v1/venues/me');
   if (!res.ok) throw loadError(res, 'Error cargando el local');
-  const venue = (await res.json()) as { name?: unknown; paymentMethods?: unknown; nightSettings?: unknown; myPost?: unknown; myRights?: unknown };
+  const venue = (await res.json()) as {
+    name?: unknown;
+    paymentMethods?: unknown;
+    nightSettings?: unknown;
+    myPost?: unknown;
+    myRights?: unknown;
+    stall?: StallRef | null;
+  };
   return {
     // El nombre del local: arriba en el ticket impreso.
     name: typeof venue.name === 'string' && venue.name.trim() ? venue.name.trim() : null,
@@ -629,6 +645,7 @@ export async function fetchVenueFeed(): Promise<{ name: string | null; paymentMe
     nightSettings: venue.nightSettings ?? null,
     myPost: venue.myPost ?? null,
     myRights: venue.myRights ?? null,
+    stall: venue.stall ?? null,
   };
 }
 

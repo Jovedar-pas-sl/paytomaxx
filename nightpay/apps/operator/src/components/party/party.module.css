@@ -1,0 +1,867 @@
+/* OxioParty · la barra (Main.dc.html) y la taquilla (Taquilla.dc.html) con las
+   fichas de Grafito (--np-*): Manrope para las cifras, Instrument Sans para el
+   texto, botones de 56 px, radios de 10 y 14, y los márgenes seguros del móvil
+   con env(safe-area-inset-*). Los colores de día los pone party-day.css; aquí
+   solo lo que la maqueta cambia entre noche y día y no tiene ficha propia. */
+
+.screen {
+  /* Lo elegido en el filtro y en los importes: de noche, gris alto con texto
+     claro y filete lima; de día, tinta con texto blanco. */
+  --party-on-bg: var(--np-surface-3);
+  --party-on-ink: var(--np-text);
+  --party-on-edge: var(--np-accent);
+  /* El icono de cada loseta (maqueta): bebida en lima, comida en coral. */
+  --party-drink-chip: var(--np-lime-soft);
+  --party-drink-glyph: var(--np-lime);
+  --party-food-chip: rgb(255 122 89 / 0.16);
+  --party-food-glyph: #ff9a80;
+  --party-ticket-chip: color-mix(in srgb, var(--np-sec-entradas) 16%, transparent);
+  --party-ticket-glyph: var(--np-sec-entradas);
+  --party-shadow: rgb(0 0 0 / 0.5);
+
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  /* De borde a borde (fuera del padding de la página) y dentro de los márgenes seguros. */
+  margin: calc(-1 * var(--np-gap)) -1rem 0;
+  padding: 0 env(safe-area-inset-right, 0px) 0 env(safe-area-inset-left, 0px);
+  font-family: var(--np-font-sans);
+}
+
+:global(html[data-theme='day']) .screen,
+:global(html[data-theme='day']) .taquilla {
+  --party-on-bg: var(--np-chosen);
+  --party-on-ink: var(--np-on-chosen);
+  --party-drink-chip: #eef2c4;
+  --party-drink-glyph: #4f5600;
+  --party-food-chip: #ffe3da;
+  --party-food-glyph: #a8341a;
+  --party-ticket-chip: var(--np-card-bg);
+  --party-ticket-glyph: var(--np-card-line);
+  --party-shadow: rgb(0 0 0 / 0.06);
+}
+
+/* ─── Cabecera ─── */
+
+.head {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  min-height: calc(3.5rem + env(safe-area-inset-top, 0px));
+  padding: env(safe-area-inset-top, 0px) 1rem 0;
+}
+
+.place {
+  flex: none;
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: var(--np-r-sm);
+  background: var(--np-sec-comida);
+  color: var(--np-on-section);
+  display: grid;
+  place-items: center;
+  font: 700 var(--np-fs-14) / 1 var(--np-font-num);
+}
+
+.headText {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.headText b {
+  font: 600 var(--np-fs-16) / 1.2 var(--np-font-sans);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.headText span {
+  font-size: var(--np-fs-14);
+  line-height: 1.2;
+  color: var(--np-text-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pill {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  height: 1.75rem;
+  padding: 0 0.625rem;
+  border-radius: var(--np-r-pill);
+  background: var(--np-pill-success-bg);
+  color: var(--np-success);
+  font-size: var(--np-fs-14);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.pill[data-ok='false'] {
+  background: var(--np-pill-warning-bg);
+  color: var(--np-warning);
+}
+
+.pill i {
+  width: 6px;
+  height: 6px;
+  border-radius: var(--np-r-pill);
+  background: currentColor;
+}
+
+.menuBtn {
+  flex: none;
+  width: 2.75rem;
+  height: 2.75rem;
+  border-radius: var(--np-r-sm);
+  border: none;
+  background: transparent;
+  color: var(--np-text-mute);
+  display: grid;
+  place-items: center;
+  padding: 0;
+  cursor: pointer;
+}
+
+.menuBtn:focus-visible,
+.segBtn:focus-visible,
+.tile:focus-visible,
+.stepper button:focus-visible,
+.vaciar:focus-visible,
+.cobrar:focus-visible,
+.opt:focus-visible,
+.otra:focus-visible,
+.link:focus-visible {
+  outline: 2px solid var(--np-accent);
+  outline-offset: 2px;
+}
+
+/* ─── Filtro por sección (segmentos) ─── */
+
+.seg {
+  display: flex;
+  gap: 4px;
+  margin: 4px 1rem 0.75rem;
+  padding: 4px;
+  border-radius: var(--np-r-md);
+  background: var(--np-surface);
+  border: 1px solid var(--np-border);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.segBtn {
+  flex: 1 0 auto;
+  min-width: 4.5rem;
+  height: 2.5rem;
+  padding: 0 0.75rem;
+  border-radius: var(--np-r-sm);
+  border: none;
+  background: transparent;
+  color: var(--np-text-mute);
+  font: 600 var(--np-fs-14) / 1 var(--np-font-sans);
+  cursor: pointer;
+  transition: background-color var(--np-d-fast) var(--np-ease), color var(--np-d-fast) var(--np-ease);
+}
+
+.segBtn[aria-pressed='true'] {
+  background: var(--party-on-bg);
+  color: var(--party-on-ink);
+}
+
+.segBtn svg {
+  flex: none;
+}
+
+/* ─── Losetas ─── */
+
+.tiles {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.5rem;
+  padding: 0 1rem;
+}
+
+.tile {
+  position: relative;
+  min-height: 6.25rem;
+  border-radius: var(--np-r-md);
+  border: 1px solid var(--np-border);
+  background: var(--np-surface);
+  color: var(--np-text);
+  text-align: left;
+  padding: 10px 10px 11px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 0.5rem;
+  font-family: var(--np-font-sans);
+  cursor: pointer;
+  transition: transform var(--np-press-ms) var(--np-ease);
+}
+
+.tile:active {
+  transform: scale(var(--np-press-scale));
+}
+
+/* Con unidades en el ticket: el filete de lo elegido (lima de noche, tinta de día). */
+.tile[data-on='true'] {
+  border: 1.5px solid var(--party-on-edge);
+}
+
+.tileIcon {
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  display: grid;
+  place-items: center;
+  background: var(--np-surface-2);
+  color: var(--np-text-mute);
+}
+
+.tileIcon[data-icon='drink'] {
+  background: var(--party-drink-chip);
+  color: var(--party-drink-glyph);
+}
+
+.tileIcon[data-icon='food'] {
+  background: var(--party-food-chip);
+  color: var(--party-food-glyph);
+}
+
+.tileIcon[data-icon='ticket'] {
+  background: var(--party-ticket-chip);
+  color: var(--party-ticket-glyph);
+}
+
+.tileText {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.tileName {
+  font-size: var(--np-fs-14);
+  line-height: 1.2;
+  font-weight: 600;
+  text-wrap: balance;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.tilePrice {
+  font: 700 var(--np-fs-14) / 1.2 var(--np-font-num);
+  color: var(--np-text-mute);
+  font-variant-numeric: tabular-nums;
+}
+
+.bubble {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  min-width: 26px;
+  height: 26px;
+  padding: 0 7px;
+  border-radius: 13px;
+  background: var(--np-primary-bg);
+  color: var(--np-primary-ink);
+  font: 700 var(--np-fs-14) / 26px var(--np-font-num);
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.tileOther {
+  border: 1.5px dashed var(--np-border-hi);
+  background: transparent;
+  color: var(--np-text-mute);
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  text-align: center;
+  font-size: var(--np-fs-14);
+  font-weight: 600;
+}
+
+.note {
+  margin: 0.75rem 1rem 0;
+  font-size: var(--np-fs-14);
+  line-height: 1.45;
+  color: var(--np-text-mute);
+}
+
+.link {
+  border: none;
+  background: none;
+  padding: 0;
+  color: var(--np-text);
+  font: inherit;
+  font-weight: 600;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.grow {
+  flex: 1;
+  min-height: 0.75rem;
+}
+
+/* ─── Ticket (abajo, pegado encima de la barra de pestañas) ─── */
+
+.ticket {
+  position: sticky;
+  bottom: var(--np-foot-bottom, 0);
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 0.75rem;
+  padding: 14px 1rem 1rem;
+  background: var(--np-surface);
+  border-top: 1px solid var(--np-border);
+  border-radius: var(--np-r-lg) var(--np-r-lg) 0 0;
+  box-shadow: 0 -12px 32px var(--party-shadow);
+}
+
+.ticketHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.kicker {
+  margin: 0;
+  font-size: var(--np-fs-14);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--np-text-dim);
+}
+
+.vaciar {
+  min-height: 2.75rem;
+  margin: -0.5rem 0;
+  padding: 0 4px;
+  border: none;
+  background: transparent;
+  color: var(--np-text-mute);
+  font: 600 var(--np-fs-14) / 1 var(--np-font-sans);
+  cursor: pointer;
+}
+
+.vaciar:disabled {
+  color: var(--np-disabled-ink);
+  cursor: default;
+}
+
+.ticketEmpty {
+  margin: 0;
+  padding: 14px 0;
+  font-size: var(--np-fs-16);
+  color: var(--np-text-dim);
+  text-align: center;
+}
+
+/* Muchas líneas: el ticket se desplaza y las losetas siguen a la vista. */
+.lines {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  max-height: 32vh;
+  max-height: 32dvh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.line {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 2.75rem;
+}
+
+.lineName {
+  margin: 0;
+  flex: 1;
+  min-width: 0;
+  font-size: var(--np-fs-16);
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.stepper {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  border-radius: var(--np-r-sm);
+  background: var(--np-surface-2);
+  border: 1px solid var(--np-border);
+}
+
+.stepper button {
+  width: 2.75rem;
+  height: 2.75rem;
+  border: none;
+  background: transparent;
+  color: var(--np-text);
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border-radius: var(--np-r-sm);
+  cursor: pointer;
+}
+
+.stepper button:disabled {
+  color: var(--np-disabled-ink);
+  cursor: default;
+}
+
+.lineQty {
+  min-width: 18px;
+  text-align: center;
+  font: 700 var(--np-fs-16) / 1 var(--np-font-num);
+  font-variant-numeric: tabular-nums;
+}
+
+.lineAmount {
+  margin: 0;
+  width: 4.5rem;
+  text-align: right;
+  font: 700 var(--np-fs-16) / 1.2 var(--np-font-num);
+  font-variant-numeric: tabular-nums;
+}
+
+/* El botón principal (56 px): lima con tinta de noche; tinta con lima de día. */
+.cobrar {
+  margin-top: 4px;
+  min-height: 3.5rem;
+  border-radius: var(--np-r-md);
+  border: none;
+  background: var(--np-primary-bg);
+  color: var(--np-primary-ink);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 0 1rem;
+  font: 700 var(--np-fs-18) / 1.2 var(--np-font-num);
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  transition: transform var(--np-press-ms) var(--np-ease);
+}
+
+.cobrar:active:not(:disabled) {
+  transform: scale(var(--np-press-scale));
+}
+
+.cobrar:disabled:not([aria-busy='true']) {
+  background: var(--np-disabled-bg);
+  color: var(--np-disabled-ink);
+  cursor: not-allowed;
+}
+
+.cobrar[aria-busy='true'] {
+  cursor: progress;
+}
+
+.error {
+  margin: 0;
+  font-size: var(--np-fs-14);
+  line-height: 1.4;
+  color: var(--np-danger-text);
+}
+
+/* ─── PAGADO de la barra: el detalle y la vuelta sola a la carta ─── */
+
+.paidRows {
+  margin: 0;
+  align-self: stretch;
+  width: 100%;
+  border-radius: var(--np-r-md);
+  background: var(--np-outcome-how-bg);
+  border: 1px solid var(--np-outcome-how-line);
+  text-align: left;
+}
+
+.paidRow {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 13px 1rem;
+  font-size: var(--np-fs-16);
+}
+
+.paidRow + .paidRow {
+  border-top: 1px solid var(--np-outcome-how-line);
+}
+
+.paidRow dt {
+  color: var(--np-outcome-sub);
+}
+
+.paidRow dd {
+  margin: 0;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.back {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+  margin-top: 1rem;
+}
+
+.backBar {
+  height: 4px;
+  border-radius: 2px;
+  background: rgb(255 255 255 / 0.14);
+  overflow: hidden;
+}
+
+.backBar i {
+  display: block;
+  height: 4px;
+  background: var(--np-lime);
+  transform-origin: left center;
+  animation: party-back var(--back-ms, 3000ms) linear forwards;
+}
+
+.backText {
+  margin: 0;
+  font-size: var(--np-fs-14);
+  color: var(--np-outcome-sub);
+}
+
+@keyframes party-back {
+  from {
+    transform: scaleX(0);
+  }
+
+  to {
+    transform: scaleX(1);
+  }
+}
+
+/* ─── Taquilla ─── */
+
+.taquilla {
+  --party-on-bg: var(--np-surface-3);
+  --party-on-ink: var(--np-text);
+  --party-on-edge: var(--np-accent);
+  --party-drink-chip: var(--np-lime-soft);
+  --party-drink-glyph: var(--np-lime);
+
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  flex: 1;
+  font-family: var(--np-font-sans);
+}
+
+.card {
+  padding: 14px;
+  border-radius: var(--np-r-md);
+  background: var(--np-surface);
+  border: 1px solid var(--np-border);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.pulsera {
+  flex-direction: row;
+  align-items: center;
+  padding: 12px 12px 12px 14px;
+}
+
+.pulseraIcon {
+  flex: none;
+  width: 2.75rem;
+  height: 2.75rem;
+  border-radius: var(--np-r-sm);
+  background: var(--party-drink-chip);
+  color: var(--party-drink-glyph);
+  display: grid;
+  place-items: center;
+}
+
+.pulseraText {
+  flex: 1;
+  min-width: 0;
+}
+
+.pulseraText p {
+  margin: 0;
+}
+
+.pulseraNo {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  font: 700 var(--np-fs-18) / 1.2 var(--np-font-num);
+}
+
+.badge {
+  height: 22px;
+  padding: 0 8px;
+  border-radius: var(--np-r-xs);
+  background: var(--np-pill-warning-bg);
+  color: var(--np-warning);
+  font: 600 var(--np-fs-14) / 22px var(--np-font-sans);
+}
+
+.pulseraSub {
+  margin-top: 2px !important;
+  font-size: var(--np-fs-14);
+  color: var(--np-text-mute);
+}
+
+.otra {
+  flex: none;
+  min-height: 2.75rem;
+  padding: 0 12px;
+  border-radius: var(--np-r-sm);
+  border: 1px solid var(--np-border);
+  background: transparent;
+  color: var(--np-text);
+  font: 600 var(--np-fs-14) / 1 var(--np-font-sans);
+  cursor: pointer;
+}
+
+.amountHead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.bigAmount {
+  margin: 0;
+  font: 700 var(--np-fs-40) / 1 var(--np-font-num);
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
+
+.quick {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.opt {
+  min-height: 3rem;
+  border-radius: var(--np-r-sm);
+  border: 1px solid var(--np-border);
+  background: var(--np-surface-2);
+  color: var(--np-text);
+  font: 700 var(--np-fs-18) / 1 var(--np-font-num);
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+
+.opt[aria-pressed='true'] {
+  border: 1.5px solid var(--party-on-edge);
+  background: var(--party-on-bg);
+  color: var(--party-on-ink);
+}
+
+.opt:disabled {
+  color: var(--np-disabled-ink);
+  background: var(--np-disabled-bg);
+  border-color: var(--np-disabled-edge);
+  cursor: not-allowed;
+}
+
+.methods {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px;
+  padding: 4px;
+  border-radius: var(--np-r-md);
+  background: var(--np-surface);
+  border: 1px solid var(--np-border);
+}
+
+.methods .segBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 3rem;
+  font-size: var(--np-fs-16);
+}
+
+.methods .segBtn:disabled {
+  color: var(--np-disabled-ink);
+  cursor: not-allowed;
+}
+
+.givenRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.givenLabel {
+  font-size: var(--np-fs-14);
+  font-weight: 600;
+  color: var(--np-text-mute);
+}
+
+.bills {
+  display: flex;
+  gap: 6px;
+}
+
+.bills .opt {
+  min-height: 2.75rem;
+  min-width: 62px;
+  padding: 0 8px;
+  font-size: var(--np-fs-16);
+}
+
+.divider {
+  height: 1px;
+  background: var(--np-border);
+}
+
+.changeRow {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.change {
+  font: 700 var(--np-fs-28) / 1.1 var(--np-font-num);
+  color: var(--np-success);
+  font-variant-numeric: tabular-nums;
+}
+
+.change[data-none='true'] {
+  color: var(--np-text-dim);
+}
+
+.info {
+  flex-direction: row;
+  align-items: flex-start;
+  color: var(--np-text-mute);
+}
+
+.info svg {
+  flex: none;
+  margin-top: 1px;
+}
+
+.info p {
+  margin: 0;
+  font-size: var(--np-fs-14);
+  line-height: 1.45;
+}
+
+.fee {
+  margin: 0;
+  font-size: var(--np-fs-14);
+  color: var(--np-text-mute);
+}
+
+/* ─── «Efectivo en esta caja» (taquilla) ─── */
+
+.cashDesk {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 14px;
+  border-radius: var(--np-r-md);
+  background: var(--np-surface);
+  border: 1px solid var(--np-border);
+}
+
+.cashDesk[data-over='true'] {
+  background: var(--np-pill-warning-bg);
+  border-color: transparent;
+}
+
+.cashDeskRow {
+  margin: 0;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+  font-size: var(--np-fs-14);
+  color: var(--np-text-dim);
+}
+
+.cashDeskRow b {
+  font: 700 var(--np-fs-16) / 1.2 var(--np-font-num);
+  color: var(--np-text);
+  font-variant-numeric: tabular-nums;
+}
+
+.cashDeskNote {
+  margin: 0;
+  font-size: var(--np-fs-14);
+  font-weight: 600;
+  color: var(--np-warning);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tile,
+  .cobrar,
+  .segBtn {
+    transition: none;
+  }
+
+  .tile:active,
+  .cobrar:active:not(:disabled) {
+    transform: none;
+  }
+
+  /* Sin la barra que avanza: vuelve sola igual, a su tiempo. */
+  .backBar i {
+    animation: none;
+    transform: scaleX(1);
+    opacity: 0.5;
+  }
+}
+
+/* ─── Ajustes (OxioParty) ─── */
+
+/* Sin la cabecera del Dashboard: el margen seguro de arriba, aquí. */
+.settings {
+  padding-top: env(safe-area-inset-top, 0px);
+}
+
+.settingsTitle {
+  margin: 0;
+  font: 600 var(--np-fs-22) / 1.2 var(--np-font-sans);
+}
+
+.settingsLabel {
+  margin: 0 0 4px;
+  font: 600 var(--np-fs-16) / 1.2 var(--np-font-sans);
+}
+
+.settingsList {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
