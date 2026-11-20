@@ -1,5 +1,5 @@
 // Integración (Postgres real, FORCE RLS, rol sin superusuario): alta de la compañera con tres
-// caminos (migración 20261119500000, 19-nov-2026).
+// caminos (migración 20261120500000, 19-nov-2026).
 //  - Nombre legal (cifrado, pa1:…) y fecha de nacimiento: por el enlace de alta (solo si aún no
 //    estaban; lo guardado lo corrige el dueño) y por el panel; ni en la fila en claro (el nombre)
 //    ni en el registro (ninguno de los dos).
@@ -393,9 +393,9 @@ describe('OxioCard (OXIOCARD_ENABLED)', () => {
   });
 });
 
-describe('la migración 20261119500000_alta_tres_caminos', () => {
+describe('la migración 20261120500000_alta_tres_caminos', () => {
   const sql = readFileSync(
-    join(__dirname, '../../../../packages/db/prisma/migrations/20261119500000_alta_tres_caminos/migration.sql'),
+    join(__dirname, '../../../../packages/db/prisma/migrations/20261120500000_alta_tres_caminos/migration.sql'),
     'utf8',
   );
   /** Sentencias sin comentarios; los bloques DO $$ … $$ enteros. */

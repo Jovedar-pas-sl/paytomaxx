@@ -230,7 +230,7 @@ model User {
   payoutAccountChangedAt DateTime? @db.Timestamptz
   payoutHoldUntil        DateTime? @db.Timestamptz
   payoutNoticeSeenAt     DateTime? @db.Timestamptz
-  // Alta con tres caminos (20261119500000). Nombre legal cifrado como la
+  // Alta con tres caminos (20261120500000). Nombre legal cifrado como la
   // cuenta (pa1:..., ver apps/api/.../alta-identity.ts) y fecha de nacimiento
   // (con menos de 18 años no se activa la cuenta). El dueño confirma que la
   // cuenta es suya si el titular no coincide con el nombre legal (se borra al

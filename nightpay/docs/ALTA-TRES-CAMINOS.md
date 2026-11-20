@@ -21,7 +21,7 @@ en el panel (el encargado los ve, no los cambia).
 
 ## Publicar
 
-1. **`nightpay-api`**. Al arrancar aplica `20261119500000_alta_tres_caminos`
+1. **`nightpay-api`**. Al arrancar aplica `20261120500000_alta_tres_caminos`
    (5 columnas en `users`; la de la OxioCard con valor de fábrica, sin
    reescribir la tabla, y su CHECK). No hay relleno.
 2. **`nightpay-admin`** y **`nightpay-operator-2`**, seguidos.
