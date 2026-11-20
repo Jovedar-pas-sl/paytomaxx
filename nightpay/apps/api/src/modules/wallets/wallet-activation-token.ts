@@ -20,8 +20,11 @@ export const ACTIVATION_TOKEN_TTL_MS = ACTIVATION_TOKEN_MINUTES * 60_000;
 const TOKEN_BYTES = 24;
 const TOKEN_RE = /^[A-Za-z0-9_-]{32}$/;
 
-/** Quién lo emite: el QR de «Cargado» de recepción o un enlace nuevo del dueño / super-admin. */
-export type ActivationVia = 'reception' | 'relink';
+/**
+ * Quién lo emite: el QR de «Cargado» de recepción, un enlace nuevo del dueño /
+ * super-admin o «Guardar en mi móvil» del enlace de un regalo (home-topup).
+ */
+export type ActivationVia = 'reception' | 'relink' | 'gift';
 /** Para qué se gastó: el primer Face ID (passkey) o el primer PIN. */
 export type ActivationUse = 'passkey' | 'pin';
 export type ActivationState = 'ok' | 'used' | 'expired';

@@ -7,6 +7,7 @@ import { PrismaService } from '../../common/prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { SELF_TOPUP_MAX_CENTS, SELF_TOPUP_MIN_CENTS } from '../wallets/wallet-topup-rules';
 import { homeTopUpProblem, newHomeTopUpCode } from './home-topup-rules';
+import { giftRowsForPanel } from './home-topup-gift';
 import { queueToken, queueUrl, queueValidUntil } from './home-topup-queue';
 
 /** El cartel de la cola de esta noche (B16): su enlace, su QR y hasta cuándo vale. */
@@ -19,7 +20,7 @@ export interface HomeTopUpQueuePoster {
 import { HomeTopUpService } from './home-topup.service';
 
 /** Sin NEXT_PUBLIC_API_URL (solo en local): el API en su puerto. */
-const LOCAL_API_ORIGIN = 'http://localhost:4100';
+export const LOCAL_API_ORIGIN = 'http://localhost:4100';
 /** Códigos nuevos que se prueban si uno ya lo tiene otro local (96 bits: no pasa). */
 const MAX_CODE_ATTEMPTS = 5;
 
@@ -74,9 +75,13 @@ export class HomeTopUpSettingsService {
   }
 
   async view(venueId: string): Promise<HomeTopUpSettings> {
-    const venue = await this.prisma.asSystem((tx) =>
-      tx.venue.findUniqueOrThrow({ where: { id: venueId }, select: { homeTopUpEnabled: true, homeTopUpCode: true } }),
-    );
+    const { venue, gifts } = await this.prisma.asSystem(async (tx) => ({
+      venue: await tx.venue.findUniqueOrThrow({
+        where: { id: venueId },
+        select: { homeTopUpEnabled: true, homeTopUpCode: true, homeTopUpGiftsEnabled: true },
+      }),
+      gifts: await giftRowsForPanel(tx, venueId),
+    }));
     const state = await this.homeTopUps.venueState(venueId);
     const url = venue.homeTopUpEnabled && venue.homeTopUpCode ? `${this.origin}${HOME_TOPUP_PATH_PREFIX}${venue.homeTopUpCode}` : null;
     return {
@@ -87,7 +92,23 @@ export class HomeTopUpSettingsService {
       minCents: SELF_TOPUP_MIN_CENTS,
       maxCents: SELF_TOPUP_MAX_CENTS,
       serviceFeeBps: state ? serviceFeeBpsFor(state.serviceFee, 'topUp') : null,
+      giftsEnabled: venue.homeTopUpGiftsEnabled,
+      gifts,
     };
+  }
+
+  /** «Regalos»: «Para regalar» en el enlace (apagado de serie). Los regalos ya pagados se siguen guardando igual. */
+  async setGifts(actor: HomeTopUpActor, enabled: boolean): Promise<HomeTopUpSettings> {
+    const before = await this.prisma.asSystem((tx) =>
+      tx.venue.findUniqueOrThrow({ where: { id: actor.tenantId }, select: { homeTopUpGiftsEnabled: true } }),
+    );
+    if (before.homeTopUpGiftsEnabled !== enabled) {
+      await this.prisma.asSystem((tx) =>
+        tx.venue.update({ where: { id: actor.tenantId }, data: { homeTopUpGiftsEnabled: enabled }, select: { id: true } }),
+      );
+      await this.log(actor, 'venue.home_topup.gifts_updated', { before: { enabled: before.homeTopUpGiftsEnabled }, after: { enabled } });
+    }
+    return this.view(actor.tenantId);
   }
 
   /** Encender (con su código; el primero se crea ahora) o apagar. */
@@ -144,7 +165,7 @@ export class HomeTopUpSettingsService {
   }
 }
 
-function originOf(url: string | undefined): string | null {
+export function originOf(url: string | undefined): string | null {
   if (!url?.trim()) return null;
   try {
     return new URL(url.trim()).origin;

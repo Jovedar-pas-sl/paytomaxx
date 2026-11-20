@@ -4,6 +4,8 @@ import type { PaymentStatus } from '@nightpay/contracts';
 import { fetchPaymentStatus, freshAccessToken, ServerUnavailableError, wsBase } from '@/lib/api';
 import { isFinalStatus, pollUpdate, type BitcoinLive, type PaidQrMethod } from '@/lib/payment-status';
 import { createPaymentLive, type PaymentSocket } from '@nightpay/ui';
+import { isPractice } from '@/lib/practice';
+import { practiceSocket } from '@/lib/practice-sim';
 
 export interface PaymentUpdate {
   status: PaymentStatus;
@@ -92,7 +94,8 @@ export function usePaymentLive(
         return final ? 'stop' : undefined;
       },
       socket: () => {
-        const socket = io(`${wsBase}/rt`, {
+        // En práctica, un socket de mentira: un cobro real no puede salir ni marcarse aquí.
+        const socket = isPractice() ? (practiceSocket() as unknown as ReturnType<typeof io>) : io(`${wsBase}/rt`, {
           // Si el WebSocket no conecta (proxy, wifi del local), cae a polling HTTP.
           transports: ['websocket', 'polling'],
           tryAllTransports: true,

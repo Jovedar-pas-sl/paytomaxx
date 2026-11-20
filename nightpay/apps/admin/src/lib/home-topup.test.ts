@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { homeTopUpPrintHtml, homeTopUpSummary, queuePosterHtml } from './home-topup';
+import { giftRowText, homeTopUpPrintHtml, homeTopUpSummary, queuePosterHtml } from './home-topup';
 
 const NBSP = String.fromCharCode(0xa0);
 
@@ -37,5 +37,23 @@ describe('el cartel de la cola (B16)', () => {
     expect(html).not.toContain('NFC');
     expect(html).not.toContain('<script');
     expect(html).not.toContain('/r/');
+  });
+});
+
+describe('«Regalos» en Ajustes', () => {
+  const base = { id: 'g1', amountCents: 5000, createdAt: '2026-11-19T21:00:00.000Z', expiresAt: '2027-02-17T21:00:00.000Z', claimedAt: null };
+  const plain = (s: string) => s.split(String.fromCharCode(0xa0)).join(' ');
+
+  it('sin guardar: cuánto, cuándo se compró y hasta cuándo vale su enlace', () => {
+    const out = giftRowText({ ...base, state: 'open' }, 'Europe/Madrid');
+    expect(plain(out.amount)).toBe('50,00 € · comprado el 19/11/2026');
+    expect(out.state).toBe('Sin guardar: su enlace vale hasta el 17/02/2027');
+  });
+
+  it('guardado, con el día; caducado sin guardar, que el saldo sigue en el local', () => {
+    expect(giftRowText({ ...base, state: 'claimed', claimedAt: '2026-11-20T10:00:00.000Z' }, 'Europe/Madrid').state).toBe('Guardado el 20/11/2026');
+    expect(giftRowText({ ...base, state: 'expired' }, 'Europe/Madrid').state).toBe(
+      'Caducado sin guardar (el 17/02/2027): el saldo sigue en el local',
+    );
   });
 });

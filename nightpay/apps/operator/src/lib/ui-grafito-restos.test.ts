@@ -102,7 +102,7 @@ describe('CARGADO (recepción)', () => {
 
   it('más junta que los otros resultados: huecos de 8 y la marca de 56 y el importe de la escala (40)', () => {
     expect(block('.body')).toContain('gap: 0.5rem');
-    expect(loaded).toMatch(/\.body :global\(\.np-outcome-ring\) \{\s*width: 3\.5rem;\s*height: 3\.5rem;/);
+    expect(loaded).toMatch(/\.body \{\s*--np-done-size: 3\.5rem;/);
     expect(loaded).toMatch(/\.body :global\(\.np-outcome-amount\) \{\s*font-size: min\(var\(--np-fs-40\),/);
   });
 
@@ -145,9 +145,9 @@ describe('CARGADO en un móvil bajo: el QR de Face ID y su línea, sin bajar (PS
     expect(block('@media (max-height: 780px)')).toMatch(/\.resFoot :global\(\.np-outcome-actions\) \{\s*padding: 0\.375rem 0 0\.5rem;/);
     const low = block('@media (max-height: 700px)');
     expect(low).toMatch(/\.headline \{\s*display: flex;/);
-    expect(low).toMatch(/width: 2\.5rem;\s*height: 2\.5rem;/);
+    expect(low).toMatch(/--np-done-size: 2.5rem;/);
     expect(css).toMatch(/\.headline \{\s*display: contents;/);
-    expect(read('../components/reception/desk/DeskLoaded.tsx')).toMatch(/<div className=\{s\.headline\}>\s*<span className="np-outcome-ring"/);
+    expect(read('../components/reception/desk/DeskLoaded.tsx')).toMatch(/<div className=\{s\.headline\}>\s*<DoneMark \/>/);
   });
 
   it('los toques no bajan: ni el CSS de CARGADO toca la altura de los botones (56 y 48 px)', () => {

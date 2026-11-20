@@ -1,6 +1,7 @@
 import { BadRequestException, ConflictException, Inject, Injectable } from '@nestjs/common';
 import type { PublicKeyCredentialCreationOptionsJSON } from '@simplewebauthn/server';
-import { PrismaService } from '../../common/prisma/prisma.service';
+import { PrismaService, type TransactionalClient } from '../../common/prisma/prisma.service';
+import { isGiftPaymentKey } from '../home-topup/home-topup-rules';
 import { AuditService } from '../audit/audit.service';
 import { WALLET_CLAIM_MAX_AGE_S } from '../payments/wallet-claim';
 import { codeHintOf, WalletChargesService } from './wallet-charges.service';
@@ -164,9 +165,11 @@ export class WalletActivationUseService {
     const payment = await this.prisma.acrossVenues((tx) =>
       tx.payment.findFirst({
         where: { id: paymentId, walletId, status: { in: [...PAID_STATUSES] }, authorizedAt: { gte: since } },
-        select: { qrToken: true },
+        select: { qrToken: true, idempotencyKey: true },
       }),
     );
+    // Un regalo: quien lo pagó no tiene esa vía (el saldo es de quien lo guardó).
+    if (isGiftPaymentKey(payment?.idempotencyKey)) return null;
     return payment?.qrToken ? `/pay/${encodeURIComponent(payment.qrToken)}` : null;
   }
 
@@ -197,6 +200,7 @@ export class WalletActivationUseService {
               mergedIntoId: true,
               pinHash: true,
               _count: { select: { passkeys: true } },
+              gift: { select: { claimedAt: true } },
             },
           },
         },
@@ -208,6 +212,8 @@ export class WalletActivationUseService {
     const w = row.wallet;
     // Ya con Face ID (por otra vía): el QR no tiene nada que activar.
     if (w._count.passkeys > 0) return { state: 'used' };
+    // Un regalo ya guardado (con otro QR del mismo enlace): este ya no activa nada.
+    if (row.via === 'gift' && (w.gift?.claimedAt || w.pinHash !== null)) return { state: 'used' };
     if (!ACTIVE_STATUSES.has(w.status) || w.blockedAt || w.mergedIntoId) return { state: 'expired' };
     return {
       state: 'ok',
@@ -217,7 +223,7 @@ export class WalletActivationUseService {
         tenantId: w.tenantId,
         qrToken: w.qrToken,
         hasPin: w.pinHash !== null,
-        via: row.via === 'relink' ? 'relink' : 'reception',
+        via: row.via === 'relink' || row.via === 'gift' ? row.via : 'reception',
         balanceCents: w.balanceCents,
         issuedAt: row.createdAt,
       },
@@ -231,9 +237,11 @@ export class WalletActivationUseService {
     return found.wallet;
   }
 
-  private async spend(tx: Parameters<typeof spendActivationToken>[0], token: string, walletId: string, use: ActivationUse): Promise<void> {
+  private async spend(tx: TransactionalClient, token: string, walletId: string, use: ActivationUse): Promise<void> {
     const spent = await spendActivationToken(tx, token, use);
     if (spent.walletId !== walletId) throw activationError('expired');
+    // Un regalo («Regala una noche») queda guardado en la misma transacción: su enlace ya no da nada.
+    await tx.walletGift.updateMany({ where: { walletId, claimedAt: null }, data: { claimedAt: new Date() } });
   }
 
   private async logUse(wallet: UsableWallet, usedFor: ActivationUse): Promise<void> {
