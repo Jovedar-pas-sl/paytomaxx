@@ -55,7 +55,8 @@ export type Step =
   | { kind: 'tap' }
   | { kind: 'code' }
   | { kind: 'number' }
-  | { kind: 'amount'; read: Read }
+  /** `amountCents`: OxioParty, el importe tecleado en «Otro» (la taquilla lo marca). */
+  | { kind: 'amount'; read: Read; amountCents?: number }
   | { kind: 'keypad'; read: Read }
   | { kind: 'method'; read: Read; amountCents: number }
   /** B2: el efectivo, a la espera de que se acerque otra vez la misma ficha (o «Cargar sin leerla»). */

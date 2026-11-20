@@ -1,9 +1,10 @@
-import { Inject, Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as QRCode from 'qrcode';
 import { Prisma } from '@nightpay/db';
 import { HOME_TOPUP_PATH_PREFIX, serviceFeeBpsFor, type HomeTopUpSettings } from '@nightpay/contracts';
 import { PrismaService } from '../../common/prisma/prisma.service';
+import { isPartyEdition } from '../../config/edition';
 import { AuditService } from '../audit/audit.service';
 import { SELF_TOPUP_MAX_CENTS, SELF_TOPUP_MIN_CENTS } from '../wallets/wallet-topup-rules';
 import { homeTopUpProblem, newHomeTopUpCode } from './home-topup-rules';
@@ -92,13 +93,15 @@ export class HomeTopUpSettingsService {
       minCents: SELF_TOPUP_MIN_CENTS,
       maxCents: SELF_TOPUP_MAX_CENTS,
       serviceFeeBps: state ? serviceFeeBpsFor(state.serviceFee, 'topUp') : null,
-      giftsEnabled: venue.homeTopUpGiftsEnabled,
+      giftsEnabled: venue.homeTopUpGiftsEnabled && !isPartyEdition(),
       gifts,
     };
   }
 
   /** «Regalos»: «Para regalar» en el enlace (apagado de serie). Los regalos ya pagados se siguen guardando igual. */
   async setGifts(actor: HomeTopUpActor, enabled: boolean): Promise<HomeTopUpSettings> {
+    // En OxioParty no hay regalos (HomeTopUpService.withState): el interruptor no existe.
+    if (isPartyEdition()) throw new NotFoundException();
     const before = await this.prisma.asSystem((tx) =>
       tx.venue.findUniqueOrThrow({ where: { id: actor.tenantId }, select: { homeTopUpGiftsEnabled: true } }),
     );

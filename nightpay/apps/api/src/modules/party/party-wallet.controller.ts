@@ -1,0 +1,140 @@
+import {
+  BadRequestException,
+  Body,
+  ConflictException,
+  Controller,
+  ForbiddenException,
+  Get,
+  Header,
+  Headers,
+  HttpCode,
+  Inject,
+  Param,
+  Post,
+  Res,
+  UnauthorizedException,
+  UseGuards,
+} from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import type { FastifyReply } from 'fastify';
+import {
+  PARTY_REFUND_ERRORS,
+  PartyRefundAskSchema,
+  REFUND_NEEDS_FACE_ID_MESSAGE,
+  refundNeedsFaceId,
+  type PartyRefundView,
+} from '@nightpay/contracts';
+import { Public } from '../../common/decorators/public.decorator';
+import { IpRateLimit } from '../../common/guards/ip-rate-limit.guard';
+import { WalletChargesService } from '../wallets/wallet-charges.service';
+import { WalletPasskeysService } from '../wallets/wallet-passkeys.service';
+import { walletViewAccess } from '../wallets/wallet-view-access';
+import { PartyEditionGuard } from './party-edition.guard';
+import { PartyRefundsService } from './party-refunds.service';
+
+/**
+ * «Lo que sobra» desde la página de la pulsera (/w/:token, OxioParty; con
+ * EDITION=club, 404). La credencial es la de la página: el enlace y, si el
+ * saldo tiene Face ID, su sesión de consulta (como /state) y además su llave
+ * al pedirlo (como «Me voy»). Quien solo tenga una foto del QR tiene el
+ * enlace: con él, a la tarjeta sí (vuelve a la tarjeta que pagó); la
+ * transferencia y donar, solo con Face ID verificado en la misma petición
+ * (sin Face ID, 409 REFUND_NEEDS_FACE_ID: que lo active o vaya a la taquilla,
+ * que devuelve el efectivo). Topes por IP y por pulsera.
+ *  - GET  /w/:token/sobra             lo que puede pedir y sus peticiones
+ *  - POST /w/:token/sobra/challenge   reto para su llave (409 FACE_ID_NOT_SET sin Face ID)
+ *  - POST /w/:token/sobra             pedirlo { method, iban?, email?, expectedAmountCents?, response? }
+ */
+@Controller('w')
+@UseGuards(PartyEditionGuard)
+export class PartyWalletController {
+  constructor(
+    @Inject(WalletChargesService) private readonly charges: WalletChargesService,
+    @Inject(WalletPasskeysService) private readonly passkeys: WalletPasskeysService,
+    @Inject(PartyRefundsService) private readonly refunds: PartyRefundsService,
+    @Inject(ConfigService) private readonly config: ConfigService,
+  ) {}
+
+  @Public()
+  @Get(':token/sobra')
+  @Header('Cache-Control', 'no-store')
+  @IpRateLimit({ max: 120, windowSec: 60, scope: 'party-sobra', failOpen: true })
+  async view(
+    @Param('token') token: string,
+    @Res({ passthrough: true }) res: FastifyReply,
+    @Headers('cookie') cookies?: string,
+  ): Promise<PartyRefundView> {
+    const walletId = await this.unlocked(token, cookies, res);
+    return this.refunds.view(walletId);
+  }
+
+  @Public()
+  @Post(':token/sobra/challenge')
+  @HttpCode(200)
+  @Header('Cache-Control', 'no-store')
+  @IpRateLimit({ max: 20, windowSec: 60, scope: 'party-sobra-key', perKey: { param: 'token', max: 10 } })
+  async challenge(@Param('token') token: string, @Headers('host') host: string | undefined): Promise<unknown> {
+    const wallet = await this.charges.walletRefByToken(token);
+    if (!(await this.passkeys.hasPasskey(wallet.id))) {
+      throw new ConflictException({ message: 'Este saldo no tiene Face ID', code: 'FACE_ID_NOT_SET' });
+    }
+    return this.passkeys.challenge(`sobra:${wallet.id}`, host);
+  }
+
+  @Public()
+  @Post(':token/sobra')
+  @HttpCode(200)
+  @Header('Cache-Control', 'no-store')
+  @IpRateLimit({ max: 10, windowSec: 60, scope: 'party-sobra-ask', perKey: { param: 'token', max: 5 } })
+  async ask(
+    @Param('token') token: string,
+    @Body() body: Record<string, unknown> | undefined,
+    @Headers('host') host: string | undefined,
+    @Res({ passthrough: true }) res: FastifyReply,
+    @Headers('cookie') cookies?: string,
+  ): Promise<PartyRefundView> {
+    const walletId = await this.unlocked(token, cookies, res);
+    const parsed = PartyRefundAskSchema.safeParse(body ?? {});
+    if (!parsed.success) {
+      const issue = parsed.error.issues[0];
+      const field = issue?.path.join('.') || null;
+      // `reason`: el campo, para que la página diga cuál (IBAN, titular o correo) en su idioma.
+      throw new BadRequestException({ message: issue?.message ?? 'Revisa los datos', code: 'REFUND_INVALID', field, reason: field });
+    }
+    const scope = `sobra:${walletId}`;
+    if (refundNeedsFaceId(parsed.data.method)) {
+      // Transferencia o donar: el dinero no vuelve a la tarjeta que pagó.
+      // Con solo el enlace (una foto del QR) no: Face ID y su llave ahora.
+      await this.assertFaceIdNow(walletId, scope, host, body?.response);
+    } else {
+      // A la tarjeta: con Face ID, su llave (como siempre); sin él, el enlace.
+      await this.passkeys.assertOwner(walletId, scope, host, body?.response);
+    }
+    return this.refunds.ask(walletId, parsed.data);
+  }
+
+  /** El saldo tiene Face ID y su llave se acaba de verificar para esta acción (si no, 409 o 403). */
+  private async assertFaceIdNow(walletId: string, scope: string, host: string | undefined, response: unknown): Promise<void> {
+    if (!(await this.passkeys.hasPasskey(walletId))) {
+      throw new ConflictException({ message: REFUND_NEEDS_FACE_ID_MESSAGE, code: PARTY_REFUND_ERRORS.faceId });
+    }
+    const owner = await this.passkeys.verify(scope, host, response);
+    if (owner !== walletId) throw new ForbiddenException({ message: 'Confirma con el Face ID de este saldo.', code: 'FACE_ID_WRONG' });
+  }
+
+  /** El saldo, si se puede leer (sin Face ID, con el enlace; con él, con su sesión). */
+  private async unlocked(token: string, cookies: string | undefined, res: FastifyReply): Promise<string> {
+    const access = await walletViewAccess(
+      {
+        walletRefByToken: (value) => this.charges.walletRefByToken(value),
+        hasPasskey: (id) => this.passkeys.hasPasskey(id),
+        secret: this.config.get<string>('COOKIE_SECRET') ?? '',
+      },
+      token,
+      cookies,
+    );
+    if (!access.allowed) throw new UnauthorizedException({ message: 'Desbloquea tu saldo con tu teléfono.', code: 'WALLET_VIEW_REQUIRED' });
+    if (access.renew) res.header('Set-Cookie', access.renew);
+    return (await this.charges.walletRefByToken(token)).id;
+  }
+}

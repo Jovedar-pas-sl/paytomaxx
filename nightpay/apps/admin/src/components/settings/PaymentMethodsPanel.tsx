@@ -5,6 +5,7 @@ import { Button, Input } from '@nightpay/ui';
 import type { UpdatePaymentMethodsDto, VenuePaymentMethods } from '@nightpay/contracts';
 import { fetchPaymentMethods, updatePaymentMethods } from '@/lib/api';
 import { parseTipEuros, parseTipPercents, tipEurosText, tipPercentsText } from '@/lib/settings-forms';
+import { isPartyEdition } from '@/lib/edition';
 import { BtcpayPanel } from './BtcpayPanel';
 import { LoadState, SaveRow, SettingsCard, StatusLine, Switch, useSavedFlash, useSettingsLoad } from './SettingsBits';
 
@@ -91,8 +92,8 @@ export function PaymentMethodsPanel({ onSaved }: { onSaved?: (methods: VenuePaym
         ))}
       </SettingsCard>
 
-      {/* Bitcoin (BTCPay): solo sale si el servidor lo tiene encendido (BTCPAY_ENABLED). */}
-      <BtcpayPanel />
+      {/* Bitcoin (BTCPay): solo sale si el servidor lo tiene encendido (BTCPAY_ENABLED). En OxioParty, nunca. */}
+      {isPartyEdition() ? null : <BtcpayPanel />}
 
       <SettingsCard title="Propinas" tour="formas-propinas" hint="La propina la elige el cliente al pagar (con tarjeta, con su saldo o con su PIN), sin nada marcado: estas son las que se le sugieren. El personal ya no la añade al cobrar.">
         <Switch

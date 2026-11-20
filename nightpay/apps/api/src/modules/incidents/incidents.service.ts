@@ -8,6 +8,7 @@ import {
   alertSettingsOf,
 } from '@nightpay/contracts';
 import { PrismaService } from '../../common/prisma/prisma.service';
+import { isPartyEdition } from '../../config/edition';
 import { AuditService } from '../audit/audit.service';
 import { BackupMonitorService } from '../db-backups/backup-monitor.service';
 import { paymentBankHeldSql } from '../operators/bank-hold-sql';
@@ -536,9 +537,12 @@ export class IncidentsService {
    * pasó un umbral del local (Ajustes → Telegram; 0 = no se mira) en una noche
    * de 08:00 a 08:00 de Madrid, en los últimos STAFF_WATCH_DAYS días. El dueño
    * no cuenta. Las líneas, los consumos y los saldos tienen FORCE RLS: con
-   * bypass y el local en cada consulta.
+   * bypass y el local en cada consulta. OxioParty: no (en una fiesta, varios
+   * cobros seguidos al mismo saldo son lo normal y su panel no tiene dónde
+   * cambiar los umbrales).
    */
   private async staffPatterns(tenantId: string, now: Date): Promise<StaffPatternRow[]> {
+    if (isPartyEdition()) return [];
     const venue = await this.prisma.venue.findUnique({ where: { id: tenantId }, select: { alertSettings: true } });
     const watch = alertSettingsOf(venue?.alertSettings).staffWatch;
     const since = new Date(now.getTime() - STAFF_WATCH_DAYS * 24 * 60 * 60 * 1000);

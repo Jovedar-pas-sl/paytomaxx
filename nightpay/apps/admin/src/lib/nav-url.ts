@@ -4,6 +4,8 @@
 // no lleva nada: la URL limpia de siempre. Solo nombres de sección y pestaña,
 // nunca ids de cobros ni nada secreto; los otros parámetros no se tocan.
 
+import type { Edition } from '@nightpay/contracts';
+import { PANEL_EDITION } from './edition';
 import { sectionOf, SECTION_LABELS, type PanelSection, type SectionKey, type TabKey } from './roles';
 
 export const SECTION_PARAM = 's';
@@ -11,6 +13,13 @@ export const TAB_PARAM = 't';
 
 /** Donde se empieza: Hoy · Cobros. */
 export const DEFAULT_TAB: TabKey = 'payments';
+/** OxioParty empieza en «En directo». */
+export const PARTY_DEFAULT_TAB: TabKey = 'live';
+
+/** La pestaña de inicio de cada edición (la de la URL limpia). */
+export function defaultTabOf(edition: Edition = PANEL_EDITION): TabKey {
+  return edition === 'party' ? PARTY_DEFAULT_TAB : DEFAULT_TAB;
+}
 
 /** Cómo se escribe cada pestaña en la URL (en castellano, como se ve). */
 const TAB_SLUG: Readonly<Record<TabKey, string>> = {
@@ -36,6 +45,12 @@ const TAB_SLUG: Readonly<Record<TabKey, string>> = {
   alerts: 'telegram',
   security: 'seguridad',
   superadmin: 'superadmin',
+  live: 'directo',
+  stalls: 'casetas',
+  wristbands: 'pulseras',
+  partyRefunds: 'devoluciones',
+  settlement: 'cierre',
+  party: 'fiesta',
 };
 
 const SECTION_KEYS = Object.keys(SECTION_LABELS) as SectionKey[];
@@ -66,37 +81,39 @@ export function parseNav(search: string): NavRequest {
 }
 
 /** Lo que pide quien navega a una pestaña. */
-export function navRequestFor(tab: TabKey): NavRequest {
-  return { section: sectionOf(tab), tab, hasTab: true };
+export function navRequestFor(tab: TabKey, edition: Edition = PANEL_EDITION): NavRequest {
+  return { section: sectionOf(tab, edition), tab, hasTab: true };
 }
 
 /**
  * La pestaña que se enseña con lo que ve este rol:
  *  - la pedida, si la ve (la sección sale de ella);
  *  - solo la sección (?s=ajustes): su primera pestaña;
- *  - otra cosa (no existe, o este rol o este local no la tienen): Hoy · Cobros.
+ *  - otra cosa (no existe, o este rol o este local no la tienen): Hoy · Cobros
+ *    (en OxioParty, En directo).
  */
-export function resolveNav(req: NavRequest, sections: readonly PanelSection[]): TabKey {
+export function resolveNav(req: NavRequest, sections: readonly PanelSection[], edition: Edition = PANEL_EDITION): TabKey {
   const visible = sections.flatMap((s) => s.tabs.map((t) => t.key));
   if (req.tab !== null && visible.includes(req.tab)) return req.tab;
   if (!req.hasTab && req.section !== null) {
     const first = sections.find((s) => s.key === req.section)?.tabs[0];
     if (first) return first.key;
   }
-  return visible.includes(DEFAULT_TAB) ? DEFAULT_TAB : (visible[0] ?? DEFAULT_TAB);
+  const home = defaultTabOf(edition);
+  return visible.includes(home) ? home : (visible[0] ?? home);
 }
 
 /**
  * La query con esa pestaña (?s=ajustes&t=formas), sin tocar los otros
  * parámetros. Hoy · Cobros los quita. Devuelve '' o '?…'.
  */
-export function navSearch(search: string, tab: TabKey): string {
+export function navSearch(search: string, tab: TabKey, edition: Edition = PANEL_EDITION): string {
   const params = new URLSearchParams(search);
-  if (tab === DEFAULT_TAB) {
+  if (tab === defaultTabOf(edition)) {
     params.delete(SECTION_PARAM);
     params.delete(TAB_PARAM);
   } else {
-    params.set(SECTION_PARAM, sectionOf(tab));
+    params.set(SECTION_PARAM, sectionOf(tab, edition));
     params.set(TAB_PARAM, TAB_SLUG[tab]);
   }
   const query = params.toString();

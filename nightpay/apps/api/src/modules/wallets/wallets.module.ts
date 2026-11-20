@@ -43,6 +43,7 @@ import { CobroDetailModule } from '../money-map/cobro-detail.module';
 import { ChargeAlertService } from './charge-alert/charge-alert.service';
 import { ChargeDisputeService } from './charge-alert/charge-dispute.service';
 import { PublicChargeAlertController } from './charge-alert/charge-alert.controller';
+import { PartyRefundsService } from '../party/party-refunds.service';
 
 @Module({
   // AuthModule: TotpService (2FA del encargado al anular y al devolver en efectivo).
@@ -78,6 +79,8 @@ import { PublicChargeAlertController } from './charge-alert/charge-alert.control
     // «Aviso en cada cobro»: el aviso al móvil del cliente (Web Push) y «No he sido yo».
     ChargeAlertService,
     ChargeDisputeService,
+    // OxioParty: «Lo que sobra» en la página de la pulsera (y Devoluciones en el panel, PartyModule).
+    PartyRefundsService,
   ],
   controllers: [
     // El teléfono opcional al dar una ficha nueva (y buscar un saldo por él).
@@ -112,6 +115,6 @@ import { PublicChargeAlertController } from './charge-alert/charge-alert.control
   ],
   // GoogleWalletService: lo usa el repaso de la cola google-wallet-sync (QueuesModule).
   // CashTopUpService y WalletCardsService: la recepción del datáfono (PosDeviceModule).
-  exports: [WalletsService, WalletChargesService, WalletPasskeysService, GoogleWalletService, CashTopUpService, WalletCardsService, FichaNumbersService],
+  exports: [WalletsService, WalletChargesService, WalletPasskeysService, GoogleWalletService, CashTopUpService, WalletCardsService, FichaNumbersService, PartyRefundsService],
 })
 export class WalletsModule {}

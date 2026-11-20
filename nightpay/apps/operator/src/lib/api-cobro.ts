@@ -11,6 +11,7 @@ import {
   type ChargeLineInput,
   type InvitableStaff,
   type InvitationRules,
+  type SaldoChargePartyExtras,
 } from '@nightpay/contracts';
 import { SessionExpiredError, parseProblemDetails } from '@nightpay/api-client';
 import {
@@ -112,8 +113,11 @@ export function createSaldoCobro(input: Omit<CobroInput, 'terminalExternalId' | 
   return call<SaldoCobro>('/v1/wallet-charges/qr', { method: 'POST', body: JSON.stringify(body) }, 'Cobro del saldo');
 }
 
-/** El cobro del saldo: ¿ya lo pagó?, cómo y lo que le queda. */
-export interface SaldoState {
+/**
+ * El cobro del saldo: ¿ya lo pagó?, cómo y lo que le queda. Con OxioParty,
+ * pagado, también la pulsera y lo que le queda (SaldoChargePartyExtras).
+ */
+export interface SaldoState extends SaldoChargePartyExtras {
   id: string;
   ref: string | null;
   status: WalletChargeStatus;

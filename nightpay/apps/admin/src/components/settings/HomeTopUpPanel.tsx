@@ -4,6 +4,7 @@ import { useState, type CSSProperties } from 'react';
 import { Button } from '@nightpay/ui';
 import { HOME_TOPUP_PROBLEM_TEXT, type HomeTopUpSettings } from '@nightpay/contracts';
 import { formatDateTime } from '@/lib/dates';
+import { isPartyEdition } from '@/lib/edition';
 import { fetchHomeTopUp, fetchHomeTopUpQueue, rotateHomeTopUp, setHomeTopUp, setHomeTopUpGifts } from '@/lib/endpoints/home-topup';
 import { giftRowText, homeTopUpPrintHtml, homeTopUpSummary, queuePosterHtml } from '@/lib/home-topup';
 import { useVenueTimezone } from '@/lib/venue-context';
@@ -153,15 +154,18 @@ export function HomeTopUpPanel() {
               Enlace nuevo
             </Button>
           )}
-          <div style={queueBox}>
-            <Switch
-              label="Regalos"
-              hint="«Para regalar» en el enlace: alguien paga saldo para otra persona y le manda el enlace del regalo, que lo guarda en su móvil. Solo vale en este local. Enciéndelo cuando el abogado dé el visto bueno."
-              checked={settings.giftsEnabled}
-              disabled={busy !== null}
-              onChange={(v) => void run('gifts', () => setHomeTopUpGifts(v))}
-            />
-          </div>
+          {/* En OxioParty no hay regalos: «Lo que sobra» devolvería lo que sobre a quien regaló. */}
+          {isPartyEdition() ? null : (
+            <div style={queueBox}>
+              <Switch
+                label="Regalos"
+                hint="«Para regalar» en el enlace: alguien paga saldo para otra persona y le manda el enlace del regalo, que lo guarda en su móvil. Solo vale en este local. Enciéndelo cuando el abogado dé el visto bueno."
+                checked={settings.giftsEnabled}
+                disabled={busy !== null}
+                onChange={(v) => void run('gifts', () => setHomeTopUpGifts(v))}
+              />
+            </div>
+          )}
         </div>
       ) : null}
       {settings.gifts.length > 0 ? (

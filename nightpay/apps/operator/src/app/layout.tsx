@@ -2,6 +2,10 @@ import type { Metadata, Viewport } from 'next';
 import type { ReactNode } from 'react';
 import localFont from 'next/font/local';
 import '@nightpay/ui/styles.css';
+// OxioParty: los colores del «Modo día» (solo con <html data-theme="day">).
+import './party-day.css';
+import { DAY_INIT_SCRIPT } from '@/lib/day-mode';
+import { isParty } from '@/lib/edition';
 import { SALA_INIT_SCRIPT } from '@/lib/sala-contrast';
 import { appleAppMetadata } from '@nightpay/ui/app-manifest';
 import { deviceInitScript } from '@nightpay/ui/device-settings';
@@ -45,8 +49,9 @@ export const viewport: Viewport = {
 // la crema a toda luz. Quien lo cambia en «Mi perfil» (claro o como el móvil)
 // lo recuerda este móvil (np-theme), igual que la letra más grande. Y, si el
 // local lo tiene, el modo «sala» (contraste alto): antes de pintar, para que
-// no cambie al cargar.
-const themeInitScript = `${SALA_INIT_SCRIPT}${deviceInitScript('dark')}`;
+// no cambie al cargar. En OxioParty, además, el «Modo día» de este móvil
+// (después del tema: lo sustituye).
+const themeInitScript = `${SALA_INIT_SCRIPT}${deviceInitScript('dark')}${isParty() ? DAY_INIT_SCRIPT : ''}`;
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (

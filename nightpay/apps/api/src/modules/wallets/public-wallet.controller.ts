@@ -41,6 +41,8 @@ import { activationRequired } from './wallet-activation-token';
 import { WalletActivationUseService } from './wallet-activation-use.service';
 import { WalletWelcomeService } from '../home-topup/wallet-welcome.service';
 import { ChargeAlertService } from './charge-alert/charge-alert.service';
+import { isPartyEdition } from '../../config/edition';
+import { PartyRefundsService } from '../party/party-refunds.service';
 
 /**
  * Saldo NightPay — páginas del cliente (fuera de /v1). Sin cuenta: el enlace
@@ -85,6 +87,7 @@ export class PublicWalletController {
   private readonly welcome: WalletWelcomeService | null;
   private readonly details: CobroDetailService | null;
   private readonly alerts: ChargeAlertService | null;
+  private readonly party: PartyRefundsService | null;
 
   constructor(
     @Inject(WalletChargesService) charges: WalletChargesService,
@@ -100,6 +103,8 @@ export class PublicWalletController {
     @Optional() @Inject(CobroDetailService) details?: CobroDetailService,
     // «Aviso en cada cobro»: la clave pública para ofrecerlo; en el API siempre está (apagado sin claves).
     @Optional() @Inject(ChargeAlertService) alerts?: ChargeAlertService,
+    // OxioParty: la página de la pulsera (la fiesta y «Lo que sobra»); solo con EDITION=party.
+    @Optional() @Inject(PartyRefundsService) party?: PartyRefundsService,
   ) {
     this.charges = charges;
     this.passkeys = passkeys;
@@ -110,6 +115,7 @@ export class PublicWalletController {
     this.welcome = welcome ?? null;
     this.details = details ?? null;
     this.alerts = alerts ?? null;
+    this.party = party ?? null;
   }
 
   /**
@@ -288,6 +294,8 @@ export class PublicWalletController {
     const fichaQr = this.welcome ? await this.welcome.fichaQr(token, state) : null;
     const remember = this.welcome?.rememberCookie({ id: walletId, qrToken: token }, cookies);
     if (remember) res.header('Set-Cookie', remember);
+    // OxioParty: la página de la pulsera (de día, con «Lo que sobra» y las casetas).
+    const party = isPartyEdition() && this.party ? await this.party.pageData(walletId) : null;
     res
       .status(200)
       .header('Content-Type', 'text/html; charset=utf-8')
@@ -304,6 +312,7 @@ export class PublicWalletController {
           welcome: Boolean(newToken) && paid !== null,
           fichaQr,
           chargeAlertKey: this.alerts?.publicKey ?? null,
+          party,
         }),
       );
   }
