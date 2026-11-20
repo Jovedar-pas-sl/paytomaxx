@@ -5,6 +5,7 @@ import { serializeAndSignJSONRequest } from 'redsys-easy';
 import { WebhooksController } from './webhooks.controller';
 import { RedsysAdapter } from '../gateways/redsys.adapter';
 import { openTokenizationData } from '../payments/tokenization-seal';
+import { IP_RATE_LIMIT_META, type IpRateLimitConfig } from '../../common/guards/ip-rate-limit.guard';
 
 // Credenciales PÚBLICAS de pruebas de Redsys (comercio de test de su documentación).
 const MERCHANT = '999008881';
@@ -21,6 +22,8 @@ interface Options {
   existing?: { id: bigint; processedAt: Date | null } | null;
   /** Intento encontrado por Ds_Order (null = pedido desconocido). */
   attempt?: { paymentId: string; tenantId: string } | null;
+  /** El procesador de avisos (en la app, WebhookIngestProcessor): sin él, solo la cola. */
+  ingest?: { processDelivery: ReturnType<typeof vi.fn> };
 }
 
 function makeHarness(o: Options = {}) {
@@ -59,9 +62,10 @@ function makeHarness(o: Options = {}) {
   };
   const redsys = new RedsysAdapter(config as never, metrics as never);
   const queue = { add: vi.fn().mockResolvedValue(undefined), getJob: vi.fn().mockResolvedValue(undefined) };
+  const moduleRef = o.ingest ? { get: vi.fn(() => o.ingest) } : undefined;
   const controller = new WebhooksController(
     prisma as never, { get: vi.fn() } as never, queue as never, metrics as never,
-    config as never, { eval: vi.fn() } as never, {} as never, {} as never, redsys,
+    config as never, { eval: vi.fn() } as never, {} as never, {} as never, redsys, undefined, moduleRef as never,
   );
   return { controller, prisma, tx, queue, metrics, redsys };
 }
@@ -162,6 +166,69 @@ describe('receiveRedsys — idempotencia', () => {
     await expect(h.controller.receiveRedsys(notice())).resolves.toEqual({ received: true });
     expect(h.queue.add).toHaveBeenCalledTimes(1);
     expect(h.metrics.webhooksReceived.inc).toHaveBeenCalledWith({ provider: 'REDSYS', outcome: 'valid' });
+  });
+});
+
+describe('receiveRedsys — el aviso firmado se procesa en la misma petición (carga del 19-11-2026)', () => {
+  const ingestThat = (impl: () => Promise<boolean>) => ({ processDelivery: vi.fn(impl) });
+
+  it('caso normal: «Pagado» sin pasar por la cola (4 a la vez y en fila con mucha gente)', async () => {
+    const ingest = ingestThat(async () => true);
+    const h = makeHarness({ ingest });
+    await expect(h.controller.receiveRedsys(notice())).resolves.toEqual({ received: true });
+    expect(ingest.processDelivery).toHaveBeenCalledWith('640');
+    expect(h.queue.add).not.toHaveBeenCalled();
+    expect(h.metrics.webhooksReceived.inc).toHaveBeenCalledWith({ provider: 'REDSYS', outcome: 'valid' });
+  });
+
+  it('si procesarlo falla (la base sin conexión libre…), a la cola para reintentar y el banco recibe su 200', async () => {
+    const ingest = ingestThat(async () => {
+      throw new Error('P2028 Unable to start a transaction in the given time');
+    });
+    const h = makeHarness({ ingest });
+    await expect(h.controller.receiveRedsys(notice())).resolves.toEqual({ received: true });
+    expect(h.queue.add).toHaveBeenCalledWith('process-webhook', { deliveryId: '640' }, expect.objectContaining({ jobId: `webhook-REDSYS-${DS_ORDER}-0000` }));
+  });
+
+  it('si otra petición está con el mismo aviso (su candado), a la cola por si aquella no termina', async () => {
+    const ingest = ingestThat(async () => false);
+    const h = makeHarness({ ingest });
+    await expect(h.controller.receiveRedsys(notice())).resolves.toEqual({ received: true });
+    expect(h.queue.add).toHaveBeenCalledTimes(1);
+  });
+
+  it('un aviso repetido ya procesado no cambia nada: ni se procesa ni se encola', async () => {
+    const ingest = ingestThat(async () => true);
+    const h = makeHarness({ ingest, existing: { id: BigInt(88), processedAt: new Date('2026-10-17T02:12:00Z') } });
+    await expect(h.controller.receiveRedsys(notice())).resolves.toEqual({ received: true, duplicate: true });
+    expect(ingest.processDelivery).not.toHaveBeenCalled();
+    expect(h.queue.add).not.toHaveBeenCalled();
+  });
+
+  it('con la base muy lenta, se contesta al banco a los 5 s y el aviso termina aparte (sin cola si sale bien)', async () => {
+    vi.useRealTimers(); // la de beforeEach solo finge Date: otra vez, también los temporizadores
+    vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'] });
+    vi.setSystemTime(NOW);
+    let finish: (done: boolean) => void = () => undefined;
+    const ingest = ingestThat(() => new Promise<boolean>((resolve) => (finish = resolve)));
+    const h = makeHarness({ ingest });
+    let answered = false;
+    const answer = h.controller.receiveRedsys(notice()).finally(() => (answered = true));
+    // Hasta que empieza a procesarlo (la base de mentira contesta en microtareas): desde ahí cuentan los 5 s.
+    for (let i = 0; i < 1_000 && ingest.processDelivery.mock.calls.length === 0; i++) await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(4_999);
+    expect(answered).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+    await expect(answer).resolves.toEqual({ received: true });
+    finish(true);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(h.queue.add).not.toHaveBeenCalled();
+  });
+
+  it('fuera del límite global (los avisos llegan de pocas IP del banco), con su propio tope por IP, alto', () => {
+    const limit = Reflect.getMetadata(IP_RATE_LIMIT_META, WebhooksController.prototype.receiveRedsys) as IpRateLimitConfig;
+    expect(limit).toMatchObject({ windowSec: 60, scope: 'webhook-redsys', failOpen: true });
+    expect(limit.max).toBeGreaterThanOrEqual(3_000);
   });
 });
 

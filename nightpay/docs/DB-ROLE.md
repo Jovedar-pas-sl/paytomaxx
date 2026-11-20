@@ -287,11 +287,14 @@ Sal de `psql` con `\q`.
 ## Paso 4 — `DATABASE_URL` del API
 
 Dokploy → **nightpay-api** → pestaña **Environment**. Cambia solo el usuario y
-la contraseña:
+la contraseña (lo de detrás de `?` se queda igual):
 
 ```env
-DATABASE_URL=postgresql://oxiopay_app:<CONTRASEÑA-DE-OXIOPAY_APP>@nightpay-postgres:5432/nightpay
+DATABASE_URL=postgresql://oxiopay_app:<CONTRASEÑA-DE-OXIOPAY_APP>@nightpay-postgres:5432/nightpay?connection_limit=20&pool_timeout=10
 ```
+
+`connection_limit=20&pool_timeout=10` son las conexiones del API a la base;
+por qué esos números, en [`DOKPLOY-STEPS.md`](DOKPLOY-STEPS.md) (D.2, Notas).
 
 Deja `TENANCY_UNSCOPED_QUERIES` como esté (sin poner = `log`). **Save**.
 

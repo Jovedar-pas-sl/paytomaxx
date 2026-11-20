@@ -185,7 +185,8 @@ function retryAfterOf(status: number, raw: unknown): number | undefined {
   return typeof raw === 'number' && Number.isInteger(raw) && raw > 0 ? raw : undefined;
 }
 
-function isDatabaseBusy(exception: unknown): exception is Error & { code: string } {
+/** La base sin conexión libre a tiempo (P2028/P2024): pasajero, no un fallo. */
+export function isDatabaseBusy(exception: unknown): exception is Error & { code: string } {
   if (!(exception instanceof Error) || !exception.name.startsWith('PrismaClient')) return false;
   const code = (exception as { code?: unknown }).code;
   return typeof code === 'string' && DB_BUSY_PRISMA_CODES.has(code);

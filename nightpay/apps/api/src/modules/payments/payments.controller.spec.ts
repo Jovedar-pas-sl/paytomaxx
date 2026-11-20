@@ -4,6 +4,7 @@ import { GoneException, ParseUUIDPipe } from '@nestjs/common';
 import { HEADERS_METADATA, ROUTE_ARGS_METADATA } from '@nestjs/common/constants';
 import { ROLES_KEY } from '../../common/decorators/roles.decorator';
 import { IS_PUBLIC_KEY } from '../../common/decorators/public.decorator';
+import { IP_RATE_LIMIT_META, type IpRateLimitConfig } from '../../common/guards/ip-rate-limit.guard';
 import { PaymentsController } from './payments.controller';
 import { TerminalsController } from '../terminals/terminals.controller';
 
@@ -61,5 +62,12 @@ describe('GET /payments/public/:token: el estado vivo de un cobro', () => {
       value: string;
     }>;
     expect(headers).toContainEqual({ name: 'Cache-Control', value: 'no-store' });
+  });
+
+  it('lo sondean las apps del personal sin sesión desde el wifi del local: cada cobro con su cupo y la IP con un tope alto', () => {
+    const limit = Reflect.getMetadata(IP_RATE_LIMIT_META, PaymentsController.prototype.getPublic) as IpRateLimitConfig;
+    expect(limit).toMatchObject({ windowSec: 60, scope: 'payment-public', failOpen: true, perKey: { param: 'token', max: 60 } });
+    // Cientos de cobros abiertos a la vez (cada 4-10 s cada uno) caben; un barrido de tokens, no sin fin.
+    expect(limit.max).toBeGreaterThanOrEqual(3_000);
   });
 });

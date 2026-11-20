@@ -159,15 +159,16 @@ export class PaymentsController {
   /**
    * Lookup público por QR token — el cliente lo escanea sin auth.
    * Sólo expone datos seguros (importe, venue, terminal; el id solo pagado).
-   * Lo sondean también las apps del personal (sin sesión, cada 4 s por cobro
-   * sin tiempo real, todas desde la IP del local): fuera del límite global,
-   * con el suyo.
+   * Lo sondean también las apps del personal (sin sesión, cada 4-10 s por
+   * cobro abierto, todas desde la IP del local): fuera del límite global, con
+   * el suyo. Cada cobro tiene su cupo desde esa IP y la IP un tope alto (con
+   * 600 por IP, unos 60 cobros abiertos a la vez ya daban 429; carga 19-11).
    */
   @Public()
   @Get('public/:token')
   // Es el estado vivo de un cobro: ni el navegador ni un proxy del local lo guardan.
   @Header('Cache-Control', 'no-store')
-  @IpRateLimit({ max: 600, windowSec: 60, scope: 'payment-public', failOpen: true })
+  @IpRateLimit({ max: 6_000, windowSec: 60, scope: 'payment-public', failOpen: true, perKey: { param: 'token', max: 60 } })
   async getPublic(@Param('token') token: string): Promise<PublicPaymentView> {
     return this.payments.getByToken(token);
   }

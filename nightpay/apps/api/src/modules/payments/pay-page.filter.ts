@@ -1,38 +1,44 @@
-import { Catch, HttpException, HttpStatus, type ArgumentsHost } from '@nestjs/common';
+import { Catch, HttpException, HttpStatus, Logger, type ArgumentsHost } from '@nestjs/common';
 import type { FastifyReply, FastifyRequest } from 'fastify';
-import { ProblemDetailsFilter } from '../../common/filters/problem-details.filter';
+import { isDatabaseBusy, ProblemDetailsFilter } from '../../common/filters/problem-details.filter';
+import { redactSecretsInUrl } from '../../common/logging/redact-url';
 import { resolveLanguage } from './customer-lang';
 import { renderBusyPage } from './public-pay.pages';
 
 /** Lo que espera la página antes de volver a cargarse sola (entre estos dos). */
-const MIN_RETRY_S = 5;
+export const MIN_RETRY_S = 5;
 const MAX_RETRY_S = 30;
 
 /**
  * GET de las páginas de /pay (pago, «Comprobando», formulario, justificante):
- * el 429 de su @IpRateLimit es una página en HTML, en su idioma, que espera y
- * se vuelve a cargar sola (antes, un JSON en mitad del pago y sin refresco).
- * Lo demás, como siempre (RFC 7807).
+ * el 429 de su @IpRateLimit y la base sin conexión libre (P2028/P2024, 503:
+ * mucha gente pagando a la vez) son una página en HTML, en su idioma, que
+ * espera y se vuelve a cargar sola (antes, un JSON en mitad del pago y sin
+ * refresco). Lo demás, como siempre (RFC 7807).
  */
 @Catch()
 export class PayPageFilter extends ProblemDetailsFilter {
+  private readonly pageLogger = new Logger(PayPageFilter.name);
+
   constructor() {
     super(process.env.NODE_ENV === 'production');
   }
 
   override catch(exception: unknown, host: ArgumentsHost): void {
-    if (!(exception instanceof HttpException) || exception.getStatus() !== HttpStatus.TOO_MANY_REQUESTS) {
+    const limited = exception instanceof HttpException && exception.getStatus() === HttpStatus.TOO_MANY_REQUESTS;
+    if (!limited && !isDatabaseBusy(exception)) {
       super.catch(exception, host);
       return;
     }
     const req = host.switchToHttp().getRequest<FastifyRequest>();
     const res = host.switchToHttp().getResponse<FastifyReply>();
     const lang = resolveLanguage((req.query as { lang?: unknown } | undefined)?.lang, req.headers.cookie);
-    const wait = retryAfterOf(exception);
+    const wait = limited ? retryAfterOf(exception) : MIN_RETRY_S;
     // Solo nuestras páginas: se vuelve a la misma (ruta relativa, sin dominio).
     const again = typeof req.url === 'string' && req.url.startsWith('/pay/') ? req.url : '/';
+    if (!limited) this.pageLogger.warn(`Base de datos sin conexión libre a tiempo: «Hay mucha gente pagando» en ${redactSecretsInUrl(String(req.url))}`);
     res
-      .status(HttpStatus.TOO_MANY_REQUESTS)
+      .status(limited ? HttpStatus.TOO_MANY_REQUESTS : HttpStatus.SERVICE_UNAVAILABLE)
       .header('Content-Type', 'text/html; charset=utf-8')
       .header('Cache-Control', 'no-store')
       .header('Retry-After', String(wait))

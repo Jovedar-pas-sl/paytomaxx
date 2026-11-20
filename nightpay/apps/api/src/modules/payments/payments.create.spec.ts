@@ -248,7 +248,10 @@ describe('create — Idempotency-Key ligada a quién y a qué (#32)', () => {
     const { service, db, created } = makeService();
     db.$queryRaw.mockResolvedValueOnce([]).mockResolvedValueOnce([{ id: 'wallet-2' }]);
     await service.create('tenant-1', 'idem-key-0105', dto({ wallet: { create: true } }), owner);
-    expect(db.$queryRaw).toHaveBeenCalledTimes(2);
+    // Dos intentos de saldo nuevo (el SQL del saldo vacío); la tercera, la referencia del cobro.
+    const sqls = db.$queryRaw.mock.calls.map((c) => ((c as unknown[])[0] as TemplateStringsArray).join('?'));
+    expect(sqls.filter((sql) => sql.includes('INSERT INTO client_wallets'))).toHaveLength(2);
+    expect(sqls.at(-1)).toContain('charge_ref_counters');
     expect(created[0]).toMatchObject({ walletId: 'wallet-2' });
   });
 

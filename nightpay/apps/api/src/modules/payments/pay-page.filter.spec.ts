@@ -1,6 +1,7 @@
 import 'reflect-metadata';
 import { describe, it, expect } from 'vitest';
 import { HttpException, HttpStatus, NotFoundException } from '@nestjs/common';
+import { Prisma } from '@nightpay/db';
 import { EXCEPTION_FILTERS_METADATA } from '@nestjs/common/constants';
 import { PayPageFilter } from './pay-page.filter';
 import { PublicPayController } from './public-pay.controller';
@@ -56,6 +57,19 @@ describe('PayPageFilter — el 429 de las páginas de /pay', () => {
     const slow = host({ url: '/pay/tok-1' });
     new PayPageFilter().catch(tooMany(59), slow.host);
     expect(slow.sent.headers['Retry-After']).toBe('30');
+  });
+
+  it('la base sin conexión libre (P2028/P2024): la misma página, 503, que vuelve a la misma (carga del 19-11-2026)', () => {
+    for (const code of ['P2028', 'P2024']) {
+      const { host: h, sent } = host({ url: '/pay/tok-1/checkout?op=ORD1&lang=es', query: { lang: 'es' } });
+      new PayPageFilter().catch(new Prisma.PrismaClientKnownRequestError('Unable to start a transaction in the given time.', { code, clientVersion: 'x' }), h);
+      expect(sent.status).toBe(503);
+      expect(sent.headers['Content-Type']).toBe('text/html; charset=utf-8');
+      expect(sent.headers['Retry-After']).toBe('5');
+      expect(sent.body).toContain('content="5;url=/pay/tok-1/checkout?op=ORD1&amp;lang=es"');
+      expect(sent.body).toContain('Hay mucha gente pagando a la vez');
+      expect(sent.body).not.toContain('Unable to start');
+    }
   });
 
   it('lo demás, como siempre (RFC 7807)', () => {

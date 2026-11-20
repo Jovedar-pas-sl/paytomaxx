@@ -8,7 +8,6 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
-import * as bcrypt from 'bcryptjs';
 import { createHash } from 'node:crypto';
 import type { Prisma } from '@nightpay/db';
 import { PrismaService } from '../../common/prisma/prisma.service';
@@ -23,6 +22,7 @@ import {
   type RotatedRefresh,
 } from './refresh-token.service';
 import { TotpService } from './totp.service';
+import { bcryptCompare, bcryptHash } from './password-hash';
 import { ACCESS_TOKEN_TTL_SECONDS } from './access-revocation.service';
 import { TotpEnrollmentService } from './totp-enrollment.service';
 import { currentEdition } from '../../config/edition';
@@ -143,12 +143,13 @@ export class AuthService {
     this.enrollment = enrollment ?? null;
   }
 
+  /** En otro hilo (password-hash.ts): bcrypt en el del API lo paraba todo en la entrada al turno. */
   async hashPassword(plain: string): Promise<string> {
-    return bcrypt.hash(plain, BCRYPT_ROUNDS);
+    return bcryptHash(plain, BCRYPT_ROUNDS);
   }
 
   async verifyPassword(plain: string, hash: string): Promise<boolean> {
-    return bcrypt.compare(plain, hash);
+    return bcryptCompare(plain, hash);
   }
 
   /**

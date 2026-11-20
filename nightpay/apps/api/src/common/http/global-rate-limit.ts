@@ -69,6 +69,13 @@ const CARTA_IMAGE = /^\/v1\/services\/[0-9a-f-]{36}\/image\/[0-9a-f]{64}(\?|$)/;
  * después, el móvil las guarda. Va con su propio tope por persona.
  */
 const STAFF_PHOTO = /^\/v1\/staff\/[0-9a-f-]{36}\/photo\/[0-9a-f]{64}(\?|$)/;
+/**
+ * El aviso firmado de Redsys (POST): todos llegan desde unas pocas IP del
+ * banco, y con mucha gente pagando pasaban de 300 por minuto (carga del
+ * 19-11-2026: el «Pagado» se quedaba sin llegar). La firma ya lo protege; va
+ * con su propio @IpRateLimit, alto.
+ */
+const REDSYS_NOTICE = /^\/v1\/webhooks\/redsys(\?|$)/;
 const LOOPBACK = new Set(['127.0.0.1', '::1']);
 
 interface LimitedRequest extends ClientIpRequest {
@@ -78,7 +85,8 @@ interface LimitedRequest extends ClientIpRequest {
 
 /**
  * Fuera del límite global: los sondeos con su propio límite (saldo, estado
- * del cobro), las páginas GET de /pay y el healthcheck del propio contenedor.
+ * del cobro), las páginas GET de /pay, el aviso firmado de Redsys y el
+ * healthcheck del propio contenedor.
  * Antes, todo lo que llegaba por loopback quedaba exento: con un proxy en la
  * misma máquina (p. ej. un túnel de Cloudflare) no habría límite.
  */
@@ -86,6 +94,7 @@ export function isGlobalRateLimitExempt(req: LimitedRequest): boolean {
   if (req.method === 'GET' && [WALLET_STATE_POLL, PAY_PAGES, PAYMENT_PUBLIC_POLL, PAY_STATUS_POLL, CARTA_IMAGE, STAFF_PHOTO].some((re) => re.test(req.url))) {
     return true;
   }
+  if (req.method === 'POST' && REDSYS_NOTICE.test(req.url)) return true;
   const peer = normalizeIp(req.raw?.socket?.remoteAddress ?? req.socket?.remoteAddress);
   const path = req.url.split('?')[0] ?? req.url;
   return peer !== null && LOOPBACK.has(peer) && HEALTH_PATHS.includes(path);

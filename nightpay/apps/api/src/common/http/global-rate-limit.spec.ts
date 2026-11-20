@@ -26,6 +26,14 @@ describe('límite global de peticiones', () => {
     expect(isGlobalRateLimitExempt(req('/v1/health', '10.0.1.7', { 'x-forwarded-for': '81.0.0.7' }))).toBe(false);
   });
 
+  it('el aviso firmado de Redsys va con su propio límite: todos los avisos llegan desde pocas IP del banco', () => {
+    expect(isGlobalRateLimitExempt(req('/v1/webhooks/redsys', '195.76.9.187', {}, 'POST'))).toBe(true);
+    // Solo el POST del aviso de Redsys: lo demás de /webhooks, como siempre.
+    expect(isGlobalRateLimitExempt(req('/v1/webhooks/redsys', '195.76.9.187'))).toBe(false);
+    expect(isGlobalRateLimitExempt(req('/v1/webhooks/wipay', '195.76.9.187', {}, 'POST'))).toBe(false);
+    expect(isGlobalRateLimitExempt(req('/v1/webhooks/redsys/otra', '195.76.9.187', {}, 'POST'))).toBe(false);
+  });
+
   it('el sondeo del saldo va con su propio límite', () => {
     expect(isGlobalRateLimitExempt(req('/w/tok123/state', '10.0.1.7'))).toBe(true);
     expect(isGlobalRateLimitExempt(req('/w/tok123/state?x=1', '10.0.1.7'))).toBe(true);

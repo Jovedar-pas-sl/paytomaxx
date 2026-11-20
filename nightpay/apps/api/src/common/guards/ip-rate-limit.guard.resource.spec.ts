@@ -26,6 +26,8 @@ function makeRedis() {
 
 const BY_TOKEN: IpRateLimitConfig = { max: 50, windowSec: 60, scope: 'pay-status', perKey: { param: 'token', max: 5 } };
 const BY_OP: IpRateLimitConfig = { max: 50, windowSec: 60, scope: 'pay-status', perKey: { query: 'op', max: 5 } };
+/** Pagar con el saldo: la ficha, el código o el pase del cuerpo (el primero que venga). */
+const BY_WALLET: IpRateLimitConfig = { max: 50, windowSec: 60, scope: 'wallet-pin', perKey: { body: ['card', 'code', 'walletToken'], max: 3 } };
 
 function guardFor(config: IpRateLimitConfig, redis: ReturnType<typeof makeRedis>) {
   const reflector = new Reflector();
@@ -33,7 +35,7 @@ function guardFor(config: IpRateLimitConfig, redis: ReturnType<typeof makeRedis>
   return new IpRateLimitGuard(reflector, redis as never);
 }
 
-function ctx(req: { params?: Record<string, string>; query?: Record<string, string> }, ip = '81.0.0.7') {
+function ctx(req: { params?: Record<string, string>; query?: Record<string, string>; body?: Record<string, unknown> }, ip = '81.0.0.7') {
   const full = { headers: {}, ip, socket: { remoteAddress: ip }, ...req };
   return {
     getHandler: () => () => undefined,
@@ -96,6 +98,25 @@ describe('IpRateLimitGuard por IP + cobro (estado del pago)', () => {
   it('sin el token ni el pedido en la petición, cuenta solo la IP', async () => {
     const guard = guardFor(BY_OP, redis);
     expect(await hit(guard, { query: {} })).toBe(200);
+    expect([...redis.store.keys()].every((k) => !k.includes(':res:'))).toBe(true);
+  });
+
+  it('por la ficha, el código o el pase del cuerpo: cada saldo con su cupo y el primero que venga manda', async () => {
+    const guard = guardFor(BY_WALLET, redis);
+    for (let i = 0; i < 3; i++) expect(await hit(guard, { body: { card: 'ficha-a', pin: '1234' } })).toBe(200);
+    expect(await hit(guard, { body: { card: 'ficha-a', pin: '1234' } })).toBe(429);
+    // Otra ficha, otro código u otro pase: su propio cupo.
+    expect(await hit(guard, { body: { card: 'ficha-b' } })).toBe(200);
+    expect(await hit(guard, { body: { code: 'K7Q4M2' } })).toBe(200);
+    expect(await hit(guard, { body: { walletToken: 'pase-c' } })).toBe(200);
+    // La ficha no queda en claro en Redis.
+    expect([...redis.store.keys()].some((k) => k.includes('ficha-a'))).toBe(false);
+  });
+
+  it('sin ficha, código ni pase en el cuerpo (o no texto), cuenta solo la IP', async () => {
+    const guard = guardFor(BY_WALLET, redis);
+    expect(await hit(guard, { body: { card: 123 } })).toBe(200);
+    expect(await hit(guard, {})).toBe(200);
     expect([...redis.store.keys()].every((k) => !k.includes(':res:'))).toBe(true);
   });
 });

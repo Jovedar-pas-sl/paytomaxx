@@ -1,7 +1,8 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { Reflector } from '@nestjs/core';
 import { HttpException } from '@nestjs/common';
-import { IpRateLimitGuard, type IpRateLimitConfig } from './ip-rate-limit.guard';
+import { IP_RATE_LIMIT_META, IpRateLimitGuard, type IpRateLimitConfig } from './ip-rate-limit.guard';
+import { AuthController } from '../../modules/auth/auth.controller';
 
 /**
  * Login por IP + cuenta (SEC-02): todo el personal de un local sale por la
@@ -75,6 +76,11 @@ describe('IpRateLimitGuard por IP + cuenta (login)', () => {
     expect(await attempt(guard, { email: 'nueva@x.es' })).toBe(429);
     // Otra IP, como siempre, va aparte.
     expect(await attempt(guard, { email: 'nueva@x.es' }, '81.0.0.8')).toBe(200);
+  });
+
+  it('el login de verdad: 120 por IP (todo el local entra a la vez al abrir el turno) y 10 por cuenta', () => {
+    const real = Reflect.getMetadata(IP_RATE_LIMIT_META, AuthController.prototype.login) as IpRateLimitConfig;
+    expect(real).toEqual({ max: 120, windowSec: 60, scope: 'auth-login', perAccount: { field: 'email', max: 10 } });
   });
 
   it('sin cuenta en el cuerpo (o no es texto) cuenta solo la IP', async () => {

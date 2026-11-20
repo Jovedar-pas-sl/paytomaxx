@@ -10,20 +10,33 @@ import type { InvitationEarning } from './invitation-lines';
 
 /**
  * La siguiente referencia del local (1, 2, 3…), compartida por los cobros con
- * tarjeta y los del saldo. La fila del contador queda bloqueada hasta el
- * commit: dos cobros a la vez no se llevan la misma, y si el cobro no se
- * guarda, la referencia tampoco se gasta.
+ * tarjeta y los del saldo, puesta en el cobro ya guardado (y en su gemelo del
+ * saldo) en UNA sentencia: la última de la transacción del cobro. La fila del
+ * contador queda bloqueada solo hasta el commit; antes se tomaba al principio
+ * y, con muchos cobros a la vez, todo el local esperaba en fila mientras cada
+ * uno guardaba lo demás (carga del 19-11-2026). Dos cobros a la vez no se
+ * llevan la misma, y si el cobro no se guarda, la referencia tampoco se gasta.
  */
-export async function nextChargeRef(tx: TransactionalClient, tenantId: string): Promise<number> {
-  // Upsert nativo de Prisma: INSERT … ON CONFLICT ("tenantId") DO UPDATE SET
-  // "lastRef" = "lastRef" + 1 RETURNING, en una sola sentencia.
-  const row = await tx.chargeRefCounter.upsert({
-    where: { tenantId },
-    create: { tenantId, lastRef: 1 },
-    update: { lastRef: { increment: 1 } },
-    select: { lastRef: true },
-  });
-  return row.lastRef;
+export async function assignChargeRef(
+  tx: TransactionalClient,
+  tenantId: string,
+  rows: { paymentId?: string | null; walletChargeId?: string | null },
+): Promise<number> {
+  const [row] = await tx.$queryRaw<Array<{ ref: number }>>`
+    WITH counter AS (
+      INSERT INTO charge_ref_counters ("tenantId", "lastRef", "updatedAt")
+      VALUES (${tenantId}::uuid, 1, now())
+      ON CONFLICT ("tenantId") DO UPDATE SET "lastRef" = charge_ref_counters."lastRef" + 1, "updatedAt" = now()
+      RETURNING "lastRef"
+    ), payment AS (
+      UPDATE payments SET ref = (SELECT "lastRef" FROM counter) WHERE id = ${rows.paymentId ?? null}::uuid
+    ), saldo AS (
+      UPDATE wallet_charge_requests SET ref = (SELECT "lastRef" FROM counter) WHERE id = ${rows.walletChargeId ?? null}::uuid
+    )
+    SELECT "lastRef" AS ref FROM counter
+  `;
+  if (!row) throw new Error(`Sin referencia del contador del local ${tenantId}`);
+  return row.ref;
 }
 
 /** De dónde son las líneas: un cobro con tarjeta o un cobro del saldo. */

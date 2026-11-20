@@ -7,6 +7,7 @@ import { RolesGuard } from '../../common/guards/roles.guard';
 import { bearerToken, verifyStaffToken } from '../../common/guards/staff-token';
 import { IP_RATE_LIMIT_META } from '../../common/guards/ip-rate-limit.guard';
 import { CustomerDisplayController } from './customer-display.controller';
+import { WalletChargesController } from '../wallets/wallet-charges.controller';
 import { cleanToken, displayRoom, displayTokenFromHeader, findActiveDisplay, followedRooms, pairingExpiresAt } from './display-auth';
 import { formatDisplayCode, newDisplayCode, newDisplayToken, normalizeDisplayCode, sha256 } from './display-code';
 import { DisplayGuard } from './display.guard';
@@ -139,9 +140,11 @@ describe('pantalla del cliente: rutas', () => {
     }
   });
 
-  it('pagar con ficha desde la tablet: el mismo tope por IP que el PIN del móvil del personal', () => {
+  it('pagar con ficha desde la tablet: el mismo tope por IP que el PIN del móvil del personal (comparten contador)', () => {
+    const staff = Reflect.getMetadata(IP_RATE_LIMIT_META, WalletChargesController.prototype.payWithCard);
+    expect(staff).toMatchObject({ scope: 'wallet-pin' });
     for (const name of ['payWithFicha', 'payWithFichaPin']) {
-      expect(Reflect.getMetadata(IP_RATE_LIMIT_META, proto[name])).toMatchObject({ max: 30, windowSec: 60, scope: 'wallet-pin' });
+      expect(Reflect.getMetadata(IP_RATE_LIMIT_META, proto[name])).toEqual(staff);
     }
   });
 });

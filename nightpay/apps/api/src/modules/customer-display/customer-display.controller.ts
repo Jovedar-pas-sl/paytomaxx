@@ -29,6 +29,7 @@ import { ZodValidationPipe } from '../../common/pipes/zod.pipe';
 import { CustomerDisplayService, type DisplayOwner } from './customer-display.service';
 import type { DisplaySession } from './display-auth';
 import { CurrentDisplay, DisplayGuard } from './display.guard';
+import { WALLET_PAY_IP_LIMIT } from '../wallets/wallet-pay-limits';
 
 const ownerOf = (user: JwtPayload): DisplayOwner => ({ userId: user.sub, tenantId: user.tenantId });
 
@@ -164,7 +165,7 @@ export class CustomerDisplayController {
   @Public()
   @HttpCode(200)
   @UseGuards(DisplayGuard)
-  @IpRateLimit({ max: 30, windowSec: 60, scope: 'wallet-pin' })
+  @IpRateLimit(WALLET_PAY_IP_LIMIT)
   payWithFicha(
     @CurrentDisplay() display: DisplaySession,
     @Body(new ZodValidationPipe(CustomerDisplayFichaSchema)) body: CustomerDisplayFichaDto,
@@ -176,7 +177,7 @@ export class CustomerDisplayController {
   @Public()
   @HttpCode(200)
   @UseGuards(DisplayGuard)
-  @IpRateLimit({ max: 30, windowSec: 60, scope: 'wallet-pin' })
+  @IpRateLimit(WALLET_PAY_IP_LIMIT)
   payWithFichaPin(
     @CurrentDisplay() display: DisplaySession,
     @Body(new ZodValidationPipe(CustomerDisplayPinSchema)) body: CustomerDisplayPinDto,

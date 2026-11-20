@@ -183,7 +183,6 @@ describe('create — cobro desde la carta (Fase 1A)', () => {
       serviceName: 'Botella Moët',
       durationMin: null,
       revenueCategory: 'VENUE_BAR',
-      ref: 3,
     });
     // Y su línea, en Copas.
     expect(db.paymentLine.createMany).toHaveBeenCalledWith({
@@ -191,6 +190,10 @@ describe('create — cobro desde la carta (Fase 1A)', () => {
         expect.objectContaining({ paymentId: PAYMENT_ID, category: 'VENUE_BAR', serviceItemId: SERVICE_ITEM, amountCents: 18_000 }),
       ],
     });
+    // Su referencia (C-0001), lo último de la transacción: el contador del local, solo hasta el commit.
+    const [sql, ...values] = db.$queryRaw.mock.calls.at(-1) as unknown as [TemplateStringsArray, ...unknown[]];
+    expect(sql.join('?')).toContain('charge_ref_counters');
+    expect(values).toEqual([TENANT, PAYMENT_ID, null]);
   });
 
   it('servicio de otra carta → 404; desactivado → 400', async () => {
