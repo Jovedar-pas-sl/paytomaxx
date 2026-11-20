@@ -4,7 +4,7 @@ import { useEffect, useState, type CSSProperties } from 'react';
 import { Button, Notice, ProfileBlock } from '@nightpay/ui';
 import { fetchMyPayoutInfo, type PayoutAccount } from '@/lib/api';
 import { payoutMethodLabel } from '@/lib/payout-method';
-import { fetchPushKey, pushHere, turnPushOff, turnPushOn, type PushHere } from '@/lib/payout-push';
+import { fetchPushKey, forgetPushHere, pushHere, turnPushOff, turnPushOn, type PushHere } from '@/lib/payout-push';
 
 /** undefined: cargando; null: no tiene cuenta puesta; false: no se pudo cargar. */
 type AccountState = PayoutAccount | null | undefined | false;
@@ -91,6 +91,8 @@ function PayoutPush() {
       setHere(on ? 'on' : 'off');
       setMsg({ kind: 'ok', text: on ? 'Hecho: te avisaremos en este móvil cuando te paguen.' : 'Aviso quitado en este móvil.' });
     } catch (err) {
+      // Si el API no la guardó, la suscripción de este navegador no avisa: se quita y el botón queda para reintentar.
+      if (on) await forgetPushHere();
       setHere(await pushHere().catch((): PushHere => 'off'));
       setMsg({ kind: 'error', text: err instanceof Error ? err.message : 'No se ha podido cambiar el aviso.' });
     } finally {
