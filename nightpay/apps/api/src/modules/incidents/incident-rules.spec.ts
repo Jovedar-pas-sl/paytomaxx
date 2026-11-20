@@ -64,6 +64,11 @@ describe('acciones delicadas: el dueño tiene que poder verlas', () => {
     expect(i).toMatchObject({ kind: 'sensitive_action', title: 'PIN de un cliente desbloqueado', ackable: true });
     expect(i.detail).toMatch(/^Javi ha desbloqueado el PIN de un saldo/);
     expect(i.alertDetail).toMatch(/^Alguien del personal ha desbloqueado/);
+    // Con el código del saldo en el panel; a Telegram, sin él.
+    const coded = sensitiveActionIncident(row('wallet.pin_unlocked', { amountCents: null, payload: { code: '5NX-9P4' } }));
+    expect(coded.detail).toMatch(/^Javi ha desbloqueado el PIN de un saldo .*\(saldo 5NX-9P4\)$/);
+    expect(coded.alertDetail).not.toContain('5NX');
+    expect(i.detail).not.toContain('(saldo');
   });
 
   it('cuenta de cobro cambiada: quién y a quién en el panel, sin nombres ni cuenta en Telegram', () => {
@@ -623,6 +628,18 @@ describe('«No he sido yo» (aviso en cada cobro)', () => {
     expect(ACKABLE_KINDS as readonly string[]).toContain('wallet_charge_disputed');
     expect(SELF_RESOLVING.has('wallet_charge_disputed')).toBe(false);
     expect(ackNeedsNote({ kind: 'wallet_charge_disputed', amountCents: 1_200 })).toBe(true);
+  });
+
+  it('un saldo sin Face ID: no dice que con él sigue pagando (los avisos de antes, sin el campo, como siempre)', () => {
+    const base = { id: 'audit-12', paymentId: 'charge-2', amountCents: 1_200, occurredAt: new Date('2026-11-20T00:10:00Z') };
+    const sin = walletChargeDisputedIncident({ ...base, payload: { ref: 'C-0043', code: 'K7Q-4M2', faceId: false } });
+    for (const text of [sin.detail, sin.alertDetail]) {
+      expect(text).toContain('Su ficha y su PIN ya no pagan. Revisa el cobro');
+      expect(text).not.toContain('Face ID');
+    }
+    const con = walletChargeDisputedIncident({ ...base, payload: { ref: 'C-0043', faceId: true } });
+    expect(con.detail).toContain('Su ficha y su PIN ya no pagan (con su Face ID, sí).');
+    expect(walletChargeDisputedIncident({ ...base, payload: { ref: 'C-0043' } }).alertDetail).toContain('(con su Face ID, sí)');
   });
 });
 

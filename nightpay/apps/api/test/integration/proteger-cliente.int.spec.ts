@@ -4,8 +4,9 @@
 //  - Avisos por persona, con el SQL de verdad: cancelaciones (el evento con quién canceló), «Otro importe»
 //    (líneas tecleadas cobradas con tarjeta o con el saldo), PIN fallado en varios saldos y cobros seguidos
 //    al mismo saldo; el dueño no cuenta; los umbrales del local (0 = no se mira); se cierran con nota.
-//  - Desbloquear el PIN con la 2FA deja la acción delicada en Incidencias.
-//  - «No he sido yo» desde /w: el enlace firmado solo para un cobro pagado de ESE saldo.
+//  - Desbloquear el PIN con la 2FA deja la acción delicada en Incidencias, con el código del saldo.
+//  - «No he sido yo» desde /w: el enlace firmado solo para un cobro pagado de ESE saldo; sin Face ID, ni la
+//    página ni la incidencia dicen que con él sigue pagando.
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { randomUUID } from 'node:crypto';
@@ -206,7 +207,12 @@ describe('desbloquear el PIN con la 2FA (Postgres real)', () => {
     await inVenue(V, () => charges.unlockPinWithCode({ userId: manager.id, role: 'MANAGER', tenantId: V }, walletId, '123456'));
     expect(await sys((tx) => tx.clientWallet.findUnique({ where: { id: walletId }, select: { pinFails: true, pinLockedAt: true } }))).toEqual({ pinFails: 0, pinLockedAt: null });
     const items = await inVenue(V, () => incidents.list(V));
-    expect(items.find((i) => i.kind === 'sensitive_action' && i.title === 'PIN de un cliente desbloqueado')?.detail).toMatch(/^Javi ha desbloqueado el PIN/);
+    const aviso = items.find((i) => i.kind === 'sensitive_action' && i.title === 'PIN de un cliente desbloqueado');
+    expect(aviso?.detail).toMatch(/^Javi ha desbloqueado el PIN/);
+    // Dice qué saldo (el código, como lo ve el dueño); a Telegram va sin él.
+    const code = `P${r.slice(0, 5).toUpperCase()}`;
+    expect(aviso?.detail).toContain(`(saldo ${code.slice(0, 3)}-${code.slice(3)})`);
+    expect(aviso?.alertDetail).not.toContain('(saldo');
   });
 });
 
@@ -216,11 +222,16 @@ describe('«No he sido yo» desde los movimientos del saldo (Postgres real)', ()
       tx.walletChargeRequest.create({ data: { tenantId: V, walletId, requestedByUserId: leo, amountCents: 1_500, category: 'VENUE_BAR', status: 'ACCEPTED', decidedAt: new Date(), expiresAt: new Date() } }),
     );
     const url = await inVenue(undefined, () => disputes.linkFor(walletId, charge.id));
-    await expect(inVenue(undefined, () => disputes.view(url.replace('/w/no/', '')))).resolves.toMatchObject({ state: 'ask', totalCents: 1_500, venueName: 'Sala Proteger' });
+    await expect(inVenue(undefined, () => disputes.view(url.replace('/w/no/', '')))).resolves.toMatchObject({ state: 'ask', totalCents: 1_500, venueName: 'Sala Proteger', hasFaceId: false });
     await expect(inVenue(undefined, () => disputes.linkFor(otherWallet, charge.id))).rejects.toMatchObject({ status: 404 });
     const pending = await sys((tx) =>
       tx.walletChargeRequest.create({ data: { tenantId: V, walletId, requestedByUserId: leo, amountCents: 500, category: 'VENUE_BAR', expiresAt: new Date(Date.now() + 60_000) } }),
     );
     await expect(inVenue(undefined, () => disputes.linkFor(walletId, pending.id))).rejects.toMatchObject({ status: 404 });
+    // Confirmado, un saldo sin Face ID ya no paga: la incidencia no dice «con su Face ID, sí».
+    await expect(inVenue(undefined, () => disputes.dispute(url.replace('/w/no/', '')))).resolves.toMatchObject({ state: 'done', hasFaceId: false });
+    const aviso = (await inVenue(V, () => incidents.list(V))).find((i) => i.kind === 'wallet_charge_disputed');
+    expect(aviso?.detail).toContain('Su ficha y su PIN ya no pagan. Revisa el cobro');
+    expect(aviso?.detail).not.toContain('Face ID');
   });
 });

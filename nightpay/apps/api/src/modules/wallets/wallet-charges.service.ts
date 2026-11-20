@@ -2061,8 +2061,8 @@ export class WalletChargesService {
   /** Sin 2FA aquí: la usan unlockPinWithCode y el super-admin, que ya pidió la suya. */
   async unlockPin(actor: Actor, walletId: string): Promise<{ ok: true }> {
     await this.managerWallet(actor, walletId);
-    await this.prisma.acrossVenues((tx) =>
-      tx.clientWallet.update({ where: { id: walletId }, data: { pinFails: 0, pinLockedAt: null } }),
+    const wallet = await this.prisma.acrossVenues((tx) =>
+      tx.clientWallet.update({ where: { id: walletId }, data: { pinFails: 0, pinLockedAt: null }, select: { shortCode: true } }),
     );
     await this.audit.log({
       action: 'wallet.pin_unlocked',
@@ -2070,7 +2070,8 @@ export class WalletChargesService {
       actorId: actor.userId,
       targetType: 'ClientWallet',
       targetId: walletId,
-      payload: {},
+      // El código del saldo: en Incidencias, el dueño sabe cuál fue.
+      payload: { code: wallet.shortCode ? formatWalletCode(wallet.shortCode) : null },
     });
     return { ok: true };
   }

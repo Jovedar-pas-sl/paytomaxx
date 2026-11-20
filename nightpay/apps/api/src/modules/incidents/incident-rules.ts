@@ -319,7 +319,10 @@ export function walletChargeDisputedIncident(r: EventRow): Incident {
   const code = str(r.payload, 'code');
   const amount = r.amountCents !== null ? ` de ${eur(r.amountCents)}` : '';
   const what = `El cliente dice que no ha sido él: cobro ${ref ?? 'del saldo'}${amount}`;
-  const blocked = 'Su ficha y su PIN ya no pagan (con su Face ID, sí).';
+  // Sin el campo (avisos de antes), el texto de siempre: entonces solo llegaba un saldo con Face ID.
+  const blocked = (r.payload as { faceId?: unknown } | null)?.faceId === false
+    ? 'Su ficha y su PIN ya no pagan.'
+    : 'Su ficha y su PIN ya no pagan (con su Face ID, sí).';
   const todo = 'Revisa el cobro con quien lo hizo y, si procede, devuélvelo. Después, el encargado desbloquea su PIN en Saldos y recepción le da una ficha nueva.';
   return {
     kind: 'wallet_charge_disputed',
@@ -507,14 +510,16 @@ export function sensitiveActionIncident(r: EventRow & { action: string; actorNam
   const startsLower = /^[a-záéíóú]/.test(copy.detail);
   const who = r.actorName?.trim();
   const name = str(r.payload, 'name');
+  // El código del saldo (PIN desbloqueado), como en «No he sido yo».
+  const code = str(r.payload, 'code');
   const flags = r.payload as { holderMismatch?: unknown; holderToConfirm?: unknown } | null;
   const note = flags?.holderToConfirm === true ? HOLDER_TO_CONFIRM_NOTE : flags?.holderMismatch === true ? HOLDER_MISMATCH_NOTE : '';
   return {
     kind: 'sensitive_action',
     refId: r.id,
     title: copy.title,
-    detail: `${startsLower ? `${who || 'Alguien del personal'} ${copy.detail}` : copy.detail}${name ? ` (${name})` : ''}${note}`,
-    // Telegram es un tercero: sin el nombre.
+    detail: `${startsLower ? `${who || 'Alguien del personal'} ${copy.detail}` : copy.detail}${name ? ` (${name})` : ''}${code ? ` (saldo ${code})` : ''}${note}`,
+    // Telegram es un tercero: sin el nombre ni el código.
     alertDetail: `${startsLower ? `Alguien del personal ${copy.detail}` : copy.detail}${note}`,
     occurredAt: r.occurredAt.toISOString(),
     amountCents: r.amountCents,
