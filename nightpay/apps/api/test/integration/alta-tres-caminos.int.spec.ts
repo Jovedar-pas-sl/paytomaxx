@@ -1,10 +1,12 @@
 // Integración (Postgres real, FORCE RLS, rol sin superusuario): alta de la compañera con tres
 // caminos (migración 20261119500000, 19-nov-2026).
-//  - Nombre legal (cifrado, pa1:…) y fecha de nacimiento: por el enlace de alta y por el panel;
-//    ni en la fila en claro (el nombre) ni en el registro (ninguno de los dos).
+//  - Nombre legal (cifrado, pa1:…) y fecha de nacimiento: por el enlace de alta (solo si aún no
+//    estaban; lo guardado lo corrige el dueño) y por el panel; ni en la fila en claro (el nombre)
+//    ni en el registro (ninguno de los dos).
 //  - Con menos de 18 años no se activa la cuenta: aceptar la invitación, poner contraseña o
 //    mandar otra invitación, 403 MINOR_CANNOT_ACTIVATE; si ya entraba, deja de entrar; aviso al
-//    dueño en Incidencias.
+//    dueño en Incidencias. Sin fecha, la compañera no activa (409 BIRTH_DATE_REQUIRED): la pone
+//    al activar.
 //  - El titular de su IBAN contra su nombre legal: si no coincide, aviso y no se le paga a esa
 //    cuenta (ni se pide) hasta que el dueño confirma con su 2FA que es suya; en efectivo, sí. Otro
 //    nombre legal vuelve a pedir la confirmación.
@@ -233,6 +235,19 @@ describe('menor de 18 años: no activa la cuenta y se avisa al dueño', () => {
     expect(await failure(asStaff(V, () => operators.regenerateInvite(V, dani, boss)))).toMatchObject(refused);
   });
 
+  it('una fecha ya guardada no se cambia por el enlace: la menor bloqueada sigue bloqueada aunque ponga otra', async () => {
+    const lia = await newCompanera('Lia');
+    await submit(lia, { birthDate: MINOR });
+    await expect(submit(lia, { birthDate: ADULT })).resolves.toEqual({ ok: true });
+    const saved = await row(lia);
+    expect(saved.birthDate?.toISOString().slice(0, 10)).toBe(MINOR);
+    expect(saved.onboardingStatus).toBe('BLOCKED');
+    expect(await failure(asStaff(V, () => operators.regenerateInvite(V, lia, manager)))).toMatchObject({ status: 403, body: { code: 'MINOR_CANNOT_ACTIVATE' } });
+    const submitted = (await auditOf(lia)).filter((a) => a.action === 'operator.self_onboarding.submitted');
+    expect(submitted.at(-1)?.payload).toMatchObject({ identityIgnored: ['birthDate'] });
+    expect(JSON.stringify(submitted)).not.toContain(ADULT);
+  });
+
   it('el dueño pone una fecha de menor en el panel: lo mismo; si la corrige, vuelve a poder invitarla', async () => {
     const eva = await newCompanera('Eva');
     await patch(boss, 'OWNER', eva, { birthDate: MINOR });
@@ -240,6 +255,38 @@ describe('menor de 18 años: no activa la cuenta y se avisa al dueño', () => {
     expect((await auditOf(eva)).map((a) => a.action)).toContain('operator.minor_blocked');
     await patch(boss, 'OWNER', eva, { birthDate: ADULT });
     await expect(asStaff(V, () => operators.regenerateInvite(V, eva, boss))).resolves.toMatchObject({ inviteUrl: expect.any(String) });
+  });
+});
+
+describe('sin fecha de nacimiento, la compañera no activa la cuenta', () => {
+  const inviteFor = async (persona: string) => {
+    const token = await jwt.signAsync({ sub: persona, tenantId: V, purpose: 'operator-invite' }, { expiresIn: '24h' });
+    await sys((tx) =>
+      tx.user.update({ where: { id: persona }, data: { invitedAt: new Date(), inviteToken: createHash('sha256').update(token).digest('hex') } }),
+    );
+    return token;
+  };
+
+  it('sin fecha: 409 y sigue pendiente; la pone al activar, entra y queda guardada', async () => {
+    const noa = await newCompanera('Noa');
+    const token = await inviteFor(noa);
+    expect(await failure(asPublic(() => operators.acceptInvite(token, 'contraseña-larga')))).toMatchObject({ status: 409, body: { code: 'BIRTH_DATE_REQUIRED' } });
+    expect((await row(noa)).invitedAt).toBeInstanceOf(Date);
+    await expect(asPublic(() => operators.acceptInvite(token, 'contraseña-larga', ADULT))).resolves.toEqual({ ok: true });
+    const saved = await row(noa);
+    expect(saved.invitedAt).toBeNull();
+    expect(saved.birthDate?.toISOString().slice(0, 10)).toBe(ADULT);
+  });
+
+  it('pone una fecha de menor al activar: no entra, queda bloqueada, la invitación ya no vale y el dueño lo ve', async () => {
+    const ona = await newCompanera('Ona');
+    const token = await inviteFor(ona);
+    expect(await failure(asPublic(() => operators.acceptInvite(token, 'contraseña-larga', MINOR)))).toMatchObject({ status: 403, body: { code: 'MINOR_CANNOT_ACTIVATE' } });
+    expect(await row(ona)).toMatchObject({ onboardingStatus: 'BLOCKED', inviteToken: null });
+    expect(await failure(asPublic(() => operators.acceptInvite(token, 'contraseña-larga', ADULT)))).toMatchObject({ status: 401 });
+    const inbox = await asStaff(V, () => incidents.list(V));
+    expect(inbox.some((i) => i.title === 'Menor de edad: cuenta sin activar' && i.detail.includes('(Ona)'))).toBe(true);
+    expect(JSON.stringify(await auditOf(ona))).not.toContain(MINOR);
   });
 });
 
@@ -289,6 +336,16 @@ describe('el titular de su IBAN contra su nombre legal', () => {
     await patch(boss, 'OWNER', flor, { payoutAddress: 'ES7921000813610123456789', totpCode: await codeOfBoss() });
     expect(await viewOf(flor)).toMatchObject({ payoutHolderUnconfirmed: true });
     expect((await row(flor)).payoutHolderConfirmedAt).toBeNull();
+  });
+
+  it('el enlace no cambia un nombre legal ya guardado: igualarlo al titular no se salta la confirmación del dueño', async () => {
+    const mia = await newCompanera('Mia');
+    await submit(mia, { legalName: 'Mía Soler', birthDate: ADULT, payoutMethod: 'SEPA_IBAN', payoutAddress: IBAN, payoutMetadata: { accountHolder: 'Pedro Gómez' } });
+    await expect(submit(mia, { legalName: 'Pedro Gómez' })).resolves.toEqual({ ok: true });
+    expect(await viewOf(mia)).toMatchObject({ legalNameMasked: 'M••• S•••', payoutHolderUnconfirmed: true });
+    await newEarning(mia, 10_000);
+    const res = await failure(markPaid(boss, 'OWNER', mia, { externalRail: 'SEPA_IBAN', totpCode: await codeOfBoss() }));
+    expect(res).toMatchObject({ status: 409, body: { code: 'PAYOUT_HOLDER_UNCONFIRMED' } });
   });
 
   it('con el titular que coincide no hay nada que confirmar', async () => {
