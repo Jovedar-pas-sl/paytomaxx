@@ -282,6 +282,20 @@ describe('la chica hace un cobro con QR', () => {
     await expect(svc.createQrCharge(waiter, { amountCents: 20_000 })).resolves.toMatchObject({ amountCents: 20_000 });
   });
 
+  it('OxioParty (EDITION=party): el tope de «Otro importe» sigue solo para el personal; su panel no tiene «Reglas del local»', async () => {
+    vi.stubEnv('EDITION', 'party');
+    try {
+      const { svc, prisma } = makeService();
+      prisma.venue.findUnique.mockResolvedValue({ operatorMaxCobroCents: 20_000, walletGroup: 'principal' });
+      const waiter = { userId: 'wt-1', role: 'WAITER' as const, tenantId: 'other' };
+      await expect(svc.createQrCharge(waiter, { amountCents: 25_000 })).resolves.toMatchObject({ amountCents: 25_000 });
+      await expect(svc.createQrCharge({ ...manager, tenantId: 'other' }, { amountCents: 25_000, category: 'VENUE_BAR' })).resolves.toMatchObject({ amountCents: 25_000 });
+      await expect(svc.createQrCharge(chica, { amountCents: 25_000 })).rejects.toThrow('El máximo que puedes cobrar de una vez es 200,00 €');
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
   it('varias cosas en un cobro del saldo: cada línea a su sección y el total del servidor', async () => {
     const { svc, tx } = makeService();
     const out = await svc.createQrCharge(manager, {
