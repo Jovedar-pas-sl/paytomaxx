@@ -31,6 +31,8 @@ interface UserRow {
   invitedAt: Date | null;
   inviteToken: string | null;
   passwordHash: string;
+  /** Sin ella una compañera no activa la cuenta (BIRTH_DATE_REQUIRED: operators.alta.spec.ts). */
+  birthDate: Date | null;
 }
 
 interface Opts {
@@ -52,6 +54,7 @@ function makeService(opts: Opts = {}) {
           invitedAt: new Date('2026-10-14T21:00:00+02:00'),
           inviteToken: null,
           passwordHash: '$2a$04$marcadordeposicion',
+          birthDate: new Date('1998-04-12T00:00:00Z'),
           ...(opts.user ?? {}),
         };
   const prisma = {

@@ -1,5 +1,6 @@
 import { ConflictException, ForbiddenException } from '@nestjs/common';
 import {
+  BIRTH_DATE_REQUIRED,
   MINOR_CANNOT_ACTIVATE,
   PAYOUT_HOLDER_UNCONFIRMED,
   holderMatchesName,
@@ -74,6 +75,14 @@ export function minorCannotActivate(): ForbiddenException {
   return new ForbiddenException({
     code: MINOR_CANNOT_ACTIVATE,
     message: 'Con menos de 18 años no se puede activar la cuenta.',
+  });
+}
+
+/** Sin saber su edad no se activa: la regla de menores no se salta dejando la fecha en blanco. */
+export function birthDateRequired(): ConflictException {
+  return new ConflictException({
+    code: BIRTH_DATE_REQUIRED,
+    message: 'Pon tu fecha de nacimiento para activar tu cuenta.',
   });
 }
 

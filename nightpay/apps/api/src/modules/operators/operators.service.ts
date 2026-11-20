@@ -59,6 +59,7 @@ import { isRecordNotFound, selfOnboardingAlreadySaved, usedTokenMarker } from '.
 import {
   becomesMinor,
   birthDateOf,
+  birthDateRequired,
   birthDateValue,
   legalNameData,
   legalNameView,
@@ -573,7 +574,7 @@ export class OperatorsService {
     };
   }
 
-  async acceptInvite(token: string, password: string): Promise<{ ok: true }> {
+  async acceptInvite(token: string, password: string, birthDate?: string): Promise<{ ok: true }> {
     if (password.length < 8) {
       throw new BadRequestException('Password debe tener al menos 8 caracteres');
     }
@@ -591,7 +592,7 @@ export class OperatorsService {
     const user = await this.prisma.asSystem((tx) =>
       tx.user.findUnique({
         where: { id: decoded.sub },
-        select: { id: true, inviteToken: true, deletedAt: true, birthDate: true },
+        select: { id: true, inviteToken: true, deletedAt: true, birthDate: true, role: true, displayName: true, invitedAt: true },
       }),
     );
     if (!user || user.deletedAt) {
@@ -602,7 +603,19 @@ export class OperatorsService {
     if (!user.inviteToken || user.inviteToken !== tokenHash) {
       throw new UnauthorizedException('Token ya utilizado o caducado');
     }
+    // Una compañera no activa sin saber su edad: si no la dio en su alta, la pone aquí.
+    // La guardada manda (la corrige el dueño en el panel).
+    const needsBirthDate = user.role === 'OPERATOR' && !user.birthDate;
+    if (needsBirthDate && !birthDate) throw birthDateRequired();
+    const newBirthDate = needsBirthDate && birthDate ? birthDateValue(birthDate) : null;
     if (minorNow(user.birthDate)) throw minorCannotActivate();
+    if (newBirthDate && minorNow(newBirthDate)) {
+      // Su invitación se anula (minorLockData) y el dueño lo ve en Incidencias.
+      const lock = minorLockData(user, new Date(), await placeholderPasswordHash());
+      await this.prisma.asSystem((tx) => tx.user.update({ where: { id: user.id }, data: { birthDate: newBirthDate, ...lock } }));
+      await this.minorBlocked(decoded.tenantId, user, user.id, 'invitacion');
+      throw minorCannotActivate();
+    }
 
     const passwordHash = await bcrypt.hash(password, 10);
     await this.prisma.asSystem((tx) =>
@@ -612,6 +625,7 @@ export class OperatorsService {
           passwordHash,
           invitedAt: null,
           inviteToken: null,
+          ...(newBirthDate ? { birthDate: newBirthDate } : {}),
         },
       }),
     );
@@ -918,9 +932,14 @@ export class OperatorsService {
     if (dto.needsHelpWallet !== undefined) data.needsHelpWallet = dto.needsHelpWallet;
     if (dto.needsHelpDocs !== undefined) data.needsHelpDocs = dto.needsHelpDocs;
     if (dto.onboardingNotes !== undefined) data.onboardingNotes = dto.onboardingNotes;
-    // Su nombre legal (cifrado) y su fecha de nacimiento; «Abrir mi OxioCard».
-    if (dto.legalName !== undefined) Object.assign(data, legalNameData(operator, dto.legalName));
-    if (dto.birthDate !== undefined) data.birthDate = birthDateValue(dto.birthDate);
+    // Su nombre legal (cifrado) y su fecha de nacimiento, solo si aún no estaban: lo
+    // guardado decide si activa la cuenta y a quién se le paga, y lo corrige el dueño
+    // en el panel (el enlace puede llegar a otras manos). «Abrir mi OxioCard».
+    const identityIgnored = (['legalName', 'birthDate'] as const).filter((k) => dto[k] !== undefined && Boolean(operator[k]));
+    const legalName = operator.legalName ? undefined : dto.legalName;
+    const birthDate = operator.birthDate ? undefined : dto.birthDate;
+    if (legalName !== undefined) Object.assign(data, legalNameData(operator, legalName));
+    if (birthDate !== undefined) data.birthDate = birthDateValue(birthDate);
     if (dto.oxiocard) Object.assign(data, this.oxiocardRequest(operator.oxiocardStatus, now));
     // A dónde va su dinero: solo la primera vez y solo con enlace del dueño.
     // Si ya tiene cuenta, o el enlace lo generó un encargado, no se toca: queda
@@ -961,7 +980,7 @@ export class OperatorsService {
     // el activo: dos «Guardar» a la vez no guardan dos veces.
     data.selfOnboardingToken = usedTokenMarker(tokenHash);
     // Menor de 18: no activa la cuenta (si ya entraba, deja de entrar) y se avisa al dueño.
-    const minor = becomesMinor(operator.birthDate, dto.birthDate, now);
+    const minor = becomesMinor(operator.birthDate, birthDate, now);
     const lock = minor ? minorLockData(operator, now, await placeholderPasswordHash()) : {};
 
     // Ruta pública (sin local en el contexto): como la lectura del token, con asSystem.
@@ -986,12 +1005,14 @@ export class OperatorsService {
         tokenInvalidated: true,
         // La propuesta, tapada (el registro no lleva cuentas en claro).
         ...(payoutIgnored ? { payoutIgnored, proposedPayout: proposedPayoutForAudit(dto) } : {}),
+        // Nombre legal o fecha que no se aplicaron (ya los había): solo el nombre del campo.
+        ...(identityIgnored.length ? { identityIgnored } : {}),
       },
     });
     if (minor) await this.minorBlocked(operator.tenantId, operator, operator.id, 'enlace');
     if (plan?.accountChanged) {
-      const legalName = dto.legalName ?? legalNameView(operator).plain;
-      await this.notifyPayoutChange({ tenantId: operator.tenantId, actorId: operator.id, via: 'enlace', operator: { ...operator, legalName }, plan });
+      const holderName = legalName ?? legalNameView(operator).plain;
+      await this.notifyPayoutChange({ tenantId: operator.tenantId, actorId: operator.id, via: 'enlace', operator: { ...operator, legalName: holderName }, plan });
     }
 
     this.logger.log(`Self-onboarding submitted by operator=${operator.id} (token invalidated)`);
@@ -1183,7 +1204,7 @@ export class OperatorsService {
     tenantId: string,
     operator: { id: string; displayName: string | null; invitedAt: Date | null },
     actorId: string,
-    via: 'panel' | 'enlace',
+    via: 'panel' | 'enlace' | 'invitacion',
   ): Promise<void> {
     await this.sessions.revokeAllForUser(operator.id);
     await this.audit.log({

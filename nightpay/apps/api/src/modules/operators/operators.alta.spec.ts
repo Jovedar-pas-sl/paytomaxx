@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
-import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { createHash } from 'node:crypto';
-import { MINOR_CANNOT_ACTIVATE } from '@nightpay/contracts';
+import { BIRTH_DATE_REQUIRED, MINOR_CANNOT_ACTIVATE } from '@nightpay/contracts';
 import { OperatorsService } from './operators.service';
 import { birthDateValue, sealLegalName } from './alta-identity';
 import { sealPayoutValue } from './payout-account-crypto';
@@ -108,6 +108,68 @@ describe('alta por enlace: nombre legal y fecha de nacimiento', () => {
     await expect(svc.submitSelfOnboarding(TOKEN, { birthDate: MINOR })).resolves.toEqual({ ok: true });
     expect(auditOf(audit, 'operator.minor_blocked')).toBeUndefined();
   });
+
+  it('lo ya guardado no se cambia por el enlace (lo corrige el dueño): ni se quita la marca de menor ni el nombre se iguala al titular', async () => {
+    const { svc, prisma, audit } = makeOps({
+      legalName: sealLegalName('op-1', 'Ana López'),
+      birthDate: birthDateValue(MINOR),
+      onboardingStatus: 'BLOCKED',
+      payoutHolderConfirmedAt: null,
+    });
+    await expect(svc.submitSelfOnboarding(TOKEN, { legalName: 'Pedro Gómez', birthDate: ADULT, phone: '600' })).resolves.toEqual({ ok: true });
+    const data = savedData(prisma);
+    expect(data).not.toHaveProperty('legalName');
+    expect(data).not.toHaveProperty('birthDate');
+    expect(data).not.toHaveProperty('payoutHolderConfirmedAt');
+    expect(data.phone).toBe('600');
+    const submitted = auditOf(audit, 'operator.self_onboarding.submitted')?.payload as { fields: string[]; identityIgnored?: string[] };
+    expect(submitted.identityIgnored).toEqual(['legalName', 'birthDate']);
+    expect(submitted.fields).not.toContain('birthDate');
+    expect(JSON.stringify(audit.log.mock.calls)).not.toContain(ADULT);
+  });
+});
+
+describe('sin fecha de nacimiento, la compañera no activa la cuenta', () => {
+  const INVITE = 'invite-token';
+  const invited = (row: Partial<typeof base> = {}) => {
+    const ops = makeOps({ invitedAt: new Date(), inviteToken: createHash('sha256').update(INVITE).digest('hex'), ...row });
+    ops.jwt.verifyAsync.mockResolvedValue({ sub: 'op-1', tenantId: 't-1', purpose: 'operator-invite' });
+    return ops;
+  };
+
+  it('sin fecha guardada ni puesta al activar: 409 BIRTH_DATE_REQUIRED y no se activa', async () => {
+    const { svc, prisma } = invited();
+    const err = await svc.acceptInvite(INVITE, 'contraseña-larga').catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ConflictException);
+    expect(err).toMatchObject({ response: expect.objectContaining({ code: BIRTH_DATE_REQUIRED }) });
+    expect(prisma.user.update).not.toHaveBeenCalled();
+  });
+
+  it('la pone al activar: se guarda y entra; si ya había una, manda la guardada', async () => {
+    const fresh = invited();
+    await expect(fresh.svc.acceptInvite(INVITE, 'contraseña-larga', ADULT)).resolves.toEqual({ ok: true });
+    expect(savedData(fresh.prisma)).toMatchObject({ birthDate: birthDateValue(ADULT), invitedAt: null, inviteToken: null });
+
+    const stored = invited({ birthDate: birthDateValue(ADULT) });
+    await expect(stored.svc.acceptInvite(INVITE, 'contraseña-larga', '2001-01-01')).resolves.toEqual({ ok: true });
+    expect(savedData(stored.prisma)).not.toHaveProperty('birthDate');
+  });
+
+  it('la pone al activar y es menor: se guarda, no entra, la invitación se anula y se avisa al dueño', async () => {
+    const { svc, prisma, audit } = invited();
+    await expect(svc.acceptInvite(INVITE, 'contraseña-larga', MINOR)).rejects.toMatchObject({
+      response: expect.objectContaining({ code: MINOR_CANNOT_ACTIVATE }),
+    });
+    expect(savedData(prisma)).toMatchObject({ birthDate: birthDateValue(MINOR), inviteToken: null, onboardingStatus: 'BLOCKED' });
+    expect(auditOf(audit, 'operator.minor_blocked')?.payload).toEqual({ via: 'invitacion', name: 'Lola', wasActive: false });
+    expect(auditOf(audit, 'operator.invite.accepted')).toBeUndefined();
+    expect(JSON.stringify(audit.log.mock.calls)).not.toContain(MINOR);
+  });
+
+  it('el resto del personal (encargados invitados desde la consola) activa como siempre, sin fecha', async () => {
+    const { svc } = invited({ role: 'MANAGER' });
+    await expect(svc.acceptInvite(INVITE, 'contraseña-larga')).resolves.toEqual({ ok: true });
+  });
 });
 
 describe('menor de edad: no activa la cuenta', () => {
@@ -170,6 +232,16 @@ describe('el titular de su cuenta contra su nombre legal', () => {
     expect(savedData(prisma).payoutHolderConfirmedAt).toBeInstanceOf(Date);
     expect(view.payoutHolderUnconfirmed).toBe(false);
     expect(auditOf(audit, 'operator.updated')?.payload).toEqual({ changes: { legalName: 'A••• M••• L•••', payoutHolderConfirmed: true } });
+  });
+
+  it('«la cuenta es suya» confirma solo la cuenta que se leyó: si cambió por otro lado entre medias, 409 y no se confirma', async () => {
+    const changedAt = new Date('2026-11-19T10:00:00.000Z');
+    const { svc, prisma, audit } = makeOps({ ...holderRow('Pedro Gómez', 'Ana López'), payoutAccountChangedAt: changedAt });
+    prisma.user.update.mockRejectedValueOnce(Object.assign(new Error('Record to update not found.'), { code: 'P2025' }));
+    await expect(svc.updateOperator('t-1', 'op-1', 'owner', 'OWNER', { payoutHolderConfirmed: true })).rejects.toBeInstanceOf(ConflictException);
+    const where = (prisma.user.update.mock.calls[0]![0] as { where: Record<string, unknown> }).where;
+    expect(where).toEqual({ id: 'op-1', payoutAccountChangedAt: { gte: changedAt, lt: new Date(changedAt.getTime() + 1) } });
+    expect(auditOf(audit, 'operator.updated')).toBeUndefined();
   });
 
   it('otro nombre legal borra la confirmación de antes', async () => {

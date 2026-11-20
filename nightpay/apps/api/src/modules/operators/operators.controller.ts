@@ -116,7 +116,7 @@ export class OperatorsController {
   async acceptInvite(
     @Body(new ZodValidationPipe(AcceptInviteSchema)) dto: AcceptInviteDto,
   ): Promise<{ ok: true }> {
-    return this.operators.acceptInvite(dto.token, dto.password);
+    return this.operators.acceptInvite(dto.token, dto.password, dto.birthDate);
   }
 
   /**
