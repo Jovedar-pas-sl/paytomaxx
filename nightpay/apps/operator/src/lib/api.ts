@@ -909,13 +909,14 @@ export async function submitSelfOnboarding(
 
 // ─── Public — accept invite ───────────────────────────────────────
 
-export async function acceptInvite(token: string, password: string): Promise<{ ok: true }> {
+/** Una compañera sin fecha de nacimiento: ApiError con code BIRTH_DATE_REQUIRED (la página la pide y repite). */
+export async function acceptInvite(token: string, password: string, birthDate?: string): Promise<{ ok: true }> {
   const res = await publicFetch('/v1/operators/accept-invite', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ token, password }),
+    body: JSON.stringify({ token, password, ...(birthDate ? { birthDate } : {}) }),
   });
-  if (!res.ok) throw new Error(await parseOperatorApiError(res, 'Aceptar invitación'));
+  if (!res.ok) throw await operatorApiError(res, 'Aceptar invitación');
   return res.json();
 }
 

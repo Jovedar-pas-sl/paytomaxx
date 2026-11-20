@@ -2,6 +2,8 @@
 
 import { Suspense, useState, type FormEvent } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
+import { BIRTH_DATE_REQUIRED, BirthDateSchema, isMinor, madridToday } from '@nightpay/contracts';
+import { ApiError } from '@nightpay/api-client';
 import { Button, Card, Input, Logo } from '@nightpay/ui';
 import { acceptInvite } from '@/lib/api';
 
@@ -22,6 +24,9 @@ function Inner() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState(false);
+  // Compañera sin fecha de nacimiento guardada: el API la pide (sin ella no se activa).
+  const [askBirthDate, setAskBirthDate] = useState(false);
+  const [birthDate, setBirthDate] = useState('');
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -38,12 +43,20 @@ function Inner() {
       setError('Falta token de invitación en la URL');
       return;
     }
+    if (askBirthDate) {
+      const parsed = BirthDateSchema.safeParse(birthDate);
+      if (!parsed.success) {
+        setError(parsed.error.issues[0]?.message ?? 'Pon tu fecha de nacimiento');
+        return;
+      }
+    }
     setBusy(true);
     try {
-      await acceptInvite(token, password);
+      await acceptInvite(token, password, askBirthDate ? birthDate : undefined);
       setDone(true);
       setTimeout(() => router.push('/'), 1500);
     } catch (err) {
+      if (err instanceof ApiError && err.code === BIRTH_DATE_REQUIRED) setAskBirthDate(true);
       setError((err as Error).message);
     } finally {
       setBusy(false);
@@ -82,6 +95,25 @@ function Inner() {
               onChange={(e) => setConfirm(e.target.value)}
               required
             />
+            {askBirthDate ? (
+              <div>
+                <Input
+                  type="date"
+                  label="Fecha de nacimiento"
+                  autoComplete="bday"
+                  value={birthDate}
+                  onChange={(e) => setBirthDate(e.target.value)}
+                  min="1900-01-01"
+                  max={madridToday()}
+                  required
+                />
+                {isMinor(birthDate || null, madridToday()) ? (
+                  <p role="status" style={{ margin: '0.4rem 0 0', color: 'var(--np-warning)', fontSize: 'var(--np-fs-14)' }}>
+                    Con menos de 18 años no se puede activar la cuenta. Si sigues, avisaremos al dueño del local.
+                  </p>
+                ) : null}
+              </div>
+            ) : null}
             <Button type="submit" loading={busy} size="lg">
               Activar
             </Button>

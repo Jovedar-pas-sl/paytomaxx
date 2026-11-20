@@ -246,35 +246,53 @@ export function SelfOnboardingClient({ token }: Props) {
           {/* Datos personales */}
           <section>
             <h2 style={sectionHead}>Datos personales</h2>
-            <Input
-              label="Nombre y apellidos (como en tu documento)"
-              value={legalName}
-              onChange={(e) => setLegalName(e.target.value)}
-              placeholder={profile.legalNameMasked ? `Ya guardado: ${profile.legalNameMasked}` : 'María López Pérez'}
-              hint={profile.legalNameMasked ? 'Ya lo tenemos: escríbelo solo si hay que corregirlo.' : 'Como en tu pasaporte o tu NIE. Va cifrado.'}
-              error={triedSubmit ? identityErrors.legalName : undefined}
-              maxLength={120}
-              autoComplete="name"
-              disabled={submitting}
-            />
-            <div style={{ marginTop: '0.75rem' }}>
+            {/* Ya guardados: desde el enlace no se cambian (los corrige el dueño en el panel). */}
+            {profile.legalNameMasked ? (
+              <SavedValue
+                label="Nombre y apellidos (como en tu documento)"
+                value={profile.legalNameMasked}
+                hint="Ya lo tenemos. Si hay que corregirlo, díselo al dueño del local."
+              />
+            ) : (
               <Input
-                label="Fecha de nacimiento"
-                type="date"
-                value={birthDate}
-                onChange={(e) => setBirthDate(e.target.value)}
-                min="1900-01-01"
-                max={madridToday()}
-                hint={profile.hasBirthDate ? 'Ya la tenemos: ponla solo si hay que corregirla.' : undefined}
-                error={triedSubmit ? identityErrors.birthDate : undefined}
-                autoComplete="bday"
+                label="Nombre y apellidos (como en tu documento)"
+                value={legalName}
+                onChange={(e) => setLegalName(e.target.value)}
+                placeholder="María López Pérez"
+                hint="Como en tu pasaporte o tu NIE. Va cifrado."
+                error={triedSubmit ? identityErrors.legalName : undefined}
+                maxLength={120}
+                autoComplete="name"
                 disabled={submitting}
               />
-              {isMinor(birthDate || null, madridToday()) ? (
-                <p role="status" style={{ ...hintStyle, color: 'var(--np-warning)' }}>
-                  Con menos de 18 años no se puede activar la cuenta. Si guardas, avisaremos al dueño del local.
-                </p>
-              ) : null}
+            )}
+            <div style={{ marginTop: '0.75rem' }}>
+              {profile.hasBirthDate ? (
+                <SavedValue
+                  label="Fecha de nacimiento"
+                  value="Ya guardada"
+                  hint="Si está mal, díselo al dueño del local."
+                />
+              ) : (
+                <>
+                  <Input
+                    label="Fecha de nacimiento"
+                    type="date"
+                    value={birthDate}
+                    onChange={(e) => setBirthDate(e.target.value)}
+                    min="1900-01-01"
+                    max={madridToday()}
+                    error={triedSubmit ? identityErrors.birthDate : undefined}
+                    autoComplete="bday"
+                    disabled={submitting}
+                  />
+                  {isMinor(birthDate || null, madridToday()) ? (
+                    <p role="status" style={{ ...hintStyle, color: 'var(--np-warning)' }}>
+                      Con menos de 18 años no se puede activar la cuenta. Si guardas, avisaremos al dueño del local.
+                    </p>
+                  ) : null}
+                </>
+              )}
             </div>
             <div style={{ marginTop: '0.75rem' }}>
               <Input
@@ -455,6 +473,17 @@ export function SelfOnboardingClient({ token }: Props) {
         </form>
       </Card>
     </main>
+  );
+}
+
+/** Un dato ya guardado: se ve, pero no se cambia desde el enlace. */
+function SavedValue({ label, value, hint }: { label: string; value: string; hint: string }) {
+  return (
+    <div>
+      <p style={{ ...selectLabel, marginTop: 0 }}>{label}</p>
+      <p style={{ margin: 0 }}>{value}</p>
+      <p style={hintStyle}>{hint}</p>
+    </div>
   );
 }
 
