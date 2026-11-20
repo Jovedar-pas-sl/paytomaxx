@@ -77,6 +77,7 @@ import {
   queueOpenKey,
   queueTokenValid,
 } from './home-topup-queue';
+import { GIFT_MESSAGE_MAX, GIFT_NAME_MAX, giftExpiresAt, newGiftToken, parseGiftTexts } from './home-topup-gift';
 
 /** El local de un enlace encendido, con lo que hace falta para cargar. */
 export interface HomeVenue {
@@ -88,6 +89,8 @@ export interface HomeVenue {
   serviceFee: VenueServiceFee;
   /** Los importes que se ofrecen: los de su recepción (Ajustes → Noche, A9). */
   presetsCents: number[];
+  /** «Regala una noche»: «Para regalar» encendido (apagado de serie). */
+  gifts: boolean;
 }
 
 /** Lo que pinta la página del enlace (/r/<código>). */
@@ -116,6 +119,8 @@ export interface HomeTopUpPageView {
    * página lo dice y carga como el enlace de siempre (con su tope por IP).
    */
   queue?: { token: string; noDevice?: true } | { expired: true };
+  /** «Regala una noche» encendido: la página ofrece «Para regalar». */
+  gifts?: boolean;
 }
 
 export interface HomeTopUpStarted {
@@ -168,6 +173,7 @@ export class HomeTopUpService {
           id: true,
           name: true,
           homeTopUpEnabled: true,
+          homeTopUpGiftsEnabled: true,
           deletedAt: true,
           nightSettings: true,
           ...VENUE_PAUSE_SELECT,
@@ -213,6 +219,7 @@ export class HomeTopUpService {
       feesCents: topUpFeeTable(venue.serviceFee, SELF_TOPUP_MIN_CENTS, SELF_TOPUP_MAX_CENTS),
       mine: mine ? { codeHint: codeHintOf(mine.shortCode) } : null,
       fichas: paymentMethodsOf(venue.raw.paymentMethods).nfc,
+      ...(venue.gifts ? { gifts: true } : {}),
     };
   }
 
@@ -234,10 +241,20 @@ export class HomeTopUpService {
       ip: string | null;
       /** Desde el cartel de la cola (B16): su QR de la noche y el móvil (cookie firmada). */
       queue?: { token: unknown; deviceId: string | null };
+      /** «Para regalar»: el nombre y el mensaje (opcionales). Quien paga no se lleva el saldo. */
+      gift?: { name: unknown; message: unknown };
     },
   ): Promise<HomeTopUpStarted> {
     const venue = await this.venueByCode(code);
-    if (!venue) throw homeTopUpGone();
+    // Con «Regalos» apagado, como un enlace apagado: 404 sin pistas.
+    if (!venue || (input.gift && !venue.gifts)) throw homeTopUpGone();
+    const giftTexts = input.gift ? parseGiftTexts(input.gift.name, input.gift.message) : null;
+    if (input.gift && !giftTexts) {
+      throw new BadRequestException({
+        message: `El nombre va hasta ${GIFT_NAME_MAX} letras y el mensaje hasta ${GIFT_MESSAGE_MAX}.`,
+        code: 'GIFT_TEXT',
+      });
+    }
     const amountCents = parseTopUpAmount(input.amountCents);
     if (amountCents === null) {
       throw new BadRequestException({
@@ -251,8 +268,8 @@ export class HomeTopUpService {
     this.assertCanLoad(venue);
     // Desde el cartel: el QR de esta noche y el móvil, o nada.
     if (input.queue) this.assertQueue(venue.id, code, input.queue);
-    const fromQueue = input.queue?.deviceId ?? null;
-    const key = homeTopUpKey(this.secret(), venue.id, input.key, fromQueue !== null);
+    const fromQueue = input.gift ? null : (input.queue?.deviceId ?? null);
+    const key = homeTopUpKey(this.secret(), venue.id, input.key, giftTexts ? 'gift' : fromQueue !== null ? 'queue' : 'link');
     // La misma clave repetida (doble toque, la red): el mismo cobro, sin gastar otra vez el freno.
     const replay = await this.prisma.asSystem((tx) =>
       tx.payment.findUnique({ where: { tenantId_idempotencyKey: { tenantId: venue.id, idempotencyKey: key } }, select: { id: true } }),
@@ -288,7 +305,10 @@ export class HomeTopUpService {
       const created = await this.payments.create(venue.id, key, dto);
       const stale = !OPEN_STATUSES.has(created.status) || (created.status === 'CREATED' && Date.parse(created.qrExpiresAt) <= Date.now());
       if (stale) throw new ConflictException({ message: 'Esta carga ya no vale: vuelve a pulsar el botón.', code: 'WALLET_TOPUP_STALE' });
-      this.logger.log(`Carga desde casa: venue=${venue.id} payment=${created.id} wallet=${created.walletId ?? '-'} amount=${amountCents}c`);
+      if (giftTexts) await this.saveGift(venue.id, created, giftTexts);
+      this.logger.log(
+        `Carga desde casa${giftTexts ? ' (regalo)' : ''}: venue=${venue.id} payment=${created.id} wallet=${created.walletId ?? '-'} amount=${amountCents}c`,
+      );
       // Cada carga desde el cartel, en el registro (el móvil, recortado: no es nada personal).
       if (slot && fromQueue !== null) {
         await this.keepQueueSlot(slot, created.id);
@@ -307,6 +327,29 @@ export class HomeTopUpService {
       if (slot) await this.releaseQueueSlot(slot);
       throw err;
     }
+  }
+
+  /**
+   * El regalo de esta carga, con su enlace (al azar, no el del saldo), y su
+   * saldo sin grupo (solo este local). La misma carga repetida (doble toque)
+   * no crea otro: se queda el primero.
+   */
+  private async saveGift(
+    venueId: string,
+    payment: { id: string; walletId?: string | null },
+    texts: { toName: string | null; message: string | null },
+  ): Promise<void> {
+    const walletId = payment.walletId;
+    if (!walletId) throw new ConflictException({ message: 'Esta carga ya no vale: vuelve a pulsar el botón.', code: 'WALLET_TOPUP_STALE' });
+    const now = new Date();
+    await this.prisma.asSystem(async (tx) => {
+      // El regalo vale solo en este local: el saldo nuevo, sin el grupo de locales.
+      await tx.clientWallet.updateMany({ where: { id: walletId, tenantId: venueId }, data: { walletGroup: null } });
+      await tx.walletGift.createMany({
+        data: [{ tenantId: venueId, walletId, paymentId: payment.id, token: newGiftToken(), ...texts, expiresAt: giftExpiresAt(now), createdAt: now }],
+        skipDuplicates: true,
+      });
+    });
   }
 
   // ─── El cartel de la cola (B16) ───────────────────────────────────
@@ -458,7 +501,8 @@ export class HomeTopUpService {
   /** Pausa, formas de cobro, pasarela y el terminal al que se apunta la carga. */
   private async withState(
     tx: TransactionalClient,
-    venue: { id: string; name: string; paymentMethods: unknown; nightSettings?: unknown } & VenuePauseState & Partial<VenueServiceFeeRow>,
+    venue: { id: string; name: string; paymentMethods: unknown; nightSettings?: unknown; homeTopUpGiftsEnabled?: boolean } & VenuePauseState &
+      Partial<VenueServiceFeeRow>,
   ): Promise<HomeVenue> {
     const gateways = await tx.gatewayCredential.count({ where: { tenantId: venue.id, active: true } });
     // Uno del local que no sea el datáfono de recepción: sus topes son de lo cobrado allí.
@@ -482,6 +526,7 @@ export class HomeTopUpService {
       terminalExternalId: terminal?.externalId ?? null,
       serviceFee: venueServiceFeeOf(venue),
       presetsCents: selfTopUpPresets(nightSettingsOf(venue.nightSettings).receptionQuickAmountsCents),
+      gifts: venue.homeTopUpGiftsEnabled === true,
     };
   }
 

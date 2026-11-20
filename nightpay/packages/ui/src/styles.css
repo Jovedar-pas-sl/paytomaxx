@@ -147,7 +147,6 @@
   --np-outcome-sub: #cfe9d9;
   --np-outcome-how-bg: rgb(0 0 0 / 0.25);
   --np-outcome-how-line: rgb(207 233 217 / 0.25);
-  --np-outcome-tick-ring: #58d68d;
   --np-outcome-failed: #7a1c20;
   --np-outcome-expired: #5c4300;
   /* El destello verde del PAGADO (una vez, al llegar; decisión D10). */
@@ -908,6 +907,40 @@ html.np-touch[data-contrast='sala'] {
       --np-qr: clamp(10rem, 34svh, 20rem);
     }
 
+  }
+}
+
+/* ─── Símbolo al abrir la app (BrandSplash) ──────────────────────────── */
+.np-splash {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: grid;
+  place-items: center;
+  background: var(--np-bg);
+  pointer-events: none;
+  /* Tope: se funde a los 500 ms aunque la app tarde en estar lista. */
+  animation: np-splash-out 200ms ease-out 500ms 1 both;
+}
+
+.np-splash[data-ready] {
+  animation: np-splash-out 200ms ease-out 1 both;
+}
+
+.np-splash img {
+  width: 7rem;
+  height: 7rem;
+  border-radius: 1.5rem;
+}
+
+@keyframes np-splash-out {
+  from { opacity: 1; }
+  to   { opacity: 0; visibility: hidden; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .np-splash {
+    display: none;
   }
 }
 
