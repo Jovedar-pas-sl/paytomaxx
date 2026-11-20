@@ -64,6 +64,11 @@ describe('acciones delicadas: el dueño tiene que poder verlas', () => {
     expect(i).toMatchObject({ kind: 'sensitive_action', title: 'PIN de un cliente desbloqueado', ackable: true });
     expect(i.detail).toMatch(/^Javi ha desbloqueado el PIN de un saldo/);
     expect(i.alertDetail).toMatch(/^Alguien del personal ha desbloqueado/);
+    // Con el código del saldo en el panel; a Telegram, sin él.
+    const coded = sensitiveActionIncident(row('wallet.pin_unlocked', { amountCents: null, payload: { code: '5NX-9P4' } }));
+    expect(coded.detail).toMatch(/^Javi ha desbloqueado el PIN de un saldo .*\(saldo 5NX-9P4\)$/);
+    expect(coded.alertDetail).not.toContain('5NX');
+    expect(i.detail).not.toContain('(saldo');
   });
 
   it('cuenta de cobro cambiada: quién y a quién en el panel, sin nombres ni cuenta en Telegram', () => {

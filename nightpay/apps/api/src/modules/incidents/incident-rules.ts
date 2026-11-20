@@ -503,13 +503,15 @@ export function sensitiveActionIncident(r: EventRow & { action: string; actorNam
   const startsLower = /^[a-záéíóú]/.test(copy.detail);
   const who = r.actorName?.trim();
   const name = str(r.payload, 'name');
+  // El código del saldo (PIN desbloqueado), como en «No he sido yo».
+  const code = str(r.payload, 'code');
   const note = (r.payload as { holderMismatch?: unknown } | null)?.holderMismatch === true ? HOLDER_MISMATCH_NOTE : '';
   return {
     kind: 'sensitive_action',
     refId: r.id,
     title: copy.title,
-    detail: `${startsLower ? `${who || 'Alguien del personal'} ${copy.detail}` : copy.detail}${name ? ` (${name})` : ''}${note}`,
-    // Telegram es un tercero: sin el nombre.
+    detail: `${startsLower ? `${who || 'Alguien del personal'} ${copy.detail}` : copy.detail}${name ? ` (${name})` : ''}${code ? ` (saldo ${code})` : ''}${note}`,
+    // Telegram es un tercero: sin el nombre ni el código.
     alertDetail: `${startsLower ? `Alguien del personal ${copy.detail}` : copy.detail}${note}`,
     occurredAt: r.occurredAt.toISOString(),
     amountCents: r.amountCents,

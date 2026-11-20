@@ -638,11 +638,12 @@ describe('lo que el cliente no confirma pide el 2FA de quien lo hace', () => {
     await expect(svc.unlockPinWithCode({ ...manager, role: 'WAITER' as never }, 'w-1', '123456')).rejects.toThrow(ForbiddenException);
     expect(tx.clientWallet.update).not.toHaveBeenCalled();
     expect(audit.log).not.toHaveBeenCalled();
+    tx.clientWallet.update.mockResolvedValueOnce({ shortCode: 'K7Q4M2' });
     await expect(svc.unlockPinWithCode(manager, 'w-1', '123456')).resolves.toEqual({ ok: true });
     expect(totp.assertForUser).toHaveBeenLastCalledWith(manager.userId, '123456', 'pin-unlock:w-1');
-    expect(tx.clientWallet.update).toHaveBeenCalledWith({ where: { id: 'w-1' }, data: { pinFails: 0, pinLockedAt: null } });
-    // Queda en el registro: sale en Incidencias (acción delicada).
-    expect(audit.log).toHaveBeenCalledWith(expect.objectContaining({ action: 'wallet.pin_unlocked', actorId: manager.userId }));
+    expect(tx.clientWallet.update).toHaveBeenCalledWith({ where: { id: 'w-1' }, data: { pinFails: 0, pinLockedAt: null }, select: { shortCode: true } });
+    // Queda en el registro, con el código del saldo: sale en Incidencias (acción delicada).
+    expect(audit.log).toHaveBeenCalledWith(expect.objectContaining({ action: 'wallet.pin_unlocked', actorId: manager.userId, payload: { code: 'K7Q-4M2' } }));
   });
 
   it('un código malo no deja hacer nada', async () => {
