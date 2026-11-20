@@ -82,7 +82,7 @@ function makeOps(opts: MakeOptions = {}) {
     $transaction: vi.fn().mockImplementation(async (fn: (tx: unknown) => unknown) => fn(prisma)),
     withTenant: vi.fn().mockImplementation(async (_tenantId: string, fn: (tx: unknown) => unknown) => fn(prisma)),
   });
-  const email = { send: vi.fn().mockResolvedValue({ delivered: false }) };
+  const email = { send: vi.fn().mockResolvedValue({ delivered: false }), isEnabled: () => false };
   const audit = { log: vi.fn().mockResolvedValue(undefined) };
   const config = {
     get: vi.fn((key: string) => (key === 'OPERATOR_BASE_URL' ? 'https://chicas.example.com' : undefined)),
