@@ -896,4 +896,18 @@ describe('bandeja de incidencias — avisos por persona', () => {
     // Desde hace 7 días.
     expect(params[0]).toContainEqual(at('2026-11-12T03:00:00Z'));
   });
+
+  it('OxioParty (EDITION=party): no se miran (cobros seguidos al mismo saldo son lo normal en una fiesta)', async () => {
+    vi.stubEnv('EDITION', 'party');
+    try {
+      const { svc, sqls } = staffIncidents(null, {
+        same_saldo: [{ rule: 'same_saldo', night: '2026-11-18', userId: 'u-2', name: 'Leo', count: 3, amountCents: 6_000, walletId: 'w-1', shortCode: 'K7Q4M2', lastAt }],
+      });
+      const items = await svc.list('t-1', at('2026-11-19T03:00:00Z'));
+      expect(items.filter((i) => i.kind === 'staff_pattern')).toEqual([]);
+      expect(sqls).toHaveLength(0);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
 });
