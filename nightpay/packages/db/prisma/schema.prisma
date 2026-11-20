@@ -235,7 +235,7 @@ model User {
   // El titular (accountHolder) va cifrado igual dentro del JSON.
   payoutMetadata Json?
   payoutLabel    String?
-  // Cuenta segura (20261120300000): lo tapado para enseñar, el último cambio,
+  // Cuenta segura (20261120310000): lo tapado para enseñar, el último cambio,
   // la espera de 48 h para pagar a la cuenta nueva y el aviso a la compañera.
   payoutAddressMasked    String?
   payoutHolderMasked     String?

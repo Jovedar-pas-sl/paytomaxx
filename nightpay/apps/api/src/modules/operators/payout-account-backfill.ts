@@ -6,7 +6,7 @@ import { openPayoutAccount, sealLegacyPayoutAccount, type StoredPayoutAccount } 
 import { openPayoutValue, sealPayoutValue } from './payout-account-crypto';
 
 /**
- * El relleno de «cuenta de cobro segura» (migración 20261120300000): cifra las
+ * El relleno de «cuenta de cobro segura» (migración 20261120310000): cifra las
  * cuentas de cobro y los titulares que estaban en claro (users) y la cuenta
  * guardada en cada pago ya hecho (operator_payouts.paidToAddress).
  *
