@@ -1,7 +1,7 @@
 'use client';
 
 import { Button } from '@nightpay/ui';
-import { SECTION_HINTS, type PanelSection, type PanelTab } from '@/lib/roles';
+import { sectionHint, type PanelSection, type PanelTab } from '@/lib/roles';
 
 interface Props {
   section: PanelSection;
@@ -20,7 +20,7 @@ export function SectionHint({ section, tabs, onOpenRrpp }: Props) {
   const rrpp = section.key === 'chicas' && tabs.some((t) => t.key === 'reservations');
   return (
     <div className="np-section-hint">
-      <p>{SECTION_HINTS[section.key]}</p>
+      <p>{sectionHint(section.key)}</p>
       {rrpp ? (
         <Button variant="ghost" size="sm" onClick={onOpenRrpp} data-tour="chicas-rrpp">
           RRPP y sus enlaces <span aria-hidden="true">→</span>

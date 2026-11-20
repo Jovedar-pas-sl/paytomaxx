@@ -11,6 +11,8 @@
     "NEXT_PUBLIC_OPERATOR_URL",
     "NEXT_PUBLIC_WEB_CLIENT_URL",
     "NEXT_PUBLIC_PAX_SIMULATOR",
+    "NEXT_PUBLIC_EDITION",
+    "EDITION",
     "BRAND_NAME"
   ],
   "globalPassThroughEnv": [

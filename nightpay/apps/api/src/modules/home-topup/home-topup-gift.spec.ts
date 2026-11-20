@@ -243,6 +243,19 @@ describe('HomeTopUpService.start con «Para regalar»', () => {
     await expect(m.service.start(CODE, { amountCents: 5000, key: KEY, lang: 'es', ip: null })).resolves.toMatchObject({ payToken: 'payTok' });
   });
 
+  it('en OxioParty no hay regalos aunque el interruptor esté encendido: 404, y la carga normal sí', async () => {
+    vi.stubEnv('EDITION', 'party');
+    try {
+      const m = make();
+      await expect(gift(m.service)).rejects.toBeInstanceOf(NotFoundException);
+      expect(m.payments.create).not.toHaveBeenCalled();
+      expect((await m.service.venueByCode(CODE))?.gifts).toBe(false);
+      await expect(m.service.start(CODE, { amountCents: 5000, key: KEY, lang: 'es', ip: null })).resolves.toMatchObject({ payToken: 'payTok' });
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
   it('los mismos importes que una carga (euros enteros de 10 a 300 €)', async () => {
     const m = make();
     for (const bad of [999, 30100, 5050, '50', null]) {

@@ -47,6 +47,7 @@ import { HomeTopUpModule } from './modules/home-topup/home-topup.module';
 import { CustomerDisplayModule } from './modules/customer-display/customer-display.module';
 import { ReservationsModule } from './modules/reservations/reservations.module';
 import { LegalModule } from './modules/legal/legal.module';
+import { PartyModule } from './modules/party/party.module';
 
 @Module({
   imports: [
@@ -115,6 +116,8 @@ import { LegalModule } from './modules/legal/legal.module';
     CustomerDisplayModule,
     ReservationsModule,
     LegalModule,
+    // OxioParty (EDITION=party): casetas y ajustes de la fiesta; con club, 404.
+    PartyModule,
   ],
   controllers: [HealthController],
   // Orden importa: IpRateLimit corre antes que AuthGuard para que un ataque de

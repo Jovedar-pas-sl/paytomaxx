@@ -62,6 +62,7 @@ import {
   pinNote,
   quickAmounts,
   readFicha,
+  recentTopUpLine,
   rechargeChip,
   rechargeProblem,
   exitPlan,
@@ -71,11 +72,19 @@ import {
   type ReceptionDeskView,
 } from '@/lib/reception-desk';
 import { undoCashTopUp, type CashUndoReason } from '@/lib/cash-undo';
+import { isParty, pulseraText } from '@/lib/edition';
 import { fichaShort, photoHint } from '@/lib/ficha-number';
+import { useCashDesk } from '@/lib/party-cash-desk';
+import { PARTY_DEFAULT_AMOUNT, loadedRows, pulseraCard } from '@/lib/party-taquilla';
+import { placeName, useVenueIdentity } from '@/lib/venue-identity';
 import { handOverOf, loadedHelp } from '@/lib/reception-help';
 import { receptionChip, useMySections } from '@/lib/sections';
 import { useVenueName, useVenueNight } from '@/lib/venue-methods';
 import { PinPad } from '../../PinPad';
+import { CashDeskLine } from '../../party/CashDeskLine';
+import { OnlinePill } from '../../party/OnlinePill';
+import { OutcomeRows } from '../../party/PartyPaid';
+import { TaquillaForm } from '../../party/TaquillaForm';
 import { ActivationQr } from './ActivationQr';
 import { CounterAviso, DeskHead, DeskBtn, DeskRowLink, DeskRowView } from './desk-parts';
 import { AmountStep, CashConfirmStep, CodeStep, ExitStep, KeypadStep, MethodStep, NumberStep, TapStage } from './DeskSteps';
@@ -138,10 +147,18 @@ const PAID_FACTS_TIMEOUT_MS = 3_000;
 export function ReceptionDesk({ user, active, footer, onGiveFicha, onScanHome, home }: Props) {
   const practice = usePractice();
   const night = useVenueNight();
+  // OxioParty: la taquilla (otra pantalla para cargar la pulsera; los mismos endpoints y pasos).
+  const party = isParty();
+  const identity = useVenueIdentity();
+  // El cambio que se marcó al cargar en efectivo: el detalle de CARGADO (no va al servidor).
+  const partyChange = useRef<number | null>(null);
   const venueName = useVenueName();
   const { sections } = useMySections();
   const [mode, setMode] = useState<Mode>('entrada');
   const [step, setStep] = useState<Step>({ kind: 'tap' });
+  // OxioParty: «Efectivo en esta caja», pedido otra vez después de cada carga o anulación.
+  const [cashDeskKey, setCashDeskKey] = useState(0);
+  const cashDesk = useCashDesk(party, cashDeskKey);
   const [options, setOptions] = useState<ReceptionOptions | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -199,6 +216,9 @@ export function ReceptionDesk({ user, active, footer, onGiveFicha, onScanHome, h
   useEffect(() => {
     if (step.kind === 'loaded') home?.onDone();
   }, [step.kind]);
+  useEffect(() => {
+    if (party && (step.kind === 'loaded' || step.kind === 'undone')) setCashDeskKey((n) => n + 1);
+  }, [party, step.kind]);
   const amounts = quickAmounts(night.receptionQuickAmountsCents);
 
   function go(next: Step): void {
@@ -210,6 +230,7 @@ export function ReceptionDesk({ user, active, footer, onGiveFicha, onScanHome, h
 
   function restart(nextMode: Mode = mode, message: string | null = null): void {
     attempt.current = null;
+    partyChange.current = null;
     cashCheck.current += 1;
     setCode('');
     setMode(nextMode);
@@ -552,7 +573,18 @@ export function ReceptionDesk({ user, active, footer, onGiveFicha, onScanHome, h
     if (at.kind === 'exit' || at.kind === 'exitNumber') return <ScreenHelp {...TOURS.recepcionSalida} ready={false} />;
     return undefined;
   };
-  const head = (onBack?: () => void) => <DeskHead title={home ? 'Recargar saldo' : 'Recepción'} sub={name} chip={chip} onBack={onBack} help={stepHelp(step)} />;
+  // OxioParty: la caseta de la taquilla (o el local) y «En línea» en vez del chip.
+  const deskTitle = placeName(identity, 'Taquilla');
+  const deskSub = party && identity.stallName ? (identity.venueName ?? name) : name;
+  const aside = party ? <OnlinePill /> : undefined;
+  const head = (onBack?: () => void) =>
+    party ? (
+      <DeskHead title={deskTitle} sub={deskSub} chip={chip} onBack={onBack} help={stepHelp(step)} aside={aside} />
+    ) : (
+      <DeskHead title={home ? 'Recargar saldo' : 'Recepción'} sub={name} chip={chip} onBack={onBack} help={stepHelp(step)} />
+    );
+  // OxioParty: el importe y cómo paga van en una sola pantalla (la taquilla).
+  const taquilla = party && (step.kind === 'amount' || step.kind === 'method');
 
   if (step.kind === 'loaded') return renderLoaded(step.done);
 
@@ -657,6 +689,7 @@ export function ReceptionDesk({ user, active, footer, onGiveFicha, onScanHome, h
 
       {step.kind === 'tap' ? (
         <>
+          {party ? <CashDeskLine desk={cashDesk} /> : null}
           <TapStage
             mode={mode}
             noReader={!nfc.reader.loading && !nfc.reader.via ? noReaderStage(mode) : null}
@@ -685,7 +718,7 @@ export function ReceptionDesk({ user, active, footer, onGiveFicha, onScanHome, h
               {/* Modo práctica: una ficha de mentira en vez de leer el NFC. */}
               {practice && mode === 'entrada' ? <DeskRowLink label="Simular ficha" onClick={() => void run(async () => open(await fetchReceptionDesk({ code: PRACTICE_CODE }), null))} /> : null}
               <DeskRowLink label="Escribir el código" onClick={() => go({ kind: 'code' })} />
-              <DeskRowLink label="Buscar número de ficha" onClick={() => go({ kind: 'number' })} />
+              <DeskRowLink label={pulseraText('Buscar número de ficha', party)} onClick={() => go({ kind: 'number' })} />
             </div>
             {footer}
           </div>
@@ -704,7 +737,9 @@ export function ReceptionDesk({ user, active, footer, onGiveFicha, onScanHome, h
 
       {step.kind === 'number' ? <NumberStep busy={busy} error={error} onFind={(n) => void run(() => openByNumber(n))} /> : null}
 
-      {step.kind === 'amount' ? (
+      {taquilla ? renderTaquilla(step.read, step.kind === 'method' ? step.amountCents : (step.amountCents ?? PARTY_DEFAULT_AMOUNT)) : null}
+
+      {step.kind === 'amount' && !party ? (
         <AmountStep
           row={readRow(step.read)}
           lastTopUp={lastTopUpOf(step.read)}
@@ -721,9 +756,11 @@ export function ReceptionDesk({ user, active, footer, onGiveFicha, onScanHome, h
         />
       ) : null}
 
-      {step.kind === 'keypad' ? <KeypadStep onDone={(cents) => go({ kind: 'method', read: step.read, amountCents: cents })} /> : null}
+      {step.kind === 'keypad' ? (
+        <KeypadStep onDone={(cents) => go(party ? { kind: 'amount', read: step.read, amountCents: cents } : { kind: 'method', read: step.read, amountCents: cents })} />
+      ) : null}
 
-      {step.kind === 'method' ? renderMethod(step.read, step.amountCents) : null}
+      {step.kind === 'method' && !party ? renderMethod(step.read, step.amountCents) : null}
 
       {step.kind === 'undo' ? (
         <UndoStep
@@ -772,7 +809,7 @@ export function ReceptionDesk({ user, active, footer, onGiveFicha, onScanHome, h
         </>
       ) : null}
 
-      {error && step.kind !== 'tap' && step.kind !== 'code' && step.kind !== 'number' ? (
+      {error && !taquilla && step.kind !== 'tap' && step.kind !== 'code' && step.kind !== 'number' ? (
         <p role="alert" className={s.error}>
           {error}
         </p>
@@ -788,7 +825,11 @@ export function ReceptionDesk({ user, active, footer, onGiveFicha, onScanHome, h
     const { read, amountCents, checking, leaveArmed, how } = st;
     return (
       <div className={s.screen}>
-        <DeskHead title={home ? 'Recargar saldo' : 'Recepción'} sub={name} chip={chip} noMenu />
+        {party ? (
+          <DeskHead title={deskTitle} sub={deskSub} chip={chip} noMenu aside={aside} />
+        ) : (
+          <DeskHead title={home ? 'Recargar saldo' : 'Recepción'} sub={name} chip={chip} noMenu />
+        )}
         {wrong ? <CounterAviso text={wrong} /> : null}
         {/* Ni «sin saldo» ni lo que le quedaba: puede que ya esté cargado. */}
         <DeskRowView {...cashUnsureRow(read, amountCents, checking)} />
@@ -818,9 +859,9 @@ export function ReceptionDesk({ user, active, footer, onGiveFicha, onScanHome, h
     const money = loadedMoneyLine(done.method, done.amountCents, done.feeCents);
     const view = done.read.view;
     const pin = loadedPin(done);
-    const pinText = pin === 'ask' || pin === 'manager' ? pinAfterLoadText(pin, noPinLimitCents(night)) : null;
+    const pinText = pin === 'ask' || pin === 'manager' ? pulseraText(pinAfterLoadText(pin, noPinLimitCents(night)), party) : null;
     const askPin = { label: 'Que elija su PIN', onClick: () => go({ kind: 'pin', done }) };
-    const next = { label: 'Siguiente cliente', onClick: () => restart('entrada') };
+    const next = { label: party ? 'Siguiente pulsera' : 'Siguiente cliente', onClick: () => restart('entrada') };
     // Lo que queda en pantalla: la ficha (si se le dio o es la suya) y el código, en grande;
     // por número, el código va tapado arriba (A1, A11).
     const ficha = done.linked || view?.kind === 'saldo' || done.read.number ? readFicha(done.read) : null;
@@ -829,11 +870,14 @@ export function ReceptionDesk({ user, active, footer, onGiveFicha, onScanHome, h
     // Qué hacer ahora, en orden: el efectivo a la caja, la ficha y, si pasa del tope, su PIN.
     const handOver = handOverOf({ view, linked: done.linked, byNumber: Boolean(done.read.number), hasCode: (code ?? reference) !== null });
     // Sin ficha ni código en pantalla, no hay nada que apuntar (el aviso manda al encargado).
-    const meta = done.read.number
-      ? 'Devuélvele su ficha'
-      : handOver === 'manager'
-        ? 'Sin ficha ni código: con el encargado'
-        : handOverLine(done.read.view, done.linked);
+    const meta = pulseraText(
+      done.read.number
+        ? 'Devuélvele su ficha'
+        : handOver === 'manager'
+          ? 'Sin ficha ni código: con el encargado'
+          : handOverLine(done.read.view, done.linked),
+      party,
+    );
     // B1 (aprobado el 2-nov): por encima del tope sin PIN, el teclado sale solo, con «Ahora no».
     if (pin === 'ask' && done.wallet && !done.seen && !done.pinSkipped) {
       return renderPinFirst(done, done.wallet, `${money.label} ${money.amount} ${money.tail} · ${meta}`);
@@ -844,7 +888,16 @@ export function ReceptionDesk({ user, active, footer, onGiveFicha, onScanHome, h
       hint: ficha && (done.read.nfc || done.read.number) ? FICHA_IN_HAND : null,
       photo: photoHint({ ficha: ficha !== null, code: code !== null }),
     };
-    const help = loadedHelp({ method: done.method, handOver, pin });
+    const help = pulseraText(loadedHelp({ method: done.method, handOver, pin }), party);
+    // OxioParty (maqueta CARGADO): la pulsera, el saldo que tiene ahora y el cambio a devolver (o «Pagado con Tarjeta»).
+    const partyRows = party
+      ? loadedRows({
+          pulsera: fichaShort(readFicha(done.read)),
+          balanceCents: done.wallet?.balanceCents ?? null,
+          method: done.method,
+          changeCents: done.method === 'cash' ? partyChange.current : null,
+        })
+      : [];
     // Pagó en efectivo aquí: su enlace privado no le llega; con este QR activa Face ID en su móvil.
     // Si hace falta el PIN, primero eso: el QR solo si prefiere pagar con el móvil (si no, deja el botón fuera de la pantalla).
     const activation =
@@ -881,8 +934,9 @@ export function ReceptionDesk({ user, active, footer, onGiveFicha, onScanHome, h
         note={pinText}
         quiet={done.seen}
         extra={
-          activation || phone ? (
+          activation || phone || partyRows.length > 0 ? (
             <>
+              {partyRows.length > 0 ? <OutcomeRows rows={partyRows} /> : null}
               {activation}
               {phone}
             </>
@@ -919,6 +973,42 @@ export function ReceptionDesk({ user, active, footer, onGiveFicha, onScanHome, h
           const next = await staffBackend.setPin(wallet, pin, done.read.nfc);
           go({ kind: 'loaded', done: { ...done, wallet: next, seen: true } });
           return null;
+        }}
+      />
+    );
+  }
+
+  /**
+   * OxioParty · la taquilla (maqueta Taquilla.dc.html): la pulsera, el importe,
+   * cómo paga y el cambio en una pantalla. El botón hace lo mismo que «¿Cómo
+   * paga?»: el efectivo se confirma con la misma pulsera (B2) y la tarjeta
+   * saca el QR de siempre.
+   */
+  function renderTaquilla(read: Read, amountCents: number) {
+    const view = read.view;
+    const hasPin = read.number ? true : view?.kind === 'saldo' && view.hasPin;
+    const hasFicha = Boolean(read.number) || view?.kind === 'new' || (view?.kind === 'saldo' && view.fichaNumber !== null);
+    return (
+      <TaquillaForm
+        card={pulseraCard(read)}
+        recent={recentTopUpLine(lastTopUpOf(read), Date.now(), hasFicha)}
+        initialAmount={amountCents}
+        buttonsFor={(cents) =>
+          read.number ? numberMethodButtons(options) : options ? methodButtons(options, deskTarget(read.view, read.nfc), cents, night.receptionDefaultMethod) : []
+        }
+        chargeFor={(cents) => topUpCharge(options, cents)}
+        loading={options === null}
+        pinNote={hasPin ? null : pulseraText(pinNote(noPinLimitCents(night), canChoosePinAfterLoad(view, user.role, read.nfc !== null)), true)}
+        busy={busy}
+        error={error}
+        onAnother={() => restart('entrada')}
+        onOther={() => go({ kind: 'keypad', read })}
+        onPin={view?.kind === 'saldo' && !view.hasPin && canChoosePin(view, user.role) ? () => go({ kind: 'setPin', read, view }) : undefined}
+        onGiveFicha={giveFichaOf(read)}
+        onSubmit={(method, cents, change) => {
+          partyChange.current = method === 'cash' ? change : null;
+          if (method === 'cash') void run(() => cashChosen(read, cents));
+          else void run(() => changeCard(read, cents, null));
         }}
       />
     );
