@@ -265,6 +265,23 @@ describe('la chica hace un cobro con QR', () => {
     expect(tx.walletChargeRequest.create).not.toHaveBeenCalled();
   });
 
+  it('tope de «Otro importe» del local: también el camarero y el encargado (la carta no cuenta); el dueño, sin tope', async () => {
+    const { svc, tx, prisma } = makeService();
+    prisma.venue.findUnique.mockResolvedValue({ operatorMaxCobroCents: 20_000, walletGroup: 'principal' });
+    const waiter = { userId: 'wt-1', role: 'WAITER' as const, tenantId: 'other' };
+    const encargado = { ...manager, tenantId: 'other' };
+    await expect(svc.createQrCharge(waiter, { amountCents: 25_000 })).rejects.toThrow('El máximo que puedes cobrar de una vez es 200,00 €');
+    await expect(svc.createQrCharge(encargado, { amountCents: 25_000, category: 'VENUE_BAR' })).rejects.toBeInstanceOf(ForbiddenException);
+    expect(tx.walletChargeRequest.create).not.toHaveBeenCalled();
+    // La carta (el precio lo pone el local) y el dueño: sin tope.
+    tx.serviceItem.findMany.mockResolvedValueOnce([
+      { id: 'svc-2', name: 'Botella', durationMin: null, priceCents: 30_000, category: 'VENUE_BAR', active: true, components: null },
+    ]);
+    await expect(svc.createQrCharge(encargado, { serviceItemId: 'svc-2' })).resolves.toMatchObject({ amountCents: 30_000 });
+    await expect(svc.createQrCharge({ ...owner, tenantId: 'other' }, { amountCents: 90_000, category: 'VENUE_BAR' })).resolves.toMatchObject({ amountCents: 90_000 });
+    await expect(svc.createQrCharge(waiter, { amountCents: 20_000 })).resolves.toMatchObject({ amountCents: 20_000 });
+  });
+
   it('varias cosas en un cobro del saldo: cada línea a su sección y el total del servidor', async () => {
     const { svc, tx } = makeService();
     const out = await svc.createQrCharge(manager, {
@@ -611,6 +628,21 @@ describe('lo que el cliente no confirma pide el 2FA de quien lo hace', () => {
     expect(totp.assertForUser).not.toHaveBeenCalled();
     await expect(svc.relinkWithCode(owner, 'w-1', '123456')).resolves.toMatchObject({ path: expect.stringContaining('/w/a/') });
     expect(totp.assertForUser).toHaveBeenCalledWith(owner.userId, '123456', expect.stringMatching(/^(wallet-payout|relink):/));
+  });
+
+  it('desbloquear el PIN: como borrarlo, con el código del encargado o del dueño y atado a ese saldo', async () => {
+    const { svc, totp, tx, audit } = makeService();
+    await expect(svc.unlockPinWithCode(manager, 'w-1', undefined)).rejects.toMatchObject({ response: { code: 'TOTP_REQUIRED' } });
+    totp.assertForUser.mockRejectedValueOnce(new ForbiddenException({ code: 'TOTP_INVALID' }));
+    await expect(svc.unlockPinWithCode(manager, 'w-1', '000000')).rejects.toMatchObject({ response: { code: 'TOTP_INVALID' } });
+    await expect(svc.unlockPinWithCode({ ...manager, role: 'WAITER' as never }, 'w-1', '123456')).rejects.toThrow(ForbiddenException);
+    expect(tx.clientWallet.update).not.toHaveBeenCalled();
+    expect(audit.log).not.toHaveBeenCalled();
+    await expect(svc.unlockPinWithCode(manager, 'w-1', '123456')).resolves.toEqual({ ok: true });
+    expect(totp.assertForUser).toHaveBeenLastCalledWith(manager.userId, '123456', 'pin-unlock:w-1');
+    expect(tx.clientWallet.update).toHaveBeenCalledWith({ where: { id: 'w-1' }, data: { pinFails: 0, pinLockedAt: null } });
+    // Queda en el registro: sale en Incidencias (acción delicada).
+    expect(audit.log).toHaveBeenCalledWith(expect.objectContaining({ action: 'wallet.pin_unlocked', actorId: manager.userId }));
   });
 
   it('un código malo no deja hacer nada', async () => {

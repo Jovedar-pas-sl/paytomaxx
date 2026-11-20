@@ -7,6 +7,7 @@ import {
   SELF_ONBOARDING_ALREADY_SAVED,
   type CashTopUpDto,
   type CashTopUpResult,
+  type OwnHistoryPage,
   type OxiocardStatus,
   type OxiocardView,
   type PayoutMetadata,
@@ -32,6 +33,8 @@ import {
   type SessionEvent,
 } from '@nightpay/api-client';
 import { codeErrorText } from './api-codes';
+import { PracticeBlockedError, isPractice, setPractice } from './practice';
+import { practiceFetch } from './practice-sim';
 import type { PolledPayment } from './payment-status';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4100';
@@ -205,6 +208,9 @@ export interface MyPayout {
   createdAt: string;
   /** Cómo se le pagó (USDT_TRC20, SEPA_IBAN, MANUAL_CASH…). */
   externalRail?: PayoutMethod | null;
+  /** El justificante: la referencia de la transferencia (o el hash) y el enlace que puso quien pagó. */
+  externalTxId?: string | null;
+  receiptUrl?: string | null;
 }
 
 /** A dónde se le paga, sin la dirección entera («••••1332»). */
@@ -296,6 +302,8 @@ export function setSession(login: LoginResponse): void {
   client.setSession(login);
 }
 export function clearSession(): void {
+  // La práctica no sobrevive a la sesión: la siguiente persona empieza en real.
+  setPractice(false);
   client.clearSession();
 }
 
@@ -376,8 +384,13 @@ export function freshAccessToken(): Promise<string | null> {
   return client.freshAccessToken();
 }
 
+/**
+ * Por aquí pasa toda llamada del personal al API. En «Modo práctica» (lib/practice)
+ * la contesta el simulador y todo lo que cambia datos y no se simula se corta
+ * antes de la red.
+ */
 export function authedFetch(path: string, init: RequestInit = {}): Promise<Response> {
-  return client.authedFetch(path, init);
+  return practiceFetch(isPractice(), path, init, (p, i) => client.authedFetch(p, i));
 }
 
 /** «Mi perfil»: foto, nombre, teléfono, correo y contraseña de quien tiene la sesión. */
@@ -433,6 +446,20 @@ export async function fetchMyEarnings(): Promise<MyEarning[]> {
 export async function fetchMyPayouts(): Promise<MyPayout[]> {
   const res = await authedFetch('/v1/operators/me/payouts');
   if (!res.ok) throw loadError(res, 'Error cargando liquidaciones');
+  return res.json();
+}
+
+/** «Historial» de sus ganancias: una página, con las fechas y el cursor de `query` (lib/history.ts). */
+export async function fetchMyEarningsPage(query: URLSearchParams): Promise<OwnHistoryPage<MyEarning>> {
+  const res = await authedFetch(`/v1/operators/me/earnings/history?${query}`);
+  if (!res.ok) throw loadError(res, 'No se pudo cargar tu historial. Vuelve a intentarlo.');
+  return res.json();
+}
+
+/** «Pagos recibidos», todos: una página, con las fechas y el cursor de `query`. */
+export async function fetchMyPayoutsPage(query: URLSearchParams): Promise<OwnHistoryPage<MyPayout>> {
+  const res = await authedFetch(`/v1/operators/me/payouts/history?${query}`);
+  if (!res.ok) throw loadError(res, 'No se pudieron cargar tus pagos. Vuelve a intentarlo.');
   return res.json();
 }
 
@@ -657,6 +684,19 @@ export interface ServiceItem {
   icon?: string | null;
   /** Ruta de su logo o foto (versionada por su huella), o null. */
   imageUrl?: string | null;
+  /** «Agotado esta noche»: no se puede añadir a la cuenta. */
+  soldOut?: boolean;
+}
+
+/** Marca o quita «Agotado» (lo ve todo el personal al momento). */
+export async function setServiceSoldOut(id: string, soldOut: boolean): Promise<void> {
+  if (isPractice()) throw new PracticeBlockedError('marcar «Agotado»');
+  const res = await authedFetch(`/v1/services/${encodeURIComponent(id)}/sold-out`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ soldOut }),
+  });
+  if (!res.ok) throw loadError(res, 'No se pudo marcar el producto');
 }
 
 /** Lo que quien llama puede cobrar (la chica solo ve sus servicios). */
@@ -790,8 +830,8 @@ export interface WalletChargeRequest {
 // ─── Public — Self-onboarding ─────────────────────────────────────
 
 /** Petición sin sesión (enlaces de alta e invitación): sin red, un mensaje claro. */
-function publicFetch(path: string, init?: RequestInit): Promise<Response> {
-  return client.publicFetch(path, init);
+function publicFetch(path: string, init: RequestInit = {}): Promise<Response> {
+  return practiceFetch(isPractice(), path, init, (p, i) => client.publicFetch(p, i));
 }
 
 export type WalletProvider =

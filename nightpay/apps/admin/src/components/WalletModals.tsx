@@ -10,6 +10,7 @@ import {
   payoutWallet,
   relinkWallet,
   resetWalletPin,
+  unlockWalletPin,
   type PendingQrCharge,
   type WalletPayoutMethod,
   type WalletPayoutPreview,
@@ -563,15 +564,20 @@ export function RelinkModal({ target, onClose }: { target: PayoutTarget; onClose
   );
 }
 
-/** Borrar el PIN de un cliente que lo olvidó: con el 2FA de quien lo hace (sale en Incidencias). */
+/**
+ * Borrar el PIN de un cliente que lo olvidó o, con `unlock`, desbloquearlo tras
+ * los fallos: con el 2FA de quien lo hace (sale en Incidencias).
+ */
 export function ResetPinModal({
   walletId,
   code,
+  unlock = false,
   onClose,
   onDone,
 }: {
   walletId: string;
   code: string | null;
+  unlock?: boolean;
   onClose: () => void;
   onDone: () => void;
 }) {
@@ -586,7 +592,7 @@ export function ResetPinModal({
     setBusy(true);
     setError(null);
     try {
-      await resetWalletPin(walletId, totp);
+      await (unlock ? unlockWalletPin(walletId, totp) : resetWalletPin(walletId, totp));
       onDone();
     } catch (err) {
       const until = totpLockedUntil(err, Date.now());
@@ -598,10 +604,12 @@ export function ResetPinModal({
   }
 
   return (
-    <Modal open onClose={busy ? () => undefined : onClose} title="Borrar PIN">
+    <Modal open onClose={busy ? () => undefined : onClose} title={unlock ? 'Desbloquear PIN' : 'Borrar PIN'}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
         <p style={helpStyle}>
-          Vas a borrar el PIN de {code ?? 'este saldo'}. Comprueba antes que el cliente está delante: elegirá uno nuevo contigo.
+          {unlock
+            ? `Vas a desbloquear el PIN de ${code ?? 'este saldo'}. Comprueba antes que el cliente está delante: podrá volver a pagar con su PIN.`
+            : `Vas a borrar el PIN de ${code ?? 'este saldo'}. Comprueba antes que el cliente está delante: elegirá uno nuevo contigo.`}
         </p>
         <OtpInput
           label="Código de tu app de verificación (2FA)"
@@ -622,7 +630,7 @@ export function ResetPinModal({
             Cancelar
           </Button>
           <Button onClick={handleReset} loading={busy} disabled={locked}>
-            Borrar PIN
+            {unlock ? 'Desbloquear PIN' : 'Borrar PIN'}
           </Button>
         </div>
       </div>

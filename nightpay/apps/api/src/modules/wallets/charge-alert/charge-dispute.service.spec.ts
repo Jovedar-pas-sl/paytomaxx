@@ -153,3 +153,23 @@ describe('la página «No he sido yo»', () => {
     }
   });
 });
+
+describe('«No he sido yo» desde los movimientos del saldo (/w)', () => {
+  it('un cobro pagado de ESTE saldo: el mismo enlace firmado que el aviso (lleva a la misma página)', async () => {
+    const { svc, tx, audit } = harness();
+    const url = await svc.linkFor(WALLET, CHARGE);
+    expect(url).toMatch(/^\/w\/no\/[A-Za-z0-9_-]+\.[A-Za-z0-9_-]{43}$/);
+    await expect(svc.view(url.replace('/w/no/', ''))).resolves.toMatchObject({ state: 'ask', ref: 'C-0042' });
+    // Pedir el enlace no bloquea nada: se confirma en su página.
+    expect(tx.walletCard.updateMany).not.toHaveBeenCalled();
+    expect(audit.logInTx).not.toHaveBeenCalled();
+  });
+
+  it('el cobro de otro saldo, uno sin pagar o uno que no existe: 404 (no se sabe si existe)', async () => {
+    await expect(harness().svc.linkFor(OTHER, CHARGE)).rejects.toMatchObject({ status: 404 });
+    await expect(harness({ status: 'PENDING' }).svc.linkFor(WALLET, CHARGE)).rejects.toMatchObject({ status: 404 });
+    const gone = harness();
+    gone.tx.walletChargeRequest.findUnique.mockResolvedValueOnce(null as never);
+    await expect(gone.svc.linkFor(WALLET, CHARGE)).rejects.toMatchObject({ status: 404 });
+  });
+});

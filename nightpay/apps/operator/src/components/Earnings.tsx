@@ -96,7 +96,10 @@ export function Earnings({ night, balance, nightError }: Props) {
       <TonightCard night={night} summary={summary} holdDays={holdDays} onOpen={() => setDetail('tonight')} />
       <MoneyRows summary={summary} holdDays={holdDays} earnings={earnings} night={night} onOpen={setDetail} />
       <NextPayout summary={summary} />
-      <PayoutsReceived payouts={payouts} account={info ? info.account : undefined} />
+      <nav aria-label="Historial" className={styles.rows}>
+        <Row label="Historial de ganancias" sub="Cada noche y cada cobro, con su fecha" amount="" color="var(--np-text-mute)" onClick={() => setDetail('history')} />
+      </nav>
+      <PayoutsReceived payouts={payouts} account={info ? info.account : undefined} onAll={() => setDetail('payouts')} />
       {info?.oxiocard ? (
         <OxiocardCard view={info.oxiocard} onChange={(oxiocard) => setInfo((prev) => (prev ? { ...prev, oxiocard } : prev))} />
       ) : null}

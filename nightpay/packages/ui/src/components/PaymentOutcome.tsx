@@ -6,6 +6,7 @@ import { useNow } from '../hooks';
 import { agoLabel } from '../lib/countdown';
 import { clockTime, OUTCOME_TITLE, type OutcomeKind } from '../lib/outcome';
 import { sectionsChipText, sectionVar } from '../lib/sections';
+import { DoneMark } from './DoneMark';
 import { SectionChip } from './SectionChip';
 import { PrintButton, usePrintTicket } from './PrintTicket';
 import type { Ticket } from '../lib/ticket';
@@ -288,19 +289,9 @@ const OutcomeButton = forwardRef<HTMLButtonElement, OutcomeButtonProps>(function
   );
 });
 
-/** La marca con el icono, sin halo: ✓ en lima (pagado), ✗ (rechazado) o un reloj (caducado). */
+/** La marca con el icono, sin halo: disco lima con ✓ (pagado), ✗ (rechazado) o un reloj (caducado). */
 function OutcomeIcon({ kind }: { kind: OutcomeKind }) {
-  if (kind === 'paid') {
-    // Grafito 3: aro verde (380 ms) y palo crema (260 ms) que se dibujan; con «reducir movimiento», ya dibujados.
-    return (
-      <span className="np-outcome-ring" aria-hidden="true">
-        <svg className="np-check" viewBox="0 0 104 104" fill="none" strokeLinecap="round" strokeLinejoin="round">
-          <circle className="np-check-ring" cx="52" cy="52" r="48" strokeWidth="6" />
-          <path className="np-check-tick" d="M31 53l14 14 28-30" strokeWidth="8" />
-        </svg>
-      </span>
-    );
-  }
+  if (kind === 'paid') return <DoneMark />;
   return (
     <span className="np-outcome-ring" aria-hidden="true">
       <svg

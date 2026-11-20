@@ -167,6 +167,8 @@ export interface PayText {
   saldoNoFee: string;
   inAppWarning: (app: string) => string;
   statement: (name: string) => string;
+  /** Quién cobra (su nombre visible): «Te cobra Ana». */
+  chargedBy: (name: string) => string;
   expiresIn: string;
   // Hacia el banco
   openingTitle: string;

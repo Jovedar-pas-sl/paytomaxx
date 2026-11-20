@@ -46,6 +46,7 @@ import {
 import { resolveBpsForOperator, type RevenueCategory } from '../payments/commission';
 import { lineCommission, type DraftLine } from '../payments/charge-lines';
 import { resolveChargeOrThrow } from '../payments/charge-request';
+import { CAPPED_ROLES } from '../payments/operator-cap';
 import { assignChargeRef, insertChargeLines, insertInvitationEarnings, linesOf } from '../payments/charge-store';
 import { invitationEarnings } from '../payments/invitation-lines';
 import {
@@ -554,8 +555,9 @@ export class WalletChargesService {
       invitedOperatorId: input.invitedOperatorId,
     });
     const amountCents = charge.amountCents;
-    // El mismo tope por cobro que tiene la chica con el QR (Ajustes del local).
-    if (actor.role === 'OPERATOR') {
+    // El mismo tope por cobro que con el QR (Ajustes del local): la compañera en
+    // todo cobro; camarero y encargado, en «Otro importe» (la carta no cuenta).
+    if (actor.role === 'OPERATOR' || (CAPPED_ROLES.has(actor.role) && !charge.fromCarta)) {
       const venue = await this.prisma.venue.findUnique({
         where: { id: actor.tenantId },
         select: { operatorMaxCobroCents: true },
@@ -2046,7 +2048,17 @@ export class WalletChargesService {
     });
   }
 
-  /** Encargado o dueño: tras 5 PIN fallidos, vuelve a dejar probar. */
+  /**
+   * Encargado o dueño, con su 2FA (como borrar el PIN): tras 5 PIN fallidos o
+   * un «No he sido yo», vuelve a dejar probar. Sale en Incidencias.
+   */
+  async unlockPinWithCode(actor: Actor, walletId: string, totpCode: string | undefined): Promise<{ ok: true }> {
+    await this.managerWallet(actor, walletId);
+    await assertTwoFactorCode(this.totp, actor.userId, totpCode, 'Para desbloquear el PIN de un cliente,', stepUpActions.unlockPin(walletId));
+    return this.unlockPin(actor, walletId);
+  }
+
+  /** Sin 2FA aquí: la usan unlockPinWithCode y el super-admin, que ya pidió la suya. */
   async unlockPin(actor: Actor, walletId: string): Promise<{ ok: true }> {
     await this.managerWallet(actor, walletId);
     await this.prisma.acrossVenues((tx) =>

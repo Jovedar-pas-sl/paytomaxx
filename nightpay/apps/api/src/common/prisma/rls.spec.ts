@@ -25,9 +25,11 @@ describe('tablas con FORCE RLS', () => {
       'reservation_spends',
       'reservations',
       'service_item_images',
+      'staff_push_subscriptions',
       'user_photos',
       'wallet_cash_topups',
       'wallet_consumptions',
+      'wallet_gifts',
       'wallet_push_subscriptions',
     ]);
     expect([...FORCED_RLS_MODELS].sort()).toEqual([
@@ -52,9 +54,11 @@ describe('tablas con FORCE RLS', () => {
       'ReservationPayment',
       'ReservationSpend',
       'ServiceItemImage',
+      'StaffPushSubscription',
       'UserPhoto',
       'WalletCashTopUp',
       'WalletConsumption',
+      'WalletGift',
       'WalletPushSubscription',
     ]);
   });

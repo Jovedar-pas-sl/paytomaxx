@@ -36,7 +36,14 @@ export const HOME_TOPUP_KEY_PREFIX = 'wcasa:';
  * van aparte: lo que pase en la cola no para el enlace de siempre (/r).
  */
 export const QUEUE_KEY_PREFIX = `${HOME_TOPUP_KEY_PREFIX}cola:`;
-const HOME_TOPUP_KEY_RE = /^wcasa:(?:cola:)?[0-9a-f]{64}$/;
+/**
+ * «Para regalar» («Regala una noche»): `wcasa:regalo:<HMAC>`. Sigue siendo
+ * «Desde casa» (isHomeTopUpKey) y cuenta en el freno y en las «a medias» del
+ * enlace de siempre (los mismos topes), pero quien la paga no se lleva el
+ * saldo (isGiftPaymentKey): solo el enlace del regalo.
+ */
+export const GIFT_KEY_PREFIX = `${HOME_TOPUP_KEY_PREFIX}regalo:`;
+const HOME_TOPUP_KEY_RE = /^wcasa:(?:cola:|regalo:)?[0-9a-f]{64}$/;
 
 /** Cargas empezadas en todo el local cada HOME_TOPUP_VENUE_WINDOW_S (un local grande no llega ni en su mejor noche). */
 export const HOME_TOPUP_VENUE_MAX = 60;
@@ -129,14 +136,20 @@ export function homeTopUpProblem(venue: TopUpVenueState): HomeTopUpProblem | nul
  * La Idempotency-Key de la carga sale de la clave del navegador (un doble
  * toque repite la misma) y del local, firmada con el secreto del servidor.
  */
-export function homeTopUpKey(secret: string, venueId: string, clientKey: string, fromQueue = false): string {
+export function homeTopUpKey(secret: string, venueId: string, clientKey: string, from: 'link' | 'queue' | 'gift' = 'link'): string {
   const mac = createHmac('sha256', secret).update(`home-topup:${venueId}:${clientKey}`).digest('hex');
-  return `${fromQueue ? QUEUE_KEY_PREFIX : HOME_TOPUP_KEY_PREFIX}${mac}`;
+  const prefix = from === 'queue' ? QUEUE_KEY_PREFIX : from === 'gift' ? GIFT_KEY_PREFIX : HOME_TOPUP_KEY_PREFIX;
+  return `${prefix}${mac}`;
 }
 
 /** ¿Es la carga de un saldo nuevo desde el enlace del local? */
 export function isHomeTopUpKey(key: string | null | undefined): boolean {
   return typeof key === 'string' && HOME_TOPUP_KEY_RE.test(key);
+}
+
+/** ¿Es el cobro de un regalo? Quien lo paga no se lleva el saldo (payerWalletFields). */
+export function isGiftPaymentKey(key: string | null | undefined): boolean {
+  return typeof key === 'string' && key.startsWith(GIFT_KEY_PREFIX) && HOME_TOPUP_KEY_RE.test(key);
 }
 
 /**
@@ -156,6 +169,14 @@ export function isHomeTopUpPayment(p: { idempotencyKey: string | null; createdBy
  */
 export function walletWelcomeHref(walletToken: string, payToken: string, lang: PayLanguage): string {
   return `/w/${encodeURIComponent(walletToken)}?lang=${lang}&nuevo=${encodeURIComponent(payToken)}`;
+}
+
+/** La página del regalo (/r/regalo/<token>): la de quien lo recibe. */
+export const GIFT_PATH_PREFIX = '/r/regalo/';
+
+/** Tras pagar un regalo, el navegador que lo pagó va a «Comparte tu regalo» (la página del regalo, sin «Guardar»). */
+export function giftShareHref(giftToken: string, lang: PayLanguage): string {
+  return `${GIFT_PATH_PREFIX}${encodeURIComponent(giftToken)}?lang=${lang}&comprado=1`;
 }
 
 // ─── «Ya tienes un saldo aquí» ──────────────────────────────────────

@@ -6,6 +6,8 @@ import {
   ALERT_KIND_KEYS,
   DEFAULT_SERVICE_FEE_BPS,
   MAX_OPERATOR_COBRO_CENTS,
+  MAX_STAFF_WATCH_COUNT,
+  MAX_STAFF_WATCH_FREE_CENTS,
   MAX_VENUE_PAYOUT_HOLD_DAYS,
   PERMISSION_CEILING,
   STAFF_PERMISSION_KEYS,
@@ -18,6 +20,7 @@ import {
   type PermissionRole,
   type StaffPermissionKey,
   type StaffPermissions,
+  type StaffWatchSettings,
   type VenueSection,
 } from '@nightpay/contracts';
 import type { OperatorCommissionDefaults, VenueRulesInput, VenueSettings } from './endpoints/settings';
@@ -237,6 +240,47 @@ export const ALERT_KIND_LABELS: Readonly<Record<AlertKindKey, string>> = {
 };
 
 export const ALERT_KINDS: readonly AlertKindKey[] = ALERT_KIND_KEYS;
+
+/** Avisos por persona: el formulario (texto tal cual se teclea). */
+export interface StaffWatchForm {
+  cancels: string;
+  freeAmountEur: string;
+  pinFailSaldos: string;
+  sameSaldoCharges: string;
+}
+
+export function staffWatchFormFrom(w: StaffWatchSettings): StaffWatchForm {
+  return {
+    cancels: String(w.cancels),
+    freeAmountEur: centsToInput(w.freeAmountCents),
+    pinFailSaldos: String(w.pinFailSaldos),
+    sameSaldoCharges: String(w.sameSaldoCharges),
+  };
+}
+
+/** Lo que cambia (con los topes del API; 0 = no avisar) o por qué no se puede guardar. */
+export function staffWatchChange(
+  form: StaffWatchForm,
+  current: StaffWatchSettings,
+): { ok: true; change: Partial<StaffWatchSettings> } | { ok: false; problem: string } {
+  const count = (v: string): number | null => (/^\s*\d{1,2}\s*$/.test(v) ? Number(v) : null);
+  const counts = [
+    ['cancels', 'Cobros cancelados'],
+    ['pinFailSaldos', 'Saldos con el PIN fallado'],
+    ['sameSaldoCharges', 'Cobros seguidos al mismo saldo'],
+  ] as const;
+  const next: StaffWatchSettings = { ...current };
+  for (const [key, label] of counts) {
+    const n = count(form[key]);
+    if (n === null || n > MAX_STAFF_WATCH_COUNT) return { ok: false, problem: `${label}: un número de 0 a ${MAX_STAFF_WATCH_COUNT} (0 = no avisar).` };
+    next[key] = n;
+  }
+  const free = /^\s*0+(?:[.,]0{1,2})?\s*€?\s*$/.test(form.freeAmountEur) ? 0 : parseEuroCents(form.freeAmountEur, MAX_STAFF_WATCH_FREE_CENTS);
+  if (free === null) return { ok: false, problem: `«Otro importe»: de 0 € (no avisar) a ${MAX_STAFF_WATCH_FREE_CENTS / 100} €.` };
+  next.freeAmountCents = free;
+  const change = Object.fromEntries(Object.entries(next).filter(([k, v]) => current[k as keyof StaffWatchSettings] !== v));
+  return { ok: true, change };
+}
 
 // ─── «Comisión del servicio al cliente» (Ajustes → Reglas, solo se ve) ──
 

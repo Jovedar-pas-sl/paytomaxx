@@ -1,4 +1,4 @@
-import { Body, ConflictException, Controller, ForbiddenException, Get, Header, Headers, HttpCode, Inject, NotFoundException, Param, Post, Query, Res, UnauthorizedException } from '@nestjs/common';
+import { Body, ConflictException, Controller, ForbiddenException, Get, Header, Headers, HttpCode, Inject, NotFoundException, Param, ParseUUIDPipe, Post, Query, Res, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { FastifyReply } from 'fastify';
 import { Public } from '../../../common/decorators/public.decorator';
@@ -41,6 +41,9 @@ function sendHtml(res: FastifyReply, html: string): void {
  *  - POST /w/:token/aviso/off             → lo quita.
  *  - GET  /w/no/:token                    → «No he sido yo»: enseña el cobro y pide confirmar (no cambia nada).
  *  - POST /w/no/:token                    → confirmado: bloquea su ficha y su PIN y avisa al local.
+ *  - POST /w/:token/no/:chargeId/challenge, /w/:token/no/:chargeId
+ *                                         → «No he sido yo» desde un movimiento del saldo: con su
+ *                                           acceso y su Face ID (si lo tiene), el enlace de /w/no.
  * El :token de /w/no es el enlace firmado del cobro (not-me-token.ts), no el del saldo.
  */
 @Controller('w')
@@ -169,6 +172,45 @@ export class PublicChargeAlertController {
   ): Promise<void> {
     const lang = resolveLanguage(langQuery, cookies);
     sendHtml(res, renderNotMePage(`/w/no/${encodeURIComponent(token)}`, lang, await this.disputes.dispute(token)));
+  }
+
+  /** «No he sido yo» desde un movimiento del saldo, paso 1: reto para su Face ID (409 si el saldo no tiene). */
+  @Public()
+  @Post(':token/no/:chargeId/challenge')
+  @HttpCode(200)
+  @Header('Cache-Control', 'no-store')
+  @IpRateLimit({ max: 20, windowSec: 60, scope: 'wallet-not-me-link' })
+  async notMeChallenge(
+    @Param('token') token: string,
+    @Param('chargeId', ParseUUIDPipe) _chargeId: string,
+    @Headers('host') host: string | undefined,
+  ): Promise<unknown> {
+    const wallet = await this.charges.walletRefByToken(token);
+    if (!(await this.passkeys.hasPasskey(wallet.id))) throw new ConflictException({ message: 'Este saldo no tiene Face ID', code: 'FACE_ID_NOT_SET' });
+    return this.passkeys.challenge(`no:${wallet.id}`, host);
+  }
+
+  /**
+   * Paso 2: con el acceso de ver el saldo y, si lo tiene, su Face ID, el
+   * enlace firmado de ESE cobro: la misma página que el aviso (/w/no/…), que
+   * pide confirmar y bloquea su ficha y su PIN.
+   */
+  @Public()
+  @Post(':token/no/:chargeId')
+  @HttpCode(200)
+  @Header('Cache-Control', 'no-store')
+  @IpRateLimit({ max: 20, windowSec: 60, scope: 'wallet-not-me-link' })
+  async notMeLink(
+    @Param('token') token: string,
+    @Param('chargeId', ParseUUIDPipe) chargeId: string,
+    @Body() body: { response?: unknown } | undefined,
+    @Res({ passthrough: true }) res: FastifyReply,
+    @Headers('host') host: string | undefined,
+    @Headers('cookie') cookies?: string,
+  ): Promise<{ url: string }> {
+    const walletId = await this.allowedWallet(token, cookies, res);
+    await this.passkeys.assertOwner(walletId, `no:${walletId}`, host, body?.response);
+    return { url: await this.disputes.linkFor(walletId, chargeId) };
   }
 
   /** Sin Face ID ni huella no se apunta: primero, activarlo (recepción o el QR de activación). */

@@ -87,6 +87,9 @@ export const UNPREFIXED_ROUTES: readonly UnprefixedRoute[] = Object.freeze([
   { path: 'w/:token/aviso/off', method: RequestMethod.POST },
   { path: 'w/no/:token', method: RequestMethod.GET },
   { path: 'w/no/:token', method: RequestMethod.POST },
+  // «No he sido yo» desde un movimiento del saldo: su Face ID y el enlace de arriba.
+  { path: 'w/:token/no/:chargeId/challenge', method: RequestMethod.POST },
+  { path: 'w/:token/no/:chargeId', method: RequestMethod.POST },
   // «Recargar» desde la página del saldo (con su Face ID si lo tiene).
   { path: 'w/:token/topup/challenge', method: RequestMethod.POST },
   { path: 'w/:token/topup', method: RequestMethod.POST },
@@ -111,6 +114,10 @@ export const UNPREFIXED_ROUTES: readonly UnprefixedRoute[] = Object.freeze([
   // El QR del cartel de la cola (B16): la misma carga, con los topes por móvil y por noche.
   { path: 'r/:code/cola', method: RequestMethod.POST },
   { path: 'r/:code/mi-saldo', method: RequestMethod.GET },
+  // «Regala una noche»: comprar el regalo, su página y «Guardar en mi móvil».
+  { path: 'r/:code/regalo', method: RequestMethod.POST },
+  { path: 'r/regalo/:token', method: RequestMethod.GET },
+  { path: 'r/regalo/:token/guardar', method: RequestMethod.POST },
   // Reservados: reservar (enlace del local o de un RRPP), la página del grupo,
   // pagar, cambiar la fecha, «Añadir a mi calendario» y el QR de cada persona.
   { path: 'reservar/:code', method: RequestMethod.GET },

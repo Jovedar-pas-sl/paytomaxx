@@ -63,6 +63,32 @@ export interface HomeTopUpSettings {
   maxCents: number;
   /** % de la comisión del servicio de las recargas (null: sin comisión). */
   serviceFeeBps: number | null;
+  /** «Regala una noche»: «Para regalar» en el enlace (apagado de serie). */
+  giftsEnabled: boolean;
+  /** Los regalos pagados: los sin guardar primero (nunca se pierden en silencio). */
+  gifts: HomeTopUpGiftRow[];
+}
+
+/**
+ * «Regala una noche» (/r/<código>, «Para regalar»): quien regala paga un saldo
+ * nuevo de este local y comparte el enlace del regalo; quien lo recibe lo
+ * guarda en su móvil (Face ID o PIN). El nombre y el mensaje no salen en el
+ * panel (datos personales).
+ *
+ *   PATCH /v1/admin/venue/home-topup/gifts   → encender o apagar ({ enabled })
+ */
+export interface HomeTopUpGiftRow {
+  id: string;
+  /** Lo regalado (sin la comisión del servicio). */
+  amountCents: number;
+  /** ISO: cuándo se compró. */
+  createdAt: string;
+  /** ISO: sin guardar, hasta cuándo vale su enlace. */
+  expiresAt: string;
+  /** ISO: cuándo lo guardó quien lo recibió (null: aún no). */
+  claimedAt: string | null;
+  /** open: sin guardar; claimed: guardado; expired: caducado sin guardar (el saldo sigue ahí). */
+  state: 'open' | 'claimed' | 'expired';
 }
 
 export const UpdateHomeTopUpSchema = z.object({ enabled: z.boolean() }).strict();

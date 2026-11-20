@@ -9,6 +9,7 @@ import {
 } from '@nightpay/contracts';
 import { Button, Card, Input } from '@nightpay/ui';
 import { callReader, hasReader } from '@/lib/pax-bridge';
+import { PRACTICE_PAX_TEXT, usePractice } from '@/lib/practice';
 import {
   fetchPaxInfo,
   fetchPaxPending,
@@ -178,6 +179,7 @@ function PaxScreenView({ onNight }: { onNight: (night: VenueNightSettings) => vo
   }
 
   const reader = hasReader();
+  const practice = usePractice();
   // Un cobro con una venta del lector por anular o revisar no se vuelve a cobrar: el cliente ya pagó.
   const onHold = new Set(review.filter((r) => r.kind !== 'voidUnknown').map((r) => r.paymentId));
   return (
@@ -195,7 +197,7 @@ function PaxScreenView({ onNight }: { onNight: (night: VenueNightSettings) => vo
         </span>
       </header>
 
-      {!reader ? (
+      {practice ? <p style={warnBox}>{PRACTICE_PAX_TEXT}</p> : !reader ? (
         <p style={warnBox}>Para cobrar, abre esta pantalla desde la app OxioPay del datáfono.</p>
       ) : null}
       {unsent > 0 ? (

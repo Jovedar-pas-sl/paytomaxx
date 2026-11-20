@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { Button, Card } from '@nightpay/ui';
+import { PRACTICE_PAX_TEXT, isPractice } from '@/lib/practice';
 import { callReader, type BridgeResponse, type PaytefResult } from '@/lib/pax-bridge';
 import {
   PENDING_CONFIRM_TEXT,
@@ -138,6 +139,11 @@ export function PaxChargeFlow({ charge, onDone, start, onPaid }: Props) {
   }
 
   async function begin() {
+    // En práctica no se cobra con el lector: se dice y se puede salir.
+    if (isPractice()) {
+      setStep({ kind: 'readerError', message: PRACTICE_PAX_TEXT, canRecover: false });
+      return;
+    }
     // Con una venta aprobada sin enviar, no se empieza otra: se cobraría dos veces.
     if (hasPendingResults()) {
       setStep({ kind: 'readerError', message: PENDING_BLOCK_TEXT, canRecover: false });

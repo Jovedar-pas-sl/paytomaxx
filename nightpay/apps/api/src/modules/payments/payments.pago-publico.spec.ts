@@ -175,6 +175,28 @@ describe('getPayPage — lo que ve el cliente al escanear el QR', () => {
     expect(db.paymentAttempt.findMany).not.toHaveBeenCalled();
   });
 
+  it('dice quién cobra: su nombre visible y su foto (solo en la página de pago, nunca su correo)', async () => {
+    const ana = { createdByUserId: 'u-ana', createdBy: { role: 'WAITER', post: null, displayName: ' Ana ' } };
+    const { service, db } = makeService({ payment: ana });
+    Object.assign(db, { userPhoto: { findUnique: vi.fn(async () => ({ contentType: 'image/webp', data: Buffer.from('RIFF') })) } });
+    await expect(service.getPayPage(QR)).resolves.toMatchObject({ kind: 'choose', staffName: 'Ana', staffPhoto: 'data:image/webp;base64,UklGRg==' });
+    // Sin foto, el nombre; si la foto no se puede leer, la página sale igual (y queda en el log).
+    db.userPhoto = { findUnique: vi.fn(async () => null) } as never;
+    const noPhoto = await service.getPayPage(QR);
+    expect(noPhoto).toMatchObject({ staffName: 'Ana' });
+    expect(noPhoto).not.toHaveProperty('staffPhoto');
+    const broken = makeService({ payment: ana });
+    Object.assign(broken.db, { userPhoto: { findUnique: vi.fn(async () => Promise.reject(new Error('base caída'))) } });
+    await expect(broken.service.getPayPage(QR)).resolves.toMatchObject({ kind: 'choose', staffName: 'Ana' });
+    expect(broken.logger.warn).toHaveBeenCalled();
+    // Sin nombre visible no se enseña nada (ni el correo) y no se busca la foto.
+    const nameless = makeService({ payment: { createdByUserId: 'u-x', createdBy: { role: 'WAITER', post: null, displayName: null } } });
+    Object.assign(nameless.db, { userPhoto: { findUnique: vi.fn() } });
+    const plain = await nameless.service.getPayPage(QR);
+    expect(plain).not.toHaveProperty('staffName');
+    expect((nameless.db as unknown as { userPhoto: { findUnique: ReturnType<typeof vi.fn> } }).userPhoto.findUnique).not.toHaveBeenCalled();
+  });
+
   it('cobro nuevo en un local con Redsys → página de pago con propinas y cabecera del local', async () => {
     const { service } = makeService({ provider: 'REDSYS' });
     await expect(service.getPayPage(QR)).resolves.toEqual({

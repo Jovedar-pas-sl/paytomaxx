@@ -87,6 +87,9 @@ export type PayRedirect =
       bitcoin?: boolean;
       /** Un pago de un reservado (señal, resto o todo): sus páginas dicen sus reglas. */
       reservation?: true;
+      /** Quién cobra (decisión del dueño, 19-11-2026): su nombre visible y su foto (data:image), si los tiene. */
+      staffName?: string;
+      staffPhoto?: string;
     }
   | {
       /**
@@ -119,6 +122,8 @@ export type PayRedirect =
       approvedClaimHash?: string | null;
       /** Reservados: el navegador que lo pagó (con tarjeta o con bitcoin) vuelve a la página del reservado. */
       reservation?: true;
+      /** Regalos: el navegador que lo pagó va a «Comparte tu regalo». */
+      gift?: true;
     }
   | { kind: 'processing' }
   | { kind: 'closed'; reason: PayClosedReason };
@@ -129,6 +134,8 @@ export interface PayResultView {
   paidAfterCancel?: boolean;
   /** Reservados: el pago es de una reserva (al pagarse, vuelta a su página). */
   reservation?: true;
+  /** Regalos: el pago es de un regalo (al pagarse, «Comparte tu regalo»). */
+  gift?: true;
   status: PaymentMachineState;
   amountCents: number;
   tipCents: number;
@@ -282,6 +289,9 @@ export interface PayablePayment {
   concept?: string | null;
   /** La propina va entera a una persona del personal (no al local). */
   tipToStaff?: boolean;
+  /** Quién cobra: su nombre visible y su foto (data:image), solo para la página de pago. */
+  staffName?: string | null;
+  staffPhoto?: string | null;
   /** Recarga de saldo: token de la página del saldo del cliente. */
   walletToken: string | null;
   /** Huella del navegador que hizo el pago aprobado. */
@@ -307,6 +317,8 @@ export interface PayablePayment {
   approvedClaimHash?: string | null;
   /** Un pago de un reservado (señal, resto o todo): al pagarse, vuelve a su página. */
   reservation?: true;
+  /** Un regalo («Regala una noche»): al pagarse, «Comparte tu regalo». */
+  gift?: true;
   /**
    * Cobro único: el cobro del saldo enlazado (su enlace /s, su estado y su
    * plazo) y si el local cobra con saldo. Sin él, solo tarjeta.
@@ -337,6 +349,7 @@ export function settledPayView(p: PayablePayment, now: Date = new Date()): PayRe
       ...(p.walletFromHome ? { walletFromHome: true } : {}),
       approvedClaimHash: p.approvedClaimHash ?? null,
       ...(p.reservation ? { reservation: true as const } : {}),
+      ...(p.gift ? { gift: true as const } : {}),
     };
   }
   // Cobro único: lo pagó el saldo (el cobro con tarjeta se canceló entonces).
@@ -382,6 +395,8 @@ export function choosePayPage(p: PayablePayment, now: Date = new Date()): PayRed
     ...(p.saldo && p.allowTip && p.tipCents > 0 ? { presetTipCents: p.tipCents } : {}),
     ...(p.bitcoin ? { bitcoin: true } : {}),
     ...(p.reservation ? { reservation: true as const } : {}),
+    ...(p.staffName ? { staffName: p.staffName } : {}),
+    ...(p.staffName && p.staffPhoto ? { staffPhoto: p.staffPhoto } : {}),
   };
 }
 

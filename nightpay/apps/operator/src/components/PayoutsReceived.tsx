@@ -1,22 +1,27 @@
 'use client';
 
 import type { CSSProperties } from 'react';
+import { Button } from '@nightpay/ui';
 import type { MyPayout, PayoutAccount } from '@/lib/api';
 import { dayLabel, timeLabel } from '@/lib/earnings-view';
+import { httpsUrl } from '@/lib/history';
 import { formatEur } from '@/lib/money';
 import { payoutMethodLabel } from '@/lib/payout-method';
+import styles from './money.module.css';
 
-/** Cuántos pagos se enseñan (los últimos). */
+/** Cuántos pagos se enseñan aquí (los últimos); el resto, en «Ver todos los pagos». */
 const SHOWN = 10;
 
 interface Props {
   payouts: MyPayout[] | null;
   /** undefined: aún cargando; null: no tiene cuenta de cobro puesta. */
   account: PayoutAccount | null | undefined;
+  /** «Ver todos los pagos»: todos, por páginas y con fechas. */
+  onAll?: () => void;
 }
 
-/** «Pagos recibidos»: los últimos, con fecha, cómo y cuánto, y a qué cuenta se le paga. */
-export function PayoutsReceived({ payouts, account }: Props) {
+/** «Pagos recibidos»: los últimos, con fecha, cómo, cuánto y su justificante, y a qué cuenta se le paga. */
+export function PayoutsReceived({ payouts, account, onAll }: Props) {
   return (
     <section aria-labelledby="pagos-recibidos" style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }} data-tour="ganancias-pagos">
       <h2 id="pagos-recibidos" style={sectionTitle}>
@@ -28,26 +33,49 @@ export function PayoutsReceived({ payouts, account }: Props) {
       ) : payouts.length === 0 ? (
         <p style={emptyText}>Aún no te han pagado nada desde la app.</p>
       ) : (
-        <ul style={listStyle}>
-          {payouts.slice(0, SHOWN).map((p) => (
-            <li key={p.id} style={itemStyle}>
-              <div style={{ minWidth: 0 }}>
-                <p style={{ margin: 0, fontWeight: 500, fontSize: 'var(--np-fs-16)' }}>
-                  {dayLabel(p.createdAt)} <span style={muted}>· {timeLabel(p.createdAt)}</span>
-                </p>
-                <p style={metaText}>
-                  {payoutMethodLabel(p.externalRail)} · {p.earningCount} {p.earningCount === 1 ? 'cobro' : 'cobros'}
-                  {p.notes ? ` · ${p.notes}` : ''}
-                </p>
-              </div>
-              <span className="np-num" style={amountStyle}>
-                {formatEur(p.totalCents, { compact: true })}
-              </span>
-            </li>
-          ))}
-        </ul>
+        <PayoutList payouts={payouts.slice(0, SHOWN)} />
       )}
+      {onAll && payouts && payouts.length > 0 ? (
+        <div>
+          <Button variant="ghost" size="md" onClick={onAll}>
+            Ver todos los pagos
+          </Button>
+        </div>
+      ) : null}
     </section>
+  );
+}
+
+/** Cada pago: el día y la hora, cómo y cuántos cobros, cuánto y, si lo hay, su justificante. */
+export function PayoutList({ payouts }: { payouts: readonly MyPayout[] }) {
+  return (
+    <ul style={listStyle}>
+      {payouts.map((p) => {
+        const receipt = httpsUrl(p.receiptUrl);
+        return (
+          <li key={p.id} style={itemStyle}>
+            <div style={{ minWidth: 0 }}>
+              <p style={{ margin: 0, fontWeight: 500, fontSize: 'var(--np-fs-16)' }}>
+                {dayLabel(p.createdAt)} <span style={muted}>· {timeLabel(p.createdAt)}</span>
+              </p>
+              <p style={metaText}>
+                {payoutMethodLabel(p.externalRail)} · {p.earningCount} {p.earningCount === 1 ? 'cobro' : 'cobros'}
+                {p.notes ? ` · ${p.notes}` : ''}
+              </p>
+              {p.externalTxId ? <p style={{ ...metaText, overflowWrap: 'anywhere' }}>Referencia: {p.externalTxId}</p> : null}
+              {receipt ? (
+                <a href={receipt} target="_blank" rel="noopener noreferrer" className={styles.receipt}>
+                  Ver justificante
+                </a>
+              ) : null}
+            </div>
+            <span className="np-num" style={amountStyle}>
+              {formatEur(p.totalCents, { compact: true })}
+            </span>
+          </li>
+        );
+      })}
+    </ul>
   );
 }
 
