@@ -1,7 +1,9 @@
 'use client';
 
-import type { CSSProperties, ReactNode } from 'react';
-import type { MyDebt, MyEarning, MyNight, MyPayoutInfo } from '@/lib/api';
+import { useState, type CSSProperties, type ReactNode } from 'react';
+import { Button } from '@nightpay/ui';
+import { fetchMyEarningsPage, fetchMyPayoutsPage, type MyDebt, type MyEarning, type MyNight, type MyPayoutInfo } from '@/lib/api';
+import { NO_DAYS, type DayRange } from '@/lib/history';
 import {
   bankHeldItems,
   dayLabel,
@@ -19,9 +21,12 @@ import {
   type MoneySummary,
 } from '@/lib/earnings-view';
 import { formatEur, formatSignedEur } from '@/lib/money';
+import { DateRange } from './DateRange';
+import { PayoutList } from './PayoutsReceived';
+import { useHistory } from './use-history';
 import styles from './money.module.css';
 
-export type DetailKind = 'tonight' | 'other' | 'held' | 'bank' | 'debts';
+export type DetailKind = 'tonight' | 'other' | 'held' | 'bank' | 'debts' | 'history' | 'payouts';
 
 interface Props {
   kind: DetailKind;
@@ -47,7 +52,56 @@ export function EarningsDetail(props: Props) {
       {kind === 'held' ? <HeldDetail {...props} /> : null}
       {kind === 'bank' ? <BankDetail {...props} /> : null}
       {kind === 'debts' ? <DebtsDetail {...props} /> : null}
+      {kind === 'history' ? <EarningsHistory /> : null}
+      {kind === 'payouts' ? <PayoutsHistory /> : null}
     </section>
+  );
+}
+
+/** «Historial de ganancias»: todo, noche a noche y con su hora, por páginas y con fechas. */
+function EarningsHistory() {
+  const [days, setDays] = useState<DayRange>(NO_DAYS);
+  const h = useHistory(fetchMyEarningsPage, days);
+  const filtered = days.fromDay !== '' || days.toDay !== '';
+  return (
+    <>
+      <Head title="Historial de ganancias">Lo que has ganado en cada noche, cobro a cobro, también lo ya pagado.</Head>
+      <DateRange value={days} onChange={setDays} />
+      <HistoryStatus items={h.items} error={h.error} empty={filtered ? 'No hay ganancias en esas fechas.' : 'Aún no tienes ganancias.'} />
+      <NightGroups earnings={h.items} items={h.items ?? []} />
+      <MoreButton cursor={h.cursor} busy={h.moreBusy} onMore={h.more} />
+    </>
+  );
+}
+
+/** «Pagos recibidos», todos: con su justificante, por páginas y con fechas. */
+function PayoutsHistory() {
+  const [days, setDays] = useState<DayRange>(NO_DAYS);
+  const h = useHistory(fetchMyPayoutsPage, days);
+  const filtered = days.fromDay !== '' || days.toDay !== '';
+  return (
+    <>
+      <Head title="Pagos recibidos">Cada pago que te ha hecho el local, con su referencia y su justificante si lo hay.</Head>
+      <DateRange value={days} onChange={setDays} />
+      <HistoryStatus items={h.items} error={h.error} empty={filtered ? 'No hay pagos en esas fechas.' : 'Aún no te han pagado nada desde la app.'} />
+      {h.items && h.items.length > 0 ? <PayoutList payouts={h.items} /> : null}
+      <MoreButton cursor={h.cursor} busy={h.moreBusy} onMore={h.more} />
+    </>
+  );
+}
+
+function HistoryStatus({ items, error, empty }: { items: readonly unknown[] | null; error: string | null; empty: string }) {
+  if (error) return <p role="alert" style={{ ...noteStyle, color: 'var(--np-danger-text)' }}>{error}</p>;
+  if (items === null) return <p style={emptyText}>Cargando…</p>;
+  return items.length === 0 ? <p style={emptyText}>{empty}</p> : null;
+}
+
+function MoreButton({ cursor, busy, onMore }: { cursor: string | null; busy: boolean; onMore: () => void }) {
+  if (!cursor) return null;
+  return (
+    <Button variant="ghost" onClick={onMore} loading={busy} disabled={busy}>
+      Ver anteriores
+    </Button>
   );
 }
 
@@ -67,7 +121,6 @@ function TonightDetail({ night, summary, earnings, holdDays }: Props) {
 
 function OtherNightsDetail({ night, summary, earnings }: Props) {
   const items = otherNightsUnpaid(earnings ?? [], night);
-  const groups = groupByNight(items);
   const rest = unlistedCents(summary.otherNightsCents, sumNet(items));
   return (
     <>
@@ -75,20 +128,8 @@ function OtherNightsDetail({ night, summary, earnings }: Props) {
         Lo que ganaste otras noches y aún no te han pagado. Va en tu próximo pago.
       </Head>
       {earnings === null ? <p style={emptyText}>Cargando…</p> : null}
-      {earnings !== null && groups.length === 0 && rest === 0 ? <p style={emptyText}>Nada pendiente de otras noches.</p> : null}
-      {groups.map((g) => (
-        <div key={g.key} style={{ display: 'flex', flexDirection: 'column' }}>
-          <div style={groupHead}>
-            <span style={{ fontWeight: 600 }}>
-              Noche del {g.label} <span style={muted}>· {g.earnings.length} {g.earnings.length === 1 ? 'cobro' : 'cobros'}</span>
-            </span>
-            <span className="np-num" style={{ fontWeight: 600 }}>
-              {formatEur(g.totalCents, { compact: true })}
-            </span>
-          </div>
-          <EarningList earnings={earnings} items={g.earnings} />
-        </div>
-      ))}
+      {earnings !== null && items.length === 0 && rest === 0 ? <p style={emptyText}>Nada pendiente de otras noches.</p> : null}
+      <NightGroups earnings={earnings} items={items} />
       {earnings !== null && rest > 0 ? (
         <p style={noteStyle}>
           Y <strong className="np-num">{formatEur(rest, { compact: true })}</strong> de cobros más antiguos que no salen en esta lista.
@@ -205,6 +246,27 @@ function DebtItem({ debt }: { debt: MyDebt }) {
   );
 }
 
+/** Por noches: «Noche del sáb 12 oct · 3 cobros», su total y cada cobro con su hora. */
+function NightGroups({ earnings, items }: { earnings: MyEarning[] | null; items: MyEarning[] }) {
+  return (
+    <>
+      {groupByNight(items).map((g) => (
+        <div key={g.key} style={{ display: 'flex', flexDirection: 'column' }}>
+          <div style={groupHead}>
+            <span style={{ fontWeight: 600 }}>
+              Noche del {g.label} <span style={muted}>· {g.earnings.length} {g.earnings.length === 1 ? 'cobro' : 'cobros'}</span>
+            </span>
+            <span className="np-num" style={{ fontWeight: 600 }}>
+              {formatEur(g.totalCents, { compact: true })}
+            </span>
+          </div>
+          <EarningList earnings={earnings} items={g.earnings} />
+        </div>
+      ))}
+    </>
+  );
+}
+
 function EarningList({ earnings, items, empty }: { earnings: MyEarning[] | null; items: MyEarning[]; empty?: string }) {
   if (earnings === null) return <p style={emptyText}>Cargando…</p>;
   if (items.length === 0) return empty ? <p style={emptyText}>{empty}</p> : null;
@@ -233,13 +295,15 @@ const TONE_COLOR: Record<Tone, string> = {
   text: 'var(--np-text)',
 };
 
-function Head({ title, amount, tone = 'text', children }: { title: string; amount: string; tone?: Tone; children: ReactNode }) {
+function Head({ title, amount, tone = 'text', children }: { title: string; amount?: string; tone?: Tone; children: ReactNode }) {
   return (
     <header style={{ display: 'flex', flexDirection: 'column', gap: '0.375rem' }}>
       <h2 style={kicker}>{title}</h2>
-      <p className="np-num" style={{ ...bigAmount, color: TONE_COLOR[tone] }}>
-        {amount}
-      </p>
+      {amount !== undefined ? (
+        <p className="np-num" style={{ ...bigAmount, color: TONE_COLOR[tone] }}>
+          {amount}
+        </p>
+      ) : null}
       <p style={explainStyle}>{children}</p>
     </header>
   );

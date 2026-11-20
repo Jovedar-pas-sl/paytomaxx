@@ -58,6 +58,8 @@ export const TENANT_SCOPED_MODELS: ReadonlySet<string> = new Set([
   'Stall',
   // OxioParty (20261120300100): «Lo que sobra», las devoluciones que piden los asistentes.
   'PartyRefundRequest',
+  // «Te han pagado» (20261120400000): los navegadores del personal para el aviso del pago.
+  'StaffPushSubscription',
 ]);
 
 // Operaciones de lectura a filtrar y de escritura a inyectar tenantId

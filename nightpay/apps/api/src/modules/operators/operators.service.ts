@@ -6,6 +6,7 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  Optional,
   ServiceUnavailableException,
   UnauthorizedException,
 } from '@nestjs/common';
@@ -30,6 +31,8 @@ import {
 } from './payout-idempotency';
 import { debtView, payoutAccountView, type DebtRow, type MyPayoutInfo } from './my-payout-info';
 import { myPaymentsPage, type MyPaymentRow } from './my-payments';
+import { historyOrder, historyPage, historyRange, historyWhere, type HistoryRange } from './my-history';
+import { StaffPushService } from './staff-push.service';
 import { earningBankHeldSql, earningNetSql } from './bank-hold-sql';
 import { availableCentsOf, payoutCutoff, payoutTotalCents } from './payout-math';
 import {
@@ -62,6 +65,8 @@ import type {
   OperatorBalance,
   OperatorPublicView,
   OperatorWithBalance,
+  OwnHistoryPage,
+  OwnHistoryQuery,
   Role,
   EarningView,
   PayoutAccountFull,
@@ -144,6 +149,8 @@ export class OperatorsService {
   private readonly jwt: JwtService;
   private readonly fxFactory: PayoutVerifierFactory;
   private readonly sessions: RefreshTokenService;
+  /** «Te han pagado» al móvil de la persona (sin él, p. ej. en las pruebas, no se avisa). */
+  private readonly staffPush: StaffPushService | undefined;
 
   constructor(
     @Inject(PrismaService) prisma: PrismaService,
@@ -153,6 +160,7 @@ export class OperatorsService {
     @Inject(JwtService) jwt: JwtService,
     @Inject(PayoutVerifierFactory) fxFactory: PayoutVerifierFactory,
     @Inject(RefreshTokenService) sessions: RefreshTokenService,
+    @Optional() @Inject(StaffPushService) staffPush?: StaffPushService,
   ) {
     this.prisma = prisma;
     this.email = email;
@@ -161,6 +169,7 @@ export class OperatorsService {
     this.jwt = jwt;
     this.fxFactory = fxFactory;
     this.sessions = sessions;
+    this.staffPush = staffPush;
   }
 
   /**
@@ -265,11 +274,21 @@ export class OperatorsService {
     return Number(rows[0]?.total ?? 0);
   }
 
+  /** Sus últimas `limit` comisiones (el resumen de «Ganancias» y el panel). */
   async getMyEarnings(
     operatorId: string,
     tenantId: string,
     limit = 50,
   ): Promise<EarningView[]> {
+    return this.earningRows(operatorId, tenantId, limit, null);
+  }
+
+  /** «Historial» de sus ganancias en la app: por páginas y entre dos fechas. */
+  async myEarningsPage(operatorId: string, tenantId: string, q: OwnHistoryQuery): Promise<OwnHistoryPage<EarningView>> {
+    return historyPage(await this.earningRows(operatorId, tenantId, q.limit + 1, historyRange(q)), q.limit);
+  }
+
+  private async earningRows(operatorId: string, tenantId: string, take: number, range: HistoryRange | null): Promise<EarningView[]> {
     const rows = await this.prisma.withTenant(tenantId, (tx) => tx.$queryRaw<
       Array<{
         id: string;
@@ -295,8 +314,9 @@ export class OperatorsService {
         LEFT JOIN payments p ON p.id = e."paymentId"
        WHERE e."operatorId" = ${operatorId}::uuid
          AND e."tenantId" = ${tenantId}::uuid
-       ORDER BY e."createdAt" DESC
-       LIMIT ${limit}
+         ${historyWhere('e', range)}
+       ORDER BY ${historyOrder('e', range)}
+       LIMIT ${take}
     `);
     return rows.map((r) => ({
       id: r.id,
@@ -342,11 +362,21 @@ export class OperatorsService {
     });
   }
 
+  /** Sus últimos `limit` pagos (la app de antes y el panel). */
   async getMyPayouts(
     operatorId: string,
     tenantId: string,
     limit = 50,
   ): Promise<PayoutView[]> {
+    return this.payoutRows(operatorId, tenantId, limit, null);
+  }
+
+  /** «Pagos recibidos» de la app: por páginas y entre dos fechas, con su justificante. */
+  async myPayoutsPage(operatorId: string, tenantId: string, q: OwnHistoryQuery): Promise<OwnHistoryPage<PayoutView>> {
+    return historyPage(await this.payoutRows(operatorId, tenantId, q.limit + 1, historyRange(q)), q.limit);
+  }
+
+  private async payoutRows(operatorId: string, tenantId: string, take: number, range: HistoryRange | null): Promise<PayoutView[]> {
     const rows = await this.prisma.withTenant(tenantId, (tx) => tx.$queryRaw<
       Array<{
         id: string;
@@ -378,8 +408,9 @@ export class OperatorsService {
         ) ec ON ec."payoutId" = po.id
        WHERE po."operatorId" = ${operatorId}::uuid
          AND po."tenantId" = ${tenantId}::uuid
-       ORDER BY po."createdAt" DESC
-       LIMIT ${limit}
+         ${historyWhere('po', range)}
+       ORDER BY ${historyOrder('po', range)}
+       LIMIT ${take}
     `);
     return rows.map((r) => ({
       id: r.id,
@@ -1365,6 +1396,8 @@ export class OperatorsService {
     this.logger.log(
       `Payout ${result.payout.id} created operator=${operatorId} total=${result.payout.totalCents}c earnings=${result.count}`,
     );
+    // «Te han pagado 37,50 €» a su móvil, sin esperar: el pago ya está apuntado.
+    this.staffPush?.payoutMade({ tenantId, operatorId, payoutId: result.payout.id, totalCents: result.payout.totalCents });
 
     return {
       id: result.payout.id,

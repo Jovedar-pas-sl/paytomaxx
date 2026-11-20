@@ -9,7 +9,7 @@ export { Input, Select } from './components/Input';
 export { FormError } from './components/FormError';
 export { PrivacyNote } from './components/PrivacyNote';
 export { Modal } from './components/Modal';
-export { Segmented } from './components/profile-parts';
+export { Notice, ProfileBlock, Segmented } from './components/profile-parts';
 export { ThemeToggle } from './components/ThemeToggle';
 export { Logo } from './components/Logo';
 export { CartaIcon, CartaItemIcon, CARTA_ICON_PATHS } from './components/CartaIcon';

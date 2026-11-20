@@ -39,11 +39,28 @@ it('cobrado dos veces: la fila de la tarjeta lo trae, como en el panel (la del s
 });
 
 describe('consulta del historial propio', () => {
-  it('solo admite paginación; no permite suplantar usuario, local ni consultar otro saldo', () => {
+  it('solo admite paginación y fechas; no permite suplantar usuario, local ni consultar otro saldo', () => {
     expect(OwnCobrosQuerySchema.parse({})).toEqual({ limit: 50 });
-    for (const query of [{ operatorId: 'someone' }, { tenantId: 'other' }, { walletId: 'other' }, { limit: 9999 }]) {
+    expect(OwnCobrosQuerySchema.parse({ from: '2026-11-01T07:00:00.000Z', to: '2026-11-16T07:00:00+00:00' })).toEqual({
+      limit: 50,
+      from: '2026-11-01T07:00:00.000Z',
+      to: '2026-11-16T07:00:00+00:00',
+    });
+    for (const query of [{ operatorId: 'someone' }, { tenantId: 'other' }, { walletId: 'other' }, { limit: 9999 }, { from: '1 nov' }, { to: '2026-11-16' }]) {
       expect(OwnCobrosQuerySchema.safeParse(query).success).toBe(false);
     }
+  });
+
+  it('con fechas: solo los de entre ellas y sin la noche (el total de «Esta noche» no va con un filtro)', async () => {
+    const list = vi.fn().mockResolvedValue({ nextCursor: null, items: [] });
+    const currentWindow = vi.fn();
+    const controller = new OwnCobrosController({ list } as never, { currentWindow } as never);
+    const from = '2026-11-01T07:00:00.000Z';
+    const to = '2026-11-16T07:00:00.000Z';
+    const page = await controller.list(user, { limit: 50, from, to });
+    expect(list).toHaveBeenCalledWith('my-venue', expect.objectContaining({ limit: 50, operatorId: 'self', from, to }));
+    expect(currentWindow).not.toHaveBeenCalled();
+    expect(page).not.toHaveProperty('night');
   });
 });
 
