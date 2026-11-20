@@ -7,6 +7,7 @@ import {
   PayoutMethodSchema,
   isValidIban,
   payoutAddressProblem,
+  payoutHolderProblem,
   type PayoutMethod,
 } from './operators';
 import { OperatorCommissionDefaultsSchema, type OperatorCommissionDefaults } from './payments';
@@ -636,6 +637,8 @@ export const PayoutAccountListItemSchema = z.object({
   payoutMethod: PayoutMethodSchema.nullable(),
   /** Tapada: IBAN "ES12 •••• •••• 1234", cripto "T…9f2a", email "a•••@dominio". */
   payoutAddressMasked: z.string().nullable(),
+  /** Titular tapado («M••• L•••»), en SEPA y SWIFT. Opcional: API anterior. */
+  payoutHolderMasked: z.string().nullable().optional(),
   payoutLabel: z.string().nullable(),
   hasPayoutAccount: z.boolean(),
   updatedAt: IsoDate,
@@ -676,6 +679,9 @@ export const UpdatePayoutAccountSchema = z
     }
     const problem = payoutAddressProblem(v.payoutMethod, v.payoutAddress);
     if (problem) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['payoutAddress'], message: problem });
+    // En SEPA y SWIFT, el titular (el banco lo pide).
+    const holder = payoutHolderProblem(v.payoutMethod, v.payoutMetadata);
+    if (holder) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['payoutMetadata', 'accountHolder'], message: holder });
   });
 export type UpdatePayoutAccountDto = z.infer<typeof UpdatePayoutAccountSchema>;
 

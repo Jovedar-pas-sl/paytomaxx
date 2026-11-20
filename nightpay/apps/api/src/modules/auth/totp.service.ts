@@ -80,13 +80,14 @@ export class TotpService {
    * hacerla con la prueba de su llave de acceso para ESA acción (de un solo
    * uso, en la cabecera X-Step-Up-Token); si tiene llave y no la trae, 403
    * PASSKEY_REQUIRED con `stepUpAction`. Sin `action` (login, cambio de local,
-   * desactivar la 2FA, el super-admin), solo la 2FA, como siempre.
+   * desactivar la 2FA, el super-admin, la cuenta de cobro), solo la 2FA, como
+   * siempre. `notEnrolledMessage`: el texto de «actívala» a medida de quien llama.
    */
-  async assertForUser(userId: string, code: string | undefined, action?: string): Promise<void> {
+  async assertForUser(userId: string, code: string | undefined, action?: string, notEnrolledMessage?: string): Promise<void> {
     const stored = await this.loadStoredSecret(userId);
     if (!stored) {
       if (action && (await this.passkeyProofFor(userId, action))) return;
-      throw await this.missingSecondFactor(userId, action);
+      throw await this.missingSecondFactor(userId, action, notEnrolledMessage);
     }
     await this.checkStoredForUser(userId, stored, code);
   }

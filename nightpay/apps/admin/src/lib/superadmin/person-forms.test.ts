@@ -54,13 +54,21 @@ describe('cuenta de cobro', () => {
     ).toMatchObject({ ok: false, error: expect.stringMatching(/IBAN/) });
     expect(
       payoutUpdatePayload({ method: 'SEPA_IBAN', address: 'ES9121000418450200051332', metadata: null, label: 'Ana' }),
+    ).toMatchObject({ ok: false, error: 'Falta el titular de la cuenta' });
+    expect(
+      payoutUpdatePayload({
+        method: 'SEPA_IBAN',
+        address: 'ES9121000418450200051332',
+        metadata: { accountHolder: 'Ana López' },
+        label: 'Ana',
+      }),
     ).toEqual({
       ok: true,
       value: {
         payoutMethod: 'SEPA_IBAN',
         payoutAddress: 'ES9121000418450200051332',
         payoutLabel: 'Ana',
-        payoutMetadata: null,
+        payoutMetadata: { accountHolder: 'Ana López' },
       },
     });
   });

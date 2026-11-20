@@ -59,8 +59,47 @@ describe('acciones delicadas: el dueño tiene que poder verlas', () => {
     expect(sensitiveActionIncident(row('payment.manual_reconcile')).paymentId).toBe('p1');
   });
 
+  it('cuenta de cobro cambiada: quién y a quién en el panel, sin nombres ni cuenta en Telegram', () => {
+    const payload = { via: 'panel', name: 'Lola', after: { payoutAddress: 'ES91 •••• •••• 1332' } };
+    const panel = sensitiveActionIncident(row('operator.payout_account_changed', { payload, amountCents: null }));
+    expect(panel).toMatchObject({ kind: 'sensitive_action', title: 'Cuenta de cobro cambiada', ackable: true, paymentId: null });
+    expect(panel.detail).toMatch(/^Javi ha cambiado la cuenta de cobro de una compañera/);
+    expect(panel.detail).toContain('(Lola)');
+    expect(panel.alertDetail).toMatch(/^Alguien del personal ha cambiado la cuenta de cobro/);
+    expect(panel.alertDetail).not.toContain('Lola');
+    expect(panel.alertDetail).not.toContain('1332');
+  });
+
+  it('cuenta de cobro: por el enlace de alta o por OxioPay, otro texto; el titular que no se parece, avisado', () => {
+    const link = sensitiveActionIncident(row('operator.payout_account_changed', { payload: { via: 'enlace', name: 'Lola' }, actorName: 'Lola' }));
+    expect(link.title).toBe('Cuenta de cobro puesta con el enlace de alta');
+    expect(link.detail).toMatch(/^Una compañera ha puesto su cuenta de cobro/);
+    const support = sensitiveActionIncident(row('operator.payout_account_changed', { payload: { via: 'oxiopay', name: 'Lola' }, actorName: 'Soporte' }));
+    expect(support.title).toBe('OxioPay ha cambiado una cuenta de cobro');
+    expect(support.detail).not.toContain('Soporte');
+    const mismatch = sensitiveActionIncident(row('operator.payout_account_changed', { payload: { via: 'panel', name: 'Lola', holderMismatch: true } }));
+    expect(mismatch.detail).toContain('El titular no se parece a su nombre');
+    expect(mismatch.alertDetail).toContain('El titular no se parece a su nombre');
+  });
+
+  it('cuenta de cobro sin el correo activado (emailed: false): no promete el email, tampoco en Telegram', () => {
+    const changed = (payload: Record<string, unknown>) => sensitiveActionIncident(row('operator.payout_account_changed', { payload }));
+    const panel = changed({ via: 'panel', name: 'Lola', emailed: false });
+    expect(panel.detail).toBe('Javi ha cambiado la cuenta de cobro de una compañera, con su 2FA. Le hemos avisado en su app. (Lola)');
+    expect(panel.alertDetail).toBe('Alguien del personal ha cambiado la cuenta de cobro de una compañera, con su 2FA. Le hemos avisado en su app.');
+    expect(changed({ via: 'enlace', name: 'Lola', emailed: false }).detail).toBe(
+      'Una compañera ha puesto su cuenta de cobro con su enlace de alta: comprueba que es suya antes de pagarle. (Lola)',
+    );
+    expect(changed({ via: 'oxiopay', emailed: false }).alertDetail).toBe(
+      'OxioPay ha cambiado la cuenta de cobro de una compañera (el motivo está en el registro). Le hemos avisado en su app.',
+    );
+    // Con el correo, o un registro de antes sin el campo: el texto de siempre.
+    expect(changed({ via: 'panel', emailed: true }).detail).toContain('Le hemos avisado por email y en su app.');
+    expect(changed({ via: 'enlace' }).detail).toContain('Le hemos avisado por email');
+  });
+
   it('todas las que vigila tienen su texto', () => {
-    expect(SENSITIVE_AUDIT_ACTIONS).toEqual(expect.arrayContaining(['wallet.merged_large', 'wallet.activation_not_new', 'wallet.pin_reset', 'venue.night_settings.updated']));
+    expect(SENSITIVE_AUDIT_ACTIONS).toEqual(expect.arrayContaining(['wallet.merged_large', 'wallet.activation_not_new', 'wallet.pin_reset', 'venue.night_settings.updated', 'operator.payout_account_changed']));
     for (const a of SENSITIVE_AUDIT_ACTIONS) expect(sensitiveActionIncident(row(a)).title).not.toBe('Acción delicada');
   });
 });

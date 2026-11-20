@@ -3,6 +3,7 @@
  * cuántos días espera un cobro antes de pagarse, a qué cuenta se le paga
  * (enmascarada) y las devoluciones que llegaron con el cobro ya pagado.
  */
+import { maskedPayoutAccount, type StoredPayoutAccount } from './payout-account';
 
 /** A dónde se le paga, sin la dirección entera. */
 export interface PayoutAccountView {
@@ -49,28 +50,16 @@ export interface DebtRow {
   settledAt: Date | null;
 }
 
-const MASK = '••••';
-const VISIBLE_TAIL = 4;
-
-/** La dirección de cobro sin enseñarla entera: lo justo para reconocerla. */
-export function maskPayoutAddress(address: string | null | undefined): string | null {
-  const value = address?.trim();
-  if (!value) return null;
-  const at = value.indexOf('@');
-  if (at > 0) return `${value[0]}•••${value.slice(at)}`;
-  if (value.length <= VISIBLE_TAIL) return MASK;
-  return `${MASK}${value.slice(-VISIBLE_TAIL)}`;
-}
-
-export function payoutAccountView(
-  u: { payoutMethod?: string | null; payoutAddress?: string | null; payoutLabel?: string | null } | null,
-): PayoutAccountView | null {
+/**
+ * Su cuenta tapada como en el panel (la guardada aparte: no hace falta
+ * abrirla; una antigua en claro, tapada al vuelo).
+ */
+export function payoutAccountView(u: StoredPayoutAccount | null): PayoutAccountView | null {
   if (!u) return null;
-  const method = u.payoutMethod ?? null;
-  const label = u.payoutLabel?.trim() || null;
-  const masked = maskPayoutAddress(u.payoutAddress);
-  if (!method && !label && !masked) return null;
-  return { method, label, masked };
+  const m = maskedPayoutAccount(u);
+  const label = m.label?.trim() || null;
+  if (!m.method && !label && !m.addressMasked) return null;
+  return { method: m.method, label, masked: m.addressMasked };
 }
 
 export function debtView(r: DebtRow): MyDebtView {

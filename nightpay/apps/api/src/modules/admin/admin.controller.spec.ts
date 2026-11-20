@@ -261,10 +261,69 @@ describe('PATCH /admin/operators/:id — cambiar la cuenta de cobro pide 2FA', (
     expect(operators.updateOperator).toHaveBeenCalledOnce();
   });
 
-  it('dueño sin 2FA activada: se cambia como antes', async () => {
+  it('dueño sin 2FA activada: no se cambia; el mensaje dice que la active', async () => {
     const { update, operators } = controller(null);
-    await update({ payoutMethod: 'CASH' });
+    const err = await update({ payoutMethod: 'CASH' }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ForbiddenException);
+    const body = (err as HttpException).getResponse() as { code: string; message: string };
+    expect(body.code).toBe('TOTP_NOT_ENROLLED');
+    expect(body.message).toMatch(/cuenta de cobro/);
+    expect(body.message).toMatch(/Ajustes → Seguridad/);
+    expect(operators.updateOperator).not.toHaveBeenCalled();
+    // Lo que no es la cuenta de cobro, sin 2FA, como siempre.
+    await update({ displayName: 'Ana' });
     expect(operators.updateOperator).toHaveBeenCalledOnce();
+  });
+});
+
+describe('POST /admin/operators/:id/payout-account/reveal — «Ver cuenta para pagar»', () => {
+  const KEK = 'test_kek_0123456789abcdef0123456789abcdef_v1';
+  const SECRET = 'JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP';
+  const owner = { sub: 'own-1', tenantId: 't-1', role: 'OWNER' } as unknown as JwtPayload;
+  const full = { userId: 'op-1', payoutMethod: 'SEPA_IBAN', payoutAddress: 'ES9121000418450200051332', payoutLabel: null, payoutMetadata: null };
+  let previousKek: string | undefined;
+
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-10-15T22:00:10Z'));
+    previousKek = process.env.ENCRYPTION_KEK;
+    process.env.ENCRYPTION_KEK = KEK;
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    process.env.ENCRYPTION_KEK = previousKek;
+  });
+
+  function controller(totpSecret: string | null, who: JwtPayload = owner) {
+    const { totp } = makeTotpKit({ users: { [who.sub]: totpSecret } });
+    const operators = { revealPayoutAccount: vi.fn().mockResolvedValue(full) };
+    const none = {} as never;
+    const ctrl = new AdminController(none, none, none, operators as never, none, none, totp, none);
+    const reveal = (body: Record<string, unknown>) => ctrl.revealPayoutAccount('t-1', who, 'op-1', body as never);
+    return { reveal, operators };
+  }
+
+  it('el dueño con su código: la cuenta entera', async () => {
+    const { reveal, operators } = controller(sealTotpSecret(SECRET, KEK));
+    await expect(reveal({ totpCode: totpCodeAt(SECRET) })).resolves.toEqual(full);
+    expect(operators.revealPayoutAccount).toHaveBeenCalledWith('t-1', 'op-1', 'own-1');
+  });
+
+  it('sin código → 403 TOTP_REQUIRED; sin 2FA activada → que la active; nada se enseña', async () => {
+    const enrolled = controller(sealTotpSecret(SECRET, KEK));
+    expect(((await enrolled.reveal({}).catch((e: unknown) => e)) as HttpException).getResponse()).toMatchObject({ code: 'TOTP_REQUIRED' });
+    const notEnrolled = controller(null);
+    const err = (await notEnrolled.reveal({}).catch((e: unknown) => e)) as HttpException;
+    expect(err.getResponse()).toMatchObject({ code: 'TOTP_NOT_ENROLLED' });
+    expect(enrolled.operators.revealPayoutAccount).not.toHaveBeenCalled();
+    expect(notEnrolled.operators.revealPayoutAccount).not.toHaveBeenCalled();
+  });
+
+  it('el encargado no la ve (solo tapada)', async () => {
+    const manager = { sub: 'man-1', tenantId: 't-1', role: 'MANAGER' } as unknown as JwtPayload;
+    const { reveal, operators } = controller(sealTotpSecret(SECRET, KEK), manager);
+    await expect(reveal({ totpCode: totpCodeAt(SECRET) })).rejects.toThrow(ForbiddenException);
+    expect(operators.revealPayoutAccount).not.toHaveBeenCalled();
   });
 });
 

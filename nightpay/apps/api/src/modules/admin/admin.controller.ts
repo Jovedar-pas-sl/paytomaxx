@@ -51,6 +51,7 @@ import {
   CreateOperatorSchema,
   CreatePayoutSchema,
   ResetOperatorPasswordSchema,
+  RevealPayoutAccountSchema,
   ServiceFeeBpsSchema,
   UpdateOperatorSchema,
   type CreateOperatorDto,
@@ -58,8 +59,15 @@ import {
   type JwtPayload,
   type PaymentStatus,
   type ResetOperatorPasswordDto,
+  type RevealPayoutAccountDto,
   type UpdateOperatorDto,
 } from '@nightpay/contracts';
+
+/** Sin 2FA activada: lo que se le dice al dueño (TOTP_NOT_ENROLLED). */
+const PAYOUT_ACCOUNT_CHANGE_2FA =
+  'Para cambiar una cuenta de cobro hace falta la verificación en dos pasos (2FA). Actívala en Ajustes → Seguridad y vuelve a intentarlo.';
+const PAYOUT_ACCOUNT_REVEAL_2FA =
+  'Para ver la cuenta de cobro entera hace falta la verificación en dos pasos (2FA). Actívala en Ajustes → Seguridad y vuelve a intentarlo.';
 import type { RequestContext } from '../../common/context/request-context';
 import { MIN_INVOICE_REF_LENGTH, invoiceRefProblem, matchInvoiceRef } from '../btcpay/btcpay-resolve';
 
@@ -786,13 +794,33 @@ export class AdminController {
     @Param('id', new ParseUUIDPipe()) id: string,
     @Body(new ZodValidationPipe(UpdateOperatorSchema)) dto: UpdateOperatorDto,
   ) {
-    // Cambiar a dónde va el dinero de una chica es como pagarle: con 2FA si el
-    // dueño la tiene (una sesión robada no basta). El encargado no puede (403
-    // en el servicio) y el cambio queda en el registro con lo de antes.
+    // Cambiar a dónde va el dinero de una compañera es como pagarle: siempre con
+    // la 2FA del dueño (una sesión robada no basta; sin ella activada, que la
+    // active). El encargado no puede (403 en el servicio) y el cambio queda en
+    // el registro con lo de antes, tapado.
     if (user.role === 'OWNER' && touchesPayoutAccount(dto)) {
-      await this.totp.assertIfEnrolledForUser(user.sub, dto.totpCode);
+      await this.totp.assertForUser(user.sub, dto.totpCode, undefined, PAYOUT_ACCOUNT_CHANGE_2FA);
     }
     return this.operators.updateOperator(tenantId, id, user.sub, user.role, dto);
+  }
+
+  /**
+   * «Ver cuenta para pagar»: la cuenta de cobro entera (y el titular) de una
+   * compañera. Solo el dueño y siempre con su 2FA; en el registro queda
+   * tapada. El encargado (y la lista del panel) solo la ven tapada.
+   */
+  @Post('operators/:id/payout-account/reveal')
+  @Roles('OWNER')
+  @HttpCode(200)
+  async revealPayoutAccount(
+    @Tenant() tenantId: string,
+    @CurrentUser() user: JwtPayload,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body(new ZodValidationPipe(RevealPayoutAccountSchema)) body: RevealPayoutAccountDto,
+  ) {
+    if (user.role !== 'OWNER') throw new ForbiddenException('Solo el dueño ve la cuenta de cobro entera');
+    await this.totp.assertForUser(user.sub, body.totpCode, undefined, PAYOUT_ACCOUNT_REVEAL_2FA);
+    return this.operators.revealPayoutAccount(tenantId, id, user.sub);
   }
 
   /**

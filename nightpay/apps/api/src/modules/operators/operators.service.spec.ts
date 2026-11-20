@@ -1,8 +1,15 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { createHash } from 'node:crypto';
-import { BadRequestException, ConflictException, UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, ConflictException, NotFoundException, UnauthorizedException } from '@nestjs/common';
 import { Prisma } from '@nightpay/db';
 import { OperatorsService } from './operators.service';
+import { openPayoutValue, sealPayoutValue } from './payout-account-crypto';
+
+process.env.ENCRYPTION_KEK ??= 'clave-de-pruebas-de-la-cuenta-de-cobro-0123456789';
+const IBAN = 'ES9121000418450200051332';
+/** Lo guardado (cifrado) en claro, como lo abre el API. */
+const opened = (stored: unknown, field: 'address' | 'holder' = 'address') =>
+  openPayoutValue(String(stored), { userId: 'op-1', field });
 
 const TRON = 'TXYZxQwUVqHbvHvgrkqz6T6oyhqcKpuFiV';
 const EVM = '0x55d398326f99059ff775485246999027b3197955';
@@ -23,6 +30,12 @@ const baseOperator = {
   payoutMethod: null as string | null,
   payoutAddress: null as string | null,
   payoutLabel: null as string | null,
+  payoutMetadata: null as unknown,
+  payoutAddressMasked: null as string | null,
+  payoutHolderMasked: null as string | null,
+  payoutAccountChangedAt: null as Date | null,
+  payoutHoldUntil: null as Date | null,
+  payoutNoticeSeenAt: null as Date | null,
   onboardingStatus: 'NEW',
 };
 
@@ -69,7 +82,7 @@ function makeOps(opts: MakeOptions = {}) {
     $transaction: vi.fn().mockImplementation(async (fn: (tx: unknown) => unknown) => fn(prisma)),
     withTenant: vi.fn().mockImplementation(async (_tenantId: string, fn: (tx: unknown) => unknown) => fn(prisma)),
   });
-  const email = { send: vi.fn().mockResolvedValue({ delivered: false }) };
+  const email = { send: vi.fn().mockResolvedValue({ delivered: false }), isEnabled: () => false };
   const audit = { log: vi.fn().mockResolvedValue(undefined) };
   const config = {
     get: vi.fn((key: string) => (key === 'OPERATOR_BASE_URL' ? 'https://chicas.example.com' : undefined)),
@@ -155,16 +168,27 @@ describe('OperatorsService.updateOperator — dirección de cobro válida para s
     ).rejects.toThrow(/0x/);
   });
 
-  it('válida → se guarda normalizada (IBAN en mayúsculas y sin espacios)', async () => {
+  it('válida → se guarda normalizada (IBAN en mayúsculas y sin espacios), cifrada y tapada aparte', async () => {
     const { svc, prisma } = makeOps();
     await svc.updateOperator('t-1', 'op-1', 'u-owner', 'OWNER', {
       payoutMethod: 'SEPA_IBAN',
       payoutAddress: ' es91 2100 0418 4502 0005 1332 ',
+      payoutMetadata: { accountHolder: ' Ana López ' },
     });
-    expect(prisma.user.update).toHaveBeenCalledWith({
-      where: { id: 'op-1' },
-      data: expect.objectContaining({ payoutMethod: 'SEPA_IBAN', payoutAddress: 'ES9121000418450200051332' }),
-    });
+    const data = prisma.user.update.mock.calls[0]![0].data as Record<string, unknown>;
+    expect(data).toMatchObject({ payoutMethod: 'SEPA_IBAN', payoutAddressMasked: 'ES91 •••• •••• 1332', payoutHolderMasked: 'A••• L•••' });
+    expect(opened(data.payoutAddress)).toBe(IBAN);
+    expect(opened((data.payoutMetadata as { accountHolder: string }).accountHolder, 'holder')).toBe('Ana López');
+    expect(JSON.stringify(data)).not.toContain(IBAN);
+    expect(JSON.stringify(data)).not.toContain('López');
+  });
+
+  it('IBAN SEPA sin titular → 400 y no se guarda', async () => {
+    const { svc, prisma } = makeOps();
+    await expect(
+      svc.updateOperator('t-1', 'op-1', 'u-owner', 'OWNER', { payoutMethod: 'SEPA_IBAN', payoutAddress: IBAN }),
+    ).rejects.toThrow('Falta el titular de la cuenta');
+    expect(prisma.user.update).not.toHaveBeenCalled();
   });
 
   it('cambios que no tocan el cobro no revalidan lo guardado', async () => {
@@ -174,27 +198,103 @@ describe('OperatorsService.updateOperator — dirección de cobro válida para s
     expect(audit.log.mock.calls.map(([e]) => e.action)).toEqual(['operator.updated']);
   });
 
-  it('cambiar la cuenta de cobro queda en el registro con la de antes; el código 2FA no se apunta', async () => {
-    const { svc, audit } = makeOps({ operator: { payoutMethod: 'USDT_TRC20', payoutAddress: TRON, payoutLabel: 'Binance' } });
+  it('cambiar la cuenta de cobro queda en el registro con la de antes, todo tapado; el código 2FA no se apunta', async () => {
+    const { svc, audit, email } = makeOps({ operator: { payoutMethod: 'USDT_TRC20', payoutAddress: TRON, payoutLabel: 'Binance' } });
     await svc.updateOperator('t-1', 'op-1', 'u-owner', 'OWNER', {
       payoutMethod: 'USDT_BEP20',
       payoutAddress: EVM,
       totpCode: '123456',
     });
     const updated = audit.log.mock.calls.find(([e]) => e.action === 'operator.updated')![0];
-    expect(updated.payload.changes).not.toHaveProperty('totpCode');
+    expect(updated.payload.changes).toEqual({ payoutMethod: 'USDT_BEP20', payoutAddress: '0x…7955' });
     expect(audit.log).toHaveBeenCalledWith(
       expect.objectContaining({
         action: 'operator.payout_account_changed',
         tenantId: 't-1',
         actorId: 'u-owner',
         targetId: 'op-1',
-        payload: {
-          before: { payoutMethod: 'USDT_TRC20', payoutAddress: TRON, payoutLabel: 'Binance' },
-          after: { payoutMethod: 'USDT_BEP20', payoutAddress: EVM, payoutLabel: 'Binance' },
-        },
+        payload: expect.objectContaining({
+          via: 'panel',
+          name: 'Ana',
+          before: { payoutMethod: 'USDT_TRC20', payoutAddress: 'T…uFiV', payoutHolder: null, payoutLabel: 'Binance' },
+          after: { payoutMethod: 'USDT_BEP20', payoutAddress: '0x…7955', payoutHolder: null, payoutLabel: 'Binance' },
+        }),
       }),
     );
+    expect(JSON.stringify(audit.log.mock.calls)).not.toContain(EVM);
+    expect(JSON.stringify(audit.log.mock.calls)).not.toContain(TRON);
+    // A ella, un correo (con la cuenta tapada).
+    expect(email.send).toHaveBeenCalledWith(expect.objectContaining({ to: 'chica@example.com' }));
+    expect(JSON.stringify(email.send.mock.calls)).not.toContain(EVM);
+  });
+
+  it('solo el alias: ni aviso ni correo (no cambia a dónde va el dinero)', async () => {
+    const { svc, audit, email } = makeOps({ operator: { payoutMethod: 'USDT_TRC20', payoutAddress: TRON } });
+    await svc.updateOperator('t-1', 'op-1', 'u-owner', 'OWNER', { payoutLabel: 'Mi Binance' });
+    expect(audit.log.mock.calls.map(([e]) => e.action)).toEqual(['operator.updated']);
+    expect(email.send).not.toHaveBeenCalled();
+  });
+
+  it('transferencia internacional: cambiar solo el SWIFT (misma cuenta y titular) también avisa, espera 48 h y deja en el registro el banco de antes', async () => {
+    const wire = {
+      payoutMethod: 'WIRE_INTERNATIONAL',
+      payoutAddress: 'GE29NB0000000101904917',
+      payoutMetadata: { country: 'Georgia', bankName: 'TBC Bank', swiftBic: 'TBCBGE22', accountHolder: 'Ana Beridze' },
+    };
+    const { svc, prisma, audit, email } = makeOps({ operator: wire });
+    await svc.updateOperator('t-1', 'op-1', 'u-owner', 'OWNER', {
+      payoutMetadata: { bankName: 'TBC Bank', swiftBic: 'BAGAGE22', country: 'Georgia', accountHolder: 'Ana Beridze' },
+    });
+    const data = prisma.user.update.mock.calls[0]![0].data as Record<string, unknown>;
+    expect(data.payoutHoldUntil).toBeInstanceOf(Date);
+    expect(data.payoutAccountChangedAt).toBeInstanceOf(Date);
+    const changed = audit.log.mock.calls.find(([e]) => e.action === 'operator.payout_account_changed')![0];
+    expect(changed.payload).toMatchObject({
+      before: { payoutAddress: 'GE29 •••• •••• 4917', payoutBank: { swiftBic: 'TBCBGE22' } },
+      after: { payoutAddress: 'GE29 •••• •••• 4917', payoutBank: { swiftBic: 'BAGAGE22' } },
+      holdUntil: (data.payoutHoldUntil as Date).toISOString(),
+    });
+    expect(email.send).toHaveBeenCalledWith(expect.objectContaining({ to: 'chica@example.com' }));
+  });
+
+  it('la cuenta se guarda solo si sigue como se leyó: si cambió por otro lado a la vez, 409 y ni registro ni correo', async () => {
+    const changedAt = new Date('2026-10-01T10:00:00Z');
+    const { svc, prisma, audit, email } = makeOps({
+      operator: { payoutMethod: 'USDT_TRC20', payoutAddress: TRON, payoutAccountChangedAt: changedAt },
+    });
+    const change = { payoutMethod: 'USDT_BEP20' as const, payoutAddress: EVM };
+    await svc.updateOperator('t-1', 'op-1', 'u-owner', 'OWNER', change);
+    expect(prisma.user.update.mock.calls[0]![0].where).toEqual({
+      id: 'op-1',
+      payoutAccountChangedAt: { gte: changedAt, lt: new Date('2026-10-01T10:00:00.001Z') },
+    });
+
+    // Otro cambio entró entre leerla y guardarla: la fila ya no está «como se leyó» (P2025).
+    vi.clearAllMocks();
+    prisma.user.update.mockRejectedValueOnce(Object.assign(new Error('Record to update not found'), { code: 'P2025' }));
+    const err = await svc.updateOperator('t-1', 'op-1', 'u-owner', 'OWNER', change).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ConflictException);
+    expect((err as Error).message).toMatch(/acaba de cambiar por otro lado/);
+    expect(audit.log).not.toHaveBeenCalled();
+    expect(email.send).not.toHaveBeenCalled();
+  });
+
+  it('la primera cuenta: solo si sigue sin ninguna (dos «primeras» a la vez no se saltan la espera)', async () => {
+    const { svc, prisma } = makeOps();
+    await svc.updateOperator('t-1', 'op-1', 'u-owner', 'OWNER', { payoutMethod: 'USDT_TRC20', payoutAddress: TRON });
+    expect(prisma.user.update.mock.calls[0]![0].where).toEqual({ id: 'op-1', payoutAccountChangedAt: null });
+  });
+
+  it('un fallo de la base que no es ese (o sin tocar la cuenta) sale tal cual', async () => {
+    const { svc, prisma } = makeOps();
+    const gone = Object.assign(new Error('Record to update not found'), { code: 'P2025' });
+    prisma.user.update.mockRejectedValueOnce(gone);
+    await expect(svc.updateOperator('t-1', 'op-1', 'u-owner', 'OWNER', { displayName: 'Ana B.' })).rejects.toBe(gone);
+    const down = new Error('base caída');
+    prisma.user.update.mockRejectedValueOnce(down);
+    await expect(
+      svc.updateOperator('t-1', 'op-1', 'u-owner', 'OWNER', { payoutMethod: 'USDT_TRC20', payoutAddress: TRON }),
+    ).rejects.toBe(down);
   });
 });
 
@@ -215,16 +315,30 @@ describe('OperatorsService.submitSelfOnboarding — la chica pone su cuenta de c
     expect(updateInSystem).toEqual([true]);
   });
 
-  it('válida → se guarda normalizada', async () => {
-    const { svc, prisma } = makeOps();
+  it('válida → se guarda normalizada, cifrada y tapada; aviso (por el enlace) y correo', async () => {
+    const { svc, prisma, audit, email } = makeOps();
     await svc.submitSelfOnboarding('header.payload.signature-token', {
       payoutMethod: 'USDT_TRC20',
       payoutAddress: ` ${TRON} `,
     });
     expect(prisma.user.update).toHaveBeenCalledWith({
       where: { id: 'op-1', selfOnboardingToken: TOKEN_HASH },
-      data: expect.objectContaining({ payoutMethod: 'USDT_TRC20', payoutAddress: TRON }),
+      data: expect.objectContaining({ payoutMethod: 'USDT_TRC20', payoutAddressMasked: 'T…uFiV' }),
     });
+    expect(opened(prisma.user.update.mock.calls[0]![0].data.payoutAddress)).toBe(TRON);
+    expect(audit.log).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'operator.payout_account_changed', actorId: 'op-1', payload: expect.objectContaining({ via: 'enlace' }) }),
+    );
+    expect(email.send).toHaveBeenCalledWith(expect.objectContaining({ to: 'chica@example.com' }));
+    expect(JSON.stringify(audit.log.mock.calls)).not.toContain(TRON);
+  });
+
+  it('IBAN SEPA sin titular → 400', async () => {
+    const { svc, prisma } = makeOps();
+    await expect(svc.submitSelfOnboarding(TOKEN, { payoutMethod: 'SEPA_IBAN', payoutAddress: IBAN })).rejects.toThrow(
+      'Falta el titular de la cuenta',
+    );
+    expect(prisma.user.update).not.toHaveBeenCalled();
   });
 
   it('transferencia internacional: IBAN junto y los datos del banco, limpios', async () => {
@@ -234,11 +348,14 @@ describe('OperatorsService.submitSelfOnboarding — la chica pone su cuenta de c
       payoutAddress: ' ge29 nb00 0000 0101 9049 17 ',
       payoutMetadata: { bankName: ' TBC Bank ', swiftBic: 'tbcb ge22', country: '', accountHolder: ' Camila Pérez ' },
     });
-    expect(prisma.user.update.mock.calls[0]![0].data).toMatchObject({
+    const data = prisma.user.update.mock.calls[0]![0].data;
+    expect(data).toMatchObject({
       payoutMethod: 'WIRE_INTERNATIONAL',
-      payoutAddress: 'GE29NB0000000101904917',
-      payoutMetadata: { bankName: 'TBC Bank', swiftBic: 'TBCBGE22', accountHolder: 'Camila Pérez' },
+      payoutMetadata: { bankName: 'TBC Bank', swiftBic: 'TBCBGE22' },
+      payoutHolderMasked: 'C••• P•••',
     });
+    expect(opened(data.payoutAddress)).toBe('GE29NB0000000101904917');
+    expect(opened(data.payoutMetadata.accountHolder, 'holder')).toBe('Camila Pérez');
   });
 
   it('otros métodos no guardan datos de banco; si no se aplica la cuenta, van en la propuesta', async () => {
@@ -250,8 +367,14 @@ describe('OperatorsService.submitSelfOnboarding — la chica pone su cuenta de c
     await manager.svc.submitSelfOnboarding(TOKEN, { payoutMethod: 'WIRE_INTERNATIONAL', payoutAddress: '0012345678', payoutMetadata: meta });
     expect(manager.prisma.user.update.mock.calls[0]![0].data).not.toHaveProperty('payoutMetadata');
     expect(manager.audit.log).toHaveBeenCalledWith(
-      expect.objectContaining({ payload: expect.objectContaining({ proposedPayout: expect.objectContaining({ metadata: meta }) }) }),
+      expect.objectContaining({
+        payload: expect.objectContaining({
+          proposedPayout: expect.objectContaining({ metadata: { bankName: 'TBC Bank', swiftBic: 'TBCBGE22', accountHolder: 'C•••' } }),
+        }),
+      }),
     );
+    // La propuesta va tapada: nunca la cuenta entera en el registro.
+    expect(JSON.stringify(manager.audit.log.mock.calls)).not.toContain('0012345678');
   });
 });
 
@@ -486,7 +609,7 @@ describe('Enlace de la chica — su primera cuenta de cobro solo con enlace del 
     expect(audit.log).toHaveBeenCalledWith(
       expect.objectContaining({
         action: 'operator.self_onboarding.submitted',
-        payload: expect.objectContaining({ proposedPayout: { method: 'USDT_TRC20', address: TRON, label: null } }),
+        payload: expect.objectContaining({ proposedPayout: { method: 'USDT_TRC20', address: 'T…uFiV', label: null } }),
       }),
     );
   });
@@ -517,6 +640,199 @@ describe('Enlace de la chica — su primera cuenta de cobro solo con enlace del 
     });
     expect((await manager.svc.getSelfOnboardingProfile('header.payload.signature-token')).canSetPayout).toBe(false);
     const hasOne = makeOps({ operator: { payoutMethod: 'USDT_TRC20', payoutAddress: TRON } });
-    expect((await hasOne.svc.getSelfOnboardingProfile('header.payload.signature-token')).canSetPayout).toBe(false);
+    const profile = await hasOne.svc.getSelfOnboardingProfile('header.payload.signature-token');
+    expect(profile.canSetPayout).toBe(false);
+    // La respuesta del enlace nunca lleva la cuenta entera.
+    expect(profile.payoutAddressMasked).toBe('T…uFiV');
+    expect(JSON.stringify(profile)).not.toContain(TRON);
+  });
+});
+
+// ─── Cuenta de cobro segura (19-nov-2026) ───────────────────────────
+
+/** Una compañera con su IBAN SEPA guardado como queda ahora: cifrado y tapado aparte. */
+function sealedSepa() {
+  return {
+    payoutMethod: 'SEPA_IBAN',
+    payoutAddress: sealPayoutValue(IBAN, { userId: 'op-1', field: 'address' }),
+    payoutAddressMasked: 'ES91 •••• •••• 1332',
+    payoutMetadata: { accountHolder: sealPayoutValue('Ana López', { userId: 'op-1', field: 'holder' }) },
+    payoutHolderMasked: 'A••• L•••',
+  };
+}
+
+describe('Cuenta de cobro segura — tapada en el panel, entera solo con «Ver cuenta para pagar»', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('lo que devuelve el panel (la ficha de la compañera) va tapado: ni entera ni cifrada', async () => {
+    const { svc } = makeOps({ operator: sealedSepa() });
+    const view = await svc.updateOperator('t-1', 'op-1', 'u-owner', 'OWNER', { displayName: 'Ana' });
+    expect(view).toMatchObject({
+      payoutMethod: 'SEPA_IBAN',
+      payoutAddressMasked: 'ES91 •••• •••• 1332',
+      payoutHolderMasked: 'A••• L•••',
+      payoutHolderMismatch: false,
+    });
+    expect(view).not.toHaveProperty('payoutAddress');
+    expect(JSON.stringify(view)).not.toContain('pa1:');
+    expect(JSON.stringify(view)).not.toContain(IBAN);
+  });
+
+  it('el titular que no se parece a su nombre se marca (aviso para el dueño)', async () => {
+    const { svc } = makeOps({ operator: { ...sealedSepa(), displayName: 'Marina' } });
+    const view = await svc.updateOperator('t-1', 'op-1', 'u-owner', 'OWNER', { onboardingNotes: 'x' });
+    expect(view.payoutHolderMismatch).toBe(true);
+  });
+
+  it('«Ver cuenta para pagar»: entera para el dueño y en el registro solo tapada', async () => {
+    const { svc, audit } = makeOps({ operator: sealedSepa() });
+    const full = await svc.revealPayoutAccount('t-1', 'op-1', 'u-owner');
+    expect(full).toEqual({
+      userId: 'op-1',
+      payoutMethod: 'SEPA_IBAN',
+      payoutAddress: IBAN,
+      payoutLabel: null,
+      payoutMetadata: { accountHolder: 'Ana López' },
+    });
+    expect(audit.log).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'operator.payout_account_revealed',
+        tenantId: 't-1',
+        actorId: 'u-owner',
+        targetId: 'op-1',
+        payload: { payoutMethod: 'SEPA_IBAN', payoutAddress: 'ES91 •••• •••• 1332', payoutHolder: 'A••• L•••', payoutLabel: null },
+      }),
+    );
+    expect(JSON.stringify(audit.log.mock.calls)).not.toContain(IBAN);
+    expect(JSON.stringify(audit.log.mock.calls)).not.toContain('López');
+  });
+
+  it('«Ver cuenta» de alguien que no es de este local → 404', async () => {
+    const { svc } = makeOps({ operator: null });
+    await expect(svc.revealPayoutAccount('t-1', 'op-x', 'u-owner')).rejects.toThrow(NotFoundException);
+  });
+});
+
+describe('Marcar pagado — 48 h de espera tras cambiar la cuenta', () => {
+  beforeEach(() => vi.clearAllMocks());
+  afterEach(() => vi.useRealTimers());
+
+  function payDb(operator: Partial<typeof baseOperator>) {
+    const made = makeOps({ operator });
+    const prisma = made.prisma as unknown as Record<string, unknown>;
+    const create = vi.fn().mockResolvedValue({ id: 'po-1', totalCents: 9000, createdAt: new Date() });
+    Object.assign(prisma, {
+      $queryRaw: vi.fn().mockImplementation(async (strings: TemplateStringsArray) =>
+        strings.join('?').includes('earning_reversals') ? [] : [{ id: 'e-1', commissionCents: 9000, tipCents: 0, reversedCents: 0 }],
+      ),
+      $executeRaw: vi.fn().mockResolvedValue(1),
+      operatorPayout: { findFirst: vi.fn().mockResolvedValue(null), create },
+    });
+    return { ...made, create };
+  }
+
+  it('cuenta cambiada hace menos de 48 h: 409 con la fecha desde la que se puede, y no se apunta nada', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-11-19T22:00:00Z'));
+    const hold = new Date('2026-11-21T21:30:00Z');
+    const { svc, create } = payDb({ ...sealedSepa(), payoutHoldUntil: hold });
+    const err = await svc.createPayout('t-1', 'op-1', 'u-owner', undefined, { externalRail: 'SEPA_IBAN' }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ConflictException);
+    const body = (err as ConflictException).getResponse() as { code: string; payableFrom: string; message: string };
+    expect(body.code).toBe('PAYOUT_ACCOUNT_TOO_NEW');
+    expect(body.payableFrom).toBe(hold.toISOString());
+    expect(body.message).toContain('21 de noviembre a las 22:30');
+    expect(create).not.toHaveBeenCalled();
+  });
+
+  it('sin decir cómo, se mira su método (la cuenta nueva): también espera', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-11-19T22:00:00Z'));
+    const { svc, create } = payDb({ ...sealedSepa(), payoutHoldUntil: new Date('2026-11-21T21:30:00Z') });
+    await expect(svc.createPayout('t-1', 'op-1', 'u-owner')).rejects.toThrow(ConflictException);
+    expect(create).not.toHaveBeenCalled();
+  });
+
+  it('en efectivo sí se le paga ya', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-11-19T22:00:00Z'));
+    const { svc, create } = payDb({ ...sealedSepa(), payoutHoldUntil: new Date('2026-11-21T21:30:00Z') });
+    await svc.createPayout('t-1', 'op-1', 'u-owner', undefined, { externalRail: 'MANUAL_CASH' });
+    expect(create).toHaveBeenCalled();
+  });
+
+  /** Lo que se lee DENTRO de la transacción del pago es otra cosa que fuera: la cuenta cambió mientras tanto. */
+  function changedMeanwhile(prisma: unknown, now: Partial<typeof baseOperator>) {
+    const db = prisma as { user: Record<string, unknown>; $queryRaw: ReturnType<typeof vi.fn>; withTenant: ReturnType<typeof vi.fn> };
+    const findFirst = vi.fn().mockResolvedValue({ ...baseOperator, ...now });
+    db.withTenant.mockImplementation(async (_tenantId: string, fn: (tx: unknown) => unknown) =>
+      fn({ ...db, user: { ...db.user, findFirst } }),
+    );
+    return { findFirst, lock: db.$queryRaw };
+  }
+
+  it('la espera se mira con el candado ya tomado: una cuenta cambiada mientras el pago esperaba su turno no se paga', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-11-19T22:00:00Z'));
+    // Al empezar la petición no había espera; al tocarle el turno, la cuenta acaba de cambiar.
+    const { svc, prisma, create } = payDb(sealedSepa());
+    const { findFirst, lock } = changedMeanwhile(prisma, { ...sealedSepa(), payoutHoldUntil: new Date('2026-11-21T21:30:00Z') });
+    const err = await svc.createPayout('t-1', 'op-1', 'u-owner', undefined, { externalRail: 'SEPA_IBAN' }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ConflictException);
+    expect(((err as ConflictException).getResponse() as { code: string }).code).toBe('PAYOUT_ACCOUNT_TOO_NEW');
+    expect(create).not.toHaveBeenCalled();
+    // Primero el candado de la persona, después su cuenta.
+    expect(findFirst.mock.invocationCallOrder[0]!).toBeGreaterThan(lock.mock.invocationCallOrder[0]!);
+  });
+
+  it('y el pago apunta la cuenta (y el método) de ese momento, no los de antes de esperar', async () => {
+    const { svc, prisma, create } = payDb(sealedSepa());
+    const tron = sealPayoutValue(TRON, { userId: 'op-1', field: 'address' });
+    changedMeanwhile(prisma, { payoutMethod: 'USDT_TRC20', payoutAddress: tron });
+    await svc.createPayout('t-1', 'op-1', 'u-owner');
+    expect(create.mock.calls[0]![0].data).toMatchObject({ paidToAddress: tron, externalRail: 'USDT_TRC20' });
+  });
+
+  it('pasadas las 48 h, sí; el pago guarda la cuenta como está guardada (cifrada), nunca en claro', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-11-22T10:00:00Z'));
+    const op = { ...sealedSepa(), payoutHoldUntil: new Date('2026-11-21T21:30:00Z') };
+    const { svc, create } = payDb(op);
+    await svc.createPayout('t-1', 'op-1', 'u-owner', undefined, { externalRail: 'SEPA_IBAN' });
+    const data = create.mock.calls[0]![0].data as { paidToAddress: string };
+    expect(data.paidToAddress).toBe(op.payoutAddress);
+    expect(data.paidToAddress).not.toContain(IBAN);
+  });
+});
+
+describe('Aviso en su app: «Tu cuenta de cobro ha cambiado»', () => {
+  beforeEach(() => vi.clearAllMocks());
+  const changedAt = new Date('2026-11-19T22:00:00Z');
+
+  it('cambiada después de la última vez que lo vio: el aviso, con la cuenta tapada', async () => {
+    const { svc } = makeOps({ operator: { ...sealedSepa(), payoutAccountChangedAt: changedAt, payoutNoticeSeenAt: null } });
+    expect(await svc.getPayoutNotice('op-1', 't-1')).toEqual({
+      changedAt: changedAt.toISOString(),
+      method: 'SEPA_IBAN',
+      masked: 'ES91 •••• •••• 1332',
+    });
+  });
+
+  it('ya visto, o nunca cambiada: nada', async () => {
+    const seen = makeOps({ operator: { ...sealedSepa(), payoutAccountChangedAt: changedAt, payoutNoticeSeenAt: new Date('2026-11-19T23:00:00Z') } });
+    expect(await seen.svc.getPayoutNotice('op-1', 't-1')).toBeNull();
+    const never = makeOps({ operator: sealedSepa() });
+    expect(await never.svc.getPayoutNotice('op-1', 't-1')).toBeNull();
+  });
+
+  it('«Entendido»: queda visto (solo lo suyo)', async () => {
+    const { svc, prisma } = makeOps();
+    const updateMany = vi.fn().mockResolvedValue({ count: 1 });
+    (prisma.user as unknown as Record<string, unknown>).updateMany = updateMany;
+    await expect(svc.markPayoutNoticeSeen('op-1', 't-1')).resolves.toEqual({ ok: true });
+    expect(updateMany).toHaveBeenCalledWith({
+      where: { id: 'op-1', tenantId: 't-1', role: 'OPERATOR' },
+      data: { payoutNoticeSeenAt: expect.any(Date) },
+    });
   });
 });

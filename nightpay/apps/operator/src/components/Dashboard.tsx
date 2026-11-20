@@ -32,6 +32,7 @@ import { MyCobros } from './MyCobros';
 import { MenuAvatar } from './my-profile';
 import { PassScanned } from './PassScanned';
 import { PartySettings } from './party/PartySettings';
+import { PayoutChangeNotice } from './PayoutChangeNotice';
 import { PendingPos } from './PendingPos';
 import { ReceptionTab } from './reception/ReceptionTab';
 import { ReservasTab } from './reservas/ReservasTab';
@@ -129,6 +130,8 @@ export function Dashboard({ user, onLogout }: Props) {
       )}
       {/* Instalada en un iPhone o un iPad: que abra Safari para la ficha y la cámara (fuera de un cobro). */}
       {charges.open ? null : <SafariNotice />}
+      {/* La compañera, al entrar: «Tu cuenta de cobro ha cambiado» hasta que pulsa «Entendido» (fuera de un cobro). */}
+      {user.role === 'OPERATOR' ? <PayoutChangeNotice hidden={charges.open} /> : null}
       {/* La chica: «Te han invitado · +10 €» en cuanto se cobra su invitación. */}
       {access.ownEarnings ? <InvitationToast night={night.night} /> : null}
 

@@ -77,3 +77,41 @@ describe('alta: cómo quieres cobrar, con la forma de cada método', () => {
     expect(PAYOUT_HINTS.WIRE_INTERNATIONAL.hint).toMatch(/SWIFT/);
   });
 });
+
+describe('alta: el IBAN SEPA lleva su titular (el banco lo pide)', () => {
+  const ES_IBAN = 'ES91 2100 0418 4502 0005 1332';
+  const sepa = (patch: Partial<PayoutValues> = {}): PayoutValues => ({
+    ...EMPTY_PAYOUT,
+    method: 'SEPA_IBAN',
+    address: ES_IBAN,
+    confirm: ES_IBAN,
+    accountHolder: ' Ana López ',
+    ...patch,
+  });
+
+  it('sin titular no se guarda, y se marca en su campo', () => {
+    expect(payoutFieldProblems(sepa({ accountHolder: '  ' }), NOTHING_SAVED)).toEqual({ accountHolder: 'Falta el titular de la cuenta' });
+    expect(payoutProblem(sepa({ accountHolder: '' }), NOTHING_SAVED)).toBe('Falta el titular de la cuenta');
+    expect(payoutProblem(sepa(), NOTHING_SAVED)).toBeNull();
+  });
+
+  it('lo que se manda: el IBAN junto y solo el titular (sin datos de banco); el API lo acepta', () => {
+    const dto = payoutDto(sepa({ bankName: 'no aplica', swiftBic: 'TBCBGE22' }));
+    expect(dto).toEqual({
+      payoutMethod: 'SEPA_IBAN',
+      payoutAddress: 'ES9121000418450200051332',
+      payoutLabel: null,
+      payoutMetadata: { accountHolder: 'Ana López' },
+    });
+    expect(SelfOnboardingSubmitSchema.safeParse(dto).success).toBe(true);
+    // Sin titular, el API tampoco lo acepta.
+    expect(SelfOnboardingSubmitSchema.safeParse(payoutDto(sepa({ accountHolder: '' }))).success).toBe(false);
+  });
+
+  it('los demás métodos no llevan titular', () => {
+    const tron = 'TXYZxQwUVqHbvHvgrkqz6T6oyhqcKpuFiV';
+    const values: PayoutValues = { ...EMPTY_PAYOUT, method: 'USDT_TRC20', address: tron, confirm: tron, accountHolder: 'Ana' };
+    expect(payoutProblem(values, NOTHING_SAVED)).toBeNull();
+    expect(payoutDto(values)).not.toHaveProperty('payoutMetadata');
+  });
+});

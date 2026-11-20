@@ -46,7 +46,7 @@ const config = {
   get: (k: string) => ({ PAYOUT_HOLD_DAYS: '7', OPERATOR_BASE_URL: 'https://chicas.test' })[k] as string | undefined,
 };
 const jwt = new JwtService({ secret: 'x'.repeat(40) });
-const email = { send: vi.fn(async () => ({ ok: true, delivered: false })) };
+const email = { send: vi.fn(async () => ({ ok: true, delivered: false })), isEnabled: () => false };
 const refreshTokens = { revokeAllForUser: vi.fn(async () => 0) };
 const incidents = new IncidentsService(prisma as never, audit as never);
 const overview = new SuperAdminOverviewService(prisma, incidents, config as never);
@@ -68,7 +68,7 @@ const staff = new SuperAdminStaffService(
   email as never,
   cls as never,
 );
-const accounts = new SuperAdminPayoutAccountsService(prisma, okStepUp, saAudit);
+const accounts = new SuperAdminPayoutAccountsService(prisma, okStepUp, saAudit, audit, email as never);
 const auditLog = new SuperAdminAuditLogService(prisma);
 const queue = { add: vi.fn(async () => undefined) };
 const payments = new PaymentsService(
@@ -378,23 +378,38 @@ describe('personal, cuentas de cobro y registro (todos los locales)', () => {
     expect(JSON.stringify(audited?.payload)).not.toContain(reset.kind === 'password' ? reset.password : 'x');
   });
 
-  it('cuenta de cobro: se guarda normalizada, la lista va tapada y verla entera queda registrado', async () => {
-    const updated = await asSuperAdmin(() =>
-      accounts.update(actor, chica1, {
-        payoutMethod: 'SEPA_IBAN',
-        payoutAddress: 'es91 2100 0418 4502 0005 1332',
-        reason: 'cambio de banco',
-        totpCode: '123456',
-      }),
-    );
-    expect(updated.payoutAddressMasked).toBe('ES91 •••• •••• 1332');
+  it('cuenta de cobro: se guarda normalizada y cifrada, la lista va tapada y verla entera queda registrado', async () => {
+    const account = {
+      payoutMethod: 'SEPA_IBAN' as const,
+      payoutAddress: 'es91 2100 0418 4502 0005 1332',
+      reason: 'cambio de banco',
+      totpCode: '123456',
+    };
+    // En SEPA, con su titular.
+    await expect(asSuperAdmin(() => accounts.update(actor, chica1, account))).rejects.toThrow('Falta el titular de la cuenta');
+    email.send.mockClear();
+    const updated = await asSuperAdmin(() => accounts.update(actor, chica1, { ...account, payoutMetadata: { accountHolder: 'Carla Pons' } }));
+    expect(updated).toMatchObject({ payoutAddressMasked: 'ES91 •••• •••• 1332', payoutHolderMasked: 'C••• P•••' });
+    // En la base, cifrada (ni el IBAN ni el titular en claro).
+    const stored = await sys((tx) => tx.user.findUniqueOrThrow({ where: { id: chica1 }, select: { payoutAddress: true, payoutMetadata: true } }));
+    expect(stored.payoutAddress).toMatch(/^pa1:/);
+    expect(JSON.stringify(stored)).not.toContain('ES9121000418450200051332');
+    expect(JSON.stringify(stored)).not.toContain('Pons');
     const full = await asSuperAdmin(() => accounts.reveal(actor, chica1, { reason: 'verificar', totpCode: '123456' }));
-    expect(full.payoutAddress).toBe('ES9121000418450200051332');
-    const rows = await sys((tx) =>
-      tx.auditEvent.findMany({ where: { targetId: chica1, action: { startsWith: 'superadmin.payout_account.' } } }),
-    );
-    expect(rows.map((a) => a.action).sort()).toEqual(['superadmin.payout_account.revealed', 'superadmin.payout_account.updated']);
+    expect(full).toMatchObject({ payoutAddress: 'ES9121000418450200051332', payoutMetadata: { accountHolder: 'Carla Pons' } });
+    const rows = await sys((tx) => tx.auditEvent.findMany({ where: { targetId: chica1, action: { contains: 'payout_account' } } }));
+    // El de la consola y, para el local (Incidencias, Telegram), el cambio «por OxioPay».
+    expect(rows.map((a) => a.action).sort()).toEqual([
+      'operator.payout_account_changed',
+      'superadmin.payout_account.revealed',
+      'superadmin.payout_account.updated',
+    ]);
+    expect(rows.find((a) => a.action === 'operator.payout_account_changed')).toMatchObject({ tenantId: V1, payload: { via: 'oxiopay' } });
     expect(JSON.stringify(rows.map((a) => a.payload))).not.toContain('ES9121000418450200051332');
+    expect(JSON.stringify(rows.map((a) => a.payload))).not.toContain('Pons');
+    // Y un correo a ella, con la cuenta tapada.
+    expect(email.send).toHaveBeenCalledWith(expect.objectContaining({ to: `c1-${r}@x.es`, text: expect.stringContaining('ES91 •••• •••• 1332') }));
+    expect(JSON.stringify(email.send.mock.calls)).not.toContain('ES9121000418450200051332');
   });
 
   it('registro: filtro por local y prefijo de acción, paginado, sin secretos', async () => {

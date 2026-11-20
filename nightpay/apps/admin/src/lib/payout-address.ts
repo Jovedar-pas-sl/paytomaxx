@@ -1,6 +1,7 @@
 // Direcciones de cobro de las chicas: se comprueban antes de guardar para que
 // un error al teclear no mande su dinero a otra cuenta. El API vuelve a
 // comprobarlas; aquí es para avisar en el momento.
+import { payoutHolderProblem } from '@nightpay/contracts';
 import type { PayoutMetadata, PayoutMethod } from './api';
 
 /** Cripto on-chain: el pago se verifica solo contra la red. */
@@ -105,7 +106,8 @@ function compactWire(fields: Partial<WireFields> | null | undefined): PayoutMeta
 
 /**
  * Valor limpio del formulario: sin dirección en efectivo, IBAN junto, datos
- * del banco solo en wire internacional y sin campos vacíos.
+ * del banco en wire internacional, solo el titular en el IBAN SEPA y sin
+ * campos vacíos.
  */
 export function payoutValue(
   method: PayoutMethod | null,
@@ -117,9 +119,26 @@ export function payoutValue(
   return {
     method,
     address: needsAddress ? normalizePayoutAddress(method, rawAddress) || null : null,
-    metadata: method === 'WIRE_INTERNATIONAL' ? compactWire(wire) : null,
+    metadata:
+      method === 'WIRE_INTERNATIONAL'
+        ? compactWire(wire)
+        : method === 'SEPA_IBAN'
+          ? compactWire({ accountHolder: wire?.accountHolder ?? '' })
+          : null,
     label: method ? rawLabel.trim() || null : null,
   };
+}
+
+/**
+ * Lo primero que impide guardar una cuenta nueva: la cuenta (vacía o que no
+ * es del método) y, en SEPA y SWIFT, el titular (el API lo vuelve a mirar).
+ */
+export function payoutValueProblem(value: PayoutValue): string | null {
+  if (!value.method || value.method === 'MANUAL_CASH') return null;
+  return (
+    payoutAddressError(value.method, value.address ?? '') ??
+    payoutHolderProblem(value.method, { accountHolder: value.metadata?.accountHolder })
+  );
 }
 
 /** Lo guardado de una chica, limpio igual que el formulario (para saber qué cambió). */

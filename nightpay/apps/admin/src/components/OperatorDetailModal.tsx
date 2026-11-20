@@ -184,7 +184,11 @@ export function OperatorDetailModal({
               balanceCents={payable}
               bankHeld={{ bankHeldCents: operator.balance.bankHeldCents, bankHeldCount: operator.balance.bankHeldCount }}
               payoutMethod={operator.payoutMethod ?? null}
-              payoutAddress={operator.payoutAddress ?? null}
+              payoutAddressMasked={operator.payoutAddressMasked ?? null}
+              payoutHolderMasked={operator.payoutHolderMasked ?? null}
+              payoutHolderMismatch={operator.payoutHolderMismatch ?? false}
+              payoutHoldUntil={operator.payoutHoldUntil ?? null}
+              canReveal={isOwner}
               payoutLabel={operator.payoutLabel ?? null}
               mode={payoutMode ?? 'pay'}
               onClose={() => setPayoutOpen(false)}

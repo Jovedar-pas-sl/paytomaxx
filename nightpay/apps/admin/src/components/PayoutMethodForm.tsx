@@ -2,8 +2,11 @@
 
 import { useEffect, useId, useState, type CSSProperties } from 'react';
 import { Input, Select } from '@nightpay/ui';
+import { holderMatchesName, payoutHolderRequired } from '@nightpay/contracts';
 import type { PayoutMetadata, PayoutMethod } from '@/lib/api';
+import { holderMismatchText } from '@/lib/payout-account-view';
 import { payoutAddressError, payoutValue, type PayoutValue } from '@/lib/payout-address';
+import { Notice } from './Notice';
 
 /** Etiquetas humanas por método. */
 export const PAYOUT_METHOD_LABELS: Record<PayoutMethod, string> = {
@@ -114,9 +117,11 @@ interface Props {
   /** Valor ya limpio (ver payoutValue): dirección normalizada, sin campos vacíos. */
   onChange: (next: PayoutValue) => void;
   disabled?: boolean;
+  /** Su nombre en el panel: si el titular no se parece, se avisa (no bloquea). */
+  personName?: string | null;
 }
 
-export function PayoutMethodForm({ method, address, metadata, label, onChange, disabled }: Props) {
+export function PayoutMethodForm({ method, address, metadata, label, onChange, disabled, personName }: Props) {
   const selectId = useId();
   const [localMethod, setLocalMethod] = useState<PayoutMethod | ''>(method ?? '');
   const [localAddress, setLocalAddress] = useState(address ?? '');
@@ -140,6 +145,10 @@ export function PayoutMethodForm({ method, address, metadata, label, onChange, d
 
   const showAddress = localMethod !== '' && localMethod !== 'MANUAL_CASH';
   const showWireExtra = localMethod === 'WIRE_INTERNATIONAL';
+  // El banco pide el titular en SEPA y en la transferencia internacional.
+  const showHolder = localMethod !== '' && payoutHolderRequired(localMethod);
+  const holderWarning =
+    showHolder && accountHolder.trim() && !holderMatchesName(accountHolder, personName) ? holderMismatchText(personName) : null;
   const hint = localMethod ? METHOD_HINTS[localMethod] : null;
   // Se avisa en cuanto hay algo escrito que no vale (vacío se avisa al guardar).
   const addressError =
@@ -200,14 +209,28 @@ export function PayoutMethodForm({ method, address, metadata, label, onChange, d
             placeholder="Georgia"
             disabled={disabled}
           />
+        </>
+      ) : null}
+
+      {showHolder ? (
+        <div>
           <Input
-            label="Titular cuenta"
+            label="Titular de la cuenta"
             value={accountHolder}
             onChange={(e) => setAccountHolder(e.target.value)}
-            placeholder="Camila Rodriguez"
+            placeholder="Nombre y apellidos"
+            hint="Como sale en su banco: el banco comprueba que cuadre con la cuenta."
+            autoComplete="off"
+            maxLength={120}
+            required
             disabled={disabled}
           />
-        </>
+          {holderWarning ? (
+            <Notice tone="warning" style={{ marginTop: '0.5rem' }}>
+              {holderWarning}
+            </Notice>
+          ) : null}
+        </div>
       ) : null}
 
       {localMethod !== '' ? (

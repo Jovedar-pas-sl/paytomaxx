@@ -28,8 +28,10 @@ describe('contratos del super-admin — validadores', () => {
   });
 
   it('cuenta de cobro de la chica según el método: TRC20, EVM, Solana, IBAN y email', () => {
+    // Con titular: en SEPA y SWIFT es obligatorio (ver abajo).
+    const payoutMetadata = { accountHolder: 'Ana López' };
     const ok = (payoutMethod: string, payoutAddress: string) =>
-      UpdatePayoutAccountSchema.safeParse({ payoutMethod, payoutAddress, reason: REASON, ...TOTP }).success;
+      UpdatePayoutAccountSchema.safeParse({ payoutMethod, payoutAddress, payoutMetadata, reason: REASON, ...TOTP }).success;
     expect(ok('USDT_TRC20', 'TXYZxQwUVqHbvHvgrkqz6T6oyhqcKpuFiV')).toBe(true);
     expect(ok('USDT_TRC20', '0x55d398326f99059ff775485246999027b3197955')).toBe(false);
     expect(ok('USDT_BEP20', '0x55d398326f99059ff775485246999027b3197955')).toBe(true);
@@ -40,6 +42,8 @@ describe('contratos del super-admin — validadores', () => {
     expect(ok('SEPA_IBAN', 'ES91 2100 0418 4502 0005 1333')).toBe(false);
     expect(ok('PAYONEER_EMAIL', 'ana@gmail.com')).toBe(true);
     expect(ok('PAYONEER_EMAIL', 'ana-at-gmail')).toBe(false);
+    // IBAN SEPA sin titular, no.
+    expect(UpdatePayoutAccountSchema.safeParse({ payoutMethod: 'SEPA_IBAN', payoutAddress: IBAN_OK, reason: REASON, ...TOTP }).success).toBe(false);
   });
 
   it('cuenta de cobro: método y cuenta juntos (o los dos null para quitarla); motivo obligatorio', () => {

@@ -861,7 +861,8 @@ export interface SelfOnboardingProfile {
   needsHelpDocs: boolean;
   onboardingNotes: string | null;
   payoutMethod: PayoutMethod | null;
-  payoutAddress: string | null;
+  /** Su cuenta, tapada: el enlace nunca la devuelve entera. */
+  payoutAddressMasked?: string | null;
   payoutLabel: string | null;
   venueName: string;
   /** false: la forma de cobro no se cambia desde el enlace (la pone el admin). Sin el campo, sí. */
@@ -884,7 +885,7 @@ export interface SelfOnboardingSubmitDto {
   payoutMethod?: PayoutMethod | null;
   payoutAddress?: string | null;
   payoutLabel?: string | null;
-  /** Transferencia internacional: banco, SWIFT/BIC, país y titular. */
+  /** Transferencia internacional: banco, SWIFT/BIC, país y titular. IBAN SEPA: el titular. */
   payoutMetadata?: PayoutMetadata;
 }
 
