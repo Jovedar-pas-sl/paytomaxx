@@ -40,7 +40,7 @@ Cuando dos cosas llegan a la vez:
 ## Publicar
 
 1. **`nightpay-api`** primero. Al arrancar aplica la migración
-   `20261119100000_cuenta_cobro_segura` (5 columnas nuevas en `users`, sin
+   `20261120300000_cuenta_cobro_segura` (5 columnas nuevas en `users`, sin
    reescribir la tabla).
 2. **El relleno se lanza solo.** Nada más arrancar (por detrás, sin retrasar
    el arranque), el API cifra las cuentas y los titulares que estaban en
