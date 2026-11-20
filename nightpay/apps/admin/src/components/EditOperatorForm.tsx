@@ -215,7 +215,7 @@ export function EditOperatorForm({
           required
           hint={
             changingPayout
-              ? 'Cambiar a dónde va su dinero pide siempre tu código. Le avisamos por email y en su app. Si ya tenía una cuenta, a la nueva no se le paga hasta pasadas 48 h (en efectivo, sí). Al poner el sexto número se guarda.'
+              ? 'Cambiar a dónde va su dinero pide siempre tu código. Le avisamos en su app (y por email, si el correo está activado). Si ya tenía una cuenta, a la nueva no se le paga hasta pasadas 48 h (en efectivo, sí). Al poner el sexto número se guarda.'
               : 'Confirmar que la cuenta es suya pide tu código. Al poner el sexto número se guarda.'
           }
         />

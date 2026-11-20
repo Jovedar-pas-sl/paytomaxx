@@ -89,6 +89,22 @@ describe('acciones delicadas: el dueño tiene que poder verlas', () => {
     expect(mismatch.alertDetail).toContain('El titular no se parece a su nombre');
   });
 
+  it('cuenta de cobro sin el correo activado (emailed: false): no promete el email, tampoco en Telegram', () => {
+    const changed = (payload: Record<string, unknown>) => sensitiveActionIncident(row('operator.payout_account_changed', { payload }));
+    const panel = changed({ via: 'panel', name: 'Lola', emailed: false });
+    expect(panel.detail).toBe('Javi ha cambiado la cuenta de cobro de una compañera, con su 2FA. Le hemos avisado en su app. (Lola)');
+    expect(panel.alertDetail).toBe('Alguien del personal ha cambiado la cuenta de cobro de una compañera, con su 2FA. Le hemos avisado en su app.');
+    expect(changed({ via: 'enlace', name: 'Lola', emailed: false }).detail).toBe(
+      'Una compañera ha puesto su cuenta de cobro con su enlace de alta: comprueba que es suya antes de pagarle. (Lola)',
+    );
+    expect(changed({ via: 'oxiopay', emailed: false }).alertDetail).toBe(
+      'OxioPay ha cambiado la cuenta de cobro de una compañera (el motivo está en el registro). Le hemos avisado en su app.',
+    );
+    // Con el correo, o un registro de antes sin el campo: el texto de siempre.
+    expect(changed({ via: 'panel', emailed: true }).detail).toContain('Le hemos avisado por email y en su app.');
+    expect(changed({ via: 'enlace' }).detail).toContain('Le hemos avisado por email');
+  });
+
   it('todas las que vigila tienen su texto', () => {
     expect(SENSITIVE_AUDIT_ACTIONS).toEqual(
       expect.arrayContaining(['wallet.merged_large', 'wallet.activation_not_new', 'wallet.pin_reset', 'wallet.pin_unlocked', 'venue.night_settings.updated', 'operator.payout_account_changed']),

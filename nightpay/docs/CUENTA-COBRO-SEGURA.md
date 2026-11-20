@@ -106,7 +106,8 @@ Variables nuevas: **ninguna**. Usa `ENCRYPTION_KEK`, que ya existe.
   `pa1:…`, rechazar un cambio de cuenta (400) o guardar una cuenta en claro
   (por eso el paso 4).
 - El correo a la compañera solo sale si el API tiene `RESEND_API_KEY` (como
-  las invitaciones). Sin ella queda el aviso en su app y la incidencia.
+  las invitaciones). Sin ella queda el aviso en su app y la incidencia, que
+  entonces no dice «por email».
 
 ## Decisiones del dueño pendientes
 

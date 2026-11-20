@@ -91,7 +91,7 @@ export interface PayoutChangeNotice {
 
 interface NoticeDeps {
   audit: { log: (entry: AuditInput) => Promise<unknown> };
-  email: { send: (input: { to: string; subject: string; html: string; text?: string }) => Promise<unknown> };
+  email: { send: (input: { to: string; subject: string; html: string; text?: string }) => Promise<unknown>; isEnabled: () => boolean };
   logger?: { error: (message: string) => void };
 }
 
@@ -120,6 +120,8 @@ export async function notifyPayoutAccountChanged(deps: NoticeDeps, n: PayoutChan
       // Contra su nombre legal: no se le paga a esa cuenta hasta que el dueño confirme que es suya.
       holderToConfirm: holderMismatch && legalName !== null,
       holdUntil: n.holdUntil?.toISOString() ?? null,
+      // Sin RESEND_API_KEY no sale el correo: la incidencia no lo promete. Un fallo de Resend, solo en el log.
+      emailed: deps.email.isEnabled(),
     },
   });
   try {
