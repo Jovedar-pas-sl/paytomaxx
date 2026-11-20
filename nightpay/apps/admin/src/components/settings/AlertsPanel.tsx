@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { Button, Input } from '@nightpay/ui';
 import { TELEGRAM_CHAT_ID_RE, type UpdateAlertSettingsDto } from '@nightpay/contracts';
 import { fetchAlertSettings, sendTelegramTest, updateAlertSettings } from '@/lib/api';
-import { ALERT_KINDS, ALERT_KIND_LABELS } from '@/lib/settings-forms';
+import { ALERT_KINDS, ALERT_KIND_LABELS, staffWatchChange, staffWatchFormFrom, type StaffWatchForm } from '@/lib/settings-forms';
 import { LoadState, SaveRow, SettingsCard, StatusLine, Switch, useSavedFlash, useSettingsLoad } from './SettingsBits';
 
 /**
@@ -15,6 +15,8 @@ import { LoadState, SaveRow, SettingsCard, StatusLine, Switch, useSavedFlash, us
 export function AlertsPanel() {
   const { data, setData, error: loadError, retry } = useSettingsLoad(fetchAlertSettings);
   const [chat, setChat] = useState<string | null>(null);
+  /** Avisos por persona mientras se teclean (null: lo guardado). */
+  const [watch, setWatch] = useState<StaffWatchForm | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saved, flashSaved] = useSavedFlash();
@@ -29,6 +31,7 @@ export function AlertsPanel() {
     try {
       setData(await updateAlertSettings(change));
       if ('chatId' in change) setChat(null);
+      if ('staffWatch' in change) setWatch(null);
       flashSaved();
     } catch (err) {
       setError((err as Error).message);
@@ -44,6 +47,14 @@ export function AlertsPanel() {
       return;
     }
     void save({ chatId: value === '' ? null : value });
+  }
+
+  const watchForm = watch ?? staffWatchFormFrom(settings.staffWatch);
+  function saveWatch(): void {
+    const plan = staffWatchChange(watchForm, settings.staffWatch);
+    if (!plan.ok) return setError(plan.problem);
+    if (Object.keys(plan.change).length === 0) return setError('No has cambiado nada.');
+    void save({ staffWatch: plan.change });
   }
 
   async function probar(): Promise<void> {
@@ -103,6 +114,43 @@ export function AlertsPanel() {
             onChange={(v) => void save({ kinds: { [key]: v } })}
           />
         ))}
+      </SettingsCard>
+
+      <SettingsCard
+        title="Avisos por persona"
+        tour="telegram-personas"
+        hint="Salen en Avisos (y aquí, con «Cobros con problemas») cuando alguien del personal llega a uno de estos números en una noche. Tú no cuentas. 0 = no avisar. El personal no los ve."
+      >
+        <div className="np-set-grid">
+          <Input
+            label="Cobros cancelados"
+            inputMode="numeric"
+            value={watchForm.cancels}
+            onChange={(e) => setWatch({ ...watchForm, cancels: e.target.value })}
+          />
+          <Input
+            label="Cobrado con «Otro importe» (€)"
+            inputMode="decimal"
+            value={watchForm.freeAmountEur}
+            onChange={(e) => setWatch({ ...watchForm, freeAmountEur: e.target.value })}
+            hint="Lo tecleado, sin la carta."
+          />
+          <Input
+            label="Saldos con el PIN fallado"
+            inputMode="numeric"
+            value={watchForm.pinFailSaldos}
+            onChange={(e) => setWatch({ ...watchForm, pinFailSaldos: e.target.value })}
+            hint="Saldos distintos, en el móvil de esa persona."
+          />
+          <Input
+            label="Cobros seguidos al mismo saldo"
+            inputMode="numeric"
+            value={watchForm.sameSaldoCharges}
+            onChange={(e) => setWatch({ ...watchForm, sameSaldoCharges: e.target.value })}
+            hint="En 15 minutos."
+          />
+        </div>
+        {watch !== null ? <SaveRow onSave={saveWatch} busy={busy} saved={false} error={null} label="Guardar avisos por persona" /> : null}
       </SettingsCard>
 
       <SettingsCard title="Privacidad" tour="telegram-privacidad">

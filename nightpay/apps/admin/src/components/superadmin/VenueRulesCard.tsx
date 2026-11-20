@@ -70,12 +70,12 @@ export function VenueRulesCard({ venue, onSaved }: Props) {
 
         <div className="np-sa-rule">
           <Input
-            label="Tope por cobro de una compañera (€)"
+            label="Tope por cobro con «Otro importe» (€)"
             inputMode="decimal"
             value={form.maxCobroEur}
             onChange={(e) => update({ maxCobroEur: e.target.value })}
           />
-          <Help>Lo máximo que una compañera puede cobrar de una vez desde su móvil. Hasta 10.000 €.</Help>
+          <Help>Lo máximo que una compañera, un camarero o un encargado puede cobrar de una vez con «Otro importe». El dueño no tiene tope. Hasta 10.000 €.</Help>
         </div>
 
         <div className="np-sa-rule">

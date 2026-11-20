@@ -328,8 +328,12 @@ export class WalletChargesController {
   @Post('wallets/:id/pin/unlock')
   @Roles('OWNER', 'MANAGER')
   @HttpCode(200)
-  async unlockPin(@CurrentUser() user: JwtPayload, @Param('id', ParseUUIDPipe) id: string): Promise<{ ok: true }> {
-    return this.charges.unlockPin({ userId: user.sub, role: user.role, tenantId: user.tenantId }, id);
+  async unlockPin(
+    @CurrentUser() user: JwtPayload,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body(new ZodValidationPipe(StepUpSchema)) body: z.infer<typeof StepUpSchema>,
+  ): Promise<{ ok: true }> {
+    return this.charges.unlockPinWithCode({ userId: user.sub, role: user.role, tenantId: user.tenantId }, id, body?.totpCode);
   }
 
   @Post('wallets/:id/pin/reset')

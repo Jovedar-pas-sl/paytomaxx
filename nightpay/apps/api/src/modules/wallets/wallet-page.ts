@@ -13,6 +13,7 @@ import { TOPUP_CSS, TOPUP_JS, paidProofScript, paidProofSection, topUpCard, topU
 import { SCAN_CSS, SCAN_JS, scanArea } from './wallet-scan';
 import { LOST_CSS, LOST_JS, lostButton, lostSheet } from './wallet-lost-view';
 import { AVISO_CSS, AVISO_JS, avisoConfig, avisoRow, avisoSheet, manifestLink } from './charge-alert/charge-alert-view';
+import { CHARGE_ALERT_TEXT } from './charge-alert/charge-alert-text';
 import { WALLET_LIVE_JS } from './wallet-live';
 import { myBalanceButton, myBalanceScript } from './my-balance';
 import { RECEIPT_JS, WELCOME_CSS, WELCOME_JS, fichaQrBlock, welcomeCard } from '../home-topup/wallet-welcome-view';
@@ -372,6 +373,7 @@ ${lostSheet(lang)}${party ? partySheets(lang) : ''}${aviso ? avisoSheet(lang) : 
 <p class="det-total num" id="detTotal"></p><p id="detStatus" role="status"></p>
 <dl class="det" id="detList"></dl>
 <p class="err" id="detErr" role="alert" hidden></p>
+<button class="btn redo" type="button" id="detNo" hidden>${h(CHARGE_ALERT_TEXT[lang].pushNotMe)}</button>
 <button class="link" type="button" data-close>${h(t.detail.close)}</button>
 </dialog>
 <p class="toast" id="toast" role="status" hidden></p>
@@ -395,7 +397,7 @@ function closeSheet(d){if(d.close&&d.open)d.close();else d.removeAttribute('open
 Array.prototype.forEach.call(document.querySelectorAll('dialog.sheet'),function(d){
  d.addEventListener('click',function(e){if(e.target===d||e.target.hasAttribute('data-close'))closeSheet(d);});});
 function busyBtn(b,on,label){b.disabled=on;b.classList.toggle('busy',on);b.textContent=on?label:b.getAttribute('data-label');}
-['pinGo','mergeGo'].forEach(function(id){$(id).setAttribute('data-label',$(id).textContent);});
+['pinGo','mergeGo','detNo'].forEach(function(id){$(id).setAttribute('data-label',$(id).textContent);});
 $('faceOn').textContent=U.button;$('faceOn').setAttribute('data-label',U.button);
 $('pinWhy').textContent=fill(T.pinWhy,'code',S.code);
 function refundView(r){
@@ -448,7 +450,7 @@ function post(path,body){return pkPost(C.base+path,body||{});}
 // «Detalle del pago»: un movimiento con detalle (lo pagado con el saldo y las recargas con tarjeta).
 // Qué, cuándo, dónde, quién le cobró (su nombre de pila), cómo pagó, el código y el saldo antes y
 // después; si se devolvió, cuándo (sin quién ni por qué). Nunca el móvil ni la IP.
-var detSeq=0;
+var detSeq=0,detM=null;
 function detRow(k,v){if(!v)return;var d=document.createElement('div'),a=document.createElement('dt'),b=document.createElement('dd');
  a.textContent=k;b.textContent=v;d.appendChild(a);d.appendChild(b);$('detList').appendChild(d);}
 function detStatus(d){var D=T.detail,s=d.status;
@@ -460,12 +462,13 @@ function detHow(m){var D=T.detail;if(!m)return '';
  return m.label&&m.label!=='—'?m.label:'';}
 function detFill(d){var D=T.detail;$('detList').textContent='';
  $('detTotal').textContent=eur(d.totalCents);$('detStatus').textContent=detStatus(d);
+ $('detNo').hidden=!(detM&&detM.detail.kind==='SALDO'&&d.status==='ACCEPTED');
  if(C.apart&&(d.tipCents||d.serviceFeeCents)){detRow(D.amount,eur(d.amountCents));if(d.tipCents)detRow(D.tip,eur(d.tipCents));if(d.serviceFeeCents)detRow(D.fee,eur(d.serviceFeeCents));}
  detRow(D.when,when(d.paidAt||d.createdAt));detRow(D.where,[d.venueName,d.isTopUp?T.mv.topUp:d.service].filter(Boolean).join(' · '));
  if(d.chargedBy)detRow(D.who,d.chargedBy.name);detRow(D.how,detHow(d.method));detRow(D.code,d.confirmationCode);
  if(d.balance){detRow(D.before,eur(d.balance.beforeCents));detRow(D.after,eur(d.balance.afterCents));}
  (d.undo||[]).forEach(function(u){detRow(u.kind==='REFUND'?D.undoCard:u.kind==='VOID'?D.undoSaldo:D.canceled,[typeof u.amountCents==='number'?eur(u.amountCents):'',when(u.at)].filter(Boolean).join(' · '));});}
-function detOpen(m){var D=T.detail,n=++detSeq;
+function detOpen(m){var D=T.detail,n=++detSeq;detM=m;$('detNo').hidden=true;
  $('detTitle').textContent=m.ref?D.title+' · '+m.ref:D.title;$('detTotal').textContent='';$('detStatus').textContent=D.loading;$('detList').textContent='';show('detErr','');
  openSheet($('detSheet'));
  fetch(C.base+'/movements/'+m.detail.kind+'/'+encodeURIComponent(m.detail.id),{headers:{Accept:'application/json'}})
@@ -512,7 +515,13 @@ $('mergeGo').addEventListener('click',function(){var b=$('mergeGo');if(busy)retu
   :pkGet(C.base+'/merge/challenge').then(function(k){return post('/merge',{response:k,pin:pin});}))
   .then(function(r){closeSheet($('mergeSheet'));toast(fill(T.mergeDone,'amount',eur(r.balanceCents)));busy=false;refresh();})
   .catch(function(e){$('mergePin').value='';if(notPayer(e)){if(S.hasPin)mergeAsk();else closeSheet($('mergeSheet'));}else if(!pkCancelled(e))show('mergeErr',msg(e));})
-  .then(function(){busy=false;busyBtn(b,false);});});${gw ? GOOGLE_WALLET_JS : ''}
+  .then(function(){busy=false;busyBtn(b,false);});});
+// «No he sido yo» en un pago con el saldo: con su Face ID (si lo tiene) el enlace de la página del aviso, que pide confirmar.
+$('detNo').addEventListener('click',function(){var m=detM,b=$('detNo');if(busy||!m)return;busy=true;show('detErr','');
+ if(S.hasFaceId&&!pkSupported()){busy=false;show('detErr',T.faceIdNeeded);return;}
+ busyBtn(b,true,S.hasFaceId?T.unlockWaiting:T.sending);
+ withKey('/no/'+encodeURIComponent(m.detail.id),{}).then(function(r){location.href=r.url+'?lang='+C.lang;})
+  .catch(function(e){busy=false;busyBtn(b,false);if(!pkCancelled(e))show('detErr',msg(e));});});${gw ? GOOGLE_WALLET_JS : ''}
 ${SCAN_JS}
 ${TOPUP_JS}
 ${LOST_JS}

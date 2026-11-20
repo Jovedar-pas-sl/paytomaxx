@@ -43,7 +43,9 @@ export type IncidentKind =
   | 'wallet_charge_disputed'
   /** Algo que mueve dinero o abre un saldo sin que el cliente lo confirme (se marca como revisada). */
   | 'sensitive_action'
-  | 'bitcoin_overpaid';
+  | 'bitcoin_overpaid'
+  /** Avisos por persona: cancelaciones, «Otro importe», PIN o cobros seguidos al mismo saldo de alguien del personal en una noche. */
+  | 'staff_pattern';
 
 export interface Incident {
   kind: IncidentKind;

@@ -311,7 +311,8 @@ describe('el banco cobra después de cancelar', () => {
     // Telegram: una vez, con el formato de los avisos de dinero y sin datos del cliente.
     await alerts.tick();
     await alerts.tick();
-    const mine = telegram.send.mock.calls.map((c) => c[0]).filter((t) => t.includes('Sala Cancelar'));
+    // Solo los de este cobro: el camarero ya lleva aquí muchas cancelaciones y su aviso por persona también sale.
+    const mine = telegram.send.mock.calls.map((c) => c[0]).filter((t) => t.includes('Sala Cancelar') && t.includes(`C-${String(late.ref).padStart(4, '0')}`));
     expect(mine).toHaveLength(1);
     expect(mine[0]!.split('\n')[0]).toBe(`⚠️ Sala Cancelar: ${title}`);
   });

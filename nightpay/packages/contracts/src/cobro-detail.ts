@@ -517,6 +517,7 @@ export const stepUpActions = {
   walletPayout: (walletId: string) => `wallet-payout:${walletId}`,
   chargeWithoutFaceId: (requestId: string, walletId: string) => `charge-approve:${requestId}:${walletId}`,
   resetPin: (walletId: string) => `pin-reset:${walletId}`,
+  unlockPin: (walletId: string) => `pin-unlock:${walletId}`,
   relink: (walletId: string) => `relink:${walletId}`,
   receptionCashOut: (walletId: string) => `cash-out:${walletId}`,
   cashTopUpVoid: (topUpId: string) => `cash-void:${topUpId}`,

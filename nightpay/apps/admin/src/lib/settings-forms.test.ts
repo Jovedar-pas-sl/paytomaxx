@@ -16,6 +16,8 @@ import {
   rulesChange,
   rulesFormFrom,
   serviceFeeRulesText,
+  staffWatchChange,
+  staffWatchFormFrom,
   tipEurosText,
   waiterHint,
 } from './settings-forms';
@@ -192,5 +194,26 @@ describe('Ajustes → Reglas: la «Comisión del servicio al cliente» (solo se 
     expect(sp(platformCommissionHint(on))).toBe(
       'Con la comisión del servicio encendida, lo pagado con ella no paga esta comisión (la paga el cliente encima); el saldo cargado antes de encenderla, sí, al gastarse. Lo de cada categoría es para quien crea el cobro; el resto, para el local.',
     );
+  });
+});
+
+describe('avisos por persona (Ajustes → Telegram)', () => {
+  const current = { cancels: 5, freeAmountCents: 500_00, pinFailSaldos: 3, sameSaldoCharges: 3 };
+
+  it('el formulario sale con lo guardado; solo se manda lo que cambia', () => {
+    const form = staffWatchFormFrom(current);
+    expect(form).toEqual({ cancels: '5', freeAmountEur: '500,00', pinFailSaldos: '3', sameSaldoCharges: '3' });
+    expect(staffWatchChange(form, current)).toEqual({ ok: true, change: {} });
+    expect(staffWatchChange({ ...form, cancels: '8', freeAmountEur: '300' }, current)).toEqual({ ok: true, change: { cancels: 8, freeAmountCents: 300_00 } });
+  });
+
+  it('0 = no avisar; lo que no es un número entre 0 y 99 (o un importe), no se manda', () => {
+    expect(staffWatchChange({ ...staffWatchFormFrom(current), pinFailSaldos: '0', freeAmountEur: '0' }, current)).toEqual({
+      ok: true,
+      change: { pinFailSaldos: 0, freeAmountCents: 0 },
+    });
+    expect(staffWatchChange({ ...staffWatchFormFrom(current), cancels: '100' }, current)).toMatchObject({ ok: false, problem: expect.stringContaining('Cobros cancelados') });
+    expect(staffWatchChange({ ...staffWatchFormFrom(current), sameSaldoCharges: 'tres' }, current)).toMatchObject({ ok: false });
+    expect(staffWatchChange({ ...staffWatchFormFrom(current), freeAmountEur: 'mucho' }, current)).toMatchObject({ ok: false, problem: expect.stringContaining('Otro importe') });
   });
 });

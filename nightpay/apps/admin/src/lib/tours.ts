@@ -159,6 +159,7 @@ export const TOURS = {
     steps: [
       { target: 'telegram-chat', title: 'El chat', text: 'A qué chat de Telegram van los avisos de este local. «Probar» manda un mensaje de prueba.' },
       { target: 'telegram-avisos', title: 'Qué avisos salen', text: 'Elige qué avisos te llegan al chat.' },
+      { target: 'telegram-personas', title: 'Avisos por persona', text: 'Desde cuántas cancelaciones, «Otro importe», PIN fallados o cobros seguidos al mismo saldo de una persona en una noche te avisamos. 0 = no avisar.' },
       { target: 'telegram-privacidad', title: 'Privacidad', text: 'Qué datos viajan en los mensajes.' },
     ],
   },

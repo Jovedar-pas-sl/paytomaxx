@@ -67,10 +67,13 @@ export async function approveQrCharge(requestId: string, walletId: string, totpC
   if (!res.ok) throw await totpAwareError(res);
 }
 
-/** Encargado o dueño: tras 5 PIN fallidos, el cliente vuelve a poder probar. */
-export async function unlockWalletPin(walletId: string): Promise<void> {
-  const res = await authedFetch(`/v1/wallet-charges/wallets/${encodeURIComponent(walletId)}/pin/unlock`, { method: 'POST' });
-  if (!res.ok) throw await apiError(res);
+/** Encargado o dueño, con su 2FA: tras 5 PIN fallidos (o un «No he sido yo»), el cliente vuelve a poder probar. */
+export async function unlockWalletPin(walletId: string, totpCode: string): Promise<void> {
+  const res = await authedFetch(`/v1/wallet-charges/wallets/${encodeURIComponent(walletId)}/pin/unlock`, {
+    method: 'POST',
+    body: JSON.stringify({ totpCode }),
+  });
+  if (!res.ok) throw await totpAwareError(res);
 }
 
 /** Encargado o dueño: ficha NFC perdida → bloqueada (el saldo sigue con Face ID o código + PIN). */

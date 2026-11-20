@@ -59,6 +59,18 @@ describe('acciones delicadas: el dueño tiene que poder verlas', () => {
     expect(sensitiveActionIncident(row('payment.manual_reconcile')).paymentId).toBe('p1');
   });
 
+  it('desbloquear el PIN de un cliente sale como borrarlo: quién en el panel, no en Telegram', () => {
+    const i = sensitiveActionIncident(row('wallet.pin_unlocked', { amountCents: null }));
+    expect(i).toMatchObject({ kind: 'sensitive_action', title: 'PIN de un cliente desbloqueado', ackable: true });
+    expect(i.detail).toMatch(/^Javi ha desbloqueado el PIN de un saldo/);
+    expect(i.alertDetail).toMatch(/^Alguien del personal ha desbloqueado/);
+    // Con el código del saldo en el panel; a Telegram, sin él.
+    const coded = sensitiveActionIncident(row('wallet.pin_unlocked', { amountCents: null, payload: { code: '5NX-9P4' } }));
+    expect(coded.detail).toMatch(/^Javi ha desbloqueado el PIN de un saldo .*\(saldo 5NX-9P4\)$/);
+    expect(coded.alertDetail).not.toContain('5NX');
+    expect(i.detail).not.toContain('(saldo');
+  });
+
   it('cuenta de cobro cambiada: quién y a quién en el panel, sin nombres ni cuenta en Telegram', () => {
     const payload = { via: 'panel', name: 'Lola', after: { payoutAddress: 'ES91 •••• •••• 1332' } };
     const panel = sensitiveActionIncident(row('operator.payout_account_changed', { payload, amountCents: null }));
@@ -99,7 +111,9 @@ describe('acciones delicadas: el dueño tiene que poder verlas', () => {
   });
 
   it('todas las que vigila tienen su texto', () => {
-    expect(SENSITIVE_AUDIT_ACTIONS).toEqual(expect.arrayContaining(['wallet.merged_large', 'wallet.activation_not_new', 'wallet.pin_reset', 'venue.night_settings.updated', 'operator.payout_account_changed']));
+    expect(SENSITIVE_AUDIT_ACTIONS).toEqual(
+      expect.arrayContaining(['wallet.merged_large', 'wallet.activation_not_new', 'wallet.pin_reset', 'wallet.pin_unlocked', 'venue.night_settings.updated', 'operator.payout_account_changed']),
+    );
     for (const a of SENSITIVE_AUDIT_ACTIONS) expect(sensitiveActionIncident(row(a)).title).not.toBe('Acción delicada');
   });
 });
@@ -615,6 +629,18 @@ describe('«No he sido yo» (aviso en cada cobro)', () => {
     expect(SELF_RESOLVING.has('wallet_charge_disputed')).toBe(false);
     expect(ackNeedsNote({ kind: 'wallet_charge_disputed', amountCents: 1_200 })).toBe(true);
   });
+
+  it('un saldo sin Face ID: no dice que con él sigue pagando (los avisos de antes, sin el campo, como siempre)', () => {
+    const base = { id: 'audit-12', paymentId: 'charge-2', amountCents: 1_200, occurredAt: new Date('2026-11-20T00:10:00Z') };
+    const sin = walletChargeDisputedIncident({ ...base, payload: { ref: 'C-0043', code: 'K7Q-4M2', faceId: false } });
+    for (const text of [sin.detail, sin.alertDetail]) {
+      expect(text).toContain('Su ficha y su PIN ya no pagan. Revisa el cobro');
+      expect(text).not.toContain('Face ID');
+    }
+    const con = walletChargeDisputedIncident({ ...base, payload: { ref: 'C-0043', faceId: true } });
+    expect(con.detail).toContain('Su ficha y su PIN ya no pagan (con su Face ID, sí).');
+    expect(walletChargeDisputedIncident({ ...base, payload: { ref: 'C-0043' } }).alertDetail).toContain('(con su Face ID, sí)');
+  });
 });
 
 describe('avisos del saldo: «Saldos» (nunca «Wallets») y el código con guion', () => {
@@ -717,5 +743,47 @@ describe('avisos de dinero (B11): para cerrarlos hay que escribir qué se hizo',
   it('una acción delicada con importe (un cobro sin Face ID, uno dado por pagado a mano) es de dinero', () => {
     expect(ackNeedsNote({ kind: 'sensitive_action', amountCents: 4000 })).toBe(true);
     expect(ackNeedsNote({ kind: 'sensitive_action', amountCents: 0 })).toBe(false);
+  });
+});
+
+describe('avisos por persona (decisión del dueño, 19-11-2026)', () => {
+  const base = { night: '2026-11-18', userId: 'u-ana', name: 'Ana', lastAt: new Date('2026-11-19T02:10:00Z') };
+
+  it('muchas cancelaciones: quién en el panel, no en Telegram; un aviso por persona y noche, que se cierra con nota', () => {
+    const i = rules.staffPatternIncident({ ...base, rule: 'cancels', count: 6, amountCents: null });
+    expect(i).toMatchObject({
+      kind: 'staff_pattern',
+      refId: 'cancels:2026-11-18:u-ana',
+      title: 'Muchas cancelaciones de una persona',
+      occurredAt: '2026-11-19T02:10:00.000Z',
+      amountCents: null,
+      paymentId: null,
+      ackable: true,
+    });
+    expect(i.detail).toBe('Ana ha cancelado 6 cobros la noche del 2026-11-18. Revisa esos cobros en Hoy → Cobros y habla con esa persona.');
+    expect(i.alertDetail).toBe('Alguien del personal ha cancelado 6 cobros la noche del 2026-11-18. Revisa esos cobros en Hoy → Cobros y habla con esa persona.');
+    expect(incidentMessage('Sala Aurora', i)).not.toContain('Ana');
+    expect(ACKABLE_KINDS as readonly string[]).toContain('staff_pattern');
+    expect(SELF_RESOLVING.has('staff_pattern')).toBe(false);
+    expect(ackNeedsNote(i)).toBe(true);
+  });
+
+  it('mucho «Otro importe», PIN fallado en varios saldos y cobros seguidos al mismo saldo (su código, solo en el panel)', () => {
+    const free = rules.staffPatternIncident({ ...base, rule: 'free_amount', count: 4, amountCents: 62_000 });
+    expect(free).toMatchObject({ refId: 'free_amount:2026-11-18:u-ana', title: 'Mucho «Otro importe» de una persona', amountCents: 62_000 });
+    expect(free.detail).toBe('Ana ha cobrado 620,00 € con «Otro importe» (tecleado, sin la carta) en 4 cobros la noche del 2026-11-18. Comprueba que eran precios del local.');
+    const pin = rules.staffPatternIncident({ ...base, rule: 'pin_fails', count: 3, amountCents: null });
+    expect(pin).toMatchObject({ refId: 'pin_fails:2026-11-18:u-ana', title: 'PIN fallado en varios saldos' });
+    expect(pin.detail).toBe('En el móvil de Ana se ha fallado el PIN de 3 saldos distintos la noche del 2026-11-18. Si no lo tecleaban sus clientes, puede estar probando el PIN de otros: revísalo.');
+    expect(pin.alertDetail).toContain('En el móvil de alguien del personal se ha fallado');
+    const same = rules.staffPatternIncident({ ...base, rule: 'same_saldo', count: 3, amountCents: 6_000, walletId: 'w-1', shortCode: 'K7Q4M2' });
+    expect(same).toMatchObject({ refId: 'same_saldo:2026-11-18:u-ana:w-1', title: 'Cobros seguidos al mismo saldo', amountCents: 6_000 });
+    expect(same.detail).toBe('Ana ha cobrado 3 veces al mismo saldo (K7Q-4M2) en 15 minutos (60,00 €) la noche del 2026-11-18. Comprueba con el cliente que lo pidió todo.');
+    expect(same.alertDetail).not.toContain('K7Q');
+    expect(same.alertDetail).not.toContain('Ana');
+  });
+
+  it('sin nombre en el registro: «Alguien del personal» (no se inventa uno)', () => {
+    expect(rules.staffPatternIncident({ ...base, name: null, rule: 'cancels', count: 5, amountCents: null }).detail).toMatch(/^Alguien del personal ha cancelado 5 cobros/);
   });
 });

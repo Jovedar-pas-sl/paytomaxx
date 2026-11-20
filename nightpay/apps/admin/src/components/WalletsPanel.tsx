@@ -6,7 +6,6 @@ import {
   blockWalletCard,
   fetchWalletsList,
   fetchWalletsStats,
-  unlockWalletPin,
   type WalletAdminRow,
   type WalletsAdminStats,
 } from '@/lib/api';
@@ -68,7 +67,7 @@ export function WalletsPanel({ isOwner }: Props) {
   const [payoutFor, setPayoutFor] = useState<PayoutTarget | null>(null);
   const [relinkFor, setRelinkFor] = useState<PayoutTarget | null>(null);
   const [chargeFor, setChargeFor] = useState<PayoutTarget | null>(null);
-  const [resetPinFor, setResetPinFor] = useState<WalletAdminRow | null>(null);
+  const [resetPinFor, setResetPinFor] = useState<{ wallet: WalletAdminRow; unlock: boolean } | null>(null);
 
   const reload = usePolling(
     async (signal) => {
@@ -111,13 +110,6 @@ export function WalletsPanel({ isOwner }: Props) {
     void runAction(
       `¿Bloquear la ficha de ${w.code ?? 'este saldo'}? Ya no servirá para pagar (el saldo sigue).`,
       () => blockWalletCard(w.id),
-    );
-  }
-
-  function unlockPin(w: WalletAdminRow) {
-    void runAction(
-      `¿Desbloquear el PIN de ${w.code ?? 'este saldo'}? Comprueba antes que el cliente está delante.`,
-      () => unlockWalletPin(w.id),
     );
   }
 
@@ -273,12 +265,12 @@ export function WalletsPanel({ isOwner }: Props) {
                           </Button>
                         ) : null}
                         {w.pinLocked ? (
-                          <Button variant="primary" onClick={() => unlockPin(w)}>
+                          <Button variant="primary" onClick={() => setResetPinFor({ wallet: w, unlock: true })}>
                             Desbloquear PIN
                           </Button>
                         ) : null}
                         {w.hasPin ? (
-                          <Button variant="ghost" onClick={() => setResetPinFor(w)}>
+                          <Button variant="ghost" onClick={() => setResetPinFor({ wallet: w, unlock: false })}>
                             Borrar PIN
                           </Button>
                         ) : null}
@@ -324,8 +316,9 @@ export function WalletsPanel({ isOwner }: Props) {
       {relinkFor ? <RelinkModal target={relinkFor} onClose={() => setRelinkFor(null)} /> : null}
       {resetPinFor ? (
         <ResetPinModal
-          walletId={resetPinFor.id}
-          code={resetPinFor.code}
+          walletId={resetPinFor.wallet.id}
+          code={resetPinFor.wallet.code}
+          unlock={resetPinFor.unlock}
           onClose={() => setResetPinFor(null)}
           onDone={() => {
             setResetPinFor(null);

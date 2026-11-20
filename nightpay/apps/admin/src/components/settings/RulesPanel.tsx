@@ -100,11 +100,11 @@ export function RulesPanel() {
 
       <SettingsCard title="Cobros de las compañeras" tour="reglas-chicas" hint={platformCommissionHint(settings)}>
         <Input
-          label="Tope por cobro de una compañera (€)"
+          label="Tope por cobro con «Otro importe» (€)"
           inputMode="decimal"
           value={current.maxCobroEur}
           onChange={(e) => update({ maxCobroEur: e.target.value })}
-          hint={`Hoy: ${formatEur(settings.operatorMaxCobroCents)}. Los cobros de la carta no cuentan.`}
+          hint={`Hoy: ${formatEur(settings.operatorMaxCobroCents)}. Vale para compañeras, camareros y encargados; tú no tienes tope. Los cobros de la carta no cuentan.`}
         />
         <div className="np-set-grid">
           {fields.map(({ key, label }) => (
