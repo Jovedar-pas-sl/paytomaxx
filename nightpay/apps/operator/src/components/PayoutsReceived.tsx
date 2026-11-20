@@ -81,7 +81,14 @@ export function PayoutList({ payouts }: { payouts: readonly MyPayout[] }) {
 
 function AccountLine({ account }: { account: PayoutAccount | null }) {
   if (!account) {
-    return <p style={accountStyle}>Aún no tienes cuenta de cobro: pídesela al encargado.</p>;
+    return (
+      <p style={accountStyle}>
+        Aún no tienes cuenta de cobro: pídesela al encargado. ¿No tienes cuenta de banco?{' '}
+        <a href="/cuenta-basica" style={{ color: 'var(--np-text)', textDecoration: 'underline' }}>
+          Cómo abrir una cuenta de pago básica
+        </a>
+      </p>
+    );
   }
   const parts = [payoutMethodLabel(account.method), account.masked, account.label].filter(Boolean);
   return (

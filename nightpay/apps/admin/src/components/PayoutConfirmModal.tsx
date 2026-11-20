@@ -19,7 +19,7 @@ import { formatDecimal, formatEur } from '@/lib/money';
 import { isAutoVerifiable, payoutAddressError } from '@/lib/payout-address';
 import { describeVerifyResult, payoutReferenceError, type VerifyOutcome } from '@/lib/payout-verify';
 import { useLockActive } from '@/lib/use-lock';
-import { payoutHoldText } from '@/lib/payout-account-view';
+import { holderNotice, payoutHoldText } from '@/lib/payout-account-view';
 import { useVenue, useVenueTimezone } from '@/lib/venue-context';
 import { ConfirmLine } from './ConfirmLine';
 import { Notice } from './Notice';
@@ -40,6 +40,8 @@ interface Props {
   payoutHolderMasked?: string | null;
   /** El titular no se parece a su nombre: aviso. */
   payoutHolderMismatch?: boolean;
+  /** No coincide con su nombre legal y aún no confirmaste que es suya: el API no deja pagar a esa cuenta (en efectivo, sí). */
+  payoutHolderUnconfirmed?: boolean;
   /** Cuenta cambiada hace menos de 48 h: hasta entonces no se le paga a ella (salvo en efectivo). */
   payoutHoldUntil?: string | null;
   payoutLabel: string | null;
@@ -78,6 +80,7 @@ export function PayoutConfirmModal({
   payoutAddressMasked,
   payoutHolderMasked,
   payoutHolderMismatch,
+  payoutHolderUnconfirmed = false,
   payoutHoldUntil,
   payoutLabel,
   canReveal = false,
@@ -127,10 +130,11 @@ export function PayoutConfirmModal({
     sameRail && revealed?.payoutAddress && chosenRail ? payoutAddressError(chosenRail, revealed.payoutAddress) : null;
   // 48 h tras cambiar la cuenta: el API no lo deja apuntar ni pedir (en efectivo, sí).
   const holdText = payoutHoldText(payoutHoldUntil, chosenRail, Date.now(), tz);
+  const holderText = payoutHolderUnconfirmed && chosenRail !== 'MANUAL_CASH' ? holderNotice({ payoutHolderUnconfirmed }) : null;
   /** En efectivo aunque su método guardado sea otro (lo que queda durante la espera). */
   const cashInstead = chosenRail === 'MANUAL_CASH' && payoutMethod !== null && payoutMethod !== 'MANUAL_CASH';
   // El API lo rechazaría (409) después de gastar el código 2FA: ni se envía.
-  const railBlocked = Boolean(holdText);
+  const railBlocked = Boolean(holdText || holderText);
 
   useEffect(() => {
     if (!autoVerifiable) {
@@ -264,6 +268,21 @@ export function PayoutConfirmModal({
               canReveal={canReveal && !asking}
               onRevealed={setRevealed}
             />
+            {holderText ? (
+              <Notice
+                tone="warning"
+                style={{ marginTop: '0.5rem' }}
+                action={{
+                  label: 'Pagarle en efectivo',
+                  onClick: () => {
+                    setRail('MANUAL_CASH');
+                    setError(null);
+                  },
+                }}
+              >
+                {holderText.text} Se confirma en su ficha: Editar → Cuenta de cobro.
+              </Notice>
+            ) : null}
             {holdText ? (
               <Notice
                 tone="warning"

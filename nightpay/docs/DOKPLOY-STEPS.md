@@ -23,7 +23,7 @@ node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 |---|---|---|
 | `JWT_SECRET` | Firma las sesiones | Cambiarlo cierra todas las sesiones |
 | `COOKIE_SECRET` | Firma las cookies | |
-| `ENCRYPTION_KEK` | Cifra credenciales de pasarela, el PIN del saldo y las cuentas de cobro del personal ([CUENTA-COBRO-SEGURA.md](CUENTA-COBRO-SEGURA.md)) | **Si se pierde, no se recupera**: guárdalo en dos sitios |
+| `ENCRYPTION_KEK` | Cifra credenciales de pasarela, el PIN del saldo, las cuentas de cobro del personal ([CUENTA-COBRO-SEGURA.md](CUENTA-COBRO-SEGURA.md)) y su nombre legal ([ALTA-TRES-CAMINOS.md](ALTA-TRES-CAMINOS.md)) | **Si se pierde, no se recupera**: guárdalo en dos sitios |
 | `ORIGIN_AUTH_SECRET` | Cabecera que pone Cloudflare (Fase F) | Mín. 24 caracteres |
 | `METRICS_TOKEN` | Leer `/v1/metrics` desde fuera | Mín. 24 caracteres |
 | Contraseña de Postgres | Usuario `np` | `base64url`, sin `@ : /` |

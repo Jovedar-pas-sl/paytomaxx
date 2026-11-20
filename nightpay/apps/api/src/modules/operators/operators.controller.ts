@@ -18,6 +18,7 @@ import {
   type OperatorBalance,
   type OwnHistoryPage,
   type OwnHistoryQuery,
+  type OxiocardView,
   type PayoutAccountNotice,
   type PayoutView,
   type SelfOnboardingProfile,
@@ -153,6 +154,15 @@ export class OperatorsController {
     return this.operators.markPayoutNoticeSeen(user.sub, user.tenantId);
   }
 
+  /** «Abrir mi OxioCard»: solo apunta la petición (sin OXIOCARD_ENABLED, 404). */
+  @Post('me/oxiocard')
+  @UseGuards(RolesGuard)
+  @Roles('OPERATOR')
+  @HttpCode(200)
+  async requestOxiocard(@CurrentUser() user: JwtPayload): Promise<OxiocardView> {
+    return this.operators.requestMyOxiocard(user.sub, user.tenantId);
+  }
+
   /**
    * Endpoint público — la operadora acepta la invitación con su token JWT
    * (TTL 24h) y setea su password por primera vez. Token de un solo uso.
@@ -164,7 +174,7 @@ export class OperatorsController {
   async acceptInvite(
     @Body(new ZodValidationPipe(AcceptInviteSchema)) dto: AcceptInviteDto,
   ): Promise<{ ok: true }> {
-    return this.operators.acceptInvite(dto.token, dto.password);
+    return this.operators.acceptInvite(dto.token, dto.password, dto.birthDate);
   }
 
   /**
@@ -188,7 +198,7 @@ export class OperatorsController {
   async submitSelfOnboarding(
     @Param('token') token: string,
     @Body(new ZodValidationPipe(SelfOnboardingSubmitSchema)) dto: SelfOnboardingSubmitDto,
-  ): Promise<{ ok: true; payoutIgnored?: 'existing' | 'owner_required' }> {
+  ): Promise<{ ok: true; payoutIgnored?: 'existing' | 'owner_required'; minor?: true }> {
     return this.operators.submitSelfOnboarding(token, dto);
   }
 }

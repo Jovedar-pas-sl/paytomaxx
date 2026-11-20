@@ -13,7 +13,7 @@ import { bpsToPercentInput, parsePercentToBps } from '@/lib/commission';
 import { formatDateTime } from '@/lib/dates';
 import { changedFields } from '@/lib/diff';
 import { OTP_LENGTH } from '@/lib/otp';
-import { holderMismatchText, payoutHoldText, twoFactorNeededText } from '@/lib/payout-account-view';
+import { holderNotice, minorNow, payoutHoldText, twoFactorNeededText } from '@/lib/payout-account-view';
 import { payoutValueProblem, type PayoutValue } from '@/lib/payout-address';
 import { useTwoFactorEnabled } from '@/lib/use-two-factor';
 import { useVenueTimezone } from '@/lib/venue-context';
@@ -59,8 +59,11 @@ export function EditOperatorForm({
   /** «Cambiar la cuenta de cobro»: la nueva entera (la de ahora va tapada). */
   const [changingPayout, setChangingPayout] = useState(false);
   const [payout, setPayout] = useState<PayoutValue | null>(null);
+  /** «La cuenta es suya»: el titular no coincide con su nombre legal y el dueño lo confirma (con su 2FA). */
+  const [confirmingHolder, setConfirmingHolder] = useState(false);
+  const withCode = changingPayout || confirmingHolder;
   // Sin la 2FA activada no se cambia: se dice antes de que escriba nada.
-  const without2fa = useTwoFactorEnabled(isOwner && changingPayout) === false;
+  const without2fa = useTwoFactorEnabled(isOwner && withCode) === false;
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -87,10 +90,13 @@ export function EditOperatorForm({
       const problem = payoutValueProblem(payout);
       if (problem) return setError(problem);
     }
-    const payoutChanges =
-      withPayout && payout
+    const payoutChanges = {
+      ...(withPayout && payout
         ? { payoutMethod: payout.method, payoutAddress: payout.address, payoutMetadata: payout.metadata, payoutLabel: payout.label }
-        : {};
+        : {}),
+      ...(isOwner && confirmingHolder && !without2fa ? { payoutHolderConfirmed: true as const } : {}),
+    };
+    const needsCode = Object.keys(payoutChanges).length > 0;
     // El encargado solo cambia el nombre (lo demás va deshabilitado).
     const allowed = isOwner
       ? { ...changes, ...payoutChanges }
@@ -98,11 +104,11 @@ export function EditOperatorForm({
         ? { displayName: changes.displayName }
         : {};
     if (Object.keys(allowed).length === 0) return setNotice('No hay cambios que guardar.');
-    if (withPayout && totpCode.length !== OTP_LENGTH) return setError('Pon los 6 números de tu app de verificación.');
+    if (needsCode && totpCode.length !== OTP_LENGTH) return setError('Pon los 6 números de tu app de verificación.');
 
     setSubmitting(true);
     try {
-      await updateOperator(operator.id, withPayout ? { ...allowed, totpCode } : allowed);
+      await updateOperator(operator.id, needsCode ? { ...allowed, totpCode } : allowed);
       onSaved();
     } catch (err) {
       const lockEnds = totpLockedUntil(err, Date.now());
@@ -116,6 +122,7 @@ export function EditOperatorForm({
 
   function stopChangingPayout() {
     setChangingPayout(false);
+    setConfirmingHolder(false);
     setPayout(null);
     setTotpCode('');
     setError(null);
@@ -147,6 +154,21 @@ export function EditOperatorForm({
       <div style={sectionBox}>
         <h4 style={sectionHeading}>Cuenta de cobro</h4>
         <PayoutAccountSummary operator={operator} />
+        {isOwner && operator.payoutHolderUnconfirmed && !changingPayout ? (
+          confirmingHolder ? (
+            without2fa ? (
+              <Notice tone="warning">{twoFactorNeededText('change')}</Notice>
+            ) : (
+              <p style={{ ...hintText, marginTop: '0.5rem' }}>
+                Confirmas que la cuenta es de ella aunque el titular no coincida con su nombre legal. Pon tu código abajo.
+              </p>
+            )
+          ) : (
+            <Button type="button" variant="ghost" style={{ marginTop: '0.75rem' }} onClick={() => setConfirmingHolder(true)}>
+              La cuenta es suya: confirmar
+            </Button>
+          )
+        ) : null}
         {!isOwner ? (
           <p style={{ ...hintText, marginTop: '0.5rem' }}>Solo el dueño cambia la cuenta de cobro.</p>
         ) : changingPayout && without2fa ? (
@@ -165,7 +187,8 @@ export function EditOperatorForm({
               label={operator.payoutLabel ?? null}
               onChange={setPayout}
               disabled={submitting}
-              personName={operator.displayName}
+              // Con nombre legal (aquí llega tapado) lo compara el API al guardar; sin él, con su nombre del panel.
+              personName={operator.legalNameMasked ? null : operator.displayName}
             />
             {operator.payoutAddressMasked ? (
               <p style={hintText}>La cuenta de ahora está tapada ({operator.payoutAddressMasked}): escribe la nueva entera.</p>
@@ -181,7 +204,7 @@ export function EditOperatorForm({
         )}
       </div>
 
-      {isOwner && changingPayout && !without2fa ? (
+      {isOwner && withCode && !without2fa ? (
         <OtpInput
           label="Código de tu app de verificación (2FA)"
           value={totpCode}
@@ -190,7 +213,11 @@ export function EditOperatorForm({
           lockedUntil={lockedUntil}
           disabled={submitting}
           required
-          hint="Cambiar a dónde va su dinero pide siempre tu código. Le avisamos en su app (y por email, si el correo está activado). Si ya tenía una cuenta, a la nueva no se le paga hasta pasadas 48 h (en efectivo, sí). Al poner el sexto número se guarda."
+          hint={
+            changingPayout
+              ? 'Cambiar a dónde va su dinero pide siempre tu código. Le avisamos en su app (y por email, si el correo está activado). Si ya tenía una cuenta, a la nueva no se le paga hasta pasadas 48 h (en efectivo, sí). Al poner el sexto número se guarda.'
+              : 'Confirmar que la cuenta es suya pide tu código. Al poner el sexto número se guarda.'
+          }
         />
       ) : null}
       {notice ? <Notice tone="info">{notice}</Notice> : null}
@@ -268,6 +295,7 @@ function AccessPanel({ operator, isOwner }: { operator: Operator; isOwner: boole
   }
 
   const isPending = Boolean(operator.invitedAt);
+  const minor = minorNow(operator.birthDate);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
@@ -278,9 +306,12 @@ function AccessPanel({ operator, isOwner }: { operator: Operator; isOwner: boole
         </strong>{' '}
         · Email: <code style={{ fontFamily: 'var(--np-font-mono)', fontSize: '0.875rem' }}>{operator.email}</code>
       </p>
+      {minor ? (
+        <Notice tone="danger">Según su fecha de nacimiento tiene menos de 18 años: su cuenta no se puede activar.</Notice>
+      ) : null}
 
-      {/* Regenerar invitación — solo para pendientes */}
-      {isPending ? (
+      {/* Regenerar invitación — solo para pendientes (y mayores de edad) */}
+      {isPending && !minor ? (
         <div>
           <Button
             type="button"
@@ -314,8 +345,8 @@ function AccessPanel({ operator, isOwner }: { operator: Operator; isOwner: boole
         </div>
       ) : null}
 
-      {/* Resetear contraseña — solo el dueño (el API lo rechaza a los demás) */}
-      {isOwner ? (
+      {/* Resetear contraseña — solo el dueño (el API lo rechaza a los demás) y no a una menor */}
+      {isOwner && !minor ? (
         <div>
           <p style={{ margin: '0 0 0.3rem', fontSize: '0.875rem', fontWeight: 400 }}>Resetear contraseña</p>
           <p style={{ margin: '0 0 0.5rem', fontSize: '0.875rem', color: 'var(--np-text-dim)' }}>
@@ -401,13 +432,14 @@ function PayoutAccountSummary({ operator }: { operator: Operator }) {
   const method = operator.payoutMethod ?? null;
   if (!method) return <p style={hintText}>Sin cuenta de cobro todavía.</p>;
   const hold = payoutHoldText(operator.payoutHoldUntil, method, Date.now(), tz);
+  const holder = holderNotice(operator);
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', fontSize: '0.875rem' }}>
       <strong>{PAYOUT_METHOD_LABELS[method]}</strong>
       {operator.payoutAddressMasked ? <span style={monoText}>{operator.payoutAddressMasked}</span> : null}
       {operator.payoutHolderMasked ? <span style={hintText}>Titular: {operator.payoutHolderMasked}</span> : null}
       {operator.payoutLabel ? <span style={hintText}>Alias: {operator.payoutLabel}</span> : null}
-      {operator.payoutHolderMismatch ? <Notice tone="warning">{holderMismatchText(operator.displayName)}</Notice> : null}
+      {holder ? <Notice tone={holder.tone}>{holder.text}</Notice> : null}
       {hold ? <Notice tone="info">{hold}</Notice> : null}
     </div>
   );

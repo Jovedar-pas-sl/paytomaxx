@@ -19,6 +19,7 @@ import {
   planPayoutAccountChange,
   type OpenPayoutAccount,
 } from '../operators/payout-account';
+import { legalNameView } from '../operators/alta-identity';
 import { notifyPayoutAccountChanged } from '../operators/payout-account-notices';
 import { isRecordNotFound } from '../operators/self-onboarding-token';
 import { SuperAdminStepUpService } from './step-up.service';
@@ -42,6 +43,8 @@ const accountSelect = {
   payoutHolderMasked: true,
   payoutAccountChangedAt: true,
   payoutHoldUntil: true,
+  // Para comparar el titular con su nombre legal (alta-identity).
+  legalName: true,
   updatedAt: true,
   venue: { select: { id: true, name: true } },
 } as const;
@@ -157,7 +160,7 @@ export class SuperAdminPayoutAccountsService {
           tenantId: before.tenantId,
           actorId: actor.id,
           via: 'oxiopay',
-          operator: { id: before.id, email: before.email, displayName: before.displayName },
+          operator: { id: before.id, email: before.email, displayName: before.displayName, legalName: legalNameView(before).plain },
           venueName: before.venue.name,
           before: plan.before,
           after: plan.after,

@@ -112,6 +112,12 @@ const EnvSchema = z.object({
   BTCPAY_ENABLED: z
     .union([z.boolean(), z.string().transform((s) => ['true', '1', 'yes', 'on'].includes(s.trim().toLowerCase()))])
     .default(false),
+  // OxioCard (alta de la compañera): «Abrir mi OxioCard» solo apunta la
+  // petición y su estado (lo cambia a mano el dueño). Apagado por defecto: sin
+  // esto no sale en ninguna pantalla y su ruta da 404.
+  OXIOCARD_ENABLED: z
+    .union([z.boolean(), z.string().transform((s) => ['true', '1', 'yes', 'on'].includes(s.trim().toLowerCase()))])
+    .default(false),
   // Nombre de la marca en pantallas, concepto del cobro y correos (por
   // defecto OxioPay). No cambia el extracto del banco: eso lo fija BBVA.
   BRAND_NAME: z.string().trim().min(2).max(20).optional(),

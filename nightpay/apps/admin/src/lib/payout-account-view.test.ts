@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { holderMismatchText, payoutHoldText, REVEAL_PAYOUT_SECONDS, revealLeft, twoFactorNeededText } from './payout-account-view';
+import {
+  holderMismatchText,
+  holderNotice,
+  minorNow,
+  payoutHoldText,
+  REVEAL_PAYOUT_SECONDS,
+  revealLeft,
+  twoFactorNeededText,
+} from './payout-account-view';
 
 const NOW = Date.parse('2026-11-19T22:00:00Z');
 
@@ -44,5 +52,29 @@ describe('twoFactorNeededText — el dueño sin 2FA no cambia ni ve cuentas de c
     expect(twoFactorNeededText('reveal')).toBe(
       'Para ver la cuenta de cobro entera hace falta la verificación en dos pasos (2FA). Actívala en Ajustes → Seguridad y vuelve aquí.',
     );
+  });
+});
+
+describe('holderNotice — el titular contra su nombre legal (alta con tres caminos)', () => {
+  it('sin confirmar: aviso de que no se le paga a esa cuenta hasta confirmarlo', () => {
+    expect(holderNotice({ payoutHolderUnconfirmed: true, payoutHolderMismatch: true, legalNameMasked: 'A••• L•••' })).toEqual({
+      tone: 'warning',
+      text: 'El titular no coincide con su nombre legal: hasta que confirmes que la cuenta es suya, no se le paga a esta cuenta (en efectivo, sí).',
+    });
+  });
+  it('ya confirmado: solo para que se sepa', () => {
+    expect(holderNotice({ payoutHolderUnconfirmed: false, payoutHolderMismatch: true, legalNameMasked: 'A••• L•••' })).toMatchObject({ tone: 'info' });
+  });
+  it('sin nombre legal: el aviso de siempre contra el nombre del panel', () => {
+    expect(holderNotice({ payoutHolderMismatch: true, legalNameMasked: null, displayName: 'Lola' })).toEqual({ tone: 'warning', text: holderMismatchText('Lola') });
+    expect(holderNotice({ payoutHolderMismatch: false })).toBeNull();
+  });
+});
+
+describe('minorNow — menor de 18 según su fecha de nacimiento', () => {
+  it('cuenta el día de Madrid', () => {
+    expect(minorNow('2008-11-20', new Date('2026-11-19T12:00:00Z'))).toBe(true);
+    expect(minorNow('2008-11-19', new Date('2026-11-19T12:00:00Z'))).toBe(false);
+    expect(minorNow(null)).toBe(false);
   });
 });

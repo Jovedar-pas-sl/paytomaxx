@@ -3,6 +3,7 @@
  * cuántos días espera un cobro antes de pagarse, a qué cuenta se le paga
  * (enmascarada) y las devoluciones que llegaron con el cobro ya pagado.
  */
+import type { OxiocardView } from '@nightpay/contracts';
 import { maskedPayoutAccount, type StoredPayoutAccount } from './payout-account';
 
 /** A dónde se le paga, sin la dirección entera. */
@@ -37,6 +38,8 @@ export interface MyPayoutInfo {
   account: PayoutAccountView | null;
   /** Las abiertas primero; luego las ya descontadas, de la más reciente a la más antigua. */
   debts: MyDebtView[];
+  /** Su OxioCard: si la pidió y cómo va (null: OXIOCARD_ENABLED apagado). */
+  oxiocard: OxiocardView | null;
 }
 
 export interface DebtRow {

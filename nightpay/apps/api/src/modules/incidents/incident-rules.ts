@@ -441,6 +441,10 @@ const SENSITIVE_ACTIONS: Readonly<Record<string, { title: string; detail: string
     title: 'Cobro cancelado dado por bueno',
     detail: 'ha dado por bueno un cobro que el banco cobró después de cancelarlo, con su 2FA. Ahora cuenta como pagado.',
   },
+  'operator.minor_blocked': {
+    title: 'Menor de edad: cuenta sin activar',
+    detail: 'Según su fecha de nacimiento, una compañera tiene menos de 18 años: su cuenta no se activa y, si ya entraba, ya no entra. Comprueba su documento.',
+  },
   'operator.left_with_balance': {
     title: 'Baja con dinero sin cobrar',
     detail: 'Se ha dado de baja a alguien a quien aún se le debe dinero. Ya no sale en las listas: para pagarle, actívala en Personal, págale y vuelve a darla de baja.',
@@ -485,6 +489,9 @@ const PAYOUT_ACCOUNT_CHANGE_NO_EMAIL: Readonly<Record<string, string>> = {
 };
 
 const HOLDER_MISMATCH_NOTE = ' El titular no se parece a su nombre: comprueba que la cuenta es suya.';
+/** Contra su nombre legal: hasta confirmarlo no se le paga a esa cuenta. */
+const HOLDER_TO_CONFIRM_NOTE =
+  ' El titular no coincide con su nombre legal: hasta que confirmes en su ficha que la cuenta es suya, no se le paga a esa cuenta.';
 
 export const SENSITIVE_AUDIT_ACTIONS: readonly string[] = Object.keys(SENSITIVE_ACTIONS);
 
@@ -505,7 +512,8 @@ export function sensitiveActionIncident(r: EventRow & { action: string; actorNam
   const name = str(r.payload, 'name');
   // El código del saldo (PIN desbloqueado), como en «No he sido yo».
   const code = str(r.payload, 'code');
-  const note = (r.payload as { holderMismatch?: unknown } | null)?.holderMismatch === true ? HOLDER_MISMATCH_NOTE : '';
+  const flags = r.payload as { holderMismatch?: unknown; holderToConfirm?: unknown } | null;
+  const note = flags?.holderToConfirm === true ? HOLDER_TO_CONFIRM_NOTE : flags?.holderMismatch === true ? HOLDER_MISMATCH_NOTE : '';
   return {
     kind: 'sensitive_action',
     refId: r.id,

@@ -236,6 +236,14 @@ describe('planPayoutAccountChange — guardar un cambio de cuenta', () => {
     expect((plan.data as Record<string, unknown>).payoutHolderMasked).toBe('E••• R•••');
   });
 
+  it('otra cuenta u otro titular: la confirmación del dueño de que era suya deja de valer; solo el alias, no', () => {
+    const holder = planPayoutAccountChange(savedSepa(), { metadata: { accountHolder: 'Eva Ruiz' } }, NOW, KEK);
+    expect(holder.data).toMatchObject({ payoutHolderConfirmedAt: null });
+    const account = planPayoutAccountChange(savedSepa(), { address: IBAN2 }, NOW, KEK);
+    expect(account.data).toMatchObject({ payoutHolderConfirmedAt: null });
+    expect(planPayoutAccountChange(savedSepa(), { label: 'Otro' }, NOW, KEK).data).not.toHaveProperty('payoutHolderConfirmedAt');
+  });
+
   it('transferencia internacional: cambiar solo el SWIFT (misma cuenta y mismo titular) es otro destino: aviso y 48 h', () => {
     const plan = planPayoutAccountChange(savedWire(), { metadata: { ...WIRE_BANK, swiftBic: 'BAGAGE22' } }, NOW, KEK);
     expect(plan.destinationChanged).toBe(true);

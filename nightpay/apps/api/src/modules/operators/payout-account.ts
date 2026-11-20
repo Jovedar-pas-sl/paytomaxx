@@ -287,7 +287,11 @@ export function planPayoutAccountChange(
     data.payoutHolderMasked = maskHolderName(metadata?.accountHolder);
   }
   if (label !== before.label) data.payoutLabel = label;
-  if (accountChanged) data.payoutAccountChangedAt = now;
+  // Otra cuenta (o titular): la confirmación del dueño de que era suya era para la de antes.
+  if (accountChanged) {
+    data.payoutAccountChangedAt = now;
+    data.payoutHolderConfirmedAt = null;
+  }
   const readAt = row.payoutAccountChangedAt ?? null;
 
   return {

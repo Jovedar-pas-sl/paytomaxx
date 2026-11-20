@@ -15,6 +15,7 @@ import * as bcrypt from 'bcryptjs';
 import { JwtService } from '@nestjs/jwt';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { PrismaService, type TransactionalClient } from '../../common/prisma/prisma.service';
+import { isPartyEdition } from '../../config/edition';
 import { EmailService } from '../../common/email/email.service';
 import { photoHashesOf } from '../profile/photo-hashes';
 import { AuditService } from '../audit/audit.service';
@@ -59,6 +60,20 @@ import {
 import { notifyPayoutAccountChanged, payoutAccountTooNew, type PayoutChangeVia } from './payout-account-notices';
 import { touchesPayoutAccount } from './payout-routing';
 import { isRecordNotFound, selfOnboardingAlreadySaved, usedTokenMarker } from './self-onboarding-token';
+import {
+  becomesMinor,
+  birthDateOf,
+  birthDateRequired,
+  birthDateValue,
+  legalNameData,
+  legalNameView,
+  minorCannotActivate,
+  minorLockData,
+  minorNow,
+  oxiocardView,
+  payoutHolderNotConfirmed,
+  payoutHolderUnconfirmed,
+} from './alta-identity';
 import type {
   CreateOperatorDto,
   CreateOperatorResponse,
@@ -67,6 +82,8 @@ import type {
   OperatorWithBalance,
   OwnHistoryPage,
   OwnHistoryQuery,
+  OxiocardStatus,
+  OxiocardView,
   Role,
   EarningView,
   PayoutAccountFull,
@@ -85,6 +102,17 @@ const INVITE_TTL_HOURS = 24;
 const SELF_ONBOARDING_TTL_HOURS = 72;
 const COMMISSION_OWNER_ONLY_NOTICE =
   'La comisión la fija el dueño: a esta chica se le aplica la del local hasta que él la cambie.';
+const OXIOCARD_OFF = 'La OxioCard aún no está disponible.';
+
+/**
+ * Hash para la columna NOT NULL cuando no hay contraseña que valga (alta o
+ * menor de edad). Cost 4 (mínimo) a propósito: NUNCA se verifica con
+ * bcrypt.compare (al aceptar la invitación se pisa con uno de cost 10). NO
+ * REUTILIZAR cost 4 para hashes que sí se verifican (el estándar es 10).
+ */
+function placeholderPasswordHash(): Promise<string> {
+  return bcrypt.hash(randomUUID(), 4);
+}
 
 interface InviteJwtPayload {
   sub: string; // userId
@@ -434,7 +462,10 @@ export class OperatorsService {
    */
   async getMyPayoutInfo(operatorId: string, tenantId: string, limit = 30): Promise<MyPayoutInfo> {
     const [user, debts] = await Promise.all([
-      this.prisma.user.findFirst({ where: { id: operatorId, tenantId }, select: PAYOUT_ACCOUNT_SELECT }),
+      this.prisma.user.findFirst({
+        where: { id: operatorId, tenantId },
+        select: { ...PAYOUT_ACCOUNT_SELECT, oxiocardStatus: true, oxiocardStatusAt: true },
+      }),
       this.prisma.asSystem((tx) => tx.$queryRaw<DebtRow[]>`
         SELECT r.id, e."paymentId", e."paymentAmountCents" AS "chargeCents",
                r."reversedDeltaCents" AS cents, r."createdAt" AS at, e."createdAt" AS "chargedAt",
@@ -453,6 +484,8 @@ export class OperatorsService {
       holdDays: await this.holdDays(tenantId),
       account: payoutAccountView(user),
       debts: debts.map(debtView),
+      // Su OxioCard (null: OXIOCARD_ENABLED apagado).
+      oxiocard: user && this.oxiocardEnabled() ? oxiocardView(user) : null,
     };
   }
 
@@ -501,11 +534,7 @@ export class OperatorsService {
     // todo el alta en una sola transacción atómica (insert user + JWT con su id +
     // update con el hash del token de invite). Si algo falla, rollback completo.
     const userId = randomUUID();
-    // Hash placeholder de la columna NOT NULL. Cost 4 (mínimo) es intencional
-    // porque este hash NUNCA se verifica con bcrypt.compare — al aceptar la
-    // invitación se sobreescribe con un hash de cost 10. NO REUTILIZAR cost 4
-    // para hashes que sí se verifican (el estándar del proyecto es 10).
-    const placeholderHash = await bcrypt.hash(randomUUID(), 4);
+    const placeholderHash = await placeholderPasswordHash();
     const inviteToken = await this.jwt.signAsync(
       { sub: userId, tenantId, purpose: 'operator-invite' } satisfies InviteJwtPayload,
       { expiresIn: `${INVITE_TTL_HOURS}h` },
@@ -577,7 +606,7 @@ export class OperatorsService {
     };
   }
 
-  async acceptInvite(token: string, password: string): Promise<{ ok: true }> {
+  async acceptInvite(token: string, password: string, birthDate?: string): Promise<{ ok: true }> {
     if (password.length < 8) {
       throw new BadRequestException('Password debe tener al menos 8 caracteres');
     }
@@ -595,7 +624,7 @@ export class OperatorsService {
     const user = await this.prisma.asSystem((tx) =>
       tx.user.findUnique({
         where: { id: decoded.sub },
-        select: { id: true, inviteToken: true, deletedAt: true },
+        select: { id: true, inviteToken: true, deletedAt: true, birthDate: true, role: true, displayName: true, invitedAt: true },
       }),
     );
     if (!user || user.deletedAt) {
@@ -606,6 +635,20 @@ export class OperatorsService {
     if (!user.inviteToken || user.inviteToken !== tokenHash) {
       throw new UnauthorizedException('Token ya utilizado o caducado');
     }
+    // Una compañera no activa sin saber su edad: si no la dio en su alta, la pone aquí.
+    // La guardada manda (la corrige el dueño en el panel). OxioParty: no hay
+    // compañeras (el personal de las casetas activa como siempre).
+    const needsBirthDate = user.role === 'OPERATOR' && !user.birthDate && !isPartyEdition();
+    if (needsBirthDate && !birthDate) throw birthDateRequired();
+    const newBirthDate = needsBirthDate && birthDate ? birthDateValue(birthDate) : null;
+    if (minorNow(user.birthDate)) throw minorCannotActivate();
+    if (newBirthDate && minorNow(newBirthDate)) {
+      // Su invitación se anula (minorLockData) y el dueño lo ve en Incidencias.
+      const lock = minorLockData(user, new Date(), await placeholderPasswordHash());
+      await this.prisma.asSystem((tx) => tx.user.update({ where: { id: user.id }, data: { birthDate: newBirthDate, ...lock } }));
+      await this.minorBlocked(decoded.tenantId, user, user.id, 'invitacion');
+      throw minorCannotActivate();
+    }
 
     const passwordHash = await bcrypt.hash(password, 10);
     await this.prisma.asSystem((tx) =>
@@ -615,6 +658,7 @@ export class OperatorsService {
           passwordHash,
           invitedAt: null,
           inviteToken: null,
+          ...(newBirthDate ? { birthDate: newBirthDate } : {}),
         },
       }),
     );
@@ -657,10 +701,11 @@ export class OperatorsService {
   ): Promise<{ inviteUrl: string; expiresAt: string }> {
     const operator = await this.prisma.user.findFirst({
       where: { id: operatorId, tenantId, role: 'OPERATOR' },
-      select: { id: true, email: true, deletedAt: true, invitedAt: true },
+      select: { id: true, email: true, deletedAt: true, invitedAt: true, birthDate: true },
     });
     if (!operator) throw new NotFoundException('Operadora no encontrada');
     if (operator.deletedAt) throw new ConflictException('Operadora dada de baja');
+    if (minorNow(operator.birthDate)) throw minorCannotActivate();
     if (!operator.invitedAt) {
       throw new ConflictException(
         'Esta operadora ya activó su contraseña. Usa "Resetear contraseña" en su lugar.',
@@ -716,10 +761,12 @@ export class OperatorsService {
   ): Promise<{ password: string; reset: true }> {
     const operator = await this.prisma.user.findFirst({
       where: { id: operatorId, tenantId, role: 'OPERATOR' },
-      select: { id: true, email: true, deletedAt: true },
+      select: { id: true, email: true, deletedAt: true, birthDate: true },
     });
     if (!operator) throw new NotFoundException('Operadora no encontrada');
     if (operator.deletedAt) throw new ConflictException('Operadora dada de baja');
+    // Con contraseña se entra: es activar la cuenta.
+    if (minorNow(operator.birthDate)) throw minorCannotActivate();
 
     // Si admin pasa password explícita, validar; si no, generar random segura.
     let password: string;
@@ -877,6 +924,11 @@ export class OperatorsService {
       payoutLabel: u.payoutLabel,
       venueName: venue.name,
       canSetPayout: payoutAllowed && !hasPayoutRouting(u),
+      // Lo ya guardado, sin enseñarlo entero (el enlace puede llegar a otras manos).
+      legalNameMasked: legalNameView(operator).masked,
+      hasBirthDate: operator.birthDate !== null,
+      oxiocardEnabled: this.oxiocardEnabled(),
+      oxiocardStatus: operator.oxiocardStatus as OxiocardStatus,
     };
   }
 
@@ -893,8 +945,9 @@ export class OperatorsService {
   async submitSelfOnboarding(
     token: string,
     dto: SelfOnboardingSubmitDto,
-  ): Promise<{ ok: true; payoutIgnored?: 'existing' | 'owner_required' }> {
+  ): Promise<{ ok: true; payoutIgnored?: 'existing' | 'owner_required'; minor?: true }> {
     const { operator, payoutAllowed, decoded, tokenHash } = await this.validateSelfOnboardingToken(token);
+    const now = new Date();
 
     const data: Record<string, unknown> = {};
     if (dto.phone !== undefined) data.phone = dto.phone;
@@ -912,6 +965,15 @@ export class OperatorsService {
     if (dto.needsHelpWallet !== undefined) data.needsHelpWallet = dto.needsHelpWallet;
     if (dto.needsHelpDocs !== undefined) data.needsHelpDocs = dto.needsHelpDocs;
     if (dto.onboardingNotes !== undefined) data.onboardingNotes = dto.onboardingNotes;
+    // Su nombre legal (cifrado) y su fecha de nacimiento, solo si aún no estaban: lo
+    // guardado decide si activa la cuenta y a quién se le paga, y lo corrige el dueño
+    // en el panel (el enlace puede llegar a otras manos). «Abrir mi OxioCard».
+    const identityIgnored = (['legalName', 'birthDate'] as const).filter((k) => dto[k] !== undefined && Boolean(operator[k]));
+    const legalName = operator.legalName ? undefined : dto.legalName;
+    const birthDate = operator.birthDate ? undefined : dto.birthDate;
+    if (legalName !== undefined) Object.assign(data, legalNameData(operator, legalName));
+    if (birthDate !== undefined) data.birthDate = birthDateValue(birthDate);
+    if (dto.oxiocard) Object.assign(data, this.oxiocardRequest(operator.oxiocardStatus, now));
     // A dónde va su dinero: solo la primera vez y solo con enlace del dueño.
     // Si ya tiene cuenta, o el enlace lo generó un encargado, no se toca: queda
     // como propuesta en el registro y la pone el dueño desde el panel.
@@ -950,12 +1012,15 @@ export class OperatorsService {
     // al admin un enlace nuevo si quiere volver a editar. Solo si sigue siendo
     // el activo: dos «Guardar» a la vez no guardan dos veces.
     data.selfOnboardingToken = usedTokenMarker(tokenHash);
+    // Menor de 18: no activa la cuenta (si ya entraba, deja de entrar) y se avisa al dueño.
+    const minor = becomesMinor(operator.birthDate, birthDate, now);
+    const lock = minor ? minorLockData(operator, now, await placeholderPasswordHash()) : {};
 
     // Ruta pública (sin local en el contexto): como la lectura del token, con asSystem.
     // shortcut: sin plan.ifUnchanged (el enlace solo pone la primera cuenta y es de un solo uso), añadirlo si un día deja cambiar una que ya existe.
     try {
       await this.prisma.asSystem((tx) =>
-        tx.user.update({ where: { id: operator.id, selfOnboardingToken: tokenHash }, data }),
+        tx.user.update({ where: { id: operator.id, selfOnboardingToken: tokenHash }, data: { ...data, ...lock } }),
       );
     } catch (err) {
       if (isRecordNotFound(err)) throw await this.goneSelfOnboardingToken(decoded, tokenHash);
@@ -973,14 +1038,18 @@ export class OperatorsService {
         tokenInvalidated: true,
         // La propuesta, tapada (el registro no lleva cuentas en claro).
         ...(payoutIgnored ? { payoutIgnored, proposedPayout: proposedPayoutForAudit(dto) } : {}),
+        // Nombre legal o fecha que no se aplicaron (ya los había): solo el nombre del campo.
+        ...(identityIgnored.length ? { identityIgnored } : {}),
       },
     });
+    if (minor) await this.minorBlocked(operator.tenantId, operator, operator.id, 'enlace');
     if (plan?.accountChanged) {
-      await this.notifyPayoutChange({ tenantId: operator.tenantId, actorId: operator.id, via: 'enlace', operator, plan });
+      const holderName = legalName ?? legalNameView(operator).plain;
+      await this.notifyPayoutChange({ tenantId: operator.tenantId, actorId: operator.id, via: 'enlace', operator: { ...operator, legalName: holderName }, plan });
     }
 
     this.logger.log(`Self-onboarding submitted by operator=${operator.id} (token invalidated)`);
-    return payoutIgnored ? { ok: true, payoutIgnored } : { ok: true };
+    return { ok: true, ...(payoutIgnored ? { payoutIgnored } : {}), ...(minor ? { minor: true as const } : {}) };
   }
 
   /**
@@ -1051,6 +1120,11 @@ export class OperatorsService {
     'payoutAddress',
     'payoutMetadata',
     'payoutLabel',
+    // Alta con tres caminos: deciden si activa la cuenta y a quién se le paga.
+    'legalName',
+    'birthDate',
+    'payoutHolderConfirmed',
+    'oxiocardStatus',
   ]);
 
   async updateOperator(
@@ -1109,14 +1183,27 @@ export class OperatorsService {
     if (dto.needsHelpDocs !== undefined) data.needsHelpDocs = dto.needsHelpDocs;
     if (dto.onboardingStatus !== undefined) data.onboardingStatus = dto.onboardingStatus;
     if (dto.onboardingNotes !== undefined) data.onboardingNotes = dto.onboardingNotes;
+    // Alta con tres caminos: nombre legal (cifrado), fecha de nacimiento, la
+    // OxioCard a mano y «la cuenta es suya» (va al final: cambiar la cuenta o
+    // el nombre en esta misma petición la borra antes).
+    const now = new Date();
+    if (dto.legalName !== undefined) Object.assign(data, legalNameData(operator, dto.legalName));
+    if (dto.birthDate !== undefined) data.birthDate = birthDateValue(dto.birthDate);
+    if (dto.oxiocardStatus !== undefined) Object.assign(data, this.oxiocardStatusChange(operator.oxiocardStatus, dto.oxiocardStatus, now));
+    if (dto.payoutHolderConfirmed) data.payoutHolderConfirmedAt = now;
+    const minor = becomesMinor(operator.birthDate, dto.birthDate, now);
+    const lock = minor ? minorLockData(operator, now, await placeholderPasswordHash()) : {};
 
     // Con cambio de cuenta, solo si sigue como se leyó: dos cambios a la vez no
     // se pisan (ni se saltan la espera, ni avisan con un «antes» que ya no era).
+    // «La cuenta es suya» también: se confirma la que se leyó.
+    // shortcut: no compara con la que vio el dueño en su pantalla, solo con la leída aquí; añadirlo si la consola de OxioPay cambia cuentas a menudo.
     const updated = await this.prisma.user
-      .update({ where: { id: operatorId, ...plan?.ifUnchanged }, data })
+      .update({ where: { id: operatorId, ...plan?.ifUnchanged }, data: { ...data, ...lock } })
       .catch((err: unknown) => {
         throw plan && isRecordNotFound(err) ? payoutAccountChangedMeanwhile() : err;
       });
+    if (minor) await this.minorBlocked(tenantId, operator, actorUserId, 'panel');
     // Baja: fuera al momento de la app (refresh y tokens de acceso ya emitidos).
     if (dto.active === false) await this.sessions.revokeAllForUser(operatorId);
     // Sale de las listas, pero se le sigue debiendo: que no se pierda de vista.
@@ -1134,10 +1221,82 @@ export class OperatorsService {
     });
     // A dónde va su dinero, con lo de antes (tapado): Incidencias, Telegram y a ella.
     if (plan?.accountChanged) {
-      await this.notifyPayoutChange({ tenantId, actorId: actorUserId, via: 'panel', operator, plan });
+      const legalName = dto.legalName ?? legalNameView(operator).plain;
+      await this.notifyPayoutChange({ tenantId, actorId: actorUserId, via: 'panel', operator: { ...operator, legalName }, plan });
     }
 
     return this.toPublicView(updated);
+  }
+
+  /**
+   * Con menos de 18 años: su acceso ya quedó cerrado al guardar (minorLockData);
+   * fuera también las sesiones abiertas, y el aviso al dueño (Incidencias y
+   * Telegram), sin la fecha ni el nombre legal.
+   */
+  private async minorBlocked(
+    tenantId: string,
+    operator: { id: string; displayName: string | null; invitedAt: Date | null },
+    actorId: string,
+    via: 'panel' | 'enlace' | 'invitacion',
+  ): Promise<void> {
+    await this.sessions.revokeAllForUser(operator.id);
+    await this.audit.log({
+      action: 'operator.minor_blocked',
+      tenantId,
+      actorId,
+      targetType: 'User',
+      targetId: operator.id,
+      payload: { via, name: operator.displayName?.trim() || null, wasActive: operator.invitedAt === null },
+    });
+    this.logger.warn(`Menor de edad: acceso cerrado a ${operator.id} (${via})`);
+  }
+
+  // ─── OxioCard (OXIOCARD_ENABLED, apagado de fábrica) ─────────────
+  // Solo se apunta la petición y cómo va: ni documentos ni emisor. El estado
+  // lo cambia a mano el dueño (o el super-admin, entrando en el local).
+
+  private oxiocardEnabled(): boolean {
+    const raw = this.config.get<boolean | string | undefined>('OXIOCARD_ENABLED');
+    return raw === true || raw === 'true';
+  }
+
+  /** «Abrir mi OxioCard»: si no la había pedido, queda pedida; si ya, como está. */
+  private oxiocardRequest(current: string, now: Date): Record<string, unknown> {
+    if (!this.oxiocardEnabled()) throw new BadRequestException(OXIOCARD_OFF);
+    return current === 'NO_SOLICITADA' ? { oxiocardStatus: 'SOLICITADA', oxiocardStatusAt: now } : {};
+  }
+
+  /** El dueño cambia el estado a mano. */
+  private oxiocardStatusChange(current: string, next: OxiocardStatus, now: Date): Record<string, unknown> {
+    if (!this.oxiocardEnabled()) throw new BadRequestException(OXIOCARD_OFF);
+    return current === next ? {} : { oxiocardStatus: next, oxiocardStatusAt: now };
+  }
+
+  /** «Abrir mi OxioCard» desde su app. Sin OXIOCARD_ENABLED la ruta no existe (404). */
+  async requestMyOxiocard(operatorId: string, tenantId: string): Promise<OxiocardView> {
+    if (!this.oxiocardEnabled()) throw new NotFoundException();
+    const now = new Date();
+    // Solo si no la había pedido: pedirla dos veces (o a la vez) no cambia nada.
+    const { count } = await this.prisma.user.updateMany({
+      where: { id: operatorId, tenantId, role: 'OPERATOR', oxiocardStatus: 'NO_SOLICITADA' },
+      data: { oxiocardStatus: 'SOLICITADA', oxiocardStatusAt: now },
+    });
+    if (count > 0) {
+      await this.audit.log({
+        action: 'operator.oxiocard_requested',
+        tenantId,
+        actorId: operatorId,
+        targetType: 'User',
+        targetId: operatorId,
+        payload: { via: 'app' },
+      });
+    }
+    const row = await this.prisma.user.findFirst({
+      where: { id: operatorId, tenantId, role: 'OPERATOR' },
+      select: { oxiocardStatus: true, oxiocardStatusAt: true },
+    });
+    if (!row) throw new NotFoundException('Compañera no encontrada');
+    return oxiocardView(row);
   }
 
   /**
@@ -1149,7 +1308,8 @@ export class OperatorsService {
     tenantId: string;
     actorId: string;
     via: PayoutChangeVia;
-    operator: { id: string; email: string; displayName: string | null };
+    /** legalName en claro (si lo tiene): el titular se compara con él. */
+    operator: { id: string; email: string; displayName: string | null; legalName: string | null };
     plan: PayoutAccountPlan;
   }): Promise<void> {
     const venue = await this.prisma.asSystem((tx) =>
@@ -1309,7 +1469,16 @@ export class OperatorsService {
       // pago, para verificarlo on-chain.
       const operator = await tx.user.findFirst({
         where,
-        select: { displayName: true, payoutMethod: true, payoutAddress: true, payoutHoldUntil: true },
+        select: {
+          id: true,
+          displayName: true,
+          payoutMethod: true,
+          payoutAddress: true,
+          payoutHoldUntil: true,
+          payoutMetadata: true,
+          legalName: true,
+          payoutHolderConfirmedAt: true,
+        },
       });
       if (!operator) throw new NotFoundException('Operadora no encontrada');
       // Rail efectivo: el del dto si viene, sino el preferido de la persona.
@@ -1319,9 +1488,10 @@ export class OperatorsService {
         const replay = await replayPayout(tx, { tenantId, operatorId, paidByUserId, idempotency });
         if (replay) return { replay };
       }
-      // Cuenta cambiada hace menos de 48 h: a ella aún no (en efectivo, sí).
-      const tooNew = payoutAccountTooNew(operator, rail, new Date());
-      if (tooNew) throw tooNew;
+      // Cuenta cambiada hace menos de 48 h, o con un titular que no coincide con
+      // su nombre legal sin confirmar: a ella aún no (en efectivo, sí).
+      const blocked = payoutAccountTooNew(operator, rail, new Date()) ?? payoutHolderNotConfirmed(operator, rail);
+      if (blocked) throw blocked;
       await options?.inTransaction?.(tx);
       // Un hash on-chain solo vale para un pago del local.
       const txId = options?.externalTxId?.trim();
@@ -1520,7 +1690,14 @@ export class OperatorsService {
       needsHelpDocs?: boolean;
       onboardingStatus?: string;
       onboardingNotes?: string | null;
+      legalName?: string | null;
+      birthDate?: Date | null;
+      payoutHolderConfirmedAt?: Date | null;
+      oxiocardStatus?: string;
+      oxiocardStatusAt?: Date | null;
     };
+    // El nombre legal, tapado; en claro solo para comparar con el titular.
+    const legal = legalNameView(u);
     // La cuenta y el titular, siempre tapados (enteros: revealPayoutAccount).
     const stored: StoredPayoutAccount = {
       id: u.id,
@@ -1545,7 +1722,21 @@ export class OperatorsService {
       payoutAddressMasked: masked.addressMasked,
       payoutMetadata: masked.metadata,
       payoutHolderMasked: masked.holderMasked,
-      payoutHolderMismatch: this.holderMismatch(stored, u.displayName),
+      payoutHolderMismatch: this.holderMismatch(stored, legal.plain ?? u.displayName),
+      payoutHolderUnconfirmed: payoutHolderUnconfirmed({
+        id: u.id,
+        payoutMetadata: u.payoutMetadata ?? null,
+        legalName: u.legalName ?? null,
+        payoutHolderConfirmedAt: u.payoutHolderConfirmedAt ?? null,
+      }),
+      legalNameMasked: legal.masked,
+      birthDate: birthDateOf(u.birthDate),
+      ...(this.oxiocardEnabled()
+        ? {
+            oxiocardStatus: (u.oxiocardStatus ?? 'NO_SOLICITADA') as OxiocardStatus,
+            oxiocardStatusAt: u.oxiocardStatusAt?.toISOString() ?? null,
+          }
+        : {}),
       payoutLabel: u.payoutLabel ?? null,
       payoutAccountChangedAt: u.payoutAccountChangedAt?.toISOString() ?? null,
       payoutHoldUntil: holdUntil?.toISOString() ?? null,
@@ -1581,11 +1772,13 @@ export class OperatorsService {
   }
 }
 
-/** Los cambios del panel para el registro: la cuenta y el titular, tapados. */
+/** Los cambios del panel para el registro: la cuenta, el titular y el nombre legal, tapados; la fecha de nacimiento, no va. */
 function maskedChanges(changes: Omit<UpdateOperatorDto, 'totpCode'>, method: string | null): Record<string, unknown> {
   const out: Record<string, unknown> = { ...changes };
   if (changes.payoutAddress !== undefined) out.payoutAddress = maskPayoutAddress(method, changes.payoutAddress);
   if (changes.payoutMetadata) out.payoutMetadata = maskedMetadata(changes.payoutMetadata);
+  if (changes.legalName !== undefined) out.legalName = maskHolderName(changes.legalName);
+  if (changes.birthDate !== undefined) out.birthDate = 'cambiada';
   return out;
 }
 

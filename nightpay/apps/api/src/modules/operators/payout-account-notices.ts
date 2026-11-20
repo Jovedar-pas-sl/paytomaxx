@@ -80,7 +80,8 @@ export interface PayoutChangeNotice {
   /** Quien la cambió (el dueño, la propia compañera o el super-admin). */
   actorId: string;
   via: PayoutChangeVia;
-  operator: { id: string; email: string; displayName: string | null };
+  /** legalName en claro, si lo tiene: el titular se compara con él (y, si no coincide, el dueño lo confirma). */
+  operator: { id: string; email: string; displayName: string | null; legalName?: string | null };
   venueName: string;
   before: OpenPayoutAccount;
   after: OpenPayoutAccount;
@@ -101,7 +102,9 @@ interface NoticeDeps {
  */
 export async function notifyPayoutAccountChanged(deps: NoticeDeps, n: PayoutChangeNotice): Promise<void> {
   const name = n.operator.displayName?.trim() || null;
+  const legalName = n.operator.legalName?.trim() || null;
   const holder = n.after.metadata?.accountHolder ?? null;
+  const holderMismatch = holder ? !holderMatchesName(holder, legalName ?? name) : false;
   await deps.audit.log({
     action: 'operator.payout_account_changed',
     tenantId: n.tenantId,
@@ -113,7 +116,9 @@ export async function notifyPayoutAccountChanged(deps: NoticeDeps, n: PayoutChan
       name,
       before: accountForAudit(n.before),
       after: accountForAudit(n.after),
-      holderMismatch: holder ? !holderMatchesName(holder, name) : false,
+      holderMismatch,
+      // Contra su nombre legal: no se le paga a esa cuenta hasta que el dueño confirme que es suya.
+      holderToConfirm: holderMismatch && legalName !== null,
       holdUntil: n.holdUntil?.toISOString() ?? null,
       // Sin RESEND_API_KEY no sale el correo: la incidencia no lo promete. Un fallo de Resend, solo en el log.
       emailed: deps.email.isEnabled(),

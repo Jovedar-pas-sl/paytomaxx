@@ -2,6 +2,7 @@
 
 import type {
   ApprovalRequestedResponse,
+  OxiocardStatus,
   BankHoldList,
   BankReleaseResult,
   PayoutAccountFull,
@@ -102,6 +103,15 @@ export interface Operator {
   needsHelpDocs?: boolean;
   onboardingStatus?: OnboardingStatus;
   onboardingNotes?: string | null;
+  // Alta con tres caminos. El nombre legal solo llega tapado.
+  legalNameMasked?: string | null;
+  /** «AAAA-MM-DD». */
+  birthDate?: string | null;
+  /** El titular no coincide con su nombre legal y el dueño aún no confirmó que la cuenta es suya. */
+  payoutHolderUnconfirmed?: boolean;
+  /** Solo con la OxioCard encendida (OXIOCARD_ENABLED). */
+  oxiocardStatus?: OxiocardStatus;
+  oxiocardStatusAt?: string | null;
 }
 
 export interface OperatorEarning {
@@ -210,6 +220,11 @@ export async function updateOperator(
     needsHelpDocs?: boolean;
     onboardingStatus?: OnboardingStatus;
     onboardingNotes?: string | null;
+    // Solo el dueño: nombre legal, fecha de nacimiento, «la cuenta es suya» (con 2FA) y la OxioCard.
+    legalName?: string;
+    birthDate?: string;
+    payoutHolderConfirmed?: true;
+    oxiocardStatus?: OxiocardStatus;
     /** Código 2FA: cambiar la cuenta de cobro lo pide siempre (sin 2FA activada, el API dice que la active). */
     totpCode?: string;
   },

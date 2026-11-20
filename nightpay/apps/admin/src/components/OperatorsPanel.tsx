@@ -6,6 +6,7 @@ import { createOperator, fetchOperators, fetchVenueSettings, type Operator } fro
 import { formatPercent, parsePercentToBps } from '@/lib/commission';
 import { keepIfSame } from '@/lib/diff';
 import { formatEur } from '@/lib/money';
+import { minorNow } from '@/lib/payout-account-view';
 import { usePolling } from '@/lib/use-polling';
 import { Notice } from './Notice';
 import { OperatorDetailModal } from './OperatorDetailModal';
@@ -486,6 +487,7 @@ function CreateOperatorModal({
 function onboardingDisplay(operator: Operator): { label: string; tone: Tone } {
   const status = operator.onboardingStatus ?? 'NEW';
   if (!operator.active) return { label: 'Inactiva', tone: 'neutral' };
+  if (minorNow(operator.birthDate)) return { label: 'Menor de edad', tone: 'danger' };
   if (status === 'READY') return { label: 'Operativa', tone: 'success' };
   if (status === 'BLOCKED') return { label: 'Bloqueada', tone: 'danger' };
   if (status === 'BINANCE_PENDING') return { label: 'KYC pendiente', tone: 'info' };

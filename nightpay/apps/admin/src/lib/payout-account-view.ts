@@ -1,5 +1,6 @@
 // La cuenta de cobro de una compañera en el panel: siempre tapada; entera,
 // solo el dueño con «Ver cuenta para pagar» (2FA) y un rato. Textos puros.
+import { isMinor, madridToday } from '@nightpay/contracts';
 import type { PayoutMethod } from './api';
 import { formatDateTime } from './dates';
 
@@ -37,4 +38,31 @@ export function holderMismatchText(name: string | null | undefined): string {
 export function twoFactorNeededText(what: 'change' | 'reveal'): string {
   const action = what === 'change' ? 'cambiar una cuenta de cobro' : 'ver la cuenta de cobro entera';
   return `Para ${action} hace falta la verificación en dos pasos (2FA). Actívala en Ajustes → Seguridad y vuelve aquí.`;
+}
+
+/**
+ * El titular contra su nombre legal (alta con tres caminos): sin confirmar, no
+ * se le paga a esa cuenta (el API lo frena); confirmado, solo se dice. Sin
+ * nombre legal, el aviso de siempre contra su nombre del panel.
+ */
+export function holderNotice(op: {
+  displayName?: string | null;
+  legalNameMasked?: string | null;
+  payoutHolderMismatch?: boolean;
+  payoutHolderUnconfirmed?: boolean;
+}): { tone: 'warning' | 'info'; text: string } | null {
+  if (op.payoutHolderUnconfirmed) {
+    return {
+      tone: 'warning',
+      text: 'El titular no coincide con su nombre legal: hasta que confirmes que la cuenta es suya, no se le paga a esta cuenta (en efectivo, sí).',
+    };
+  }
+  if (!op.payoutHolderMismatch) return null;
+  if (op.legalNameMasked) return { tone: 'info', text: 'El titular no coincide con su nombre legal: confirmaste que la cuenta es suya.' };
+  return { tone: 'warning', text: holderMismatchText(op.displayName) };
+}
+
+/** Menor de 18 hoy (día de Madrid) según su fecha de nacimiento: su cuenta no se activa. */
+export function minorNow(birthDate: string | null | undefined, now: Date = new Date()): boolean {
+  return isMinor(birthDate, madridToday(now));
 }

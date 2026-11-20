@@ -2,6 +2,7 @@
 
 import { useId, useState, type CSSProperties, type FormEvent } from 'react';
 import { Button, Card, Input, Select } from '@nightpay/ui';
+import { OXIOCARD_STATUS_LABELS, madridToday, type OxiocardStatus } from '@nightpay/contracts';
 import {
   createSelfOnboardingLink,
   updateOperator,
@@ -12,11 +13,14 @@ import {
 } from '@/lib/api';
 import { formatDateTime } from '@/lib/dates';
 import { changedFields } from '@/lib/diff';
+import { minorNow } from '@/lib/payout-account-view';
 import { useVenueTimezone } from '@/lib/venue-context';
 import { Notice } from './Notice';
 
 interface Props {
   operator: Operator;
+  /** Nombre legal, fecha de nacimiento y la OxioCard: solo el dueño (el API se lo rechaza al encargado). */
+  isOwner: boolean;
   onSaved: () => void;
 }
 
@@ -73,6 +77,10 @@ interface OnboardingValues {
   needsHelpDocs: boolean;
   onboardingStatus: OnboardingStatus;
   onboardingNotes: string | null;
+  /** «AAAA-MM-DD» (el nombre legal va aparte: solo se escribe, nunca llega entero). */
+  birthDate: string | null;
+  /** Solo con la OxioCard encendida. */
+  oxiocardStatus?: OxiocardStatus;
 }
 
 function savedValues(operator: Operator): OnboardingValues {
@@ -90,6 +98,8 @@ function savedValues(operator: Operator): OnboardingValues {
     needsHelpDocs: operator.needsHelpDocs ?? false,
     onboardingStatus: operator.onboardingStatus ?? 'NEW',
     onboardingNotes: operator.onboardingNotes?.trim() || null,
+    birthDate: operator.birthDate ?? null,
+    ...(operator.oxiocardStatus ? { oxiocardStatus: operator.oxiocardStatus } : {}),
   };
 }
 
@@ -192,12 +202,13 @@ function SelfOnboardingLinkBanner({ operatorId }: { operatorId: string }) {
  * el formulario: antes lo mandaba todo y pisaba lo que la chica había
  * rellenado desde su enlace mientras el formulario estaba abierto.
  */
-export function OnboardingForm({ operator, onSaved }: Props) {
+export function OnboardingForm({ operator, isOwner, onSaved }: Props) {
   const tz = useVenueTimezone();
   const countryId = useId();
   const providerId = useId();
   const kycId = useId();
   const notesId = useId();
+  const oxiocardId = useId();
   // Lo que había al abrir y lo último guardado desde aquí: con esto se sabe qué cambió.
   const [opened] = useState(() => savedValues(operator));
   const [baseline, setBaseline] = useState(opened);
@@ -214,6 +225,10 @@ export function OnboardingForm({ operator, onSaved }: Props) {
   const [needsHelpDocs, setNeedsHelpDocs] = useState(operator.needsHelpDocs ?? false);
   const [onboardingStatus, setOnboardingStatus] = useState<OnboardingStatus>(operator.onboardingStatus ?? 'NEW');
   const [notes, setNotes] = useState(operator.onboardingNotes ?? '');
+  // El nombre legal solo se escribe (llega tapado): vacío = no se cambia.
+  const [legalName, setLegalName] = useState('');
+  const [birthDate, setBirthDate] = useState(operator.birthDate ?? '');
+  const [oxiocardStatus, setOxiocardStatus] = useState<OxiocardStatus | undefined>(operator.oxiocardStatus);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState<string | null>(null);
@@ -232,6 +247,8 @@ export function OnboardingForm({ operator, onSaved }: Props) {
     needsHelpDocs,
     onboardingStatus,
     onboardingNotes: notes.trim() || null,
+    birthDate: birthDate || null,
+    ...(oxiocardStatus ? { oxiocardStatus } : {}),
   };
   // Alguien (la chica desde su enlace, otra persona) guardó cambios desde que se
   // abrió: lo del servidor no es ni lo de al abrir ni lo que se guardó desde aquí
@@ -244,7 +261,13 @@ export function OnboardingForm({ operator, onSaved }: Props) {
     e.preventDefault();
     setError(null);
     setSaved(null);
-    const changes = changedFields(baseline, current);
+    const { birthDate: newBirthDate, ...changed } = changedFields(baseline, current);
+    const changes = {
+      ...changed,
+      // La fecha no se borra desde aquí (solo se cambia); el nombre legal, solo si se escribe.
+      ...(newBirthDate ? { birthDate: newBirthDate } : {}),
+      ...(legalName.trim() ? { legalName: legalName.trim() } : {}),
+    };
     if (Object.keys(changes).length === 0) {
       setSaved('No hay cambios que guardar.');
       return;
@@ -253,6 +276,7 @@ export function OnboardingForm({ operator, onSaved }: Props) {
     try {
       await updateOperator(operator.id, changes);
       setBaseline(current);
+      setLegalName('');
       setSaved('Guardado');
       setTimeout(() => setSaved(null), 2500);
       onSaved();
@@ -307,6 +331,37 @@ export function OnboardingForm({ operator, onSaved }: Props) {
       {/* Datos personales */}
       <div>
         <h4 style={sectionLabel}>Datos personales</h4>
+        <div style={twoCol}>
+          <Input
+            label="Nombre legal completo"
+            value={legalName}
+            onChange={(e) => setLegalName(e.target.value)}
+            placeholder={operator.legalNameMasked ? `Guardado: ${operator.legalNameMasked}` : 'Nombre y apellidos como en el documento'}
+            hint={operator.legalNameMasked ? 'Va cifrado y solo se ve tapado. Escríbelo entero solo para cambiarlo.' : 'Como en su documento. Va cifrado.'}
+            maxLength={120}
+            autoComplete="off"
+            disabled={!isOwner || submitting}
+          />
+          <Input
+            label="Fecha de nacimiento"
+            type="date"
+            value={birthDate}
+            onChange={(e) => setBirthDate(e.target.value)}
+            min="1900-01-01"
+            max={madridToday()}
+            disabled={!isOwner || submitting}
+          />
+        </div>
+        {minorNow(birthDate || null) ? (
+          <Notice tone="danger">
+            Según esta fecha tiene menos de 18 años: su cuenta no se activa y, si ya entraba, deja de entrar. Comprueba su documento.
+          </Notice>
+        ) : null}
+        {isOwner ? null : (
+          <p style={{ margin: '0 0 0.75rem', fontSize: '0.875rem', color: 'var(--np-text-mute)' }}>
+            Solo el dueño cambia el nombre legal y la fecha de nacimiento.
+          </p>
+        )}
         <div style={twoCol}>
           <Input
             label="Móvil"
@@ -426,6 +481,31 @@ export function OnboardingForm({ operator, onSaved }: Props) {
           payout»). Aquí solo el estado del proceso.
         </p>
       </div>
+
+      {/* OxioCard: solo con OXIOCARD_ENABLED (si no, el API no manda el estado) */}
+      {oxiocardStatus ? (
+        <div>
+          <h4 style={sectionLabel}>
+            <label htmlFor={oxiocardId}>OxioCard</label>
+          </h4>
+          <Select
+            id={oxiocardId}
+            value={oxiocardStatus}
+            onChange={(e) => setOxiocardStatus(e.target.value as OxiocardStatus)}
+            disabled={!isOwner || submitting}
+          >
+            {(Object.keys(OXIOCARD_STATUS_LABELS) as OxiocardStatus[]).map((st) => (
+              <option key={st} value={st}>
+                {OXIOCARD_STATUS_LABELS[st]}
+              </option>
+            ))}
+          </Select>
+          <p style={{ margin: '0.25rem 0 0', fontSize: '0.875rem', color: 'var(--np-text-dim)' }}>
+            {operator.oxiocardStatusAt ? `Último cambio: ${formatDateTime(operator.oxiocardStatusAt, tz, 'datetime')}. ` : ''}
+            Ella lo ve en su app. Lo cambias tú a mano: aquí no se piden documentos ni se habla con el emisor.
+          </p>
+        </div>
+      ) : null}
 
       {/* Ayuda necesaria */}
       <div>
