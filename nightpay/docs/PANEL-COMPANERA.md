@@ -32,7 +32,7 @@ Va detrás de la cuenta de cobro segura (`docs/CUENTA-COBRO-SEGURA.md`): esa
 primero.
 
 1. **`nightpay-api`**. Al arrancar aplica la migración
-   `20261119200000_aviso_pago_personal`: una tabla nueva
+   `20261120400000_aviso_pago_personal`: una tabla nueva
    (`staff_push_subscriptions`, con FORCE RLS). No toca nada que ya exista.
 2. **`nightpay-operator-2`**. Hasta publicarla, la app anterior sigue igual: las
    listas de antes (`/operators/me/earnings` y `/operators/me/payouts`) no cambian.

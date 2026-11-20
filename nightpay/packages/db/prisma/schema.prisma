@@ -277,7 +277,7 @@ model User {
   customerDisplays      CustomerDisplay[]
   // Reservados: su ficha de RRPP (su % y su enlace).
   promoters             Promoter[]
-  // «Te han pagado» (20261119200000): los navegadores que avisa cuando le pagan.
+  // «Te han pagado» (20261120400000): los navegadores que avisa cuando le pagan.
   pushSubscriptions     StaffPushSubscription[]
 
   @@unique([id, tenantId])
@@ -439,7 +439,7 @@ model WalletPushSubscription {
   @@map("wallet_push_subscriptions")
 }
 
-// «Te han pagado» (20261119200000): cada navegador que una persona del personal
+// «Te han pagado» (20261120400000): cada navegador que una persona del personal
 // apunta para recibir un aviso (Web Push) cuando el local le paga. Solo la
 // dirección del servicio de avisos y sus claves públicas. Un navegador avisa a
 // una sola persona (endpoint único). FORCE RLS: solo dentro de una transacción

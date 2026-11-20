@@ -54,7 +54,7 @@ export const TENANT_SCOPED_MODELS: ReadonlySet<string> = new Set([
   'BtcCashReturn',
   // «Regala una noche» (20261120200000): el regalo es de su local (sin grupo).
   'WalletGift',
-  // «Te han pagado» (20261119200000): los navegadores del personal para el aviso del pago.
+  // «Te han pagado» (20261120400000): los navegadores del personal para el aviso del pago.
   'StaffPushSubscription',
 ]);
 
