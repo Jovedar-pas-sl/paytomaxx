@@ -170,6 +170,17 @@ describe('sin fecha de nacimiento, la compañera no activa la cuenta', () => {
     const { svc } = invited({ role: 'MANAGER' });
     await expect(svc.acceptInvite(INVITE, 'contraseña-larga')).resolves.toEqual({ ok: true });
   });
+
+  it('OxioParty (EDITION=party): el personal de las casetas activa como siempre, sin fecha', async () => {
+    vi.stubEnv('EDITION', 'party');
+    try {
+      const { svc, prisma } = invited();
+      await expect(svc.acceptInvite(INVITE, 'contraseña-larga')).resolves.toEqual({ ok: true });
+      expect(savedData(prisma)).not.toHaveProperty('birthDate');
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
 });
 
 describe('menor de edad: no activa la cuenta', () => {

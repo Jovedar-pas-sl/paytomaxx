@@ -15,6 +15,7 @@ import * as bcrypt from 'bcryptjs';
 import { JwtService } from '@nestjs/jwt';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { PrismaService, type TransactionalClient } from '../../common/prisma/prisma.service';
+import { isPartyEdition } from '../../config/edition';
 import { EmailService } from '../../common/email/email.service';
 import { photoHashesOf } from '../profile/photo-hashes';
 import { AuditService } from '../audit/audit.service';
@@ -635,8 +636,9 @@ export class OperatorsService {
       throw new UnauthorizedException('Token ya utilizado o caducado');
     }
     // Una compañera no activa sin saber su edad: si no la dio en su alta, la pone aquí.
-    // La guardada manda (la corrige el dueño en el panel).
-    const needsBirthDate = user.role === 'OPERATOR' && !user.birthDate;
+    // La guardada manda (la corrige el dueño en el panel). OxioParty: no hay
+    // compañeras (el personal de las casetas activa como siempre).
+    const needsBirthDate = user.role === 'OPERATOR' && !user.birthDate && !isPartyEdition();
     if (needsBirthDate && !birthDate) throw birthDateRequired();
     const newBirthDate = needsBirthDate && birthDate ? birthDateValue(birthDate) : null;
     if (minorNow(user.birthDate)) throw minorCannotActivate();
