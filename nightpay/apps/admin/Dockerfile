@@ -40,8 +40,12 @@ ENV NEXT_TELEMETRY_DISABLED=1
 # reconstruir. Los valores por defecto son los de producción (Dokploy cuenta con ellos).
 ARG NEXT_PUBLIC_API_URL=https://api.paytomaxx.com
 ARG NEXT_PUBLIC_WS_URL=wss://api.paytomaxx.com
+# Edición: club = OxioPay (por defecto), party = OxioParty (docs/OXIOPARTY.md).
+# La misma que EDITION del API.
+ARG NEXT_PUBLIC_EDITION=club
 ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
 ENV NEXT_PUBLIC_WS_URL=$NEXT_PUBLIC_WS_URL
+ENV NEXT_PUBLIC_EDITION=$NEXT_PUBLIC_EDITION
 RUN pnpm --filter @nightpay/admin build
 
 FROM node:22.23.3-alpine3.24 AS runner

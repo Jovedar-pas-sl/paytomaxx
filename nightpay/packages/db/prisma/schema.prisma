@@ -92,6 +92,17 @@ model Venue {
   // «Regala una noche» (20261120200000): «Para regalar» en ese mismo enlace.
   // Apagado de serie (el dueño lo enciende con el visto bueno del abogado).
   homeTopUpGiftsEnabled Boolean   @default(false)
+  // OxioParty (20261120300000, EDITION=party; docs/OXIOPARTY.md): la fiesta.
+  // Con EDITION=club no se usan. Con eventEndsAt ya pasado no hay cobros ni
+  // recargas nuevos (EVENT_ENDED). refundDeadline: último día para pedir la
+  // devolución del saldo. allowDonation: el cliente puede donar lo que le
+  // sobra. cashAlertCents: aviso de efectivo acumulado (2.000 € de serie).
+  // CHECK en SQL: fin después del inicio, umbral ≥ 0.
+  eventStartsAt         DateTime? @db.Timestamptz
+  eventEndsAt           DateTime? @db.Timestamptz
+  refundDeadline        DateTime? @db.Date
+  allowDonation         Boolean   @default(true)
+  cashAlertCents        Int       @default(200000)
   // Reservados (20261117300000, apps/api/src/modules/reservations): el enlace
   // público para reservar (/reservar/<código>). Apagado de serie; código al
   // azar (16 letras de base64url). CHECK en SQL: encendido ⇒ con código.
@@ -134,9 +145,11 @@ model Venue {
   walletCashTopUps   WalletCashTopUp[]
   walletCards        WalletCard[]
   walletCardEvents   WalletCardEvent[]
+  partyRefunds       PartyRefundRequest[]
   paymentLines       PaymentLine[]
   chargeRefCounter   ChargeRefCounter?
   oxioPaySettlements OxioPaySettlement[]
+  stalls             Stall[]
   reservationPackages ReservationPackage[]
   promoters           Promoter[]
   reservations        Reservation[]
@@ -241,11 +254,16 @@ model User {
   // Da la sección por defecto de sus cobros (Sala → Servicios, Barra →
   // Copas…). Null = el de su rol (chica → Sala, resto → Barra).
   post                String?
+  // OxioParty (20261120300000): la caseta en la que trabaja. Sus cobros y los
+  // consumos del saldo que cobra llevan esta caseta (stallId). La clave ajena
+  // lleva el local: nunca una caseta de otro local.
+  stallId             String?   @db.Uuid
   createdAt    DateTime  @default(now()) @db.Timestamptz
   updatedAt    DateTime  @updatedAt @db.Timestamptz
   deletedAt    DateTime? @db.Timestamptz
 
-  venue Venue @relation(fields: [tenantId], references: [id])
+  venue Venue  @relation(fields: [tenantId], references: [id])
+  stall Stall? @relation("StallStaff", fields: [stallId, tenantId], references: [id, tenantId], onDelete: Restrict)
 
   // Relaciones para OPERATOR
   earnings              OperatorEarning[]   @relation("OperatorEarnings")
@@ -614,8 +632,12 @@ model Payment {
   // Referencia corta por local (C-0001), del contador charge_ref_counters
   // (compartido con los cobros del saldo). Null en los cobros antiguos.
   ref           Int?
+  // OxioParty (20261120300000): la caseta de quien creó el cobro, fijada al
+  // crearlo (EDITION=party). Null: OxioPay, una recarga o sin caseta.
+  stallId       String?   @db.Uuid
 
   venue              Venue            @relation(fields: [tenantId], references: [id])
+  stall              Stall?           @relation(fields: [stallId, tenantId], references: [id, tenantId], onDelete: Restrict)
   terminal           Terminal         @relation(fields: [terminalId], references: [id])
   createdBy          User?            @relation("PaymentCreatedBy", fields: [createdByUserId], references: [id])
   wallet             ClientWallet?    @relation(fields: [walletId], references: [id])
@@ -713,8 +735,12 @@ model WalletChargeRequest {
   // Propina que pidió el cliente (20261024100100), aparte del importe: el
   // saldo paga importe + propina y el consumo la guarda en su "tipCents".
   tipCents          Int       @default(0)
+  // OxioParty (20261120300000): la caseta de quien pidió el cobro, fijada al
+  // crearlo; pasa al consumo al pagarse. Null: OxioPay o sin caseta.
+  stallId           String?   @db.Uuid
 
   wallet        ClientWallet? @relation(fields: [walletId], references: [id], onDelete: Cascade)
+  stall         Stall?        @relation(fields: [stallId, tenantId], references: [id, tenantId], onDelete: Restrict)
   linkedPayment Payment?      @relation("CobroUnico", fields: [linkedPaymentId], references: [id], onDelete: Cascade)
   lines         PaymentLine[]
 
@@ -1002,6 +1028,42 @@ model UserPhoto {
   @@unique([userId, tenantId])
   @@index([tenantId])
   @@map("user_photos")
+}
+
+// OxioParty (20261120300000, EDITION=party; docs/OXIOPARTY.md): la caseta de
+// una fiesta (peña, falla, barra). organizerBps: la parte de lo vendido que se
+// queda el organizador (0–10000; 10000 = «barra propia»); el resto, para la
+// caseta, a su IBAN (sin espacios y en mayúsculas, mod-97 en el API). Las
+// claves ajenas que llegan aquí llevan el local (id, tenantId). FORCE RLS:
+// solo dentro de una transacción de PrismaService. CHECK en SQL: % de 0 a
+// 10000, nombres no vacíos, IBAN con forma de IBAN.
+model Stall {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId       String   @db.Uuid
+  name           String
+  managerName    String
+  managerContact String?
+  organizerBps   Int
+  iban           String?
+  active         Boolean  @default(true)
+  sortOrder      Int      @default(0)
+  // La lista de casetas del asistente (20261120300200): dónde está, qué vende
+  // y «Abierta ahora» (cerrada de serie). CHECK en SQL: ni vacías ni solo espacios.
+  zone           String?  @db.VarChar(60)
+  sells          String?  @db.VarChar(120)
+  openNow        Boolean  @default(false)
+  createdAt      DateTime @default(now()) @db.Timestamptz
+  updatedAt      DateTime @default(now()) @updatedAt @db.Timestamptz
+
+  venue        Venue                 @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  staff        User[]                @relation("StallStaff")
+  payments     Payment[]
+  charges      WalletChargeRequest[]
+  consumptions WalletConsumption[]
+
+  @@unique([id, tenantId])
+  @@index([tenantId, active, sortOrder])
+  @@map("stalls")
 }
 
 // «Pantalla del cliente» (20261117400000): la tablet de la barra que mira al
@@ -1435,6 +1497,7 @@ model ClientWallet {
   cards          WalletCard[]
   passes         WalletPass[]
   activationTokens WalletActivationToken[]
+  partyRefunds     PartyRefundRequest[]
   // Reservados: el saldo del grupo de una reserva.
   reservations     Reservation[]
   pushSubscriptions WalletPushSubscription[]
@@ -1668,9 +1731,13 @@ model WalletConsumption {
   // del servicio» (20261030110000; wallet-fee-saldo.ts): el % antiguo va
   // solo sobre el resto. 0 = todo del saldo sin ella (o de antes).
   serviceFeeSaldoCents Int   @default(0)
+  // OxioParty (20261120300000): la caseta del consumo (la del cobro del saldo,
+  // o la de quien lo cobró). Null: OxioPay o sin caseta.
+  stallId          String?   @db.Uuid
   createdAt        DateTime  @default(now()) @db.Timestamptz
 
   venue       Venue            @relation(fields: [tenantId], references: [id])
+  stall       Stall?           @relation(fields: [stallId, tenantId], references: [id, tenantId], onDelete: Restrict)
   wallet      ClientWallet     @relation(fields: [walletId], references: [id])
   providedBy  User             @relation("ConsumptionProvider", fields: [providedByUserId], references: [id])
   reversedBy  User?            @relation("ConsumptionReversedBy", fields: [reversedByUserId], references: [id])
@@ -1686,6 +1753,45 @@ model WalletConsumption {
   // Consumos del Z y de los informes por fecha (20261029400000_indices_informes).
   @@index([tenantId, createdAt])
   @@map("wallet_consumptions")
+}
+
+// OxioParty (20261120300100, EDITION=party): «Lo que sobra», la devolución
+// que pide el asistente desde la página de su pulsera, hasta el último día
+// del local (venues.refundDeadline). method: CARD (solo lo cargado con
+// tarjeta; el organizador la hace a mano en el banco y la marca «Hecha»),
+// TRANSFER (lo cargado en efectivo, a su IBAN: sin espacios y en mayúsculas,
+// mod-97 en el API) o DONATE (a la comisión, si allowDonation: hecha al
+// momento). status: PENDING → DONE | CANCELED. Al pedirla, el saldo queda
+// bloqueado (client_wallets.blockedAt con el motivo de OxioParty): no se
+// gasta ni se recarga; al hacerla, el importe sale del saldo. Lo mínimo del
+// asistente: el IBAN (solo TRANSFER) y un correo opcional para el
+// justificante. doneById: quién la marcó (sin clave ajena: el registro lo
+// guarda también). FORCE RLS por local. CHECK en SQL: importe > 0, método y
+// estado conocidos, IBAN solo y siempre en TRANSFER, hecha ⇔ doneAt.
+model PartyRefundRequest {
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId    String    @db.Uuid
+  walletId    String    @db.Uuid
+  amountCents Int
+  /// CARD | TRANSFER | DONATE
+  method      String    @db.VarChar(10)
+  /// Solo TRANSFER y solo mientras está pendiente (al hacerse o anularse, null; CHECK en SQL).
+  iban        String?   @db.VarChar(34)
+  /// El titular de la cuenta (TRANSFER): el nombre del acreedor en el SEPA. Igual que el IBAN.
+  holderName  String?   @db.VarChar(70)
+  email       String?   @db.VarChar(254)
+  /// PENDING | DONE | CANCELED
+  status      String    @default("PENDING") @db.VarChar(10)
+  createdAt   DateTime  @default(now()) @db.Timestamptz
+  doneAt      DateTime? @db.Timestamptz
+  doneById    String?   @db.Uuid
+
+  venue  Venue        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  wallet ClientWallet @relation(fields: [walletId], references: [id], onDelete: Restrict)
+
+  @@index([tenantId, status, createdAt(sort: Desc)])
+  @@index([walletId, status])
+  @@map("party_refund_requests")
 }
 
 // ─── Cuadre con el banco (2026-10-14) ────────────────────────────────────

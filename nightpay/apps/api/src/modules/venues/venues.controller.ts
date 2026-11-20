@@ -4,6 +4,8 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { PrismaService } from '../../common/prisma/prisma.service';
+import { currentEdition } from '../../config/edition';
+import { myStall } from '../party/stall-seal';
 import {
   chargeRightsOf,
   initialOfferedSection,
@@ -54,8 +56,14 @@ export class VenuesController {
     ]);
     const rights = chargeRightsOf({ role: user.role, post: me?.post ?? null }, postRulesOf(postRules));
     const venueSections = sectionsOf(sections);
+    // OxioParty: la caseta de quien llama (OxioPay: null sin mirar la base).
+    const stall = await myStall(this.prisma, { tenantId: user.tenantId, userId: user.sub });
     return {
       ...venue,
+      /** 'club' (OxioPay) o 'party' (OxioParty): la del API (EDITION). */
+      edition: currentEdition(),
+      /** OxioParty: la caseta de quien llama, o null (OxioPay o sin caseta). */
+      stall,
       paymentMethods: paymentMethodsOf(paymentMethods),
       nightSettings: nightSettingsOf(nightSettings),
       sections: venueSections,

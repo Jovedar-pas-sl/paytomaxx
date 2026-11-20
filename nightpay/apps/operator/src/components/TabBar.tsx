@@ -1,6 +1,8 @@
 'use client';
 
 import { useLayoutEffect, useRef, type CSSProperties, type ReactNode } from 'react';
+import { isParty } from '@/lib/edition';
+import { PARTY_TAB_LABEL } from '@/lib/party-tabs';
 import type { TabKey } from '@/lib/roles';
 import { TAB_BAR_HEIGHT } from './layout';
 
@@ -11,6 +13,7 @@ const TAB_LABEL: Record<TabKey, string> = {
   pos: 'POS',
   payments: 'Cobros',
   earnings: 'Ganancias',
+  settings: 'Ajustes',
 };
 
 /**
@@ -49,6 +52,8 @@ function useMeasuredSpace() {
 /** Barra de pestañas de abajo: solo las del rol (ver roleAccess). */
 export function TabBar({ tabs, active, onSelect }: { tabs: readonly TabKey[]; active: TabKey; onSelect: (tab: TabKey) => void }) {
   const ref = useMeasuredSpace();
+  // OxioParty: Cobrar, Taquilla, Cobros y Ajustes.
+  const labels = isParty() ? PARTY_TAB_LABEL : TAB_LABEL;
   return (
     <nav ref={ref} style={tabBarStyle} aria-label="Navegación principal">
       {tabs.map((key) => (
@@ -56,7 +61,7 @@ export function TabBar({ tabs, active, onSelect }: { tabs: readonly TabKey[]; ac
           key={key}
           active={active === key}
           icon={<TabIcon tab={key} active={active === key} />}
-          label={TAB_LABEL[key]}
+          label={labels[key]}
           onClick={() => onSelect(key)}
         />
       ))}
@@ -150,6 +155,14 @@ const ICON_PATHS: Record<TabKey, ReactNode> = {
       <rect x="3" y="6" width="18" height="14" rx="2" />
       <path d="M21 11h-4a2 2 0 000 4h4" />
       <circle cx="17" cy="13" r="0.5" fill="currentColor" />
+    </>
+  ),
+  // Ajustes (OxioParty): dos correderas.
+  settings: (
+    <>
+      <path d="M4 7h10M18 7h2M4 17h4M12 17h8" />
+      <circle cx="16" cy="7" r="2" />
+      <circle cx="10" cy="17" r="2" />
     </>
   ),
 };

@@ -5,6 +5,7 @@ import { Button, Input, Select } from '@nightpay/ui';
 import { CHARGE_METHOD_LABELS, LEGACY_SECTION_META, type ChargeMethod } from '@nightpay/contracts';
 import { fetchNights, fetchOperators, type CobrosFilters, type NightListItem, type Operator } from '@/lib/api';
 import { formatDateTime } from '@/lib/dates';
+import { isPartyEdition } from '@/lib/edition';
 import { FILTER_FIELD, FILTER_SELECT } from '@/lib/filter-field';
 import { enabledSections } from '@/lib/money-map';
 import { useSections } from '@/lib/use-sections';
@@ -24,7 +25,8 @@ const STATUS_FILTERS: Array<{ value: string; label: string }> = [
   { value: 'ORPHAN', label: 'Sin confirmar' },
 ];
 
-const METHODS: ChargeMethod[] = ['CARD', 'MOBILE_WALLET', 'POS', 'SALDO', 'BITCOIN'];
+// OxioParty no cobra con bitcoin.
+const METHODS: ChargeMethod[] = isPartyEdition() ? ['CARD', 'MOBILE_WALLET', 'POS', 'SALDO'] : ['CARD', 'MOBILE_WALLET', 'POS', 'SALDO', 'BITCOIN'];
 
 /** Filtros de Cobros: estado, compañera, sección, cómo pagó, saldo, noche y las fechas de una cifra del mapa (van al API). */
 export function CobrosFiltersBar({ value, onChange }: { value: CobrosFilters; onChange: (next: CobrosFilters) => void }) {
@@ -83,6 +85,8 @@ export function CobrosFiltersBar({ value, onChange }: { value: CobrosFilters; on
           ))}
         </Select>
       </Cell>
+      {/* Las compañeras son de OxioPay: en OxioParty no hay ese filtro. */}
+      {isPartyEdition() ? null : (
       <Cell w="9.5rem">
         <Select label="Compañera" data-active={value.operatorId ? 'true' : undefined} style={FILTER_SELECT} value={value.operatorId ?? ''} onChange={(e) => set({ operatorId: e.target.value || undefined })}>
           <option value="">Todas</option>
@@ -93,6 +97,7 @@ export function CobrosFiltersBar({ value, onChange }: { value: CobrosFilters; on
           ))}
         </Select>
       </Cell>
+      )}
       <Cell w="9rem">
         <Select label="Sección" data-active={value.category ? 'true' : undefined} style={FILTER_SELECT} value={value.category ?? ''} onChange={(e) => set({ category: e.target.value || undefined })}>
           <option value="">Todas</option>
