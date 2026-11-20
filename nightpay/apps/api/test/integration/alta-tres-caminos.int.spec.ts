@@ -38,7 +38,7 @@ import { OperatorsService } from '../../src/modules/operators/operators.service'
 const cls = new ClsService(new AsyncLocalStorage());
 const prisma = new PrismaService(cls as never);
 const audit = new AuditService(prisma, cls as never);
-const email = { send: async () => ({ ok: true, delivered: false }) };
+const email = { send: async () => ({ ok: true, delivered: false }), isEnabled: () => false };
 const settings: Record<string, unknown> = { OPERATOR_BASE_URL: 'https://personal.example.com', OXIOCARD_ENABLED: false };
 const config = {
   get: (k: string) => settings[k],
