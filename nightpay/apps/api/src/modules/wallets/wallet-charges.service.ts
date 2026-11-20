@@ -48,7 +48,7 @@ import {
 import { resolveBpsForOperator, type RevenueCategory } from '../payments/commission';
 import { lineCommission, type DraftLine } from '../payments/charge-lines';
 import { resolveChargeOrThrow } from '../payments/charge-request';
-import { CAPPED_ROLES } from '../payments/operator-cap';
+import { hasCobroCap } from '../payments/operator-cap';
 import { assignChargeRef, insertChargeLines, insertInvitationEarnings, linesOf } from '../payments/charge-store';
 import { invitationEarnings } from '../payments/invitation-lines';
 import {
@@ -566,8 +566,9 @@ export class WalletChargesService {
     });
     const amountCents = charge.amountCents;
     // El mismo tope por cobro que con el QR (Ajustes del local): la compañera en
-    // todo cobro; camarero y encargado, en «Otro importe» (la carta no cuenta).
-    if (actor.role === 'OPERATOR' || (CAPPED_ROLES.has(actor.role) && !charge.fromCarta)) {
+    // todo cobro; camarero y encargado, en «Otro importe» (la carta no cuenta;
+    // en OxioParty, sin tope: ver hasCobroCap).
+    if (actor.role === 'OPERATOR' || (hasCobroCap(actor.role) && !charge.fromCarta)) {
       const venue = await this.prisma.venue.findUnique({
         where: { id: actor.tenantId },
         select: { operatorMaxCobroCents: true },

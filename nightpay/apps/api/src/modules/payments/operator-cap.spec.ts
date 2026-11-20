@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { operatorCapProblem } from './operator-cap';
 
 const base = {
@@ -47,6 +47,18 @@ describe('operatorCapProblem — tope del local para la chica', () => {
       expect(operatorCapProblem({ ...base, creatorRole, amountCents: 20_000 }), creatorRole).toBeNull();
       // La carta no cuenta: el precio lo pone el local.
       expect(operatorCapProblem({ ...base, creatorRole, fromMenu: true, amountCents: 90_000 }), creatorRole).toBeNull();
+    }
+  });
+
+  it('OxioParty (EDITION=party): solo el personal, como en main; su panel no tiene «Reglas del local» para cambiar el tope', () => {
+    vi.stubEnv('EDITION', 'party');
+    try {
+      for (const creatorRole of ['WAITER', 'MANAGER']) {
+        expect(operatorCapProblem({ ...base, creatorRole, amountCents: 90_000 }), creatorRole).toBeNull();
+      }
+      expect(operatorCapProblem({ ...base, amountCents: 25_000 })).toMatch(/^Importe 250\.00 € supera el límite del local/);
+    } finally {
+      vi.unstubAllEnvs();
     }
   });
 });
