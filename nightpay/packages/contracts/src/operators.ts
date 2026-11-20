@@ -627,6 +627,8 @@ export type TreasuryStats = z.infer<typeof TreasuryStatsSchema>;
 export const AcceptInviteSchema = z.object({
   token: z.string().min(20),
   password: z.string().min(8).max(128),
+  /** Compañera sin fecha guardada: sin ella no se activa (409 BIRTH_DATE_REQUIRED). Si ya la había, manda la guardada. */
+  birthDate: BirthDateSchema.optional(),
 });
 export type AcceptInviteDto = z.infer<typeof AcceptInviteSchema>;
 

@@ -12,6 +12,9 @@ export const ADULT_AGE = 18;
 /** 403 al activar la cuenta (o ponerle contraseña) de quien tiene menos de 18 años. */
 export const MINOR_CANNOT_ACTIVATE = 'MINOR_CANNOT_ACTIVATE';
 
+/** 409 al activar la cuenta de una compañera sin fecha de nacimiento: la pone en esa misma pantalla. */
+export const BIRTH_DATE_REQUIRED = 'BIRTH_DATE_REQUIRED';
+
 /** 409 al pagar (o pedirlo) a una cuenta cuyo titular no coincide con su nombre legal sin la confirmación del dueño. */
 export const PAYOUT_HOLDER_UNCONFIRMED = 'PAYOUT_HOLDER_UNCONFIRMED';
 
