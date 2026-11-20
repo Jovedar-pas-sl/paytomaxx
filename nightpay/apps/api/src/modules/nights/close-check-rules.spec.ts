@@ -58,6 +58,23 @@ function balance(o: Partial<ChicaBalanceRow> = {}): ChicaBalanceRow {
   };
 }
 
+describe('5 · pagar al personal: la cuenta va tapada', () => {
+  it('la tapada guardada aparte; una antigua en claro, tapada al vuelo; nunca entera', () => {
+    const sealed = chicaPay(balance({ payoutMethod: 'SEPA_IBAN', payoutAddress: 'pa1:x:y:z', payoutAddressMasked: 'ES91 •••• •••• 1332' }));
+    expect(sealed.payoutAddressMasked).toBe('ES91 •••• •••• 1332');
+    expect(sealed).not.toHaveProperty('payoutAddress');
+    const legacy = chicaPay(balance({ payoutMethod: 'SEPA_IBAN', payoutAddress: 'ES9121000418450200051332' }));
+    expect(legacy.payoutAddressMasked).toBe('ES91 •••• •••• 1332');
+    expect(JSON.stringify(legacy)).not.toContain('ES9121000418450200051332');
+  });
+
+  it('la espera de 48 h tras cambiar la cuenta, solo si aún no ha pasado', () => {
+    const until = new Date(NOW.getTime() + 60 * 60 * 1000);
+    expect(chicaPay(balance({ payoutHoldUntil: until }), NOW).payoutHoldUntil).toBe(until.toISOString());
+    expect(chicaPay(balance({ payoutHoldUntil: new Date(NOW.getTime() - 1000) }), NOW).payoutHoldUntil).toBeNull();
+  });
+});
+
 describe('1 · cobros sin terminar', () => {
   it('sin nada pendiente → listo', () => {
     const s = cobrosStep([], [], NOW);

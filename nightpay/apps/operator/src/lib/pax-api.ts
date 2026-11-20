@@ -3,6 +3,7 @@
 // obtiene una vez con el código de vinculación del panel.
 
 import { codeErrorText } from './api-codes';
+import { PRACTICE_PAX_TEXT, PracticeBlockedError, isPractice } from './practice';
 import type { PaytefResult } from './pax-bridge';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4100';
@@ -109,6 +110,8 @@ async function readMessage(res: Response): Promise<{ message: string; code: stri
 
 /** Petición al API con la credencial del datáfono (también la usa el cobro del saldo, pax-saldo.ts). */
 export async function call<T>(path: string, init: RequestInit = {}): Promise<T> {
+  // En práctica el datáfono no se toca: ni lecturas ni escrituras.
+  if (isPractice()) throw new PracticeBlockedError(PRACTICE_PAX_TEXT);
   const token = getDeviceToken();
   const headers = new Headers(init.headers ?? {});
   if (token) headers.set('Authorization', `Device ${token}`);
@@ -129,6 +132,7 @@ export async function call<T>(path: string, init: RequestInit = {}): Promise<T> 
 }
 
 export async function pairDevice(code: string): Promise<PaxInfo> {
+  if (isPractice()) throw new PracticeBlockedError(PRACTICE_PAX_TEXT);
   let res: Response;
   try {
     res = await fetch(`${API_BASE}/v1/pos-device/pair`, {
@@ -427,6 +431,7 @@ export function voidUnknownNotice(paymentId: string, operationNumber: string, me
  * hasta la siguiente vuelta.
  */
 export async function flushPendingResults(): Promise<void> {
+  if (isPractice()) return; // los pendientes reales no se leen ni se reenvían en práctica
   for (const entry of getPendingResults()) {
     let review: SaleToReviewInput | null;
     try {
@@ -504,6 +509,7 @@ export async function sendVoid(paymentId: string, body: VoidBody): Promise<VoidR
  * anulación hecha, pasa a revisar (que lo vea el camarero, sin botón de anular).
  */
 export async function flushPendingVoids(): Promise<void> {
+  if (isPractice()) return;
   for (const v of getPendingVoids()) {
     try {
       await reportPaxVoid(v.paymentId, {

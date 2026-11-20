@@ -2,7 +2,7 @@
 
 import { useEffect, useId, useRef, useState, type CSSProperties, type FormEvent } from 'react';
 import { Button, Input, Modal, Select } from '@nightpay/ui';
-import { isApprovalRequested, type ApprovalRequestedResponse } from '@nightpay/contracts';
+import { isApprovalRequested, type ApprovalRequestedResponse, type PayoutAccountFull } from '@nightpay/contracts';
 import {
   confirmPayoutManual,
   createOperatorPayout,
@@ -19,10 +19,12 @@ import { formatDecimal, formatEur } from '@/lib/money';
 import { isAutoVerifiable, payoutAddressError } from '@/lib/payout-address';
 import { describeVerifyResult, payoutReferenceError, type VerifyOutcome } from '@/lib/payout-verify';
 import { useLockActive } from '@/lib/use-lock';
-import { useVenue } from '@/lib/venue-context';
+import { payoutHoldText } from '@/lib/payout-account-view';
+import { useVenue, useVenueTimezone } from '@/lib/venue-context';
 import { ConfirmLine } from './ConfirmLine';
 import { Notice } from './Notice';
 import { OtpInput } from './OtpInput';
+import { PayoutAccountBox } from './PayoutAccountBox';
 import { PAYOUT_METHOD_LABELS, PAYOUT_METHOD_SHORT, PayoutMethodOptions } from './PayoutMethodForm';
 
 interface Props {
@@ -33,8 +35,16 @@ interface Props {
   /** Lo retenido por ventas por datáfono sin cuadrar con el banco: no entra en este pago (se dice). */
   bankHeld?: { bankHeldCents?: number; bankHeldCount?: number };
   payoutMethod: PayoutMethod | null;
-  payoutAddress: string | null;
+  /** Su cuenta, tapada (entera: «Ver cuenta para pagar», solo el dueño). */
+  payoutAddressMasked: string | null;
+  payoutHolderMasked?: string | null;
+  /** El titular no se parece a su nombre: aviso. */
+  payoutHolderMismatch?: boolean;
+  /** Cuenta cambiada hace menos de 48 h: hasta entonces no se le paga a ella (salvo en efectivo). */
+  payoutHoldUntil?: string | null;
   payoutLabel: string | null;
+  /** El dueño puede ver la cuenta entera (con su 2FA). */
+  canReveal?: boolean;
   onClose: () => void;
   /** El pago quedó apuntado (haya ido bien o no la verificación) o pedido: refrescar. */
   onDone: () => void;
@@ -65,8 +75,12 @@ export function PayoutConfirmModal({
   balanceCents,
   bankHeld,
   payoutMethod,
-  payoutAddress,
+  payoutAddressMasked,
+  payoutHolderMasked,
+  payoutHolderMismatch,
+  payoutHoldUntil,
   payoutLabel,
+  canReveal = false,
   onClose,
   onDone,
   mode = 'pay',
@@ -97,14 +111,24 @@ export function PayoutConfirmModal({
   const attempt = useRef<PayoutAttempt | null>(null);
   const locked = useLockActive(lockedUntil);
   const venue = useVenue();
+  const tz = useVenueTimezone();
+  /** La cuenta entera mientras el dueño la tiene a la vista («Ver cuenta para pagar»). */
+  const [revealed, setRevealed] = useState<PayoutAccountFull | null>(null);
   const confirmId = useId();
   const railId = useId();
 
   const chosenRail = rail === '' ? null : rail;
   const autoVerifiable = isAutoVerifiable(chosenRail);
   // La dirección guardada es la del método guardado; pagando por otra vía no aplica.
-  const address = chosenRail === payoutMethod ? payoutAddress : null;
-  const savedAddressProblem = address && chosenRail ? payoutAddressError(chosenRail, address) : null;
+  // Tapada; entera solo mientras el dueño la ve (y entonces se comprueba).
+  const sameRail = chosenRail === payoutMethod;
+  const address = sameRail ? (revealed?.payoutAddress ?? payoutAddressMasked) : null;
+  const savedAddressProblem =
+    sameRail && revealed?.payoutAddress && chosenRail ? payoutAddressError(chosenRail, revealed.payoutAddress) : null;
+  // 48 h tras cambiar la cuenta: el API no lo deja apuntar ni pedir (en efectivo, sí).
+  const holdText = payoutHoldText(payoutHoldUntil, chosenRail, Date.now(), tz);
+  /** En efectivo aunque su método guardado sea otro (lo que queda durante la espera). */
+  const cashInstead = chosenRail === 'MANUAL_CASH' && payoutMethod !== null && payoutMethod !== 'MANUAL_CASH';
 
   useEffect(() => {
     if (!autoVerifiable) {
@@ -226,27 +250,35 @@ export function PayoutConfirmModal({
         {holdNote ? <Notice tone="warning">{holdNote}</Notice> : null}
 
         {payoutMethod ? (
-          <div style={methodBox}>
-            <p style={methodKicker}>Método de la compañera</p>
-            <p style={{ margin: '0.25rem 0 0' }}>
-              <strong>{PAYOUT_METHOD_LABELS[payoutMethod]}</strong>
-            </p>
-            {payoutAddress ? (
-              <p style={addressStyle}>
-                {payoutAddress}
-                <button
-                  type="button"
-                  onClick={() => void navigator.clipboard?.writeText(payoutAddress)}
-                  style={copyBtn}
-                >
-                  Copiar
-                </button>
-              </p>
+          <div>
+            <PayoutAccountBox
+              operatorId={operatorId}
+              personName={operatorName}
+              method={payoutMethod}
+              masked={payoutAddressMasked}
+              holderMasked={payoutHolderMasked}
+              holderMismatch={payoutHolderMismatch}
+              label={payoutLabel}
+              canReveal={canReveal && !asking}
+              onRevealed={setRevealed}
+            />
+            {holdText ? (
+              <Notice
+                tone="warning"
+                style={{ marginTop: '0.5rem' }}
+                action={{ label: 'Pagarle en efectivo', onClick: () => setRail('MANUAL_CASH') }}
+              >
+                {holdText}
+              </Notice>
             ) : null}
-            {payoutLabel ? (
-              <p style={{ margin: '0.25rem 0 0', fontSize: '0.875rem', color: 'var(--np-text-dim)' }}>
-                Alias: {payoutLabel}
-              </p>
+            {cashInstead ? (
+              <Notice
+                tone="info"
+                style={{ marginTop: '0.5rem' }}
+                action={{ label: 'Pagar a su cuenta', onClick: () => setRail(payoutMethod) }}
+              >
+                Vas a apuntar un pago en efectivo, no a su cuenta.
+              </Notice>
             ) : null}
             {savedAddressProblem ? (
               <Notice tone="warning" style={{ marginTop: '0.5rem' }}>
@@ -438,40 +470,6 @@ function RateNote({ rate, balanceCents, currency }: { rate: Rate; balanceCents: 
 }
 
 const rateStyle: CSSProperties = { color: 'var(--np-text-mute)', fontSize: '0.875rem', marginLeft: '0.5rem' };
-
-const methodBox: CSSProperties = {
-  background: 'var(--np-surface-2)',
-  border: '1px solid var(--np-border)',
-  borderRadius: 'var(--np-r-md)',
-  padding: '0.75rem 1rem',
-  fontSize: '0.875rem',
-};
-
-const methodKicker: CSSProperties = {
-  margin: 0,
-  color: 'var(--np-text-mute)',
-  fontSize: '0.875rem',
-  fontWeight: 400,
-};
-
-const addressStyle: CSSProperties = {
-  margin: '0.25rem 0 0',
-  fontFamily: 'var(--np-font-mono)',
-  fontSize: '0.875rem',
-  color: 'var(--np-text-mute)',
-  wordBreak: 'break-all',
-};
-
-const copyBtn: CSSProperties = {
-  marginLeft: '0.5rem',
-  background: 'none',
-  border: '1px solid var(--np-border)',
-  color: 'var(--np-text-mute)',
-  fontSize: '0.875rem',
-  padding: '0.15rem 0.5rem',
-  borderRadius: '4px',
-  cursor: 'pointer',
-};
 
 const fieldLabel: CSSProperties = {
   fontSize: '0.875rem',

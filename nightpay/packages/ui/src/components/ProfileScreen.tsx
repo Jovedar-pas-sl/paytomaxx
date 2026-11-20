@@ -94,6 +94,8 @@ export interface ProfileScreenProps {
   onProfile?: (profile: MyProfile) => void;
   /** Si se pinta dentro de una ventana que ya tiene título, sin cabecera propia. */
   bare?: boolean;
+  /** Lo de cada app, detrás de «Contacto» (la compañera: su cuenta de cobro y el aviso cuando le pagan). */
+  children?: ReactNode;
 }
 
 /**
@@ -101,7 +103,7 @@ export interface ProfileScreenProps {
  * (teléfono y correo), seguridad (contraseña y cerrar sesión) y este móvil.
  * Cada persona cambia solo lo suyo.
  */
-export function ProfileScreen({ api, onLogout, device = 'full', deviceTitle = 'Este móvil', themeFallback = 'dark', help, onProfile, bare }: ProfileScreenProps) {
+export function ProfileScreen({ api, onLogout, device = 'full', deviceTitle = 'Este móvil', themeFallback = 'dark', help, onProfile, bare, children }: ProfileScreenProps) {
   const [profile, setProfile] = useState<MyProfile | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -151,6 +153,7 @@ export function ProfileScreen({ api, onLogout, device = 'full', deviceTitle = 'E
           <div data-tour="perfil-contacto">
             <ProfileContact profile={profile} api={api} onChange={changed} />
           </div>
+          {children}
           <div data-tour="perfil-seguridad">
             <ProfileSecurity api={api} onLogout={onLogout} />
           </div>

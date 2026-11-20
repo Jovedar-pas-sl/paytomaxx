@@ -1,7 +1,8 @@
 import {
   normalizePayoutAddress,
-  normalizeWireDetails,
   payoutFormatProblem,
+  payoutHolderProblem,
+  payoutMetadataFor,
   wireDetailsProblems,
   type PayoutMetadata,
   type PayoutMethod,
@@ -10,8 +11,9 @@ import { needsPayoutConfirmation, payoutChanged, type SavedPayout } from '../../
 
 /**
  * «Cómo quieres cobrar» en el alta por enlace: cada método con su forma (las
- * mismas reglas que el API: payoutFormatProblem) y, en la transferencia
- * internacional, los datos del banco. Lógica pura (onboarding-payout.test.ts).
+ * mismas reglas que el API: payoutFormatProblem); en la transferencia
+ * internacional, los datos del banco, y en el IBAN SEPA, el titular. Lógica
+ * pura (onboarding-payout.test.ts).
  */
 
 export interface PayoutValues {
@@ -24,6 +26,7 @@ export interface PayoutValues {
   bankName: string;
   swiftBic: string;
   country: string;
+  /** El titular: en la transferencia internacional y en el IBAN SEPA. */
   accountHolder: string;
 }
 
@@ -69,6 +72,10 @@ export function payoutFieldProblems(v: PayoutValues, saved: SavedPayout): Partia
   }
   if (v.method === 'WIRE_INTERNATIONAL') {
     for (const p of wireDetailsProblems(wireOf(v))) problems[p.field] = p.message;
+  } else {
+    // El IBAN SEPA, con su titular (el banco lo pide).
+    const holder = payoutHolderProblem(v.method, wireOf(v));
+    if (holder) problems.accountHolder = holder;
   }
   return problems;
 }
@@ -90,7 +97,8 @@ export interface PayoutDto {
 
 /**
  * Lo que se manda al API: «No sé todavía» sin dirección ni etiqueta; el
- * efectivo, sin dirección; el IBAN junto; el SWIFT con sus datos limpios.
+ * efectivo, sin dirección; el IBAN junto y con su titular; el SWIFT con sus
+ * datos limpios.
  */
 export function payoutDto(v: PayoutValues): PayoutDto {
   if (!v.method) return { payoutMethod: null, payoutAddress: null, payoutLabel: null };
@@ -99,8 +107,8 @@ export function payoutDto(v: PayoutValues): PayoutDto {
     payoutAddress: needsAddress(v.method) ? normalizePayoutAddress(v.method, v.address) || null : null,
     payoutLabel: v.label.trim() || null,
   };
-  const wire = v.method === 'WIRE_INTERNATIONAL' ? normalizeWireDetails(wireOf(v)) : null;
-  return wire ? { ...dto, payoutMetadata: wire } : dto;
+  const bank = payoutMetadataFor(v.method, wireOf(v));
+  return bank ? { ...dto, payoutMetadata: bank } : dto;
 }
 
 /** Qué poner en la dirección según el método (antes salía una de Tron de ejemplo para todos). */
@@ -117,7 +125,7 @@ export const PAYOUT_HINTS: Record<PayoutMethod, { placeholder: string; hint: str
   HYPERWALLET_TOKEN: { placeholder: 'usr-…', hint: 'Tu token de Hyperwallet (empieza por usr-) o el email de tu cuenta.' },
   REVOLUT_TAG: { placeholder: '@ana123', hint: 'Tu @tag de Revolut o el teléfono de tu cuenta.' },
   PAYONEER_EMAIL: { placeholder: 'ana@ejemplo.com', hint: 'El email de tu cuenta de Payoneer.' },
-  SEPA_IBAN: { placeholder: 'ES12 3456 7890 1234 5678 9012', hint: 'Tu IBAN (se comprueba el dígito de control).' },
+  SEPA_IBAN: { placeholder: 'ES12 3456 7890 1234 5678 9012', hint: 'Tu IBAN (se comprueba el dígito de control). Debajo, el titular.' },
   WIRE_INTERNATIONAL: {
     placeholder: 'GE29 NB00 0000 0101 9049 17',
     hint: 'Tu IBAN o número de cuenta. Debajo, el banco, su SWIFT/BIC y el titular.',

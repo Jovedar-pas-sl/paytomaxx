@@ -89,6 +89,9 @@ model Venue {
   // «Enlace nuevo» lo cambia. CHECK en SQL: encendido ⇒ con código.
   homeTopUpEnabled      Boolean   @default(false)
   homeTopUpCode         String?   @unique
+  // «Regala una noche» (20261120200000): «Para regalar» en ese mismo enlace.
+  // Apagado de serie (el dueño lo enciende con el visto bueno del abogado).
+  homeTopUpGiftsEnabled Boolean   @default(false)
   // Reservados (20261117300000, apps/api/src/modules/reservations): el enlace
   // público para reservar (/reservar/<código>). Apagado de serie; código al
   // azar (16 letras de base64url). CHECK en SQL: encendido ⇒ con código.
@@ -121,6 +124,7 @@ model Venue {
   btcpayStore        BtcpayStore?
   btcpayInvoices     BtcpayInvoice[]
   walletPushSubscriptions WalletPushSubscription[]
+  staffPushSubscriptions  StaffPushSubscription[]
   btcCashReturns     BtcCashReturn[]
   userPhotos         UserPhoto[]
   customerDisplays   CustomerDisplay[]
@@ -140,6 +144,7 @@ model Venue {
   reservationGuests   ReservationGuest[]
   reservationPayments ReservationPayment[]
   reservationSpends   ReservationSpend[]
+  walletGifts         WalletGift[]
 
   @@index([businessId])
   @@map("venues")
@@ -212,9 +217,19 @@ model User {
   // Phase 1A — routing de payout. Solo OPERATOR. Valores en migration 20260511 comment.
   // Si payoutMethod es null el modal "Marcar pagado" cae a MANUAL_CASH.
   payoutMethod   String?
+  // Cifrada (pa1:..., ENCRYPTION_KEK; ver apps/api/.../payout-account-crypto.ts).
+  // Las antiguas en claro se leen igual hasta que las cifra el relleno.
   payoutAddress  String?
+  // El titular (accountHolder) va cifrado igual dentro del JSON.
   payoutMetadata Json?
   payoutLabel    String?
+  // Cuenta segura (20261120300000): lo tapado para enseñar, el último cambio,
+  // la espera de 48 h para pagar a la cuenta nueva y el aviso a la compañera.
+  payoutAddressMasked    String?
+  payoutHolderMasked     String?
+  payoutAccountChangedAt DateTime? @db.Timestamptz
+  payoutHoldUntil        DateTime? @db.Timestamptz
+  payoutNoticeSeenAt     DateTime? @db.Timestamptz
   // Tip beneficiary relation (cliente añade propina dirigida a esta operadora/staff)
   tipsReceived        Payment[]           @relation("PaymentTipBeneficiary")
 
@@ -262,6 +277,8 @@ model User {
   customerDisplays      CustomerDisplay[]
   // Reservados: su ficha de RRPP (su % y su enlace).
   promoters             Promoter[]
+  // «Te han pagado» (20261120400000): los navegadores que avisa cuando le pagan.
+  pushSubscriptions     StaffPushSubscription[]
 
   @@unique([id, tenantId])
   @@index([tenantId])
@@ -420,6 +437,31 @@ model WalletPushSubscription {
   @@index([endpoint])
   @@index([tenantId])
   @@map("wallet_push_subscriptions")
+}
+
+// «Te han pagado» (20261120400000): cada navegador que una persona del personal
+// apunta para recibir un aviso (Web Push) cuando el local le paga. Solo la
+// dirección del servicio de avisos y sus claves públicas. Un navegador avisa a
+// una sola persona (endpoint único). FORCE RLS: solo dentro de una transacción
+// de PrismaService.
+model StaffPushSubscription {
+  id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId   String    @db.Uuid
+  userId     String    @db.Uuid
+  endpoint   String    @unique
+  p256dh     String
+  auth       String
+  failCount  Int       @default(0)
+  lastSentAt DateTime? @db.Timestamptz
+  createdAt  DateTime  @default(now()) @db.Timestamptz
+  updatedAt  DateTime  @default(now()) @updatedAt @db.Timestamptz
+
+  user  User  @relation(fields: [userId, tenantId], references: [id, tenantId], onDelete: Cascade)
+  venue Venue @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([tenantId])
+  @@map("staff_push_subscriptions")
 }
 
 // Bitcoin que llegó SIN cobro (tarde, dos veces o a medias en un cobro que no se
@@ -628,6 +670,8 @@ model Payment {
   linkedWalletCharge WalletChargeRequest? @relation("CobroUnico")
   // Reservados: el pago (señal, resto o todo) de una reserva.
   reservationPayment ReservationPayment?
+  // «Regala una noche»: el regalo que paga este cobro.
+  gift               WalletGift?
 
   @@unique([tenantId, idempotencyKey])
   @@unique([tenantId, ref])
@@ -941,6 +985,9 @@ model ServiceItem {
   isInvitation Boolean @default(false)
   // Icono de la colección cerrada (CARTA_ICON_CODES, 20261111100000); null = el de su sección.
   icon        String?  @db.VarChar(24)
+  // «Agotado» (20261120100000): cuándo se marcó. Solo vale si es de la noche abierta
+  // (soldOutAt >= su openedAt); al cambiar la noche vuelve solo. Null = hay.
+  soldOutAt   DateTime? @db.Timestamptz
   createdAt   DateTime @default(now()) @db.Timestamptz
   updatedAt   DateTime @default(now()) @updatedAt @db.Timestamptz
 
@@ -1429,6 +1476,8 @@ model ClientWallet {
   // Reservados: el saldo del grupo de una reserva.
   reservations     Reservation[]
   pushSubscriptions WalletPushSubscription[]
+  // «Regala una noche»: el regalo con el que se pagó este saldo.
+  gift              WalletGift?
 
   @@index([tenantId, status])
   @@index([tenantId, identifier])
@@ -2033,4 +2082,32 @@ model ReservationSpend {
   @@index([reservationId])
   @@index([guestId])
   @@map("reservation_spends")
+}
+
+/// «Regala una noche» (20261120200000, apps/api/src/modules/home-topup): un
+/// saldo nuevo que paga quien regala desde el enlace del local y que guarda en
+/// su móvil quien lo recibe, con el QR de activación de siempre (/w/a). El
+/// enlace del regalo (`token`, /r/regalo/<token>) no es el del saldo: quien
+/// regala nunca tiene el saldo, y una vez guardado (claimedAt) el enlace ya no
+/// da nada. Vale solo en su local. El nombre y el mensaje son datos
+/// personales: se borran a los 30 días de guardarlo o al caducar sin guardar.
+model WalletGift {
+  id        String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId  String    @db.Uuid
+  walletId  String    @unique @db.Uuid
+  paymentId String    @unique @db.Uuid
+  token     String    @unique
+  toName    String?
+  message   String?
+  /// Sin guardar hasta aquí: después el enlace ya no vale (el regalo sigue en el panel).
+  expiresAt DateTime  @db.Timestamptz
+  claimedAt DateTime? @db.Timestamptz
+  createdAt DateTime  @default(now()) @db.Timestamptz
+
+  venue   Venue        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  wallet  ClientWallet @relation(fields: [walletId], references: [id], onDelete: Restrict)
+  payment Payment      @relation(fields: [paymentId], references: [id], onDelete: Restrict)
+
+  @@index([tenantId, createdAt(sort: Desc)])
+  @@map("wallet_gifts")
 }

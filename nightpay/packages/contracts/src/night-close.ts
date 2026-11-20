@@ -106,8 +106,11 @@ export interface NightChicaPay {
   operatorId: string;
   name: string;
   payoutMethod: string | null;
-  payoutAddress: string | null;
+  /** Su cuenta tapada (entera, solo el dueño con «Ver cuenta para pagar»). */
+  payoutAddressMasked: string | null;
   payoutLabel: string | null;
+  /** Cuenta cambiada hace menos de 48 h: hasta entonces no se le paga a ella (salvo en efectivo). Opcional: API anterior. */
+  payoutHoldUntil?: string | null;
   /** Lo que se le paga ahora con «Pagar» (ya liberado por los días de espera, menos su deuda). */
   toPayCents: number;
   /** Ganado y aún en espera (días de espera del local). */

@@ -24,6 +24,7 @@ import {
 import { PrismaService, type TransactionalClient } from '../../common/prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import type { PayoutIdempotency } from '../operators/payout-idempotency';
+import { payoutAccountTooNew } from '../operators/payout-account-notices';
 import { payoutTotalCents } from '../operators/payout-math';
 import { lockOperatorPayouts, payableSelection, payoutTotalChanged } from '../operators/payout-selection';
 import { PAYEE_ROLES } from '../operators/payee-roles';
@@ -232,11 +233,23 @@ export class ApprovalRequestsService {
     const operator = await tx.user.findFirst({
       // Las chicas y los camareros (su parte de las invitaciones): mismo pago y mismas reglas.
       where: { id: operatorId, tenantId: actor.tenantId, role: { in: [...PAYEE_ROLES] }, deletedAt: null },
-      select: { id: true, displayName: true, email: true, payoutMethod: true, payoutAddress: true, payoutLabel: true },
+      select: {
+        id: true,
+        displayName: true,
+        email: true,
+        payoutMethod: true,
+        payoutAddress: true,
+        payoutAddressMasked: true,
+        payoutLabel: true,
+        payoutHoldUntil: true,
+      },
     });
     if (!operator) throw new NotFoundException('Operadora no encontrada');
     const method = dto.externalRail ?? operator.payoutMethod ?? null;
     if (!method) throw new BadRequestException('Elige cómo se le paga: la chica no tiene método de cobro guardado.');
+    // Cuenta cambiada hace menos de 48 h: ni se pide (al aprobarlo tampoco se apuntaría).
+    const tooNew = payoutAccountTooNew(operator, method, now);
+    if (tooNew) throw tooNew;
     // Un hash on-chain solo vale para un pago del local (se vuelve a mirar al aprobarlo).
     const txId = dto.externalTxId?.trim();
     if (txId && isAutoVerifiable(method as PayoutMethod)) {

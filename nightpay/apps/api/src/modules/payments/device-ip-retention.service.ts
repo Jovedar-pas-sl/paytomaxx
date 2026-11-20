@@ -3,6 +3,7 @@ import type { Redis } from 'ioredis';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { REDIS_CLIENT } from '../../common/redis/redis.module';
 import { PAYMENT_DEVICE_EVENT } from './payment-device';
+import { GIFT_TEXT_KEEP_DAYS, eraseGiftTexts } from '../home-topup/home-topup-gift';
 
 /** Días que se guarda la IP de los dispositivos de los cobros (DEVICE_IP_RETENTION_DAYS). */
 export const DEVICE_IP_RETENTION_DAYS = 90;
@@ -26,7 +27,9 @@ export function retentionDaysOf(value: string | undefined): number {
  * su candado entre réplicas) y aquí se hace como mucho cada 6 h. Cada local
  * por su índice (tenantId + eventType + occurredAt) y de 500 en 500. Lo del
  * saldo suelto va al registro sin IP: no hay nada que borrar.
- * NIGHTPAY_DISABLE_DEVICE_IP_RETENTION=1 lo apaga.
+ * En la misma vuelta y aparte, el nombre y el mensaje de los regalos
+ * (eraseGiftTexts): ni un fallo de las IP ni su interruptor los dejan sin borrar.
+ * NIGHTPAY_DISABLE_DEVICE_IP_RETENTION=1 apaga solo lo de las IP.
  */
 @Injectable()
 export class DeviceIpRetentionService {
@@ -39,18 +42,34 @@ export class DeviceIpRetentionService {
     this.redis = redis;
   }
 
-  /** Si toca (cada 6 h), borra las IP caducadas. Nunca lanza: lo llama otro repaso. */
+  /**
+   * Si toca (cada 6 h), borra las IP caducadas y, aparte, el nombre y el mensaje
+   * de los regalos. Devuelve cuántas IP. Nunca lanza: lo llama otro repaso.
+   */
   async maybeRun(now: Date = new Date()): Promise<number> {
-    if (process.env.NIGHTPAY_DISABLE_DEVICE_IP_RETENTION === '1') return 0;
     try {
       if ((await this.redis.set(LAST_RUN_KEY, now.toISOString(), 'EX', DEVICE_IP_RETENTION_EVERY_S, 'NX')) !== 'OK') return 0;
-      const erased = await this.eraseOld(now);
-      if (erased > 0) this.logger.log(`IP de ${erased} dispositivo(s) de cobros de más de ${this.days()} días borradas`);
-      return erased;
     } catch (err) {
-      this.logger.error(`No se pudieron borrar las IP caducadas de los cobros: ${(err as Error).message}`);
+      this.logger.error(`No se pudo comprobar si toca borrar datos caducados: ${(err as Error).message}`);
       return 0;
     }
+    let erased = 0;
+    if (process.env.NIGHTPAY_DISABLE_DEVICE_IP_RETENTION !== '1') {
+      try {
+        erased = await this.eraseOld(now);
+        if (erased > 0) this.logger.log(`IP de ${erased} dispositivo(s) de cobros de más de ${this.days()} días borradas`);
+      } catch (err) {
+        this.logger.error(`No se pudieron borrar las IP caducadas de los cobros: ${(err as Error).message}`);
+      }
+    }
+    // Aparte: el nombre y el mensaje de los regalos («Regala una noche») se borran aunque lo de las IP falle o esté apagado.
+    try {
+      const gifts = await eraseGiftTexts(this.prisma, now);
+      if (gifts > 0) this.logger.log(`Nombre y mensaje de ${gifts} regalo(s) borrados (guardados hace más de ${GIFT_TEXT_KEEP_DAYS} días o caducados)`);
+    } catch (err) {
+      this.logger.error(`No se pudieron borrar el nombre y el mensaje de los regalos: ${(err as Error).message}`);
+    }
+    return erased;
   }
 
   /**

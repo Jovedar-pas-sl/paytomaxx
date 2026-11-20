@@ -16,6 +16,8 @@ import { OperatorsService } from '../../src/modules/operators/operators.service'
 const cls = new ClsService(new AsyncLocalStorage());
 const prisma = new PrismaService(cls as never);
 const audit = { log: async () => undefined };
+// Al poner su cuenta se le manda un correo (aquí no sale).
+const email = { send: async () => ({ ok: true, delivered: false }) };
 const config = {
   get: (k: string) => (k === 'OPERATOR_BASE_URL' ? 'https://chicas.example.com' : undefined),
   getOrThrow: (k: string) => {
@@ -23,7 +25,7 @@ const config = {
   },
 };
 const jwt = new JwtService({ secret: 'clave-de-pruebas-del-enlace-de-alta-0123456789' });
-const operators = new OperatorsService(prisma, audit as never, audit as never, config as never, jwt, {} as never, {} as never);
+const operators = new OperatorsService(prisma, email as never, audit as never, config as never, jwt, {} as never, {} as never);
 
 const r = randomUUID().slice(0, 6);
 const IBAN = 'ES9121000418450200051332';
@@ -63,7 +65,10 @@ async function linkFor(operatorId: string): Promise<string> {
 }
 async function stored(operatorId: string) {
   return seed((tx) =>
-    tx.user.findUniqueOrThrow({ where: { id: operatorId }, select: { phone: true, payoutAddress: true, selfOnboardingToken: true } }),
+    tx.user.findUniqueOrThrow({
+      where: { id: operatorId },
+      select: { phone: true, payoutAddress: true, payoutAddressMasked: true, selfOnboardingToken: true },
+    }),
   );
 }
 const alreadySaved = { response: expect.objectContaining({ code: 'SELF_ONBOARDING_ALREADY_SAVED' }) };
@@ -86,10 +91,19 @@ describe('el enlace de alta: un solo uso, y si se perdió la respuesta se sabe q
     const token = await linkFor(op);
     await expect(publicCall(() => operators.getSelfOnboardingProfile(token))).resolves.toMatchObject({ canSetPayout: true });
     await expect(
-      publicCall(() => operators.submitSelfOnboarding(token, { phone: '600000000', payoutMethod: 'SEPA_IBAN', payoutAddress: IBAN })),
+      publicCall(() =>
+        operators.submitSelfOnboarding(token, {
+          phone: '600000000',
+          payoutMethod: 'SEPA_IBAN',
+          payoutAddress: IBAN,
+          payoutMetadata: { accountHolder: 'Chica A' },
+        }),
+      ),
     ).resolves.toEqual({ ok: true });
     const after = await stored(op);
-    expect(after).toMatchObject({ phone: '600000000', payoutAddress: IBAN });
+    // La cuenta se guarda cifrada y, aparte, tapada (cuenta-cobro-segura.int.spec).
+    expect(after).toMatchObject({ phone: '600000000', payoutAddressMasked: 'ES91 •••• •••• 1332' });
+    expect(after.payoutAddress).toMatch(/^pa1:/);
     expect(after.selfOnboardingToken).toMatch(/^used:[0-9a-f]{64}$/);
 
     // La respuesta se perdió y reintenta (aunque cambie algo): ya está guardado, no se vuelve a guardar.

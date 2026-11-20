@@ -351,6 +351,75 @@ describe('Autoservicio de la chica — nunca lee otro local', () => {
   });
 });
 
+describe('Historial de «Ganancias» (la app): por páginas y entre dos fechas', () => {
+  const FROM = '2026-11-01T07:00:00.000Z';
+  const TO = '2026-11-16T07:00:00.000Z';
+  const earning = (id: string, createdAt: string) => ({
+    id,
+    paymentId: null,
+    consumptionId: null,
+    paymentAmountCents: 2_000,
+    commissionBps: 5_000,
+    commissionCents: 1_000,
+    tipCents: 0,
+    reversedCents: 0,
+    payoutId: null,
+    paymentStatus: null,
+    bankHeld: false,
+    createdAt: new Date(createdAt),
+  });
+  const payout = (id: string, createdAt: string) => ({
+    id,
+    totalCents: 3_750,
+    paidByEmail: 'javier@salabambu.es',
+    notes: null,
+    earningCount: 3n,
+    createdAt: new Date(createdAt),
+    externalTxId: 'ES-TRF-20261112-07',
+    externalRail: 'SEPA_IBAN',
+    reconciliationStatus: 'MANUAL_OK',
+    receiptUrl: 'https://banco.example/justificante/7',
+    reconciledAt: null,
+  });
+  const E1 = 'e1000000-0000-4000-8000-000000000001';
+  const E2 = 'e2000000-0000-4000-8000-000000000002';
+  const E3 = 'e3000000-0000-4000-8000-000000000003';
+
+  it('sus ganancias: pide una de más para saber si hay otra página, solo las suyas y del local, entre las fechas', async () => {
+    const { svc, queries } = makeService({
+      earnings: [earning(E3, '2026-11-12T01:00:00Z'), earning(E2, '2026-11-11T01:00:00Z'), earning(E1, '2026-11-10T01:00:00Z')],
+    });
+    const page = await svc.myEarningsPage(OPERATOR, TENANT, { limit: 2, from: FROM, to: TO });
+    expect(page.items.map((e) => e.id)).toEqual([E3, E2]);
+    expect(page.nextCursor).not.toBeNull();
+    expectScoped(queries[0]!, 'e."tenantId"');
+    expect(queries[0]!.values).toEqual(expect.arrayContaining([3, new Date(FROM), new Date(TO)]));
+    expect(queries[0]!.text).toContain(`ORDER BY date_trunc('milliseconds', e."createdAt") DESC, e.id DESC`);
+  });
+
+  it('la página siguiente sigue donde acabó la anterior; la última no tiene más', async () => {
+    const { svc, queries } = makeService({ earnings: [earning(E1, '2026-11-10T01:00:00Z')] });
+    const first = await makeService({
+      earnings: [earning(E3, '2026-11-12T01:00:00Z'), earning(E2, '2026-11-11T01:00:00Z'), earning(E1, '2026-11-10T01:00:00Z')],
+    }).svc.myEarningsPage(OPERATOR, TENANT, { limit: 2 });
+    const next = await svc.myEarningsPage(OPERATOR, TENANT, { limit: 2, cursor: first.nextCursor! });
+    expect(next).toMatchObject({ items: [{ id: E1 }], nextCursor: null });
+    expect(queries[0]!.values).toEqual(expect.arrayContaining([new Date('2026-11-11T01:00:00Z'), E2]));
+  });
+
+  it('sus pagos: con el justificante (la referencia y el enlace), por páginas y entre las fechas', async () => {
+    const { svc, queries } = makeService({ payouts: [payout(E2, '2026-11-12T18:00:00Z')] });
+    const page = await svc.myPayoutsPage(OPERATOR, TENANT, { limit: 50, from: FROM });
+    expect(page).toMatchObject({
+      items: [{ id: E2, totalCents: 3_750, earningCount: 3, externalTxId: 'ES-TRF-20261112-07', receiptUrl: 'https://banco.example/justificante/7' }],
+      nextCursor: null,
+    });
+    expectScoped(queries[0]!, 'po."tenantId"');
+    expect(queries[0]!.values).toEqual(expect.arrayContaining([51, new Date(FROM)]));
+    expect(queries[0]!.text).toContain(`ORDER BY date_trunc('milliseconds', po."createdAt") DESC, po.id DESC`);
+  });
+});
+
 describe('Panel del local — comisiones y pagos de una chica (anti-IDOR)', () => {
   it('chica de otro local: 404 en comisiones y pagos, sin leer nada', async () => {
     const { svc, prisma } = makeService({ operatorInVenue: false });

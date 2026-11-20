@@ -1,34 +1,29 @@
 import { describe, expect, it, vi } from 'vitest';
 import { Prisma } from '@nightpay/db';
-import { debtView, maskPayoutAddress, payoutAccountView } from './my-payout-info';
+import { debtView, payoutAccountView } from './my-payout-info';
 import { OperatorsService } from './operators.service';
 
-describe('maskPayoutAddress — la cuenta de cobro sin enseñarla entera', () => {
-  it('cripto, IBAN, teléfono: solo los 4 últimos', () => {
-    expect(maskPayoutAddress('TXYZxQwUVqHbvHvgrkqz6T6oyhqcKpuFiV')).toBe('••••uFiV');
-    expect(maskPayoutAddress(' ES9121000418450200051332 ')).toBe('••••1332');
-  });
-
-  it('email: la primera letra y el dominio', () => {
-    expect(maskPayoutAddress('ana.lopez@gmail.com')).toBe('a•••@gmail.com');
-  });
-
-  it('muy corta: nada a la vista; vacía o sin dirección: null', () => {
-    expect(maskPayoutAddress('1234')).toBe('••••');
-    expect(maskPayoutAddress('   ')).toBeNull();
-    expect(maskPayoutAddress(null)).toBeNull();
-  });
+const row = (o: { payoutMethod: string | null; payoutAddress: string | null; payoutLabel: string | null; payoutAddressMasked?: string | null }) => ({
+  id: 'op-1',
+  payoutMetadata: null,
+  ...o,
 });
 
 describe('payoutAccountView', () => {
-  it('método, su etiqueta y la dirección enmascarada', () => {
+  it('método, su etiqueta y la cuenta tapada (como en el panel)', () => {
     expect(
-      payoutAccountView({ payoutMethod: 'SEPA_IBAN', payoutAddress: 'ES9121000418450200051332', payoutLabel: ' Mi banco ' }),
-    ).toEqual({ method: 'SEPA_IBAN', label: 'Mi banco', masked: '••••1332' });
+      payoutAccountView(row({ payoutMethod: 'SEPA_IBAN', payoutAddress: 'ES9121000418450200051332', payoutLabel: ' Mi banco ' })),
+    ).toEqual({ method: 'SEPA_IBAN', label: 'Mi banco', masked: 'ES91 •••• •••• 1332' });
+  });
+
+  it('cifrada: la tapada guardada aparte (sin abrirla)', () => {
+    expect(
+      payoutAccountView(row({ payoutMethod: 'USDT_TRC20', payoutAddress: 'pa1:a:b:c', payoutAddressMasked: 'T…uFiV', payoutLabel: null })),
+    ).toEqual({ method: 'USDT_TRC20', label: null, masked: 'T…uFiV' });
   });
 
   it('efectivo sin dirección: el método solo', () => {
-    expect(payoutAccountView({ payoutMethod: 'MANUAL_CASH', payoutAddress: null, payoutLabel: null })).toEqual({
+    expect(payoutAccountView(row({ payoutMethod: 'MANUAL_CASH', payoutAddress: null, payoutLabel: null }))).toEqual({
       method: 'MANUAL_CASH',
       label: null,
       masked: null,
@@ -36,7 +31,7 @@ describe('payoutAccountView', () => {
   });
 
   it('sin cuenta todavía (o sin chica): null', () => {
-    expect(payoutAccountView({ payoutMethod: null, payoutAddress: null, payoutLabel: '' })).toBeNull();
+    expect(payoutAccountView(row({ payoutMethod: null, payoutAddress: null, payoutLabel: '' }))).toBeNull();
     expect(payoutAccountView(null)).toBeNull();
   });
 });
@@ -70,7 +65,7 @@ function makeOps(holdDays: string | undefined) {
   const queries: Array<{ text: string; values: unknown[] }> = [];
   const prisma = {
     user: {
-      findFirst: vi.fn().mockResolvedValue({ payoutMethod: 'BINANCE_PAY_ID', payoutAddress: '123456789', payoutLabel: null }),
+      findFirst: vi.fn().mockResolvedValue({ id: 'op-1', payoutMethod: 'BINANCE_PAY_ID', payoutAddress: '123456789', payoutLabel: null, payoutMetadata: null }),
     },
     // Sin regla del local (payoutHoldDays null): manda PAYOUT_HOLD_DAYS.
     venue: { findUnique: vi.fn().mockResolvedValue({ payoutHoldDays: null }) },
@@ -112,7 +107,7 @@ describe('OperatorsService.getMyPayoutInfo — GET /operators/me/payout-info', (
     const info = await svc.getMyPayoutInfo('op-1', 't-1');
 
     expect(info.holdDays).toBe(0);
-    expect(info.account).toEqual({ method: 'BINANCE_PAY_ID', label: null, masked: '••••6789' });
+    expect(info.account).toEqual({ method: 'BINANCE_PAY_ID', label: null, masked: '•••6789' });
     expect(info.debts).toEqual([expect.objectContaining({ id: 'r-1', cents: 3_000, settledPayoutId: null })]);
     expect(prisma.user.findFirst).toHaveBeenCalledWith(
       expect.objectContaining({ where: { id: 'op-1', tenantId: 't-1' } }),

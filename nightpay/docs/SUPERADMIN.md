@@ -130,7 +130,7 @@ La CLI (`pnpm cli …`) sigue igual.
 |---|---|---|---|
 | `GET /superadmin/payout-accounts?venueId=&method=&q=&missing=&includeInactive=` | Chicas de todos los locales con su cuenta **tapada** (`ES12 •••• •••• 1234`, `T…9f2a`, `a•••@dominio`). | — | — |
 | `POST /superadmin/payout-accounts/:userId/reveal` | La cuenta entera. Motivo. | Sí | `payout_account.revealed` |
-| `PUT /superadmin/payout-accounts/:userId` | Cambiarla (o quitarla con método y cuenta a null). Validada según el método con las reglas del panel: TRC20, EVM (BEP20/Polygon), Solana, IBAN mod-97, email. Motivo. | Sí | `payout_account.updated` (antes/después tapados) |
+| `PUT /superadmin/payout-accounts/:userId` | Cambiarla (o quitarla con método y cuenta a null). Validada según el método con las reglas del panel: TRC20, EVM (BEP20/Polygon), Solana, IBAN mod-97, email; en SEPA y SWIFT, con titular. Motivo. Se guarda cifrada, avisa al local (Incidencias y Telegram, «OxioPay ha cambiado una cuenta de cobro») y a la compañera por correo, y la cuenta nueva espera 48 h ([CUENTA-COBRO-SEGURA.md](CUENTA-COBRO-SEGURA.md)). | Sí | `payout_account.updated` (antes/después tapados) y, en el registro del local, `operator.payout_account_changed` |
 
 ## Clientes con saldo
 

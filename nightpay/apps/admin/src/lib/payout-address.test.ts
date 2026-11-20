@@ -6,6 +6,7 @@ import {
   payoutAddressError,
   payoutValue,
   payoutValueFromSaved,
+  payoutValueProblem,
   touchesPayoutAccount,
 } from './payout-address';
 import { changedFields } from './diff';
@@ -117,6 +118,33 @@ describe('payoutValue', () => {
       accountHolder: '',
     });
     expect(changedFields(payoutValueFromSaved(saved), form)).toEqual({});
+  });
+});
+
+describe('payoutValue — IBAN SEPA con su titular', () => {
+  it('SEPA: el IBAN junto y solo el titular (sin espacios sobrantes)', () => {
+    expect(payoutValue('SEPA_IBAN', 'es91 2100 0418 4502 0005 1332', '', { bankName: 'x', accountHolder: ' Ana López ' })).toEqual({
+      method: 'SEPA_IBAN',
+      address: 'ES9121000418450200051332',
+      metadata: { accountHolder: 'Ana López' },
+      label: null,
+    });
+  });
+});
+
+describe('payoutValueProblem — lo que impide guardar la cuenta', () => {
+  it('SEPA y SWIFT sin titular → «Falta el titular de la cuenta»; con él, nada', () => {
+    expect(payoutValueProblem(payoutValue('SEPA_IBAN', 'ES9121000418450200051332', '', null))).toBe('Falta el titular de la cuenta');
+    expect(payoutValueProblem(payoutValue('WIRE_INTERNATIONAL', '0012345678', '', { bankName: 'TBC' }))).toBe('Falta el titular de la cuenta');
+    expect(payoutValueProblem(payoutValue('SEPA_IBAN', 'ES9121000418450200051332', '', { accountHolder: 'Ana' }))).toBeNull();
+  });
+  it('la cuenta mal para el método, o vacía: su motivo (antes que el titular)', () => {
+    expect(payoutValueProblem(payoutValue('SEPA_IBAN', 'ES00 1234', '', null))).toMatch(/IBAN no válido/);
+    expect(payoutValueProblem(payoutValue('USDT_TRC20', '', '', null))).toMatch(/Falta la dirección/);
+  });
+  it('efectivo o sin método: nada', () => {
+    expect(payoutValueProblem(payoutValue('MANUAL_CASH', '', '', null))).toBeNull();
+    expect(payoutValueProblem(payoutValue(null, '', '', null))).toBeNull();
   });
 });
 

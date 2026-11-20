@@ -6,6 +6,7 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  Optional,
   ServiceUnavailableException,
   UnauthorizedException,
 } from '@nestjs/common';
@@ -30,6 +31,8 @@ import {
 } from './payout-idempotency';
 import { debtView, payoutAccountView, type DebtRow, type MyPayoutInfo } from './my-payout-info';
 import { myPaymentsPage, type MyPaymentRow } from './my-payments';
+import { historyOrder, historyPage, historyRange, historyWhere, type HistoryRange } from './my-history';
+import { StaffPushService } from './staff-push.service';
 import { earningBankHeldSql, earningNetSql } from './bank-hold-sql';
 import { availableCentsOf, payoutCutoff, payoutTotalCents } from './payout-math';
 import {
@@ -43,7 +46,18 @@ import {
 } from './payout-selection';
 import { PAYEE_ROLES, type PayeeRole } from './payee-roles';
 import { venueHoldDays } from './venue-hold-days';
-import { payoutRoutingChanges, touchesPayoutAccount } from './payout-routing';
+import {
+  PAYOUT_ACCOUNT_SELECT,
+  accountForAudit,
+  maskedPayoutAccount,
+  openPayoutAccount,
+  payoutAccountChangedMeanwhile,
+  planPayoutAccountChange,
+  type PayoutAccountPlan,
+  type StoredPayoutAccount,
+} from './payout-account';
+import { notifyPayoutAccountChanged, payoutAccountTooNew, type PayoutChangeVia } from './payout-account-notices';
+import { touchesPayoutAccount } from './payout-routing';
 import { isRecordNotFound, selfOnboardingAlreadySaved, usedTokenMarker } from './self-onboarding-token';
 import type {
   CreateOperatorDto,
@@ -51,8 +65,13 @@ import type {
   OperatorBalance,
   OperatorPublicView,
   OperatorWithBalance,
+  OwnHistoryPage,
+  OwnHistoryQuery,
   Role,
   EarningView,
+  PayoutAccountFull,
+  PayoutAccountNotice,
+  PayoutMetadata,
   PayoutMethod,
   PayoutView,
   SelfOnboardingLinkResponse,
@@ -60,7 +79,7 @@ import type {
   SelfOnboardingSubmitDto,
   UpdateOperatorDto,
 } from '@nightpay/contracts';
-import { normalizeWireDetails } from '@nightpay/contracts';
+import { holderMatchesName, maskHolderName, maskPayoutAddress, payoutMetadataFor } from '@nightpay/contracts';
 
 const INVITE_TTL_HOURS = 24;
 const SELF_ONBOARDING_TTL_HOURS = 72;
@@ -130,6 +149,8 @@ export class OperatorsService {
   private readonly jwt: JwtService;
   private readonly fxFactory: PayoutVerifierFactory;
   private readonly sessions: RefreshTokenService;
+  /** «Te han pagado» al móvil de la persona (sin él, p. ej. en las pruebas, no se avisa). */
+  private readonly staffPush: StaffPushService | undefined;
 
   constructor(
     @Inject(PrismaService) prisma: PrismaService,
@@ -139,6 +160,7 @@ export class OperatorsService {
     @Inject(JwtService) jwt: JwtService,
     @Inject(PayoutVerifierFactory) fxFactory: PayoutVerifierFactory,
     @Inject(RefreshTokenService) sessions: RefreshTokenService,
+    @Optional() @Inject(StaffPushService) staffPush?: StaffPushService,
   ) {
     this.prisma = prisma;
     this.email = email;
@@ -147,6 +169,7 @@ export class OperatorsService {
     this.jwt = jwt;
     this.fxFactory = fxFactory;
     this.sessions = sessions;
+    this.staffPush = staffPush;
   }
 
   /**
@@ -251,11 +274,21 @@ export class OperatorsService {
     return Number(rows[0]?.total ?? 0);
   }
 
+  /** Sus últimas `limit` comisiones (el resumen de «Ganancias» y el panel). */
   async getMyEarnings(
     operatorId: string,
     tenantId: string,
     limit = 50,
   ): Promise<EarningView[]> {
+    return this.earningRows(operatorId, tenantId, limit, null);
+  }
+
+  /** «Historial» de sus ganancias en la app: por páginas y entre dos fechas. */
+  async myEarningsPage(operatorId: string, tenantId: string, q: OwnHistoryQuery): Promise<OwnHistoryPage<EarningView>> {
+    return historyPage(await this.earningRows(operatorId, tenantId, q.limit + 1, historyRange(q)), q.limit);
+  }
+
+  private async earningRows(operatorId: string, tenantId: string, take: number, range: HistoryRange | null): Promise<EarningView[]> {
     const rows = await this.prisma.withTenant(tenantId, (tx) => tx.$queryRaw<
       Array<{
         id: string;
@@ -281,8 +314,9 @@ export class OperatorsService {
         LEFT JOIN payments p ON p.id = e."paymentId"
        WHERE e."operatorId" = ${operatorId}::uuid
          AND e."tenantId" = ${tenantId}::uuid
-       ORDER BY e."createdAt" DESC
-       LIMIT ${limit}
+         ${historyWhere('e', range)}
+       ORDER BY ${historyOrder('e', range)}
+       LIMIT ${take}
     `);
     return rows.map((r) => ({
       id: r.id,
@@ -328,11 +362,21 @@ export class OperatorsService {
     });
   }
 
+  /** Sus últimos `limit` pagos (la app de antes y el panel). */
   async getMyPayouts(
     operatorId: string,
     tenantId: string,
     limit = 50,
   ): Promise<PayoutView[]> {
+    return this.payoutRows(operatorId, tenantId, limit, null);
+  }
+
+  /** «Pagos recibidos» de la app: por páginas y entre dos fechas, con su justificante. */
+  async myPayoutsPage(operatorId: string, tenantId: string, q: OwnHistoryQuery): Promise<OwnHistoryPage<PayoutView>> {
+    return historyPage(await this.payoutRows(operatorId, tenantId, q.limit + 1, historyRange(q)), q.limit);
+  }
+
+  private async payoutRows(operatorId: string, tenantId: string, take: number, range: HistoryRange | null): Promise<PayoutView[]> {
     const rows = await this.prisma.withTenant(tenantId, (tx) => tx.$queryRaw<
       Array<{
         id: string;
@@ -364,8 +408,9 @@ export class OperatorsService {
         ) ec ON ec."payoutId" = po.id
        WHERE po."operatorId" = ${operatorId}::uuid
          AND po."tenantId" = ${tenantId}::uuid
-       ORDER BY po."createdAt" DESC
-       LIMIT ${limit}
+         ${historyWhere('po', range)}
+       ORDER BY ${historyOrder('po', range)}
+       LIMIT ${take}
     `);
     return rows.map((r) => ({
       id: r.id,
@@ -389,10 +434,7 @@ export class OperatorsService {
    */
   async getMyPayoutInfo(operatorId: string, tenantId: string, limit = 30): Promise<MyPayoutInfo> {
     const [user, debts] = await Promise.all([
-      this.prisma.user.findFirst({
-        where: { id: operatorId, tenantId },
-        select: { payoutMethod: true, payoutAddress: true, payoutLabel: true },
-      }),
+      this.prisma.user.findFirst({ where: { id: operatorId, tenantId }, select: PAYOUT_ACCOUNT_SELECT }),
       this.prisma.asSystem((tx) => tx.$queryRaw<DebtRow[]>`
         SELECT r.id, e."paymentId", e."paymentAmountCents" AS "chargeCents",
                r."reversedDeltaCents" AS cents, r."createdAt" AS at, e."createdAt" AS "chargedAt",
@@ -830,7 +872,8 @@ export class OperatorsService {
       needsHelpDocs: u.needsHelpDocs ?? false,
       onboardingNotes: u.onboardingNotes,
       payoutMethod: u.payoutMethod as SelfOnboardingProfile['payoutMethod'],
-      payoutAddress: u.payoutAddress,
+      // Nunca la cuenta entera (el enlace puede llegar a otras manos): tapada.
+      payoutAddressMasked: maskedPayoutAccount(operator as unknown as StoredPayoutAccount).addressMasked,
       payoutLabel: u.payoutLabel,
       venueName: venue.name,
       canSetPayout: payoutAllowed && !hasPayoutRouting(u),
@@ -882,14 +925,18 @@ export class OperatorsService {
         : payoutAllowed
           ? undefined
           : ('owner_required' as const);
+    // Su primera cuenta: cifrada y tapada aparte; los datos del banco (SWIFT) o
+    // el titular (SEPA, obligatorio), según el método (los demás no llevan).
+    let plan: PayoutAccountPlan | null = null;
     if (payoutIgnored) {
       this.logger.warn(`Self-onboarding ${(operator as { id: string }).id}: cuenta de cobro no aplicada (${payoutIgnored})`);
-    } else {
-      Object.assign(data, payoutRoutingChanges(existing, dto));
-      if (dto.payoutLabel !== undefined) data.payoutLabel = dto.payoutLabel;
-      // Transferencia internacional: los datos del banco (los otros métodos no llevan).
-      const wire = dto.payoutMethod === 'WIRE_INTERNATIONAL' ? normalizeWireDetails(dto.payoutMetadata) : null;
-      if (wire) data.payoutMetadata = wire;
+    } else if (wantsPayout) {
+      plan = planPayoutAccountChange(
+        operator as unknown as StoredPayoutAccount,
+        { method: dto.payoutMethod, address: dto.payoutAddress, label: dto.payoutLabel, metadata: dto.payoutMetadata },
+        new Date(),
+      );
+      Object.assign(data, plan.data);
     }
 
     // Marca progreso de onboarding automáticamente si todavía está NEW
@@ -905,6 +952,7 @@ export class OperatorsService {
     data.selfOnboardingToken = usedTokenMarker(tokenHash);
 
     // Ruta pública (sin local en el contexto): como la lectura del token, con asSystem.
+    // shortcut: sin plan.ifUnchanged (el enlace solo pone la primera cuenta y es de un solo uso), añadirlo si un día deja cambiar una que ya existe.
     try {
       await this.prisma.asSystem((tx) =>
         tx.user.update({ where: { id: operator.id, selfOnboardingToken: tokenHash }, data }),
@@ -923,19 +971,13 @@ export class OperatorsService {
       payload: {
         fields: Object.keys(data),
         tokenInvalidated: true,
-        ...(payoutIgnored
-          ? {
-              payoutIgnored,
-              proposedPayout: {
-                method: dto.payoutMethod ?? null,
-                address: dto.payoutAddress ?? null,
-                label: dto.payoutLabel ?? null,
-                ...(dto.payoutMetadata ? { metadata: dto.payoutMetadata } : {}),
-              },
-            }
-          : {}),
+        // La propuesta, tapada (el registro no lleva cuentas en claro).
+        ...(payoutIgnored ? { payoutIgnored, proposedPayout: proposedPayoutForAudit(dto) } : {}),
       },
     });
+    if (plan?.accountChanged) {
+      await this.notifyPayoutChange({ tenantId: operator.tenantId, actorId: operator.id, via: 'enlace', operator, plan });
+    }
 
     this.logger.log(`Self-onboarding submitted by operator=${operator.id} (token invalidated)`);
     return payoutIgnored ? { ok: true, payoutIgnored } : { ok: true };
@@ -1040,10 +1082,16 @@ export class OperatorsService {
     if (dto.active !== undefined) {
       data.deletedAt = dto.active ? null : new Date();
     }
-    // Phase 1A — payout routing (la dirección tiene que ser del método que queda)
-    Object.assign(data, payoutRoutingChanges(operator as { payoutMethod?: string | null; payoutAddress?: string | null }, dto));
-    if (dto.payoutMetadata !== undefined) data.payoutMetadata = dto.payoutMetadata;
-    if (dto.payoutLabel !== undefined) data.payoutLabel = dto.payoutLabel;
+    // A dónde va su dinero: del método que queda, con titular en SEPA y SWIFT,
+    // cifrada y tapada aparte; cambiarla para 48 h los pagos a la nueva.
+    const plan = touchesPayoutAccount(dto)
+      ? planPayoutAccountChange(
+          operator as unknown as StoredPayoutAccount,
+          { method: dto.payoutMethod, address: dto.payoutAddress, metadata: dto.payoutMetadata, label: dto.payoutLabel },
+          new Date(),
+        )
+      : null;
+    if (plan) Object.assign(data, plan.data);
     // Phase 1A.1 — Onboarding tracking
     if (dto.phone !== undefined) data.phone = dto.phone;
     if (dto.passportCountry !== undefined) data.passportCountry = dto.passportCountry;
@@ -1062,10 +1110,13 @@ export class OperatorsService {
     if (dto.onboardingStatus !== undefined) data.onboardingStatus = dto.onboardingStatus;
     if (dto.onboardingNotes !== undefined) data.onboardingNotes = dto.onboardingNotes;
 
-    const updated = await this.prisma.user.update({
-      where: { id: operatorId },
-      data,
-    });
+    // Con cambio de cuenta, solo si sigue como se leyó: dos cambios a la vez no
+    // se pisan (ni se saltan la espera, ni avisan con un «antes» que ya no era).
+    const updated = await this.prisma.user
+      .update({ where: { id: operatorId, ...plan?.ifUnchanged }, data })
+      .catch((err: unknown) => {
+        throw plan && isRecordNotFound(err) ? payoutAccountChangedMeanwhile() : err;
+      });
     // Baja: fuera al momento de la app (refresh y tokens de acceso ya emitidos).
     if (dto.active === false) await this.sessions.revokeAllForUser(operatorId);
     // Sale de las listas, pero se le sigue debiendo: que no se pierda de vista.
@@ -1078,21 +1129,102 @@ export class OperatorsService {
       actorId: actorUserId,
       targetType: 'User',
       targetId: operatorId,
-      payload: { changes },
+      // La cuenta y el titular, tapados.
+      payload: { changes: maskedChanges(changes, plan?.after.method ?? null) },
     });
-    // A dónde va su dinero: con lo de antes (para saber a qué cuenta se pagaba).
-    if (touchesPayoutAccount(dto)) {
-      await this.audit.log({
-        action: 'operator.payout_account_changed',
-        tenantId,
-        actorId: actorUserId,
-        targetType: 'User',
-        targetId: operatorId,
-        payload: { before: payoutAccountOf(operator), after: payoutAccountOf(updated) },
-      });
+    // A dónde va su dinero, con lo de antes (tapado): Incidencias, Telegram y a ella.
+    if (plan?.accountChanged) {
+      await this.notifyPayoutChange({ tenantId, actorId: actorUserId, via: 'panel', operator, plan });
     }
 
     return this.toPublicView(updated);
+  }
+
+  /**
+   * La cuenta de cobro de una compañera cambió: el registro (Incidencias lo
+   * enseña y Telegram lo avisa) y un correo a ella. Su app se lo dice al
+   * entrar (users.payoutAccountChangedAt; getPayoutNotice).
+   */
+  private async notifyPayoutChange(input: {
+    tenantId: string;
+    actorId: string;
+    via: PayoutChangeVia;
+    operator: { id: string; email: string; displayName: string | null };
+    plan: PayoutAccountPlan;
+  }): Promise<void> {
+    const venue = await this.prisma.asSystem((tx) =>
+      tx.venue.findUniqueOrThrow({ where: { id: input.tenantId }, select: { name: true } }),
+    );
+    await notifyPayoutAccountChanged(
+      { audit: this.audit, email: this.email, logger: this.logger },
+      {
+        tenantId: input.tenantId,
+        actorId: input.actorId,
+        via: input.via,
+        operator: input.operator,
+        venueName: venue.name,
+        before: input.plan.before,
+        after: input.plan.after,
+        at: new Date(),
+        holdUntil: input.plan.holdUntil,
+      },
+    );
+  }
+
+  /**
+   * «Ver cuenta para pagar»: la cuenta entera (y el titular) para el dueño,
+   * que ya ha pasado su 2FA en el controlador. Queda en el registro, tapada.
+   */
+  async revealPayoutAccount(tenantId: string, operatorId: string, actorUserId: string): Promise<PayoutAccountFull> {
+    const row = await this.prisma.user.findFirst({
+      where: { id: operatorId, tenantId, role: 'OPERATOR' },
+      select: PAYOUT_ACCOUNT_SELECT,
+    });
+    if (!row) throw new NotFoundException('Compañera no encontrada');
+    let account: ReturnType<typeof openPayoutAccount>;
+    try {
+      account = openPayoutAccount(row);
+    } catch (err) {
+      this.logger.error(`No se puede abrir la cuenta de cobro de ${operatorId}: ${(err as Error).message}`);
+      throw new ServiceUnavailableException('No se puede leer la cuenta guardada: vuelve a ponerla en Editar.');
+    }
+    await this.audit.log({
+      action: 'operator.payout_account_revealed',
+      tenantId,
+      actorId: actorUserId,
+      targetType: 'User',
+      targetId: operatorId,
+      payload: accountForAudit(account),
+    });
+    return {
+      userId: row.id,
+      payoutMethod: account.method,
+      payoutAddress: account.address,
+      payoutLabel: account.label,
+      payoutMetadata: account.metadata,
+    };
+  }
+
+  /** «Tu cuenta de cobro ha cambiado» en su app: hasta que lo da por visto (tapada). */
+  async getPayoutNotice(operatorId: string, tenantId: string): Promise<PayoutAccountNotice | null> {
+    const row = await this.prisma.user.findFirst({
+      where: { id: operatorId, tenantId, role: 'OPERATOR' },
+      select: { ...PAYOUT_ACCOUNT_SELECT, payoutNoticeSeenAt: true },
+    });
+    const changedAt = row?.payoutAccountChangedAt;
+    if (!row || !changedAt) return null;
+    if (row.payoutNoticeSeenAt && row.payoutNoticeSeenAt >= changedAt) return null;
+    const masked = maskedPayoutAccount(row);
+    return { changedAt: changedAt.toISOString(), method: masked.method, masked: masked.addressMasked };
+  }
+
+  /** «Entendido»: el aviso queda visto (solo el suyo). */
+  async markPayoutNoticeSeen(operatorId: string, tenantId: string): Promise<{ ok: true }> {
+    await this.prisma.user.updateMany({
+      where: { id: operatorId, tenantId, role: 'OPERATOR' },
+      data: { payoutNoticeSeenAt: new Date() },
+    });
+    return { ok: true };
   }
 
   private async flagLeftWithBalance(tenantId: string, operatorId: string, actorUserId: string, name: string | null): Promise<void> {
@@ -1148,9 +1280,11 @@ export class OperatorsService {
    * «Por aprobar»: con `exact` se pagan exactamente las comisiones y deudas que
    * fijó la petición y por ese total; si algo cambió (ya pagadas, devoluciones
    * nuevas…), 409 y no se apunta nada. `inTransaction` corre dentro de la
-   * transacción, con el candado de la chica tomado y antes de leer nada (la
-   * aprobación se marca ahí; el pago directo comprueba que no haya una
-   * petición pendiente); `afterCreate`, en la misma transacción, con el pago.
+   * transacción, con el candado de la persona tomado y antes de leer lo que se
+   * le paga (la aprobación se marca ahí; el pago directo comprueba que no haya
+   * una petición pendiente); `afterCreate`, en la misma transacción, con el pago.
+   * La cuenta de cobro y su espera de 48 h se leen también ahí dentro, con el
+   * candado tomado: valen las de ese momento.
    * `expectedTotalCents`: si lo pagable ya no es lo que vio quien paga, 409
    * PAYOUT_CHANGED. `idempotency`: la misma clave y petición devuelven el pago
    * ya apuntado (comprobado con el candado de la chica tomado).
@@ -1162,22 +1296,32 @@ export class OperatorsService {
     notes?: string,
     options?: PayoutOptions,
   ) {
-    // Verificar pertenencia + leer payoutMethod por defecto (chica o camarero)
-    const operator = await this.prisma.user.findFirst({
-      where: { id: operatorId, tenantId, role: { in: [...PAYEE_ROLES] } },
-    }) as unknown as { id: string; payoutMethod: string | null; payoutAddress?: string | null } | null;
-    if (!operator) throw new NotFoundException('Operadora no encontrada');
+    // Que es del local (compañera o camarero): 404 sin abrir la transacción.
+    const where = { id: operatorId, tenantId, role: { in: [...PAYEE_ROLES] } };
+    if (!(await this.prisma.user.findFirst({ where }))) throw new NotFoundException('Operadora no encontrada');
     const holdDays = await this.holdDays(tenantId);
-    // Rail efectivo: el del dto si viene, sino el preferido de la chica.
-    const rail = options?.externalRail ?? operator.payoutMethod ?? null;
 
     const result = await this.prisma.withTenant(tenantId, async (tx) => {
       await lockOperatorPayouts(tx, operatorId);
+      // Su cuenta y su espera se leen aquí, con el candado ya tomado: las de
+      // ahora, no las de antes de esperar el turno (un cambio de cuenta pudo
+      // entrar mientras). La cuenta, como está guardada (cifrada): así va al
+      // pago, para verificarlo on-chain.
+      const operator = await tx.user.findFirst({
+        where,
+        select: { displayName: true, payoutMethod: true, payoutAddress: true, payoutHoldUntil: true },
+      });
+      if (!operator) throw new NotFoundException('Operadora no encontrada');
+      // Rail efectivo: el del dto si viene, sino el preferido de la persona.
+      const rail = options?.externalRail ?? operator.payoutMethod ?? null;
       const idempotency = options?.idempotency;
       if (idempotency) {
         const replay = await replayPayout(tx, { tenantId, operatorId, paidByUserId, idempotency });
         if (replay) return { replay };
       }
+      // Cuenta cambiada hace menos de 48 h: a ella aún no (en efectivo, sí).
+      const tooNew = payoutAccountTooNew(operator, rail, new Date());
+      if (tooNew) throw tooNew;
       await options?.inTransaction?.(tx);
       // Un hash on-chain solo vale para un pago del local.
       const txId = options?.externalTxId?.trim();
@@ -1252,6 +1396,8 @@ export class OperatorsService {
     this.logger.log(
       `Payout ${result.payout.id} created operator=${operatorId} total=${result.payout.totalCents}c earnings=${result.count}`,
     );
+    // «Te han pagado 37,50 €» a su móvil, sin esperar: el pago ya está apuntado.
+    this.staffPush?.payoutMade({ tenantId, operatorId, payoutId: result.payout.id, totalCents: result.payout.totalCents });
 
     return {
       id: result.payout.id,
@@ -1356,6 +1502,10 @@ export class OperatorsService {
       payoutAddress?: string | null;
       payoutMetadata?: Record<string, unknown> | null;
       payoutLabel?: string | null;
+      payoutAddressMasked?: string | null;
+      payoutHolderMasked?: string | null;
+      payoutAccountChangedAt?: Date | null;
+      payoutHoldUntil?: Date | null;
       phone?: string | null;
       passportCountry?: string | null;
       passportLast4?: string | null;
@@ -1371,6 +1521,18 @@ export class OperatorsService {
       onboardingStatus?: string;
       onboardingNotes?: string | null;
     };
+    // La cuenta y el titular, siempre tapados (enteros: revealPayoutAccount).
+    const stored: StoredPayoutAccount = {
+      id: u.id,
+      payoutMethod: u.payoutMethod ?? null,
+      payoutAddress: u.payoutAddress ?? null,
+      payoutMetadata: u.payoutMetadata ?? null,
+      payoutLabel: u.payoutLabel ?? null,
+      payoutAddressMasked: u.payoutAddressMasked,
+      payoutHolderMasked: u.payoutHolderMasked,
+    };
+    const masked = maskedPayoutAccount(stored);
+    const holdUntil = u.payoutHoldUntil && u.payoutHoldUntil.getTime() > Date.now() ? u.payoutHoldUntil : null;
     return {
       id: u.id,
       email: u.email,
@@ -1379,10 +1541,14 @@ export class OperatorsService {
       active: u.deletedAt === null,
       invitedAt: u.invitedAt?.toISOString() ?? null,
       createdAt: u.createdAt.toISOString(),
-      payoutMethod: (u.payoutMethod ?? null) as OperatorPublicView['payoutMethod'],
-      payoutAddress: u.payoutAddress ?? null,
-      payoutMetadata: (u.payoutMetadata ?? null) as OperatorPublicView['payoutMetadata'],
+      payoutMethod: masked.method,
+      payoutAddressMasked: masked.addressMasked,
+      payoutMetadata: masked.metadata,
+      payoutHolderMasked: masked.holderMasked,
+      payoutHolderMismatch: this.holderMismatch(stored, u.displayName),
       payoutLabel: u.payoutLabel ?? null,
+      payoutAccountChangedAt: u.payoutAccountChangedAt?.toISOString() ?? null,
+      payoutHoldUntil: holdUntil?.toISOString() ?? null,
       phone: u.phone ?? null,
       passportCountry: u.passportCountry ?? null,
       passportLast4: u.passportLast4 ?? null,
@@ -1399,6 +1565,44 @@ export class OperatorsService {
       onboardingNotes: u.onboardingNotes ?? null,
     };
   }
+
+  /**
+   * ¿El titular no se parece a su nombre? Aviso para el dueño (no bloquea).
+   * Hay que abrir el titular: si no se puede (otra ENCRYPTION_KEK), sin aviso.
+   */
+  private holderMismatch(stored: StoredPayoutAccount, name: string | null): boolean {
+    if (!(stored.payoutMetadata as PayoutMetadata | null)?.accountHolder) return false;
+    try {
+      return !holderMatchesName(openPayoutAccount(stored).metadata?.accountHolder, name);
+    } catch (err) {
+      this.logger.warn(`No se puede abrir el titular de ${stored.id}: ${(err as Error).message}`);
+      return false;
+    }
+  }
+}
+
+/** Los cambios del panel para el registro: la cuenta y el titular, tapados. */
+function maskedChanges(changes: Omit<UpdateOperatorDto, 'totpCode'>, method: string | null): Record<string, unknown> {
+  const out: Record<string, unknown> = { ...changes };
+  if (changes.payoutAddress !== undefined) out.payoutAddress = maskPayoutAddress(method, changes.payoutAddress);
+  if (changes.payoutMetadata) out.payoutMetadata = maskedMetadata(changes.payoutMetadata);
+  return out;
+}
+
+function maskedMetadata(meta: PayoutMetadata): PayoutMetadata {
+  return meta.accountHolder ? { ...meta, accountHolder: maskHolderName(meta.accountHolder) ?? undefined } : meta;
+}
+
+/** La cuenta que propuso la compañera (enlace de encargado, o ya tenía), tapada para el registro. */
+function proposedPayoutForAudit(dto: SelfOnboardingSubmitDto): Record<string, unknown> {
+  const method = dto.payoutMethod ?? null;
+  const metadata = payoutMetadataFor(method, dto.payoutMetadata) ?? dto.payoutMetadata ?? null;
+  return {
+    method,
+    address: maskPayoutAddress(method, dto.payoutAddress ?? null),
+    label: dto.payoutLabel ?? null,
+    ...(metadata ? { metadata: maskedMetadata(metadata) } : {}),
+  };
 }
 
 function escapeHtml(value: string): string {
@@ -1408,13 +1612,4 @@ function escapeHtml(value: string): string {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;');
-}
-
-/** La cuenta de cobro de una chica, para el registro (operator.payout_account_changed). */
-function payoutAccountOf(u: {
-  payoutMethod?: string | null;
-  payoutAddress?: string | null;
-  payoutLabel?: string | null;
-}): { payoutMethod: string | null; payoutAddress: string | null; payoutLabel: string | null } {
-  return { payoutMethod: u.payoutMethod ?? null, payoutAddress: u.payoutAddress ?? null, payoutLabel: u.payoutLabel ?? null };
 }

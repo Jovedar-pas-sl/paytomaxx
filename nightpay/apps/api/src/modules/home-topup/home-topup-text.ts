@@ -76,8 +76,53 @@ export interface HomeTopUpText {
   receiptShowNoQr: string;
   /** Con el QR: con él dan la primera ficha, y la imagen se queda guardada. */
   receiptPrivate: string;
+  /**
+   * «Regala una noche»: «Para regalar» en esta página, la página del regalo
+   * (/r/regalo/<token>) y «Comparte tu regalo». Lo que tiene efecto legal
+   * (no se devuelve, caduca sin guardar) va aparte: GIFT_LEGAL_TEXT.
+   */
+  gift: {
+    /** ¿Para quién? (la elección, para lectores de pantalla) */
+    choiceLabel: string;
+    choiceMe: string;
+    choiceGift: string;
+    /** «Regala saldo para {venue}». */
+    heading: string;
+    advantage: string;
+    stepChoose: string;
+    stepShare: string;
+    /** Solo en este local (sin grupo). */
+    onlyHere: string;
+    amountLegend: string;
+    nameLabel: string;
+    messageLabel: string;
+    /** «Regalar 50 €» (sin comisión; con ella, `goFee`). */
+    go: string;
+    /** La página del regalo (quien lo recibe). */
+    title: string;
+    /** «Te han regalado {amount} en {venue}». */
+    received: string;
+    forName: string;
+    save: string;
+    saveHint: string;
+    saveBefore: string;
+    claimedTitle: string;
+    claimedBody: string;
+    expiredTitle: string;
+    expiredBody: string;
+    /** «Comparte tu regalo» (quien lo pagó, tras pagar). */
+    shareTitle: string;
+    shareBody: string;
+    shareLinkLabel: string;
+    shareWhatsapp: string;
+    shareCopy: string;
+    shareCopied: string;
+    /** El texto del mensaje de WhatsApp (con el enlace). */
+    shareText: string;
+    sharePrivate: string;
+  };
   /** Los `code` de los errores de esta función (los demás, los de siempre: client-errors.ts). */
-  errors: { HOME_TOPUP_GONE: string; HOME_TOPUP_BUSY: string; HOME_TOPUP_UNAVAILABLE: string; HOME_TOPUP_DAILY: string };
+  errors: { HOME_TOPUP_GONE: string; HOME_TOPUP_BUSY: string; HOME_TOPUP_UNAVAILABLE: string; HOME_TOPUP_DAILY: string; GIFT_TEXT: string };
 }
 
 const ES: HomeTopUpText = {
@@ -128,11 +173,44 @@ const ES: HomeTopUpText = {
   receiptShow: 'Enséñalo en recepción y te dan tu ficha.',
   receiptShowNoQr: 'Al llegar, paga con tu móvil o dile este código en recepción.',
   receiptPrivate: 'Es personal: no lo compartas.',
+  gift: {
+    choiceLabel: '¿Para quién es?',
+    choiceMe: 'Para mí',
+    choiceGift: 'Para regalar',
+    heading: 'Regala saldo para {venue}',
+    advantage: 'Quien lo recibe lo guarda en su móvil y lo gasta cuando venga.',
+    stepChoose: 'Elige cuánto y, si quieres, escribe su nombre y un mensaje.',
+    stepShare: 'Comparte el enlace del regalo: lo guarda en su móvil.',
+    onlyHere: 'El regalo solo vale en {venue}.',
+    amountLegend: '¿Cuánto quieres regalar?',
+    nameLabel: 'Su nombre (opcional)',
+    messageLabel: 'Un mensaje (opcional)',
+    go: 'Regalar {amount}',
+    title: 'Un regalo para ti',
+    received: 'Te han regalado {amount} en {venue}',
+    forName: 'Para {name}',
+    save: 'Guardar en mi móvil',
+    saveHint: 'Lo guardas con Face ID o con un PIN. Después solo lo puedes usar tú.',
+    saveBefore: 'Guárdalo antes del {date}.',
+    claimedTitle: 'Este regalo ya se ha guardado',
+    claimedBody: 'Ya está en el móvil de quien lo guardó.',
+    expiredTitle: 'Este regalo ha caducado',
+    expiredBody: 'Nadie lo guardó a tiempo. Pregunta en el local.',
+    shareTitle: 'Comparte tu regalo',
+    shareBody: 'Regalo de {amount} para {venue}. Envía este enlace a quien se lo regalas: con él lo guarda en su móvil.',
+    shareLinkLabel: 'Enlace del regalo',
+    shareWhatsapp: 'Enviar por WhatsApp',
+    shareCopy: 'Copiar enlace',
+    shareCopied: '✓ Enlace copiado',
+    shareText: 'Te he regalado {amount} para {venue}: {url}',
+    sharePrivate: 'Quien tenga el enlace puede guardar el regalo: envíalo solo a esa persona.',
+  },
   errors: {
     HOME_TOPUP_GONE: 'Este enlace ya no vale. Pide al local su enlace de ahora.',
     HOME_TOPUP_BUSY: 'Ahora hay muchas cargas a la vez en este local. Prueba en unos minutos.',
     HOME_TOPUP_UNAVAILABLE: 'Ahora no se puede cargar saldo desde aquí. Pregunta en el local.',
     HOME_TOPUP_DAILY: 'Has hecho muchas cargas hoy desde esta conexión. Prueba con los datos del móvil o pide tu saldo en recepción.',
+    GIFT_TEXT: 'El nombre va hasta 40 letras y el mensaje hasta 120.',
   },
 };
 
@@ -184,11 +262,44 @@ const EN: HomeTopUpText = {
   receiptShow: 'Show it at reception to get your NFC tag.',
   receiptShowNoQr: 'When you arrive, pay with your phone or give this code at reception.',
   receiptPrivate: 'It’s personal: don’t share it.',
+  gift: {
+    choiceLabel: 'Who is it for?',
+    choiceMe: 'For me',
+    choiceGift: 'As a gift',
+    heading: 'Gift balance for {venue}',
+    advantage: 'They save it on their phone and spend it whenever they come.',
+    stepChoose: 'Choose how much and, if you like, add their name and a message.',
+    stepShare: 'Share the gift link: they save it on their phone.',
+    onlyHere: 'The gift can only be used at {venue}.',
+    amountLegend: 'How much do you want to give?',
+    nameLabel: 'Their name (optional)',
+    messageLabel: 'A message (optional)',
+    go: 'Give {amount}',
+    title: 'A gift for you',
+    received: 'You’ve been given {amount} at {venue}',
+    forName: 'For {name}',
+    save: 'Save on my phone',
+    saveHint: 'You save it with Face ID or a PIN. After that, only you can use it.',
+    saveBefore: 'Save it before {date}.',
+    claimedTitle: 'This gift has already been saved',
+    claimedBody: 'It’s already on the phone of whoever saved it.',
+    expiredTitle: 'This gift has expired',
+    expiredBody: 'Nobody saved it in time. Ask at the venue.',
+    shareTitle: 'Share your gift',
+    shareBody: 'A {amount} gift for {venue}. Send this link to the person it’s for: they use it to save it on their phone.',
+    shareLinkLabel: 'Gift link',
+    shareWhatsapp: 'Send by WhatsApp',
+    shareCopy: 'Copy link',
+    shareCopied: '✓ Link copied',
+    shareText: 'I’ve given you {amount} for {venue}: {url}',
+    sharePrivate: 'Anyone with the link can save the gift: send it only to that person.',
+  },
   errors: {
     HOME_TOPUP_GONE: 'This link is no longer valid. Ask the venue for its current link.',
     HOME_TOPUP_BUSY: 'There are many loads at once at this venue right now. Try again in a few minutes.',
     HOME_TOPUP_UNAVAILABLE: 'You can’t load a balance from here right now. Ask at the venue.',
     HOME_TOPUP_DAILY: 'You’ve started a lot of loads from this connection today. Try your mobile data or ask for your balance at reception.',
+    GIFT_TEXT: 'The name can be up to 40 characters and the message up to 120.',
   },
 };
 
@@ -240,11 +351,44 @@ const FR: HomeTopUpText = withFrenchSpacing({
   receiptShow: 'Montrez-le à l’accueil pour recevoir votre badge NFC.',
   receiptShowNoQr: 'En arrivant, payez avec votre téléphone ou donnez ce code à l’accueil.',
   receiptPrivate: 'Il est personnel : ne le partagez pas.',
+  gift: {
+    choiceLabel: 'C’est pour qui ?',
+    choiceMe: 'Pour moi',
+    choiceGift: 'Pour offrir',
+    heading: 'Offrez du solde pour {venue}',
+    advantage: 'La personne l’enregistre sur son téléphone et le dépense quand elle vient.',
+    stepChoose: 'Choisissez le montant et, si vous voulez, son prénom et un message.',
+    stepShare: 'Partagez le lien du cadeau : elle l’enregistre sur son téléphone.',
+    onlyHere: 'Le cadeau n’est valable qu’à {venue}.',
+    amountLegend: 'Combien voulez-vous offrir ?',
+    nameLabel: 'Son prénom (facultatif)',
+    messageLabel: 'Un message (facultatif)',
+    go: 'Offrir {amount}',
+    title: 'Un cadeau pour vous',
+    received: 'On vous a offert {amount} à {venue}',
+    forName: 'Pour {name}',
+    save: 'Enregistrer sur mon téléphone',
+    saveHint: 'Vous l’enregistrez avec Face ID ou un code PIN. Ensuite, vous seul pouvez l’utiliser.',
+    saveBefore: 'Enregistrez-le avant le {date}.',
+    claimedTitle: 'Ce cadeau a déjà été enregistré',
+    claimedBody: 'Il est déjà sur le téléphone de la personne qui l’a enregistré.',
+    expiredTitle: 'Ce cadeau a expiré',
+    expiredBody: 'Personne ne l’a enregistré à temps. Renseignez-vous sur place.',
+    shareTitle: 'Partagez votre cadeau',
+    shareBody: 'Cadeau de {amount} pour {venue}. Envoyez ce lien à la personne à qui vous l’offrez : avec lui, elle l’enregistre sur son téléphone.',
+    shareLinkLabel: 'Lien du cadeau',
+    shareWhatsapp: 'Envoyer par WhatsApp',
+    shareCopy: 'Copier le lien',
+    shareCopied: '✓ Lien copié',
+    shareText: 'Je t’offre {amount} pour {venue} : {url}',
+    sharePrivate: 'Toute personne qui a le lien peut enregistrer le cadeau : envoyez-le seulement à elle.',
+  },
   errors: {
     HOME_TOPUP_GONE: 'Ce lien n’est plus valable. Demandez à l’établissement son lien actuel.',
     HOME_TOPUP_BUSY: 'Il y a beaucoup de chargements en même temps ici. Réessayez dans quelques minutes.',
     HOME_TOPUP_UNAVAILABLE: 'Impossible de charger le solde d’ici pour l’instant. Renseignez-vous sur place.',
     HOME_TOPUP_DAILY: 'Vous avez fait beaucoup de chargements aujourd’hui depuis cette connexion. Essayez avec vos données mobiles ou demandez votre solde à l’accueil.',
+    GIFT_TEXT: 'Le prénom fait 40 caractères au plus et le message 120.',
   },
 });
 
@@ -296,15 +440,48 @@ const PT: HomeTopUpText = {
   receiptShow: 'Mostre-o na receção para receber a sua tag NFC.',
   receiptShowNoQr: 'Quando chegar, pague com o telemóvel ou diga este código na receção.',
   receiptPrivate: 'É pessoal: não o partilhe.',
+  gift: {
+    choiceLabel: 'Para quem é?',
+    choiceMe: 'Para mim',
+    choiceGift: 'Para oferecer',
+    heading: 'Ofereça saldo para {venue}',
+    advantage: 'Quem o recebe guarda-o no telemóvel e gasta-o quando vier.',
+    stepChoose: 'Escolha quanto e, se quiser, escreva o nome e uma mensagem.',
+    stepShare: 'Partilhe a ligação do presente: a pessoa guarda-o no telemóvel.',
+    onlyHere: 'O presente só é válido em {venue}.',
+    amountLegend: 'Quanto quer oferecer?',
+    nameLabel: 'O nome (opcional)',
+    messageLabel: 'Uma mensagem (opcional)',
+    go: 'Oferecer {amount}',
+    title: 'Um presente para si',
+    received: 'Ofereceram-lhe {amount} em {venue}',
+    forName: 'Presente para {name}',
+    save: 'Guardar no meu telemóvel',
+    saveHint: 'Guarda-o com Face ID ou com um PIN. Depois, só você o pode usar.',
+    saveBefore: 'Guarde-o antes de {date}.',
+    claimedTitle: 'Este presente já foi guardado',
+    claimedBody: 'Já está no telemóvel de quem o guardou.',
+    expiredTitle: 'Este presente expirou',
+    expiredBody: 'Ninguém o guardou a tempo. Pergunte no local.',
+    shareTitle: 'Partilhe o seu presente',
+    shareBody: 'Presente de {amount} para {venue}. Envie esta ligação a quem o oferece: com ela, a pessoa guarda-o no telemóvel.',
+    shareLinkLabel: 'Ligação do presente',
+    shareWhatsapp: 'Enviar pelo WhatsApp',
+    shareCopy: 'Copiar ligação',
+    shareCopied: '✓ Ligação copiada',
+    shareText: 'Ofereci-te {amount} para {venue}: {url}',
+    sharePrivate: 'Quem tiver a ligação pode guardar o presente: envie-a só a essa pessoa.',
+  },
   errors: {
     HOME_TOPUP_GONE: 'Esta ligação já não é válida. Peça ao estabelecimento a ligação atual.',
     HOME_TOPUP_BUSY: 'Há muitos carregamentos ao mesmo tempo neste estabelecimento. Tente daqui a uns minutos.',
     HOME_TOPUP_UNAVAILABLE: 'Agora não é possível carregar saldo a partir daqui. Pergunte no local.',
     HOME_TOPUP_DAILY: 'Fez muitos carregamentos hoje a partir desta ligação. Experimente com os dados móveis ou peça o seu saldo na receção.',
+    GIFT_TEXT: 'O nome tem no máximo 40 caracteres e a mensagem 120.',
   },
 };
 
 export const HOME_TOPUP_TEXT: Readonly<Record<PayLanguage, HomeTopUpText>> = Object.freeze({ es: ES, en: EN, fr: FR, pt: PT });
 
 /** Los `code` de error propios de esta función. */
-export const HOME_TOPUP_ERROR_CODES = ['HOME_TOPUP_GONE', 'HOME_TOPUP_BUSY', 'HOME_TOPUP_UNAVAILABLE', 'HOME_TOPUP_DAILY'] as const;
+export const HOME_TOPUP_ERROR_CODES = ['HOME_TOPUP_GONE', 'HOME_TOPUP_BUSY', 'HOME_TOPUP_UNAVAILABLE', 'HOME_TOPUP_DAILY', 'GIFT_TEXT'] as const;

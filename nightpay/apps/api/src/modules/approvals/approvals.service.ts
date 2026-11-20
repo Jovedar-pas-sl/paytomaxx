@@ -192,7 +192,7 @@ export class ApprovalsService {
 async function assertSameAccount(tx: TransactionalClient, tenantId: string, p: PayoutPayload): Promise<void> {
   const saved = await tx.user.findFirst({
     where: { id: p.operatorId, tenantId },
-    select: { payoutMethod: true, payoutAddress: true },
+    select: { id: true, payoutMethod: true, payoutAddress: true },
   });
   if (!saved || accountFingerprint(saved) !== p.accountFingerprint) {
     throw payoutChanged('La cuenta de cobro de la chica ha cambiado desde que se pidió: revísala y que lo pidan otra vez.');

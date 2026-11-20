@@ -66,9 +66,32 @@ describe('acciones delicadas: el dueño tiene que poder verlas', () => {
     expect(i.alertDetail).toMatch(/^Alguien del personal ha desbloqueado/);
   });
 
+  it('cuenta de cobro cambiada: quién y a quién en el panel, sin nombres ni cuenta en Telegram', () => {
+    const payload = { via: 'panel', name: 'Lola', after: { payoutAddress: 'ES91 •••• •••• 1332' } };
+    const panel = sensitiveActionIncident(row('operator.payout_account_changed', { payload, amountCents: null }));
+    expect(panel).toMatchObject({ kind: 'sensitive_action', title: 'Cuenta de cobro cambiada', ackable: true, paymentId: null });
+    expect(panel.detail).toMatch(/^Javi ha cambiado la cuenta de cobro de una compañera/);
+    expect(panel.detail).toContain('(Lola)');
+    expect(panel.alertDetail).toMatch(/^Alguien del personal ha cambiado la cuenta de cobro/);
+    expect(panel.alertDetail).not.toContain('Lola');
+    expect(panel.alertDetail).not.toContain('1332');
+  });
+
+  it('cuenta de cobro: por el enlace de alta o por OxioPay, otro texto; el titular que no se parece, avisado', () => {
+    const link = sensitiveActionIncident(row('operator.payout_account_changed', { payload: { via: 'enlace', name: 'Lola' }, actorName: 'Lola' }));
+    expect(link.title).toBe('Cuenta de cobro puesta con el enlace de alta');
+    expect(link.detail).toMatch(/^Una compañera ha puesto su cuenta de cobro/);
+    const support = sensitiveActionIncident(row('operator.payout_account_changed', { payload: { via: 'oxiopay', name: 'Lola' }, actorName: 'Soporte' }));
+    expect(support.title).toBe('OxioPay ha cambiado una cuenta de cobro');
+    expect(support.detail).not.toContain('Soporte');
+    const mismatch = sensitiveActionIncident(row('operator.payout_account_changed', { payload: { via: 'panel', name: 'Lola', holderMismatch: true } }));
+    expect(mismatch.detail).toContain('El titular no se parece a su nombre');
+    expect(mismatch.alertDetail).toContain('El titular no se parece a su nombre');
+  });
+
   it('todas las que vigila tienen su texto', () => {
     expect(SENSITIVE_AUDIT_ACTIONS).toEqual(
-      expect.arrayContaining(['wallet.merged_large', 'wallet.activation_not_new', 'wallet.pin_reset', 'wallet.pin_unlocked', 'venue.night_settings.updated']),
+      expect.arrayContaining(['wallet.merged_large', 'wallet.activation_not_new', 'wallet.pin_reset', 'wallet.pin_unlocked', 'venue.night_settings.updated', 'operator.payout_account_changed']),
     );
     for (const a of SENSITIVE_AUDIT_ACTIONS) expect(sensitiveActionIncident(row(a)).title).not.toBe('Acción delicada');
   });

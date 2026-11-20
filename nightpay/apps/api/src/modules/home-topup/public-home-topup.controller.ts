@@ -22,6 +22,8 @@ import { HomeTopUpService } from './home-topup.service';
  *                              móvil (cookie firmada, la pone GET ?cola=) y por noche.
  *  - GET  /r/:code/mi-saldo  → «Recargar mi saldo»: a la página del saldo que
  *                              recuerda este navegador, en «Recargar» (303).
+ *  - GET  /r/:code?regalo=1  → «Para regalar» (con «Regalos» encendido; el
+ *                              regalo y su página: PublicHomeTopUpGiftController).
  * El enlace es público a propósito (decisión del dueño): cualquiera con él
  * carga. La página no enseña nada de nadie: el saldo que recuerda el
  * navegador, solo con su código tapado (K7Q-•••).
@@ -41,6 +43,8 @@ export class PublicHomeTopUpController {
     /** El QR del cartel de la cola (B16). */
     @Query(QUEUE_PARAM) queueToken?: string,
     @Req() req?: FastifyRequest,
+    /** «Para regalar» (solo con «Regalos» encendido; si no, la página de siempre). */
+    @Query('regalo') gift?: string,
   ): Promise<void> {
     const { lang, setCookie } = customerLanguage(langQuery, cookies);
     const view = await this.homeTopUps.page(code, cookies, typeof queueToken === 'string' ? queueToken : undefined);
@@ -54,7 +58,7 @@ export class PublicHomeTopUpController {
       return;
     }
     const shown = device?.refused && view.queue && 'token' in view.queue ? { ...view, queue: { token: view.queue.token, noDevice: true as const } } : view;
-    sendHtml(res, 200, renderHomeTopUpPage(code, lang, shown));
+    sendHtml(res, 200, renderHomeTopUpPage(code, lang, shown, gift === '1' ? 'gift' : 'load'));
   }
 
   @Public()

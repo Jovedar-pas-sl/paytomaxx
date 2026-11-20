@@ -49,23 +49,28 @@ describe('D10: el momento PAGADO, una vez', () => {
     expect(STAFF).toMatch(/@keyframes np-outcome-flash \{\s*0%\s+\{ opacity: 0;\s*\}\s*30%\s+\{ opacity: 0\.55;\s*\}\s*100%\s+\{ opacity: 0;\s*\}/);
   });
 
-  it('el ✓ se dibuja: el círculo en 380 ms, el palo en 260 ms, y queda dibujado', () => {
-    expect(rule(STAFF, '.np-check-ring')).toMatch(/animation: np-check-ring 380ms ease-out 1 both/);
-    expect(rule(STAFF, '.np-check-tick')).toMatch(/animation: np-check-tick 260ms ease-out 330ms 1 both/);
-    expect(STAFF).toMatch(/@keyframes np-check-ring \{\s*from \{ stroke-dashoffset: 302; \}\s*to\s+\{ stroke-dashoffset: 0;\s*\}/);
-    expect(OUTCOME).toContain('className="np-check-ring"');
-    expect(OUTCOME).toContain('className="np-check-tick"');
+  it('una sola marca de hecho: disco lima con ✓ de tinta que salta y se dibuja, sin aro verde', () => {
+    const done = rule(STAFF, '.np-done');
+    expect(done).toMatch(/background: var\(--np-lime\)/);
+    expect(done).toMatch(/color: var\(--np-ink\)/);
+    expect(done).toMatch(/animation: np-done-pop var\(--np-d-moment\) var\(--np-ease-pop\) 1 both;/);
+    expect(done).not.toMatch(/box-shadow|filter/);
+    expect(rule(STAFF, '.np-done path')).toMatch(/animation: np-done-draw var\(--np-d-moment\) var\(--np-ease\) 120ms 1 both/);
+    expect(read('../../../../packages/ui/src/components/DoneMark.tsx')).toContain('pathLength={1}');
+    expect(OUTCOME).toContain('<DoneMark />');
+    expect(STAFF).not.toContain('np-check');
+    expect(STYLES).not.toContain('outcome-tick-ring');
   });
 
-  it('CARGADO conserva su marca: aro que salta y ✓ con pathLength', () => {
-    expect(STAFF).toMatch(/\.np-outcome\[data-kind='paid'\] \.np-outcome-ring:not\(:has\(\.np-check\)\) \{[^}]*animation: np-outcome-pop var\(--np-d-moment\) var\(--np-ease-pop\) 1 both;/);
-    expect(read('../components/reception/desk/DeskLoaded.tsx')).toContain('pathLength={1}');
+  it('PAGADO, CARGADO, su banda y la pantalla del cliente usan la misma marca', () => {
+    expect(read('../components/reception/desk/DeskLoaded.tsx').match(/<DoneMark/g)).toHaveLength(2);
+    expect(read('../components/pantalla/PantallaCliente.tsx')).toContain('<DoneMark');
   });
 
   it('con «reducir movimiento»: sin destello ni animación, solo el estado final', () => {
     const reduce = STAFF.slice(STAFF.lastIndexOf('@media (prefers-reduced-motion: reduce)'));
     expect(reduce).toMatch(/\.np-outcome\[data-kind='paid'\]::after \{\s*display: none;/);
-    expect(reduce).toMatch(/\.np-check-ring,\s*\.np-check-tick \{\s*animation: none !important;\s*stroke-dashoffset: 0;/);
+    expect(reduce).toMatch(/\.np-done,\s*\.np-done path \{\s*animation: none !important;\s*stroke-dashoffset: 0;/);
   });
 });
 

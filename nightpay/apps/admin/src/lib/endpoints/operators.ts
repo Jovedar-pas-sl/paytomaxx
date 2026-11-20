@@ -1,6 +1,12 @@
 // Operadoras: alta, edición, ganancias, liquidaciones y tesorería.
 
-import type { ApprovalRequestedResponse, BankHoldList, BankReleaseResult, ReleaseBankHoldDto } from '@nightpay/contracts';
+import type {
+  ApprovalRequestedResponse,
+  BankHoldList,
+  BankReleaseResult,
+  PayoutAccountFull,
+  ReleaseBankHoldDto,
+} from '@nightpay/contracts';
 import { apiError, authedFetch, totpAwareError } from '../http';
 
 export interface OperatorBalance {
@@ -68,11 +74,19 @@ export interface Operator {
   invitedAt: string | null;
   createdAt: string;
   balance: OperatorBalance;
-  // Phase 1A — payout
+  // Phase 1A — payout. La cuenta llega siempre tapada; entera, solo el dueño
+  // con «Ver cuenta para pagar» (revealOperatorPayoutAccount, 2FA).
   payoutMethod?: PayoutMethod | null;
-  payoutAddress?: string | null;
+  payoutAddressMasked?: string | null;
+  /** Banco, SWIFT y país (el titular va tapado aparte). */
   payoutMetadata?: PayoutMetadata | null;
+  payoutHolderMasked?: string | null;
+  /** El titular no se parece a su nombre: aviso para el dueño. */
+  payoutHolderMismatch?: boolean;
   payoutLabel?: string | null;
+  payoutAccountChangedAt?: string | null;
+  /** Cuenta cambiada hace menos de 48 h: hasta entonces no se le paga a ella (salvo en efectivo). */
+  payoutHoldUntil?: string | null;
   // Phase 1A.1 — onboarding
   phone?: string | null;
   passportCountry?: string | null;
@@ -196,13 +210,26 @@ export async function updateOperator(
     needsHelpDocs?: boolean;
     onboardingStatus?: OnboardingStatus;
     onboardingNotes?: string | null;
-    /** Código 2FA: lo pide el API (TOTP_REQUIRED) al cambiar la cuenta de cobro si el dueño tiene la 2FA. */
+    /** Código 2FA: cambiar la cuenta de cobro lo pide siempre (sin 2FA activada, el API dice que la active). */
     totpCode?: string;
   },
 ): Promise<Omit<Operator, 'balance'>> {
   const res = await authedFetch(`/v1/admin/operators/${id}`, {
     method: 'PATCH',
     body: JSON.stringify(input),
+  });
+  if (!res.ok) throw await totpAwareError(res);
+  return res.json();
+}
+
+/**
+ * «Ver cuenta para pagar»: la cuenta entera (y el titular) de una compañera.
+ * Solo el dueño y con su código 2FA; queda en el registro, tapada.
+ */
+export async function revealOperatorPayoutAccount(id: string, totpCode: string): Promise<PayoutAccountFull> {
+  const res = await authedFetch(`/v1/admin/operators/${id}/payout-account/reveal`, {
+    method: 'POST',
+    body: JSON.stringify({ totpCode }),
   });
   if (!res.ok) throw await totpAwareError(res);
   return res.json();

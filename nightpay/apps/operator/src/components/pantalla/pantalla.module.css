@@ -409,8 +409,7 @@
 }
 
 .tick {
-  width: clamp(5rem, 18vmin, 11rem);
-  height: clamp(5rem, 18vmin, 11rem);
+  --np-done-size: clamp(5rem, 18vmin, 11rem);
 }
 
 .paidWord {

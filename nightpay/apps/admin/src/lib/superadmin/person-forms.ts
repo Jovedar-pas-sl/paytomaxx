@@ -3,7 +3,7 @@
 
 import type { CreateStaffUserDto, PayoutMethod, Role } from '@nightpay/contracts';
 import { parsePercentToBps } from '../commission';
-import { payoutAddressError, type PayoutValue } from '../payout-address';
+import { payoutValueProblem, type PayoutValue } from '../payout-address';
 import type { FormResult } from './forms';
 
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -75,7 +75,8 @@ export function payoutUpdatePayload(value: PayoutValue | null): FormResult<Payou
     };
   }
   const address = value.address ?? '';
-  const problem = payoutAddressError(value.method, address);
+  // La cuenta del método y, en SEPA y SWIFT, el titular (el banco lo pide).
+  const problem = payoutValueProblem(value);
   if (problem) return { ok: false, error: problem };
   return {
     ok: true,

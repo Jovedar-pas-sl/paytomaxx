@@ -14,6 +14,7 @@ import { customerCardDestination } from '@/lib/customer-card';
 import { clearFichaContext } from '@/lib/ficha-context';
 import { captureInviteFromUrl } from '@/lib/invite-link';
 import { useOpenCharges } from '@/lib/open-charges';
+import { forgetPushHere } from '@/lib/payout-push';
 import { afterRelogin, shellView, withProfile } from '@/lib/session-resume';
 import { clearTabFromUrl } from '@/lib/use-url-tab';
 import { PASS_OPENED_LOGGED_OUT_TEXT } from '@/lib/wallet-pass';
@@ -86,6 +87,8 @@ export default function Page() {
   function handleLogout() {
     // Ya fuera: un sondeo que caduque ahora mismo no dice «Tu sesión ha caducado».
     loggedIn.current = false;
+    // Este móvil deja de avisar de los pagos de quien sale (si entra otra persona, no los ve).
+    void forgetPushHere();
     const closed = logout();
     // Quien entre después empieza en Inicio (la pestaña iba en la URL).
     clearTabFromUrl();

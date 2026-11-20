@@ -13,10 +13,11 @@ function setup(updated: number[] = []) {
       sql.push(Prisma.sql(strings, ...values));
       return queue.shift() ?? 0;
     }),
+    walletGift: { updateMany: vi.fn(async () => ({ count: 0 })) },
   };
   const prisma = { asSystem: vi.fn(async (fn: (t: typeof tx) => unknown) => fn(tx)) };
   const redis = createFakeRedis();
-  return { svc: new DeviceIpRetentionService(prisma as never, redis as never), sql };
+  return { svc: new DeviceIpRetentionService(prisma as never, redis as never), sql, tx };
 }
 
 afterEach(() => {
@@ -65,5 +66,18 @@ describe('la IP de los dispositivos de los cobros se borra a los 90 días', () =
     const { svc } = setup();
     vi.spyOn(svc, 'eraseOld').mockRejectedValueOnce(new Error('base caída'));
     await expect(svc.maybeRun(NOW)).resolves.toBe(0);
+  });
+
+  it('el nombre y el mensaje de los regalos se borran aunque lo de las IP falle o esté apagado', async () => {
+    const failing = setup();
+    vi.spyOn(failing.svc, 'eraseOld').mockRejectedValueOnce(new Error('base caída'));
+    await failing.svc.maybeRun(NOW);
+    expect(failing.tx.walletGift.updateMany).toHaveBeenCalled();
+
+    vi.stubEnv('NIGHTPAY_DISABLE_DEVICE_IP_RETENTION', '1');
+    const off = setup([1]);
+    expect(await off.svc.maybeRun(NOW)).toBe(0);
+    expect(off.sql).toHaveLength(0);
+    expect(off.tx.walletGift.updateMany).toHaveBeenCalled();
   });
 });

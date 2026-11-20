@@ -122,6 +122,8 @@ export type PayRedirect =
       approvedClaimHash?: string | null;
       /** Reservados: el navegador que lo pagó (con tarjeta o con bitcoin) vuelve a la página del reservado. */
       reservation?: true;
+      /** Regalos: el navegador que lo pagó va a «Comparte tu regalo». */
+      gift?: true;
     }
   | { kind: 'processing' }
   | { kind: 'closed'; reason: PayClosedReason };
@@ -132,6 +134,8 @@ export interface PayResultView {
   paidAfterCancel?: boolean;
   /** Reservados: el pago es de una reserva (al pagarse, vuelta a su página). */
   reservation?: true;
+  /** Regalos: el pago es de un regalo (al pagarse, «Comparte tu regalo»). */
+  gift?: true;
   status: PaymentMachineState;
   amountCents: number;
   tipCents: number;
@@ -313,6 +317,8 @@ export interface PayablePayment {
   approvedClaimHash?: string | null;
   /** Un pago de un reservado (señal, resto o todo): al pagarse, vuelve a su página. */
   reservation?: true;
+  /** Un regalo («Regala una noche»): al pagarse, «Comparte tu regalo». */
+  gift?: true;
   /**
    * Cobro único: el cobro del saldo enlazado (su enlace /s, su estado y su
    * plazo) y si el local cobra con saldo. Sin él, solo tarjeta.
@@ -343,6 +349,7 @@ export function settledPayView(p: PayablePayment, now: Date = new Date()): PayRe
       ...(p.walletFromHome ? { walletFromHome: true } : {}),
       approvedClaimHash: p.approvedClaimHash ?? null,
       ...(p.reservation ? { reservation: true as const } : {}),
+      ...(p.gift ? { gift: true as const } : {}),
     };
   }
   // Cobro único: lo pagó el saldo (el cobro con tarjeta se canceló entonces).

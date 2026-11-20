@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { Prisma } from '@nightpay/db';
 import { TreasuryService } from './treasury.service';
+import { sealPayoutValue } from '../operators/payout-account-crypto';
 
 interface Opts {
   balances?: Array<{ operatorId: string; unpaidCents: bigint; heldCents: bigint; debtCents: bigint }>;
@@ -203,6 +204,25 @@ describe('TreasuryService.verifyPayout — un hash on-chain verifica un solo pag
     });
     await svc.verifyPayout('t-1', 'po-1', 'u-owner', dto);
     expect(verifier.verify).toHaveBeenCalledWith(expect.objectContaining({ expectedToAddress: paidTo }));
+  });
+
+  it('la cuenta guardada cifrada (pa1:…, al pagarle o la de ahora) se abre para compararla con la red', async () => {
+    const kek = 'test_kek_0123456789abcdef0123456789abcdef_v1';
+    const sealed = sealPayoutValue(TRON_TO, { userId: 'op-1', field: 'address' }, kek);
+    const previous = process.env.ENCRYPTION_KEK;
+    process.env.ENCRYPTION_KEK = kek;
+    try {
+      const paid = makeVerify({ payout: { operatorId: 'op-1', paidToAddress: sealed } });
+      await paid.svc.verifyPayout('t-1', 'po-1', 'u-owner', dto);
+      expect(paid.verifier.verify).toHaveBeenCalledWith(expect.objectContaining({ expectedToAddress: TRON_TO }));
+      const now = makeVerify({
+        payout: { operatorId: 'op-1', paidToAddress: null, operator: { id: 'op-1', email: 'c@x.es', tenantId: 't-1', payoutMethod: 'USDT_TRC20', payoutAddress: sealed } },
+      });
+      await now.svc.verifyPayout('t-1', 'po-1', 'u-owner', dto);
+      expect(now.verifier.verify).toHaveBeenCalledWith(expect.objectContaining({ expectedToAddress: TRON_TO }));
+    } finally {
+      process.env.ENCRYPTION_KEK = previous;
+    }
   });
 
   it('un pago de antes de guardar la dirección (NULL): con la de ahora, como hasta ahora', async () => {

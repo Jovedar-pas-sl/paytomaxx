@@ -7,22 +7,25 @@ import { isPayLanguage, type PayLanguage } from '../../payments/customer-lang';
 import { liveWalletId } from '../wallet-merge-chain';
 import { CHARGE_ALERT_TEXT, fillText } from './charge-alert-text';
 import { notMePath, notMeSecret, signNotMeToken } from './not-me-token';
-import { PUSH_SENDER, webPushSender, type PushSender } from './push-sender';
+import {
+  MAX_PUSH_FAILS,
+  PUSH_SENDER,
+  PUSH_TIMEOUT_MS,
+  PUSH_TTL_SECONDS,
+  pushWithRetries,
+  webPushSender,
+  type PushOutcome,
+  type PushSender,
+} from './push-sender';
 import { parsePushSubscription, pushEndpoint } from './push-subscription';
+
+export { MAX_PUSH_FAILS, PUSH_ATTEMPTS } from './push-sender';
 
 /** Las variables de entorno de Web Push (en las pruebas, otras). */
 export const WEB_PUSH_ENV = Symbol('WEB_PUSH_ENV');
 
 /** Navegadores apuntados por saldo como mucho (el más antiguo sale). */
 export const MAX_SUBSCRIPTIONS_PER_WALLET = 5;
-/** Intentos por navegador (el primero y dos reintentos cortos). */
-export const PUSH_ATTEMPTS = 3;
-const RETRY_DELAYS_MS: readonly number[] = [500, 2_000];
-/** Fallos seguidos (sin ser «ya no existe») tras los que se deja de avisar a ese navegador. */
-export const MAX_PUSH_FAILS = 5;
-/** Lo que el servicio guarda el aviso con el móvil apagado: 12 h. */
-const PUSH_TTL_SECONDS = 12 * 60 * 60;
-const PUSH_TIMEOUT_MS = 5_000;
 
 /** Lo que va cifrado dentro del aviso; el service worker lo enseña. */
 export interface ChargePushPayload {
@@ -55,8 +58,6 @@ interface SubscriptionRow {
   lang: string;
   failCount: number;
 }
-
-type SendOutcome = 'sent' | 'gone' | 'failed';
 
 /**
  * «Aviso en cada cobro»: el cliente apunta su móvil desde la página del
@@ -195,33 +196,17 @@ export class ChargeAlertService {
   }
 
   /** Un navegador: hasta PUSH_ATTEMPTS intentos; 404/410 lo borra; muchos fallos seguidos, también. */
-  private async deliver(sub: SubscriptionRow, payload: string, vapid: WebPushSettings): Promise<SendOutcome> {
+  private async deliver(sub: SubscriptionRow, payload: string, vapid: WebPushSettings): Promise<PushOutcome> {
     const target = { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } };
-    let outcome: SendOutcome = 'failed';
-    for (let attempt = 0; attempt < PUSH_ATTEMPTS; attempt += 1) {
-      if (attempt > 0) await this.sleep(RETRY_DELAYS_MS[attempt - 1] ?? 2_000);
-      const status = await this.send(target, payload, { vapid, ttlSeconds: PUSH_TTL_SECONDS, timeoutMs: PUSH_TIMEOUT_MS })
-        .then((r) => r.statusCode)
-        .catch(() => null);
-      if (status !== null && status >= 200 && status < 300) {
-        outcome = 'sent';
-        break;
-      }
-      if (status === 404 || status === 410) {
-        outcome = 'gone';
-        break;
-      }
-      // Sin respuesta, 429 o 5xx: vale la pena reintentar. Otro 4xx no se arregla reintentando.
-      const retry = status === null || status === 429 || status >= 500;
-      if (!retry) break;
-    }
+    const options = { vapid, ttlSeconds: PUSH_TTL_SECONDS, timeoutMs: PUSH_TIMEOUT_MS };
+    const outcome = await pushWithRetries(this.send, target, payload, options, this.sleep);
     await this.record(sub, outcome).catch((err: unknown) => {
       this.logger.warn(`Aviso de cobro: no se ha podido apuntar el resultado (${(err as Error)?.message ?? err})`);
     });
     return outcome;
   }
 
-  private async record(sub: SubscriptionRow, outcome: SendOutcome): Promise<void> {
+  private async record(sub: SubscriptionRow, outcome: PushOutcome): Promise<void> {
     await this.prisma.acrossVenues(async (tx) => {
       if (outcome === 'sent') {
         await tx.walletPushSubscription.updateMany({ where: { id: sub.id }, data: { failCount: 0, lastSentAt: new Date() } });

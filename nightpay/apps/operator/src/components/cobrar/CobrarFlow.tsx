@@ -10,6 +10,7 @@ import {
   addedItemLabel,
   addedItemSpoken,
   itemTileKey,
+  pickable,
   undoTap,
   UNDO_MS,
   type UndoTap,
@@ -35,6 +36,8 @@ import {
 import { useMySections } from '@/lib/sections';
 import { useVenueMethods, useVenueNight } from '@/lib/venue-methods';
 import { nfcSupported } from '@/lib/nfc';
+import { PracticeBlockedError, isPractice } from '@/lib/practice';
+import { setPracticeNextAmount } from '@/lib/practice-sim';
 import { ActivePayment } from '../ActivePayment';
 import { useCarta } from '../carta';
 import { Carta } from './Carta';
@@ -46,7 +49,7 @@ import { IconPlus, IconQr } from './icons';
 import { LaCuenta } from './LaCuenta';
 import { MiQr } from './MiQr';
 import { OtroImporte } from './OtroImporte';
-import { GuiaMenuLink, InstallMenuItem, LogoutMenuItem, MENU_HINTS, MenuOption, useDeviceMenu } from '../staff-menu';
+import { GuiaMenuLink, InstallMenuItem, LogoutMenuItem, MENU_HINTS, MenuOption, PracticeMenuItem, useDeviceMenu } from '../staff-menu';
 import { CustomerDisplaySheet } from '../CustomerDisplaySheet';
 import { ProfileSheet } from '../ProfileSheet';
 import styles from './cobrar.module.css';
@@ -165,6 +168,8 @@ export function CobrarFlow({ user, onCobroDone, onLogout, night, miQrOpen = fals
   const open = useCallback(
     async (pending: Pending, key: string): Promise<CobroAbierto> => {
       const totals = pending.view.totalCents;
+      // En práctica, el simulador no ve precios en las líneas de la carta: se le dice el importe.
+      if (isPractice()) setPracticeNextAmount(totals);
       if (methods.card) {
         // La lista se pide al entrar y puede haber fallado (mala cobertura): sin ella no se cobra, así que otra vez.
         const terminal = terminals[0]?.externalId ?? (await fetchTerminals().then((t) => (setTerminals(t), t[0]?.externalId), () => undefined));
@@ -337,6 +342,7 @@ export function CobrarFlow({ user, onCobroDone, onLogout, night, miQrOpen = fals
 
   /** Tocar una loseta: «Copa» (y el resto) se suma a la cuenta; «Copa con invitación», a escanear el QR de la chica. */
   function pickItem(item: CartaItem) {
+    if (!pickable(item)) return;
     if (tapOf(item) === 'invitar') {
       setError(null);
       go({ kind: 'escanear', invite: item });
@@ -428,6 +434,7 @@ export function CobrarFlow({ user, onCobroDone, onLogout, night, miQrOpen = fals
           }}
         />
         {device.item}
+        <PracticeMenuItem onClose={() => setMenu(false)} />
         <InstallMenuItem />
         <GuiaMenuLink />
         <LogoutMenuItem onLogout={onLogout} />
@@ -544,6 +551,11 @@ export function CobrarFlow({ user, onCobroDone, onLogout, night, miQrOpen = fals
             cuenta={cuenta}
             who={who}
             onItem={pickItem}
+            onSoldOut={(item, soldOut) => {
+              setError(null);
+              haptic();
+              carta.setSoldOut(item.id, soldOut).catch((err: unknown) => setError(err instanceof PracticeBlockedError ? err.message : 'No se pudo marcar el producto. Prueba otra vez.'));
+            }}
             onOtro={() => {
               setError(null);
               go({ kind: 'otro' });

@@ -160,9 +160,22 @@ export const CobrosQuerySchema = z.object({
 });
 export type CobrosQuery = z.infer<typeof CobrosQuerySchema>;
 
-/** Historial propio: la identidad y el local los fija la sesión, nunca la query. */
-export const OwnCobrosQuerySchema = CobrosQuerySchema.pick({ limit: true, cursor: true }).strict();
-export type OwnCobrosQuery = z.infer<typeof OwnCobrosQuerySchema>;
+/**
+ * Historial propio (sus cobros, sus ganancias y sus pagos): por páginas y,
+ * si se quiere, entre dos instantes [from, to). La identidad y el local los
+ * fija la sesión, nunca la query.
+ */
+export const OwnHistoryQuerySchema = CobrosQuerySchema.pick({ limit: true, cursor: true, from: true, to: true }).strict();
+export type OwnHistoryQuery = z.infer<typeof OwnHistoryQuerySchema>;
+
+/** Una página del historial propio: `nextCursor` pide la siguiente (null: no hay más). */
+export interface OwnHistoryPage<T> {
+  items: T[];
+  nextCursor: string | null;
+}
+
+export const OwnCobrosQuerySchema = OwnHistoryQuerySchema;
+export type OwnCobrosQuery = OwnHistoryQuery;
 
 export interface CobroPerson {
   id: string;
