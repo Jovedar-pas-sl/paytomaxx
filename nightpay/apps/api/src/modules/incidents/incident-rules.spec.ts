@@ -624,6 +624,18 @@ describe('«No he sido yo» (aviso en cada cobro)', () => {
     expect(SELF_RESOLVING.has('wallet_charge_disputed')).toBe(false);
     expect(ackNeedsNote({ kind: 'wallet_charge_disputed', amountCents: 1_200 })).toBe(true);
   });
+
+  it('un saldo sin Face ID: no dice que con él sigue pagando (los avisos de antes, sin el campo, como siempre)', () => {
+    const base = { id: 'audit-12', paymentId: 'charge-2', amountCents: 1_200, occurredAt: new Date('2026-11-20T00:10:00Z') };
+    const sin = walletChargeDisputedIncident({ ...base, payload: { ref: 'C-0043', code: 'K7Q-4M2', faceId: false } });
+    for (const text of [sin.detail, sin.alertDetail]) {
+      expect(text).toContain('Su ficha y su PIN ya no pagan. Revisa el cobro');
+      expect(text).not.toContain('Face ID');
+    }
+    const con = walletChargeDisputedIncident({ ...base, payload: { ref: 'C-0043', faceId: true } });
+    expect(con.detail).toContain('Su ficha y su PIN ya no pagan (con su Face ID, sí).');
+    expect(walletChargeDisputedIncident({ ...base, payload: { ref: 'C-0043' } }).alertDetail).toContain('(con su Face ID, sí)');
+  });
 });
 
 describe('avisos del saldo: «Saldos» (nunca «Wallets») y el código con guion', () => {

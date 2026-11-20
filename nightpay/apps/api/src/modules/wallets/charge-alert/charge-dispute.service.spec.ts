@@ -15,6 +15,8 @@ interface Opts {
   disputed?: boolean;
   cards?: Array<{ id: string; venueId: string | null }>;
   pinLockable?: boolean;
+  /** Llaves (Face ID) del saldo: 1 si no se dice. */
+  passkeys?: number;
 }
 
 function harness(opts: Opts = {}) {
@@ -40,6 +42,7 @@ function harness(opts: Opts = {}) {
     },
     walletCardEvent: { createMany: vi.fn(async () => ({ count: 1 })) },
     clientWallet: { updateMany: vi.fn(async () => ({ count: opts.pinLockable === false ? 0 : 1 })) },
+    walletPasskey: { count: vi.fn(async () => opts.passkeys ?? 1) },
   };
   const prisma = { acrossVenues: vi.fn(async (fn: (t: typeof tx) => unknown) => fn(tx)) };
   const audit = { logInTx: vi.fn(async () => undefined) };
@@ -108,10 +111,21 @@ describe('«No he sido yo»', () => {
     expect(await svc.dispute(tokenFor())).toMatchObject({ state: 'done', blockedCards: 0, pinLocked: true });
     expect(tx.walletCard.updateMany).not.toHaveBeenCalled();
   });
+
+  it('mira el Face ID del saldo: sin él, la página no lo promete y el aviso al local lo sabe (faceId: false)', async () => {
+    const sin = harness({ passkeys: 0 });
+    expect(await sin.svc.view(tokenFor())).toMatchObject({ state: 'ask', hasFaceId: false });
+    expect(await sin.svc.dispute(tokenFor())).toMatchObject({ state: 'done', hasFaceId: false });
+    expect(sin.tx.walletPasskey.count).toHaveBeenCalledWith({ where: { walletId: WALLET } });
+    expect(sin.audit.logInTx).toHaveBeenCalledWith(sin.tx, expect.objectContaining({ payload: expect.objectContaining({ faceId: false }) }));
+    const con = harness({ passkeys: 1 });
+    expect(await con.svc.dispute(tokenFor())).toMatchObject({ state: 'done', hasFaceId: true });
+    expect(con.audit.logInTx).toHaveBeenCalledWith(con.tx, expect.objectContaining({ payload: expect.objectContaining({ faceId: true }) }));
+  });
 });
 
 describe('la página «No he sido yo»', () => {
-  const charge = { ref: 'C-0042', totalCents: 1_200, venueName: 'Sala <Aurora>', at: new Date('2026-11-16T22:40:00Z') };
+  const charge = { ref: 'C-0042', totalCents: 1_200, venueName: 'Sala <Aurora>', at: new Date('2026-11-16T22:40:00Z'), hasFaceId: true };
 
   it('enseña el cobro y un formulario que funciona sin JS (sin datos del cliente)', () => {
     const html = renderNotMePage('/w/no/tok', 'es', { state: 'ask', ...charge });
@@ -131,6 +145,15 @@ describe('la página «No he sido yo»', () => {
     const invalid = renderNotMePage('/w/no/t', 'en', { state: 'invalid' });
     expect(invalid).toContain('This link isn’t valid');
     expect(invalid).not.toContain('<form');
+  });
+
+  it('«Con tu Face ID puedes seguir pagando», solo si el saldo tiene Face ID (al pedir confirmación y al terminar)', () => {
+    const keep = 'Con tu Face ID puedes seguir pagando.';
+    const done = { state: 'done' as const, blockedCards: 1, pinLocked: true };
+    expect(renderNotMePage('/w/no/t', 'es', { state: 'ask', ...charge })).toContain(keep);
+    expect(renderNotMePage('/w/no/t', 'es', { ...done, ...charge })).toContain(keep);
+    expect(renderNotMePage('/w/no/t', 'es', { state: 'ask', ...charge, hasFaceId: false })).not.toContain(keep);
+    expect(renderNotMePage('/w/no/t', 'es', { ...done, ...charge, hasFaceId: false })).not.toContain(keep);
   });
 
   it('lleva el pie legal en su idioma, como las demás páginas del cliente', () => {

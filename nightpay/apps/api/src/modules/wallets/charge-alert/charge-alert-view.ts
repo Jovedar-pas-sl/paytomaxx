@@ -200,6 +200,11 @@ function chargeBox(t: ChargeAlertText, c: NotMeCharge, title: string): string {
     + `</section>`;
 }
 
+/** «Con tu Face ID puedes seguir pagando», solo si el saldo lo tiene: sin él, la ficha y el PIN eran lo único. */
+function keepLine(t: ChargeAlertText, c: NotMeCharge): string {
+  return c.hasFaceId ? `<p class="safe">${escapeHtml(t.keep)}</p>` : '';
+}
+
 function messageBox(title: string, text: string): string {
   return `<section class="box"><span class="lockc">${LOCK_ICON}</span><h1>${escapeHtml(title)}</h1><p class="txt">${escapeHtml(text)}</p></section>`;
 }
@@ -225,7 +230,7 @@ export function renderNotMePage(base: string, lang: PayLanguage, view: NotMeView
     case 'done': {
       const ref = view.ref ?? '';
       const text = fillText(view.blockedCards > 0 ? t.doneText : t.doneNoCard, { ref }).replace(/\s+\./, '.');
-      return page(lang, base, t.doneTitle, `${messageBox(t.doneTitle, text)}<p class="safe">${h(t.keep)}</p>`);
+      return page(lang, base, t.doneTitle, `${messageBox(t.doneTitle, text)}${keepLine(t, view)}`);
     }
     case 'ask': {
       const form = `<form method="post" action="${h(base)}?lang=${lang}" enctype="text/plain" id="notMeForm">`
@@ -237,7 +242,7 @@ f.addEventListener('submit',function(){b.disabled=true;b.classList.add('busy');b
         lang,
         base,
         t.pageTitle,
-        `${chargeBox(t, view, t.question)}<p class="txt">${h(t.explain)}</p><p class="safe">${h(t.keep)}</p>${form}<p class="foot">${h(t.ifYou)}</p>`,
+        `${chargeBox(t, view, t.question)}<p class="txt">${h(t.explain)}</p>${keepLine(t, view)}${form}<p class="foot">${h(t.ifYou)}</p>`,
         script,
       );
     }

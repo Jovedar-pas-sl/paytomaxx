@@ -5,7 +5,8 @@
 //    (líneas tecleadas cobradas con tarjeta o con el saldo), PIN fallado en varios saldos y cobros seguidos
 //    al mismo saldo; el dueño no cuenta; los umbrales del local (0 = no se mira); se cierran con nota.
 //  - Desbloquear el PIN con la 2FA deja la acción delicada en Incidencias.
-//  - «No he sido yo» desde /w: el enlace firmado solo para un cobro pagado de ESE saldo.
+//  - «No he sido yo» desde /w: el enlace firmado solo para un cobro pagado de ESE saldo; sin Face ID, ni la
+//    página ni la incidencia dicen que con él sigue pagando.
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { randomUUID } from 'node:crypto';
@@ -216,11 +217,16 @@ describe('«No he sido yo» desde los movimientos del saldo (Postgres real)', ()
       tx.walletChargeRequest.create({ data: { tenantId: V, walletId, requestedByUserId: leo, amountCents: 1_500, category: 'VENUE_BAR', status: 'ACCEPTED', decidedAt: new Date(), expiresAt: new Date() } }),
     );
     const url = await inVenue(undefined, () => disputes.linkFor(walletId, charge.id));
-    await expect(inVenue(undefined, () => disputes.view(url.replace('/w/no/', '')))).resolves.toMatchObject({ state: 'ask', totalCents: 1_500, venueName: 'Sala Proteger' });
+    await expect(inVenue(undefined, () => disputes.view(url.replace('/w/no/', '')))).resolves.toMatchObject({ state: 'ask', totalCents: 1_500, venueName: 'Sala Proteger', hasFaceId: false });
     await expect(inVenue(undefined, () => disputes.linkFor(otherWallet, charge.id))).rejects.toMatchObject({ status: 404 });
     const pending = await sys((tx) =>
       tx.walletChargeRequest.create({ data: { tenantId: V, walletId, requestedByUserId: leo, amountCents: 500, category: 'VENUE_BAR', expiresAt: new Date(Date.now() + 60_000) } }),
     );
     await expect(inVenue(undefined, () => disputes.linkFor(walletId, pending.id))).rejects.toMatchObject({ status: 404 });
+    // Confirmado, un saldo sin Face ID ya no paga: la incidencia no dice «con su Face ID, sí».
+    await expect(inVenue(undefined, () => disputes.dispute(url.replace('/w/no/', '')))).resolves.toMatchObject({ state: 'done', hasFaceId: false });
+    const aviso = (await inVenue(V, () => incidents.list(V))).find((i) => i.kind === 'wallet_charge_disputed');
+    expect(aviso?.detail).toContain('Su ficha y su PIN ya no pagan. Revisa el cobro');
+    expect(aviso?.detail).not.toContain('Face ID');
   });
 });

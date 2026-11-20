@@ -319,7 +319,10 @@ export function walletChargeDisputedIncident(r: EventRow): Incident {
   const code = str(r.payload, 'code');
   const amount = r.amountCents !== null ? ` de ${eur(r.amountCents)}` : '';
   const what = `El cliente dice que no ha sido él: cobro ${ref ?? 'del saldo'}${amount}`;
-  const blocked = 'Su ficha y su PIN ya no pagan (con su Face ID, sí).';
+  // Sin el campo (avisos de antes), el texto de siempre: entonces solo llegaba un saldo con Face ID.
+  const blocked = (r.payload as { faceId?: unknown } | null)?.faceId === false
+    ? 'Su ficha y su PIN ya no pagan.'
+    : 'Su ficha y su PIN ya no pagan (con su Face ID, sí).';
   const todo = 'Revisa el cobro con quien lo hizo y, si procede, devuélvelo. Después, el encargado desbloquea su PIN en Saldos y recepción le da una ficha nueva.';
   return {
     kind: 'wallet_charge_disputed',
