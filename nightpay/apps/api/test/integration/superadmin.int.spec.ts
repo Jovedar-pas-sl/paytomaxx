@@ -46,7 +46,7 @@ const config = {
   get: (k: string) => ({ PAYOUT_HOLD_DAYS: '7', OPERATOR_BASE_URL: 'https://chicas.test' })[k] as string | undefined,
 };
 const jwt = new JwtService({ secret: 'x'.repeat(40) });
-const email = { send: vi.fn(async () => ({ ok: true, delivered: false })) };
+const email = { send: vi.fn(async () => ({ ok: true, delivered: false })), isEnabled: () => false };
 const refreshTokens = { revokeAllForUser: vi.fn(async () => 0) };
 const incidents = new IncidentsService(prisma as never, audit as never);
 const overview = new SuperAdminOverviewService(prisma, incidents, config as never);

@@ -44,7 +44,7 @@ describe('notifyPayoutAccountChanged — registro (para Incidencias y Telegram) 
 
   it('apunta la acción delicada con todo tapado (y si el titular no se parece) y manda el correo', async () => {
     const audit = { log: vi.fn().mockResolvedValue(undefined) };
-    const email = { send: vi.fn().mockResolvedValue({ ok: true, delivered: true }) };
+    const email = { send: vi.fn().mockResolvedValue({ ok: true, delivered: true }), isEnabled: () => true };
     await notifyPayoutAccountChanged({ audit, email }, base);
     const entry = audit.log.mock.calls[0]![0];
     expect(entry).toMatchObject({
@@ -58,6 +58,7 @@ describe('notifyPayoutAccountChanged — registro (para Incidencias y Telegram) 
         name: 'Ana',
         holderMismatch: true,
         holdUntil: HOLD.toISOString(),
+        emailed: true,
         before: { payoutMethod: 'SEPA_IBAN', payoutAddress: 'ES91 •••• •••• 1332', payoutHolder: 'A••• L•••' },
         after: { payoutMethod: 'SEPA_IBAN', payoutAddress: 'ES79 •••• •••• 6789', payoutHolder: 'S••• I•••' },
       },
@@ -69,7 +70,7 @@ describe('notifyPayoutAccountChanged — registro (para Incidencias y Telegram) 
 
   it('un correo que falla no deshace nada (el cambio ya está guardado y en el registro)', async () => {
     const audit = { log: vi.fn().mockResolvedValue(undefined) };
-    const email = { send: vi.fn().mockRejectedValue(new Error('smtp caído')) };
+    const email = { send: vi.fn().mockRejectedValue(new Error('smtp caído')), isEnabled: () => true };
     const logger = { error: vi.fn() };
     await expect(notifyPayoutAccountChanged({ audit, email, logger }, base)).resolves.toBeUndefined();
     expect(audit.log).toHaveBeenCalledTimes(1);
@@ -79,9 +80,16 @@ describe('notifyPayoutAccountChanged — registro (para Incidencias y Telegram) 
 
   it('el titular que sí se parece no se marca', async () => {
     const audit = { log: vi.fn().mockResolvedValue(undefined) };
-    const email = { send: vi.fn().mockResolvedValue({ ok: true, delivered: false }) };
+    const email = { send: vi.fn().mockResolvedValue({ ok: true, delivered: false }), isEnabled: () => false };
     await notifyPayoutAccountChanged({ audit, email }, { ...base, after: { ...base.after, metadata: { accountHolder: 'Ana María Ruiz' } } });
     expect(audit.log.mock.calls[0]![0].payload.holderMismatch).toBe(false);
+  });
+
+  it('sin el correo activado (sin RESEND_API_KEY) lo apunta, para que la incidencia no lo prometa', async () => {
+    const audit = { log: vi.fn().mockResolvedValue(undefined) };
+    const email = { send: vi.fn().mockResolvedValue({ ok: true, delivered: false }), isEnabled: () => false };
+    await notifyPayoutAccountChanged({ audit, email }, base);
+    expect(audit.log.mock.calls[0]![0].payload.emailed).toBe(false);
   });
 });
 

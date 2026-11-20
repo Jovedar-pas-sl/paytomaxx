@@ -48,7 +48,7 @@ function setup(opts: { rows?: ReturnType<typeof account>[]; found?: ReturnType<t
   };
   const audit = { write: vi.fn().mockResolvedValue(undefined) };
   const plainAudit = { log: vi.fn().mockResolvedValue(undefined) };
-  const email = { send: vi.fn().mockResolvedValue({ ok: true, delivered: true }) };
+  const email = { send: vi.fn().mockResolvedValue({ ok: true, delivered: true }), isEnabled: () => true };
   const svc = new SuperAdminPayoutAccountsService(prisma as never, stepUp as never, audit as never, plainAudit as never, email as never);
   return { svc, tx, stepUp, audit, plainAudit, email };
 }

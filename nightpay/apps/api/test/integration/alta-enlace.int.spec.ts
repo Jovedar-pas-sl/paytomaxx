@@ -17,7 +17,7 @@ const cls = new ClsService(new AsyncLocalStorage());
 const prisma = new PrismaService(cls as never);
 const audit = { log: async () => undefined };
 // Al poner su cuenta se le manda un correo (aquí no sale).
-const email = { send: async () => ({ ok: true, delivered: false }) };
+const email = { send: async () => ({ ok: true, delivered: false }), isEnabled: () => false };
 const config = {
   get: (k: string) => (k === 'OPERATOR_BASE_URL' ? 'https://chicas.example.com' : undefined),
   getOrThrow: (k: string) => {
