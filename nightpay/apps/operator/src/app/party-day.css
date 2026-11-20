@@ -1,0 +1,102 @@
+/* OxioParty · «Modo día» (para cobrar al sol): <html data-theme="day">, que solo
+   pone lib/day-mode.ts y solo en OxioParty. Las mismas fichas --np-* de
+   Grafito con los colores de día de la maqueta aprobada (Main.dc.html y
+   Taquilla.dc.html): papel cálido, superficies blancas y el botón principal en
+   tinta con la lima encima. Solo en la app del personal. Contraste del texto
+   (WCAG 2, comprobado en lib/day-mode.test.ts): t1 15,8:1 · t2 8,4:1 ·
+   t3 5,3:1 sobre el fondo; lima sobre tinta 10,8:1. html[...] gana a :root y
+   a [data-theme] de @nightpay/ui/styles.css sin depender del orden. */
+
+html[data-theme='day'] {
+  color-scheme: light;
+
+  --np-bg: #f3f1ec;
+  --np-surface: #ffffff;
+  --np-surface-2: #f3f1ec;
+  --np-surface-3: #e0dbd1;
+  --np-border: #e0dbd1;
+  /* 3,2:1 sobre el blanco: los botones secundarios se ven. */
+  --np-border-hi: #8a9096;
+
+  --np-text: #14181b;
+  --np-text-mute: #3f474e;
+  --np-text-dim: #5c656d;
+  --np-text-label: #3f474e;
+
+  /* Acento = tinta con la lima encima (la lima no se lee como texto al sol). */
+  --np-accent: #14181b;
+  --np-accent-2: #2b3136;
+  --np-on-accent: #c7d301;
+  --np-accent-edge: #14181b;
+  --np-glow: rgb(20 24 27 / 0.18);
+
+  /* El botón principal: tinta, con el texto en lima (10,8:1). */
+  --np-primary-bg: #14181b;
+  --np-primary-bg-hover: #2b3136;
+  --np-primary-ink: #c7d301;
+  --np-primary-shadow: none;
+  --np-primary-glow: 0 4px 12px -6px rgb(20 24 27 / 0.35);
+
+  /* Lo elegido (pestaña, filtro): tinta con texto blanco. */
+  --np-chosen: #14181b;
+  --np-on-chosen: #ffffff;
+
+  --np-cash-bg: #e2f1e8;
+  --np-cash-line: #1f7a4d;
+  --np-cash-icon-ink: #ffffff;
+  --np-cash-sub: #2f5a40;
+  --np-card-bg: #e1ecf7;
+  --np-card-line: #1f5c93;
+  --np-card-icon-ink: #ffffff;
+  --np-card-sub: #34506b;
+
+  --np-success: #1f7a4d;
+  --np-danger: #b8232a;
+  --np-danger-text: #b8232a;
+  --np-warning: #8a5a00;
+  --np-purple: #5e36a3;
+
+  /* Sin nada que hacer: el filete de día y el texto t2 (6,9:1). */
+  --np-disabled-bg: #e0dbd1;
+  --np-disabled-ink: #3f474e;
+  --np-disabled-edge: #e0dbd1;
+
+  --np-pill-mute-bg: #ebe7df;
+  --np-pill-cyan-bg: #eef2c4;
+  --np-pill-success-bg: #e2f1e8;
+  --np-pill-danger-bg: #f8dcd9;
+  --np-pill-warning-bg: #fbefd4;
+  --np-pill-purple-bg: #e9e1f5;
+
+  --np-tile-glow: 32%;
+  --np-tile-glow-on: 48%;
+  --np-tile-hi: rgb(255 255 255 / 0.55);
+
+  --np-backdrop: rgb(20 24 27 / 0.45);
+  --np-grain-opacity: 0;
+  --np-grain-blend: normal;
+}
+
+/* Con el modo «sala» del local, al sol: más tinta, no más luz (el de noche
+   aclara el texto y aquí lo borraría). */
+html[data-theme='day'][data-contrast='sala'] {
+  --np-text-mute: #262c31;
+  --np-text-dim: #3f474e;
+  --np-text-label: #14181b;
+  --np-border: #a39a8c;
+  --np-border-hi: #6f675c;
+}
+
+/* El logo: la versión oscura sobre el papel, como en el tema claro. */
+html[data-theme='day'] .np-logo-img[data-on='dark'] {
+  display: none;
+}
+
+html[data-theme='day'] .np-logo-img[data-on='light'] {
+  display: block;
+}
+
+html[data-theme='day'] .np-logo-bg {
+  background: transparent;
+  padding: 0;
+}

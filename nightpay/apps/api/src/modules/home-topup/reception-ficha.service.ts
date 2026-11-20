@@ -22,9 +22,12 @@ import {
   type Role,
 } from '@nightpay/contracts';
 import { PrismaService, type TransactionalClient } from '../../common/prisma/prisma.service';
+import { isPartyEdition } from '../../config/edition';
 import { AuditService } from '../audit/audit.service';
 import { assertCanTopUp } from '../venues/charge-rights';
 import { assertVenueAcceptsMethods } from '../venues/venue-methods';
+import { assertEventOpen } from '../party/event-window';
+import { stallIdForStaff, stallSeal } from '../party/stall-seal';
 import { ISSUED_CARD_STATUSES, attachCardInTx, isIssuedCard } from '../wallets/wallet-card-ops';
 import { WalletChargesService } from '../wallets/wallet-charges.service';
 import { FichaNumbersService } from '../wallets/ficha-numbers.service';
@@ -140,6 +143,8 @@ export class ReceptionFichaService {
     // Antes de gastar un intento de su PIN: con ficha que perder y con saldo para la nueva.
     await this.prisma.acrossVenues((tx) => assertHasFicha(tx, wallet.id));
     if (wallet.balanceCents < fee) throw noBalance(wallet.balanceCents, fee);
+    // OxioParty: cobrar la nueva es un consumo; con la fiesta terminada, no (423 EVENT_ENDED).
+    if (fee > 0 && isPartyEdition()) await this.prisma.asSystem((tx) => assertEventOpen(tx, actor.tenantId));
     const via = await this.proofOf(actor, wallet, input);
     const uid = input.uid ? normalizeWalletCardUid(input.uid) : null;
     const out = await this.prisma.acrossVenues(async (tx) => {
@@ -306,6 +311,8 @@ async function chargeLostFicha(
       authMethod: a.via === 'pin' ? 'pin' : 'staff',
       ...(feeSaldo > 0 ? { serviceFeeSaldoCents: feeSaldo } : {}),
       ...(venue ? { platformCommissionBps: venue.platformCommissionBps } : {}),
+      // OxioParty: la caseta de quien la cobra, si tiene (OxioPay: nada).
+      ...stallSeal(await stallIdForStaff(tx, { tenantId: a.actor.tenantId, userId: a.actor.userId })),
     },
   });
 }

@@ -3,6 +3,7 @@
 import { useEffect, type CSSProperties } from 'react';
 import { ProfileScreen, ScreenHelp } from '@nightpay/ui';
 import { profileApi } from '@/lib/api';
+import { isParty } from '@/lib/edition';
 import { TOURS } from '@/lib/tours';
 import { useMyProfile } from './my-profile';
 import { PayoutProfile } from './PayoutProfile';
@@ -37,8 +38,8 @@ export function ProfileSheet({ open, onClose, onLogout }: { open: boolean; onClo
       </header>
       <div style={body}>
         <ProfileScreen api={profileApi} onLogout={onLogout} device="full" themeFallback="dark" bare onProfile={mine?.setProfile}>
-          {/* Solo la compañera tiene cuenta de cobro y pagos en la app (/operators/me/*). */}
-          {mine?.user.role === 'OPERATOR' ? <PayoutProfile /> : null}
+          {/* Solo la compañera tiene cuenta de cobro y pagos en la app (/operators/me/*). OxioParty: sin pagos al personal. */}
+          {mine?.user.role === 'OPERATOR' && !isParty() ? <PayoutProfile /> : null}
         </ProfileScreen>
       </div>
     </div>

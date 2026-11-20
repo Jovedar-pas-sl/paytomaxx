@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { DEFAULT_TAB, navRequestFor, navSearch, parseNav, resolveNav, type NavRequest } from './nav-url';
+import { defaultTabOf, navRequestFor, navSearch, parseNav, resolveNav, type NavRequest } from './nav-url';
 import { sectionOf, type PanelSection, type TabKey } from './roles';
 
 /** push: el dueño cambió de pestaña («atrás» vuelve a la de antes). replace: se corrige sin dejar rastro. */
@@ -18,9 +18,9 @@ export function writeNavToUrl(tab: TabKey, mode: HistoryMode): void {
   else window.history.replaceState(null, '', url);
 }
 
-/** Al salir: la URL limpia, quien entre después empieza en Hoy. */
+/** Al salir: la URL limpia, quien entre después empieza en Hoy (en OxioParty, En directo). */
 export function clearNavFromUrl(): void {
-  writeNavToUrl(DEFAULT_TAB, 'replace');
+  writeNavToUrl(defaultTabOf(), 'replace');
 }
 
 interface Visibility {
@@ -41,7 +41,7 @@ export function useUrlNav(
   { permissive, settled }: Visibility,
 ): [TabKey, (tab: TabKey) => void] {
   const [requested, setRequested] = useState<NavRequest>(() =>
-    typeof window === 'undefined' ? navRequestFor(DEFAULT_TAB) : parseNav(window.location.search),
+    typeof window === 'undefined' ? navRequestFor(defaultTabOf()) : parseNav(window.location.search),
   );
   const tab = resolveNav(requested, sections);
   const waiting = !settled && resolveNav(requested, permissive) !== tab;

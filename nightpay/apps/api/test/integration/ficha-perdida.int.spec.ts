@@ -105,6 +105,31 @@ describe('«Ficha perdida» en recepción (B6)', () => {
     expect(again).toMatchObject({ feeCents: 0, replacedCards: 0, balanceCents: 4_700 });
   });
 
+  it('OxioParty con la fiesta terminada: la nueva no se cobra (423 EVENT_ENDED), sin gastar su PIN; con OxioPay, como siempre', async () => {
+    const s = await saldoConFicha('61', 2_000);
+    const nueva = await stockedCard(`62${digits}2`.slice(0, 12));
+    await sys((tx) => tx.venue.update({ where: { id: V }, data: { eventStartsAt: new Date(Date.now() - 86_400_000), eventEndsAt: new Date(Date.now() - 60_000) } }));
+    try {
+      vi.stubEnv('EDITION', 'party');
+      const ended = await inVenue(V, () =>
+        fichas.replaceLost(recepcion(), { walletId: s.walletId, card: nueva.card, uid: nueva.uid, pin: '0000', feeCents: 300 }),
+      ).catch((e: unknown) => e);
+      expect((ended as HttpException).getStatus()).toBe(423);
+      expect((ended as HttpException).getResponse()).toMatchObject({ code: 'EVENT_ENDED' });
+      expect(await sys((tx) => tx.clientWallet.findUniqueOrThrow({ where: { id: s.walletId }, select: { balanceCents: true, pinFails: true } }))).toEqual({
+        balanceCents: 2_000,
+        pinFails: 0,
+      });
+      vi.stubEnv('EDITION', 'club');
+      await expect(
+        inVenue(V, () => fichas.replaceLost(recepcion(), { walletId: s.walletId, card: nueva.card, uid: nueva.uid, pin: '2468', feeCents: 300 })),
+      ).resolves.toMatchObject({ balanceCents: 1_700, feeCents: 300 });
+    } finally {
+      vi.unstubAllEnvs();
+      await sys((tx) => tx.venue.update({ where: { id: V }, data: { eventStartsAt: null, eventEndsAt: null } }));
+    }
+  });
+
   it('por el número de la ficha perdida y su PIN, lo mismo', async () => {
     const s = await saldoConFicha('53', 2_000);
     const nueva = await stockedCard(`54${digits}2`.slice(0, 12));

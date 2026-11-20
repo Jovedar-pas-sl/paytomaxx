@@ -56,6 +56,10 @@ export const FORCED_RLS_TABLES = [
   'wallet_push_subscriptions',
   // «Regala una noche» (20261120200000): el regalo, su enlace, y el nombre y el mensaje de quien lo recibe.
   'wallet_gifts',
+  // OxioParty (20261120300000): las casetas, con la parte del organizador y su IBAN.
+  'stalls',
+  // OxioParty (20261120300100): «Lo que sobra», las devoluciones que piden los asistentes (con su IBAN).
+  'party_refund_requests',
   // «Te han pagado» (20261120400000): los navegadores del personal apuntados para el aviso del pago.
   'staff_push_subscriptions',
 ] as const;
@@ -87,6 +91,8 @@ export const FORCED_RLS_MODELS: ReadonlySet<string> = new Set([
   'ReservationSpend',
   'WalletPushSubscription',
   'WalletGift',
+  'Stall',
+  'PartyRefundRequest',
   'StaffPushSubscription',
 ]);
 
