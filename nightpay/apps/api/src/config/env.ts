@@ -1,6 +1,7 @@
 import { Logger } from '@nestjs/common';
 import type { ConfigModuleOptions } from '@nestjs/config';
 import { z } from 'zod';
+import { DEFAULT_EDITION, EDITIONS } from '@nightpay/contracts';
 import { LEGACY_SUBSCRIBE_UNTIL_HINT, isValidLegacySubscribeUntil } from './realtime-legacy';
 import { AUTH_BODY_REFRESH_UNTIL_HINT, isValidAuthBodyRefreshUntil } from './auth-body-refresh';
 import { DEFAULT_GOOGLE_WALLET_CLASS_SUFFIX } from './google-wallet';
@@ -32,6 +33,12 @@ const EnvSchema = z.object({
   // `pnpm dev` (src/dev.ts) o NODE_ENV=development en .env.local.
   NODE_ENV: z.enum(['development', 'production', 'test']).default('production'),
   PORT: z.coerce.number().int().positive().default(4100),
+  // Edición: 'club' = OxioPay (por defecto, como siempre); 'party' = OxioParty
+  // (fiestas con pulsera y saldo prepago: casetas, fechas de la fiesta y sin
+  // cobros nuevos al terminar). Mismo código. El API la lee con
+  // config/edition.ts; las apps, de NEXT_PUBLIC_EDITION al construir. Ver
+  // docs/OXIOPARTY.md.
+  EDITION: z.enum(EDITIONS).default(DEFAULT_EDITION),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
   DATABASE_URL: z.string().url(),
   REDIS_URL: z.string().url(),

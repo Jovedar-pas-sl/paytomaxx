@@ -16,6 +16,18 @@ import { AVISO_CSS, AVISO_JS, avisoConfig, avisoRow, avisoSheet, manifestLink } 
 import { WALLET_LIVE_JS } from './wallet-live';
 import { myBalanceButton, myBalanceScript } from './my-balance';
 import { RECEIPT_JS, WELCOME_CSS, WELCOME_JS, fichaQrBlock, welcomeCard } from '../home-topup/wallet-welcome-view';
+import type { PartyPageData } from '../party/party-refunds.service';
+import {
+  PARTY_CSS,
+  PARTY_JS,
+  PARTY_THEME_COLOR,
+  partyActions,
+  partyJsConfig,
+  partyNote,
+  partySheets,
+  partyStalls,
+  partyTopBar,
+} from '../party/party-wallet-view';
 
 /**
  * Página del saldo del cliente (/w/:token). HTML autocontenido, Grafito: el
@@ -166,6 +178,12 @@ export interface WalletPageOptions {
   /** El QR de la ficha (SVG): sin ficha aún, recepción lo escanea para darle una. */
   fichaQr?: string | null;
   /**
+   * OxioParty (EDITION=party): la página de la pulsera, de día, con la marca,
+   * Recargar / «Lo que sobra» / «La perdí», las casetas y el plazo
+   * (party/party-wallet-view.ts). Sin esto, la de OxioPay tal cual.
+   */
+  party?: PartyPageData | null;
+  /**
    * «Aviso en cada cobro»: la clave pública VAPID del servidor. Sin ella
    * (apagado), la página no ofrece el aviso.
    */
@@ -292,6 +310,7 @@ export function renderWalletPage(
   const proof = options.paid ?? null;
   const welcome = options.welcome === true && proof !== null;
   const topUp = options.topUp ?? null;
+  const party = options.party ?? null;
   const config = jsConfig({
     base,
     lang,
@@ -306,6 +325,7 @@ export function renderWalletPage(
     payer: options.payer ?? null,
     // «Detalle del pago»: propina y comisión del servicio cada una en su línea.
     apart: DETAIL_TIP_AND_FEE_APART,
+    ...(party ? { party: partyJsConfig(lang, party) } : {}),
     // «Aviso en cada cobro» (null: apagado).
     aviso: avisoConfig(lang, options.chargeAlertKey),
   });
@@ -313,9 +333,9 @@ export function renderWalletPage(
   const h = escapeHtml;
   return `<!DOCTYPE html>
 <html lang="${t.htmlLang}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta name="robots" content="noindex"><meta name="theme-color" content="#0b0d0e"><title>${h(t.title)}</title>${aviso ? manifestLink(base) : ''}
-<style>${CLUB_BASE_CSS}${CHROME_CSS}${WALLET_CSS}${SCAN_CSS}${TOPUP_CSS}${LOST_CSS}${WELCOME_CSS}${aviso ? AVISO_CSS : ''}</style></head><body><main class="w">
-${topBar(lang)}<h1 class="sr">${h(t.title)}</h1>
+<meta name="robots" content="noindex"><meta name="theme-color" content="${party ? PARTY_THEME_COLOR : '#0b0d0e'}"><title>${h(t.title)}</title>${aviso ? manifestLink(base) : ''}
+<style>${CLUB_BASE_CSS}${CHROME_CSS}${WALLET_CSS}${SCAN_CSS}${TOPUP_CSS}${LOST_CSS}${WELCOME_CSS}${aviso ? AVISO_CSS : ''}${party ? PARTY_CSS : ''}</style></head><body><main class="w">
+${party ? partyTopBar(lang, party) : topBar(lang)}<h1 class="sr">${h(t.title)}</h1>
 <section class="hero" aria-labelledby="balanceLabel">
 <p id="balanceLabel">${h(state.venueName ? t.balanceOf.split('{venue}').join(state.venueName) : t.balance)}</p>
 <p class="balance num" id="balance" aria-live="polite">${h(eur(state.balanceCents, t.locale))}</p>
@@ -324,14 +344,14 @@ ${topBar(lang)}<h1 class="sr">${h(t.title)}</h1>
 <div class="obot"><span class="num" id="heroCode">${h(state.code)}</span><span id="heroFicha">${state.hasCard && state.fichaNumber ? h(t.fichaNo.split('{n}').join(state.fichaNumber)) : ''}</span></div>
 </section>
 <p class="live" id="liveBar" role="status" hidden></p>
-${welcome && proof ? `${paidProofSection(lang, proof, options.now ?? new Date())}${welcomeCard(lang, state.venueName, proof, state.code, Boolean(options.fichaQr))}` : ''}${topUpOffNote()}<section class="card main" id="refundCard" hidden aria-labelledby="refundTitle">
+${party ? partyActions(lang) : ''}${welcome && proof ? `${paidProofSection(lang, proof, options.now ?? new Date())}${welcomeCard(lang, state.venueName, proof, state.code, Boolean(options.fichaQr))}` : ''}${topUpOffNote()}<section class="card main" id="refundCard" hidden aria-labelledby="refundTitle">
 <h2 id="refundTitle"></h2>
 <ol class="steps" id="steps">${t.steps.map((s, i) => `<li data-i="${i}">${h(s)}</li>`).join('')}</ol>
 <p id="refundHow"></p>
 </section>
 ${viewTabs(lang)}${payView(lang, state, gw, options.fichaQr ?? null)}${topUpView(lang, options)}${moreList(lang, aviso)}<p class="small">${h(t.saveHint)}</p>
-</main>
-${lostSheet(lang)}${aviso ? avisoSheet(lang) : ''}<dialog class="sheet" id="pinSheet" aria-labelledby="pinTitle">
+${party ? `${partyStalls(lang, party.stalls)}${partyNote()}` : ''}</main>
+${lostSheet(lang)}${party ? partySheets(lang) : ''}${aviso ? avisoSheet(lang) : ''}<dialog class="sheet" id="pinSheet" aria-labelledby="pinTitle">
 <h2 id="pinTitle">${h(t.pinTitle)}</h2><p id="pinWhy"></p>
 <form id="pinForm" autocomplete="off" style="display:flex;flex-direction:column;gap:.8rem">
 <div class="pins"><input id="pin1" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="4" autocomplete="off" aria-label="${h(t.pinLabel)}" placeholder="${h(t.pinLabel)}"><input id="pin2" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="4" autocomplete="off" aria-label="${h(t.pinRepeat)}" placeholder="${h(t.pinRepeat)}"></div>
@@ -416,14 +436,14 @@ function render(s){S=s;S.cards=s.cards||[];
  if(!s.movements.length){var e=document.createElement('li');e.className='mv';e.textContent=T.noMovements;ul.appendChild(e);}
  s.movements.forEach(function(m){var li=document.createElement('li'),sw=document.createElement('i'),mt=document.createElement('span'),a=document.createElement('b'),sub=document.createElement('span'),b=document.createElement('span'),host=li;li.className='mv';
   sw.className=m.color?'sw':'sw hold';sw.setAttribute('aria-hidden','true');if(m.color)sw.style.setProperty('--c',m.color);
-  mt.className='mt';a.textContent=m.labelKey&&T.mv[m.labelKey]?T.mv[m.labelKey]:m.label;sub.textContent=[m.returned?T.detail.returned:'',m.ref,m.venueName,when(m.at)].filter(Boolean).join(' · ');mt.appendChild(a);mt.appendChild(sub);
+  mt.className='mt';${party ? 'mvText(m,a,sub);' : "a.textContent=m.labelKey&&T.mv[m.labelKey]?T.mv[m.labelKey]:m.label;sub.textContent=[m.returned?T.detail.returned:'',m.ref,m.venueName,when(m.at)].filter(Boolean).join(' · ');"}mt.appendChild(a);mt.appendChild(sub);
   b.textContent=(m.amountCents>0?'+':'')+eur(m.amountCents);b.className=(m.returned?'gone':m.amountCents>0?'plus':'minus')+' num';
   if(m.detail){host=document.createElement('button');host.type='button';host.className='mvb';host.addEventListener('click',function(){detOpen(m);});li.appendChild(host);}
   host.appendChild(sw);host.appendChild(mt);host.appendChild(b);ul.appendChild(li);});
  lostRender(s);welcomeRender(s);if(C.aviso)avisoRender(s);
  var can=topRender(s);
  $('payEmpty').hidden=!(can&&s.status==='DEPLETED');
- segShow(can||C.paid);}
+ segShow(can||C.paid);${party ? 'partyRender(s);' : ''}}
 function post(path,body){return pkPost(C.base+path,body||{});}
 // «Detalle del pago»: un movimiento con detalle (lo pagado con el saldo y las recargas con tarjeta).
 // Qué, cuándo, dónde, quién le cobró (su nombre de pila), cómo pagó, el código y el saldo antes y
@@ -498,7 +518,8 @@ ${TOPUP_JS}
 ${LOST_JS}
 ${aviso ? AVISO_JS : ''}
 ${VIEWS_JS}
-${welcome ? RECEIPT_JS : ''}${WELCOME_JS}
+${party ? `${PARTY_JS}
+` : ''}${welcome ? RECEIPT_JS : ''}${WELCOME_JS}
 if(!C.paid&&S.status==='DEPLETED'&&topCan(S))view='top';
 if(location.hash==='#recargar'&&topCan(S))view='top';
 render(S);

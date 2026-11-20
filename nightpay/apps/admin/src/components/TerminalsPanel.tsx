@@ -12,6 +12,7 @@ import {
   type Terminal,
 } from '@/lib/api';
 import { formatDateTime } from '@/lib/dates';
+import { isPartyEdition } from '@/lib/edition';
 import { useVenueTimezone } from '@/lib/venue-context';
 import { Notice } from './Notice';
 import { SwitchLine } from './ToggleSwitch';
@@ -127,7 +128,9 @@ export function TerminalsPanel({ isOwner }: Props) {
           <div>
             <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 600 }}>Datáfonos / Terminales</h3>
             <p style={{ margin: '0.25rem 0 0', fontSize: '0.875rem', color: 'var(--np-text-mute)' }}>
-              Red de PAX A920 Pro por zona. La compañera elige zona al cobrar; el camarero de esa zona lo confirma.
+              {isPartyEdition()
+                ? 'Red de PAX A920 Pro por zona. Quien cobra elige la zona; el personal de esa zona lo confirma.'
+                : 'Red de PAX A920 Pro por zona. La compañera elige zona al cobrar; el camarero de esa zona lo confirma.'}
             </p>
           </div>
           <Button variant="ghost" size="md" onClick={() => setBulkOpen(true)} data-tour="datafonos-lote">
@@ -564,7 +567,11 @@ function PairingModal({ terminal, onClose }: { terminal: Terminal | null; onClos
         <ol style={{ margin: 0, paddingLeft: '1.25rem', display: 'flex', flexDirection: 'column', gap: '0.375rem' }}>
           <li>Abre la app OxioPay en este datáfono.</li>
           <li>Genera el código y tecléalo en el datáfono (vale 15 minutos y una sola vez).</li>
-          <li>Desde entonces el datáfono ve los cobros de las compañeras y los cobra sin teclear el ticket.</li>
+          <li>
+            {isPartyEdition()
+              ? 'Desde entonces el datáfono ve los cobros del personal y los cobra sin teclear el ticket.'
+              : 'Desde entonces el datáfono ve los cobros de las compañeras y los cobra sin teclear el ticket.'}
+          </li>
         </ol>
         {code ? (
           <div style={{ textAlign: 'center', border: '1px solid var(--np-border-hi)', borderRadius: 'var(--np-r-lg)', padding: '1rem' }}>

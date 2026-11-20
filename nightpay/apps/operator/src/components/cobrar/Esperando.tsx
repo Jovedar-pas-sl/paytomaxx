@@ -65,6 +65,9 @@ import {
 } from '@/lib/cobro-state';
 import { CANCEL_AT_BANK_TOO_SOON_CODE } from '@/lib/cancel-at-bank';
 import { fetchBankRef, notifiedText, notifyManager, type BankRef } from '@/lib/api-bank-wait';
+import { isParty, pulseraText } from '@/lib/edition';
+import { partyPaidRows, partyPaidSaldo } from '@/lib/party-barra';
+import { PartyPaidDetail } from '../party/PartyPaid';
 import { useShown } from '../reception/desk/use-shown';
 import { StaffOutcome } from '../StaffOutcome';
 import { PracticeSimulate } from '../PracticeSimulate';
@@ -78,7 +81,7 @@ import { IconLock, IconNfc, IconQr } from './icons';
 import { PinScreen } from './PinScreen';
 import { pinTipSetup, withScreenTip } from '@/lib/pin-tip';
 import { WAIT_TITLE_EN } from '@/lib/pin-pad';
-import { nfcWayLabel, useReaderSpot, waitTitleEnNfc } from '@/lib/lector-nfc';
+import { nfcWayLabel, useReaderSpot, waitTitleEnNfc, type ReaderSpot } from '@/lib/lector-nfc';
 import { TOURS } from '@/lib/tours';
 import { ScreenHeader } from './ScreenHeader';
 import { SinMovil, type SaldoForPin } from './SinMovil';
@@ -155,6 +158,8 @@ type PinStep = SaldoForPin & { reason: string | null };
  */
 export function Esperando({ cobro, onNew, onRetry, retrying = false, retryError = null, onPaid, sectionLabel }: Props) {
   const methods = useVenueMethods();
+  // OxioParty: «pulsera» en vez de «ficha» y el PAGADO con su detalle, que vuelve solo a la carta.
+  const party = isParty();
   const venueName = useVenueName();
   // B1: la propina la elige el cliente en la pantalla del PIN (sin nada marcado).
   const basePinTip = pinTipSetup({
@@ -392,7 +397,7 @@ export function Esperando({ cobro, onNew, onRetry, retrying = false, retryError 
         const read = await readCard(ctrl.signal);
         if (ctrl.signal.aborted) return;
         if (!read.token) {
-          setToast('Esta ficha está vacía: se carga en recepción.');
+          setToast(party ? 'Esta pulsera está vacía: se carga en la taquilla.' : 'Esta ficha está vacía: se carga en recepción.');
           setNfcRound((n) => n + 1);
           return;
         }
@@ -462,6 +467,32 @@ export function Esperando({ cobro, onNew, onRetry, retrying = false, retryError 
     // El mismo código que ve el cliente (el del cobro único, también si pagó con el saldo); sin cobro con tarjeta, ninguno.
     const code = cobro.card ? confirmationCode(cobro.card.id) : null;
     const at = paidAt ?? new Date();
+    if (party) {
+      // La maqueta «Pagado»: la pulsera, lo que le queda y la hora (lo que dé el API) y vuelve sola a la carta.
+      // La pulsera y lo que le queda los dice el estado del cobro del saldo, también si pagó con el QR.
+      const paidSaldo = partyPaidSaldo(saldo);
+      const rows = partyPaidRows({
+        method: outcome.method === 'card' ? 'card' : 'saldo',
+        pulsera: paidSaldo.pulsera ?? fichaNo,
+        newBalanceCents: paidSaldo.balanceCents ?? outcome.newBalanceCents,
+        wallet: cardFacts.payMethod === 'wallet',
+        code,
+        at,
+      });
+      return (
+        <StaffOutcome
+          kind="paid"
+          amountCents={amounts.totalCents}
+          section={primarySection}
+          sections={allSections}
+          sectionLabel={sectionLabel}
+          reference={cobro.ref}
+          summary={breakdown ? <p className={styles.left}>{breakdown}</p> : null}
+          detail={<PartyPaidDetail rows={rows} onBack={onNew} />}
+          primary={{ label: 'Nuevo cobro', onClick: onNew }}
+        />
+      );
+    }
     // Cómo pagó: con tarjeta, lo que dio el banco; con el saldo, la ficha o el móvil. Solo datos del API.
     const how =
       outcome.method === 'card'
@@ -723,6 +754,7 @@ function Waiting({
   children: (wait: CardWait) => ReactNode;
 }) {
   const staffTip = staffTipOf(cobro);
+  const party = isParty();
   const [receivedAt] = useState(() => Date.now());
   const deadline = useMemo(() => {
     const expires = cobro.card?.qrExpiresAt ?? cobro.saldo?.expiresAt;
@@ -780,11 +812,17 @@ function Waiting({
             {pinWarning(night)}
           </p>
         ) : null}
-        <h2 className={styles.waitTitle}>{nfcOn ? 'Acerca la ficha o escanea' : 'Escanea el QR con tu móvil'}</h2>
+        <h2 className={styles.waitTitle}>{waitTitle({ party, nfcOn, fichaHint: Boolean(fichaHint) })}</h2>
         {/* Lo lee el cliente: su línea en inglés (PS-A10), con dónde está el lector de este aparato. */}
-        <p lang="en" className={styles.waitEn}>
-          {nfcOn ? waitTitleEnNfc(readerSpot) : WAIT_TITLE_EN.qr}
-        </p>
+        {party && (nfcOn || fichaHint) ? (
+          <p lang="en" className={styles.waitEn}>
+            {partyWaitEn(readerSpot)}
+          </p>
+        ) : (
+          <p lang="en" className={styles.waitEn}>
+            {nfcOn ? waitTitleEnNfc(readerSpot) : WAIT_TITLE_EN.qr}
+          </p>
+        )}
         {hasQr ? (
           <div className={left > 0 ? `${styles.qr} np-breathe` : styles.qr} style={{ opacity: left <= 0 ? 0.3 : 1 }} data-tour="esperando-qr">
             <CobroQr value={qrUrl} fallbackPng={qrPng} quiet={2} label="QR del cobro: el cliente lo escanea con su móvil" />
@@ -798,7 +836,7 @@ function Waiting({
             {nfcOn ? (
               <span className={`${styles.nfcWay}${reading || checking ? ` ${styles.nfcReading}` : ''}`}>
                 <IconNfc />
-                {checking ? 'Comprobando…' : reading ? 'Leyendo…' : invite ? (hasQr ? 'ficha, sin PIN' : 'Ficha, sin PIN') : nfcWayLabel(readerSpot)}
+                {checking ? 'Comprobando…' : reading ? 'Leyendo…' : pulseraText(invite ? (hasQr ? 'ficha, sin PIN' : 'Ficha, sin PIN') : nfcWayLabel(readerSpot), party)}
               </span>
             ) : null}
           </p>
@@ -820,7 +858,7 @@ function Waiting({
               : 'No cobres otra vez: espera su respuesta. Si se cobra, sale aquí.'}
           </p>
         ) : null}
-        {fichaHint ? <p className={styles.altHint}>{fichaHint}</p> : null}
+        {fichaHint ? <p className={styles.altHint}>{pulseraText(fichaHint, party)}</p> : null}
         {toast ? (
           <p className={styles.toast} role="status">
             {toast}
@@ -834,7 +872,7 @@ function Waiting({
             (360 × 640), donde debajo del QR quedaba tapado por el propio pie. */}
         {onSinMovil ? (
           <button type="button" className={styles.altLink} onClick={onSinMovil} data-tour="esperando-sinmovil">
-            {SIN_MOVIL_LABEL}
+            {pulseraText(SIN_MOVIL_LABEL, party)}
           </button>
         ) : null}
         <div className={styles.footCancel} data-tour="esperando-cancelar">
@@ -843,6 +881,20 @@ function Waiting({
       </div>
     </div>
   );
+}
+
+/** OxioParty: lo que lee el cliente en inglés junto a «Acerca la pulsera» (con dónde está el lector). */
+function partyWaitEn(spot: ReaderSpot): string {
+  return `Hold your wristband to the ${spot === 'arriba' ? 'top of the device' : 'phone'} or scan the QR`;
+}
+
+/**
+ * El título de la espera. OxioParty: «Acerca la pulsera» (también en iPhone,
+ * donde la pulsera abre su enlace); OxioPay, el de siempre.
+ */
+function waitTitle({ party, nfcOn, fichaHint }: { party: boolean; nfcOn: boolean; fichaHint: boolean }): string {
+  if (party && (nfcOn || fichaHint)) return 'Acerca la pulsera';
+  return nfcOn ? 'Acerca la ficha o escanea' : 'Escanea el QR con tu móvil';
 }
 
 /** PAGADO (3.3 / 2.5): lo que le queda, quién / qué / cómo, y el reparto si es una invitación. */
@@ -867,9 +919,17 @@ function PaidDetail({ cobro, what }: { cobro: CobroAbierto; what: string | null 
   );
 }
 
-/** El sondeo no trae la ficha (solo la respuesta del pago con ficha): se conserva. */
+/**
+ * El sondeo no trae la ficha (solo la respuesta del pago con ficha): se
+ * conserva. Con OxioParty, la pulsera acercada tampoco se pierde.
+ */
 function keepFicha(fresh: SaldoState, prev: SaldoState | null): SaldoState {
-  return fresh.fichaNumber || !prev?.fichaNumber ? fresh : { ...fresh, fichaNumber: prev.fichaNumber };
+  if (!prev) return fresh;
+  return {
+    ...fresh,
+    ...(!fresh.fichaNumber && prev.fichaNumber ? { fichaNumber: prev.fichaNumber } : {}),
+    ...(!fresh.pulsera && prev.pulsera ? { pulsera: prev.pulsera } : {}),
+  };
 }
 
 /**

@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { AmountKeypad, Input } from '@nightpay/ui';
 import { MAX_TYPED_AMOUNT_CENTS, SALDO_SE_QUEDA_TEXT } from '@nightpay/contracts';
+import { isParty, pulseraText } from '@/lib/edition';
 import { formatEur } from '@/lib/money';
 import type { RecentTopUp } from '@nightpay/contracts';
 import { methodArmed, recentTopUpLine, type EntryRow, type MethodButton, type ExitPlan } from '@/lib/reception-desk';
@@ -39,7 +40,8 @@ export function TapStage(props: {
   const mark = props.noReader ? null : <NfcMark size="l" />;
   const words = (
     <>
-      <p className={s.stageTitle}>{props.noReader?.title ?? (props.busy ? 'Leyendo…' : 'Acerca la ficha')}</p>
+      {/* OxioParty: «Acerca la pulsera». */}
+      <p className={s.stageTitle}>{props.noReader?.title ?? (props.busy ? 'Leyendo…' : isParty() ? 'Acerca la pulsera' : 'Acerca la ficha')}</p>
       {props.error ? (
         <p role="alert" className={s.stageError}>
           {props.error}
@@ -269,7 +271,7 @@ export function CashConfirmStep(props: {
         {props.ficha ? (
           <>
             <span className={s.kick} aria-hidden="true">
-              Ficha
+              {pulseraText('Ficha')}
             </span>
             <FichaNumber printed={props.ficha} className={s.cobroFicha} />
           </>
@@ -278,8 +280,8 @@ export function CashConfirmStep(props: {
       <div className={s.stage}>
         <NfcMark size="l" />
         <div className={s.stageLive} aria-live="polite" aria-busy={props.busy || undefined}>
-          <p className={s.stageTitle}>{props.busy ? 'Cargando…' : 'Acerca otra vez la ficha'}</p>
-          <p className={s.stageText}>{cashConfirmText(props.amountCents)}</p>
+          <p className={s.stageTitle}>{props.busy ? 'Cargando…' : pulseraText('Acerca otra vez la ficha')}</p>
+          <p className={s.stageText}>{pulseraText(cashConfirmText(props.amountCents))}</p>
         </div>
       </div>
       <DeskBtn

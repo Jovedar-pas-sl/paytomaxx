@@ -60,6 +60,16 @@ const ICON_PATHS: Record<SectionKey, string> = {
   informes: 'M5 20V11M12 20V5M19 20v-6M3 20h18',
   // Ajustes: tres controles deslizantes.
   ajustes: 'M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0M16 4v4M10 10v4M18 16v4',
+  // OxioParty. En directo: el pulso.
+  directo: 'M3 12h4l3-7 4 14 3-7h4',
+  // Casetas: un toldo con su mostrador.
+  casetas: 'M4 10l2-6h12l2 6M4 10h16M4 10a2 2 0 0 0 4 0 2 2 0 0 0 4 0 2 2 0 0 0 4 0 2 2 0 0 0 4 0M5 12v8h14v-8M10 20v-5h4v5',
+  // Pulseras: una pulsera con su chip.
+  pulseras: 'M12 4a8 4 0 1 0 0 16 8 4 0 1 0 0-16zM10 10h4v4h-4z',
+  // Devoluciones: la flecha que vuelve.
+  devoluciones: 'M9 14L4 9l5-5M4 9h10a6 6 0 0 1 0 12h-3',
+  // Cierre: la lista con su visto.
+  cierre: 'M9 5h10M9 12h10M9 19h10M4 5l1 1 2-2M4 12l1 1 2-2M4 19l1 1 2-2',
 };
 
 function NavIcon({ name }: { name: SectionKey }) {
