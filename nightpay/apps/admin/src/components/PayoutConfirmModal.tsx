@@ -134,7 +134,7 @@ export function PayoutConfirmModal({
   /** En efectivo aunque su método guardado sea otro (lo que queda durante la espera). */
   const cashInstead = chosenRail === 'MANUAL_CASH' && payoutMethod !== null && payoutMethod !== 'MANUAL_CASH';
   // El API lo rechazaría (409) después de gastar el código 2FA: ni se envía.
-  const railBlocked = Boolean(holdText);
+  const railBlocked = Boolean(holdText || holderText);
 
   useEffect(() => {
     if (!autoVerifiable) {
@@ -272,7 +272,13 @@ export function PayoutConfirmModal({
               <Notice
                 tone="warning"
                 style={{ marginTop: '0.5rem' }}
-                action={{ label: 'Pagarle en efectivo', onClick: () => setRail('MANUAL_CASH') }}
+                action={{
+                  label: 'Pagarle en efectivo',
+                  onClick: () => {
+                    setRail('MANUAL_CASH');
+                    setError(null);
+                  },
+                }}
               >
                 {holderText.text} Se confirma en su ficha: Editar → Cuenta de cobro.
               </Notice>
