@@ -474,6 +474,13 @@ const PAYOUT_ACCOUNT_CHANGE_VIA: Readonly<Record<string, { title: string; detail
   },
 };
 
+/** Lo mismo sin el correo (payload.emailed false: el API no tiene RESEND_API_KEY), por `via`. */
+const PAYOUT_ACCOUNT_CHANGE_NO_EMAIL: Readonly<Record<string, string>> = {
+  panel: 'ha cambiado la cuenta de cobro de una compañera, con su 2FA. Le hemos avisado en su app.',
+  enlace: 'Una compañera ha puesto su cuenta de cobro con su enlace de alta: comprueba que es suya antes de pagarle.',
+  oxiopay: 'OxioPay ha cambiado la cuenta de cobro de una compañera (el motivo está en el registro). Le hemos avisado en su app.',
+};
+
 const HOLDER_MISMATCH_NOTE = ' El titular no se parece a su nombre: comprueba que la cuenta es suya.';
 
 export const SENSITIVE_AUDIT_ACTIONS: readonly string[] = Object.keys(SENSITIVE_ACTIONS);
@@ -481,7 +488,10 @@ export const SENSITIVE_AUDIT_ACTIONS: readonly string[] = Object.keys(SENSITIVE_
 function sensitiveCopy(r: EventRow & { action: string }): { title: string; detail: string } {
   const via = r.action === 'operator.payout_account_changed' ? str(r.payload, 'via') : null;
   const byVia = via ? PAYOUT_ACCOUNT_CHANGE_VIA[via] : undefined;
-  return byVia ?? SENSITIVE_ACTIONS[r.action] ?? { title: 'Acción delicada', detail: 'Revisa el registro.' };
+  const copy = byVia ?? SENSITIVE_ACTIONS[r.action] ?? { title: 'Acción delicada', detail: 'Revisa el registro.' };
+  // Sin el campo (registros de antes), el texto de siempre.
+  const noEmail = via && (r.payload as { emailed?: unknown } | null)?.emailed === false ? PAYOUT_ACCOUNT_CHANGE_NO_EMAIL[via] : undefined;
+  return noEmail ? { ...copy, detail: noEmail } : copy;
 }
 
 /** Algo que mueve dinero o abre un saldo sin que el cliente lo confirme: el dueño tiene que poder verlo. */

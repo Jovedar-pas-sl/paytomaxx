@@ -190,7 +190,7 @@ export function EditOperatorForm({
           lockedUntil={lockedUntil}
           disabled={submitting}
           required
-          hint="Cambiar a dónde va su dinero pide siempre tu código. Le avisamos por email y en su app. Si ya tenía una cuenta, a la nueva no se le paga hasta pasadas 48 h (en efectivo, sí). Al poner el sexto número se guarda."
+          hint="Cambiar a dónde va su dinero pide siempre tu código. Le avisamos en su app (y por email, si el correo está activado). Si ya tenía una cuenta, a la nueva no se le paga hasta pasadas 48 h (en efectivo, sí). Al poner el sexto número se guarda."
         />
       ) : null}
       {notice ? <Notice tone="info">{notice}</Notice> : null}

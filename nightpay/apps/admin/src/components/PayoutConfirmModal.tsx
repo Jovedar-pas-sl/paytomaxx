@@ -129,6 +129,8 @@ export function PayoutConfirmModal({
   const holdText = payoutHoldText(payoutHoldUntil, chosenRail, Date.now(), tz);
   /** En efectivo aunque su método guardado sea otro (lo que queda durante la espera). */
   const cashInstead = chosenRail === 'MANUAL_CASH' && payoutMethod !== null && payoutMethod !== 'MANUAL_CASH';
+  // El API lo rechazaría (409) después de gastar el código 2FA: ni se envía.
+  const railBlocked = Boolean(holdText);
 
   useEffect(() => {
     if (!autoVerifiable) {
@@ -266,7 +268,13 @@ export function PayoutConfirmModal({
               <Notice
                 tone="warning"
                 style={{ marginTop: '0.5rem' }}
-                action={{ label: 'Pagarle en efectivo', onClick: () => setRail('MANUAL_CASH') }}
+                action={{
+                  label: 'Pagarle en efectivo',
+                  onClick: () => {
+                    setRail('MANUAL_CASH');
+                    setError(null);
+                  },
+                }}
               >
                 {holdText}
               </Notice>
@@ -275,7 +283,13 @@ export function PayoutConfirmModal({
               <Notice
                 tone="info"
                 style={{ marginTop: '0.5rem' }}
-                action={{ label: 'Pagar a su cuenta', onClick: () => setRail(payoutMethod) }}
+                action={{
+                  label: 'Pagar a su cuenta',
+                  onClick: () => {
+                    setRail(payoutMethod);
+                    setError(null);
+                  },
+                }}
               >
                 Vas a apuntar un pago en efectivo, no a su cuenta.
               </Notice>
@@ -381,7 +395,7 @@ export function PayoutConfirmModal({
           label={askedForCode ? 'Código de tu app de verificación (2FA)' : 'Código 2FA (si tienes la app activada)'}
           value={totpCode}
           onChange={setTotpCode}
-          autoSubmit={confirmed && Boolean(chosenRail)}
+          autoSubmit={confirmed && Boolean(chosenRail) && !railBlocked}
           lockedUntil={lockedUntil}
           required={askedForCode}
           hint={
@@ -409,7 +423,7 @@ export function PayoutConfirmModal({
             <Button
               type="submit"
               loading={submitting}
-              disabled={!confirmed || !chosenRail || (!asking && askedForCode && locked)}
+              disabled={!confirmed || !chosenRail || railBlocked || (!asking && askedForCode && locked)}
               style={{ flex: 1 }}
             >
               {asking ? 'Pedir al dueño' : 'Confirmar liquidación'}

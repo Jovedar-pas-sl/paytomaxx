@@ -41,6 +41,7 @@ const email = {
     sent.push(m);
     return { ok: true, delivered: true };
   },
+  isEnabled: () => true,
 };
 const settings: Record<string, string | number> = { OPERATOR_BASE_URL: 'https://personal.example.com' };
 const config = {
