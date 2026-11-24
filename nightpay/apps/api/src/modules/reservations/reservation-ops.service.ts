@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, ForbiddenException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@nightpay/db';
 import { serviceFeeQuote, type ReservationCashQuote, type ReservationView } from '@nightpay/contracts';
 import { PrismaService, type TransactionalClient } from '../../common/prisma/prisma.service';
@@ -47,6 +47,8 @@ const PAYING = ['CREATED', 'AWAITING_CAPTURE', 'AUTHORIZING'] as const;
  */
 @Injectable()
 export class ReservationOpsService {
+  private readonly logger = new Logger(ReservationOpsService.name);
+
   constructor(
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject(AuditService) private readonly audit: AuditService,
@@ -200,6 +202,10 @@ export class ReservationOpsService {
         await tx.reservation.update({ where: { id: r.id }, data: { status: 'NO_SHOW', noShowAt: now, noShowAuto: true, recognizedAt: now } });
         await this.audit.logInTx(tx, { action: 'reservation.no_show', tenantId: r.tenantId, targetType: 'Reservation', targetId: r.id, payload: { ...outcome, auto: true } });
         return true;
+      }).catch((err: unknown) => {
+        // Cada reserva por separado: la que falla (p. ej. su saldo bloqueado) se apunta, queda para la vuelta siguiente y no corta las demás.
+        this.logger.error(`No se pudo marcar «No vino» la reserva ${d.id} del local ${d.tenantId}: ${(err as Error).message}`);
+        return false;
       });
       if (done) marked += 1;
     }

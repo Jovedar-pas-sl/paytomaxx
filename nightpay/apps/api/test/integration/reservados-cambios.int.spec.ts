@@ -9,7 +9,7 @@ import { describe, it, expect, beforeAll, afterAll, afterEach, vi } from 'vitest
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { randomUUID } from 'node:crypto';
 import { ClsService } from 'nestjs-cls';
-import { HttpException } from '@nestjs/common';
+import { HttpException, Logger } from '@nestjs/common';
 import { PrismaService } from '../../src/common/prisma/prisma.service';
 import { madridAt, madridDay } from '../../src/common/time/madrid';
 import { AuditService } from '../../src/modules/audit/audit.service';
@@ -279,5 +279,23 @@ describe('«No vino» a las 12:00 del día siguiente', () => {
     vi.setSystemTime(new Date(autoNoShowAt(other).getTime() + 60_000));
     await pub(() => ops.autoNoShowDue());
     expect(await resvOf(res.id)).toMatchObject({ status: 'NO_SHOW', noShowAuto: true });
+  });
+
+  it('una reserva que falla (su saldo bloqueado) se apunta y no impide marcar las demás; desbloqueada, la vuelta siguiente la marca', async () => {
+    const stuck = await book(await entry(), tonight());
+    const blocked = await pay(stuck.manageToken, 'FULL');
+    const next = await book(await entry(), tonight());
+    await pay(next.manageToken, 'FULL');
+    await sys((tx) => tx.clientWallet.update({ where: { id: blocked.walletId! }, data: { blockedAt: new Date(), blockedReason: 'Reclamación de la tarjeta' } }));
+    vi.setSystemTime(new Date(autoNoShowAt(tonight()).getTime() + 60_000));
+    const logged = vi.spyOn(Logger.prototype, 'error');
+    await pub(() => ops.autoNoShowDue());
+    expect(logged).toHaveBeenCalledWith(expect.stringContaining(stuck.id));
+    logged.mockRestore();
+    expect(await resvOf(next.id)).toMatchObject({ status: 'NO_SHOW', noShowAuto: true });
+    expect(await resvOf(stuck.id)).toMatchObject({ status: 'PAID' });
+    await sys((tx) => tx.clientWallet.update({ where: { id: blocked.walletId! }, data: { blockedAt: null, blockedReason: null } }));
+    await pub(() => ops.autoNoShowDue());
+    expect(await resvOf(stuck.id)).toMatchObject({ status: 'NO_SHOW', noShowAuto: true });
   });
 });
