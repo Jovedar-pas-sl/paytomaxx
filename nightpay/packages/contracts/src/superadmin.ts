@@ -778,8 +778,8 @@ export const AuditListQuerySchema = z.object({
     .optional(),
   from: IsoDate.optional(),
   to: IsoDate.optional(),
-  /** id del último de la página anterior. */
-  cursor: z.string().regex(/^\d+$/).optional(),
+  /** id del último de la página anterior. Hasta 18 cifras: con 19 puede pasarse del bigint de la columna (500). */
+  cursor: z.string().regex(/^\d{1,18}$/).optional(),
   limit: z.coerce.number().int().min(1).max(200).default(50),
 });
 export type AuditListQuery = z.infer<typeof AuditListQuerySchema>;

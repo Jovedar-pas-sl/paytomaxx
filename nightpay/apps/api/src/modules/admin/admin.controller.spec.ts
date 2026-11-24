@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest';
 import { BadRequestException, ForbiddenException, HttpException } from '@nestjs/common';
 import type { JwtPayload } from '@nightpay/contracts';
-import { AdminController, VenueSettingsUpdateSchema, quarterRange } from './admin.controller';
+import { AdminController, ListPaymentsQuerySchema, VenueSettingsUpdateSchema, quarterRange } from './admin.controller';
+import { AcceptAfterCancelSchema } from './accept-after-cancel.controller';
 import { payoutRequestHash } from '../operators/payout-idempotency';
 import { payoutRoute, type VenueApprovalRules } from '../approvals/approval-rules';
 import { sealTotpSecret } from '../auth/totp-crypto';
@@ -482,5 +483,20 @@ describe('Ajustes del dueño: los % de la «Comisión del servicio» con el mism
     expect(VenueSettingsUpdateSchema.safeParse({ serviceFeeBps: 1200, topUpServiceFeeBps: 0 }).success).toBe(true);
     expect(VenueSettingsUpdateSchema.safeParse({ serviceFeeBps: 1300 }).success).toBe(false);
     expect(VenueSettingsUpdateSchema.safeParse({ topUpServiceFeeBps: 10_000 }).success).toBe(false);
+  });
+});
+
+describe('Datos mal escritos: 400 («dato no válido»), no un 500 de la base (punto 75)', () => {
+  it('GET /admin/payments?status=…: solo estados que existen', () => {
+    expect(ListPaymentsQuerySchema.safeParse({ status: 'PAGADO' }).success).toBe(false);
+    expect(ListPaymentsQuerySchema.safeParse({ status: 'AUTHORIZED,PAGADO' }).success).toBe(false);
+    expect(ListPaymentsQuerySchema.parse({ status: 'AUTHORIZED,REFUNDED' }).status).toEqual(['AUTHORIZED', 'REFUNDED']);
+    expect(ListPaymentsQuerySchema.parse({}).status).toBeUndefined();
+  });
+
+  it('«Dar por bueno»: el número del aviso cabe en la base (hasta 18 cifras)', () => {
+    const body = { note: 'Se queda: era su segunda copa' };
+    expect(AcceptAfterCancelSchema.safeParse({ ...body, eventId: '9999999999999999999' }).success).toBe(false);
+    expect(AcceptAfterCancelSchema.safeParse({ ...body, eventId: '999999999999999999' }).success).toBe(true);
   });
 });

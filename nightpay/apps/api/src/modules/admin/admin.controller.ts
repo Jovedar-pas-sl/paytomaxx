@@ -50,6 +50,7 @@ import {
   MAX_VENUE_PAYOUT_HOLD_DAYS,
   CreateOperatorSchema,
   CreatePayoutSchema,
+  PaymentStatusSchema,
   ResetOperatorPasswordSchema,
   RevealPayoutAccountSchema,
   ServiceFeeBpsSchema,
@@ -57,7 +58,6 @@ import {
   type CreateOperatorDto,
   type CreatePayoutDto,
   type JwtPayload,
-  type PaymentStatus,
   type ResetOperatorPasswordDto,
   type RevealPayoutAccountDto,
   type UpdateOperatorDto,
@@ -139,15 +139,13 @@ function withEffectiveHoldDays<T extends { payoutHoldDays: number | null }>(v: T
 const MSG_PLATFORM_COMMISSION_SA_ONLY = 'La comisión de OxioPay solo la cambia OxioPay (super-admin)';
 const MSG_SERVICE_FEE_SA_ONLY = 'La comisión del servicio solo la cambia OxioPay (super-admin)';
 
-const ListPaymentsQuerySchema = z.object({
+export const ListPaymentsQuerySchema = z.object({
   status: z
     .string()
     .optional()
-    .transform((v) =>
-      v
-        ? (v.split(',').filter(Boolean) as PaymentStatus[])
-        : undefined,
-    ),
+    .transform((v) => (v ? v.split(',').filter(Boolean) : undefined))
+    // Un estado que no existe («PAGADO»): 400 aquí, no un 500 de la base.
+    .pipe(z.array(PaymentStatusSchema).optional()),
   limit: z.coerce.number().int().min(1).max(200).default(50),
   cursor: z.string().uuid().optional(),
 });

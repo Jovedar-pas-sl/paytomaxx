@@ -30,8 +30,8 @@ const PROVIDERS = ['WIPAY', 'PEANPE', 'PAYTEF', 'REDSYS', 'BTCPAY'] as const;
 type ApprovalProvider = (typeof PROVIDERS)[number];
 
 export const AcceptAfterCancelSchema = z.object({
-  /** El aviso «Pagó después de cancelar» (su id en la bandeja). */
-  eventId: z.string().regex(/^\d{1,19}$/, 'Aviso no válido'),
+  /** El aviso «Pagó después de cancelar» (su id en la bandeja). Hasta 18 cifras: con 19 puede pasarse del bigint de la columna (500). */
+  eventId: z.string().regex(/^\d{1,18}$/, 'Aviso no válido'),
   /** Qué se hizo y por qué (queda en el aviso cerrado y en el registro). */
   note: z.string().trim().min(3, 'Escribe por qué lo das por bueno').max(300),
   totpCode: z.string().regex(/^\d{6}$/, 'El código 2FA son 6 cifras').optional(),
