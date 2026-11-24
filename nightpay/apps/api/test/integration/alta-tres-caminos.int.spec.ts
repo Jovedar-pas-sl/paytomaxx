@@ -13,6 +13,7 @@
 //  - OxioCard (OXIOCARD_ENABLED): apagada no existe; encendida, «Abrir mi OxioCard» la deja
 //    pedida (una vez), el dueño cambia el estado y ella lo ve. El CHECK de la base y la migración
 //    que se puede repetir.
+//  - Darla de alta con el correo de una cuenta de otro local: 409 que no dice de cuál (antes, 500).
 // Ver README.md.
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import { AsyncLocalStorage } from 'node:async_hooks';
@@ -390,6 +391,19 @@ describe('OxioCard (OXIOCARD_ENABLED)', () => {
     const kia = await newCompanera('Kia');
     await expect(sys((tx) => tx.$executeRaw`UPDATE users SET "oxiocardStatus" = 'ENVIADA' WHERE id = ${kia}::uuid`)).rejects.toThrow();
     expect((await row(kia)).oxiocardStatus).toBe('NO_SOLICITADA');
+  });
+});
+
+describe('alta con el correo de una cuenta de otro local', () => {
+  it('409 «Ese correo no se puede usar: prueba con otro.», sin decir de qué local (antes, 500)', async () => {
+    const correo = `${uniq('ana')}@x.es`;
+    await sys(async (tx) => {
+      const otro = await tx.venue.create({ data: { name: `Sala Vecina ${r}`, slug: `alta3-vecina-${r}` } });
+      await tx.user.create({ data: { tenantId: otro.id, email: correo, passwordHash: 'x', role: 'OPERATOR', displayName: 'Ana' } });
+    });
+    const out = await failure(asStaff(V, () => admin.createOperator(V, jwtOf(boss, 'OWNER'), { email: correo, displayName: 'Ana' })));
+    expect(out).toMatchObject({ status: 409, body: { message: 'Ese correo no se puede usar: prueba con otro.' } });
+    expect(JSON.stringify(out.body)).not.toContain('Vecina');
   });
 });
 
