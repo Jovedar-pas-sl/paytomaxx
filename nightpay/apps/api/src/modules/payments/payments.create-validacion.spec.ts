@@ -207,6 +207,19 @@ describe('create — cobro desde la carta (Fase 1A)', () => {
     ).rejects.toBeInstanceOf(BadRequestException);
     expect([...missing.created, ...off.created]).toHaveLength(0);
   });
+
+  it('cuenta mixta del camarero (carta + «Otro importe»): para el tope solo cuenta lo tecleado', async () => {
+    // 2 botellas de la carta (360 €) y lo tecleado, con el tope del local (200 €).
+    const mixed = (amountCents: number) => dto({ lines: [{ serviceItemId: SERVICE_ITEM, qty: 2 }, { category: 'VENUE_BAR', amountCents }] });
+    const ok = makeService({ serviceItem: bottle });
+    await ok.service.create(TENANT, 'idem-val-0013', mixed(600), waiter);
+    expect(ok.created[0]).toMatchObject({ amountCents: 36_600 });
+    const over = makeService({ serviceItem: bottle });
+    await expect(over.service.create(TENANT, 'idem-val-0014', mixed(25_000), waiter)).rejects.toThrow(
+      /^Importe 250\.00 € supera el límite del local \(200\.00 €\)\./,
+    );
+    expect(over.created).toHaveLength(0);
+  });
 });
 
 describe('create — el puesto decide lo que se cobra', () => {

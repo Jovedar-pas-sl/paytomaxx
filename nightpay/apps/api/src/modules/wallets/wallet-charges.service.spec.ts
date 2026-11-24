@@ -282,6 +282,20 @@ describe('la chica hace un cobro con QR', () => {
     await expect(svc.createQrCharge(waiter, { amountCents: 20_000 })).resolves.toMatchObject({ amountCents: 20_000 });
   });
 
+  it('cuenta mixta (carta + «Otro importe») del camarero y el encargado: cuenta solo lo tecleado; lo tecleado por encima del tope, 403', async () => {
+    const { svc, tx, prisma } = makeService();
+    prisma.venue.findUnique.mockResolvedValue({ operatorMaxCobroCents: 20_000, walletGroup: 'principal' });
+    tx.serviceItem.findMany.mockResolvedValue([
+      { id: 'svc-2', name: 'Botella', durationMin: null, priceCents: 14_000, category: 'VENUE_BAR', active: true, components: null },
+    ]);
+    // 2 botellas de la carta (280 €) y lo tecleado.
+    const cuenta = (amountCents: number) => ({ lines: [{ serviceItemId: 'svc-2', qty: 2 }, { category: 'VENUE_BAR' as const, amountCents }] });
+    for (const actor of [{ userId: 'wt-1', role: 'WAITER' as const, tenantId: 'other' }, { ...manager, tenantId: 'other' }]) {
+      await expect(svc.createQrCharge(actor, cuenta(600)), actor.role).resolves.toMatchObject({ amountCents: 28_600 });
+      await expect(svc.createQrCharge(actor, cuenta(25_000)), actor.role).rejects.toThrow('El máximo que puedes cobrar de una vez es 200,00 €');
+    }
+  });
+
   it('OxioParty (EDITION=party): el tope de «Otro importe» sigue solo para el personal; su panel no tiene «Reglas del local»', async () => {
     vi.stubEnv('EDITION', 'party');
     try {

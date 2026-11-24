@@ -704,7 +704,7 @@ export class PaymentsService implements OnApplicationBootstrap {
     // Las recargas del saldo, solo en recepción (el puesto), el encargado, el
     // dueño o el datáfono de recepción. El cliente desde /w no tiene persona.
     if (isWalletTopUp && !viaDevice && creator.userId) await this.assertCanTopUp(tenantId, creator.userId, creatorRole);
-    const { amountCents, service, revenueCategory, lines, fromCarta } = await this.resolveCharge(tenantId, dto, creator);
+    const { amountCents, service, revenueCategory, lines, typedCents } = await this.resolveCharge(tenantId, dto, creator);
 
     // B1: la propina solo la pone el cliente al pagar (con tarjeta, en la
     // página de pago; por datáfono, la del datáfono). Quien crea el cobro ya
@@ -714,8 +714,7 @@ export class PaymentsService implements OnApplicationBootstrap {
     const capProblem = operatorCapProblem({
       creatorRole,
       isWalletTopUp,
-      fromMenu: fromCarta,
-      amountCents,
+      typedCents,
       tipCents: tip.tipCents,
       capCents: venue.operatorMaxCobroCents,
     });
@@ -853,12 +852,12 @@ export class PaymentsService implements OnApplicationBootstrap {
     service: ServiceSnapshot | null;
     revenueCategory: RevenueCategory;
     lines: DraftLine[];
-    fromCarta: boolean;
+    typedCents: number;
     rights: ChargeRights | null;
   }> {
     if (dto.wallet) {
       if (!dto.amountCents) throw new BadRequestException('Pon el importe');
-      return { amountCents: dto.amountCents, service: null, revenueCategory: 'EXTRA', lines: [], fromCarta: false, rights: null };
+      return { amountCents: dto.amountCents, service: null, revenueCategory: 'EXTRA', lines: [], typedCents: dto.amountCents, rights: null };
     }
     const charge = await resolveChargeOrThrow(this.prisma, {
       tenantId,
@@ -878,7 +877,7 @@ export class PaymentsService implements OnApplicationBootstrap {
       service,
       revenueCategory: charge.primaryCategory,
       lines: charge.lines,
-      fromCarta: charge.fromCarta,
+      typedCents: charge.typedCents,
       rights: charge.rights,
     };
   }

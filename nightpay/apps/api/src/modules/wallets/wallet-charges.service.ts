@@ -566,15 +566,16 @@ export class WalletChargesService {
     });
     const amountCents = charge.amountCents;
     // El mismo tope por cobro que con el QR (Ajustes del local): la compañera en
-    // todo cobro; camarero y encargado, en «Otro importe» (la carta no cuenta;
-    // en OxioParty, sin tope: ver hasCobroCap).
-    if (actor.role === 'OPERATOR' || (hasCobroCap(actor.role) && !charge.fromCarta)) {
+    // todo cobro; camarero y encargado, solo en lo tecleado con «Otro importe» (la
+    // carta no cuenta, tampoco en una cuenta mixta; en OxioParty, sin tope: ver hasCobroCap).
+    const cappedCents = actor.role === 'OPERATOR' ? amountCents : hasCobroCap(actor.role) ? charge.typedCents : 0;
+    if (cappedCents > 0) {
       const venue = await this.prisma.venue.findUnique({
         where: { id: actor.tenantId },
         select: { operatorMaxCobroCents: true },
       });
       const max = venue?.operatorMaxCobroCents ?? null;
-      if (max !== null && amountCents > max) {
+      if (max !== null && cappedCents > max) {
         throw new ForbiddenException(`El máximo que puedes cobrar de una vez es ${eur(max)}`);
       }
     }
