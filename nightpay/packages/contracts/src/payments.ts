@@ -114,7 +114,8 @@ export const CreatePaymentSchema = z.object({
    */
   zone: TerminalZoneSchema.optional(),
   zoneCustom: z.string().min(1).max(40).optional(),
-  currency: z.string().length(3).default('EUR'),
+  /** Solo euros: el banco cobra en euros y el aviso de otra moneda no cuadraría con el cobro. */
+  currency: z.literal('EUR').default('EUR'),
   /**
    * Phase 1B opcional — si presente, este pago es un top-up de ClientWallet.
    * - create: true → crea una wallet nueva, walletId queda en la response.
