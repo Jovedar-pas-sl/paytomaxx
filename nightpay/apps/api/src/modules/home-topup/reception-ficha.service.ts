@@ -156,7 +156,7 @@ export class ReceptionFichaService {
       await assertHasFicha(tx, w.id);
       if (w.balanceCents < fee) throw noBalance(w.balanceCents, fee);
       const replaced = await attachCardInTx(tx, { walletId: w.id, venueId: actor.tenantId, card: input.card, uid, by: { userId: actor.userId } });
-      if (fee > 0) await chargeLostFicha(tx, { actor, walletId: w.id, balanceCents: w.balanceCents, fee, via, card: input.card });
+      if (fee > 0) await chargeLostFicha(tx, { actor, walletId: w.id, balanceCents: w.balanceCents, fee, via });
       return { replaced, charged: fee, balanceCents: w.balanceCents - fee };
     });
     await this.audit.log({
@@ -286,7 +286,7 @@ async function assertHasFicha(tx: Pick<TransactionalClient, 'walletCard'>, walle
  */
 async function chargeLostFicha(
   tx: TransactionalClient,
-  a: { actor: FichaActor; walletId: string; balanceCents: number; fee: number; via: GiveFichaVia; card: string },
+  a: { actor: FichaActor; walletId: string; balanceCents: number; fee: number; via: GiveFichaVia },
 ): Promise<void> {
   const venue = await tx.venue.findUnique({ where: { id: a.actor.tenantId }, select: { platformCommissionBps: true } });
   const feeSaldo = serviceFeeSaldoCents({
@@ -307,7 +307,7 @@ async function chargeLostFicha(
       providedByUserId: a.actor.userId,
       category: 'VENUE_ENTRY',
       notes: 'Ficha nueva (perdida la anterior)',
-      idempotencyKey: `ficha-perdida:${a.card}`,
+      // Sin idempotencyKey: la ficha vuelve al stock y puede sustituir otra vez; la repetición ya la para replaceLost con el saldo bloqueado.
       authMethod: a.via === 'pin' ? 'pin' : 'staff',
       ...(feeSaldo > 0 ? { serviceFeeSaldoCents: feeSaldo } : {}),
       ...(venue ? { platformCommissionBps: venue.platformCommissionBps } : {}),

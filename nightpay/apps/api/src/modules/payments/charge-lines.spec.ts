@@ -71,7 +71,7 @@ describe('resolveChargeLines — peticiones antiguas (una línea)', () => {
     expect(c.lines).toEqual([
       { category: 'CHICA_SERVICE', serviceItemId: null, label: 'Otro importe', qty: 1, unitCents: 5000, amountCents: 5000 },
     ]);
-    expect(c).toMatchObject({ amountCents: 5000, primaryCategory: 'CHICA_SERVICE', service: null, serviceName: null, fromCarta: false });
+    expect(c).toMatchObject({ amountCents: 5000, primaryCategory: 'CHICA_SERVICE', service: null, serviceName: null, typedCents: 5000 });
   });
 
   it('importe del camarero con su sección (o EXTRA → su puesto)', () => {
@@ -86,7 +86,7 @@ describe('resolveChargeLines — peticiones antiguas (una línea)', () => {
     expect(c.amountCents).toBe(10000);
     expect(c.service).toEqual({ serviceItemId: MEDIA_HORA.id, serviceName: '30 min', durationMin: 30 });
     expect(c.serviceName).toBe('30 min');
-    expect(c.fromCarta).toBe(true);
+    expect(c.typedCents).toBe(0);
     expect(c.lines).toHaveLength(1);
   });
 
@@ -156,7 +156,8 @@ describe('líneas explícitas (varias cosas en un cobro)', () => {
     expect(c.amountCents).toBe(5000);
     expect(c.primaryCategory).toBe('VENUE_ROOM');
     expect(c.serviceName).toBe('2× Copa · Habitación 4');
-    expect(c.fromCarta).toBe(false);
+    // Para el tope de «Otro importe» cuenta solo lo tecleado, no las copas de la carta.
+    expect(c.typedCents).toBe(3000);
   });
 
   it('a igualdad de importe manda la primera sección', () => {

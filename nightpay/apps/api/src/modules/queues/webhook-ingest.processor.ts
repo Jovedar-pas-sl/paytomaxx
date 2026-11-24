@@ -4,14 +4,14 @@ import type { Job } from 'bullmq';
 import type { Redis } from 'ioredis';
 import { randomUUID } from 'node:crypto';
 import type { Provider } from '@nightpay/contracts';
-import { PrismaService } from '../../common/prisma/prisma.service';
+import { PrismaService, type TransactionalClient } from '../../common/prisma/prisma.service';
 import { REDIS_CLIENT } from '../../common/redis/redis.module';
 import { RELEASE_LOCK_LUA } from '../../common/redis/release-lock';
 import { PaymentsService } from '../payments/payments.service';
 import { GatewayRegistry } from '../gateways/gateway.registry';
-import type { GatewayAdapter } from '../gateways/gateway.adapter';
+import type { GatewayAdapter, NoticeCard } from '../gateways/gateway.adapter';
 import { parseWebhookBody } from '../gateways/header-utils';
-import { InvalidTransitionError, isIdempotentTransition } from '../payments/payment.machine';
+import { InvalidTransitionError, isIdempotentTransition, type PaymentEvent } from '../payments/payment.machine';
 import { WEBHOOKS_INGEST_QUEUE } from './queue-tokens';
 import { BtcpayInvoiceService } from '../btcpay/btcpay-invoice.service';
 import {
@@ -158,7 +158,7 @@ export class WebhookIngestProcessor extends WorkerHost {
     // Un aviso de una pasarela solo puede tocar cobros de esa pasarela: con el
     // secreto de la URL de Paytef (o un aviso de Peanpe) no se puede marcar
     // pagado un cobro de Redsys.
-    const target = await this.findTarget(fsmEvent.paymentId, delivery.provider as Provider);
+    const target = await this.findTarget(fsmEvent.paymentId, delivery.provider as Provider, fsmEvent.event);
     if (!target || target.provider !== delivery.provider) {
       this.logger.warn(
         `webhook ${deliveryId}: el cobro ${fsmEvent.paymentId} no es de ${delivery.provider} (es ${target?.provider ?? 'desconocido'}) — ignorado`,
@@ -186,7 +186,16 @@ export class WebhookIngestProcessor extends WorkerHost {
       // para que rechace payments que no pertenezcan a ese venue. El
       // externalEventId del payload del provider no debe poder mutar payments
       // de otro tenant.
-      await this.payments.transition(target.id, event, delivery.tenantId ?? undefined);
+      const { card } = fsmEvent;
+      if (card) {
+        // La tarjeta del aviso (Redsys) en la misma transacción que el «pagado»: aparte
+        // (webhooks.controller), un fallo en el pico lo dejaba sin autorización ni últimos 4.
+        await this.payments.transition(target.id, event, delivery.tenantId ?? undefined, {
+          prepare: (tx, locked) => recordNoticeCard(tx, locked.id, card),
+        });
+      } else {
+        await this.payments.transition(target.id, event, delivery.tenantId ?? undefined);
+      }
       await this.markProcessed(deliveryId);
       this.logger.log(`webhook ${deliveryId} → payment ${target.id} transitioned`);
     } catch (err) {
@@ -252,13 +261,26 @@ export class WebhookIngestProcessor extends WorkerHost {
    * Paytef (clientID) y Cecabank (Num_operacion) llevan el id del intento: la
    * página del banco la ve el cliente, y del id del cobro sale el código de
    * confirmación (FSD-02). Los avisos de antes nombran el cobro. Un intento
-   * de otra pasarela no cuenta.
+   * de otra pasarela no cuenta. Sin id (Redsys: el aviso se guarda nada más
+   * comprobar la firma, sin buscar el cobro), por el pedido aprobado: el de
+   * su intento o, en los cobros de antes de Fase 0, el del propio cobro.
    */
-  private async findTarget(ref: string, provider: Provider): Promise<TargetPayment | null> {
+  private async findTarget(ref: string, provider: Provider, event: PaymentEvent): Promise<TargetPayment | null> {
+    const select = { id: true, tenantId: true, provider: true, amountCents: true, currency: true } as const;
+    if (!ref && event.type === 'AUTHORIZED') {
+      const order = event.providerTxId;
+      return this.prisma.asSystem(async (tx) => {
+        const attempt = await tx.paymentAttempt.findUnique({
+          where: { provider_providerTxId: { provider, providerTxId: order } },
+          select: { paymentId: true },
+        });
+        if (attempt) return tx.payment.findUnique({ where: { id: attempt.paymentId }, select });
+        return tx.payment.findFirst({ where: { provider, providerTxId: order }, select });
+      });
+    }
     // Un id que no es UUID (aviso raro o manipulado) no es ningún cobro: sin
     // esto la consulta falla y el aviso se reintenta 5 veces para nada.
     if (!UUID_RE.test(ref)) return null;
-    const select = { id: true, tenantId: true, provider: true, amountCents: true, currency: true } as const;
     // Sin local en el contexto (es un trabajo, no una petición): lectura de sistema.
     return this.prisma.asSystem(async (tx) => {
       const payment = await tx.payment.findUnique({ where: { id: ref }, select });
@@ -340,4 +362,20 @@ export class WebhookIngestProcessor extends WorkerHost {
       data: { processedAt: new Date() },
     });
   }
+}
+
+/**
+ * La tarjeta del aviso, en el cobro: dentro de transition(), con el cobro
+ * bloqueado y solo si aún no estaba pagado (un segundo cargo de otro pedido no
+ * pisa la del que se cobró). SQL crudo, como transition(): sin local en el contexto.
+ */
+async function recordNoticeCard(tx: TransactionalClient, paymentId: string, card: NoticeCard): Promise<void> {
+  await tx.$executeRaw`
+    UPDATE payments
+       SET "payMethodCode" = ${card.payMethodCode}, "cardBrand" = ${card.cardBrand},
+           "cardType" = ${card.cardType}, "cardCountry" = ${card.cardCountry},
+           "cardLast4" = ${card.cardLast4}, "authCode" = ${card.authCode},
+           "secure3ds" = ${card.secure3ds}
+     WHERE id = ${paymentId}::uuid AND "authorizedAt" IS NULL
+  `;
 }

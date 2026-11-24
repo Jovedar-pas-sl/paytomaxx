@@ -162,8 +162,37 @@ describe('Redsys — el importe firmado por el banco decide (adapter real)', () 
       PAYMENT_ID,
       { type: 'AUTHORIZED', providerTxId: DS_ORDER, provider: 'REDSYS' },
       TENANT_ID,
+      // La tarjeta del aviso, en la misma transacción (punto 70 de la revisión del 20-11).
+      { prepare: expect.any(Function) },
     );
     expect(m.tx.paymentEvent.create).not.toHaveBeenCalled();
+    expect(m.prisma.webhookDelivery.update).toHaveBeenCalledWith({ where: { id: BigInt(7) }, data: { processedAt: NOW } });
+  });
+
+  it('aviso guardado sin buscar el cobro (sin _paymentId ni local, punto 4 de la revisión del 20-11) → lo encuentra por el pedido firmado', async () => {
+    const rawBody = redsysBody().replace(`&_paymentId=${PAYMENT_ID}`, '');
+    const m = makeProcessor({ rawBody });
+    m.prisma.webhookDelivery.findUniqueOrThrow.mockResolvedValue({
+      id: BigInt(7),
+      provider: 'REDSYS',
+      tenantId: null,
+      processedAt: null,
+      rawBody: Buffer.from(rawBody, 'utf8'),
+    });
+    const byOrder = vi.fn(async ({ where }: { where: { provider_providerTxId?: { provider: string; providerTxId: string } } }) =>
+      where.provider_providerTxId?.provider === 'REDSYS' && where.provider_providerTxId.providerTxId === DS_ORDER ? { paymentId: PAYMENT_ID } : null,
+    );
+    Object.assign(m.tx.paymentAttempt, { findUnique: byOrder });
+
+    await m.run();
+
+    expect(byOrder).toHaveBeenCalledTimes(1);
+    expect(m.payments.transition).toHaveBeenCalledWith(
+      PAYMENT_ID,
+      { type: 'AUTHORIZED', providerTxId: DS_ORDER, provider: 'REDSYS' },
+      undefined,
+      { prepare: expect.any(Function) },
+    );
     expect(m.prisma.webhookDelivery.update).toHaveBeenCalledWith({ where: { id: BigInt(7) }, data: { processedAt: NOW } });
   });
 

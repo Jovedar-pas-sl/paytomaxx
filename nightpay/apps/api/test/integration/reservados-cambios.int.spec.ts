@@ -9,7 +9,7 @@ import { describe, it, expect, beforeAll, afterAll, afterEach, vi } from 'vitest
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { randomUUID } from 'node:crypto';
 import { ClsService } from 'nestjs-cls';
-import { HttpException } from '@nestjs/common';
+import { HttpException, Logger } from '@nestjs/common';
 import { PrismaService } from '../../src/common/prisma/prisma.service';
 import { madridAt, madridDay } from '../../src/common/time/madrid';
 import { AuditService } from '../../src/modules/audit/audit.service';
@@ -254,5 +254,48 @@ describe('«No vino» a las 12:00 del día siguiente', () => {
     // Vinieron: el encargado apunta la llegada tarde (el camarero, no).
     expect(code(await as(door, () => ops.arrive(door, res.id)).catch((e: unknown) => e))).toBe('RESERVATION_ARRIVAL');
     expect((await as(manager, () => ops.arrive(manager, res.id))).status).toBe('ARRIVED');
+  });
+
+  it('deshecho, el repaso (cada 10 min) no lo vuelve a poner; a mano, sí; con otra noche del local, vuelve a contar', async () => {
+    const res = await book(await entry(), tonight());
+    const p = await pay(res.manageToken, 'FULL');
+    const noon = autoNoShowAt(tonight()).getTime();
+    vi.setSystemTime(new Date(noon + 60_000));
+    await pub(() => ops.autoNoShowDue());
+    expect(await resvOf(res.id)).toMatchObject({ status: 'NO_SHOW', noShowAuto: true });
+    await as(manager, () => ops.undoNoShow(manager, res.id));
+    // La vuelta siguiente: sigue pagada y la señal, en su saldo.
+    vi.setSystemTime(new Date(noon + 11 * 60_000));
+    await pub(() => ops.autoNoShowDue());
+    expect(await resvOf(res.id)).toMatchObject({ status: 'PAID' });
+    expect((await walletOf(p.walletId!)).balanceCents).toBe(50000);
+    // El encargado sí lo puede marcar otra vez a mano.
+    expect((await as(manager, () => ops.noShow(manager, res.id))).status).toBe('NO_SHOW');
+    expect((await walletOf(p.walletId!)).balanceCents).toBe(35000);
+    // Deshecho otra vez y el local le da otra noche: si no vienen, esa noche sí se pone sola.
+    await as(manager, () => ops.undoNoShow(manager, res.id));
+    const other = tonight();
+    await as(manager, () => ops.venueChangeDate(manager, res.id, other));
+    vi.setSystemTime(new Date(autoNoShowAt(other).getTime() + 60_000));
+    await pub(() => ops.autoNoShowDue());
+    expect(await resvOf(res.id)).toMatchObject({ status: 'NO_SHOW', noShowAuto: true });
+  });
+
+  it('una reserva que falla (su saldo bloqueado) se apunta y no impide marcar las demás; desbloqueada, la vuelta siguiente la marca', async () => {
+    const stuck = await book(await entry(), tonight());
+    const blocked = await pay(stuck.manageToken, 'FULL');
+    const next = await book(await entry(), tonight());
+    await pay(next.manageToken, 'FULL');
+    await sys((tx) => tx.clientWallet.update({ where: { id: blocked.walletId! }, data: { blockedAt: new Date(), blockedReason: 'Reclamación de la tarjeta' } }));
+    vi.setSystemTime(new Date(autoNoShowAt(tonight()).getTime() + 60_000));
+    const logged = vi.spyOn(Logger.prototype, 'error');
+    await pub(() => ops.autoNoShowDue());
+    expect(logged).toHaveBeenCalledWith(expect.stringContaining(stuck.id));
+    logged.mockRestore();
+    expect(await resvOf(next.id)).toMatchObject({ status: 'NO_SHOW', noShowAuto: true });
+    expect(await resvOf(stuck.id)).toMatchObject({ status: 'PAID' });
+    await sys((tx) => tx.clientWallet.update({ where: { id: blocked.walletId! }, data: { blockedAt: null, blockedReason: null } }));
+    await pub(() => ops.autoNoShowDue());
+    expect(await resvOf(stuck.id)).toMatchObject({ status: 'NO_SHOW', noShowAuto: true });
   });
 });

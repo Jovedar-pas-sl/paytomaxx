@@ -269,6 +269,15 @@ describe('getResultView — el cliente vuelve del banco a /pay/result', () => {
     });
   });
 
+  it('el intento se busca con su pasarela (índice único pasarela + pedido): sin ella se recorre la tabla entera', async () => {
+    const { service, prisma } = makeService({ attempts: [{ providerTxId: 'ORD-2', status: 'APPROVED' }] });
+    await expect(service.getResultView('ORD-2')).resolves.toMatchObject({ paymentId: PAYMENT_ID, attemptStatus: 'APPROVED' });
+    // Solo Redsys (Ds_Order) y Cecabank/Wipay (Num_operacion) vuelven a /pay/result?op=.
+    expect(prisma.paymentAttempt.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { provider: { in: ['REDSYS', 'WIPAY'] }, providerTxId: 'ORD-2' } }),
+    );
+  });
+
   it('cobro anterior a los intentos → se encuentra por su pedido, sin estado de intento', async () => {
     const { service } = makeService({ payment: { providerTxId: 'ORD-ANTIGUO' } });
     await expect(service.getResultView('ORD-ANTIGUO')).resolves.toMatchObject({

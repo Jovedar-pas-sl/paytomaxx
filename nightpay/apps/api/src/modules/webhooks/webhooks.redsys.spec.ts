@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { BadRequestException, UnauthorizedException } from '@nestjs/common';
 import type { FastifyRequest } from 'fastify';
 import { serializeAndSignJSONRequest } from 'redsys-easy';
+import { Prisma } from '@nightpay/db';
 import { WebhooksController } from './webhooks.controller';
 import { RedsysAdapter } from '../gateways/redsys.adapter';
 import { openTokenizationData } from '../payments/tokenization-seal';
@@ -55,9 +56,15 @@ function makeHarness(o: Options = {}) {
   };
   const prisma = {
     asSystem: vi.fn(async (fn: (t: typeof tx) => unknown) => fn(tx)),
+    // Le pone al aviso guardado su cobro y su local.
+    $executeRaw: vi.fn().mockResolvedValue(1),
     webhookDelivery: {
-      findUnique: vi.fn().mockResolvedValue(o.existing ?? null),
-      create: vi.fn(async ({ data }: { data: Record<string, unknown> }) => ({ id: BigInt(640), processedAt: null, ...data })),
+      // Ya guardado: el mismo aviso choca con la clave única y se usa ese registro.
+      create: vi.fn(async ({ data }: { data: Record<string, unknown> }) => {
+        if (o.existing) throw new Prisma.PrismaClientKnownRequestError('Unique constraint failed', { code: 'P2002', clientVersion: 'test' });
+        return { id: BigInt(640), processedAt: null, ...data };
+      }),
+      findUniqueOrThrow: vi.fn().mockResolvedValue(o.existing ?? null),
     },
   };
   const redsys = new RedsysAdapter(config as never, metrics as never);
@@ -116,11 +123,11 @@ describe('receiveRedsys — idempotencia', () => {
   it('aviso ya procesado → duplicate, sin tocar intentos, cobro ni cola', async () => {
     const h = makeHarness({ existing: { id: BigInt(88), processedAt: new Date('2026-10-17T02:12:00Z') } });
     await expect(h.controller.receiveRedsys(notice())).resolves.toEqual({ received: true, duplicate: true });
-    expect(h.prisma.webhookDelivery.findUnique).toHaveBeenCalledWith({
+    expect(h.prisma.webhookDelivery.findUniqueOrThrow).toHaveBeenCalledWith({
       where: { provider_externalEventId: { provider: 'REDSYS', externalEventId: `${DS_ORDER}-0000` } },
+      select: { id: true, processedAt: true },
     });
     expect(h.prisma.asSystem).not.toHaveBeenCalled();
-    expect(h.prisma.webhookDelivery.create).not.toHaveBeenCalled();
     expect(h.queue.add).not.toHaveBeenCalled();
     expect(h.metrics.webhooksReceived.inc).toHaveBeenCalledWith({ provider: 'REDSYS', outcome: 'duplicate' });
   });
@@ -128,7 +135,6 @@ describe('receiveRedsys — idempotencia', () => {
   it('aviso guardado sin procesar → reusa el registro y reencola con el mismo jobId', async () => {
     const h = makeHarness({ existing: { id: BigInt(88), processedAt: null } });
     await expect(h.controller.receiveRedsys(notice())).resolves.toEqual({ received: true });
-    expect(h.prisma.webhookDelivery.create).not.toHaveBeenCalled();
     expect(h.queue.add).toHaveBeenCalledWith(
       'process-webhook',
       { deliveryId: '88' },
@@ -229,6 +235,22 @@ describe('receiveRedsys — el aviso firmado se procesa en la misma petición (c
     const limit = Reflect.getMetadata(IP_RATE_LIMIT_META, WebhooksController.prototype.receiveRedsys) as IpRateLimitConfig;
     expect(limit).toMatchObject({ windowSec: 60, scope: 'webhook-redsys', failOpen: true });
     expect(limit.max).toBeGreaterThanOrEqual(3_000);
+  });
+});
+
+describe('receiveRedsys — con la base saturada al buscar el cobro (punto 4 de la revisión del 20-11)', () => {
+  it('el aviso queda guardado nada más comprobar la firma y se procesa igual (el procesador busca el cobro)', async () => {
+    const ingest = { processDelivery: vi.fn(async () => true) };
+    const h = makeHarness({ ingest });
+    // Sábado 01:30, en pleno pico: el pool no da conexión a tiempo (P2028) al buscar el cobro de 60 €.
+    h.prisma.asSystem.mockRejectedValue(new Error('P2028 Unable to start a transaction in the given time'));
+
+    await expect(h.controller.receiveRedsys(notice({ Ds_Amount: '6000' }))).resolves.toEqual({ received: true });
+
+    expect(h.prisma.webhookDelivery.create).toHaveBeenCalledTimes(1);
+    expect(h.prisma.webhookDelivery.create.mock.calls[0]![0].data).toMatchObject({ provider: 'REDSYS', externalEventId: `${DS_ORDER}-0000` });
+    expect(ingest.processDelivery).toHaveBeenCalledWith('640');
+    expect(h.metrics.webhooksReceived.inc).toHaveBeenCalledWith({ provider: 'REDSYS', outcome: 'valid' });
   });
 });
 

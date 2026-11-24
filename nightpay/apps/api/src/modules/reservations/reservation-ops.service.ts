@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, ForbiddenException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@nightpay/db';
 import { serviceFeeQuote, type ReservationCashQuote, type ReservationView } from '@nightpay/contracts';
 import { PrismaService, type TransactionalClient } from '../../common/prisma/prisma.service';
@@ -17,6 +17,7 @@ import {
   itemsLeft,
   itemsOf,
   autoNoShowAt,
+  nightEnd,
   nightOf,
   noShowProblem,
 } from './reservation-rules';
@@ -46,6 +47,8 @@ const PAYING = ['CREATED', 'AWAITING_CAPTURE', 'AUTHORIZING'] as const;
  */
 @Injectable()
 export class ReservationOpsService {
+  private readonly logger = new Logger(ReservationOpsService.name);
+
   constructor(
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject(AuditService) private readonly audit: AuditService,
@@ -182,6 +185,8 @@ export class ReservationOpsService {
       tx.reservation.findMany({
         where: { status: { in: ['DEPOSIT_PAID', 'PAID'] }, nightDate: { lt: dateOfDay(nightOf(now)) } },
         select: { id: true, tenantId: true, nightDate: true },
+        // Las noches más nuevas primero: las deshechas siguen pagadas con su noche pasada y no deben quitar sitio entre las 200 a las que tocan.
+        orderBy: { nightDate: 'desc' },
         take: 200,
       }),
     );
@@ -191,10 +196,16 @@ export class ReservationOpsService {
         const rows = await tx.$queryRaw<Array<{ status: string }>>`SELECT status FROM reservations WHERE id = ${d.id}::uuid FOR UPDATE`;
         if (rows[0]?.status !== 'DEPOSIT_PAID' && rows[0]?.status !== 'PAID') return false;
         const r = await tx.reservation.findUniqueOrThrow({ where: { id: d.id } });
+        // El encargado ya deshizo el «No vino» de esta noche (deshacer deja noShowAt): no se vuelve a poner solo.
+        if (r.noShowAt && r.noShowAt.getTime() >= nightEnd(dayOf(r.nightDate)).getTime()) return false;
         const outcome = await loseDeposit(tx, r, await venueOwnerId(tx, r.tenantId), 'noshow');
         await tx.reservation.update({ where: { id: r.id }, data: { status: 'NO_SHOW', noShowAt: now, noShowAuto: true, recognizedAt: now } });
         await this.audit.logInTx(tx, { action: 'reservation.no_show', tenantId: r.tenantId, targetType: 'Reservation', targetId: r.id, payload: { ...outcome, auto: true } });
         return true;
+      }).catch((err: unknown) => {
+        // Cada reserva por separado: la que falla (p. ej. su saldo bloqueado) se apunta, queda para la vuelta siguiente y no corta las demás.
+        this.logger.error(`No se pudo marcar «No vino» la reserva ${d.id} del local ${d.tenantId}: ${(err as Error).message}`);
+        return false;
       });
       if (done) marked += 1;
     }
@@ -223,9 +234,10 @@ export class ReservationOpsService {
            WHERE id = ${r.walletId}::uuid
         `;
       }
+      // noShowAt se queda: así el «No vino» solo (autoNoShowDue) no la vuelve a marcar esta noche.
       await tx.reservation.update({
         where: { id: r.id },
-        data: { status: r.paidCents >= r.priceCents ? 'PAID' : 'DEPOSIT_PAID', noShowAt: null, noShowAuto: false, recognizedAt: null },
+        data: { status: r.paidCents >= r.priceCents ? 'PAID' : 'DEPOSIT_PAID', noShowAuto: false, recognizedAt: null },
       });
       await this.audit.logInTx(tx, {
         action: 'reservation.no_show_undone',

@@ -1,5 +1,5 @@
 // Integración (Postgres real): avisos de pasarela, aprobación tras fallo y conciliación de huérfanos. Ver README.md.
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { randomUUID } from 'node:crypto';
 import { ClsService } from 'nestjs-cls';
@@ -25,7 +25,7 @@ const payments = new PaymentsService(
   {} as never,
   {} as never,
   { emitPaymentUpdate: noop, emitPaymentCompleted: noop } as never,
-  { paymentsTransitioned: { inc: noop }, walletCreditSkipped: { inc: noop } } as never,
+  { paymentsTransitioned: { inc: noop }, walletCreditSkipped: { inc: noop }, duplicateCharges: { inc: noop } } as never,
   {} as never,
   {} as never,
   {} as never,
@@ -122,8 +122,8 @@ async function payment(o: {
   });
 }
 
-function signedRedsys(order: string, amount: string, paymentId: string): string {
-  const fields = { Ds_Order: order, Ds_MerchantCode: MERCHANT, Ds_Response: '0000', Ds_TransactionType: '0', Ds_Amount: amount, Ds_Currency: '978' };
+function signedRedsys(order: string, amount: string, paymentId: string, extra: Record<string, string> = {}): string {
+  const fields = { Ds_Order: order, Ds_MerchantCode: MERCHANT, Ds_Response: '0000', Ds_TransactionType: '0', Ds_Amount: amount, Ds_Currency: '978', ...extra };
   const s = serializeAndSignJSONRequest(SECRET, { Ds_Merchant_Order: order, ...fields } as never);
   return `Ds_SignatureVersion=${s.Ds_SignatureVersion}&Ds_MerchantParameters=${encodeURIComponent(s.Ds_MerchantParameters)}&Ds_Signature=${encodeURIComponent(s.Ds_Signature)}&_paymentId=${paymentId}`;
 }
@@ -220,6 +220,44 @@ describe('procesador de avisos contra Postgres real', () => {
     const p = await statusOf(id);
     expect(p?.status).toBe('AUTHORIZED');
     expect(p?.tipCents).toBe(1000);
+  });
+
+  it('aviso Redsys aprobado → pagado con la tarjeta y la autorización en la misma transacción; un segundo cargo no los pisa (punto 70 de la revisión del 20-11)', async () => {
+    const order = `TJ${r}`;
+    const other = `TK${r}`;
+    const id = await payment({
+      status: 'AUTHORIZING',
+      provider: 'REDSYS',
+      amount: 6000,
+      order: other,
+      attempts: [{ order, amount: 6000, tip: 0 }, { order: other, amount: 6000, tip: 0 }],
+    });
+    const card = (last4: string, auth: string) => ({
+      Ds_Card_Number: `454881******${last4}`,
+      Ds_Card_Brand: '1',
+      Ds_Card_Type: 'D',
+      Ds_Card_Country: '724',
+      Ds_AuthorisationCode: auth,
+      Ds_SecurePayment: '1',
+      Ds_ProcessedPayMethod: '78',
+    });
+    // Directo al procesador: sin la anotación de la tarjeta del controlador (aparte, y en el pico puede fallar).
+    await deliver('REDSYS', signedRedsys(order, '6000', id, card('0003', '123456')));
+    expect(await statusOf(id)).toMatchObject({
+      status: 'AUTHORIZED',
+      providerTxId: order,
+      cardLast4: '0003',
+      authCode: '123456',
+      cardBrand: '1',
+      cardType: 'D',
+      cardCountry: '724',
+      secure3ds: true,
+      payMethodCode: '78',
+    });
+    // El cliente pagó también el otro pedido del mismo cobro: doble cobro apuntado y la tarjeta del primero se queda.
+    await deliver('REDSYS', signedRedsys(other, '6000', id, card('0004', '654321')));
+    expect(await statusOf(id)).toMatchObject({ status: 'AUTHORIZED', providerTxId: order, cardLast4: '0003', authCode: '123456' });
+    expect(await eventsOf(id, 'payment.duplicate_charge')).toHaveLength(1);
   });
 
   it('avisos del mismo cobro a la vez (la cola procesa hasta 4): se paga una sola vez, con una comisión', async () => {
@@ -354,6 +392,43 @@ describe('vuelta firmada por el mismo camino que el aviso (Postgres real)', () =
     const earnings = await sys((tx) => tx.operatorEarning.findMany({ where: { paymentId: id } }));
     expect(earnings).toHaveLength(1);
     expect(await prisma.webhookDelivery.count({ where: { provider: 'REDSYS', externalEventId: `${order}-0000` } })).toBe(1);
+  });
+
+  it('con la base saturada al buscar el cobro (punto 4 de la revisión del 20-11): el aviso queda guardado y el procesador lo paga', async () => {
+    const h = harness();
+    const order = `RS1${r}`;
+    const id = await payment({ status: 'AUTHORIZING', provider: 'REDSYS', amount: 6000, order, attempts: [{ order, amount: 6000, tip: 0 }] });
+    // Sábado 01:30, en pleno pico: el pool no da conexión a tiempo (P2028) justo al buscar el cobro.
+    const busy = vi.spyOn(prisma, 'asSystem').mockRejectedValueOnce(new Error('P2028 Unable to start a transaction in the given time'));
+    try {
+      const request = { headers: {}, body: bankFields(order, 6000) } as unknown as FastifyRequest;
+      await expect(h.webhooks.receiveRedsys(request)).resolves.toEqual({ received: true });
+    } finally {
+      busy.mockRestore();
+    }
+    const saved = await prisma.webhookDelivery.findUnique({
+      where: { provider_externalEventId: { provider: 'REDSYS', externalEventId: `${order}-0000` } },
+    });
+    expect(saved?.processedAt).toBeNull();
+    expect(h.jobs).toEqual([saved!.id.toString()]);
+    await processor.process({ data: { deliveryId: h.jobs[0]! } } as Job<{ deliveryId: string }>);
+    expect((await statusOf(id))?.status).toBe('AUTHORIZED');
+    expect((await prisma.webhookDelivery.findUnique({ where: { id: saved!.id } }))?.processedAt).not.toBeNull();
+  });
+
+  it('el aviso guardado lleva el cobro y el local, como lo lee la versión anterior: también lo paga si lo coge ella al desplegar (revisión de la tanda 1)', async () => {
+    const h = harness();
+    const order = `RV1${r}`;
+    const id = await payment({ status: 'AUTHORIZING', provider: 'REDSYS', amount: 6000, order, attempts: [{ order, amount: 6000, tip: 0 }] });
+    const request = { headers: {}, body: bankFields(order, 6000) } as unknown as FastifyRequest;
+    await expect(h.webhooks.receiveRedsys(request)).resolves.toEqual({ received: true });
+    // Al desplegar (start-first) la versión anterior (29ca2bd7) también procesa avisos: sin `_paymentId`
+    // lo daba por procesado sin pagar («unmappable event») y el cobro de 60 € acababa en ORPHAN.
+    const saved = await prisma.webhookDelivery.findUniqueOrThrow({ where: { id: BigInt(h.jobs[0]!) } });
+    expect(new URLSearchParams(saved.rawBody.toString('utf8')).get('_paymentId')).toBe(id);
+    expect(saved.tenantId).toBe(A);
+    await processor.process({ data: { deliveryId: h.jobs[0]! } } as Job<{ deliveryId: string }>);
+    expect((await statusOf(id))?.status).toBe('AUTHORIZED');
   });
 
   it('si el importe firmado es distinto, deja incidencia y no marca el pago como cobrado', async () => {

@@ -438,8 +438,10 @@ export class RedsysAdapter implements GatewayAdapter {
   }
 
   mapWebhookToFsmEvent(parsedPayload: unknown): WebhookFsmEvent | null {
-    // Body tal cual lo mandó Redsys + `_paymentId`, que el controller añade
-    // tras resolver Ds_Order (nuestro providerTxId) → payment UUID.
+    // Body tal cual lo mandó Redsys + `_paymentId` (Ds_Order ya resuelto al
+    // cobro), que el controller añade al encontrar el cobro; sin él (no lo
+    // encontró al llegar), el processor busca el cobro por el pedido (Ds_Order,
+    // nuestro providerTxId).
     const p = parsedPayload as Record<string, unknown>;
     const n = this.parseNotification(p);
     if (!n) return null;
@@ -449,15 +451,19 @@ export class RedsysAdapter implements GatewayAdapter {
     );
     if (n.response === '') return null;
 
-    const paymentId = typeof p._paymentId === 'string' ? p._paymentId : '';
-    if (!paymentId) {
-      this.logger.warn(`Redsys aviso sin payment asociado (order=${n.order}) — ignorado`);
-      return null;
-    }
     if (n.approved) {
       return {
-        paymentId,
+        paymentId: typeof p._paymentId === 'string' ? p._paymentId : '',
         event: { type: 'AUTHORIZED', providerTxId: n.order, provider: 'REDSYS' },
+        card: {
+          payMethodCode: n.payMethodCode,
+          cardBrand: n.cardBrand,
+          cardType: n.cardType,
+          cardCountry: n.cardCountry,
+          cardLast4: n.cardLast4,
+          authCode: n.authCode,
+          secure3ds: n.secure3ds,
+        },
       };
     }
     // Denegación: NO marcamos FAILED. FAILED es estado final y Redsys permite

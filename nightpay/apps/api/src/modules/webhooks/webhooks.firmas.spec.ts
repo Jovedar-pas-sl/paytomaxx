@@ -54,6 +54,8 @@ function makeHarness() {
   };
   const prisma = {
     asSystem: vi.fn(async (fn: (t: typeof tx) => unknown) => fn(tx)),
+    // Le pone al aviso guardado su cobro y su local.
+    $executeRaw: vi.fn().mockResolvedValue(1),
     webhookDelivery: {
       findUnique: vi.fn().mockResolvedValue(null),
       create: vi.fn(async ({ data }: { data: Record<string, unknown> }) => ({ id: BigInt(501), processedAt: null, ...data })),
@@ -160,7 +162,7 @@ describe('POST /webhooks/:provider (ruta genérica)', () => {
 });
 
 describe('receiveRedsys — firma del banco', () => {
-  it('aviso firmado → se guarda una vez (con local y _paymentId) y se encola', async () => {
+  it('aviso firmado → se guarda una vez, tal cual lo firmó el banco (el cobro lo busca el processor), y se encola', async () => {
     const h = makeHarness();
     const notice = redsysNotice();
 
@@ -170,11 +172,11 @@ describe('receiveRedsys — firma del banco', () => {
     const data = h.prisma.webhookDelivery.create.mock.calls[0]![0].data;
     expect(data).toMatchObject({
       provider: 'REDSYS',
-      tenantId: TENANT_ID,
       externalEventId: `${DS_ORDER}-0000`,
       signature: notice.Ds_Signature,
     });
-    expect((data.rawBody as Buffer).toString('utf8')).toMatch(new RegExp(`&_paymentId=${PAYMENT_ID}$`));
+    expect(data).not.toHaveProperty('tenantId');
+    expect((data.rawBody as Buffer).toString('utf8')).not.toContain('_paymentId');
     expect(h.queue.add).toHaveBeenCalledWith(
       'process-webhook',
       { deliveryId: '501' },

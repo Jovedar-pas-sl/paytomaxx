@@ -59,8 +59,11 @@ export interface ResolvedCharge {
   service: { serviceItemId: string; serviceName: string; durationMin: number | null } | null;
   /** Lo vendido en una línea («2× Copa · Habitación»); null si es solo un importe tecleado. */
   serviceName: string | null;
-  /** Todo sale de la carta (el tope de la chica para importes libres no aplica). */
-  fromCarta: boolean;
+  /**
+   * Lo tecleado a mano («Otro importe»): las líneas sin servicio de la carta.
+   * Es lo único del cobro que cuenta para el tope del local; la carta no, tampoco en una cuenta mixta.
+   */
+  typedCents: number;
 }
 
 export type ChargeLinesError = 'item-missing' | 'item-inactive' | 'no-amount' | 'too-much';
@@ -155,7 +158,7 @@ export function resolveChargeLines(req: ChargeLinesRequest): ChargeLinesResult {
       primaryCategory: primaryCategory(lines),
       service: singleService(asked, req.items),
       serviceName: summaryOf(asked, req.items),
-      fromCarta: asked.every((l) => 'serviceItemId' in l),
+      typedCents: lines.reduce((acc, l) => acc + (l.serviceItemId === null ? l.amountCents : 0), 0),
     },
   };
 }

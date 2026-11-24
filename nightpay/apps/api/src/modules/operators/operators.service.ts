@@ -555,6 +555,9 @@ export class OperatorsService {
           inviteToken: inviteTokenHash,
         },
       });
+    }).catch((err: unknown) => {
+      // El correo es único en todo OxioPay y la comprobación de arriba solo ve este local: el de otro choca aquí (sin decir de cuál).
+      throw isUniqueViolation(err) ? new ConflictException('Ese correo no se puede usar: prueba con otro.') : err;
     });
 
     const inviteUrl = `${baseUrl}/accept-invite?token=${inviteToken}`;

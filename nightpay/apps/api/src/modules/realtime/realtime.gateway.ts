@@ -127,13 +127,17 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
     this.metrics.wsConnectionsActive.inc();
     // Un payment:subscribe puede llegar antes de que acabe la comprobación:
     // handleSubscribe espera a esta promesa (si no, iría por la vía sin sesión).
-    client.data.authReady = this.authenticate(client);
+    client.data.authReady = this.authenticate(client).catch((err: unknown) => {
+      // Nest no recoge un error de aquí (la base sin contestar): sin esto cae el API entero. Fuera solo esta conexión; la app reconecta.
+      this.logger.warn(`socket ${client.id}: no se pudo comprobar al conectar (${(err as Error)?.message ?? String(err)}), se desconecta`);
+      client.disconnect(true);
+    });
     await client.data.authReady;
   }
 
   private async authenticate(client: StaffSocket): Promise<void> {
-    const displayToken = cleanToken((client.handshake?.auth as { displayToken?: unknown } | undefined)?.displayToken);
-    if (displayToken) return this.authenticateDisplay(client, displayToken);
+    const auth = client.handshake?.auth as { displayToken?: unknown } | undefined;
+    if (auth?.displayToken !== undefined) return this.authenticateDisplay(client, cleanToken(auth.displayToken));
     const token = handshakeToken(client);
     if (!token) return;
     const result = await verifyStaffToken(this.jwt, token);
@@ -152,9 +156,9 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
     await client.join([...sessionRooms(result.payload), tenantRoom(result.payload.tenantId)]);
   }
 
-  /** La tablet: con credencial válida, a su sala y a la de su cobro; si no, fuera (no baja a la vía antigua). */
-  private async authenticateDisplay(client: StaffSocket, token: string): Promise<void> {
-    const display = await findActiveDisplay(this.prisma, token);
+  /** La tablet: con credencial válida, a su sala y a la de su cobro; si no (o inventada), fuera (no baja a la vía antigua). */
+  private async authenticateDisplay(client: StaffSocket, token: string | null): Promise<void> {
+    const display = token ? await findActiveDisplay(this.prisma, token) : null;
     if (!display) {
       client.disconnect(true);
       return;

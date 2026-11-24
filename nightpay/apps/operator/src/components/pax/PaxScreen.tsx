@@ -139,6 +139,8 @@ function PaxScreenView({ onNight }: { onNight: (night: VenueNightSettings) => vo
   const closeCharge = useCallback(() => setSelected(null), []);
   const closeSaldo = useCallback(() => setSaldo(false), []);
   const closeDesk = useCallback(() => setDesk(null), []);
+  // Antes de los return tempranos: un hook después cambia su número al vincular y React rompe la pantalla.
+  const practice = usePractice();
 
   if (paired === null) return <main className="np-screen" style={mainStyle} />;
   if (!paired) {
@@ -179,7 +181,6 @@ function PaxScreenView({ onNight }: { onNight: (night: VenueNightSettings) => vo
   }
 
   const reader = hasReader();
-  const practice = usePractice();
   // Un cobro con una venta del lector por anular o revisar no se vuelve a cobrar: el cliente ya pagó.
   const onHold = new Set(review.filter((r) => r.kind !== 'voidUnknown').map((r) => r.paymentId));
   return (

@@ -111,6 +111,7 @@ import { isReservationPaymentKey } from '../reservations/reservation-payment-key
 import { sweepUnpaidTopUpWallet } from './topup-wallet-sweep';
 import { PAID_WITH_SALDO_EVENT, closeLinkedSaldo } from './cobro-link';
 import { wasPaidAfterCancel } from './paid-after-cancel';
+import { RESULT_PAGE_PROVIDERS } from './pay-status.service';
 import { assertBankWaitOver } from './cancel-at-bank';
 import { heldOnReaderConflict, isHeldOnReader } from './reader-hold';
 import { serviceFeeQuote } from '@nightpay/contracts';
@@ -703,7 +704,7 @@ export class PaymentsService implements OnApplicationBootstrap {
     // Las recargas del saldo, solo en recepción (el puesto), el encargado, el
     // dueño o el datáfono de recepción. El cliente desde /w no tiene persona.
     if (isWalletTopUp && !viaDevice && creator.userId) await this.assertCanTopUp(tenantId, creator.userId, creatorRole);
-    const { amountCents, service, revenueCategory, lines, fromCarta } = await this.resolveCharge(tenantId, dto, creator);
+    const { amountCents, service, revenueCategory, lines, typedCents } = await this.resolveCharge(tenantId, dto, creator);
 
     // B1: la propina solo la pone el cliente al pagar (con tarjeta, en la
     // página de pago; por datáfono, la del datáfono). Quien crea el cobro ya
@@ -713,8 +714,7 @@ export class PaymentsService implements OnApplicationBootstrap {
     const capProblem = operatorCapProblem({
       creatorRole,
       isWalletTopUp,
-      fromMenu: fromCarta,
-      amountCents,
+      typedCents,
       tipCents: tip.tipCents,
       capCents: venue.operatorMaxCobroCents,
     });
@@ -852,12 +852,12 @@ export class PaymentsService implements OnApplicationBootstrap {
     service: ServiceSnapshot | null;
     revenueCategory: RevenueCategory;
     lines: DraftLine[];
-    fromCarta: boolean;
+    typedCents: number;
     rights: ChargeRights | null;
   }> {
     if (dto.wallet) {
       if (!dto.amountCents) throw new BadRequestException('Pon el importe');
-      return { amountCents: dto.amountCents, service: null, revenueCategory: 'EXTRA', lines: [], fromCarta: false, rights: null };
+      return { amountCents: dto.amountCents, service: null, revenueCategory: 'EXTRA', lines: [], typedCents: dto.amountCents, rights: null };
     }
     const charge = await resolveChargeOrThrow(this.prisma, {
       tenantId,
@@ -877,7 +877,7 @@ export class PaymentsService implements OnApplicationBootstrap {
       service,
       revenueCategory: charge.primaryCategory,
       lines: charge.lines,
-      fromCarta: charge.fromCarta,
+      typedCents: charge.typedCents,
       rights: charge.rights,
     };
   }
@@ -1390,8 +1390,9 @@ export class PaymentsService implements OnApplicationBootstrap {
   async getResultView(providerTxId: string, opts: { bankApproved?: boolean } = {}): Promise<PayResultView | null> {
     if (!providerTxId) return null;
     const found = await this.prisma.asSystem(async (tx) => {
+      // Con la pasarela va por el índice único (provider, providerTxId); sin ella recorre la tabla entera.
       const attempt = await tx.paymentAttempt.findFirst({
-        where: { providerTxId },
+        where: { provider: { in: [...RESULT_PAGE_PROVIDERS] }, providerTxId },
         select: { paymentId: true },
       });
       const payment = await tx.payment.findFirst({
