@@ -1,7 +1,7 @@
 // Integración (Postgres real, np_app y FORCE RLS): la ficha en el móvil del
 // cliente (estudio de fichas, B7).
 //  - «Ver mi saldo con mi PIN»: el mismo PIN, con su propio contador de fallos
-//    (5 → esa vista cerrada 15 min; el PIN de pagar no se toca); con el PIN
+//    (5 → esa vista cerrada 24 h; el PIN de pagar no se toca); con el PIN
 //    bien, el saldo (nada del enlace privado) durante 10 min.
 //  - La página de la ficha enseña «Recargar esta ficha» y «Ver mi saldo con mi
 //    PIN» sin el saldo ni el enlace.
@@ -26,7 +26,6 @@ const passkeys = { hasPasskey: vi.fn(async () => false) };
 const topUps = { options: vi.fn(async () => ({ allowed: true, block: null, presetsCents: [2_000, 5_000], minCents: 1_000, maxCents: 30_000, serviceFeeBps: null, feesCents: null })) };
 const viewFails = new Map<string, number>();
 const redis = {
-  get: async (k: string) => (viewFails.has(k) ? String(viewFails.get(k)) : null),
   incr: async (k: string) => {
     viewFails.set(k, (viewFails.get(k) ?? 0) + 1);
     return viewFails.get(k)!;
@@ -96,7 +95,7 @@ describe('la ficha en el móvil del cliente (B7)', () => {
     await expect(pub(() => cardView.viewAgain(card, seen.viewToken))).resolves.toMatchObject({ balanceCents: 3_500 });
   });
 
-  it('5 fallos en la vista: se cierra solo la vista (15 min); el pago con PIN sigue funcionando', async () => {
+  it('5 fallos en la vista: se cierra solo la vista (24 h); el pago con PIN sigue funcionando', async () => {
     for (let i = 0; i < 4; i += 1) await expect(pub(() => cardView.viewWithPin(card, '1357'))).rejects.toMatchObject({ status: 422 });
     await expect(pub(() => cardView.viewWithPin(card, '1357'))).rejects.toMatchObject({ status: 429, response: expect.objectContaining({ code: 'CARD_VIEW_LOCKED' }) });
     await expect(pub(() => cardView.viewWithPin(card, '2468'))).rejects.toMatchObject({ status: 429 });

@@ -29,8 +29,8 @@ import type { WalletUnlockView } from './wallet-unlock-page';
 export const CARD_PIN_VIEW_MS = 10 * 60 * 1000;
 /** Fallos seguidos de esa vista antes de cerrarla (su propio contador, no el del PIN de pagar). */
 export const CARD_VIEW_MAX_FAILS = 5;
-/** Lo que se cierra la vista tras esos fallos. */
-export const CARD_VIEW_LOCK_S = 15 * 60;
+/** Lo que se cierra la vista tras esos fallos: 24 h desde el primer intento (5 PIN al día como mucho). */
+export const CARD_VIEW_LOCK_S = 24 * 60 * 60;
 
 /** La clave de los fallos de la vista con el PIN de un saldo. */
 export function cardViewFailsKey(walletId: string): string {
@@ -39,7 +39,7 @@ export function cardViewFailsKey(walletId: string): string {
 
 function cardViewLocked(): HttpException {
   return new HttpException(
-    { message: 'Demasiados intentos: prueba otra vez dentro de 15 minutos. Para pagar, tu PIN sigue igual.', code: 'CARD_VIEW_LOCKED' },
+    { message: 'Demasiados intentos: prueba otra vez dentro de 24 horas. Para pagar, tu PIN sigue igual.', code: 'CARD_VIEW_LOCKED' },
     HttpStatus.TOO_MANY_REQUESTS,
   );
 }
@@ -128,28 +128,30 @@ export class WalletCardViewService {
   /**
    * «Ver mi saldo con mi PIN» (B7): con el PIN bien, el saldo durante
    * CARD_PIN_VIEW_MS. Nada para pagar ni el enlace del saldo; tampoco activa
-   * Face ID. Sus fallos van en su propio contador: tras CARD_VIEW_MAX_FAILS,
-   * esta vista se cierra CARD_VIEW_LOCK_S (sin tocar el PIN de pagar: quien
-   * tenga la ficha no puede bloquearlo).
+   * Face ID. Sus fallos van en su propio contador, que suma cada intento
+   * ANTES de mirar el PIN (varias peticiones a la vez no pasan de
+   * CARD_VIEW_MAX_FAILS): tras esos fallos, esta vista se cierra hasta
+   * CARD_VIEW_LOCK_S desde el primero (sin tocar el PIN de pagar: quien tenga
+   * la ficha no puede bloquearlo).
    */
   async viewWithPin(token: string, pin: unknown, now: Date = new Date()): Promise<CardPinView> {
     if (typeof pin !== 'string' || !/^[0-9]{4}$/.test(pin)) throw new BadRequestException({ message: 'El PIN son 4 cifras.', code: 'PIN_FORMAT' });
     const t = await this.target(token);
     if (!t.wallet.pinHash) throw new ConflictException({ message: 'Esta ficha aún no tiene PIN.', code: 'CARD_NO_PIN' });
     const key = cardViewFailsKey(t.wallet.id);
-    if ((await this.viewFails(key)) >= CARD_VIEW_MAX_FAILS) throw cardViewLocked();
+    const tries = await this.viewTried(key);
+    if (tries > CARD_VIEW_MAX_FAILS) throw cardViewLocked();
     const outcome = await this.charges.pinForCardView(t.wallet.id, pin);
     if (outcome === 'no-pin') throw new ConflictException({ message: 'Esta ficha aún no tiene PIN.', code: 'CARD_NO_PIN' });
     if (outcome === 'locked') {
       throw new UnprocessableEntityException({ message: 'Saldo bloqueado por PIN fallado: avisa al encargado para desbloquearlo', code: 'PIN_LOCKED' });
     }
     if (outcome === 'wrong') {
-      const fails = await this.viewFailed(key);
-      if (fails >= CARD_VIEW_MAX_FAILS) {
-        this.logger.warn(`Ficha ${t.cardId}: «Ver mi saldo con mi PIN» cerrada ${CARD_VIEW_LOCK_S / 60} min tras ${fails} fallos (el PIN de pagar sigue igual)`);
+      if (tries >= CARD_VIEW_MAX_FAILS) {
+        this.logger.warn(`Ficha ${t.cardId}: «Ver mi saldo con mi PIN» cerrada tras ${tries} fallos, hasta ${CARD_VIEW_LOCK_S / 3600} h desde el primero (el PIN de pagar sigue igual)`);
         throw cardViewLocked();
       }
-      const left = CARD_VIEW_MAX_FAILS - fails;
+      const left = CARD_VIEW_MAX_FAILS - tries;
       throw new UnprocessableEntityException({ message: `PIN incorrecto. ${left === 1 ? 'Queda 1 intento' : `Quedan ${left} intentos`}`, code: 'PIN_WRONG' });
     }
     await this.redisCall((r) => r.del(key));
@@ -157,16 +159,11 @@ export class WalletCardViewService {
     return this.pinView(t, exp);
   }
 
-  /** Los fallos de «Ver mi saldo con mi PIN» de este saldo (en su ventana). */
-  private async viewFails(key: string): Promise<number> {
-    return Number((await this.redisCall((r) => r.get(key))) ?? 0);
-  }
-
-  /** Un fallo más; la ventana empieza de nuevo con cada uno (tras el quinto, CARD_VIEW_LOCK_S). */
-  private async viewFailed(key: string): Promise<number> {
-    const fails = await this.redisCall((r) => r.incr(key));
-    await this.redisCall((r) => r.expire(key, CARD_VIEW_LOCK_S));
-    return fails;
+  /** Un intento más (se borra al acertar); la ventana de CARD_VIEW_LOCK_S empieza con el primero y no se alarga. */
+  private async viewTried(key: string): Promise<number> {
+    const tries = await this.redisCall((r) => r.incr(key));
+    if (tries === 1) await this.redisCall((r) => r.expire(key, CARD_VIEW_LOCK_S));
+    return tries;
   }
 
   /** Sin Redis no se deja ver con el PIN (fail-closed: lo que adivina un secreto no pasa). */

@@ -11,7 +11,7 @@ import { walletViewSetCookies } from './wallet-view-session';
 
 /**
  * «Ver mi saldo con mi PIN»: 30 intentos cada 15 min por IP y 8 por ficha e IP
- * (además de su propio contador de fallos por saldo: 5 y la vista se cierra 15 min).
+ * (además de su propio contador de fallos por saldo: 5 y la vista se cierra 24 h).
  */
 export const CARD_PIN_VIEW_LIMIT: IpRateLimitConfig = Object.freeze({
   max: 30,
@@ -60,7 +60,7 @@ export class PublicWalletCardController {
 
   /**
    * B7: «Ver mi saldo con mi PIN» (10 min, sin pagos). Sus fallos van aparte
-   * del PIN de pagar (5 → esta vista cerrada 15 min) y tiene su freno por IP
+   * del PIN de pagar (5 → esta vista cerrada 24 h) y tiene su freno por IP
    * y por ficha e IP.
    */
   @Public()
