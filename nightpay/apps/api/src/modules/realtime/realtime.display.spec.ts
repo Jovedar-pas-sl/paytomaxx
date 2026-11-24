@@ -1,4 +1,5 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
+import { Logger } from '@nestjs/common';
 import { DISPLAY_READ_ONLY_ERROR, RealtimeGateway } from './realtime.gateway';
 import { AccessRevocationService } from '../auth/access-revocation.service';
 import { createFakeRedis } from '../auth/testing/fake-redis';
@@ -60,10 +61,12 @@ function makeGateway() {
   const emit = vi.fn();
   const server = { in: vi.fn(() => roomOps), to: vi.fn(() => ({ emit })) };
   gateway.server = server as never;
-  return { gateway, server, roomOps, emit, findPayment };
+  return { gateway, server, roomOps, emit, findPayment, prisma };
 }
 
 describe('RealtimeGateway: la pantalla del cliente', () => {
+  afterEach(() => vi.restoreAllMocks());
+
   it('con su credencial entra en su sala y en la de su cobro (sin JWT)', async () => {
     const g = makeGateway();
     const client = makeClient({ displayToken: DISPLAY_TOKEN });
@@ -76,12 +79,27 @@ describe('RealtimeGateway: la pantalla del cliente', () => {
     expect(client.disconnect).not.toHaveBeenCalled();
   });
 
-  it('credencial que no vale: fuera (no baja a la vía antigua sin sesión)', async () => {
+  it('credencial que no vale o inventada: fuera, sin entrar en ninguna sala (no baja a la vía antigua sin sesión)', async () => {
+    // Una que no está en la base y otra que ni tiene la forma de una de verdad.
+    for (const displayToken of ['b'.repeat(43), 'inventada']) {
+      const g = makeGateway();
+      const client = makeClient({ displayToken });
+      await g.gateway.handleConnection(client as never);
+      expect(client.disconnect).toHaveBeenCalledWith(true);
+      expect(client.data.display).toBeUndefined();
+      expect(client.join).not.toHaveBeenCalled();
+    }
+  });
+
+  it('la base no contesta al conectar: no tumba el API (no rechaza), corta solo esa conexión y lo apunta', async () => {
+    const warn = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
     const g = makeGateway();
-    const client = makeClient({ displayToken: 'b'.repeat(43) });
-    await g.gateway.handleConnection(client as never);
+    g.prisma.asSystem.mockRejectedValueOnce(new Error('Transaction API error: Unable to start a transaction in the given time.'));
+    const client = makeClient({ displayToken: DISPLAY_TOKEN });
+    await expect(g.gateway.handleConnection(client as never)).resolves.toBeUndefined();
     expect(client.disconnect).toHaveBeenCalledWith(true);
-    expect(client.data.display).toBeUndefined();
+    expect(client.join).not.toHaveBeenCalled();
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('socket sock-1'));
   });
 
   it('no puede suscribirse a ningún cobro ni cobro del saldo: solo ve el suyo', async () => {
