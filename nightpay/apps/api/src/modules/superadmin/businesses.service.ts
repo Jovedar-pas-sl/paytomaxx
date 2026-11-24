@@ -20,7 +20,7 @@ import { changedFields } from './masking';
 import { SuperAdminStepUpService } from './step-up.service';
 import { SuperAdminAuditService } from './superadmin-audit.service';
 import type { SuperAdminActor } from './superadmin.guard';
-import { SuperAdminVenuesService } from './venues.service';
+import { SuperAdminVenuesService, assertWalletGroupInBusiness } from './venues.service';
 
 const BUSINESS_NOT_FOUND = 'Negocio no encontrado';
 
@@ -161,11 +161,14 @@ export class SuperAdminBusinessesService {
     const moved = await this.prisma.acrossVenues(async (tx) => {
       const found = await tx.venue.findMany({
         where: { id: { in: ids }, deletedAt: null },
-        select: { id: true, businessId: true },
+        select: { id: true, businessId: true, walletGroup: true },
       });
       if (found.length !== ids.length) throw new NotFoundException('Algún local no existe o está borrado');
       await tx.venue.updateMany({ where: { id: { in: ids } }, data: { businessId: id } });
-      return found.filter((v) => v.businessId !== id);
+      const entering = found.filter((v) => v.businessId !== id);
+      // Ya dentro: los que entran juntos cuentan como de este negocio. Si choca uno, no entra ninguno.
+      for (const v of entering) await assertWalletGroupInBusiness(tx, { ...v, businessId: id });
+      return entering;
     });
     for (const v of moved) {
       await this.audit.write(actor, {
