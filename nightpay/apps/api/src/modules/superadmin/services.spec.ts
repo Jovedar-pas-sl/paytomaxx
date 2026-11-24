@@ -228,7 +228,19 @@ function staffSetup(opts: { target: Record<string, unknown>; activeSuperAdmins: 
     $queryRaw: vi.fn(async (strings: TemplateStringsArray) =>
       strings.join('?').includes('"isSuperAdmin" AND') ? opts.activeSuperAdmins.map((id) => ({ id })) : [opts.target],
     ),
-    user: { update: vi.fn().mockResolvedValue({}) },
+    user: {
+      update: vi.fn().mockResolvedValue({}),
+      // La ficha que se devuelve al terminar.
+      findUnique: vi.fn(async () => ({
+        email: 'x@x.es',
+        displayName: null,
+        invitedAt: null,
+        totpSecret: null,
+        venue: null,
+        createdAt: new Date(),
+        ...opts.target,
+      })),
+    },
   };
   const prisma = { acrossVenues: vi.fn(async (fn: (t: typeof tx) => unknown) => fn(tx)) };
   const stepUp = { verify: vi.fn().mockResolvedValue(undefined) };
@@ -282,5 +294,24 @@ describe('SuperAdminStaffService — nunca sin super-admins', () => {
     });
     await expect(waiter.svc.setSuperAdmin(actor, 'u-9', { ...dto, enabled: true })).rejects.toThrow(/Solo un dueño/);
     expect(waiter.tx.user.update).not.toHaveBeenCalled();
+  });
+});
+
+describe('SuperAdminStaffService — quitar el permiso de super-admin', () => {
+  const target = { id: 'sa-2', tenantId: 'v-1', role: 'OWNER', isSuperAdmin: true, deletedAt: null };
+  const dto = { enabled: false, reason: 'ya no lleva la plataforma', totpCode: '123456' };
+
+  it('cierra sus sesiones al momento, ya quitado (el pase que tenía para un local ajeno deja de valer); darlo, no', async () => {
+    const revoke = staffSetup({ target, activeSuperAdmins: ['sa-1', 'sa-2'] });
+    await revoke.svc.setSuperAdmin(actor, 'sa-2', dto);
+    expect(revoke.refreshTokens.revokeAllForUser).toHaveBeenCalledWith('sa-2');
+    expect(revoke.tx.user.update.mock.invocationCallOrder[0]!).toBeLessThan(
+      revoke.refreshTokens.revokeAllForUser.mock.invocationCallOrder[0]!,
+    );
+
+    const grant = staffSetup({ target: { ...target, isSuperAdmin: false }, activeSuperAdmins: ['sa-1'] });
+    await grant.svc.setSuperAdmin(actor, 'sa-2', { ...dto, enabled: true });
+    expect(grant.tx.user.update).toHaveBeenCalled();
+    expect(grant.refreshTokens.revokeAllForUser).not.toHaveBeenCalled();
   });
 });

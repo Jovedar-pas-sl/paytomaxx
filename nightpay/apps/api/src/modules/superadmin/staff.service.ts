@@ -318,7 +318,11 @@ export class SuperAdminStaffService {
     return this.get(id);
   }
 
-  /** Dar o quitar super-admin (solo a un dueño activo; nunca dejar la plataforma sin ninguno). */
+  /**
+   * Dar o quitar super-admin (solo a un dueño activo; nunca dejar la plataforma
+   * sin ninguno). Quitarlo cierra sus sesiones: el pase que tenga para un local
+   * ajeno valdría hasta caducar (fuera de /superadmin nadie vuelve a mirar el permiso).
+   */
   async setSuperAdmin(actor: SuperAdminActor, id: string, dto: SetSuperAdminDto): Promise<StaffUserView> {
     await this.stepUp.verify(actor, dto.totpCode, 'user.super_admin');
     const outcome = await this.prisma.acrossVenues(async (tx) => {
@@ -333,6 +337,7 @@ export class SuperAdminStaffService {
       await tx.user.update({ where: { id }, data: { isSuperAdmin: dto.enabled } });
       return user.tenantId;
     });
+    if (!dto.enabled) await this.refreshTokens.revokeAllForUser(id);
     await this.audit.write(actor, {
       action: dto.enabled ? 'user.super_admin_granted' : 'user.super_admin_revoked',
       tenantId: outcome,

@@ -120,7 +120,7 @@ el umbral; el dueño las aprueba con 2FA y quien pide no aprueba. Ver
 | `POST /superadmin/users/:id/enable` | Vuelve a darle de alta. Motivo. | Sí | `user.enabled` |
 | `POST /superadmin/users/:id/revoke-sessions` | Cierra todas sus sesiones: refresh, token de acceso vivo (401 al momento) y tiempo real. Motivo. | — | `user.sessions_revoked` |
 | `POST /superadmin/users/:id/totp/reset` | Borra su 2FA: tendrá que activarla otra vez. Cierra sus sesiones. No la propia (se cambia en el perfil). Motivo. | Sí | `user.totp_reset` |
-| `POST /superadmin/users/:id/super-admin` | Dar (`enabled: true`, solo a un OWNER activo) o quitar el permiso. Nunca deja la plataforma sin super-admins (tampoco quitándotelo tú si eres el último): 409. Motivo. | Sí | `user.super_admin_granted` / `user.super_admin_revoked` |
+| `POST /superadmin/users/:id/super-admin` | Dar (`enabled: true`, solo a un OWNER activo) o quitar el permiso (quitarlo cierra sus sesiones; también `pnpm cli set-super-admin --revoke true`). Nunca deja la plataforma sin super-admins (tampoco quitándotelo tú si eres el último): 409. Motivo. | Sí | `user.super_admin_granted` / `user.super_admin_revoked` |
 
 La CLI (`pnpm cli …`) sigue igual.
 
