@@ -17,6 +17,7 @@ import {
   itemsLeft,
   itemsOf,
   autoNoShowAt,
+  nightEnd,
   nightOf,
   noShowProblem,
 } from './reservation-rules';
@@ -182,6 +183,8 @@ export class ReservationOpsService {
       tx.reservation.findMany({
         where: { status: { in: ['DEPOSIT_PAID', 'PAID'] }, nightDate: { lt: dateOfDay(nightOf(now)) } },
         select: { id: true, tenantId: true, nightDate: true },
+        // Las noches más nuevas primero: las deshechas siguen pagadas con su noche pasada y no deben quitar sitio entre las 200 a las que tocan.
+        orderBy: { nightDate: 'desc' },
         take: 200,
       }),
     );
@@ -191,6 +194,8 @@ export class ReservationOpsService {
         const rows = await tx.$queryRaw<Array<{ status: string }>>`SELECT status FROM reservations WHERE id = ${d.id}::uuid FOR UPDATE`;
         if (rows[0]?.status !== 'DEPOSIT_PAID' && rows[0]?.status !== 'PAID') return false;
         const r = await tx.reservation.findUniqueOrThrow({ where: { id: d.id } });
+        // El encargado ya deshizo el «No vino» de esta noche (deshacer deja noShowAt): no se vuelve a poner solo.
+        if (r.noShowAt && r.noShowAt.getTime() >= nightEnd(dayOf(r.nightDate)).getTime()) return false;
         const outcome = await loseDeposit(tx, r, await venueOwnerId(tx, r.tenantId), 'noshow');
         await tx.reservation.update({ where: { id: r.id }, data: { status: 'NO_SHOW', noShowAt: now, noShowAuto: true, recognizedAt: now } });
         await this.audit.logInTx(tx, { action: 'reservation.no_show', tenantId: r.tenantId, targetType: 'Reservation', targetId: r.id, payload: { ...outcome, auto: true } });
@@ -223,9 +228,10 @@ export class ReservationOpsService {
            WHERE id = ${r.walletId}::uuid
         `;
       }
+      // noShowAt se queda: así el «No vino» solo (autoNoShowDue) no la vuelve a marcar esta noche.
       await tx.reservation.update({
         where: { id: r.id },
-        data: { status: r.paidCents >= r.priceCents ? 'PAID' : 'DEPOSIT_PAID', noShowAt: null, noShowAuto: false, recognizedAt: null },
+        data: { status: r.paidCents >= r.priceCents ? 'PAID' : 'DEPOSIT_PAID', noShowAuto: false, recognizedAt: null },
       });
       await this.audit.logInTx(tx, {
         action: 'reservation.no_show_undone',
