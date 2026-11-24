@@ -1,6 +1,7 @@
-// Integración (Postgres real): topes de la recarga desde /w (24 h y a medias,
-// contados en la base), la recarga que «creó el saldo» cuando el saldo se abrió
-// en efectivo, y el saldo bloqueado por el super-admin (no se recarga con
+// Integración (Postgres real): topes de la recarga desde /w y desde la ficha
+// (24 h y a medias, contados en la base, también con varias a la vez), la
+// recarga que «creó el saldo» cuando el saldo se abrió en efectivo, y el saldo
+// bloqueado por el super-admin (no se recarga con
 // tarjeta, no se busca por código y, si se bloquea a medias, no se suma).
 // np_app y FORCE RLS. Ver README.md.
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
@@ -178,6 +179,20 @@ describe('«Recargar» desde /w: tope de 24 h por saldo, contado en la base', ()
     const k = key();
     const a = await start(w.token, 30_000, k);
     await expect(start(w.token, 30_000, k)).resolves.toMatchObject({ payToken: a.payToken });
+  });
+});
+
+describe('«Recargar esta ficha» (B7): tope de 200 € en 24 h, también con peticiones a la vez', () => {
+  it('4 de 200 € a la vez (un programa): queda una sola viva, no 800 €', async () => {
+    const w = await newWallet();
+    const fromFicha = () => pub(() => topUps.startFromFicha(w.token, `ficha-${w.id}`, { amountCents: 20_000, key: key(), lang: 'es' }));
+    const out = await Promise.allSettled([fromFicha(), fromFicha(), fromFicha(), fromFicha()]);
+    expect(out.filter((o) => o.status === 'fulfilled')).toHaveLength(1);
+    for (const o of out.filter((o): o is PromiseRejectedResult => o.status === 'rejected')) {
+      expect(o.reason).toMatchObject({ status: 409, response: expect.objectContaining({ code: expect.stringMatching(/^WALLET_TOPUP_(DAILY|PENDING)_LIMIT$/) }) });
+    }
+    const live = await sys((tx) => tx.payment.findMany({ where: { walletId: w.id, status: 'CREATED' }, select: { amountCents: true } }));
+    expect(live).toEqual([{ amountCents: 20_000 }]);
   });
 });
 

@@ -425,6 +425,30 @@ describe('WalletTopUpService.startFromFicha — «Recargar esta ficha» (B7)', (
     expect(rapido.redis.incr).toHaveBeenCalledWith(`np:ficha-topup:${WALLET}`);
   });
 
+  it('dos a la vez que no caben en los 200 €: la que se creó después se cancela y da 409', async () => {
+    // Antes de crear no había nada; al mirar otra vez, otra de 150 € desde la ficha se creó justo antes que esta.
+    const earlier = row(15_000, 'CREATED', { idempotencyKey: 'ftopup:otra' });
+    const { service, payments, db } = make({ recent: [], recentAfter: [earlier, { ...row(15_000, 'CREATED', { idempotencyKey: 'ftopup:esta' }), id: PAYMENT }] });
+    const err = await fromFicha(service, { amountCents: 15_000 }).catch((e: unknown) => e);
+    expect((err as ConflictException).getResponse()).toMatchObject({ code: 'WALLET_TOPUP_DAILY_LIMIT', message: expect.stringContaining('Desde la ficha') });
+    expect(payments.transition).toHaveBeenCalledWith(PAYMENT, { type: 'CANCELED', reason: 'wallet-topup-cap' });
+    // Al mirar otra vez, también solo las de la ficha.
+    expect(db.payment.findMany).toHaveBeenCalledTimes(2);
+    expect(db.payment.findMany).toHaveBeenLastCalledWith(expect.objectContaining({ where: expect.objectContaining({ OR: [{ idempotencyKey: { startsWith: 'ftopup:' } }] }) }));
+    // La que se creó antes no mira las de después: sigue.
+    const first = make({ recent: [], recentAfter: [{ ...row(15_000, 'CREATED'), id: PAYMENT }, row(15_000, 'CREATED')] });
+    await expect(fromFicha(first.service, { amountCents: 15_000 })).resolves.toBeDefined();
+    expect(first.payments.transition).not.toHaveBeenCalled();
+  });
+
+  it('doble toque desde la ficha: la misma clave ya tiene su cobro → no se vuelve a mirar el tope (ni se cancela)', async () => {
+    const mine = { ...row(15_000, 'CREATED'), id: PAYMENT, idempotencyKey: fichaTopUpKey('card-1', KEY) };
+    const full = [row(15_000, 'AUTHORIZED', { idempotencyKey: 'ftopup:a' }), mine];
+    const { service, payments } = make({ recent: full, recentAfter: full });
+    await expect(fromFicha(service, { amountCents: 15_000 })).resolves.toEqual({ payUrl: '/pay/pay-tok-1?lang=es' });
+    expect(payments.transition).not.toHaveBeenCalled();
+  });
+
   it('importe raro o clave rara: no; saldo bloqueado: no', async () => {
     const { service } = make();
     await expect(fromFicha(service, { amountCents: 5050 })).rejects.toThrow(BadRequestException);
