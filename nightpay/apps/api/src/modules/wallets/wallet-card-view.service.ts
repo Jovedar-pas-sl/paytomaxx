@@ -142,6 +142,8 @@ export class WalletCardViewService {
     const tries = await this.viewTried(key);
     if (tries > CARD_VIEW_MAX_FAILS) throw cardViewLocked();
     const outcome = await this.charges.pinForCardView(t.wallet.id, pin);
+    // Bloqueado para pagar o sin PIN: no se ha mirado el PIN, así que este intento no cuenta.
+    if (outcome === 'locked' || outcome === 'no-pin') await this.redisCall((r) => r.decr(key));
     if (outcome === 'no-pin') throw new ConflictException({ message: 'Esta ficha aún no tiene PIN.', code: 'CARD_NO_PIN' });
     if (outcome === 'locked') {
       throw new UnprocessableEntityException({ message: 'Saldo bloqueado por PIN fallado: avisa al encargado para desbloquearlo', code: 'PIN_LOCKED' });

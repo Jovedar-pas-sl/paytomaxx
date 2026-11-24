@@ -119,6 +119,10 @@ describe('«Ver mi saldo con mi PIN» desde la ficha (B7)', () => {
         store.set(k, (store.get(k) ?? 0) + 1);
         return store.get(k)!;
       }),
+      decr: vi.fn(async (k: string) => {
+        store.set(k, (store.get(k) ?? 0) - 1);
+        return store.get(k)!;
+      }),
       expire: vi.fn(async () => 1),
       del: vi.fn(async (k: string) => (store.delete(k) ? 1 : 0)),
     };
@@ -172,6 +176,16 @@ describe('«Ver mi saldo con mi PIN» desde la ficha (B7)', () => {
     await expect(service.viewWithPin(TOKEN, '1111', NOW)).rejects.toMatchObject({ status: 422 });
     expect(redis.expire).toHaveBeenCalledTimes(2);
     expect(redis.expire).toHaveBeenLastCalledWith('np:card-pin-view:fails:w-1', 24 * 60 * 60, 'NX');
+  });
+
+  it('con el PIN de pagar bloqueado no se gasta ningún intento (no se mira el PIN): desbloqueado, con el PIN bueno se ve el saldo', async () => {
+    const { service, charges } = withPin();
+    charges.pinForCardView.mockResolvedValue('locked');
+    for (let i = 0; i < 6; i += 1) {
+      await expect(service.viewWithPin(TOKEN, '2468', NOW)).rejects.toMatchObject({ status: 422, response: expect.objectContaining({ code: 'PIN_LOCKED' }) });
+    }
+    charges.pinForCardView.mockResolvedValue('ok');
+    await expect(service.viewWithPin(TOKEN, '2468', NOW)).resolves.toMatchObject({ balanceCents: 3_540 });
   });
 
   it('varias a la vez: cada intento cuenta ANTES de mirar el PIN, así que nunca se miran más de 5', async () => {
