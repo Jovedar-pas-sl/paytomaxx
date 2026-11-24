@@ -29,6 +29,11 @@ import { disconnectSocketIo, installGracefulShutdown } from './shutdown';
 import { ProblemDetailsFilter } from './common/filters/problem-details.filter';
 
 const logger = new Logger('Bootstrap');
+// Node 22 cierra el proceso ante una promesa rechazada sin recoger: el adaptador de Redis del tiempo
+// real publica sin catch y un corte de Redis de ~11 s tumbaba el API entero (también al arrancar).
+process.on('unhandledRejection', (err: unknown) => {
+  logger.error(`Promesa rechazada sin recoger: ${(err as Error)?.message ?? String(err)}`, (err as Error)?.stack);
+});
 /** Para recibir la petición entera (cabeceras + cuerpo de hasta 1 MB). */
 const REQUEST_TIMEOUT_MS = 60_000;
 
