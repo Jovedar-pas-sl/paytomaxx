@@ -343,7 +343,8 @@ export class WalletTopUpService {
           OR: prefixes.map((p) => ({ idempotencyKey: { startsWith: p } })),
           createdAt: { gte: since },
         },
-        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+        // Por su referencia: el contador del local la da justo antes del commit, así que sigue el orden en que se guardaron.
+        orderBy: [{ ref: 'asc' }, { id: 'asc' }],
         select: { id: true, idempotencyKey: true, amountCents: true, status: true, qrExpiresAt: true },
       }),
     );
@@ -360,7 +361,7 @@ export class WalletTopUpService {
 
   /**
    * Con el cobro ya creado, el tope contra las recargas de ANTES de esta (por
-   * orden de creación): de dos a la vez que no caben, la segunda se cancela.
+   * orden de guardado): de dos a la vez que no caben, la segunda se cancela.
    * Desde la ficha, con las suyas y sus topes (FICHA_TOPUP_*).
    */
   private async recheckCap(walletId: string, paymentId: string, amountCents: number, from: 'self' | 'ficha' = 'self'): Promise<void> {

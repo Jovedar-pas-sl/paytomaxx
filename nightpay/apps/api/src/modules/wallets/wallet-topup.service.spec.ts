@@ -218,7 +218,8 @@ describe('WalletTopUpService.start — tope de 24 h por saldo (en la base)', () 
           walletId: WALLET,
           OR: [{ idempotencyKey: { startsWith: 'wtopup:' } }, { idempotencyKey: { startsWith: 'wcasa:' } }],
         }),
-        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+        // En el orden en que se guardaron (su referencia), no en el que empezaron.
+        orderBy: [{ ref: 'asc' }, { id: 'asc' }],
       }),
     );
     const over = make({ recent: paid, hasPasskey: true });
