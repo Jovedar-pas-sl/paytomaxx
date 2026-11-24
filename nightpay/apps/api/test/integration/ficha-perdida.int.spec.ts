@@ -6,6 +6,7 @@
 //    de recepción; la pantalla manda lo que dijo y, si cambió, 409.
 //  - Sin saldo que la cubra, 409 y no se hace nada (ni se gasta su PIN).
 //  - Repetida (se cortó la respuesta), no se cobra dos veces.
+//  - Una ficha que ya sustituyó a otra y volvió al stock sirve otra vez de nueva (antes, 500).
 //  - El teléfono opcional al dar una ficha nueva (solo quien se la dio, 15 min; lo buscan el encargado y el dueño).
 //  - B10: recepción pone el PIN a un saldo que ya existía justo después de
 //    recargarlo y con su ficha; sin la ficha o sin recargarlo, no.
@@ -103,6 +104,23 @@ describe('«Ficha perdida» en recepción (B6)', () => {
       fichas.replaceLost(recepcion(), { walletId: s.walletId, card: nueva.card, uid: nueva.uid, pin: '2468', feeCents: 300 }),
     );
     expect(again).toMatchObject({ feeCents: 0, replacedCards: 0, balanceCents: 4_700 });
+  });
+
+  it('una ficha que ya sustituyó a otra y volvió al stock sirve otra vez; dos toques a la vez cobran una sola vez', async () => {
+    // La ficha sustituye la perdida de Ana; Ana gasta su saldo y la ficha vuelve al stock («Preparar fichas»).
+    const ana = await saldoConFicha('91', 1_000);
+    const ficha = await stockedCard(`92${digits}2`.slice(0, 12));
+    await inVenue(V, () => fichas.replaceLost(recepcion(), { walletId: ana.walletId, card: ficha.card, uid: ficha.uid, pin: '2468', feeCents: 300 }));
+    await sys((tx) => tx.clientWallet.update({ where: { id: ana.walletId }, data: { balanceCents: 0, status: 'DEPLETED' } }));
+    expect(await inVenue(V, () => cards.stock(V, { userId: rocio }, ficha))).toMatchObject({ outcome: 'returned' });
+    // Pedro pierde la suya y recepción le da esa misma.
+    const pedro = await saldoConFicha('93', 2_000);
+    const lost = () =>
+      inVenue(V, () => fichas.replaceLost(recepcion(), { walletId: pedro.walletId, card: ficha.card, uid: ficha.uid, pin: '2468', feeCents: 300 }));
+    const both = await Promise.all([lost(), lost()]);
+    expect(both.map((o) => o.feeCents).sort((a, b) => a - b)).toEqual([0, 300]);
+    expect(both.map((o) => o.balanceCents)).toEqual([1_700, 1_700]);
+    expect(await sys((tx) => tx.walletConsumption.count({ where: { walletId: pedro.walletId } }))).toBe(1);
   });
 
   it('OxioParty con la fiesta terminada: la nueva no se cobra (423 EVENT_ENDED), sin gastar su PIN; con OxioPay, como siempre', async () => {
