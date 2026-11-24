@@ -146,8 +146,12 @@ export const TOURS = {
   fichaPerdida: {
     screen: 'ficha-perdida',
     steps: [
-      { target: 'perdida-escanear', title: 'Su QR', text: 'Que te enseñe el QR de su saldo en el móvil: es lo más rápido.' },
-      { target: 'perdida-codigo', title: 'Su código', text: 'O busca su saldo por el código. Si no eres encargado, el cliente pondrá su PIN.' },
+      { target: 'perdida-escanear', title: 'Su QR', text: 'Escanea el QR de su saldo para encontrarlo: es lo más rápido.' },
+      {
+        target: 'perdida-codigo',
+        title: 'Su código',
+        text: 'O busca su saldo por el código. Lo encuentres como lo encuentres, si no eres encargado el cliente pondrá su PIN (si no tiene PIN, se la da el encargado).',
+      },
       { target: 'perdida-numero', title: 'Número de la ficha', text: 'O busca por el número de la ficha que perdió. Después se acerca la ficha nueva, que cuesta lo que diga el local.' },
       { target: 'perdida-volver', title: 'Volver', text: 'Vuelve a Recepción sin cambiar nada.' },
     ],

@@ -1,7 +1,8 @@
 // Integración (Postgres real, np_app y FORCE RLS): «Ficha perdida» en
 // recepción (estudio de fichas, B6).
-//  - Con una prueba (aquí, su código o el número de su ficha y su PIN), la ficha
+//  - Con su PIN (tras buscarlo por su código o el número de su ficha), la ficha
 //    nueva queda unida a su saldo y la vieja deja de pagar, en la misma operación.
+//  - El QR de su saldo no basta (auditoría 3); un saldo sin PIN, solo el encargado.
 //  - La nueva se cobra del saldo (Ajustes → Noche, 3 € de fábrica): un consumo
 //    de recepción; la pantalla manda lo que dijo y, si cambió, 409.
 //  - Sin saldo que la cubra, 409 y no se hace nada (ni se gasta su PIN).
@@ -15,12 +16,14 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import { randomUUID } from 'node:crypto';
 import { ClsService } from 'nestjs-cls';
 import { HttpException } from '@nestjs/common';
+import { ReplaceLostFichaSchema } from '@nightpay/contracts';
 import { PrismaService } from '../../src/common/prisma/prisma.service';
 import { CashTopUpService } from '../../src/modules/wallets/wallet-cash-topup.service';
 import { WalletCardsService } from '../../src/modules/wallets/wallet-cards.service';
 import { WalletChargesService } from '../../src/modules/wallets/wallet-charges.service';
 import { FichaNumbersService } from '../../src/modules/wallets/ficha-numbers.service';
 import { ReceptionFichaService } from '../../src/modules/home-topup/reception-ficha.service';
+import { fichaProof } from '../../src/modules/home-topup/ficha-qr';
 import { WalletContactService } from '../../src/modules/wallets/wallet-contact.service';
 
 const cls = new ClsService(new AsyncLocalStorage());
@@ -31,7 +34,8 @@ const cash = new CashTopUpService(prisma, audit as never, totp as never);
 const cards = new WalletCardsService(prisma, audit as never);
 const charges = new WalletChargesService(prisma as never, audit as never, { get: () => ({}) } as never, totp as never);
 const numbers = new FichaNumbersService(prisma, audit as never, cash);
-const fichas = new ReceptionFichaService(prisma, charges, audit as never, { get: () => 'secreto-de-pruebas' } as never, numbers);
+const SECRET = 'secreto-de-pruebas';
+const fichas = new ReceptionFichaService(prisma, charges, audit as never, { get: () => SECRET } as never, numbers);
 
 const inVenue = <T>(tenantId: string | undefined, fn: () => Promise<T>): Promise<T> =>
   cls.run(async () => {
@@ -47,7 +51,9 @@ let k = 0;
 const key = () => `fp-${r}-${(k += 1)}`;
 let V: string;
 let rocio: string;
+let marta: string;
 const recepcion = () => ({ userId: rocio, role: 'WAITER' as const, tenantId: V });
+const encargada = () => ({ userId: marta, role: 'MANAGER' as const, tenantId: V });
 
 async function stockedCard(printed: string): Promise<{ card: string; uid: string }> {
   const { card } = await inVenue(V, () => cards.newStockToken(V, { userId: rocio }));
@@ -67,11 +73,17 @@ async function saldoConFicha(n: string, cents: number) {
   return { vieja, walletId: out.walletId, printed: `${n}${digits}1`.slice(0, 12) };
 }
 
+/** La prueba del QR de su saldo: la de su página, la que va también en el comprobante que guarda en el móvil. */
+async function qrProof(walletId: string): Promise<string> {
+  return fichaProof(SECRET, await sys((tx) => tx.clientWallet.findUniqueOrThrow({ where: { id: walletId }, select: { id: true, qrToken: true } })));
+}
+
 beforeAll(async () => {
   await prisma.onModuleInit();
   await sys(async (tx) => {
     V = (await tx.venue.create({ data: { name: 'Sala Perdidas', slug: `fp-${r}`, walletGroup: `gfp-${r}` } })).id;
     rocio = (await tx.user.create({ data: { tenantId: V, email: `rocio-${r}@x.es`, passwordHash: 'x', role: 'WAITER', post: 'RECEPCION' } as never })).id;
+    marta = (await tx.user.create({ data: { tenantId: V, email: `marta-${r}@x.es`, passwordHash: 'x', role: 'MANAGER' } as never })).id;
   });
 });
 
@@ -171,6 +183,47 @@ describe('«Ficha perdida» en recepción (B6)', () => {
       fichas.replaceLost(recepcion(), { walletId: s.walletId, card: nueva.card, uid: nueva.uid, pin: '2468', feeCents: 100 }),
     ).catch((e: unknown) => e);
     expect((changed as HttpException).getResponse()).toMatchObject({ code: 'LOST_FICHA_FEE_CHANGED', feeCents: 300 });
+  });
+
+  it('el QR de su saldo no basta (no caduca y va en su comprobante guardado): recepción, 422 sin tocar nada; con su PIN, sí', async () => {
+    const s = await saldoConFicha('65', 2_000);
+    const nueva = await stockedCard(`66${digits}2`.slice(0, 12));
+    const proof = await qrProof(s.walletId);
+    const qr = await inVenue(V, () => fichas.replaceLost(recepcion(), { walletId: s.walletId, card: nueva.card, uid: nueva.uid, proof, feeCents: 300 })).catch(
+      (e: unknown) => e,
+    );
+    expect((qr as HttpException).getStatus()).toBe(422);
+    expect((qr as HttpException).getResponse()).toMatchObject({ code: 'FICHA_PROOF_REQUIRED' });
+    expect(await sys((tx) => tx.walletCard.findUniqueOrThrow({ where: { token: s.vieja.card }, select: { status: true } }))).toEqual({ status: 'ISSUED' });
+    expect(await sys((tx) => tx.clientWallet.findUniqueOrThrow({ where: { id: s.walletId }, select: { balanceCents: true, pinFails: true } }))).toEqual({
+      balanceCents: 2_000,
+      pinFails: 0,
+    });
+    // La app de antes aún lo manda: se acepta (sin 400) y no se mira; vale su PIN.
+    expect(ReplaceLostFichaSchema.safeParse({ walletId: s.walletId, card: nueva.card, proof, pin: '2468', feeCents: 300 }).success).toBe(true);
+    await expect(
+      inVenue(V, () => fichas.replaceLost(recepcion(), { walletId: s.walletId, card: nueva.card, uid: nueva.uid, proof, pin: '2468', feeCents: 300 })),
+    ).resolves.toMatchObject({ via: 'pin', balanceCents: 1_700, replacedCards: 1 });
+  });
+
+  it('un saldo sin PIN: recepción no, ni con su QR (se le dice que lo haga el encargado); el encargado, sí', async () => {
+    const s = await saldoConFicha('67', 2_000);
+    await sys((tx) => tx.clientWallet.update({ where: { id: s.walletId }, data: { pinHash: null } }));
+    const nueva = await stockedCard(`68${digits}2`.slice(0, 12));
+    const proof = await qrProof(s.walletId);
+    for (const prueba of [{ proof }, { pin: '2468' }, {}]) {
+      const err = await inVenue(V, () =>
+        fichas.replaceLost(recepcion(), { walletId: s.walletId, card: nueva.card, uid: nueva.uid, feeCents: 300, ...prueba }),
+      ).catch((e: unknown) => e);
+      expect((err as HttpException).getStatus()).toBe(422);
+      expect((err as HttpException).getResponse()).toMatchObject({
+        code: 'FICHA_PROOF_REQUIRED',
+        message: 'Este saldo no tiene PIN: la ficha nueva se la da el encargado',
+      });
+    }
+    await expect(
+      inVenue(V, () => fichas.replaceLost(encargada(), { walletId: s.walletId, card: nueva.card, uid: nueva.uid, feeCents: 300 })),
+    ).resolves.toMatchObject({ via: 'manager', balanceCents: 1_700, replacedCards: 1 });
   });
 
   it('sin prueba, no; el PIN mal cuenta como fallo; a un saldo sin ficha, «Dar ficha a un saldo»', async () => {

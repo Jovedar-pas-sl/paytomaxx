@@ -22,7 +22,8 @@ interface Found {
   /** «Saldo K7Q-4M2» o «Ficha nº 0000 1013 · K7Q-•••». */
   label: string;
   balanceCents: number;
-  proof?: string;
+  /** Sin PIN, recepción no puede: se la da el encargado. */
+  hasPin: boolean;
   pin?: string;
 }
 
@@ -35,11 +36,13 @@ type Step =
 
 /**
  * Recepción → «Ficha perdida» (B6): el cliente perdió su ficha y le das otra.
- * Prueba que el saldo es suyo con su QR, o con su código o el número de su
- * ficha y su PIN (el encargado y el dueño, sin prueba). Antes de acercar la
- * nueva, la pantalla dice cuánto cuesta (Ajustes → Noche) y cuánto le
- * quedará; si no le llega, se dice y no se hace. Al acercar la nueva, la
- * vieja deja de pagar y la nueva se cobra del saldo, en la misma operación.
+ * Se busca su saldo (su QR, su código o el número de su ficha) y prueba que
+ * es suyo con su PIN (el encargado y el dueño, sin prueba). El QR solo lo
+ * encuentra: no caduca y va en el comprobante que guarda (auditoría 3). Un
+ * saldo sin PIN, solo el encargado. Antes de acercar la nueva, la pantalla
+ * dice cuánto cuesta (Ajustes → Noche) y cuánto le quedará; si no le llega,
+ * se dice y no se hace. Al acercar la nueva, la vieja deja de pagar y la
+ * nueva se cobra del saldo, en la misma operación.
  */
 export function LostFicha({ user, onDone }: { user: OperatorUser; onDone: () => void }) {
   const feeCents = useVenueNight().lostFichaFeeCents;
@@ -51,12 +54,13 @@ export function LostFicha({ user, onDone }: { user: OperatorUser; onDone: () => 
   const [error, setError] = useState<string | null>(null);
   const manager = user.role === 'MANAGER' || user.role === 'OWNER';
 
-  async function lookup(task: () => Promise<Found>, proof?: string): Promise<void> {
+  async function lookup(task: () => Promise<Found>): Promise<void> {
     setBusy(true);
     setError(null);
     try {
-      const found = { ...(await task()), ...(proof ? { proof } : {}) };
-      setStep(proof || manager ? { kind: 'confirm', found } : { kind: 'pin', found });
+      const found = await task();
+      if (!manager && !found.hasPin) throw new Error('Este saldo no tiene PIN: la ficha nueva se la da el encargado.');
+      setStep(manager ? { kind: 'confirm', found } : { kind: 'pin', found });
     } catch (err) {
       setError((err as Error).message);
       setStep({ kind: 'find' });
@@ -75,7 +79,7 @@ export function LostFicha({ user, onDone }: { user: OperatorUser; onDone: () => 
       setStep({ kind: 'find' });
       return;
     }
-    void lookupRef.current(byCode(qr.code), qr.proof);
+    void lookupRef.current(byCode(qr.code));
   }, []);
   const onScanError = useCallback((message: string) => {
     setError(message);
@@ -91,7 +95,6 @@ export function LostFicha({ user, onDone }: { user: OperatorUser; onDone: () => 
         ...found.ref,
         card: nfc.token,
         ...(nfc.uid ? { uid: nfc.uid } : {}),
-        ...(found.proof ? { proof: found.proof } : {}),
         ...(found.pin ? { pin: found.pin } : {}),
         feeCents,
       });
@@ -195,7 +198,7 @@ export function LostFicha({ user, onDone }: { user: OperatorUser; onDone: () => 
       <p className={r.kicker}>Ficha perdida</p>
       <p className={r.lead}>¿Ha perdido su ficha?</p>
       <p className={r.text}>
-        Que te enseñe el QR de su saldo, o busca su saldo por su código o por el número de su ficha{manager ? '' : ' (y pondrá su PIN)'}. La ficha nueva
+        Busca su saldo con su QR, su código o el número de su ficha{manager ? '' : '. Después pondrá su PIN (si no tiene PIN, se la da el encargado)'}. La ficha nueva
         {feeCents > 0 ? ` cuesta ${formatEur(feeCents, { compact: true })} de su saldo` : ' no le cuesta nada'}.
       </p>
       {step.kind === 'scan' ? (
@@ -254,7 +257,7 @@ function byCode(walletCode: string): () => Promise<Found> {
     const view = await fetchReceptionDesk({ code: walletCode });
     if (view.kind !== 'saldo') throw new Error('No hay ningún saldo con ese código en este local');
     if (view.fichaNumber === null) throw new Error('Este saldo no tiene ficha: dásela con «Dar ficha a un saldo» (sin cobrar).');
-    return { ref: { walletId: view.walletId }, label: `Saldo ${view.code}`, balanceCents: view.balanceCents };
+    return { ref: { walletId: view.walletId }, label: `Saldo ${view.code}`, balanceCents: view.balanceCents, hasPin: view.hasPin };
   };
 }
 
@@ -263,6 +266,6 @@ function byNumber(printed: string): () => Promise<Found> {
   return async () => {
     const view = await fetchFichaByNumber(printed);
     if (view.kind !== 'saldo') throw new Error('Esa ficha no tiene saldo: no hay nada que pasar a otra.');
-    return { ref: { printedNumber: printed }, label: `Ficha nº ${printed} · ${view.codeHint}`, balanceCents: view.balanceCents };
+    return { ref: { printedNumber: printed }, label: `Ficha nº ${printed} · ${view.codeHint}`, balanceCents: view.balanceCents, hasPin: view.hasPin };
   };
 }
