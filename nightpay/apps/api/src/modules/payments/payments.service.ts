@@ -111,6 +111,7 @@ import { isReservationPaymentKey } from '../reservations/reservation-payment-key
 import { sweepUnpaidTopUpWallet } from './topup-wallet-sweep';
 import { PAID_WITH_SALDO_EVENT, closeLinkedSaldo } from './cobro-link';
 import { wasPaidAfterCancel } from './paid-after-cancel';
+import { RESULT_PAGE_PROVIDERS } from './pay-status.service';
 import { assertBankWaitOver } from './cancel-at-bank';
 import { heldOnReaderConflict, isHeldOnReader } from './reader-hold';
 import { serviceFeeQuote } from '@nightpay/contracts';
@@ -1390,8 +1391,9 @@ export class PaymentsService implements OnApplicationBootstrap {
   async getResultView(providerTxId: string, opts: { bankApproved?: boolean } = {}): Promise<PayResultView | null> {
     if (!providerTxId) return null;
     const found = await this.prisma.asSystem(async (tx) => {
+      // Con la pasarela va por el índice único (provider, providerTxId); sin ella recorre la tabla entera.
       const attempt = await tx.paymentAttempt.findFirst({
-        where: { providerTxId },
+        where: { provider: { in: [...RESULT_PAGE_PROVIDERS] }, providerTxId },
         select: { paymentId: true },
       });
       const payment = await tx.payment.findFirst({
