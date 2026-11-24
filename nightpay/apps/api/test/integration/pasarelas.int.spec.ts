@@ -416,6 +416,21 @@ describe('vuelta firmada por el mismo camino que el aviso (Postgres real)', () =
     expect((await prisma.webhookDelivery.findUnique({ where: { id: saved!.id } }))?.processedAt).not.toBeNull();
   });
 
+  it('el aviso guardado lleva el cobro y el local, como lo lee la versión anterior: también lo paga si lo coge ella al desplegar (revisión de la tanda 1)', async () => {
+    const h = harness();
+    const order = `RV1${r}`;
+    const id = await payment({ status: 'AUTHORIZING', provider: 'REDSYS', amount: 6000, order, attempts: [{ order, amount: 6000, tip: 0 }] });
+    const request = { headers: {}, body: bankFields(order, 6000) } as unknown as FastifyRequest;
+    await expect(h.webhooks.receiveRedsys(request)).resolves.toEqual({ received: true });
+    // Al desplegar (start-first) la versión anterior (29ca2bd7) también procesa avisos: sin `_paymentId`
+    // lo daba por procesado sin pagar («unmappable event») y el cobro de 60 € acababa en ORPHAN.
+    const saved = await prisma.webhookDelivery.findUniqueOrThrow({ where: { id: BigInt(h.jobs[0]!) } });
+    expect(new URLSearchParams(saved.rawBody.toString('utf8')).get('_paymentId')).toBe(id);
+    expect(saved.tenantId).toBe(A);
+    await processor.process({ data: { deliveryId: h.jobs[0]! } } as Job<{ deliveryId: string }>);
+    expect((await statusOf(id))?.status).toBe('AUTHORIZED');
+  });
+
   it('si el importe firmado es distinto, deja incidencia y no marca el pago como cobrado', async () => {
     const h = harness();
     const order = `RR2${r}`;

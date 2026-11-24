@@ -348,6 +348,16 @@ describe('WebhooksController.receiveRedsys — resolución Ds_Order → payment'
     expect(queue.add).toHaveBeenCalledTimes(1);
   });
 
+  it('con el cobro encontrado, le apunta al aviso guardado el cobro y el local ANTES de encolarlo (la versión anterior, sin _paymentId, lo da por procesado sin pagar)', async () => {
+    const { controller, prisma, queue } = makeController();
+
+    await controller.receiveRedsys(fakeRedsysRequest());
+
+    expect(prisma.$executeRaw).toHaveBeenCalledTimes(1);
+    expect(prisma.$executeRaw.mock.calls[0]!).toEqual(expect.arrayContaining(['&_paymentId=pay-uuid-1', 'tenant-uuid-1', BigInt(42)]));
+    expect(prisma.$executeRaw.mock.invocationCallOrder[0]!).toBeLessThan(queue.add.mock.invocationCallOrder[0]!);
+  });
+
   it('pedido desconocido: guarda el aviso sin _paymentId (auditoría) y responde 200', async () => {
     const { controller, prisma } = makeController({ redsysPayment: null });
 

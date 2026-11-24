@@ -576,9 +576,9 @@ export class WebhooksController {
     // Fastify form-urlencoded → req.body es Record<string,string>. Re-encodeamos
     // a Buffer para que verifyWebhook() pueda parsearlo. M1: shape Zod laxa.
     const parsed = FormUrlencodedBodySchema.safeParse(req.body ?? {});
-    // Campos `_*` son nuestros (p.ej. `_paymentId`, que el processor aún lee en
-    // los avisos guardados antes del 24-11-2026). Fuera de la firma → nunca
-    // aceptarlos del cliente.
+    // Campos `_*` son nuestros (p.ej. `_paymentId`, que se le añade al aviso
+    // guardado al encontrar el cobro). Fuera de la firma → nunca aceptarlos
+    // del cliente.
     const body = Object.fromEntries(
       Object.entries(parsed.success ? parsed.data : {}).filter(([k]) => !k.startsWith('_')),
     );
@@ -626,6 +626,7 @@ export class WebhooksController {
     }
 
     if (payment) {
+      await this.addPaymentToRedsysDelivery(delivery.id, payment);
       await this.recordRedsysOutcome(payment.id, rawBody);
     }
 
@@ -730,6 +731,27 @@ export class WebhooksController {
   /** Encola el procesado (aunque un intento anterior agotara los reintentos). */
   private async enqueueDelivery(provider: Provider, externalEventId: string, deliveryId: bigint): Promise<void> {
     await enqueueWebhookDelivery(this.queue, this.logger, { id: deliveryId, provider, externalEventId });
+  }
+
+  /**
+   * Le añade al aviso guardado su cobro (`_paymentId`, fuera de la firma) y su
+   * local, como los guardaba la versión anterior (29ca2bd7): esa también
+   * procesa avisos (en el despliegue conviven las dos, start-first, y se puede
+   * volver a ella) y, sin `_paymentId`, da el aviso por procesado sin pagar el
+   * cobro. Antes de procesarlo o encolarlo, y solo si sigue sin local y sin
+   * procesar (el mismo aviso otra vez no lo repite). Si falla, se sigue: el
+   * processor busca el cobro por el pedido.
+   */
+  private async addPaymentToRedsysDelivery(deliveryId: bigint, payment: { id: string; tenantId: string }): Promise<void> {
+    try {
+      await this.prisma.$executeRaw`
+        UPDATE webhook_deliveries
+           SET "rawBody" = "rawBody" || convert_to(${`&_paymentId=${encodeURIComponent(payment.id)}`}, 'UTF8'),
+               "tenantId" = ${payment.tenantId}::uuid
+         WHERE id = ${deliveryId} AND "tenantId" IS NULL AND "processedAt" IS NULL`;
+    } catch (e) {
+      this.logger.warn(`webhook redsys ${deliveryId}: no se pudo apuntar el cobro en el aviso guardado: ${(e as Error).message}`);
+    }
   }
 
   private async findRedsysPayment(

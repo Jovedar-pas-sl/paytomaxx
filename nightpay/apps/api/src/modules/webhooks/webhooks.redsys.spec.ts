@@ -56,6 +56,8 @@ function makeHarness(o: Options = {}) {
   };
   const prisma = {
     asSystem: vi.fn(async (fn: (t: typeof tx) => unknown) => fn(tx)),
+    // Le pone al aviso guardado su cobro y su local.
+    $executeRaw: vi.fn().mockResolvedValue(1),
     webhookDelivery: {
       // Ya guardado: el mismo aviso choca con la clave única y se usa ese registro.
       create: vi.fn(async ({ data }: { data: Record<string, unknown> }) => {

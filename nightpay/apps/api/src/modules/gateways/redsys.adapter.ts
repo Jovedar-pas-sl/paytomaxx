@@ -438,9 +438,10 @@ export class RedsysAdapter implements GatewayAdapter {
   }
 
   mapWebhookToFsmEvent(parsedPayload: unknown): WebhookFsmEvent | null {
-    // Body tal cual lo mandó Redsys. Los guardados antes del 24-11-2026 traen
-    // además `_paymentId` (Ds_Order ya resuelto al cobro); sin él, el
-    // processor busca el cobro por el pedido (Ds_Order, nuestro providerTxId).
+    // Body tal cual lo mandó Redsys + `_paymentId` (Ds_Order ya resuelto al
+    // cobro), que el controller añade al encontrar el cobro; sin él (no lo
+    // encontró al llegar), el processor busca el cobro por el pedido (Ds_Order,
+    // nuestro providerTxId).
     const p = parsedPayload as Record<string, unknown>;
     const n = this.parseNotification(p);
     if (!n) return null;
