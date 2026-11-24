@@ -426,6 +426,14 @@ describe('el mapa del dinero, congelado en el Z', () => {
     expect(prisma.venueNight.updateMany).toHaveBeenCalled();
     expect(closedData(prisma).zReport.moneyMap).toBeUndefined();
   });
+
+  it('la noche cerrada no lo enseña en su Z: solo sale por /admin/money-map, con el permiso «Informes»', async () => {
+    const frozen = { from: 'a', to: 'b', generatedAt: 'c', summary: { count: 7 }, pendingCount: 0, moneyMap: MAP };
+    const { svc } = makeService({ open: night({ closedAt: new Date('2026-10-14T06:00:00Z'), zReport: frozen }) });
+    const view = await svc.get('t-1', 'night-1');
+    expect(view.z).not.toHaveProperty('moneyMap');
+    expect(view.z).toEqual({ from: 'a', to: 'b', generatedAt: 'c', summary: { count: 7 }, pendingCount: 0 });
+  });
 });
 
 describe('los pasos del cierre y el fondo de caja', () => {

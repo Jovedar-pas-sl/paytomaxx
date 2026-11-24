@@ -76,8 +76,8 @@ export interface NightView {
   closeNote: string | null;
   /** Fondo de caja con el que empezó (null = no se apuntó). */
   openingFloatCents: number | null;
-  /** Congelado si la noche está cerrada (con su caja); en vivo si está abierta. */
-  z: NightZ;
+  /** Congelado si la noche está cerrada (con su caja, sin el mapa del dinero); en vivo si está abierta. */
+  z: Omit<NightZ, 'moneyMap'>;
   /** Solo con la noche abierta. */
   pending: PendingPayment[];
 }
@@ -622,7 +622,8 @@ export class NightsService {
     const start = night.closedAt === null ? await this.zBounds(night.tenantId, night.openedAt) : null;
     const window = start ? { from: start.from, to: now } : null;
     const pending = window ? await this.pending(night.tenantId, window) : { items: [], count: 0 };
-    const z =
+    // El mapa del dinero congelado al cerrar no sale con la noche: solo por /admin/money-map, que pide «Informes».
+    const { moneyMap: _onlyWithReports, ...z } =
       window && start
         ? await this.buildZ(night.tenantId, window, pending.count, now, start.since)
         : (night.zReport as unknown as NightZ);

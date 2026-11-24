@@ -4,6 +4,7 @@ import { Roles } from '../../common/decorators/roles.decorator';
 import { Tenant } from '../../common/decorators/tenant.decorator';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { ZodValidationPipe } from '../../common/pipes/zod.pipe';
+import { RequiresPermission, StaffPermissionGuard } from '../venues/staff-permission.guard';
 import { PeriodReportsService } from './period-reports.service';
 import { madridTodayWindow } from './reporting-window';
 
@@ -27,7 +28,7 @@ type VatReportQuery = z.infer<typeof VatReportQuerySchema>;
  * Métricas del panel, Z de un periodo e IVA 303 (mismas rutas que tenían en
  * AdminController). Las cuentas, en PeriodReportsService.
  *  - GET /v1/admin/metrics
- *  - GET /v1/admin/reports/z?from=&to=
+ *  - GET /v1/admin/reports/z?from=&to= (el dueño, y el encargado si le deja ver los informes)
  *  - GET /v1/admin/reports/vat-303?quarter=Q1-2026 (solo el dueño: datos fiscales)
  */
 @Controller('admin')
@@ -47,6 +48,8 @@ export class PeriodReportsController {
 
   @Get('reports/z')
   @Roles('OWNER', 'MANAGER')
+  @UseGuards(StaffPermissionGuard)
+  @RequiresPermission('reports')
   async zReport(@Tenant() tenantId: string, @Query(new ZodValidationPipe(ZReportQuerySchema)) q: ZReportQuery) {
     const now = new Date();
     const from = q.from ? new Date(q.from) : madridTodayWindow(now).from;
