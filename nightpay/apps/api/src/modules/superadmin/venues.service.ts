@@ -346,23 +346,25 @@ export function toListItem(v: VenueRow): VenueListItem {
 
 /**
  * El grupo del saldo, solo dentro de un negocio: si lo lleva un local de otro
- * negocio, 409 con sus nombres. Sin negocio (este local o el otro) no se compara.
+ * negocio, 409 con sus nombres. «Sin negocio» cuenta como otro negocio (puede
+ * ser de otro cliente): un local sin negocio no comparte grupo con ninguno.
  * Va ya hecho el cambio y en su transacción: si lanza, no se guarda nada.
  */
 export async function assertWalletGroupInBusiness(
   tx: TransactionalClient,
   venue: { id: string; walletGroup: string | null; businessId: string | null },
 ): Promise<void> {
-  if (!venue.walletGroup || !venue.businessId) return;
+  if (!venue.walletGroup) return;
+  const elsewhere = venue.businessId ? { OR: [{ businessId: null }, { businessId: { not: venue.businessId } }] } : {};
   const others = await tx.venue.findMany({
-    where: { walletGroup: venue.walletGroup, id: { not: venue.id }, businessId: { not: null }, NOT: { businessId: venue.businessId } },
+    where: { walletGroup: venue.walletGroup, id: { not: venue.id }, ...elsewhere },
     select: { name: true },
     orderBy: { name: 'asc' },
   });
   if (others.length === 0) return;
   throw new ConflictException(
-    `El grupo del saldo «${venue.walletGroup}» ya lo usa otro negocio (${others.map((v) => v.name).join(', ')}): ` +
-      'el saldo de los clientes pasaría de un negocio a otro. Usa otro grupo.',
+    `El grupo del saldo «${venue.walletGroup}» ya lo usan locales de otro negocio o sin negocio (${others.map((v) => v.name).join(', ')}): ` +
+      'el saldo de los clientes pasaría de uno a otro. Usa otro grupo o mételos antes en el mismo negocio.',
   );
 }
 

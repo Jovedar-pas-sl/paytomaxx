@@ -152,6 +152,7 @@ function businessesSetup(opts: { stepUpFails?: boolean } = {}) {
     },
     venue: {
       findMany: vi.fn().mockResolvedValue([{ id: 'v-1', businessId: 'b-2' }]),
+      findUniqueOrThrow: vi.fn().mockResolvedValue({ id: 'v-1', businessId: null, walletGroup: null }),
       updateMany: vi.fn().mockResolvedValue({ count: 1 }),
     },
   };

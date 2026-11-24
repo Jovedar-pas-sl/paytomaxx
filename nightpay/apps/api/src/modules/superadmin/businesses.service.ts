@@ -185,10 +185,15 @@ export class SuperAdminBusinessesService {
 
   async unassignVenue(actor: SuperAdminActor, id: string, venueId: string, dto: UnassignVenueDto = {}): Promise<BusinessDetail> {
     await this.stepUp.verify(actor, dto.totpCode, 'business.unassign_venue');
-    const res = await this.prisma.acrossVenues((tx) =>
-      tx.venue.updateMany({ where: { id: venueId, businessId: id }, data: { businessId: null } }),
-    );
-    if (res.count === 0) throw new NotFoundException('Ese local no es de este negocio');
+    await this.prisma.acrossVenues(async (tx) => {
+      const res = await tx.venue.updateMany({ where: { id: venueId, businessId: id }, data: { businessId: null } });
+      if (res.count === 0) throw new NotFoundException('Ese local no es de este negocio');
+      // Ya fuera, sin negocio: si sigue compartiendo su grupo del saldo con otro local, no sale.
+      await assertWalletGroupInBusiness(
+        tx,
+        await tx.venue.findUniqueOrThrow({ where: { id: venueId }, select: { id: true, walletGroup: true, businessId: true } }),
+      );
+    });
     await this.audit.write(actor, {
       action: 'venue.business_assigned',
       tenantId: venueId,
