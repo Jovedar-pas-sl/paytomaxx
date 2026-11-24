@@ -329,6 +329,8 @@ describe('RedsysAdapter webhook — notificación firmada', () => {
     Ds_ProcessedPayMethod: '78',
     Ds_Card_Brand: '1',
   };
+  /** Lo que dice de la tarjeta OK_FIELDS (lo demás, sin dato). */
+  const OK_CARD = { payMethodCode: '78', cardBrand: '1', cardType: null, cardCountry: null, cardLast4: null, authCode: null, secure3ds: null };
 
   it('verifyWebhook acepta la firma y devuelve el Ds_Order como paymentRef', () => {
     const result = adapter.verifyWebhook({}, Buffer.from(signedNotification(OK_FIELDS)));
@@ -356,6 +358,7 @@ describe('RedsysAdapter webhook — notificación firmada', () => {
     expect(adapter.mapWebhookToFsmEvent(body)).toEqual({
       paymentId: PAYMENT_ID,
       event: { type: 'AUTHORIZED', providerTxId: 'a1b2c3d4e5f6', provider: 'REDSYS' },
+      card: OK_CARD,
     });
   });
 
@@ -364,6 +367,7 @@ describe('RedsysAdapter webhook — notificación firmada', () => {
     expect(adapter.mapWebhookToFsmEvent(body)).toEqual({
       paymentId: '',
       event: { type: 'AUTHORIZED', providerTxId: 'a1b2c3d4e5f6', provider: 'REDSYS' },
+      card: OK_CARD,
     });
   });
 

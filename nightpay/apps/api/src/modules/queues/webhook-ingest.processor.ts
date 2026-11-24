@@ -4,12 +4,12 @@ import type { Job } from 'bullmq';
 import type { Redis } from 'ioredis';
 import { randomUUID } from 'node:crypto';
 import type { Provider } from '@nightpay/contracts';
-import { PrismaService } from '../../common/prisma/prisma.service';
+import { PrismaService, type TransactionalClient } from '../../common/prisma/prisma.service';
 import { REDIS_CLIENT } from '../../common/redis/redis.module';
 import { RELEASE_LOCK_LUA } from '../../common/redis/release-lock';
 import { PaymentsService } from '../payments/payments.service';
 import { GatewayRegistry } from '../gateways/gateway.registry';
-import type { GatewayAdapter } from '../gateways/gateway.adapter';
+import type { GatewayAdapter, NoticeCard } from '../gateways/gateway.adapter';
 import { parseWebhookBody } from '../gateways/header-utils';
 import { InvalidTransitionError, isIdempotentTransition, type PaymentEvent } from '../payments/payment.machine';
 import { WEBHOOKS_INGEST_QUEUE } from './queue-tokens';
@@ -186,7 +186,16 @@ export class WebhookIngestProcessor extends WorkerHost {
       // para que rechace payments que no pertenezcan a ese venue. El
       // externalEventId del payload del provider no debe poder mutar payments
       // de otro tenant.
-      await this.payments.transition(target.id, event, delivery.tenantId ?? undefined);
+      const { card } = fsmEvent;
+      if (card) {
+        // La tarjeta del aviso (Redsys) en la misma transacción que el «pagado»: aparte
+        // (webhooks.controller), un fallo en el pico lo dejaba sin autorización ni últimos 4.
+        await this.payments.transition(target.id, event, delivery.tenantId ?? undefined, {
+          prepare: (tx, locked) => recordNoticeCard(tx, locked.id, card),
+        });
+      } else {
+        await this.payments.transition(target.id, event, delivery.tenantId ?? undefined);
+      }
       await this.markProcessed(deliveryId);
       this.logger.log(`webhook ${deliveryId} → payment ${target.id} transitioned`);
     } catch (err) {
@@ -353,4 +362,20 @@ export class WebhookIngestProcessor extends WorkerHost {
       data: { processedAt: new Date() },
     });
   }
+}
+
+/**
+ * La tarjeta del aviso, en el cobro: dentro de transition(), con el cobro
+ * bloqueado y solo si aún no estaba pagado (un segundo cargo de otro pedido no
+ * pisa la del que se cobró). SQL crudo, como transition(): sin local en el contexto.
+ */
+async function recordNoticeCard(tx: TransactionalClient, paymentId: string, card: NoticeCard): Promise<void> {
+  await tx.$executeRaw`
+    UPDATE payments
+       SET "payMethodCode" = ${card.payMethodCode}, "cardBrand" = ${card.cardBrand},
+           "cardType" = ${card.cardType}, "cardCountry" = ${card.cardCountry},
+           "cardLast4" = ${card.cardLast4}, "authCode" = ${card.authCode},
+           "secure3ds" = ${card.secure3ds}
+     WHERE id = ${paymentId}::uuid AND "authorizedAt" IS NULL
+  `;
 }

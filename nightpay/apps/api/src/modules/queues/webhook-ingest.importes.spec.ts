@@ -162,6 +162,8 @@ describe('Redsys — el importe firmado por el banco decide (adapter real)', () 
       PAYMENT_ID,
       { type: 'AUTHORIZED', providerTxId: DS_ORDER, provider: 'REDSYS' },
       TENANT_ID,
+      // La tarjeta del aviso, en la misma transacción (punto 70 de la revisión del 20-11).
+      { prepare: expect.any(Function) },
     );
     expect(m.tx.paymentEvent.create).not.toHaveBeenCalled();
     expect(m.prisma.webhookDelivery.update).toHaveBeenCalledWith({ where: { id: BigInt(7) }, data: { processedAt: NOW } });
@@ -189,6 +191,7 @@ describe('Redsys — el importe firmado por el banco decide (adapter real)', () 
       PAYMENT_ID,
       { type: 'AUTHORIZED', providerTxId: DS_ORDER, provider: 'REDSYS' },
       undefined,
+      { prepare: expect.any(Function) },
     );
     expect(m.prisma.webhookDelivery.update).toHaveBeenCalledWith({ where: { id: BigInt(7) }, data: { processedAt: NOW } });
   });

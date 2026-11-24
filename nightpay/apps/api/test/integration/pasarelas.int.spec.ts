@@ -25,7 +25,7 @@ const payments = new PaymentsService(
   {} as never,
   {} as never,
   { emitPaymentUpdate: noop, emitPaymentCompleted: noop } as never,
-  { paymentsTransitioned: { inc: noop }, walletCreditSkipped: { inc: noop } } as never,
+  { paymentsTransitioned: { inc: noop }, walletCreditSkipped: { inc: noop }, duplicateCharges: { inc: noop } } as never,
   {} as never,
   {} as never,
   {} as never,
@@ -122,8 +122,8 @@ async function payment(o: {
   });
 }
 
-function signedRedsys(order: string, amount: string, paymentId: string): string {
-  const fields = { Ds_Order: order, Ds_MerchantCode: MERCHANT, Ds_Response: '0000', Ds_TransactionType: '0', Ds_Amount: amount, Ds_Currency: '978' };
+function signedRedsys(order: string, amount: string, paymentId: string, extra: Record<string, string> = {}): string {
+  const fields = { Ds_Order: order, Ds_MerchantCode: MERCHANT, Ds_Response: '0000', Ds_TransactionType: '0', Ds_Amount: amount, Ds_Currency: '978', ...extra };
   const s = serializeAndSignJSONRequest(SECRET, { Ds_Merchant_Order: order, ...fields } as never);
   return `Ds_SignatureVersion=${s.Ds_SignatureVersion}&Ds_MerchantParameters=${encodeURIComponent(s.Ds_MerchantParameters)}&Ds_Signature=${encodeURIComponent(s.Ds_Signature)}&_paymentId=${paymentId}`;
 }
@@ -220,6 +220,44 @@ describe('procesador de avisos contra Postgres real', () => {
     const p = await statusOf(id);
     expect(p?.status).toBe('AUTHORIZED');
     expect(p?.tipCents).toBe(1000);
+  });
+
+  it('aviso Redsys aprobado → pagado con la tarjeta y la autorización en la misma transacción; un segundo cargo no los pisa (punto 70 de la revisión del 20-11)', async () => {
+    const order = `TJ${r}`;
+    const other = `TK${r}`;
+    const id = await payment({
+      status: 'AUTHORIZING',
+      provider: 'REDSYS',
+      amount: 6000,
+      order: other,
+      attempts: [{ order, amount: 6000, tip: 0 }, { order: other, amount: 6000, tip: 0 }],
+    });
+    const card = (last4: string, auth: string) => ({
+      Ds_Card_Number: `454881******${last4}`,
+      Ds_Card_Brand: '1',
+      Ds_Card_Type: 'D',
+      Ds_Card_Country: '724',
+      Ds_AuthorisationCode: auth,
+      Ds_SecurePayment: '1',
+      Ds_ProcessedPayMethod: '78',
+    });
+    // Directo al procesador: sin la anotación de la tarjeta del controlador (aparte, y en el pico puede fallar).
+    await deliver('REDSYS', signedRedsys(order, '6000', id, card('0003', '123456')));
+    expect(await statusOf(id)).toMatchObject({
+      status: 'AUTHORIZED',
+      providerTxId: order,
+      cardLast4: '0003',
+      authCode: '123456',
+      cardBrand: '1',
+      cardType: 'D',
+      cardCountry: '724',
+      secure3ds: true,
+      payMethodCode: '78',
+    });
+    // El cliente pagó también el otro pedido del mismo cobro: doble cobro apuntado y la tarjeta del primero se queda.
+    await deliver('REDSYS', signedRedsys(other, '6000', id, card('0004', '654321')));
+    expect(await statusOf(id)).toMatchObject({ status: 'AUTHORIZED', providerTxId: order, cardLast4: '0003', authCode: '123456' });
+    expect(await eventsOf(id, 'payment.duplicate_charge')).toHaveLength(1);
   });
 
   it('avisos del mismo cobro a la vez (la cola procesa hasta 4): se paga una sola vez, con una comisión', async () => {

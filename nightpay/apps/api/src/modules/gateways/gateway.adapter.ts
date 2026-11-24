@@ -20,6 +20,19 @@ import type { PaymentEvent } from '../payments/payment.machine';
 export interface WebhookFsmEvent {
   paymentId: string;
   event: PaymentEvent;
+  /** La tarjeta que dice el aviso (Redsys): se apunta en la misma transacción que da el cobro por pagado. */
+  card?: NoticeCard;
+}
+
+/** Método, tarjeta y autorización de un cobro aprobado, tal como los manda el banco. */
+export interface NoticeCard {
+  payMethodCode: string | null;
+  cardBrand: string | null;
+  cardType: string | null;
+  cardCountry: string | null;
+  cardLast4: string | null;
+  authCode: string | null;
+  secure3ds: boolean | null;
 }
 
 /**

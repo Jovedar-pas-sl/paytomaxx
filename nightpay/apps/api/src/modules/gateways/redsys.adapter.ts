@@ -454,6 +454,15 @@ export class RedsysAdapter implements GatewayAdapter {
       return {
         paymentId: typeof p._paymentId === 'string' ? p._paymentId : '',
         event: { type: 'AUTHORIZED', providerTxId: n.order, provider: 'REDSYS' },
+        card: {
+          payMethodCode: n.payMethodCode,
+          cardBrand: n.cardBrand,
+          cardType: n.cardType,
+          cardCountry: n.cardCountry,
+          cardLast4: n.cardLast4,
+          authCode: n.authCode,
+          secure3ds: n.secure3ds,
+        },
       };
     }
     // Denegación: NO marcamos FAILED. FAILED es estado final y Redsys permite
