@@ -161,9 +161,17 @@ describe('«Ver mi saldo con mi PIN» desde la ficha (B7)', () => {
     });
     await expect(service.viewWithPin(TOKEN, '2468', NOW)).rejects.toMatchObject({ status: 429, response: expect.objectContaining({ code: 'CARD_VIEW_LOCKED' }) });
     expect(charges.pinForCardView).toHaveBeenCalledTimes(5);
-    // 24 h desde el primer intento: los siguientes no la alargan.
-    expect(redis.expire).toHaveBeenCalledTimes(1);
-    expect(redis.expire).toHaveBeenCalledWith('np:card-pin-view:fails:w-1', 24 * 60 * 60);
+    // 24 h desde el primer intento: cada intento la pone solo si falta (NX), así que no la alarga.
+    expect(redis.expire.mock.calls).toEqual(Array.from({ length: 6 }, () => ['np:card-pin-view:fails:w-1', 24 * 60 * 60, 'NX']));
+  });
+
+  it('si se pierde la caducidad del primer intento (Redis se corta), la pone el siguiente: la vista no se cierra para siempre', async () => {
+    const { service, redis } = withPin();
+    redis.expire.mockRejectedValueOnce(new Error('caído'));
+    await expect(service.viewWithPin(TOKEN, '1111', NOW)).rejects.toMatchObject({ status: 503 });
+    await expect(service.viewWithPin(TOKEN, '1111', NOW)).rejects.toMatchObject({ status: 422 });
+    expect(redis.expire).toHaveBeenCalledTimes(2);
+    expect(redis.expire).toHaveBeenLastCalledWith('np:card-pin-view:fails:w-1', 24 * 60 * 60, 'NX');
   });
 
   it('varias a la vez: cada intento cuenta ANTES de mirar el PIN, así que nunca se miran más de 5', async () => {

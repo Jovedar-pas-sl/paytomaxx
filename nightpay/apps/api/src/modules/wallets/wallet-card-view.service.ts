@@ -159,10 +159,13 @@ export class WalletCardViewService {
     return this.pinView(t, exp);
   }
 
-  /** Un intento más (se borra al acertar); la ventana de CARD_VIEW_LOCK_S empieza con el primero y no se alarga. */
+  /**
+   * Un intento más (se borra al acertar); la ventana de CARD_VIEW_LOCK_S empieza con el primero y no se alarga.
+   * La caducidad, en cada intento con NX (solo si falta): si un corte de Redis se la come, la pone el siguiente.
+   */
   private async viewTried(key: string): Promise<number> {
     const tries = await this.redisCall((r) => r.incr(key));
-    if (tries === 1) await this.redisCall((r) => r.expire(key, CARD_VIEW_LOCK_S));
+    await this.redisCall((r) => r.expire(key, CARD_VIEW_LOCK_S, 'NX'));
     return tries;
   }
 
