@@ -326,7 +326,7 @@ describe('WebhooksController.receiveRedsys — resolución Ds_Order → payment'
     } as any;
   }
 
-  it('busca el payment por (REDSYS, Ds_Order) y guarda tenantId + _paymentId', async () => {
+  it('guarda el aviso tal cual (sin local ni _paymentId) ANTES de buscar el payment por (REDSYS, Ds_Order)', async () => {
     const { controller, prisma, paymentTx, queue } = makeController();
 
     await controller.receiveRedsys(fakeRedsysRequest());
@@ -337,13 +337,14 @@ describe('WebhooksController.receiveRedsys — resolución Ds_Order → payment'
       }),
     );
     const data = prisma.webhookDelivery.create.mock.calls[0]![0].data as {
-      tenantId: string;
+      tenantId?: string;
       externalEventId: string;
       rawBody: Buffer;
     };
-    expect(data.tenantId).toBe('tenant-uuid-1');
+    expect(data.tenantId).toBeUndefined();
     expect(data.externalEventId).toBe('a1b2c3d4e5f6-0000');
-    expect(data.rawBody.toString('utf8')).toContain('_paymentId=pay-uuid-1');
+    expect(data.rawBody.toString('utf8')).not.toContain('_paymentId');
+    expect(prisma.webhookDelivery.create.mock.invocationCallOrder[0]!).toBeLessThan(prisma.asSystem.mock.invocationCallOrder[0]!);
     expect(queue.add).toHaveBeenCalledTimes(1);
   });
 
@@ -384,19 +385,14 @@ describe('WebhooksController.receiveRedsys — resolución Ds_Order → payment'
   });
 
   it('resuelve el pago por su intento (payment_attempts) aunque no sea el último', async () => {
-    const { controller, prisma, paymentTx } = makeController({
+    const { controller, paymentTx } = makeController({
       redsysAttempt: { paymentId: 'pay-from-attempt', tenantId: 'tenant-2' },
     });
 
     await controller.receiveRedsys(fakeRedsysRequest());
 
     expect(paymentTx.payment.findFirst).not.toHaveBeenCalled();
-    const data = prisma.webhookDelivery.create.mock.calls[0]![0].data as {
-      tenantId: string;
-      rawBody: Buffer;
-    };
-    expect(data.tenantId).toBe('tenant-2');
-    expect(data.rawBody.toString('utf8')).toContain('_paymentId=pay-from-attempt');
+    expect(paymentTx.payment.updateMany.mock.calls[0]![0].where).toEqual({ id: 'pay-from-attempt', authorizedAt: null });
   });
 
   it('aviso aprobado: intento APPROVED y guarda método, tarjeta y autorización', async () => {
@@ -498,7 +494,7 @@ describe('WebhooksController — aviso que agotó los reintentos (P5) y entregas
 
     expect(prisma.webhookDelivery.findUniqueOrThrow).toHaveBeenCalledWith({
       where: { provider_externalEventId: { provider: 'WIPAY', externalEventId: 'op-test-1' } },
-      select: { id: true },
+      select: { id: true, processedAt: true },
     });
     expect(queue.add).toHaveBeenCalledWith('process-webhook', { deliveryId: '77' }, expect.anything());
   });

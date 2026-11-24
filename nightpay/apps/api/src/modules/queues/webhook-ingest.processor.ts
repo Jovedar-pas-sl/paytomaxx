@@ -11,7 +11,7 @@ import { PaymentsService } from '../payments/payments.service';
 import { GatewayRegistry } from '../gateways/gateway.registry';
 import type { GatewayAdapter } from '../gateways/gateway.adapter';
 import { parseWebhookBody } from '../gateways/header-utils';
-import { InvalidTransitionError, isIdempotentTransition } from '../payments/payment.machine';
+import { InvalidTransitionError, isIdempotentTransition, type PaymentEvent } from '../payments/payment.machine';
 import { WEBHOOKS_INGEST_QUEUE } from './queue-tokens';
 import { BtcpayInvoiceService } from '../btcpay/btcpay-invoice.service';
 import {
@@ -158,7 +158,7 @@ export class WebhookIngestProcessor extends WorkerHost {
     // Un aviso de una pasarela solo puede tocar cobros de esa pasarela: con el
     // secreto de la URL de Paytef (o un aviso de Peanpe) no se puede marcar
     // pagado un cobro de Redsys.
-    const target = await this.findTarget(fsmEvent.paymentId, delivery.provider as Provider);
+    const target = await this.findTarget(fsmEvent.paymentId, delivery.provider as Provider, fsmEvent.event);
     if (!target || target.provider !== delivery.provider) {
       this.logger.warn(
         `webhook ${deliveryId}: el cobro ${fsmEvent.paymentId} no es de ${delivery.provider} (es ${target?.provider ?? 'desconocido'}) — ignorado`,
@@ -252,13 +252,26 @@ export class WebhookIngestProcessor extends WorkerHost {
    * Paytef (clientID) y Cecabank (Num_operacion) llevan el id del intento: la
    * página del banco la ve el cliente, y del id del cobro sale el código de
    * confirmación (FSD-02). Los avisos de antes nombran el cobro. Un intento
-   * de otra pasarela no cuenta.
+   * de otra pasarela no cuenta. Sin id (Redsys: el aviso se guarda nada más
+   * comprobar la firma, sin buscar el cobro), por el pedido aprobado: el de
+   * su intento o, en los cobros de antes de Fase 0, el del propio cobro.
    */
-  private async findTarget(ref: string, provider: Provider): Promise<TargetPayment | null> {
+  private async findTarget(ref: string, provider: Provider, event: PaymentEvent): Promise<TargetPayment | null> {
+    const select = { id: true, tenantId: true, provider: true, amountCents: true, currency: true } as const;
+    if (!ref && event.type === 'AUTHORIZED') {
+      const order = event.providerTxId;
+      return this.prisma.asSystem(async (tx) => {
+        const attempt = await tx.paymentAttempt.findUnique({
+          where: { provider_providerTxId: { provider, providerTxId: order } },
+          select: { paymentId: true },
+        });
+        if (attempt) return tx.payment.findUnique({ where: { id: attempt.paymentId }, select });
+        return tx.payment.findFirst({ where: { provider, providerTxId: order }, select });
+      });
+    }
     // Un id que no es UUID (aviso raro o manipulado) no es ningún cobro: sin
     // esto la consulta falla y el aviso se reintenta 5 veces para nada.
     if (!UUID_RE.test(ref)) return null;
-    const select = { id: true, tenantId: true, provider: true, amountCents: true, currency: true } as const;
     // Sin local en el contexto (es un trabajo, no una petición): lectura de sistema.
     return this.prisma.asSystem(async (tx) => {
       const payment = await tx.payment.findUnique({ where: { id: ref }, select });

@@ -14,6 +14,8 @@ import type { PaymentEvent } from '../payments/payment.machine';
  * `paymentId` es el ID interno NightPay (resuelto del paymentRef del webhook)
  * o el del intento (payment_attempts.id) cuando el aviso nombra el intento
  * (Paytef clientID, Cecabank Num_operacion): el processor busca su cobro.
+ * Vacío si el aviso solo trae el pedido de la pasarela (Redsys): el processor
+ * busca el cobro por el providerTxId del evento.
  */
 export interface WebhookFsmEvent {
   paymentId: string;

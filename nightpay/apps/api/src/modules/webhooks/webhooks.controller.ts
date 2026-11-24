@@ -576,8 +576,9 @@ export class WebhooksController {
     // Fastify form-urlencoded → req.body es Record<string,string>. Re-encodeamos
     // a Buffer para que verifyWebhook() pueda parsearlo. M1: shape Zod laxa.
     const parsed = FormUrlencodedBodySchema.safeParse(req.body ?? {});
-    // Campos `_*` son nuestros (p.ej. `_paymentId`, que añadimos tras resolver
-    // el pedido). Fuera de la firma → nunca aceptarlos del cliente.
+    // Campos `_*` son nuestros (p.ej. `_paymentId`, que el processor aún lee en
+    // los avisos guardados antes del 24-11-2026). Fuera de la firma → nunca
+    // aceptarlos del cliente.
     const body = Object.fromEntries(
       Object.entries(parsed.success ? parsed.data : {}).filter(([k]) => !k.startsWith('_')),
     );
@@ -594,45 +595,35 @@ export class WebhooksController {
       throw new BadRequestException('Missing externalEventId');
     }
 
-    // Idempotency por (provider, Ds_Order + Ds_Response).
-    const existing = await this.prisma.webhookDelivery.findUnique({
-      where: {
-        provider_externalEventId: {
-          provider,
-          externalEventId: verify.externalEventId,
-        },
-      },
+    // Se guarda nada más comprobar la firma: con la base saturada, una consulta
+    // antes de guardarlo fallaba y el aviso se perdía (el banco no lo repite).
+    // Idempotencia por (provider, Ds_Order + Ds_Response): el mismo aviso otra
+    // vez choca con la clave única y se usa el ya guardado (saveDelivery).
+    // El cobro lo busca el processor por el pedido (Ds_Order, dentro de la firma).
+    const delivery = await this.saveDelivery({
+      provider,
+      externalEventId: verify.externalEventId,
+      rawBody,
+      signature: typeof body.Ds_Signature === 'string' ? (body.Ds_Signature as string) : '',
     });
-    if (existing?.processedAt) {
+    if (delivery.processedAt) {
       this.metrics.webhooksReceived.inc({ provider, outcome: 'duplicate' });
       return { received: true, duplicate: true };
     }
 
-    // Ds_Order es nuestro providerTxId (lo genera authorize). Lo resolvemos a
-    // payment UUID + tenant aquí, igual que Peanpe con _paymentId: el adapter
-    // no toca la DB y el processor aplica la defensa cross-tenant.
-    // Cada intento de pago es un Ds_Order distinto (payment_attempts); los
-    // pagos anteriores a Fase 0 solo lo tienen en payments.providerTxId.
+    // Ds_Order es nuestro providerTxId (lo genera authorize): aquí, para anotar
+    // el intento, la tarjeta y el token. Cada intento de pago es un Ds_Order
+    // distinto (payment_attempts); los pagos anteriores a Fase 0 solo lo tienen
+    // en payments.providerTxId. Si ahora la base no contesta, se sigue: el
+    // aviso ya está guardado y el processor busca el cobro por su cuenta.
     const dsOrder = verify.paymentRef ?? '';
-    const payment = dsOrder ? await this.findRedsysPayment(dsOrder) : null;
-    if (!payment) {
-      this.logger.warn(`webhook redsys: ningún payment con Ds_Order=${dsOrder}`);
+    let payment: { id: string; tenantId: string } | null = null;
+    try {
+      payment = dsOrder ? await this.findRedsysPayment(dsOrder) : null;
+      if (!payment) this.logger.warn(`webhook redsys: ningún payment con Ds_Order=${dsOrder}`);
+    } catch (e) {
+      this.logger.warn(`webhook redsys: no se pudo buscar el cobro de Ds_Order=${dsOrder} al llegar: ${(e as Error).message}`);
     }
-    // Se añade un campo fuera de la firma: Ds_Signature solo cubre
-    // Ds_MerchantParameters, así que la verificación en el processor sigue valiendo.
-    const storedBody = payment
-      ? Buffer.concat([rawBody, Buffer.from(`&_paymentId=${encodeURIComponent(payment.id)}`)])
-      : rawBody;
-
-    const delivery =
-      existing ??
-      (await this.saveDelivery({
-        provider,
-        ...(payment ? { tenantId: payment.tenantId } : {}),
-        externalEventId: verify.externalEventId,
-        rawBody: storedBody,
-        signature: typeof body.Ds_Signature === 'string' ? (body.Ds_Signature as string) : '',
-      }));
 
     if (payment) {
       await this.recordRedsysOutcome(payment.id, rawBody);
@@ -719,16 +710,19 @@ export class WebhooksController {
   /**
    * Guarda el aviso. Si la pasarela lo manda dos veces a la vez, el segundo
    * choca con la clave única (P2002): se usa el registro del primero en vez de
-   * contestar 500 (Wipay espera $*$OKY$*$ y anularía un cobro bueno).
+   * contestar 500 (Wipay espera $*$OKY$*$ y anularía un cobro bueno). Con su
+   * processedAt: Redsys guarda sin mirar antes si ya estaba (y procesado).
    */
-  private async saveDelivery(data: Prisma.WebhookDeliveryUncheckedCreateInput): Promise<{ id: bigint }> {
+  private async saveDelivery(
+    data: Prisma.WebhookDeliveryUncheckedCreateInput,
+  ): Promise<{ id: bigint; processedAt: Date | null }> {
     try {
       return await this.prisma.webhookDelivery.create({ data });
     } catch (err) {
       if (!(err instanceof Prisma.PrismaClientKnownRequestError) || err.code !== 'P2002') throw err;
       return this.prisma.webhookDelivery.findUniqueOrThrow({
         where: { provider_externalEventId: { provider: data.provider, externalEventId: data.externalEventId } },
-        select: { id: true },
+        select: { id: true, processedAt: true },
       });
     }
   }

@@ -1,5 +1,5 @@
 // Integración (Postgres real): avisos de pasarela, aprobación tras fallo y conciliación de huérfanos. Ver README.md.
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { randomUUID } from 'node:crypto';
 import { ClsService } from 'nestjs-cls';
@@ -354,6 +354,28 @@ describe('vuelta firmada por el mismo camino que el aviso (Postgres real)', () =
     const earnings = await sys((tx) => tx.operatorEarning.findMany({ where: { paymentId: id } }));
     expect(earnings).toHaveLength(1);
     expect(await prisma.webhookDelivery.count({ where: { provider: 'REDSYS', externalEventId: `${order}-0000` } })).toBe(1);
+  });
+
+  it('con la base saturada al buscar el cobro (punto 4 de la revisión del 20-11): el aviso queda guardado y el procesador lo paga', async () => {
+    const h = harness();
+    const order = `RS1${r}`;
+    const id = await payment({ status: 'AUTHORIZING', provider: 'REDSYS', amount: 6000, order, attempts: [{ order, amount: 6000, tip: 0 }] });
+    // Sábado 01:30, en pleno pico: el pool no da conexión a tiempo (P2028) justo al buscar el cobro.
+    const busy = vi.spyOn(prisma, 'asSystem').mockRejectedValueOnce(new Error('P2028 Unable to start a transaction in the given time'));
+    try {
+      const request = { headers: {}, body: bankFields(order, 6000) } as unknown as FastifyRequest;
+      await expect(h.webhooks.receiveRedsys(request)).resolves.toEqual({ received: true });
+    } finally {
+      busy.mockRestore();
+    }
+    const saved = await prisma.webhookDelivery.findUnique({
+      where: { provider_externalEventId: { provider: 'REDSYS', externalEventId: `${order}-0000` } },
+    });
+    expect(saved?.processedAt).toBeNull();
+    expect(h.jobs).toEqual([saved!.id.toString()]);
+    await processor.process({ data: { deliveryId: h.jobs[0]! } } as Job<{ deliveryId: string }>);
+    expect((await statusOf(id))?.status).toBe('AUTHORIZED');
+    expect((await prisma.webhookDelivery.findUnique({ where: { id: saved!.id } }))?.processedAt).not.toBeNull();
   });
 
   it('si el importe firmado es distinto, deja incidencia y no marca el pago como cobrado', async () => {

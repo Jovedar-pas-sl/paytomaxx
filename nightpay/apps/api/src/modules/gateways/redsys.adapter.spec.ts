@@ -359,9 +359,12 @@ describe('RedsysAdapter webhook — notificación firmada', () => {
     });
   });
 
-  it('sin _paymentId (pedido desconocido) → null, no transiciona nada', () => {
+  it('sin _paymentId (guardado nada más comprobar la firma) → evento sin cobro: el processor lo busca por el pedido', () => {
     const body = parseFormUrlEncoded(signedNotification(OK_FIELDS));
-    expect(adapter.mapWebhookToFsmEvent(body)).toBeNull();
+    expect(adapter.mapWebhookToFsmEvent(body)).toEqual({
+      paymentId: '',
+      event: { type: 'AUTHORIZED', providerTxId: 'a1b2c3d4e5f6', provider: 'REDSYS' },
+    });
   });
 
   it('denegación → null: el estado final lo decide la conciliación (o se resuelve a mano)', () => {

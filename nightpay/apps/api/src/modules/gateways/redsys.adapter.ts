@@ -438,8 +438,9 @@ export class RedsysAdapter implements GatewayAdapter {
   }
 
   mapWebhookToFsmEvent(parsedPayload: unknown): WebhookFsmEvent | null {
-    // Body tal cual lo mandó Redsys + `_paymentId`, que el controller añade
-    // tras resolver Ds_Order (nuestro providerTxId) → payment UUID.
+    // Body tal cual lo mandó Redsys. Los guardados antes del 24-11-2026 traen
+    // además `_paymentId` (Ds_Order ya resuelto al cobro); sin él, el
+    // processor busca el cobro por el pedido (Ds_Order, nuestro providerTxId).
     const p = parsedPayload as Record<string, unknown>;
     const n = this.parseNotification(p);
     if (!n) return null;
@@ -449,14 +450,9 @@ export class RedsysAdapter implements GatewayAdapter {
     );
     if (n.response === '') return null;
 
-    const paymentId = typeof p._paymentId === 'string' ? p._paymentId : '';
-    if (!paymentId) {
-      this.logger.warn(`Redsys aviso sin payment asociado (order=${n.order}) — ignorado`);
-      return null;
-    }
     if (n.approved) {
       return {
-        paymentId,
+        paymentId: typeof p._paymentId === 'string' ? p._paymentId : '',
         event: { type: 'AUTHORIZED', providerTxId: n.order, provider: 'REDSYS' },
       };
     }
