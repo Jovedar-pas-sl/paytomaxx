@@ -112,22 +112,27 @@
   --np-bits-brand: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='132' height='64'%3E%3Cg font-family='monospace' font-size='11' fill='%23EFE9DF' fill-opacity='.045'%3E%3Ctext x='2' y='12'%3E0101 1001 0110%3C/text%3E%3Ctext x='-12' y='28'%3E1100 1010 0101 1%3C/text%3E%3Ctext x='6' y='44'%3E0110 0101 1001%3C/text%3E%3Ctext x='-6' y='60'%3E1001 0011 0101 0%3C/text%3E%3C/g%3E%3C/svg%3E");
 
   /* Secciones (de qué es el cobro): familia viva, siempre con tinta oscura
-     --np-on-section encima (≥ 4,5:1). Las mismas en TS: sectionColor() de
-     @nightpay/ui. El saldo / la recarga va en gris y con borde a trazos. */
-  --np-sec-copas: #00e0ae;
-  --np-sec-habitaciones: #a98bff;
-  --np-sec-comida: #ff8a3d;
-  --np-sec-servicios: #e447f0;
-  --np-sec-entradas: #3d9bff;
-  --np-sec-propinas: #ffc94d;
+     --np-on-section encima. Las mismas en TS: sectionColor() de @nightpay/ui.
+     El saldo / la recarga va en gris y con borde a trazos. Tinta encima:
+     Copas 13,5:1 · Comida 6,5:1 · Entradas 6,4:1 · Servicios 7,8:1 ·
+     Habitaciones 10,6:1 · Propinas 16,5:1 · Saldo 7,7:1 · Otros 5,4:1.
+     Comida y Entradas dan 5,1:1 sobre --np-surface: van en rellenos, puntos,
+     iconos y cifras grandes, nunca como color de texto pequeño (ese va en
+     crema con un punto de color). */
+  --np-sec-copas: #46efd4;
+  --np-sec-habitaciones: #bbb8fe;
+  --np-sec-comida: #fd622d;
+  --np-sec-servicios: #ff77a2;
+  --np-sec-entradas: #4d94fb;
+  --np-sec-propinas: #feee82;
   --np-sec-saldo: #9aa4ad;
   --np-sec-otros: #7c8893;
   --np-on-section: #0b0d0e;
-  /* Tonos de LOSETA (rellenos grandes con la etiqueta pequeña encima): un
-     punto más claros para que la tinta se lea (Servicios 6,95:1, Propinas
-     8,35:1). Chips, barras y franjas siguen con el color exacto de arriba. */
-  --np-sec-servicios-tile: #e447f0;
-  --np-sec-propinas-tile: #ffc94d;
+  /* Tonos de LOSETA (rellenos grandes con la etiqueta pequeña encima): hoy,
+     los mismos que la sección (la tinta se lee de sobra: Servicios 7,8:1,
+     Propinas 16,5:1). Chips, barras y franjas, con el color de arriba. */
+  --np-sec-servicios-tile: #ff77a2;
+  --np-sec-propinas-tile: #feee82;
   /* Brillo de las losetas de la carta (oscuro): del color al 75 %, más con
      unidades en la cuenta, y una línea clara arriba. Brillo lima de «Cobrar». */
   --np-tile-glow: 75%;

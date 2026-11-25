@@ -31,12 +31,12 @@ export interface Section {
 }
 
 const SECTION_LIST: readonly Section[] = [
-  { key: 'copas', label: 'Copas', color: '#00e0ae', cssVar: 'var(--np-sec-copas)', dashed: false },
-  { key: 'habitaciones', label: 'Habitaciones', color: '#a98bff', cssVar: 'var(--np-sec-habitaciones)', dashed: false },
-  { key: 'comida', label: 'Comida', color: '#ff8a3d', cssVar: 'var(--np-sec-comida)', dashed: false },
-  { key: 'servicios', label: 'Servicios', color: '#e447f0', cssVar: 'var(--np-sec-servicios)', dashed: false },
-  { key: 'entradas', label: 'Entradas', color: '#3d9bff', cssVar: 'var(--np-sec-entradas)', dashed: false },
-  { key: 'propinas', label: 'Propinas', color: '#ffc94d', cssVar: 'var(--np-sec-propinas)', dashed: false },
+  { key: 'copas', label: 'Copas', color: '#46efd4', cssVar: 'var(--np-sec-copas)', dashed: false },
+  { key: 'habitaciones', label: 'Habitaciones', color: '#bbb8fe', cssVar: 'var(--np-sec-habitaciones)', dashed: false },
+  { key: 'comida', label: 'Comida', color: '#fd622d', cssVar: 'var(--np-sec-comida)', dashed: false },
+  { key: 'servicios', label: 'Servicios', color: '#ff77a2', cssVar: 'var(--np-sec-servicios)', dashed: false },
+  { key: 'entradas', label: 'Entradas', color: '#4d94fb', cssVar: 'var(--np-sec-entradas)', dashed: false },
+  { key: 'propinas', label: 'Propinas', color: '#feee82', cssVar: 'var(--np-sec-propinas)', dashed: false },
   { key: 'saldo', label: 'Saldo', color: '#9aa4ad', cssVar: 'var(--np-sec-saldo)', dashed: true },
   { key: 'otros', label: 'Otros', color: '#7c8893', cssVar: 'var(--np-sec-otros)', dashed: false },
 ];
@@ -86,8 +86,8 @@ export function sectionVar(code: string | null | undefined): string {
  * con el color exacto de la sección (sectionColor / sectionVar).
  */
 export const SECTION_TILE_COLORS: Readonly<Partial<Record<SectionKey, string>>> = Object.freeze({
-  servicios: '#e447f0',
-  propinas: '#ffc94d',
+  servicios: '#ff77a2',
+  propinas: '#feee82',
 });
 
 /** El color de una loseta (hex): el de la sección o, en Servicios y Propinas, su tono de loseta. */

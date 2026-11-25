@@ -2,19 +2,22 @@
    Solo cambia el aspecto: la franja «Esta noche» con una tarjeta tintada por
    cifra, la franja de color de la sección en Cobros, el punto del estado y el
    icono de «Cómo pagó». En claro, tintes más suaves y colores más hondos para
-   que el texto llegue a 4,5:1 (panel-vivo.test.ts). Sin animación nueva. */
+   que el texto llegue a 4,5:1 (panel-vivo.test.ts). Sin animación nueva.
+   «Color y relieve» (25-nov-2026): «con tarjeta» va en el azul de la tarjeta
+   de toda la app (--np-card-line, 4,6:1 sobre su tarjeta tintada); el azul de
+   Entradas (#4d94fb) se queda en 4,0:1 como cifra y aquí no es una sección. */
 
 :root,
 [data-theme='dark'] {
   --vv-ok: var(--np-success);
-  --vv-card: #3d9bff;
-  --vv-pay: #e447f0;
+  --vv-card: var(--np-card-line);
+  --vv-pay: #ff77a2;
   --vv-warn: var(--np-warning);
   /* Formas de pago (el cuadrito de «Cómo pagó»). */
-  --vv-how-card: #3d9bff;
-  --vv-how-saldo: #00e0ae;
+  --vv-how-card: var(--np-card-line);
+  --vv-how-saldo: #46efd4;
   --vv-how-cash: var(--np-success);
-  --vv-how-pos: #a98bff;
+  --vv-how-pos: #bbb8fe;
   --vv-how-btc: #f7931a;
   /* Cuánto del color entra en el fondo de la tarjeta y en su borde. */
   --vv-tint: 16%;
