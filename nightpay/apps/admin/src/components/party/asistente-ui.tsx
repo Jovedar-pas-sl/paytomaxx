@@ -24,8 +24,8 @@ export const DAY_CSS = `
 .pa-kpi .l{font-size:13px;font-weight:600;color:var(--pa-t3)}
 .pa-kpi .v{font-family:var(--np-font-num,Manrope,sans-serif);font-size:30px;line-height:1.05;font-weight:800;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
 .pa-kpi .h{font-size:13px;line-height:1.4;color:var(--pa-t3)}
-.pa-kpi.strong{background:var(--pa-ink);border-color:var(--pa-ink);color:#F4F2EC}
-.pa-kpi.strong .l,.pa-kpi.strong .h{color:#B8C0C6}
+.pa-kpi.strong{background:var(--pa-ink);border-color:var(--pa-ink);color:#EFE9DF}
+.pa-kpi.strong .l,.pa-kpi.strong .h{color:#CFCBC2}
 .pa-kpi.strong .v{color:var(--pa-lime)}
 .pa-btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:40px;padding:0 14px;border-radius:10px;border:1px solid var(--pa-hi);background:var(--pa-surface);color:var(--pa-ink);font:inherit;font-size:14px;font-weight:700;cursor:pointer;white-space:nowrap;transition:transform .12s ease,background-color .12s ease}
 .pa-btn:hover{background:var(--pa-soft)}
@@ -46,7 +46,7 @@ export const DAY_CSS = `
 .pa-chip.warn{background:#FFF8E8;color:#5E3E00}
 .pa-chip.bad{background:#FFF4F0;color:#7A2210}
 .pa-chip.mute{background:var(--pa-soft);color:var(--pa-t2)}
-.pa-chip.ink{background:var(--pa-ink);color:#F4F2EC}
+.pa-chip.ink{background:var(--pa-ink);color:#EFE9DF}
 .pa-note{margin:0;padding:12px 14px;border-radius:10px;border:1px solid #EBD39A;background:#FFF8E8;color:#5A4710;font-size:13px;line-height:1.45}
 .pa-msg{margin:0;padding:12px 14px;border-radius:10px;font-size:14px;line-height:1.45}
 .pa-msg.ok{border:1px solid #B9DCC7;background:#EEF7F1;color:#1A5E3C}

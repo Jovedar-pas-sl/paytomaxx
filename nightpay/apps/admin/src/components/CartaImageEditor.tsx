@@ -197,4 +197,4 @@ const iconBtn: CSSProperties = {
   color: 'var(--np-ink, #1f2c36)',
   cursor: 'pointer',
 };
-const iconBtnOn: CSSProperties = { outline: '3px solid var(--np-primary, #c7d301)', outlineOffset: 1 };
+const iconBtnOn: CSSProperties = { outline: '3px solid var(--np-lime)', outlineOffset: 1 };
