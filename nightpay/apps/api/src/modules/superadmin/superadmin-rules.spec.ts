@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { businessCreateNeedsStepUp, businessUpdateNeedsStepUp, venueCreateNeedsStepUp } from '@nightpay/contracts';
+import { UpdateVenueRulesSchema, businessCreateNeedsStepUp, businessUpdateNeedsStepUp, venueCreateNeedsStepUp } from '@nightpay/contracts';
 import {
   commissionMapOf,
   generateTemporaryPassword,
@@ -147,5 +147,17 @@ describe('«Comisión del servicio» en las reglas del local (solo el super-admi
     expect(businessUpdateNeedsStepUp({ defaultServiceFeeBps: 1200 } as never, saved)).toBe(true);
     expect(businessUpdateNeedsStepUp({ defaultServiceFeeBps: 1000 } as never, saved)).toBe(false);
     expect(businessUpdateNeedsStepUp({ defaultTopUpServiceFeeBps: 800 } as never, saved)).toBe(true);
+  });
+});
+
+describe('«Las compañeras cobran desde su móvil» en las reglas del local (solo el super-admin, con 2FA)', () => {
+  it('apagarla o encenderla se guarda tal cual', () => {
+    expect(planVenueRulesChange(current, { operatorsChargeFromPhone: false }, null)).toEqual({ ok: true, change: { operatorsChargeFromPhone: false } });
+    expect(planVenueRulesChange(current, { operatorsChargeFromPhone: true }, null)).toEqual({ ok: true, change: { operatorsChargeFromPhone: true } });
+  });
+
+  it('el esquema la deja pasar sola (antes la descartaba: «No hay nada que cambiar»)', () => {
+    expect(UpdateVenueRulesSchema.safeParse({ operatorsChargeFromPhone: false, totpCode: '123456' }).success).toBe(true);
+    expect(UpdateVenueRulesSchema.safeParse({ operatorsChargeFromPhone: 'no', totpCode: '123456' }).success).toBe(false);
   });
 });

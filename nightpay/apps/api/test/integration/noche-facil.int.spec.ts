@@ -269,7 +269,7 @@ describe('recargas pendientes de asignar (Postgres real)', () => {
 });
 
 describe('locales nuevos', () => {
-  it('el super-admin da de alta un local: el datáfono, apagado; lo demás, como siempre', async () => {
+  it('el super-admin da de alta un local: el datáfono y «Las compañeras cobran desde su móvil», apagados; lo demás, como siempre', async () => {
     const venues = new SuperAdminVenuesService(
       prisma,
       { verify: async () => undefined } as never,
@@ -277,7 +277,12 @@ describe('locales nuevos', () => {
       { get: () => '7' } as never,
     );
     const created = await inVenue(undefined, () => venues.create({ id: lola, email: 'super@x.es' } as never, { name: `Nuevo ${r}`, slug: `nf-nuevo-${r}` }));
-    const row = await sys((tx) => tx.venue.findUniqueOrThrow({ where: { id: created.id }, select: { paymentMethods: true } }));
+    const row = await sys((tx) =>
+      tx.venue.findUniqueOrThrow({ where: { id: created.id }, select: { paymentMethods: true, operatorsChargeFromPhone: true } }),
+    );
     expect(paymentMethodsOf(row.paymentMethods)).toMatchObject({ pos: false, card: true, wallet: true, nfc: true, cashTopUp: true });
+    // Sus servicios los cobra el encargado (decisión del dueño, 25-nov-2026).
+    expect(row.operatorsChargeFromPhone).toBe(false);
+    expect(created.rules.operatorsChargeFromPhone).toBe(false);
   });
 });
