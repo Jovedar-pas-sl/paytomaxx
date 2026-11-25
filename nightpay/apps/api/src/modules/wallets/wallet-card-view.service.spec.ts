@@ -115,9 +115,12 @@ describe('«Ver mi saldo con mi PIN» desde la ficha (B7)', () => {
     const charges = { pinForCardView: vi.fn(async (_w: string, pin: string) => (pin === right ? 'ok' : 'wrong')) };
     const store = new Map<string, number>();
     const redis = {
-      get: vi.fn(async (k: string) => (store.has(k) ? String(store.get(k)) : null)),
       incr: vi.fn(async (k: string) => {
         store.set(k, (store.get(k) ?? 0) + 1);
+        return store.get(k)!;
+      }),
+      decr: vi.fn(async (k: string) => {
+        store.set(k, (store.get(k) ?? 0) - 1);
         return store.get(k)!;
       }),
       expire: vi.fn(async () => 1),
@@ -148,17 +151,50 @@ describe('«Ver mi saldo con mi PIN» desde la ficha (B7)', () => {
     expect(charges.pinForCardView).not.toHaveBeenCalled();
   });
 
-  it('su propio contador: 5 fallos cierran SOLO esta vista 15 min (ni con el PIN bueno); el PIN de pagar no se toca', async () => {
-    const { service, redis } = withPin();
+  it('su propio contador: 5 fallos cierran SOLO esta vista 24 h (ni con el PIN bueno, que ya no se mira); el PIN de pagar no se toca', async () => {
+    const { service, redis, charges } = withPin();
     for (let i = 4; i >= 1; i -= 1) {
       await expect(service.viewWithPin(TOKEN, '1111', NOW)).rejects.toMatchObject({
         status: 422,
         response: expect.objectContaining({ code: 'PIN_WRONG', message: `PIN incorrecto. ${i === 1 ? 'Queda 1 intento' : `Quedan ${i} intentos`}` }),
       });
     }
-    await expect(service.viewWithPin(TOKEN, '1111', NOW)).rejects.toMatchObject({ status: 429, response: expect.objectContaining({ code: 'CARD_VIEW_LOCKED' }) });
+    await expect(service.viewWithPin(TOKEN, '1111', NOW)).rejects.toMatchObject({
+      status: 429,
+      response: expect.objectContaining({ code: 'CARD_VIEW_LOCKED', message: expect.stringContaining('dentro de 24 horas') }),
+    });
     await expect(service.viewWithPin(TOKEN, '2468', NOW)).rejects.toMatchObject({ status: 429, response: expect.objectContaining({ code: 'CARD_VIEW_LOCKED' }) });
-    expect(redis.expire).toHaveBeenCalledWith('np:card-pin-view:fails:w-1', 15 * 60);
+    expect(charges.pinForCardView).toHaveBeenCalledTimes(5);
+    // 24 h desde el primer intento: cada intento la pone solo si falta (NX), así que no la alarga.
+    expect(redis.expire.mock.calls).toEqual(Array.from({ length: 6 }, () => ['np:card-pin-view:fails:w-1', 24 * 60 * 60, 'NX']));
+  });
+
+  it('si se pierde la caducidad del primer intento (Redis se corta), la pone el siguiente: la vista no se cierra para siempre', async () => {
+    const { service, redis } = withPin();
+    redis.expire.mockRejectedValueOnce(new Error('caído'));
+    await expect(service.viewWithPin(TOKEN, '1111', NOW)).rejects.toMatchObject({ status: 503 });
+    await expect(service.viewWithPin(TOKEN, '1111', NOW)).rejects.toMatchObject({ status: 422 });
+    expect(redis.expire).toHaveBeenCalledTimes(2);
+    expect(redis.expire).toHaveBeenLastCalledWith('np:card-pin-view:fails:w-1', 24 * 60 * 60, 'NX');
+  });
+
+  it('con el PIN de pagar bloqueado no se gasta ningún intento (no se mira el PIN): desbloqueado, con el PIN bueno se ve el saldo', async () => {
+    const { service, charges } = withPin();
+    charges.pinForCardView.mockResolvedValue('locked');
+    for (let i = 0; i < 6; i += 1) {
+      await expect(service.viewWithPin(TOKEN, '2468', NOW)).rejects.toMatchObject({ status: 422, response: expect.objectContaining({ code: 'PIN_LOCKED' }) });
+    }
+    charges.pinForCardView.mockResolvedValue('ok');
+    await expect(service.viewWithPin(TOKEN, '2468', NOW)).resolves.toMatchObject({ balanceCents: 3_540 });
+  });
+
+  it('varias a la vez: cada intento cuenta ANTES de mirar el PIN, así que nunca se miran más de 5', async () => {
+    const { service, charges } = withPin();
+    const out = await Promise.allSettled(Array.from({ length: 8 }, () => service.viewWithPin(TOKEN, '1111', NOW)));
+    expect(charges.pinForCardView).toHaveBeenCalledTimes(5);
+    const statuses = out.map((o) => (o.status === 'rejected' ? (o.reason as { status?: number }).status : 200));
+    expect(statuses.filter((s) => s === 422)).toHaveLength(4);
+    expect(statuses.filter((s) => s === 429)).toHaveLength(4);
   });
 
   it('con el PIN bueno, los fallos de antes se borran; sin Redis, no se deja ver (503)', async () => {
@@ -166,7 +202,7 @@ describe('«Ver mi saldo con mi PIN» desde la ficha (B7)', () => {
     await expect(service.viewWithPin(TOKEN, '1111', NOW)).rejects.toMatchObject({ status: 422 });
     await expect(service.viewWithPin(TOKEN, '2468', NOW)).resolves.toMatchObject({ balanceCents: 3_540 });
     expect(redis.del).toHaveBeenCalledWith('np:card-pin-view:fails:w-1');
-    redis.get.mockRejectedValueOnce(new Error('caído'));
+    redis.incr.mockRejectedValueOnce(new Error('caído'));
     await expect(service.viewWithPin(TOKEN, '2468', NOW)).rejects.toMatchObject({ status: 503 });
   });
 });

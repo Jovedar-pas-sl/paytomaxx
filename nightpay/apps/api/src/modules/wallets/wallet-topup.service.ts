@@ -293,6 +293,8 @@ export class WalletTopUpService {
       terminalExternalId: venue.terminalExternalId ?? '',
       wallet: { walletId: wallet.id },
     });
+    // Varias a la vez (un programa): cada una se mira contra las de antes, como en /w.
+    if (!replay) await this.recheckCap(wallet.id, created.id, amountCents, 'ficha');
     const stale = !OPEN_STATUSES.has(created.status) || (created.status === 'CREATED' && Date.parse(created.qrExpiresAt) <= Date.now());
     if (stale) throw new ConflictException({ message: STARTED_MESSAGE, code: 'WALLET_TOPUP_STALE' });
     this.logger.log(`Recarga desde la ficha: wallet=${wallet.id} payment=${created.id} amount=${amountCents}c`);
@@ -341,7 +343,8 @@ export class WalletTopUpService {
           OR: prefixes.map((p) => ({ idempotencyKey: { startsWith: p } })),
           createdAt: { gte: since },
         },
-        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+        // Por su referencia: el contador del local la da justo antes del commit, así que sigue el orden en que se guardaron.
+        orderBy: [{ ref: 'asc' }, { id: 'asc' }],
         select: { id: true, idempotencyKey: true, amountCents: true, status: true, qrExpiresAt: true },
       }),
     );
@@ -358,19 +361,21 @@ export class WalletTopUpService {
 
   /**
    * Con el cobro ya creado, el tope contra las recargas de ANTES de esta (por
-   * orden de creación): de dos a la vez que no caben, la segunda se cancela.
+   * orden de guardado): de dos a la vez que no caben, la segunda se cancela.
+   * Desde la ficha, con las suyas y sus topes (FICHA_TOPUP_*).
    */
-  private async recheckCap(walletId: string, paymentId: string, amountCents: number): Promise<void> {
-    const rows = await this.recentSelfTopUps(walletId);
+  private async recheckCap(walletId: string, paymentId: string, amountCents: number, from: 'self' | 'ficha' = 'self'): Promise<void> {
+    const ficha = from === 'ficha';
+    const rows = ficha ? await this.recentTopUps(walletId, [FICHA_TOPUP_KEY_PREFIX]) : await this.recentSelfTopUps(walletId);
     const mine = rows.findIndex((r) => r.id === paymentId);
-    const problem = selfTopUpCapProblem(mine < 0 ? rows : rows.slice(0, mine), amountCents, new Date());
+    const problem = selfTopUpCapProblem(mine < 0 ? rows : rows.slice(0, mine), amountCents, new Date(), ficha ? FICHA_TOPUP_CAPS : undefined);
     if (!problem) return;
     try {
       await this.payments().transition(paymentId, { type: 'CANCELED', reason: 'wallet-topup-cap' });
     } catch (err) {
-      this.logger.warn(`Recarga desde /w ${paymentId} fuera del tope sin cancelar: ${(err as Error).message}`);
+      this.logger.warn(`Recarga desde ${ficha ? 'la ficha' : '/w'} ${paymentId} fuera del tope sin cancelar: ${(err as Error).message}`);
     }
-    throw new ConflictException(CAP_ERRORS[problem]);
+    throw new ConflictException((ficha ? FICHA_CAP_ERRORS : CAP_ERRORS)[problem]);
   }
 
   // ─── Auxiliares ────────────────────────────────────────────────────────

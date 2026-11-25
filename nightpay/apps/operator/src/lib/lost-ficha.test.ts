@@ -28,10 +28,19 @@ describe('«Ficha perdida» en recepción (B6)', () => {
     const screen = read('../components/reception/LostFicha.tsx');
     expect(screen).toContain('feeCents,');
     expect(screen).toMatch(/\{plan\.ok \? \(/);
-    // Las tres pruebas: su QR, su código o el número de su ficha (y su PIN).
+    // Las tres formas de buscar su saldo: su QR, su código o el número de su ficha.
     expect(screen).toContain('Escanear su QR');
     expect(screen).toContain('Buscar con el código');
     expect(screen).toContain('Buscar con el número');
     expect(read('../components/reception/ReceptionTab.tsx')).toContain("setView('lost')");
+  });
+
+  it('el QR solo encuentra el saldo (auditoría 3): recepción pide siempre su PIN y, si no tiene, lo hace el encargado', () => {
+    const screen = read('../components/reception/LostFicha.tsx');
+    // No va como prueba (el servidor ya no la mira) ni la pantalla dice que baste.
+    expect(screen).not.toContain('proof');
+    expect(screen).not.toContain('Que te enseñe el QR');
+    expect(screen).toContain("setStep(manager ? { kind: 'confirm', found } : { kind: 'pin', found })");
+    expect(screen).toContain("if (!manager && !found.hasPin) throw new Error('Este saldo no tiene PIN: la ficha nueva se la da el encargado.')");
   });
 });

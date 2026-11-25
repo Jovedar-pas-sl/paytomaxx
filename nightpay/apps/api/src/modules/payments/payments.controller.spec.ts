@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import 'reflect-metadata';
 import { GoneException, ParseUUIDPipe } from '@nestjs/common';
 import { HEADERS_METADATA, ROUTE_ARGS_METADATA } from '@nestjs/common/constants';
+import { CreatePaymentSchema } from '@nightpay/contracts';
 import { ROLES_KEY } from '../../common/decorators/roles.decorator';
 import { IS_PUBLIC_KEY } from '../../common/decorators/public.decorator';
 import { IP_RATE_LIMIT_META, type IpRateLimitConfig } from '../../common/guards/ip-rate-limit.guard';
@@ -24,6 +25,20 @@ describe('rutas con :id — un id que no es UUID da 400, no un 500 de Postgres (
 
   it('PATCH /terminals/:id', () => {
     expect(idPipes(TerminalsController, 'update')).toContain(ParseUUIDPipe);
+  });
+});
+
+describe('POST /payments: el cobro va en euros (punto 72)', () => {
+  const body = { amountCents: 5_000, terminalExternalId: 'BARRA-1' };
+
+  it('otra moneda no pasa (400): el banco cobraría euros y el cobro no quedaría nunca pagado', () => {
+    expect(CreatePaymentSchema.safeParse({ ...body, currency: 'XYZ' }).success).toBe(false);
+    expect(CreatePaymentSchema.safeParse({ ...body, currency: 'USD' }).success).toBe(false);
+  });
+
+  it('EUR, o sin moneda (queda EUR), como mandan las apps', () => {
+    expect(CreatePaymentSchema.parse({ ...body, currency: 'EUR' }).currency).toBe('EUR');
+    expect(CreatePaymentSchema.parse(body).currency).toBe('EUR');
   });
 });
 

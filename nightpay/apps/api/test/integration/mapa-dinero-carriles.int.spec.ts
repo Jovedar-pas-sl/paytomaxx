@@ -392,12 +392,14 @@ describe('al cerrar la noche, el mapa se congela en el Z', () => {
   it('cierra con la caja contada y el Z lleva el mapa: el mismo que en directo', async () => {
     const check = await inVenue(A, () => nights.closeCheck(A));
     const acknowledged = check.steps.filter((s) => s.status !== 'ok').map((s) => s.key);
-    await inVenue(A, () =>
+    const closed = await inVenue(A, () =>
       nights.close(A, { userId: owner, role: 'OWNER' }, nightId, { cashCountedCents: check.cash.expectedCents, acknowledged, note: 'prueba' }),
     );
     const night = await sys((tx) => tx.venueNight.findUnique({ where: { id: nightId } }));
     const z = night!.zReport as unknown as NightZ;
     expect(z.moneyMap).toBeDefined();
+    // La noche que devuelve el cierre no lo trae: solo /admin/money-map, que pide «Informes».
+    expect(closed.z).not.toHaveProperty('moneyMap');
     const frozen = await inVenue(A, () => moneyMap.forQuery(A, { night: nightId }));
     expect(frozen.frozen).toBe(true);
     expect(frozen.scope).toEqual({ kind: 'night', nightId, open: false });

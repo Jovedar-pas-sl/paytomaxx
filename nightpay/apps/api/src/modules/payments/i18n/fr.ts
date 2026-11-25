@@ -523,7 +523,7 @@ export const FR: CustomerTexts = withFrenchSpacing<CustomerTexts>({
     PIN_FORMAT: 'Le PIN comporte 4 chiffres.',
     CARD_NO_PIN: 'Ce badge n’a pas encore de code PIN.',
     CARD_VIEW_EXPIRED: '10 minutes sont passées : saisissez à nouveau votre code PIN.',
-    CARD_VIEW_LOCKED: 'Trop de tentatives : réessayez dans 15 minutes. Votre code PIN pour payer ne change pas.',
+    CARD_VIEW_LOCKED: 'Trop de tentatives : réessayez dans 24 heures. Votre code PIN pour payer ne change pas.',
     PIN_MISMATCH: 'Les deux PIN ne sont pas identiques.',
     PIN_OBVIOUS: 'Ce PIN est trop facile à deviner : choisissez-en un autre.',
     PIN_EXISTS: 'Ce solde a déjà un PIN.',

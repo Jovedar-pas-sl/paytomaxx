@@ -510,7 +510,7 @@ export const PT: CustomerTexts = {
     PIN_FORMAT: 'O PIN tem 4 dígitos.',
     CARD_NO_PIN: 'Esta tag ainda não tem PIN.',
     CARD_VIEW_EXPIRED: 'Passaram 10 minutos: volte a introduzir o seu PIN.',
-    CARD_VIEW_LOCKED: 'Demasiadas tentativas: tente outra vez dentro de 15 minutos. O seu PIN para pagar continua igual.',
+    CARD_VIEW_LOCKED: 'Demasiadas tentativas: tente outra vez dentro de 24 horas. O seu PIN para pagar continua igual.',
     PIN_MISMATCH: 'Os dois PIN não coincidem.',
     PIN_OBVIOUS: 'Esse PIN é demasiado fácil de adivinhar: escolha outro.',
     PIN_EXISTS: 'Este saldo já tem PIN.',

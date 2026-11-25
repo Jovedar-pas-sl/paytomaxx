@@ -158,8 +158,9 @@ export interface GivenFicha {
 
 /**
  * «Ficha perdida» en recepción (estudio de fichas, B6): una ficha nueva para
- * un saldo que ya tenía una, con una prueba (su QR, o su código y su PIN, o el
- * número de su ficha y su PIN; el encargado, sin prueba). La vieja deja de
+ * un saldo que ya tenía una, con su PIN (tras buscarlo por su QR, su código o
+ * el número de su ficha; el encargado, sin prueba; un saldo sin PIN, solo el
+ * encargado). El QR solo sirve para buscarlo (auditoría 3). La vieja deja de
  * pagar en la misma operación y la nueva se cobra del saldo (Ajustes → Noche,
  * `lostFichaFeeCents`): la pantalla dice cuánto antes de confirmar y manda lo
  * que dijo (si ha cambiado, 409 LOST_FICHA_FEE_CHANGED). Sin saldo que la
@@ -173,6 +174,7 @@ export const ReplaceLostFichaSchema = z
     /** La ficha nueva, acercada. */
     card: z.string().regex(/^[A-Za-z0-9_-]{16,64}$/, 'Esta ficha no es nuestra'),
     uid: z.string().trim().max(64).optional(),
+    /** Ya no se mira (el QR no prueba que el saldo sea suyo): se acepta para que la app de antes no dé 400. */
     proof: z.string().regex(FICHA_QR_PROOF_RE, 'Ese QR no es el de un saldo').optional(),
     pin: z.string().regex(/^[0-9]{4}$/, 'El PIN son 4 cifras').optional(),
     /** Lo que costaba la ficha nueva en la pantalla. */
@@ -198,5 +200,5 @@ export interface ReplacedFicha {
 export const LOST_FICHA_NO_BALANCE_CODE = 'LOST_FICHA_NO_BALANCE';
 export const LOST_FICHA_FEE_CHANGED_CODE = 'LOST_FICHA_FEE_CHANGED';
 
-/** El 422 cuando falta la prueba (ni QR ni PIN): la app pide una de las dos. */
+/** El 422 cuando falta la prueba (al dar la primera ficha, ni QR ni PIN; en «Ficha perdida», sin su PIN). */
 export const FICHA_PROOF_REQUIRED_CODE = 'FICHA_PROOF_REQUIRED';

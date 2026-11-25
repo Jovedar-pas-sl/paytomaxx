@@ -1,4 +1,5 @@
 import { clientMoney, escapeHtml, jsConfig } from '../payments/club-ui';
+import { CUSTOMER_TEXT } from '../payments/i18n';
 import type { FichaCardText } from '../payments/i18n/types';
 import type { PayLanguage } from '../payments/pay-i18n';
 import type { TopUpOptions } from './wallet-topup.service';
@@ -54,7 +55,7 @@ export function cardExtrasHtml(t: FichaCardText, locale: string, topUp: TopUpOpt
 /** El JS de las dos cosas (sin barras invertidas): la recarga va a /pay; el PIN enseña el saldo 10 min. */
 export function cardExtrasScript(base: string, lang: PayLanguage, locale: string, t: FichaCardText): string {
   return `<script>
-(function(){'use strict';var C=JSON.parse(${jsConfig({ base, lang, locale, t })}),T=C.t;
+(function(){'use strict';var C=JSON.parse(${jsConfig({ base, lang, locale, t, locked: CUSTOMER_TEXT[lang].errors.CARD_VIEW_LOCKED })}),T=C.t;
 function $(i){return document.getElementById(i);}
 function eur(c){return new Intl.NumberFormat(C.locale,{style:'currency',currency:'EUR',minimumFractionDigits:c%100?2:0}).format(c/100);}
 function show(el,text){el.textContent=text||'';el.hidden=!text;}
@@ -76,7 +77,7 @@ function hide(){out.hidden=true;view=null;show(perr,T.pinExpired);p.hidden=false
 function seen(r){view=r.viewToken;$('fpinBal').textContent=eur(r.balanceCents);var until=new Date(r.expiresAt);
 $('fpinUntil').textContent=T.pinUntil.split('{time}').join(until.toLocaleTimeString(C.locale,{hour:'2-digit',minute:'2-digit'}));
 out.hidden=false;p.hidden=true;show(perr,'');clearTimeout(timer);timer=setTimeout(hide,Math.max(0,until.getTime()-Date.now()));}
-function fail(x){show(perr,x.status===429?T.rateLimited:x.code==='PIN_LOCKED'?T.pinLocked:x.code==='PIN_FORMAT'?T.pinFormat:x.code==='CARD_VIEW_EXPIRED'?T.pinExpired:x.status===422?T.pinWrong:T.error);}
+function fail(x){show(perr,x.code==='CARD_VIEW_LOCKED'?C.locked:x.status===429?T.rateLimited:x.code==='PIN_LOCKED'?T.pinLocked:x.code==='PIN_FORMAT'?T.pinFormat:x.code==='CARD_VIEW_EXPIRED'?T.pinExpired:x.status===422?T.pinWrong:T.error);}
 p.addEventListener('submit',function(e){e.preventDefault();var v=$('fpinIn').value;$('fpinIn').value='';if(!/^[0-9]{4}$/.test(v)){show(perr,T.pinFormat);return;}pgo.disabled=true;
 post('/pin',{pin:v}).then(seen).catch(fail).then(function(){pgo.disabled=false;});});
 $('fpinAgain').addEventListener('click',function(){if(!view)return hide();post('/saldo',{viewToken:view}).then(seen).catch(function(x){if(x.code==='CARD_VIEW_EXPIRED')return hide();fail(x);});});}

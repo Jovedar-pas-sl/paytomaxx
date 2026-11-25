@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
+  AuditListQuerySchema,
   CreateStaffUserSchema,
   CreateVenueSchema,
   SetSettlementAccountSchema,
@@ -95,5 +96,10 @@ describe('contratos del super-admin — validadores', () => {
     expect(CreateStaffUserSchema.safeParse({ venueId, role: 'MANAGER', email: 'a@x.es', commissionBps: 100, ...TOTP }).success).toBe(false);
     expect(CreateStaffUserSchema.safeParse({ venueId, role: 'OPERATOR', email: 'a@x.es', ...TOTP }).success).toBe(false);
     expect(CreateStaffUserSchema.safeParse({ venueId, role: 'OPERATOR', email: 'a@x.es', displayName: 'Ana', ...TOTP }).success).toBe(true);
+  });
+
+  it('registro: el cursor cabe en la base (hasta 18 cifras); uno enorme da 400, no un 500 (punto 75)', () => {
+    expect(AuditListQuerySchema.safeParse({ cursor: '9999999999999999999' }).success).toBe(false);
+    expect(AuditListQuerySchema.parse({ cursor: '999999999999999999' }).cursor).toBe('999999999999999999');
   });
 });

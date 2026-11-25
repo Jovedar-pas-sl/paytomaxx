@@ -39,9 +39,10 @@ export class ReceptionFichaController {
   }
 
   /**
-   * «Ficha perdida» (B6): ficha nueva para un saldo que ya tenía, con su QR, o
-   * su código o el número de su ficha y su PIN. La vieja deja de pagar y la
-   * nueva se cobra del saldo, en la misma operación.
+   * «Ficha perdida» (B6): ficha nueva para un saldo que ya tenía, buscado por
+   * su QR, su código o el número de su ficha, y con su PIN (el encargado, sin
+   * él). La vieja deja de pagar y la nueva se cobra del saldo, en la misma
+   * operación.
    */
   @Post('fichas/replace-lost')
   @HttpCode(200)

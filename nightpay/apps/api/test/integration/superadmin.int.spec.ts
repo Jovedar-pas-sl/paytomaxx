@@ -421,3 +421,75 @@ describe('personal, cuentas de cobro y registro (todos los locales)', () => {
     expect(next.items.every((i) => BigInt(i.id) < BigInt(page.items[0]!.id))).toBe(true);
   });
 });
+
+describe('grupo del saldo: solo entre locales del mismo negocio', () => {
+  const totpCode = '123456';
+  const venueRow = (id: string) => sys((tx) => tx.venue.findUniqueOrThrow({ where: { id } }));
+  const newVenue = (name: string, extra: { businessId?: string; walletGroup: string }) => {
+    const slug = `sa-${name.toLowerCase().replace(/ /g, '-')}-${r}`;
+    return asSuperAdmin(() => venues.create(actor, { name: `${name} ${r}`, slug, ...extra, totpCode }));
+  };
+
+  it('alta y perfil con el grupo de un local de otro negocio: 409 con su nombre y no se guarda', async () => {
+    // g1 es de Luna (V1, Luna Ocio); el alta nueva y Sol (V2) son de Sol Noche.
+    await expect(newVenue('Mar', { businessId: B2, walletGroup: `g1-${r}` })).rejects.toMatchObject({
+      status: 409,
+      message: expect.stringContaining(`Luna ${r}`),
+    });
+    expect(await sys((tx) => tx.venue.findUnique({ where: { slug: `sa-mar-${r}` } }))).toBeNull();
+    await expect(asSuperAdmin(() => venues.updateProfile(actor, V2, { walletGroup: `g1-${r}`, totpCode }))).rejects.toMatchObject({
+      status: 409,
+      message: expect.stringContaining(`Luna ${r}`),
+    });
+    expect((await venueRow(V2)).walletGroup).toBeNull();
+  });
+
+  it('del mismo negocio, sí; sin negocio cuenta como otro negocio, en los dos sentidos', async () => {
+    expect((await newVenue('Luna Norte', { businessId: B1, walletGroup: `g1-${r}` })).walletGroup).toBe(`g1-${r}`);
+    // «Sin negocio» (lo que viene puesto en el alta) con el grupo de Luna Ocio: no.
+    await expect(newVenue('Suelto', { walletGroup: `g1-${r}` })).rejects.toMatchObject({
+      status: 409,
+      message: expect.stringContaining(`Luna ${r}`),
+    });
+    expect(await sys((tx) => tx.venue.findUnique({ where: { slug: `sa-suelto-${r}` } }))).toBeNull();
+    // Un grupo que no usa nadie, sí; ese grupo en otro local sin negocio o en uno de Sol Noche, no.
+    const loose = await newVenue('Suelto', { walletGroup: `g2-${r}` });
+    await expect(newVenue('Suelto Bis', { walletGroup: `g2-${r}` })).rejects.toMatchObject({
+      status: 409,
+      message: expect.stringContaining(loose.name),
+    });
+    await expect(asSuperAdmin(() => venues.updateProfile(actor, V2, { walletGroup: `g2-${r}`, totpCode }))).rejects.toMatchObject({
+      status: 409,
+      message: expect.stringContaining(loose.name),
+    });
+    expect((await venueRow(V2)).walletGroup).toBeNull();
+  });
+
+  it('meter en un negocio un local con el grupo de otro negocio: 409 y no se mueve; los del grupo, juntos, sí', async () => {
+    // Un local de antes, sin negocio, con el grupo de uno de Sol Noche: a Luna Ocio, no; a Sol Noche, sí.
+    await newVenue('Sol Sur', { businessId: B2, walletGroup: `g4-${r}` });
+    const loose = (await sys((tx) => tx.venue.create({ data: { name: `Suelto Dos ${r}`, slug: `sa-suelto-dos-${r}`, walletGroup: `g4-${r}` } }))).id;
+    await expect(asSuperAdmin(() => businesses.assignVenues(actor, B1, { venueIds: [loose], totpCode }))).rejects.toMatchObject({
+      status: 409,
+      message: expect.stringContaining(`Sol Sur ${r}`),
+    });
+    expect((await venueRow(loose)).businessId).toBeNull();
+    await asSuperAdmin(() => businesses.assignVenues(actor, B2, { venueIds: [loose], totpCode }));
+    expect((await venueRow(loose)).businessId).toBe(B2);
+
+    // Dos locales de Luna Ocio con g3: uno solo a Sol Noche o fuera del negocio, no (el otro se queda); los dos juntos, sí.
+    const a = (await newVenue('Par A', { businessId: B1, walletGroup: `g3-${r}` })).id;
+    const b = (await newVenue('Par B', { businessId: B1, walletGroup: `g3-${r}` })).id;
+    await expect(asSuperAdmin(() => businesses.unassignVenue(actor, B1, a, { totpCode }))).rejects.toMatchObject({
+      status: 409,
+      message: expect.stringContaining(`Par B ${r}`),
+    });
+    await expect(asSuperAdmin(() => businesses.assignVenues(actor, B2, { venueIds: [a], totpCode }))).rejects.toMatchObject({
+      status: 409,
+      message: expect.stringContaining(`Par B ${r}`),
+    });
+    expect((await venueRow(a)).businessId).toBe(B1);
+    await asSuperAdmin(() => businesses.assignVenues(actor, B2, { venueIds: [a, b], totpCode }));
+    expect((await venueRow(a)).businessId).toBe(B2);
+  });
+});

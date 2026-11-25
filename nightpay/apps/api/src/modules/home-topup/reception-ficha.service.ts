@@ -123,12 +123,14 @@ export class ReceptionFichaService {
   }
 
   /**
-   * «Ficha perdida» en recepción (B6). Con una prueba de que el saldo es suyo
-   * (su QR, o su PIN tras buscarlo por su código o por el número de la ficha
-   * perdida; el encargado y el dueño, sin prueba), la ficha nueva queda unida
-   * a su saldo, la vieja deja de pagar (attachCardInTx la da por perdida) y la
-   * nueva se cobra del saldo (Ajustes → Noche): todo en la misma operación.
-   * Si el saldo no llega, se dice y no se hace nada (ni se gasta su PIN).
+   * «Ficha perdida» en recepción (B6). Con su PIN (tras buscar el saldo por su
+   * QR, su código o el número de la ficha perdida; el encargado y el dueño, sin
+   * prueba), la ficha nueva queda unida a su saldo, la vieja deja de pagar
+   * (attachCardInTx la da por perdida) y la nueva se cobra del saldo (Ajustes →
+   * Noche): todo en la misma operación. El QR no prueba que el saldo sea suyo:
+   * no caduca y va en el comprobante que guarda (auditoría 3). Un saldo sin PIN,
+   * solo el encargado. Si el saldo no llega, se dice y no se hace nada (ni se
+   * gasta su PIN).
    */
   async replaceLost(actor: FichaActor, input: ReplaceLostFichaDto): Promise<ReplacedFicha> {
     await this.prisma.asSystem((tx) => assertCanTopUp(tx, actor.tenantId, { userId: actor.userId, role: actor.role }));
@@ -145,7 +147,10 @@ export class ReceptionFichaService {
     if (wallet.balanceCents < fee) throw noBalance(wallet.balanceCents, fee);
     // OxioParty: cobrar la nueva es un consumo; con la fiesta terminada, no (423 EVENT_ENDED).
     if (fee > 0 && isPartyEdition()) await this.prisma.asSystem((tx) => assertEventOpen(tx, actor.tenantId));
-    const via = await this.proofOf(actor, wallet, input);
+    // Su PIN o el encargado: `proof` se acepta (la app de antes lo manda) y no se mira.
+    const manager = actor.role === 'MANAGER' || actor.role === 'OWNER';
+    if (!manager && (input.pin === undefined || wallet.pinHash === null)) throw lostProofRequired(wallet.pinHash !== null);
+    const via = await this.proofOf(actor, wallet, { pin: input.pin });
     const uid = input.uid ? normalizeWalletCardUid(input.uid) : null;
     const out = await this.prisma.acrossVenues(async (tx) => {
       const w = await lockLiveWallet(tx, wallet.id);
@@ -200,6 +205,7 @@ export class ReceptionFichaService {
             shortCode: true,
             status: true,
             balanceCents: true,
+            pinHash: true,
             blockedAt: true,
             mergedIntoId: true,
             closeRequestedAt: true,
@@ -220,7 +226,7 @@ export class ReceptionFichaService {
     return wallet;
   }
 
-  /** Cómo prueba el cliente que el saldo es suyo: su QR o su PIN (el encargado, sin prueba). */
+  /** Cómo prueba el cliente que el saldo es suyo: su QR (solo al dar la primera) o su PIN (el encargado, sin prueba). */
   private async proofOf(actor: FichaActor, wallet: { id: string; qrToken: string }, input: Pick<GiveFichaDto, 'proof' | 'pin'>): Promise<GiveFichaVia> {
     if (input.proof !== undefined) {
       // Atada a su enlace de ahora: tras un enlace nuevo del dueño, la de antes no vale.
@@ -270,6 +276,16 @@ function noBalance(balanceCents: number, fee: number): ConflictException {
     message: `No le llega el saldo: le quedan ${eur(balanceCents)} y la ficha nueva cuesta ${eur(fee)}. Que cargue antes.`,
     code: LOST_FICHA_NO_BALANCE_CODE,
     feeCents: fee,
+  });
+}
+
+/** 422 de «Ficha perdida» en recepción sin su PIN: el QR ya no basta; un saldo sin PIN, solo el encargado. */
+function lostProofRequired(hasPin: boolean): UnprocessableEntityException {
+  return new UnprocessableEntityException({
+    message: hasPin
+      ? 'Con el QR ya no basta: búscalo por su código o por el número de su ficha y que ponga su PIN'
+      : 'Este saldo no tiene PIN: la ficha nueva se la da el encargado',
+    code: FICHA_PROOF_REQUIRED_CODE,
   });
 }
 

@@ -75,9 +75,9 @@ const ACTIONS: Readonly<Record<PersonAction, ActionSpec>> = {
   },
   revokeSa: {
     label: 'Quitar permiso de super-admin',
-    help: 'Vuelve a ver solo su local.',
+    help: 'Vuelve a ver solo su local y se le cierran las sesiones.',
     action: 'user.superAdmin',
-    summary: (n) => `Vas a quitar el permiso de super-admin a ${n}: volverá a ver solo su local.`,
+    summary: (n) => `Vas a quitar el permiso de super-admin a ${n}: volverá a ver solo su local. Se le cierran las sesiones.`,
   },
 };
 

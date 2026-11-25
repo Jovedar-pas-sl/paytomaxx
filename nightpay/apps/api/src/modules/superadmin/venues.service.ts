@@ -15,7 +15,7 @@ import {
   type VenueListQuery,
   venueCreateNeedsStepUp,
 } from '@nightpay/contracts';
-import { PrismaService } from '../../common/prisma/prisma.service';
+import { PrismaService, type TransactionalClient } from '../../common/prisma/prisma.service';
 import { resolveHoldDays } from '../operators/payout-math';
 import { newVenuePaymentMethods } from '../venues/venue-methods';
 import { venuePauseScope } from '../venues/venue-pause';
@@ -114,7 +114,7 @@ export class SuperAdminVenuesService {
       // La «Comisión del servicio» del negocio (sus % por defecto); el interruptor, apagado.
       const serviceFeeBps = business?.defaultServiceFeeBps ?? undefined;
       const topUpServiceFeeBps = business?.defaultTopUpServiceFeeBps ?? undefined;
-      return tx.venue.create({
+      const created = await tx.venue.create({
         data: {
           name: dto.name,
           slug: dto.slug,
@@ -129,6 +129,8 @@ export class SuperAdminVenuesService {
         },
         include: venueInclude,
       });
+      await assertWalletGroupInBusiness(tx, created);
+      return created;
     });
     await this.audit.write(actor, {
       action: 'venue.created',
@@ -157,7 +159,11 @@ export class SuperAdminVenuesService {
     if (dto.vatBps !== undefined) data.vatBps = dto.vatBps;
     if (dto.vatRegime !== undefined) data.vatRegime = dto.vatRegime;
     if (dto.walletGroup !== undefined) data.walletGroup = dto.walletGroup;
-    const after = await this.prisma.acrossVenues((tx) => tx.venue.update({ where: { id }, data, include: venueInclude }));
+    const after = await this.prisma.acrossVenues(async (tx) => {
+      const row = await tx.venue.update({ where: { id }, data, include: venueInclude });
+      if (dto.walletGroup) await assertWalletGroupInBusiness(tx, row);
+      return row;
+    });
     await this.audit.write(actor, {
       action: 'venue.profile_updated',
       tenantId: id,
@@ -336,6 +342,30 @@ export function toListItem(v: VenueRow): VenueListItem {
     settlementIbanMasked: maskIban(v.settlementIban),
     createdAt: v.createdAt.toISOString(),
   };
+}
+
+/**
+ * El grupo del saldo, solo dentro de un negocio: si lo lleva un local de otro
+ * negocio, 409 con sus nombres. «Sin negocio» cuenta como otro negocio (puede
+ * ser de otro cliente): un local sin negocio no comparte grupo con ninguno.
+ * Va ya hecho el cambio y en su transacción: si lanza, no se guarda nada.
+ */
+export async function assertWalletGroupInBusiness(
+  tx: TransactionalClient,
+  venue: { id: string; walletGroup: string | null; businessId: string | null },
+): Promise<void> {
+  if (!venue.walletGroup) return;
+  const elsewhere = venue.businessId ? { OR: [{ businessId: null }, { businessId: { not: venue.businessId } }] } : {};
+  const others = await tx.venue.findMany({
+    where: { walletGroup: venue.walletGroup, id: { not: venue.id }, ...elsewhere },
+    select: { name: true },
+    orderBy: { name: 'asc' },
+  });
+  if (others.length === 0) return;
+  throw new ConflictException(
+    `El grupo del saldo «${venue.walletGroup}» ya lo usan locales de otro negocio o sin negocio (${others.map((v) => v.name).join(', ')}): ` +
+      'el saldo de los clientes pasaría de uno a otro. Usa otro grupo o mételos antes en el mismo negocio.',
+  );
 }
 
 function profileOf(v: VenueRow): Record<string, unknown> {

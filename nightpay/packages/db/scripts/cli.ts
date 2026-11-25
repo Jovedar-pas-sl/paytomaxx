@@ -794,6 +794,8 @@ async function cmdSetSuperAdmin(args: Args) {
   console.log(
     `[ok] ${email} isSuperAdmin = ${grant} (era ${user.isSuperAdmin}). Necesita re-login para que el JWT lo refleje.`,
   );
+  // Como en la consola: sin el permiso, sus pases para locales ajenos dejan de valer al momento.
+  if (!grant) await cmdRevokeSessions({ email });
 }
 
 function parseKek(raw: string): Buffer {

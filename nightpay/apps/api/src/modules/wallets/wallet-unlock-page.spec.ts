@@ -103,6 +103,9 @@ describe('la ficha en el móvil del cliente: recargarla y ver el saldo con el PI
     expect(es).toContain('Aquí no se ve el saldo');
     expect(es).toContain('Ver mi saldo con mi PIN');
     expect(es).toContain('con esto no se paga');
+    // La vista cerrada tras 5 fallos (24 h) lo dice con su texto, no con «espera un momento».
+    expect(es).toContain('dentro de 24 horas');
+    expect(es).toContain("x.code==='CARD_VIEW_LOCKED'?C.locked:");
     // Sin PIN o sin poder recargar ahora, no sale lo que no vale.
     const none = renderWalletUnlockPage('/w/card/test-card-token', 'es', { kind: 'setup', codeHint: 'K7Q-•••', topUp: null, hasPin: false });
     expect(none).not.toContain('id="ftopF"');
