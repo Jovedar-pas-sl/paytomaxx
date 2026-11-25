@@ -99,7 +99,7 @@ export function StaffAvatar({ userId, hash, name, size = 40, src, style }: Staff
     display: 'inline-grid',
     placeItems: 'center',
     background: shown ? 'var(--np-surface-3)' : initialsTone(seed),
-    color: '#f4f2ec',
+    color: 'var(--np-cream)',
     fontFamily: 'var(--np-font-mono, inherit)',
     fontWeight: 700,
     // Las iniciales, con la escala de letra (nunca menos de 14 px).

@@ -16,8 +16,8 @@ const FACE_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8V6a2
 
 export const LOST_CSS = `
 .btn.redo svg,.btn.red svg{width:1.4rem;height:1.4rem;flex:none;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
-.btn.redo{min-height:3rem;background:var(--surface-2);color:var(--err);border-color:var(--bad);font-weight:500}
-.btn.red{background:var(--fail);border-color:var(--fail);color:var(--paid-ink)}
+.btn.redo{min-height:3rem;background:var(--surface-2);color:var(--err);border-color:var(--bad);box-shadow:inset 0 1px 0 rgba(239,233,223,.08);font-weight:500}
+.btn.red{background:var(--fail);border-color:var(--fail);color:var(--paid-ink);box-shadow:inset 0 1px 0 rgba(255,255,255,.12)}
 .lockc{align-self:center;width:4rem;height:4rem;border-radius:50%;display:grid;place-items:center;background:rgb(255 107 107/.12);color:var(--bad)}
 .lockc svg{width:2rem;height:2rem;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
 #lostSheet{text-align:left}

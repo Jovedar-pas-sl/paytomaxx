@@ -161,15 +161,17 @@ const overlay: CSSProperties = {
   animation: 'np-fade-in var(--np-d-base) var(--np-ease)',
 };
 
-// max-height en .np-modal-panel (90dvh, con 90vh de respaldo).
+// max-height en .np-modal-panel (90dvh, con 90vh de respaldo). Flota: radio de
+// tarjeta y la sombra grande del relieve (antes, una sombra en oklch() que un
+// navegador viejo no pintaba).
 const content: CSSProperties = {
   position: 'relative',
   background: 'var(--np-surface-2)',
   border: '1px solid var(--np-border-hi)',
-  borderRadius: 'var(--np-r-lg)',
+  borderRadius: 'var(--np-r-card)',
   padding: 'var(--np-s-6)',
   overflowY: 'auto',
-  boxShadow: '0 32px 80px oklch(2% 0 0 / 0.6)',
+  boxShadow: 'var(--np-shadow-2)',
   animation: 'np-modal-in var(--np-d-base) var(--np-ease)',
 };
 

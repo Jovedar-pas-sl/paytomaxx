@@ -35,7 +35,7 @@ export const viewport: Viewport = {
   // Hasta los bordes en iPhone: env(safe-area-inset-*) solo funciona con 'cover'.
   viewportFit: 'cover',
   themeColor: [
-    { media: '(prefers-color-scheme: dark)', color: '#0f1112' },
+    { media: '(prefers-color-scheme: dark)', color: '#091518' },
     { media: '(prefers-color-scheme: light)', color: '#efe9df' },
   ],
 };

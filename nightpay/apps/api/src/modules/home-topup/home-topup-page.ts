@@ -62,7 +62,7 @@ const HOME_CSS = `
 .gfields{display:flex;flex-direction:column;gap:.375rem}
 .gfields input,.gfields textarea{width:100%;min-height:2.75rem;padding:.625rem .75rem;border:1px solid var(--line-hi);border-radius:var(--r-tile);background:var(--surface-2);color:var(--fg);font:inherit;font-size:1rem;resize:none}
 .topup .paybar{position:sticky;bottom:0;z-index:5;display:flex;flex-direction:column;gap:.5rem;margin:0 -1rem -1rem;padding:.75rem 1rem calc(.875rem + env(safe-area-inset-bottom));border-radius:0 0 var(--r) var(--r);background:var(--surface);text-align:center}
-.topup .paybar::before{content:'';position:absolute;left:0;right:0;bottom:100%;height:.75rem;background:linear-gradient(to top,var(--surface),rgb(19 22 24/0));pointer-events:none}
+.topup .paybar::before{content:'';position:absolute;left:0;right:0;bottom:100%;height:.75rem;background:linear-gradient(to top,var(--surface),rgb(25 39 43/0));pointer-events:none}
 .topup .paybar .btn{font-size:1.0625rem}
 ${PAY_MARKS_CSS}/* Móviles bajos (360×740): más compacto, para que el desglose con la comisión quede por encima de la barra de pagar. */
 @media (max-height:780px){
@@ -329,7 +329,7 @@ export function renderHomeTopUpPage(code: string, lang: PayLanguage, view: HomeT
     : `${choice}${howSteps(lang, view.fichas !== false, false)}${termsCard(lang)}${view.mine ? mineCard(lang, base, view.mine.codeHint) : ''}${amountCard(lang, view, false)}`;
   return `<!DOCTYPE html>
 <html lang="${PAY_TEXT[lang].htmlLang}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta name="robots" content="noindex"><meta name="referrer" content="no-referrer"><meta name="theme-color" content="#0b0d0e"><title>${h(`${t.title} · ${view.venueName}`)}</title>
+<meta name="robots" content="noindex"><meta name="referrer" content="no-referrer"><meta name="theme-color" content="#091518"><title>${h(`${t.title} · ${view.venueName}`)}</title>
 <style>${CLUB_BASE_CSS}${CHROME_CSS}${HOME_CSS}</style></head><body>
 ${topBar(lang, gift ? langHrefWith(base, { regalo: '1' }) : undefined)}
 <main class="h">
@@ -374,7 +374,7 @@ export function renderHomeTopUpGone(lang: PayLanguage): string {
   const h = escapeHtml;
   return `<!DOCTYPE html>
 <html lang="${PAY_TEXT[lang].htmlLang}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta name="robots" content="noindex"><meta name="referrer" content="no-referrer"><meta name="theme-color" content="#0b0d0e"><title>${h(t.notFoundTitle)}</title>
+<meta name="robots" content="noindex"><meta name="referrer" content="no-referrer"><meta name="theme-color" content="#091518"><title>${h(t.notFoundTitle)}</title>
 <style>${CLUB_BASE_CSS}${CHROME_CSS}${HOME_CSS}</style></head><body>
 ${topBar(lang)}
 <main class="h">

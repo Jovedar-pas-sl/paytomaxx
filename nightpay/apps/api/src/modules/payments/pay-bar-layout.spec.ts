@@ -42,7 +42,7 @@ describe('barra de pagar pegada abajo', () => {
     expect(fade).toContain('position:absolute');
     expect(fade).toContain('bottom:100%');
     expect(fade).toContain('pointer-events:none');
-    expect(fade).toMatch(/background:linear-gradient\(to top,var\(--bg\),rgb\(11 13 14\/0\)\)/);
+    expect(fade).toMatch(/background:linear-gradient\(to top,var\(--bg\),rgb\(9 21 24\/0\)\)/);
     const height = rem(fade, 'height');
     expect(height).toBeLessThanOrEqual(1);
     // El hueco entre el desglose y la barra (gap del formulario) es al menos el degradado.

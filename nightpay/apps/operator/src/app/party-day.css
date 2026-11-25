@@ -11,6 +11,8 @@ html[data-theme='day'] {
   color-scheme: light;
 
   --np-bg: #f3f1ec;
+  /* Las zonas hundidas (barra de pestañas, pies), de día: blancas como las tarjetas. */
+  --np-sunk: #ffffff;
   --np-surface: #ffffff;
   --np-surface-2: #f3f1ec;
   --np-surface-3: #e0dbd1;
@@ -34,8 +36,17 @@ html[data-theme='day'] {
   --np-primary-bg: #14181b;
   --np-primary-bg-hover: #2b3136;
   --np-primary-ink: #c7d301;
-  --np-primary-shadow: none;
-  --np-primary-glow: 0 4px 12px -6px rgb(20 24 27 / 0.35);
+  /* Con el brillo de arriba de todos los temas (la lima sigue a 5:1 en el
+     borde de arriba y a 10,8:1 en el resto) y una sombra suave de tinta. */
+  --np-primary-shadow: 0 4px 12px -6px rgba(20, 24, 27, 0.35);
+
+  /* Relieve de día, como en el tema claro: sombra suave de tinta, sin filo de
+     luz ni degradado; el borde de las tarjetas, el filete de siempre. */
+  --np-hi: 0 0 0 0 transparent;
+  --np-shadow-1: 0 1px 2px rgba(20, 24, 27, 0.08);
+  --np-shadow-2: 0 2px 4px rgba(20, 24, 27, 0.08), 0 12px 24px -12px rgba(20, 24, 27, 0.25);
+  --np-card-edge: var(--np-border);
+  --np-card-fill: none;
 
   /* Lo elegido (pestaña, filtro): tinta con texto blanco. */
   --np-chosen: #14181b;
@@ -85,6 +96,8 @@ html[data-theme='day'][data-contrast='sala'] {
   --np-text-label: #14181b;
   --np-border: #a39a8c;
   --np-border-hi: #6f675c;
+  /* El botón de día (la regla del modo «sala» de @nightpay/ui pesa lo mismo que el tema). */
+  --np-primary-shadow: 0 4px 12px -6px rgba(20, 24, 27, 0.35);
 }
 
 /* El logo: la versión oscura sobre el papel, como en el tema claro. */

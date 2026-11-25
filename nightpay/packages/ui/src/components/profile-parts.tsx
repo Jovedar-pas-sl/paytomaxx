@@ -3,7 +3,7 @@
 import { useId, type CSSProperties, type ReactNode } from 'react';
 
 // Piezas de «Mi perfil»: bloque con título, selector de opciones y mensajes.
-// Grafito: superficies #131618 y #1A1E21, texto crema, lo elegido en crema
+// Grafito: superficies --np-surface y --np-surface-2, texto crema, lo elegido en crema
 // (nunca en lima), mínimo 14 px y 44 px de zona de toque.
 
 export const TOUCH_MIN = '2.75rem';
@@ -85,10 +85,13 @@ export const rowStyle: CSSProperties = { display: 'flex', flexDirection: 'column
 export const actionsStyle: CSSProperties = { display: 'flex', gap: '0.5rem', flexWrap: 'wrap' };
 export const touchButton: CSSProperties = { minHeight: TOUCH_MIN };
 
+// Con el relieve de las tarjetas (las mismas fichas que .np-card).
 const blockStyle: CSSProperties = {
-  background: 'var(--np-surface)',
-  border: '1px solid var(--np-border)',
+  backgroundColor: 'var(--np-surface)',
+  backgroundImage: 'var(--np-card-fill)',
+  border: '1px solid var(--np-card-edge)',
   borderRadius: 'var(--np-r-card)',
+  boxShadow: 'var(--np-shadow-1)',
   padding: '1rem',
   display: 'flex',
   flexDirection: 'column',

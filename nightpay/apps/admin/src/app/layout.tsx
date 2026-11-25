@@ -61,7 +61,7 @@ export const viewport: Viewport = {
   viewportFit: 'cover',
   themeColor: [
     // El fondo de cada tema (--np-bg): grafito y papel.
-    { media: '(prefers-color-scheme: dark)', color: '#0b0d0e' },
+    { media: '(prefers-color-scheme: dark)', color: '#091518' },
     { media: '(prefers-color-scheme: light)', color: '#f7f5f0' },
   ],
 };
