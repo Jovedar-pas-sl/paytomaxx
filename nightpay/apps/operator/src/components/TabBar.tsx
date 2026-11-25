@@ -204,7 +204,7 @@ const tabBarStyle: CSSProperties = {
   left: 0,
   right: 0,
   bottom: 0,
-  background: 'var(--np-surface)',
+  background: 'var(--np-sunk)',
   borderTop: '1px solid var(--np-border)',
   display: 'flex',
   maxWidth: '32rem',

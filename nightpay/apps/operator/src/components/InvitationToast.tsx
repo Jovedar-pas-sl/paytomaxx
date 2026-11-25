@@ -53,12 +53,12 @@ const toast: CSSProperties = {
   gap: '0.5rem',
   minHeight: '3rem',
   padding: '0 1.25rem',
-  // Grafito: un aviso sobre la pantalla, con filete y la sombra del diálogo
-  // (sin anillo lima ni halo: la lima es para actuar); el punto verde, dinero que entra.
+  // Grafito: un aviso sobre la pantalla, con filete y la sombra grande de lo que
+  // flota (sin anillo lima ni halo: la lima es para actuar); el punto verde, dinero que entra.
   borderRadius: 'var(--np-r-md)',
   background: 'var(--np-surface-2)',
   color: 'var(--np-text)',
-  boxShadow: 'inset 0 0 0 1px var(--np-border-hi), 0 16px 40px -12px rgb(0 0 0 / 0.7)',
+  boxShadow: 'inset 0 0 0 1px var(--np-border-hi), var(--np-shadow-2)',
   fontWeight: 500,
   fontSize: 'var(--np-fs-16)',
   whiteSpace: 'nowrap',

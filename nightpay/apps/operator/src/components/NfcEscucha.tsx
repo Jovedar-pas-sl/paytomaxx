@@ -51,7 +51,7 @@ const toast: CSSProperties = {
   borderRadius: 'var(--np-r-md)',
   background: 'var(--np-surface-2)',
   color: 'var(--np-text)',
-  boxShadow: 'inset 0 0 0 1px var(--np-border-hi), 0 16px 40px -12px rgb(0 0 0 / 0.7)',
+  boxShadow: 'inset 0 0 0 1px var(--np-border-hi), var(--np-shadow-2)',
   fontWeight: 500,
   fontSize: 'var(--np-fs-16)',
   whiteSpace: 'nowrap',

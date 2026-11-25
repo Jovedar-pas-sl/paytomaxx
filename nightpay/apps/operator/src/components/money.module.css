@@ -15,9 +15,11 @@
   text-align: left;
   color: var(--np-text);
   background: var(--np-surface);
+  background-image: var(--np-card-fill);
+  box-shadow: var(--np-shadow-1);
   /* Grafito: el filete de lo que se toca (como las filas de abajo), sin marco lima. */
   border: 1px solid var(--np-border-hi);
-  border-radius: var(--np-r-lg);
+  border-radius: var(--np-r-card);
   cursor: pointer;
   transition:
     transform var(--np-press-ms) ease-out,
@@ -82,8 +84,10 @@
   display: flex;
   flex-direction: column;
   background: var(--np-surface);
+  background-image: var(--np-card-fill);
+  box-shadow: var(--np-shadow-1);
   border: 1px solid var(--np-border-hi);
-  border-radius: var(--np-r-lg);
+  border-radius: var(--np-r-card);
   overflow: hidden;
 }
 
