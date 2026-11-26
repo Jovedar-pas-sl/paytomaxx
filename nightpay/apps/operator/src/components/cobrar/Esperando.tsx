@@ -1,8 +1,8 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useState, type MouseEvent, type ReactNode } from 'react';
 import { confirmationCode, type BitcoinPayState, type PaymentStatus } from '@nightpay/contracts';
-import { cardHow, countdownPhase, formatClock, Icon, paidTicket, qrDeadline, receiptFromDetail, saldoHow, ScreenHelp, secondsLeft, useNow, useWakeLock, type TicketLine } from '@nightpay/ui';
+import { cardHow, countdownPhase, formatClock, FormError, Icon, paidTicket, qrDeadline, receiptFromDetail, saldoHow, ScreenHelp, secondsLeft, useNow, useWakeLock, type TicketLine } from '@nightpay/ui';
 import { fetchPaymentStatus, getUser } from '@/lib/api';
 import { clearFichaContext, saveFichaContext } from '@/lib/ficha-context';
 import { formatEur } from '@/lib/money';
@@ -138,7 +138,8 @@ interface Props {
 
 /** Tras una consulta del cobro del saldo fallida (servidor caído, 429). */
 const SALDO_POLL_SLOW_MS = 4000;
-const TOAST_MS = 4000;
+/** Lo que salió bien o se está mirando («Ya está pagado»): se va solo. Un problema, no. */
+const NOTE_MS = 4000;
 
 /** El PIN que se pide: de qué saldo (su ficha, su código o su pase), cómo se dice y por qué lo pide. */
 type PinStep = SaldoForPin & { reason: string | null };
@@ -187,7 +188,11 @@ export function Esperando({ cobro, onNew, onRetry, retrying = false, retryError 
   const [canceling, setCanceling] = useState(false);
   // «¿Cancelar este cobro?»: siempre se confirma antes de cancelar.
   const [confirming, setConfirming] = useState(false);
-  const [toast, setToast] = useState<string | null>(null);
+  // Dos clases de aviso: `note` (salió bien o se está mirando) se va a los 4 s;
+  // `problem` (no se cobró, la ficha vacía, el NFC, no se pudo cancelar) se
+  // queda en su FormError hasta que se lee otra ficha, se toca un botón o se sale.
+  const [note, setNote] = useState<string | null>(null);
+  const [problem, setProblem] = useState<string | null>(null);
   const [pin, setPin] = useState<PinStep | null>(null);
   // «Sin móvil ni ficha»: su código o su pase (lo que antes solo tenía «Saldo»).
   const [sinMovil, setSinMovil] = useState(false);
@@ -255,7 +260,7 @@ export function Esperando({ cobro, onNew, onRetry, retrying = false, retryError 
         if (checking) {
           // Sigue pendiente: aquel pago no llegó a cobrarse. Se vuelve a escuchar el NFC.
           setChecking(false);
-          setToast(NOT_CHARGED_RETRY_TEXT);
+          setProblem(NOT_CHARGED_RETRY_TEXT);
         }
         return undefined;
       } catch {
@@ -291,10 +296,15 @@ export function Esperando({ cobro, onNew, onRetry, retrying = false, retryError 
   }, [cardPaid, cardToken]);
 
   useEffect(() => {
-    if (!toast) return undefined;
-    const t = setTimeout(() => setToast(null), TOAST_MS);
+    if (!note) return undefined;
+    const t = setTimeout(() => setNote(null), NOTE_MS);
     return () => clearTimeout(t);
-  }, [toast]);
+  }, [note]);
+
+  // Tocar un botón (cualquiera de esta pantalla o de lo que se abre encima) quita el problema: ya se está haciendo otra cosa.
+  function clearProblemOnButton(e: MouseEvent<HTMLElement>): void {
+    if (e.target instanceof Element && e.target.closest('button')) setProblem(null);
+  }
 
   // Sin confirmar por el banco se sigue mirando (si lo aprueba, PAGADO): pantalla encendida.
   const watching = waiting || outcome.kind === 'unconfirmed';
@@ -366,7 +376,7 @@ export function Esperando({ cobro, onNew, onRetry, retrying = false, retryError 
   async function failFrom(err: unknown, ref: SaldoRef) {
     const kind = payFailureKind(err);
     if (kind === 'already_paid') {
-      setToast('Ya está pagado');
+      setNote('Ya está pagado');
       refreshSaldo();
       return;
     }
@@ -374,7 +384,7 @@ export function Esperando({ cobro, onNew, onRetry, retrying = false, retryError 
       // Sin respuesta o con el servidor caído: pudo cobrarse. Nada de «No se ha
       // cobrado»: se pregunta por el cobro (el sondeo sigue) y decide su estado.
       setChecking(true);
-      setToast(CHECKING_TEXT);
+      setNote(CHECKING_TEXT);
       refreshSaldo();
       return;
     }
@@ -395,8 +405,10 @@ export function Esperando({ cobro, onNew, onRetry, retrying = false, retryError 
       try {
         const read = await readCard(ctrl.signal);
         if (ctrl.signal.aborted) return;
+        // Otra ficha: el problema de la anterior ya no vale.
+        setProblem(null);
         if (!read.token) {
-          setToast(party ? 'Esta pulsera está vacía: se carga en la taquilla.' : 'Esta ficha está vacía: se carga en recepción.');
+          setProblem(party ? 'Esta pulsera está vacía: se carga en la taquilla.' : 'Esta ficha está vacía: se carga en recepción.');
           setNfcRound((n) => n + 1);
           return;
         }
@@ -404,7 +416,7 @@ export function Esperando({ cobro, onNew, onRetry, retrying = false, retryError 
         await handleCard(read.token, read.uid);
       } catch (err) {
         if ((err as Error).name === 'AbortError' || ctrl.signal.aborted) return;
-        setToast((err as Error).message);
+        setProblem((err as Error).message);
         setTimeout(() => setNfcRound((n) => n + 1), 1500);
       } finally {
         setReading(false);
@@ -429,7 +441,7 @@ export function Esperando({ cobro, onNew, onRetry, retrying = false, retryError 
       // Aún en su banco (los 2 minutos): de vuelta a la espera, que lo dice y enseña el botón a su hora
       // (desde la pantalla de un NFC que no pagó, el aviso no se vería).
       if (code === CANCEL_AT_BANK_TOO_SOON_CODE) setLocalFail(null);
-      setToast(cancelFailedText(card, code));
+      setProblem(cancelFailedText(card, code));
     } finally {
       setCanceling(false);
     }
@@ -659,13 +671,14 @@ export function Esperando({ cobro, onNew, onRetry, retrying = false, retryError 
   }
 
   return (
-    <div className={styles.overlay} data-charge-open="" ref={shownRef}>
+    <div className={styles.overlay} data-charge-open="" ref={shownRef} onClickCapture={clearProblemOnButton}>
       <Waiting
         cobro={cobro}
         nfcOn={nfcOn}
         reading={reading}
         checking={checking}
-        toast={toast}
+        note={note}
+        problem={problem}
         bank={{ status: cobro.card ? cardStatus : null, attemptIso, seenAt: authorizingSeenAt, bitcoin: cobro.card ? payingWithBitcoin(card) : null }}
         fichaHint={fichaHint}
         onSinMovil={sinMovilOn && !checking ? () => setSinMovil(true) : undefined}
@@ -725,7 +738,8 @@ function Waiting({
   nfcOn,
   reading,
   checking,
-  toast,
+  note,
+  problem,
   bank,
   fichaHint = null,
   onSinMovil,
@@ -737,7 +751,10 @@ function Waiting({
   reading: boolean;
   /** Un pago con el NFC o el PIN se quedó sin respuesta: se comprueba si se cobró. */
   checking: boolean;
-  toast: string | null;
+  /** Salió bien o se está mirando: se va solo (4 s). */
+  note: string | null;
+  /** Lo que no salió: se queda (FormError) hasta otra ficha, otro botón o salir. */
+  problem: string | null;
   /**
    * Con tarjeta: su estado y desde cuándo espera al banco (servidor o, si aún no
    * lo dice, aquí). Con bitcoin, el estado de su factura (sin banco ni sus fases).
@@ -858,11 +875,12 @@ function Waiting({
           </p>
         ) : null}
         {fichaHint ? <p className={styles.altHint}>{pulseraText(fichaHint, party)}</p> : null}
-        {toast ? (
+        {note ? (
           <p className={styles.toast} role="status">
-            {toast}
+            {note}
           </p>
         ) : null}
+        {problem ? <FormError>{problem}</FormError> : null}
       </div>
       <div data-np-foot="" className={`${styles.foot} ${styles.footFlat}`}>
         {practice}
@@ -992,9 +1010,7 @@ function Unconfirmed({ cobro, paymentId, onLeave }: { cobro: CobroAbierto; payme
             </p>
           ) : null}
           {error ? (
-            <p className={styles.error} role="alert">
-              {error}
-            </p>
+            <FormError>{error}</FormError>
           ) : null}
         </div>
         <div data-np-foot="" className={`${styles.foot} ${styles.footFlat}`}>

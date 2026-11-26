@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Icon, ScreenHelp, useWakeLock } from '@nightpay/ui';
+import { FormError, Icon, ScreenHelp, useWakeLock } from '@nightpay/ui';
 import type { StaffQrView } from '@nightpay/contracts';
 import { fetchMyStaffQr } from '@/lib/api';
 import { formatEur } from '@/lib/money';
@@ -74,9 +74,9 @@ export function MiQr({
             {qr ? <img src={qr.qrPngDataUrl} alt={forService ? `QR de ${name}` : `QR de ${name} para las invitaciones`} /> : null}
           </div>
           {error && !qr ? (
-            <p role="alert" className={styles.error}>
+            <FormError>
               {error}
-            </p>
+            </FormError>
           ) : error ? (
             <p role="status" className={styles.muted}>
               Sin conexión: este QR vale unos minutos más.
