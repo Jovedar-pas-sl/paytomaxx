@@ -23,7 +23,7 @@ describe('el total de la lista de Cobros', () => {
       row({ id: 'b', kind: 'SALDO', status: 'ACCEPTED', amountCents: 2000 }),
       row({ id: 'c', kind: 'SALDO', status: 'ACCEPTED', amountCents: 2000 }),
     ];
-    expect(cobrosTotals(rows)).toEqual({ count: 3, cardCents: 4000, saldoCents: 4000 });
+    expect(cobrosTotals(rows)).toEqual({ count: 3, cardCents: 4000, bitcoinCents: 0, saldoCents: 4000 });
     expect(plain(totalsText(rows, false, formatEur))).toBe('3 cobros · 40,00 € con tarjeta o móvil · 40,00 € con saldo');
   });
 
@@ -36,8 +36,22 @@ describe('el total de la lista de Cobros', () => {
       row({ id: 'e', status: 'PARTIALLY_REFUNDED', amountCents: 3000, tipCents: 200 }),
       row({ id: 'f', kind: 'SALDO', status: 'REVERSED', amountCents: 900 }),
     ];
-    expect(cobrosTotals(rows)).toEqual({ count: 6, cardCents: 3200, saldoCents: 0 });
+    expect(cobrosTotals(rows)).toEqual({ count: 6, cardCents: 3200, bitcoinCents: 0, saldoCents: 0 });
     expect(plain(totalsText(rows, false, formatEur))).toBe('6 cobros · 32,00 € con tarjeta o móvil');
+  });
+
+  it('con el filtro Bitcoin, lo pagado con bitcoin nunca se llama «con tarjeta o móvil»', () => {
+    const rows = [
+      row({ id: 'a', method: 'BITCOIN', amountCents: 2500 }),
+      row({ id: 'b', method: 'BITCOIN', status: 'PARTIALLY_REFUNDED', amountCents: 1000, tipCents: 100 }),
+    ];
+    expect(cobrosTotals(rows)).toEqual({ count: 2, cardCents: 0, bitcoinCents: 3600, saldoCents: 0 });
+    const text = plain(totalsText(rows, false, formatEur));
+    expect(text).toBe('2 cobros · 36,00 € con bitcoin');
+    expect(text).not.toContain('tarjeta');
+    // Mezclado con tarjeta y saldo: cada uno en su cifra, la misma suma.
+    const mixed = [...rows, row({ id: 'c', method: 'CARD', amountCents: 1000 }), row({ id: 'd', kind: 'SALDO', status: 'ACCEPTED', amountCents: 500 })];
+    expect(plain(totalsText(mixed, false, formatEur))).toBe('4 cobros · 10,00 € con tarjeta o móvil · 36,00 € con bitcoin · 5,00 € con saldo');
   });
 
   it('cada parte solo si no es 0; uno solo, en singular; con más páginas, «Los 50 últimos»', () => {
