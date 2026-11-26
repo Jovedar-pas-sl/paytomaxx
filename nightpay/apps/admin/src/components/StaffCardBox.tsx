@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, type CSSProperties } from 'react';
-import { Button } from '@nightpay/ui';
+import { Button, useConfirm } from '@nightpay/ui';
 import { staffCardNumberText, type StaffCardView } from '@nightpay/contracts';
 import { issueStaffCard, reserveStaffCardCode, revokeStaffCard } from '@/lib/api';
 import { NO_WEB_NFC, webNfcWriter, writeStaffCard } from '@/lib/staff-card-nfc';
@@ -28,6 +28,7 @@ export function StaffCardBox({
   const [card, setCard] = useState<StaffCardView | null>(initial);
   const [writing, setWriting] = useState<AbortController | null>(null);
   const [busy, setBusy] = useState(false);
+  const [confirm, dialog] = useConfirm();
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
   const [canWrite, setCanWrite] = useState(false);
@@ -71,7 +72,7 @@ export function StaffCardBox({
 
   async function revoke(): Promise<void> {
     if (!card || busy) return;
-    if (!window.confirm(`¿Anular la ficha nº ${staffCardNumberText(card.number)} de ${name}? Deja de valer al momento.`)) return;
+    if (!(await confirm({ title: `¿Anular la ficha nº ${staffCardNumberText(card.number)} de ${name}?`, body: 'Deja de valer al momento.', confirmLabel: 'Anular ficha' }))) return;
     setBusy(true);
     setError(null);
     setNote(null);
@@ -112,6 +113,7 @@ export function StaffCardBox({
       {!canWrite ? <span style={mute}>{NO_WEB_NFC}</span> : null}
       {note ? <Notice tone="success">{note}</Notice> : null}
       {error ? <Notice tone="danger">{error}</Notice> : null}
+      {dialog}
     </section>
   );
 }

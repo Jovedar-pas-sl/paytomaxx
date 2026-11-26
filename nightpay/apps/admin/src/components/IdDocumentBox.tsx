@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useId, useState, type CSSProperties, type KeyboardEvent } from 'react';
-import { Button, Input, Select } from '@nightpay/ui';
+import { Button, FormError, Input, Select, useConfirm } from '@nightpay/ui';
 import {
   ID_DOCUMENT_TYPES,
   ID_DOCUMENT_TYPE_LABEL,
@@ -52,6 +52,7 @@ export function IdDocumentBox({
   const [shown, setShown] = useState<{ doc: IdDocumentFull; until: number } | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const without2fa = useTwoFactorEnabled(asking) === false;
+  const [confirm, dialog] = useConfirm();
 
   // A la vista, un minuto: luego se tapa solo.
   useEffect(() => {
@@ -185,7 +186,9 @@ export function IdDocumentBox({
               size="sm"
               disabled={busy}
               onClick={() => {
-                if (window.confirm('¿Quitar su documento? Se borra cifrado y todo.')) void save(null);
+                void (async () => {
+                  if (await confirm({ title: '¿Quitar su documento?', body: 'Se borra cifrado y todo.', confirmLabel: 'Quitar documento' })) void save(null);
+                })();
               }}
             >
               Quitar documento
@@ -226,10 +229,9 @@ export function IdDocumentBox({
       ) : null}
       {!isOwner && current.masked ? <p style={dim}>Solo el dueño puede verlo entero.</p> : null}
       {error ? (
-        <p role="alert" style={{ color: 'var(--np-danger)', margin: '0.5rem 0 0', fontSize: '0.875rem' }}>
-          {error}
-        </p>
+        <FormError>{error}</FormError>
       ) : null}
+      {dialog}
     </div>
   );
 }
