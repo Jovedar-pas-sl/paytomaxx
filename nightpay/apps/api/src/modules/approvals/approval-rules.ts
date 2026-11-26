@@ -1,5 +1,6 @@
 import { ConflictException, HttpException } from '@nestjs/common';
 import { isApprovalExpired, type ApprovalKind, type ApprovalRules, type ApprovalStatus, type Role } from '@nightpay/contracts';
+import { eur, eurPlain } from '../../common/money/eur';
 
 /**
  * «Por aprobar»: quién pide, quién aprueba y qué se le dice a cada uno.
@@ -59,7 +60,7 @@ export const REFUND_NEEDS_APPROVAL_CODE = 'REFUND_NEEDS_APPROVAL';
 
 export function refundNeedsApproval(totalCents: number, thresholdCents: number): ConflictException {
   return new ConflictException({
-    message: `En este cobro ya se devolverían ${eurShort(totalCents)} entre todos: desde ${eurShort(thresholdCents)} lo aprueba el dueño.`,
+    message: `En este cobro ya se devolverían ${eur(totalCents, { compact: true })} entre todos: desde ${eur(thresholdCents, { compact: true })} lo aprueba el dueño.`,
     code: REFUND_NEEDS_APPROVAL_CODE,
   });
 }
@@ -154,10 +155,9 @@ function clip(text: string): string {
   return text.length > 500 ? `${text.slice(0, 497)}…` : text;
 }
 
-/** "140 €" o "140,50 €" (Telegram y textos cortos). */
+/** "140 €" o "140,50 €" para Telegram: en texto plano, con un espacio normal antes de «€». */
 export function eurShort(cents: number): string {
-  const whole = cents % 100 === 0;
-  return `${whole ? String(cents / 100) : (cents / 100).toFixed(2).replace('.', ',')} €`;
+  return eurPlain(cents, { compact: true });
 }
 
 /** Nombre para enseñar: el visible o, si no tiene, el principio del email. */

@@ -335,7 +335,7 @@ describe('OperatorsService.createPayout — la cifra que se vio y la Idempotency
     const { err, body } = await errorOf(changed.svc.createPayout(TENANT, OPERATOR, OWNER, undefined, { expectedTotalCents: 10_000 }));
     expect(err).toBeInstanceOf(ConflictException);
     expect(body).toMatchObject({ code: 'PAYOUT_CHANGED' });
-    expect(String(body.message)).toContain('ahora son 125,00 €, no 100,00 €');
+    expect(String(body.message)).toContain('ahora son 125,00\u00a0€, no 100,00\u00a0€');
     expect(changed.tx.operatorPayout.create).not.toHaveBeenCalled();
     expect(changed.audit.log).not.toHaveBeenCalled();
   });

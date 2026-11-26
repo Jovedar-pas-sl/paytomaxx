@@ -398,7 +398,7 @@ describe('pagos a las chicas «Por aprobar»: la cifra que vio el encargado y la
   it('si lo pagable ya no es lo que vio: 409 PAYOUT_CHANGED y no se pide nada', async () => {
     const chica = await newChica('Cloe', [10_000]);
     const res = await failure(ask(managerOf(manager), chica, { externalRail: 'USDT_TRC20', expectedTotalCents: 8_000 }));
-    expect(res).toMatchObject({ status: 409, body: { code: 'PAYOUT_CHANGED', message: expect.stringMatching(/ahora son 90,00 €, no 80,00 €/) } });
+    expect(res).toMatchObject({ status: 409, body: { code: 'PAYOUT_CHANGED', message: expect.stringMatching(/ahora son 90,00\u00a0€, no 80,00\u00a0€/) } });
     expect(await requestsOf(chica)).toEqual([]);
   });
 

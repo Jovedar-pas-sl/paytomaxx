@@ -98,6 +98,7 @@ import type {
   UpdateOperatorDto,
 } from '@nightpay/contracts';
 import { formatChargeRef, holderMatchesName, maskHolderName, maskPayoutAddress, payoutMetadataFor } from '@nightpay/contracts';
+import { eur } from '../../common/money/eur';
 
 const INVITE_TTL_HOURS = 24;
 const SELF_ONBOARDING_TTL_HOURS = 72;
@@ -157,10 +158,6 @@ export interface PayoutOptions {
   afterCreate?: (tx: TransactionalClient, payoutId: string) => Promise<void>;
   /** Para el registro. */
   approvalRequestId?: string;
-}
-
-function eur(cents: number): string {
-  return `${(cents / 100).toFixed(2).replace('.', ',')} €`;
 }
 
 /** Ya tiene a dónde se le paga. */
