@@ -44,12 +44,15 @@ import { ChargeAlertService } from './charge-alert/charge-alert.service';
 import { ChargeDisputeService } from './charge-alert/charge-dispute.service';
 import { PublicChargeAlertController } from './charge-alert/charge-alert.controller';
 import { PartyRefundsService } from '../party/party-refunds.service';
+import { WalletLiveCodeModule } from './wallet-live-code.module';
+import { PublicWalletLiveCodeController } from './public-wallet-live-code.controller';
 
 @Module({
   // AuthModule: TotpService (2FA del encargado al anular y al devolver en efectivo).
   // WalletEventsModule: los avisos del saldo al momento (GET /w/:token/events).
   // CobroDetailModule: el detalle de un pago en la página del saldo (GET /w/:token/movements/:kind/:id).
-  imports: [PrismaModule, AuditModule, AuthModule, WalletEventsModule, CobroDetailModule],
+  // WalletLiveCodeModule: el código del móvil (POST /w/:token/live-code) y sus anulaciones.
+  imports: [PrismaModule, AuditModule, AuthModule, WalletEventsModule, CobroDetailModule, WalletLiveCodeModule],
   // WalletTopUpService: «Recargar» desde /w (usa PaymentsService con ModuleRef).
   providers: [
     WalletContactService,
@@ -94,6 +97,8 @@ import { PartyRefundsService } from '../party/party-refunds.service';
     PublicWalletController,
     // El QR de activación en el móvil del cliente (/w/a/:token).
     PublicWalletActivationController,
+    // «Pagar o recargar en otro sistema»: el código del móvil para la API de socios (apagado sin PARTNER_API_ENABLED).
+    PublicWalletLiveCodeController,
     // «Saldo al momento»: la página del saldo se entera de los cambios (SSE).
     PublicWalletEventsController,
     PublicWalletLostCardController,
