@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState, type ReactNode } from 'react';
+import { useMemo, useRef, useState, type ReactNode } from 'react';
 import { fetchOperators, type Operator } from '@/lib/api';
 import { Notice } from '../Notice';
 import { OperatorDetailModal } from '../OperatorDetailModal';
@@ -15,14 +15,17 @@ export function FichasProvider({ isOwner, children }: { isOwner: boolean; childr
   const [walletId, setWalletId] = useState<string | null>(null);
   const [operator, setOperator] = useState<Operator | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Quien abrió la ficha de la persona y quiere saber si algo cambió (p. ej. la lista de a quién pagar).
+  const changed = useRef<(() => void) | undefined>(undefined);
 
   const api = useMemo<FichasApi>(
     () => ({
       openWallet: (id) => {
+        changed.current = undefined;
         setOperator(null);
         setWalletId(id);
       },
-      openOperator: (id) => {
+      openOperator: (id, onChanged) => {
         setError(null);
         // Las chicas y los camareros (los dos tienen ficha: su parte se les paga igual).
         Promise.all([fetchOperators(), fetchOperators('WAITER').catch(() => [] as Operator[])])
@@ -33,6 +36,7 @@ export function FichasProvider({ isOwner, children }: { isOwner: boolean; childr
               return;
             }
             setWalletId(null);
+            changed.current = onChanged;
             setOperator(found);
           })
           .catch((err: Error) => setError(err.message));
@@ -55,7 +59,7 @@ export function FichasProvider({ isOwner, children }: { isOwner: boolean; childr
           operator={operator}
           isOwner={isOwner}
           onClose={() => setOperator(null)}
-          onChanged={() => undefined}
+          onChanged={() => changed.current?.()}
         />
       ) : null}
     </FichasContext.Provider>
