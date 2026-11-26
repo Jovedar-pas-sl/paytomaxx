@@ -3,7 +3,7 @@ import { CHROME_CSS, langScript, topBar } from '../payments/customer-chrome';
 import { legalFooter } from '../legal/legal-links';
 import { CUSTOMER_TEXT } from '../payments/i18n';
 import { PAID_SCREEN_CSS, PAID_SCREEN_JS, paidScreenJsText, renderPaidScreen } from '../payments/paid-screen';
-import { LOCK_ICON, TIP_JS } from '../payments/pay-choose-page';
+import { LAST_MINUTE_S, LOCK_ICON, SOON_CSS, TIP_JS, clockText, secondsLeft } from '../payments/pay-choose-page';
 import { MANROPE_PRELOAD } from '../payments/brand-font';
 import { PAY_TEXT, type PayLanguage } from '../payments/pay-i18n';
 import { PASSKEY_BROWSER_JS } from './passkey-browser';
@@ -35,7 +35,7 @@ const QR_CSS = `
 .secure{display:flex;align-items:center;gap:.4rem;font-size:.875rem;color:var(--dim)}
 .secure svg{width:1rem;height:1rem;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
 .mine{width:100%;max-width:22rem;display:grid;gap:.5rem;margin-top:.5rem}
-`;
+${SOON_CSS}`;
 
 /**
  * Qué se enseña si el pago con el saldo falla (`e` es el error de pkPost):
@@ -87,6 +87,8 @@ export function renderQrChargePage(
     text: {
       ...t,
       paid: paidScreenJsText(p),
+      // El aviso del último minuto (idea 65); el JS pone la hora.
+      soon: p.lastMinute('{time}'),
       paidTitle: p.paidTitle,
       codeLabel: p.codeLabel,
       codeHint: p.codeHint,
@@ -102,6 +104,9 @@ export function renderQrChargePage(
   const who = [view.serviceName, by, view.venueName].filter(Boolean).join(' · ');
   // Caducado, cancelado o rechazado: no se cobró nada.
   const closed = view.status !== 'PENDING' && !isPaid;
+  // La cuenta atrás ya pintada (el JS la mueve): en el último minuto, el aviso en ámbar.
+  const left = secondsLeft(new Date(view.expiresAt), now);
+  const clock = left <= LAST_MINUTE_S ? p.lastMinute(clockText(left)) : `${t.expiresIn} ${clockText(left)}`;
   // «Ver mi saldo»: tras pagar aquí, el enlace que trae la respuesta del pago;
   // al abrir uno ya pagado o cerrado, con Face ID (la página no sabe de quién es).
   const mine = `<div class="mine"><a class="btn alt" id="mineLink" hidden>${h(MY_BALANCE_TEXT[lang].button)}</a>${myBalanceButton(lang)}</div>`;
@@ -148,7 +153,8 @@ ${tipView ? saldoTipFieldset(lang, tipView, initialTip) : ''}
 <p class="err" id="error" role="alert" hidden></p>
 <p class="safe" id="notCharged" hidden>${h(p.notCharged)}</p>
 <button class="btn alt" type="button" id="reload" hidden>${h(t.reload)}</button>
-<p class="small num" id="clock" aria-hidden="true"></p>
+<p class="small num${left <= LAST_MINUTE_S ? ' soon' : ''}" id="clock">${h(clock)}</p>
+<p class="sr" id="live" aria-live="polite"></p>
 <p class="secure">${LOCK_ICON}${h(p.secure)}</p>`
 }
 </main>
@@ -167,10 +173,11 @@ function show(id,text){$(id).textContent=text;$(id).hidden=!text;}
 if(!el.hidden){npPaid(el,T.paid);return;}
 if(V.status!=='PENDING')return;
 // Un móvil con la hora mal no da el cobro por caducado antes de tiempo (ni después).
-var skew=(+C.now||Date.now())-Date.now(),over=false,exp=new Date(V.expiresAt).getTime(),iv;
-function stop(text){over=true;clearInterval(iv);$('pay').hidden=true;$('clock').textContent='';if(text)show('error',text);}
-function tick(){var s=Math.max(0,Math.floor((exp-Date.now()-skew)/1000));
- $('clock').textContent=over?'':T.expiresIn+' '+Math.floor(s/60)+':'+('0'+s%60).slice(-2);
+var skew=(+C.now||Date.now())-Date.now(),over=false,exp=new Date(V.expiresAt).getTime(),iv,soon=null;
+function stop(text){over=true;clearInterval(iv);$('pay').hidden=true;$('clock').textContent='';$('clock').hidden=true;if(text)show('error',text);}
+// En el último minuto, el aviso en ámbar; el lector de pantalla lo oye una vez, al llegar (no si la página se abrió ya así).
+function tick(){var s=Math.max(0,Math.floor((exp-Date.now()-skew)/1000)),m=Math.floor(s/60)+':'+('0'+s%60).slice(-2),c=$('clock'),late=s<=60;
+ if(!over){c.textContent=late?T.soon.split('{time}').join(m):T.expiresIn+' '+m;if(late){c.classList.add('soon');if(soon===false)$('live').textContent=c.textContent;}soon=late;}
  if(s<=0&&!over)stop(T.expired+'. '+T.askStaff);}
 // B1: la propina que elige el cliente (sin nada marcado: «Sin propina»).
 function tipNow(){if(!TP)return null;var r=document.querySelector('input[name=tip]:checked');if(!r)return {tip:0,error:null};

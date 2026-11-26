@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { PAY_FAIL_JS, renderQrChargePage } from './qr-charge-page';
+import { SOON_CSS } from '../payments/pay-choose-page';
 import { renderPaidPage } from '../payments/public-pay.pages';
 
 const scripts = (html: string): string[] =>
@@ -215,6 +216,22 @@ describe('pagar con el saldo escaneando el QR del personal', () => {
     expect(js).toContain(PAY_FAIL_JS);
     expect(js).toContain("fetch(C.base+'/state',{cache:'no-store'");
     expect(js).toContain("if(k==='reload'){$('reload').hidden=false;$('pay').hidden=true;}else $('notCharged').hidden=false;");
+  });
+
+  it('la caducidad: «Caduca en 5:00» y, con 60 s o menos, el aviso en ámbar en #clock (idea 65); abierta así, ya lo trae', () => {
+    const html = renderQrChargePage('tok-1', 'es', view, NOW);
+    expect(html).toContain('<p class="small num" id="clock">Caduca en 5:00</p>');
+    const late = { ...view, expiresAt: new Date(NOW.getTime() + 42_000).toISOString() };
+    const soon = renderQrChargePage('tok-1', 'es', late, NOW);
+    expect(soon).toContain('<p class="small num soon" id="clock">Queda menos de 1 minuto: 0:42. Si caduca, pide otro QR.</p>');
+    expect(renderQrChargePage('tok-1', 'en', late, NOW)).toContain('Less than 1 minute left: 0:42. If it expires, ask for another QR.');
+    // El mismo aviso que en /pay: ámbar, 14/600 y el reloj de trazo.
+    expect(soon).toContain(SOON_CSS);
+    expect(SOON_CSS).toContain('.soon{color:var(--warn);');
+    // El lector de pantalla lo oye una vez, al llegar (lo que hace el JS: qr-charge-page.client.spec.ts).
+    expect(html).toContain('<p class="sr" id="live" aria-live="polite"></p>');
+    // Ya pagado o cerrado, sin cuenta atrás.
+    expect(renderQrChargePage('tok-1', 'es', { ...view, status: 'EXPIRED' }, NOW)).not.toContain('id="clock"');
   });
 
   it('la cuenta atrás lleva la hora del servidor (la del móvil puede ir mal)', () => {

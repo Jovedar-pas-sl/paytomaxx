@@ -177,6 +177,8 @@ export interface PayText {
   /** A nombre de una compañera (cobro por el encargado): «Servicio con Nerea». */
   serviceWith: (name: string) => string;
   expiresIn: string;
+  /** El último minuto del cobro, en ámbar: «Queda menos de 1 minuto: 0:42. Si caduca, pide otro QR.» */
+  lastMinute: (time: string) => string;
   /** Debajo de los botones de pagar: dónde se escribe la tarjeta (con la marca: BRAND_NAME). */
   bankSafe: (brand: string) => string;
   // Hacia el banco

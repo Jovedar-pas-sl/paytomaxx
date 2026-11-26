@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { CHOOSE_CSS, renderChooseBody } from './pay-choose-page';
+import { CLUB_TOKENS } from './club-ui';
+import { CHOOSE_CSS, SOON_CSS, renderChooseBody } from './pay-choose-page';
 import { choosePayPage, type PayablePayment, type PayRedirect } from './pay-redirect';
 import { TIP_BUTTONS_CSS, TIP_BUTTONS_LOW_CSS } from './tip-buttons';
 import { SALDO_TIP_CSS } from '../wallets/saldo-tip';
@@ -25,7 +26,7 @@ function rule(selector: string, inMedia = false): string {
 }
 
 /** La página de pago de un cobro de 33 € con propinas (salvo lo que diga `extra`), con espacios normales en las cifras. */
-function body(extra: Partial<PayablePayment>, lang: 'es' | 'en' = 'es'): string {
+function body(extra: Partial<PayablePayment>, lang: 'es' | 'en' | 'fr' | 'pt' = 'es', now: Date = new Date()): string {
   const view = choosePayPage({
     id: '11111111-2222-4333-8444-555555555555',
     status: 'CREATED',
@@ -42,7 +43,7 @@ function body(extra: Partial<PayablePayment>, lang: 'es' | 'en' = 'es'): string 
     walletHasPin: false,
     ...extra,
   }) as Extract<PayRedirect, { kind: 'choose' }>;
-  const ctx = { token: 't', lang, device: { wallet: 'Apple Pay' as const, inApp: null }, statementName: null, now: new Date() };
+  const ctx = { token: 't', lang, device: { wallet: 'Apple Pay' as const, inApp: null }, statementName: null, now };
   return renderChooseBody(view, ctx).replace(/[\u00a0\u202f]/g, ' ');
 }
 
@@ -140,5 +141,45 @@ describe('barra de pagar pegada abajo', () => {
     expect(html).toContain("inp.addEventListener('keydown',function(e){if(e.key==='Enter'){e.preventDefault();inp.blur();}});");
     expect(html).toContain("inp.addEventListener('change',reveal);");
     expect(html).toContain("var gap=b.getBoundingClientRect().bottom-(bar.getBoundingClientRect().top-16);");
+  });
+});
+
+describe('caducidad: en el último minuto, el aviso en ámbar (idea 65)', () => {
+  const NOW = new Date('2026-11-26T22:00:00Z');
+  const at = (seconds: number, lang: 'es' | 'en' | 'fr' | 'pt' = 'es'): string =>
+    body({ qrExpiresAt: new Date(NOW.getTime() + seconds * 1000) }, lang, NOW);
+
+  it('con más de un minuto: «Caduca en 4:58», como siempre; el aviso va en la página, oculto', () => {
+    const html = at(298);
+    expect(html).toContain('<span id="exp">Caduca en <b class="num" id="left">4:58</b></span>');
+    expect(html).toContain('<span class="soon" id="soon" hidden>');
+    expect(at(61)).toContain('<span class="soon" id="soon" hidden>');
+  });
+
+  it('abierta con 60 s o menos, el servidor ya la pinta con el aviso (también sin JS)', () => {
+    const html = at(42);
+    expect(html).toContain('<span id="exp" hidden>');
+    expect(html).toContain('<span class="soon" id="soon">Queda menos de 1 minuto: 0:42. Si caduca, pide otro QR.</span>');
+    expect(at(60)).toContain('<span class="soon" id="soon">Queda menos de 1 minuto: 1:00. Si caduca, pide otro QR.</span>');
+    expect(at(42, 'en')).toContain('Less than 1 minute left: 0:42. If it expires, ask for another QR.');
+    // (body() cambia los espacios irrompibles del francés por espacios normales.)
+    expect(at(42, 'fr')).toContain('Il reste moins d’1 minute : 0:42. S’il expire, demandez un autre QR.');
+    expect(at(42, 'pt')).toContain('Falta menos de 1 minuto: 0:42. Se expirar, peça outro QR.');
+  });
+
+  it('ámbar (--warn), 14 px y 600, con un reloj de trazo delante', () => {
+    expect(SOON_CSS).toMatch(/\.soon\{color:var\(--warn\);[^}]*font-size:\.875rem;font-weight:600/);
+    expect(SOON_CSS).toMatch(/\.soon::before\{[^}]*url\("data:image\/svg\+xml,[^"]*stroke='%23f5b342'[^"]*%3Ccircle cx='12' cy='12' r='9'\/%3E%3Cpath d='M12 7v5l3 2'\/%3E/);
+    // El reloj va con el mismo ámbar que la ficha --warn.
+    expect(CLUB_TOKENS).toContain('--warn:#f5b342');
+    expect(CHOOSE_CSS).toContain(SOON_CSS);
+  });
+
+  it('con JS, cambia al llegar a los 60 s y el lector de pantalla lo oye una sola vez (#live)', () => {
+    const html = at(298);
+    expect(html).toContain('Queda menos de 1 minuto: {time}. Si caduca, pide otro QR.');
+    expect(html).toContain(
+      "if(s<=60){soon.textContent=T.soon.split('{time}').join(m);if(soon.hidden){soon.hidden=false;$('exp').hidden=true;if(live)live.textContent=soon.textContent;}}",
+    );
   });
 });

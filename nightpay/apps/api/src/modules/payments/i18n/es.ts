@@ -65,6 +65,7 @@ const pay: PayText = {
   chargedBy: (name) => `Te cobra ${name}`,
   serviceWith: (name) => `Servicio con ${name}`,
   expiresIn: 'Caduca en',
+  lastMinute: (time) => `Queda menos de 1 minuto: ${time}. Si caduca, pide otro QR.`,
   bankSafe: (brand) => `La tarjeta la escribes en la página segura del banco, no en ${brand}.`,
   bankJumpTitle: 'Te llevamos a la página segura del banco',
   bankJumpStatement: (name) => `El cargo saldrá como «${name}».`,

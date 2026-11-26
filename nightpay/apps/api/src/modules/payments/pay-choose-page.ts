@@ -56,6 +56,18 @@ export const BREAKDOWN_CSS = `
 .brk .tot dd{font-size:1.125rem;color:var(--fg)}
 `;
 
+/**
+ * El último minuto de un cobro (idea 65), en /pay y en /s: con 60 s o menos, la
+ * cuenta atrás pasa a un aviso en ámbar (14/600, con un reloj de trazo). Lo
+ * pinta el servidor si la página se abre así y el JS al llegar; el lector de
+ * pantalla lo oye una vez.
+ */
+export const LAST_MINUTE_S = 60;
+
+export const SOON_CSS = `.soon{color:var(--warn);font-family:var(--sans);font-size:.875rem;font-weight:600;line-height:1.35;font-variant-numeric:tabular-nums}
+.soon::before{content:'';display:inline-block;width:1.1em;height:1.1em;margin-right:.35rem;vertical-align:-.18em;background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23f5b342' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='9'/%3E%3Cpath d='M12 7v5l3 2'/%3E%3C/svg%3E") center/contain no-repeat}
+`;
+
 export const CHOOSE_CSS = `
 .pay{width:100%;max-width:26rem;margin:0 auto;padding:.25rem 1rem 1.25rem;display:flex;flex-direction:column;gap:1.1rem}
 .head{display:flex;flex-direction:column;align-items:center;gap:.3rem;text-align:center;padding-top:.25rem}
@@ -90,7 +102,7 @@ form{width:100%;display:flex;flex-direction:column;gap:1.1rem}${TIP_BUTTONS_CSS}
 }
 .or{display:flex;align-items:center;gap:.75rem;font-size:.875rem;line-height:1;color:var(--dim)}
 .or::before,.or::after{content:'';flex:1;height:1px;background:var(--line)}
-${PAY_MARKS_CSS}/* Móviles bajos (360×740 y similares): todo más compacto para que el desglose no quede detrás de los botones; los toques siguen ≥ 48 px. Sin la «o» de adorno y, con tarjeta y saldo, los dos secundarios lado a lado: la barra deja sitio al TOTAL. */
+${PAY_MARKS_CSS}${SOON_CSS}/* Móviles bajos (360×740 y similares): todo más compacto para que el desglose no quede detrás de los botones; los toques siguen ≥ 48 px. Sin la «o» de adorno y, con tarjeta y saldo, los dos secundarios lado a lado: la barra deja sitio al TOTAL. */
 @media (max-height:780px){
 .top{min-height:3.25rem;padding-top:calc(.25rem + env(safe-area-inset-top));padding-bottom:.25rem}
 .pay{gap:.8rem}
@@ -142,10 +154,14 @@ function percent(bps: number, locale: string): string {
   return new Intl.NumberFormat(locale, { style: 'percent', maximumFractionDigits: 2 }).format(bps / 10_000);
 }
 
-/** «4:58»: lo que le queda al QR (sin JS se queda en lo que había al abrir; con JS, cuenta atrás). */
-function remaining(expiresAt: Date, now: Date): string {
-  const s = Math.max(0, Math.floor((expiresAt.getTime() - now.getTime()) / 1000));
-  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+/** Los segundos que le quedan al cobro (nunca menos de 0). */
+export function secondsLeft(expiresAt: Date, now: Date): number {
+  return Math.max(0, Math.floor((expiresAt.getTime() - now.getTime()) / 1000));
+}
+
+/** «4:58» (sin JS se queda en lo que había al abrir; con JS, cuenta atrás). */
+export function clockText(seconds: number): string {
+  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
 }
 
 /** Lo que paga sin propina: el importe y la «Comisión del servicio» (si la hay). */
@@ -302,8 +318,11 @@ var sb=$('saldoBtn');if(sb)sb.addEventListener('click',function(e){if(sent){e.pr
  if(!s.error&&chosen()){try{var u=new URL(sb.getAttribute('href'),location.href);u.searchParams.set('tip',String(s.tip));sb.setAttribute('href',u.pathname+u.search);}catch(x){}}});
 window.addEventListener('pageshow',function(e){if(e.persisted){sent=false;busy(btn,false);var s2=$('saldoBtn');if(s2)s2.removeAttribute('aria-disabled');restore();upd(false);}});
 restore();upd(false);applePay();
-var left=$('left'),d=f.dataset,skew=+d.now-Date.now(),exp=+d.expires,iv;
-function tick(){var s=Math.max(0,Math.floor((exp-Date.now()-skew)/1000));left.textContent=Math.floor(s/60)+':'+('0'+s%60).slice(-2);if(s<=0){clearInterval(iv);setTimeout(function(){location.reload();},1500);}}
+// La cuenta atrás; en el último minuto, el aviso en ámbar (y #live lo dice una vez, al cambiar).
+var left=$('left'),soon=$('soon'),d=f.dataset,skew=+d.now-Date.now(),exp=+d.expires,iv;
+function tick(){var s=Math.max(0,Math.floor((exp-Date.now()-skew)/1000)),m=Math.floor(s/60)+':'+('0'+s%60).slice(-2);left.textContent=m;
+ if(s<=60){soon.textContent=T.soon.split('{time}').join(m);if(soon.hidden){soon.hidden=false;$('exp').hidden=true;if(live)live.textContent=soon.textContent;}}
+ if(s<=0){clearInterval(iv);setTimeout(function(){location.reload();},1500);}}
 if(left){iv=setInterval(tick,1000);tick();}
 `;
 
@@ -356,12 +375,16 @@ export function renderChooseBody(view: ChooseView, ctx: ChooseContext): string {
       total: t.total,
       opening: t.openingTitle,
       openingApp: wallet ? t.openingWallet(wallet) : t.openingTitle,
+      // El aviso del último minuto; el JS pone la hora.
+      soon: t.lastMinute('{time}'),
       // Los errores de «Otra» (solo si hay propinas).
       empty: withTips ? t.tipOtherEmpty : '',
       tooHigh: withTips ? t.tipOtherTooHigh(clientMoney(Math.floor((view.tipMaxCents ?? 0) / 100) * 100, t.locale, view.currency)) : '',
     },
   });
   const start = dueCents(view) + presetTip(view);
+  const left = secondsLeft(view.qrExpiresAt, ctx.now);
+  const soon = left <= LAST_MINUTE_S;
   return `<main class="pay">
 <header class="head">
 ${view.venueName ? `<p class="venue">${escapeHtml(view.venueName)}</p>` : ''}
@@ -369,7 +392,7 @@ ${whoLine(view, t)}
 <p class="kick" aria-hidden="true">${escapeHtml(t.totalToPay)}</p>
 <h1 class="amount num"><span class="sr">${escapeHtml(t.totalToPay)}: </span><span id="big">${escapeHtml(money(start, view, t, true))}</span></h1>
 ${view.concept ? `<p class="concept">${escapeHtml(view.concept)}</p>` : ''}
-<p class="meta">${ctx.statementName ? `<span>${escapeHtml(t.statement(ctx.statementName))}</span>` : ''}<span>${escapeHtml(t.expiresIn)} <b class="num" id="left">${escapeHtml(remaining(view.qrExpiresAt, ctx.now))}</b></span></p>
+<p class="meta">${ctx.statementName ? `<span>${escapeHtml(t.statement(ctx.statementName))}</span>` : ''}<span id="exp"${soon ? ' hidden' : ''}>${escapeHtml(t.expiresIn)} <b class="num" id="left">${clockText(left)}</b></span><span class="soon" id="soon"${soon ? '' : ' hidden'}>${escapeHtml(t.lastMinute(clockText(left)))}</span></p>
 </header>
 <form id="pay" method="POST" action="${escapeHtml(action)}" data-expires="${view.qrExpiresAt.getTime()}" data-now="${ctx.now.getTime()}">
 <input type="hidden" name="lang" value="${ctx.lang}">

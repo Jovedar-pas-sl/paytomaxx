@@ -70,6 +70,7 @@ const pay: PayText = {
   chargedBy: (name) => `Cobrado por ${name}`,
   serviceWith: (name) => `Serviço com ${name}`,
   expiresIn: 'Expira em',
+  lastMinute: (time) => `Falta menos de 1 minuto: ${time}. Se expirar, peça outro QR.`,
   bankSafe: (brand) => `O cartão é introduzido na página segura do banco, não em ${brand}.`,
   bankJumpTitle: 'Vai para a página segura do banco',
   bankJumpStatement: (name) => `O débito aparecerá como «${name}».`,
