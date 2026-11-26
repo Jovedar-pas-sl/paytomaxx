@@ -457,16 +457,17 @@ export function RefundModal({
             {error}
           </p>
         ) : null}
-        <div style={{ display: 'flex', gap: '0.75rem', marginTop: '0.5rem' }}>
-          {/* «Cancelar» es solo para un cobro sin pagar: aquí, «Dejarlo» (como al anular un cobro del saldo). */}
-          <Button variant="ghost" type="button" onClick={onClose} style={{ flex: 1 }}>
-            Dejarlo
+        <div className="np-pregunta-pie">
+          {/* «Cancelar» es solo para un cobro sin pagar: aquí, «Volver» (como en la pregunta). */}
+          <Button variant="ghost" size="lg" type="button" onClick={onClose}>
+            Volver
           </Button>
           <Button
+            variant={asking ? 'primary' : 'danger'}
+            size="lg"
             type="submit"
             loading={submitting}
             disabled={(requires2FA && !withKey && locked) || (withKey && !keyProof)}
-            style={{ flex: 1 }}
           >
             {buttonText}
           </Button>

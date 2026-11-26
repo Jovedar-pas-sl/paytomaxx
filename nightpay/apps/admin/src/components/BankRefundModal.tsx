@@ -135,11 +135,11 @@ export function BankRefundModal({
             {error}
           </p>
         ) : null}
-        <div style={{ display: 'flex', gap: '0.75rem' }}>
-          <Button variant="ghost" type="button" onClick={onClose} style={{ flex: 1 }}>
-            Cancelar
+        <div className="np-pregunta-pie">
+          <Button variant="ghost" size="lg" type="button" onClick={onClose}>
+            Volver
           </Button>
-          <Button type="submit" loading={submitting} style={{ flex: 1 }}>
+          <Button size="lg" type="submit" loading={submitting}>
             Registrar devolución
           </Button>
         </div>

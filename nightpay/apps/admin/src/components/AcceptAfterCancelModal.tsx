@@ -78,12 +78,14 @@ export function AcceptAfterCancelModal({ incident, onClose, onDone }: { incident
             {error}
           </p>
         ) : null}
-        <Button type="submit" loading={busy} disabled={busy}>
-          Dar por bueno
-        </Button>
-        <Button type="button" variant="ghost" onClick={onClose} disabled={busy}>
-          Volver
-        </Button>
+        <div className="np-pregunta-pie">
+          <Button type="button" variant="ghost" size="lg" onClick={onClose} disabled={busy}>
+            Volver
+          </Button>
+          <Button type="submit" size="lg" loading={busy} disabled={busy}>
+            Dar por bueno
+          </Button>
+        </div>
       </form>
     </Modal>
   );

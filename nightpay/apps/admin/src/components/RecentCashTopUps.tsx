@@ -167,11 +167,11 @@ function VoidModal({
             {error}
           </p>
         ) : null}
-        <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
-          <Button variant="ghost" type="button" onClick={onClose} disabled={submitting}>
-            Cancelar
+        <div className="np-pregunta-pie">
+          <Button variant="ghost" size="lg" type="button" onClick={onClose} disabled={submitting}>
+            Volver
           </Button>
-          <Button type="submit" loading={submitting} disabled={locked}>
+          <Button variant="danger" size="lg" type="submit" loading={submitting} disabled={locked}>
             Anular {formatEur(topUp.amountCents + (topUp.serviceFeeCents ?? 0))}
           </Button>
         </div>

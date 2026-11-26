@@ -333,11 +333,13 @@ export function PayoutModal({
                 {error}
               </p>
             ) : null}
-            <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
-              <Button variant="ghost" onClick={onClose} disabled={submitting}>
-                Cancelar
+            <div className="np-pregunta-pie">
+              <Button variant="ghost" size="lg" onClick={onClose} disabled={submitting}>
+                Volver
               </Button>
               <Button
+                variant="danger"
+                size="lg"
                 onClick={handleSubmit}
                 loading={submitting}
                 disabled={!canPay || amountCents <= 0 || (withCode && locked)}
