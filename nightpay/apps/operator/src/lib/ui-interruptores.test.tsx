@@ -149,7 +149,8 @@ describe('Checkbox: la casilla que espera a «Guardar»', () => {
     const hint = /<span id="([^"]+)" class="np-checkbox-hint">Solo en Android\.<\/span>/.exec(html);
     expect(hint).not.toBeNull();
     expect(html).toContain(`aria-describedby="${hint![1]}"`);
-    expect(html).toContain('<span class="np-checkbox-label">Vibración</span>');
+    // La etiqueta lleva su id: es el nombre (aria-labelledby), sin la pista (ui-piezas-arreglos.test.tsx).
+    expect(html).toMatch(/<span id="[^"]+" class="np-checkbox-label">Vibración<\/span>/);
     // Sin role ni estados a mano: los da la casilla nativa.
     expect(html).not.toMatch(/role=|aria-checked/);
   });
