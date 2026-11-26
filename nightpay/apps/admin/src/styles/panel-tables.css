@@ -4,6 +4,12 @@
    Encima de @nightpay/ui/styles.css, con sus tokens --np-*. Solo se anima
    transform/opacity, y nada con prefers-reduced-motion. Móvil = hasta 640px. */
 
+/* La tarjeta de una tabla va lisa (con su borde y su sombra): la cabecera
+   pinta --np-surface y sobre el degradado sería una franja más oscura. */
+.np-table-host {
+  background-image: none;
+}
+
 @media (max-width: 640px) {
   /* La tarjeta que envolvía la tabla desaparece: cada fila es su tarjeta. */
   .np-table-host {

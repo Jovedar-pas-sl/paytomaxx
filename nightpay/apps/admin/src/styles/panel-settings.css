@@ -23,8 +23,9 @@
   padding: 1.25rem 1.375rem;
   border: 1px solid var(--np-card-edge);
   border-radius: var(--np-r-card);
+  /* Lisa: las etiquetas de los campos pintan --np-surface sobre el borde y
+     sobre el degradado se verían como cajas oscuras. */
   background: var(--np-surface);
-  background-image: var(--np-card-fill);
   box-shadow: var(--np-shadow-1);
 }
 

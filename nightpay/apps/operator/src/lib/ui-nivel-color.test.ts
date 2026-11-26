@@ -371,6 +371,17 @@ describe('idea 2 · tarjetas con relieve', () => {
     expect(rule(STYLES, '.np-card .np-card')).toContain('border-radius: var(--np-r-inner);');
   });
 
+  it('las tarjetas con tabla y las de Ajustes del panel van lisas (con su borde y su sombra): la cabecera y las etiquetas de los campos pintan --np-surface y sobre el degradado serían una franja oscura', () => {
+    const tables = code(read('apps', 'admin', 'src', 'styles', 'panel-tables.css'));
+    // Fuera de la consulta del móvil (allí la tarjeta ya desaparece).
+    expect(tables.slice(0, tables.indexOf('@media'))).toMatch(/\.np-table-host \{\s*background-image: none;\s*\}/);
+    expect(rule(STYLES, '.np-table thead th')).toContain('background: var(--np-surface);');
+    const settings = rule(read('apps', 'admin', 'src', 'styles', 'panel-settings.css'), '.np-set-card');
+    expect(settings).toContain('background: var(--np-surface);');
+    expect(settings).not.toContain('--np-card-fill');
+    expect(settings).toContain('box-shadow: var(--np-shadow-1);');
+  });
+
   it('sin cristal esmerilado ni resplandores animados en las tarjetas', () => {
     expect(code(STYLES)).not.toMatch(/backdrop-filter/);
     expect(rule(STYLES, '.np-card')).not.toMatch(/animation|filter/);
