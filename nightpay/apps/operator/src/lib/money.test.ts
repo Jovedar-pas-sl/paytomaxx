@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatBps, formatEur, formatEurAmount, formatSignedEur } from './money';
+import { formatBps, formatEur, formatSignedEur } from './money';
 
 // Intl separa la cifra del "€" con un espacio que no se parte (U+00A0).
 const nb = (s: string) => s.replace(/ /g, ' ');
@@ -26,10 +26,12 @@ describe('importes en euros', () => {
     expect(formatSignedEur(0)).toBe(nb('0,00 €'));
   });
 
-  it('solo la cifra, para cuando "EUR" va aparte', () => {
-    expect(formatEurAmount(12345)).toBe('123,45');
-    expect(formatEurAmount(-50)).toBe('\u22120,50');
-    expect(formatEurAmount(123_456)).toBe('1.234,56');
+  // Antes había un formatEurAmount («123,45», con «EUR» aparte): el cobro abierto y los POS
+  // pendientes escriben ya el importe entero, con su «€» (Piezas I).
+  it('el importe entero con su «€», nunca la cifra suelta con «EUR» aparte', () => {
+    expect(formatEur(12345)).toBe(nb('123,45 €'));
+    expect(formatEur(-50)).toBe(nb('\u22120,50 €'));
+    expect(formatEur(123_456)).toBe(nb('1.234,56 €'));
   });
 
   it('comisión en puntos básicos, sin redondear', () => {

@@ -1,9 +1,10 @@
 'use client';
 
 import type { CSSProperties } from 'react';
+import { Importe } from '@nightpay/ui';
 import type { MyNight } from '@/lib/api';
 import { tonightBreakdown, tonightStatus, type MoneySummary, type TonightTone } from '@/lib/earnings-view';
-import { formatEur, formatSignedEur } from '@/lib/money';
+import { formatEur } from '@/lib/money';
 import styles from './money.module.css';
 
 interface Props {
@@ -33,7 +34,8 @@ const TONE_LABEL: Record<TonightTone, string> = {
 export function TonightCard({ night, summary, holdDays, compact = false, onOpen, who }: Props) {
   const status = night ? tonightStatus(night, summary, holdDays, Date.now()) : null;
   const cents = summary.tonightCents;
-  const amount = night ? (cents < 0 ? formatSignedEur(cents, { compact: true }) : formatEur(cents, { compact: true })) : '—';
+  // El texto, solo para ajustar la cifra al ancho (la pinta Importe, con el «−» de lo que debe).
+  const amount = night ? formatEur(cents, { compact: true }) : '—';
   // Grafito: la cifra en t1 (la lima es para actuar, nunca para un total); en rojo si debe.
   const color = !night || cents === 0 ? 'var(--np-text-mute)' : cents < 0 ? 'var(--np-danger)' : 'var(--np-text)';
 
@@ -44,7 +46,7 @@ export function TonightCard({ night, summary, holdDays, compact = false, onOpen,
         {status ? <TonePill tone={status.tone} /> : null}
       </span>
       <span className="np-num" style={{ ...amountStyle, color, fontSize: fitAmount(amount, compact) }}>
-        {amount}
+        {night ? <Importe cents={cents} /> : '—'}
       </span>
       <span style={whenStyle}>{status?.when ?? 'Cargando tu noche…'}</span>
       {!compact && night ? <span style={metaStyle}>{tonightBreakdown(night)}</span> : null}

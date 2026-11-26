@@ -122,7 +122,7 @@ describe('pantalla del cliente: qué se enseña y cuánto rato', () => {
     expect(tipBreakdown(chosen)).toMatch(/^33\s?€ \+ 5\s?€ de propina$/);
     expect(tipBreakdown(waiting())).toBeNull();
     expect(tipButtonLabel({ cents: 200, percent: null })).toMatch(/^\+2\s?€$/);
-    expect(tipButtonLabel({ cents: 1000, percent: 10 })).toMatch(/^10 % · \+10\s?€$/);
+    expect(tipButtonLabel({ cents: 1000, percent: 10 })).toMatch(/^10\s% · \+10\s?€$/);
   });
 });
 

@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useId, useRef, useState, type CSSProperties } from 'react';
-import { Button, Card, haptic, Input } from '@nightpay/ui';
+import { Button, Card, formatRelative, haptic, Icon, Input } from '@nightpay/ui';
 import {
   confirmPosPayment,
   fetchPendingPos,
@@ -12,7 +12,7 @@ import {
   type ZoneOption,
 } from '@/lib/api';
 import { isAlertSoundMuted, playAlertBeep, setAlertSoundMuted } from '@/lib/alert-sound';
-import { formatEur, formatEurAmount } from '@/lib/money';
+import { formatEur } from '@/lib/money';
 import { posChargeLine, posConfirmBody } from '@/lib/cobro-view';
 import { newArrivals } from '@/lib/pending-pos';
 import { usePolling } from '@/lib/use-polling';
@@ -203,7 +203,8 @@ export function PendingPos({ onConfirmed, focusPaymentId, onFocusConsumed }: Pro
       ) : pending.length === 0 ? (
         <div style={emptyStateStyle}>
           <p style={{ margin: 0, fontSize: 'var(--np-fs-14)', color: 'var(--np-text-mute)' }}>
-            ✓ No hay cobros POS pendientes.
+            <Icon name="check" size={20} className="np-icon-lead" />
+            No hay cobros POS pendientes.
           </p>
         </div>
       ) : (
@@ -221,12 +222,11 @@ export function PendingPos({ onConfirmed, focusPaymentId, onFocusConsumed }: Pro
                     {p.zone ? <span style={zoneBadgeStyle}>{zoneToDisplay(p.zone)}</span> : null}
                   </p>
                   <p style={metaStyle}>
-                    Chica: {p.createdByName} · {timeAgo(p.createdAt)}
+                    Chica: {p.createdByName} · {formatRelative(p.createdAt, new Date())}
                   </p>
                 </div>
                 <p className="np-num" style={amountStyle}>
-                  {formatEurAmount(p.amountCents)}
-                  <span style={{ fontSize: 'var(--np-t-label)', color: 'var(--np-text-mute)' }}> €</span>
+                  {formatEur(p.amountCents)}
                 </p>
               </button>
             </li>
@@ -310,9 +310,12 @@ function ConfirmForm({
       ) : null}
 
       <div style={confirmPillStyle}>
-        <span style={kickerStyle}>⚠️ Teclea EXACTAMENTE en el datáfono</span>
+        <span style={kickerStyle}>
+          <Icon name="alert" size={20} className="np-icon-lead" />
+          Teclea EXACTAMENTE en el datáfono
+        </span>
         <p className="np-num" style={amountBigStyle}>
-          {formatEurAmount(payment.amountCents)} <span style={currStyle}>EUR</span>
+          {formatEur(payment.amountCents)}
         </p>
         <p style={amountDigitsStyle}>
           {/* Importe deletreado dígito-a-dígito para evitar typos visuales en el IM30 */}
@@ -415,7 +418,8 @@ function ConfirmForm({
       ) : null}
 
       <Button onClick={handleConfirm} loading={submitting} size="lg">
-        ✓ Confirmar pagado en el datáfono
+        <Icon name="check" size={20} className="np-icon-lead" />
+        Confirmar pagado en el datáfono
       </Button>
 
       <p style={{ ...hintStyle, textAlign: 'center', marginTop: 0 }}>
@@ -424,15 +428,6 @@ function ConfirmForm({
       </p>
     </Card>
   );
-}
-
-function timeAgo(iso: string): string {
-  const ms = Date.now() - new Date(iso).getTime();
-  const mins = Math.floor(ms / 60_000);
-  if (mins < 1) return 'ahora mismo';
-  if (mins < 60) return `hace ${mins} min`;
-  const hrs = Math.floor(mins / 60);
-  return `hace ${hrs}h ${mins % 60}m`;
 }
 
 /**
@@ -674,12 +669,6 @@ const amountBigStyle: CSSProperties = {
   fontWeight: 600,
   letterSpacing: '-0.03em',
   fontVariantNumeric: 'tabular-nums',
-};
-
-const currStyle: CSSProperties = {
-  fontSize: 'var(--np-fs-14)',
-  color: 'var(--np-text-mute)',
-  fontWeight: 500,
 };
 
 const stepsBox: CSSProperties = {

@@ -4,6 +4,7 @@
 // cancelado, caducado o fallido: el reposo con un texto corto.
 
 import type { CustomerDisplayMessage, CustomerScreenEnd, CustomerScreenView, TipPreset } from '@nightpay/contracts';
+import { formatPercent } from '@nightpay/ui';
 import { formatEur } from './money';
 
 /** «Pagado» a pantalla completa. */
@@ -145,7 +146,7 @@ export function tipBreakdown(view: WaitingView): string | null {
 /** El botón de una propina sugerida: «+2 €» o «10 % · +3 €». */
 export function tipButtonLabel(preset: TipPreset): string {
   const plus = `+${formatEur(preset.cents, { compact: true })}`;
-  return preset.percent ? `${preset.percent} % · ${plus}` : plus;
+  return preset.percent ? `${formatPercent(preset.percent)} · ${plus}` : plus;
 }
 
 /** Con «Comisión del servicio»: lo que paga la tarjeta («Con tarjeta, 36,30 €»). */
