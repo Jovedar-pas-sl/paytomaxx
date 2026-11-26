@@ -1,7 +1,7 @@
 'use client';
 
 import { useId, useState, type CSSProperties, type FormEvent } from 'react';
-import { Button, Card, Input, Select } from '@nightpay/ui';
+import { Button, Card, Checkbox, Input, Select } from '@nightpay/ui';
 import { OXIOCARD_STATUS_LABELS, madridToday, type OxiocardStatus } from '@nightpay/contracts';
 import {
   createSelfOnboardingLink,
@@ -583,35 +583,17 @@ function CheckBoxRow({
   warn?: boolean;
 }) {
   return (
-    <label
+    // La caja de siempre (ámbar si se marca que necesita ayuda); dentro, la casilla común con su explicación.
+    <div
       style={{
-        display: 'flex',
-        gap: '0.75rem',
-        alignItems: 'flex-start',
-        padding: '0.625rem 0.875rem',
+        padding: '0 0.875rem',
         borderRadius: 'var(--np-r-md)',
         background: warn && checked ? 'var(--np-pill-warning-bg)' : 'var(--np-surface-2)',
         border: '1px solid var(--np-border)',
-        cursor: disabled ? 'not-allowed' : 'pointer',
-        opacity: disabled ? 0.7 : 1,
       }}
     >
-      <input
-        type="checkbox"
-        checked={checked}
-        onChange={(e) => onChange(e.target.checked)}
-        disabled={disabled}
-        style={{ marginTop: '0.2rem' }}
-      />
-      <div style={{ flex: 1 }}>
-        <p style={{ margin: 0, fontSize: '0.875rem', fontWeight: 400, color: warn && checked ? 'var(--np-warning)' : 'var(--np-text)' }}>
-          {title}
-        </p>
-        <p style={{ margin: '0.15rem 0 0', fontSize: '0.875rem', color: warn && checked ? 'var(--np-warning)' : 'var(--np-text-mute)' }}>
-          {description}
-        </p>
-      </div>
-    </label>
+      <Checkbox label={title} hint={description} checked={checked} onChange={onChange} disabled={disabled} />
+    </div>
   );
 }
 
