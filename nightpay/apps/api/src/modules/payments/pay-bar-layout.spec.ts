@@ -239,8 +239,13 @@ describe('cuando no cabe: lo que se aparta, por orden, para que el TOTAL quede p
 
   it('y si ni así cabe (hay desglose a la vista al abrir): la franja baja también hasta 900 px de alto y las marcas siguen a la frase del banco en su línea', () => {
     expect(CROWDED_CSS).toBe(
-      '@media (max-height:900px){body{display:flex;flex-direction:column}.sug{order:1}.legal-foot{order:2}.trust .marks{display:inline-flex;margin:0 0 0 .4rem;vertical-align:middle}}',
+      '@media (max-height:900px){body{display:flex;flex-direction:column}.sug{order:1}.legal-foot{order:2}.trust .marks{display:inline-flex;margin:0 0 0 .4rem;vertical-align:middle}' +
+        // Y los huecos y las filas del desglose, más justos (medido con Playwright: comisión y propina, sin franja ni último minuto,
+        // el TOTAL queda encima de la barra en 360×740 y 390×844 en es, en y pt; en francés, en 390×844, y en 360×740, 11 px dentro del degradado).
+        '.pay,form{gap:.6rem}.head{gap:.1rem}.meta{row-gap:0}.tipnote{margin-top:.35rem}.brk>div{padding:.3rem 0}.brk .tot{padding:.4rem 0 .3rem}.paybar{padding-top:.35rem}.paybar>div{gap:.25rem}.trust{line-height:1.3}}',
     );
+    // Los toques no bajan: los botones de pagar y de la propina conservan su alto.
+    expect(CROWDED_CSS).not.toMatch(/min-height|\.btn|display:none/);
     // Con comisión (o con una propina ya marcada) el desglose se ve: no cabe.
     expect(page({ serviceFeeCents: 330, serviceFeeBps: 1000 })).toContain(CROWDED_CSS);
     expect(page({ tipCents: 500, saldo })).toContain(CROWDED_CSS);

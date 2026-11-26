@@ -51,11 +51,13 @@ export interface ChooseContext {
  * abrir: comisión, o una propina ya marcada), hasta 900 px de alto: la franja
  * que ofrece otro idioma baja debajo del formulario (como en las bajas) y Visa
  * y Mastercard siguen a la frase del banco en su misma línea (la barra de
- * pagar mide una línea menos y no tapa los botones de la propina). Lo decide
- * el servidor (chooseCss): el CSS no sabe si cabe.
+ * pagar mide una línea menos y no tapa los botones de la propina). Además, los
+ * huecos y las filas del desglose se aprietan (los toques no cambian de alto).
+ * Lo decide el servidor (chooseCss): el CSS no sabe si cabe.
  */
 export const CROWDED_CSS =
-  '@media (max-height:900px){body{display:flex;flex-direction:column}.sug{order:1}.legal-foot{order:2}.trust .marks{display:inline-flex;margin:0 0 0 .4rem;vertical-align:middle}}';
+  '@media (max-height:900px){body{display:flex;flex-direction:column}.sug{order:1}.legal-foot{order:2}.trust .marks{display:inline-flex;margin:0 0 0 .4rem;vertical-align:middle}' +
+  '.pay,form{gap:.6rem}.head{gap:.1rem}.meta{row-gap:0}.tipnote{margin-top:.35rem}.brk>div{padding:.3rem 0}.brk .tot{padding:.4rem 0 .3rem}.paybar{padding-top:.35rem}.paybar>div{gap:.25rem}.trust{line-height:1.3}}';
 
 /** El desglose (Consumo · Comisión del servicio · Propina · TOTAL): /pay y «Recargar» en /w. */
 export const BREAKDOWN_CSS = `
