@@ -1,9 +1,9 @@
 'use client';
 
 import type { ReactNode } from 'react';
+import { Icon } from '@nightpay/ui';
 import type { MyNight } from '@/lib/api';
 import { formatEur } from '@/lib/money';
-import { IconQr } from './icons';
 import { ScreenHeader } from './ScreenHeader';
 import styles from './cobrar.module.css';
 
@@ -35,7 +35,7 @@ export function SinCobrar({ who, night, banner, onLogo, onMiQr }: Props) {
           Tus servicios los cobra el encargado (o recepción) escaneando tu «Mi QR». Lo tuyo te llega al momento a Ganancias.
         </p>
         <button type="button" className={`${styles.btn} ${styles.primary}`} onClick={onMiQr}>
-          <IconQr />
+          <Icon name="qr" />
           Mi QR
         </button>
         <p className={styles.muted}>
