@@ -275,7 +275,7 @@ export class PublicPayController {
       res.status(303).header('Location', payHref(token, lang)).header('Cache-Control', 'no-store').send();
       return;
     }
-    sendHtml(res, 200, renderCheckoutForm(form.action, form.fields, lang, payHref(token, lang)));
+    sendHtml(res, 200, renderCheckoutForm(form.action, form.fields, lang, payHref(token, lang), this.bankStatementName()));
   }
 
   @Public()
@@ -380,7 +380,7 @@ export class PublicPayController {
           .send();
         return;
       case 'form':
-        sendHtml(res, 200, renderCheckoutForm(view.action, view.fields, lang, payHref(token, lang)));
+        sendHtml(res, 200, renderCheckoutForm(view.action, view.fields, lang, payHref(token, lang), this.bankStatementName()));
         return;
       case 'paid': {
         const claimed = this.hasWalletClaim(res, token, view.walletClaimHash);

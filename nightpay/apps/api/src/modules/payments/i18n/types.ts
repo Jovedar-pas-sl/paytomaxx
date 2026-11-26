@@ -172,7 +172,14 @@ export interface PayText {
   /** A nombre de una compañera (cobro por el encargado): «Servicio con Nerea». */
   serviceWith: (name: string) => string;
   expiresIn: string;
+  /** Debajo de los botones de pagar: dónde se escribe la tarjeta (con la marca: BRAND_NAME). */
+  bankSafe: (brand: string) => string;
   // Hacia el banco
+  /** El aviso del salto al banco, mientras se abre su página. */
+  bankJumpTitle: string;
+  /** «El cargo saldrá como «SALA AURORA MADRID».» */
+  bankJumpStatement: (name: string) => string;
+  /** El botón de pagar mientras se abre el pago y la pestaña de la página que salta al banco. */
   openingTitle: string;
   openingHint: string;
   continueToBank: string;

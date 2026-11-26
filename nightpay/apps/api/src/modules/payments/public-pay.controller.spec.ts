@@ -41,6 +41,8 @@ function makeController(opts: {
   receipt?: PayReceiptView | null;
   checkoutForm?: PayRedirect | null;
   statementName?: string;
+  /** El nombre del comercio en la página de Redsys (REDSYS_MERCHANT_NAME). */
+  merchantName?: string;
   directWallet?: string;
   /** «Comprobando el pago»: lo que da PayStatusService (sin él, la página de antes). */
   statusCtx?: PayStatusContext | null;
@@ -60,6 +62,7 @@ function makeController(opts: {
   };
   const settings: Record<string, string | undefined> = {
     PAY_STATEMENT_NAME: opts.statementName,
+    REDSYS_MERCHANT_NAME: opts.merchantName,
     PAY_DIRECT_WALLET: opts.directWallet,
   };
   const config = { get: vi.fn((key: string) => settings[key]) };
@@ -383,9 +386,12 @@ describe('GET /pay/:token — página de pago', () => {
     // El de Apple Pay lo pinta Safari, y solo si el móvil puede pagar con Apple Pay.
     expect(html).toContain('-webkit-appearance:-apple-pay-button');
     expect(html).toContain("ApplePaySession.canMakePayments()&&window.CSS&&CSS.supports('-webkit-appearance','-apple-pay-button')");
-    // «o» entre la cartera y la tarjeta, y «Pago seguro» con Visa y Mastercard.
+    // «o» entre la cartera y la tarjeta y, antes de pagar, dónde se escribe la tarjeta (idea 63): el candado, la frase y, debajo, Visa y Mastercard.
     expect(html).toContain('<p class="or" aria-hidden="true">o</p>');
-    expect(html).toContain('<p class="trust">Pago seguro<span class="marks" role="img" aria-label="Visa, Mastercard">');
+    expect(html).toMatch(
+      /<p class="trust"><svg class="ic"[^>]*>.*?<\/svg>La tarjeta la escribes en la página segura del banco, no en OxioPay\.<span class="marks" role="img" aria-label="Visa, Mastercard">/,
+    );
+    expect(html).not.toContain('<p class="trust">Pago seguro');
     expect(html.indexOf('id="payBtn"')).toBeLessThan(html.indexOf('id="cardBtn"'));
     // El botón dice lo que hace mientras abre el pago (no solo se apaga).
     expect(html).toContain('Abriendo Apple Pay…');
@@ -799,6 +805,43 @@ describe('GET /pay/:token/checkout — formulario hacia el banco', () => {
     expect(sent.body).toContain('Continue to payment');
     // Si el navegador restaura la página al volver atrás, no se reenvía.
     expect(sent.body).toContain('location.replace("/pay/qr-token-1?lang=en")');
+  });
+
+  it('avisa del salto al banco (idea 63): «Te llevamos a la página segura del banco», cómo saldrá el cargo, y se envía cuando ya está pintado', async () => {
+    const { controller } = makeController({ checkoutForm: FORM, statementName: 'SALA AURORA MADRID' });
+    const { reply, sent } = fakeReply();
+    await controller.checkout('qr-token-1', 'ORD123', 'es', undefined, reply);
+    const html = sent.body!;
+    expect(html).toContain('<h1 role="status">Te llevamos a la página segura del banco</h1>');
+    expect(html).toContain('<p>El cargo saldrá como «SALA AURORA MADRID».</p>');
+    // La pestaña y el botón, como antes.
+    expect(html).toContain('<title>Abriendo el pago…</title>');
+    expect(html).toContain('<button class="btn" type="submit">Continuar al pago</button>');
+    // Sin tiempo fijo: dos fotogramas después de pintar el aviso (un requestAnimationFrame dentro de otro).
+    expect(html).not.toContain('setTimeout');
+    expect(html).toContain("requestAnimationFrame(function(){requestAnimationFrame(function(){document.getElementById('f').submit();});});");
+    for (const s of scripts(html)) expect(() => new Function(s)).not.toThrow();
+    // En los cuatro idiomas, con el nombre tal cual.
+    for (const [lang, title] of [['en', 'Taking you to the bank’s secure page'], ['fr', 'Nous vous emmenons sur la page sécurisée de la banque'], ['pt', 'Vai para a página segura do banco']] as const) {
+      const other = fakeReply();
+      await makeController({ checkoutForm: FORM, statementName: 'SALA AURORA MADRID' }).controller.checkout('qr-token-1', 'ORD123', lang, undefined, other.reply);
+      expect(other.sent.body).toContain(`<h1 role="status">${title}</h1>`);
+      expect(other.sent.body).toContain('SALA AURORA MADRID');
+    }
+  });
+
+  it('el nombre del cargo: el del extracto o, sin él, el del comercio en Redsys; sin ninguno, el aviso sin esa línea (y se escapa)', async () => {
+    const merchant = fakeReply();
+    await makeController({ checkoutForm: FORM, merchantName: 'AURORA <b>SL</b>' }).controller.checkout('qr-token-1', 'ORD123', 'es', undefined, merchant.reply);
+    expect(merchant.sent.body).toContain('<p>El cargo saldrá como «AURORA &lt;b&gt;SL&lt;/b&gt;».</p>');
+    const none = fakeReply();
+    await makeController({ checkoutForm: FORM }).controller.checkout('qr-token-1', 'ORD123', 'es', undefined, none.reply);
+    expect(none.sent.body).toContain('<h1 role="status">Te llevamos a la página segura del banco</h1>');
+    expect(none.sent.body).not.toContain('El cargo saldrá como');
+    // La pasarela que da el formulario sin paso intermedio (POST): el mismo aviso.
+    const direct = fakeReply();
+    await makeController({ checkout: FORM, statementName: 'SALA AURORA MADRID' }).controller.startCheckout('qr-token-1', { tip: '0', method: 'card', lang: 'es' }, undefined, direct.reply);
+    expect(direct.sent.body).toContain('<p>El cargo saldrá como «SALA AURORA MADRID».</p>');
   });
 
   it('volver atrás desde el banco (pedido ya no reciente) → a la página del cobro, sin reenviar', async () => {

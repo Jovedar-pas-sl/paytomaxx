@@ -2,7 +2,7 @@ import { CLUB_BASE_CSS, MONEY_JS, clientMoney, escapeHtml, jsConfig } from '../p
 import { CHROME_CSS, LANG_JS, langHrefWith, topBar } from '../payments/customer-chrome';
 import { legalConsent, legalFooter } from '../legal/legal-links';
 import { PAY_TEXT, type PayLanguage } from '../payments/pay-i18n';
-import { CARD_MARKS, LOCK_IC, PAY_MARKS_CSS } from '../payments/pay-marks';
+import { LOCK_IC, PAY_MARKS_CSS, trustLine } from '../payments/pay-marks';
 import { CLIENT_ERROR_JS, clientErrorConfig } from '../wallets/client-errors';
 import { MY_BALANCE_TEXT, myBalanceBlock } from '../wallets/my-balance';
 import { PASSKEY_BROWSER_JS } from '../wallets/passkey-browser';
@@ -343,7 +343,7 @@ ${
    * del botón (C-3); «O carga un saldo nuevo:» queda pegado al importe. Si no
    * se puede cargar, primero lo dice y después las condiciones.
    */ ''
-}${canLoad ? loadParts : `${offCard(lang, base, Boolean(view.mine))}${termsCard(lang)}`}<p class="foot trust">${h(PAY_TEXT[lang].secure)}${CARD_MARKS}</p>
+}${canLoad ? loadParts : `${offCard(lang, base, Boolean(view.mine))}${termsCard(lang)}`}${trustLine(PAY_TEXT[lang], 'foot')}
 </main>
 ${
   canLoad

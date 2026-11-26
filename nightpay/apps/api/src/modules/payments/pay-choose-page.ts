@@ -3,7 +3,7 @@ import type { PayLanguage } from './customer-lang';
 import type { PayDevice } from './pay-device';
 import { CUSTOMER_TEXT } from './i18n';
 import { PAY_TEXT, type PayText } from './pay-i18n';
-import { BTC_MARK, CARD_IC, CARD_MARKS, GPAY_MARK, LOCK_IC, PAY_MARKS_CSS } from './pay-marks';
+import { BTC_MARK, CARD_IC, GPAY_MARK, LOCK_IC, PAY_MARKS_CSS, trustLine } from './pay-marks';
 import type { PayRedirect } from './pay-redirect';
 import { tipPresetsFor } from './tip';
 import { legalConsent } from '../legal/legal-links';
@@ -256,7 +256,7 @@ ${feeRow}${withTips ? `<div id="brkTip"><dt>${escapeHtml(b.tip)}</dt><dd class="
  * Apple Pay que pinta Safari, solo si el móvil puede pagar con Apple Pay
  * (ApplePaySession): nunca uno hecho a mano. La tarjeta, segunda opción, es
  * otro botón del mismo formulario (method=card): funciona sin JS. Debajo,
- * «Pago seguro» con Visa y Mastercard.
+ * dónde se escribe la tarjeta (idea 63), con Visa y Mastercard.
  */
 function payButtons(view: ChooseView, t: PayText, ctx: ChooseContext): string {
   const { inApp, wallet } = ctx.device;
@@ -290,7 +290,7 @@ function payButtons(view: ChooseView, t: PayText, ctx: ChooseContext): string {
   return `<div class="paybar"><div>
 ${main}
 ${methods}${alts}${saldo && fee > 0 ? `<p class="nofee">${escapeHtml(t.saldoNoFee)}</p>` : ''}
-<p class="trust">${escapeHtml(t.secure)}${CARD_MARKS}</p>
+${trustLine(t)}
 ${legalConsent(ctx.lang)}
 </div></div>`;
 }

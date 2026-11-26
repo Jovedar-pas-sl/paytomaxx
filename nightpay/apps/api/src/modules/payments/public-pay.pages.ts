@@ -102,12 +102,17 @@ h1{font-size:1.75rem}
  * navegador bloquea el envío automático (iOS Safari lo hace a veces). Si el
  * cliente vuelve atrás desde el banco y el navegador restaura esta página,
  * no se reenvía el mismo pedido: se vuelve a la página del cobro.
+ *
+ * Avisa del salto (idea 63): «Te llevamos a la página segura del banco» y,
+ * si se sabe, con qué nombre saldrá el cargo (`statementName`). Se envía
+ * cuando el aviso ya está pintado (dos fotogramas), no tras un tiempo fijo.
  */
 export function renderCheckoutForm(
   action: string,
   fields: Record<string, string>,
   lang: PayLanguage,
   backHref: string,
+  statementName: string | null = null,
 ): string {
   const t = PAY_TEXT[lang];
   const inputs = Object.entries(fields)
@@ -115,7 +120,8 @@ export function renderCheckoutForm(
     .join('\n');
   const body = `
 <div class="spin" aria-hidden="true"></div>
-<h1 role="status">${escapeHtml(t.openingTitle)}</h1>
+<h1 role="status">${escapeHtml(t.bankJumpTitle)}</h1>
+${statementName ? `<p>${escapeHtml(t.bankJumpStatement(statementName))}</p>` : ''}
 <p>${escapeHtml(t.openingHint)}</p>
 <form id="f" action="${escapeHtml(action)}" method="POST" accept-charset="UTF-8" style="width:100%">
 ${inputs}
@@ -123,7 +129,7 @@ ${inputs}
 </form>
 <script>
 window.addEventListener('pageshow',function(e){if(e.persisted){location.replace(${jsString(backHref)});}});
-setTimeout(function(){document.getElementById('f').submit();},250);
+requestAnimationFrame(function(){requestAnimationFrame(function(){document.getElementById('f').submit();});});
 </script>`;
   // Cambiar de idioma aquí vuelve a la página del cobro (este formulario ya está abierto en el banco).
   const back = backHref.split('?')[0] ?? backHref;

@@ -100,12 +100,16 @@ describe('la página del enlace del local (/r/<código>)', () => {
     expect(pageSays(view, 5050)).toEqual({ label: 'Cargar saldo', total: 5050 });
   });
 
-  it('el botón de pagar: fijo abajo con el total, candado y céntimos; «Pago seguro» con Visa y Mastercard', () => {
+  it('el botón de pagar: fijo abajo con el total, candado y céntimos; dónde se escribe la tarjeta, con Visa y Mastercard', () => {
     const html = renderHomeTopUpPage(CODE, 'es', viewFor({ enabled: true, cardBps: 1000, topUpBps: 1200 }));
     // El error, dentro de la barra fija y encima del botón (fuera de ella quedaría tapado).
     expect(html).toMatch(/<div class="paybar"><p class="err" id="err" role="alert" hidden><\/p>\n<button class="btn" type="submit" id="go"><svg class="ic"[^>]*>.*?<\/svg><span id="goLbl"><\/span><\/button>/);
     expect(html).toContain('.topup .paybar{position:sticky;bottom:0');
-    expect(html).toContain('<p class="foot trust">Pago seguro<span class="marks" role="img" aria-label="Visa, Mastercard">');
+    // Idea 63: la misma frase que en la página de pago (antes, «Pago seguro»).
+    expect(html).toMatch(
+      /<p class="trust foot"><svg class="ic"[^>]*>.*?<\/svg>La tarjeta la escribes en la página segura del banco, no en OxioPay\.<span class="marks" role="img" aria-label="Visa, Mastercard">/,
+    );
+    expect(html).not.toContain('Pago seguro<span class="marks"');
     // Lo que se cobra, con céntimos (el botón y el desglose); los límites, sin ellos.
     expect(HOME_JS).toContain("fill(T.goFee,'amount',eurP(c+f))");
     expect(HOME_JS).toContain("$('bTotal').textContent=good?eurP(c+f):''");

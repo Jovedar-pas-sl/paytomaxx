@@ -11,10 +11,15 @@
  * marcas de aceptación, en chapa blanca. Trazados de Simple Icons (CC0),
  * sacados de los SVG de cada marca.
  */
+import { BRAND_NAME } from '../../common/brand';
+import { escapeHtml } from './club-ui';
+import type { PayText } from './i18n/types';
 
-/** «Pago seguro» con las chapas (en /pay y en el enlace del local). */
-export const PAY_MARKS_CSS = `.trust{display:flex;align-items:center;justify-content:center;flex-wrap:wrap;gap:.35rem .55rem;font-size:.875rem;color:var(--dim)}
+/** Dónde se escribe la tarjeta (el candado y la frase) y, debajo, las chapas: en /pay y en el enlace del local. */
+export const PAY_MARKS_CSS = `.trust{font-size:.875rem;line-height:1.35;color:var(--mute);text-align:center}
+.trust .ic{display:inline-block;vertical-align:-.15em;margin-right:.3rem}
 .marks{display:inline-flex;gap:.3rem}
+.trust .marks{display:flex;justify-content:center;margin-top:.3rem}
 .marks svg{display:block;width:2rem;height:1.26rem}
 `;
 
@@ -39,3 +44,12 @@ export const GPAY_MARK = `<svg class="gmark" viewBox="0 7 24 10.4" aria-hidden="
 
 /** Visa y Mastercard en su chapa blanca (con qué tarjetas se puede pagar). */
 export const CARD_MARKS = `<span class="marks" role="img" aria-label="Visa, Mastercard"><svg viewBox="0 0 38 24" aria-hidden="true"><rect width="38" height="24" rx="4" fill="#fff"/><path fill="#1a1f71" transform="translate(5 -2.05) scale(1.1667)" d="M9.112 8.262L5.97 15.758H3.92L2.374 9.775c-.094-.368-.175-.503-.461-.658C1.447 8.864.677 8.627 0 8.479l.046-.217h3.3a.904.904 0 01.894.764l.817 4.338 2.018-5.102zm8.033 5.049c.008-1.979-2.736-2.088-2.717-2.972.006-.269.262-.555.822-.628a3.66 3.66 0 011.913.336l.34-1.59a5.207 5.207 0 00-1.814-.333c-1.917 0-3.266 1.02-3.278 2.479-.012 1.079.963 1.68 1.698 2.04.756.367 1.01.603 1.006.931-.005.504-.602.725-1.16.734-.975.015-1.54-.263-1.992-.473l-.351 1.642c.453.208 1.289.39 2.156.398 2.037 0 3.37-1.006 3.377-2.564m5.061 2.447H24l-1.565-7.496h-1.656a.883.883 0 00-.826.55l-2.909 6.946h2.036l.405-1.12h2.488zm-2.163-2.656l1.02-2.815.588 2.815zm-8.16-4.84l-1.603 7.496H8.34l1.605-7.496z"/></svg><svg viewBox="0 0 38 24" aria-hidden="true"><rect width="38" height="24" rx="4" fill="#fff"/><circle cx="15" cy="12" r="7" fill="#eb001b"/><circle cx="23" cy="12" r="7" fill="#f79e1b"/><path fill="#ff5f00" d="M19 6.255A7 7 0 0 1 19 17.745A7 7 0 0 1 19 6.255z"/></svg></span>`;
+
+/**
+ * Antes de pagar (idea 63): «La tarjeta la escribes en la página segura del
+ * banco, no en OxioPay.», con el candado delante y Visa y Mastercard debajo.
+ * La marca es la de BRAND_NAME. `extra`: otra clase (el pie de /r).
+ */
+export function trustLine(t: PayText, extra = ''): string {
+  return `<p class="trust${extra ? ` ${extra}` : ''}">${LOCK_IC}${escapeHtml(t.bankSafe(BRAND_NAME))}${CARD_MARKS}</p>`;
+}
