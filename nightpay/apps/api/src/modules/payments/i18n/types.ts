@@ -169,6 +169,8 @@ export interface PayText {
   statement: (name: string) => string;
   /** Quién cobra (su nombre visible): «Te cobra Ana». */
   chargedBy: (name: string) => string;
+  /** A nombre de una compañera (cobro por el encargado): «Servicio con Nerea». */
+  serviceWith: (name: string) => string;
   expiresIn: string;
   // Hacia el banco
   openingTitle: string;

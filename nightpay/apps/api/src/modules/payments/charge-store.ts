@@ -121,6 +121,12 @@ export interface ServedOperator {
   name: string | null;
 }
 
+/** Quién del cobro en las listas del datáfono y del encargado: «Servicio de Nerea». Sin compañera, null. */
+export function servedLabel(s: ServedOperator | undefined): string | null {
+  if (!s) return null;
+  return s.name ? `Servicio de ${s.name}` : 'Servicio de una compañera';
+}
+
 /**
  * La compañera del servicio de cada cobro (la de su primera línea con
  * serviceOperatorId), por id del cobro con tarjeta o del saldo. Dentro de una

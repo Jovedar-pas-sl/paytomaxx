@@ -90,6 +90,8 @@ export type PayRedirect =
       /** Quién cobra (decisión del dueño, 19-11-2026): su nombre visible y su foto (data:image), si los tiene. */
       staffName?: string;
       staffPhoto?: string;
+      /** A nombre de una compañera (cobro por el encargado): staffName y staffPhoto son los de ella («Servicio con Nerea»). */
+      served?: true;
     }
   | {
       /**
@@ -292,6 +294,8 @@ export interface PayablePayment {
   /** Quién cobra: su nombre visible y su foto (data:image), solo para la página de pago. */
   staffName?: string | null;
   staffPhoto?: string | null;
+  /** A nombre de una compañera (cobro por el encargado): staffName es el de ella. */
+  served?: boolean;
   /** Recarga de saldo: token de la página del saldo del cliente. */
   walletToken: string | null;
   /** Huella del navegador que hizo el pago aprobado. */
@@ -397,6 +401,7 @@ export function choosePayPage(p: PayablePayment, now: Date = new Date()): PayRed
     ...(p.reservation ? { reservation: true as const } : {}),
     ...(p.staffName ? { staffName: p.staffName } : {}),
     ...(p.staffName && p.staffPhoto ? { staffPhoto: p.staffPhoto } : {}),
+    ...(p.served ? { served: true as const } : {}),
   };
 }
 

@@ -55,6 +55,7 @@ import {
   insertChargeLines,
   insertInvitationEarnings,
   linesOf,
+  servedLabel,
   servedOperators,
   type ServedOperator,
 } from '../payments/charge-store';
@@ -313,6 +314,8 @@ export interface QrChargeClientView {
   serviceName: string | null;
   venueName: string;
   requestedByName: string | null;
+  /** Sin pagar y a nombre de una compañera (cobro por el encargado): requestedByName es el de ella («Servicio con Nerea»). */
+  served?: true;
   expiresAt: string;
   /** Cuándo se pagó (solo si ya está pagado): el «Ya pagado · hace 23 min». */
   paidAt: string | null;
@@ -1147,16 +1150,18 @@ export class WalletChargesService {
     ]);
     const status = effectiveRequestStatus(request, new Date());
     const elsewhere = status !== 'ACCEPTED' && (await this.paidByCard(request));
+    // A nombre de una compañera (cobro por el encargado): su nombre y la propina de Sala. Solo sin pagar, que es cuando sale.
     const served =
-      status === 'PENDING' && requester?.role !== 'OPERATOR' && (await this.prisma.asSystem((tx) => servedOf(tx, request))) !== undefined;
-    const tip = status === 'PENDING' ? await this.clientTipView(request, venue, requester?.role ?? null, served) : null;
+      status === 'PENDING' && requester?.role !== 'OPERATOR' ? await this.prisma.asSystem((tx) => servedOf(tx, request)) : undefined;
+    const tip = status === 'PENDING' ? await this.clientTipView(request, venue, requester?.role ?? null, served !== undefined) : null;
     return {
       status,
       // Lo que paga: el importe y la propina que pidió.
       amountCents: request.amountCents + (request.tipCents ?? 0),
       serviceName: request.serviceName,
       venueName: venue?.name ?? '',
-      requestedByName: requester?.displayName ?? null,
+      requestedByName: served ? served.name : (requester?.displayName ?? null),
+      ...(served ? { served: true as const } : {}),
       expiresAt: request.expiresAt.toISOString(),
       paidAt: status === 'ACCEPTED' && request.decidedAt ? request.decidedAt.toISOString() : null,
       ...(elsewhere ? { paidElsewhere: true } : {}),
@@ -1255,17 +1260,22 @@ export class WalletChargesService {
       tipCents?: number | null;
       serviceName: string | null;
       requestedByUserId: string;
+      linkedPaymentId: string | null;
       createdAt: Date;
       expiresAt: Date;
     }>,
     withEmail: boolean,
   ): Promise<PendingQrCharge[]> {
-    const users = await this.prisma.asSystem((tx) =>
-      tx.user.findMany({
+    const { users, served } = await this.prisma.asSystem(async (tx) => {
+      const users = await tx.user.findMany({
         where: { id: { in: [...new Set(rows.map((r) => r.requestedByUserId))] } },
-        select: { id: true, displayName: true, email: true },
-      }),
-    );
+        select: { id: true, displayName: true, email: true, role: true },
+      });
+      // A nombre de una compañera (cobro por el encargado): «Servicio de Nerea». Una compañera nunca cobra a nombre de otra.
+      const byOthers = rows.filter((r) => users.find((u) => u.id === r.requestedByUserId)?.role !== 'OPERATOR');
+      const ids = { walletChargeIds: byOthers.map((r) => r.id), paymentIds: byOthers.map((r) => r.linkedPaymentId) };
+      return { users, served: await servedOperators(tx, ids) };
+    });
     return rows.map((r) => {
       const u = users.find((x) => x.id === r.requestedByUserId);
       return {
@@ -1273,7 +1283,7 @@ export class WalletChargesService {
         // Lo que se cobra del saldo: el importe y la propina.
         amountCents: r.amountCents + (r.tipCents ?? 0),
         serviceName: r.serviceName,
-        requestedByName: u?.displayName ?? (withEmail ? u?.email : null) ?? '',
+        requestedByName: servedLabel(servedIn(served, r)) ?? u?.displayName ?? (withEmail ? u?.email : null) ?? '',
         createdAt: r.createdAt.toISOString(),
         expiresAt: r.expiresAt.toISOString(),
       };
@@ -3023,6 +3033,13 @@ async function servedOf(
   tx: TransactionalClient,
   request: { id: string; linkedPaymentId: string | null },
 ): Promise<ServedOperator | undefined> {
-  const served = await servedOperators(tx, { walletChargeIds: [request.id], paymentIds: [request.linkedPaymentId] });
+  return servedIn(await servedOperators(tx, { walletChargeIds: [request.id], paymentIds: [request.linkedPaymentId] }), request);
+}
+
+/** La de este cobro del saldo en lo que devuelve servedOperators: la suya o la de su cobro con tarjeta. */
+function servedIn(
+  served: Map<string, ServedOperator>,
+  request: { id: string; linkedPaymentId: string | null },
+): ServedOperator | undefined {
   return served.get(request.id) ?? (request.linkedPaymentId ? served.get(request.linkedPaymentId) : undefined);
 }

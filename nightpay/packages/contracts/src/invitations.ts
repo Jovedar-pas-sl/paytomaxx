@@ -144,6 +144,8 @@ export function staffTokenFrom(scanned: string): string | null {
 export interface InvitableStaff {
   id: string;
   name: string;
+  /** Al leer su «Mi QR»: la huella de su foto (Mi perfil) para enseñarla; null sin foto. Las apps de antes no la leen. */
+  photoHash?: string | null;
 }
 
 export const INVITATION_TOKEN_MISSING = 'Escanea el QR de la chica a la que invita (en su app, «Mi QR»).';

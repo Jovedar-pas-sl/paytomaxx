@@ -11,6 +11,8 @@
 //    su «Mi QR»; las líneas de Servicios la llevan con su %, y el resto del cobro, 0.
 //  - El reparto: pagado con tarjeta, ficha o datáfono, a ella le llegan su parte y la propina
 //    entera (y la devolución se la descuenta); la propina que se ofrece sigue la fila Sala.
+//  - Lo que ven los demás: /pay y /s dicen «Servicio con Nerea» (con su foto en /pay) y las listas del
+//    datáfono y del encargado, «Servicio de Nerea».
 // Ver README.md.
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import { AsyncLocalStorage } from 'node:async_hooks';
@@ -663,5 +665,68 @@ describe('El reparto: su parte y la propina entera (tarjeta, ficha y datáfono),
     });
     const me = await inVenue(L.V, () => venuesMe.getMyVenue({ sub: L.encargado, role: 'MANAGER', tenantId: L.V } as JwtPayload));
     expect(me.myRights).toMatchObject({ tips: true, serviceTips: false });
+  });
+
+  describe('Lo que ven los demás: «Servicio con Nerea», su foto y las listas del datáfono', () => {
+    let L: Local;
+    const foto = (who: string) => Buffer.from(`RIFF-foto-de-${who}`);
+    beforeAll(async () => {
+      L = await local('Ven');
+      // Las fotos de Mi perfil de Nerea y del encargado (con nombre): la página enseña la de ella.
+      await sys(async (tx) => {
+        await tx.user.update({ where: { id: L.encargado }, data: { displayName: 'Javi' } });
+        for (const [userId, who, hash] of [[L.nerea, 'nerea', 'a'], [L.encargado, 'javi', 'b']] as const) {
+          await tx.userPhoto.create({
+            data: { userId, tenantId: L.V, contentType: 'image/webp', data: foto(who), contentHash: hash.repeat(64), width: 64, height: 64 },
+          });
+        }
+      });
+    });
+
+    it('/pay: «Servicio con Nerea» con su nombre y su foto, no los del encargado ni ningún correo', async () => {
+      const p = await cobro(L, encargadoOf(L), [L.servicio]);
+      const view = await inVenue(undefined, () => payments.getPayPage(p.qrToken));
+      expect(view).toMatchObject({
+        kind: 'choose',
+        staffName: 'Nerea',
+        served: true,
+        staffPhoto: `data:image/webp;base64,${foto('nerea').toString('base64')}`,
+      });
+      expect(JSON.stringify(view)).not.toContain('Javi');
+      expect(JSON.stringify(view)).not.toContain('@x.es');
+    });
+
+    it('/s: requestedByName Nerea y served; el que cobra el encargado sin compañera, como hoy', async () => {
+      const p = await cobro(L, encargadoOf(L), [L.servicio]);
+      const s = await inVenue(undefined, async () => charges.qrChargeForClient(await payTokenOf(p.saldo!.chargeId)));
+      expect(s).toMatchObject({ requestedByName: 'Nerea', served: true });
+      const copa = await inVenue(L.V, () =>
+        payments.create(
+          L.V,
+          `ven-${r}-copa`,
+          { currency: 'EUR', terminalExternalId: `REP-${L.name}-${r}`, lines: [{ serviceItemId: L.copa, qty: 1 }], withSaldo: true } as never,
+          encargadoOf(L),
+        ),
+      );
+      const sin = await inVenue(undefined, async () => charges.qrChargeForClient(await payTokenOf(copa.saldo!.chargeId)));
+      expect(sin.requestedByName).toBe('Javi');
+      expect(sin).not.toHaveProperty('served');
+    });
+
+    it('el PAX y las listas: «Servicio de Nerea» en sus cobros y en los del saldo; la del personal, «Nerea»', async () => {
+      const p = await cobro(L, encargadoOf(L), [L.servicio], { captureMethod: 'POS_EXTERNAL' });
+      const device = { terminalId: L.term, tenantId: L.V, label: 'Barra', zone: 'BARRA', tokenHash: 'x' } as PosDevice;
+      expect((await inVenue(L.V, () => pax.pending(device))).find((c) => c.id === p.id)?.createdByName).toBe('Servicio de Nerea');
+      expect((await inVenue(L.V, () => payments.listPendingPos(L.V))).find((c) => c.id === p.id)?.createdByName).toBe('Nerea');
+
+      const q = await cobro(L, encargadoOf(L), [L.servicio]);
+      const terminal = { terminalId: L.term, tenantId: L.V };
+      const enPax = (await inVenue(L.V, () => charges.pendingQrChargesForTerminal(terminal))).find((c) => c.id === q.saldo!.chargeId);
+      expect(enPax?.requestedByName).toBe('Servicio de Nerea');
+      const dueno = { userId: L.dueno, role: 'OWNER', tenantId: L.V } as never;
+      expect((await inVenue(L.V, () => charges.pendingQrCharges(dueno))).find((c) => c.id === q.saldo!.chargeId)?.requestedByName).toBe(
+        'Servicio de Nerea',
+      );
+    });
   });
 });

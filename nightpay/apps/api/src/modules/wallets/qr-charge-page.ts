@@ -96,7 +96,9 @@ export function renderQrChargePage(
     // La hora del servidor: la cuenta atrás corrige la del móvil (como /pay).
     now: now.getTime(),
   });
-  const who = [view.serviceName, view.requestedByName, view.venueName].filter(Boolean).join(' · ');
+  // A nombre de una compañera (cobro por el encargado): «Servicio con Nerea», en su idioma.
+  const by = view.served && view.requestedByName ? p.serviceWith(view.requestedByName) : view.requestedByName;
+  const who = [view.serviceName, by, view.venueName].filter(Boolean).join(' · ');
   // Caducado, cancelado o rechazado: no se cobró nada.
   const closed = view.status !== 'PENDING' && !isPaid;
   // «Ver mi saldo»: tras pagar aquí, el enlace que trae la respuesta del pago;

@@ -1138,7 +1138,7 @@ export class PaymentsService implements OnApplicationBootstrap {
     const payment = await this.findPayable(qrToken);
     const settled = settledPayView(payment);
     if (settled) return settled;
-    if (payment.status !== 'AUTHORIZING') return this.withStaffPhoto(choosePayPage(payment), payment.createdByUserId);
+    if (payment.status !== 'AUTHORIZING') return this.withStaffPhoto(choosePayPage(payment), payment.staffUserId);
     // Factura de bitcoin abierta: su página (QR y cuenta atrás), no la del banco.
     if (payment.provider === 'BTCPAY') return { kind: 'bitcoin' };
     // Otras pasarelas: se reenvía lo guardado, como antes.
@@ -1158,7 +1158,7 @@ export class PaymentsService implements OnApplicationBootstrap {
       paymentUpdatedAt: payment.updatedAt,
     });
     // Denegado o abandonado: puede volver a elegir (p. ej. tarjeta en vez de Apple Pay).
-    return decision === 'retry' ? this.withStaffPhoto(choosePayPage(payment), payment.createdByUserId) : retryOutcome(decision);
+    return decision === 'retry' ? this.withStaffPhoto(choosePayPage(payment), payment.staffUserId) : retryOutcome(decision);
   }
 
   /**
@@ -1303,7 +1303,7 @@ export class PaymentsService implements OnApplicationBootstrap {
   private async findPayable(
     qrToken: string,
   ): Promise<
-    PayablePayment & { tenantId: string; provider: Provider | null; updatedAt: Date; walletId: string | null; createdByUserId: string | null }
+    PayablePayment & { tenantId: string; provider: Provider | null; updatedAt: Date; walletId: string | null; staffUserId: string | null }
   > {
     const payment = await this.prisma.asSystem((tx) =>
       tx.payment.findUnique({
@@ -1376,7 +1376,10 @@ export class PaymentsService implements OnApplicationBootstrap {
       venueName: venue?.name ?? null,
       concept: serviceName ?? null,
       tipToStaff: tipGoesToStaff({ tipGoesTo: tipGoesTo ?? null, creatorRole: createdBy?.role ?? null, served: Boolean(served) }),
-      staffName: createdBy?.displayName?.trim() || null,
+      // A nombre de una compañera, ella (su nombre y su foto): «Servicio con Nerea».
+      staffName: served ? served.name : createdBy?.displayName?.trim() || null,
+      staffUserId: served?.id ?? payment.createdByUserId,
+      ...(served ? { served: true } : {}),
       approvedClaimHash: attempts[0]?.claimHash ?? null,
       ...payerWalletFields({ wallet, firstTopUp, idempotencyKey, approvedClaimHash: attempts[0]?.claimHash ?? null }),
       // Reservados: al pagarse (también con bitcoin), el navegador que pagó vuelve a la página del reservado.
@@ -2432,10 +2435,13 @@ export class PaymentsService implements OnApplicationBootstrap {
       orderBy: { createdAt: 'desc' },
       take: 50,
       include: {
-        createdBy: { select: { displayName: true, email: true } },
+        createdBy: { select: { displayName: true, email: true, role: true } },
         terminal: { select: { zone: true, label: true } },
       },
     });
+    // A nombre de una compañera (cobro por el encargado), la de su servicio: la lista ya pone «Chica: …».
+    const byOthers = rows.filter((p) => p.createdBy?.role !== 'OPERATOR').map((p) => p.id);
+    const served = await this.prisma.asSystem((tx) => servedOperators(tx, { paymentIds: byOthers }));
     return rows.map((p) => ({
       id: p.id,
       // Lo que se cobra en el datáfono: el importe + la «Comisión del servicio»
@@ -2446,7 +2452,7 @@ export class PaymentsService implements OnApplicationBootstrap {
       currency: p.currency,
       createdAt: p.createdAt.toISOString(),
       qrExpiresAt: p.qrExpiresAt.toISOString(),
-      createdByName: p.createdBy?.displayName ?? p.createdBy?.email ?? '—',
+      createdByName: (served.has(p.id) ? served.get(p.id)?.name : (p.createdBy?.displayName ?? p.createdBy?.email)) ?? '—',
       zone: p.terminal?.zone ?? null,
       terminalLabel: p.terminal?.label ?? null,
       qrToken: p.qrToken,

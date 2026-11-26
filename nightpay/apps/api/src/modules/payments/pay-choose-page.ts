@@ -365,13 +365,15 @@ function keepRuleLine(view: ChooseView, lang: PayLanguage): string {
 /**
  * Quién cobra (decisión del dueño, 19-11-2026), como en /s: su nombre visible
  * y su foto si tiene. La foto es de adorno (el nombre va al lado): alt vacío.
+ * A nombre de una compañera (cobro por el encargado): «Servicio con Nerea», con su foto.
  */
 function whoLine(view: ChooseView, t: PayText): string {
   if (!view.staffName) return '';
   const photo = view.staffPhoto?.startsWith('data:image/')
     ? `<img class="face" src="${escapeHtml(view.staffPhoto)}" alt="" width="32" height="32">`
     : '';
-  return `<p class="who">${photo}<span>${escapeHtml(t.chargedBy(view.staffName))}</span></p>`;
+  const who = view.served ? t.serviceWith(view.staffName) : t.chargedBy(view.staffName);
+  return `<p class="who">${photo}<span>${escapeHtml(who)}</span></p>`;
 }
 
 export function renderChooseBody(view: ChooseView, ctx: ChooseContext): string {

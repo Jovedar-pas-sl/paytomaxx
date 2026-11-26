@@ -15,6 +15,7 @@ import type { RequestContext } from '../../common/context/request-context';
 import { PrismaService, type TransactionalClient } from '../../common/prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { InvalidTransitionError, type PaymentMachineState } from '../payments/payment.machine';
+import { servedLabel, servedOperators } from '../payments/charge-store';
 import { PAID_STATES, confirmationCode } from '../payments/pay-redirect';
 import { PaymentsService } from '../payments/payments.service';
 import { maxTipCents, settleChargedTip } from '../payments/tip';
@@ -279,8 +280,8 @@ export class PosDeviceService {
 
   /** Cobros por datáfono que esperan a ser cobrados en el local. */
   async pending(device: PosDevice): Promise<PendingPosCharge[]> {
-    const rows = await this.prisma.asSystem((tx) =>
-      tx.payment.findMany({
+    const { rows, served } = await this.prisma.asSystem(async (tx) => {
+      const rows = await tx.payment.findMany({
         where: {
           tenantId: device.tenantId,
           status: 'CREATED',
@@ -296,11 +297,14 @@ export class PosDeviceService {
           currency: true,
           createdAt: true,
           terminalId: true,
-          createdBy: { select: { displayName: true, email: true } },
+          createdBy: { select: { displayName: true, email: true, role: true } },
           terminal: { select: { zone: true, label: true } },
         },
-      }),
-    );
+      });
+      // A nombre de una compañera (cobro por el encargado): «Servicio de Nerea». Una compañera nunca cobra a nombre de otra.
+      const byOthers = rows.filter((r) => r.createdBy?.role !== 'OPERATOR').map((r) => r.id);
+      return { rows, served: await servedOperators(tx, { paymentIds: byOthers }) };
+    });
     const mine = (r: (typeof rows)[number]): boolean =>
       r.terminalId === device.terminalId || (device.zone !== null && r.terminal?.zone === device.zone);
     return rows
@@ -313,7 +317,7 @@ export class PosDeviceService {
         serviceFeeCents: r.serviceFeeCents,
         currency: r.currency,
         createdAt: r.createdAt.toISOString(),
-        createdByName: r.createdBy?.displayName ?? r.createdBy?.email ?? '—',
+        createdByName: servedLabel(served.get(r.id)) ?? r.createdBy?.displayName ?? r.createdBy?.email ?? '—',
         zone: r.terminal?.zone ?? null,
         terminalLabel: r.terminal?.label ?? null,
         code: confirmationCode(r.id),
