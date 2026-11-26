@@ -3,6 +3,7 @@
 // Hooks de las apps del personal (operadora y TPV). Solo en componentes de cliente.
 
 import { useEffect, useState, useSyncExternalStore } from 'react';
+import { createKiosk } from '../lib/kiosk';
 import { createWakeLock, wakeLockFrom } from '../lib/wake-lock';
 
 /** La hora, refrescada cada `intervalMs` mientras `active` (si no, se queda quieta). */
@@ -67,6 +68,38 @@ export function useWakeLock(active: boolean): void {
     return () => {
       document.removeEventListener('visibilitychange', onVisibility);
       lock.stop();
+    };
+  }, [active]);
+}
+
+/**
+ * Pantalla completa con la salida bloqueada mientras `active` (hay sesión):
+ * se pide al entrar, se recupera en el siguiente toque si se pierde y se
+ * quita al salir. Donde no hay pantalla completa (iPhone) no hace nada.
+ */
+export function useKiosk(active: boolean): void {
+  useEffect(() => {
+    if (!active || typeof document === 'undefined') return undefined;
+    const root = document.documentElement;
+    const nav = navigator as Navigator & { keyboard?: { lock?: (keys: string[]) => Promise<void>; unlock?: () => void } };
+    const native = (window as Window & { NightPayPax?: { lockApp?: (json: string) => void; unlockApp?: (json: string) => void } }).NightPayPax;
+    const kiosk = createKiosk({
+      isFullscreen: () => Boolean(document.fullscreenElement),
+      requestFullscreen: typeof root.requestFullscreen === 'function' ? () => root.requestFullscreen() : null,
+      exitFullscreen: typeof document.exitFullscreen === 'function' ? () => document.exitFullscreen() : null,
+      keyboard: nav.keyboard ?? null,
+      // Como métodos del objeto de la app: fuera de él, Android no los ejecuta.
+      native: native
+        ? { lockApp: native.lockApp ? (j) => native.lockApp!(j) : undefined, unlockApp: native.unlockApp ? (j) => native.unlockApp!(j) : undefined }
+        : null,
+    });
+    // El navegador solo la concede dentro de un toque: el de «Entrar» suele valer; si no, el siguiente.
+    const onClick = () => kiosk.enter();
+    document.addEventListener('click', onClick, true);
+    kiosk.enter();
+    return () => {
+      document.removeEventListener('click', onClick, true);
+      kiosk.leave();
     };
   }, [active]);
 }
