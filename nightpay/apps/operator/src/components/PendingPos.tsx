@@ -158,7 +158,7 @@ export function PendingPos({ onConfirmed, focusPaymentId, onFocusConsumed }: Pro
           aria-pressed={muted}
           style={muteBtnStyle}
         >
-          <BellIcon muted={muted} />
+          <Icon name={muted ? 'bell-off' : 'bell'} />
         </Button>
       </div>
 
@@ -633,17 +633,6 @@ const muteBtnStyle: CSSProperties = {
   padding: 0,
   flexShrink: 0,
 };
-
-/** La campana (con una raya, silenciada): SVG que hereda el color del botón. */
-function BellIcon({ muted }: { muted: boolean }) {
-  return (
-    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M6 16V11a6 6 0 0112 0v5l1.5 2h-15z" />
-      <path d="M10 20.5a2 2 0 004 0" />
-      {muted ? <path d="M4 4l16 16" /> : null}
-    </svg>
-  );
-}
 
 const confirmPillStyle: CSSProperties = {
   padding: '1rem',

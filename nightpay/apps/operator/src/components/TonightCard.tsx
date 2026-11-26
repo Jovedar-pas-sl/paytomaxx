@@ -1,7 +1,7 @@
 'use client';
 
 import type { CSSProperties } from 'react';
-import { Importe } from '@nightpay/ui';
+import { Icon, Importe } from '@nightpay/ui';
 import type { MyNight } from '@/lib/api';
 import { tonightBreakdown, tonightStatus, type MoneySummary, type TonightTone } from '@/lib/earnings-view';
 import { formatEur } from '@/lib/money';
@@ -74,12 +74,9 @@ function TonePill({ tone }: { tone: TonightTone }) {
   );
 }
 
-export function Chevron() {
-  return (
-    <svg className={styles.chevron} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-      <path d="M9 5l7 7-7 7" />
-    </svg>
-  );
+/** La flecha «›» de las tarjetas que llevan a otra página (24; 20 en las filas, como su .chevron). */
+export function Chevron({ size = 24 }: { size?: 20 | 24 }) {
+  return <Icon name="chevron-right" size={size} className={styles.chevron} />;
 }
 
 /**

@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { haptic, Modal } from '@nightpay/ui';
+import { haptic, Icon, Modal } from '@nightpay/ui';
 import type { InvitationRules } from '@nightpay/contracts';
 import { fetchTerminals, newIdempotencyKey, type CreatedPayment, type MyNight, type OperatorUser } from '@/lib/api';
 import { cancelCard, cancelSaldo, createCobro, createSaldoCobro, fetchInvitationRules, type CobroInput } from '@/lib/api-cobro';
@@ -49,7 +49,6 @@ import { customerTipsOn, labelOf, type CobrarContext } from './cobrar-context';
 import { ElegirChica } from './ElegirChica';
 import { EscanearChica, type Invitada } from './EscanearChica';
 import { Esperando, type CobroAbierto } from './Esperando';
-import { IconPlus, IconQr } from './icons';
 import { LaCuenta } from './LaCuenta';
 import { MiQr } from './MiQr';
 import { OtroImporte } from './OtroImporte';
@@ -402,11 +401,11 @@ export function CobrarFlow({ user, onCobroDone, onLogout, night, miQrOpen = fals
   const headerExtra =
     user.role === 'OPERATOR' && onMiQr ? (
       <button type="button" className={styles.iconBtn} onClick={() => onMiQr(true)} aria-label="Mi QR para las invitaciones" data-tour="cobrar-miqr">
-        <IconQr />
+        <Icon name="qr" />
       </button>
     ) : onRecargar ? (
       <button type="button" className={styles.iconBtn} onClick={onRecargar} aria-label="Recargar saldo" data-tour="cobrar-recargar">
-        <IconPlus />
+        <Icon name="plus" />
       </button>
     ) : null;
   const menuModal = (
