@@ -124,7 +124,8 @@ export function formatRelative(at: string | Date, now: Date, timeZone: string = 
   const time = formatDateTime(date, timeZone, 'time');
   const night = (d: Date): string => dayInZone(new Date(d.getTime() - NIGHT_SHIFT_MS), timeZone);
   if (night(date) === night(now)) return `hoy, ${time}`;
-  if (night(date) === night(new Date(now.getTime() - 24 * HOUR_MS))) return `ayer, ${time}`;
+  // «Ayer» es la noche de antes en el calendario, no 24 horas antes: el día del cambio de hora dura 23 o 25.
+  if (Date.parse(night(now)) - Date.parse(night(date)) === 24 * HOUR_MS) return `ayer, ${time}`;
   const sameYear = dayInZone(date, timeZone).slice(0, 4) === dayInZone(now, timeZone).slice(0, 4);
   // Sin el punto de la abreviatura («nov.» en algunos navegadores).
   return `${formatDateTime(date, timeZone, sameYear ? 'dayMonth' : 'dayMonthYear').replace('.', '')}, ${time}`;

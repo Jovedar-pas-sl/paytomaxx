@@ -44,6 +44,17 @@ describe('formatRelative', () => {
     expect(formatRelative('2026-11-16T03:00:00+01:00', now)).toBe('ayer, 03:00');
   });
 
+  it('«ayer» es la noche de antes en el calendario, también la mañana siguiente a un cambio de hora', () => {
+    // Lunes 30 de marzo de 2026, 08:30: el domingo tuvo 23 horas.
+    const spring = new Date('2026-03-30T08:30:00+02:00');
+    expect(formatRelative('2026-03-29T16:00:00+02:00', spring)).toBe('ayer, 16:00');
+    expect(formatRelative('2026-03-28T21:30:00+01:00', spring)).toBe('28 mar, 21:30');
+    // Lunes 26 de octubre de 2026, 07:30: el domingo tuvo 25 horas.
+    const autumn = new Date('2026-10-26T07:30:00+01:00');
+    expect(formatRelative('2026-10-24T21:30:00+02:00', autumn)).toBe('ayer, 21:30');
+    expect(formatRelative('2026-10-23T21:30:00+02:00', autumn)).toBe('23 oct, 21:30');
+  });
+
   it('más atrás: el día y la hora; de otro año, con el año', () => {
     expect(formatRelative('2026-11-14T21:30:00+01:00', now)).toBe('14 nov, 21:30');
     expect(formatRelative('2026-11-05T08:05:00+01:00', now)).toBe('5 nov, 08:05');
