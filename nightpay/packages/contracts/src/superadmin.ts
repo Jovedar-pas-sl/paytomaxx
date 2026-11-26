@@ -814,6 +814,7 @@ export type AuditEventPage = z.infer<typeof AuditEventPageSchema>;
 //   PUT  /v1/superadmin/venues/:id/yavin/key      SetYavinKeyDto (2FA) → YavinVenueStatus
 //   POST /v1/superadmin/venues/:id/yavin/use      SetYavinUseDto (2FA) → YavinVenueStatus
 //   POST /v1/superadmin/venues/:id/yavin/clear    StepUpWithReasonDto (2FA) → YavinVenueStatus
+//        (no borra la clave: la deja inactiva para operar los cobros ya hechos)
 
 export const YavinVenueStatusSchema = z.object({
   /** Hay una clave de API de Yavin guardada (cifrada) y activa. */

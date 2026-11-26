@@ -14,6 +14,8 @@ import type { SuperAdminActor } from './superadmin.guard';
  * IBAN de liquidación). La clave de API se guarda cifrada en
  * gateway_credentials (provider YAVIN) y nunca vuelve: ni en la respuesta, ni
  * en el registro, ni en el log. Guardar una nueva sustituye a la anterior.
+ * «Quitar» no la borra: la deja inactiva (ningún cobro nuevo la usa) para que
+ * los cobros ya hechos con Yavin se sigan comprobando, anulando y devolviendo.
  */
 @Injectable()
 export class SuperAdminYavinService {
@@ -81,13 +83,22 @@ export class SuperAdminYavinService {
     return this.status(venueId);
   }
 
-  /** Quita la clave y deja de usar Yavin (2FA y motivo). Los cobros ya abiertos siguen su curso. */
+  /**
+   * Deja de usar Yavin en el local para cobros NUEVOS (2FA y motivo). La clave
+   * cifrada se queda guardada pero inactiva: sin ella no se podrían comprobar,
+   * anular ni devolver los cobros ya hechos con Yavin. Para cobrar otra vez con
+   * Yavin hay que volver a guardar la clave.
+   */
   async clear(actor: SuperAdminActor, venueId: string, dto: StepUpWithReasonDto): Promise<YavinVenueStatus> {
     await this.stepUp.verify(actor, dto.totpCode, 'venue.yavin_clear');
     const before = await this.status(venueId);
     if (!before.configured && !before.selected) throw new ConflictException('Este local no tiene Yavin');
     await this.prisma.acrossVenues(async (tx) => {
-      await tx.gatewayCredential.deleteMany({ where: { tenantId: venueId, provider: 'YAVIN' } });
+      if (before.configured) {
+        // Solo cabe una inactiva por local (la guardada antes que esta, ya sustituida).
+        await tx.gatewayCredential.deleteMany({ where: { tenantId: venueId, provider: 'YAVIN', active: false } });
+        await tx.gatewayCredential.updateMany({ where: { tenantId: venueId, provider: 'YAVIN', active: true }, data: { active: false } });
+      }
       await tx.venue.update({ where: { id: venueId }, data: { yavinSelected: false } });
     });
     await this.audit.write(actor, {
@@ -96,7 +107,7 @@ export class SuperAdminYavinService {
       targetType: 'Venue',
       targetId: venueId,
       before: { configured: before.configured, selected: before.selected },
-      after: { configured: false, selected: false },
+      after: { configured: false, selected: false, keyKeptForExisting: before.configured },
       reason: dto.reason,
     });
     return this.status(venueId);

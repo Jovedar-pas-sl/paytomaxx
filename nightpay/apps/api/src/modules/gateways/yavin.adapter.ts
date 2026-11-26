@@ -205,7 +205,7 @@ export class YavinAdapter implements GatewayAdapter {
       throw new Error(`Yavin no acepta cobros de menos de ${YAVIN_MIN_CENTS / 100} €: este es de ${input.amountCents} céntimos`);
     }
     if (!input.attemptId) throw new Error('Yavin: falta el id del intento');
-    const apiKey = await this.apiKeyOf(input.tenantId);
+    const apiKey = await this.apiKeyOf(input.tenantId, 'new');
     const notice = newNoticeToken();
     const apiBase = this.publicApiBase();
     const lang = input.language && input.language !== 'es' ? `&lang=${input.language}` : '';
@@ -248,7 +248,7 @@ export class YavinAdapter implements GatewayAdapter {
   async cartOf(tenantId: string, cartId: string): Promise<CartLookup> {
     let apiKey: string;
     try {
-      apiKey = await this.apiKeyOf(tenantId);
+      apiKey = await this.apiKeyOf(tenantId, 'existing');
     } catch (err) {
       return { ok: false, reason: `yavin-sin-credencial: ${(err as Error).message}`.slice(0, 200) };
     }
@@ -302,7 +302,7 @@ export class YavinAdapter implements GatewayAdapter {
 
   /** Anula el enlace en Yavin (al cancelar el cobro): ya no se puede pagar. */
   async cancelLink(tenantId: string, cartId: string): Promise<void> {
-    const apiKey = await this.apiKeyOf(tenantId);
+    const apiKey = await this.apiKeyOf(tenantId, 'existing');
     // shortcut: cancel_link recibe { cart_id } (sin confirmar).
     const res = await gatewayFetch(() => this.post('/api/v5/ecommerce/cancel_link/', apiKey, { cart_id: cartId }), 'Yavin cancel_link');
     if (!res.ok) {
@@ -328,7 +328,7 @@ export class YavinAdapter implements GatewayAdapter {
     const tx = transactionOf(found.cart);
     if (!tx) throw new YavinHttpError('Yavin: el carrito no tiene operación que devolver', 422);
     if (tx.refunded) throw new YavinHttpError(YAVIN_SECOND_REFUND_TEXT, 422);
-    const apiKey = await this.apiKeyOf(input.tenantId);
+    const apiKey = await this.apiKeyOf(input.tenantId, 'existing');
     // shortcut: el cuerpo de la devolución ({ amount } en céntimos) y el id de
     // la respuesta (`id` / `refund_id`) sin confirmar.
     const res = await this.post(`/api/v5/transaction/${encodeURIComponent(tx.id)}/refund/`, apiKey, { amount: input.amountCents });
@@ -385,16 +385,23 @@ export class YavinAdapter implements GatewayAdapter {
     return (this.config.get<string>('NEXT_PUBLIC_API_URL') ?? 'http://localhost:4100').replace(/\/+$/, '');
   }
 
-  /** La clave de API del local, descifrada (solo en memoria, para la llamada). */
-  private async apiKeyOf(tenantId: string): Promise<string> {
+  /**
+   * La clave de API del local, descifrada (solo en memoria, para la llamada).
+   * `new` (abrir un enlace): solo la activa. `existing` (comprobar, anular o
+   * devolver lo ya hecho): también la que el super-admin quitó (queda guardada
+   * inactiva justo para esto); la activa primero.
+   */
+  private async apiKeyOf(tenantId: string, use: 'new' | 'existing'): Promise<string> {
     const row = await this.prisma.asSystem((tx) =>
       tx.gatewayCredential.findFirst({
-        where: { tenantId, provider: 'YAVIN', active: true },
-        orderBy: { createdAt: 'desc' },
+        where: { tenantId, provider: 'YAVIN', ...(use === 'new' ? { active: true } : {}) },
+        orderBy: [{ active: 'desc' }, { createdAt: 'desc' }],
         select: { encKey: true, encNonce: true, encTag: true },
       }),
     );
-    if (!row) throw new Error('Yavin: el local no tiene credencial activa');
+    if (!row) {
+      throw new Error(use === 'new' ? 'Yavin: el local no tiene credencial activa' : 'Yavin: el local no tiene ninguna clave de Yavin guardada');
+    }
     try {
       return openYavinKey(this.config.get<string>('ENCRYPTION_KEK'), tenantId, row);
     } catch {

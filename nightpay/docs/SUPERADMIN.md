@@ -82,7 +82,7 @@ incidencias se cuentan con la bandeja de cada local (4 locales a la vez).
 | `GET /superadmin/venues/:id/yavin` | Yavin en el local: si hay clave (y desde cuándo, nunca la clave), si está elegido y si cobra. Solo con `YAVIN_ENABLED` (si no, 404). | No | — |
 | `PUT /superadmin/venues/:id/yavin/key` | Guarda la clave de API de Yavin del local, cifrada (AES-256-GCM) en `gateway_credentials`. Sustituye a la anterior. | Sí | `venue.yavin_key_set` (sin la clave) |
 | `POST /superadmin/venues/:id/yavin/use` | Usar Yavin en el local (`use: true`, hace falta la clave) o dejar de usarlo. | Sí | `venue.yavin_selected` / `venue.yavin_unselected` |
-| `POST /superadmin/venues/:id/yavin/clear` | Borra la clave y deja de usar Yavin. Motivo. | Sí | `venue.yavin_cleared` |
+| `POST /superadmin/venues/:id/yavin/clear` | Deja de usar Yavin para cobros nuevos. La clave no se borra: queda cifrada e inactiva para comprobar, anular y devolver los cobros ya hechos con Yavin. Motivo. | Sí | `venue.yavin_cleared` |
 | `POST /superadmin/venues/:id/pause` | Pausa el local. Motivo. | Sí | `venue.paused` |
 | `POST /superadmin/venues/:id/resume` | Quita la pausa (si su negocio sigue en pausa, sigue sin cobrar). | Sí | `venue.resumed` |
 

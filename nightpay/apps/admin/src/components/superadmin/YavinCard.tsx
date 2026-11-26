@@ -129,7 +129,7 @@ export function YavinCard({ venueId, venueName }: { venueId: string; venueName: 
         <StepUpDialog
           title="Quitar Yavin del local"
           action="venue.yavinClear"
-          summary={`Vas a borrar la clave de Yavin de ${venueName} y dejar de usarlo. Los cobros ya abiertos con Yavin siguen su curso.`}
+          summary={`Los cobros nuevos de ${venueName} dejarán de ir por Yavin. La clave se queda guardada (cifrada) solo para comprobar, anular y devolver los cobros ya hechos con Yavin; para volver a cobrar con Yavin tendrás que guardar la clave otra vez.`}
           submitLabel="Quitar Yavin"
           danger
           onSubmit={async ({ totpCode, reason }) => done(await clearSaYavin(venueId, { totpCode, reason }))}

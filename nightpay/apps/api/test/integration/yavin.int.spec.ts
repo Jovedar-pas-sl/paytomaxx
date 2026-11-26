@@ -15,6 +15,8 @@ import { WebhooksController } from '../../src/modules/webhooks/webhooks.controll
 import { YavinCancelHook } from '../../src/modules/payments/yavin-cancel.hook';
 import { assertYavinFirstRefund } from '../../src/modules/refunds/yavin-refund';
 import { PaymentsController } from '../../src/modules/payments/payments.controller';
+import { SuperAdminYavinService } from '../../src/modules/superadmin/yavin-venue.service';
+import { yavinUsableIn } from '../../src/modules/gateways/card-gateway';
 import type { CheckoutChoice } from '../../src/modules/payments/pay-redirect';
 
 const KEK = process.env.ENCRYPTION_KEK!;
@@ -122,13 +124,17 @@ const r = randomUUID().slice(0, 6);
 let A: string, waiter: string, term: string;
 
 /** Un cobro de la barra. `cardGateway`: lo que eligió el camarero («BBVA» = REDSYS, o YAVIN); null = no eligió. */
-async function newPayment(amount = 2_500, cardGateway: 'REDSYS' | 'YAVIN' | null = 'YAVIN'): Promise<{ id: string; qrToken: string }> {
+async function newPayment(
+  amount = 2_500,
+  cardGateway: 'REDSYS' | 'YAVIN' | null = 'YAVIN',
+  at: { tenantId: string; terminalId: string; userId: string } = { tenantId: A, terminalId: term, userId: waiter },
+): Promise<{ id: string; qrToken: string }> {
   return sys(async (tx) => {
     const p = await tx.payment.create({
       data: {
-        tenantId: A,
-        terminalId: term,
-        createdByUserId: waiter,
+        tenantId: at.tenantId,
+        terminalId: at.terminalId,
+        createdByUserId: at.userId,
         idempotencyKey: `k-${randomUUID()}`,
         amountCents: amount,
         availableAmountCents: amount,
@@ -399,5 +405,63 @@ describe('YAVIN_ENABLED apagado con enlaces de Yavin ya abiertos (pagables 72 h)
       yavin.authorize({ paymentId: randomUUID(), attemptId: randomUUID(), tenantId: A, amountCents: 2_500, currency: 'EUR' } as never),
     ).rejects.toThrow(/YAVIN_ENABLED/);
     expect(calls.filter((c) => c.path.includes('generate_link'))).toHaveLength(0);
+  });
+});
+
+describe('Super-admin quita Yavin de un local con cobros de Yavin abiertos y pagados', () => {
+  const KEY_B = 'otra-clave-yavin-inventada';
+  const service = new SuperAdminYavinService(
+    prisma,
+    config as never,
+    { verify: async () => undefined } as never,
+    { write: async () => undefined } as never,
+  );
+  const actor = { id: randomUUID(), email: 'super@x.es' };
+  const clear = () => pub(() => service.clear(actor, B.tenantId, { totpCode: '000000', reason: 'baja de Yavin' } as never));
+  let B: { tenantId: string; terminalId: string; userId: string };
+
+  beforeAll(async () => {
+    B = await sys(async (tx) => {
+      const v = await tx.venue.create({ data: { name: 'Solo Yavin', slug: `yav2-${r}`, yavinSelected: true } });
+      const t = await tx.terminal.create({ data: { tenantId: v.id, externalId: `TYAV2-${r}`, label: 'Barra', zone: 'BARRA' } });
+      const u = await tx.user.create({ data: { tenantId: v.id, email: `cam-yav2-${r}@x.es`, passwordHash: 'x', role: 'WAITER' } });
+      await tx.gatewayCredential.create({ data: { tenantId: v.id, provider: 'YAVIN', active: true, ...sealYavinKey(KEK, v.id, KEY_B) } });
+      return { tenantId: v.id, terminalId: t.id, userId: u.id };
+    });
+  });
+
+  it('deja de cobrar con Yavin, pero los cobros ya hechos se siguen comprobando, anulando y devolviendo con la clave guardada', async () => {
+    const open = await openWithYavin(await newPayment(2_500, 'YAVIN', B));
+    const paidPayment = await newPayment(3_000, 'YAVIN', B);
+    const paid = await openWithYavin(paidPayment);
+    carts.get(paid.cartId)!.status = 'paid';
+    await webhooks.receiveYavin(paid.token);
+    expect((await paymentOf(paidPayment.id)).status).toBe('AUTHORIZED');
+
+    await expect(clear()).resolves.toMatchObject({ configured: false, selected: false, inUse: false });
+    // Nada nuevo va a Yavin…
+    await expect(sys((tx) => yavinUsableIn(tx, B.tenantId))).resolves.toBe(false);
+    await expect(
+      yavin.authorize({ paymentId: randomUUID(), attemptId: randomUUID(), tenantId: B.tenantId, amountCents: 2_500, currency: 'EUR' } as never),
+    ).rejects.toThrow(/credencial activa/);
+    // …pero la clave sigue guardada (cifrada) para lo ya hecho.
+    calls.length = 0;
+    carts.get(open.cartId)!.status = 'paid';
+    await expect(webhooks.receiveYavin(open.token)).resolves.toEqual({ received: true });
+    await expect(yavin.getStatus(B.tenantId, paid.cartId)).resolves.toBeDefined();
+    await expect(yavin.cancelLink(B.tenantId, open.cartId)).resolves.toBeUndefined();
+    expect(calls.length).toBeGreaterThan(0);
+    expect(calls.every((c) => c.secret === KEY_B)).toBe(true);
+    const dump = JSON.stringify(await sys((tx) => tx.gatewayCredential.findMany({ where: { tenantId: B.tenantId } })));
+    expect(dump).not.toContain(KEY_B);
+  });
+
+  it('volver a guardar una clave y quitarla otra vez funciona (una sola clave guardada por local)', async () => {
+    await pub(() => service.setKey(actor, B.tenantId, { totpCode: '000000', apiKey: KEY_B } as never));
+    await expect(pub(() => service.status(B.tenantId))).resolves.toMatchObject({ configured: true });
+    await expect(clear()).resolves.toMatchObject({ configured: false });
+    await expect(clear()).rejects.toBeInstanceOf(ConflictException);
+    const rows = await sys((tx) => tx.gatewayCredential.findMany({ where: { tenantId: B.tenantId, provider: 'YAVIN' } }));
+    expect(rows.map((x) => x.active)).toEqual([false]);
   });
 });
