@@ -69,7 +69,7 @@ describe('En directo', () => {
   it('las horas, con la gráfica leída en voz alta', () => {
     expect(html).toContain('Ventas por hora');
     expect(html).toContain('role="img" aria-label="Ventas por hora: 20 h 620,00 €');
-    expect(html).toContain('3,1 k');
+    expect(html).toContain('3,1 mil €');
   });
 
   it('los avisos con su acción: ver las taquillas y llamar al responsable', () => {

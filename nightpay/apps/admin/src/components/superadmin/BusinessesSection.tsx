@@ -3,7 +3,7 @@
 import { useState, type FormEvent } from 'react';
 import { Button, Card, Input, Modal, Select } from '@nightpay/ui';
 import { businessCreateNeedsStepUp, type BusinessStatusValue, type CreateBusinessDto } from '@nightpay/contracts';
-import { formatPercent } from '@/lib/commission';
+import { formatBps } from '@/lib/commission';
 import { createSaBusiness, fetchSaBusinesses } from '@/lib/endpoints/superadmin';
 import { FILTER_FIELD, FILTER_SELECT } from '@/lib/filter-field';
 import { EMPTY_BUSINESS_FORM, businessMoneyChanges, businessPayload, type BusinessForm } from '@/lib/superadmin/forms';
@@ -95,7 +95,7 @@ export function BusinessesSection() {
                           {b.venueCount}
                         </td>
                         <td data-label="Comisión">
-                          {b.defaultPlatformCommissionBps === null ? 'La general' : formatPercent(b.defaultPlatformCommissionBps)}
+                          {b.defaultPlatformCommissionBps === null ? 'La general' : formatBps(b.defaultPlatformCommissionBps)}
                         </td>
                         <td data-label="Estado" data-card="status">
                           {b.status === 'PAUSED' ? <Pill tone="warning">En pausa</Pill> : <Pill tone="success">Cobrando</Pill>}

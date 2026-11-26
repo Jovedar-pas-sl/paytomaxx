@@ -9,6 +9,7 @@ import { APPROVAL_STATUS, approvalTarget, decisionLine, handOverState, kindLabel
 import { keepIfSame } from '@/lib/diff';
 import { formatEur } from '@/lib/money';
 import { usePolling } from '@/lib/use-polling';
+import { useVenueTimezone } from '@/lib/venue-context';
 import { Notice } from './Notice';
 import { PAYOUT_METHOD_SHORT } from './PayoutMethodForm';
 import { Pill } from './Pill';
@@ -85,6 +86,7 @@ export function MyRequestsPanel({ hideWhenEmpty = false }: { hideWhenEmpty?: boo
 }
 
 function RequestRow({ item, now, onChanged }: { item: ApprovalView; now: Date; onChanged: () => void }) {
+  const tz = useVenueTimezone();
   const status = APPROVAL_STATUS[item.status];
   const hand = handOverState(item, now);
   const [busy, setBusy] = useState(false);
@@ -109,7 +111,7 @@ function RequestRow({ item, now, onChanged }: { item: ApprovalView; now: Date; o
       </p>
       <p className="np-approval-amount np-num">{formatEur(item.amountCents)}</p>
       <p className="np-approval-target">{approvalTarget(item, methodLabel)}</p>
-      <p className="np-approval-meta">{decisionLine(item, now)}</p>
+      <p className="np-approval-meta">{decisionLine(item, now, tz)}</p>
       {hand === 'ready' ? (
         <>
           <p className="np-approval-meta">

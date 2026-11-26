@@ -15,7 +15,7 @@ import {
   type StallView,
   type UpdateStallDto,
 } from '@nightpay/contracts';
-import { bpsToPercentInput, formatPercent, parsePercentToBps } from './commission';
+import { bpsToPercentInput, formatBps, parsePercentToBps } from './commission';
 
 export interface StallForm {
   name: string;
@@ -62,7 +62,7 @@ export function stallFormFrom(s: StallView): StallForm {
 
 /** La parte del organizador que dice la caseta: «Barra propia» o «10 %». */
 export function organizerText(bps: number): string {
-  return bps === ORGANIZER_OWN_BAR_BPS ? 'Barra propia' : formatPercent(bps);
+  return bps === ORGANIZER_OWN_BAR_BPS ? 'Barra propia' : formatBps(bps);
 }
 
 type Parsed<T> = { ok: true; value: T } | { ok: false; problem: string };

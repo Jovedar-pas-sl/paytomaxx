@@ -198,28 +198,8 @@ textarea:focus {
 }
 
 /* ─── Siluetas mientras carga ─────────────────────────────────────────────
-   Bloques grises que respiran (solo opacidad) con la forma de la pantalla. */
-.np-skel {
-  display: block;
-  border-radius: var(--np-r-sm);
-  background: var(--np-surface-3);
-  animation: np-breathe 1.6s ease-in-out infinite;
-}
-
-.np-skel[data-round] {
-  border-radius: var(--np-r-pill);
-}
-
-@keyframes np-breathe {
-  0%,
-  100% {
-    opacity: 0.45;
-  }
-  50% {
-    opacity: 1;
-  }
-}
-
+   El bloque que respira (.np-skel) es la pieza Skeleton de @nightpay/ui
+   (pieces.css); aquí, solo las filas y la tabla de siluetas del panel. */
 .np-skel-row {
   display: flex;
   align-items: center;
@@ -320,11 +300,6 @@ textarea:focus {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .np-skel {
-    animation: none;
-    opacity: 0.7;
-  }
-
   .np-drain > i {
     animation: none;
   }

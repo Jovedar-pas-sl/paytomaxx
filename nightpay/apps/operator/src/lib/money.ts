@@ -21,14 +21,5 @@ export function formatSignedEur(cents: number, options?: EurOptions): string {
   return `${cents < 0 ? '−' : '+'}${formatEur(Math.abs(cents), options)}`;
 }
 
-/** Solo la cifra ("123,45"), para cuando el "EUR" va aparte con otro estilo. */
-export function formatEurAmount(cents: number): string {
-  return formatMoney(cents, { bare: true });
-}
-
-const PERCENT = new Intl.NumberFormat('es-ES', { style: 'percent', maximumFractionDigits: 2 });
-
-/** Comisión en puntos básicos (3750 = 37,5 %), sin redondear a entero. */
-export function formatBps(bps: number): string {
-  return PERCENT.format(bps / 10_000);
-}
+/** Comisión en puntos básicos (3750 = 37,5 %), sin redondear a entero: el de toda la app. */
+export { formatBps } from '@nightpay/ui';

@@ -1,78 +1,14 @@
 // Fechas del panel: siempre en la zona horaria del local (por defecto Madrid),
 // no en la del navegador de quien mira.
 
-export const DEFAULT_TIMEZONE = 'Europe/Madrid';
+// formatDateTime y dayInZone viven en @nightpay/ui (los usa también formatRelative): aquí se reexportan.
+import { dayInZone } from '@nightpay/ui';
+
+export { DEFAULT_TIMEZONE, dayInZone, formatDateTime } from '@nightpay/ui';
+export type { DateStyle } from '@nightpay/ui';
 
 /** Los informes y las devoluciones del banco van por días de Madrid (igual que el API). */
 export const MADRID_TIMEZONE = 'Europe/Madrid';
-
-export type DateStyle =
-  /** 15/10/2026, 21:30 */
-  | 'datetime'
-  /** 15 oct, 21:30 */
-  | 'short'
-  /** 15/10, 21:30 */
-  | 'compact'
-  /** 21:30 */
-  | 'time'
-  /** jue, 15/10 */
-  | 'weekday'
-  /** 15/10/2026 */
-  | 'date';
-
-const STYLE_OPTIONS: Record<DateStyle, Intl.DateTimeFormatOptions> = {
-  datetime: { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' },
-  short: { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' },
-  compact: { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' },
-  time: { hour: '2-digit', minute: '2-digit' },
-  weekday: { weekday: 'short', day: '2-digit', month: '2-digit' },
-  date: { day: '2-digit', month: '2-digit', year: 'numeric' },
-};
-
-const formatters = new Map<string, Intl.DateTimeFormat>();
-
-function formatterFor(timeZone: string, style: DateStyle): Intl.DateTimeFormat {
-  const key = `${timeZone}|${style}`;
-  const cached = formatters.get(key);
-  if (cached) return cached;
-  let created: Intl.DateTimeFormat;
-  try {
-    created = new Intl.DateTimeFormat('es-ES', { ...STYLE_OPTIONS[style], timeZone });
-  } catch {
-    // Zona horaria que el navegador no conoce: la de Madrid antes que romper la pantalla.
-    created = new Intl.DateTimeFormat('es-ES', { ...STYLE_OPTIONS[style], timeZone: DEFAULT_TIMEZONE });
-  }
-  formatters.set(key, created);
-  return created;
-}
-
-/** Instante (ISO o Date) → texto en la zona del local. Una fecha ilegible sale como "—". */
-export function formatDateTime(
-  value: string | Date,
-  timeZone: string = DEFAULT_TIMEZONE,
-  style: DateStyle = 'datetime',
-): string {
-  const date = typeof value === 'string' ? new Date(value) : value;
-  if (Number.isNaN(date.getTime())) return '—';
-  return formatterFor(timeZone || DEFAULT_TIMEZONE, style).format(date);
-}
-
-const DAY_FORMATTERS = new Map<string, Intl.DateTimeFormat>();
-
-/** Día del calendario de esa zona en ese instante, como "AAAA-MM-DD". */
-export function dayInZone(now: Date, timeZone: string = DEFAULT_TIMEZONE): string {
-  let fmt = DAY_FORMATTERS.get(timeZone);
-  if (!fmt) {
-    const options: Intl.DateTimeFormatOptions = { year: 'numeric', month: '2-digit', day: '2-digit' };
-    try {
-      fmt = new Intl.DateTimeFormat('en-CA', { ...options, timeZone });
-    } catch {
-      fmt = new Intl.DateTimeFormat('en-CA', { ...options, timeZone: DEFAULT_TIMEZONE });
-    }
-    DAY_FORMATTERS.set(timeZone, fmt);
-  }
-  return fmt.format(now);
-}
 
 /** Hoy en Madrid ("AAAA-MM-DD"): lo que el API toma por "hoy" en devoluciones e informes. */
 export function madridToday(now: Date = new Date()): string {

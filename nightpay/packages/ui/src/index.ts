@@ -14,7 +14,19 @@ export { ThemeToggle } from './components/ThemeToggle';
 export { Logo } from './components/Logo';
 export { CartaIcon, CartaItemIcon, CARTA_ICON_PATHS } from './components/CartaIcon';
 export { SectionChip } from './components/SectionChip';
-export { formatEur } from './format';
+export { DEFAULT_TIMEZONE, dayInZone, formatBps, formatDateTime, formatEur, formatPercent, formatRelative } from './format';
+export type { DateStyle } from './format';
+
+// Piezas comunes de las tres apps (Piezas I): el importe y la cifra que rueda, la
+// etiqueta (de sección o de estado), los iconos, la pantalla vacía y la silueta.
+export { Importe } from './components/Importe';
+export { RollingNumber } from './components/RollingNumber';
+export { Etiqueta, Tag, TONE_COLORS } from './components/Etiqueta';
+export type { EtiquetaTone } from './components/Etiqueta';
+export { Icon, IconButton, ICON_PATHS } from './components/Icon';
+export type { IconName } from './components/Icon';
+export { EmptyState } from './components/EmptyState';
+export { Skeleton } from './components/Skeleton';
 
 // Colores de las secciones (Copas, Servicios…): los mismos que --np-sec-* de styles.css.
 export {

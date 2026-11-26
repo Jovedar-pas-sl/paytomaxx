@@ -222,7 +222,7 @@ describe('9.2 · ficha de la compañera y del camarero', () => {
 
   it('los chips de cada cosa, con el color de su sección', () => {
     expect(rateChips([{ kind: 'section', code: 'VENUE_ROOM', bps: 1050 }], SECTIONS)).toEqual([
-      { key: 's-VENUE_ROOM', label: 'Habitaciones', value: '10,5 %', color: '#bbb8fe' },
+      { key: 's-VENUE_ROOM', label: 'Habitaciones', value: '10,5\u00a0%', color: '#bbb8fe' },
     ]);
   });
 

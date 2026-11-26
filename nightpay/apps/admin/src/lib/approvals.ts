@@ -2,6 +2,7 @@
 // El encargado pide; el dueño aprueba con 2FA o rechaza con el motivo.
 
 import type { ApprovalStatus, ApprovalView, PayoutMethod } from '@nightpay/contracts';
+import { formatRelative } from '@nightpay/ui';
 import { formatEur } from './money';
 import { refundAutoSends } from './refund-confirm';
 
@@ -82,13 +83,6 @@ function span(ms: number): string {
   return `${Math.floor(hours / 24)} días`;
 }
 
-/** "ahora", "hace 12 min", "hace 3 h". */
-export function timeAgo(iso: string, now: Date): string {
-  const ms = now.getTime() - Date.parse(iso);
-  if (!Number.isFinite(ms)) return '';
-  return ms < MINUTE ? 'ahora' : `hace ${span(ms)}`;
-}
-
 /** "caduca en 40 min" / "caduca en 23 h"; "caducada" si ya pasó. */
 export function expiresIn(iso: string, now: Date): string {
   const ms = Date.parse(iso) - now.getTime();
@@ -96,14 +90,14 @@ export function expiresIn(iso: string, now: Date): string {
   return ms <= 0 ? 'caducada' : `caduca en ${span(Math.max(ms, MINUTE))}`;
 }
 
-/** Qué pasó con una solicitud, en una línea (para el encargado). */
-export function decisionLine(v: ApprovalView, now: Date): string {
+/** Qué pasó con una solicitud, en una línea (para el encargado). Las horas, en la zona del local. */
+export function decisionLine(v: ApprovalView, now: Date, timeZone?: string): string {
   switch (v.status) {
     case 'PENDING':
       // El estado ya lo dice la etiqueta: aquí, cuándo se pidió y cuándo caduca.
-      return `Pedida ${timeAgo(v.requestedAt, now)} · ${expiresIn(v.expiresAt, now)}`;
+      return `Pedida ${formatRelative(v.requestedAt, now, timeZone)} · ${expiresIn(v.expiresAt, now)}`;
     case 'APPROVED':
-      return `Aprobada${v.decidedBy ? ` por ${v.decidedBy.name}` : ''}${v.decidedAt ? ` ${timeAgo(v.decidedAt, now)}` : ''}`;
+      return `Aprobada${v.decidedBy ? ` por ${v.decidedBy.name}` : ''}${v.decidedAt ? ` ${formatRelative(v.decidedAt, now, timeZone)}` : ''}`;
     case 'REJECTED':
       return `Rechazada${v.decidedBy ? ` por ${v.decidedBy.name}` : ''}: ${v.decisionNote ?? 'sin motivo'}`;
     case 'EXPIRED':

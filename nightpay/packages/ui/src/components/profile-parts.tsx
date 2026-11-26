@@ -1,6 +1,7 @@
 'use client';
 
 import { useId, type CSSProperties, type ReactNode } from 'react';
+import { Icon } from './Icon';
 
 // Piezas de «Mi perfil»: bloque con título, selector de opciones y mensajes.
 // Grafito: superficies --np-surface y --np-surface-2, texto crema, lo elegido en crema
@@ -75,7 +76,7 @@ export function Segmented<T extends string>({
 export function Notice({ kind, children }: { kind: 'ok' | 'error'; children: ReactNode }) {
   return (
     <p role={kind === 'error' ? 'alert' : 'status'} style={{ ...noticeStyle, color: kind === 'error' ? 'var(--np-danger-text)' : 'var(--np-text)' }}>
-      {kind === 'ok' ? '✓ ' : ''}
+      {kind === 'ok' ? <Icon name="check" size={20} className="np-icon-lead" /> : null}
       {children}
     </p>
   );

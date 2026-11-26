@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { haptic, pinFailed, shakeClass } from '@nightpay/ui';
+import { formatPercent, haptic, pinFailed, shakeClass } from '@nightpay/ui';
 import { PIN_ENTER, keypadDigits } from '@/lib/pin-pad';
 import { formatEur } from '@/lib/money';
 import { pinFootnote, tipLine } from '@/lib/cobro-view';
@@ -222,7 +222,7 @@ function PinTip({
               disabled={disabled}
             >
               +{formatEur(c, { compact: true })}
-              {percent ? <small>{percent} %</small> : null}
+              {percent ? <small>{formatPercent(percent)}</small> : null}
             </button>
           );
         })}

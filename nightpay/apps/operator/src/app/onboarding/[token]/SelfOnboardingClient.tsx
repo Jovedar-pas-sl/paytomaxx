@@ -49,11 +49,11 @@ const WALLET_PROVIDER_LABELS: Record<WalletProvider, string> = {
 };
 
 const WALLET_STATUS_LABELS: Record<WalletStatusKYC, string> = {
-  NOT_STARTED: '🔴 No he empezado',
-  REGISTERED: '🟡 Registrada, falta KYC',
-  KYC_PENDING: '🟠 KYC enviado, esperando',
-  KYC_VERIFIED: '🟢 KYC aprobado, todo OK',
-  KYC_REJECTED: '⛔ KYC rechazado',
+  NOT_STARTED: 'No he empezado',
+  REGISTERED: 'Registrada, falta KYC',
+  KYC_PENDING: 'KYC enviado, esperando',
+  KYC_VERIFIED: 'KYC aprobado, todo OK',
+  KYC_REJECTED: 'KYC rechazado',
 };
 
 interface Props {
@@ -238,7 +238,7 @@ export function SelfOnboardingClient({ token }: Props) {
           Tu perfil
         </h1>
         <p style={{ margin: '0.5rem 0 0', fontSize: 'var(--np-fs-14)', color: 'var(--np-text-mute)' }}>
-          Hola{profile.displayName ? `, ${profile.displayName}` : ''} 👋. Esta página es para que
+          Hola{profile.displayName ? `, ${profile.displayName}` : ''}. Esta página es para que
           rellenes tus datos (nombre, fecha de nacimiento, documentos) y digas cómo quieres cobrar.
         </p>
 

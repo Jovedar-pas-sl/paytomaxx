@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useId, useState } from 'react';
+import { Importe } from '@nightpay/ui';
 import { fetchCurrentNight, fetchTreasuryStats } from '@/lib/api';
 import { COBRADO_HELP, cardPaymentsCount, cobradoNote, tonightCobradoNote, zCobradoParts } from '@/lib/cobrado';
 import { formatDateTime } from '@/lib/dates';
@@ -128,7 +129,7 @@ export function TonightStrip({
         {/* Qué cuenta: el desglose (o, sin él, de qué está hecho) y, al pasar el ratón, la frase entera. */}
         <div className="np-tonight-fig" data-hero="" data-tone="ok" title={COBRADO_HELP}>
           <dt>Pagado esta noche</dt>
-          <dd className="np-count">{chargedShown !== null ? formatEur(chargedShown) : night === undefined ? <Skel width="9rem" height="2.75rem" /> : '—'}</dd>
+          <dd className="np-count">{chargedShown !== null ? <Importe cents={chargedShown} decimals="always" /> : night === undefined ? <Skel width="9rem" height="2.75rem" /> : '—'}</dd>
           {cobradoLine ? <span className="np-tonight-note">{cobradoLine}</span> : null}
         </div>
         <div className="np-tonight-fig" data-tone="card">
@@ -139,7 +140,7 @@ export function TonightStrip({
           {/* «A pagar ya»: lo que se les debe ahora; lo de esta noche sale en el Mapa del dinero
               («Pago a compañeras · al cerrar»). Antes las dos cifras parecían la misma (P-11). */}
           <dt>A pagar ya a compañeras</dt>
-          <dd className="np-count">{pendingShown !== null ? formatEur(pendingShown) : pending === undefined ? <Skel width="6rem" height="1.5rem" /> : '—'}</dd>
+          <dd className="np-count">{pendingShown !== null ? <Importe cents={pendingShown} decimals="always" /> : pending === undefined ? <Skel width="6rem" height="1.5rem" /> : '—'}</dd>
           {pending && pending.operatorCount > 0 ? (
             <span className="np-tonight-note">{pending.operatorCount === 1 ? '1 compañera' : `${pending.operatorCount} compañeras`}</span>
           ) : null}

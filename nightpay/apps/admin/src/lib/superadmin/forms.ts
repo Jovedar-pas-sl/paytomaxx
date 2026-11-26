@@ -24,7 +24,7 @@ import {
   type VenueDetail,
   type VenueRules,
 } from '@nightpay/contracts';
-import { bpsToPercentInput, formatPercent, parsePercentToBps } from '../commission';
+import { bpsToPercentInput, formatBps, parsePercentToBps } from '../commission';
 import { centsToInput, formatEur } from '../money';
 import { profileNeedsTotp } from './step-up';
 import { CATEGORY_KEYS, CATEGORY_LABELS, VAT_REGIME_LABELS, holdDaysText } from './labels';
@@ -55,7 +55,7 @@ function parseServiceFeePct(input: string): number | null {
   return bps !== null && bps <= MAX_SERVICE_FEE_BPS ? bps : null;
 }
 
-const SERVICE_FEE_RANGE = `de 0 a ${formatPercent(MAX_SERVICE_FEE_BPS)}`;
+const SERVICE_FEE_RANGE = `de 0 a ${formatBps(MAX_SERVICE_FEE_BPS)}`;
 
 /** Los ejemplos de la ayuda: el servicio de la carta (33 €) y una recarga de 50 €. */
 const EXAMPLE_CHARGE_CENTS = 3300;
@@ -171,12 +171,12 @@ const BUSINESS_MONEY: ReadonlyArray<{ key: keyof BusinessMoney; label: string; e
   {
     key: 'defaultServiceFeeBps',
     label: 'comisión del servicio en los pagos con tarjeta',
-    empty: `la de fábrica (${formatPercent(DEFAULT_SERVICE_FEE_BPS)})`,
+    empty: `la de fábrica (${formatBps(DEFAULT_SERVICE_FEE_BPS)})`,
   },
   {
     key: 'defaultTopUpServiceFeeBps',
     label: 'comisión del servicio en las recargas',
-    empty: `la de fábrica (${formatPercent(DEFAULT_SERVICE_FEE_BPS)})`,
+    empty: `la de fábrica (${formatBps(DEFAULT_SERVICE_FEE_BPS)})`,
   },
 ];
 
@@ -187,7 +187,7 @@ const BUSINESS_MONEY: ReadonlyArray<{ key: keyof BusinessMoney; label: string; e
 export function businessMoneyChanges(saved: BusinessMoney | null, dto: Partial<BusinessMoney>): string[] {
   return BUSINESS_MONEY.flatMap(({ key, label, empty }) => {
     const next = dto[key];
-    const text = (bps: number | null | undefined) => (bps === null || bps === undefined ? empty : formatPercent(bps));
+    const text = (bps: number | null | undefined) => (bps === null || bps === undefined ? empty : formatBps(bps));
     if (saved === null) return next === null || next === undefined ? [] : [`${label}: ${text(next)}`];
     if (next === undefined || next === (saved[key] ?? null)) return [];
     return [`${label}: ${text(saved[key])} → ${text(next)}`];
@@ -321,7 +321,7 @@ export function profilePayload(saved: VenueDetail, form: ProfileForm): FormResul
   const changes = [
     dto.name !== undefined ? `nombre: ${saved.name} → ${name}` : null,
     dto.timezone !== undefined ? `zona horaria: ${saved.timezone} → ${timezone}` : null,
-    dto.vatBps !== undefined ? `IVA: ${formatPercent(saved.vatBps)} → ${formatPercent(vatBps)}` : null,
+    dto.vatBps !== undefined ? `IVA: ${formatBps(saved.vatBps)} → ${formatBps(vatBps)}` : null,
     dto.vatRegime !== undefined
       ? `régimen de IVA: ${VAT_REGIME_LABELS[saved.vatRegime] ?? saved.vatRegime} → ${VAT_REGIME_LABELS[form.vatRegime]}`
       : null,
@@ -423,7 +423,7 @@ function parseRules(form: RulesForm): FormResult<ParsedRules> {
     categories[key] = bps;
     if (bps + platform > 10_000) {
       return fail(
-        `${CATEGORY_LABELS[key]}: ${formatPercent(bps)} más la plataforma (${formatPercent(platform)}) pasa del 100 %.`,
+        `${CATEGORY_LABELS[key]}: ${formatBps(bps)} más la plataforma (${formatBps(platform)}) pasa del 100 %.`,
       );
     }
   }
@@ -491,11 +491,11 @@ export function rulesPayload(
       ? `tope por cobro: ${formatEur(saved.operatorMaxCobroCents)} → ${formatEur(p.maxCobro)}`
       : null,
     dto.platformCommissionBps !== undefined
-      ? `comisión de la plataforma: ${formatPercent(saved.platformCommissionBps)} → ${formatPercent(p.platform)}`
+      ? `comisión de la plataforma: ${formatBps(saved.platformCommissionBps)} → ${formatBps(p.platform)}`
       : null,
     ...changedCategories.map(
       (k) =>
-        `${CATEGORY_LABELS[k].toLowerCase()}: ${formatPercent(saved.operatorCommissionDefaults[k] ?? 0)} → ${formatPercent(p.categories[k] ?? 0)}`,
+        `${CATEGORY_LABELS[k].toLowerCase()}: ${formatBps(saved.operatorCommissionDefaults[k] ?? 0)} → ${formatBps(p.categories[k] ?? 0)}`,
     ),
     dto.payoutHoldDays !== undefined
       ? `días de espera: ${holdText(saved.payoutHoldDays)} → ${holdText(p.holdDays)}`
@@ -510,10 +510,10 @@ export function rulesPayload(
       ? `comisión del servicio al cliente: ${onOff(fee.enabled)} → ${onOff(form.serviceFeeEnabled)}`
       : null,
     dto.serviceFeeBps !== undefined
-      ? `comisión del servicio en los pagos con tarjeta: ${formatPercent(fee.cardBps)} → ${formatPercent(p.serviceFeeBps)}`
+      ? `comisión del servicio en los pagos con tarjeta: ${formatBps(fee.cardBps)} → ${formatBps(p.serviceFeeBps)}`
       : null,
     dto.topUpServiceFeeBps !== undefined
-      ? `comisión del servicio en las recargas: ${formatPercent(fee.topUpBps)} → ${formatPercent(p.topUpServiceFeeBps)}`
+      ? `comisión del servicio en las recargas: ${formatBps(fee.topUpBps)} → ${formatBps(p.topUpServiceFeeBps)}`
       : null,
   ].filter((c): c is string => c !== null);
 

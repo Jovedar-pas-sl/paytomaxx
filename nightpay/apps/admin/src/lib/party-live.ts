@@ -3,8 +3,9 @@
 // avisos con su acción. Todo sale de GET /v1/party/live: nada inventado (no
 // hay latido de conexión de las casetas: solo «sin cobros desde hace…»).
 
-import type { PartyAlert, PartyDesk, PartyHour, PartyLive, PartyNight, PartyStallLive } from '@nightpay/contracts';
-import { formatPercent } from './commission';
+import { formatMoney, type PartyAlert, type PartyDesk, type PartyHour, type PartyLive, type PartyNight, type PartyStallLive } from '@nightpay/contracts';
+import { formatPercent } from '@nightpay/ui';
+import { formatBps } from './commission';
 import { formatDateTime } from './dates';
 import { formatEur } from './money';
 import type { Tone } from '../components/Pill';
@@ -140,18 +141,16 @@ export interface HourBar {
   hour: string;
   /** El día («jue 24») en la primera barra y en la primera de cada día nuevo. */
   day: string | null;
-  /** «3,1 k» / «620 €». */
+  /** «3,1 mil €» / «620 €». */
   label: string;
   /** Alto de la barra (0–100 %). */
   pct: number;
   open: boolean;
 }
 
-/** «3,1 k» desde 1.000 €; por debajo, «620 €». Lo negativo (solo devoluciones), «0 €». */
+/** El importe corto de una barra: «620 €», «3,1 mil €». Lo negativo (solo devoluciones), «0 €». */
 export function hourAmountLabel(cents: number): string {
-  const euros = Math.max(0, cents) / 100;
-  if (euros >= 1000) return `${(euros / 1000).toFixed(1).replace('.', ',')} k`;
-  return `${Math.round(euros)} €`;
+  return formatMoney(Math.max(0, cents), { short: true });
 }
 
 export function hourBars(hours: readonly PartyHour[], timeZone: string): HourBar[] {
@@ -208,9 +207,9 @@ export function stallRows(live: PartyLive, timeZone: string, now: Date): StallRo
     name: s.name,
     meta: `${countText(s.count, 'cobro', 'cobros')}${s.lastAt ? ` · último ${formatDateTime(s.lastAt, timeZone, 'time')}` : ''}`,
     sold: formatEur(s.soldCents),
-    share: total > 0 ? `${Math.round((Math.max(0, s.soldCents) / total) * 100)} %` : '0 %',
+    share: formatPercent(total > 0 ? (Math.max(0, s.soldCents) / total) * 100 : 0, 0),
     barPct: top > 0 ? Math.round((Math.max(0, s.soldCents) / top) * 100) : 0,
-    organizer: s.id === null ? null : s.ownBar ? 'Barra propia' : formatPercent(s.organizerBps ?? 0),
+    organizer: s.id === null ? null : s.ownBar ? 'Barra propia' : formatBps(s.organizerBps ?? 0),
     status: stallStatus(s, live, now),
   }));
 }

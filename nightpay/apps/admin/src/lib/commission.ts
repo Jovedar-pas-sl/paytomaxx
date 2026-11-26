@@ -19,10 +19,8 @@ export function bpsToPercentInput(bps: number): string {
   return (bps / 100).toFixed(2).replace('.', ',');
 }
 
-/** Puntos básicos → "10 %" / "10,5 %" para leer. */
-export function formatPercent(bps: number): string {
-  return `${(bps / 100).toLocaleString('es-ES', { maximumFractionDigits: 2 })} %`;
-}
+/** Puntos básicos → «10 %» / «10,5 %» para leer: el de toda la app. */
+export { formatBps } from '@nightpay/ui';
 
 export interface SplitExample {
   platformCents: number;
