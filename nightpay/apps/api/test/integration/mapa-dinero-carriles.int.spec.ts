@@ -237,11 +237,11 @@ describe('el mapa del dinero de la noche, en directo: los carriles cuadran', () 
   it('cómo se reparte: chicas (comisión e invitación), camarero (invitación), OxioPay y el local = lo vendido', () => {
     // Lola: 90 % de 120 € del pack + 40 % de 50 € de invitación. Dani: 3 € × 2 copas.
     expect(live.split).toMatchObject({ chicasCents: 10_800 + 2_000, camarerosCents: 600 });
-    // OxioPay: 10 % de lo vendido sin propinas.
-    expect(live.split.commissions).toEqual({ platformCents: 2_800, bankCents: null, totalCents: 2_800 });
+    // OxioPay: 10 % de lo vendido sin propinas, menos lo devuelto (de los 10 € devueltos de las copas no cobra: como «Ver detalle»).
+    expect(live.split.commissions).toEqual({ platformCents: 2_800 - 100, bankCents: null, totalCents: 2_800 - 100 });
     const s = live.split;
     expect(s.venueCents + s.chicasCents + s.camarerosCents + s.commissions.totalCents).toBe(live.salesCents);
-    expect(s.venueCents).toBe(12_300);
+    expect(s.venueCents).toBe(12_300 + 100);
   });
 
   it('dónde está: BBVA + caja (como el arqueo) = tuyo + del personal + saldo vivo; el saldo vivo cuadra con las cuentas', async () => {
@@ -251,8 +251,8 @@ describe('el mapa del dinero de la noche, en directo: los carriles cuadran', () 
     const check = await inVenue(A, () => nights.closeCheck(A));
     expect(live.where.cashBoxCents).toBe(check.cash.expectedCents);
     const o = live.where.owners;
-    // Los 6 € al camarero fueron en efectivo: ya salieron de la caja, no se restan otra vez. Los 28 € de OxioPay no son del local.
-    expect(o).toEqual({ staffCents: 12_800, saldoCents: 10_000, paidOutCents: 0, commissionsCents: 2_800, venueCents: 46_900 - 12_800 - 10_000 - 2_800 });
+    // Los 6 € al camarero fueron en efectivo: ya salieron de la caja, no se restan otra vez. Los 27 € de OxioPay no son del local.
+    expect(o).toEqual({ staffCents: 12_800, saldoCents: 10_000, paidOutCents: 0, commissionsCents: 2_700, venueCents: 46_900 - 12_800 - 10_000 - 2_700 });
     expect(o.venueCents + o.staffCents + o.saldoCents + (o.commissionsCents ?? 0)).toBe(live.where.totalCents);
     // Recargas − consumos − devuelto = lo que tienen los saldos de verdad.
     expect(live.where.liveSaldoCents).toBe(10_000);
@@ -266,8 +266,8 @@ describe('el mapa del dinero de la noche, en directo: los carriles cuadran', () 
     expect(live.outflow.pendingStaff).toEqual({ chicasCents: 12_800, camarerosCents: 0 });
     // De los 10 € devueltos a tarjeta, los 10 eran venta (las copas): es lo que resta «¿Cuánto he ganado?».
     expect(live.outflow.refunds).toEqual({ cardCents: 1_000, cardCount: 1, cashCents: 2_000, cashCount: 1, salesCents: 1_000 });
-    expect(venueEarnedCents(live)).toBe(12_300 - 1_000);
-    expect(live.outflow.commissionsCents).toBe(2_800);
+    expect(venueEarnedCents(live)).toBe(12_400 - 1_000);
+    expect(live.outflow.commissionsCents).toBe(2_700);
   });
 });
 

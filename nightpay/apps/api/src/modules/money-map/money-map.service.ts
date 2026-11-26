@@ -74,6 +74,8 @@ interface PaymentSaleRow {
   /** BTCPAY = pagado con bitcoin (no pasa por el banco). */
   provider: string | null;
   lines: SaleLineLike[] | null;
+  /** Lo devuelto de la venta (sin la comisión del servicio devuelta), con todas sus devoluciones hechas. */
+  refundedSaleCents: number;
 }
 
 interface ConsumptionSaleRow {
@@ -264,7 +266,7 @@ export class MoneyMapService {
   ): Promise<SaleRow[]> {
     const [venue, sales] = await Promise.all([
       this.prisma.asSystem((tx) => tx.venue.findUnique({ where: { id: tenantId }, select: { platformCommissionBps: true } })),
-      this.prisma.withTenant(tenantId, (tx) => this.salesRows(tx, paid, consumed), REPORT_TX),
+      this.prisma.withTenant(tenantId, (tx) => this.salesRows(tx, tenantId, paid, consumed), REPORT_TX),
     ]);
     if (!venue) throw new NotFoundException('Local no encontrado');
     const venueBps = platformBps ?? venue.platformCommissionBps;
@@ -278,6 +280,7 @@ export class MoneyMapService {
           method: saleMethodOf(p),
           platformBps: n(p.platformBps ?? venueBps),
           lines: p.lines ?? [],
+          refundedSaleCents: n(p.refundedSaleCents),
         }),
       ),
       ...sales.consumptions.map(
@@ -311,13 +314,15 @@ export class MoneyMapService {
   /** Las ventas: cobros con tarjeta (sin recargas) y consumos del saldo, con sus líneas. */
   private async salesRows(
     tx: TransactionalClient,
+    tenantId: string,
     paid: Prisma.Sql,
     consumed: Prisma.Sql,
   ): Promise<{ payments: PaymentSaleRow[]; consumptions: ConsumptionSaleRow[] }> {
     const payments = await tx.$queryRaw<PaymentSaleRow[]>`
       SELECT p."amountCents", p."tipCents", p."serviceFeeCents", p."revenueCategory" AS category, p."captureMethod",
              p."posOperationNumber", p."platformCommissionBps" AS "platformBps",
-             a."payMethod" AS "approvedPayMethod", p.provider::text AS provider, l.lines
+             a."payMethod" AS "approvedPayMethod", p.provider::text AS provider, l.lines,
+             COALESCE(rf.cents, 0)::int AS "refundedSaleCents"
         FROM payments p
         LEFT JOIN LATERAL (
           SELECT pa."payMethod" FROM payment_attempts pa
@@ -327,6 +332,12 @@ export class MoneyMapService {
         LEFT JOIN LATERAL (
           SELECT ${linesJson('pl')} AS lines FROM payment_lines pl WHERE pl."paymentId" = p.id
         ) l ON true
+        -- Para la comisión de plataforma: OxioPay no cobra su % de lo devuelto (cobro-detail-facts).
+        LEFT JOIN LATERAL (
+          SELECT SUM(r."amountCents" - r."serviceFeeCents") AS cents
+            FROM refunds r
+           WHERE r."tenantId" = ${tenantId}::uuid AND r."paymentId" = p.id AND r.status = 'SUCCEEDED'
+        ) rf ON true
        WHERE ${paid} AND p."walletId" IS NULL
        LIMIT ${MAX_EXPORT_ROWS + 1}
     `;

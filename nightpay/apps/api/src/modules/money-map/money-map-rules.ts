@@ -47,6 +47,12 @@ export interface SaleRow {
    * el resto (wallet-fee-saldo.ts).
    */
   serviceFeeSaldoCents?: number;
+  /**
+   * Cobro con tarjeta: lo devuelto de la venta (importe + propina, sin la
+   * comisión del servicio devuelta), con sus devoluciones hechas hasta ahora.
+   * OxioPay no cobra su % de eso (como «Ver detalle», cobro-detail-facts).
+   */
+  refundedSaleCents?: number;
 }
 
 /**
@@ -142,9 +148,15 @@ export function sectionsOf(sales: readonly SaleRow[]): MoneyMapSection[] {
   return [...SECTION_CODES.map(row), ...legacy, row(MONEY_MAP_TIPS)];
 }
 
-/** La comisión de plataforma de una venta: su % sobre el importe, sin la propina (ni lo pagado con saldo de la comisión del servicio). */
+/**
+ * La comisión de plataforma de una venta: su % sobre el importe, sin la
+ * propina (ni lo pagado con saldo de la comisión del servicio) ni lo devuelto
+ * (lo devuelto se quita antes de la propina, como en «Ver detalle»).
+ */
 function salePlatformCents(s: SaleRow): number {
-  return Math.round(((s.amountCents - Math.max(0, s.serviceFeeSaldoCents ?? 0)) * s.platformBps) / BPS);
+  const refunded = Math.min(s.amountCents + s.tipCents, Math.max(0, s.refundedSaleCents ?? 0));
+  const kept = Math.max(0, s.amountCents - Math.max(0, refunded - s.tipCents));
+  return Math.round(((kept - Math.max(0, s.serviceFeeSaldoCents ?? 0)) * s.platformBps) / BPS);
 }
 
 /** La comisión de OxioPay: su % sobre lo vendido, sin las propinas (ni lo pagado con saldo de la comisión del servicio). */
