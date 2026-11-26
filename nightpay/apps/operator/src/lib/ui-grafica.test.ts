@@ -40,6 +40,7 @@ describe('auditoría gráfica', () => {
     const pos = read('../components/PendingPos.tsx');
     expect(block(pos.replace(/const backBtnStyle: CSSProperties =/, '.back'), '.back')).toContain("minHeight: '2.75rem'");
     expect(pos).not.toMatch(/🔔|🔕/u);
-    expect(pos).toContain('<BellIcon muted={muted} />');
+    // La campana es la pieza Icon («Piezas I», parte B): con una raya, silenciada.
+    expect(pos).toContain("<Icon name={muted ? 'bell-off' : 'bell'} />");
   });
 });

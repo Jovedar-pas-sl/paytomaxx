@@ -86,9 +86,10 @@ describe('prioridad 4 del personal', () => {
     expect(outcome).toMatch(/const spoken = \[title, amount/);
   });
 
-  it('S-10: la carta se configura en «Ajustes → Carta»', () => {
+  // Entrega 4 (idea 7): el vacío de la carta ya no nombra el menú («Ajustes → Carta»); dice a quién pedírselo y dónde («en el panel»).
+  it('S-10: la carta vacía dice quién la pone y dónde (el panel), sin «Administración»', () => {
     const carta = read('../components/cobrar/Carta.tsx');
-    expect(carta).toContain('Ajustes → Carta');
+    expect(carta).toContain('Pide al dueño o al encargado que ponga productos para tu puesto en el panel.');
     expect(carta).not.toContain('Administración');
   });
 

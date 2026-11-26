@@ -109,7 +109,12 @@ export interface PermissionPerson {
   photoHash?: string | null;
 }
 
-export async function fetchStaffPermissions(): Promise<{ permissions: StaffPermissions; people: PermissionPerson[] }> {
+export async function fetchStaffPermissions(): Promise<{
+  permissions: StaffPermissions;
+  people: PermissionPerson[];
+  /** «Las compañeras cobran desde su móvil» (la pone OxioPay); falta en un API de antes. */
+  operatorsChargeFromPhone?: boolean;
+}> {
   const res = await authedFetch('/v1/admin/venue/permissions');
   if (!res.ok) throw await apiError(res);
   return res.json();

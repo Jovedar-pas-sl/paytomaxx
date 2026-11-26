@@ -273,7 +273,7 @@ describe('RefundsService.refund — la clave de la pantalla (una intención, una
     const err = await svc.refund({ ...request, ...change }, who === 'manager' ? manager : owner).catch((e: unknown) => e);
     expect(err).toBeInstanceOf(ConflictException);
     expect(codeOf(err)).toBe('REFUND_KEY_REUSED');
-    expect((err as HttpException).message).toContain('50,00 €');
+    expect((err as HttpException).message).toContain('50,00\u00a0€');
     expect(adapterMock.refund).toHaveBeenCalledTimes(1);
   });
 
@@ -395,7 +395,7 @@ describe('RefundsService.refund — authorization gates', () => {
     expect(err).toBeInstanceOf(ForbiddenException);
     expect((err as ForbiddenException).getResponse()).toMatchObject({
       code: 'TOTP_REQUIRED',
-      message: expect.stringMatching(/código 2FA.*100,00 €/),
+      message: expect.stringMatching(/código 2FA.*100,00\u00a0€/),
     });
     expect(prismaMock.refund.create).not.toHaveBeenCalled();
   });
@@ -462,7 +462,7 @@ describe('RefundsService.refund — authorization gates', () => {
   it('99,99 € × N en el MISMO cobro: la que llega a 100 € acumulados pide el código', async () => {
     const { svc, totpMock } = makeService({ payment: bigPayment, userSamePaymentCents: 9_999, userLastDayCents: 9_999 });
     await expect(svc.refund({ paymentId: 'pay-1', amountCents: 9_999 }, manager)).rejects.toThrow(
-      /en este cobro sumas 199,98 €/,
+      /en este cobro sumas 199,98\u00a0€/,
     );
     expect(totpMock.checkStoredForUser).not.toHaveBeenCalled();
   });
@@ -470,7 +470,7 @@ describe('RefundsService.refund — authorization gates', () => {
   it('99,99 € × N en cobros DISTINTOS: pide el código por lo devuelto en 24 h', async () => {
     const { svc } = makeService({ payment: bigPayment, userSamePaymentCents: 0, userLastDayCents: 30_000 });
     await expect(svc.refund({ paymentId: 'pay-1', amountCents: 9_999 }, manager)).rejects.toThrow(
-      /en las últimas 24 h sumas 399,99 €/,
+      /en las últimas 24 h sumas 399,99\u00a0€/,
     );
   });
 
@@ -607,7 +607,7 @@ describe('RefundsService.refund — «Por aprobar» otra vez con el cobro bloque
     });
     const err = await svc.refund(sixty, manager).catch((e: unknown) => e);
     expect(isRefundNeedsApproval(err)).toBe(true);
-    expect((err as ConflictException).message).toMatch(/120 €[\s\S]*100 €/);
+    expect((err as ConflictException).message).toMatch(/120\u00a0€[\s\S]*100\u00a0€/);
     expect(prismaMock.refund.create).not.toHaveBeenCalled();
     expect(adapterMock.refund).not.toHaveBeenCalled();
     // Lo mira dentro de la reserva: ya con la fila del cobro bloqueada (FOR UPDATE).

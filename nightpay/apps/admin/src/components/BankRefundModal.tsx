@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, type CSSProperties, type FormEvent } from 'react';
-import { Button, Input, Modal } from '@nightpay/ui';
+import { Button, Checkbox, Input, Modal } from '@nightpay/ui';
 import { registerBankRefund, type PaymentRow } from '@/lib/api';
 import { isDuplicateRefundError } from '@/lib/api-errors';
 import { madridToday } from '@/lib/dates';
@@ -96,7 +96,8 @@ export function BankRefundModal({
       {refundFeePartText(payment, parseEuroCents(amount)) ? <p style={metaStyle}>{refundFeePartText(payment, parseEuroCents(amount))}</p> : null}
       <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1rem', marginTop: '1rem' }}>
         <Input
-          label="Importe devuelto (€)"
+          label="Importe devuelto"
+          suffix="€"
           inputMode="decimal"
           value={amount}
           onChange={(e) => setAmount(e.target.value)}
@@ -128,12 +129,7 @@ export function BankRefundModal({
           placeholder="ej: el cliente no reconoce el cargo"
           required
         />
-        {needsConfirm ? (
-          <label style={checkStyle}>
-            <input type="checkbox" checked={confirmed} onChange={(e) => setConfirmed(e.target.checked)} />
-            Sí, es otra devolución distinta
-          </label>
-        ) : null}
+        {needsConfirm ? <Checkbox label="Sí, es otra devolución distinta" checked={confirmed} onChange={setConfirmed} /> : null}
         {error ? (
           <p role="alert" style={{ color: 'var(--np-danger)', margin: 0 }}>
             {error}
@@ -163,4 +159,3 @@ const stepsStyle: CSSProperties = {
 };
 const metaStyle: CSSProperties = { margin: '0.75rem 0 0', fontSize: '1rem' };
 const codeStyle: CSSProperties = { fontFamily: 'var(--np-font-mono)', color: 'var(--np-text)' };
-const checkStyle: CSSProperties = { display: 'flex', alignItems: 'center', gap: '0.5rem', fontWeight: 600 };

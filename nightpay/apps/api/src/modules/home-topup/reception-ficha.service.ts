@@ -34,6 +34,7 @@ import { FichaNumbersService } from '../wallets/ficha-numbers.service';
 import { serviceFeeSaldoCents, serviceFeeSpendCents, saldoCredits } from '../wallets/wallet-fee-saldo';
 import { lockLiveWallet } from '../wallets/wallet-merge-chain';
 import { formatWalletCode, sameWalletGroup } from '../wallets/wallet-rules';
+import { eur } from '../../common/money/eur';
 import { fichaProofValid } from './ficha-qr';
 
 export interface FichaActor {
@@ -140,7 +141,7 @@ export class ReceptionFichaService {
     const wallet = await this.liveWallet(actor.tenantId, walletId);
     const fee = await this.lostFichaFee(actor.tenantId);
     if (input.feeCents !== fee) {
-      throw new ConflictException({ message: `La ficha nueva cuesta ahora ${eur(fee)}: díselo y vuelve a confirmarlo.`, code: LOST_FICHA_FEE_CHANGED_CODE, feeCents: fee });
+      throw new ConflictException({ message: `La ficha nueva cuesta ahora ${eur(fee, { compact: true })}: díselo y vuelve a confirmarlo.`, code: LOST_FICHA_FEE_CHANGED_CODE, feeCents: fee });
     }
     // Antes de gastar un intento de su PIN: con ficha que perder y con saldo para la nueva.
     await this.prisma.acrossVenues((tx) => assertHasFicha(tx, wallet.id));
@@ -251,8 +252,6 @@ export class ReceptionFichaService {
   }
 }
 
-const eur = (cents: number) => `${(cents / 100).toFixed(2).replace('.', ',').replace(/,00$/, '')} €`;
-
 /** ¿Esta ficha ya está dada a este saldo? (la misma, leída otra vez). */
 async function cardIsOf(tx: Pick<TransactionalClient, 'walletCard'>, token: string, walletId: string): Promise<boolean> {
   const card = await tx.walletCard.findUnique({ where: { token }, select: { walletId: true, status: true } });
@@ -273,7 +272,7 @@ async function assertFreeCard(tx: Pick<TransactionalClient, 'walletCard'>, token
 /** 409 si el saldo no cubre la ficha nueva: se dice y no se hace nada. */
 function noBalance(balanceCents: number, fee: number): ConflictException {
   return new ConflictException({
-    message: `No le llega el saldo: le quedan ${eur(balanceCents)} y la ficha nueva cuesta ${eur(fee)}. Que cargue antes.`,
+    message: `No le llega el saldo: le quedan ${eur(balanceCents, { compact: true })} y la ficha nueva cuesta ${eur(fee, { compact: true })}. Que cargue antes.`,
     code: LOST_FICHA_NO_BALANCE_CODE,
     feeCents: fee,
   });

@@ -93,10 +93,11 @@ export function defaultTipGoesTo(creatorRole: string | null | undefined): 'opera
 
 /**
  * ¿Va la propina entera a una persona del personal? Solo entonces se le dice
- * al cliente «Va entera para el personal»; si es del local, no se dice.
+ * al cliente «Va entera para el personal»; si es del local, no se dice. A
+ * nombre de una compañera (`served`, cobro por el encargado), es suya.
  */
-export function tipGoesToStaff(p: { tipGoesTo: string | null; creatorRole: string | null }): boolean {
-  if (p.tipGoesTo === 'beneficiary') return true;
+export function tipGoesToStaff(p: { tipGoesTo: string | null; creatorRole: string | null; served?: boolean }): boolean {
+  if (p.served || p.tipGoesTo === 'beneficiary') return true;
   if (p.tipGoesTo) return p.tipGoesTo === 'operator' && p.creatorRole === 'OPERATOR';
   return defaultTipGoesTo(p.creatorRole) === 'operator';
 }

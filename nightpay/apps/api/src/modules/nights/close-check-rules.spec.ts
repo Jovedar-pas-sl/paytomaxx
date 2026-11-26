@@ -112,7 +112,7 @@ describe('1 · cobros sin terminar', () => {
     expect(s.items[0]!.label).toContain('atascado');
     expect(s.items[1]!.label).toContain('búscalo en BBVA');
     expect(s.items[2]!.label).toContain('datáfono sin confirmar');
-    expect(s.items[3]!.label).toContain('Devolución de 10,00 €');
+    expect(s.items[3]!.label).toContain('Devolución de 10,00\u00a0€');
   });
 });
 
@@ -129,7 +129,7 @@ describe('2 · datáfonos', () => {
       NOW,
     );
     expect(s.status).toBe('block');
-    expect(s.items[0]!.label).toBe('Barra: cobrando 50,00 € ahora mismo');
+    expect(s.items[0]!.label).toBe('Barra: cobrando 50,00\u00a0€ ahora mismo');
   });
 
   it('resultado sin mandar hace rato o ventas sin cuadrar → aviso', () => {
@@ -151,7 +151,7 @@ describe('2 · datáfonos', () => {
     );
     expect(s.status).toBe('warn');
     expect(s.items[0]!.label).toContain('no mandó el resultado');
-    expect(s.items[1]!.label).toContain('Sala: 3 ventas (120,00 €) sin cuadrar');
+    expect(s.items[1]!.label).toContain('Sala: 3 ventas (120,00\u00a0€) sin cuadrar');
     expect(s.items[1]!.label).toContain('sin señal desde hace 1 h');
     expect(s.link).toBe('terminals');
   });
@@ -176,8 +176,8 @@ describe('3 · saldo devuelto pendiente', () => {
       'Son de antes de la nueva regla (el saldo ya no se devuelve). Termínalas antes de contar la caja: en efectivo cuentan en el arqueo; a la tarjeta, en Clientes → Saldos.',
     );
     expect(s.items.map((i) => i.label)).toEqual([
-      'Devolución a la tarjeta a medias: 30,00 € · código K7Q-4M2. Termínala en Clientes → Saldos',
-      'Devolución pedida antes de la nueva regla: 29,00 € · código UYS-J5G. Termínala en Clientes → Saldos',
+      'Devolución a la tarjeta a medias: 30,00\u00a0€ · código K7Q-4M2. Termínala en Clientes → Saldos',
+      'Devolución pedida antes de la nueva regla: 29,00\u00a0€ · código UYS-J5G. Termínala en Clientes → Saldos',
     ]);
     for (const text of [s.detail, ...s.items.map((i) => i.label)]) expect(text).not.toMatch(/wallet/i);
   });
@@ -247,18 +247,18 @@ describe('5 · pagar a las chicas', () => {
     ];
     const s = chicasStep(chicas, 0);
     expect(s).toMatchObject({ status: 'warn', count: 1, link: 'operators' });
-    expect(s.detail).toBe('Queda 1 persona por pagar: 90,00 €.');
+    expect(s.detail).toBe('Queda 1 persona por pagar: 90,00\u00a0€.');
     expect(s.title).toBe('Pagar al personal');
-    expect(s.items[0]!.label).toBe('Lola: Págale 90,00 €');
-    expect(s.items[1]!.label).toBe('Ana: Nada que pagar ya · pagado esta noche 40,00 €');
+    expect(s.items[0]!.label).toBe('Lola: Págale 90,00\u00a0€');
+    expect(s.items[1]!.label).toBe('Ana: Nada que pagar ya · pagado esta noche 40,00\u00a0€');
   });
 
   it('con días de espera: lo de esta noche queda en espera y no avisa', () => {
     const chicas = [chicaPay(balance({ unpaidCents: 9000, heldCents: 9000, earnedTonightCents: 9000, debtCents: 500 }))];
     const s = chicasStep(chicas, 7);
     expect(s.status).toBe('ok');
-    expect(s.detail).toContain('90,00 € siguen en espera: se pagan pasados 7 días');
-    expect(s.items[0]!.label).toBe('Lola: Nada que pagar ya · 90,00 € en espera · debe 5,00 € por devoluciones');
+    expect(s.detail).toContain('90,00\u00a0€ siguen en espera: se pagan pasados 7 días');
+    expect(s.items[0]!.label).toBe('Lola: Nada que pagar ya · 90,00\u00a0€ en espera · debe 5,00\u00a0€ por devoluciones');
   });
 
   it('sin chicas con nada → listo', () => {

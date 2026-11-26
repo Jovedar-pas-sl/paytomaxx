@@ -1,7 +1,7 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { describe, expect, it, vi } from 'vitest';
 import { ClsService } from 'nestjs-cls';
-import { PASSKEY_REQUIRED_CODE, stepUpActions } from '@nightpay/contracts';
+import { PASSKEY_REQUIRED_CODE, STEP_UP_ACTION_RE, StepUpPasskeyOptionsSchema, stepUpActions } from '@nightpay/contracts';
 import { assertTwoFactorCode } from '../wallets/wallet-two-factor';
 import { createFakeRedis } from './testing/fake-redis';
 import { StepUpService } from './step-up.service';
@@ -154,5 +154,25 @@ describe('verificarse con la llave (StepUpService)', () => {
     await expect(svc.verifyWithPasskey(me, {}, undefined, undefined, NOW)).rejects.toThrow('firma mala');
     expect(await svc.current(me, NOW)).toBeNull();
     expect(audit.log).toHaveBeenCalledWith(expect.objectContaining({ action: 'auth.step_up.failed', payload: { method: 'passkey' } }));
+  });
+});
+
+describe('«Pagar» a varias a la vez: la acción de la prueba', () => {
+  const KEY = '7f1c2a9e-3b4d-4e5f-8a6b-1c2d3e4f5a6b';
+
+  it('payout-batch:<clave>:<cuántas>:<total> es una acción válida para pedir la prueba de la llave', () => {
+    const action = stepUpActions.payoutBatch(KEY, 50, 999_999_999);
+    expect(action).toBe(`payout-batch:${KEY}:50:999999999`);
+    expect(STEP_UP_ACTION_RE.test(action)).toBe(true);
+    expect(StepUpPasskeyOptionsSchema.safeParse({ action }).success).toBe(true);
+    // La clave más larga que acepta la ruta (64) también cabe.
+    expect(STEP_UP_ACTION_RE.test(stepUpActions.payoutBatch('k'.repeat(64), 1, 1))).toBe(true);
+  });
+
+  it('va atada a la clave, a cuántas y al total: con otra cosa es otra acción', () => {
+    const action = stepUpActions.payoutBatch(KEY, 6, 54_000);
+    expect(stepUpActions.payoutBatch(KEY, 5, 54_000)).not.toBe(action);
+    expect(stepUpActions.payoutBatch(KEY, 6, 54_001)).not.toBe(action);
+    expect(stepUpActions.payoutBatch(KEY.replace('7f', '8f'), 6, 54_000)).not.toBe(action);
   });
 });

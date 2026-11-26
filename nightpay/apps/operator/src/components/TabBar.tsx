@@ -1,6 +1,7 @@
 'use client';
 
-import { useLayoutEffect, useRef, type CSSProperties, type ReactNode } from 'react';
+import { useLayoutEffect, useRef, type CSSProperties } from 'react';
+import { Icon, type IconName } from '@nightpay/ui';
 import { isParty } from '@/lib/edition';
 import { PARTY_TAB_LABEL } from '@/lib/party-tabs';
 import type { TabKey } from '@/lib/roles';
@@ -54,117 +55,50 @@ export function TabBar({ tabs, active, onSelect }: { tabs: readonly TabKey[]; ac
   const ref = useMeasuredSpace();
   // OxioParty: Cobrar, Taquilla, Cobros y Ajustes.
   const labels = isParty() ? PARTY_TAB_LABEL : TAB_LABEL;
+  const at = tabs.indexOf(active);
   return (
-    <nav ref={ref} style={tabBarStyle} aria-label="Navegación principal">
+    <nav ref={ref} style={tabBarStyle} aria-label="Navegación principal" data-np-foot="">
+      {/* La raya de la elegida: una sola, que se desliza a su sitio (.np-tabmark en staff.css). La key la pone
+          sin deslizarse si las pestañas cambian al cargar el local; sin pestaña elegida, no se pinta. */}
+      {at >= 0 ? <span className="np-tabmark" aria-hidden="true" key={tabs.join()} style={{ '--i': at, '--n': tabs.length } as CSSProperties} /> : null}
       {tabs.map((key) => (
-        <TabBtn
-          key={key}
-          active={active === key}
-          icon={<TabIcon tab={key} active={active === key} />}
-          label={labels[key]}
-          onClick={() => onSelect(key)}
-        />
+        <TabBtn key={key} tab={key} active={active === key} label={labels[key]} onClick={() => onSelect(key)} />
       ))}
     </nav>
   );
 }
 
-function TabBtn({
-  active,
-  icon,
-  label,
-  onClick,
-}: {
-  active: boolean;
-  icon: ReactNode;
-  label: string;
-  onClick: () => void;
-}) {
+function TabBtn({ tab, active, label, onClick }: { tab: TabKey; active: boolean; label: string; onClick: () => void }) {
   return (
     <button
       type="button"
+      className="np-staff-tab"
       onClick={onClick}
       aria-label={label}
       aria-current={active ? 'page' : undefined}
-      // La activa en crema (icono, texto y su raya arriba). Las demás, en t2.
+      // La activa en crema (icono y texto; su raya de arriba es la marca de la barra). Las demás, en t2.
       style={{ ...tabBtnStyle, color: active ? TAB_ACTIVE_COLOR : TAB_IDLE_COLOR, fontWeight: active ? 600 : 500 }}
     >
-      {active ? <span aria-hidden="true" style={activeMarkStyle} /> : null}
-      <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '1.5rem' }}>{icon}</span>
+      <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '1.5rem' }}>
+        <Icon name={TAB_ICON[tab]} />
+      </span>
       {label}
     </button>
   );
 }
 
-// SVG icons — consistentes en todas las plataformas, no dependen de fonts
-// del sistema. Stroke-currentColor para heredar el color activo/inactivo.
-const ICON_SIZE = 22;
-
-function TabIcon({ tab, active }: { tab: TabKey; active: boolean }) {
-  return (
-    <svg
-      width={ICON_SIZE}
-      height={ICON_SIZE}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={active ? 2.2 : 1.8}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden
-    >
-      {ICON_PATHS[tab]}
-    </svg>
-  );
-}
-
-const ICON_PATHS: Record<TabKey, ReactNode> = {
-  home: <path d="M3 12L12 3l9 9M5 10v10a1 1 0 001 1h3v-6h6v6h3a1 1 0 001-1V10" />,
-  // El timbre del mostrador (antes, un maletín con una cruz: parecía un botiquín).
-  reception: (
-    <>
-      <path d="M4 18a8 8 0 0116 0" />
-      <path d="M2.5 18h19M12 10V7.5M10 7.5h4" />
-    </>
-  ),
-  // Una entrada (ticket) con su corte: los reservados.
-  reservas: (
-    <>
-      <path d="M3 8a2 2 0 002-2h14a2 2 0 002 2v2a2 2 0 000 4v2a2 2 0 01-2 2H5a2 2 0 01-2-2v-2a2 2 0 000-4V8z" />
-      <path d="M14 6v12" strokeDasharray="2 2" />
-    </>
-  ),
-  pos: (
-    <>
-      <rect x="5" y="3" width="14" height="18" rx="2" />
-      <path d="M8 7h8M8 11h8M9 16h2" />
-    </>
-  ),
-  payments: (
-    <>
-      <path d="M8 6h13M8 12h13M8 18h13" />
-      <circle cx="4" cy="6" r="1" fill="currentColor" />
-      <circle cx="4" cy="12" r="1" fill="currentColor" />
-      <circle cx="4" cy="18" r="1" fill="currentColor" />
-    </>
-  ),
-  // Una cartera (antes, un cilindro: el icono de una base de datos).
-  earnings: (
-    <>
-      <path d="M17 7V5.5A1.5 1.5 0 0015.5 4H5a2 2 0 00-2 2" />
-      <rect x="3" y="6" width="18" height="14" rx="2" />
-      <path d="M21 11h-4a2 2 0 000 4h4" />
-      <circle cx="17" cy="13" r="0.5" fill="currentColor" />
-    </>
-  ),
+/** El dibujo de cada pestaña (la pieza Icon, a 24). La elegida engorda el trazo por CSS (.np-staff-tab en staff.css). */
+const TAB_ICON: Record<TabKey, IconName> = {
+  home: 'home',
+  // El timbre del mostrador.
+  reception: 'concierge-bell',
+  // Una entrada con su corte: los reservados.
+  reservas: 'ticket',
+  pos: 'pos',
+  payments: 'list',
+  earnings: 'wallet',
   // Ajustes (OxioParty): dos correderas.
-  settings: (
-    <>
-      <path d="M4 7h10M18 7h2M4 17h4M12 17h8" />
-      <circle cx="16" cy="7" r="2" />
-      <circle cx="10" cy="17" r="2" />
-    </>
-  ),
+  settings: 'sliders',
 };
 
 // Alto fijo (TAB_BAR_HEIGHT): el botón de cobrar se queda pegado justo encima.
@@ -185,18 +119,6 @@ const tabBtnStyle: CSSProperties = {
   position: 'relative',
   fontSize: 'var(--np-t-label)',
   lineHeight: 1.2,
-};
-
-// Raya de 2 px arriba de la pestaña activa (con el color nunca va sola: también la letra y el trazo).
-const activeMarkStyle: CSSProperties = {
-  position: 'absolute',
-  top: 0,
-  left: '50%',
-  width: '1.5rem',
-  height: 2,
-  marginLeft: '-0.75rem',
-  borderRadius: 999,
-  background: 'currentColor',
 };
 
 const tabBarStyle: CSSProperties = {

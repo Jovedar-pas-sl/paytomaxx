@@ -2,6 +2,7 @@ import { ConflictException } from '@nestjs/common';
 import type { TransactionalClient } from '../../common/prisma/prisma.service';
 import { earningBankHeldSql, earningNetSql } from './bank-hold-sql';
 import { payoutCutoff } from './payout-math';
+import { eur } from '../../common/money/eur';
 
 /**
  * Qué entra en un pago a una chica, leído DENTRO de la transacción del pago
@@ -161,10 +162,6 @@ export function payoutChanged(message: string): ConflictException {
   return new ConflictException({ message, code: PAYOUT_CHANGED_CODE });
 }
 
-function eur(cents: number): string {
-  return `${(cents / 100).toFixed(2).replace('.', ',')} €`;
-}
-
 /** No hay nada que pagar ya: solo hay comisiones retenidas por ventas por datáfono sin cuadrar. */
 export function bankHeldOnlyMessage(held: { cents: number; sales: number }): string {
   const sales = held.sales === 1 ? '1 venta por datáfono' : `${held.sales} ventas por datáfono`;
@@ -173,12 +170,17 @@ export function bankHeldOnlyMessage(held: { cents: number; sales: number }): str
 
 /**
  * Lo pagable ya no es la cifra que vio quien paga (o quien lo pide): 409
- * PAYOUT_CHANGED. Lo usan el pago directo y la petición «Por aprobar».
+ * PAYOUT_CHANGED, con las dos cifras en el cuerpo. Lo usan el pago directo y la
+ * petición «Por aprobar».
  */
 export function payoutTotalChanged(totalCents: number, expectedTotalCents: number): ConflictException {
-  return payoutChanged(
-    `Lo que hay que pagar a la chica ha cambiado desde que lo abriste: ahora son ${eur(totalCents)}, no ${eur(expectedTotalCents)}.`,
-  );
+  return new ConflictException({
+    message: `Lo que hay que pagar a la chica ha cambiado desde que lo abriste: ahora son ${eur(totalCents)}, no ${eur(expectedTotalCents)}.`,
+    code: PAYOUT_CHANGED_CODE,
+    // Las dos cifras, para quien pinta la lista («Pagar» a varias a la vez).
+    totalCents,
+    expectedTotalCents,
+  });
 }
 
 /** Pago de siempre: lo que ya pasó los días de espera del local y toda la deuda abierta. */

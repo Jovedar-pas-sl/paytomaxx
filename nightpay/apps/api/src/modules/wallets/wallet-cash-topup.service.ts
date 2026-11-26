@@ -39,6 +39,7 @@ import { formatWalletCode, normalizeWalletCode, sameWalletGroup } from './wallet
 import { assertFichaInHand } from './wallet-fresh-topup';
 import { topUpTarget } from './wallet-topup-target';
 import { VENUE_SERVICE_FEE_SELECT, venueServiceFeeOf } from '../payments/service-fee';
+import { eur } from '../../common/money/eur';
 
 /**
  * Quién cobra el efectivo: una persona de la app (con su rol, para el
@@ -697,10 +698,6 @@ export class CashTopUpService {
     );
     return { code: formatWalletCode(wallet?.shortCode ?? ''), balanceCents: wallet?.balanceCents ?? 0 };
   }
-}
-
-function eur(cents: number): string {
-  return `${(cents / 100).toFixed(2).replace('.', ',')} €`;
 }
 
 /** Lo de la comisión del servicio en el recibo: el importe, su % y lo que pagó el cliente. */

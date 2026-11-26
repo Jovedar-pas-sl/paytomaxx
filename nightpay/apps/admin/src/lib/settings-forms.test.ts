@@ -16,6 +16,7 @@ import {
   rulesChange,
   rulesFormFrom,
   serviceFeeRulesText,
+  shownPermissions,
   staffWatchChange,
   staffWatchFormFrom,
   tipEurosText,
@@ -121,10 +122,10 @@ describe('propinas sugeridas', () => {
 describe('permisos del personal', () => {
   const manager = { id: 'm-1', role: 'MANAGER' as const };
 
-  it('el encargado: los seis; el camarero y el datáfono de recepción: solo las recargas', () => {
-    expect(editablePermissions('MANAGER')).toHaveLength(6);
+  it('el encargado: los siete; el camarero: las recargas y cobrar a nombre de una compañera; el datáfono, solo las recargas', () => {
+    expect(editablePermissions('MANAGER')).toHaveLength(7);
     expect(editablePermissions('MANAGER')).not.toContain('cashPayout');
-    expect(editablePermissions('WAITER')).toEqual(['cashTopUp']);
+    expect(editablePermissions('WAITER')).toEqual(['cashTopUp', 'chargeForOperator']);
     expect(editablePermissions('DEVICE')).toEqual(['cashTopUp']);
     expect(PERMISSION_LABELS.cashTopUp).toBe('Cobrar recargas en efectivo');
     expect(ROLE_LABELS.DEVICE).toBe('Datáfonos de recepción');
@@ -144,6 +145,31 @@ describe('permisos del personal', () => {
     expect(personCan(perms, manager, 'cashTopUp')).toBe(true);
     expect(personCan(perms, { id: 'w-2', role: 'WAITER' }, 'cashTopUp')).toBe(false);
     expect(personCan(perms, { id: 'w-1', role: 'WAITER' }, 'cashTopUp')).toBe(true);
+    expect(hasOverride(perms, { id: 'w-1', role: 'WAITER' })).toBe(true);
+  });
+
+  it('cobrar a nombre de una compañera: solo con la casilla del local apagada; a los camareros, solo por persona', () => {
+    const on = { servicesOff: false, perPerson: false };
+    for (const role of ['MANAGER', 'WAITER', 'DEVICE'] as const) {
+      expect(shownPermissions(role, on)).not.toContain('chargeForOperator');
+      expect(shownPermissions(role, { ...on, perPerson: true })).not.toContain('chargeForOperator');
+    }
+    // Lo demás no cambia.
+    expect(shownPermissions('WAITER', on)).toEqual(['cashTopUp']);
+    expect(shownPermissions('MANAGER', on)).toHaveLength(6);
+    const off = { servicesOff: true, perPerson: false };
+    expect(shownPermissions('MANAGER', off)).toContain('chargeForOperator');
+    expect(shownPermissions('MANAGER', { ...off, perPerson: true })).toContain('chargeForOperator');
+    expect(shownPermissions('WAITER', off)).toEqual(['cashTopUp']);
+    expect(shownPermissions('WAITER', { ...off, perPerson: true })).toEqual(['cashTopUp', 'chargeForOperator']);
+    expect(shownPermissions('DEVICE', { servicesOff: true, perPerson: true })).toEqual(['cashTopUp']);
+    expect(PERMISSION_LABELS.chargeForOperator).toBe('Cobrar servicios a nombre de una compañera');
+    expect(PERMISSION_HINTS.chargeForOperator).toMatch(/Mi QR/);
+    // De fábrica: el encargado sí, el camarero no; dárselo a uno es «A medida».
+    const perms = staffPermissionsOf({ people: { 'w-1': { chargeForOperator: true } } });
+    expect(personCan(perms, manager, 'chargeForOperator')).toBe(true);
+    expect(personCan(perms, { id: 'w-2', role: 'WAITER' }, 'chargeForOperator')).toBe(false);
+    expect(personCan(perms, { id: 'w-1', role: 'WAITER' }, 'chargeForOperator')).toBe(true);
     expect(hasOverride(perms, { id: 'w-1', role: 'WAITER' })).toBe(true);
   });
 

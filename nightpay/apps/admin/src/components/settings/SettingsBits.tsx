@@ -3,7 +3,9 @@
 import { useCallback, useEffect, useId, useState, type ReactNode } from 'react';
 import { Button } from '@nightpay/ui';
 import { Notice } from '../Notice';
-import { ToggleSwitch } from '../ToggleSwitch';
+
+// El interruptor que guarda al tocarlo es el común (su resultado, en StatusLine). Lo que espera a «Guardar» es un Checkbox.
+export { Switch } from '@nightpay/ui';
 
 /** Un bloque de Ajustes: título, una línea de ayuda y su contenido (`tour`: su marca para el tutorial). */
 export function SettingsCard({ title, hint, children, tour }: { title: string; hint?: ReactNode; children: ReactNode; tour?: string }) {
@@ -18,42 +20,6 @@ export function SettingsCard({ title, hint, children, tour }: { title: string; h
       </header>
       {children}
     </section>
-  );
-}
-
-/** Interruptor accesible (role=switch): se lee «activado/desactivado», no solo el color. */
-export function Switch({
-  checked,
-  onChange,
-  label,
-  hint,
-  disabled,
-}: {
-  checked: boolean;
-  onChange: (next: boolean) => void;
-  label: string;
-  hint?: string;
-  disabled?: boolean;
-}) {
-  const hintId = useId();
-  return (
-    <div className="np-set-row">
-      <div className="np-set-row-text">
-        <span className="np-set-row-label">{label}</span>
-        {hint ? (
-          <span id={hintId} className="np-set-row-hint">
-            {hint}
-          </span>
-        ) : null}
-      </div>
-      <ToggleSwitch
-        checked={checked}
-        onChange={onChange}
-        ariaLabel={label}
-        describedBy={hint ? hintId : undefined}
-        disabled={disabled}
-      />
-    </div>
   );
 }
 

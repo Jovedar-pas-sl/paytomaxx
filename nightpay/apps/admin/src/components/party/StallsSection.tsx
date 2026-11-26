@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { STALL_SELLS_MAX, STALL_ZONE_MAX, type StallStaffPerson, type StallView, type UpdateStallDto } from '@nightpay/contracts';
-import { Button, Input } from '@nightpay/ui';
+import { Button, Checkbox, Input } from '@nightpay/ui';
 import { totpRetryState } from '@/lib/api-errors';
 import { assignStall, createStall, deleteStall, fetchPartySettings, fetchStallStaff, fetchStalls, updateStall } from '@/lib/endpoints/party';
 import { OTP_LENGTH } from '@/lib/otp';
@@ -388,10 +388,12 @@ function StallFormCard({
             disabled={form.ownBar || bpsFixed}
             hint={bpsFixed ? STALL_BPS_LOCKED_HINT : 'De lo que venda, lo que se queda la organización.'}
           />
-          <label className="np-party-check">
-            <input type="checkbox" checked={form.ownBar} disabled={bpsFixed} onChange={(e) => update({ ownBar: e.target.checked })} />
-            Barra propia (todo para la organización; no se le paga)
-          </label>
+          <Checkbox
+            label="Barra propia (todo para la organización; no se le paga)"
+            checked={form.ownBar}
+            disabled={bpsFixed}
+            onChange={(ownBar) => update({ ownBar })}
+          />
         </div>
         <div className="np-party-form-wide">
           <Input
@@ -404,16 +406,12 @@ function StallFormCard({
             hint={form.ownBar ? 'Una barra propia no se paga: no hace falta.' : 'Sin IBAN se cuenta, pero no va en el fichero del banco.'}
           />
         </div>
-        <label className="np-party-check">
-          <input type="checkbox" checked={form.openNow} onChange={(e) => update({ openNow: e.target.checked })} />
-          Abierta ahora (lo ven los asistentes; su personal también lo cambia desde su app)
-        </label>
-        {current ? (
-          <label className="np-party-check">
-            <input type="checkbox" checked={form.active} onChange={(e) => update({ active: e.target.checked })} />
-            Activa (se le puede dar personal y cobrar)
-          </label>
-        ) : null}
+        <Checkbox
+          label="Abierta ahora (lo ven los asistentes; su personal también lo cambia desde su app)"
+          checked={form.openNow}
+          onChange={(openNow) => update({ openNow })}
+        />
+        {current ? <Checkbox label="Activa (se le puede dar personal y cobrar)" checked={form.active} onChange={(active) => update({ active })} /> : null}
       </div>
       {askCode ? (
         <OtpInput

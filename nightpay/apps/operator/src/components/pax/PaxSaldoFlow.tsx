@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState, type CSSProperties, type FormEvent } from 'react';
-import { Button, Card, Input } from '@nightpay/ui';
+import { Button, Card, EmptyState, Input } from '@nightpay/ui';
 import { formatEur } from '@/lib/money';
 import { fichaPlace, useReaderSpot } from '@/lib/lector-nfc';
 import { nfcSupported } from '@/lib/nfc';
@@ -26,6 +26,7 @@ import {
   type SaldoRef,
 } from '@/lib/pax-saldo';
 import { usePolling } from '@/lib/use-polling';
+import { SkelCard } from '../loading-shapes';
 import { PinPad } from '../PinPad';
 import { StaffOutcome } from '../StaffOutcome';
 
@@ -246,9 +247,14 @@ function PickCharge({
           Escanear QR del cobro
         </Button>
       ) : null}
-      {charges === null && !error ? <p style={muted}>Cargando…</p> : null}
+      {/* Cargando: tres losetas como las de los cobros (la cifra de 28 arriba y una línea debajo). */}
+      {charges === null && !error
+        ? [0, 1, 2].map((i) => <SkelCard key={i} figure="1.75rem" lines={1} style={{ minHeight: '5.5rem', borderRadius: 'var(--np-r-inner)', background: 'var(--np-surface-2)' }} />)
+        : null}
       {charges !== null && charges.length === 0 ? (
-        <p style={{ ...muted, padding: '1rem 0' }}>No hay cobros del saldo esperando. Se hacen en la app del personal, en Inicio («Cobrar»).</p>
+        <div style={{ padding: '1rem 0' }}>
+          <EmptyState icon="pos" title="Ningún cobro esperando" text="Se crean en la app del personal, en Inicio." />
+        </div>
       ) : null}
       {(charges ?? []).map((c) => (
         <button key={c.id} type="button" disabled={busy} onClick={() => onPicked(c)} style={chargeBtn}>

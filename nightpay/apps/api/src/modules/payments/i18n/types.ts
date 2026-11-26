@@ -122,6 +122,10 @@ export interface PayText {
   secure: string;
   /** El selector de idioma (su etiqueta para lectores de pantalla). */
   languageMenu: string;
+  /** La franja que ofrece este idioma a quien tiene el móvil en él (escrita en él): «English? · Switch». */
+  langSuggest: string;
+  /** La ✕ de esa franja: seguir en el idioma de la página («Seguir en español»). */
+  langKeep: string;
   // Página de pago
   youPay: string;
   /** Encima del importe grande: lo que paga ahora (se pone al día con la propina). */
@@ -155,7 +159,12 @@ export interface PayText {
   tipOtherEmpty: string;
   /** «Otra» por encima del tope. */
   tipOtherTooHigh: (max: string) => string;
+  /** A quién va la propina, debajo de los botones: entera a una persona del personal… */
   tipToStaff: string;
+  /** …o al local. Siempre se dice una de las dos. */
+  tipToVenue: string;
+  /** Lo que oye el lector de pantalla en cada propina: «Propina de 3 €. Total 39,30 €». */
+  tipWithTotal: (tip: string, total: string) => string;
   total: string;
   /** Desglose: Consumo (o Recarga) · Comisión del servicio · Propina · Total. */
   breakdown: { consumption: string; topUp: string; serviceFee: string; tip: string };
@@ -169,13 +178,26 @@ export interface PayText {
   statement: (name: string) => string;
   /** Quién cobra (su nombre visible): «Te cobra Ana». */
   chargedBy: (name: string) => string;
+  /** A nombre de una compañera (cobro por el encargado): «Servicio con Nerea». */
+  serviceWith: (name: string) => string;
   expiresIn: string;
+  /** El último minuto del cobro, en ámbar: «Queda menos de 1 minuto: 0:42. Si caduca, pide otro QR.» */
+  lastMinute: (time: string) => string;
+  /** Debajo de los botones de pagar: dónde se escribe la tarjeta (con la marca: BRAND_NAME). */
+  bankSafe: (brand: string) => string;
   // Hacia el banco
+  /** El aviso del salto al banco, mientras se abre su página. */
+  bankJumpTitle: string;
+  /** «El cargo saldrá como «SALA AURORA MADRID».» */
+  bankJumpStatement: (name: string) => string;
+  /** El botón de pagar mientras se abre el pago y la pestaña de la página que salta al banco. */
   openingTitle: string;
   openingHint: string;
   continueToBank: string;
   // Pagado
   paidTitle: string;
+  /** Debajo de «Pagado», a quién: «a Sala Aurora». */
+  paidTo: (venue: string) => string;
   alreadyPaidTitle: string;
   agoPrefix: string;
   agoSuffix: string;
@@ -224,6 +246,8 @@ export interface PayText {
   receipt: {
     title: string;
     date: string;
+    /** «Pagado a»: el local. */
+    paidTo: string;
     amount: string;
     /** Una recarga del saldo: el importe es «Recarga». */
     topUp: string;
@@ -257,8 +281,12 @@ export interface WalletText {
   /** «Ficha nº {n}» en la tarjeta de arriba. */
   fichaNo: string;
   saveHint: string;
+  /** Debajo del saldo: «Último: −12 € · Gin tonic · 21:30» (`{what}` lo rellena el JS). */
+  last: string;
+  /** «Últimos movimientos»: tres a la vista y «Ver todos» / «Ver menos». */
   movements: string;
-  movementsHint: string;
+  movementsAll: string;
+  movementsLess: string;
   noMovements: string;
   /** Movimientos que pone el API (los consumos llevan lo que se pidió, tal cual). */
   mv: { topUp: string; topUpCash: string; topUpCashVoid: string; payoutCash: string; payoutCard: string };
@@ -348,6 +376,8 @@ export interface WalletText {
   proofWhat: string;
   proofAdded: string;
   lostButton: string;
+  /** «Bloquear», junto al número de la ficha (abre la misma hoja que el botón de abajo). */
+  lostQuick: string;
   lostTitle: string;
   lostWhy: string;
   lostSafe: string;

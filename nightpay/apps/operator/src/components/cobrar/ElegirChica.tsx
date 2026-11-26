@@ -2,8 +2,10 @@
 
 import { useEffect, useState } from 'react';
 import type { InvitableStaff } from '@nightpay/contracts';
+import { EmptyState } from '@nightpay/ui';
 import { fetchInvitables } from '@/lib/api-cobro';
 import { formatEur } from '@/lib/money';
+import { SkelRows } from '../loading-shapes';
 import { puestoChip, type CobrarContext } from './cobrar-context';
 import { Chip, ScreenHeader } from './ScreenHeader';
 import styles from './cobrar.module.css';
@@ -64,9 +66,10 @@ export function ElegirChica({
             {error}
           </p>
         ) : list === null ? (
-          <p className={styles.muted}>Cargando…</p>
+          // Cuatro filas como las de la lista (56 de alto, solo el nombre).
+          <SkelRows count={4} line="40%" height="3.5rem" />
         ) : list.length === 0 ? (
-          <p className={styles.empty}>No hay chicas dadas de alta en el local.</p>
+          <EmptyState icon="users" title="Aún no hay compañeras en este local" text="Las da de alta el dueño o el encargado en el panel." />
         ) : (
           <div className={styles.pickList}>
             {list.map((c) => (

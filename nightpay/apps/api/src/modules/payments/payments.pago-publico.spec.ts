@@ -213,8 +213,6 @@ describe('getPayPage — lo que ve el cliente al escanear el QR', () => {
       venueName: 'Sala Bambú (Madrid)',
       concept: 'Copa en barra',
       tipToStaff: true,
-      // Sin ajustes del local: las propinas sugeridas de siempre.
-      tipPresets: { flatCents: [200, 500], percents: [10, 15] },
     });
     // Local con otra pasarela (Paytef): solo «Sin propina».
     const paytef = makeService({ provider: 'PAYTEF' });

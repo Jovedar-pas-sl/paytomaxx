@@ -3,6 +3,7 @@ import { ForbiddenException, type HttpException } from '@nestjs/common';
 import {
   DEFAULT_POST_RULES,
   DEFAULT_SECTIONS,
+  SALA_PHONE_OFF_MESSAGE,
   SECTION_CODES,
   allowedSections,
   chargeRightsOf,
@@ -31,6 +32,7 @@ describe('qué cobra cada puesto (de fábrica)', () => {
       cash: false,
       topUps: false,
       cashPayout: false,
+      fromPhone: true,
     });
   });
 
@@ -87,6 +89,62 @@ describe('qué cobra cada puesto (de fábrica)', () => {
   });
 });
 
+describe('«Las compañeras cobran desde su móvil» apagada (super-admin)', () => {
+  const off = { operatorsChargeFromPhone: false };
+
+  it('la compañera: sin secciones ni recargas; las propinas y el efectivo, como su fila (sus cobros de antes se pagan)', () => {
+    expect(chargeRightsOf({ role: 'OPERATOR', post: null }, postRulesOf(null), off)).toEqual({
+      post: 'SALA',
+      all: false,
+      sections: [],
+      tips: true,
+      cash: false,
+      topUps: false,
+      cashPayout: false,
+      fromPhone: false,
+    });
+    // Aunque Sala cargue saldos en las reglas del local.
+    expect(chargeRightsOf({ role: 'OPERATOR', post: null }, postRulesOf({ SALA: { topUps: true, cash: true } }), off)).toMatchObject({
+      sections: [],
+      topUps: false,
+      cash: true,
+    });
+  });
+
+  it('el encargado, el dueño y recepción no cambian', () => {
+    const rules = postRulesOf(null);
+    for (const person of [
+      { role: 'MANAGER', post: null },
+      { role: 'OWNER', post: null },
+      { role: 'WAITER', post: 'RECEPCION' },
+      { role: 'WAITER', post: 'SALA' },
+    ]) {
+      expect(chargeRightsOf(person, rules, off)).toEqual(chargeRightsOf(person, rules));
+    }
+  });
+
+  it('encendida o sin el dato (una base de mentira, un API de antes): como hoy', () => {
+    const rules = postRulesOf(null);
+    const today = chargeRightsOf({ role: 'OPERATOR', post: null }, rules);
+    expect(today.sections).toEqual(['CHICA_SERVICE']);
+    expect(chargeRightsOf({ role: 'OPERATOR', post: null }, rules, { operatorsChargeFromPhone: true })).toEqual(today);
+    expect(chargeRightsOf({ role: 'OPERATOR', post: null }, rules, {})).toEqual(today);
+  });
+
+  it('el motivo del 403 (también en las apps de antes): «Hoy cobra el encargado»', () => {
+    const companera = chargeRightsOf({ role: 'OPERATOR', post: null }, postRulesOf(null), off);
+    expect(SALA_PHONE_OFF_MESSAGE).toBe('Hoy cobra el encargado: desde tu app no se cobra.');
+    expect(sectionNotAllowedMessage(companera, 'CHICA_SERVICE', label)).toBe(SALA_PHONE_OFF_MESSAGE);
+  });
+
+  it('Sala sin secciones con la casilla encendida no es «Hoy cobra el encargado» (su servicio no le llega a ella)', () => {
+    const salaVacia = postRulesOf({ SALA: { sections: [] } });
+    const companera = chargeRightsOf({ role: 'OPERATOR', post: null }, salaVacia, { operatorsChargeFromPhone: true });
+    expect(companera).toMatchObject({ sections: [], fromPhone: true });
+    expect(sectionNotAllowedMessage(companera, 'CHICA_SERVICE', label)).not.toBe(SALA_PHONE_OFF_MESSAGE);
+  });
+});
+
 describe('el candado en el servidor', () => {
   it('chargeRightsFor lee el puesto de la persona y la tabla del local', async () => {
     const db = {
@@ -96,7 +154,19 @@ describe('el candado en el servidor', () => {
     const rights = await chargeRightsFor(db as never, 'venue-1', { userId: 'u-1', role: 'WAITER' });
     expect(rights).toMatchObject({ post: 'RECEPCION', topUps: false, cash: true });
     expect(rights.labelOf('VENUE_BAR')).toBe('Barra libre');
-    expect(db.venue.findUnique).toHaveBeenCalledWith({ where: { id: 'venue-1' }, select: { postRules: true, sections: true } });
+    expect(db.venue.findUnique).toHaveBeenCalledWith({
+      where: { id: 'venue-1' },
+      select: { postRules: true, sections: true, operatorsChargeFromPhone: true },
+    });
+  });
+
+  it('chargeRightsFor con la casilla apagada: la compañera, sin secciones', async () => {
+    const db = {
+      user: { findFirst: vi.fn(async () => ({ post: null })) },
+      venue: { findUnique: vi.fn(async () => ({ postRules: null, sections: null, operatorsChargeFromPhone: false })) },
+    };
+    const rights = await chargeRightsFor(db as never, 'venue-1', { userId: 'c-1', role: 'OPERATOR' });
+    expect(rights.sections).toEqual([]);
   });
 
   it('una sección que no puede: 403 SECTION_NOT_ALLOWED con la sección', () => {

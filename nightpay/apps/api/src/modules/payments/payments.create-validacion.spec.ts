@@ -216,7 +216,7 @@ describe('create — cobro desde la carta (Fase 1A)', () => {
     expect(ok.created[0]).toMatchObject({ amountCents: 36_600 });
     const over = makeService({ serviceItem: bottle });
     await expect(over.service.create(TENANT, 'idem-val-0014', mixed(25_000), waiter)).rejects.toThrow(
-      /^Importe 250\.00 € supera el límite del local \(200\.00 €\)\./,
+      /^Importe 250,00\u00a0€ supera el límite del local \(200,00\u00a0€\)\./,
     );
     expect(over.created).toHaveLength(0);
   });

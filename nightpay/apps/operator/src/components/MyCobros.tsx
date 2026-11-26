@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import type { CobroKind, OwnCobro } from '@nightpay/contracts';
-import { Button, Card, Importe, useNow } from '@nightpay/ui';
+import { Banner, Button, EmptyState, Importe, useNow } from '@nightpay/ui';
 import { cancelPayment } from '@/lib/api';
 import { paymentTimeLabel, timeLabel } from '@/lib/earnings-view';
 import {
@@ -28,6 +28,7 @@ import { usePolling } from '@/lib/use-polling';
 import { CancelCobroConfirm } from './CancelCobroConfirm';
 import { CobroDetailSheet } from './CobroDetailSheet';
 import { DateRange } from './DateRange';
+import { SkelCard } from './loading-shapes';
 import { UnpaidInVenue } from './UnpaidInVenue';
 import { useUnpaidInVenue } from './use-unpaid-in-venue';
 import detailStyles from './cobro-detail.module.css';
@@ -38,6 +39,10 @@ interface Props {
   cancelPending?: boolean;
   /** Cada cuánto se refresca (roles.ts). */
   pollMs?: number;
+  /** La compañera con la casilla del local apagada: no cobra, así que su vacío dice dónde ve lo suyo. */
+  cobraEncargado?: boolean;
+  /** «Cobrar ahora» del vacío: a Inicio (solo quien cobra). */
+  onCobrar?: () => void;
 }
 
 /**
@@ -64,7 +69,8 @@ export function MyCobros(props: Props) {
 }
 
 /** La lista en sí: con fechas, solo los de esas noches y sin el total de «Esta noche». */
-function CobrosFeed({ cancelPending = false, pollMs = 15_000, days }: Props & { days: DayRange }) {
+function CobrosFeed({ cancelPending = false, pollMs = 15_000, cobraEncargado = false, onCobrar, days }: Props & { days: DayRange }) {
+  const filtered = days.fromDay !== '' || days.toDay !== '';
   const [{ items, cursor, error, moreBusy, night }, setState] = useState<OwnCobrosSnapshot>({ items: null, cursor: null, error: null, moreBusy: false, night: null });
   const [busyId, setBusyId] = useState<string | null>(null);
   const [cancelError, setCancelError] = useState<string | null>(null);
@@ -116,19 +122,34 @@ function CobrosFeed({ cancelPending = false, pollMs = 15_000, days }: Props & { 
       <UnpaidInVenue items={unpaid.items} nowMs={now} refresh={unpaid.refresh} ownListCancels={cancelPending} onCanceled={refresh} />
       {night && items ? <NightTotal items={items} night={night} cursor={cursor} /> : null}
       {error ? (
-        <Card role="alert" style={{ padding: '1rem' }}>
-          <p style={{ marginTop: 0 }}>{error}</p>
-          <Button variant="ghost" onClick={refresh}>Reintentar</Button>
-        </Card>
+        <Banner tone="danger" action={{ label: 'Reintentar', onClick: refresh }}>
+          {error}
+        </Banner>
       ) : null}
-      {cancelError ? (
-        <Card role="alert" style={{ padding: '0.875rem', borderColor: 'var(--np-danger)' }}>
-          <p style={{ color: 'var(--np-danger)', margin: 0 }}>{cancelError}</p>
-        </Card>
+      {cancelError ? <Banner tone="danger">{cancelError}</Banner> : null}
+      {/* Cargando: la tarjeta del total (sin fechas) y tres cobros. */}
+      {items === null && !error ? (
+        <>
+          {filtered ? null : <SkelCard figure lines={1} />}
+          <SkelCard figure="1.75rem" lines={2} />
+          <SkelCard figure="1.75rem" lines={2} />
+          <SkelCard figure="1.75rem" lines={2} />
+        </>
       ) : null}
-      {items === null && !error ? <p className={styles.note}>Cargando tu historial…</p> : null}
       {items?.length === 0 ? (
-        <p className={styles.note}>{days.fromDay || days.toDay ? 'No hay cobros en esas fechas.' : 'Aún no has hecho cobros.'}</p>
+        filtered ? (
+          // «Quitar fechas» ya está justo encima.
+          <EmptyState icon="receipt" title="Ningún cobro en esas fechas" />
+        ) : cobraEncargado ? (
+          <EmptyState icon="receipt" title="Hoy cobra el encargado" text="Tus servicios los ves en Ganancias." />
+        ) : (
+          <EmptyState
+            icon="receipt"
+            title="Aún no has cobrado"
+            text="Aquí verás cada cobro y cómo se pagó."
+            action={onCobrar ? { label: 'Cobrar ahora', onClick: onCobrar, primary: true } : undefined}
+          />
+        )
       ) : null}
       {items?.map((r, i) => {
         // En su banco: los primeros 2 minutos sin botón; después, con «El banco tarda…» (null: aún no se sabe).
@@ -179,7 +200,7 @@ function NightTotal({ items, night, cursor }: { items: readonly OwnCobro[]; nigh
       </span>
       <b className={`np-num ${styles.nightTotal}`}>
         {t.complete ? '' : 'Al menos '}
-        <Importe cents={t.salesCents} />
+        <Importe cents={t.salesCents} rolling />
       </b>
       <span className={styles.nightLine}>
         {t.count === 1 ? '1 cobro' : `${t.count} cobros`} · con propinas, sin devoluciones

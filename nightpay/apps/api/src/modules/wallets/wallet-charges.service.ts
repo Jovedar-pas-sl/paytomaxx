@@ -21,6 +21,7 @@ import {
   normalizeWalletCardUid,
   maxTipCents,
   paymentMethodsOf,
+  postRulesOf,
   pulseraLabel,
   sectionMeta,
   sectionsOf,
@@ -49,7 +50,15 @@ import { resolveBpsForOperator, type RevenueCategory } from '../payments/commiss
 import { lineCommission, type DraftLine } from '../payments/charge-lines';
 import { resolveChargeOrThrow } from '../payments/charge-request';
 import { hasCobroCap } from '../payments/operator-cap';
-import { assignChargeRef, insertChargeLines, insertInvitationEarnings, linesOf } from '../payments/charge-store';
+import {
+  assignChargeRef,
+  insertChargeLines,
+  insertInvitationEarnings,
+  linesOf,
+  servedLabel,
+  servedOperators,
+  type ServedOperator,
+} from '../payments/charge-store';
 import { invitationEarnings } from '../payments/invitation-lines';
 import {
   alreadyPaid,
@@ -122,6 +131,7 @@ import {
   type WalletPayoutMethod,
 } from './wallet-rules';
 import { ChargeAlertService } from './charge-alert/charge-alert.service';
+import { eur } from '../../common/money/eur';
 
 type Actor = { userId: string; role: Role; tenantId: string };
 
@@ -305,6 +315,8 @@ export interface QrChargeClientView {
   serviceName: string | null;
   venueName: string;
   requestedByName: string | null;
+  /** Sin pagar y a nombre de una compañera (cobro por el encargado): requestedByName es el de ella («Servicio con Nerea»). */
+  served?: true;
   expiresAt: string;
   /** Cuándo se pagó (solo si ya está pagado): el «Ya pagado · hace 23 min». */
   paidAt: string | null;
@@ -563,6 +575,7 @@ export class WalletChargesService {
       requestedCategory: input.category,
       invitedStaffToken: input.invitedStaffToken,
       invitedOperatorId: input.invitedOperatorId,
+      serviceStaffToken: input.serviceStaffToken,
     });
     const amountCents = charge.amountCents;
     // El mismo tope por cobro que con el QR (Ajustes del local): la compañera en
@@ -898,8 +911,12 @@ export class WalletChargesService {
       // (también en los saldos sumados a este) + este cobro, contra el tope.
       const noPin =
         auth === 'nfc_nopin' ? await this.noPinAllowance(tx, w, totalCents, venue?.nightSettings) : null;
-      // La propina: entera para la chica que cobra; del local si cobra otra persona.
-      const tipToChica = provider?.role === 'OPERATOR';
+      // Gana la compañera que cobra o, si cobra otra persona a su nombre (cobro
+      // por el encargado), la del servicio. La propina, entera para ella; sin
+      // ninguna de las dos, del local.
+      const servedId = provider?.role === 'OPERATOR' ? null : (lines.find((l) => l.serviceOperatorId)?.serviceOperatorId ?? null);
+      const earnerId = provider?.role === 'OPERATOR' ? request.requestedByUserId : servedId;
+      const tipToChica = earnerId !== null;
       // Gastar del saldo no lleva «Comisión del servicio». De lo que se gasta
       // (lo más antiguo primero), lo cargado con ella ya la pagó: el local no
       // paga el % antiguo sobre esa parte; lo cargado sin ella, sí (como
@@ -930,23 +947,26 @@ export class WalletChargesService {
           ...stallSeal(request.stallId),
         },
       });
-      if (provider?.role === 'OPERATOR') {
+      if (earnerId) {
         // Por línea (cada sección con su %); un cobro de una sola sección (o
-        // de antes de las líneas) da lo de siempre.
-        const bpsOf = (category: string) =>
-          resolveBpsForOperator({
-            category,
-            userCommissionBpsOverride: provider.commissionBps,
-            venueMap: (venue?.operatorCommissionDefaults ?? null) as Record<string, number> | null,
-          });
+        // de antes de las líneas) da lo de siempre. A su nombre: el % fijado
+        // en cada línea al cobrar (las demás, 0).
+        const bpsOf = (l: { category: string; operatorCommissionBps?: number | null }) =>
+          servedId
+            ? (l.operatorCommissionBps ?? 0)
+            : resolveBpsForOperator({
+                category: l.category,
+                userCommissionBpsOverride: provider?.commissionBps ?? null,
+                venueMap: (venue?.operatorCommissionDefaults ?? null) as Record<string, number> | null,
+              });
         const parts = lines.length > 0 ? lines : [{ category: request.category, amountCents: request.amountCents }];
-        const commission = lineCommission(parts.map((l) => ({ amountCents: l.amountCents, bps: bpsOf(l.category) })));
+        const commission = lineCommission(parts.map((l) => ({ amountCents: l.amountCents, bps: bpsOf(l) })));
         // Sin comisión pero con propina para ella: la propina también le llega.
         if (commission.anyBps || tipCents > 0) {
           await tx.operatorEarning.create({
             data: {
               tenantId: request.tenantId,
-              operatorId: request.requestedByUserId,
+              operatorId: earnerId,
               consumptionId: consumption.id,
               paymentAmountCents: request.amountCents,
               commissionBps: commission.commissionBps,
@@ -1124,21 +1144,25 @@ export class WalletChargesService {
   async qrChargeForClient(payToken: string): Promise<QrChargeClientView> {
     const request = await this.qrRequest(payToken);
     const [venue, requester] = await Promise.all([
-      this.prisma.venue.findUnique({ where: { id: request.tenantId }, select: { name: true, paymentMethods: true } }),
+      this.prisma.venue.findUnique({ where: { id: request.tenantId }, select: { name: true, paymentMethods: true, postRules: true } }),
       this.prisma.asSystem((tx) =>
         tx.user.findUnique({ where: { id: request.requestedByUserId }, select: { displayName: true, role: true } }),
       ),
     ]);
     const status = effectiveRequestStatus(request, new Date());
     const elsewhere = status !== 'ACCEPTED' && (await this.paidByCard(request));
-    const tip = status === 'PENDING' ? await this.clientTipView(request, venue?.paymentMethods, requester?.role ?? null) : null;
+    // A nombre de una compañera (cobro por el encargado): su nombre y la propina de Sala. Solo sin pagar, que es cuando sale.
+    const served =
+      status === 'PENDING' && requester?.role !== 'OPERATOR' ? await this.prisma.asSystem((tx) => servedOf(tx, request)) : undefined;
+    const tip = status === 'PENDING' ? await this.clientTipView(request, venue, requester?.role ?? null, served !== undefined) : null;
     return {
       status,
       // Lo que paga: el importe y la propina que pidió.
       amountCents: request.amountCents + (request.tipCents ?? 0),
       serviceName: request.serviceName,
       venueName: venue?.name ?? '',
-      requestedByName: requester?.displayName ?? null,
+      requestedByName: served ? served.name : (requester?.displayName ?? null),
+      ...(served ? { served: true as const } : {}),
       expiresAt: request.expiresAt.toISOString(),
       paidAt: status === 'ACCEPTED' && request.decidedAt ? request.decidedAt.toISOString() : null,
       ...(elsewhere ? { paidElsewhere: true } : {}),
@@ -1149,28 +1173,34 @@ export class WalletChargesService {
 
   /**
    * La propina que se ofrece en /s (B1): con las propinas encendidas en el
-   * local y en el puesto de quien cobra; las sugeridas del local para este
-   * importe y el máximo (el importe, y 500 €). Sin propinas, null.
+   * local y en el puesto de quien cobra (a nombre de una compañera, en el de
+   * ella: Sala); las sugeridas del local para este importe y el máximo (el
+   * importe, y 500 €). Sin propinas, null.
    */
   private async clientTipView(
     request: { tenantId: string; requestedByUserId: string; amountCents: number; tipCents: number | null },
-    venueMethods: unknown,
+    venue: { paymentMethods: unknown; postRules: unknown } | null,
     requesterRole: string | null,
+    served: boolean,
   ): Promise<QrChargeTipView | null> {
-    const methods = paymentMethodsOf(venueMethods);
+    const methods = paymentMethodsOf(venue?.paymentMethods);
     if (!methods.tips) return null;
-    const rights = await this.prisma.asSystem((tx) =>
-      chargeRightsFor(tx, request.tenantId, { userId: request.requestedByUserId, role: requesterRole }),
-    );
-    if (!rights.tips) return null;
+    const tipsOn = served
+      ? postRulesOf(venue?.postRules).SALA.tips
+      : (
+          await this.prisma.asSystem((tx) =>
+            chargeRightsFor(tx, request.tenantId, { userId: request.requestedByUserId, role: requesterRole }),
+          )
+        ).tips;
+    if (!tipsOn) return null;
     const baseCents = request.amountCents;
     return {
       baseCents,
       previousCents: request.tipCents ?? 0,
       maxCents: maxTipCents(baseCents),
       presets: tipPresetsFor(baseCents, { flatCents: methods.tipFlatCents, percents: methods.tipPercents }),
-      // Como al pagar: la propina es entera de la chica que cobra; si cobra otra persona, del local.
-      toStaff: requesterRole === 'OPERATOR',
+      // Como al pagar: la propina es entera de la compañera que cobra o a cuyo nombre se cobra; si no, del local.
+      toStaff: served || requesterRole === 'OPERATOR',
     };
   }
 
@@ -1231,17 +1261,22 @@ export class WalletChargesService {
       tipCents?: number | null;
       serviceName: string | null;
       requestedByUserId: string;
+      linkedPaymentId: string | null;
       createdAt: Date;
       expiresAt: Date;
     }>,
     withEmail: boolean,
   ): Promise<PendingQrCharge[]> {
-    const users = await this.prisma.asSystem((tx) =>
-      tx.user.findMany({
+    const { users, served } = await this.prisma.asSystem(async (tx) => {
+      const users = await tx.user.findMany({
         where: { id: { in: [...new Set(rows.map((r) => r.requestedByUserId))] } },
-        select: { id: true, displayName: true, email: true },
-      }),
-    );
+        select: { id: true, displayName: true, email: true, role: true },
+      });
+      // A nombre de una compañera (cobro por el encargado): «Servicio de Nerea». Una compañera nunca cobra a nombre de otra.
+      const byOthers = rows.filter((r) => users.find((u) => u.id === r.requestedByUserId)?.role !== 'OPERATOR');
+      const ids = { walletChargeIds: byOthers.map((r) => r.id), paymentIds: byOthers.map((r) => r.linkedPaymentId) };
+      return { users, served: await servedOperators(tx, ids) };
+    });
     return rows.map((r) => {
       const u = users.find((x) => x.id === r.requestedByUserId);
       return {
@@ -1249,7 +1284,7 @@ export class WalletChargesService {
         // Lo que se cobra del saldo: el importe y la propina.
         amountCents: r.amountCents + (r.tipCents ?? 0),
         serviceName: r.serviceName,
-        requestedByName: u?.displayName ?? (withEmail ? u?.email : null) ?? '',
+        requestedByName: servedLabel(servedIn(served, r)) ?? u?.displayName ?? (withEmail ? u?.email : null) ?? '',
         createdAt: r.createdAt.toISOString(),
         expiresAt: r.expiresAt.toISOString(),
       };
@@ -2928,10 +2963,6 @@ function pinPepper(): string {
   return kek;
 }
 
-function eur(cents: number): string {
-  return `${(cents / 100).toFixed(2).replace('.', ',')} €`;
-}
-
 /** "K7Q-•••": que el cliente reconozca su saldo sin enseñarlo entero. */
 export function codeHintOf(shortCode: string | null): string {
   return `${(shortCode ?? '').slice(0, 3)}-•••`;
@@ -2949,30 +2980,63 @@ export interface QrChargeInput {
   tipCents?: number;
   /** «Copa con invitación» con la chica elegida de la lista (si el local no pide su QR). */
   invitedOperatorId?: string;
+  /** Cobro por el encargado: el «Mi QR» de la compañera del servicio. */
+  serviceStaffToken?: string;
 }
 
 /**
  * La propina que eligió el cliente al pagar con su saldo o su PIN (B1): «Sin
  * propina» siempre; si no, con las propinas encendidas en el local y en el
- * puesto de quien cobra, y hasta el importe (y 500 €). La que ya traía un
- * cobro de antes (puesta por el personal) se respeta. Si no vale, 400.
+ * puesto de quien cobra (a nombre de una compañera, en el de ella: Sala), y
+ * hasta el importe (y 500 €). La que ya traía un cobro de antes (puesta por el
+ * personal) se respeta. Si no vale, 400. Antes de mover las líneas al saldo.
  */
 async function customerTipOf(
   tx: TransactionalClient,
-  request: { tenantId: string; requestedByUserId: string; amountCents: number; tipCents: number | null },
+  request: {
+    id: string;
+    linkedPaymentId: string | null;
+    tenantId: string;
+    requestedByUserId: string;
+    amountCents: number;
+    tipCents: number | null;
+  },
   chosen: number,
 ): Promise<number> {
   const previous = request.tipCents ?? 0;
   let tipsOn = false;
   if (chosen > 0 && chosen !== previous) {
     const [venue, requester] = await Promise.all([
-      tx.venue.findUnique({ where: { id: request.tenantId }, select: { paymentMethods: true } }),
+      tx.venue.findUnique({ where: { id: request.tenantId }, select: { paymentMethods: true, postRules: true } }),
       tx.user.findUnique({ where: { id: request.requestedByUserId }, select: { role: true } }),
     ]);
-    const rights = await chargeRightsFor(tx, request.tenantId, { userId: request.requestedByUserId, role: requester?.role });
-    tipsOn = paymentMethodsOf(venue?.paymentMethods).tips && rights.tips;
+    const served = requester?.role !== 'OPERATOR' && (await servedOf(tx, request)) !== undefined;
+    const tips = served
+      ? postRulesOf(venue?.postRules).SALA.tips
+      : (await chargeRightsFor(tx, request.tenantId, { userId: request.requestedByUserId, role: requester?.role })).tips;
+    tipsOn = paymentMethodsOf(venue?.paymentMethods).tips && tips;
   }
   const problem = customerTipProblem({ amountCents: request.amountCents, tipCents: chosen, tipsOn, previousTipCents: previous });
   if (problem) throw customerTipError(problem);
   return chosen;
+}
+
+/**
+ * La compañera a cuyo nombre se cobra este cobro del saldo (cobro por el
+ * encargado): sus líneas están en él o, en el cobro único, aún en su cobro con
+ * tarjeta.
+ */
+async function servedOf(
+  tx: TransactionalClient,
+  request: { id: string; linkedPaymentId: string | null },
+): Promise<ServedOperator | undefined> {
+  return servedIn(await servedOperators(tx, { walletChargeIds: [request.id], paymentIds: [request.linkedPaymentId] }), request);
+}
+
+/** La de este cobro del saldo en lo que devuelve servedOperators: la suya o la de su cobro con tarjeta. */
+function servedIn(
+  served: Map<string, ServedOperator>,
+  request: { id: string; linkedPaymentId: string | null },
+): ServedOperator | undefined {
+  return served.get(request.id) ?? (request.linkedPaymentId ? served.get(request.linkedPaymentId) : undefined);
 }

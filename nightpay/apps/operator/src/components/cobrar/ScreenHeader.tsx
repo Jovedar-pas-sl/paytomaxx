@@ -1,9 +1,8 @@
 'use client';
 
 import type { CSSProperties, ReactNode } from 'react';
-import { Logo } from '@nightpay/ui';
+import { Icon, Logo } from '@nightpay/ui';
 import { MenuAvatar } from '../my-profile';
-import { IconBack } from './icons';
 import styles from './cobrar.module.css';
 
 /** Color CSS de una sección (var(--np-sec-…)). */
@@ -53,7 +52,7 @@ export function ScreenHeader({
     <header className={styles.head}>
       {onBack ? (
         <button type="button" className={styles.iconBtn} onClick={onBack} aria-label="Atrás">
-          <IconBack />
+          <Icon name="chevron-left" />
         </button>
       ) : onLogo ? (
         <button type="button" className={styles.logoTile} onClick={onLogo} aria-label="Menú">

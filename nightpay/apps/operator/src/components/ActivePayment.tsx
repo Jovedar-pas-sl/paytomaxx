@@ -30,6 +30,7 @@ import { serverToLocalMs } from '@/lib/cobro-state';
 import { NewWalletCard } from './NewWalletCard';
 import { useVenueMethods } from '@/lib/venue-methods';
 import { chargeSectionLabel, useMySections } from '@/lib/sections';
+import { posWaitTexts } from '@/lib/servicio';
 import { CobroQr } from './cobrar/CobroQr';
 import { StaffOutcome } from './StaffOutcome';
 import { usePaymentLive } from './use-payment-live';
@@ -50,6 +51,8 @@ interface Props {
   retryError?: string | null;
   /** Dónde está abierto (si la sesión caduca, se vuelve a esa pestaña). Por defecto, Inicio. */
   spot?: ChargeSpot;
+  /** Con datáfono, lo cobra quien lo abrió (el encargado), no un camarero al que se llama. */
+  byStaff?: boolean;
 }
 
 /**
@@ -68,6 +71,7 @@ export function ActivePayment({
   retrying = false,
   retryError = null,
   spot = 'cobro',
+  byStaff = false,
 }: Props) {
   const [status, setStatus] = useState<PaymentStatus>(payment.status as PaymentStatus);
   // Fase 1B — propina que eligió el cliente en su página de pago.
@@ -194,6 +198,7 @@ export function ActivePayment({
   // POS_EXTERNAL: el QR no es para el cliente, es para que el camarero vea
   // el cobro pendiente. Mostramos código corto humano-legible.
   const refCode = payment.id.slice(-6).toUpperCase();
+  const posTexts = posWaitTexts(byStaff);
   const preCobro = isPreCobro(shown);
   const bank = shown === 'AUTHORIZING' ? atBankCancel({ bitcoin, attemptIso, seenAt: authorizingSince, payment, deadline, nowMs: now }) : 'free';
 
@@ -217,7 +222,7 @@ export function ActivePayment({
         ) : null}
         {isPos ? (
           <p style={{ margin: '0.5rem 0 0', fontSize: 'var(--np-fs-14)', color: 'var(--np-text-mute)' }}>
-            Llama al camarero. Código: <strong style={refCodeStyle}>#{refCode}</strong>
+            {posTexts.codeLead} <strong style={refCodeStyle}>#{refCode}</strong>
           </p>
         ) : null}
       </div>
@@ -244,10 +249,15 @@ export function ActivePayment({
       {isPos ? (
         <div style={posNoteStyle}>
           <p style={{ margin: 0, fontSize: 'var(--np-fs-14)', lineHeight: 1.6 }}>
-            <strong>Camarero:</strong> escanea el QR con tu móvil (o usa código <strong style={refCodeStyle}>#{refCode}</strong>).
-            <br />
+            {posTexts.callWaiter ? (
+              <>
+                <strong>Camarero:</strong> escanea el QR con tu móvil (o usa código <strong style={refCodeStyle}>#{refCode}</strong>).
+                <br />
+              </>
+            ) : null}
             Cobra <strong>{formatEur(chargeWithFeeCents(payment))}</strong> en el datáfono
-            {payment.serviceFeeCents ? ' (con la comisión del servicio)' : ''}, luego confirma en tu app.
+            {payment.serviceFeeCents ? ' (con la comisión del servicio)' : ''}
+            {posTexts.after}
           </p>
         </div>
       ) : (

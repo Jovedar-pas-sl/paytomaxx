@@ -33,6 +33,35 @@ describe('/s/:token/state: la página pregunta si el cobro sigue pendiente tras 
   });
 });
 
+describe('/s/:token: la página', () => {
+  const pending = {
+    status: 'PENDING',
+    amountCents: 6000,
+    serviceName: 'Copa',
+    venueName: 'Luna',
+    requestedByName: 'Lola',
+    expiresAt: new Date(Date.now() + 300_000).toISOString(),
+    paidAt: null,
+  };
+  const open = async (langQuery: string | undefined, cookies: string | undefined, accept: string | undefined): Promise<string> => {
+    const controller = new PublicSaldoController({ qrChargeForClient: vi.fn(async () => pending) } as never, {} as never, {} as never);
+    let body = '';
+    const res = { status: () => res, header: () => res, send: (html: string) => { body = html; return res; } };
+    await controller.page('tok-1', langQuery, cookies, res as never, undefined, accept);
+    return body;
+  };
+
+  it('idea 71: móvil en inglés sin idioma elegido → en español, con la franja «English? · Switch»; con ?lang= o cookie, sin ella', async () => {
+    const html = await open(undefined, undefined, 'en-GB,en;q=0.9');
+    expect(html).toContain('<html lang="es">');
+    expect(html).toContain('English? · Switch');
+    expect(await open(undefined, undefined, 'es-ES,en')).not.toContain('class="sug"');
+    expect(await open('es', undefined, 'en-GB')).not.toContain('class="sug"');
+    expect(await open(undefined, 'np_lang=en', 'en-GB')).not.toContain('class="sug"');
+    expect(await open(undefined, undefined, undefined)).not.toContain('class="sug"');
+  });
+});
+
 describe('/s/:token/pay: tras pagar con su llave, «Ver mi saldo» lleva a SU saldo', () => {
   const SECRET = 'test-only-cookie-secret-with-32-characters';
   const paid = { amountCents: 6000, balanceCents: 4000, code: 'Z9Q' };

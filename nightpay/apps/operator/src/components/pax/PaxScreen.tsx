@@ -7,7 +7,7 @@ import {
   type ReceptionOptions,
   type VenueNightSettings,
 } from '@nightpay/contracts';
-import { Button, Card, formatRelative, Input } from '@nightpay/ui';
+import { Button, Card, EmptyState, formatRelative, Input } from '@nightpay/ui';
 import { callReader, hasReader } from '@/lib/pax-bridge';
 import { PRACTICE_PAX_TEXT, usePractice } from '@/lib/practice';
 import {
@@ -241,9 +241,8 @@ function PaxScreenView({ onNight }: { onNight: (night: VenueNightSettings) => vo
       </div>
 
       {charges.length === 0 ? (
-        <Card style={{ padding: '2rem 1.25rem', textAlign: 'center' }}>
-          <p style={{ margin: 0, fontSize: 'var(--np-fs-18)', fontWeight: 600 }}>No hay cobros esperando.</p>
-          <p style={{ ...muted, margin: '0.5rem 0 0' }}>Cuando una chica cree un cobro por datáfono, sale aquí.</p>
+        <Card style={{ padding: '2rem 1.25rem' }}>
+          <EmptyState icon="pos" title="Ningún cobro esperando" text="Se crean en la app del personal, en Inicio." />
         </Card>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>

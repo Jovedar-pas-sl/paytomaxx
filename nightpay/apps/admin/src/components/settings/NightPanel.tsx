@@ -1,11 +1,11 @@
 'use client';
 
 import { useState, type FormEvent } from 'react';
-import { Button, Input } from '@nightpay/ui';
+import { Button, Checkbox, Input } from '@nightpay/ui';
 import type { VenueNightSettings } from '@nightpay/contracts';
 import { fetchNightSettings, updateNightSettings } from '@/lib/api';
 import { nightChange, nightFormFrom, noPinSummary, type NightForm } from '@/lib/night-form';
-import { LoadState, SaveRow, SettingsCard, Switch, useSavedFlash, useSettingsLoad } from './SettingsBits';
+import { LoadState, SaveRow, SettingsCard, useSavedFlash, useSettingsLoad } from './SettingsBits';
 
 /**
  * Ajustes → Noche (dueño): el NFC sin PIN (hasta cuánto por cobro y el tope
@@ -64,7 +64,8 @@ export function NightPanel() {
             hint="0 = siempre con PIN. Como mucho 50 €."
           />
           <Input
-            label="Tope sin PIN por noche (€)"
+            label="Tope sin PIN por noche"
+            suffix="€"
             inputMode="decimal"
             value={current.noPinNightCapEur}
             onChange={(e) => update({ noPinNightCapEur: e.target.value })}
@@ -78,7 +79,7 @@ export function NightPanel() {
       </SettingsCard>
 
       <SettingsCard title="Teclado del PIN" tour="noche-pin" hint="Lo que ve el cliente al poner su PIN en el móvil del personal o en el datáfono.">
-        <Switch
+        <Checkbox
           label="Desordenar las cifras"
           hint="Fijo (de fábrica) es más fácil a oscuras y el cliente lo tapa con la mano. Desordenado cambia las cifras de sitio cada vez."
           checked={current.pinKeypad === 'shuffled'}
@@ -122,7 +123,8 @@ export function NightPanel() {
         </div>
         {/* «Salidas en efectivo por persona y noche» ya no sale: el saldo no se devuelve (decisión del dueño, 17-nov-2026). */}
         <Input
-          label="Ficha nueva por perdida (€)"
+          label="Ficha nueva por perdida"
+          suffix="€"
           inputMode="decimal"
           value={current.lostFichaFeeEur}
           onChange={(e) => update({ lostFichaFeeEur: e.target.value })}
@@ -131,20 +133,20 @@ export function NightPanel() {
       </SettingsCard>
 
       <SettingsCard title="Al cobrar" tour="noche-cobrar" hint="El aviso del resultado (pagado o no) en las apps del personal. Por si en algún local molestan.">
-        <Switch
+        <Checkbox
           label="Vibración"
           hint="Solo en Android (el iPhone no vibra desde la web)."
           checked={current.feedbackVibration}
           onChange={(v) => update({ feedbackVibration: v })}
         />
-        <Switch label="Sonido" checked={current.feedbackSound} onChange={(v) => update({ feedbackSound: v })} />
+        <Checkbox label="Sonido" checked={current.feedbackSound} onChange={(v) => update({ feedbackSound: v })} />
       </SettingsCard>
 
       <SettingsCard
         title="Pantallas del personal" tour="noche-pantallas"
         hint="Cómo se ven los móviles del personal en este local. Se aplica en cuanto vuelven a abrir la app."
       >
-        <Switch
+        <Checkbox
           label="Modo sala (contraste alto)"
           hint="Para salas con muy poca luz: textos más claros, bordes más marcados, sin brillos alrededor y la letra un poco más grande. Los colores de la marca y de las secciones no cambian."
           checked={current.highContrast}

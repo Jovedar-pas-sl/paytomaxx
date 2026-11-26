@@ -41,6 +41,8 @@ function makeController(opts: {
   receipt?: PayReceiptView | null;
   checkoutForm?: PayRedirect | null;
   statementName?: string;
+  /** El nombre del comercio en la página de Redsys (REDSYS_MERCHANT_NAME). */
+  merchantName?: string;
   directWallet?: string;
   /** «Comprobando el pago»: lo que da PayStatusService (sin él, la página de antes). */
   statusCtx?: PayStatusContext | null;
@@ -60,6 +62,7 @@ function makeController(opts: {
   };
   const settings: Record<string, string | undefined> = {
     PAY_STATEMENT_NAME: opts.statementName,
+    REDSYS_MERCHANT_NAME: opts.merchantName,
     PAY_DIRECT_WALLET: opts.directWallet,
   };
   const config = { get: vi.fn((key: string) => settings[key]) };
@@ -197,6 +200,68 @@ describe('GET /pay/result — el "Pagado" ya no se puede falsificar', () => {
     expect(html).toContain('class="band"');
     expect(html).toContain('prefers-reduced-motion');
     for (const s of scripts(html)) expect(() => new Function(s)).not.toThrow();
+  });
+
+  it('idea 62: el «Pagado» de la vuelta del banco dice a quién, qué (lo pedido, en vez de «Consumo») y cómo, sin dígitos', async () => {
+    const paidView = view({
+      status: 'AUTHORIZED',
+      amountCents: 3_300,
+      serviceFeeCents: 330,
+      tipCents: 300,
+      authorizedAt: new Date(),
+      venueName: 'Sala Aurora',
+      concept: '2× Gin tonic · Nachos',
+      cardBrand: '1',
+      payMethod: 'wallet',
+    });
+    const { controller } = makeController({ view: paidView });
+    const { reply, sent } = fakeReply();
+    await controller.paymentResult('a1b2c3d4e5f6', 'es', undefined, reply);
+    const html = sent.body!.replace(/[\u00a0\u202f]/g, ' ');
+    expect(html).toContain('<p class="pto">a Sala Aurora</p>');
+    expect(html).toContain(
+      '<dl class="prows"><div><dt>2× Gin tonic · Nachos</dt><dd class="num">33 €</dd></div><div><dt>Comisión del servicio</dt><dd class="num">3,30 €</dd></div><div><dt>Propina</dt><dd class="num">3 €</dd></div><div><dt>Método</dt><dd>Visa · Apple Pay o Google Pay</dd></div></dl>',
+    );
+    expect(html).not.toContain('<dt>Consumo</dt>');
+    expect(html).not.toMatch(/[·•]{2}\s?[0-9]{4}/);
+    // Sin comisión ni propina: lo pedido con lo pagado y el método.
+    const plain = fakeReply();
+    await makeController({ view: { ...paidView, serviceFeeCents: 0, tipCents: 0, payMethod: 'card' } }).controller.paymentResult('a1b2c3d4e5f6', 'es', undefined, plain.reply);
+    expect(plain.sent.body!.replace(/[\u00a0\u202f]/g, ' ')).toContain(
+      '<dl class="prows"><div><dt>2× Gin tonic · Nachos</dt><dd class="num">33 €</dd></div><div><dt>Método</dt><dd>Visa · Tarjeta</dd></div></dl>',
+    );
+    // Una recarga sigue diciendo «Recarga» (no un concepto).
+    const topUp = fakeReply();
+    await makeController({ view: { ...paidView, walletReturnToken: 'w-1', concept: 'Saldo' } }).controller.paymentResult('a1b2c3d4e5f6', 'es', undefined, topUp.reply);
+    expect(topUp.sent.body).toContain('<dt>Recarga</dt>');
+    expect(topUp.sent.body).not.toContain('<dt>Saldo</dt>');
+  });
+
+  it('idea 62: lo mismo al abrir otra vez el enlace de un cobro ya pagado (/pay/:token)', async () => {
+    const { controller } = makeController({
+      page: {
+        kind: 'paid',
+        paymentId: PAYMENT_ID,
+        amountCents: 3_300,
+        tipCents: 0,
+        currency: 'EUR',
+        authorizedAt: new Date(),
+        walletToken: null,
+        walletClaimHash: null,
+        walletCode: null,
+        walletHasFaceId: false,
+        walletHasPin: false,
+        venueName: 'Sala Aurora',
+        concept: 'Copa',
+        cardBrand: '2',
+        payMethod: 'card',
+      },
+    });
+    const { reply, sent } = fakeReply();
+    await controller.payPage('qr-token-1', 'en', undefined, IPHONE, reply);
+    expect(sent.body).toContain('<p class="pto">to Sala Aurora</p>');
+    expect(sent.body).toContain('<dt>Copa</dt>');
+    expect(sent.body).toContain('<dt>Method</dt><dd>Mastercard · Card</dd>');
   });
 
   it('recién pagado pero en OTRO navegador (enlace reenviado, sin la cookie del pago) → «Ya pagado» en gris', async () => {
@@ -383,9 +448,12 @@ describe('GET /pay/:token — página de pago', () => {
     // El de Apple Pay lo pinta Safari, y solo si el móvil puede pagar con Apple Pay.
     expect(html).toContain('-webkit-appearance:-apple-pay-button');
     expect(html).toContain("ApplePaySession.canMakePayments()&&window.CSS&&CSS.supports('-webkit-appearance','-apple-pay-button')");
-    // «o» entre la cartera y la tarjeta, y «Pago seguro» con Visa y Mastercard.
+    // «o» entre la cartera y la tarjeta y, antes de pagar, dónde se escribe la tarjeta (idea 63): el candado, la frase y, debajo, Visa y Mastercard.
     expect(html).toContain('<p class="or" aria-hidden="true">o</p>');
-    expect(html).toContain('<p class="trust">Pago seguro<span class="marks" role="img" aria-label="Visa, Mastercard">');
+    expect(html).toMatch(
+      /<p class="trust"><svg class="ic"[^>]*>.*?<\/svg>La tarjeta la escribes en la página segura del banco, no en OxioPay\.<span class="marks" role="img" aria-label="Visa, Mastercard">/,
+    );
+    expect(html).not.toContain('<p class="trust">Pago seguro');
     expect(html.indexOf('id="payBtn"')).toBeLessThan(html.indexOf('id="cardBtn"'));
     // El botón dice lo que hace mientras abre el pago (no solo se apaga).
     expect(html).toContain('Abriendo Apple Pay…');
@@ -420,7 +488,7 @@ describe('GET /pay/:token — página de pago', () => {
     await controller.payPage('qr-token-1', 'es', undefined, IPHONE, reply);
     expect(sent.body!.match(/<input type="radio" name="tip"[^>]* checked>/g) ?? []).toEqual([]);
     expect(sent.body).toContain('value="300"');
-    expect(sent.body).toContain('<input type="radio" name="tip" value="0"><span class="word">Sin propina</span>');
+    expect(sent.body).toContain('<input type="radio" name="tip" value="0"><span class="word"><span class="sr">Sin propina. ');
   });
 
   it('«Pagar con mi saldo» lleva la propina que ya eligió aquí (?tip=), solo si eligió una', async () => {
@@ -432,14 +500,14 @@ describe('GET /pay/:token — página de pago', () => {
     expect(sent.body).toContain("if(!s.error&&chosen()){try{var u=new URL(sb.getAttribute('href'),location.href);u.searchParams.set('tip',String(s.tip));");
   });
 
-  it('propinas según el importe: hasta 40 € +2 € y +5 €; por encima 10 % y 15 %; y «Otra» hasta el máximo', async () => {
+  it('propinas según el importe: hasta 40 € +2 € y +5 €; por encima el 10 % y el 15 %, dichos en euros con su total (idea 66); y «Otra» hasta el máximo', async () => {
     const small = makeController({
       page: { ...CHOOSE, amountCents: 2_000, tipOptionsCents: [0, 200, 500], tipMaxCents: 2_000 } as PayRedirect,
     });
     const s = fakeReply();
     await small.controller.payPage('qr-token-1', 'es', undefined, IPHONE, s.reply);
-    expect(s.sent.body).toMatch(/value="200"><span class="num">\+2\s€<\/span>/);
-    expect(s.sent.body).toMatch(/value="500"><span class="num">\+5\s€<\/span>/);
+    expect(s.sent.body).toMatch(/value="200"><span class="num"><span class="sr">Propina de 2\s€\. Total 22,00\s€<\/span><b aria-hidden="true">\+2\s€<\/b><small aria-hidden="true">22,00\s€<\/small><\/span>/);
+    expect(s.sent.body).toMatch(/value="500"><span class="num"><span class="sr">Propina de 5\s€\. Total 25,00\s€<\/span><b aria-hidden="true">\+5\s€<\/b>/);
     expect(s.sent.body).toMatch(/Como mucho 20\s€/);
 
     const big = makeController({
@@ -447,24 +515,27 @@ describe('GET /pay/:token — página de pago', () => {
     });
     const b = fakeReply();
     await big.controller.payPage('qr-token-1', 'es', undefined, IPHONE, b.reply);
-    expect(b.sent.body).toMatch(/value="700"><span class="num">10\s%<small class="num">\+7\s€<\/small>/);
-    expect(b.sent.body).toMatch(/value="1000"><span class="num">15\s%<small class="num">\+10\s€<\/small>/);
+    expect(b.sent.body).toMatch(/value="700"><span class="num"><span class="sr">Propina de 7\s€\. Total 72,00\s€<\/span><b aria-hidden="true">\+7\s€<\/b><small aria-hidden="true">72,00\s€<\/small>/);
+    expect(b.sent.body).toMatch(/value="1000"><span class="num"><span class="sr">Propina de 10\s€\. Total 75,00\s€<\/span><b aria-hidden="true">\+10\s€<\/b>/);
+    expect(b.sent.body).not.toMatch(/1[05]\s%/);
     // «Otra» necesita JS: empieza oculta.
     expect(b.sent.body).toContain('<label id="otherOpt" hidden><input type="radio" name="tip" value="0" id="otherRadio">');
     expect(b.sent.body).toContain('id="otherIn" type="text" inputmode="numeric"');
     expect(b.sent.body).toMatch(/Como mucho 65\s€/);
   });
 
-  it('«Va entera para el personal» solo si la propina va a una persona', async () => {
+  it('a quién va la propina se dice siempre (idea 66): «Va entera para el personal» si va a una persona; si no, «Es para el local»', async () => {
     const toStaff = makeController({ page: { ...CHOOSE, tipToStaff: true } as PayRedirect });
     const a = fakeReply();
     await toStaff.controller.payPage('qr-token-1', 'es', undefined, IPHONE, a.reply);
-    expect(a.sent.body).toContain('Va entera para el personal');
+    expect(a.sent.body).toContain('<p class="tipnote">Va entera para el personal</p>');
+    expect(a.sent.body).not.toContain('Es para el local');
 
     const toVenue = makeController({ page: { ...CHOOSE, tipToStaff: false } as PayRedirect });
     const b = fakeReply();
     await toVenue.controller.payPage('qr-token-1', 'es', undefined, IPHONE, b.reply);
     expect(b.sent.body).not.toContain('Va entera para el personal');
+    expect(b.sent.body).toContain('<p class="tipnote">Es para el local</p>');
   });
 
   it('sin propina posible (recarga, otra pasarela) → ni propinas ni «Otra»', async () => {
@@ -516,6 +587,41 @@ describe('GET /pay/:token — página de pago', () => {
     }
     expect(sent.body).toContain('aria-current="true">Español</a>');
     expect(sent.headers['Set-Cookie']).toBeUndefined();
+  });
+
+  it('idea 71: móvil en inglés sin haber elegido idioma → la página en español con la franja «English? · Switch»; conserva ?tip=', async () => {
+    const STRIP = '<nav class="sug"';
+    const open = async (opts: { accept?: string; lang?: string; cookie?: string; tip?: string; page?: PayRedirect }): Promise<string> => {
+      const { controller } = makeController({ page: opts.page ?? { ...CHOOSE, tipOptionsCents: [0, 500, 1_000] } });
+      const { reply, sent } = fakeReply();
+      await controller.payPage('qr-token-1', opts.lang, opts.cookie, IPHONE, reply, opts.tip, opts.accept);
+      return sent.body!;
+    };
+    const en = await open({ accept: 'en-GB,en;q=0.9' });
+    expect(en).toContain('<html lang="es">');
+    expect(en).toContain('<a href="?lang=en" lang="en" hreflang="en">English? · Switch</a>');
+    expect(en).toContain('<a class="x" href="?lang=es" aria-label="Seguir en español">✕</a>');
+    expect(en.indexOf(STRIP)).toBeLessThan(en.indexOf('<header class="top">'));
+    // La propina que eligió en la pantalla de la barra no se pierde al cambiar de idioma.
+    const tip = await open({ accept: 'en-GB', tip: '500' });
+    expect(tip).toContain('<a href="/pay/qr-token-1?tip=500&amp;lang=en" lang="en" hreflang="en">');
+    expect(tip).toContain('<a class="x" href="/pay/qr-token-1?tip=500&amp;lang=es"');
+    expect(await open({ accept: 'en-GB', tip: '"><script>' })).toContain('<a href="?lang=en" lang="en"');
+    // No sale: móvil en español, en un idioma que no tenemos, ya elegido (?lang= o cookie) ni en el «Pagado».
+    expect(await open({ accept: 'es-ES,en' })).not.toContain(STRIP);
+    expect(await open({ accept: 'de' })).not.toContain(STRIP);
+    expect(await open({})).not.toContain(STRIP);
+    expect(await open({ accept: 'en-GB', lang: 'es' })).not.toContain(STRIP);
+    expect(await open({ accept: 'en-GB', lang: 'en' })).not.toContain(STRIP);
+    expect(await open({ accept: 'en-GB', cookie: 'np_lang=es' })).not.toContain(STRIP);
+    const paid = await open({
+      accept: 'en-GB',
+      page: { kind: 'paid', paymentId: PAYMENT_ID, amountCents: 100, tipCents: 0, currency: 'EUR', authorizedAt: new Date(), walletToken: null, walletClaimHash: null, walletCode: null, walletHasFaceId: false, walletHasPin: false },
+    });
+    expect(paid).toContain('id="paid"');
+    expect(paid).not.toContain(STRIP);
+    const closed = await open({ accept: 'en-GB', page: { kind: 'closed', reason: 'expired' } });
+    expect(closed).not.toContain(STRIP);
   });
 
   it('el idioma elegido se recuerda en la cookie y vale sin ?lang (también un QR nuevo)', async () => {
@@ -801,6 +907,43 @@ describe('GET /pay/:token/checkout — formulario hacia el banco', () => {
     expect(sent.body).toContain('location.replace("/pay/qr-token-1?lang=en")');
   });
 
+  it('avisa del salto al banco (idea 63): «Te llevamos a la página segura del banco», cómo saldrá el cargo, y se envía cuando ya está pintado', async () => {
+    const { controller } = makeController({ checkoutForm: FORM, statementName: 'SALA AURORA MADRID' });
+    const { reply, sent } = fakeReply();
+    await controller.checkout('qr-token-1', 'ORD123', 'es', undefined, reply);
+    const html = sent.body!;
+    expect(html).toContain('<h1 role="status">Te llevamos a la página segura del banco</h1>');
+    expect(html).toContain('<p>El cargo saldrá como «SALA AURORA MADRID».</p>');
+    // La pestaña y el botón, como antes.
+    expect(html).toContain('<title>Abriendo el pago…</title>');
+    expect(html).toContain('<button class="btn" type="submit">Continuar al pago</button>');
+    // Sin tiempo fijo: dos fotogramas después de pintar el aviso (un requestAnimationFrame dentro de otro).
+    expect(html).not.toContain('setTimeout');
+    expect(html).toContain("requestAnimationFrame(function(){requestAnimationFrame(function(){document.getElementById('f').submit();});});");
+    for (const s of scripts(html)) expect(() => new Function(s)).not.toThrow();
+    // En los cuatro idiomas, con el nombre tal cual.
+    for (const [lang, title] of [['en', 'Taking you to the bank’s secure page'], ['fr', 'Nous vous emmenons sur la page sécurisée de la banque'], ['pt', 'Vai para a página segura do banco']] as const) {
+      const other = fakeReply();
+      await makeController({ checkoutForm: FORM, statementName: 'SALA AURORA MADRID' }).controller.checkout('qr-token-1', 'ORD123', lang, undefined, other.reply);
+      expect(other.sent.body).toContain(`<h1 role="status">${title}</h1>`);
+      expect(other.sent.body).toContain('SALA AURORA MADRID');
+    }
+  });
+
+  it('el nombre del cargo: el del extracto o, sin él, el del comercio en Redsys; sin ninguno, el aviso sin esa línea (y se escapa)', async () => {
+    const merchant = fakeReply();
+    await makeController({ checkoutForm: FORM, merchantName: 'AURORA <b>SL</b>' }).controller.checkout('qr-token-1', 'ORD123', 'es', undefined, merchant.reply);
+    expect(merchant.sent.body).toContain('<p>El cargo saldrá como «AURORA &lt;b&gt;SL&lt;/b&gt;».</p>');
+    const none = fakeReply();
+    await makeController({ checkoutForm: FORM }).controller.checkout('qr-token-1', 'ORD123', 'es', undefined, none.reply);
+    expect(none.sent.body).toContain('<h1 role="status">Te llevamos a la página segura del banco</h1>');
+    expect(none.sent.body).not.toContain('El cargo saldrá como');
+    // La pasarela que da el formulario sin paso intermedio (POST): el mismo aviso.
+    const direct = fakeReply();
+    await makeController({ checkout: FORM, statementName: 'SALA AURORA MADRID' }).controller.startCheckout('qr-token-1', { tip: '0', method: 'card', lang: 'es' }, undefined, direct.reply);
+    expect(direct.sent.body).toContain('<p>El cargo saldrá como «SALA AURORA MADRID».</p>');
+  });
+
   it('volver atrás desde el banco (pedido ya no reciente) → a la página del cobro, sin reenviar', async () => {
     const { controller } = makeController({ checkoutForm: null });
     const { reply, sent } = fakeReply();
@@ -831,11 +974,33 @@ describe('GET /pay/:token/receipt — justificante', () => {
     expect(sent.status).toBe(200);
     expect(sent.body).toContain('Justificante de pago');
     expect(sent.body).toContain('105,00');
-    expect(sent.body).toContain('Apple Pay o Google Pay · Visa');
+    // La marca delante, como en el «Pagado» (idea 62); antes, «Apple Pay o Google Pay · Visa».
+    expect(sent.body).toContain('<dt>Método</dt><dd>Visa · Apple Pay o Google Pay</dd>');
+    // Sin local ni concepto en el cobro, las filas de siempre.
+    expect(sent.body).toContain('<dt>Importe</dt>');
+    expect(sent.body).not.toContain('Pagado a');
     expect(sent.body).toContain('047215');
     expect(sent.body).toContain('1234ABCD5678');
     expect(sent.body).toContain('A6B');
     expect(sent.body).toContain('23:41');
+  });
+
+  it('idea 62: el justificante dice a quién se pagó («Pagado a») y lo pedido, sin dígitos de la tarjeta', async () => {
+    const { controller } = makeController({ receipt: { ...RECEIPT, venueName: 'Sala <Aurora>', concept: '2× Gin tonic · Nachos' } });
+    const { reply, sent } = fakeReply();
+    await controller.receipt('qr-token-1', 'es', undefined, reply);
+    const html = sent.body!.replace(/[\u00a0\u202f]/g, ' ');
+    expect(html).toContain('<div><dt>Pagado a</dt><dd>Sala &lt;Aurora&gt;</dd></div><div><dt>2× Gin tonic · Nachos</dt><dd>100,00 €</dd></div>');
+    expect(html).not.toContain('<dt>Importe</dt>');
+    expect(html).not.toMatch(/[·•]{2}\s?[0-9]{4}/);
+    // Sigue sin datos personales (los dígitos de la tarjeta son de la parte B).
+    expect(html).toContain('Este justificante no contiene datos personales.');
+    // Una recarga: «Recarga», no un concepto.
+    const topUp = fakeReply();
+    await makeController({ receipt: { ...RECEIPT, topUp: true, venueName: 'Sala Aurora', concept: 'Saldo' } }).controller.receipt('qr-token-1', 'en', undefined, topUp.reply);
+    expect(topUp.sent.body).toContain('<dt>Paid to</dt><dd>Sala Aurora</dd>');
+    expect(topUp.sent.body).toContain('<dt>Top-up</dt>');
+    expect(topUp.sent.body).not.toContain('<dt>Saldo</dt>');
   });
 
   it('no pagado o inexistente → 404', async () => {

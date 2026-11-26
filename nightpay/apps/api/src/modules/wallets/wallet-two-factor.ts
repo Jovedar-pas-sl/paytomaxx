@@ -2,6 +2,7 @@ import { HttpException } from '@nestjs/common';
 import { PASSKEY_REQUIRED_CODE, type Role } from '@nightpay/contracts';
 import { totpForbidden } from '../auth/totp-code';
 import type { TotpService } from '../auth/totp.service';
+import { eur } from '../../common/money/eur';
 
 /**
  * Lo que se usa de la 2FA. La llave de acceso (passkeyProofFor,
@@ -102,8 +103,4 @@ export async function passkeyInstead(totp: TwoFactorDeps, userId: string, action
 function codeOf(err: HttpException): string | null {
   const body = err.getResponse();
   return body && typeof body === 'object' && 'code' in body ? String((body as { code: unknown }).code) : null;
-}
-
-export function eur(cents: number): string {
-  return `${(cents / 100).toFixed(2).replace('.', ',')} €`;
 }

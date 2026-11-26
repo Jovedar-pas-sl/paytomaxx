@@ -148,7 +148,16 @@ export function disabledMethod(
 
 // ─── Permisos del personal ────────────────────────────────────────────
 
-export const STAFF_PERMISSION_KEYS = ['refund', 'cash', 'closeNight', 'payouts', 'reports', 'cashTopUp', 'cashPayout'] as const;
+export const STAFF_PERMISSION_KEYS = [
+  'refund',
+  'cash',
+  'closeNight',
+  'payouts',
+  'reports',
+  'cashTopUp',
+  'cashPayout',
+  'chargeForOperator',
+] as const;
 export type StaffPermissionKey = (typeof STAFF_PERMISSION_KEYS)[number];
 
 /**
@@ -166,12 +175,14 @@ export type PermissionSet = Record<StaffPermissionKey, boolean>;
  * al encargado. Los camareros cobran desde su app: de esto, las recargas en
  * efectivo (si el dueño se lo da) y devolver el saldo en efectivo a la salida
  * (solo con un puesto que lo haga: de fábrica, Recepción). El encargado
- * devuelve en efectivo con «Dar efectivo» (cash): «cashPayout» no es suyo. El
- * datáfono de recepción, solo las recargas en efectivo.
+ * devuelve en efectivo con «Dar efectivo» (cash): «cashPayout» no es suyo.
+ * «chargeForOperator»: cobrar servicios a nombre de una compañera escaneando
+ * su «Mi QR»; a un camarero, solo si se lo dan (el de recepción). El datáfono
+ * de recepción, solo las recargas en efectivo.
  */
 export const PERMISSION_CEILING: Readonly<Record<PermissionRole, readonly StaffPermissionKey[]>> = {
   MANAGER: STAFF_PERMISSION_KEYS.filter((k) => k !== 'cashPayout'),
-  WAITER: ['cashTopUp', 'cashPayout'],
+  WAITER: ['cashTopUp', 'cashPayout', 'chargeForOperator'],
   DEVICE: ['cashTopUp'],
 };
 
@@ -180,12 +191,40 @@ export const PERMISSION_CEILING: Readonly<Record<PermissionRole, readonly StaffP
  * cobra recargas en efectivo; los informes, solo el dueño. Camareros: devolver
  * el saldo en efectivo a la salida, si su puesto lo hace (de fábrica, solo
  * Recepción; se le quita a una persona en Permisos sin quitarle las recargas).
- * Datáfonos, nada (el dueño les puede dar las recargas en efectivo).
+ * Datáfonos, nada (el dueño les puede dar las recargas en efectivo). Cobrar
+ * servicios a nombre de una compañera: el encargado sí; el camarero, no.
  */
 export const DEFAULT_ROLE_PERMISSIONS: Readonly<Record<PermissionRole, Readonly<PermissionSet>>> = {
-  MANAGER: { refund: true, cash: true, closeNight: true, payouts: true, reports: false, cashTopUp: true, cashPayout: false },
-  WAITER: { refund: false, cash: false, closeNight: false, payouts: false, reports: false, cashTopUp: false, cashPayout: true },
-  DEVICE: { refund: false, cash: false, closeNight: false, payouts: false, reports: false, cashTopUp: false, cashPayout: false },
+  MANAGER: {
+    refund: true,
+    cash: true,
+    closeNight: true,
+    payouts: true,
+    reports: false,
+    cashTopUp: true,
+    cashPayout: false,
+    chargeForOperator: true,
+  },
+  WAITER: {
+    refund: false,
+    cash: false,
+    closeNight: false,
+    payouts: false,
+    reports: false,
+    cashTopUp: false,
+    cashPayout: true,
+    chargeForOperator: false,
+  },
+  DEVICE: {
+    refund: false,
+    cash: false,
+    closeNight: false,
+    payouts: false,
+    reports: false,
+    cashTopUp: false,
+    cashPayout: false,
+    chargeForOperator: false,
+  },
 };
 
 export interface StaffPermissions {
@@ -322,6 +361,7 @@ export const STAFF_PERMISSION_DENIED_MESSAGES: Readonly<Record<StaffPermissionKe
   reports: 'El dueño del local no te deja ver los informes.',
   cashTopUp: 'El dueño del local no te deja cobrar recargas en efectivo.',
   cashPayout: 'El dueño del local no te deja devolver saldo en efectivo.',
+  chargeForOperator: 'El dueño del local no te deja cobrar servicios a nombre de una compañera. Habla con él.',
 };
 
 /** El datáfono de recepción sin permiso para el efectivo (Ajustes → Permisos → Datáfonos). */
@@ -375,6 +415,8 @@ const INCIDENT_ALERT_KIND: Readonly<Record<string, AlertKindKey>> = {
   approval_pending: 'approvals',
   // Avisos por persona: cobros del personal que hay que mirar.
   staff_pattern: 'payments',
+  // «No es mío»: una compañera dice que un servicio cobrado a su nombre no es suyo.
+  service_disputed: 'payments',
 };
 
 export function alertKindForIncident(kind: string): AlertKindKey {

@@ -453,7 +453,7 @@ describe('tope legal del efectivo: los pagos troceados suman (art. 7 Ley 7/2012)
     const err = await svc.topUp(SALA, javi, byCode(1, 'clave-tope-00002')).catch((e: unknown) => e);
     expect(err).toBeInstanceOf(ConflictException);
     expect((err as HttpException).getResponse()).toMatchObject({ code: 'CASH_LIMIT' });
-    expect((err as Error).message).toMatch(/ya lleva 999,99 € en 24 h/);
+    expect((err as Error).message).toMatch(/ya lleva 999,99\u00a0€ en 24 h/);
     expect(wallets.get(WALLET)).toMatchObject({ balanceCents: 2_000 + MAX_CASH_TOP_UP_CENTS });
     expect(topUps.size).toBe(1);
   });
@@ -461,7 +461,7 @@ describe('tope legal del efectivo: los pagos troceados suman (art. 7 Ley 7/2012)
   it('500 € y luego 600 €: dice cuánto cabe aún, y eso sí entra', async () => {
     const { svc } = setup();
     await svc.topUp(SALA, javi, byCode(50_000, 'clave-tope-00003'));
-    await expect(svc.topUp(SALA, javi, byCode(60_000, 'clave-tope-00004'))).rejects.toThrow(/como mucho 499,99 € más/);
+    await expect(svc.topUp(SALA, javi, byCode(60_000, 'clave-tope-00004'))).rejects.toThrow(/como mucho 499,99\u00a0€ más/);
     await expect(svc.topUp(SALA, javi, byCode(49_999, 'clave-tope-00005'))).resolves.toMatchObject({ balanceCents: 2_000 + 99_999 });
   });
 
@@ -469,7 +469,7 @@ describe('tope legal del efectivo: los pagos troceados suman (art. 7 Ley 7/2012)
     const { svc, wallets, topUps } = setup();
     wallets.set('w-sumado', { id: 'w-sumado', tenantId: SALA, walletGroup: 'grupo-bambu', balanceCents: 0, status: 'DEPLETED', mergedIntoId: WALLET });
     topUps.set('ct-viejo', { id: 'ct-viejo', tenantId: SALA, walletId: 'w-sumado', amountCents: 90_000, idempotencyKey: 'vieja', createdAt: NOW });
-    await expect(svc.topUp(SALA, javi, byCode(10_000, 'clave-tope-00006'))).rejects.toThrow(/ya lleva 900,00 €/);
+    await expect(svc.topUp(SALA, javi, byCode(10_000, 'clave-tope-00006'))).rejects.toThrow(/ya lleva 900,00\u00a0€/);
   });
 
   it('el saldo se sumó a otro justo antes de cobrar: el efectivo va al bueno (sin «haz un saldo nuevo»)', async () => {

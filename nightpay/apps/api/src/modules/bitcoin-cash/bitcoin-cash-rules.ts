@@ -1,5 +1,6 @@
 import { BITCOIN_CASH_MAX_CENTS, BITCOIN_CASH_REFUND_DAYS, confirmationCode } from '@nightpay/contracts';
 import { matchInvoiceRef } from '../btcpay/btcpay-resolve';
+import { eur } from '../../common/money/eur';
 
 /**
  * Devolver en efectivo lo pagado con bitcoin: las reglas, sin base de datos.
@@ -9,10 +10,6 @@ import { matchInvoiceRef } from '../btcpay/btcpay-resolve';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const PAID: ReadonlySet<string> = new Set(['AUTHORIZED', 'PARTIALLY_REFUNDED', 'REFUNDED']);
-
-export function eur(cents: number): string {
-  return `${(cents / 100).toFixed(2).replace('.', ',')} €`;
-}
 
 /** Hasta 7 días desde el pago (o desde que llegó el bitcoin sin cobro). */
 export function withinCashWindow(paidAt: Date | null, now: Date): boolean {

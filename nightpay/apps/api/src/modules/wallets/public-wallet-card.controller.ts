@@ -4,7 +4,7 @@ import type { FastifyReply } from 'fastify';
 import { isWalletCardToken } from '@nightpay/contracts';
 import { Public } from '../../common/decorators/public.decorator';
 import { IpRateLimit, type IpRateLimitConfig } from '../../common/guards/ip-rate-limit.guard';
-import { customerLanguage } from '../payments/customer-lang';
+import { customerLanguage, suggestedLanguage } from '../payments/customer-lang';
 import { WalletCardViewService, type CardPinView } from './wallet-card-view.service';
 import { renderWalletUnlockPage } from './wallet-unlock-page';
 import { walletViewSetCookies } from './wallet-view-session';
@@ -32,14 +32,23 @@ export class PublicWalletCardController {
   @Header('Cache-Control', 'no-store')
   @Header('Referrer-Policy', 'no-referrer')
   @IpRateLimit({ max: 120, windowSec: 60, scope: 'wallet-card-view-page', failOpen: true })
-  async page(@Param('token') token: string, @Query('lang') langQuery: string | undefined, @Headers('cookie') cookies: string | undefined, @Res() res: FastifyReply): Promise<void> {
+  async page(
+    @Param('token') token: string,
+    @Query('lang') langQuery: string | undefined,
+    @Headers('cookie') cookies: string | undefined,
+    @Res() res: FastifyReply,
+    /** El idioma de su móvil: no cambia la página, solo se le ofrece (idea 71). */
+    @Headers('accept-language') acceptLanguage?: string,
+  ): Promise<void> {
     if (!isWalletCardToken(token)) throw new NotFoundException();
     // Antes de autenticarse, como mucho el código tapado (K7Q-•••): ni saldo, ni movimientos, ni el enlace.
     // Sin passkey, la pantalla dice cómo activarla (sin un botón que luego falle).
     const view = await this.cards.pageView(token);
     const { lang, setCookie } = customerLanguage(langQuery, cookies);
     if (setCookie) res.header('Set-Cookie', setCookie);
-    res.type('text/html; charset=utf-8').send(renderWalletUnlockPage(`/w/card/${encodeURIComponent(token)}`, lang, view));
+    res
+      .type('text/html; charset=utf-8')
+      .send(renderWalletUnlockPage(`/w/card/${encodeURIComponent(token)}`, lang, view, { suggest: suggestedLanguage(acceptLanguage, langQuery, cookies) }));
   }
 
   /** B7: «Recargar esta ficha» (solo suma): a la página de pago de siempre. */

@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Button, Card } from '@nightpay/ui';
+import { Button, Card, Checkbox } from '@nightpay/ui';
 import type { ApplyCartaTemplateResult, VenueSection } from '@nightpay/contracts';
 import { applyCartaTemplate, type ServiceItem } from '@/lib/api';
 import { ApiError } from '@/lib/api-errors';
@@ -118,15 +118,19 @@ function TemplateRow({ change, sections, ticked, disabled, onTick }: {
       </div>
       {change.action === 'skip' ? <p className="np-tpl-why">{templateSkipText(change, sections)}</p> : null}
       {change.action === 'update' ? (
-        <label className="np-tpl-tick">
-          <input type="checkbox" checked={ticked} disabled={disabled} onChange={(event) => onTick(event.target.checked)} />
-          <span>
-            Ponerlo como la referencia
-            <ul>
-              {change.diffs.map((d) => <li key={d.field}>{templateDiffText(d)}</li>)}
-            </ul>
-          </span>
-        </label>
+        <div className="np-tpl-tick">
+          <Checkbox
+            label="Ponerlo como la referencia"
+            hint={
+              <ul>
+                {change.diffs.map((d) => <li key={d.field}>{templateDiffText(d)}</li>)}
+              </ul>
+            }
+            checked={ticked}
+            disabled={disabled}
+            onChange={onTick}
+          />
+        </div>
       ) : null}
     </li>
   );

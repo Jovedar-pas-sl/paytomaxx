@@ -164,7 +164,8 @@ async function cmdCreateVenue(args: Args) {
     tx.venue.upsert({
       where: { slug },
       update: {},
-      create: { name, slug, timezone },
+      // Local nuevo: las compañeras no cobran desde su móvil, como el alta del panel (decisión del dueño, 25-nov-2026).
+      create: { name, slug, timezone, operatorsChargeFromPhone: false },
     }),
   );
 

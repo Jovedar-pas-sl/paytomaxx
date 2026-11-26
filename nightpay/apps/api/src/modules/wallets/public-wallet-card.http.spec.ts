@@ -108,6 +108,26 @@ describe('consulta NFC HTTP: ninguna información antes de verificar la llave', 
     expect((await api.inject({ method: 'GET', url: `/w/${PRIVATE}/state` })).statusCode).toBe(401);
   });
 
+  it('idea 71: con el móvil en inglés y sin idioma elegido, /w/card y /w ofrecen cambiar (la página sigue en español)', async () => {
+    const api = app.getHttpAdapter().getInstance();
+    for (const url of [`/w/card/${CARD}`, `/w/${PRIVATE}`]) {
+      const en = await api.inject({ method: 'GET', url, headers: { 'accept-language': 'en-GB,en;q=0.9' } });
+      expect(en.body).toContain('<html lang="es">');
+      expect(en.body).toContain('English? · Switch');
+      expect(en.headers['set-cookie']).toBeUndefined();
+      // Móvil en español, ya elegido por ?lang= (que guarda la cookie) o por la cookie: sin franja.
+      expect((await api.inject({ method: 'GET', url, headers: { 'accept-language': 'es-ES,en' } })).body).not.toContain('class="sug"');
+      const kept = await api.inject({ method: 'GET', url: `${url}?lang=es`, headers: { 'accept-language': 'en-GB' } });
+      expect(kept.body).not.toContain('class="sug"');
+      expect(String(kept.headers['set-cookie'])).toContain('np_lang=es');
+      expect((await api.inject({ method: 'GET', url, headers: { 'accept-language': 'en-GB', cookie: 'np_lang=es' } })).body).not.toContain('class="sug"');
+    }
+    // El saldo ya abierto (con su sesión de consulta), igual.
+    const open = await api.inject({ method: 'GET', url: `/w/${PRIVATE}`, headers: { 'accept-language': 'fr-FR', cookie: cookieAt(Date.now()) } });
+    expect(open.body).toContain('ABC-123');
+    expect(open.body).toContain('lang="fr" hreflang="fr">');
+  });
+
   it('sin passkey, /w/card dice desde el principio cómo activarla, sin botón muerto ni reto', async () => {
     keys.hasPasskey.mockResolvedValue(false);
     const api = app.getHttpAdapter().getInstance();

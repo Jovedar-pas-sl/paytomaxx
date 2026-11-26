@@ -35,6 +35,7 @@ import { myPaymentsPage, type MyPaymentRow } from './my-payments';
 import { historyOrder, historyPage, historyRange, historyWhere, type HistoryRange } from './my-history';
 import { StaffPushService } from './staff-push.service';
 import { earningBankHeldSql, earningNetSql } from './bank-hold-sql';
+import { SERVED_EARNING_SQL, SERVICE_DISPUTED_ACTION } from './served-earning';
 import { availableCentsOf, payoutCutoff, payoutTotalCents } from './payout-math';
 import {
   exactSelection,
@@ -96,7 +97,8 @@ import type {
   SelfOnboardingSubmitDto,
   UpdateOperatorDto,
 } from '@nightpay/contracts';
-import { holderMatchesName, maskHolderName, maskPayoutAddress, payoutMetadataFor } from '@nightpay/contracts';
+import { formatChargeRef, holderMatchesName, maskHolderName, maskPayoutAddress, payoutMetadataFor } from '@nightpay/contracts';
+import { eur } from '../../common/money/eur';
 
 const INVITE_TTL_HOURS = 24;
 const SELF_ONBOARDING_TTL_HOURS = 72;
@@ -156,10 +158,8 @@ export interface PayoutOptions {
   afterCreate?: (tx: TransactionalClient, payoutId: string) => Promise<void>;
   /** Para el registro. */
   approvalRequestId?: string;
-}
-
-function eur(cents: number): string {
-  return `${(cents / 100).toFixed(2).replace('.', ',')} €`;
+  /** «Pagar» a varias a la vez: la clave de la tanda, para el registro del pago. */
+  batchKey?: string;
 }
 
 /** Ya tiene a dónde se le paga. */
@@ -330,16 +330,40 @@ export class OperatorsService {
         payoutId: string | null;
         paymentStatus: string | null;
         bankHeld: boolean;
+        servedByName: string | null;
+        notMineReported: boolean | null;
+        serviceBaseCents: number | null;
+        serviceBps: number | null;
         createdAt: Date;
       }>
     >`
-      SELECT e.id, e."paymentId", e."consumptionId", e."paymentAmountCents", e."commissionBps",
+      SELECT e.id, e."paymentId", e."consumptionId", e."paymentAmountCents", e."commissionBps", sv."serviceBaseCents", sv."serviceBps",
              e."commissionCents", COALESCE(e."tipCents",0) AS "tipCents",
              e."reversedCents", e."payoutId",
              p.status::text AS "paymentStatus", e."createdAt",
-             (e."payoutId" IS NULL AND ${earningBankHeldSql('e')}) AS "bankHeld"
+             (e."payoutId" IS NULL AND ${earningBankHeldSql('e')}) AS "bankHeld",
+             s."servedByName",
+             CASE WHEN s."servedByName" IS NOT NULL THEN EXISTS (
+               SELECT 1 FROM audit_events a
+                WHERE a."tenantId" = e."tenantId" AND a.action = ${SERVICE_DISPUTED_ACTION} AND a."targetId" = e.id::text
+             ) END AS "notMineReported"
         FROM operator_earnings e
         LEFT JOIN payments p ON p.id = e."paymentId"
+        LEFT JOIN wallet_consumptions c ON c.id = e."consumptionId"
+        -- Un servicio que otra persona le cobró a su nombre: quién lo cobró.
+        LEFT JOIN LATERAL (
+          SELECT COALESCE(NULLIF(btrim(u."displayName"), ''), split_part(u.email, '@', 1)) AS "servedByName"
+            FROM users u
+           WHERE u.id = COALESCE(p."createdByUserId", c."providedByUserId") AND ${SERVED_EARNING_SQL}
+        ) s ON true
+        -- Y de esa cuenta, lo de Servicios que era suyo y su % (la copa de la misma cuenta no cuenta).
+        LEFT JOIN LATERAL (
+          SELECT SUM(l."amountCents")::int AS "serviceBaseCents", MAX(l."operatorCommissionBps")::int AS "serviceBps"
+            FROM payment_lines l
+            LEFT JOIN wallet_charge_requests w ON w.id = l."walletChargeId"
+           WHERE s."servedByName" IS NOT NULL AND l."serviceOperatorId" = e."operatorId"
+             AND (l."paymentId" = e."paymentId" OR w."consumptionId" = e."consumptionId")
+        ) sv ON true
        WHERE e."operatorId" = ${operatorId}::uuid
          AND e."tenantId" = ${tenantId}::uuid
          ${historyWhere('e', range)}
@@ -358,8 +382,71 @@ export class OperatorsService {
       payoutId: r.payoutId,
       paymentStatus: r.paymentStatus,
       bankHeld: r.bankHeld === true,
+      ...(r.servedByName === null ? {} : { servedByName: r.servedByName, notMineReported: r.notMineReported === true }),
+      ...(r.serviceBaseCents && r.serviceBps !== null ? { serviceBaseCents: r.serviceBaseCents, serviceBps: r.serviceBps } : {}),
       createdAt: r.createdAt.toISOString(),
     }));
+  }
+
+  /**
+   * «No es mío» (cobro por el encargado): la compañera dice que un servicio que
+   * otra persona le cobró a su nombre no es suyo. Deja el aviso en el registro
+   * (la incidencia service_disputed: Incidencias del panel, Telegram y la app
+   * del encargado). No mueve dinero ni retiene su parte. Una vez por ganancia:
+   * con la fila bloqueada, dos toques a la vez avisan una sola vez.
+   */
+  async notMine(operatorId: string, tenantId: string, earningId: string): Promise<{ reported: true }> {
+    return this.prisma.withTenant(tenantId, async (tx) => {
+      const rows = await tx.$queryRaw<
+        Array<{
+          paymentId: string | null;
+          paymentAmountCents: number;
+          shareCents: number;
+          ref: number | null;
+          chargedById: string | null;
+          chargedByName: string | null;
+          operatorName: string | null;
+        }>
+      >`
+        SELECT e."paymentId", e."paymentAmountCents", (e."commissionCents" + COALESCE(e."tipCents", 0))::int AS "shareCents",
+               COALESCE(p.ref, w.ref) AS ref, cu.id::text AS "chargedById",
+               COALESCE(NULLIF(btrim(cu."displayName"), ''), split_part(cu.email, '@', 1)) AS "chargedByName",
+               COALESCE(NULLIF(btrim(me."displayName"), ''), split_part(me.email, '@', 1)) AS "operatorName"
+          FROM operator_earnings e
+          LEFT JOIN payments p ON p.id = e."paymentId"
+          LEFT JOIN wallet_consumptions c ON c.id = e."consumptionId"
+          LEFT JOIN wallet_charge_requests w ON w."consumptionId" = e."consumptionId"
+          LEFT JOIN users cu ON cu.id = COALESCE(p."createdByUserId", c."providedByUserId")
+          LEFT JOIN users me ON me.id = e."operatorId"
+         WHERE e.id = ${earningId}::uuid AND e."operatorId" = ${operatorId}::uuid AND e."tenantId" = ${tenantId}::uuid
+           AND ${SERVED_EARNING_SQL}
+           FOR UPDATE OF e
+      `;
+      const row = rows[0];
+      if (!row) throw new NotFoundException('Ese cobro no es un servicio cobrado a tu nombre.');
+      const already = await tx.$queryRaw<unknown[]>`
+        SELECT 1 FROM audit_events
+         WHERE "tenantId" = ${tenantId}::uuid AND action = ${SERVICE_DISPUTED_ACTION} AND "targetId" = ${earningId}
+         LIMIT 1
+      `;
+      if (already.length > 0) return { reported: true as const };
+      const payload = {
+        ref: row.ref === null ? null : formatChargeRef(row.ref),
+        amountCents: row.paymentAmountCents,
+        shareCents: row.shareCents,
+        paymentId: row.paymentId,
+        chargedById: row.chargedById,
+        chargedByName: row.chargedByName,
+        operatorName: row.operatorName,
+      };
+      // En SQL, en la misma transacción que la fila bloqueada (como el registro de los cobros).
+      await tx.$executeRaw`
+        INSERT INTO audit_events ("tenantId", "actorId", action, "targetType", "targetId", payload, "occurredAt")
+        VALUES (${tenantId}::uuid, ${operatorId}::uuid, ${SERVICE_DISPUTED_ACTION}, 'OperatorEarning', ${earningId},
+                ${JSON.stringify(payload)}::jsonb, now())
+      `;
+      return { reported: true as const };
+    });
   }
 
   /**
@@ -1509,7 +1596,7 @@ export class OperatorsService {
       const totalCents = payoutTotalCents(pending, debts);
       if (totalCents <= 0) {
         throw new ConflictException(
-          `Saldo neto ${totalCents / 100} € — no hay nada que liquidar (la operadora arrastra deuda por devoluciones).`,
+          `Saldo neto ${eur(totalCents)} — no hay nada que liquidar (la operadora arrastra deuda por devoluciones).`,
         );
       }
       if (options?.exact && totalCents !== options.exact.totalCents) {
@@ -1563,6 +1650,7 @@ export class OperatorsService {
         earningCount: result.count,
         notes,
         ...(options?.approvalRequestId ? { approvalRequestId: options.approvalRequestId } : {}),
+        ...(options?.batchKey ? { batchKey: options.batchKey } : {}),
       },
     });
 

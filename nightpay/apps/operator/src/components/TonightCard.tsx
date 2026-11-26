@@ -1,10 +1,11 @@
 'use client';
 
 import type { CSSProperties } from 'react';
-import { Importe } from '@nightpay/ui';
+import { Icon, Importe } from '@nightpay/ui';
 import type { MyNight } from '@/lib/api';
 import { tonightBreakdown, tonightStatus, type MoneySummary, type TonightTone } from '@/lib/earnings-view';
 import { formatEur } from '@/lib/money';
+import { SkelLine } from './loading-shapes';
 import styles from './money.module.css';
 
 interface Props {
@@ -18,6 +19,8 @@ interface Props {
   onOpen: () => void;
   /** Su nombre, junto a «Esta noche» (en un móvil compartido se ve quién ha entrado). */
   who?: string | null;
+  /** La noche aún se está pidiendo (sin error): bajo el «—», la silueta de su línea. */
+  loading?: boolean;
 }
 
 const TONE_LABEL: Record<TonightTone, string> = {
@@ -31,10 +34,10 @@ const TONE_LABEL: Record<TonightTone, string> = {
  * «Esta noche»: lo que le pagan al cerrar la noche (comisión + propinas −
  * devoluciones), enorme, y cuándo se lo pagan.
  */
-export function TonightCard({ night, summary, holdDays, compact = false, onOpen, who }: Props) {
+export function TonightCard({ night, summary, holdDays, compact = false, onOpen, who, loading = false }: Props) {
   const status = night ? tonightStatus(night, summary, holdDays, Date.now()) : null;
   const cents = summary.tonightCents;
-  // El texto, solo para ajustar la cifra al ancho (la pinta Importe, con el «−» de lo que debe).
+  // El texto final, solo para ajustar la cifra al ancho (la pinta Importe, con el «−» de lo que debe): la letra no cambia al rodar.
   const amount = night ? formatEur(cents, { compact: true }) : '—';
   // Grafito: la cifra en t1 (la lima es para actuar, nunca para un total); en rojo si debe.
   const color = !night || cents === 0 ? 'var(--np-text-mute)' : cents < 0 ? 'var(--np-danger)' : 'var(--np-text)';
@@ -46,9 +49,9 @@ export function TonightCard({ night, summary, holdDays, compact = false, onOpen,
         {status ? <TonePill tone={status.tone} /> : null}
       </span>
       <span className="np-num" style={{ ...amountStyle, color, fontSize: fitAmount(amount, compact) }}>
-        {night ? <Importe cents={cents} /> : '—'}
+        {night ? <Importe cents={cents} rolling /> : '—'}
       </span>
-      <span style={whenStyle}>{status?.when ?? 'Cargando tu noche…'}</span>
+      {status ? <span style={whenStyle}>{status.when}</span> : loading ? <SkelLine width="60%" style={{ padding: '0.15rem 0' }} /> : null}
       {!compact && night ? <span style={metaStyle}>{tonightBreakdown(night)}</span> : null}
       {!compact && status ? <span style={metaStyle}>{status.state}</span> : null}
       <Chevron />
@@ -74,12 +77,9 @@ function TonePill({ tone }: { tone: TonightTone }) {
   );
 }
 
-export function Chevron() {
-  return (
-    <svg className={styles.chevron} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-      <path d="M9 5l7 7-7 7" />
-    </svg>
-  );
+/** La flecha «›» de las tarjetas que llevan a otra página (24; 20 en las filas, como su .chevron). */
+export function Chevron({ size = 24 }: { size?: 20 | 24 }) {
+  return <Icon name="chevron-right" size={size} className={styles.chevron} />;
 }
 
 /**

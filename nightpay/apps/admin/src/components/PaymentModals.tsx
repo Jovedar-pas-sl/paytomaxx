@@ -278,7 +278,7 @@ export function RefundModal({
   }, [payment]);
 
   if (!payment) {
-    return <Modal open={open} onClose={onClose}>{null}</Modal>;
+    return <Modal open={false} onClose={onClose}>{null}</Modal>;
   }
 
   const cents = parseEuroCents(amount) ?? Number.NaN;
@@ -394,7 +394,8 @@ export function RefundModal({
       {refundServiceFeeHint(payment) ? <p style={metaStyle}>{refundServiceFeeHint(payment)}</p> : null}
       <form onSubmit={handleSubmit} style={formStyle}>
         <Input
-          label="Importe (€)"
+          label="Importe"
+          suffix="€"
           type="text"
           inputMode="decimal"
           value={amount}

@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { Button, StaffAvatar } from '@nightpay/ui';
 import type { PermissionRole, StaffPermissionKey, StaffPermissions, UpdateStaffPermissionsDto } from '@nightpay/contracts';
 import { fetchStaffPermissions, updateStaffPermissions, type PermissionPerson } from '@/lib/api';
-import { PERMISSION_HINTS, PERMISSION_LABELS, ROLE_LABELS, editablePermissions, hasOverride, personCan, waiterHint } from '@/lib/settings-forms';
+import { PERMISSION_HINTS, PERMISSION_LABELS, ROLE_LABELS, hasOverride, personCan, shownPermissions, waiterHint } from '@/lib/settings-forms';
 import { PuestosCard } from './PuestosCard';
 import { LoadState, SettingsCard, StatusLine, Switch, useSavedFlash, useSettingsLoad } from './SettingsBits';
 
@@ -15,7 +15,9 @@ import { LoadState, SettingsCard, StatusLine, Switch, useSavedFlash, useSettings
  * camareros y a los datáfonos de recepción, las recargas en efectivo (el
  * saldo ya no se devuelve a la salida: decisión del dueño, 17-nov-2026).
  * Con el datáfono apagado en Formas de cobro, lo de los datáfonos no sale
- * (lo guardado se queda para cuando vuelva).
+ * (lo guardado se queda para cuando vuelva). Si en el local las compañeras no
+ * cobran desde su móvil (lo pone OxioPay), sale «Cobrar servicios a nombre de
+ * una compañera»: a los encargados y, por persona, al camarero que se lo des.
  * Por defecto, lo de siempre. El API lo aplica en cada petición.
  */
 export function PermissionsPanel({ posOn = true }: { posOn?: boolean } = {}) {
@@ -27,6 +29,7 @@ export function PermissionsPanel({ posOn = true }: { posOn?: boolean } = {}) {
 
   if (!data) return <LoadState error={loadError} retry={retry} what="los permisos" />;
   const { permissions, people } = data;
+  const servicesOff = data.operatorsChargeFromPhone === false;
 
   async function save(change: UpdateStaffPermissionsDto): Promise<void> {
     if (!data) return;
@@ -34,7 +37,7 @@ export function PermissionsPanel({ posOn = true }: { posOn?: boolean } = {}) {
     setError(null);
     try {
       const next: StaffPermissions = await updateStaffPermissions(change);
-      setData({ people: data.people, permissions: next });
+      setData({ ...data, permissions: next });
       flashSaved();
     } catch (err) {
       setError((err as Error).message);
@@ -48,8 +51,15 @@ export function PermissionsPanel({ posOn = true }: { posOn?: boolean } = {}) {
 
   return (
     <div className="np-set-stack">
+      {servicesOff ? (
+        <p className="np-set-note">
+          En este local las compañeras no cobran desde su móvil (lo decide OxioPay): sus servicios los cobra el encargado, o
+          el camarero al que se lo des aquí, escaneando su «Mi QR».
+        </p>
+      ) : null}
+
       <SettingsCard title="Encargados" tour="permisos-encargados" hint="Lo que pueden hacer todos los encargados. Tú siempre puedes todo.">
-        {editablePermissions('MANAGER').map((key) => (
+        {shownPermissions('MANAGER', { servicesOff, perPerson: false }).map((key) => (
           <Switch
             key={key}
             label={PERMISSION_LABELS[key]}
@@ -68,6 +78,7 @@ export function PermissionsPanel({ posOn = true }: { posOn?: boolean } = {}) {
                 key={p.id}
                 person={p}
                 permissions={permissions}
+                servicesOff={servicesOff}
                 open={openPerson === p.id}
                 busy={busy}
                 onToggleOpen={() => setOpenPerson(openPerson === p.id ? null : p.id)}
@@ -83,7 +94,7 @@ export function PermissionsPanel({ posOn = true }: { posOn?: boolean } = {}) {
         title="Camareros" tour="permisos-camareros"
         hint={`${waiterHint(posOn)}${waiters.length > 0 ? ` (${waiters.length} en el local)` : ''}`}
       >
-        {editablePermissions('WAITER').map((key) => (
+        {shownPermissions('WAITER', { servicesOff, perPerson: false }).map((key) => (
           <Switch
             key={key}
             label={PERMISSION_LABELS[key]}
@@ -100,7 +111,7 @@ export function PermissionsPanel({ posOn = true }: { posOn?: boolean } = {}) {
           title={ROLE_LABELS.DEVICE}
           hint="El datáfono no sabe quién lo usa: actúa como el local. Si lo enciendes, cualquiera con el datáfono de recepción cobra recargas en efectivo (cuadran en la caja de la noche)."
         >
-          {editablePermissions('DEVICE').map((key) => (
+          {shownPermissions('DEVICE', { servicesOff, perPerson: false }).map((key) => (
             <Switch
               key={key}
               label={PERMISSION_LABELS[key]}
@@ -122,6 +133,7 @@ export function PermissionsPanel({ posOn = true }: { posOn?: boolean } = {}) {
 function PersonRow({
   person,
   permissions,
+  servicesOff,
   open,
   busy,
   onToggleOpen,
@@ -130,6 +142,7 @@ function PersonRow({
 }: {
   person: PermissionPerson;
   permissions: StaffPermissions;
+  servicesOff: boolean;
   open: boolean;
   busy: boolean;
   onToggleOpen: () => void;
@@ -153,7 +166,7 @@ function PersonRow({
       </div>
       {open ? (
         <div className="np-set-person-body">
-          {editablePermissions(role).map((key) => (
+          {shownPermissions(role, { servicesOff, perPerson: true }).map((key) => (
             <Switch
               key={key}
               label={PERMISSION_LABELS[key]}

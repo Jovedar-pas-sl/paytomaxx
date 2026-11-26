@@ -1,9 +1,10 @@
 import { CLUB_BASE_CSS, MONEY_JS, clientMoney, escapeHtml, jsConfig } from '../payments/club-ui';
-import { CHROME_CSS, langScript, topBar } from '../payments/customer-chrome';
+import { CHROME_CSS, langHrefWith, langScript, topBar } from '../payments/customer-chrome';
 import { legalFooter } from '../legal/legal-links';
 import { CUSTOMER_TEXT } from '../payments/i18n';
 import { PAID_SCREEN_CSS, PAID_SCREEN_JS, paidScreenJsText, renderPaidScreen } from '../payments/paid-screen';
-import { LOCK_ICON, TIP_JS } from '../payments/pay-choose-page';
+import { LAST_MINUTE_S, LOCK_ICON, SOON_CSS, TIP_JS, clockText, secondsLeft } from '../payments/pay-choose-page';
+import { MANROPE_PRELOAD } from '../payments/brand-font';
 import { PAY_TEXT, type PayLanguage } from '../payments/pay-i18n';
 import { PASSKEY_BROWSER_JS } from './passkey-browser';
 import { CLIENT_ERROR_JS, clientErrorConfig } from './client-errors';
@@ -31,10 +32,10 @@ const QR_CSS = `
 .safe{display:flex;align-items:center;gap:.5rem;padding:.625rem .875rem;border-radius:var(--r-field);background:var(--surface-2);border:1px solid var(--line-hi);color:var(--fg);font-weight:500}
 .hint{width:100%;padding:.875rem 1rem;border:1px solid var(--line);border-radius:var(--r-tile);background:var(--surface);color:var(--fg);font-weight:500;text-align:left}
 .after{max-width:26rem;margin:0 auto;padding:1rem;display:flex;flex-direction:column;align-items:center}
-.secure{display:flex;align-items:center;gap:.4rem;font-size:.8125rem;color:var(--dim)}
+.secure{display:flex;align-items:center;gap:.4rem;font-size:.875rem;color:var(--dim)}
 .secure svg{width:1rem;height:1rem;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
 .mine{width:100%;max-width:22rem;display:grid;gap:.5rem;margin-top:.5rem}
-`;
+${SOON_CSS}`;
 
 /**
  * Qué se enseña si el pago con el saldo falla (`e` es el error de pkPost):
@@ -58,8 +59,12 @@ export function renderQrChargePage(
   lang: PayLanguage,
   view: QrChargeClientView,
   now: Date = new Date(),
-  /** B1: la propina que ya eligió en /pay antes de tocar «Pagar con mi saldo» (?tip=). */
-  opts: { tipFromPay?: number | null } = {},
+  /**
+   * `tipFromPay` (B1): la propina que ya eligió en /pay antes de tocar «Pagar
+   * con mi saldo» (?tip=). `suggest` (idea 71): el idioma que se le ofrece en
+   * la franja de arriba, solo con el cobro pendiente.
+   */
+  opts: { tipFromPay?: number | null; suggest?: PayLanguage | null } = {},
 ): string {
   const t = CUSTOMER_TEXT[lang].saldo;
   const p = PAY_TEXT[lang];
@@ -86,6 +91,8 @@ export function renderQrChargePage(
     text: {
       ...t,
       paid: paidScreenJsText(p),
+      // El aviso del último minuto (idea 65); el JS pone la hora.
+      soon: p.lastMinute('{time}'),
       paidTitle: p.paidTitle,
       codeLabel: p.codeLabel,
       codeHint: p.codeHint,
@@ -96,9 +103,14 @@ export function renderQrChargePage(
     // La hora del servidor: la cuenta atrás corrige la del móvil (como /pay).
     now: now.getTime(),
   });
-  const who = [view.serviceName, view.requestedByName, view.venueName].filter(Boolean).join(' · ');
+  // A nombre de una compañera (cobro por el encargado): «Servicio con Nerea», en su idioma.
+  const by = view.served && view.requestedByName ? p.serviceWith(view.requestedByName) : view.requestedByName;
+  const who = [view.serviceName, by, view.venueName].filter(Boolean).join(' · ');
   // Caducado, cancelado o rechazado: no se cobró nada.
   const closed = view.status !== 'PENDING' && !isPaid;
+  // La cuenta atrás ya pintada (el JS la mueve): en el último minuto, el aviso en ámbar.
+  const left = secondsLeft(new Date(view.expiresAt), now);
+  const clock = left <= LAST_MINUTE_S ? p.lastMinute(clockText(left)) : `${t.expiresIn} ${clockText(left)}`;
   // «Ver mi saldo»: tras pagar aquí, el enlace que trae la respuesta del pago;
   // al abrir uno ya pagado o cerrado, con Face ID (la página no sabe de quién es).
   const mine = `<div class="mine"><a class="btn alt" id="mineLink" hidden>${h(MY_BALANCE_TEXT[lang].button)}</a>${myBalanceButton(lang)}</div>`;
@@ -112,13 +124,18 @@ export function renderQrChargePage(
     code: isPaid ? (code ?? null) : null,
     hidden: !isPaid,
     fromBalance: true,
+    // A quién se pagó (idea 62).
+    to: view.venueName,
     footer: closed ? undefined : mine,
   });
   return `<!DOCTYPE html>
-<html lang="${lang}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<html lang="${lang}"><head><meta charset="utf-8">${MANROPE_PRELOAD}<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="robots" content="noindex"><meta name="theme-color" content="#091518"><title>${h(t.title)}</title>
 <style>${CLUB_BASE_CSS}${CHROME_CSS}${QR_CSS}${PAID_SCREEN_CSS}${tipView ? SALDO_TIP_CSS : ''}</style></head><body>
-${topBar(lang, undefined, { over: isPaid })}
+${topBar(lang, typeof opts.tipFromPay === 'number' ? langHrefWith(base, { tip: String(opts.tipFromPay) }) : undefined, {
+  over: isPaid,
+  suggest: view.status === 'PENDING' ? opts.suggest : null,
+})}
 ${screen}
 <main class="${isPaid ? 'after' : 'c'}" id="ask">
 ${
@@ -145,7 +162,8 @@ ${tipView ? saldoTipFieldset(lang, tipView, initialTip) : ''}
 <p class="err" id="error" role="alert" hidden></p>
 <p class="safe" id="notCharged" hidden>${h(p.notCharged)}</p>
 <button class="btn alt" type="button" id="reload" hidden>${h(t.reload)}</button>
-<p class="small num" id="clock" aria-hidden="true"></p>
+<p class="small num${left <= LAST_MINUTE_S ? ' soon' : ''}" id="clock">${h(clock)}</p>
+<p class="sr" id="live" aria-live="polite"></p>
 <p class="secure">${LOCK_ICON}${h(p.secure)}</p>`
 }
 </main>
@@ -164,10 +182,11 @@ function show(id,text){$(id).textContent=text;$(id).hidden=!text;}
 if(!el.hidden){npPaid(el,T.paid);return;}
 if(V.status!=='PENDING')return;
 // Un móvil con la hora mal no da el cobro por caducado antes de tiempo (ni después).
-var skew=(+C.now||Date.now())-Date.now(),over=false,exp=new Date(V.expiresAt).getTime(),iv;
-function stop(text){over=true;clearInterval(iv);$('pay').hidden=true;$('clock').textContent='';if(text)show('error',text);}
-function tick(){var s=Math.max(0,Math.floor((exp-Date.now()-skew)/1000));
- $('clock').textContent=over?'':T.expiresIn+' '+Math.floor(s/60)+':'+('0'+s%60).slice(-2);
+var skew=(+C.now||Date.now())-Date.now(),over=false,exp=new Date(V.expiresAt).getTime(),iv,soon=null;
+function stop(text){over=true;clearInterval(iv);$('pay').hidden=true;$('clock').textContent='';$('clock').hidden=true;if(text)show('error',text);}
+// En el último minuto, el aviso en ámbar; el lector de pantalla lo oye una vez, al llegar (no si la página se abrió ya así).
+function tick(){var s=Math.max(0,Math.floor((exp-Date.now()-skew)/1000)),m=Math.floor(s/60)+':'+('0'+s%60).slice(-2),c=$('clock'),late=s<=60;
+ if(!over){c.textContent=late?T.soon.split('{time}').join(m):T.expiresIn+' '+m;if(late){c.classList.add('soon');if(soon===false)$('live').textContent=c.textContent;}soon=late;}
  if(s<=0&&!over)stop(T.expired+'. '+T.askStaff);}
 // B1: la propina que elige el cliente (sin nada marcado: «Sin propina»).
 function tipNow(){if(!TP)return null;var r=document.querySelector('input[name=tip]:checked');if(!r)return {tip:0,error:null};

@@ -35,7 +35,7 @@ test('login real con cookie, carta de referencia atómica y repetible, y el tota
   // Panel: login de verdad; el refresh va en una cookie HttpOnly, no en el cuerpo.
   await page.goto('/');
   await page.getByRole('textbox', { name: /^(Email|Correo electrónico)$/ }).fill('owner@isolated.test');
-  await page.getByLabel('Contraseña').fill(password);
+  await page.getByLabel('Contraseña', { exact: true }).fill(password);
   const loginResponse = page.waitForResponse(`${api}/v1/auth/login`);
   await page.getByRole('button', { name: 'Entrar', exact: true }).click();
   const response = await loginResponse;
@@ -59,7 +59,7 @@ test('login real con cookie, carta de referencia atómica y repetible, y el tota
   // App del personal: la carta aplicada; «Copa con invitación» es una loseta más, justo después de «Copa».
   await page.goto(`${operator}/`);
   await page.getByLabel('Email').fill('waiter@isolated.test');
-  await page.getByLabel('Contraseña').fill(password);
+  await page.getByLabel('Contraseña', { exact: true }).fill(password);
   await page.getByRole('button', { name: 'Entrar', exact: true }).click();
   const copa = page.getByRole('button', { name: /^Copa, 10,00\s€/ });
   const invitacion = page.getByRole('button', { name: /^Copa con invitación, 20,00\s€/ });

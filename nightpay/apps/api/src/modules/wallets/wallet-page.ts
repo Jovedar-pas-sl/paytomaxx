@@ -1,4 +1,5 @@
 import { DETAIL_TIP_AND_FEE_APART } from '@nightpay/contracts';
+import { MANROPE_PRELOAD } from '../payments/brand-font';
 import { PAY_TEXT, type PayLanguage } from '../payments/pay-i18n';
 import { CLUB_BASE_CSS, MONEY_JS, clientMoney, escapeHtml, jsConfig } from '../payments/club-ui';
 import { CHROME_CSS, LANG_JS, topBar } from '../payments/customer-chrome';
@@ -42,12 +43,16 @@ import {
  *  - «Recargar»: cuánto, los límites y Apple Pay / Google Pay o tarjeta
  *    (wallet-topup-view.ts). Al volver del banco se abre aquí con su «Pagado».
  *    Si el local no deja recargar, no hay opciones: solo «Pagar».
- * Debajo de las dos, «Más»: elegir PIN, juntar saldos (en hojas dentro de la
- * página: nada de confirm()/alert()), la regla del saldo donde estaba «Me
+ * El saldo a mano (idea 69): en la tarjeta de arriba, debajo del saldo, lo
+ * último que pasó («Último: −12 € · Gin tonic · 21:30») y, junto al número de
+ * la ficha, «Bloquear» (la misma hoja que el botón rojo de abajo). Debajo de
+ * las dos vistas, «Últimos movimientos»: tres a la vista y «Ver todos», que
+ * despliega el resto ahí mismo (tocar uno abre su «Detalle del pago»; uno
+ * deshecho dice «Devuelto a tu saldo»).
+ * Después, «Más»: elegir PIN, juntar saldos (en hojas dentro de la
+ * página: nada de confirm()/alert()) y la regla del saldo donde estaba «Me
  * voy» («El saldo no se devuelve: se queda para la próxima visita»; con una
- * devolución pedida antes y aún en curso sale su tarjeta en su lugar) y los
- * movimientos (tocar uno abre su «Detalle del pago»; uno deshecho dice
- * «Devuelto a tu saldo»). El
+ * devolución pedida antes y aún en curso sale su tarjeta en su lugar). El
  * estado se pone al día al momento: la página escucha los avisos de su saldo
  * (GET /w/:token/events) y solo entonces pide /state; de respaldo, cada
  * 20–30 s, y «Reconectando…» si no lo consigue (wallet-live.ts). Aquí no se
@@ -59,9 +64,13 @@ import {
 const WALLET_CSS = `
 .w{max-width:26rem;margin:0 auto;padding:1rem 1rem calc(2rem + env(safe-area-inset-bottom));display:flex;flex-direction:column;gap:1rem}
 .w>.top{padding:0}
+.w>.sug{margin:-1rem -1rem 0}
 .hero{min-height:8.75rem;padding:1rem 1.125rem;border:1px solid var(--line);border-radius:var(--r);display:flex;flex-direction:column;justify-content:space-between;gap:.5rem;text-align:left;color:var(--fg);background:var(--surface)}
-#balanceLabel{font-size:.8125rem;font-weight:500;color:var(--mute)}
-.hero .obot{display:flex;justify-content:space-between;gap:.5rem;font-size:.875rem;font-weight:600;color:var(--fg)}
+#balanceLabel{font-size:.875rem;font-weight:500;color:var(--mute)}
+.hero .last{font-size:.875rem;color:inherit;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-variant-numeric:tabular-nums}
+.hero .obot{display:flex;justify-content:space-between;align-items:center;gap:.5rem;font-size:.875rem;font-weight:600;color:var(--fg)}
+#heroFicha{margin-left:auto}
+.hero .obot .link{margin:-.75rem -.75rem -.75rem -.25rem;color:inherit}
 .balance{font-size:3.5rem;font-weight:600;letter-spacing:-.02em;line-height:1;margin-top:.25rem;color:var(--fg);font-variant-numeric:proportional-nums}
 .status{font-weight:500;color:var(--fg)}
 .hero .mine{display:grid;gap:.375rem}.hero .mine:has(#npMine[hidden]){display:none}
@@ -74,23 +83,25 @@ const WALLET_CSS = `
 .view{display:flex;flex-direction:column;gap:1rem}
 .card{border:1px solid var(--line);border-radius:var(--r);padding:1rem;display:flex;flex-direction:column;gap:.75rem;background:var(--surface)}
 .card h2{font-size:1.125rem;line-height:1.25}
-.card h2.kick{font-size:.8125rem}
+.card h2.kick{font-size:.875rem}
 .card h2.sub{font-size:1rem}
 .card.main{border-color:var(--line-hi)}
 .how{color:var(--fg)}
 .code{font-size:2rem;font-weight:700;letter-spacing:.2em;color:var(--fg);text-align:center}
 .small{font-size:.875rem}
 .steps{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(3,1fr);gap:.4rem;text-align:center}
-.steps li{display:flex;flex-direction:column;align-items:center;gap:.3rem;font-size:.8125rem;font-weight:500;color:var(--dim)}
+.steps li{display:flex;flex-direction:column;align-items:center;gap:.3rem;font-size:.875rem;font-weight:500;color:var(--dim)}
 .steps li::before{content:'○';display:grid;place-items:center;width:2rem;height:2rem;border-radius:50%;border:2px solid var(--line);font-size:.875rem}
 .steps li.ok{color:var(--fg)}
 .steps li.ok::before{content:'✓';border-color:var(--fg);background:var(--fg);color:var(--bg)}
 .steps li.now{color:var(--fg);font-weight:600}
 .steps li.now::before{content:'●';border-color:var(--fg)}
-.more{display:flex;flex-direction:column;gap:.25rem;margin-top:.5rem}
+.more,.moves{display:flex;flex-direction:column;gap:.25rem;margin-top:.5rem}
+.moves .btn{margin-top:.5rem}
+#movements:not(.all) li:nth-child(n+4){display:none}
 .rows{display:flex;flex-direction:column;border-top:1px solid var(--line)}
 .row{display:flex;flex-direction:column;align-items:flex-start;gap:.1rem;width:100%;min-height:3.25rem;padding:.625rem .25rem;border:0;border-bottom:1px solid var(--line);background:none;color:var(--fg);font:inherit;font-weight:500;text-align:left;cursor:pointer}
-.row small{font-weight:400;color:var(--mute);font-size:.8125rem}
+.row small{font-weight:400;color:var(--mute);font-size:.875rem}
 .row:focus-visible{outline:3px solid var(--fg);outline-offset:2px}
 .row[aria-expanded]{position:relative;padding-right:2rem}
 .row[aria-expanded]::after{content:'+';position:absolute;right:.5rem;top:50%;transform:translateY(-50%);font-size:1.25rem;color:var(--mute)}
@@ -102,7 +113,7 @@ li.mv .sw{align-self:stretch;flex:none;width:4px;min-height:2.4rem;border-radius
 li.mv .sw.hold{background:repeating-linear-gradient(var(--dim) 0 6px,transparent 6px 10px)}
 li.mv .mt{flex:1;min-width:0}
 li.mv .mt b{display:block;color:var(--fg);font-size:1rem;font-weight:500}
-li.mv .mt span{display:block;color:var(--mute);font-size:.8125rem}
+li.mv .mt span{display:block;color:var(--mute);font-size:.875rem}
 li.mv .plus{color:var(--ok);font-weight:600;white-space:nowrap}
 li.mv .minus{color:var(--fg);font-weight:600;white-space:nowrap}
 li.mv .gone{color:var(--mute);font-weight:500;white-space:nowrap;text-decoration:line-through}
@@ -189,6 +200,8 @@ export interface WalletPageOptions {
    * (apagado), la página no ofrece el aviso.
    */
   chargeAlertKey?: string | null;
+  /** El idioma que se le ofrece en la franja de arriba (idea 71); con OxioParty no sale. */
+  suggest?: PayLanguage | null;
 }
 
 /**
@@ -259,7 +272,22 @@ ${proof ? paidProofSection(lang, proof, options.now ?? new Date()) : ''}${topUpC
 `;
 }
 
-/** «Más»: lo que no es pagar ni recargar (las hojas y los movimientos). */
+/**
+ * «Últimos movimientos», debajo de las dos vistas (idea 69): la lista la pinta
+ * el JS; el CSS deja tres a la vista y «Ver todos» despliega el resto aquí.
+ */
+function movesList(lang: PayLanguage): string {
+  const t = WALLET_TEXT[lang];
+  const h = escapeHtml;
+  return `<section class="moves" id="moves" aria-labelledby="movTitle">
+<h2 class="kick" id="movTitle">${h(t.movements)}</h2>
+<ul id="movements"></ul>
+<button class="btn alt" type="button" id="movAll" aria-expanded="false" aria-controls="movements" hidden>${h(t.movementsAll)}</button>
+</section>
+`;
+}
+
+/** «Más»: lo que no es pagar ni recargar (las hojas y la regla del saldo). */
 function moreList(lang: PayLanguage, aviso: boolean): string {
   const t = WALLET_TEXT[lang];
   const h = escapeHtml;
@@ -269,9 +297,7 @@ function moreList(lang: PayLanguage, aviso: boolean): string {
 <button class="row" type="button" id="pinOpen" hidden>${h(t.pinRow)}<small>${h(t.pinRowHint)}</small></button>
 <button class="row" type="button" id="mergeOpen" hidden>${h(t.mergeRow)}<small>${h(t.mergeRowHint)}</small></button>
 <p class="keep" id="keepRule">${h(t.keepRule)}</p>
-${aviso ? avisoRow(lang) : ''}<button class="row" type="button" id="movOpen" aria-expanded="true" aria-controls="movBox">${h(t.movements)}<small>${h(t.movementsHint)}</small></button>
-<div id="movBox"><ul id="movements"></ul></div>
-</div>
+${aviso ? avisoRow(lang) : ''}</div>
 </section>
 ${lostButton(lang)}`;
 }
@@ -295,9 +321,31 @@ function segShow(on){var was=!$('seg').hidden;$('seg').hidden=!on;
 $('tabPay').addEventListener('click',function(){setView('pay');});
 $('tabTop').addEventListener('click',function(){setView('top');});
 $('seg').addEventListener('keydown',function(e){var k=e.key,to=k==='Home'?'pay':k==='End'?'top':k==='ArrowLeft'||k==='ArrowRight'?(view==='pay'?'top':'pay'):'';
- if(!to)return;e.preventDefault();setView(to,true);});
-$('movOpen').addEventListener('click',function(){var b=$('movOpen'),open=b.getAttribute('aria-expanded')!=='true';
- b.setAttribute('aria-expanded',String(open));$('movBox').hidden=!open;});`;
+ if(!to)return;e.preventDefault();setView(to,true);});`;
+
+/**
+ * Lo puro de «Último: …» (se prueba aparte): npNight(ms) es la noche (de 8:00 a
+ * 8:00, hora de Madrid) de un instante, como «2026-11-26»; npLastWhen(iso,
+ * ahora, idioma) da la hora si el movimiento es de esta noche y, si no, la
+ * fecha y la hora.
+ * shortcut: resta 8 horas al instante, así que la noche del cambio de hora el corte cae a las 7:00 o a las 9:00; si importa, calcular las 8:00 de Madrid de verdad.
+ */
+export const WALLET_LAST_JS = `function npNight(ms){return new Date(ms-28800000).toLocaleDateString('en-CA',{timeZone:'Europe/Madrid'});}
+function npLastWhen(iso,now,L){var t=new Date(iso),o={timeZone:'Europe/Madrid',hour:'2-digit',minute:'2-digit'};
+ if(npNight(t.getTime())!==npNight(now)){o.day='2-digit';o.month='2-digit';}return t.toLocaleString(L,o);}`;
+
+/**
+ * lastRender(s): «Último: −12 € · Gin tonic · 21:30» debajo del saldo (sin
+ * movimientos, nada). movMore(): «Ver todos» solo si hay más de tres filas, y
+ * lo que dice. Lo usa render() (define $, T, C, show, fill, eur).
+ */
+const MOVES_JS = `
+function lastRender(s){var m=s.movements[0];if(!m){show('heroLast','');return;}
+ var what=m.stallName||(m.labelKey&&T.mv[m.labelKey]?T.mv[m.labelKey]:m.label);
+ show('heroLast',fill(T.last,'what',[(m.amountCents>0?'+':'')+eur(m.amountCents),what,m.returned?T.detail.returned:'',npLastWhen(m.at,Date.now(),C.locale)].filter(Boolean).join(' · ')));}
+function movMore(){var b=$('movAll'),ul=$('movements'),all=ul.classList.contains('all');b.hidden=ul.children.length<=3;
+ b.textContent=all?T.movementsLess:T.movementsAll;b.setAttribute('aria-expanded',String(all));}
+$('movAll').addEventListener('click',function(){$('movements').classList.toggle('all');movMore();});`;
 
 export function renderWalletPage(
   token: string,
@@ -333,16 +381,17 @@ export function renderWalletPage(
   const aviso = Boolean(options.chargeAlertKey);
   const h = escapeHtml;
   return `<!DOCTYPE html>
-<html lang="${t.htmlLang}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<html lang="${t.htmlLang}"><head><meta charset="utf-8">${MANROPE_PRELOAD}<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="robots" content="noindex"><meta name="theme-color" content="${party ? PARTY_THEME_COLOR : '#091518'}"><title>${h(t.title)}</title>${aviso ? manifestLink(base) : ''}
 <style>${CLUB_BASE_CSS}${CHROME_CSS}${WALLET_CSS}${SCAN_CSS}${TOPUP_CSS}${LOST_CSS}${WELCOME_CSS}${aviso ? AVISO_CSS : ''}${party ? PARTY_CSS : ''}</style></head><body><main class="w">
-${party ? partyTopBar(lang, party) : topBar(lang)}<h1 class="sr">${h(t.title)}</h1>
+${party ? partyTopBar(lang, party) : topBar(lang, undefined, { suggest: options.suggest })}<h1 class="sr">${h(t.title)}</h1>
 <section class="hero" aria-labelledby="balanceLabel">
 <p id="balanceLabel">${h(state.venueName ? t.balanceOf.split('{venue}').join(state.venueName) : t.balance)}</p>
 <p class="balance num" id="balance" aria-live="polite">${h(eur(state.balanceCents, t.locale))}</p>
+<p class="last" id="heroLast" hidden></p>
 <p class="status" id="notice" role="status" hidden></p>
 <div class="mine">${myBalanceButton(lang)}</div>
-<div class="obot"><span class="num" id="heroCode">${h(state.code)}</span><span id="heroFicha">${state.hasCard && state.fichaNumber ? h(t.fichaNo.split('{n}').join(state.fichaNumber)) : ''}</span></div>
+<div class="obot"><span class="num" id="heroCode">${h(state.code)}</span><span id="heroFicha">${state.hasCard && state.fichaNumber ? h(t.fichaNo.split('{n}').join(state.fichaNumber)) : ''}</span><button class="link" type="button" id="lostQuick" aria-describedby="heroFicha" hidden>${h(t.lostQuick)}</button></div>
 </section>
 <p class="live" id="liveBar" role="status" hidden></p>
 ${party ? partyActions(lang) : ''}${welcome && proof ? `${paidProofSection(lang, proof, options.now ?? new Date())}${welcomeCard(lang, state.venueName, proof, state.code, Boolean(options.fichaQr))}` : ''}${topUpOffNote()}<section class="card main" id="refundCard" hidden aria-labelledby="refundTitle">
@@ -350,7 +399,7 @@ ${party ? partyActions(lang) : ''}${welcome && proof ? `${paidProofSection(lang,
 <ol class="steps" id="steps">${t.steps.map((s, i) => `<li data-i="${i}">${h(s)}</li>`).join('')}</ol>
 <p id="refundHow"></p>
 </section>
-${viewTabs(lang)}${payView(lang, state, gw, options.fichaQr ?? null)}${topUpView(lang, options)}${moreList(lang, aviso)}<p class="small">${h(t.saveHint)}</p>
+${viewTabs(lang)}${payView(lang, state, gw, options.fichaQr ?? null)}${topUpView(lang, options)}${movesList(lang)}${moreList(lang, aviso)}<p class="small">${h(t.saveHint)}</p>
 ${party ? `${partyStalls(lang, party.stalls)}${partyNote()}` : ''}</main>
 ${lostSheet(lang)}${party ? partySheets(lang) : ''}${aviso ? avisoSheet(lang) : ''}<dialog class="sheet" id="pinSheet" aria-labelledby="pinTitle">
 <h2 id="pinTitle">${h(t.pinTitle)}</h2><p id="pinWhy"></p>
@@ -442,10 +491,10 @@ function render(s){S=s;S.cards=s.cards||[];
   b.textContent=(m.amountCents>0?'+':'')+eur(m.amountCents);b.className=(m.returned?'gone':m.amountCents>0?'plus':'minus')+' num';
   if(m.detail){host=document.createElement('button');host.type='button';host.className='mvb';host.addEventListener('click',function(){detOpen(m);});li.appendChild(host);}
   host.appendChild(sw);host.appendChild(mt);host.appendChild(b);ul.appendChild(li);});
- lostRender(s);welcomeRender(s);if(C.aviso)avisoRender(s);
+ lostRender(s);welcomeRender(s);lastRender(s);if(C.aviso)avisoRender(s);
  var can=topRender(s);
  $('payEmpty').hidden=!(can&&s.status==='DEPLETED');
- segShow(can||C.paid);${party ? 'partyRender(s);' : ''}}
+ segShow(can||C.paid);${party ? 'partyRender(s);' : ''}movMore();}
 function post(path,body){return pkPost(C.base+path,body||{});}
 // «Detalle del pago»: un movimiento con detalle (lo pagado con el saldo y las recargas con tarjeta).
 // Qué, cuándo, dónde, quién le cobró (su nombre de pila), cómo pagó, el código y el saldo antes y
@@ -475,6 +524,8 @@ function detOpen(m){var D=T.detail,n=++detSeq;detM=m;$('detNo').hidden=true;
   .then(function(r){if(!r.ok)throw new Error(String(r.status));return r.json();})
   .then(function(d){if(n===detSeq)detFill(d);})
   .catch(function(){if(n!==detSeq)return;$('detStatus').textContent='';show('detErr',D.failed);});}
+${WALLET_LAST_JS}
+${MOVES_JS}
 ${WALLET_LIVE_JS}
 // Al momento: los avisos de su saldo y, de respaldo, cada 20–30 s (wallet-live.ts).
 var LV=npLive({base:C.base,busy:function(){return busy;},state:function(s){render(s);},bar:function(on){show('liveBar',on?T.reconnecting:'');},
