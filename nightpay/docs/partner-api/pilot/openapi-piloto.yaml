@@ -12,8 +12,10 @@ info:
     these routes.
 
     Not in this pilot (each arrives later without breaking anything): paying with balance, charges, webhooks and the
-    events feed, reports, loads collected by the partner itself (agent models). Their fields, values and codes are not
-    described here.
+    events feed, reports, loads collected by the partner itself (agent models). Their routes are not described here; a
+    few of their enum values (`transfer`, `bank_app`, `partner_agent`, `licensed_psp`, `online` and the scopes other
+    than `wallet:balance` and `wallet:load`) appear so that clients accept them; in this pilot they are refused or
+    never returned.
 
     **Hosts.** Every host name ending in `.example` is a placeholder until OxioPay confirms the real one.
 
@@ -278,23 +280,6 @@ paths:
                   $ref: '#/components/examples/ProblemPrivateLink'
                 live_code_invalid:
                   $ref: '#/components/examples/ProblemLiveCodeInvalid'
-        '423':
-          description: The venue (or its company) is paused.
-          headers:
-            Request-Id:
-              $ref: '#/components/headers/RequestId'
-          content:
-            application/problem+json:
-              schema:
-                allOf:
-                  - $ref: '#/components/schemas/Problem'
-                  - type: object
-                    properties:
-                      code:
-                        enum: [venue_paused]
-              examples:
-                venue_paused:
-                  $ref: '#/components/examples/ProblemVenuePaused'
         '429':
           $ref: '#/components/responses/RateLimited'
         '503':
@@ -328,9 +313,10 @@ paths:
           answers `403 scope_paused` and `GET /me` lists `wallet:load` in `paused_scopes`; reads and voids keep
           working). Triggers: (1) 3 refusals by `limit_exceeded` with `limit: per_operation` within 10 minutes (the
           same refused request repeated with the same Idempotency-Key and body counts once); (2) more than 30 new loads
-          (`201` without `Idempotent-Replayed`) in one minute; (3) 3 voids in one venue night; (4) calls with the key
-          from 3 addresses outside its IP list within 24 hours. No other refusal counts. Check the amount against
-          `limits.loads.per_operation` before calling.
+          (`201` without `Idempotent-Replayed`) in one minute; (3) 3 voids made by this connection through
+          `POST /wallet/loads/{id}/void` in one venue night (voids made by the venue from its panel do not count);
+          (4) calls with the key from 3 addresses outside its IP list within 24 hours. No other refusal counts. Check
+          the amount against `limits.loads.per_operation` before calling.
         - The answer carries `terms` (url, version and both summaries): print them on the ticket. With
           `wallet:balance` it also carries `balance_after`.
         - A replay returns the stored original `201`. To know the current status of a load, read
@@ -1402,8 +1388,8 @@ components:
       maxLength: 60
       description: |
         Required. 1 to 60 Unicode code points after trimming, NFC normalisation and collapsing inner whitespace (send it
-        already normalised). The customer sees it as "Carga · {partner_name}: {description}" in their movements; the
-        owner sees it in the panel.
+        already normalised). The customer sees it as "Carga · {partner_name}: {description}" in their movements
+        ("Top-up · …" on a page in English); the owner sees it in the panel.
 
         `422 description_invalid`: control or format characters (zero-width characters, bidi overrides U+202A–U+202E
         and U+2066–U+2069, U+FEFF), line or paragraph separators, `<` or `>`, URLs or domains (`://`, `www.`,
@@ -1452,8 +1438,9 @@ components:
           type: string
           description: |
             The company's legal name, as registered in OxioPay. A key is only issued for a venue whose company has a
-            tax id on file. If the venue later has no company, or its company no tax id, every route of the connection
-            answers `403 connection_paused` until OxioPay fixes it: an answer never comes without `issuer`.
+            tax id on file. If the venue later has no company, belongs to another company than when the key was issued,
+            or its company has no tax id, every route of the connection answers `403 connection_paused` until OxioPay
+            fixes it: an answer never comes without `issuer`. A deleted venue answers `401 api_key_revoked`.
         tax_id:
           type: string
           description: The company's tax id (NIF/CIF), uppercase, without spaces or dashes.
@@ -1465,7 +1452,7 @@ components:
         hint:
           type: string
           pattern: '^oxp_(live|test)_…[0-9a-f]{4}$'
-          description: The key's prefix and last 4 characters.
+          description: The prefix and last 4 characters of the key you sent (during an overlap, the old key's own).
         expires_at:
           type: [string, 'null']
           format: date-time
@@ -1605,9 +1592,10 @@ components:
           items:
             $ref: '#/components/schemas/Scope'
           description: |
-            Scopes paused by an automatic pause, by the owner or by OxioPay. A paused `wallet:load` refuses only new
-            loads (`POST /wallet/loads` → `403 scope_paused`): reading loads, voiding and reconciling keep working. A
-            paused `wallet:balance` refuses `POST /wallet/balance`.
+            Scopes paused automatically (see `POST /wallet/loads`). A pause by the owner or by OxioPay pauses the whole
+            connection: every route answers `403 connection_paused`. A paused `wallet:load` refuses only new loads
+            (`POST /wallet/loads` → `403 scope_paused`): reading loads, voiding and reconciling keep working. A paused
+            `wallet:balance` refuses `POST /wallet/balance`.
           x-decided-in-contract: true
         livemode:
           type: boolean
@@ -2254,7 +2242,7 @@ components:
         title: Funding not allowed
         status: 422
         code: funding_not_allowed
-        detail: This connection does not accept funding "card".
+        detail: This connection does not accept this funding.
         request_id: f47ac10b-58cc-4372-a567-0e02b2c3d479
     ProblemIdempotencyKeyReused:
       summary: The key already holds another load

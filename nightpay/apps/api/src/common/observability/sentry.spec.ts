@@ -156,6 +156,20 @@ describe('Sentry: API de socios (claves, QR, chip y descripción)', () => {
     expect((event.exception as { values: Array<{ type: string }> }).values[0]!.type).toBe('Error');
   });
 
+  it('la clave en el mensaje o los datos de un breadcrumb y en la descripción o los datos de un span no sale', () => {
+    const event = scrubSensitive({
+      breadcrumbs: [
+        { category: 'console', message: `clave ${KEY} rechazada`, data: { arguments: [`usando ${KEY}`], nested: { nota: KEY }, status_code: 401 } },
+      ],
+      spans: [{ description: `SELECT 1 -- ${KEY}`, data: { 'db.statement': `UPDATE x SET k = '${KEY}'`, extra: { k: KEY } } }],
+      contexts: { trace: { description: `trace ${KEY}`, data: { nota: KEY } } },
+    });
+    const text = JSON.stringify(event);
+    expect(text).not.toContain(KEY);
+    expect(text).toContain('rechazada');
+    expect(text).toContain('"status_code":401');
+  });
+
   it('qr, nfc_uid y description del cuerpo, fuera; la clave en una URL, tapada', () => {
     const event = scrubSensitive({
       request: {

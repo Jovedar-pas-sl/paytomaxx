@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { ForbiddenException, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
+import { ForbiddenException, Logger, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
 import { z } from 'zod';
 import { PARTNER_ERRORS } from '@nightpay/contracts';
 import { ZodValidationPipe } from '../../../common/pipes/zod.pipe';
@@ -28,6 +28,22 @@ describe('toPartnerError: cada fallo a su código del catálogo', () => {
     const p = toPartnerError(pipeError({ amount: 0, description: 'x' }));
     expect(p).toMatchObject({ code: 'validation_failed', extra: { param: 'amount' } });
     expect(p.detail).toMatch(/^amount: /);
+  });
+
+  it('se lee el primer fallo de Zod (los fallos crudos, no flatten): uno de un campo antes que el campo de más', () => {
+    expect(toPartnerError(pipeError({ amount: 0, description: 'x', currency: 'EUR' }))).toMatchObject({
+      code: 'validation_failed',
+      extra: { param: 'amount' },
+    });
+    const Nested = z.strictObject({ customer: z.strictObject({ phone: z.string() }) });
+    let err: unknown;
+    try {
+      new ZodValidationPipe(Nested).transform({ customer: { phone: '600', extra: 1 } });
+    } catch (e) {
+      err = e;
+    }
+    // Un campo de más (también dentro de otro): param = la primera clave desconocida.
+    expect(toPartnerError(err)).toMatchObject({ code: 'validation_failed', extra: { param: 'extra' } });
   });
 
   it('un campo de más (cuerpo estricto): 422 validation_failed con ese campo', () => {
@@ -129,6 +145,26 @@ describe('renderPartnerProblem', () => {
     expect(isPartnerPath('/v1/partners')).toBe(false);
     expect(isPartnerPath('/v1/admin/partner-connections')).toBe(false);
     expect(isPartnerPath('/partner-key/abc')).toBe(false);
+  });
+});
+
+describe('el log de un fallo inesperado', () => {
+  it('no lleva la clave de socio ni en el mensaje ni en la traza (los redactores compartidos)', () => {
+    const KEY = `oxp_live_${'0a1b'.repeat(12)}`;
+    const spy = vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+    try {
+      const err = new Error(`no se pudo con ${KEY} en /v1/partner/${KEY}/me`);
+      err.stack = `Error: no se pudo con ${KEY}\n    at f (/app/x.js:1:1) ${KEY.replace(/_/g, '%5F')}`;
+      const res = { header: () => res, getHeader: () => undefined, status: () => res, type: () => res, send: () => res };
+      renderPartnerProblem(err, { url: '/v1/partner/me', headers: {} }, res as never);
+      expect(spy).toHaveBeenCalled();
+      const logged = JSON.stringify(spy.mock.calls);
+      expect(logged).not.toContain(KEY);
+      expect(logged).not.toContain(KEY.replace(/_/g, '%5F'));
+      expect(logged).toContain('no se pudo con');
+    } finally {
+      spy.mockRestore();
+    }
   });
 });
 

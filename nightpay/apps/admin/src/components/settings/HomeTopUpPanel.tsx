@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, type CSSProperties } from 'react';
-import { Button } from '@nightpay/ui';
+import { Button, FormError } from '@nightpay/ui';
 import { HOME_TOPUP_PROBLEM_TEXT, type HomeTopUpSettings } from '@nightpay/contracts';
 import { formatDateTime } from '@/lib/dates';
 import { isPartyEdition } from '@/lib/edition';
@@ -102,9 +102,9 @@ export function HomeTopUpPanel() {
       {settings.enabled && url && qr ? (
         <div style={box}>
           {settings.problem ? (
-            <p role="alert" className="np-set-error" style={{ flex: 'none' }}>
+            <FormError>
               {HOME_TOPUP_PROBLEM_TEXT[settings.problem]}
-            </p>
+            </FormError>
           ) : null}
           <p className="np-set-note">{homeTopUpSummary(settings)}</p>
           <label style={labelStyle} htmlFor="homeTopUpUrl">

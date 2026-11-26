@@ -62,7 +62,6 @@ const SAME_EVERYWHERE = new Set([
   'wallet.mv.topUp',
   'wallet.cancel',
   'wallet.balance',
-  'wallet.movements',
   'wallet.more',
   'wallet.proofWhat',
   'wallet.lostGo',
@@ -77,7 +76,21 @@ const SAME_EVERYWHERE = new Set([
 ]);
 
 /** Iguales en portugués y en castellano porque se dicen igual. */
-const SAME_IN_PT = new Set(['pay.receipt.total', 'wallet.mergeRow', 'wallet.pinDone', 'wallet.pinSave', 'wallet.topUpGoFee', 'wallet.detail.canceled']);
+const SAME_IN_PT = new Set([
+  'pay.receipt.total',
+  'wallet.mergeRow',
+  'wallet.pinDone',
+  'wallet.pinSave',
+  'wallet.topUpGoFee',
+  'wallet.detail.canceled',
+  // «a Sala Aurora»: la misma preposición.
+  'pay.paidTo',
+  // La página del saldo (idea 69): se dicen igual.
+  'wallet.last',
+  'wallet.movementsAll',
+  'wallet.movementsLess',
+  'wallet.lostQuick',
+]);
 
 /** «hace » / « ago»: vacíos en algún idioma por cómo se dice. */
 const MAY_BE_EMPTY = new Set(['pay.agoPrefix', 'pay.agoSuffix']);

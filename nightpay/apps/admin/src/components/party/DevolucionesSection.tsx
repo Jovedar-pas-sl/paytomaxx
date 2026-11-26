@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { useConfirm } from '@nightpay/ui';
 import type { PartyRefundList, PartyRefundMethod, PartyRefundRow, PartyRefundStatus } from '@nightpay/contracts';
 import {
   cancelPartyRefund,
@@ -24,7 +25,8 @@ import {
   sectionError,
 } from '@/lib/party-asistente';
 import { saveBlob } from '@/lib/save-file';
-import { downloadSepaAsking } from '@/lib/sepa-again';
+import { splitQuestion } from '@/lib/confirm-text';
+import { downloadSepaAsking, sepaAgainConfirm } from '@/lib/sepa-again';
 import { usePolling } from '@/lib/use-polling';
 import { useVenueTimezone } from '@/lib/venue-context';
 import { Chip, DayButton, DayCard, DayMessage, DaySelect, DayStyles, Kpi, type ChipTone } from './asistente-ui';
@@ -55,6 +57,7 @@ function Devoluciones() {
   const [error, setError] = useState<string | null>(null);
   const [msg, setMsg] = useState<{ tone: 'ok' | 'bad'; text: string } | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  const [confirm, dialog] = useConfirm();
 
   const reload = usePolling(
     async (signal) => {
@@ -74,7 +77,12 @@ function Devoluciones() {
   );
 
   async function act(row: PartyRefundRow, what: 'done' | 'cancel'): Promise<void> {
-    if (!window.confirm(what === 'done' ? refundDoneConfirm(row) : refundCancelConfirm(row))) return;
+    const asked = await confirm(
+      what === 'done'
+        ? { ...splitQuestion(refundDoneConfirm(row)), confirmLabel: 'Sí, marcar hecha', cancelLabel: 'Todavía no' }
+        : { ...splitQuestion(refundCancelConfirm(row)), confirmLabel: 'Anular devolución' },
+    );
+    if (!asked) return;
     setBusy(row.id);
     setMsg(null);
     try {
@@ -96,7 +104,7 @@ function Devoluciones() {
       // El SEPA con alguna ya descargada: pregunta antes (subirla dos veces al banco paga dos veces).
       const blob =
         kind === 'sepa'
-          ? await downloadSepaAsking((again) => downloadTransfersSepa(again), (q) => window.confirm(q), tz)
+          ? await downloadSepaAsking((again) => downloadTransfersSepa(again), (body) => sepaAgainConfirm(confirm, body), tz)
           : await downloadTransfersCsv();
       if (!blob) return;
       saveBlob(blob, transfersFileName(dayInZone(new Date(), tz), kind));
@@ -164,6 +172,7 @@ function Devoluciones() {
           <RefundTable rows={list.rows} tz={tz} disabled={busy !== null} onAct={(r, what) => void act(r, what)} />
         )}
       </DayCard>
+      {dialog}
     </div>
   );
 }

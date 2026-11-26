@@ -197,10 +197,16 @@ describe('Toast: el aviso flotante', () => {
     mount();
     act(() => api.show('Ficha devuelta', { action: { label: 'Deshacer', onClick: () => undefined } }));
     pass(9000);
-    act(() => void toast()!.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })));
+    // Con ratón (pointerType «mouse»): el dedo no para el reloj (ui-piezas-arreglos.test.tsx).
+    const mouse = (type: string) => {
+      const e = new MouseEvent(type, { bubbles: true });
+      Object.defineProperty(e, 'pointerType', { value: 'mouse' });
+      act(() => void toast()!.dispatchEvent(e));
+    };
+    mouse('pointerover');
     pass(60_000);
     expect(toast()).not.toBeNull();
-    act(() => void toast()!.dispatchEvent(new MouseEvent('mouseout', { bubbles: true })));
+    mouse('pointerout');
     pass(9999);
     expect(toast()).not.toBeNull();
     const action = toast()!.querySelector<HTMLButtonElement>('.np-toast-action')!;

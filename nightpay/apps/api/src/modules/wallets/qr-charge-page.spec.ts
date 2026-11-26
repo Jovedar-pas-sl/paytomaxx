@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { PAY_FAIL_JS, renderQrChargePage } from './qr-charge-page';
+import { SOON_CSS } from '../payments/pay-choose-page';
 import { renderPaidPage } from '../payments/public-pay.pages';
 
 const scripts = (html: string): string[] =>
@@ -109,6 +110,18 @@ describe('pagar con el saldo escaneando el QR del personal', () => {
     expect(html).toContain("el.classList.remove('stale')");
   });
 
+  it('idea 62: el «Pagado» con el saldo dice a quién («a Luna»), también el que enseña el JS al pagar aquí', () => {
+    const paid = renderQrChargePage('tok-1', 'es', { ...view, status: 'ACCEPTED', paidAt: new Date(NOW.getTime() - 60_000).toISOString() }, NOW);
+    expect(paid).toContain('<p class="pto">a Luna</p>');
+    // Sin pagar: el «Pagado» va oculto en la página, ya con el local.
+    const pending = renderQrChargePage('tok-1', 'es', view, NOW);
+    expect(pending).toMatch(/id="paid"[^>]* hidden>/);
+    expect(pending).toContain('<p class="pto">a Luna</p>');
+    expect(renderQrChargePage('tok-1', 'en', view, NOW)).toContain('<p class="pto">to Luna</p>');
+    // Sin nombre de local, sin esa línea.
+    expect(renderQrChargePage('tok-1', 'es', { ...view, venueName: '' }, NOW)).not.toContain('class="pto"');
+  });
+
   it('caducado → qué pasó, «No se te ha cobrado nada» y una indicación', () => {
     const html = renderQrChargePage('tok-1', 'es', { ...view, status: 'EXPIRED' }, NOW);
     expect(html).toContain('Este cobro ha caducado');
@@ -152,13 +165,17 @@ describe('pagar con el saldo escaneando el QR del personal', () => {
         for (const js of scripts(html)) expect(() => new Function(js)).not.toThrow();
       }
       const es = renderQrChargePage('tok-1', 'es', { ...view, amountCents: 3300, tip }, NOW);
-      expect(es).toContain('>Sin propina</span>');
-      expect(es).toMatch(/>\+2\s€<\/span>/);
-      expect(es).toMatch(/>\+5\s€<\/span>/);
+      // Los mismos botones que en /pay (idea 66): los euros y, debajo, el total con esa propina. Con el saldo no hay comisión.
+      expect(es).toMatch(/<span class="word"><span class="sr">Sin propina\. Total 33,00\s€<\/span><b aria-hidden="true">Sin propina<\/b><small aria-hidden="true">33,00\s€<\/small><\/span>/);
+      expect(es).toMatch(/<span class="sr">Propina de 2\s€\. Total 35,00\s€<\/span><b aria-hidden="true">\+2\s€<\/b><small aria-hidden="true">35,00\s€<\/small>/);
+      expect(es).toMatch(/<b aria-hidden="true">\+5\s€<\/b><small aria-hidden="true">38,00\s€<\/small>/);
       expect(es).toMatch(/<h1 class="amount num" id="amt">33,00\s€<\/h1>/);
       expect(es).toMatch(/<p class="tipline num" id="tipLine" hidden><\/p>/);
-      // La propina es entera de la chica que cobra: se le dice (como en /pay).
-      expect(es).toContain('Va entera para el personal');
+      // La propina es entera de la chica que cobra: se le dice (como en /pay); si cobra otra persona, que es del local.
+      expect(es).toContain('<p class="tipnote">Va entera para el personal</p>');
+      expect(renderQrChargePage('tok-1', 'es', { ...view, amountCents: 3300, tip: { ...tip, toStaff: false } }, NOW)).toContain(
+        '<p class="tipnote">Es para el local</p>',
+      );
       // Se manda con el pago (y «Otra» mal puesta se dice antes de pedir Face ID).
       const js = scripts(es).join('');
       expect(js).toContain("pkPost(C.base+'/pay',tp?{response:k,tipCents:tp.tip}:{response:k})");
@@ -177,7 +194,7 @@ describe('pagar con el saldo escaneando el QR del personal', () => {
       expect(checked(renderQrChargePage('tok-1', 'es', { ...view, amountCents: 3300, tip }, NOW, { tipFromPay: 999_00 }))).toEqual([]);
       const old = renderQrChargePage('tok-1', 'es', { ...view, amountCents: 3800, tip: { ...tip, previousCents: 500 } }, NOW);
       expect(checked(old)).toEqual(['<input type="radio" name="tip" value="500" checked>']);
-      expect(old).toContain('>Sin propina</span>');
+      expect(old).toContain('<b aria-hidden="true">Sin propina</b>');
     });
 
     it('sin propinas (local o puesto) no hay nada que elegir: se paga lo que dice el cobro', () => {
@@ -211,6 +228,36 @@ describe('pagar con el saldo escaneando el QR del personal', () => {
     expect(js).toContain(PAY_FAIL_JS);
     expect(js).toContain("fetch(C.base+'/state',{cache:'no-store'");
     expect(js).toContain("if(k==='reload'){$('reload').hidden=false;$('pay').hidden=true;}else $('notCharged').hidden=false;");
+  });
+
+  it('la caducidad: «Caduca en 5:00» y, con 60 s o menos, el aviso en ámbar en #clock (idea 65); abierta así, ya lo trae', () => {
+    const html = renderQrChargePage('tok-1', 'es', view, NOW);
+    expect(html).toContain('<p class="small num" id="clock">Caduca en 5:00</p>');
+    const late = { ...view, expiresAt: new Date(NOW.getTime() + 42_000).toISOString() };
+    const soon = renderQrChargePage('tok-1', 'es', late, NOW);
+    expect(soon).toContain('<p class="small num soon" id="clock">Queda menos de 1 minuto: 0:42. Si caduca, pide otro QR.</p>');
+    expect(renderQrChargePage('tok-1', 'en', late, NOW)).toContain('Less than 1 minute left: 0:42. If it expires, ask for another QR.');
+    // El mismo aviso que en /pay: ámbar, 14/600 y el reloj de trazo.
+    expect(soon).toContain(SOON_CSS);
+    expect(SOON_CSS).toContain('.soon{color:var(--warn);');
+    // El lector de pantalla lo oye una vez, al llegar (lo que hace el JS: qr-charge-page.client.spec.ts).
+    expect(html).toContain('<p class="sr" id="live" aria-live="polite"></p>');
+    // Ya pagado o cerrado, sin cuenta atrás.
+    expect(renderQrChargePage('tok-1', 'es', { ...view, status: 'EXPIRED' }, NOW)).not.toContain('id="clock"');
+  });
+
+  it('idea 71: la franja de idioma solo con el cobro pendiente, y conserva la propina que traía de /pay', () => {
+    const html = renderQrChargePage('tok-1', 'es', view, NOW, { suggest: 'en' });
+    expect(html).toContain('<a href="?lang=en" lang="en" hreflang="en">English? · Switch</a>');
+    expect(html.indexOf('<nav class="sug"')).toBeLessThan(html.indexOf('<header class="top">'));
+    const tip = { baseCents: 6000, previousCents: 0, maxCents: 6000, presets: [{ cents: 600, percent: 10 }], toStaff: true };
+    const withTip = renderQrChargePage('tok-1', 'es', { ...view, tip }, NOW, { suggest: 'fr', tipFromPay: 600 });
+    expect(withTip).toContain('<a href="/s/tok-1?tip=600&amp;lang=fr" lang="fr" hreflang="fr">');
+    expect(withTip).toContain('<a class="x" href="/s/tok-1?tip=600&amp;lang=es"');
+    // Pagado, caducado o sin sugerencia: sin franja.
+    expect(renderQrChargePage('tok-1', 'es', { ...view, status: 'ACCEPTED', paidAt: NOW.toISOString() }, NOW, { suggest: 'en' })).not.toContain('class="sug"');
+    expect(renderQrChargePage('tok-1', 'es', { ...view, status: 'EXPIRED' }, NOW, { suggest: 'en' })).not.toContain('class="sug"');
+    expect(renderQrChargePage('tok-1', 'es', view, NOW)).not.toContain('class="sug"');
   });
 
   it('la cuenta atrás lleva la hora del servidor (la del móvil puede ir mal)', () => {

@@ -2,7 +2,9 @@
 
 import { useEffect, useState } from 'react';
 import type { WalletFicha } from '@nightpay/contracts';
+import { useConfirm } from '@nightpay/ui';
 import { fetchWalletFicha, markFicha } from '@/lib/api';
+import { splitQuestion, walletFichaBlockText } from '@/lib/confirm-text';
 import { walletSheet } from '@/lib/ficha-sheets';
 import { eurShort } from '@/lib/money-map-view';
 import { useSections } from '@/lib/use-sections';
@@ -24,6 +26,7 @@ export function WalletFichaModal({ walletId, onClose }: { walletId: string; onCl
   const [error, setError] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
   const [blocking, setBlocking] = useState(false);
+  const [confirm, dialog] = useConfirm();
 
   useEffect(() => {
     let cancelled = false;
@@ -43,7 +46,7 @@ export function WalletFichaModal({ walletId, onClose }: { walletId: string; onCl
   const sheet = ficha ? walletSheet(ficha, sections, tz) : null;
 
   async function block(cardId: string, label: string): Promise<void> {
-    if (!window.confirm(`¿Bloquear la ficha ${label}? Ya no podrá pagar con ella (el saldo sigue: se le puede dar otra).`)) return;
+    if (!(await confirm({ ...splitQuestion(walletFichaBlockText(label)), confirmLabel: 'Bloquear ficha', cancelLabel: 'No bloquear' }))) return;
     setBlocking(true);
     setError(null);
     try {
@@ -64,6 +67,9 @@ export function WalletFichaModal({ walletId, onClose }: { walletId: string; onCl
       stripe={sheet?.stripe}
       onBack={onClose}
       backLabel="Cerrar la ficha del saldo"
+      // La pregunta va fuera de la hoja y, mientras está, Esc es suyo.
+      covered={dialog !== null}
+      overlays={dialog}
     >
       {error ? (
         <Notice tone="danger" action={{ label: 'Reintentar', onClick: () => setAttempt((n) => n + 1) }}>

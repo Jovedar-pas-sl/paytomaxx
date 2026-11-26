@@ -214,43 +214,6 @@
   }
 }
 
-/* ─── Filtros de Cobros ────────────────────────────────────────────
-   Campos de 36 px (lib/filter-field.ts) en una línea a 1440 px: cada uno
-   parte del ancho de su texto por defecto («Cualquier forma de pago» entero)
-   y crecen a la par. Si no caben (un portátil de 1280), bajan a la línea
-   siguiente sin estirarse a todo lo ancho. */
-.np-cobros-filters {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-end;
-  gap: 0.75rem 0.5rem;
-  margin: 0;
-}
-
-.np-cobros-filters > * {
-  flex: 1 1 var(--np-filter-w, 10rem);
-  min-width: 0;
-  max-width: calc(var(--np-filter-w, 10rem) * 1.6);
-}
-
-.np-cobros-filters > .np-btn {
-  flex: 0 0 auto;
-}
-
-/* El buscador se lleva lo que sobra (como en la maqueta). */
-.np-cobros-filters > :nth-last-child(3) {
-  max-width: none;
-}
-
-/* En el móvil la letra sube a 16 px: cada filtro, un 15 % más ancho (si no,
-   «Todos los estados» se corta), y a todo lo ancho si va solo. */
-@media (max-width: 640px) {
-  .np-cobros-filters > * {
-    flex-basis: calc(var(--np-filter-w, 10rem) * 1.15);
-    max-width: none;
-  }
-}
-
 /* Cifras de las tablas en Manrope 700 (decisión D11; --font-mono-var es la
    Manrope variable 600-800, solo para esto): se distinguen de los importes
    grandes del panel (600) y las columnas se leen de un vistazo. Tabulares: las
@@ -259,44 +222,4 @@
   font-family: var(--font-mono-var), var(--np-font-mono);
   font-weight: 700;
   font-variant-numeric: tabular-nums;
-}
-
-/* En pantallas intermedias los cobros son tarjetas: no caben diez columnas
-   con sus acciones sin cortar ni comprimir los datos. */
-@media (min-width: 641px) and (max-width: 1100px) {
-  .np-cobros-table { display: block; }
-  .np-cobros-table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
-  .np-cobros-table tbody { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 22rem), 1fr)); gap: 0.75rem; padding: 0.75rem; }
-  .np-cobros-table tbody tr { display: flex; flex-wrap: wrap; align-items: center; gap: 0 0.75rem; min-width: 0; padding: 0.875rem 1rem; border: 1px solid var(--np-card-edge); border-radius: var(--np-r-card); background: var(--np-surface); background-image: var(--np-card-fill); box-shadow: var(--np-shadow-1); }
-  .np-cobros-table tbody tr::before, .np-cobros-table tbody tr::after { content: ''; flex-basis: 100%; height: 0; }
-  .np-cobros-table tbody tr::before { order: 2; }
-  .np-cobros-table tbody tr::after { order: 4; }
-  .np-cobros-table tbody td { order: 5; display: flex; flex: 1 1 100%; justify-content: space-between; align-items: baseline; gap: 1rem; min-width: 0; padding: 0.3rem 0; border: 0; text-align: right; overflow-wrap: anywhere; }
-  .np-cobros-table tbody td::before { content: attr(data-label); flex-shrink: 0; max-width: 50%; font-size: 0.875rem; font-weight: 400; text-align: left; color: var(--np-text-dim); }
-  .np-cobros-table tbody td[data-card='top'] { order: 1; flex: 0 1 auto; color: var(--np-text-dim); }
-  .np-cobros-table tbody td[data-card='top'] ~ td[data-card='top'] { margin-left: auto; }
-  .np-cobros-table tbody td[data-card='top']::before, .np-cobros-table tbody td[data-card='status']::before, .np-cobros-table tbody td[data-card='actions']::before, .np-cobros-table tbody td[colspan]::before { content: none; }
-  .np-cobros-table tbody td[data-card='amount'] { order: 3; flex: 1 1 auto; flex-direction: column; align-items: flex-start; gap: 0.15rem; font-size: 1.375rem; text-align: left !important; }
-  .np-cobros-table tbody td[data-card='status'] { order: 3; flex: 0 0 auto; }
-  .np-cobros-table tbody td[data-card='actions'] { order: 6; flex-wrap: wrap; justify-content: flex-start; gap: 0.5rem; margin-top: 0.5rem; padding-top: 0.75rem; border-top: 1px solid var(--np-border); }
-  .np-cobros-table tbody td[data-card='actions'] .np-btn { flex: 1 1 auto; min-height: 2.75rem; }
-  /* Los enlaces de las celdas (quién cobró, su saldo): 44 px de alto para el dedo (P-16). */
-  .np-cobros-table tbody td .np-cell-link { display: inline-flex; align-items: center; min-height: 2.75rem; }
-  .np-cobros-table tbody td[colspan] { justify-content: center; }
-}
-
-/*
- * Escritorio. Con las referencias son 11 columnas: con menos relleno lateral (y
- * el «+ comisión» y el «+ propina» que se pueden partir, CobrosTable) caben
- * desde 1280 px, sin que las acciones tapen nada. Si aun así necesita
- * desplazarse, las acciones siguen a la vista, con su línea a la izquierda.
- */
-@media (min-width: 1101px) {
-  .np-table.np-cobros-table th, .np-table.np-cobros-table td { padding-left: 0.4375rem; padding-right: 0.4375rem; }
-  .np-table.np-cobros-table th:first-child, .np-table.np-cobros-table td:first-child { padding-left: 0.75rem; }
-  .np-table.np-cobros-table th:last-child, .np-table.np-cobros-table td:last-child { padding-right: 0.75rem; }
-  /* Las acciones, botones de 36 px en una línea (la fila no crece). */
-  .np-table.np-cobros-table td[data-card='actions'] { white-space: nowrap; }
-  .np-table.np-cobros-table td[data-card='actions'] .np-btn + .np-btn { margin-left: 0.5rem; }
-  .np-cobros-table--acciones th:last-child, .np-cobros-table--acciones td[data-card='actions'] { position: sticky; right: 0; background: var(--np-surface); z-index: 2; box-shadow: -1px 0 0 var(--np-border); }
 }

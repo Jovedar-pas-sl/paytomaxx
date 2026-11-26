@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, type CSSProperties, type FormEvent } from 'react';
-import { Button, Input, Modal } from '@nightpay/ui';
+import { Button, FormError, Input, Modal } from '@nightpay/ui';
 import { fetchRefunds, resolvePendingRefund, type PaymentRow, type Refund } from '@/lib/api';
 import { ApiError } from '@/lib/api-errors';
 import { formatDateTime } from '@/lib/dates';
@@ -198,9 +198,9 @@ function ResolveRefundForm({
         required
       />
       {error ? (
-        <p role="alert" style={{ color: 'var(--np-danger)', margin: 0, fontSize: '0.875rem' }}>
+        <FormError>
           {error}
-        </p>
+        </FormError>
       ) : null}
       <div style={choiceRow}>
         <Button type="submit" loading={busy}>

@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, type CSSProperties, type FormEvent } from 'react';
-import { Button, Card, Checkbox, Input, Modal, StaffAvatar } from '@nightpay/ui';
+import { Button, Card, Checkbox, FormError, Input, Modal, StaffAvatar } from '@nightpay/ui';
 import { createOperator, fetchOperators, fetchVenueSettings, type Operator } from '@/lib/api';
 import { formatBps, parsePercentToBps } from '@/lib/commission';
 import { keepIfSame } from '@/lib/diff';
@@ -400,9 +400,9 @@ function CreateOperatorModal({
             </Button>
           </div>
           {error ? (
-            <p role="alert" style={{ color: 'var(--np-danger)', margin: 0, fontSize: '0.875rem' }}>
+            <FormError>
               {error}
-            </p>
+            </FormError>
           ) : null}
           <p style={{ margin: 0, fontSize: '0.875rem', color: 'var(--np-text-dim)' }}>
             El enlace vale 24 h y deja de valer tras el primer uso.
@@ -449,9 +449,9 @@ function CreateOperatorModal({
             </p>
           )}
           {error ? (
-            <p role="alert" style={{ color: 'var(--np-danger)', margin: 0, fontSize: '0.875rem' }}>
+            <FormError>
               {error}
-            </p>
+            </FormError>
           ) : null}
           <div style={{ display: 'flex', gap: '0.75rem', marginTop: '0.5rem' }}>
             <Button variant="ghost" type="button" onClick={onClose} style={{ flex: 1 }}>

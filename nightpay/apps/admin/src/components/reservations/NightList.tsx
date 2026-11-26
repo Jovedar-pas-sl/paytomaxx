@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState, type CSSProperties } from 'react';
-import { Button } from '@nightpay/ui';
+import { Button, FormError } from '@nightpay/ui';
 import { formatMoney, type ReservationPackageView, type ReservationView } from '@nightpay/contracts';
 import { bookFromPanel, fetchNight, fetchOverdue } from '@/lib/endpoints/reservations';
 import { addDays, currentNight, nightLabel } from '@/lib/reservations';
@@ -66,9 +66,9 @@ export function NightList({ packages }: { packages: ReservationPackageView[] }) 
         </p>
       ) : null}
       {error ? (
-        <p role="alert" className="np-set-error">
+        <FormError>
           {error}
-        </p>
+        </FormError>
       ) : null}
       {list === null && !error ? <p className="np-set-note">Cargando…</p> : null}
       {list?.length === 0 ? <p className="np-set-note">No hay reservados esta noche.</p> : null}
@@ -146,9 +146,9 @@ function BookForm({ packages, night, onBooked }: { packages: ReservationPackageV
         </p>
       ) : null}
       {error ? (
-        <p role="alert" className="np-set-error" style={{ margin: 0 }}>
+        <FormError>
           {error}
-        </p>
+        </FormError>
       ) : null}
     </section>
   );

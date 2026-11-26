@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, type CSSProperties } from 'react';
-import { Button } from '@nightpay/ui';
+import { Button, FormError } from '@nightpay/ui';
 import { formatMoney, type ReservationView } from '@nightpay/contracts';
 import { arriveFromPanel, markNoShow, setTable, undoNoShow, venueCancel, venueChangeDate } from '@/lib/endpoints/reservations';
 import { nightLabel, reservationActions, statusTone, venueCanceledNotice, venueCancelText } from '@/lib/reservations';
@@ -153,9 +153,9 @@ export function ReservationCard({
         </div>
       ) : null}
       {error ? (
-        <p role="alert" className="np-set-error" style={{ margin: 0 }}>
+        <FormError>
           {error}
-        </p>
+        </FormError>
       ) : null}
     </article>
   );

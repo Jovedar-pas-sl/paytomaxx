@@ -8,6 +8,7 @@ import {
   languageFromCookie,
   languageLocale,
   resolveLanguage,
+  suggestedLanguage,
 } from './customer-lang';
 
 /**
@@ -56,6 +57,33 @@ describe('idioma de las páginas del cliente', () => {
     const c = languageCookie('pt');
     expect(c).toMatch(new RegExp(`^${LANG_COOKIE}=pt; Path=/; Max-Age=43200; SameSite=Lax`));
     expect(c).not.toContain('HttpOnly');
+  });
+
+  it('idea 71: el idioma del móvil no cambia la página, solo se ofrece: el primero de Accept-Language si es inglés, francés o portugués', () => {
+    expect(suggestedLanguage('en-GB,en;q=0.9,es;q=0.8', undefined, undefined)).toBe('en');
+    expect(suggestedLanguage('fr-FR,fr;q=0.9,en;q=0.8', undefined, undefined)).toBe('fr');
+    expect(suggestedLanguage('pt-BR', undefined, undefined)).toBe('pt');
+    expect(suggestedLanguage('EN-us', undefined, '')).toBe('en');
+    expect(suggestedLanguage('en;q=0.8', undefined, 'otra=1')).toBe('en');
+    // Solo el primero: un móvil en español que también entiende inglés se queda como está.
+    expect(suggestedLanguage('es-ES,en', undefined, undefined)).toBeNull();
+    expect(suggestedLanguage('es', undefined, undefined)).toBeNull();
+    // Un idioma que no tenemos, nada raro y sin cabecera: nada.
+    expect(suggestedLanguage('de', undefined, undefined)).toBeNull();
+    expect(suggestedLanguage('de-DE,en;q=0.9', undefined, undefined)).toBeNull();
+    expect(suggestedLanguage('frr', undefined, undefined)).toBeNull();
+    expect(suggestedLanguage('*', undefined, undefined)).toBeNull();
+    expect(suggestedLanguage('', undefined, undefined)).toBeNull();
+    expect(suggestedLanguage(undefined, undefined, undefined)).toBeNull();
+    // Ya eligió (?lang= o su cookie, también «seguir en español»): no se le vuelve a ofrecer.
+    expect(suggestedLanguage('en-GB', 'es', undefined)).toBeNull();
+    expect(suggestedLanguage('en-GB', 'en', undefined)).toBeNull();
+    expect(suggestedLanguage('en-GB', undefined, `${LANG_COOKIE}=es`)).toBeNull();
+    expect(suggestedLanguage('en-GB', undefined, `a=1; ${LANG_COOKIE}=fr`)).toBeNull();
+    // Un ?lang= que no vale no es una elección.
+    expect(suggestedLanguage('en-GB', 'zz', undefined)).toBe('en');
+    // Y la página, siempre en español mientras no elija.
+    expect(resolveLanguage(undefined, undefined)).toBe('es');
   });
 
   it('formato del idioma: España, Reino Unido, Francia y Portugal', () => {

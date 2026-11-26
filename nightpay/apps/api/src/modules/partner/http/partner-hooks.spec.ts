@@ -13,6 +13,12 @@ describe('una clave en la URL', () => {
     expect(partnerKeyInUrl(`/v1/partner/me?x=%E0%A4%A&k=${ENCODED}`)).toBe(KEY);
   });
 
+  it('un escape roto en la misma pieza que la clave codificada no la esconde', () => {
+    const hex = 'ab12'.repeat(12);
+    expect(partnerKeyInUrl(`/v1/partner/me?x=%ZZoxp%5Flive%5F${hex}`)).toBe(`oxp_live_${hex}`);
+    expect(partnerKeyInUrl(`/v1/partner/%E0%A4oxp%5Ftest%5F${hex}/me`)).toBe(`oxp_test_${hex}`);
+  });
+
   it('nada que no sea una clave entera', () => {
     expect(partnerKeyInUrl('/v1/partner/me')).toBeNull();
     expect(partnerKeyInUrl(`/v1/partner/me?k=${KEY.slice(0, -1)}`)).toBeNull();

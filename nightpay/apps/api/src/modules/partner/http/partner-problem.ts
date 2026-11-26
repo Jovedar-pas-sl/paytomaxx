@@ -5,7 +5,9 @@ import { PARTNER_ERRORS, partnerProblemType, type PartnerErrorCode, type Partner
 import { sanitizeTraceId } from '../../../common/context/trace-id';
 import type { RequestContext } from '../../../common/context/request-context';
 import { isDatabaseBusy, loggableError } from '../../../common/filters/problem-details.filter';
+import { ZodValidationException } from '../../../common/pipes/zod.pipe';
 import { isPartnerPath } from '../../../common/http/partner-path';
+import { redactLogText } from '../../../common/logging/redact-url';
 import { reportError } from '../../../common/observability/sentry';
 
 export { isPartnerPath };
@@ -54,18 +56,27 @@ function statusOf(e: unknown): number | undefined {
   return e instanceof Error && typeof status === 'number' ? status : undefined;
 }
 
-/** El 400 del ZodValidationPipe: los topes o un fallo sin campo, invalid_request; si no, 422 con el campo. */
-function validationFault(body: unknown): PartnerFault | null {
+/**
+ * El 400 del ZodValidationPipe, por su primer fallo crudo de Zod (el pipe los
+ * añade a la excepción: flatten() pierde el tipo y el orden):
+ *  - los topes de input-limits (sin fallos) o el cuerpo que no es un objeto JSON
+ *    (`invalid_type` en la raíz): 400 invalid_request;
+ *  - un campo de más (`unrecognized_keys`): 422 validation_failed con la
+ *    primera clave desconocida;
+ *  - cualquier otro: 422 validation_failed con el primer segmento de su ruta.
+ */
+function validationFault(e: HttpException): PartnerFault | null {
+  const body = e.getResponse();
   if (!body || typeof body !== 'object' || (body as { title?: unknown }).title !== 'Validation failed') return null;
-  const issues = (body as { issues?: { formErrors?: string[]; fieldErrors?: Record<string, string[] | undefined> } }).issues;
-  if (!issues) return { code: 'invalid_request', extra: {} };
-  // Un campo de más (cuerpos estrictos): el contrato lo quiere como 422 con ese campo.
-  const unknownKey = /^Unrecognized keys?: "([^"]+)"/.exec(issues.formErrors?.[0] ?? '');
-  if (unknownKey) return { code: 'validation_failed', extra: { param: unknownKey[1] }, detail: `${unknownKey[1]}: Unrecognized key` };
-  if ((issues.formErrors?.length ?? 0) > 0) return { code: 'invalid_request', extra: {} };
-  const [param, messages] = Object.entries(issues.fieldErrors ?? {}).find(([, m]) => (m?.length ?? 0) > 0) ?? [];
-  if (!param) return { code: 'invalid_request', extra: {} };
-  return { code: 'validation_failed', extra: { param }, detail: `${param}: ${messages![0]}` };
+  const first = e instanceof ZodValidationException ? e.zodIssues[0] : undefined;
+  if (!first || (first.code === 'invalid_type' && first.path.length === 0)) return { code: 'invalid_request', extra: {} };
+  if (first.code === 'unrecognized_keys') {
+    const key = first.keys[0] ?? '';
+    return { code: 'validation_failed', extra: { param: key }, detail: `${key}: Unrecognized key` };
+  }
+  if (first.path.length === 0) return { code: 'validation_failed', extra: {}, detail: first.message };
+  const param = String(first.path[0]);
+  return { code: 'validation_failed', extra: { param }, detail: `${param}: ${first.message}` };
 }
 
 /** Cada fallo a su código: nunca sale un texto interno ni un 4xx sin código. */
@@ -76,7 +87,7 @@ export function toPartnerError(e: unknown): PartnerFault {
   if (status === 413) return { code: 'body_too_large', extra: {} };
   if (status === 429) return { code: 'rate_limited', extra: {} };
   if (status === 400 && e instanceof HttpException) {
-    const fault = validationFault(e.getResponse());
+    const fault = validationFault(e);
     if (fault) return fault;
   }
   if (status !== undefined && status >= 400 && status < 500) return { code: 'invalid_request', extra: {} };
@@ -114,7 +125,8 @@ export function renderPartnerProblem(exception: unknown, req: ProblemRequest, re
   const fault = toPartnerError(exception);
   if (fault.code === 'internal_error') {
     const safe = exception instanceof Error ? loggableError(exception) : new Error(`Non-Error throw: ${String(exception)}`);
-    logger.error(`API de socios: fallo inesperado (${safe.name}): ${safe.message}`, safe.stack);
+    // El mensaje y la traza pueden llevar una clave (la limpieza de Sentry no protege el log).
+    logger.error(`API de socios: fallo inesperado (${safe.name}): ${redactLogText(safe.message)}`, safe.stack === undefined ? undefined : redactLogText(safe.stack));
     reportError(safe, { tag: 'partner.unhandled' });
   }
   const def = PARTNER_ERRORS[fault.code];

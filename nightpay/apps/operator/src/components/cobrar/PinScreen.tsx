@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { formatPercent, haptic, Icon, pinFailed, shakeClass } from '@nightpay/ui';
+import { formatPercent, FormError, haptic, Icon, pinFailed, shakeClass } from '@nightpay/ui';
 import { PIN_ENTER, keypadDigits } from '@/lib/pin-pad';
 import { formatEur } from '@/lib/money';
 import { pinFootnote, tipLine } from '@/lib/cobro-view';
@@ -135,9 +135,9 @@ export function PinScreen({ colors, chip, amountCents, detail, tipSetup = null, 
           </span>
         </div>
         {error ? (
-          <p role="alert" className={styles.error}>
+          <FormError>
             {error}
-          </p>
+          </FormError>
         ) : reason ? (
           <p className={styles.cover}>{reason}</p>
         ) : null}

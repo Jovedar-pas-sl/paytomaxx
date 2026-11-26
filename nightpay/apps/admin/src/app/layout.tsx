@@ -5,6 +5,7 @@ import '@nightpay/ui/styles.css';
 // Estilos del panel, después de los de @nightpay/ui (pueden ajustar .np-table).
 import '../styles/panel-nav.css';
 import '../styles/panel-tables.css';
+import '../styles/panel-cobros.css';
 import '../styles/panel-tonight.css';
 import '../styles/panel-inbox.css';
 import '../styles/panel-otp.css';
@@ -13,6 +14,7 @@ import '../styles/panel-approvals.css';
 import '../styles/panel-settings.css';
 import '../styles/panel-money.css';
 import '../styles/panel-money-q.css';
+import '../styles/panel-lote.css';
 import '../styles/panel-carta.css';
 // Grafito 3 (escala, lo elegido, interruptores, siluetas): la última, ajusta a las demás.
 import '../styles/panel-grafito.css';

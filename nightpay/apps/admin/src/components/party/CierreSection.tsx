@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import type { PartySettings, PartySettlement } from '@nightpay/contracts';
-import { Button, Input } from '@nightpay/ui';
+import { Button, FormError, Input, useConfirm } from '@nightpay/ui';
 import { formatDateTime } from '@/lib/dates';
 import {
   downloadPartySettlement,
@@ -14,7 +14,7 @@ import {
 import { formatEur } from '@/lib/money';
 import { leftoverView, rangeProblem, sepaReadiness, settlementRowView, transfersText } from '@/lib/party-settlement';
 import { saveBlob } from '@/lib/save-file';
-import { downloadSepaAsking } from '@/lib/sepa-again';
+import { downloadSepaAsking, sepaAgainConfirm } from '@/lib/sepa-again';
 import { useVenueTimezone } from '@/lib/venue-context';
 import { Notice } from '../Notice';
 
@@ -34,6 +34,7 @@ export function CierreSection() {
   const [error, setError] = useState<string | null>(null);
   const [downloading, setDownloading] = useState<'sepa' | 'csv' | null>(null);
   const [downloadError, setDownloadError] = useState<string | null>(null);
+  const [confirm, dialog] = useConfirm();
 
   const load = useCallback(async (r: PartyRange, signal?: AbortSignal) => {
     setError(null);
@@ -66,7 +67,7 @@ export function CierreSection() {
       // El SEPA ya descargado con esas noches: pregunta antes (subirlo dos veces al banco paga dos veces).
       const blob =
         kind === 'sepa'
-          ? await downloadSepaAsking((again) => downloadPartySettlementSepa(range, again), (q) => window.confirm(q), timeZone)
+          ? await downloadSepaAsking((again) => downloadPartySettlementSepa(range, again), (body) => sepaAgainConfirm(confirm, body), timeZone)
           : await downloadPartySettlement(kind, range);
       if (!blob) return;
       const slug = range.from && range.to ? (range.from === range.to ? range.from : `${range.from}_${range.to}`) : 'fiesta';
@@ -79,18 +80,21 @@ export function CierreSection() {
   }
 
   return (
-    <CierreView
-      data={data}
-      settings={settings}
-      error={error}
-      timeZone={timeZone}
-      range={range}
-      onRange={setRange}
-      onRetry={() => void load(range)}
-      onDownload={(k) => void download(k)}
-      downloading={downloading}
-      downloadError={downloadError}
-    />
+    <>
+      <CierreView
+        data={data}
+        settings={settings}
+        error={error}
+        timeZone={timeZone}
+        range={range}
+        onRange={setRange}
+        onRetry={() => void load(range)}
+        onDownload={(k) => void download(k)}
+        downloading={downloading}
+        downloadError={downloadError}
+      />
+      {dialog}
+    </>
   );
 }
 
@@ -210,9 +214,9 @@ function RangePicker({ range, onRange }: { range: PartyRange; onRange: (r: Party
           : 'Todo lo de la fiesta, también lo cargado desde casa antes de empezar.'}
       </p>
       {problem ? (
-        <p role="alert" className="np-set-error">
+        <FormError>
           {problem}
-        </p>
+        </FormError>
       ) : null}
     </form>
   );

@@ -40,7 +40,8 @@ export const CLUB_TOKENS = `:root{--bg:#091518;--surface:#19272b;--surface-2:#22
  * cambiar). El principal, lima con su tinta, el brillo arriba y la sombra con
  * un resplandor lima suave; el secundario (.alt), superficie con filete de
  * 1 px y un filo de luz. Quien cambie el fondo de un .btn tiene que poner
- * también su box-shadow (si no, hereda el resplandor lima). Al pulsar se hunde un poco y se oscurece; desactivado, gris de verdad
+ * también su box-shadow, con comas: rgba(0,0,0,.35), no rgb(0 0 0/.35), que un
+ * navegador viejo descarta (si no, hereda el resplandor lima). Al pulsar se hunde un poco y se oscurece; desactivado, gris de verdad
  * (sin opacidad: a oscuras, un botón translúcido parece roto); ocupado
  * (.busy), su color con una ruedita en vez del icono, que no se pulsa dos
  * veces. Iconos de trazo: .ic. Los errores, en una caja con filete rojo y el
@@ -56,7 +57,7 @@ p{margin:0;color:var(--mute)}
 a{color:var(--fg)}
 b,strong{font-weight:600}
 .num{font-family:var(--num);font-variant-numeric:tabular-nums}
-.kick{font-size:.8125rem;font-weight:500;color:var(--label)}
+.kick{font-size:.875rem;font-weight:500;color:var(--label)}
 .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
 .btn{display:flex;align-items:center;justify-content:center;gap:.5rem;width:100%;min-height:3.5rem;padding:.75rem 1.25rem;border-radius:999px;border:1px solid var(--lime);background:var(--lime) linear-gradient(180deg,rgba(255,255,255,.24),rgba(255,255,255,0) 55%);color:var(--on-lime);box-shadow:inset 0 1px 0 rgba(255,255,255,.45),inset 0 -1px 0 rgba(0,0,0,.18),0 1px 2px rgba(0,0,0,.4),0 8px 24px -8px rgba(199,211,1,.5);font:inherit;font-size:1.0625rem;font-weight:600;line-height:1.2;font-variant-numeric:tabular-nums;text-align:center;text-decoration:none;cursor:pointer;-webkit-tap-highlight-color:transparent;transition:transform .12s var(--ease),filter .12s var(--ease)}
 .ic{flex:none;width:1.15em;height:1.15em;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
@@ -74,7 +75,7 @@ b,strong{font-weight:600}
 .btn:focus-visible,.link:focus-visible,a:focus-visible{outline:3px solid var(--fg);outline-offset:3px}
 .done{color:var(--ok);font-weight:600}
 .err{margin:0;padding:.75rem .875rem;border:1px solid var(--bad);border-radius:var(--r-field);background:rgb(255 107 107/.1);color:var(--fg);font-size:.875rem;font-weight:500;line-height:1.35;text-align:left}
-.foot{font-size:.8125rem;color:var(--dim)}
+.foot{font-size:.875rem;color:var(--dim)}
 .wm{display:block;width:auto;height:calc(1.25rem*51/43);margin-bottom:calc(-1.25rem*8/43)}
 .brand{position:absolute;top:calc(1.1rem + env(safe-area-inset-top));left:0;right:0;display:flex;justify-content:center;pointer-events:none}
 [hidden]{display:none!important}

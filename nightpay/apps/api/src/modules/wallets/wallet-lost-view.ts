@@ -6,6 +6,8 @@ import { WALLET_TEXT } from './wallet-text';
  * «He perdido mi NFC» en la página del saldo (/w/:token), maqueta 5.2: el
  * botón rojo (solo con NFC dado y Face ID activado) y la hoja que lo bloquea
  * con su Face ID. El saldo no se pierde: se dice con su importe y su código.
+ * «Bloquear», junto al número de la ficha en la tarjeta del saldo (idea 69),
+ * sale con la misma regla y abre la misma hoja.
  * Lo usa wallet-page.ts (define $, T, S, busy, post, openSheet…).
  *
  * El JS va dentro de plantillas de TypeScript: sin barras invertidas.
@@ -52,11 +54,12 @@ export function lostSheet(lang: PayLanguage): string {
  * ID y el estado nuevo del saldo (ya sin NFC).
  */
 export const LOST_JS = `
-function lostRender(s){var can=s.hasCard&&!s.merged&&!s.refund&&(s.status==='ACTIVE'||s.status==='DEPLETED');$('lostOpen').hidden=!(can&&s.hasFaceId);$('lostAsk').hidden=!(can&&!s.hasFaceId);}
+function lostRender(s){var can=s.hasCard&&!s.merged&&!s.refund&&(s.status==='ACTIVE'||s.status==='DEPLETED');$('lostOpen').hidden=!(can&&s.hasFaceId);$('lostQuick').hidden=!(can&&s.hasFaceId);$('lostAsk').hidden=!(can&&!s.hasFaceId);}
 function lostLabel(text){$('lostGoLabel').textContent=text;}
 $('lostOpen').addEventListener('click',function(){
  $('lostSafe').textContent=fill(fill(T.lostSafe,'amount',eur(S.balanceCents)),'code',S.code);
  show('lostErr','');openSheet($('lostSheet'));});
+$('lostQuick').addEventListener('click',function(){$('lostOpen').click();});
 $('lostGo').addEventListener('click',function(){var b=$('lostGo');if(busy)return;show('lostErr','');
  if(!pkSupported()){show('lostErr',T.faceIdNeeded);return;}
  busy=true;b.disabled=true;lostLabel(T.unlockWaiting);

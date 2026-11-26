@@ -32,23 +32,37 @@ test('los botones del cobro quedan visibles y se pueden usar en móvil, tableta 
   await page.getByRole('button',{ name:'Entrar',exact:true }).click();
   await page.getByText(/esta noche/i).first().waitFor();
   await page.goto('/?s=hoy&t=cobros');
-  const detail = page.getByRole('button', { name: 'Ver detalle', exact: true });
-  const refund = page.getByRole('button', { name: 'Devolución BBVA', exact: true });
-  await expect(detail).toBeVisible();
+  // Sin «Ver detalle»: se toca la fila. Desde 1280 px el detalle va al lado (un
+  // <aside> «Detalle del cobro C-0001»); por debajo, un panel o la pantalla
+  // entera (la ventana «Detalle del cobro»). La devolución va en su pie.
+  const cobro = page.getByRole('row').filter({ hasText: 'Consumo de prueba' });
+  await expect(cobro).toBeVisible();
   for (const width of [806, 1024, 1440, 390]) {
     await page.setViewportSize({width,height:900});
-    for (const button of [detail, refund]) {
-      const box = await button.boundingBox();
-      expect(box, 'falta el botón').not.toBeNull();
-      expect(box!.x, 'botón fuera por la izquierda').toBeGreaterThanOrEqual(0);
-      expect(box!.x + box!.width, 'botón cortado por la derecha').toBeLessThanOrEqual(width);
-    }
+    const docked = width >= 1280;
     if (width === 806 || width === 390) await page.screenshot({path: testInfo.outputPath(`tabla-${width}.png`), fullPage: true});
-    await detail.click();
-    await expect(page.getByRole('dialog',{ name:'Detalle del cobro' })).toBeVisible();
-    await page.getByRole('dialog').getByRole('button',{name:'Cerrar'}).click();
+    await cobro.click();
+    const detail = docked
+      ? page.getByRole('complementary', { name: 'Detalle del cobro C-0001', exact: true })
+      : page.getByRole('dialog', { name: 'Detalle del cobro', exact: true });
+    await expect(detail).toBeVisible();
+    const refund = detail.getByRole('button', { name: 'Devolución BBVA', exact: true });
+    await expect(refund).toBeVisible();
+    await refund.scrollIntoViewIfNeeded();
+    const box = await refund.boundingBox();
+    expect(box, 'falta el botón').not.toBeNull();
+    expect(box!.x, 'botón fuera por la izquierda').toBeGreaterThanOrEqual(0);
+    expect(box!.x + box!.width, 'botón cortado por la derecha').toBeLessThanOrEqual(width);
+    expect(box!.y, 'botón fuera por arriba').toBeGreaterThanOrEqual(0);
+    expect(box!.y + box!.height, 'botón cortado por abajo').toBeLessThanOrEqual(900);
     await refund.click();
-    await expect(page.getByRole('dialog',{name:'Registrar devolución de BBVA'})).toBeVisible();
-    await page.getByRole('dialog').getByRole('button',{name:'Cerrar'}).click();
+    const bbva = page.getByRole('dialog', { name: 'Registrar devolución de BBVA' });
+    await expect(bbva).toBeVisible();
+    await bbva.getByRole('button', { name: 'Cerrar', exact: true }).click();
+    await expect(bbva).toBeHidden();
+    await expect(detail).toBeVisible();
+    if (docked) await detail.getByRole('button', { name: 'Cerrar el detalle', exact: true }).click();
+    else await detail.getByRole('button', { name: 'Cerrar', exact: true }).click();
+    await expect(detail).toBeHidden();
   }
 });

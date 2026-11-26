@@ -78,7 +78,17 @@ export function parsePublicId(prefix: PublicIdPrefix, value: string): string | n
   return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
 }
 
-// shortcut: los pone el PR 8, con los hosts de verdad del dueño.
+/**
+ * Por qué está en pausa una conexión: `owner`, `manager` y `oxiopay` pausan
+ * la conexión entera (403 connection_paused); `foreign_ip` es la pausa
+ * automática de sus permisos de dinero (pausedScopes). La misma lista en el
+ * CHECK `partner_connections_paused_reason` de la migración (el PR 3 añade las
+ * suyas a los dos).
+ */
+export const PARTNER_PAUSE_REASONS = ['owner', 'manager', 'foreign_ip', 'oxiopay'] as const;
+export type PartnerPauseReason = (typeof PARTNER_PAUSE_REASONS)[number];
+
+// shortcut: provisionales hasta que el dueño elija (pregunta 1 de preguntas.md); los cambia un commit de configuración.
 export const PARTNER_API_HOST = 'api.oxiopay.example';
 export const PARTNER_DEMO_API_HOST = 'demo-api.oxiopay.example';
 export const PARTNER_DOCS_HOST = 'docs.oxiopay.example';
