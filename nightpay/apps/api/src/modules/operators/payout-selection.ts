@@ -2,6 +2,7 @@ import { ConflictException } from '@nestjs/common';
 import type { TransactionalClient } from '../../common/prisma/prisma.service';
 import { earningBankHeldSql, earningNetSql } from './bank-hold-sql';
 import { payoutCutoff } from './payout-math';
+import { eur } from '../../common/money/eur';
 
 /**
  * Qué entra en un pago a una chica, leído DENTRO de la transacción del pago
@@ -159,10 +160,6 @@ export const PAYOUT_CHANGED_CODE = 'PAYOUT_CHANGED';
 /** Algo cambió desde que se pidió el pago: no se paga (la aprobación queda fallida). */
 export function payoutChanged(message: string): ConflictException {
   return new ConflictException({ message, code: PAYOUT_CHANGED_CODE });
-}
-
-function eur(cents: number): string {
-  return `${(cents / 100).toFixed(2).replace('.', ',')} €`;
 }
 
 /** No hay nada que pagar ya: solo hay comisiones retenidas por ventas por datáfono sin cuadrar. */

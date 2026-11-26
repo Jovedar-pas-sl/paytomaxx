@@ -1,4 +1,5 @@
 import type { Incident, PaymentAnomalyRow } from './incident-rules';
+import { eurPlain } from '../../common/money/eur';
 
 /**
  * Incidencias del bitcoin (BTCPay) que llega sin un cobro que lo explique:
@@ -26,10 +27,6 @@ const STATUS_WORD: Record<string, string> = {
 /** Qué hacer con el bitcoin que está en la cartera sin cobro. */
 const RETURN_TEXT =
   'Devuélveselo en euros con «Devolver en efectivo» (si el local lo tiene encendido; el bitcoin no se devuelve en bitcoin) y cierra el aviso con una nota.';
-
-function eur(cents: number): string {
-  return `${(cents / 100).toFixed(2).replace('.', ',')} €`;
-}
 
 function str(payload: unknown, key: string): string | null {
   if (!payload || typeof payload !== 'object') return null;
@@ -63,7 +60,7 @@ export function bitcoinAnomalyIncident(r: PaymentAnomalyRow, base: { occurredAt:
       kind: 'bitcoin_overpaid',
       refId: r.id,
       title: 'Pago de bitcoin de más',
-      detail: `El cliente pagó ${received === null ? 'más' : eur(received)} con bitcoin por un cobro de ${billed === null ? '?' : eur(billed)}${extra === null ? '' : `: ${eur(extra)} de más`}${invoiceText}. El cobro está pagado. Lo de más se queda en la cartera del local y no se devuelve: queda apuntado para el cuadre. Ciérralo con una nota.`,
+      detail: `El cliente pagó ${received === null ? 'más' : eurPlain(received)} con bitcoin por un cobro de ${billed === null ? '?' : eurPlain(billed)}${extra === null ? '' : `: ${eurPlain(extra)} de más`}${invoiceText}. El cobro está pagado. Lo de más se queda en la cartera del local y no se devuelve: queda apuntado para el cuadre. Ciérralo con una nota.`,
       amountCents: extra,
       ackable: true,
     };
@@ -79,7 +76,7 @@ export function bitcoinAnomalyIncident(r: PaymentAnomalyRow, base: { occurredAt:
       kind: 'approval_unbooked',
       refId: r.id,
       title: twice ? 'El cliente pagó dos veces: también con bitcoin' : 'Bitcoin de un cobro ya cerrado',
-      detail: `${got === null ? 'Llegó bitcoin' : `Llegaron ${eur(got)} en bitcoin`} cuando el cobro ya estaba ${status}${invoiceText}. Está en la cartera del local. ${RETURN_TEXT}`,
+      detail: `${got === null ? 'Llegó bitcoin' : `Llegaron ${eurPlain(got)} en bitcoin`} cuando el cobro ya estaba ${status}${invoiceText}. Está en la cartera del local. ${RETURN_TEXT}`,
       amountCents: got,
       ackable: true,
       ...(invoiceId && got !== null && got > 0 ? { cashReturn: { invoiceId, maxCents: got } } : {}),
@@ -88,7 +85,7 @@ export function bitcoinAnomalyIncident(r: PaymentAnomalyRow, base: { occurredAt:
 
   if (r.eventType !== 'payment.approval_unverified' || str(r.payload, 'source') !== 'btcpay') return null;
   const reason = REASONS[str(r.payload, 'reason') ?? ''];
-  const gotText = received === null ? '' : ` Llegaron ${eur(received)}.`;
+  const gotText = received === null ? '' : ` Llegaron ${eurPlain(received)}.`;
   const canReturn = Boolean(reason?.returnable && invoiceId && received !== null && received > 0);
   const cashReturn = canReturn ? { cashReturn: { invoiceId: invoiceId!, maxCents: received! } } : {};
   const closed = r.paymentStatus !== undefined && !WAITING.has(r.paymentStatus);
@@ -111,7 +108,7 @@ export function bitcoinAnomalyIncident(r: PaymentAnomalyRow, base: { occurredAt:
     kind: 'approval_unverified',
     refId: r.paymentId ?? r.id,
     title: reason?.title ?? 'Una factura de bitcoin no cuadra con el cobro',
-    detail: `${reason?.what ?? 'BTCPay avisa de una factura cuyo importe, moneda o tienda no coinciden con el cobro.'}${gotText} NO se ha dado por pagado${received === null && r.amountCents !== null ? ` (${eur(r.amountCents)})` : ''}${invoiceText}. Míralo en tu BTCPay: devuelve el bitcoin recibido (en efectivo desde aquí, si el local lo tiene encendido, o desde la cartera) y márcalo «No se cobró» en Hoy → Cobros → Resolver; o, si ya está todo cobrado, márcalo «Sí, se cobró».`,
+    detail: `${reason?.what ?? 'BTCPay avisa de una factura cuyo importe, moneda o tienda no coinciden con el cobro.'}${gotText} NO se ha dado por pagado${received === null && r.amountCents !== null ? ` (${eurPlain(r.amountCents)})` : ''}${invoiceText}. Míralo en tu BTCPay: devuelve el bitcoin recibido (en efectivo desde aquí, si el local lo tiene encendido, o desde la cartera) y márcalo «No se cobró» en Hoy → Cobros → Resolver; o, si ya está todo cobrado, márcalo «Sí, se cobró».`,
     amountCents: received ?? r.amountCents,
     ackable: false,
     ...cashReturn,

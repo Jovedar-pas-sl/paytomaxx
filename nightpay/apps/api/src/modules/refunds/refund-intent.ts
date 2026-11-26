@@ -1,6 +1,7 @@
 import { ConflictException } from '@nestjs/common';
 import { createHash } from 'node:crypto';
 import type { TransactionalClient } from '../../common/prisma/prisma.service';
+import { eur } from '../../common/money/eur';
 
 /**
  * Una devolución pedida desde el panel lleva una clave por intención: la
@@ -55,8 +56,4 @@ export async function findRefundApproval(tx: TransactionalClient, request: Refun
   });
   if (row) assertRefundIntent(row.kind === 'REFUND' ? row.idempotencyHash : null, request, actor, row);
   return row;
-}
-
-function eur(cents: number): string {
-  return `${(cents / 100).toFixed(2).replace('.', ',')} €`;
 }

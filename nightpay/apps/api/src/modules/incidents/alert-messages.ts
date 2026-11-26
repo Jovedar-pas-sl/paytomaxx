@@ -3,16 +3,13 @@ import type { ExportSummary } from '../reports/export-csv';
 import { cardPaymentsCount } from '../reports/export-summary';
 import type { Incident } from './incident-rules';
 import { scopeLabel, type SummaryScope } from './morning-summary';
+import { eurPlain } from '../../common/money/eur';
 
 /**
  * Textos de Telegram (Fase 1E). Cortos y en texto plano: se leen en el móvil
  * del dueño. Ni datos de clientes ni nombres de las chicas (Telegram es un
  * tercero): importes, horas y qué hacer. El detalle por chica está en el panel.
  */
-
-function eur(cents: number): string {
-  return `${(cents / 100).toFixed(2).replace('.', ',')} €`;
-}
 
 /**
  * Recordatorio diario (uno por local y día): ventas por datáfono sin cuadrar
@@ -22,8 +19,8 @@ function eur(cents: number): string {
 export function bankHoldReminderMessage(venueName: string, h: { count: number; chargedCents: number; shareCents: number }): string {
   const sales = h.count === 1 ? '1 venta por datáfono' : `${h.count} ventas por datáfono`;
   return [
-    `🏦 ${venueName}: ${sales} sin cuadrar con el banco desde hace más de 24 h (${eur(h.chargedCents)} cobrados).`,
-    `La comisión del personal de esas ventas (${eur(h.shareCents)}) está retenida: no se paga hasta cuadrarlas.`,
+    `🏦 ${venueName}: ${sales} sin cuadrar con el banco desde hace más de 24 h (${eurPlain(h.chargedCents)} cobrados).`,
+    `La comisión del personal de esas ventas (${eurPlain(h.shareCents)}) está retenida: no se paga hasta cuadrarlas.`,
     'Sube el fichero del banco en Banco o revísalas en la ficha de cada chica (Liberar, con tu 2FA).',
   ].join('\n');
 }
@@ -56,7 +53,7 @@ function cobradoParts(s: ExportSummary): string | null {
     // La paga el cliente encima y se debe a OxioPay (sin ella, no sale).
     [s.serviceFeeCents ?? 0, 'de comisión del servicio'],
   ] as const;
-  const shown = parts.filter(([cents]) => cents !== 0).map(([cents, what]) => `${eur(cents)} ${what}`);
+  const shown = parts.filter(([cents]) => cents !== 0).map(([cents, what]) => `${eurPlain(cents)} ${what}`);
   return shown.length > 0 ? shown.join(' + ') : null;
 }
 
@@ -85,27 +82,27 @@ export function morningSummaryMessage(
   const cardCount = cardPaymentsCount(s);
   const lines = [
     `☀️ ${venueName} — ${scopeLabel(scope)}`,
-    parts ? `Cobrado: ${eur(s.chargedCents)} (${parts})` : `Cobrado: ${eur(s.chargedCents)}`,
+    parts ? `Cobrado: ${eurPlain(s.chargedCents)} (${parts})` : `Cobrado: ${eurPlain(s.chargedCents)}`,
     // Los pagos con tarjeta (también las recargas con tarjeta) y sus propinas:
     // lo pagado con el saldo no es dinero nuevo y no cuenta aquí. Lo de bitcoin, aparte.
-    `Con tarjeta: ${cardCount} ${cardCount === 1 ? 'pago' : 'pagos'} · ${eur(s.grossCents + s.tipsCents + cardFeeCents - (btc?.totalCents ?? 0))}`,
+    `Con tarjeta: ${cardCount} ${cardCount === 1 ? 'pago' : 'pagos'} · ${eurPlain(s.grossCents + s.tipsCents + cardFeeCents - (btc?.totalCents ?? 0))}`,
   ];
   // Bitcoin: no pasa por el banco ni por la caja, está en la cartera del local.
-  if (btc) lines.push(`Bitcoin: ${btc.count} ${btc.count === 1 ? 'pago' : 'pagos'} · ${eur(btc.totalCents)}, en la cartera del local`);
-  if (!parts && s.tipsCents > 0) lines.push(`Propinas: ${eur(s.tipsCents)}`);
+  if (btc) lines.push(`Bitcoin: ${btc.count} ${btc.count === 1 ? 'pago' : 'pagos'} · ${eurPlain(btc.totalCents)}, en la cartera del local`);
+  if (!parts && s.tipsCents > 0) lines.push(`Propinas: ${eurPlain(s.tipsCents)}`);
   const cardTopUpsCount = (s.walletCardTopUpsCount ?? 0) - (btc?.topUpsCount ?? 0);
   if (cardTopUpsCount > 0) {
-    lines.push(`Recargas con tarjeta: ${cardTopUpsCount} · ${eur((s.walletCardTopUpsCents ?? 0) - (btc?.topUpsCents ?? 0))}`);
+    lines.push(`Recargas con tarjeta: ${cardTopUpsCount} · ${eurPlain((s.walletCardTopUpsCents ?? 0) - (btc?.topUpsCents ?? 0))}`);
   }
   if (s.walletCashTopUpsCount) {
     const n = s.walletCashTopUpsCount;
-    lines.push(`Recargas en efectivo: ${n} · ${eur(s.walletCashTopUpsCents ?? 0)} (en la caja)`);
+    lines.push(`Recargas en efectivo: ${n} · ${eurPlain(s.walletCashTopUpsCents ?? 0)} (en la caja)`);
   }
-  if (s.refundsCents > 0) lines.push(`Devoluciones: −${eur(s.refundsCents)}`);
+  if (s.refundsCents > 0) lines.push(`Devoluciones: −${eurPlain(s.refundsCents)}`);
   const oxio = s.serviceFeeNetCents ?? 0;
   if (oxio !== 0 || (s.serviceFeeCents ?? 0) !== 0) {
     const cash = s.serviceFeeCashCents ?? 0;
-    lines.push(`Comisión del servicio: ${eur(oxio)} (se debe a OxioPay${cash !== 0 ? `; ${eur(cash)} en la caja` : ''})`);
+    lines.push(`Comisión del servicio: ${eurPlain(oxio)} (se debe a OxioPay${cash !== 0 ? `; ${eurPlain(cash)} en la caja` : ''})`);
   }
   // Lo de los camareros (su parte de las copas con invitación, si el local se
   // la da) va aparte: chicas + camareros + el resto = el «Neto (cobrado −
@@ -114,7 +111,7 @@ export function morningSummaryMessage(
   // lleva las recargas (saldo de los clientes) y no resta comisiones.
   const camareros = s.camareroNetCents ?? 0;
   lines.push(
-    `Para las chicas: ${eur(s.chicaNetCents)}${camareros !== 0 ? ` · para los camareros: ${eur(camareros)}` : ''} · ${Z_NET_WITHOUT_STAFF_LABEL.toLowerCase()}${oxio !== 0 ? ' ni OxioPay' : ''}: ${eur(s.venueNetCents)}`,
+    `Para las chicas: ${eurPlain(s.chicaNetCents)}${camareros !== 0 ? ` · para los camareros: ${eurPlain(camareros)}` : ''} · ${Z_NET_WITHOUT_STAFF_LABEL.toLowerCase()}${oxio !== 0 ? ' ni OxioPay' : ''}: ${eurPlain(s.venueNetCents)}`,
   );
   if (s.perChica.length > 0) lines.push(`Chicas que cobraron: ${s.perChica.length} (detalle en el panel → Noches)`);
   if (cashDiffCents) lines.push(cashDiffLine(cashDiffCents));
@@ -129,5 +126,5 @@ export function morningSummaryMessage(
 
 /** «Caja: faltan 12,50 €» / «Caja: sobran 5,00 €» (contado − esperado al cerrar). */
 export function cashDiffLine(diffCents: number): string {
-  return `Caja: ${diffCents < 0 ? 'faltan' : 'sobran'} ${eur(Math.abs(diffCents))} al cerrar (panel → Noches)`;
+  return `Caja: ${diffCents < 0 ? 'faltan' : 'sobran'} ${eurPlain(Math.abs(diffCents))} al cerrar (panel → Noches)`;
 }

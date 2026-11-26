@@ -47,6 +47,7 @@ import { findRefundApproval, lockRefundIntent, refundIntent } from './refund-int
 import { replayOfRefund, savedResponse, type RefundReplay, type RefundResult } from './refund-replay';
 import { saldoNoSeDevuelve } from '../wallets/saldo-rule';
 import { assertNotBitcoin } from './bitcoin-refund';
+import { eur } from '../../common/money/eur';
 
 /**
  * Una devolución pendiente no se resuelve a mano hasta pasado este rato: la
@@ -818,10 +819,6 @@ async function assertBelowApprovalThreshold(
   if (refundRoute(actor.role, amountCents, venue, already) === 'request') {
     throw refundNeedsApproval(already + amountCents, venue.refundApprovalThresholdCents);
   }
-}
-
-function eur(cents: number): string {
-  return `${(cents / 100).toFixed(2).replace('.', ',')} €`;
 }
 
 export { BITCOIN_REFUND_CODE, BITCOIN_REFUND_TEXT, assertNotBitcoin } from './bitcoin-refund';
