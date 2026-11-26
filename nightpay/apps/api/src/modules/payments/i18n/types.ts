@@ -392,8 +392,26 @@ export interface WalletText {
   linkGone: string;
   /** Sin Face ID ni PIN y sin poder activarlo aquí (M-2): el QR de activación de recepción. */
   activateAtReception: string;
+  /** «Pagar o recargar en otro sistema»: el código del móvil (OXC1:) para otra plataforma conectada. */
+  liveCode: WalletLiveCodeText;
   /** «Detalle del pago»: al tocar un movimiento (lo pagado con el saldo y las recargas con tarjeta). */
   detail: WalletDetailText;
+}
+
+/**
+ * El bloque del código del móvil en /w (wallet-live-code-view.ts): el botón,
+ * su pista, el QR (y su `alt`), el aviso, la nota, «Ocultar el código» y lo
+ * que dice tras los 5 minutos.
+ */
+export interface WalletLiveCodeText {
+  button: string;
+  hint: string;
+  loading: string;
+  alt: string;
+  warn: string;
+  note: string;
+  hide: string;
+  ended: string;
 }
 
 /**
