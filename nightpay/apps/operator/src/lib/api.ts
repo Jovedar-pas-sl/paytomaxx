@@ -615,6 +615,8 @@ export interface MySections {
   post?: PostCode | null;
   /** Su puesto lleva propinas (null: el API anterior). */
   tips?: boolean | null;
+  /** Un servicio cobrado a nombre de una compañera lleva propinas (las de Sala; null: el API anterior). */
+  serviceTips?: boolean | null;
 }
 
 export async function fetchMySections(): Promise<MySections> {
@@ -624,7 +626,7 @@ export async function fetchMySections(): Promise<MySections> {
     sections?: VenueSection[];
     myDefaultCategory?: SectionCode;
     myPost?: PostCode | null;
-    myRights?: { sections?: SectionCode[]; tips?: boolean };
+    myRights?: { sections?: SectionCode[]; tips?: boolean; serviceTips?: boolean };
   };
   return {
     sections: body.sections ?? [],
@@ -632,6 +634,7 @@ export async function fetchMySections(): Promise<MySections> {
     allowed: body.myRights?.sections ?? null,
     post: body.myPost ?? null,
     tips: typeof body.myRights?.tips === 'boolean' ? body.myRights.tips : null,
+    serviceTips: typeof body.myRights?.serviceTips === 'boolean' ? body.myRights.serviceTips : null,
   };
 }
 

@@ -76,7 +76,11 @@ export function ReceptionIncidents({ onDone }: { onDone: () => void }) {
           </p>
           <p className={r.text}>{row.detail}</p>
           {row.ackable === false ? (
-            <p className={r.note}>Lo cierra el encargado o el dueño: devuelto en el banco o dado por bueno.</p>
+            <p className={r.note}>
+              {row.kind === 'service_disputed'
+                ? 'Lo cierra el dueño en el panel. Habla con quien lo cobró.'
+                : 'Lo cierra el encargado o el dueño: devuelto en el banco o dado por bueno.'}
+            </p>
           ) : open === row.refId ? (
             <div className={r.form}>
               <label className={r.kicker} htmlFor={`nota-${row.refId}`}>

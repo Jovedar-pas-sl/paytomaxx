@@ -71,6 +71,8 @@ export interface MySectionsState {
   post?: PostCode | null;
   /** Su puesto lleva propinas (null: no se sabe; el API decide). */
   tips?: boolean | null;
+  /** Un servicio a nombre de una compañera lleva propinas (las de Sala; null: no se sabe). */
+  serviceTips?: boolean | null;
   /** Ya contestó el API (con lo suyo o sin respuesta). */
   loaded?: boolean;
 }
@@ -88,6 +90,7 @@ export function useMySections(): MySectionsState {
             allowed: s.allowed,
             post: s.post ?? null,
             tips: s.tips ?? null,
+            serviceTips: s.serviceTips ?? null,
             loaded: true,
           });
         }

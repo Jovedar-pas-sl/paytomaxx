@@ -7,17 +7,29 @@ import { formatEur } from '@/lib/money';
 import { onInviteArrived, takePendingInvite } from '@/lib/invite-link';
 import { resolveStaffQr } from '@/lib/api-cobro';
 import { rejectedQr, shouldResolveQr, statusOf, type RejectedQr } from '@/lib/qr-scan';
+import type { ScanTexts } from '@/lib/servicio';
 import { puestoChip, type CobrarContext } from './cobrar-context';
 import { IconCheck, IconFlash } from './icons';
 import { Chip, ScreenHeader } from './ScreenHeader';
 import styles from './cobrar.module.css';
 
-/** La chica leída (o elegida): con su QR o con su id, y su nombre. */
+/** La compañera leída (o elegida): con su QR o con su id, y su nombre. Leída: el QR tal cual y la huella de su foto. */
 export interface Invitada {
   name: string;
   token?: string;
   id?: string;
+  raw?: string;
+  photoHash?: string | null;
 }
+
+/** Los textos de la invitación («Copa con invitación»). */
+const INVITE_SCAN_TEXTS: ScanTexts = {
+  heading: 'Escanea el QR de la chica',
+  notStaff: 'Ese QR no es el de una chica. Que abra «Mi QR» en su app.',
+  hint: 'En su app: «Mi QR».',
+  camLabel: 'Cámara para leer el QR de la chica',
+  noCamera: 'Abre la cámara del móvil y apunta a su QR: la invitación llega aquí sola.',
+};
 
 interface Props {
   ctx: CobrarContext;
@@ -30,6 +42,10 @@ interface Props {
   /** «Elegir de la lista» (solo si el local no pide el QR). */
   onList?: () => void;
   onBack: () => void;
+  /** Otros textos (el servicio a su nombre); sin ellos, los de la invitación. */
+  texts?: ScanTexts;
+  /** «Otra compañera»: este QR no se vuelve a reconocer hasta que se lea otro. */
+  skipRaw?: string;
 }
 
 /** Lo mínimo de BarcodeDetector (Chrome en Android); en iPhone aún no existe. */
@@ -54,9 +70,10 @@ function detectorCtor(): DetectorCtor | null {
  * local lo deja, la lista. Un QR rechazado no se vuelve a mandar mientras
  * siga delante de la cámara (lib/qr-scan) y, si se sale antes de pasar al
  * cobro («Atrás»), no se cobra nada. Si el cobro no se abre (sin red), se
- * vuelve a leer.
+ * vuelve a leer. Con `texts`, el mismo escáner lee el «Mi QR» de la compañera
+ * cuyo servicio cobra el encargado.
  */
-export function EscanearChica({ ctx, who, title, priceCents, onChica, onList, onBack }: Props) {
+export function EscanearChica({ ctx, who, title, priceCents, onChica, onList, onBack, texts = INVITE_SCAN_TEXTS, skipRaw }: Props) {
   const video = useRef<HTMLVideoElement | null>(null);
   const track = useRef<MediaStreamTrack | null>(null);
   const done = useRef(false);
@@ -74,9 +91,15 @@ export function EscanearChica({ ctx, who, title, priceCents, onChica, onList, on
   // La última onChica, sin que `take` (y con él la cámara) cambie en cada
   // render del padre: si no, cada vez que se pinta CobrarFlow se reinicia la cámara (APP-04).
   const onChicaRef = useRef(onChica);
+  const notStaffRef = useRef(texts.notStaff);
   useEffect(() => {
     onChicaRef.current = onChica;
+    notStaffRef.current = texts.notStaff;
   });
+
+  useEffect(() => {
+    if (skipRaw) rejected.current = rejectedQr(skipRaw, 400, Date.now());
+  }, [skipRaw]);
 
   useEffect(() => {
     alive.current = true;
@@ -95,7 +118,7 @@ export function EscanearChica({ ctx, who, title, priceCents, onChica, onList, on
       const token = staffTokenFrom(raw);
       if (!token) {
         rejected.current = rejectedQr(raw, 400, Date.now());
-        setProblem('Ese QR no es el de una chica. Que abra «Mi QR» en su app.');
+        setProblem(notStaffRef.current);
         done.current = false;
         return;
       }
@@ -108,7 +131,7 @@ export function EscanearChica({ ctx, who, title, priceCents, onChica, onList, on
         leaving.current = setTimeout(() => {
           leaving.current = null;
           if (!alive.current) return;
-          void onChicaRef.current({ name: chica.name, token, id: chica.id }).then((opened) => {
+          void onChicaRef.current({ name: chica.name, token, id: chica.id, raw, photoHash: chica.photoHash ?? null }).then((opened) => {
             if (opened || !alive.current) return;
             // Sin cobro: se vuelve a leer (el error lo enseña el cobro), sin repetir este QR enseguida.
             rejected.current = rejectedQr(raw, 0, Date.now());
@@ -199,17 +222,17 @@ export function EscanearChica({ ctx, who, title, priceCents, onChica, onList, on
         chip={chip ? <Chip color={chip.color}>{chip.label}</Chip> : null}
       />
       <div className={styles.cam}>
-        <h2 className={styles.camTitle}>Escanea el QR de la chica</h2>
+        <h2 className={styles.camTitle}>{texts.heading}</h2>
         <div className={styles.vf}>
           <i />
           <i />
           <i />
           <i />
           {supported ? (
-            <video ref={video} className={styles.vfVideo} muted playsInline aria-label="Cámara para leer el QR de la chica" />
+            <video ref={video} className={styles.vfVideo} muted playsInline aria-label={texts.camLabel} />
           ) : null}
           {!supported ? (
-            <p className={styles.vfHint}>Abre la cámara del móvil y apunta a su QR: la invitación llega aquí sola.</p>
+            <p className={styles.vfHint}>{texts.noCamera}</p>
           ) : !ready ? (
             <p className={styles.vfHint}>Abriendo la cámara…</p>
           ) : null}
@@ -242,7 +265,7 @@ export function EscanearChica({ ctx, who, title, priceCents, onChica, onList, on
             Elegir de la lista
           </button>
         ) : (
-          <p className={styles.camHint}>En su app: «Mi QR».</p>
+          <p className={styles.camHint}>{texts.hint}</p>
         )}
       </div>
     </div>
