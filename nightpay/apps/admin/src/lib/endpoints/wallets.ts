@@ -200,7 +200,8 @@ export async function payoutWallet(
 export interface RecentCashTopUp {
   id: string;
   at: string;
-  amountCents: number;
+  /** null: la encargada con la noche abierta (cierre a ciegas), sin importes ni comisión. */
+  amountCents: number | null;
   /** Su «Comisión del servicio» (al anularla, sale de la caja con el saldo). Un API de antes no la manda. */
   serviceFeeCents?: number;
   /** K7Q-•••: para reconocer al cliente. */

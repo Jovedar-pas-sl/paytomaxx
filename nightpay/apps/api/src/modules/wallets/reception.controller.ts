@@ -40,7 +40,8 @@ const CardSchema = z.object({
  *  - GET  /v1/reception/options       → qué se puede aquí (tarjeta, efectivo, fichas).
  *  - POST /v1/reception/cash          → recarga en efectivo: solo recepción (su puesto), el
  *    encargado (con su permiso «cobrar recargas en efectivo») o el dueño; lo comprueba el servicio.
- *  - GET  /v1/reception/cash/recent   → las recargas en efectivo que aún se pueden anular (encargado).
+ *  - GET  /v1/reception/cash/recent   → las recargas en efectivo que aún se pueden anular (encargado);
+ *    a la encargada con la noche abierta, sin importes (cierre a ciegas).
  *  - POST /v1/reception/cash/:id/void → anular una (encargado o dueño, con 2FA, si el saldo la cubre).
  *  - POST /v1/reception/lookup        → el NFC acercado o el código: de qué saldo es (sin enseñarlo).
  *  - POST /v1/reception/desk          → recepción exprés: el NFC o el código → nuevo o su saldo y lo que tiene.
@@ -110,7 +111,8 @@ export class ReceptionController {
   @Get('cash/recent')
   @Roles('MANAGER', 'OWNER')
   async recentCash(@CurrentUser() user: JwtPayload): Promise<RecentCashTopUp[]> {
-    return this.cash.recent(user.tenantId);
+    // A la encargada con la noche abierta, sin importes (cierre a ciegas).
+    return this.cash.recent(user.tenantId, { role: user.role });
   }
 
   @Post('cash/:id/void')

@@ -27,11 +27,17 @@ export async function undoCashTopUp(topUpId: string, body: CashTopUpUndoDto): Pr
 export interface RecentCash {
   id: string;
   at: string;
-  amountCents: number;
-  serviceFeeCents: number;
+  /** null: la encargada con la noche abierta (cierre a ciegas), sin importes ni comisión. */
+  amountCents: number | null;
+  serviceFeeCents?: number;
   /** K7Q-•••. */
   codeHint: string;
   voided: boolean;
+}
+
+/** Lo que sale de la caja de una de la lista; a ciegas (null), sin cifras: se sabe al anular. */
+export function recentCashOutCents(row: Pick<RecentCash, 'amountCents' | 'serviceFeeCents'>): number | null {
+  return row.amountCents === null ? null : row.amountCents + (row.serviceFeeCents ?? 0);
 }
 
 /** Encargado o dueño: las de las últimas 2 h, que aún se pueden anular. */
