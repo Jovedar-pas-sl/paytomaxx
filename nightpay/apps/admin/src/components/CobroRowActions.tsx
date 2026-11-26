@@ -22,12 +22,11 @@ interface Props {
 }
 
 /**
- * Los botones de una fila de Cobros (además de «Ver detalle», que pone la
- * tabla): anular un cobro del saldo, resolver uno atascado, devolver (BBVA o
- * la pasarela) y ver las devoluciones. Quién ve cada uno, como lo explica
- * el tutorial del «?» de Cobros (lib/tours.ts). En una fila no hay botón
- * principal: lo que anula o devuelve dinero va con filete rojo; mirar las
- * devoluciones, discreto.
+ * Los botones de un cobro, en el pie de su detalle (CobroDetailDock): anular
+ * un cobro del saldo, resolver uno atascado, devolver (BBVA o la pasarela) y
+ * ver las devoluciones. Quién ve cada uno no cambia por estar en el detalle.
+ * No hay botón principal: lo que anula o devuelve dinero va con filete rojo;
+ * mirar las devoluciones, discreto.
  */
 export function CobroRowActions({ row, role, onReverse, onResolve, onRefund, onRefunds, bitcoinCash = null, onCashRefund }: Props) {
   if (reversibleSaldoCharge(row, role)) {

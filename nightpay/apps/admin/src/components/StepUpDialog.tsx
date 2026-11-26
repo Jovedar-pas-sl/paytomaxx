@@ -3,7 +3,7 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { passkeysSupported, type RequestOptionsJSON } from '@nightpay/api-client';
 import { unlockName, type StepUpProof, type StepUpStatus } from '@nightpay/contracts';
-import { Button, Modal } from '@nightpay/ui';
+import { Button, FormError, Modal } from '@nightpay/ui';
 import { fetchStepUp, passkeyChallenge, passkeyConfirm, verifyStepUpWithCode } from '@/lib/api';
 import { stepUpErrorText } from '@/lib/step-up';
 import { OtpInput } from './OtpInput';
@@ -126,9 +126,9 @@ export function StepUpDialog({ open, onClose, onVerified, action, onProof, reaso
           </p>
         ) : null}
         {error ? (
-          <p role="alert" style={{ margin: 0, color: 'var(--np-danger)', fontSize: '0.875rem' }}>
+          <FormError>
             {error}
-          </p>
+          </FormError>
         ) : null}
       </div>
     </Modal>

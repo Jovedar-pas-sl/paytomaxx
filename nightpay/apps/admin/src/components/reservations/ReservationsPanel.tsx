@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState, type CSSProperties } from 'react';
-import { Button } from '@nightpay/ui';
+import { Button, FormError } from '@nightpay/ui';
 import type { ReservationPackageView } from '@nightpay/contracts';
 import { fetchPackages } from '@/lib/endpoints/reservations';
 import { NightList } from './NightList';
@@ -45,9 +45,9 @@ export function ReservationsPanel({ isOwner, initialView = 'night' }: { isOwner:
         ))}
       </div>
       {error ? (
-        <p role="alert" className="np-set-error">
+        <FormError>
           {error}
-        </p>
+        </FormError>
       ) : null}
       {view === 'night' ? <NightList packages={packages} /> : null}
       {view === 'packages' ? <PackagesEditor packages={packages} onChanged={load} /> : null}

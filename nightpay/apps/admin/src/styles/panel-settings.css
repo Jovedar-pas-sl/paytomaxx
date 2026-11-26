@@ -149,16 +149,11 @@
   justify-content: flex-start;
 }
 
-.np-set-error,
 .np-set-saved {
   margin: 0;
   flex: 1 1 14rem;
   font-size: 0.875rem;
   min-height: 1.25rem;
-}
-
-.np-set-error {
-  color: var(--np-danger);
 }
 
 .np-set-saved {
@@ -167,11 +162,15 @@
 
 /* En una columna (la línea de «Guardado» al pie de un bloque o de una pila),
    su alto es el del texto: el «14rem» de arriba es el ancho en una fila. */
-.np-set-stack > .np-set-error,
 .np-set-stack > .np-set-saved,
-.np-set-card > .np-set-error,
 .np-set-card > .np-set-saved {
   flex: 0 0 auto;
+}
+
+/* Lo que falló al guardar (FormError): en su propia línea, sobre el botón. */
+.np-set-save > .np-form-error,
+.np-set-actions > .np-form-error {
+  flex: 1 1 100%;
 }
 
 /* Permisos por persona. */

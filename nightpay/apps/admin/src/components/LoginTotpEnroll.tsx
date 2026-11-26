@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, type FormEvent } from 'react';
-import { Button } from '@nightpay/ui';
+import { Button, FormError } from '@nightpay/ui';
 import { loginTotpSetup, loginWithNewCode, type LoginResponse, type LoginTotpSetup } from '@/lib/api';
 import { ApiError, totpLockedUntil } from '@/lib/api-errors';
 import { OTP_LENGTH } from '@/lib/otp';
@@ -90,9 +90,9 @@ export function LoginTotpEnroll({ ticket, onDone, onExpired, onBack }: Props) {
         Volver
       </Button>
       {error ? (
-        <p role="alert" style={errorStyle}>
+        <FormError>
           {error}
-        </p>
+        </FormError>
       ) : null}
     </form>
   );
@@ -106,4 +106,3 @@ const formStyle = { display: 'flex', flexDirection: 'column', gap: '1rem', width
 const stepText = { margin: 0, fontSize: '1rem', color: 'var(--np-text-mute)', lineHeight: 1.5 } as const;
 const qrStyle = { alignSelf: 'center', borderRadius: 8, background: '#fff', padding: 8 } as const;
 const secretStyle = { alignSelf: 'center', fontSize: '0.875rem', letterSpacing: '0.08em', wordBreak: 'break-all' } as const;
-const errorStyle = { color: 'var(--np-danger)', margin: 0, textAlign: 'center', fontSize: '0.875rem' } as const;

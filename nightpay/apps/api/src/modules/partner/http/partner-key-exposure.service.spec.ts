@@ -11,7 +11,7 @@ const CONN = {
   partner: { name: 'Cajeros Demo' },
 };
 
-function build(opts: { conn?: typeof CONN | null; marked?: number; ipBlocked?: boolean } = {}) {
+function build(opts: { conn?: typeof CONN | null; marked?: number; ipBlocked?: boolean; keyBlocked?: boolean; breaker?: boolean } = {}) {
   const tx = {
     partnerConnection: {
       findFirst: vi.fn(async (_args: Record<string, unknown>) => (opts.conn === undefined ? CONN : opts.conn)),
@@ -21,7 +21,7 @@ function build(opts: { conn?: typeof CONN | null; marked?: number; ipBlocked?: b
   const prisma = { asSystem: vi.fn(async (fn: (t: typeof tx) => unknown) => fn(tx)) };
   const audit = { logInTx: vi.fn(async () => undefined) };
   const limiter = {
-    state: vi.fn(async () => ({ keyBlocked: false, known: false, breaker: false, ipBlocked: opts.ipBlocked ?? false })),
+    state: vi.fn(async () => ({ keyBlocked: opts.keyBlocked ?? false, known: false, breaker: opts.breaker ?? false, ipBlocked: opts.ipBlocked ?? false })),
     recordFailure: vi.fn(async () => undefined),
   };
   const service = new PartnerKeyExposureService(prisma as never, audit as never, limiter as never);
@@ -58,5 +58,22 @@ describe('una clave en una URL', () => {
     await blocked.service.report(KEY, '203.0.113.9');
     expect(blocked.prisma.asSystem).not.toHaveBeenCalled();
     expect(blocked.limiter.recordFailure).not.toHaveBeenCalled();
+  });
+
+  it('la clave ya bloqueada o el cortacircuitos levantado: ni una consulta a la base ni otro fallo', async () => {
+    for (const opts of [{ keyBlocked: true }, { breaker: true }]) {
+      const s = build({ conn: null, ...opts });
+      await s.service.report(KEY, '203.0.113.9');
+      expect(s.prisma.asSystem).not.toHaveBeenCalled();
+      expect(s.limiter.recordFailure).not.toHaveBeenCalled();
+    }
+  });
+
+  it('un aviso atrasado no marca la clave nueva: el UPDATE vuelve a mirar que la presentada sea la actual o la anterior aún válida', async () => {
+    const s = build();
+    await s.service.report(KEY, '203.0.113.9');
+    const where = s.tx.partnerConnection.updateMany.mock.calls[0]![0].where as { OR?: Array<Record<string, unknown>> };
+    expect(where.OR?.[0]).toEqual({ keyHash: hashPartnerKey(KEY) });
+    expect(where.OR?.[1]).toMatchObject({ prevKeyHash: hashPartnerKey(KEY), prevKeyExpiresAt: { gt: expect.any(Date) } });
   });
 });

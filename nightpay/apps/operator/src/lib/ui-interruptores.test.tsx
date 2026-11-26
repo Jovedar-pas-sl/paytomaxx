@@ -149,7 +149,8 @@ describe('Checkbox: la casilla que espera a «Guardar»', () => {
     const hint = /<span id="([^"]+)" class="np-checkbox-hint">Solo en Android\.<\/span>/.exec(html);
     expect(hint).not.toBeNull();
     expect(html).toContain(`aria-describedby="${hint![1]}"`);
-    expect(html).toContain('<span class="np-checkbox-label">Vibración</span>');
+    // La etiqueta lleva su id: es el nombre (aria-labelledby), sin la pista (ui-piezas-arreglos.test.tsx).
+    expect(html).toMatch(/<span id="[^"]+" class="np-checkbox-label">Vibración<\/span>/);
     // Sin role ni estados a mano: los da la casilla nativa.
     expect(html).not.toMatch(/role=|aria-checked/);
   });
@@ -270,13 +271,19 @@ describe('en el panel', () => {
     'OnboardingForm.tsx': 1,
     'OperatorsPanel.tsx': 1,
     'party/StallsSection.tsx': 3,
+    // Pagar a todas (entrega 11 B): «Todas», cada fila, «Ya he pagado…» y la de «Marcar pagado» (4).
+    'PayoutBatchList.tsx': 2,
+    'PayoutBatchReview.tsx': 1,
+    'PayoutConfirmModal.tsx': 1,
+    // Entrega 9 (Cobros): los estados del filtro «Estado» y las columnas de más de «Columnas» (2).
+    'CobrosToolbar.tsx': 2,
   };
 
-  it('21 <Checkbox: los 12 que esperaban a «Guardar» y las 9 casillas nativas', () => {
+  it('27 <Checkbox: los 12 que esperaban a «Guardar», las 9 casillas nativas, las 4 de pagar a todas y las 2 de los menús de Cobros', () => {
     const found = countIn([[...ADMIN]], /<Checkbox\b/g);
     const expected = Object.fromEntries(Object.entries(CHECKBOXES).map(([file, n]) => [`apps/admin/src/components/${file}`, n]));
     expect(found).toEqual(expected);
-    expect(Object.values(found).reduce((a, b) => a + b, 0)).toBe(21);
+    expect(Object.values(found).reduce((a, b) => a + b, 0)).toBe(27);
   });
 
   it('casillas nativas, solo las que tocan a otras entregas (y la pieza)', () => {
@@ -294,8 +301,6 @@ describe('en el panel', () => {
       // Cerrar la noche (entrega 10).
       'apps/admin/src/components/NightCashStep.tsx': 1,
       'apps/admin/src/components/NightCloseScreen.tsx': 1,
-      // Pagar a todas (entrega 11).
-      'apps/admin/src/components/PayoutConfirmModal.tsx': 1,
       // Las fichas de sección de cada puesto: se guardan al tocar, con su «Guardado».
       'apps/admin/src/components/settings/PostRulesCard.tsx': 1,
       // La consola de OxioPay, fuera del encargo.

@@ -1,7 +1,8 @@
 import { Logger } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import type { RateLimitPluginOptions } from '@fastify/rate-limit';
-import { PARTNER_KEY_RE } from '@nightpay/contracts';
+import { PARTNER_KEY_RE, PARTNER_ROUTES } from '@nightpay/contracts';
+import { partnerApiOn } from '../../modules/partner/partner-flag';
 import { bearerToken, verifyStaffToken } from '../guards/staff-token';
 import { clientIp, normalizeIp, rateLimitIpKey, type ClientIpRequest } from './client-ip';
 
@@ -78,12 +79,31 @@ const STAFF_PHOTO = /^\/v1\/staff\/[0-9a-f-]{36}\/photo\/[0-9a-f]{64}(\?|$)/;
  */
 const REDSYS_NOTICE = /^\/v1\/webhooks\/redsys(\?|$)/;
 /**
- * La API de socios con una clave bien formada (Bearer oxp_…): sus topes van
- * por clave, por IP de claves malas y por conexión (modules/partner). El cubo
- * de 300/min por IP frenaría la nube de un socio que atiende varios locales
- * desde una IP. Sin clave bien formada, el límite de siempre.
+ * La API de socios con una clave bien formada (Bearer oxp_…), encendida y en
+ * una ruta registrada que pide clave: sus topes van por clave, por IP de
+ * claves malas, por conexión y por clave e IP de los rechazos
+ * (modules/partner). El cubo de 300/min por IP frenaría la nube de un socio
+ * que atiende varios locales desde una IP. Lo demás (sin clave, /openapi.json,
+ * rutas que no existen, la API apagada), el límite de siempre: ahí no corre
+ * ningún tope de socios.
  */
-const PARTNER_API = /^\/v1\/partner(\/|\?|$)/;
+const PARTNER_KEY_ROUTES: ReadonlyArray<{ method: string; path: RegExp }> = Object.values(PARTNER_ROUTES)
+  .filter((def) => def.scopes.length > 0)
+  .map((def) => ({
+    method: def.method,
+    // `{id}` de la ruta, un segmento cualquiera; lo demás, tal cual.
+    path: new RegExp(
+      `^/v1/partner${def.path
+        .split('/')
+        .map((seg) => (/^\{[^}]+\}$/.test(seg) ? '[^/]+' : seg.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
+        .join('/')}$`,
+    ),
+  }));
+
+function isPartnerKeyRoute(req: LimitedRequest): boolean {
+  const path = req.url.split(/[?#]/)[0] ?? req.url;
+  return PARTNER_KEY_ROUTES.some((r) => r.method === req.method && r.path.test(path));
+}
 const LOOPBACK = new Set(['127.0.0.1', '::1']);
 
 interface LimitedRequest extends ClientIpRequest {
@@ -103,7 +123,7 @@ export function isGlobalRateLimitExempt(req: LimitedRequest): boolean {
     return true;
   }
   if (req.method === 'POST' && REDSYS_NOTICE.test(req.url)) return true;
-  if (PARTNER_API.test(req.url) && PARTNER_KEY_RE.test(bearerToken(req.headers['authorization']) ?? '')) return true;
+  if (partnerApiOn() && isPartnerKeyRoute(req) && PARTNER_KEY_RE.test(bearerToken(req.headers['authorization']) ?? '')) return true;
   const peer = normalizeIp(req.raw?.socket?.remoteAddress ?? req.socket?.remoteAddress);
   const path = req.url.split('?')[0] ?? req.url;
   return peer !== null && LOOPBACK.has(peer) && HEALTH_PATHS.includes(path);

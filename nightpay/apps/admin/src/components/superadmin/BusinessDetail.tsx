@@ -108,7 +108,7 @@ function BusinessDataCard({
   }
 
   return (
-    <Card>
+    <Card className="np-sa-card">
       <form className="np-sa-form" onSubmit={(e) => void handleSubmit(e)} noValidate>
         <SectionHead level={3} title="Datos del negocio" />
         <BusinessFields form={form} onChange={(next) => {

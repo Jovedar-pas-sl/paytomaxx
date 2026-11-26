@@ -8,6 +8,21 @@ import { REDIS_CLIENT } from '../../../common/redis/redis.module';
 export const FREEZE_CACHE_KEY = 'np:partner-api:freeze';
 export const FREEZE_CACHE_S = 60;
 
+/**
+ * La recarga de la copia: escribe solo si sigue lo que se leyó al empezar
+ * (ARGV[1]: '' si no había, o el valor que no valía) y devuelve lo que gana.
+ * Así una recarga que leyó la fila antes de que el super-admin la cambiara no
+ * pisa su publicación posterior (`all` deshecho durante 60 s).
+ */
+export const FREEZE_FILL_LUA = `
+local cur = redis.call('GET', KEYS[1])
+if (ARGV[1] == '' and cur == false) or cur == ARGV[1] then
+  redis.call('SET', KEYS[1], ARGV[2], 'EX', ARGV[3])
+  return ARGV[2]
+end
+return cur
+`;
+
 const isFreeze = (v: unknown): v is PartnerFreeze => typeof v === 'string' && (PARTNER_FREEZES as readonly string[]).includes(v);
 
 /**
@@ -27,8 +42,8 @@ export class PartnerFreezeService {
     if (isFreeze(cached)) return cached;
     const row = await this.prisma.asSystem((tx) => tx.partnerApiState.findUnique({ where: { id: 1 }, select: { freeze: true } }));
     const value = isFreeze(row?.freeze) ? row.freeze : 'none';
-    await this.publish(value);
-    return value;
+    const winner = await this.redis.eval(FREEZE_FILL_LUA, 1, FREEZE_CACHE_KEY, cached ?? '', value, FREEZE_CACHE_S);
+    return isFreeze(winner) ? winner : value;
   }
 
   /** Tras cambiar la fila: vale ya en todas las réplicas (y, si no, a los 60 s). */

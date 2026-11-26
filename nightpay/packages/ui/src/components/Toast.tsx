@@ -42,7 +42,7 @@ export function Toast() {
     setBottom(toastBottom(feet, window.innerHeight));
   }, [item]);
 
-  // El reloj. El ratón encima o el foco dentro lo paran; al irse, vuelve a contar.
+  // El reloj. El ratón encima (no el dedo) o el foco dentro lo paran; al irse, vuelve a contar.
   useEffect(() => {
     if (!item || held) return undefined;
     const timer = setTimeout(() => toastStore.dismiss(item.key), item.action ? TOAST_ACTION_MS : TOAST_MS);
@@ -56,8 +56,9 @@ export function Toast() {
           key={item.key}
           className="np-toast"
           data-tone={item.tone}
-          onMouseEnter={() => setHover(true)}
-          onMouseLeave={() => setHover(false)}
+          // Solo el ratón: en un móvil, tocar el aviso no lo deja clavado (sin «salir» nunca volvería a contar).
+          onPointerEnter={(e) => setHover(e.pointerType === 'mouse')}
+          onPointerLeave={() => setHover(false)}
           onFocus={() => setFocus(true)}
           onBlur={() => setFocus(false)}
         >

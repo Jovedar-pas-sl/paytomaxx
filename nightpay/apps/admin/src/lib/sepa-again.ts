@@ -4,6 +4,7 @@
 // con ?again=1. Subirlo dos veces al banco paga dos veces.
 
 import { ALREADY_EXPORTED_CODE, type SepaAlreadyExported } from '@nightpay/contracts';
+import type { ConfirmQuestion } from '@nightpay/ui';
 import { formatDateTime } from './dates';
 import { apiError } from './http';
 
@@ -33,27 +34,35 @@ export async function sepaFile(res: Response): Promise<Blob> {
   });
 }
 
-/** La pregunta antes de descargarlo otra vez (la fecha y la hora, en las del local). */
+/** Lo que cuenta la pregunta antes de descargarlo otra vez (la fecha y la hora, en las del local): su cuerpo. */
 export function sepaAgainQuestion(info: SepaAlreadyExported, timeZone: string): string {
   const when = info.exportedAt ? `el ${formatDateTime(info.exportedAt, timeZone, 'datetime')}` : 'antes';
   const who = info.exportedBy ? ` por ${info.exportedBy}` : '';
-  return `Ya descargaste este fichero ${when}${who}. ¿Descargarlo otra vez? Cuidado: si lo subes dos veces al banco, pagarás dos veces.`;
+  return `Ya descargaste este fichero ${when}${who}. Cuidado: si lo subes dos veces al banco, pagarás dos veces.`;
+}
+
+export const SEPA_AGAIN_TITLE = '¿Descargar otra vez el fichero?';
+
+/** La pregunta, en la ventana de la app (useConfirm): de peligro, porque subirlo dos veces paga dos veces. */
+export function sepaAgainConfirm(confirm: (question: ConfirmQuestion) => Promise<boolean>, body: string): Promise<boolean> {
+  return confirm({ title: SEPA_AGAIN_TITLE, body, confirmLabel: 'Descargar otra vez', cancelLabel: 'No descargar', tone: 'danger' });
 }
 
 /**
- * Descarga con la pregunta: si ya se descargó, pregunta (confirm) y, con un
- * sí, lo pide otra vez (`again`). Con un no, null (no se hace nada).
+ * Descarga con la pregunta: si ya se descargó, pregunta y, solo con un sí, lo
+ * pide otra vez (`again`). Con un no, null (no se hace nada). La pregunta
+ * puede contestar con una promesa (la ventana de la app): se espera.
  */
 export async function downloadSepaAsking(
   download: (again: boolean) => Promise<Blob>,
-  ask: (question: string) => boolean,
+  ask: (body: string) => boolean | Promise<boolean>,
   timeZone: string,
 ): Promise<Blob | null> {
   try {
     return await download(false);
   } catch (err) {
     if (!(err instanceof SepaAlreadyExportedError)) throw err;
-    if (!ask(sepaAgainQuestion(err, timeZone))) return null;
+    if ((await ask(sepaAgainQuestion(err, timeZone))) !== true) return null;
     return download(true);
   }
 }
