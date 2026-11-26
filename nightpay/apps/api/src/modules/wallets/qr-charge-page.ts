@@ -31,7 +31,7 @@ const QR_CSS = `
 .safe{display:flex;align-items:center;gap:.5rem;padding:.625rem .875rem;border-radius:var(--r-field);background:var(--surface-2);border:1px solid var(--line-hi);color:var(--fg);font-weight:500}
 .hint{width:100%;padding:.875rem 1rem;border:1px solid var(--line);border-radius:var(--r-tile);background:var(--surface);color:var(--fg);font-weight:500;text-align:left}
 .after{max-width:26rem;margin:0 auto;padding:1rem;display:flex;flex-direction:column;align-items:center}
-.secure{display:flex;align-items:center;gap:.4rem;font-size:.8125rem;color:var(--dim)}
+.secure{display:flex;align-items:center;gap:.4rem;font-size:.875rem;color:var(--dim)}
 .secure svg{width:1rem;height:1rem;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
 .mine{width:100%;max-width:22rem;display:grid;gap:.5rem;margin-top:.5rem}
 `;

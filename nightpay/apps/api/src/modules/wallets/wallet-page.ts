@@ -60,7 +60,7 @@ const WALLET_CSS = `
 .w{max-width:26rem;margin:0 auto;padding:1rem 1rem calc(2rem + env(safe-area-inset-bottom));display:flex;flex-direction:column;gap:1rem}
 .w>.top{padding:0}
 .hero{min-height:8.75rem;padding:1rem 1.125rem;border:1px solid var(--line);border-radius:var(--r);display:flex;flex-direction:column;justify-content:space-between;gap:.5rem;text-align:left;color:var(--fg);background:var(--surface)}
-#balanceLabel{font-size:.8125rem;font-weight:500;color:var(--mute)}
+#balanceLabel{font-size:.875rem;font-weight:500;color:var(--mute)}
 .hero .obot{display:flex;justify-content:space-between;gap:.5rem;font-size:.875rem;font-weight:600;color:var(--fg)}
 .balance{font-size:3.5rem;font-weight:600;letter-spacing:-.02em;line-height:1;margin-top:.25rem;color:var(--fg);font-variant-numeric:proportional-nums}
 .status{font-weight:500;color:var(--fg)}
@@ -74,14 +74,14 @@ const WALLET_CSS = `
 .view{display:flex;flex-direction:column;gap:1rem}
 .card{border:1px solid var(--line);border-radius:var(--r);padding:1rem;display:flex;flex-direction:column;gap:.75rem;background:var(--surface)}
 .card h2{font-size:1.125rem;line-height:1.25}
-.card h2.kick{font-size:.8125rem}
+.card h2.kick{font-size:.875rem}
 .card h2.sub{font-size:1rem}
 .card.main{border-color:var(--line-hi)}
 .how{color:var(--fg)}
 .code{font-size:2rem;font-weight:700;letter-spacing:.2em;color:var(--fg);text-align:center}
 .small{font-size:.875rem}
 .steps{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(3,1fr);gap:.4rem;text-align:center}
-.steps li{display:flex;flex-direction:column;align-items:center;gap:.3rem;font-size:.8125rem;font-weight:500;color:var(--dim)}
+.steps li{display:flex;flex-direction:column;align-items:center;gap:.3rem;font-size:.875rem;font-weight:500;color:var(--dim)}
 .steps li::before{content:'○';display:grid;place-items:center;width:2rem;height:2rem;border-radius:50%;border:2px solid var(--line);font-size:.875rem}
 .steps li.ok{color:var(--fg)}
 .steps li.ok::before{content:'✓';border-color:var(--fg);background:var(--fg);color:var(--bg)}
@@ -90,7 +90,7 @@ const WALLET_CSS = `
 .more{display:flex;flex-direction:column;gap:.25rem;margin-top:.5rem}
 .rows{display:flex;flex-direction:column;border-top:1px solid var(--line)}
 .row{display:flex;flex-direction:column;align-items:flex-start;gap:.1rem;width:100%;min-height:3.25rem;padding:.625rem .25rem;border:0;border-bottom:1px solid var(--line);background:none;color:var(--fg);font:inherit;font-weight:500;text-align:left;cursor:pointer}
-.row small{font-weight:400;color:var(--mute);font-size:.8125rem}
+.row small{font-weight:400;color:var(--mute);font-size:.875rem}
 .row:focus-visible{outline:3px solid var(--fg);outline-offset:2px}
 .row[aria-expanded]{position:relative;padding-right:2rem}
 .row[aria-expanded]::after{content:'+';position:absolute;right:.5rem;top:50%;transform:translateY(-50%);font-size:1.25rem;color:var(--mute)}
@@ -102,7 +102,7 @@ li.mv .sw{align-self:stretch;flex:none;width:4px;min-height:2.4rem;border-radius
 li.mv .sw.hold{background:repeating-linear-gradient(var(--dim) 0 6px,transparent 6px 10px)}
 li.mv .mt{flex:1;min-width:0}
 li.mv .mt b{display:block;color:var(--fg);font-size:1rem;font-weight:500}
-li.mv .mt span{display:block;color:var(--mute);font-size:.8125rem}
+li.mv .mt span{display:block;color:var(--mute);font-size:.875rem}
 li.mv .plus{color:var(--ok);font-weight:600;white-space:nowrap}
 li.mv .minus{color:var(--fg);font-weight:600;white-space:nowrap}
 li.mv .gone{color:var(--mute);font-weight:500;white-space:nowrap;text-decoration:line-through}

@@ -76,7 +76,7 @@ export const PAID_SCREEN_CSS = `${BAND_CSS}
 .paid .ptitle{font-size:1.75rem;font-weight:600;line-height:1.1}
 .paid .pamount{font-size:clamp(3.5rem,17vw,4rem);font-weight:600;letter-spacing:-.02em;line-height:1.05;font-variant-numeric:proportional-nums}
 .paid .pcode{width:100%;max-width:21rem;margin:.375rem 0 .25rem;padding:.625rem 1rem .75rem;border-radius:var(--r);background:var(--cream);color:var(--ink);display:flex;flex-direction:column;align-items:center;gap:.125rem}
-.paid .pcode .plabel{font-size:.8125rem;font-weight:500}
+.paid .pcode .plabel{font-size:.875rem;font-weight:500}
 .paid .pcode b{display:block;font-size:clamp(4.5rem,22vw,6rem);font-weight:700;line-height:1;letter-spacing:.16em;margin-right:-.16em;font-variant-numeric:tabular-nums}
 .paid .pcode .phint{font-size:1rem;font-weight:600}
 .paid .ptime{display:flex;flex-wrap:wrap;align-items:baseline;justify-content:center;gap:.1rem .9rem}

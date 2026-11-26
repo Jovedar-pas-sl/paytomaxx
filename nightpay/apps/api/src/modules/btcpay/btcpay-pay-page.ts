@@ -49,7 +49,7 @@ const BTC_CSS = `
 .btc-qr img{display:block;width:100%;height:auto;image-rendering:pixelated}
 .btc-scan{margin:0;font-size:.9375rem;color:var(--label)}
 .btc-actions{width:100%;display:flex;flex-direction:column;gap:.5rem}
-.btc-addr{width:100%;padding:.6rem .75rem;border-radius:var(--r-field);border:1px solid var(--line);background:var(--surface);color:var(--label);font:inherit;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.75rem;text-align:center;text-overflow:ellipsis}
+.btc-addr{width:100%;padding:.6rem .75rem;border-radius:var(--r-field);border:1px solid var(--line);background:var(--surface);color:var(--label);font:inherit;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.875rem;text-align:center;text-overflow:ellipsis}
 .btc-time{margin:0;color:var(--label);font-size:.9375rem}
 .btc-time b{font-family:var(--num);font-variant-numeric:tabular-nums;color:var(--fg);font-size:1.125rem}
 .btc-state{margin:0;min-height:1.5rem;color:var(--fg);font-weight:500}

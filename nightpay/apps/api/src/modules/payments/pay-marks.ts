@@ -13,7 +13,7 @@
  */
 
 /** «Pago seguro» con las chapas (en /pay y en el enlace del local). */
-export const PAY_MARKS_CSS = `.trust{display:flex;align-items:center;justify-content:center;flex-wrap:wrap;gap:.35rem .55rem;font-size:.8rem;color:var(--dim)}
+export const PAY_MARKS_CSS = `.trust{display:flex;align-items:center;justify-content:center;flex-wrap:wrap;gap:.35rem .55rem;font-size:.875rem;color:var(--dim)}
 .marks{display:inline-flex;gap:.3rem}
 .marks svg{display:block;width:2rem;height:1.26rem}
 `;

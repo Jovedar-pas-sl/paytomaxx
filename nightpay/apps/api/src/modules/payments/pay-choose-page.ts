@@ -47,7 +47,7 @@ export const BREAKDOWN_CSS = `
 .brk>div:last-child,.brk>div:has(+.tot){border-bottom:0}
 .brk dt{color:var(--mute);display:flex;flex-wrap:wrap;align-items:center;gap:.1rem .5rem}
 .brk dd{margin:0;font-family:var(--num);font-weight:600;font-variant-numeric:tabular-nums;color:var(--fg);text-align:right}
-.brk .why{display:inline-flex;align-items:center;min-height:2.75rem;padding:0 .15rem;border:0;background:none;color:var(--fg);font:inherit;font-size:.8125rem;font-weight:500;text-decoration:underline;text-underline-offset:.2em;cursor:pointer}
+.brk .why{display:inline-flex;align-items:center;min-height:2.75rem;padding:0 .15rem;border:0;background:none;color:var(--fg);font:inherit;font-size:.875rem;font-weight:500;text-decoration:underline;text-underline-offset:.2em;cursor:pointer}
 .brk .why:focus-visible{outline:3px solid var(--fg);outline-offset:2px}
 .brk dd.whytext{grid-column:1/-1;font-family:var(--sans);font-weight:400;font-size:.875rem;color:var(--mute);text-align:left;line-height:1.45;padding:.1rem 0 .2rem}
 .brk .tot{padding:.75rem 0 .625rem;border-top:1px solid var(--line-hi)}
@@ -64,7 +64,7 @@ export const CHOOSE_CSS = `
 .who .face{width:2rem;height:2rem;border-radius:50%;object-fit:cover;flex:none}
 .head .kick{margin-top:.35rem}
 .amount{font-size:clamp(2.5rem,12vw,3rem);font-weight:600;letter-spacing:-.02em;line-height:1.05;color:var(--fg);font-variant-numeric:proportional-nums}
-.meta{display:flex;flex-wrap:wrap;justify-content:center;gap:.15rem .9rem;font-size:.8125rem;color:var(--dim)}
+.meta{display:flex;flex-wrap:wrap;justify-content:center;gap:.15rem .9rem;font-size:.875rem;color:var(--dim)}
 .meta b{color:var(--mute);font-weight:600}
 form{width:100%;display:flex;flex-direction:column;gap:1.1rem}
 fieldset{border:0;margin:0;padding:0;min-width:0}
@@ -74,7 +74,7 @@ legend{width:100%;margin:0 0 .6rem;padding:0;color:var(--fg);font-weight:600;fon
 .tipgrid input{position:absolute;opacity:0;width:1px;height:1px}
 .tipgrid span{position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:.05rem;min-height:3rem;padding:.4rem .25rem;border:1px solid var(--line-hi);border-radius:var(--r-field);background:var(--surface-2);font-family:var(--num);font-size:1rem;font-weight:600;color:var(--fg);cursor:pointer;line-height:1.12;text-align:center;overflow-wrap:anywhere;transition:transform .15s var(--ease)}
 .tipgrid span.word{font-family:var(--sans);font-size:.875rem;font-weight:500}
-.tipgrid small{font-family:var(--num);font-size:.75rem;font-weight:600;color:var(--mute)}
+.tipgrid small{font-family:var(--num);font-size:.875rem;font-weight:600;color:var(--mute)}
 .tipgrid input:checked+span{border-color:var(--fg);background:var(--fg);color:var(--bg)}
 .tipgrid input:checked+span small{color:var(--bg)}
 .tipgrid input:checked+span::after{content:'';position:absolute;top:-.5rem;right:.375rem;width:1rem;height:1rem;border-radius:50%;box-shadow:0 0 0 2px var(--bg);background:var(--bg) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23F4F2EC' stroke-width='3.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 13l4 4L19 7'/%3E%3C/svg%3E") center/70% no-repeat}
@@ -97,12 +97,12 @@ ${BREAKDOWN_CSS}.warn{border:1px solid var(--warn);border-radius:var(--r-tile);b
 .paybar .btn{min-height:3.5rem;font-size:1.0625rem}
 .paybar .alts{display:grid;grid-template-columns:1fr;gap:.5rem}
 .paybar .alts .btn{min-height:3rem;font-size:.9375rem;padding:.55rem .7rem}
-.methods{font-size:.8125rem;color:var(--mute)}
+.methods{font-size:.875rem;color:var(--mute)}
 .btn.btc{background:#fff;border-color:#fff;color:#000;box-shadow:0 1px 2px rgb(0 0 0/.35);gap:.35rem;font-weight:500}
 .btn.btc .btcmark{display:block;width:1.45rem;height:1.45rem;flex:none}
 .btn.btc .btcword{font-family:var(--num);font-weight:700;font-size:1.0625rem;letter-spacing:-.01em}
-.btchint{font-size:.75rem;line-height:1.3;color:var(--mute)}
-.nofee{font-size:.8125rem;color:var(--mute)}
+.btchint{font-size:.875rem;line-height:1.3;color:var(--mute)}
+.nofee{font-size:.875rem;color:var(--mute)}
 .keep{margin:.75rem 0 0;font-size:.875rem;line-height:1.4;color:var(--label);text-align:center}
 .btn.gpay[aria-disabled=true]:not(.busy){opacity:.55}
 .btn.gpay{background:#fff;border-color:#fff;color:#1f1f1f;box-shadow:0 1px 2px rgb(0 0 0/.35)}
@@ -111,7 +111,7 @@ ${BREAKDOWN_CSS}.warn{border:1px solid var(--warn);border-radius:var(--r-tile);b
 .btn.apay{-webkit-appearance:-apple-pay-button;-apple-pay-button-type:plain;-apple-pay-button-style:white;height:3.5rem;padding:0;border:0;border-radius:999px;box-shadow:none;filter:none}
 .btn.apay>*{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
 }
-.or{display:flex;align-items:center;gap:.75rem;font-size:.8125rem;line-height:1;color:var(--dim)}
+.or{display:flex;align-items:center;gap:.75rem;font-size:.875rem;line-height:1;color:var(--dim)}
 .or::before,.or::after{content:'';flex:1;height:1px;background:var(--line)}
 ${PAY_MARKS_CSS}/* Móviles bajos (360×740 y similares): todo más compacto para que el desglose no quede detrás de los botones; los toques siguen ≥ 48 px. Sin la «o» de adorno y, con tarjeta y saldo, los dos secundarios lado a lado: la barra deja sitio al TOTAL. */
 @media (max-height:780px){
@@ -122,7 +122,6 @@ form{gap:.8rem}
 .head .kick{margin-top:.15rem}
 .who .face{width:1.5rem;height:1.5rem}
 .amount{font-size:2.5rem}
-.meta{font-size:.75rem}
 legend{margin-bottom:.45rem;font-size:.9375rem}
 .tipgrid span{min-height:3rem}
 .eur input{min-height:3rem;font-size:1.375rem}
@@ -132,7 +131,6 @@ legend{margin-bottom:.45rem;font-size:.9375rem}
 .brk dt{font-size:.875rem}
 .brk dd{font-size:.9375rem}
 .brk .tot dd{font-size:1.0625rem}
-.brk .why{font-size:.8125rem}
 .paybar{padding-top:.45rem}
 .paybar>div{gap:.3rem}
 .paybar .btn{min-height:3.25rem;font-size:1.0625rem}
@@ -142,9 +140,8 @@ legend{margin-bottom:.45rem;font-size:.9375rem}
 .paybar .alts:has(>.btn+.btn){grid-template-columns:1fr 1fr}
 .paybar .alts:has(>.btn+.btn) .btn.btc .btcpre{display:none}
 .paybar .alts:has(>.btn+.btn)+.btchint{display:none}
-.methods,.nofee,.trust{font-size:.75rem}
 }
-.secure{display:flex;align-items:center;justify-content:center;gap:.4rem;font-size:.8125rem;color:var(--dim)}
+.secure{display:flex;align-items:center;justify-content:center;gap:.4rem;font-size:.875rem;color:var(--dim)}
 .secure svg{width:1rem;height:1rem;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
 `;
 

@@ -38,7 +38,7 @@ export const CHROME_CSS = `
 .top .wm{height:calc(1rem*51/43);margin-bottom:calc(-1rem*8/43);width:auto}
 .top.over{position:absolute;top:0;left:0;right:0;z-index:3;max-width:none}
 .lang{position:relative;flex:none}
-.lang summary{list-style:none;display:inline-flex;align-items:center;gap:.4rem;min-height:3rem;min-width:3rem;padding:0 .625rem;border:0;border-radius:var(--r-field);color:var(--mute);font-size:.8125rem;font-weight:500;letter-spacing:.04em;cursor:pointer;background:transparent}
+.lang summary{list-style:none;display:inline-flex;align-items:center;gap:.4rem;min-height:3rem;min-width:3rem;padding:0 .625rem;border:0;border-radius:var(--r-field);color:var(--mute);font-size:.875rem;font-weight:500;letter-spacing:.04em;cursor:pointer;background:transparent}
 .lang summary::-webkit-details-marker{display:none}
 .lang summary svg{width:1.05rem;height:1.05rem;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
 .lang summary:focus-visible{outline:3px solid var(--fg);outline-offset:3px}

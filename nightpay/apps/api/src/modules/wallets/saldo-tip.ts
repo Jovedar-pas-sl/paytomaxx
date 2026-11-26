@@ -28,7 +28,7 @@ export const SALDO_TIP_CSS = `
 .tipgrid input{position:absolute;opacity:0;width:1px;height:1px}
 .tipgrid span{position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:.05rem;min-height:3rem;padding:.4rem .25rem;border:1px solid var(--line-hi);border-radius:var(--r-field);background:var(--surface-2);font-family:var(--num);font-size:1rem;font-weight:600;color:var(--fg);cursor:pointer;line-height:1.12;text-align:center;overflow-wrap:anywhere}
 .tipgrid span.word{font-family:var(--sans);font-size:.875rem;font-weight:500}
-.tipgrid small{font-family:var(--num);font-size:.75rem;font-weight:600;color:var(--mute)}
+.tipgrid small{font-family:var(--num);font-size:.875rem;font-weight:600;color:var(--mute)}
 .tipgrid input:checked+span{border-color:var(--fg);background:var(--fg);color:var(--bg)}
 .tipgrid input:checked+span small{color:var(--bg)}
 .tipgrid input:focus-visible+span{outline:3px solid var(--fg);outline-offset:3px}

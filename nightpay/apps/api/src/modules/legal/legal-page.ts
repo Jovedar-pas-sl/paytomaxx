@@ -61,7 +61,7 @@ const LEGAL_PAGE_CSS = `
 .legal .tabs a{display:inline-flex;align-items:center;min-height:2.75rem;padding:0 .875rem;border:1px solid var(--line);border-radius:999px;color:var(--fg);font-size:.875rem;font-weight:500;text-decoration:none}
 .legal .tabs a[aria-current=page]{background:var(--fg);border-color:var(--fg);color:var(--bg)}
 .legal h1{margin:0;color:var(--fg);font-size:clamp(1.75rem,7vw,2.25rem);font-weight:600;letter-spacing:-.02em;line-height:1.15}
-.legal .upd{margin:.5rem 0 0;font-size:.8125rem;color:var(--dim)}
+.legal .upd{margin:.5rem 0 0;font-size:.875rem;color:var(--dim)}
 .legal .note{margin:1rem 0 0;padding:.75rem 1rem;border-radius:var(--r-field);background:var(--surface-2);font-size:.875rem}
 .legal h2{margin:2rem 0 .5rem;color:var(--fg);font-size:1.125rem;font-weight:600;line-height:1.3;scroll-margin-top:1rem}
 .legal p{margin:.5rem 0}
@@ -74,7 +74,7 @@ const LEGAL_PAGE_CSS = `
 .legal th,.legal td{padding:.625rem .75rem;text-align:left;vertical-align:top;border-bottom:1px solid var(--line)}
 .legal thead th{background:var(--surface);color:var(--fg);font-weight:600}
 .legal tbody tr:last-child>*{border-bottom:0}
-.legal code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:.8125rem;color:var(--fg)}
+.legal code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:.875rem;color:var(--fg)}
 @media (max-width:34rem){
 .legal table{min-width:0}
 .legal thead{display:none}
@@ -82,7 +82,7 @@ const LEGAL_PAGE_CSS = `
 .legal tbody tr:last-child{border-bottom:0}
 .legal th,.legal td{display:block;padding:0;border:0}
 .legal td{margin-top:.375rem}
-.legal td::before{content:attr(data-label);display:block;font-size:.75rem;color:var(--dim)}
+.legal td::before{content:attr(data-label);display:block;font-size:.875rem;color:var(--dim)}
 }
 @media print{.legal .tabs{display:none}}
 `;
