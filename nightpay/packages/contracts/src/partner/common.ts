@@ -16,6 +16,9 @@ export interface PartnerSchemaMeta {
   description?: string;
   examples?: readonly unknown[];
   'x-decided-in-contract'?: boolean;
+  /** En puntos de código del texto limpio (Description, reason): Zod `.max()` contaría UTF-16. */
+  minLength?: number;
+  maxLength?: number;
 }
 export const partnerSchemas = z.registry<PartnerSchemaMeta>();
 
@@ -118,4 +121,45 @@ export function partnerTextProblem(raw: string): string | null {
 /** El texto como se guarda: NFC, sin espacios alrededor y con los de dentro juntados. */
 export function cleanPartnerText(raw: string): string {
   return raw.normalize('NFC').replace(/\s+/g, ' ').trim();
+}
+
+/** La longitud de un texto en puntos de código (un emoji cuenta uno, no dos como en UTF-16). */
+export function codePointLength(text: string): number {
+  return [...text].length;
+}
+
+/**
+ * ¿Hay en el texto 13 a 19 cifras seguidas (una tira entera de cifras) que
+ * pasan la prueba de Luhn? Un número de tarjeta en `reference` o en un texto.
+ */
+export function luhnRun(text: string): boolean {
+  for (const run of text.match(/\d+/g) ?? []) {
+    if (run.length >= 13 && run.length <= 19 && luhnOk(run)) return true;
+  }
+  return false;
+}
+
+function luhnOk(digits: string): boolean {
+  let sum = 0;
+  for (let i = 0; i < digits.length; i += 1) {
+    let d = Number(digits[digits.length - 1 - i]);
+    if (i % 2 === 1) {
+      d *= 2;
+      if (d > 9) d -= 9;
+    }
+    sum += d;
+  }
+  return sum % 10 === 0;
+}
+
+/**
+ * ¿El texto (ya limpio) parece un dato personal? (§9.1 del diseño, `Description`
+ * del contrato): un correo; 9 cifras o más seguidas sin contar espacios, `.`,
+ * `-`, `·` ni `/` (teléfonos, tarjetas, números de serie largos); o una tira de
+ * 13 a 19 cifras que pasa Luhn.
+ */
+export function partnerTextPersonalData(text: string): boolean {
+  if (/[^\s@]+@[^\s@]+/.test(text)) return true;
+  if (/\d{9,}/.test(text.replace(/[\s.\-·/]+/g, ''))) return true;
+  return luhnRun(text);
 }

@@ -5,8 +5,13 @@ import {
   PARTNER_CONNECTION_EXAMPLE,
   PartnerConnectionSchema,
   PartnerProblemSchema,
+  Statement,
   WalletBalance,
   WalletBalanceRequest,
+  WalletLoad,
+  WalletLoadList,
+  WalletLoadRequest,
+  WalletLoadVoidRequest,
   buildPartnerOpenApi,
   partnerErrorsMarkdown,
 } from '@nightpay/contracts';
@@ -25,11 +30,6 @@ const pilot = readJson(join(DOCS, 'pilot/openapi-piloto.json'));
 
 /** Rutas del contrato que llegan con su entrega (al hacerlas, se quitan de aquí). */
 const PILOT_PENDING = [
-  'POST /wallet/loads',
-  'GET /wallet/loads/{id}',
-  'POST /wallet/loads/{id}/void',
-  'GET /wallet/operations',
-  'GET /statement',
   'POST /test/live-codes',
   'POST /test/fixtures/reset',
 ];
@@ -107,22 +107,36 @@ describe('docs/partner-api/openapi.json', () => {
     expect(missing).toEqual([]);
   });
 
-  it('cada ejemplo pasa su propio esquema (la conexión, el saldo, el cuerpo de la petición o un problema)', () => {
+  it('cada ejemplo pasa su propio esquema (la conexión, el saldo, las cargas, la lista, el resumen, los cuerpos o un problema)', () => {
     expect(PartnerConnectionSchema.parse(PARTNER_CONNECTION_EXAMPLE.value)).toEqual(PARTNER_CONNECTION_EXAMPLE.value);
-    const schemaOf = (name: string, value: Json) =>
-      value.object === 'connection'
-        ? PartnerConnectionSchema
-        : value.object === 'wallet_balance'
-          ? WalletBalance
-          : name.startsWith('BalanceRequest')
-            ? WalletBalanceRequest
-            : PartnerProblemSchema;
+    const byObject: Record<string, { safeParse: (v: unknown) => { success: boolean } }> = {
+      connection: PartnerConnectionSchema,
+      wallet_balance: WalletBalance,
+      wallet_load: WalletLoad,
+      list: WalletLoadList,
+      statement: Statement,
+    };
+    const bodies: Record<string, { safeParse: (v: unknown) => { success: boolean } }> = {
+      BalanceRequestFicha: WalletBalanceRequest,
+      BalanceRequestLiveCode: WalletBalanceRequest,
+      LoadRequestCash: WalletLoadRequest,
+      VoidRequest: WalletLoadVoidRequest,
+    };
+    const schemaOf = (name: string, value: Json) => byObject[String(value.object)] ?? bodies[name] ?? PartnerProblemSchema;
     const examples = Object.entries((generated.components as Json).examples as Record<string, Json>);
-    expect(examples.map(([n]) => n)).toEqual(expect.arrayContaining(['Balance5000', 'BalanceRequestFicha', 'BalanceRequestLiveCode', 'ProblemPrivateLink']));
+    expect(examples.map(([n]) => n)).toEqual(
+      expect.arrayContaining(['Balance5000', 'BalanceRequestFicha', 'LoadCreated', 'LoadVoided', 'StatementNight', 'ProblemPerOperation']),
+    );
     for (const [name, ex] of examples) {
       const value = ex.value as Json;
       expect(schemaOf(name, value).safeParse(value).success, name).toBe(true);
     }
+  });
+
+  it('cada ejemplo publicado es el del contrato, carácter a carácter', () => {
+    const ours = (generated.components as Json).examples as Record<string, Json>;
+    const theirs = (pilot.components as Json).examples as Record<string, Json>;
+    for (const [name, ex] of Object.entries(ours)) expect(ex, name).toEqual(theirs[name]);
   });
 
   it('los ejemplos de /wallet/balance son los del contrato', () => {
