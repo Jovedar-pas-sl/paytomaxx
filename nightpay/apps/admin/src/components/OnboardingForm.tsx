@@ -1,7 +1,7 @@
 'use client';
 
 import { useId, useState, type CSSProperties, type FormEvent } from 'react';
-import { Button, Card, Checkbox, Input, Select } from '@nightpay/ui';
+import { Button, Card, Checkbox, FormError, Input, Select } from '@nightpay/ui';
 import { OXIOCARD_STATUS_LABELS, madridToday, type OxiocardStatus } from '@nightpay/contracts';
 import {
   createSelfOnboardingLink,
@@ -190,9 +190,11 @@ function SelfOnboardingLinkBanner({ operatorId }: { operatorId: string }) {
       ) : null}
 
       {error ? (
-        <p role="alert" style={{ color: 'var(--np-danger)', margin: '0.5rem 0 0', fontSize: '0.875rem' }}>
-          {error}
-        </p>
+        <div style={{ marginTop: '0.5rem' }}>
+          <FormError>
+            {error}
+          </FormError>
+        </div>
       ) : null}
     </Card>
   );
@@ -559,9 +561,9 @@ export function OnboardingForm({ operator, isOwner, onSaved }: Props) {
       </div>
 
       {error ? (
-        <p role="alert" style={{ color: 'var(--np-danger)', margin: 0, fontSize: '0.875rem' }}>
+        <FormError>
           {error}
-        </p>
+        </FormError>
       ) : null}
       {saved ? (
         <p role="status" style={{ color: 'var(--np-success)', margin: 0, fontSize: '0.875rem' }}>

@@ -1,5 +1,12 @@
 // Operadoras: alta, edición, ganancias, liquidaciones y tesorería.
 
+import {
+  PAYOUT_BATCH_CHANGED,
+  PayoutBatchProblemSchema,
+  STEP_UP_TOKEN_HEADER,
+  type PayoutBatchProblem,
+  type PayoutBatchResult,
+} from '@nightpay/contracts';
 import type {
   ApprovalRequestedResponse,
   OxiocardStatus,
@@ -394,6 +401,66 @@ export async function createOperatorPayout(
   });
   if (!res.ok) throw await totpAwareError(res);
   return res.json();
+}
+
+// ─── «Pagar» a varias a la vez (entrega 11) ──────────────────────────
+
+/**
+ * 409 PAYOUT_BATCH_CHANGED: algo cambió desde que se abrió la lista y no se
+ * ha apuntado ningún pago nuevo. Lleva lo de cada persona (ApiError lo perdería).
+ */
+export class PayoutBatchChangedError extends Error {
+  override name = 'PayoutBatchChangedError';
+  readonly problems: PayoutBatchProblem[];
+  constructor(problems: PayoutBatchProblem[]) {
+    super('PAYOUT_BATCH_CHANGED');
+    this.problems = problems;
+  }
+}
+
+/** 50 pagos, cada uno en su transacción, no caben en los 15 s de siempre. */
+const PAYOUT_BATCH_TIMEOUT_MS = 120_000;
+
+/**
+ * Apunta los pagos de varias personas con UN segundo factor: el código de la
+ * app (`totpCode`) o, sin 2FA, la prueba de la llave (`stepUpToken`, atada a
+ * la clave, a cuántas son y al total). Solo van a quién y la cifra vista: el
+ * importe, el método y la cuenta los pone el API. La clave es obligatoria.
+ */
+export async function createPayoutBatch(
+  items: ReadonlyArray<{ operatorId: string; expectedTotalCents: number }>,
+  options: { totpCode?: string; stepUpToken?: string; idempotencyKey: string },
+): Promise<PayoutBatchResult> {
+  const res = await authedFetch(
+    '/v1/admin/payout-batches',
+    {
+      method: 'POST',
+      headers: {
+        'Idempotency-Key': options.idempotencyKey,
+        ...(options.stepUpToken ? { [STEP_UP_TOKEN_HEADER]: options.stepUpToken } : {}),
+      },
+      body: JSON.stringify({ items, ...(options.totpCode ? { totpCode: options.totpCode } : {}) }),
+    },
+    { timeoutMs: PAYOUT_BATCH_TIMEOUT_MS },
+  );
+  if (res.status === 409) {
+    const problems = await batchProblems(res);
+    if (problems) throw new PayoutBatchChangedError(problems);
+  }
+  if (!res.ok) throw await totpAwareError(res);
+  return res.json();
+}
+
+/** Los problemas del 409 PAYOUT_BATCH_CHANGED (sin gastar el cuerpo: si no lo es, se lee como siempre). */
+async function batchProblems(res: Response): Promise<PayoutBatchProblem[] | null> {
+  try {
+    const body = (await res.clone().json()) as { code?: unknown; problems?: unknown };
+    if (body?.code !== PAYOUT_BATCH_CHANGED) return null;
+    const parsed = PayoutBatchProblemSchema.array().safeParse(body.problems ?? []);
+    return parsed.success ? parsed.data : [];
+  } catch {
+    return null;
+  }
 }
 
 // ─── Ventas por datáfono sin cuadrar con el banco (H-1) ─────────────

@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, type CSSProperties } from 'react';
-import { Button } from '@nightpay/ui';
+import { Button, FormError } from '@nightpay/ui';
 import { formatMoney, type ReservationAccounting } from '@nightpay/contracts';
 import { fetchAccounting, fetchReservationSettings, setOpenTime, setReservationsEnabled, type ReservationSettings } from '@/lib/endpoints/reservations';
 import { addDays, currentNight } from '@/lib/reservations';
@@ -131,9 +131,9 @@ export function ReservationsLinkCard({ isOwner }: { isOwner: boolean }) {
         ) : null}
       </section>
       {error ? (
-        <p role="alert" className="np-set-error">
+        <FormError>
           {error}
-        </p>
+        </FormError>
       ) : null}
     </div>
   );

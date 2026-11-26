@@ -1,7 +1,7 @@
 'use client';
 
 import { Fragment, useCallback, useEffect, useMemo, useRef, type CSSProperties, type ReactNode } from 'react';
-import { BusyWord, EmptyState, Icon, ScreenHelp } from '@nightpay/ui';
+import { BusyWord, EmptyState, FormError, Icon, ScreenHelp } from '@nightpay/ui';
 import { STICKY_ACTION_BOTTOM } from '../layout';
 import { TOURS } from '@/lib/tours';
 import { formatEur } from '@/lib/money';
@@ -205,12 +205,12 @@ export function Carta({
           </button>
         )}
         {cuenta.length > 0 && !chargeable(cuenta) ? (
-          <p className={styles.error}>Una propina sola no se cobra: añade lo que se lleva.</p>
+          <FormError>Una propina sola no se cobra: añade lo que se lleva.</FormError>
         ) : null}
         {error ? (
-          <p role="alert" className={styles.error}>
+          <FormError>
             {error}
-          </p>
+          </FormError>
         ) : null}
       </div>
     </div>
