@@ -46,7 +46,9 @@ export type IncidentKind =
   // Avisos por persona (19-11-2026): cancelaciones, «Otro importe», PIN y cobros seguidos al mismo saldo.
   | 'staff_pattern'
   // «No es mío» (cobro por el encargado): una compañera dice que un servicio cobrado a su nombre no es suyo.
-  | 'service_disputed';
+  | 'service_disputed'
+  // El local anuló o cambió la fecha de una reserva cuya comisión ya se le pagó al RRPP.
+  | 'promoter_commission_paid';
 
 /** Las que desaparecen solas al resolverse (no se marcan como revisadas). */
 export const SELF_RESOLVING: ReadonlySet<IncidentKind> = new Set<IncidentKind>([
@@ -87,6 +89,7 @@ export const ACKABLE_KINDS = [
   'bitcoin_overpaid',
   'staff_pattern',
   'service_disputed',
+  'promoter_commission_paid',
 ] as const satisfies readonly IncidentKind[];
 
 /**
@@ -115,6 +118,8 @@ const MONEY_ACK_KINDS: ReadonlySet<IncidentKind> = new Set<IncidentKind>([
   'staff_pattern',
   // «No es mío»: se cierra diciendo qué se hizo (devuelto y cobrado a su nombre, era suyo…).
   'service_disputed',
+  // Comisión del RRPP ya pagada de una reserva anulada: se cierra diciendo qué se hizo (descontada, se le deja…).
+  'promoter_commission_paid',
 ]);
 
 /** Letras mínimas de la nota de un aviso de dinero (como la del cierre con cobros sin terminar). */
@@ -367,6 +372,31 @@ export function serviceDisputedIncident(r: EventRow): Incident {
     occurredAt: r.occurredAt.toISOString(),
     amountCents: r.amountCents,
     paymentId: str(p, 'paymentId'),
+    ackable: true,
+  };
+}
+
+/** Lo apunta reservation-ledger (voidPromoterCommission) al anular o cambiar la fecha el local con la comisión ya pagada. */
+export const PROMOTER_COMMISSION_PAID_ACTION = 'reservation.commission_voided_after_payout';
+
+/**
+ * El local anuló o cambió la fecha de una reserva y su comisión ya se le había
+ * pagado al RRPP: no se recupera sola (no se mueve dinero). El nombre, solo en
+ * el panel; en Telegram (un tercero), sin él, como los demás.
+ */
+export function promoterCommissionPaidIncident(r: EventRow): Incident {
+  const p = r.payload && typeof r.payload === 'object' ? (r.payload as Record<string, unknown>) : {};
+  const amount = r.amountCents === null ? 'su comisión' : `su comisión de ${eur(r.amountCents)}`;
+  const todo = 'Ya se le pagó y no se descuenta sola: habla con él y, si toca, descuéntasela de su próximo pago.';
+  return {
+    kind: 'promoter_commission_paid',
+    refId: r.id,
+    title: 'Reserva anulada con la comisión del RRPP ya pagada',
+    detail: `El local anuló o cambió la fecha de una reserva de ${str(p, 'promoterName') ?? 'un RRPP'}: ${amount} ya estaba pagada. ${todo}`,
+    alertDetail: `El local anuló o cambió la fecha de una reserva de un RRPP: ${amount} ya estaba pagada. ${todo}`,
+    occurredAt: r.occurredAt.toISOString(),
+    amountCents: r.amountCents,
+    paymentId: null,
     ackable: true,
   };
 }

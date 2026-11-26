@@ -47,7 +47,8 @@ export type IncidentKind =
   /** Avisos por persona: cancelaciones, «Otro importe», PIN o cobros seguidos al mismo saldo de alguien del personal en una noche. */
   | 'staff_pattern'
   /** «No es mío»: una compañera dice que un servicio que otra persona le cobró a su nombre no es suyo (se cierra con nota). */
-  | 'service_disputed';
+  | 'service_disputed'
+  | 'promoter_commission_paid';
 
 export interface Incident {
   kind: IncidentKind;

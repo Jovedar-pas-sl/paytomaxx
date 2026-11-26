@@ -23,6 +23,8 @@ import {
   SENSITIVE_AUDIT_ACTIONS,
   receptionPayoutCapIncident,
   serviceDisputedIncident,
+  promoterCommissionPaidIncident,
+  PROMOTER_COMMISSION_PAID_ACTION,
   earningReverseFailedIncident,
   nightClosedPendingIncident,
   openIncidents,
@@ -168,7 +170,8 @@ export class IncidentsService {
            AND (a.action IN ('refund.earning_reverse_failed', 'wallet.credit_skipped_critical',
                              'pos.reception_limit_exceeded', 'wallet.cash_split_suspected',
                              'wallet.reception_payout_cap', 'wallet.card_blocked_by_client',
-                             'wallet.charge_disputed_by_client', ${SERVICE_DISPUTED_ACTION})
+                             'wallet.charge_disputed_by_client', ${SERVICE_DISPUTED_ACTION},
+                             ${PROMOTER_COMMISSION_PAID_ACTION})
                 OR (a.action = ANY(${[...SENSITIVE_AUDIT_ACTIONS]}::text[])
                     -- «No se cobró» no sube ningún saldo: no hace falta avisar.
                     AND COALESCE(a.payload ->> 'decision', 'AUTHORIZED') = 'AUTHORIZED'))
@@ -176,7 +179,8 @@ export class IncidentsService {
                             WHERE k."tenantId" = a."tenantId"
                               AND k.kind IN ('earning_reverse_failed', 'wallet_credit_skipped', 'pos_reception_limit',
                                              'cash_split_suspected', 'reception_payout_cap', 'wallet_card_lost',
-                                             'wallet_charge_disputed', 'sensitive_action', 'service_disputed')
+                                             'wallet_charge_disputed', 'sensitive_action', 'service_disputed',
+                                             'promoter_commission_paid')
                               AND k."refId" = a.id::text)
            AND a."occurredAt" >= ${since}
          ORDER BY a."occurredAt" DESC
@@ -418,6 +422,8 @@ export class IncidentsService {
                     ? walletChargeDisputedIncident(r)
                     : r.action === SERVICE_DISPUTED_ACTION
                       ? serviceDisputedIncident(r)
+                      : r.action === PROMOTER_COMMISSION_PAID_ACTION
+                      ? promoterCommissionPaidIncident(r)
                       : SENSITIVE_AUDIT_ACTIONS.includes(r.action)
                       ? sensitiveActionIncident(r)
                       : walletCreditSkippedIncident(r),

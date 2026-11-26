@@ -240,6 +240,16 @@ describe('secciones de un cobro', () => {
     expect(rows.find((r) => r.code === 'VENUE_ROOM')?.count).toBe(1);
   });
 
+  it('OxioPay no cobra su % de lo devuelto (como «Ver detalle»): entero 0; en parte, sobre lo que queda (la propina se devuelve primero)', () => {
+    // 100 € al 10 %: sin devolver, 10 €; devuelto entero, 0 €.
+    expect(platformCommissionCents([sale({ amountCents: 10_000, platformBps: 1000 })])).toBe(1_000);
+    expect(platformCommissionCents([sale({ amountCents: 10_000, platformBps: 1000, refundedSaleCents: 10_000 })])).toBe(0);
+    // 100 € + 10 € de propina, devueltos 40 €: 10 de la propina y 30 del importe → 10 % de 70 € = 7 €.
+    expect(platformCommissionCents([sale({ amountCents: 10_000, tipCents: 1_000, platformBps: 1000, refundedSaleCents: 4_000 })])).toBe(700);
+    // Solo la propina devuelta: el % sigue entero.
+    expect(platformCommissionCents([sale({ amountCents: 10_000, tipCents: 1_000, platformBps: 1000, refundedSaleCents: 1_000 })])).toBe(1_000);
+  });
+
   it('la comisión de OxioPay redondea cobro a cobro', () => {
     expect(platformCommissionCents([sale({ amountCents: 1_005, platformBps: 1000 }), sale({ amountCents: 1_005, platformBps: 1000 })])).toBe(202);
   });

@@ -157,7 +157,8 @@ async function earnCommission(
 /**
  * El local cambió la fecha o anuló: el RRPP pierde la comisión, siempre. Si ya
  * estaba apuntada y sin pagar, se anula del reparto (su neto queda a 0); si ya
- * se le pagó, queda la incidencia para descontársela a mano.
+ * se le pagó, no se mueve dinero: queda el aviso al dueño (incidencia
+ * promoter_commission_paid, con el importe y su nombre) para hablarlo con él.
  */
 export async function voidPromoterCommission(tx: TransactionalClient, r: { id: string; tenantId: string; promoterId: string | null }, actorId: string): Promise<void> {
   if (!r.promoterId) return;
@@ -172,6 +173,7 @@ export async function voidPromoterCommission(tx: TransactionalClient, r: { id: s
      WHERE e."paymentId" IN (SELECT "paymentId" FROM reservation_payments WHERE "reservationId" = ${r.id}::uuid AND "paymentId" IS NOT NULL)
      FOR UPDATE OF e
   `;
+  const paid = earnings.some((e) => e.payoutId !== null) ? await promoterName(tx, r.promoterId) : null;
   for (const e of earnings) {
     if (e.payoutId === null) {
       await tx.$executeRaw`UPDATE operator_earnings SET "reversedCents" = "commissionCents" WHERE id = ${e.id}::uuid`;
@@ -180,8 +182,19 @@ export async function voidPromoterCommission(tx: TransactionalClient, r: { id: s
       earningId: e.id,
       commissionCents: e.commissionCents,
       actorId,
+      // Ya pagada: lo que lee el aviso al dueño (incidents: amountCents del registro).
+      ...(e.payoutId === null ? {} : { amountCents: e.commissionCents, promoterName: paid }),
     });
   }
+}
+
+async function promoterName(tx: TransactionalClient, promoterId: string): Promise<string | null> {
+  const rows = await tx.$queryRaw<Array<{ name: string | null }>>`
+    SELECT COALESCE(NULLIF(btrim(u."displayName"), ''), split_part(u.email, '@', 1)) AS name
+      FROM promoters pr JOIN users u ON u.id = pr."userId"
+     WHERE pr.id = ${promoterId}::uuid
+  `;
+  return rows[0]?.name ?? null;
 }
 
 async function audit(
