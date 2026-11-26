@@ -33,7 +33,10 @@ describe('cuenta de cobro cifrada en la base (pa1)', () => {
   it('con otra clave, o tocada, no se abre', () => {
     const sealed = sealPayoutValue(IBAN, { userId: ANA, field: 'address' }, KEK);
     expect(() => openPayoutValue(sealed, { userId: ANA, field: 'address' }, `${KEK}-otra`)).toThrow();
-    const tampered = `${sealed.slice(0, -2)}AA`;
+    // Se cambia el primer carácter del último trozo (sus 6 bits cuentan): `…AA` al final a veces
+    // decodificaba a los mismos bytes (los bits de relleno del base64url no cuentan) y la prueba fallaba al azar.
+    const cut = sealed.lastIndexOf(':') + 1;
+    const tampered = `${sealed.slice(0, cut)}${sealed[cut] === 'A' ? 'B' : 'A'}${sealed.slice(cut + 1)}`;
     expect(() => openPayoutValue(tampered, { userId: ANA, field: 'address' }, KEK)).toThrow();
   });
 

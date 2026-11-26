@@ -4,6 +4,7 @@ import {
   isCloudflareAddress,
   isInternalAddress,
   markOriginVerified,
+  ipPrefixKey,
   normalizeIp,
   rateLimitIpKey,
   trustInternalProxy,
@@ -108,5 +109,15 @@ describe('rateLimitIpKey (la clave de los límites por IP)', () => {
 
   it('lo que no es una IP, tal cual', () => {
     expect(rateLimitIpKey('desconocida')).toBe('desconocida');
+  });
+});
+
+describe('ipPrefixKey (la red de una IP, para los topes)', () => {
+  it('IPv6 por el prefijo pedido (/48 en los fallos de la API de socios, /64 en rateLimitIpKey); IPv4 tal cual', () => {
+    expect(ipPrefixKey('2001:db8:abcd:12::1', 48)).toBe('2001:db8:abcd::/48');
+    expect(ipPrefixKey('2001:db8:abcd:ffff::9', 48)).toBe('2001:db8:abcd::/48');
+    expect(ipPrefixKey('2001:db8:abcd:12::1', 64)).toBe(rateLimitIpKey('2001:db8:abcd:12::1'));
+    expect(ipPrefixKey('203.0.113.7', 48)).toBe('203.0.113.7');
+    expect(ipPrefixKey('::ffff:203.0.113.7', 48)).toBe('203.0.113.7');
   });
 });

@@ -46,6 +46,13 @@ const PAYOUT_WALLET_FILES = new Set([
   'apps/operator/src/app/onboarding/[token]/SelfOnboardingClient.tsx',
 ]);
 
+/**
+ * La API de socios (contracts/partner): su contrato y su documentación van en
+ * inglés, para quien programa otra plataforma, y ahí «wallet» es la palabra del
+ * contrato (docs/partner-api/pilot, que manda). Lo que ve el dueño (admin.ts), sí se mira.
+ */
+const PARTNER_API_DOC = /^packages\/contracts\/src\/partner\/(?!admin\.ts$)/;
+
 function sourceFiles(dir: string): string[] {
   return readdirSync(join(ROOT, dir), { recursive: true, encoding: 'utf8' })
     .map((f) => f.replace(/\\/g, '/'))
@@ -104,7 +111,7 @@ function walletTextsIn(file: string, src: string): string[] {
 
 describe('al usuario se le dice «Saldo/Saldos», nunca «Wallet(s)»', () => {
   it('ningún texto que se enseña dice «wallet»', () => {
-    const files = DIRS.flatMap(sourceFiles).filter((f) => !PAYOUT_WALLET_FILES.has(f) && !f.startsWith('apps/api/src/config/'));
+    const files = DIRS.flatMap(sourceFiles).filter((f) => !PAYOUT_WALLET_FILES.has(f) && !PARTNER_API_DOC.test(f) && !f.startsWith('apps/api/src/config/'));
     expect(files.length).toBeGreaterThan(500);
     const hits = files.flatMap((f) => walletTextsIn(f, readFileSync(join(ROOT, f), 'utf8')));
     expect(hits).toEqual([]);

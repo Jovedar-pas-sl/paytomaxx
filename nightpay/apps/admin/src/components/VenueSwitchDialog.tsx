@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, type CSSProperties, type FormEvent, type ReactNode } from 'react';
-import { Button, Modal } from '@nightpay/ui';
+import { Button, FormError, Modal } from '@nightpay/ui';
 import { switchToVenue } from '@/lib/api';
 import { needsTotpCode, totpLockedUntil } from '@/lib/api-errors';
 import { OTP_LENGTH } from '@/lib/otp';
@@ -102,9 +102,9 @@ export function VenueSwitchDialog({ venueId, venueName, onClose }: Props) {
           hint="Al poner el sexto número se entra. Cada código vale una vez (cambia cada 30 s)."
         />
         {error ? (
-          <p role="alert" style={errorStyle}>
+          <FormError>
             {error}
-          </p>
+          </FormError>
         ) : null}
         <div style={actionsStyle}>
           <Button type="button" variant="ghost" onClick={onClose} disabled={submitting}>
@@ -121,6 +121,5 @@ export function VenueSwitchDialog({ venueId, venueName, onClose }: Props) {
 
 const formStyle: CSSProperties = { display: 'flex', flexDirection: 'column', gap: '1rem' };
 
-const errorStyle: CSSProperties = { color: 'var(--np-danger)', margin: 0, fontSize: '0.875rem' };
 
 const actionsStyle: CSSProperties = { display: 'flex', gap: '0.5rem', justifyContent: 'flex-end', flexWrap: 'wrap' };

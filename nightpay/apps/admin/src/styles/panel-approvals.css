@@ -125,12 +125,6 @@
   flex: 1 1 9rem;
 }
 
-.np-approval-error {
-  margin: 0;
-  font-size: 0.875rem;
-  color: var(--np-danger);
-}
-
 /* «Rechazar»: con borde rojo (no relleno), para no confundirlo con «Aprobar». */
 .np-btn[data-variant='ghost'].np-approval-reject {
   color: var(--np-danger);

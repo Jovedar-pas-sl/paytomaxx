@@ -136,4 +136,7 @@ export const UNPREFIXED_ROUTES: readonly UnprefixedRoute[] = Object.freeze([
   { path: 'reservas/:token/anular', method: RequestMethod.POST },
   // Aviso legal, Privacidad, Cookies y Condiciones (enlazadas desde el pie de las páginas del cliente).
   { path: 'legal/:doc', method: RequestMethod.GET },
+  // API de socios: el enlace de un uso con la clave nueva (la página no gasta nada; el botón la enseña una vez).
+  { path: 'partner-key/:token', method: RequestMethod.GET },
+  { path: 'partner-key/:token', method: RequestMethod.POST },
 ]);

@@ -1,7 +1,7 @@
 'use client';
 
 import { useId, useState } from 'react';
-import { useNow } from '@nightpay/ui';
+import { FormError, useNow } from '@nightpay/ui';
 import type { PayoutMethod } from '@nightpay/contracts';
 import { Button } from '@nightpay/ui';
 import { fetchApprovals, handOverCash, type ApprovalView } from '@/lib/api';
@@ -127,9 +127,9 @@ function RequestRow({ item, now, onChanged }: { item: ApprovalView; now: Date; o
         <p className="np-approval-meta">No se entregó a tiempo (24 h): si aún hay que devolverlo, pídelo otra vez.</p>
       ) : null}
       {handError ? (
-        <p role="alert" className="np-approval-meta" style={{ color: 'var(--np-danger)' }}>
+        <FormError>
           {handError}
-        </p>
+        </FormError>
       ) : null}
     </li>
   );

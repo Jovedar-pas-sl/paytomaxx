@@ -1,5 +1,6 @@
 'use client';
 
+import { FormError } from '@nightpay/ui';
 import { useEffect, useState, type CSSProperties } from 'react';
 import { fetchAllVenues, type VenueListItem } from '@/lib/api';
 import { useVenueSwitch } from './VenueSwitchDialog';
@@ -47,9 +48,9 @@ export function VenueSwitcher({ currentSlug }: Props) {
   // Sin lista no hay desplegable, pero el error se ve (antes se escondía).
   if (error && venues.length === 0) {
     return (
-      <p role="alert" style={errStyle}>
+      <FormError>
         No se pudieron cargar los locales: {error}
-      </p>
+      </FormError>
     );
   }
   if (venues.length <= 1) return null; // No vale la pena el dropdown si solo hay un local
@@ -75,9 +76,9 @@ export function VenueSwitcher({ currentSlug }: Props) {
         ))}
       </select>
       {error || switcher.error ? (
-        <p role="alert" style={errStyle}>
+        <FormError>
           {switcher.error ?? error}
-        </p>
+        </FormError>
       ) : null}
       {switcher.dialog}
     </div>
@@ -109,8 +110,3 @@ const selectStyle: CSSProperties = {
   cursor: 'pointer',
 };
 
-const errStyle: CSSProperties = {
-  margin: 0,
-  fontSize: '0.875rem',
-  color: 'var(--np-danger-text)',
-};

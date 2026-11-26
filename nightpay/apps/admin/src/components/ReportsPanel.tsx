@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, type CSSProperties } from 'react';
-import { Button, Card, Input } from '@nightpay/ui';
+import { Button, Card, FormError, Input } from '@nightpay/ui';
 import { downloadExport, type ExportKind } from '@/lib/api';
 import { isValidRange, lastDayOfMonth, presetRange, type ReportPreset } from '@/lib/dates';
 import { FILTER_FIELD } from '@/lib/filter-field';
@@ -115,9 +115,9 @@ export function ReportsPanel({ isOwner }: { isOwner: boolean }) {
       </Card>
 
       {error ? (
-        <p role="alert" style={{ color: 'var(--np-danger)', margin: 0 }}>
+        <FormError>
           {error}
-        </p>
+        </FormError>
       ) : null}
 
       <div style={reportGrid}>

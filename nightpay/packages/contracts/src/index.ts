@@ -49,3 +49,4 @@ export * from './customer-display';
 export * from './reservations';
 export * from './rrpp';
 export * from './alta';
+export * from './partner';

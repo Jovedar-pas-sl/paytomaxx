@@ -138,3 +138,48 @@ describe('Sentry: datos personales de las altas y los pagos (FSD-08)', () => {
     expect(JSON.stringify(text)).not.toMatch(PERSONAL);
   });
 });
+
+describe('Sentry: API de socios (claves, QR, chip y descripción)', () => {
+  const KEY = `oxp_live_${'0a1b'.repeat(12)}`;
+
+  it('la clave en el mensaje de un error (Error(`… oxp_live_…`)) y en el mensaje del evento no sale', () => {
+    const err = new Error(`no se pudo usar ${KEY} en /v1/partner/me`);
+    const event = scrubSensitive({
+      message: `fallo con ${KEY}`,
+      exception: { values: [{ type: 'Error', value: err.message, stacktrace: { frames: [] } }] },
+      extra: { nota: `clave ${KEY}`, codigo: 'OXC1:K3J7Q2M9X4T8R6V1N5B0C2D7F9' },
+    });
+    const text = JSON.stringify(event);
+    expect(text).not.toContain(KEY);
+    expect(text).not.toContain('OXC1:K3J7Q2M9X4T8R6V1N5B0C2D7F9');
+    expect(text).toContain('no se pudo usar');
+    expect((event.exception as { values: Array<{ type: string }> }).values[0]!.type).toBe('Error');
+  });
+
+  it('la clave en el mensaje o los datos de un breadcrumb y en la descripción o los datos de un span no sale', () => {
+    const event = scrubSensitive({
+      breadcrumbs: [
+        { category: 'console', message: `clave ${KEY} rechazada`, data: { arguments: [`usando ${KEY}`], nested: { nota: KEY }, status_code: 401 } },
+      ],
+      spans: [{ description: `SELECT 1 -- ${KEY}`, data: { 'db.statement': `UPDATE x SET k = '${KEY}'`, extra: { k: KEY } } }],
+      contexts: { trace: { description: `trace ${KEY}`, data: { nota: KEY } } },
+    });
+    const text = JSON.stringify(event);
+    expect(text).not.toContain(KEY);
+    expect(text).toContain('rechazada');
+    expect(text).toContain('"status_code":401');
+  });
+
+  it('qr, nfc_uid y description del cuerpo, fuera; la clave en una URL, tapada', () => {
+    const event = scrubSensitive({
+      request: {
+        url: `https://api.oxiopay.example/v1/partner/${KEY}/me`,
+        data: { qr: 'https://x.example/?ficha=abc', nfc_uid: '04A1B2C3D4E5F6', description: 'Recarga 0042', amount: 2000 },
+      },
+    });
+    const text = JSON.stringify(event);
+    expect(text).not.toMatch(/ficha=abc|04A1B2C3D4E5F6|Recarga 0042/);
+    expect(text).not.toContain(KEY);
+    expect(text).toContain('"amount":2000');
+  });
+});

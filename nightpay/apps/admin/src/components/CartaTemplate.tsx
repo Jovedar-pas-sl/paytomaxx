@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Button, Card, Checkbox } from '@nightpay/ui';
+import { Button, Card, Checkbox, FormError } from '@nightpay/ui';
 import type { ApplyCartaTemplateResult, VenueSection } from '@nightpay/contracts';
 import { applyCartaTemplate, type ServiceItem } from '@/lib/api';
 import { ApiError } from '@/lib/api-errors';
@@ -95,7 +95,11 @@ export function CartaTemplate({ items, sections, onApplied }: {
         </Button>
       </details>
       {message ? <p role="status" className="np-tpl-msg">{message}</p> : null}
-      {error ? <p role="alert" className="np-tpl-msg" data-tone="danger">{error}</p> : null}
+      {error ? (
+        <div className="np-tpl-msg">
+          <FormError>{error}</FormError>
+        </div>
+      ) : null}
     </Card>
   );
 }

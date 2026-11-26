@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { sanitizeTraceId } from './trace-id';
+import { requestTraceId, sanitizeTraceId } from './trace-id';
 
 describe('X-Trace-Id del cliente', () => {
   it('se acepta si es corto y solo letras, números y guiones', () => {
@@ -14,5 +14,16 @@ describe('X-Trace-Id del cliente', () => {
     expect(sanitizeTraceId('id con espacios')).toBeUndefined();
     expect(sanitizeTraceId('')).toBeUndefined();
     expect(sanitizeTraceId(undefined)).toBeUndefined();
+  });
+});
+
+describe('requestTraceId', () => {
+  it('en la API de socios, X-Request-Id (también con la URL del middleware sin prefijo); fuera, X-Trace-Id', () => {
+    const headers = { 'x-request-id': 'atm0042-req-1', 'x-trace-id': 'traza-1' };
+    expect(requestTraceId({ url: '/v1/partner/me', headers }, 'nueva')).toBe('atm0042-req-1');
+    expect(requestTraceId({ url: '/', originalUrl: '/v1/partner/me', headers }, 'nueva')).toBe('atm0042-req-1');
+    expect(requestTraceId({ url: '/v1/admin/payments', headers }, 'nueva')).toBe('traza-1');
+    expect(requestTraceId({ url: '/v1/partner/me', headers: { 'x-request-id': 'con espacios' } }, 'nueva')).toBe('nueva');
+    expect(requestTraceId(undefined, 'nueva')).toBe('nueva');
   });
 });

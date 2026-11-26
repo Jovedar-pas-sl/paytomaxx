@@ -1,7 +1,7 @@
 'use client';
 
 import type { CSSProperties } from 'react';
-import { StaffAvatar } from '@nightpay/ui';
+import { FormError, StaffAvatar } from '@nightpay/ui';
 import { STICKY_ACTION_BOTTOM } from '../layout';
 import { formatEur } from '@/lib/money';
 import type { Cuenta } from '@/lib/cuenta';
@@ -90,9 +90,9 @@ export function ServicioDe({ ctx, who, cuenta, chica, onQr, gateways, onGateway,
           </p>
         ) : null}
         {error ? (
-          <p role="alert" className={styles.error}>
+          <FormError>
             {error}
-          </p>
+          </FormError>
         ) : null}
       </div>
     </div>

@@ -96,3 +96,17 @@ describe('logger HTTP (pino de Fastify)', () => {
     expect(out).toEqual({ method: 'GET', url: '/w/***/state', hostname: undefined, remoteAddress: '81.0.0.7' });
   });
 });
+
+describe('logger HTTP: API de socios', () => {
+  it('qr, nfc_uid, description y la clave sellada del enlace salen tapados', () => {
+    const { lines, stream } = capture();
+    const { serializers: _serializers, ...options } = httpLoggerOptions('info');
+    pino(options, stream).info({
+      body: { qr: 'https://x.example/?ficha=S3CRETO-QR', nfc_uid: '04A1B2C3D4E5F6', description: 'S3CRETO-DESC', amount: 2000 },
+      row: { keyClaimSealed: 'S3CRETO-SELLADA', keyHint: 'oxp_live_…a1b2' },
+    });
+    const text = lines.join('');
+    expect(text).not.toMatch(/S3CRETO-QR|04A1B2C3D4E5F6|S3CRETO-DESC|S3CRETO-SELLADA/);
+    expect(withoutRunInfo(lines)[0]).toMatchObject({ body: { amount: 2000 }, row: { keyHint: 'oxp_live_…a1b2' } });
+  });
+});

@@ -1,7 +1,9 @@
 import { maskIban, maskPayoutAddress, maskWalletAddress } from '@nightpay/contracts';
 
 /** Lo que nunca se enseña ni se guarda en el registro, ni tapado. */
-const SECRET_KEY = /password|secret|token|totp|pinhash|hash$|apikey|enckey|cookie|authorization/i;
+const SECRET_KEY = /password|secret|token|totp|pinhash|hash$|apikey|enckey|cookie|authorization|sealed/i;
+/** Una clave de socio en cualquier valor (la pista «oxp_live_…a1b2» no lo es: no sigue un hex). */
+const PARTNER_KEY_VALUE = /oxp_(?:live|test)_[0-9a-f]/i;
 const IBAN_KEY = /iban/i;
 const ADDRESS_KEY = /address/i;
 const HIDDEN = '[oculto]';
@@ -14,6 +16,7 @@ const MAX_DEPTH = 8;
  * (cripto "T…9f2a", email "a•••@dominio"). No modifica el original.
  */
 export function maskSensitive(value: unknown, depth = 0, method?: string | null): unknown {
+  if (typeof value === 'string') return PARTNER_KEY_VALUE.test(value) ? HIDDEN : value;
   if (value === null || typeof value !== 'object') return value;
   if (value instanceof Date) return value.toISOString();
   if (depth >= MAX_DEPTH) return '[demasiado anidado]';

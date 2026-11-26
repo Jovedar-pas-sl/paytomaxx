@@ -6,6 +6,20 @@ import { inputLimitProblem } from './input-limits';
 const MAX_REPORTED_ISSUES = 20;
 
 /**
+ * El 400 del pipe con los fallos crudos de Zod (`zodIssues`), fuera del cuerpo
+ * de la respuesta (que sigue igual para todo el API): la API de socios los lee
+ * para su código (flatten() pierde el tipo de fallo y el orden).
+ */
+export class ZodValidationException extends BadRequestException {
+  constructor(
+    body: Record<string, unknown>,
+    readonly zodIssues: ReadonlyArray<ZodError['issues'][number]>,
+  ) {
+    super(body);
+  }
+}
+
+/**
  * Acepta cualquier schema Zod. El input puede diferir del output
  * (e.g. `.default()` o `.transform()` cambian la forma) — necesario para
  * que TS no falle cuando los tipos de entrada/salida del schema divergen.
@@ -39,14 +53,17 @@ export class ZodValidationPipe<S extends ZodTypeAny>
       });
       const shown = issues.slice(0, MAX_REPORTED_ISSUES);
       const more = issues.length - shown.length;
-      throw new BadRequestException({
-        title: 'Validation failed',
-        detail: [
-          ...shown.map((i) => `${i.path.join('.') || '(root)'}: ${i.message}`),
-          ...(more > 0 ? [`y ${more} más`] : []),
-        ].join('; '),
-        issues: new ZodError(shown).flatten(),
-      });
+      throw new ZodValidationException(
+        {
+          title: 'Validation failed',
+          detail: [
+            ...shown.map((i) => `${i.path.join('.') || '(root)'}: ${i.message}`),
+            ...(more > 0 ? [`y ${more} más`] : []),
+          ].join('; '),
+          issues: new ZodError(shown).flatten(),
+        },
+        issues,
+      );
     }
     return result.data;
   }

@@ -1,7 +1,7 @@
 'use client';
 
 import type { CSSProperties } from 'react';
-import { BusyWord, Icon, ScreenHelp } from '@nightpay/ui';
+import { BusyWord, FormError, Icon, ScreenHelp } from '@nightpay/ui';
 import { STICKY_ACTION_BOTTOM } from '../layout';
 import { TOURS } from '@/lib/tours';
 import { formatEur } from '@/lib/money';
@@ -108,12 +108,12 @@ export function LaCuenta({ ctx, cuenta, who, onQty, onRemove, onAdd, onBack, onC
           </button>
         ) : null}
         {cuenta.length > 0 && !chargeable(cuenta) ? (
-          <p className={styles.error}>Una propina sola no se cobra: añade lo que se lleva.</p>
+          <FormError>Una propina sola no se cobra: añade lo que se lleva.</FormError>
         ) : null}
         {error ? (
-          <p role="alert" className={styles.error}>
+          <FormError>
             {error}
-          </p>
+          </FormError>
         ) : null}
       </div>
     </div>

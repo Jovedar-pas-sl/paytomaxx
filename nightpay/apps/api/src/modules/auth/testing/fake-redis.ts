@@ -4,6 +4,8 @@
  * que vale con vi.useFakeTimers() / vi.setSystemTime().
  */
 import { RESERVE_ATTEMPT_LUA } from '../lockout.service';
+import { FOREIGN_IP_WINDOW_LUA } from '../../partner/auth/partner-foreign-ip';
+import { FREEZE_FILL_LUA } from '../../partner/auth/partner-freeze';
 
 type ScriptHandler = (fake: FakeRedis, keys: string[], args: string[]) => Promise<unknown>;
 
@@ -196,8 +198,41 @@ export async function reserveAttemptScript(fake: FakeRedis, keys: string[], args
   return out;
 }
 
+/**
+ * Misma semántica que FOREIGN_IP_WINDOW_LUA (partner-foreign-ip): un ZSET
+ * (aquí, un JSON {miembro: ms}) del que salen los de fuera de la ventana; apunta
+ * el miembro y devuelve [nuevo, cuántos]. createFakeRedis() ya lo registra.
+ */
+export async function foreignIpWindowScript(fake: FakeRedis, keys: string[], args: string[]): Promise<number[]> {
+  const [key] = keys;
+  const [now, windowMs, member] = [Number(args[0]), Number(args[1]), args[2]!];
+  const zset = JSON.parse((await fake.get(key!)) ?? '{}') as Record<string, number>;
+  for (const [m, at] of Object.entries(zset)) if (at <= now - windowMs) delete zset[m];
+  const added = member in zset ? 0 : 1;
+  zset[member] = now;
+  await fake.set(key!, JSON.stringify(zset), 'PX', windowMs);
+  return [added, Object.keys(zset).length];
+}
+
+/**
+ * Misma semántica que FREEZE_FILL_LUA (partner-freeze): escribe solo si sigue
+ * lo que se leyó (ausente o el valor que no valía) y devuelve lo que queda.
+ */
+export async function freezeFillScript(fake: FakeRedis, keys: string[], args: string[]): Promise<string | null> {
+  const [key] = keys;
+  const [seen, value, ttl] = args;
+  const current = await fake.get(key!);
+  if ((seen === '' && current === null) || current === seen) {
+    await fake.set(key!, value!, 'EX', Number(ttl));
+    return value!;
+  }
+  return current;
+}
+
 export function createFakeRedis(): FakeRedis {
   const fake = new FakeRedis();
   fake.defineScript(RESERVE_ATTEMPT_LUA, reserveAttemptScript);
+  fake.defineScript(FOREIGN_IP_WINDOW_LUA, foreignIpWindowScript);
+  fake.defineScript(FREEZE_FILL_LUA, freezeFillScript);
   return fake;
 }
