@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, type CSSProperties } from 'react';
-import { Button } from '@nightpay/ui';
+import { Button, Input } from '@nightpay/ui';
 import { formatMoney, reservationDepositCents, type ReservationPackageView } from '@nightpay/contracts';
 import { createPackage, setPackageActive, updatePackage } from '@/lib/endpoints/reservations';
 import { emptyPackageForm, eurosToCents, packageFormToInput, packageSummary, packageToForm, type PackageForm } from '@/lib/reservations';
@@ -97,9 +97,7 @@ function PackageFormBox({ initial, id, onDone, onCancel }: { initial: PackageFor
 
   return (
     <section style={{ ...card, gap: '0.625rem' }} aria-label={id ? 'Cambiar paquete' : 'Nuevo paquete'}>
-      <Field label="Nombre">
-        <input style={input} value={f.name} maxLength={60} onChange={set('name')} />
-      </Field>
+      <Input label="Nombre" value={f.name} maxLength={60} onChange={set('name')} />
       <div style={row} role="radiogroup" aria-label="Tipo de paquete">
         {(['ITEMS', 'CREDIT'] as const).map((k) => (
           <label key={k} style={radio}>
@@ -108,30 +106,20 @@ function PackageFormBox({ initial, id, onDone, onCancel }: { initial: PackageFor
           </label>
         ))}
       </div>
-      <div style={row}>
-        <Field label="Precio (€)">
-          <input style={input} inputMode="decimal" value={f.price} onChange={set('price')} />
-        </Field>
-        <Field label="Personas">
-          <input style={input} inputMode="numeric" value={f.entries} onChange={set('entries')} />
-        </Field>
-        <Field label="Máximo por noche (opcional)">
-          <input style={input} inputMode="numeric" value={f.maxPerNight} onChange={set('maxPerNight')} />
-        </Field>
+      <div style={fieldsRow}>
+        <Input label="Precio" suffix="€" inputMode="decimal" value={f.price} onChange={set('price')} />
+        <Input label="Personas" inputMode="numeric" value={f.entries} onChange={set('entries')} />
+        <Input label="Máximo por noche (opcional)" inputMode="numeric" value={f.maxPerNight} onChange={set('maxPerNight')} />
       </div>
       {price !== null ? <p style={line}>Señal: {formatMoney(reservationDepositCents(price))} (30 %, no se devuelve)</p> : null}
       {f.kind === 'CREDIT' ? (
-        <Field label="Importe para consumir (€)">
-          <input style={input} inputMode="decimal" value={f.credit} onChange={set('credit')} />
-        </Field>
+        <Input label="Importe para consumir" suffix="€" inputMode="decimal" value={f.credit} onChange={set('credit')} />
       ) : (
         <Field label="Qué incluye (una cosa por línea, p. ej. «2 Botella premium»)">
           <textarea style={{ ...input, minHeight: '5rem', paddingTop: '0.5rem' }} value={f.items} onChange={set('items')} />
         </Field>
       )}
-      <Field label="Descripción (opcional)">
-        <input style={input} value={f.description} maxLength={200} onChange={set('description')} />
-      </Field>
+      <Input label="Descripción (opcional)" value={f.description} maxLength={200} onChange={set('description')} />
       <div style={row}>
         <Button loading={busy} onClick={() => void save()}>
           Guardar
@@ -173,6 +161,9 @@ const title: CSSProperties = { margin: 0, fontSize: '1rem', fontWeight: 700 };
 const mute: CSSProperties = { color: 'var(--np-text-mute)', fontSize: '0.875rem' };
 const line: CSSProperties = { margin: 0, fontSize: '0.875rem' };
 const row: CSSProperties = { display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'flex-end' };
+// Precio, personas y máximo en una fila mientras quepan (cada uno de 10rem como poco).
+// gridGap (grid-gap), no gap: en una rejilla, gap llega con Chrome 66 y el datáfono puede ser 64.
+const fieldsRow: CSSProperties = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(10rem, 1fr))', gridGap: '0.5rem', alignItems: 'end' };
 const radio: CSSProperties = { display: 'flex', gap: '0.375rem', alignItems: 'center', fontSize: '0.875rem' };
 const field: CSSProperties = { display: 'flex', flexDirection: 'column', gap: '0.25rem', flex: '1 1 10rem' };
 const input: CSSProperties = {

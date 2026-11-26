@@ -1,13 +1,12 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useWakeLock, ScreenHelp } from '@nightpay/ui';
+import { Icon, ScreenHelp, useWakeLock } from '@nightpay/ui';
 import type { StaffQrView } from '@nightpay/contracts';
 import { fetchMyStaffQr } from '@/lib/api';
 import { formatEur } from '@/lib/money';
 import { TOURS } from '@/lib/tours';
 import { Chip, ScreenHeader } from './ScreenHeader';
-import { IconSun } from './icons';
 import styles from './cobrar.module.css';
 
 /** El QR se renueva antes de caducar (dura 10 minutos en el servidor). */
@@ -121,7 +120,7 @@ export function MiQr({
           </div>
         </div>
         <p className={styles.note} data-tour="miqr-brillo">
-          <IconSun />
+          <Icon name="sun" size={20} />
           Sube el brillo al máximo
         </p>
       </div>

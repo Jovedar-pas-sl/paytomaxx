@@ -1,7 +1,7 @@
 'use client';
 
 import type { CSSProperties } from 'react';
-import { BusyWord, ScreenHelp } from '@nightpay/ui';
+import { BusyWord, Icon, ScreenHelp } from '@nightpay/ui';
 import { STICKY_ACTION_BOTTOM } from '../layout';
 import { TOURS } from '@/lib/tours';
 import { formatEur } from '@/lib/money';
@@ -9,7 +9,6 @@ import { cobrarLabel } from '@/lib/carta-view';
 import { pinExpected, pinWarning } from '@/lib/cobro-view';
 import { chargeable, itemLabel, cuentaTotals, lineCents, lineSection, type Cuenta, type CuentaLine } from '@/lib/cuenta';
 import { colorOf, labelOf, type CobrarContext } from './cobrar-context';
-import { IconLock, IconMinus, IconPlus } from './icons';
 import { Chip, ScreenHeader } from './ScreenHeader';
 import styles from './cobrar.module.css';
 
@@ -58,7 +57,7 @@ export function LaCuenta({ ctx, cuenta, who, onQty, onRemove, onAdd, onBack, onC
           ))}
         </div>
         <button type="button" className={styles.addRow} onClick={onAdd} data-tour="cuenta-anadir">
-          <IconPlus />
+          <Icon name="plus" size={20} />
           Añadir algo de la carta
         </button>
         {parts.length > 0 ? (
@@ -75,7 +74,7 @@ export function LaCuenta({ ctx, cuenta, who, onQty, onRemove, onAdd, onBack, onC
         ) : null}
         {nfc && pinExpected(totals.totalCents, ctx.night) ? (
           <div className={styles.warnline}>
-            <IconLock />
+            <Icon name="lock" size={20} />
             {pinWarning(ctx.night)}
           </div>
         ) : null}
@@ -139,7 +138,7 @@ function Line({
       </div>
       <div className={styles.stepper}>
         <button type="button" className={styles.stepBtn} onClick={minus} aria-label={`Una menos: ${name}`}>
-          <IconMinus />
+          <Icon name="minus" size={20} />
         </button>
         <span className={styles.stepValue}>{qty}</span>
         {line.kind === 'carta' ? (
@@ -149,7 +148,7 @@ function Line({
             onClick={() => onQty(line.key, line.qty + 1)}
             aria-label={`Una más: ${name}`}
           >
-            <IconPlus />
+            <Icon name="plus" size={20} />
           </button>
         ) : null}
       </div>

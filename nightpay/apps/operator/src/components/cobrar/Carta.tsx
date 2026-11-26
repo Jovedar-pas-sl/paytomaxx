@@ -1,7 +1,7 @@
 'use client';
 
 import { Fragment, useCallback, useEffect, useMemo, useRef, type CSSProperties, type ReactNode } from 'react';
-import { BusyWord, ScreenHelp } from '@nightpay/ui';
+import { BusyWord, Icon, ScreenHelp } from '@nightpay/ui';
 import { STICKY_ACTION_BOTTOM } from '../layout';
 import { TOURS } from '@/lib/tours';
 import { formatEur } from '@/lib/money';
@@ -10,7 +10,6 @@ import { cartaGroups, cartaTileColor, cartaTiles, tapOf } from '@/lib/carta-tile
 import { cobrarLabel, itemTileKey, pickable, tileLabel, undoFocusTarget, type UndoTap } from '@/lib/carta-view';
 import { chargeable, itemLabel, cuentaSummary, cuentaTotals, qtyOf, type CartaItem, type Cuenta } from '@/lib/cuenta';
 import { colorOf, labelOf, offeredCodes, puestoChip, type CobrarContext } from './cobrar-context';
-import { IconQr, IconUndo } from './icons';
 import { ItemThumb } from './ItemThumb';
 import { Chip, ScreenHeader } from './ScreenHeader';
 import styles from './cobrar.module.css';
@@ -171,7 +170,7 @@ export function Carta({
                   onClick={onUndo}
                   aria-label={`Deshacer: ${undo.label}`}
                 >
-                  <IconUndo />
+                  <Icon name="undo" size={20} />
                   Deshacer
                 </button>
               </>
@@ -304,7 +303,7 @@ export function ItemTile({
       ) : null}
       {invite && !soldOut ? (
         <span className={styles.tileQr} aria-hidden="true">
-          <IconQr />
+          <Icon name="qr" size={20} />
         </span>
       ) : null}
       <ItemThumb item={item} />

@@ -172,7 +172,7 @@ function Row({ label, sub, amount, color, onClick }: { label: string; sub: strin
       <span className="np-num" style={{ fontSize: 'var(--np-fs-18)', fontWeight: 600, color, whiteSpace: 'nowrap' }}>
         {amount}
       </span>
-      <Chevron />
+      <Chevron size={20} />
     </button>
   );
 }

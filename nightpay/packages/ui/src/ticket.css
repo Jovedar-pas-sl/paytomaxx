@@ -69,9 +69,10 @@
   width: 100%;
 }
 
+/* La impresora es la pieza Icon a 24 (en rem: crece con la tablet). */
 .np-print-btn svg {
-  width: 1.375rem;
-  height: 1.375rem;
+  width: 1.5rem;
+  height: 1.5rem;
   flex: none;
 }
 

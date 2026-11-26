@@ -16,6 +16,13 @@
   }
 }
 
+/* Barra de pestañas de abajo (TabBar): los iconos a 24 (2 px de trazo); la
+   pestaña elegida, con el trazo más grueso (además de su color, su letra y su
+   raya de arriba). */
+.np-staff-tab[aria-current='page'] svg {
+  stroke-width: 2.4;
+}
+
 /* ─── Resultado a pantalla completa (PaymentOutcome) ─────────────────
    Grafito: fondo plano (PAGADO verde profundo, NO PAGADO rojo, CADUCADO
    ámbar) con texto crema, la marca de 56-64 px sin halo, la palabra 28/600
@@ -578,9 +585,10 @@
   animation: np-banner-in var(--np-d-base) var(--np-ease);
 }
 
+/* La pieza Icon a 24 (en rem: crece con la tablet como la letra). */
 .np-conn-banner-icon {
-  width: 1.625rem;
-  height: 1.625rem;
+  width: 1.5rem;
+  height: 1.5rem;
   flex-shrink: 0;
   margin-top: 0.0625rem;
 }

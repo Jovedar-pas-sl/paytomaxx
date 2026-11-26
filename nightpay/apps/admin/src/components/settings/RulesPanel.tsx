@@ -100,7 +100,8 @@ export function RulesPanel() {
 
       <SettingsCard title="Cobros de las compañeras" tour="reglas-chicas" hint={platformCommissionHint(settings)}>
         <Input
-          label="Tope por cobro con «Otro importe» (€)"
+          label="Tope por cobro con «Otro importe»"
+          suffix="€"
           inputMode="decimal"
           value={current.maxCobroEur}
           onChange={(e) => update({ maxCobroEur: e.target.value })}
@@ -138,7 +139,8 @@ export function RulesPanel() {
 
       <SettingsCard title="Devoluciones" tour="reglas-devoluciones">
         <Input
-          label="El encargado pide aprobación desde (€)"
+          label="El encargado pide aprobación desde"
+          suffix="€"
           inputMode="decimal"
           value={current.refundThresholdEur}
           onChange={(e) => update({ refundThresholdEur: e.target.value })}

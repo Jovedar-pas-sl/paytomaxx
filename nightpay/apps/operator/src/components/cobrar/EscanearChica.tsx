@@ -2,14 +2,13 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { staffTokenFrom } from '@nightpay/contracts';
-import { haptic } from '@nightpay/ui';
+import { haptic, Icon } from '@nightpay/ui';
 import { formatEur } from '@/lib/money';
 import { onInviteArrived, takePendingInvite } from '@/lib/invite-link';
 import { resolveStaffQr } from '@/lib/api-cobro';
 import { rejectedQr, shouldResolveQr, statusOf, type RejectedQr } from '@/lib/qr-scan';
 import type { ScanTexts } from '@/lib/servicio';
 import { puestoChip, type CobrarContext } from './cobrar-context';
-import { IconCheck, IconFlash } from './icons';
 import { Chip, ScreenHeader } from './ScreenHeader';
 import styles from './cobrar.module.css';
 
@@ -239,7 +238,7 @@ export function EscanearChica({ ctx, who, title, priceCents, onChica, onList, on
         </div>
         {seen ? (
           <p className={styles.seen} role="status">
-            <IconCheck />
+            <Icon name="check" />
             <b>{seen}</b>
             <span>reconocida</span>
           </p>
@@ -258,7 +257,7 @@ export function EscanearChica({ ctx, who, title, priceCents, onChica, onList, on
           aria-pressed={torch}
           aria-label={torch ? 'Apagar la linterna' : 'Encender la linterna'}
         >
-          <IconFlash />
+          <Icon name="flash" />
         </button>
         {onList ? (
           <button type="button" className={`${styles.btn} ${styles.ghost}`} onClick={onList}>

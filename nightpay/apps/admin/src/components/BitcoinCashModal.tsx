@@ -120,7 +120,7 @@ export function BitcoinCashModal({ target, config, onClose, onDone }: Props) {
         <span className="np-num">{formatEur(max)}</span>.
       </p>
       <form onSubmit={submit} style={formStyle}>
-        <Input label="Importe (€)" value={amount} onChange={(e) => setAmount(e.target.value)} inputMode="decimal" required />
+        <Input label="Importe" suffix="€" value={amount} onChange={(e) => setAmount(e.target.value)} inputMode="decimal" required />
         <Select label="Motivo" value={reason} onChange={(e) => setReason(e.target.value as BitcoinCashReason)}>
           {BITCOIN_CASH_REASONS.map((r) => (
             <option key={r} value={r}>

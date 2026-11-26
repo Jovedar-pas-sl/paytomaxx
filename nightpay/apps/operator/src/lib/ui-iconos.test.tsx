@@ -20,8 +20,59 @@ function rule(css: string, selector: string): string {
 }
 
 describe('Icon', () => {
-  it('los nombres de la parte A, solo los que se usan', () => {
-    expect([...NAMES].sort()).toEqual(['alert', 'check', 'clock', 'close', 'error', 'info', 'list', 'undo']);
+  it('los nombres, solo los que se usan (los de la parte A y los que salen de migrar, parte B)', () => {
+    expect([...NAMES].sort()).toEqual([
+      'activity',
+      'alert',
+      'backspace',
+      'bell',
+      'bell-off',
+      'card',
+      'cash',
+      'chart',
+      'check',
+      'checklist',
+      'chevron-left',
+      'chevron-right',
+      'clock',
+      'close',
+      'cloud-download',
+      'concierge-bell',
+      'dots',
+      'drink',
+      'error',
+      'flash',
+      'food',
+      'hand',
+      'home',
+      'hourglass',
+      'info',
+      'list',
+      'lock',
+      'minus',
+      'moon',
+      'nfc',
+      'plus',
+      'pos',
+      'printer',
+      'qr',
+      'share',
+      'sliders',
+      'store',
+      'sun',
+      'tag',
+      'ticket',
+      'undo',
+      'users',
+      'wallet',
+      'wifi-off',
+      'wristband',
+    ]);
+  });
+
+  it('la línea de puntos del ticket, en tres trazos cortos (sin strokeDasharray)', () => {
+    const dashes = ICON_PATHS.ticket.filter((d) => /^M14 [\d.]+v\.5$/.test(d));
+    expect(dashes).toHaveLength(3);
   });
 
   for (const name of NAMES) {

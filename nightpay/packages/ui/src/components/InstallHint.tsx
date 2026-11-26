@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState, type CSSProperties } from 'react';
 import { Button } from './Button';
+import { Icon } from './Icon';
 import { installHintOffered, installPlatform, isAppleMobile, installSnoozed, snoozeInstall, type InstallPlatform } from '../lib/install';
 
 interface PromptEvent extends Event {
@@ -83,12 +84,8 @@ export function IosInstallSteps() {
   return (
     <span>
       En Safari, toca Compartir{' '}
-      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-label="(el cuadrado con la flecha hacia arriba)" role="img" style={{ verticalAlign: '-0.15em' }}>
-        <path d="M12 3v12" />
-        <path d="m7 8 5-5 5 5" />
-        <path d="M5 12v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-7" />
-      </svg>{' '}
-      y luego «Añadir a pantalla de inicio».
+      <Icon name="share" size={20} className="np-icon-lead" />
+      <span className="np-sr-only">(el cuadrado con la flecha hacia arriba)</span> y luego «Añadir a pantalla de inicio».
     </span>
   );
 }

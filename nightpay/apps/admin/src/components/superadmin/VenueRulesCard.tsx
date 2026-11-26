@@ -70,7 +70,8 @@ export function VenueRulesCard({ venue, onSaved }: Props) {
 
         <div className="np-sa-rule">
           <Input
-            label="Tope por cobro con «Otro importe» (€)"
+            label="Tope por cobro con «Otro importe»"
+            suffix="€"
             inputMode="decimal"
             value={form.maxCobroEur}
             onChange={(e) => update({ maxCobroEur: e.target.value })}
@@ -188,7 +189,8 @@ export function VenueRulesCard({ venue, onSaved }: Props) {
 
         <div className="np-sa-rule">
           <Input
-            label="Devolución que necesita aprobación (€)"
+            label="Devolución que necesita aprobación"
+            suffix="€"
             inputMode="decimal"
             value={form.refundThresholdEur}
             onChange={(e) => update({ refundThresholdEur: e.target.value })}

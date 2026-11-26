@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useId, useRef, type CSSProperties, type ReactNode } from 'react';
+import { Icon } from '@nightpay/ui';
 import type { Segment } from '@/lib/money-map-view';
 
 interface FichaSheetProps {
@@ -82,7 +83,7 @@ export function FichaSheet({
       <div ref={panelRef} className="np-sheet" role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1}>
         <header className="np-mm-head">
           <button type="button" className="np-mm-back" aria-label={backLabel} onClick={onBack}>
-            <BackIcon />
+            <Icon name="chevron-left" />
           </button>
           <div className="np-mm-title">
             <h3 id={titleId}>{title}</h3>
@@ -118,13 +119,5 @@ export function SheetChip({ color, hold, children }: { color?: string; hold?: bo
     <span className="np-mm-chip" data-kind={hold ? 'hold' : undefined} style={color ? ({ '--np-c': color } as CSSProperties) : undefined}>
       {children}
     </span>
-  );
-}
-
-function BackIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-      <path d="M15 5l-7 7 7 7" />
-    </svg>
   );
 }

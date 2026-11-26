@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import type { PartyLive } from '@nightpay/contracts';
-import { Button } from '@nightpay/ui';
+import { Button, Icon } from '@nightpay/ui';
 import { fetchPartyLive } from '@/lib/endpoints/party';
 import {
   IDLE_OPTIONS,
@@ -335,7 +335,7 @@ function AlertCard({ alert, onNavigate }: { alert: AlertView; onNavigate: (tab: 
   return (
     <div className="np-party-alert" data-tone={alert.tone}>
       <div className="np-party-alert-body">
-        <AlertIcon kind={alert.icon} />
+        <Icon name={alert.icon === 'cash' ? 'cash' : 'clock'} size={20} />
         <div>
           <p className="np-party-alert-title">{alert.title}</p>
           <p className="np-party-alert-text">{alert.text}</p>
@@ -366,22 +366,4 @@ function focusDesks(): void {
   const reduce = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
   el.scrollIntoView({ behavior: reduce ? 'auto' : 'smooth', block: 'start' });
   el.focus({ preventScroll: true });
-}
-
-function AlertIcon({ kind }: { kind: AlertView['icon'] }) {
-  return (
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      {kind === 'cash' ? (
-        <>
-          <rect x="2.5" y="6" width="19" height="12" rx="2" />
-          <circle cx="12" cy="12" r="2.5" />
-        </>
-      ) : (
-        <>
-          <circle cx="12" cy="12" r="9" />
-          <path d="M12 7v5l3 2" />
-        </>
-      )}
-    </svg>
-  );
 }

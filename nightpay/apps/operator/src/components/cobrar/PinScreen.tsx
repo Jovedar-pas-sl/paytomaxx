@@ -1,14 +1,13 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { formatPercent, haptic, pinFailed, shakeClass } from '@nightpay/ui';
+import { formatPercent, haptic, Icon, pinFailed, shakeClass } from '@nightpay/ui';
 import { PIN_ENTER, keypadDigits } from '@/lib/pin-pad';
 import { formatEur } from '@/lib/money';
 import { pinFootnote, tipLine } from '@/lib/cobro-view';
 import { pinTipButtons, pinTipCents, pinTipInitial, type PinTipChoice, type PinTipSetup } from '@/lib/pin-tip';
 import { useVenueNight } from '@/lib/venue-methods';
 import { Chip } from './ScreenHeader';
-import { IconDel, IconHand } from './icons';
 import styles from './cobrar.module.css';
 
 const PIN_LENGTH = 4;
@@ -161,11 +160,11 @@ export function PinScreen({ colors, chip, amountCents, detail, tipSetup = null, 
             onClick={() => setPin((p) => p.slice(0, -1))}
             disabled={busy || pin.length === 0}
           >
-            <IconDel />
+            <Icon name="backspace" />
           </button>
         </div>
         <p className={styles.cover}>
-          <IconHand />
+          <Icon name="hand" size={20} />
           {shuffled ? 'Tápalo con la mano. Las cifras cambian de sitio cada vez.' : pinFootnote(night)}
         </p>
       </div>

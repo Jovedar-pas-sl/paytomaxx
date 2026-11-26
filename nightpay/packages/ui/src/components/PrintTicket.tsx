@@ -5,6 +5,7 @@ import { createPortal, flushSync } from 'react-dom';
 import { readPrintMode } from '../lib/print-mode';
 import { canvasToEscPos, rawbtIntentUrl, renderTicketCanvas } from '../lib/ticket-raster';
 import type { Ticket } from '../lib/ticket';
+import { Icon } from './Icon';
 
 /**
  * Imprimir un ticket (térmica de 58 mm). El ticket se dibuja punto a punto
@@ -103,9 +104,7 @@ export function usePrintTicket(): PrintTicketApi {
 export function PrintButton({ label = 'Imprimir', onClick, className }: { label?: string; onClick: () => void; className?: string }) {
   return (
     <button type="button" className={['np-print-btn', className].filter(Boolean).join(' ')} onClick={onClick}>
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-        <path d="M7 9V3h10v6M7 17H4v-6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v6h-3M7 14h10v7H7z" />
-      </svg>
+      <Icon name="printer" />
       {label}
     </button>
   );

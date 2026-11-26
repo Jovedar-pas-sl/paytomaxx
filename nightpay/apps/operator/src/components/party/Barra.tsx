@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, type CSSProperties } from 'react';
-import { BusyWord } from '@nightpay/ui';
+import { BusyWord, Icon } from '@nightpay/ui';
 import { formatEur } from '@/lib/money';
 import { chargeable, cuentaTotals, qtyOf, type CartaItem, type Cuenta } from '@/lib/cuenta';
 import {
@@ -21,7 +21,6 @@ import { placeInitials, placeName, useVenueIdentity } from '@/lib/venue-identity
 import { STICKY_ACTION_BOTTOM } from '../layout';
 import { labelOf, offeredCodes, type CobrarContext } from '../cobrar/cobrar-context';
 import { OnlinePill } from './OnlinePill';
-import { IconDots, IconMinusSm, IconNfcWaves, IconPlusSm, TileGlyph } from './party-icons';
 import s from './party.module.css';
 
 interface Props {
@@ -75,7 +74,7 @@ export function Barra({ ctx, cuenta, onItem, onStep, onVaciar, onOtro, onCobrar,
         </div>
         <OnlinePill />
         <button type="button" className={s.menuBtn} onClick={onMenu} aria-label="Menú">
-          <IconDots />
+          <Icon name="dots" />
         </button>
       </header>
 
@@ -94,7 +93,7 @@ export function Barra({ ctx, cuenta, onItem, onStep, onVaciar, onOtro, onCobrar,
           <BarraTile key={item.id} item={item} qty={qtyOf(cuenta, item.id)} onPick={() => onItem(item)} />
         ))}
         <button type="button" className={`${s.tile} ${s.tileOther}`} onClick={onOtro}>
-          <IconPlusSm size={20} />
+          <Icon name="plus" size={20} />
           Otro importe
         </button>
       </div>
@@ -134,13 +133,13 @@ export function Barra({ ctx, cuenta, onItem, onStep, onVaciar, onOtro, onCobrar,
                 <p className={s.lineName}>{l.name}</p>
                 <div className={s.stepper}>
                   <button type="button" onClick={() => onStep(l.key, -1)} aria-label={l.canAdd ? `Uno menos: ${l.name}` : `Quitar: ${l.name}`} disabled={busy}>
-                    <IconMinusSm />
+                    <Icon name="minus" size={20} />
                   </button>
                   <span className={s.lineQty} aria-label={`${l.qty} ${l.qty === 1 ? 'unidad' : 'unidades'}`}>
                     {l.qty}
                   </span>
                   <button type="button" onClick={() => onStep(l.key, 1)} aria-label={`Uno más: ${l.name}`} disabled={!l.canAdd || busy}>
-                    <IconPlusSm />
+                    <Icon name="plus" size={20} />
                   </button>
                 </div>
                 <p className={s.lineAmount}>{formatEur(l.cents)}</p>
@@ -149,7 +148,7 @@ export function Barra({ ctx, cuenta, onItem, onStep, onVaciar, onOtro, onCobrar,
           </ul>
         )}
         <button type="button" className={s.cobrar} disabled={!canCharge} aria-busy={busy || undefined} onClick={onCobrar}>
-          <IconNfcWaves />
+          <Icon name="nfc" />
           {busy ? <BusyWord word="Cobrando" /> : <span>{barraCobrarLabel(total)}</span>}
         </button>
         {error ? (
@@ -167,7 +166,7 @@ function BarraTile({ item, qty, onPick }: { item: CartaItem; qty: number; onPick
   return (
     <button type="button" className={s.tile} data-on={qty > 0 ? 'true' : undefined} onClick={onPick} aria-label={barraTileAria(item.name, item.priceCents, qty)}>
       <span className={s.tileIcon} data-icon={icon} aria-hidden="true">
-        <TileGlyph icon={icon} />
+        <Icon name={icon === 'other' ? 'tag' : icon} size={20} />
       </span>
       <span className={s.tileText}>
         <span className={s.tileName}>{item.name}</span>
