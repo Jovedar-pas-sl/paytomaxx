@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest';
 // tema claro), no en lima; las demás, en t2.
 
 const SRC = readFileSync(new URL('../components/TabBar.tsx', import.meta.url), 'utf8');
+const ICON = readFileSync(new URL('../../../../packages/ui/src/components/Icon.tsx', import.meta.url), 'utf8');
 
 describe('la barra de abajo del personal', () => {
   it('la elegida, en crema (--np-chosen); las demás, en --np-text-mute', () => {
@@ -13,8 +14,9 @@ describe('la barra de abajo del personal', () => {
     expect(SRC).toMatch(/color: active \? TAB_ACTIVE_COLOR : TAB_IDLE_COLOR/);
   });
 
-  it('el icono y la raya de arriba siguen el color de la pestaña (currentColor)', () => {
-    expect(SRC).toMatch(/stroke="currentColor"/);
+  it('el icono y la raya de arriba siguen el color de la pestaña (currentColor, el icono ya desde la pieza Icon)', () => {
+    expect(SRC).toMatch(/<Icon name=\{TAB_ICON\[tab\]\} \/>/);
+    expect(ICON).toMatch(/stroke="currentColor"/);
     expect(SRC).toMatch(/const activeMarkStyle[^}]*background: 'currentColor'/);
   });
 });
