@@ -1,11 +1,13 @@
 'use client';
 
-import { useEffect, useRef, useState, type CSSProperties } from 'react';
-import { Button, Card, Modal } from '@nightpay/ui';
+import { useCallback, useEffect, useRef, useState, type CSSProperties, type KeyboardEvent } from 'react';
+import { Button, Card } from '@nightpay/ui';
 import type { CobroRow } from '@nightpay/contracts';
 import { fetchCobros, fetchMetrics, type CobrosFilters, type Metrics, type PaymentRow, type User } from '@/lib/api';
 import { cobradoNote, metricsCobradoParts } from '@/lib/cobrado';
 import { refFromSearch, withoutRef } from '@/lib/cobro-detail-view';
+import { dockKeyAction, dockView, neighbour, type DockKey, type DockSeen } from '@/lib/cobro-dock';
+import { COLUMNS_STORAGE_KEY, parseColumns, type CobrosColumn } from '@/lib/cobros-views';
 import { keepIfSame } from '@/lib/diff';
 import { formatEur } from '@/lib/money';
 import { paymentRowOf, reversibleSaldoCharge } from '@/lib/money-map';
@@ -15,10 +17,10 @@ import { todayTiles, type NightTotals } from '@/lib/today-tiles';
 import { useApprovals } from '@/lib/use-approvals';
 import { usePolling } from '@/lib/use-polling';
 import { BankRefundModal } from './BankRefundModal';
+import { CobroDetailDock, useDocked } from './CobroDetailDock';
 import { CobroRowActions } from './CobroRowActions';
-import { CobrosFiltersBar } from './fichas/CobrosFiltersBar';
+import { CobrosToolbar } from './CobrosToolbar';
 import { CobrosTable } from './fichas/CobrosTable';
-import { CobroDetailPanel } from './fichas/CobroDetailPanel';
 import { Notice } from './Notice';
 import { RefundModal, ResolveModal } from './PaymentModals';
 import { BitcoinCashModal, type BitcoinCashTarget } from './BitcoinCashModal';
@@ -42,16 +44,33 @@ interface Props {
   /** Filtros con los que abrir la lista (desde una cifra del mapa del dinero). */
   initialFilter?: CobrosFilters | null;
   onInitialFilterDone?: () => void;
+  /** Cobro cuyo detalle abrir al llegar, sin filtrar la lista. */
+  openRow?: CobroRow | null;
+  onOpenRowDone?: () => void;
+  /** «Descargar» la lista: el dueño, y el encargado con «ver informes». */
+  canExport?: boolean;
 }
 
 /**
  * Pestaña Cobros: «Esta noche», métricas y los cobros (con tarjeta y del
- * saldo) con su referencia, chica, sección, cómo pagó y servicio, y filtros.
+ * saldo) en seis columnas, con sus vistas y filtros. Tocar un cobro abre su
+ * detalle al lado de la lista (sin taparla), con sus botones (devolver, anular,
+ * resolver…) en el pie: las mismas reglas, confirmaciones y verificaciones.
  * Solo pide datos mientras está a la vista (pestaña del panel y del
  * navegador), espera más si el API falla y una respuesta vieja no pisa la de
  * un filtro nuevo. Si llega lo mismo, no se repinta nada.
  */
-export function PaymentsPanel({ user, onNavigate, focusPaymentId = null, onFocusDone, initialFilter = null, onInitialFilterDone }: Props) {
+export function PaymentsPanel({
+  user,
+  onNavigate,
+  focusPaymentId = null,
+  onFocusDone,
+  initialFilter = null,
+  onInitialFilterDone,
+  openRow = null,
+  onOpenRowDone,
+  canExport = false,
+}: Props) {
   // «Por aprobar»: desde cuánto pide el encargado las devoluciones al dueño.
   const refundRequestFromCents = useApprovals().rules?.refundRequestFromCents ?? null;
   const [metrics, setMetrics] = useState<Metrics | null>(null);
@@ -64,7 +83,20 @@ export function PaymentsPanel({ user, onNavigate, focusPaymentId = null, onFocus
   const [filter, setFilter] = useState<CobrosFilters>(() => initialFilter ?? (linkRef ? { search: linkRef } : {}));
   const [error, setError] = useState<string | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
-  const [detailFor, setDetailFor] = useState<CobroRow | null>(null);
+  // El detalle guarda QUÉ cobro está abierto; su fila sale de `payments` en cada pintada (la última del API).
+  const [dock, setDock] = useState<DockKey | null>(null);
+  /** La última fila vista del cobro abierto: por si deja de estar en la lista (otro filtro). */
+  const lastDockRow = useRef<DockSeen | null>(null);
+  /** Sube tras cada acción: el detalle se vuelve a pedir. */
+  const [detailVersion, setDetailVersion] = useState(0);
+  const versionRef = useRef(0);
+  /** La vuelta (`detailVersion`) de la que salen las filas de la lista. */
+  const [listVersion, setListVersion] = useState(0);
+  /** El cobro abierto, pedido aparte tras una acción (aunque el filtro ya no lo enseñe). */
+  const [freshDock, setFreshDock] = useState<DockSeen | null>(null);
+  const docked = useDocked();
+  const splitRef = useRef<HTMLDivElement | null>(null);
+  const [columns, setColumns] = useState<CobrosColumn[]>(() => readColumns());
   const [refundFor, setRefundFor] = useState<PaymentRow | null>(null);
   const [resolveFor, setResolveFor] = useState<PaymentRow | null>(null);
   const [refundsFor, setRefundsFor] = useState<PaymentRow | null>(null);
@@ -100,12 +132,19 @@ export function PaymentsPanel({ user, onNavigate, focusPaymentId = null, onFocus
   useEffect(() => {
     if (!linkRef || payments === null) return;
     const row = payments.find((p) => p.ref === linkRef);
-    if (row) setDetailFor(row);
+    if (row) openDetail(row);
     else setLinkMissing(linkRef);
     setLinkRef(null);
     const { pathname, search, hash } = window.location;
     window.history.replaceState(window.history.state, '', `${pathname}${withoutRef(search)}${hash}`);
   }, [linkRef, payments]);
+
+  // Desde otra pantalla: el detalle de ese cobro, sin filtrar la lista (una vez).
+  useEffect(() => {
+    if (!openRow) return;
+    openDetail(openRow, versionRef.current);
+    onOpenRowDone?.();
+  }, [openRow, onOpenRowDone]);
 
   // Desde el mapa del dinero: la lista con los filtros de esa cifra (una vez).
   useEffect(() => {
@@ -118,12 +157,14 @@ export function PaymentsPanel({ user, onNavigate, focusPaymentId = null, onFocus
   const refresh = usePolling(
     async (signal) => {
       const loaded = loadedRef.current;
+      const version = versionRef.current;
       const limit = Math.min(MAX_PAGE_SIZE, Math.max(PAGE_SIZE, loaded));
       try {
         const [m, page] = await Promise.all([fetchMetrics(), fetchCobros(filter, { limit })]);
         if (signal.aborted) return true;
         setMetrics((prev) => keepIfSame(prev, m));
         setPayments((prev) => (prev ? keepIfSame(prev, mergeLatestPage(page.items, prev, page.nextCursor === null)) : page.items));
+        setListVersion(version);
         // Si entretanto se cargó otra página, su cursor es el bueno.
         if (loaded <= MAX_PAGE_SIZE && loaded === loadedRef.current) setNextCursor(page.nextCursor);
         setError(null);
@@ -162,12 +203,89 @@ export function PaymentsPanel({ user, onNavigate, focusPaymentId = null, onFocus
     }
   }
 
+  /** Tras devolver, anular o resolver: la lista y el detalle, al día. */
+  const refreshAll = useCallback(() => {
+    versionRef.current += 1;
+    refresh();
+    setDetailVersion(versionRef.current);
+  }, [refresh]);
+
+  // Tras una acción, el cobro abierto se pide aparte, sin el filtro de la lista:
+  // si ya no sale en ella (una devolución entera con «Pagado»), su fila al día llega igual.
+  useEffect(() => {
+    const ref = lastDockRow.current?.row.ref;
+    if (detailVersion === 0 || !ref) return;
+    const { kind, id } = lastDockRow.current!.row;
+    let gone = false;
+    fetchCobros({ search: ref }, { limit: PAGE_SIZE }).then(
+      (page) => {
+        const row = page.items.find((r) => r.kind === kind && r.id === id);
+        if (!gone && row) setFreshDock({ row, version: detailVersion });
+      },
+      () => undefined,
+    );
+    return () => {
+      gone = true;
+    };
+  }, [detailVersion]);
+
   function afterAction(close: () => void): () => void {
     return () => {
       close();
-      refresh();
+      refreshAll();
     };
   }
+
+  /** `version`: de qué vuelta sale la fila (la de la lista, si no se dice). */
+  function openDetail(row: CobroRow, version = listVersion): void {
+    lastDockRow.current = { row, version };
+    setDock({ kind: row.kind, id: row.id });
+  }
+
+  function changeColumns(next: CobrosColumn[]): void {
+    setColumns(next);
+    try {
+      window.localStorage.setItem(COLUMNS_STORAGE_KEY, JSON.stringify(next));
+    } catch {
+      // Sin sitio o en privado: valen hasta recargar.
+    }
+  }
+
+  // Los botones del pie, solo con una fila al día (`actionsRow`): nunca con el estado o lo que queda de antes.
+  const view = dockView(payments, listVersion, dock, [lastDockRow.current, freshDock], detailVersion);
+  if (view.seen) lastDockRow.current = view.seen;
+  const dockedRow = view.seen?.row ?? null;
+  const actionsRow = view.actionsRow;
+
+  /** La fila abierta en la tabla (para devolverle el foco o llevarla a la vista). */
+  const currentRowEl = () => splitRef.current?.querySelector<HTMLElement>('tr[aria-current="true"]') ?? null;
+
+  // Con el detalle al lado: ↑ y ↓ pasan al cobro anterior o siguiente; Esc lo cierra y el foco vuelve a su fila.
+  function onSplitKeyDown(e: KeyboardEvent<HTMLDivElement>): void {
+    if (!docked || !dock) return;
+    const action = dockKeyAction(e.key, e.target as Element);
+    if (!action) return;
+    if (action === 'close') {
+      e.preventDefault();
+      const rowEl = currentRowEl();
+      setDock(null);
+      rowEl?.focus();
+      return;
+    }
+    // Las flechas no mueven la página mientras hay un cobro abierto.
+    e.preventDefault();
+    const next = neighbour(payments, dock, action === 'prev' ? -1 : 1);
+    if (!next) return;
+    const fromRow = (e.target as Element).closest('tr') !== null;
+    openDetail(next);
+    requestAnimationFrame(() => {
+      const rowEl = currentRowEl();
+      rowEl?.scrollIntoView({ block: 'nearest' });
+      if (fromRow) rowEl?.focus();
+    });
+  }
+
+  const filtered = Object.keys(filter).length > 0;
 
   return (
     <>
@@ -175,7 +293,7 @@ export function PaymentsPanel({ user, onNavigate, focusPaymentId = null, onFocus
 
       {focusMissing ? (
         <Notice tone="info" action={{ label: 'Entendido', onClick: () => setFocusMissing(false) }}>
-          Ese cobro no está entre los últimos cargados. Pulsa «Cargar más» abajo y, en él, Devoluciones → Resolver.
+          Ese cobro no está entre los últimos cargados. Pulsa «Cargar más» abajo, ábrelo y, en su detalle, Devoluciones → Resolver.
         </Notice>
       ) : null}
 
@@ -220,34 +338,56 @@ export function PaymentsPanel({ user, onNavigate, focusPaymentId = null, onFocus
         <MetricTile title="Semana · neto" value={eurOrDash(metrics?.week.netCents)} note={NET_NOTE} />
       </section>
 
-      <section ref={listRef} style={{ display: 'flex', flexDirection: 'column', gap: '1rem', scrollMarginTop: '0.75rem', minWidth: 0 }}>
-        <div style={{ display: 'flex', alignItems: 'flex-end', gap: '1rem', flexWrap: 'wrap' }}>
-          <div style={{ minWidth: 0, flex: '1 1 18rem' }}>
-            <h2 style={sectionTitle}>Cobros</h2>
+      <div ref={splitRef} className="np-cobros-split" data-open={dockedRow && docked ? '' : undefined} onKeyDown={onSplitKeyDown}>
+        <section ref={listRef} className="np-cobros-list">
+          <div className="np-cobros-head">
+            <h2>Cobros</h2>
+            <Button variant="ghost" size="sm" onClick={refresh}>
+              Refrescar
+            </Button>
           </div>
-          <Button variant="ghost" size="sm" onClick={refresh} style={{ marginLeft: 'auto' }}>
-            Refrescar
-          </Button>
-        </div>
-        <CobrosFiltersBar value={filter} onChange={changeFilter} />
-
-        <Card className="np-table-host" style={{ padding: 0, overflow: 'hidden', minWidth: 0 }} data-tour="cobros-tabla">
-          <CobrosTable
+          <CobrosToolbar
+            value={filter}
+            onChange={changeFilter}
             rows={payments}
-            showReferences
-            onDetails={setDetailFor}
-            empty={
-              payments === null
-                ? error
-                  ? 'No se pudieron cargar los cobros.'
-                  : 'Cargando cobros…'
-                : filter.search
-                  ? `No hay ningún cobro con «${filter.search}».`
-                  : 'Sin cobros'
-            }
-            actions={(row) => (
+            hasMore={nextCursor !== null}
+            columns={columns}
+            onColumns={changeColumns}
+            canExport={canExport}
+          />
+
+          <Card className="np-table-host" style={{ padding: 0, overflow: 'hidden', minWidth: 0 }} data-tour="cobros-tabla">
+            <CobrosTable
+              rows={payments}
+              columns={columns}
+              onDetails={openDetail}
+              current={dock}
+              empty={
+                filtered
+                  ? { title: 'No hay cobros con estos filtros', action: { label: 'Quitar todo', onClick: () => changeFilter({}) } }
+                  : { title: 'Aún no hay cobros', text: 'Aquí verás cada cobro y cómo se pagó.' }
+              }
+            />
+          </Card>
+
+          {nextCursor ? (
+            <div className="np-cobros-more">
+              <Button variant="ghost" onClick={() => void loadMore()} loading={loadingMore}>
+                Cargar más
+              </Button>
+            </div>
+          ) : null}
+        </section>
+
+        <CobroDetailDock
+          row={dockedRow}
+          version={detailVersion}
+          docked={docked}
+          onClose={() => setDock(null)}
+          actions={
+            actionsRow ? (
               <CobroRowActions
-                row={row}
+                row={actionsRow}
                 role={user.role}
                 onReverse={setReverseFor}
                 onResolve={setResolveFor}
@@ -256,27 +396,10 @@ export function PaymentsPanel({ user, onNavigate, focusPaymentId = null, onFocus
                 bitcoinCash={bitcoinCash}
                 onCashRefund={(p) => setCashFor(cashTargetOf(p))}
               />
-            )}
-          />
-        </Card>
-
-        {payments && payments.length > 0 ? (
-          <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
-            <span style={{ ...cellMeta, fontSize: '0.875rem' }}>
-              {payments.length === 1 ? '1 cobro' : `${payments.length} cobros`}
-            </span>
-            {nextCursor ? (
-              <Button variant="ghost" onClick={() => void loadMore()} loading={loadingMore}>
-                Cargar más
-              </Button>
-            ) : null}
-          </div>
-        ) : null}
-      </section>
-
-      <Modal open={Boolean(detailFor)} onClose={() => setDetailFor(null)} title="Detalle del cobro">
-        {detailFor ? <CobroDetailPanel key={`${detailFor.kind}:${detailFor.id}`} row={detailFor} /> : null}
-      </Modal>
+            ) : null
+          }
+        />
+      </div>
 
       <BitcoinCashModal
         target={cashFor}
@@ -320,7 +443,7 @@ export function PaymentsPanel({ user, onNavigate, focusPaymentId = null, onFocus
           payment={refundsFor}
           isOwner={user.role === 'OWNER'}
           onClose={() => setRefundsFor(null)}
-          onChanged={refresh}
+          onChanged={refreshAll}
         />
       ) : null}
     </>
@@ -356,17 +479,6 @@ const errorRow: CSSProperties = {
   flexWrap: 'wrap',
 };
 
-const sectionTitle: CSSProperties = {
-  margin: 0,
-  fontSize: 'var(--np-t-h2)',
-  fontWeight: 600,
-};
-
-
-const cellMeta: CSSProperties = {
-  color: 'var(--np-text-mute)',
-};
-
 /** El cobro con bitcoin que se devuelve en efectivo: lo que queda y lo ya devuelto (cuenta para el dueño). */
 function cashTargetOf(p: PaymentRow): BitcoinCashTarget {
   const charged = p.amountCents + (p.serviceFeeCents ?? 0) + (p.tipCents ?? 0);
@@ -377,4 +489,13 @@ function cashTargetOf(p: PaymentRow): BitcoinCashTarget {
     alreadyCents: Math.max(0, charged - p.availableAmountCents),
     label: `Cobro de ${formatEur(charged)}`,
   };
+}
+
+/** Las columnas de más que se eligieron en este navegador («Columnas»). */
+function readColumns(): CobrosColumn[] {
+  try {
+    return typeof window === 'undefined' ? [] : parseColumns(window.localStorage.getItem(COLUMNS_STORAGE_KEY));
+  } catch {
+    return [];
+  }
 }

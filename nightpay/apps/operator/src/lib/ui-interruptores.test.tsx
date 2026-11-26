@@ -274,13 +274,15 @@ describe('en el panel', () => {
     'PayoutBatchList.tsx': 2,
     'PayoutBatchReview.tsx': 1,
     'PayoutConfirmModal.tsx': 1,
+    // Entrega 9 (Cobros): los estados del filtro «Estado» y las columnas de más de «Columnas» (2).
+    'CobrosToolbar.tsx': 2,
   };
 
-  it('25 <Checkbox: los 12 que esperaban a «Guardar», las 9 casillas nativas y las 4 de pagar a todas', () => {
+  it('27 <Checkbox: los 12 que esperaban a «Guardar», las 9 casillas nativas, las 4 de pagar a todas y las 2 de los menús de Cobros', () => {
     const found = countIn([[...ADMIN]], /<Checkbox\b/g);
     const expected = Object.fromEntries(Object.entries(CHECKBOXES).map(([file, n]) => [`apps/admin/src/components/${file}`, n]));
     expect(found).toEqual(expected);
-    expect(Object.values(found).reduce((a, b) => a + b, 0)).toBe(25);
+    expect(Object.values(found).reduce((a, b) => a + b, 0)).toBe(27);
   });
 
   it('casillas nativas, solo las que tocan a otras entregas (y la pieza)', () => {

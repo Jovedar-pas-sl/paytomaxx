@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState, type CSSProperties, type ReactNode } from 'react';
 import type { CobroDetail, CobroRow } from '@nightpay/contracts';
-import { Button } from '@nightpay/ui';
+import { Button, Etiqueta, Importe, Skeleton } from '@nightpay/ui';
 import { fetchCobroDetail } from '@/lib/api';
 import {
   amountRows,
@@ -23,7 +23,6 @@ import { formatDateTime } from '@/lib/dates';
 import { formatEur } from '@/lib/money';
 import { useSections } from '@/lib/use-sections';
 import { useVenueTimezone } from '@/lib/venue-context';
-import { Pill } from '../Pill';
 import { StepUpDialog } from '../StepUpDialog';
 import { PaymentReferenceDetails } from './PaymentReferenceDetails';
 
@@ -35,9 +34,11 @@ import { PaymentReferenceDetails } from './PaymentReferenceDetails';
  * delicado (el móvil y la IP, la tarjeta más allá de los 4 últimos y el
  * historial) con «Verificar» (5 minutos). «Compartir» manda un texto corto
  * con el enlace al cobro en el panel (pide iniciar sesión): nunca el móvil, la
- * IP ni el historial. Debajo, los datos del banco para copiarlos.
+ * IP ni el historial. Debajo, los datos del banco para copiarlos. Al final, un
+ * pie que se queda a la vista con los botones del cobro (`actions`: devolver,
+ * anular, resolver…, los de CobroRowActions) y «Compartir».
  */
-export function CobroDetailPanel({ row }: { row: CobroRow }) {
+export function CobroDetailPanel({ row, actions }: { row: CobroRow; actions?: ReactNode }) {
   const tz = useVenueTimezone();
   const { sections } = useSections();
   const [detail, setDetail] = useState<CobroDetail | null>(null);
@@ -72,21 +73,43 @@ export function CobroDetailPanel({ row }: { row: CobroRow }) {
     }
   }
 
-  if (error) return <p role="alert" style={{ color: 'var(--np-danger)' }}>{error}</p>;
-  if (!detail) return <p>Cargando el detalle…</p>;
-  const status = detailStatus(detail);
-  const flags = flagTexts(detail);
+  const status = detail ? detailStatus(detail) : null;
+  const flags = detail ? flagTexts(detail) : [];
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-      <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.75rem', flexWrap: 'wrap' }}>
-        <b className="np-num" style={{ fontSize: '1.75rem', fontWeight: 600 }}>{formatEur(detail.totalCents)}</b>
-        <Pill tone={status.tone}>{status.label}</Pill>
-        <span style={mute}>{[detail.ref, detail.confirmationCode ? `código ${detail.confirmationCode}` : null].filter(Boolean).join(' · ')}</span>
+    <div className="np-cobro-detail" aria-busy={!detail && !error}>
+      {error ? (
+        <>
+          <p role="alert" style={{ margin: 0, color: 'var(--np-danger)' }}>
+            {error}
+          </p>
+          <div>
+            <Button variant="ghost" size="sm" onClick={load}>
+              Reintentar
+            </Button>
+          </div>
+        </>
+      ) : !detail ? (
+        <>
+          <span className="np-sr-only" role="status">
+            Cargando el detalle…
+          </span>
+          <Skeleton width="60%" height="2rem" />
+          <Skeleton lines={4} />
+          <Skeleton lines={5} />
+        </>
+      ) : (
+        <>
+      <div className="np-cobro-detail-top">
+        <Importe cents={detail.totalCents} decimals="always" />
+        <Etiqueta tone={status!.tone}>{status!.label}</Etiqueta>
+        <span className="np-cobro-detail-mute">{[detail.ref, detail.confirmationCode ? `código ${detail.confirmationCode}` : null].filter(Boolean).join(' · ')}</span>
       </div>
       {flags.length > 0 ? (
         <div style={{ display: 'flex', gap: '0.375rem', flexWrap: 'wrap' }}>
           {flags.map((f) => (
-            <Pill key={f} tone="warning">{f}</Pill>
+            <Etiqueta key={f} tone="warning">
+              {f}
+            </Etiqueta>
           ))}
         </div>
       ) : null}
@@ -158,14 +181,21 @@ export function CobroDetailPanel({ row }: { row: CobroRow }) {
         )}
       </Block>
 
-      <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
-        <Button variant="ghost" size="sm" onClick={() => void share(detail)}>
+      <PaymentReferenceDetails row={row} />
+        </>
+      )}
+
+      <div className="np-cobro-pie">
+        {actions}
+        <Button variant="ghost" size="sm" disabled={!detail} onClick={() => (detail ? void share(detail) : undefined)}>
           Compartir
         </Button>
-        {shared ? <span role="status" style={mute}>{shared}</span> : null}
+        {shared ? (
+          <span role="status" className="np-cobro-detail-mute">
+            {shared}
+          </span>
+        ) : null}
       </div>
-
-      <PaymentReferenceDetails row={row} />
 
       <StepUpDialog
         open={verifying}

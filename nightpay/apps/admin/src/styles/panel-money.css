@@ -740,34 +740,6 @@
 }
 .np-mm-chev { width: 1rem; height: 1rem; color: var(--np-text-label); }
 
-/* Cobros abiertos desde una cifra del mapa: sus fechas, quitables. */
-.np-cobros-window {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.5rem 0.75rem;
-  margin: 0;
-  padding: 0.5rem 0.75rem;
-  border-radius: var(--np-r-md);
-  border: 1px dashed var(--np-border-hi);
-  background: var(--np-surface-2);
-  font-size: 0.875rem;
-}
-/* «Quitar fechas»: como un botón secundario pequeño (36 px; 44 en el móvil). */
-.np-cobros-window button {
-  min-height: var(--np-filter-h);
-  padding: 0 0.875rem;
-  border-radius: var(--np-r-sm);
-  border: 1px solid var(--np-border-hi);
-  background: var(--np-surface-2);
-  color: var(--np-text);
-  font: inherit;
-  font-size: 0.875rem;
-  font-weight: 400;
-  cursor: pointer;
-}
-
 /* Fechas del mapa: plegadas; la de ahora, a la vista. */
 .np-mm-period-box {
   margin: 0.5rem 0;

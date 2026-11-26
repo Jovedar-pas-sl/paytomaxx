@@ -1,113 +1,122 @@
 'use client';
 
-import type { CSSProperties, ReactNode } from 'react';
+import type { CSSProperties, KeyboardEvent, MouseEvent, ReactNode } from 'react';
 import { HOME_TOPUP_ORIGIN_LABEL, type CobroRow } from '@nightpay/contracts';
-import { Button } from '@nightpay/ui';
+import { EmptyState, Etiqueta, Importe } from '@nightpay/ui';
+import { clickOpensRow, type DockKey } from '@/lib/cobro-dock';
 import { cobroStatus } from '@/lib/cobro-status';
-import { COBRO_ACTION_LABELS, COBRO_ACTION_TITLES } from '@/lib/cobros-help';
-import { formatDateTime } from '@/lib/dates';
-import { formatEur, formatMoney } from '@/lib/money';
+import { cobroPaidCents } from '@/lib/cobros-totals';
+import { COBROS_COLUMNS, hourText, type CobrosColumn } from '@/lib/cobros-views';
+import { formatEur } from '@/lib/money';
 import { paidTwiceNote, sectionChip } from '@/lib/money-map';
 import { useSections } from '@/lib/use-sections';
 import { useVenueTimezone } from '@/lib/venue-context';
-import { Pill } from '../Pill';
 import { SkelRows } from '../Skeleton';
 import { useFichas } from './fichas-context';
 import { MethodMark } from './MethodMark';
 import { SectionChip } from './SectionChip';
 
 interface Props {
+  /** null: aún cargando. */
   rows: CobroRow[] | null;
-  /** Columna de acciones (devolver, resolver…), solo en la lista de Cobros. */
-  actions?: (row: CobroRow) => ReactNode;
-  /** Texto cuando no hay ninguno (o mientras carga: rows = null). */
-  empty: string;
+  /** Cuando no hay ninguno: la frase y, si hay filtros que quitar, su botón. */
+  empty: { title: string; text?: string; action?: { label: string; onClick: () => void } };
   /** En la ficha de la chica no hace falta su nombre en cada fila. */
   hidePerson?: boolean;
-  showReferences?: boolean;
+  /** Columnas de más: la referencia, el código del cliente y la referencia del banco. */
+  columns?: readonly CobrosColumn[];
+  /** Con él, la fila entera abre el detalle (clic, o Intro con el teclado). */
   onDetails?: (row: CobroRow) => void;
-  /** Columnas de más a la derecha (p. ej. el local en la ficha del saldo). */
-  extra?: { label: string; cell: (row: CobroRow) => ReactNode };
+  /** El cobro abierto en el detalle: su fila va marcada. */
+  current?: DockKey | null;
 }
 
+const COLUMN_LABEL = Object.fromEntries(COBROS_COLUMNS.map((c) => [c.key, c.label])) as Record<CobrosColumn, string>;
+
 /**
- * Cobros con su referencia, quién cobró («Desde casa» si lo cargó el cliente
- * con el enlace del local), sección (color o «Varias»), cómo pagó y lo que se
- * vendió. En el móvil cada fila es una tarjeta (panel-tables.css).
- * Tocar a la chica o el saldo abre su ficha.
+ * Cobros en seis columnas: hora, qué (sección y servicio), quién cobró («Desde
+ * casa» si lo cargó el cliente con el enlace del local), cómo pagó, estado e
+ * importe (lo que pagó el cliente: con propina y comisión del servicio). Filas
+ * de 48 px; en el móvil cada una es una tarjeta de dos líneas
+ * (panel-cobros.css). Tocar la fila abre su detalle; tocar a la chica o el
+ * saldo, su ficha.
  */
-export function CobrosTable({ rows, actions, empty, hidePerson, extra, showReferences, onDetails }: Props) {
+export function CobrosTable({ rows, empty, hidePerson, columns = [], onDetails, current = null }: Props) {
   const tz = useVenueTimezone();
   const { sections } = useSections();
   const fichas = useFichas();
-  const colCount = 8 - (hidePerson ? 1 : 0) + (actions ? 1 : 0) + (extra ? 1 : 0) + (showReferences ? 2 : 0);
+  const has = (c: CobrosColumn) => columns.includes(c);
+  // Las celdas de cada fila, en orden (también dan forma a las siluetas de carga).
+  const cells = ['hora', has('ref') ? 'ref' : null, 'que', hidePerson ? null : 'quien', 'como', has('codigo') ? 'codigo' : null, has('banco') ? 'banco' : null, 'estado', 'importe'].filter(
+    (c): c is string => c !== null,
+  );
+  const now = Date.now();
+
+  function open(row: CobroRow) {
+    if (!onDetails) return undefined;
+    return {
+      tabIndex: 0,
+      'aria-current': current && current.kind === row.kind && current.id === row.id ? ('true' as const) : undefined,
+      onClick: (e: MouseEvent<HTMLTableRowElement>) => {
+        if (clickOpensRow(e.target as Element)) onDetails(row);
+      },
+      onKeyDown: (e: KeyboardEvent<HTMLTableRowElement>) => {
+        // Intro sobre la fila, no sobre un botón de dentro.
+        if (e.key === 'Enter' && e.target === e.currentTarget) onDetails(row);
+      },
+    };
+  }
+
+  // Sin cobros no hay tabla que enseñar: la frase y, si hay filtros, cómo quitarlos.
+  if (rows && rows.length === 0) {
+    return (
+      <div className="np-cobros-vacio">
+        <EmptyState icon="list" title={empty.title} text={empty.text} action={empty.action} />
+      </div>
+    );
+  }
+
   return (
-    <div style={{ overflowX: 'auto', minWidth: 0, maxWidth: '100%' }}>
-      <table className={`np-table np-cobros-table${actions ? ' np-cobros-table--acciones' : ''}`} aria-busy={rows === null}>
-        {/* Anchos fijos en el escritorio (panel-grafito.css): «Servicio», sin ancho, se lleva lo que sobra. */}
-        <colgroup>
-          <col data-col="hora" />
-          <col data-col="ref" />
-          {showReferences ? <><col data-col="codigo" /><col data-col="banco" /></> : null}
-          <col data-col="importe" />
-          <col data-col="estado" />
-          {hidePerson ? null : <col data-col="quien" />}
-          <col data-col="seccion" />
-          <col data-col="como" />
-          <col data-col="servicio" />
-          {extra ? <col data-col="extra" /> : null}
-          {actions ? <col data-col="acciones" /> : null}
-        </colgroup>
-        <thead>
-          <tr>
-            <th>Hora</th>
-            <th>Ref</th>
-            {showReferences ? <><th>Código</th><th>Ref. banco</th></> : null}
-            <th style={{ textAlign: 'right' }}>Importe</th>
-            <th>Estado</th>
-            {hidePerson ? null : <th>Quién cobró</th>}
-            <th>Sección</th>
-            <th>Cómo pagó</th>
-            <th>Servicio</th>
-            {extra ? <th>{extra.label}</th> : null}
-            {actions ? <th style={{ textAlign: 'right' }}>Acciones</th> : null}
-          </tr>
-        </thead>
-        <tbody>
-          {(rows ?? []).map((row, i) => (
-            <tr key={`${row.kind}-${row.id}`} style={rowStripe(sectionChip(row, sections, formatEur).color)}>
-              {/* Hora y referencia en una línea (antes «22 oct, / 18:31», «C- / 0025»). */}
-              <td data-label="Hora" data-card="top" className="np-num" style={{ ...meta, ...oneLine }}>
-                {formatDateTime(row.createdAt, tz, 'short')}
+    <div className="np-cobros-scroll">
+    <table className="np-table np-cobros-table" aria-busy={rows === null} data-extra={columns.length > 0 ? '' : undefined}>
+      <thead>
+        <tr>
+          <th data-card="hora">Hora</th>
+          {has('ref') ? <th data-card="ref">{COLUMN_LABEL.ref}</th> : null}
+          <th data-card="que">Qué</th>
+          {hidePerson ? null : <th data-card="quien">Quién</th>}
+          <th data-card="como">Cómo pagó</th>
+          {has('codigo') ? <th data-card="codigo">{COLUMN_LABEL.codigo}</th> : null}
+          {has('banco') ? <th data-card="banco">{COLUMN_LABEL.banco}</th> : null}
+          <th data-card="estado">Estado</th>
+          <th data-card="importe">Importe</th>
+        </tr>
+      </thead>
+      <tbody>
+        {(rows ?? []).map((row, i) => {
+          const chip = sectionChip(row, sections, formatEur);
+          const status = cobroStatus(row);
+          return (
+            <tr key={`${row.kind}-${row.id}`} style={rowStripe(chip.color)} {...open(row)}>
+              <td data-card="hora" className="np-num">
+                {hourText(row.createdAt, tz, now)}
               </td>
-              <td data-label="Ref" data-card="top" className="np-num" style={{ ...meta, ...oneLine, fontWeight: 700 }}>
-                {row.ref ?? '—'}
-              </td>
-              {showReferences ? <>
-                <td data-label="Código" className="np-num">{row.confirmationCode ?? '—'}</td>
-                <td data-label="Ref. banco" style={meta}>
-                  {row.payment?.providerTxId ?? '—'}
-                  {row.payment?.authCode ? <span> · aut. {row.payment.authCode}</span> : null}
+              {has('ref') ? (
+                <td data-card="ref" className="np-num">
+                  {row.ref ?? '—'}
                 </td>
-              </> : null}
-              <td data-label="Importe" data-card="amount" className="np-num" style={amountCell}>
-                {formatMoney(row.amountCents, row.currency)}
-                {/* La «Comisión del servicio» que pagó el cliente encima (se debe a OxioPay). */}
-                {row.serviceFeeCents ? (
-                  <span style={tipStyle}>+{'\u00a0'}{formatEur(row.serviceFeeCents)} comisión del servicio</span>
-                ) : null}
-                {row.tipCents > 0 ? <span style={tipStyle}>+{'\u00a0'}{formatEur(row.tipCents)} propina</span> : null}
-              </td>
-              <td data-label="Estado" data-card="status" {...(i === 0 ? { 'data-tour': 'cobros-estado' } : {})}>
-                {/* Una sola forma y una palabra por estado, con tarjeta o con el saldo. */}
-                <Pill tone={cobroStatus(row).tone} dot>{cobroStatus(row).label}</Pill>
-                <PaidTwice row={row} />
+              ) : null}
+              <td data-card="que" title={row.invited ? `Invitación a ${row.invited.name}` : undefined}>
+                <span className="np-cobros-que">
+                  <SectionChip view={chip} />
+                  {row.service ? <span className="np-cobros-servicio">{row.service}</span> : null}
+                </span>
               </td>
               {hidePerson ? null : (
-                <td data-label="Quién cobró">
+                <td data-card="quien">
                   {row.person ? (
                     fichas && row.person.role === 'OPERATOR' ? (
-                      <button type="button" className="np-cell-link" style={linkStyle} onClick={() => fichas.openOperator(row.person!.id)}>
+                      <button type="button" className="np-cell-link" onClick={() => fichas.openOperator(row.person!.id)}>
                         {row.person.name}
                       </button>
                     ) : (
@@ -115,19 +124,18 @@ export function CobrosTable({ rows, actions, empty, hidePerson, extra, showRefer
                     )
                   ) : row.fromHome ? (
                     // Nadie del local: lo cargó el cliente con el enlace del local, antes de llegar.
-                    <Pill tone="info">{HOME_TOPUP_ORIGIN_LABEL}</Pill>
+                    <Etiqueta tone="info" size="sm">
+                      {HOME_TOPUP_ORIGIN_LABEL}
+                    </Etiqueta>
                   ) : (
                     '—'
                   )}
                 </td>
               )}
-              <td data-label="Sección">
-                <SectionChip view={sectionChip(row, sections, (c) => formatEur(c))} />
-              </td>
-              <td data-label="Cómo pagó" style={meta}>
+              <td data-card="como" title={row.methodLabel}>
                 <MethodMark method={row.method}>
                   {row.wallet && fichas ? (
-                    <button type="button" className="np-cell-link" style={linkStyle} onClick={() => fichas.openWallet(row.wallet!.id)}>
+                    <button type="button" className="np-cell-link" onClick={() => fichas.openWallet(row.wallet!.id)}>
                       {row.method === 'SALDO' ? labelWithCode(row.methodLabel) : `${row.methodLabel} · saldo ${row.wallet.codeHint}`}
                     </button>
                   ) : (
@@ -135,62 +143,47 @@ export function CobrosTable({ rows, actions, empty, hidePerson, extra, showRefer
                   )}
                 </MethodMark>
               </td>
-              <td data-label="Servicio" style={meta}>
-                {row.service ?? '—'}
-                {row.invited ? <span style={{ display: 'block' }}>Invitación a {row.invited.name}</span> : null}
-              </td>
-              {extra ? (
-                <td data-label={extra.label} style={meta}>
-                  {extra.cell(row)}
+              {has('codigo') ? (
+                <td data-card="codigo" className="np-num">
+                  {row.confirmationCode ?? '—'}
                 </td>
               ) : null}
-              {actions ? (
-                <td data-label="Acciones" data-card="actions" style={{ textAlign: 'right' }} {...(i === 0 ? { 'data-tour': 'cobros-acciones' } : {})}>
-                  {onDetails ? (
-                    <Button type="button" variant="quiet" size="sm" iconEnd="chevron-right" onClick={() => onDetails(row)} title={COBRO_ACTION_TITLES.detail}>
-                      {COBRO_ACTION_LABELS.detail}
-                    </Button>
-                  ) : null}
-                  {actions(row)}
+              {has('banco') ? (
+                <td data-card="banco">
+                  {row.payment?.providerTxId ?? '—'}
+                  {row.payment?.authCode ? <span> · aut. {row.payment.authCode}</span> : null}
                 </td>
               ) : null}
-            </tr>
-          ))}
-          {rows === null ? (
-            <SkelRows cols={colCount} cards={skeletonCards(colCount, Boolean(showReferences), Boolean(hidePerson), Boolean(extra), Boolean(actions))} />
-          ) : rows.length === 0 ? (
-            <tr>
-              <td colSpan={colCount} style={emptyCell}>
-                {empty}
+              <td data-card="estado" {...(i === 0 ? { 'data-tour': 'cobros-estado' } : {})}>
+                {/* Una sola forma y una palabra por estado, con tarjeta o con el saldo. */}
+                <Etiqueta tone={status.tone} size="sm">
+                  {status.label}
+                </Etiqueta>
+                <PaidTwice row={row} />
+              </td>
+              <td data-card="importe">
+                <Importe cents={cobroPaidCents(row)} size="table" decimals="always" currency={row.currency} />
               </td>
             </tr>
-          ) : null}
-        </tbody>
-      </table>
+          );
+        })}
+        {rows === null ? <SkelRows rows={8} cols={cells.length} cards={cells} /> : null}
+      </tbody>
+    </table>
     </div>
   );
-}
-
-/**
- * La forma de una tarjeta de cobro mientras carga: hora y ref arriba, importe y
- * estado, y las acciones; el resto de columnas no se ven en el móvil.
- */
-function skeletonCards(cols: number, refs: boolean, noPerson: boolean, extra: boolean, actions: boolean): Array<string | undefined> {
-  const out: Array<string | undefined> = ['top', 'top'];
-  if (refs) out.push('hide', 'hide');
-  out.push('amount', 'status');
-  if (!noPerson) out.push('hide');
-  out.push('hide', 'hide', 'hide');
-  if (extra) out.push('hide');
-  if (actions) out.push('actions');
-  return out.slice(0, cols);
 }
 
 /** «Saldo K7Q-•••»: si no cabe, parte por el espacio, nunca por el guion del código. */
 function labelWithCode(label: string): ReactNode {
   const space = label.lastIndexOf(' ');
   if (space < 0) return label;
-  return <>{label.slice(0, space + 1)}<span style={oneLine}>{label.slice(space + 1)}</span></>;
+  return (
+    <>
+      {label.slice(0, space + 1)}
+      <span style={{ whiteSpace: 'nowrap' }}>{label.slice(space + 1)}</span>
+    </>
+  );
 }
 
 /** Cobrado dos veces (el saldo y, después, la tarjeta): la fila con tarjeta lo dice debajo del estado. */
@@ -198,59 +191,13 @@ function PaidTwice({ row }: { row: CobroRow }) {
   const note = paidTwiceNote(row, formatEur);
   if (!note) return null;
   return (
-    <span style={paidTwiceStyle(row.paidTwice?.refunded === true)} role="note">
+    <span className="np-cobros-dos-veces" data-refunded={row.paidTwice?.refunded === true ? '' : undefined} role="note">
       {note}
     </span>
   );
 }
 
-const paidTwiceStyle = (refunded: boolean): CSSProperties => ({
-  display: 'block',
-  marginTop: '0.25rem',
-  maxWidth: '14rem',
-  fontSize: '0.875rem',
-  fontWeight: 400,
-  lineHeight: 1.3,
-  color: refunded ? 'var(--np-text-mute)' : 'var(--np-danger)',
-});
-
-/** La franja de color de la sección a la izquierda de la fila (panel-vivo.css); sin color («Varias»), un gris. */
+/** La franja de color de la sección a la izquierda de la fila (panel-cobros.css); sin color («Varias»), un gris. */
 function rowStripe(color: string | null): CSSProperties {
   return { '--np-row': color ?? 'var(--np-border-hi)' } as CSSProperties;
 }
-
-const meta: CSSProperties = { color: 'var(--np-text-mute)' };
-const oneLine: CSSProperties = { whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' };
-const amountCell: CSSProperties = { textAlign: 'right', fontWeight: 700, whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' };
-// Se puede partir (el importe de arriba, no): así la tabla cabe en un portátil.
-// Con «comisión del» en una línea: más estrecho, «del» se queda sola.
-const tipStyle: CSSProperties = {
-  display: 'block',
-  minWidth: '4.75rem',
-  whiteSpace: 'normal',
-  fontSize: '0.875rem',
-  fontWeight: 400,
-  color: 'var(--np-text-dim)',
-  fontFamily: 'var(--np-font-sans)',
-  letterSpacing: 0,
-};
-const emptyCell: CSSProperties = {
-  textAlign: 'center',
-  color: 'var(--np-text-dim)',
-  padding: '3rem 1rem',
-  fontSize: '0.875rem',
-};
-const linkStyle: CSSProperties = {
-  background: 'none',
-  border: 'none',
-  padding: 0,
-  font: 'inherit',
-  // Enlace en el color del texto, subrayado (el lima es para la acción principal), en 500.
-  color: 'var(--np-text)',
-  fontWeight: 400,
-  textDecoration: 'underline',
-  textDecorationThickness: '1px',
-  textUnderlineOffset: '0.15em',
-  cursor: 'pointer',
-  textAlign: 'inherit',
-};
