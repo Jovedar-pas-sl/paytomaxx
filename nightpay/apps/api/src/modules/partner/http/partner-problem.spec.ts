@@ -42,8 +42,8 @@ describe('toPartnerError: cada fallo a su código del catálogo', () => {
     } catch (e) {
       err = e;
     }
-    // Un campo de más dentro de otro: param = el primer segmento de su ruta.
-    expect(toPartnerError(err)).toMatchObject({ code: 'validation_failed', extra: { param: 'customer' } });
+    // Un campo de más (también dentro de otro): param = la primera clave desconocida.
+    expect(toPartnerError(err)).toMatchObject({ code: 'validation_failed', extra: { param: 'extra' } });
   });
 
   it('un campo de más (cuerpo estricto): 422 validation_failed con ese campo', () => {

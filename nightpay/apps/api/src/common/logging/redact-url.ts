@@ -157,5 +157,10 @@ export function redactSecretsInText(text: string): string {
     .replace(/(^|\s)(\/[^\s"'<>]+)/g, (_match, pre: string, path: string) => `${pre}${redactSecretsInUrl(path)}`);
 }
 
+/** Un texto que va a un log (mensaje o traza): URLs y rutas con token, y las claves de socio en cualquier sitio. */
+export function redactLogText(text: string): string {
+  return redactPartnerSecrets(redactSecretsInText(text));
+}
+
 /** Compatibilidad: antes solo se tapaba el enlace del saldo. */
 export const redactWalletToken = redactSecretsInUrl;
