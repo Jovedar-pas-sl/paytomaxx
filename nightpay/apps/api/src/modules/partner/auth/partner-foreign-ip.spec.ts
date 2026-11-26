@@ -58,7 +58,7 @@ describe('una clave buena desde una IP ajena', () => {
     expect(s.audit.log).toHaveBeenCalledTimes(4);
     expect(s.tx.partnerConnection.update).toHaveBeenCalledTimes(1);
     expect(s.tx.partnerConnection.update).toHaveBeenCalledWith({
-      where: { id: CONN.id },
+      where: { id: CONN.id, tenantId: CONN.tenantId },
       data: { pausedScopes: ['wallet:load'], pausedReason: 'foreign_ip' },
     });
     expect(s.audit.logInTx).toHaveBeenCalledWith(
