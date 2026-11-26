@@ -23,7 +23,7 @@ export const ICON_PATHS = {
 
 export type IconName = keyof typeof ICON_PATHS;
 
-/** El dibujo, al tamaño y grosor que se pida (Etiqueta lo pinta a 14 con trazo de 3,4). Siempre decorativo. */
+/** El dibujo, al tamaño y grosor que se pida (Etiqueta lo pinta a 14 con trazo de 3,4; los de aro, de 2,4). Siempre decorativo. */
 export function IconSvg({ name, size, strokeWidth, className }: { name: IconName; size: number; strokeWidth: number; className?: string }) {
   return (
     <svg

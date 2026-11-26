@@ -83,13 +83,51 @@ describe('Etiqueta de estado', () => {
     });
   }
 
+  // Los dibujos con aro van más finos: con 3,4 no se leen (la prueba de más abajo).
+  const RINGED: IconName[] = ['alert', 'info', 'clock'];
+
   for (const [tone, icon] of Object.entries(SYMBOL) as [EtiquetaTone, IconName][]) {
-    it(`${tone}: lleva su símbolo (${icon}) a 14 px y trazo de 3,4`, () => {
+    const stroke = RINGED.includes(icon) ? 2.4 : 3.4;
+    it(`${tone}: lleva su símbolo (${icon}) a 14 px y trazo de ${String(stroke).replace('.', ',')}`, () => {
       const out = html(<Etiqueta tone={tone}>Palabra</Etiqueta>);
       expect(out).toContain('width="14" height="14"');
-      expect(out).toContain('stroke-width="3.4"');
+      expect(out).toContain(`stroke-width="${stroke}"`);
       expect(out).toContain('aria-hidden="true"');
       expect(out).toContain(`d="${ICON_PATHS[icon][0]}"`);
+    });
+  }
+
+  /** Los tramos con tinta en la vertical del centro (x = 12) del símbolo tal como se pinta, en px de pantalla. */
+  function inkOnAxis(svg: string): [number, number][] {
+    const px = Number(/ height="(\d+)"/.exec(svg)![1]) / 24;
+    const half = Number(/stroke-width="([\d.]+)"/.exec(svg)![1]) / 2;
+    const spans: [number, number][] = [];
+    for (const [, d] of svg.matchAll(/ d="([^"]+)"/g)) {
+      const ring = /^M12 ([\d.]+)a[\d.]+ [\d.]+ 0 1 0 0 ([\d.]+)a/.exec(d!);
+      const line = /^M12 ([\d.]+)(?:v([\d.]+)|V([\d.]+)|h\.01$)/.exec(d!);
+      if (ring) {
+        const top = Number(ring[1]);
+        const bottom = top + Number(ring[2]);
+        spans.push([top - half, top + half], [bottom - half, bottom + half]);
+      } else if (line) {
+        const top = Number(line[1]);
+        spans.push([top - half, (line[2] ? top + Number(line[2]) : line[3] ? Number(line[3]) : top) + half]);
+      } else {
+        throw new Error(`un trazo que esta prueba no sabe medir: ${d}`);
+      }
+    }
+    return spans.sort((a, b) => a[0] - b[0]).map(([from, to]) => [from * px, to * px]);
+  }
+
+  for (const tone of ['warning', 'info', 'wait'] as const) {
+    it(`${tone}: a 14 px el aro, el palo y el punto de su símbolo no se tocan`, () => {
+      // Con el trazo de 3,4 el punto quedaba a 0,06 px del palo y los dos pegados al aro: el «!» y la «i» se leían
+      // igual, como una barra dentro de un círculo. Medio píxel de hueco ya deja una fila clara en una pantalla 1x.
+      const spans = inkOnAxis(html(<Etiqueta tone={tone}>Palabra</Etiqueta>));
+      expect(spans.length).toBeGreaterThanOrEqual(3);
+      for (let i = 1; i < spans.length; i += 1) {
+        expect(spans[i]![0] - spans[i - 1]![1], `hueco ${i} de ${tone}`).toBeGreaterThanOrEqual(0.5);
+      }
     });
   }
 

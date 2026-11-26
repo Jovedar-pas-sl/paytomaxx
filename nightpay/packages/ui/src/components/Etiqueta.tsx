@@ -27,6 +27,13 @@ const TONE_ICON: Record<Exclude<EtiquetaTone, 'neutral'>, IconName> = {
   refund: 'undo',
 };
 
+/**
+ * Los dibujos con aro van más finos (2,4, el trazo de Icon a 20): a 14 px y con
+ * el 3,4 de los demás (2 px a la vista) el punto y el palo del «!» y de la «i»
+ * se tocan entre sí y con el aro, y los dos se leen como una barra en un círculo.
+ */
+const RINGED: readonly IconName[] = ['alert', 'info', 'clock'];
+
 type SpanProps = Omit<HTMLAttributes<HTMLSpanElement>, 'color' | 'children'>;
 
 interface SectionProps extends SpanProps {
@@ -81,7 +88,7 @@ export function Etiqueta(props: SectionProps | StateProps) {
       ) : tone === 'neutral' ? (
         <span aria-hidden="true" className="np-tag-mark np-tag-dot" />
       ) : (
-        <IconSvg name={TONE_ICON[tone]} size={14} strokeWidth={3.4} className="np-tag-mark" />
+        <IconSvg name={TONE_ICON[tone]} size={14} strokeWidth={RINGED.includes(TONE_ICON[tone]) ? 2.4 : 3.4} className="np-tag-mark" />
       )}
       {children}
     </span>
