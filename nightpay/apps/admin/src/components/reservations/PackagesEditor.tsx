@@ -162,7 +162,8 @@ const mute: CSSProperties = { color: 'var(--np-text-mute)', fontSize: '0.875rem'
 const line: CSSProperties = { margin: 0, fontSize: '0.875rem' };
 const row: CSSProperties = { display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'flex-end' };
 // Precio, personas y máximo en una fila mientras quepan (cada uno de 10rem como poco).
-const fieldsRow: CSSProperties = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(10rem, 1fr))', gap: '0.5rem', alignItems: 'end' };
+// gridGap (grid-gap), no gap: en una rejilla, gap llega con Chrome 66 y el datáfono puede ser 64.
+const fieldsRow: CSSProperties = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(10rem, 1fr))', gridGap: '0.5rem', alignItems: 'end' };
 const radio: CSSProperties = { display: 'flex', gap: '0.375rem', alignItems: 'center', fontSize: '0.875rem' };
 const field: CSSProperties = { display: 'flex', flexDirection: 'column', gap: '0.25rem', flex: '1 1 10rem' };
 const input: CSSProperties = {

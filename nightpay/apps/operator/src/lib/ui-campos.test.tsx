@@ -310,6 +310,13 @@ describe('en las apps', () => {
     );
   });
 
+  it('Precio, Personas y Máximo de un paquete: en rejilla con su hueco también en Chrome 64 (grid-gap, no gap)', () => {
+    const src = read(`${ADMIN}reservations/PackagesEditor.tsx`);
+    const row = src.match(/const fieldsRow: CSSProperties = \{[^}]*\}/)![0];
+    expect(row).toContain("gridGap: '0.5rem'");
+    expect(row).not.toMatch(/[{\s,]gap:/);
+  });
+
   it('la parte N de un pack: «Importe de la parte N en euros», sin ejemplo', () => {
     const carta = read(`${ADMIN}CartaPanel.tsx`);
     expect(carta).toContain('aria-label={`Importe de la parte ${i + 1} en euros`}');
