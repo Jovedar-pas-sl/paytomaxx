@@ -38,16 +38,29 @@ describe('marca OxioPay en las páginas del cliente', () => {
     expect(brandBar()).toContain('<header class="brand">');
   });
 
-  it('colores de la marca: lima #c7d301 con su tinta, fondo Grafito; ya no el lima antiguo', () => {
+  it('colores de la marca: lima #c7d301 con su tinta, el suelo de «Color y relieve»; ya no el lima antiguo', () => {
     expect(CLUB_BASE_CSS).toContain('--lime:#c7d301');
-    expect(CLUB_BASE_CSS).toContain('--on-lime:#11160a');
-    expect(CLUB_BASE_CSS).toContain('--bg:#0b0d0e');
+    expect(CLUB_BASE_CSS).toContain('--on-lime:#091518');
+    expect(CLUB_BASE_CSS).toContain('--bg:#091518');
     expect(CLUB_BASE_CSS).not.toContain('d4ff3a');
-    // Botón principal: lima plana con su tinta, esquinas de 14 px (Grafito: botones del móvil), sin brillo ni halo.
+    // Botón principal («Color y relieve», 25-nov-2026): el mismo que el de las
+    // apps. Antes, lima plana con esquinas de 14 px, sin brillo ni halo (Grafito);
+    // ahora, píldora con el brillo arriba y la sombra con resplandor lima.
+    expect(CLUB_BASE_CSS).toMatch(
+      /\.btn\{[^}]*border-radius:999px;[^}]*background:var\(--lime\) linear-gradient\(180deg,rgba\(255,255,255,\.24\),rgba\(255,255,255,0\) 55%\);color:var\(--on-lime\)/,
+    );
+    expect(CLUB_BASE_CSS).toMatch(
+      /\.btn\{[^}]*box-shadow:inset 0 1px 0 rgba\(255,255,255,\.45\),inset 0 -1px 0 rgba\(0,0,0,\.18\),0 1px 2px rgba\(0,0,0,\.4\),0 8px 24px -8px rgba\(199,211,1,\.5\)/,
+    );
+    // El secundario y el apagado no heredan el resplandor lima.
+    expect(CLUB_BASE_CSS).toMatch(/\.btn\.alt\{[^}]*box-shadow:inset 0 1px 0 rgba\(239,233,223,\.08\)/);
+    // Con comas: rgb() con espacios es de Chrome 65 y, en uno más viejo, un fondo
+    // «lima + degradado» con él no se pintaba entero (el botón se quedaba sin color).
+    for (const m of CLUB_BASE_CSS.matchAll(/(\.btn[^{}]*)\{([^}]*)\}/g)) expect(m[2], m[1]).not.toMatch(/rgba?\(\d+ \d+ \d+/);
+    expect(CLUB_BASE_CSS).toMatch(/\.btn:disabled:not\(\.busy\),\.btn\[aria-disabled=true\]:not\(\.busy\)\{[^}]*box-shadow:none/);
+    // Solo los botones son píldora: lo partido en dos (--r-btn), las losetas, los campos y los chips siguen con su radio.
     expect(CLUB_BASE_CSS).toContain(':root{--r-btn:14px}');
-    expect(CLUB_BASE_CSS).toMatch(/\.btn\{[^}]*border-radius:var\(--r-btn\);[^}]*background:var\(--lime\);color:var\(--on-lime\)/);
-    expect(CLUB_BASE_CSS).not.toMatch(/\.btn\{[^}]*box-shadow/);
-    expect(CLUB_BASE_CSS).not.toContain('999px');
+    expect(CLUB_TOKENS).toContain('--r:18px;--r-tile:14px;--r-field:10px;--r-chip:6px');
     // Ocupado: su color con la ruedita (no gris); desactivado de verdad: gris.
     expect(CLUB_BASE_CSS).toContain('.btn:disabled:not(.busy),.btn[aria-disabled=true]:not(.busy){background:var(--surface-2)');
     expect(CLUB_BASE_CSS).toContain('.btn.busy::before{');
@@ -84,7 +97,7 @@ describe('marca OxioPay en las páginas del cliente', () => {
     ];
     for (const html of pages) {
       expect(html).toContain(OXIOPAY_WORDMARK.src);
-      expect(html).toContain('<meta name="theme-color" content="#0b0d0e">');
+      expect(html).toContain('<meta name="theme-color" content="#091518">');
       expect(html).not.toMatch(/src="https?:/);
     }
   });
@@ -107,6 +120,7 @@ describe('las fichas del cliente son las del tema oscuro de @nightpay/ui (no se 
     ['bg', 'bg'],
     ['surface', 'surface'],
     ['surface-2', 'surface-2'],
+    ['surface-3', 'surface-3'],
     ['line', 'border'],
     ['line-hi', 'border-hi'],
     ['fg', 'text'],

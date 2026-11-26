@@ -8,6 +8,8 @@ import { describe, expect, it } from 'vitest';
  * panel), se resuelven los var() y se calcula el contraste WCAG 2.x: 4,5:1 el
  * texto y 3:1 las marcas que no son texto (subrayado, filete, icono). Cada par
  * lleva su valor: si alguien cambia un color, la prueba dice cuánto da ahora.
+ * Los valores del tema oscuro son los de «Color y relieve» (25-nov-2026: suelo
+ * #091518, superficies más claras y texto crema); los del claro no cambian.
  */
 
 // Sin \r: en Windows git deja los ficheros con CRLF.
@@ -61,16 +63,18 @@ function ratio(a: string, b: string): number {
   return (hi + 0.05) / (lo + 0.05);
 }
 
-/** Contraste de `fg` sobre `bg` en un tema (un fondo transparente deja ver --np-bg). */
-function contrast(theme: Vars, fg: string, bg: string): number {
+/** Contraste de `fg` sobre `bg` en un tema (un fondo transparente deja ver lo de debajo: `under`, --np-bg si no se dice). */
+function contrast(theme: Vars, fg: string, bg: string, under = '--np-bg'): number {
   const back = resolve(theme, bg);
-  return ratio(resolve(theme, fg), back === 'transparent' ? resolve(theme, '--np-bg') : back);
+  return ratio(resolve(theme, fg), back === 'transparent' ? resolve(theme, under) : back);
 }
 
 interface Pair {
   what: string;
   fg: string;
   bg: string;
+  /** Lo que se ve debajo cuando `bg` es transparente (si no se dice, --np-bg). */
+  under?: string;
   /** Lo que da hoy (dos decimales; null = en ese tema no se pinta); el mínimo es 4,5 el texto y 3 lo demás. */
   oscuro: number | null;
   claro: number | null;
@@ -78,21 +82,23 @@ interface Pair {
 }
 
 const PAIRS: Pair[] = [
-  { what: 'sección cerrada (t1) sobre el fondo', fg: '--np-nav-ink', bg: '--np-bg', oscuro: 17.40, claro: 16.23, text: true },
-  { what: 'sección cerrada al pasar el ratón', fg: '--np-nav-ink', bg: '--np-surface', oscuro: 16.23, claro: 17.23, text: true },
-  { what: 'sección abierta: su texto sobre su fondo', fg: '--np-nav-on-ink', bg: '--np-nav-on-bg', oscuro: 11.15, claro: 8.66, text: true },
-  { what: 'sección abierta al pasar el ratón', fg: '--np-nav-on-ink', bg: '--np-nav-on-bg-hover', oscuro: 12.46, claro: 9.49, text: true },
-  { what: 'subrayado de la abierta (3 px) sobre su pastilla lima', fg: '--np-nav-on-bar', bg: '--np-nav-on-bg', oscuro: 11.15, claro: 8.66, text: false },
-  { what: 'pastilla cerrada: t1 sobre la superficie', fg: '--np-nav-ink', bg: '--np-nav-pill-bg', oscuro: 16.23, claro: 17.23, text: true },
-  { what: 'pastilla cerrada al pasar el ratón', fg: '--np-nav-ink', bg: '--np-nav-pill-bg-hover', oscuro: 14.99, claro: 14.85, text: true },
+  { what: 'sección cerrada (t1) sobre el fondo', fg: '--np-nav-ink', bg: '--np-bg', oscuro: 15.36, claro: 16.23, text: true },
+  { what: 'sección cerrada al pasar el ratón', fg: '--np-nav-ink', bg: '--np-surface', oscuro: 12.73, claro: 17.23, text: true },
+  { what: 'sección abierta: su texto sobre su fondo', fg: '--np-nav-on-ink', bg: '--np-nav-on-bg', oscuro: 11.26, claro: 8.66, text: true },
+  { what: 'sección abierta al pasar el ratón', fg: '--np-nav-on-ink', bg: '--np-nav-on-bg-hover', oscuro: 12.58, claro: 9.49, text: true },
+  { what: 'subrayado de la abierta (3 px) sobre su pastilla lima', fg: '--np-nav-on-bar', bg: '--np-nav-on-bg', oscuro: 11.26, claro: 8.66, text: false },
+  { what: 'pastilla cerrada: t1 sobre la superficie', fg: '--np-nav-ink', bg: '--np-nav-pill-bg', oscuro: 12.73, claro: 17.23, text: true },
+  { what: 'pastilla cerrada al pasar el ratón', fg: '--np-nav-ink', bg: '--np-nav-pill-bg-hover', oscuro: 11.28, claro: 14.85, text: true },
   { what: 'pastilla abierta: tinta sobre crema (en claro, crema sobre tinta)', fg: '--np-nav-pill-on-ink', bg: '--np-nav-pill-on-bg', oscuro: 11.82, claro: 11.82, text: true },
   { what: 'pastilla abierta al pasar el ratón', fg: '--np-nav-pill-on-ink', bg: '--np-nav-pill-on-bg-hover', oscuro: 12.69, claro: 8.57, text: true },
-  { what: 'filete de la pastilla abierta junto al fondo', fg: '--np-nav-pill-on-edge', bg: '--np-bg', oscuro: 16.13, claro: 13.10, text: false },
-  { what: 'barra de abajo: etiqueta cerrada (t1)', fg: '--np-nav-ink', bg: '--np-bg', oscuro: 17.40, claro: 16.23, text: true },
-  { what: 'barra de abajo: etiqueta abierta', fg: '--np-nav-dock-on-ink', bg: '--np-bg', oscuro: 16.13, claro: 13.10, text: true },
-  { what: 'barra de abajo: icono abierto sobre su pastilla', fg: '--np-nav-dock-on-icon', bg: '--np-nav-dock-on-bg', oscuro: 16.13, claro: 11.82, text: false },
-  { what: 'barra de abajo: raya de 3 px junto al fondo (solo oscuro)', fg: '--np-nav-dock-on-bar', bg: '--np-bg', oscuro: 16.13, claro: null, text: false },
-  { what: 'barra de abajo: filete de la pastilla del icono junto al fondo (solo claro)', fg: '--np-nav-dock-on-edge', bg: '--np-bg', oscuro: null, claro: 13.10, text: false },
+  { what: 'filete de la pastilla abierta junto al fondo', fg: '--np-nav-pill-on-edge', bg: '--np-bg', oscuro: 15.36, claro: 13.10, text: false },
+  // La barra de abajo (móvil) va sobre su propio fondo, --np-nav-dock-bg: en
+  // oscuro, la zona hundida de «Color y relieve» (--np-sunk); en claro, el de siempre.
+  { what: 'barra de abajo: etiqueta cerrada (t1)', fg: '--np-nav-ink', bg: '--np-nav-dock-bg', oscuro: 14.11, claro: 16.23, text: true },
+  { what: 'barra de abajo: etiqueta abierta', fg: '--np-nav-dock-on-ink', bg: '--np-nav-dock-bg', oscuro: 14.11, claro: 13.10, text: true },
+  { what: 'barra de abajo: icono abierto sobre su pastilla', fg: '--np-nav-dock-on-icon', bg: '--np-nav-dock-on-bg', under: '--np-nav-dock-bg', oscuro: 14.11, claro: 11.82, text: false },
+  { what: 'barra de abajo: raya de 3 px junto al fondo (solo oscuro)', fg: '--np-nav-dock-on-bar', bg: '--np-nav-dock-bg', oscuro: 14.11, claro: null, text: false },
+  { what: 'barra de abajo: filete de la pastilla del icono junto al fondo (solo claro)', fg: '--np-nav-dock-on-edge', bg: '--np-nav-dock-bg', oscuro: null, claro: 13.10, text: false },
 ];
 
 describe('colores del menú del panel: contraste con los tokens de verdad', () => {
@@ -105,7 +111,7 @@ describe('colores del menú del panel: contraste con los tokens de verdad', () =
           continue;
         }
         it(`${p.what}: ${want.toFixed(2).replace('.', ',')}:1 (≥ ${p.text ? '4,5' : '3'})`, () => {
-          const got = contrast(THEMES[name], p.fg, p.bg);
+          const got = contrast(THEMES[name], p.fg, p.bg, p.under);
           expect(got).toBeGreaterThanOrEqual(p.text ? 4.5 : 3);
           expect(got).toBeCloseTo(want, 1);
         });

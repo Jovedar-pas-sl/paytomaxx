@@ -34,9 +34,11 @@
   flex-direction: column;
   gap: 0.4rem;
   padding: 1rem 1.125rem;
-  border: 1px solid var(--np-border);
-  border-radius: var(--np-r-lg);
+  border: 1px solid var(--np-card-edge);
+  border-radius: var(--np-r-card);
   background: var(--np-surface);
+  background-image: var(--np-card-fill);
+  box-shadow: var(--np-shadow-1);
 }
 
 /* Abierta: raíl de aviso (ámbar), no lima: la lima es para actuar. */

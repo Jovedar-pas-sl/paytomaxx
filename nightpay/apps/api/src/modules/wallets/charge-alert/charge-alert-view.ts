@@ -97,8 +97,8 @@ export function walletManifest(base: string, lang: PayLanguage): string {
     start_url: base,
     scope: SERVICE_WORKER_SCOPE,
     display: 'standalone',
-    background_color: '#0b0d0e',
-    theme_color: '#0b0d0e',
+    background_color: '#091518',
+    theme_color: '#091518',
     lang,
   });
 }
@@ -211,7 +211,7 @@ function messageBox(title: string, text: string): string {
 
 /** Como las demás páginas del cliente: la barra de arriba, el contenido y el pie legal (su CSS va en CHROME_CSS). */
 function page(lang: PayLanguage, base: string, title: string, body: string, script = ''): string {
-  return `<!doctype html><html lang="${lang}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="robots" content="noindex,nofollow"><meta name="referrer" content="no-referrer"><meta name="theme-color" content="#0b0d0e"><title>${escapeHtml(title)}</title><style>${CLUB_BASE_CSS}${CHROME_CSS}${LOST_CSS}${NOT_ME_CSS}</style></head><body>${topBar(lang, (l) => `${base}?lang=${l}`)}<main>${body}</main>${legalFooter(lang)}<script>${script}${LANG_JS}</script></body></html>`;
+  return `<!doctype html><html lang="${lang}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="robots" content="noindex,nofollow"><meta name="referrer" content="no-referrer"><meta name="theme-color" content="#091518"><title>${escapeHtml(title)}</title><style>${CLUB_BASE_CSS}${CHROME_CSS}${LOST_CSS}${NOT_ME_CSS}</style></head><body>${topBar(lang, (l) => `${base}?lang=${l}`)}<main>${body}</main>${legalFooter(lang)}<script>${script}${LANG_JS}</script></body></html>`;
 }
 
 /** La página: el cobro y «No he sido yo» (formulario: funciona sin JS); o por qué el enlace no sirve. */

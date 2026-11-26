@@ -291,7 +291,7 @@
   display: grid;
   place-items: center;
   padding: 1rem;
-  background: var(--np-backdrop, rgb(5 6 7 / 0.74));
+  background: var(--np-backdrop, rgba(3, 10, 12, 0.74));
 }
 
 .otherPanel {
@@ -303,10 +303,11 @@
   align-items: center;
   gap: 0.75rem;
   padding: 1.25rem;
-  border-radius: var(--np-r-lg);
-  border: 1px solid var(--np-border);
+  border-radius: var(--np-r-card);
+  border: 1px solid var(--np-card-edge);
   background: var(--np-surface);
-  box-shadow: 0 24px 60px -24px rgb(0 0 0 / 0.8);
+  background-image: var(--np-card-fill);
+  box-shadow: var(--np-shadow-2);
   animation: npPantallaIn var(--np-d-base, 240ms) var(--np-ease, ease-out) both;
 }
 
@@ -389,6 +390,8 @@
   border-radius: var(--np-r-md);
   border: 1px solid var(--np-border);
   background: var(--np-surface);
+  /* Flota encima: la sombra grande del relieve. */
+  box-shadow: var(--np-shadow-2);
   font: 600 var(--np-fs-18) / 1.35 var(--np-font-sans);
   text-align: center;
 }
@@ -522,10 +525,11 @@
   gap: 0.5rem;
   min-width: 16rem;
   padding: 0.75rem;
-  border-radius: var(--np-r-lg);
-  border: 1px solid var(--np-border);
+  border-radius: var(--np-r-card);
+  border: 1px solid var(--np-card-edge);
   background: var(--np-surface);
-  box-shadow: 0 16px 40px -12px rgb(0 0 0 / 0.7);
+  background-image: var(--np-card-fill);
+  box-shadow: var(--np-shadow-2);
 }
 
 .menuText {

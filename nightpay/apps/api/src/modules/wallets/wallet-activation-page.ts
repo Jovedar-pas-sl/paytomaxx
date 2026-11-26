@@ -126,7 +126,7 @@ ${LANG_JS}</script>`;
 export function renderActivationPage(base: string, lang: PayLanguage, view: ActivationView): string {
   const a = CUSTOMER_TEXT[lang].activation;
   const h = escapeHtml;
-  return `<!doctype html><html lang="${lang}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="robots" content="noindex,nofollow"><meta name="referrer" content="no-referrer"><meta name="theme-color" content="#0b0d0e"><title>${h(a.title)}</title><style>${CLUB_BASE_CSS}${CHROME_CSS}${UNLOCK_CSS}${ACTIVATION_CSS}</style></head><body><main>`
+  return `<!doctype html><html lang="${lang}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="robots" content="noindex,nofollow"><meta name="referrer" content="no-referrer"><meta name="theme-color" content="#091518"><title>${h(a.title)}</title><style>${CLUB_BASE_CSS}${CHROME_CSS}${UNLOCK_CSS}${ACTIVATION_CSS}</style></head><body><main>`
     + topBar(lang, (l: PayLanguage) => `${base}?lang=${l}`)
     + body(view, lang)
     + `</main>${legalFooter(lang)}${view.state === 'ok' ? activationScript(base, lang, view) : `<script>${LANG_JS}</script>`}</body></html>`;

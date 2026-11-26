@@ -462,7 +462,8 @@ html[data-contrast='sala'] .lastRow[data-n='4']:not([data-big]) {
   flex-direction: column;
   gap: 0.5rem;
   padding: 0.75rem 1rem 1rem;
-  background: var(--np-surface);
+  /* Zona hundida: el pie queda un paso por debajo de las tarjetas. */
+  background: var(--np-sunk);
   border-top: 1px solid var(--np-border);
 }
 
@@ -557,7 +558,7 @@ html[data-contrast='sala'] .lastRow[data-n='4']:not([data-big]) {
   cursor: pointer;
 }
 
-/* ─── Botones: principal 56 px, secundario 48 px, radio 14 ─────────────── */
+/* ─── Botones: principal 56 px, secundario 48 px, en píldora ───────────── */
 
 .btn {
   display: flex;
@@ -568,7 +569,7 @@ html[data-contrast='sala'] .lastRow[data-n='4']:not([data-big]) {
   min-height: 3.5rem;
   padding: 0 1.5rem;
   border: none;
-  border-radius: var(--np-r-md);
+  border-radius: var(--np-r-pill);
   font: 600 var(--np-fs-16)/1.15 var(--np-font-sans);
   text-align: center;
   cursor: pointer;
@@ -588,25 +589,22 @@ html[data-contrast='sala'] .lastRow[data-n='4']:not([data-big]) {
   flex: none;
 }
 
-/* Lima con tinta (--np-primary-*); el brillo suave lima lo pone --np-primary-glow
-   (en el tema claro es el filete, sin halo). */
+/* Lima con tinta y el relieve del botón principal común (--np-primary-*): el
+   brillo de arriba y la sombra con su resplandor lima (en el tema claro, el
+   filete de tinta, sin halo). */
 .primary {
-  background: var(--np-primary-bg);
+  background-color: var(--np-primary-bg);
+  background-image: var(--np-primary-image);
   color: var(--np-primary-ink);
   box-shadow: var(--np-primary-shadow);
 }
 
-/* «Cobrar» de la carta y de la cuenta: con el brillo lima. */
-.foot .primary:not(:disabled) {
-  box-shadow: var(--np-primary-glow);
-}
-
-/* Secundario: superficie con filete de 1 px; nunca compite con la lima. */
+/* Secundario: superficie con filete de 1 px y filo de luz; nunca compite con la lima. */
 .ghost {
   min-height: 3rem;
   background: var(--np-surface-2);
   color: var(--np-text);
-  box-shadow: inset 0 0 0 1px var(--np-border-hi);
+  box-shadow: inset 0 0 0 1px var(--np-border-hi), var(--np-hi);
   font-size: var(--np-fs-16);
   font-weight: 500;
 }
@@ -626,11 +624,12 @@ html[data-contrast='sala'] .lastRow[data-n='4']:not([data-big]) {
 }
 
 /* Sin nada que cobrar (decisión D1): gris, a trazos y con la instrucción
-   dentro; nunca lima apagada. */
+   dentro; nunca lima apagada. Los trazos, con un borde: sigue la píldora en
+   cualquier navegador (un contorno, en el Chrome viejo del datáfono, sale
+   cuadrado). */
 .primary:disabled:not([aria-busy='true']) {
+  border: 1px dashed var(--np-border-hi);
   box-shadow: none;
-  outline: 1px dashed var(--np-border-hi);
-  outline-offset: -1px;
   font-weight: 500;
 }
 
@@ -1866,8 +1865,8 @@ html[data-contrast='sala'] .lastRow[data-n='4']:not([data-big]) {
   padding: 0 0.75rem;
   background: var(--np-surface-2);
   border: none;
-  box-shadow: inset 0 0 0 1px var(--np-border-hi);
-  border-radius: var(--np-r-md);
+  box-shadow: inset 0 0 0 1px var(--np-border-hi), var(--np-hi);
+  border-radius: var(--np-r-pill);
   color: var(--np-text);
   font: 500 var(--np-fs-16)/1.2 var(--np-font-sans);
   cursor: pointer;
@@ -1898,6 +1897,13 @@ html[data-contrast='sala'] .lastRow[data-n='4']:not([data-big]) {
 .altLink:disabled {
   color: var(--np-disabled-ink);
   cursor: not-allowed;
+}
+
+/* Pulsados, un paso más (como el secundario común); «Cancelar cobro» es un
+   enlace y no cambia de fondo. */
+.ghost:not(.cancelLink):active:not(:disabled),
+.altLink:active:not(:disabled) {
+  background: var(--np-surface-3);
 }
 
 /* Las dos formas (su código + PIN, su pase): botón grande con su explicación debajo. */

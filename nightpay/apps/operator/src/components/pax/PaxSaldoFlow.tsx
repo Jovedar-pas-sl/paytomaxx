@@ -436,7 +436,8 @@ const chargeBtn: CSSProperties = {
   padding: '1rem 1.25rem',
   background: 'var(--np-surface-2)',
   border: '2px solid var(--np-border-hi)',
-  borderRadius: 'var(--np-r-lg)',
+  // Va dentro de la tarjeta: el radio de dentro.
+  borderRadius: 'var(--np-r-inner)',
   color: 'var(--np-text)',
   textAlign: 'left',
   cursor: 'pointer',

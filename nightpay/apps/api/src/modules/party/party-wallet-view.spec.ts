@@ -151,7 +151,7 @@ describe('página de la pulsera (OxioParty)', () => {
   it('con OxioPay (sin party) la página es la de siempre', () => {
     const club = renderWalletPage('tok-1', 'es', state());
     expect(renderWalletPage('tok-1', 'es', state(), { party: null })).toBe(club);
-    expect(club).toContain('<meta name="theme-color" content="#0b0d0e">');
+    expect(club).toContain('<meta name="theme-color" content="#091518">');
     for (const mark of ['pSobra', 'mvText', 'partyRender', 'sobraSheet', 'pbrand', '"party"']) expect(club).not.toContain(mark);
   });
 

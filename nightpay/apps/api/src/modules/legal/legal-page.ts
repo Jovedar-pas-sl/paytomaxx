@@ -98,7 +98,7 @@ export function renderLegalPage(doc: LegalDocId, lang: PayLanguage, owner: Legal
   const body = page.blocks.map((block) => renderBlock(block, lang, page.title)).join('\n');
   return `<!DOCTYPE html>
 <html lang="${legalTextLanguage(lang)}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta name="theme-color" content="#0b0d0e"><title>${escapeHtml(page.title)} · OxioPay</title>
+<meta name="theme-color" content="#091518"><title>${escapeHtml(page.title)} · OxioPay</title>
 <style>${CLUB_BASE_CSS}${CHROME_CSS}${LEGAL_PAGE_CSS}</style>
 </head><body>
 ${topBar(lang, (l) => legalHref(doc, l))}

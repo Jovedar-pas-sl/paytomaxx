@@ -482,7 +482,7 @@
   min-height: 3.5rem;
   padding: 0.5rem 1.5rem;
   border: none;
-  border-radius: var(--np-r-md);
+  border-radius: var(--np-r-pill);
   font-family: var(--np-font-sans);
   font-size: var(--np-fs-16);
   font-weight: 600;
@@ -494,8 +494,12 @@
     background var(--np-d-fast);
 }
 
+/* Con el relieve de los botones (brillo arriba, filo de luz y sombra corta),
+   sin resplandor lima: va sobre el verde o el rojo del resultado. */
 .np-outcome-btn[data-variant='primary'] {
-  background: var(--np-outcome-ink);
+  background-color: var(--np-outcome-ink);
+  background-image: var(--np-primary-image);
+  box-shadow: var(--np-btn-relief);
   color: var(--np-ink-0);
 }
 
@@ -547,7 +551,6 @@
 .np-outcome-btn:focus-visible {
   outline: 2px solid var(--np-outcome-ink);
   outline-offset: 3px;
-  border-radius: var(--np-r-md);
 }
 
 /* ─── Aviso de conexión (ConnectionBanner) ───────────────────────────── */
@@ -1044,7 +1047,7 @@
   padding: 0 1.5rem;
   overflow: hidden;
   border: 1px solid var(--np-danger);
-  border-radius: var(--np-r-md);
+  border-radius: var(--np-r-pill);
   background: color-mix(in srgb, var(--np-danger) 10%, var(--np-surface));
   color: var(--np-danger-text);
   font: 600 var(--np-fs-16)/1.15 var(--np-font-sans);

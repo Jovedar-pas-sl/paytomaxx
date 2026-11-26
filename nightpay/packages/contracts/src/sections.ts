@@ -35,25 +35,28 @@ export const SECTION_COLOR_RE = /^#[0-9a-fA-F]{6}$/;
 const MAX_LABEL = 24;
 
 export const DEFAULT_SECTIONS: Readonly<Record<SectionCode, Readonly<Omit<VenueSection, 'code'>>>> = {
-  CHICA_SERVICE: { enabled: true, label: 'Servicios', color: '#e447f0' },
-  VENUE_BAR: { enabled: true, label: 'Copas', color: '#00e0ae' },
-  VENUE_ROOM: { enabled: true, label: 'Habitaciones', color: '#a98bff' },
-  VENUE_FOOD: { enabled: true, label: 'Comida', color: '#ff8a3d' },
-  VENUE_ENTRY: { enabled: true, label: 'Entradas', color: '#3d9bff' },
+  CHICA_SERVICE: { enabled: true, label: 'Servicios', color: '#ff77a2' },
+  VENUE_BAR: { enabled: true, label: 'Copas', color: '#46efd4' },
+  VENUE_ROOM: { enabled: true, label: 'Habitaciones', color: '#bbb8fe' },
+  VENUE_FOOD: { enabled: true, label: 'Comida', color: '#fd622d' },
+  VENUE_ENTRY: { enabled: true, label: 'Entradas', color: '#4d94fb' },
 };
 
 /**
- * Colores de fábrica de antes de «colores con más vida». Muchos locales los
- * tienen guardados en `venues.sections` sin haberlos elegido: un color igual a
- * uno de estos cuenta como «el de fábrica» y sale el actual. Un color que el
- * dueño eligió a mano (cualquier otro) se respeta.
+ * Colores de fábrica de generaciones anteriores: los de antes de «colores con
+ * más vida» y, desde «Color y relieve» (25-nov-2026), también los vivos de
+ * Grafito (el último de cada lista). Muchos locales los tienen guardados en
+ * `venues.sections` sin haberlos elegido: un color igual a uno de estos cuenta
+ * como «el de fábrica» y sale el actual. Un color que el dueño eligió a mano
+ * (cualquier otro) se respeta. Al cambiar los de fábrica, los que dejan de
+ * serlo se añaden AQUÍ: si no, esos locales se quedan con los viejos.
  */
 export const OLD_DEFAULT_SECTION_COLORS: Readonly<Record<SectionCode, readonly string[]>> = {
-  CHICA_SERVICE: ['#d24fd8', '#df73e4'],
-  VENUE_BAR: ['#3fe0c0'],
-  VENUE_ROOM: ['#c4b0f5'],
-  VENUE_FOOD: ['#f2b49b'],
-  VENUE_ENTRY: ['#8fc3f2'],
+  CHICA_SERVICE: ['#d24fd8', '#df73e4', '#e447f0'],
+  VENUE_BAR: ['#3fe0c0', '#00e0ae'],
+  VENUE_ROOM: ['#c4b0f5', '#a98bff'],
+  VENUE_FOOD: ['#f2b49b', '#ff8a3d'],
+  VENUE_ENTRY: ['#8fc3f2', '#3d9bff'],
 };
 
 /** ¿Este color guardado es el de fábrica (el actual o uno antiguo)? Entonces no lo eligió el dueño. */
@@ -65,7 +68,7 @@ export function isDefaultSectionColor(code: SectionCode, color: string): boolean
 /** «Otros»: solo para enseñar los cobros antiguos. */
 export const LEGACY_SECTION_META = { label: 'Otros', color: '#7c8893' } as const;
 /** Propinas: no son una línea; en los informes y el panel salen como su propia sección. */
-export const TIPS_SECTION_META = { label: 'Propinas', color: '#ffc94d' } as const;
+export const TIPS_SECTION_META = { label: 'Propinas', color: '#feee82' } as const;
 /** Recarga de saldo: no es venta (va al saldo vivo); se enseña así en la lista de cobros. */
 export const TOP_UP_SECTION_META = { label: 'Recarga de saldo', color: '#9aa4ad' } as const;
 

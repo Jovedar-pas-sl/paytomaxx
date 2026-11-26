@@ -4,10 +4,12 @@ import { OXIOPAY_WORDMARK } from './brand-logo';
 
 /**
  * Look de las páginas del cliente (/pay, /s, /w, /r): dirección «Grafito»,
- * la de las apps. Neutros casi negros, filetes finos y la lima como única luz
- * encendida: el botón de actuar, y nada más en esa vista (ni el total, ni los
- * antetítulos, ni los iconos). Sin degradados, halos ni el motivo 0101: el
- * cliente da aquí su tarjeta y tiene que parecer un pago serio. HTML
+ * la de las apps, con la paleta de «Color y relieve» (25-nov-2026): suelo azul
+ * noche, filetes finos y la lima como única luz encendida: el botón de
+ * actuar, y nada más en esa vista (ni el total, ni los antetítulos, ni los
+ * iconos). El único relieve es el del botón principal (el mismo que en las
+ * apps); sin más degradados ni halos, ni el motivo 0101: el cliente da aquí
+ * su tarjeta y tiene que parecer un pago serio. HTML
  * autocontenido: sin fuentes ni scripts de fuera (la CSP del API solo deja
  * 'self' e inline, y el cliente puede tener mala red); el logo va como data:
  * URI. El texto en Instrument Sans 400/500/600 y las cifras en Manrope
@@ -21,22 +23,24 @@ import { OXIOPAY_WORDMARK } from './brand-logo';
 /**
  * Fichas de diseño (las mismas que --np-* del tema oscuro de @nightpay/ui;
  * club-ui.spec.ts comprueba que no se separan). Contraste sobre --bg: --fg
- * 17,4:1, --mute 10,6:1, --dim 7,9:1 (pies y ayudas: el alcohol baja la
- * sensibilidad al contraste), --err 7,6:1, lima 11:1; bordes --line-hi
- * 3,6:1; tinta sobre lima (--on-lime) 11,2:1; texto sobre el verde de
- * «Pagado» 11:1. Radios: 6 chips, 10 campos, 14 botones, 18 tarjetas y hojas.
+ * 15,4:1, --mute 11,5:1, --dim 9,2:1 (pies y ayudas: el alcohol baja la
+ * sensibilidad al contraste), --err 9,1:1, lima 11,3:1; bordes --line-hi
+ * 5,8:1; tinta sobre lima (--on-lime) 11,3:1; texto sobre el verde de
+ * «Pagado» 11:1. Radios: 6 chips, 10 campos, 14 lo partido en dos y las
+ * losetas, 18 tarjetas y hojas; los botones, píldora.
  * Sombras, solo dos: la de la hoja y la del diálogo.
  */
-export const CLUB_TOKENS = `:root{--bg:#0b0d0e;--surface:#131618;--surface-2:#1a1e21;--surface-3:#23282c;--line:#262b30;--line-hi:#6b7680;--fg:#f4f2ec;--label:#b8c0c6;--mute:#b8c0c6;--dim:#9da6ae;--lime:#c7d301;--on-lime:#11160a;--ink:#1f2c36;--ink-0:#0f1112;--cream:#efe9df;--paid:#0b3d24;--paid-ink:#f4f2ec;--fail:#7a1c20;--warn:#f5b342;--err:#ff8a84;--bad:#ff6b6b;--ok:#58d68d;--stale:#23282c;--scrim:rgb(5 6 7/.74);--r:18px;--r-tile:14px;--r-field:10px;--r-chip:6px;--sh-sheet:0 -12px 32px rgb(0 0 0/.5);--sh-dialog:0 16px 40px -12px rgb(0 0 0/.7);--ease:cubic-bezier(.16,1,.3,1);--sys:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;--sans:'OxioSans',var(--sys);--num:'OxioManrope',var(--sys);color-scheme:dark}`;
+export const CLUB_TOKENS = `:root{--bg:#091518;--surface:#19272b;--surface-2:#223035;--surface-3:#2b3b40;--line:#314045;--line-hi:#7f939a;--fg:#efe9df;--label:#cfcbc2;--mute:#cfcbc2;--dim:#bab6ad;--lime:#c7d301;--on-lime:#091518;--ink:#1f2c36;--ink-0:#0f1112;--cream:#efe9df;--paid:#0b3d24;--paid-ink:#f4f2ec;--fail:#7a1c20;--warn:#f5b342;--err:#ff9a94;--bad:#ff6b6b;--ok:#58d68d;--stale:#2b3b40;--scrim:rgba(3,10,12,.74);--r:18px;--r-tile:14px;--r-field:10px;--r-chip:6px;--sh-sheet:0 -12px 32px rgb(0 0 0/.5);--sh-dialog:0 16px 40px -12px rgb(0 0 0/.7);--ease:cubic-bezier(.16,1,.3,1);--sys:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;--sans:'OxioSans',var(--sys);--num:'OxioManrope',var(--sys);color-scheme:dark}`;
 
 /**
  * Base común: cuerpo, botones, enlaces, avisos y la barra con el logo.
  *
- * Los botones, con forma de página de pago y no de cartel: 56 px de alto
- * (≥48 px siempre), esquinas de 14 px (--r-btn), 17/600 y cifras tabulares
- * (el importe del botón no baila al cambiar). El principal, lima plana con su
- * tinta (sin brillo ni halo); el secundario (.alt), superficie con filete de
- * 1 px. Al pulsar se hunde un poco y se oscurece; desactivado, gris de verdad
+ * Los botones, los mismos que en las apps: 56 px de alto (≥48 px siempre),
+ * en píldora, 17/600 y cifras tabulares (el importe del botón no baila al
+ * cambiar). El principal, lima con su tinta, el brillo arriba y la sombra con
+ * un resplandor lima suave; el secundario (.alt), superficie con filete de
+ * 1 px y un filo de luz. Quien cambie el fondo de un .btn tiene que poner
+ * también su box-shadow (si no, hereda el resplandor lima). Al pulsar se hunde un poco y se oscurece; desactivado, gris de verdad
  * (sin opacidad: a oscuras, un botón translúcido parece roto); ocupado
  * (.busy), su color con una ruedita en vez del icono, que no se pulsa dos
  * veces. Iconos de trazo: .ic. Los errores, en una caja con filete rojo y el
@@ -54,11 +58,11 @@ b,strong{font-weight:600}
 .num{font-family:var(--num);font-variant-numeric:tabular-nums}
 .kick{font-size:.8125rem;font-weight:500;color:var(--label)}
 .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
-.btn{display:flex;align-items:center;justify-content:center;gap:.5rem;width:100%;min-height:3.5rem;padding:.75rem 1.25rem;border-radius:var(--r-btn);border:1px solid var(--lime);background:var(--lime);color:var(--on-lime);font:inherit;font-size:1.0625rem;font-weight:600;line-height:1.2;font-variant-numeric:tabular-nums;text-align:center;text-decoration:none;cursor:pointer;-webkit-tap-highlight-color:transparent;transition:transform .12s var(--ease),filter .12s var(--ease)}
+.btn{display:flex;align-items:center;justify-content:center;gap:.5rem;width:100%;min-height:3.5rem;padding:.75rem 1.25rem;border-radius:999px;border:1px solid var(--lime);background:var(--lime) linear-gradient(180deg,rgba(255,255,255,.24),rgba(255,255,255,0) 55%);color:var(--on-lime);box-shadow:inset 0 1px 0 rgba(255,255,255,.45),inset 0 -1px 0 rgba(0,0,0,.18),0 1px 2px rgba(0,0,0,.4),0 8px 24px -8px rgba(199,211,1,.5);font:inherit;font-size:1.0625rem;font-weight:600;line-height:1.2;font-variant-numeric:tabular-nums;text-align:center;text-decoration:none;cursor:pointer;-webkit-tap-highlight-color:transparent;transition:transform .12s var(--ease),filter .12s var(--ease)}
 .ic{flex:none;width:1.15em;height:1.15em;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
 @media (hover:hover){.btn:hover{filter:brightness(1.06)}}
 .btn:active{transform:translateY(1px);filter:brightness(.93)}
-.btn.alt{min-height:3rem;background:var(--surface-2);color:var(--fg);border-color:var(--line-hi);font-weight:500}
+.btn.alt{min-height:3rem;background:var(--surface-2);color:var(--fg);border-color:var(--line-hi);box-shadow:inset 0 1px 0 rgba(239,233,223,.08);font-weight:500}
 .btn.alt:active{background:var(--surface-3);filter:none}
 .btn:disabled:not(.busy),.btn[aria-disabled=true]:not(.busy){background:var(--surface-2);border-color:var(--line);color:var(--dim);box-shadow:none;filter:none;transform:none;cursor:not-allowed}
 .btn.busy{cursor:progress;transform:none;filter:none}

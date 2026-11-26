@@ -189,7 +189,7 @@ dt{color:var(--mute)}
 dd{margin:0;font-weight:600;text-align:right;overflow-wrap:anywhere}
 .mono{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;letter-spacing:.02em}
 footer{margin-top:2rem;color:var(--mute);font-size:.875rem;display:flex;justify-content:space-between;gap:1rem;flex-wrap:wrap;align-items:center}
-button{font:inherit;font-weight:600;padding:.6rem 1.1rem;border-radius:.75rem;border:0;background:var(--lime);color:#11160a;cursor:pointer}
+button{font:inherit;font-weight:600;padding:.6rem 1.1rem;border-radius:.75rem;border:0;background:var(--lime);color:#091518;cursor:pointer}
 @page{size:A4;margin:14mm}
 @media print{main{padding:0;max-width:none}.noprint{display:none!important}.scroll{overflow:visible}section{break-inside:avoid}}
 `;

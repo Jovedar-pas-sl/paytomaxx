@@ -22,9 +22,11 @@
   display: grid;
   gap: 0.125rem;
   padding: 0.875rem 1rem 1rem;
-  border: 1px solid var(--np-border);
-  border-radius: var(--np-r-lg);
+  border: 1px solid var(--np-card-edge);
+  border-radius: var(--np-r-card);
   background: var(--np-surface);
+  background-image: var(--np-card-fill);
+  box-shadow: var(--np-shadow-1);
   color: var(--np-text);
 }
 
@@ -109,10 +111,12 @@
   display: grid;
   gap: 0.25rem;
   padding: 0.875rem 1rem 1rem;
-  border: 1px solid var(--np-border);
+  border: 1px solid var(--np-card-edge);
   border-left: 3px solid var(--row-c);
-  border-radius: var(--np-r-lg);
+  border-radius: var(--np-r-card);
   background: var(--np-surface);
+  background-image: var(--np-card-fill);
+  box-shadow: var(--np-shadow-1);
   min-width: 0;
 }
 

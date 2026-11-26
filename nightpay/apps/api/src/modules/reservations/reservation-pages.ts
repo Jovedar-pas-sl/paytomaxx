@@ -100,7 +100,7 @@ const icon = (name: keyof typeof ICONS) => `<svg class="ic" viewBox="0 0 24 24" 
 function page(title: string, body: string, script = ''): string {
   return `<!DOCTYPE html>
 <html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta name="robots" content="noindex"><meta name="referrer" content="no-referrer"><meta name="theme-color" content="#0b0d0e"><title>${h(title)}</title>
+<meta name="robots" content="noindex"><meta name="referrer" content="no-referrer"><meta name="theme-color" content="#091518"><title>${h(title)}</title>
 <style>${CLUB_BASE_CSS}${LEGAL_LINKS_CSS}${CSS}</style></head><body>
 ${brandBar()}
 <main class="m">${body}</main>
