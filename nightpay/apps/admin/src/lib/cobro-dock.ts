@@ -23,6 +23,36 @@ export function dockRow(rows: readonly CobroRow[] | null, key: DockKey | null, l
   return last && last.kind === key.kind && last.id === key.id ? last : null;
 }
 
+/** Una fila del cobro abierto y la vuelta de datos de la que sale (sube tras devolver, anular o resolver). */
+export interface DockSeen {
+  row: CobroRow;
+  version: number;
+}
+
+/**
+ * Lo que enseña el detalle: la fila más nueva del cobro abierto (la de la
+ * lista o, si ya no está, la última vista o la que se pidió aparte) y, para
+ * los botones del pie, solo una fila al día. Tras devolver, anular o resolver,
+ * una fila de antes miente (el estado, lo que queda por devolver): con el
+ * filtro «Pagado», una devolución entera saca el cobro de la lista. Hasta que
+ * llega una de después (`version`), sin botones de dinero.
+ */
+export function dockView(
+  rows: readonly CobroRow[] | null,
+  rowsVersion: number,
+  key: DockKey | null,
+  seen: ReadonlyArray<DockSeen | null>,
+  version: number,
+): { seen: DockSeen | null; actionsRow: CobroRow | null } {
+  if (!key) return { seen: null, actionsRow: null };
+  const found = rows ? rows[indexOf(rows, key)] : undefined;
+  let best: DockSeen | null = found ? { row: found, version: rowsVersion } : null;
+  for (const s of seen) {
+    if (s && s.row.kind === key.kind && s.row.id === key.id && (!best || s.version > best.version)) best = s;
+  }
+  return { seen: best, actionsRow: best && best.version >= version ? best.row : null };
+}
+
 /** El cobro anterior (−1) o el siguiente (+1) de los cargados; en los bordes, nada. */
 export function neighbour(rows: readonly CobroRow[] | null, key: DockKey | null, step: -1 | 1): CobroRow | null {
   if (!rows || !key) return null;

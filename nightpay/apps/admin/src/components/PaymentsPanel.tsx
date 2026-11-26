@@ -6,7 +6,7 @@ import type { CobroRow } from '@nightpay/contracts';
 import { fetchCobros, fetchMetrics, type CobrosFilters, type Metrics, type PaymentRow, type User } from '@/lib/api';
 import { cobradoNote, metricsCobradoParts } from '@/lib/cobrado';
 import { refFromSearch, withoutRef } from '@/lib/cobro-detail-view';
-import { dockKeyAction, dockRow, neighbour, type DockKey } from '@/lib/cobro-dock';
+import { dockKeyAction, dockView, neighbour, type DockKey, type DockSeen } from '@/lib/cobro-dock';
 import { COLUMNS_STORAGE_KEY, parseColumns, type CobrosColumn } from '@/lib/cobros-views';
 import { keepIfSame } from '@/lib/diff';
 import { formatEur } from '@/lib/money';
@@ -86,9 +86,14 @@ export function PaymentsPanel({
   // El detalle guarda QUÉ cobro está abierto; su fila sale de `payments` en cada pintada (la última del API).
   const [dock, setDock] = useState<DockKey | null>(null);
   /** La última fila vista del cobro abierto: por si deja de estar en la lista (otro filtro). */
-  const lastDockRow = useRef<CobroRow | null>(null);
+  const lastDockRow = useRef<DockSeen | null>(null);
   /** Sube tras cada acción: el detalle se vuelve a pedir. */
   const [detailVersion, setDetailVersion] = useState(0);
+  const versionRef = useRef(0);
+  /** La vuelta (`detailVersion`) de la que salen las filas de la lista. */
+  const [listVersion, setListVersion] = useState(0);
+  /** El cobro abierto, pedido aparte tras una acción (aunque el filtro ya no lo enseñe). */
+  const [freshDock, setFreshDock] = useState<DockSeen | null>(null);
   const docked = useDocked();
   const splitRef = useRef<HTMLDivElement | null>(null);
   const [columns, setColumns] = useState<CobrosColumn[]>(() => readColumns());
@@ -137,7 +142,7 @@ export function PaymentsPanel({
   // Desde otra pantalla: el detalle de ese cobro, sin filtrar la lista (una vez).
   useEffect(() => {
     if (!openRow) return;
-    openDetail(openRow);
+    openDetail(openRow, versionRef.current);
     onOpenRowDone?.();
   }, [openRow, onOpenRowDone]);
 
@@ -152,12 +157,14 @@ export function PaymentsPanel({
   const refresh = usePolling(
     async (signal) => {
       const loaded = loadedRef.current;
+      const version = versionRef.current;
       const limit = Math.min(MAX_PAGE_SIZE, Math.max(PAGE_SIZE, loaded));
       try {
         const [m, page] = await Promise.all([fetchMetrics(), fetchCobros(filter, { limit })]);
         if (signal.aborted) return true;
         setMetrics((prev) => keepIfSame(prev, m));
         setPayments((prev) => (prev ? keepIfSame(prev, mergeLatestPage(page.items, prev, page.nextCursor === null)) : page.items));
+        setListVersion(version);
         // Si entretanto se cargó otra página, su cursor es el bueno.
         if (loaded <= MAX_PAGE_SIZE && loaded === loadedRef.current) setNextCursor(page.nextCursor);
         setError(null);
@@ -198,9 +205,29 @@ export function PaymentsPanel({
 
   /** Tras devolver, anular o resolver: la lista y el detalle, al día. */
   const refreshAll = useCallback(() => {
+    versionRef.current += 1;
     refresh();
-    setDetailVersion((n) => n + 1);
+    setDetailVersion(versionRef.current);
   }, [refresh]);
+
+  // Tras una acción, el cobro abierto se pide aparte, sin el filtro de la lista:
+  // si ya no sale en ella (una devolución entera con «Pagado»), su fila al día llega igual.
+  useEffect(() => {
+    const ref = lastDockRow.current?.row.ref;
+    if (detailVersion === 0 || !ref) return;
+    const { kind, id } = lastDockRow.current!.row;
+    let gone = false;
+    fetchCobros({ search: ref }, { limit: PAGE_SIZE }).then(
+      (page) => {
+        const row = page.items.find((r) => r.kind === kind && r.id === id);
+        if (!gone && row) setFreshDock({ row, version: detailVersion });
+      },
+      () => undefined,
+    );
+    return () => {
+      gone = true;
+    };
+  }, [detailVersion]);
 
   function afterAction(close: () => void): () => void {
     return () => {
@@ -209,8 +236,9 @@ export function PaymentsPanel({
     };
   }
 
-  function openDetail(row: CobroRow): void {
-    lastDockRow.current = row;
+  /** `version`: de qué vuelta sale la fila (la de la lista, si no se dice). */
+  function openDetail(row: CobroRow, version = listVersion): void {
+    lastDockRow.current = { row, version };
     setDock({ kind: row.kind, id: row.id });
   }
 
@@ -223,8 +251,11 @@ export function PaymentsPanel({
     }
   }
 
-  const dockedRow = dockRow(payments, dock, lastDockRow.current);
-  if (dockedRow) lastDockRow.current = dockedRow;
+  // Los botones del pie, solo con una fila al día (`actionsRow`): nunca con el estado o lo que queda de antes.
+  const view = dockView(payments, listVersion, dock, [lastDockRow.current, freshDock], detailVersion);
+  if (view.seen) lastDockRow.current = view.seen;
+  const dockedRow = view.seen?.row ?? null;
+  const actionsRow = view.actionsRow;
 
   /** La fila abierta en la tabla (para devolverle el foco o llevarla a la vista). */
   const currentRowEl = () => splitRef.current?.querySelector<HTMLElement>('tr[aria-current="true"]') ?? null;
@@ -354,9 +385,9 @@ export function PaymentsPanel({
           docked={docked}
           onClose={() => setDock(null)}
           actions={
-            dockedRow ? (
+            actionsRow ? (
               <CobroRowActions
-                row={dockedRow}
+                row={actionsRow}
                 role={user.role}
                 onReverse={setReverseFor}
                 onResolve={setResolveFor}
