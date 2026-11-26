@@ -37,4 +37,20 @@ describe('la congelación de la API de socios', () => {
     await expect(s.service.current()).rejects.toThrow('Connection is closed.');
     expect(s.tx.partnerApiState.findUnique).not.toHaveBeenCalled();
   });
+
+  it.each([
+    ['sin copia', null],
+    ['con una copia que no vale', 'quizá'],
+  ])('%s: una recarga que leyó «none» no pisa el «all» que el super-admin publicó mientras tanto, y devuelve el que ganó', async (_name, initial) => {
+    const redis = createFakeRedis();
+    if (initial !== null) await redis.set(FREEZE_CACHE_KEY, initial);
+    const s = build({ freeze: 'none' }, redis);
+    // La fila se lee antes de que el super-admin la cambie; su publicación llega antes que la de la recarga.
+    s.tx.partnerApiState.findUnique.mockImplementationOnce(async () => {
+      await s.service.publish('all');
+      return { freeze: 'none' };
+    });
+    expect(await s.service.current()).toBe('all');
+    expect(await redis.get(FREEZE_CACHE_KEY)).toBe('all');
+  });
 });

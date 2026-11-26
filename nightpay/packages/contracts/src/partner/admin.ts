@@ -8,6 +8,7 @@ import {
   cleanPartnerText,
   partnerTextProblem,
   type PartnerKeyMode,
+  type PartnerPauseReason,
   type PartnerScope,
 } from './common';
 
@@ -69,8 +70,6 @@ export const PartnerConnectionNoBodySchema = z.strictObject({}).optional();
 
 export const PARTNER_CONNECTION_STATES = ['active', 'paused', 'revoked', 'expired', 'dormant'] as const;
 export type PartnerConnectionState = (typeof PARTNER_CONNECTION_STATES)[number];
-export const PARTNER_PAUSE_REASONS = ['owner', 'manager', 'foreign_ip', 'oxiopay'] as const;
-export type PartnerPauseReason = (typeof PARTNER_PAUSE_REASONS)[number];
 
 /** Una plataforma que el dueño puede conectar (nada más de su empresa). */
 export interface PartnerOptionView {
@@ -180,8 +179,12 @@ export const UpdatePartnerSchema = PartnerFieldsSchema.partial()
   .strict();
 export type UpdatePartnerDto = z.infer<typeof UpdatePartnerSchema>;
 
-/** Cambiar estos campos de un socio pide el 2FA (permisos, IP, KYB, contrato de datos). */
+/**
+ * Cambiar estos campos de un socio pide el 2FA (permisos, IP, KYB, contrato de
+ * datos y el correo de contacto, que recibe los enlaces de un uso de las claves).
+ */
 export const PARTNER_STEP_UP_FIELDS = [
+  'contactEmail',
   'allowedScopes',
   'egressIps',
   'egressRangeReason',

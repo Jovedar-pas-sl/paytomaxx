@@ -85,12 +85,14 @@ function isBag(value: unknown): value is Bag {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
+/** Los datos libres de un breadcrumb o un span: URL y query como siempre; el resto, limpio por dentro. */
 function scrubData(data: unknown): unknown {
-  if (!isBag(data)) return data;
+  if (!isBag(data)) return typeof data === 'string' ? scrubText(data) : scrubValue(data, 0, new WeakSet());
   const entries = Object.entries(data).map(([key, value]) => {
     if (QUERY_KEYS.includes(key)) return [key, REDACTED];
     if (URL_KEYS.includes(key) && typeof value === 'string') return [key, redactSecretsInUrl(value)];
-    return [key, value];
+    if (isSecretKey(key)) return [key, REDACTED];
+    return [key, typeof value === 'string' ? scrubText(value) : scrubValue(value, 1, new WeakSet())];
   });
   return Object.fromEntries(entries);
 }
@@ -98,7 +100,7 @@ function scrubData(data: unknown): unknown {
 export function scrubBreadcrumb<T extends Bag>(breadcrumb: T): T {
   return {
     ...breadcrumb,
-    ...(typeof breadcrumb.message === 'string' ? { message: redactSecretsInText(breadcrumb.message) } : {}),
+    ...(typeof breadcrumb.message === 'string' ? { message: scrubText(breadcrumb.message) } : {}),
     ...(breadcrumb.data !== undefined ? { data: scrubData(breadcrumb.data) } : {}),
   };
 }
@@ -214,7 +216,7 @@ function scrubSpan(span: unknown): unknown {
   if (!isBag(span)) return span;
   return {
     ...span,
-    ...(typeof span.description === 'string' ? { description: redactSecretsInText(span.description) } : {}),
+    ...(typeof span.description === 'string' ? { description: scrubText(span.description) } : {}),
     ...(span.data !== undefined ? { data: scrubData(span.data) } : {}),
   };
 }
