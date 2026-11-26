@@ -270,13 +270,15 @@ describe('en el panel', () => {
     'OnboardingForm.tsx': 1,
     'OperatorsPanel.tsx': 1,
     'party/StallsSection.tsx': 3,
+    // Entrega 9 (Cobros): los estados del filtro «Estado» y las columnas de más de «Columnas» (2).
+    'CobrosToolbar.tsx': 2,
   };
 
-  it('21 <Checkbox: los 12 que esperaban a «Guardar» y las 9 casillas nativas', () => {
+  it('23 <Checkbox: los 12 que esperaban a «Guardar», las 9 casillas nativas y las 2 de los menús de Cobros', () => {
     const found = countIn([[...ADMIN]], /<Checkbox\b/g);
     const expected = Object.fromEntries(Object.entries(CHECKBOXES).map(([file, n]) => [`apps/admin/src/components/${file}`, n]));
     expect(found).toEqual(expected);
-    expect(Object.values(found).reduce((a, b) => a + b, 0)).toBe(21);
+    expect(Object.values(found).reduce((a, b) => a + b, 0)).toBe(23);
   });
 
   it('casillas nativas, solo las que tocan a otras entregas (y la pieza)', () => {

@@ -70,14 +70,16 @@
   }
 }
 
-/* ─── Cobros: la franja de 4 px del color de la sección ──────────────────── */
-@media (min-width: 1101px) {
+/* ─── Cobros: la franja de 4 px del color de la sección ──────────────────
+   Desde 641 px, en la primera celda de la fila; en el móvil, el borde
+   izquierdo de la tarjeta. */
+@media (min-width: 641px) {
   .np-cobros-table tbody tr > td:first-child {
     box-shadow: inset 4px 0 0 var(--np-row, transparent);
   }
 }
 
-@media (max-width: 1100px) {
+@media (max-width: 640px) {
   .np-cobros-table tbody tr {
     border-left: 4px solid var(--np-row, var(--np-border));
   }
