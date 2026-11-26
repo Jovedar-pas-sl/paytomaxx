@@ -268,6 +268,11 @@ model User {
   phone              String?
   passportCountry    String?
   passportLast4      String?
+  /// Su documento (20261126200000_documento_companera): el tipo (DNI, NIE,
+  /// PASAPORTE) y el número, cifrados como la cuenta de cobro (pa1:…). Se
+  /// borran al darla de baja.
+  idDocumentType     String?
+  idDocumentNumber   String?
   hasEmpadronamiento Boolean   @default(false)
   hasNie             Boolean   @default(false)
   hasTie             Boolean   @default(false)
