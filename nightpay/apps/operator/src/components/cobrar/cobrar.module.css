@@ -1899,6 +1899,13 @@ html[data-contrast='sala'] .lastRow[data-n='4']:not([data-big]) {
   cursor: not-allowed;
 }
 
+/* Pulsados, un paso más (como el secundario común); «Cancelar cobro» es un
+   enlace y no cambia de fondo. */
+.ghost:not(.cancelLink):active:not(:disabled),
+.altLink:active:not(:disabled) {
+  background: var(--np-surface-3);
+}
+
 /* Las dos formas (su código + PIN, su pase): botón grande con su explicación debajo. */
 .altOpt {
   flex-direction: column;

@@ -529,6 +529,10 @@ describe('idea 3 · botones en píldora con relieve', () => {
     expect(tabs).toHaveLength(1);
     expect(tabs[0]).toContain("style={{ borderRadius: 'var(--np-r-sm)' }}");
   });
+
+  it('el secundario hecho a mano de Cobrar también cambia al pulsarlo, como el común (menos «Cancelar cobro», que es un enlace)', () => {
+    expect(COBRAR).toMatch(/\n\.ghost:not\(\.cancelLink\):active:not\(:disabled\),\n\.altLink:active:not\(:disabled\) \{\s*background: var\(--np-surface-3\);\s*\}/);
+  });
 });
 
 describe('idea 11 · colores de sección', () => {
