@@ -270,13 +270,17 @@ describe('en el panel', () => {
     'OnboardingForm.tsx': 1,
     'OperatorsPanel.tsx': 1,
     'party/StallsSection.tsx': 3,
+    // Pagar a todas (entrega 11 B): «Todas», cada fila, «Ya he pagado…» y la de «Marcar pagado» (4).
+    'PayoutBatchList.tsx': 2,
+    'PayoutBatchReview.tsx': 1,
+    'PayoutConfirmModal.tsx': 1,
   };
 
-  it('21 <Checkbox: los 12 que esperaban a «Guardar» y las 9 casillas nativas', () => {
+  it('25 <Checkbox: los 12 que esperaban a «Guardar», las 9 casillas nativas y las 4 de pagar a todas', () => {
     const found = countIn([[...ADMIN]], /<Checkbox\b/g);
     const expected = Object.fromEntries(Object.entries(CHECKBOXES).map(([file, n]) => [`apps/admin/src/components/${file}`, n]));
     expect(found).toEqual(expected);
-    expect(Object.values(found).reduce((a, b) => a + b, 0)).toBe(21);
+    expect(Object.values(found).reduce((a, b) => a + b, 0)).toBe(25);
   });
 
   it('casillas nativas, solo las que tocan a otras entregas (y la pieza)', () => {
@@ -294,8 +298,6 @@ describe('en el panel', () => {
       // Cerrar la noche (entrega 10).
       'apps/admin/src/components/NightCashStep.tsx': 1,
       'apps/admin/src/components/NightCloseScreen.tsx': 1,
-      // Pagar a todas (entrega 11).
-      'apps/admin/src/components/PayoutConfirmModal.tsx': 1,
       // Las fichas de sección de cada puesto: se guardan al tocar, con su «Guardado».
       'apps/admin/src/components/settings/PostRulesCard.tsx': 1,
       // La consola de OxioPay, fuera del encargo.
