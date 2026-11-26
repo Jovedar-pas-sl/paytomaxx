@@ -196,6 +196,12 @@ textarea:focus {
     pointer-events: none;
   }
 
+  /* Campo apagado: su fondo ya no es el de la tarjeta. La etiqueta pinta la
+     tarjeta por encima del filete (0,6875rem) y el campo apagado por debajo. */
+  :is(.np-notch, .np-set-card) .np-field:has(.np-field-input:disabled) > .np-field-label {
+    background: linear-gradient(var(--np-field-bg) 0.6875rem, var(--np-disabled-bg) 0.6875rem);
+  }
+
   :is(.np-notch, .np-set-card) .np-field:focus-within > .np-field-label {
     color: var(--np-focus);
   }

@@ -300,6 +300,16 @@ describe('en las apps', () => {
     expect(grafito).not.toMatch(/label:has\(> span:first-child|\.np-fichas-bar > label/);
   });
 
+  it('la etiqueta sobre el filete de un campo apagado: arriba el fondo de la tarjeta y abajo el del campo apagado, sin parche', () => {
+    const grafito = read('../../../admin/src/styles/panel-grafito.css');
+    // Solo en el escritorio, donde la etiqueta se apoya en el filete (el bloque de 641px).
+    const wide = grafito.slice(grafito.indexOf('@media (min-width: 641px) {'));
+    const notch = wide.slice(0, wide.indexOf('\n}\n'));
+    expect(rule(notch, ':is(.np-notch, .np-set-card) .np-field:has(.np-field-input:disabled) > .np-field-label')).toContain(
+      'background: linear-gradient(var(--np-field-bg) 0.6875rem, var(--np-disabled-bg) 0.6875rem)',
+    );
+  });
+
   it('la parte N de un pack: «Importe de la parte N en euros», sin ejemplo', () => {
     const carta = read(`${ADMIN}CartaPanel.tsx`);
     expect(carta).toContain('aria-label={`Importe de la parte ${i + 1} en euros`}');
