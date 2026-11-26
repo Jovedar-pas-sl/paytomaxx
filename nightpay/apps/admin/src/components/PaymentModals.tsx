@@ -394,7 +394,8 @@ export function RefundModal({
       {refundServiceFeeHint(payment) ? <p style={metaStyle}>{refundServiceFeeHint(payment)}</p> : null}
       <form onSubmit={handleSubmit} style={formStyle}>
         <Input
-          label="Importe (€)"
+          label="Importe"
+          suffix="€"
           type="text"
           inputMode="decimal"
           value={amount}

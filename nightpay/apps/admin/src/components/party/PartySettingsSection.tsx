@@ -134,7 +134,8 @@ export function PartySettingsView({
 
       <SettingsCard title="Aviso de efectivo" hint="En directo avisa cuando una taquilla acumula más efectivo de la cuenta.">
         <Input
-          label="Avisar cuando una caja pase de (€)"
+          label="Avisar cuando una caja pase de"
+          suffix="€"
           inputMode="decimal"
           value={current.cashAlertEur}
           onChange={(e) => update({ cashAlertEur: e.target.value })}

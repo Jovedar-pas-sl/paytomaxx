@@ -96,7 +96,8 @@ export function BankRefundModal({
       {refundFeePartText(payment, parseEuroCents(amount)) ? <p style={metaStyle}>{refundFeePartText(payment, parseEuroCents(amount))}</p> : null}
       <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1rem', marginTop: '1rem' }}>
         <Input
-          label="Importe devuelto (€)"
+          label="Importe devuelto"
+          suffix="€"
           inputMode="decimal"
           value={amount}
           onChange={(e) => setAmount(e.target.value)}
