@@ -122,6 +122,9 @@ describe('pantalla «Pagado»', () => {
     expect(renderPaidScreen({ ...base, t: en, now: at, to: 'Sala Aurora', method: 'Visa · Card' })).toContain('<p class="pto">to Sala Aurora</p>');
     expect(renderPaidScreen({ ...base, t: en, now: at, to: 'Sala Aurora', method: 'Visa · Card' })).toContain('<dt>Method</dt><dd>Visa · Card</dd>');
     expect(renderPaidScreen({ ...base, t: fr, now: at, to: 'Sala Aurora' })).toContain('<p class="pto">à Sala Aurora</p>');
+    // Con las líneas nuevas, en pantallas bajas se aprieta un poco para que el justificante siga a la vista en 360×740
+    // (medido con comisión, propina, local, lo pedido y método: en castellano queda 22 px por encima del borde; en francés, 3).
+    expect(PAID_SCREEN_CSS).toContain('@media (max-height:780px){.paid{gap:.3rem}.paid .prows div{padding:.2rem 0}}');
     // 18 px / 500, y una frase larga o un nombre largo no rompen la fila.
     expect(PAID_SCREEN_CSS).toContain('.paid .pto{font-size:1.125rem;font-weight:500');
     expect(PAID_SCREEN_CSS).toMatch(/\.paid \.prows dd\{[^}]*text-align:right/);

@@ -46,6 +46,17 @@ export interface ChooseContext {
   langHref?: LangHref;
 }
 
+/**
+ * Cuando ni con lo de las pantallas bajas cabe (hay desglose a la vista al
+ * abrir: comisión, o una propina ya marcada), hasta 900 px de alto: la franja
+ * que ofrece otro idioma baja debajo del formulario (como en las bajas) y Visa
+ * y Mastercard siguen a la frase del banco en su misma línea (la barra de
+ * pagar mide una línea menos y no tapa los botones de la propina). Lo decide
+ * el servidor (chooseCss): el CSS no sabe si cabe.
+ */
+export const CROWDED_CSS =
+  '@media (max-height:900px){body{display:flex;flex-direction:column}.sug{order:1}.legal-foot{order:2}.trust .marks{display:inline-flex;margin:0 0 0 .4rem;vertical-align:middle}}';
+
 /** El desglose (Consumo · Comisión del servicio · Propina · TOTAL): /pay y «Recargar» en /w. */
 export const BREAKDOWN_CSS = `
 .brk{margin:0;padding:.2rem 1rem;border:1px solid var(--line);border-radius:var(--r);background:var(--surface)}
@@ -107,8 +118,11 @@ form{width:100%;display:flex;flex-direction:column;gap:1.1rem}${TIP_BUTTONS_CSS}
 }
 .or{display:flex;align-items:center;gap:.75rem;font-size:.875rem;line-height:1;color:var(--dim)}
 .or::before,.or::after{content:'';flex:1;height:1px;background:var(--line)}
-${PAY_MARKS_CSS}${SOON_CSS}/* Móviles bajos (360×740 y similares): todo más compacto para que el desglose no quede detrás de los botones; los toques siguen ≥ 48 px. Sin la «o» de adorno y, con tarjeta y saldo, los dos secundarios lado a lado: la barra deja sitio al TOTAL. */
+${PAY_MARKS_CSS}${SOON_CSS}/* Móviles bajos (360×740 y similares): todo más compacto para que el desglose no quede detrás de los botones; los toques siguen ≥ 48 px. Sin la «o» de adorno y, con tarjeta y saldo, los dos secundarios lado a lado: la barra deja sitio al TOTAL. Lo que se aparta, por orden, para que el TOTAL quede por encima de la barra: lo pedido en una línea y, sin comisión ni propina marcada, sin desglose (el total ya es el importe grande), las dos hasta 900 px de alto (medido: en 390×844 tampoco cabía); la franja de idioma, debajo del formulario; y, si ni así cabe, CROWDED_CSS. Nunca se esconden la comisión, el total, el extracto, la caducidad ni la frase del banco. */
 @media (max-height:780px){
+body{display:flex;flex-direction:column}
+.sug{order:1}
+.legal-foot{order:2}
 .top{min-height:3.25rem;padding-top:calc(.25rem + env(safe-area-inset-top));padding-bottom:.25rem}
 .pay{gap:.8rem}
 form{gap:.8rem}
@@ -129,6 +143,10 @@ form{gap:.8rem}
 .paybar .alts:has(>.btn+.btn){grid-template-columns:1fr 1fr}
 .paybar .alts:has(>.btn+.btn) .btn.btc .btcpre{display:none}
 .paybar .alts:has(>.btn+.btn)+.btchint{display:none}
+}
+@media (max-height:900px){
+.concept{max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.brk.nil{display:none}
 }
 .secure{display:flex;align-items:center;justify-content:center;gap:.4rem;font-size:.875rem;color:var(--dim)}
 .secure svg{width:1rem;height:1rem;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
@@ -179,6 +197,11 @@ function presetTip(view: ChooseView): number {
   return view.presetTipCents && view.tipOptionsCents.includes(view.presetTipCents) ? view.presetTipCents : 0;
 }
 
+/** El CSS de la página de este cobro: el de siempre y, con desglose a la vista al abrir (no cabe), CROWDED_CSS. */
+export function chooseCss(view: ChooseView): string {
+  return (view.serviceFeeCents ?? 0) > 0 || presetTip(view) > 0 ? `${CHOOSE_CSS}${CROWDED_CSS}` : CHOOSE_CSS;
+}
+
 /**
  * Las propinas (tip-buttons.ts): cada botón enseña el total con la comisión del
  * servicio dentro. Nada marcado salvo la que ya traía (cobro único o la
@@ -219,7 +242,8 @@ function breakdown(view: ChooseView, t: PayText, withTips: boolean): string {
         }</div>`
       : '';
   const tip = presetTip(view);
-  return `<dl class="brk" id="brk">
+  // Sin comisión ni propina marcada, el desglose no dice nada que no diga el importe grande: en pantallas bajas se aparta (.nil).
+  return `<dl class="brk${fee <= 0 && tip <= 0 ? ' nil' : ''}" id="brk">
 <div><dt>${escapeHtml(view.topUp ? b.topUp : b.consumption)}</dt><dd class="num">${m(view.amountCents)}</dd></div>
 ${feeRow}${withTips ? `<div id="brkTip"><dt>${escapeHtml(b.tip)}</dt><dd class="num" id="brkTipV">${m(tip)}</dd></div>` : ''}
 <div class="tot"><dt>${escapeHtml(t.total)}</dt><dd class="num" id="total">${m(dueCents(view) + tip)}</dd></div>
@@ -292,6 +316,7 @@ function upd(announce){var s=state(),isOther=other&&other.checked;
  var sum=npPayTotal(C.amount,C.fee,s.tip),txt=money(sum);
  if(!sent){var lb=btn.querySelector('.lbl');if(lb)lb.textContent=T.pay+' '+txt+(C.hint?'. '+C.hint:'');}if(big)big.textContent=txt;
  var tv=$('brkTipV');if(tv)tv.textContent=money(s.tip);
+ var bk=$('brk');if(bk)bk.classList.toggle('nil',!(C.fee>0||s.tip>0));
  if(tot&&tot.textContent!==txt){tot.textContent=txt;if(announce)say();}}
 function reveal(){var b=$('brk'),bar=f.querySelector('.paybar');if(!b||!bar)return;
  var gap=b.getBoundingClientRect().bottom-(bar.getBoundingClientRect().top-16);

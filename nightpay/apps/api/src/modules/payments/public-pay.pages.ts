@@ -2,7 +2,7 @@ import { cardBrandLabel } from './card-brand';
 import { clientMoney, escapeHtml, jsString } from './club-ui';
 import { langHrefWith, type LangHref } from './customer-chrome';
 import { customerPage as page } from './customer-page';
-import { CHOOSE_CSS, LOCK_ICON, renderChooseBody, type ChooseContext } from './pay-choose-page';
+import { LOCK_ICON, chooseCss, renderChooseBody, type ChooseContext } from './pay-choose-page';
 import { PAID_SCREEN_CSS, paidScreenScript, renderPaidScreen } from './paid-screen';
 import { WALLET_ASK_CSS, renderWalletAsk, type WalletBlock } from './paid-wallet-ask';
 import { myBalanceBlock } from '../wallets/my-balance';
@@ -91,7 +91,7 @@ export function receiptHref(token: string, lang: PayLanguage): string {
 export function renderChoosePage(view: ChooseView, ctx: ChooseContext): string {
   const t = PAY_TEXT[ctx.lang];
   return page(t, t.youPay, renderChooseBody(view, ctx), {
-    head: `<style>${CHOOSE_CSS}</style>`,
+    head: `<style>${chooseCss(view)}</style>`,
     layout: 'bare',
     suggest: ctx.suggest,
     langHref: ctx.langHref,

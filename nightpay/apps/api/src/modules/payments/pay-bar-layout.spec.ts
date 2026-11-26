@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { CLUB_TOKENS } from './club-ui';
-import { CHOOSE_CSS, SOON_CSS, renderChooseBody } from './pay-choose-page';
+import { CHOOSE_CSS, CROWDED_CSS, SOON_CSS, renderChooseBody } from './pay-choose-page';
+import { renderChoosePage } from './public-pay.pages';
 import { choosePayPage, type PayablePayment, type PayRedirect } from './pay-redirect';
 import { TIP_BUTTONS_CSS, TIP_BUTTONS_LOW_CSS } from './tip-buttons';
 import { SALDO_TIP_CSS } from '../wallets/saldo-tip';
@@ -181,5 +182,85 @@ describe('caducidad: en el último minuto, el aviso en ámbar (idea 65)', () => 
     expect(html).toContain(
       "if(s<=60){soon.textContent=T.soon.split('{time}').join(m);if(soon.hidden){soon.hidden=false;$('exp').hidden=true;if(live)live.textContent=soon.textContent;}}",
     );
+  });
+});
+
+describe('cuando no cabe: lo que se aparta, por orden, para que el TOTAL quede por encima de la barra', () => {
+  // Medido en 360×740 y en 390×844 (no cabe en ninguna de las dos): por eso van hasta 900 px de alto y no solo en las «bajas» (780).
+  const FALLBACK = '@media (max-height:900px){';
+  const fall = CHOOSE_CSS.slice(CHOOSE_CSS.indexOf(FALLBACK), CHOOSE_CSS.indexOf('\n}', CHOOSE_CSS.indexOf(FALLBACK)));
+  const before = CHOOSE_CSS.slice(0, CHOOSE_CSS.indexOf(FALLBACK));
+  const saldo = { payToken: 's', status: 'PENDING', expiresAt: new Date(Date.now() + 60_000), enabled: true };
+  const page = (extra: Partial<PayablePayment>): string => {
+    const view = choosePayPage({
+      id: '11111111-2222-4333-8444-555555555555',
+      status: 'CREATED',
+      amountCents: 3300,
+      tipCents: 0,
+      currency: 'EUR',
+      qrExpiresAt: new Date(Date.now() + 300_000),
+      authorizedAt: null,
+      allowTip: true,
+      walletToken: null,
+      walletClaimHash: null,
+      walletCode: null,
+      walletHasFaceId: false,
+      walletHasPin: false,
+      ...extra,
+    }) as Extract<PayRedirect, { kind: 'choose' }>;
+    return renderChoosePage(view, { token: 't', lang: 'es', device: { wallet: 'Google Pay', inApp: null }, statementName: null, now: new Date(), suggest: 'en' });
+  };
+
+  it('1.º lo pedido, en una línea con «…»', () => {
+    expect(fall).toContain('\n.concept{max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}');
+    // En pantallas altas sigue partiéndose en las líneas que haga falta.
+    expect(before).not.toMatch(/\.concept\{[^}]*nowrap/);
+  });
+
+  it('2.º sin comisión ni propina marcada, sin desglose (el total ya es el importe grande); al elegir propina, vuelve', () => {
+    expect(body({})).toContain('<dl class="brk nil" id="brk">');
+    // Con comisión, o con una propina ya marcada, el desglose se ve siempre.
+    expect(body({ serviceFeeCents: 330, serviceFeeBps: 1000 })).toContain('<dl class="brk" id="brk">');
+    expect(body({ tipCents: 500, saldo })).toContain('<dl class="brk" id="brk">');
+    expect(fall).toContain('\n.brk.nil{display:none}');
+    // En pantallas altas el desglose sale como siempre.
+    expect(before).not.toContain('.brk.nil');
+    expect(body({})).toContain("var bk=$('brk');if(bk)bk.classList.toggle('nil',!(C.fee>0||s.tip>0));");
+  });
+
+  it('3.º la franja de idioma, debajo del formulario (antes del pie legal): en pantallas bajas, siempre', () => {
+    expect(rule('body', true)).toBe('display:flex;flex-direction:column');
+    expect(rule('.sug', true)).toBe('order:1');
+    expect(rule('.legal-foot', true)).toBe('order:2');
+    // En pantallas altas, arriba (donde se ve).
+    expect(CHOOSE_CSS.slice(0, CHOOSE_CSS.indexOf('@media (max-height:780px){'))).not.toMatch(/\.sug\{order/);
+    expect(fall).not.toContain('.sug{order');
+  });
+
+  it('y si ni así cabe (hay desglose a la vista al abrir): la franja baja también hasta 900 px de alto y las marcas siguen a la frase del banco en su línea', () => {
+    expect(CROWDED_CSS).toBe(
+      '@media (max-height:900px){body{display:flex;flex-direction:column}.sug{order:1}.legal-foot{order:2}.trust .marks{display:inline-flex;margin:0 0 0 .4rem;vertical-align:middle}}',
+    );
+    // Con comisión (o con una propina ya marcada) el desglose se ve: no cabe.
+    expect(page({ serviceFeeCents: 330, serviceFeeBps: 1000 })).toContain(CROWDED_CSS);
+    expect(page({ tipCents: 500, saldo })).toContain(CROWDED_CSS);
+    // Sin comisión ni propina marcada (el desglose se aparta), las marcas siguen debajo de la frase.
+    const light = page({});
+    expect(light).toContain('<nav class="sug"');
+    expect(light).not.toContain(CROWDED_CSS);
+  });
+
+  it('nunca se esconden la comisión, el total, el extracto, la caducidad ni la frase del banco', () => {
+    const media = CHOOSE_CSS.slice(CHOOSE_CSS.indexOf('@media (max-height:780px){'));
+    const hidden = [...`${media}${CROWDED_CSS}`.matchAll(/([^{}\n]+)\{[^{}]*display:none[^{}]*\}/g)].map((m) => m[1]!.trim());
+    // Lo único que se quita: la «o» de adorno, dos detalles del botón de bitcoin y el desglose que no dice nada.
+    expect(hidden).toEqual([
+      '.paybar .or',
+      '.paybar .alts:has(>.btn+.btn) .btn.btc .btcpre',
+      '.paybar .alts:has(>.btn+.btn)+.btchint',
+      '.brk.nil',
+    ]);
+    const html = body({ serviceFeeCents: 330, serviceFeeBps: 1000, qrExpiresAt: new Date(Date.now() + 30_000) });
+    for (const piece of ['class="fee"', 'class="tot"', 'id="soon"', 'class="trust"', 'class="meta"']) expect(html).toContain(piece);
   });
 });

@@ -62,8 +62,9 @@ export function paidBand(text: string): string {
  * El «Pagado» a pantalla completa: verde plano (--paid) con texto claro, la
  * marca lima de 56 px sin halo encima de la palabra (28/600), el importe en
  * 56-64/600 con cifras proporcionales y la placa crema del código (72-96/700).
- * La marquesina va pegada debajo de la barra del logo. Con todo, cabe en
- * 360×740 con el justificante a la vista.
+ * La marquesina va pegada debajo de la barra del logo. Con todo (también a
+ * quién, qué y cómo), cabe en 360×740 con el justificante a la vista: en
+ * pantallas bajas los huecos se aprietan un poco para eso.
  */
 export const PAID_SCREEN_CSS = `${BAND_CSS}
 .paid{position:relative;isolation:isolate;overflow:hidden;width:100%;min-height:100vh;min-height:100svh;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:.5rem;padding:calc(5.75rem + env(safe-area-inset-top)) 1rem calc(1.25rem + env(safe-area-inset-bottom));background:var(--paid);color:var(--paid-ink);text-align:center}
@@ -105,6 +106,7 @@ export const PAID_SCREEN_CSS = `${BAND_CSS}
 .paid .pthanks{display:none;font-size:1.375rem;font-weight:600}
 .paid.closed>:not(.pthanks):not(.pfoot){display:none}
 .paid.closed .pthanks{display:block}
+@media (max-height:780px){.paid{gap:.3rem}.paid .prows div{padding:.2rem 0}}
 `;
 
 /**
