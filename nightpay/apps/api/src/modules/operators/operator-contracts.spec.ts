@@ -1,6 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import {
+  CreatePayoutBatchSchema,
   CreatePayoutSchema,
+  PAYOUT_BATCH_MAX_ITEMS,
+  PAYOUT_BATCH_PROBLEM_CODES,
+  PayoutBatchResultSchema,
   ResetOperatorPasswordSchema,
   SelfOnboardingSubmitSchema,
   UpdateOperatorSchema,
@@ -117,5 +121,59 @@ describe('CreatePayoutSchema — la cifra que se vio', () => {
     for (const expectedTotalCents of [0, -100, 12.5, '12500']) {
       expect(CreatePayoutSchema.safeParse({ expectedTotalCents }).success).toBe(false);
     }
+  });
+});
+
+describe('CreatePayoutBatchSchema — «Pagar» a varias a la vez (POST /admin/payout-batches)', () => {
+  const id = (n: number) => `a1c3e5f7-2b4d-4e6f-8a0b-${String(n).padStart(12, '0')}`;
+  const item = (n: number, expectedTotalCents = 9_000) => ({ operatorId: id(n), expectedTotalCents });
+
+  it('de 1 a 50 personas, cada una con la cifra que se vio; el código 2FA, opcional', () => {
+    expect(CreatePayoutBatchSchema.parse({ items: [item(1)] })).toEqual({ items: [item(1)] });
+    expect(CreatePayoutBatchSchema.safeParse({ items: [item(1), item(2, 1)], totpCode: '123456' }).success).toBe(true);
+    expect(PAYOUT_BATCH_MAX_ITEMS).toBe(50);
+    expect(CreatePayoutBatchSchema.safeParse({ items: Array.from({ length: 50 }, (_, i) => item(i)) }).success).toBe(true);
+    expect(CreatePayoutBatchSchema.safeParse({ items: Array.from({ length: 51 }, (_, i) => item(i)) }).success).toBe(false);
+    expect(CreatePayoutBatchSchema.safeParse({ items: [] }).success).toBe(false);
+    expect(CreatePayoutBatchSchema.safeParse({}).success).toBe(false);
+    expect(CreatePayoutBatchSchema.safeParse({ items: [item(1)], totpCode: '12345' }).success).toBe(false);
+  });
+
+  it('sin repetidos (tampoco con otras mayúsculas) y con ids y cifras de verdad', () => {
+    expect(CreatePayoutBatchSchema.safeParse({ items: [item(1), item(1, 500)] }).success).toBe(false);
+    expect(
+      CreatePayoutBatchSchema.safeParse({ items: [item(1), { operatorId: id(1).toUpperCase(), expectedTotalCents: 9_000 }] }).success,
+    ).toBe(false);
+    // El id sale en minúsculas: con él se arma la clave de cada pago.
+    expect(CreatePayoutBatchSchema.parse({ items: [{ operatorId: id(7).toUpperCase(), expectedTotalCents: 1 }] }).items[0]!.operatorId).toBe(id(7));
+    expect(CreatePayoutBatchSchema.safeParse({ items: [{ operatorId: 'lucia', expectedTotalCents: 9_000 }] }).success).toBe(false);
+    for (const expectedTotalCents of [0, -100, 12.5, '12500', undefined, Number.MAX_SAFE_INTEGER + 1]) {
+      expect(CreatePayoutBatchSchema.safeParse({ items: [{ operatorId: id(1), expectedTotalCents }] }).success).toBe(false);
+    }
+  });
+
+  it('el cuerpo no elige importe, método, cuenta ni notas: cualquier campo de más → no vale', () => {
+    for (const extra of [{ amountCents: 1 }, { externalRail: 'MANUAL_CASH' }, { payoutAddress: 'ES91 2100 0418 4502 0005 1332' }, { notes: 'x' }, { externalTxId: 'abcd1234' }]) {
+      expect(CreatePayoutBatchSchema.safeParse({ items: [{ ...item(1), ...extra }] }).success).toBe(false);
+      expect(CreatePayoutBatchSchema.safeParse({ items: [item(1)], ...extra }).success).toBe(false);
+    }
+  });
+
+  it('la respuesta: PAID / FAILED / SKIPPED por persona y los códigos de siempre', () => {
+    expect(
+      PayoutBatchResultSchema.safeParse({
+        results: [
+          { operatorId: id(1), status: 'PAID', payoutId: id(9), totalCents: 9_000 },
+          { operatorId: id(2), status: 'FAILED', code: 'PAYOUT_CHANGED', totalCents: 8_000 },
+          { operatorId: id(3), status: 'FAILED', code: 'PAYOUT_ACCOUNT_TOO_NEW', payableFrom: '2026-11-28T10:00:00.000Z' },
+          { operatorId: id(4), status: 'SKIPPED', code: 'SKIPPED' },
+        ],
+        paidCount: 1,
+        paidCents: 9_000,
+      }).success,
+    ).toBe(true);
+    expect([...PAYOUT_BATCH_PROBLEM_CODES].sort()).toEqual(
+      ['APPROVAL_ALREADY_PENDING', 'CASH', 'NOTHING_TO_PAY', 'NOT_FOUND', 'NO_ACCOUNT', 'OTHER', 'PAYOUT_ACCOUNT_TOO_NEW', 'PAYOUT_CHANGED', 'PAYOUT_HOLDER_UNCONFIRMED', 'SKIPPED', 'UNKNOWN'],
+    );
   });
 });

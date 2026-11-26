@@ -37,7 +37,7 @@ describe('devolver en efectivo lo pagado con bitcoin: las reglas del dueño', ()
 
   it('importe: como mucho lo que queda y por debajo de 1.000 €', () => {
     expect(cashAmountProblem(5_000, 5_000)).toBeNull();
-    expect(cashAmountProblem(5_001, 5_000)).toMatch(/Como mucho 50,00 €/);
+    expect(cashAmountProblem(5_001, 5_000)).toMatch(/Como mucho 50,00\u00a0€/);
     expect(cashAmountProblem(100_000, 200_000)).toMatch(/1.000 €/);
     expect(cashAmountProblem(0, 5_000)).toMatch(/mayor que 0/);
   });

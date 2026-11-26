@@ -10,6 +10,7 @@ import { SALA_INIT_SCRIPT } from '@/lib/sala-contrast';
 import { appleAppMetadata } from '@nightpay/ui/app-manifest';
 import { deviceInitScript } from '@nightpay/ui/device-settings';
 import { BrandSplash } from '@nightpay/ui/brand-splash';
+import { Toast } from '@nightpay/ui/toast';
 import { NfcEscucha } from '@/components/NfcEscucha';
 import { PracticeBand } from '@/components/PracticeBand';
 
@@ -67,6 +68,8 @@ export default function RootLayout({ children }: { children: ReactNode }) {
         {children}
         {/* Una sola escucha NFC para toda la app: Android no abre el enlace de la ficha. */}
         <NfcEscucha />
+        {/* El aviso flotante de toda la app (useToast): una sola vez, fuera de la página. */}
+        <Toast />
       </body>
     </html>
   );

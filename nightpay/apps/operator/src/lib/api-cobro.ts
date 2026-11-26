@@ -69,6 +69,8 @@ export interface CobroInput {
   /** «Copa con invitación»: el QR de la chica o la elegida de la lista. */
   invitedStaffToken?: string;
   invitedOperatorId?: string;
+  /** Cobro por el encargado: el «Mi QR» de la compañera del servicio (cuando el API lo pide). */
+  serviceStaffToken?: string;
   terminalExternalId?: string;
   zone?: string;
   /** Con datáfono (si el local lo tiene): el camarero lo cobra en el aparato. */
@@ -77,8 +79,8 @@ export interface CobroInput {
   idempotencyKey?: string;
 }
 
-/** POST /v1/payments: el cobro con tarjeta y, enlazado, el del saldo (withSaldo). */
-export function createCobro(input: CobroInput): Promise<CobroCreado> {
+/** El cuerpo de POST /v1/payments: con datáfono, o con tarjeta y, enlazado, el del saldo (withSaldo). */
+export function cobroBody(input: CobroInput): Record<string, unknown> {
   const body: Record<string, unknown> = { currency: 'EUR', lines: input.lines };
   if (input.terminalExternalId) body.terminalExternalId = input.terminalExternalId;
   if (input.zone) body.zone = input.zone;
@@ -87,9 +89,14 @@ export function createCobro(input: CobroInput): Promise<CobroCreado> {
   // B1: la propina ya no la pone el personal: la elige el cliente al pagar.
   if (input.invitedStaffToken) body.invitedStaffToken = input.invitedStaffToken;
   if (input.invitedOperatorId) body.invitedOperatorId = input.invitedOperatorId;
+  if (input.serviceStaffToken) body.serviceStaffToken = input.serviceStaffToken;
+  return body;
+}
+
+export function createCobro(input: CobroInput): Promise<CobroCreado> {
   return call<CobroCreado>(
     '/v1/payments',
-    { method: 'POST', headers: { 'Idempotency-Key': input.idempotencyKey ?? newIdempotencyKey() }, body: JSON.stringify(body) },
+    { method: 'POST', headers: { 'Idempotency-Key': input.idempotencyKey ?? newIdempotencyKey() }, body: JSON.stringify(cobroBody(input)) },
     'Cobro',
   );
 }
@@ -110,6 +117,7 @@ export function createSaldoCobro(input: Omit<CobroInput, 'terminalExternalId' | 
   const body: Record<string, unknown> = { lines: input.lines };
   if (input.invitedStaffToken) body.invitedStaffToken = input.invitedStaffToken;
   if (input.invitedOperatorId) body.invitedOperatorId = input.invitedOperatorId;
+  if (input.serviceStaffToken) body.serviceStaffToken = input.serviceStaffToken;
   return call<SaldoCobro>('/v1/wallet-charges/qr', { method: 'POST', body: JSON.stringify(body) }, 'Cobro del saldo');
 }
 
@@ -241,7 +249,7 @@ export function lookupNfc(card: string, uid: string | null): Promise<WalletLooku
 
 /** «Nerea reconocida»: de quién es el QR que acaba de leer el camarero. */
 export function resolveStaffQr(token: string): Promise<InvitableStaff> {
-  return call<InvitableStaff>('/v1/operators/staff-qr/resolve', { method: 'POST', body: JSON.stringify({ token }) }, 'QR de la chica');
+  return call<InvitableStaff>('/v1/operators/staff-qr/resolve', { method: 'POST', body: JSON.stringify({ token }) }, 'QR de la compañera');
 }
 
 /** Las chicas del local (si el local deja elegirla de la lista). */

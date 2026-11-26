@@ -70,7 +70,8 @@ export function VenueRulesCard({ venue, onSaved }: Props) {
 
         <div className="np-sa-rule">
           <Input
-            label="Tope por cobro con «Otro importe» (€)"
+            label="Tope por cobro con «Otro importe»"
+            suffix="€"
             inputMode="decimal"
             value={form.maxCobroEur}
             onChange={(e) => update({ maxCobroEur: e.target.value })}
@@ -134,6 +135,16 @@ export function VenueRulesCard({ venue, onSaved }: Props) {
         </fieldset>
 
         <fieldset className="np-sa-rule np-sa-fieldset">
+          <legend className="np-sa-label">Cobro del servicio</legend>
+          <CheckRow
+            checked={form.operatorsChargeFromPhone}
+            onChange={(on) => update({ operatorsChargeFromPhone: on })}
+            label="Las compañeras cobran desde su móvil"
+            help="Apagada, no cobran desde su app: cobra el encargado (o recepción, si se lo dan en Permisos) escaneando su «Mi QR», y el dinero del servicio le llega a ella con su % y la propina entera. Los locales nuevos empiezan apagados. Apágala cuando el personal tenga la app nueva."
+          />
+        </fieldset>
+
+        <fieldset className="np-sa-rule np-sa-fieldset">
           <legend className="np-sa-label">Comisiones por categoría (%)</legend>
           <Help>
             Lo que se lleva quien hace el cobro (la compañera o el camarero) según lo que cobra. Con la comisión de la
@@ -178,7 +189,8 @@ export function VenueRulesCard({ venue, onSaved }: Props) {
 
         <div className="np-sa-rule">
           <Input
-            label="Devolución que necesita aprobación (€)"
+            label="Devolución que necesita aprobación"
+            suffix="€"
             inputMode="decimal"
             value={form.refundThresholdEur}
             onChange={(e) => update({ refundThresholdEur: e.target.value })}

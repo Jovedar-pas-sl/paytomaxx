@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Button } from '@nightpay/ui';
+import { Button, EmptyState } from '@nightpay/ui';
 import {
   closeReceptionIncident,
   fetchReceptionIncidents,
@@ -10,6 +10,7 @@ import {
   type ReceptionIncident,
 } from '@/lib/api-incidencias';
 import { formatEur } from '@/lib/money';
+import { SkelRows } from '../loading-shapes';
 import r from './reception.module.css';
 
 /**
@@ -57,11 +58,11 @@ export function ReceptionIncidents({ onDone }: { onDone: () => void }) {
     <div className={r.card}>
       <p className={r.kicker}>Incidencias</p>
       <p className={r.text}>
-        Clientes que dicen que un cobro de su saldo no lo hicieron ellos (su ficha y su PIN ya no pagan) y cobros cancelados que el
-        banco cobró después.
+        Clientes que dicen que un cobro de su saldo no lo hicieron ellos (su ficha y su PIN ya no pagan), cobros cancelados que el
+        banco cobró después y compañeras que dicen que un servicio cobrado a su nombre no es suyo («No es mío»).
       </p>
-      {rows === null && !error ? <p className={r.text}>Cargando…</p> : null}
-      {rows?.length === 0 ? <p className={r.lead}>No hay ninguna.</p> : null}
+      {rows === null && !error ? <SkelRows /> : null}
+      {rows?.length === 0 ? <EmptyState compact icon="alert" title="Ninguna incidencia" /> : null}
       {(rows ?? []).map((row) => (
         <section key={row.refId} className={r.incident} aria-labelledby={`inc-${row.refId}`}>
           <p className={r.kicker}>{incidentWhen(row.occurredAt)}</p>
@@ -76,7 +77,11 @@ export function ReceptionIncidents({ onDone }: { onDone: () => void }) {
           </p>
           <p className={r.text}>{row.detail}</p>
           {row.ackable === false ? (
-            <p className={r.note}>Lo cierra el encargado o el dueño: devuelto en el banco o dado por bueno.</p>
+            <p className={r.note}>
+              {row.kind === 'service_disputed'
+                ? 'Lo cierra el dueño en el panel. Habla con quien lo cobró.'
+                : 'Lo cierra el encargado o el dueño: devuelto en el banco o dado por bueno.'}
+            </p>
           ) : open === row.refId ? (
             <div className={r.form}>
               <label className={r.kicker} htmlFor={`nota-${row.refId}`}>

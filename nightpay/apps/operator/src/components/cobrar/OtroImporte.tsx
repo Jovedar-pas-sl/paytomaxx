@@ -1,13 +1,12 @@
 'use client';
 
 import { useState, type CSSProperties } from 'react';
-import { BusyWord, haptic } from '@nightpay/ui';
+import { BusyWord, haptic, Icon } from '@nightpay/ui';
 import { STICKY_ACTION_BOTTOM } from '../layout';
 import { formatEur } from '@/lib/money';
 import type { CuentaSection } from '@/lib/cuenta';
 import { IMPORTE_KEYS, importeCents, importeShown, pressImporte, type ImporteKey } from '@/lib/importe';
 import { colorOf, labelOf, offeredCodes, puestoChip, puestoSection, type CobrarContext } from './cobrar-context';
-import { IconDel } from './icons';
 import { Chip, ScreenHeader } from './ScreenHeader';
 import styles from './cobrar.module.css';
 
@@ -87,12 +86,12 @@ export function OtroImporte({ ctx, who, adding, onDone, onBack, busy, error }: P
         <div className={styles.keys}>
           {IMPORTE_KEYS.map((k) => (
             <button key={k} type="button" className={styles.key} onClick={() => press(k)} aria-label={k === 'back' ? 'Borrar' : k === ',' ? 'Coma' : k}>
-              {k === 'back' ? <IconDel /> : k}
+              {k === 'back' ? <Icon name="backspace" /> : k}
             </button>
           ))}
         </div>
       </div>
-      <div className={styles.foot} style={{ '--np-foot-bottom': STICKY_ACTION_BOTTOM } as CSSProperties}>
+      <div className={styles.foot} style={{ '--np-foot-bottom': STICKY_ACTION_BOTTOM } as CSSProperties} data-np-foot="">
         <button
           type="button"
           className={`${styles.btn} ${styles.primary}`}

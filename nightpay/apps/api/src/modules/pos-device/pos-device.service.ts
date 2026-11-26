@@ -15,6 +15,7 @@ import type { RequestContext } from '../../common/context/request-context';
 import { PrismaService, type TransactionalClient } from '../../common/prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { InvalidTransitionError, type PaymentMachineState } from '../payments/payment.machine';
+import { servedLabel, servedOperators } from '../payments/charge-store';
 import { PAID_STATES, confirmationCode } from '../payments/pay-redirect';
 import { PaymentsService } from '../payments/payments.service';
 import { maxTipCents, settleChargedTip } from '../payments/tip';
@@ -37,6 +38,7 @@ import {
   type PaytefShiftOperation,
 } from './paytef';
 import { POS_SALE_PROVER, judgeSaleProof, type PosSaleProver } from './pos-sale-proof';
+import { eurPlain } from '../../common/money/eur';
 
 /** payment_events: el datáfono dice que cobró y Paytef no lo ha confirmado (bandeja de incidencias). */
 export const POS_APPROVAL_UNVERIFIED_EVENT = 'payment.approval_unverified';
@@ -279,8 +281,8 @@ export class PosDeviceService {
 
   /** Cobros por datáfono que esperan a ser cobrados en el local. */
   async pending(device: PosDevice): Promise<PendingPosCharge[]> {
-    const rows = await this.prisma.asSystem((tx) =>
-      tx.payment.findMany({
+    const { rows, served } = await this.prisma.asSystem(async (tx) => {
+      const rows = await tx.payment.findMany({
         where: {
           tenantId: device.tenantId,
           status: 'CREATED',
@@ -296,11 +298,14 @@ export class PosDeviceService {
           currency: true,
           createdAt: true,
           terminalId: true,
-          createdBy: { select: { displayName: true, email: true } },
+          createdBy: { select: { displayName: true, email: true, role: true } },
           terminal: { select: { zone: true, label: true } },
         },
-      }),
-    );
+      });
+      // A nombre de una compañera (cobro por el encargado): «Servicio de Nerea». Una compañera nunca cobra a nombre de otra.
+      const byOthers = rows.filter((r) => r.createdBy?.role !== 'OPERATOR').map((r) => r.id);
+      return { rows, served: await servedOperators(tx, { paymentIds: byOthers }) };
+    });
     const mine = (r: (typeof rows)[number]): boolean =>
       r.terminalId === device.terminalId || (device.zone !== null && r.terminal?.zone === device.zone);
     return rows
@@ -313,7 +318,7 @@ export class PosDeviceService {
         serviceFeeCents: r.serviceFeeCents,
         currency: r.currency,
         createdAt: r.createdAt.toISOString(),
-        createdByName: r.createdBy?.displayName ?? r.createdBy?.email ?? '—',
+        createdByName: servedLabel(served.get(r.id)) ?? r.createdBy?.displayName ?? r.createdBy?.email ?? '—',
         zone: r.terminal?.zone ?? null,
         terminalLabel: r.terminal?.label ?? null,
         code: confirmationCode(r.id),
@@ -405,7 +410,7 @@ export class PosDeviceService {
       return this.mismatch(p, op, 'Una recarga del saldo no lleva propina: anula esta operación y cóbrala sin propina.');
     }
     if (tip > maxTipCents(p.amountCents)) {
-      return this.mismatch(p, op, `Propina de ${eur(tip)} fuera de lo normal: anula esta operación.`);
+      return this.mismatch(p, op, `Propina de ${eurPlain(tip)} fuera de lo normal: anula esta operación.`);
     }
 
     const authCode = r.authorisationCode?.trim().toUpperCase() || null;
@@ -760,16 +765,12 @@ function parseDate(v: string | undefined): Date | null {
   return Number.isNaN(d.getTime()) ? null : d;
 }
 
-function eur(cents: number): string {
-  return `${(cents / 100).toFixed(2).replace('.', ',')} €`;
-}
-
 /**
  * El lector cobró otro importe: lo que cobró de verdad (importe + propina,
  * lo mismo que se anula), no solo el importe (antes «Se cobraron 15 €» con
  * la operación de 17 € debajo).
  */
 function otherAmountText(requested: number, tip: number, expected: number): string {
-  const charged = tip > 0 ? `${eur(requested + tip)} (${eur(requested)} + ${eur(tip)} de propina)` : eur(requested);
-  return `Se cobraron ${charged} y el cobro era de ${eur(expected)}: anula esta operación.`;
+  const charged = tip > 0 ? `${eurPlain(requested + tip)} (${eurPlain(requested)} + ${eurPlain(tip)} de propina)` : eurPlain(requested);
+  return `Se cobraron ${charged} y el cobro era de ${eurPlain(expected)}: anula esta operación.`;
 }

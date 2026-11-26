@@ -128,6 +128,11 @@
   cursor: pointer;
 }
 
+/* El «⋯» con los puntos de antes (círculos de 3,3 px a 22; a 24, 3,6): los de la pieza, de 2, se perdían. */
+.menuBtn svg {
+  stroke-width: 3.6;
+}
+
 .menuBtn:focus-visible,
 .segBtn:focus-visible,
 .tile:focus-visible,

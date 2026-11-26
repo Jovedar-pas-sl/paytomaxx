@@ -1,6 +1,6 @@
 import { SENSITIVE_AUDIT_ACTIONS, sensitiveActionIncident } from './incident-rules';
 import { describe, it, expect } from 'vitest';
-import { Z_NET_LABEL, Z_NET_WITHOUT_STAFF_LABEL } from '@nightpay/contracts';
+import { Z_NET_LABEL, Z_NET_WITHOUT_STAFF_LABEL, alertKindForIncident } from '@nightpay/contracts';
 import {
   ACKABLE_KINDS,
   SELF_RESOLVING,
@@ -16,6 +16,7 @@ import {
   paymentAnomalyIncident,
   posVoidedPaidIncident,
   receptionPayoutCapIncident,
+  serviceDisputedIncident,
   stuckIncident,
   walletCardLostIncident,
   walletChargeDisputedIncident,
@@ -199,8 +200,8 @@ describe('resumen de las 9:00', () => {
       [
         '☀️ Local Centro — anoche: de las 08:00 de ayer a las 08:00 de hoy (sin noche cerrada)',
         // Un Z de antes del 23-oct no trae las recargas con tarjeta aparte: sin desglose (no cuadraría).
-        'Cobrado: 1220,00 €',
-        'Con tarjeta: 12 pagos · 1220,00 €',
+        'Cobrado: 1.220,00 €',
+        'Con tarjeta: 12 pagos · 1.220,00 €',
         'Propinas: 20,00 €',
         'Devoluciones: −100,00 €',
         'Para las chicas: 920,00 € · neto sin el personal: 200,00 €',
@@ -268,8 +269,8 @@ describe('resumen de las 9:00: las cifras dicen lo que cuentan', () => {
   it('«cobrado» como en el panel (ventas + propinas + recargas, con el desglose) y lo de la tarjeta aparte: lo que verá en el banco (DIN-3)', () => {
     const text = morningSummaryMessage('Sala Aurora', demo, 0);
     // Antes: «11 pagos con tarjeta · cobrado 1109,00 €», y 450 € eran efectivo.
-    expect(text).not.toContain('11 pagos con tarjeta · cobrado 1109,00 €');
-    expect(text).toContain('Cobrado: 1109,00 € (533,00 € de ventas con tarjeta + 26,00 € de propinas con tarjeta + 550,00 € de recargas)');
+    expect(text).not.toContain('11 pagos con tarjeta · cobrado 1.109,00 €');
+    expect(text).toContain('Cobrado: 1.109,00 € (533,00 € de ventas con tarjeta + 26,00 € de propinas con tarjeta + 550,00 € de recargas)');
     // 9 ventas y 2 recargas con tarjeta (633 €) + 26 € de propinas.
     expect(text).toContain('Con tarjeta: 11 pagos · 659,00 €');
     // Las propinas ya van en el desglose de «Cobrado».
@@ -305,7 +306,7 @@ describe('resumen de las 9:00 con bitcoin: aparte, en la cartera del local (nunc
       bitcoin: { count: 2, salesCents: 4_000, tipsCents: 200, topUpsCount: 1, topUpsCents: 5_000, serviceFeeCents: 0, totalCents: 9_200 },
     };
     const text = morningSummaryMessage('Sala Aurora', base, 0);
-    expect(text).toContain('Cobrado: 1109,00 € (493,00 € de ventas con tarjeta + 24,00 € de propinas con tarjeta + 42,00 € de ventas y propinas con bitcoin + 550,00 € de recargas)');
+    expect(text).toContain('Cobrado: 1.109,00 € (493,00 € de ventas con tarjeta + 24,00 € de propinas con tarjeta + 42,00 € de ventas y propinas con bitcoin + 550,00 € de recargas)');
     expect(text).toContain('Con tarjeta: 9 pagos · 567,00 €');
     expect(text).toContain('Bitcoin: 2 pagos · 92,00 €, en la cartera del local');
     expect(text).toContain('Recargas con tarjeta: 1 · 50,00 €');
@@ -640,6 +641,47 @@ describe('«No he sido yo» (aviso en cada cobro)', () => {
     const con = walletChargeDisputedIncident({ ...base, payload: { ref: 'C-0043', faceId: true } });
     expect(con.detail).toContain('Su ficha y su PIN ya no pagan (con su Face ID, sí).');
     expect(walletChargeDisputedIncident({ ...base, payload: { ref: 'C-0043' } }).alertDetail).toContain('(con su Face ID, sí)');
+  });
+});
+
+describe('«No es mío»: una compañera dice que un servicio cobrado a su nombre no es suyo', () => {
+  const base = { id: 'audit-21', paymentId: 'earning-1', amountCents: 6_000, occurredAt: new Date('2026-11-26T00:30:00Z') };
+  const payload = {
+    ref: 'C-0123',
+    amountCents: 6_000,
+    shareCents: 5_400,
+    paymentId: 'pay-1',
+    chargedById: 'u-carlos',
+    chargedByName: 'Carlos',
+    operatorName: 'Nerea',
+  };
+
+  it('el detalle lleva los nombres; a Telegram va sin ellos; es de cobros y se cierra con nota', () => {
+    const i = serviceDisputedIncident({ ...base, payload });
+    expect(i).toMatchObject({
+      kind: 'service_disputed',
+      refId: 'audit-21',
+      amountCents: 6_000,
+      paymentId: 'pay-1',
+      ackable: true,
+      title: 'Una compañera dice que un servicio no es suyo',
+    });
+    const todo =
+      'Habla con quien lo cobró; si era de otra compañera, devuélvelo y cóbralo otra vez a su nombre (si ya se le pagó, se le descuenta del siguiente pago).';
+    expect(i.detail).toBe(`Nerea dice que el cobro C-0123 de 60,00 € (su parte, 54,00 €) no es suyo. Lo cobró Carlos. ${todo}`);
+    expect(i.alertDetail).toBe(`Una compañera dice que el cobro C-0123 de 60,00 € (su parte, 54,00 €) no es suyo. ${todo}`);
+    for (const name of ['Nerea', 'Carlos']) expect(incidentMessage('Sala', i)).not.toContain(name);
+    expect(incidentMessage('Sala', i, { includeNames: true })).toContain('Lo cobró Carlos.');
+    expect(ACKABLE_KINDS as readonly string[]).toContain('service_disputed');
+    expect(SELF_RESOLVING.has('service_disputed')).toBe(false);
+    expect(ackNeedsNote({ kind: 'service_disputed', amountCents: 6_000 })).toBe(true);
+    expect(alertKindForIncident('service_disputed')).toBe('payments');
+  });
+
+  it('del saldo (sin cobro con tarjeta) y sin nombres: sin «Abrir cobro» y con «Una compañera»', () => {
+    const i = serviceDisputedIncident({ ...base, payload: { ...payload, paymentId: null, chargedByName: null, operatorName: null } });
+    expect(i.paymentId).toBeNull();
+    expect(i.detail).toMatch(/^Una compañera dice que el cobro C-0123 de 60,00 € \(su parte, 54,00 €\) no es suyo\. Habla con quien lo cobró;/);
   });
 });
 

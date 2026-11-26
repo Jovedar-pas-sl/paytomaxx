@@ -83,6 +83,12 @@ model Venue {
   serviceFeeEnabled     Boolean   @default(false)
   serviceFeeBps         Int       @default(1000)
   topUpServiceFeeBps    Int       @default(1000)
+  // «Las compañeras cobran desde su móvil» (20261125100000; super-admin →
+  // Reglas del local). Apagada: la compañera (OPERATOR) no crea cobros ni
+  // recargas, y sus servicios los cobra otra persona a su nombre
+  // (payment_lines.serviceOperatorId). Los locales de antes, encendida; los
+  // nuevos los crea el API apagada. El código la da por apagada solo con false.
+  operatorsChargeFromPhone Boolean @default(true)
   // «Cargar saldo desde casa» (20261103100000, apps/api/src/modules/home-topup):
   // el enlace público del local (/r/<código>) para cargar el saldo antes de
   // llegar. Apagado de serie; el código es al azar (16 letras de base64url) y
@@ -299,6 +305,8 @@ model User {
   reversedConsumptions  WalletConsumption[] @relation("ConsumptionReversedBy")
   // «Copa con invitación»: las líneas en las que la invitaron.
   invitedLines          PaymentLine[]       @relation("PaymentLineBeneficiary")
+  // Las líneas de servicio que se le cobraron a su nombre (cobro por el encargado).
+  servedLines           PaymentLine[]       @relation("PaymentLineServiceOperator")
   // Sus llaves de acceso (20261109100000): verificarse sin 2FA.
   staffPasskeys         StaffPasskey[]
   // Su foto de perfil (20261113100000).
@@ -797,6 +805,8 @@ model WalletChargeRequest {
   @@unique([tenantId, ref])
   @@index([walletId, status])
   @@index([tenantId, createdAt(sort: Desc)])
+  // Cobro por el encargado (20261125100000): de la ganancia del saldo (su consumo) a las líneas del servicio.
+  @@index([consumptionId])
   @@map("wallet_charge_requests")
 }
 
@@ -1174,6 +1184,10 @@ model PaymentLine {
   beneficiaryOperatorId String?  @db.Uuid
   beneficiaryCents      Int?
   chargerCents          Int?
+  // La compañera del servicio cuando lo cobra otra persona (20261125100000):
+  // su parte va en operatorCommissionBps y la propina del cobro es suya. Solo
+  // en líneas de Servicios (CHECK solo en SQL). Null: lo cobró ella o no es un servicio.
+  serviceOperatorId     String?  @db.Uuid
   createdAt             DateTime @default(now()) @db.Timestamptz
 
   venue        Venue                @relation(fields: [tenantId], references: [id], onDelete: Cascade)
@@ -1181,6 +1195,7 @@ model PaymentLine {
   walletCharge WalletChargeRequest? @relation(fields: [walletChargeId], references: [id], onDelete: Cascade)
   serviceItem  ServiceItem?         @relation(fields: [serviceItemId], references: [id], onDelete: SetNull)
   beneficiary  User?                @relation("PaymentLineBeneficiary", fields: [beneficiaryOperatorId], references: [id], onDelete: SetNull)
+  serviceOperator User?             @relation("PaymentLineServiceOperator", fields: [serviceOperatorId], references: [id], onDelete: SetNull)
   earnings     OperatorEarning[]
 
   @@index([beneficiaryOperatorId])

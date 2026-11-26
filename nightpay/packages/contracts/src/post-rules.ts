@@ -114,18 +114,36 @@ export interface ChargeRights {
   topUps: boolean;
   /** Devolver el saldo en efectivo a la salida (lo de su puesto; el permiso de la persona, aparte). */
   cashPayout: boolean;
+  /** false: la compañera de un local con «Las compañeras cobran desde su móvil» apagada (sus servicios, a su nombre por el encargado). */
+  fromPhone: boolean;
 }
 
-export function chargeRightsOf(person: { role: string | null | undefined; post: string | null | undefined }, rules: PostRules): ChargeRights {
+export function chargeRightsOf(
+  person: { role: string | null | undefined; post: string | null | undefined },
+  rules: PostRules,
+  venue: { operatorsChargeFromPhone?: boolean } = {},
+): ChargeRights {
   if (person.role === 'OWNER' || person.role === 'MANAGER') {
     // Lo pueden todo; su puesto (si tienen) solo marca la sección por defecto.
     const own = isPostCode(person.post) ? person.post : null;
-    return { post: own, all: true, sections: [...SECTION_CODES], tips: true, cash: true, topUps: true, cashPayout: true };
+    return { post: own, all: true, sections: [...SECTION_CODES], tips: true, cash: true, topUps: true, cashPayout: true, fromPhone: true };
   }
   // Las chicas: siempre la fila de Sala.
   const post: PostCode = person.role === 'OPERATOR' ? 'SALA' : effectivePost(person);
   const rule = rules[post];
-  return { post, all: false, sections: [...rule.sections], tips: rule.tips, cash: rule.cash, topUps: rule.topUps, cashPayout: rule.cashPayout };
+  // «Las compañeras cobran desde su móvil» apagada (super-admin): ni cobros ni recargas. Propinas y
+  // efectivo, como su fila, para que sus cobros de antes se sigan pagando. Sin el dato, como hoy.
+  const phoneOff = person.role === 'OPERATOR' && venue.operatorsChargeFromPhone === false;
+  return {
+    post,
+    all: false,
+    sections: phoneOff ? [] : [...rule.sections],
+    tips: rule.tips,
+    cash: rule.cash,
+    topUps: phoneOff ? false : rule.topUps,
+    cashPayout: rule.cashPayout,
+    fromPhone: !phoneOff,
+  };
 }
 
 export function canChargeSection(rights: ChargeRights, section: string): boolean {
@@ -139,6 +157,8 @@ export const CASH_RECEPTION_ONLY_CODE = 'CASH_RECEPTION_ONLY';
 export const CASH_RECEPTION_ONLY_MESSAGE = 'El efectivo se cobra en recepción.';
 export const TIPS_NOT_ALLOWED_CODE = 'TIPS_NOT_ALLOWED';
 export const TIPS_NOT_ALLOWED_MESSAGE = 'Desde tu puesto no se apuntan propinas.';
+/** La casilla «Las compañeras cobran desde su móvil» apagada: lo ven también las apps de antes. */
+export const SALA_PHONE_OFF_MESSAGE = 'Hoy cobra el encargado: desde tu app no se cobra.';
 
 /** «Desde tu puesto (Barra) no se cobra Habitaciones: solo Copas, Entradas y Comida.» */
 export function sectionNotAllowedMessage(
@@ -146,6 +166,7 @@ export function sectionNotAllowedMessage(
   section: string,
   labelOf: (code: string) => string,
 ): string {
+  if (!rights.fromPhone) return SALA_PHONE_OFF_MESSAGE;
   const allowed = rights.sections.map(labelOf);
   const list = allowed.length === 0 ? 'nada' : allowed.length === 1 ? allowed[0]! : `${allowed.slice(0, -1).join(', ')} y ${allowed[allowed.length - 1]}`;
   if (rights.post === 'SALA') return `Desde tu app solo puedes cobrar ${list}. ${labelOf(section)} lo cobra otra persona del local.`;

@@ -90,7 +90,7 @@ describe('esperando y resultado', () => {
 
   it('cabecera', () => {
     expect(whoLine('Carlos', 'WAITER')).toBe('Carlos · camarero');
-    expect(whoLine('Lola', 'OPERATOR')).toBe('Lola · chica');
+    expect(whoLine('Lola', 'OPERATOR')).toBe('Lola · compañera');
     expect(whoLine(null, 'OWNER')).toBe('dueño');
   });
 });

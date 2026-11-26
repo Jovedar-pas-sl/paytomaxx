@@ -1,3 +1,4 @@
+import { eurPlain } from '../../common/money/eur';
 import { sameWalletGroup } from '../wallets/wallet-rules';
 
 /**
@@ -99,10 +100,10 @@ export function skippedCreditDetail(args: {
   amountCents: number;
   paymentId: string;
 }): string {
-  const eur = `${(args.amountCents / 100).toFixed(2).replace('.', ',')} €`;
+  const amount = eurPlain(args.amountCents);
   const status = args.cause === 'closed' ? ` (${args.walletStatus})` : '';
   return (
-    `Recarga de ${eur} cobrada (cobro ${args.paymentId.slice(0, 8)}) pero ${CAUSE_TEXT[args.cause]}${status}: ` +
+    `Recarga de ${amount} cobrada (cobro ${args.paymentId.slice(0, 8)}) pero ${CAUSE_TEXT[args.cause]}${status}: ` +
     'devuélvela en el banco o reactiva el saldo y súmale el importe.'
   );
 }

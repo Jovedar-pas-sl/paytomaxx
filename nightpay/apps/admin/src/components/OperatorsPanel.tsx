@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, type CSSProperties, type FormEvent } from 'react';
-import { Button, Card, Input, Modal, StaffAvatar } from '@nightpay/ui';
+import { Button, Card, Checkbox, Input, Modal, StaffAvatar } from '@nightpay/ui';
 import { createOperator, fetchOperators, fetchVenueSettings, type Operator } from '@/lib/api';
 import { formatBps, parsePercentToBps } from '@/lib/commission';
 import { keepIfSame } from '@/lib/diff';
@@ -65,21 +65,9 @@ export function OperatorsPanel({ isOwner }: Props) {
       <div style={{ display: 'flex', alignItems: 'flex-end', gap: '1rem', flexWrap: 'wrap' }}>
         <h2 style={sectionTitle}>Operadoras</h2>
         {needsHelpCount > 0 ? (
-          <label
-            style={{
-              ...helpFilter,
-              background: filterNeedsHelp ? 'var(--np-pill-warning-bg)' : 'var(--np-surface-2)',
-              color: filterNeedsHelp ? 'var(--np-warning)' : 'var(--np-text)',
-            }}
-          >
-            <input
-              type="checkbox"
-              checked={filterNeedsHelp}
-              onChange={(e) => setFilterNeedsHelp(e.target.checked)}
-              style={{ margin: 0 }}
-            />
-            Solo las que piden ayuda ({needsHelpCount})
-          </label>
+          <div style={{ ...helpFilter, background: filterNeedsHelp ? 'var(--np-pill-warning-bg)' : 'var(--np-surface-2)' }}>
+            <Checkbox label={`Solo las que piden ayuda (${needsHelpCount})`} checked={filterNeedsHelp} onChange={setFilterNeedsHelp} />
+          </div>
         ) : null}
         <div style={{ marginLeft: 'auto', display: 'flex', gap: '0.75rem' }}>
           <Button variant="ghost" onClick={reload}>
@@ -510,16 +498,11 @@ const sectionTitle: CSSProperties = {
   fontWeight: 600,
 };
 
+// La caja del filtro (ámbar con él puesto); dentro, la casilla común.
 const helpFilter: CSSProperties = {
-  display: 'flex',
-  alignItems: 'center',
-  gap: '0.5rem',
-  fontSize: '0.875rem',
-  minHeight: 'var(--np-filter-h)',
   border: '1px solid var(--np-border-hi)',
   borderRadius: 'var(--np-r-sm)',
   padding: '0 0.75rem',
-  cursor: 'pointer',
 };
 
 const numCol: CSSProperties = { textAlign: 'right' };

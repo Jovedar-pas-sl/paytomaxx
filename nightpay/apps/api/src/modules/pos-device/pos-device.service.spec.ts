@@ -563,3 +563,39 @@ describe('GET /pos-device/me — «Pago con saldo» del local', () => {
     await expect(off.svc.me(device)).resolves.toMatchObject({ wallet: false });
   });
 });
+
+describe('la lista del datáfono: a nombre de una compañera, «Servicio de Nerea»', () => {
+  const OTRO_COBRO = '1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d';
+  const row = (id: string, createdBy: Record<string, unknown>) => ({
+    id,
+    amountCents: 6_000,
+    serviceFeeCents: 0,
+    currency: 'EUR',
+    createdAt: new Date(),
+    terminalId: 'term-1',
+    createdBy,
+    terminal: { zone: 'BARRA', label: 'Barra 1' },
+  });
+
+  it('el servicio que cobra el encargado con el QR de Nerea dice «Servicio de Nerea»; el de una compañera, su nombre', async () => {
+    const { svc, tx } = makeService();
+    tx.payment.findMany.mockResolvedValue([
+      row(PAYMENT_ID, { role: 'MANAGER', displayName: 'Javi', email: 'javi@luna.es' }),
+      row(OTRO_COBRO, { role: 'MANAGER', displayName: 'Javi', email: 'javi@luna.es' }),
+      row('9e8d7c6b-5a4f-4e3d-8c2b-1a0f9e8dabcd', { role: 'OPERATOR', displayName: 'Lola', email: 'lola@luna.es' }),
+    ]);
+    const $queryRaw = vi.fn().mockResolvedValue([{ chargeId: PAYMENT_ID, id: 'nerea', name: 'Nerea' }]);
+    Object.assign(tx, { $queryRaw });
+    const list = await svc.pending(device);
+    expect(list.map((c) => c.createdByName)).toEqual(['Servicio de Nerea', 'Javi', 'Lola']);
+    // Solo se busca la compañera en los cobros que no creó una compañera.
+    expect($queryRaw.mock.calls[0]!.slice(1)).toContainEqual([PAYMENT_ID, OTRO_COBRO]);
+  });
+
+  it('una compañera sin nombre: «Servicio de una compañera» (nunca su correo ni el de quien cobra)', async () => {
+    const { svc, tx } = makeService();
+    tx.payment.findMany.mockResolvedValue([row(PAYMENT_ID, { role: 'MANAGER', displayName: null, email: 'javi@luna.es' })]);
+    Object.assign(tx, { $queryRaw: vi.fn().mockResolvedValue([{ chargeId: PAYMENT_ID, id: 'nerea', name: null }]) });
+    expect((await svc.pending(device)).map((c) => c.createdByName)).toEqual(['Servicio de una compañera']);
+  });
+});

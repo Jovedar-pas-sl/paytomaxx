@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, type FormEvent } from 'react';
-import { Input } from '@nightpay/ui';
+import { Checkbox, Input } from '@nightpay/ui';
 import { fetchVenueSettings, updateVenueSettings, type VenueRulesInput, type VenueSettings } from '@/lib/api';
 import { totpRetryState } from '@/lib/api-errors';
 import { formatEur } from '@/lib/money';
@@ -17,7 +17,7 @@ import {
 } from '@/lib/settings-forms';
 import { useSections } from '@/lib/use-sections';
 import { OtpInput } from '../OtpInput';
-import { LoadState, SaveRow, SettingsCard, Switch, useSavedFlash, useSettingsLoad } from './SettingsBits';
+import { LoadState, SaveRow, SettingsCard, useSavedFlash, useSettingsLoad } from './SettingsBits';
 
 /**
  * Ajustes → Reglas del local (dueño): tope por cobro de una chica,
@@ -100,7 +100,8 @@ export function RulesPanel() {
 
       <SettingsCard title="Cobros de las compañeras" tour="reglas-chicas" hint={platformCommissionHint(settings)}>
         <Input
-          label="Tope por cobro con «Otro importe» (€)"
+          label="Tope por cobro con «Otro importe»"
+          suffix="€"
           inputMode="decimal"
           value={current.maxCobroEur}
           onChange={(e) => update({ maxCobroEur: e.target.value })}
@@ -128,7 +129,7 @@ export function RulesPanel() {
           onChange={(e) => update({ holdDays: e.target.value })}
           hint="0 = se les paga al cerrar la noche. Vacío = lo de OxioPay."
         />
-        <Switch
+        <Checkbox
           label="Los pagos del encargado necesitan tu aprobación"
           hint="El encargado los pide y tú los apruebas con tu código."
           checked={current.payoutRequiresApproval}
@@ -138,7 +139,8 @@ export function RulesPanel() {
 
       <SettingsCard title="Devoluciones" tour="reglas-devoluciones">
         <Input
-          label="El encargado pide aprobación desde (€)"
+          label="El encargado pide aprobación desde"
+          suffix="€"
           inputMode="decimal"
           value={current.refundThresholdEur}
           onChange={(e) => update({ refundThresholdEur: e.target.value })}

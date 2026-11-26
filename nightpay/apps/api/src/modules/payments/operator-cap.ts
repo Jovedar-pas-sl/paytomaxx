@@ -1,4 +1,5 @@
 import { isPartyEdition } from '../../config/edition';
+import { eur } from '../../common/money/eur';
 
 /**
  * Quién tiene el tope del local en «Otro importe» (Venue.operatorMaxCobroCents):
@@ -37,8 +38,4 @@ export function operatorCapProblem(args: {
     `Importe ${eur(totalCents)}${withTip} supera el límite del local (${eur(args.capCents)}). ` +
     'Las recargas de saldo no tienen límite; para cobros puntuales pídele al dueño que lo suba en Ajustes.'
   );
-}
-
-function eur(cents: number): string {
-  return `${(cents / 100).toFixed(2)} €`;
 }

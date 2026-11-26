@@ -1,6 +1,7 @@
 /* Panel (admin) · Grafito 3: escala de letra, lo elegido en crema, campos con
-   la etiqueta sobre el borde, interruptores Sí/No, siluetas de carga, la barra
-   de «Deshacer» y la tabla de Cobros con columnas fijas.
+   la etiqueta sobre el borde, siluetas de carga, la barra de «Deshacer» y la
+   tabla de Cobros con columnas fijas. El interruptor Sí / No es ya la pieza
+   común (Switch, en pieces-2.css de @nightpay/ui).
    Va la última (después de los estilos de @nightpay/ui y de los del panel).
    Solo se anima transform/opacity, y nada con prefers-reduced-motion. */
 
@@ -34,7 +35,6 @@
   --np-sel-bg-hover: #f6f1e9;
   --np-sel-ink: var(--np-ink);
   --np-focus: var(--np-cream);
-  --np-on-success: #0b2a17;
   --np-bar-track: var(--np-surface-3);
 }
 
@@ -43,7 +43,6 @@
   --np-sel-bg-hover: var(--np-accent-2);
   --np-sel-ink: var(--np-cream);
   --np-focus: var(--np-ink);
-  --np-on-success: #f7f5f0;
 }
 
 /* La letra de Input, Select, StatusPill y .np-chip ya sale a 14 de @nightpay/ui
@@ -88,76 +87,6 @@ textarea:focus {
   box-shadow: inset 0 0 0 1px var(--np-focus);
 }
 
-/* ─── Interruptor Sí / No ────────────────────────────────────────────────
-   84 × 44: «Sí» o «No» escrito dentro y la bolita que se desliza. Verde
-   encendido, gris apagado: además del color, la palabra y el lado. */
-.np-switch {
-  position: relative;
-  flex: 0 0 auto;
-  display: inline-flex;
-  align-items: center;
-  width: 5.25rem;
-  height: 2.75rem;
-  padding: 0 0.875rem;
-  border: 1px solid var(--np-border-hi);
-  border-radius: 1.375rem;
-  background: var(--np-surface-3);
-  color: var(--np-text-mute);
-  font-family: inherit;
-  font-size: var(--gf-t-small);
-  font-weight: var(--gf-w-strong);
-  cursor: pointer;
-  transition: background var(--np-d-fast), color var(--np-d-fast), border-color var(--np-d-fast);
-}
-
-.np-switch-thumb {
-  position: absolute;
-  top: 50%;
-  left: 3px;
-  width: 2rem;
-  height: 2rem;
-  border-radius: 50%;
-  background: var(--np-text-dim);
-  transform: translateY(-50%);
-  transition: transform var(--np-d-base) var(--np-ease), background var(--np-d-fast);
-}
-
-.np-switch-text {
-  margin-left: auto;
-  margin-right: 0;
-  font-size: var(--gf-t-small);
-  font-weight: var(--gf-w-strong);
-}
-
-.np-switch[aria-checked='true'] {
-  border-color: var(--np-success);
-  background: var(--np-success);
-  color: var(--np-on-success);
-}
-
-.np-switch[aria-checked='true'] .np-switch-thumb {
-  background: var(--np-bg);
-  transform: translate(2.75rem, -50%);
-}
-
-.np-switch[aria-checked='true'] .np-switch-text {
-  margin-left: 0;
-  margin-right: auto;
-}
-
-/* Un interruptor suelto dentro de una frase (Terminales, Reglas…). */
-.np-switch-line {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  min-height: 2.75rem;
-}
-
-.np-switch-line > span:first-child {
-  flex: 1 1 auto;
-  min-width: 0;
-}
-
 /* ─── Campos con la etiqueta sobre el borde ──────────────────────────────
    En el escritorio, dentro de .np-notch, la etiqueta se apoya sobre el filete
    del campo y no desaparece al escribir. En el móvil se queda encima, entera
@@ -167,14 +96,18 @@ textarea:focus {
 }
 
 @media (min-width: 641px) {
-  :is(.np-notch, .np-set-card) label:has(> span:first-child + span input:not([type='checkbox']):not([type='radio'])),
-  :is(.np-notch, .np-set-card) label:has(> span:first-child + select) {
+  /* Los campos de Input y Select (.np-field, pieces.css) con su etiqueta. */
+  :is(.np-notch, .np-set-card) .np-field:has(> .np-field-label) {
     position: relative;
     margin-top: 0.5625rem;
   }
 
-  :is(.np-notch, .np-set-card) label:has(> span:first-child + span input:not([type='checkbox']):not([type='radio'])) > span:first-child,
-  :is(.np-notch, .np-set-card) label:has(> span:first-child + select) > span:first-child {
+  /* La etiqueta ya no ocupa sitio encima: el campo sube hasta arriba. */
+  :is(.np-notch, .np-set-card) .np-field:has(> .np-field-label) > .np-field-label + * {
+    margin-top: 0;
+  }
+
+  :is(.np-notch, .np-set-card) .np-field:has(> .np-field-label) > .np-field-label {
     position: absolute;
     top: -0.6875rem;
     left: 0.75rem;
@@ -192,7 +125,13 @@ textarea:focus {
     pointer-events: none;
   }
 
-  :is(.np-notch, .np-set-card) label:focus-within > span:first-child {
+  /* Campo apagado: su fondo ya no es el de la tarjeta. La etiqueta pinta la
+     tarjeta por encima del filete (0,6875rem) y el campo apagado por debajo. */
+  :is(.np-notch, .np-set-card) .np-field:has(.np-field-input:disabled) > .np-field-label {
+    background: linear-gradient(var(--np-field-bg) 0.6875rem, var(--np-disabled-bg) 0.6875rem);
+  }
+
+  :is(.np-notch, .np-set-card) .np-field:focus-within > .np-field-label {
     color: var(--np-focus);
   }
 }
@@ -326,13 +265,13 @@ textarea:focus {
   margin: 0 0 0.75rem;
 }
 
-.np-fichas-bar > label:first-child {
+.np-fichas-bar > .np-field:first-child {
   flex: 1 1 16rem;
   width: auto;
   min-width: 0;
 }
 
-.np-fichas-bar > label:last-child {
+.np-fichas-bar > .np-field:last-child {
   flex: 0 0 10rem;
   width: auto;
 }

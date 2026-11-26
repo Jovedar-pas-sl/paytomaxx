@@ -1,13 +1,12 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useWakeLock, ScreenHelp } from '@nightpay/ui';
+import { Icon, ScreenHelp, useWakeLock } from '@nightpay/ui';
 import type { StaffQrView } from '@nightpay/contracts';
 import { fetchMyStaffQr } from '@/lib/api';
 import { formatEur } from '@/lib/money';
 import { TOURS } from '@/lib/tours';
 import { Chip, ScreenHeader } from './ScreenHeader';
-import { IconSun } from './icons';
 import styles from './cobrar.module.css';
 
 /** El QR se renueva antes de caducar (dura 10 minutos en el servidor). */
@@ -25,11 +24,14 @@ export function MiQr({
   name,
   invitations,
   onClose,
+  forService = false,
 }: {
   name: string;
   /** Sus invitaciones de esta noche (null: aún no se sabe). */
   invitations: { count: number; shareCents: number } | null;
   onClose: () => void;
+  /** Con la casilla apagada («Hoy cobra el encargado»): el mismo QR sirve para cobrarle el servicio. */
+  forService?: boolean;
 }) {
   const [qr, setQr] = useState<StaffQrView | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -61,15 +63,15 @@ export function MiQr({
       <div className={styles.screen}>
         <ScreenHeader
           title="Mi QR"
-          subtitle="Para que te inviten"
+          subtitle={forService ? 'Para que te cobren el servicio o te inviten' : 'Para que te inviten'}
           onBack={onClose}
           chip={<Chip>{name}</Chip>}
-          help={<ScreenHelp {...TOURS.miQr} />}
+          help={<ScreenHelp {...(forService ? TOURS.miQrServicio : TOURS.miQr)} />}
         />
         <div className={styles.myqr}>
           <div className={styles.me}>{name}</div>
           <div className={styles.qrBig} data-tour="miqr-codigo">
-            {qr ? <img src={qr.qrPngDataUrl} alt={`QR de ${name} para las invitaciones`} /> : null}
+            {qr ? <img src={qr.qrPngDataUrl} alt={forService ? `QR de ${name}` : `QR de ${name} para las invitaciones`} /> : null}
           </div>
           {error && !qr ? (
             <p role="alert" className={styles.error}>
@@ -80,7 +82,11 @@ export function MiQr({
               Sin conexión: este QR vale unos minutos más.
             </p>
           ) : (
-            <p className={styles.muted}>Enséñaselo al camarero cuando te inviten.</p>
+            <p className={styles.muted}>
+              {forService
+                ? 'Enséñaselo al encargado cuando te cobre un servicio, o al camarero cuando te inviten.'
+                : 'Enséñaselo al camarero cuando te inviten.'}
+            </p>
           )}
           <div className={styles.tonight} data-tour="miqr-noche">
             <span className={styles.ring}>
@@ -114,7 +120,7 @@ export function MiQr({
           </div>
         </div>
         <p className={styles.note} data-tour="miqr-brillo">
-          <IconSun />
+          <Icon name="sun" size={20} />
           Sube el brillo al máximo
         </p>
       </div>

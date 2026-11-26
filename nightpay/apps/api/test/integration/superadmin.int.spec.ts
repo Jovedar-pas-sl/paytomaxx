@@ -150,6 +150,8 @@ beforeAll(async () => {
 
   const today = Math.max(Date.now() - 60_000, startOfMadridToday() + 1000);
   await sys(async (tx) => {
+    // En este local las compañeras cobran desde su móvil (como los locales de antes).
+    await tx.venue.update({ where: { id: V1 }, data: { operatorsChargeFromPhone: true } });
     chica1 = (
       await tx.user.create({ data: { tenantId: V1, email: `c1-${r}@x.es`, passwordHash: 'x', role: 'OPERATOR', commissionBps: 9000 } })
     ).id;

@@ -28,8 +28,9 @@ import { btcpayEnabled } from '../btcpay/btcpay-flag';
 import { InvalidTransitionError } from '../payments/payment.machine';
 import { PaymentsService } from '../payments/payments.service';
 import { assertRefundFits, lockPaymentForRefund, REFUNDABLE_STATUSES, stampRefundServiceFee } from '../refunds/refund-ledger';
+import { eur } from '../../common/money/eur';
 import { cashRefundAlertText, type CashRefundAlert } from './bitcoin-cash-alert';
-import { cashAmountProblem, eur, needsOwnerApproval, paymentCashProblem, receiptMatches, strayCashMax } from './bitcoin-cash-rules';
+import { cashAmountProblem, needsOwnerApproval, paymentCashProblem, receiptMatches, strayCashMax } from './bitcoin-cash-rules';
 
 type Actor = ApprovalActor;
 

@@ -9,6 +9,7 @@
     ".": "./src/index.ts",
     "./styles.css": "./src/styles.css",
     "./brand-splash": "./src/components/BrandSplash.tsx",
+    "./toast": "./src/components/Toast.tsx",
     "./app-manifest": "./src/lib/app-manifest.ts",
     "./device-settings": "./src/lib/device-settings.ts"
   },

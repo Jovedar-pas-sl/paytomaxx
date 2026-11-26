@@ -175,7 +175,7 @@ describe('«Ficha perdida» en recepción (B6)', () => {
       fichas.replaceLost(recepcion(), { walletId: s.walletId, card: nueva.card, uid: nueva.uid, pin: '0000', feeCents: 300 }),
     ).catch((e: unknown) => e);
     expect((poor as HttpException).getResponse()).toMatchObject({ code: 'LOST_FICHA_NO_BALANCE' });
-    expect(((poor as HttpException).getResponse() as { message: string }).message).toMatch(/le quedan 2 € y la ficha nueva cuesta 3 €/);
+    expect(((poor as HttpException).getResponse() as { message: string }).message).toMatch(/le quedan 2\u00a0€ y la ficha nueva cuesta 3\u00a0€/);
     const after = await sys((tx) => tx.clientWallet.findUniqueOrThrow({ where: { id: s.walletId }, select: { balanceCents: true, pinFails: true } }));
     expect(after).toEqual({ balanceCents: 200, pinFails: 0 });
     expect(await sys((tx) => tx.walletCard.findUniqueOrThrow({ where: { token: s.vieja.card }, select: { status: true } }))).toEqual({ status: 'ISSUED' });

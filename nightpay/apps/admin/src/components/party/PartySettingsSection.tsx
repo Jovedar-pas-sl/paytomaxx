@@ -2,14 +2,14 @@
 
 import { useState, type FormEvent } from 'react';
 import type { PartySettings, UpdatePartySettingsDto } from '@nightpay/contracts';
-import { Input } from '@nightpay/ui';
+import { Checkbox, Input } from '@nightpay/ui';
 import { totpRetryState } from '@/lib/api-errors';
 import { fetchPartySettings, updatePartySettings } from '@/lib/endpoints/party';
 import { OTP_LENGTH } from '@/lib/otp';
 import { hasPartySettingsChange, partySettingsChange, partySettingsFormFrom, type PartySettingsForm } from '@/lib/party-settings';
 import { useVenueTimezone } from '@/lib/venue-context';
 import { OtpInput } from '../OtpInput';
-import { LoadState, SaveRow, SettingsCard, Switch, useSavedFlash, useSettingsLoad } from '../settings/SettingsBits';
+import { LoadState, SaveRow, SettingsCard, useSavedFlash, useSettingsLoad } from '../settings/SettingsBits';
 
 /**
  * OxioParty · Ajustes → La fiesta (maqueta Alta, «1 · Qué es» y «4 · Lo que
@@ -123,7 +123,7 @@ export function PartySettingsView({
           disabled={readOnly}
           hint="Vacío: sin fecha límite."
         />
-        <Switch
+        <Checkbox
           label="Dejar donarlo a la organización"
           hint="El asistente puede donar lo que le sobra en vez de pedir que se lo devuelvan."
           checked={current.allowDonation}
@@ -134,7 +134,8 @@ export function PartySettingsView({
 
       <SettingsCard title="Aviso de efectivo" hint="En directo avisa cuando una taquilla acumula más efectivo de la cuenta.">
         <Input
-          label="Avisar cuando una caja pase de (€)"
+          label="Avisar cuando una caja pase de"
+          suffix="€"
           inputMode="decimal"
           value={current.cashAlertEur}
           onChange={(e) => update({ cashAlertEur: e.target.value })}

@@ -1,9 +1,9 @@
 import { ConflictException } from '@nestjs/common';
 import { APPROVAL_TTL_MS, type ApprovalKind } from '@nightpay/contracts';
+import { eur } from '../../common/money/eur';
 import type { TransactionalClient } from '../../common/prisma/prisma.service';
 import { payoutKeyReused, type PayoutIdempotency } from '../operators/payout-idempotency';
 import type { ApprovalRow } from './approval-payload';
-import { eurShort } from './approval-rules';
 
 /**
  * Piezas de approval_requests que van DENTRO de una transacción (la tabla
@@ -67,7 +67,7 @@ export async function pendingPayoutRequest(
 }
 
 export function payoutAlreadyRequested(amountCents?: number): ConflictException {
-  const amount = amountCents ? ` de ${eurShort(amountCents)}` : '';
+  const amount = amountCents ? ` de ${eur(amountCents, { compact: true })}` : '';
   return new ConflictException({
     message: `Ya hay un pago${amount} pedido al dueño para esta chica: apruébalo o recházalo en «Por aprobar» antes de pagar otro.`,
     code: 'APPROVAL_ALREADY_PENDING',

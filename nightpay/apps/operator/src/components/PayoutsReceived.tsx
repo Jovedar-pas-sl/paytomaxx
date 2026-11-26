@@ -1,11 +1,12 @@
 'use client';
 
 import type { CSSProperties } from 'react';
-import { Button } from '@nightpay/ui';
+import { Button, EmptyState } from '@nightpay/ui';
 import type { MyPayout, PayoutAccount } from '@/lib/api';
 import { dayLabel, timeLabel } from '@/lib/earnings-view';
 import { httpsUrl } from '@/lib/history';
 import { formatEur } from '@/lib/money';
+import { SkelRows } from './loading-shapes';
 import { payoutMethodLabel } from '@/lib/payout-method';
 import styles from './money.module.css';
 
@@ -29,9 +30,11 @@ export function PayoutsReceived({ payouts, account, onAll }: Props) {
       </h2>
       {account !== undefined ? <AccountLine account={account} /> : null}
       {payouts === null ? (
-        <p style={emptyText}>Cargando…</p>
+        <SkelRows />
       ) : payouts.length === 0 ? (
-        <p style={emptyText}>Aún no te han pagado nada desde la app.</p>
+        <div style={{ padding: '1rem 0' }}>
+          <EmptyState compact icon="bank" title="Aún no te han pagado por aquí" />
+        </div>
       ) : (
         <PayoutList payouts={payouts.slice(0, SHOWN)} />
       )}
@@ -149,11 +152,5 @@ const muted: CSSProperties = { color: 'var(--np-text-mute)', fontWeight: 500 };
 const metaText: CSSProperties = {
   margin: '0.125rem 0 0',
   fontSize: 'var(--np-fs-16)',
-  color: 'var(--np-text-mute)',
-};
-
-const emptyText: CSSProperties = {
-  margin: 0,
-  padding: '1rem 0',
   color: 'var(--np-text-mute)',
 };

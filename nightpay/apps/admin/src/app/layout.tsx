@@ -20,6 +20,7 @@ import '../styles/panel-vivo.css';
 // OxioParty (solo clases np-party-*: con OxioPay no pinta nada).
 import '../styles/panel-party.css';
 import { appleAppMetadata } from '@nightpay/ui/app-manifest';
+import { Toast } from '@nightpay/ui/toast';
 
 // Fuentes dentro del repo (packages/ui/fonts, licencia OFL): el build no
 // descarga nada de Google Fonts. Variables, con los mismos pesos de antes.
@@ -75,7 +76,11 @@ export default function RootLayout({ children }: { children: ReactNode }) {
       <head>
         <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
       </head>
-      <body>{children}</body>
+      <body>
+        {children}
+        {/* El aviso flotante de todo el panel (useToast): una sola vez, fuera de la página. */}
+        <Toast />
+      </body>
     </html>
   );
 }

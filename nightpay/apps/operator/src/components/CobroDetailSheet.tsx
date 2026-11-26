@@ -16,6 +16,7 @@ import { Button, Modal, receiptFromDetail, usePrintTicket } from '@nightpay/ui';
 import { paymentTimeLabel } from '@/lib/earnings-view';
 import { formatEur } from '@/lib/money';
 import { fetchOwnCobroDetail, ownDetailStatus, ownDeviceText, ownWhereText } from '@/lib/own-cobro-detail';
+import { SkelCard } from './loading-shapes';
 import { StepUpSheet } from './StepUpSheet';
 import styles from './cobro-detail.module.css';
 
@@ -79,7 +80,7 @@ export function CobroDetailSheet({ target, onClose }: { target: { kind: CobroKin
           {error}
         </p>
       ) : null}
-      {!detail && !error ? <p className={styles.mute}>Cargando el cobro…</p> : null}
+      {!detail && !error ? <SkelCard bare figure lines={4} /> : null}
       {detail ? <DetailBody d={detail} onShare={() => void share(detail)} shared={shared} onMore={() => setVerifying(true)} /> : null}
       <StepUpSheet open={verifying} onClose={() => setVerifying(false)} onVerified={() => load()} />
     </Modal>
