@@ -22,26 +22,34 @@ export type PartnerProblemExtra = Partial<
   Pick<PartnerProblem, 'param' | 'required_scope' | 'limit' | 'remaining' | 'method' | 'reason' | 'available' | 'operation'>
 >;
 
+/** Un `detail` propio: el mismo texto en los dos idiomas, o uno por idioma (Accept-Language). */
+export type PartnerDetail = string | { readonly en: string; readonly es: string };
+
 export class PartnerHttpException extends HttpException {
   constructor(
     readonly code: PartnerErrorCode,
     readonly extra: PartnerProblemExtra = {},
     readonly retryAfter?: number,
-    readonly detail?: string,
+    readonly detail?: PartnerDetail,
   ) {
     super({ code, ...extra }, PARTNER_ERRORS[code].status);
   }
 }
 
 /** Un error del catálogo (partner-problem.spec.ts comprueba que el código está en él). */
-export function partnerError(code: PartnerErrorCode, extra: PartnerProblemExtra = {}, retryAfter?: number): PartnerHttpException {
-  return new PartnerHttpException(code, extra, retryAfter);
+export function partnerError(
+  code: PartnerErrorCode,
+  extra: PartnerProblemExtra = {},
+  retryAfter?: number,
+  detail?: PartnerDetail,
+): PartnerHttpException {
+  return new PartnerHttpException(code, extra, retryAfter, detail);
 }
 
 export interface PartnerFault {
   code: PartnerErrorCode;
   extra: PartnerProblemExtra;
-  detail?: string;
+  detail?: PartnerDetail;
   retryAfter?: number;
 }
 
@@ -118,6 +126,8 @@ export function renderPartnerProblem(exception: unknown, req: ProblemRequest, re
     reportError(safe, { tag: 'partner.unhandled' });
   }
   const def = PARTNER_ERRORS[fault.code];
+  const lang = partnerLanguage(req);
+  const detail = typeof fault.detail === 'string' ? fault.detail : (fault.detail?.[lang] ?? def[lang]);
   const requestId = partnerRequestId(req);
   reply.header('Request-Id', requestId);
   reply.header('Cache-Control', 'no-store');
@@ -133,7 +143,7 @@ export function renderPartnerProblem(exception: unknown, req: ProblemRequest, re
       title: def.title,
       status: def.status,
       code: fault.code,
-      detail: fault.detail ?? def[partnerLanguage(req)],
+      detail,
       ...fault.extra,
       request_id: requestId,
     });

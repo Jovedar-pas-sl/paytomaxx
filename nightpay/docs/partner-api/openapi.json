@@ -125,6 +125,97 @@
         }
       }
     },
+    "/wallet/balance": {
+      "post": {
+        "operationId": "getWalletBalance",
+        "tags": [
+          "Wallet"
+        ],
+        "summary": "Identify a wallet and read its balance",
+        "description": "POST so the QR text never travels in a URL. Send the exact text the scanner decoded, or the NDEF URI read from\nthe ficha plus its chip UID. It spends nothing and does not use up a live code.\n\nA wallet outside the key's reach (another wallet group, or a home venue of another company) answers\n`404 wallet_not_found`, exactly like an unknown ficha (see Authentication). It does not tell whether a load\nwould be accepted: the venue's switches, pauses and the load limits are checked only by `POST /wallet/loads`.\n",
+        "x-required-scope": [
+          "wallet:balance"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/AcceptLanguage"
+          },
+          {
+            "$ref": "#/components/parameters/XRequestId"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WalletBalanceRequest"
+              },
+              "examples": {
+                "ficha_nfc": {
+                  "$ref": "#/components/examples/BalanceRequestFicha"
+                },
+                "live_code": {
+                  "$ref": "#/components/examples/BalanceRequestLiveCode"
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The balance of the identified wallet.",
+            "headers": {
+              "Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WalletBalance"
+                },
+                "examples": {
+                  "balance": {
+                    "$ref": "#/components/examples/Balance5000"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/ForbiddenScoped"
+          },
+          "404": {
+            "$ref": "#/components/responses/WalletNotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/WalletUnusable"
+          },
+          "413": {
+            "$ref": "#/components/responses/PayloadTooLarge"
+          },
+          "422": {
+            "$ref": "#/components/responses/WalletRefInvalid"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "503": {
+            "$ref": "#/components/responses/TryLater"
+          },
+          "5XX": {
+            "$ref": "#/components/responses/ServerError"
+          }
+        }
+      }
+    },
     "/openapi.json": {
       "get": {
         "operationId": "getOpenApi",
@@ -325,6 +416,45 @@
           }
         }
       },
+      "ForbiddenScoped": {
+        "description": "Refused before any data is read, or the key lacks the scope (or `wallet:balance` is paused).",
+        "headers": {
+          "Request-Id": {
+            "$ref": "#/components/headers/RequestId"
+          }
+        },
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "allOf": [
+                {
+                  "$ref": "#/components/schemas/Problem"
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "code": {
+                      "enum": [
+                        "scope_missing",
+                        "scope_paused",
+                        "ip_not_allowed",
+                        "browser_not_allowed",
+                        "partner_suspended",
+                        "connection_paused"
+                      ]
+                    }
+                  }
+                }
+              ]
+            },
+            "examples": {
+              "scope_missing": {
+                "$ref": "#/components/examples/ProblemScopeMissing"
+              }
+            }
+          }
+        }
+      },
       "PayloadTooLarge": {
         "description": "The body is larger than 16 KB (16,384 bytes).",
         "headers": {
@@ -490,6 +620,119 @@
             }
           }
         }
+      },
+      "WalletNotFound": {
+        "description": "No wallet within the key's reach matches the reference, or the API is switched off.",
+        "headers": {
+          "Request-Id": {
+            "$ref": "#/components/headers/RequestId"
+          }
+        },
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "allOf": [
+                {
+                  "$ref": "#/components/schemas/Problem"
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "code": {
+                      "enum": [
+                        "wallet_not_found",
+                        "not_found"
+                      ]
+                    }
+                  }
+                }
+              ]
+            },
+            "examples": {
+              "wallet_not_found": {
+                "$ref": "#/components/examples/ProblemWalletNotFound"
+              }
+            }
+          }
+        }
+      },
+      "WalletRefInvalid": {
+        "description": "The request breaks a rule, or the `qr` text is not a usable wallet reference.",
+        "headers": {
+          "Request-Id": {
+            "$ref": "#/components/headers/RequestId"
+          }
+        },
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "allOf": [
+                {
+                  "$ref": "#/components/schemas/Problem"
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "code": {
+                      "enum": [
+                        "validation_failed",
+                        "wallet_ref_unrecognized",
+                        "wallet_ref_not_accepted",
+                        "live_code_invalid"
+                      ]
+                    }
+                  }
+                }
+              ]
+            },
+            "examples": {
+              "wallet_ref_not_accepted": {
+                "$ref": "#/components/examples/ProblemPrivateLink"
+              },
+              "live_code_invalid": {
+                "$ref": "#/components/examples/ProblemLiveCodeInvalid"
+              }
+            }
+          }
+        }
+      },
+      "WalletUnusable": {
+        "description": "The wallet or the ficha cannot be used.",
+        "headers": {
+          "Request-Id": {
+            "$ref": "#/components/headers/RequestId"
+          }
+        },
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "allOf": [
+                {
+                  "$ref": "#/components/schemas/Problem"
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "code": {
+                      "enum": [
+                        "wallet_blocked",
+                        "wallet_closed",
+                        "ficha_lost",
+                        "ficha_blocked",
+                        "ficha_copy_suspected"
+                      ]
+                    }
+                  }
+                }
+              ]
+            },
+            "examples": {
+              "ficha_copy_suspected": {
+                "$ref": "#/components/examples/ProblemFichaCopy"
+              }
+            }
+          }
+        }
       }
     },
     "schemas": {
@@ -586,6 +829,10 @@
         ],
         "description": "In this pilot the connection carries no `credit` block (agent models only) and no `webhook` block (webhooks come after the pilot); both will be added without breaking anything.",
         "x-decided-in-contract": true
+      },
+      "Currency": {
+        "type": "string",
+        "const": "EUR"
       },
       "ErrorCode": {
         "type": "string",
@@ -703,6 +950,15 @@
         ],
         "description": "The limits that apply to this connection's loads, in cents. Each one is also the `limit` value of `402 limit_exceeded`, except `cash_wallet_24h`, whose refusal is `402 cash_limit_reached`.",
         "x-decided-in-contract": true
+      },
+      "NfcUid": {
+        "type": "string",
+        "pattern": "^[0-9A-Fa-f]{2}(?:[-: ]?[0-9A-Fa-f]{2}){3}$|^[0-9A-Fa-f]{2}(?:[-: ]?[0-9A-Fa-f]{2}){6}$|^[0-9A-Fa-f]{2}(?:[-: ]?[0-9A-Fa-f]{2}){9}$",
+        "description": "The chip's serial (UID, ISO/IEC 14443-3) in hex: 4, 7 or 10 bytes, in the order the chip sends them during\nanticollision. That is the order Android's `Tag.getId()` and PC/SC `GET DATA` (`FF CA 00 00 00`) return, and\nthe order OxioPay stores: the venues' NTAG213/215/216 fichas have 7 bytes starting with `04`\n(`04A1B2C3D4E5F6`). With or without `:`, `-` or a space between bytes; case is ignored. Never reversed and\nnever as a decimal number: a serial in another form does not match the stored one, answers\n`409 ficha_copy_suspected` and raises an alert to the owner.\n\nSend it whenever the ficha was read by NFC, and only then: with a live code it answers `422 validation_failed`\n(`param: \"nfc_uid\"`). When OxioPay holds a different serial for that ficha → `409 ficha_copy_suspected`. A\nficha without a stored serial, or a ficha link sent without `nfc_uid`, is treated as a plain ficha link (a\ncopy cannot be detected then). OxioPay never stores the serial you send. Never store or log it beyond the\ntransaction.\n",
+        "x-decided-in-contract": true,
+        "examples": [
+          "04A1B2C3D4E5F6"
+        ]
       },
       "OperationRef": {
         "type": "object",
@@ -828,6 +1084,17 @@
         ],
         "description": "RFC 9457 problem details. Branch on `code`. The extension members appear only with the codes named in their description."
       },
+      "Qr": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 512,
+        "description": "The exact text the QR scanner decoded, or the NDEF URI read from the ficha's chip with its URI prefix expanded\n(`https://…`), trimmed and otherwise unmodified. Never a typed code, a phone number, an internal id or a PIN.\n\nSend only texts that start with `OXC1:`, `NPF:` or `https://`, or that are exactly 6 letters or digits. For\nanything else (contact cards, Wi-Fi codes, other payment QRs, plain text) show the `wallet_ref_unrecognized`\ntext without calling OxioPay.\n\nAccepted:\n- a **live code** `OXC1:` + 26 Crockford base32 characters, shown on the customer's own wallet page under\n  \"Pagar o recargar en otro sistema\". In this pilot it identifies only (balance and loads) and lives 60 seconds;\n- a **ficha link** `https://<host>/?ficha=<token>` as written on the chip (or printed as a QR).\n\nRefused with `422 wallet_ref_not_accepted`, with `reason`: the Google Wallet pass `https://<host>/c/…`\n(`wallet_pass`); the wallet's own private link `/w/<token>` and its sub-pages (`private_link`); the reception QR\n`NPF:…` (`reception_qr`); the 6-character wallet code, or a link carrying `?saldo=` (`short_code`); charge links\n`/s/…`, `/pay/…` (`charge_link`); activation `/w/a/…`, the ficha's own page `/w/card/…`, `/w/salida/…`,\n`/w/no/…`, reservation and gift links (`other_link`). The refusal and its `reason` depend only on the text's\nshape: the same answer whether the link or code is valid, unknown or of another company. Anything else →\n`422 wallet_ref_unrecognized`. An expired or unknown live code → `422 live_code_invalid`.\n\nNever store or log it.\n",
+        "x-decided-in-contract": true,
+        "examples": [
+          "OXC1:K3J7Q2M9X4T8R6V1N5B0C2D7F9",
+          "https://demo-operator.oxiopay.example/?ficha=demo-ficha-uid-0000001"
+        ]
+      },
       "Scope": {
         "type": "string",
         "enum": [
@@ -876,9 +1143,73 @@
         "examples": [
           "2026-12-05T22:41:07Z"
         ]
+      },
+      "WalletBalance": {
+        "type": "object",
+        "properties": {
+          "object": {
+            "type": "string",
+            "const": "wallet_balance"
+          },
+          "available": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "The live wallet's balance in cents (0 when it is empty)."
+          },
+          "currency": {
+            "$ref": "#/components/schemas/Currency"
+          },
+          "livemode": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "object",
+          "available",
+          "currency",
+          "livemode"
+        ],
+        "description": "Nothing else is ever returned about the wallet."
+      },
+      "WalletBalanceRequest": {
+        "type": "object",
+        "properties": {
+          "qr": {
+            "$ref": "#/components/schemas/Qr"
+          },
+          "nfc_uid": {
+            "$ref": "#/components/schemas/NfcUid"
+          }
+        },
+        "required": [
+          "qr"
+        ],
+        "additionalProperties": false
       }
     },
     "examples": {
+      "Balance5000": {
+        "summary": "50.00 € available",
+        "value": {
+          "object": "wallet_balance",
+          "available": 5000,
+          "currency": "EUR",
+          "livemode": false
+        }
+      },
+      "BalanceRequestFicha": {
+        "summary": "Ficha read by NFC (fixture ficha_uid)",
+        "value": {
+          "qr": "https://demo-operator.oxiopay.example/?ficha=demo-ficha-uid-0000001",
+          "nfc_uid": "04A1B2C3D4E5F6"
+        }
+      },
+      "BalanceRequestLiveCode": {
+        "summary": "Live code scanned from the customer's phone",
+        "value": {
+          "qr": "OXC1:K3J7Q2M9X4T8R6V1N5B0C2D7F9"
+        }
+      },
       "ConnectionAtm": {
         "summary": "The ATM network's connection on the demo",
         "value": {
@@ -922,6 +1253,17 @@
           }
         }
       },
+      "ProblemFichaCopy": {
+        "summary": "The chip's serial is not the ficha's",
+        "value": {
+          "type": "https://docs.oxiopay.example/errors/ficha_copy_suspected",
+          "title": "Ficha copy suspected",
+          "status": 409,
+          "code": "ficha_copy_suspected",
+          "detail": "The chip's serial does not match this ficha.",
+          "request_id": "f47ac10b-58cc-4372-a567-0e02b2c3d479"
+        }
+      },
       "ProblemInvalidKey": {
         "summary": "Not a valid key",
         "value": {
@@ -955,6 +1297,17 @@
           "request_id": "f47ac10b-58cc-4372-a567-0e02b2c3d479"
         }
       },
+      "ProblemLiveCodeInvalid": {
+        "summary": "Expired or unknown live code",
+        "value": {
+          "type": "https://docs.oxiopay.example/errors/live_code_invalid",
+          "title": "Live code invalid",
+          "status": 422,
+          "code": "live_code_invalid",
+          "detail": "This live code is expired or unknown. Ask the customer to show the code again.",
+          "request_id": "f47ac10b-58cc-4372-a567-0e02b2c3d479"
+        }
+      },
       "ProblemNotFound": {
         "summary": "The partner API is not available here",
         "value": {
@@ -966,6 +1319,18 @@
           "request_id": "f47ac10b-58cc-4372-a567-0e02b2c3d479"
         }
       },
+      "ProblemPrivateLink": {
+        "summary": "The customer showed their private wallet link",
+        "value": {
+          "type": "https://docs.oxiopay.example/errors/wallet_ref_not_accepted",
+          "title": "Wallet reference not accepted",
+          "status": 422,
+          "code": "wallet_ref_not_accepted",
+          "detail": "This is the customer's private wallet link and it is never accepted. Ask for the code under \"Pagar o recargar en otro sistema\".",
+          "reason": "private_link",
+          "request_id": "f47ac10b-58cc-4372-a567-0e02b2c3d479"
+        }
+      },
       "ProblemRateLimited": {
         "summary": "Too many requests",
         "value": {
@@ -974,6 +1339,29 @@
           "status": 429,
           "code": "rate_limited",
           "detail": "Too many requests. Retry after the time in Retry-After.",
+          "request_id": "f47ac10b-58cc-4372-a567-0e02b2c3d479"
+        }
+      },
+      "ProblemScopeMissing": {
+        "summary": "The key lacks the scope",
+        "value": {
+          "type": "https://docs.oxiopay.example/errors/scope_missing",
+          "title": "Scope missing",
+          "status": 403,
+          "code": "scope_missing",
+          "detail": "This key does not hold the scope this route needs.",
+          "required_scope": "wallet:load",
+          "request_id": "f47ac10b-58cc-4372-a567-0e02b2c3d479"
+        }
+      },
+      "ProblemWalletNotFound": {
+        "summary": "Unknown, or outside the key's reach",
+        "value": {
+          "type": "https://docs.oxiopay.example/errors/wallet_not_found",
+          "title": "Wallet not found",
+          "status": 404,
+          "code": "wallet_not_found",
+          "detail": "No wallet within this key's reach matches this reference.",
           "request_id": "f47ac10b-58cc-4372-a567-0e02b2c3d479"
         }
       }

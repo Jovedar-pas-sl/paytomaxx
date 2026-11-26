@@ -14,6 +14,7 @@ import {
 import {
   PARTNER_CONNECTION_EXAMPLE,
   PARTNER_OPENAPI_INFO,
+  PARTNER_WALLET_EXAMPLES,
   PARTNER_OPENAPI_SERVERS,
   PARTNER_OPENAPI_TAGS,
   PARTNER_SECURITY_SCHEMES,
@@ -40,7 +41,10 @@ type Io = 'input' | 'output';
 
 const SCHEMAS = '#/components/schemas/';
 const HEADER_NAMES: Readonly<Record<PartnerHeaderName, string>> = { RequestId: 'Request-Id', RetryAfter: 'Retry-After' };
-const EXAMPLES: Readonly<Record<PartnerExampleName, Json>> = { ConnectionAtm: PARTNER_CONNECTION_EXAMPLE as unknown as Json };
+const EXAMPLES: Readonly<Record<PartnerExampleName, Json>> = {
+  ConnectionAtm: PARTNER_CONNECTION_EXAMPLE as unknown as Json,
+  ...(PARTNER_WALLET_EXAMPLES as unknown as Record<string, Json>),
+} as Record<PartnerExampleName, Json>;
 
 const isEmptyObject = (v: unknown) => typeof v === 'object' && v !== null && !Array.isArray(v) && Object.keys(v).length === 0;
 
@@ -157,16 +161,18 @@ function operation(name: string, def: PartnerRouteDef, defs: Map<string, Json>, 
 }
 
 function errorResponse(name: PartnerErrorResponseName, used: Used): Json {
-  const def: { description: string; codes: readonly string[]; example?: PartnerProblemExampleName; retryAfter?: boolean } =
+  const def: { description: string; codes: readonly string[]; examples?: readonly PartnerProblemExampleName[]; retryAfter?: boolean } =
     PARTNER_ERROR_RESPONSES[name];
-  if (def.example) used.examples.add(def.example);
+  for (const e of def.examples ?? []) used.examples.add(e);
   return {
     description: def.description,
     headers: headersOf(def.retryAfter ? ['RequestId', 'RetryAfter'] : ['RequestId'], used),
     content: {
       'application/problem+json': {
         schema: { allOf: [{ $ref: `${SCHEMAS}Problem` }, { type: 'object', properties: { code: { enum: [...def.codes] } } }] },
-        ...(def.example ? { examples: { [PARTNER_PROBLEM_EXAMPLES[def.example].code]: ref('examples', def.example) } } : {}),
+        ...(def.examples?.length
+          ? { examples: Object.fromEntries(def.examples.map((e) => [PARTNER_PROBLEM_EXAMPLES[e].code, ref('examples', e)])) }
+          : {}),
       },
     },
   };

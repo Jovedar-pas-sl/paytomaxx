@@ -111,3 +111,19 @@ export const PARTNER_CONNECTION_EXAMPLE = {
     }
   }
 } as const;
+
+/** Los ejemplos de `POST /wallet/balance` (components.examples del contrato). */
+export const PARTNER_WALLET_EXAMPLES = {
+  BalanceRequestFicha: {
+    summary: 'Ficha read by NFC (fixture ficha_uid)',
+    value: { qr: 'https://demo-operator.oxiopay.example/?ficha=demo-ficha-uid-0000001', nfc_uid: '04A1B2C3D4E5F6' },
+  },
+  BalanceRequestLiveCode: {
+    summary: 'Live code scanned from the customer\'s phone',
+    value: { qr: 'OXC1:K3J7Q2M9X4T8R6V1N5B0C2D7F9' },
+  },
+  Balance5000: {
+    summary: '50.00 € available',
+    value: { object: 'wallet_balance', available: 5000, currency: 'EUR', livemode: false },
+  },
+} as const;

@@ -31,6 +31,8 @@ export const PartnerTimestampSchema = z.iso.datetime().register(partnerSchemas, 
   examples: ['2026-12-05T22:41:07Z'],
 });
 
+export const PartnerCurrencySchema = z.literal('EUR').register(partnerSchemas, { id: 'Currency' });
+
 export const PartnerLoadIdSchema = z
   .string()
   .regex(/^wl_[0-9a-f]{32}$/)
