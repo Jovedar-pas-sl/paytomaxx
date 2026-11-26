@@ -15,6 +15,7 @@ import {
 } from '@/lib/api';
 import { DEFAULT_TIMEZONE } from '@/lib/dates';
 import { isPartyEdition } from '@/lib/edition';
+import { fetchPartnerConnections } from '@/lib/endpoints/partner-connections';
 import { decidableCount } from '@/lib/approvals';
 import { avisosCount, navBadge } from '@/lib/bottom-nav';
 import {
@@ -50,6 +51,7 @@ import { VenueKitPanel } from './settings/VenueKitPanel';
 import { PermissionsPanel } from './settings/PermissionsPanel';
 import { RulesPanel } from './settings/RulesPanel';
 import { SecurityPanel } from './settings/SecurityPanel';
+import { PartnersPanel } from './settings/partners/PartnersPanel';
 import { SuperAdminPanel } from './superadmin/SuperAdminPanel';
 import { Skel } from './Skeleton';
 import { TabBar, tabId, tabPanelId } from './TabBar';
@@ -99,14 +101,16 @@ export function Dashboard({ user, onLogout }: Props) {
   const reports = useCanSeeReports(user);
   // Datáfono apagado en Formas de cobro: fuera la pestaña Datáfonos (y su permiso).
   const [posOn, setPosOn, posKnown] = useVenuePosOn(user);
-  const viewer = { role: user.role, isSuperAdmin: user.isSuperAdmin, canSeeReports: reports.can, posOn };
+  // «Otras plataformas»: solo si la API de socios contesta (apagada o en OxioParty, 404).
+  const [partnersOn, partnersKnown] = usePartnersOn(user);
+  const viewer = { role: user.role, isSuperAdmin: user.isSuperAdmin, canSeeReports: reports.can, posOn, partnersOn };
   const sections = visibleSections(viewer);
   const tabs = sections.flatMap((s) => s.tabs);
   // La sección y la pestaña van en la URL (?s=ajustes&t=formas): recargar deja donde se estaba.
   // Una que este rol no ve nunca se pinta (se vuelve a Cobros).
   const [tab, navigate] = useUrlNav(sections, {
-    permissive: visibleSections({ ...viewer, canSeeReports: true, posOn: true }),
-    settled: reports.known && posKnown,
+    permissive: visibleSections({ ...viewer, canSeeReports: true, posOn: true, partnersOn: true }),
+    settled: reports.known && posKnown && partnersKnown,
   });
   /** La pestaña que se miró la última vez en cada sección (volver a la sección la abre). */
   const [lastInSection, setLastInSection] = useState<Partial<Record<SectionKey, TabKey>>>({});
@@ -406,6 +410,8 @@ function ActivePanel(props: ActivePanelProps) {
       return isOwner ? <SectionsPanel /> : null;
     case 'alerts':
       return isOwner ? <AlertsPanel /> : null;
+    case 'partners':
+      return <PartnersPanel role={user.role} />;
     case 'security':
       return <SecurityPanel user={user} onLogout={props.onLogout} loggingOut={props.loggingOut} />;
     case 'superadmin':
@@ -516,6 +522,34 @@ function useVenuePosOn(user: User): [boolean, (posOn: boolean) => void, boolean]
     };
   }, [user.tenantId]);
   return [posOn, setPosOn, known];
+}
+
+/**
+ * ¿Está encendida la API de socios? (Ajustes → «Otras plataformas»). Sale
+ * solo si GET /v1/admin/partner-connections contesta: apagada, en OxioParty o
+ * si falla, no. El segundo: ya se sabe (o falló la pregunta).
+ */
+function usePartnersOn(user: User): [boolean, boolean] {
+  const [on, setOn] = useState(false);
+  const [known, setKnown] = useState(isPartyEdition());
+  useEffect(() => {
+    if (isPartyEdition()) return undefined;
+    setOn(false);
+    setKnown(false);
+    const controller = new AbortController();
+    fetchPartnerConnections(controller.signal)
+      .then(() => {
+        if (!controller.signal.aborted) setOn(true);
+      })
+      .catch(() => {
+        // Apagada (404) o sin respuesta: la pestaña no sale.
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setKnown(true);
+      });
+    return () => controller.abort();
+  }, [user.tenantId]);
+  return [on, known];
 }
 
 /** Super-admin sin la 2FA activada (para el aviso de arriba). Ante la duda, no se avisa. */
