@@ -26,6 +26,14 @@ export interface RequestContext {
   stepUpSpentFor?: string;
   /** La petición llega de la «Pantalla del cliente» de la barra (su credencial), como su camarero. */
   customerScreen?: boolean;
+  /** La conexión de la API de socios de la clave (PartnerKeyGuard). */
+  partnerConnectionId?: string;
+  /**
+   * Petición de la API de socios: una consulta por local sin local (o a una
+   * tabla con FORCE RLS fuera de una transacción) se corta siempre, diga lo
+   * que diga TENANCY_UNSCOPED_QUERIES (producción entra como superusuario: RLS no protege).
+   */
+  strictTenancy?: boolean;
 }
 
 const logger = new Logger('RequestContext');
@@ -39,7 +47,10 @@ const logger = new Logger('RequestContext');
  */
 export function bindTenantContext(
   cls: ClsService<{ ctx: RequestContext }>,
-  ctx: Pick<RequestContext, 'tenantId' | 'userId' | 'role' | 'venueSlug' | 'sessionId' | 'stepUpToken' | 'customerScreen'>,
+  ctx: Pick<
+    RequestContext,
+    'tenantId' | 'userId' | 'role' | 'venueSlug' | 'sessionId' | 'stepUpToken' | 'customerScreen' | 'partnerConnectionId' | 'strictTenancy'
+  >,
 ): void {
   if (!cls.isActive()) {
     logger.error('Contexto CLS inactivo en una petición con sesión: se rechaza (sin él no habría filtro por local)');

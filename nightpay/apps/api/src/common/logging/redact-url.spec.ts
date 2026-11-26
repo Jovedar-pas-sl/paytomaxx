@@ -112,3 +112,15 @@ describe('todas las rutas públicas con un token (SEC-03)', () => {
     }
   });
 });
+
+describe('API de socios: claves y códigos en la URL', () => {
+  const KEY = `oxp_test_${'9f'.repeat(24)}`;
+
+  it('una clave oxp_ o un código OXC1: en la ruta o en la query no salen', () => {
+    expect(redactSecretsInUrl(`/v1/partner/${KEY}/me`)).toBe('/v1/partner/***/me');
+    expect(redactSecretsInUrl(`/v1/partner/openapi.json?k=${KEY}`)).toBe('/v1/partner/openapi.json?k=***');
+    expect(redactSecretsInUrl('/v1/partner/me?c=OXC1:K3J7Q2M9X4T8R6V1N5B0C2D7F9')).toBe('/v1/partner/me?c=***');
+    expect(redactSecretsInUrl(`/v1/partner/me?k=${encodeURIComponent(KEY)}`)).toBe('/v1/partner/me?k=***');
+  });
+
+});

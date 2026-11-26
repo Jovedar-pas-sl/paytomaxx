@@ -108,9 +108,15 @@ function redactQuery(query: string): string {
     .split('&')
     .map((part) => {
       const [key, value] = splitOnce(part, '=');
-      return value !== undefined && SENSITIVE_QUERY_KEYS.has(decodeKey(key)) ? `${key}=${MASK}` : part;
+      if (value !== undefined && (SENSITIVE_QUERY_KEYS.has(decodeKey(key)) || hasPartnerSecret(value))) return `${key}=${MASK}`;
+      return redactPartnerSecrets(part);
     })
     .join('&');
+}
+
+/** El valor lleva una clave de socio o un código del móvil (tal cual o codificado). */
+function hasPartnerSecret(value: string): boolean {
+  return redactPartnerSecrets(value) !== value || redactPartnerSecrets(decodeKey(value)) !== decodeKey(value);
 }
 
 export function redactSecretsInUrl(url: string): string {
@@ -119,7 +125,15 @@ export function redactSecretsInUrl(url: string): string {
   const [path, query] = splitOnce(beforeHash, '?');
   const redactedQuery = query === undefined ? '' : `?${redactQuery(query)}`;
   const redactedHash = hash === undefined ? '' : `#${hash}`;
-  return `${origin}${redactPath(path)}${redactedQuery}${redactedHash}`;
+  return `${origin}${redactPartnerSecrets(redactPath(path))}${redactedQuery}${redactedHash}`;
+}
+
+/** Una clave de socio (oxp_live_…, oxp_test_…) o un código del móvil (OXC1:…), también a medias o codificados. */
+const PARTNER_SECRET = /oxp_(?:live|test)_[0-9A-Za-z]*|OXC1(?::|%3A)[0-9A-Za-z]*/gi;
+
+/** Tapa las claves de socio y los códigos del móvil de cualquier texto. */
+export function redactPartnerSecrets(text: string): string {
+  return text.replace(PARTNER_SECRET, MASK);
 }
 
 /** Tapa las URLs y rutas que aparezcan dentro de un texto (mensajes, trazas). */

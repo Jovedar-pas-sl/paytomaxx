@@ -461,6 +461,26 @@ const SENSITIVE_ACTIONS: Readonly<Record<string, { title: string; detail: string
     title: 'Ajustes de la noche cambiados',
     detail: 'ha cambiado los topes sin PIN o la recepción (Ajustes → La noche).',
   },
+  // API de socios (modules/partner): las claves de otras plataformas. Telegram,
+  // sin el nombre de la plataforma (`name` solo sale en el panel).
+  'partner.key.created': { title: 'Plataforma conectada', detail: 'ha conectado una plataforma, con su 2FA.' },
+  'partner.key.rotated': { title: 'Clave de plataforma cambiada', detail: 'ha cambiado la clave de una plataforma, con su 2FA.' },
+  'partner.key.revoked': { title: 'Clave de plataforma anulada', detail: 'ha anulado la clave de una plataforma.' },
+  'partner.connection.paused': { title: 'Plataforma en pausa', detail: 'Una plataforma está en pausa: mira por qué en su ficha.' },
+  'partner.key.exposed': {
+    title: 'Clave en una dirección web',
+    detail: 'Una plataforma mandó su clave en una dirección web: cámbiala.',
+  },
+  'partner.foreign_ip': {
+    title: 'Clave usada desde otra IP',
+    detail: 'Se rechazó una clave usada desde una IP ajena: si no es de la plataforma, cámbiala.',
+  },
+  'partner.key.claim_reopened': {
+    title: 'Enlace de clave abierto otra vez',
+    detail: 'Volvieron a abrir el enlace de una clave ya vista: si no fue la plataforma, cámbiala.',
+  },
+  'partner.key.claim_expired': { title: 'Enlace de clave sin abrir', detail: 'El enlace de una clave caducó sin abrirse: cámbiala.' },
+  'partner.key.expiring': { title: 'Clave a punto de caducar', detail: 'La clave de una plataforma caduca pronto: cámbiala antes.' },
   // A dónde va el dinero de una compañera (panel, enlace de alta u OxioPay): el
   // texto según por dónde (`via`, PAYOUT_ACCOUNT_CHANGE_VIA).
   'operator.payout_account_changed': {

@@ -71,3 +71,19 @@ describe('límite global de peticiones', () => {
     expect(anonymousRateLimitKey(directo)).toBe('ip:81.0.0.9');
   });
 });
+
+describe('límite global: API de socios', () => {
+  const KEY = `oxp_live_${'0'.repeat(48)}`;
+
+  it('/v1/partner/ con una clave bien formada va con sus propios topes (por clave y por conexión)', () => {
+    expect(isGlobalRateLimitExempt(req('/v1/partner/me', '203.0.113.5', { authorization: `Bearer ${KEY}` }))).toBe(true);
+    expect(isGlobalRateLimitExempt(req('/v1/partner/wallet/loads', '203.0.113.5', { authorization: `Bearer ${KEY}` }, 'POST'))).toBe(true);
+  });
+
+  it('sin clave, con una mal formada o fuera de /v1/partner/, el límite global de siempre', () => {
+    expect(isGlobalRateLimitExempt(req('/v1/partner/me', '203.0.113.5'))).toBe(false);
+    expect(isGlobalRateLimitExempt(req('/v1/partner/me', '203.0.113.5', { authorization: 'Bearer oxp_live_corta' }))).toBe(false);
+    expect(isGlobalRateLimitExempt(req('/v1/partner/openapi.json', '203.0.113.5', { authorization: 'Bearer eyJ.x.y' }))).toBe(false);
+    expect(isGlobalRateLimitExempt(req('/v1/admin/payments', '203.0.113.5', { authorization: `Bearer ${KEY}` }))).toBe(false);
+  });
+});

@@ -787,3 +787,40 @@ describe('avisos por persona (decisión del dueño, 19-11-2026)', () => {
     expect(rules.staffPatternIncident({ ...base, name: null, rule: 'cancels', count: 5, amountCents: null }).detail).toMatch(/^Alguien del personal ha cancelado 5 cobros/);
   });
 });
+
+describe('API de socios: avisos al dueño (Incidencias y Telegram)', () => {
+  const row = (action: string, o: Record<string, unknown> = {}) => ({
+    id: 'a9',
+    action,
+    paymentId: null,
+    amountCents: null,
+    occurredAt: new Date(),
+    payload: { connectionId: 'c1', keyHint: 'oxp_live_…a1b2', name: 'Cajeros Demo', scopes: ['wallet:load'] },
+    actorName: 'Marta',
+    ...o,
+  });
+
+  it.each([
+    ['partner.key.created', 'Plataforma conectada', /^Marta ha conectado una plataforma, con su 2FA\. \(Cajeros Demo\)$/],
+    ['partner.key.rotated', 'Clave de plataforma cambiada', /^Marta ha cambiado la clave de una plataforma, con su 2FA\./],
+    ['partner.key.revoked', 'Clave de plataforma anulada', /^Marta ha anulado la clave de una plataforma\./],
+    ['partner.connection.paused', 'Plataforma en pausa', /^Una plataforma está en pausa: mira por qué en su ficha\./],
+    ['partner.key.exposed', 'Clave en una dirección web', /^Una plataforma mandó su clave en una dirección web: cámbiala\./],
+    ['partner.foreign_ip', 'Clave usada desde otra IP', /^Se rechazó una clave usada desde una IP ajena/],
+    ['partner.key.claim_reopened', 'Enlace de clave abierto otra vez', /^Volvieron a abrir el enlace de una clave ya vista/],
+    ['partner.key.claim_expired', 'Enlace de clave sin abrir', /^El enlace de una clave caducó sin abrirse: cámbiala\./],
+    ['partner.key.expiring', 'Clave a punto de caducar', /^La clave de una plataforma caduca pronto: cámbiala antes\./],
+  ])('%s → «%s»', (action, title, detail) => {
+    expect(SENSITIVE_AUDIT_ACTIONS).toContain(action);
+    const i = sensitiveActionIncident(row(action));
+    expect(i).toMatchObject({ kind: 'sensitive_action', title, ackable: true });
+    expect(i.detail).toMatch(detail);
+    expect(i.alertDetail).not.toMatch(/Marta|Cajeros Demo|oxp_/);
+  });
+
+  it('la clave dormida, el enlace abierto y la reanudación no avisan', () => {
+    for (const quiet of ['partner.key.suspended', 'partner.key.claim_opened', 'partner.connection.resumed']) {
+      expect(SENSITIVE_AUDIT_ACTIONS).not.toContain(quiet);
+    }
+  });
+});
