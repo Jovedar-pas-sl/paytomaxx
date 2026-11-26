@@ -8,6 +8,7 @@ import {
   HttpCode,
   Inject,
   Logger,
+  NotFoundException,
   Param,
   Post,
   Query,
@@ -48,6 +49,7 @@ import { walletClaimCookieName, walletClaimSetCookie } from './wallet-claim';
 import { MIN_RETRY_S, PayPageFilter } from './pay-page.filter';
 import { isDatabaseBusy } from '../../common/filters/problem-details.filter';
 import { RedsysReturnService } from './redsys-return.service';
+import { yavinEnabled } from '../gateways/yavin-flag';
 import { renderCheckingPage } from './pay-checking-page';
 import { PayStatusService, isPayLookupKey, type PayStatusContext } from './pay-status.service';
 import { langHrefWith, type LangHref } from './customer-chrome';
@@ -154,6 +156,27 @@ export class PublicPayController {
     // Un token sin buena pinta: 404 sin leer cookies ni la base de datos.
     const ctx = this.status && isPayLookupKey(token) ? await this.status.byToken(token, this.viewerClaimHash(res, token)) : null;
     sendJson(res, ctx ? 200 : 404, ctx ? ctx.view : { message: 'Pago no encontrado' });
+  }
+
+  /**
+   * Vuelta del cliente desde la página de Yavin (return_url_success /
+   * return_url_cancelled). Yavin añade el carrito (cartId) a la URL: se va a
+   * /pay/result?op=<carrito>, que enseña el estado REAL del cobro (lo que diga
+   * la URL no paga nada). Con YAVIN_ENABLED apagado, 404.
+   */
+  @Public()
+  @Get('yavin/return')
+  @IpRateLimit(PAY_PAGE_LIMIT)
+  yavinReturn(
+    @Query('cartId') cartId: string | undefined,
+    @Query('lang') langQuery: string | undefined,
+    @Res() res: FastifyReply,
+  ): void {
+    if (!yavinEnabled()) throw new NotFoundException();
+    // shortcut: el nombre del parámetro (cartId) solo se vio en un resumen de la documentación.
+    const op = isPayLookupKey(cartId) ? cartId : '';
+    const lang = PAY_LANGUAGES.includes(langQuery as PayLanguage) ? `&lang=${langQuery}` : '';
+    redirectTo(res, `/pay/result?op=${encodeURIComponent(op)}${lang}`);
   }
 
   @Public()

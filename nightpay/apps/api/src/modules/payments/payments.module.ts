@@ -9,6 +9,7 @@ import { PeanpeDebugController } from './peanpe-debug.controller';
 import { DeviceIpRetentionService } from './device-ip-retention.service';
 import { PaymentsService } from './payments.service';
 import { PayStatusService } from './pay-status.service';
+import { YavinCancelHook } from './yavin-cancel.hook';
 import { QR_EXPIRE_QUEUE, ORPHAN_RECONCILE_QUEUE } from '../queues/queue-tokens';
 import { WalletsModule } from '../wallets/wallets.module';
 import { WebhooksModule } from '../webhooks/webhooks.module';
@@ -36,6 +37,8 @@ import { WebhooksModule } from '../webhooks/webhooks.module';
     DeviceIpRetentionService,
     PaymentsService,
     PayStatusService,
+    // Yavin: al cancelar un cobro, su enlace se anula en Yavin (cancel_link).
+    YavinCancelHook,
   ],
   exports: [DeviceIpRetentionService, PaymentsService],
 })

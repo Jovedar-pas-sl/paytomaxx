@@ -18,6 +18,8 @@ export const UNPREFIXED_ROUTES: readonly UnprefixedRoute[] = Object.freeze([
   // Pago con QR: la página, el POST hacia el banco, el formulario, la vuelta
   // del banco y el justificante.
   { path: 'pay/result', method: RequestMethod.GET },
+  // Vuelta del cliente desde la página de Yavin (redirige a /pay/result).
+  { path: 'pay/yavin/return', method: RequestMethod.GET },
   { path: 'pay/:token', method: RequestMethod.GET },
   { path: 'pay/:token', method: RequestMethod.POST },
   { path: 'pay/:token/receipt', method: RequestMethod.GET },

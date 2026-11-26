@@ -116,6 +116,7 @@ import { assertBankWaitOver } from './cancel-at-bank';
 import { heldOnReaderConflict, isHeldOnReader } from './reader-hold';
 import { serviceFeeQuote } from '@nightpay/contracts';
 import { btcpayEnabled } from '../btcpay/btcpay-flag';
+import { cardGatewayFor } from '../gateways/card-gateway';
 import { bitcoinOfferedFor } from '../btcpay/btcpay-logic';
 import { VENUE_SERVICE_FEE_SELECT, refundableFeeCents, venueServiceFeeOf } from './service-fee';
 
@@ -515,6 +516,7 @@ export class PaymentsService implements OnApplicationBootstrap {
       // Bitcoin no: su factura la vigila el repaso de BTCPay (btcpay-sweep). La
       // conciliación de las pasarelas no sabe preguntar a BTCPay y, agotada, lo
       // dejaba «Sin confirmar» (ORPHAN) mientras el cliente aún podía pagar.
+      // Yavin sí entra (como Redsys y Paytef): se pregunta su carrito.
       const stuck = await this.prisma.$queryRawUnsafe<Array<{
         id: string;
         tenantId: string;
@@ -1066,7 +1068,7 @@ export class PaymentsService implements OnApplicationBootstrap {
     }
     const declared = dto.tipCents ?? 0;
     if (declared <= 0) return NO_TIP;
-    const provider = await this.activeProvider(tenantId);
+    const provider = await this.activeProvider({ tenantId, walletId: input.isWalletTopUp ? 'saldo' : null });
     const confirmable = creatorTipConfirmable({
       provider,
       isPosExternal: input.isPosExternal,
@@ -1114,15 +1116,8 @@ export class PaymentsService implements OnApplicationBootstrap {
     this.cancelHooks.push(hook);
   }
 
-  private async activeProvider(tenantId: string): Promise<Provider | null> {
-    const credential = await this.prisma.asSystem((tx) =>
-      tx.gatewayCredential.findFirst({
-        where: { tenantId, active: true },
-        orderBy: { createdAt: 'asc' },
-        select: { provider: true },
-      }),
-    );
-    return credential?.provider ?? null;
+  private async activeProvider(payment: { tenantId: string; walletId: string | null }): Promise<Provider | null> {
+    return this.prisma.asSystem((tx) => cardGatewayFor(tx, payment));
   }
 
   /**
@@ -1348,7 +1343,7 @@ export class PaymentsService implements OnApplicationBootstrap {
     // Pasarela que cobrará: la del cobro o, si aún no ha ido al banco, la
     // activa del local. La propina solo se cobra (y se reparte) con Redsys.
     // (Una factura de bitcoin cerrada deja el cobro con BTCPAY: para la tarjeta cuenta la pasarela del local.)
-    const provider = payment.provider && payment.provider !== 'BTCPAY' ? payment.provider : await this.activeProvider(payment.tenantId);
+    const provider = payment.provider && payment.provider !== 'BTCPAY' ? payment.provider : await this.activeProvider(payment);
     const { walletId, wallet, attempts, venue, createdBy, serviceName, tipGoesTo, idempotencyKey, linkedWalletCharge, ...rest } =
       payment;
     const firstTopUp = wallet !== null && !selfTopUpClaimHash(idempotencyKey) && (await this.isFirstTopUp(walletId, payment.id));
@@ -2514,13 +2509,10 @@ export class PaymentsService implements OnApplicationBootstrap {
     // Otro POST ya lo abrió (o ya terminó): no se vuelve a la pasarela.
     if (!OPENABLE_STATES.has(payment.status)) throw new ConflictException(PAYMENT_ALREADY_STARTED);
 
-    // Resolver provider activo del venue
-    const credential = await this.prisma.asSystem((tx) =>
-      tx.gatewayCredential.findFirst({
-        where: { tenantId: payment.tenantId, active: true },
-        orderBy: { createdAt: 'asc' },
-      }),
-    );
+    // La pasarela de tarjeta del cobro: la del local o, si el super-admin lo
+    // eligió y hay credencial, Yavin (card-gateway.ts).
+    const provider = await this.prisma.asSystem((tx) => cardGatewayFor(tx, payment));
+    const credential = provider ? { provider } : null;
     if (!credential) {
       // Sin pasarela este cobro no se puede pagar con tarjeta: definitivo.
       return this.checkoutNotOpened(payment.id, new Error('Venue has no active gateway credential'), 'no-active-gateway');
@@ -2577,7 +2569,9 @@ export class PaymentsService implements OnApplicationBootstrap {
     this.logger.log(
       `Payment ${payment.id} authorizing via ${credential.provider} (txId=${providerTxId})`,
     );
-    return { status: 'AUTHORIZING', providerTxId, result: opened.result };
+    // La huella del token del aviso de Yavin no sale de aquí.
+    const { noticeTokenHash: _hidden, ...result } = opened.result;
+    return { status: 'AUTHORIZING', providerTxId, result };
   }
 
   /**
@@ -2670,6 +2664,7 @@ export class PaymentsService implements OnApplicationBootstrap {
         tipCents,
         payMethod: choice?.method ?? null,
         claimHash: choice?.claimHash ?? null,
+        ...(result.noticeTokenHash ? { noticeTokenHash: result.noticeTokenHash } : {}),
       },
     });
     // Detalle del pago: el móvil del cliente que va a pagar con este intento.

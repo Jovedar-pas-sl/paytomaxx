@@ -47,6 +47,7 @@ import { RESERVATION_VIEW_INCLUDE, packageView, reservationView, type Reservatio
 import { loseDeposit, venueOwnerId } from './reservation-wallet';
 import { CLIENT_BITCOIN_CONFIRMING, bitcoinConfirming, conflictCode } from './reservation-open-payments';
 import { BITCOIN_CONFIRMING_CODE } from '../payments/payments.service';
+import { BASE_GATEWAY_WHERE } from '../gateways/card-gateway';
 
 /** Desde dónde se reserva: el enlace del local, el de un RRPP o el panel. */
 export interface BookingEntry {
@@ -213,7 +214,7 @@ export class ReservationsService {
     if (venuePauseScope(venue)) return 'El local está cerrado ahora mismo';
     const methods = paymentMethodsOf(venue.paymentMethods);
     if (!methods.card || !methods.wallet) return 'Ahora no se puede reservar desde aquí';
-    const gateways = await tx.gatewayCredential.count({ where: { tenantId: venue.id, active: true } });
+    const gateways = await tx.gatewayCredential.count({ where: { tenantId: venue.id, ...BASE_GATEWAY_WHERE } });
     const terminal = await tx.terminal.count({ where: { tenantId: venue.id, active: true } });
     return gateways > 0 && terminal > 0 ? null : 'Ahora no se puede reservar desde aquí';
   }
