@@ -9,6 +9,7 @@ import { MAX_TYPED_AMOUNT_CENTS } from './money';
 //   POST /v1/nights/:id/close            CloseNightDto → la noche cerrada
 //        409 NIGHT_CLOSE_BLOCKED   { steps }           un paso bloquea
 //        409 NIGHT_CLOSE_NEEDS_ACK { steps, missing }  avisos sin confirmar
+//        409 NIGHT_CLOSE_COUNT_FIRST                   la encargada, con lo contado sin «Ver si cuadra» antes
 //        400 NIGHT_CLOSE_NOTE_REQUIRED                 cobros sin terminar y sin nota
 //
 // Las reglas de aquí (efectivo esperado, qué bloquea, qué falta confirmar)

@@ -11,7 +11,7 @@ import { ClsService } from 'nestjs-cls';
 import { PrismaService } from '../../src/common/prisma/prisma.service';
 import { IncidentsService } from '../../src/modules/incidents/incidents.service';
 import { CloseCheckService } from '../../src/modules/nights/close-check.service';
-import { NightsService } from '../../src/modules/nights/nights.service';
+import { CASH_COUNT_ACTION, NightsService } from '../../src/modules/nights/nights.service';
 import { PaymentsService } from '../../src/modules/payments/payments.service';
 import { posReference } from '../../src/modules/pos-device/paytef';
 import { PosDeviceReceptionService } from '../../src/modules/pos-device/pos-device-reception.service';
@@ -70,6 +70,15 @@ function seed<T>(fn: (tx: Parameters<Parameters<PrismaService['asSystem']>[0]>[0
     cls.set('ctx', { traceId: 't-seed' });
     return prisma.asSystem(fn);
   });
+}
+
+/** El «Ver si cuadra» de la encargada, ya en el registro: sin él no cierra contando. */
+function cashCounted(tenantId: string, actorId: string, nightId: string, countedCents: number) {
+  return seed((tx) =>
+    tx.auditEvent.create({
+      data: { action: CASH_COUNT_ACTION, tenantId, actorId, targetType: 'VenueNight', targetId: nightId, payload: { countedCents } },
+    }),
+  );
 }
 
 const r = randomUUID().slice(0, 6);
@@ -203,6 +212,7 @@ describe('recarga en efectivo y caja de la noche (Postgres real)', () => {
     expect(efectivo).toMatchObject({ status: 'block', count: 3 });
     expect(efectivo.detail).toContain('escribe lo contado');
 
+    await cashCounted(norte.id, norte.manager, night.id, 16_000);
     const closed = await inVenue(norte.id, () =>
       nights.close(norte.id, { userId: norte.manager, role: 'MANAGER' }, night.id, { cashCountedCents: 16_000 }),
     );
@@ -352,6 +362,7 @@ describe('stock de fichas: preparar → dar → «Me voy» → perdida (Postgres
 
     // Al cerrar, las fichas de la noche quedan congeladas en el Z.
     // Entraron 25 € en efectivo y salieron 25 € («Me voy»): con fondo 0, en la caja 0 €.
+    await cashCounted(sala.id, sala.manager, night.id, 0);
     const closed = await inVenue(sala.id, () =>
       nights.close(sala.id, { userId: sala.manager, role: 'MANAGER' }, night.id, {
         openingFloatCents: 0,

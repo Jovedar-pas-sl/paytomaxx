@@ -142,6 +142,10 @@ export const BLIND_CASH_STEP_DETAIL: Record<'count' | 'float-missing' | 'float-c
   'not-needed': 'Sin efectivo esta noche: no hace falta contar la caja.',
 };
 
+/** Al cerrar a ciegas, lo contado ya se vio en «Ver si cuadra»: el 409 no repite si cuadra ni la diferencia. */
+export const BLIND_CLOSE_COUNTED_DETAIL =
+  'Lo contado ya pasó por «Ver si cuadra»: si no cuadraba, confírmalo y explica la diferencia en la nota.';
+
 /** El efectivo de la noche sin ninguna cifra: solo si hay que contar y si se apuntó el fondo. */
 export function blindNightCash(cash: NightCash): NightCash {
   const required = cash.cashInCents > 0 || cash.cashOutCents > 0 || (cash.openingFloatCents ?? 0) > 0;
@@ -189,6 +193,14 @@ export function blindCashDetail(reason: CashReason): string | null {
     case 'matches':
       return null;
   }
+}
+
+/**
+ * El texto del paso «Efectivo» en el 409 del cierre a ciegas: nunca la
+ * diferencia (si no, se prueba una cifra al cerrar y se corrige).
+ */
+export function blindCloseRefusalDetail(reason: CashReason): string {
+  return blindCashDetail(reason) ?? BLIND_CLOSE_COUNTED_DETAIL;
 }
 
 /** Los pasos del cierre para la encargada: el de «Efectivo», a ciegas. */

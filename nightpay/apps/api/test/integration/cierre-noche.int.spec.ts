@@ -17,7 +17,16 @@ import { WalletChargesService } from '../../src/modules/wallets/wallet-charges.s
 
 const cls = new ClsService(new AsyncLocalStorage());
 const prisma = new PrismaService(cls as never);
-const audit = { log: async () => undefined };
+// «Ver si cuadra» sí escribe en el registro de verdad: el cierre de la encargada lo lee.
+const audit = {
+  log: async () => undefined,
+  logInTx: async (
+    tx: { auditEvent: { create: (a: { data: Record<string, unknown> }) => Promise<unknown> } },
+    input: { action: string; tenantId: string; actorId: string; targetType: string; targetId: string; payload: unknown },
+  ) => {
+    await tx.auditEvent.create({ data: { ...input } });
+  },
+};
 // Sin días de espera del entorno: cuenta el de cada local (0 o 7).
 const config = { get: () => undefined, getOrThrow: () => undefined };
 const reports = new ReportsService(prisma);
@@ -217,17 +226,30 @@ describe('cierre de la noche con arqueo de caja (Postgres real)', () => {
     const blocked = await refusal(asStaff(caja.id, () => nights.close(caja.id, { userId: caja.manager, role: 'MANAGER' }, night0)));
     expect(blocked).toMatchObject({ code: 'NIGHT_CLOSE_BLOCKED', missing: ['efectivo'] });
 
-    // Contado 60 €: faltan 5 € y hay que confirmarlo.
+    // Cerrar con una cifra sin haber pulsado «Ver si cuadra»: no (ni dice la diferencia).
+    const countFirst = await refusal(
+      asStaff(caja.id, () => nights.close(caja.id, { userId: caja.manager, role: 'MANAGER' }, night0, { cashCountedCents: 6000 })),
+    );
+    expect(countFirst).toMatchObject({ code: 'NIGHT_CLOSE_COUNT_FIRST' });
+    expect(JSON.stringify(countFirst)).not.toMatch(/Faltan|5,00/);
+
+    // «Ver si cuadra» con 55 € (queda en el registro) y luego vuelve a contar: 60 €.
+    const first = await asStaff(caja.id, () => nights.cashCount(caja.id, caja.manager, { countedCents: 5500 }));
+    expect(first).toMatchObject({ reason: 'short', diffCents: -1000 });
+    await asStaff(caja.id, () => nights.cashCount(caja.id, caja.manager, { countedCents: 6000 }));
+
+    // Contado 60 €: faltan 5 € y hay que confirmarlo; el 409 no repite la diferencia.
     const needsAck = await refusal(
       asStaff(caja.id, () => nights.close(caja.id, { userId: caja.manager, role: 'MANAGER' }, night0, { cashCountedCents: 6000 })),
     );
     expect(needsAck).toMatchObject({ code: 'NIGHT_CLOSE_NEEDS_ACK', missing: ['efectivo'] });
+    expect(JSON.stringify(needsAck)).not.toMatch(/Faltan|5,00/);
 
-    // Contó 55 €, vio lo esperado y volvió a contar: 60 €. El Z guarda los dos.
+    // El Z guarda los dos: el primero, el del registro (no el que mande el panel).
     const closed = await asStaff(caja.id, () =>
       nights.close(caja.id, { userId: caja.manager, role: 'MANAGER' }, night0, {
         cashCountedCents: 6000,
-        cashFirstCountedCents: 5500,
+        cashFirstCountedCents: 9999,
         acknowledged: ['efectivo'],
         cashNote: 'faltan 5 € del cambio',
       }),

@@ -47,7 +47,7 @@ import { invitationTotals } from '../money-map/invitation-totals';
 import { MoneyMapService } from '../money-map/money-map.service';
 import { SERVED_EARNING_SQL } from '../operators/served-earning';
 import { CloseCheckService } from './close-check.service';
-import { blindCashDetail, blindCashStep, blindsCash } from './blind-cash';
+import { blindCashDetail, blindCashStep, blindCloseRefusalDetail, blindsCash } from './blind-cash';
 import { settleWritesBefore } from './night-cutoff';
 import {
   autoCloseAt,
@@ -390,14 +390,22 @@ export class NightsService {
     };
     const outcome = evaluateCash(check.cash, input);
     const blind = blindsCash(actor.role, true);
-    const steps = withCashInput(check.steps, check.cash, input);
-    // A ciegas, si no deja cerrar, el paso «Efectivo» va sin cifras (ni lo esperado, ni el fondo, ni lo que se movió).
-    assertCanClose(blind ? steps.map((st) => blindCashStep(st, blindCashDetail(outcome.reason) ?? undefined)) : steps, opts.acknowledged ?? [], opts.note);
-
-    // A ciegas, el primer recuento es el del registro («Ver si cuadra» en el API), no el que diga el panel.
+    // A ciegas, el primer recuento es el del registro («Ver si cuadra» en el API), nunca el que diga el panel;
+    // y sin él no se cierra con una cifra contada: si no, se prueba una al cerrar sin que quede apuntada.
     const firstBlind = blind ? await this.firstBlindCount(tenantId, night.id) : undefined;
-    const firstCounted =
-      firstBlind !== undefined ? (firstBlind === opts.cashCountedCents ? undefined : firstBlind) : opts.cashFirstCountedCents;
+    if (blind && opts.cashCountedCents !== undefined && firstBlind === undefined) {
+      throw new ConflictException({
+        message: 'Antes de cerrar, cuenta la caja y pulsa «Ver si cuadra».',
+        code: 'NIGHT_CLOSE_COUNT_FIRST',
+      });
+    }
+    const steps = withCashInput(check.steps, check.cash, input);
+    // A ciegas, si no deja cerrar, el paso «Efectivo» va sin cifras (ni lo esperado, ni el fondo, ni la diferencia).
+    assertCanClose(blind ? steps.map((st) => blindCashStep(st, blindCloseRefusalDetail(outcome.reason))) : steps, opts.acknowledged ?? [], opts.note);
+
+    const firstCounted = blind
+      ? firstBlind === opts.cashCountedCents ? undefined : firstBlind
+      : opts.cashFirstCountedCents;
     const caja = buildNightCaja(check.cash, outcome, opts.cashNote, now, firstCounted);
     const pending = await this.pending(tenantId, window);
     const z = await this.withMoneyMap(tenantId, night.id, window, now, this.zFrom(window, rows, pending.count, now, start.since, caja));

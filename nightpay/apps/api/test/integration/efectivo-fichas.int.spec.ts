@@ -15,7 +15,7 @@ import { Prisma } from '@nightpay/db';
 import { PrismaService } from '../../src/common/prisma/prisma.service';
 import { IncidentsService } from '../../src/modules/incidents/incidents.service';
 import { CloseCheckService } from '../../src/modules/nights/close-check.service';
-import { NightsService } from '../../src/modules/nights/nights.service';
+import { CASH_COUNT_ACTION, NightsService } from '../../src/modules/nights/nights.service';
 import { PeriodReportsService } from '../../src/modules/reports/period-reports.service';
 import { ReportsService } from '../../src/modules/reports/reports.service';
 import { fichasCounts } from '../../src/modules/wallets/fichas-counts';
@@ -49,6 +49,15 @@ function seed<T>(fn: (tx: Parameters<Parameters<PrismaService['asSystem']>[0]>[0
     cls.set('ctx', { traceId: 't-seed' });
     return prisma.asSystem(fn);
   });
+}
+
+/** El «Ver si cuadra» de la encargada, ya en el registro: sin él no cierra contando. */
+function cashCounted(tenantId: string, actorId: string, nightId: string, countedCents: number) {
+  return seed((tx) =>
+    tx.auditEvent.create({
+      data: { action: CASH_COUNT_ACTION, tenantId, actorId, targetType: 'VenueNight', targetId: nightId, payload: { countedCents } },
+    }),
+  );
 }
 
 const r = randomUUID().slice(0, 6);
@@ -221,6 +230,7 @@ describe('tope legal del efectivo y anulación (Postgres real)', () => {
     expect(recent.find((x) => x.id === mal.topUpId)).toMatchObject({ voided: true });
     expect(recent.find((x) => x.id === ok.topUpId)).toMatchObject({ voided: false, amountCents: 5_000 });
 
+    await cashCounted(caja.id, caja.manager, before.id, 9_499);
     const closed = await inVenue(caja.id, () =>
       nights.close(caja.id, { userId: caja.manager, role: 'MANAGER' }, before.id, {
         cashCountedCents: 9_499,
@@ -369,6 +379,7 @@ describe('cierre de la noche: la caja y los fondos (Postgres real)', () => {
     const all = ['cobros', 'datafonos', 'saldo', 'efectivo', 'chicas', 'incidencias', 'z'] as const;
     const typed = { openingFloatCents: 5_000, cashCountedCents: 10_000, acknowledged: [...all], note: 'prueba' };
     await afterDbClock();
+    await cashCounted(norte.id, norte.manager, night.id, 10_000);
     await expect(inVenue(norte.id, () => nights.close(norte.id, { userId: norte.manager, role: 'MANAGER' }, night.id, typed))).rejects.toMatchObject({
       response: expect.objectContaining({ code: 'NIGHT_CLOSE_BLOCKED', missing: ['efectivo'] }),
     });
@@ -392,6 +403,7 @@ describe('cierre de la noche: la caja y los fondos (Postgres real)', () => {
       }),
     );
     await afterDbClock();
+    await cashCounted(rojo.id, rojo.manager, night.id, 0);
     const err = await inVenue(rojo.id, () =>
       nights.close(rojo.id, { userId: rojo.manager, role: 'MANAGER' }, night.id, {
         cashCountedCents: 0,

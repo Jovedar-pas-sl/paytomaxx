@@ -26,7 +26,8 @@ import { RequiresPermission, StaffPermissionGuard } from '../venues/staff-permis
  *  - POST /v1/nights/current/cash-count → «Ver si cuadra» a ciegas: si cuadra o la diferencia.
  *  - POST /v1/nights/open        → abrir (una sola abierta por local), con el fondo de caja.
  *  - POST /v1/nights/:id/close   → cerrar: pasos, arqueo de caja y Z congelado.
- *    409 NIGHT_CLOSE_BLOCKED / NIGHT_CLOSE_NEEDS_ACK con los pasos.
+ *    409 NIGHT_CLOSE_BLOCKED / NIGHT_CLOSE_NEEDS_ACK con los pasos (a la encargada, sin la diferencia);
+ *    409 NIGHT_CLOSE_COUNT_FIRST si la encargada cierra contando sin «Ver si cuadra» antes.
  *  - GET  /v1/nights             → últimas noches.
  *  - GET  /v1/nights/:id         → una noche con su Z.
  *  - GET  /v1/nights/mine        → la noche en curso de la chica que llama.
