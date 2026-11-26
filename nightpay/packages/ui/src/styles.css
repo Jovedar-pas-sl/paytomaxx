@@ -105,6 +105,8 @@
   --np-lime-deep: #9aa300;
   /* Grafito: sin halos (deslumbran con poca luz y suenan a casino). */
   --np-lime-glow: transparent;
+  /* Al pasar por encima: la misma lima con más luz (en P3, abajo del todo). */
+  --np-lime-hover: #d3de1e;
   /* Con comas: el borde de la tarjeta destacada lo usa y en el Chrome 64 de
      los datáfonos rgb() con espacios la dejaba sin borde. */
   --np-lime-edge: rgba(199, 211, 1, 0.55);
@@ -224,7 +226,7 @@ html[data-bigfont='1'] {
   /* Accent — lima (la de la marca: en pantallas P3, la viva de abajo del
      todo). Siempre con tinta encima (--np-on-accent, 11,3:1). */
   --np-accent: var(--np-lime);
-  --np-accent-2: #d3de1e;
+  --np-accent-2: var(--np-lime-hover);
   --np-on-accent: #091518;
   --np-accent-edge: var(--np-lime-edge);
   /* Anillo del foco en los campos: discreto. */
@@ -234,7 +236,7 @@ html[data-bigfont='1'] {
      (--np-primary-image), filo de luz, filo de sombra abajo, sombra corta y un
      resplandor lima suave debajo. */
   --np-primary-bg: var(--np-lime);
-  --np-primary-bg-hover: #d3de1e;
+  --np-primary-bg-hover: var(--np-lime-hover);
   --np-primary-ink: #091518;
   --np-primary-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.45), inset 0 -1px 0 rgba(0, 0, 0, 0.18), 0 1px 2px rgba(0, 0, 0, 0.4), 0 8px 24px -8px rgba(199, 211, 1, 0.5);
 
@@ -350,7 +352,9 @@ html[data-bigfont='1'] {
   --np-card-sub: #34506b;
 
   --np-primary-bg: var(--np-lime);
-  --np-primary-bg-hover: #d1dc1a;
+  /* En P3, la viva del bloque de abajo (va después y pesa lo mismo). */
+  --np-lime-hover: #d1dc1a;
+  --np-primary-bg-hover: var(--np-lime-hover);
   --np-primary-ink: var(--np-ink);
   /* Filete de tinta: la lima se separa del papel. Con el mismo brillo de
      arriba que en oscuro, una sombra corta de tinta y sin resplandor lima. */
@@ -431,11 +435,14 @@ html[data-theme='light'][data-contrast='sala'] {
 /* Lima más viva en las pantallas de gama ancha (P3). Mejora que un navegador
    viejo ignora: se queda con el #c7d301 de :root. La lima oklch va SOLO aquí
    dentro: en una variable fuera de @supports dejaría vacío todo lo que la usa
-   en un navegador que no la entiende. Halos y filetes siguen en rgb. */
+   en un navegador que no la entiende. Halos y filetes siguen en rgb. La de
+   pasar por encima, +3,4 de luz con el mismo croma (el mismo paso que en sRGB),
+   para ambos temas. */
 @supports (color: oklch(0% 0 0)) {
   @media (color-gamut: p3) {
     :root {
       --np-lime: oklch(82.9% 0.215 114);
+      --np-lime-hover: oklch(86.3% 0.215 114);
     }
   }
 }

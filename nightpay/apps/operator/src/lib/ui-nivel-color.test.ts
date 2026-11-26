@@ -543,7 +543,25 @@ describe('idea 12 · lima más viva en pantallas P3', () => {
 
   it('el bloque existe, dentro de @supports y de la consulta de gama P3', () => {
     expect(STYLES).toContain('@supports (color: oklch(0% 0 0))');
-    expect(p3).toMatch(/^@supports \(color: oklch\(0% 0 0\)\) \{\s*@media \(color-gamut: p3\) \{\s*:root \{\s*--np-lime: oklch\(82\.9% 0\.215 114\);\s*\}\s*\}\s*\}/);
+    expect(p3).toMatch(
+      /^@supports \(color: oklch\(0% 0 0\)\) \{\s*@media \(color-gamut: p3\) \{\s*:root \{\s*--np-lime: oklch\(82\.9% 0\.215 114\);\s*--np-lime-hover: oklch\(86\.3% 0\.215 114\);\s*\}\s*\}\s*\}/,
+    );
+  });
+
+  it('al pasar por encima, la lima se aclara sin perder color también en P3 (antes volvía a la lima sRGB, más apagada)', () => {
+    // sRGB: el mismo paso de siempre (#d3de1e en oscuro, #d1dc1a en claro); en P3, +3,4 de luz con el mismo croma.
+    expect(ROOT['--np-lime-hover']).toBe('#d3de1e');
+    expect(LIGHT['--np-lime-hover']).toBe('#d1dc1a');
+    // El claro va antes del bloque P3: en una pantalla P3 también se queda con la viva.
+    expect(STYLES.indexOf("[data-theme='light'] {")).toBeLessThan(STYLES.indexOf('@supports (color: oklch(0% 0 0))'));
+    expect(DARK['--np-primary-bg-hover']).toBe('var(--np-lime-hover)');
+    expect(DARK['--np-accent-2']).toBe('var(--np-lime-hover)');
+    expect(LIGHT['--np-primary-bg-hover']).toBe('var(--np-lime-hover)');
+    const nav = read('apps', 'admin', 'src', 'styles', 'panel-nav.css');
+    for (const selector of [":root,\n[data-theme='dark']", "[data-theme='light']"]) {
+      expect(vars(block(nav, selector))['--np-nav-on-bg-hover'], selector).toBe('var(--np-lime-hover)');
+    }
+    expect(code(nav).toLowerCase()).not.toMatch(/#d3de1e|#d1dc1a/);
   });
 
   it('la lima de respaldo es la de siempre y va antes (un navegador viejo se queda con ella)', () => {
