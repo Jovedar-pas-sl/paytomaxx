@@ -32,6 +32,8 @@ function makeService(opts: Opts = {}) {
       return opts.stuck ?? [];
     }),
     payment: { findMany: vi.fn(async () => opts.pending ?? []) },
+    // listPendingPos busca la compañera del servicio (cobro por el encargado): aquí, ninguna.
+    asSystem: vi.fn(async (fn: (tx: unknown) => unknown) => fn({ $queryRaw: vi.fn(async () => []) })),
   };
   const removed: string[] = [];
   const orphanQueue = {

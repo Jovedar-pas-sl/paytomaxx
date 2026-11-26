@@ -61,6 +61,7 @@ const pay: PayText = {
     `You are in the ${app} browser. To pay with Apple Pay or Google Pay, open this page in Safari or Chrome: tap ··· and "Open in browser". You can pay by card here.`,
   statement: (name) => `On your statement: "${name}"`,
   chargedBy: (name) => `Charged by ${name}`,
+  serviceWith: (name) => `Service with ${name}`,
   expiresIn: 'Expires in',
   openingTitle: 'Opening the payment…',
   openingHint: 'If nothing happens in 2 seconds, tap the button.',

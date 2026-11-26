@@ -36,7 +36,10 @@ export class VenuesController {
   async getMyVenue(@CurrentUser() user: JwtPayload) {
     // Query directa sin filtro: Venue NO está en TENANT_SCOPED_MODELS (no tiene tenantId;
     // ES el tenant). Filtramos por id explícito desde el JWT.
-    const [{ paymentMethods, nightSettings, sections, postRules, serviceFeeEnabled, serviceFeeBps, topUpServiceFeeBps, ...venue }, me] = await Promise.all([
+    const [
+      { paymentMethods, nightSettings, sections, postRules, operatorsChargeFromPhone, serviceFeeEnabled, serviceFeeBps, topUpServiceFeeBps, ...venue },
+      me,
+    ] = await Promise.all([
       this.prisma.venue.findUniqueOrThrow({
         where: { id: user.tenantId },
         select: {
@@ -49,12 +52,15 @@ export class VenuesController {
           nightSettings: true,
           sections: true,
           postRules: true,
+          operatorsChargeFromPhone: true,
           ...VENUE_SERVICE_FEE_SELECT,
         },
       }),
       this.prisma.user.findFirst({ where: { id: user.sub }, select: { post: true } }),
     ]);
-    const rights = chargeRightsOf({ role: user.role, post: me?.post ?? null }, postRulesOf(postRules));
+    // Casilla apagada: la compañera sale sin secciones ni recargas (myRights) y con fromPhone false.
+    const rules = postRulesOf(postRules);
+    const rights = chargeRightsOf({ role: user.role, post: me?.post ?? null }, rules, { operatorsChargeFromPhone });
     const venueSections = sectionsOf(sections);
     // OxioParty: la caseta de quien llama (OxioPay: null sin mirar la base).
     const stall = await myStall(this.prisma, { tenantId: user.tenantId, userId: user.sub });
@@ -69,7 +75,16 @@ export class VenuesController {
       sections: venueSections,
       myPost: rights.post,
       /** Lo que puede cobrar quien llama (su puesto): la app solo enseña eso. */
-      myRights: { sections: rights.sections, tips: rights.tips, cash: rights.cash, topUps: rights.topUps },
+      myRights: {
+        sections: rights.sections,
+        tips: rights.tips,
+        cash: rights.cash,
+        topUps: rights.topUps,
+        /** A nombre de una compañera (cobro por el encargado), las propinas siguen su fila: Sala. */
+        serviceTips: rules.SALA.tips,
+        /** false: la compañera con la casilla apagada («Hoy cobra el encargado»); Sala vacía no lo es. */
+        fromPhone: rights.fromPhone,
+      },
       /** La sección que la app marca por defecto (la de su puesto, si la puede cobrar). */
       myDefaultCategory: initialOfferedSection(venueSections, rights),
       /** «Comisión del servicio al cliente»: el interruptor y los % (las apps enseñan lo que paga el cliente). */

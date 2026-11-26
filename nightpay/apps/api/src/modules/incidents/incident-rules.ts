@@ -44,7 +44,9 @@ export type IncidentKind =
   | 'sensitive_action'
   | 'bitcoin_overpaid'
   // Avisos por persona (19-11-2026): cancelaciones, «Otro importe», PIN y cobros seguidos al mismo saldo.
-  | 'staff_pattern';
+  | 'staff_pattern'
+  // «No es mío» (cobro por el encargado): una compañera dice que un servicio cobrado a su nombre no es suyo.
+  | 'service_disputed';
 
 /** Las que desaparecen solas al resolverse (no se marcan como revisadas). */
 export const SELF_RESOLVING: ReadonlySet<IncidentKind> = new Set<IncidentKind>([
@@ -84,6 +86,7 @@ export const ACKABLE_KINDS = [
   'sensitive_action',
   'bitcoin_overpaid',
   'staff_pattern',
+  'service_disputed',
 ] as const satisfies readonly IncidentKind[];
 
 /**
@@ -110,6 +113,8 @@ const MONEY_ACK_KINDS: ReadonlySet<IncidentKind> = new Set<IncidentKind>([
   'bitcoin_overpaid',
   // Avisos por persona: se cierran diciendo qué se hizo (hablado con esa persona…).
   'staff_pattern',
+  // «No es mío»: se cierra diciendo qué se hizo (devuelto y cobrado a su nombre, era suyo…).
+  'service_disputed',
 ]);
 
 /** Letras mínimas de la nota de un aviso de dinero (como la del cierre con cobros sin terminar). */
@@ -334,6 +339,34 @@ export function walletChargeDisputedIncident(r: EventRow): Incident {
     occurredAt: r.occurredAt.toISOString(),
     amountCents: r.amountCents,
     paymentId: null,
+    ackable: true,
+  };
+}
+
+/**
+ * «No es mío» (cobro por el encargado): la compañera dice, desde sus
+ * Ganancias, que un servicio que otra persona le cobró a su nombre no es suyo
+ * (OperatorsService.notMine). No mueve dinero: si era de otra, se devuelve y
+ * se cobra otra vez a su nombre. Los nombres, solo en el panel y en la app del
+ * encargado; en Telegram (un tercero), sin ellos.
+ */
+export function serviceDisputedIncident(r: EventRow): Incident {
+  const p = r.payload && typeof r.payload === 'object' ? (r.payload as Record<string, unknown>) : {};
+  const share = typeof p.shareCents === 'number' ? ` (su parte, ${eur(p.shareCents)})` : '';
+  const what = `el cobro ${str(p, 'ref') ?? 'de su servicio'}${r.amountCents === null ? '' : ` de ${eur(r.amountCents)}`}${share} no es suyo.`;
+  const operator = str(p, 'operatorName');
+  const chargedBy = str(p, 'chargedByName');
+  const todo =
+    'Habla con quien lo cobró; si era de otra compañera, devuélvelo y cóbralo otra vez a su nombre (si ya se le pagó, se le descuenta del siguiente pago).';
+  return {
+    kind: 'service_disputed',
+    refId: r.id,
+    title: 'Una compañera dice que un servicio no es suyo',
+    detail: `${operator ?? 'Una compañera'} dice que ${what}${chargedBy ? ` Lo cobró ${chargedBy}.` : ''} ${todo}`,
+    alertDetail: `Una compañera dice que ${what} ${todo}`,
+    occurredAt: r.occurredAt.toISOString(),
+    amountCents: r.amountCents,
+    paymentId: str(p, 'paymentId'),
     ackable: true,
   };
 }

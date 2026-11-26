@@ -4,27 +4,33 @@ import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import type { MyNight } from '@/lib/api';
 import { formatEur } from '@/lib/money';
 import { playOutcomeSound } from '@/lib/alert-sound';
-import { invitationArrived } from '@/lib/invitation-toast';
+import { checkServed, invitationArrived, type ServedSeen } from '@/lib/invitation-toast';
 
 const SHOW_MS = 6000;
 
 /**
- * «Te han invitado · +10 €» (maqueta 2.5): la chica lo ve en su app al
- * momento de cobrarse la invitación (con el sondeo de su noche). Suena y
+ * «Te han invitado · +10 €» (maqueta 2.5): la compañera lo ve en su app al
+ * momento de cobrarse la invitación (con el sondeo de su noche). Y «Servicio
+ * cobrado · +54 €» cuando otra persona le cobra un servicio a su nombre,
+ * también si tenía la app cerrada (lo visto se guarda en el móvil). Suena y
  * vibra como un PAGADO.
  */
-export function InvitationToast({ night }: { night: MyNight | null }) {
+export function InvitationToast({ night, userId }: { night: MyNight | null; userId: string }) {
   const last = useRef<MyNight['invitations'] | null>(null);
-  const [shown, setShown] = useState<number | null>(null);
+  const lastServed = useRef<ServedSeen | null>(null);
+  const [shown, setShown] = useState<{ what: string; cents: number } | null>(null);
 
   useEffect(() => {
-    const now = night?.invitations ?? null;
-    const cents = invitationArrived(last.current, now);
-    last.current = now ?? last.current;
-    if (cents === null) return;
-    setShown(cents);
+    if (!night) return;
+    const invited = invitationArrived(last.current, night.invitations);
+    last.current = night.invitations ?? last.current;
+    const { cents: served, seen } = checkServed(userId, lastServed.current, night);
+    lastServed.current = seen;
+    const next = served !== null ? { what: 'Servicio cobrado', cents: served } : invited !== null ? { what: 'Te han invitado', cents: invited } : null;
+    if (!next) return;
+    setShown(next);
     playOutcomeSound('paid');
-  }, [night]);
+  }, [night, userId]);
 
   useEffect(() => {
     if (shown === null) return undefined;
@@ -36,7 +42,7 @@ export function InvitationToast({ night }: { night: MyNight | null }) {
   return (
     <p role="status" style={toast}>
       <span style={dot} aria-hidden="true" />
-      Te han invitado · <b className="np-num">+{formatEur(shown, { compact: true })}</b>
+      {shown.what} · <b className="np-num">+{formatEur(shown.cents, { compact: true })}</b>
     </p>
   );
 }

@@ -371,6 +371,8 @@ export class AdminController {
           timezone: dto.timezone ?? 'Europe/Madrid',
           // Local nuevo: datáfono apagado de fábrica (los de antes no cambian).
           paymentMethods: { ...newVenuePaymentMethods() },
+          // Local nuevo: las compañeras no cobran desde su móvil (decisión del dueño, 25-nov-2026).
+          operatorsChargeFromPhone: false,
         },
         select: { id: true, name: true, slug: true, timezone: true, createdAt: true },
       }),

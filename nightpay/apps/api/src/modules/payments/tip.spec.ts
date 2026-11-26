@@ -132,6 +132,9 @@ describe('tipChoiceAllowed — lo que acepta el servidor al pulsar «Pagar»', (
     expect(tipGoesToStaff({ tipGoesTo: 'venue', creatorRole: 'OPERATOR' })).toBe(false);
     expect(tipGoesToStaff({ tipGoesTo: 'shared', creatorRole: 'OPERATOR' })).toBe(false);
     expect(tipGoesToStaff({ tipGoesTo: null, creatorRole: null })).toBe(false);
+    // El encargado o recepción cobran el servicio a nombre de una compañera: es suya.
+    expect(tipGoesToStaff({ tipGoesTo: 'operator', creatorRole: 'MANAGER', served: true })).toBe(true);
+    expect(tipGoesToStaff({ tipGoesTo: 'operator', creatorRole: 'MANAGER' })).toBe(false);
   });
 
   it('la propina que ya traía el cobro sigue valiendo', () => {

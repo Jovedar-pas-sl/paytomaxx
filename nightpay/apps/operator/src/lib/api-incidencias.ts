@@ -4,11 +4,14 @@
 // cliente sigue siendo del encargado (panel → Saldos). Y los «Pagó después
 // de cancelar» (el banco cobró un cobro ya cancelado): los ve recepción y los
 // cierra con su nota el encargado o el dueño (devuelto en el banco o dado por bueno).
+// El encargado y el dueño ven además los «No es mío» de las compañeras
+// (service_disputed): solo los cierra el dueño, en el panel. En un local sin
+// saldo no hay Recepción: el encargado los ve en Avisos del panel (GET /incidents).
 
 import { authedFetch, parseOperatorApiError } from './api';
 
 export interface ReceptionIncident {
-  kind: 'wallet_charge_disputed' | 'approval_unbooked';
+  kind: 'wallet_charge_disputed' | 'approval_unbooked' | 'service_disputed';
   /** false: lo ve, pero lo cierra el encargado o el dueño (sin el campo, la app de antes: sí). */
   ackable?: boolean;
   refId: string;

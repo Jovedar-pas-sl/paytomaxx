@@ -123,6 +123,8 @@ export class SuperAdminVenuesService {
           walletGroup: dto.walletGroup ?? null,
           // Local nuevo: datáfono apagado de fábrica (los de antes no cambian).
           paymentMethods: { ...newVenuePaymentMethods() },
+          // Local nuevo: las compañeras no cobran desde su móvil (decisión del dueño, 25-nov-2026).
+          operatorsChargeFromPhone: false,
           ...(commission !== undefined ? { platformCommissionBps: commission } : {}),
           ...(serviceFeeBps !== undefined ? { serviceFeeBps } : {}),
           ...(topUpServiceFeeBps !== undefined ? { topUpServiceFeeBps } : {}),
@@ -320,6 +322,7 @@ export class SuperAdminVenuesService {
         serviceFeeBps: v.serviceFeeBps,
         topUpServiceFeeBps: v.topUpServiceFeeBps,
         serviceFeeBlockedReason,
+        operatorsChargeFromPhone: v.operatorsChargeFromPhone,
       },
       counts,
     };
@@ -383,5 +386,6 @@ function rulesOf(v: VenueRow): Record<string, unknown> {
     serviceFeeEnabled: v.serviceFeeEnabled,
     serviceFeeBps: v.serviceFeeBps,
     topUpServiceFeeBps: v.topUpServiceFeeBps,
+    operatorsChargeFromPhone: v.operatorsChargeFromPhone,
   };
 }

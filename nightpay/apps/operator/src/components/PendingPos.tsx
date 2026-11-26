@@ -222,7 +222,7 @@ export function PendingPos({ onConfirmed, focusPaymentId, onFocusConsumed }: Pro
                     {p.zone ? <span style={zoneBadgeStyle}>{zoneToDisplay(p.zone)}</span> : null}
                   </p>
                   <p style={metaStyle}>
-                    Chica: {p.createdByName} · {formatRelative(p.createdAt, new Date())}
+                    De {p.createdByName} · {formatRelative(p.createdAt, new Date())}
                   </p>
                 </div>
                 <p className="np-num" style={amountStyle}>
@@ -331,7 +331,7 @@ function ConfirmForm({
           </p>
         ) : null}
         <p style={{ margin: '0.25rem 0 0', fontSize: 'var(--np-t-label)', color: 'var(--np-text-mute)' }}>
-          Chica: {payment.createdByName}
+          De {payment.createdByName}
         </p>
       </div>
 

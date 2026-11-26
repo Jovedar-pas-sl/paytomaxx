@@ -106,13 +106,16 @@ export class VenueSettingsController {
 
   @Get('permissions')
   @Roles('OWNER')
-  async permissions(@CurrentUser() user: JwtPayload): Promise<{ permissions: StaffPermissions; people: PermissionPerson[] }> {
+  async permissions(
+    @CurrentUser() user: JwtPayload,
+  ): Promise<{ permissions: StaffPermissions; people: PermissionPerson[]; operatorsChargeFromPhone: boolean }> {
     const [venue, people] = await Promise.all([this.venueSettings(user.tenantId), this.permissionPeople(user.tenantId)]);
     const permissions = staffPermissionsOf(venue.staffPermissions);
     // Las excepciones de quien ya no está (baja, otro rol) no se enseñan.
     const known = new Set(people.map((p) => p.id));
     const visible = Object.fromEntries(Object.entries(permissions.people).filter(([id]) => known.has(id)));
-    return { permissions: { ...permissions, people: visible }, people };
+    // Solo para leer (la cambia el super-admin): con ella apagada, el panel enseña «cobrar a nombre de una compañera».
+    return { permissions: { ...permissions, people: visible }, people, operatorsChargeFromPhone: venue.operatorsChargeFromPhone !== false };
   }
 
   /** Lo que puede hacer quien mira (el panel esconde lo que no puede usar). */
@@ -206,7 +209,7 @@ export class VenueSettingsController {
     return this.prisma.asSystem((tx) =>
       tx.venue.findUniqueOrThrow({
         where: { id: tenantId },
-        select: { paymentMethods: true, staffPermissions: true, alertSettings: true, nightSettings: true },
+        select: { paymentMethods: true, staffPermissions: true, alertSettings: true, nightSettings: true, operatorsChargeFromPhone: true },
       }),
     );
   }

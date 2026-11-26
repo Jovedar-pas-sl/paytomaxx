@@ -140,6 +140,19 @@ describe('VenuesController /v1/venues/me', () => {
     const me = await ctrl.getMyVenue({ sub: 'u', role: 'OPERATOR', tenantId: 't-1' } as JwtPayload);
     expect(me.paymentMethods).toMatchObject({ pos: false, card: true });
     expect(me.nightSettings).toEqual({ ...DEFAULT_NIGHT_SETTINGS, pinKeypad: 'shuffled' });
-    expect(me).toMatchObject({ myPost: 'SALA', myRights: { sections: ['CHICA_SERVICE'] }, myDefaultCategory: 'CHICA_SERVICE' });
+    expect(me).toMatchObject({ myPost: 'SALA', myRights: { sections: ['CHICA_SERVICE'], fromPhone: true }, myDefaultCategory: 'CHICA_SERVICE' });
+  });
+
+  it('myRights.fromPhone: false solo para la compañera con la casilla apagada (Sala vacía con la casilla encendida, true)', async () => {
+    const ask = async (role: string, venue: Record<string, unknown>) => {
+      const prisma = {
+        venue: { findUniqueOrThrow: vi.fn(async () => ({ id: 't-1', name: 'Sala Bambú', slug: 'bambu', timezone: 'Europe/Madrid', createdAt: new Date(0), ...venue })) },
+        user: { findFirst: vi.fn(async () => ({ post: null })) },
+      };
+      return (await new VenuesController(prisma as never).getMyVenue({ sub: 'u', role, tenantId: 't-1' } as JwtPayload)).myRights;
+    };
+    expect(await ask('OPERATOR', { operatorsChargeFromPhone: false })).toMatchObject({ sections: [], fromPhone: false });
+    expect(await ask('OPERATOR', { operatorsChargeFromPhone: true, postRules: { SALA: { sections: [] } } })).toMatchObject({ sections: [], fromPhone: true });
+    expect(await ask('MANAGER', { operatorsChargeFromPhone: false })).toMatchObject({ fromPhone: true });
   });
 });

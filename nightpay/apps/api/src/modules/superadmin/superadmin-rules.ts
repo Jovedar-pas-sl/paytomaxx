@@ -22,6 +22,7 @@ export interface CurrentVenueRules {
   serviceFeeEnabled?: boolean;
   serviceFeeBps?: number;
   topUpServiceFeeBps?: number;
+  operatorsChargeFromPhone?: boolean;
 }
 
 export interface VenueRulesChange {
@@ -34,6 +35,7 @@ export interface VenueRulesChange {
   serviceFeeEnabled?: boolean;
   serviceFeeBps?: number;
   topUpServiceFeeBps?: number;
+  operatorsChargeFromPhone?: boolean;
 }
 
 /** El mapa de comisiones guardado (JSON) con las categorías que falten a su valor por defecto. */
@@ -74,6 +76,7 @@ export function planVenueRulesChange(
   if (dto.serviceFeeEnabled !== undefined) change.serviceFeeEnabled = dto.serviceFeeEnabled;
   if (dto.serviceFeeBps !== undefined) change.serviceFeeBps = dto.serviceFeeBps;
   if (dto.topUpServiceFeeBps !== undefined) change.topUpServiceFeeBps = dto.topUpServiceFeeBps;
+  if (dto.operatorsChargeFromPhone !== undefined) change.operatorsChargeFromPhone = dto.operatorsChargeFromPhone;
 
   const problem = commissionTotalsProblem({
     platformCommissionBps: change.platformCommissionBps ?? current.platformCommissionBps,

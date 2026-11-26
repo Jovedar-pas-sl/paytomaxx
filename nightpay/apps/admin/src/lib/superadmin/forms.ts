@@ -349,6 +349,8 @@ export interface RulesForm {
   serviceFeeEnabled: boolean;
   serviceFeePct: string;
   topUpServiceFeePct: string;
+  /** «Las compañeras cobran desde su móvil» (apagada: cobra el encargado a su nombre). */
+  operatorsChargeFromPhone: boolean;
 }
 
 /** Lo guardado de la comisión del servicio (un local del API anterior: apagada y al 10 %). */
@@ -391,6 +393,8 @@ export function rulesFormFrom(r: VenueRules): RulesForm {
     serviceFeeEnabled: savedServiceFee(r).enabled,
     serviceFeePct: bpsToPercentInput(savedServiceFee(r).cardBps),
     topUpServiceFeePct: bpsToPercentInput(savedServiceFee(r).topUpBps),
+    // Un local del API anterior no la manda: encendida, como hoy.
+    operatorsChargeFromPhone: r.operatorsChargeFromPhone ?? true,
   };
 }
 
@@ -458,6 +462,7 @@ export function rulesPayload(
   if (!parsed.ok) return parsed;
   const p = parsed.value;
   const fee = savedServiceFee(saved);
+  const savedFromPhone = saved.operatorsChargeFromPhone ?? true;
   // Encenderla donde la pasarela no podría cobrarla (el API lo dice): no.
   if (form.serviceFeeEnabled && !fee.enabled && saved.serviceFeeBlockedReason) return fail(saved.serviceFeeBlockedReason);
   const changedCategories = CATEGORY_KEYS.filter((k) => p.categories[k] !== (saved.operatorCommissionDefaults[k] ?? 0));
@@ -484,6 +489,9 @@ export function rulesPayload(
     ...(form.serviceFeeEnabled !== fee.enabled ? { serviceFeeEnabled: form.serviceFeeEnabled } : {}),
     ...(p.serviceFeeBps !== fee.cardBps ? { serviceFeeBps: p.serviceFeeBps } : {}),
     ...(p.topUpServiceFeeBps !== fee.topUpBps ? { topUpServiceFeeBps: p.topUpServiceFeeBps } : {}),
+    ...(form.operatorsChargeFromPhone !== savedFromPhone
+      ? { operatorsChargeFromPhone: form.operatorsChargeFromPhone }
+      : {}),
   };
 
   const changes = [
@@ -514,6 +522,9 @@ export function rulesPayload(
       : null,
     dto.topUpServiceFeeBps !== undefined
       ? `comisión del servicio en las recargas: ${formatBps(fee.topUpBps)} → ${formatBps(p.topUpServiceFeeBps)}`
+      : null,
+    dto.operatorsChargeFromPhone !== undefined
+      ? `las compañeras cobran desde su móvil: ${yesNo(savedFromPhone)} → ${yesNo(form.operatorsChargeFromPhone)}`
       : null,
   ].filter((c): c is string => c !== null);
 
