@@ -435,13 +435,30 @@ export class WalletsService {
          WHERE "tenantId" = ${tenantId}::uuid
            AND "createdAt" >= ${todayStart}
       `;
+      // Por línea, como el Z (period-reports): cada sección con lo suyo; lo que
+      // no cubren las líneas (todo, en los consumos de antes), en la principal.
       const consumptionRows = await tx.$queryRaw<Array<{ category: string; total: bigint }>>`
-        SELECT category, COALESCE(SUM("amountCents"),0)::bigint AS total
-          FROM wallet_consumptions
-         WHERE "tenantId" = ${tenantId}::uuid
-           AND "reversedAt" IS NULL
-           AND "createdAt" >= ${todayStart}
+        WITH consumed AS (
+          SELECT id, category, "amountCents"
+            FROM wallet_consumptions
+           WHERE "tenantId" = ${tenantId}::uuid
+             AND "reversedAt" IS NULL
+             AND "createdAt" >= ${todayStart}
+        ), lined AS (
+          SELECT c.id, l.category, l."amountCents"
+            FROM consumed c
+            JOIN wallet_charge_requests wr ON wr."consumptionId" = c.id
+            JOIN payment_lines l ON l."walletChargeId" = wr.id
+        ), parts AS (
+          SELECT category, "amountCents" FROM lined
+          UNION ALL
+          SELECT c.category, c."amountCents" - COALESCE((SELECT SUM(x."amountCents") FROM lined x WHERE x.id = c.id), 0)
+            FROM consumed c
+        )
+        SELECT category, SUM("amountCents")::bigint AS total
+          FROM parts
          GROUP BY category
+        HAVING SUM("amountCents") <> 0
       `;
       // Devuelto hoy desde este local: las devoluciones del saldo hechas (a la
       // tarjeta y en efectivo). Las de la tarjeta son también devoluciones de
