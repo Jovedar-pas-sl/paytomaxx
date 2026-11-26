@@ -132,6 +132,7 @@ import {
 } from './wallet-rules';
 import { ChargeAlertService } from './charge-alert/charge-alert.service';
 import { eur } from '../../common/money/eur';
+import { assertNotStaffCard } from './staff-card-guard';
 
 type Actor = { userId: string; role: Role; tenantId: string };
 
@@ -2028,6 +2029,8 @@ export class WalletChargesService {
     const card = isWalletCardToken(input.card)
       ? await this.prisma.acrossVenues((tx) => tx.walletCard.findUnique({ where: { token: input.card } }))
       : null;
+    // La ficha de una compañera acercada como la de un cliente: se dice qué es.
+    if (!card) await assertNotStaffCard(this.prisma, input.card);
     if (!card || !isIssuedCard(card) || !card.walletId) {
       throw new NotFoundException('Esta ficha no tiene saldo: dásela al cliente al recargar');
     }

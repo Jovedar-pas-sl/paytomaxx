@@ -9,6 +9,7 @@ import {
 import type { TransactionalClient } from '../../common/prisma/prisma.service';
 import { ISSUED_CARD_STATUSES, cardInGroup, cardUnusableText, isIssuedCard } from './wallet-card-ops';
 import { formatWalletCode, normalizeWalletCode, sameWalletGroup } from './wallet-rules';
+import { assertNotStaffCardTx } from './staff-card-guard';
 
 /**
  * Recepción exprés: se acerca el NFC (o se teclea el código) y la app sabe
@@ -36,7 +37,7 @@ export function noCashOut(balanceCents: number): Pick<ReceptionDeskSaldo, 'cashO
  */
 export type DeskRef = { card: string; uid?: string | null } | { code: string };
 
-export type DeskTx = Pick<TransactionalClient, 'walletCard' | 'clientWallet' | 'venue' | '$queryRaw' | 'walletPasskey'>;
+export type DeskTx = Pick<TransactionalClient, 'walletCard' | 'clientWallet' | 'venue' | '$queryRaw' | 'walletPasskey' | 'staffCard'>;
 
 /** Un saldo a cero (DEPLETED) se recarga y vuelve a estar activo: también vale. */
 export const LIVE_WALLET_STATUSES: ReadonlySet<string> = new Set(['ACTIVE', 'DEPLETED']);
@@ -117,6 +118,8 @@ export async function readReceptionDesk(
     where: { token: ref.card },
     select: { id: true, uid: true, walletId: true, status: true, venueId: true, number: true, printedNumber: true },
   });
+  // El saldo de la ficha de una compañera: no tiene, y se dice qué es.
+  if (!card) await assertNotStaffCardTx(tx, ref.card);
   if (!card || !(await cardInGroup(tx, card, venue.id))) throw new NotFoundException(NOT_OURS);
   const uid = ref.uid ? normalizeWalletCardUid(ref.uid) : null;
   if (card.uid && uid && card.uid !== uid) {

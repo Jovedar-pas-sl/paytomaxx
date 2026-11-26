@@ -3,6 +3,7 @@ import { isWalletCardToken, normalizeWalletCardUid } from '@nightpay/contracts';
 import type { PrismaService } from '../../common/prisma/prisma.service';
 import { isIssuedCard } from './wallet-card-ops';
 import { normalizeWalletCode, sameWalletGroup } from './wallet-rules';
+import { assertNotStaffCard } from './staff-card-guard';
 
 /**
  * El saldo al que se suma una recarga en la recepción: el de su código o el de
@@ -75,6 +76,8 @@ async function byCardId(db: PrismaService, cardId: string) {
 async function byCard(db: PrismaService, ref: { card: string; uid?: string | null }) {
   if (!isWalletCardToken(ref.card)) throw new NotFoundException(NO_CARD);
   const card = await db.acrossVenues((tx) => tx.walletCard.findUnique({ where: { token: ref.card } }));
+  // La ficha de una compañera no se recarga.
+  if (!card) await assertNotStaffCard(db, ref.card);
   if (!card || !isIssuedCard(card) || !card.walletId) throw new NotFoundException(NO_CARD);
   const uid = ref.uid ? normalizeWalletCardUid(ref.uid) : null;
   if (card.uid && uid && card.uid !== uid) {

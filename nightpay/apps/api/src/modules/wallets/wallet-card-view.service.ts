@@ -24,6 +24,7 @@ import { WalletChargesService, codeHintOf } from './wallet-charges.service';
 import { WalletPasskeysService } from './wallet-passkeys.service';
 import { WalletTopUpService, type TopUpOptions } from './wallet-topup.service';
 import type { WalletUnlockView } from './wallet-unlock-page';
+import { assertNotStaffCard } from './staff-card-guard';
 
 /** «Ver mi saldo con mi PIN» (B7): lo que dura la vista (sin pagos). */
 export const CARD_PIN_VIEW_MS = 10 * 60 * 1000;
@@ -89,6 +90,7 @@ export class WalletCardViewService {
 
   private async target(token: string) {
     const card = await this.find(token);
+    if (!card) await assertNotStaffCard(this.prisma, token);
     if (!card || !isIssuedCard(card) || !card.wallet || card.wallet.blockedAt || !['ACTIVE', 'DEPLETED'].includes(card.wallet.status)) {
       throw new NotFoundException('Esta ficha no está disponible. Consulta en recepción.');
     }
