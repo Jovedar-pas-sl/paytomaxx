@@ -66,12 +66,12 @@ import {
   choosePayPage,
   decideRedsysRetry,
   freshPendingOrder,
+  payMethodOf,
   retryOutcome,
   settledPayView,
   switchesMethod,
   type CheckoutChoice,
   type PayablePayment,
-  type PayMethodChoice,
   type PayRedirect,
   type PayReceiptView,
   type PayResultView,
@@ -1323,6 +1323,8 @@ export class PaymentsService implements OnApplicationBootstrap {
           authorizedAt: true,
           walletId: true,
           idempotencyKey: true,
+          // Ya pagado: la marca de la tarjeta para el «Pagado» (nunca sus dígitos).
+          cardBrand: true,
           // Cabecera de la página de pago: local, concepto y a quién va la propina.
           serviceName: true,
           tipGoesTo: true,
@@ -1335,7 +1337,7 @@ export class PaymentsService implements OnApplicationBootstrap {
             where: { status: 'APPROVED' },
             orderBy: { createdAt: 'desc' },
             take: 1,
-            select: { claimHash: true },
+            select: { claimHash: true, payMethod: true },
           },
           // Cobro único: «Pagar con mi saldo OxioCard» y el «Ya está pagado con tu saldo».
           linkedWalletCharge: { select: { payToken: true, status: true, expiresAt: true } },
@@ -1380,6 +1382,7 @@ export class PaymentsService implements OnApplicationBootstrap {
       staffName: served ? served.name : createdBy?.displayName?.trim() || null,
       staffUserId: served?.id ?? payment.createdByUserId,
       ...(served ? { served: true } : {}),
+      payMethod: payMethodOf(attempts[0]?.payMethod),
       approvedClaimHash: attempts[0]?.claimHash ?? null,
       ...payerWalletFields({ wallet, firstTopUp, idempotencyKey, approvedClaimHash: attempts[0]?.claimHash ?? null }),
       // Reservados: al pagarse (también con bitcoin), el navegador que pagó vuelve a la página del reservado.
@@ -1426,12 +1429,16 @@ export class PaymentsService implements OnApplicationBootstrap {
           qrToken: true,
           walletId: true,
           idempotencyKey: true,
+          // El «Pagado»: a quién, qué y cómo (la marca de la tarjeta, nunca sus dígitos).
+          serviceName: true,
+          cardBrand: true,
+          venue: { select: { name: true } },
           wallet: { select: { qrToken: true, shortCode: true, pinHash: true, _count: { select: { passkeys: true } } } },
           attempts: {
             where: { status: 'APPROVED' },
             orderBy: { createdAt: 'desc' },
             take: 1,
-            select: { claimHash: true },
+            select: { claimHash: true, payMethod: true },
           },
         },
       });
@@ -1470,6 +1477,10 @@ export class PaymentsService implements OnApplicationBootstrap {
       approvedClaimHash: payment.attempts[0]?.claimHash ?? null,
       ...(isReservationPaymentKey(payment.idempotencyKey) ? { reservation: true as const } : {}),
       ...(isGiftPaymentKey(payment.idempotencyKey) ? { gift: true as const } : {}),
+      venueName: payment.venue?.name ?? null,
+      concept: payment.serviceName ?? null,
+      cardBrand: payment.cardBrand ?? null,
+      payMethod: payMethodOf(payment.attempts[0]?.payMethod),
     };
   }
 
@@ -1504,6 +1515,9 @@ export class PaymentsService implements OnApplicationBootstrap {
           cardBrand: true,
           providerTxId: true,
           walletId: true,
+          // A quién se pagó y lo pedido.
+          serviceName: true,
+          venue: { select: { name: true } },
         },
       });
       if (!payment || !PAID_STATES.has(payment.status as PaymentMachineState)) return null;
@@ -1512,7 +1526,6 @@ export class PaymentsService implements OnApplicationBootstrap {
         orderBy: { createdAt: 'asc' },
         select: { providerTxId: true, payMethod: true },
       });
-      const method = charged?.payMethod;
       return {
         paymentId: payment.id,
         amountCents: payment.amountCents,
@@ -1523,8 +1536,10 @@ export class PaymentsService implements OnApplicationBootstrap {
         authorizedAt: payment.authorizedAt,
         authCode: payment.authCode,
         cardBrand: payment.cardBrand,
-        payMethod: method === 'wallet' || method === 'card' ? (method as PayMethodChoice) : null,
+        payMethod: payMethodOf(charged?.payMethod),
         order: charged?.providerTxId ?? payment.providerTxId,
+        venueName: payment.venue?.name ?? null,
+        concept: payment.serviceName ?? null,
       };
     });
   }

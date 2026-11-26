@@ -103,19 +103,21 @@ describe('estado de la propina en la página', () => {
 
   it('sin nada marcado (B1), las sugeridas de siempre y «Otra» (oculta hasta que hay JS); sin elegir, sin propina', () => {
     const html = render();
-    expect(html).toContain('<input type="radio" name="tip" value="0"><span class="word">Sin propina</span>');
+    // Idea 66: cada botón, los euros y debajo el total con esa propina.
+    expect(html).toContain('<input type="radio" name="tip" value="0"><span class="word"><span class="sr">Sin propina. Total 33,00 €</span><b aria-hidden="true">Sin propina</b>');
     expect(html).not.toMatch(/name="tip"[^>]* checked/);
-    expect(html).toContain('value="200"><span class="num">+2 €</span>');
-    expect(html).toContain('value="500"><span class="num">+5 €</span>');
+    expect(html).toContain('value="200"><span class="num"><span class="sr">Propina de 2 €. Total 35,00 €</span><b aria-hidden="true">+2 €</b><small aria-hidden="true">35,00 €</small></span>');
+    expect(html).toContain('value="500"><span class="num"><span class="sr">Propina de 5 €. Total 38,00 €</span><b aria-hidden="true">+5 €</b><small aria-hidden="true">38,00 €</small></span>');
     expect(html).toContain('<label id="otherOpt" hidden>');
     expect(html).toContain('inputmode="numeric"');
     expect(html).toContain('Como mucho 33 €');
   });
 
-  it('por encima de 40 €: 10 % y 15 % con su importe en euros enteros', () => {
+  it('por encima de 40 €: el 10 % y el 15 % en euros enteros, dichos en euros (idea 66: sin porcentajes) y con su total', () => {
     const html = render({ amountCents: 6000 });
-    expect(html).toMatch(/value="600"><span class="num">10 ?%<small class="num">\+6 €<\/small>/);
-    expect(html).toMatch(/value="900"><span class="num">15 ?%<small class="num">\+9 €<\/small>/);
+    expect(html).toContain('value="600"><span class="num"><span class="sr">Propina de 6 €. Total 66,00 €</span><b aria-hidden="true">+6 €</b><small aria-hidden="true">66,00 €</small>');
+    expect(html).toContain('value="900"><span class="num"><span class="sr">Propina de 9 €. Total 69,00 €</span><b aria-hidden="true">+9 €</b><small aria-hidden="true">69,00 €</small>');
+    expect(html).not.toMatch(/1[05] ?%/);
   });
 
   it('el desglose y el total arrancan con la propina ya marcada (cobro único con la propina pedida)', () => {

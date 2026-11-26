@@ -45,6 +45,29 @@ describe('selector de idioma', () => {
     expect(CHROME_CSS).toContain('.lang a{display:flex;align-items:center;justify-content:space-between;gap:.75rem;min-height:3rem');
   });
 
+  it('idea 71: la franja «English? · Switch» encima de la barra, con ✕ para seguir en español; nunca sobre el «Pagado»', () => {
+    const html = topBar('es', undefined, { suggest: 'en' });
+    expect(html).toBe(
+      `<nav class="sug" aria-label="Idioma"><a href="?lang=en" lang="en" hreflang="en">English? · Switch</a><a class="x" href="?lang=es" aria-label="Seguir en español">✕</a></nav>${topBar('es')}`,
+    );
+    const NNBSP = String.fromCharCode(0x202f);
+    expect(topBar('es', undefined, { suggest: 'fr' })).toContain(`lang="fr" hreflang="fr">Français${NNBSP}? · Changer</a>`);
+    expect(topBar('es', undefined, { suggest: 'pt' })).toContain('lang="pt" hreflang="pt">Português? · Mudar</a>');
+    // Los dos enlaces son la misma página con sus parámetros (la propina elegida en la pantalla, ?tip=).
+    const keepTip = topBar('es', langHrefWith('/pay/tok', { tip: '500' }), { suggest: 'en' });
+    expect(keepTip).toContain('<a href="/pay/tok?tip=500&amp;lang=en" lang="en" hreflang="en">');
+    expect(keepTip).toContain('<a class="x" href="/pay/tok?tip=500&amp;lang=es" aria-label="Seguir en español">');
+    // Sin sugerencia, o encima del «Pagado» (over), no hay franja.
+    expect(topBar('es', undefined, { suggest: null })).toBe(topBar('es'));
+    expect(topBar('es', undefined, { over: true, suggest: 'en' })).toBe(topBar('es', undefined, { over: true }));
+    // 44 px de alto, superficie 2 y letra de 14 px; la ✕, un toque de 44 × 44.
+    expect(CHROME_CSS).toContain('.sug{display:flex;justify-content:center;background:var(--surface-2);font-size:.875rem}');
+    expect(CHROME_CSS).toMatch(/\.sug a\{[^}]*min-height:2\.75rem/);
+    expect(CHROME_CSS).toMatch(/\.sug \.x\{[^}]*width:2\.75rem/);
+    // Sin JS: son enlaces; el API guarda la elección en la cookie al llegar con ?lang=.
+    expect(html).not.toContain('<script');
+  });
+
   it('el JS sin barras invertidas, válido y que no rompe la página si el navegador bloquea cookies o localStorage', () => {
     expect(LANG_JS).not.toContain(BACKSLASH);
     expect(CHROME_CSS).not.toContain(BACKSLASH);

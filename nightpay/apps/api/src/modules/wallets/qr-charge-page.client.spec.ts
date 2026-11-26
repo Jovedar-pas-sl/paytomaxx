@@ -151,6 +151,36 @@ describe('/s en el móvil: la cuenta atrás va con la hora del servidor', () => 
     expect(page.el('clock').textContent).toBe('Caduca en 3:59');
   });
 
+  it('el último minuto (idea 65): el aviso en ámbar, dicho una sola vez al lector de pantalla; caducado, sin reloj', async () => {
+    const SOON = (time: string): string => `Queda menos de 1 minuto: ${time}. Si caduca, pide otro QR.`;
+    const page = openPage();
+    await settle();
+    expect(page.el('clock').textContent).toBe('Caduca en 5:00');
+    expect(page.el('clock').classList.contains('soon')).toBe(false);
+    expect(page.el('live').textContent).toBe('');
+    await settle(4 * MIN - 1_000);
+    expect(page.el('clock').textContent).toBe('Caduca en 1:01');
+    await settle(1_000);
+    expect(page.el('clock').textContent).toBe(SOON('1:00'));
+    expect(page.el('clock').classList.contains('soon')).toBe(true);
+    expect(page.el('live').textContent).toBe(SOON('1:00'));
+    await settle(18_000);
+    expect(page.el('clock').textContent).toBe(SOON('0:42'));
+    // No cada segundo: el lector lo oyó al llegar.
+    expect(page.el('live').textContent).toBe(SOON('1:00'));
+    await settle(43_000);
+    expect(page.el('pay').hidden).toBe(true);
+    expect(page.el('clock').hidden).toBe(true);
+  });
+
+  it('abierta ya en el último minuto: el aviso está, pero no se repite por el lector (ya está en la página)', async () => {
+    const page = openPage({ serverNow: new Date(NOW.getTime() + 5 * MIN - 30_000), phoneNow: new Date(NOW.getTime() + 5 * MIN - 30_000) });
+    await settle();
+    expect(page.el('clock').textContent).toBe('Queda menos de 1 minuto: 0:30. Si caduca, pide otro QR.');
+    expect(page.el('clock').classList.contains('soon')).toBe(true);
+    expect(page.el('live').textContent).toBe('');
+  });
+
   it('móvil con la hora atrasada: caduca cuando caduca en el servidor (no más tarde)', async () => {
     const page = openPage({ phoneNow: new Date(NOW.getTime() - 10 * MIN) });
     await settle(5 * MIN + 1_000);

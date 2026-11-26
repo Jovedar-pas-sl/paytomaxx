@@ -18,7 +18,7 @@ import type { FastifyReply } from 'fastify';
 import { CLIENT_HINTS_ACCEPT_CH } from '../../common/http/client-device';
 import { Public } from '../../common/decorators/public.decorator';
 import { IpRateLimit } from '../../common/guards/ip-rate-limit.guard';
-import { customerLanguage } from '../payments/customer-lang';
+import { customerLanguage, suggestedLanguage } from '../payments/customer-lang';
 import { renderQrChargePage } from './qr-charge-page';
 import { WalletChargesService, type QrChargeClientView, type QrChargePaid } from './wallet-charges.service';
 import { WalletPasskeysService } from './wallet-passkeys.service';
@@ -59,6 +59,8 @@ export class PublicSaldoController {
     @Res() res: FastifyReply,
     /** B1: la propina que ya eligió en /pay antes de «Pagar con mi saldo». */
     @Query('tip') tipQuery?: string,
+    /** El idioma de su móvil: no cambia la página, solo se le ofrece (idea 71). */
+    @Headers('accept-language') acceptLanguage?: string,
   ): Promise<void> {
     const view = await this.charges.qrChargeForClient(token);
     // Español por defecto; el idioma que elige el cliente queda en su cookie.
@@ -70,7 +72,12 @@ export class PublicSaldoController {
       .header('Cache-Control', 'no-store')
       // Android: el modelo y la versión en las peticiones siguientes (detalle del pago).
       .header('Accept-CH', CLIENT_HINTS_ACCEPT_CH)
-      .send(renderQrChargePage(token, lang, view, new Date(), { tipFromPay: tipQueryOf(tipQuery) }));
+      .send(
+        renderQrChargePage(token, lang, view, new Date(), {
+          tipFromPay: tipQueryOf(tipQuery),
+          suggest: suggestedLanguage(acceptLanguage, langQuery, cookies),
+        }),
+      );
   }
 
   /**

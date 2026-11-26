@@ -121,7 +121,7 @@ const CHECKING_CSS = `
 .ck-steps li{display:flex;align-items:center;gap:.75rem;color:var(--mute);font-weight:400}
 .ck-steps li[data-s=done]{color:var(--fg)}
 .ck-steps li[data-s=now]{color:var(--fg);font-weight:600}
-.ck-ic{flex:none;width:1.5rem;height:1.5rem;border-radius:50%;display:grid;place-items:center;font-size:.8125rem;font-weight:600;border:2px solid var(--line-hi);color:var(--mute)}
+.ck-ic{flex:none;width:1.5rem;height:1.5rem;border-radius:50%;display:grid;place-items:center;font-size:.875rem;font-weight:600;border:2px solid var(--line-hi);color:var(--mute)}
 .ck-steps li[data-s=done] .ck-ic{background:var(--fg);border-color:var(--fg);color:var(--bg)}
 .ck-steps li[data-s=now] .ck-ic{border-color:var(--fg);border-top-color:transparent;animation:np-ck-spin 1.2s linear infinite}
 .ck-clock{margin-left:auto;font-family:var(--num);font-variant-numeric:tabular-nums;font-weight:600;color:var(--fg)}
@@ -143,7 +143,7 @@ const CHECKING_CSS = `
 .ck-plate p{color:inherit}
 .ck-plate .ck-plate-amount{font-family:var(--num);font-size:clamp(2.5rem,12vw,3rem);font-weight:600;line-height:1;font-variant-numeric:proportional-nums}
 .ck-plate dl{display:flex;gap:1.5rem;margin:.25rem 0 0}
-.ck-plate dt{font-size:.8125rem;font-weight:500}
+.ck-plate dt{font-size:.875rem;font-weight:500}
 .ck-plate dd{margin:0;font-family:var(--num);font-size:1.375rem;font-weight:700;letter-spacing:.06em}
 .ck-plate .ck-plate-hint{font-size:.9375rem;font-weight:600}
 .secure{display:flex;align-items:center;justify-content:center;gap:.4rem}
