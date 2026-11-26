@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState, type MouseEvent, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from 'react';
 import { confirmationCode, type BitcoinPayState, type PaymentStatus } from '@nightpay/contracts';
 import { cardHow, countdownPhase, formatClock, FormError, Icon, paidTicket, qrDeadline, receiptFromDetail, saldoHow, ScreenHelp, secondsLeft, useNow, useWakeLock, type TicketLine } from '@nightpay/ui';
 import { fetchPaymentStatus, getUser } from '@/lib/api';
@@ -193,6 +193,8 @@ export function Esperando({ cobro, onNew, onRetry, retrying = false, retryError 
   // queda en su FormError hasta que se lee otra ficha, se toca un botón o se sale.
   const [note, setNote] = useState<string | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
+  // El último «No se ha podido cancelar»: el reintento solo del NFC no lo tapa (pesa más que el lector).
+  const cancelFailedRef = useRef<string | null>(null);
   const [pin, setPin] = useState<PinStep | null>(null);
   // «Sin móvil ni ficha»: su código o su pase (lo que antes solo tenía «Saldo»).
   const [sinMovil, setSinMovil] = useState(false);
@@ -256,6 +258,8 @@ export function Esperando({ cobro, onNew, onRetry, retrying = false, retryError 
       try {
         const fresh = await fetchSaldoState(chargeId, signal);
         setSaldo((prev) => keepFicha(fresh, prev));
+        // Ya se sabe si se cobró: «Comprobando…» no se queda al lado de la respuesta.
+        if (checking) setNote((current) => (current === CHECKING_TEXT ? null : current));
         if (fresh.status !== 'PENDING') return 'stop';
         if (checking) {
           // Sigue pendiente: aquel pago no llegó a cobrarse. Se vuelve a escuchar el NFC.
@@ -300,6 +304,11 @@ export function Esperando({ cobro, onNew, onRetry, retrying = false, retryError 
     const t = setTimeout(() => setNote(null), NOTE_MS);
     return () => clearTimeout(t);
   }, [note]);
+
+  // Salir (Recepción, Cobros…: Inicio se oculta sin desmontarse) quita el problema: al volver ya no vale.
+  useEffect(() => {
+    if (!shown) setProblem(null);
+  }, [shown]);
 
   // Tocar un botón (cualquiera de esta pantalla o de lo que se abre encima) quita el problema: ya se está haciendo otra cosa.
   function clearProblemOnButton(e: MouseEvent<HTMLElement>): void {
@@ -416,7 +425,8 @@ export function Esperando({ cobro, onNew, onRetry, retrying = false, retryError 
         await handleCard(read.token, read.uid);
       } catch (err) {
         if ((err as Error).name === 'AbortError' || ctrl.signal.aborted) return;
-        setProblem((err as Error).message);
+        const message = (err as Error).message;
+        setProblem((current) => (current !== null && current === cancelFailedRef.current ? current : message));
         setTimeout(() => setNfcRound((n) => n + 1), 1500);
       } finally {
         setReading(false);
@@ -441,7 +451,9 @@ export function Esperando({ cobro, onNew, onRetry, retrying = false, retryError 
       // Aún en su banco (los 2 minutos): de vuelta a la espera, que lo dice y enseña el botón a su hora
       // (desde la pantalla de un NFC que no pagó, el aviso no se vería).
       if (code === CANCEL_AT_BANK_TOO_SOON_CODE) setLocalFail(null);
-      setProblem(cancelFailedText(card, code));
+      const failed = cancelFailedText(card, code);
+      cancelFailedRef.current = failed;
+      setProblem(failed);
     } finally {
       setCanceling(false);
     }
@@ -566,7 +578,8 @@ export function Esperando({ cobro, onNew, onRetry, retrying = false, retryError 
   if (outcome.kind === 'failed') {
     const backToQr = outcome.qrStillOpen;
     return (
-      <>
+      // Como en la espera: tocar un botón quita el problema (p. ej. «No se ha podido cancelar»).
+      <div onClickCapture={clearProblemOnButton}>
       <StaffOutcome
         kind="failed"
         amountCents={cobro.totalCents}
@@ -592,10 +605,10 @@ export function Esperando({ cobro, onNew, onRetry, retrying = false, retryError 
             : { label: 'Otro QR · mismo importe', onClick: onRetry, loading: retrying }
         }
         secondary={{ label: 'Cancelar', onClick: backToQr ? () => setConfirming(true) : onNew, disabled: retrying || canceling }}
-        error={retryError}
+        error={retryError ?? problem}
       />
       {confirmSheet}
-      </>
+      </div>
     );
   }
 

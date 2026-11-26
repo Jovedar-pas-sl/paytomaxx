@@ -110,8 +110,9 @@ describe('Esperando: note se va sola; problem, no', () => {
     expect(src).toContain('setNote(CHECKING_TEXT)');
     expect(src).toContain('setProblem(NOT_CHARGED_RETRY_TEXT)');
     expect(src).toMatch(/setProblem\(party \? 'Esta pulsera está vacía/);
-    expect(src).toContain('setProblem((err as Error).message)');
-    expect(src).toContain('setProblem(cancelFailedText(card, code))');
+    expect(src).toContain('const message = (err as Error).message;');
+    expect(src).toContain('const failed = cancelFailedText(card, code);');
+    expect(src).toContain('setProblem(failed);');
   });
 
   it('el problema se va al leer otra ficha o al tocar un botón; se pinta con FormError', () => {
@@ -119,5 +120,31 @@ describe('Esperando: note se va sola; problem, no', () => {
     expect(listen).toContain('setProblem(null);');
     expect(src).toMatch(/onClickCapture=\{clearProblemOnButton\}/);
     expect(src).toContain('{problem ? <FormError>{problem}</FormError> : null}');
+  });
+});
+
+describe('Esperando: nunca dos mensajes que se contradicen ni un problema que ya no vale', () => {
+  const src = read(join(COBRAR, 'Esperando.tsx'));
+
+  it('al resolverse la comprobación se quita «Comprobando…» antes de decir que no llegó a cobrarse', () => {
+    const poll = src.slice(src.indexOf('const fresh = await fetchSaldoState(chargeId, signal);'), src.indexOf('setProblem(NOT_CHARGED_RETRY_TEXT)'));
+    expect(poll).toContain('if (checking) setNote((current) => (current === CHECKING_TEXT ? null : current));');
+    expect(poll.indexOf('setNote(')).toBeLessThan(poll.indexOf("if (fresh.status !== 'PENDING') return 'stop';"));
+  });
+
+  it('al salir de la pantalla (la barra de pestañas la oculta sin desmontarla) se quita el problema', () => {
+    expect(src).toMatch(/useEffect\(\(\) => \{\n\s+if \(!shown\) setProblem\(null\);\n\s+\}, \[shown\]\);/);
+  });
+
+  it('el reintento solo del NFC no tapa «No se ha podido cancelar»', () => {
+    const retry = src.slice(src.indexOf("if ((err as Error).name === 'AbortError'"), src.indexOf('setTimeout(() => setNfcRound'));
+    expect(retry).toContain('setProblem((current) => (current !== null && current === cancelFailedRef.current ? current : message));');
+    expect(src).toContain('cancelFailedRef.current = failed;');
+  });
+
+  it('NO PAGADO con el QR abierto enseña el problema y lo quita al tocar un botón; retryError, igual', () => {
+    const failed = src.slice(src.indexOf("if (outcome.kind === 'failed') {"), src.indexOf("if (outcome.kind === 'expired'"));
+    expect(failed).toContain('<div onClickCapture={clearProblemOnButton}>');
+    expect(failed).toContain('error={retryError ?? problem}');
   });
 });
