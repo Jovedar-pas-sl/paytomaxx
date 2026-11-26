@@ -155,7 +155,12 @@ export interface PayText {
   tipOtherEmpty: string;
   /** «Otra» por encima del tope. */
   tipOtherTooHigh: (max: string) => string;
+  /** A quién va la propina, debajo de los botones: entera a una persona del personal… */
   tipToStaff: string;
+  /** …o al local. Siempre se dice una de las dos. */
+  tipToVenue: string;
+  /** Lo que oye el lector de pantalla en cada propina: «Propina de 3 €. Total 39,30 €». */
+  tipWithTotal: (tip: string, total: string) => string;
   total: string;
   /** Desglose: Consumo (o Recarga) · Comisión del servicio · Propina · Total. */
   breakdown: { consumption: string; topUp: string; serviceFee: string; tip: string };

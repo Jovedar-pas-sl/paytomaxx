@@ -52,6 +52,8 @@ const pay: PayText = {
   tipOtherEmpty: 'Enter an amount or choose "No tip".',
   tipOtherTooHigh: (max) => `The tip can be up to ${max}.`,
   tipToStaff: '100% goes to the staff',
+  tipToVenue: 'It goes to the venue',
+  tipWithTotal: (tip, total) => `Tip of ${tip}. Total ${total}`,
   total: 'Total',
   breakdown: { consumption: 'Order', topUp: 'Top-up', serviceFee: 'Service fee', tip: 'Tip' },
   feeWhat: 'What is this?',

@@ -52,6 +52,8 @@ const pay: PayText = {
   tipOtherEmpty: 'Escribe cuánto o elige «Sin propina».',
   tipOtherTooHigh: (max) => `La propina puede ser como mucho de ${max}.`,
   tipToStaff: 'Va entera para el personal',
+  tipToVenue: 'Es para el local',
+  tipWithTotal: (tip, total) => `Propina de ${tip}. Total ${total}`,
   total: 'Total',
   breakdown: { consumption: 'Consumo', topUp: 'Recarga', serviceFee: 'Comisión del servicio', tip: 'Propina' },
   feeWhat: '¿Qué es?',

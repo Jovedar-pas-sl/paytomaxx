@@ -426,7 +426,7 @@ describe('GET /pay/:token — página de pago', () => {
     await controller.payPage('qr-token-1', 'es', undefined, IPHONE, reply);
     expect(sent.body!.match(/<input type="radio" name="tip"[^>]* checked>/g) ?? []).toEqual([]);
     expect(sent.body).toContain('value="300"');
-    expect(sent.body).toContain('<input type="radio" name="tip" value="0"><span class="word">Sin propina</span>');
+    expect(sent.body).toContain('<input type="radio" name="tip" value="0"><span class="word"><span class="sr">Sin propina. ');
   });
 
   it('«Pagar con mi saldo» lleva la propina que ya eligió aquí (?tip=), solo si eligió una', async () => {
@@ -438,14 +438,14 @@ describe('GET /pay/:token — página de pago', () => {
     expect(sent.body).toContain("if(!s.error&&chosen()){try{var u=new URL(sb.getAttribute('href'),location.href);u.searchParams.set('tip',String(s.tip));");
   });
 
-  it('propinas según el importe: hasta 40 € +2 € y +5 €; por encima 10 % y 15 %; y «Otra» hasta el máximo', async () => {
+  it('propinas según el importe: hasta 40 € +2 € y +5 €; por encima el 10 % y el 15 %, dichos en euros con su total (idea 66); y «Otra» hasta el máximo', async () => {
     const small = makeController({
       page: { ...CHOOSE, amountCents: 2_000, tipOptionsCents: [0, 200, 500], tipMaxCents: 2_000 } as PayRedirect,
     });
     const s = fakeReply();
     await small.controller.payPage('qr-token-1', 'es', undefined, IPHONE, s.reply);
-    expect(s.sent.body).toMatch(/value="200"><span class="num">\+2\s€<\/span>/);
-    expect(s.sent.body).toMatch(/value="500"><span class="num">\+5\s€<\/span>/);
+    expect(s.sent.body).toMatch(/value="200"><span class="num"><span class="sr">Propina de 2\s€\. Total 22,00\s€<\/span><b aria-hidden="true">\+2\s€<\/b><small aria-hidden="true">22,00\s€<\/small><\/span>/);
+    expect(s.sent.body).toMatch(/value="500"><span class="num"><span class="sr">Propina de 5\s€\. Total 25,00\s€<\/span><b aria-hidden="true">\+5\s€<\/b>/);
     expect(s.sent.body).toMatch(/Como mucho 20\s€/);
 
     const big = makeController({
@@ -453,24 +453,27 @@ describe('GET /pay/:token — página de pago', () => {
     });
     const b = fakeReply();
     await big.controller.payPage('qr-token-1', 'es', undefined, IPHONE, b.reply);
-    expect(b.sent.body).toMatch(/value="700"><span class="num">10\s%<small class="num">\+7\s€<\/small>/);
-    expect(b.sent.body).toMatch(/value="1000"><span class="num">15\s%<small class="num">\+10\s€<\/small>/);
+    expect(b.sent.body).toMatch(/value="700"><span class="num"><span class="sr">Propina de 7\s€\. Total 72,00\s€<\/span><b aria-hidden="true">\+7\s€<\/b><small aria-hidden="true">72,00\s€<\/small>/);
+    expect(b.sent.body).toMatch(/value="1000"><span class="num"><span class="sr">Propina de 10\s€\. Total 75,00\s€<\/span><b aria-hidden="true">\+10\s€<\/b>/);
+    expect(b.sent.body).not.toMatch(/1[05]\s%/);
     // «Otra» necesita JS: empieza oculta.
     expect(b.sent.body).toContain('<label id="otherOpt" hidden><input type="radio" name="tip" value="0" id="otherRadio">');
     expect(b.sent.body).toContain('id="otherIn" type="text" inputmode="numeric"');
     expect(b.sent.body).toMatch(/Como mucho 65\s€/);
   });
 
-  it('«Va entera para el personal» solo si la propina va a una persona', async () => {
+  it('a quién va la propina se dice siempre (idea 66): «Va entera para el personal» si va a una persona; si no, «Es para el local»', async () => {
     const toStaff = makeController({ page: { ...CHOOSE, tipToStaff: true } as PayRedirect });
     const a = fakeReply();
     await toStaff.controller.payPage('qr-token-1', 'es', undefined, IPHONE, a.reply);
-    expect(a.sent.body).toContain('Va entera para el personal');
+    expect(a.sent.body).toContain('<p class="tipnote">Va entera para el personal</p>');
+    expect(a.sent.body).not.toContain('Es para el local');
 
     const toVenue = makeController({ page: { ...CHOOSE, tipToStaff: false } as PayRedirect });
     const b = fakeReply();
     await toVenue.controller.payPage('qr-token-1', 'es', undefined, IPHONE, b.reply);
     expect(b.sent.body).not.toContain('Va entera para el personal');
+    expect(b.sent.body).toContain('<p class="tipnote">Es para el local</p>');
   });
 
   it('sin propina posible (recarga, otra pasarela) → ni propinas ni «Otra»', async () => {

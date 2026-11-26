@@ -59,6 +59,8 @@ const pay: PayText = {
   tipOtherEmpty: 'Saisissez un montant ou choisissez « Sans pourboire ».',
   tipOtherTooHigh: (max) => `Le pourboire ne peut pas dépasser ${max}.`,
   tipToStaff: 'Reversé en totalité au personnel',
+  tipToVenue: 'Il revient à l’établissement',
+  tipWithTotal: (tip, total) => `Pourboire de ${tip}. Total ${total}`,
   total: 'Total',
   breakdown: { consumption: 'Consommation', topUp: 'Recharge', serviceFee: 'Frais de service', tip: 'Pourboire' },
   // Court: que la ligne « Frais de service » ne se coupe pas sur un petit écran.

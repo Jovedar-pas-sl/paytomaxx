@@ -70,8 +70,6 @@ export type PayRedirect =
       concept?: string | null;
       /** La propina va entera a una persona del personal (no al local). */
       tipToStaff?: boolean;
-      /** Propinas sugeridas del local (para enseñar el % de cada botón). */
-      tipPresets?: TipPresetConfig;
       /**
        * Cobro único: el enlace del mismo cobro para pagarlo con el saldo
        * OxioCard desbloqueando el móvil (/s/<token>). Null: solo tarjeta.
@@ -394,7 +392,6 @@ export function choosePayPage(p: PayablePayment, now: Date = new Date()): PayRed
     venueName: p.venueName ?? null,
     concept: p.concept ?? null,
     tipToStaff: p.tipToStaff ?? false,
-    ...(p.tipPresets ? { tipPresets: p.tipPresets } : {}),
     ...(saldoPayToken ? { saldoPayToken } : {}),
     ...(p.saldo && p.allowTip && p.tipCents > 0 ? { presetTipCents: p.tipCents } : {}),
     ...(p.bitcoin ? { bitcoin: true } : {}),

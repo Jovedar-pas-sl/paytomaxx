@@ -5,7 +5,7 @@ import { CUSTOMER_TEXT } from './i18n';
 import { PAY_TEXT, type PayText } from './pay-i18n';
 import { BTC_MARK, CARD_IC, GPAY_MARK, LOCK_IC, PAY_MARKS_CSS, trustLine } from './pay-marks';
 import type { PayRedirect } from './pay-redirect';
-import { tipPresetsFor } from './tip';
+import { TIP_BUTTONS_CSS, TIP_BUTTONS_LOW_CSS, tipButtons } from './tip-buttons';
 import { legalConsent } from '../legal/legal-links';
 
 /**
@@ -13,11 +13,12 @@ import { legalConsent } from '../legal/legal-links';
  *
  *  1. Arriba, grande, lo que va a pagar (se pone al día con la propina), con
  *     el local, lo pedido, el extracto y la cuenta atrás.
- *  2. Propina: botones de 48 px en una fila; el elegido se ve invertido
- *     (fondo claro, texto oscuro) y con su ✓ (no solo por el color). Sin nada
- *     marcado (B1: la elige el cliente; sin elegir, no hay propina); las
- *     sugeridas y su tope son los de siempre (tip.ts); «Otra» con el teclado
- *     numérico y su error dicho con palabras.
+ *  2. Propina (tip-buttons.ts, los mismos botones que en /s): cada uno con
+ *     sus euros y, debajo, el total con ella; el elegido se ve invertido y con
+ *     su ✓ (no solo por el color). Sin nada marcado (B1: la elige el cliente;
+ *     sin elegir, no hay propina); las sugeridas y su tope son los de siempre
+ *     (tip.ts); «Otra» con el teclado numérico y su error dicho con palabras.
+ *     Debajo, a quién va.
  *  3. Desglose: Consumo · Comisión del servicio (si la hay, con «¿Qué es?») ·
  *     Propina · TOTAL. El lector de pantalla oye solo el total al cambiarlo.
  *  4. Abajo, pegados al borde: Apple Pay / Google Pay como botón principal
@@ -66,31 +67,7 @@ export const CHOOSE_CSS = `
 .amount{font-size:clamp(2.5rem,12vw,3rem);font-weight:600;letter-spacing:-.02em;line-height:1.05;color:var(--fg);font-variant-numeric:proportional-nums}
 .meta{display:flex;flex-wrap:wrap;justify-content:center;gap:.15rem .9rem;font-size:.875rem;color:var(--dim)}
 .meta b{color:var(--mute);font-weight:600}
-form{width:100%;display:flex;flex-direction:column;gap:1.1rem}
-fieldset{border:0;margin:0;padding:0;min-width:0}
-legend{width:100%;margin:0 0 .6rem;padding:0;color:var(--fg);font-weight:600;font-size:1rem;text-align:center}
-.tipgrid{display:grid;grid-template-columns:1.35fr 1fr 1fr 1fr;gap:.5rem}
-.tipgrid label{display:block;position:relative}
-.tipgrid input{position:absolute;opacity:0;width:1px;height:1px}
-.tipgrid span{position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:.05rem;min-height:3rem;padding:.4rem .25rem;border:1px solid var(--line-hi);border-radius:var(--r-field);background:var(--surface-2);font-family:var(--num);font-size:1rem;font-weight:600;color:var(--fg);cursor:pointer;line-height:1.12;text-align:center;overflow-wrap:anywhere;transition:transform .15s var(--ease)}
-.tipgrid span.word{font-family:var(--sans);font-size:.875rem;font-weight:500}
-.tipgrid small{font-family:var(--num);font-size:.875rem;font-weight:600;color:var(--mute)}
-.tipgrid input:checked+span{border-color:var(--fg);background:var(--fg);color:var(--bg)}
-.tipgrid input:checked+span small{color:var(--bg)}
-.tipgrid input:checked+span::after{content:'';position:absolute;top:-.5rem;right:.375rem;width:1rem;height:1rem;border-radius:50%;box-shadow:0 0 0 2px var(--bg);background:var(--bg) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23F4F2EC' stroke-width='3.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 13l4 4L19 7'/%3E%3C/svg%3E") center/70% no-repeat}
-.tipgrid input:focus-visible+span{outline:3px solid var(--fg);outline-offset:3px}
-.tipgrid span:active{transform:scale(.97)}
-.other{display:grid;grid-template-columns:auto auto;justify-content:center;align-items:center;gap:.3rem .7rem;margin-top:.7rem;text-align:center}
-.other>p{grid-column:1/-1}
-.other label{font-weight:500;color:var(--fg)}
-.eur{display:flex;align-items:center;gap:.4rem}
-.eur input{width:6.5rem;min-height:3.25rem;font-family:var(--num);font-size:1.375rem;font-weight:600;text-align:center;border-radius:var(--r-field);border:1px solid var(--line-hi);background:var(--surface-2);color:var(--fg)}
-.eur input:focus-visible{outline:3px solid var(--fg);outline-offset:2px;border-color:var(--fg)}
-.eur input[aria-invalid=true]{border-color:var(--err)}
-.eur span{font-size:1.375rem;font-weight:600}
-.other .err{text-align:center}
-.tipnote{margin-top:.65rem;font-size:.875rem;color:var(--mute);text-align:center}
-${BREAKDOWN_CSS}.warn{border:1px solid var(--warn);border-radius:var(--r-tile);background:rgb(245 179 66/.1);padding:.75rem 1rem;color:var(--fg);font-size:.875rem}
+form{width:100%;display:flex;flex-direction:column;gap:1.1rem}${TIP_BUTTONS_CSS}${BREAKDOWN_CSS}.warn{border:1px solid var(--warn);border-radius:var(--r-tile);background:rgb(245 179 66/.1);padding:.75rem 1rem;color:var(--fg);font-size:.875rem}
 .paybar{position:sticky;bottom:0;z-index:5;margin:0 -1rem;padding:.6rem 1rem calc(.7rem + env(safe-area-inset-bottom));background:var(--bg)}
 .paybar::before{content:'';position:absolute;left:0;right:0;bottom:100%;height:.75rem;background:linear-gradient(to top,var(--bg),rgb(9 21 24/0));pointer-events:none}
 .paybar>div{display:flex;flex-direction:column;gap:.5rem;text-align:center}
@@ -121,12 +98,7 @@ form{gap:.8rem}
 .head{gap:.15rem}
 .head .kick{margin-top:.15rem}
 .who .face{width:1.5rem;height:1.5rem}
-.amount{font-size:2.5rem}
-legend{margin-bottom:.45rem;font-size:.9375rem}
-.tipgrid span{min-height:3rem}
-.eur input{min-height:3rem;font-size:1.375rem}
-.other{margin-top:.5rem}
-.brk>div{padding:.4rem 0}
+.amount{font-size:2.5rem}${TIP_BUTTONS_LOW_CSS}.brk>div{padding:.4rem 0}
 .brk .tot{padding:.55rem 0 .45rem}
 .brk dt{font-size:.875rem}
 .brk dd{font-size:.9375rem}
@@ -186,37 +158,23 @@ function presetTip(view: ChooseView): number {
   return view.presetTipCents && view.tipOptionsCents.includes(view.presetTipCents) ? view.presetTipCents : 0;
 }
 
+/**
+ * Las propinas (tip-buttons.ts): cada botón enseña el total con la comisión del
+ * servicio dentro. Nada marcado salvo la que ya traía (cobro único o la
+ * pantalla de la barra). «Otra» necesita JS: empieza oculta y el JS la enseña.
+ */
 function tipChoices(view: ChooseView, t: PayText): string {
-  const presets = tipPresetsFor(view.amountCents, view.tipPresets);
   const preset = presetTip(view);
-  const pct = (p: number): string => (p / 100).toLocaleString(t.locale, { style: 'percent' });
-  const options = view.tipOptionsCents
-    .filter((c) => c > 0)
-    .map((c) => {
-      const p = presets.find((x) => x.cents === c)?.percent ?? null;
-      const label = p
-        ? `${escapeHtml(pct(p))}<small class="num">+${escapeHtml(money(c, view, t))}</small>`
-        : `+${escapeHtml(money(c, view, t))}`;
-      return `<label><input type="radio" name="tip" value="${c}"${c === preset ? ' checked' : ''}><span class="num">${label}</span></label>`;
-    })
-    .join('');
-  // «Otra» necesita JS: empieza oculta y el JS la enseña.
-  const canOther = view.tipMaxCents >= 100;
-  const maxText = money(Math.floor(view.tipMaxCents / 100) * 100, view, t);
-  return `<fieldset class="tips"><legend>${escapeHtml(t.tipLegend)}</legend><div class="tipgrid">
-<label><input type="radio" name="tip" value="0"><span class="word">${escapeHtml(t.noTip)}</span></label>${options}${
-    canOther
-      ? `<label id="otherOpt" hidden><input type="radio" name="tip" value="0" id="otherRadio"><span class="word">${escapeHtml(t.tipOther)}</span></label>`
-      : ''
-  }</div>
-${
-  canOther
-    ? `<div class="other" id="otherBox" hidden><label for="otherIn">${escapeHtml(t.tipOtherLabel)}</label>
-<div class="eur"><input id="otherIn" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="4" autocomplete="off" enterkeyhint="done" aria-describedby="otherMax otherErr"><span aria-hidden="true">€</span></div>
-<p class="small" id="otherMax">${escapeHtml(t.tipMax(maxText))}</p>
-<p class="err" id="otherErr" role="alert" hidden></p></div>`
-    : ''
-}${view.tipToStaff ? `<p class="tipnote">${escapeHtml(t.tipToStaff)}</p>` : ''}</fieldset>`;
+  return tipButtons({
+    t,
+    currency: view.currency,
+    dueCents: dueCents(view),
+    tipsCents: view.tipOptionsCents.filter((c) => c > 0),
+    maxCents: view.tipMaxCents,
+    checkedCents: preset > 0 ? preset : null,
+    otherHidden: true,
+    toStaff: view.tipToStaff === true,
+  });
 }
 
 /**

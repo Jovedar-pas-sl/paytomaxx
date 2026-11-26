@@ -56,6 +56,8 @@ const pay: PayText = {
   tipOtherEmpty: 'Indique o valor ou escolha «Sem gorjeta».',
   tipOtherTooHigh: (max) => `A gorjeta pode ser, no máximo, de ${max}.`,
   tipToStaff: '100% para os funcionários',
+  tipToVenue: 'É para o estabelecimento',
+  tipWithTotal: (tip, total) => `Gorjeta de ${tip}. Total ${total}`,
   total: 'Total',
   breakdown: { consumption: 'Consumo', topUp: 'Recarga', serviceFee: 'Taxa de serviço', tip: 'Gorjeta' },
   feeWhat: 'O que é?',
