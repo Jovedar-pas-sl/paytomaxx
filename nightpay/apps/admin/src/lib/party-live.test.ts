@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { PARTY_NOW, sampleLive } from './party-fixtures';
 import {
@@ -101,6 +102,15 @@ describe('ventas por hora', () => {
   it('lo negativo (solo devoluciones en esa hora) no pinta barra', () => {
     expect(plain(hourAmountLabel(-500))).toBe('0 €');
     expect(hourBars([{ at: '2027-06-23T18:00:00.000Z', soldCents: -500, open: false }], TZ)[0]!.pct).toBe(0);
+  });
+
+  it('cada hora cae bajo su barra: las dos filas tienen columnas iguales y en ellas cabe el importe más largo', () => {
+    const css = readFileSync(new URL('../styles/panel-party.css', import.meta.url), 'utf8');
+    const basis = (selector: string): number => Number(new RegExp(`\\n${selector} \\{[^}]*\\bflex: 1 0 ([\\d.]+)rem;`).exec(css)?.[1]);
+    // Medido con Manrope 14/700: «999 mil €», el más largo, 62 px; la hora con su día debajo («dom 29»), 50.
+    // En una columna más estrecha la barra se ensancha con su importe y su hora no, y dejan de coincidir.
+    expect(basis('\\.np-party-bar')).toBeGreaterThanOrEqual(4);
+    expect(basis('\\.np-party-hours span')).toBe(basis('\\.np-party-bar'));
   });
 });
 

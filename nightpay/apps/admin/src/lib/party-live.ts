@@ -141,7 +141,7 @@ export interface HourBar {
   hour: string;
   /** El día («jue 24») en la primera barra y en la primera de cada día nuevo. */
   day: string | null;
-  /** «3,1 k» / «620 €». */
+  /** «3,1 mil €» / «620 €». */
   label: string;
   /** Alto de la barra (0–100 %). */
   pct: number;
