@@ -7,7 +7,7 @@ import { callReader, type BridgeResponse, type PaytefResult } from '@/lib/pax-br
 import {
   PENDING_CONFIRM_TEXT,
   clearPendingResult,
-  hasPendingResults,
+  readyForNewSale,
   isChargeOnHold,
   isFinalRejection,
   notAcceptedReview,
@@ -144,8 +144,8 @@ export function PaxChargeFlow({ charge, onDone, start, onPaid }: Props) {
       setStep({ kind: 'readerError', message: PRACTICE_PAX_TEXT, canRecover: false });
       return;
     }
-    // Con una venta aprobada sin enviar, no se empieza otra: se cobraría dos veces.
-    if (hasPendingResults()) {
+    // Con una venta aprobada sin enviar (tras reenviarla), no se empieza otra: se cobraría dos veces.
+    if (!(await readyForNewSale())) {
       setStep({ kind: 'readerError', message: PENDING_BLOCK_TEXT, canRecover: false });
       return;
     }
