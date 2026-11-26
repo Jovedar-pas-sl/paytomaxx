@@ -383,6 +383,14 @@
   z-index: 60;
 }
 
+/* Lo mismo donde no hay :has() (un móvil viejo): con una hoja abierta el
+   fondo no se desplaza (la hoja pone overflow: hidden en <body>), y por ahí
+   se sabe. Sin esto, la barra de abajo taparía el final de la hoja, que en
+   el móvil sale justo ahí. */
+body[style*='overflow: hidden'] .np-app-root {
+  z-index: 60;
+}
+
 /* ─── Aviso del super-admin sin 2FA ──────────────────────────────── */
 
 .np-2fa-banner {
