@@ -25,6 +25,7 @@ export * from './charge-lines';
 export * from './post-rules';
 export * from './invitations';
 export * from './staff-card';
+export * from './id-document';
 export * from './night-settings';
 export * from './pending-topups';
 export * from './money-map';
