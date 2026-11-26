@@ -115,6 +115,39 @@ export async function linesOf(
   return tx.paymentLine.findMany({ where: { OR: or }, orderBy: [{ createdAt: 'asc' }, { amountCents: 'desc' }, { id: 'asc' }], select: LINE_SELECT });
 }
 
+/** La compañera a cuyo nombre se cobró el servicio (cobro por el encargado). */
+export interface ServedOperator {
+  id: string;
+  name: string | null;
+}
+
+/**
+ * La compañera del servicio de cada cobro (la de su primera línea con
+ * serviceOperatorId), por id del cobro con tarjeta o del saldo. Dentro de una
+ * transacción (payment_lines tiene FORCE RLS). En el cobro único las líneas
+ * siguen en el cobro con tarjeta hasta que paga el saldo (cobro-link.ts): para
+ * un cobro del saldo, pasa su id y el de su linkedPaymentId.
+ */
+export async function servedOperators(
+  tx: TransactionalClient,
+  ids: { paymentIds?: ReadonlyArray<string | null>; walletChargeIds?: ReadonlyArray<string | null> },
+): Promise<Map<string, ServedOperator>> {
+  const paymentIds = (ids.paymentIds ?? []).filter((id): id is string => Boolean(id));
+  const walletChargeIds = (ids.walletChargeIds ?? []).filter((id): id is string => Boolean(id));
+  if (paymentIds.length === 0 && walletChargeIds.length === 0) return new Map();
+  const rows = await tx.$queryRaw<Array<{ chargeId: string; id: string; name: string | null }>>`
+    SELECT DISTINCT ON (COALESCE(l."paymentId", l."walletChargeId"))
+           COALESCE(l."paymentId", l."walletChargeId")::text AS "chargeId",
+           u.id::text AS id, NULLIF(btrim(u."displayName"), '') AS name
+      FROM payment_lines l
+      JOIN users u ON u.id = l."serviceOperatorId"
+     WHERE l."serviceOperatorId" IS NOT NULL
+       AND (l."paymentId" = ANY(${paymentIds}::uuid[]) OR l."walletChargeId" = ANY(${walletChargeIds}::uuid[]))
+     ORDER BY COALESCE(l."paymentId", l."walletChargeId"), l."createdAt", l.id
+  `;
+  return new Map(rows.map((r) => [r.chargeId, { id: r.id, name: r.name }]));
+}
+
 /**
  * Las ganancias de las invitaciones de un cobro con tarjeta (paymentId) o de
  * un consumo del saldo (consumptionId), en la misma transacción que lo cobra:

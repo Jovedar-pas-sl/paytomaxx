@@ -59,7 +59,8 @@ export class VenuesController {
       this.prisma.user.findFirst({ where: { id: user.sub }, select: { post: true } }),
     ]);
     // Casilla apagada: la compañera sale sin secciones ni recargas (myRights), sin campos nuevos.
-    const rights = chargeRightsOf({ role: user.role, post: me?.post ?? null }, postRulesOf(postRules), { operatorsChargeFromPhone });
+    const rules = postRulesOf(postRules);
+    const rights = chargeRightsOf({ role: user.role, post: me?.post ?? null }, rules, { operatorsChargeFromPhone });
     const venueSections = sectionsOf(sections);
     // OxioParty: la caseta de quien llama (OxioPay: null sin mirar la base).
     const stall = await myStall(this.prisma, { tenantId: user.tenantId, userId: user.sub });
@@ -74,7 +75,14 @@ export class VenuesController {
       sections: venueSections,
       myPost: rights.post,
       /** Lo que puede cobrar quien llama (su puesto): la app solo enseña eso. */
-      myRights: { sections: rights.sections, tips: rights.tips, cash: rights.cash, topUps: rights.topUps },
+      myRights: {
+        sections: rights.sections,
+        tips: rights.tips,
+        cash: rights.cash,
+        topUps: rights.topUps,
+        /** A nombre de una compañera (cobro por el encargado), las propinas siguen su fila: Sala. */
+        serviceTips: rules.SALA.tips,
+      },
       /** La sección que la app marca por defecto (la de su puesto, si la puede cobrar). */
       myDefaultCategory: initialOfferedSection(venueSections, rights),
       /** «Comisión del servicio al cliente»: el interruptor y los % (las apps enseñan lo que paga el cliente). */

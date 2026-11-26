@@ -56,7 +56,7 @@ import { stallIdForStaff, stallSeal } from '../party/stall-seal';
 import { resolveBpsForOperator, type OperatorCommissionDefaults, type RevenueCategory } from './commission';
 import { lineCommission, lineViews, type DraftLine } from './charge-lines';
 import { linesWithOperatorBps, resolveChargeOrThrow, type LineWithBps } from './charge-request';
-import { assignChargeRef, insertChargeLines, insertInvitationEarnings, linesOf } from './charge-store';
+import { assignChargeRef, insertChargeLines, insertInvitationEarnings, linesOf, servedOperators } from './charge-store';
 import { invitationEarnings } from './invitation-lines';
 import { cardQrUrl } from './pay-qr-url';
 import { assertCanTopUp } from '../venues/charge-rights';
@@ -710,7 +710,9 @@ export class PaymentsService implements OnApplicationBootstrap {
     // página de pago; por datáfono, la del datáfono). Quien crea el cobro ya
     // no la pone: una app de antes que la mande recibe un 400 claro.
     if ((dto.tipCents ?? 0) > 0) throw staffTipRemoved();
-    const tip = await this.resolveCreatorTip({ tenantId, dto, amountCents, creatorRole, isPosExternal, isWalletTopUp });
+    const creatorTip = await this.resolveCreatorTip({ tenantId, dto, amountCents, creatorRole, isPosExternal, isWalletTopUp });
+    // A nombre de una compañera: la propina que deje el cliente (tarjeta o datáfono) es entera suya.
+    const tip = lines.some((l) => l.serviceOperatorId) ? { ...creatorTip, tipGoesTo: 'operator' } : creatorTip;
     const capProblem = operatorCapProblem({
       creatorRole,
       isWalletTopUp,
@@ -1350,8 +1352,14 @@ export class PaymentsService implements OnApplicationBootstrap {
     const firstTopUp = wallet !== null && !selfTopUpClaimHash(idempotencyKey) && (await this.isFirstTopUp(walletId, payment.id));
     // Propinas del local (Ajustes → Formas de cobro): apagadas, no se ofrecen ni se aceptan.
     const methods = paymentMethodsOf(venue?.paymentMethods);
-    // Y el puesto de quien cobra (recepción no lleva propinas).
-    const creatorTips = createdBy ? chargeRightsOf(createdBy, postRulesOf(venue?.postRules)).tips : true;
+    // Y el puesto de quien cobra (recepción no lleva propinas). A nombre de una
+    // compañera (cobro por el encargado), el de ella: la fila Sala. Una recarga nunca lleva compañera.
+    const rules = postRulesOf(venue?.postRules);
+    const served =
+      walletId === null && createdBy && createdBy.role !== 'OPERATOR'
+        ? (await this.prisma.asSystem((tx) => servedOperators(tx, { paymentIds: [payment.id] }))).get(payment.id)
+        : undefined;
+    const creatorTips = served ? rules.SALA.tips : createdBy ? chargeRightsOf(createdBy, rules).tips : true;
     // Bitcoin: al cargar saldo y en los reservados (la señal, el resto o todo); en un cobro de la barra, nunca.
     const bitcoin = await this.bitcoinOffered(payment.tenantId, { walletId });
     // Cancelado por el personal y cobrado después por el banco: el cliente no ve «cancelado» a secas.
@@ -1367,7 +1375,7 @@ export class PaymentsService implements OnApplicationBootstrap {
       tipPresets: { flatCents: methods.tipFlatCents, percents: methods.tipPercents },
       venueName: venue?.name ?? null,
       concept: serviceName ?? null,
-      tipToStaff: tipGoesToStaff({ tipGoesTo: tipGoesTo ?? null, creatorRole: createdBy?.role ?? null }),
+      tipToStaff: tipGoesToStaff({ tipGoesTo: tipGoesTo ?? null, creatorRole: createdBy?.role ?? null, served: Boolean(served) }),
       staffName: createdBy?.displayName?.trim() || null,
       approvedClaimHash: attempts[0]?.claimHash ?? null,
       ...payerWalletFields({ wallet, firstTopUp, idempotencyKey, approvedClaimHash: attempts[0]?.claimHash ?? null }),
@@ -1889,16 +1897,20 @@ export class PaymentsService implements OnApplicationBootstrap {
         userCommissionBpsOverride: creatorCommissionBps,
         venueMap: venueCommissionMap as Partial<OperatorCommissionDefaults>,
       });
-      // Solo creamos earning si:
-      //   - creator es OPERATOR
-      //   - bps resolvidos > 0 (en VENUE_* con default 0 no hay earning)
-      if (creatorRole === 'OPERATOR') {
-        const creator = { id: p.createdByUserId };
-        // El mapa del dinero: con líneas, la comisión va por línea (cada
-        // sección con su %); un cobro de una sola sección da lo de siempre.
-        const lines = await tx.$queryRaw<Array<{ category: string; amountCents: number; operatorCommissionBps: number | null }>>`
-          SELECT category, "amountCents", "operatorCommissionBps" FROM payment_lines WHERE "paymentId" = ${paymentId}::uuid
-        `;
+      // El mapa del dinero: con líneas, la comisión va por línea (cada
+      // sección con su %); un cobro de una sola sección da lo de siempre.
+      const lines = await tx.$queryRaw<
+        Array<{ category: string; amountCents: number; operatorCommissionBps: number | null; serviceOperatorId: string | null }>
+      >`
+        SELECT category, "amountCents", "operatorCommissionBps", "serviceOperatorId" FROM payment_lines WHERE "paymentId" = ${paymentId}::uuid
+      `;
+      // Gana la compañera que lo cobró o, si lo cobró otra persona a su nombre
+      // (cobro por el encargado), la del servicio, con el % fijado en cada
+      // línea al cobrar (las demás, 0). Sin ninguna de las dos, no hay ganancia.
+      const servedId = creatorRole === 'OPERATOR' ? null : (lines.find((l) => l.serviceOperatorId)?.serviceOperatorId ?? null);
+      const earnerId = creatorRole === 'OPERATOR' ? p.createdByUserId : servedId;
+      if (earnerId) {
+        const creator = { id: earnerId };
         const commission =
           lines.length > 0
             ? lineCommission(
@@ -1906,19 +1918,21 @@ export class PaymentsService implements OnApplicationBootstrap {
                   amountCents: l.amountCents,
                   bps:
                     l.operatorCommissionBps ??
-                    resolveBpsForOperator({
-                      category: l.category,
-                      userCommissionBpsOverride: creatorCommissionBps,
-                      venueMap: venueCommissionMap as Partial<OperatorCommissionDefaults>,
-                    }),
+                    (servedId
+                      ? 0
+                      : resolveBpsForOperator({
+                          category: l.category,
+                          userCommissionBpsOverride: creatorCommissionBps,
+                          venueMap: venueCommissionMap as Partial<OperatorCommissionDefaults>,
+                        })),
                 })),
               )
             : lineCommission([{ amountCents: p.amountCents, bps: bpsForOperator }]);
         const bps = commission.commissionBps;
         const commissionCents = commission.commissionCents;
 
-        // Tip: si la propina va a la chica creator (o a beneficiary explícito
-        // que coincide con ella), 100% se suma al earning. Si va a venue/shared
+        // Tip: si la propina va a la chica (o a beneficiary explícito que
+        // coincide con ella), 100% se suma al earning. Si va a venue/shared
         // o a otro beneficiario, el earning lleva solo la comisión.
         let earningTipCents = 0;
         if (p.tipCents > 0) {

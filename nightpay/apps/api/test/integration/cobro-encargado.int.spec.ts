@@ -9,11 +9,13 @@
 //    datáfono, cobro del saldo y recarga con tarjeta), su carta sale vacía y /venues/me se lo dice.
 //  - A nombre de la compañera: el encargado, el dueño o recepción con permiso cobran el servicio con
 //    su «Mi QR»; las líneas de Servicios la llevan con su %, y el resto del cobro, 0.
+//  - El reparto: pagado con tarjeta, ficha o datáfono, a ella le llegan su parte y la propina
+//    entera (y la devolución se la descuenta); la propina que se ofrece sigue la fila Sala.
 // Ver README.md.
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { spawnSync } from 'node:child_process';
-import { randomUUID } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import { ClsService } from 'nestjs-cls';
 import {
@@ -32,8 +34,18 @@ import { totpCodeAt } from '../../src/modules/auth/testing/totp-kit';
 import { CLAIM_STEP_LUA, TotpAttemptsService } from '../../src/modules/auth/totp-attempts.service';
 import { TotpService } from '../../src/modules/auth/totp.service';
 import { CartaService } from '../../src/modules/carta/carta.service';
+import { IncidentsService } from '../../src/modules/incidents/incidents.service';
+import { invitationTotals } from '../../src/modules/money-map/invitation-totals';
+import { MoneyMapService } from '../../src/modules/money-map/money-map.service';
+import { StaffFichaService } from '../../src/modules/money-map/staff-ficha.service';
+import { CloseCheckService } from '../../src/modules/nights/close-check.service';
+import { NightsService } from '../../src/modules/nights/nights.service';
 import { signStaffToken } from '../../src/modules/operators/staff-qr';
 import { PaymentsService } from '../../src/modules/payments/payments.service';
+import type { PosDevice } from '../../src/modules/pos-device/device.guard';
+import { PosDeviceService } from '../../src/modules/pos-device/pos-device.service';
+import { RefundsService } from '../../src/modules/refunds/refunds.service';
+import { ReportsService } from '../../src/modules/reports/reports.service';
 import { SuperAdminStepUpService } from '../../src/modules/superadmin/step-up.service';
 import { SuperAdminAuditService } from '../../src/modules/superadmin/superadmin-audit.service';
 import { SuperAdminVenuesService } from '../../src/modules/superadmin/venues.service';
@@ -228,7 +240,7 @@ describe('Casilla apagada: la compañera no crea cobros ni recargas por ningún 
     // Aunque Sala cargue saldos en este local.
     await expect(c.recarga()).rejects.toMatchObject({ status: 403, response: expect.objectContaining({ code: TOP_UP_RECEPTION_ONLY_CODE }) });
     expect(await c.carta()).toEqual([]);
-    expect((await c.me()).myRights).toEqual({ sections: [], tips: true, cash: false, topUps: false });
+    expect((await c.me()).myRights).toEqual({ sections: [], tips: true, cash: false, topUps: false, serviceTips: true });
     const made = await sys(async (tx) => [
       await tx.payment.count({ where: { tenantId: l.V } }),
       await tx.walletChargeRequest.count({ where: { tenantId: l.V } }),
@@ -244,7 +256,7 @@ describe('Casilla apagada: la compañera no crea cobros ni recargas por ningún 
     await expect(c.saldo()).resolves.toMatchObject({ amountCents: 3000 });
     await expect(c.recarga()).resolves.toMatchObject({ amountCents: 5000 });
     expect((await c.carta()).map((i) => i.id)).toEqual([l.servicio]);
-    expect((await c.me()).myRights).toEqual({ sections: ['CHICA_SERVICE'], tips: true, cash: false, topUps: true });
+    expect((await c.me()).myRights).toEqual({ sections: ['CHICA_SERVICE'], tips: true, cash: false, topUps: true, serviceTips: true });
   });
 });
 
@@ -408,5 +420,248 @@ describe('A nombre de una compañera: su «Mi QR» en el cobro y las líneas de 
     expect(await lineas({ paymentId: p.id })).toEqual([
       { category: 'CHICA_SERVICE', amountCents: 6000, serviceOperatorId: null, operatorCommissionBps: null },
     ]);
+  });
+});
+
+describe('El reparto: su parte y la propina entera (tarjeta, ficha y datáfono), y la propina con la regla de Sala', () => {
+  const quiet = { log: async () => undefined };
+  const config = { get: () => undefined, getOrThrow: () => undefined };
+  const reports = new ReportsService(prisma);
+  const moneyMap = new MoneyMapService(prisma, reports, config as never);
+  const fichas = new StaffFichaService(prisma, moneyMap);
+  const checks = new CloseCheckService(prisma, new IncidentsService(prisma, quiet as never), config as never);
+  const nights = new NightsService(prisma, reports, quiet as never, checks, undefined, moneyMap);
+  vi.spyOn(nights as unknown as { safeAutoClose(t: string): Promise<void> }, 'safeAutoClose').mockResolvedValue(undefined);
+  const gateways = { get: () => ({ refund: async () => ({ status: 'SUCCEEDED', providerRefundId: `DEV-${randomUUID().slice(0, 8)}` }) }) };
+  const refunds = new RefundsService(prisma, cls as never, gateways as never, payments, {} as never, quiet as never, {
+    refundsCreated: { inc: noop },
+    earningReversalFailed: { inc: noop },
+  } as never);
+  // Paytef confirma lo que dice el datáfono.
+  const prover = { prove: async (claim: { amountCents: number }) => ({ kind: 'confirmed' as const, amountCents: claim.amountCents, currency: 'EUR' }) };
+  const pax = new PosDeviceService(prisma, payments, quiet as never, cls as never, prover as never);
+  const HOUR = 60 * 60_000;
+  const soon = () => new Date(Date.now() + 1_000);
+
+  /** Casilla apagada; Nerea sin % propio (Servicios, el 90 % del local); Redsys, la noche abierta y recepción con permiso. */
+  async function local(name: string, salaTips = true) {
+    const V = await newVenue(name, {
+      operatorsChargeFromPhone: false,
+      walletGroup: `grep-${name}-${r}`,
+      platformCommissionBps: 0,
+      payoutHoldDays: 0,
+      paymentMethods: { pos: true },
+      ...(salaTips ? {} : { postRules: { SALA: { tips: false } } }),
+    });
+    return sys(async (tx) => {
+      const term = await tx.terminal.create({ data: { tenantId: V, externalId: `REP-${name}-${r}`, label: 'Barra', zone: 'BARRA' } });
+      await tx.gatewayCredential.create({
+        data: { tenantId: V, provider: 'REDSYS', encKey: Buffer.from('k'), encNonce: Buffer.from('n'), encTag: Buffer.from('t'), kekVersion: 1 },
+      });
+      const user = async (who: string, role: string, extra: Record<string, unknown> = {}) =>
+        (await tx.user.create({ data: { tenantId: V, email: `${who}-${name.toLowerCase()}-${r}@x.es`, passwordHash: 'x', role, ...extra } as never })).id;
+      const item = async (itemName: string, priceCents: number, category: string) =>
+        (await tx.serviceItem.create({ data: { tenantId: V, name: itemName, priceCents, category } })).id;
+      const dueno = await user('dueno', 'OWNER');
+      const recepcion = await user('recepcion', 'WAITER', { post: 'RECEPCION' });
+      await tx.venue.update({ where: { id: V }, data: { staffPermissions: { people: { [recepcion]: { chargeForOperator: true } } } } });
+      await tx.venueNight.create({ data: { tenantId: V, openedAt: new Date(Date.now() - 2 * HOUR), openingFloatCents: 0, openedBy: dueno } });
+      return {
+        V,
+        name,
+        term: term.id,
+        dueno,
+        recepcion,
+        nerea: await user('nerea', 'OPERATOR', { displayName: 'Nerea' }),
+        encargado: await user('encargado', 'MANAGER'),
+        servicio: await item('Servicio 1 h', 6000, 'CHICA_SERVICE'),
+        copa: await item('Copa', 1000, 'VENUE_BAR'),
+      };
+    });
+  }
+  type Local = Awaited<ReturnType<typeof local>>;
+  const qrOf = (userId: string, tenantId: string) =>
+    `https://operator.local/?invita=${signStaffToken({ userId, tenantId }, Date.now(), process.env.JWT_SECRET!).token}`;
+  let k = 0;
+  /** El cobro único de «Cobrar» a nombre de Nerea (su «Mi QR»), como la app. */
+  const cobro = (l: Local, who: { userId: string; role: string }, items: string[], extra: Record<string, unknown> = {}) =>
+    inVenue(l.V, () =>
+      payments.create(
+        l.V,
+        `rep-${r}-${(k += 1)}`,
+        {
+          currency: 'EUR',
+          terminalExternalId: `REP-${l.name}-${r}`,
+          lines: items.map((serviceItemId) => ({ serviceItemId, qty: 1 })),
+          withSaldo: true,
+          serviceStaffToken: qrOf(l.nerea, l.V),
+          ...extra,
+        } as never,
+        who,
+      ),
+    );
+  const encargadoOf = (l: Local) => ({ userId: l.encargado, role: 'MANAGER' as const });
+  /** Pagado con tarjeta en el banco (Redsys), con la propina que cobró el banco. */
+  async function paidByCard(l: Local, paymentId: string, amountCents: number, tipCents = 0): Promise<void> {
+    const order = `RP${randomBytes(4).toString('hex')}`;
+    await sys(async (tx) => {
+      await tx.payment.update({ where: { id: paymentId }, data: { status: 'AUTHORIZING', provider: 'REDSYS', providerTxId: order } });
+      await tx.paymentAttempt.create({ data: { paymentId, tenantId: l.V, provider: 'REDSYS', providerTxId: order, amountCents: amountCents + tipCents, tipCents } });
+    });
+    await inVenue(undefined, () => payments.transition(paymentId, { type: 'AUTHORIZED', provider: 'REDSYS', providerTxId: order }));
+  }
+  /** Un saldo del cliente con su ficha (NFC) y su PIN 4827. */
+  async function wallet(l: Local, balanceCents: number) {
+    const card = randomBytes(16).toString('base64url');
+    const uid = randomBytes(7).toString('hex').toUpperCase();
+    const id = await sys(async (tx) => {
+      const w = await tx.clientWallet.create({
+        data: {
+          tenantId: l.V,
+          balanceCents,
+          status: 'ACTIVE',
+          qrToken: `rep-${randomBytes(6).toString('hex')}-abcdefgh`,
+          shortCode: randomBytes(3).toString('hex').toUpperCase(),
+          walletGroup: `grep-${l.name}-${r}`,
+        },
+      });
+      await tx.walletCard.create({ data: { token: card, uid, walletId: w.id, status: 'ISSUED', venueId: l.V } });
+      return w.id;
+    });
+    await inVenue(undefined, () => charges.setPinFromPayer(id, '4827'));
+    return { id, card, uid };
+  }
+  const payWithPin = (l: Local, who: string, role: string, chargeId: string, w: { card: string; uid: string }, tipCents: number) =>
+    inVenue(l.V, () =>
+      charges.payQrChargeWithPin({ userId: who, role, tenantId: l.V } as never, chargeId, { card: w.card, uid: w.uid, pin: '4827', tipCents }),
+    );
+  const earningsOf = (where: { paymentId?: string; consumptionId?: string }) =>
+    sys((tx) =>
+      tx.operatorEarning.findMany({
+        where,
+        select: { operatorId: true, paymentAmountCents: true, commissionCents: true, tipCents: true, paymentLineId: true, reversedCents: true },
+      }),
+    );
+  const consumptionOf = (chargeId: string) =>
+    sys((tx) => tx.walletConsumption.findFirstOrThrow({ where: { idempotencyKey: `charge-request:${chargeId}` } }));
+  const pagoOf = (id: string) => sys((tx) => tx.payment.findUniqueOrThrow({ where: { id }, select: { tipCents: true, tipGoesTo: true } }));
+  const payTokenOf = async (chargeId: string) =>
+    (await sys((tx) => tx.walletChargeRequest.findUniqueOrThrow({ where: { id: chargeId } }))).payToken!;
+  /** El mapa del dinero, la ficha de Nerea y el Z dicen lo mismo de lo suyo. */
+  async function cuadra(l: Local, chicasCents: number) {
+    const m = await inVenue(l.V, () => moneyMap.forQuery(l.V, {}, soon()));
+    expect(m.split.chicasCents).toBe(chicasCents);
+    expect((await inVenue(l.V, () => fichas.ficha(l.V, l.nerea, soon()))).stats.shareCents).toBe(chicasCents);
+    expect((await inVenue(l.V, () => nights.current(l.V)))!.z.summary.chicaNetCents).toBe(chicasCents);
+  }
+
+  describe('con tarjeta (y la devolución de la mitad)', () => {
+    let L: Local, pagado: string;
+    beforeAll(async () => {
+      L = await local('RepTarjeta');
+    });
+
+    it('[Servicio 60 €, Copa 10 €] con propina de 5 €: una sola ganancia, de Nerea (54 € + 5 €); ninguna del encargado; todo cuadra', async () => {
+      const p = await cobro(L, encargadoOf(L), [L.servicio, L.copa]);
+      pagado = p.id;
+      expect((await pagoOf(p.id)).tipGoesTo).toBe('operator');
+      await paidByCard(L, p.id, 7000, 500);
+      expect(await pagoOf(p.id)).toEqual({ tipCents: 500, tipGoesTo: 'operator' });
+      expect(await earningsOf({ paymentId: p.id })).toEqual([
+        { operatorId: L.nerea, paymentAmountCents: 7000, commissionCents: 5400, tipCents: 500, paymentLineId: null, reversedCents: 0 },
+      ]);
+      await cuadra(L, 5900);
+    });
+
+    it('devolver la mitad (37,50 €) le descuenta la mitad de lo suyo: 27 € + 2,50 €', async () => {
+      await inVenue(L.V, () =>
+        refunds.refund({ paymentId: pagado, amountCents: 3750, reason: 'No era su servicio', idempotencyKey: randomUUID() }, {
+          userId: L.dueno,
+          role: 'OWNER',
+          tenantId: L.V,
+        } as never),
+      );
+      expect((await earningsOf({ paymentId: pagado }))[0]).toMatchObject({ commissionCents: 5400, tipCents: 500, reversedCents: 2950 });
+      await cuadra(L, 2950);
+    });
+
+    it('no cuenta como invitación: «Mi noche» y su contador de invitaciones siguen en 0', async () => {
+      expect((await inVenue(L.V, () => nights.mine(L.V, L.nerea))).invitations).toEqual({ count: 0, shareCents: 0 });
+      expect(await inVenue(L.V, () => prisma.withTenant(L.V, (tx) => invitationTotals(tx, L.V, L.nerea)))).toMatchObject({
+        count: 0,
+        shareCents: 0,
+      });
+    });
+  });
+
+  it('con la ficha y su PIN, propina de 3 €: la ganancia del consumo es de Nerea (54 € + 3 €) y la propina, suya', async () => {
+    const L = await local('RepFicha');
+    const w = await wallet(L, 20_000);
+    const p = await cobro(L, encargadoOf(L), [L.servicio, L.copa]);
+    await payWithPin(L, L.encargado, 'MANAGER', p.saldo!.chargeId, w, 300);
+    const consumo = await consumptionOf(p.saldo!.chargeId);
+    expect(consumo).toMatchObject({ amountCents: 7000, tipCents: 300, tipGoesTo: 'operator', providedByUserId: L.encargado });
+    expect(await earningsOf({ consumptionId: consumo.id })).toEqual([
+      { operatorId: L.nerea, paymentAmountCents: 7000, commissionCents: 5400, tipCents: 300, paymentLineId: null, reversedCents: 0 },
+    ]);
+  });
+
+  it('«Tarjeta en el datáfono»: cobrado en el PAX con propina de 6 €, la propina es suya; confirmado a mano, su parte sin propina', async () => {
+    const L = await local('RepPax');
+    const device = { terminalId: L.term, tenantId: L.V, label: 'Barra', zone: 'BARRA', tokenHash: 'x' } as PosDevice;
+    const p = await cobro(L, encargadoOf(L), [L.servicio], { captureMethod: 'POS_EXTERNAL' });
+    const started = await inVenue(L.V, () => pax.start(device, p.id));
+    const sale = {
+      approved: true,
+      authorisationCode: '047215',
+      paytefOperationNumber: `OP${r}`,
+      transactionReference: started.reference,
+      requestedAmount: 6000,
+      tipAmount: 600,
+    };
+    await expect(inVenue(L.V, () => pax.reportResult(device, p.id, sale as never))).resolves.toMatchObject({ status: 'PAID' });
+    expect(await pagoOf(p.id)).toEqual({ tipCents: 600, tipGoesTo: 'operator' });
+    expect(await earningsOf({ paymentId: p.id })).toEqual([
+      { operatorId: L.nerea, paymentAmountCents: 6000, commissionCents: 5400, tipCents: 600, paymentLineId: null, reversedCents: 0 },
+    ]);
+
+    const q = await cobro(L, encargadoOf(L), [L.servicio], { captureMethod: 'POS_EXTERNAL' });
+    await inVenue(L.V, () =>
+      payments.confirmPosPayment(q.id, { userId: L.encargado, role: 'MANAGER', tenantId: L.V } as never, {
+        posReceiptRef: 'AB12CD',
+        chargedCents: 6000,
+      }),
+    );
+    expect(await earningsOf({ paymentId: q.id })).toEqual([
+      { operatorId: L.nerea, paymentAmountCents: 6000, commissionCents: 5400, tipCents: 0, paymentLineId: null, reversedCents: 0 },
+    ]);
+  });
+
+  it('recepción con permiso cobra el servicio: /pay, /s y el PIN ofrecen la propina (la de Sala) y va para ella', async () => {
+    const L = await local('RepRecepcion');
+    const p = await cobro(L, { userId: L.recepcion, role: 'WAITER' }, [L.servicio]);
+    expect(await inVenue(undefined, () => payments.getPayPage(p.qrToken))).toMatchObject({ kind: 'choose', tipMaxCents: 6000, tipToStaff: true });
+    const s = await inVenue(undefined, async () => charges.qrChargeForClient(await payTokenOf(p.saldo!.chargeId)));
+    expect(s.tip).toMatchObject({ baseCents: 6000, maxCents: 6000, toStaff: true });
+    const w = await wallet(L, 10_000);
+    await payWithPin(L, L.recepcion, 'WAITER', p.saldo!.chargeId, w, 200);
+    const consumo = await consumptionOf(p.saldo!.chargeId);
+    expect(consumo).toMatchObject({ tipCents: 200, tipGoesTo: 'operator' });
+    expect(await earningsOf({ consumptionId: consumo.id })).toMatchObject([{ operatorId: L.nerea, commissionCents: 5400, tipCents: 200 }]);
+  });
+
+  it('con Sala sin propinas, aunque cobre el encargado: ni /pay ni /s la ofrecen, el PIN con propina da 400 y /venues/me lo dice', async () => {
+    const L = await local('RepSinPropina', false);
+    const p = await cobro(L, encargadoOf(L), [L.servicio]);
+    expect(await inVenue(undefined, () => payments.getPayPage(p.qrToken))).toMatchObject({ kind: 'choose', tipMaxCents: 0 });
+    const s = await inVenue(undefined, async () => charges.qrChargeForClient(await payTokenOf(p.saldo!.chargeId)));
+    expect(s.tip).toBeUndefined();
+    const w = await wallet(L, 10_000);
+    await expect(payWithPin(L, L.encargado, 'MANAGER', p.saldo!.chargeId, w, 200)).rejects.toMatchObject({
+      status: 400,
+      response: expect.objectContaining({ code: 'TIP_NOT_VALID' }),
+    });
+    const me = await inVenue(L.V, () => venuesMe.getMyVenue({ sub: L.encargado, role: 'MANAGER', tenantId: L.V } as JwtPayload));
+    expect(me.myRights).toMatchObject({ tips: true, serviceTips: false });
   });
 });
