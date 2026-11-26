@@ -864,7 +864,7 @@ function Waiting({
           </p>
         ) : null}
       </div>
-      <div className={`${styles.foot} ${styles.footFlat}`}>
+      <div data-np-foot="" className={`${styles.foot} ${styles.footFlat}`}>
         {practice}
         {/* Lo raro (antes, solo en «Saldo»): sin móvil ni ficha, su código o su pase y su PIN aquí.
             En el pie, encima de «Cancelar cobro»: entero a la vista también en un móvil bajo
@@ -997,7 +997,7 @@ function Unconfirmed({ cobro, paymentId, onLeave }: { cobro: CobroAbierto; payme
             </p>
           ) : null}
         </div>
-        <div className={`${styles.foot} ${styles.footFlat}`}>
+        <div data-np-foot="" className={`${styles.foot} ${styles.footFlat}`}>
           <button type="button" className={`${styles.btn} ${styles.primary}`} onClick={() => void notify()} disabled={busy} aria-busy={busy}>
             {busy ? 'Avisando…' : 'Avisar al encargado'}
           </button>

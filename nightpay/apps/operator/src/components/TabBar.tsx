@@ -56,7 +56,7 @@ export function TabBar({ tabs, active, onSelect }: { tabs: readonly TabKey[]; ac
   // OxioParty: Cobrar, Taquilla, Cobros y Ajustes.
   const labels = isParty() ? PARTY_TAB_LABEL : TAB_LABEL;
   return (
-    <nav ref={ref} style={tabBarStyle} aria-label="Navegación principal">
+    <nav ref={ref} style={tabBarStyle} aria-label="Navegación principal" data-np-foot="">
       {tabs.map((key) => (
         <TabBtn key={key} tab={key} active={active === key} label={labels[key]} onClick={() => onSelect(key)} />
       ))}
