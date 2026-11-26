@@ -145,6 +145,25 @@ describe('permisos del personal: por defecto, lo de hoy', () => {
     expect(UpdateStaffPermissionsSchema.safeParse({ roles: { DEVICE: { cashTopUp: true } } }).success).toBe(true);
   });
 
+  it('cobrar servicios a nombre de una compañera: el dueño y el encargado sí; el camarero solo si se le da; la compañera nunca', () => {
+    const waiter = { role: 'WAITER', userId: WAITER_ID };
+    const perms = staffPermissionsOf(null);
+    expect(staffCan(perms, { role: 'OWNER', userId: 'x' }, 'chargeForOperator')).toBe(true);
+    expect(staffCan(perms, manager, 'chargeForOperator')).toBe(true);
+    expect(staffCan(perms, waiter, 'chargeForOperator')).toBe(false);
+    expect(staffCan(perms, { role: 'OPERATOR', userId: 'x' }, 'chargeForOperator')).toBe(false);
+    expect(deviceCan(perms, 'chargeForOperator')).toBe(false);
+    const taken = mergeStaffPermissions(null, { roles: { MANAGER: { chargeForOperator: false } } });
+    expect(staffCan(taken, manager, 'chargeForOperator')).toBe(false);
+    expect(staffCan(taken, { role: 'OWNER', userId: 'x' }, 'chargeForOperator')).toBe(true);
+    const given = mergeStaffPermissions(null, { people: { [WAITER_ID]: { chargeForOperator: true } } });
+    expect(staffCan(given, waiter, 'chargeForOperator')).toBe(true);
+    expect(staffCan(given, { role: 'WAITER', userId: 'otro' }, 'chargeForOperator')).toBe(false);
+    expect(staffCan(given, { role: 'OPERATOR', userId: WAITER_ID }, 'chargeForOperator')).toBe(false);
+    // Al datáfono, nunca (no hay persona que escanee): ni guardándolo.
+    expect(deviceCan(staffPermissionsOf({ roles: { DEVICE: { chargeForOperator: true } } }), 'chargeForOperator')).toBe(false);
+  });
+
   it('devolver saldo: en efectivo pide «dar efectivo»; a la tarjeta, «devolver»', () => {
     expect(payoutPermission({ body: { method: 'CASH' } })).toBe('cash');
     expect(payoutPermission({ body: { method: 'CARD' } })).toBe('refund');
@@ -294,7 +313,17 @@ describe('VenueSettingsController', () => {
       reports: true,
       cashTopUp: true,
       cashPayout: false,
+      chargeForOperator: true,
     });
+  });
+
+  it('permisos: dice si las compañeras cobran desde su móvil (solo para leer; los locales de antes, sí)', async () => {
+    await expect(make().ctrl.permissions(owner)).resolves.toMatchObject({ operatorsChargeFromPhone: true });
+    const { ctrl, tx } = make({ operatorsChargeFromPhone: false });
+    await expect(ctrl.permissions(owner)).resolves.toMatchObject({ operatorsChargeFromPhone: false });
+    expect(tx.venue.findUniqueOrThrow).toHaveBeenCalledWith(
+      expect.objectContaining({ select: expect.objectContaining({ operatorsChargeFromPhone: true }) }),
+    );
   });
 
   it('avisos: con si hay bot y chat por defecto; el cambio se guarda', async () => {

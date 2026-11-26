@@ -182,10 +182,14 @@ export const PERMISSION_LABELS: Readonly<Record<StaffPermissionKey, string>> = {
   cashTopUp: 'Cobrar recargas en efectivo',
   // Ya no se enseña (editablePermissions): el saldo no se devuelve en la salida.
   cashPayout: 'Salida en efectivo (ya no se usa)',
+  chargeForOperator: 'Cobrar servicios a nombre de una compañera',
 };
 
 /** La línea de ayuda de un permiso (solo los que lo necesitan). */
-export const PERMISSION_HINTS: Readonly<Partial<Record<StaffPermissionKey, string>>> = {};
+export const PERMISSION_HINTS: Readonly<Partial<Record<StaffPermissionKey, string>>> = {
+  chargeForOperator:
+    'Escaneando su «Mi QR»: el dinero del servicio va a ella. A un camarero, dáselo solo si cobra servicios (el de recepción).',
+};
 
 /** Permisos que ya no hacen nada: no se enseñan (el saldo no se devuelve, decisión del dueño del 17-nov-2026). */
 const RETIRED_PERMISSIONS: ReadonlySet<StaffPermissionKey> = new Set<StaffPermissionKey>(['cashPayout']);
@@ -201,9 +205,22 @@ export function waiterHint(posOn: boolean): string {
   return `${posOn ? 'Cobran y confirman datáfonos desde su app' : 'Cobran desde su app'}; de esto, solo pueden cobrar recargas en efectivo si se lo das.`;
 }
 
-/** Permisos que se pueden tocar para ese rol (camareros y datáfonos: las recargas en efectivo). */
+/** Permisos que se pueden tocar para ese rol (camareros: las recargas en efectivo y cobrar a nombre de una compañera; datáfonos: las recargas). */
 export function editablePermissions(role: PermissionRole): readonly StaffPermissionKey[] {
   return STAFF_PERMISSION_KEYS.filter((k) => PERMISSION_CEILING[role].includes(k) && !RETIRED_PERMISSIONS.has(k));
+}
+
+/**
+ * Los permisos que se enseñan. «Cobrar a nombre de una compañera», solo si en
+ * el local ellas no cobran desde su móvil; a los camareros, solo por persona
+ * (no a todos de golpe: se le da al de recepción).
+ */
+export function shownPermissions(
+  role: PermissionRole,
+  { servicesOff, perPerson }: { servicesOff: boolean; perPerson: boolean },
+): readonly StaffPermissionKey[] {
+  const show = servicesOff && (perPerson || role !== 'WAITER');
+  return editablePermissions(role).filter((k) => k !== 'chargeForOperator' || show);
 }
 
 /** Lo que vale para una persona: su excepción o lo de su rol. */
