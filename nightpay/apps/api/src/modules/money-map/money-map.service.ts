@@ -207,7 +207,7 @@ export class MoneyMapService {
     const paid = paidPayments(tenantId, window, asOf);
     const consumed = activeConsumptions(tenantId, window, asOf);
     const [saleRows, money, cash, live] = await Promise.all([
-      this.saleRowsOf(tenantId, paid, consumed, opts.platformBps),
+      this.saleRowsOf(tenantId, paid, consumed, opts.platformBps, asOf),
       this.prisma.withTenant(tenantId, (tx) => this.moneyRows(tx, tenantId, window, asOf, paid, consumed), REPORT_TX),
       opts.cash ? Promise.resolve(opts.cash) : this.cashOf(tenantId, window, asOf, opts.openingFloatCents),
       opts.withLiveBalances ? this.prisma.withTenant(tenantId, (tx) => liveBalances(tx, tenantId), REPORT_TX) : Promise.resolve(null),
@@ -263,10 +263,12 @@ export class MoneyMapService {
     paid: Prisma.Sql,
     consumed: Prisma.Sql,
     platformBps: number | undefined,
+    /** El corte del Z: las devoluciones apuntadas después no tocan esa noche (van como ajuste). */
+    asOf?: Date,
   ): Promise<SaleRow[]> {
     const [venue, sales] = await Promise.all([
       this.prisma.asSystem((tx) => tx.venue.findUnique({ where: { id: tenantId }, select: { platformCommissionBps: true } })),
-      this.prisma.withTenant(tenantId, (tx) => this.salesRows(tx, tenantId, paid, consumed), REPORT_TX),
+      this.prisma.withTenant(tenantId, (tx) => this.salesRows(tx, tenantId, paid, consumed, asOf), REPORT_TX),
     ]);
     if (!venue) throw new NotFoundException('Local no encontrado');
     const venueBps = platformBps ?? venue.platformCommissionBps;
@@ -317,7 +319,11 @@ export class MoneyMapService {
     tenantId: string,
     paid: Prisma.Sql,
     consumed: Prisma.Sql,
+    asOf?: Date,
   ): Promise<{ payments: PaymentSaleRow[]; consumptions: ConsumptionSaleRow[] }> {
+    // Con corte (una noche): solo lo devuelto antes del Z. Una devolución apuntada
+    // después no rebaja la comisión de esa noche (va como ajuste, como en la liquidación).
+    const recordedRefund = asOf ? Prisma.sql`AND r."createdAt" < ${asOf}` : Prisma.empty;
     const payments = await tx.$queryRaw<PaymentSaleRow[]>`
       SELECT p."amountCents", p."tipCents", p."serviceFeeCents", p."revenueCategory" AS category, p."captureMethod",
              p."posOperationNumber", p."platformCommissionBps" AS "platformBps",
@@ -336,7 +342,7 @@ export class MoneyMapService {
         LEFT JOIN LATERAL (
           SELECT SUM(r."amountCents" - r."serviceFeeCents") AS cents
             FROM refunds r
-           WHERE r."tenantId" = ${tenantId}::uuid AND r."paymentId" = p.id AND r.status = 'SUCCEEDED'
+           WHERE r."tenantId" = ${tenantId}::uuid AND r."paymentId" = p.id AND r.status = 'SUCCEEDED' ${recordedRefund}
         ) rf ON true
        WHERE ${paid} AND p."walletId" IS NULL
        LIMIT ${MAX_EXPORT_ROWS + 1}
