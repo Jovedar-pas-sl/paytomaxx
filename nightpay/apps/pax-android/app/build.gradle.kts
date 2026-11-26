@@ -17,7 +17,8 @@ android {
         versionCode = (project.findProperty("versionCode") as String?)?.toIntOrNull() ?: 1
         // 0.2: cámara (QR) y NFC (fichas) para cobrar del saldo.
         // 0.3: grabar fichas en blanco (writeNfc) para la recepción y «Preparar fichas».
-        versionName = "0.3.$versionCode"
+        // 0.4: fijar la app en pantalla con la sesión iniciada (lockApp / unlockApp).
+        versionName = "0.4.$versionCode"
         // Pantalla del datáfono servida por la web del operador. Otro dominio:
         // gradle assembleDebug -PpaxUrl=https://operator.nuevodominio.com/pax
         val paxUrl = (project.findProperty("paxUrl") as String?)?.takeIf { it.isNotBlank() }

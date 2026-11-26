@@ -21,6 +21,8 @@
  *            Con onlyIfBlank, si ya tiene algo grabado no la toca: written
  *            false y `url` lo que tenía (null si no es un enlace).
  *            Errores: readOnly, tooSmall, writeFailed, timeout, cancelled.
+ * Sesión (app 0.4+, los llama useKiosk de @nightpay/ui, no callReader):
+ *          lockApp {} / unlockApp {} → fija la app en pantalla y la suelta.
  * Respuesta: { ok: true, result? , transactions?, … } | { ok: false, error, message? }
  * (`result` es el resultado de Paytef tal cual: approved, authorisationCode,
  * paytefOperationNumber, cardInformation…)

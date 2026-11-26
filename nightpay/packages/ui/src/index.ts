@@ -41,7 +41,7 @@ export type { OutcomeAction, OutcomeHow, PaymentOutcomeProps } from './component
 export { ConnectionBanner } from './components/ConnectionBanner';
 export { AmountKeypad } from './components/AmountKeypad';
 export { QrCountdown } from './components/QrCountdown';
-export { useDelayedFlag, useNow, useOnline, useWakeLock } from './hooks';
+export { useDelayedFlag, useKiosk, useNow, useOnline, useWakeLock } from './hooks';
 export { outcomeKindOf, OUTCOME_TITLE, clockTime } from './lib/outcome';
 export type { OutcomeKind } from './lib/outcome';
 export {
@@ -68,6 +68,8 @@ export {
 export type { KeypadKey } from './lib/amount-keypad';
 export { BANK_SLOW_AFTER_MS, classifyConnection, SERVER_DOWN_GRACE_MS } from './lib/connection';
 export type { ConnectionDevice, ConnectionIssue, ConnectionIssueKind, ConnectionSignals } from './lib/connection';
+export { createKiosk } from './lib/kiosk';
+export type { KioskController, KioskEnv } from './lib/kiosk';
 export { createWakeLock, wakeLockFrom } from './lib/wake-lock';
 export { BITCOIN_HOW_SUB, cardHow, cashHow, chargedBy, saldoHow } from './lib/outcome-how';
 export type { CardHowInput, CashHowInput, SaldoHowInput } from './lib/outcome-how';
