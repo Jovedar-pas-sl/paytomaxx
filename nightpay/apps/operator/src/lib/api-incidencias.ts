@@ -5,7 +5,8 @@
 // de cancelar» (el banco cobró un cobro ya cancelado): los ve recepción y los
 // cierra con su nota el encargado o el dueño (devuelto en el banco o dado por bueno).
 // El encargado y el dueño ven además los «No es mío» de las compañeras
-// (service_disputed): solo los cierra el dueño, en el panel.
+// (service_disputed): solo los cierra el dueño, en el panel. En un local sin
+// saldo no hay Recepción: el encargado los ve en Avisos del panel (GET /incidents).
 
 import { authedFetch, parseOperatorApiError } from './api';
 
