@@ -1,11 +1,13 @@
 'use client';
 
 import { useEffect, useId, useRef, useState, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttributes } from 'react';
+import { FieldError } from './FieldError';
 
 /**
  * Los campos (Piezas I, idea 59). La etiqueta va enlazada con su campo (label
- * for → id) y fuera de él; la pista y el error, debajo, enlazados para el
- * lector de pantalla (aria-describedby). Estilos en pieces.css: .np-field.
+ * for → id) y fuera de él; la pista y el error (FieldError, Piezas II),
+ * debajo, enlazados para el lector de pantalla (aria-describedby). Estilos en
+ * pieces.css: .np-field.
  */
 interface FieldText {
   label?: string;
@@ -118,9 +120,12 @@ export function Select({ label, hint, error, id, className, children, ...rest }:
 function fieldHelp(fieldId: string, hint: string | undefined, error: string | undefined, describedBy: string | undefined, invalid: InputProps['aria-invalid']) {
   const helpId = `${fieldId}-help`;
   const text = error || hint;
-  const node: ReactNode = text ? (
-    <span id={helpId} className={error ? 'np-field-hint np-field-error' : 'np-field-hint'}>
-      {text}
+  // El error, tal cual y mientras dure (no se esconde al escribir: hay quien valida a cada tecla); si no, la pista.
+  const node: ReactNode = error ? (
+    <FieldError id={helpId}>{error}</FieldError>
+  ) : hint ? (
+    <span id={helpId} className="np-field-hint">
+      {hint}
     </span>
   ) : null;
   const ids = [describedBy, text ? helpId : undefined].filter(Boolean).join(' ');

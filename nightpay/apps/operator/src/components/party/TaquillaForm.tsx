@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { Icon } from '@nightpay/ui';
+import { SkelTiles } from '../loading-shapes';
 import { formatEur } from '@/lib/money';
 import {
   CARD_INFO,
@@ -142,7 +143,7 @@ export function TaquillaForm(props: Props) {
           ))}
         </div>
       ) : props.loading ? (
-        <p className={s.fee}>Cargando…</p>
+        <SkelTiles count={2} height="3rem" className={s.methods} />
       ) : null}
 
       {chosen === 'cash' ? (

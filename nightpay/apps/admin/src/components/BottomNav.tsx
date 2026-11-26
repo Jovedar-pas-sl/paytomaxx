@@ -19,7 +19,7 @@ interface Props {
  */
 export function BottomNav({ sections, active, onChange, avisos }: Props) {
   return (
-    <nav className="np-bottomnav" aria-label="Secciones del panel">
+    <nav className="np-bottomnav" aria-label="Secciones del panel" data-np-foot="">
       <ul>
         {bottomNavItems(sections).map((item) => {
           const badge = navBadge(item.key, avisos);

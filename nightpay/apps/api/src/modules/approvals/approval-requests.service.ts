@@ -21,6 +21,7 @@ import {
   type PayoutMethod,
   type Role,
 } from '@nightpay/contracts';
+import { eur } from '../../common/money/eur';
 import { PrismaService, type TransactionalClient } from '../../common/prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import type { PayoutIdempotency } from '../operators/payout-idempotency';
@@ -264,7 +265,7 @@ export class ApprovalRequestsService {
     const totalCents = payoutTotalCents(pending, debts);
     if (totalCents <= 0) {
       throw new ConflictException(
-        `Saldo neto ${totalCents / 100} € — no hay nada que liquidar (la operadora arrastra deuda por devoluciones).`,
+        `Saldo neto ${eur(totalCents)} — no hay nada que liquidar (la operadora arrastra deuda por devoluciones).`,
       );
     }
     // Lo que vio el encargado ya no es lo pagable: no se pide otra cifra al dueño.

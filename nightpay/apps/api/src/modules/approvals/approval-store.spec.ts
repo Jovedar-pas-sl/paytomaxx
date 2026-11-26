@@ -42,7 +42,7 @@ describe('approval_requests dentro de la transacción', () => {
   it('pago directo con una petición pendiente para la chica → 409 APPROVAL_ALREADY_PENDING', async () => {
     const findFirst = vi.fn().mockResolvedValue({ id: 'ap-1', amountCents: 14_000 });
     await expect(assertNoPendingPayout(txWith({ findFirst }), 't-1', 'chica', now)).rejects.toMatchObject({
-      response: { code: 'APPROVAL_ALREADY_PENDING', message: expect.stringContaining('140 €') },
+      response: { code: 'APPROVAL_ALREADY_PENDING', message: expect.stringContaining('140\u00a0€') },
     });
     findFirst.mockResolvedValueOnce(null);
     await expect(assertNoPendingPayout(txWith({ findFirst }), 't-1', 'chica', now)).resolves.toBeUndefined();

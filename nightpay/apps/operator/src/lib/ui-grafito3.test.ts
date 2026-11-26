@@ -52,9 +52,10 @@ describe('punto 2: la lima solo para lo que se toca; lo elegido, en crema', () =
     expect(STYLES).toMatch(/\[data-theme='light'\][\s\S]*--np-chosen:\s*var\(--np-ink\);\s*--np-on-chosen:\s*var\(--np-cream\);/);
   });
 
-  it('la pestaña de abajo elegida va en crema, no en lima', () => {
+  it('la pestaña de abajo elegida va en crema, no en lima: icono y nombre (solo su raya de 2 px es lima, entrega 4)', () => {
     expect(TABBAR).toContain("const TAB_ACTIVE_COLOR = 'var(--np-chosen)'");
     expect(TABBAR).not.toMatch(/np-accent|np-lime/);
+    expect(rule(STAFF, '.np-tabmark::after')).toContain('background: var(--np-accent)');
   });
 
   it('los filtros de zona, los motivos y los chips elegidos usan --np-chosen', () => {

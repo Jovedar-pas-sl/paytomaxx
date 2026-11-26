@@ -45,7 +45,7 @@ describe('assertManagerTwoFactor', () => {
     expect(err).toBeInstanceOf(ForbiddenException);
     expect((err as ForbiddenException).getResponse()).toEqual({
       code: 'TOTP_REQUIRED',
-      message: 'Devolver 120,00 € en efectivo: con más de 100,00 € pon el código de tu app de verificación (2FA).',
+      message: 'Devolver 120,00 € en efectivo: con más de 100,00\u00a0€ pon el código de tu app de verificación (2FA).',
     });
     const notEnrolled = await assertManagerTwoFactor(totp({ enrolled: false }), manager, 12_000, 10_000, undefined, 'Anular').catch(
       (e: unknown) => e,

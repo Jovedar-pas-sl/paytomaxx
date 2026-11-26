@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, type CSSProperties } from 'react';
-import { Button, Notice, ProfileBlock } from '@nightpay/ui';
+import { Button, Notice, ProfileBlock, Skeleton } from '@nightpay/ui';
 import { fetchMyPayoutInfo, type PayoutAccount } from '@/lib/api';
 import { payoutMethodLabel } from '@/lib/payout-method';
 import { fetchPushKey, forgetPushHere, pushHere, turnPushOff, turnPushOn, type PushHere } from '@/lib/payout-push';
@@ -34,7 +34,15 @@ export function PayoutProfile() {
 }
 
 export function PayoutAccountLine({ account }: { account: AccountState }) {
-  if (account === undefined) return <p style={textStyle}>Cargando…</p>;
+  // Cargando: una línea en la caja de la cuenta.
+  if (account === undefined) {
+    return (
+      <div style={accountStyle} aria-busy="true">
+        <span className="np-sr-only" role="status">Cargando…</span>
+        <Skeleton width="70%" />
+      </div>
+    );
+  }
   if (account === false) return <p style={textStyle}>No se ha podido cargar tu cuenta de cobro. Vuelve a entrar en «Mi perfil».</p>;
   if (account === null) return <p style={textStyle}>Aún no tienes cuenta de cobro: pídesela al encargado.</p>;
   const parts = [payoutMethodLabel(account.method), account.masked, account.label].filter(Boolean);

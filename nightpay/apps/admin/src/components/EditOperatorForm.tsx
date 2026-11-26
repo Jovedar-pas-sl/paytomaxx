@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, type CSSProperties, type FormEvent } from 'react';
-import { Button, Input } from '@nightpay/ui';
+import { Button, Checkbox, Input } from '@nightpay/ui';
 import {
   regenerateInvite,
   resetOperatorPassword,
@@ -20,7 +20,6 @@ import { useVenueTimezone } from '@/lib/venue-context';
 import { Notice } from './Notice';
 import { OtpInput } from './OtpInput';
 import { PAYOUT_METHOD_LABELS, PayoutMethodForm } from './PayoutMethodForm';
-import { SwitchLine } from './ToggleSwitch';
 
 /** Lo que este formulario puede cambiar de una chica (la cuenta de cobro va aparte). */
 interface EditSnapshot {
@@ -139,9 +138,7 @@ export function EditOperatorForm({
         onChange={(e) => setCommissionPct(e.target.value)}
         disabled={!isOwner || submitting}
       />
-      <SwitchLine checked={active} onChange={setActive} disabled={!isOwner || submitting}>
-        Activa (puede crear cobros)
-      </SwitchLine>
+      <Checkbox label="Activa (puede crear cobros)" checked={active} onChange={setActive} disabled={!isOwner || submitting} />
       {isOwner ? null : (
         <p style={hintText}>Solo el dueño cambia la comisión, si está activa y su método de cobro.</p>
       )}

@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useId, useRef, useState, type CSSProperties } from 'react';
-import { Button, Card, formatRelative, haptic, Icon, Input } from '@nightpay/ui';
+import { Button, Card, EmptyState, formatRelative, haptic, Icon, Input } from '@nightpay/ui';
 import {
   confirmPosPayment,
   fetchPendingPos,
@@ -16,6 +16,7 @@ import { formatEur } from '@/lib/money';
 import { posChargeLine, posConfirmBody } from '@/lib/cobro-view';
 import { newArrivals } from '@/lib/pending-pos';
 import { usePolling } from '@/lib/use-polling';
+import { SkelRows } from './loading-shapes';
 
 interface Props {
   onConfirmed: () => void;
@@ -199,13 +200,10 @@ export function PendingPos({ onConfirmed, focusPaymentId, onFocusConsumed }: Pro
       ) : null}
 
       {loading && pending.length === 0 ? (
-        <p style={emptyStyle}>Cargando…</p>
+        <SkelRows />
       ) : pending.length === 0 ? (
         <div style={emptyStateStyle}>
-          <p style={{ margin: 0, fontSize: 'var(--np-fs-14)', color: 'var(--np-text-mute)' }}>
-            <Icon name="check" size={20} className="np-icon-lead" />
-            No hay cobros POS pendientes.
-          </p>
+          <EmptyState icon="pos" title="Ningún cobro esperando el datáfono" text="Cuando alguien cree uno, saldrá aquí." />
         </div>
       ) : (
         <ul style={listStyle}>
@@ -542,13 +540,6 @@ const errorStyle: CSSProperties = {
   margin: 0,
   fontSize: 'var(--np-fs-14)',
   color: 'var(--np-danger)',
-};
-
-const emptyStyle: CSSProperties = {
-  margin: 0,
-  fontSize: 'var(--np-fs-14)',
-  color: 'var(--np-text-mute)',
-  textAlign: 'center',
 };
 
 const emptyStateStyle: CSSProperties = {

@@ -182,7 +182,7 @@ describe('tope legal del efectivo y anulación (Postgres real)', () => {
     const viejo = await newWallet(sala, 40_000);
     const nuevo = await newWallet(sala, 50_000);
     await inVenue(sala.id, () => charges.mergeInto(nuevo.walletId, viejo.walletId));
-    await expect(topUpCode(sala, viejo.code, 20_000)).rejects.toThrow(/ya lleva 900,00 €.*como mucho 99,99 € más/);
+    await expect(topUpCode(sala, viejo.code, 20_000)).rejects.toThrow(/ya lleva 900,00\u00a0€.*como mucho 99,99\u00a0€ más/);
     await expect(topUpCode(sala, viejo.code, 9_999)).resolves.toMatchObject({ walletId: viejo.walletId, balanceCents: 99_999 });
     // El código de la recarga sumada ya no es de un saldo abierto (su dinero está en el bueno).
     await expect(topUpCode(sala, nuevo.code, 1)).rejects.toThrow();

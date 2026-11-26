@@ -44,7 +44,7 @@ describe('devolver en efectivo y a la tarjeta', () => {
   it('el porqué cuando no sale nada en efectivo', () => {
     expect(cashPayoutRefusal(30_000, cash())).toMatch(/entró con tarjeta/);
     expect(cashPayoutRefusal(30_000, cash({ inCents: 200_000, outCents: 99_999, outWindowCents: 99_999 }))).toMatch(
-      /ya se le devolvieron 999,99 €/,
+      /ya se le devolvieron 999,99\u00a0€/,
     );
   });
 
@@ -53,12 +53,12 @@ describe('devolver en efectivo y a la tarjeta', () => {
     expect(cashPayoutNote(3_500, cash({ inCents: 5_000 }))).toBeNull();
     expect(cashPayoutNote(0, cash({ inCents: 5_000 }))).toBeNull();
     // 20 € en efectivo y 15 € con tarjeta: los 15 €, el dueño a la tarjeta.
-    expect(cashPayoutNote(3_500, cash({ inCents: 2_000 }))).toMatch(/otros 15,00 € entraron con tarjeta/);
+    expect(cashPayoutNote(3_500, cash({ inCents: 2_000 }))).toMatch(/otros 15,00\u00a0€ entraron con tarjeta/);
     // Todo con tarjeta: el mismo porqué que el botón del encargado.
     expect(cashPayoutNote(3_500, cash())).toBe(cashPayoutRefusal(3_500, cash()));
     // Lo que manda es el tope de 24 h.
     expect(cashPayoutNote(150_000, cash({ inCents: 200_000, outCents: 50_000, outWindowCents: 50_000 }))).toMatch(
-      /como mucho 499,99 €.*devolvieron 500,00 €/,
+      /como mucho 499,99\u00a0€.*devolvieron 500,00\u00a0€/,
     );
   });
 });
@@ -85,11 +85,11 @@ describe('saldo cargado con bitcoin: no se devuelve, se queda como saldo para ot
     expect(cashPayoutNote(3_000, solo)).toBe(refusal);
     const mixto = cashPayoutRefusal(8_000, cash({ bitcoinInCents: 3_000, cardInCents: 5_000 }));
     expect(mixto).toBe(
-      'Este saldo no entró en efectivo: 50,00 € entraron con tarjeta (los devuelve el dueño «A la tarjeta») y 30,00 € con bitcoin. Esta parte entró con bitcoin: se queda como saldo para otra noche, no se devuelve.',
+      'Este saldo no entró en efectivo: 50,00\u00a0€ entraron con tarjeta (los devuelve el dueño «A la tarjeta») y 30,00\u00a0€ con bitcoin. Esta parte entró con bitcoin: se queda como saldo para otra noche, no se devuelve.',
     );
     // 20 € en efectivo y 15 € con bitcoin: los 15 €, se quedan.
     expect(cashPayoutNote(3_500, cash({ inCents: 2_000, bitcoinInCents: 1_500 }))).toBe(
-      'Los otros 15,00 € entraron con bitcoin. Esta parte entró con bitcoin: se queda como saldo para otra noche, no se devuelve.',
+      'Los otros 15,00\u00a0€ entraron con bitcoin. Esta parte entró con bitcoin: se queda como saldo para otra noche, no se devuelve.',
     );
     expect(`${refusal} ${mixto}`).not.toMatch(/encargado|efectivo al cliente/);
   });
@@ -99,8 +99,8 @@ describe('recargar en efectivo: el total de 24 h no llega a 1.000 €', () => {
   it('cabe, no cabe y cuánto cabe aún', () => {
     expect(cashTopUpOverLimit(99_999, cash())).toBeNull();
     expect(cashTopUpOverLimit(1, cash({ inWindowCents: 99_998 }))).toBeNull();
-    expect(cashTopUpOverLimit(1, cash({ inWindowCents: 99_999 }))).toMatch(/ya lleva 999,99 €.*no puede llegar a 1.000 €/);
-    expect(cashTopUpOverLimit(60_000, cash({ inWindowCents: 50_000 }))).toMatch(/como mucho 499,99 € más/);
+    expect(cashTopUpOverLimit(1, cash({ inWindowCents: 99_999 }))).toMatch(/ya lleva 999,99\u00a0€.*no puede llegar a 1.000 €/);
+    expect(cashTopUpOverLimit(60_000, cash({ inWindowCents: 50_000 }))).toMatch(/como mucho 499,99\u00a0€ más/);
   });
 });
 
@@ -133,7 +133,7 @@ describe('la lectura: el saldo y los sumados a él, en una consulta', () => {
 describe('tope legal del efectivo con la «Comisión del servicio»', () => {
   it('cuenta lo que pagó el cliente (saldo + comisión), no solo el saldo', () => {
     // 800 € de saldo + 96 € de comisión ya pagados: 100 € + 12 € más llegan a 1.008 €.
-    expect(cashTopUpOverLimit(11_200, { inWindowCents: 80_000, inWindowPaidCents: 89_600 })).toMatch(/89[6.,]+00 €/);
+    expect(cashTopUpOverLimit(11_200, { inWindowCents: 80_000, inWindowPaidCents: 89_600 })).toMatch(/89[6.,]+00\u00a0€/);
     expect(cashTopUpOverLimit(10_300, { inWindowCents: 80_000, inWindowPaidCents: 89_600 })).toBeNull();
     // Sin el campo, el saldo (como antes).
     expect(cashTopUpOverLimit(11_200, { inWindowCents: 80_000 })).toBeNull();

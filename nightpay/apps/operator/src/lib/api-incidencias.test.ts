@@ -9,7 +9,11 @@ describe('Recepción → Incidencias', () => {
     expect(noteReady('era suyo')).toBe(true);
   });
 
-  it('la hora en Madrid', () => {
-    expect(incidentWhen('2026-11-16T22:40:00Z')).toBe('16/11 · 23:40');
+  it('cuándo fue, como en toda la app (formatRelative, hora de Madrid)', () => {
+    const now = new Date('2026-11-17T00:10:00Z');
+    expect(incidentWhen('2026-11-17T00:09:40Z', now)).toBe('ahora');
+    expect(incidentWhen('2026-11-16T23:58:00Z', now)).toBe('hace 12 min');
+    expect(incidentWhen('2026-11-16T22:40:00Z', now)).toBe('hace 1 h');
+    expect(incidentWhen('2026-11-15T22:40:00Z', now)).toBe('ayer, 23:40');
   });
 });

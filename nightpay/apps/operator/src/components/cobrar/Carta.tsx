@@ -1,7 +1,7 @@
 'use client';
 
 import { Fragment, useCallback, useEffect, useMemo, useRef, type CSSProperties, type ReactNode } from 'react';
-import { BusyWord, Icon, ScreenHelp } from '@nightpay/ui';
+import { BusyWord, EmptyState, Icon, ScreenHelp } from '@nightpay/ui';
 import { STICKY_ACTION_BOTTOM } from '../layout';
 import { TOURS } from '@/lib/tours';
 import { formatEur } from '@/lib/money';
@@ -147,12 +147,15 @@ export function Carta({
             .
           </p>
         ) : ctx.cartaLoaded && items.length === 0 ? (
-          <p className={styles.empty}>No hay productos disponibles para tu puesto. El dueño o encargado debe configurar la carta en Ajustes → Carta y comprobar las secciones del puesto.{' '}
-            <button type="button" className={styles.link} onClick={onRetryCarta}>Actualizar carta</button>
-          </p>
+          <EmptyState
+            icon="list"
+            title="Tu carta está vacía"
+            text="Pide al dueño o al encargado que ponga productos para tu puesto en el panel."
+            action={{ label: 'Actualizar carta', onClick: onRetryCarta }}
+          />
         ) : null}
       </div>
-      <div className={`${styles.foot}${cuenta.length === 0 && !busy ? ` ${styles.footEmpty}` : ''}`} style={{ '--np-foot-bottom': STICKY_ACTION_BOTTOM } as CSSProperties}>
+      <div className={`${styles.foot}${cuenta.length === 0 && !busy ? ` ${styles.footEmpty}` : ''}`} style={{ '--np-foot-bottom': STICKY_ACTION_BOTTOM } as CSSProperties} data-np-foot="">
         {/* Lo que se acaba de añadir, para el lector de pantalla (la región existe siempre: así se anuncia). */}
         <span className="np-sr-only" aria-live="polite">
           {undo ? undo.spoken : ''}

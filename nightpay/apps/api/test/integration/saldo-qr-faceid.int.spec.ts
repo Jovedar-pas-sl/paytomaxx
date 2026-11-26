@@ -715,7 +715,7 @@ describe('terminar una devolución del saldo pedida antes (Postgres real)', () =
     bank.failOn = bad;
     try {
       // Va primero la más reciente (la que falla): no se apunta nada y el saldo vuelve entero.
-      await expect(inVenue(A, () => charges.payout(ownerActor(), w, { totpCode: '123456', method: 'CARD' }))).rejects.toThrow(/quedan 60,00 €/);
+      await expect(inVenue(A, () => charges.payout(ownerActor(), w, { totpCode: '123456', method: 'CARD' }))).rejects.toThrow(/quedan 60,00\u00a0€/);
     } finally {
       bank.failOn = null;
     }

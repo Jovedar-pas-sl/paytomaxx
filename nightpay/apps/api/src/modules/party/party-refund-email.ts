@@ -1,6 +1,7 @@
 import type { PartyRefundMethod } from '@nightpay/contracts';
 import type { SendEmailInput } from '../../common/email/email.service';
 import { escapeHtml } from '../payments/club-ui';
+import { eurPlain } from '../../common/money/eur';
 
 /**
  * El justificante de «Lo que sobra» por correo (si el asistente lo dejó):
@@ -22,14 +23,10 @@ export interface RefundMailInput {
   at: Date;
 }
 
-function eur(cents: number): string {
-  return `${(cents / 100).toFixed(2).replace('.', ',')} €`;
-}
-
 const DAY = new Intl.DateTimeFormat('es-ES', { timeZone: 'Europe/Madrid', day: 'numeric', month: 'long', year: 'numeric' });
 
 function lines(i: RefundMailInput): { subject: string; body: string[] } {
-  const amount = eur(i.amountCents);
+  const amount = eurPlain(i.amountCents);
   const where = i.pulsera ? `Pulsera ${i.pulsera} · ${i.venueName}` : i.venueName;
   if (i.method === 'DONATE') {
     return {

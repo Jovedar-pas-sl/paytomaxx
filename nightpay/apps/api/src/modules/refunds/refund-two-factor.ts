@@ -1,4 +1,5 @@
 import type { TransactionalClient } from '../../common/prisma/prisma.service';
+import { eur } from '../../common/money/eur';
 
 /** Desde este importe devuelto (acumulado) se pide el código 2FA. */
 export const TWO_FA_THRESHOLD_CENTS = 100_00; // 100 €
@@ -63,8 +64,4 @@ export async function refundTotalsOf(
  */
 export async function lockRefundsOf(tx: TransactionalClient, userId: string): Promise<void> {
   await tx.$queryRaw`SELECT 1 AS ok FROM pg_advisory_xact_lock(hashtext(${`refund-user:${userId}`}))`;
-}
-
-function eur(cents: number): string {
-  return `${(cents / 100).toFixed(2).replace('.', ',')} €`;
 }

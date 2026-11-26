@@ -101,6 +101,10 @@ export const ICON_PATHS = {
   store: ['M4 10l2-6h12l2 6', 'M4 10h16', 'M4 10a2 2 0 0 0 4 0 2 2 0 0 0 4 0 2 2 0 0 0 4 0 2 2 0 0 0 4 0', 'M5 12v8h14v-8', 'M10 20v-5h4v5'],
   wristband: ['M12 4a8 4 0 1 0 0 16 8 4 0 1 0 0-16z', 'M10 10h4v4h-4z'],
   checklist: ['M9 5h10', 'M9 12h10', 'M9 19h10', 'M4 5l1 1 2-2', 'M4 12l1 1 2-2', 'M4 19l1 1 2-2'],
+  // Los vacíos de la app del personal: el ticket de un cobro, el banco que paga y el calendario de otras noches.
+  receipt: ['M6 3h12v18l-3-2-3 2-3-2-3 2z', 'M9 8h6', 'M9 12h6'],
+  bank: ['M3 9.5L12 4l9 5.5', 'M4 9.5h16', 'M6 9.5v8', 'M10 9.5v8', 'M14 9.5v8', 'M18 9.5v8', 'M3 20h18'],
+  calendar: ['M5 5h14a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2Z', 'M3 10h18', 'M8 3v4', 'M16 3v4'],
 } as const satisfies Record<string, readonly string[]>;
 
 export type IconName = keyof typeof ICON_PATHS;

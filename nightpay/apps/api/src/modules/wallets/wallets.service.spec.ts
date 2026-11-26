@@ -237,7 +237,7 @@ describe('anular un cobro con saldo: siempre con 2FA, no hay otro camino', () =>
     const { svc, txMock } = makeService({ threshold: 1_000_000 });
     const err = await anular(svc).catch((e: unknown) => e);
     expect((err as ForbiddenException).getResponse()).toMatchObject({ code: 'TOTP_REQUIRED' });
-    expect((err as Error).message).toMatch(/Para anular 45,00 €/);
+    expect((err as Error).message).toMatch(/Para anular 45,00\u00a0€/);
     expect(txMock.clientWallet.update).not.toHaveBeenCalled();
     expect(txMock.walletConsumption.update).not.toHaveBeenCalled();
   });

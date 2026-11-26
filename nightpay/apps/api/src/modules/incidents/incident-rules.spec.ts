@@ -200,8 +200,8 @@ describe('resumen de las 9:00', () => {
       [
         '☀️ Local Centro — anoche: de las 08:00 de ayer a las 08:00 de hoy (sin noche cerrada)',
         // Un Z de antes del 23-oct no trae las recargas con tarjeta aparte: sin desglose (no cuadraría).
-        'Cobrado: 1220,00 €',
-        'Con tarjeta: 12 pagos · 1220,00 €',
+        'Cobrado: 1.220,00 €',
+        'Con tarjeta: 12 pagos · 1.220,00 €',
         'Propinas: 20,00 €',
         'Devoluciones: −100,00 €',
         'Para las chicas: 920,00 € · neto sin el personal: 200,00 €',
@@ -269,8 +269,8 @@ describe('resumen de las 9:00: las cifras dicen lo que cuentan', () => {
   it('«cobrado» como en el panel (ventas + propinas + recargas, con el desglose) y lo de la tarjeta aparte: lo que verá en el banco (DIN-3)', () => {
     const text = morningSummaryMessage('Sala Aurora', demo, 0);
     // Antes: «11 pagos con tarjeta · cobrado 1109,00 €», y 450 € eran efectivo.
-    expect(text).not.toContain('11 pagos con tarjeta · cobrado 1109,00 €');
-    expect(text).toContain('Cobrado: 1109,00 € (533,00 € de ventas con tarjeta + 26,00 € de propinas con tarjeta + 550,00 € de recargas)');
+    expect(text).not.toContain('11 pagos con tarjeta · cobrado 1.109,00 €');
+    expect(text).toContain('Cobrado: 1.109,00 € (533,00 € de ventas con tarjeta + 26,00 € de propinas con tarjeta + 550,00 € de recargas)');
     // 9 ventas y 2 recargas con tarjeta (633 €) + 26 € de propinas.
     expect(text).toContain('Con tarjeta: 11 pagos · 659,00 €');
     // Las propinas ya van en el desglose de «Cobrado».
@@ -306,7 +306,7 @@ describe('resumen de las 9:00 con bitcoin: aparte, en la cartera del local (nunc
       bitcoin: { count: 2, salesCents: 4_000, tipsCents: 200, topUpsCount: 1, topUpsCents: 5_000, serviceFeeCents: 0, totalCents: 9_200 },
     };
     const text = morningSummaryMessage('Sala Aurora', base, 0);
-    expect(text).toContain('Cobrado: 1109,00 € (493,00 € de ventas con tarjeta + 24,00 € de propinas con tarjeta + 42,00 € de ventas y propinas con bitcoin + 550,00 € de recargas)');
+    expect(text).toContain('Cobrado: 1.109,00 € (493,00 € de ventas con tarjeta + 24,00 € de propinas con tarjeta + 42,00 € de ventas y propinas con bitcoin + 550,00 € de recargas)');
     expect(text).toContain('Con tarjeta: 9 pagos · 567,00 €');
     expect(text).toContain('Bitcoin: 2 pagos · 92,00 €, en la cartera del local');
     expect(text).toContain('Recargas con tarjeta: 1 · 50,00 €');

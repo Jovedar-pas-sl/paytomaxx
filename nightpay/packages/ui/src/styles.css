@@ -14,13 +14,24 @@
 
 /* Componentes de las apps del personal (resultado, aviso de conexión, teclado
    de importe, cuenta atrás del QR) y las piezas comunes (importe, etiqueta,
-   iconos, pantalla vacía, silueta). @import va antes de cualquier regla. */
+   iconos, pantalla vacía, silueta; y en pieces-2: hoja, pregunta, avisos,
+   errores, interruptor y casilla). @import va antes de cualquier regla. */
 @import './staff.css';
 @import './tour.css';
 @import './ticket.css';
 @import './pieces.css';
+@import './pieces-2.css';
 
 :root {
+  /* Capas de lo que se abre encima. La hoja (con su velo) y el menú que flota
+     bajo su botón se pintan donde se usan, dentro de <main> (una capa propia):
+     el resultado de un cobro a pantalla completa (200) las tapa. El aviso
+     flotante va en el layout, fuera de <main>: por encima de todo lo de la
+     página y por debajo del tutorial (1000). */
+  --np-z-sheet: 100;
+  --np-z-menu: 110;
+  --np-z-toast: 130;
+
   /* Spacing — 4px base */
   --np-s-1: 0.25rem;
   --np-s-2: 0.5rem;
@@ -282,6 +293,8 @@ html[data-bigfont='1'] {
   --np-danger-text: #ff9a94;
   --np-warning: #f5b342;
   --np-purple: #c9a3ff;
+  /* Tinta sobre el verde (el interruptor encendido): 8,4:1. */
+  --np-on-success: #0b2a17;
 
   /* Botón sin nada que hacer: neutro, nunca lima apagada ni opacidad (el
      lima dice «listo»). Texto 6,7:1 sobre --np-surface-2. */
@@ -380,6 +393,7 @@ html[data-bigfont='1'] {
   --np-danger-text: #b8232a;
   --np-warning: #7f4c00;
   --np-purple: #5e36a3;
+  --np-on-success: #f7f5f0;
 
   --np-pill-mute-bg: #e6e0d5;
   --np-pill-cyan-bg: #e9edb8;
@@ -831,7 +845,7 @@ input::placeholder {
   border: 0;
 }
 
-/* Modal entry */
+/* La entrada de la hoja (pieces-2.css): su velo y, en pantalla ancha, la ventana. */
 @keyframes np-fade-in {
   from { opacity: 0; }
   to   { opacity: 1; }
@@ -842,18 +856,8 @@ input::placeholder {
   to   { opacity: 1; transform: translateY(0)   scale(1);    }
 }
 
-/* Alto con dvh: en el móvil la barra del navegador no tapa el final. El panel
-   recibe el foco al abrir (para el lector de pantalla), sin anillo: no es un
-   control. */
-.np-modal-panel {
-  max-height: 90vh;
-  max-height: 90dvh;
-}
-
-.np-modal-panel:focus {
-  outline: none;
-}
-
+/* La ✕ de la pantalla de cerrar la noche (la de las hojas es el IconButton
+   común). */
 .np-modal-close {
   display: inline-flex;
   align-items: center;

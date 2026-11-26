@@ -1,7 +1,7 @@
 'use client';
 
 import type { ReactNode } from 'react';
-import { Icon } from '@nightpay/ui';
+import { Icon, RollingNumber } from '@nightpay/ui';
 import type { MyNight } from '@/lib/api';
 import { formatEur } from '@/lib/money';
 import { ScreenHeader } from './ScreenHeader';
@@ -39,7 +39,7 @@ export function SinCobrar({ who, night, banner, onLogo, onMiQr }: Props) {
           Mi QR
         </button>
         <p className={styles.muted}>
-          Esta noche llevas <b className="np-num">{night ? formatEur(night.netCents, { compact: true }) : '—'}</b>
+          Esta noche llevas <b className="np-num">{night ? <RollingNumber text={formatEur(night.netCents, { compact: true })} /> : '—'}</b>
         </p>
       </div>
     </div>

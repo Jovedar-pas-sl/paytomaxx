@@ -98,6 +98,7 @@ import type {
   UpdateOperatorDto,
 } from '@nightpay/contracts';
 import { formatChargeRef, holderMatchesName, maskHolderName, maskPayoutAddress, payoutMetadataFor } from '@nightpay/contracts';
+import { eur } from '../../common/money/eur';
 
 const INVITE_TTL_HOURS = 24;
 const SELF_ONBOARDING_TTL_HOURS = 72;
@@ -162,10 +163,8 @@ export interface PayoutOptions {
   afterCreate?: (tx: TransactionalClient, payoutId: string) => Promise<void>;
   /** Para el registro. */
   approvalRequestId?: string;
-}
-
-function eur(cents: number): string {
-  return `${(cents / 100).toFixed(2).replace('.', ',')} €`;
+  /** «Pagar» a varias a la vez: la clave de la tanda, para el registro del pago. */
+  batchKey?: string;
 }
 
 /** Ya tiene a dónde se le paga. */
@@ -1619,7 +1618,7 @@ export class OperatorsService {
       const totalCents = payoutTotalCents(pending, debts);
       if (totalCents <= 0) {
         throw new ConflictException(
-          `Saldo neto ${totalCents / 100} € — no hay nada que liquidar (la operadora arrastra deuda por devoluciones).`,
+          `Saldo neto ${eur(totalCents)} — no hay nada que liquidar (la operadora arrastra deuda por devoluciones).`,
         );
       }
       if (options?.exact && totalCents !== options.exact.totalCents) {
@@ -1673,6 +1672,7 @@ export class OperatorsService {
         earningCount: result.count,
         notes,
         ...(options?.approvalRequestId ? { approvalRequestId: options.approvalRequestId } : {}),
+        ...(options?.batchKey ? { batchKey: options.batchKey } : {}),
       },
     });
 

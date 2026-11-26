@@ -83,7 +83,7 @@ export function LaCuenta({ ctx, cuenta, who, onQty, onRemove, onAdd, onBack, onC
           <b>{formatEur(totals.totalCents, { compact: true })}</b>
         </div>
       </div>
-      <div className={styles.foot} style={{ '--np-foot-bottom': STICKY_ACTION_BOTTOM } as CSSProperties}>
+      <div className={styles.foot} style={{ '--np-foot-bottom': STICKY_ACTION_BOTTOM } as CSSProperties} data-np-foot="">
         <button
           type="button"
           className={`${styles.btn} ${styles.primary}`}

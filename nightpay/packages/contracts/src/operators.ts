@@ -591,6 +591,112 @@ export const CreatePayoutSchema = z.object({
 });
 export type CreatePayoutDto = z.infer<typeof CreatePayoutSchema>;
 
+// ─── «Pagar» a varias a la vez (POST /admin/payout-batches) ──────────
+
+/** Cuántas personas caben en una tanda. */
+export const PAYOUT_BATCH_MAX_ITEMS = 50;
+
+/**
+ * La Idempotency-Key de la tanda: sin «_» y de 8 a 64, para que quepa en la
+ * acción de la prueba de la llave (stepUpActions.payoutBatch, STEP_UP_ACTION_RE).
+ */
+export const PAYOUT_BATCH_KEY_RE = /^[A-Za-z0-9-]{8,64}$/;
+
+/**
+ * A quién se paga y la cifra que se vio de cada una. Nada más: el importe, el
+ * método y la cuenta los pone el API con lo guardado (un campo de más → 400).
+ * Un solo código 2FA para toda la tanda.
+ */
+export const CreatePayoutBatchSchema = z
+  .object({
+    items: z
+      .array(
+        z
+          .object({
+            // En minúsculas: con él se arma la clave de cada pago y se buscan repetidos.
+            operatorId: z.string().uuid().transform((id) => id.toLowerCase()),
+            /** Lo que se vio que se le paga: si ya es otra cifra, no se paga a nadie. */
+            expectedTotalCents: z.number().int().positive().max(2_147_483_647),
+          })
+          .strict(),
+      )
+      .min(1)
+      .max(PAYOUT_BATCH_MAX_ITEMS),
+    /** Código de la app de verificación (2FA). Sin 2FA, la prueba de la llave va en X-Step-Up-Token. */
+    totpCode: z.string().regex(/^\d{6}$/, 'El código 2FA son 6 cifras').optional(),
+  })
+  .strict()
+  .superRefine((v, ctx) => {
+    const seen = new Set<string>();
+    v.items.forEach((item, i) => {
+      if (seen.has(item.operatorId)) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['items', i, 'operatorId'], message: 'Esa persona está dos veces en la lista' });
+      }
+      seen.add(item.operatorId);
+    });
+  });
+export type CreatePayoutBatchDto = z.infer<typeof CreatePayoutBatchSchema>;
+
+/**
+ * Por qué no se paga (o no se pagó) a una persona de la tanda. Los de siempre
+ * (PAYOUT_ACCOUNT_TOO_NEW, PAYOUT_HOLDER_UNCONFIRMED, APPROVAL_ALREADY_PENDING,
+ * PAYOUT_CHANGED) más los de la tanda: NOT_FOUND (no existe, es de otro local o
+ * está de baja: la misma respuesta), NO_ACCOUNT, CASH, NOTHING_TO_PAY, UNKNOWN
+ * (un fallo inesperado: no se sabe), SKIPPED (no se intentó) y OTHER.
+ */
+export const PAYOUT_BATCH_PROBLEM_CODES = [
+  'NOT_FOUND',
+  'NO_ACCOUNT',
+  'CASH',
+  PAYOUT_ACCOUNT_TOO_NEW,
+  'PAYOUT_HOLDER_UNCONFIRMED',
+  'APPROVAL_ALREADY_PENDING',
+  'PAYOUT_CHANGED',
+  'NOTHING_TO_PAY',
+  'UNKNOWN',
+  'SKIPPED',
+  'OTHER',
+] as const;
+export const PayoutBatchProblemCodeSchema = z.enum(PAYOUT_BATCH_PROBLEM_CODES);
+export type PayoutBatchProblemCode = z.infer<typeof PayoutBatchProblemCodeSchema>;
+
+/** 409: algo cambió desde que se abrió la lista y no se ha apuntado ningún pago nuevo (lleva `problems`). */
+export const PAYOUT_BATCH_CHANGED = 'PAYOUT_BATCH_CHANGED';
+export const PAYOUT_BATCH_CHANGED_MESSAGE = 'Algo ha cambiado desde que abriste la lista: no se ha apuntado ningún pago nuevo.';
+/** 409: en este local el encargado pide los pagos al dueño, uno a uno. */
+export const PAYOUT_BATCH_NEEDS_APPROVAL = 'PAYOUT_BATCH_NEEDS_APPROVAL';
+export const PAYOUT_BATCH_NEEDS_APPROVAL_MESSAGE = 'En este local los pagos del encargado los aprueba el dueño: pídelos uno a uno.';
+
+/** Una persona del 409 PAYOUT_BATCH_CHANGED. */
+export const PayoutBatchProblemSchema = z.object({
+  operatorId: z.string().uuid(),
+  code: PayoutBatchProblemCodeSchema,
+  /** PAYOUT_ACCOUNT_TOO_NEW: desde cuándo se le puede pagar a esa cuenta. */
+  payableFrom: z.string().datetime().optional(),
+  /** PAYOUT_CHANGED / NOTHING_TO_PAY: lo que hay que pagarle ahora. */
+  totalCents: z.number().int().optional(),
+});
+export type PayoutBatchProblem = z.infer<typeof PayoutBatchProblemSchema>;
+
+export const PayoutBatchItemResultSchema = z.object({
+  operatorId: z.string().uuid(),
+  /** PAID: apuntado (ahora o antes con la misma clave). FAILED: a ella no. SKIPPED: no se intentó. */
+  status: z.enum(['PAID', 'FAILED', 'SKIPPED']),
+  payoutId: z.string().uuid().optional(),
+  totalCents: z.number().int().optional(),
+  code: PayoutBatchProblemCodeSchema.optional(),
+  payableFrom: z.string().datetime().optional(),
+});
+export type PayoutBatchItemResult = z.infer<typeof PayoutBatchItemResultSchema>;
+
+/** Respuesta 200 de la tanda: una fila por persona, en el orden pedido. */
+export const PayoutBatchResultSchema = z.object({
+  results: z.array(PayoutBatchItemResultSchema),
+  paidCount: z.number().int().nonnegative(),
+  paidCents: z.number().int().nonnegative(),
+});
+export type PayoutBatchResult = z.infer<typeof PayoutBatchResultSchema>;
+
 /** Verificar un payout existente contra blockchain (cripto) o marcar manualmente OK. */
 export const VerifyPayoutSchema = z.object({
   externalTxId: z.string().trim().min(4).max(200),

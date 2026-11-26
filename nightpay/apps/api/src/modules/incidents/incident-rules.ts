@@ -12,6 +12,7 @@ import { SALDOS_TAB_PATH } from '../wallets/saldo-texts';
 import { formatWalletCode } from '../wallets/wallet-rules';
 import { PAID_AFTER_CANCEL_REASON } from '../payments/paid-after-cancel';
 import { bitcoinAnomalyIncident } from './bitcoin-incidents';
+import { eurPlain } from '../../common/money/eur';
 
 export type IncidentKind =
   | 'stuck_payment'
@@ -193,10 +194,6 @@ export interface NightPendingRow {
   autoClosed: boolean;
 }
 
-function eur(cents: number): string {
-  return `${(cents / 100).toFixed(2).replace('.', ',')} €`;
-}
-
 function str(payload: unknown, key: string): string | null {
   if (!payload || typeof payload !== 'object') return null;
   const v = (payload as Record<string, unknown>)[key];
@@ -212,8 +209,8 @@ export function stuckIncident(r: StuckRow): Incident {
     title: bitcoin ? 'Cobro con bitcoin sin terminar' : orphan ? 'Cobro sin confirmar por el banco' : 'Cobro atascado esperando al banco',
     // Con bitcoin no hay banco: su factura en BTCPay dice si se pagó (y su id es lo que pide «Resolver»).
     detail: bitcoin
-      ? `${eur(r.amountCents)}. Mira su factura en tu BTCPay (Facturas, por importe y hora) y resuélvelo en Hoy → Cobros → Resolver con el id de la factura.`
-      : `${eur(r.amountCents)}. Búscalo en el portal de BBVA y resuélvelo en Hoy → Cobros → Resolver.`,
+      ? `${eurPlain(r.amountCents)}. Mira su factura en tu BTCPay (Facturas, por importe y hora) y resuélvelo en Hoy → Cobros → Resolver con el id de la factura.`
+      : `${eurPlain(r.amountCents)}. Búscalo en el portal de BBVA y resuélvelo en Hoy → Cobros → Resolver.`,
     occurredAt: r.updatedAt.toISOString(),
     amountCents: r.amountCents,
     paymentId: r.id,
@@ -292,13 +289,13 @@ export function receptionPayoutCapIncident(r: EventRow & { actorName?: string | 
   const cap = typeof p.nightCapCents === 'number' ? p.nightCapCents : null;
   const who = r.actorName?.trim() || 'Una persona de recepción';
   const tail = 'Desde ahí, cada salida la confirma el encargado con su 2FA. Revisa sus salidas de esta noche (Clientes → Saldos).';
-  const amounts = `${paid === null ? '' : `ya llevaba ${eur(paid)} devueltos`}${cap === null ? '' : `${paid === null ? '' : ' y '}su tope es ${eur(cap)}`}`;
+  const amounts = `${paid === null ? '' : `ya llevaba ${eurPlain(paid)} devueltos`}${cap === null ? '' : `${paid === null ? '' : ' y '}su tope es ${eurPlain(cap)}`}`;
   return {
     kind: 'reception_payout_cap',
     refId: r.id,
     title: 'Recepción pasa su tope de efectivo devuelto esta noche',
-    detail: `${who} ${r.amountCents === null ? 'quería devolver más' : `quería devolver ${eur(r.amountCents)}`}${amounts ? ` (${amounts})` : ''}. ${tail}`,
-    alertDetail: `${r.amountCents === null ? 'Una salida' : `Una salida de ${eur(r.amountCents)}`}${amounts ? ` (${amounts})` : ''}. ${tail}`,
+    detail: `${who} ${r.amountCents === null ? 'quería devolver más' : `quería devolver ${eurPlain(r.amountCents)}`}${amounts ? ` (${amounts})` : ''}. ${tail}`,
+    alertDetail: `${r.amountCents === null ? 'Una salida' : `Una salida de ${eurPlain(r.amountCents)}`}${amounts ? ` (${amounts})` : ''}. ${tail}`,
     occurredAt: r.occurredAt.toISOString(),
     amountCents: r.amountCents,
     paymentId: null,
@@ -309,7 +306,7 @@ export function receptionPayoutCapIncident(r: EventRow & { actorName?: string | 
 /** «He perdido mi NFC»: el cliente bloqueó su NFC desde su móvil (WalletLostCardService). */
 export function walletCardLostIncident(r: EventRow): Incident {
   const code = str(r.payload, 'code');
-  const saldo = r.amountCents !== null ? ` (${eur(r.amountCents)})` : '';
+  const saldo = r.amountCents !== null ? ` (${eurPlain(r.amountCents)})` : '';
   const keeps = 'sigue valiendo con su código y PIN o su Face ID. Si viene a recepción, dale un NFC nuevo con su código.';
   return {
     kind: 'wallet_card_lost',
@@ -333,7 +330,7 @@ export function walletCardLostIncident(r: EventRow): Incident {
 export function walletChargeDisputedIncident(r: EventRow): Incident {
   const ref = str(r.payload, 'ref');
   const code = str(r.payload, 'code');
-  const amount = r.amountCents !== null ? ` de ${eur(r.amountCents)}` : '';
+  const amount = r.amountCents !== null ? ` de ${eurPlain(r.amountCents)}` : '';
   const what = `El cliente dice que no ha sido él: cobro ${ref ?? 'del saldo'}${amount}`;
   // Sin el campo (avisos de antes), el texto de siempre: entonces solo llegaba un saldo con Face ID.
   const blocked = (r.payload as { faceId?: unknown } | null)?.faceId === false
@@ -363,8 +360,8 @@ export function walletChargeDisputedIncident(r: EventRow): Incident {
  */
 export function serviceDisputedIncident(r: EventRow): Incident {
   const p = r.payload && typeof r.payload === 'object' ? (r.payload as Record<string, unknown>) : {};
-  const share = typeof p.shareCents === 'number' ? ` (su parte, ${eur(p.shareCents)})` : '';
-  const what = `el cobro ${str(p, 'ref') ?? 'de su servicio'}${r.amountCents === null ? '' : ` de ${eur(r.amountCents)}`}${share} no es suyo.`;
+  const share = typeof p.shareCents === 'number' ? ` (su parte, ${eurPlain(p.shareCents)})` : '';
+  const what = `el cobro ${str(p, 'ref') ?? 'de su servicio'}${r.amountCents === null ? '' : ` de ${eurPlain(r.amountCents)}`}${share} no es suyo.`;
   const operator = str(p, 'operatorName');
   const chargedBy = str(p, 'chargedByName');
   const todo =
@@ -437,7 +434,7 @@ const STAFF_PATTERN: Readonly<Record<StaffPatternRule, { title: string; text: (w
   free_amount: {
     title: 'Mucho «Otro importe» de una persona',
     text: (who, r) =>
-      `${who ?? SOMEONE} ha cobrado ${eur(r.amountCents ?? 0)} con «Otro importe» (tecleado, sin la carta) en ${r.count} cobros la noche del ${r.night}. Comprueba que eran precios del local.`,
+      `${who ?? SOMEONE} ha cobrado ${eurPlain(r.amountCents ?? 0)} con «Otro importe» (tecleado, sin la carta) en ${r.count} cobros la noche del ${r.night}. Comprueba que eran precios del local.`,
   },
   pin_fails: {
     title: 'PIN fallado en varios saldos',
@@ -447,7 +444,7 @@ const STAFF_PATTERN: Readonly<Record<StaffPatternRule, { title: string; text: (w
   same_saldo: {
     title: 'Cobros seguidos al mismo saldo',
     text: (who, r, code) =>
-      `${who ?? SOMEONE} ha cobrado ${r.count} veces al mismo saldo${code} en ${STAFF_WATCH_SAME_SALDO_MINUTES} minutos (${eur(r.amountCents ?? 0)}) la noche del ${r.night}. Comprueba con el cliente que lo pidió todo.`,
+      `${who ?? SOMEONE} ha cobrado ${r.count} veces al mismo saldo${code} en ${STAFF_WATCH_SAME_SALDO_MINUTES} minutos (${eurPlain(r.amountCents ?? 0)}) la noche del ${r.night}. Comprueba con el cliente que lo pidió todo.`,
   },
 };
 
@@ -633,7 +630,7 @@ export function posUnmatchedOpIncident(r: EventRow): Incident {
     kind: 'pos_unmatched_op',
     refId: r.id,
     title: `Venta del datáfono que no está en ${BRAND_NAME}`,
-    detail: `${r.amountCents === null ? '' : `${eur(r.amountCents)}. `}${op ? `Operación ${op}. ` : ''}Puede ser un cobro hecho sin la app: averigua de quién es.`,
+    detail: `${r.amountCents === null ? '' : `${eurPlain(r.amountCents)}. `}${op ? `Operación ${op}. ` : ''}Puede ser un cobro hecho sin la app: averigua de quién es.`,
     occurredAt: r.occurredAt.toISOString(),
     amountCents: r.amountCents,
     paymentId: null,
@@ -651,7 +648,7 @@ export function posUnreconciledIncident(r: EventRow): Incident {
     kind: 'pos_unreconciled',
     refId: r.id,
     title: 'Cobro del datáfono sin cuadrar',
-    detail: `${r.amountCents === null ? '' : `${eur(r.amountCents)}. `}${op ? `Operación ${op}. ` : ''}Pulsa «Cuadrar con el datáfono» en ese datáfono; si no sale en su lista, revísalo antes de pagar a la chica.`,
+    detail: `${r.amountCents === null ? '' : `${eurPlain(r.amountCents)}. `}${op ? `Operación ${op}. ` : ''}Pulsa «Cuadrar con el datáfono» en ese datáfono; si no sale en su lista, revísalo antes de pagar a la chica.`,
     occurredAt: r.occurredAt.toISOString(),
     amountCents: r.amountCents,
     paymentId: r.paymentId,
@@ -669,7 +666,7 @@ export function posVoidedPaidIncident(r: EventRow): Incident {
     kind: 'pos_voided_paid',
     refId: r.id,
     title: 'Venta anulada en el datáfono y el cobro sigue pagado',
-    detail: `${r.amountCents === null ? '' : `${eur(r.amountCents)}. `}${op ? `Operación ${op}. ` : ''}El cliente no ha pagado: regístralo como devolución en Hoy → Cobros para descontar la comisión de la chica, o vuelve a cobrarlo.`,
+    detail: `${r.amountCents === null ? '' : `${eurPlain(r.amountCents)}. `}${op ? `Operación ${op}. ` : ''}El cliente no ha pagado: regístralo como devolución en Hoy → Cobros para descontar la comisión de la chica, o vuelve a cobrarlo.`,
     occurredAt: r.occurredAt.toISOString(),
     amountCents: r.amountCents,
     paymentId: r.paymentId,
@@ -708,10 +705,10 @@ export function walletCloseRequestedIncident(r: WalletBalanceRow): Incident {
   const where = `${SALDOS_TAB_PATH} → Terminar devolución (en efectivo o a la tarjeta)`;
   const detail =
     bitcoin === 0
-      ? `${eur(r.balanceCents)}${codeText(r.shortCode)}. Termínala en ${where}.`
+      ? `${eurPlain(r.balanceCents)}${codeText(r.shortCode)}. Termínala en ${where}.`
       : refundable === 0
-        ? `${eur(r.balanceCents)}${codeText(r.shortCode)}: todo entró con bitcoin. ${capitalize(BITCOIN_STAYS_TEXT)}.`
-        : `${eur(r.balanceCents)}${codeText(r.shortCode)}. Termina la devolución de ${eur(refundable)} en ${where}. Los otros ${eur(bitcoin)}: ${BITCOIN_STAYS_TEXT}.`;
+        ? `${eurPlain(r.balanceCents)}${codeText(r.shortCode)}: todo entró con bitcoin. ${capitalize(BITCOIN_STAYS_TEXT)}.`
+        : `${eurPlain(r.balanceCents)}${codeText(r.shortCode)}. Termina la devolución de ${eurPlain(refundable)} en ${where}. Los otros ${eurPlain(bitcoin)}: ${BITCOIN_STAYS_TEXT}.`;
   return {
     kind: 'wallet_close_requested',
     refId: r.id,
@@ -736,7 +733,7 @@ export function walletTopUpUnassignedIncident(r: PendingTopUpRow): Incident {
     kind: 'wallet_topup_unassigned',
     refId: r.id,
     title: 'Recarga pendiente de asignar',
-    detail: `${eur(r.balanceCents)} cobrados sin el NFC del cliente. Asígnala a su saldo: en Recepción → Pendientes de asignar (acercando su NFC) o en Clientes → Saldos (con su código). El dinero no se pierde: sigue en esa recarga.`,
+    detail: `${eurPlain(r.balanceCents)} cobrados sin el NFC del cliente. Asígnala a su saldo: en Recepción → Pendientes de asignar (acercando su NFC) o en Clientes → Saldos (con su código). El dinero no se pierde: sigue en esa recarga.`,
     occurredAt: r.occurredAt.toISOString(),
     amountCents: r.balanceCents,
     paymentId: null,
@@ -812,8 +809,8 @@ export function bankMismatchIncident(r: BankItemRow): Incident {
   const source = r.source === 'PAYTEF' ? 'Datáfono (Paytef)' : 'TPV virtual (Redsys)';
   const amounts =
     r.status === 'AMOUNT_MISMATCH'
-      ? `Banco ${eur(r.bankAmountCents ?? 0)} · aquí ${eur(r.oursAmountCents ?? 0)}`
-      : eur(r.bankAmountCents ?? r.oursAmountCents ?? 0);
+      ? `Banco ${eurPlain(r.bankAmountCents ?? 0)} · aquí ${eurPlain(r.oursAmountCents ?? 0)}`
+      : eurPlain(r.bankAmountCents ?? r.oursAmountCents ?? 0);
   const parts = [
     amounts,
     source,
@@ -939,7 +936,7 @@ function paidAfterCancelIncident(
     ...base,
     kind: 'approval_unbooked',
     refId: r.id,
-    title: `Pagó después de cancelar: ${ref}${charged === null ? '' : `, ${eur(charged)}`}`,
+    title: `Pagó después de cancelar: ${ref}${charged === null ? '' : `, ${eurPlain(charged)}`}`,
     detail: still
       ? `El cliente terminó de pagar en su banco después de cancelar el cobro${orderText}. El cobro sigue cancelado: no se ha devuelto ni se ha dado por pagado. Devuélveselo desde ${where} o, si se queda, dalo por bueno. Ciérrala diciendo qué hiciste.`
       : `El cliente terminó de pagar en su banco después de cancelar el cobro${orderText}. Ya está dado por bueno: ciérrala con una nota.`,
@@ -969,7 +966,7 @@ export function paymentAnomalyIncident(r: PaymentAnomalyRow): Incident {
       kind: 'amount_mismatch',
       refId: r.id,
       title: 'El banco aprobó un importe distinto',
-      detail: `Aprobado ${charged === null ? '?' : eur(charged)}${other} · el cobro era de ${expected === null ? '?' : eur(expected)}${orderText}. No se ha dado por pagado: compruébalo en ${provider.where} y resuélvelo en Hoy → Cobros → Resolver (o devuelve el cargo).`,
+      detail: `Aprobado ${charged === null ? '?' : eurPlain(charged)}${other} · el cobro era de ${expected === null ? '?' : eurPlain(expected)}${orderText}. No se ha dado por pagado: compruébalo en ${provider.where} y resuélvelo en Hoy → Cobros → Resolver (o devuelve el cargo).`,
       amountCents: charged ?? r.amountCents,
       ackable: true,
     };
@@ -982,7 +979,7 @@ export function paymentAnomalyIncident(r: PaymentAnomalyRow): Incident {
       kind: 'approval_unbooked',
       refId: r.id,
       title: 'Cobrado dos veces: con el saldo y con la tarjeta',
-      detail: `El cliente pagó este cobro con su saldo y después el banco aprobó también la tarjeta${orderText}. Devuélvele ${charged === null ? 'el cargo' : eur(charged)} a la tarjeta desde ${provider.where}; el saldo ya está bien.`,
+      detail: `El cliente pagó este cobro con su saldo y después el banco aprobó también la tarjeta${orderText}. Devuélvele ${charged === null ? 'el cargo' : eurPlain(charged)} a la tarjeta desde ${provider.where}; el saldo ya está bien.`,
       amountCents: charged,
       ackable: true,
     };
@@ -997,7 +994,7 @@ export function paymentAnomalyIncident(r: PaymentAnomalyRow): Incident {
       kind: 'approval_unbooked',
       refId: r.id,
       title: 'El banco cobró un pago que aquí no se pudo apuntar',
-      detail: `${r.amountCents === null ? '' : `${eur(r.amountCents)}. `}El cobro estaba ${status} cuando llegó la aprobación${orderText}. Devuélveselo al cliente desde ${provider.where}.`,
+      detail: `${r.amountCents === null ? '' : `${eurPlain(r.amountCents)}. `}El cobro estaba ${status} cuando llegó la aprobación${orderText}. Devuélveselo al cliente desde ${provider.where}.`,
       amountCents: r.amountCents,
       ackable: true,
     };
@@ -1016,7 +1013,7 @@ export function paymentAnomalyIncident(r: PaymentAnomalyRow): Incident {
       kind: 'approval_unverified',
       refId: r.paymentId ?? r.id,
       title: known?.title ?? 'Una factura de bitcoin no cuadra con el cobro',
-      detail: `${known?.what ?? 'BTCPay avisa de una factura cuyo importe, moneda o tienda no coinciden con el cobro.'} NO se ha dado por pagado${r.amountCents === null ? '' : ` (${eur(r.amountCents)})`}${orderText}. Míralo en ${provider.where}: lo recibido se devuelve en euros (nunca en bitcoin) y se cancela el cobro, o, si ya está todo cobrado, resuélvelo en Hoy → Cobros → Resolver.`,
+      detail: `${known?.what ?? 'BTCPay avisa de una factura cuyo importe, moneda o tienda no coinciden con el cobro.'} NO se ha dado por pagado${r.amountCents === null ? '' : ` (${eurPlain(r.amountCents)})`}${orderText}. Míralo en ${provider.where}: lo recibido se devuelve en euros (nunca en bitcoin) y se cancela el cobro, o, si ya está todo cobrado, resuélvelo en Hoy → Cobros → Resolver.`,
       amountCents: r.amountCents,
       ackable: false,
     };
@@ -1029,7 +1026,7 @@ export function paymentAnomalyIncident(r: PaymentAnomalyRow): Incident {
       kind: 'approval_unverified',
       refId: r.paymentId ?? r.id,
       title: 'Recarga del datáfono sin comprobar',
-      detail: `El datáfono dice que cobró${r.amountCents === null ? '' : ` ${eur(r.amountCents)}`} con tarjeta${op ? ` (operación ${op})` : ''}, pero Paytef no lo ha confirmado y NO se ha sumado al saldo. Míralo en el panel de Paytef y, si está cobrado, resuélvelo en Hoy → Cobros → Resolver con su código de autorización.`,
+      detail: `El datáfono dice que cobró${r.amountCents === null ? '' : ` ${eurPlain(r.amountCents)}`} con tarjeta${op ? ` (operación ${op})` : ''}, pero Paytef no lo ha confirmado y NO se ha sumado al saldo. Míralo en el panel de Paytef y, si está cobrado, resuélvelo en Hoy → Cobros → Resolver con su código de autorización.`,
       amountCents: r.amountCents,
       ackable: false,
     };
@@ -1039,7 +1036,7 @@ export function paymentAnomalyIncident(r: PaymentAnomalyRow): Incident {
     kind: 'approval_unverified',
     refId: r.paymentId ?? r.id,
     title: 'Aviso de pago sin comprobar',
-    detail: `${provider.who} avisa de que el cliente pagó${r.amountCents === null ? '' : ` ${eur(r.amountCents)}`}, pero no se ha podido comprobar y NO se ha dado por pagado. Míralo en ${provider.where}${orderText} y, si está cobrado, resuélvelo en Hoy → Cobros → Resolver.`,
+    detail: `${provider.who} avisa de que el cliente pagó${r.amountCents === null ? '' : ` ${eurPlain(r.amountCents)}`}, pero no se ha podido comprobar y NO se ha dado por pagado. Míralo en ${provider.where}${orderText} y, si está cobrado, resuélvelo en Hoy → Cobros → Resolver.`,
     amountCents: r.amountCents,
     ackable: false,
   };
@@ -1060,7 +1057,7 @@ export function posUnprovenSalesIncident(r: UnprovenSalesRow): Incident {
     kind: 'pos_unproven_sales',
     refId: r.night,
     title: 'Ventas por datáfono sin cuadrar con el banco',
-    detail: `${many} por datáfono (${eur(r.amountCents)}) de la noche del ${r.night} sin prueba del banco (las confirmó un camarero con el ticket o el datáfono sin poder comprobarlo con Paytef). La comisión de las chicas está retenida: se paga al cuadrarlas con el fichero del banco (Banco) o si las liberas en Personal → la chica (con tu 2FA).`,
+    detail: `${many} por datáfono (${eurPlain(r.amountCents)}) de la noche del ${r.night} sin prueba del banco (las confirmó un camarero con el ticket o el datáfono sin poder comprobarlo con Paytef). La comisión de las chicas está retenida: se paga al cuadrarlas con el fichero del banco (Banco) o si las liberas en Personal → la chica (con tu 2FA).`,
     occurredAt: r.lastAt.toISOString(),
     amountCents: r.amountCents,
     paymentId: null,
@@ -1082,7 +1079,7 @@ export function posReceptionLimitIncident(r: EventRow): Incident {
     kind: 'pos_reception_limit',
     refId: r.id,
     title: 'Datáfono de recepción frenado por un tope',
-    detail: `${label ? `«${label}»` : 'Un datáfono'} ha pasado ${limit}${r.amountCents === null ? '' : ` (pedía ${eur(r.amountCents)})`} y no se ha cobrado. Si no es de la recepción o no lo reconoces, desvincúlalo en Datáfonos.`,
+    detail: `${label ? `«${label}»` : 'Un datáfono'} ha pasado ${limit}${r.amountCents === null ? '' : ` (pedía ${eurPlain(r.amountCents)})`} y no se ha cobrado. Si no es de la recepción o no lo reconoces, desvincúlalo en Datáfonos.`,
     occurredAt: r.occurredAt.toISOString(),
     amountCents: r.amountCents,
     paymentId: null,
@@ -1127,7 +1124,7 @@ function elapsed(ms: number): string {
 export function refundPendingIncident(r: PendingRefundRow, now: Date): Incident {
   const provider = PROVIDER_TEXT[r.provider ?? ''] ?? UNKNOWN_PROVIDER_TEXT;
   const order = r.providerTxId ? ` (pedido ${r.providerTxId})` : '';
-  const what = `${eur(r.amountCents)} del cobro de ${eur(r.paymentAmountCents)}${order}, hace ${elapsed(now.getTime() - r.createdAt.getTime())}.`;
+  const what = `${eurPlain(r.amountCents)} del cobro de ${eurPlain(r.paymentAmountCents)}${order}, hace ${elapsed(now.getTime() - r.createdAt.getTime())}.`;
   const todo = r.settleFailed
     ? `${provider.who} dice que la hizo, pero no se pudo apuntar en el cobro: compruébalo en ${provider.where} y pulsa Resolver → Hecha. No la repitas.`
     : `Revisa en ${provider.where} si se hizo y pulsa Resolver en el cobro. Mientras, ese importe no se puede volver a devolver.`;
@@ -1163,7 +1160,7 @@ export interface PendingApprovalRow {
 export function approvalPendingIncident(r: PendingApprovalRow, now: Date): Incident {
   const payout = r.kind === 'PAYOUT';
   const text = (operatorName: string | null): string => {
-    const what = payout ? `pagar ${eur(r.amountCents)} a ${operatorName ?? 'una chica'}` : `devolver ${eur(r.amountCents)}`;
+    const what = payout ? `pagar ${eurPlain(r.amountCents)} a ${operatorName ?? 'una chica'}` : `devolver ${eurPlain(r.amountCents)}`;
     return `${r.requester ?? 'El encargado'} pidió ${what} hace ${elapsed(now.getTime() - r.requestedAt.getTime())}. Apruébalo o recházalo en «Por aprobar»: caduca a las 24 h.`;
   };
   return {
