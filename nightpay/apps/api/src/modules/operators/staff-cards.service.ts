@@ -184,7 +184,8 @@ export class StaffCardsService {
     if (card.revokedAt) throw invalid(STAFF_CARD_REVOKED_MESSAGE);
     if (card.user.role !== 'OPERATOR' || card.user.deletedAt) throw invalid(STAFF_CARD_UNKNOWN_MESSAGE);
     if (card.user.id === actor.userId) throw invalid('Esa es tu propia ficha: acerca la de la compañera.');
-    const { token } = signStaffToken({ userId: card.user.id, tenantId: actor.tenantId }, Date.now(), staffQrSecret());
+    // Ligado a esta ficha: si la anulan o la sustituyen, deja de valer al cobrar (charge-request).
+    const { token } = signStaffToken({ userId: card.user.id, tenantId: actor.tenantId, staffCardId: card.id }, Date.now(), staffQrSecret());
     const photos = await photoHashesOf(this.prisma, actor.tenantId, [card.user.id]);
     return { id: card.user.id, name: staffName(card.user), photoHash: photos.get(card.user.id) ?? null, token, cardNumber: card.number };
   }

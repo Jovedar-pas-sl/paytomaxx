@@ -16,6 +16,7 @@ import { join } from 'node:path';
 import { HttpException } from '@nestjs/common';
 import { ClsService } from 'nestjs-cls';
 import {
+  SERVICE_OPERATOR_INVALID_CODE,
   STAFF_CARD_COPY_MESSAGE,
   STAFF_CARD_NOT_BLANK_MESSAGE,
   STAFF_CARD_NOT_CUSTOMER_CODE,
@@ -25,8 +26,9 @@ import { PrismaService, type TransactionalClient } from '../../src/common/prisma
 import { AdminController } from '../../src/modules/admin/admin.controller';
 import { AuditService } from '../../src/modules/audit/audit.service';
 import { OperatorsService } from '../../src/modules/operators/operators.service';
-import { verifyStaffToken } from '../../src/modules/operators/staff-qr';
+import { signStaffToken, verifyStaffToken } from '../../src/modules/operators/staff-qr';
 import { StaffCardsService } from '../../src/modules/operators/staff-cards.service';
+import { resolveChargeOrThrow } from '../../src/modules/payments/charge-request';
 import { readReceptionDesk } from '../../src/modules/wallets/reception-desk';
 import { attachCard } from '../../src/modules/wallets/wallet-card-ops';
 import { WalletChargesService } from '../../src/modules/wallets/wallet-charges.service';
@@ -200,6 +202,51 @@ describe('Acercar su ficha al cobrar a su nombre', () => {
     await inVenue(V, () => operators.updateOperator(V, leaving, boss, 'OWNER', { active: false } as never));
     expect((await failure(resolve(card, uid))).message).toBe(STAFF_CARD_REVOKED_MESSAGE);
     expect(await sys((tx) => tx.staffCard.findUniqueOrThrow({ where: { token: card }, select: { revokedReason: true } }))).toEqual({ revokedReason: 'offboarded' });
+  });
+});
+
+describe('El «Mi QR» que sale de su ficha, al crear el cobro', () => {
+  let servicio: string;
+  let sara: string;
+
+  beforeAll(async () => {
+    await sys(async (tx) => {
+      servicio = (await tx.serviceItem.create({ data: { tenantId: V, name: `Servicio ficha ${r}`, priceCents: 6000, category: 'CHICA_SERVICE' } })).id;
+      sara = (await tx.user.create({ data: { tenantId: V, email: `sara-${r}@x.es`, passwordHash: 'x', role: 'OPERATOR', displayName: 'Sara' } as never })).id;
+    });
+  });
+
+  const cobrar = (serviceStaffToken: string) =>
+    inVenue(V, () =>
+      resolveChargeOrThrow(prisma, { tenantId: V, userId: manager, role: 'MANAGER', lines: [{ serviceItemId: servicio, qty: 1 }], serviceStaffToken }),
+    );
+  const invalid = { response: expect.objectContaining({ code: SERVICE_OPERATOR_INVALID_CODE }) };
+
+  it('con la ficha viva, el servicio es suyo', async () => {
+    const { card, uid } = await give(sara);
+    const { token: qr } = await resolve(card, uid);
+    expect((await cobrar(qr)).lines[0]).toMatchObject({ serviceOperatorId: sara });
+  });
+
+  it('sacado justo antes de anularla, después ya no vale', async () => {
+    const live = await sys((tx) => tx.staffCard.findFirstOrThrow({ where: { userId: sara, revokedAt: null } }));
+    const { token: qr } = await resolve(live.token, live.uid);
+    await inVenue(V, () => cards.revoke(byManager, sara));
+    await expect(cobrar(qr)).rejects.toMatchObject(invalid);
+  });
+
+  it('sacado justo antes de sustituirla, después ya no vale (y el de la nueva, sí)', async () => {
+    const old = await give(sara);
+    const { token: qr } = await resolve(old.card, old.uid);
+    const fresh = await give(sara);
+    await expect(cobrar(qr)).rejects.toMatchObject(invalid);
+    expect((await cobrar((await resolve(fresh.card, fresh.uid)).token)).lines[0]).toMatchObject({ serviceOperatorId: sara });
+  });
+
+  it('su «Mi QR» de siempre (sin ficha) sigue valiendo aunque no tenga ficha viva', async () => {
+    await inVenue(V, () => cards.revoke(byManager, sara));
+    const qr = signStaffToken({ userId: sara, tenantId: V }, Date.now(), process.env.JWT_SECRET!).token;
+    expect((await cobrar(qr)).lines[0]).toMatchObject({ serviceOperatorId: sara });
   });
 });
 
