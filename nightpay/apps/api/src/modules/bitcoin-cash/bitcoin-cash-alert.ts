@@ -1,4 +1,4 @@
-import { eur } from './bitcoin-cash-rules';
+import { eurPlain } from '../../common/money/eur';
 
 /**
  * El aviso por Telegram de CADA devolución en efectivo de un pago con bitcoin
@@ -22,7 +22,7 @@ export function cashRefundAlertText(a: CashRefundAlert): string {
   const what = a.target.kind === 'payment' ? `Cobro ${a.target.ref ?? 'sin referencia'}` : `Bitcoin sin cobro (factura ${a.target.invoiceId})`;
   return [
     `⚠️ ${a.venueName}: Devolución en efectivo de un pago con bitcoin`,
-    `${eur(a.amountCents)} de la caja · ${what}`,
+    `${eurPlain(a.amountCents)} de la caja · ${what}`,
     `Motivo: ${a.reason}`,
     a.approvedBy ? `La hizo ${a.doneBy} · la aprobó ${a.approvedBy}` : `La hizo ${a.doneBy}`,
     'El bitcoin se queda en la cartera del local.',

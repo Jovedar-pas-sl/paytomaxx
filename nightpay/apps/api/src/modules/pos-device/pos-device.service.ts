@@ -38,6 +38,7 @@ import {
   type PaytefShiftOperation,
 } from './paytef';
 import { POS_SALE_PROVER, judgeSaleProof, type PosSaleProver } from './pos-sale-proof';
+import { eurPlain } from '../../common/money/eur';
 
 /** payment_events: el datáfono dice que cobró y Paytef no lo ha confirmado (bandeja de incidencias). */
 export const POS_APPROVAL_UNVERIFIED_EVENT = 'payment.approval_unverified';
@@ -409,7 +410,7 @@ export class PosDeviceService {
       return this.mismatch(p, op, 'Una recarga del saldo no lleva propina: anula esta operación y cóbrala sin propina.');
     }
     if (tip > maxTipCents(p.amountCents)) {
-      return this.mismatch(p, op, `Propina de ${eur(tip)} fuera de lo normal: anula esta operación.`);
+      return this.mismatch(p, op, `Propina de ${eurPlain(tip)} fuera de lo normal: anula esta operación.`);
     }
 
     const authCode = r.authorisationCode?.trim().toUpperCase() || null;
@@ -764,16 +765,12 @@ function parseDate(v: string | undefined): Date | null {
   return Number.isNaN(d.getTime()) ? null : d;
 }
 
-function eur(cents: number): string {
-  return `${(cents / 100).toFixed(2).replace('.', ',')} €`;
-}
-
 /**
  * El lector cobró otro importe: lo que cobró de verdad (importe + propina,
  * lo mismo que se anula), no solo el importe (antes «Se cobraron 15 €» con
  * la operación de 17 € debajo).
  */
 function otherAmountText(requested: number, tip: number, expected: number): string {
-  const charged = tip > 0 ? `${eur(requested + tip)} (${eur(requested)} + ${eur(tip)} de propina)` : eur(requested);
-  return `Se cobraron ${charged} y el cobro era de ${eur(expected)}: anula esta operación.`;
+  const charged = tip > 0 ? `${eurPlain(requested + tip)} (${eurPlain(requested)} + ${eurPlain(tip)} de propina)` : eurPlain(requested);
+  return `Se cobraron ${charged} y el cobro era de ${eurPlain(expected)}: anula esta operación.`;
 }
