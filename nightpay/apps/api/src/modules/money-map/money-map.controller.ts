@@ -1,5 +1,7 @@
 import { Controller, Get, Inject, Param, ParseUUIDPipe, Query, UseGuards } from '@nestjs/common';
-import { MoneyMapQuerySchema, type MoneyMap, type MoneyMapQuery, type StaffFicha } from '@nightpay/contracts';
+import { MoneyMapQuerySchema, type JwtPayload, type MoneyMap, type MoneyMapQuery, type StaffFicha } from '@nightpay/contracts';
+import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import { blindMoneyMap, blindsCash } from '../nights/blind-cash';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { Tenant } from '../../common/decorators/tenant.decorator';
 import { RolesGuard } from '../../common/guards/roles.guard';
@@ -33,10 +35,13 @@ export class MoneyMapController {
   @UseGuards(StaffPermissionGuard)
   @RequiresPermission('reports')
   async get(
-    @Tenant() tenantId: string,
+    @CurrentUser() user: JwtPayload,
     @Query(new ZodValidationPipe(MoneyMapQuerySchema)) q: MoneyMapQuery,
   ): Promise<MoneyMap> {
-    return this.moneyMap.forQuery(tenantId, q);
+    const map = await this.moneyMap.forQuery(user.tenantId, q);
+    // Cierre a ciegas: la encargada, en directo con la noche abierta, sin la caja esperada.
+    const live = map.scope.kind === 'night' && map.scope.open && !map.frozen;
+    return blindsCash(user.role, live) ? blindMoneyMap(map) : map;
   }
 
   @Get('operators/:id/ficha')

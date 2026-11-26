@@ -68,11 +68,17 @@ export function cashOutcome(cash: NightCash, draft: CashDraft, floatApproved = f
 }
 
 // ─── Cierre a ciegas (B9) ───────────────────────────────────────────
-// Nadie (tampoco el encargado ni el dueño) ve lo que debería haber hasta
-// escribir lo contado y pulsar «Ver si cuadra»: así nadie cuadra a ojo.
+// Al cerrar, nadie ve lo que debería haber hasta escribir lo contado y
+// pulsar «Ver si cuadra»: así nadie cuadra a ojo. Y con la noche abierta, a
+// la encargada (no al dueño) el API ni le manda el fondo ni el efectivo de la
+// caja (Noches → En vivo y el mapa del dinero: cashHidden, blind-cash.ts).
 // Mientras, lo tecleado no cuenta: el paso «Efectivo» sigue sin contar y
 // su texto no lleva cifras que lo dejen calcular (ni la diferencia, que
 // también lo diría).
+
+/** Lo que ve la encargada en lugar del fondo y la caja esperada con la noche abierta. */
+export const BLIND_CASH_TEXT =
+  'Cierre a ciegas: el fondo y el efectivo de la caja se ven al cerrar la noche, después de contarla.';
 
 /** Textos del paso «Efectivo» a ciegas (sin cifras). */
 const BLIND_DETAIL: Partial<Record<CashReason, string>> = {

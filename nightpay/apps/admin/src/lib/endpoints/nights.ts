@@ -151,6 +151,8 @@ export interface NightView {
   z: NightZ;
   /** `provider` BTCPAY: paga con bitcoin (sin banco). Un API de antes no lo trae. */
   pending: Array<{ id: string; status: string; amountCents: number; createdAt: string; captureMethod: string | null; provider?: string | null }>;
+  /** Cierre a ciegas: la encargada, con la noche abierta, no recibe el fondo ni el efectivo de la caja. */
+  cashHidden?: boolean;
 }
 
 export interface NightListItem {

@@ -11,6 +11,7 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { ZodValidationPipe } from '../../common/pipes/zod.pipe';
+import { blindNightView, blindsCash } from './blind-cash';
 import { NightsService, type MyNight, type NightListItem, type NightView } from './nights.service';
 import { RequiresPermission, StaffPermissionGuard } from '../venues/staff-permission.guard';
 
@@ -37,7 +38,8 @@ export class NightsController {
   @Get('current')
   @Roles('OWNER', 'MANAGER')
   async current(@CurrentUser() user: JwtPayload): Promise<{ night: NightView | null }> {
-    return { night: await this.nights.current(user.tenantId) };
+    const night = await this.nights.current(user.tenantId);
+    return { night: night && forRole(user, night) };
   }
 
   @Get('current/close-check')
@@ -59,7 +61,7 @@ export class NightsController {
     @CurrentUser() user: JwtPayload,
     @Body(new ZodValidationPipe(OpenNightSchema)) body: OpenNightDto,
   ): Promise<NightView> {
-    return this.nights.open(user.tenantId, user.sub, body.openingFloatCents);
+    return forRole(user, await this.nights.open(user.tenantId, user.sub, body.openingFloatCents));
   }
 
   @Post(':id/close')
@@ -84,6 +86,11 @@ export class NightsController {
   @Get(':id')
   @Roles('OWNER', 'MANAGER')
   async get(@CurrentUser() user: JwtPayload, @Param('id', ParseUUIDPipe) id: string): Promise<NightView> {
-    return this.nights.get(user.tenantId, id);
+    return forRole(user, await this.nights.get(user.tenantId, id));
   }
+}
+
+/** Cierre a ciegas: la encargada, con la noche abierta, sin las cifras del efectivo. */
+function forRole(user: JwtPayload, night: NightView): NightView {
+  return blindsCash(user.role, night.closedAt === null) ? blindNightView(night) : night;
 }

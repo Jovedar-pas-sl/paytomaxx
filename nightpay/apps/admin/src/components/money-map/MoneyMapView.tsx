@@ -139,8 +139,8 @@ function QuestionCardView({ card, onAction }: { card: QuestionCard; onAction?: P
     <section className="np-mmq-card" data-tone={card.key} {...TOUR[card.key]}>
       <h3 className="np-mmq-q">{card.question}</h3>
       <div className="np-mmq-row">
-        <span className="np-mmq-num" data-neg={card.cents < 0 || undefined}>
-          {eurShort(card.cents)}
+        <span className="np-mmq-num" data-neg={(card.cents !== null && card.cents < 0) || undefined}>
+          {card.cents === null ? 'Al cerrar' : eurShort(card.cents)}
         </span>
         {action && onAction ? (
           <Button variant="ghost" size="sm" onClick={() => onAction(action)}>

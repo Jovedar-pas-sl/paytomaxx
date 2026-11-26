@@ -13,9 +13,10 @@ describe('GET /v1/admin/money-map', () => {
   });
 
   it('pasa la consulta al servicio con el local del token', async () => {
-    const svc = { forQuery: vi.fn().mockResolvedValue({ salesCents: 1 }) };
+    const map = { salesCents: 1, scope: { kind: 'period' } };
+    const svc = { forQuery: vi.fn().mockResolvedValue(map) };
     const controller = new MoneyMapController(svc as never, {} as never);
-    await expect(controller.get('t-1', { night: 'current' })).resolves.toEqual({ salesCents: 1 });
+    await expect(controller.get({ tenantId: 't-1', role: 'MANAGER' } as never, { night: 'current' })).resolves.toEqual(map);
     expect(svc.forQuery).toHaveBeenCalledWith('t-1', { night: 'current' });
   });
 

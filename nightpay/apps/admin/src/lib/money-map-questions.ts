@@ -17,13 +17,15 @@
 
 import { venueEarnedCents, type MoneyMap, type VenueSection } from '@nightpay/contracts';
 import { eurShort, moneyMapIsCurrent, moneyMapView, type SectionRow } from './money-map-view';
+import { BLIND_CASH_TEXT } from './night-close';
 
 export type QuestionKey = 'ganado' | 'caja' | 'banco' | 'debo';
 
 export interface QuestionCard {
   key: QuestionKey;
   question: string;
-  cents: number;
+  /** null: no se enseña (cierre a ciegas: la encargada con la noche abierta). */
+  cents: number | null;
   /** Qué es de verdad esa cifra (y qué no cuenta). */
   caption: string;
   /** Botón de la tarjeta: «Cerrar la caja» o «Ver por compañera» (null: ninguno). */
@@ -68,6 +70,9 @@ function earnedCard(m: MoneyMap): Card {
 
 /** «Fondo de caja 200 € + efectivo cobrado 1.070 € − salidas 70 €»; sin una noche con su fondo, solo el efectivo del periodo. */
 function cashCard(m: MoneyMap): Card {
+  if (m.where.cashHidden) {
+    return { question: '¿Cuánto tiene que haber en la caja?', cents: null, caption: BLIND_CASH_TEXT, action: 'close-cash' };
+  }
   const box = m.where.cashBox;
   const cents = m.where.cashBoxCents;
   // En unas fechas, o de día sin noche abierta (desde el último cierre), el API no cuenta

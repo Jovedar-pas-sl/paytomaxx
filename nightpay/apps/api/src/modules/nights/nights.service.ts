@@ -81,6 +81,8 @@ export interface NightView {
   z: Omit<NightZ, 'moneyMap'>;
   /** Solo con la noche abierta. */
   pending: PendingPayment[];
+  /** Cierre a ciegas: sin las cifras del efectivo (la encargada con la noche abierta, blind-cash.ts). */
+  cashHidden?: boolean;
 }
 
 export interface NightListItem {
