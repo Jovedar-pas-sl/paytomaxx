@@ -1,4 +1,4 @@
-import type { CSSProperties } from 'react';
+import { Etiqueta, type EtiquetaTone } from './Etiqueta';
 
 export type PaymentStatus =
   | 'CREATED'
@@ -26,66 +26,57 @@ interface StatusPillProps {
 
 interface StatusConfig {
   label: string;
-  color: string;
-  bg: string;
+  /** El tono de la Etiqueta: su color, su fondo y su símbolo. */
+  tone: EtiquetaTone;
+  /** Mientras espera: el punto que late en lugar del símbolo. */
   spin?: boolean;
 }
 
 const operatorConfig: Record<PaymentStatus, StatusConfig> = {
   CREATED: {
     label: 'Esperando confirmación',
-    color: 'var(--np-text-mute)',
-    bg: 'var(--np-pill-mute-bg)',
+    tone: 'neutral',
   },
   AWAITING_CAPTURE: {
     label: 'Esperando datáfono',
-    color: 'var(--np-text-mute)',
-    bg: 'var(--np-pill-mute-bg)',
+    tone: 'neutral',
   },
   AUTHORIZING: {
     // Vale para QR (cliente en la página del banco) y para datáfono. En
     // neutro con el punto que late: el lima es para la acción y el «pagado».
     label: 'Esperando pago',
-    color: 'var(--np-text)',
-    bg: 'var(--np-pill-mute-bg)',
+    tone: 'wait',
     spin: true,
   },
   AUTHORIZED: {
     label: 'Pago completado',
-    color: 'var(--np-success)',
-    bg: 'var(--np-pill-success-bg)',
+    tone: 'success',
   },
   FAILED: {
     label: 'Pago rechazado',
-    color: 'var(--np-danger)',
-    bg: 'var(--np-pill-danger-bg)',
+    tone: 'danger',
   },
   EXPIRED: {
     label: 'QR expirado',
-    color: 'var(--np-warning)',
-    bg: 'var(--np-pill-warning-bg)',
+    tone: 'warning',
   },
   CANCELED: {
     label: 'Cancelado',
-    color: 'var(--np-text-mute)',
-    bg: 'var(--np-pill-mute-bg)',
+    tone: 'neutral',
   },
   REFUNDED: {
     label: 'Reembolsado',
-    color: 'var(--np-purple)',
-    bg: 'var(--np-pill-purple-bg)',
+    tone: 'refund',
   },
   PARTIALLY_REFUNDED: {
     label: 'Reembolso parcial',
-    color: 'var(--np-purple)',
-    bg: 'var(--np-pill-purple-bg)',
+    tone: 'refund',
   },
   // ORPHAN = el banco no confirmó a tiempo. No gira: no se resuelve solo,
   // hay que mirarlo en el banco.
   ORPHAN: {
     label: 'Sin confirmar',
-    color: 'var(--np-warning)',
-    bg: 'var(--np-pill-warning-bg)',
+    tone: 'warning',
   },
 };
 
@@ -95,147 +86,61 @@ const operatorConfig: Record<PaymentStatus, StatusConfig> = {
 const clientConfig: Record<PaymentStatus, StatusConfig> = {
   CREATED: {
     label: 'Listo para pagar',
-    color: 'var(--np-text-mute)',
-    bg: 'var(--np-pill-mute-bg)',
+    tone: 'neutral',
   },
   AWAITING_CAPTURE: {
     label: 'Pagando en datáfono',
-    color: 'var(--np-text)',
-    bg: 'var(--np-pill-mute-bg)',
+    tone: 'wait',
     spin: true,
   },
   AUTHORIZING: {
     label: 'Procesando tu pago…',
-    color: 'var(--np-text)',
-    bg: 'var(--np-pill-mute-bg)',
+    tone: 'wait',
     spin: true,
   },
   AUTHORIZED: {
     label: '¡Pagado! Gracias',
-    color: 'var(--np-success)',
-    bg: 'var(--np-pill-success-bg)',
+    tone: 'success',
   },
   FAILED: {
     label: 'No se pudo cobrar',
-    color: 'var(--np-danger)',
-    bg: 'var(--np-pill-danger-bg)',
+    tone: 'danger',
   },
   EXPIRED: {
     label: 'El cobro ha caducado',
-    color: 'var(--np-warning)',
-    bg: 'var(--np-pill-warning-bg)',
+    tone: 'warning',
   },
   CANCELED: {
     label: 'Cobro cancelado',
-    color: 'var(--np-text-mute)',
-    bg: 'var(--np-pill-mute-bg)',
+    tone: 'neutral',
   },
   REFUNDED: {
     label: 'Devuelto',
-    color: 'var(--np-purple)',
-    bg: 'var(--np-pill-purple-bg)',
+    tone: 'refund',
   },
   PARTIALLY_REFUNDED: {
     label: 'Devuelto en parte',
-    color: 'var(--np-purple)',
-    bg: 'var(--np-pill-purple-bg)',
+    tone: 'refund',
   },
   ORPHAN: {
     label: 'Verificando con el banco…',
-    color: 'var(--np-warning)',
-    bg: 'var(--np-pill-warning-bg)',
+    tone: 'warning',
     spin: true,
   },
 };
 
+/**
+ * El estado de un cobro: una Etiqueta de estado (símbolo + palabra, el color
+ * nunca va solo), con su punto que late mientras espera. Se anuncia al cambiar.
+ */
 export function StatusPill({ status, size = 'md', perspective = 'operator' }: StatusPillProps) {
   const config = perspective === 'client' ? clientConfig : operatorConfig;
   // Defensive: si el backend introduce un status nuevo que la UI no conoce
   // (ej. tras un deploy parcial), fallback a un pill neutro en vez de crashear.
-  const cfg = config[status] ?? {
-    label: String(status),
-    color: 'var(--np-text-mute)',
-    bg: 'var(--np-pill-mute-bg)',
-  };
-  const dims =
-    size === 'sm'
-      ? { minHeight: '1.5rem', padding: '0 0.5rem', fontSize: 'var(--np-fs-14)' }
-      : { minHeight: '2rem', padding: '0 0.75rem 0 0.625rem', fontSize: 'var(--np-fs-14)' };
-
+  const cfg: StatusConfig = config[status] ?? { label: String(status), tone: 'neutral' };
   return (
-    <span
-      role="status"
-      aria-live="polite"
-      style={{
-        ...pillBase,
-        ...dims,
-        color: cfg.color,
-        background: cfg.bg,
-      } as CSSProperties}
-    >
-      {cfg.spin ? <Pulse color={cfg.color} /> : <Dot color={cfg.color} />}
+    <Etiqueta tone={cfg.tone} pulse={cfg.spin} size={size} role="status" aria-live="polite">
       {cfg.label}
-    </span>
-  );
-}
-
-// Grafito: como los estados del panel y de «Cobros» del personal (fondo
-// teñido, texto del color, radio de chip 6, 14/500, sin filete), con su punto
-// (late mientras espera): el color nunca va solo.
-const pillBase: CSSProperties = {
-  display: 'inline-flex',
-  alignItems: 'center',
-  gap: '0.5rem',
-  borderRadius: 'var(--np-r-xs)',
-  fontWeight: 500,
-  lineHeight: 1.2,
-  fontFamily: 'var(--np-font-sans)',
-  transition: 'background var(--np-d-base), color var(--np-d-base)',
-};
-
-function Dot({ color }: { color: string }) {
-  return (
-    <span
-      aria-hidden
-      style={{
-        width: '0.5rem',
-        height: '0.5rem',
-        borderRadius: '50%',
-        background: color,
-        flexShrink: 0,
-      }}
-    />
-  );
-}
-
-function Pulse({ color }: { color: string }) {
-  return (
-    <span
-      aria-hidden
-      style={{
-        position: 'relative',
-        width: '0.5rem',
-        height: '0.5rem',
-        flexShrink: 0,
-      }}
-    >
-      <span
-        style={{
-          position: 'absolute',
-          inset: 0,
-          borderRadius: '50%',
-          background: color,
-          animation: 'np-pulse-ring 1.4s ease-out infinite',
-        }}
-      />
-      <span
-        style={{
-          position: 'absolute',
-          inset: 0,
-          borderRadius: '50%',
-          background: color,
-        }}
-      />
-    </span>
+    </Etiqueta>
   );
 }

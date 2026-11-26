@@ -58,6 +58,8 @@ describe('escala de letra de Grafito 3', () => {
         .split('\n')
         .forEach((line, i) => {
           if (!/font(-size)?:|fontSize:/.test(line) || !/(min|clamp)\(/.test(line)) return;
+          // Una consulta @supports no pone ningún tamaño: solo pregunta si el navegador entiende clamp().
+          if (/^\s*@supports/.test(line)) return;
           for (const m of line.matchAll(/(\d*\.?\d+)rem/g)) {
             if (!SCALE.includes(Number(m[1]) * 16)) bad.push(`${f}:${i + 1} ${line.trim()}`);
           }

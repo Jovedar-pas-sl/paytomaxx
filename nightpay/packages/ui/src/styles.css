@@ -13,10 +13,12 @@
    normales; nada de color-mix(), oklch() ni :has() sin respaldo. */
 
 /* Componentes de las apps del personal (resultado, aviso de conexión, teclado
-   de importe, cuenta atrás del QR). @import va antes de cualquier regla. */
+   de importe, cuenta atrás del QR) y las piezas comunes (importe, etiqueta,
+   iconos, pantalla vacía, silueta). @import va antes de cualquier regla. */
 @import './staff.css';
 @import './tour.css';
 @import './ticket.css';
+@import './pieces.css';
 
 :root {
   /* Spacing — 4px base */
@@ -857,9 +859,11 @@ input::placeholder {
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  width: 2.5rem;
-  height: 2.5rem;
-  margin: -0.5rem -0.5rem 0 auto;
+  /* 44 px para el dedo (antes 40). Los márgenes negativos dejan la ✕ y el
+     alto de la cabecera donde estaban. */
+  width: 2.75rem;
+  height: 2.75rem;
+  margin: -0.625rem -0.625rem -0.125rem auto;
   padding: 0;
   border: none;
   border-radius: var(--np-r-pill);
