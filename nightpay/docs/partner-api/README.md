@@ -1,0 +1,40 @@
+# API de socios de OxioPay (v1)
+
+Otras plataformas entran en OxioPay con una clave por local (`/v1/partner`). La
+primera es la red de cajeros del dueño, que solo carga saldo dentro de los
+locales. Apagada de serie (`PARTNER_API_ENABLED=false`) hasta el PR 8.
+
+## Qué hay aquí
+
+| Ruta | Qué es | Quién la escribe |
+|---|---|---|
+| `pilot/` | El contrato del piloto de los cajeros (YAML, su JSON y las dos guías). **Manda sobre el código.** | A mano (ver `pilot/README.md`) |
+| `openapi.json` | El documento OpenAPI 3.1 que sirve `GET /v1/partner/openapi.json`. | Generado: `pnpm --filter @nightpay/api partner:docs` |
+| `errors.md` | El catálogo de errores (`code`, estado, título, texto en inglés y en español). | Generado, con el anterior |
+| `guides/es/`, `guides/en/` | Las guías por capítulos, mismo número en los dos idiomas. | A mano |
+
+## Reglas
+
+- **Una sola fuente.** Las rutas salen de `packages/contracts/src/partner/routes.ts`
+  (`PARTNER_ROUTES`): los controladores solo las declaran con
+  `@PartnerRoute(PARTNER_ROUTES.x)`, y lo que sale pasa por el esquema publicado.
+  Los errores, de `packages/contracts/src/partner/errors.ts`.
+- **Generado = repositorio.** Tras tocar rutas, esquemas o errores:
+  `pnpm --filter @nightpay/api partner:docs` y al mismo commit. La prueba
+  `apps/api/src/modules/partner/openapi.spec.ts` falla si no.
+- **Igual que el contrato.** La misma prueba compara cada ruta hecha con
+  `pilot/openapi-piloto.json` (respuestas, esquemas, permisos, parámetros y
+  seguridad). Las del contrato que aún no están hechas van en `PILOT_PENDING`.
+- **ES/EN a la par.** Cada `guides/es/*.md` lleva en su cabecera `en_sha256`, el
+  sha256 de la inglesa que traduce (con saltos de línea LF). Si la inglesa cambia
+  y la española no, `apps/api/src/modules/partner/docs.spec.ts` falla.
+
+## Capítulos
+
+| Nº | Español | English |
+|---|---|---|
+| 2 | [Claves y seguridad](guides/es/02-claves-y-seguridad.md) | [Keys and security](guides/en/02-keys-and-security.md) |
+
+Los demás capítulos (empezar, identificar al cliente, cargar, errores, cuadre,
+demo, salida) llegan con su entrega; hasta entonces, las guías completas del
+piloto están en `pilot/`.

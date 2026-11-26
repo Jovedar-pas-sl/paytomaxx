@@ -154,6 +154,23 @@ describe('consultas por local sin local ni permiso explícito (fail loud)', () =
     ).resolves.toBeDefined();
   });
 
+  it('una petición de la API de socios (strictTenancy) corta aunque TENANCY_UNSCOPED_QUERIES=log', async () => {
+    const { prisma, cls } = makePrisma('log');
+    await installMiddleware(prisma);
+    await cls.run(async () => {
+      cls.set('ctx', { strictTenancy: true, partnerConnectionId: 'c-1', traceId: 't-1' });
+      await expect(runMiddleware(prisma, { model: 'Payment', action: 'findMany', args: {} })).rejects.toThrow(UnscopedTenantQueryError);
+      await expect(runMiddleware(prisma, { model: 'OperatorEarning', action: 'findMany', args: {} })).rejects.toThrow(
+        RlsOutsideTransactionError,
+      );
+      await expect(
+        prisma.asSystem(() => runMiddleware(prisma, { model: 'Payment', action: 'findMany', args: {} })),
+      ).resolves.toBeDefined();
+    });
+    // Fuera de la API de socios, como siempre: se avisa y sigue.
+    await expect(runMiddleware(prisma, { model: 'Payment', action: 'findMany', args: {} })).resolves.toBeDefined();
+  });
+
   it('sin MetricsService ni ConfigService (como en los tests con BD real) funciona igual', async () => {
     const cls = new ClsService(new AsyncLocalStorage());
     const prisma = new PrismaService(cls as never);

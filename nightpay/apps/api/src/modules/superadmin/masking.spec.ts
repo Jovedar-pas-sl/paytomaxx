@@ -74,3 +74,16 @@ describe('maskSensitive — lo que va al registro', () => {
     });
   });
 });
+
+describe('maskSensitive — API de socios', () => {
+  it('la clave sellada del enlace y cualquier valor oxp_ → [oculto]', () => {
+    const key = `oxp_live_${'0'.repeat(48)}`;
+    expect(maskSensitive({ keyClaimSealed: 'k1:abc', sealed: 'x', nota: `la clave ${key}`, keyHint: 'oxp_live_…0000', lista: [key] })).toEqual({
+      keyClaimSealed: '[oculto]',
+      sealed: '[oculto]',
+      nota: '[oculto]',
+      keyHint: 'oxp_live_…0000',
+      lista: ['[oculto]'],
+    });
+  });
+});

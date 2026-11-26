@@ -5,7 +5,7 @@ import { ClsModule } from 'nestjs-cls';
 import { randomUUID } from 'node:crypto';
 import type { FastifyRequest } from 'fastify';
 import { configModuleOptions } from './config/env';
-import { sanitizeTraceId } from './common/context/trace-id';
+import { requestTraceId } from './common/context/trace-id';
 import { requestDevice } from './common/http/client-device';
 import { AuthGuard } from './common/guards/auth.guard';
 import { IpRateLimitGuard } from './common/guards/ip-rate-limit.guard';
@@ -48,6 +48,7 @@ import { CustomerDisplayModule } from './modules/customer-display/customer-displ
 import { ReservationsModule } from './modules/reservations/reservations.module';
 import { LegalModule } from './modules/legal/legal.module';
 import { PartyModule } from './modules/party/party.module';
+import { PartnerModule } from './modules/partner/partner.module';
 
 @Module({
   imports: [
@@ -64,9 +65,10 @@ import { PartyModule } from './modules/party/party.module';
         generateId: true,
         idGenerator: () => randomUUID(),
         setup: (cls, req: FastifyRequest) => {
-          // X-Trace-Id del cliente solo si es corto y limpio (se guarda en
-          // audit_events y se devuelve en los errores); si no, uno nuevo.
-          const traceId = sanitizeTraceId(req?.headers?.['x-trace-id']) ?? cls.getId();
+          // X-Trace-Id del cliente (X-Request-Id en la API de socios) solo si
+          // es corto y limpio (se guarda en audit_events y se devuelve en los
+          // errores); si no, uno nuevo.
+          const traceId = requestTraceId(req, cls.getId());
           // El dispositivo y la IP real (la misma que los límites de peticiones):
           // van con el cobro en los eventos `payment.device` (detalle del pago).
           const device = req?.headers ? requestDevice(req) : undefined;
@@ -118,6 +120,8 @@ import { PartyModule } from './modules/party/party.module';
     LegalModule,
     // OxioParty (EDITION=party): casetas y ajustes de la fiesta; con club, 404.
     PartyModule,
+    // API de socios (/v1/partner): apagada salvo PARTNER_API_ENABLED.
+    PartnerModule,
   ],
   controllers: [HealthController],
   // Orden importa: IpRateLimit corre antes que AuthGuard para que un ataque de

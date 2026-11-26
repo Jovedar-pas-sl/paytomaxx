@@ -531,6 +531,8 @@ export const stepUpActions = {
   btcpay: (venueId: string) => `btcpay:${venueId}`,
   /** Devolver en efectivo lo pagado con bitcoin (un cobro o una factura sin cobro). */
   bitcoinCash: (targetId: string, amountCents: number) => `btc-cash:${targetId}:${amountCents}`,
+  /** Conectar una plataforma (id del socio), cambiar su clave o reanudarla (id de la conexión). */
+  partner: (action: 'create' | 'rotate' | 'resume', id: string) => `partner:${action}:${id}`,
   /** «Pagar» a varias a la vez: atada a la clave de la tanda, a cuántas son y al total. */
   payoutBatch: (key: string, count: number, totalCents: number) => `payout-batch:${key}:${count}:${totalCents}`,
 } as const;
