@@ -18,6 +18,7 @@ import {
 } from '@nightpay/contracts';
 import { madridAt, nextDay } from '../../../common/time/madrid';
 import { stableJson } from '../../payments/idempotency';
+import { cashTopUpOverLimit } from '../../wallets/wallet-cash-limits';
 import { partnerError } from '../http/partner-problem';
 
 /**
@@ -151,6 +152,21 @@ export function firstLimitHit(amount: number, caps: LoadCaps, totals: LoadWindow
   };
   for (const limit of PARTNER_LOAD_LIMITS) if (checks[limit]) return checks[limit];
   return null;
+}
+
+/**
+ * Por qué no se puede hacer esta carga: el primer tope (en el orden del
+ * contrato) y, solo si ninguno salta, el efectivo de 24 h (decisión 9: lo
+ * último y sin `remaining`). null si cabe.
+ */
+export function loadRefusal(
+  amount: number,
+  caps: LoadCaps,
+  totals: LoadWindowTotals,
+  unnamed: boolean,
+  cash: Parameters<typeof cashTopUpOverLimit>[1],
+): LimitHit | { limit: 'cash' } | null {
+  return firstLimitHit(amount, caps, totals, unnamed) ?? (cashTopUpOverLimit(amount, cash) ? { limit: 'cash' } : null);
 }
 
 /** «Sin nombre» = sin teléfono de contacto apuntado (decisión 10). */

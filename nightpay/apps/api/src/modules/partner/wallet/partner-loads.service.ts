@@ -43,7 +43,7 @@ import { LEGAL_UPDATED } from '../../legal/legal-owner';
 import { VENUE_PAUSE_SELECT, venuePauseScope } from '../../venues/venue-pause';
 import { ChargeAlertService } from '../../wallets/charge-alert/charge-alert.service';
 import { reopenData } from '../../wallets/wallet-activation';
-import { cashTopUpOverLimit, walletCash } from '../../wallets/wallet-cash-limits';
+import { walletCash } from '../../wallets/wallet-cash-limits';
 import { lockLiveWallet, mergedWalletIds, type LockedWallet } from '../../wallets/wallet-merge-chain';
 import { assertTwoFactorCode } from '../../wallets/wallet-two-factor';
 import type { PartnerAuth } from '../auth/current-connection.decorator';
@@ -54,7 +54,7 @@ import {
   assertLoadTexts,
   decodeLoadsCursor,
   encodeLoadsCursor,
-  firstLimitHit,
+  loadRefusal,
   idempotencyKeyOf,
   loadRequestHash,
   loadView,
@@ -204,19 +204,16 @@ export class PartnerLoadsService {
           now,
           nightStart: lastNightCutoff(now),
         });
-        const hit = firstLimitHit(body.amount, caps, totals, unnamedWallet(phone[0]?.contactPhone));
+        const hit = loadRefusal(body.amount, caps, totals, unnamedWallet(phone[0]?.contactPhone), await walletCash(tx, wallet.id, now));
         if (hit) {
           state.refused = { walletId: wallet.id, limit: hit.limit, amountCents: body.amount, idempotencyKey: key, requestHash: hash, now };
+          if (hit.limit === 'cash') throw partnerError('cash_limit_reached');
           throw partnerError(
             'limit_exceeded',
             { limit: hit.limit, ...(hit.remaining === null ? {} : { remaining: hit.remaining }) },
             undefined,
             loadLimitDetail(hit.limit, caps.perOperationCents),
           );
-        }
-        if (cashTopUpOverLimit(body.amount, await walletCash(tx, wallet.id, now))) {
-          state.refused = { walletId: wallet.id, limit: 'cash', amountCents: body.amount, idempotencyKey: key, requestHash: hash, now };
-          throw partnerError('cash_limit_reached');
         }
         // 9. El saldo, la fila de caja, la LOAD y su registro, con el mismo `now`.
         const loaded = await this.credit(tx, auth, { wallet, body, description, refKind, key, hash, now });

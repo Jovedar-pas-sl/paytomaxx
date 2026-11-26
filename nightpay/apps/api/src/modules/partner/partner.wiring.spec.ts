@@ -95,6 +95,31 @@ describe('cableado de la API de socios', () => {
     expect(entries.filter(([, d]) => d.money && (d.scopes.length === 0 || d.scopes.some((s) => !money.has(s)))).map(([n]) => n)).toEqual([]);
   });
 
+  it('mueven dinero (congelación `money` y 120/min) exactamente crear y anular una carga', () => {
+    const entries = Object.entries(PARTNER_ROUTES) as Array<[string, { money: boolean }]>;
+    expect(entries.filter(([, d]) => d.money).map(([n]) => n).sort()).toEqual(['createWalletLoad', 'voidWalletLoad']);
+  });
+
+  it('solo voidLoad resta saldo: cualquier otro cambio de client_wallets en modules/partner solo suma (increment)', () => {
+    const writes: Array<{ file: string; fn: string; adds: boolean }> = [];
+    for (const file of tsFiles(PARTNER_DIR, '.ts')) {
+      const sf = ts.createSourceFile(file, readFileSync(file, 'utf8'), ts.ScriptTarget.ES2022, true);
+      const visit = (node: ts.Node, fn: string): void => {
+        const name =
+          (ts.isMethodDeclaration(node) || ts.isFunctionDeclaration(node)) && node.name ? node.name.getText(sf) : fn;
+        const text = ts.isCallExpression(node) || ts.isTaggedTemplateExpression(node) ? node.getText(sf) : '';
+        const isWalletUpdate =
+          (ts.isCallExpression(node) && /clientWallet\.(update|updateMany|upsert)$/.test(node.expression.getText(sf))) ||
+          (ts.isTaggedTemplateExpression(node) && /UPDATE\s+client_wallets/i.test(node.template.getText(sf)));
+        if (isWalletUpdate) writes.push({ file: file.slice(PARTNER_DIR.length + 1), fn: name, adds: /balanceCents:\s*\{\s*increment:/.test(text) });
+        ts.forEachChild(node, (child) => visit(child, name));
+      };
+      visit(sf, '');
+    }
+    expect(writes.length).toBeGreaterThanOrEqual(2);
+    expect(writes.filter((w) => !w.adds).map((w) => `${w.file}:${w.fn}`)).toEqual(['wallet/partner-loads.service.ts:voidLoad']);
+  });
+
   it('modules/partner nunca usa acrossVenues (una clave es de un local)', () => {
     const offenders = tsFiles(PARTNER_DIR, '.ts').filter((f) => /\bacrossVenues\b/.test(readFileSync(f, 'utf8')));
     expect(offenders).toEqual([]);
