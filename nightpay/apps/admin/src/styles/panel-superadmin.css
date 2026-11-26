@@ -248,6 +248,13 @@
   background: var(--np-surface-2);
 }
 
+/* La tarjeta que lleva la barra pegada va lisa (con su borde y su sombra), como
+   .np-table-host y .np-set-card: la barra pinta --np-surface y sobre el
+   degradado de la tarjeta se veía una franja más oscura mientras estaba pegada. */
+.np-sa-card {
+  background-image: none;
+}
+
 /* ─── Formularios ─────────────────────────────────────────────────── */
 
 .np-sa-form {
