@@ -40,7 +40,7 @@ import { WalletEventsModule } from '../wallet-events/wallet-events.module';
 import { PublicWalletEventsController } from './public-wallet-events.controller';
 import { WalletWelcomeService } from '../home-topup/wallet-welcome.service';
 import { CobroDetailModule } from '../money-map/cobro-detail.module';
-import { ChargeAlertService } from './charge-alert/charge-alert.service';
+import { ChargeAlertModule } from './charge-alert/charge-alert.module';
 import { ChargeDisputeService } from './charge-alert/charge-dispute.service';
 import { PublicChargeAlertController } from './charge-alert/charge-alert.controller';
 import { PartyRefundsService } from '../party/party-refunds.service';
@@ -52,7 +52,8 @@ import { PublicWalletLiveCodeController } from './public-wallet-live-code.contro
   // WalletEventsModule: los avisos del saldo al momento (GET /w/:token/events).
   // CobroDetailModule: el detalle de un pago en la página del saldo (GET /w/:token/movements/:kind/:id).
   // WalletLiveCodeModule: el código del móvil (POST /w/:token/live-code) y sus anulaciones.
-  imports: [PrismaModule, AuditModule, AuthModule, WalletEventsModule, CobroDetailModule, WalletLiveCodeModule],
+  // ChargeAlertModule: «Aviso en cada cobro» (también lo usa la API de socios: «Carga anulada»).
+  imports: [PrismaModule, AuditModule, AuthModule, WalletEventsModule, CobroDetailModule, WalletLiveCodeModule, ChargeAlertModule],
   // WalletTopUpService: «Recargar» desde /w (usa PaymentsService con ModuleRef).
   providers: [
     WalletContactService,
@@ -80,7 +81,6 @@ import { PublicWalletLiveCodeController } from './public-wallet-live-code.contro
     // «Cargar saldo antes de llegar» en la página del saldo: el QR de la ficha y la cookie del enlace del local.
     WalletWelcomeService,
     // «Aviso en cada cobro»: el aviso al móvil del cliente (Web Push) y «No he sido yo».
-    ChargeAlertService,
     ChargeDisputeService,
     // OxioParty: «Lo que sobra» en la página de la pulsera (y Devoluciones en el panel, PartyModule).
     PartyRefundsService,

@@ -279,6 +279,8 @@ export const FR: CustomerTexts = withFrenchSpacing<CustomerTexts>({
       topUp: 'Recharge',
       topUpCash: 'Recharge en espèces',
       topUpCashVoid: 'Recharge en espèces annulée',
+      partnerLoad: 'Recharge · {name} : {text}',
+      partnerLoadVoid: 'Recharge annulée · {name}',
       payoutCash: 'Remboursé en espèces',
       payoutCard: 'Remboursé sur la carte',
     },

@@ -337,11 +337,14 @@ function npLastWhen(iso,now,L){var t=new Date(iso),o={timeZone:'Europe/Madrid',h
 /**
  * lastRender(s): «Último: −12 € · Gin tonic · 21:30» debajo del saldo (sin
  * movimientos, nada). movMore(): «Ver todos» solo si hay más de tres filas, y
- * lo que dice. Lo usa render() (define $, T, C, show, fill, eur).
+ * lo que dice. mvl(m): el texto de una fila en el idioma de la página
+ * (WalletText.mv), con `{name}` y `{text}` de una carga de otra plataforma. Lo usa render() (define $, T, C, show, fill, eur).
  */
 const MOVES_JS = `
+function mvl(m){var t=m.labelKey&&T.mv[m.labelKey];if(!t)return m.label;
+ return t.replace('{name}',function(){return m.partnerName||'';}).replace('{text}',function(){return m.partnerText||'';});}
 function lastRender(s){var m=s.movements[0];if(!m){show('heroLast','');return;}
- var what=m.stallName||(m.labelKey&&T.mv[m.labelKey]?T.mv[m.labelKey]:m.label);
+ var what=m.stallName||mvl(m);
  show('heroLast',fill(T.last,'what',[(m.amountCents>0?'+':'')+eur(m.amountCents),what,m.returned?T.detail.returned:'',npLastWhen(m.at,Date.now(),C.locale)].filter(Boolean).join(' · ')));}
 function movMore(){var b=$('movAll'),ul=$('movements'),all=ul.classList.contains('all');b.hidden=ul.children.length<=3;
  b.textContent=all?T.movementsLess:T.movementsAll;b.setAttribute('aria-expanded',String(all));}
@@ -487,7 +490,7 @@ function render(s){S=s;S.cards=s.cards||[];
  if(!s.movements.length){var e=document.createElement('li');e.className='mv';e.textContent=T.noMovements;ul.appendChild(e);}
  s.movements.forEach(function(m){var li=document.createElement('li'),sw=document.createElement('i'),mt=document.createElement('span'),a=document.createElement('b'),sub=document.createElement('span'),b=document.createElement('span'),host=li;li.className='mv';
   sw.className=m.color?'sw':'sw hold';sw.setAttribute('aria-hidden','true');if(m.color)sw.style.setProperty('--c',m.color);
-  mt.className='mt';${party ? 'mvText(m,a,sub);' : "a.textContent=m.labelKey&&T.mv[m.labelKey]?T.mv[m.labelKey]:m.label;sub.textContent=[m.returned?T.detail.returned:'',m.ref,m.venueName,when(m.at)].filter(Boolean).join(' · ');"}mt.appendChild(a);mt.appendChild(sub);
+  mt.className='mt';${party ? 'mvText(m,a,sub);' : "a.textContent=mvl(m);sub.textContent=[m.returned?T.detail.returned:'',m.ref,m.venueName,when(m.at)].filter(Boolean).join(' · ');"}mt.appendChild(a);mt.appendChild(sub);
   b.textContent=(m.amountCents>0?'+':'')+eur(m.amountCents);b.className=(m.returned?'gone':m.amountCents>0?'plus':'minus')+' num';
   if(m.detail){host=document.createElement('button');host.type='button';host.className='mvb';host.addEventListener('click',function(){detOpen(m);});li.appendChild(host);}
   host.appendChild(sw);host.appendChild(mt);host.appendChild(b);ul.appendChild(li);});

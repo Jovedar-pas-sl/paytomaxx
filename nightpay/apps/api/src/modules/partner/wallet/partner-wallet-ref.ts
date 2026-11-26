@@ -14,7 +14,7 @@ import { REDIS_CLIENT } from '../../../common/redis/redis.module';
 import { AuditService } from '../../audit/audit.service';
 import { isIssuedCard } from '../../wallets/wallet-card-ops';
 import { WalletLiveCodeService } from '../../wallets/wallet-live-code.service';
-import { liveWalletId } from '../../wallets/wallet-merge-chain';
+import { liveWalletId, lockLiveWallet, type LockedWallet } from '../../wallets/wallet-merge-chain';
 import { formatWalletCode, sameWalletGroup } from '../../wallets/wallet-rules';
 import type { PartnerAuth } from '../auth/current-connection.decorator';
 import { partnerError } from '../http/partner-problem';
@@ -114,6 +114,19 @@ export interface ResolvedWalletRef {
   balanceCents: number;
 }
 
+/** El saldo de una carga, ya bloqueado (FOR UPDATE) y comprobado. */
+export interface LockedWalletRef {
+  wallet: LockedWallet;
+  refKind: PartnerRefKind;
+}
+
+/**
+ * Registros que la resolución deja para después de la transacción (dentro
+ * gastarían otra conexión del pool): el servicio los escribe al acabar,
+ * también si se deshizo.
+ */
+export type DeferredAudit = () => Promise<void>;
+
 /** El `detail` de `nfc_uid` con un código del móvil. */
 export const NFC_UID_WITH_LIVE_CODE = {
   en: 'nfc_uid: send it only with a ficha link read by NFC.',
@@ -181,6 +194,95 @@ export class PartnerWalletRefs {
     }
   }
 
+  /**
+   * La referencia de una carga (A4.5), dentro de su transacción y en dos
+   * tiempos: el saldo vivo y el alcance sin bloquear nada (fuera, el 404 de
+   * siempre sin candado, registro ni contadores); luego el saldo bloqueado,
+   * otra vez el alcance (una fusión pudo moverlo) y, ya bloqueado, la ficha,
+   * su número de serie, `blockedAt` y el estado. Los registros van a `audits`.
+   */
+  async resolveLocked(auth: PartnerAuth, body: WalletBalanceRequestBody, tx: TransactionalClient, audits: DeferredAudit[]): Promise<LockedWalletRef> {
+    const shape = classifyWalletRef(body.qr);
+    switch (shape.kind) {
+      case 'live_code':
+        return this.lockedByLiveCode(auth, shape.code, body.nfc_uid, tx);
+      case 'ficha':
+        return this.lockedByFicha(auth, shape.token, body.nfc_uid, tx, audits);
+      case 'rejected':
+        await this.limits.scan(auth);
+        if (shape.reason === 'private_link') {
+          const link = shape.privateLink;
+          audits.push(() => this.masterLinkSubmitted(auth, link));
+        }
+        throw partnerError('wallet_ref_not_accepted', { reason: shape.reason }, undefined, WALLET_REF_DETAIL[shape.reason]);
+      case 'live_code_malformed':
+        await this.limits.scan(auth);
+        throw partnerError('live_code_invalid');
+      case 'unrecognized':
+        await this.limits.scan(auth);
+        throw partnerError('wallet_ref_unrecognized');
+    }
+  }
+
+  private async lockedByLiveCode(auth: PartnerAuth, code: string, nfcUid: string | undefined, tx: TransactionalClient): Promise<LockedWalletRef> {
+    if (nfcUid !== undefined) throw partnerError('validation_failed', { param: 'nfc_uid' }, undefined, NFC_UID_WITH_LIVE_CODE);
+    let entry: Awaited<ReturnType<WalletLiveCodeService['peek']>>;
+    try {
+      entry = await this.liveCodes.peek(code);
+    } catch (err) {
+      this.logger.warn(`API de socios: no se pueden leer los códigos del móvil (${(err as Error).name}): 503`);
+      throw partnerError('try_later', {}, REDIS_DOWN_RETRY_S);
+    }
+    if (!entry) throw partnerError('live_code_invalid');
+    const walletId = entry.walletId;
+    if ((await liveWalletId(tx, walletId)) !== walletId) throw partnerError('live_code_invalid');
+    const first = await this.scoped(tx, auth, walletId);
+    if (!first) throw partnerError('live_code_invalid');
+    if (!first.reachable) throw partnerError('wallet_not_found');
+    const wallet = await lockLiveWallet(tx, walletId);
+    // Sumado a otro mientras tanto: el código era de aquel saldo, no del nuevo.
+    if (!wallet || wallet.id !== walletId) throw partnerError('live_code_invalid');
+    if (!(await this.reachable(tx, auth, wallet))) throw partnerError('wallet_not_found');
+    await assertLockedUsable(tx, wallet);
+    return { wallet, refKind: 'live_code' };
+  }
+
+  private async lockedByFicha(
+    auth: PartnerAuth,
+    token: string,
+    nfcUid: string | undefined,
+    tx: TransactionalClient,
+    audits: DeferredAudit[],
+  ): Promise<LockedWalletRef> {
+    const card = await tx.walletCard.findUnique({ where: { token }, select: { id: true, status: true, walletId: true, uid: true } });
+    if (!card?.walletId || (!isIssuedCard(card) && card.status !== 'LOST' && card.status !== 'BLOCKED')) throw partnerError('wallet_not_found');
+    const live = await liveWalletId(tx, card.walletId);
+    const first = live ? await this.scoped(tx, auth, live) : null;
+    // Fuera del alcance, el mismo 404 que una ficha desconocida: sin candado, registro ni contadores.
+    if (!first?.reachable) throw partnerError('wallet_not_found');
+    const wallet = await lockLiveWallet(tx, first.wallet.id);
+    if (!wallet || !(await this.reachable(tx, auth, wallet))) throw partnerError('wallet_not_found');
+    // Ya bloqueado: la ficha como está ahora.
+    const now = await tx.walletCard.findUnique({ where: { id: card.id }, select: { id: true, status: true, walletId: true, uid: true } });
+    if (!now?.walletId || (!isIssuedCard(now) && now.status !== 'LOST' && now.status !== 'BLOCKED')) throw partnerError('wallet_not_found');
+    if ((await liveWalletId(tx, now.walletId)) !== wallet.id) throw partnerError('wallet_not_found');
+    if (now.status === 'LOST') throw partnerError('ficha_lost');
+    if (now.status === 'BLOCKED') throw partnerError('ficha_blocked');
+    let refKind: PartnerRefKind = 'ficha';
+    const stored = now.uid ? normalizeWalletCardUid(now.uid) : null;
+    if (nfcUid !== undefined && stored) {
+      // El UID que llega nunca se guarda.
+      if (normalizeWalletCardUid(nfcUid) !== stored) {
+        const scoped = { id: wallet.id, balanceCents: wallet.balanceCents, status: wallet.status, blockedAt: null, shortCode: wallet.shortCode };
+        audits.push(() => this.cardCopySuspected(auth, now.id, scoped));
+        throw partnerError('ficha_copy_suspected');
+      }
+      refKind = 'ficha_nfc';
+    }
+    await assertLockedUsable(tx, wallet);
+    return { wallet, refKind };
+  }
+
   /** Un código del móvil: solo el saldo al que se dio (no sigue fusiones) y dentro del alcance. */
   private async byLiveCode(auth: PartnerAuth, code: string, nfcUid: string | undefined): Promise<ResolvedWalletRef> {
     if (nfcUid !== undefined) throw partnerError('validation_failed', { param: 'nfc_uid' }, undefined, NFC_UID_WITH_LIVE_CODE);
@@ -238,6 +340,11 @@ export class PartnerWalletRefs {
     const wallet = await tx.clientWallet.findUnique({ where: { id: walletId }, select: WALLET_SELECT });
     if (!wallet) return null;
     return { wallet, reachable: await this.reachable(tx, auth, wallet) };
+  }
+
+  /** ¿Este saldo (ya leído o bloqueado) está al alcance de la clave? */
+  isReachable(tx: TransactionalClient, auth: PartnerAuth, wallet: { tenantId: string; walletGroup: string | null }): Promise<boolean> {
+    return this.reachable(tx, auth, wallet);
   }
 
   private async reachable(tx: TransactionalClient, auth: PartnerAuth, wallet: { tenantId: string; walletGroup: string | null }): Promise<boolean> {
@@ -311,6 +418,12 @@ export class PartnerWalletRefs {
       return true;
     }
   }
+}
+
+/** El saldo bloqueado (FOR UPDATE): `blockedAt` (LockedWallet no lo trae) y su estado. */
+async function assertLockedUsable(tx: TransactionalClient, wallet: LockedWallet): Promise<void> {
+  const rows = await tx.$queryRaw<Array<{ blockedAt: Date | null }>>`SELECT "blockedAt" FROM client_wallets WHERE id = ${wallet.id}::uuid`;
+  assertWalletUsable({ blockedAt: rows[0]?.blockedAt ?? null, status: wallet.status });
 }
 
 /** Bloqueado → wallet_blocked; devuelto o caducado → wallet_closed; vacío (DEPLETED) vale. */

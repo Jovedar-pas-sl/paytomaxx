@@ -13,6 +13,7 @@ import {
   type PartnerConnectionsOverview,
   type PartnerKeyIssued,
   type PartnerKeyOverlap,
+  type PartnerLimitsUpdateDto,
   type ResumePartnerConnectionDto,
   type RotatePartnerKeyDto,
 } from '@nightpay/contracts';
@@ -25,6 +26,7 @@ import { LOCAL_API_ORIGIN, originOf } from '../../home-topup/home-topup-settings
 import { PartnerAuthLimiter } from '../auth/partner-auth-limiter';
 import { generatePartnerKey, type IssuedPartnerKey } from '../auth/partner-key';
 import { PARTNER_AUDIT, partnerAuditPayload } from '../partner-audit';
+import { PARTNER_LOAD_AUDIT } from '../wallet/partner-load-watch';
 import { partnerApiMode } from '../partner-flag';
 import { claimEmail, claimUrl, newClaim, type NewClaim } from './partner-key-claim';
 import {
@@ -249,6 +251,42 @@ export class PartnerConnectionsService {
         include: VIEW_INCLUDE,
       });
       await this.audit.logInTx(tx, this.auditRow(user, PARTNER_AUDIT.connectionResumed, row));
+      return row;
+    });
+  }
+
+  /**
+   * Los topes de carga (OWNER). 2FA solo si sube alguno, atada a los tres
+   * valores; con la fila bloqueada, si ahora sube y antes no (sin 2FA), 409.
+   */
+  async updateLimits(user: JwtPayload, id: string, dto: PartnerLimitsUpdateDto): Promise<PartnerConnectionView> {
+    const after = { perOperationCents: dto.perOperationCents, walletDayCents: dto.walletDayCents, nightCents: dto.nightCents };
+    const raises = (c: { loadPerOpMaxCents: number; loadWalletDayMaxCents: number; loadNightMaxCents: number }) =>
+      after.perOperationCents > c.loadPerOpMaxCents || after.walletDayCents > c.loadWalletDayMaxCents || after.nightCents > c.loadNightMaxCents;
+    const current = await this.prisma.withTenant(user.tenantId, (tx) =>
+      tx.partnerConnection.findFirst({
+        where: { id, tenantId: user.tenantId },
+        select: { loadPerOpMaxCents: true, loadWalletDayMaxCents: true, loadNightMaxCents: true },
+      }),
+    );
+    if (!current) throw adminError('PARTNER_CONNECTION_NOT_FOUND');
+    const stepUp = raises(current);
+    if (stepUp) {
+      await this.totp.assertForUser(
+        user.sub,
+        dto.totpCode,
+        stepUpActions.partner('limits', id, `${after.perOperationCents}-${after.walletDayCents}-${after.nightCents}`),
+      );
+    }
+    return this.change(user, id, async (tx, conn) => {
+      if (!stepUp && raises(conn)) throw adminError('PARTNER_LIMITS_CHANGED');
+      const before = { perOperationCents: conn.loadPerOpMaxCents, walletDayCents: conn.loadWalletDayMaxCents, nightCents: conn.loadNightMaxCents };
+      const row = await tx.partnerConnection.update({
+        where: { id: conn.id, tenantId: user.tenantId },
+        data: { loadPerOpMaxCents: after.perOperationCents, loadWalletDayMaxCents: after.walletDayCents, loadNightMaxCents: after.nightCents },
+        include: VIEW_INCLUDE,
+      });
+      await this.audit.logInTx(tx, this.auditRow(user, PARTNER_LOAD_AUDIT.capsChanged, row, { before, after }));
       return row;
     });
   }

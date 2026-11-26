@@ -78,7 +78,9 @@ describe('página del saldo del cliente', () => {
 
   it('los movimientos del API (recargas, devoluciones) en el idioma de la página; lo pedido, tal cual', () => {
     const js = script(renderWalletPage('tok-1', 'fr', state()));
-    expect(js).toContain('a.textContent=m.labelKey&&T.mv[m.labelKey]?T.mv[m.labelKey]:m.label;');
+    // mvl(m): el texto de wallet.mv, con {name} y {text} de una carga de otra plataforma (PR 3 de la API de socios).
+    expect(js).toContain('a.textContent=mvl(m);');
+    expect(js).toContain("function mvl(m){var t=m.labelKey&&T.mv[m.labelKey];if(!t)return m.label;");
     expect(js).toContain('Remboursé en espèces');
   });
 

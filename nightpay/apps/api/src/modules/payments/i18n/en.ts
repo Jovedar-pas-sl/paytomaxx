@@ -268,6 +268,8 @@ export const EN: CustomerTexts = {
       topUp: 'Top-up',
       topUpCash: 'Cash top-up',
       topUpCashVoid: 'Cash top-up cancelled',
+      partnerLoad: 'Top-up · {name}: {text}',
+      partnerLoadVoid: 'Top-up cancelled · {name}',
       payoutCash: 'Refunded in cash',
       payoutCard: 'Refunded to card',
     },

@@ -57,3 +57,21 @@ export function installPartnerUrlCheck(app: NestFastifyApplication): void {
     throw partnerError('api_key_in_url');
   });
 }
+
+/** Una petición de socios con el momento en que llegó (onRequest). */
+export type PartnerTimedRequest = { headers: Record<string, string | string[] | undefined>; partnerReceivedAt?: number };
+
+/**
+ * El sello de llegada de cada petición de /v1/partner (onRequest, antes de
+ * leer el cuerpo): una carga se guarda en los 25 s siguientes o nunca.
+ */
+export function installPartnerReceivedAt(app: NestFastifyApplication): void {
+  app.getHttpAdapter().getInstance().addHook('onRequest', async (req) => {
+    if (isPartnerPath(req.url)) (req as unknown as PartnerTimedRequest).partnerReceivedAt = Date.now();
+  });
+}
+
+/** Cuándo llegó (sin el gancho, ahora: nunca más tarde de lo que de verdad llegó). */
+export function partnerReceivedAt(req: PartnerTimedRequest): number {
+  return typeof req.partnerReceivedAt === 'number' ? req.partnerReceivedAt : Date.now();
+}

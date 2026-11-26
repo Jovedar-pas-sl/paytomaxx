@@ -398,7 +398,10 @@ export interface ClientWalletState {
      * El texto de la fila en el idioma de la página (recargas y devoluciones:
      * WalletText.mv); sin él, `label` tal cual (los consumos: lo que se pidió).
      */
-    labelKey?: 'topUp' | 'topUpCash' | 'topUpCashVoid' | 'payoutCash' | 'payoutCard';
+    labelKey?: 'topUp' | 'topUpCash' | 'topUpCashVoid' | 'payoutCash' | 'payoutCard' | 'partnerLoad' | 'partnerLoadVoid';
+    /** Cargas de otras plataformas (labelKey partnerLoad…): el nombre del socio y su descripción, para `{name}` y `{text}`. */
+    partnerName?: string;
+    partnerText?: string;
     venueName: string | null;
     at: string;
     /** Referencia del cobro (C-0001) en consumos y recargas con tarjeta; null en el resto y en los antiguos. */
@@ -748,7 +751,14 @@ export class WalletChargesService {
         where: { walletId: wallet.id },
         orderBy: { createdAt: 'desc' },
         take: 10,
-        select: { amountCents: true, tenantId: true, createdAt: true },
+        select: {
+          amountCents: true,
+          tenantId: true,
+          createdAt: true,
+          // Las cargas de los cajeros de otras plataformas (API de socios): su nombre y su texto.
+          partnerConnection: { select: { partner: { select: { name: true } } } },
+          partnerOperation: { select: { description: true } },
+        },
       });
       // Su ficha NFC (dada a este saldo): en «Pagar» se le dice que también paga con ella.
       const issuedCards = await tx.walletCard.findMany({
@@ -805,17 +815,36 @@ export class WalletChargesService {
         color: null,
         detail: { kind: 'PAYMENT' as const, id: t.id },
       })),
-      ...cashTopUps.map((t) => ({
-        kind: 'topup' as const,
-        amountCents: t.amountCents,
-        // Una recarga mal tecleada que el encargado anuló: fila negativa.
-        label: t.amountCents < 0 ? 'Recarga en efectivo anulada' : 'Recarga en efectivo',
-        labelKey: t.amountCents < 0 ? ('topUpCashVoid' as const) : ('topUpCash' as const),
-        venueName: venueName(t.tenantId),
-        at: t.createdAt.toISOString(),
-        ref: null,
-        color: null,
-      })),
+      ...cashTopUps.map((t) => {
+        const partner = t.partnerConnection?.partner.name;
+        if (partner) {
+          // «Carga · {socio}: {descripción}» / «Carga anulada · {socio}» (en el idioma de la página: wallet.mv).
+          const description = t.partnerOperation?.description ?? '';
+          return {
+            kind: 'topup' as const,
+            amountCents: t.amountCents,
+            label: t.amountCents < 0 ? `Carga anulada · ${partner}` : `Carga · ${partner}: ${description}`,
+            labelKey: t.amountCents < 0 ? ('partnerLoadVoid' as const) : ('partnerLoad' as const),
+            partnerName: partner,
+            ...(t.amountCents < 0 ? {} : { partnerText: description }),
+            venueName: venueName(t.tenantId),
+            at: t.createdAt.toISOString(),
+            ref: null,
+            color: null,
+          };
+        }
+        return {
+          kind: 'topup' as const,
+          amountCents: t.amountCents,
+          // Una recarga mal tecleada que el encargado anuló: fila negativa.
+          label: t.amountCents < 0 ? 'Recarga en efectivo anulada' : 'Recarga en efectivo',
+          labelKey: t.amountCents < 0 ? ('topUpCashVoid' as const) : ('topUpCash' as const),
+          venueName: venueName(t.tenantId),
+          at: t.createdAt.toISOString(),
+          ref: null,
+          color: null,
+        };
+      }),
       ...payouts.map((p) => ({
         kind: 'payout' as const,
         amountCents: -p.amountCents,

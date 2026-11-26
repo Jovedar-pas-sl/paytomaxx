@@ -1,5 +1,6 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import type { Redis } from 'ioredis';
+import { LOADS_PER_WALLET_MINUTE } from '@nightpay/contracts';
 import { REDIS_CLIENT } from '../../../common/redis/redis.module';
 import { lastNightCutoff, madridDay, nextNightCutoff } from '../../../common/time/madrid';
 import { AuditService } from '../../audit/audit.service';
@@ -19,6 +20,8 @@ import { partnerError } from '../http/partner-problem';
  *    con ficha. Va lo último antes del 200: solo cuentan las lecturas buenas.
  *    El primer 429 de cada saldo por cada tope, una vez al día por conexión,
  *    deja `partner.limit_exceeded` (el rastro de una clave que espía saldos).
+ *  - Cargas por saldo (PR 3): 6 por minuto (`np:prl:wload`), con el saldo ya
+ *    resuelto y bloqueado; la 7.ª, 429.
  */
 export const PARTNER_WALLET_LIMITS = Object.freeze({
   scanPerMinute: 30,
@@ -85,6 +88,13 @@ export class PartnerWalletLimits {
       await this.firstRefusal(auth, 'balnight', walletId, refKind);
       throw partnerError('rate_limited', {}, Math.max(1, Math.ceil((nextNightCutoff(now).getTime() - now.getTime()) / 1000)));
     }
+  }
+
+  /** Una carga en el saldo vivo `walletId` (dentro de su transacción): la 7.ª del minuto, 429. */
+  async loadsPerWallet(auth: PartnerAuth, walletId: string): Promise<void> {
+    const now = Date.now();
+    const n = await this.count(`np:prl:wload:${auth.connection.id}:${walletId}:${Math.floor(now / 60_000)}`, MINUTE_TTL_S);
+    if (n > LOADS_PER_WALLET_MINUTE) throw partnerError('rate_limited', {}, untilNextMinute(now));
   }
 
   /** El primer 429 de este saldo por este tope, hoy y para esta conexión: al registro (sin aviso). */
