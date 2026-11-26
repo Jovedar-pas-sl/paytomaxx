@@ -2,6 +2,7 @@
 
 import type { CSSProperties } from 'react';
 import { Button } from './Button';
+import { Icon } from './Icon';
 
 interface Props {
   title: string;
@@ -21,11 +22,7 @@ export function ErrorScreen({ title, detail, actionLabel, onAction }: Props) {
     <main style={wrap}>
       <div role="alert" style={alertBox}>
       <div style={mark} aria-hidden="true">
-        <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-          <path d="M12 7v6" />
-          <path d="M12 17h.01" />
-          <circle cx="12" cy="12" r="10" />
-        </svg>
+        <Icon name="alert" size={28} />
       </div>
       <h1 style={titleStyle}>{title}</h1>
       <p style={detailStyle}>{detail}</p>
