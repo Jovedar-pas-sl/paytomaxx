@@ -134,6 +134,11 @@ function hashInviteToken(token: string): string {
   return createHash('sha256').update(token).digest('hex');
 }
 
+/** «12,5 %» (de puntos básicos). */
+function pctOf(bps: number): string {
+  return `${(bps / 100).toFixed(2).replace(/\.?0+$/, '').replace('.', ',')} %`;
+}
+
 /** El encargado no fija comisiones: la que mande se ignora (se aplica la del local). */
 function commissionOnCreate(actorRole: Role, requested: number | undefined): { commissionBps: number | null; ignored: boolean } {
   if (actorRole === 'OWNER') return { commissionBps: requested ?? null, ignored: false };
@@ -599,6 +604,21 @@ export class OperatorsService {
     return result;
   }
 
+  /**
+   * Su % propio más la comisión de la plataforma no pasa del 100 % (como
+   * «Reglas del local», commissionTotalsProblem): si no, el local pondría
+   * dinero en cada servicio. null/undefined: la del local (ya comprobada allí).
+   */
+  private async assertCommissionFits(tenantId: string, bps: number | null | undefined): Promise<void> {
+    if (bps === null || bps === undefined) return;
+    const venue = await this.prisma.venue.findUnique({ where: { id: tenantId }, select: { platformCommissionBps: true } });
+    const platform = venue?.platformCommissionBps ?? 0;
+    if (bps + platform <= 10_000) return;
+    throw new BadRequestException(
+      `Su % (${pctOf(bps)}) más la comisión de la plataforma (${pctOf(platform)}) pasa del 100 %: el local pondría dinero en cada servicio. Como mucho, ${pctOf(10_000 - platform)}.`,
+    );
+  }
+
   async createOperator(
     tenantId: string,
     actorUserId: string,
@@ -607,6 +627,7 @@ export class OperatorsService {
   ): Promise<CreateOperatorResponse> {
     const email = dto.email.toLowerCase();
     const commission = commissionOnCreate(actorRole, dto.commissionBps);
+    await this.assertCommissionFits(tenantId, commission.commissionBps);
 
     // Validar email único
     const existing = await this.prisma.asSystem((tx) =>
@@ -1241,6 +1262,7 @@ export class OperatorsService {
       }
     }
 
+    await this.assertCommissionFits(tenantId, dto.commissionBps);
     const data: Record<string, unknown> = {};
     if (dto.displayName !== undefined) data.displayName = dto.displayName;
     if (dto.commissionBps !== undefined) data.commissionBps = dto.commissionBps;

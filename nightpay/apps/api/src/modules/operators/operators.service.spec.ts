@@ -836,3 +836,26 @@ describe('Aviso en su app: «Tu cuenta de cobro ha cambiado»', () => {
     });
   });
 });
+
+describe('OperatorsService — el % propio de la compañera y la comisión de la plataforma no pasan del 100 %', () => {
+  beforeEach(() => vi.clearAllMocks());
+  const platform10 = (prisma: { venue: { findUnique: ReturnType<typeof vi.fn> } }) =>
+    prisma.venue.findUnique.mockResolvedValue({ payoutHoldDays: null, platformCommissionBps: 1000 });
+
+  it('alta: plataforma 10 % + Ana 95 % → no se guarda (el local pondría 5 € por servicio)', async () => {
+    const { svc, prisma } = makeOps({ operator: null });
+    platform10(prisma as never);
+    await expect(
+      svc.createOperator('t-1', 'u-owner', { email: 'ana@example.com', displayName: 'Ana', commissionBps: 9500 }, 'OWNER'),
+    ).rejects.toThrow(/pasa del 100 %/);
+    expect(prisma.user.create).not.toHaveBeenCalled();
+  });
+
+  it('cambiar su %: 95 % no; 90 % (justo el 100 %) sí', async () => {
+    const { svc, prisma } = makeOps();
+    platform10(prisma as never);
+    await expect(svc.updateOperator('t-1', 'op-1', 'u-owner', 'OWNER', { commissionBps: 9500 })).rejects.toThrow(/pasa del 100 %/);
+    expect(prisma.user.update).not.toHaveBeenCalled();
+    await expect(svc.updateOperator('t-1', 'op-1', 'u-owner', 'OWNER', { commissionBps: 9000 })).resolves.toBeDefined();
+  });
+});
