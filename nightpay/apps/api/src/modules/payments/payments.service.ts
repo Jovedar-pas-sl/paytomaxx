@@ -450,6 +450,12 @@ const POS_QR_TTL_SECONDS = 30 * 60; // 30 min — camarero tiene tiempo de llega
 // el banco lo procesara OK. Polling cada 2min vía adapter.getStatus cierra
 // la ventana sin esperar 30min.
 const ORPHAN_RECONCILE_DELAY_MS = 2 * 60 * 1000;
+/** Cancelados con pedido en el banco que el repaso de cada 10 min vuelve a mirar: los de esta última media hora. */
+const CANCELED_RECHECK_WINDOW_MS = 30 * 60 * 1000;
+/** Como mucho tantos por repaso y tipo (el resto, en el siguiente). */
+const BANK_RECHECK_LIMIT = 50;
+/** Para leer por el índice de qrExpiresAt: un cobro de las últimas horas (su plazo es de 5 a 30 min). */
+const BANK_RECHECK_LOOKBACK_MS = 6 * 60 * 60 * 1000;
 
 @Injectable()
 export class PaymentsService implements OnApplicationBootstrap {
@@ -546,6 +552,32 @@ export class PaymentsService implements OnApplicationBootstrap {
       // ERROR, no warn — si el sweep falla los pagos quedan atascados.
       this.logger.error(`Boot sweep failed: ${(err as Error).message}`);
     }
+  }
+
+  /**
+   * Lo llama el repaso de cada 10 min (QrExpireSweepService): vuelve a pedir
+   * la comprobación al banco (orphan-reconcile) de los cobros cancelados en
+   * la última media hora con un pedido abierto en el banco: el cliente pudo
+   * pagar en su banco después y perderse el aviso («Pagó después de
+   * cancelar»). Con tope; un trabajo ya en cola de ese cobro no se repite.
+   */
+  async requeueBankChecks(now: Date = new Date()): Promise<{ canceled: number }> {
+    const canceled = await this.prisma.asSystem((tx) => tx.$queryRaw<Array<{ id: string; tenantId: string }>>`
+      SELECT id::text, "tenantId"::text
+        FROM payments
+       WHERE status = 'CANCELED'
+         AND provider IS NOT NULL
+         AND provider::text <> 'BTCPAY'
+         AND "providerTxId" IS NOT NULL
+         AND "qrExpiresAt" >= ${new Date(now.getTime() - BANK_RECHECK_LOOKBACK_MS)}
+         AND "updatedAt" >= ${new Date(now.getTime() - CANCELED_RECHECK_WINDOW_MS)}
+       ORDER BY "updatedAt" DESC
+       LIMIT ${BANK_RECHECK_LIMIT}
+    `);
+    for (const p of canceled) {
+      await enqueueOrphanReconcile(this.orphanReconcileQueue, this.logger, { paymentId: p.id, tenantId: p.tenantId }, 1000);
+    }
+    return { canceled: canceled.length };
   }
 
   /**

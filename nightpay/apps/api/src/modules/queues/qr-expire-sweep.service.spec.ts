@@ -52,6 +52,7 @@ function makeSweep(
   const prisma = { asSystem: vi.fn(async (fn: (t: typeof tx) => unknown) => fn(tx)) };
   const redis = opts.redis ?? lockRedis(opts.lockedBy);
   const payments = {
+    requeueBankChecks: vi.fn(async () => ({ canceled: 0 })),
     transition: vi.fn(async (id: string, _event: unknown, _tenant: unknown, o?: TransitionOptions) => {
       const failure = opts.fail?.[id];
       if (failure) throw failure;
@@ -181,6 +182,15 @@ describe('QrExpireSweepService — el candado entre réplicas (SET NX con un val
     await expect(service.tick(NOW)).resolves.toBeUndefined();
     expect(String(logger.error.mock.calls[0]![0])).toContain('connection terminated');
     expect(redis.store.has(LOCK)).toBe(false);
+  });
+
+  it('en cada vuelta vuelve a preguntar al banco (cancelados recientes); si falla, se registra y no tumba nada', async () => {
+    const { service, payments, logger } = makeSweep();
+    await service.tick(NOW);
+    expect(payments.requeueBankChecks).toHaveBeenCalledWith(NOW);
+    payments.requeueBankChecks.mockRejectedValueOnce(new Error('redis caído'));
+    await expect(service.tick(NOW)).resolves.toBeUndefined();
+    expect(String(logger.error.mock.calls[0]![0])).toContain('redis caído');
   });
 
   it('Redis caído al soltarlo: se registra y no tumba nada (el candado caduca solo)', async () => {

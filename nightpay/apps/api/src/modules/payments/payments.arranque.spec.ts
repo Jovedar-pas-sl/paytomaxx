@@ -224,3 +224,25 @@ describe('listPendingPos — panel del camarero', () => {
     ]);
   });
 });
+
+describe('requeueBankChecks — el repaso de cada 10 min vuelve a preguntar al banco', () => {
+  it('los cancelados de la última media hora con pedido en el banco (sin bitcoin), con tope: a la cola de conciliación', async () => {
+    const { service, prisma, orphanQueue } = makeService();
+    const queryRaw = vi.fn(async () => [{ id: STUCK_A, tenantId: TENANT }]);
+    prisma.asSystem.mockImplementation(async (fn: (tx: unknown) => unknown) => fn({ $queryRaw: queryRaw }));
+    await expect(service.requeueBankChecks(NOW)).resolves.toMatchObject({ canceled: 1 });
+    const [strings, ...values] = queryRaw.mock.calls[0] as unknown as [TemplateStringsArray, ...unknown[]];
+    const sql = strings.join('?');
+    expect(sql).toContain(`status = 'CANCELED'`);
+    expect(sql).toContain('"providerTxId" IS NOT NULL');
+    expect(sql).toContain(`provider::text <> 'BTCPAY'`);
+    expect(sql).toContain('LIMIT');
+    // Cancelados desde hace 30 min.
+    expect(values).toContainEqual(new Date('2026-10-17T01:00:00+02:00'));
+    expect(orphanQueue.add).toHaveBeenCalledWith(
+      'orphan-reconcile',
+      { paymentId: STUCK_A, tenantId: TENANT },
+      expect.objectContaining({ jobId: `orphan-${STUCK_A}` }),
+    );
+  });
+});

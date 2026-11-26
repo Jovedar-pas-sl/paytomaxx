@@ -11,6 +11,7 @@ import { ORPHAN_RECONCILE_QUEUE } from './queue-tokens';
 import { InvalidTransitionError } from '../payments/payment.machine';
 import { AMOUNT_MISMATCH_EVENT } from './approval-check';
 import { lateApprovalHandled, settleLateCardApproval, wasPaidWithSaldo } from '../payments/late-card-approval';
+import { recordPaidAfterCancel } from '../payments/paid-after-cancel';
 
 interface OrphanReconcileJobData {
   paymentId: string;
@@ -104,6 +105,12 @@ export class OrphanReconcileProcessor extends WorkerHost {
       await this.reconcileAfterSaldo(payment, payment.provider, attempt < maxAttempts);
       return;
     }
+    // Cancelado por el personal con el cliente en su banco: si el banco lo
+    // cobró y su aviso se perdió, «Pagó después de cancelar» (sigue cancelado).
+    if (payment.status === 'CANCELED' && payment.provider) {
+      await this.reconcileAfterCancel(payment, payment.provider);
+      return;
+    }
     if (!RECONCILABLE.has(payment.status)) {
       this.logger.debug(`Orphan ${paymentId} ya resuelto (${payment.status}) — nada que conciliar`);
       return;
@@ -165,6 +172,24 @@ export class OrphanReconcileProcessor extends WorkerHost {
       );
     }
     if (approved.length === 0 && retry) throw new Error('still-pending');
+  }
+
+  /**
+   * Una pasada, sin reintentos: lo vuelve a pedir el repaso de cada 10 min
+   * mientras el cobro es un cancelado reciente (PaymentsService.requeueBankChecks).
+   * recordPaidAfterCancel apunta una incidencia por pedido (repetirlo no hace nada).
+   */
+  private async reconcileAfterCancel(payment: ReconcilablePayment, provider: Provider): Promise<void> {
+    const orders = await this.ordersOf(payment);
+    if (orders.length === 0) return;
+    const approved = await this.approvedOrders(this.gateways.get(provider), payment.tenantId, orders);
+    for (const order of approved) {
+      await recordPaidAfterCancel(
+        { prisma: this.prisma, logger: this.logger },
+        payment,
+        { provider, providerTxId: order, source: 'conciliacion' },
+      );
+    }
   }
 
   private async ordersOf(payment: ReconcilablePayment): Promise<string[]> {
