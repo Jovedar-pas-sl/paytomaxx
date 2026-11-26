@@ -228,10 +228,13 @@ describe('listPendingPos — panel del camarero', () => {
 describe('requeueBankChecks — el repaso de cada 10 min vuelve a preguntar al banco', () => {
   it('los cancelados de la última media hora con pedido en el banco (sin bitcoin), con tope: a la cola de conciliación', async () => {
     const { service, prisma, orphanQueue } = makeService();
-    const queryRaw = vi.fn(async () => [{ id: STUCK_A, tenantId: TENANT }]);
+    const queryRaw = vi.fn(async (strings: TemplateStringsArray) =>
+      strings.join('?').includes(`'CANCELED'`) ? [{ id: STUCK_A, tenantId: TENANT }] : [],
+    );
     prisma.asSystem.mockImplementation(async (fn: (tx: unknown) => unknown) => fn({ $queryRaw: queryRaw }));
     await expect(service.requeueBankChecks(NOW)).resolves.toMatchObject({ canceled: 1 });
-    const [strings, ...values] = queryRaw.mock.calls[0] as unknown as [TemplateStringsArray, ...unknown[]];
+    const call = queryRaw.mock.calls.find((c) => (c[0] as TemplateStringsArray).join('?').includes(`'CANCELED'`));
+    const [strings, ...values] = call as unknown as [TemplateStringsArray, ...unknown[]];
     const sql = strings.join('?');
     expect(sql).toContain(`status = 'CANCELED'`);
     expect(sql).toContain('"providerTxId" IS NOT NULL');
@@ -243,6 +246,27 @@ describe('requeueBankChecks — el repaso de cada 10 min vuelve a preguntar al b
       'orphan-reconcile',
       { paymentId: STUCK_A, tenantId: TENANT },
       expect.objectContaining({ jobId: `orphan-${STUCK_A}` }),
+    );
+  });
+
+  it('los que llevan más de 15 min «Comprobando…» (su comprobación se perdió: falló la cola al pedirla): a la cola otra vez', async () => {
+    const { service, prisma, orphanQueue } = makeService();
+    const queryRaw = vi.fn(async (strings: TemplateStringsArray) =>
+      strings.join('?').includes(`'AUTHORIZING'`) ? [{ id: STUCK_B, tenantId: OTHER_TENANT }] : [],
+    );
+    prisma.asSystem.mockImplementation(async (fn: (tx: unknown) => unknown) => fn({ $queryRaw: queryRaw }));
+    await expect(service.requeueBankChecks(NOW)).resolves.toEqual({ authorizing: 1, canceled: 0 });
+    const call = queryRaw.mock.calls.find((c) => (c[0] as TemplateStringsArray).join('?').includes(`'AUTHORIZING'`));
+    const [strings, ...values] = call as unknown as [TemplateStringsArray, ...unknown[]];
+    const sql = strings.join('?');
+    expect(sql).toContain('"providerTxId" IS NOT NULL');
+    expect(sql).toContain(`provider::text <> 'BTCPAY'`);
+    expect(sql).toContain('"createdAt" <');
+    expect(values).toContainEqual(new Date('2026-10-17T01:15:00+02:00'));
+    expect(orphanQueue.add).toHaveBeenCalledWith(
+      'orphan-reconcile',
+      { paymentId: STUCK_B, tenantId: OTHER_TENANT },
+      expect.objectContaining({ jobId: `orphan-${STUCK_B}` }),
     );
   });
 });

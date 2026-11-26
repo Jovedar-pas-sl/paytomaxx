@@ -99,7 +99,8 @@ export class QrExpireSweepService implements OnModuleInit, OnModuleDestroy {
   /** Volver a preguntar al banco por los cobros que lo necesitan (PaymentsService.requeueBankChecks). Nunca lanza. */
   private async bankChecks(now: Date): Promise<void> {
     try {
-      const { canceled } = await this.payments.requeueBankChecks(now);
+      const { authorizing, canceled } = await this.payments.requeueBankChecks(now);
+      if (authorizing > 0) this.logger.warn(`Repaso del banco: ${authorizing} cobros «Comprobando…» sin su comprobación, vueltos a pedir`);
       if (canceled > 0) this.logger.log(`Repaso del banco: ${canceled} cancelados recientes vueltos a mirar`);
     } catch (err) {
       this.logger.error(`No se pudo pedir el repaso del banco: ${(err as Error).message}`);

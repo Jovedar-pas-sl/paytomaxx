@@ -52,7 +52,7 @@ function makeSweep(
   const prisma = { asSystem: vi.fn(async (fn: (t: typeof tx) => unknown) => fn(tx)) };
   const redis = opts.redis ?? lockRedis(opts.lockedBy);
   const payments = {
-    requeueBankChecks: vi.fn(async () => ({ canceled: 0 })),
+    requeueBankChecks: vi.fn(async () => ({ authorizing: 0, canceled: 0 })),
     transition: vi.fn(async (id: string, _event: unknown, _tenant: unknown, o?: TransitionOptions) => {
       const failure = opts.fail?.[id];
       if (failure) throw failure;
