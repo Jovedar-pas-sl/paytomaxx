@@ -5,6 +5,8 @@ import { PeanpeAdapter } from './peanpe.adapter';
 import { PaytefAdapter } from './paytef.adapter';
 import { RedsysAdapter } from './redsys.adapter';
 import { BtcpayAdapter } from './btcpay.adapter';
+import { YavinAdapter } from './yavin.adapter';
+import { yavinEnabled } from './yavin-flag';
 import type { GatewayAdapter } from './gateway.adapter';
 
 /**
@@ -22,6 +24,8 @@ export class GatewayRegistry {
     @Inject(RedsysAdapter) redsys: RedsysAdapter,
     // Bitcoin (BTCPay): no es la pasarela de tarjeta del local; solo para lo que el resto del API pide a toda pasarela.
     @Optional() @Inject(BtcpayAdapter) btcpay?: BtcpayAdapter,
+    // Yavin (enlace de pago con QR): solo con YAVIN_ENABLED. Apagado, como si no existiera.
+    @Optional() @Inject(YavinAdapter) yavin?: YavinAdapter,
   ) {
     this.adapters = new Map<Provider, GatewayAdapter>([
       ['WIPAY', wipay],
@@ -29,6 +33,7 @@ export class GatewayRegistry {
       ['PAYTEF', paytef],
       ['REDSYS', redsys],
       ...(btcpay ? ([['BTCPAY', btcpay]] as Array<[Provider, GatewayAdapter]>) : []),
+      ...(yavin && yavinEnabled() ? ([['YAVIN', yavin]] as Array<[Provider, GatewayAdapter]>) : []),
     ]);
   }
 

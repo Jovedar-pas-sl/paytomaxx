@@ -112,6 +112,15 @@ const EnvSchema = z.object({
   BTCPAY_ENABLED: z
     .union([z.boolean(), z.string().transform((s) => ['true', '1', 'yes', 'on'].includes(s.trim().toLowerCase()))])
     .default(false),
+  // Yavin (segunda pasarela de tarjeta: enlace de pago online que se enseña
+  // como QR). Apagado por defecto: sin esto no hay ruta de aviso (404), ni
+  // pantalla en super-admin, ni se elige Yavin en ningún cobro, aunque el local
+  // tenga credencial. Ver modules/gateways/yavin.adapter.ts.
+  YAVIN_ENABLED: z
+    .union([z.boolean(), z.string().transform((s) => ['true', '1', 'yes', 'on'].includes(s.trim().toLowerCase()))])
+    .default(false),
+  // Base del API de Yavin (por defecto https://api.yavin.com). Solo para pruebas.
+  YAVIN_API_URL: z.string().url().optional(),
   // OxioCard (alta de la compañera): «Abrir mi OxioCard» solo apunta la
   // petición y su estado (lo cambia a mano el dueño). Apagado por defecto: sin
   // esto no sale en ninguna pantalla y su ruta da 404.
