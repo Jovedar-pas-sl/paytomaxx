@@ -121,6 +121,13 @@ describe('tarjeta de «Por aprobar»', () => {
     expect(APPROVAL_STATUS.PENDING).toEqual({ label: 'Esperando al dueño', tone: 'warning' });
   });
 
+  it('«Mis solicitudes» y «Por aprobar» le pasan la zona del local: sin ella, la hora sale en la de Madrid', () => {
+    for (const file of ['MyRequestsPanel.tsx', 'ApprovalsPanel.tsx']) {
+      const calls = readFileSync(new URL(`../components/${file}`, import.meta.url), 'utf8').match(/decisionLine\([^)]*\)/g);
+      expect(calls, file).toEqual(['decisionLine(item, now, tz)']);
+    }
+  });
+
   it('orden: pendientes (la más antigua arriba) y luego lo decidido (lo último arriba)', () => {
     const older = { ...payout, id: 'old', requestedAt: '2026-10-16T01:00:00Z' };
     const doneA = { ...refund, id: 'dA', status: 'APPROVED' as const, decidedAt: '2026-10-16T02:10:00Z' };
