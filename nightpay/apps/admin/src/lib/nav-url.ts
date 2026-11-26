@@ -40,6 +40,7 @@ const TAB_SLUG: Readonly<Record<TabKey, string>> = {
   terminals: 'datafonos',
   rules: 'reglas',
   methods: 'formas',
+  partners: 'plataformas',
   night: 'noche',
   permissions: 'permisos',
   alerts: 'telegram',
