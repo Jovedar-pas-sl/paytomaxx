@@ -397,9 +397,10 @@ select.np-field-input {
   padding-right: 4.5rem;
 }
 
-/* La contraseña enseñada, en mono: se distinguen la l, la I y el 1. */
+/* La contraseña enseñada, en una mono del sistema: se distinguen la l, la I y
+   el 1 (no --np-font-mono: es Manrope, la de las cifras, con la I y la l iguales). */
 .np-field-input[data-revealed] {
-  font-family: var(--np-font-mono);
+  font-family: 'SF Mono', Menlo, Consolas, monospace;
 }
 
 /* Edge pinta su propio ojo junto a «Ver»: fuera. Regla suelta: en una lista,

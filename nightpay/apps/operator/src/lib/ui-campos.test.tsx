@@ -120,7 +120,10 @@ describe('contraseña: «Ver» / «Ocultar»', () => {
     expect(field().getAttribute('autocapitalize')).toBe('none');
     expect(field().getAttribute('autocorrect')).toBe('off');
     expect(field().hasAttribute('data-revealed')).toBe(true);
-    expect(rule(PIECES, '.np-field-input[data-revealed]')).toContain('font-family: var(--np-font-mono)');
+    // Una mono de verdad: --np-font-mono es Manrope (solo cifras), con la I y la l iguales.
+    const revealed = rule(PIECES, '.np-field-input[data-revealed]');
+    expect(revealed).toMatch(/font-family: [^;]*\bmonospace;/);
+    expect(revealed).not.toContain('--np-font-mono');
     expect(reveal()!.textContent).toBe('Ocultar');
     expect(reveal()!.getAttribute('aria-label')).toBe('Ocultar contraseña');
     act(() => reveal()!.click());
