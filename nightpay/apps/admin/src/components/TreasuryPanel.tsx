@@ -15,11 +15,15 @@ import { formatDecimal, formatEur } from '@/lib/money';
 import { RECONCILIATION_LABELS } from '@/lib/payout-verify';
 import { usePolling } from '@/lib/use-polling';
 import { useVenueTimezone } from '@/lib/venue-context';
+import type { TabKey } from '@/lib/roles';
 import { Notice } from './Notice';
+import { PayoutBatchList } from './PayoutBatchList';
 import { PAYOUT_METHOD_LABELS } from './PayoutMethodForm';
 
 interface Props {
   isOwner: boolean;
+  /** Desde «A quién hay que pagar»: a Avisos («Decidir») y a Seguridad. */
+  onNavigate?: (tab: TabKey) => void;
 }
 
 const POLL_MS = 30_000;
@@ -31,7 +35,7 @@ type Rate = { rate: number; at: string; degraded: boolean } | 'unavailable';
  * tasa falla, solo falta la tasa (antes se caía el panel entero); si fallan
  * las cifras, se avisa encima y se siguen viendo las últimas.
  */
-export function TreasuryPanel({ isOwner }: Props) {
+export function TreasuryPanel({ isOwner, onNavigate }: Props) {
   const tz = useVenueTimezone();
   const [stats, setStats] = useState<TreasuryStats | null>(null);
   const [rate, setRate] = useState<Rate | null>(null);
@@ -80,6 +84,7 @@ export function TreasuryPanel({ isOwner }: Props) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+      <PayoutBatchList isOwner={isOwner} onNavigate={onNavigate} />
       {error ? (
         <Notice tone="danger" action={{ label: 'Reintentar', onClick: reload }}>
           {error}
