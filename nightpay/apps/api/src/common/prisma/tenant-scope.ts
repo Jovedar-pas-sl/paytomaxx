@@ -60,6 +60,8 @@ export const TENANT_SCOPED_MODELS: ReadonlySet<string> = new Set([
   'PartyRefundRequest',
   // «Te han pagado» (20261120400000): los navegadores del personal para el aviso del pago.
   'StaffPushSubscription',
+  // Cobro por el encargado, fase 2 (20261126100000): la ficha NFC de la compañera.
+  'StaffCard',
 ]);
 
 // Operaciones de lectura a filtrar y de escritura a inyectar tenantId
