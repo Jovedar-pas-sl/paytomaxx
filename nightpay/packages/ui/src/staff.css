@@ -23,6 +23,95 @@
   stroke-width: 2.4;
 }
 
+/* La raya de la pestaña elegida: UNA marca en la barra, del ancho de una
+   pestaña, que se desliza a su sitio (--i de --n; las pone TabBar). La raya
+   en sí es su ::after, centrada, de 24×2 y en lima; icono y nombre siguen en
+   crema. Solo transform; sin inset ni min() (Chrome 64). */
+.np-tabmark {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: calc(100% / var(--n));
+  height: 2px;
+  pointer-events: none;
+  transform: translateX(calc(100% * var(--i)));
+  transition: transform 250ms cubic-bezier(0.2, 0, 0, 1);
+}
+
+.np-tabmark::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 50%;
+  width: 1.5rem;
+  height: 2px;
+  margin-left: -0.75rem;
+  border-radius: 999px;
+  background: var(--np-accent);
+}
+
+/* El contenido de la pestaña que entra: se funde y llega 12 px desde el lado
+   de su pestaña (--np-tab-dir: 1 desde la derecha, -1 desde la izquierda).
+   «backwards», nunca «forwards»: al acabar no queda ningún transform (que
+   descolocaría lo que va con position: fixed). Inicio y Recepción, que
+   llevan dentro la hoja del cobro, solo se funden. */
+.np-tab-in {
+  animation: np-tab-in 250ms cubic-bezier(0.2, 0, 0, 1) backwards;
+}
+
+.np-tab-fade {
+  animation: np-tab-fade 250ms cubic-bezier(0.2, 0, 0, 1) backwards;
+}
+
+@keyframes np-tab-in {
+  from {
+    opacity: 0;
+    transform: translateX(calc(12px * var(--np-tab-dir, 1)));
+  }
+
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes np-tab-fade {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .np-tab-in,
+  .np-tab-fade {
+    animation: none;
+  }
+
+  .np-tabmark {
+    transition: none;
+  }
+}
+
+/* La entrada (el personal, el panel y el TPV): la trama de la marca y un
+   resplandor lima arriba, dibujo fijo. Colores en rgba() con comas (Chrome
+   64). En «sala», en claro y en «Modo día», fondo liso: la lima no se lee
+   sobre papel. */
+.np-login {
+  background-color: var(--np-bg);
+  background-image: radial-gradient(42rem 22rem at 50% -6rem, rgba(199, 211, 1, 0.14), rgba(199, 211, 1, 0) 70%), var(--np-bits-brand);
+  background-repeat: no-repeat, repeat;
+}
+
+html[data-contrast='sala'] .np-login,
+html[data-theme='light'] .np-login,
+html[data-theme='day'] .np-login {
+  background-image: none;
+}
+
 /* ─── Resultado a pantalla completa (PaymentOutcome) ─────────────────
    Grafito: fondo plano (PAGADO verde profundo, NO PAGADO rojo, CADUCADO
    ámbar) con texto crema, la marca de 56-64 px sin halo, la palabra 28/600
