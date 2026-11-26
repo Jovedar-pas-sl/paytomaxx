@@ -77,6 +77,15 @@ function contrast(a: string, b: string): number {
   return (hi + 0.05) / (lo + 0.05);
 }
 
+/** El tono (HSL, en grados) de un color hex. */
+function hue(h: string): number {
+  const [r, g, b] = rgb(h).map((c) => c / 255) as [number, number, number];
+  const max = Math.max(r, g, b);
+  const d = max - Math.min(r, g, b);
+  const sixth = max === r ? ((g - b) / d) % 6 : max === g ? (b - r) / d + 2 : (r - g) / d + 4;
+  return (sixth * 60 + 360) % 360;
+}
+
 /** Distancia entre dos colores (en RGB): dos fondos con menos de 20 se confunden. */
 function distance(a: string, b: string): number {
   const [x, y] = [rgb(a), rgb(b)];
@@ -546,6 +555,14 @@ describe('idea 11 · colores de sección', () => {
     // Por eso el texto pequeño nunca va en color de sección: crema con un punto de color.
     expect(contrast(SECTIONS.comida.color, hex('--np-surface-2'))).toBeLessThan(7);
     expect(contrast(SECTIONS.entradas.color, hex('--np-surface-2'))).toBeLessThan(7);
+  });
+
+  it('«A pagar ya a compañeras» del panel va con el tono de Servicios también en claro (rosa hondo, no el magenta de antes)', () => {
+    const vivo = code(read('apps', 'admin', 'src', 'styles', 'panel-vivo.css'));
+    const pay = (selector: string): string => /--vv-pay:\s*(#[0-9a-f]{6});/i.exec(block(vivo, selector))![1]!.toLowerCase();
+    expect(pay(":root,\n[data-theme='dark']")).toBe(SECTIONS.servicios.color);
+    const gap = Math.abs(hue(pay("[data-theme='light']")) - hue(SECTIONS.servicios.color));
+    expect(Math.min(gap, 360 - gap)).toBeLessThanOrEqual(10);
   });
 });
 

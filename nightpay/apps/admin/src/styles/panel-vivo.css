@@ -26,7 +26,8 @@
 
 [data-theme='light'] {
   --vv-card: #1f5c93;
-  --vv-pay: #9c1aa5;
+  /* El rosa de Servicios, hondo: 5,8:1 sobre su tinte, 6,9:1 sobre el papel. */
+  --vv-pay: #a8204f;
   --vv-how-card: #1f5c93;
   --vv-how-saldo: #0b6b57;
   --vv-how-pos: #5e36a3;
