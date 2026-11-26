@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState, type CSSProperties, type ReactNode } from 'react';
 import type { CobroDetail, CobroRow } from '@nightpay/contracts';
-import { Button, Etiqueta, Importe, Skeleton } from '@nightpay/ui';
+import { Button, Etiqueta, FormError, Importe, Skeleton } from '@nightpay/ui';
 import { fetchCobroDetail } from '@/lib/api';
 import {
   amountRows,
@@ -79,9 +79,7 @@ export function CobroDetailPanel({ row, actions }: { row: CobroRow; actions?: Re
     <div className="np-cobro-detail" aria-busy={!detail && !error}>
       {error ? (
         <>
-          <p role="alert" style={{ margin: 0, color: 'var(--np-danger)' }}>
-            {error}
-          </p>
+          <FormError>{error}</FormError>
           <div>
             <Button variant="ghost" size="sm" onClick={load}>
               Reintentar

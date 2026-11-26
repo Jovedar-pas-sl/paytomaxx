@@ -336,6 +336,31 @@
   }
 }
 
+/* Las ventanas de dinero (un formulario: sus botones se quedan en el cuerpo)
+   ordenan su pie como la pregunta: las mismas reglas, en el cuerpo. */
+.np-hoja-body .np-pregunta-pie {
+  margin-top: 0.5rem;
+}
+
+.np-hoja-body .np-pregunta-pie > .np-btn[data-size] {
+  width: 100%;
+  height: auto;
+  min-height: 3rem;
+  padding-top: 0.5rem;
+  padding-bottom: 0.5rem;
+  white-space: normal;
+  line-height: 1.15;
+  text-align: center;
+}
+
+@media (min-width: 641px) {
+  .np-hoja-body .np-pregunta-pie > .np-btn[data-size] {
+    flex: 1 1 0%;
+    width: auto;
+    min-width: 0;
+  }
+}
+
 /* ─── Toast: el aviso flotante ────────────────────────────────────────────
    Algo que salió bien, o un «Deshacer»; se va solo. Centrado y abajo: 16 px
    sobre el pie fijo más alto (lo mide el componente) o del borde. La región

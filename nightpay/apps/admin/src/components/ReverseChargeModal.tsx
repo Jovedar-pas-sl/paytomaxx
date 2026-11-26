@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, type CSSProperties, type FormEvent } from 'react';
-import { Button, Input, Modal } from '@nightpay/ui';
+import { Button, FormError, Input, Modal } from '@nightpay/ui';
 import { PASSKEY_REQUIRED_CODE, stepUpActions, type CobroRow, type StepUpProof } from '@nightpay/contracts';
 import { reverseWalletCharge } from '@/lib/api';
 import { ApiError, totpRetryState } from '@/lib/api-errors';
@@ -91,15 +91,15 @@ export function ReverseChargeModal({
           />
         )}
         {error ? (
-          <p role="alert" style={errorStyle}>
+          <FormError>
             {error}
-          </p>
+          </FormError>
         ) : null}
-        <div style={actionsStyle}>
-          <Button variant="ghost" type="button" onClick={onClose} disabled={busy} style={{ flex: 1 }}>
-            Dejarlo
+        <div className="np-pregunta-pie">
+          <Button variant="ghost" size="lg" type="button" onClick={onClose} disabled={busy}>
+            Volver
           </Button>
-          <Button type="submit" loading={busy} disabled={!ready} style={{ flex: 1 }}>
+          <Button variant="danger" size="lg" type="submit" loading={busy} disabled={!ready}>
             Anular cobro
           </Button>
         </div>
@@ -110,5 +110,3 @@ export function ReverseChargeModal({
 
 const formStyle: CSSProperties = { display: 'flex', flexDirection: 'column', gap: '1rem', marginTop: '1.25rem' };
 const textStyle: CSSProperties = { margin: 0, color: 'var(--np-text-mute)' };
-const errorStyle: CSSProperties = { color: 'var(--np-danger)', margin: 0, fontSize: '0.875rem' };
-const actionsStyle: CSSProperties = { display: 'flex', gap: '0.75rem', marginTop: '0.5rem' };

@@ -2,7 +2,7 @@
 
 import { useState, type FormEvent } from 'react';
 import type { WalletByPhone } from '@nightpay/contracts';
-import { Button, Card, Input } from '@nightpay/ui';
+import { Button, Card, FormError, Input } from '@nightpay/ui';
 import { findWalletsByPhone } from '@/lib/endpoints/wallets';
 import { formatEur } from '@/lib/money';
 import { useFichas } from './fichas/fichas-context';
@@ -45,7 +45,11 @@ export function WalletPhoneSearch() {
           Buscar
         </Button>
       </form>
-      {error ? <p style={{ margin: '0.5rem 0 0', fontSize: '0.875rem', color: 'var(--np-danger-text)' }}>{error}</p> : null}
+      {error ? (
+        <div style={{ marginTop: '0.5rem' }}>
+          <FormError>{error}</FormError>
+        </div>
+      ) : null}
       {found !== null ? (
         found.length === 0 ? (
           <p style={{ margin: '0.5rem 0 0', fontSize: '0.875rem' }}>Ningún saldo con ese teléfono.</p>

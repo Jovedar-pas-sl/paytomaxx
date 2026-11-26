@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useId, useRef, useState, type CSSProperties, type FormEvent } from 'react';
-import { Button, Checkbox, Input, Modal, Select } from '@nightpay/ui';
+import { Button, Checkbox, FormError, Input, Modal, Select } from '@nightpay/ui';
 import { isApprovalRequested, type ApprovalRequestedResponse, type PayoutAccountFull } from '@nightpay/contracts';
 import {
   confirmPayoutManual,
@@ -424,9 +424,9 @@ export function PayoutConfirmModal({
         )}
 
         {error ? (
-          <p role="alert" style={{ color: 'var(--np-danger)', margin: 0, fontSize: '0.875rem' }}>
+          <FormError>
             {error}
-          </p>
+          </FormError>
         ) : null}
         {stale ? (
           <Button type="button" onClick={onDone}>

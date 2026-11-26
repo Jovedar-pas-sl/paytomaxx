@@ -62,27 +62,51 @@ export function Sheet({ open, onClose, title, children, footer, wide = 'dialog',
   const [floating, setFloating] = useState(false);
   const [at, setAt] = useState<{ top: number; left: number } | null>(null);
   const drag = useRef<{ y: number; t: number } | null>(null);
+  // Quién tenía el foco al abrirse, mirado al pintar: un autoFocus de dentro
+  // («Volver» de ConfirmDialog) se lo lleva antes de que corra ningún efecto.
+  const opener = useRef<{ el: HTMLElement | null } | null>(null);
+  if (!open) opener.current = null;
+  else if (opener.current === null && typeof document !== 'undefined') {
+    const active = document.activeElement;
+    opener.current = { el: active instanceof HTMLElement ? active : null };
+  }
 
   useEffect(() => {
     onCloseRef.current = onClose;
   });
 
+  // El menú flota solo en pantalla ancha: si la pantalla cruza los 641 px con él abierto, cambia.
   useLayoutEffect(() => {
-    setFloating(open && wide === 'menu' && isWide());
+    if (!open || wide !== 'menu') {
+      setFloating(false);
+      return undefined;
+    }
+    const query = window.matchMedia?.('(min-width: 641px)');
+    const update = () => setFloating(isWide());
+    update();
+    if (!query) return undefined;
+    // Chrome 64 y Safari viejo: addListener.
+    if (query.addEventListener) query.addEventListener('change', update);
+    else query.addListener?.(update);
+    return () => {
+      if (query.removeEventListener) query.removeEventListener('change', update);
+      else query.removeListener?.(update);
+    };
   }, [open, wide]);
 
+  // El foco, atrapado mientras está abierta y devuelto a quien la abrió. Solo depende de `open`: un cambio de tamaño no lo toca.
   useEffect(() => {
     const panel = panelRef.current;
     if (!open || !panel) return undefined;
-    const close = () => onCloseRef.current();
-    const release = trapFocus(panel, close);
-    // «Atrás» la cierra. El menú ancho no: es parte de la página.
-    const leave = wide === 'menu' && isWide() ? null : openSheetEntry(sheetId, close);
-    return () => {
-      leave?.();
-      release();
-    };
-  }, [open, wide, sheetId]);
+    return trapFocus(panel, () => onCloseRef.current(), opener.current?.el ?? null);
+  }, [open]);
+
+  // «Atrás» la cierra. El menú ancho no: es parte de la página. Aparte del foco, para que cruzar los 641 px no lo mueva.
+  useEffect(() => {
+    // Se mira la pantalla de ahora (no solo `floating`): al abrirse, el menú ancho no deja ni un instante su entrada.
+    if (!open || (wide === 'menu' && isWide())) return undefined;
+    return openSheetEntry(sheetId, () => onCloseRef.current());
+  }, [open, wide, floating, sheetId]);
 
   // El menú, bajo su botón (o encima si no cabe).
   useLayoutEffect(() => {
@@ -182,11 +206,10 @@ export function Sheet({ open, onClose, title, children, footer, wide = 'dialog',
 }
 
 /** Mientras está abierta: foco dentro, Esc cierra, scroll de fondo parado. Devuelve el "deshacer". */
-function trapFocus(panel: HTMLElement, close: () => void): () => void {
+function trapFocus(panel: HTMLElement, close: () => void, previous: HTMLElement | null): () => void {
   const id = Symbol('modal');
   openModals = [...openModals, id];
   const isTop = () => openModals[openModals.length - 1] === id;
-  const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
   // Un autoFocus de dentro manda; si no, el foco va a la ventana (se lee el título).
   if (!panel.contains(document.activeElement)) panel.focus();
 
