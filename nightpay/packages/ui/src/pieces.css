@@ -472,12 +472,8 @@ select.np-field-input {
   color: var(--np-disabled-ink);
 }
 
+/* El error de un campo (FieldError) va en pieces-2.css. */
 .np-field-hint {
   font-size: var(--np-fs-14);
   color: var(--np-text-dim);
-}
-
-/* El error de un campo, de momento en rojo bajo el campo (su aspecto propio, en la entrega 3). */
-.np-field-error {
-  color: var(--np-danger-text);
 }

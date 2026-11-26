@@ -1,0 +1,778 @@
+/* Piezas comunes de las tres apps («Piezas II», 26-nov-2026): la hoja, la
+   pregunta, el aviso flotante, la franja, el error de un campo, los botones
+   discreto y de borrar, el interruptor y la casilla. Las comprueban
+   apps/operator/src/lib/ui-hoja, ui-preguntar, ui-avisos, ui-errores,
+   ui-botones y ui-interruptores.
+
+   Como pieces.css, todo lo de aquí lo ve bien un Chrome 64 (los datáfonos):
+   sin gap (los huecos son márgenes), sin inset: (top, right, bottom y left),
+   sin :has(), min() ni clamp(); color-mix() y oklch(), solo dentro de
+   @supports; vh antes de dvh; las transparencias, con rgba() y comas.
+
+   env() (la zona segura del móvil) va siempre APARTE, dentro de
+   @supports (padding-bottom: env(safe-area-inset-bottom)), nunca como segunda
+   declaración de la misma regla: al compilar, el minificador funde las dos
+   declaraciones de un relleno en una sola con env(), y un navegador que no la
+   entiende se queda sin relleno ninguno. */
+
+/* ─── Sheet: la hoja ──────────────────────────────────────────────────────
+   Lo que se abre encima de la página. Hasta 640 px sube desde abajo, a lo
+   ancho, con su asa; desde 641 es una ventana centrada, un panel a la derecha
+   o un menú bajo su botón. El velo no cierra: un toque sin querer no se lleva
+   lo escrito. */
+.np-hoja-velo {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: var(--np-z-sheet);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  background: rgba(5, 6, 7, 0.74);
+  animation: np-fade-in var(--np-d-base) var(--np-ease);
+}
+
+/* El velo de cada tema, donde hay variables. Sin desenfoque: un datáfono no
+   puede con él. */
+@supports (--np: 0) {
+  .np-hoja-velo {
+    background: var(--np-backdrop);
+  }
+}
+
+/* Sube en 250 ms. Sin relleno al acabar: desde entonces, el arrastre mueve
+   la hoja con su transform. */
+.np-hoja {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-height: 90vh;
+  max-height: 90dvh;
+  border-radius: 24px 24px 0 0;
+  background: var(--np-surface-2);
+  color: var(--np-text);
+  box-shadow: var(--np-shadow-2);
+  animation: np-hoja-in 250ms var(--np-ease);
+}
+
+/* Recibe el foco al abrir (para el lector de pantalla), sin anillo: no es un
+   control. */
+.np-hoja:focus {
+  outline: none;
+}
+
+@keyframes np-hoja-in {
+  from {
+    transform: translateY(100%);
+  }
+
+  to {
+    transform: translateY(0);
+  }
+}
+
+@keyframes np-hoja-in-side {
+  from {
+    transform: translateX(100%);
+  }
+
+  to {
+    transform: translateX(0);
+  }
+}
+
+/* El asa y la cabecera: de aquí se arrastra hacia abajo para cerrar. Solo
+   aquí se le quita el gesto al navegador; el cuerpo se desplaza como siempre. */
+.np-hoja-head {
+  flex: none;
+  padding: 0.5rem 0.5rem 0 1rem;
+  touch-action: none;
+}
+
+.np-hoja-asa {
+  display: block;
+  width: 36px;
+  height: 4px;
+  margin: 0 auto 0.25rem;
+  border-radius: 2px;
+  background: var(--np-border-hi);
+}
+
+.np-hoja-cabecera {
+  display: flex;
+  align-items: center;
+  min-height: 2.75rem;
+}
+
+.np-hoja-titulo {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0 0.5rem 0 0;
+  font-size: var(--np-fs-18);
+  font-weight: 600;
+  line-height: 1.3;
+  letter-spacing: -0.01em;
+  color: var(--np-text);
+  overflow-wrap: break-word;
+}
+
+/* La ✕ (el IconButton común, 44 px): a la derecha, haya título o no. */
+.np-hoja-cerrar {
+  margin-left: auto;
+}
+
+/* Se desplaza por dentro, sin arrastrar la página ni recargarla al tirar hacia
+   abajo. (Sin -webkit-overflow-scrolling: en un iPhone viejo recortaría una
+   hoja abierta desde dentro de otra.) */
+.np-hoja-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: 1rem;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+/* El pie fijo: uno o dos botones, lado a lado e igual de anchos; 16 px por
+   debajo. */
+.np-hoja-pie {
+  flex: none;
+  display: flex;
+  padding: 0.75rem 1rem 16px;
+}
+
+.np-hoja-pie > * {
+  flex: 1 1 0%;
+  min-width: 0;
+}
+
+.np-hoja-pie > * + * {
+  margin-left: 0.5rem;
+}
+
+/* `full`: la pantalla entera y sin esquinas (solo en el móvil). */
+@media (max-width: 640px) {
+  .np-hoja[data-full] {
+    height: 100vh;
+    height: 100dvh;
+    max-height: 100vh;
+    max-height: 100dvh;
+    border-radius: 0;
+  }
+}
+
+/* La zona segura del móvil (el gesto de inicio abajo, la muesca arriba): el
+   pie, o el final del cuerpo si no hay pie, y la cabecera de una hoja a
+   pantalla entera la dejan libre. */
+@supports (padding-bottom: env(safe-area-inset-bottom)) {
+  .np-hoja-body:last-child {
+    padding-bottom: calc(1rem + env(safe-area-inset-bottom));
+  }
+
+  .np-hoja-pie {
+    padding-bottom: calc(16px + env(safe-area-inset-bottom));
+  }
+
+  @media (max-width: 640px) {
+    .np-hoja[data-full] > .np-hoja-head {
+      padding-top: calc(0.5rem + env(safe-area-inset-top));
+    }
+  }
+}
+
+@media (min-width: 641px) {
+  /* Ventana centrada: sin asa, con 24 de relleno y la ✕ de 40. */
+  .np-hoja-velo {
+    align-items: center;
+    padding: 1rem;
+  }
+
+  .np-hoja {
+    width: var(--np-hoja-w, 28rem);
+    max-width: calc(100vw - 2rem);
+    max-height: 85vh;
+    border: 1px solid var(--np-border-hi);
+    border-radius: var(--np-r-card);
+    animation: np-modal-in var(--np-d-base) var(--np-ease);
+  }
+
+  .np-hoja-asa {
+    display: none;
+  }
+
+  .np-hoja-head {
+    padding: 1.5rem 1.5rem 0;
+    touch-action: auto;
+  }
+
+  /* Con su icono a ras del relleno de la ventana. */
+  .np-hoja-cerrar {
+    width: 2.5rem;
+    height: 2.5rem;
+    margin: -0.5rem -0.5rem -0.5rem auto;
+  }
+
+  .np-hoja-body {
+    padding: 1rem 1.5rem 1.5rem;
+  }
+
+  .np-hoja-body:last-child {
+    padding-bottom: 1.5rem;
+  }
+
+  .np-hoja-pie {
+    padding: 0 1.5rem 1.5rem;
+  }
+
+  /* Panel a la derecha, de arriba abajo. */
+  .np-hoja-velo[data-wide='side'] {
+    align-items: stretch;
+    justify-content: flex-end;
+    padding: 0;
+  }
+
+  .np-hoja-velo[data-wide='side'] > .np-hoja {
+    width: var(--np-hoja-w, 27.5rem);
+    height: 100vh;
+    height: 100dvh;
+    max-height: none;
+    border-width: 0 0 0 1px;
+    border-radius: 0;
+    animation: np-hoja-in-side 250ms var(--np-ease);
+  }
+
+  /* Menú: bajo su botón (su sitio lo pone el componente), un paso más claro,
+     sin velo ni cabecera; tocar fuera lo cierra. */
+  .np-hoja-velo[data-wide='menu'] > .np-hoja {
+    width: var(--np-hoja-w, 20rem);
+  }
+
+  .np-hoja-velo[data-floating] {
+    z-index: var(--np-z-menu);
+    display: block;
+    padding: 0;
+    background: transparent;
+    animation: none;
+  }
+
+  .np-hoja-velo[data-floating] > .np-hoja {
+    position: fixed;
+    top: 8px;
+    left: 8px;
+    max-height: calc(100vh - 16px);
+    border-radius: 16px;
+    background: var(--np-surface-3);
+    animation: np-fade-in var(--np-d-fast) var(--np-ease);
+  }
+
+  .np-hoja-velo[data-floating] .np-hoja-body {
+    padding: 0.5rem;
+  }
+}
+
+/* ─── ConfirmDialog: la pregunta antes de lo que no se deshace ────────────
+   En el DOM, «Volver» y después la acción. Hasta 640 px, apilados a lo ancho
+   con la acción arriba; desde 641, lado a lado e igual de anchos. Las
+   etiquetas no se cortan: el botón crece (las reglas llevan un selector largo
+   para ganar a las de tamaño de .np-btn, que van después, en styles.css). */
+.np-pregunta-texto {
+  margin: 0;
+  font-size: var(--np-fs-16);
+  line-height: 1.45;
+  color: var(--np-text-mute);
+}
+
+.np-pregunta-pie {
+  display: flex;
+  flex-direction: column-reverse;
+}
+
+.np-hoja-pie .np-pregunta-pie > .np-btn[data-size] {
+  width: 100%;
+  height: auto;
+  min-height: 3rem;
+  padding-top: 0.5rem;
+  padding-bottom: 0.5rem;
+  white-space: normal;
+  line-height: 1.15;
+  text-align: center;
+}
+
+.np-touch .np-hoja-pie .np-pregunta-pie > .np-btn[data-size] {
+  min-height: 3.5rem;
+}
+
+.np-pregunta-pie > .np-btn + .np-btn {
+  margin-bottom: 0.5rem;
+}
+
+@media (max-width: 480px) {
+  .np-staff .np-hoja-pie .np-pregunta-pie > .np-btn[data-size] {
+    min-height: 3.5rem;
+  }
+}
+
+@media (min-width: 641px) {
+  .np-pregunta-pie {
+    flex-direction: row;
+  }
+
+  .np-hoja-pie .np-pregunta-pie > .np-btn[data-size] {
+    flex: 1 1 0%;
+    width: auto;
+    min-width: 0;
+  }
+
+  .np-pregunta-pie > .np-btn + .np-btn {
+    margin-bottom: 0;
+    margin-left: 0.5rem;
+  }
+}
+
+/* ─── Toast: el aviso flotante ────────────────────────────────────────────
+   Algo que salió bien, o un «Deshacer»; se va solo. Centrado y abajo: 16 px
+   sobre el pie fijo más alto (lo mide el componente) o del borde. La región
+   está siempre (un lector de pantalla la escucha) y no estorba al dedo. */
+.np-toast-region {
+  position: fixed;
+  right: 0;
+  bottom: 16px;
+  left: 0;
+  z-index: var(--np-z-toast);
+  display: flex;
+  justify-content: center;
+  padding: 0 16px;
+  pointer-events: none;
+}
+
+/* Sin pie debajo, por encima de la zona del gesto de inicio del móvil. */
+@supports (padding-bottom: env(safe-area-inset-bottom)) {
+  .np-toast-region {
+    bottom: calc(16px + env(safe-area-inset-bottom));
+  }
+}
+
+/* Con ratón y pantalla ancha, un poco más despegado del borde. */
+@media (min-width: 641px) and (hover: hover) and (pointer: fine) {
+  .np-toast-region {
+    bottom: 24px;
+  }
+}
+
+/* Un texto corto cabe en una línea (30 letras; 18 con «Deshacer»); si no, pasa
+   a dos. */
+.np-toast {
+  display: flex;
+  align-items: center;
+  max-width: 26rem;
+  min-height: 48px;
+  padding: 0 1rem;
+  border-radius: var(--np-r-md);
+  background: var(--np-surface-3);
+  color: var(--np-text);
+  box-shadow: var(--np-shadow-2);
+  font-size: var(--np-fs-16);
+  font-weight: 500;
+  line-height: 1.3;
+  pointer-events: auto;
+  animation: np-toast-in var(--np-d-base) var(--np-ease);
+}
+
+.np-toast > svg {
+  flex: none;
+  margin-right: 0.5rem;
+  color: var(--np-text-mute);
+}
+
+.np-toast[data-tone='success'] > svg {
+  color: var(--np-success);
+}
+
+.np-toast-text {
+  min-width: 0;
+  padding: 0.5rem 0;
+}
+
+/* «Deshacer»: en el color de actuar, con 44 px de toque. */
+.np-toast-action {
+  flex: none;
+  min-width: 44px;
+  min-height: 44px;
+  margin: 0 -0.5rem 0 0.5rem;
+  padding: 0 0.5rem;
+  border: none;
+  border-radius: var(--np-r-sm);
+  background: transparent;
+  color: var(--np-accent);
+  font-family: var(--np-font-sans);
+  font-size: var(--np-fs-16);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+@keyframes np-toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* ─── Banner: la franja que se queda ──────────────────────────────────────
+   Un estado que dura, sin reloj: filete y fondo del tono (los pone el
+   componente: TONE_COLORS), su icono y el texto en el color normal. El
+   botón, a la derecha, o debajo si no cabe. */
+.np-banner {
+  display: flex;
+  align-items: flex-start;
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--np-banner-c);
+  border-radius: var(--np-r-inner);
+  color: var(--np-text);
+  font-size: var(--np-fs-14);
+  font-weight: 500;
+  line-height: 1.45;
+}
+
+.np-touch .np-banner {
+  font-size: var(--np-fs-16);
+}
+
+.np-banner > svg {
+  flex: none;
+  margin-right: 0.625rem;
+  color: var(--np-banner-c);
+}
+
+/* El texto y el botón: en una fila que se parte (los huecos son márgenes). */
+.np-banner-main {
+  flex: 1 1 auto;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  min-width: 0;
+  margin: -0.25rem -0.375rem;
+}
+
+.np-banner-text {
+  flex: 1 1 14rem;
+  min-width: 0;
+  margin: 0.25rem 0.375rem;
+}
+
+.np-banner-title {
+  display: block;
+  font-weight: 600;
+}
+
+.np-banner-main > .np-btn {
+  flex: none;
+  margin: 0.25rem 0.375rem;
+}
+
+.np-banner-close {
+  margin: -0.625rem -0.75rem -0.625rem 0.25rem;
+}
+
+/* ─── FieldError: el error de un campo, debajo ────────────────────────────
+   El aspa y la frase. El campo queda marcado con un filete rojo de 2 px (su
+   borde y 1 px por dentro), también con el foco: gana al foco general de los
+   campos, que va con !important. */
+.np-field-error {
+  display: flex;
+  align-items: flex-start;
+  font-size: var(--np-fs-14);
+  font-weight: 500;
+  line-height: 1.4;
+  color: var(--np-danger-text);
+}
+
+.np-field-error > svg {
+  flex: none;
+  margin-right: 0.375rem;
+}
+
+.np-field-input[aria-invalid='true'],
+.np-field-input[aria-invalid='true']:focus {
+  border-color: var(--np-danger) !important;
+  box-shadow: inset 0 0 0 1px var(--np-danger) !important;
+}
+
+/* ─── Botones que faltaban ────────────────────────────────────────────────
+   `quiet`: sin fondo ni filete, para lo de poca importancia. `danger-outline`:
+   borrar o devolver dinero desde una fila. Un botón principal por pantalla; en
+   las filas, ninguno. */
+.np-btn[data-variant='quiet'] {
+  background: transparent;
+  color: var(--np-text);
+  box-shadow: none;
+}
+
+.np-btn[data-variant='quiet']:hover:not(:disabled) {
+  background: var(--np-surface-2);
+}
+
+/* Pulsado (también con el dedo, donde no hay ratón encima). */
+.np-btn[data-variant='quiet']:active:not(:disabled) {
+  background: var(--np-surface-2);
+}
+
+/* Apagado: solo el texto (la regla general le pondría fondo y filete). */
+.np-btn[data-variant='quiet']:disabled:not([data-loading]) {
+  background: transparent;
+  color: var(--np-disabled-ink);
+  box-shadow: none;
+}
+
+/* Con la letra del secundario (500): ocupa lo que ocupaba en la fila. */
+.np-btn[data-variant='danger-outline'] {
+  font-weight: 500;
+  background: transparent;
+  color: var(--np-danger-text);
+  box-shadow: inset 0 0 0 1px var(--np-danger);
+}
+
+.np-btn[data-variant='danger-outline']:hover:not(:disabled),
+.np-btn[data-variant='danger-outline']:active:not(:disabled) {
+  background: var(--np-pill-danger-bg);
+}
+
+/* Un icono junto al texto del botón: 20 px, con 8 de hueco y sin agrandar la
+   línea. */
+.np-btn-icon {
+  margin: -0.25rem 0.5rem -0.25rem 0;
+  vertical-align: middle;
+}
+
+.np-btn-icon-end {
+  margin: -0.25rem 0 -0.25rem 0.5rem;
+}
+
+/* ─── Switch: el interruptor que guarda solo ──────────────────────────────
+   Una fila: su texto a la izquierda y el interruptor a la derecha. 84 × 44:
+   «Sí» o «No» escrito dentro y la bolita que se desliza. Verde encendido, gris
+   apagado: además del color, la palabra y el lado. */
+.np-switch-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 2.75rem;
+}
+
+.np-switch-row-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  margin-right: 1rem;
+}
+
+.np-switch-row-label {
+  font-size: var(--np-fs-16);
+  font-weight: 600;
+  color: var(--np-text);
+}
+
+.np-switch-row-hint {
+  margin-top: 0.15rem;
+  font-size: var(--np-fs-14);
+  line-height: 1.4;
+  color: var(--np-text-mute);
+}
+
+.np-switch {
+  position: relative;
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  width: 5.25rem;
+  height: 2.75rem;
+  padding: 0 0.875rem;
+  border: 1px solid var(--np-border-hi);
+  border-radius: 1.375rem;
+  background: var(--np-surface-3);
+  color: var(--np-text-mute);
+  font-family: inherit;
+  font-size: var(--np-fs-14);
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    background var(--np-d-fast),
+    color var(--np-d-fast),
+    border-color var(--np-d-fast);
+}
+
+.np-switch-thumb {
+  position: absolute;
+  top: 50%;
+  left: 3px;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 50%;
+  background: var(--np-text-dim);
+  transform: translateY(-50%);
+  transition:
+    transform var(--np-d-base) var(--np-ease),
+    background var(--np-d-fast);
+}
+
+.np-switch-text {
+  margin-left: auto;
+  margin-right: 0;
+  font-size: var(--np-fs-14);
+  font-weight: 600;
+}
+
+.np-switch[aria-checked='true'] {
+  border-color: var(--np-success);
+  background: var(--np-success);
+  color: var(--np-on-success);
+}
+
+.np-switch[aria-checked='true'] .np-switch-thumb {
+  background: var(--np-bg);
+  transform: translate(2.75rem, -50%);
+}
+
+.np-switch[aria-checked='true'] .np-switch-text {
+  margin-left: 0;
+  margin-right: auto;
+}
+
+.np-switch:focus-visible {
+  outline: 2px solid var(--np-accent);
+  outline-offset: 2px;
+}
+
+/* Apagado (mientras se guarda, o sin permiso): neutro, sin transparencia; se
+   sigue leyendo «Sí» o «No». */
+.np-switch:disabled {
+  cursor: progress;
+  border-color: var(--np-disabled-edge);
+  background: var(--np-disabled-bg);
+  color: var(--np-disabled-ink);
+}
+
+.np-switch:disabled .np-switch-thumb {
+  background: var(--np-disabled-ink);
+}
+
+/* En el móvil se ve igual, pero el dedo tiene un poco más de alto donde
+   acertar. */
+@media (max-width: 640px) {
+  .np-switch::before {
+    content: '';
+    position: absolute;
+    top: -0.25rem;
+    right: 0;
+    bottom: -0.25rem;
+    left: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .np-switch,
+  .np-switch-thumb {
+    transition: none;
+  }
+}
+
+/* ─── Checkbox: la casilla que espera a «Guardar» ─────────────────────────
+   Una fila de 44 px o más que se toca entera: la caja de 24 (la casilla
+   nativa, sin el dibujo del navegador) y, al lado, el texto con su ayuda.
+   Marcada, en el color de lo elegido con el ✓ encima. */
+.np-checkbox {
+  display: flex;
+  align-items: flex-start;
+  min-height: 2.75rem;
+  padding: 0.625rem 0;
+  cursor: pointer;
+}
+
+.np-checkbox-box {
+  position: relative;
+  flex: none;
+  width: 24px;
+  height: 24px;
+  margin-right: 0.75rem;
+}
+
+.np-checkbox-box > input {
+  -webkit-appearance: none;
+  appearance: none;
+  display: block;
+  width: 24px;
+  height: 24px;
+  margin: 0;
+  border: 2px solid var(--np-border-hi);
+  border-radius: var(--np-r-xs);
+  background: transparent;
+  cursor: inherit;
+}
+
+.np-checkbox-box > input:checked,
+.np-checkbox-box > input[data-mixed] {
+  border-color: var(--np-chosen);
+  background: var(--np-chosen);
+}
+
+/* El ✓ (o la raya de «unas sí y otras no»): encima de la casilla, que es la
+   que recibe el toque. */
+.np-checkbox-box > svg {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  display: none;
+  color: var(--np-on-chosen);
+  pointer-events: none;
+}
+
+.np-checkbox-box > input:checked + svg,
+.np-checkbox-box > input[data-mixed] + svg {
+  display: block;
+}
+
+.np-checkbox-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  padding-top: 0.0625rem;
+}
+
+.np-checkbox-label {
+  font-size: var(--np-fs-16);
+  font-weight: 500;
+  line-height: 1.4;
+  color: var(--np-text);
+}
+
+.np-checkbox-hint {
+  margin-top: 0.15rem;
+  font-size: var(--np-fs-14);
+  line-height: 1.4;
+  color: var(--np-text-mute);
+}
+
+/* Apagada: neutra, sin transparencia. */
+.np-checkbox[data-disabled] {
+  cursor: not-allowed;
+}
+
+.np-checkbox[data-disabled] .np-checkbox-hint,
+.np-checkbox[data-disabled] .np-checkbox-label {
+  color: var(--np-disabled-ink);
+}
+
+.np-checkbox-box > input:disabled {
+  border-color: var(--np-disabled-edge);
+  background: var(--np-disabled-bg);
+}
+
+.np-checkbox-box > input:disabled + svg {
+  color: var(--np-disabled-ink);
+}
