@@ -461,7 +461,7 @@ const SENSITIVE_ACTIONS: Readonly<Record<string, { title: string; detail: string
   },
   'wallet.card_copy_suspected': {
     title: 'Posible ficha copiada',
-    detail: 'Han acercado una ficha con el código de un saldo y otro número de serie: el cobro se ha rechazado. Si se repite, cambia esa ficha.',
+    detail: 'Han acercado una ficha con el código de un saldo y otro número de serie: no se ha aceptado. Si se repite, cambia esa ficha.',
   },
   'payment.manual_reconcile': {
     title: 'Cobro dado por pagado a mano',
@@ -511,6 +511,10 @@ const SENSITIVE_ACTIONS: Readonly<Record<string, { title: string; detail: string
   },
   'partner.key.claim_expired': { title: 'Enlace de clave sin abrir', detail: 'El enlace de una clave caducó sin abrirse: cámbiala.' },
   'partner.key.expiring': { title: 'Clave a punto de caducar', detail: 'La clave de una plataforma caduca pronto: cámbiala antes.' },
+  'partner.master_link_submitted': {
+    title: 'Enlace privado enseñado en otra plataforma',
+    detail: 'Un cliente ha enseñado el enlace privado de su saldo en otra plataforma: quien lo tenga puede ver su saldo. Dale un enlace nuevo.',
+  },
   // A dónde va el dinero de una compañera (panel, enlace de alta u OxioPay): el
   // texto según por dónde (`via`, PAYOUT_ACCOUNT_CHANGE_VIA).
   'operator.payout_account_changed': {

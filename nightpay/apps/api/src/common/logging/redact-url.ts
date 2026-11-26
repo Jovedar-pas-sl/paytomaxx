@@ -1,4 +1,4 @@
-import { WALLET_PASS_PARAM } from '@nightpay/contracts';
+import { WALLET_CARD_PARAM, WALLET_PASS_PARAM } from '@nightpay/contracts';
 import { UNPREFIXED_ROUTES, type UnprefixedRoute } from '../http/unprefixed-routes';
 
 /**
@@ -80,6 +80,8 @@ const SENSITIVE_QUERY_KEYS = new Set([
   'ds_signature',
   // La app del personal abierta desde el QR del pase de Google Wallet (/c/<token>).
   WALLET_PASS_PARAM,
+  // El enlace grabado en la ficha NFC (https://…/?ficha=<código>): el código es la ficha.
+  WALLET_CARD_PARAM,
 ]);
 
 const ORIGIN = /^[a-z][a-z0-9+.-]*:\/\/[^/?#]*/i;
