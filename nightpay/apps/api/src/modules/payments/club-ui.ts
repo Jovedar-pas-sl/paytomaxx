@@ -40,7 +40,8 @@ export const CLUB_TOKENS = `:root{--bg:#091518;--surface:#19272b;--surface-2:#22
  * cambiar). El principal, lima con su tinta, el brillo arriba y la sombra con
  * un resplandor lima suave; el secundario (.alt), superficie con filete de
  * 1 px y un filo de luz. Quien cambie el fondo de un .btn tiene que poner
- * también su box-shadow (si no, hereda el resplandor lima). Al pulsar se hunde un poco y se oscurece; desactivado, gris de verdad
+ * también su box-shadow, con comas: rgba(0,0,0,.35), no rgb(0 0 0/.35), que un
+ * navegador viejo descarta (si no, hereda el resplandor lima). Al pulsar se hunde un poco y se oscurece; desactivado, gris de verdad
  * (sin opacidad: a oscuras, un botón translúcido parece roto); ocupado
  * (.busy), su color con una ruedita en vez del icono, que no se pulsa dos
  * veces. Iconos de trazo: .ic. Los errores, en una caja con filete rojo y el

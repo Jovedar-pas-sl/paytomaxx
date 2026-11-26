@@ -98,14 +98,14 @@ ${BREAKDOWN_CSS}.warn{border:1px solid var(--warn);border-radius:var(--r-tile);b
 .paybar .alts{display:grid;grid-template-columns:1fr;gap:.5rem}
 .paybar .alts .btn{min-height:3rem;font-size:.9375rem;padding:.55rem .7rem}
 .methods{font-size:.875rem;color:var(--mute)}
-.btn.btc{background:#fff;border-color:#fff;color:#000;box-shadow:0 1px 2px rgb(0 0 0/.35);gap:.35rem;font-weight:500}
+.btn.btc{background:#fff;border-color:#fff;color:#000;box-shadow:0 1px 2px rgba(0,0,0,.35);gap:.35rem;font-weight:500}
 .btn.btc .btcmark{display:block;width:1.45rem;height:1.45rem;flex:none}
 .btn.btc .btcword{font-family:var(--num);font-weight:700;font-size:1.0625rem;letter-spacing:-.01em}
 .btchint{font-size:.875rem;line-height:1.3;color:var(--mute)}
 .nofee{font-size:.875rem;color:var(--mute)}
 .keep{margin:.75rem 0 0;font-size:.875rem;line-height:1.4;color:var(--label);text-align:center}
 .btn.gpay[aria-disabled=true]:not(.busy){opacity:.55}
-.btn.gpay{background:#fff;border-color:#fff;color:#1f1f1f;box-shadow:0 1px 2px rgb(0 0 0/.35)}
+.btn.gpay{background:#fff;border-color:#fff;color:#1f1f1f;box-shadow:0 1px 2px rgba(0,0,0,.35)}
 .btn.gpay .gmark{display:block;width:auto;height:1.55rem}
 @supports (-webkit-appearance:-apple-pay-button){
 .btn.apay{-webkit-appearance:-apple-pay-button;-apple-pay-button-type:plain;-apple-pay-button-style:white;height:3.5rem;padding:0;border:0;border-radius:999px;box-shadow:none;filter:none}
