@@ -317,7 +317,9 @@ describe('quién lleva data-np-foot (el aviso se pone encima)', () => {
 describe('los dos avisos flotantes de antes ya son el común', () => {
   it('«Te han invitado»: con su importe, en verde y con su sonido; sin caja ni reloj propios', () => {
     const src = read('../components/InvitationToast.tsx');
-    expect(src).toContain("toast.show(`Te han invitado · +${formatEur(cents, { compact: true })}`, { tone: 'success' })");
+    // Tras el cobro por el encargado, el mismo aviso dice dos cosas («Servicio cobrado» y «Te han invitado»): el texto va en «what».
+    expect(src).toContain("{ what: 'Te han invitado', cents: invited }");
+    expect(src).toContain("toast.show(`${what} · +${formatEur(cents, { compact: true })}`, { tone: 'success' })");
     expect(src).toContain("playOutcomeSound('paid')");
     expect(src).not.toMatch(/setTimeout|position: 'fixed'|SHOW_MS|zIndex/);
     // El aviso es de toda la app: al salir de la sesión se quita, no se queda en la pantalla de entrar.
