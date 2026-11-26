@@ -32,6 +32,7 @@ describe('qué cobra cada puesto (de fábrica)', () => {
       cash: false,
       topUps: false,
       cashPayout: false,
+      fromPhone: true,
     });
   });
 
@@ -100,6 +101,7 @@ describe('«Las compañeras cobran desde su móvil» apagada (super-admin)', () 
       cash: false,
       topUps: false,
       cashPayout: false,
+      fromPhone: false,
     });
     // Aunque Sala cargue saldos en las reglas del local.
     expect(chargeRightsOf({ role: 'OPERATOR', post: null }, postRulesOf({ SALA: { topUps: true, cash: true } }), off)).toMatchObject({
@@ -133,6 +135,13 @@ describe('«Las compañeras cobran desde su móvil» apagada (super-admin)', () 
     const companera = chargeRightsOf({ role: 'OPERATOR', post: null }, postRulesOf(null), off);
     expect(SALA_PHONE_OFF_MESSAGE).toBe('Hoy cobra el encargado: desde tu app no se cobra.');
     expect(sectionNotAllowedMessage(companera, 'CHICA_SERVICE', label)).toBe(SALA_PHONE_OFF_MESSAGE);
+  });
+
+  it('Sala sin secciones con la casilla encendida no es «Hoy cobra el encargado» (su servicio no le llega a ella)', () => {
+    const salaVacia = postRulesOf({ SALA: { sections: [] } });
+    const companera = chargeRightsOf({ role: 'OPERATOR', post: null }, salaVacia, { operatorsChargeFromPhone: true });
+    expect(companera).toMatchObject({ sections: [], fromPhone: true });
+    expect(sectionNotAllowedMessage(companera, 'CHICA_SERVICE', label)).not.toBe(SALA_PHONE_OFF_MESSAGE);
   });
 });
 

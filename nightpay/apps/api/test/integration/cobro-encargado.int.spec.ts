@@ -247,7 +247,7 @@ describe('Casilla apagada: la compañera no crea cobros ni recargas por ningún 
     // Aunque Sala cargue saldos en este local.
     await expect(c.recarga()).rejects.toMatchObject({ status: 403, response: expect.objectContaining({ code: TOP_UP_RECEPTION_ONLY_CODE }) });
     expect(await c.carta()).toEqual([]);
-    expect((await c.me()).myRights).toEqual({ sections: [], tips: true, cash: false, topUps: false, serviceTips: true });
+    expect((await c.me()).myRights).toEqual({ sections: [], tips: true, cash: false, topUps: false, serviceTips: true, fromPhone: false });
     const made = await sys(async (tx) => [
       await tx.payment.count({ where: { tenantId: l.V } }),
       await tx.walletChargeRequest.count({ where: { tenantId: l.V } }),
@@ -263,7 +263,7 @@ describe('Casilla apagada: la compañera no crea cobros ni recargas por ningún 
     await expect(c.saldo()).resolves.toMatchObject({ amountCents: 3000 });
     await expect(c.recarga()).resolves.toMatchObject({ amountCents: 5000 });
     expect((await c.carta()).map((i) => i.id)).toEqual([l.servicio]);
-    expect((await c.me()).myRights).toEqual({ sections: ['CHICA_SERVICE'], tips: true, cash: false, topUps: true, serviceTips: true });
+    expect((await c.me()).myRights).toEqual({ sections: ['CHICA_SERVICE'], tips: true, cash: false, topUps: true, serviceTips: true, fromPhone: true });
   });
 });
 

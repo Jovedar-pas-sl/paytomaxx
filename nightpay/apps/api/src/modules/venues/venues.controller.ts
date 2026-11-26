@@ -58,7 +58,7 @@ export class VenuesController {
       }),
       this.prisma.user.findFirst({ where: { id: user.sub }, select: { post: true } }),
     ]);
-    // Casilla apagada: la compañera sale sin secciones ni recargas (myRights), sin campos nuevos.
+    // Casilla apagada: la compañera sale sin secciones ni recargas (myRights) y con fromPhone false.
     const rules = postRulesOf(postRules);
     const rights = chargeRightsOf({ role: user.role, post: me?.post ?? null }, rules, { operatorsChargeFromPhone });
     const venueSections = sectionsOf(sections);
@@ -82,6 +82,8 @@ export class VenuesController {
         topUps: rights.topUps,
         /** A nombre de una compañera (cobro por el encargado), las propinas siguen su fila: Sala. */
         serviceTips: rules.SALA.tips,
+        /** false: la compañera con la casilla apagada («Hoy cobra el encargado»); Sala vacía no lo es. */
+        fromPhone: rights.fromPhone,
       },
       /** La sección que la app marca por defecto (la de su puesto, si la puede cobrar). */
       myDefaultCategory: initialOfferedSection(venueSections, rights),
