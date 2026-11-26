@@ -36,7 +36,6 @@ import { WipayAdapter } from '../gateways/wipay.adapter';
 import { sealTokenizationData } from '../payments/tokenization-seal';
 import { RedsysAdapter } from '../gateways/redsys.adapter';
 import { YavinAdapter, cartIsPaid, noticeTokenHash } from '../gateways/yavin.adapter';
-import { yavinEnabled } from '../gateways/yavin-flag';
 import { boundedInput } from '../../common/pipes/input-limits';
 import { parseWebhookBody } from '../gateways/header-utils';
 import { WEBHOOKS_INGEST_QUEUE } from '../queues/queue-tokens';
@@ -351,14 +350,16 @@ export class WebhooksController {
    * cobro sigue esperando. Pagado → se guarda un aviso de NightPay (uno por
    * carrito: un segundo aviso es duplicado) y el procesador lo vuelve a
    * comprobar con Yavin, importe al céntimo, antes de darlo por pagado.
-   * Con YAVIN_ENABLED apagado, 404.
+   * Con YAVIN_ENABLED apagado sigue igual: los enlaces ya abiertos se pueden
+   * pagar 72 h y su aviso tiene que apuntarse (el interruptor solo impide
+   * abrir enlaces nuevos).
    */
   @Public()
   @Post('yavin/:token')
   @HttpCode(200)
   @IpRateLimit({ max: 600, windowSec: 60, scope: 'webhook-yavin', failOpen: true })
   async receiveYavin(@Param('token') token: string): Promise<{ received: true; duplicate?: boolean }> {
-    if (!yavinEnabled() || !this.yavin) throw new NotFoundException();
+    if (!this.yavin) throw new NotFoundException();
     const provider: Provider = 'YAVIN';
     // 43 caracteres base64url (32 bytes). Lo demás ni se busca.
     if (!/^[A-Za-z0-9_-]{43}$/.test(token)) {

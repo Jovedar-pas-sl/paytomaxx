@@ -8,7 +8,6 @@ import {
   HttpCode,
   Inject,
   Logger,
-  NotFoundException,
   Param,
   Post,
   Query,
@@ -49,7 +48,6 @@ import { walletClaimCookieName, walletClaimSetCookie } from './wallet-claim';
 import { MIN_RETRY_S, PayPageFilter } from './pay-page.filter';
 import { isDatabaseBusy } from '../../common/filters/problem-details.filter';
 import { RedsysReturnService } from './redsys-return.service';
-import { yavinEnabled } from '../gateways/yavin-flag';
 import { renderCheckingPage } from './pay-checking-page';
 import { PayStatusService, isPayLookupKey, type PayStatusContext } from './pay-status.service';
 import { langHrefWith, type LangHref } from './customer-chrome';
@@ -162,7 +160,8 @@ export class PublicPayController {
    * Vuelta del cliente desde la página de Yavin (return_url_success /
    * return_url_cancelled). Yavin añade el carrito (cartId) a la URL: se va a
    * /pay/result?op=<carrito>, que enseña el estado REAL del cobro (lo que diga
-   * la URL no paga nada). Con YAVIN_ENABLED apagado, 404.
+   * la URL no paga nada). También con YAVIN_ENABLED apagado: el cliente de un
+   * enlace ya abierto tiene que poder volver.
    */
   @Public()
   @Get('yavin/return')
@@ -172,7 +171,6 @@ export class PublicPayController {
     @Query('lang') langQuery: string | undefined,
     @Res() res: FastifyReply,
   ): void {
-    if (!yavinEnabled()) throw new NotFoundException();
     // shortcut: el nombre del parámetro (cartId) solo se vio en un resumen de la documentación.
     const op = isPayLookupKey(cartId) ? cartId : '';
     const lang = PAY_LANGUAGES.includes(langQuery as PayLanguage) ? `&lang=${langQuery}` : '';

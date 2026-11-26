@@ -2,8 +2,10 @@ import { NotFoundException, type CanActivate } from '@nestjs/common';
 
 /**
  * El interruptor global de Yavin (YAVIN_ENABLED, apagado por defecto), como
- * BTCPAY_ENABLED. Apagado: la ruta del aviso y la pantalla de super-admin no
- * existen (404) y ningún cobro va a Yavin, aunque el local tenga credencial.
+ * BTCPAY_ENABLED. Apagado: ningún cobro NUEVO va a Yavin (no se abren enlaces,
+ * aunque el local tenga credencial) y la pantalla de super-admin no existe
+ * (404). Lo ya abierto con Yavin sigue funcionando (los enlaces se pueden pagar
+ * 72 h): el aviso, la comprobación, el repaso de atascados, anular y devolver.
  */
 const TRUE_VALUES = new Set(['true', '1', 'yes', 'on']);
 

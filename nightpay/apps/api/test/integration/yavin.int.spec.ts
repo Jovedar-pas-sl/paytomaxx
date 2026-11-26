@@ -5,7 +5,7 @@ import { describe, it, expect, beforeAll, afterAll, afterEach, beforeEach, vi } 
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { randomUUID } from 'node:crypto';
 import { ClsService } from 'nestjs-cls';
-import { ConflictException, NotFoundException, UnauthorizedException } from '@nestjs/common';
+import { ConflictException, UnauthorizedException } from '@nestjs/common';
 import { PrismaService } from '../../src/common/prisma/prisma.service';
 import { PaymentsService } from '../../src/modules/payments/payments.service';
 import { YavinAdapter } from '../../src/modules/gateways/yavin.adapter';
@@ -361,8 +361,43 @@ describe('YAVIN_ENABLED apagado: todo como hoy', () => {
     expect((await paymentOf(p.id)).provider).toBe('REDSYS');
   });
 
-  it('la ruta del aviso de Yavin no existe (404)', async () => {
+  it('la ruta del aviso con un token que no es de nadie → 401 (como encendido)', async () => {
     vi.stubEnv('YAVIN_ENABLED', 'false');
-    await expect(webhooks.receiveYavin('A'.repeat(43))).rejects.toBeInstanceOf(NotFoundException);
+    await expect(webhooks.receiveYavin('A'.repeat(43))).rejects.toBeInstanceOf(UnauthorizedException);
+  });
+});
+
+describe('YAVIN_ENABLED apagado con enlaces de Yavin ya abiertos (pagables 72 h)', () => {
+  it('el aviso de un enlace ya abierto se sigue procesando: PAGADO', async () => {
+    const p = await newPayment();
+    const { cartId, token } = await openWithYavin(p);
+    vi.stubEnv('YAVIN_ENABLED', 'false');
+    carts.get(cartId)!.status = 'paid';
+    await expect(webhooks.receiveYavin(token)).resolves.toEqual({ received: true });
+    expect((await paymentOf(p.id)).status).toBe('AUTHORIZED');
+  });
+
+  it('cancelar un cobro con enlace ya abierto lo anula en Yavin', async () => {
+    const p = await newPayment();
+    const { cartId } = await openWithYavin(p);
+    vi.stubEnv('YAVIN_ENABLED', 'false');
+    await sys(async (tx) => {
+      const past = new Date(Date.now() - 3 * 60_000);
+      await tx.paymentAttempt.updateMany({ where: { paymentId: p.id }, data: { createdAt: past } });
+      await tx.paymentEvent.updateMany({ where: { paymentId: p.id }, data: { occurredAt: past } });
+    });
+    calls.length = 0;
+    await inCtx(A, () => payments.cancel(p.id, { userId: waiter, role: 'WAITER', tenantId: A }));
+    expect((await paymentOf(p.id)).status).toBe('CANCELED');
+    expect(calls).toEqual([expect.objectContaining({ path: '/api/v5/ecommerce/cancel_link/', body: { cart_id: cartId } })]);
+    expect(carts.get(cartId)!.status).toBe('cancelled');
+  });
+
+  it('abrir un enlace NUEVO de Yavin no se puede (aunque se llame al adaptador directamente)', async () => {
+    vi.stubEnv('YAVIN_ENABLED', 'false');
+    await expect(
+      yavin.authorize({ paymentId: randomUUID(), attemptId: randomUUID(), tenantId: A, amountCents: 2_500, currency: 'EUR' } as never),
+    ).rejects.toThrow(/YAVIN_ENABLED/);
+    expect(calls.filter((c) => c.path.includes('generate_link'))).toHaveLength(0);
   });
 });

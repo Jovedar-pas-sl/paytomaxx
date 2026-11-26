@@ -15,6 +15,7 @@ import type { ApprovalClaim, ApprovalProof, GatewayAdapter, WebhookFsmEvent } fr
 import { createBreaker, fetchWithTimeout, timedFire } from './circuit-breaker';
 import { GatewayTransientError, gatewayFetch, gatewayHttpError } from './gateway-errors';
 import { openYavinKey } from './yavin-credential';
+import { yavinEnabled } from './yavin-flag';
 import { MetricsService } from '../metrics/metrics.service';
 import { PrismaService } from '../../common/prisma/prisma.service';
 
@@ -178,6 +179,8 @@ export class YavinAdapter implements GatewayAdapter {
   }
 
   authorize(input: AuthorizeInput): Promise<AuthorizeResult> {
+    // El interruptor solo frena lo NUEVO: comprobar, anular y devolver siguen.
+    if (!yavinEnabled()) return Promise.reject(new Error('Yavin apagado (YAVIN_ENABLED): no se abren enlaces nuevos'));
     return this.timed('authorize', () => this.authorizeBreaker.fire(input));
   }
 

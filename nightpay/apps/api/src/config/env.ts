@@ -113,9 +113,10 @@ const EnvSchema = z.object({
     .union([z.boolean(), z.string().transform((s) => ['true', '1', 'yes', 'on'].includes(s.trim().toLowerCase()))])
     .default(false),
   // Yavin (segunda pasarela de tarjeta: enlace de pago online que se enseña
-  // como QR). Apagado por defecto: sin esto no hay ruta de aviso (404), ni
-  // pantalla en super-admin, ni se elige Yavin en ningún cobro, aunque el local
-  // tenga credencial. Ver modules/gateways/yavin.adapter.ts.
+  // como QR). Apagado por defecto: sin esto no hay pantalla en super-admin ni
+  // se abre ningún cobro NUEVO con Yavin, aunque el local tenga credencial. Lo
+  // ya abierto con Yavin (enlaces pagables 72 h) se sigue procesando: aviso,
+  // comprobación, anular y devolver. Ver modules/gateways/yavin.adapter.ts.
   YAVIN_ENABLED: z
     .union([z.boolean(), z.string().transform((s) => ['true', '1', 'yes', 'on'].includes(s.trim().toLowerCase()))])
     .default(false),

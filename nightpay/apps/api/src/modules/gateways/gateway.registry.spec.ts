@@ -29,7 +29,6 @@ function makeRegistry() {
 }
 
 describe('GatewayRegistry.get — qué adapter atiende cada pasarela', () => {
-  // Yavin solo está con YAVIN_ENABLED (abajo, apagado).
   beforeEach(() => vi.stubEnv('YAVIN_ENABLED', 'true'));
   afterEach(() => vi.unstubAllEnvs());
 
@@ -72,11 +71,19 @@ describe('GatewayRegistry.get — qué adapter atiende cada pasarela', () => {
 
 describe('GatewayRegistry.get — Yavin con YAVIN_ENABLED apagado', () => {
   afterEach(() => vi.unstubAllEnvs());
-  it('no hay adapter de Yavin: como si no existiera', () => {
+  it('el adapter de Yavin sigue ahí: los intentos ya guardados se comprueban, anulan y devuelven', () => {
+    vi.stubEnv('YAVIN_ENABLED', 'false');
+    const { registry, yavin } = makeRegistry();
+    expect(registry.get('YAVIN')).toBe(yavin);
+    expect(registry.get('REDSYS')).toBeInstanceOf(RedsysAdapter);
+  });
+
+  it('pero no abre enlaces nuevos', async () => {
     vi.stubEnv('YAVIN_ENABLED', 'false');
     const { registry } = makeRegistry();
-    expect(() => registry.get('YAVIN')).toThrow('provider=YAVIN');
-    expect(registry.get('REDSYS')).toBeInstanceOf(RedsysAdapter);
+    await expect(
+      registry.get('YAVIN').authorize({ paymentId: 'p', attemptId: 'a', tenantId: 't', amountCents: 2_500, currency: 'EUR' } as never),
+    ).rejects.toThrow(/YAVIN_ENABLED/);
   });
 });
 

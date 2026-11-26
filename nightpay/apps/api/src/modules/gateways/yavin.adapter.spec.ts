@@ -57,6 +57,8 @@ const authorizeInput = {
 let fetchSpy: ReturnType<typeof vi.fn>;
 let logs: string[];
 beforeEach(() => {
+  // Abrir enlaces nuevos necesita el interruptor encendido (abajo, apagado).
+  vi.stubEnv('YAVIN_ENABLED', 'true');
   fetchSpy = vi.fn();
   (globalThis as { fetch: unknown }).fetch = fetchSpy;
   logs = [];
@@ -68,6 +70,7 @@ beforeEach(() => {
 });
 afterEach(() => {
   vi.restoreAllMocks();
+  vi.unstubAllEnvs();
   // La clave nunca sale a los logs.
   expect(logs.join('\n')).not.toContain(FAKE_KEY);
 });
@@ -76,6 +79,12 @@ const bodyOf = (call: unknown[]): Record<string, unknown> => JSON.parse((call[1]
 const headersOf = (call: unknown[]): Record<string, string> => (call[1] as { headers: Record<string, string> }).headers;
 
 describe('YavinAdapter.authorize: crear el enlace', () => {
+  it('con YAVIN_ENABLED apagado no abre enlaces nuevos (ni llama a Yavin)', async () => {
+    vi.stubEnv('YAVIN_ENABLED', 'false');
+    await expect(makeAdapter().authorize(authorizeInput)).rejects.toThrow(/YAVIN_ENABLED/);
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
   it('POST generate_link con la clave en Yavin-Secret, céntimos, referencia = id del cobro y URL de aviso con token', async () => {
     fetchSpy.mockResolvedValueOnce(reply(200, { link: 'https://pay.yavin.simulado/c/abc', cart_id: 'cart-1' }));
     const result = await makeAdapter().authorize(authorizeInput);
