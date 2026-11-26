@@ -202,7 +202,7 @@ Sí se registra, en cada llamada: la cabecera `Request-Id` de la respuesta, el i
 
 El cajero lee **una de estas dos cosas** y la manda tal cual en `qr`. Nunca manda un código tecleado, un teléfono, un id interno ni un PIN. Manda solo textos que empiecen por `OXC1:`, `NPF:` o `https://`, o que sean exactamente 6 letras o cifras; lo demás (tarjetas de contacto, códigos de wifi, QR de otros pagos, texto suelto) no es de OxioPay: enseña el texto «No reconocemos este código» sin llamar.
 
-**1. El código del móvil (código en vivo).** El cliente abre su página del saldo en el móvil y pulsa «Pagar o recargar en otro sistema». Sale un QR con un texto `OXC1:` + 26 caracteres, por ejemplo `OXC1:K3J7Q2M9X4T8R6V1N5B0C2D7F9`.
+**1. El código del móvil (código en vivo).** El cliente abre su página del saldo en el móvil y pulsa «Pagar o recargar en otro sistema». El botón sale en el idioma de la página del cliente: en inglés, "Pay or top up in another system". Sale un QR con un texto `OXC1:` + 26 caracteres, por ejemplo `OXC1:K3J7Q2M9X4T8R6V1N5B0C2D7F9`.
 - En el piloto este código **solo identifica**: sirve para ver el saldo y cargar. Ver el saldo o cargar no lo gastan.
 - Cada código vale **60 segundos**. La página lo renueva cada 45 segundos durante 5 minutos desde que el cliente pulsó el botón; después tiene que volver a pulsarlo.
 - El lector debe leer QR en la pantalla de un móvil (QR en modo alfanumérico, en mayúsculas). Pon el lector en modo serie (COM virtual / USB-CDC, o su SDK), no como teclado, y quítale el prefijo o sufijo que añada: como teclado, `:` y `/` pueden salir como otros caracteres, y el texto pasa por la entrada de teclado del sistema operativo.
@@ -219,13 +219,13 @@ El cajero lee **una de estas dos cosas** y la manda tal cual en `qr`. Nunca mand
 
 | Lo que enseñó | Respuesta | Texto al cliente (ES) | Texto al cliente (EN) |
 |---|---|---|---|
-| La tarjeta de Google Wallet (`https://<host>/c/…`) | `422 wallet_ref_not_accepted`, `reason: wallet_pass` | La tarjeta de Google Wallet no sirve en el cajero. Abre tu página del saldo y pulsa «Pagar o recargar en otro sistema», o acerca tu ficha. | The Google Wallet card does not work at this machine. Open your balance page and tap «Pagar o recargar en otro sistema», or tap your token. |
-| El enlace privado de su saldo (`…/w/<código>` o una de sus páginas) | `reason: private_link` (el dueño recibe aviso) | Ese es el enlace privado de tu saldo: no lo enseñes a nadie. Abre tu página y pulsa «Pagar o recargar en otro sistema». | That is the private link to your balance: never show it to anyone. Open your page and tap «Pagar o recargar en otro sistema». |
-| El QR de recepción (`NPF:…`) | `reason: reception_qr` | Ese QR es para recoger tu ficha en recepción. Acerca tu ficha o enseña el código de «Pagar o recargar en otro sistema». | That QR is for collecting your token at reception. Tap your token or show the code from «Pagar o recargar en otro sistema». |
-| El código de 6 letras (o un enlace con `?saldo=`) | `reason: short_code` | El código de 6 letras no sirve en el cajero. Acerca tu ficha o enseña el código de tu página del saldo. | The 6-character code does not work at this machine. Tap your token or show the code on your balance page. |
-| El enlace de un cobro (`/s/…`, `/pay/…`) | `reason: charge_link` | Eso es un cobro, no tu saldo. Enseña el código de «Pagar o recargar en otro sistema». | That is a payment request, not your balance. Show the code from «Pagar o recargar en otro sistema». |
-| Un enlace de activación, de reserva o de regalo, u otro enlace `/w/` (`/w/a/…`, `/w/card/…`, `/w/salida/…`, `/w/no/…`) | `reason: other_link` | Ese enlace no es tu saldo. Abre tu página del saldo y pulsa «Pagar o recargar en otro sistema». | That link is not your balance. Open your balance page and tap «Pagar o recargar en otro sistema». |
-| Cualquier otra cosa | `422 wallet_ref_unrecognized` | No reconocemos este código. Acerca tu ficha o enseña el código de tu página del saldo. | We do not recognise this code. Tap your token or show the code on your balance page. |
+| La tarjeta de Google Wallet (`https://<host>/c/…`) | `422 wallet_ref_not_accepted`, `reason: wallet_pass` | La tarjeta de Google Wallet no sirve en el cajero. Abre tu página del saldo y pulsa «Pagar o recargar en otro sistema», o acerca tu ficha. | The Google Wallet card does not work at this machine. Open your balance page and tap "Pay or top up in another system", or tap your NFC tag. |
+| El enlace privado de su saldo (`…/w/<código>` o una de sus páginas) | `reason: private_link` (el dueño recibe aviso) | Ese es el enlace privado de tu saldo: no lo enseñes a nadie. Abre tu página y pulsa «Pagar o recargar en otro sistema». | That is the private link to your balance: never show it to anyone. Open your page and tap "Pay or top up in another system". |
+| El QR de recepción (`NPF:…`) | `reason: reception_qr` | Ese QR es para recoger tu ficha en recepción. Acerca tu ficha o enseña el código de «Pagar o recargar en otro sistema». | That QR is for collecting your NFC tag at reception. Tap your NFC tag or show the code from "Pay or top up in another system". |
+| El código de 6 letras (o un enlace con `?saldo=`) | `reason: short_code` | El código de 6 letras no sirve en el cajero. Acerca tu ficha o enseña el código de tu página del saldo. | The 6-character code does not work at this machine. Tap your NFC tag or show the code on your balance page. |
+| El enlace de un cobro (`/s/…`, `/pay/…`) | `reason: charge_link` | Eso es un cobro, no tu saldo. Enseña el código de «Pagar o recargar en otro sistema». | That is a payment request, not your balance. Show the code from "Pay or top up in another system". |
+| Un enlace de activación, de reserva o de regalo, u otro enlace `/w/` (`/w/a/…`, `/w/card/…`, `/w/salida/…`, `/w/no/…`) | `reason: other_link` | Ese enlace no es tu saldo. Abre tu página del saldo y pulsa «Pagar o recargar en otro sistema». | That link is not your balance. Open your balance page and tap "Pay or top up in another system". |
+| Cualquier otra cosa | `422 wallet_ref_unrecognized` | No reconocemos este código. Acerca tu ficha o enseña el código de tu página del saldo. | We do not recognise this code. Tap your NFC tag or show the code on your balance page. |
 | Un código del móvil caducado o desconocido | `422 live_code_invalid` | El código ha caducado. Vuelve a enseñarlo. | The code has expired. Please show it again. |
 
 Y los rechazos del saldo o de la ficha (con el mismo texto en el capítulo 5):
@@ -235,9 +235,9 @@ Y los rechazos del saldo o de la ficha (con el mismo texto en el capítulo 5):
 | `404 wallet_not_found` | No existe, o es de otro grupo, o de un local de otra sociedad | Este saldo no se puede cargar en este cajero. | This balance cannot be topped up at this machine. |
 | `409 wallet_blocked` | Saldo bloqueado | Este saldo está bloqueado. Habla con el personal. | This balance is blocked. Please speak to the staff. |
 | `409 wallet_closed` | Saldo cerrado | Este saldo está cerrado. Habla con el personal. | This balance is closed. Please speak to the staff. |
-| `409 ficha_lost` | Ficha dada como perdida | Esta ficha está dada de baja. Si es tuya, ve a recepción. | This token has been reported lost. If it is yours, please go to reception. |
-| `409 ficha_blocked` | Ficha bloqueada | Esta ficha está bloqueada. Ve a recepción. | This token is blocked. Please go to reception. |
-| `409 ficha_copy_suspected` | El número del chip no es el de la ficha | Esta ficha no se puede usar aquí. Ve a recepción. | This token cannot be used here. Please go to reception. |
+| `409 ficha_lost` | Ficha dada como perdida | Esta ficha está dada de baja. Si es tuya, ve a recepción. | This NFC tag has been reported lost. If it is yours, please go to reception. |
+| `409 ficha_blocked` | Ficha bloqueada | Esta ficha está bloqueada. Ve a recepción. | This NFC tag is blocked. Please go to reception. |
+| `409 ficha_copy_suspected` | El número del chip no es el de la ficha | Esta ficha no se puede usar aquí. Ve a recepción. | This NFC tag cannot be used here. Please go to reception. |
 
 Un saldo vacío no es un error: `available: 0`, y una carga lo vuelve a abrir.
 
@@ -289,7 +289,7 @@ En el piloto el cajero **solo carga efectivo** (`funding: "cash"`). `funding: "c
 
 ### 4.5 El texto de `description`
 
-Lo ve el cliente en sus movimientos como «Carga · Cajeros Demo: Recarga en cajero 0042», y el dueño en su panel. Reglas: de 1 a 60 caracteres, sin `<` ni `>`, sin enlaces ni dominios, sin caracteres de control. **Sin 9 cifras o más seguidas** (aunque vayan separadas por espacios, puntos, guiones, `·` o `/`): se rechaza como dato personal (`422 description_personal_data`). Así que nada de números de serie largos ni fechas con hora; usa algo como `Recarga en cajero 0042`. Nunca nada que hable de un servicio personal. Lo mismo vale para `reference` y `device`: solo vuestro id de transacción y el nombre de vuestro cajero, nunca datos personales (un número de tarjeta en `reference` se rechaza con `422 validation_failed`).
+Lo ve el cliente en sus movimientos como «Carga · Cajeros Demo: Recarga en cajero 0042» (en una página en inglés, "Top-up · Cajeros Demo: Recarga en cajero 0042"), y el dueño en su panel. Reglas: de 1 a 60 caracteres, sin `<` ni `>`, sin enlaces ni dominios, sin caracteres de control. **Sin 9 cifras o más seguidas** (aunque vayan separadas por espacios, puntos, guiones, `·` o `/`): se rechaza como dato personal (`422 description_personal_data`). Así que nada de números de serie largos ni fechas con hora; usa algo como `Recarga en cajero 0042`. Nunca nada que hable de un servicio personal. Lo mismo vale para `reference` y `device`: solo vuestro id de transacción y el nombre de vuestro cajero, nunca datos personales (un número de tarjeta en `reference` se rechaza con `422 validation_failed`).
 
 ### 4.6 Topes
 
@@ -319,7 +319,7 @@ Todos se cuentan en céntimos, cargas menos anulaciones, y sobre el saldo junto 
 | Textos en `qr` que no son ni un código del móvil ni un enlace de ficha | 30 por minuto; lleno, solo se rechazan esos textos |
 | Autenticación fallida | por clave: 20 fallos en 10 minutos, y esa clave recibe `401 invalid_api_key` 15 minutos; por IP: 20 claves malas distintas en 10 minutos, y `429` durante 15 minutos, nunca para una clave buena cuya lista de IP tenga esa dirección |
 
-- **Pausa automática** de las cargas nuevas en toda la conexión (todos los cajeros del local) hasta que el dueño la reanude con su 2FA: 3 rechazos por `per_operation` en 10 minutos (la misma petición rechazada, repetida, cuenta una vez), más de 30 cargas nuevas en un minuto, 3 anulaciones en una noche, o llamadas con la clave desde 3 direcciones no registradas en 24 horas. Los topes de cada saldo, el de la noche y la regla del efectivo no cuentan. Mientras tanto las cargas responden `403 scope_paused` y `GET /me` lo muestra en `paused_scopes`; leer tus cargas, anular y conciliar siguen funcionando. Por eso: comprueba el máximo por recarga antes de llamar.
+- **Pausa automática** de las cargas nuevas en toda la conexión (todos los cajeros del local) hasta que el dueño la reanude con su 2FA: 3 rechazos por `per_operation` en 10 minutos (la misma petición rechazada, repetida, cuenta una vez), más de 30 cargas nuevas en un minuto, 3 anulaciones vuestras (por la API) en una noche (las que hace el local desde su panel no cuentan), o llamadas con la clave desde 3 direcciones no registradas en 24 horas. Los topes de cada saldo, el de la noche y la regla del efectivo no cuentan. Mientras tanto las cargas responden `403 scope_paused` y `GET /me` lo muestra en `paused_scopes`; leer tus cargas, anular y conciliar siguen funcionando. Por eso: comprueba el máximo por recarga antes de llamar.
 
 ### 4.7 El tique
 
@@ -359,7 +359,7 @@ Las etiquetas y la frase «Saldo emitido por {issuer.legal_name}; OxioPay es su 
 - **Nunca** para «devolver» saldo a un cliente que cambia de idea: el saldo no se devuelve.
 - Solo cargas de esta conexión (`404 load_not_found` si no), hasta `void_until` (10 minutos después de `created_at`) y si el saldo todavía cubre la carga; un saldo o una ficha bloqueados, o un local en pausa, no lo impiden. Si no: `409 void_window_passed` o `409 balance_already_spent` (con `available`, el saldo de ahora). En esos casos, y con `403 partner_api_frozen`, no devuelvas nada desde el cajero: anota una incidencia para el local, que lo corrige desde su panel. Una anulación hecha por el local también sale en la carga (`voided`, `voided_at`) y en el resumen.
 - Repetir la anulación devuelve la misma carga anulada (`200`), en cualquier momento. Una pausa automática de las cargas no impide anular.
-- El cliente recibe el aviso «Carga anulada · Cajeros Demo», y el dueño ve cada anulación al momento. Tres anulaciones en una noche paran las cargas nuevas (4.6).
+- El cliente recibe el aviso «Carga anulada · Cajeros Demo» (en una página en inglés, "Top-up cancelled · Cajeros Demo"), y el dueño ve cada anulación al momento. Tres anulaciones vuestras (por la API) en una noche paran las cargas nuevas (4.6).
 
 Respuesta (`200`):
 
@@ -509,27 +509,27 @@ Textos fijos que usa la tabla:
 | `limit_exceeded` + `connection_night` | 402 | Tope de la noche de todos los cajeros del local | No (4.2) | Los cajeros no admiten más recargas esta noche. Recarga en recepción. | The machines take no more top-ups tonight. Please top up at reception. |
 | `cash_limit_reached` | 402 | El efectivo de este saldo llegaría a 1.000 € en 24 h (recepción y cajeros juntos) | No | Por ley, este saldo no admite más efectivo ahora. Habla con recepción. | By law, this balance cannot take more cash right now. Please speak to reception. |
 | `scope_missing` | 403 | La clave no tiene ese permiso (`required_scope`) | No | [fuera de servicio] | [out of service] |
-| `scope_paused` | 403 | Cargas nuevas en pausa (pausa automática, el dueño u OxioPay); el dueño las reanuda | No (4.2) | Las recargas en este cajero están paradas. Recarga en recepción. | Top-ups at this machine are stopped. Please top up at reception. |
+| `scope_paused` | 403 | Cargas nuevas en pausa (pausa automática); el dueño las reanuda | No (4.2) | Las recargas en este cajero están paradas. Recarga en recepción. | Top-ups at this machine are stopped. Please top up at reception. |
 | `ip_not_allowed` | 403 | Llamada desde una IP no registrada; el dueño recibe aviso | No | [fuera de servicio] | [out of service] |
 | `browser_not_allowed` | 403 | La petición llevaba cabecera `Origin` | No | [fuera de servicio] | [out of service] |
 | `partner_suspended` | 403 | OxioPay suspendió a vuestra empresa como socio | No | [fuera de servicio] | [out of service] |
-| `connection_paused` | 403 | El dueño u OxioPay pausaron la conexión | No | [fuera de servicio] | [out of service] |
+| `connection_paused` | 403 | El dueño u OxioPay pausaron la conexión, o el local ya no está en la sociedad de la clave con su NIF (hasta que OxioPay lo arregle) | No | [fuera de servicio] | [out of service] |
 | `partner_api_frozen` | 403 | OxioPay congeló las cargas y las anulaciones | No (4.2) | Las recargas no están disponibles ahora. Recarga en recepción. | Top-ups are not available right now. Please top up at reception. |
 | `wallet_not_found` | 404 | No hay saldo a vuestro alcance con esa referencia (no existe, otro grupo u otra sociedad) | No | Este saldo no se puede cargar en este cajero. | This balance cannot be topped up at this machine. |
 | `load_not_found` | 404 | Esa carga no es de esta conexión | No | (no se enseña) | (not shown) |
 | `not_found` | 404 | API apagada o congelada del todo, o ruta que no existe. Con la API apagada el cuerpo puede no ser JSON | No (mirad `GET /me` más tarde) | [fuera de servicio] | [out of service] |
 | `wallet_blocked` | 409 | Saldo bloqueado | No | Este saldo está bloqueado. Habla con el personal. | This balance is blocked. Please speak to the staff. |
 | `wallet_closed` | 409 | Saldo cerrado | No | Este saldo está cerrado. Habla con el personal. | This balance is closed. Please speak to the staff. |
-| `ficha_lost` | 409 | Ficha dada como perdida | No | Esta ficha está dada de baja. Si es tuya, ve a recepción. | This token has been reported lost. If it is yours, please go to reception. |
-| `ficha_blocked` | 409 | Ficha bloqueada | No | Esta ficha está bloqueada. Ve a recepción. | This token is blocked. Please go to reception. |
-| `ficha_copy_suspected` | 409 | El número del chip no es el de la ficha; el dueño recibe aviso | No | Esta ficha no se puede usar aquí. Ve a recepción. | This token cannot be used here. Please go to reception. |
+| `ficha_lost` | 409 | Ficha dada como perdida | No | Esta ficha está dada de baja. Si es tuya, ve a recepción. | This NFC tag has been reported lost. If it is yours, please go to reception. |
+| `ficha_blocked` | 409 | Ficha bloqueada | No | Esta ficha está bloqueada. Ve a recepción. | This NFC tag is blocked. Please go to reception. |
+| `ficha_copy_suspected` | 409 | El número del chip no es el de la ficha; el dueño recibe aviso | No | Esta ficha no se puede usar aquí. Ve a recepción. | This NFC tag cannot be used here. Please go to reception. |
 | `method_disabled` + `wallet` | 409 | El local apagó el saldo en sus ajustes (`reason: venue_setting`) | No (4.2) | Este local no admite recargas de saldo ahora. | This venue is not taking balance top-ups right now. |
 | `method_disabled` + `cash_top_up` | 409 | El local apagó las recargas en efectivo en sus ajustes (`reason: venue_setting`) | No (4.2) | Este local no admite ahora recargas en efectivo. | This venue is not taking cash top-ups right now. |
 | `void_window_passed` | 409 | Anulación pasados los 10 minutos | No | (no se enseña: incidencia para el local) | (not shown) |
 | `balance_already_spent` | 409 | El saldo ya no cubre la carga que se quería anular (`available`) | No | (no se enseña: incidencia para el local) | (not shown) |
 | `body_too_large` | 413 | Cuerpo de más de 16 KB | No | [fuera de servicio] | [out of service] |
 | `validation_failed` | 422 | Un campo incumple su regla (`param`), un campo de más, `nfc_uid` con un código del móvil, o un número de tarjeta en `reference` | No | [fuera de servicio] | [out of service] |
-| `wallet_ref_unrecognized` | 422 | Lo leído no es nada de OxioPay | No (leer otra cosa) | No reconocemos este código. Acerca tu ficha o enseña el código de tu página del saldo. | We do not recognise this code. Tap your token or show the code on your balance page. |
+| `wallet_ref_unrecognized` | 422 | Lo leído no es nada de OxioPay | No (leer otra cosa) | No reconocemos este código. Acerca tu ficha o enseña el código de tu página del saldo. | We do not recognise this code. Tap your NFC tag or show the code on your balance page. |
 | `wallet_ref_not_accepted` | 422 | Es de OxioPay pero no sirve aquí (`reason`, capítulo 3) | No | El texto de su `reason` (capítulo 3) | The text for its `reason` (chapter 3) |
 | `live_code_invalid` | 422 | Código del móvil caducado o desconocido | Sí, tras leer el código otra vez y comprobar el saldo con el cliente (4.2), con el mismo id de transacción | El código ha caducado. Vuelve a enseñarlo. | The code has expired. Please show it again. |
 | `description_invalid` | 422 | `description` con caracteres o enlaces no permitidos | No: corregid el texto | [fuera de servicio] | [out of service] |
