@@ -434,3 +434,44 @@ describe('OperatorsService.createPayout — la cifra que se vio y la Idempotency
     expect(h.prisma.withTenant).toHaveBeenCalledWith(TENANT, expect.any(Function));
   });
 });
+
+describe('OperatorsService.createPayout — dentro de una tanda («Pagar» a varias a la vez)', () => {
+  it('batchKey va al registro del pago; sin ella, el registro es el de siempre', async () => {
+    const h = makeService();
+    await h.svc.createPayout(TENANT, OPERATOR, OWNER, undefined, { batchKey: 'tanda-0001-abcdef' });
+    expect(h.audit.log).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'operator.payout.created', payload: expect.objectContaining({ payoutId: PAYOUT_ID, batchKey: 'tanda-0001-abcdef' }) }),
+    );
+    const single = makeService();
+    await single.svc.createPayout(TENANT, OPERATOR, OWNER);
+    expect(single.audit.log.mock.calls[0]![0].payload).not.toHaveProperty('batchKey');
+  });
+
+  it('el 409 PAYOUT_CHANGED lleva la cifra de ahora y la que se vio', async () => {
+    const h = makeService();
+    const { body } = await errorOf(h.svc.createPayout(TENANT, OPERATOR, OWNER, undefined, { expectedTotalCents: 10_000 }));
+    expect(body).toMatchObject({ code: 'PAYOUT_CHANGED', totalCents: 12_500, expectedTotalCents: 10_000 });
+  });
+
+  it('«Te han pagado» solo por un pago nuevo: repetido con la misma clave, ni aviso ni registro', async () => {
+    const idem = { key: 'tanda-0001-abcdef:a1c3e5f7', hash: 'huella-1' };
+    const fresh = makeService();
+    const push = { payoutMade: vi.fn() };
+    (fresh.svc as unknown as { staffPush: typeof push }).staffPush = push;
+    await fresh.svc.createPayout(TENANT, OPERATOR, OWNER, undefined, { idempotency: idem, batchKey: 'tanda-0001-abcdef' });
+    expect(push.payoutMade).toHaveBeenCalledTimes(1);
+    expect(push.payoutMade).toHaveBeenCalledWith({ tenantId: TENANT, operatorId: OPERATOR, payoutId: PAYOUT_ID, totalCents: 12_500 });
+
+    const again = makeService();
+    const pushAgain = { payoutMade: vi.fn() };
+    (again.svc as unknown as { staffPush: typeof pushAgain }).staffPush = pushAgain;
+    (again.tx as unknown as Record<string, unknown>).operatorEarning = { count: vi.fn().mockResolvedValue(2) };
+    again.tx.operatorPayout.findFirst.mockResolvedValue({
+      id: PAYOUT_ID, operatorId: OPERATOR, paidByUserId: OWNER, idempotencyHash: idem.hash, totalCents: 12_500, createdAt: NOW,
+    } as never);
+    await expect(again.svc.createPayout(TENANT, OPERATOR, OWNER, undefined, { idempotency: idem, batchKey: 'tanda-0001-abcdef' })).resolves.toMatchObject({ id: PAYOUT_ID });
+    expect(pushAgain.payoutMade).not.toHaveBeenCalled();
+    expect(again.audit.log).not.toHaveBeenCalled();
+    expect(again.tx.operatorPayout.create).not.toHaveBeenCalled();
+  });
+});

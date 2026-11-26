@@ -158,6 +158,8 @@ export interface PayoutOptions {
   afterCreate?: (tx: TransactionalClient, payoutId: string) => Promise<void>;
   /** Para el registro. */
   approvalRequestId?: string;
+  /** «Pagar» a varias a la vez: la clave de la tanda, para el registro del pago. */
+  batchKey?: string;
 }
 
 /** Ya tiene a dónde se le paga. */
@@ -1648,6 +1650,7 @@ export class OperatorsService {
         earningCount: result.count,
         notes,
         ...(options?.approvalRequestId ? { approvalRequestId: options.approvalRequestId } : {}),
+        ...(options?.batchKey ? { batchKey: options.batchKey } : {}),
       },
     });
 
