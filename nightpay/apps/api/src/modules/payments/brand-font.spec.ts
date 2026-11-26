@@ -4,9 +4,13 @@ import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import type { FastifyReply } from 'fastify';
 import { UNPREFIXED_ROUTES } from '../../common/http/unprefixed-routes';
-import { BRAND_FONT_FACE, MANROPE_PATH, MANROPE_URL, MANROPE_WOFF2, SANS_PATH, SANS_URL, SANS_WOFF2 } from './brand-font';
+import { BRAND_FONT_FACE, MANROPE_PATH, MANROPE_PRELOAD, MANROPE_URL, MANROPE_WOFF2, SANS_PATH, SANS_URL, SANS_WOFF2 } from './brand-font';
 import { BrandFontController } from './brand-font.controller';
 import { CLUB_BASE_CSS } from './club-ui';
+import { PAY_TEXT } from './pay-i18n';
+import { renderNoticePage } from './public-pay.pages';
+import { renderQrChargePage } from '../wallets/qr-charge-page';
+import { renderWalletPage } from '../wallets/wallet-page';
 
 const APPS_FONTS = join(__dirname, '..', '..', '..', '..', '..', 'packages', 'ui', 'fonts');
 
@@ -71,5 +75,29 @@ describe('las letras de la marca en las páginas del cliente (Grafito)', () => {
     expect(headers['Cache-Control']).toBe('public, max-age=31536000, immutable');
     expect(headers['X-Content-Type-Options']).toBe('nosniff');
     expect(sent).toBe(bytes);
+  });
+
+  it('la letra de las cifras se pide ya en la cabecera (preload), antes del <style>: el total no salta al llegar (idea 72)', () => {
+    expect(MANROPE_PRELOAD).toBe(`<link rel="preload" href="${MANROPE_URL}" as="font" type="font/woff2" crossorigin>`);
+    const wallet = {
+      code: 'K7Q-4M2', balanceCents: 3000, status: 'ACTIVE', closeRequested: false, hasFaceId: false, hasPin: false, hasCard: false,
+      fichaNumber: null, venueName: null, merged: false, refund: null, cards: [], movements: [],
+    };
+    const charge = {
+      status: 'PENDING' as const, amountCents: 6000, serviceName: 'Copa', venueName: 'Luna', requestedByName: 'Lola',
+      expiresAt: new Date(Date.now() + 300_000).toISOString(), paidAt: null,
+    };
+    const pages = {
+      // customerPage(): todas las de /pay (pagar, el banco, «Pagado», avisos, justificante).
+      pay: renderNoticePage('es', PAY_TEXT.es.notFound, 'warn'),
+      saldo: renderWalletPage('tok-1', 'es', wallet),
+      cobro: renderQrChargePage('tok-1', 'es', charge),
+    };
+    for (const [name, html] of Object.entries(pages)) {
+      expect(html.split(MANROPE_PRELOAD), name).toHaveLength(2);
+      expect(html.indexOf(MANROPE_PRELOAD), name).toBeGreaterThan(html.indexOf('<head>'));
+      expect(html.indexOf(MANROPE_PRELOAD), name).toBeLessThan(html.indexOf('<meta name="viewport"'));
+      expect(html.indexOf(MANROPE_PRELOAD), name).toBeLessThan(html.indexOf('<style>'));
+    }
   });
 });

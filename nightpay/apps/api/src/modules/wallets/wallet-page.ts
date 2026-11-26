@@ -1,4 +1,5 @@
 import { DETAIL_TIP_AND_FEE_APART } from '@nightpay/contracts';
+import { MANROPE_PRELOAD } from '../payments/brand-font';
 import { PAY_TEXT, type PayLanguage } from '../payments/pay-i18n';
 import { CLUB_BASE_CSS, MONEY_JS, clientMoney, escapeHtml, jsConfig } from '../payments/club-ui';
 import { CHROME_CSS, LANG_JS, topBar } from '../payments/customer-chrome';
@@ -333,7 +334,7 @@ export function renderWalletPage(
   const aviso = Boolean(options.chargeAlertKey);
   const h = escapeHtml;
   return `<!DOCTYPE html>
-<html lang="${t.htmlLang}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<html lang="${t.htmlLang}"><head><meta charset="utf-8">${MANROPE_PRELOAD}<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="robots" content="noindex"><meta name="theme-color" content="${party ? PARTY_THEME_COLOR : '#091518'}"><title>${h(t.title)}</title>${aviso ? manifestLink(base) : ''}
 <style>${CLUB_BASE_CSS}${CHROME_CSS}${WALLET_CSS}${SCAN_CSS}${TOPUP_CSS}${LOST_CSS}${WELCOME_CSS}${aviso ? AVISO_CSS : ''}${party ? PARTY_CSS : ''}</style></head><body><main class="w">
 ${party ? partyTopBar(lang, party) : topBar(lang)}<h1 class="sr">${h(t.title)}</h1>

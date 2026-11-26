@@ -4,6 +4,7 @@ import { legalFooter } from '../legal/legal-links';
 import { CUSTOMER_TEXT } from '../payments/i18n';
 import { PAID_SCREEN_CSS, PAID_SCREEN_JS, paidScreenJsText, renderPaidScreen } from '../payments/paid-screen';
 import { LOCK_ICON, TIP_JS } from '../payments/pay-choose-page';
+import { MANROPE_PRELOAD } from '../payments/brand-font';
 import { PAY_TEXT, type PayLanguage } from '../payments/pay-i18n';
 import { PASSKEY_BROWSER_JS } from './passkey-browser';
 import { CLIENT_ERROR_JS, clientErrorConfig } from './client-errors';
@@ -117,7 +118,7 @@ export function renderQrChargePage(
     footer: closed ? undefined : mine,
   });
   return `<!DOCTYPE html>
-<html lang="${lang}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<html lang="${lang}"><head><meta charset="utf-8">${MANROPE_PRELOAD}<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="robots" content="noindex"><meta name="theme-color" content="#091518"><title>${h(t.title)}</title>
 <style>${CLUB_BASE_CSS}${CHROME_CSS}${QR_CSS}${PAID_SCREEN_CSS}${tipView ? SALDO_TIP_CSS : ''}</style></head><body>
 ${topBar(lang, undefined, { over: isPaid })}

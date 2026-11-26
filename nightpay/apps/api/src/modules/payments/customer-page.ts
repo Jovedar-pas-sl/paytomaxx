@@ -1,3 +1,4 @@
+import { MANROPE_PRELOAD } from './brand-font';
 import { CLUB_BASE_CSS, escapeHtml } from './club-ui';
 import { CHROME_CSS, defaultLangHref, langScript, topBar, type LangHref } from './customer-chrome';
 import type { PayText } from './pay-i18n';
@@ -38,7 +39,7 @@ export function customerPage(
         ? `${topBar(lang, hrefFor)}\n${body}`
         : `${topBar(lang, hrefFor)}\n<main class="c">${body}\n<p class="foot">${escapeHtml(t.secure)}</p></main>`;
   return `<!DOCTYPE html>
-<html lang="${lang}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<html lang="${lang}"><head><meta charset="utf-8">${MANROPE_PRELOAD}<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="robots" content="noindex"><meta name="theme-color" content="#091518"><title>${escapeHtml(title)}</title>
 <style>${CLUB_BASE_CSS}${CHROME_CSS}${PAGE_CSS}</style>${opts.head ?? ''}
 </head><body>
