@@ -13,6 +13,11 @@ import { Notice } from './Notice';
  * anularla. Se graba aquí mismo con un Android con Chrome, en una ficha en
  * blanco, como las de los clientes: el código lo da el servidor antes de
  * acercarla. Si se grabó y falló al darla (red), se acerca la misma otra vez.
+ *
+ * Dos toques: «Darle su ficha» pide el código al servidor y «Grabar» arranca
+ * el lector NFC. Chrome solo deja empezar a leer dentro de un toque y, si se
+ * esperase al servidor en el mismo, con red lenta lo da por perdido
+ * (NotAllowedError) y la primera ficha no se podría dar.
  */
 export function StaffCardBox({
   operatorId,
@@ -27,6 +32,8 @@ export function StaffCardBox({
 }) {
   const [card, setCard] = useState<StaffCardView | null>(initial);
   const [writing, setWriting] = useState<AbortController | null>(null);
+  const [code, setCode] = useState<string | null>(null);
+  const [reserving, setReserving] = useState(false);
   const [busy, setBusy] = useState(false);
   const [confirm, dialog] = useConfirm();
   const [error, setError] = useState<string | null>(null);
@@ -35,25 +42,44 @@ export function StaffCardBox({
   useEffect(() => setCanWrite(webNfcWriter() !== null), []);
   useEffect(() => () => writing?.abort(), [writing]);
 
+  /** Primer toque: el código del servidor, antes de acercar la ficha (sin NFC todavía). */
+  async function prepare(): Promise<void> {
+    if (reserving) return;
+    if (!webNfcWriter()) return setError(NO_WEB_NFC);
+    setReserving(true);
+    setError(null);
+    setNote(null);
+    try {
+      setCode(await reserveStaffCardCode(operatorId));
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setReserving(false);
+    }
+  }
+
+  /** Segundo toque: el lector arranca aquí mismo, sin esperar a nada antes. */
   async function give(): Promise<void> {
     const Reader = webNfcWriter();
     if (!Reader) return setError(NO_WEB_NFC);
+    if (!code) return;
     const ctrl = new AbortController();
+    const pending = writeStaffCard(Reader, window.location.origin, ctrl.signal, code);
     setWriting(ctrl);
     setError(null);
     setNote(null);
     try {
-      const code = await reserveStaffCardCode(operatorId);
-      const written = await writeStaffCard(Reader, window.location.origin, ctrl.signal, code);
+      const written = await pending;
       const before = card;
       let next: StaffCardView;
       try {
         next = await issueStaffCard(operatorId, { card: written.card, uid: written.uid });
       } catch (err) {
         // Grabada pero sin darla (red, tiempo): la misma ficha vale al reintentar.
-        throw written.written ? new Error(`${(err as Error).message} La ficha ya está grabada: pulsa otra vez y acerca la misma.`) : err;
+        throw written.written ? new Error(`${(err as Error).message} La ficha ya está grabada: pulsa «Grabar» otra vez y acerca la misma.`) : err;
       }
       setCard(next);
+      setCode(null);
       setNote(
         before && before.number === next.number
           ? `Esa ya es su ficha nº ${staffCardNumberText(next.number)}.`
@@ -99,8 +125,17 @@ export function StaffCardBox({
           <Button variant="ghost" size="sm" onClick={() => writing.abort()}>
             Acerca una ficha en blanco… (cancelar)
           </Button>
+        ) : code ? (
+          <>
+            <Button size="sm" onClick={() => void give()}>
+              Grabar
+            </Button>
+            <Button variant="ghost" size="sm" onClick={() => setCode(null)}>
+              Cancelar
+            </Button>
+          </>
         ) : (
-          <Button variant="ghost" size="sm" disabled={!canWrite} onClick={() => void give()}>
+          <Button variant="ghost" size="sm" disabled={!canWrite} loading={reserving} onClick={() => void prepare()}>
             {card ? 'Darle otra ficha' : 'Darle su ficha'}
           </Button>
         )}
@@ -110,6 +145,7 @@ export function StaffCardBox({
           </Button>
         ) : null}
       </div>
+      {code && !writing ? <span style={mute}>Acerca la ficha en blanco y pulsa «Grabar».</span> : null}
       {!canWrite ? <span style={mute}>{NO_WEB_NFC}</span> : null}
       {note ? <Notice tone="success">{note}</Notice> : null}
       {error ? <Notice tone="danger">{error}</Notice> : null}
