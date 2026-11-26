@@ -2,7 +2,7 @@ import { cardBrandLabel } from './card-brand';
 import { clientMoney, escapeHtml, jsString } from './club-ui';
 import { langHrefWith, type LangHref } from './customer-chrome';
 import { customerPage as page } from './customer-page';
-import { CHOOSE_CSS, LOCK_ICON, renderChooseBody, type ChooseContext } from './pay-choose-page';
+import { LOCK_ICON, chooseCss, renderChooseBody, type ChooseContext } from './pay-choose-page';
 import { PAID_SCREEN_CSS, paidScreenScript, renderPaidScreen } from './paid-screen';
 import { WALLET_ASK_CSS, renderWalletAsk, type WalletBlock } from './paid-wallet-ask';
 import { myBalanceBlock } from '../wallets/my-balance';
@@ -58,6 +58,12 @@ function formatDateTime(d: Date, t: PayText): string {
   });
 }
 
+/** Cómo se pagó, sin dígitos de la tarjeta: «Visa · Apple Pay o Google Pay». Sin datos, vacío. */
+function methodLabel(t: PayText, cardBrand: string | null | undefined, payMethod: string | null | undefined): string {
+  const how = payMethod === 'wallet' ? t.receipt.wallet : payMethod === 'card' ? t.receipt.card : null;
+  return [cardBrandLabel(cardBrand), how].filter(Boolean).join(' · ');
+}
+
 export function payHref(token: string, lang: PayLanguage): string {
   return `/pay/${encodeURIComponent(token)}?lang=${lang}`;
 }
@@ -84,7 +90,12 @@ export function receiptHref(token: string, lang: PayLanguage): string {
 
 export function renderChoosePage(view: ChooseView, ctx: ChooseContext): string {
   const t = PAY_TEXT[ctx.lang];
-  return page(t, t.youPay, renderChooseBody(view, ctx), { head: `<style>${CHOOSE_CSS}</style>`, layout: 'bare' });
+  return page(t, t.youPay, renderChooseBody(view, ctx), {
+    head: `<style>${chooseCss(view)}</style>`,
+    layout: 'bare',
+    suggest: ctx.suggest,
+    langHref: ctx.langHref,
+  });
 }
 
 // ─── Hacia el banco ─────────────────────────────────────────────────────
@@ -102,12 +113,17 @@ h1{font-size:1.75rem}
  * navegador bloquea el envío automático (iOS Safari lo hace a veces). Si el
  * cliente vuelve atrás desde el banco y el navegador restaura esta página,
  * no se reenvía el mismo pedido: se vuelve a la página del cobro.
+ *
+ * Avisa del salto (idea 63): «Te llevamos a la página segura del banco» y,
+ * si se sabe, con qué nombre saldrá el cargo (`statementName`). Se envía
+ * cuando el aviso ya está pintado (dos fotogramas), no tras un tiempo fijo.
  */
 export function renderCheckoutForm(
   action: string,
   fields: Record<string, string>,
   lang: PayLanguage,
   backHref: string,
+  statementName: string | null = null,
 ): string {
   const t = PAY_TEXT[lang];
   const inputs = Object.entries(fields)
@@ -115,7 +131,8 @@ export function renderCheckoutForm(
     .join('\n');
   const body = `
 <div class="spin" aria-hidden="true"></div>
-<h1 role="status">${escapeHtml(t.openingTitle)}</h1>
+<h1 role="status">${escapeHtml(t.bankJumpTitle)}</h1>
+${statementName ? `<p>${escapeHtml(t.bankJumpStatement(statementName))}</p>` : ''}
 <p>${escapeHtml(t.openingHint)}</p>
 <form id="f" action="${escapeHtml(action)}" method="POST" accept-charset="UTF-8" style="width:100%">
 ${inputs}
@@ -123,7 +140,7 @@ ${inputs}
 </form>
 <script>
 window.addEventListener('pageshow',function(e){if(e.persisted){location.replace(${jsString(backHref)});}});
-setTimeout(function(){document.getElementById('f').submit();},250);
+requestAnimationFrame(function(){requestAnimationFrame(function(){document.getElementById('f').submit();});});
 </script>`;
   // Cambiar de idioma aquí vuelve a la página del cobro (este formulario ya está abierto en el banco).
   const back = backHref.split('?')[0] ?? backHref;
@@ -156,6 +173,11 @@ export function renderPaidPage(
     topUp?: boolean;
     /** El selector de idioma de esta página (p. ej. /pay/result?op=…). */
     langHref?: LangHref;
+    /** A quién se pagó, qué y cómo (idea 62): el local, lo pedido, la marca y la forma de pago. */
+    to?: string | null;
+    concept?: string | null;
+    cardBrand?: string | null;
+    payMethod?: string | null;
   },
   lang: PayLanguage,
 ): string {
@@ -180,6 +202,10 @@ export function renderPaidPage(
     now,
     code: args.code,
     rows,
+    to: args.to,
+    // Una recarga sigue diciendo «Recarga».
+    concept: args.topUp ? null : args.concept,
+    method: methodLabel(t, args.cardBrand, args.payMethod),
     lines: args.tipCents > 0 ? [t.thanksTip] : [],
     viewerPaid: args.viewerPaid === true,
     // Sin recarga que activar, el justificante va dentro del «Pagado» (se ve sin bajar).
@@ -335,6 +361,10 @@ export function renderResultView(
         viewerPaid,
         topUp: topUp || Boolean(view.walletToken || view.walletReturnToken),
         langHref,
+        to: view.venueName,
+        concept: view.concept,
+        cardBrand: view.cardBrand,
+        payMethod: view.payMethod,
       },
       lang,
     );
@@ -358,13 +388,12 @@ export function renderReceiptPage(
   const t = PAY_TEXT[ctx.lang];
   const rt = t.receipt;
   const fmt = (c: number): string => formatFull(c, r.currency, t);
-  const brand = cardBrandLabel(r.cardBrand);
-  const method = [r.payMethod === 'wallet' ? rt.wallet : r.payMethod === 'card' ? rt.card : null, brand]
-    .filter(Boolean)
-    .join(' · ');
+  const method = methodLabel(t, r.cardBrand, r.payMethod);
+  // A quién se pagó y lo pedido (idea 62); una recarga sigue diciendo «Recarga».
   const rows: Array<[string, string, boolean?]> = [
     ...(r.authorizedAt ? [[rt.date, formatDateTime(r.authorizedAt, t)] as [string, string]] : []),
-    [r.topUp ? rt.topUp : rt.amount, fmt(r.amountCents)],
+    ...(r.venueName ? [[rt.paidTo, r.venueName] as [string, string]] : []),
+    [r.topUp ? rt.topUp : r.concept || rt.amount, fmt(r.amountCents)],
     ...((r.serviceFeeCents ?? 0) > 0 ? [[rt.serviceFee, fmt(r.serviceFeeCents ?? 0)] as [string, string]] : []),
     ...(r.tipCents > 0 ? [[rt.tip, fmt(r.tipCents)] as [string, string]] : []),
     [rt.total, fmt(r.amountCents + (r.serviceFeeCents ?? 0) + r.tipCents), true],

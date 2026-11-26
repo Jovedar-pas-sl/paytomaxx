@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, type FormEvent } from 'react';
-import { Button, Input, Modal } from '@nightpay/ui';
+import { Button, FormError, Input, Modal } from '@nightpay/ui';
 import { acceptAfterCancel, type Incident } from '@/lib/api';
 import { totpLockedUntil } from '@/lib/api-errors';
 import { OtpInput } from './OtpInput';
@@ -74,16 +74,18 @@ export function AcceptAfterCancelModal({ incident, onClose, onDone }: { incident
           hint="Son los 6 números de tu app de verificación."
         />
         {error ? (
-          <p role="alert" style={{ color: 'var(--np-danger)', margin: 0, fontSize: '0.875rem' }}>
+          <FormError>
             {error}
-          </p>
+          </FormError>
         ) : null}
-        <Button type="submit" loading={busy} disabled={busy}>
-          Dar por bueno
-        </Button>
-        <Button type="button" variant="ghost" onClick={onClose} disabled={busy}>
-          Volver
-        </Button>
+        <div className="np-pregunta-pie">
+          <Button type="button" variant="ghost" size="lg" onClick={onClose} disabled={busy}>
+            Volver
+          </Button>
+          <Button type="submit" size="lg" loading={busy} disabled={busy}>
+            Dar por bueno
+          </Button>
+        </div>
       </form>
     </Modal>
   );

@@ -1,4 +1,4 @@
-import { redactSecretsInText, redactSecretsInUrl } from '../logging/redact-url';
+import { redactPartnerSecrets, redactSecretsInText, redactSecretsInUrl } from '../logging/redact-url';
 
 /**
  * Limpieza de lo que se envía a Sentry (eventos de error, trazas y
@@ -62,6 +62,10 @@ const SECRET_BODY_KEYS: ReadonlySet<string> = new Set([
   // El alta: nombre legal y fecha de nacimiento.
   'legalname',
   'birthdate',
+  // API de socios: lo que identifica un saldo (QR, chip) y el texto del socio.
+  'qr',
+  'nfc_uid',
+  'description',
 ]);
 /**
  * Y cualquiera que lo parezca: newPassword, accessToken, pinConfirm,
@@ -81,12 +85,14 @@ function isBag(value: unknown): value is Bag {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
+/** Los datos libres de un breadcrumb o un span: URL y query como siempre; el resto, limpio por dentro. */
 function scrubData(data: unknown): unknown {
-  if (!isBag(data)) return data;
+  if (!isBag(data)) return typeof data === 'string' ? scrubText(data) : scrubValue(data, 0, new WeakSet());
   const entries = Object.entries(data).map(([key, value]) => {
     if (QUERY_KEYS.includes(key)) return [key, REDACTED];
     if (URL_KEYS.includes(key) && typeof value === 'string') return [key, redactSecretsInUrl(value)];
-    return [key, value];
+    if (isSecretKey(key)) return [key, REDACTED];
+    return [key, typeof value === 'string' ? scrubText(value) : scrubValue(value, 1, new WeakSet())];
   });
   return Object.fromEntries(entries);
 }
@@ -94,7 +100,7 @@ function scrubData(data: unknown): unknown {
 export function scrubBreadcrumb<T extends Bag>(breadcrumb: T): T {
   return {
     ...breadcrumb,
-    ...(typeof breadcrumb.message === 'string' ? { message: redactSecretsInText(breadcrumb.message) } : {}),
+    ...(typeof breadcrumb.message === 'string' ? { message: scrubText(breadcrumb.message) } : {}),
     ...(breadcrumb.data !== undefined ? { data: scrubData(breadcrumb.data) } : {}),
   };
 }
@@ -113,8 +119,14 @@ function isSecretKey(key: string): boolean {
   return SECRET_BODY_KEYS.has(key.toLowerCase()) || SECRET_KEY_PATTERNS.some((re) => re.test(key));
 }
 
+/** IBAN, claves de socio (oxp_…) y códigos del móvil (OXC1:…) en cualquier texto. */
 function maskIbans(text: string): string {
-  return text.replace(IBAN_IN_TEXT, REDACTED);
+  return redactPartnerSecrets(text.replace(IBAN_IN_TEXT, REDACTED));
+}
+
+/** Un texto libre (el mensaje del evento, el de una excepción): URLs con token, IBAN y claves. */
+function scrubText(text: string): string {
+  return maskIbans(redactSecretsInText(text));
 }
 
 /** Copia sin los campos secretos, en todos los niveles (objetos y listas). */
@@ -204,7 +216,7 @@ function scrubSpan(span: unknown): unknown {
   if (!isBag(span)) return span;
   return {
     ...span,
-    ...(typeof span.description === 'string' ? { description: redactSecretsInText(span.description) } : {}),
+    ...(typeof span.description === 'string' ? { description: scrubText(span.description) } : {}),
     ...(span.data !== undefined ? { data: scrubData(span.data) } : {}),
   };
 }
@@ -214,10 +226,21 @@ function scrubContexts(contexts: unknown): unknown {
   return { ...contexts, trace: scrubSpan(contexts.trace) };
 }
 
+/** Las excepciones del evento con su texto (`value`) limpio. */
+function scrubException(exception: unknown): unknown {
+  if (!isBag(exception) || !Array.isArray(exception.values)) return exception;
+  return {
+    ...exception,
+    values: exception.values.map((v) => (isBag(v) && typeof v.value === 'string' ? { ...v, value: scrubText(v.value) } : v)),
+  };
+}
+
 /** Evento de error o transacción, ya limpio (copia; el original no se toca). */
 export function scrubSensitive<T extends Bag>(event: T): T {
   return {
     ...event,
+    ...(typeof event.message === 'string' ? { message: scrubText(event.message) } : {}),
+    ...('exception' in event ? { exception: scrubException(event.exception) } : {}),
     ...('request' in event ? { request: scrubRequest(event.request) } : {}),
     ...('extra' in event ? { extra: scrubValue(event.extra, 0, new WeakSet()) } : {}),
     ...(typeof event.transaction === 'string' ? { transaction: redactSecretsInText(event.transaction) } : {}),

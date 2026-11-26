@@ -12,6 +12,8 @@ import { reportError } from '../observability/sentry';
 import { redactSecretsInUrl } from '../logging/redact-url';
 import { sanitizeTraceId } from '../context/trace-id';
 import type { RequestContext } from '../context/request-context';
+import { isPartnerPath } from '../http/partner-path';
+import { renderPartnerProblem } from '../../modules/partner/http/partner-problem';
 
 interface ProblemDetails {
   type: string;
@@ -45,6 +47,11 @@ export class ProblemDetailsFilter implements ExceptionFilter {
     const ctx = host.switchToHttp();
     const res = ctx.getResponse<FastifyReply>();
     const req = ctx.getRequest<FastifyRequest>();
+    // La API de socios tiene su contrato (problem+json con `code`, Request-Id, no-store).
+    if (isPartnerPath(req?.url)) {
+      renderPartnerProblem(exception, req, res);
+      return;
+    }
 
     let status: number = HttpStatus.INTERNAL_SERVER_ERROR;
     let title = 'Internal Server Error';

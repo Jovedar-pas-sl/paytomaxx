@@ -27,6 +27,7 @@ import { RealtimeGateway } from './modules/realtime/realtime.gateway';
 import { WalletStreamHub } from './modules/wallet-events/wallet-stream.hub';
 import { disconnectSocketIo, installGracefulShutdown } from './shutdown';
 import { ProblemDetailsFilter } from './common/filters/problem-details.filter';
+import { installPartnerBodyLimit, installPartnerUrlCheck } from './modules/partner/http/partner-hooks';
 
 const logger = new Logger('Bootstrap');
 // Node 22 cierra el proceso ante una promesa rechazada sin recoger: el adaptador de Redis del tiempo
@@ -74,8 +75,12 @@ async function bootstrap() {
   });
 
   const app = await NestFactory.create<NestFastifyApplication>(AppModule, adapter, {
-    rawBody: true, // disponible en req.rawBody — usado solo en webhooks
+    rawBody: true, // disponible en req.rawBody — usado en webhooks y para ver una clave en el cuerpo de la API de socios
   });
+
+  // API de socios (/v1/partner): cuerpo de 16 KB como mucho, también troceado
+  // (onRoute: antes de que se registren las rutas).
+  installPartnerBodyLimit(app);
 
   // ─── Security middleware ──────────────────────────────────────────
   // Sin casts: con Fastify 5 pnpm resuelve una sola versión de fastify y los
@@ -123,6 +128,11 @@ async function bootstrap() {
   if (env.ORIGIN_AUTH_SECRET) {
     app.getHttpAdapter().getInstance().addHook('onRequest', originAuthHook(env.ORIGIN_AUTH_SECRET));
   }
+
+  // API de socios: una clave en la URL = 400 api_key_in_url antes que el resto
+  // (también en rutas que no existen) y aviso al dueño. Detrás del corte de
+  // Cloudflare: lo que llega directo ni se mira.
+  installPartnerUrlCheck(app);
 
   // Rate limit global: con la sesión del personal, por persona y por local;
   // sin ella, por IP de fiar (common/http/global-rate-limit.ts). Endpoints

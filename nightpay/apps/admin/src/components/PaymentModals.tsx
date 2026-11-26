@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, type CSSProperties, type FormEvent } from 'react';
-import { Button, Input, Modal, Select } from '@nightpay/ui';
+import { Button, FormError, Input, Modal, Select } from '@nightpay/ui';
 import {
   isApprovalRequested,
   parseEuroCents,
@@ -217,9 +217,9 @@ export function ResolveModal({
           />
         ) : null}
         {error ? (
-          <p role="alert" style={{ color: 'var(--np-danger)', margin: 0 }}>
+          <FormError>
             {error}
-          </p>
+          </FormError>
         ) : null}
         <Button type="submit" loading={submitting}>
           {decision === 'AUTHORIZED' ? 'Marcar como cobrado' : 'Marcar como no cobrado'}
@@ -453,20 +453,21 @@ export function RefundModal({
           />
         ) : null}
         {error ? (
-          <p role="alert" style={{ color: 'var(--np-danger)', margin: 0, fontSize: '0.875rem' }}>
+          <FormError>
             {error}
-          </p>
+          </FormError>
         ) : null}
-        <div style={{ display: 'flex', gap: '0.75rem', marginTop: '0.5rem' }}>
-          {/* «Cancelar» es solo para un cobro sin pagar: aquí, «Dejarlo» (como al anular un cobro del saldo). */}
-          <Button variant="ghost" type="button" onClick={onClose} style={{ flex: 1 }}>
-            Dejarlo
+        <div className="np-pregunta-pie">
+          {/* «Cancelar» es solo para un cobro sin pagar: aquí, «Volver» (como en la pregunta). */}
+          <Button variant="ghost" size="lg" type="button" onClick={onClose}>
+            Volver
           </Button>
           <Button
+            variant={asking ? 'primary' : 'danger'}
+            size="lg"
             type="submit"
             loading={submitting}
             disabled={(requires2FA && !withKey && locked) || (withKey && !keyProof)}
-            style={{ flex: 1 }}
           >
             {buttonText}
           </Button>

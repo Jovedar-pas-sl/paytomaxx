@@ -27,7 +27,7 @@ import { IpRateLimit } from '../../common/guards/ip-rate-limit.guard';
 import { PAID_STATES, confirmationCode, withChosenTip, type CheckoutChoice, type PayRedirect } from './pay-redirect';
 import { detectPayDevice, type PayDevice } from './pay-device';
 import { payErrorKeyOf, type PayLanguage } from './pay-i18n';
-import { PAY_LANGUAGES, customerLanguage } from './customer-lang';
+import { PAY_LANGUAGES, customerLanguage, suggestedLanguage } from './customer-lang';
 import {
   payHref,
   receiptHref,
@@ -275,7 +275,7 @@ export class PublicPayController {
       res.status(303).header('Location', payHref(token, lang)).header('Cache-Control', 'no-store').send();
       return;
     }
-    sendHtml(res, 200, renderCheckoutForm(form.action, form.fields, lang, payHref(token, lang)));
+    sendHtml(res, 200, renderCheckoutForm(form.action, form.fields, lang, payHref(token, lang), this.bankStatementName()));
   }
 
   @Public()
@@ -290,11 +290,17 @@ export class PublicPayController {
     @Res() res: FastifyReply,
     // La propina que eligió en la pantalla de la barra (?tip=): sale marcada.
     @Query('tip') tipQuery?: string,
+    // El idioma de su móvil: no cambia la página, solo se le ofrece (idea 71).
+    @Headers('accept-language') acceptLanguage?: string,
   ): Promise<void> {
     const lang = this.language(res, langQuery, cookies);
     try {
       const view = withChosenTip(await this.payments.getPayPage(token), tipQuery);
-      await this.send(res, token, lang, view, userAgent);
+      await this.send(res, token, lang, view, userAgent, {
+        suggest: suggestedLanguage(acceptLanguage, langQuery, cookies),
+        // Los enlaces de idioma conservan esa propina (solo si son cifras).
+        ...(tipQuery && /^[0-9]{1,6}$/.test(tipQuery) ? { langHref: langHrefWith(payBase(token), { tip: tipQuery }) } : {}),
+      });
     } catch (err) {
       this.sendError(res, token, lang, err);
     }
@@ -344,6 +350,8 @@ export class PublicPayController {
     lang: PayLanguage,
     view: PayRedirect,
     userAgent: string | undefined,
+    /** Solo al abrir la página de pago (GET): la franja de idioma y sus enlaces. */
+    chrome: { suggest?: PayLanguage | null; langHref?: LangHref } = {},
   ): Promise<void> {
     switch (view.kind) {
       case 'choose':
@@ -356,6 +364,7 @@ export class PublicPayController {
             device: this.payDevice(userAgent),
             statementName: this.statementName(),
             now: new Date(),
+            ...chrome,
           }),
         );
         return;
@@ -380,7 +389,7 @@ export class PublicPayController {
           .send();
         return;
       case 'form':
-        sendHtml(res, 200, renderCheckoutForm(view.action, view.fields, lang, payHref(token, lang)));
+        sendHtml(res, 200, renderCheckoutForm(view.action, view.fields, lang, payHref(token, lang), this.bankStatementName()));
         return;
       case 'paid': {
         const claimed = this.hasWalletClaim(res, token, view.walletClaimHash);
@@ -432,6 +441,11 @@ export class PublicPayController {
               // Un /pay reenviado a otro móvil ve «Ya pagado» en gris, nunca el lima.
               viewerPaid: this.hasWalletClaim(res, token, view.approvedClaimHash ?? null),
               topUp: Boolean(view.walletToken || view.walletReturnToken),
+              // A quién se pagó, qué y cómo (idea 62).
+              to: view.venueName,
+              concept: view.concept,
+              cardBrand: view.cardBrand,
+              payMethod: view.payMethod,
             },
             lang,
           ),

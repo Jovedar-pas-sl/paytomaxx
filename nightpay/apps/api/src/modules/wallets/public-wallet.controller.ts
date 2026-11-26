@@ -25,7 +25,7 @@ import { CobroDetailService } from '../money-map/cobro-detail.service';
 import { CLIENT_HINTS_ACCEPT_CH } from '../../common/http/client-device';
 import { Public } from '../../common/decorators/public.decorator';
 import { IpRateLimit } from '../../common/guards/ip-rate-limit.guard';
-import { customerLanguage, resolveLanguage } from '../payments/customer-lang';
+import { customerLanguage, resolveLanguage, suggestedLanguage } from '../payments/customer-lang';
 import { walletClaimSetCookie } from '../payments/wallet-claim';
 import { WalletChargesService, codeHintOf, type ClientWalletState } from './wallet-charges.service';
 import { WalletPasskeysService } from './wallet-passkeys.service';
@@ -270,15 +270,18 @@ export class PublicWalletController {
     @Query('pagado') paidToken?: string,
     @Headers('cookie') cookies?: string,
     @Query('nuevo') newToken?: string,
+    /** El idioma de su móvil: no cambia la página, solo se le ofrece (idea 71). */
+    @Headers('accept-language') acceptLanguage?: string,
   ): Promise<void> {
     // Español por defecto; el idioma que elige el cliente queda en su cookie.
     const { lang, setCookie } = customerLanguage(langQuery, cookies);
     if (setCookie) res.header('Set-Cookie', setCookie);
+    const suggest = suggestedLanguage(acceptLanguage, langQuery, cookies);
     const access = await this.viewAccess(token, cookies);
     if (!access.allowed) {
       const { shortCode } = await this.charges.walletRefByToken(token);
       res.status(200).header('Content-Type', 'text/html; charset=utf-8').header('Cache-Control', 'no-store').header('Referrer-Policy', 'no-referrer')
-        .send(renderWalletUnlockPage(`/w/${encodeURIComponent(token)}`, lang, { kind: 'locked', codeHint: shortCode ? codeHintOf(shortCode) : null, paidToken }));
+        .send(renderWalletUnlockPage(`/w/${encodeURIComponent(token)}`, lang, { kind: 'locked', codeHint: shortCode ? codeHintOf(shortCode) : null, paidToken }, { suggest }));
       return;
     }
     if (access.renew) res.header('Set-Cookie', access.renew);
@@ -313,6 +316,7 @@ export class PublicWalletController {
           fichaQr,
           chargeAlertKey: this.alerts?.publicKey ?? null,
           party,
+          suggest,
         }),
       );
   }

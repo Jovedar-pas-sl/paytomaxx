@@ -1,7 +1,8 @@
 'use client';
 
 import { useState, type CSSProperties } from 'react';
-import { Button, Card, Select } from '@nightpay/ui';
+import { Button, Card, Select, useConfirm, type ConfirmQuestion } from '@nightpay/ui';
+import { splitQuestion, walletBlockText } from '@/lib/confirm-text';
 import {
   blockWalletCard,
   fetchWalletsList,
@@ -64,6 +65,7 @@ export function WalletsPanel({ isOwner }: Props) {
   const [statusFilter, setStatusFilter] = useState<'' | WalletAdminRow['status']>('ACTIVE');
   const [error, setError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [confirm, dialog] = useConfirm();
   const [payoutFor, setPayoutFor] = useState<PayoutTarget | null>(null);
   const [relinkFor, setRelinkFor] = useState<PayoutTarget | null>(null);
   const [chargeFor, setChargeFor] = useState<PayoutTarget | null>(null);
@@ -95,8 +97,8 @@ export function WalletsPanel({ isOwner }: Props) {
     setStatusFilter(value);
   }
 
-  async function runAction(question: string, action: () => Promise<void>): Promise<void> {
-    if (!window.confirm(question)) return;
+  async function runAction(question: ConfirmQuestion, action: () => Promise<void>): Promise<void> {
+    if (!(await confirm(question))) return;
     setActionError(null);
     try {
       await action();
@@ -108,7 +110,7 @@ export function WalletsPanel({ isOwner }: Props) {
 
   function blockCard(w: WalletAdminRow) {
     void runAction(
-      `¿Bloquear la ficha de ${w.code ?? 'este saldo'}? Ya no servirá para pagar (el saldo sigue).`,
+      { ...splitQuestion(walletBlockText(w.code)), confirmLabel: 'Bloquear ficha', cancelLabel: 'No bloquear' },
       () => blockWalletCard(w.id),
     );
   }
@@ -341,6 +343,7 @@ export function WalletsPanel({ isOwner }: Props) {
           }}
         />
       ) : null}
+      {dialog}
     </div>
   );
 }

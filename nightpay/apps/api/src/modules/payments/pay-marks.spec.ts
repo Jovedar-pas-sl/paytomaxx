@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { CARD_IC, CARD_MARKS, GPAY_MARK, LOCK_IC, PAY_MARKS_CSS } from './pay-marks';
+import { CARD_IC, CARD_MARKS, GPAY_MARK, LOCK_IC, PAY_MARKS_CSS, trustLine } from './pay-marks';
+import { PAY_TEXT } from './pay-i18n';
 
 /**
  * Las marcas de las páginas de pago: dentro de la página (la CSP del API no
@@ -37,5 +38,17 @@ describe('marcas de pago (pay-marks)', () => {
 
   it('Apple Pay no está aquí: su botón lo pinta Safari (nunca uno hecho a mano)', () => {
     expect(Object.values(ALL).join('')).not.toMatch(/apple/i);
+  });
+
+  it('antes de pagar, dónde se escribe la tarjeta (idea 63): el candado, la frase a 14 px y, debajo, las marcas', () => {
+    const es = trustLine(PAY_TEXT.es);
+    expect(es.startsWith(`<p class="trust">${LOCK_IC}La tarjeta la escribes en la página segura del banco, no en OxioPay.${CARD_MARKS}`)).toBe(true);
+    expect(trustLine(PAY_TEXT.es, 'foot')).toContain('<p class="trust foot">');
+    expect(trustLine(PAY_TEXT.en)).toContain('You enter your card on the bank’s secure page, not on OxioPay.');
+    expect(trustLine(PAY_TEXT.fr)).toContain('Vous saisissez votre carte sur la page sécurisée de la banque, pas sur OxioPay.');
+    expect(trustLine(PAY_TEXT.pt)).toContain('O cartão é introduzido na página segura do banco, não em OxioPay.');
+    expect(PAY_MARKS_CSS).toMatch(/\.trust\{[^}]*font-size:\.875rem;[^}]*color:var\(--mute\)/);
+    // Las marcas, en su propia línea debajo de la frase.
+    expect(PAY_MARKS_CSS).toMatch(/\.trust \.marks\{display:flex;justify-content:center;[^}]*margin-top:/);
   });
 });

@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
-import { Input, ScreenHelp } from '@nightpay/ui';
+import { FormError, Input, ScreenHelp } from '@nightpay/ui';
 import { checkPass, lookupCode, type SaldoRef } from '@/lib/api-cobro';
 import { formatEur } from '@/lib/money';
 import {
@@ -201,9 +201,9 @@ export function SinMovil({ chargeId, amountCents, what, onReady, onBack }: Props
           )
         ) : null}
         {error ? (
-          <p role="alert" className={styles.error}>
+          <FormError>
             {error}
-          </p>
+          </FormError>
         ) : null}
         {mode !== 'menu' ? (
           <button type="button" className={styles.altLink} onClick={() => go('menu')} disabled={busy} data-tour="sinmovil-otra">

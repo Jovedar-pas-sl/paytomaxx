@@ -12,6 +12,8 @@ import { SuperAdminCustomersController } from './customers.controller';
 import { SuperAdminCustomersService } from './customers.service';
 import { SuperAdminOverviewController } from './overview.controller';
 import { SuperAdminOverviewService } from './overview.service';
+import { SuperAdminPartnersController } from './partners.controller';
+import { SuperAdminPartnersService } from './partners.service';
 import { SuperAdminPayoutAccountsController } from './payout-accounts.controller';
 import { SuperAdminPayoutAccountsService } from './payout-accounts.service';
 import { SuperAdminSettlementsController } from './settlements.controller';
@@ -39,6 +41,7 @@ import { SuperAdminVenuesService } from './venues.service';
     SuperAdminPayoutAccountsController,
     SuperAdminCustomersController,
     SuperAdminSettlementsController,
+    SuperAdminPartnersController,
   ],
   providers: [
     SuperAdminGuard,
@@ -52,6 +55,7 @@ import { SuperAdminVenuesService } from './venues.service';
     SuperAdminCustomersService,
     SuperAdminAuditLogService,
     SuperAdminSettlementsService,
+    SuperAdminPartnersService,
     TelegramService,
     IncidentsService,
   ],

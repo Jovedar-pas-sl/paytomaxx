@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { OXIOPAY_WORDMARK } from './brand-logo';
@@ -65,6 +65,28 @@ describe('marca OxioPay en las páginas del cliente', () => {
     expect(CLUB_BASE_CSS).toContain('.btn:disabled:not(.busy),.btn[aria-disabled=true]:not(.busy){background:var(--surface-2)');
     expect(CLUB_BASE_CSS).toContain('.btn.busy::before{');
     expect(CLUB_BASE_CSS.includes(BACKSLASH)).toBe(false);
+  });
+
+  it('ninguna regla .btn de ninguna hoja del API pinta su fondo o su sombra con rgb() con espacios (revisión del PR #63)', () => {
+    // Un navegador anterior a Chrome 65 / iOS 12.2 descarta esa declaración entera: el botón
+    // blanco de bitcoin y el de Google Pay se quedaban con el resplandor lima que .btn trae de serie.
+    // Regla que queda: quien cambie el fondo de un .btn pone su propio box-shadow, con comas.
+    const src = join(__dirname, '..', '..');
+    const files = readdirSync(src, { recursive: true, encoding: 'utf8' }).filter((f) => f.endsWith('.ts') && !f.endsWith('.spec.ts'));
+    const rules: string[] = [];
+    const bad: string[] = [];
+    for (const f of files) {
+      for (const m of readFileSync(join(src, f), 'utf8').matchAll(/(\.btn[^{}`'"]*)\{([^}`]*)\}/g)) {
+        if (!/box-shadow|background/.test(m[2]!)) continue;
+        rules.push(m[1]!);
+        if (/rgba?\(\d+ \d+ \d+/.test(m[2]!)) bad.push(`${f.replace(/\\/g, '/')}: ${m[1]}`);
+      }
+    }
+    // Las mira de verdad: las de club-ui, las de la página de elegir pago y las de «He perdido mi NFC».
+    for (const selector of ['.btn', '.btn.alt', '.btn.btc', '.btn.gpay', '.btn.redo', '.btn.red']) expect(rules).toContain(selector);
+    expect(bad).toEqual([]);
+    expect(CHOOSE_CSS).toContain('.btn.btc{background:#fff;border-color:#fff;color:#000;box-shadow:0 1px 2px rgba(0,0,0,.35);');
+    expect(CHOOSE_CSS).toContain('.btn.gpay{background:#fff;border-color:#fff;color:#1f1f1f;box-shadow:0 1px 2px rgba(0,0,0,.35)}');
   });
 
   it('«Pagado»: verde plano con texto claro, la marca lima sin halo y la placa crema (gris si ya no es nuevo)', () => {

@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { haptic, Icon, Modal } from '@nightpay/ui';
+import { FormError, haptic, Icon, Modal } from '@nightpay/ui';
 import type { InvitationRules } from '@nightpay/contracts';
 import { fetchTerminals, newIdempotencyKey, type CreatedPayment, type MyNight, type OperatorUser } from '@/lib/api';
 import { cancelCard, cancelSaldo, createCobro, createSaldoCobro, fetchInvitationRules, type CobroInput } from '@/lib/api-cobro';
@@ -594,9 +594,9 @@ export function CobrarFlow({ user, onCobroDone, onLogout, night, miQrOpen = fals
           />
           {busy ? <p className={styles.toast}>Un momento…</p> : null}
           {error ? (
-            <p role="alert" className={styles.error} style={{ padding: '0 1rem 1rem' }}>
-              {error}
-            </p>
+            <div style={{ padding: '0 1rem 1rem' }}>
+              <FormError>{error}</FormError>
+            </div>
           ) : null}
         </div>
       );

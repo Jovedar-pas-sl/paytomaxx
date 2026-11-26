@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, type CSSProperties, type FormEvent } from 'react';
-import { Button, Input, Modal, Select } from '@nightpay/ui';
+import { Button, FormError, Input, Modal, Select } from '@nightpay/ui';
 import {
   BITCOIN_CASH_REASONS,
   BITCOIN_CASH_REASON_LABELS,
@@ -160,9 +160,9 @@ export function BitcoinCashModal({ target, config, onClose, onDone }: Props) {
           />
         )}
         {error ? (
-          <p role="alert" style={{ color: 'var(--np-danger)', margin: 0 }}>
+          <FormError>
             {error}
-          </p>
+          </FormError>
         ) : null}
         <Button type="submit" loading={busy}>
           {toOwner ? 'Pedir al dueño' : 'Devolver en efectivo'}

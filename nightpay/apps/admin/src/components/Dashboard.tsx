@@ -359,6 +359,8 @@ function ActivePanel(props: ActivePanelProps) {
           onFocusDone={props.onFocusPaymentDone}
           initialFilter={props.cobrosFilter}
           onInitialFilterDone={props.onCobrosFilterDone}
+          // «Descargar»: quien ve el mapa del dinero (el dueño, y el encargado con «ver informes»).
+          canExport={tabs.some((t) => t.key === 'money')}
         />
       );
     case 'money':
@@ -368,7 +370,7 @@ function ActivePanel(props: ActivePanelProps) {
     case 'operators':
       return <OperatorsPanel isOwner={isOwner} />;
     case 'treasury':
-      return <TreasuryPanel isOwner={isOwner} />;
+      return <TreasuryPanel isOwner={isOwner} onNavigate={onNavigate} />;
     case 'wallets':
       return <WalletsPanel isOwner={isOwner} />;
     case 'fichas':

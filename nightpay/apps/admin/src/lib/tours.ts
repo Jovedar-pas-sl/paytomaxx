@@ -5,7 +5,6 @@
 // el estado), el paso se salta. Textos cortos, en español sencillo.
 
 import type { TourStep } from '@nightpay/ui';
-import { COBRO_ACTION_LABELS } from './cobros-help';
 import type { TabKey } from './roles';
 
 export interface TourDef {
@@ -14,21 +13,14 @@ export interface TourDef {
   steps: readonly TourStep[];
 }
 
-const L = COBRO_ACTION_LABELS;
-
 export const TOURS = {
   payments: {
     screen: 'panel-cobros',
     steps: [
       { target: 'cobros-resumen', title: 'Hoy en cifras', text: 'Lo cobrado hoy y esta semana: pagos con tarjeta, reembolsos y neto.' },
       { target: 'cobros-filtros', title: 'Buscar y filtrar', text: 'Busca un cobro por su referencia (C-0025) o por el código del cliente, o filtra por estado.' },
-      { target: 'cobros-tabla', title: 'La lista de cobros', text: 'Cada fila es un cobro, el más reciente arriba; la lista se actualiza sola. La referencia la ven también la compañera y el cliente.' },
+      { target: 'cobros-tabla', title: 'La lista de cobros', text: 'Cada fila es un cobro, el más reciente arriba; la lista se actualiza sola. Toca uno para ver su detalle: abajo salen sus botones (devolver, anular, resolver).' },
       { target: 'cobros-estado', title: 'El estado', text: 'Pagado: cobrado. Sin pagar: abierto, caduca solo. Esperando pago: el cliente está pagando y falta la respuesta del banco. Sin confirmar: el banco no dijo si lo cobró; míralo en su portal. Devuelto: se devolvió.' },
-      {
-        target: 'cobros-acciones',
-        title: 'Botones de cada cobro',
-        text: `«${L.detail}» sale en todos. Según el cobro y tu rol: «${L.reverse}» (pagado con saldo), «${L.resolve}» (el dueño, si el banco no confirmó), «${L.bankRefund}» o «${L.refund}» si piden que les devuelvan, y «${L.refunds}».`,
-      },
     ],
   },
   money: {

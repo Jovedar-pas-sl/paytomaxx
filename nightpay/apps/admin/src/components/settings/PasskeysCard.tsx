@@ -3,7 +3,7 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { passkeysSupported, type CreationOptionsJSON } from '@nightpay/api-client';
 import { unlockName, type StaffPasskeyView } from '@nightpay/contracts';
-import { Button, Input } from '@nightpay/ui';
+import { Button, FormError, Input } from '@nightpay/ui';
 import { fetchPasskeys, fetchStepUp, passkeyRegister, passkeyRegistrationOptions, removePasskey } from '@/lib/api';
 import { formatDateTime } from '@/lib/dates';
 import { stepUpErrorText } from '@/lib/step-up';
@@ -151,9 +151,9 @@ export function PasskeysCard() {
           </Button>
         ) : null}
         {error ? (
-          <p role="alert" style={{ margin: 0, color: 'var(--np-danger)', fontSize: '0.875rem' }}>
+          <FormError>
             {error}
-          </p>
+          </FormError>
         ) : null}
       </div>
     </SettingsCard>

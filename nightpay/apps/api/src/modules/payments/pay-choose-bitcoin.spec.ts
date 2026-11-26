@@ -104,7 +104,7 @@ describe('«Pagar con bitcoin» en la página de pago', () => {
 
   it('estilos: blanco con el logo como Apple Pay; en pantallas bajas con los botones lado a lado, solo logo + «bitcoin» y sin la línea corta', () => {
     expect(CHOOSE_CSS).toContain('.btn.btc{background:#fff;border-color:#fff;color:#000;');
-    expect(CHOOSE_CSS).toContain('.btchint{font-size:.75rem;line-height:1.3;color:var(--mute)}');
+    expect(CHOOSE_CSS).toContain('.btchint{font-size:.875rem;line-height:1.3;color:var(--mute)}');
     const low = CHOOSE_CSS.slice(CHOOSE_CSS.indexOf('@media (max-height:780px){'));
     expect(low).toContain('.paybar .alts:has(>.btn+.btn) .btn.btc .btcpre{display:none}');
     expect(low).toContain('.paybar .alts:has(>.btn+.btn)+.btchint{display:none}');

@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, type CSSProperties, type FormEvent } from 'react';
-import { Button, Checkbox, Input } from '@nightpay/ui';
+import { Button, Checkbox, FormError, Input } from '@nightpay/ui';
 import {
   regenerateInvite,
   resetOperatorPassword,
@@ -219,9 +219,9 @@ export function EditOperatorForm({
       ) : null}
       {notice ? <Notice tone="info">{notice}</Notice> : null}
       {error ? (
-        <p role="alert" style={{ color: 'var(--np-danger)', margin: 0, fontSize: '0.875rem' }}>
+        <FormError>
           {error}
-        </p>
+        </FormError>
       ) : null}
       <Button type="submit" loading={submitting}>
         Guardar
@@ -402,9 +402,9 @@ function AccessPanel({ operator, isOwner }: { operator: Operator; isOwner: boole
       ) : null}
 
       {error ? (
-        <p role="alert" style={{ color: 'var(--np-danger)', margin: 0, fontSize: '0.875rem' }}>
+        <FormError>
           {error}
-        </p>
+        </FormError>
       ) : null}
     </div>
   );

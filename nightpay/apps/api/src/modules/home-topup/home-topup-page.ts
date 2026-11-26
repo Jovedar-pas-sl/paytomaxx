@@ -2,7 +2,7 @@ import { CLUB_BASE_CSS, MONEY_JS, clientMoney, escapeHtml, jsConfig } from '../p
 import { CHROME_CSS, LANG_JS, langHrefWith, topBar } from '../payments/customer-chrome';
 import { legalConsent, legalFooter } from '../legal/legal-links';
 import { PAY_TEXT, type PayLanguage } from '../payments/pay-i18n';
-import { CARD_MARKS, LOCK_IC, PAY_MARKS_CSS } from '../payments/pay-marks';
+import { LOCK_IC, PAY_MARKS_CSS, trustLine } from '../payments/pay-marks';
 import { CLIENT_ERROR_JS, clientErrorConfig } from '../wallets/client-errors';
 import { MY_BALANCE_TEXT, myBalanceBlock } from '../wallets/my-balance';
 import { PASSKEY_BROWSER_JS } from '../wallets/passkey-browser';
@@ -49,7 +49,7 @@ const HOME_CSS = `
 .or{font-weight:500;color:var(--fg)}
 .tsteps{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:.5rem;counter-reset:np-step}
 .tsteps li{display:grid;grid-template-columns:1.5rem 1fr;gap:.625rem;align-items:start;color:var(--mute);font-size:.9375rem;line-height:1.4;counter-increment:np-step}
-.tsteps li::before{content:counter(np-step);display:grid;place-items:center;width:1.5rem;height:1.5rem;margin-top:-.0625rem;border:1px solid var(--line-hi);border-radius:50%;color:var(--fg);font-family:var(--num);font-size:.8125rem;font-weight:600;line-height:1}
+.tsteps li::before{content:counter(np-step);display:grid;place-items:center;width:1.5rem;height:1.5rem;margin-top:-.0625rem;border:1px solid var(--line-hi);border-radius:50%;color:var(--fg);font-family:var(--num);font-size:.875rem;font-weight:600;line-height:1}
 .terms{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:.75rem}
 .terms li{display:grid;grid-template-columns:1.5rem 1fr;gap:.625rem;align-items:start;color:var(--mute);font-size:.875rem;line-height:1.45}
 .terms li svg{width:1.25rem;height:1.25rem;margin-top:.05rem;fill:none;stroke:var(--mute);stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
@@ -72,7 +72,7 @@ ${PAY_MARKS_CSS}/* Móviles bajos (360×740): más compacto, para que el desglos
 .hh p:last-child{font-size:.9375rem;line-height:1.4}
 .tsteps{gap:.25rem}
 .tsteps li{font-size:.875rem;line-height:1.35}
-.tsteps li::before{width:1.25rem;height:1.25rem;margin-top:0;font-size:.75rem}
+.tsteps li::before{width:1.25rem;height:1.25rem;margin-top:0}
 .amts span{min-height:2.75rem}
 .tform{gap:.5rem}
 }`;
@@ -343,7 +343,7 @@ ${
    * del botón (C-3); «O carga un saldo nuevo:» queda pegado al importe. Si no
    * se puede cargar, primero lo dice y después las condiciones.
    */ ''
-}${canLoad ? loadParts : `${offCard(lang, base, Boolean(view.mine))}${termsCard(lang)}`}<p class="foot trust">${h(PAY_TEXT[lang].secure)}${CARD_MARKS}</p>
+}${canLoad ? loadParts : `${offCard(lang, base, Boolean(view.mine))}${termsCard(lang)}`}${trustLine(PAY_TEXT[lang], 'foot')}
 </main>
 ${
   canLoad

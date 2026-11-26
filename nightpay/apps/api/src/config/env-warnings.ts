@@ -26,6 +26,8 @@ export const DISABLE_FLAGS = {
     'la «Liquidación OxioPay» del lunes (lo que cada local debe a OxioPay) y su aviso de las que llevan más de 7 días sin pagar',
   NIGHTPAY_DISABLE_WALLET_EVENTS:
     'el «saldo al momento»: las páginas del saldo y la app del personal vuelven a preguntar cada 20–30 s y 10 s',
+  NIGHTPAY_DISABLE_PARTNER_SWEEP:
+    'el repaso de las claves de la API de socios: enlaces de un uso caducados y avisos de claves a punto de caducar',
 } as const satisfies Partial<Record<keyof Env, string>>;
 
 const DISABLE_CHECKS: ReadonlyArray<Check> = (Object.keys(DISABLE_FLAGS) as Array<keyof typeof DISABLE_FLAGS>).map(

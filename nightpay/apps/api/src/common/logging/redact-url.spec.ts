@@ -112,3 +112,26 @@ describe('todas las rutas públicas con un token (SEC-03)', () => {
     }
   });
 });
+
+describe('API de socios: claves y códigos en la URL', () => {
+  const KEY = `oxp_test_${'9f'.repeat(24)}`;
+
+  it('una clave oxp_ o un código OXC1: en la ruta o en la query no salen', () => {
+    expect(redactSecretsInUrl(`/v1/partner/${KEY}/me`)).toBe('/v1/partner/***/me');
+    expect(redactSecretsInUrl(`/v1/partner/openapi.json?k=${KEY}`)).toBe('/v1/partner/openapi.json?k=***');
+    expect(redactSecretsInUrl('/v1/partner/me?c=OXC1:K3J7Q2M9X4T8R6V1N5B0C2D7F9')).toBe('/v1/partner/me?c=***');
+    expect(redactSecretsInUrl(`/v1/partner/me?k=${encodeURIComponent(KEY)}`)).toBe('/v1/partner/me?k=***');
+  });
+
+  it('codificada (%5F) en la ruta o en la query, también con otro escape roto en el mismo trozo', () => {
+    const encoded = KEY.replace(/_/g, '%5F');
+    expect(redactSecretsInUrl(`/v1/partner/${encoded}/me`)).toBe('/v1/partner/***/me');
+    expect(redactSecretsInUrl(`/v1/partner/%ZZ${encoded}/me`)).toBe('/v1/partner/***/me');
+    expect(redactSecretsInUrl(`/v1/partner/me?x=%ZZ${encoded}`)).toBe('/v1/partner/me?x=***');
+    expect(redactSecretsInUrl(`https://api.oxiopay.example/v1/partner/${encoded}/me`)).toBe('https://api.oxiopay.example/v1/partner/***/me');
+  });
+
+  it('el enlace de un uso de la clave (/partner-key/<token>) tampoco', () => {
+    expect(redactSecretsInUrl('/partner-key/AbCdEf0123456789-_AbCdEf0123456789-_AbCdEf0')).toBe('/partner-key/***');
+  });
+});

@@ -47,6 +47,7 @@ export const UNLOCK_ICON = {
 export const UNLOCK_CSS = `
 main{max-width:28rem;min-height:100svh;margin:0 auto;padding:1rem 1rem calc(1.5rem + env(safe-area-inset-bottom));display:flex;flex-direction:column;gap:1.25rem}
 main>.top{padding-left:0;padding-right:0}
+main>.sug{margin:-1rem -1rem 0}
 svg{width:1.5rem;height:1.5rem;flex:none;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
 .ocard{min-height:8.75rem;padding:1rem 1.125rem;border:1px solid var(--line);border-radius:var(--r);display:flex;flex-direction:column;justify-content:space-between;gap:.5rem;color:var(--fg);background:var(--surface)}
 .ocard.off{color:var(--dim)}
@@ -127,7 +128,13 @@ window.location.replace(dest.pathname+'?lang='+encodeURIComponent(C.lang)+(C.pai
 ${LANG_JS}</script>`;
 }
 
-export function renderWalletUnlockPage(base: string, lang: PayLanguage, view: WalletUnlockView = { kind: 'locked' }): string {
+export function renderWalletUnlockPage(
+  base: string,
+  lang: PayLanguage,
+  view: WalletUnlockView = { kind: 'locked' },
+  /** El idioma que se le ofrece en la franja de arriba (idea 71). */
+  opts: { suggest?: PayLanguage | null } = {},
+): string {
   const t = CUSTOMER_TEXT[lang].unlockPage;
   const locale = CUSTOMER_TEXT[lang].wallet.locale;
   const h = escapeHtml;
@@ -135,7 +142,7 @@ export function renderWalletUnlockPage(base: string, lang: PayLanguage, view: Wa
   // El selector de idioma conserva el «Pagado» que viene del banco (?pagado=).
   const langHref = (l: PayLanguage): string => `${base}?lang=${l}${paid ? `&pagado=${paid}` : ''}`;
   return `<!doctype html><html lang="${lang}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="robots" content="noindex,nofollow"><meta name="referrer" content="no-referrer"><meta name="theme-color" content="#091518"><title>${h(t.title)}</title><style>${CLUB_BASE_CSS}${CHROME_CSS}${UNLOCK_CSS}${hasExtras(view) ? CARD_EXTRAS_CSS : ''}</style></head><body><main>`
-    + topBar(lang, langHref)
+    + topBar(lang, langHref, { suggest: opts.suggest })
     + body(view, t, lang, locale)
     + `</main>${legalFooter(lang)}${view.kind === 'locked' ? unlockScript(base, lang, t, paid) : ''}${hasExtras(view) ? cardExtrasScript(base, lang, locale, t.ficha) : ''}</body></html>`;
 }

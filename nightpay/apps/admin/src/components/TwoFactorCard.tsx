@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, type CSSProperties, type FormEvent } from 'react';
-import { Button, Card, Input } from '@nightpay/ui';
+import { Button, Card, FormError, Input } from '@nightpay/ui';
 import {
   confirmTotp,
   disableTotp,
@@ -218,9 +218,9 @@ export function TwoFactorCard() {
       )}
 
       {error ? (
-        <p role="alert" style={{ color: 'var(--np-danger)', margin: 0, fontSize: '0.875rem' }}>
+        <FormError>
           {error}
-        </p>
+        </FormError>
       ) : null}
     </Card>
   );

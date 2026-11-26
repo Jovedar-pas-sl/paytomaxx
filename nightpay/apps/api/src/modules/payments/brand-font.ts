@@ -37,3 +37,11 @@ export const SANS_URL = versioned(SANS_PATH, SANS_WOFF2);
 export const BRAND_FONT_FACE =
   `@font-face{font-family:'OxioSans';src:url('${SANS_URL}') format('woff2');font-weight:400 700;font-style:normal;font-display:swap}` +
   `@font-face{font-family:'OxioManrope';src:url('${MANROPE_URL}') format('woff2');font-weight:600 800;font-style:normal;font-display:swap}`;
+
+/**
+ * Las cifras se piden ya en la cabecera, antes del CSS: llegan a la vez que la
+ * página y el total no salta de la letra del sistema a Manrope (idea 72). Va al
+ * principio del <head> de las páginas con un importe grande. Un navegador que
+ * no sabe de `preload` lo ignora y carga la letra como siempre.
+ */
+export const MANROPE_PRELOAD = `<link rel="preload" href="${MANROPE_URL}" as="font" type="font/woff2" crossorigin>`;

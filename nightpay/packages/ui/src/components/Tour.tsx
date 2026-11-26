@@ -280,7 +280,8 @@ let tourOpenCount = 0;
  * `data-tour-host` y no cuenta: su tutorial puede salir en ella.
  */
 function otherDialogOpen(): boolean {
-  return Array.from(document.querySelectorAll('[role="dialog"][aria-modal="true"]')).some(
+  // También una pregunta (ConfirmDialog: role="alertdialog").
+  return Array.from(document.querySelectorAll('[role="dialog"][aria-modal="true"], [role="alertdialog"][aria-modal="true"]')).some(
     (d) => !d.closest('.np-tour') && !d.hasAttribute('data-tour-host'),
   );
 }
