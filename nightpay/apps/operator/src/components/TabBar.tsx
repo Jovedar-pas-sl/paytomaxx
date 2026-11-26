@@ -55,8 +55,12 @@ export function TabBar({ tabs, active, onSelect }: { tabs: readonly TabKey[]; ac
   const ref = useMeasuredSpace();
   // OxioParty: Cobrar, Taquilla, Cobros y Ajustes.
   const labels = isParty() ? PARTY_TAB_LABEL : TAB_LABEL;
+  const at = tabs.indexOf(active);
   return (
     <nav ref={ref} style={tabBarStyle} aria-label="Navegación principal" data-np-foot="">
+      {/* La raya de la elegida: una sola, que se desliza a su sitio (.np-tabmark en staff.css). La key la pone
+          sin deslizarse si las pestañas cambian al cargar el local; sin pestaña elegida, no se pinta. */}
+      {at >= 0 ? <span className="np-tabmark" aria-hidden="true" key={tabs.join()} style={{ '--i': at, '--n': tabs.length } as CSSProperties} /> : null}
       {tabs.map((key) => (
         <TabBtn key={key} tab={key} active={active === key} label={labels[key]} onClick={() => onSelect(key)} />
       ))}
@@ -72,10 +76,9 @@ function TabBtn({ tab, active, label, onClick }: { tab: TabKey; active: boolean;
       onClick={onClick}
       aria-label={label}
       aria-current={active ? 'page' : undefined}
-      // La activa en crema (icono, texto y su raya arriba). Las demás, en t2.
+      // La activa en crema (icono y texto; su raya de arriba es la marca de la barra). Las demás, en t2.
       style={{ ...tabBtnStyle, color: active ? TAB_ACTIVE_COLOR : TAB_IDLE_COLOR, fontWeight: active ? 600 : 500 }}
     >
-      {active ? <span aria-hidden="true" style={activeMarkStyle} /> : null}
       <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '1.5rem' }}>
         <Icon name={TAB_ICON[tab]} />
       </span>
@@ -116,18 +119,6 @@ const tabBtnStyle: CSSProperties = {
   position: 'relative',
   fontSize: 'var(--np-t-label)',
   lineHeight: 1.2,
-};
-
-// Raya de 2 px arriba de la pestaña activa (con el color nunca va sola: también la letra y el trazo).
-const activeMarkStyle: CSSProperties = {
-  position: 'absolute',
-  top: 0,
-  left: '50%',
-  width: '1.5rem',
-  height: 2,
-  marginLeft: '-0.75rem',
-  borderRadius: 999,
-  background: 'currentColor',
 };
 
 const tabBarStyle: CSSProperties = {
