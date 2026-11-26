@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { Card, Logo, InstallHint } from '@nightpay/ui';
+import { Card, Logo, InstallHint, useKiosk } from '@nightpay/ui';
 import { LoginForm } from '@/components/LoginForm';
 import { Dashboard } from '@/components/Dashboard';
 import { MyProfileProvider } from '@/components/my-profile';
@@ -35,6 +35,8 @@ export default function Page() {
   const [notice, setNotice] = useState<string | null>(null);
   const loggedIn = useRef(false);
   const charges = useOpenCharges();
+  // Con sesión: pantalla completa y salida bloqueada hasta «Salir».
+  useKiosk(Boolean(user));
 
   useEffect(() => {
     loggedIn.current = Boolean(user);
