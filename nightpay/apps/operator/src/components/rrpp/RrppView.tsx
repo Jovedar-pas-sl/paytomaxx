@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Button } from '@nightpay/ui';
+import { Button, EmptyState } from '@nightpay/ui';
 import type { MyPromoterReservation, MyPromoterView } from '@nightpay/contracts';
 import { formatBps, formatEur } from '@/lib/money';
 import { commissionText, nightLabel, RRPP_PATH, statusTone, upcomingText } from '@/lib/rrpp';
@@ -105,7 +105,7 @@ function ReservationList({ id, title, items, empty }: { id: string; title: strin
         {title}
       </h2>
       {items.length === 0 ? (
-        <p className={styles.note}>{empty}</p>
+        <EmptyState icon="ticket" title={empty} />
       ) : (
         <ul className={styles.list}>
           {items.map((r) => (

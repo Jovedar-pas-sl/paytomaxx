@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, type CSSProperties } from 'react';
-import { Button, Card } from '@nightpay/ui';
+import { Button, Card, Icon } from '@nightpay/ui';
 import { linkWalletCard, lookupWalletCard, payWalletChargeWithPin, type WalletLookup } from '@/lib/api';
 import { NO_PIN_SENTENCE, NO_PIN_TITLE } from '@/lib/cobro-view';
 import { clearFichaContext, readFichaContext, type FichaContext } from '@/lib/ficha-context';
@@ -65,7 +65,7 @@ export function FichaTapped({ token, userId, onClose }: { token: string; userId:
     setBusy(true);
     try {
       const w = await linkWalletCard(code, token, null);
-      setView({ kind: 'done', ok: true, text: `✓ Ficha dada al saldo ${w.code}` });
+      setView({ kind: 'done', ok: true, text: `Ficha dada al saldo ${w.code}` });
     } catch (err) {
       setView({ kind: 'done', ok: false, text: (err as Error).message });
     } finally {
@@ -155,6 +155,7 @@ export function FichaTapped({ token, userId, onClose }: { token: string; userId:
       ) : null}
       {view.kind === 'done' ? (
         <p style={{ margin: 0, fontSize: 'var(--np-fs-18)', fontWeight: 600, color: view.ok ? 'var(--np-success)' : 'var(--np-danger)' }}>
+          {view.ok ? <Icon name="check" size={20} className="np-icon-lead" /> : null}
           {view.text}
         </p>
       ) : null}

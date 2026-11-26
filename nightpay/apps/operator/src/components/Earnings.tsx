@@ -1,7 +1,7 @@
 'use client';
 
-import { useEffect, useState, type CSSProperties } from 'react';
-import { Card } from '@nightpay/ui';
+import { useEffect, useState, type CSSProperties, type ReactNode } from 'react';
+import { Banner, RollingNumber, Skeleton } from '@nightpay/ui';
 import {
   fetchMyEarnings,
   fetchMyPayoutInfo,
@@ -34,6 +34,10 @@ interface Props {
   balance: OperatorBalance | null;
   /** No se pudo cargar la noche (el fallo del saldo ya sale arriba). */
   nightError: string | null;
+  /** Su saldo aún se está pidiendo (sin error): las cifras de las filas, en silueta. */
+  balanceLoading?: boolean;
+  /** La compañera con la casilla del local apagada (solo cambia la frase del vacío de «Esta noche»). */
+  cobraEncargado?: boolean;
 }
 
 /**
@@ -41,7 +45,7 @@ interface Props {
  * paga al cerrar); debajo lo de otras noches, lo que está en espera y lo que
  * se le descuenta, cada cosa con su detalle; al final, lo que ya le pagaron.
  */
-export function Earnings({ night, balance, nightError }: Props) {
+export function Earnings({ night, balance, nightError, balanceLoading = false, cobraEncargado = false }: Props) {
   const [detail, setDetail] = useState<DetailKind | null>(null);
   const [earnings, setEarnings] = useState<MyEarning[] | null>(null);
   const [payouts, setPayouts] = useState<MyPayout[] | null>(null);
@@ -82,8 +86,9 @@ export function Earnings({ night, balance, nightError }: Props) {
         night={night}
         summary={summary}
         earnings={earnings}
-        info={info ?? null}
+        info={info}
         holdDays={holdDays}
+        cobraEncargado={cobraEncargado}
         onBack={() => setDetail(null)}
       />
     );
@@ -93,8 +98,8 @@ export function Earnings({ night, balance, nightError }: Props) {
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
       {nightError ? <ErrorCard text={nightError} /> : null}
       {error ? <ErrorCard text={error} /> : null}
-      <TonightCard night={night} summary={summary} holdDays={holdDays} onOpen={() => setDetail('tonight')} />
-      <MoneyRows summary={summary} holdDays={holdDays} earnings={earnings} night={night} onOpen={setDetail} />
+      <TonightCard night={night} summary={summary} holdDays={holdDays} loading={night === null && !nightError} onOpen={() => setDetail('tonight')} />
+      <MoneyRows summary={summary} holdDays={holdDays} earnings={earnings} night={night} loading={balanceLoading} onOpen={setDetail} />
       <NextPayout summary={summary} />
       <nav aria-label="Historial" className={styles.rows}>
         <Row label="Historial de ganancias" sub="Cada noche y cada cobro, con su fecha" amount="" color="var(--np-text-mute)" onClick={() => setDetail('history')} />
@@ -112,10 +117,12 @@ interface RowsProps {
   holdDays: number | null;
   earnings: MyEarning[] | null;
   night: MyNight | null;
+  /** Sin saldo aún: cada cifra y su subtítulo, en silueta (no «0 €» ni «Nada pendiente»). */
+  loading: boolean;
   onOpen: (kind: DetailKind) => void;
 }
 
-function MoneyRows({ summary, holdDays, earnings, night, onOpen }: RowsProps) {
+function MoneyRows({ summary, holdDays, earnings, night, loading, onOpen }: RowsProps) {
   const nights = earnings ? groupByNight(otherNightsUnpaid(earnings, night)).length : 0;
   const until = holdDays ? heldUntil(heldItems(earnings ?? [], holdDays, Date.now())) : null;
   // «En espera» solo si el local espera días antes de pagar (con pago cada noche, no sale).
@@ -128,6 +135,7 @@ function MoneyRows({ summary, holdDays, earnings, night, onOpen }: RowsProps) {
     <nav aria-label="Lo demás que te deben" className={styles.rows} data-tour="ganancias-otras">
       <Row
         label="Pendiente de otras noches"
+        loading={loading}
         sub={other > 0 ? (nights > 0 ? `${nights} ${nights === 1 ? 'noche' : 'noches'} sin cobrar` : 'Ganado y aún sin cobrar') : 'Nada pendiente'}
         amount={formatEur(other, { compact: true })}
         color={other > 0 ? 'var(--np-text)' : 'var(--np-text-mute)'}
@@ -136,6 +144,7 @@ function MoneyRows({ summary, holdDays, earnings, night, onOpen }: RowsProps) {
       {showHeld ? (
         <Row
           label="En espera"
+          loading={loading}
           sub={until ? `Hasta el ${dayLabel(until)}, por si hay devoluciones` : 'Por si hay devoluciones'}
           amount={formatEur(summary.heldCents, { compact: true })}
           color={summary.heldCents > 0 ? 'var(--np-warning)' : 'var(--np-text-mute)'}
@@ -153,6 +162,7 @@ function MoneyRows({ summary, holdDays, earnings, night, onOpen }: RowsProps) {
       ) : null}
       <Row
         label="Deudas y descuentos"
+        loading={loading}
         sub={debt > 0 ? 'Se descuenta del próximo pago' : 'Nada que descontar'}
         amount={debt > 0 ? formatSignedEur(-debt, { compact: true }) : formatEur(0, { compact: true })}
         color={debt > 0 ? 'var(--np-danger)' : 'var(--np-text-mute)'}
@@ -162,15 +172,17 @@ function MoneyRows({ summary, holdDays, earnings, night, onOpen }: RowsProps) {
   );
 }
 
-function Row({ label, sub, amount, color, onClick }: { label: string; sub: string; amount: string; color: string; onClick: () => void }) {
+function Row({ label, sub, amount, color, loading = false, onClick }: { label: string; sub: string; amount: string; color: string; loading?: boolean; onClick: () => void }) {
+  // Sin saldo aún: la silueta de la cifra (4 × 1,125 rem) y de su subtítulo, en su sitio.
+  const subNode: ReactNode = loading ? <Skeleton width="50%" style={{ margin: '0.2rem 0' }} /> : sub;
   return (
-    <button type="button" className={styles.row} onClick={onClick}>
+    <button type="button" className={styles.row} onClick={onClick} aria-busy={loading || undefined}>
       <span style={{ display: 'flex', flexDirection: 'column', gap: '0.125rem', minWidth: 0 }}>
         <span style={{ fontSize: 'var(--np-fs-16)', fontWeight: 500, lineHeight: 1.3 }}>{label}</span>
-        <span style={{ fontSize: 'var(--np-fs-14)', color: 'var(--np-text-mute)', lineHeight: 1.35 }}>{sub}</span>
+        <span style={{ fontSize: 'var(--np-fs-14)', color: 'var(--np-text-mute)', lineHeight: 1.35 }}>{subNode}</span>
       </span>
       <span className="np-num" style={{ fontSize: 'var(--np-fs-18)', fontWeight: 600, color, whiteSpace: 'nowrap' }}>
-        {amount}
+        {loading ? <Skeleton width="4rem" height="1.125rem" /> : amount}
       </span>
       <Chevron size={20} />
     </button>
@@ -205,7 +217,7 @@ function NextPayout({ summary }: { summary: MoneySummary }) {
         </p>
       </div>
       <span className="np-num" style={nextAmount}>
-        {formatEur(nextPayoutCents, { compact: true })}
+        <RollingNumber text={formatEur(nextPayoutCents, { compact: true })} />
       </span>
     </div>
   );
@@ -213,9 +225,7 @@ function NextPayout({ summary }: { summary: MoneySummary }) {
 
 function ErrorCard({ text }: { text: string }) {
   return (
-    <Card role="alert" style={{ padding: '0.875rem', borderColor: 'var(--np-danger)' }}>
-      <p style={{ color: 'var(--np-danger)', margin: 0, fontSize: 'var(--np-fs-16)' }}>{text}</p>
-    </Card>
+    <Banner tone="danger">{text}</Banner>
   );
 }
 

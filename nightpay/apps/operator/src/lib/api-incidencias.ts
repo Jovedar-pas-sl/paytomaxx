@@ -8,6 +8,7 @@
 // (service_disputed): solo los cierra el dueño, en el panel. En un local sin
 // saldo no hay Recepción: el encargado los ve en Avisos del panel (GET /incidents).
 
+import { formatRelative } from '@nightpay/ui';
 import { authedFetch, parseOperatorApiError } from './api';
 
 export interface ReceptionIncident {
@@ -30,12 +31,9 @@ export function noteReady(note: string): boolean {
   return note.trim().length >= MIN_NOTE_LENGTH;
 }
 
-/** «16/11 · 23:40» (hora de Madrid). */
-export function incidentWhen(iso: string): string {
-  const d = new Date(iso);
-  const day = d.toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', timeZone: 'Europe/Madrid' });
-  const time = d.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Madrid' });
-  return `${day} · ${time}`;
+/** Cuándo fue, como en toda la app: «hace 12 min», «ayer, 23:40» (hora de Madrid). */
+export function incidentWhen(iso: string, now: Date = new Date()): string {
+  return formatRelative(iso, now);
 }
 
 export async function fetchReceptionIncidents(): Promise<ReceptionIncident[]> {

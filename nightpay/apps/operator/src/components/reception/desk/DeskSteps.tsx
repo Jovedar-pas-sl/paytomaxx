@@ -8,6 +8,7 @@ import { formatEur } from '@/lib/money';
 import type { RecentTopUp } from '@nightpay/contracts';
 import { methodArmed, recentTopUpLine, type EntryRow, type MethodButton, type ExitPlan } from '@/lib/reception-desk';
 import { cashConfirmText, cashInHandText, turnPhoneText } from '@/lib/reception-help';
+import { SkelTiles } from '../../loading-shapes';
 import { CodeBoxes, DESK_FIELD, DeskBtn, DeskRowView, FichaNumber, Icon, MethodBlock, NfcMark } from './desk-parts';
 import s from './desk.module.css';
 
@@ -207,7 +208,7 @@ export function MethodStep(props: {
         </div>
         <StepQuestion text="¿Cómo paga?" />
       </div>
-      {props.loading ? <p className={s.lbl}>Cargando…</p> : null}
+      {props.loading ? <SkelTiles count={2} height="10.5rem" /> : null}
       {props.blocked ? (
         <p role="alert" className={s.error}>
           {props.blocked}

@@ -1,16 +1,17 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Button, Input } from '@nightpay/ui';
+import { Button, EmptyState, formatRelative, Input } from '@nightpay/ui';
 import { CASH_UNDO_REASON_LABEL, fetchRecentCash, voidCashTopUp, type CashUndoReason, type RecentCash } from '@/lib/cash-undo';
 import { formatEur } from '@/lib/money';
+import { SkelRows } from '../loading-shapes';
 import { DESK_FIELD } from './desk/desk-parts';
 import r from './reception.module.css';
 
 /** El motivo elegido, en crema (tinta en claro): la lima es de la acción principal. */
 const CHOSEN = { background: 'var(--np-chosen)', color: 'var(--np-on-chosen)' } as const;
 
-const time = (iso: string) => new Date(iso).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Madrid' });
+const time = (iso: string) => formatRelative(iso, new Date());
 
 /**
  * Recepción → «Anular una recarga» (B4, encargado o dueño): pasados los 2
@@ -106,8 +107,8 @@ export function CashVoids({ onDone }: { onDone: () => void }) {
           {done}
         </p>
       ) : null}
-      {rows === null && !error ? <p className={r.text}>Cargando…</p> : null}
-      {rows !== null && open.length === 0 ? <p className={r.lead}>No hay ninguna que anular.</p> : null}
+      {rows === null && !error ? <SkelRows /> : null}
+      {rows !== null && open.length === 0 ? <EmptyState compact icon="cash" title="Ninguna recarga que anular" /> : null}
       {open.map((row) => (
         <button key={row.id} type="button" className={r.pendRow} onClick={() => setPicked(row)}>
           <span className={`np-num ${r.pendAmount}`}>{formatEur(row.amountCents + row.serviceFeeCents)}</span>{' '}

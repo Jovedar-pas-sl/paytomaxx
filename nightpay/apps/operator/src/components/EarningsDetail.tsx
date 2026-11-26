@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, type CSSProperties, type ReactNode } from 'react';
-import { Button } from '@nightpay/ui';
+import { Button, EmptyState, type IconName } from '@nightpay/ui';
 import { fetchMyEarningsPage, fetchMyPayoutsPage, reportNotMine, type MyDebt, type MyEarning, type MyNight, type MyPayoutInfo } from '@/lib/api';
 import { NO_DAYS, type DayRange } from '@/lib/history';
 import {
@@ -23,6 +23,7 @@ import {
 } from '@/lib/earnings-view';
 import { formatEur, formatSignedEur } from '@/lib/money';
 import { DateRange } from './DateRange';
+import { SkelRows } from './loading-shapes';
 import { PayoutList } from './PayoutsReceived';
 import { useHistory } from './use-history';
 import styles from './money.module.css';
@@ -35,8 +36,11 @@ interface Props {
   summary: MoneySummary;
   /** Sus últimos cobros (null: cargando). */
   earnings: MyEarning[] | null;
-  info: MyPayoutInfo | null;
+  /** undefined: cargando; null: no se pudo cargar. */
+  info: MyPayoutInfo | null | undefined;
   holdDays: number | null;
+  /** La compañera con la casilla del local apagada: no cobra ella (cambia la frase del vacío de «Esta noche»). */
+  cobraEncargado?: boolean;
   onBack: () => void;
 }
 
@@ -68,7 +72,17 @@ function EarningsHistory() {
     <>
       <Head title="Historial de ganancias">Lo que has ganado en cada noche, cobro a cobro, también lo ya pagado.</Head>
       <DateRange value={days} onChange={setDays} />
-      <HistoryStatus items={h.items} error={h.error} empty={filtered ? 'No hay ganancias en esas fechas.' : 'Aún no tienes ganancias.'} />
+      <HistoryStatus
+        items={h.items}
+        error={h.error}
+        empty={
+          filtered ? (
+            <EmptyState icon="chart" title="Nada ganado en esas fechas" />
+          ) : (
+            <EmptyState icon="chart" title="Aún no has ganado nada" text="Cada cobro tuyo suma aquí tu parte." />
+          )
+        }
+      />
       <NightGroups earnings={h.items} items={h.items ?? []} />
       <MoreButton cursor={h.cursor} busy={h.moreBusy} onMore={h.more} />
     </>
@@ -84,17 +98,27 @@ function PayoutsHistory() {
     <>
       <Head title="Pagos recibidos">Cada pago que te ha hecho el local, con su referencia y su justificante si lo hay.</Head>
       <DateRange value={days} onChange={setDays} />
-      <HistoryStatus items={h.items} error={h.error} empty={filtered ? 'No hay pagos en esas fechas.' : 'Aún no te han pagado nada desde la app.'} />
+      <HistoryStatus
+        items={h.items}
+        error={h.error}
+        empty={
+          filtered ? (
+            <EmptyState icon="bank" title="Ningún pago en esas fechas" />
+          ) : (
+            <EmptyState icon="bank" title="Aún no te han pagado por aquí" text="Cuando el local te pague, saldrá aquí." />
+          )
+        }
+      />
       {h.items && h.items.length > 0 ? <PayoutList payouts={h.items} /> : null}
       <MoreButton cursor={h.cursor} busy={h.moreBusy} onMore={h.more} />
     </>
   );
 }
 
-function HistoryStatus({ items, error, empty }: { items: readonly unknown[] | null; error: string | null; empty: string }) {
+function HistoryStatus({ items, error, empty }: { items: readonly unknown[] | null; error: string | null; empty: ReactNode }) {
   if (error) return <p role="alert" style={{ ...noteStyle, color: 'var(--np-danger-text)' }}>{error}</p>;
-  if (items === null) return <p style={emptyText}>Cargando…</p>;
-  return items.length === 0 ? <p style={emptyText}>{empty}</p> : null;
+  if (items === null) return <SkelRows />;
+  return items.length === 0 ? <div style={emptyBox}>{empty}</div> : null;
 }
 
 function MoreButton({ cursor, busy, onMore }: { cursor: string | null; busy: boolean; onMore: () => void }) {
@@ -106,7 +130,7 @@ function MoreButton({ cursor, busy, onMore }: { cursor: string | null; busy: boo
   );
 }
 
-function TonightDetail({ night, summary, earnings, holdDays }: Props) {
+function TonightDetail({ night, summary, earnings, holdDays, cobraEncargado }: Props) {
   const items = tonightEarnings(earnings ?? [], night);
   const status = night ? tonightStatus(night, summary, holdDays, Date.now()) : null;
   return (
@@ -115,7 +139,11 @@ function TonightDetail({ night, summary, earnings, holdDays }: Props) {
         {status ? `${status.when}. ${status.state}.` : null}
         {night ? <><br />{tonightBreakdown(night)}</> : null}
       </Head>
-      <EarningList earnings={earnings} items={items} empty="Aún no tienes cobros esta noche." />
+      <EarningList
+        earnings={earnings}
+        items={items}
+        empty={<EmptyState icon="receipt" title={cobraEncargado ? 'Aún no llevas nada esta noche' : 'Aún no has cobrado esta noche'} />}
+      />
     </>
   );
 }
@@ -128,8 +156,8 @@ function OtherNightsDetail({ night, summary, earnings }: Props) {
       <Head title="Pendiente de otras noches" amount={formatEur(summary.otherNightsCents, { compact: true })}>
         Lo que ganaste otras noches y aún no te han pagado. Va en tu próximo pago.
       </Head>
-      {earnings === null ? <p style={emptyText}>Cargando…</p> : null}
-      {earnings !== null && items.length === 0 && rest === 0 ? <p style={emptyText}>Nada pendiente de otras noches.</p> : null}
+      {earnings === null ? <SkelRows /> : null}
+      {earnings !== null && items.length === 0 && rest === 0 ? <Nothing icon="calendar" title="No te deben nada de otras noches" /> : null}
       <NightGroups earnings={earnings} items={items} />
       {earnings !== null && rest > 0 ? (
         <p style={noteStyle}>
@@ -149,8 +177,8 @@ function HeldDetail({ summary, earnings, holdDays }: Props) {
         El local espera {days} antes de pagar cada cobro: si el cliente lo devuelve en ese tiempo, se descuenta antes de
         pagarte y no te queda deuda.
       </Head>
-      {earnings === null ? <p style={emptyText}>Cargando…</p> : null}
-      {earnings !== null && items.length === 0 ? <p style={emptyText}>Nada en espera.</p> : null}
+      {earnings === null ? <SkelRows /> : null}
+      {earnings !== null && items.length === 0 ? <Nothing icon="clock" title="Nada en espera" /> : null}
       {items.length > 0 ? (
         <ul style={listStyle}>
           {items.map(({ earning, releaseAt }) => (
@@ -176,8 +204,8 @@ function BankDetail({ summary, earnings }: Props) {
         Son cobros por datáfono que el local aún no ha cuadrado con el banco. No se pierden: se pagan en cuanto el local
         los cuadre con el extracto (o el dueño los dé por buenos).
       </Head>
-      {earnings === null ? <p style={emptyText}>Cargando…</p> : null}
-      {earnings !== null && items.length === 0 ? <p style={emptyText}>Nada pendiente de cuadrar.</p> : null}
+      {earnings === null ? <SkelRows /> : null}
+      {earnings !== null && items.length === 0 ? <Nothing icon="bank" title="Nada por comprobar con el banco" /> : null}
       {items.length > 0 ? (
         <ul style={listStyle}>
           {items.map((e) => (
@@ -207,8 +235,9 @@ function DebtsDetail({ summary, info }: Props) {
       >
         Si devuelven un cobro que ya te habían pagado, tu parte de ese cobro se descuenta de tu siguiente pago.
       </Head>
+      {info === undefined ? <SkelRows /> : null}
       {info === null ? <p style={emptyText}>No se ha podido cargar el detalle. Vuelve a entrar en Ganancias.</p> : null}
-      {info !== null && open.length === 0 && rest === 0 ? <p style={emptyText}>No tienes nada que descontar.</p> : null}
+      {info && open.length === 0 && rest === 0 ? <Nothing icon="wallet" title="Nada que descontarte" /> : null}
       {open.length > 0 ? (
         <ul style={listStyle}>
           {open.map((d) => (
@@ -216,7 +245,7 @@ function DebtsDetail({ summary, info }: Props) {
           ))}
         </ul>
       ) : null}
-      {rest > 0 && info !== null ? (
+      {rest > 0 && info ? (
         <p style={noteStyle}>
           Y <strong className="np-num">{formatSignedEur(-rest, { compact: true })}</strong> de devoluciones más antiguas.
         </p>
@@ -268,9 +297,9 @@ function NightGroups({ earnings, items }: { earnings: MyEarning[] | null; items:
   );
 }
 
-function EarningList({ earnings, items, empty }: { earnings: MyEarning[] | null; items: MyEarning[]; empty?: string }) {
-  if (earnings === null) return <p style={emptyText}>Cargando…</p>;
-  if (items.length === 0) return empty ? <p style={emptyText}>{empty}</p> : null;
+function EarningList({ earnings, items, empty }: { earnings: MyEarning[] | null; items: MyEarning[]; empty?: ReactNode }) {
+  if (earnings === null) return <SkelRows />;
+  if (items.length === 0) return empty ? <div style={emptyBox}>{empty}</div> : null;
   return (
     <ul style={listStyle}>
       {items.map((e) => {
@@ -339,6 +368,15 @@ function NotMine({ earningId, reported }: { earningId: string; reported: boolean
           {error}
         </p>
       ) : null}
+    </div>
+  );
+}
+
+/** Un vacío dentro de un detalle: compacto (icono y título). */
+function Nothing({ icon, title }: { icon: IconName; title: string }) {
+  return (
+    <div style={emptyBox}>
+      <EmptyState compact icon={icon} title={title} />
     </div>
   );
 }
@@ -455,6 +493,8 @@ const metaText: CSSProperties = {
 const muted: CSSProperties = { color: 'var(--np-text-mute)', fontWeight: 500 };
 
 const noteStyle: CSSProperties = { margin: 0, color: 'var(--np-text-mute)', fontSize: 'var(--np-fs-16)' };
+
+const emptyBox: CSSProperties = { padding: '1.5rem 0' };
 
 const emptyText: CSSProperties = {
   margin: 0,

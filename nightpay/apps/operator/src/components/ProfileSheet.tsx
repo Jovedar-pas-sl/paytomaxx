@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, type CSSProperties } from 'react';
-import { Icon, ProfileScreen, ScreenHelp } from '@nightpay/ui';
+import { IconButton, ProfileScreen, ScreenHelp } from '@nightpay/ui';
 import { profileApi } from '@/lib/api';
 import { isParty } from '@/lib/edition';
 import { TOURS } from '@/lib/tours';
@@ -28,9 +28,7 @@ export function ProfileSheet({ open, onClose, onLogout }: { open: boolean; onClo
   return (
     <div role="dialog" aria-modal="true" aria-label="Mi perfil" style={overlay}>
       <header style={head}>
-        <button type="button" onClick={onClose} aria-label="Atrás" style={backBtn}>
-          <Icon name="chevron-left" />
-        </button>
+        <IconButton icon="chevron-left" label="Atrás" onClick={onClose} />
         <h1 style={title}>Mi perfil</h1>
         <ScreenHelp {...TOURS.perfil} />
       </header>
@@ -65,18 +63,6 @@ const head: CSSProperties = {
   padding: 'calc(0.5rem + env(safe-area-inset-top)) 1rem 0.5rem',
   background: 'var(--np-bg)',
   borderBottom: '1px solid var(--np-border)',
-};
-const backBtn: CSSProperties = {
-  width: '2.75rem',
-  height: '2.75rem',
-  display: 'grid',
-  placeItems: 'center',
-  background: 'var(--np-surface)',
-  color: 'var(--np-text)',
-  border: '1px solid var(--np-border)',
-  borderRadius: 'var(--np-r-md)',
-  cursor: 'pointer',
-  flex: 'none',
 };
 const title: CSSProperties = { margin: 0, fontSize: 'var(--np-fs-22)', fontWeight: 600, flex: 1 };
 const body: CSSProperties = { padding: '1rem 1rem calc(2rem + env(safe-area-inset-bottom))' };
