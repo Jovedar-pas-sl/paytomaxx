@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useId, useRef, useState, type CSSProperties, type FormEvent } from 'react';
-import { Button, FormError, Input, Modal, Select } from '@nightpay/ui';
+import { Button, Checkbox, FormError, Input, Modal, Select } from '@nightpay/ui';
 import { isApprovalRequested, type ApprovalRequestedResponse, type PayoutAccountFull } from '@nightpay/contracts';
 import {
   confirmPayoutManual,
@@ -117,7 +117,6 @@ export function PayoutConfirmModal({
   const tz = useVenueTimezone();
   /** La cuenta entera mientras el dueño la tiene a la vista («Ver cuenta para pagar»). */
   const [revealed, setRevealed] = useState<PayoutAccountFull | null>(null);
-  const confirmId = useId();
   const railId = useId();
 
   const chosenRail = rail === '' ? null : rail;
@@ -366,27 +365,26 @@ export function PayoutConfirmModal({
           placeholder='"Pagado vía Binance", "Wire SEPA enviado", etc.'
           maxLength={500}
         />
-        <label htmlFor={confirmId} style={confirmStyle}>
-          <input
-            id={confirmId}
-            type="checkbox"
+        <div style={confirmStyle}>
+          <Checkbox
             checked={confirmed}
-            onChange={(e) => setConfirmed(e.target.checked)}
-            style={{ marginTop: '0.2rem' }}
-          />
-          <span>
-            {asking ? 'Pido al dueño que apruebe pagar' : 'Confirmo que he pagado'}{' '}
-            <strong className="np-num">{formatEur(balanceCents)}</strong>
-            {chosenRail ? <> por {PAYOUT_METHOD_LABELS[chosenRail]}</> : null}
-            {address ? (
+            onChange={setConfirmed}
+            label={
               <>
-                {' '}
-                a <code style={inlineCode}>{address}</code>
+                {asking ? 'Pido al dueño que apruebe pagar' : 'Confirmo que he pagado'}{' '}
+                <strong className="np-num">{formatEur(balanceCents)}</strong>
+                {chosenRail ? <> por {PAYOUT_METHOD_LABELS[chosenRail]}</> : null}
+                {address ? (
+                  <>
+                    {' '}
+                    a <code style={inlineCode}>{address}</code>
+                  </>
+                ) : null}
+                .
               </>
-            ) : null}
-            .
-          </span>
-        </label>
+            }
+          />
+        </div>
 
         {chosenRail && balanceCents > 0 && asking ? (
           <ConfirmLine>
@@ -511,14 +509,9 @@ const fieldLabel: CSSProperties = {
 };
 
 const confirmStyle: CSSProperties = {
-  display: 'flex',
-  gap: '0.6rem',
-  alignItems: 'flex-start',
-  fontSize: '0.875rem',
-  padding: '0.75rem',
+  padding: '0 0.75rem',
   border: '1px solid var(--np-border)',
   borderRadius: 'var(--np-r-md)',
-  cursor: 'pointer',
 };
 
 const inlineCode: CSSProperties = {

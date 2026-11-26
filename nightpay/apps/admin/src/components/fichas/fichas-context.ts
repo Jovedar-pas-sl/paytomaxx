@@ -5,7 +5,8 @@ import { createContext, useContext } from 'react';
 /** Abrir la ficha de un saldo o de una chica desde cualquier lista del panel. */
 export interface FichasApi {
   openWallet: (walletId: string) => void;
-  openOperator: (operatorId: string) => void;
+  /** onChanged: lo que se haga en la ficha (un pago, un dato) avisa a quien la abrió. */
+  openOperator: (operatorId: string, onChanged?: () => void) => void;
 }
 
 export const FichasContext = createContext<FichasApi | null>(null);
