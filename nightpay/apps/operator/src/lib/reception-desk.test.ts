@@ -292,9 +292,10 @@ describe('¿Cuánto carga? con el número de la ficha en grande (A1)', () => {
     expect(eur(recentTopUpLine(sergio, now) ?? '')).toBe('Cargada hace 2 min: 50 € en efectivo (Sergio)');
     expect(eur(recentTopUpLine({ ...sergio, method: 'card', byName: null }, now) ?? '')).toBe('Cargada hace 2 min: 50 € con tarjeta');
     expect(eur(recentTopUpLine({ ...sergio, method: 'bitcoin', byName: null }, now) ?? '')).toBe('Cargada hace 2 min: 50 € con bitcoin');
-    expect(eur(recentTopUpLine({ ...sergio, at: at(0) }, now, false) ?? '')).toBe('Cargado hace un momento: 50 € en efectivo (Sergio)');
-    // El reloj del móvil algo atrasado: «hace un momento», nunca «hace -1 min».
-    expect(recentTopUpLine({ ...sergio, at: at(-1) }, now)).toMatch(/hace un momento/);
+    expect(eur(recentTopUpLine({ ...sergio, at: at(0) }, now, false) ?? '')).toBe('Cargado ahora: 50 € en efectivo (Sergio)');
+    // El reloj del móvil algo atrasado: «ahora», nunca «hace -1 min».
+    expect(recentTopUpLine({ ...sergio, at: at(-1) }, now)).toMatch(/^Cargada ahora: /);
+    expect(recentTopUpLine({ ...sergio, at: at(-1) }, now)).not.toMatch(/hace|-1/);
     expect(recentTopUpLine({ ...sergio, at: at(10) }, now)).toBeNull();
     expect(recentTopUpLine(null, now)).toBeNull();
     expect(lastTopUpOf({ view: saldo({ lastTopUp: sergio }) })).toBe(sergio);

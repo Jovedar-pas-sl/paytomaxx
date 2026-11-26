@@ -54,7 +54,11 @@ describe('restos de antes de Grafito', () => {
     const cobros = code(read(FILES['my-cobros.module.css']!));
     const chip = cobros.slice(cobros.indexOf('.chip {'), cobros.indexOf('}', cobros.indexOf('.chip {')));
     expect(chip).toContain('border-radius: var(--np-r-xs)');
-    expect(code(read(FILES['StatusPill.tsx']!))).toContain("borderRadius: 'var(--np-r-xs)'");
+    // El estado del cobro es ya la Etiqueta común (Piezas I): el radio de chip está en su regla.
+    expect(code(read(FILES['StatusPill.tsx']!))).toContain('<Etiqueta tone={cfg.tone}');
+    const pieces = code(read('../../../../packages/ui/src/pieces.css'));
+    const tag = pieces.slice(pieces.indexOf('.np-tag {'), pieces.indexOf('}', pieces.indexOf('.np-tag {')));
+    expect(tag).toContain('border-radius: var(--np-r-xs)');
   });
 });
 

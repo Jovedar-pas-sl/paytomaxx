@@ -12,7 +12,7 @@ describe('«Cargar saldo desde casa» en Ajustes', () => {
   });
 
   it('con la comisión del servicio de las recargas, su % encima', () => {
-    expect(homeTopUpSummary({ minCents: 1000, maxCents: 30000, serviceFeeBps: 1050 })).toContain(
+    expect(homeTopUpSummary({ minCents: 1000, maxCents: 30000, serviceFeeBps: 1050 }).split(NBSP).join(' ')).toContain(
       'con la comisión del servicio de las recargas (10,5 %) encima',
     );
     expect(homeTopUpSummary({ minCents: 1000, maxCents: 30000, serviceFeeBps: 0 })).not.toContain('comisión');

@@ -31,7 +31,7 @@
   min-height: 2.75rem;
   padding: 0 1.25rem;
   border: 1px solid var(--np-border-hi);
-  border-radius: var(--np-r-md);
+  border-radius: var(--np-r-pill);
   background: transparent;
   color: var(--np-text);
   font: 500 var(--np-fs-16)/1 var(--np-font-sans);

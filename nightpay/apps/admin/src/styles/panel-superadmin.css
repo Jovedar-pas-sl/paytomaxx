@@ -384,9 +384,11 @@
 
 .np-sa-band {
   padding: 1.25rem 1.5rem;
-  border: 1px solid var(--np-border);
-  border-radius: var(--np-r-lg);
+  border: 1px solid var(--np-card-edge);
+  border-radius: var(--np-r-card);
   background: var(--np-surface);
+  background-image: var(--np-card-fill);
+  box-shadow: var(--np-shadow-1);
   animation: np-sa-rise var(--np-d-slow) var(--np-ease);
 }
 
@@ -489,9 +491,11 @@
   width: 100%;
   height: 100%;
   padding: 1rem 1.125rem;
-  border: 1px solid var(--np-border);
-  border-radius: var(--np-r-lg);
+  border: 1px solid var(--np-card-edge);
+  border-radius: var(--np-r-card);
   background: var(--np-surface);
+  background-image: var(--np-card-fill);
+  box-shadow: var(--np-shadow-1);
   color: var(--np-text);
   text-align: left;
   cursor: pointer;
@@ -516,7 +520,7 @@
 }
 
 .np-sa-venue[data-current] {
-  box-shadow: inset 3px 0 0 var(--np-text);
+  box-shadow: inset 3px 0 0 var(--np-text), var(--np-shadow-1);
   cursor: default;
 }
 

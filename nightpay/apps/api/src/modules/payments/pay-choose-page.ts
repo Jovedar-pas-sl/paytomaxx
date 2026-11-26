@@ -92,7 +92,7 @@ legend{width:100%;margin:0 0 .6rem;padding:0;color:var(--fg);font-weight:600;fon
 .tipnote{margin-top:.65rem;font-size:.875rem;color:var(--mute);text-align:center}
 ${BREAKDOWN_CSS}.warn{border:1px solid var(--warn);border-radius:var(--r-tile);background:rgb(245 179 66/.1);padding:.75rem 1rem;color:var(--fg);font-size:.875rem}
 .paybar{position:sticky;bottom:0;z-index:5;margin:0 -1rem;padding:.6rem 1rem calc(.7rem + env(safe-area-inset-bottom));background:var(--bg)}
-.paybar::before{content:'';position:absolute;left:0;right:0;bottom:100%;height:.75rem;background:linear-gradient(to top,var(--bg),rgb(11 13 14/0));pointer-events:none}
+.paybar::before{content:'';position:absolute;left:0;right:0;bottom:100%;height:.75rem;background:linear-gradient(to top,var(--bg),rgb(9 21 24/0));pointer-events:none}
 .paybar>div{display:flex;flex-direction:column;gap:.5rem;text-align:center}
 .paybar .btn{min-height:3.5rem;font-size:1.0625rem}
 .paybar .alts{display:grid;grid-template-columns:1fr;gap:.5rem}
@@ -108,7 +108,7 @@ ${BREAKDOWN_CSS}.warn{border:1px solid var(--warn);border-radius:var(--r-tile);b
 .btn.gpay{background:#fff;border-color:#fff;color:#1f1f1f;box-shadow:0 1px 2px rgb(0 0 0/.35)}
 .btn.gpay .gmark{display:block;width:auto;height:1.55rem}
 @supports (-webkit-appearance:-apple-pay-button){
-.btn.apay{-webkit-appearance:-apple-pay-button;-apple-pay-button-type:plain;-apple-pay-button-style:white;height:3.5rem;padding:0;border:0;border-radius:var(--r-btn);box-shadow:none;filter:none}
+.btn.apay{-webkit-appearance:-apple-pay-button;-apple-pay-button-type:plain;-apple-pay-button-style:white;height:3.5rem;padding:0;border:0;border-radius:999px;box-shadow:none;filter:none}
 .btn.apay>*{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
 }
 .or{display:flex;align-items:center;gap:.75rem;font-size:.8125rem;line-height:1;color:var(--dim)}

@@ -30,6 +30,8 @@ class PaxBridge(
     private val webView: WebView,
     private val paytef: PaytefClient,
     private val readers: LocalReaders,
+    /** Fijar la app en pantalla (true) o soltarla (false). Lo hace MainActivity. */
+    private val setLocked: (Boolean) -> Unit,
 ) {
 
     // Hilos aparte: "cancelar" no puede esperar a que acabe la venta en curso.
@@ -97,6 +99,19 @@ class PaxBridge(
     @JavascriptInterface
     fun cancelRead(json: String) = run(json) {
         readers.cancel()
+        JSONObject().put("ok", true)
+    }
+
+    /** Con sesión iniciada: pantalla completa y sin Inicio ni Recientes hasta «Salir» (app 0.4+). */
+    @JavascriptInterface
+    fun lockApp(json: String) = run(json) {
+        setLocked(true)
+        JSONObject().put("ok", true)
+    }
+
+    @JavascriptInterface
+    fun unlockApp(json: String) = run(json) {
+        setLocked(false)
         JSONObject().put("ok", true)
     }
 

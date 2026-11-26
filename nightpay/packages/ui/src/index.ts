@@ -14,7 +14,19 @@ export { ThemeToggle } from './components/ThemeToggle';
 export { Logo } from './components/Logo';
 export { CartaIcon, CartaItemIcon, CARTA_ICON_PATHS } from './components/CartaIcon';
 export { SectionChip } from './components/SectionChip';
-export { formatEur } from './format';
+export { DEFAULT_TIMEZONE, dayInZone, formatBps, formatDateTime, formatEur, formatPercent, formatRelative } from './format';
+export type { DateStyle } from './format';
+
+// Piezas comunes de las tres apps (Piezas I): el importe y la cifra que rueda, la
+// etiqueta (de sección o de estado), los iconos, la pantalla vacía y la silueta.
+export { Importe } from './components/Importe';
+export { RollingNumber } from './components/RollingNumber';
+export { Etiqueta, Tag, TONE_COLORS } from './components/Etiqueta';
+export type { EtiquetaTone } from './components/Etiqueta';
+export { Icon, IconButton, ICON_PATHS } from './components/Icon';
+export type { IconName } from './components/Icon';
+export { EmptyState } from './components/EmptyState';
+export { Skeleton } from './components/Skeleton';
 
 // Colores de las secciones (Copas, Servicios…): los mismos que --np-sec-* de styles.css.
 export {
@@ -41,7 +53,7 @@ export type { OutcomeAction, OutcomeHow, PaymentOutcomeProps } from './component
 export { ConnectionBanner } from './components/ConnectionBanner';
 export { AmountKeypad } from './components/AmountKeypad';
 export { QrCountdown } from './components/QrCountdown';
-export { useDelayedFlag, useNow, useOnline, useWakeLock } from './hooks';
+export { useDelayedFlag, useKiosk, useNow, useOnline, useWakeLock } from './hooks';
 export { outcomeKindOf, OUTCOME_TITLE, clockTime } from './lib/outcome';
 export type { OutcomeKind } from './lib/outcome';
 export {
@@ -68,6 +80,8 @@ export {
 export type { KeypadKey } from './lib/amount-keypad';
 export { BANK_SLOW_AFTER_MS, classifyConnection, SERVER_DOWN_GRACE_MS } from './lib/connection';
 export type { ConnectionDevice, ConnectionIssue, ConnectionIssueKind, ConnectionSignals } from './lib/connection';
+export { createKiosk } from './lib/kiosk';
+export type { KioskController, KioskEnv } from './lib/kiosk';
 export { createWakeLock, wakeLockFrom } from './lib/wake-lock';
 export { BITCOIN_HOW_SUB, cardHow, cashHow, chargedBy, saldoHow } from './lib/outcome-how';
 export type { CardHowInput, CashHowInput, SaldoHowInput } from './lib/outcome-how';

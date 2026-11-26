@@ -37,11 +37,12 @@ function contrast(a: string, b: string): number {
 
 describe('colores de las secciones (marca OxioCard)', () => {
   it('cada categoría del cobro tiene su sección y su color', () => {
-    expect(sectionColor('VENUE_BAR')).toBe('#00e0ae');
-    expect(sectionColor('VENUE_ROOM')).toBe('#a98bff');
-    expect(sectionColor('VENUE_FOOD')).toBe('#ff8a3d');
-    expect(sectionColor('CHICA_SERVICE')).toBe('#e447f0');
-    expect(sectionColor('VENUE_ENTRY')).toBe('#3d9bff');
+    // Los de «Color y relieve» (25-nov-2026).
+    expect(sectionColor('VENUE_BAR')).toBe('#46efd4');
+    expect(sectionColor('VENUE_ROOM')).toBe('#bbb8fe');
+    expect(sectionColor('VENUE_FOOD')).toBe('#fd622d');
+    expect(sectionColor('CHICA_SERVICE')).toBe('#ff77a2');
+    expect(sectionColor('VENUE_ENTRY')).toBe('#4d94fb');
     expect(sectionColor('EXTRA')).toBe('#7c8893');
     expect(sectionOf('VENUE_BAR')?.label).toBe('Copas');
     expect(sectionVar('CHICA_SERVICE')).toBe('var(--np-sec-servicios)');
@@ -77,8 +78,8 @@ describe('colores de las secciones (marca OxioCard)', () => {
 
 describe('tonos de loseta (con los colores vivos, iguales a los de la sección)', () => {
   it('las losetas de Servicios y Propinas llevan su color vivo; las demás, el suyo', () => {
-    expect(sectionTileColor('CHICA_SERVICE')).toBe('#e447f0');
-    expect(sectionTileColor('propinas')).toBe('#ffc94d');
+    expect(sectionTileColor('CHICA_SERVICE')).toBe('#ff77a2');
+    expect(sectionTileColor('propinas')).toBe('#feee82');
     expect(sectionTileVar('CHICA_SERVICE')).toBe('var(--np-sec-servicios-tile)');
     expect(sectionTileVar('propinas')).toBe('var(--np-sec-propinas-tile)');
     expect(sectionTileVar('VENUE_BAR')).toBe('var(--np-sec-copas)');
@@ -100,12 +101,12 @@ describe('tonos de loseta (con los colores vivos, iguales a los de la sección)'
   it('la tinta es #0b0d0e y todas las secciones coloreadas tienen su par en la paleta viva', () => {
     expect(SECTION_ON_COLOR).toBe('#0b0d0e');
     expect(Object.fromEntries(Object.entries(SECTIONS).map(([k, s]) => [k, s.color]))).toMatchObject({
-      copas: '#00e0ae',
-      comida: '#ff8a3d',
-      entradas: '#3d9bff',
-      servicios: '#e447f0',
-      habitaciones: '#a98bff',
-      propinas: '#ffc94d',
+      copas: '#46efd4',
+      comida: '#fd622d',
+      entradas: '#4d94fb',
+      servicios: '#ff77a2',
+      habitaciones: '#bbb8fe',
+      propinas: '#feee82',
       saldo: '#9aa4ad',
       otros: '#7c8893',
     });

@@ -444,13 +444,16 @@
   font-variant-numeric: tabular-nums;
 }
 
-/* El botón principal (56 px): lima con tinta de noche; tinta con lima de día. */
+/* El botón principal (56 px): lima con tinta de noche; tinta con lima de día.
+   Píldora y relieve, como el botón principal común. */
 .cobrar {
   margin-top: 4px;
   min-height: 3.5rem;
-  border-radius: var(--np-r-md);
+  border-radius: var(--np-r-pill);
   border: none;
-  background: var(--np-primary-bg);
+  background-color: var(--np-primary-bg);
+  background-image: var(--np-primary-image);
+  box-shadow: var(--np-primary-shadow);
   color: var(--np-primary-ink);
   display: flex;
   align-items: center;
@@ -469,6 +472,7 @@
 
 .cobrar:disabled:not([aria-busy='true']) {
   background: var(--np-disabled-bg);
+  box-shadow: none;
   color: var(--np-disabled-ink);
   cursor: not-allowed;
 }

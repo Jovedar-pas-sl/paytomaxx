@@ -1,4 +1,5 @@
 import type { HomeTopUpGiftRow, HomeTopUpSettings } from '@nightpay/contracts';
+import { formatBps } from '@nightpay/ui';
 import { formatDateTime } from './dates';
 import { formatEur } from './money';
 
@@ -25,12 +26,8 @@ export function giftRowText(g: HomeTopUpGiftRow, timeZone?: string): { amount: s
  * saldo no caduca.»), y la página que se imprime con el QR.
  */
 export function homeTopUpSummary(s: Pick<HomeTopUpSettings, 'minCents' | 'maxCents' | 'serviceFeeBps'>): string {
-  const fee = s.serviceFeeBps && s.serviceFeeBps > 0 ? `, con la comisión del servicio de las recargas (${pct(s.serviceFeeBps)}) encima` : '';
+  const fee = s.serviceFeeBps && s.serviceFeeBps > 0 ? `, con la comisión del servicio de las recargas (${formatBps(s.serviceFeeBps)}) encima` : '';
   return `De ${formatEur(s.minCents)} a ${formatEur(s.maxCents)}, en euros enteros. Paga con Apple Pay, Google Pay o tarjeta${fee}. El saldo no caduca.`;
-}
-
-function pct(bps: number): string {
-  return `${(bps / 100).toLocaleString('es-ES', { maximumFractionDigits: 2 })} %`;
 }
 
 export function escapeHtml(s: string): string {

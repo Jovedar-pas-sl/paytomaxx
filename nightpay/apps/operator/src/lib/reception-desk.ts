@@ -21,6 +21,7 @@ import {
   type SaldoRefDto,
 } from '@nightpay/contracts';
 import { authedFetch, operatorApiError, parseOperatorApiError } from './api';
+import { formatRelative } from '@nightpay/ui';
 import { formatEur } from './money';
 import { payProblem, receptionWhat, topUpCharge, walletOfTarget, type PayMethod, type Target } from './reception';
 import type { TopUpWalletDto } from '@nightpay/contracts';
@@ -170,14 +171,14 @@ export function lastTopUpOf(read: { view: ReceptionDeskView | null; number?: Num
 
 /**
  * En la fila de la ficha durante 10 min (A4): «Cargada hace 2 min: 50 € en
- * efectivo (Sergio)». Para no cargar dos veces lo mismo ni dudar de si se
+ * efectivo (Sergio)» (recién hecha, «Cargada ahora»). Para no cargar dos veces lo mismo ni dudar de si se
  * cargó. Un saldo sin ficha, «Cargado». `now`: la hora del móvil (ms).
  */
 export function recentTopUpLine(topUp: RecentTopUp | null | undefined, now: number, ficha = true): string | null {
   if (!topUp) return null;
   const minutes = Math.floor((now - Date.parse(topUp.at)) / 60_000);
   if (!Number.isFinite(minutes) || minutes >= RECENT_TOP_UP_MINUTES) return null;
-  const when = minutes <= 0 ? 'hace un momento' : `hace ${minutes} min`;
+  const when = formatRelative(topUp.at, new Date(now));
   const how = topUp.method === 'cash' ? 'en efectivo' : topUp.method === 'bitcoin' ? 'con bitcoin' : 'con tarjeta';
   const who = topUp.byName ? ` (${topUp.byName})` : '';
   return `${ficha ? 'Cargada' : 'Cargado'} ${when}: ${formatEur(topUp.amountCents, { compact: true })} ${how}${who}`;

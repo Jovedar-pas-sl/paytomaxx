@@ -132,10 +132,13 @@ describe('punto 4: el botón que se hunde', () => {
 describe('punto 7: «¿Cómo paga?» en dos bloques', () => {
   const light = themeBlock("[data-theme='light'] {");
 
-  it('colores exactos de la maqueta en oscuro', () => {
-    expect(hexOf(STYLES, '--np-cash-bg')).toBe('#0f2a1b');
+  // «Color y relieve» (25-nov-2026): los fondos de la maqueta (#0f2a1b y
+  // #0f1f31) se confundían con las tarjetas nuevas; ahora llevan el 26 % de su
+  // línea sobre el suelo. Las líneas (verde y azul) son las de la maqueta.
+  it('en oscuro: las líneas de la maqueta y los fondos re-teñidos para las superficies nuevas', () => {
+    expect(hexOf(STYLES, '--np-cash-bg')).toBe('#1e4736');
     expect(hexOf(STYLES, '--np-cash-line')).toBe('#58d68d');
-    expect(hexOf(STYLES, '--np-card-bg')).toBe('#0f1f31');
+    expect(hexOf(STYLES, '--np-card-bg')).toBe('#223a4b');
     expect(hexOf(STYLES, '--np-card-line')).toBe('#6fa8dc');
   });
 
@@ -159,7 +162,7 @@ describe('punto 7: «¿Cómo paga?» en dos bloques', () => {
   it('contraste en los dos temas: texto sobre el bloque, aclaración y tinta del icono', () => {
     const dark = STYLES.slice(0, STYLES.indexOf("[data-theme='light'] {"));
     const themes: Array<[string, string, string]> = [
-      ['oscuro', dark, '#f4f2ec'],
+      ['oscuro', dark, hexOf(dark.slice(dark.indexOf("[data-theme='dark'] {")), '--np-text')],
       ['claro', light, '#15191c'],
     ];
     for (const [name, css, text] of themes) {

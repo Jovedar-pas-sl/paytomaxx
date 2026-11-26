@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import type { CobroKind, OwnCobro } from '@nightpay/contracts';
-import { Button, Card, useNow } from '@nightpay/ui';
+import { Button, Card, Importe, useNow } from '@nightpay/ui';
 import { cancelPayment } from '@/lib/api';
 import { paymentTimeLabel, timeLabel } from '@/lib/earnings-view';
 import {
@@ -177,7 +177,10 @@ function NightTotal({ items, night, cursor }: { items: readonly OwnCobro[]; nigh
       <span className={styles.kicker}>
         {night.open ? 'Esta noche' : 'Desde el último cierre'} · desde las {timeLabel(night.from)}
       </span>
-      <b className={`np-num ${styles.nightTotal}`}>{t.complete ? '' : 'Al menos '}{formatEur(t.salesCents, { compact: true })}</b>
+      <b className={`np-num ${styles.nightTotal}`}>
+        {t.complete ? '' : 'Al menos '}
+        <Importe cents={t.salesCents} />
+      </b>
       <span className={styles.nightLine}>
         {t.count === 1 ? '1 cobro' : `${t.count} cobros`} · con propinas, sin devoluciones
       </span>
@@ -235,7 +238,7 @@ function CobroRow({
         <time dateTime={r.createdAt} className={styles.time}>{tonight ? timeLabel(when) : paymentTimeLabel(when)}</time>
       </div>
       <b className={`np-num ${styles.amount}`} data-gone={(state.tone === 'bad' || (state.tone === 'void' && left === 0)) || undefined}>
-        {formatEur(r.amountCents, { compact: true })}
+        <Importe cents={r.amountCents} />
       </b>
       {twice ? (
         <span className={styles.twice} data-refunded={r.paidTwice?.refunded || undefined} role="note">

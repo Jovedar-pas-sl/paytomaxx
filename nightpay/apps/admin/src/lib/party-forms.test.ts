@@ -70,8 +70,8 @@ describe('casetas', () => {
   });
 
   it('cómo se lee en la tabla y en el personal', () => {
-    expect(organizerText(1000)).toBe('10 %');
-    expect(organizerText(1250)).toBe('12,5 %');
+    expect(plain(organizerText(1000))).toBe('10 %');
+    expect(plain(organizerText(1250))).toBe('12,5 %');
     expect(organizerText(10_000)).toBe('Barra propia');
     expect(stallIbanText(sampleStall())).toEqual({ text: 'ES91 •••• •••• 1332', tone: 'success' });
     expect(stallIbanText(sampleStall({ iban: null }))).toEqual({ text: 'Falta IBAN', tone: 'danger' });

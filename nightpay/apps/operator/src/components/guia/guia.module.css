@@ -170,9 +170,11 @@
   margin: 0;
   display: flex;
   flex-direction: column;
-  border: 1px solid var(--np-border);
-  border-radius: var(--np-r-lg);
+  border: 1px solid var(--np-card-edge);
+  border-radius: var(--np-r-card);
   background: var(--np-surface);
+  background-image: var(--np-card-fill);
+  box-shadow: var(--np-shadow-1);
 }
 
 .cases > div {
@@ -221,6 +223,7 @@
     --np-border: #cfc9be;
     --np-border-hi: #827a6c;
     --np-surface: #fff;
+    --np-card-edge: var(--np-border);
     max-width: none;
     padding: 0;
     gap: 6mm;
@@ -264,5 +267,6 @@
 
   .cases {
     background: transparent;
+    box-shadow: none;
   }
 }

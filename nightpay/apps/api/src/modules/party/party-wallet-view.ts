@@ -28,9 +28,9 @@ export const PARTY_THEME_COLOR = '#F3F1EC';
  * regla de OxioPay («el saldo no se devuelve»): en la fiesta, lo que sobra se pide.
  */
 export const PARTY_CSS = `
-:root{--bg:#F3F1EC;--surface:#FFFFFF;--surface-2:#FFFFFF;--surface-3:#EEEAE2;--line:#E0DBD1;--line-hi:#8C96A0;--fg:#14181B;--label:#3F474E;--mute:#3F474E;--dim:#5C656D;--ink-0:#FFFFFF;--paid:#E2F1E8;--paid-ink:#14181B;--fail:#B0341A;--warn:#8A5A00;--err:#A8341A;--bad:#B0341A;--ok:#1F7A4D;--stale:#EEEAE2;--scrim:rgb(20 24 27/.45);--sh-sheet:0 -12px 32px rgb(20 24 27/.18);--sh-dialog:0 16px 40px -12px rgb(20 24 27/.28);--coral:#FF7A59;--night:#14181B;--night-2:#B8C0C6;--night-fg:#F4F2EC;color-scheme:light}
-.btn{background:var(--night);border-color:var(--night);color:var(--lime)}
-.btn.alt{background:var(--surface);color:var(--fg);border-color:var(--line-hi)}
+:root{--bg:#F3F1EC;--surface:#FFFFFF;--surface-2:#FFFFFF;--surface-3:#EEEAE2;--line:#E0DBD1;--line-hi:#8C96A0;--fg:#14181B;--label:#3F474E;--mute:#3F474E;--dim:#5C656D;--ink-0:#FFFFFF;--paid:#E2F1E8;--paid-ink:#14181B;--fail:#B0341A;--warn:#8A5A00;--err:#A8341A;--bad:#B0341A;--ok:#1F7A4D;--stale:#EEEAE2;--scrim:rgb(20 24 27/.45);--sh-sheet:0 -12px 32px rgb(20 24 27/.18);--sh-dialog:0 16px 40px -12px rgb(20 24 27/.28);--coral:#FF7A59;--night:#14181B;--night-2:#CFCBC2;--night-fg:#EFE9DF;color-scheme:light}
+.btn{background:var(--night);border-color:var(--night);color:var(--lime);box-shadow:0 1px 2px rgba(20,24,27,.25)}
+.btn.alt{background:var(--surface);color:var(--fg);border-color:var(--line-hi);box-shadow:none}
 .err{background:#FFF4F0}
 .top .pbrand{display:flex;align-items:center;gap:.375rem;margin:0;font-family:var(--num);font-size:1.25rem;font-weight:700;letter-spacing:-.02em;color:var(--fg)}
 .top .pbrand i{width:.5rem;height:.5rem;border-radius:50%;background:var(--coral)}

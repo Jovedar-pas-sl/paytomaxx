@@ -11,8 +11,8 @@ export const APP_ICONS = {
   apple: '/icons/apple-touch-icon.png',
 } as const;
 
-/** Fondo y barra del sistema: el de Grafito, para que al abrir no salga un destello blanco. */
-export const APP_BACKGROUND = '#0b0d0e';
+/** Fondo y barra del sistema: el suelo del tema oscuro (--np-bg), para que al abrir no salga un destello de otro color. */
+export const APP_BACKGROUND = '#091518';
 
 export interface AppManifestInput {
   /** Nombre entero («OxioPay — Personal»). */

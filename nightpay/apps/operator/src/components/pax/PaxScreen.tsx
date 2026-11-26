@@ -7,7 +7,7 @@ import {
   type ReceptionOptions,
   type VenueNightSettings,
 } from '@nightpay/contracts';
-import { Button, Card, Input } from '@nightpay/ui';
+import { Button, Card, formatRelative, Input } from '@nightpay/ui';
 import { callReader, hasReader } from '@/lib/pax-bridge';
 import { PRACTICE_PAX_TEXT, usePractice } from '@/lib/practice';
 import {
@@ -262,7 +262,7 @@ function PaxScreenView({ onNight }: { onNight: (night: VenueNightSettings) => vo
               {c.serviceFeeCents ? <span style={muted}>{posChargeLine(c)}</span> : null}
               <span style={muted}>
                 Código {c.code}
-                {c.zone ? ` · ${c.zone.toLowerCase()}` : ''} · hace {minutesAgo(c.createdAt)}
+                {c.zone ? ` · ${c.zone.toLowerCase()}` : ''} · {formatRelative(c.createdAt, new Date())}
               </span>
               {onHold.has(c.id) ? (
                 <span style={{ ...muted, color: 'var(--np-warning)' }}>Ya cobrado en el datáfono: revísalo arriba, no lo cobres otra vez.</span>
@@ -353,11 +353,6 @@ function ShiftCheck() {
       {error ? <p role="alert" style={{ color: 'var(--np-danger)', margin: 0 }}>{error}</p> : null}
     </Card>
   );
-}
-
-function minutesAgo(iso: string): string {
-  const min = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60_000));
-  return min < 1 ? 'un momento' : `${min} min`;
 }
 
 const mainStyle: CSSProperties = {

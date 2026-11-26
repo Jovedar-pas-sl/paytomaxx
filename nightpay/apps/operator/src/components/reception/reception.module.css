@@ -10,9 +10,11 @@
   flex-direction: column;
   gap: 0.75rem;
   padding: var(--np-pad-card);
-  border: 1px solid var(--np-border);
-  border-radius: var(--np-r-lg);
+  border: 1px solid var(--np-card-edge);
+  border-radius: var(--np-r-card);
   background: var(--np-surface);
+  background-image: var(--np-card-fill);
+  box-shadow: var(--np-shadow-1);
   text-align: left;
 }
 

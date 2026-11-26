@@ -24,7 +24,7 @@ import {
   type VenueSection,
 } from '@nightpay/contracts';
 import type { OperatorCommissionDefaults, VenueRulesInput, VenueSettings } from './endpoints/settings';
-import { bpsToPercentInput, formatPercent, parsePercentToBps } from './commission';
+import { bpsToPercentInput, formatBps, parsePercentToBps } from './commission';
 import { centsToInput } from './money';
 
 // ─── Reglas del local ──────────────────────────────────────────────
@@ -308,7 +308,7 @@ export function platformCommissionHint(s: VenueSettings): string {
   if (s.serviceFeeEnabled) {
     return `Con la comisión del servicio encendida, lo pagado con ella no paga esta comisión (la paga el cliente encima); el saldo cargado antes de encenderla, sí, al gastarse. ${SPLIT_HINT}`;
   }
-  return `OxioPay se lleva el ${formatPercent(s.platformCommissionBps)} de cada cobro (lo cambia OxioPay). ${SPLIT_HINT}`;
+  return `OxioPay se lleva el ${formatBps(s.platformCommissionBps)} de cada cobro (lo cambia OxioPay). ${SPLIT_HINT}`;
 }
 
 /** Lo que ve el dueño de la comisión del servicio: si está encendida y, entonces, sus % con un ejemplo. */
@@ -324,8 +324,8 @@ export function serviceFeeRulesText(s: VenueSettings): { status: 'Encendida' | '
   return {
     status: 'Encendida',
     lines: [
-      `Pagos con tarjeta, Apple Pay, Google Pay o datáfono: ${formatPercent(cardBps)} encima (un cobro de ${short(charge)} → el cliente paga ${short(charge + serviceFeeCents(charge, cardBps))}).`,
-      `Recargas del saldo (tarjeta o efectivo): ${formatPercent(topUpBps)} encima (recarga ${short(topUp)} → paga ${short(topUp + serviceFeeCents(topUp, topUpBps))}; le quedan ${short(topUp)} de saldo).`,
+      `Pagos con tarjeta, Apple Pay, Google Pay o datáfono: ${formatBps(cardBps)} encima (un cobro de ${short(charge)} → el cliente paga ${short(charge + serviceFeeCents(charge, cardBps))}).`,
+      `Recargas del saldo (tarjeta o efectivo): ${formatBps(topUpBps)} encima (recarga ${short(topUp)} → paga ${short(topUp + serviceFeeCents(topUp, topUpBps))}; le quedan ${short(topUp)} de saldo).`,
       'Gastar del saldo y las propinas no la llevan. El saldo cargado antes de encenderla sigue pagando la comisión de la plataforma al gastarse. Es de OxioPay: entra con el resto del cobro y se apunta aparte.',
     ],
   };

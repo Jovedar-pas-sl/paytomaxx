@@ -44,6 +44,18 @@ el manifiesto. Si el A920 Pro no deja el NFC a Android (lo reserva el lector
 de tarjetas), `capabilities` dice `unavailable` y la pantalla usa el QR o el
 código del cliente.
 
+
+## Pantalla completa con la salida bloqueada (app 0.4+)
+
+- `lockApp {}` → pantalla completa y app fijada: ni Inicio ni Recientes.
+- `unlockApp {}` → lo suelta.
+
+La web los llama al iniciar sesión y al pulsar «Salir» (`useKiosk` en
+`packages/ui`). La pantalla `/pax` no tiene sesión y no los usa. Sin ser la app
+dueña del aparato, Android pide confirmar la primera vez y deja soltarla con
+Atrás + Recientes: para que no se pueda, el aparato va en modo quiosco
+(PAXSTORE o Paytef).
+
 ## Compilar
 
 Sin Android Studio: en GitHub → Actions → **pax-android** → *Run workflow*.

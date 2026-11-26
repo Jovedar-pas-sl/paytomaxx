@@ -36,6 +36,8 @@ export interface MoneyFormatOptions {
   currency?: string;
   /** Solo la cifra («1.109,50»), para cuando la moneda va aparte con otro estilo. */
   bare?: boolean;
+  /** Solo para gráficos: redondeado y corto («620 €», «3,1 mil €», «1,2 M €»). Nunca en un importe que se cobra o se paga. */
+  short?: boolean;
 }
 
 /** Signo menos de verdad (U+2212): se alinea con las cifras; el guion no. */
@@ -66,6 +68,34 @@ function moneyFormat(locale: string, currency: string, digits: number, bare: boo
 }
 
 /**
+ * «1234,50» → «1.234,50»: pone los puntos a la parte entera cuando llega con 4
+ * cifras o más seguidas. Un Chrome anterior al 106 (los datáfonos) lee
+ * `useGrouping: 'always'` como «agrupa como siempre» y en español deja
+ * «1234 €» sin punto. Lo ya agrupado (Node, un navegador de hoy) no cambia.
+ */
+export function groupThousands(text: string): string {
+  return text.replace(/\d{4,}/, (run) => run.replace(/\B(?=(\d{3})+$)/g, '.'));
+}
+
+/** n / unit al más cercano, la mitad hacia arriba, con enteros (en coma flotante 9,95 se queda en 9,9). */
+const halfUp = (n: number, unit: number): number => Math.floor((n + unit / 2) / unit);
+
+/**
+ * El importe corto de los gráficos, al más cercano: euros hasta 999,5 €; miles
+ * con un decimal y sin «,0» hasta 9.950 € («3,1 mil €») y enteros después
+ * («12 mil €»); desde 999.500 €, millones igual («1,2 M €»).
+ */
+function shortMoney(cents: number, currency: string): string {
+  const abs = Math.abs(cents);
+  const unit = abs < 99_950 ? 100 : abs < 99_950_000 ? 100_000 : 100_000_000;
+  // Con decimal solo por debajo de 9,95 unidades (nunca en euros sueltos): en décimas.
+  const tenths = unit > 100 && abs * 100 < unit * 995 ? halfUp(abs, unit / 10) : halfUp(abs, unit) * 10;
+  const figure = `${groupThousands(String(Math.floor(tenths / 10)))}${tenths % 10 === 0 ? '' : `,${tenths % 10}`}`;
+  const word = unit === 100 ? '' : unit === 100_000 ? '\u00a0mil' : '\u00a0M';
+  return `${cents < 0 ? MINUS_SIGN : ''}${figure}${word}\u00a0${currency === 'EUR' ? '€' : currency}`;
+}
+
+/**
  * Un importe para la pantalla, igual en todas partes: «1.109,50 €», con
  * `compact` «33 €» (sin «,00» si no hay céntimos), y «−12 €» con el signo
  * menos de verdad. Los importes viajan en céntimos. Una moneda que Intl no
@@ -73,12 +103,13 @@ function moneyFormat(locale: string, currency: string, digits: number, bare: boo
  */
 export function formatMoney(
   cents: number,
-  { compact = false, locale = 'es-ES', currency = 'EUR', bare = false }: MoneyFormatOptions = {},
+  { compact = false, locale = 'es-ES', currency = 'EUR', bare = false, short = false }: MoneyFormatOptions = {},
 ): string {
+  if (short) return shortMoney(cents, currency);
   // Solo se quitan los «,00»: un importe con céntimos (12,50 €) nunca se redondea.
   const digits = compact && cents % 100 === 0 ? 0 : 2;
   const fmt = moneyFormat(locale, currency, digits, bare);
   const plain = (cents / 100).toLocaleString(locale, { minimumFractionDigits: digits, maximumFractionDigits: digits });
   const text = fmt ? fmt.format(cents / 100) : bare ? plain : `${plain} ${currency}`;
-  return text.replace('-', MINUS_SIGN);
+  return (locale === 'es-ES' ? groupThousands(text) : text).replace('-', MINUS_SIGN);
 }

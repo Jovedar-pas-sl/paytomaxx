@@ -118,7 +118,7 @@ export function renderQrChargePage(
   });
   return `<!DOCTYPE html>
 <html lang="${lang}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta name="robots" content="noindex"><meta name="theme-color" content="#0b0d0e"><title>${h(t.title)}</title>
+<meta name="robots" content="noindex"><meta name="theme-color" content="#091518"><title>${h(t.title)}</title>
 <style>${CLUB_BASE_CSS}${CHROME_CSS}${QR_CSS}${PAID_SCREEN_CSS}${tipView ? SALDO_TIP_CSS : ''}</style></head><body>
 ${topBar(lang, undefined, { over: isPaid })}
 ${screen}

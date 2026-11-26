@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { PARTY_NOW, sampleLive } from './party-fixtures';
 import {
@@ -84,13 +85,13 @@ describe('qué noche ver', () => {
 });
 
 describe('ventas por hora', () => {
-  it('barras con su alto frente a la mayor, «k» desde 1.000 € y la de ahora abierta', () => {
+  it('barras con su alto frente a la mayor, «mil €» desde 1.000 € y la de ahora abierta', () => {
     const bars = hourBars(sampleLive().hourly, TZ);
-    expect(bars.map((b) => [b.hour, b.label, b.pct, b.open])).toEqual([
+    expect(plain(bars.map((b) => [b.hour, b.label, b.pct, b.open]))).toEqual([
       ['20 h', '620 €', 20, false],
       ['21 h', '0 €', 0, false],
-      ['23 h', '3,1 k', 100, false],
-      ['01 h', '1,6 k', 53, true],
+      ['23 h', '3,1 mil €', 100, false],
+      ['01 h', '1,6 mil €', 53, true],
     ]);
     expect(bars[0]!.day).toBe('mié 23');
     expect(bars[3]!.day).toBe('jue 24');
@@ -99,8 +100,17 @@ describe('ventas por hora', () => {
   });
 
   it('lo negativo (solo devoluciones en esa hora) no pinta barra', () => {
-    expect(hourAmountLabel(-500)).toBe('0 €');
+    expect(plain(hourAmountLabel(-500))).toBe('0 €');
     expect(hourBars([{ at: '2027-06-23T18:00:00.000Z', soldCents: -500, open: false }], TZ)[0]!.pct).toBe(0);
+  });
+
+  it('cada hora cae bajo su barra: las dos filas tienen columnas iguales y en ellas cabe el importe más largo', () => {
+    const css = readFileSync(new URL('../styles/panel-party.css', import.meta.url), 'utf8');
+    const basis = (selector: string): number => Number(new RegExp(`\\n${selector} \\{[^}]*\\bflex: 1 0 ([\\d.]+)rem;`).exec(css)?.[1]);
+    // Medido con Manrope 14/700: «999 mil €», el más largo, 62 px; la hora con su día debajo («dom 29»), 50.
+    // En una columna más estrecha la barra se ensancha con su importe y su hora no, y dejan de coincidir.
+    expect(basis('\\.np-party-bar')).toBeGreaterThanOrEqual(4);
+    expect(basis('\\.np-party-hours span')).toBe(basis('\\.np-party-bar'));
   });
 });
 

@@ -42,7 +42,7 @@ export const viewport: Viewport = {
   initialScale: 1,
   // Hasta los bordes en iPhone: env(safe-area-inset-*) solo funciona con 'cover'.
   viewportFit: 'cover',
-  themeColor: '#0b0d0e',
+  themeColor: '#091518',
 };
 
 // Oscuro (Grafito) de partida: dentro del local, un móvil en modo claro enseñaba

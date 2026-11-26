@@ -2,13 +2,23 @@
    neutros casi negros, filetes finos y la lima como única luz encendida (actuar,
    foco y pagado). Instrument Sans 400/500/600 para el texto; Manrope 600/700
    solo para cifras. Oscuro es el tema principal (salas con poca luz); el claro
-   queda para el panel. Imported once from each app's root layout. */
+   queda para el panel. Imported once from each app's root layout.
+
+   «Color y relieve» (25-nov-2026, lo eligió el dueño: la app se veía «sin
+   vida»): el suelo oscuro es azul noche (#091518) con las tarjetas un paso
+   más claras, las tarjetas y los botones llevan relieve (filo de luz arriba y
+   sombra), los botones son píldora y los colores de sección son nuevos. Lo
+   comprueba apps/operator/src/lib/ui-nivel-color.test.ts. Todo se ve bien en
+   un navegador viejo (los datáfonos van con Chrome 64): degradados y sombras
+   normales; nada de color-mix(), oklch() ni :has() sin respaldo. */
 
 /* Componentes de las apps del personal (resultado, aviso de conexión, teclado
-   de importe, cuenta atrás del QR). @import va antes de cualquier regla. */
+   de importe, cuenta atrás del QR) y las piezas comunes (importe, etiqueta,
+   iconos, pantalla vacía, silueta). @import va antes de cualquier regla. */
 @import './staff.css';
 @import './tour.css';
 @import './ticket.css';
+@import './pieces.css';
 
 :root {
   /* Spacing — 4px base */
@@ -22,14 +32,17 @@
   --np-s-8: 4rem;
   --np-s-9: 6rem;
 
-  /* Radios: chips 6, campos y botones del panel 10, botones y losetas 14,
-     tarjetas y hojas 18. 999 solo para contadores y puntos. */
+  /* Radios: chips 6, campos 10 y 14, losetas 16, cajas sueltas 18 y tarjetas
+     24; lo que va DENTRO de una tarjeta, 12 (radio de fuera = radio de dentro
+     + margen). 999 (píldora) para los botones, los contadores y los puntos:
+     losetas, teclas, pestañas y campos nunca son píldora. */
   --np-r-xs: 6px;
   --np-r-sm: 10px;
   --np-r-md: 14px;
   --np-r-lg: 18px;
-  --np-r-card: 18px;
-  --np-r-tile: 14px;
+  --np-r-card: 24px;
+  --np-r-inner: 12px;
+  --np-r-tile: 16px;
 
   /* Alto de los campos (Input/Select): 40 en el panel, como sus botones;
      48 en el panel desde el móvil y 52 en el personal y el TPV (.np-touch). */
@@ -94,7 +107,11 @@
   --np-lime-deep: #9aa300;
   /* Grafito: sin halos (deslumbran con poca luz y suenan a casino). */
   --np-lime-glow: transparent;
-  --np-lime-edge: rgb(199 211 1 / 0.55);
+  /* Al pasar por encima: la misma lima con más luz (en P3, abajo del todo). */
+  --np-lime-hover: #d3de1e;
+  /* Con comas: el borde de la tarjeta destacada lo usa y en el Chrome 64 de
+     los datáfonos rgb() con espacios la dejaba sin borde. */
+  --np-lime-edge: rgba(199, 211, 1, 0.55);
   --np-lime-soft: rgb(199 211 1 / 0.14);
   --np-lime-ring: rgb(199 211 1 / 0.22);
   --np-ink: #1f2c36;
@@ -105,35 +122,45 @@
   --np-green-2: #004820;
   --np-green-3: #0a6b34;
   /* Grafito: la tarjeta OxioCard es plana (sin degradado ni brillo) y el
-     motivo 0101 se queda para la ficha física y el marketing. */
-  --np-card-oxio: #131618;
+     motivo 0101 se queda para la ficha física y el marketing. Del color de
+     las tarjetas (--np-surface del tema oscuro). */
+  --np-card-oxio: #19272b;
   --np-card-gloss: none;
   --np-bits: none;
   --np-bits-brand: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='132' height='64'%3E%3Cg font-family='monospace' font-size='11' fill='%23EFE9DF' fill-opacity='.045'%3E%3Ctext x='2' y='12'%3E0101 1001 0110%3C/text%3E%3Ctext x='-12' y='28'%3E1100 1010 0101 1%3C/text%3E%3Ctext x='6' y='44'%3E0110 0101 1001%3C/text%3E%3Ctext x='-6' y='60'%3E1001 0011 0101 0%3C/text%3E%3C/g%3E%3C/svg%3E");
 
   /* Secciones (de qué es el cobro): familia viva, siempre con tinta oscura
-     --np-on-section encima (≥ 4,5:1). Las mismas en TS: sectionColor() de
-     @nightpay/ui. El saldo / la recarga va en gris y con borde a trazos. */
-  --np-sec-copas: #00e0ae;
-  --np-sec-habitaciones: #a98bff;
-  --np-sec-comida: #ff8a3d;
-  --np-sec-servicios: #e447f0;
-  --np-sec-entradas: #3d9bff;
-  --np-sec-propinas: #ffc94d;
+     --np-on-section encima. Las mismas en TS: sectionColor() de @nightpay/ui.
+     El saldo / la recarga va en gris y con borde a trazos. Tinta encima:
+     Copas 13,5:1 · Comida 6,5:1 · Entradas 6,4:1 · Servicios 7,8:1 ·
+     Habitaciones 10,6:1 · Propinas 16,5:1 · Saldo 7,7:1 · Otros 5,4:1.
+     Comida y Entradas dan 5,1:1 sobre --np-surface: van en rellenos, puntos,
+     iconos y cifras grandes, nunca como color de texto pequeño (ese va en
+     crema con un punto de color). */
+  --np-sec-copas: #46efd4;
+  --np-sec-habitaciones: #bbb8fe;
+  --np-sec-comida: #fd622d;
+  --np-sec-servicios: #ff77a2;
+  --np-sec-entradas: #4d94fb;
+  --np-sec-propinas: #feee82;
   --np-sec-saldo: #9aa4ad;
   --np-sec-otros: #7c8893;
   --np-on-section: #0b0d0e;
-  /* Tonos de LOSETA (rellenos grandes con la etiqueta pequeña encima): un
-     punto más claros para que la tinta se lea (Servicios 6,95:1, Propinas
-     8,35:1). Chips, barras y franjas siguen con el color exacto de arriba. */
-  --np-sec-servicios-tile: #e447f0;
-  --np-sec-propinas-tile: #ffc94d;
+  /* Tonos de LOSETA (rellenos grandes con la etiqueta pequeña encima): hoy,
+     los mismos que la sección (la tinta se lee de sobra: Servicios 7,8:1,
+     Propinas 16,5:1). Chips, barras y franjas, con el color de arriba. */
+  --np-sec-servicios-tile: #ff77a2;
+  --np-sec-propinas-tile: #feee82;
   /* Brillo de las losetas de la carta (oscuro): del color al 75 %, más con
-     unidades en la cuenta, y una línea clara arriba. Brillo lima de «Cobrar». */
+     unidades en la cuenta, y una línea clara arriba. */
   --np-tile-glow: 75%;
   --np-tile-glow-on: 90%;
   --np-tile-hi: rgb(255 255 255 / 0.45);
-  --np-primary-glow: 0 8px 24px -8px rgb(199 211 1 / 0.7);
+  /* Relieve de los botones, igual en todos los temas: el brillo de arriba del
+     principal y, para un botón claro sobre un color (el del resultado a
+     pantalla completa), el filo de luz y la sombra corta sin resplandor. */
+  --np-primary-image: linear-gradient(180deg, rgba(255, 255, 255, 0.24), rgba(255, 255, 255, 0) 55%);
+  --np-btn-relief: inset 0 1px 0 rgba(255, 255, 255, 0.45), inset 0 -1px 0 rgba(0, 0, 0, 0.18), 0 1px 2px rgba(0, 0, 0, 0.4);
 
   /* Resultado a pantalla completa y aviso de conexión: iguales en los dos
      temas (son señales, no decoración). Colores planos y profundos, con texto
@@ -170,38 +197,62 @@ html[data-bigfont='1'] {
 [data-theme='dark'] {
   color-scheme: dark;
 
-  /* Superficies Grafito: casi negro, no negro puro (el negro total deja
-     estelas al desplazar). Las tarjetas se separan por el filete. */
-  --np-bg: #0b0d0e;
-  --np-surface: #131618;
-  --np-surface-2: #1a1e21;
-  --np-surface-3: #23282c;
-  --np-border: #262b30;
-  /* Filete de lo que se toca (botones secundarios, campos): 3,62:1 sobre
-     --np-surface (WCAG 1.4.11). */
-  --np-border-hi: #6b7680;
+  /* Superficies: suelo azul noche (no negro puro: el negro total deja estelas
+     al desplazar) y cada nivel un paso más claro. --np-sunk es para las zonas
+     hundidas (barra de pestañas, pies pegados abajo); --np-surface, las
+     tarjetas; -2, lo elevado o con el ratón encima; -3, lo pulsado y los
+     menús. */
+  --np-bg: #091518;
+  --np-sunk: #111e22;
+  --np-surface: #19272b;
+  --np-surface-2: #223035;
+  --np-surface-3: #2b3b40;
+  /* Separadores: decorativos (1,4:1 sobre --np-surface). */
+  --np-border: #314045;
+  /* Filete de lo que se toca (botones secundarios, campos): 4,79 · 4,24 ·
+     3,63:1 sobre --np-surface, -2 y -3 (WCAG 1.4.11 pide 3:1). */
+  --np-border-hi: #7f939a;
 
-  /* Texto: 17,4:1 · 10,6:1 · 7,9:1 sobre el fondo (las ayudas pequeñas, con
-     poca luz y prisa, piden 7:1; 6:1 aún sobre --np-surface-3). */
-  --np-text: #f4f2ec;
-  --np-text-mute: #b8c0c6;
-  --np-text-dim: #9da6ae;
+  /* Texto, sobre el fondo · --np-surface · -2 · -3:
+       --np-text       15,4 · 12,7 · 11,3 · 9,7
+       --np-text-mute  11,5 ·  9,5 ·  8,4 · 7,2
+       --np-text-dim    9,2 ·  7,6 ·  6,7 · 5,8
+     Las ayudas pequeñas, con poca luz y prisa, piden 7:1: nada de texto
+     pequeño «dim» sobre --np-surface-3. */
+  --np-text: #efe9df;
+  --np-text-mute: #cfcbc2;
+  --np-text-dim: #bab6ad;
   /* Etiquetas pequeñas (sin mayúsculas en Grafito). */
-  --np-text-label: #b8c0c6;
+  --np-text-label: #cfcbc2;
 
-  /* Accent — lima. Siempre con tinta encima (--np-on-accent, 11,2:1). */
-  --np-accent: #c7d301;
-  --np-accent-2: #d3de1e;
-  --np-on-accent: #11160a;
+  /* Accent — lima (la de la marca: en pantallas P3, la viva de abajo del
+     todo). Siempre con tinta encima (--np-on-accent, 11,3:1). */
+  --np-accent: var(--np-lime);
+  --np-accent-2: var(--np-lime-hover);
+  --np-on-accent: #091518;
   --np-accent-edge: var(--np-lime-edge);
   /* Anillo del foco en los campos: discreto. */
   --np-glow: rgb(199 211 1 / 0.22);
 
-  /* Botón principal: lima plana con tinta, sin halo. */
+  /* Botón principal: lima con tinta (11,3:1) y relieve: el brillo de arriba
+     (--np-primary-image), filo de luz, filo de sombra abajo, sombra corta y un
+     resplandor lima suave debajo. */
   --np-primary-bg: var(--np-lime);
-  --np-primary-bg-hover: #d3de1e;
-  --np-primary-ink: #11160a;
-  --np-primary-shadow: none;
+  --np-primary-bg-hover: var(--np-lime-hover);
+  --np-primary-ink: #091518;
+  --np-primary-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.45), inset 0 -1px 0 rgba(0, 0, 0, 0.18), 0 1px 2px rgba(0, 0, 0, 0.4), 0 8px 24px -8px rgba(199, 211, 1, 0.5);
+
+  /* Relieve de las tarjetas: un filo de luz crema arriba (--np-hi) y sombra
+     del tono del suelo. -1 para lo que está apoyado (tarjetas); -2 para lo
+     que flota (hojas, menús, ventanas). El relleno baja de lo elevado a la
+     superficie y el borde es crema translúcida. Las transparencias van como
+     rgba(r, g, b, a): rgb() con espacios es de Chrome 65 y en el 64 de los
+     datáfonos dejaría la declaración entera sin efecto (sin borde ni filete). */
+  --np-hi: inset 0 1px 0 rgba(239, 233, 223, 0.08);
+  --np-shadow-1: var(--np-hi), 0 1px 2px rgba(3, 10, 12, 0.5);
+  --np-shadow-2: inset 0 1px 0 rgba(239, 233, 223, 0.08), 0 2px 4px rgba(3, 10, 12, 0.4), 0 12px 24px -12px rgba(3, 10, 12, 0.6);
+  --np-card-edge: rgba(239, 233, 223, 0.07);
+  --np-card-fill: linear-gradient(180deg, var(--np-surface-2), var(--np-surface));
 
   /* Lo ELEGIDO (pestaña, chip, filtro, estado): crema en oscuro, con tinta
      encima; en claro, tinta con texto crema. La lima queda para el botón de
@@ -209,40 +260,53 @@ html[data-bigfont='1'] {
   --np-chosen: var(--np-cream);
   --np-on-chosen: var(--np-ink);
 
-  /* «¿Cómo paga?» (Grafito 3): efectivo en verde, tarjeta en azul. */
-  --np-cash-bg: #0f2a1b;
+  /* «¿Cómo paga?» (Grafito 3): efectivo en verde, tarjeta en azul. El fondo
+     de cada bloque, el 26 % de su línea sobre el suelo, para que no se
+     confunda con las tarjetas. Efectivo: texto 8,7:1, aclaración 8,1:1,
+     línea 5,7:1. Tarjeta: texto 9,8:1, aclaración 8,8:1, línea 4,7:1. */
+  --np-cash-bg: #1e4736;
   --np-cash-line: #58d68d;
   --np-cash-icon-ink: #0b2a17;
   --np-cash-sub: #cfe9d9;
-  --np-card-bg: #0f1f31;
+  --np-card-bg: #223a4b;
   --np-card-line: #6fa8dc;
   --np-card-icon-ink: #0b1a2a;
   --np-card-sub: #cfe0f2;
 
-  /* Semantic */
+  /* Semantic. Sobre --np-surface · -2: verde 8,4 · 7,4 · rojo 5,5 · 4,9 ·
+     ámbar 8,4 · 7,4 · morado 7,4 · 6,6. */
   --np-success: #58d68d;
   --np-danger: #ff6b6b;
-  /* Rojo para TEXTO pequeño (errores de 14-15 px). */
-  --np-danger-text: #ff8a84;
+  /* Rojo para TEXTO pequeño (errores de 14-15 px): 7,5 · 6,7:1 sobre
+     --np-surface y -2. */
+  --np-danger-text: #ff9a94;
   --np-warning: #f5b342;
   --np-purple: #c9a3ff;
 
   /* Botón sin nada que hacer: neutro, nunca lima apagada ni opacidad (el
-     lima dice «listo»). Texto 6:1 sobre --np-surface-2. */
+     lima dice «listo»). Texto 6,7:1 sobre --np-surface-2. */
   --np-disabled-bg: var(--np-surface-2);
   --np-disabled-ink: var(--np-text-dim);
   --np-disabled-edge: var(--np-border);
 
-  /* Pill backgrounds (theme-aware) */
-  --np-pill-mute-bg: #1c2024;
-  --np-pill-cyan-bg: #292c10;
-  --np-pill-success-bg: #10291c;
-  --np-pill-danger-bg: #2e1416;
-  --np-pill-warning-bg: #2e2209;
-  --np-pill-purple-bg: #231c33;
+  /* Fondos de las píldoras de estado: el color del estado mezclado con el
+     suelo (26 %; el rojo, 22 %), más claros que las tarjetas para que se
+     distingan de --np-surface y de -2. Su texto encima:
+       neutro   --np-text-mute 6,2:1 · --np-text 8,3:1
+       lima     lima 6,2:1
+       verde    --np-success 5,7:1
+       rojo     --np-danger 4,9:1 · --np-danger-text 6,7:1 · --np-text 11,2:1
+       ámbar    --np-warning 5,8:1
+       morado   --np-purple 5,3:1 */
+  --np-pill-mute-bg: #33454b;
+  --np-pill-cyan-bg: #3a4612;
+  --np-pill-success-bg: #1e4736;
+  --np-pill-danger-bg: #3f282a;
+  --np-pill-warning-bg: #463e23;
+  --np-pill-purple-bg: #3b3a54;
 
-  /* Backdrop for modals (matches surrounding tone) */
-  --np-backdrop: rgb(5 6 7 / 0.74);
+  /* Velo de las ventanas, del tono del suelo. */
+  --np-backdrop: rgba(3, 10, 12, 0.74);
 
   /* Grain visibility */
   --np-grain-opacity: 0;
@@ -254,6 +318,8 @@ html[data-bigfont='1'] {
 
   /* Claro, solo para el panel: papel y tinta (16,2:1 · 7,1:1 · 5,6:1). */
   --np-bg: #f7f5f0;
+  /* Las zonas hundidas, en claro, siguen en el papel de las tarjetas. */
+  --np-sunk: #fdfcf9;
   --np-surface: #fdfcf9;
   --np-surface-2: #eeebe4;
   --np-surface-3: #e3dfd6;
@@ -288,15 +354,25 @@ html[data-bigfont='1'] {
   --np-card-sub: #34506b;
 
   --np-primary-bg: var(--np-lime);
-  --np-primary-bg-hover: #d1dc1a;
+  /* En P3, la viva del bloque de abajo (va después y pesa lo mismo). */
+  --np-lime-hover: #d1dc1a;
+  --np-primary-bg-hover: var(--np-lime-hover);
   --np-primary-ink: var(--np-ink);
-  /* Filete de tinta: la lima se separa del papel (sin sombra). */
-  --np-primary-shadow: inset 0 0 0 1px rgb(21 25 28 / 0.7);
+  /* Filete de tinta: la lima se separa del papel. Con el mismo brillo de
+     arriba que en oscuro, una sombra corta de tinta y sin resplandor lima. */
+  --np-primary-shadow: inset 0 0 0 1px rgba(21, 25, 28, 0.7), 0 1px 2px rgba(21, 25, 28, 0.2);
   /* Claro: sin brillo de color fuerte, solo una sombra suave. */
   --np-tile-glow: 32%;
   --np-tile-glow-on: 48%;
   --np-tile-hi: rgb(255 255 255 / 0.55);
-  --np-primary-glow: inset 0 0 0 1px rgb(21 25 28 / 0.7), 0 4px 12px -6px rgb(21 25 28 / 0.35);
+
+  /* Relieve en claro: sombra suave de tinta, sin filo de luz (sobre papel no
+     se ve) ni degradado; el borde de las tarjetas, el filete de siempre. */
+  --np-hi: 0 0 0 0 transparent;
+  --np-shadow-1: 0 1px 2px rgba(31, 44, 54, 0.08);
+  --np-shadow-2: 0 2px 4px rgba(31, 44, 54, 0.08), 0 12px 24px -12px rgba(31, 44, 54, 0.25);
+  --np-card-edge: var(--np-border);
+  --np-card-fill: none;
 
   /* 6,2:1 · Lc 73. */
   --np-success: #146234;
@@ -312,7 +388,7 @@ html[data-bigfont='1'] {
   --np-pill-warning-bg: #f6e6c8;
   --np-pill-purple-bg: #e9e1f5;
 
-  --np-backdrop: rgb(31 44 54 / 0.45);
+  --np-backdrop: rgba(31, 44, 54, 0.45);
 
   --np-grain-opacity: 0;
   --np-grain-blend: normal;
@@ -325,16 +401,25 @@ html[data-bigfont='1'] {
    (PAGADO, NO PAGADO) no cambian. */
 html[data-contrast='sala'] {
   font-size: 112.5%;
-  /* 13,2:1 · Lc 90 sobre --np-surface-2. */
-  --np-text-mute: #e3e7ea;
-  /* 8,7:1 · Lc 70 aún sobre --np-surface-3. */
-  --np-text-dim: #c4cbd1;
-  --np-text-label: #e3e7ea;
-  --np-border: #4a535c;
-  /* 6,1:1 sobre el fondo: los botones secundarios se ven sin buscar. */
-  --np-border-hi: #8994a0;
-  /* Sin halos (deslumbran con poca luz). */
+  /* Recalculado para las superficies de «Color y relieve» (son más claras
+     que las de Grafito; lo mide apps/operator/src/lib/sala-contrast.test.ts).
+     10,8:1 sobre --np-surface-2 (el modo normal, 8,4). */
+  --np-text-mute: #e9e4da;
+  /* 7,7:1 aún sobre --np-surface-3 (el modo normal, 5,8). */
+  --np-text-dim: #d6d2c8;
+  --np-text-label: #e9e4da;
+  /* 2,7:1 sobre --np-surface (el modo normal, 1,4). */
+  --np-border: #566b72;
+  /* El borde de las tarjetas, también: 3,3:1 sobre el fondo (el modo normal,
+     crema al 7 %, unos 1,5). */
+  --np-card-edge: var(--np-border);
+  /* 8,2:1 sobre el fondo, 6,8 sobre --np-surface y 6,1 sobre -2: los botones
+     secundarios se ven sin buscar. */
+  --np-border-hi: #9db0b7;
+  /* Sin halos (deslumbran con poca luz): tampoco el resplandor lima de debajo
+     del botón principal; se queda con el filo de luz y la sombra corta. */
   --np-lime-glow: rgb(199 211 1 / 0);
+  --np-primary-shadow: var(--np-btn-relief);
 }
 
 html[data-theme='light'][data-contrast='sala'] {
@@ -345,6 +430,23 @@ html[data-theme='light'][data-contrast='sala'] {
   --np-border: #a39a8c;
   /* 4,6:1 sobre la crema. */
   --np-border-hi: #6f675c;
+  /* El botón principal del claro (la regla de arriba pesa más que el tema). */
+  --np-primary-shadow: inset 0 0 0 1px rgba(21, 25, 28, 0.7), 0 1px 2px rgba(21, 25, 28, 0.2);
+}
+
+/* Lima más viva en las pantallas de gama ancha (P3). Mejora que un navegador
+   viejo ignora: se queda con el #c7d301 de :root. La lima oklch va SOLO aquí
+   dentro: en una variable fuera de @supports dejaría vacío todo lo que la usa
+   en un navegador que no la entiende. Halos y filetes siguen en rgb. La de
+   pasar por encima, +3,4 de luz con el mismo croma (el mismo paso que en sRGB),
+   para ambos temas. */
+@supports (color: oklch(0% 0 0)) {
+  @media (color-gamut: p3) {
+    :root {
+      --np-lime: oklch(82.9% 0.215 114);
+      --np-lime-hover: oklch(86.3% 0.215 114);
+    }
+  }
 }
 
 *,
@@ -450,7 +552,8 @@ button {
   justify-content: center;
   gap: 0.5rem;
   border: none;
-  border-radius: var(--np-r-sm);
+  /* Píldora, en los tres tamaños y en las tres apps. Solo los botones. */
+  border-radius: var(--np-r-pill);
   font-family: var(--np-font-sans);
   font-weight: 600;
   letter-spacing: 0;
@@ -464,8 +567,12 @@ button {
     color var(--np-d-fast);
 }
 
-/* Escritorio (panel): 36 · 40 · 48 px, radio 10. En la app del personal,
-   48 · 56 px y radio 14 (más abajo, .np-staff). */
+/* El foco de los botones es el de :focus-visible (arriba): 2 px separado
+   3 px, para que sobre la lima se vea; es un outline, no mueve nada de sitio.
+   No se repite aquí: el panel le cambia el color (crema, panel-grafito.css). */
+
+/* Escritorio (panel): 36 · 40 · 48 px. En la app del personal, 44 · 48 · 56 px
+   (más abajo, .np-touch). */
 .np-btn[data-size='sm'] {
   height: 2.25rem;
   padding: 0 0.875rem;
@@ -484,33 +591,44 @@ button {
   font-size: var(--np-fs-16);
 }
 
-/* Botón principal: lima plana con tinta (en los dos temas). */
+/* Botón principal: lima con tinta y relieve (el brillo de arriba y la sombra
+   de cada tema: --np-primary-image y --np-primary-shadow). El color va aparte
+   del brillo: sin degradados, se queda la lima. */
 .np-btn[data-variant='primary'] {
-  background: var(--np-primary-bg);
+  background-color: var(--np-primary-bg);
+  background-image: var(--np-primary-image);
   color: var(--np-primary-ink);
   box-shadow: var(--np-primary-shadow);
 }
 
 .np-btn[data-variant='primary']:hover:not(:disabled) {
-  background: var(--np-primary-bg-hover);
+  background-color: var(--np-primary-bg-hover);
 }
 
-/* Secundario: superficie con filete de 1 px y letra en 500; nunca compite con la lima. */
+/* Secundario: superficie elevada con filete de 1 px, filo de luz arriba y
+   letra en 500; nunca compite con la lima. */
 .np-btn[data-variant='ghost'] {
   font-weight: 500;
   background: var(--np-surface-2);
   color: var(--np-text);
-  box-shadow: inset 0 0 0 1px var(--np-border-hi);
+  box-shadow: inset 0 0 0 1px var(--np-border-hi), var(--np-hi);
 }
 
 .np-btn[data-variant='ghost']:hover:not(:disabled) {
   background: var(--np-surface-3);
 }
 
-/* Lo que saca o borra dinero: rojo profundo con texto crema (9,3:1). */
+/* Pulsado (también con el dedo, donde no hay ratón encima). */
+.np-btn[data-variant='ghost']:active:not(:disabled) {
+  background: var(--np-surface-3);
+}
+
+/* Lo que saca o borra dinero: rojo profundo con texto crema (9,3:1) y un
+   filo de luz arriba. */
 .np-btn[data-variant='danger'] {
   background: var(--np-outcome-failed);
   color: var(--np-outcome-ink);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12);
 }
 
 .np-btn[data-variant='danger']:hover:not(:disabled) {
@@ -522,8 +640,9 @@ button {
 }
 
 /* Sin nada que hacer: superficie y texto apagado, sin opacidad (a oscuras, un
-   botón translúcido parece roto). Cargando (data-loading) sigue en su color:
-   está trabajando, no vacío. */
+   botón translúcido parece roto), sin brillo ni sombra de relieve (el fondo
+   abreviado quita el brillo del principal). Cargando (data-loading) sigue en
+   su color: está trabajando, no vacío. */
 .np-btn:disabled:not([data-loading]) {
   cursor: not-allowed;
   background: var(--np-disabled-bg);
@@ -533,6 +652,38 @@ button {
 
 .np-btn[data-loading] {
   cursor: progress;
+}
+
+/* Tarjeta con relieve (Card de @nightpay/ui y las tarjetas hechas a mano de
+   cada app, que usan las mismas fichas): el relleno baja de lo elevado a la
+   superficie, borde de crema translúcida, filo de luz arriba y sombra. El
+   color de respaldo va antes del degradado. En claro, papel liso con sombra
+   suave de tinta. */
+.np-card {
+  background-color: var(--np-surface);
+  background-image: var(--np-card-fill);
+  border: 1px solid var(--np-card-edge);
+  border-radius: var(--np-r-card);
+  box-shadow: var(--np-shadow-1);
+}
+
+/* Elevada: un paso más clara, lisa y con el filete de lo que se toca. */
+.np-card[data-variant='elevated'] {
+  background-color: var(--np-surface-2);
+  background-image: none;
+  border-color: var(--np-border-hi);
+}
+
+/* Destacada: borde lima (tinta en claro), como en las maquetas. */
+.np-card[data-variant='glow'] {
+  border: 1.5px solid var(--np-accent-edge);
+}
+
+/* Una tarjeta dentro de otra: radio de dentro (radio de fuera = el de
+   dentro + el margen) y sin doble sombra. */
+.np-card .np-card {
+  border-radius: var(--np-r-inner);
+  box-shadow: none;
 }
 
 /* Chip de sección (SectionChip): punto del color de la sección y el nombre,
@@ -654,10 +805,10 @@ input::placeholder {
 }
 
 /* Flecha del <select>. En un data: URI no entran variables CSS: el trazo es el
-   --np-text-dim de cada tema (#a7b0b8 oscuro, #4f5b65 claro). */
+   --np-text-dim del tema oscuro (#bab6ad) y un gris de tinta en claro (#4f5b65). */
 .np-select {
   appearance: none;
-  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 8' fill='none' stroke='%23a7b0b8' stroke-width='1.5' stroke-linecap='round'><path d='M2 2 L6 6 L10 2'/></svg>");
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 8' fill='none' stroke='%23bab6ad' stroke-width='1.5' stroke-linecap='round'><path d='M2 2 L6 6 L10 2'/></svg>");
   background-repeat: no-repeat;
   background-position: right 1rem center;
   background-size: 0.75rem;
@@ -708,9 +859,11 @@ input::placeholder {
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  width: 2.5rem;
-  height: 2.5rem;
-  margin: -0.5rem -0.5rem 0 auto;
+  /* 44 px para el dedo (antes 40). Los márgenes negativos dejan la ✕ y el
+     alto de la cabecera donde estaban. */
+  width: 2.75rem;
+  height: 2.75rem;
+  margin: -0.625rem -0.625rem -0.125rem auto;
   padding: 0;
   border: none;
   border-radius: var(--np-r-pill);
@@ -808,12 +961,9 @@ input::placeholder {
    tocarlos), tarjetas y huecos más justos, y los botones se ajustan al alto
    de la pantalla (nunca por debajo de 44 px) y parten la etiqueta en dos
    líneas antes que salirse por el lado. El escritorio no cambia. */
-/* Botones táctiles del personal: 48 y 56 px, radio 14 (con el pulgar, los
-   errores suben por debajo de unos 60 px; 48 es el mínimo de Android). */
-.np-touch .np-btn {
-  border-radius: var(--np-r-md);
-}
-
+/* Botones táctiles del personal: 48 y 56 px, píldora como los demás (con el
+   pulgar, los errores suben por debajo de unos 60 px; 48 es el mínimo de
+   Android). */
 html.np-touch {
   --np-field-h: 3.25rem;
 }

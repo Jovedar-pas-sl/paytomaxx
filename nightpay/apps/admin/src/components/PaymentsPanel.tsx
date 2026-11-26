@@ -375,6 +375,6 @@ function cashTargetOf(p: PaymentRow): BitcoinCashTarget {
     paymentId: p.id,
     leftCents: p.availableAmountCents,
     alreadyCents: Math.max(0, charged - p.availableAmountCents),
-    label: `Cobro de ${(charged / 100).toFixed(2).replace('.', ',')} €`,
+    label: `Cobro de ${formatEur(charged)}`,
   };
 }

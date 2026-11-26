@@ -79,7 +79,7 @@ ${myBalanceBlock(lang, { withPasskeyJs: true })}</section>`
   const langHref = langHrefWith(path, { comprado: share ? '1' : null });
   return `<!DOCTYPE html>
 <html lang="${PAY_TEXT[lang].htmlLang}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta name="robots" content="noindex"><meta name="referrer" content="no-referrer"><meta name="theme-color" content="#0b0d0e"><title>${h(`${share ? t.shareTitle : t.title} · ${view.venueName}`)}</title>
+<meta name="robots" content="noindex"><meta name="referrer" content="no-referrer"><meta name="theme-color" content="#091518"><title>${h(`${share ? t.shareTitle : t.title} · ${view.venueName}`)}</title>
 <style>${CLUB_BASE_CSS}${CHROME_CSS}${GIFT_CSS}</style></head><body>
 ${topBar(lang, langHref)}
 <main class="h">

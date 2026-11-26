@@ -11,7 +11,7 @@ export const DAY_THEME = 'day';
 
 /** El color de la barra del navegador (meta theme-color) en cada modo. */
 export const DAY_CHROME = '#F3F1EC';
-export const NIGHT_CHROME = '#0b0d0e';
+export const NIGHT_CHROME = '#091518';
 
 /** ¿Este móvil tiene puesto el modo día? (sin almacenamiento, no). */
 export function readDayMode(store: Pick<KeyValueStore, 'getItem'> | null = browserStore()): boolean {

@@ -39,7 +39,7 @@ export function ReservationsPanel({ isOwner, initialView = 'night' }: { isOwner:
     <div style={stack}>
       <div style={row} role="tablist" aria-label="Reservados" data-tour="reservados-vistas">
         {VIEWS.map((v) => (
-          <Button key={v.key} role="tab" aria-selected={view === v.key} variant={view === v.key ? 'primary' : 'ghost'} size="sm" onClick={() => setView(v.key)}>
+          <Button key={v.key} role="tab" aria-selected={view === v.key} variant={view === v.key ? 'primary' : 'ghost'} size="sm" style={{ borderRadius: 'var(--np-r-sm)' }} onClick={() => setView(v.key)}>
             {v.label}
           </Button>
         ))}

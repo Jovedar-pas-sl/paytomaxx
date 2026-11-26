@@ -4,12 +4,19 @@
    Encima de @nightpay/ui/styles.css, con sus tokens --np-*. Solo se anima
    transform/opacity, y nada con prefers-reduced-motion. Móvil = hasta 640px. */
 
+/* La tarjeta de una tabla va lisa (con su borde y su sombra): la cabecera
+   pinta --np-surface y sobre el degradado sería una franja más oscura. */
+.np-table-host {
+  background-image: none;
+}
+
 @media (max-width: 640px) {
   /* La tarjeta que envolvía la tabla desaparece: cada fila es su tarjeta. */
   .np-table-host {
     padding: 0 !important;
     border-color: transparent !important;
     background: transparent !important;
+    box-shadow: none !important;
     overflow: visible !important;
   }
 
@@ -40,9 +47,11 @@
     align-items: center;
     column-gap: 0.75rem;
     padding: 0.875rem 1rem;
-    border: 1px solid var(--np-border);
-    border-radius: var(--np-r-lg);
+    border: 1px solid var(--np-card-edge);
+    border-radius: var(--np-r-card);
     background: var(--np-surface);
+    background-image: var(--np-card-fill);
+    box-shadow: var(--np-shadow-1);
     transition: transform var(--np-d-fast) var(--np-ease);
   }
 
@@ -258,7 +267,7 @@
   .np-cobros-table { display: block; }
   .np-cobros-table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
   .np-cobros-table tbody { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 22rem), 1fr)); gap: 0.75rem; padding: 0.75rem; }
-  .np-cobros-table tbody tr { display: flex; flex-wrap: wrap; align-items: center; gap: 0 0.75rem; min-width: 0; padding: 0.875rem 1rem; border: 1px solid var(--np-border); border-radius: var(--np-r-lg); background: var(--np-surface); }
+  .np-cobros-table tbody tr { display: flex; flex-wrap: wrap; align-items: center; gap: 0 0.75rem; min-width: 0; padding: 0.875rem 1rem; border: 1px solid var(--np-card-edge); border-radius: var(--np-r-card); background: var(--np-surface); background-image: var(--np-card-fill); box-shadow: var(--np-shadow-1); }
   .np-cobros-table tbody tr::before, .np-cobros-table tbody tr::after { content: ''; flex-basis: 100%; height: 0; }
   .np-cobros-table tbody tr::before { order: 2; }
   .np-cobros-table tbody tr::after { order: 4; }

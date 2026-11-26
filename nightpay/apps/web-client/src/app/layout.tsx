@@ -33,7 +33,7 @@ export const viewport: Viewport = {
   initialScale: 1,
   // Hasta los bordes en iPhone: env(safe-area-inset-*) solo funciona con 'cover'.
   viewportFit: 'cover',
-  themeColor: '#0b0d0e',
+  themeColor: '#091518',
 };
 
 // Siempre oscuro, como las páginas de pago del API (Grafito: el claro queda

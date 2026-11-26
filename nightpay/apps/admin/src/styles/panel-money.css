@@ -9,7 +9,7 @@
   /* Canales (tarjeta, efectivo, saldo) y destinos (tuyo, del personal): grises. */
   --np-mm-tarjeta: #efe9df;
   --np-mm-efectivo: #a9b3bc;
-  --np-mm-bitcoin: #c7d301;
+  --np-mm-bitcoin: var(--np-lime);
   --np-mm-saldo: #7c8893;
   --np-mm-tuyo: #efe9df;
   --np-mm-personal: #a9b3bc;
@@ -328,11 +328,11 @@
   width: min(28rem, 100%);
   max-height: calc(100dvh - 2rem);
   overflow: hidden;
-  /* Hoja en el escritorio: radio 18 y la sombra de diálogo de Grafito. */
-  border-radius: var(--np-r-lg);
+  /* Hoja en el escritorio: radio de tarjeta y la sombra grande del relieve (flota). */
+  border-radius: var(--np-r-card);
   background: var(--np-bg);
   color: var(--np-text);
-  box-shadow: 0 0 0 1px var(--np-border-hi), 0 16px 40px -12px rgb(0 0 0 / 0.7);
+  box-shadow: 0 0 0 1px var(--np-border-hi), var(--np-shadow-2);
   animation: np-modal-in var(--np-d-base) var(--np-ease);
 }
 

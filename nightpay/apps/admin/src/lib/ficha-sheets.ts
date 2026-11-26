@@ -14,6 +14,7 @@ import type {
   WalletFichaCard,
   WalletFichaTopUp,
 } from '@nightpay/contracts';
+import { formatBps, formatPercent } from '@nightpay/ui';
 import { dayInZone, formatDateTime } from './dates';
 import { eurShort, sectionPaint, type Segment } from './money-map-view';
 
@@ -214,17 +215,17 @@ export interface StaffSheet {
 }
 
 function shareValue(share: Extract<StaffRate, { kind: 'invitation' }>['share']): string {
-  return share.kind === 'PERCENT' ? `${(share.bps / 100).toLocaleString('es-ES', { maximumFractionDigits: 2 })} %` : eurShort(share.cents);
+  return share.kind === 'PERCENT' ? formatBps(share.bps) : eurShort(share.cents);
 }
 
 export function rateChips(rates: readonly StaffRate[], sections: readonly VenueSection[]): RateChip[] {
   return rates.map((r): RateChip => {
     if (r.kind === 'section') {
       const p = sectionPaint(sections, r.code);
-      return { key: `s-${r.code}`, label: p.label, value: `${(r.bps / 100).toLocaleString('es-ES', { maximumFractionDigits: 2 })} %`, color: p.color };
+      return { key: `s-${r.code}`, label: p.label, value: formatBps(r.bps), color: p.color };
     }
     if (r.kind === 'invitation') return { key: 'invitation', label: 'Invitación', value: shareValue(r.share), color: sectionPaint(sections, 'VENUE_BAR').color };
-    return { key: 'tips', label: 'Propinas', value: `${(r.bps / 100).toLocaleString('es-ES', { maximumFractionDigits: 0 })} %`, color: sectionPaint(sections, 'TIPS').color };
+    return { key: 'tips', label: 'Propinas', value: formatPercent(r.bps / 100, 0), color: sectionPaint(sections, 'TIPS').color };
   });
 }
 

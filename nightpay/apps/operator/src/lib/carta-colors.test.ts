@@ -124,11 +124,18 @@ describe('la loseta en cobrar.module.css', () => {
 });
 
 describe('el brillo de la carta (colores con más vida)', () => {
-  it('oscuro: del color al 75 %, línea clara de 0,45 y brillo lima en «Cobrar»', () => {
+  // «Color y relieve» (25-nov-2026): el brillo lima de «Cobrar» ya no es una
+  // ficha aparte (--np-primary-glow, al 70 %) puesta solo en el pie de la carta:
+  // va dentro del relieve del botón principal (--np-primary-shadow, al 50 %),
+  // el mismo en todos los botones principales.
+  it('oscuro: del color al 75 %, línea clara de 0,45 y brillo lima en «Cobrar» (el del botón principal)', () => {
     expect(ROOT).toMatch(/--np-tile-glow:\s*75%/);
     expect(ROOT).toMatch(/--np-tile-hi:\s*rgb\(255 255 255 \/ 0\.45\)/);
-    expect(ROOT).toMatch(/--np-primary-glow:\s*0 8px 24px -8px rgb\(199 211 1 \/ 0\.7\)/);
-    expect(block(COBRAR, '.foot .primary:not(:disabled)')).toMatch(/box-shadow: var\(--np-primary-glow\);/);
+    const dark = block(STYLES, ":root,\n[data-theme='dark']");
+    expect(dark).toMatch(/--np-primary-shadow:[^;]*0 8px 24px -8px rgba\(199, 211, 1, 0\.5\);/);
+    expect(block(COBRAR, '.primary')).toMatch(/box-shadow: var\(--np-primary-shadow\);/);
+    expect(STYLES).not.toContain('--np-primary-glow');
+    expect(COBRAR).not.toContain('--np-primary-glow');
   });
 
   it('claro: sin brillo de color fuerte (sombra suave)', () => {
@@ -136,7 +143,9 @@ describe('el brillo de la carta (colores con más vida)', () => {
     const glow = Number(light.match(/--np-tile-glow:\s*(\d+)%/)?.[1]);
     expect(glow).toBeGreaterThan(0);
     expect(glow).toBeLessThanOrEqual(35);
-    expect(light).toMatch(/--np-primary-glow:/);
+    const shadow = light.match(/--np-primary-shadow:([^;]*);/)?.[1] ?? '';
+    expect(shadow).toContain('rgba(21, 25, 28,');
+    expect(shadow).not.toMatch(/199[ ,]+211[ ,]+1\b/);
   });
 
   it('sin animación nueva en la loseta', () => {

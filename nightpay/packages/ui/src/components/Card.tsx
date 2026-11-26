@@ -12,14 +12,15 @@ interface CardProps extends HTMLAttributes<HTMLDivElement> {
  * `alignItems`… que se le pasen en `style` les llegan (antes iban dentro de
  * un <div> de bloque, resto del borde de brillo que ya no existe, y una
  * tarjeta en columna salía sin huecos y con botones de anchos distintos).
+ *
+ * El relleno, el filete, el radio y la sombra (el relieve) los pone la clase
+ * .np-card de styles.css, también los de cada variante (data-variant):
+ * "elevated", un paso más clara; "glow", la destacada, con borde lima (tinta
+ * en claro). Lo que se pase en `style` sigue mandando.
  */
-export function Card({ variant = 'default', children, style, ...rest }: CardProps) {
+export function Card({ variant = 'default', children, className, style, ...rest }: CardProps) {
   return (
-    <div
-      {...rest}
-      data-variant={variant}
-      style={{ ...base, ...variantStyles[variant], ...style }}
-    >
+    <div {...rest} className={className ? `np-card ${className}` : 'np-card'} data-variant={variant} style={{ ...base, ...style }}>
       {children}
     </div>
   );
@@ -27,23 +28,6 @@ export function Card({ variant = 'default', children, style, ...rest }: CardProp
 
 const base: CSSProperties = {
   position: 'relative',
-  background: 'var(--np-surface)',
-  border: '1px solid var(--np-border)',
-  borderRadius: 'var(--np-r-lg)',
   padding: 'var(--np-s-5)',
   isolation: 'isolate',
-};
-
-const variantStyles: Record<CardVariant, CSSProperties> = {
-  default: {},
-  elevated: {
-    background: 'var(--np-surface-2)',
-    borderColor: 'var(--np-border-hi)',
-  },
-  // "glow" = tarjeta destacada: borde lima (tinta en claro), como las
-  // tarjetas destacadas de las maquetas.
-  glow: {
-    background: 'var(--np-surface)',
-    border: '1.5px solid var(--np-accent-edge)',
-  },
 };

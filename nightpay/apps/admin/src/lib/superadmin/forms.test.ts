@@ -18,6 +18,9 @@ import {
   slugFromName,
 } from './forms';
 
+// El «%» lleva espacio duro (formatBps de @nightpay/ui): se normaliza para comparar las frases.
+const plain = <T>(v: T): T => JSON.parse(JSON.stringify(v).replace(/\u00a0/g, ' ')) as T;
+
 const business: BusinessView = {
   id: '00000000-0000-4000-8000-000000000001',
   name: 'Luna Ocio SL',
@@ -174,7 +177,7 @@ describe('perfil del local', () => {
     if (!r.ok) throw new Error(r.error);
     expect(r.value.dto).toEqual({ vatBps: 1000, walletGroup: 'grupo-luna' });
     expect(r.value.needsTotp).toBe(true);
-    expect(r.value.changes).toEqual(['IVA: 21 % → 10 %', 'grupo del saldo: ninguno → grupo-luna']);
+    expect(plain(r.value.changes)).toEqual(['IVA: 21 % → 10 %', 'grupo del saldo: ninguno → grupo-luna']);
   });
 
   it('quitar el grupo manda null', () => {
@@ -202,7 +205,7 @@ describe('reglas del local', () => {
       operatorCommissionDefaults: { VENUE_BAR: 500 },
       payoutHoldDays: 0,
     });
-    expect(r.value.changes).toEqual([
+    expect(plain(r.value.changes)).toEqual([
       'comisión de la plataforma: 10 % → 8 %',
       'bar / bebida: 0 % → 5 %',
       'días de espera: 7 días → se les paga al cerrar la noche',
@@ -271,7 +274,7 @@ describe('«Comisión del servicio al cliente» (reglas del local y valores del 
     const r = rulesPayload(withFee, { ...form, serviceFeeEnabled: true, topUpServiceFeePct: '12' }, 7);
     if (!r.ok) throw new Error(r.error);
     expect(r.value.dto).toEqual({ serviceFeeEnabled: true, topUpServiceFeeBps: 1200 });
-    expect(r.value.changes).toEqual([
+    expect(plain(r.value.changes)).toEqual([
       'comisión del servicio al cliente: apagada → encendida',
       'comisión del servicio en las recargas: 10 % → 12 %',
     ]);
@@ -281,7 +284,7 @@ describe('«Comisión del servicio al cliente» (reglas del local y valores del 
     const form = rulesFormFrom(withFee);
     expect(rulesPayload(withFee, { ...form, serviceFeePct: '12,5' }, 7)).toMatchObject({
       ok: false,
-      error: expect.stringMatching(/de 0 a 12 %/),
+      error: expect.stringMatching(/de 0 a 12\s%/),
     });
     expect(rulesPayload(withFee, { ...form, serviceFeePct: '0' }, 7)).toMatchObject({ ok: true, value: { dto: { serviceFeeBps: 0 } } });
   });
@@ -295,7 +298,7 @@ describe('«Comisión del servicio al cliente» (reglas del local y valores del 
     expect(r).toMatchObject({ ok: true, value: { defaultServiceFeeBps: 800, defaultTopUpServiceFeeBps: null } });
     expect(businessPayload({ ...EMPTY_BUSINESS_FORM, name: 'Sol SL', topUpServiceFeePct: '13' })).toMatchObject({
       ok: false,
-      error: expect.stringMatching(/de 0 a 12 %/),
+      error: expect.stringMatching(/de 0 a 12\s%/),
     });
     const saved = { ...business, defaultServiceFeeBps: 800, defaultTopUpServiceFeeBps: null };
     expect(businessFormFrom(saved)).toMatchObject({ serviceFeePct: '8,00', topUpServiceFeePct: '' });
@@ -329,7 +332,7 @@ describe('«Las compañeras cobran desde su móvil» (reglas del local)', () => 
 describe('lo que se confirma con el 2FA en un negocio (comisiones por defecto)', () => {
   it('al cambiarlas: cada una, de lo que era a lo nuevo', () => {
     const saved = { defaultPlatformCommissionBps: null, defaultServiceFeeBps: 800, defaultTopUpServiceFeeBps: null };
-    expect(businessMoneyChanges(saved, { defaultPlatformCommissionBps: 1200, defaultServiceFeeBps: null, defaultTopUpServiceFeeBps: 1200 })).toEqual([
+    expect(plain(businessMoneyChanges(saved, { defaultPlatformCommissionBps: 1200, defaultServiceFeeBps: null, defaultTopUpServiceFeeBps: 1200 }))).toEqual([
       'comisión por defecto: la general → 12 %',
       'comisión del servicio en los pagos con tarjeta: 8 % → la de fábrica (10 %)',
       'comisión del servicio en las recargas: la de fábrica (10 %) → 12 %',
@@ -337,7 +340,7 @@ describe('lo que se confirma con el 2FA en un negocio (comisiones por defecto)',
   });
 
   it('al dar de alta: solo las que se ponen', () => {
-    expect(businessMoneyChanges(null, { name: 'Sol SL', defaultPlatformCommissionBps: null, defaultServiceFeeBps: 800 } as never)).toEqual([
+    expect(plain(businessMoneyChanges(null, { name: 'Sol SL', defaultPlatformCommissionBps: null, defaultServiceFeeBps: 800 } as never))).toEqual([
       'comisión del servicio en los pagos con tarjeta: 8 %',
     ]);
   });

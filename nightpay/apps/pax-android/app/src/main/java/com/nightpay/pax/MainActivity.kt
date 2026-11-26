@@ -8,6 +8,7 @@ import android.graphics.Bitmap
 import android.net.Uri
 import android.os.Bundle
 import android.text.InputType
+import android.view.View
 import android.view.WindowManager
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
@@ -29,6 +30,7 @@ class MainActivity : Activity() {
     private var settingsDialog: AlertDialog? = null
     private var backPresses = 0
     private var lastBackPress = 0L
+    private var appLocked = false
 
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -48,7 +50,7 @@ class MainActivity : Activity() {
         webView.settings.allowContentAccess = false
 
         readers = LocalReaders(this)
-        bridge = PaxBridge(webView, paytef, readers)
+        bridge = PaxBridge(webView, paytef, readers) { locked -> runOnUiThread { setLocked(locked) } }
         webView.webViewClient = object : WebViewClient() {
             // Solo la web de NightPay por HTTPS: cualquier otro enlace se ignora.
             override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean =
@@ -62,6 +64,8 @@ class MainActivity : Activity() {
             // El lector solo atiende a la página de NightPay ya cargada.
             override fun onPageStarted(view: WebView, url: String, favicon: Bitmap?) {
                 bridge.trusted = false
+                // Página nueva (recarga, sesión caducada): se suelta; la web vuelve a fijarla si hay sesión.
+                setLocked(false)
                 super.onPageStarted(view, url, favicon)
             }
 
@@ -118,6 +122,39 @@ class MainActivity : Activity() {
             return
         }
         if (webView.canGoBack()) webView.goBack()
+    }
+
+    /**
+     * Sesión iniciada en la web: pantalla completa y app fijada (ni Inicio ni
+     * Recientes). «Salir» lo suelta. Sin ser la app dueña del aparato, Android
+     * pide confirmar la primera vez y deja soltarla con Atrás + Recientes.
+     */
+    private fun setLocked(locked: Boolean) {
+        val firstAsk = locked && !appLocked
+        appLocked = locked
+        applyImmersive()
+        try {
+            // Un intento por sesión: quien no acepta fijarla no ve el aviso en cada toque.
+            if (firstAsk) startLockTask() else if (!locked) stopLockTask()
+        } catch (e: RuntimeException) {
+            // El aparato no deja fijar (o ya estaba suelta): queda la pantalla completa.
+        }
+    }
+
+    @Suppress("DEPRECATION")
+    private fun applyImmersive() {
+        window.decorView.systemUiVisibility = if (appLocked) {
+            View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY or View.SYSTEM_UI_FLAG_FULLSCREEN or
+                View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+        } else {
+            View.SYSTEM_UI_FLAG_VISIBLE
+        }
+    }
+
+    /** Android quita la pantalla completa tras un diálogo, el teclado o la cámara: se repone. */
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus && appLocked) applyImmersive()
     }
 
     private fun isOurPage(uri: Uri): Boolean {

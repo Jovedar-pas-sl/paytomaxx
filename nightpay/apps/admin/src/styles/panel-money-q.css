@@ -8,9 +8,12 @@
   --np-mmq-ganado: var(--np-success);
   --np-mmq-caja: var(--np-warning);
   --np-mmq-banco: var(--np-cream);
-  --np-mmq-debo: #ff8a3d;
-  --np-mmq-info-bg: #0f1f31;
-  --np-mmq-info-edge: #2b4a66;
+  /* El naranja de Comida: solo en la raya y en la cifra grande (40 px en 700:
+     4,2:1 sobre su tarjeta tintada; a ese tamaño basta 3:1). */
+  --np-mmq-debo: #fd622d;
+  /* La nota azul: el fondo del bloque «tarjeta» (--np-card-bg); texto 9,8:1. */
+  --np-mmq-info-bg: #223a4b;
+  --np-mmq-info-edge: #416685;
   --np-mmq-info-dot: #6fa8dc;
   /* El tinte suave de cada tarjeta: cuánto de su color entra en el fondo y en el borde. */
   --np-mmq-tint: 16%;

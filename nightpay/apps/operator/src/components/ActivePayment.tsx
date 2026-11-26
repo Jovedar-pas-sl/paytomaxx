@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState, type CSSProperties } from 'react';
 import {
   Button,
   Card,
+  Icon,
   QrCountdown,
   StatusPill,
   awaitingServerExpiry,
@@ -20,7 +21,7 @@ import { confirmationCode } from '@nightpay/contracts';
 import { cancelPayment, type CreatedPayment } from '@/lib/api';
 import { CancelCobroConfirm } from './CancelCobroConfirm';
 import { useHealthReport } from '@/lib/connection-health';
-import { formatEur, formatEurAmount } from '@/lib/money';
+import { formatEur } from '@/lib/money';
 import { chargeWithFeeCents, paymentFeeLine, posChargeLine } from '@/lib/cobro-view';
 import { useOpenCharge, type ChargeSpot } from '@/lib/open-charges';
 import { advanceStatus, isFinalStatus, type BitcoinLive } from '@/lib/payment-status';
@@ -209,8 +210,7 @@ export function ActivePayment({
         <p style={kicker}>{isPos ? 'Cobro POS' : 'Importe'}</p>
         <p className="np-num" style={amountBig}>
           {/* Con datáfono, en grande lo que se cobra en él (con la comisión del servicio). */}
-          {formatEurAmount(isPos ? chargeWithFeeCents(payment) : payment.amountCents)}{' '}
-          <span style={{ fontSize: 'var(--np-fs-16)', color: 'var(--np-text-mute)', fontWeight: 500 }}>{payment.currency}</span>
+          {formatEur(isPos ? chargeWithFeeCents(payment) : payment.amountCents)}
         </p>
         {label ? <p style={{ margin: '0.25rem 0 0', fontWeight: 500, fontSize: 'var(--np-fs-16)' }}>{label}</p> : null}
         {/* Con la «Comisión del servicio»: lo que paga con tarjeta (o, en una recarga, lo que se cobra). */}
@@ -262,7 +262,7 @@ export function ActivePayment({
         </div>
       ) : (
         <Button onClick={() => void copyUrl()} variant="ghost" size="md">
-          {copied ? '✓ Copiado' : 'Copiar link del cobro'}
+          {copied ? <><Icon name="check" size={20} className="np-icon-lead" />Copiado</> : 'Copiar link del cobro'}
         </Button>
       )}
 
@@ -409,7 +409,8 @@ function PaidBlock({ payment, tipCents, onNew }: { payment: CreatedPayment; tipC
         </p>
       ) : null}
       <Button onClick={onNew} size="lg">
-        ✓ Pagado — nuevo
+        <Icon name="check" size={20} className="np-icon-lead" />
+        Pagado — nuevo
       </Button>
     </>
   );

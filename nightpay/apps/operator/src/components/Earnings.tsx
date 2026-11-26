@@ -234,9 +234,12 @@ const nextStyle: CSSProperties = {
   justifyContent: 'space-between',
   gap: '1rem',
   padding: '0.875rem 1rem',
-  background: 'var(--np-surface)',
-  border: '1px solid var(--np-border)',
-  borderRadius: 'var(--np-r-lg)',
+  // Con el relieve de las tarjetas (las mismas fichas que .np-card).
+  backgroundColor: 'var(--np-surface)',
+  backgroundImage: 'var(--np-card-fill)',
+  border: '1px solid var(--np-card-edge)',
+  borderRadius: 'var(--np-r-card)',
+  boxShadow: 'var(--np-shadow-1)',
 };
 
 const nextLabel: CSSProperties = {
