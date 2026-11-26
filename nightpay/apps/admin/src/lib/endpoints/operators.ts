@@ -5,6 +5,9 @@ import type {
   OxiocardStatus,
   BankHoldList,
   BankReleaseResult,
+  IdDocumentFull,
+  IdDocumentInput,
+  IdDocumentType,
   PayoutAccountFull,
   ReleaseBankHoldDto,
   StaffCardView,
@@ -113,6 +116,9 @@ export interface Operator {
   /** Solo con la OxioCard encendida (OXIOCARD_ENABLED). */
   oxiocardStatus?: OxiocardStatus;
   oxiocardStatusAt?: string | null;
+  /** Su documento (cifrado): el tipo y el número tapado («•••• 678Z»). Entero: el dueño con 2FA. */
+  idDocumentType?: IdDocumentType | null;
+  idDocumentMasked?: string | null;
   /** Su ficha NFC viva («Ficha nº 0522»); null sin ficha. Las APIs de antes no la mandan. */
   staffCard?: StaffCardView | null;
 }
@@ -228,6 +234,8 @@ export async function updateOperator(
     birthDate?: string;
     payoutHolderConfirmed?: true;
     oxiocardStatus?: OxiocardStatus;
+    /** Su documento (se guarda cifrado); null lo quita. */
+    idDocument?: IdDocumentInput | null;
     /** Código 2FA: cambiar la cuenta de cobro lo pide siempre (sin 2FA activada, el API dice que la active). */
     totpCode?: string;
   },
@@ -235,6 +243,19 @@ export async function updateOperator(
   const res = await authedFetch(`/v1/admin/operators/${id}`, {
     method: 'PATCH',
     body: JSON.stringify(input),
+  });
+  if (!res.ok) throw await totpAwareError(res);
+  return res.json();
+}
+
+/**
+ * «Ver documento»: el DNI, NIE o pasaporte entero de una compañera. Solo el
+ * dueño y con su código 2FA; queda en el registro, tapado.
+ */
+export async function revealOperatorIdDocument(id: string, totpCode: string): Promise<IdDocumentFull> {
+  const res = await authedFetch(`/v1/admin/operators/${id}/id-document/reveal`, {
+    method: 'POST',
+    body: JSON.stringify({ totpCode }),
   });
   if (!res.ok) throw await totpAwareError(res);
   return res.json();
