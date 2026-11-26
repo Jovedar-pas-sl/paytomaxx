@@ -32,7 +32,7 @@ import { VENUE_METHODS_SELECT, assertMethodsEnabled } from '../venues/venue-meth
 import { VENUE_PAUSE_SELECT, assertVenueNotPaused, venuePauseScope, type VenuePauseState } from '../venues/venue-pause';
 import type { VenueServiceFeeRow } from '../payments/service-fee';
 import { codeHintOf } from '../wallets/wallet-charges.service';
-import { eur } from '../wallets/wallet-two-factor';
+import { eur } from '../../common/money/eur';
 import {
   SELF_TOPUP_MAX_CENTS,
   SELF_TOPUP_MIN_CENTS,

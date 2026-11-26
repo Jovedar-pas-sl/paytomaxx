@@ -23,7 +23,7 @@ import type { PayLanguage } from '../payments/pay-i18n';
 import { VENUE_PAUSE_SELECT, assertVenueNotPaused, venuePauseScope, type VenuePauseState } from '../venues/venue-pause';
 import { VENUE_METHODS_SELECT, assertMethodsEnabled } from '../venues/venue-methods';
 import { WalletPasskeysService } from './wallet-passkeys.service';
-import { eur } from './wallet-two-factor';
+import { eur } from '../../common/money/eur';
 import { HOME_TOPUP_KEY_PREFIX } from '../home-topup/home-topup-rules';
 import {
   FICHA_TOPUP_CAPS,

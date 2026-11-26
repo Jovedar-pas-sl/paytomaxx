@@ -131,6 +131,7 @@ import {
   type WalletPayoutMethod,
 } from './wallet-rules';
 import { ChargeAlertService } from './charge-alert/charge-alert.service';
+import { eur } from '../../common/money/eur';
 
 type Actor = { userId: string; role: Role; tenantId: string };
 
@@ -2960,10 +2961,6 @@ function pinPepper(): string {
   const kek = process.env.ENCRYPTION_KEK;
   if (!kek || kek.length < 32) throw new Error('ENCRYPTION_KEK no configurada: no se puede comprobar el PIN');
   return kek;
-}
-
-function eur(cents: number): string {
-  return `${(cents / 100).toFixed(2).replace('.', ',')} €`;
 }
 
 /** "K7Q-•••": que el cliente reconozca su saldo sin enseñarlo entero. */
