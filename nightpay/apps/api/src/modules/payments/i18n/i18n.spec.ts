@@ -62,7 +62,6 @@ const SAME_EVERYWHERE = new Set([
   'wallet.mv.topUp',
   'wallet.cancel',
   'wallet.balance',
-  'wallet.movements',
   'wallet.more',
   'wallet.proofWhat',
   'wallet.lostGo',
@@ -86,6 +85,11 @@ const SAME_IN_PT = new Set([
   'wallet.detail.canceled',
   // «a Sala Aurora»: la misma preposición.
   'pay.paidTo',
+  // La página del saldo (idea 69): se dicen igual.
+  'wallet.last',
+  'wallet.movementsAll',
+  'wallet.movementsLess',
+  'wallet.lostQuick',
 ]);
 
 /** «hace » / « ago»: vacíos en algún idioma por cómo se dice. */

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { renderWalletPage } from './wallet-page';
+import { WALLET_LAST_JS, renderWalletPage } from './wallet-page';
 import { SCAN_JS } from './wallet-scan';
 import { WALLET_TEXT } from './wallet-text';
 import { AVISO_JS, SERVICE_WORKER_JS } from './charge-alert/charge-alert-view';
@@ -29,7 +29,7 @@ const script = (html: string): string => html.slice(html.indexOf('<script>') + 8
 /** El HTML de una vista (de su etiqueta a la de la siguiente). */
 const between = (html: string, from: string, to: string): string => html.slice(html.indexOf(from), html.indexOf(to));
 const payView = (html: string): string => between(html, 'id="viewPay"', 'id="viewTop"');
-const topView = (html: string): string => between(html, 'id="viewTop"', 'id="more"');
+const topView = (html: string): string => between(html, 'id="viewTop"', 'id="moves"');
 const BACKSLASH = String.fromCharCode(92);
 
 const topUp = { allowed: true, block: null, presetsCents: [2000, 5000, 10000], minCents: 1000, maxCents: 30000 };
@@ -40,7 +40,7 @@ describe('«Aviso en cada cobro» en la página del saldo', () => {
   it('con las claves: la fila en «Más», la hoja de iPhone, el manifiesto y la clave para el navegador', () => {
     const html = renderWalletPage('tok-1', 'es', state(), { chargeAlertKey: KEY });
     expect(html).toContain('<link rel="manifest" href="/w/tok-1/manifest.webmanifest">');
-    expect(between(html, 'id="more"', 'id="movOpen"')).toContain('Avisarme de cada cobro');
+    expect(between(html, 'id="more"', 'id="lostOpen"')).toContain('Avisarme de cada cobro');
     expect(html).toContain('id="avisoSheet"');
     expect(html).toContain('Añadir a pantalla de inicio');
     // Sin Face ID ni huella no se apunta: la hoja explica que primero hay que activarlo.
@@ -278,7 +278,7 @@ describe('dos opciones debajo del saldo: «Pagar» y «Recargar»', () => {
     );
     expect(html).toContain('<section class="view" id="viewPay" aria-labelledby="tabPay">');
     expect(html).toContain('<section class="view" id="viewTop" aria-labelledby="tabTop" hidden>');
-    const order = ['id="balance"', 'id="seg"', 'id="viewPay"', 'id="viewTop"', 'id="more"'].map((id) => html.indexOf(id));
+    const order = ['id="balance"', 'id="seg"', 'id="viewPay"', 'id="viewTop"', 'id="moves"', 'id="more"'].map((id) => html.indexOf(id));
     expect(order).toEqual([...order].sort((a, b) => a - b));
     // Las dos con el mismo estilo de botón grande; la marcada, en crema (como
     // las maquetas: el lima queda para el botón principal).
@@ -418,20 +418,21 @@ describe('«Escanear QR» dentro de la página', () => {
 });
 
 describe('«Más»: debajo de las dos vistas', () => {
-  it('elegir PIN, juntar saldos, la regla del saldo y los movimientos, con sus rutas en /w', () => {
+  it('elegir PIN, juntar saldos y la regla del saldo, con sus rutas en /w; los movimientos ya no están aquí (idea 69)', () => {
     const html = renderWalletPage('tok-1', 'es', state(), { topUp });
     const more = html.slice(html.indexOf('id="more"'), html.indexOf('</main>'));
     expect(more).toContain('<h2 class="kick" id="moreTitle">Más</h2>');
-    for (const id of ['pinOpen', 'mergeOpen', 'keepRule', 'movOpen', 'movements']) expect(more).toContain(`id="${id}"`);
+    for (const id of ['pinOpen', 'mergeOpen', 'keepRule']) expect(more).toContain(`id="${id}"`);
     expect(more).toContain('Elegir un PIN');
     expect(more).toContain('Juntar saldos');
     expect(more).toContain('El saldo no se devuelve: se queda para la próxima visita.');
     expect(more).not.toContain('Me voy');
-    // Los movimientos se ven de entrada (maqueta 5.1); se pueden plegar.
-    expect(more).toContain('<button class="row" type="button" id="movOpen" aria-expanded="true" aria-controls="movBox">Movimientos');
-    expect(more).toContain('<div id="movBox"><ul id="movements"></ul></div>');
+    // Los movimientos subieron debajo de «Pagar» / «Cargar»: en «Más» ya no hay fila que plegar.
+    expect(more).not.toContain('id="movements"');
+    expect(html).not.toContain('id="movOpen"');
+    expect(html).not.toContain('id="movBox"');
     const js = script(html);
-    expect(js).toContain("b.setAttribute('aria-expanded',String(open));$('movBox').hidden=!open;");
+    expect(js).not.toContain('movOpen');
     expect(js).toContain("withKey('/pin',{pin:a,pin2:c})");
     // Con Face ID, elegir PIN pide desbloquear el móvil (reto de /pin/challenge).
     expect(js).toContain("pkGet(C.base+path+'/challenge')");
@@ -711,7 +712,10 @@ describe('5.2 «He perdido mi NFC»', () => {
 
   it('solo con NFC y Face ID en un saldo vivo; confirma con la passkey en /lost-nfc y pinta el saldo sin NFC', () => {
     const js = script(renderWalletPage('tok-1', 'es', state()));
-    expect(js).toContain("var can=s.hasCard&&!s.merged&&!s.refund&&(s.status==='ACTIVE'||s.status==='DEPLETED');$('lostOpen').hidden=!(can&&s.hasFaceId);$('lostAsk').hidden=!(can&&!s.hasFaceId);");
+    // La misma regla para el botón rojo y para «Bloquear», junto al número de la ficha (idea 69).
+    expect(js).toContain(
+      "var can=s.hasCard&&!s.merged&&!s.refund&&(s.status==='ACTIVE'||s.status==='DEPLETED');$('lostOpen').hidden=!(can&&s.hasFaceId);$('lostQuick').hidden=!(can&&s.hasFaceId);$('lostAsk').hidden=!(can&&!s.hasFaceId);",
+    );
     // Sin Face ID no hay botón, pero sí qué hacer.
     expect(renderWalletPage('tok-1', 'es', state())).toContain('¿Has perdido tu NFC? Avisa en el local');
     expect(js).toContain(' lostRender(s);');
@@ -720,5 +724,120 @@ describe('5.2 «He perdido mi NFC»', () => {
     // El saldo no se pierde: importe y código en la hoja.
     expect(js).toContain("fill(fill(T.lostSafe,'amount',eur(S.balanceCents)),'code',S.code)");
     expect(WALLET_TEXT.es.lostSafe).toBe('Tus {amount} no se pierden. En recepción te dan un NFC nuevo con tu código {code}.');
+  });
+});
+
+describe('idea 69: el saldo a mano (lo último, los últimos movimientos y «Bloquear»)', () => {
+  const last = new Function(`${WALLET_LAST_JS}; return { npNight: npNight, npLastWhen: npLastWhen };`)() as {
+    npNight: (ms: number) => string;
+    npLastWhen: (iso: string, now: number, locale: string) => string;
+  };
+  const at = (iso: string): number => new Date(iso).getTime();
+
+  it('bajo el saldo, «Último: −12 € · Gin tonic · 21:30», en una línea con «…»; sin movimientos, nada', () => {
+    const html = renderWalletPage('tok-1', 'es', state());
+    expect(html).toContain('<p class="balance num" id="balance" aria-live="polite">');
+    expect(html).toMatch(/id="balance" aria-live="polite">[^<]*<\/p>\n<p class="last" id="heroLast" hidden><\/p>/);
+    expect(html).toContain('.hero .last{font-size:.875rem;color:inherit;overflow:hidden;text-overflow:ellipsis;white-space:nowrap');
+    const js = script(html);
+    // El más reciente (vienen del más nuevo al más viejo); sin ninguno, la línea se quita.
+    expect(js).toContain("function lastRender(s){var m=s.movements[0];if(!m){show('heroLast','');return;}");
+    expect(js).toContain("show('heroLast',fill(T.last,'what',[(m.amountCents>0?'+':'')+eur(m.amountCents),what,m.returned?T.detail.returned:'',npLastWhen(m.at,Date.now(),C.locale)].filter(Boolean).join(' · ')));");
+    expect(js).toContain(';lastRender(s);');
+    expect(WALLET_TEXT.es.last).toBe('Último: {what}');
+    expect(WALLET_TEXT.en.last).toBe('Latest: {what}');
+    // Todo con textContent: nada de HTML.
+    expect(js).not.toContain('innerHTML');
+  });
+
+  it('la hora si es de esta noche (de 8:00 a 8:00, hora de Madrid); si no, fecha y hora', () => {
+    // La noche del jueves 26 va de las 8:00 del 26 a las 8:00 del 27 (Madrid, UTC+1 en noviembre).
+    expect(last.npNight(at('2026-11-26T22:30:00+01:00'))).toBe('2026-11-26');
+    expect(last.npNight(at('2026-11-27T03:10:00+01:00'))).toBe('2026-11-26');
+    expect(last.npNight(at('2026-11-27T07:59:00+01:00'))).toBe('2026-11-26');
+    expect(last.npNight(at('2026-11-27T08:00:00+01:00'))).toBe('2026-11-27');
+    const now = at('2026-11-27T02:00:00+01:00');
+    // De esta noche (antes y después de medianoche): solo la hora.
+    expect(last.npLastWhen('2026-11-26T21:30:00+01:00', now, 'es-ES')).toBe('21:30');
+    expect(last.npLastWhen('2026-11-27T01:05:00+01:00', now, 'es-ES')).toBe('01:05');
+    // De antes de las 8:00 de hoy (la noche anterior) o de otro día: fecha y hora.
+    expect(last.npLastWhen('2026-11-26T07:30:00+01:00', now, 'es-ES')).toMatch(/^26\/11,? 07:30$/);
+    expect(last.npLastWhen('2026-11-20T23:15:00+01:00', now, 'es-ES')).toMatch(/^20\/11,? 23:15$/);
+    // En verano (UTC+2), igual: la noche del 14 de julio llega hasta las 8:00 del 15.
+    expect(last.npNight(at('2026-07-15T05:00:00+02:00'))).toBe('2026-07-14');
+    expect(WALLET_LAST_JS.includes(BACKSLASH)).toBe(false);
+  });
+
+  it('debajo de «Pagar» / «Cargar»: «Últimos movimientos», tres a la vista y «Ver todos» (48 px), que despliega el resto aquí («Ver menos»)', () => {
+    const html = renderWalletPage('tok-1', 'es', state(), { topUp });
+    expect(html).toContain(
+      '<section class="moves" id="moves" aria-labelledby="movTitle">\n<h2 class="kick" id="movTitle">Últimos movimientos</h2>\n<ul id="movements"></ul>\n<button class="btn alt" type="button" id="movAll" aria-expanded="false" aria-controls="movements" hidden>Ver todos</button>\n</section>',
+    );
+    expect(html.indexOf('id="viewTop"')).toBeLessThan(html.indexOf('id="moves"'));
+    expect(html.indexOf('id="moves"')).toBeLessThan(html.indexOf('id="more"'));
+    // Tres a la vista: lo hace el CSS (vale también para las filas que añade OxioParty).
+    expect(html).toContain('#movements:not(.all) li:nth-child(n+4){display:none}');
+    // «Ver todos» es un botón secundario: 48 px.
+    expect(html).toMatch(/\.btn\.alt\{min-height:3rem;/);
+    const js = script(html);
+    expect(js).toContain("function movMore(){var b=$('movAll'),ul=$('movements'),all=ul.classList.contains('all');b.hidden=ul.children.length<=3;");
+    expect(js).toContain("b.textContent=all?T.movementsLess:T.movementsAll;b.setAttribute('aria-expanded',String(all));}");
+    expect(js).toContain("$('movAll').addEventListener('click',function(){$('movements').classList.toggle('all');movMore();});");
+    // Se cuenta al final de cada render (después de lo que añada OxioParty).
+    expect(js).toMatch(/segShow\(can\|\|C\.paid\);(partyRender\(s\);)?movMore\(\);\}/);
+    // Vacío, lo de siempre.
+    expect(js).toContain("if(!s.movements.length){var e=document.createElement('li');e.className='mv';e.textContent=T.noMovements;ul.appendChild(e);}");
+    expect(WALLET_TEXT.es.noMovements).toBe('Aún no hay movimientos.');
+    expect([WALLET_TEXT.es.movements, WALLET_TEXT.es.movementsAll, WALLET_TEXT.es.movementsLess]).toEqual(['Últimos movimientos', 'Ver todos', 'Ver menos']);
+    for (const lang of ['en', 'fr', 'pt'] as const) {
+      const other = renderWalletPage('tok-1', lang, state(), { topUp });
+      expect(other).toContain(`<h2 class="kick" id="movTitle">${WALLET_TEXT[lang].movements}</h2>`);
+      expect(other).toContain(`hidden>${WALLET_TEXT[lang].movementsAll}</button>`);
+      expect(() => new Function(script(other))).not.toThrow();
+    }
+  });
+
+  it('«Bloquear» (44 px) junto al número de la ficha, con la misma regla que el botón rojo, que se queda', () => {
+    const html = renderWalletPage('tok-1', 'es', state({ hasCard: true, hasFaceId: true, fichaNumber: '0417' }));
+    expect(html).toContain(
+      '<span id="heroFicha">Ficha nº 0417</span><button class="link" type="button" id="lostQuick" aria-describedby="heroFicha" hidden>Bloquear</button></div>',
+    );
+    // .link ya mide 44 px de alto; aquí toma el color de la tarjeta y no la hace más alta.
+    expect(html).toMatch(/\.link\{[^}]*min-height:2\.75rem/);
+    expect(html).toContain('.hero .obot .link{margin:-.75rem -.75rem -.75rem -.25rem;color:inherit}');
+    expect(html).toContain('#heroFicha{margin-left:auto}');
+    const js = script(html);
+    // La regla de lostRender(): ficha dada, saldo vivo, sin devolución en marcha y con Face ID.
+    expect(js).toContain("$('lostOpen').hidden=!(can&&s.hasFaceId);$('lostQuick').hidden=!(can&&s.hasFaceId);$('lostAsk').hidden=!(can&&!s.hasFaceId);");
+    // Abre la misma hoja que el botón rojo (que sigue abajo).
+    expect(js).toContain("$('lostQuick').addEventListener('click',function(){$('lostOpen').click();});");
+    expect(html).toContain('<button class="btn redo" type="button" id="lostOpen" hidden>');
+    expect(WALLET_TEXT.es.lostQuick).toBe('Bloquear');
+    expect(WALLET_TEXT.en.lostQuick).toBe('Block');
+  });
+
+  it('con OxioParty, lo mismo: su página es esta con sus piezas encima (y su JS sigue siendo válido)', () => {
+    const party = {
+      brand: 'OxioParty',
+      venueName: 'Fiestas del Pilar',
+      eventStartsAt: null,
+      eventEndsAt: null,
+      stalls: [],
+      refund: {
+        deadline: null,
+        open: true,
+        allowDonation: true,
+        balanceCents: 0,
+        available: { CARD: 0, TRANSFER: 0, DONATE: 0 },
+        faceId: false,
+        locked: false,
+        requests: [],
+      },
+    };
+    const html = renderWalletPage('tok-1', 'es', state({ hasCard: true }), { topUp, party });
+    for (const id of ['heroLast', 'moves', 'movements', 'movAll', 'lostQuick']) expect(html).toContain(`id="${id}"`);
+    const js = script(html);
+    expect(js).toContain('partyRender(s);movMore();}');
+    expect(() => new Function(js)).not.toThrow();
   });
 });

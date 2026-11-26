@@ -281,8 +281,12 @@ export interface WalletText {
   /** «Ficha nº {n}» en la tarjeta de arriba. */
   fichaNo: string;
   saveHint: string;
+  /** Debajo del saldo: «Último: −12 € · Gin tonic · 21:30» (`{what}` lo rellena el JS). */
+  last: string;
+  /** «Últimos movimientos»: tres a la vista y «Ver todos» / «Ver menos». */
   movements: string;
-  movementsHint: string;
+  movementsAll: string;
+  movementsLess: string;
   noMovements: string;
   /** Movimientos que pone el API (los consumos llevan lo que se pidió, tal cual). */
   mv: { topUp: string; topUpCash: string; topUpCashVoid: string; payoutCash: string; payoutCard: string };
@@ -372,6 +376,8 @@ export interface WalletText {
   proofWhat: string;
   proofAdded: string;
   lostButton: string;
+  /** «Bloquear», junto al número de la ficha (abre la misma hoja que el botón de abajo). */
+  lostQuick: string;
   lostTitle: string;
   lostWhy: string;
   lostSafe: string;
