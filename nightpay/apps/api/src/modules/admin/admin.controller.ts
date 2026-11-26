@@ -52,6 +52,7 @@ import {
   CreatePayoutSchema,
   PaymentStatusSchema,
   ResetOperatorPasswordSchema,
+  RevealIdDocumentSchema,
   RevealPayoutAccountSchema,
   ServiceFeeBpsSchema,
   UpdateOperatorSchema,
@@ -59,6 +60,7 @@ import {
   type CreatePayoutDto,
   type JwtPayload,
   type ResetOperatorPasswordDto,
+  type RevealIdDocumentDto,
   type RevealPayoutAccountDto,
   type UpdateOperatorDto,
 } from '@nightpay/contracts';
@@ -68,6 +70,8 @@ const PAYOUT_ACCOUNT_CHANGE_2FA =
   'Para cambiar una cuenta de cobro hace falta la verificación en dos pasos (2FA). Actívala en Ajustes → Seguridad y vuelve a intentarlo.';
 const PAYOUT_ACCOUNT_REVEAL_2FA =
   'Para ver la cuenta de cobro entera hace falta la verificación en dos pasos (2FA). Actívala en Ajustes → Seguridad y vuelve a intentarlo.';
+const ID_DOCUMENT_REVEAL_2FA =
+  'Para ver el documento entero hace falta la verificación en dos pasos (2FA). Actívala en Ajustes → Seguridad y vuelve a intentarlo.';
 import type { RequestContext } from '../../common/context/request-context';
 import { MIN_INVOICE_REF_LENGTH, invoiceRefProblem, matchInvoiceRef } from '../btcpay/btcpay-resolve';
 
@@ -821,6 +825,25 @@ export class AdminController {
     if (user.role !== 'OWNER') throw new ForbiddenException('Solo el dueño ve la cuenta de cobro entera');
     await this.totp.assertForUser(user.sub, body.totpCode, undefined, PAYOUT_ACCOUNT_REVEAL_2FA);
     return this.operators.revealPayoutAccount(tenantId, id, user.sub);
+  }
+
+  /**
+   * «Ver documento»: el DNI, NIE o pasaporte entero de una compañera. Solo el
+   * dueño y siempre con su 2FA; en el registro queda tapado. El encargado (y
+   * la lista del panel) solo lo ven tapado.
+   */
+  @Post('operators/:id/id-document/reveal')
+  @Roles('OWNER')
+  @HttpCode(200)
+  async revealIdDocument(
+    @Tenant() tenantId: string,
+    @CurrentUser() user: JwtPayload,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body(new ZodValidationPipe(RevealIdDocumentSchema)) body: RevealIdDocumentDto,
+  ) {
+    if (user.role !== 'OWNER') throw new ForbiddenException('Solo el dueño ve el documento entero');
+    await this.totp.assertForUser(user.sub, body.totpCode, undefined, ID_DOCUMENT_REVEAL_2FA);
+    return this.operators.revealIdDocument(tenantId, id, user.sub);
   }
 
   /**

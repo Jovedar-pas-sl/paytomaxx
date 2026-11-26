@@ -17,6 +17,7 @@ import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { PrismaService, type TransactionalClient } from '../../common/prisma/prisma.service';
 import { isPartyEdition } from '../../config/edition';
 import { EmailService } from '../../common/email/email.service';
+import { idDocumentData, idDocumentView, openIdDocument } from './id-document';
 import { liveStaffCards, revokeLiveStaffCard } from './staff-cards.service';
 import { photoHashesOf } from '../profile/photo-hashes';
 import { AuditService } from '../audit/audit.service';
@@ -88,6 +89,7 @@ import type {
   OxiocardView,
   Role,
   EarningView,
+  IdDocumentFull,
   PayoutAccountFull,
   PayoutAccountNotice,
   PayoutMetadata,
@@ -98,7 +100,7 @@ import type {
   SelfOnboardingSubmitDto,
   UpdateOperatorDto,
 } from '@nightpay/contracts';
-import { formatChargeRef, holderMatchesName, maskHolderName, maskPayoutAddress, payoutMetadataFor } from '@nightpay/contracts';
+import { formatChargeRef, holderMatchesName, maskHolderName, maskIdDocumentNumber, maskPayoutAddress, payoutMetadataFor } from '@nightpay/contracts';
 import { eur } from '../../common/money/eur';
 
 const INVITE_TTL_HOURS = 24;
@@ -1283,6 +1285,9 @@ export class OperatorsService {
     const now = new Date();
     if (dto.legalName !== undefined) Object.assign(data, legalNameData(operator, dto.legalName));
     if (dto.birthDate !== undefined) data.birthDate = birthDateValue(dto.birthDate);
+    // Su documento, cifrado (o quitado); con la baja, se borra.
+    if (dto.idDocument !== undefined) Object.assign(data, idDocumentData(operatorId, dto.idDocument));
+    if (dto.active === false) Object.assign(data, idDocumentData(operatorId, null));
     if (dto.oxiocardStatus !== undefined) Object.assign(data, this.oxiocardStatusChange(operator.oxiocardStatus, dto.oxiocardStatus, now));
     if (dto.payoutHolderConfirmed) data.payoutHolderConfirmedAt = now;
     const minor = becomesMinor(operator.birthDate, dto.birthDate, now);
@@ -1475,6 +1480,35 @@ export class OperatorsService {
       payoutLabel: account.label,
       payoutMetadata: account.metadata,
     };
+  }
+
+  /**
+   * «Ver documento»: el DNI, NIE o pasaporte entero de la compañera para el
+   * dueño, que ya ha pasado su 2FA en el controlador. Queda en el registro, tapado.
+   */
+  async revealIdDocument(tenantId: string, operatorId: string, actorUserId: string): Promise<IdDocumentFull> {
+    const row = await this.prisma.user.findFirst({
+      where: { id: operatorId, tenantId, role: 'OPERATOR' },
+      select: { id: true, idDocumentType: true, idDocumentNumber: true },
+    });
+    if (!row) throw new NotFoundException('Compañera no encontrada');
+    let doc: ReturnType<typeof openIdDocument>;
+    try {
+      doc = openIdDocument(row);
+    } catch (err) {
+      this.logger.error(`No se puede abrir el documento de ${operatorId}: ${(err as Error).message}`);
+      throw new ServiceUnavailableException('No se puede leer el documento guardado: vuelve a ponerlo en Onboarding.');
+    }
+    if (!doc) throw new NotFoundException('Aún no tiene el documento puesto');
+    await this.audit.log({
+      action: 'operator.id_document_revealed',
+      tenantId,
+      actorId: actorUserId,
+      targetType: 'User',
+      targetId: operatorId,
+      payload: { type: doc.type, number: maskIdDocumentNumber(doc.number) },
+    });
+    return { userId: row.id, type: doc.type, number: doc.number };
   }
 
   /** «Tu cuenta de cobro ha cambiado» en su app: hasta que lo da por visto (tapada). */
@@ -1792,6 +1826,8 @@ export class OperatorsService {
       phone?: string | null;
       passportCountry?: string | null;
       passportLast4?: string | null;
+      idDocumentType?: string | null;
+      idDocumentNumber?: string | null;
       hasEmpadronamiento?: boolean;
       hasNie?: boolean;
       hasTie?: boolean;
@@ -1856,6 +1892,8 @@ export class OperatorsService {
       phone: u.phone ?? null,
       passportCountry: u.passportCountry ?? null,
       passportLast4: u.passportLast4 ?? null,
+      // Su documento, tapado (entero: revealIdDocument, el dueño con 2FA).
+      ...idDocumentView(u),
       hasEmpadronamiento: u.hasEmpadronamiento ?? false,
       hasNie: u.hasNie ?? false,
       hasTie: u.hasTie ?? false,
@@ -1892,6 +1930,10 @@ function maskedChanges(changes: Omit<UpdateOperatorDto, 'totpCode'>, method: str
   if (changes.payoutMetadata) out.payoutMetadata = maskedMetadata(changes.payoutMetadata);
   if (changes.legalName !== undefined) out.legalName = maskHolderName(changes.legalName);
   if (changes.birthDate !== undefined) out.birthDate = 'cambiada';
+  // El documento, nunca entero en el registro.
+  if (changes.idDocument !== undefined) {
+    out.idDocument = changes.idDocument ? { type: changes.idDocument.type, number: maskIdDocumentNumber(changes.idDocument.number) } : null;
+  }
   return out;
 }
 
