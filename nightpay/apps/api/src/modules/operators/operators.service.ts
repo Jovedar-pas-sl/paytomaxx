@@ -1594,7 +1594,7 @@ export class OperatorsService {
       const totalCents = payoutTotalCents(pending, debts);
       if (totalCents <= 0) {
         throw new ConflictException(
-          `Saldo neto ${totalCents / 100} € — no hay nada que liquidar (la operadora arrastra deuda por devoluciones).`,
+          `Saldo neto ${eur(totalCents)} — no hay nada que liquidar (la operadora arrastra deuda por devoluciones).`,
         );
       }
       if (options?.exact && totalCents !== options.exact.totalCents) {

@@ -191,6 +191,22 @@ describe('OperatorsService.createPayout (dueño) — importe y enlaces', () => {
     expect(updates).toHaveLength(0);
   });
 
+  it.each([
+    ['20,00 € liberados y 1.254,50 € de deuda', 2_000, 125_450, '−1.234,50\u00a0€'],
+    ['30,00 € liberados y 42,50 € de deuda', 3_000, 4_250, '−12,50\u00a0€'],
+    ['deuda igual a lo liberado', 3_000, 3_000, '0,00\u00a0€'],
+  ])('%s → el 409 escribe el saldo neto como las apps, con el punto de los miles', async (_caso, commission, debt, neto) => {
+    const { svc } = makeService({
+      pending: [{ id: E1, commissionCents: commission, tipCents: 0, reversedCents: 0 }],
+      debts: [{ id: R1, reversedDeltaCents: debt }],
+    });
+    const { err } = await errorOf(svc.createPayout(TENANT, OPERATOR, OWNER));
+    expect(err).toBeInstanceOf(ConflictException);
+    expect((err as Error).message).toBe(
+      `Saldo neto ${neto} — no hay nada que liquidar (la operadora arrastra deuda por devoluciones).`,
+    );
+  });
+
   it('chica de otro local → 404 sin abrir transacción', async () => {
     const { svc, prisma } = makeService({ operatorInVenue: false });
     await expect(svc.createPayout(TENANT, OPERATOR, OWNER)).rejects.toBeInstanceOf(NotFoundException);

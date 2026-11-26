@@ -402,6 +402,26 @@ describe('pagos a las chicas «Por aprobar»: la cifra que vio el encargado y la
     expect(await requestsOf(chica)).toEqual([]);
   });
 
+  it('si arrastra más deuda que lo pagable: 409 con el saldo neto escrito como las apps y no se pide nada', async () => {
+    // 20,00 € de comisión pagable y 1.254,50 € de deuda por una devolución de algo ya pagado.
+    const chica = await newChica('Carla', [2_222]);
+    await sys(async (tx) => {
+      const e = await tx.operatorEarning.findFirstOrThrow({ where: { operatorId: chica } });
+      const refund = await tx.refund.create({
+        data: { tenantId: V, paymentId: e.paymentId, amountCents: 2_222, requestedBy: manager, status: 'SUCCEEDED' } as never,
+      });
+      await tx.earningReversal.create({
+        data: { tenantId: V, earningId: e.id, refundId: refund.id, reversedDeltaCents: 125_450, afterPayout: true },
+      });
+    });
+    const res = await failure(ask(managerOf(manager), chica, { externalRail: 'USDT_TRC20' }));
+    expect(res).toMatchObject({
+      status: 409,
+      body: { message: 'Saldo neto −1.234,50\u00a0€ — no hay nada que liquidar (la operadora arrastra deuda por devoluciones).' },
+    });
+    expect(await requestsOf(chica)).toEqual([]);
+  });
+
   it('repetir la misma petición (sin respuesta, doble clic, a la vez) da la misma solicitud; otra con la clave → 409', async () => {
     const chica = await newChica('Dafne', [10_000]);
     const dto: CreatePayoutDto = { externalRail: 'USDT_TRC20', expectedTotalCents: 9_000, notes: 'cierre' };
