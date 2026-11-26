@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach, vi } from 'vitest';
-import { cardGatewayFor, chooseCardGateway } from './card-gateway';
+import { cardGatewayChoices, cardGatewayFor, chooseCardGateway } from './card-gateway';
 import { yavinEnabled } from './yavin-flag';
 
 const T = '11111111-1111-4111-8111-111111111111';
@@ -37,10 +37,25 @@ describe('cardGatewayFor: Yavin solo con servidor, super-admin y credencial', ()
     expect(await cardGatewayFor(db({ selected: true, yavinCredential: false }) as never, cobro)).toBe('REDSYS');
   });
 
-  it('todo encendido: Yavin en los cobros; las cargas de saldo, la de siempre', async () => {
+  it('las dos: la que eligió el camarero; sin elegir, BBVA; las cargas de saldo, siempre BBVA', async () => {
     vi.stubEnv('YAVIN_ENABLED', 'true');
-    expect(await cardGatewayFor(db({ selected: true, yavinCredential: true }) as never, cobro)).toBe('YAVIN');
-    expect(await cardGatewayFor(db({ selected: true, yavinCredential: true }) as never, { tenantId: T, walletId: 'w' })).toBe('REDSYS');
+    const both = db({ selected: true, yavinCredential: true }) as never;
+    expect(await cardGatewayFor(both, { ...cobro, cardGateway: 'YAVIN' })).toBe('YAVIN');
+    expect(await cardGatewayFor(both, { ...cobro, cardGateway: 'REDSYS' })).toBe('REDSYS');
+    expect(await cardGatewayFor(both, cobro)).toBe('REDSYS');
+    expect(await cardGatewayFor(both, { tenantId: T, walletId: 'w', cardGateway: 'YAVIN' })).toBe('REDSYS');
+  });
+
+  it('solo Yavin: Yavin, elija lo que elija', async () => {
+    vi.stubEnv('YAVIN_ENABLED', 'true');
+    const only = db({ selected: true, yavinCredential: true, base: null }) as never;
+    expect(await cardGatewayFor(only, cobro)).toBe('YAVIN');
+    expect(await cardGatewayFor(only, { ...cobro, cardGateway: 'REDSYS' })).toBe('YAVIN');
+  });
+
+  it('Yavin elegido por el camarero pero apagado en el local: BBVA', async () => {
+    vi.stubEnv('YAVIN_ENABLED', 'false');
+    expect(await cardGatewayFor(db({ selected: true, yavinCredential: true }) as never, { ...cobro, cardGateway: 'YAVIN' })).toBe('REDSYS');
   });
 
   it('local sin pasarela: null (como hoy)', async () => {
@@ -48,8 +63,13 @@ describe('cardGatewayFor: Yavin solo con servidor, super-admin y credencial', ()
     expect(await cardGatewayFor(db({ base: null }) as never, cobro)).toBeNull();
   });
 
-  it('chooseCardGateway', () => {
-    expect(chooseCardGateway({ base: 'REDSYS', yavin: false })).toBe('REDSYS');
+  it('chooseCardGateway y los botones del personal', () => {
+    expect(chooseCardGateway({ base: 'REDSYS', yavin: false, requested: 'YAVIN' })).toBe('REDSYS');
     expect(chooseCardGateway({ base: null, yavin: true })).toBe('YAVIN');
+    expect(chooseCardGateway({ base: 'REDSYS', yavin: true, requested: 'YAVIN' })).toBe('YAVIN');
+    expect(chooseCardGateway({ base: 'REDSYS', yavin: true })).toBe('REDSYS');
+    expect(cardGatewayChoices({ base: 'REDSYS', yavin: true })).toEqual(['REDSYS', 'YAVIN']);
+    expect(cardGatewayChoices({ base: 'REDSYS', yavin: false })).toEqual([]);
+    expect(cardGatewayChoices({ base: null, yavin: true })).toEqual([]);
   });
 });

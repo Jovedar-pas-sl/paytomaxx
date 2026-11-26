@@ -14,6 +14,7 @@ import { WebhookIngestProcessor } from '../../src/modules/queues/webhook-ingest.
 import { WebhooksController } from '../../src/modules/webhooks/webhooks.controller';
 import { YavinCancelHook } from '../../src/modules/payments/yavin-cancel.hook';
 import { assertYavinFirstRefund } from '../../src/modules/refunds/yavin-refund';
+import { PaymentsController } from '../../src/modules/payments/payments.controller';
 import type { CheckoutChoice } from '../../src/modules/payments/pay-redirect';
 
 const KEK = process.env.ENCRYPTION_KEK!;
@@ -120,7 +121,8 @@ const choice: CheckoutChoice = { tipCents: 0, method: 'card', language: 'es', cl
 const r = randomUUID().slice(0, 6);
 let A: string, waiter: string, term: string;
 
-async function newPayment(amount = 2_500): Promise<{ id: string; qrToken: string }> {
+/** Un cobro de la barra. `cardGateway`: lo que eligió el camarero («BBVA» = REDSYS, o YAVIN); null = no eligió. */
+async function newPayment(amount = 2_500, cardGateway: 'REDSYS' | 'YAVIN' | null = 'YAVIN'): Promise<{ id: string; qrToken: string }> {
   return sys(async (tx) => {
     const p = await tx.payment.create({
       data: {
@@ -134,6 +136,7 @@ async function newPayment(amount = 2_500): Promise<{ id: string; qrToken: string
         qrExpiresAt: new Date(Date.now() + 10 * 60_000),
         status: 'CREATED',
         revenueCategory: 'VENUE_BAR',
+        cardGateway,
       },
     });
     return { id: p.id, qrToken: p.qrToken };
@@ -302,10 +305,56 @@ describe('Yavin: cancelar y devolver', () => {
   });
 });
 
+describe('Elección BBVA / Yavin del camarero (local con las dos)', () => {
+  const controller = new PaymentsController(payments, prisma);
+
+  it('la app del personal ve los dos botones', async () => {
+    await expect(inCtx(A, () => controller.cardGateways(A))).resolves.toEqual({ options: ['REDSYS', 'YAVIN'] });
+  });
+
+  it('«BBVA» → Redsys', async () => {
+    const p = await newPayment(2_500, 'REDSYS');
+    await expect(pub(() => payments.startCheckout(p.qrToken, choice))).resolves.toMatchObject({ kind: 'checkout' });
+    expect(redsysAuthorize).toHaveBeenCalledTimes(1);
+    expect(calls).toHaveLength(0);
+    expect((await paymentOf(p.id)).provider).toBe('REDSYS');
+  });
+
+  it('«Yavin» → Yavin', async () => {
+    const p = await newPayment(2_500, 'YAVIN');
+    await expect(pub(() => payments.startCheckout(p.qrToken, choice))).resolves.toMatchObject({ kind: 'redirect' });
+    expect(redsysAuthorize).not.toHaveBeenCalled();
+    expect((await paymentOf(p.id)).provider).toBe('YAVIN');
+  });
+
+  it('sin elegir (cobros de antes, otras pantallas) → BBVA, como hoy', async () => {
+    const p = await newPayment(2_500, null);
+    await pub(() => payments.startCheckout(p.qrToken, choice));
+    expect((await paymentOf(p.id)).provider).toBe('REDSYS');
+  });
+
+  it('un local con una sola pasarela no ofrece elección', async () => {
+    const other = await sys(async (tx) => {
+      const v = await tx.venue.create({ data: { name: 'Solo BBVA', slug: `yav1-${r}` } });
+      await tx.gatewayCredential.create({
+        data: { tenantId: v.id, provider: 'REDSYS', encKey: Buffer.from('k'), encNonce: Buffer.from('n'), encTag: Buffer.from('t'), kekVersion: 1 },
+      });
+      return v.id;
+    });
+    await expect(inCtx(other, () => controller.cardGateways(other))).resolves.toEqual({ options: [] });
+  });
+});
+
 describe('YAVIN_ENABLED apagado: todo como hoy', () => {
-  it('el cobro va por BBVA (Redsys) aunque el local tenga Yavin elegido y clave', async () => {
+  it('sin botones de elección', async () => {
     vi.stubEnv('YAVIN_ENABLED', 'false');
-    const p = await newPayment();
+    const controller = new PaymentsController(payments, prisma);
+    await expect(inCtx(A, () => controller.cardGateways(A))).resolves.toEqual({ options: [] });
+  });
+
+  it('el cobro va por BBVA (Redsys) aunque el local tenga Yavin elegido y clave, y el camarero eligiera Yavin', async () => {
+    vi.stubEnv('YAVIN_ENABLED', 'false');
+    const p = await newPayment(2_500, 'YAVIN');
     await expect(pub(() => payments.startCheckout(p.qrToken, choice))).resolves.toMatchObject({ kind: 'checkout' });
     expect(redsysAuthorize).toHaveBeenCalledTimes(1);
     expect(calls).toHaveLength(0);

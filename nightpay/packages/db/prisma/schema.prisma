@@ -603,6 +603,9 @@ model Payment {
   status               PaymentStatus @default(CREATED)
   provider             Provider?
   providerTxId         String?
+  // Yavin: la pasarela que eligió el camarero (REDSYS = «BBVA» o YAVIN) en un
+  // local con las dos. NULL: la decide el servidor (gateways/card-gateway.ts).
+  cardGateway          Provider?
   qrToken              String        @unique
   qrExpiresAt          DateTime      @db.Timestamptz
   availableAmountCents Int

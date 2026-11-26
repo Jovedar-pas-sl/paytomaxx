@@ -973,6 +973,8 @@ export class PaymentsService implements OnApplicationBootstrap {
           ...(tipBeneficiaryUserId ? { tipBeneficiaryUserId } : {}),
           ...(draft.captureMethod ? { captureMethod: draft.captureMethod } : {}),
           ...(walletId ? { walletId } : {}),
+          // Yavin: la pasarela que eligió el camarero (solo cuenta con las dos; card-gateway.ts).
+          ...(dto.cardGateway && !walletId ? { cardGateway: dto.cardGateway } : {}),
           ...(draft.service ?? {}),
           // OxioParty: la caseta de quien cobra (en OxioPay no se añade nada).
           ...stallSeal(draft.stallId),
@@ -1298,7 +1300,14 @@ export class PaymentsService implements OnApplicationBootstrap {
   private async findPayable(
     qrToken: string,
   ): Promise<
-    PayablePayment & { tenantId: string; provider: Provider | null; updatedAt: Date; walletId: string | null; staffUserId: string | null }
+    PayablePayment & {
+      tenantId: string;
+      provider: Provider | null;
+      cardGateway: Provider | null;
+      updatedAt: Date;
+      walletId: string | null;
+      staffUserId: string | null;
+    }
   > {
     const payment = await this.prisma.asSystem((tx) =>
       tx.payment.findUnique({
@@ -1308,6 +1317,7 @@ export class PaymentsService implements OnApplicationBootstrap {
           tenantId: true,
           status: true,
           provider: true,
+          cardGateway: true,
           amountCents: true,
           serviceFeeCents: true,
           serviceFeeBps: true,

@@ -117,6 +117,12 @@ export const CreatePaymentSchema = z.object({
   /** Solo euros: el banco cobra en euros y el aviso de otra moneda no cuadraría con el cobro. */
   currency: z.literal('EUR').default('EUR'),
   /**
+   * Yavin: en un local con las dos pasarelas de tarjeta, la que eligió el
+   * camarero («BBVA» = REDSYS, o YAVIN). Sin ella, o si el local solo tiene
+   * una, la decide el servidor (como hoy).
+   */
+  cardGateway: z.enum(['REDSYS', 'YAVIN']).optional(),
+  /**
    * Phase 1B opcional — si presente, este pago es un top-up de ClientWallet.
    * - create: true → crea una wallet nueva, walletId queda en la response.
    * - walletId: <uuid> → suma al balance de una wallet existente al AUTHORIZED.
@@ -444,3 +450,11 @@ export const FsmEventTypeSchema = z.enum([
   'CANCELED',
 ]);
 export type FsmEventType = z.infer<typeof FsmEventTypeSchema>;
+
+/**
+ * GET /v1/payments/card-gateways — entre qué pasarelas de tarjeta elige el
+ * personal al cobrar. Con dos (BBVA y Yavin) salen dos botones; con una o
+ * ninguna, no hay elección.
+ */
+export const CardGatewayChoiceSchema = z.object({ options: z.array(z.enum(['REDSYS', 'YAVIN'])) });
+export type CardGatewayChoice = z.infer<typeof CardGatewayChoiceSchema>;
