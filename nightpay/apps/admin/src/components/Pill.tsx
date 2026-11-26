@@ -1,7 +1,7 @@
 import type { CSSProperties, ReactNode } from 'react';
 import { Etiqueta } from '@nightpay/ui';
 
-// Los colores de cada tono viven con la Etiqueta (Notice los lee de aquí).
+// Los colores de cada tono viven con la Etiqueta (y con la franja, Banner, que pinta Notice).
 export { TONE_COLORS } from '@nightpay/ui';
 
 export type Tone = 'success' | 'warning' | 'danger' | 'info' | 'neutral';

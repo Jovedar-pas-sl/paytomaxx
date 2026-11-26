@@ -278,7 +278,7 @@ export function RefundModal({
   }, [payment]);
 
   if (!payment) {
-    return <Modal open={open} onClose={onClose}>{null}</Modal>;
+    return <Modal open={false} onClose={onClose}>{null}</Modal>;
   }
 
   const cents = parseEuroCents(amount) ?? Number.NaN;

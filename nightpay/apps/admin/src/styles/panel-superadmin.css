@@ -906,11 +906,6 @@
     bottom: 0;
   }
 
-  /* Diálogos con menos relleno: el código 2FA cabe sin bajar tanto. */
-  .np-sa .np-modal-panel {
-    padding: 1.25rem !important;
-  }
-
   .np-sa-revealed {
     align-items: flex-end;
     max-width: 100%;

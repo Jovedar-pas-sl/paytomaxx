@@ -375,15 +375,12 @@
 
 /* ─── Diálogos por encima de la barra de abajo ───────────────────────
    <main> (z-index 2, styles.css) es una capa propia: un diálogo dentro
-   (Modal, cerrar la noche…) no podía pasar por encima de la barra de abajo
-   (z-index 50) y quedaba tapado en el móvil. Con uno abierto, <main> sube. */
+   (una hoja, cerrar la noche…) no podía pasar por encima de la barra de abajo
+   (z-index 50) y quedaba tapado en el móvil. Con uno abierto, <main> sube.
+   El alto de las hojas lo pone la propia hoja (pieces-2.css de @nightpay/ui). */
 .np-app-root:has(.np-modal-panel),
 .np-app-root:has([aria-modal='true']) {
   z-index: 60;
-}
-
-.np-modal-panel {
-  max-height: calc(100dvh - 2rem - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
 }
 
 /* ─── Aviso del super-admin sin 2FA ──────────────────────────────── */
