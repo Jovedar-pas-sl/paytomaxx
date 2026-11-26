@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { Button } from '@nightpay/ui';
+import { SkelCard, SkelRows } from '../loading-shapes';
 import type { MyPromoterView } from '@nightpay/contracts';
 import { hasSession } from '@/lib/api';
 import { fetchMyPromoter } from '@/lib/rrpp';
@@ -46,7 +47,10 @@ export function RrppPage() {
         <ScreenHeader title="Tus reservas de RRPP" subtitle="Tu enlace y tu comisión" onBack={() => window.location.assign('/')} />
         <div className={styles.body}>
           {state.kind === 'loading' ? (
-            <p className={styles.note}>Cargando…</p>
+            <>
+              <SkelCard bare figure />
+              <SkelRows />
+            </>
           ) : state.kind === 'loggedOut' ? (
             <section className={styles.section}>
               <p className={styles.note}>Para ver tus reservas de RRPP, entra primero en la app del personal.</p>

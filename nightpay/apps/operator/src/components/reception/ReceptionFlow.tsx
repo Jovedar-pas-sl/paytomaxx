@@ -351,7 +351,7 @@ export function ReceptionFlow({ on, onDone }: Props) {
   }
 
   return (
-    <div className={r.card}>
+    <div className={r.card} aria-busy={step.kind === 'method' && !options ? true : undefined}>
       <p className={r.kicker}>Recepción</p>
       {step.kind === 'amount' ? (
         <>
@@ -371,7 +371,8 @@ export function ReceptionFlow({ on, onDone }: Props) {
           <p className={r.lead}>¿Cómo paga?</p>
           {/* La regla antes de pagar: nadie carga pensando que se le devuelve. */}
           <p className={r.note}>{SALDO_SE_QUEDA_TEXT}</p>
-          {!options ? <p className={r.text}>Cargando…</p> : null}
+          {/* Sus botones ya salen, apagados, mientras llegan las formas de pago. */}
+          {!options ? <span className="np-sr-only" role="status">Cargando…</span> : null}
           <Button size="lg" disabled={!options?.card} onClick={() => setStep({ kind: 'target', method: 'card' })}>
             {cardMethodLabel(on)}
           </Button>

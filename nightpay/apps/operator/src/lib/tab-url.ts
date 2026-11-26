@@ -57,6 +57,18 @@ export function tabSearch(search: string, tab: TabKey): string {
   return query ? `?${query}` : '';
 }
 
+/**
+ * Hacia dónde entra el contenido al cambiar de pestaña: 1 si la nueva está a
+ * la derecha de la anterior, −1 si a la izquierda y 0 si es la misma (o
+ * alguna de las dos no está en la barra).
+ */
+export function tabDirection(tabs: readonly TabKey[], from: TabKey, to: TabKey): -1 | 0 | 1 {
+  const a = tabs.indexOf(from);
+  const b = tabs.indexOf(to);
+  if (a < 0 || b < 0 || a === b) return 0;
+  return b > a ? 1 : -1;
+}
+
 /** La query sin la pestaña (al salir, o si entra otra persona): se empieza en Inicio. */
 export function withoutTab(search: string): string {
   return tabSearch(search, HOME_TAB);

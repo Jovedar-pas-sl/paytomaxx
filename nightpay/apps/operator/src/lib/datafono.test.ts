@@ -61,10 +61,10 @@ describe('¿Dónde está el lector NFC? (Menú → Este aparato)', () => {
 });
 
 describe('prueba de lectura (sin cobrar nada)', () => {
-  it('«Leída ✓» con lo que lleva y su número de serie', () => {
-    expect(testReadResult({ token: 'T', blank: false, uid: '04A23B1C' }).text).toBe('Leída ✓ · ficha de OxioPay · nº de serie 04A23B1C');
-    expect(testReadResult({ token: null, blank: true, uid: '04A23B1C' }).text).toBe('Leída ✓ · ficha en blanco · nº de serie 04A23B1C');
-    expect(testReadResult({ token: null, blank: false, uid: null }).text).toBe('Leída ✓ · tiene otra cosa grabada');
+  it('«Leída» (el ✓ es el icono, delante) con lo que lleva y su número de serie', () => {
+    expect(testReadResult({ token: 'T', blank: false, uid: '04A23B1C' }).text).toBe('Leída · ficha de OxioPay · nº de serie 04A23B1C');
+    expect(testReadResult({ token: null, blank: true, uid: '04A23B1C' }).text).toBe('Leída · ficha en blanco · nº de serie 04A23B1C');
+    expect(testReadResult({ token: null, blank: false, uid: null }).text).toBe('Leída · tiene otra cosa grabada');
   });
 
   it('lee por la escucha de toda la app (readCard → nfc-hub), sin llamar al API', () => {

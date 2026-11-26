@@ -60,6 +60,7 @@ export default function Page() {
   if (user === undefined) {
     return (
       <main
+        className="np-login"
         style={{
           minHeight: '100vh',
           display: 'flex',
@@ -76,6 +77,7 @@ export default function Page() {
   if (!user) {
     return (
       <main
+        className="np-login"
         style={{
           minHeight: '100vh',
           display: 'flex',

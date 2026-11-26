@@ -1,7 +1,7 @@
 'use client';
 
-import { useCallback, useEffect, useState, type CSSProperties, type ReactNode } from 'react';
-import { Card, ScreenHelp } from '@nightpay/ui';
+import { useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
+import { Banner, ScreenHelp } from '@nightpay/ui';
 import { primeAlertSound } from '@/lib/alert-sound';
 import type { OperatorUser } from '@/lib/api';
 import { isParty } from '@/lib/edition';
@@ -9,6 +9,8 @@ import { clearFichaContext } from '@/lib/ficha-context';
 import { tabForOpenCharge, useOpenCharges } from '@/lib/open-charges';
 import { editionAccess } from '@/lib/party-tabs';
 import { roleAccess, type TabKey } from '@/lib/roles';
+import { useMySections } from '@/lib/sections';
+import { HOME_TAB, tabDirection } from '@/lib/tab-url';
 import { TOURS } from '@/lib/tours';
 import { useUrlTab } from '@/lib/use-url-tab';
 import { VenueIdentityContext } from '@/lib/venue-identity';
@@ -40,6 +42,7 @@ import { SafariNotice } from './SafariNotice';
 import { useSessionExpired } from './session-context';
 import { StaffMenu, StaffMenuContext } from './staff-menu';
 import { TabBar } from './TabBar';
+import { cobraElEncargado } from './cobrar/cobrar-context';
 import cobrarStyles from './cobrar/cobrar.module.css';
 
 interface Props {
@@ -59,6 +62,15 @@ export function Dashboard({ user, onLogout }: Props) {
   const tabs = visibleTabsFor(access.tabs, methods, canTopUp(rights, user.role));
   // La pestaña va en la URL (?t=cobros): recargar o volver a entrar deja donde se estaba (?t=saldo, a Inicio).
   const [tab, setTab] = useUrlTab(tabs);
+  // La compañera con la casilla «Las compañeras cobran desde su móvil» apagada no cobra (la misma respuesta de
+  // /venues/me que ya se pide: ninguna petición más). Solo se lee, para lo que se dice en un vacío.
+  const mine = useMySections();
+  const cobraEncargado = cobraElEncargado({ user, fromPhone: mine.fromPhone });
+  // «Cobrar ahora» del vacío de Cobros: solo a quien cobra; a una compañera, cuando ya se sabe su casilla.
+  const noCobrar = user.role === 'OPERATOR' && (!mine.loaded || cobraEncargado);
+  // El cambio de pestaña se anima solo tras un toque en la barra (nunca al entrar ni por un enlace) y sin un cobro abierto.
+  const switched = useRef(false);
+  const [entered, setEntered] = useState<{ to: TabKey; dir: number; on: boolean } | null>(null);
   const links = useDeepLinks(access.posQueue);
   // Sesión caducada con un cobro abierto: el saldo y la noche dejan de
   // preguntar y vuelven solos al entrar otra vez.
@@ -95,6 +107,23 @@ export function Dashboard({ user, onLogout }: Props) {
     clearFichaContext();
     onLogout();
   }
+
+  function selectTab(next: TabKey) {
+    switched.current = true;
+    setEntered({ to: next, dir: tabDirection(tabs, tab, next), on: switched.current && !charges.open });
+    setTab(next);
+  }
+  // Si la pestaña cambia por otro camino (un enlace, «atrás»), aquella entrada ya no cuenta.
+  useEffect(() => {
+    setEntered((e) => (e && e.to !== tab ? null : e));
+  }, [tab]);
+  /** La pestaña a la que se acaba de llegar tocando la barra entra animada (las demás veces, quieta). */
+  const moving = entered !== null && entered.on && entered.to === tab && entered.dir !== 0;
+  const enter = (children: ReactNode) => (
+    <div className={moving ? 'np-tab-in' : undefined} style={moving ? ({ ...panelStyle, '--np-tab-dir': entered.dir } as CSSProperties) : panelStyle}>
+      {children}
+    </div>
+  );
 
   const showing = (key: TabKey) => links.ficha === null && links.pass === null && links.code === null && tab === key;
   // Recepción enseña su propia cabecera en todas sus pantallas (lo avisa ReceptionTab).
@@ -164,31 +193,35 @@ export function Dashboard({ user, onLogout }: Props) {
           ficha, su código o su pase), sigue montado al cambiar de pestaña: un
           cobro a medias (su QR, el tiempo real, el sondeo) no se pierde ni
           queda huérfano. */}
-      <TabPanel visible={showing('home')}>
+      <TabPanel visible={showing('home')} fade={moving}>
         <HomeTab user={user} night={night.night} onCobroDone={refreshMoney} onLogout={logout} />
       </TabPanel>
       {/* Recepción montada al cambiar de pestaña: una recarga a medias (su QR) no se pierde. */}
       {tabs.includes('reception') ? (
-        <TabPanel visible={showing('reception')}>
+        <TabPanel visible={showing('reception')} fade={moving}>
           <StaffMenuContext.Provider value={openMenu}>
             <ReceptionTab user={user} active={showing('reception')} onOwnHeader={setDeskHead} />
           </StaffMenuContext.Provider>
         </TabPanel>
       ) : null}
-      {tabs.includes('reservas') && showing('reservas') ? <ReservasTab /> : null}
-      {access.posQueue && showing('pos') ? (
-        <PendingPos onConfirmed={refreshMoney} focusPaymentId={links.focusedPosId} onFocusConsumed={links.clearFocus} />
-      ) : null}
+      {tabs.includes('reservas') && showing('reservas') ? enter(<ReservasTab />) : null}
+      {access.posQueue && showing('pos')
+        ? enter(<PendingPos onConfirmed={refreshMoney} focusPaymentId={links.focusedPosId} onFocusConsumed={links.clearFocus} />)
+        : null}
       {/* La misma lista que el panel para todos (/staff/me/cobros); la chica, además, cancela ahí lo suyo sin pagar. */}
-      {access.ownPayments && showing('payments') ? (
-        <MyCobros cancelPending={access.history.cancelPending} pollMs={access.history.pollMs} />
-      ) : null}
-      {access.ownEarnings && showing('earnings') ? (
-        <Earnings night={night.night} balance={own.balance} nightError={night.error} />
-      ) : null}
-      {party && showing('settings') ? <PartySettings onLogout={logout} /> : null}
+      {access.ownPayments && showing('payments')
+        ? enter(
+            <MyCobros cancelPending={access.history.cancelPending} pollMs={access.history.pollMs} cobraEncargado={cobraEncargado} onCobrar={noCobrar ? undefined : () => selectTab(HOME_TAB)} />,
+          )
+        : null}
+      {access.ownEarnings && showing('earnings')
+        ? enter(
+            <Earnings night={night.night} balance={own.balance} nightError={night.error} cobraEncargado={cobraEncargado} balanceLoading={own.balance === null && !own.error} />,
+          )
+        : null}
+      {party && showing('settings') ? enter(<PartySettings onLogout={logout} />) : null}
 
-      <TabBar tabs={tabs} active={tab} onSelect={(next) => setTab(next)} />
+      <TabBar tabs={tabs} active={tab} onSelect={selectTab} />
       <StaffMenu open={menuOpen} onClose={() => setMenuOpen(false)} onLogout={logout} />
     </main>
     </VenueIdentityContext.Provider>
@@ -199,9 +232,10 @@ export function Dashboard({ user, onLogout }: Props) {
   );
 }
 
-function TabPanel({ visible, children }: { visible: boolean; children: ReactNode }) {
+/** Inicio y Recepción siguen montados; al volver a ellos solo se funden (llevan dentro position: fixed: nada de transform). */
+function TabPanel({ visible, fade = false, children }: { visible: boolean; fade?: boolean; children: ReactNode }) {
   return (
-    <div hidden={!visible} style={visible ? panelStyle : undefined}>
+    <div hidden={!visible} className={visible && fade ? 'np-tab-fade' : undefined} style={visible ? panelStyle : undefined}>
       {children}
     </div>
   );
@@ -210,9 +244,7 @@ function TabPanel({ visible, children }: { visible: boolean; children: ReactNode
 /** Un fallo que no se arregla solo (el servidor caído ya lo dice la franja de arriba). */
 function PollErrorBanner({ error }: { error: PollError }) {
   return (
-    <Card role="alert" style={{ padding: '0.875rem', borderColor: 'var(--np-danger)' }}>
-      <p style={{ color: 'var(--np-danger)', margin: 0, fontSize: 'var(--np-fs-16)' }}>{error.text}</p>
-    </Card>
+    <Banner tone="danger">{error.text}</Banner>
   );
 }
 

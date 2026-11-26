@@ -33,7 +33,7 @@ export default function Page() {
   if (authed === null) {
     return (
       <main
-        className="np-screen"
+        className="np-screen np-login"
         style={{
           display: 'flex',
           alignItems: 'center',
@@ -49,7 +49,7 @@ export default function Page() {
   if (!authed) {
     return (
       <main
-        className="np-screen"
+        className="np-screen np-login"
         style={{
           display: 'flex',
           flexDirection: 'column',

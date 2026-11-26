@@ -69,9 +69,9 @@ describe('importes: «€» y la regla común, nunca «EUR» ni cuentas a mano',
     expect(strip.match(/<Importe cents=\{[a-zA-Z]+\} decimals="always" \/>/g)).toHaveLength(2);
     expect(strip).not.toMatch(/<Importe[^>]*size=/);
     const card = read('../components/TonightCard.tsx');
-    expect(card).toContain('<Importe cents={cents} />');
+    expect(card).toContain('<Importe cents={cents} rolling />');
     const cobros = read('../components/MyCobros.tsx');
-    expect(cobros).toContain('<Importe cents={t.salesCents} />');
+    expect(cobros).toContain('<Importe cents={t.salesCents} rolling />');
     expect(cobros).toContain('<Importe cents={r.amountCents} />');
     // Conservan su clase y su tachado.
     expect(cobros).toContain('<b className={`np-num ${styles.nightTotal}`}>');
@@ -104,7 +104,7 @@ describe('ni emojis ni «✓» como letra', () => {
     }
     expect(ACTIVE).toContain('Copiado');
     expect(ACTIVE).toContain('Pagado — nuevo');
-    expect(PENDING).toContain('No hay cobros POS pendientes.');
+    expect(PENDING).toContain('Ningún cobro esperando el datáfono');
     expect(PENDING).toContain('Confirmar pagado en el datáfono');
   });
 

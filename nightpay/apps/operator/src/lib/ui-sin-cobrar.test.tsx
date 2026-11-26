@@ -94,7 +94,8 @@ describe('«Hoy cobra el encargado»', () => {
     expect(html).toContain('Tus reservas de RRPP');
     expect(html).toContain('Tus servicios los cobra el encargado (o recepción) escaneando tu «Mi QR». Lo tuyo te llega al momento a Ganancias.');
     expect(html).toMatch(/<button[^>]*>[\s\S]*?Mi QR<\/button>/);
-    expect(html).toMatch(/Esta noche llevas <b[^>]*>54 €<\/b>/);
+    // La cifra rueda (entrega 4): se lee por el .np-sr-only de RollingNumber.
+    expect(html).toMatch(/Esta noche llevas <b[^>]*><span class="np-roll"><span class="np-sr-only">54 €<\/span>/);
   });
 
   it('sin su noche, una raya', () => {

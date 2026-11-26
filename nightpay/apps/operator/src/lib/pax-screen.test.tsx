@@ -45,7 +45,7 @@ describe('Datáfono: al quedar vinculado se ve la pantalla de cobro', () => {
     expect(host.textContent).toContain('Cobrar con saldo');
     expect(host.textContent).toContain('Recepción: recargar saldo');
     expect(host.textContent).toContain('Preparar fichas');
-    expect(host.textContent).toContain('No hay cobros esperando.');
+    expect(host.textContent).toContain('Ningún cobro esperando');
   });
 
   it('al recargar ya vinculado: lo mismo', async () => {
@@ -53,6 +53,6 @@ describe('Datáfono: al quedar vinculado se ve la pantalla de cobro', () => {
     await settle(() => root.render(<PaxScreen />));
 
     expect(host.textContent).toContain('Cobrar con saldo');
-    expect(host.textContent).toContain('No hay cobros esperando.');
+    expect(host.textContent).toContain('Ningún cobro esperando');
   });
 });

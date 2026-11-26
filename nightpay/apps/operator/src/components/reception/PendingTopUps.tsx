@@ -2,9 +2,10 @@
 
 import { useEffect, useState } from 'react';
 import type { PendingTopUpView } from '@nightpay/contracts';
-import { Button } from '@nightpay/ui';
+import { Button, EmptyState, formatRelative } from '@nightpay/ui';
 import { fetchPendingTopUps } from '@/lib/api-noche';
 import { formatEur } from '@/lib/money';
+import { SkelRows } from '../loading-shapes';
 import { StaffOutcome } from '../StaffOutcome';
 import { AssignTopUp } from './AssignTopUp';
 import r from './reception.module.css';
@@ -71,14 +72,14 @@ export function PendingTopUps({ onDone }: { onDone: () => void }) {
     <div className={r.card}>
       <p className={r.kicker}>Pendientes de asignar</p>
       <p className={r.text}>Recargas cobradas sin la ficha del cliente. Toca una y acerca su ficha (o teclea su código).</p>
-      {rows === null && !error ? <p className={r.text}>Cargando…</p> : null}
-      {rows?.length === 0 ? <p className={r.lead}>No hay ninguna pendiente.</p> : null}
+      {rows === null && !error ? <SkelRows /> : null}
+      {rows?.length === 0 ? <EmptyState compact icon="clock" title="Ninguna recarga pendiente" /> : null}
       {(rows ?? []).map((row) => (
         <button key={row.walletId} type="button" className={r.pendRow} onClick={() => setPicked(row)}>
           <span className={`np-num ${r.pendAmount}`}>{formatEur(row.amountCents)}</span>
           {/* El espacio no se pinta (fila flex), pero el lector de pantalla no los junta. */}{' '}
           <span className={r.pendWho}>
-            {new Date(row.since).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Madrid' })}
+            {formatRelative(row.since, new Date())}
             {row.byName ? ` · ${row.byName}` : ''}
           </span>
           {/* Para reconocer al cliente (A8): «Tarjeta Visa ••4242». */}

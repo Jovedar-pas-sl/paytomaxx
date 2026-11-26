@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, type CSSProperties } from 'react';
-import { BusyWord, Icon } from '@nightpay/ui';
+import { BusyWord, EmptyState, Icon } from '@nightpay/ui';
 import { formatEur } from '@/lib/money';
 import { chargeable, cuentaTotals, qtyOf, type CartaItem, type Cuenta } from '@/lib/cuenta';
 import {
@@ -107,12 +107,7 @@ export function Barra({ ctx, cuenta, onItem, onStep, onVaciar, onOtro, onCobrar,
           .
         </p>
       ) : ctx.cartaLoaded && tiles.length === 0 ? (
-        <p className={s.note}>
-          Tu caseta aún no tiene carta: el organizador la pone en su panel.{' '}
-          <button type="button" className={s.link} onClick={onRetryCarta}>
-            Actualizar carta
-          </button>
-        </p>
+        <EmptyState icon="list" title="Tu caseta aún no tiene carta" text="La pone el organizador en su panel." action={{ label: 'Actualizar carta', onClick: onRetryCarta }} />
       ) : null}
 
       <div className={s.grow} />
