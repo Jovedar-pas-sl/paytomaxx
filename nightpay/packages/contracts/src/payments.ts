@@ -180,6 +180,13 @@ export const CreatePaymentSchema = z.object({
    */
   invitedOperatorId: UuidSchema.optional(),
   /**
+   * Cobro por el encargado: el «Mi QR» de la compañera del servicio (la URL
+   * entera o su token). Sus líneas de Servicios van a su nombre, con su %.
+   * Con «Las compañeras cobran desde su móvil» apagada, el API lo pide si el
+   * cobro lleva Servicios (400 SERVICE_OPERATOR_REQUIRED).
+   */
+  serviceStaffToken: z.string().trim().min(20).max(600).optional(),
+  /**
    * Cobro único: el mismo cobro se puede pagar también con el saldo del
    * cliente (su NFC en el móvil de quien cobra, su PIN o su Face ID desde la
    * página de pago). Lleva enlazado un cobro del saldo con el mismo importe,
@@ -206,6 +213,12 @@ export const CreatePaymentSchema = z.object({
 ).refine(
   (d) => !(d.invitedStaffToken && d.invitedOperatorId),
   { message: 'O el QR de la chica o la chica de la lista, no los dos', path: ['invitedOperatorId'] },
+).refine(
+  (d) => !(d.serviceStaffToken && d.wallet),
+  { message: 'Una recarga no lleva compañera', path: ['serviceStaffToken'] },
+).refine(
+  (d) => !(d.serviceStaffToken && (d.invitedStaffToken || d.invitedOperatorId)),
+  { message: 'La invitación se cobra aparte del servicio', path: ['serviceStaffToken'] },
 );
 export type CreatePaymentDto = z.infer<typeof CreatePaymentSchema>;
 

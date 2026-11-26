@@ -7,6 +7,8 @@
 //    (CHECK), y la migración que se puede repetir sin tocar lo guardado.
 //  - Con la casilla apagada, la compañera no crea cobros ni recargas por ningún canal (cobro único,
 //    datáfono, cobro del saldo y recarga con tarjeta), su carta sale vacía y /venues/me se lo dice.
+//  - A nombre de la compañera: el encargado, el dueño o recepción con permiso cobran el servicio con
+//    su «Mi QR»; las líneas de Servicios la llevan con su %, y el resto del cobro, 0.
 // Ver README.md.
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { AsyncLocalStorage } from 'node:async_hooks';
@@ -14,7 +16,13 @@ import { spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import { ClsService } from 'nestjs-cls';
-import { SALA_PHONE_OFF_MESSAGE, SECTION_NOT_ALLOWED_CODE, TOP_UP_RECEPTION_ONLY_CODE, type JwtPayload } from '@nightpay/contracts';
+import {
+  SALA_PHONE_OFF_MESSAGE,
+  SECTION_NOT_ALLOWED_CODE,
+  STAFF_PERMISSION_DENIED_CODE,
+  TOP_UP_RECEPTION_ONLY_CODE,
+  type JwtPayload,
+} from '@nightpay/contracts';
 import { PrismaService, type TransactionalClient } from '../../src/common/prisma/prisma.service';
 import { AdminController } from '../../src/modules/admin/admin.controller';
 import { AuditService } from '../../src/modules/audit/audit.service';
@@ -24,6 +32,7 @@ import { totpCodeAt } from '../../src/modules/auth/testing/totp-kit';
 import { CLAIM_STEP_LUA, TotpAttemptsService } from '../../src/modules/auth/totp-attempts.service';
 import { TotpService } from '../../src/modules/auth/totp.service';
 import { CartaService } from '../../src/modules/carta/carta.service';
+import { signStaffToken } from '../../src/modules/operators/staff-qr';
 import { PaymentsService } from '../../src/modules/payments/payments.service';
 import { SuperAdminStepUpService } from '../../src/modules/superadmin/step-up.service';
 import { SuperAdminAuditService } from '../../src/modules/superadmin/superadmin-audit.service';
@@ -31,6 +40,7 @@ import { SuperAdminVenuesService } from '../../src/modules/superadmin/venues.ser
 import { VenuesController } from '../../src/modules/venues/venues.controller';
 import { WalletChargesService } from '../../src/modules/wallets/wallet-charges.service';
 
+process.env.JWT_SECRET ??= 'clave-de-las-pruebas-de-integracion-0123456789';
 const cls = new ClsService(new AsyncLocalStorage());
 const prisma = new PrismaService(cls as never);
 const audit = new AuditService(prisma, cls as never);
@@ -235,5 +245,168 @@ describe('Casilla apagada: la compañera no crea cobros ni recargas por ningún 
     await expect(c.recarga()).resolves.toMatchObject({ amountCents: 5000 });
     expect((await c.carta()).map((i) => i.id)).toEqual([l.servicio]);
     expect((await c.me()).myRights).toEqual({ sections: ['CHICA_SERVICE'], tips: true, cash: false, topUps: true });
+  });
+});
+
+describe('A nombre de una compañera: su «Mi QR» en el cobro y las líneas de Servicios con su %', () => {
+  /** Un local con Nerea (compañera, sin % propio: el del local, 90 %), el encargado, el dueño, dos de recepción y la carta. */
+  async function local(name: string, operatorsChargeFromPhone: boolean) {
+    const V = await newVenue(name, { operatorsChargeFromPhone, walletGroup: `gsrv-${name}-${r}` });
+    return sys(async (tx) => {
+      await tx.terminal.create({ data: { tenantId: V, externalId: `SRV-${name}-${r}`, label: 'Barra' } });
+      const user = async (who: string, role: string, extra: Record<string, unknown> = {}) =>
+        (await tx.user.create({ data: { tenantId: V, email: `${who}-${name.toLowerCase()}-${r}@x.es`, passwordHash: 'x', role, ...extra } as never })).id;
+      const item = async (itemName: string, priceCents: number, category: string, components?: unknown) =>
+        (await tx.serviceItem.create({ data: { tenantId: V, name: itemName, priceCents, category, components: components as never } })).id;
+      const recepcion = await user('recepcion', 'WAITER', { post: 'RECEPCION' });
+      // Solo a esta persona de recepción le da el dueño el permiso.
+      await tx.venue.update({ where: { id: V }, data: { staffPermissions: { people: { [recepcion]: { chargeForOperator: true } } } } });
+      return {
+        V,
+        name,
+        nerea: await user('nerea', 'OPERATOR', { displayName: 'Nerea' }),
+        encargado: await user('encargado', 'MANAGER'),
+        dueno: await user('dueno', 'OWNER'),
+        recepcion,
+        recepcionSinPermiso: await user('recepcion2', 'WAITER', { post: 'RECEPCION' }),
+        servicio: await item('Servicio 1 h', 6000, 'CHICA_SERVICE'),
+        copa: await item('Copa', 1000, 'VENUE_BAR'),
+        pack: await item('Habitación + Servicio', 13_000, 'VENUE_ROOM', [
+          { category: 'VENUE_ROOM', amountCents: 8000 },
+          { category: 'CHICA_SERVICE', amountCents: 5000 },
+        ]),
+      };
+    });
+  }
+  type Local = Awaited<ReturnType<typeof local>>;
+  const qrOf = (userId: string, tenantId: string, now = Date.now()) =>
+    `https://operator.local/?invita=${signStaffToken({ userId, tenantId }, now, process.env.JWT_SECRET!).token}`;
+  let k = 0;
+  /** El cobro único de «Cobrar» (líneas de la carta y el del saldo enlazado), como la app. */
+  const cobro = (l: Local, who: { userId: string; role: string }, items: string[], extra: Record<string, unknown> = {}) =>
+    inVenue(l.V, () =>
+      payments.create(
+        l.V,
+        `srv-${r}-${(k += 1)}`,
+        {
+          currency: 'EUR',
+          terminalExternalId: `SRV-${l.name}-${r}`,
+          lines: items.map((serviceItemId) => ({ serviceItemId, qty: 1 })),
+          withSaldo: true,
+          ...extra,
+        } as never,
+        who,
+      ),
+    );
+  const lineas = (where: { paymentId?: string; walletChargeId?: string }) =>
+    sys((tx) =>
+      tx.paymentLine.findMany({
+        where,
+        orderBy: { amountCents: 'desc' },
+        select: { category: true, amountCents: true, serviceOperatorId: true, operatorCommissionBps: true },
+      }),
+    );
+  const error = (status: number, code: string) => ({ status, response: expect.objectContaining({ code }) });
+
+  let L: Local;
+  beforeAll(async () => {
+    L = await local('SrvApagado', false);
+  });
+
+  it('el encargado cobra [Servicio 60 €, Copa 10 €] con el QR de Nerea: el servicio es suyo al 90 %, la copa a 0, el cobro al 77,14 %', async () => {
+    const p = await cobro(L, { userId: L.encargado, role: 'MANAGER' }, [L.servicio, L.copa], { serviceStaffToken: qrOf(L.nerea, L.V) });
+    expect(await lineas({ paymentId: p.id })).toEqual([
+      { category: 'CHICA_SERVICE', amountCents: 6000, serviceOperatorId: L.nerea, operatorCommissionBps: 9000 },
+      { category: 'VENUE_BAR', amountCents: 1000, serviceOperatorId: null, operatorCommissionBps: 0 },
+    ]);
+    const pago = await sys((tx) => tx.payment.findUniqueOrThrow({ where: { id: p.id }, select: { operatorCommissionBps: true } }));
+    expect(pago.operatorCommissionBps).toBe(7714);
+  });
+
+  it('lo mismo con el cobro del saldo (su QR): las líneas, en el cobro del saldo', async () => {
+    const c = await inVenue(L.V, () =>
+      charges.createQrCharge(
+        { userId: L.encargado, role: 'MANAGER', tenantId: L.V },
+        {
+          lines: [
+            { serviceItemId: L.servicio, qty: 1 },
+            { serviceItemId: L.copa, qty: 1 },
+          ],
+          serviceStaffToken: qrOf(L.nerea, L.V),
+        },
+      ),
+    );
+    expect(await lineas({ walletChargeId: c.id })).toEqual([
+      { category: 'CHICA_SERVICE', amountCents: 6000, serviceOperatorId: L.nerea, operatorCommissionBps: 9000 },
+      { category: 'VENUE_BAR', amountCents: 1000, serviceOperatorId: null, operatorCommissionBps: 0 },
+    ]);
+  });
+
+  it('con un % propio, el suyo', async () => {
+    await sys((tx) => tx.user.update({ where: { id: L.nerea }, data: { commissionBps: 8000 } }));
+    try {
+      const p = await cobro(L, { userId: L.encargado, role: 'MANAGER' }, [L.servicio], { serviceStaffToken: qrOf(L.nerea, L.V) });
+      expect(await lineas({ paymentId: p.id })).toEqual([
+        { category: 'CHICA_SERVICE', amountCents: 6000, serviceOperatorId: L.nerea, operatorCommissionBps: 8000 },
+      ]);
+    } finally {
+      await sys((tx) => tx.user.update({ where: { id: L.nerea }, data: { commissionBps: null } }));
+    }
+  });
+
+  it('recepción con el permiso cobra el pack «Habitación + Servicio»: la habitación a 0 y el servicio, de Nerea', async () => {
+    const p = await cobro(L, { userId: L.recepcion, role: 'WAITER' }, [L.pack], { serviceStaffToken: qrOf(L.nerea, L.V) });
+    expect(await lineas({ paymentId: p.id })).toEqual([
+      { category: 'VENUE_ROOM', amountCents: 8000, serviceOperatorId: null, operatorCommissionBps: 0 },
+      { category: 'CHICA_SERVICE', amountCents: 5000, serviceOperatorId: L.nerea, operatorCommissionBps: 9000 },
+    ]);
+  });
+
+  it('el dueño también', async () => {
+    await expect(
+      cobro(L, { userId: L.dueno, role: 'OWNER' }, [L.servicio], { serviceStaffToken: qrOf(L.nerea, L.V) }),
+    ).resolves.toMatchObject({ amountCents: 6000 });
+  });
+
+  it('errores: sin QR, QR sin servicio, caducado, de otro local o que no es de una compañera, y recepción sin permiso; no se crea nada', async () => {
+    const encargado = { userId: L.encargado, role: 'MANAGER' };
+    const count = () => sys((tx) => Promise.all([tx.payment.count({ where: { tenantId: L.V } }), tx.walletChargeRequest.count({ where: { tenantId: L.V } })]));
+    const antes = await count();
+    await expect(cobro(L, encargado, [L.servicio, L.copa])).rejects.toMatchObject(error(400, 'SERVICE_OPERATOR_REQUIRED'));
+    await expect(cobro(L, encargado, [L.copa], { serviceStaffToken: qrOf(L.nerea, L.V) })).rejects.toMatchObject(
+      error(400, 'SERVICE_OPERATOR_NOT_NEEDED'),
+    );
+    const caducado = qrOf(L.nerea, L.V, Date.now() - 11 * 60_000);
+    await expect(cobro(L, encargado, [L.servicio], { serviceStaffToken: caducado })).rejects.toMatchObject(
+      error(400, 'SERVICE_OPERATOR_INVALID'),
+    );
+    const otro = await local('SrvOtro', false);
+    await expect(cobro(L, encargado, [L.servicio], { serviceStaffToken: qrOf(otro.nerea, otro.V) })).rejects.toMatchObject(
+      error(400, 'SERVICE_OPERATOR_INVALID'),
+    );
+    await expect(cobro(L, encargado, [L.servicio], { serviceStaffToken: qrOf(L.recepcion, L.V) })).rejects.toMatchObject(
+      error(400, 'SERVICE_OPERATOR_INVALID'),
+    );
+    // Recepción sin el permiso: el motivo (403), no «escanea su QR».
+    const sinPermiso = { userId: L.recepcionSinPermiso, role: 'WAITER' };
+    await expect(cobro(L, sinPermiso, [L.pack])).rejects.toMatchObject(error(403, STAFF_PERMISSION_DENIED_CODE));
+    await expect(cobro(L, sinPermiso, [L.pack], { serviceStaffToken: qrOf(L.nerea, L.V) })).rejects.toMatchObject(
+      error(403, STAFF_PERMISSION_DENIED_CODE),
+    );
+    // Lo mismo en el cobro del saldo.
+    await expect(
+      inVenue(L.V, () =>
+        charges.createQrCharge({ userId: L.encargado, role: 'MANAGER', tenantId: L.V }, { lines: [{ serviceItemId: L.servicio, qty: 1 }] }),
+      ),
+    ).rejects.toMatchObject(error(400, 'SERVICE_OPERATOR_REQUIRED'));
+    expect(await count()).toEqual(antes);
+  });
+
+  it('casilla encendida: el encargado cobra el servicio sin QR, como hoy (sin compañera ni %)', async () => {
+    const on = await local('SrvEncendido', true);
+    const p = await cobro(on, { userId: on.encargado, role: 'MANAGER' }, [on.servicio]);
+    expect(await lineas({ paymentId: p.id })).toEqual([
+      { category: 'CHICA_SERVICE', amountCents: 6000, serviceOperatorId: null, operatorCommissionBps: null },
+    ]);
   });
 });

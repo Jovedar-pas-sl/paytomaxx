@@ -786,6 +786,12 @@ export class PaymentsService implements OnApplicationBootstrap {
     venueMap: Partial<OperatorCommissionDefaults> | null;
   }): Promise<{ lines: LineWithBps[]; paymentBps: number | null }> {
     const { userId, role } = args.creator;
+    // A nombre de una compañera (cobro por el encargado): cada línea ya trae su % (serviceOperatorOf).
+    if (args.lines.some((l) => l.serviceOperatorId)) {
+      const lines = args.lines.map((l) => ({ ...l, operatorCommissionBps: l.operatorCommissionBps ?? 0 }));
+      const paymentBps = lineCommission(lines.map((l) => ({ amountCents: l.amountCents, bps: l.operatorCommissionBps }))).commissionBps;
+      return { lines, paymentBps };
+    }
     if (role !== 'OPERATOR' || !userId || args.isWalletTopUp) return linesWithOperatorBps(args.lines, null);
     const user = await this.prisma.asSystem((tx) =>
       tx.user.findFirst({ where: { id: userId }, select: { commissionBps: true } }),
@@ -869,6 +875,7 @@ export class PaymentsService implements OnApplicationBootstrap {
       requestedCategory: dto.revenueCategory,
       invitedStaffToken: dto.invitedStaffToken,
       invitedOperatorId: dto.invitedOperatorId,
+      serviceStaffToken: dto.serviceStaffToken,
     });
     const service: ServiceSnapshot | null =
       charge.service ?? (charge.serviceName ? { serviceItemId: null, serviceName: charge.serviceName, durationMin: null } : null);

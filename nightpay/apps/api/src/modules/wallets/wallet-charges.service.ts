@@ -563,6 +563,7 @@ export class WalletChargesService {
       requestedCategory: input.category,
       invitedStaffToken: input.invitedStaffToken,
       invitedOperatorId: input.invitedOperatorId,
+      serviceStaffToken: input.serviceStaffToken,
     });
     const amountCents = charge.amountCents;
     // El mismo tope por cobro que con el QR (Ajustes del local): la compañera en
@@ -2949,6 +2950,8 @@ export interface QrChargeInput {
   tipCents?: number;
   /** «Copa con invitación» con la chica elegida de la lista (si el local no pide su QR). */
   invitedOperatorId?: string;
+  /** Cobro por el encargado: el «Mi QR» de la compañera del servicio. */
+  serviceStaffToken?: string;
 }
 
 /**

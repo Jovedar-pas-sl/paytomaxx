@@ -46,7 +46,7 @@ export async function insertChargeLines(
   tx: TransactionalClient,
   tenantId: string,
   source: LineSource,
-  lines: ReadonlyArray<DraftLine & { operatorCommissionBps?: number | null }>,
+  lines: readonly DraftLine[],
 ): Promise<void> {
   if (lines.length === 0) return;
   await tx.paymentLine.createMany({
@@ -63,6 +63,7 @@ export async function insertChargeLines(
       beneficiaryOperatorId: l.beneficiaryOperatorId ?? null,
       beneficiaryCents: l.beneficiaryCents ?? null,
       chargerCents: l.chargerCents ?? null,
+      serviceOperatorId: l.serviceOperatorId ?? null,
     })),
   });
 }
@@ -81,6 +82,7 @@ export interface StoredLine {
   beneficiaryOperatorId: string | null;
   beneficiaryCents: number | null;
   chargerCents: number | null;
+  serviceOperatorId: string | null;
 }
 
 const LINE_SELECT = {
@@ -97,6 +99,7 @@ const LINE_SELECT = {
   beneficiaryOperatorId: true,
   beneficiaryCents: true,
   chargerCents: true,
+  serviceOperatorId: true,
 } as const;
 
 /** Las líneas de esos cobros (en el orden en que se guardaron). */

@@ -48,6 +48,9 @@ export interface DraftLine {
   beneficiaryOperatorId?: string | null;
   beneficiaryCents?: number | null;
   chargerCents?: number | null;
+  /** Cobro por el encargado: la compañera del servicio (solo en Servicios) y su % fijado al cobrar. */
+  serviceOperatorId?: string | null;
+  operatorCommissionBps?: number | null;
 }
 
 export interface ResolvedCharge {
