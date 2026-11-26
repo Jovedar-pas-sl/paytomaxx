@@ -3,6 +3,7 @@ import { formatChargeRef } from '@nightpay/contracts';
 import { PrismaService, type TransactionalClient } from '../../../common/prisma/prisma.service';
 import { AuditService } from '../../audit/audit.service';
 import { ISSUED_CARD_STATUSES, recordCardEvents } from '../wallet-card-ops';
+import { WalletLiveCodeService } from '../wallet-live-code.service';
 import { liveWalletId, lockLiveWallet } from '../wallet-merge-chain';
 import { formatWalletCode } from '../wallet-rules';
 import { notMeChargeId, notMePath, notMeSecret, signNotMeToken, verifyNotMeToken } from './not-me-token';
@@ -65,6 +66,8 @@ export class ChargeDisputeService {
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject(AuditService) private readonly audit: AuditService,
     @Optional() @Inject('CHARGE_DISPUTE_ENV') env?: NodeJS.ProcessEnv,
+    // Sin @Optional(): sin él la API no arranca. Opcional solo para los `new` de las pruebas.
+    @Inject(WalletLiveCodeService) private readonly liveCodes?: WalletLiveCodeService,
   ) {
     this.env = env ?? process.env;
   }
@@ -86,7 +89,9 @@ export class ChargeDisputeService {
   async dispute(token: string): Promise<NotMeResult> {
     const chargeId = notMeChargeId(token);
     if (!chargeId) return { state: 'invalid' };
-    return this.prisma.acrossVenues(async (tx) => {
+    // El saldo de ahora (tras las sumas), el que se bloquea: sus códigos del móvil, anulados tras guardar.
+    let liveId: string | null = null;
+    const result = await this.prisma.acrossVenues(async (tx): Promise<NotMeResult> => {
       // El cobro bloqueado: dos «No he sido yo» a la vez avisan una sola vez.
       const rows = await tx.$queryRaw<ChargeRow[]>`
         SELECT id::text AS id, "tenantId"::text AS "tenantId", "walletId"::text AS "walletId", status,
@@ -145,8 +150,11 @@ export class ChargeDisputeService {
           faceId: info.hasFaceId,
         },
       });
+      liveId = wallet.id;
       return { state: 'done', blockedCards: cards.length, pinLocked, ...info };
     });
+    if (result.state === 'done' && liveId) await this.liveCodes?.dropWallet(liveId).catch(() => undefined);
+    return result;
   }
 
   /**

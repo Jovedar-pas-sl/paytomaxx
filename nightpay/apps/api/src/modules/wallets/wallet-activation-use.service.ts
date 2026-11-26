@@ -5,6 +5,7 @@ import { isGiftPaymentKey } from '../home-topup/home-topup-rules';
 import { AuditService } from '../audit/audit.service';
 import { WALLET_CLAIM_MAX_AGE_S } from '../payments/wallet-claim';
 import { codeHintOf, WalletChargesService } from './wallet-charges.service';
+import { WalletLiveCodeService } from './wallet-live-code.service';
 import { WalletPasskeysService } from './wallet-passkeys.service';
 import { FRESH_TOPUP_MS, firstTopUp } from './wallet-fresh-topup';
 import { newWalletToken } from './wallet-rules';
@@ -76,6 +77,8 @@ export class WalletActivationUseService {
     @Inject(WalletPasskeysService) private readonly passkeys: WalletPasskeysService,
     @Inject(WalletChargesService) private readonly charges: WalletChargesService,
     @Inject(AuditService) private readonly audit: AuditService,
+    // Sin @Optional(): sin él la API no arranca. Opcional solo para los `new` de las pruebas.
+    @Inject(WalletLiveCodeService) private readonly liveCodes?: WalletLiveCodeService,
   ) {}
 
   async view(token: string, now: Date = new Date()): Promise<ActivationView> {
@@ -139,6 +142,8 @@ export class WalletActivationUseService {
       if ((await tx.walletPasskey.count({ where: { walletId: wallet.id } })) > 0) throw activationError('used');
       await tx.clientWallet.update({ where: { id: wallet.id }, data: { qrToken } });
     });
+    // Guardado el enlace nuevo: los códigos del móvil del de antes, anulados (si falla, viven sus 60 s).
+    await this.liveCodes?.dropWallet(wallet.id).catch(() => undefined);
     await this.logUse(wallet, 'pin');
     return { walletId: wallet.id, qrToken };
   }

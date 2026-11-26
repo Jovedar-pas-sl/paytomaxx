@@ -2,6 +2,7 @@ import { ConflictException, ForbiddenException, Inject, Injectable, NotFoundExce
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { ISSUED_CARD_STATUSES, recordCardEvents } from './wallet-card-ops';
+import { WalletLiveCodeService } from './wallet-live-code.service';
 import { WalletPasskeysService } from './wallet-passkeys.service';
 import { formatWalletCode } from './wallet-rules';
 
@@ -33,6 +34,8 @@ export class WalletLostCardService {
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject(AuditService) private readonly audit: AuditService,
     @Inject(WalletPasskeysService) private readonly passkeys: WalletPasskeysService,
+    // Sin @Optional(): sin él la API no arranca. Opcional solo para los `new` de las pruebas.
+    @Inject(WalletLiveCodeService) private readonly liveCodes?: WalletLiveCodeService,
   ) {}
 
   /** Reto para la passkey, atado a esta acción y a este saldo. */
@@ -71,6 +74,8 @@ export class WalletLostCardService {
     if (done.cards.length === 0) {
       throw new ConflictException({ message: 'Este saldo ya no tiene ningún NFC activo.', code: 'WALLET_NO_CARD' });
     }
+    // Guardado el bloqueo: sus códigos del móvil, anulados (si falla, viven sus 60 s).
+    await this.liveCodes?.dropWallet(walletId).catch(() => undefined);
     // La incidencia, al local que dio el NFC: allí le dan uno nuevo.
     await this.audit.log({
       action: CLIENT_CARD_BLOCKED_ACTION,
