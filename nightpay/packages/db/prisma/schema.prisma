@@ -2251,7 +2251,8 @@ model WalletGift {
 // Otras plataformas (la primera, la red de cajeros del dueño) entran con una
 // clave por local. docs/partner-api/pilot/openapi-piloto.yaml es el contrato.
 // Los CHECK, solo en SQL; el único parcial (una conexión viva por socio y
-// local) va en drift-allowlist.json.
+// local), también: Prisma no lo describe y `migrate diff` no lo ve, así que no
+// hace falta en drift-allowlist.json (check-drift avisaría de que sobra).
 
 enum PartnerStatus {
   ACTIVE
