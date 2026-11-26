@@ -93,10 +93,11 @@ CREATE TABLE IF NOT EXISTS "partner_wallet_operations" (
   CONSTRAINT "partner_wallet_operations_load" CHECK (
     "kind" <> 'LOAD'
     OR ("reversesId" IS NULL
-        AND "funding" IN ('cash', 'card', 'transfer', 'bank_app')
+        -- Con NULL, un IN o un ~ dan NULL y el CHECK pasaría: cada uno con su IS NOT NULL.
+        AND "funding" IS NOT NULL AND "funding" IN ('cash', 'card', 'transfer', 'bank_app')
         AND "description" IS NOT NULL AND char_length("description") BETWEEN 1 AND 60
-        AND "refKind" IN ('live_code', 'ficha', 'ficha_nfc')
-        AND "requestHash" ~ '^[0-9a-f]{64}$'
+        AND "refKind" IS NOT NULL AND "refKind" IN ('live_code', 'ficha', 'ficha_nfc')
+        AND "requestHash" IS NOT NULL AND "requestHash" ~ '^[0-9a-f]{64}$'
         AND "response" IS NOT NULL
         AND ("funding" <> 'cash' OR "cashTopupId" IS NOT NULL)
         AND "voidedByUserId" IS NULL
