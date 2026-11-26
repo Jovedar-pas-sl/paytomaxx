@@ -77,8 +77,12 @@ async function failure(p: Promise<unknown>): Promise<{ status: number; message: 
   return { status: err.getStatus(), message: b.message, code: b.code };
 }
 
-const give = (operatorId: string, card = token(), uid = chip()) =>
-  inVenue(V, () => cards.issue(byManager, operatorId, { card, uid })).then((view) => ({ view, card, uid }));
+/** Como el panel: pide su código, «lo graba» y la da. */
+const give = (operatorId: string, code?: string, uid = chip()) =>
+  inVenue(V, async () => {
+    const card = code ?? (await cards.reserve(byManager, operatorId)).card;
+    return { view: await cards.issue(byManager, operatorId, { card, uid }), card, uid };
+  });
 const resolve = (card: string, uid: string) => inVenue(V, () => cards.resolve({ userId: boss, tenantId: V }, { card, uid }));
 const auditOf = (action: string, target: string) =>
   sys((tx) => tx.auditEvent.findMany({ where: { action, targetId: target }, orderBy: { occurredAt: 'asc' }, select: { payload: true, actorId: true } }));
@@ -138,6 +142,28 @@ describe('Darle su ficha', () => {
     const client = await sys((tx) => tx.walletCard.create({ data: { token: token(), uid, status: 'STOCK', venueId: V } }));
     expect(await failure(give(lola, client.token))).toMatchObject({ status: 409, message: STAFF_CARD_NOT_BLANK_MESSAGE });
     expect(await failure(give(lola, token(), uid))).toMatchObject({ status: 409, message: STAFF_CARD_NOT_BLANK_MESSAGE });
+  });
+
+  it('solo con el código que se pidió para ella: uno inventado o el de otra compañera, no (409)', async () => {
+    expect(await failure(give(lola, token()))).toMatchObject({ status: 409, message: STAFF_CARD_NOT_BLANK_MESSAGE });
+    const forNerea = (await inVenue(V, () => cards.reserve(byManager, nerea))).card;
+    expect(await failure(give(lola, forNerea))).toMatchObject({ status: 409, message: STAFF_CARD_NOT_BLANK_MESSAGE });
+    expect(await sys((tx) => tx.staffCard.count({ where: { userId: lola, revokedAt: null } }))).toBe(0);
+  });
+
+  it('se grabó pero se perdió la respuesta: al acercarla otra vez (su código ya grabado) se le da', async () => {
+    const card = (await inVenue(V, () => cards.reserve(byManager, lola))).card;
+    const uid = chip();
+    // El primer intento no llegó; el segundo lee el código ya grabado y lo manda.
+    const { view } = await give(lola, card, uid);
+    expect(await sys((tx) => tx.staffCard.findUniqueOrThrow({ where: { token: card }, select: { userId: true, uid: true } }))).toEqual({ userId: lola, uid });
+    // Y si el primero sí llegó, otra vez lo mismo: la misma ficha.
+    expect((await give(lola, card, uid)).view.number).toBe(view.number);
+    await inVenue(V, () => cards.revoke(byManager, lola));
+  });
+
+  it('pedir su código: solo para una compañera de este local (404)', async () => {
+    expect((await failure(inVenue(V, () => cards.reserve(byManager, manager)))).status).toBe(404);
   });
 
   it('el chip de una compañera no se da a otra', async () => {

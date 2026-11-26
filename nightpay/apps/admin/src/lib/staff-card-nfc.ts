@@ -1,14 +1,18 @@
 // La ficha NFC de la compañera (cobro por el encargado, fase 2): se graba
 // desde su hoja del panel, abierta en un Android con Chrome (Web NFC), como las
-// de los clientes: el mismo enlace con un código nuevo. Solo en una ficha en
-// blanco (nunca encima de la de un cliente) y con su número de serie, que es lo
-// que hace que una copia no valga. Funciones puras con el lector inyectado
+// de los clientes: el mismo enlace con un código que da el servidor antes de
+// acercarla (ligado a ella). Solo en una ficha en blanco (nunca encima de la
+// de un cliente) y con su número de serie, que es lo que hace que una copia no
+// valga. Si ya lleva uno de nuestros enlaces (se grabó y se perdió la
+// respuesta al darla), no se toca: se devuelve ese código y el servidor dice
+// si es el de ella. Funciones puras con el lector inyectado
 // (staff-card-nfc.test.ts).
 
-import { STAFF_CARD_NOT_BLANK_MESSAGE, normalizeWalletCardUid, walletCardUrl } from '@nightpay/contracts';
+import { STAFF_CARD_NOT_BLANK_MESSAGE, normalizeWalletCardUid, walletCardTokenFromUrl, walletCardUrl } from '@nightpay/contracts';
 
 interface NdefRecordLike {
   recordType: string;
+  data?: DataView | null;
 }
 interface NdefReadingEventLike {
   serialNumber?: string;
@@ -33,24 +37,28 @@ export function webNfcWriter(): NdefWriterCtor | null {
   return typeof ctor === 'function' ? ctor : null;
 }
 
-/** Código nuevo de 128 bits (base64url, 22 caracteres): el mismo formato que las fichas de los clientes. */
-export function newStaffCardToken(random: (bytes: Uint8Array) => Uint8Array = (b) => crypto.getRandomValues(b)): string {
-  const bytes = random(new Uint8Array(16));
-  let bin = '';
-  for (const b of bytes) bin += String.fromCharCode(b);
-  return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+/** El código de uno de nuestros enlaces grabado en la ficha (null si no lleva ninguno). */
+function writtenCode(records: readonly NdefRecordLike[]): string | null {
+  if (records.length !== 1 || records[0]!.recordType !== 'url' || !records[0]!.data) return null;
+  try {
+    return walletCardTokenFromUrl(new TextDecoder().decode(records[0]!.data));
+  } catch {
+    return null;
+  }
 }
 
 /**
- * Espera una ficha, comprueba que está en blanco y le graba su enlace (sin
- * pisar nada: overwrite false). Devuelve el código grabado y su número de serie.
+ * Espera una ficha y le graba su enlace con `code` (el que dio el servidor),
+ * solo si está en blanco (sin pisar nada: overwrite false). Si ya lleva uno
+ * de nuestros enlaces, no graba: devuelve ese código (darla otra vez tras
+ * perder la respuesta). Devuelve el código y su número de serie.
  */
 export async function writeStaffCard(
   Reader: NdefWriterCtor,
   appOrigin: string,
   signal: AbortSignal,
-  newToken: () => string = () => newStaffCardToken(),
-): Promise<{ card: string; uid: string }> {
+  code: string,
+): Promise<{ card: string; uid: string; written: boolean }> {
   const reader = new Reader();
   const event = await new Promise<NdefReadingEventLike>((resolve, reject) => {
     reader.onreading = resolve;
@@ -63,8 +71,11 @@ export async function writeStaffCard(
   const uid = normalizeWalletCardUid(event.serialNumber ?? '');
   if (!uid) throw new Error(NO_UID);
   const records = event.message?.records ?? [];
-  if (!records.every((r) => r.recordType === 'empty')) throw new Error(STAFF_CARD_NOT_BLANK_MESSAGE);
-  const card = newToken();
-  await reader.write({ records: [{ recordType: 'url', data: walletCardUrl(appOrigin, card) }] }, { signal, overwrite: false });
-  return { card, uid };
+  if (!records.every((r) => r.recordType === 'empty')) {
+    const already = writtenCode(records);
+    if (already) return { card: already, uid, written: false };
+    throw new Error(STAFF_CARD_NOT_BLANK_MESSAGE);
+  }
+  await reader.write({ records: [{ recordType: 'url', data: walletCardUrl(appOrigin, code) }] }, { signal, overwrite: false });
+  return { card: code, uid, written: true };
 }

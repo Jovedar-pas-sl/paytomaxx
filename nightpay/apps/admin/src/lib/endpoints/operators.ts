@@ -261,6 +261,13 @@ export async function revealOperatorIdDocument(id: string, totpCode: string): Pr
   return res.json();
 }
 
+/** El código para grabar en su ficha NFC en blanco (lo da el servidor, ligado a ella): se pide antes de acercarla. */
+export async function reserveStaffCardCode(id: string): Promise<string> {
+  const res = await authedFetch(`/v1/admin/operators/${id}/staff-card/token`, { method: 'POST' });
+  if (!res.ok) throw await apiError(res);
+  return ((await res.json()) as { card: string }).card;
+}
+
 /** Su ficha NFC: la recién grabada pasa a ser la suya (la de antes deja de valer al momento). */
 export async function issueStaffCard(id: string, input: { card: string; uid: string }): Promise<StaffCardView> {
   const res = await authedFetch(`/v1/admin/operators/${id}/staff-card`, { method: 'POST', body: JSON.stringify(input) });

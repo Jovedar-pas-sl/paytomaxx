@@ -3,7 +3,7 @@
 import { useEffect, useState, type CSSProperties } from 'react';
 import { Button } from '@nightpay/ui';
 import { staffCardNumberText, type StaffCardView } from '@nightpay/contracts';
-import { issueStaffCard, revokeStaffCard } from '@/lib/api';
+import { issueStaffCard, reserveStaffCardCode, revokeStaffCard } from '@/lib/api';
 import { NO_WEB_NFC, webNfcWriter, writeStaffCard } from '@/lib/staff-card-nfc';
 import { Notice } from './Notice';
 
@@ -11,7 +11,8 @@ import { Notice } from './Notice';
  * Su ficha NFC en su hoja (cobro por el encargado, fase 2): «Ficha nº 0522»,
  * darle una (o otra, si la perdió: la de antes deja de valer al momento) y
  * anularla. Se graba aquí mismo con un Android con Chrome, en una ficha en
- * blanco, como las de los clientes.
+ * blanco, como las de los clientes: el código lo da el servidor antes de
+ * acercarla. Si se grabó y falló al darla (red), se acerca la misma otra vez.
  */
 export function StaffCardBox({
   operatorId,
@@ -41,14 +42,23 @@ export function StaffCardBox({
     setError(null);
     setNote(null);
     try {
-      const written = await writeStaffCard(Reader, window.location.origin, ctrl.signal);
+      const code = await reserveStaffCardCode(operatorId);
+      const written = await writeStaffCard(Reader, window.location.origin, ctrl.signal, code);
       const before = card;
-      const next = await issueStaffCard(operatorId, written);
+      let next: StaffCardView;
+      try {
+        next = await issueStaffCard(operatorId, { card: written.card, uid: written.uid });
+      } catch (err) {
+        // Grabada pero sin darla (red, tiempo): la misma ficha vale al reintentar.
+        throw written.written ? new Error(`${(err as Error).message} La ficha ya está grabada: pulsa otra vez y acerca la misma.`) : err;
+      }
       setCard(next);
       setNote(
-        before
-          ? `Ficha nº ${staffCardNumberText(next.number)} dada. La nº ${staffCardNumberText(before.number)} ya no vale.`
-          : `Ficha nº ${staffCardNumberText(next.number)} dada a ${name}.`,
+        before && before.number === next.number
+          ? `Esa ya es su ficha nº ${staffCardNumberText(next.number)}.`
+          : before
+            ? `Ficha nº ${staffCardNumberText(next.number)} dada. La nº ${staffCardNumberText(before.number)} ya no vale.`
+            : `Ficha nº ${staffCardNumberText(next.number)} dada a ${name}.`,
       );
       onChanged();
     } catch (err) {

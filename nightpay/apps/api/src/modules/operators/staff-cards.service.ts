@@ -12,6 +12,7 @@ import {
 import { PrismaService, type TransactionalClient } from '../../common/prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { photoHashesOf } from '../profile/photo-hashes';
+import { isStaffCardCodeFor, mintStaffCardCode } from './staff-card-code';
 import { signStaffToken, staffQrSecret } from './staff-qr';
 import { staffName } from './staff-qr.controller';
 
@@ -56,9 +57,10 @@ export async function liveStaffCards(
 
 /**
  * La ficha NFC de la compañera (cobro por el encargado, fase 2):
- *  - dar: el encargado o el dueño graban una ficha en blanco en su Android
- *    desde la hoja de la compañera; la de antes (si tenía) deja de valer en la
- *    misma operación;
+ *  - dar: el encargado o el dueño piden su código (reserve) y lo graban en
+ *    una ficha en blanco en su Android desde la hoja de la compañera; la de
+ *    antes (si tenía) deja de valer en la misma operación. Solo vale un código
+ *    dado para ella: si se perdió la respuesta, se acerca otra vez y se da;
  *  - anular: deja de valer (la ha perdido y aún no tiene otra);
  *  - leer: quien cobra un servicio a su nombre la acerca; vale solo el chip
  *    original, viva, de este local y de una compañera sin baja. Sale con un
@@ -73,6 +75,15 @@ export class StaffCardsService {
   constructor(@Inject(PrismaService) prisma: PrismaService, @Inject(AuditService) audit: AuditService) {
     this.prisma = prisma;
     this.audit = audit;
+  }
+
+  /** El código para grabar en su ficha en blanco: se pide antes de acercarla (entre leer y grabar no hay red). */
+  async reserve(actor: Actor, operatorId: string): Promise<{ card: string }> {
+    const op = await this.prisma.asSystem((tx) =>
+      tx.user.findFirst({ where: { id: operatorId, tenantId: actor.tenantId, role: 'OPERATOR', deletedAt: null }, select: { id: true } }),
+    );
+    if (!op) throw new NotFoundException('Compañera no encontrada');
+    return { card: mintStaffCardCode({ tenantId: actor.tenantId, userId: operatorId }, staffQrSecret()) };
   }
 
   async issue(actor: Actor, operatorId: string, input: { card: string; uid: string }): Promise<StaffCardView> {
@@ -95,6 +106,10 @@ export class StaffCardsService {
         if (same.userId === operatorId && same.uid === uid && !same.revokedAt) {
           return { view: { number: same.number, issuedAt: same.createdAt.toISOString() }, replaced: null, fresh: false };
         }
+        throw new ConflictException(STAFF_CARD_NOT_BLANK_MESSAGE);
+      }
+      // Solo el código que se pidió para ella (reserve): uno de otra compañera, inventado o de otra cosa, no.
+      if (!isStaffCardCodeFor(input.card, { tenantId: actor.tenantId, userId: operatorId }, staffQrSecret())) {
         throw new ConflictException(STAFF_CARD_NOT_BLANK_MESSAGE);
       }
       const chip = await tx.staffCard.findFirst({ where: { uid, revokedAt: null }, select: { userId: true } });
