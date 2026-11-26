@@ -450,6 +450,8 @@ export const UpdateVenueRulesSchema = z
     serviceFeeEnabled: z.boolean().optional(),
     serviceFeeBps: ServiceFeeBpsSchema.optional(),
     topUpServiceFeeBps: ServiceFeeBpsSchema.optional(),
+    /** Las compañeras cobran desde su móvil (apagada: cobra el encargado a su nombre). */
+    operatorsChargeFromPhone: z.boolean().optional(),
     totpCode: SuperAdminTotpCodeSchema,
   })
   .refine((v) => Object.entries(v).some(([k, x]) => k !== 'totpCode' && x !== undefined), 'No hay nada que cambiar');
@@ -482,6 +484,8 @@ export const VenueRulesSchema = z.object({
   topUpServiceFeeBps: z.number().int().optional(),
   /** Por qué no se puede encender en este local (su pasarela no podría cobrarla); null: se puede. */
   serviceFeeBlockedReason: z.string().nullable().optional(),
+  /** «Las compañeras cobran desde su móvil». Opcional: API anterior (encendida). */
+  operatorsChargeFromPhone: z.boolean().optional(),
 });
 export type VenueRules = z.infer<typeof VenueRulesSchema>;
 

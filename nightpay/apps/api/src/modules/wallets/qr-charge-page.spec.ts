@@ -33,6 +33,14 @@ describe('pagar con el saldo escaneando el QR del personal', () => {
     expect(es).toContain('/s/tok-1');
   });
 
+  it('a nombre de una compañera (cobro por el encargado): «Masaje · Servicio con Nerea · Luna», en su idioma', () => {
+    const served = { ...view, requestedByName: 'Nerea', served: true };
+    expect(renderQrChargePage('tok-1', 'es', served, NOW)).toContain('<p class="who">Masaje · Servicio con Nerea · Luna</p>');
+    expect(renderQrChargePage('tok-1', 'en', served, NOW)).toContain('<p class="who">Masaje · Service with Nerea · Luna</p>');
+    // Sin compañera, como hoy: el nombre de quien cobra, solo.
+    expect(renderQrChargePage('tok-1', 'es', view, NOW)).toContain('<p class="who">Masaje · Lola · Luna</p>');
+  });
+
   it('cobro único ya pagado con tarjeta: «Ya está pagado con tarjeta» y que del saldo no se cobró nada', () => {
     const html = renderQrChargePage('tok-1', 'es', { ...view, status: 'CANCELED', paidElsewhere: true }, NOW);
     expect(html).toContain('Ya está pagado con tarjeta');

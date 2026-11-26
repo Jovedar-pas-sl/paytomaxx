@@ -3,7 +3,7 @@
 import { useEffect, useState, type CSSProperties, type FormEvent } from 'react';
 import { passkeysSupported, type CreationOptionsJSON } from '@nightpay/api-client';
 import { unlockName, type StaffPasskeyView } from '@nightpay/contracts';
-import { Button, Input, Modal } from '@nightpay/ui';
+import { Button, EmptyState, Input, Modal } from '@nightpay/ui';
 import { fetchPasskeys, fetchStepUp, passkeyRegister, passkeyRegistrationOptions, removePasskey, stepUpErrorText } from '../lib/api-step-up';
 
 /**
@@ -122,7 +122,7 @@ export function PasskeySheet({ open, onClose }: { open: boolean; onClose: () => 
             </Button>
           </div>
         ))}
-        {keys?.length === 0 ? <p style={note}>Aún no tienes ninguna llave.</p> : null}
+        {keys?.length === 0 ? <EmptyState compact icon="lock" title="Aún no tienes ninguna llave." /> : null}
         {done ? <p style={{ margin: 0 }}>Llave creada. Ya puedes confirmar con este móvil.</p> : null}
         {!supported ? <p style={{ margin: 0 }}>Este navegador no permite llaves de acceso.</p> : null}
         {supported && !options ? (

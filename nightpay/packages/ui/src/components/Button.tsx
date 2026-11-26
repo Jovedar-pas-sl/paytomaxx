@@ -1,6 +1,11 @@
 import type { ButtonHTMLAttributes, ReactNode } from 'react';
+import { Icon, type IconName } from './Icon';
 
-type Variant = 'primary' | 'ghost' | 'danger';
+/**
+ * `primary`: la acción de la pantalla (una sola). `ghost`: el secundario. `danger`: lo que saca o borra dinero.
+ * `quiet`: sin fondo ni filete, para lo de poca importancia. `danger-outline`: borrar o devolver dinero desde una fila.
+ */
+type Variant = 'primary' | 'ghost' | 'danger' | 'quiet' | 'danger-outline';
 type Size = 'sm' | 'md' | 'lg';
 
 interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
@@ -12,6 +17,10 @@ interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
    * El botón sigue deshabilitado (no se cobra dos veces) y en su color.
    */
   loadingLabel?: string;
+  /** Un icono de 20 px delante del texto… */
+  icon?: IconName;
+  /** …o detrás («Ver detalle ›»). */
+  iconEnd?: IconName;
   children: ReactNode;
 }
 
@@ -20,6 +29,8 @@ export function Button({
   size = 'md',
   loading = false,
   loadingLabel,
+  icon,
+  iconEnd,
   disabled,
   children,
   className,
@@ -44,7 +55,11 @@ export function Button({
       ) : (
         <>
           {loading ? <Spinner /> : null}
-          <span style={{ opacity: loading ? 0 : 1, transition: 'opacity 150ms' }}>{children}</span>
+          <span style={{ opacity: loading ? 0 : 1, transition: 'opacity 150ms' }}>
+            {icon ? <Icon name={icon} size={20} className="np-btn-icon" /> : null}
+            {children}
+            {iconEnd ? <Icon name={iconEnd} size={20} className="np-btn-icon np-btn-icon-end" /> : null}
+          </span>
         </>
       )}
     </button>

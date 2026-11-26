@@ -5,6 +5,7 @@ import {
   HttpCode,
   Inject,
   Param,
+  ParseUUIDPipe,
   Post,
   Query,
   UseGuards,
@@ -74,6 +75,19 @@ export class OperatorsController {
     @Query(new ZodValidationPipe(OwnHistoryQuerySchema)) query: OwnHistoryQuery,
   ): Promise<OwnHistoryPage<EarningView>> {
     return this.operators.myEarningsPage(user.sub, user.tenantId, query);
+  }
+
+  /**
+   * «No es mío»: un servicio que otra persona le cobró a su nombre no es suyo.
+   * Avisa al dueño y al encargado (Incidencias y Telegram); su dinero no se toca.
+   */
+  @Post('me/earnings/:id/not-mine')
+  @UseGuards(RolesGuard, UserRateLimitGuard)
+  @Roles('OPERATOR')
+  @UserRateLimit({ max: 10, windowSec: 60, scope: 'me-not-mine' })
+  @HttpCode(200)
+  async notMine(@CurrentUser() user: JwtPayload, @Param('id', ParseUUIDPipe) id: string): Promise<{ reported: true }> {
+    return this.operators.notMine(user.sub, user.tenantId, id);
   }
 
   @Get('me/payments')

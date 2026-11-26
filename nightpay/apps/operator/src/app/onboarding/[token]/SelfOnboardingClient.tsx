@@ -13,6 +13,7 @@ import {
   type WalletProvider,
   type WalletStatusKYC,
 } from '@/lib/api';
+import { SkelCard } from '@/components/loading-shapes';
 import type { SavedPayout } from '@/lib/payout-address';
 import { ONBOARDING_LINK_NOTE, savedScreen, type SavedKind } from './onboarding-copy';
 import { EMPTY_PAYOUT, type PayoutValues } from './onboarding-payout';
@@ -173,7 +174,11 @@ export function SelfOnboardingClient({ token }: Props) {
   }
 
   if (loading) {
-    return <main className="np-screen" style={pageStyle}>Cargando tu perfil…</main>;
+    return (
+      <main className="np-screen" style={pageStyle}>
+        <SkelCard title fields={3} style={{ ...cardStyle, width: '100%', maxWidth: '28rem' }} />
+      </main>
+    );
   }
   if (error && !profile) {
     return (

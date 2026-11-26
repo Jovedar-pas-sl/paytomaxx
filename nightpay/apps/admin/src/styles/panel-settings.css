@@ -80,17 +80,20 @@
   gap: 0.75rem 1rem;
 }
 
-/* Una fila: texto a la izquierda, interruptor a la derecha. */
-.np-set-row {
+/* Una fila: texto a la izquierda y, a la derecha, lo que se elige. En una
+   tarjeta de Ajustes, la fila del interruptor común (Switch de @nightpay/ui,
+   que trae su hueco con el texto) lleva la misma raya entre filas. */
+.np-set-row,
+.np-set-card .np-switch-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 1rem;
   padding: 0.625rem 0;
   border-top: 1px solid var(--np-border);
 }
 
-.np-set-head + .np-set-row {
+.np-set-head + .np-set-row,
+.np-set-head + .np-switch-row {
   border-top: 0;
   padding-top: 0;
 }
@@ -100,6 +103,7 @@
   flex-direction: column;
   gap: 0.15rem;
   min-width: 0;
+  margin-right: 1rem;
 }
 
 .np-set-row-label {
@@ -130,16 +134,6 @@
   flex-direction: column;
   gap: 0.75rem;
   padding-top: 0.25rem;
-}
-
-.np-switch:focus-visible {
-  outline: 2px solid var(--np-accent);
-  outline-offset: 2px;
-}
-
-.np-switch:disabled {
-  opacity: 0.55;
-  cursor: progress;
 }
 
 .np-set-save,
@@ -271,22 +265,8 @@
     padding: 1rem;
   }
 
-  /* El interruptor se ve igual, pero se toca en 44 px de alto. */
-  .np-switch::before {
-    content: '';
-    position: absolute;
-    inset: -0.25rem 0;
-  }
-
   .np-set-save .np-btn {
     flex: 1 1 100%;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .np-switch,
-  .np-switch-thumb {
-    transition: none;
   }
 }
 

@@ -12,6 +12,7 @@ import { maskedPayoutAccount } from '../operators/payout-account';
 import { availableCentsOf } from '../operators/payout-math';
 import { SALDOS_TAB_PATH } from '../wallets/saldo-texts';
 import { formatWalletCode } from '../wallets/wallet-rules';
+import { eur } from '../../common/money/eur';
 
 /**
  * Cierre de la noche en pasos: reglas puras. El servicio (close-check.service)
@@ -483,8 +484,4 @@ function count(n: number, one: string, many: string): string {
 
 function days(n: number): string {
   return n === 1 ? '1 día' : `${n} días`;
-}
-
-function eur(cents: number): string {
-  return `${(cents / 100).toFixed(2).replace('.', ',')} €`;
 }

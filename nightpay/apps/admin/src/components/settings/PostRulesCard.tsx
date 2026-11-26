@@ -5,8 +5,7 @@ import { PUESTOS, type PostCode, type PostRule, type SectionCode } from '@nightp
 import { fetchPostRules, updatePostRules } from '@/lib/api';
 import { enabledSections } from '@/lib/money-map';
 import { useSections } from '@/lib/use-sections';
-import { SwitchLine } from '../ToggleSwitch';
-import { LoadState, SettingsCard, StatusLine, useSavedFlash, useSettingsLoad } from './SettingsBits';
+import { LoadState, SettingsCard, StatusLine, Switch, useSavedFlash, useSettingsLoad } from './SettingsBits';
 
 // «Devolver saldo en efectivo» ya no sale: el saldo no se devuelve (decisión del dueño, 17-nov-2026).
 const FLAGS: ReadonlyArray<{ key: 'tips' | 'cash' | 'topUps'; label: string }> = [
@@ -77,9 +76,7 @@ export function PostRulesCard() {
               </div>
               <div>
                 {FLAGS.map((f) => (
-                  <SwitchLine key={f.key} checked={rule[f.key]} onChange={(next) => void save(p.code, { [f.key]: next })} disabled={busy}>
-                    {f.label}
-                  </SwitchLine>
+                  <Switch key={f.key} label={f.label} checked={rule[f.key]} onChange={(next) => void save(p.code, { [f.key]: next })} disabled={busy} />
                 ))}
               </div>
             </fieldset>

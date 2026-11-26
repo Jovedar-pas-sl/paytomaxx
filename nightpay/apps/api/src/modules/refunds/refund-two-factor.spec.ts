@@ -10,18 +10,18 @@ describe('twoFactorReason — el 2FA mira lo devuelto acumulado, no cada petici�
   });
 
   it('una sola de 100 € o más → hace falta', () => {
-    expect(twoFactorReason(TWO_FA_THRESHOLD_CENTS, none)).toMatch(/en este cobro sumas 100,00 €/);
+    expect(twoFactorReason(TWO_FA_THRESHOLD_CENTS, none)).toMatch(/en este cobro sumas 100,00\u00a0€/);
   });
 
   it('99,99 € × N en el MISMO cobro → la que llega a 100 € lo pide', () => {
     expect(twoFactorReason(9_999, { samePaymentCents: 9_999, lastDayCents: 9_999 })).toMatch(
-      /en este cobro sumas 199,98 €/,
+      /en este cobro sumas 199,98\u00a0€/,
     );
   });
 
   it('99,99 € × N en cobros DISTINTOS → lo pide por lo devuelto en 24 h', () => {
     expect(twoFactorReason(9_999, { samePaymentCents: 0, lastDayCents: 9_999 })).toMatch(
-      /en las últimas 24 h sumas 199,98 €/,
+      /en las últimas 24 h sumas 199,98\u00a0€/,
     );
   });
 });

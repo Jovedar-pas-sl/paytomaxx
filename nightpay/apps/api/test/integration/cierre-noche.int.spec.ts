@@ -319,14 +319,14 @@ describe('cierre de la noche con arqueo de caja (Postgres real)', () => {
       expect.objectContaining({ operatorId: cero.chica, toPayCents: 10_800, heldCents: 0, earnedTonightCents: 9000 }),
     ]);
     expect(stepOf(atClose.steps, 'chicas')).toMatchObject({ status: 'warn', count: 1 });
-    expect(stepOf(atClose.steps, 'chicas').items[0]!.label).toBe('Lola cero: Págale 108,00 €');
+    expect(stepOf(atClose.steps, 'chicas').items[0]!.label).toBe('Lola cero: Págale 108,00\u00a0€');
 
     const held = await asStaff(siete.id, () => nights.closeCheck(siete.id));
     expect(held.holdDays).toBe(7);
     expect(held.chicas).toEqual([
       expect.objectContaining({ operatorId: siete.chica, toPayCents: 1800, heldCents: 9000, earnedTonightCents: 9000 }),
     ]);
-    expect(stepOf(held.steps, 'chicas').detail).toContain('90,00 € siguen en espera: se pagan pasados 7 días');
+    expect(stepOf(held.steps, 'chicas').detail).toContain('90,00\u00a0€ siguen en espera: se pagan pasados 7 días');
 
     // «Pagar» paga justo lo que dice la lista.
     const paid = await asStaff(siete.id, () =>

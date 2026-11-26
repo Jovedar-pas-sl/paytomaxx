@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, type CSSProperties, type FormEvent } from 'react';
-import { Button, Input } from '@nightpay/ui';
+import { Button, Checkbox, Input } from '@nightpay/ui';
 import {
   regenerateInvite,
   resetOperatorPassword,
@@ -20,7 +20,6 @@ import { useVenueTimezone } from '@/lib/venue-context';
 import { Notice } from './Notice';
 import { OtpInput } from './OtpInput';
 import { PAYOUT_METHOD_LABELS, PayoutMethodForm } from './PayoutMethodForm';
-import { SwitchLine } from './ToggleSwitch';
 
 /** Lo que este formulario puede cambiar de una chica (la cuenta de cobro va aparte). */
 interface EditSnapshot {
@@ -139,9 +138,7 @@ export function EditOperatorForm({
         onChange={(e) => setCommissionPct(e.target.value)}
         disabled={!isOwner || submitting}
       />
-      <SwitchLine checked={active} onChange={setActive} disabled={!isOwner || submitting}>
-        Activa (puede crear cobros)
-      </SwitchLine>
+      <Checkbox label="Activa (puede crear cobros)" checked={active} onChange={setActive} disabled={!isOwner || submitting} />
       {isOwner ? null : (
         <p style={hintText}>Solo el dueño cambia la comisión, si está activa y su método de cobro.</p>
       )}
@@ -247,7 +244,6 @@ function AccessPanel({ operator, isOwner }: { operator: Operator; isOwner: boole
   const [inviteResult, setInviteResult] = useState<{ url: string; expiresAt: string } | null>(null);
   const [resetResult, setResetResult] = useState<{ password: string } | null>(null);
   const [explicitPass, setExplicitPass] = useState('');
-  const [showPass, setShowPass] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
 
   async function handleRegenerateInvite() {
@@ -352,9 +348,10 @@ function AccessPanel({ operator, isOwner }: { operator: Operator; isOwner: boole
           <p style={{ margin: '0 0 0.5rem', fontSize: '0.875rem', color: 'var(--np-text-dim)' }}>
             Útil si la compañera olvidó su contraseña. La verás UNA vez para copiarla.
           </p>
-          <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'stretch', marginBottom: '0.4rem' }}>
-            <input
-              type={showPass ? 'text' : 'password'}
+          {/* «Ver» / «Ocultar», el del campo común (Input). */}
+          <div style={{ marginBottom: '0.4rem' }}>
+            <Input
+              type="password"
               value={explicitPass}
               onChange={(e) => setExplicitPass(e.target.value)}
               placeholder="Escribe una (mín. 8) o deja vacío"
@@ -362,20 +359,7 @@ function AccessPanel({ operator, isOwner }: { operator: Operator; isOwner: boole
               autoComplete="new-password"
               name="operator-new-password"
               disabled={busy !== null}
-              style={{
-                ...passInput,
-                fontFamily: showPass ? 'var(--np-font-mono)' : 'inherit',
-              }}
             />
-            <button
-              type="button"
-              onClick={() => setShowPass((s) => !s)}
-              aria-pressed={showPass}
-              aria-label={showPass ? 'Ocultar contraseña' : 'Ver contraseña'}
-              style={toggleBtn}
-            >
-              {showPass ? 'Ocultar' : 'Ver'}
-            </button>
           </div>
           <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
             <Button
@@ -492,24 +476,4 @@ const passwordCode: CSSProperties = {
   borderRadius: '0.3rem',
   textAlign: 'center',
   letterSpacing: '0.05em',
-};
-
-const passInput: CSSProperties = {
-  flex: 1,
-  padding: '0.55rem',
-  borderRadius: '0.4rem',
-  border: '1px solid var(--np-border)',
-  background: 'var(--np-bg-input, var(--np-surface))',
-  color: 'var(--np-text)',
-  fontSize: '0.875rem',
-};
-
-const toggleBtn: CSSProperties = {
-  background: 'transparent',
-  border: '1px solid var(--np-border)',
-  borderRadius: '0.4rem',
-  padding: '0 0.7rem',
-  cursor: 'pointer',
-  color: 'var(--np-text-mute)',
-  fontFamily: 'inherit',
 };

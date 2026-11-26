@@ -147,7 +147,7 @@ export function CobrosTable({ rows, actions, empty, hidePerson, extra, showRefer
               {actions ? (
                 <td data-label="Acciones" data-card="actions" style={{ textAlign: 'right' }} {...(i === 0 ? { 'data-tour': 'cobros-acciones' } : {})}>
                   {onDetails ? (
-                    <Button type="button" variant="ghost" size="sm" onClick={() => onDetails(row)} title={COBRO_ACTION_TITLES.detail}>
+                    <Button type="button" variant="quiet" size="sm" iconEnd="chevron-right" onClick={() => onDetails(row)} title={COBRO_ACTION_TITLES.detail}>
                       {COBRO_ACTION_LABELS.detail}
                     </Button>
                   ) : null}

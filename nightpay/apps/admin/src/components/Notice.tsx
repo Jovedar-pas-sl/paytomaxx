@@ -1,6 +1,6 @@
 import type { CSSProperties, ReactNode } from 'react';
-import { Button } from '@nightpay/ui';
-import { TONE_COLORS, type Tone } from './Pill';
+import { Banner } from '@nightpay/ui';
+import type { Tone } from './Pill';
 
 interface Props {
   tone: Tone;
@@ -11,35 +11,14 @@ interface Props {
 }
 
 /**
- * Aviso dentro de un panel: errores (role=alert, se leen al aparecer) y
- * resultados o estados (role=status).
+ * Aviso dentro de un panel: es la franja común (Banner), con su icono. Los
+ * errores y los avisos se leen al aparecer; los resultados y los estados, sin
+ * interrumpir.
  */
 export function Notice({ tone, children, action, style }: Props) {
-  const { color, background } = TONE_COLORS[tone];
   return (
-    <div
-      role={tone === 'danger' || tone === 'warning' ? 'alert' : 'status'}
-      style={{ ...boxStyle, borderColor: color, background, ...style }}
-    >
-      <div style={{ flex: '1 1 14rem', color: 'var(--np-text)' }}>{children}</div>
-      {action ? (
-        <Button variant="ghost" type="button" onClick={action.onClick} size="sm">
-          {action.label}
-        </Button>
-      ) : null}
-    </div>
+    <Banner tone={tone} action={action} style={style}>
+      {children}
+    </Banner>
   );
 }
-
-const boxStyle: CSSProperties = {
-  display: 'flex',
-  alignItems: 'center',
-  gap: '0.75rem',
-  flexWrap: 'wrap',
-  padding: '0.75rem 1rem',
-  border: '1px solid',
-  borderRadius: 'var(--np-r-sm)',
-  fontSize: '0.875rem',
-  lineHeight: 1.45,
-};
-

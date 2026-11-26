@@ -1,118 +1,136 @@
-import type { CSSProperties, InputHTMLAttributes, ReactNode, SelectHTMLAttributes } from 'react';
+'use client';
 
-interface InputProps extends Omit<InputHTMLAttributes<HTMLInputElement>, 'size'> {
+import { useEffect, useId, useRef, useState, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttributes } from 'react';
+import { FieldError } from './FieldError';
+
+/**
+ * Los campos (Piezas I, idea 59). La etiqueta va enlazada con su campo (label
+ * for → id) y fuera de él; la pista y el error (FieldError, Piezas II),
+ * debajo, enlazados para el lector de pantalla (aria-describedby). Estilos en
+ * pieces.css: .np-field.
+ */
+interface FieldText {
   label?: string;
   hint?: string;
+  /** Lo que está mal en este campo: lo marca (aria-invalid) y se lee con él. */
   error?: string;
-  size?: 'md' | 'lg';
-  rightSlot?: ReactNode;
 }
 
-export function Input({
-  label,
-  hint,
-  error,
-  size = 'md',
-  rightSlot,
-  style,
-  ...rest
-}: InputProps) {
-  // Marcado en rojo con su error o si quien lo usa lo marca (aria-invalid: p. ej. un FormError aparte).
-  const invalid = Boolean(error) || rest['aria-invalid'] === true || rest['aria-invalid'] === 'true';
+interface InputProps extends Omit<InputHTMLAttributes<HTMLInputElement>, 'size'>, FieldText {
+  size?: 'md' | 'lg';
+  /** La unidad fija a la derecha («€»): no se lee; la etiqueta la dice («Importe en euros»). */
+  suffix?: string;
+}
+
+export function Input({ label, hint, error, size = 'md', suffix, id, className, type, ...rest }: InputProps) {
+  const own = useId();
+  const fieldId = id ?? own;
+  const help = fieldHelp(fieldId, hint, error, rest['aria-describedby'], rest['aria-invalid']);
+  const password = type === 'password';
+  const [shown, setShown] = useState(false);
+  const toggle = useRef<HTMLButtonElement>(null);
+
+  // Nace oculta (también si se desmonta enseñada). Enseñada, se vuelve a ocultar al enviar su formulario: el
+  // navegador la guarda como contraseña, no como texto.
+  useEffect(() => {
+    const form = toggle.current?.form;
+    if (!shown || !form) return undefined;
+    const hide = () => setShown(false);
+    form.addEventListener('submit', hide);
+    return () => form.removeEventListener('submit', hide);
+  }, [shown]);
+
   return (
-    <label style={{ display: 'flex', flexDirection: 'column', gap: '0.375rem', width: '100%' }}>
-      {label ? <span style={labelStyle}>{label}</span> : null}
-      <span style={inputWrap}>
+    <div className="np-field">
+      {label ? (
+        <label className="np-field-label" htmlFor={fieldId}>
+          {label}
+          {suffix ? <span className="np-sr-only">{suffix === '€' ? ' en euros' : ` ${suffix}`}</span> : null}
+        </label>
+      ) : null}
+      <div className="np-field-box">
         <input
           {...rest}
-          style={{
-            ...inputBase,
-            ...(size === 'lg' ? sizeLg : sizeMd),
-            borderColor: invalid ? 'var(--np-danger)' : 'var(--np-border-hi)',
-            paddingRight: rightSlot ? '4.5rem' : undefined,
-            ...style,
-          }}
+          {...help.attrs}
+          id={fieldId}
+          type={password && shown ? 'text' : type}
+          // Una contraseña nunca pasa por el corrector ni el teclado le pone mayúsculas (tampoco al enseñarla).
+          {...(password ? { spellCheck: false, autoCapitalize: 'none', autoCorrect: 'off' } : {})}
+          className={['np-field-input', className].filter(Boolean).join(' ')}
+          data-size={size === 'lg' ? 'lg' : undefined}
+          data-end={suffix || password ? '' : undefined}
+          data-revealed={password && shown ? '' : undefined}
         />
-        {rightSlot ? <span style={slotStyle}>{rightSlot}</span> : null}
-      </span>
-      {error ? (
-        <span style={{ ...hintStyle, color: 'var(--np-danger-text)' }}>{error}</span>
-      ) : hint ? (
-        <span style={hintStyle}>{hint}</span>
-      ) : null}
-    </label>
+        {suffix ? (
+          <span className="np-field-suffix" aria-hidden="true">
+            {suffix}
+          </span>
+        ) : null}
+        {password ? (
+          // Fuera del <label> (un botón dentro de una etiqueta no es HTML válido) y dentro de la caja, a la derecha.
+          <button
+            ref={toggle}
+            type="button"
+            className="np-field-reveal"
+            onClick={() => setShown((s) => !s)}
+            aria-label={shown ? 'Ocultar contraseña' : 'Ver contraseña'}
+            disabled={rest.disabled}
+          >
+            {shown ? 'Ocultar' : 'Ver'}
+          </button>
+        ) : null}
+      </div>
+      {help.node}
+    </div>
   );
 }
 
-interface SelectProps extends SelectHTMLAttributes<HTMLSelectElement> {
-  label?: string;
-  hint?: string;
-}
+interface SelectProps extends SelectHTMLAttributes<HTMLSelectElement>, FieldText {}
 
-export function Select({ label, hint, style, className, children, ...rest }: SelectProps) {
+export function Select({ label, hint, error, id, className, children, ...rest }: SelectProps) {
+  const own = useId();
+  const fieldId = id ?? own;
+  const help = fieldHelp(fieldId, hint, error, rest['aria-describedby'], rest['aria-invalid']);
   return (
-    <label style={{ display: 'flex', flexDirection: 'column', gap: '0.375rem', width: '100%' }}>
-      {label ? <span style={labelStyle}>{label}</span> : null}
+    <div className="np-field">
+      {label ? (
+        <label className="np-field-label" htmlFor={fieldId}>
+          {label}
+        </label>
+      ) : null}
       <select
         {...rest}
+        {...help.attrs}
+        id={fieldId}
         // np-select: la flecha, con el color de cada tema (styles.css).
-        className={['np-select', className].filter(Boolean).join(' ')}
-        style={{
-          ...inputBase,
-          ...sizeMd,
-          paddingRight: '2.5rem',
-          ...style,
-        }}
+        className={['np-select', 'np-field-input', className].filter(Boolean).join(' ')}
       >
         {children}
       </select>
-      {hint ? <span style={hintStyle}>{hint}</span> : null}
-    </label>
+      {help.node}
+    </div>
   );
 }
 
-// Grafito: etiqueta 14/500 en t2, sin mayúsculas ni espaciado.
-const labelStyle: CSSProperties = {
-  fontSize: 'var(--np-fs-14)',
-  fontWeight: 500,
-  color: 'var(--np-text-mute)',
-};
-
-const inputWrap: CSSProperties = {
-  position: 'relative',
-  display: 'flex',
-  alignItems: 'center',
-  width: '100%',
-};
-
-const inputBase: CSSProperties = {
-  width: '100%',
-  padding: '0 1rem',
-  fontFamily: 'var(--np-font-sans)',
-  // 16 px: el iPhone no amplía al tocar el campo.
-  fontSize: 'var(--np-fs-16)',
-  fontWeight: 500,
-  color: 'var(--np-text)',
-  // backgroundColor (no `background`): el atajo borraría la flecha de .np-select.
-  backgroundColor: 'var(--np-surface)',
-  // Filete de 1 px en el fuerte (3,6:1 sobre el fondo: el campo se ve sin tocarlo).
-  border: '1px solid var(--np-border-hi)',
-  borderRadius: 'var(--np-r-sm)',
-  // Sin outline: 'none': con el teclado se ve el anillo de :focus-visible.
-  transition: 'border-color var(--np-d-fast), box-shadow var(--np-d-fast)',
-};
-
-const sizeMd: CSSProperties = { height: 'var(--np-field-h)' };
-const sizeLg: CSSProperties = { height: '4.5rem', fontSize: 'var(--np-fs-28)', fontWeight: 600 };
-
-const slotStyle: CSSProperties = {
-  position: 'absolute',
-  right: '0.5rem',
-  display: 'flex',
-  alignItems: 'center',
-};
-
-const hintStyle: CSSProperties = {
-  fontSize: 'var(--np-fs-14)',
-  color: 'var(--np-text-dim)',
-};
+/**
+ * La pista o el error de debajo, con su id, y lo que el campo necesita para
+ * leerlos: aria-describedby (sin perder el que traiga quien lo usa, p. ej. el
+ * FormError de encima del botón) y aria-invalid con el error.
+ */
+function fieldHelp(fieldId: string, hint: string | undefined, error: string | undefined, describedBy: string | undefined, invalid: InputProps['aria-invalid']) {
+  const helpId = `${fieldId}-help`;
+  const text = error || hint;
+  // El error, tal cual y mientras dure (no se esconde al escribir: hay quien valida a cada tecla); si no, la pista.
+  const node: ReactNode = error ? (
+    <FieldError id={helpId}>{error}</FieldError>
+  ) : hint ? (
+    <span id={helpId} className="np-field-hint">
+      {hint}
+    </span>
+  ) : null;
+  const ids = [describedBy, text ? helpId : undefined].filter(Boolean).join(' ');
+  return {
+    node,
+    attrs: { 'aria-describedby': ids || undefined, 'aria-invalid': error ? true : invalid },
+  };
+}

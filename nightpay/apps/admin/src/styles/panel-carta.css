@@ -48,28 +48,13 @@
   font-size: 0.875rem;
   color: var(--np-text-mute);
 }
+/* La casilla común (Checkbox); su ayuda es la lista de lo que cambia. */
 .np-tpl-tick {
-  display: flex;
-  align-items: flex-start;
-  gap: 0.625rem;
   margin-top: 0.5rem;
-  min-height: 2.75rem;
-  cursor: pointer;
-  font-weight: 600;
-}
-.np-tpl-tick > input {
-  width: 1.375rem;
-  height: 1.375rem;
-  margin: 0.125rem 0 0;
-  flex: none;
-  accent-color: var(--np-accent);
 }
 .np-tpl-tick ul {
   margin: 0.25rem 0 0;
   padding-left: 1.1rem;
-  font-weight: 400;
-  font-size: 0.875rem;
-  color: var(--np-text-mute);
 }
 .np-tpl-msg { margin: 0.75rem 0 0; }
 .np-tpl-msg[data-tone='danger'] { color: var(--np-danger); }

@@ -240,6 +240,7 @@ describe('la chica hace un cobro con QR', () => {
           beneficiaryOperatorId: null,
           beneficiaryCents: null,
           chargerCents: null,
+          serviceOperatorId: null,
         },
       ],
     });
@@ -270,7 +271,7 @@ describe('la chica hace un cobro con QR', () => {
     prisma.venue.findUnique.mockResolvedValue({ operatorMaxCobroCents: 20_000, walletGroup: 'principal' });
     const waiter = { userId: 'wt-1', role: 'WAITER' as const, tenantId: 'other' };
     const encargado = { ...manager, tenantId: 'other' };
-    await expect(svc.createQrCharge(waiter, { amountCents: 25_000 })).rejects.toThrow('El máximo que puedes cobrar de una vez es 200,00 €');
+    await expect(svc.createQrCharge(waiter, { amountCents: 25_000 })).rejects.toThrow('El máximo que puedes cobrar de una vez es 200,00\u00a0€');
     await expect(svc.createQrCharge(encargado, { amountCents: 25_000, category: 'VENUE_BAR' })).rejects.toBeInstanceOf(ForbiddenException);
     expect(tx.walletChargeRequest.create).not.toHaveBeenCalled();
     // La carta (el precio lo pone el local) y el dueño: sin tope.
@@ -292,7 +293,7 @@ describe('la chica hace un cobro con QR', () => {
     const cuenta = (amountCents: number) => ({ lines: [{ serviceItemId: 'svc-2', qty: 2 }, { category: 'VENUE_BAR' as const, amountCents }] });
     for (const actor of [{ userId: 'wt-1', role: 'WAITER' as const, tenantId: 'other' }, { ...manager, tenantId: 'other' }]) {
       await expect(svc.createQrCharge(actor, cuenta(600)), actor.role).resolves.toMatchObject({ amountCents: 28_600 });
-      await expect(svc.createQrCharge(actor, cuenta(25_000)), actor.role).rejects.toThrow('El máximo que puedes cobrar de una vez es 200,00 €');
+      await expect(svc.createQrCharge(actor, cuenta(25_000)), actor.role).rejects.toThrow('El máximo que puedes cobrar de una vez es 200,00\u00a0€');
     }
   });
 
@@ -304,7 +305,7 @@ describe('la chica hace un cobro con QR', () => {
       const waiter = { userId: 'wt-1', role: 'WAITER' as const, tenantId: 'other' };
       await expect(svc.createQrCharge(waiter, { amountCents: 25_000 })).resolves.toMatchObject({ amountCents: 25_000 });
       await expect(svc.createQrCharge({ ...manager, tenantId: 'other' }, { amountCents: 25_000, category: 'VENUE_BAR' })).resolves.toMatchObject({ amountCents: 25_000 });
-      await expect(svc.createQrCharge(chica, { amountCents: 25_000 })).rejects.toThrow('El máximo que puedes cobrar de una vez es 200,00 €');
+      await expect(svc.createQrCharge(chica, { amountCents: 25_000 })).rejects.toThrow('El máximo que puedes cobrar de una vez es 200,00\u00a0€');
     } finally {
       vi.unstubAllEnvs();
     }
@@ -813,7 +814,7 @@ describe('devolver el saldo al cliente que se va', () => {
     const err = await svc.payout(manager, 'w-1', { method: 'CASH' }).catch((e: unknown) => e);
     expect(err).toBeInstanceOf(ForbiddenException);
     expect((err as ForbiddenException).getResponse()).toMatchObject({ code: 'TOTP_REQUIRED' });
-    expect((err as Error).message).toMatch(/Devolver 300,00 € en efectivo: con más de 100,00 €/);
+    expect((err as Error).message).toMatch(/Devolver 300,00\u00a0€ en efectivo: con más de 100,00\u00a0€/);
     expect(state.wallet).toMatchObject({ balanceCents: 30_000, status: 'ACTIVE' });
     expect(payoutMock.create).not.toHaveBeenCalled();
     // Sin la app activada, se le dice (no un código que no puede poner).
@@ -937,7 +938,7 @@ describe('devolver el saldo al cliente que se va', () => {
         return {};
       })
       .mockRejectedValueOnce(new Error('fallo'));
-    await expect(svc.payout(owner, 'w-1', { totpCode: '123456', method: 'CARD' })).rejects.toThrow(/quedan 100,00 €/);
+    await expect(svc.payout(owner, 'w-1', { totpCode: '123456', method: 'CARD' })).rejects.toThrow(/quedan 100,00\u00a0€/);
     expect(state.payouts).toEqual([expect.objectContaining({ status: 'DONE', amountCents: 20_000 })]);
     expect(state.wallet).toMatchObject({ balanceCents: 10_000, status: 'ACTIVE' });
   });
@@ -1019,7 +1020,7 @@ describe('devolver el saldo al cliente que se va', () => {
       const big = payoutService({ wallet: { balanceCents: 150_000 }, cashIn: 150_000 });
       await expect(big.svc.payout(owner, 'w-1', { totpCode: '123456', method: 'CASH' })).resolves.toMatchObject({ refundedCents: 99_999, remainingCents: 50_001 });
       const already = payoutService({ cashIn: 130_000, cashOutToday: 99_999 });
-      await expect(already.svc.payout(owner, 'w-1', { totpCode: '123456', method: 'CASH' })).rejects.toThrow(/ya se le devolvieron 999,99 €/);
+      await expect(already.svc.payout(owner, 'w-1', { totpCode: '123456', method: 'CASH' })).rejects.toThrow(/ya se le devolvieron 999,99\u00a0€/);
     });
 
     it('a la tarjeta, como mucho el saldo menos el efectivo que sigue en él (recarga 500 con tarjeta, gasta 500, recarga 500 en efectivo)', async () => {

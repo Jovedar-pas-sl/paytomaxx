@@ -17,6 +17,7 @@ import { Button } from './Button';
 import { ProfileContact, ProfileSecurity } from './ProfileAccount';
 import { errorText, ProfileIdentity } from './ProfileIdentity';
 import { ProfileBlock, Segmented, touchButton, type Choice } from './profile-parts';
+import { Skeleton } from './Skeleton';
 
 const THEMES: readonly Choice<ThemeChoice>[] = [
   { value: 'dark', label: 'Oscuro' },
@@ -159,7 +160,12 @@ export function ProfileScreen({ api, onLogout, device = 'full', deviceTitle = 'E
           </div>
         </>
       ) : error ? null : (
-        <p style={{ margin: 0, color: 'var(--np-text-mute)', fontSize: 'var(--np-fs-16)' }}>Cargando tu perfil…</p>
+        // La silueta de la foto (el círculo de StaffAvatar, 112) y dos líneas.
+        <div aria-busy="true" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+          <span className="np-sr-only" role="status">Cargando…</span>
+          <Skeleton width="7rem" height="7rem" round />
+          <Skeleton lines={2} width="60%" style={{ marginTop: '1rem' }} />
+        </div>
       )}
       <div data-tour="perfil-movil">
         <ProfileDevice mode={device} title={deviceTitle} themeFallback={themeFallback} />

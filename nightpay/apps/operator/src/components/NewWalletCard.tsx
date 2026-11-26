@@ -1,13 +1,14 @@
 'use client';
 
 import { useEffect, useMemo, useState, type CSSProperties } from 'react';
-import { Button } from '@nightpay/ui';
+import { Button, Icon } from '@nightpay/ui';
 import { walletCardUrl } from '@nightpay/contracts';
 import { fetchWalletById, getUser, issueWalletCard, linkWalletCard, setWalletPin, type WalletLookup } from '@/lib/api';
 import { blankCodeFrom, tapChip } from '@/lib/chip-tap';
 import { saveFichaContext } from '@/lib/ficha-context';
 import { fichaPlace, useReaderSpot } from '@/lib/lector-nfc';
 import { nfcSupported } from '@/lib/nfc';
+import { SkelCard } from './loading-shapes';
 import { PinPad } from './PinPad';
 
 /**
@@ -71,7 +72,7 @@ export function NewWalletCard({ walletId, withCard = true }: { walletId: string;
         {error}
       </p>
     ) : (
-      <p style={hintStyle}>Cargando el saldo del cliente…</p>
+      <SkelCard figure lines={1} style={boxStyle} />
     );
   }
 
@@ -102,14 +103,20 @@ export function NewWalletCard({ walletId, withCard = true }: { walletId: string;
         código y su PIN.
       </p>
       {wallet.hasPin ? (
-        <p style={okStyle}>✓ Ya tiene PIN</p>
+        <p style={okStyle}>
+          <Icon name="check" size={20} className="np-icon-lead" />
+          Ya tiene PIN
+        </p>
       ) : (
         <Button variant="ghost" onClick={() => setChoosing(true)}>
           Que elija su PIN aquí
         </Button>
       )}
       {!withCard ? null : wallet.hasCard ? (
-        <p style={okStyle}>✓ Tiene ficha: la acerca y pone su PIN</p>
+        <p style={okStyle}>
+          <Icon name="check" size={20} className="np-icon-lead" />
+          Tiene ficha: la acerca y pone su PIN
+        </p>
       ) : reading ? (
         <Button variant="ghost" onClick={() => reading.abort()}>
           Acerca la ficha {fichaPlace(readerSpot, 'móvil')}… (cancelar)

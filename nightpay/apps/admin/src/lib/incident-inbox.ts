@@ -105,6 +105,12 @@ export const INCIDENT_KINDS: Record<IncidentKind, KindMeta> = {
     tab: 'payments',
     hint: 'Revisa sus cobros de esa noche y habla con esa persona. Los números que lo hacen saltar se cambian en Ajustes → Telegram.',
   },
+  service_disputed: {
+    group: 'Personal',
+    title: 'Una compañera dice que un servicio no es suyo',
+    tab: 'payments',
+    hint: 'Habla con quien lo cobró. Si era de otra compañera, devuélvelo y cóbralo otra vez a su nombre.',
+  },
   // Se decide en la misma bandeja (Avisos): la tarjeta de «Por aprobar».
   approval_pending: { group: 'Por aprobar', title: 'Solicitud del encargado sin decidir', tab: null },
 };

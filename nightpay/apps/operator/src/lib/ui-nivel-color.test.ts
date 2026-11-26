@@ -16,6 +16,7 @@ const read = (...rel: string[]): string => readFileSync(join(REPO, ...rel), 'utf
 const STYLES = read('packages', 'ui', 'src', 'styles.css');
 const STAFF = read('packages', 'ui', 'src', 'staff.css');
 const TOUR = read('packages', 'ui', 'src', 'tour.css');
+const PIECES2 = read('packages', 'ui', 'src', 'pieces-2.css');
 const COBRAR = read('apps', 'operator', 'src', 'components', 'cobrar', 'cobrar.module.css');
 const DESK = read('apps', 'operator', 'src', 'components', 'reception', 'desk', 'desk.module.css');
 const PARTY = read('apps', 'operator', 'src', 'components', 'party', 'party.module.css');
@@ -345,15 +346,20 @@ describe('idea 2 · tarjetas con relieve', () => {
     expect(code(card).replace(/\/\/.*$/gm, '')).not.toMatch(/background:|border:|borderRadius:/);
   });
 
+  // «Piezas II»: las ventanas son ya la hoja (Sheet) y su sombra está en su regla (antes, en línea en Modal.tsx).
   it('lo que flota (ventanas y la burbuja de la guía) lleva la sombra grande', () => {
-    expect(read('packages', 'ui', 'src', 'components', 'Modal.tsx')).toContain("boxShadow: 'var(--np-shadow-2)'");
+    expect(rule(PIECES2, '.np-hoja')).toContain('box-shadow: var(--np-shadow-2);');
     expect(rule(TOUR, '.np-tour-bubble')).toContain('box-shadow: var(--np-shadow-2);');
   });
 
-  it('también los avisos que flotan arriba y la hoja de cerrar la noche (en el escritorio, una ventana)', () => {
+  // «Piezas II»: «Te han invitado» y «Ahora no hace falta la ficha» salen por el aviso flotante común
+  // (Toast), abajo; su sombra es la de su regla (antes, cada uno la suya en línea, con un filete).
+  it('también el aviso flotante y la hoja de cerrar la noche (en el escritorio, una ventana)', () => {
+    expect(rule(PIECES2, '.np-toast')).toContain('box-shadow: var(--np-shadow-2);');
     for (const file of ['InvitationToast.tsx', 'NfcEscucha.tsx']) {
       const src = read('apps', 'operator', 'src', 'components', file);
-      expect(src, file).toContain("boxShadow: 'inset 0 0 0 1px var(--np-border-hi), var(--np-shadow-2)'");
+      expect(src, file).toContain('toast.show(');
+      expect(src, file).not.toContain('boxShadow');
     }
     // El aviso de la pantalla del cliente, también.
     expect(rule(read('apps', 'operator', 'src', 'components', 'pantalla', 'pantalla.module.css'), '.toast')).toContain('box-shadow: var(--np-shadow-2);');

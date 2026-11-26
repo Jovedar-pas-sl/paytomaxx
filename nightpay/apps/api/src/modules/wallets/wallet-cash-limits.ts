@@ -1,5 +1,6 @@
 import { CASH_LIMIT_CENTS, CASH_LIMIT_WINDOW_HOURS } from '@nightpay/contracts';
 import type { Prisma } from '@nightpay/db';
+import { eur } from '../../common/money/eur';
 
 /**
  * El efectivo de un saldo (y de los saldos sumados a él, mergedIntoId) y sus
@@ -199,8 +200,4 @@ function notCashText(notCashCents: number, cash: WalletCash, balanceCents: numbe
   }
   const split = `${eur(card)} entraron con tarjeta (los devuelve el dueño «A la tarjeta») y ${eur(bitcoin)} con bitcoin. ${BITCOIN_STAYS_TEXT}`;
   return rest ? `De los otros ${eur(notCashCents)}, ${split}` : `Este saldo no entró en efectivo: ${split}`;
-}
-
-function eur(cents: number): string {
-  return `${(cents / 100).toFixed(2).replace('.', ',')} €`;
 }

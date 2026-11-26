@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, type CSSProperties } from 'react';
-import { Button, Modal, PRINT_MODE_CHOICES, Segmented, testTicket, usePrintMode, usePrintTicket, writePrintMode } from '@nightpay/ui';
+import { Button, Icon, Modal, PRINT_MODE_CHOICES, Segmented, testTicket, usePrintMode, usePrintTicket, writePrintMode } from '@nightpay/ui';
 import { fichaPlace, READER_SPOT_CHOICES, useReaderSpot, writeReaderSpot } from '@/lib/lector-nfc';
 import { nfcSupported, readCard } from '@/lib/nfc';
 import { testReadResult, type TestRead as TestReadResult } from '@/lib/prueba-lectura';
@@ -65,6 +65,7 @@ function ReadTest() {
       )}
       {result ? (
         <p role="status" style={{ ...resultStyle, color: result.ok ? 'var(--np-text)' : 'var(--np-danger-text)' }}>
+          {result.ok ? <Icon name="check" size={20} className="np-icon-lead" /> : null}
           {result.text}
         </p>
       ) : null}

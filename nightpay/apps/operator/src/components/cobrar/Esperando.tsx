@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { confirmationCode, type BitcoinPayState, type PaymentStatus } from '@nightpay/contracts';
-import { cardHow, countdownPhase, formatClock, paidTicket, qrDeadline, receiptFromDetail, saldoHow, secondsLeft, useNow, useWakeLock, ScreenHelp, type TicketLine } from '@nightpay/ui';
+import { cardHow, countdownPhase, formatClock, Icon, paidTicket, qrDeadline, receiptFromDetail, saldoHow, ScreenHelp, secondsLeft, useNow, useWakeLock, type TicketLine } from '@nightpay/ui';
 import { fetchPaymentStatus, getUser } from '@/lib/api';
 import { clearFichaContext, saveFichaContext } from '@/lib/ficha-context';
 import { formatEur } from '@/lib/money';
@@ -77,7 +77,6 @@ import { useCustomerDisplay } from '../use-customer-display';
 import { usePaymentLive } from '../use-payment-live';
 import { colorOf } from './cobrar-context';
 import { CobroQr } from './CobroQr';
-import { IconLock, IconNfc, IconQr } from './icons';
 import { PinScreen } from './PinScreen';
 import { pinTipSetup, withScreenTip } from '@/lib/pin-tip';
 import { WAIT_TITLE_EN } from '@/lib/pin-pad';
@@ -576,7 +575,7 @@ export function Esperando({ cobro, onNew, onRetry, retrying = false, retryError 
             ? {
                 label: `Cobrar ${formatEur(cobro.totalCents, { compact: true })} con QR`,
                 onClick: () => setLocalFail(null),
-                icon: <IconQr />,
+                icon: <Icon name="qr" />,
               }
             : { label: 'Otro QR · mismo importe', onClick: onRetry, loading: retrying }
         }
@@ -808,7 +807,7 @@ function Waiting({
         {waitingFeeHint(cobro) ? <p className={styles.meta}>{waitingFeeHint(cobro)}</p> : null}
         {nfcOn && pinExpected(cobro.totalCents, night) ? (
           <p className={`${styles.warnline} ${styles.waitPin}`}>
-            <IconLock />
+            <Icon name="lock" size={20} />
             {pinWarning(night)}
           </p>
         ) : null}
@@ -835,7 +834,7 @@ function Waiting({
             {hasQr && nfcOn ? <span aria-hidden="true">o</span> : null}
             {nfcOn ? (
               <span className={`${styles.nfcWay}${reading || checking ? ` ${styles.nfcReading}` : ''}`}>
-                <IconNfc />
+                <Icon name="nfc" />
                 {checking ? 'Comprobando…' : reading ? 'Leyendo…' : pulseraText(invite ? (hasQr ? 'ficha, sin PIN' : 'Ficha, sin PIN') : nfcWayLabel(readerSpot), party)}
               </span>
             ) : null}
@@ -865,7 +864,7 @@ function Waiting({
           </p>
         ) : null}
       </div>
-      <div className={`${styles.foot} ${styles.footFlat}`}>
+      <div data-np-foot="" className={`${styles.foot} ${styles.footFlat}`}>
         {practice}
         {/* Lo raro (antes, solo en «Saldo»): sin móvil ni ficha, su código o su pase y su PIN aquí.
             En el pie, encima de «Cancelar cobro»: entero a la vista también en un móvil bajo
@@ -998,7 +997,7 @@ function Unconfirmed({ cobro, paymentId, onLeave }: { cobro: CobroAbierto; payme
             </p>
           ) : null}
         </div>
-        <div className={`${styles.foot} ${styles.footFlat}`}>
+        <div data-np-foot="" className={`${styles.foot} ${styles.footFlat}`}>
           <button type="button" className={`${styles.btn} ${styles.primary}`} onClick={() => void notify()} disabled={busy} aria-busy={busy}>
             {busy ? 'Avisando…' : 'Avisar al encargado'}
           </button>

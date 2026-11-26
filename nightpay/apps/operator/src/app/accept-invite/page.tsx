@@ -9,7 +9,13 @@ import { acceptInvite } from '@/lib/api';
 
 export default function AcceptInvitePage() {
   return (
-    <Suspense fallback={<main className="np-screen" style={pageStyle}>Cargando…</main>}>
+    <Suspense
+      fallback={
+        <main className="np-screen np-login" aria-busy="true">
+          <span className="np-sr-only" role="status">Cargando…</span>
+        </main>
+      }
+    >
       <Inner />
     </Suspense>
   );
@@ -64,7 +70,7 @@ function Inner() {
   }
 
   return (
-    <main className="np-screen" style={pageStyle}>
+    <main className="np-screen np-login" style={pageStyle}>
       <header style={{ textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1rem' }}>
         <Logo height="3rem" />
         <h1 style={{ margin: 0, fontSize: 'var(--np-t-h2)', fontWeight: 600 }}>
