@@ -389,7 +389,7 @@ export const PROMOTER_COMMISSION_PAID_ACTION = 'reservation.commission_voided_af
  */
 export function promoterCommissionPaidIncident(r: EventRow): Incident {
   const p = r.payload && typeof r.payload === 'object' ? (r.payload as Record<string, unknown>) : {};
-  const amount = r.amountCents === null ? 'su comisión' : `su comisión de ${eur(r.amountCents)}`;
+  const amount = r.amountCents === null ? 'su comisión' : `su comisión de ${eurPlain(r.amountCents)}`;
   const todo = 'Ya se le pagó y no se descuenta sola: habla con él y, si toca, descuéntasela de su próximo pago.';
   return {
     kind: 'promoter_commission_paid',
