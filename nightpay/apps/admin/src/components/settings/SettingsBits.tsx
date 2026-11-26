@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useId, useState, type ReactNode } from 'react';
-import { Button } from '@nightpay/ui';
+import { Button, FormError } from '@nightpay/ui';
 import { Notice } from '../Notice';
 
 // El interruptor que guarda al tocarlo es el común (su resultado, en StatusLine). Lo que espera a «Guardar» es un Checkbox.
@@ -42,9 +42,9 @@ export function SaveRow({
   return (
     <div className="np-set-save">
       {error ? (
-        <p role="alert" className="np-set-error">
+        <FormError>
           {error}
-        </p>
+        </FormError>
       ) : null}
       {saved ? (
         <p role="status" className="np-set-saved">
@@ -62,9 +62,9 @@ export function SaveRow({
 export function StatusLine({ saved, error }: { saved: boolean; error: string | null }) {
   if (error) {
     return (
-      <p role="alert" className="np-set-error">
+      <FormError>
         {error}
-      </p>
+      </FormError>
     );
   }
   return (

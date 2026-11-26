@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, type CSSProperties, type FormEvent } from 'react';
-import { Button, Input, Modal, Select } from '@nightpay/ui';
+import { Button, FormError, Input, Modal, Select } from '@nightpay/ui';
 import {
   isApprovalRequested,
   parseEuroCents,
@@ -217,9 +217,9 @@ export function ResolveModal({
           />
         ) : null}
         {error ? (
-          <p role="alert" style={{ color: 'var(--np-danger)', margin: 0 }}>
+          <FormError>
             {error}
-          </p>
+          </FormError>
         ) : null}
         <Button type="submit" loading={submitting}>
           {decision === 'AUTHORIZED' ? 'Marcar como cobrado' : 'Marcar como no cobrado'}
@@ -453,9 +453,9 @@ export function RefundModal({
           />
         ) : null}
         {error ? (
-          <p role="alert" style={{ color: 'var(--np-danger)', margin: 0, fontSize: '0.875rem' }}>
+          <FormError>
             {error}
-          </p>
+          </FormError>
         ) : null}
         <div className="np-pregunta-pie">
           {/* «Cancelar» es solo para un cobro sin pagar: aquí, «Volver» (como en la pregunta). */}

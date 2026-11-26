@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, type CSSProperties } from 'react';
-import { Button, Card, Input, Modal } from '@nightpay/ui';
+import { Button, Card, FormError, Input, Modal } from '@nightpay/ui';
 import { fetchRecentCashTopUps, voidCashTopUp, type RecentCashTopUp } from '@/lib/api';
 import { ApiError, totpRetryState } from '@/lib/api-errors';
 import { cashVoidBody, cashVoidDoneText, cashVoidOutText, cashVoidProblem } from '@/lib/cash-void';
@@ -54,9 +54,9 @@ export function RecentCashTopUps() {
         </p>
       ) : null}
       {error ? (
-        <p role="alert" style={{ margin: 0, color: 'var(--np-danger)' }}>
+        <FormError>
           {error}
-        </p>
+        </FormError>
       ) : null}
       {rows === null ? <p style={mutedStyle}>Cargando…</p> : null}
       <ul style={listStyle}>
@@ -163,9 +163,9 @@ function VoidModal({
           hint="Anular una recarga en efectivo pide siempre los 6 números de tu app de verificación."
         />
         {error ? (
-          <p role="alert" style={{ color: 'var(--np-danger)', margin: 0, fontSize: '0.875rem' }}>
+          <FormError>
             {error}
-          </p>
+          </FormError>
         ) : null}
         <div className="np-pregunta-pie">
           <Button variant="ghost" size="lg" type="button" onClick={onClose} disabled={submitting}>

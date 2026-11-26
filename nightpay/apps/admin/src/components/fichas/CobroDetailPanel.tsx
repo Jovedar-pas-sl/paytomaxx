@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState, type CSSProperties, type ReactNode } from 'react';
 import type { CobroDetail, CobroRow } from '@nightpay/contracts';
-import { Button } from '@nightpay/ui';
+import { Button, FormError } from '@nightpay/ui';
 import { fetchCobroDetail } from '@/lib/api';
 import {
   amountRows,
@@ -72,7 +72,7 @@ export function CobroDetailPanel({ row }: { row: CobroRow }) {
     }
   }
 
-  if (error) return <p role="alert" style={{ color: 'var(--np-danger)' }}>{error}</p>;
+  if (error) return <FormError>{error}</FormError>;
   if (!detail) return <p>Cargando el detalle…</p>;
   const status = detailStatus(detail);
   const flags = flagTexts(detail);

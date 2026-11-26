@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useId, useState, type CSSProperties, type FormEvent } from 'react';
-import { Button, Card, Input, Modal } from '@nightpay/ui';
+import { Button, Card, FormError, Input, Modal } from '@nightpay/ui';
 import {
   approveQrCharge,
   fetchPayoutPreview,
@@ -92,9 +92,11 @@ export function CodeSearch({ onFound }: { onFound: (target: PayoutTarget) => voi
         </Button>
       </form>
       {error ? (
-        <p role="alert" style={{ color: 'var(--np-danger)', margin: '0.5rem 0 0', fontSize: '0.875rem' }}>
-          {error}
-        </p>
+        <div style={{ marginTop: '0.5rem' }}>
+          <FormError>
+            {error}
+          </FormError>
+        </div>
       ) : null}
     </Card>
   );
@@ -266,9 +268,9 @@ export function PayoutModal({
 
             {previewError ? (
               <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
-                <p role="alert" style={{ color: 'var(--np-danger)', margin: 0, fontSize: '0.875rem' }}>
+                <FormError>
                   No se ha podido calcular lo que se devuelve: {previewError}
-                </p>
+                </FormError>
                 <Button variant="ghost" onClick={reloadPreview}>
                   Reintentar
                 </Button>
@@ -329,9 +331,9 @@ export function PayoutModal({
               />
             ) : null}
             {error ? (
-              <p role="alert" style={{ color: 'var(--np-danger)', margin: 0, fontSize: '0.875rem' }}>
+              <FormError>
                 {error}
-              </p>
+              </FormError>
             ) : null}
             <div className="np-pregunta-pie">
               <Button variant="ghost" size="lg" onClick={onClose} disabled={submitting}>
@@ -457,9 +459,9 @@ export function ChargeWithoutFaceIdModal({
           />
         ) : null}
         {error ? (
-          <p role="alert" style={{ color: 'var(--np-danger)', margin: 0, fontSize: '0.875rem' }}>
+          <FormError>
             {error}
-          </p>
+          </FormError>
         ) : null}
         <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
           {pending === null && error ? (
@@ -547,9 +549,9 @@ export function RelinkModal({ target, onClose }: { target: PayoutTarget; onClose
               hint="Son los 6 números de tu app de verificación. Si aún no la tienes, actívala en Ajustes → Verificación en dos pasos."
             />
             {error ? (
-              <p role="alert" style={{ color: 'var(--np-danger)', margin: 0, fontSize: '0.875rem' }}>
+              <FormError>
                 {error}
-              </p>
+              </FormError>
             ) : null}
             <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
               <Button variant="ghost" onClick={onClose} disabled={busy}>
@@ -623,9 +625,9 @@ export function ResetPinModal({
           hint="Son los 6 números de tu app de verificación. Si aún no la tienes, actívala en Ajustes → Verificación en dos pasos."
         />
         {error ? (
-          <p role="alert" style={{ color: 'var(--np-danger)', margin: 0, fontSize: '0.875rem' }}>
+          <FormError>
             {error}
-          </p>
+          </FormError>
         ) : null}
         <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
           <Button variant="ghost" onClick={onClose} disabled={busy}>

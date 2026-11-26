@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
-import { Button, Card, Modal } from '@nightpay/ui';
+import { Button, Card, FormError, Modal } from '@nightpay/ui';
 import type { CobroRow } from '@nightpay/contracts';
 import { fetchCobros, fetchMetrics, type CobrosFilters, type Metrics, type PaymentRow, type User } from '@/lib/api';
 import { cobradoNote, metricsCobradoParts } from '@/lib/cobrado';
@@ -188,10 +188,10 @@ export function PaymentsPanel({ user, onNavigate, focusPaymentId = null, onFocus
       {error ? (
         <Card style={{ padding: '1rem', borderColor: 'var(--np-danger)' }}>
           <div style={errorRow}>
-            <p role="alert" style={{ color: 'var(--np-danger)', margin: 0, fontSize: '0.875rem' }}>
+            <FormError>
               {error}
               {payments ? ' · se siguen enseñando los últimos datos.' : ''}
-            </p>
+            </FormError>
             <Button variant="ghost" size="sm" onClick={refresh}>
               Reintentar
             </Button>

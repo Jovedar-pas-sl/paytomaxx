@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, type CSSProperties, type FormEvent } from 'react';
-import { Button, Input, Modal } from '@nightpay/ui';
+import { Button, FormError, Input, Modal } from '@nightpay/ui';
 import { PASSKEY_REQUIRED_CODE, stepUpActions, type CobroRow, type StepUpProof } from '@nightpay/contracts';
 import { reverseWalletCharge } from '@/lib/api';
 import { ApiError, totpRetryState } from '@/lib/api-errors';
@@ -91,9 +91,9 @@ export function ReverseChargeModal({
           />
         )}
         {error ? (
-          <p role="alert" style={errorStyle}>
+          <FormError>
             {error}
-          </p>
+          </FormError>
         ) : null}
         <div className="np-pregunta-pie">
           <Button variant="ghost" size="lg" type="button" onClick={onClose} disabled={busy}>
@@ -110,4 +110,3 @@ export function ReverseChargeModal({
 
 const formStyle: CSSProperties = { display: 'flex', flexDirection: 'column', gap: '1rem', marginTop: '1.25rem' };
 const textStyle: CSSProperties = { margin: 0, color: 'var(--np-text-mute)' };
-const errorStyle: CSSProperties = { color: 'var(--np-danger)', margin: 0, fontSize: '0.875rem' };

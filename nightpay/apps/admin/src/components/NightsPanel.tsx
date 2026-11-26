@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react';
-import { Button, Card, Input, Modal } from '@nightpay/ui';
+import { Button, Card, FormError, Input, Modal } from '@nightpay/ui';
 import {
   fetchCurrentNight,
   fetchNight,
@@ -122,9 +122,9 @@ export function NightsPanel({
       ) : null}
 
       {error ? (
-        <p role="alert" style={{ color: 'var(--np-danger)', margin: 0 }}>
+        <FormError>
           {error}
-        </p>
+        </FormError>
       ) : null}
 
       {current === undefined ? (

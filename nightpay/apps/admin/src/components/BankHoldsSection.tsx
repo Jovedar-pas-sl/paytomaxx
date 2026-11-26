@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState, type CSSProperties, type FormEvent } from 'react';
-import { Button, Input } from '@nightpay/ui';
+import { Button, FormError, Input } from '@nightpay/ui';
 import type { BankHoldList, BankHoldSale } from '@nightpay/contracts';
 import { fetchBankHolds, releaseBankHold } from '@/lib/api';
 import { ApiError, totpLockedUntil } from '@/lib/api-errors';
@@ -191,9 +191,9 @@ function ReleaseForm({
           hint="Al poner el sexto número se libera. Cada código vale una sola vez."
         />
         {error ? (
-          <p role="alert" style={{ margin: 0, color: 'var(--np-danger)', fontSize: '1rem' }}>
+          <FormError>
             {error}
-          </p>
+          </FormError>
         ) : null}
         <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
           <Button type="submit" loading={busy} disabled={locked}>

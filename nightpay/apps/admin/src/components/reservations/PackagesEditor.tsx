@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, type CSSProperties } from 'react';
-import { Button, Input } from '@nightpay/ui';
+import { Button, FormError, Input } from '@nightpay/ui';
 import { formatMoney, reservationDepositCents, type ReservationPackageView } from '@nightpay/contracts';
 import { createPackage, setPackageActive, updatePackage } from '@/lib/endpoints/reservations';
 import { emptyPackageForm, eurosToCents, packageFormToInput, packageSummary, packageToForm, type PackageForm } from '@/lib/reservations';
@@ -65,9 +65,9 @@ export function PackagesEditor({ packages, onChanged }: { packages: ReservationP
         <Button onClick={() => setEditing('new')}>Nuevo paquete</Button>
       )}
       {error ? (
-        <p role="alert" className="np-set-error">
+        <FormError>
           {error}
-        </p>
+        </FormError>
       ) : null}
     </div>
   );
@@ -129,9 +129,9 @@ function PackageFormBox({ initial, id, onDone, onCancel }: { initial: PackageFor
         </Button>
       </div>
       {error ? (
-        <p role="alert" className="np-set-error" style={{ margin: 0 }}>
+        <FormError>
           {error}
-        </p>
+        </FormError>
       ) : null}
     </section>
   );

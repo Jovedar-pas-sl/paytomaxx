@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, type CSSProperties, type FormEvent } from 'react';
-import { Button, Checkbox, Input, Modal } from '@nightpay/ui';
+import { Button, Checkbox, FormError, Input, Modal } from '@nightpay/ui';
 import { registerBankRefund, type PaymentRow } from '@/lib/api';
 import { isDuplicateRefundError } from '@/lib/api-errors';
 import { madridToday } from '@/lib/dates';
@@ -131,9 +131,9 @@ export function BankRefundModal({
         />
         {needsConfirm ? <Checkbox label="Sí, es otra devolución distinta" checked={confirmed} onChange={setConfirmed} /> : null}
         {error ? (
-          <p role="alert" style={{ color: 'var(--np-danger)', margin: 0 }}>
+          <FormError>
             {error}
-          </p>
+          </FormError>
         ) : null}
         <div className="np-pregunta-pie">
           <Button variant="ghost" size="lg" type="button" onClick={onClose}>

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import type { PartySettings, PartySettlement } from '@nightpay/contracts';
-import { Button, Input, useConfirm } from '@nightpay/ui';
+import { Button, FormError, Input, useConfirm } from '@nightpay/ui';
 import { formatDateTime } from '@/lib/dates';
 import {
   downloadPartySettlement,
@@ -214,9 +214,9 @@ function RangePicker({ range, onRange }: { range: PartyRange; onRange: (r: Party
           : 'Todo lo de la fiesta, también lo cargado desde casa antes de empezar.'}
       </p>
       {problem ? (
-        <p role="alert" className="np-set-error">
+        <FormError>
           {problem}
-        </p>
+        </FormError>
       ) : null}
     </form>
   );

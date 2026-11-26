@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, type FormEvent, type JSX } from 'react';
-import { Button, Card, Checkbox, Input, Modal, Select, useConfirm } from '@nightpay/ui';
+import { Button, Card, Checkbox, FormError, Input, Modal, Select, useConfirm } from '@nightpay/ui';
 import {
   bulkCreateTerminals,
   createPairingCode,
@@ -404,9 +404,9 @@ function BulkCreateModal({
           ))}
         </Select>
         {error ? (
-          <p role="alert" style={{ color: 'var(--np-danger)', fontSize: '0.875rem' }}>
+          <FormError>
             {error}
-          </p>
+          </FormError>
         ) : null}
         <p style={{ fontSize: '0.875rem', color: 'var(--np-text-mute)' }}>
           Crea {countOk ? parsedCount : '?'} terminales con externalId {prefix}1, {prefix}2,… asignados a zona{' '}
@@ -493,9 +493,9 @@ function EditTerminalModal({
         <Checkbox label="Activo" checked={active} onChange={setActive} />
         {isOwner ? <Checkbox label="Recepción (el único que cobra recargas en efectivo)" checked={reception} onChange={setReception} /> : null}
         {error ? (
-          <p role="alert" style={{ color: 'var(--np-danger)', fontSize: '0.875rem' }}>
+          <FormError>
             {error}
-          </p>
+          </FormError>
         ) : null}
         <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
           <Button variant="ghost" type="button" onClick={onClose}>
@@ -579,7 +579,7 @@ function PairingModal({ terminal, onClose }: { terminal: Terminal | null; onClos
               </p>
             </div>
           ) : null}
-          {error ? <p role="alert" style={{ color: 'var(--np-danger)', margin: 0 }}>{error}</p> : null}
+          {error ? <FormError>{error}</FormError> : null}
           <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
             <Button loading={busy} onClick={() => void generate()}>
               {code ? 'Generar otro código' : current.devicePaired ? 'Volver a vincular' : 'Generar código'}

@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
-import { Button, CartaIcon, CartaItemIcon } from '@nightpay/ui';
+import { Button, CartaIcon, CartaItemIcon, FormError } from '@nightpay/ui';
 import { CARTA_ICONS, cartaIconOf, type CartaIconCode } from '@nightpay/contracts';
 import { API_BASE } from '@/lib/http';
 import { removeServiceImage, updateServiceItem, uploadServiceImage, type ServiceItem } from '@/lib/api';
@@ -164,9 +164,9 @@ export function CartaImageEditor({ item, onChanged }: { item: ServiceItem; onCha
       {picking && !item.icon ? <p style={hint}>Ahora usa el icono de su sección: {CARTA_ICONS.find((i) => i.code === current)?.label}.</p> : null}
 
       {error ? (
-        <p role="alert" style={{ color: 'var(--np-danger)', margin: 0 }}>
+        <FormError>
           {error}
-        </p>
+        </FormError>
       ) : null}
     </div>
   );
