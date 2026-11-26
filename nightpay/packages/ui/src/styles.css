@@ -404,6 +404,9 @@ html[data-contrast='sala'] {
   --np-text-label: #e9e4da;
   /* 2,7:1 sobre --np-surface (el modo normal, 1,4). */
   --np-border: #566b72;
+  /* El borde de las tarjetas, también: 3,3:1 sobre el fondo (el modo normal,
+     crema al 7 %, unos 1,5). */
+  --np-card-edge: var(--np-border);
   /* 8,2:1 sobre el fondo, 6,8 sobre --np-surface y 6,1 sobre -2: los botones
      secundarios se ven sin buscar. */
   --np-border-hi: #9db0b7;

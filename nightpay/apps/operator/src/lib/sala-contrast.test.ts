@@ -122,6 +122,12 @@ describe('modo «sala» en la app del personal (decisión D9)', () => {
       expect(contrast(sala['--np-border']!, dark['--np-surface']!)).toBeGreaterThanOrEqual(2.5);
     });
 
+    it('el borde de las tarjetas también se marca: sigue al separador, ≥ 3:1 sobre el suelo (en el modo normal, crema al 7 %, unos 1,5)', () => {
+      const start = css.indexOf("html[data-contrast='sala'] {");
+      expect(css.slice(start, css.indexOf('\n}', start))).toMatch(/--np-card-edge: var\(--np-border\);/);
+      expect(contrast(sala['--np-border']!, dark['--np-bg']!)).toBeGreaterThanOrEqual(3);
+    });
+
     it('todo sube respecto al modo normal, y ninguno pasa del texto principal', () => {
       for (const name of ['--np-text-mute', '--np-text-dim', '--np-text-label', '--np-border', '--np-border-hi']) {
         expect(contrast(sala[name]!, dark['--np-surface']!), name).toBeGreaterThan(contrast(dark[name]!, dark['--np-surface']!));
