@@ -132,8 +132,8 @@ export function Dashboard({ user, onLogout }: Props) {
       {charges.open ? null : <SafariNotice />}
       {/* La compañera, al entrar: «Tu cuenta de cobro ha cambiado» hasta que pulsa «Entendido» (fuera de un cobro). */}
       {user.role === 'OPERATOR' ? <PayoutChangeNotice hidden={charges.open} /> : null}
-      {/* La chica: «Te han invitado · +10 €» en cuanto se cobra su invitación. */}
-      {access.ownEarnings ? <InvitationToast night={night.night} /> : null}
+      {/* La compañera: «Te han invitado · +10 €» en cuanto se cobra su invitación, y «Servicio cobrado · +54 €». */}
+      {access.ownEarnings ? <InvitationToast night={night.night} userId={user.id} /> : null}
 
       {/* Con la sesión caducada lo dice la hoja de entrar: aquí empujaría el QR hacia abajo. */}
       {own.error && !own.error.transient && !expired ? <PollErrorBanner error={own.error} /> : null}

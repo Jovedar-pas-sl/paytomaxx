@@ -1985,3 +1985,17 @@ html[data-contrast='sala'] .lastRow[data-n='4']:not([data-big]) {
     padding: 0 0.5rem;
   }
 }
+
+/* «Servicio de Nerea» (cobro por el encargado): su foto grande y su nombre. */
+.servicioDe {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0;
+}
+
+.servicioDe b {
+  font-size: var(--np-fs-22);
+  font-weight: 600;
+}

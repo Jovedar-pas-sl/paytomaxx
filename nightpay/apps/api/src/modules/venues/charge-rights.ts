@@ -38,9 +38,10 @@ export async function chargeRightsFor(
 ): Promise<ChargeRights & { labelOf: (code: string) => string }> {
   const [user, venue] = await Promise.all([
     db.user.findFirst({ where: { id: person.userId }, select: { post: true } }),
-    db.venue.findUnique({ where: { id: tenantId }, select: { postRules: true, sections: true } }),
+    db.venue.findUnique({ where: { id: tenantId }, select: { postRules: true, sections: true, operatorsChargeFromPhone: true } }),
   ]);
-  const rights = chargeRightsOf({ role: person.role, post: user?.post ?? null }, postRulesOf(venue?.postRules));
+  // Con la casilla «Las compañeras cobran desde su móvil» apagada, la compañera sale sin secciones ni recargas.
+  const rights = chargeRightsOf({ role: person.role, post: user?.post ?? null }, postRulesOf(venue?.postRules), venue ?? {});
   const sections = sectionsOf(venue?.sections);
   return { ...rights, labelOf: (code) => sectionMeta(sections, code).label };
 }

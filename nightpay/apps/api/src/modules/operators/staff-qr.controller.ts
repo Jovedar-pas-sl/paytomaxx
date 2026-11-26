@@ -17,6 +17,7 @@ import { IpRateLimit } from '../../common/guards/ip-rate-limit.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { ZodValidationPipe } from '../../common/pipes/zod.pipe';
 import { PrismaService } from '../../common/prisma/prisma.service';
+import { photoHashesOf } from '../profile/photo-hashes';
 import { operatorAppBaseUrl } from './operator-app-url';
 import { signStaffToken, staffQrSecret, verifyStaffToken } from './staff-qr';
 
@@ -81,7 +82,9 @@ export class StaffQrController {
       }),
     );
     if (!chica) throw new BadRequestException(INVITATION_TOKEN_INVALID);
-    return { id: chica.id, name: staffName(chica) };
+    // Su foto, para que quien cobra a su nombre vea que es ella (cobro por el encargado).
+    const photos = await photoHashesOf(this.prisma, user.tenantId, [chica.id]);
+    return { id: chica.id, name: staffName(chica), photoHash: photos.get(chica.id) ?? null };
   }
 
   @Get('invitables')

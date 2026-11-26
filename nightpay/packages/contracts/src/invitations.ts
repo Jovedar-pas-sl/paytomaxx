@@ -144,12 +144,26 @@ export function staffTokenFrom(scanned: string): string | null {
 export interface InvitableStaff {
   id: string;
   name: string;
+  /** Al leer su «Mi QR»: la huella de su foto (Mi perfil) para enseñarla; null sin foto. Las apps de antes no la leen. */
+  photoHash?: string | null;
 }
 
 export const INVITATION_TOKEN_MISSING = 'Escanea el QR de la chica a la que invita (en su app, «Mi QR»).';
 export const INVITATION_QR_REQUIRED = 'Este local pide el QR de la chica: escanéalo en su app («Mi QR»).';
-export const INVITATION_TOKEN_INVALID = 'Ese QR no vale o ha caducado: que la chica lo vuelva a abrir en su app y escanéalo otra vez.';
+export const INVITATION_TOKEN_INVALID = 'Ese QR no vale o ha caducado: que la compañera lo vuelva a abrir en su app y escanéalo otra vez.';
 export const INVITATION_NOT_IN_CHARGE = 'Ese cobro no lleva ninguna invitación de la carta.';
+
+// ─── Cobro por el encargado: el servicio a nombre de la compañera ─────
+
+/** 400: con la casilla apagada, el servicio lo cobra otra persona con el «Mi QR» de la compañera. */
+export const SERVICE_OPERATOR_REQUIRED_CODE = 'SERVICE_OPERATOR_REQUIRED';
+export const SERVICE_OPERATOR_REQUIRED_MESSAGE =
+  'Este servicio es de una compañera: escanea su «Mi QR» (si no te sale, actualiza la app).';
+export const SERVICE_OPERATOR_NOT_NEEDED_CODE = 'SERVICE_OPERATOR_NOT_NEEDED';
+export const SERVICE_OPERATOR_NOT_NEEDED_MESSAGE = 'Esta cuenta no lleva ningún servicio: no hace falta la compañera.';
+export const SERVICE_OPERATOR_INVALID_CODE = 'SERVICE_OPERATOR_INVALID';
+export const SERVICE_OPERATOR_INVALID_MESSAGE =
+  'Ese QR no vale o ha caducado: que la compañera vuelva a abrir «Mi QR» y escanéalo otra vez.';
 
 /** Resumen de las invitaciones de una chica (su ficha). */
 export interface InvitationSummary {

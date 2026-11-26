@@ -4,12 +4,21 @@ import {
   INVITATION_QR_REQUIRED,
   INVITATION_TOKEN_INVALID,
   INVITATION_TOKEN_MISSING,
+  SERVICE_OPERATOR_INVALID_CODE,
+  SERVICE_OPERATOR_INVALID_MESSAGE,
+  SERVICE_OPERATOR_NOT_NEEDED_CODE,
+  SERVICE_OPERATOR_NOT_NEEDED_MESSAGE,
+  SERVICE_OPERATOR_REQUIRED_CODE,
+  SERVICE_OPERATOR_REQUIRED_MESSAGE,
   invitationRulesOf,
+  staffCan,
+  staffPermissionsOf,
   staffTokenFrom,
   type ChargeLineInput,
   type ChargeRights,
 } from '@nightpay/contracts';
 import { staffQrSecret, verifyStaffToken } from '../operators/staff-qr';
+import { permissionDenied } from '../venues/staff-permission.guard';
 import { isInvitationLine, withInvitation } from './invitation-lines';
 import type { PrismaService } from '../../common/prisma/prisma.service';
 import { assertSectionsAllowed, chargeRightsFor } from '../venues/charge-rights';
@@ -45,6 +54,8 @@ export async function resolveChargeOrThrow(
     invitedStaffToken?: string | null;
     /** O la chica elegida de la lista (si el local no pide su QR). */
     invitedOperatorId?: string | null;
+    /** Cobro por el encargado: el «Mi QR» de la compañera del servicio. */
+    serviceStaffToken?: string | null;
   },
 ): Promise<ResolvedCharge & { rights: ChargeRights | null }> {
   const ids = requestedItemIds(input);
@@ -86,8 +97,65 @@ export async function resolveChargeOrThrow(
   }
   // El puesto: solo las secciones que puede cobrar (un pack, por su sección).
   if (rights) assertSectionsAllowed(rights, chargedSections(request));
-  const lines = await invitationOf(prisma, input, items, result.charge.lines);
+  const invited = await invitationOf(prisma, input, items, result.charge.lines);
+  const lines = await serviceOperatorOf(prisma, input, invited);
   return { ...result.charge, lines, rights };
+}
+
+/**
+ * Cobro por el encargado: el servicio a nombre de la compañera, con su «Mi
+ * QR» (firmado, de este local, sin caducar). Sus líneas de Servicios (los
+ * packs, ya partidos) la llevan con su % fijado ya; el resto del cobro, 0 para
+ * ella. Sin QR, las líneas tal cual, salvo con la casilla «Las compañeras
+ * cobran desde su móvil» apagada: el servicio lo cobra otra persona a su
+ * nombre (403 sin el permiso; 400 SERVICE_OPERATOR_REQUIRED con él).
+ * Fase 2: aquí entra también su ficha NFC.
+ */
+async function serviceOperatorOf(
+  prisma: PrismaService,
+  input: { tenantId: string; userId: string | null; role: string | null | undefined; serviceStaffToken?: string | null },
+  lines: DraftLine[],
+): Promise<DraftLine[]> {
+  const hasService = lines.some((l) => l.category === 'CHICA_SERVICE');
+  const token = input.serviceStaffToken;
+  if (!token && (!hasService || !input.userId || input.role === 'OPERATOR')) return lines;
+  if (token && !hasService) {
+    throw new BadRequestException({ message: SERVICE_OPERATOR_NOT_NEEDED_MESSAGE, code: SERVICE_OPERATOR_NOT_NEEDED_CODE });
+  }
+  const venue = await prisma.asSystem((tx) =>
+    tx.venue.findUnique({
+      where: { id: input.tenantId },
+      select: { operatorsChargeFromPhone: true, staffPermissions: true, operatorCommissionDefaults: true },
+    }),
+  );
+  // Encendida (o sin el dato): como hoy, la compañera cobra sus servicios.
+  if (!token && venue?.operatorsChargeFromPhone !== false) return lines;
+  const person = { role: input.role ?? '', userId: input.userId ?? '' };
+  if (!staffCan(staffPermissionsOf(venue?.staffPermissions), person, 'chargeForOperator')) throw permissionDenied('chargeForOperator');
+  if (!token) throw new BadRequestException({ message: SERVICE_OPERATOR_REQUIRED_MESSAGE, code: SERVICE_OPERATOR_REQUIRED_CODE });
+  const raw = staffTokenFrom(token);
+  const who = raw ? verifyStaffToken(raw, Date.now(), staffQrSecret()) : null;
+  // Una compañera de este local y sin baja (quien cobra nunca lo es: no tiene el permiso).
+  const chica =
+    who && who.tenantId === input.tenantId
+      ? await prisma.asSystem((tx) =>
+          tx.user.findFirst({
+            where: { id: who.userId, tenantId: input.tenantId, role: 'OPERATOR', deletedAt: null },
+            select: { id: true, commissionBps: true },
+          }),
+        )
+      : null;
+  if (!chica) throw new BadRequestException({ message: SERVICE_OPERATOR_INVALID_MESSAGE, code: SERVICE_OPERATOR_INVALID_CODE });
+  const venueMap = venue?.operatorCommissionDefaults as Partial<OperatorCommissionDefaults> | null;
+  return lines.map((l) =>
+    l.category === 'CHICA_SERVICE'
+      ? {
+          ...l,
+          serviceOperatorId: chica.id,
+          operatorCommissionBps: resolveBpsForOperator({ category: l.category, userCommissionBpsOverride: chica.commissionBps, venueMap }),
+        }
+      : { ...l, operatorCommissionBps: 0 },
+  );
 }
 
 /**

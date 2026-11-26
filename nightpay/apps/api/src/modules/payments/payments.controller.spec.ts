@@ -42,6 +42,24 @@ describe('POST /payments: el cobro va en euros (punto 72)', () => {
   });
 });
 
+describe('POST /payments: el «Mi QR» de la compañera del servicio (serviceStaffToken)', () => {
+  const body = { amountCents: 5_000, terminalExternalId: 'BARRA-1' };
+  const qr = 'https://operator.local/?invita=abcdefghijklmnopqrstuvwxyz.0123456789';
+
+  it('pasa tal cual en un cobro', () => {
+    expect(CreatePaymentSchema.parse({ ...body, serviceStaffToken: qr }).serviceStaffToken).toBe(qr);
+  });
+
+  it('ni en una recarga ni con una invitación (400)', () => {
+    const recarga = CreatePaymentSchema.safeParse({ ...body, wallet: { create: true }, serviceStaffToken: qr });
+    expect(recarga.error?.issues.map((i) => i.message)).toEqual(['Una recarga no lleva compañera']);
+    for (const invitacion of [{ invitedStaffToken: qr }, { invitedOperatorId: '00000000-0000-4000-8000-000000000001' }]) {
+      const res = CreatePaymentSchema.safeParse({ ...body, ...invitacion, serviceStaffToken: qr });
+      expect(res.error?.issues.map((i) => i.message)).toEqual(['La invitación se cobra aparte del servicio']);
+    }
+  });
+});
+
 describe('cancelar un cobro: roles', () => {
   it('el camarero también (solo los suyos: lo comprueba el servicio)', () => {
     const roles = Reflect.getMetadata(ROLES_KEY, PaymentsController.prototype.cancel) as string[];

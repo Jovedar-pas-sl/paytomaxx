@@ -23,7 +23,12 @@ function make(o: { chica?: { id: string; displayName: string | null; email: stri
     },
     venue: { findUniqueOrThrow: vi.fn(async () => ({ invitationRules: o.rules ?? null })) },
   };
-  const prisma = { asSystem: vi.fn(async (fn: (t: typeof tx) => unknown) => fn(tx)) };
+  // La huella de su foto (Mi perfil): la app la pinta al identificarla.
+  const photos = { userPhoto: { findMany: vi.fn(async () => [{ userId: NEREA, contentHash: 'f'.repeat(64) }]) } };
+  const prisma = {
+    asSystem: vi.fn(async (fn: (t: typeof tx) => unknown) => fn(tx)),
+    withTenant: vi.fn(async (_t: string, fn: (t: typeof photos) => unknown) => fn(photos)),
+  };
   return { controller: new StaffQrController({ get: () => undefined } as never, prisma as never), tx };
 }
 
@@ -33,7 +38,7 @@ const qrOf = (userId: string, tenantId = SALA, at = Date.now()) =>
 describe('el camarero lee el QR de la chica: «Nerea reconocida»', () => {
   it('su nombre, del QR de su local y sin caducar', async () => {
     const { controller, tx } = make();
-    expect(await controller.resolve(carlos, { token: qrOf(NEREA) })).toEqual({ id: NEREA, name: 'Nerea' });
+    expect(await controller.resolve(carlos, { token: qrOf(NEREA) })).toEqual({ id: NEREA, name: 'Nerea', photoHash: 'f'.repeat(64) });
     expect(tx.user.findFirst).toHaveBeenCalledWith(
       expect.objectContaining({ where: expect.objectContaining({ id: NEREA, tenantId: SALA, role: 'OPERATOR', deletedAt: null }) }),
     );

@@ -41,17 +41,20 @@ import { partySections, stepLine, ticketSummary } from '@/lib/party-barra';
 import { PracticeBlockedError, isPractice } from '@/lib/practice';
 import { setPracticeNextAmount } from '@/lib/practice-sim';
 import { placeName, useVenueIdentity } from '@/lib/venue-identity';
+import { SERVICIO_SCAN_TEXTS, needsCompanera, servicioDe } from '@/lib/servicio';
 import { ActivePayment } from '../ActivePayment';
 import { useCarta } from '../carta';
 import { Barra } from '../party/Barra';
 import { Carta } from './Carta';
-import { customerTipsOn, labelOf, type CobrarContext } from './cobrar-context';
+import { cobraElEncargado, customerTipsOn, labelOf, servedTipsOn, type CobrarContext } from './cobrar-context';
 import { ElegirChica } from './ElegirChica';
 import { EscanearChica, type Invitada } from './EscanearChica';
 import { Esperando, type CobroAbierto } from './Esperando';
 import { LaCuenta } from './LaCuenta';
 import { MiQr } from './MiQr';
 import { OtroImporte } from './OtroImporte';
+import { ServicioDe } from './ServicioDe';
+import { SinCobrar } from './SinCobrar';
 import { GuiaMenuLink, InstallMenuItem, LogoutMenuItem, MENU_HINTS, MenuOption, PracticeMenuItem, useDeviceMenu } from '../staff-menu';
 import { CustomerDisplaySheet } from '../CustomerDisplaySheet';
 import { ProfileSheet } from '../ProfileSheet';
@@ -63,6 +66,9 @@ type Stage =
   | { kind: 'cuenta' }
   | { kind: 'escanear'; invite: CartaItem }
   | { kind: 'lista'; invite: CartaItem }
+  // Cobro por el encargado: el API pide la compañera del servicio; se escanea su «Mi QR» y se cobra esa cuenta.
+  | { kind: 'companera'; cuenta: Cuenta; skipRaw?: string }
+  | { kind: 'servicioDe'; cuenta: Cuenta; chica: Invitada }
   | { kind: 'esperando'; cobro: CobroAbierto; request: Pending }
   | { kind: 'pos'; payment: CreatedPayment; label: string };
 
@@ -70,6 +76,8 @@ type Stage =
 interface Pending {
   input: Omit<CobroInput, 'idempotencyKey'>;
   fromCuenta: boolean;
+  /** La cuenta que se cobra (solo los cobros de la cuenta): si el API pide la compañera, se escanea con ella. */
+  cuenta?: Cuenta;
   view: Omit<CobroAbierto, 'card' | 'saldo' | 'saldoQr' | 'saldoUrl' | 'ref'>;
 }
 
@@ -78,7 +86,7 @@ interface Props {
   /** Pagado o vuelta a la carta: refrescar lo de la chica. */
   onCobroDone: () => void;
   onLogout: () => void;
-  /** La noche de la chica (sus invitaciones, en «Mi QR»). */
+  /** La noche de la compañera (sus invitaciones, en «Mi QR»; lo que lleva, en «Hoy cobra el encargado»). */
   night?: MyNight | null;
   /** Abrir «Mi QR» desde fuera (la chica). */
   miQrOpen?: boolean;
@@ -157,6 +165,8 @@ export function CobrarFlow({ user, onCobroDone, onLogout, night, miQrOpen = fals
       post: mine.post ?? null,
       defaultCategory: mine.defaultCategory,
       tips: mine.tips !== false,
+      fromPhone: mine.fromPhone ?? null,
+      serviceTips: mine.serviceTips ?? null,
       methods,
       night: nightSettings,
       rules,
@@ -252,7 +262,10 @@ export function CobrarFlow({ user, onCobroDone, onLogout, night, miQrOpen = fals
       go({ kind: 'esperando', cobro, request: pending });
       return true;
     } catch (err) {
-      if (!arrivedTooLate(asked, screen.current)) setError((err as Error).message);
+      if (arrivedTooLate(asked, screen.current)) return false;
+      // Con la casilla apagada, el API pide la compañera del servicio: a escanear su «Mi QR», con la misma cuenta.
+      if (needsCompanera(err) && pending.cuenta) go({ kind: 'companera', cuenta: pending.cuenta });
+      else setError((err as Error).message);
       return false;
     } finally {
       busyNow.current = false;
@@ -260,35 +273,38 @@ export function CobrarFlow({ user, onCobroDone, onLogout, night, miQrOpen = fals
     }
   }
 
-  /** La cuenta → el cobro (true si se abrió). */
-  function cobrarCuenta(c: Cuenta = cuenta): Promise<boolean> {
+  /** La cuenta → el cobro (true si se abrió). Con `chica`, a su nombre: Servicios va para ella. */
+  function cobrarCuenta(c: Cuenta = cuenta, chica?: Invitada): Promise<boolean> {
     const totals = cuentaTotals(c);
     const sections = totals.bySection;
     const what = cuentaWhat(c);
     const top = [...sections].sort((a, b) => b.cents - a.cents)[0]?.section ?? 'VENUE_BAR';
     return start({
       // B1: sin propina al crear; la elige el cliente al pagar.
-      input: { lines: chargeLinesOf(c) },
+      input: { lines: chargeLinesOf(c), ...(chica ? { serviceStaffToken: chica.token } : {}) },
       fromCuenta: true,
+      cuenta: c,
       view: {
         totalCents: totals.totalCents,
-        tipsOn: customerTipsOn(ctx),
+        tipsOn: chica ? servedTipsOn(ctx) : customerTipsOn(ctx),
         sections,
         // El título de Esperando, sin mayúsculas (Grafito): «Copas + Comida».
         // OxioParty: la caseta y lo que se cobra («2 × caña · 1 × tinto de verano»).
         band: party
           ? { title: placeName(identity, 'Barra'), detail: ticketSummary(c) }
-          : {
-              title: sections
-                .slice(0, 2)
-                .map((s) => labelOf(ctx, s.section))
-                .join(' + '),
-              detail: `${what} · ${name}`,
-            },
+          : chica
+            ? { title: `Servicio de ${chica.name}`, detail: `${what} · ${name}` }
+            : {
+                title: sections
+                  .slice(0, 2)
+                  .map((s) => labelOf(ctx, s.section))
+                  .join(' + '),
+                detail: `${what} · ${name}`,
+              },
         what,
         lines: ticketLinesOf(c),
         who: name,
-        pinChip: `${labelOf(ctx, top)} · ${name}`,
+        pinChip: chica ? `${labelOf(ctx, 'CHICA_SERVICE')} · ${chica.name}` : `${labelOf(ctx, top)} · ${name}`,
         invitation: null,
       },
     });
@@ -326,7 +342,9 @@ export function CobrarFlow({ user, onCobroDone, onLogout, night, miQrOpen = fals
       const cobro = await open(stage.request, newIdempotencyKey());
       go({ kind: 'esperando', cobro, request: stage.request });
     } catch (err) {
-      setRetryError((err as Error).message);
+      // Su «Mi QR» caducó (dura 10 min) o la casilla se apagó: a escanearlo otra vez, con la misma cuenta.
+      if (needsCompanera(err) && stage.request.cuenta) go({ kind: 'companera', cuenta: stage.request.cuenta });
+      else setRetryError((err as Error).message);
     } finally {
       setRetrying(false);
     }
@@ -377,26 +395,31 @@ export function CobrarFlow({ user, onCobroDone, onLogout, night, miQrOpen = fals
     go({ kind: 'carta' });
   }
 
-  async function cobrarPos() {
+  /** Con datáfono, la cuenta que recibe (la de «Otro importe» aún no está apuntada); con `chica`, a su nombre. */
+  async function cobrarPos(c: Cuenta = cuenta, chica?: Invitada) {
     if (busy) return;
     setBusy(true);
     setError(null);
     try {
       const created = await createCobro({
-        lines: chargeLinesOf(cuenta),
+        lines: chargeLinesOf(c),
         pos: true,
         terminalExternalId: terminals[0]?.externalId,
+        ...(chica ? { serviceStaffToken: chica.token } : {}),
       });
-      go({ kind: 'pos', payment: created, label: cuentaWhat(cuenta) });
+      go({ kind: 'pos', payment: created, label: cuentaWhat(c) });
     } catch (err) {
-      setError((err as Error).message);
+      if (needsCompanera(err)) go({ kind: 'companera', cuenta: c });
+      else setError((err as Error).message);
     } finally {
       setBusy(false);
     }
   }
 
+  // La compañera con la casilla del local apagada: «Hoy cobra el encargado» en lugar de la carta.
+  const sinCarta = cobraElEncargado(ctx);
   const miQr = miQrOpen && user.role === 'OPERATOR' ? (
-    <MiQr name={name} invitations={night?.invitations ?? null} onClose={() => onMiQr?.(false)} />
+    <MiQr name={name} invitations={night?.invitations ?? null} forService={sinCarta} onClose={() => onMiQr?.(false)} />
   ) : null;
   const headerExtra =
     user.role === 'OPERATOR' && onMiQr ? (
@@ -434,16 +457,20 @@ export function CobrarFlow({ user, onCobroDone, onLogout, night, miQrOpen = fals
             }}
           />
         ) : null}
-        <MenuOption
-          title="Pantalla del cliente"
-          hint={MENU_HINTS.display}
-          onClick={() => {
-            setMenu(false);
-            setDisplay(true);
-          }}
-        />
+        {/* «Hoy cobra el encargado»: ella no cobra, así que no empareja la pantalla del cliente. */}
+        {sinCarta ? null : (
+          <MenuOption
+            title="Pantalla del cliente"
+            hint={MENU_HINTS.display}
+            onClick={() => {
+              setMenu(false);
+              setDisplay(true);
+            }}
+          />
+        )}
         {device.item}
-        <PracticeMenuItem onClose={() => setMenu(false)} />
+        {/* «Hoy cobra el encargado»: no hay nada que ensayar (salir de práctica, sí). */}
+        <PracticeMenuItem onClose={() => setMenu(false)} canStart={!sinCarta} />
         <InstallMenuItem />
         <GuiaMenuLink />
         <LogoutMenuItem onLogout={onLogout} />
@@ -472,12 +499,49 @@ export function CobrarFlow({ user, onCobroDone, onLogout, night, miQrOpen = fals
           key={stage.payment.id}
           payment={stage.payment}
           isPos
+          byStaff={user.role !== 'OPERATOR'}
           label={stage.label}
           onPaid={onCobroDone}
           onClose={() => {
             setCuenta(EMPTY_CUENTA);
             backToCarta();
           }}
+        />
+      );
+    case 'companera':
+      return (
+        <div className={styles.overlay}>
+          <EscanearChica
+            ctx={ctx}
+            who={who}
+            title="Servicio"
+            priceCents={servicioDe(stage.cuenta).totalCents}
+            texts={SERVICIO_SCAN_TEXTS}
+            skipRaw={stage.skipRaw}
+            onChica={(chica) => {
+              go({ kind: 'servicioDe', cuenta: stage.cuenta, chica });
+              return Promise.resolve(true);
+            }}
+            onBack={backToCarta}
+          />
+        </div>
+      );
+    case 'servicioDe':
+      return (
+        <ServicioDe
+          ctx={ctx}
+          who={who}
+          cuenta={stage.cuenta}
+          chica={stage.chica}
+          onQr={() => void cobrarYApuntar(stage.cuenta, (c) => cobrarCuenta(c, stage.chica), setCuenta)}
+          onPos={methods.pos ? () => void cobrarPos(stage.cuenta, stage.chica) : undefined}
+          onOtra={() => {
+            setError(null);
+            go({ kind: 'companera', cuenta: stage.cuenta, skipRaw: stage.chica.raw });
+          }}
+          onBack={backToCarta}
+          busy={busy}
+          error={error}
         />
       );
     case 'otro':
@@ -572,6 +636,12 @@ export function CobrarFlow({ user, onCobroDone, onLogout, night, miQrOpen = fals
             onRetryCarta={carta.retry}
           />
           {menuModal}
+        </>
+      ) : sinCarta ? (
+        <>
+          <SinCobrar who={who} night={night ?? null} banner={banner} onLogo={() => setMenu(true)} onMiQr={() => onMiQr?.(true)} />
+          {menuModal}
+          {miQr}
         </>
       ) : (
         <>

@@ -197,6 +197,13 @@ export interface MyEarning {
   paymentStatus: string | null;
   /** Sin pagar y de una venta por datáfono pendiente de cuadrar con el banco. */
   bankHeld?: boolean;
+  /** Un servicio que otra persona le cobró a su nombre: quién lo cobró (solo en esas filas). */
+  servedByName?: string;
+  /** Ya avisó «No es mío» de ese servicio. */
+  notMineReported?: boolean;
+  /** En esas filas: lo de Servicios que era suyo y su % (sin la copa de la misma cuenta). */
+  serviceBaseCents?: number;
+  serviceBps?: number;
   createdAt: string;
 }
 
@@ -423,6 +430,8 @@ export interface MyNight {
   otherUnpaidCents?: number;
   /** «Copa con invitación»: las copas a las que la invitaron esta noche y su parte (un API antiguo no lo manda). */
   invitations?: { count: number; shareCents: number };
+  /** Sus servicios que otra persona le cobró a su nombre esta noche y su parte (un API antiguo no lo manda). */
+  served?: { count: number; shareCents: number };
 }
 
 export async function fetchMyNight(signal?: AbortSignal): Promise<MyNight> {
@@ -442,6 +451,15 @@ export async function fetchMyEarnings(): Promise<MyEarning[]> {
   const res = await authedFetch('/v1/operators/me/earnings');
   if (!res.ok) throw loadError(res, 'Error cargando ganancias');
   return res.json();
+}
+
+/** «No es mío»: avisa al encargado y al dueño de un servicio que otra persona le cobró a su nombre. */
+export async function reportNotMine(earningId: string): Promise<void> {
+  const res = await authedFetch(`/v1/operators/me/earnings/${encodeURIComponent(earningId)}/not-mine`, { method: 'POST' });
+  if (res.ok) return;
+  const { message, code } = parseProblemDetails(await res.text().catch(() => ''));
+  // 404: el API dice por qué («Ese cobro no es un servicio cobrado a tu nombre.»).
+  throw new Error(res.status === 404 && message ? message : operatorErrorMessage(res.status, message ?? undefined, 'El aviso', code));
 }
 
 export async function fetchMyPayouts(): Promise<MyPayout[]> {
@@ -615,23 +633,35 @@ export interface MySections {
   post?: PostCode | null;
   /** Su puesto lleva propinas (null: el API anterior). */
   tips?: boolean | null;
+  /** Un servicio cobrado a nombre de una compañera lleva propinas (las de Sala; null: el API anterior). */
+  serviceTips?: boolean | null;
+  /** false: la compañera con la casilla «Las compañeras cobran desde su móvil» apagada (null: el API anterior). */
+  fromPhone?: boolean | null;
 }
 
 export async function fetchMySections(): Promise<MySections> {
   const res = await authedFetch('/v1/venues/me');
   if (!res.ok) throw loadError(res, 'Error cargando el local');
-  const body = (await res.json()) as {
+  return mySectionsOf(await res.json());
+}
+
+/** La respuesta de /v1/venues/me → lo suyo (lo que falta, null: un API anterior). */
+export function mySectionsOf(raw: unknown): MySections {
+  const body = (raw ?? {}) as {
     sections?: VenueSection[];
     myDefaultCategory?: SectionCode;
     myPost?: PostCode | null;
-    myRights?: { sections?: SectionCode[]; tips?: boolean };
+    myRights?: { sections?: SectionCode[]; tips?: boolean; serviceTips?: boolean; fromPhone?: boolean };
   };
+  const flag = (v: unknown) => (typeof v === 'boolean' ? v : null);
   return {
     sections: body.sections ?? [],
     defaultCategory: body.myDefaultCategory ?? null,
     allowed: body.myRights?.sections ?? null,
     post: body.myPost ?? null,
-    tips: typeof body.myRights?.tips === 'boolean' ? body.myRights.tips : null,
+    tips: flag(body.myRights?.tips),
+    serviceTips: flag(body.myRights?.serviceTips),
+    fromPhone: flag(body.myRights?.fromPhone),
   };
 }
 

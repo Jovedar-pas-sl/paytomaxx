@@ -305,6 +305,30 @@ describe('«Comisión del servicio al cliente» (reglas del local y valores del 
   });
 });
 
+describe('«Las compañeras cobran desde su móvil» (reglas del local)', () => {
+  it('un local del API anterior (sin el campo): encendida', () => {
+    expect(rulesFormFrom(rules).operatorsChargeFromPhone).toBe(true);
+    expect(rulesFormFrom({ ...rules, operatorsChargeFromPhone: false }).operatorsChargeFromPhone).toBe(false);
+  });
+
+  it('apagarla: solo ella en el dto, con su línea para el 2FA', () => {
+    const r = rulesPayload(rules, { ...rulesFormFrom(rules), operatorsChargeFromPhone: false }, 7);
+    if (!r.ok) throw new Error(r.error);
+    expect(r.value.dto).toEqual({ operatorsChargeFromPhone: false });
+    expect(r.value.changes).toEqual(['las compañeras cobran desde su móvil: sí → no']);
+  });
+
+  it('encenderla en un local apagado; sin tocarla, no se manda', () => {
+    const off: VenueRules = { ...rules, operatorsChargeFromPhone: false };
+    const r = rulesPayload(off, { ...rulesFormFrom(off), operatorsChargeFromPhone: true }, 7);
+    expect(r).toMatchObject({ ok: true, value: { dto: { operatorsChargeFromPhone: true } } });
+    const other = rulesPayload(off, { ...rulesFormFrom(off), platformPct: '8' }, 7);
+    expect(other).toMatchObject({ ok: true, value: { dto: { platformCommissionBps: 800 } } });
+    if (other.ok) expect(other.value.dto).not.toHaveProperty('operatorsChargeFromPhone');
+    expect(rulesPayload(off, rulesFormFrom(off), 7)).toEqual({ ok: false, error: 'No has cambiado nada.' });
+  });
+});
+
 describe('lo que se confirma con el 2FA en un negocio (comisiones por defecto)', () => {
   it('al cambiarlas: cada una, de lo que era a lo nuevo', () => {
     const saved = { defaultPlatformCommissionBps: null, defaultServiceFeeBps: 800, defaultTopUpServiceFeeBps: null };

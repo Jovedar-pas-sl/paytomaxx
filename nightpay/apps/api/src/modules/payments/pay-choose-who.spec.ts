@@ -60,6 +60,21 @@ describe('/pay dice quién cobra', () => {
     expect(page(view())).not.toContain('class="who"');
   });
 
+  it.each([
+    ['es', 'Servicio con Nerea'],
+    ['en', 'Service with Nerea'],
+    ['fr', 'Service avec Nerea'],
+    ['pt', 'Serviço com Nerea'],
+  ] as const)('%s: a nombre de una compañera (cobro por el encargado), «%s» con su foto', (lang, text) => {
+    const v = view({ staffName: 'Nerea', staffPhoto: PHOTO, served: true });
+    expect(v).toMatchObject({ staffName: 'Nerea', served: true });
+    const html = page(v, lang);
+    expect(html).toContain(`<p class="who"><img class="face" src="${PHOTO}" alt="" width="32" height="32"><span>${text}</span></p>`);
+    expect(html).not.toContain(PAY_TEXT[lang].chargedBy('Nerea'));
+    // Sin compañera, como hoy.
+    expect(view({ staffName: 'Ana' })).not.toHaveProperty('served');
+  });
+
   it('el nombre lo escribe la persona: se escapa; una foto que no es data:image no sale', () => {
     const html = page(view({ staffName: '<b>Ana</b>', staffPhoto: 'javascript:alert(1)' }));
     expect(html).toContain('Te cobra &lt;b&gt;Ana&lt;/b&gt;');

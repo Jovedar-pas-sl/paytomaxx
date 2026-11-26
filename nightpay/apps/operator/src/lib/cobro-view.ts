@@ -265,7 +265,7 @@ export function splitCells(
 
 /** «Soy Carlos · camarero». */
 const ROLE_WORD: Readonly<Record<string, string>> = {
-  OPERATOR: 'chica',
+  OPERATOR: 'compañera',
   WAITER: 'camarero',
   MANAGER: 'encargado',
   OWNER: 'dueño',

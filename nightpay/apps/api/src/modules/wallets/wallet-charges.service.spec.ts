@@ -240,6 +240,7 @@ describe('la chica hace un cobro con QR', () => {
           beneficiaryOperatorId: null,
           beneficiaryCents: null,
           chargerCents: null,
+          serviceOperatorId: null,
         },
       ],
     });

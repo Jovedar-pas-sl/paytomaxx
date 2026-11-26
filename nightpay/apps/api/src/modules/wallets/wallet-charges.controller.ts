@@ -44,12 +44,17 @@ const QrChargeSchema = z
     tipCents: z.number().int().nonnegative().max(500_00).optional(),
     /** «Copa con invitación» con la chica de la lista (si el local no pide su QR). */
     invitedOperatorId: z.string().uuid().optional(),
+    /** Cobro por el encargado: el «Mi QR» de la compañera del servicio (URL o token). */
+    serviceStaffToken: z.string().trim().min(20).max(600).optional(),
   })
   .refine((b) => Boolean(b.serviceItemId) || Boolean(b.amountCents) || Boolean(b.lines), {
     message: 'Elige un servicio de la carta o pon un importe',
   })
   .refine((b) => !(b.invitedStaffToken && b.invitedOperatorId), {
     message: 'O el QR de la chica o la chica de la lista, no los dos',
+  })
+  .refine((b) => !(b.serviceStaffToken && (b.invitedStaffToken || b.invitedOperatorId)), {
+    message: 'La invitación se cobra aparte del servicio',
   });
 
 /** El código de la app de verificación de quien hace algo que el cliente no confirma. */
