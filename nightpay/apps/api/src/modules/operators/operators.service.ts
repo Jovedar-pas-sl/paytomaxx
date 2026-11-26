@@ -17,6 +17,7 @@ import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { PrismaService, type TransactionalClient } from '../../common/prisma/prisma.service';
 import { isPartyEdition } from '../../config/edition';
 import { EmailService } from '../../common/email/email.service';
+import { liveStaffCards, revokeLiveStaffCard } from './staff-cards.service';
 import { photoHashesOf } from '../profile/photo-hashes';
 import { AuditService } from '../audit/audit.service';
 import { RefreshTokenService } from '../auth/refresh-token.service';
@@ -586,12 +587,15 @@ export class OperatorsService {
     });
 
     const photos = await photoHashesOf(this.prisma, tenantId, operators.map((o) => o.id));
+    // Su ficha NFC viva («Ficha nº 0522» en su hoja).
+    const cards = await this.prisma.asSystem((tx) => liveStaffCards(tx, tenantId, operators.map((o) => o.id)));
     const result: OperatorWithBalance[] = [];
     for (const op of operators) {
       const balance = await this.getBalance(op.id, tenantId);
       result.push({
         ...this.toPublicView(op as never),
         photoHash: photos.get(op.id) ?? null,
+        staffCard: cards.get(op.id) ?? null,
         balance,
       });
     }
@@ -1296,6 +1300,8 @@ export class OperatorsService {
     if (minor) await this.minorBlocked(tenantId, operator, actorUserId, 'panel');
     // Baja: fuera al momento de la app (refresh y tokens de acceso ya emitidos).
     if (dto.active === false) await this.sessions.revokeAllForUser(operatorId);
+    // Baja: su ficha NFC deja de valer.
+    if (dto.active === false) await this.revokeStaffCardOnLeave(tenantId, operatorId, actorUserId);
     // Sale de las listas, pero se le sigue debiendo: que no se pierda de vista.
     if (dto.active === false && !operator.deletedAt) await this.flagLeftWithBalance(tenantId, operatorId, actorUserId, updated.displayName);
 
@@ -1316,6 +1322,22 @@ export class OperatorsService {
     }
 
     return this.toPublicView(updated);
+  }
+
+  /** Baja: su ficha NFC viva queda anulada (y en el registro). */
+  private async revokeStaffCardOnLeave(tenantId: string, operatorId: string, actorUserId: string): Promise<void> {
+    const number = await this.prisma.asSystem((tx) =>
+      revokeLiveStaffCard(tx, { tenantId, userId: operatorId, byUserId: actorUserId, reason: 'offboarded' }),
+    );
+    if (number === null) return;
+    await this.audit.log({
+      action: 'operator.staff_card_revoked',
+      tenantId,
+      actorId: actorUserId,
+      targetType: 'User',
+      targetId: operatorId,
+      payload: { number, reason: 'offboarded' },
+    });
   }
 
   /**
