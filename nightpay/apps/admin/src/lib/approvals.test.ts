@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import type { ApprovalView } from '@nightpay/contracts';
+import { formatRelative } from '@nightpay/ui';
 import {
   approvalAutoSends,
   approveButtonText,
@@ -18,7 +19,6 @@ import {
   refundGoesToApproval,
   rejectNoteProblem,
   sortApprovals,
-  timeAgo,
 } from './approvals';
 import { formatEur } from './money';
 
@@ -96,9 +96,10 @@ describe('tarjeta de «Por aprobar»', () => {
   });
 
   it('hace cuánto y cuándo caduca', () => {
-    expect(timeAgo('2026-10-16T02:00:00Z', now)).toBe('hace 40 min');
-    expect(timeAgo('2026-10-16T02:39:30Z', now)).toBe('ahora');
-    expect(timeAgo('2026-10-15T20:00:00Z', now)).toBe('hace 6 h');
+    // «hace…» es el de toda la app (formatRelative de @nightpay/ui).
+    expect(formatRelative('2026-10-16T02:00:00Z', now)).toBe('hace 40 min');
+    expect(formatRelative('2026-10-16T02:39:30Z', now)).toBe('ahora');
+    expect(formatRelative('2026-10-15T20:00:00Z', now)).toBe('hace 6 h');
     expect(expiresIn('2026-10-17T02:00:00Z', now)).toBe('caduca en 23 h');
     expect(expiresIn('2026-10-16T02:50:00Z', now)).toBe('caduca en 10 min');
     expect(expiresIn('2026-10-16T02:00:00Z', now)).toBe('caducada');
@@ -106,6 +107,9 @@ describe('tarjeta de «Por aprobar»', () => {
 
   it('estado en una línea para el encargado («Mis solicitudes»)', () => {
     expect(decisionLine(payout, now)).toBe('Pedida hace 40 min · caduca en 23 h');
+    // Con más de 12 horas ya no es «hace 26 h»: el día (por noches) y la hora, en la zona del local.
+    expect(decisionLine({ ...payout, requestedAt: '2026-10-14T19:30:00Z' }, now)).toBe('Pedida ayer, 21:30 · caduca en 23 h');
+    expect(decisionLine({ ...payout, requestedAt: '2026-10-14T19:30:00Z' }, now, 'Atlantic/Canary')).toBe('Pedida ayer, 20:30 · caduca en 23 h');
     expect(
       decisionLine({ ...payout, status: 'APPROVED', decidedAt: '2026-10-16T02:30:00Z', decidedBy: { id: 'j', name: 'Jefe', role: 'OWNER' } }, now),
     ).toBe('Aprobada por Jefe hace 10 min');

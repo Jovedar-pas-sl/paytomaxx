@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { bpsToPercentInput, formatPercent, parsePercentToBps, splitExample } from './commission';
+import { bpsToPercentInput, formatBps, parsePercentToBps, splitExample } from './commission';
 
 describe('parsePercentToBps', () => {
   it('porcentajes limpios con coma o punto', () => {
@@ -28,8 +28,9 @@ describe('parsePercentToBps', () => {
 describe('formato', () => {
   it('campo y lectura', () => {
     expect(bpsToPercentInput(1050)).toBe('10,50');
-    expect(formatPercent(1000)).toBe('10 %');
-    expect(formatPercent(1050)).toBe('10,5 %');
+    // El de toda la app (@nightpay/ui): con espacio duro antes del «%».
+    expect(formatBps(1000)).toBe('10\u00a0%');
+    expect(formatBps(1050)).toBe('10,5\u00a0%');
   });
 });
 

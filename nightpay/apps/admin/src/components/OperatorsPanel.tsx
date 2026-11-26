@@ -3,7 +3,7 @@
 import { useEffect, useState, type CSSProperties, type FormEvent } from 'react';
 import { Button, Card, Input, Modal, StaffAvatar } from '@nightpay/ui';
 import { createOperator, fetchOperators, fetchVenueSettings, type Operator } from '@/lib/api';
-import { formatPercent, parsePercentToBps } from '@/lib/commission';
+import { formatBps, parsePercentToBps } from '@/lib/commission';
 import { keepIfSame } from '@/lib/diff';
 import { formatEur } from '@/lib/money';
 import { minorNow } from '@/lib/payout-account-view';
@@ -150,7 +150,7 @@ export function OperatorsPanel({ isOwner }: Props) {
                         {op.email}
                       </td>
                       <td data-label="Comisión" className="np-num" style={numCell}>
-                        {formatPercent(op.commissionBps)}
+                        {formatBps(op.commissionBps)}
                       </td>
                       <td
                         data-label="Saldo pendiente"
@@ -456,7 +456,7 @@ function CreateOperatorModal({
           ) : (
             <p style={{ margin: 0, fontSize: '0.875rem', color: 'var(--np-text-mute)' }}>
               Comisión: la del local para servicios de compañera
-              {venueCommission.bps !== null ? ` (${formatPercent(venueCommission.bps)})` : '…'}. Solo el dueño
+              {venueCommission.bps !== null ? ` (${formatBps(venueCommission.bps)})` : '…'}. Solo el dueño
               puede cambiarla.
             </p>
           )}

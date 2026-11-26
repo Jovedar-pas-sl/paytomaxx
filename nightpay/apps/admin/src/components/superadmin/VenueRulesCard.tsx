@@ -3,7 +3,7 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { Button, Card, Input } from '@nightpay/ui';
 import type { OperatorCommissionDefaults, VenueDetail } from '@nightpay/contracts';
-import { formatPercent, parsePercentToBps } from '@/lib/commission';
+import { formatBps, parsePercentToBps } from '@/lib/commission';
 import { updateSaVenueRules } from '@/lib/endpoints/superadmin';
 import {
   DEFAULT_REFUND_THRESHOLD_TEXT,
@@ -151,7 +151,7 @@ export function VenueRulesCard({ venue, onSaved }: Props) {
                   value={form.categories[key]}
                   onChange={(e) => setCategory(key, e.target.value)}
                   error={venueShare !== null && venueShare < 0 ? 'Con la plataforma pasa del 100 %.' : undefined}
-                  hint={venueShare !== null && venueShare >= 0 ? `El local se queda ${formatPercent(venueShare)}.` : undefined}
+                  hint={venueShare !== null && venueShare >= 0 ? `El local se queda ${formatBps(venueShare)}.` : undefined}
                 />
               );
             })}

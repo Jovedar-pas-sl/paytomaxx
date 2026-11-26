@@ -2,7 +2,7 @@
 // en castellano llano (quien la usa no es técnico).
 
 import type { CustomerMovement, OperatorCommissionDefaults, Role } from '@nightpay/contracts';
-import { formatPercent } from '../commission';
+import { formatBps } from '../commission';
 import { formatDateTime } from '../dates';
 import { formatEur } from '../money';
 
@@ -119,5 +119,5 @@ export function absoluteApiUrl(base: string, path: string): string {
 
 /** Comisión de la plataforma para leer: «8 %», o «la general» (null: la de por defecto). */
 export function commissionText(bps: number | null): string {
-  return bps === null ? 'la general' : formatPercent(bps);
+  return bps === null ? 'la general' : formatBps(bps);
 }

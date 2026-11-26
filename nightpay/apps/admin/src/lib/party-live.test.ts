@@ -84,13 +84,13 @@ describe('qué noche ver', () => {
 });
 
 describe('ventas por hora', () => {
-  it('barras con su alto frente a la mayor, «k» desde 1.000 € y la de ahora abierta', () => {
+  it('barras con su alto frente a la mayor, «mil €» desde 1.000 € y la de ahora abierta', () => {
     const bars = hourBars(sampleLive().hourly, TZ);
-    expect(bars.map((b) => [b.hour, b.label, b.pct, b.open])).toEqual([
+    expect(plain(bars.map((b) => [b.hour, b.label, b.pct, b.open]))).toEqual([
       ['20 h', '620 €', 20, false],
       ['21 h', '0 €', 0, false],
-      ['23 h', '3,1 k', 100, false],
-      ['01 h', '1,6 k', 53, true],
+      ['23 h', '3,1 mil €', 100, false],
+      ['01 h', '1,6 mil €', 53, true],
     ]);
     expect(bars[0]!.day).toBe('mié 23');
     expect(bars[3]!.day).toBe('jue 24');
@@ -99,7 +99,7 @@ describe('ventas por hora', () => {
   });
 
   it('lo negativo (solo devoluciones en esa hora) no pinta barra', () => {
-    expect(hourAmountLabel(-500)).toBe('0 €');
+    expect(plain(hourAmountLabel(-500))).toBe('0 €');
     expect(hourBars([{ at: '2027-06-23T18:00:00.000Z', soldCents: -500, open: false }], TZ)[0]!.pct).toBe(0);
   });
 });

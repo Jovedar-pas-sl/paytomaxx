@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useId, useRef, useState, type FormEvent } from 'react';
-import { Button, Input, useNow } from '@nightpay/ui';
+import { Button, formatRelative, Input, useNow } from '@nightpay/ui';
 import { PASSKEY_REQUIRED_CODE, stepUpActions, type PayoutMethod, type StepUpProof } from '@nightpay/contracts';
 import { approveApproval, fetchApprovals, rejectApproval, type ApprovalView } from '@/lib/api';
 import { ApiError, totpLockedUntil } from '@/lib/api-errors';
@@ -18,14 +18,13 @@ import {
   expiresIn,
   kindLabel,
   rejectNoteProblem,
-  timeAgo,
 } from '@/lib/approvals';
 import { formatEur } from '@/lib/money';
 import { proofFor } from '@/lib/refund-confirm';
 import { useApprovals } from '@/lib/use-approvals';
 import { useLockActive } from '@/lib/use-lock';
 import { useStepUpMethod } from '@/lib/use-step-up-method';
-import { useVenue } from '@/lib/venue-context';
+import { useVenue, useVenueTimezone } from '@/lib/venue-context';
 import { ConfirmLine } from './ConfirmLine';
 import { KeyConfirm } from './KeyConfirm';
 import { Notice } from './Notice';
@@ -264,7 +263,7 @@ function ApprovalCard({ item, now, onDone }: { item: ApprovalView; now: Date; on
       <p className="np-inbox-meta">
         <span className="np-inbox-kicker">{kindLabel(item)}</span>
         <span>
-          {item.requestedBy.name} · {timeAgo(item.requestedAt, now)}
+          {item.requestedBy.name} · {formatRelative(item.requestedAt, now, venue.timezone)}
         </span>
       </p>
       <p className="np-approval-amount np-num">{formatEur(item.amountCents)}</p>
@@ -377,6 +376,7 @@ async function afterApproved(item: ApprovalView, result: ApprovalView): Promise<
 }
 
 function DecidedRow({ item, now }: { item: ApprovalView; now: Date }) {
+  const tz = useVenueTimezone();
   const status = APPROVAL_STATUS[item.status];
   return (
     <li className="np-approval" data-state="done">
@@ -388,7 +388,7 @@ function DecidedRow({ item, now }: { item: ApprovalView; now: Date }) {
       <p className="np-approval-target">
         <strong className="np-num">{formatEur(item.amountCents)}</strong> · {approvalTarget(item, methodLabel)}
       </p>
-      <p className="np-approval-meta">{decisionLine(item, now)}</p>
+      <p className="np-approval-meta">{decisionLine(item, now, tz)}</p>
     </li>
   );
 }
