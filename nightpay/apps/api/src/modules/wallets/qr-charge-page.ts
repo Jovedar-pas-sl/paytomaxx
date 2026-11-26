@@ -124,6 +124,8 @@ export function renderQrChargePage(
     code: isPaid ? (code ?? null) : null,
     hidden: !isPaid,
     fromBalance: true,
+    // A quién se pagó (idea 62).
+    to: view.venueName,
     footer: closed ? undefined : mine,
   });
   return `<!DOCTYPE html>

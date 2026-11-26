@@ -84,6 +84,7 @@ const pay: PayText = {
   openingHint: 'Si rien ne se passe dans 2 secondes, touchez le bouton.',
   continueToBank: 'Continuer vers le paiement',
   paidTitle: 'Payé',
+  paidTo: (venue) => `à ${venue}`,
   alreadyPaidTitle: 'Déjà payé',
   agoPrefix: 'il y a ',
   agoSuffix: '',
@@ -241,6 +242,7 @@ const pay: PayText = {
   receipt: {
     title: 'Reçu de paiement',
     date: 'Date',
+    paidTo: 'Payé à',
     amount: 'Montant',
     topUp: 'Recharge',
     serviceFee: 'Frais de service',

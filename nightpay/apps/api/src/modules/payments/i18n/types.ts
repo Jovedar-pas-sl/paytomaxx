@@ -196,6 +196,8 @@ export interface PayText {
   continueToBank: string;
   // Pagado
   paidTitle: string;
+  /** Debajo de «Pagado», a quién: «a Sala Aurora». */
+  paidTo: (venue: string) => string;
   alreadyPaidTitle: string;
   agoPrefix: string;
   agoSuffix: string;
@@ -244,6 +246,8 @@ export interface PayText {
   receipt: {
     title: string;
     date: string;
+    /** «Pagado a»: el local. */
+    paidTo: string;
     amount: string;
     /** Una recarga del saldo: el importe es «Recarga». */
     topUp: string;

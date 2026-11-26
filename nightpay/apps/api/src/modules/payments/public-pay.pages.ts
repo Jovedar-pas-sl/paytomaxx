@@ -58,6 +58,12 @@ function formatDateTime(d: Date, t: PayText): string {
   });
 }
 
+/** Cómo se pagó, sin dígitos de la tarjeta: «Visa · Apple Pay o Google Pay». Sin datos, vacío. */
+function methodLabel(t: PayText, cardBrand: string | null | undefined, payMethod: string | null | undefined): string {
+  const how = payMethod === 'wallet' ? t.receipt.wallet : payMethod === 'card' ? t.receipt.card : null;
+  return [cardBrandLabel(cardBrand), how].filter(Boolean).join(' · ');
+}
+
 export function payHref(token: string, lang: PayLanguage): string {
   return `/pay/${encodeURIComponent(token)}?lang=${lang}`;
 }
@@ -167,6 +173,11 @@ export function renderPaidPage(
     topUp?: boolean;
     /** El selector de idioma de esta página (p. ej. /pay/result?op=…). */
     langHref?: LangHref;
+    /** A quién se pagó, qué y cómo (idea 62): el local, lo pedido, la marca y la forma de pago. */
+    to?: string | null;
+    concept?: string | null;
+    cardBrand?: string | null;
+    payMethod?: string | null;
   },
   lang: PayLanguage,
 ): string {
@@ -191,6 +202,10 @@ export function renderPaidPage(
     now,
     code: args.code,
     rows,
+    to: args.to,
+    // Una recarga sigue diciendo «Recarga».
+    concept: args.topUp ? null : args.concept,
+    method: methodLabel(t, args.cardBrand, args.payMethod),
     lines: args.tipCents > 0 ? [t.thanksTip] : [],
     viewerPaid: args.viewerPaid === true,
     // Sin recarga que activar, el justificante va dentro del «Pagado» (se ve sin bajar).
@@ -346,6 +361,10 @@ export function renderResultView(
         viewerPaid,
         topUp: topUp || Boolean(view.walletToken || view.walletReturnToken),
         langHref,
+        to: view.venueName,
+        concept: view.concept,
+        cardBrand: view.cardBrand,
+        payMethod: view.payMethod,
       },
       lang,
     );
@@ -369,13 +388,12 @@ export function renderReceiptPage(
   const t = PAY_TEXT[ctx.lang];
   const rt = t.receipt;
   const fmt = (c: number): string => formatFull(c, r.currency, t);
-  const brand = cardBrandLabel(r.cardBrand);
-  const method = [r.payMethod === 'wallet' ? rt.wallet : r.payMethod === 'card' ? rt.card : null, brand]
-    .filter(Boolean)
-    .join(' · ');
+  const method = methodLabel(t, r.cardBrand, r.payMethod);
+  // A quién se pagó y lo pedido (idea 62); una recarga sigue diciendo «Recarga».
   const rows: Array<[string, string, boolean?]> = [
     ...(r.authorizedAt ? [[rt.date, formatDateTime(r.authorizedAt, t)] as [string, string]] : []),
-    [r.topUp ? rt.topUp : rt.amount, fmt(r.amountCents)],
+    ...(r.venueName ? [[rt.paidTo, r.venueName] as [string, string]] : []),
+    [r.topUp ? rt.topUp : r.concept || rt.amount, fmt(r.amountCents)],
     ...((r.serviceFeeCents ?? 0) > 0 ? [[rt.serviceFee, fmt(r.serviceFeeCents ?? 0)] as [string, string]] : []),
     ...(r.tipCents > 0 ? [[rt.tip, fmt(r.tipCents)] as [string, string]] : []),
     [rt.total, fmt(r.amountCents + (r.serviceFeeCents ?? 0) + r.tipCents), true],

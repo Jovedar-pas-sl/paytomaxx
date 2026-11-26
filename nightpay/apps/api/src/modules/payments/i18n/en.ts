@@ -75,6 +75,7 @@ const pay: PayText = {
   openingHint: 'If nothing happens in 2 seconds, tap the button.',
   continueToBank: 'Continue to payment',
   paidTitle: 'Paid',
+  paidTo: (venue) => `to ${venue}`,
   alreadyPaidTitle: 'Already paid',
   agoPrefix: '',
   agoSuffix: ' ago',
@@ -230,6 +231,7 @@ const pay: PayText = {
   receipt: {
     title: 'Payment receipt',
     date: 'Date',
+    paidTo: 'Paid to',
     amount: 'Amount',
     topUp: 'Top-up',
     serviceFee: 'Service fee',

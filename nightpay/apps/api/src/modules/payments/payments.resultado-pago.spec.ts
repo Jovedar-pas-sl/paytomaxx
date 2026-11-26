@@ -102,6 +102,8 @@ function makeService(setup: Setup = {}) {
         return where.paymentId === undefined ? { paymentId: PAYMENT_ID } : { status: hit.status };
       }),
     },
+    // La compañera del servicio de un cobro hecho por otra persona (cobro por el encargado): aquí, ninguna.
+    $queryRaw: vi.fn(async () => []),
     gatewayCredential: {
       findFirst: vi.fn(async () => (setup.provider === null ? null : { provider: setup.provider ?? 'REDSYS' })),
     },
@@ -181,6 +183,55 @@ describe('«Pagado» de una recarga: el saldo solo se entrega con la recarga que
       payment: { ...TOP_UP, status: 'CREATED', provider: null, providerTxId: null, tipCents: 0, authorizedAt: null },
     });
     await expect(service.getPayPage(QR)).resolves.toMatchObject({ kind: 'choose', tipOptionsCents: [0], tipMaxCents: 0 });
+  });
+});
+
+describe('idea 62: el «Pagado» dice a quién se pagó, qué y cómo, sin dígitos de la tarjeta', () => {
+  // Visa (Ds_Card_Brand 1) con Apple Pay o Google Pay.
+  const PAID: Row = { serviceName: '2× Gin tonic · Nachos', cardBrand: '1', cardLast4: '4242', attempts: [{ claimHash: 'huella-cliente', payMethod: 'wallet' }] };
+
+  it('/pay/:token ya pagado → el local, lo pedido, la marca y la forma de pago', async () => {
+    const { service, prisma } = makeService({ payment: PAID });
+    const view = await service.getPayPage(QR);
+    expect(view).toMatchObject({
+      kind: 'paid',
+      venueName: 'Sala Bambú (Madrid)',
+      concept: '2× Gin tonic · Nachos',
+      cardBrand: '1',
+      payMethod: 'wallet',
+    });
+    // Ni se piden ni salen los dígitos de la tarjeta (eso es de la parte B, solo para quien pagó).
+    expect(view).not.toHaveProperty('cardLast4');
+    expect(JSON.stringify(view)).not.toContain('4242');
+    expect(JSON.stringify(prisma.payment.findUnique.mock.calls[0]![0])).not.toContain('cardLast4');
+  });
+
+  it('/pay/result (la vuelta del banco) → lo mismo', async () => {
+    const attempts = [{ providerTxId: 'ORD-2', status: 'APPROVED' }];
+    const { service, prisma } = makeService({ payment: PAID, attempts });
+    const view = await service.getResultView('ORD-2');
+    expect(view).toMatchObject({
+      venueName: 'Sala Bambú (Madrid)',
+      concept: '2× Gin tonic · Nachos',
+      cardBrand: '1',
+      payMethod: 'wallet',
+    });
+    expect(view).not.toHaveProperty('cardLast4');
+    expect(JSON.stringify(view)).not.toContain('4242');
+    expect(JSON.stringify(prisma.payment.findFirst.mock.calls.map((c) => c[0]))).not.toContain('cardLast4');
+  });
+
+  it('sin concepto, sin marca o sin intento aprobado (un cobro de antes): esos datos, vacíos', async () => {
+    const { service } = makeService({ payment: { cardBrand: null }, attempts: [{ providerTxId: 'ORD-2', status: 'APPROVED' }] });
+    await expect(service.getPayPage(QR)).resolves.toMatchObject({ kind: 'paid', venueName: 'Sala Bambú (Madrid)', concept: null, cardBrand: null, payMethod: null });
+    await expect(service.getResultView('ORD-2')).resolves.toMatchObject({ concept: null, cardBrand: null, payMethod: null });
+  });
+
+  it('el justificante: a quién se pagó y lo pedido', async () => {
+    const { service } = makeService({ payment: PAID, attempts: [{ providerTxId: 'ORD-2', status: 'APPROVED', payMethod: 'wallet' }] });
+    const receipt = await service.getReceipt(QR);
+    expect(receipt).toMatchObject({ venueName: 'Sala Bambú (Madrid)', concept: '2× Gin tonic · Nachos', cardBrand: '1', payMethod: 'wallet' });
+    expect(receipt).not.toHaveProperty('cardLast4');
   });
 });
 
@@ -266,6 +317,11 @@ describe('getResultView — el cliente vuelve del banco a /pay/result', () => {
       walletHasPin: false,
       attemptStatus: 'DENIED',
       approvedClaimHash: null,
+      // Idea 62: a quién se pagó, qué y cómo (aquí, un cobro sin concepto ni intento aprobado con su forma).
+      venueName: 'Sala Bambú (Madrid)',
+      concept: null,
+      cardBrand: 'VISA',
+      payMethod: null,
     });
   });
 
@@ -341,6 +397,9 @@ describe('getReceipt — justificante del cliente', () => {
       cardBrand: 'VISA',
       payMethod: 'wallet',
       order: 'ORD-2',
+      // Idea 62: a quién se pagó y lo pedido (este cobro no lleva concepto).
+      venueName: 'Sala Bambú (Madrid)',
+      concept: null,
     });
   });
 

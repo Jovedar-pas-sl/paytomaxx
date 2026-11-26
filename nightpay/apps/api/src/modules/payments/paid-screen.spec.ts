@@ -88,6 +88,46 @@ describe('pantalla «Pagado»', () => {
     expect(html).toContain(`data-fresh="${PAID_FRESH_MS}"`);
   });
 
+  it('idea 62: dice a quién («a Sala Aurora», bajo el título), qué (lo pedido, en la primera fila) y cómo (la última, sin dígitos de la tarjeta)', () => {
+    const html = renderPaidScreen({
+      ...base,
+      viewerPaid: true,
+      now: at,
+      to: 'Sala Aurora',
+      concept: '2× Gin tonic · Nachos',
+      method: 'Visa · Apple Pay o Google Pay',
+      rows: [['Consumo', '33 €'], ['Comisión del servicio', '3,30 €']],
+    });
+    expect(html).toContain('aria-live="polite">Pagado</h1><p class="pto">a Sala Aurora</p></div>');
+    expect(html).toContain(
+      '<dl class="prows"><div><dt>2× Gin tonic · Nachos</dt><dd class="num">33 €</dd></div><div><dt>Comisión del servicio</dt><dd class="num">3,30 €</dd></div><div><dt>Método</dt><dd>Visa · Apple Pay o Google Pay</dd></div></dl>',
+    );
+    expect(html).not.toContain('<dt>Consumo</dt>');
+    // Sin comisión ni propina no había desglose: ahora, lo pedido con lo pagado.
+    const plain = renderPaidScreen({ ...base, now: at, concept: 'Copa' });
+    expect(plain).toContain('<dl class="prows"><div><dt>Copa</dt><dd class="num">65,00 €</dd></div></dl>');
+    // Solo el método (un cobro sin concepto).
+    expect(renderPaidScreen({ ...base, now: at, method: 'Mastercard · Tarjeta' })).toContain(
+      '<dl class="prows"><div><dt>Método</dt><dd>Mastercard · Tarjeta</dd></div></dl>',
+    );
+    // Sin nada de eso, como antes: ni «a …» ni desglose.
+    const bare = renderPaidScreen({ ...base, now: at });
+    expect(bare).not.toContain('class="pto"');
+    expect(bare).not.toContain('class="prows"');
+    // Lo escribe el local: se escapa.
+    const odd = renderPaidScreen({ ...base, now: at, to: '<b>Sala</b>', concept: '<i>Copa</i>' });
+    expect(odd).toContain('<p class="pto">a &lt;b&gt;Sala&lt;/b&gt;</p>');
+    expect(odd).toContain('<dt>&lt;i&gt;Copa&lt;/i&gt;</dt>');
+    // En su idioma.
+    expect(renderPaidScreen({ ...base, t: en, now: at, to: 'Sala Aurora', method: 'Visa · Card' })).toContain('<p class="pto">to Sala Aurora</p>');
+    expect(renderPaidScreen({ ...base, t: en, now: at, to: 'Sala Aurora', method: 'Visa · Card' })).toContain('<dt>Method</dt><dd>Visa · Card</dd>');
+    expect(renderPaidScreen({ ...base, t: fr, now: at, to: 'Sala Aurora' })).toContain('<p class="pto">à Sala Aurora</p>');
+    // 18 px / 500, y una frase larga o un nombre largo no rompen la fila.
+    expect(PAID_SCREEN_CSS).toContain('.paid .pto{font-size:1.125rem;font-weight:500');
+    expect(PAID_SCREEN_CSS).toMatch(/\.paid \.prows dd\{[^}]*text-align:right/);
+    expect(PAID_SCREEN_CSS).toMatch(/\.paid \.prows dt\{[^}]*overflow-wrap:anywhere/);
+  });
+
   it('JS sin barras invertidas (va dentro de una plantilla de TypeScript)', () => {
     expect(PAID_SCREEN_JS).not.toContain('\\');
   });

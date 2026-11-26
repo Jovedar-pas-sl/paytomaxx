@@ -441,6 +441,11 @@ export class PublicPayController {
               // Un /pay reenviado a otro móvil ve «Ya pagado» en gris, nunca el lima.
               viewerPaid: this.hasWalletClaim(res, token, view.approvedClaimHash ?? null),
               topUp: Boolean(view.walletToken || view.walletReturnToken),
+              // A quién se pagó, qué y cómo (idea 62).
+              to: view.venueName,
+              concept: view.concept,
+              cardBrand: view.cardBrand,
+              payMethod: view.payMethod,
             },
             lang,
           ),

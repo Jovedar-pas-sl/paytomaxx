@@ -110,6 +110,18 @@ describe('pagar con el saldo escaneando el QR del personal', () => {
     expect(html).toContain("el.classList.remove('stale')");
   });
 
+  it('idea 62: el «Pagado» con el saldo dice a quién («a Luna»), también el que enseña el JS al pagar aquí', () => {
+    const paid = renderQrChargePage('tok-1', 'es', { ...view, status: 'ACCEPTED', paidAt: new Date(NOW.getTime() - 60_000).toISOString() }, NOW);
+    expect(paid).toContain('<p class="pto">a Luna</p>');
+    // Sin pagar: el «Pagado» va oculto en la página, ya con el local.
+    const pending = renderQrChargePage('tok-1', 'es', view, NOW);
+    expect(pending).toMatch(/id="paid"[^>]* hidden>/);
+    expect(pending).toContain('<p class="pto">a Luna</p>');
+    expect(renderQrChargePage('tok-1', 'en', view, NOW)).toContain('<p class="pto">to Luna</p>');
+    // Sin nombre de local, sin esa línea.
+    expect(renderQrChargePage('tok-1', 'es', { ...view, venueName: '' }, NOW)).not.toContain('class="pto"');
+  });
+
   it('caducado → qué pasó, «No se te ha cobrado nada» y una indicación', () => {
     const html = renderQrChargePage('tok-1', 'es', { ...view, status: 'EXPIRED' }, NOW);
     expect(html).toContain('Este cobro ha caducado');

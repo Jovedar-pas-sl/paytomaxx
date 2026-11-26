@@ -18,8 +18,11 @@ import type { PayText } from './pay-i18n';
  *  - Pasados PAID_FRESH_MS, o en cualquier otro navegador (un /pay reenviado,
  *    el /s de otro móvil): gris, «YA PAGADO · hace 23 min» y «No es un pago
  *    nuevo». El estado lo dice el texto, no solo el color.
- *  - Debajo del importe, su desglose (consumo, comisión del servicio,
- *    propina) y, al final de la pantalla, el enlace al justificante.
+ *  - Debajo del título, a quién se pagó («a Sala Aurora», idea 62). Debajo
+ *    del importe, su desglose: lo pedido (o «Consumo»), la comisión del
+ *    servicio, la propina y cómo se pagó («Visa · Apple Pay o Google Pay»,
+ *    nunca los dígitos de la tarjeta). Al final de la pantalla, el enlace al
+ *    justificante.
  *
  * Funciona sin red una vez cargado (CSS y JS en la página) y sin JS se ve el
  * importe y el código. El reloj usa la hora del servidor (data-now).
@@ -74,6 +77,7 @@ export const PAID_SCREEN_CSS = `${BAND_CSS}
 @keyframes np-done-draw{from{stroke-dashoffset:1}to{stroke-dashoffset:0}}
 @media (prefers-reduced-motion:reduce){.paid .tick,.paid .tick path{animation:none}}
 .paid .ptitle{font-size:1.75rem;font-weight:600;line-height:1.1}
+.paid .pto{font-size:1.125rem;font-weight:500;line-height:1.2;margin-top:-.25rem;overflow-wrap:anywhere}
 .paid .pamount{font-size:clamp(3.5rem,17vw,4rem);font-weight:600;letter-spacing:-.02em;line-height:1.05;font-variant-numeric:proportional-nums}
 .paid .pcode{width:100%;max-width:21rem;margin:.375rem 0 .25rem;padding:.625rem 1rem .75rem;border-radius:var(--r);background:var(--cream);color:var(--ink);display:flex;flex-direction:column;align-items:center;gap:.125rem}
 .paid .pcode .plabel{font-size:.875rem;font-weight:500}
@@ -88,8 +92,8 @@ export const PAID_SCREEN_CSS = `${BAND_CSS}
 .paid .prows{width:100%;max-width:21rem;margin:.125rem 0 0;padding:.125rem .875rem;border-radius:var(--r-tile);background:rgb(0 0 0/.22);text-align:left}
 .paid .prows div{display:flex;justify-content:space-between;gap:1rem;padding:.3rem 0;font-size:.875rem}
 .paid .prows div+div{border-top:1px solid rgb(244 242 236/.16)}
-.paid .prows dt{font-weight:400}
-.paid .prows dd{margin:0;font-weight:600;font-variant-numeric:tabular-nums}
+.paid .prows dt{min-width:0;font-weight:400;overflow-wrap:anywhere}
+.paid .prows dd{margin:0;font-weight:600;font-variant-numeric:tabular-nums;text-align:right}
 .paid .pnote{font-size:.875rem;font-weight:400}
 .paid .pstale{display:none;font-weight:600}
 .paid .pfoot .link{color:inherit}
@@ -165,6 +169,12 @@ export interface PaidScreenArgs {
   code: string | null;
   /** Desglose debajo del importe (Consumo, Comisión del servicio, Propina), ya formateado. */
   rows?: ReadonlyArray<readonly [string, string]>;
+  /** A quién se pagó (el local): «a Sala Aurora», bajo el título. */
+  to?: string | null;
+  /** Lo pedido («2× Gin tonic · Nachos»): la primera fila lo dice en vez de «Consumo»; sin desglose, con lo pagado. */
+  concept?: string | null;
+  /** Cómo se pagó, sin dígitos de la tarjeta («Visa · Apple Pay o Google Pay»): la última fila. */
+  method?: string | null;
   /** Líneas debajo del importe (texto plano): «¡Gracias por la propina!», «Te quedan…». */
   lines?: string[];
   id?: string;
@@ -201,12 +211,16 @@ export function renderPaidScreen(a: PaidScreenArgs): string {
   // La marquesina: «Pagado · 23:15» (sin la hora si aún no consta: /s la pone al pagar).
   const bandText = a.authorizedAt ? `${t.paidTitle} · ${formatTime(a.authorizedAt, t)}` : t.paidTitle;
   const lines = (a.lines ?? []).map((l) => `<p class="pline">${escapeHtml(l)}</p>`).join('');
-  const rows = a.rows?.length
-    ? `<dl class="prows">${a.rows.map(([k, v]) => `<div><dt>${escapeHtml(k)}</dt><dd class="num">${escapeHtml(v)}</dd></div>`).join('')}</dl>`
-    : '';
+  const given = a.rows ?? [];
+  const first: ReadonlyArray<readonly [string, string]> = a.concept ? [[a.concept, given[0]?.[1] ?? a.amount]] : given.slice(0, 1);
+  const money = [...first, ...given.slice(1)]
+    .map(([k, v]) => `<div><dt>${escapeHtml(k)}</dt><dd class="num">${escapeHtml(v)}</dd></div>`)
+    .join('');
+  const method = a.method ? `<div><dt>${escapeHtml(t.receipt.method)}</dt><dd>${escapeHtml(a.method)}</dd></div>` : '';
+  const rows = money || method ? `<dl class="prows">${money}${method}</dl>` : '';
   return `<section class="paid${fresh ? '' : ' stale'}${closed ? ' closed' : ''}" id="${id}" data-at="${at ?? ''}" data-now="${a.now.getTime()}" data-fresh="${PAID_FRESH_MS}" data-close="${PAID_CLOSE_MS}" aria-labelledby="${id}Title"${a.hidden ? ' hidden' : ''}>
 ${paidBand(bandText)}
-<div class="phead"><svg class="tick" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 13l4 4L19 7" pathLength="1"/></svg><h1 class="ptitle" id="${id}Title" data-title aria-live="polite">${escapeHtml(fresh ? t.paidTitle : t.alreadyPaidTitle)}</h1></div>
+<div class="phead"><svg class="tick" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 13l4 4L19 7" pathLength="1"/></svg><h1 class="ptitle" id="${id}Title" data-title aria-live="polite">${escapeHtml(fresh ? t.paidTitle : t.alreadyPaidTitle)}</h1>${a.to ? `<p class="pto">${escapeHtml(t.paidTo(a.to))}</p>` : ''}</div>
 <p class="pamount num" data-amount>${escapeHtml(a.amount)}</p>
 ${a.code ? codePlate(a.code, t) : ''}
 <p class="pstale">${escapeHtml(t.notNewPayment)}</p>

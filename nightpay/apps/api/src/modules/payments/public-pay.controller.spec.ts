@@ -202,6 +202,68 @@ describe('GET /pay/result — el "Pagado" ya no se puede falsificar', () => {
     for (const s of scripts(html)) expect(() => new Function(s)).not.toThrow();
   });
 
+  it('idea 62: el «Pagado» de la vuelta del banco dice a quién, qué (lo pedido, en vez de «Consumo») y cómo, sin dígitos', async () => {
+    const paidView = view({
+      status: 'AUTHORIZED',
+      amountCents: 3_300,
+      serviceFeeCents: 330,
+      tipCents: 300,
+      authorizedAt: new Date(),
+      venueName: 'Sala Aurora',
+      concept: '2× Gin tonic · Nachos',
+      cardBrand: '1',
+      payMethod: 'wallet',
+    });
+    const { controller } = makeController({ view: paidView });
+    const { reply, sent } = fakeReply();
+    await controller.paymentResult('a1b2c3d4e5f6', 'es', undefined, reply);
+    const html = sent.body!.replace(/[\u00a0\u202f]/g, ' ');
+    expect(html).toContain('<p class="pto">a Sala Aurora</p>');
+    expect(html).toContain(
+      '<dl class="prows"><div><dt>2× Gin tonic · Nachos</dt><dd class="num">33 €</dd></div><div><dt>Comisión del servicio</dt><dd class="num">3,30 €</dd></div><div><dt>Propina</dt><dd class="num">3 €</dd></div><div><dt>Método</dt><dd>Visa · Apple Pay o Google Pay</dd></div></dl>',
+    );
+    expect(html).not.toContain('<dt>Consumo</dt>');
+    expect(html).not.toMatch(/[·•]{2}\s?[0-9]{4}/);
+    // Sin comisión ni propina: lo pedido con lo pagado y el método.
+    const plain = fakeReply();
+    await makeController({ view: { ...paidView, serviceFeeCents: 0, tipCents: 0, payMethod: 'card' } }).controller.paymentResult('a1b2c3d4e5f6', 'es', undefined, plain.reply);
+    expect(plain.sent.body!.replace(/[\u00a0\u202f]/g, ' ')).toContain(
+      '<dl class="prows"><div><dt>2× Gin tonic · Nachos</dt><dd class="num">33 €</dd></div><div><dt>Método</dt><dd>Visa · Tarjeta</dd></div></dl>',
+    );
+    // Una recarga sigue diciendo «Recarga» (no un concepto).
+    const topUp = fakeReply();
+    await makeController({ view: { ...paidView, walletReturnToken: 'w-1', concept: 'Saldo' } }).controller.paymentResult('a1b2c3d4e5f6', 'es', undefined, topUp.reply);
+    expect(topUp.sent.body).toContain('<dt>Recarga</dt>');
+    expect(topUp.sent.body).not.toContain('<dt>Saldo</dt>');
+  });
+
+  it('idea 62: lo mismo al abrir otra vez el enlace de un cobro ya pagado (/pay/:token)', async () => {
+    const { controller } = makeController({
+      page: {
+        kind: 'paid',
+        paymentId: PAYMENT_ID,
+        amountCents: 3_300,
+        tipCents: 0,
+        currency: 'EUR',
+        authorizedAt: new Date(),
+        walletToken: null,
+        walletClaimHash: null,
+        walletCode: null,
+        walletHasFaceId: false,
+        walletHasPin: false,
+        venueName: 'Sala Aurora',
+        concept: 'Copa',
+        cardBrand: '2',
+        payMethod: 'card',
+      },
+    });
+    const { reply, sent } = fakeReply();
+    await controller.payPage('qr-token-1', 'en', undefined, IPHONE, reply);
+    expect(sent.body).toContain('<p class="pto">to Sala Aurora</p>');
+    expect(sent.body).toContain('<dt>Copa</dt>');
+    expect(sent.body).toContain('<dt>Method</dt><dd>Mastercard · Card</dd>');
+  });
+
   it('recién pagado pero en OTRO navegador (enlace reenviado, sin la cookie del pago) → «Ya pagado» en gris', async () => {
     vi.useFakeTimers({ toFake: ['Date'] });
     vi.setSystemTime(new Date('2026-10-13T08:15:14Z'));
@@ -912,11 +974,33 @@ describe('GET /pay/:token/receipt — justificante', () => {
     expect(sent.status).toBe(200);
     expect(sent.body).toContain('Justificante de pago');
     expect(sent.body).toContain('105,00');
-    expect(sent.body).toContain('Apple Pay o Google Pay · Visa');
+    // La marca delante, como en el «Pagado» (idea 62); antes, «Apple Pay o Google Pay · Visa».
+    expect(sent.body).toContain('<dt>Método</dt><dd>Visa · Apple Pay o Google Pay</dd>');
+    // Sin local ni concepto en el cobro, las filas de siempre.
+    expect(sent.body).toContain('<dt>Importe</dt>');
+    expect(sent.body).not.toContain('Pagado a');
     expect(sent.body).toContain('047215');
     expect(sent.body).toContain('1234ABCD5678');
     expect(sent.body).toContain('A6B');
     expect(sent.body).toContain('23:41');
+  });
+
+  it('idea 62: el justificante dice a quién se pagó («Pagado a») y lo pedido, sin dígitos de la tarjeta', async () => {
+    const { controller } = makeController({ receipt: { ...RECEIPT, venueName: 'Sala <Aurora>', concept: '2× Gin tonic · Nachos' } });
+    const { reply, sent } = fakeReply();
+    await controller.receipt('qr-token-1', 'es', undefined, reply);
+    const html = sent.body!.replace(/[\u00a0\u202f]/g, ' ');
+    expect(html).toContain('<div><dt>Pagado a</dt><dd>Sala &lt;Aurora&gt;</dd></div><div><dt>2× Gin tonic · Nachos</dt><dd>100,00 €</dd></div>');
+    expect(html).not.toContain('<dt>Importe</dt>');
+    expect(html).not.toMatch(/[·•]{2}\s?[0-9]{4}/);
+    // Sigue sin datos personales (los dígitos de la tarjeta son de la parte B).
+    expect(html).toContain('Este justificante no contiene datos personales.');
+    // Una recarga: «Recarga», no un concepto.
+    const topUp = fakeReply();
+    await makeController({ receipt: { ...RECEIPT, topUp: true, venueName: 'Sala Aurora', concept: 'Saldo' } }).controller.receipt('qr-token-1', 'en', undefined, topUp.reply);
+    expect(topUp.sent.body).toContain('<dt>Paid to</dt><dd>Sala Aurora</dd>');
+    expect(topUp.sent.body).toContain('<dt>Top-up</dt>');
+    expect(topUp.sent.body).not.toContain('<dt>Saldo</dt>');
   });
 
   it('no pagado o inexistente → 404', async () => {

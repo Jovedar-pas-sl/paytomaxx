@@ -19,6 +19,11 @@ export type PayClosedReason =
 /** Botón que pulsa el cliente: Apple Pay / Google Pay o tarjeta. */
 export type PayMethodChoice = 'wallet' | 'card';
 
+/** La forma de pago del intento cobrado («wallet»: Apple Pay o Google Pay; «card»); null si no consta. */
+export function payMethodOf(raw: string | null | undefined): PayMethodChoice | null {
+  return raw === 'wallet' || raw === 'card' ? raw : null;
+}
+
 /** Lo que elige el cliente en la página de pago antes de ir al banco. */
 export interface CheckoutChoice {
   tipCents: number;
@@ -124,6 +129,14 @@ export type PayRedirect =
       reservation?: true;
       /** Regalos: el navegador que lo pagó va a «Comparte tu regalo». */
       gift?: true;
+      /**
+       * A quién se pagó, qué y cómo (idea 62): el local, lo pedido, la marca de
+       * la tarjeta y la forma de pago. Nunca los dígitos de la tarjeta.
+       */
+      venueName?: string | null;
+      concept?: string | null;
+      cardBrand?: string | null;
+      payMethod?: PayMethodChoice | null;
     }
   | { kind: 'processing' }
   | { kind: 'closed'; reason: PayClosedReason };
@@ -160,6 +173,11 @@ export interface PayResultView {
   attemptStatus: string | null;
   /** Huella del navegador del intento aprobado (solo él ve el «Pagado» lima). */
   approvedClaimHash?: string | null;
+  /** A quién se pagó, qué y cómo (idea 62), como en la vista «paid». Nunca los dígitos de la tarjeta. */
+  venueName?: string | null;
+  concept?: string | null;
+  cardBrand?: string | null;
+  payMethod?: PayMethodChoice | null;
 }
 
 /** Justificante del cliente: sin datos personales (ni nombre ni dígitos de tarjeta). */
@@ -178,6 +196,9 @@ export interface PayReceiptView {
   payMethod: PayMethodChoice | null;
   /** Pedido del banco (Ds_Order) del intento cobrado. */
   order: string | null;
+  /** A quién se pagó (el local) y lo pedido (idea 62). */
+  venueName?: string | null;
+  concept?: string | null;
 }
 
 export const PAID_STATES: ReadonlySet<PaymentMachineState> = new Set<PaymentMachineState>([
@@ -284,9 +305,12 @@ export interface PayablePayment {
   allowTip: boolean;
   /** Propinas sugeridas del local (Ajustes); sin ellas, las de siempre. */
   tipPresets?: TipPresetConfig;
-  /** Nombre del local y concepto del cobro, para la cabecera de la página de pago. */
+  /** Nombre del local y concepto del cobro, para la cabecera de la página de pago y para el «Pagado». */
   venueName?: string | null;
   concept?: string | null;
+  /** Ya pagado: la marca de la tarjeta (Ds_Card_Brand) y la forma de pago del intento cobrado. */
+  cardBrand?: string | null;
+  payMethod?: PayMethodChoice | null;
   /** La propina va entera a una persona del personal (no al local). */
   tipToStaff?: boolean;
   /** Quién cobra: su nombre visible y su foto (data:image), solo para la página de pago. */
@@ -352,6 +376,10 @@ export function settledPayView(p: PayablePayment, now: Date = new Date()): PayRe
       approvedClaimHash: p.approvedClaimHash ?? null,
       ...(p.reservation ? { reservation: true as const } : {}),
       ...(p.gift ? { gift: true as const } : {}),
+      venueName: p.venueName ?? null,
+      concept: p.concept ?? null,
+      cardBrand: p.cardBrand ?? null,
+      payMethod: p.payMethod ?? null,
     };
   }
   // Cobro único: lo pagó el saldo (el cobro con tarjeta se canceló entonces).
