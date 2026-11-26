@@ -46,7 +46,7 @@ import { ActivePayment } from '../ActivePayment';
 import { useCarta } from '../carta';
 import { Barra } from '../party/Barra';
 import { Carta } from './Carta';
-import { customerTipsOn, labelOf, type CobrarContext } from './cobrar-context';
+import { cobraElEncargado, customerTipsOn, labelOf, type CobrarContext } from './cobrar-context';
 import { ElegirChica } from './ElegirChica';
 import { EscanearChica, type Invitada } from './EscanearChica';
 import { Esperando, type CobroAbierto } from './Esperando';
@@ -55,6 +55,7 @@ import { LaCuenta } from './LaCuenta';
 import { MiQr } from './MiQr';
 import { OtroImporte } from './OtroImporte';
 import { ServicioDe } from './ServicioDe';
+import { SinCobrar } from './SinCobrar';
 import { GuiaMenuLink, InstallMenuItem, LogoutMenuItem, MENU_HINTS, MenuOption, PracticeMenuItem, useDeviceMenu } from '../staff-menu';
 import { CustomerDisplaySheet } from '../CustomerDisplaySheet';
 import { ProfileSheet } from '../ProfileSheet';
@@ -86,7 +87,7 @@ interface Props {
   /** Pagado o vuelta a la carta: refrescar lo de la chica. */
   onCobroDone: () => void;
   onLogout: () => void;
-  /** La noche de la chica (sus invitaciones, en «Mi QR»). */
+  /** La noche de la compañera (sus invitaciones, en «Mi QR»; lo que lleva, en «Hoy cobra el encargado»). */
   night?: MyNight | null;
   /** Abrir «Mi QR» desde fuera (la chica). */
   miQrOpen?: boolean;
@@ -415,8 +416,10 @@ export function CobrarFlow({ user, onCobroDone, onLogout, night, miQrOpen = fals
     }
   }
 
+  // La compañera con la casilla del local apagada: «Hoy cobra el encargado» en lugar de la carta.
+  const sinCarta = cobraElEncargado(ctx);
   const miQr = miQrOpen && user.role === 'OPERATOR' ? (
-    <MiQr name={name} invitations={night?.invitations ?? null} onClose={() => onMiQr?.(false)} />
+    <MiQr name={name} invitations={night?.invitations ?? null} forService={sinCarta} onClose={() => onMiQr?.(false)} />
   ) : null;
   const headerExtra =
     user.role === 'OPERATOR' && onMiQr ? (
@@ -629,6 +632,12 @@ export function CobrarFlow({ user, onCobroDone, onLogout, night, miQrOpen = fals
             onRetryCarta={carta.retry}
           />
           {menuModal}
+        </>
+      ) : sinCarta ? (
+        <>
+          <SinCobrar who={who} night={night ?? null} banner={banner} onLogo={() => setMenu(true)} onMiQr={() => onMiQr?.(true)} />
+          {menuModal}
+          {miQr}
         </>
       ) : (
         <>

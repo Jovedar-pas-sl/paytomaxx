@@ -9,6 +9,7 @@ import {
   heldUntil,
   moneySummary,
   nightLabel,
+  notMineView,
   otherNightsUnpaid,
   paymentTimeLabel,
   serviceNightKey,
@@ -267,5 +268,18 @@ describe('las listas del detalle', () => {
     const { open, settled } = splitDebts([debt('a', null), debt('b', 'po-2')]);
     expect(open.map((d) => d.id)).toEqual(['a']);
     expect(settled.map((d) => d.id)).toEqual(['b']);
+  });
+});
+
+describe('«No es mío»: un servicio que otra persona le cobró a su nombre', () => {
+  it('quién se lo cobró y si ya avisó; lo suyo o una invitación, nada', () => {
+    expect(notMineView(earning({ id: 's', createdAt: '2026-10-13T22:30:00Z', netCents: 5_400, servedByName: 'Carlos' }))).toEqual({
+      by: 'Carlos',
+      reported: false,
+    });
+    expect(
+      notMineView(earning({ id: 's', createdAt: '2026-10-13T22:30:00Z', netCents: 5_400, servedByName: 'Carlos', notMineReported: true })),
+    ).toEqual({ by: 'Carlos', reported: true });
+    expect(notMineView(earning({ id: 'own', createdAt: '2026-10-13T22:30:00Z', netCents: 4_500 }))).toBeNull();
   });
 });

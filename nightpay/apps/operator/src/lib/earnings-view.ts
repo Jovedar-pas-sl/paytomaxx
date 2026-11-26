@@ -171,6 +171,11 @@ export function earningDetail(e: MyEarning): string {
   return parts.join(' · ');
 }
 
+/** «No es mío» de una fila: quién le cobró el servicio y si ya avisó (null: lo cobró ella, o es una invitación). */
+export function notMineView(e: Pick<MyEarning, 'servedByName' | 'notMineReported'>): { by: string; reported: boolean } | null {
+  return e.servedByName ? { by: e.servedByName, reported: e.notMineReported === true } : null;
+}
+
 export function tonightEarnings(earnings: readonly MyEarning[], night: MyNight | null): MyEarning[] {
   return night ? earnings.filter((e) => isInNight(e, night)) : [];
 }

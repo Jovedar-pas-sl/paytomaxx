@@ -197,6 +197,10 @@ export interface MyEarning {
   paymentStatus: string | null;
   /** Sin pagar y de una venta por datáfono pendiente de cuadrar con el banco. */
   bankHeld?: boolean;
+  /** Un servicio que otra persona le cobró a su nombre: quién lo cobró (solo en esas filas). */
+  servedByName?: string;
+  /** Ya avisó «No es mío» de ese servicio. */
+  notMineReported?: boolean;
   createdAt: string;
 }
 
@@ -423,6 +427,8 @@ export interface MyNight {
   otherUnpaidCents?: number;
   /** «Copa con invitación»: las copas a las que la invitaron esta noche y su parte (un API antiguo no lo manda). */
   invitations?: { count: number; shareCents: number };
+  /** Sus servicios que otra persona le cobró a su nombre esta noche y su parte (un API antiguo no lo manda). */
+  served?: { count: number; shareCents: number };
 }
 
 export async function fetchMyNight(signal?: AbortSignal): Promise<MyNight> {
@@ -442,6 +448,15 @@ export async function fetchMyEarnings(): Promise<MyEarning[]> {
   const res = await authedFetch('/v1/operators/me/earnings');
   if (!res.ok) throw loadError(res, 'Error cargando ganancias');
   return res.json();
+}
+
+/** «No es mío»: avisa al encargado y al dueño de un servicio que otra persona le cobró a su nombre. */
+export async function reportNotMine(earningId: string): Promise<void> {
+  const res = await authedFetch(`/v1/operators/me/earnings/${encodeURIComponent(earningId)}/not-mine`, { method: 'POST' });
+  if (res.ok) return;
+  const { message, code } = parseProblemDetails(await res.text().catch(() => ''));
+  // 404: el API dice por qué («Ese cobro no es un servicio cobrado a tu nombre.»).
+  throw new Error(res.status === 404 && message ? message : operatorErrorMessage(res.status, message ?? undefined, 'El aviso', code));
 }
 
 export async function fetchMyPayouts(): Promise<MyPayout[]> {

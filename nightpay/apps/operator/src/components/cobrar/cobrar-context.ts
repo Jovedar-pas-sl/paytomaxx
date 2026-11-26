@@ -49,11 +49,16 @@ export function labelOf(ctx: Pick<CobrarContext, 'sections'>, section: string): 
   return section === PROPINAS ? 'Propinas' : sectionMeta(ctx.sections, section).label;
 }
 
-/** Las secciones que se le enseñan: encendidas en el local y que su puesto cobra, en su orden. */
+/** Las secciones que se le enseñan: encendidas en el local y que su puesto cobra, en su orden (todas solo si no se sabe). */
 export function offeredCodes(ctx: Pick<CobrarContext, 'sections' | 'allowed'>): SectionCode[] {
   const enabled = SECTION_CODES.filter((c) => ctx.sections.find((s) => s.code === c)?.enabled ?? true);
   const mine = enabled.filter((c) => !ctx.allowed || ctx.allowed.includes(c));
-  return mine.length > 0 ? mine : enabled;
+  return ctx.allowed ? mine : enabled;
+}
+
+/** La compañera sin nada que cobrar (la casilla del local apagada): «Hoy cobra el encargado» en lugar de la carta. */
+export function cobraElEncargado(ctx: Pick<CobrarContext, 'user' | 'allowed'>): boolean {
+  return ctx.user.role === 'OPERATOR' && ctx.allowed?.length === 0;
 }
 
 /** El chip de la cabecera: su puesto con el color de su sección (la chica: «Servicios»). */

@@ -2,7 +2,7 @@
 
 import { useState, type CSSProperties, type ReactNode } from 'react';
 import { Button } from '@nightpay/ui';
-import { fetchMyEarningsPage, fetchMyPayoutsPage, type MyDebt, type MyEarning, type MyNight, type MyPayoutInfo } from '@/lib/api';
+import { fetchMyEarningsPage, fetchMyPayoutsPage, reportNotMine, type MyDebt, type MyEarning, type MyNight, type MyPayoutInfo } from '@/lib/api';
 import { NO_DAYS, type DayRange } from '@/lib/history';
 import {
   bankHeldItems,
@@ -10,6 +10,7 @@ import {
   earningDetail,
   groupByNight,
   heldItems,
+  notMineView,
   otherNightsUnpaid,
   splitDebts,
   sumNet,
@@ -272,16 +273,73 @@ function EarningList({ earnings, items, empty }: { earnings: MyEarning[] | null;
   if (items.length === 0) return empty ? <p style={emptyText}>{empty}</p> : null;
   return (
     <ul style={listStyle}>
-      {items.map((e) => (
-        <Item
-          key={e.id}
-          title={`${timeLabel(e.createdAt)} · ${e.paymentId ? 'Cobro' : 'Del saldo'}${e.payoutId ? ' · pagado' : e.bankHeld ? ' · pendiente de cuadrar' : ''}`}
-          detail={earningDetail(e)}
-          amount={formatSignedEur(e.netCents, { compact: true })}
-          tone={e.netCents < 0 ? 'danger' : e.reversedCents > 0 ? 'warning' : 'text'}
-        />
-      ))}
+      {items.map((e) => {
+        // Un servicio que otra persona le cobró a su nombre: quién, y «No es mío».
+        const served = notMineView(e);
+        return (
+          <Item
+            key={e.id}
+            title={`${timeLabel(e.createdAt)} · ${e.paymentId ? 'Cobro' : 'Del saldo'}${e.payoutId ? ' · pagado' : e.bankHeld ? ' · pendiente de cuadrar' : ''}`}
+            detail={served ? `Te lo cobró ${served.by} · ${earningDetail(e)}` : earningDetail(e)}
+            amount={formatSignedEur(e.netCents, { compact: true })}
+            tone={e.netCents < 0 ? 'danger' : e.reversedCents > 0 ? 'warning' : 'text'}
+          >
+            {served ? <NotMine earningId={e.id} reported={served.reported} /> : null}
+          </Item>
+        );
+      })}
     </ul>
+  );
+}
+
+/**
+ * «No es mío»: avisa al encargado y al dueño (Incidencias y Telegram) de un
+ * servicio que otra persona le cobró a su nombre. Pregunta antes, en la misma
+ * fila. No mueve dinero ni retiene su parte.
+ */
+function NotMine({ earningId, reported }: { earningId: string; reported: boolean }) {
+  const [step, setStep] = useState<'idle' | 'confirm' | 'sending' | 'done'>(reported ? 'done' : 'idle');
+  const [error, setError] = useState<string | null>(null);
+
+  async function send() {
+    setStep('sending');
+    setError(null);
+    try {
+      await reportNotMine(earningId);
+      setStep('done');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'No se pudo avisar. Vuelve a intentarlo.');
+      setStep('confirm');
+    }
+  }
+
+  if (step === 'done') return <p style={{ ...metaText, color: 'var(--np-text)', fontWeight: 500 }}>Avisado</p>;
+  if (step === 'idle') {
+    return (
+      <div style={notMineRow}>
+        <Button variant="ghost" size="sm" onClick={() => setStep('confirm')}>
+          No es mío
+        </Button>
+      </div>
+    );
+  }
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginTop: '0.5rem' }}>
+      <p style={{ ...metaText, color: 'var(--np-text)' }}>Avisamos al encargado y al dueño. ¿Seguro?</p>
+      <div style={{ ...notMineRow, marginTop: 0 }}>
+        <Button size="sm" loading={step === 'sending'} onClick={() => void send()}>
+          Sí, avisar
+        </Button>
+        <Button variant="ghost" size="sm" disabled={step === 'sending'} onClick={() => setStep('idle')}>
+          No
+        </Button>
+      </div>
+      {error ? (
+        <p role="alert" style={{ ...metaText, color: 'var(--np-danger-text)' }}>
+          {error}
+        </p>
+      ) : null}
+    </div>
   );
 }
 
@@ -309,12 +367,13 @@ function Head({ title, amount, tone = 'text', children }: { title: string; amoun
   );
 }
 
-function Item({ title, detail, amount, tone = 'text' }: { title: string; detail: string; amount: string; tone?: Tone }) {
+function Item({ title, detail, amount, tone = 'text', children }: { title: string; detail: string; amount: string; tone?: Tone; children?: ReactNode }) {
   return (
     <li style={itemStyle}>
       <div style={{ minWidth: 0 }}>
         <p style={{ margin: 0, fontWeight: 500 }}>{title}</p>
         <p style={metaText}>{detail}</p>
+        {children}
       </div>
       <span className="np-num" style={{ ...itemAmount, color: TONE_COLOR[tone] }}>
         {amount}
@@ -383,6 +442,8 @@ const itemAmount: CSSProperties = {
   fontWeight: 600,
   whiteSpace: 'nowrap',
 };
+
+const notMineRow: CSSProperties = { display: 'flex', gap: '0.5rem', marginTop: '0.5rem' };
 
 const metaText: CSSProperties = {
   margin: '0.125rem 0 0',

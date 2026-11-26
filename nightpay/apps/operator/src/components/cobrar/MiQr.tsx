@@ -25,11 +25,14 @@ export function MiQr({
   name,
   invitations,
   onClose,
+  forService = false,
 }: {
   name: string;
   /** Sus invitaciones de esta noche (null: aún no se sabe). */
   invitations: { count: number; shareCents: number } | null;
   onClose: () => void;
+  /** Con la casilla apagada («Hoy cobra el encargado»): el mismo QR sirve para cobrarle el servicio. */
+  forService?: boolean;
 }) {
   const [qr, setQr] = useState<StaffQrView | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -61,7 +64,7 @@ export function MiQr({
       <div className={styles.screen}>
         <ScreenHeader
           title="Mi QR"
-          subtitle="Para que te inviten"
+          subtitle={forService ? 'Para que te cobren el servicio o te inviten' : 'Para que te inviten'}
           onBack={onClose}
           chip={<Chip>{name}</Chip>}
           help={<ScreenHelp {...TOURS.miQr} />}
@@ -69,7 +72,7 @@ export function MiQr({
         <div className={styles.myqr}>
           <div className={styles.me}>{name}</div>
           <div className={styles.qrBig} data-tour="miqr-codigo">
-            {qr ? <img src={qr.qrPngDataUrl} alt={`QR de ${name} para las invitaciones`} /> : null}
+            {qr ? <img src={qr.qrPngDataUrl} alt={forService ? `QR de ${name}` : `QR de ${name} para las invitaciones`} /> : null}
           </div>
           {error && !qr ? (
             <p role="alert" className={styles.error}>
@@ -80,7 +83,11 @@ export function MiQr({
               Sin conexión: este QR vale unos minutos más.
             </p>
           ) : (
-            <p className={styles.muted}>Enséñaselo al camarero cuando te inviten.</p>
+            <p className={styles.muted}>
+              {forService
+                ? 'Enséñaselo al encargado cuando te cobre un servicio, o al camarero cuando te inviten.'
+                : 'Enséñaselo al camarero cuando te inviten.'}
+            </p>
           )}
           <div className={styles.tonight} data-tour="miqr-noche">
             <span className={styles.ring}>
