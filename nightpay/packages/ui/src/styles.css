@@ -105,7 +105,9 @@
   --np-lime-deep: #9aa300;
   /* Grafito: sin halos (deslumbran con poca luz y suenan a casino). */
   --np-lime-glow: transparent;
-  --np-lime-edge: rgb(199 211 1 / 0.55);
+  /* Con comas: el borde de la tarjeta destacada lo usa y en el Chrome 64 de
+     los datáfonos rgb() con espacios la dejaba sin borde. */
+  --np-lime-edge: rgba(199, 211, 1, 0.55);
   --np-lime-soft: rgb(199 211 1 / 0.14);
   --np-lime-ring: rgb(199 211 1 / 0.22);
   --np-ink: #1f2c36;

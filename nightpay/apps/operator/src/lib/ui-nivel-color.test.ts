@@ -563,7 +563,8 @@ describe('idea 12 · lima más viva en pantallas P3', () => {
     expect(DARK['--np-primary-bg']).toBe('var(--np-lime)');
     expect(code(block(STYLES, ":root,\n[data-theme='dark']"))).not.toContain('#c7d301');
     // Halos y filetes siguen en rgb (la transparencia no se puede sacar de la variable).
-    expect(ROOT['--np-lime-edge']).toBe('rgb(199 211 1 / 0.55)');
+    // El filete, con comas: la tarjeta destacada (borde lima) lo usa y en el Chrome 64 se quedaba sin borde.
+    expect(ROOT['--np-lime-edge']).toBe('rgba(199, 211, 1, 0.55)');
     expect(DARK['--np-glow']).toBe('rgb(199 211 1 / 0.22)');
   });
 
@@ -593,7 +594,7 @@ describe('compatibilidad con los datáfonos (Chrome 64): lo nuevo no usa nada si
   const SPACED_RGB = /rgba?\(\s*\d+\s+\d+\s+\d+\s*(?:\/[^)]*)?\)/;
 
   it('los colores con transparencia de lo nuevo van como rgba(r, g, b, a), no rgb() con espacios', () => {
-    const tokens = ['--np-hi', '--np-shadow-1', '--np-shadow-2', '--np-card-edge', '--np-primary-image', '--np-primary-shadow', '--np-btn-relief', '--np-backdrop'];
+    const tokens = ['--np-hi', '--np-shadow-1', '--np-shadow-2', '--np-card-edge', '--np-primary-image', '--np-primary-shadow', '--np-btn-relief', '--np-backdrop', '--np-lime-edge', '--np-accent-edge'];
     for (const [theme, values] of [['raíz', ROOT], ['oscuro', DARK], ['claro', LIGHT], ['sala', SALA]] as const) {
       for (const name of tokens) expect(values[name] ?? '', `${theme} ${name}`).not.toMatch(SPACED_RGB);
     }
