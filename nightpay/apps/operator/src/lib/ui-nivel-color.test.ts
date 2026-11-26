@@ -522,6 +522,12 @@ describe('idea 3 · botones en píldora con relieve', () => {
     expect(rule(STAFF, '.np-keypad-key')).not.toContain('--np-r-pill');
     const input = read('packages', 'ui', 'src', 'components', 'Input.tsx');
     expect(input).not.toContain('--np-r-pill');
+    // Un <Button> que hace de pestaña (Reservados: Noche, Reservados, RR.PP., Enlace) tampoco.
+    const tabs = read('apps', 'admin', 'src', 'components', 'reservations', 'ReservationsPanel.tsx')
+      .split('\n')
+      .filter((line) => line.includes('<Button') && line.includes('role="tab"'));
+    expect(tabs).toHaveLength(1);
+    expect(tabs[0]).toContain("style={{ borderRadius: 'var(--np-r-sm)' }}");
   });
 });
 
