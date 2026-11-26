@@ -128,6 +128,14 @@ describe('API de socios: claves y códigos en la URL', () => {
     expect(redactSecretsInUrl(`/v1/partner/me?k=${encodeURIComponent(KEY)}`)).toBe('/v1/partner/me?k=***');
   });
 
+  it('codificada (%5F) en la ruta o en la query, también con otro escape roto en el mismo trozo', () => {
+    const encoded = KEY.replace(/_/g, '%5F');
+    expect(redactSecretsInUrl(`/v1/partner/${encoded}/me`)).toBe('/v1/partner/***/me');
+    expect(redactSecretsInUrl(`/v1/partner/%ZZ${encoded}/me`)).toBe('/v1/partner/***/me');
+    expect(redactSecretsInUrl(`/v1/partner/me?x=%ZZ${encoded}`)).toBe('/v1/partner/me?x=***');
+    expect(redactSecretsInUrl(`https://api.oxiopay.example/v1/partner/${encoded}/me`)).toBe('https://api.oxiopay.example/v1/partner/***/me');
+  });
+
   it('el enlace de un uso de la clave (/partner-key/<token>) tampoco', () => {
     expect(redactSecretsInUrl('/partner-key/AbCdEf0123456789-_AbCdEf0123456789-_AbCdEf0')).toBe('/partner-key/***');
   });

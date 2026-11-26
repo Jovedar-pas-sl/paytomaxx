@@ -1947,7 +1947,7 @@
         "properties": {
           "legal_name": {
             "type": "string",
-            "description": "The company's legal name, as registered in OxioPay. A key is only issued for a venue whose company has a tax id on file. If the venue later has no company, or its company no tax id, every route of the connection answers `403 connection_paused` until OxioPay fixes it: an answer never comes without `issuer`."
+            "description": "The company's legal name, as registered in OxioPay. A key is only issued for a venue whose company has a tax id on file. If the venue later has no company, belongs to another company than when the key was issued, or its company has no tax id, every route of the connection answers `403 connection_paused` until OxioPay fixes it: an answer never comes without `issuer`. A deleted venue answers `401 api_key_revoked`."
           },
           "tax_id": {
             "type": "string",
@@ -1967,7 +1967,7 @@
           "hint": {
             "type": "string",
             "pattern": "^oxp_(live|test)_…[0-9a-f]{4}$",
-            "description": "The key's prefix and last 4 characters."
+            "description": "The prefix and last 4 characters of the key you sent (during an overlap, the old key's own)."
           },
           "expires_at": {
             "description": "When this key stops working (at most 365 days after its creation; always set for a key with `wallet:load`). During a rotation overlap, the end of the overlap. To renew before it, ask the owner for a rotation with a 7-day overlap at least 30 days before.",

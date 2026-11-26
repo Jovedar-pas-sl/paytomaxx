@@ -94,7 +94,21 @@ function splitOnce(value: string, sep: string): [string, string | undefined] {
 
 function redactPath(path: string): string {
   const pattern = PATH_PATTERNS.find((re) => re.test(path));
-  return pattern ? path.replace(pattern, `$1${MASK}`) : path;
+  const redacted = pattern ? path.replace(pattern, `$1${MASK}`) : path;
+  // Cada segmento con una clave de socio o un código del móvil, también codificados, entero fuera.
+  return redacted
+    .split('/')
+    .map((segment) => (hasPartnerSecret(segment) ? MASK : segment))
+    .join('/');
+}
+
+/**
+ * Los escapes ASCII válidos (%5F → _) decodificados y los demás tal cual: un
+ * escape roto (%ZZ, una secuencia UTF-8 a medias) en la misma pieza no impide
+ * ver lo que lleva al lado (decodeURIComponent fallaría entero).
+ */
+export function decodeAsciiEscapes(text: string): string {
+  return text.replace(/%([0-7][0-9A-Fa-f])/g, (_m, hex: string) => String.fromCharCode(parseInt(hex, 16)));
 }
 
 function decodeKey(key: string): string {
@@ -116,9 +130,9 @@ function redactQuery(query: string): string {
     .join('&');
 }
 
-/** El valor lleva una clave de socio o un código del móvil (tal cual o codificado). */
+/** El valor lleva una clave de socio o un código del móvil (tal cual o codificado, aunque haya otros escapes rotos). */
 function hasPartnerSecret(value: string): boolean {
-  return redactPartnerSecrets(value) !== value || redactPartnerSecrets(decodeKey(value)) !== decodeKey(value);
+  return [value, decodeKey(value), decodeAsciiEscapes(value)].some((v) => redactPartnerSecrets(v) !== v);
 }
 
 export function redactSecretsInUrl(url: string): string {
@@ -131,7 +145,7 @@ export function redactSecretsInUrl(url: string): string {
 }
 
 /** Una clave de socio (oxp_live_…, oxp_test_…) o un código del móvil (OXC1:…), también a medias o codificados. */
-const PARTNER_SECRET = /oxp_(?:live|test)_[0-9A-Za-z]*|OXC1(?::|%3A)[0-9A-Za-z]*/gi;
+const PARTNER_SECRET = /oxp(?:_|%5F)(?:live|test)(?:_|%5F)[0-9A-Za-z]*|OXC1(?::|%3A)[0-9A-Za-z]*/gi;
 
 /** Tapa las claves de socio y los códigos del móvil de cualquier texto. */
 export function redactPartnerSecrets(text: string): string {
@@ -143,6 +157,11 @@ export function redactSecretsInText(text: string): string {
   return text
     .replace(/https?:\/\/[^\s"'<>]+/g, (url) => redactSecretsInUrl(url))
     .replace(/(^|\s)(\/[^\s"'<>]+)/g, (_match, pre: string, path: string) => `${pre}${redactSecretsInUrl(path)}`);
+}
+
+/** Un texto que va a un log (mensaje o traza): URLs y rutas con token, y las claves de socio en cualquier sitio. */
+export function redactLogText(text: string): string {
+  return redactPartnerSecrets(redactSecretsInText(text));
 }
 
 /** Compatibilidad: antes solo se tapaba el enlace del saldo. */

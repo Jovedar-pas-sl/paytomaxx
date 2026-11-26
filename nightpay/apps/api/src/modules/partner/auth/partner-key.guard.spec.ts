@@ -11,7 +11,7 @@ import { PAUTH_LIMITS, PartnerAuthLimiter } from './partner-auth-limiter';
 import { PartnerForeignIpService } from './partner-foreign-ip';
 import { PartnerKeyGuard } from './partner-key.guard';
 import { hashPartnerKey } from './partner-key';
-import { PartnerRateLimiter } from './partner-rate-limit';
+import { PARTNER_RATE_LIMITS, PartnerRateLimiter } from './partner-rate-limit';
 
 const KEY = `oxp_test_${'ab12'.repeat(12)}`;
 const NOW = new Date('2026-12-05T22:00:00Z');
@@ -24,6 +24,14 @@ const MONEY_ROUTE: PartnerRouteDef = {
   scopes: ['wallet:load'],
   money: true,
   errorResponses: { '403': 'ForbiddenMoney' },
+};
+/** Una ruta de lectura con wallet:load (leer una carga): su 403 no declara scope_paused. */
+const READ_LOAD_ROUTE: PartnerRouteDef = {
+  ...PARTNER_ROUTES.getConnection,
+  path: '/prueba/carga',
+  operationId: 'pruebaLeerCarga',
+  scopes: ['wallet:load'],
+  errorResponses: { '403': 'ForbiddenRead' },
 };
 
 type Row = Record<string, unknown> & { partner: Record<string, unknown>; venue: Record<string, unknown> };
@@ -259,7 +267,7 @@ describe('PartnerKeyGuard: paso 7, el estado', () => {
   const cases: Array<[string, Partial<Row>, string]> = [
     ['anulada', { status: 'REVOKED' }, 'api_key_revoked'],
     ['el local borrado', { venue: { ...connection().venue, deletedAt: new Date() } }, 'api_key_revoked'],
-    ['el local en otra sociedad', { venue: { ...connection().venue, businessId: 'dddddddd-0000-0000-0000-000000000001' } }, 'api_key_revoked'],
+    ['el local en otra sociedad', { venue: { ...connection().venue, businessId: 'dddddddd-0000-0000-0000-000000000001' } }, 'connection_paused'],
     ['caducada', { keyExpiresAt: new Date(NOW.getTime() - 1000) }, 'api_key_expired'],
     ['dormida', { keySuspendedAt: new Date(NOW.getTime() - DAY) }, 'api_key_suspended'],
     ['el socio suspendido', { partner: { ...connection().partner, status: 'SUSPENDED' } }, 'partner_suspended'],
@@ -269,6 +277,19 @@ describe('PartnerKeyGuard: paso 7, el estado', () => {
   ];
   it.each(cases)('%s → %s', async (_name, over, code) => {
     expect(await codeOf(build({ row: connection(over) }).run())).toBe(code);
+  });
+
+  it('sin sociedad, en otra o sin NIF: 403 connection_paused también en GET /me y sin tocar la fila', async () => {
+    for (const venue of [
+      { ...connection().venue, businessId: null, business: null },
+      { ...connection().venue, businessId: 'dddddddd-0000-0000-0000-000000000001' },
+      { ...connection().venue, business: { name: 'Empresa', taxId: null } },
+    ]) {
+      const s = build({ row: connection({ venue }) });
+      expect(await codeOf(s.run())).toBe('connection_paused');
+      expect(s.tx.partnerConnection.update).not.toHaveBeenCalled();
+      expect(s.tx.partnerConnection.updateMany).not.toHaveBeenCalled();
+    }
   });
 
   it('90 días sin uso: la primera vez queda dormida en la base y en el registro', async () => {
@@ -309,6 +330,21 @@ describe('PartnerKeyGuard: pasos 8 a 10', () => {
     const paused = connection({ pausedScopes: ['wallet:load'], pausedReason: 'foreign_ip' });
     expect(await codeOf(build({ row: paused, def: MONEY_ROUTE }).run())).toBe('scope_paused');
     expect((await build({ row: paused }).run()).ok).toBe(true);
+    // Una ruta de lectura con wallet:load no mira la pausa (su 403 no declara scope_paused).
+    expect((await build({ row: paused, def: READ_LOAD_ROUTE }).run()).ok).toBe(true);
+  });
+
+  it('los rechazos de una clave que existe (IP ajena, anulada) cuentan: pasado el tope, 429 sin consultar la base', async () => {
+    for (const setup of [{ ip: '198.51.100.7' }, { row: connection({ status: 'REVOKED' }) }]) {
+      const redis = createFakeRedis();
+      const s = build({ ...setup, redis });
+      for (let i = 0; i < PARTNER_RATE_LIMITS.rejected; i++) await s.run().catch(() => undefined);
+      const calls = s.prisma.asSystem.mock.calls.length;
+      expect(await codeOf(s.run())).toBe('rate_limited');
+      expect(s.prisma.asSystem.mock.calls.length).toBe(calls);
+      // Desde la IP de su lista, la buena sigue (los rechazos van por clave e IP).
+      if (setup.ip) expect((await build({ redis }).run()).ok).toBe(true);
+    }
   });
 
   it('más de 600 llamadas en un minuto: 429', async () => {

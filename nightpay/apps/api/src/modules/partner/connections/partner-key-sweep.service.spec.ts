@@ -44,9 +44,9 @@ describe('repaso de las claves', () => {
     expect(expired).toHaveLength(1);
     expect(expired[0]![1]).toMatchObject({ tenantId: 't1', targetId: 'c1', payload: { connectionId: 'c1', keyHint: 'oxp_live_…a1b2', name: 'Cajeros', scopes: ['wallet:load'] } });
     expect(db.rows.map((r) => r.sealed)).toEqual([null, 'k1:def']);
-    const expiring = audit.log.mock.calls.filter(([e]) => (e as { action: string }).action === 'partner.key.expiring');
+    const expiring = audit.logInTx.mock.calls.filter(([, e]) => (e as { action: string }).action === 'partner.key.expiring');
     expect(expiring).toHaveLength(1);
-    expect(expiring[0]![0]).toMatchObject({ tenantId: 't2', payload: { connectionId: 'c3', days: 30 } });
+    expect(expiring[0]![1]).toMatchObject({ tenantId: 't2', payload: { connectionId: 'c3', days: 30 } });
   });
 
   it('el aviso de los 7 días es otro y también sale una sola vez', async () => {
@@ -58,8 +58,28 @@ describe('repaso de las claves', () => {
     const later = new Date(NOW.getTime() + 19 * DAY);
     await service.tick(later);
     await service.tick(later);
-    const days = audit.log.mock.calls.map(([e]) => (e as { payload: { days: number } }).payload.days);
+    const days = audit.logInTx.mock.calls
+      .filter(([, e]) => (e as { action: string }).action === 'partner.key.expiring')
+      .map(([, e]) => (e as { payload: { days: number } }).payload.days);
     expect(days).toEqual([30, 7]);
+  });
+
+  it('si no se puede guardar el aviso de caducidad, no cuenta como dado: el repaso siguiente lo vuelve a intentar', async () => {
+    const db = sharedDb();
+    const redis = createFakeRedis();
+    const audit = {
+      log: vi.fn(async () => undefined),
+      logInTx: vi.fn(async (_tx: unknown, e: { action: string }) => {
+        if (e.action === 'partner.key.expiring' && audit.logInTx.mock.calls.filter(([, x]) => (x as { action: string }).action === e.action).length === 1) {
+          throw new Error('could not write audit_events');
+        }
+      }),
+    };
+    const service = replica(db, redis, audit);
+    expect((await service.tick(NOW)).expiring).toBe(0);
+    expect(redis.keys().filter((k) => k.startsWith('np:pk-expiring:'))).toEqual([]);
+    expect((await service.tick(NOW)).expiring).toBe(1);
+    expect((await service.tick(NOW)).expiring).toBe(0);
   });
 
   it('no corre en pruebas, con la API apagada ni con NIGHTPAY_DISABLE_PARTNER_SWEEP=1', () => {

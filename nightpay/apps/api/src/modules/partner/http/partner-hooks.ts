@@ -2,6 +2,7 @@ import { Logger } from '@nestjs/common';
 import type { NestFastifyApplication } from '@nestjs/platform-fastify';
 import { PARTNER_KEY_IN_TEXT_RE } from '@nightpay/contracts';
 import { clientIp } from '../../../common/http/client-ip';
+import { decodeAsciiEscapes } from '../../../common/logging/redact-url';
 import { isPartnerPath } from '../../../common/http/partner-path';
 import { partnerApiOn } from '../partner-flag';
 import { partnerError } from './partner-problem';
@@ -31,11 +32,17 @@ function safeDecode(text: string): string | null {
   }
 }
 
-/** Una clave en la URL, tal cual o codificada (por trozos: un % roto no la esconde). */
+/**
+ * Una clave en la URL, tal cual o codificada (por trozos: un % roto no la
+ * esconde; y en cada trozo, también con solo los escapes ASCII válidos
+ * decodificados, por si el roto está en el mismo trozo que la clave).
+ */
 export function partnerKeyInUrl(url: string): string | null {
   for (const piece of [url, ...url.split(/[/?&=#;]/)]) {
-    const found = PARTNER_KEY_IN_TEXT_RE.exec(piece) ?? PARTNER_KEY_IN_TEXT_RE.exec(safeDecode(piece) ?? '');
-    if (found) return found[0];
+    for (const text of [piece, safeDecode(piece) ?? '', decodeAsciiEscapes(piece)]) {
+      const found = PARTNER_KEY_IN_TEXT_RE.exec(text);
+      if (found) return found[0];
+    }
   }
   return null;
 }

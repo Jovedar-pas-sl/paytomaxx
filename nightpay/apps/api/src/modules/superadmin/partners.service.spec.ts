@@ -140,6 +140,12 @@ describe('consola: socios', () => {
     expect(s.stepUp.verify).toHaveBeenCalledTimes(2);
   });
 
+  it('cambiar el correo de contacto (recibe los enlaces de las claves) también pide la 2FA', async () => {
+    const s = build();
+    await s.service.update(actor, partnerRow().id, { contactEmail: 'otro-buzon@cajeros.example', totpCode: '123456' });
+    expect(s.stepUp.verify).toHaveBeenCalledWith(actor, '123456', 'partner.update');
+  });
+
   it('suspender: 2FA y motivo, con su registro', async () => {
     const s = build();
     const view = await s.service.suspend(actor, partnerRow().id, { totpCode: '123456', reason: 'Impago del contrato' });

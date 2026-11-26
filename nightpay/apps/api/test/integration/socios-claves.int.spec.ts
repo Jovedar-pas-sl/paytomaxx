@@ -501,11 +501,12 @@ describe('la IP', () => {
   it('desde tres IP ajenas en 24 h: avisos y cargas en pausa (scope_paused); leer sigue', async () => {
     const v = await newVenue();
     const c = await connect(v);
-    for (const ip of ['198.51.100.1', '198.51.100.2', '198.51.100.2', '198.51.100.3']) {
+    for (const ip of ['198.51.100.1', '198.51.100.2', '198.51.100.2', '198.51.100.3', '198.51.100.4']) {
       expect(codeOf(await load(c.key, { ip }))).toBe('ip_not_allowed');
     }
+    // Cada dirección nueva avisa, también la cuarta; la pausa, una sola vez.
     const foreign = await audits(c.id, 'partner.foreign_ip');
-    expect(foreign.map((a) => a.ip).sort()).toEqual(['198.51.100.1', '198.51.100.2', '198.51.100.3']);
+    expect(foreign.map((a) => a.ip).sort()).toEqual(['198.51.100.1', '198.51.100.2', '198.51.100.3', '198.51.100.4']);
     expect(await row(c.id)).toMatchObject({ pausedScopes: ['wallet:load'], pausedReason: 'foreign_ip', status: 'ACTIVE' });
     expect(await audits(c.id, 'partner.connection.paused')).toHaveLength(1);
     expect(codeOf(await load(c.key))).toBe('scope_paused');
@@ -515,9 +516,70 @@ describe('la IP', () => {
     // El dueño lo ve en su panel con las IP rechazadas, y lo reanuda con su 2FA.
     const panel = (await admin('GET', v)).json() as { connections: Array<{ pausedBy: string; foreignIps: Array<{ ip: string }> }> };
     expect(panel.connections[0]).toMatchObject({ pausedBy: 'foreign_ip' });
-    expect(panel.connections[0]!.foreignIps.map((f) => f.ip).sort()).toEqual(['198.51.100.1', '198.51.100.2', '198.51.100.3']);
+    expect(panel.connections[0]!.foreignIps.map((f) => f.ip).sort()).toEqual(['198.51.100.1', '198.51.100.2', '198.51.100.3', '198.51.100.4']);
     expect((await admin('POST', v, `/${c.id}/resume`, { totpCode: TOTP })).statusCode).toBe(200);
     expect((await load(c.key)).statusCode).toBe(200);
+  });
+});
+
+describe('la IP ajena y las pausas de OxioPay', () => {
+  it('tres IP ajenas en una conexión pausada por OxioPay no cambian su motivo; al reanudarla, la siguiente llamada ajena pausa las cargas', async () => {
+    const v = await newVenue();
+    const c = await connect(v);
+    const actor = { id: v.owner, email: 'super@oxiopay.test' };
+    await saConsole.pauseConnection(actor, c.id, { reason: 'Revisión de OxioPay' });
+    for (const ip of ['198.51.100.11', '198.51.100.12', '198.51.100.13']) expect(codeOf(await load(c.key, { ip }))).toBe('ip_not_allowed');
+    expect(await row(c.id)).toMatchObject({ status: 'PAUSED', pausedReason: 'oxiopay', pausedScopes: [] });
+    // El dueño no puede levantar la pausa de OxioPay.
+    expect((await admin('POST', v, `/${c.id}/resume`, { totpCode: TOTP })).statusCode).toBe(409);
+    await saConsole.resumeConnection(actor, c.id, { totpCode: TOTP });
+    expect((await load(c.key)).statusCode).toBe(200);
+    expect(codeOf(await load(c.key, { ip: '198.51.100.13' }))).toBe('ip_not_allowed');
+    expect(await row(c.id)).toMatchObject({ status: 'ACTIVE', pausedReason: 'foreign_ip', pausedScopes: ['wallet:load'] });
+    expect(codeOf(await load(c.key))).toBe('scope_paused');
+  });
+});
+
+describe('el local y su sociedad', () => {
+  it('sin NIF, en otra sociedad o sin sociedad: 403 connection_paused en todas las rutas, sin tocar la fila; arreglado, 200', async () => {
+    const v = await newVenue();
+    const c = await connect(v);
+    const before = await row(c.id);
+    const cuts: Array<[string, () => Promise<unknown>, () => Promise<unknown>]> = [
+      [
+        'sin NIF',
+        () => sys((tx) => tx.business.update({ where: { id: v.businessId }, data: { taxId: null } })),
+        () => sys((tx) => tx.business.update({ where: { id: v.businessId }, data: { taxId: v.taxId } })),
+      ],
+      [
+        'otra sociedad',
+        async () => {
+          const other = await sys<{ id: string }>((tx) => tx.business.create({ data: { name: `Otra ${r} S.L.`, taxId: `B9${Date.now().toString().slice(-7)}` } }));
+          await sys((tx) => tx.venue.update({ where: { id: v.id }, data: { businessId: other.id } }));
+        },
+        () => sys((tx) => tx.venue.update({ where: { id: v.id }, data: { businessId: v.businessId } })),
+      ],
+      [
+        'sin sociedad',
+        () => sys((tx) => tx.venue.update({ where: { id: v.id }, data: { businessId: null } })),
+        () => sys((tx) => tx.venue.update({ where: { id: v.id }, data: { businessId: v.businessId } })),
+      ],
+    ];
+    for (const [name, cut, fix] of cuts) {
+      await cut();
+      expect(codeOf(await me(c.key)), name).toBe('connection_paused');
+      expect(codeOf(await load(c.key)), name).toBe('connection_paused');
+      expect(await row(c.id), name).toMatchObject({ status: before?.status, updatedAt: before?.updatedAt, keySuspendedAt: null });
+      await fix();
+      expect((await me(c.key)).statusCode, name).toBe(200);
+    }
+  });
+
+  it('el local borrado: 401 api_key_revoked', async () => {
+    const v = await newVenue();
+    const c = await connect(v);
+    await sys((tx) => tx.venue.update({ where: { id: v.id }, data: { deletedAt: new Date() } }));
+    expect(codeOf(await me(c.key))).toBe('api_key_revoked');
   });
 });
 
@@ -548,6 +610,24 @@ describe('cada corte vale a la petición siguiente', () => {
     }
   });
 
+  it('90 días llamando solo a GET /me: 401 api_key_suspended; una llamada con wallet:load lo evita', async () => {
+    const v = await newVenue();
+    const c = await connect(v);
+    await setRow(c.id, { keyCreatedAt: new Date(Date.now() - 89 * DAY), keyExpiresAt: new Date(Date.now() + 200 * DAY) });
+    expect((await me(c.key)).statusCode).toBe(200);
+    expect((await row(c.id))?.lastUsedAt).toBeNull();
+    const kept = await newVenue();
+    const k = await connect(kept);
+    await setRow(k.id, { keyCreatedAt: new Date(Date.now() - 89 * DAY), keyExpiresAt: new Date(Date.now() + 200 * DAY) });
+    expect((await load(k.key)).statusCode).toBe(200);
+    expect((await row(k.id))?.lastUsedAt).toBeInstanceOf(Date);
+    // Pasan dos días: la que solo leyó /me se duerme; la que cargó, no.
+    await setRow(c.id, { keyCreatedAt: new Date(Date.now() - 91 * DAY) });
+    await setRow(k.id, { keyCreatedAt: new Date(Date.now() - 91 * DAY), lastUsedAt: new Date(Date.now() - 2 * DAY) });
+    expect(codeOf(await me(c.key))).toBe('api_key_suspended');
+    expect((await me(k.key)).statusCode).toBe(200);
+  });
+
   it('dormida: la primera vez queda en la base y el registro; el dueño la reactiva con su 2FA', async () => {
     const v = await newVenue();
     const c = await connect(v, { scopes: ['wallet:balance'], expiresAt: null });
@@ -571,9 +651,13 @@ describe('cada corte vale a la petición siguiente', () => {
     expect(rotated.headers['cache-control']).toBe('no-store');
     const second = (rotated.json() as { key: string }).key;
     expect(second).toMatch(PARTNER_KEY_RE);
-    expect((await me(second)).json()).toMatchObject({ key: { replaced: false }, id: `pc_${c.id.replace(/-/g, '')}` });
-    const old = (await me(c.key)).json() as { key: { replaced: boolean; expires_at: string } };
+    const hint = (k: string) => `${k.slice(0, 9)}…${k.slice(-4)}`;
+    expect((await me(second)).json()).toMatchObject({ key: { replaced: false, hint: hint(second), expires_at: null }, id: `pc_${c.id.replace(/-/g, '')}` });
+    // Con la vieja: replaced, el fin del solape y su propia pista (nunca la de la nueva).
+    const old = (await me(c.key)).json() as { key: { replaced: boolean; expires_at: string; hint: string } };
     expect(old.key.replaced).toBe(true);
+    expect(old.key.hint).toBe(hint(c.key));
+    expect(old.key.expires_at).toBe(((await row(c.id))?.prevKeyExpiresAt as Date).toISOString());
     expect(new Date(old.key.expires_at).getTime()).toBeGreaterThan(Date.now() + DAY - 60_000);
     expect(totpActions).toContain(`partner:rotate:${c.id}`);
 

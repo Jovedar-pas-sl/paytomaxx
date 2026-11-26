@@ -54,7 +54,7 @@ const latest = (...dates: Array<Date | null>) => Math.max(...dates.map((d) => d?
  *  4. solo `Bearer oxp_<modo>_<48 hex>` del modo del despliegue;
  *  5. la conexión por el hash (actual o anterior en su solape), en asSystem;
  *  6. la IP entera, antes que el estado, en la lista de la clave y en las del socio;
- *  7. anulada, caducada, dormida, socio suspendido o en pausa;
+ *  7. anulada (o el local borrado), caducada, dormida, socio suspendido, en pausa o el local sin su sociedad;
  *  8. el local en el contexto con strictTenancy;
  *  9. basta uno de los permisos de la ruta en los de la clave ∩ el techo del socio;
  * 10. topes por conexión; el último uso y la marca de clave buena.
@@ -104,8 +104,46 @@ export class PartnerKeyGuard implements CanActivate {
     if (!mode) throw await this.failure(keyHash, ip, 'invalid_api_key');
     if (mode !== partnerApiMode()) throw await this.failure(keyHash, ip, 'wrong_environment');
 
-    // 5. La conexión.
+    // Los rechazos de una clave que existe (IP, estado, permisos) no pasan por el límite global (la
+    // exención de /v1/partner): llevan su tope por clave e IP, antes de la base.
+    if (await this.redis(() => this.rates.rejectedTooOften(keyHash, ip))) throw partnerError('rate_limited', {}, 60);
+
+    // 5 a 9, contando cada rechazo.
     const now = new Date();
+    let conn: PartnerGuardConnection;
+    let keyMatch: 'current' | 'previous';
+    let effectiveScopes: PartnerScope[];
+    try {
+      ({ conn, keyMatch, effectiveScopes } = await this.admit(def, keyHash, ip, state.ipBlocked, now));
+    } catch (err) {
+      if (err instanceof PartnerHttpException && err.code !== 'try_later' && err.code !== 'invalid_api_key') {
+        await this.redis(() => this.rates.recordRejection(keyHash, ip));
+      }
+      throw err;
+    }
+
+    // 10. Topes, último uso (solo las llamadas con permiso: GET /me no la mantiene viva) y clave buena.
+    const rate = await this.redis(() => this.rates.hit(conn.id, def.money));
+    if (!rate.ok) throw partnerError('rate_limited', {}, rate.retryAfter);
+    if (!def.scopes.includes('any') && (!conn.lastUsedAt || now.getTime() - conn.lastUsedAt.getTime() > LAST_USED_EVERY_MS)) {
+      await this.prisma.asSystem((tx) =>
+        tx.partnerConnection.update({ where: { id: conn.id, tenantId: conn.tenantId }, data: { lastUsedAt: now, lastUsedIp: ip } }),
+      );
+    }
+    await this.redis(() => this.limiter.markGood(keyHash));
+    req.partner = { connection: conn, keyMatch, keyHint: partnerKeyHint(presented), keyHash, effectiveScopes };
+    return true;
+  }
+
+  /** Pasos 5 a 9: la conexión, la IP, el estado, el contexto y los permisos. */
+  private async admit(
+    def: PartnerRouteDef,
+    keyHash: string,
+    ip: string | null,
+    ipBlocked: boolean,
+    now: Date,
+  ): Promise<{ conn: PartnerGuardConnection; keyMatch: 'current' | 'previous'; effectiveScopes: PartnerScope[] }> {
+    // 5. La conexión.
     const conn = await this.prisma.asSystem((tx) =>
       tx.partnerConnection.findFirst({
         where: { OR: [{ keyHash }, { prevKeyHash: keyHash, prevKeyExpiresAt: { gt: now } }] },
@@ -116,7 +154,7 @@ export class PartnerKeyGuard implements CanActivate {
       if (await this.redis(() => this.limiter.isRetired(keyHash))) throw partnerError('api_key_rotated');
       throw await this.failure(keyHash, ip, 'invalid_api_key');
     }
-    if (state.ipBlocked && !(conn.status === 'ACTIVE' && ipInList(ip, conn.ipAllowlist))) {
+    if (ipBlocked && !(conn.status === 'ACTIVE' && ipInList(ip, conn.ipAllowlist))) {
       throw partnerError('rate_limited', {}, PAUTH_LIMITS.ipBlockS);
     }
     const keyMatch = conn.keyHash === keyHash ? 'current' : 'previous';
@@ -133,7 +171,8 @@ export class PartnerKeyGuard implements CanActivate {
     // 8. El local de la clave, estricto.
     bindTenantContext(this.cls, { tenantId: conn.tenantId, partnerConnectionId: conn.id, strictTenancy: true });
 
-    // 9. Permisos: los de la clave dentro del techo del socio, leído ahora.
+    // 9. Permisos: los de la clave dentro del techo del socio, leído ahora. La pausa, solo en las rutas
+    // cuya respuesta 403 declara scope_paused (las de leer, listar o anular no la miran).
     const ceiling = new Set(conn.partner.allowedScopes);
     const effectiveScopes = PARTNER_SCOPES.filter((s) => conn.scopes.includes(s) && ceiling.has(s));
     if (!def.scopes.includes('any')) {
@@ -141,25 +180,12 @@ export class PartnerKeyGuard implements CanActivate {
       if (usable.length === 0) throw partnerError('scope_missing', { required_scope: def.scopes[0] as PartnerScope });
       if (routeCodes(def).has('scope_paused') && usable.every((s) => conn.pausedScopes.includes(s))) throw partnerError('scope_paused');
     }
-
-    // 10. Topes, último uso (solo las llamadas con permiso: GET /me no la mantiene viva) y clave buena.
-    const rate = await this.redis(() => this.rates.hit(conn.id, def.money));
-    if (!rate.ok) throw partnerError('rate_limited', {}, rate.retryAfter);
-    if (!def.scopes.includes('any') && (!conn.lastUsedAt || now.getTime() - conn.lastUsedAt.getTime() > LAST_USED_EVERY_MS)) {
-      await this.prisma.asSystem((tx) =>
-        tx.partnerConnection.update({ where: { id: conn.id, tenantId: conn.tenantId }, data: { lastUsedAt: now, lastUsedIp: ip } }),
-      );
-    }
-    await this.redis(() => this.limiter.markGood(keyHash));
-    req.partner = { connection: conn, keyMatch, keyHint: partnerKeyHint(presented), keyHash, effectiveScopes };
-    return true;
+    return { conn, keyMatch, effectiveScopes };
   }
 
   private async assertUsable(conn: PartnerGuardConnection, keyMatch: 'current' | 'previous', now: Date): Promise<void> {
     const venue = conn.venue;
-    if (conn.status === 'REVOKED' || venue.deletedAt || (venue.businessId !== null && venue.businessId !== conn.businessId)) {
-      throw partnerError('api_key_revoked');
-    }
+    if (conn.status === 'REVOKED' || venue.deletedAt) throw partnerError('api_key_revoked');
     const expiresAt = keyMatch === 'previous' ? conn.prevKeyExpiresAt : conn.keyExpiresAt;
     if (expiresAt && expiresAt.getTime() <= now.getTime()) throw partnerError('api_key_expired');
     if (conn.keySuspendedAt) throw partnerError('api_key_suspended');
@@ -168,8 +194,11 @@ export class PartnerKeyGuard implements CanActivate {
       throw partnerError('api_key_suspended');
     }
     if (conn.partner.status === 'SUSPENDED') throw partnerError('partner_suspended');
-    // El contrato: un local sin sociedad, o su sociedad sin NIF, pausa la conexión (sin emisor no hay respuesta).
-    if (conn.status === 'PAUSED' || !venue.businessId || !venue.business?.taxId) throw partnerError('connection_paused');
+    // El contrato: un local sin sociedad, en otra que al conectar o con su sociedad sin NIF pausa la conexión
+    // en todas las rutas (sin emisor no hay respuesta), sin tocar la fila: vuelve cuando OxioPay lo arregla.
+    if (conn.status === 'PAUSED' || !venue.businessId || venue.businessId !== conn.businessId || !venue.business?.taxId) {
+      throw partnerError('connection_paused');
+    }
   }
 
   /** La primera vez que se ve dormida: queda en la base y en el registro (sin aviso). */

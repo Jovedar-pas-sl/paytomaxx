@@ -19,7 +19,9 @@ const EXPIRING_DAYS = [30, 7] as const;
  *    queda un `claim_expired` por fila. El UPDATE … RETURNING lo hace una sola
  *    réplica aunque corran dos (la otra ya no ve la fila sellada).
  *  - las claves a 30 y a 7 días de caducar: un aviso cada vez por clave
- *    (np:pk-expiring:<id>:<días>:<keyCreatedAt> NX: una sola réplica lo da).
+ *    (np:pk-expiring:<id>:<días>:<keyCreatedAt> NX: una sola réplica lo da);
+ *    si no se puede guardar, la reserva se suelta y el repaso siguiente lo
+ *    vuelve a intentar.
  */
 @Injectable()
 export class PartnerKeySweepService implements OnModuleInit, OnModuleDestroy {
@@ -86,15 +88,26 @@ export class PartnerKeySweepService implements OnModuleInit, OnModuleDestroy {
     for (const c of soon) {
       const left = c.keyExpiresAt!.getTime() - now.getTime();
       const days = left <= EXPIRING_DAYS[1] * DAY_MS ? EXPIRING_DAYS[1] : EXPIRING_DAYS[0];
-      const first = await this.redis.set(`np:pk-expiring:${c.id}:${days}:${c.keyCreatedAt.getTime()}`, '1', 'EX', 31 * 86_400, 'NX');
+      const reserved = `np:pk-expiring:${c.id}:${days}:${c.keyCreatedAt.getTime()}`;
+      const first = await this.redis.set(reserved, '1', 'EX', 31 * 86_400, 'NX');
       if (first !== 'OK') continue;
-      await this.audit.log({
-        action: PARTNER_AUDIT.keyExpiring,
-        tenantId: c.tenantId,
-        targetType: 'PartnerConnection',
-        targetId: c.id,
-        payload: partnerAuditPayload(c, { days, expiresAt: c.keyExpiresAt!.toISOString() }),
-      });
+      try {
+        // logInTx propaga el fallo (log() lo absorbería y el aviso contaría como dado).
+        await this.prisma.asSystem((tx) =>
+          this.audit.logInTx(tx, {
+            action: PARTNER_AUDIT.keyExpiring,
+            tenantId: c.tenantId,
+            targetType: 'PartnerConnection',
+            targetId: c.id,
+            payload: partnerAuditPayload(c, { days, expiresAt: c.keyExpiresAt!.toISOString() }),
+          }),
+        );
+      } catch (err) {
+        // Sin el aviso guardado, la reserva se suelta: el repaso siguiente lo vuelve a intentar.
+        await this.redis.del(reserved);
+        this.logger.error(`Aviso de caducidad de la clave ${c.id} sin guardar (se reintenta): ${(err as Error).message}`);
+        continue;
+      }
       warned += 1;
     }
     return warned;
