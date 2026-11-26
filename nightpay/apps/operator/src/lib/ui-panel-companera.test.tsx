@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { DateRange } from '../components/DateRange';
@@ -80,7 +81,10 @@ describe('«Buscar por fechas»', () => {
     expect(html).toContain('Hasta');
     expect(html).toContain('Cada noche cuenta hasta las 8:00 del día siguiente.');
     expect(html).toContain('Quitar fechas');
-    expect(html).toContain('font-size:var(--np-fs-16)');
+    // 16 px: ahora lo pone el campo común desde pieces.css (.np-field-input), no un estilo en línea.
+    expect(html.match(/class="np-field-input"/g)).toHaveLength(2);
+    const pieces = readFileSync(new URL('../../../../packages/ui/src/pieces.css', import.meta.url), 'utf8').replace(/\r\n/g, '\n');
+    expect(pieces).toMatch(/\n\.np-field-input \{[^}]*font-size: var\(--np-fs-16\);/);
   });
 
   it('«Desde» después de «Hasta»: lo dice', () => {
