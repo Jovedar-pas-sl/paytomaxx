@@ -24,7 +24,7 @@ export type PaymentEvent =
   | {
       type: 'AUTHORIZED';
       providerTxId: string;
-      provider: 'WIPAY' | 'PEANPE' | 'PAYTEF' | 'REDSYS' | 'BTCPAY';
+      provider: 'WIPAY' | 'PEANPE' | 'PAYTEF' | 'REDSYS' | 'BTCPAY' | 'YAVIN';
       /**
        * «Dar por bueno» (paid-after-cancel.ts): el encargado o el dueño, con su
        * 2FA, acepta un pago que el banco cobró DESPUÉS de cancelar el cobro.
@@ -79,7 +79,7 @@ export interface PaymentContext {
   amountCents: number;
   availableAmountCents: number;
   providerTxId?: string;
-  provider?: 'WIPAY' | 'PEANPE' | 'PAYTEF' | 'REDSYS' | 'BTCPAY';
+  provider?: 'WIPAY' | 'PEANPE' | 'PAYTEF' | 'REDSYS' | 'BTCPAY' | 'YAVIN';
   failureReason?: string;
 }
 

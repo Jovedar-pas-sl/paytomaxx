@@ -26,7 +26,7 @@ import { PAID_AFTER_CANCEL_REASON } from '../payments/paid-after-cancel';
 import { InvalidTransitionError } from '../payments/payment.machine';
 import { PaymentsService } from '../payments/payments.service';
 
-const PROVIDERS = ['WIPAY', 'PEANPE', 'PAYTEF', 'REDSYS', 'BTCPAY'] as const;
+const PROVIDERS = ['WIPAY', 'PEANPE', 'PAYTEF', 'REDSYS', 'BTCPAY', 'YAVIN'] as const;
 type ApprovalProvider = (typeof PROVIDERS)[number];
 
 export const AcceptAfterCancelSchema = z.object({
