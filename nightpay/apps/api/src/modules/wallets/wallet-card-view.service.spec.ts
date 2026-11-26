@@ -9,7 +9,7 @@ const wallet = { id: 'w1', qrToken: 'private-wallet-token', status: 'ACTIVE', bl
 const card = { id: 'c1', status: 'ISSUED', walletId: wallet.id, wallet };
 function make() {
   const findUnique = vi.fn().mockResolvedValue(card);
-  const prisma = { acrossVenues: (fn: (tx: unknown) => unknown) => fn({ walletCard: { findUnique } }) };
+  const prisma = { acrossVenues: (fn: (tx: unknown) => unknown) => fn({ walletCard: { findUnique }, staffCard: { findUnique: async () => null } }) };
   const keys = { hasPasskey: vi.fn().mockResolvedValue(true), challenge: vi.fn().mockResolvedValue({ challenge: 'random' }), verify: vi.fn().mockResolvedValue('w1') };
   return { service: new WalletCardViewService(prisma as never, keys as never, {} as never, {} as never, { get: () => "" } as never), findUnique, keys };
 }
@@ -99,6 +99,7 @@ describe('«Ver mi saldo con mi PIN» desde la ficha (B7)', () => {
     const prisma = {
       acrossVenues: vi.fn(async (fn: (tx: unknown) => unknown) =>
         fn({
+          staffCard: { findUnique: async () => null },
           walletCard: {
             findUnique: vi.fn(async () => ({
               id: 'c-1',

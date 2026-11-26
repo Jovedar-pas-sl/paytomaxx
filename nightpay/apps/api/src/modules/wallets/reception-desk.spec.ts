@@ -56,6 +56,8 @@ function db(opts: { cards?: Card[]; wallets?: Wallet[]; cashIn?: number; passkey
         wallets.find((w) => w.shortCode === where.shortCode && w.status === 'ACTIVE') ?? null,
     },
     venue: { findUnique: async () => ({ walletGroup: null }) },
+    // Ninguna es la ficha de una compañera.
+    staffCard: { findUnique: async () => null },
     $queryRaw: async () => [{ inCents: opts.cashIn ?? 0, inWindowCents: opts.cashIn ?? 0, outCents: 0, outWindowCents: 0 }],
   };
 }

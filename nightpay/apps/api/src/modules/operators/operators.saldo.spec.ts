@@ -64,6 +64,8 @@ function makeService(opts: Opts = {}) {
     payment: { findMany: vi.fn().mockResolvedValue(opts.cards ?? []) },
     walletChargeRequest: { findMany: vi.fn().mockResolvedValue(opts.saldoCharges ?? []) },
     walletConsumption: { findMany: vi.fn().mockResolvedValue(opts.consumptions ?? []) },
+    // Su ficha NFC (cobro por el encargado, fase 2): sin ficha.
+    staffCard: { findMany: vi.fn().mockResolvedValue([]) },
     withTenant: vi.fn(),
     asSystem: vi.fn(),
   };
