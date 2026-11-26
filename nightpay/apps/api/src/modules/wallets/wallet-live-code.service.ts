@@ -115,8 +115,8 @@ export class WalletLiveCodeService {
   /**
    * ¿Sale «Pagar o recargar en otro sistema» en la página de este saldo? Solo
    * si alguna conexión que hoy vale (ACTIVE, de socio ACTIVE, sin dormir ni
-   * caducar, del modo de este despliegue y con su local en la sociedad con la
-   * que se conectó) tiene `wallet:balance` o `wallet:load` (dentro del techo
+   * caducar, del modo de este despliegue y con su local, no borrado, en la
+   * sociedad con la que se conectó y con NIF: lo que pide PartnerKeyGuard) tiene `wallet:balance` o `wallet:load` (dentro del techo
    * del socio) y alcanza el saldo (walletReachable, como POST /wallet/balance).
    * Un saldo sumado a otro, nunca. Lecturas cruzadas: en asSystem.
    */
@@ -149,11 +149,13 @@ export class WalletLiveCodeService {
           keyResumedAt: true,
           lastUsedAt: true,
           partner: { select: { allowedScopes: true } },
-          venue: { select: { walletGroup: true, businessId: true } },
+          venue: { select: { walletGroup: true, businessId: true, business: { select: { taxId: true } } } },
         },
       });
       return conns.some(
         (c) =>
+          // Su sociedad sin NIF: el guard la pausa (connection_paused).
+          Boolean(c.venue.business?.taxId) &&
           // Dormida (90 días sin uso): el guard la duerme al verla; aquí ya no vale.
           now.getTime() - latest(c.keyCreatedAt, c.lastUsedAt, c.keyResumedAt) <= DORMANT_AFTER_MS &&
           OFFER_SCOPES.some((s) => c.scopes.includes(s) && c.partner.allowedScopes.includes(s)) &&

@@ -650,6 +650,22 @@ describe('parte B: la página del saldo trae «Pagar o recargar en otro sistema�
     }
   });
 
+  it('una conexión cuyo local tiene la sociedad sin NIF (el guard la pausa) no lo trae; con NIF, sí', async () => {
+    const Z = await sys(async (tx) => (await tx.business.create({ data: { name: `Sociedad Z ${r} S.L.`, taxId: null } })).id);
+    const C = await venue('Sala C', `gsinnif-${r}`, Z);
+    const w = await sys(async (tx) =>
+      tx.clientWallet.create({ data: { tenantId: C, qrToken: linkToken(), shortCode: shortCode(), walletGroup: `gsinnif-${r}`, balanceCents: 100, status: 'ACTIVE' } }),
+    );
+    const conn = await newConnection(C, Z);
+    try {
+      expect(hasBlock(await page(w))).toBe(false);
+      await sys((tx) => tx.business.update({ where: { id: Z }, data: { taxId: `BZ${Date.now().toString().slice(-7)}` } }));
+      expect(hasBlock(await page(w))).toBe(true);
+    } finally {
+      await sys((tx) => tx.partnerConnection.delete({ where: { id: conn.id } }));
+    }
+  });
+
   it('con la API apagada, ni el bloque ni el código (POST /w/:token/live-code, 404)', async () => {
     const w = await wallet(V.A);
     vi.stubEnv('PARTNER_API_ENABLED', 'false');
