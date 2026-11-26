@@ -8,7 +8,7 @@ import { ScreenHeader } from './ScreenHeader';
 import styles from './cobrar.module.css';
 
 interface Props {
-  /** «Nerea · Compañera». */
+  /** «Nerea · compañera». */
   who: string;
   /** Su noche (null: aún no se sabe). */
   night: MyNight | null;

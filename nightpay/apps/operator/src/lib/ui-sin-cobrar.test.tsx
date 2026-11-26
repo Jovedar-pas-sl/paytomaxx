@@ -6,6 +6,7 @@ import { MiQr } from '../components/cobrar/MiQr';
 import { SinCobrar } from '../components/cobrar/SinCobrar';
 import { EarningsDetail } from '../components/EarningsDetail';
 import { mySectionsOf, type MyEarning, type MyNight, type OperatorUser } from './api';
+import { whoLine } from './cobro-view';
 import { moneySummary } from './earnings-view';
 import { FALLBACK_SECTIONS } from './sections';
 
@@ -68,12 +69,13 @@ describe('las secciones que se le ofrecen', () => {
 
 describe('«Hoy cobra el encargado»', () => {
   const pantalla = (night: MyNight | null) =>
-    nb(renderToStaticMarkup(<SinCobrar who="Nerea · Compañera" night={night} banner={<p>Tus reservas de RRPP</p>} onLogo={noop} onMiQr={noop} />));
+    nb(renderToStaticMarkup(<SinCobrar who={whoLine('Nerea', 'OPERATOR')} night={night} banner={<p>Tus reservas de RRPP</p>} onLogo={noop} onMiQr={noop} />));
 
   it('el título, qué hacer, «Mi QR», lo que lleva esta noche y la tarjeta de RRPP', () => {
     const html = pantalla(NIGHT);
     expect(html).toContain('Hoy cobra el encargado');
-    expect(html).toContain('Nerea · Compañera');
+    expect(html).toContain('Nerea · compañera');
+    expect(html.toLowerCase()).not.toContain('chica');
     expect(html).toContain('aria-label="Menú"');
     expect(html).toContain('Tus reservas de RRPP');
     expect(html).toContain('Tus servicios los cobra el encargado (o recepción) escaneando tu «Mi QR». Lo tuyo te llega al momento a Ganancias.');
