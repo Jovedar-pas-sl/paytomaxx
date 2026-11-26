@@ -31,6 +31,8 @@ export interface CobrarContext {
   tips: boolean;
   /** false: la compañera con la casilla del local apagada («Hoy cobra el encargado»; null: no se sabe). */
   fromPhone?: boolean | null;
+  /** Un servicio a nombre de una compañera lleva propinas: la fila de Sala (null: no se sabe). */
+  serviceTips?: boolean | null;
   methods: VenuePaymentMethods;
   night: VenueNightSettings;
   rules: InvitationRules | null;
@@ -89,4 +91,14 @@ export function puestoSection(ctx: Pick<CobrarContext, 'post' | 'user' | 'defaul
  */
 export function customerTipsOn(ctx: Pick<CobrarContext, 'tips' | 'methods'>): boolean {
   return ctx.tips && ctx.methods.tips;
+}
+
+/**
+ * ¿Ofrece propina el PIN de un servicio cobrado a nombre de una compañera?
+ * La regla de Sala (la de ella), no el puesto de quien cobra: si no, en un
+ * local con Sala sin propinas el cliente la elige y el API la rechaza
+ * (TIP_NOT_VALID). Sin el dato (un API de antes), su puesto.
+ */
+export function servedTipsOn(ctx: Pick<CobrarContext, 'tips' | 'methods' | 'serviceTips'>): boolean {
+  return ctx.methods.tips && (ctx.serviceTips ?? ctx.tips);
 }

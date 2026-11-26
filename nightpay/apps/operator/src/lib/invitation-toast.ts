@@ -38,6 +38,24 @@ export function servedBaseline(seen: unknown, night: { from: string }): Invitati
   return { count: s.count as number, shareCents: s.shareCents as number };
 }
 
+/**
+ * Al leer su noche: lo que se lleva de los servicios nuevos (null: nada que
+ * avisar) y lo visto ahora, que queda guardado en el móvil. Lo de antes es lo
+ * visto con la app abierta o, si no, lo guardado. Un API de antes (sin
+ * «served»): ni avisa ni guarda.
+ */
+export function checkServed(
+  userId: string,
+  before: ServedSeen | null,
+  night: { from: string; served?: InvitationsTonight },
+): { cents: number | null; seen: ServedSeen | null } {
+  if (!night.served) return { cents: null, seen: before };
+  const cents = invitationArrived(servedBaseline(before ?? loadServedSeen(userId), night), night.served);
+  const seen = { from: night.from, count: night.served.count, shareCents: night.served.shareCents };
+  saveServedSeen(userId, seen);
+  return { cents, seen };
+}
+
 const servedKey = (userId: string) => `np_served_seen:${userId}`;
 
 /** Lo visto guardado en este móvil (null: nada, o sin almacenamiento, como en navegación privada). */

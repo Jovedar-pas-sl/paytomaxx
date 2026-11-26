@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import type { MyNight } from '@/lib/api';
 import { formatEur } from '@/lib/money';
 import { playOutcomeSound } from '@/lib/alert-sound';
-import { invitationArrived, loadServedSeen, saveServedSeen, servedBaseline, type ServedSeen } from '@/lib/invitation-toast';
+import { checkServed, invitationArrived, type ServedSeen } from '@/lib/invitation-toast';
 
 const SHOW_MS = 6000;
 
@@ -24,12 +24,8 @@ export function InvitationToast({ night, userId }: { night: MyNight | null; user
     if (!night) return;
     const invited = invitationArrived(last.current, night.invitations);
     last.current = night.invitations ?? last.current;
-    let served: number | null = null;
-    if (night.served) {
-      served = invitationArrived(servedBaseline(lastServed.current ?? loadServedSeen(userId), night), night.served);
-      lastServed.current = { from: night.from, count: night.served.count, shareCents: night.served.shareCents };
-      saveServedSeen(userId, lastServed.current);
-    }
+    const { cents: served, seen } = checkServed(userId, lastServed.current, night);
+    lastServed.current = seen;
     const next = served !== null ? { what: 'Servicio cobrado', cents: served } : invited !== null ? { what: 'Te han invitado', cents: invited } : null;
     if (!next) return;
     setShown(next);

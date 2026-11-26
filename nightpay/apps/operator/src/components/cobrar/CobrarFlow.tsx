@@ -46,7 +46,7 @@ import { ActivePayment } from '../ActivePayment';
 import { useCarta } from '../carta';
 import { Barra } from '../party/Barra';
 import { Carta } from './Carta';
-import { cobraElEncargado, customerTipsOn, labelOf, type CobrarContext } from './cobrar-context';
+import { cobraElEncargado, customerTipsOn, labelOf, servedTipsOn, type CobrarContext } from './cobrar-context';
 import { ElegirChica } from './ElegirChica';
 import { EscanearChica, type Invitada } from './EscanearChica';
 import { Esperando, type CobroAbierto } from './Esperando';
@@ -167,6 +167,7 @@ export function CobrarFlow({ user, onCobroDone, onLogout, night, miQrOpen = fals
       defaultCategory: mine.defaultCategory,
       tips: mine.tips !== false,
       fromPhone: mine.fromPhone ?? null,
+      serviceTips: mine.serviceTips ?? null,
       methods,
       night: nightSettings,
       rules,
@@ -286,8 +287,7 @@ export function CobrarFlow({ user, onCobroDone, onLogout, night, miQrOpen = fals
       cuenta: c,
       view: {
         totalCents: totals.totalCents,
-        // A su nombre, la propina sigue la regla de Sala (la de ella), no el puesto de quien cobra.
-        tipsOn: chica ? methods.tips && (mine.serviceTips ?? ctx.tips) : customerTipsOn(ctx),
+        tipsOn: chica ? servedTipsOn(ctx) : customerTipsOn(ctx),
         sections,
         // El título de Esperando, sin mayúsculas (Grafito): «Copas + Comida».
         // OxioParty: la caseta y lo que se cobra («2 × caña · 1 × tinto de verano»).

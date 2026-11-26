@@ -2,7 +2,9 @@ import { readFileSync } from 'node:fs';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_NIGHT_SETTINGS, DEFAULT_PAYMENT_METHODS } from '@nightpay/contracts';
-import type { CobrarContext } from '../components/cobrar/cobrar-context';
+import { servedTipsOn, type CobrarContext } from '../components/cobrar/cobrar-context';
+import { mySectionsOf } from './api';
+import { rejectedQr, shouldResolveQr } from './qr-scan';
 import { ServicioDe } from '../components/cobrar/ServicioDe';
 import { EMPTY_CUENTA, addItem, type CartaItem } from './cuenta';
 import { FALLBACK_SECTIONS } from './sections';
@@ -86,6 +88,16 @@ describe('CobrarFlow pide la compañera cuando el API lo dice', () => {
     expect(flow).toContain('cobrarPos(stage.cuenta, stage.chica)');
   });
 
+  it('a su nombre, la propina del PIN sale de servedTipsOn (la fila de Sala), no del puesto de quien cobra', () => {
+    expect(body('function cobrarCuenta(')).toContain('tipsOn: chica ? servedTipsOn(ctx) : customerTipsOn(ctx)');
+    expect(flow).toContain('serviceTips: mine.serviceTips ?? null');
+  });
+
+  it('«Otra compañera» vuelve al escáner con el QR de la que se descarta', () => {
+    expect(flow).toContain("go({ kind: 'companera', cuenta: stage.cuenta, skipRaw: stage.chica.raw })");
+    expect(flow).toContain('skipRaw={stage.skipRaw}');
+  });
+
   it('el datáfono de quien no es compañera no le dice «Llama al camarero»', () => {
     expect(flow).toContain("byStaff={user.role !== 'OPERATOR'}");
     const active = read('../components/ActivePayment.tsx');
@@ -100,5 +112,41 @@ describe('Recepción → Incidencias: «No es mío»', () => {
     const inbox = read('../components/reception/ReceptionIncidents.tsx');
     expect(inbox).toContain("row.kind === 'service_disputed'");
     expect(inbox).toContain('Lo cierra el dueño en el panel. Habla con quien lo cobró.');
+  });
+});
+
+describe('la propina de un servicio cobrado a su nombre', () => {
+  const tipsOn = (over: Partial<CobrarContext>) => servedTipsOn({ ...ctx, ...over });
+
+  it('sigue la fila de Sala (serviceTips), no el puesto de quien cobra', () => {
+    // Sala sin propinas: aunque el encargado las lleve, el PIN no la ofrece (el API diría TIP_NOT_VALID).
+    expect(tipsOn({ tips: true, serviceTips: false })).toBe(false);
+    expect(tipsOn({ tips: false, serviceTips: true })).toBe(true);
+  });
+
+  it('sin el dato (un API de antes), su puesto; con las propinas del local apagadas, nunca', () => {
+    expect(tipsOn({ tips: true, serviceTips: null })).toBe(true);
+    expect(tipsOn({ tips: false })).toBe(false);
+    expect(tipsOn({ serviceTips: true, methods: { ...DEFAULT_PAYMENT_METHODS, tips: false } })).toBe(false);
+  });
+
+  it('/venues/me → serviceTips (true, false o, sin el campo, null)', () => {
+    expect(mySectionsOf({ myRights: { serviceTips: true } }).serviceTips).toBe(true);
+    expect(mySectionsOf({ myRights: { serviceTips: false } }).serviceTips).toBe(false);
+    expect(mySectionsOf({ myRights: {} }).serviceTips).toBeNull();
+  });
+});
+
+describe('«Otra compañera»: el QR descartado no se vuelve a reconocer', () => {
+  it('EscanearChica lo marca como rechazado al montar (hasta que se lea otro)', () => {
+    const scan = read('../components/cobrar/EscanearChica.tsx');
+    expect(scan).toMatch(/if \(skipRaw\) rejected\.current = rejectedQr\(skipRaw, 400, Date\.now\(\)\);/);
+  });
+
+  it('marcado así, ese QR no se vuelve a mandar; otro, sí', () => {
+    const t = Date.now();
+    const skipped = rejectedQr('np-staff:nerea', 400, t);
+    expect(shouldResolveQr('np-staff:nerea', skipped, t + 60 * 60_000)).toBe(false);
+    expect(shouldResolveQr('np-staff:lola', skipped, t)).toBe(true);
   });
 });
