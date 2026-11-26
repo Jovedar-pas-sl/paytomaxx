@@ -98,6 +98,13 @@ describe('las barras de abajo, a 24 y la pestaña elegida más gruesa (por CSS)'
   });
 });
 
+describe('OxioParty conserva su aspecto (solo cambia de dónde saca los iconos y su tamaño)', () => {
+  it('el «⋯» del menú de la barra: la pieza a 24 y puntos de 3,6 (eran círculos de 3,3 px a 22, no los de 2 de la pieza)', () => {
+    expect(read('apps/operator/src/components/party/Barra.tsx')).toContain('<Icon name="dots" />');
+    expect(rule(read('apps/operator/src/components/party/party.module.css'), '.menuBtn svg')).toContain('stroke-width: 3.6');
+  });
+});
+
 describe('sueltos que ahora son la pieza', () => {
   it('los pasos del iPhone: el icono de Compartir no se lee; su descripción va aparte para el lector', () => {
     const html = renderToStaticMarkup(createElement(IosInstallSteps));
