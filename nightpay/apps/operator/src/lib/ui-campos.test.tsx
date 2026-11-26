@@ -158,6 +158,10 @@ describe('contraseña: «Ver» / «Ocultar»', () => {
     expect(field().getAttribute('autocomplete')).toBe('current-password');
   });
 
+  it('en Edge, solo nuestro «Ver»: su ojo, fuera (en una regla suelta: en una lista, los demás navegadores la tirarían entera)', () => {
+    expect(PIECES).toMatch(/(\}|\*\/)\s*\.np-field-input::-ms-reveal \{\s*display: none;\s*\}/);
+  });
+
   it('solo en contraseñas: ni en un PIN ni en un código', () => {
     render(<Input label="Código" inputMode="numeric" maxLength={6} />);
     expect(reveal()).toBeNull();

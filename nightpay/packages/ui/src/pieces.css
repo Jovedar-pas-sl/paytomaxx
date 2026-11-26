@@ -402,6 +402,12 @@ select.np-field-input {
   font-family: var(--np-font-mono);
 }
 
+/* Edge pinta su propio ojo junto a «Ver»: fuera. Regla suelta: en una lista,
+   los demás navegadores no la entienden y tirarían la regla entera. */
+.np-field-input::-ms-reveal {
+  display: none;
+}
+
 .np-field-input[aria-invalid='true'] {
   border-color: var(--np-danger);
 }
