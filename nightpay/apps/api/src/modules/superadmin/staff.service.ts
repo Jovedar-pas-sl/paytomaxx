@@ -268,6 +268,8 @@ export class SuperAdminStaffService {
     await this.stepUp.verify(actor, dto.totpCode, 'user.enable');
     const user = await this.load(id);
     if (!user.deletedAt) throw new ConflictException('Ya está activo');
+    // Una compañera, con el tope de siempre: su % + la comisión de la plataforma de ahora ≤ 100 %.
+    if (user.role === 'OPERATOR' && user.tenantId) await this.operators.assertCommissionFits(user.tenantId, user.commissionBps);
     await this.prisma.acrossVenues((tx) => tx.user.update({ where: { id }, data: { deletedAt: null } }));
     await this.audit.write(actor, {
       action: 'user.enabled',

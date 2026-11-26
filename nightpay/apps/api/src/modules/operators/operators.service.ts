@@ -608,7 +608,7 @@ export class OperatorsService {
    * «Reglas del local», commissionTotalsProblem): si no, el local pondría
    * dinero en cada servicio. null/undefined: la del local (ya comprobada allí).
    */
-  private async assertCommissionFits(tenantId: string, bps: number | null | undefined): Promise<void> {
+  async assertCommissionFits(tenantId: string, bps: number | null | undefined): Promise<void> {
     if (bps === null || bps === undefined) return;
     const venue = await this.prisma.venue.findUnique({ where: { id: tenantId }, select: { platformCommissionBps: true } });
     const platform = venue?.platformCommissionBps ?? 0;
@@ -1261,7 +1261,10 @@ export class OperatorsService {
       }
     }
 
-    await this.assertCommissionFits(tenantId, dto.commissionBps);
+    // Darla de alta otra vez con el % que tenía también tiene que caber con la
+    // comisión de la plataforma de ahora (pudo subir mientras estaba de baja).
+    const reactivating = dto.active === true && operator.deletedAt !== null;
+    await this.assertCommissionFits(tenantId, dto.commissionBps ?? (reactivating ? operator.commissionBps : undefined));
     const data: Record<string, unknown> = {};
     if (dto.displayName !== undefined) data.displayName = dto.displayName;
     if (dto.commissionBps !== undefined) data.commissionBps = dto.commissionBps;

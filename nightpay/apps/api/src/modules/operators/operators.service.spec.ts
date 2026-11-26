@@ -858,4 +858,16 @@ describe('OperatorsService — el % propio de la compañera y la comisión de la
     expect(prisma.user.update).not.toHaveBeenCalled();
     await expect(svc.updateOperator('t-1', 'op-1', 'u-owner', 'OWNER', { commissionBps: 9000 })).resolves.toBeDefined();
   });
+
+  it('darla de alta otra vez con su 95 % (la plataforma subió al 10 % mientras estaba de baja): no; con 90 %, sí', async () => {
+    const gone = makeOps({ operator: { commissionBps: 9500, deletedAt: new Date('2026-10-01T00:00:00Z') } });
+    platform10(gone.prisma as never);
+    await expect(gone.svc.updateOperator('t-1', 'op-1', 'u-owner', 'OWNER', { active: true })).rejects.toThrow(/pasa del 100 %/);
+    expect(gone.prisma.user.update).not.toHaveBeenCalled();
+    // Con un % que cabe en la misma petición, sí.
+    await expect(gone.svc.updateOperator('t-1', 'op-1', 'u-owner', 'OWNER', { active: true, commissionBps: 9000 })).resolves.toBeDefined();
+    const fits = makeOps({ operator: { commissionBps: 9000, deletedAt: new Date('2026-10-01T00:00:00Z') } });
+    platform10(fits.prisma as never);
+    await expect(fits.svc.updateOperator('t-1', 'op-1', 'u-owner', 'OWNER', { active: true })).resolves.toBeDefined();
+  });
 });
