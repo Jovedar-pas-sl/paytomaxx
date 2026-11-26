@@ -59,7 +59,8 @@ interface Props {
  * o al cerrarlo (cada apertura es un montaje nuevo).
  */
 export function PayoutBatchReview(props: Props) {
-  if (!props.open || props.items.length === 0) return null;
+  // Solo `open`: abierto, trabaja con su foto aunque la lista viva se quede sin marcadas.
+  if (!props.open) return null;
   return <Review {...props} />;
 }
 
