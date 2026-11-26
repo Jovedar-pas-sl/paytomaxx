@@ -151,6 +151,7 @@ export function PartnersPanel({ role }: { role: string }) {
   return (
     <SettingsCard
       title="Otras plataformas"
+      tour="plataformas"
       hint="Plataformas que entran en el saldo de tu local con una clave: por ahora, los cajeros que cargan saldo aquí."
     >
       {loadError ? (
@@ -280,7 +281,7 @@ function ConnectionCard({
     <li className="np-ptn-card" data-state={c.state}>
       <div className="np-ptn-card-head">
         <h3 className="np-ptn-name">{c.partnerName}</h3>
-        <span className="np-ptn-tags">
+        <span className="np-ptn-tags" data-tour="plataformas-estado">
           <Etiqueta tone={tag.tone}>{tag.label}</Etiqueta>
           {c.mode === 'test' ? <Etiqueta tone="info">Prueba</Etiqueta> : null}
         </span>
@@ -309,7 +310,7 @@ function ConnectionCard({
         </p>
       ) : null}
       {actions.length > 0 ? (
-        <div className="np-ptn-actions">
+        <div className="np-ptn-actions" data-tour="plataformas-botones">
           {actions.map((a) => (
             <Button
               key={a}
