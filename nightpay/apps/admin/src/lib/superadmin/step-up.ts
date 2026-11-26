@@ -20,6 +20,9 @@ export type SaAction =
   | 'venue.rules'
   | 'venue.setIban'
   | 'venue.clearIban'
+  | 'venue.yavinKey'
+  | 'venue.yavinUse'
+  | 'venue.yavinClear'
   | 'venue.pause'
   | 'venue.resume'
   | 'user.create'
@@ -72,6 +75,10 @@ export const SA_ACTION_RULES: Readonly<Record<SaAction, StepUpRule>> = {
   'venue.rules': rule(true, 'none'),
   'venue.setIban': rule(true, 'none'),
   'venue.clearIban': rule(true, 'required'),
+  // Yavin (enlace de pago con QR): la clave y usarlo en el local, con 2FA como el IBAN.
+  'venue.yavinKey': rule(true, 'none'),
+  'venue.yavinUse': rule(true, 'none'),
+  'venue.yavinClear': rule(true, 'required'),
   'venue.pause': rule(true, 'required'),
   'venue.resume': rule(true, 'optional'),
   'user.create': rule(true, 'none'),

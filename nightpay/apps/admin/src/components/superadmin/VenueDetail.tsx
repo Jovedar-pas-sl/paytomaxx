@@ -24,6 +24,7 @@ import { StepUpDialog } from './StepUpDialog';
 import { BackButton, ErrorLine, Help, LoadGate, MetaList, SectionHead, SmallButton, StickyActions } from './ui';
 import { useLoad } from './use-load';
 import { VenueRulesCard } from './VenueRulesCard';
+import { YavinCard } from './YavinCard';
 
 interface Props {
   venueId: string;
@@ -72,6 +73,7 @@ export function VenueDetailView({ venueId, onBack }: Props) {
               <ProfileCard venue={v} onSaved={replace} />
               <VenueRulesCard venue={v} onSaved={replace} />
               <IbanCard venue={v} onSaved={replace} />
+              <YavinCard venueId={v.id} venueName={v.name} />
               <PauseCard
                 kind="venue"
                 name={v.name}

@@ -28,6 +28,7 @@ import type {
   UpdateBusinessDto,
   VenueDetail,
   VenueListItem,
+  YavinVenueStatus,
 } from '@nightpay/contracts';
 import { ApiError } from '../api-errors';
 import { API_BASE, authedFetch, totpAwareError } from '../http';
@@ -171,6 +172,31 @@ export function setSaSettlementAccount(
 
 export function clearSaSettlementAccount(venueId: string, input: StepUpInput): Promise<VenueDetail> {
   return post(`/venues/${id(venueId)}/settlement-account/clear`, input);
+}
+
+// ─── Yavin en un local (solo con YAVIN_ENABLED en el servidor: si no, 404) ───
+
+/** null = el servidor no tiene Yavin encendido (la tarjeta no sale). */
+export async function fetchSaYavin(venueId: string, signal?: AbortSignal): Promise<YavinVenueStatus | null> {
+  try {
+    return await call<YavinVenueStatus>(`/venues/${id(venueId)}/yavin`, { signal });
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 404) return null;
+    throw err;
+  }
+}
+
+/** La clave va solo en esta petición: el API nunca la devuelve. */
+export function setSaYavinKey(venueId: string, input: { apiKey: string; totpCode: string }): Promise<YavinVenueStatus> {
+  return put(`/venues/${id(venueId)}/yavin/key`, input);
+}
+
+export function setSaYavinUse(venueId: string, input: { use: boolean; totpCode: string }): Promise<YavinVenueStatus> {
+  return post(`/venues/${id(venueId)}/yavin/use`, input);
+}
+
+export function clearSaYavin(venueId: string, input: StepUpInput): Promise<YavinVenueStatus> {
+  return post(`/venues/${id(venueId)}/yavin/clear`, input);
 }
 
 export function pauseSaVenue(venueId: string, input: StepUpInput): Promise<VenueDetail> {
