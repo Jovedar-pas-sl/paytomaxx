@@ -1,5 +1,5 @@
 import { Body, Controller, Inject } from '@nestjs/common';
-import { PARTNER_ROUTES, WalletBalanceRequest, type WalletBalance } from '@nightpay/contracts';
+import { PARTNER_ROUTES, WalletBalanceRequest, type WalletBalanceBody, type WalletBalanceRequestBody } from '@nightpay/contracts';
 import { ZodValidationPipe } from '../../../common/pipes/zod.pipe';
 import { CurrentConnection, type PartnerAuth } from '../auth/current-connection.decorator';
 import { PartnerRoute } from '../http/partner-route.decorator';
@@ -21,8 +21,8 @@ export class PartnerWalletController {
   @PartnerRoute(PARTNER_ROUTES.getWalletBalance)
   async balance(
     @CurrentConnection() auth: PartnerAuth,
-    @Body(new ZodValidationPipe(WalletBalanceRequest)) body: WalletBalanceRequest,
-  ): Promise<WalletBalance> {
+    @Body(new ZodValidationPipe(WalletBalanceRequest)) body: WalletBalanceRequestBody,
+  ): Promise<WalletBalanceBody> {
     const ref = await this.refs.resolve(auth, body);
     await this.limits.balance(auth, ref.walletId, ref.refKind);
     return { object: 'wallet_balance', available: ref.balanceCents, currency: 'EUR', livemode: auth.connection.keyMode === 'live' };

@@ -6,7 +6,7 @@ import {
   WALLET_REF_DETAIL,
   normalizeWalletCardUid,
   walletCardTokenFromUrl,
-  type WalletBalanceRequest,
+  type WalletBalanceRequestBody,
   type WalletRefReason,
 } from '@nightpay/contracts';
 import { PrismaService, type TransactionalClient } from '../../../common/prisma/prisma.service';
@@ -161,7 +161,7 @@ export class PartnerWalletRefs {
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
   ) {}
 
-  async resolve(auth: PartnerAuth, body: WalletBalanceRequest): Promise<ResolvedWalletRef> {
+  async resolve(auth: PartnerAuth, body: WalletBalanceRequestBody): Promise<ResolvedWalletRef> {
     const shape = classifyWalletRef(body.qr);
     switch (shape.kind) {
       case 'live_code':

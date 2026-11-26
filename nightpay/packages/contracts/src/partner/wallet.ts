@@ -38,7 +38,7 @@ export const PartnerNfcUidSchema = z
 export const WalletBalanceRequest = z
   .strictObject({ qr: PartnerQrSchema, nfc_uid: PartnerNfcUidSchema.optional() })
   .register(partnerSchemas, { id: 'WalletBalanceRequest' });
-export type WalletBalanceRequest = z.infer<typeof WalletBalanceRequest>;
+export type WalletBalanceRequestBody = z.infer<typeof WalletBalanceRequest>;
 
 export const WalletBalance = z
   .object({
@@ -48,7 +48,7 @@ export const WalletBalance = z
     livemode: z.boolean(),
   })
   .register(partnerSchemas, { id: 'WalletBalance', description: 'Nothing else is ever returned about the wallet.' });
-export type WalletBalance = z.infer<typeof WalletBalance>;
+export type WalletBalanceBody = z.infer<typeof WalletBalance>;
 
 /** Los `reason` de `422 wallet_ref_not_accepted` (sin `venue_setting`, que es de la carga). */
 export type WalletRefReason = 'wallet_pass' | 'private_link' | 'reception_qr' | 'short_code' | 'charge_link' | 'other_link';

@@ -10,7 +10,7 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import { Writable } from 'node:stream';
 import { ForbiddenException, Global, Logger, Module } from '@nestjs/common';
 import { APP_GUARD, ModuleRef } from '@nestjs/core';
-import { ConfigModule, ConfigService } from '@nestjs/config';
+import { ConfigModule } from '@nestjs/config';
 import { FastifyAdapter, type NestFastifyApplication } from '@nestjs/platform-fastify';
 import { Test } from '@nestjs/testing';
 import { ClsModule, ClsService } from 'nestjs-cls';
