@@ -73,6 +73,8 @@ export interface MySectionsState {
   tips?: boolean | null;
   /** Un servicio a nombre de una compañera lleva propinas (las de Sala; null: no se sabe). */
   serviceTips?: boolean | null;
+  /** false: la compañera con la casilla del local apagada (null: no se sabe). */
+  fromPhone?: boolean | null;
   /** Ya contestó el API (con lo suyo o sin respuesta). */
   loaded?: boolean;
 }
@@ -91,6 +93,7 @@ export function useMySections(): MySectionsState {
             post: s.post ?? null,
             tips: s.tips ?? null,
             serviceTips: s.serviceTips ?? null,
+            fromPhone: s.fromPhone ?? null,
             loaded: true,
           });
         }

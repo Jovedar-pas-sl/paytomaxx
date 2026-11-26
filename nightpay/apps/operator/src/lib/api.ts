@@ -632,24 +632,33 @@ export interface MySections {
   tips?: boolean | null;
   /** Un servicio cobrado a nombre de una compañera lleva propinas (las de Sala; null: el API anterior). */
   serviceTips?: boolean | null;
+  /** false: la compañera con la casilla «Las compañeras cobran desde su móvil» apagada (null: el API anterior). */
+  fromPhone?: boolean | null;
 }
 
 export async function fetchMySections(): Promise<MySections> {
   const res = await authedFetch('/v1/venues/me');
   if (!res.ok) throw loadError(res, 'Error cargando el local');
-  const body = (await res.json()) as {
+  return mySectionsOf(await res.json());
+}
+
+/** La respuesta de /v1/venues/me → lo suyo (lo que falta, null: un API anterior). */
+export function mySectionsOf(raw: unknown): MySections {
+  const body = (raw ?? {}) as {
     sections?: VenueSection[];
     myDefaultCategory?: SectionCode;
     myPost?: PostCode | null;
-    myRights?: { sections?: SectionCode[]; tips?: boolean; serviceTips?: boolean };
+    myRights?: { sections?: SectionCode[]; tips?: boolean; serviceTips?: boolean; fromPhone?: boolean };
   };
+  const flag = (v: unknown) => (typeof v === 'boolean' ? v : null);
   return {
     sections: body.sections ?? [],
     defaultCategory: body.myDefaultCategory ?? null,
     allowed: body.myRights?.sections ?? null,
     post: body.myPost ?? null,
-    tips: typeof body.myRights?.tips === 'boolean' ? body.myRights.tips : null,
-    serviceTips: typeof body.myRights?.serviceTips === 'boolean' ? body.myRights.serviceTips : null,
+    tips: flag(body.myRights?.tips),
+    serviceTips: flag(body.myRights?.serviceTips),
+    fromPhone: flag(body.myRights?.fromPhone),
   };
 }
 

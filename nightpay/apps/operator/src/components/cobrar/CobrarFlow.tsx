@@ -166,6 +166,7 @@ export function CobrarFlow({ user, onCobroDone, onLogout, night, miQrOpen = fals
       post: mine.post ?? null,
       defaultCategory: mine.defaultCategory,
       tips: mine.tips !== false,
+      fromPhone: mine.fromPhone ?? null,
       methods,
       night: nightSettings,
       rules,

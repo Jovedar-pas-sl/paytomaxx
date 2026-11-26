@@ -5,7 +5,7 @@ import { cobraElEncargado, offeredCodes } from '../components/cobrar/cobrar-cont
 import { MiQr } from '../components/cobrar/MiQr';
 import { SinCobrar } from '../components/cobrar/SinCobrar';
 import { EarningsDetail } from '../components/EarningsDetail';
-import type { MyEarning, MyNight, OperatorUser } from './api';
+import { mySectionsOf, type MyEarning, type MyNight, type OperatorUser } from './api';
 import { moneySummary } from './earnings-view';
 import { FALLBACK_SECTIONS } from './sections';
 
@@ -41,11 +41,21 @@ describe('las secciones que se le ofrecen', () => {
     expect(offeredCodes({ sections: FALLBACK_SECTIONS, allowed: ['CHICA_SERVICE'] })).toEqual(['CHICA_SERVICE']);
   });
 
-  it('«Hoy cobra el encargado» solo para la compañera sin nada que cobrar', () => {
-    expect(cobraElEncargado({ user: user('OPERATOR'), allowed: [] })).toBe(true);
-    expect(cobraElEncargado({ user: user('OPERATOR'), allowed: null })).toBe(false);
-    expect(cobraElEncargado({ user: user('OPERATOR'), allowed: ['CHICA_SERVICE'] })).toBe(false);
-    expect(cobraElEncargado({ user: user('WAITER'), allowed: [] })).toBe(false);
+  it('«Hoy cobra el encargado» solo para la compañera con la casilla apagada', () => {
+    expect(cobraElEncargado({ user: user('OPERATOR'), fromPhone: false })).toBe(true);
+    // Sala sin secciones con la casilla encendida: nadie le cobra a su nombre, así que no se le promete.
+    expect(cobraElEncargado({ user: user('OPERATOR'), fromPhone: true })).toBe(false);
+    // Sin el dato (un API de antes), como hoy.
+    expect(cobraElEncargado({ user: user('OPERATOR'), fromPhone: null })).toBe(false);
+    expect(cobraElEncargado({ user: user('OPERATOR') })).toBe(false);
+    expect(cobraElEncargado({ user: user('WAITER'), fromPhone: false })).toBe(false);
+  });
+
+  it('/venues/me → la casilla (myRights.fromPhone); sin el campo, null', () => {
+    expect(mySectionsOf({ myRights: { sections: [], fromPhone: false } })).toMatchObject({ allowed: [], fromPhone: false });
+    expect(mySectionsOf({ myRights: { sections: [], fromPhone: true } })).toMatchObject({ allowed: [], fromPhone: true });
+    expect(mySectionsOf({ myRights: { sections: [] } })).toMatchObject({ allowed: [], fromPhone: null });
+    expect(mySectionsOf({})).toMatchObject({ allowed: null, fromPhone: null });
   });
 
   it('CobrarFlow pinta SinCobrar en lugar de la carta, con el menú y «Mi QR» para el servicio', () => {

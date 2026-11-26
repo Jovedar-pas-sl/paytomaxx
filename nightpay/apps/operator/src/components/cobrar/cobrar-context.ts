@@ -29,6 +29,8 @@ export interface CobrarContext {
   defaultCategory: SectionCode | null;
   /** Su puesto lleva propinas. */
   tips: boolean;
+  /** false: la compañera con la casilla del local apagada («Hoy cobra el encargado»; null: no se sabe). */
+  fromPhone?: boolean | null;
   methods: VenuePaymentMethods;
   night: VenueNightSettings;
   rules: InvitationRules | null;
@@ -56,9 +58,13 @@ export function offeredCodes(ctx: Pick<CobrarContext, 'sections' | 'allowed'>): 
   return ctx.allowed ? mine : enabled;
 }
 
-/** La compañera sin nada que cobrar (la casilla del local apagada): «Hoy cobra el encargado» en lugar de la carta. */
-export function cobraElEncargado(ctx: Pick<CobrarContext, 'user' | 'allowed'>): boolean {
-  return ctx.user.role === 'OPERATOR' && ctx.allowed?.length === 0;
+/**
+ * La compañera con la casilla del local apagada: «Hoy cobra el encargado» en
+ * lugar de la carta. Sala sin secciones con la casilla encendida no lo es:
+ * nadie le cobra a su nombre, así que su parte no le llegaría.
+ */
+export function cobraElEncargado(ctx: Pick<CobrarContext, 'user' | 'fromPhone'>): boolean {
+  return ctx.user.role === 'OPERATOR' && ctx.fromPhone === false;
 }
 
 /** El chip de la cabecera: su puesto con el color de su sección (la chica: «Servicios»). */
