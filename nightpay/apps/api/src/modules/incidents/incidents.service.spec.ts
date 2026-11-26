@@ -456,9 +456,21 @@ describe('alertas por Telegram', () => {
       isConfigured: (chatId?: string | null) => chatId !== '@sin_bot_aqui',
       hasBot: () => true,
     };
-    const svc = new AlertsService(prisma as never, redis as never, incidents as never, reports as never, telegram as never);
-    return { svc, telegram, reports, incidents, prisma, redis };
+    const backups = { verdict: vi.fn().mockResolvedValue({ kind: 'ok', lastBackupAt: new Date('2026-10-13T03:00:00Z') }) };
+    const svc = new AlertsService(prisma as never, redis as never, incidents as never, reports as never, telegram as never, backups as never);
+    return { svc, telegram, reports, incidents, prisma, redis, backups };
   }
+
+  it('sin copia de seguridad reciente: un aviso al chat de operaciones (no al de cada local), una vez al día', async () => {
+    const { svc, telegram, backups } = makeAlerts([], [], [], { chatId: '-1001234567890' });
+    backups.verdict.mockResolvedValue({ kind: 'stale', lastBackupAt: new Date('2026-10-12T03:00:00Z'), error: null });
+    await svc.tick(at('2026-10-13T23:00:00Z'));
+    await svc.tick(at('2026-10-13T23:05:00Z'));
+    const sent = telegram.send.mock.calls.filter((c) => String(c[0]).includes('copia de seguridad'));
+    expect(sent).toHaveLength(1);
+    // Sin chat del local: al de TELEGRAM_CHAT_ID (el de quien opera la plataforma).
+    expect(sent[0]![1]).toBeNull();
+  });
 
   it('Ajustes → Avisos: un grupo apagado no sale; el resto va al chat del local', async () => {
     const pos: Incident = { ...incident('9'), kind: 'pos_unmatched_op', title: 'Venta del datáfono sin cobro' };

@@ -1,4 +1,4 @@
-import { Inject, Injectable, Logger, type OnModuleDestroy, type OnModuleInit } from '@nestjs/common';
+import { Inject, Injectable, Logger, Optional, type OnModuleDestroy, type OnModuleInit } from '@nestjs/common';
 import type { Redis } from 'ioredis';
 import { alertKindForIncident, alertSettingsOf, type VenueAlertSettings } from '@nightpay/contracts';
 import { PrismaService } from '../../common/prisma/prisma.service';
@@ -10,6 +10,9 @@ import { staleBankHolds } from '../operators/bank-hold-sql';
 import { bankHoldReminderMessage, incidentMessage, morningSummaryMessage } from './alert-messages';
 import { mergeSummaries, type SummaryScope } from './morning-summary';
 import { IncidentsService } from './incidents.service';
+import { BackupMonitorService } from '../db-backups/backup-monitor.service';
+import { backupIncidents } from './incident-rules';
+import { BRAND_NAME } from '../../common/brand';
 import { TelegramService } from './telegram.service';
 
 const ALERT_EVERY_MS = 5 * 60 * 1000;
@@ -43,6 +46,7 @@ export class AlertsService implements OnModuleInit, OnModuleDestroy {
   private readonly incidents: IncidentsService;
   private readonly reports: ReportsService;
   private readonly telegram: TelegramService;
+  private readonly backups: BackupMonitorService | null;
   private timer: NodeJS.Timeout | null = null;
   private running = false;
 
@@ -52,7 +56,9 @@ export class AlertsService implements OnModuleInit, OnModuleDestroy {
     @Inject(IncidentsService) incidents: IncidentsService,
     @Inject(ReportsService) reports: ReportsService,
     @Inject(TelegramService) telegram: TelegramService,
+    @Optional() @Inject(BackupMonitorService) backups?: BackupMonitorService,
   ) {
+    this.backups = backups ?? null;
     this.prisma = prisma;
     this.redis = redis;
     this.incidents = incidents;
@@ -96,6 +102,7 @@ export class AlertsService implements OnModuleInit, OnModuleDestroy {
       if (failures.length > 0) {
         this.logger.error(`Alertas con error en ${failures.length} locales (p. ej. ${failures[0]})`);
       }
+      await this.backupAlert(now);
     } catch (err) {
       this.logger.error(`Alertas: no se pudo hacer la vuelta: ${(err as Error).message}`);
     } finally {
@@ -158,6 +165,25 @@ export class AlertsService implements OnModuleInit, OnModuleDestroy {
       () => morningSummaryMessage(venue.name, summary, open.length, bankFilePending, cashDiff, scope),
       chatId,
     );
+  }
+
+  /**
+   * Copias de seguridad de la base: son de la plataforma, no de cada local.
+   * Sin copia reciente (o sin vigilar, en producción), un aviso al chat de
+   * TELEGRAM_CHAT_ID (el de quien opera la plataforma), una vez al día; no
+   * va a la bandeja ni al chat de los locales. Nunca lanza.
+   */
+  private async backupAlert(now: Date): Promise<void> {
+    if (!this.backups) return;
+    try {
+      const production = process.env.NODE_ENV === 'production';
+      for (const i of backupIncidents(await this.backups.verdict(now), now, production)) {
+        const key = `np:backup-alert:${i.kind}:${madridDay(now)}`;
+        await this.sendOnce(key, 2 * 24 * 60 * 60, () => `${BRAND_NAME} · ${i.title}\n${i.detail}`, null);
+      }
+    } catch (err) {
+      this.logger.warn(`Aviso de copias de seguridad: ${(err as Error).message}`);
+    }
   }
 
   /**

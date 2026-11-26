@@ -1,4 +1,4 @@
-import { BadRequestException, Inject, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@nightpay/db';
 import {
   APPROVAL_INCIDENT_MINUTES,
@@ -10,7 +10,6 @@ import {
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { isPartyEdition } from '../../config/edition';
 import { AuditService } from '../audit/audit.service';
-import { BackupMonitorService } from '../db-backups/backup-monitor.service';
 import { paymentBankHeldSql } from '../operators/bank-hold-sql';
 import {
   MIN_ACK_NOTE_LENGTH,
@@ -34,7 +33,6 @@ import {
   posVoidedPaidIncident,
   walletCloseRequestedIncident,
   bankMismatchIncident,
-  backupIncidents,
   paymentAnomalyIncident,
   refundPendingIncident,
   approvalPendingIncident,
@@ -91,14 +89,11 @@ export const INCIDENT_QUERY_CONCURRENCY = 4;
 export class IncidentsService {
   private readonly prisma: PrismaService;
   private readonly audit: AuditService;
-  private readonly backups: BackupMonitorService | null;
 
   constructor(
     @Inject(PrismaService) prisma: PrismaService,
     @Inject(AuditService) audit: AuditService,
-    @Optional() @Inject(BackupMonitorService) backups?: BackupMonitorService,
   ) {
-    this.backups = backups ?? null;
     this.prisma = prisma;
     this.audit = audit;
   }
@@ -443,9 +438,7 @@ export class IncidentsService {
       ...uniqueBy(anomalies.map(paymentAnomalyIncident), (i) => `${i.kind}:${i.refId}`),
       ...pendingRefunds.map((r) => refundPendingIncident(r, now)),
       ...pendingApprovals.map((r) => approvalPendingIncident(r, now)),
-      ...(this.backups
-        ? backupIncidents(await this.backups.verdict(now), now, process.env.NODE_ENV === 'production')
-        : []),
+      // Las copias de seguridad no van aquí (son de la plataforma, no de cada local): AlertsService.backupAlert.
     ];
     const open = openIncidents(all, new Set(acks.map((a) => ackKey(a.kind, a.refId))));
     // Los de dinero se cierran escribiendo qué se hizo (B11).
