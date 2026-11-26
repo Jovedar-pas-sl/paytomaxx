@@ -458,8 +458,18 @@ const AUTHORIZING_RECHECK_LOOKBACK_MS = 7 * 24 * 60 * 60 * 1000;
 const CANCELED_RECHECK_WINDOW_MS = 30 * 60 * 1000;
 /** Como mucho tantos por repaso y tipo (el resto, en el siguiente). */
 const BANK_RECHECK_LIMIT = 50;
-/** Para leer por el índice de qrExpiresAt: un cobro de las últimas horas (su plazo es de 5 a 30 min). */
-const BANK_RECHECK_LOOKBACK_MS = 6 * 60 * 60 * 1000;
+/**
+ * Cancelados de la ventana que se leen para elegir (los BANK_RECHECK_LIMIT
+ * menos preguntados). Tope de seguridad: en media hora no hay tantos.
+ */
+const CANCELED_RECHECK_CANDIDATES = 2000;
+/**
+ * Cuándo se le preguntó al banco por última vez por cada cancelado (Redis,
+ * conjunto ordenado: id → ms). Así cada repaso empieza por el que lleva más
+ * sin preguntarse, sin columna nueva. Se olvida pasada la ventana.
+ */
+export const CANCELED_RECHECK_ASKED_KEY = 'bank-recheck:canceled:asked';
+const CANCELED_RECHECK_ASKED_TTL_MS = 2 * 60 * 60 * 1000;
 
 @Injectable()
 export class PaymentsService implements OnApplicationBootstrap {
@@ -566,7 +576,7 @@ export class PaymentsService implements OnApplicationBootstrap {
    *    antes esperaban al siguiente arranque;
    *  - los cancelados en la última media hora con un pedido abierto en el
    *    banco: el cliente pudo pagar en su banco después y perderse el aviso
-   *    («Pagó después de cancelar»).
+   *    («Pagó después de cancelar»). Todos los de la ventana, aunque su QR caducara hace horas, rotando: primero al que hace más que no se pregunta.
    * Con tope; un trabajo ya en cola de ese cobro no se repite.
    */
   async requeueBankChecks(now: Date = new Date()): Promise<{ authorizing: number; canceled: number }> {
@@ -582,22 +592,66 @@ export class PaymentsService implements OnApplicationBootstrap {
        ORDER BY "createdAt" ASC
        LIMIT ${BANK_RECHECK_LIMIT}
     `);
-    const canceled = await this.prisma.asSystem((tx) => tx.$queryRaw<Array<{ id: string; tenantId: string }>>`
+    // Todos los cancelados de la última media hora con pedido en el banco, también
+    // los que estuvieron horas «Comprobando…» (su QR caducó hace mucho): por eso
+    // no se corta por qrExpiresAt. Del más antiguo al más nuevo.
+    const window = await this.prisma.asSystem((tx) => tx.$queryRaw<Array<{ id: string; tenantId: string }>>`
       SELECT id::text, "tenantId"::text
         FROM payments
        WHERE status = 'CANCELED'
          AND provider IS NOT NULL
          AND provider::text <> 'BTCPAY'
          AND "providerTxId" IS NOT NULL
-         AND "qrExpiresAt" >= ${new Date(now.getTime() - BANK_RECHECK_LOOKBACK_MS)}
          AND "updatedAt" >= ${new Date(now.getTime() - CANCELED_RECHECK_WINDOW_MS)}
-       ORDER BY "updatedAt" DESC
-       LIMIT ${BANK_RECHECK_LIMIT}
+       ORDER BY "updatedAt" ASC, id ASC
+       LIMIT ${CANCELED_RECHECK_CANDIDATES}
     `);
+    const canceled = await this.leastRecentlyAsked(window, now);
     for (const p of [...authorizing, ...canceled]) {
       await enqueueOrphanReconcile(this.orphanReconcileQueue, this.logger, { paymentId: p.id, tenantId: p.tenantId }, 1000);
     }
     return { authorizing: authorizing.length, canceled: canceled.length };
+  }
+
+  /**
+   * De los cancelados de la ventana, los BANK_RECHECK_LIMIT a los que hace más
+   * que no se pregunta (los nunca preguntados primero; entre iguales, el más
+   * antiguo), y se apunta que se les pregunta ahora. Así, con más de los que
+   * caben en un repaso, el siguiente sigue por los que faltaban (antes cogía
+   * siempre los mismos 50 y el 51 nunca se preguntaba). Sin Redis, en el orden
+   * de la ventana (del más antiguo).
+   */
+  private async leastRecentlyAsked<T extends { id: string }>(rows: T[], now: Date): Promise<T[]> {
+    if (rows.length === 0) return rows;
+    let asked: Array<number | null> = rows.map(() => null);
+    try {
+      const pipe = this.redis.pipeline();
+      for (const r of rows) pipe.zscore(CANCELED_RECHECK_ASKED_KEY, r.id);
+      const res = (await pipe.exec()) ?? [];
+      asked = rows.map((_, i) => {
+        const v = res[i]?.[1];
+        return v === null || v === undefined ? null : Number(v);
+      });
+    } catch (err) {
+      this.logger.warn(`Repaso de cancelados: no se pudo leer cuándo se preguntó (${(err as Error).message}); van del más antiguo`);
+    }
+    const picked = rows
+      .map((row, i) => ({ row, i, at: asked[i] ?? Number.NEGATIVE_INFINITY }))
+      .sort((a, b) => a.at - b.at || a.i - b.i)
+      .slice(0, BANK_RECHECK_LIMIT)
+      .map((x) => x.row);
+    try {
+      const at = now.getTime();
+      await this.redis
+        .multi()
+        .zadd(CANCELED_RECHECK_ASKED_KEY, ...picked.flatMap((r) => [at, r.id]))
+        .zremrangebyscore(CANCELED_RECHECK_ASKED_KEY, '-inf', at - CANCELED_RECHECK_ASKED_TTL_MS)
+        .pexpire(CANCELED_RECHECK_ASKED_KEY, CANCELED_RECHECK_ASKED_TTL_MS)
+        .exec();
+    } catch (err) {
+      this.logger.warn(`Repaso de cancelados: no se pudo apuntar a quién se preguntó: ${(err as Error).message}`);
+    }
+    return picked;
   }
 
   /**
