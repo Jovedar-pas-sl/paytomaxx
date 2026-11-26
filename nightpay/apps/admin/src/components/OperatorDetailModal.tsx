@@ -16,6 +16,7 @@ import { formatDateTime } from '@/lib/dates';
 import { payButtonLabel, staffSheet } from '@/lib/ficha-sheets';
 import { formatEur } from '@/lib/money';
 import { eurShort, railNote } from '@/lib/money-map-view';
+import { payoutModeFor } from '@/lib/payout-batch';
 import { RECONCILIATION_LABELS } from '@/lib/payout-verify';
 import { safeHttpUrl } from '@/lib/urls';
 import { useApprovals } from '@/lib/use-approvals';
@@ -319,17 +320,6 @@ function BalanceNote({ operator, payable }: { operator: Operator; payable: numbe
   if (b.debtCents) parts.push(`deuda por devoluciones ${formatEur(b.debtCents)}`);
   if (parts.length === 0) return null;
   return <p className="np-mm-note">{parts.join(' · ')}</p>;
-}
-
-/**
- * Quién paga a la chica desde aquí: el dueño siempre; el encargado lo pide al
- * dueño si el local lo exige o paga él con 2FA si no. null = no se enseña.
- */
-function payoutModeFor(isOwner: boolean, rule: string | undefined): 'pay' | 'pay_2fa' | 'request' | null {
-  if (isOwner) return 'pay';
-  if (rule === 'request') return 'request';
-  if (rule === 'direct_2fa') return 'pay_2fa';
-  return null;
 }
 
 function EarningsTable({ earnings }: { earnings: OperatorEarning[] }) {
