@@ -8,6 +8,7 @@ import { payoutHoldNote } from '@/lib/bank-holds';
 import { holderNotice } from '@/lib/payout-account-view';
 import {
   BATCH_2FA_TEXT,
+  BATCH_LOST_TEXT,
   BATCH_MAX,
   NO_PERMISSION_TEXT,
   allToggle,
@@ -54,6 +55,8 @@ interface Loaded {
 }
 
 const SKELETON_ROWS = 5;
+/** Tras un lote sin respuesta: lo que se espera antes de volver a cargar y poder repetir. */
+export const UNCERTAIN_WAIT_MS = 60_000;
 
 /**
  * «A quién hay que pagar»: las compañeras y los camareros con algo que cobrar
@@ -75,9 +78,11 @@ export function PayoutBatchList({ isOwner, onNavigate }: Props) {
   const [notice, setNotice] = useState<string | null>(null);
   const [reviewing, setReviewing] = useState(false);
   const [payFor, setPayFor] = useState<Person | null>(null);
+  /** Cuándo quedó sin respuesta el último lote; null cuando ya se ha vuelto a cargar pasado el minuto. */
+  const [uncertainSince, setUncertainSince] = useState<number | null>(null);
   const generation = useRef(0);
 
-  async function load(after?: BatchAfter): Promise<void> {
+  async function load(after?: BatchAfter, clearsUncertain = false): Promise<void> {
     const gen = ++generation.current;
     setLoading(true);
     const [girls, waiters, rules, perms] = await Promise.allSettled([
@@ -110,10 +115,16 @@ export function PayoutBatchList({ isOwner, onNavigate }: Props) {
       rule: rules.status === 'fulfilled' ? rules.value?.payout : undefined,
       canPay: isOwner ? true : perms.status === 'fulfilled' ? perms.value?.payouts : undefined,
     });
-    setTicked((prev) => keepTicked(prev, nowCents, new Set(problemNotes.keys())));
+    setTicked((prev) => keepTicked(prev, nowCents, new Set([...problemNotes.keys(), ...(after?.untick ?? [])])));
     setNotes(problemNotes);
     setNotice(after?.notice ?? null);
+    if (clearsUncertain && failed === null) setUncertainSince(null);
     setLoading(false);
+  }
+
+  /** «Volver a cargar la lista» del aviso: solo cuenta pasado el minuto y si cargan las dos listas. */
+  function reloadAfterUncertain(): void {
+    void load(undefined, uncertainSince !== null && Date.now() - uncertainSince >= UNCERTAIN_WAIT_MS);
   }
 
   useEffect(() => {
@@ -171,6 +182,7 @@ export function PayoutBatchList({ isOwner, onNavigate }: Props) {
 
   function afterReview(after: BatchAfter): void {
     setReviewing(false);
+    if (after.uncertain) setUncertainSince(Date.now());
     void load(after);
   }
 
@@ -186,6 +198,11 @@ export function PayoutBatchList({ isOwner, onNavigate }: Props) {
         </Button>
       </div>
 
+      {uncertainSince !== null ? (
+        <Banner tone="warning" action={loading ? undefined : { label: 'Volver a cargar la lista', onClick: reloadAfterUncertain }}>
+          {BATCH_LOST_TEXT}
+        </Banner>
+      ) : null}
       {notice ? <Banner tone="info">{notice}</Banner> : null}
       {data && access === 'one-by-one' ? (
         <Banner tone="info" action={onNavigate ? { label: 'Ir a Seguridad', onClick: () => onNavigate('security') } : undefined}>
@@ -247,7 +264,7 @@ export function PayoutBatchList({ isOwner, onNavigate }: Props) {
                   onToggle={(on) => toggle(r.op.id, on)}
                   onPay={() => setPayFor(r)}
                   onDecide={onNavigate ? () => onNavigate('incidents') : undefined}
-                  onOpen={fichas ? () => fichas.openOperator(r.op.id) : undefined}
+                  onOpen={fichas ? () => fichas.openOperator(r.op.id, () => void load()) : undefined}
                 />
               ))}
             </ul>
@@ -258,7 +275,7 @@ export function PayoutBatchList({ isOwner, onNavigate }: Props) {
       {data && access === 'tick' && tickable.length > 0 ? (
         <div className="np-lote-bar" data-np-foot="">
           <span className="np-lote-bar-text">{barText(marked)}</span>
-          <Button size="lg" disabled={marked.size === 0} onClick={() => setReviewing(true)}>
+          <Button size="lg" disabled={marked.size === 0 || loading || uncertainSince !== null} onClick={() => setReviewing(true)}>
             Repasar y pagar
           </Button>
         </div>

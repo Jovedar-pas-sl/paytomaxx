@@ -169,7 +169,7 @@ describe('el repaso', () => {
     expect(text()).toContain('Apuntados 1 de 2 · 1.000,00\u00a0€');
     expect(text()).toContain('Ahora son 900,00\u00a0€, no 840,00\u00a0€');
     act(() => button('Entendido')!.click());
-    expect(onDone).toHaveBeenCalledWith({ notes: [{ operatorId: B, code: 'PAYOUT_CHANGED', totalCents: 90_000 }] });
+    expect(onDone).toHaveBeenCalledWith({ notes: [{ operatorId: B, code: 'PAYOUT_CHANGED', totalCents: 90_000 }], untick: [A] });
   });
 
   it('409 PAYOUT_BATCH_CHANGED: el problema en su fila y «Volver a la lista» recarga', async () => {
@@ -196,7 +196,7 @@ describe('el repaso', () => {
     expect(text()).toContain('No sabemos si se apuntaron todos');
     expect(button('Apuntar 2 pagos')).toBeUndefined();
     act(() => button('Volver a cargar la lista')!.click());
-    expect(onDone).toHaveBeenCalledWith({ notes: [] });
+    expect(onDone).toHaveBeenCalledWith({ notes: [], untick: [A, B], uncertain: true });
   });
 
   it('el encargado que ya pide: su texto y se cierra recargando', async () => {

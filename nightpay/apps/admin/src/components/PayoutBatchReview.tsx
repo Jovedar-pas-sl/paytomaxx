@@ -39,6 +39,10 @@ export interface BatchItem {
 export interface BatchAfter {
   notes?: PayoutBatchProblem[];
   notice?: string;
+  /** Pagadas (o sin saber): se desmarcan siempre, deba lo que deba al recargar. */
+  untick?: string[];
+  /** Sin respuesta: puede que el servidor siga apuntándolos; la lista no deja repetir aún. */
+  uncertain?: true;
 }
 
 interface Props {
@@ -161,7 +165,7 @@ function Review({ items, method, onClose, onDone }: Props) {
   }
 
   // Enviando no se cierra; con un final, cerrar es volver a la lista (y recargarla).
-  const closeGuarded = sending ? () => undefined : ended ? () => onDone(afterOf(ended)) : onClose;
+  const closeGuarded = sending ? () => undefined : ended ? () => onDone(afterOf(ended, snap)) : onClose;
 
   if (ended?.kind === 'result') {
     const { result } = ended;
@@ -260,9 +264,13 @@ function Review({ items, method, onClose, onDone }: Props) {
   );
 }
 
-function afterOf(ended: Ended): BatchAfter {
-  if (ended.kind === 'result') return { notes: notesAfter(ended.result.results) };
+function afterOf(ended: Ended, snap: readonly BatchItem[]): BatchAfter {
+  if (ended.kind === 'result') {
+    const untick = ended.result.results.filter((r) => r.status === 'PAID' || r.code === 'UNKNOWN').map((r) => r.operatorId);
+    return { notes: notesAfter(ended.result.results), untick };
+  }
   if (ended.kind === 'changed') return { notes: ended.problems };
+  if (ended.kind === 'unknown') return { notes: [], untick: snap.map((i) => i.operatorId), uncertain: true };
   return { notes: [] };
 }
 

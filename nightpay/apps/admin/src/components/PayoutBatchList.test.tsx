@@ -3,7 +3,8 @@ import React, { act } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createRoot, type Root } from 'react-dom/client';
 import type { ApprovalView, PermissionSet } from '@nightpay/contracts';
-import { fetchApprovalRules, fetchMyPermissions, fetchOperators, fetchStepUp, type Operator } from '@/lib/api';
+import { createPayoutBatch, fetchApprovalRules, fetchMyPermissions, fetchOperators, fetchStepUp, type Operator } from '@/lib/api';
+import { ApiError } from '@/lib/api-errors';
 import { ApprovalsContext } from '@/lib/use-approvals';
 import { BATCH_2FA_TEXT } from '@/lib/payout-batch';
 import { FichasContext } from './fichas/fichas-context';
@@ -70,6 +71,7 @@ beforeEach(() => {
 afterEach(() => {
   act(() => root.unmount());
   host.remove();
+  vi.restoreAllMocks();
 });
 
 const flush = async () => {
@@ -79,10 +81,26 @@ const text = () => host.textContent ?? '';
 const boxes = () => Array.from(host.querySelectorAll<HTMLInputElement>('input[type="checkbox"]'));
 const buttons = (label: string) => Array.from(host.querySelectorAll('button')).filter((b) => b.textContent === label);
 
-async function mount(isOwner: boolean, pending: ApprovalView[] | null = null) {
+const bodyText = () => document.body.textContent ?? '';
+const bodyButton = (label: string) => Array.from(document.querySelectorAll('button')).find((b) => b.textContent === label);
+
+/** Marca a Marta, abre el repaso, confirma y pone el código. */
+async function payMarta() {
+  act(() => boxes().find((b) => b.closest('label')?.textContent?.includes('Marta'))!.click());
+  act(() => buttons('Repasar y pagar')[0]!.click());
+  act(() => document.querySelector<HTMLInputElement>('.np-hoja input[type="checkbox"]')!.click());
+  const input = document.querySelector<HTMLInputElement>('.np-otp-input')!;
+  act(() => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, '123456');
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  await flush();
+}
+
+async function mount(isOwner: boolean, pending: ApprovalView[] | null = null, openOperator: (id: string, onChanged?: () => void) => void = () => undefined) {
   act(() =>
     root.render(
-      <FichasContext.Provider value={{ openWallet: () => undefined, openOperator: () => undefined }}>
+      <FichasContext.Provider value={{ openWallet: () => undefined, openOperator }}>
         <ApprovalsContext.Provider value={{ rules: null, pending, error: null, refresh: () => undefined }}>
           <PayoutBatchList isOwner={isOwner} onNavigate={() => undefined} />
         </ApprovalsContext.Provider>
@@ -213,5 +231,65 @@ describe('«A quién hay que pagar»', () => {
     act(() => buttons('Volver a cargar')[0]!.click());
     await flush();
     expect(fetchOperators).toHaveBeenCalledTimes(4);
+  });
+
+  it('un pago hecho desde «Ver ficha» recarga la lista y no deja abrir otro repaso hasta que acabe', async () => {
+    let changed: (() => void) | undefined;
+    await mount(true, null, (_id, onChanged) => {
+      changed = onChanged;
+    });
+    act(() => boxes().find((b) => b.closest('label')?.textContent?.includes('Marta'))!.click());
+    act(() => host.querySelector<HTMLButtonElement>('button[aria-label="Ver ficha de Marta"]')!.click());
+    expect(changed).toBeTypeOf('function');
+    const waiting: (() => void)[] = [];
+    vi.mocked(fetchOperators).mockImplementation(
+      (role) => new Promise((resolve) => waiting.push(() => resolve(role === 'WAITER' ? WAITERS : GIRLS.filter((g) => g.displayName !== 'Marta')))),
+    );
+    act(() => changed!());
+    expect(fetchOperators).toHaveBeenCalledTimes(4);
+    expect(buttons('Repasar y pagar')[0]!.disabled).toBe(true);
+    waiting.forEach((go) => go());
+    await flush();
+    expect(text()).not.toContain('Marta');
+    expect(text()).toContain('Marca a quién pagas');
+  });
+
+  it('lote sin respuesta: el aviso queda en la lista y «Repasar y pagar» espera al minuto y a «Volver a cargar la lista»', async () => {
+    vi.mocked(createPayoutBatch).mockRejectedValue(new ApiError('red', 0));
+    await mount(true);
+    await payMarta();
+    act(() => bodyButton('Volver a cargar la lista')!.click());
+    await flush();
+    expect(bodyText()).toContain('No sabemos si se apuntaron todos: el servidor no contestó y puede que siga apuntándolos.');
+    act(() => boxes()[1]!.click());
+    expect(buttons('Repasar y pagar')[0]!.disabled).toBe(true);
+    // Antes del minuto, volver a cargar no basta.
+    act(() => buttons('Volver a cargar la lista')[0]!.click());
+    await flush();
+    expect(buttons('Repasar y pagar')[0]!.disabled).toBe(true);
+    const start = Date.now();
+    vi.spyOn(Date, 'now').mockReturnValue(start + 61_000);
+    act(() => buttons('Volver a cargar la lista')[0]!.click());
+    await flush();
+    expect(text()).not.toContain('No sabemos si se apuntaron todos');
+    expect(buttons('Repasar y pagar')[0]!.disabled).toBe(false);
+    expect(createPayoutBatch).toHaveBeenCalledTimes(1);
+  });
+
+  it('tras el resultado, la pagada se desmarca aunque al recargar deba otra vez la misma cifra', async () => {
+    const marta = GIRLS[0]!;
+    vi.mocked(createPayoutBatch).mockResolvedValue({
+      results: [{ operatorId: marta.id, status: 'PAID', payoutId: '00000000-0000-4000-8000-0000000000aa', totalCents: 30_000 }],
+      paidCount: 1,
+      paidCents: 30_000,
+    });
+    await mount(true);
+    await payMarta();
+    act(() => bodyButton('Entendido')!.click());
+    await flush();
+    // Nuevas comisiones: vuelve a deber 300,00 €, como antes.
+    expect(text()).toContain('Marta');
+    expect(text()).toContain('Marca a quién pagas');
+    expect(boxes().find((b) => b.closest('label')?.textContent?.includes('Marta'))!.checked).toBe(false);
   });
 });
