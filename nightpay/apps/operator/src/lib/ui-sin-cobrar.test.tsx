@@ -9,6 +9,7 @@ import { mySectionsOf, type MyEarning, type MyNight, type OperatorUser } from '.
 import { whoLine } from './cobro-view';
 import { moneySummary } from './earnings-view';
 import { FALLBACK_SECTIONS } from './sections';
+import { TOURS } from './tours';
 
 // Cobro por el encargado, en la app de la compañera con la casilla apagada:
 // «Hoy cobra el encargado» en lugar de la carta, «Mi QR» para el servicio y
@@ -65,6 +66,12 @@ describe('las secciones que se le ofrecen', () => {
     expect(flow).toMatch(/<SinCobrar[\s\S]*?onMiQr=/);
     expect(flow).toMatch(/<MiQr[^>]*forService=/);
   });
+
+  it('en «Hoy cobra el encargado» el menú no ofrece «Practicar» (no hay nada que ensayar); «Salir de práctica», sí', () => {
+    const flow = read('../components/cobrar/CobrarFlow.tsx');
+    expect(flow).toContain('<PracticeMenuItem onClose={() => setMenu(false)} canStart={!sinCarta} />');
+    expect(read('../components/staff-menu.tsx')).toContain('canStart={canStart && !charges.open}');
+  });
 });
 
 describe('«Hoy cobra el encargado»', () => {
@@ -93,6 +100,12 @@ describe('«Mi QR» para el servicio', () => {
     const html = renderToStaticMarkup(<MiQr name="Nerea" invitations={null} onClose={noop} forService />);
     expect(html).toContain('Para que te cobren el servicio o te inviten');
     expect(html).toContain('Enséñaselo al encargado cuando te cobre un servicio, o al camarero cuando te inviten.');
+  });
+
+  it('con forService, su propio tutorial: lo escanea el encargado para cobrarle el servicio (y sale una vez aparte)', () => {
+    expect(TOURS.miQrServicio.steps[0]!.text).toMatch(/^El encargado lo escanea para cobrarte el servicio; el camarero, cuando te invitan/);
+    expect(TOURS.miQrServicio.screen).not.toBe(TOURS.miQr.screen);
+    expect(read('../components/cobrar/MiQr.tsx')).toContain('<ScreenHelp {...(forService ? TOURS.miQrServicio : TOURS.miQr)} />');
   });
 
   it('sin la prop, como hoy', () => {

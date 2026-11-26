@@ -67,7 +67,7 @@ export function MiQr({
           subtitle={forService ? 'Para que te cobren el servicio o te inviten' : 'Para que te inviten'}
           onBack={onClose}
           chip={<Chip>{name}</Chip>}
-          help={<ScreenHelp {...TOURS.miQr} />}
+          help={<ScreenHelp {...(forService ? TOURS.miQrServicio : TOURS.miQr)} />}
         />
         <div className={styles.myqr}>
           <div className={styles.me}>{name}</div>

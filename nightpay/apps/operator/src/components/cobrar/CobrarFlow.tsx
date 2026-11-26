@@ -467,7 +467,8 @@ export function CobrarFlow({ user, onCobroDone, onLogout, night, miQrOpen = fals
           }}
         />
         {device.item}
-        <PracticeMenuItem onClose={() => setMenu(false)} />
+        {/* «Hoy cobra el encargado»: no hay nada que ensayar (salir de práctica, sí). */}
+        <PracticeMenuItem onClose={() => setMenu(false)} canStart={!sinCarta} />
         <InstallMenuItem />
         <GuiaMenuLink />
         <LogoutMenuItem onLogout={onLogout} />

@@ -99,14 +99,14 @@ export function PracticeMenuItemView({ on, canStart, onToggle }: { on: boolean; 
   return <MenuOption title={on ? 'Salir de práctica' : 'Practicar'} hint={on ? MENU_HINTS.practiceOff : MENU_HINTS.practice} onClick={onToggle} />;
 }
 
-/** La opción de práctica en los dos menús del logo; `onClose` cierra el menú. */
-export function PracticeMenuItem({ onClose }: { onClose: () => void }) {
+/** La opción de práctica en los dos menús del logo; `onClose` cierra el menú. Con `canStart` false, solo «Salir de práctica». */
+export function PracticeMenuItem({ onClose, canStart = true }: { onClose: () => void; canStart?: boolean }) {
   const on = usePractice();
   const charges = useOpenCharges();
   return (
     <PracticeMenuItemView
       on={on}
-      canStart={!charges.open}
+      canStart={canStart && !charges.open}
       onToggle={() => {
         onClose();
         // Al salir, la app arranca limpia (se recarga): nada de práctica queda en pantalla.

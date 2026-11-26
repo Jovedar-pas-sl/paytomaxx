@@ -70,6 +70,19 @@ export const TOURS = {
       { target: 'miqr-brillo', title: 'El brillo', text: 'Sube el brillo del móvil al máximo para que el lector del camarero lo vea bien.' },
     ],
   },
+  // «Mi QR» con la casilla del local apagada («Hoy cobra el encargado»): también para que le cobren el servicio.
+  miQrServicio: {
+    screen: 'mi-qr-servicio',
+    steps: [
+      {
+        target: 'miqr-codigo',
+        title: 'Tu QR',
+        text: 'El encargado lo escanea para cobrarte el servicio; el camarero, cuando te invitan a una copa. Si no se lee, sube el brillo del móvil.',
+      },
+      { target: 'miqr-noche', title: 'Tus invitaciones', text: 'Cuántas copas te han invitado esta noche y lo que llevas de ellas. Tus servicios los ves en Ganancias.' },
+      { target: 'miqr-brillo', title: 'El brillo', text: 'Sube el brillo del móvil al máximo para que el lector lo vea bien.' },
+    ],
+  },
   cobros: {
     screen: 'cobros',
     steps: [
