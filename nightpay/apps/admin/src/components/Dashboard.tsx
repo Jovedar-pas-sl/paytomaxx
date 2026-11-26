@@ -359,6 +359,8 @@ function ActivePanel(props: ActivePanelProps) {
           onFocusDone={props.onFocusPaymentDone}
           initialFilter={props.cobrosFilter}
           onInitialFilterDone={props.onCobrosFilterDone}
+          // «Descargar»: quien ve el mapa del dinero (el dueño, y el encargado con «ver informes»).
+          canExport={tabs.some((t) => t.key === 'money')}
         />
       );
     case 'money':

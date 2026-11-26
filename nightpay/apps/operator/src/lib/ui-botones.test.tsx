@@ -121,12 +121,12 @@ describe('en una fila de Cobros no hay botón principal', () => {
     }
   });
 
-  it('«Ver detalle», discreto y con su flecha', () => {
+  // Entrega 9 (idea 15): «Ver detalle» ya no existe. La fila entera abre el detalle
+  // y los botones del cobro van en su pie: en la tabla no queda ningún botón de acción.
+  it('la tabla ya no lleva botones: ni «Ver detalle» ni «Acciones»', () => {
     const table = read(`${ADMIN}fichas/CobrosTable.tsx`);
-    const detail = buttons(table).find((b) => b.tag.includes('onDetails(row)'))!;
-    expect(detail.variant).toBe('quiet');
-    expect(detail.tag).toContain('iconEnd="chevron-right"');
-    expect(detail.tag).toContain('size="sm"');
-    expect(buttons(table).every((b) => b.variant !== 'primary')).toBe(true);
+    expect(buttons(table)).toEqual([]);
+    expect(table).not.toContain('Ver detalle');
+    expect(table).not.toContain('Acciones');
   });
 });
