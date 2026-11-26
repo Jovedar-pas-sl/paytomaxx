@@ -119,9 +119,14 @@
   overflow-wrap: break-word;
 }
 
-/* La ✕ (el IconButton común, 44 px): a la derecha, haya título o no. */
+/* La ✕ (el IconButton común, 44 px): a la derecha, haya título o no. Con el
+   ratón encima, un paso más que la hoja (que ya es --np-surface-2). */
 .np-hoja-cerrar {
   margin-left: auto;
+}
+
+.np-hoja-cerrar:hover:not(:disabled) {
+  background: var(--np-surface-3);
 }
 
 /* Se desplaza por dentro, sin arrastrar la página ni recargarla al tirar hacia

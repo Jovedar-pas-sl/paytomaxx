@@ -59,7 +59,12 @@ interface OpenSheet {
 
 /** Las hojas abiertas, de abajo arriba. */
 let sheets: OpenSheet[] = [];
-/** Los back() nuestros que aún no han llegado como popstate: esos «atrás» no cierran nada. */
+/**
+ * Los back() nuestros que aún no han llegado como popstate: esos «atrás» no cierran nada.
+ * shortcut: si un back() nunca llegara, el contador se quedaría esperando; no pasa mientras la entrada de una
+ * hoja nazca siempre de otra de la misma página (hay adónde volver). Si algún navegador lo incumple, darle un
+ * tope de tiempo.
+ */
 let ownBacks = 0;
 let listening = false;
 
@@ -70,9 +75,13 @@ function entryOf(state: unknown): string | null {
 }
 
 function write(how: 'pushState' | 'replaceState', sheet: OpenSheet): void {
-  // Nunca null ni un estado nuevo: se conserva lo que ya hubiera (Next guarda ahí su árbol y recarga si no lo encuentra).
-  window.history[how]({ ...(window.history.state as Record<string, unknown> | null), npSheet: sheet.id }, '');
-  sheet.entry = true;
+  try {
+    // Nunca null ni un estado nuevo: se conserva lo que ya hubiera (Next guarda ahí su árbol y recarga si no lo encuentra).
+    window.history[how]({ ...(window.history.state as Record<string, unknown> | null), npSheet: sheet.id }, '');
+    sheet.entry = true;
+  } catch {
+    // El navegador no deja (Safari corta a las 100 entradas en 30 s): la hoja se abre igual y se cierra con su ✕.
+  }
 }
 
 /** Deja el historial como las hojas abiertas: cada una con su entrada, y ninguna entrada de una hoja ya cerrada arriba. */
@@ -86,6 +95,7 @@ function settle(): void {
       // La hoja de esa entrada se cerró a la vez que se abría otra (el menú que abre «Mi perfil»): la hereda.
       write('replaceState', heir);
     } else {
+      // Con una sola entrada no hay adónde volver.
       if (window.history.length > 1) {
         ownBacks += 1;
         window.history.back();
