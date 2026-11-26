@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, type CSSProperties } from 'react';
-import { ProfileScreen, ScreenHelp } from '@nightpay/ui';
+import { Icon, ProfileScreen, ScreenHelp } from '@nightpay/ui';
 import { profileApi } from '@/lib/api';
 import { isParty } from '@/lib/edition';
 import { TOURS } from '@/lib/tours';
@@ -29,9 +29,7 @@ export function ProfileSheet({ open, onClose, onLogout }: { open: boolean; onClo
     <div role="dialog" aria-modal="true" aria-label="Mi perfil" style={overlay}>
       <header style={head}>
         <button type="button" onClick={onClose} aria-label="Atrás" style={backBtn}>
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-            <path d="M15 18l-6-6 6-6" />
-          </svg>
+          <Icon name="chevron-left" />
         </button>
         <h1 style={title}>Mi perfil</h1>
         <ScreenHelp {...TOURS.perfil} />

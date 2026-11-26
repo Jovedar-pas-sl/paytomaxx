@@ -129,7 +129,8 @@ export function AlertsPanel() {
             onChange={(e) => setWatch({ ...watchForm, cancels: e.target.value })}
           />
           <Input
-            label="Cobrado con «Otro importe» (€)"
+            label="Cobrado con «Otro importe»"
+            suffix="€"
             inputMode="decimal"
             value={watchForm.freeAmountEur}
             onChange={(e) => setWatch({ ...watchForm, freeAmountEur: e.target.value })}

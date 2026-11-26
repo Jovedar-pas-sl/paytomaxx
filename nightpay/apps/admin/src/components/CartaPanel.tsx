@@ -271,7 +271,7 @@ function ServiceForm({
     <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '0.875rem' }}>
       <div style={formGrid}>
         <Input label="Nombre" value={name} onChange={(e) => setName(e.target.value)} placeholder="Copa" maxLength={60} />
-        <Input label="Precio (€)" value={price} onChange={(e) => setPrice(e.target.value)} inputMode="decimal" placeholder="10" />
+        <Input label="Precio" suffix="€" value={price} onChange={(e) => setPrice(e.target.value)} inputMode="decimal" placeholder="10" />
         <Input
           label="Duración (min, opcional)"
           value={duration}
@@ -317,10 +317,10 @@ function ServiceForm({
                 ))}
               </Select>
               <Input
-                aria-label={`Importe de la parte ${i + 1} (€)`}
+                aria-label={`Importe de la parte ${i + 1} en euros`}
+                suffix="€"
                 value={part.amount}
                 inputMode="decimal"
-                placeholder="€"
                 onChange={(e) => setParts(parts.map((p, j) => (j === i ? { ...p, amount: e.target.value } : p)))}
               />
               {parts.length > 2 ? (

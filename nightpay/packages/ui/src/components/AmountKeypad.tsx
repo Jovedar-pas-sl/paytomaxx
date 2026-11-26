@@ -3,6 +3,7 @@
 import { useEffect, useId, useRef, type CSSProperties } from 'react';
 import { haptic } from '../lib/haptic';
 import { formatEur } from '../format';
+import { Icon } from './Icon';
 import {
   DEFAULT_KEYPAD_MAX_CENTS,
   KEYPAD_LAYOUT,
@@ -102,7 +103,7 @@ export function AmountKeypad({
             onClick={() => press(key)}
             disabled={disabled || (key === 'back' && valueCents === 0)}
           >
-            {key === 'back' ? <BackIcon /> : key}
+            {key === 'back' ? <Icon name="backspace" size={28} /> : key}
           </button>
         ))}
       </div>
@@ -117,23 +118,4 @@ function isTextEntry(target: EventTarget | null): boolean {
 
 function isInteractive(target: EventTarget | null): boolean {
   return target instanceof HTMLElement && ['BUTTON', 'A'].includes(target.tagName);
-}
-
-function BackIcon() {
-  return (
-    <svg
-      width="28"
-      height="28"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <path d="M9 5h11a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H9l-6-7z" />
-      <path d="M12 9.5l5 5M17 9.5l-5 5" />
-    </svg>
-  );
 }

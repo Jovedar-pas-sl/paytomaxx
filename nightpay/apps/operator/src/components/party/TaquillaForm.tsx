@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { Icon } from '@nightpay/ui';
 import { formatEur } from '@/lib/money';
 import {
   CARD_INFO,
@@ -16,7 +17,6 @@ import {
 } from '@/lib/party-taquilla';
 import { methodArmed, type MethodButton } from '@/lib/reception-desk';
 import type { PayMethod, TopUpCharge } from '@/lib/reception';
-import { IconCard, IconCash, IconInfo, IconNfcWaves } from './party-icons';
 import s from './party.module.css';
 
 interface Props {
@@ -76,7 +76,7 @@ export function TaquillaForm(props: Props) {
     <div className={s.taquilla}>
       <div className={`${s.card} ${s.pulsera}`} data-tour="recep-ficha">
         <span className={s.pulseraIcon} aria-hidden="true">
-          <IconNfcWaves size={24} />
+          <Icon name="nfc" />
         </span>
         <div className={s.pulseraText}>
           <p className={s.pulseraNo}>
@@ -136,7 +136,7 @@ export function TaquillaForm(props: Props) {
               disabled={b.problem !== null}
               onClick={() => setMethod(b.method)}
             >
-              {b.method === 'cash' ? <IconCash /> : <IconCard />}
+              <Icon name={b.method === 'cash' ? 'cash' : 'card'} size={20} />
               {b.method === 'cash' ? 'Efectivo' : 'Tarjeta'}
             </button>
           ))}
@@ -167,7 +167,7 @@ export function TaquillaForm(props: Props) {
         </section>
       ) : chosen === 'card' ? (
         <div className={`${s.card} ${s.info}`}>
-          <IconInfo />
+          <Icon name="info" size={20} />
           <p>{CARD_INFO}</p>
         </div>
       ) : null}

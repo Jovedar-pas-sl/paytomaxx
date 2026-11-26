@@ -64,7 +64,8 @@ export function NightPanel() {
             hint="0 = siempre con PIN. Como mucho 50 €."
           />
           <Input
-            label="Tope sin PIN por noche (€)"
+            label="Tope sin PIN por noche"
+            suffix="€"
             inputMode="decimal"
             value={current.noPinNightCapEur}
             onChange={(e) => update({ noPinNightCapEur: e.target.value })}
@@ -122,7 +123,8 @@ export function NightPanel() {
         </div>
         {/* «Salidas en efectivo por persona y noche» ya no sale: el saldo no se devuelve (decisión del dueño, 17-nov-2026). */}
         <Input
-          label="Ficha nueva por perdida (€)"
+          label="Ficha nueva por perdida"
+          suffix="€"
           inputMode="decimal"
           value={current.lostFichaFeeEur}
           onChange={(e) => update({ lostFichaFeeEur: e.target.value })}
