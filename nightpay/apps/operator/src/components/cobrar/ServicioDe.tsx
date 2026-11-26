@@ -8,6 +8,8 @@ import type { Cuenta } from '@/lib/cuenta';
 import { servicioDe } from '@/lib/servicio';
 import { colorOf, labelOf, puestoChip, type CobrarContext } from './cobrar-context';
 import { Chip, ScreenHeader } from './ScreenHeader';
+import { GatewayButtons } from './LaCuenta';
+import type { CardGateway } from '@/lib/api-cobro';
 import styles from './cobrar.module.css';
 
 interface Props {
@@ -19,6 +21,9 @@ interface Props {
   chica: { id?: string; name: string; photoHash?: string | null };
   /** «QR o ficha»: el cobro de siempre (su QR, la ficha o el PIN). */
   onQr: () => void;
+  /** Local con BBVA y Yavin: un botón por pasarela en lugar de «QR o ficha» (null: sin elección). */
+  gateways?: readonly CardGateway[] | null;
+  onGateway?: (gateway: CardGateway) => void;
   /** «Tarjeta en el datáfono» (solo si el local lo tiene). */
   onPos?: () => void;
   /** «Otra compañera»: volver a escanear. */
@@ -33,7 +38,7 @@ interface Props {
  * su nombre y lo de Servicios que se le apunta, antes de cobrar. Una compañera
  * por cobro: todo lo de Servicios va a ella (el aviso lo dice).
  */
-export function ServicioDe({ ctx, who, cuenta, chica, onQr, onPos, onOtra, onBack, busy, error }: Props) {
+export function ServicioDe({ ctx, who, cuenta, chica, onQr, gateways, onGateway, onPos, onOtra, onBack, busy, error }: Props) {
   const { serviceCents, totalCents } = servicioDe(cuenta);
   const services = labelOf(ctx, 'CHICA_SERVICE');
   const chip = puestoChip(ctx);
@@ -64,9 +69,13 @@ export function ServicioDe({ ctx, who, cuenta, chica, onQr, onPos, onOtra, onBac
         </div>
       </div>
       <div className={styles.foot} style={{ '--np-foot-bottom': STICKY_ACTION_BOTTOM } as CSSProperties}>
-        <button type="button" className={`${styles.btn} ${styles.primary}`} disabled={busy} aria-busy={busy || undefined} onClick={onQr}>
-          QR o ficha
-        </button>
+        {gateways && onGateway ? (
+          <GatewayButtons gateways={gateways} onGateway={onGateway} disabled={false} busy={busy} />
+        ) : (
+          <button type="button" className={`${styles.btn} ${styles.primary}`} disabled={busy} aria-busy={busy || undefined} onClick={onQr}>
+            QR o ficha
+          </button>
+        )}
         {onPos ? (
           <button type="button" className={`${styles.btn} ${styles.ghost}`} disabled={busy} onClick={onPos}>
             Tarjeta en el datáfono

@@ -1999,3 +1999,10 @@ html[data-contrast='sala'] .lastRow[data-n='4']:not([data-big]) {
   font-size: var(--np-fs-22);
   font-weight: 600;
 }
+
+/* «BBVA» y «Yavin» (local con las dos pasarelas): dos botones iguales, lado a lado. */
+.gatewayRow {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.5rem;
+}

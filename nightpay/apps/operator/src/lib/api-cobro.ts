@@ -77,6 +77,8 @@ export interface CobroInput {
   pos?: boolean;
   /** Una por intento: un doble toque no crea dos cobros. */
   idempotencyKey?: string;
+  /** Local con BBVA y Yavin: la que eligió el camarero (REDSYS = «BBVA»). Sin ella, la decide el servidor. */
+  cardGateway?: CardGateway;
 }
 
 /** El cuerpo de POST /v1/payments: con datáfono, o con tarjeta y, enlazado, el del saldo (withSaldo). */
@@ -90,8 +92,32 @@ export function cobroBody(input: CobroInput): Record<string, unknown> {
   if (input.invitedStaffToken) body.invitedStaffToken = input.invitedStaffToken;
   if (input.invitedOperatorId) body.invitedOperatorId = input.invitedOperatorId;
   if (input.serviceStaffToken) body.serviceStaffToken = input.serviceStaffToken;
+  if (input.cardGateway && !input.pos) body.cardGateway = input.cardGateway;
   return body;
 }
+
+/** Las pasarelas de tarjeta entre las que elige el personal (la del banco, «BBVA», y Yavin). */
+export type CardGateway = 'REDSYS' | 'YAVIN';
+
+/**
+ * Entre qué pasarelas elige el personal al cobrar en este local. Con dos, dos
+ * botones; con una o ninguna, sin elección. Si no se puede saber (sin red, API
+ * de antes), sin elección: el servidor decide, como hoy.
+ */
+export async function fetchCardGateways(): Promise<CardGateway[]> {
+  try {
+    const res = await authedFetch('/v1/payments/card-gateways');
+    if (!res.ok) return [];
+    const body = (await res.json()) as { options?: unknown };
+    const options = Array.isArray(body.options) ? body.options.filter((o): o is CardGateway => o === 'REDSYS' || o === 'YAVIN') : [];
+    return options.length === 2 ? options : [];
+  } catch {
+    return [];
+  }
+}
+
+/** El nombre de cada botón (decisión del dueño). */
+export const CARD_GATEWAY_LABELS: Readonly<Record<CardGateway, string>> = { REDSYS: 'BBVA', YAVIN: 'Yavin' };
 
 export function createCobro(input: CobroInput): Promise<CobroCreado> {
   return call<CobroCreado>(

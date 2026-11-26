@@ -8,6 +8,7 @@ import { formatEur } from '@/lib/money';
 import { cobrarLabel } from '@/lib/carta-view';
 import { pinExpected, pinWarning } from '@/lib/cobro-view';
 import { chargeable, itemLabel, cuentaTotals, lineCents, lineSection, type Cuenta, type CuentaLine } from '@/lib/cuenta';
+import { CARD_GATEWAY_LABELS, type CardGateway } from '@/lib/api-cobro';
 import { colorOf, labelOf, type CobrarContext } from './cobrar-context';
 import { Chip, ScreenHeader } from './ScreenHeader';
 import styles from './cobrar.module.css';
@@ -21,6 +22,9 @@ interface Props {
   onAdd: () => void;
   onBack: () => void;
   onCobrar: () => void;
+  /** Local con BBVA y Yavin: un botón por pasarela en lugar de «Cobrar» (null: sin elección). */
+  gateways?: readonly CardGateway[] | null;
+  onGateway?: (gateway: CardGateway) => void;
   /** Con datáfono (solo si el local lo tiene). */
   onPos?: () => void;
   busy: boolean;
@@ -34,7 +38,7 @@ interface Props {
  * con el punto de su sección y un solo tipo de paso («−» y «+» iguales);
  * «Cómo se reparte», en una línea. Si pasa del tope sin PIN, el aviso sale antes.
  */
-export function LaCuenta({ ctx, cuenta, who, onQty, onRemove, onAdd, onBack, onCobrar, onPos, busy, error, nfc }: Props) {
+export function LaCuenta({ ctx, cuenta, who, onQty, onRemove, onAdd, onBack, onCobrar, gateways, onGateway, onPos, busy, error, nfc }: Props) {
   const totals = cuentaTotals(cuenta);
   const parts = totals.bySection;
   const label = (s: string) => labelOf(ctx, s);
@@ -84,16 +88,20 @@ export function LaCuenta({ ctx, cuenta, who, onQty, onRemove, onAdd, onBack, onC
         </div>
       </div>
       <div className={styles.foot} style={{ '--np-foot-bottom': STICKY_ACTION_BOTTOM } as CSSProperties} data-np-foot="">
-        <button
-          type="button"
-          className={`${styles.btn} ${styles.primary}`}
-          disabled={!canCharge}
-          aria-busy={busy || undefined}
-          onClick={onCobrar}
-          data-tour="cuenta-cobrar"
-        >
-          {busy ? <BusyWord word={cobrarLabel({ busy, empty: false, totalCents: 0 })} /> : cobrarLabel({ busy, empty: false, totalCents: totals.totalCents })}
-        </button>
+        {gateways && onGateway ? (
+          <GatewayButtons gateways={gateways} onGateway={onGateway} disabled={!canCharge} busy={busy} />
+        ) : (
+          <button
+            type="button"
+            className={`${styles.btn} ${styles.primary}`}
+            disabled={!canCharge}
+            aria-busy={busy || undefined}
+            onClick={onCobrar}
+            data-tour="cuenta-cobrar"
+          >
+            {busy ? <BusyWord word={cobrarLabel({ busy, empty: false, totalCents: 0 })} /> : cobrarLabel({ busy, empty: false, totalCents: totals.totalCents })}
+          </button>
+        )}
         {onPos ? (
           <button type="button" className={`${styles.btn} ${styles.ghost}`} disabled={!canCharge} onClick={onPos}>
             Con datáfono
@@ -153,6 +161,36 @@ function Line({
         ) : null}
       </div>
       <b className={styles.lineValue}>{formatEur(lineCents(line), { compact: true })}</b>
+    </div>
+  );
+}
+
+/** «BBVA» y «Yavin»: con cuál paga el cliente con tarjeta este cobro (el QR, la ficha y el PIN valen igual). */
+export function GatewayButtons({
+  gateways,
+  onGateway,
+  disabled,
+  busy,
+}: {
+  gateways: readonly CardGateway[];
+  onGateway: (gateway: CardGateway) => void;
+  disabled: boolean;
+  busy: boolean;
+}) {
+  return (
+    <div role="group" aria-label="Cobrar con tarjeta por" className={styles.gatewayRow} data-tour="cuenta-cobrar">
+      {gateways.map((g) => (
+        <button
+          key={g}
+          type="button"
+          className={`${styles.btn} ${styles.primary}`}
+          disabled={disabled || busy}
+          aria-busy={busy || undefined}
+          onClick={() => onGateway(g)}
+        >
+          {CARD_GATEWAY_LABELS[g]}
+        </button>
+      ))}
     </div>
   );
 }
