@@ -449,6 +449,8 @@ export const OperatorPublicViewSchema = z.object({
   onboardingNotes: z.string().nullable().optional(),
   /** Huella de su foto de perfil (Mi perfil); null o ausente = sin foto. */
   photoHash: z.string().length(64).nullable().optional(),
+  /** Su ficha NFC viva («Ficha nº 0522»); null sin ficha. */
+  staffCard: z.object({ number: z.number().int().positive(), issuedAt: z.string().datetime() }).nullable().optional(),
 });
 export type OperatorPublicView = z.infer<typeof OperatorPublicViewSchema>;
 
