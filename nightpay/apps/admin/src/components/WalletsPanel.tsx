@@ -133,9 +133,14 @@ export function WalletsPanel({ isOwner }: Props) {
               value={String(stats.activeCount)}
               subtitle={`${formatEur(stats.totalBalanceCents)} en total`}
             />
-            <Tile title={`Recargas ${periodOf(stats)}`} value={formatEur(stats.todayTopUpsCents)} />
+            {/* Cierre a ciegas: a la encargada, con la noche abierta, sin el efectivo (solo tarjeta). */}
+            <Tile
+              title={`Recargas${stats.cashHidden ? ' con tarjeta' : ''} ${periodOf(stats)}`}
+              value={formatEur(stats.todayTopUpsCents)}
+              subtitle={stats.cashHidden ? 'Las de efectivo se ven al cerrar la noche' : undefined}
+            />
             <Tile title={`Consumido ${periodOf(stats)}`} value={formatEur(stats.todayConsumptionsCents)} />
-            <Tile title={`Reembolsos ${periodOf(stats)}`} value={formatEur(stats.todayRefundsCents)} />
+            <Tile title={`Reembolsos${stats.cashHidden ? ' a tarjeta' : ''} ${periodOf(stats)}`} value={formatEur(stats.todayRefundsCents)} />
           </section>
 
           {Object.keys(stats.byCategory).length > 0 ? (

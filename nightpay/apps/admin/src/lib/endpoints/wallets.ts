@@ -99,6 +99,8 @@ export interface WalletsAdminStats {
   todayTopUpsCents: number;
   todayConsumptionsCents: number;
   todayRefundsCents: number;
+  /** Cierre a ciegas: la encargada con la noche abierta recibe las recargas y lo devuelto sin el efectivo. */
+  cashHidden?: boolean;
   byCategory: Record<string, number>;
 }
 

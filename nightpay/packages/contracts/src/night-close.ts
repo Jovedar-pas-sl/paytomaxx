@@ -99,6 +99,17 @@ export interface NightCash {
   cashOutCents: number;
   /** Fondo + entradas − salidas (con el fondo guardado; sin él, como si fuera 0). */
   expectedCents: number;
+  /**
+   * Cierre a ciegas: a la encargada con la noche abierta el API no le manda
+   * ninguna cifra del efectivo (todas a 0 y el fondo null). Si cuadra, o la
+   * diferencia, lo dice el API al contar (POST /v1/nights/current/cash-count).
+   * Sin el campo: se ve todo.
+   */
+  cashHidden?: boolean;
+  /** A ciegas: si se apuntó el fondo al abrir (sin decir cuánto). */
+  floatRecorded?: boolean;
+  /** A ciegas: si hay que contar la caja (hubo efectivo o hay fondo). */
+  countRequired?: boolean;
 }
 
 /** Lo que hay que pagar a una chica al cerrar. */
@@ -180,6 +191,28 @@ export const CloseNightSchema = z.object({
   totpCode: z.string().regex(/^\d{6}$/, 'El código 2FA son 6 cifras').optional(),
 });
 export type CloseNightDto = z.infer<typeof CloseNightSchema>;
+
+/**
+ * «Ver si cuadra» a ciegas: lo contado (y el fondo, si no se apuntó al abrir)
+ * va al API, que dice si cuadra o la diferencia, sin la cifra esperada. Cada
+ * recuento queda en el registro; el primero va al Z.
+ */
+export const NightCashCountSchema = z.object({
+  countedCents: CashCentsSchema,
+  openingFloatCents: CashCentsSchema.optional(),
+});
+export type NightCashCountDto = z.infer<typeof NightCashCountSchema>;
+
+export interface NightCashCountResult {
+  /** El paso «Efectivo» con este recuento. */
+  status: NightCloseStatus;
+  reason: CashReason;
+  countedCents: number;
+  /** Contado − esperado (negativo = falta); null si aún no se puede decir (falta el fondo, fondo cambiado…). */
+  diffCents: number | null;
+  /** Una frase sin la cifra esperada. */
+  detail: string;
+}
 
 // ─── Caja: reglas puras ─────────────────────────────────────────────
 

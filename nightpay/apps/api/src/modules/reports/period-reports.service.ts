@@ -16,6 +16,7 @@ import {
 } from './reporting-sql';
 import { madridQuarter, madridRecentDaysWindow, madridTodayWindow } from './reporting-window';
 import { buildVat303, vatExempt } from './vat-303';
+import { openNightStart } from '../nights/open-night-start';
 
 /** La semana de las métricas: hoy y los 7 días anteriores (como antes). */
 const METRICS_PAST_DAYS = 7;
@@ -47,6 +48,11 @@ export class PeriodReportsService {
   }
 
   /** Z (cierre de caja) de un periodo cualquiera. */
+  /** Desde dónde cuenta la noche abierta (null: no hay): el cierre a ciegas del Z de un periodo. */
+  openNightStart(tenantId: string): Promise<Date | null> {
+    return openNightStart(this.prisma, tenantId);
+  }
+
   async periodZ(tenantId: string, window: TimeWindow, now: Date = new Date()) {
     const [totals, groups, categories, operators, payouts] = await Promise.all([
       this.totals(tenantId, window),

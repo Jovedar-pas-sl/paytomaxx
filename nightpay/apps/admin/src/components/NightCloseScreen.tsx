@@ -5,7 +5,8 @@ import { createPortal } from 'react-dom';
 import { Button, ScreenHelp } from '@nightpay/ui';
 import { TOURS } from '@/lib/tours';
 import type { NightChicaPay, NightCloseCheck, NightCloseStep, NightCloseStepKey } from '@nightpay/contracts';
-import { NightCloseRefused, closeNight, fetchCloseCheck, type NightView, type PayoutMethod } from '@/lib/api';
+import { NightCloseRefused, closeNight, countCash, fetchCloseCheck, type NightView, type PayoutMethod } from '@/lib/api';
+import type { NightCashCountResult } from '@nightpay/contracts';
 import { ApiError, totpRetryState } from '@/lib/api-errors';
 import { formatDateTime } from '@/lib/dates';
 import { sameValue } from '@/lib/diff';
@@ -14,6 +15,7 @@ import { formatEur } from '@/lib/money';
 import {
   STATUS_LABEL,
   ackedKeys,
+  blindCountInput,
   closeCashInput,
   closeSteps,
   floatChangeCode,
@@ -68,10 +70,13 @@ export function NightCloseScreen({ night, isOwner, tabs, onNavigate, onClose, on
   // Después, lo contado queda fijo; «Volver a contar» guarda el primer recuento (va al Z).
   const [countDone, setCountDone] = useState(false);
   const [firstCount, setFirstCount] = useState<number | null>(null);
+  // A ciegas (la encargada): lo que dijo el API con lo contado (si cuadra o la diferencia, sin lo esperado).
+  const [blindCount, setBlindCount] = useState<NightCashCountResult | null>(null);
   const recount = () => {
     setFirstCount((prev) => firstCountOf(prev, draft));
     setDraft((prev) => ({ ...prev, countedText: '' }));
     setCountDone(false);
+    setBlindCount(null);
   };
   const [cashNote, setCashNote] = useState('');
   // Fondo cambiado al cerrar: el código 2FA del dueño (y hasta cuándo no deja probar otro).
@@ -109,7 +114,26 @@ export function NightCloseScreen({ night, isOwner, tabs, onNavigate, onClose, on
 
   const floatChange = check ? floatChangeCode(check.cash, draft, { isOwner, code: floatCode }) : { needed: false as const };
   const floatApproved = floatChange.needed && floatChange.code !== undefined;
-  const steps = check ? closeSteps(check.steps, check.cash, draft, { countDone, floatApproved }) : [];
+  const steps = check ? closeSteps(check.steps, check.cash, draft, { countDone, floatApproved, blindCount }) : [];
+  // «Ver si cuadra»: a ciegas, lo pregunta al API (queda en el registro); si no, se ve aquí.
+  async function countDoneNow() {
+    if (!check?.cash.cashHidden) {
+      setCountDone(true);
+      return;
+    }
+    const input = blindCountInput(draft);
+    if (!input) return;
+    setBusy(true);
+    setError(null);
+    try {
+      setBlindCount(await countCash(input));
+      setCountDone(true);
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
   const acks = ackedKeys(ackList, steps);
   const ackStep = (key: NightCloseStepKey, on: boolean) => {
     const step = steps.find((s) => s.key === key);
@@ -196,7 +220,8 @@ export function NightCloseScreen({ night, isOwner, tabs, onNavigate, onClose, on
                   acked={acks.includes('efectivo')}
                   onAck={(on) => ackStep('efectivo', on)}
                   countDone={countDone}
-                  onCountDone={() => setCountDone(true)}
+                  onCountDone={() => void countDoneNow()}
+                  blindCount={blindCount}
                   onRecount={recount}
                   firstCountCents={firstCount}
                   disabled={busy}

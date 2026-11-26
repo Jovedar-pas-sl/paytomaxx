@@ -99,6 +99,15 @@ export const WalletsAdminStatsSchema = z.object({
   todayTopUpsCents: z.number().int().nonnegative(),
   todayConsumptionsCents: z.number().int().nonnegative(),
   todayRefundsCents: z.number().int().nonnegative(),
+  /** De las recargas, las de efectivo en la recepción (ya en todayTopUpsCents). */
+  todayCashTopUpsCents: z.number().int().optional(),
+  /** De lo devuelto, lo devuelto en efectivo (ya en todayRefundsCents). */
+  todayCashRefundsCents: z.number().int().nonnegative().optional(),
+  /**
+   * Cierre a ciegas: a la encargada con la noche abierta, las recargas y lo
+   * devuelto van sin el efectivo (solo tarjeta) y sin los dos campos de arriba.
+   */
+  cashHidden: z.boolean().optional(),
   byCategory: z.record(z.string(), z.number().int().nonnegative()),
 });
 export type WalletsAdminStats = z.infer<typeof WalletsAdminStatsSchema>;

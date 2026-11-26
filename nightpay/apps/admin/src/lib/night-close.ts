@@ -14,6 +14,7 @@ import {
   type CashOutcome,
   type CashReason,
   type NightCash,
+  type NightCashCountResult,
   type NightCloseLink,
   type NightCloseStatus,
   type NightCloseStep,
@@ -121,14 +122,32 @@ export function closeSteps(
   steps: ReadonlyArray<NightCloseStep>,
   cash: NightCash,
   draft: CashDraft,
-  opts: { countDone: boolean; floatApproved?: boolean },
+  opts: { countDone: boolean; floatApproved?: boolean; blindCount?: NightCashCountResult | null },
 ): NightCloseStep[] {
+  // A ciegas (la encargada): el panel no tiene ninguna cifra; el paso lo dice el API al contar.
+  if (cash.cashHidden) return blindCloseSteps(steps, opts.countDone ? (opts.blindCount ?? null) : null);
   const used = countedDraft(draft, opts.countDone);
   const floatApproved = opts.floatApproved ?? false;
   const out = effectiveSteps(steps, cash, used, floatApproved);
   if (opts.countDone) return out;
   const blind = BLIND_DETAIL[cashOutcome(cash, used, floatApproved).reason];
   return blind ? out.map((s) => (s.key === 'efectivo' ? { ...s, detail: blind } : s)) : out;
+}
+
+/**
+ * Los pasos a ciegas: el de «Efectivo», el del API (sin cifras) hasta contar;
+ * después, lo que dijo el API con lo contado («Ver si cuadra»).
+ */
+export function blindCloseSteps(steps: ReadonlyArray<NightCloseStep>, count: NightCashCountResult | null): NightCloseStep[] {
+  return steps.map((s) => (s.key === 'efectivo' && count ? { ...s, status: count.status, detail: count.detail } : s));
+}
+
+/** Lo que se manda al API con «Ver si cuadra» a ciegas: lo contado y, si no se apuntó al abrir, el fondo. */
+export function blindCountInput(draft: CashDraft): { countedCents: number; openingFloatCents?: number } | null {
+  const counted = parseCashInput(draft.countedText);
+  if (typeof counted !== 'number') return null;
+  const float = parseCashInput(draft.floatText);
+  return { countedCents: counted, ...(typeof float === 'number' ? { openingFloatCents: float } : {}) };
 }
 
 /** Lo que se manda al congelar el Z: lo contado solo si se dio por contado. */
@@ -146,7 +165,8 @@ export function floatChangeCode(
   draft: CashDraft,
   who: { isOwner: boolean; code: string },
 ): { needed: false } | { needed: true; code: string | undefined } {
-  if (!cashOutcome(cash, draft).floatChanged) return { needed: false };
+  // A ciegas, el panel no sabe el fondo apuntado: si es otro, lo dice el API (y lo aprueba el dueño).
+  if (cash.cashHidden || !cashOutcome(cash, draft).floatChanged) return { needed: false };
   const code = who.isOwner && /^\d{6}$/.test(who.code) ? who.code : undefined;
   return { needed: true, code };
 }

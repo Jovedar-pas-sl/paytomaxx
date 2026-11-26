@@ -464,8 +464,9 @@ export class WalletsService {
       // Devuelto hoy desde este local: las devoluciones del saldo hechas (a la
       // tarjeta y en efectivo). Las de la tarjeta son también devoluciones de
       // las recargas: se cuentan una vez, aquí.
-      const refundRows = await tx.$queryRaw<Array<{ total: bigint }>>`
-        SELECT COALESCE(SUM("amountCents"),0)::bigint AS total
+      const refundRows = await tx.$queryRaw<Array<{ total: bigint; cash: bigint }>>`
+        SELECT COALESCE(SUM("amountCents"),0)::bigint AS total,
+               COALESCE(SUM("amountCents") FILTER (WHERE method = 'CASH'),0)::bigint AS cash
           FROM wallet_payouts
          WHERE "tenantId" = ${tenantId}::uuid
            AND status = 'DONE'
@@ -478,6 +479,8 @@ export class WalletsService {
         todayTopUpsCents: Number(topUpRows[0]?.total ?? 0) + Number(cashTopUpRows[0]?.total ?? 0),
         todayConsumptionsCents: consumptionRows.reduce((sum, r) => sum + Number(r.total), 0),
         todayRefundsCents: Number(refundRows[0]?.total ?? 0),
+        todayCashTopUpsCents: Number(cashTopUpRows[0]?.total ?? 0),
+        todayCashRefundsCents: Number(refundRows[0]?.cash ?? 0),
         byCategory: Object.fromEntries(consumptionRows.map((r) => [r.category, Number(r.total)])),
       };
     });

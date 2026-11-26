@@ -14,7 +14,8 @@ describe('GET /v1/admin/money-map', () => {
 
   it('pasa la consulta al servicio con el local del token', async () => {
     const map = { salesCents: 1, scope: { kind: 'period' } };
-    const svc = { forQuery: vi.fn().mockResolvedValue(map) };
+    // Sin noche abierta: unas fechas van enteras también a la encargada.
+    const svc = { forQuery: vi.fn().mockResolvedValue(map), currentWindow: vi.fn().mockResolvedValue({ open: false, from: new Date() }) };
     const controller = new MoneyMapController(svc as never, {} as never);
     await expect(controller.get({ tenantId: 't-1', role: 'MANAGER' } as never, { night: 'current' })).resolves.toEqual(map);
     expect(svc.forQuery).toHaveBeenCalledWith('t-1', { night: 'current' });

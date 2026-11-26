@@ -1,9 +1,12 @@
 import { Body, Controller, Get, HttpCode, Inject, Param, ParseUUIDPipe, Post, UseGuards } from '@nestjs/common';
 import {
   CloseNightSchema,
+  NightCashCountSchema,
   OpenNightSchema,
   type CloseNightDto,
   type JwtPayload,
+  type NightCashCountDto,
+  type NightCashCountResult,
   type NightCloseCheck,
   type OpenNightDto,
 } from '@nightpay/contracts';
@@ -11,7 +14,7 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { ZodValidationPipe } from '../../common/pipes/zod.pipe';
-import { blindNightView, blindsCash } from './blind-cash';
+import { blindCloseCheck, blindNightView, blindsCash } from './blind-cash';
 import { NightsService, type MyNight, type NightListItem, type NightView } from './nights.service';
 import { RequiresPermission, StaffPermissionGuard } from '../venues/staff-permission.guard';
 
@@ -19,6 +22,8 @@ import { RequiresPermission, StaffPermissionGuard } from '../venues/staff-permis
  * Noche del local (Fase 1D).
  *  - GET  /v1/nights/current     → noche abierta con su Z en vivo y lo pendiente.
  *  - GET  /v1/nights/current/close-check → los pasos para cerrarla (cierre-noche).
+ *    A la encargada, el efectivo a ciegas: ni el fondo, ni lo que se movió, ni lo esperado.
+ *  - POST /v1/nights/current/cash-count → «Ver si cuadra» a ciegas: si cuadra o la diferencia.
  *  - POST /v1/nights/open        → abrir (una sola abierta por local), con el fondo de caja.
  *  - POST /v1/nights/:id/close   → cerrar: pasos, arqueo de caja y Z congelado.
  *    409 NIGHT_CLOSE_BLOCKED / NIGHT_CLOSE_NEEDS_ACK con los pasos.
@@ -45,7 +50,21 @@ export class NightsController {
   @Get('current/close-check')
   @Roles('OWNER', 'MANAGER')
   async closeCheck(@CurrentUser() user: JwtPayload): Promise<NightCloseCheck> {
-    return this.nights.closeCheck(user.tenantId);
+    const check = await this.nights.closeCheck(user.tenantId);
+    // Cierre a ciegas: la noche de close-check siempre está abierta.
+    return blindsCash(user.role, true) ? blindCloseCheck(check) : check;
+  }
+
+  @Post('current/cash-count')
+  @HttpCode(200)
+  @Roles('OWNER', 'MANAGER')
+  @UseGuards(StaffPermissionGuard)
+  @RequiresPermission('closeNight')
+  async cashCount(
+    @CurrentUser() user: JwtPayload,
+    @Body(new ZodValidationPipe(NightCashCountSchema)) body: NightCashCountDto,
+  ): Promise<NightCashCountResult> {
+    return this.nights.cashCount(user.tenantId, user.sub, body);
   }
 
   @Get('mine')

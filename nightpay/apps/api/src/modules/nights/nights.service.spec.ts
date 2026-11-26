@@ -120,6 +120,8 @@ function makeService(
       findMany: vi.fn().mockResolvedValue(opts.open ? [opts.open] : []),
       updateMany: vi.fn().mockResolvedValue({ count: opts.closedCount ?? 1 }),
     },
+    // «Ver si cuadra» a ciegas: aquí, ningún recuento en el registro.
+    auditEvent: { findFirst: vi.fn().mockResolvedValue(null) },
     $queryRaw: vi.fn().mockResolvedValue(opts.pending ?? []),
   };
   Object.assign(prisma, {

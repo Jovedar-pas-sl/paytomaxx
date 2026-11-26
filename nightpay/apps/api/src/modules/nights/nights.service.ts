@@ -13,6 +13,9 @@ import {
   evaluateCash,
   nightCloseRefusal,
   withCashInput,
+  type CashOutcome,
+  type NightCashCountDto,
+  type NightCashCountResult,
   type NightCloseCheck,
   type NightCloseStep,
   type NightCloseStepKey,
@@ -44,6 +47,7 @@ import { invitationTotals } from '../money-map/invitation-totals';
 import { MoneyMapService } from '../money-map/money-map.service';
 import { SERVED_EARNING_SQL } from '../operators/served-earning';
 import { CloseCheckService } from './close-check.service';
+import { blindCashDetail, blindCashStep, blindsCash } from './blind-cash';
 import { settleWritesBefore } from './night-cutoff';
 import {
   autoCloseAt,
@@ -277,6 +281,49 @@ export class NightsService {
   }
 
   /**
+   * «Ver si cuadra» a ciegas (la encargada con la noche abierta): con lo
+   * contado, el API dice si cuadra o la diferencia, nunca lo que debería
+   * haber. Cada recuento queda en el registro (no se puede probar con 0 sin
+   * que se vea), y el primero es el que va al Z como primer recuento.
+   */
+  async cashCount(tenantId: string, userId: string, dto: NightCashCountDto): Promise<NightCashCountResult> {
+    await this.safeAutoClose(tenantId);
+    const night = await this.openNight(tenantId);
+    if (!night) throw new NotFoundException('No hay ninguna noche abierta');
+    const now = new Date();
+    const start = await this.zBounds(tenantId, night.openedAt);
+    const check = await this.checks.check(tenantId, night, { from: start.from, to: now }, now);
+    const outcome = evaluateCash(check.cash, { openingFloatCents: dto.openingFloatCents, countedCents: dto.countedCents });
+    const result = blindCashCountResult(outcome, dto.countedCents);
+    // Dentro de su propia escritura (no «si se puede»): sin registro, no hay respuesta.
+    await this.prisma.withTenant(tenantId, (tx) => this.audit.logInTx(tx, {
+      action: CASH_COUNT_ACTION,
+      tenantId,
+      actorId: userId,
+      targetType: 'VenueNight',
+      targetId: night.id,
+      payload: {
+        countedCents: dto.countedCents,
+        openingFloatCents: dto.openingFloatCents ?? null,
+        reason: outcome.reason,
+        diffCents: outcome.diffCents,
+      },
+    }));
+    return result;
+  }
+
+  /** El primer «Ver si cuadra» a ciegas de la noche (del registro), si lo hubo. */
+  private async firstBlindCount(tenantId: string, nightId: string): Promise<number | undefined> {
+    const first = await this.prisma.auditEvent.findFirst({
+      where: { tenantId, action: CASH_COUNT_ACTION, targetType: 'VenueNight', targetId: nightId },
+      orderBy: { id: 'asc' },
+      select: { payload: true },
+    });
+    const counted = (first?.payload as { countedCents?: unknown } | null)?.countedCents;
+    return typeof counted === 'number' ? counted : undefined;
+  }
+
+  /**
    * El bitcoin de la noche en la cartera del local: el mismo dato que el mapa
    * del dinero (where.bitcoinCents), con la ventana y el corte del Z en vivo.
    * Sin bitcoin (o si el mapa falla: el cierre sigue), null.
@@ -341,9 +388,17 @@ export class NightsService {
       countedCents: opts.cashCountedCents,
       floatChangeApproved: await this.floatChangeApproved(actor, night.openingFloatCents, opts, stepUpActions.nightFloat(night.id)),
     };
-    assertCanClose(withCashInput(check.steps, check.cash, input), opts.acknowledged ?? [], opts.note);
+    const outcome = evaluateCash(check.cash, input);
+    const blind = blindsCash(actor.role, true);
+    const steps = withCashInput(check.steps, check.cash, input);
+    // A ciegas, si no deja cerrar, el paso «Efectivo» va sin cifras (ni lo esperado, ni el fondo, ni lo que se movió).
+    assertCanClose(blind ? steps.map((st) => blindCashStep(st, blindCashDetail(outcome.reason) ?? undefined)) : steps, opts.acknowledged ?? [], opts.note);
 
-    const caja = buildNightCaja(check.cash, evaluateCash(check.cash, input), opts.cashNote, now, opts.cashFirstCountedCents);
+    // A ciegas, el primer recuento es el del registro («Ver si cuadra» en el API), no el que diga el panel.
+    const firstBlind = blind ? await this.firstBlindCount(tenantId, night.id) : undefined;
+    const firstCounted =
+      firstBlind !== undefined ? (firstBlind === opts.cashCountedCents ? undefined : firstBlind) : opts.cashFirstCountedCents;
+    const caja = buildNightCaja(check.cash, outcome, opts.cashNote, now, firstCounted);
     const pending = await this.pending(tenantId, window);
     const z = await this.withMoneyMap(tenantId, night.id, window, now, this.zFrom(window, rows, pending.count, now, start.since, caja));
     const closed = await this.markClosed(night.id, tenantId, {
@@ -871,4 +926,19 @@ function assertCanClose(
     steps,
     missing: refusal.steps.map((s) => s.key),
   });
+}
+
+/** La acción del registro de cada «Ver si cuadra» a ciegas. */
+export const CASH_COUNT_ACTION = 'night.cash_counted';
+
+/** Lo que se le dice a la encargada al contar: si cuadra o la diferencia, sin lo esperado. */
+export function blindCashCountResult(outcome: CashOutcome, countedCents: number): NightCashCountResult {
+  const counted = outcome.reason === 'short' || outcome.reason === 'over' || outcome.reason === 'matches';
+  return {
+    status: outcome.status,
+    reason: outcome.reason,
+    countedCents,
+    diffCents: counted ? outcome.diffCents : null,
+    detail: blindCashDetail(outcome.reason) ?? outcome.detail,
+  };
 }

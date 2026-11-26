@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import type { MoneyMap } from '@nightpay/contracts';
+import { ForbiddenException } from '@nestjs/common';
+import { evaluateCash, type MoneyMap } from '@nightpay/contracts';
 import { blindMoneyMap, blindNightView, blindsCash } from './blind-cash';
+import { blindCashCountResult } from './nights.service';
+import { summarize } from '../reports/export-csv';
+import type { PagoSaldoRow, RecargaEfectivoRow } from '../reports/export-rows';
+import { PeriodReportsController } from '../reports/period-reports.controller';
+import { buildMoneyMap, type MoneyMapInput, type SaleRow } from '../money-map/money-map-rules';
+import { AdminWalletsController } from '../wallets/wallets.controller';
 import { CASH_TOP_UP_LABEL } from '../reports/export-summary';
 import type { NightView } from './nights.service';
 import { NightsController } from './nights.controller';
@@ -27,7 +34,8 @@ function map(): MoneyMap {
   return {
     scope: { kind: 'night', nightId: 'n-1', open: true },
     inflow: { cashCents: 0, topUps: { totalCents: 227_000, cardCents: 50_000, cashCents: 177_000, count: 14 } },
-    where: { bbvaCents: 100_000, cashBoxCents: 191_000, cashBox: { openingFloatCents: 20_000, inCents: 177_000, outCents: 6_000 }, totalCents: 291_000 },
+    where: { bbvaCents: 100_000, cashBoxCents: 191_000, cashBox: { openingFloatCents: 20_000, inCents: 177_000, outCents: 6_000 }, totalCents: 291_000,
+      owners: { venueCents: 120_000, staffCents: 0, saldoCents: 171_000 }, liveSaldoCents: 171_000, owed: null },
     outflow: { refunds: { cardCents: 0, cardCount: 0, cashCents: 6_000, cashCount: 1 } },
     serviceFee: { salesCents: 0, topUpsCents: 500, cashCents: 500, refundedCents: 0, owedCents: 500 },
   } as unknown as MoneyMap;
@@ -88,5 +96,118 @@ describe('cierre a ciegas en el API (no solo en la pantalla)', () => {
     expect((await c.get(user('OWNER'), {})).where.cashBoxCents).toBe(191_000);
     m = { ...map(), scope: { kind: 'night', nightId: 'n-0', open: false } };
     expect((await c.get(user('MANAGER'), { night: 'n-0' })).where.cashBoxCents).toBe(191_000);
+  });
+});
+
+// ─── Tampoco restando: lo que llega a la encargada es lo mismo con o sin efectivo ───
+
+const AT = new Date('2026-11-26T22:00:00Z');
+const recarga = (id: string, amountCents: number, serviceFeeCents = 0): RecargaEfectivoRow => ({
+  id, at: AT, amountCents, serviceFeeCents, takenByName: 'Javi', takenByEmail: 'javi@x.es', terminalLabel: null,
+});
+const devuelto = (method: 'CASH' | 'CARD', amountCents: number): PagoSaldoRow => ({
+  id: `wp-${method}`, at: AT, amountCents, method, paidByName: null, paidByEmail: 'javi@x.es',
+});
+const nightOf = (summary: NightView['z']['summary']): NightView => ({ ...view(), z: { ...view().z, summary } });
+
+function mapInput(cash: boolean): MoneyMapInput {
+  return {
+    scope: { kind: 'night', nightId: 'n-1', open: true },
+    window: { from: new Date('2026-11-26T20:00:00Z'), to: new Date('2026-11-27T02:00:00Z') },
+    now: new Date('2026-11-27T02:00:00Z'),
+    frozen: false,
+    sales: [{ amountCents: 15_000, tipCents: 500, category: 'CHICA_SERVICE', method: 'CARD', platformBps: 1000, lines: [] } as SaleRow],
+    topUps: { cardCents: 20_000, cardCount: 1, cardFeeCents: 400, cashCents: cash ? 177_000 : 0, cashCount: 0, cashFeeCents: cash ? 3_000 : 0 },
+    staff: { chicas: { grossCents: 13_500, unpaidCents: 13_500 }, camareros: { grossCents: 0, unpaidCents: 0 } },
+    cardRefunds: { cents: 1_000, count: 1 },
+    walletPayouts: { cashCents: cash ? 6_000 : 0, cashCount: cash ? 1 : 0, cardCents: 500 },
+    payouts: [],
+    cashBox: cash
+      ? { openingFloatCents: 20_000, inCents: 180_000, outCents: 6_000, expectedCents: 194_000 }
+      : { openingFloatCents: null, inCents: 0, outCents: 0, expectedCents: 0 },
+    bankFeeBps: null,
+    liveSaldoCents: cash ? 200_000 : 30_000,
+    owed: { chicasCents: 13_500, camarerosCents: 0 },
+  };
+}
+
+describe('cierre a ciegas: nada del efectivo sale restando', () => {
+  it('Noches → En vivo: lo cobrado, el neto, el neto sin el personal y la comisión, como si no hubiera habido efectivo', () => {
+    const withCash = summarize([], [], [], [], [devuelto('CASH', 6_000), devuelto('CARD', 500)], [recarga('c1', 100_000, 2_000), recarga('c2', 77_000, 1_000)]);
+    const noCash = summarize([], [], [], [], [devuelto('CARD', 500)], []);
+    expect(blindNightView(nightOf(withCash)).z.summary).toEqual(blindNightView(nightOf(noCash)).z.summary);
+    const json = JSON.stringify(blindNightView(nightOf(withCash)));
+    for (const n of ['177000', '180000', '3000', '6000']) expect(json).not.toContain(`:${n}`);
+  });
+
+  it('el mapa del dinero: «dónde está», «de quién es», las recargas y la comisión, como si no hubiera habido efectivo', () => {
+    const strip = (m: MoneyMap) => ({ ...m, inflow: { ...m.inflow, topUps: { ...m.inflow.topUps, count: 0 } } });
+    const withCash = blindMoneyMap(buildMoneyMap(mapInput(true)));
+    const noCash = blindMoneyMap(buildMoneyMap(mapInput(false)));
+    expect(strip(withCash)).toEqual(strip(noCash));
+    // «De quién es» sigue sumando lo de «dónde está».
+    const o = withCash.where.owners;
+    expect(o.venueCents + o.staffCents + o.saldoCents + (o.oxioPayCents ?? 0) + (o.paidOutCents ?? 0) + (o.commissionsCents ?? 0)).toBe(
+      withCash.where.totalCents,
+    );
+  });
+});
+
+describe('cierre a ciegas: las otras vías del API', () => {
+  const user = (role: string) => ({ sub: 'u-1', tenantId: 't-1', role }) as never;
+  const openFrom = new Date('2026-11-26T21:00:00Z');
+
+  it('money-map con from/to que llegan a la noche abierta: a la encargada, sin la caja; antes de abrirla o al dueño, con ella', async () => {
+    const period = (to: string): MoneyMap => ({ ...map(), scope: { kind: 'period' }, to }) as MoneyMap;
+    let m = period('2026-11-27T01:00:00.000Z');
+    const svc = { forQuery: async () => m, currentWindow: async () => ({ from: openFrom, to: new Date(), nightId: 'n-1', open: true, openingFloatCents: 20_000 }) };
+    const c = new MoneyMapController(svc as never, {} as never);
+    expect((await c.get(user('MANAGER'), { from: '2026-11-26', to: '2026-11-26' })).where.cashBoxCents).toBe(0);
+    expect((await c.get(user('OWNER'), { from: '2026-11-26', to: '2026-11-26' })).where.cashBoxCents).toBe(191_000);
+    m = period('2026-11-26T00:00:00.000Z');
+    expect((await c.get(user('MANAGER'), { from: '2026-11-25', to: '2026-11-25' })).where.cashBoxCents).toBe(191_000);
+  });
+
+  it('GET /admin/reports/z: con la noche abierta, la encargada no puede pedir sus horas (403); el dueño sí; sin noche abierta, igual que antes', async () => {
+    let open: Date | null = openFrom;
+    const svc = { openNightStart: async () => open, periodZ: async () => ({ summary: { walletCashTopUpCents: 177_000 } }) };
+    const c = new PeriodReportsController(svc as never);
+    const q = { from: '2026-11-26T20:00:00.000Z', to: '2026-11-26T23:00:00.000Z' };
+    await expect(c.zReport(user('MANAGER'), 't-1', q)).rejects.toBeInstanceOf(ForbiddenException);
+    await expect(c.zReport(user('OWNER'), 't-1', q)).resolves.toBeTruthy();
+    // Unas horas que acaban antes de abrir la noche: sí.
+    await expect(c.zReport(user('MANAGER'), 't-1', { from: q.from, to: '2026-11-26T20:30:00.000Z' })).resolves.toBeTruthy();
+    open = null;
+    await expect(c.zReport(user('MANAGER'), 't-1', q)).resolves.toBeTruthy();
+  });
+
+  it('Saldos → las recargas y lo devuelto de esta noche, sin el efectivo para la encargada', async () => {
+    const stats = {
+      activeCount: 3, totalBalanceCents: 9_000, nightOpen: true, todayTopUpsCents: 227_000, todayConsumptionsCents: 10_000,
+      todayRefundsCents: 6_500, todayCashTopUpsCents: 177_000, todayCashRefundsCents: 6_000, byCategory: {},
+    };
+    let open = true;
+    const c = new AdminWalletsController(
+      { getAdminStats: async () => stats } as never,
+      { currentWindow: async () => ({ from: openFrom, open }) } as never,
+    );
+    const blind = await c.stats(user('MANAGER'));
+    expect(blind).toMatchObject({ todayTopUpsCents: 50_000, todayRefundsCents: 500, cashHidden: true });
+    expect(JSON.stringify(blind)).not.toMatch(/177000|227000|6000\b/);
+    expect(await c.stats(user('OWNER'))).toEqual(stats);
+    open = false;
+    expect(await c.stats(user('MANAGER'))).toEqual(stats);
+  });
+
+  it('«Ver si cuadra»: la diferencia sí, lo esperado nunca (tampoco en el texto)', () => {
+    const cash = { openingFloatCents: 20_000, cashInCents: 177_000, walletCashTopUpsCount: 1, walletCashTopUpsCents: 177_000, walletCashPayoutsCount: 0, walletCashPayoutsCents: 0, chicaCashPayoutsCount: 0, chicaCashPayoutsCents: 0, cashOutCents: 0, expectedCents: 197_000 };
+    const short = blindCashCountResult(evaluateCash(cash, { countedCents: 190_000 }), 190_000);
+    expect(short).toMatchObject({ reason: 'short', diffCents: -7_000 });
+    const changed = blindCashCountResult(evaluateCash(cash, { countedCents: 190_000, openingFloatCents: 10_000 }), 190_000);
+    expect(changed).toMatchObject({ reason: 'float-changed', diffCents: null });
+    expect(changed.detail).not.toContain('200,00');
+    const negative = blindCashCountResult(evaluateCash({ ...cash, cashInCents: 0, cashOutCents: 30_000 }, { countedCents: 0 }), 0);
+    expect(negative).toMatchObject({ reason: 'negative', diffCents: null });
+    expect(negative.detail).not.toMatch(/\d+,\d\d/);
   });
 });

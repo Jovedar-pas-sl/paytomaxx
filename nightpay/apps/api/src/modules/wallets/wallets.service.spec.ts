@@ -349,6 +349,9 @@ describe('estadísticas del panel de saldos', () => {
       todayTopUpsCents: 25_000,
       todayConsumptionsCents: 7_500,
       todayRefundsCents: 4_500,
+      // De ellas, en efectivo (para el cierre a ciegas: la encargada no las ve con la noche abierta).
+      todayCashTopUpsCents: 5_000,
+      todayCashRefundsCents: 0,
       byCategory: { CHICA_SERVICE: 6_000, VENUE_BAR: 1_500 },
     });
     const payouts = calls.find((c) => c.sql.includes('FROM wallet_payouts'))!;
