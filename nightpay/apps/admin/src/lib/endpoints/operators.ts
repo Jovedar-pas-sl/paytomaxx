@@ -7,6 +7,7 @@ import type {
   BankReleaseResult,
   PayoutAccountFull,
   ReleaseBankHoldDto,
+  StaffCardView,
 } from '@nightpay/contracts';
 import { apiError, authedFetch, totpAwareError } from '../http';
 
@@ -112,6 +113,8 @@ export interface Operator {
   /** Solo con la OxioCard encendida (OXIOCARD_ENABLED). */
   oxiocardStatus?: OxiocardStatus;
   oxiocardStatusAt?: string | null;
+  /** Su ficha NFC viva («Ficha nº 0522»); null sin ficha. Las APIs de antes no la mandan. */
+  staffCard?: StaffCardView | null;
 }
 
 export interface OperatorEarning {
@@ -234,6 +237,20 @@ export async function updateOperator(
     body: JSON.stringify(input),
   });
   if (!res.ok) throw await totpAwareError(res);
+  return res.json();
+}
+
+/** Su ficha NFC: la recién grabada pasa a ser la suya (la de antes deja de valer al momento). */
+export async function issueStaffCard(id: string, input: { card: string; uid: string }): Promise<StaffCardView> {
+  const res = await authedFetch(`/v1/admin/operators/${id}/staff-card`, { method: 'POST', body: JSON.stringify(input) });
+  if (!res.ok) throw await apiError(res);
+  return res.json();
+}
+
+/** Anular su ficha NFC (la ha perdido): deja de valer al momento. */
+export async function revokeStaffCard(id: string): Promise<{ revoked: number | null }> {
+  const res = await authedFetch(`/v1/admin/operators/${id}/staff-card`, { method: 'DELETE' });
+  if (!res.ok) throw await apiError(res);
   return res.json();
 }
 
