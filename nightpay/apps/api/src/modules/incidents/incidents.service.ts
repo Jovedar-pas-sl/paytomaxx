@@ -263,7 +263,7 @@ export class IncidentsService {
       () => this.prisma.$queryRaw<BankItemRow[]>`
         SELECT i.id, i.status, i.kind, s.source, i."bankAmountCents", i."oursAmountCents", i.reference,
                i."authCode", i."paymentId", i."occurredAt" AS "operationAt",
-               COALESCE(i."occurredAt", i."createdAt") AS "occurredAt"
+               COALESCE(i."occurredAt", i."createdAt") AS "occurredAt", i."createdAt" AS "detectedAt"
           FROM bank_statement_items i
           JOIN bank_statements s ON s.id = i."statementId"
           LEFT JOIN payments p ON p.id = i."paymentId"
@@ -427,7 +427,11 @@ export class IncidentsService {
       ...nights.map(nightClosedPendingIncident),
       ...posMismatches.map(posChargeMismatchIncident),
       ...posUnmatched.map(posUnmatchedOpIncident),
-      ...posUnreconciled.map(posUnreconciledIncident),
+      // Sale a las 24 h del cobro: entonces se detecta (el aviso de Telegram mira esa hora).
+      ...posUnreconciled.map((r) => ({
+        ...posUnreconciledIncident(r),
+        detectedAt: new Date(r.occurredAt.getTime() + RECONCILE_WITHIN_HOURS * 60 * 60 * 1000).toISOString(),
+      })),
       ...posVoidedPaid.map(posVoidedPaidIncident),
       ...(await this.withBitcoinParts(walletsToClose)).map(walletCloseRequestedIncident),
       ...unassignedTopUps.map(walletTopUpUnassignedIncident),

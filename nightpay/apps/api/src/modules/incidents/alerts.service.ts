@@ -118,7 +118,8 @@ export class AlertsService implements OnModuleInit, OnModuleDestroy {
     const open = await this.incidents.list(venue.id, now);
     const fresh = open.filter(
       (i) =>
-        now.getTime() - new Date(i.occurredAt).getTime() <= ALERT_FRESH_MS && settings.kinds[alertKindForIncident(i.kind)],
+        // Por cuándo se detectó (el fichero del banco del fin de semana se sube el lunes), no por la hora del cobro.
+        now.getTime() - new Date(i.detectedAt ?? i.occurredAt).getTime() <= ALERT_FRESH_MS && settings.kinds[alertKindForIncident(i.kind)],
     );
     let sent = 0;
     for (const incident of fresh) {

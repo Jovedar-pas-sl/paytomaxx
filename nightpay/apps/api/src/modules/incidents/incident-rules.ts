@@ -141,6 +141,12 @@ export interface Incident {
   title: string;
   detail: string;
   occurredAt: string;
+  /**
+   * Cuándo se detectó, si es mucho después de occurredAt (el fichero del banco
+   * que se sube días después, el cobro del datáfono sin cuadrar a las 24 h):
+   * el aviso de Telegram mira esta hora. Sin ella, occurredAt.
+   */
+  detectedAt?: string;
   amountCents: number | null;
   paymentId: string | null;
   /** true = se quita marcándola como revisada; false = se quita resolviéndola. */
@@ -752,6 +758,8 @@ export interface BankItemRow {
   /** Hora de la operación (null si el fichero no la traía). */
   operationAt: Date | null;
   occurredAt: Date;
+  /** Cuándo se apuntó la diferencia (al subir el fichero del banco). */
+  detectedAt?: Date | null;
 }
 
 /**
@@ -818,6 +826,7 @@ export function bankMismatchIncident(r: BankItemRow): Incident {
     title: text.title,
     detail: `${parts.join(' · ')}. ${text.hint}`.trim(),
     occurredAt: r.occurredAt.toISOString(),
+    ...(r.detectedAt ? { detectedAt: r.detectedAt.toISOString() } : {}),
     amountCents: r.bankAmountCents ?? r.oursAmountCents,
     paymentId: r.paymentId,
     ackable: true,
