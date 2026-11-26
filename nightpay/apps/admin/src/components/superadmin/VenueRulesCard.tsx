@@ -64,7 +64,7 @@ export function VenueRulesCard({ venue, onSaved }: Props) {
   const holdTyped = /^\d{1,2}$/.test(form.holdDays.trim()) ? Number(form.holdDays.trim()) : null;
 
   return (
-    <Card>
+    <Card className="np-sa-card">
       <form className="np-sa-form" onSubmit={handleSubmit} noValidate>
         <SectionHead level={3} title="Reglas" sub="Cambiarlas pide tu código 2FA. Queda en el registro." />
 

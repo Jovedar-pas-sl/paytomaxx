@@ -1,14 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { COBRO_ACTION_LABELS, COBRO_ACTION_TITLES } from './cobros-help';
 
-// Los botones de cada fila de Cobros: su texto y su title corto. La pintada
-// de los botones, en components/CobroRowActions.test.tsx; el tutorial del «?»,
-// que los nombra, en tours.test.ts.
+// Los botones de un cobro: su texto y su title corto. La pintada de los
+// botones, en components/CobroRowActions.test.tsx. «Ver detalle» ya no existe
+// (entrega 9): el detalle se abre tocando la fila.
 
 describe('botones de cada cobro', () => {
-  it('uno por botón, con su texto tal cual y en el orden de la fila', () => {
+  it('uno por botón, con su texto tal cual y en su orden', () => {
     expect(Object.values(COBRO_ACTION_LABELS)).toEqual([
-      'Ver detalle',
       'Anular cobro',
       'Resolver',
       'Devolución BBVA',

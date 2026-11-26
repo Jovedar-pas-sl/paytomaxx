@@ -69,7 +69,8 @@ export function OperatorCobros({ operatorId }: { operatorId: string }) {
         <CobrosTable
           rows={rows}
           hidePerson={!invitations}
-          empty={rows === null ? 'Cargando…' : invitations ? 'Aún no la han invitado a nada.' : 'Aún no ha cobrado nada.'}
+          columns={['ref']}
+          empty={{ title: invitations ? 'Aún no la han invitado a nada.' : 'Aún no ha cobrado nada.' }}
         />
       </div>
       {cursor ? (

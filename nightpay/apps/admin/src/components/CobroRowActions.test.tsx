@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import type { CobroRow } from '@nightpay/contracts';
 import { COBRO_ACTION_TITLES } from '../lib/cobros-help';
+import { dockView } from '../lib/cobro-dock';
 import { CobroRowActions } from './CobroRowActions';
 
 // Los botones de una fila de Cobros: quién ve cada uno es lo que cuenta y
@@ -140,5 +141,24 @@ describe('botones de una fila de Cobros', () => {
     expect(variants(card({ status: 'ORPHAN' }), 'OWNER')).toEqual({ Resolver: 'ghost' });
     expect(variants(card({ status: 'PARTIALLY_REFUNDED', available: 1000 }), 'OWNER')).toEqual({ 'Devolución BBVA': 'danger-outline', Devoluciones: 'quiet' });
     expect(variants(card({ provider: 'PAYTEF' }), 'OWNER')).toEqual({ Reembolsar: 'danger-outline' });
+  });
+});
+
+describe('el pie del detalle tras una devolución entera, con el filtro «Pagado»', () => {
+  it('no ofrece devolver con el estado ni lo que quedaba de antes', () => {
+    const key = { kind: 'PAYMENT' as const, id: card().id };
+    const before = card({ provider: 'WIPAY', available: 4000 });
+    const footer = (v: ReturnType<typeof dockView>) => (v.actionsRow ? labels(v.actionsRow, 'OWNER') : []);
+    // Antes: abierto desde la lista (vuelta 0), se puede reembolsar.
+    expect(footer(dockView([before], 0, key, [{ row: before, version: 0 }], 0))).toContain('Reembolsar');
+    // Devuelto entero (vuelta 1): la lista «Pagado» ya no lo trae; el detalle sigue abierto con la fila de antes, sin botones.
+    const after = dockView([], 1, key, [{ row: before, version: 0 }, null], 1);
+    expect(after.seen?.row).toBe(before);
+    expect(footer(after)).toEqual([]);
+    // Llega la fila al día, pedida aparte: Devuelto, nada por devolver.
+    const refunded = card({ provider: 'WIPAY', status: 'REFUNDED', available: 0 });
+    const fresh = dockView([], 1, key, [{ row: before, version: 0 }, { row: refunded, version: 1 }], 1);
+    expect(fresh.actionsRow).toBe(refunded);
+    expect(footer(fresh)).not.toContain('Reembolsar');
   });
 });
