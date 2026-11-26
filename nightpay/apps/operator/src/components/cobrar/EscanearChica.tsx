@@ -5,14 +5,18 @@ import { staffTokenFrom } from '@nightpay/contracts';
 import { haptic, Icon } from '@nightpay/ui';
 import { formatEur } from '@/lib/money';
 import { onInviteArrived, takePendingInvite } from '@/lib/invite-link';
-import { resolveStaffQr } from '@/lib/api-cobro';
+import { resolveStaffCard, resolveStaffQr } from '@/lib/api-cobro';
+import { nfcSupported, readCard } from '@/lib/nfc';
 import { rejectedQr, shouldResolveQr, statusOf, type RejectedQr } from '@/lib/qr-scan';
-import type { ScanTexts } from '@/lib/servicio';
+import { staffCardTap, type ScanTexts } from '@/lib/servicio';
 import { puestoChip, type CobrarContext } from './cobrar-context';
 import { Chip, ScreenHeader } from './ScreenHeader';
 import styles from './cobrar.module.css';
 
-/** La compañera leída (o elegida): con su QR o con su id, y su nombre. Leída: el QR tal cual y la huella de su foto. */
+/**
+ * La compañera leída (o elegida): con su QR o con su id, y su nombre. Leída: el
+ * QR tal cual (o «ficha:<código>» si se acercó su ficha) y la huella de su foto.
+ */
 export interface Invitada {
   name: string;
   token?: string;
@@ -43,9 +47,13 @@ interface Props {
   onBack: () => void;
   /** Otros textos (el servicio a su nombre); sin ellos, los de la invitación. */
   texts?: ScanTexts;
-  /** «Otra compañera»: este QR no se vuelve a reconocer hasta que se lea otro. */
+  /** «Otra compañera»: este QR (o esta ficha) no se vuelve a reconocer hasta que se lea otro. */
   skipRaw?: string;
 }
+
+/** Lo que identifica a la compañera leída: su QR o su ficha (con su «Mi QR» firmado por el servidor). */
+type Leida = { name: string; token: string; id: string; photoHash?: string | null };
+
 
 /** Lo mínimo de BarcodeDetector (Chrome en Android); en iPhone aún no existe. */
 interface Detector {
@@ -70,7 +78,9 @@ function detectorCtor(): DetectorCtor | null {
  * siga delante de la cámara (lib/qr-scan) y, si se sale antes de pasar al
  * cobro («Atrás»), no se cobra nada. Si el cobro no se abre (sin red), se
  * vuelve a leer. Con `texts`, el mismo escáner lee el «Mi QR» de la compañera
- * cuyo servicio cobra el encargado.
+ * cuyo servicio cobra el encargado y, si los textos lo dicen (`nfcHint`) y el
+ * móvil lee fichas (Android), también su ficha NFC: el servidor comprueba que
+ * es la original (su número de serie) y que sigue valiendo.
  */
 export function EscanearChica({ ctx, who, title, priceCents, onChica, onList, onBack, texts = INVITE_SCAN_TEXTS, skipRaw }: Props) {
   const video = useRef<HTMLVideoElement | null>(null);
@@ -91,9 +101,11 @@ export function EscanearChica({ ctx, who, title, priceCents, onChica, onList, on
   // render del padre: si no, cada vez que se pinta CobrarFlow se reinicia la cámara (APP-04).
   const onChicaRef = useRef(onChica);
   const notStaffRef = useRef(texts.notStaff);
+  const skipRawRef = useRef(skipRaw);
   useEffect(() => {
     onChicaRef.current = onChica;
     notStaffRef.current = texts.notStaff;
+    skipRawRef.current = skipRaw;
   });
 
   useEffect(() => {
@@ -109,20 +121,14 @@ export function EscanearChica({ ctx, who, title, priceCents, onChica, onList, on
     };
   }, []);
 
-  const take = useCallback(
-    async (raw: string) => {
-      // Uno a la vez (la cámara y el enlace del móvil pueden llegar juntos); reconocida, ya no se lee más.
+  /** Reconocida (por su QR o su ficha): «Nerea reconocida» un momento y al cobro. */
+  const accept = useCallback(
+    async (raw: string, resolve: () => Promise<Leida>, onFail: (err: unknown) => void) => {
+      // Uno a la vez (la cámara, el enlace del móvil y la ficha pueden llegar juntos); reconocida, ya no se lee más.
       if (done.current) return;
       done.current = true;
-      const token = staffTokenFrom(raw);
-      if (!token) {
-        rejected.current = rejectedQr(raw, 400, Date.now());
-        setProblem(notStaffRef.current);
-        done.current = false;
-        return;
-      }
       try {
-        const chica = await resolveStaffQr(token);
+        const chica = await resolve();
         if (!alive.current) return;
         setSeen(chica.name);
         setProblem(null);
@@ -130,7 +136,7 @@ export function EscanearChica({ ctx, who, title, priceCents, onChica, onList, on
         leaving.current = setTimeout(() => {
           leaving.current = null;
           if (!alive.current) return;
-          void onChicaRef.current({ name: chica.name, token, id: chica.id, raw, photoHash: chica.photoHash ?? null }).then((opened) => {
+          void onChicaRef.current({ name: chica.name, token: chica.token, id: chica.id, raw, photoHash: chica.photoHash ?? null }).then((opened) => {
             if (opened || !alive.current) return;
             // Sin cobro: se vuelve a leer (el error lo enseña el cobro), sin repetir este QR enseguida.
             rejected.current = rejectedQr(raw, 0, Date.now());
@@ -140,7 +146,7 @@ export function EscanearChica({ ctx, who, title, priceCents, onChica, onList, on
         }, SEEN_MS);
       } catch (err) {
         if (!alive.current) return;
-        rejected.current = rejectedQr(raw, statusOf(err), Date.now());
+        onFail(err);
         setProblem((err as Error).message);
         done.current = false;
       }
@@ -148,6 +154,53 @@ export function EscanearChica({ ctx, who, title, priceCents, onChica, onList, on
     // Solo refs y setters: la misma función en todos los renders (la cámara no se reinicia).
     [],
   );
+
+  const take = useCallback(
+    async (raw: string) => {
+      if (done.current) return;
+      const token = staffTokenFrom(raw);
+      if (!token) {
+        rejected.current = rejectedQr(raw, 400, Date.now());
+        setProblem(notStaffRef.current);
+        return;
+      }
+      await accept(
+        raw,
+        async () => ({ ...(await resolveStaffQr(token)), token }),
+        (err) => {
+          rejected.current = rejectedQr(raw, statusOf(err), Date.now());
+        },
+      );
+    },
+    [accept],
+  );
+
+  // Su ficha NFC (Android): cada ficha acercada se comprueba en el servidor (original, viva, de este local).
+  const nfcOn = Boolean(texts.nfcHint) && nfcSupported();
+  useEffect(() => {
+    if (!nfcOn) return undefined;
+    const ctrl = new AbortController();
+    void (async () => {
+      while (!ctrl.signal.aborted) {
+        let read: Awaited<ReturnType<typeof readCard>>;
+        try {
+          read = await readCard(ctrl.signal);
+        } catch (err) {
+          // Cancelado al salir; sin permiso o sin NFC, queda el QR.
+          if (!ctrl.signal.aborted && alive.current) setProblem((err as Error).message);
+          return;
+        }
+        if (done.current || !alive.current) continue;
+        const tap = staffCardTap(read, skipRawRef.current);
+        if ('problem' in tap) {
+          setProblem(tap.problem);
+          continue;
+        }
+        await accept(tap.raw, () => resolveStaffCard(tap.card, tap.uid), () => undefined);
+      }
+    })();
+    return () => ctrl.abort();
+  }, [nfcOn, accept]);
 
   // Leído con la cámara del móvil (abre otra pestaña): llega aquí solo.
   useEffect(() => {
@@ -264,7 +317,7 @@ export function EscanearChica({ ctx, who, title, priceCents, onChica, onList, on
             Elegir de la lista
           </button>
         ) : (
-          <p className={styles.camHint}>{texts.hint}</p>
+          <p className={styles.camHint}>{nfcOn && texts.nfcHint ? `${texts.hint} ${texts.nfcHint}` : texts.hint}</p>
         )}
       </div>
     </div>

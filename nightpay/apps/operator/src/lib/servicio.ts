@@ -29,6 +29,8 @@ export interface ScanTexts {
   camLabel: string;
   /** Sin lector en el navegador: con la cámara del móvil. */
   noCamera: string;
+  /** Con NFC (Android): también vale su ficha. Sin él, solo el QR. */
+  nfcHint?: string;
 }
 
 export const SERVICIO_SCAN_TEXTS: ScanTexts = {
@@ -37,6 +39,7 @@ export const SERVICIO_SCAN_TEXTS: ScanTexts = {
   hint: 'En su app: «Mi QR». ¿Sin móvil? Que entre con su usuario en otro móvil.',
   camLabel: 'Cámara para leer el QR de la compañera',
   noCamera: 'Abre la cámara del móvil y apunta a su QR: llega aquí solo.',
+  nfcHint: 'O acerca su ficha a la parte de atrás del móvil.',
 };
 
 /** La espera del datáfono: para la compañera (avisa al camarero) o para quien lo cobra él mismo. */
@@ -57,4 +60,20 @@ export function posWaitTexts(byStaff: boolean): PosWaitTexts {
         after: '. Si no se confirma solo, confírmalo en la pestaña «POS» con el código del ticket.',
       }
     : { codeLead: 'Llama al camarero. Código:', callWaiter: true, after: ', luego confirma en tu app.' };
+}
+
+/**
+ * Cobro por el encargado (fase 2): la ficha acercada en «Escanea el Mi QR de
+ * la compañera» → lo que se pregunta al servidor, o por qué no. Sin su número
+ * de serie no se sabe si es la original (y el servidor no la acepta).
+ */
+export function staffCardTap(
+  read: { token: string | null; uid: string | null },
+  skipRaw: string | undefined,
+): { card: string; uid: string; raw: string } | { problem: string } {
+  if (!read.token) return { problem: 'Esa ficha no es la de una compañera: acerca la suya o escanea su «Mi QR».' };
+  const raw = `ficha:${read.token}`;
+  if (raw === skipRaw) return { problem: 'Es la misma compañera de antes: acerca la ficha de la otra.' };
+  if (!read.uid) return { problem: 'No se ha podido leer el número de serie de la ficha: acércala otra vez y déjala quieta.' };
+  return { card: read.token, uid: read.uid, raw };
 }
