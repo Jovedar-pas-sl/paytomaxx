@@ -5,6 +5,11 @@ import { PartnerForeignIpService } from './auth/partner-foreign-ip';
 import { PartnerFreezeService } from './auth/partner-freeze';
 import { PartnerKeyGuard } from './auth/partner-key.guard';
 import { PartnerRateLimiter } from './auth/partner-rate-limit';
+import { OwnerPartnerConnectionsController } from './connections/owner-partner-connections.controller';
+import { PartnerConnectionsService } from './connections/partner-connections.service';
+import { PartnerKeyClaimController } from './connections/partner-key-claim.controller';
+import { PartnerKeyClaimService } from './connections/partner-key-claim.service';
+import { PartnerKeySweepService } from './connections/partner-key-sweep.service';
 import { PartnerKeyExposureService } from './http/partner-key-exposure.service';
 import { PartnerResponseInterceptor } from './http/partner-response.interceptor';
 import { PartnerController } from './partner.controller';
@@ -17,7 +22,7 @@ import { PartnerController } from './partner.controller';
  */
 @Module({
   imports: [AuthModule],
-  controllers: [PartnerController],
+  controllers: [PartnerController, OwnerPartnerConnectionsController, PartnerKeyClaimController],
   providers: [
     PartnerAuthLimiter,
     PartnerRateLimiter,
@@ -26,6 +31,9 @@ import { PartnerController } from './partner.controller';
     PartnerKeyGuard,
     PartnerResponseInterceptor,
     PartnerKeyExposureService,
+    PartnerConnectionsService,
+    PartnerKeyClaimService,
+    PartnerKeySweepService,
   ],
   exports: [PartnerFreezeService, PartnerAuthLimiter, PartnerRateLimiter, PartnerForeignIpService, PartnerKeyExposureService],
 })

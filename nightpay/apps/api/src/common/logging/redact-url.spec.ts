@@ -123,4 +123,7 @@ describe('API de socios: claves y códigos en la URL', () => {
     expect(redactSecretsInUrl(`/v1/partner/me?k=${encodeURIComponent(KEY)}`)).toBe('/v1/partner/me?k=***');
   });
 
+  it('el enlace de un uso de la clave (/partner-key/<token>) tampoco', () => {
+    expect(redactSecretsInUrl('/partner-key/AbCdEf0123456789-_AbCdEf0123456789-_AbCdEf0')).toBe('/partner-key/***');
+  });
 });
