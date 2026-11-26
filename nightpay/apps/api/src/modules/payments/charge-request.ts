@@ -109,7 +109,8 @@ export async function resolveChargeOrThrow(
  * ella. Sin QR, las líneas tal cual, salvo con la casilla «Las compañeras
  * cobran desde su móvil» apagada: el servicio lo cobra otra persona a su
  * nombre (403 sin el permiso; 400 SERVICE_OPERATOR_REQUIRED con él).
- * Fase 2: aquí entra también su ficha NFC.
+ * Fase 2: si acercan su ficha NFC, /operators/staff-card/resolve la comprueba
+ * (original, viva, de este local) y da este mismo «Mi QR» firmado.
  */
 async function serviceOperatorOf(
   prisma: PrismaService,
