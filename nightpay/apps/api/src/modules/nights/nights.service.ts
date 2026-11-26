@@ -42,6 +42,7 @@ import { ReportsService } from '../reports/reports.service';
 import { fichasCounts, type FichasCounts } from '../wallets/fichas-counts';
 import { invitationTotals } from '../money-map/invitation-totals';
 import { MoneyMapService } from '../money-map/money-map.service';
+import { SERVED_EARNING_SQL } from '../operators/served-earning';
 import { CloseCheckService } from './close-check.service';
 import { settleWritesBefore } from './night-cutoff';
 import {
@@ -116,6 +117,11 @@ export interface MyNight {
    * sin las anuladas) y su parte («Mi QR»: «6 invitaciones esta noche»).
    */
   invitations: { count: number; shareCents: number };
+  /**
+   * Cobro por el encargado: los servicios que otra persona le cobró a su nombre
+   * esta noche y su parte (comisión + propina). Para el aviso «Servicio cobrado · +54 €».
+   */
+  served: { count: number; shareCents: number };
 }
 
 type NightRow = {
@@ -462,9 +468,10 @@ export class NightsService {
         ) x
     `);
     const r = rows[0] ?? { count: 0, chargedCents: 0, commissionCents: 0, tipsCents: 0, reversedCents: 0 };
-    const [unpaid, invitations] = await Promise.all([
+    const [unpaid, invitations, served] = await Promise.all([
       this.unpaidSplit(tenantId, operatorId, from, to),
       this.invitationsOf(tenantId, operatorId, from, to),
+      this.servedOf(tenantId, operatorId, from, to),
     ]);
     return {
       from: from.toISOString(),
@@ -474,6 +481,7 @@ export class NightsService {
       netCents: r.commissionCents + r.tipsCents - r.reversedCents,
       ...unpaid,
       invitations,
+      served,
     };
   }
 
@@ -486,6 +494,34 @@ export class NightsService {
   private async invitationsOf(tenantId: string, operatorId: string, from: Date, to: Date): Promise<{ count: number; shareCents: number }> {
     const totals = await this.prisma.withTenant(tenantId, (tx) => invitationTotals(tx, tenantId, operatorId, { from, to }));
     return { count: totals.count, shareCents: totals.shareCents };
+  }
+
+  /**
+   * Los servicios que otra persona le cobró a su nombre en la ventana (cobro
+   * por el encargado) y su parte: comisión + propina, sin restar devoluciones.
+   * Las mismas fechas que `mine`; del saldo, sin los anulados. Las invitaciones
+   * no cuentan (llevan paymentLineId).
+   */
+  private async servedOf(tenantId: string, operatorId: string, from: Date, to: Date): Promise<{ count: number; shareCents: number }> {
+    const rows = await this.prisma.withTenant(tenantId, (tx) => tx.$queryRaw<Array<{ count: number; shareCents: number }>>`
+      SELECT COUNT(*)::int AS count, COALESCE(SUM(x.share), 0)::int AS "shareCents"
+        FROM (
+          SELECT e."commissionCents" + COALESCE(e."tipCents", 0) AS share
+            FROM operator_earnings e
+            JOIN payments p ON p.id = e."paymentId"
+           WHERE e."tenantId" = ${tenantId}::uuid AND e."operatorId" = ${operatorId}::uuid
+             AND ${paymentAt('p')} >= ${from} AND ${paymentAt('p')} < ${to}
+             AND ${SERVED_EARNING_SQL}
+          UNION ALL
+          SELECT e."commissionCents" + COALESCE(e."tipCents", 0)
+            FROM operator_earnings e
+            JOIN wallet_consumptions c ON c.id = e."consumptionId"
+           WHERE e."tenantId" = ${tenantId}::uuid AND e."operatorId" = ${operatorId}::uuid
+             AND c."reversedAt" IS NULL AND c."createdAt" >= ${from} AND c."createdAt" < ${to}
+             AND ${SERVED_EARNING_SQL}
+        ) x
+    `);
+    return rows[0] ?? { count: 0, shareCents: 0 };
   }
 
   /**

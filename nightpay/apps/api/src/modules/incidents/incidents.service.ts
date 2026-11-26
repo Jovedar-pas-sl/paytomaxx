@@ -22,6 +22,7 @@ import {
   sensitiveActionIncident,
   SENSITIVE_AUDIT_ACTIONS,
   receptionPayoutCapIncident,
+  serviceDisputedIncident,
   earningReverseFailedIncident,
   nightClosedPendingIncident,
   openIncidents,
@@ -59,6 +60,7 @@ import {
   type StuckRow,
 } from './incident-rules';
 import { runLimited } from './run-limited';
+import { SERVICE_DISPUTED_ACTION } from '../operators/served-earning';
 import { PAID_AFTER_CANCEL_REASON } from '../payments/paid-after-cancel';
 import { bitcoinPartCents, walletCash } from '../wallets/wallet-cash-limits';
 
@@ -166,7 +168,7 @@ export class IncidentsService {
            AND (a.action IN ('refund.earning_reverse_failed', 'wallet.credit_skipped_critical',
                              'pos.reception_limit_exceeded', 'wallet.cash_split_suspected',
                              'wallet.reception_payout_cap', 'wallet.card_blocked_by_client',
-                             'wallet.charge_disputed_by_client')
+                             'wallet.charge_disputed_by_client', ${SERVICE_DISPUTED_ACTION})
                 OR (a.action = ANY(${[...SENSITIVE_AUDIT_ACTIONS]}::text[])
                     -- «No se cobró» no sube ningún saldo: no hace falta avisar.
                     AND COALESCE(a.payload ->> 'decision', 'AUTHORIZED') = 'AUTHORIZED'))
@@ -174,7 +176,7 @@ export class IncidentsService {
                             WHERE k."tenantId" = a."tenantId"
                               AND k.kind IN ('earning_reverse_failed', 'wallet_credit_skipped', 'pos_reception_limit',
                                              'cash_split_suspected', 'reception_payout_cap', 'wallet_card_lost',
-                                             'wallet_charge_disputed', 'sensitive_action')
+                                             'wallet_charge_disputed', 'sensitive_action', 'service_disputed')
                               AND k."refId" = a.id::text)
            AND a."occurredAt" >= ${since}
          ORDER BY a."occurredAt" DESC
@@ -414,7 +416,9 @@ export class IncidentsService {
                   ? walletCardLostIncident(r)
                   : r.action === 'wallet.charge_disputed_by_client'
                     ? walletChargeDisputedIncident(r)
-                    : SENSITIVE_AUDIT_ACTIONS.includes(r.action)
+                    : r.action === SERVICE_DISPUTED_ACTION
+                      ? serviceDisputedIncident(r)
+                      : SENSITIVE_AUDIT_ACTIONS.includes(r.action)
                       ? sensitiveActionIncident(r)
                       : walletCreditSkippedIncident(r),
       ),
@@ -515,14 +519,43 @@ export class IncidentsService {
   }
 
   /**
+   * «No es mío» sin cerrar (cobro por el encargado): para la app del encargado
+   * (la bandeja del panel los saca con los demás). Los cierra el dueño, en el panel.
+   */
+  async servicesDisputed(tenantId: string, now: Date = new Date()): Promise<Incident[]> {
+    const since = new Date(now.getTime() - LOOKBACK_DAYS * 24 * 60 * 60 * 1000);
+    const rows = await this.prisma.$queryRaw<EventRow[]>`
+      SELECT a.id::text AS id, NULL::uuid AS "paymentId",
+             CASE WHEN jsonb_typeof(a.payload -> 'amountCents') = 'number'
+                  THEN (a.payload ->> 'amountCents')::int END AS "amountCents",
+             a."occurredAt", a.payload
+        FROM audit_events a
+       WHERE a."tenantId" = ${tenantId}::uuid
+         AND a.action = ${SERVICE_DISPUTED_ACTION}
+         AND NOT EXISTS (SELECT 1 FROM incident_acks k
+                          WHERE k."tenantId" = a."tenantId" AND k.kind = 'service_disputed' AND k."refId" = a.id::text)
+         AND a."occurredAt" >= ${since}
+       ORDER BY a."occurredAt" DESC
+       LIMIT ${PER_KIND_LIMIT}
+    `;
+    return rows.map(serviceDisputedIncident).map((i) => ({ ...i, ackable: false, noteRequired: ackNeedsNote(i) }));
+  }
+
+  /**
    * Bandeja de recepción: los «No he sido yo» y los «Pagó después de
    * cancelar». Estos últimos solo los cierra el encargado o el dueño (los
-   * demás los ven, para saberlo cuando el cliente pase por recepción).
+   * demás los ven, para saberlo cuando el cliente pase por recepción). El
+   * encargado y el dueño ven también los «No es mío» de las compañeras
+   * (decisión del dueño, 25-nov-2026); recepción no, y los cierra el dueño.
    */
   async receptionInbox(tenantId: string, role: string): Promise<Incident[]> {
-    const [disputed, paidLate] = await Promise.all([this.disputedCharges(tenantId), this.paidAfterCancel(tenantId)]);
     const canClose = role === 'MANAGER' || role === 'OWNER';
-    return [...paidLate.map((i) => ({ ...i, ackable: canClose })), ...disputed];
+    const [disputed, paidLate, notMine] = await Promise.all([
+      this.disputedCharges(tenantId),
+      this.paidAfterCancel(tenantId),
+      canClose ? this.servicesDisputed(tenantId) : Promise.resolve([]),
+    ]);
+    return [...notMine, ...paidLate.map((i) => ({ ...i, ackable: canClose })), ...disputed];
   }
 
   /** Cerrar un «Pagó después de cancelar» con la nota de qué se hizo (encargado o dueño). */

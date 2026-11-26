@@ -13,6 +13,9 @@
 //    entera (y la devolución se la descuenta); la propina que se ofrece sigue la fila Sala.
 //  - Lo que ven los demás: /pay y /s dicen «Servicio con Nerea» (con su foto en /pay) y las listas del
 //    datáfono y del encargado, «Servicio de Nerea».
+//  - Su dinero al momento y «No es mío»: «Mi noche» cuenta sus servicios cobrados por otra persona,
+//    sus Ganancias dicen quién lo cobró, y «No es mío» deja una incidencia (una sola) que llega al
+//    panel, a Telegram y a la app del encargado, sin tocar su dinero; la cierra el dueño con su nota.
 // Ver README.md.
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import { AsyncLocalStorage } from 'node:async_hooks';
@@ -36,12 +39,14 @@ import { totpCodeAt } from '../../src/modules/auth/testing/totp-kit';
 import { CLAIM_STEP_LUA, TotpAttemptsService } from '../../src/modules/auth/totp-attempts.service';
 import { TotpService } from '../../src/modules/auth/totp.service';
 import { CartaService } from '../../src/modules/carta/carta.service';
+import { AlertsService } from '../../src/modules/incidents/alerts.service';
 import { IncidentsService } from '../../src/modules/incidents/incidents.service';
 import { invitationTotals } from '../../src/modules/money-map/invitation-totals';
 import { MoneyMapService } from '../../src/modules/money-map/money-map.service';
 import { StaffFichaService } from '../../src/modules/money-map/staff-ficha.service';
 import { CloseCheckService } from '../../src/modules/nights/close-check.service';
 import { NightsService } from '../../src/modules/nights/nights.service';
+import { OperatorsService } from '../../src/modules/operators/operators.service';
 import { signStaffToken } from '../../src/modules/operators/staff-qr';
 import { PaymentsService } from '../../src/modules/payments/payments.service';
 import type { PosDevice } from '../../src/modules/pos-device/device.guard';
@@ -727,6 +732,166 @@ describe('El reparto: su parte y la propina entera (tarjeta, ficha y datáfono),
       expect((await inVenue(L.V, () => charges.pendingQrCharges(dueno))).find((c) => c.id === q.saldo!.chargeId)?.requestedByName).toBe(
         'Servicio de Nerea',
       );
+    });
+  });
+
+  describe('Su dinero al momento y «No es mío» (incidencia, Telegram y el encargado)', () => {
+    const operators = new OperatorsService(prisma, {} as never, audit, config as never, {} as never, {} as never, {} as never);
+    const incidents = new IncidentsService(prisma, quiet as never);
+    // Telegram y Redis de mentira para la vuelta de avisos (cada incidencia una vez).
+    const telegram = { hasBot: () => true, isConfigured: () => true, send: vi.fn(async (_text: string) => true) };
+    const marks = new Map<string, string>();
+    const alertsRedis = {
+      set: async (key: string, v: string, ..._o: unknown[]) => (marks.has(key) ? null : (marks.set(key, v), 'OK')),
+      del: async (key: string) => Number(marks.delete(key)),
+      exists: async (key: string) => Number(marks.has(key)),
+    };
+    const alerts = new AlertsService(prisma as never, alertsRedis as never, incidents, {} as never, telegram as never);
+    const NOT_SERVED = 'Ese cobro no es un servicio cobrado a tu nombre.';
+    let L: Local;
+    let lola: string;
+    /** Las ganancias de Nerea: los dos servicios a su nombre, la invitación y su propio cobro. */
+    const g = { tarjeta: '', ficha: '', invitacion: '', propio: '' };
+    let tarjeta: string;
+    const earningOf = async (where: { paymentId?: string; consumptionId?: string }) =>
+      (await sys((tx) => tx.operatorEarning.findFirstOrThrow({ where: { operatorId: L.nerea, ...where }, select: { id: true } }))).id;
+    const notMine = (who: string, earningId: string) => inVenue(L.V, () => operators.notMine(who, L.V, earningId));
+    const disputes = () => sys((tx) => tx.auditEvent.findMany({ where: { tenantId: L.V, action: 'operator.service_disputed' } }));
+
+    beforeAll(async () => {
+      L = await local('Mio');
+      const invita = await sys(async (tx) => {
+        await tx.user.update({ where: { id: L.encargado }, data: { displayName: 'Carlos' } });
+        lola = (await tx.user.create({ data: { tenantId: L.V, email: `lola-mio-${r}@x.es`, passwordHash: 'x', role: 'OPERATOR', displayName: 'Lola' } })).id;
+        return (await tx.serviceItem.create({ data: { tenantId: L.V, name: 'Copa con invitación', priceCents: 2000, category: 'VENUE_BAR', isInvitation: true } })).id;
+      });
+      // El encargado le cobra dos servicios: con tarjeta (propina 5 €) y con la ficha (propina 3 €).
+      const p = await cobro(L, encargadoOf(L), [L.servicio, L.copa]);
+      tarjeta = p.id;
+      await paidByCard(L, p.id, 7000, 500);
+      g.tarjeta = await earningOf({ paymentId: p.id });
+      const q = await cobro(L, encargadoOf(L), [L.servicio, L.copa]);
+      await payWithPin(L, L.encargado, 'MANAGER', q.saldo!.chargeId, await wallet(L, 20_000), 300);
+      g.ficha = await earningOf({ consumptionId: (await consumptionOf(q.saldo!.chargeId)).id });
+      // Una copa a la que la invitan (su parte, 10 €).
+      const i = await cobro(L, encargadoOf(L), [invita], { serviceStaffToken: undefined, invitedStaffToken: qrOf(L.nerea, L.V) });
+      await paidByCard(L, i.id, 2000);
+      g.invitacion = await earningOf({ paymentId: i.id });
+      // Y un servicio que cobra ella desde su móvil (con la casilla encendida).
+      await sys((tx) => tx.venue.update({ where: { id: L.V }, data: { operatorsChargeFromPhone: true } }));
+      const own = await inVenue(L.V, () =>
+        payments.create(
+          L.V,
+          `mio-${r}`,
+          { currency: 'EUR', terminalExternalId: `REP-${L.name}-${r}`, lines: [{ serviceItemId: L.servicio, qty: 1 }], withSaldo: true } as never,
+          { userId: L.nerea, role: 'OPERATOR' },
+        ),
+      );
+      await paidByCard(L, own.id, 6000);
+      g.propio = await earningOf({ paymentId: own.id });
+    });
+
+    it('«Mi noche»: served suma los dos servicios a su nombre (su parte + la propina); ni la invitación ni lo suyo', async () => {
+      const night = await inVenue(L.V, () => nights.mine(L.V, L.nerea));
+      expect(night.served).toEqual({ count: 2, shareCents: 5400 + 500 + 5400 + 300 });
+      expect(night.invitations).toEqual({ count: 1, shareCents: 1000 });
+    });
+
+    it('Ganancias: «Lo cobró Carlos» en los servicios a su nombre; ni en lo suyo ni en la invitación', async () => {
+      const rows = new Map((await inVenue(L.V, () => operators.getMyEarnings(L.nerea, L.V))).map((e) => [e.id, e]));
+      expect(rows.get(g.tarjeta)).toMatchObject({ servedByName: 'Carlos', notMineReported: false, commissionCents: 5400, tipCents: 500 });
+      expect(rows.get(g.ficha)).toMatchObject({ servedByName: 'Carlos', notMineReported: false, commissionCents: 5400, tipCents: 300 });
+      for (const id of [g.invitacion, g.propio]) {
+        expect(rows.get(id)).toBeDefined();
+        expect(rows.get(id)).not.toHaveProperty('servedByName');
+        expect(rows.get(id)).not.toHaveProperty('notMineReported');
+      }
+    });
+
+    it('«No es mío»: una sola incidencia aunque lo pulse dos veces a la vez; su dinero no se toca', async () => {
+      const before = await inVenue(L.V, () => operators.getBalance(L.nerea, L.V));
+      expect(await Promise.all([notMine(L.nerea, g.tarjeta), notMine(L.nerea, g.tarjeta)])).toEqual([{ reported: true }, { reported: true }]);
+      expect(await notMine(L.nerea, g.tarjeta)).toEqual({ reported: true });
+      const events = await disputes();
+      expect(events).toHaveLength(1);
+      const ref = (await sys((tx) => tx.payment.findUniqueOrThrow({ where: { id: tarjeta }, select: { ref: true } }))).ref!;
+      const cRef = `C-${String(ref).padStart(4, '0')}`;
+      expect(events[0]).toMatchObject({ actorId: L.nerea, targetType: 'OperatorEarning', targetId: g.tarjeta });
+      expect(events[0]!.payload).toEqual({
+        ref: cRef,
+        amountCents: 7000,
+        shareCents: 5900,
+        paymentId: tarjeta,
+        chargedById: L.encargado,
+        chargedByName: 'Carlos',
+        operatorName: 'Nerea',
+      });
+      // Ni se retiene ni se bloquea: lo que tiene para cobrar sigue igual.
+      expect(await inVenue(L.V, () => operators.getBalance(L.nerea, L.V))).toEqual(before);
+      const rows = await inVenue(L.V, () => operators.getMyEarnings(L.nerea, L.V));
+      expect(rows.find((e) => e.id === g.tarjeta)).toMatchObject({ notMineReported: true, netCents: 5900 });
+      expect(rows.find((e) => e.id === g.ficha)).toMatchObject({ notMineReported: false });
+
+      const inbox = (await inVenue(L.V, () => incidents.list(L.V))).filter((i) => i.kind === 'service_disputed');
+      expect(inbox).toEqual([
+        expect.objectContaining({
+          title: 'Una compañera dice que un servicio no es suyo',
+          amountCents: 7000,
+          paymentId: tarjeta,
+          ackable: true,
+          noteRequired: true,
+        }),
+      ]);
+      expect(inbox[0]!.detail).toContain(`Nerea dice que el cobro ${cRef} de 70,00 € (su parte, 59,00 €) no es suyo. Lo cobró Carlos.`);
+    });
+
+    it('también del saldo (ficha): su incidencia, sin cobro con tarjeta', async () => {
+      await notMine(L.nerea, g.ficha);
+      const inbox = (await inVenue(L.V, () => incidents.list(L.V))).filter((i) => i.kind === 'service_disputed');
+      expect(inbox).toHaveLength(2);
+      expect(inbox.find((i) => i.paymentId === null)?.detail).toContain('de 70,00 € (su parte, 57,00 €) no es suyo. Lo cobró Carlos.');
+    });
+
+    it('404: la ganancia de otra compañera, una invitación, un cobro suyo o una que no existe; y no apunta nada', async () => {
+      const notServed = { status: 404, response: expect.objectContaining({ message: NOT_SERVED }) };
+      await expect(notMine(lola, g.tarjeta)).rejects.toMatchObject(notServed);
+      await expect(notMine(L.nerea, g.invitacion)).rejects.toMatchObject(notServed);
+      await expect(notMine(L.nerea, g.propio)).rejects.toMatchObject(notServed);
+      await expect(notMine(L.nerea, randomUUID())).rejects.toMatchObject(notServed);
+      expect(await disputes()).toHaveLength(2);
+    });
+
+    it('el encargado lo ve en su app (Recepción → Incidencias), sin cerrarlo; recepción no lo ve', async () => {
+      const forManager = (await inVenue(L.V, () => incidents.receptionInbox(L.V, 'MANAGER'))).filter((i) => i.kind === 'service_disputed');
+      expect(forManager).toHaveLength(2);
+      expect(forManager[0]).toMatchObject({ ackable: false, noteRequired: true });
+      const forReception = await inVenue(L.V, () => incidents.receptionInbox(L.V, 'WAITER'));
+      expect(forReception.some((i) => i.kind === 'service_disputed')).toBe(false);
+    });
+
+    it('Telegram: la vuelta de avisos manda cada una una vez, sin nombres', async () => {
+      telegram.send.mockClear();
+      await alerts.tick();
+      await alerts.tick();
+      const sent = telegram.send.mock.calls.map((c) => c[0]).filter((t) => t.includes(`Mio ${r}`) && t.includes('un servicio no es suyo'));
+      expect(sent).toHaveLength(2);
+      for (const text of sent) {
+        expect(text.split('\n')[0]).toBe(`⚠️ Mio ${r}: Una compañera dice que un servicio no es suyo`);
+        expect(text).not.toContain('Nerea');
+        expect(text).not.toContain('Carlos');
+      }
+    });
+
+    it('el dueño la cierra con su nota (sin nota, no) y ya no sale ni en el panel ni al encargado', async () => {
+      const [first] = (await inVenue(L.V, () => incidents.list(L.V))).filter((i) => i.kind === 'service_disputed');
+      const ack = (note?: string) => inVenue(L.V, () => incidents.ack(L.V, L.dueno, { kind: 'service_disputed', refId: first!.refId, note }));
+      await expect(ack()).rejects.toMatchObject({ status: 400, response: expect.objectContaining({ code: 'INCIDENT_NOTE_REQUIRED' }) });
+      await ack('Era de Lola: devuelto y cobrado otra vez a su nombre');
+      const still = (await inVenue(L.V, () => incidents.list(L.V))).filter((i) => i.kind === 'service_disputed');
+      expect(still.map((i) => i.refId)).not.toContain(first!.refId);
+      expect(still).toHaveLength(1);
+      const forManager = await inVenue(L.V, () => incidents.receptionInbox(L.V, 'MANAGER'));
+      expect(forManager.filter((i) => i.kind === 'service_disputed').map((i) => i.refId)).not.toContain(first!.refId);
     });
   });
 });

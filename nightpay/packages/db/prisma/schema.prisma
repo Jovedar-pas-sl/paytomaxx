@@ -804,6 +804,8 @@ model WalletChargeRequest {
   @@unique([tenantId, ref])
   @@index([walletId, status])
   @@index([tenantId, createdAt(sort: Desc)])
+  // Cobro por el encargado (20261125100000): de la ganancia del saldo (su consumo) a las líneas del servicio.
+  @@index([consumptionId])
   @@map("wallet_charge_requests")
 }
 

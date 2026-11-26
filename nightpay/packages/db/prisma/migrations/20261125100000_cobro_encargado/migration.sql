@@ -8,6 +8,10 @@
 --  2. payment_lines."serviceOperatorId": la compañera del servicio cuando lo
 --     cobra otra persona. Solo en líneas de Servicios (CHECK). Su parte va en
 --     "operatorCommissionBps" de la línea, fijada al cobrar.
+--  3. Índice de wallet_charge_requests."consumptionId": la ganancia de un
+--     servicio pagado con el saldo llega a sus líneas por su consumo («Mi
+--     noche», cada 15 s; Ganancias y «No es mío»). La tabla es pequeña: sin
+--     CONCURRENTLY, como en 20261024100000_cobro_unico.
 -- Se puede repetir.
 
 SET lock_timeout = '5s';
@@ -34,3 +38,5 @@ EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
 -- Columna nueva (todas NULL): validarla es inmediato.
 ALTER TABLE "payment_lines" VALIDATE CONSTRAINT "payment_lines_service_operator_in_services";
+
+CREATE INDEX IF NOT EXISTS "wallet_charge_requests_consumptionId_idx" ON "wallet_charge_requests" ("consumptionId");

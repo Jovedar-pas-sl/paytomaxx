@@ -415,6 +415,8 @@ const INCIDENT_ALERT_KIND: Readonly<Record<string, AlertKindKey>> = {
   approval_pending: 'approvals',
   // Avisos por persona: cobros del personal que hay que mirar.
   staff_pattern: 'payments',
+  // «No es mío»: una compañera dice que un servicio cobrado a su nombre no es suyo.
+  service_disputed: 'payments',
 };
 
 export function alertKindForIncident(kind: string): AlertKindKey {

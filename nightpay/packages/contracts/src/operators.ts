@@ -491,6 +491,13 @@ export const EarningViewSchema = z.object({
   paymentStatus: z.string().nullable(),
   /** Sin pagar y de una venta por datáfono sin cuadrar con el banco (retenida). */
   bankHeld: z.boolean().optional(),
+  /**
+   * Cobro por el encargado: un servicio que otra persona le cobró a su nombre,
+   * y quién lo cobró. Solo en esas filas (no en lo suyo ni en una invitación).
+   */
+  servedByName: z.string().optional(),
+  /** Ya avisó «No es mío» de ese servicio (solo en las filas con servedByName). */
+  notMineReported: z.boolean().optional(),
   createdAt: z.string().datetime(),
 });
 export type EarningView = z.infer<typeof EarningViewSchema>;
