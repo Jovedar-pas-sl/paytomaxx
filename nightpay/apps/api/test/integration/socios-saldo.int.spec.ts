@@ -1,8 +1,9 @@
-// Integración (Postgres y Redis de verdad): la API de socios, PR 2 parte A.
+// Integración (Postgres y Redis de verdad): la API de socios, PR 2 (partes A y B).
 // POST /v1/partner/wallet/balance (identificar un saldo y leer su saldo) y el
 // código del móvil de la página del saldo (POST /w/:token/live-code). La app
 // Nest con el arranque de socios-claves.int.spec.ts más el controlador del
-// código con sus proveedores. Una clave oxp_test_ del local A (sociedad X,
+// código con sus proveedores y, para la parte B, el de la página del saldo
+// (GET /w/:token, con su «Pagar o recargar en otro sistema»). Una clave oxp_test_ del local A (sociedad X,
 // grupo G). Redis es el de REDIS_URL. Ver README.md.
 import 'reflect-metadata';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -35,6 +36,9 @@ import { installPartnerBodyLimit, installPartnerUrlCheck } from '../../src/modul
 import { PartnerModule } from '../../src/modules/partner/partner.module';
 import { PartnerWalletRefs } from '../../src/modules/partner/wallet/partner-wallet-ref';
 import { PublicWalletLiveCodeController } from '../../src/modules/wallets/public-wallet-live-code.controller';
+import { PublicWalletController } from '../../src/modules/wallets/public-wallet.controller';
+import { GoogleWalletService } from '../../src/modules/wallets/google-wallet/google-wallet.service';
+import { WalletTopUpService } from '../../src/modules/wallets/wallet-topup.service';
 import { WalletChargesService } from '../../src/modules/wallets/wallet-charges.service';
 import { WalletLiveCodeModule } from '../../src/modules/wallets/wallet-live-code.module';
 import { WalletLiveCodeService } from '../../src/modules/wallets/wallet-live-code.service';
@@ -221,7 +225,7 @@ beforeAll(async () => {
       PartnerModule,
       WalletLiveCodeModule,
     ],
-    controllers: [PublicWalletLiveCodeController],
+    controllers: [PublicWalletLiveCodeController, PublicWalletController],
     providers: [
       { provide: APP_GUARD, useClass: IpRateLimitGuard },
       { provide: APP_GUARD, useClass: AuthGuard },
@@ -232,6 +236,9 @@ beforeAll(async () => {
         inject: [PrismaService, AuditService, ModuleRef, TotpService, ClsService, WalletLiveCodeService],
       },
       { provide: WalletPasskeysService, useFactory: (p: PrismaService) => new WalletPasskeysService(p, redis), inject: [PrismaService] },
+      // La página del saldo (parte B): sin Google Wallet ni «Recargar».
+      { provide: GoogleWalletService, useValue: { enabled: false } },
+      { provide: WalletTopUpService, useValue: { options: async () => null, paidProof: async () => null } },
     ],
   })
     .overrideProvider(TotpService)
@@ -594,5 +601,65 @@ describe('6. la respuesta y la redacción', () => {
     expect(fastifyLog.length).toBeGreaterThan(0);
     expect(logged.some((l) => /fallo inesperado/.test(l))).toBe(true);
     for (const secret of secrets) expect(everything, secret).not.toContain(secret);
+  });
+});
+
+describe('parte B: la página del saldo trae «Pagar o recargar en otro sistema» solo si una conexión lo alcanza', () => {
+  const page = async (w: Pick<Wallet, 'qrToken'>) => {
+    const res = await app.inject({ method: 'GET', url: `/w/${w.qrToken}` });
+    expect(res.statusCode, res.body.slice(0, 300)).toBe(200);
+    return res.body;
+  };
+  const hasBlock = (html: string) => html.includes('id="lcCard"') && html.includes('\\"liveCode\\":true');
+
+  it('un saldo de A o A2 (la conexión de A lo alcanza): sí, ACTIVE o vacío; de A3 (otra sociedad), A4 o B: no', async () => {
+    expect(hasBlock(await page(await wallet(V.A)))).toBe(true);
+    expect(hasBlock(await page(await wallet(V.A2)))).toBe(true);
+    expect(hasBlock(await page(await wallet(V.A, { status: 'DEPLETED', balanceCents: 0 })))).toBe(true);
+    for (const home of [V.A3, V.A4, V.B]) {
+      const html = await page(await wallet(home));
+      expect(html).not.toContain('lcCard');
+      expect(html).not.toContain('/live-code');
+    }
+  });
+
+  it('una conexión anulada, en pausa, dormida, caducada o sin wallet:balance ni wallet:load no lo trae; una que vale, sí', async () => {
+    const w = await wallet(V.B);
+    const conn = await newConnection(V.B, X, { status: 'REVOKED' });
+    try {
+      expect(hasBlock(await page(w))).toBe(false);
+      const set = (data: Record<string, unknown>) => sys((tx) => tx.partnerConnection.update({ where: { id: conn.id }, data }));
+      for (const data of [
+        { status: 'PAUSED' },
+        { status: 'ACTIVE', keySuspendedAt: new Date() },
+        { keySuspendedAt: null, keyExpiresAt: new Date(Date.now() - 1000) },
+        { keyExpiresAt: new Date(Date.now() + 100 * 86_400_000), keyCreatedAt: new Date(Date.now() - 91 * 86_400_000) },
+        { keyCreatedAt: new Date(), scopes: ['charges:read'] },
+      ]) {
+        await set(data);
+        expect(hasBlock(await page(w)), JSON.stringify(data)).toBe(false);
+      }
+      await set({ scopes: ['wallet:load'] });
+      expect(hasBlock(await page(w))).toBe(true);
+      // Un saldo sumado a otro: nunca.
+      const target = await wallet(V.B);
+      const merged = await wallet(V.B, { status: 'DEPLETED', balanceCents: 0, mergedIntoId: target.id });
+      expect(hasBlock(await page(merged))).toBe(false);
+    } finally {
+      await sys((tx) => tx.partnerConnection.delete({ where: { id: conn.id } }));
+    }
+  });
+
+  it('con la API apagada, ni el bloque ni el código (POST /w/:token/live-code, 404)', async () => {
+    const w = await wallet(V.A);
+    vi.stubEnv('PARTNER_API_ENABLED', 'false');
+    try {
+      const html = await page(w);
+      expect(html).not.toContain('lcCard');
+      expect((await app.inject({ method: 'POST', url: `/w/${w.qrToken}/live-code` })).statusCode).toBe(404);
+    } finally {
+      vi.stubEnv('PARTNER_API_ENABLED', 'true');
+    }
+    expect(hasBlock(await page(w))).toBe(true);
   });
 });
