@@ -16,155 +16,155 @@ datasource db {
 // ───────────────────────── Tenants & Users ─────────────────────────
 
 model Venue {
-  id                           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  name                         String
-  slug                         String    @unique
-  timezone                     String    @default("Europe/Madrid")
+  id                    String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name                  String
+  slug                  String    @unique
+  timezone              String    @default("Europe/Madrid")
   // Tope de importe para cobros creados por OPERATOR (default 200€).
   // OWNER/MANAGER ignoran este cap. El cap global de 10.000€ del Zod schema sigue.
-  operatorMaxCobroCents        Int       @default(20000)
+  operatorMaxCobroCents Int       @default(20000)
   // Comisión NightPay en basis points (default 1000 = 10%).
   // Modelo: chica recibe su commissionBps; plataforma recibe platformCommissionBps.
-  platformCommissionBps        Int       @default(1000)
+  platformCommissionBps Int       @default(1000)
   // Comisiones por defecto al operator/staff que crea el cobro, por categoría de ingreso.
   // Shape: { CHICA_SERVICE: 9000, VENUE_BAR: 0, VENUE_ROOM: 0, VENUE_FOOD: 0, EXTRA: 0 }
   // Override por chica: User.commissionBps aplica SOLO a CHICA_SERVICE.
   // Las categorías VENUE_* siempre usan el default del venue (es ingreso del local).
-  operatorCommissionDefaults   Json      @default("{\"CHICA_SERVICE\":9000,\"VENUE_BAR\":0,\"VENUE_ROOM\":0,\"VENUE_FOOD\":0,\"EXTRA\":0}")
+  operatorCommissionDefaults Json  @default("{\"CHICA_SERVICE\":9000,\"VENUE_BAR\":0,\"VENUE_ROOM\":0,\"VENUE_FOOD\":0,\"EXTRA\":0}")
   // IVA aplicado a la base imponible (basis points). Default 2100 = 21% (general).
   // Hostelería: 10% (1000) bebidas y comida + 21% (2100) bebidas alcohólicas.
   // Para simplificar Phase 1: un único tipo por venue (admin elige el dominante).
   // Modelo 303 trimestral usa este valor.
-  vatBps                       Int       @default(2100)
+  vatBps                Int       @default(2100)
   // Régimen IVA: GENERAL, RECARGO_EQUIVALENCIA (típico hostelería pequeña),
   // EXENTO (no aplica IVA — actividades no sujetas). Default GENERAL.
-  vatRegime                    String    @default("GENERAL")
+  vatRegime             String    @default("GENERAL")
   // Saldo NightPay: locales del mismo grupo (mismo dueño) comparten el saldo del cliente.
-  walletGroup                  String?
+  walletGroup           String?
   // Consola del super-admin (20261016100000): negocio cliente al que pertenece.
-  businessId                   String?   @db.Uuid
+  businessId            String?   @db.Uuid
   // Local en pausa (o su negocio): sin cobros, recargas ni cobros del saldo nuevos (423 VENUE_PAUSED).
-  pausedAt                     DateTime? @db.Timestamptz
-  pausedReason                 String?
+  pausedAt              DateTime? @db.Timestamptz
+  pausedReason          String?
   // IBAN donde el banco liquida los cobros con tarjeta (sin espacios, mod-97 en el API).
-  settlementIban               String?
-  settlementHolder             String?
+  settlementIban        String?
+  settlementHolder      String?
   // Días de espera antes de pagar a las chicas (0-60). Null = PAYOUT_HOLD_DAYS del entorno.
-  payoutHoldDays               Int?
+  payoutHoldDays        Int?
   // Reglas de aprobación (las aplica la bandeja de aprobaciones): devoluciones
   // desde este importe y pagos a las chicas los pide el encargado y los aprueba el dueño con 2FA.
-  refundApprovalThresholdCents Int       @default(10000)
-  payoutRequiresApproval       Boolean   @default(true)
+  refundApprovalThresholdCents Int     @default(10000)
+  payoutRequiresApproval       Boolean @default(true)
   // Ajustes del dueño (20261020100000), JSON validado en el API
   // (packages/contracts/src/venue-settings.ts). Null = lo de siempre.
   // Formas de cobro encendidas y propinas.
-  paymentMethods               Json?
+  paymentMethods        Json?
   // Permisos del personal (por rol y por persona).
-  staffPermissions             Json?
+  staffPermissions      Json?
   // Avisos de Telegram: grupos, chat del local y nombres de las chicas.
-  alertSettings                Json?
+  alertSettings         Json?
   // Secciones del local (20261023100000): { enabled, label, color } por
   // sección (packages/contracts/src/sections.ts). Null = las de fábrica.
-  sections                     Json?
+  sections              Json?
   // Qué cobra cada puesto (20261023100100): secciones, propinas, efectivo y
   // recargas (packages/contracts/src/post-rules.ts). Null = lo de fábrica.
-  postRules                    Json?
+  postRules             Json?
   // «Copa con invitación» (20261023100200): parte de la chica y del camarero
   // (% o fijo). Null = lo de fábrica (packages/contracts/src/invitations.ts).
-  invitationRules              Json?
+  invitationRules       Json?
   // Ajustes de la noche (20261023200000, packages/contracts/src/night-settings.ts):
   // NFC sin PIN, teclado del PIN, recepción y avisos al cobrar. Null = de fábrica.
-  nightSettings                Json?
+  nightSettings         Json?
   // «Comisión del servicio» (20261030100000, packages/contracts/src/service-fee.ts):
   // lo que paga el cliente ENCIMA del precio (ingreso de OxioPay). Solo con el
   // interruptor encendido (lo enciende el super-admin con 2FA; apagado = todo
   // como antes, también el % antiguo de la plataforma). Los dos % de 0 a 1200
   // (CHECK en SQL): pagos directos con tarjeta o datáfono, y recargas del saldo.
-  serviceFeeEnabled            Boolean   @default(false)
-  serviceFeeBps                Int       @default(1000)
-  topUpServiceFeeBps           Int       @default(1000)
+  serviceFeeEnabled     Boolean   @default(false)
+  serviceFeeBps         Int       @default(1000)
+  topUpServiceFeeBps    Int       @default(1000)
   // «Las compañeras cobran desde su móvil» (20261125100000; super-admin →
   // Reglas del local). Apagada: la compañera (OPERATOR) no crea cobros ni
   // recargas, y sus servicios los cobra otra persona a su nombre
   // (payment_lines.serviceOperatorId). Los locales de antes, encendida; los
   // nuevos los crea el API apagada. El código la da por apagada solo con false.
-  operatorsChargeFromPhone     Boolean   @default(true)
+  operatorsChargeFromPhone Boolean @default(true)
   // «Cargar saldo desde casa» (20261103100000, apps/api/src/modules/home-topup):
   // el enlace público del local (/r/<código>) para cargar el saldo antes de
   // llegar. Apagado de serie; el código es al azar (16 letras de base64url) y
   // «Enlace nuevo» lo cambia. CHECK en SQL: encendido ⇒ con código.
-  homeTopUpEnabled             Boolean   @default(false)
-  homeTopUpCode                String?   @unique
+  homeTopUpEnabled      Boolean   @default(false)
+  homeTopUpCode         String?   @unique
   // «Regala una noche» (20261120200000): «Para regalar» en ese mismo enlace.
   // Apagado de serie (el dueño lo enciende con el visto bueno del abogado).
-  homeTopUpGiftsEnabled        Boolean   @default(false)
+  homeTopUpGiftsEnabled Boolean   @default(false)
   // OxioParty (20261120300000, EDITION=party; docs/OXIOPARTY.md): la fiesta.
   // Con EDITION=club no se usan. Con eventEndsAt ya pasado no hay cobros ni
   // recargas nuevos (EVENT_ENDED). refundDeadline: último día para pedir la
   // devolución del saldo. allowDonation: el cliente puede donar lo que le
   // sobra. cashAlertCents: aviso de efectivo acumulado (2.000 € de serie).
   // CHECK en SQL: fin después del inicio, umbral ≥ 0.
-  eventStartsAt                DateTime? @db.Timestamptz
-  eventEndsAt                  DateTime? @db.Timestamptz
-  refundDeadline               DateTime? @db.Date
-  allowDonation                Boolean   @default(true)
-  cashAlertCents               Int       @default(200000)
+  eventStartsAt         DateTime? @db.Timestamptz
+  eventEndsAt           DateTime? @db.Timestamptz
+  refundDeadline        DateTime? @db.Date
+  allowDonation         Boolean   @default(true)
+  cashAlertCents        Int       @default(200000)
   // Reservados (20261117300000, apps/api/src/modules/reservations): el enlace
   // público para reservar (/reservar/<código>). Apagado de serie; código al
   // azar (16 letras de base64url). CHECK en SQL: encendido ⇒ con código.
-  reservationsEnabled          Boolean   @default(false)
-  reservationsCode             String?   @unique
+  reservationsEnabled   Boolean   @default(false)
+  reservationsCode      String?   @unique
   // Hora de apertura (minutos desde las 00:00; 20261117300100): las 48 h y el
   // «hasta 2 h antes» de los reservados cuentan desde ella. CHECK 0–1439.
-  reservationsOpenMinute       Int       @default(1200)
+  reservationsOpenMinute Int      @default(1200)
   // «Pantalla del cliente» en reposo (20261117500000): el mensaje del local
   // bajo su nombre (una promoción, una fiesta). Lo cambian el dueño y el
   // encargado (Ajustes → Carta). Null = sin esa línea.
-  displayLine1                 String?   @db.VarChar(120)
-  displayLine2                 String?   @db.VarChar(120)
-  createdAt                    DateTime  @default(now()) @db.Timestamptz
-  updatedAt                    DateTime  @updatedAt @db.Timestamptz
-  deletedAt                    DateTime? @db.Timestamptz
+  displayLine1          String?   @db.VarChar(120)
+  displayLine2          String?   @db.VarChar(120)
+  createdAt             DateTime  @default(now()) @db.Timestamptz
+  updatedAt             DateTime  @updatedAt @db.Timestamptz
+  deletedAt             DateTime? @db.Timestamptz
 
-  business                Business?                @relation(fields: [businessId], references: [id], onDelete: SetNull)
-  users                   User[]
-  terminals               Terminal[]
-  gatewayCredentials      GatewayCredential[]
-  payments                Payment[]
-  operatorEarnings        OperatorEarning[]
-  operatorPayouts         OperatorPayout[]
-  clientWallets           ClientWallet[]
-  walletConsumptions      WalletConsumption[]
-  peanpeCalls             PeanpeCall[]
-  serviceItems            ServiceItem[]
-  serviceItemImages       ServiceItemImage[]
-  btcpayStore             BtcpayStore?
-  btcpayInvoices          BtcpayInvoice[]
+  business           Business? @relation(fields: [businessId], references: [id], onDelete: SetNull)
+  users              User[]
+  terminals          Terminal[]
+  gatewayCredentials GatewayCredential[]
+  payments           Payment[]
+  operatorEarnings   OperatorEarning[]
+  operatorPayouts    OperatorPayout[]
+  clientWallets      ClientWallet[]
+  walletConsumptions WalletConsumption[]
+  peanpeCalls        PeanpeCall[]
+  serviceItems       ServiceItem[]
+  serviceItemImages  ServiceItemImage[]
+  btcpayStore        BtcpayStore?
+  btcpayInvoices     BtcpayInvoice[]
   walletPushSubscriptions WalletPushSubscription[]
   staffPushSubscriptions  StaffPushSubscription[]
-  staffCards              StaffCard[]
-  btcCashReturns          BtcCashReturn[]
-  userPhotos              UserPhoto[]
-  customerDisplays        CustomerDisplay[]
-  nights                  VenueNight[]
-  incidentAcks            IncidentAck[]
-  posTerminalOps          PosTerminalOp[]
-  approvalRequests        ApprovalRequest[]
-  walletCashTopUps        WalletCashTopUp[]
-  walletCards             WalletCard[]
-  walletCardEvents        WalletCardEvent[]
-  partyRefunds            PartyRefundRequest[]
-  paymentLines            PaymentLine[]
-  chargeRefCounter        ChargeRefCounter?
-  oxioPaySettlements      OxioPaySettlement[]
-  stalls                  Stall[]
-  reservationPackages     ReservationPackage[]
-  promoters               Promoter[]
-  reservations            Reservation[]
-  reservationGuests       ReservationGuest[]
-  reservationPayments     ReservationPayment[]
-  reservationSpends       ReservationSpend[]
-  walletGifts             WalletGift[]
+  staffCards         StaffCard[]
+  btcCashReturns     BtcCashReturn[]
+  userPhotos         UserPhoto[]
+  customerDisplays   CustomerDisplay[]
+  nights             VenueNight[]
+  incidentAcks       IncidentAck[]
+  posTerminalOps     PosTerminalOp[]
+  approvalRequests   ApprovalRequest[]
+  walletCashTopUps   WalletCashTopUp[]
+  walletCards        WalletCard[]
+  walletCardEvents   WalletCardEvent[]
+  partyRefunds       PartyRefundRequest[]
+  paymentLines       PaymentLine[]
+  chargeRefCounter   ChargeRefCounter?
+  oxioPaySettlements OxioPaySettlement[]
+  stalls             Stall[]
+  reservationPackages ReservationPackage[]
+  promoters           Promoter[]
+  reservations        Reservation[]
+  reservationGuests   ReservationGuest[]
+  reservationPayments ReservationPayment[]
+  reservationSpends   ReservationSpend[]
+  walletGifts         WalletGift[]
 
   @@index([businessId])
   @@map("venues")
@@ -213,43 +213,43 @@ enum Role {
 }
 
 model User {
-  id                      String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenantId                String    @db.Uuid
-  email                   String    @unique
-  passwordHash            String
-  role                    Role
-  totpSecret              String?
+  id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId     String    @db.Uuid
+  email        String    @unique
+  passwordHash String
+  role         Role
+  totpSecret   String?
   // Solo aplica cuando role = OPERATOR. 1500 bps = 15.00%
-  commissionBps           Int?
+  commissionBps Int?
   // Super admin "extra-tenant": puede listar/crear todos los locales y switchear
   // su JWT entre venues. tenantId del User sigue apuntando a su venue primario.
   // El flag se setea via CLI (pnpm cli set-super-admin --email X). NO via UI.
-  isSuperAdmin            Boolean   @default(false)
+  isSuperAdmin  Boolean   @default(false)
   // Nombre visible para admin (ej. "Ana", "Marina"). Solo OPERATOR.
-  displayName             String?
+  displayName  String?
   // Marca de invitacion pendiente — null cuando ya activo password.
-  invitedAt               DateTime?
+  invitedAt    DateTime?
   // JWT de un solo uso para set-password. Limpio al aceptar la invitacion.
-  inviteToken             String?   @unique
+  inviteToken  String?   @unique
   // sha256 hash del JWT self-onboarding (TTL 72h). Admin genera el link para
   // que la chica rellene su perfil ella sola si sabe manejar la web + KYC.
-  selfOnboardingToken     String?   @unique
+  selfOnboardingToken String? @unique
   // Phase 1A — routing de payout. Solo OPERATOR. Valores en migration 20260511 comment.
   // Si payoutMethod es null el modal "Marcar pagado" cae a MANUAL_CASH.
-  payoutMethod            String?
+  payoutMethod   String?
   // Cifrada (pa1:..., ENCRYPTION_KEK; ver apps/api/.../payout-account-crypto.ts).
   // Las antiguas en claro se leen igual hasta que las cifra el relleno.
-  payoutAddress           String?
+  payoutAddress  String?
   // El titular (accountHolder) va cifrado igual dentro del JSON.
-  payoutMetadata          Json?
-  payoutLabel             String?
+  payoutMetadata Json?
+  payoutLabel    String?
   // Cuenta segura (20261120310000): lo tapado para enseñar, el último cambio,
   // la espera de 48 h para pagar a la cuenta nueva y el aviso a la compañera.
-  payoutAddressMasked     String?
-  payoutHolderMasked      String?
-  payoutAccountChangedAt  DateTime? @db.Timestamptz
-  payoutHoldUntil         DateTime? @db.Timestamptz
-  payoutNoticeSeenAt      DateTime? @db.Timestamptz
+  payoutAddressMasked    String?
+  payoutHolderMasked     String?
+  payoutAccountChangedAt DateTime? @db.Timestamptz
+  payoutHoldUntil        DateTime? @db.Timestamptz
+  payoutNoticeSeenAt     DateTime? @db.Timestamptz
   // Alta con tres caminos (20261120500000). Nombre legal cifrado como la
   // cuenta (pa1:..., ver apps/api/.../alta-identity.ts) y fecha de nacimiento
   // (con menos de 18 años no se activa la cuenta). El dueño confirma que la
@@ -262,67 +262,67 @@ model User {
   oxiocardStatus          String    @default("NO_SOLICITADA")
   oxiocardStatusAt        DateTime? @db.Timestamptz
   // Tip beneficiary relation (cliente añade propina dirigida a esta operadora/staff)
-  tipsReceived            Payment[] @relation("PaymentTipBeneficiary")
+  tipsReceived        Payment[]           @relation("PaymentTipBeneficiary")
 
   // Phase 1A.1 — onboarding tracking (solo OPERATOR)
-  phone              String?
-  passportCountry    String?
-  passportLast4      String?
+  phone               String?
+  passportCountry     String?
+  passportLast4       String?
   /// Su documento (20261126200000_documento_companera): el tipo (DNI, NIE,
   /// PASAPORTE) y el número, cifrados como la cuenta de cobro (pa1:…). Se
   /// borran al darla de baja.
-  idDocumentType     String?
-  idDocumentNumber   String?
-  hasEmpadronamiento Boolean   @default(false)
-  hasNie             Boolean   @default(false)
-  hasTie             Boolean   @default(false)
-  walletProvider     String?
-  walletStatus       String?
-  walletTestPassed   Boolean   @default(false)
-  walletTestAt       DateTime? @db.Timestamptz
-  needsHelpWallet    Boolean   @default(false)
-  needsHelpDocs      Boolean   @default(false)
-  onboardingStatus   String    @default("NEW")
-  onboardingNotes    String?
+  idDocumentType      String?
+  idDocumentNumber    String?
+  hasEmpadronamiento  Boolean @default(false)
+  hasNie              Boolean @default(false)
+  hasTie              Boolean @default(false)
+  walletProvider      String?
+  walletStatus        String?
+  walletTestPassed    Boolean @default(false)
+  walletTestAt        DateTime? @db.Timestamptz
+  needsHelpWallet     Boolean @default(false)
+  needsHelpDocs       Boolean @default(false)
+  onboardingStatus    String  @default("NEW")
+  onboardingNotes     String?
   // Puesto (20261023100000): SALA | BARRA | HABITACIONES | COCINA | RECEPCION.
   // Da la sección por defecto de sus cobros (Sala → Servicios, Barra →
   // Copas…). Null = el de su rol (chica → Sala, resto → Barra).
-  post               String?
+  post                String?
   // OxioParty (20261120300000): la caseta en la que trabaja. Sus cobros y los
   // consumos del saldo que cobra llevan esta caseta (stallId). La clave ajena
   // lleva el local: nunca una caseta de otro local.
-  stallId            String?   @db.Uuid
-  createdAt          DateTime  @default(now()) @db.Timestamptz
-  updatedAt          DateTime  @updatedAt @db.Timestamptz
-  deletedAt          DateTime? @db.Timestamptz
+  stallId             String?   @db.Uuid
+  createdAt    DateTime  @default(now()) @db.Timestamptz
+  updatedAt    DateTime  @updatedAt @db.Timestamptz
+  deletedAt    DateTime? @db.Timestamptz
 
   venue Venue  @relation(fields: [tenantId], references: [id])
   stall Stall? @relation("StallStaff", fields: [stallId, tenantId], references: [id, tenantId], onDelete: Restrict)
 
   // Relaciones para OPERATOR
-  earnings             OperatorEarning[]       @relation("OperatorEarnings")
-  payouts              OperatorPayout[]        @relation("OperatorPayouts")
-  payoutsPaid          OperatorPayout[]        @relation("PayoutsPaid")
-  payoutsReconciled    OperatorPayout[]        @relation("PayoutsReconciled")
-  paymentsCreated      Payment[]               @relation("PaymentCreatedBy")
+  earnings              OperatorEarning[]   @relation("OperatorEarnings")
+  payouts               OperatorPayout[]    @relation("OperatorPayouts")
+  payoutsPaid           OperatorPayout[]    @relation("PayoutsPaid")
+  payoutsReconciled     OperatorPayout[]    @relation("PayoutsReconciled")
+  paymentsCreated       Payment[]           @relation("PaymentCreatedBy")
   // Phase 1B — wallet consumptions cobrados por este usuario
-  providedConsumptions WalletConsumption[]     @relation("ConsumptionProvider")
-  reversedConsumptions WalletConsumption[]     @relation("ConsumptionReversedBy")
+  providedConsumptions  WalletConsumption[] @relation("ConsumptionProvider")
+  reversedConsumptions  WalletConsumption[] @relation("ConsumptionReversedBy")
   // «Copa con invitación»: las líneas en las que la invitaron.
-  invitedLines         PaymentLine[]           @relation("PaymentLineBeneficiary")
+  invitedLines          PaymentLine[]       @relation("PaymentLineBeneficiary")
   // Las líneas de servicio que se le cobraron a su nombre (cobro por el encargado).
-  servedLines          PaymentLine[]           @relation("PaymentLineServiceOperator")
+  servedLines           PaymentLine[]       @relation("PaymentLineServiceOperator")
   // Sus llaves de acceso (20261109100000): verificarse sin 2FA.
-  staffPasskeys        StaffPasskey[]
+  staffPasskeys         StaffPasskey[]
   // Su foto de perfil (20261113100000).
-  photo                UserPhoto?
+  photo                 UserPhoto?
   // Su «Pantalla del cliente» (20261117400000): una como mucho (userId único).
-  customerDisplays     CustomerDisplay[]
+  customerDisplays      CustomerDisplay[]
   // Reservados: su ficha de RRPP (su % y su enlace).
-  promoters            Promoter[]
+  promoters             Promoter[]
   // «Te han pagado» (20261120400000): los navegadores que avisa cuando le pagan.
-  pushSubscriptions    StaffPushSubscription[]
-  staffCards           StaffCard[]
+  pushSubscriptions     StaffPushSubscription[]
+  staffCards            StaffCard[]
 
   @@unique([id, tenantId])
   @@index([tenantId])
@@ -340,32 +340,32 @@ model Terminal {
   //   - Valores enum: BARRA, HABITACIONES, MESAS, OTRO (validados en app, no DB).
   //   - "OTRO/<custom>" permitido cuando admin necesita zona personalizada.
   //   - NULL = terminal legacy sin zona asignada (backward compat).
-  zone                    String?
+  zone          String?
   // Modelo hardware: "PAX_A920_PRO" | "OTRO" (futuro: REDSYS_VX, INGENICO...).
-  hardwareModel           String?
+  hardwareModel String?
   // S/N físico del datáfono — futuro mapping con Paytef Terminal ID.
-  deviceSerial            String?
+  deviceSerial  String?
   // App NightPay en el datáfono (Paytef Device API): credencial del aparato
   // (solo el hash) y código de vinculación de un solo uso.
-  deviceTokenHash         String?   @unique
-  devicePairedAt          DateTime? @db.Timestamptz
-  deviceLastSeenAt        DateTime? @db.Timestamptz
-  pairingCodeHash         String?   @unique
-  pairingCodeExpiresAt    DateTime? @db.Timestamptz
+  deviceTokenHash      String?   @unique
+  devicePairedAt       DateTime? @db.Timestamptz
+  deviceLastSeenAt     DateTime? @db.Timestamptz
+  pairingCodeHash      String?   @unique
+  pairingCodeExpiresAt DateTime? @db.Timestamptz
   // Rotación de la credencial: la nueva convive con la anterior hasta que el
   // datáfono la usa (si no le llega la respuesta, la anterior sigue valiendo).
   // Fecha de la credencial en uso, para la caducidad opcional
   // (POS_DEVICE_TOKEN_MAX_AGE_DAYS; sin ella, no caduca).
-  deviceTokenNextHash     String?   @unique
-  deviceTokenIssuedAt     DateTime? @db.Timestamptz
+  deviceTokenNextHash  String?   @unique
+  deviceTokenIssuedAt  DateTime? @db.Timestamptz
   // Fecha de la credencial nueva (rotación): pasa a deviceTokenIssuedAt solo
   // cuando el datáfono la usa. Rotar no rejuvenece la credencial en uso.
   deviceTokenNextIssuedAt DateTime? @db.Timestamptz
   // Datáfono de la recepción: el único que cobra recargas en efectivo (el
   // datáfono no sabe quién lo lleva). Lo marca el dueño en Datáfonos.
-  reception               Boolean   @default(false)
+  reception            Boolean   @default(false)
 
-  venue    Venue           @relation(fields: [tenantId], references: [id])
+  venue    Venue     @relation(fields: [tenantId], references: [id])
   payments Payment[]
   posOps   PosTerminalOp[]
 
@@ -378,13 +378,13 @@ model Terminal {
 // ───────────────────────── Gateway credentials ─────────────────────
 
 enum Provider {
-  WIPAY // ESP Global Payment Systems — acquirer; sin claves activas
-  PEANPE // pasarela alternativa; sin claves activas
-  PAYTEF // pasarela omnicanal Paytef (Payment LINK API) — único activo hoy
-  REDSYS // Redsys SIS — protocolo estándar de bancos ES (BBVA, Santander,
-  // CaixaBank, Sabadell). Form POST hosted + HMAC-SHA256-3DES.
-  BTCPAY // BTCPay Server del propio local: «Pagar con bitcoin». No es la
-  // pasarela de tarjeta del local, es una forma de pago más.
+  WIPAY   // ESP Global Payment Systems — acquirer; sin claves activas
+  PEANPE  // pasarela alternativa; sin claves activas
+  PAYTEF  // pasarela omnicanal Paytef (Payment LINK API) — único activo hoy
+  REDSYS  // Redsys SIS — protocolo estándar de bancos ES (BBVA, Santander,
+          // CaixaBank, Sabadell). Form POST hosted + HMAC-SHA256-3DES.
+  BTCPAY  // BTCPay Server del propio local: «Pagar con bitcoin». No es la
+          // pasarela de tarjeta del local, es una forma de pago más.
 }
 
 // «Pagar con bitcoin» (BTCPay Server): la conexión de CADA local a SU BTCPay.
@@ -392,25 +392,25 @@ enum Provider {
 // derivada de ENCRYPTION_KEK) y no vuelven nunca al navegador. FORCE RLS: solo
 // dentro de una transacción de PrismaService.
 model BtcpayStore {
-  id                String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenantId          String    @unique @db.Uuid
-  baseUrl           String
-  storeId           String
-  apiKeyEnc         String
-  webhookSecretEnc  String?
-  webhookId         String?
+  id                 String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId           String    @unique @db.Uuid
+  baseUrl            String
+  storeId            String
+  apiKeyEnc          String
+  webhookSecretEnc   String?
+  webhookId          String?
   // Token aleatorio de la ruta del aviso: identifica al local antes de verificar la firma.
-  hookToken         String    @unique
-  enabled           Boolean   @default(false)
+  hookToken          String    @unique
+  enabled            Boolean   @default(false)
   // PAYMENTS (cobros) | TOPUPS (recargas) | BOTH
-  purpose           String    @default("BOTH")
+  purpose            String    @default("BOTH")
   // Devolver en efectivo los pagos con bitcoin (20261117100000). Apagado de fábrica.
-  cashRefundEnabled Boolean   @default(false)
-  lastCheckAt       DateTime? @db.Timestamptz
-  lastCheckOk       Boolean?
-  lastCheckMessage  String?
-  createdAt         DateTime  @default(now()) @db.Timestamptz
-  updatedAt         DateTime  @default(now()) @updatedAt @db.Timestamptz
+  cashRefundEnabled  Boolean   @default(false)
+  lastCheckAt        DateTime? @db.Timestamptz
+  lastCheckOk        Boolean?
+  lastCheckMessage   String?
+  createdAt          DateTime  @default(now()) @db.Timestamptz
+  updatedAt          DateTime  @default(now()) @updatedAt @db.Timestamptz
 
   venue Venue @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
@@ -420,33 +420,33 @@ model BtcpayStore {
 // Las facturas de bitcoin de los cobros. Una abierta (New/Processing) por cobro.
 // FORCE RLS como el resto del dinero del local.
 model BtcpayInvoice {
-  id               String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenantId         String    @db.Uuid
-  paymentId        String    @db.Uuid
-  invoiceId        String    @unique
-  storeId          String
+  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId       String    @db.Uuid
+  paymentId      String    @db.Uuid
+  invoiceId      String    @unique
+  storeId        String
   // New | Processing | Settled | Expired | Invalid
-  status           String    @default("New")
+  status         String    @default("New")
   // None | PaidLate | PaidPartial | Marked | PaidOver
   additionalStatus String?
   // Lo facturado en céntimos de euro (importe + comisión del servicio).
-  amountCents      Int
+  amountCents    Int
   // Importe en BTC (texto decimal) y cambio EUR por BTC al crear la factura.
-  amountBtc        String?
-  rate             String?
+  amountBtc      String?
+  rate           String?
   // Lo que llegó de verdad (20261117100000): en BTC (texto decimal) y en céntimos
   // de euro al cambio de la factura. Null: aún no se ha mirado (o una de antes).
-  paidBtc          String?
-  paidCents        Int?
-  checkoutLink     String
+  paidBtc        String?
+  paidCents      Int?
+  checkoutLink   String
   // El enlace del QR: bitcoin normal y Lightning juntos si la tienda tiene los dos.
-  qrLink           String
-  chainAddress     String?
-  expiresAt        DateTime  @db.Timestamptz
-  closedAt         DateTime? @db.Timestamptz
-  lastCheckedAt    DateTime? @db.Timestamptz
-  createdAt        DateTime  @default(now()) @db.Timestamptz
-  updatedAt        DateTime  @default(now()) @updatedAt @db.Timestamptz
+  qrLink         String
+  chainAddress   String?
+  expiresAt      DateTime  @db.Timestamptz
+  closedAt       DateTime? @db.Timestamptz
+  lastCheckedAt  DateTime? @db.Timestamptz
+  createdAt      DateTime  @default(now()) @db.Timestamptz
+  updatedAt      DateTime  @default(now()) @updatedAt @db.Timestamptz
 
   venue   Venue   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   payment Payment @relation(fields: [paymentId], references: [id], onDelete: Cascade)
@@ -648,7 +648,7 @@ model Payment {
   // (b) cómo se agrega en el Z-report (split chicas vs local).
   // CHICA_SERVICE: usa User.commissionBps (override) o Venue.operatorCommissionDefaults.CHICA_SERVICE
   // VENUE_*     : siempre usa Venue.operatorCommissionDefaults[<categoría>]
-  revenueCategory String @default("EXTRA")
+  revenueCategory String  @default("EXTRA")
 
   // Phase 1B — si este Payment es el top-up de un ClientWallet, walletId apunta
   // a la wallet creada/recargada. Cuando Payment llega a AUTHORIZED, el balance
@@ -671,7 +671,7 @@ model Payment {
   // Con la comisión, platformCommissionBps se fija a 0 (el local ya no paga el
   // % antiguo). CHECK en SQL: % NULL o 0–1200 e importe ≥ 0.
   serviceFeeBps         Int?
-  serviceFeeCents       Int  @default(0)
+  serviceFeeCents       Int     @default(0)
 
   // Propina opcional (cliente decide añadir). Campos:
   //  - tipCents: importe extra sobre amountCents (no entra en availableAmountCents
@@ -679,20 +679,20 @@ model Payment {
   //  - tipGoesTo: política — 'operator' (chica creator), 'venue' (local), 'shared',
   //              'beneficiary' (usa tipBeneficiaryUserId explícito).
   //  - tipBeneficiaryUserId: override del beneficiario cuando tipGoesTo='beneficiary'.
-  tipCents             Int     @default(0)
-  tipGoesTo            String?
-  tipBeneficiaryUserId String? @db.Uuid
+  tipCents              Int     @default(0)
+  tipGoesTo             String?
+  tipBeneficiaryUserId  String? @db.Uuid
 
   // URL del payment-link/checkout del PSP. NightPay redirige al cliente aquí
   // cuando escanea el QR. Se popula al primer startAuthorization() exitoso.
-  gatewayPaymentUrl String?
+  gatewayPaymentUrl    String?
 
   // Para PSPs que esperan form POST desde el navegador (Cecabank/Wipay TPV
   // Virtual, Redsys, etc.) en vez de redirect. Shape:
   //   { action: string, method: "POST", fields: Record<string,string> }
   // Persistido para que un refresh del /pay/{token} no regenere firmas
   // distintas (Cecabank rechaza Num_operacion duplicado).
-  gatewayCheckoutForm Json?
+  gatewayCheckoutForm  Json?
 
   // Datos de tokenización capturados del callback PSP cuando el cobro pidió
   // crear un token de tarjeta para cobros recurrentes (PIN-flow). Shape:
@@ -700,7 +700,7 @@ model Payment {
   //     cardBrand: string, cofTxnId: string, capturedAt: string (ISO) }
   // El identifier es el token reusable (NO el PAN). NightPay nunca almacena
   // PAN ni CVV — eso lo gestiona el PSP. SAQ-A compliant.
-  tokenizationData Json?
+  tokenizationData     Json?
 
   // Fase 0 — datos que manda el banco al aprobar (aviso Redsys o confirmación
   // de datáfono). payMethodCode = Ds_ProcessedPayMethod tal cual (sin mapear
@@ -715,26 +715,26 @@ model Payment {
   authorizedAt  DateTime? @db.Timestamptz
 
   // Fase 1A — foto del servicio de la carta (si el cobro salió de ella).
-  serviceItemId      String? @db.Uuid
-  serviceName        String?
+  serviceItemId String?   @db.Uuid
+  serviceName   String?
   // Datáfono PAX: número de operación de Paytef y datáfono que lo cobró (el
   // par es único: una operación paga un solo cobro).
   posOperationNumber String?
   posTerminalId      String? @db.Uuid
-  durationMin        Int?
+  durationMin   Int?
   // Referencia corta por local (C-0001), del contador charge_ref_counters
   // (compartido con los cobros del saldo). Null en los cobros antiguos.
-  ref                Int?
+  ref           Int?
   // OxioParty (20261120300000): la caseta de quien creó el cobro, fijada al
   // crearlo (EDITION=party). Null: OxioPay, una recarga o sin caseta.
-  stallId            String? @db.Uuid
+  stallId       String?   @db.Uuid
 
-  venue              Venue                @relation(fields: [tenantId], references: [id])
-  stall              Stall?               @relation(fields: [stallId, tenantId], references: [id, tenantId], onDelete: Restrict)
-  terminal           Terminal             @relation(fields: [terminalId], references: [id])
-  createdBy          User?                @relation("PaymentCreatedBy", fields: [createdByUserId], references: [id])
-  wallet             ClientWallet?        @relation(fields: [walletId], references: [id])
-  tipBeneficiary     User?                @relation("PaymentTipBeneficiary", fields: [tipBeneficiaryUserId], references: [id])
+  venue              Venue            @relation(fields: [tenantId], references: [id])
+  stall              Stall?           @relation(fields: [stallId, tenantId], references: [id, tenantId], onDelete: Restrict)
+  terminal           Terminal         @relation(fields: [terminalId], references: [id])
+  createdBy          User?            @relation("PaymentCreatedBy", fields: [createdByUserId], references: [id])
+  wallet             ClientWallet?    @relation(fields: [walletId], references: [id])
+  tipBeneficiary     User?            @relation("PaymentTipBeneficiary", fields: [tipBeneficiaryUserId], references: [id])
   events             PaymentEvent[]
   refunds            Refund[]
   operatorEarnings   OperatorEarning[]
@@ -752,7 +752,6 @@ model Payment {
 
   @@unique([tenantId, idempotencyKey])
   @@unique([tenantId, ref])
-  @@unique([posTerminalId, posOperationNumber])
   @@index([tenantId, status])
   @@index([tenantId, createdAt(sort: Desc)])
   @@index([tenantId, createdByUserId, createdAt(sort: Desc)])
@@ -766,6 +765,7 @@ model Payment {
   // (qrExpiresAt) de los CREATED/AWAITING_CAPTURE, para el barrido de caducados.
   @@index([walletId])
   @@index([tipBeneficiaryUserId])
+  @@unique([posTerminalId, posOperationNumber])
   @@map("payments")
 }
 
@@ -847,25 +847,25 @@ model WalletChargeRequest {
 
 // Saldo NightPay — devolución del saldo al cliente que se va.
 model WalletPayout {
-  id                    String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenantId              String    @db.Uuid
-  walletId              String    @db.Uuid
-  amountCents           Int
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId      String   @db.Uuid
+  walletId      String   @db.Uuid
+  amountCents   Int
   // CARD (hecha en el portal de BBVA) | CASH (en efectivo en el local)
-  method                String
-  bankReference         String?
-  note                  String?
-  paidByUserId          String    @db.Uuid
-  createdAt             DateTime  @default(now()) @db.Timestamptz
+  method        String
+  bankReference String?
+  note          String?
+  paidByUserId  String   @db.Uuid
+  createdAt     DateTime @default(now()) @db.Timestamptz
   // DONE (hecha) | PENDING (a la tarjeta, apuntándose en el banco: el saldo
   // ya salió de la wallet; se retoma si se quedó a medias). Una PENDING por
   // wallet (índice parcial wallet_payouts_one_pending_per_wallet). Las sumas
   // de lo devuelto, solo con DONE.
-  status                String    @default("DONE")
+  status        String    @default("DONE")
   // Cuándo se empezó a apuntar (un segundo clic no la apunta dos veces).
-  claimedAt             DateTime? @db.Timestamptz
+  claimedAt     DateTime? @db.Timestamptz
   /// Reintento de una salida de recepción: nunca vuelve a sacar dinero.
-  requestKey            String?
+  requestKey    String?
   /// Saldo tras esa salida (recibo estable aunque luego se recargue).
   remainingBalanceCents Int?
 
@@ -887,31 +887,31 @@ model WalletPayout {
 // (una por recarga; CHECK de signo en SQL): resta en la caja, el Z y los
 // informes como cualquier otra. FORCE RLS: solo dentro de una transacción.
 model WalletCashTopUp {
-  id                String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenantId          String   @db.Uuid
-  walletId          String   @db.Uuid
-  amountCents       Int
-  takenByUserId     String?  @db.Uuid
-  terminalId        String?  @db.Uuid
-  idempotencyKey    String
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId       String   @db.Uuid
+  walletId       String   @db.Uuid
+  amountCents    Int
+  takenByUserId  String?  @db.Uuid
+  terminalId     String?  @db.Uuid
+  idempotencyKey String
   // Huella de lo pedido con la clave (destino tal como se pidió + importe) y
   // el recibo que se enseñó: un reintento con otra petición da 409 y el mismo
   // devuelve el mismo recibo, también si el saldo se sumó luego a otro. Null
   // en las anteriores a 20261026000000.
   intentFingerprint String?
   receipt           Json?
-  createdAt         DateTime @default(now()) @db.Timestamptz
+  createdAt      DateTime @default(now()) @db.Timestamptz
   /// La recarga abrió un saldo nuevo (aviso de saldos nuevos en efectivo seguidos).
-  createdWallet     Boolean  @default(false)
+  createdWallet  Boolean  @default(false)
   /// Anulación: la recarga que anula (la fila es negativa).
-  voidOfId          String?  @unique @db.Uuid
+  voidOfId       String?  @unique @db.Uuid
   /// Por qué se anuló (solo en las anulaciones).
-  reason            String?
+  reason         String?
   /// «Comisión del servicio» de la recarga (20261030100000): el % del momento
   /// (null = sin comisión) y su importe, ENCIMA de amountCents (el saldo). Entra
   /// en la caja y se debe a OxioPay. En una anulación, negativa (la de la recarga).
-  serviceFeeBps     Int?
-  serviceFeeCents   Int      @default(0)
+  serviceFeeBps   Int?
+  serviceFeeCents Int     @default(0)
 
   venue    Venue            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   wallet   ClientWallet     @relation(fields: [walletId], references: [id], onDelete: Cascade)
@@ -920,7 +920,6 @@ model WalletCashTopUp {
 
   // Reservados: el resto de una reserva pagado en efectivo.
   reservationPayment ReservationPayment?
-
   @@unique([tenantId, idempotencyKey])
   @@index([tenantId, createdAt(sort: Desc)])
   @@index([walletId, createdAt])
@@ -972,23 +971,23 @@ model IncidentAck {
 // Solo en SQL: índice único parcial (una pendiente por chica), índice parcial
 // de las devoluciones pendientes por cobro y los CHECK (quien decide ≠ quien pide…).
 model ApprovalRequest {
-  id              String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenantId        String         @db.Uuid
-  kind            ApprovalKind
-  status          ApprovalStatus @default(PENDING)
+  id            String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId      String         @db.Uuid
+  kind          ApprovalKind
+  status        ApprovalStatus @default(PENDING)
   // La chica (PAYOUT) o el cobro (REFUND).
-  targetId        String         @db.Uuid
-  amountCents     Int
-  payload         Json
-  requestedById   String         @db.Uuid
-  requestedAt     DateTime       @default(now()) @db.Timestamptz
-  decidedById     String?        @db.Uuid
-  decidedAt       DateTime?      @db.Timestamptz
-  decisionNote    String?
+  targetId      String         @db.Uuid
+  amountCents   Int
+  payload       Json
+  requestedById String         @db.Uuid
+  requestedAt   DateTime       @default(now()) @db.Timestamptz
+  decidedById   String?        @db.Uuid
+  decidedAt     DateTime?      @db.Timestamptz
+  decisionNote  String?
   // Pago a la chica o devolución que salió al aprobarla.
-  resultRef       String?        @db.Uuid
-  failureReason   String?
-  updatedAt       DateTime       @default(now()) @updatedAt @db.Timestamptz
+  resultRef     String?        @db.Uuid
+  failureReason String?
+  updatedAt     DateTime       @default(now()) @updatedAt @db.Timestamptz
   // Idempotency-Key de quien lo pidió (pago a la chica): repetir la petición
   // sin respuesta devuelve la misma solicitud; otra petición con la misma, 409.
   idempotencyKey  String?
@@ -1017,17 +1016,17 @@ enum ApprovalStatus {
 // Fase 1D — noche del local: se abre y se cierra con informe Z congelado.
 // Una sola abierta por local (índice parcial en SQL: venue_nights_one_open_per_venue).
 model VenueNight {
-  id                String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenantId          String    @db.Uuid
-  openedAt          DateTime  @default(now()) @db.Timestamptz
-  openedBy          String?   @db.Uuid
-  closedAt          DateTime? @db.Timestamptz
-  closedBy          String?   @db.Uuid
-  autoClosed        Boolean   @default(false)
-  pendingAtClose    Int       @default(0)
-  closeNote         String?
-  zReport           Json?
-  createdAt         DateTime  @default(now()) @db.Timestamptz
+  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId       String    @db.Uuid
+  openedAt       DateTime  @default(now()) @db.Timestamptz
+  openedBy       String?   @db.Uuid
+  closedAt       DateTime? @db.Timestamptz
+  closedBy       String?   @db.Uuid
+  autoClosed     Boolean   @default(false)
+  pendingAtClose Int       @default(0)
+  closeNote      String?
+  zReport        Json?
+  createdAt      DateTime  @default(now()) @db.Timestamptz
   // Cierre en pasos con arqueo (20261016400000): fondo de caja al abrir (o al
   // cerrar), lo que debería haber, lo contado y la diferencia (contado −
   // esperado). También van congelados en el Z (bloque «Caja»).
@@ -1050,32 +1049,32 @@ model VenueNight {
 // Fase 1A — carta de servicios por local. La chica elige un servicio en vez
 // de teclear importe; precio y categoría los fija el local.
 model ServiceItem {
-  id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenantId     String    @db.Uuid
-  name         String
-  durationMin  Int?
-  priceCents   Int
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId    String   @db.Uuid
+  name        String
+  durationMin Int?
+  priceCents  Int
   // Sección: CHICA_SERVICE | VENUE_BAR | VENUE_ROOM | VENUE_FOOD | VENUE_ENTRY
   // (EXTRA solo en los antiguos).
-  category     String    @default("CHICA_SERVICE")
-  active       Boolean   @default(true)
-  sortOrder    Int       @default(0)
+  category    String   @default("CHICA_SERVICE")
+  active      Boolean  @default(true)
+  sortOrder   Int      @default(0)
   // Pack (20261023100000): [{ category, amountCents }] que suman priceCents
   // («1 h con habitación» = Servicios 120 € + Habitaciones 30 €). Null = de
   // una sola sección (category).
-  components   Json?
+  components  Json?
   // «Copa con invitación» (20261023100200): en Copas, con su precio; la venta
   // se reparte con la chica invitada (venues.invitationRules).
-  isInvitation Boolean   @default(false)
+  isInvitation Boolean @default(false)
   // Icono de la colección cerrada (CARTA_ICON_CODES, 20261111100000); null = el de su sección.
-  icon         String?   @db.VarChar(24)
+  icon        String?  @db.VarChar(24)
   // «Agotado» (20261120100000): cuándo se marcó. Solo vale si es de la noche abierta
   // (soldOutAt >= su openedAt); al cambiar la noche vuelve solo. Null = hay.
-  soldOutAt    DateTime? @db.Timestamptz
-  createdAt    DateTime  @default(now()) @db.Timestamptz
-  updatedAt    DateTime  @default(now()) @updatedAt @db.Timestamptz
+  soldOutAt   DateTime? @db.Timestamptz
+  createdAt   DateTime @default(now()) @db.Timestamptz
+  updatedAt   DateTime @default(now()) @updatedAt @db.Timestamptz
 
-  venue        Venue             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  venue        Venue              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   paymentLines PaymentLine[]
   image        ServiceItemImage?
 
@@ -1226,13 +1225,13 @@ model PaymentLine {
   serviceOperatorId     String?  @db.Uuid
   createdAt             DateTime @default(now()) @db.Timestamptz
 
-  venue           Venue                @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  payment         Payment?             @relation(fields: [paymentId], references: [id], onDelete: Cascade)
-  walletCharge    WalletChargeRequest? @relation(fields: [walletChargeId], references: [id], onDelete: Cascade)
-  serviceItem     ServiceItem?         @relation(fields: [serviceItemId], references: [id], onDelete: SetNull)
-  beneficiary     User?                @relation("PaymentLineBeneficiary", fields: [beneficiaryOperatorId], references: [id], onDelete: SetNull)
-  serviceOperator User?                @relation("PaymentLineServiceOperator", fields: [serviceOperatorId], references: [id], onDelete: SetNull)
-  earnings        OperatorEarning[]
+  venue        Venue                @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  payment      Payment?             @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  walletCharge WalletChargeRequest? @relation(fields: [walletChargeId], references: [id], onDelete: Cascade)
+  serviceItem  ServiceItem?         @relation(fields: [serviceItemId], references: [id], onDelete: SetNull)
+  beneficiary  User?                @relation("PaymentLineBeneficiary", fields: [beneficiaryOperatorId], references: [id], onDelete: SetNull)
+  serviceOperator User?             @relation("PaymentLineServiceOperator", fields: [serviceOperatorId], references: [id], onDelete: SetNull)
+  earnings     OperatorEarning[]
 
   @@index([beneficiaryOperatorId])
   @@index([paymentId])
@@ -1283,44 +1282,44 @@ enum RefundStatus {
 }
 
 model Refund {
-  id                       String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenantId                 String       @db.Uuid
-  paymentId                String       @db.Uuid
-  amountCents              Int
-  reason                   String?
-  requestedBy              String       @db.Uuid
-  status                   RefundStatus @default(PENDING)
-  providerRefundId         String?
+  id               String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId         String       @db.Uuid
+  paymentId        String       @db.Uuid
+  amountCents      Int
+  reason           String?
+  requestedBy      String       @db.Uuid
+  status           RefundStatus @default(PENDING)
+  providerRefundId String?
   // Devolución pedida desde el panel (20261026000000): la clave de la
   // pantalla, la huella de lo pedido (cobro, importe, quién) y la respuesta
   // que se repite al reintentar. Null = sin clave (las de antes, las del banco).
-  idempotencyKey           String?
-  intentFingerprint        String?
-  replayResponse           Json?
+  idempotencyKey    String?
+  intentFingerprint String?
+  replayResponse    Json?
   // Repaso del descuento a la chica: siguiente intento, intentos y último fallo.
-  earningReversalRetryAt   DateTime?    @db.Timestamptz
-  earningReversalAttempts  Int          @default(0)
+  earningReversalRetryAt   DateTime? @db.Timestamptz
+  earningReversalAttempts  Int       @default(0)
   earningReversalLastError String?
   // Fase 1C: hecha en el portal del banco y apuntada a mano en el panel.
-  registeredManually       Boolean      @default(false)
-  bankRefundedAt           DateTime?    @db.Timestamptz
+  registeredManually Boolean     @default(false)
+  bankRefundedAt     DateTime?   @db.Timestamptz
   // La parte de esta devolución que es «Comisión del servicio» (20261030100000):
   // en proporción a lo cobrado, por lo acumulado (sin céntimos sueltos). Se fija
   // al darla por hecha, con el cobro bloqueado. 0 en las recargas y sin comisión.
-  serviceFeeCents          Int          @default(0)
+  serviceFeeCents    Int         @default(0)
   // Devuelta en efectivo (20261117100000): un cobro pagado con bitcoin. Sale de
   // la caja; no del banco ni de la cartera de bitcoin. Con el código del recibo
   // que enseñó el cliente.
-  paidInCash               Boolean      @default(false)
-  receiptCode              String?
-  createdAt                DateTime     @default(now()) @db.Timestamptz
+  paidInCash         Boolean     @default(false)
+  receiptCode        String?
+  createdAt        DateTime     @default(now()) @db.Timestamptz
 
   payment   Payment           @relation(fields: [paymentId], references: [id])
   reversals EarningReversal[]
 
-  @@unique([tenantId, idempotencyKey])
   // CHECK solo en SQL (20261029400100_check_dinero): amountCents > 0.
   @@index([tenantId, paymentId])
+  @@unique([tenantId, idempotencyKey])
   @@map("refunds")
 }
 
@@ -1421,26 +1420,26 @@ model OperatorPayout {
   // Phase 1A — referencia externa + estado reconciliación
   externalTxId         String?
   externalRail         String?
-  reconciliationStatus String    @default("UNRECONCILED")
+  reconciliationStatus String   @default("UNRECONCILED")
   receiptUrl           String?
   reconciledAt         DateTime? @db.Timestamptz
-  reconciledByUserId   String?   @db.Uuid
+  reconciledByUserId   String?  @db.Uuid
 
   // FX snapshot al momento de crear el payout (para rails cripto). Permite
   // reconciliar con la tasa congelada, no la actual — evita falsos MISMATCH
   // por volatilidad EUR↔USDT entre creación y verificación on-chain.
-  expectedAmountUsdt Decimal? @db.Decimal(20, 6)
-  payoutFxRate       Decimal? @db.Decimal(12, 6)
+  expectedAmountUsdt   Decimal? @db.Decimal(20, 6)
+  payoutFxRate         Decimal? @db.Decimal(12, 6)
 
   // Idempotency-Key de «Marcar pagado» (repetirlo sin respuesta no paga dos
   // veces) y la huella de quién y qué pidió: otra petición con la misma, 409.
-  idempotencyKey  String?
-  idempotencyHash String?
+  idempotencyKey       String?
+  idempotencyHash      String?
 
   // La dirección de cobro que tenía la persona al apuntar el pago
   // (20261029400200): la verificación on-chain compara con esta, no con la de
   // ahora. NULL = pago de antes (se compara con la actual); '' = no tenía.
-  paidToAddress String?
+  paidToAddress        String?
 
   venue        Venue             @relation(fields: [tenantId], references: [id])
   operator     User              @relation("OperatorPayouts", fields: [operatorId], references: [id])
@@ -1508,18 +1507,18 @@ model Reconciliation {
 // tenantId puede ser null para acciones globales del owner cross-venue.
 
 model AuditEvent {
-  id         BigInt   @id @default(autoincrement())
-  tenantId   String?  @db.Uuid
-  actorId    String?  @db.Uuid
-  actorEmail String?
-  action     String
-  targetType String?
-  targetId   String?
-  payload    Json?
-  ip         String?
-  userAgent  String?
-  traceId    String?
-  occurredAt DateTime @default(now()) @db.Timestamptz
+  id          BigInt    @id @default(autoincrement())
+  tenantId    String?   @db.Uuid
+  actorId     String?   @db.Uuid
+  actorEmail  String?
+  action      String
+  targetType  String?
+  targetId    String?
+  payload     Json?
+  ip          String?
+  userAgent   String?
+  traceId     String?
+  occurredAt  DateTime  @default(now()) @db.Timestamptz
 
   @@index([tenantId, occurredAt(sort: Desc)])
   @@index([actorId, occurredAt(sort: Desc)])
@@ -1543,64 +1542,64 @@ enum WalletStatus {
 }
 
 model ClientWallet {
-  id                String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenantId          String       @db.Uuid
+  id           String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId     String       @db.Uuid
   // Identificador opcional del cliente (phone, email, NFC tag, anon hash).
   // No es PII obligatoria — el saldo se identifica por qrToken.
-  identifier        String?
-  balanceCents      Int          @default(0)
-  status            WalletStatus @default(ACTIVE)
+  identifier   String?
+  balanceCents Int          @default(0)
+  status       WalletStatus @default(ACTIVE)
   // Null = no expira mientras ACTIVE (típico durante la noche).
   // Set cuando admin convierte balance restante en CRÉDITO para próxima visita.
-  expiresAt         DateTime?    @db.Timestamptz
+  expiresAt    DateTime?    @db.Timestamptz
   // Token único en el QR del cliente. La operadora/camarero/recepción escanean
   // este token para cobrar consumiciones.
-  qrToken           String       @unique
+  qrToken      String       @unique
   // Saldo NightPay: código que enseña el cliente, grupo de locales y si pidió
   // que le devuelvan el saldo.
-  shortCode         String?
-  walletGroup       String?
-  closeRequestedAt  DateTime?    @db.Timestamptz
+  shortCode        String?
+  walletGroup      String?
+  closeRequestedAt DateTime? @db.Timestamptz
   // Recarga sumada a otro saldo del mismo cliente (con su Face ID).
-  mergedIntoId      String?      @db.Uuid
+  mergedIntoId     String?   @db.Uuid
   // PIN del cliente para pagar sin sacar el móvil (HMAC del servidor + scrypt).
-  pinHash           String?
+  pinHash          String?
   // 5 PIN fallidos seguidos → bloqueado hasta que lo desbloquee el encargado.
-  pinFails          Int          @default(0)
-  pinLockedAt       DateTime?    @db.Timestamptz
-  pinFailedAt       DateTime?    @db.Timestamptz
+  pinFails         Int       @default(0)
+  pinLockedAt      DateTime? @db.Timestamptz
+  pinFailedAt      DateTime? @db.Timestamptz
   // El encargado que puso el PIN sin el cliente delante: él no cobra con ese PIN.
-  pinSetById        String?      @db.Uuid
+  pinSetById       String?   @db.Uuid
   // Bloqueado por el super-admin: no paga (sí se le puede devolver). 20261016100100.
-  blockedAt         DateTime?    @db.Timestamptz
-  blockedReason     String?
+  blockedAt        DateTime? @db.Timestamptz
+  blockedReason    String?
   // Último PIN bueno: lo gastado con el NFC sin PIN se cuenta desde aquí
   // (o desde las 08:00 de Madrid, lo más tarde). 20261023200000.
-  noPinResetAt      DateTime?    @db.Timestamptz
+  noPinResetAt     DateTime? @db.Timestamptz
   // Recarga cobrada sin leer antes el NFC del cliente: espera a sumarse a su
   // saldo (al acercar su NFC o teclear su código). Quién la cobró.
-  pendingAssignAt   DateTime?    @db.Timestamptz
-  pendingAssignById String?      @db.Uuid
+  pendingAssignAt   DateTime? @db.Timestamptz
+  pendingAssignById String?   @db.Uuid
   // Teléfono opcional al darle una ficha nueva (20261110100000): solo para
   // encontrar su saldo si lo pierde todo. Dato personal: fuera de las listas;
   // lo ven el encargado y el dueño en el detalle. Normalizado (CHECK en SQL).
-  contactPhone      String?      @db.VarChar(16)
-  createdAt         DateTime     @default(now()) @db.Timestamptz
-  updatedAt         DateTime     @updatedAt @db.Timestamptz
+  contactPhone      String?   @db.VarChar(16)
+  createdAt    DateTime     @default(now()) @db.Timestamptz
+  updatedAt    DateTime     @updatedAt @db.Timestamptz
 
-  venue             Venue                    @relation(fields: [tenantId], references: [id])
-  topUps            Payment[]
-  consumptions      WalletConsumption[]
-  chargeRequests    WalletChargeRequest[]
-  payouts           WalletPayout[]
-  cashTopUps        WalletCashTopUp[]
-  passkeys          WalletPasskey[]
-  cards             WalletCard[]
-  passes            WalletPass[]
-  activationTokens  WalletActivationToken[]
-  partyRefunds      PartyRefundRequest[]
+  venue          Venue                 @relation(fields: [tenantId], references: [id])
+  topUps         Payment[]
+  consumptions   WalletConsumption[]
+  chargeRequests WalletChargeRequest[]
+  payouts        WalletPayout[]
+  cashTopUps     WalletCashTopUp[]
+  passkeys       WalletPasskey[]
+  cards          WalletCard[]
+  passes         WalletPass[]
+  activationTokens WalletActivationToken[]
+  partyRefunds     PartyRefundRequest[]
   // Reservados: el saldo del grupo de una reserva.
-  reservations      Reservation[]
+  reservations     Reservation[]
   pushSubscriptions WalletPushSubscription[]
   // «Regala una noche»: el regalo con el que se pagó este saldo.
   gift              WalletGift?
@@ -1620,43 +1619,43 @@ model ClientWallet {
 /// `venueId` dice dónde está la ficha (su stock o el local que la dio), sin RLS:
 /// el panel lista las fichas de su local con él (20261021100000).
 model WalletCard {
-  id                String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  token             String    @unique
+  id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  token      String    @unique
   /// Número de serie (si se leyó con un Android): una copia no vale.
-  uid               String?
+  uid        String?
   /// «Ficha nº 0522»: el número de la ficha para siempre, uno para todos los
   /// locales (secuencia; las antiguas, por orden de alta). 20261024200000.
-  number            Int       @unique @default(autoincrement())
+  number     Int       @unique @default(autoincrement())
   /// Número impreso de fábrica, tal cual se teclea (con sus ceros): «Ficha nº 00736903».
-  printedNumber     String?   @db.VarChar(12)
+  printedNumber String? @db.VarChar(12)
   /// El mismo sin ceros delante («736903»): para buscar y para que no se repita
   /// (20261027100000). Null sin número, o si chocó con otro al migrar (renumerar en el panel).
-  printedNumberNorm String?   @db.VarChar(12)
+  printedNumberNorm String? @db.VarChar(12)
   /// Dónde no se repite, fijado al numerarla: «g:<grupo de locales>» o «v:<local>»
   /// (las fichas pasan de un local a otro del grupo; las de otro grupo o local, aparte).
-  printedScope      String?
-  walletId          String?   @db.Uuid
+  printedScope String?
+  walletId   String?   @db.Uuid
   /// STOCK (grabada, sin dar) → ISSUED (dada a un saldo) → RETURNED (devuelta,
   /// otra vez en el stock) | LOST (perdida o sustituida) | BLOCKED (bloqueada).
   /// Solo ISSUED paga. ACTIVE = la del API anterior (paso 1 de 2 de
   /// 20261021100000): con saldo vale como ISSUED, sin saldo como STOCK. Por eso
   /// la base sigue con ACTIVE por defecto; el código pasa siempre el estado.
-  status            String    @default("ACTIVE")
+  status     String    @default("ACTIVE")
   /// Local donde está: el de su stock o el que la dio.
-  venueId           String?   @db.Uuid
-  linkedById        String?   @db.Uuid
-  createdAt         DateTime  @default(now()) @db.Timestamptz
+  venueId    String?   @db.Uuid
+  linkedById String?   @db.Uuid
+  createdAt  DateTime  @default(now()) @db.Timestamptz
   /// Grabada y apuntada en el stock (null: código pedido y aún sin grabar).
-  stockedAt         DateTime? @db.Timestamptz
+  stockedAt  DateTime? @db.Timestamptz
   /// Cuándo se dio a su saldo (ISSUED).
-  linkedAt          DateTime? @db.Timestamptz
-  returnedAt        DateTime? @db.Timestamptz
-  lostAt            DateTime? @db.Timestamptz
-  blockedAt         DateTime? @db.Timestamptz
-  lastUsedAt        DateTime? @db.Timestamptz
+  linkedAt   DateTime? @db.Timestamptz
+  returnedAt DateTime? @db.Timestamptz
+  lostAt     DateTime? @db.Timestamptz
+  blockedAt  DateTime? @db.Timestamptz
+  lastUsedAt DateTime? @db.Timestamptz
 
-  wallet ClientWallet?     @relation(fields: [walletId], references: [id], onDelete: SetNull)
-  venue  Venue?            @relation(fields: [venueId], references: [id], onDelete: SetNull)
+  wallet ClientWallet?      @relation(fields: [walletId], references: [id], onDelete: SetNull)
+  venue  Venue?             @relation(fields: [venueId], references: [id], onDelete: SetNull)
   events WalletCardEvent[]
 
   @@unique([printedScope, printedNumberNorm])
@@ -1805,25 +1804,25 @@ model WalletPass {
 // el importe al balance.
 
 model WalletConsumption {
-  id                    String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenantId              String    @db.Uuid
-  walletId              String    @db.Uuid
-  amountCents           Int
-  providedByUserId      String    @db.Uuid
+  id               String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId         String   @db.Uuid
+  walletId         String   @db.Uuid
+  amountCents      Int
+  providedByUserId String   @db.Uuid
   // Categoría libre: "bar" | "room" | "time" | "service" | "other"
   // No es enum porque el venue puede tener categorías propias.
-  category              String
-  notes                 String?
+  category         String
+  notes            String?
   // Idempotency key para evitar doble-cobro (camarero pulsa 2 veces).
-  idempotencyKey        String?
+  idempotencyKey   String?
   // Propina opcional dentro del consumo. 100% va a providedBy si es OPERATOR
   // (o según tipGoesTo si se especifica).
-  tipCents              Int       @default(0)
-  tipGoesTo             String?
-  reversedAt            DateTime? @db.Timestamptz
-  reversedByUserId      String?   @db.Uuid
+  tipCents         Int       @default(0)
+  tipGoesTo        String?
+  reversedAt       DateTime? @db.Timestamptz
+  reversedByUserId String?   @db.Uuid
   // Cómo se autorizó: nfc_nopin | pin | passkey | staff (null: de antes). 20261023200000.
-  authMethod            String?
+  authMethod       String?
   // El % antiguo de OxioPay sobre este consumo (20261030100000): null = el del
   // local, como siempre. (La primera versión de la «Comisión del servicio»
   // ponía 0 con el interruptor encendido; ya no se escribe.)
@@ -1831,18 +1830,18 @@ model WalletConsumption {
   // La parte del importe (sin propina) pagada con saldo cargado CON «Comisión
   // del servicio» (20261030110000; wallet-fee-saldo.ts): el % antiguo va
   // solo sobre el resto. 0 = todo del saldo sin ella (o de antes).
-  serviceFeeSaldoCents  Int       @default(0)
+  serviceFeeSaldoCents Int   @default(0)
   // OxioParty (20261120300000): la caseta del consumo (la del cobro del saldo,
   // o la de quien lo cobró). Null: OxioPay o sin caseta.
-  stallId               String?   @db.Uuid
-  createdAt             DateTime  @default(now()) @db.Timestamptz
+  stallId          String?   @db.Uuid
+  createdAt        DateTime  @default(now()) @db.Timestamptz
 
-  venue            Venue             @relation(fields: [tenantId], references: [id])
-  stall            Stall?            @relation(fields: [stallId, tenantId], references: [id, tenantId], onDelete: Restrict)
-  wallet           ClientWallet      @relation(fields: [walletId], references: [id])
-  providedBy       User              @relation("ConsumptionProvider", fields: [providedByUserId], references: [id])
-  reversedBy       User?             @relation("ConsumptionReversedBy", fields: [reversedByUserId], references: [id])
-  earnings         OperatorEarning[]
+  venue       Venue            @relation(fields: [tenantId], references: [id])
+  stall       Stall?           @relation(fields: [stallId, tenantId], references: [id, tenantId], onDelete: Restrict)
+  wallet      ClientWallet     @relation(fields: [walletId], references: [id])
+  providedBy  User             @relation("ConsumptionProvider", fields: [providedByUserId], references: [id])
+  reversedBy  User?            @relation("ConsumptionReversedBy", fields: [reversedByUserId], references: [id])
+  earnings    OperatorEarning[]
   // Reservados: el gasto de una persona del grupo con el saldo del grupo.
   reservationSpend ReservationSpend?
 
