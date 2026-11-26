@@ -1,4 +1,5 @@
 import { MONEY_JS, clientMoney, escapeHtml, jsConfig } from './club-ui';
+import type { LangHref } from './customer-chrome';
 import type { PayLanguage } from './customer-lang';
 import type { PayDevice } from './pay-device';
 import { CUSTOMER_TEXT } from './i18n';
@@ -39,6 +40,10 @@ export interface ChooseContext {
   device: PayDevice;
   statementName: string | null;
   now: Date;
+  /** El idioma que se le ofrece en la franja de arriba (idea 71); null o sin él, sin franja. */
+  suggest?: PayLanguage | null;
+  /** Los enlaces de idioma de esta página, si llevan algo más que ?lang= (la propina de ?tip=). */
+  langHref?: LangHref;
 }
 
 /** El desglose (Consumo · Comisión del servicio · Propina · TOTAL): /pay y «Recargar» en /w. */

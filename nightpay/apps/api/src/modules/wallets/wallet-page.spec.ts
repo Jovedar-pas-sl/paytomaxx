@@ -82,6 +82,15 @@ describe('página del saldo del cliente', () => {
     expect(js).toContain('Remboursé en espèces');
   });
 
+  it('idea 71: con el móvil en otro idioma (y sin haber elegido), la franja para cambiar encima de la barra', () => {
+    const html = renderWalletPage('tok-1', 'es', state(), { suggest: 'pt' });
+    expect(html).toContain('<nav class="sug" aria-label="Idioma"><a href="?lang=pt" lang="pt" hreflang="pt">Português? · Mudar</a><a class="x" href="?lang=es" aria-label="Seguir en español">✕</a></nav><header class="top">');
+    // Dentro de la columna del saldo, de lado a lado arriba del todo.
+    expect(html).toContain('.w>.sug{margin:-1rem -1rem 0}');
+    expect(renderWalletPage('tok-1', 'es', state())).not.toContain('class="sug"');
+    expect(renderWalletPage('tok-1', 'es', state(), { suggest: null })).not.toContain('class="sug"');
+  });
+
   it('en inglés', () => {
     const html = renderWalletPage('tok-1', 'en', state());
     expect(html).toContain('<html lang="en">');

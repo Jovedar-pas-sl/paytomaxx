@@ -1,5 +1,5 @@
 import { CLUB_BASE_CSS, MONEY_JS, clientMoney, escapeHtml, jsConfig } from '../payments/club-ui';
-import { CHROME_CSS, langScript, topBar } from '../payments/customer-chrome';
+import { CHROME_CSS, langHrefWith, langScript, topBar } from '../payments/customer-chrome';
 import { legalFooter } from '../legal/legal-links';
 import { CUSTOMER_TEXT } from '../payments/i18n';
 import { PAID_SCREEN_CSS, PAID_SCREEN_JS, paidScreenJsText, renderPaidScreen } from '../payments/paid-screen';
@@ -59,8 +59,12 @@ export function renderQrChargePage(
   lang: PayLanguage,
   view: QrChargeClientView,
   now: Date = new Date(),
-  /** B1: la propina que ya eligió en /pay antes de tocar «Pagar con mi saldo» (?tip=). */
-  opts: { tipFromPay?: number | null } = {},
+  /**
+   * `tipFromPay` (B1): la propina que ya eligió en /pay antes de tocar «Pagar
+   * con mi saldo» (?tip=). `suggest` (idea 71): el idioma que se le ofrece en
+   * la franja de arriba, solo con el cobro pendiente.
+   */
+  opts: { tipFromPay?: number | null; suggest?: PayLanguage | null } = {},
 ): string {
   const t = CUSTOMER_TEXT[lang].saldo;
   const p = PAY_TEXT[lang];
@@ -126,7 +130,10 @@ export function renderQrChargePage(
 <html lang="${lang}"><head><meta charset="utf-8">${MANROPE_PRELOAD}<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="robots" content="noindex"><meta name="theme-color" content="#091518"><title>${h(t.title)}</title>
 <style>${CLUB_BASE_CSS}${CHROME_CSS}${QR_CSS}${PAID_SCREEN_CSS}${tipView ? SALDO_TIP_CSS : ''}</style></head><body>
-${topBar(lang, undefined, { over: isPaid })}
+${topBar(lang, typeof opts.tipFromPay === 'number' ? langHrefWith(base, { tip: String(opts.tipFromPay) }) : undefined, {
+  over: isPaid,
+  suggest: view.status === 'PENDING' ? opts.suggest : null,
+})}
 ${screen}
 <main class="${isPaid ? 'after' : 'c'}" id="ask">
 ${

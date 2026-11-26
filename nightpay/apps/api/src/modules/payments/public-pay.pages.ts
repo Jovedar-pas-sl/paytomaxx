@@ -84,7 +84,12 @@ export function receiptHref(token: string, lang: PayLanguage): string {
 
 export function renderChoosePage(view: ChooseView, ctx: ChooseContext): string {
   const t = PAY_TEXT[ctx.lang];
-  return page(t, t.youPay, renderChooseBody(view, ctx), { head: `<style>${CHOOSE_CSS}</style>`, layout: 'bare' });
+  return page(t, t.youPay, renderChooseBody(view, ctx), {
+    head: `<style>${CHOOSE_CSS}</style>`,
+    layout: 'bare',
+    suggest: ctx.suggest,
+    langHref: ctx.langHref,
+  });
 }
 
 // ─── Hacia el banco ─────────────────────────────────────────────────────

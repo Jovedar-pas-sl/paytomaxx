@@ -2,7 +2,9 @@
  * Idioma de las páginas del cliente (/pay, /s, /w y sus avisos).
  *
  *  - Español SIEMPRE por defecto: nunca el idioma del navegador (decisión del
- *    dueño). El cliente cambia con el selector de arriba a la derecha.
+ *    dueño). El cliente cambia con el selector de arriba a la derecha. Si su
+ *    móvil está en inglés, francés o portugués y aún no ha elegido, se le
+ *    ofrece cambiar con una franja (suggestedLanguage); la página no cambia sola.
  *  - Lo que elige (?lang=) queda en la cookie `np_lang` (Path=/, 12 horas: esa noche): vale
  *    en todas sus páginas, también en un QR nuevo que no lleva ?lang y a la
  *    vuelta del banco. La página la escribe también desde su JS (y en
@@ -58,6 +60,22 @@ export function languageFromCookie(cookieHeader: string | readonly string[] | nu
 export function resolveLanguage(query: unknown, cookieHeader?: string | readonly string[] | null): PayLanguage {
   if (isPayLanguage(query)) return query;
   return languageFromCookie(cookieHeader) ?? DEFAULT_LANGUAGE;
+}
+
+/**
+ * El idioma que se le ofrece (idea 71), sin cambiar la página: el primero de
+ * Accept-Language si es inglés, francés o portugués. Null si ya eligió (un
+ * ?lang= válido o su cookie, también «seguir en español»), si su móvil está
+ * en español o en un idioma que no tenemos.
+ */
+export function suggestedLanguage(
+  acceptLanguage: string | undefined,
+  query: unknown,
+  cookieHeader: string | readonly string[] | null | undefined,
+): PayLanguage | null {
+  if (isPayLanguage(query) || languageFromCookie(cookieHeader)) return null;
+  const first = /^\s*([a-z]{2,3})(?:[-;,]|\s|$)/i.exec(acceptLanguage ?? '')?.[1]?.toLowerCase();
+  return isPayLanguage(first) && first !== DEFAULT_LANGUAGE ? first : null;
 }
 
 /** Set-Cookie del idioma elegido. Sin HttpOnly: la página la lee para no perder la elección. */

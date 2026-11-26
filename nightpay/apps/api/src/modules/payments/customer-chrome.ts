@@ -14,6 +14,9 @@ import { LEGAL_LINKS_CSS } from '../legal/legal-links';
  *    try/catch: en privado o con los datos bloqueados puede fallar) y, si la
  *    cookie se perdió pero el navegador lo recuerda durante 12 horas (esa
  *    noche), la página se vuelve a pedir en ese idioma.
+ *  - Encima, si su móvil está en otro de nuestros idiomas y aún no ha elegido
+ *    (idea 71), una franja de 44 px: «English? · Switch» y una ✕ («Seguir en
+ *    español»). Dos enlaces ?lang=…: sin JS, y los dos dejan la cookie.
  *
  * Sin barras invertidas en el CSS y el JS (van dentro de plantillas).
  */
@@ -48,7 +51,12 @@ export const CHROME_CSS = `
 .lang a[aria-current=true]{background:var(--surface-3)}
 .lang a[aria-current=true]::after{content:'✓';color:var(--fg);font-weight:600}
 .lang a:focus-visible{outline:3px solid var(--fg);outline-offset:-3px}
-@media print{.top{display:none!important}}
+.sug{display:flex;justify-content:center;background:var(--surface-2);font-size:.875rem}
+.sug a{display:flex;align-items:center;min-height:2.75rem;color:var(--fg);font-weight:500;text-underline-offset:.2em}
+.sug a:first-child{flex:0 1 23.25rem;padding:0 1rem}
+.sug .x{flex:none;justify-content:center;width:2.75rem;text-decoration:none}
+.sug a:focus-visible{outline:3px solid var(--fg);outline-offset:-3px}
+@media print{.top,.sug{display:none!important}}
 ${LEGAL_LINKS_CSS}`;
 
 const GLOBE =
@@ -64,9 +72,28 @@ export function langMenu(lang: PayLanguage, hrefFor: LangHref = defaultLangHref)
   return `<details class="lang" id="langMenu"><summary aria-label="${escapeHtml(`${label}: ${LANGUAGE_NAMES[lang]}`)}">${GLOBE}<span aria-hidden="true">${lang.toUpperCase()}</span></summary><ul>${items}</ul></details>`;
 }
 
-/** La barra de arriba: logo a la izquierda y el idioma a la derecha. `over`: encima del «Pagado». */
-export function topBar(lang: PayLanguage, hrefFor: LangHref = defaultLangHref, opts: { over?: boolean } = {}): string {
-  return `<header class="top${opts.over ? ' over' : ''}">${brandWordmark()}${langMenu(lang, hrefFor)}</header>`;
+/**
+ * La franja que ofrece otro idioma (idea 71): «English? · Switch», escrito en
+ * ese idioma, y la ✕ para seguir en el de la página. Los dos son la misma
+ * página con ?lang=… (y sus parámetros, p. ej. la propina de ?tip=).
+ */
+function langSuggestion(lang: PayLanguage, suggest: PayLanguage, hrefFor: LangHref): string {
+  const here = CUSTOMER_TEXT[lang].pay;
+  return `<nav class="sug" aria-label="${escapeHtml(here.languageMenu)}"><a href="${escapeHtml(hrefFor(suggest))}" lang="${suggest}" hreflang="${suggest}">${escapeHtml(CUSTOMER_TEXT[suggest].pay.langSuggest)}</a><a class="x" href="${escapeHtml(hrefFor(lang))}" aria-label="${escapeHtml(here.langKeep)}">✕</a></nav>`;
+}
+
+/**
+ * La barra de arriba: logo a la izquierda y el idioma a la derecha. `over`:
+ * encima del «Pagado». `suggest`: el idioma que se le ofrece en una franja
+ * encima (customer-lang: suggestedLanguage); nunca sobre el «Pagado».
+ */
+export function topBar(
+  lang: PayLanguage,
+  hrefFor: LangHref = defaultLangHref,
+  opts: { over?: boolean; suggest?: PayLanguage | null } = {},
+): string {
+  const strip = opts.suggest && !opts.over ? langSuggestion(lang, opts.suggest, hrefFor) : '';
+  return `${strip}<header class="top${opts.over ? ' over' : ''}">${brandWordmark()}${langMenu(lang, hrefFor)}</header>`;
 }
 
 /**

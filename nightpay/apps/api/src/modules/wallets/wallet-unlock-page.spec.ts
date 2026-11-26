@@ -74,6 +74,15 @@ describe('pantalla de consulta protegida', () => {
   it('al desbloquear, «Recargar» (#recargar) sigue abierto en el saldo', () => {
     expect(renderWalletUnlockPage('/w/tok', 'es', { kind: 'locked' })).toContain("(window.location.hash==='#recargar'?'#recargar':'')");
   });
+  it('idea 71: la franja de idioma en /w/card y en el saldo sin desbloquear; conserva el «Pagado» que viene del banco', () => {
+    const html = renderWalletUnlockPage('/w/card/t', 'es', { kind: 'locked' }, { suggest: 'en' });
+    expect(html).toContain('<a href="/w/card/t?lang=en" lang="en" hreflang="en">English? · Switch</a><a class="x" href="/w/card/t?lang=es" aria-label="Seguir en español">✕</a></nav><header class="top">');
+    expect(html).toContain('main>.sug{margin:-1rem -1rem 0}');
+    const paid = renderWalletUnlockPage('/w/tok', 'es', { kind: 'locked', paidToken: 'p'.repeat(20) }, { suggest: 'fr' });
+    expect(paid).toContain(`<a href="/w/tok?lang=fr&amp;pagado=${'p'.repeat(20)}" lang="fr" hreflang="fr">`);
+    expect(renderWalletUnlockPage('/w/card/t', 'es', { kind: 'setup' })).not.toContain('class="sug"');
+  });
+
   it('idioma: enlace al otro idioma en la barra de arriba', () => {
     expect(renderWalletUnlockPage('/w/card/t', 'es', { kind: 'setup' })).toContain('href="/w/card/t?lang=en"');
     expect(renderWalletUnlockPage('/w/card/t', 'en', { kind: 'unavailable' })).toContain('href="/w/card/t?lang=es"');

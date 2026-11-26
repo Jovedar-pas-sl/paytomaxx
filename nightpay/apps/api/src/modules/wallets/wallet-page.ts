@@ -60,6 +60,7 @@ import {
 const WALLET_CSS = `
 .w{max-width:26rem;margin:0 auto;padding:1rem 1rem calc(2rem + env(safe-area-inset-bottom));display:flex;flex-direction:column;gap:1rem}
 .w>.top{padding:0}
+.w>.sug{margin:-1rem -1rem 0}
 .hero{min-height:8.75rem;padding:1rem 1.125rem;border:1px solid var(--line);border-radius:var(--r);display:flex;flex-direction:column;justify-content:space-between;gap:.5rem;text-align:left;color:var(--fg);background:var(--surface)}
 #balanceLabel{font-size:.875rem;font-weight:500;color:var(--mute)}
 .hero .obot{display:flex;justify-content:space-between;gap:.5rem;font-size:.875rem;font-weight:600;color:var(--fg)}
@@ -190,6 +191,8 @@ export interface WalletPageOptions {
    * (apagado), la página no ofrece el aviso.
    */
   chargeAlertKey?: string | null;
+  /** El idioma que se le ofrece en la franja de arriba (idea 71); con OxioParty no sale. */
+  suggest?: PayLanguage | null;
 }
 
 /**
@@ -337,7 +340,7 @@ export function renderWalletPage(
 <html lang="${t.htmlLang}"><head><meta charset="utf-8">${MANROPE_PRELOAD}<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="robots" content="noindex"><meta name="theme-color" content="${party ? PARTY_THEME_COLOR : '#091518'}"><title>${h(t.title)}</title>${aviso ? manifestLink(base) : ''}
 <style>${CLUB_BASE_CSS}${CHROME_CSS}${WALLET_CSS}${SCAN_CSS}${TOPUP_CSS}${LOST_CSS}${WELCOME_CSS}${aviso ? AVISO_CSS : ''}${party ? PARTY_CSS : ''}</style></head><body><main class="w">
-${party ? partyTopBar(lang, party) : topBar(lang)}<h1 class="sr">${h(t.title)}</h1>
+${party ? partyTopBar(lang, party) : topBar(lang, undefined, { suggest: options.suggest })}<h1 class="sr">${h(t.title)}</h1>
 <section class="hero" aria-labelledby="balanceLabel">
 <p id="balanceLabel">${h(state.venueName ? t.balanceOf.split('{venue}').join(state.venueName) : t.balance)}</p>
 <p class="balance num" id="balance" aria-live="polite">${h(eur(state.balanceCents, t.locale))}</p>

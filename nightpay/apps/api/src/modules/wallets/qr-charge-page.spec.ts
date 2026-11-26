@@ -234,6 +234,20 @@ describe('pagar con el saldo escaneando el QR del personal', () => {
     expect(renderQrChargePage('tok-1', 'es', { ...view, status: 'EXPIRED' }, NOW)).not.toContain('id="clock"');
   });
 
+  it('idea 71: la franja de idioma solo con el cobro pendiente, y conserva la propina que traía de /pay', () => {
+    const html = renderQrChargePage('tok-1', 'es', view, NOW, { suggest: 'en' });
+    expect(html).toContain('<a href="?lang=en" lang="en" hreflang="en">English? · Switch</a>');
+    expect(html.indexOf('<nav class="sug"')).toBeLessThan(html.indexOf('<header class="top">'));
+    const tip = { baseCents: 6000, previousCents: 0, maxCents: 6000, presets: [{ cents: 600, percent: 10 }], toStaff: true };
+    const withTip = renderQrChargePage('tok-1', 'es', { ...view, tip }, NOW, { suggest: 'fr', tipFromPay: 600 });
+    expect(withTip).toContain('<a href="/s/tok-1?tip=600&amp;lang=fr" lang="fr" hreflang="fr">');
+    expect(withTip).toContain('<a class="x" href="/s/tok-1?tip=600&amp;lang=es"');
+    // Pagado, caducado o sin sugerencia: sin franja.
+    expect(renderQrChargePage('tok-1', 'es', { ...view, status: 'ACCEPTED', paidAt: NOW.toISOString() }, NOW, { suggest: 'en' })).not.toContain('class="sug"');
+    expect(renderQrChargePage('tok-1', 'es', { ...view, status: 'EXPIRED' }, NOW, { suggest: 'en' })).not.toContain('class="sug"');
+    expect(renderQrChargePage('tok-1', 'es', view, NOW)).not.toContain('class="sug"');
+  });
+
   it('la cuenta atrás lleva la hora del servidor (la del móvil puede ir mal)', () => {
     const html = renderQrChargePage('tok-1', 'es', view, NOW);
     expect(html).toContain(`\\"now\\":${NOW.getTime()}`);

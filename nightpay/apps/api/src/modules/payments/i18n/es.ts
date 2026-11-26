@@ -9,6 +9,8 @@ const pay: PayText = {
   locale: 'es-ES',
   secure: 'Pago seguro',
   languageMenu: 'Idioma',
+  langSuggest: '¿Español? · Cambiar',
+  langKeep: 'Seguir en español',
   youPay: 'Vas a pagar',
   totalToPay: 'Total a pagar',
   payPrefix: 'Pagar',

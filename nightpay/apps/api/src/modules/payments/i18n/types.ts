@@ -122,6 +122,10 @@ export interface PayText {
   secure: string;
   /** El selector de idioma (su etiqueta para lectores de pantalla). */
   languageMenu: string;
+  /** La franja que ofrece este idioma a quien tiene el móvil en él (escrita en él): «English? · Switch». */
+  langSuggest: string;
+  /** La ✕ de esa franja: seguir en el idioma de la página («Seguir en español»). */
+  langKeep: string;
   // Página de pago
   youPay: string;
   /** Encima del importe grande: lo que paga ahora (se pone al día con la propina). */

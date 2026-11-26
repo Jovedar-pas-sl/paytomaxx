@@ -527,6 +527,41 @@ describe('GET /pay/:token — página de pago', () => {
     expect(sent.headers['Set-Cookie']).toBeUndefined();
   });
 
+  it('idea 71: móvil en inglés sin haber elegido idioma → la página en español con la franja «English? · Switch»; conserva ?tip=', async () => {
+    const STRIP = '<nav class="sug"';
+    const open = async (opts: { accept?: string; lang?: string; cookie?: string; tip?: string; page?: PayRedirect }): Promise<string> => {
+      const { controller } = makeController({ page: opts.page ?? { ...CHOOSE, tipOptionsCents: [0, 500, 1_000] } });
+      const { reply, sent } = fakeReply();
+      await controller.payPage('qr-token-1', opts.lang, opts.cookie, IPHONE, reply, opts.tip, opts.accept);
+      return sent.body!;
+    };
+    const en = await open({ accept: 'en-GB,en;q=0.9' });
+    expect(en).toContain('<html lang="es">');
+    expect(en).toContain('<a href="?lang=en" lang="en" hreflang="en">English? · Switch</a>');
+    expect(en).toContain('<a class="x" href="?lang=es" aria-label="Seguir en español">✕</a>');
+    expect(en.indexOf(STRIP)).toBeLessThan(en.indexOf('<header class="top">'));
+    // La propina que eligió en la pantalla de la barra no se pierde al cambiar de idioma.
+    const tip = await open({ accept: 'en-GB', tip: '500' });
+    expect(tip).toContain('<a href="/pay/qr-token-1?tip=500&amp;lang=en" lang="en" hreflang="en">');
+    expect(tip).toContain('<a class="x" href="/pay/qr-token-1?tip=500&amp;lang=es"');
+    expect(await open({ accept: 'en-GB', tip: '"><script>' })).toContain('<a href="?lang=en" lang="en"');
+    // No sale: móvil en español, en un idioma que no tenemos, ya elegido (?lang= o cookie) ni en el «Pagado».
+    expect(await open({ accept: 'es-ES,en' })).not.toContain(STRIP);
+    expect(await open({ accept: 'de' })).not.toContain(STRIP);
+    expect(await open({})).not.toContain(STRIP);
+    expect(await open({ accept: 'en-GB', lang: 'es' })).not.toContain(STRIP);
+    expect(await open({ accept: 'en-GB', lang: 'en' })).not.toContain(STRIP);
+    expect(await open({ accept: 'en-GB', cookie: 'np_lang=es' })).not.toContain(STRIP);
+    const paid = await open({
+      accept: 'en-GB',
+      page: { kind: 'paid', paymentId: PAYMENT_ID, amountCents: 100, tipCents: 0, currency: 'EUR', authorizedAt: new Date(), walletToken: null, walletClaimHash: null, walletCode: null, walletHasFaceId: false, walletHasPin: false },
+    });
+    expect(paid).toContain('id="paid"');
+    expect(paid).not.toContain(STRIP);
+    const closed = await open({ accept: 'en-GB', page: { kind: 'closed', reason: 'expired' } });
+    expect(closed).not.toContain(STRIP);
+  });
+
   it('el idioma elegido se recuerda en la cookie y vale sin ?lang (también un QR nuevo)', async () => {
     const { controller } = makeController({ page: CHOOSE });
     const chosen = fakeReply();
