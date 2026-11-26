@@ -61,13 +61,14 @@ if [ -z "$URL" ]; then
   # Sin volumen: la base vive dentro del contenedor y desaparece con él.
   docker run -d --rm --name "$CONTAINER" -e POSTGRES_PASSWORD=restore-check \
     -e POSTGRES_DB=nightpay postgres:16-alpine >/dev/null
+  # Por TCP: la imagen arranca primero un servidor de preparación solo en el
+  # socket, lo apaga y arranca el de verdad; por el socket se daba por listo al
+  # de preparación y la comprobación siguiente caía en el reinicio.
   for _ in $(seq 1 60); do
-    docker exec "$CONTAINER" pg_isready -U postgres -d nightpay >/dev/null 2>&1 && break
+    docker exec "$CONTAINER" pg_isready -h 127.0.0.1 -U postgres -d nightpay >/dev/null 2>&1 && break
     sleep 1
   done
-  docker exec "$CONTAINER" pg_isready -U postgres -d nightpay >/dev/null 2>&1 || fail "el Postgres temporal no arrancó"
-  # La imagen marca "listo" un momento antes de su reinicio final: margen.
-  sleep 2
+  docker exec "$CONTAINER" pg_isready -h 127.0.0.1 -U postgres -d nightpay >/dev/null 2>&1 || fail "el Postgres temporal no arrancó"
   run_psql() { docker exec -i "$CONTAINER" psql -X -v ON_ERROR_STOP=1 -U postgres -d nightpay "$@"; }
   run_restore() { docker exec -i "$CONTAINER" pg_restore --exit-on-error --no-owner --no-acl -U postgres -d nightpay; }
 else
