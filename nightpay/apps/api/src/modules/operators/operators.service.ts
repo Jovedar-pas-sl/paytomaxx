@@ -333,10 +333,12 @@ export class OperatorsService {
         bankHeld: boolean;
         servedByName: string | null;
         notMineReported: boolean | null;
+        serviceBaseCents: number | null;
+        serviceBps: number | null;
         createdAt: Date;
       }>
     >`
-      SELECT e.id, e."paymentId", e."consumptionId", e."paymentAmountCents", e."commissionBps",
+      SELECT e.id, e."paymentId", e."consumptionId", e."paymentAmountCents", e."commissionBps", sv."serviceBaseCents", sv."serviceBps",
              e."commissionCents", COALESCE(e."tipCents",0) AS "tipCents",
              e."reversedCents", e."payoutId",
              p.status::text AS "paymentStatus", e."createdAt",
@@ -355,6 +357,14 @@ export class OperatorsService {
             FROM users u
            WHERE u.id = COALESCE(p."createdByUserId", c."providedByUserId") AND ${SERVED_EARNING_SQL}
         ) s ON true
+        -- Y de esa cuenta, lo de Servicios que era suyo y su % (la copa de la misma cuenta no cuenta).
+        LEFT JOIN LATERAL (
+          SELECT SUM(l."amountCents")::int AS "serviceBaseCents", MAX(l."operatorCommissionBps")::int AS "serviceBps"
+            FROM payment_lines l
+            LEFT JOIN wallet_charge_requests w ON w.id = l."walletChargeId"
+           WHERE s."servedByName" IS NOT NULL AND l."serviceOperatorId" = e."operatorId"
+             AND (l."paymentId" = e."paymentId" OR w."consumptionId" = e."consumptionId")
+        ) sv ON true
        WHERE e."operatorId" = ${operatorId}::uuid
          AND e."tenantId" = ${tenantId}::uuid
          ${historyWhere('e', range)}
@@ -374,6 +384,7 @@ export class OperatorsService {
       paymentStatus: r.paymentStatus,
       bankHeld: r.bankHeld === true,
       ...(r.servedByName === null ? {} : { servedByName: r.servedByName, notMineReported: r.notMineReported === true }),
+      ...(r.serviceBaseCents && r.serviceBps !== null ? { serviceBaseCents: r.serviceBaseCents, serviceBps: r.serviceBps } : {}),
       createdAt: r.createdAt.toISOString(),
     }));
   }

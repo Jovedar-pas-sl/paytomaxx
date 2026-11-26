@@ -57,8 +57,8 @@ export function ReceptionIncidents({ onDone }: { onDone: () => void }) {
     <div className={r.card}>
       <p className={r.kicker}>Incidencias</p>
       <p className={r.text}>
-        Clientes que dicen que un cobro de su saldo no lo hicieron ellos (su ficha y su PIN ya no pagan) y cobros cancelados que el
-        banco cobró después.
+        Clientes que dicen que un cobro de su saldo no lo hicieron ellos (su ficha y su PIN ya no pagan), cobros cancelados que el
+        banco cobró después y compañeras que dicen que un servicio cobrado a su nombre no es suyo («No es mío»).
       </p>
       {rows === null && !error ? <p className={r.text}>Cargando…</p> : null}
       {rows?.length === 0 ? <p className={r.lead}>No hay ninguna.</p> : null}

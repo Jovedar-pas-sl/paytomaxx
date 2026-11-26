@@ -458,14 +458,17 @@ export function CobrarFlow({ user, onCobroDone, onLogout, night, miQrOpen = fals
             }}
           />
         ) : null}
-        <MenuOption
-          title="Pantalla del cliente"
-          hint={MENU_HINTS.display}
-          onClick={() => {
-            setMenu(false);
-            setDisplay(true);
-          }}
-        />
+        {/* «Hoy cobra el encargado»: ella no cobra, así que no empareja la pantalla del cliente. */}
+        {sinCarta ? null : (
+          <MenuOption
+            title="Pantalla del cliente"
+            hint={MENU_HINTS.display}
+            onClick={() => {
+              setMenu(false);
+              setDisplay(true);
+            }}
+          />
+        )}
         {device.item}
         {/* «Hoy cobra el encargado»: no hay nada que ensayar (salir de práctica, sí). */}
         <PracticeMenuItem onClose={() => setMenu(false)} canStart={!sinCarta} />

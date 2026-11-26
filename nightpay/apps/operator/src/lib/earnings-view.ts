@@ -165,7 +165,10 @@ export function tonightBreakdown(night: Pick<MyNight, 'count' | 'tipsCents' | 'r
 /** «37,5 % de 120 € · +5 € propina · devolución −12 €» (o «Del saldo» si no fue con tarjeta). */
 export function earningDetail(e: MyEarning): string {
   const source = e.paymentId ? '' : ' del saldo';
-  const parts = [`${formatBps(e.commissionBps)} de ${formatEur(e.paymentAmountCents, { compact: true })}${source}`];
+  // Un servicio que le cobraron a su nombre: su % de lo suyo, no del total con la copa.
+  const bps = e.serviceBps ?? e.commissionBps;
+  const base = e.serviceBaseCents ?? e.paymentAmountCents;
+  const parts = [`${formatBps(bps)} de ${formatEur(base, { compact: true })}${source}`];
   if ((e.tipCents ?? 0) > 0) parts.push(`+${formatEur(e.tipCents ?? 0, { compact: true })} propina`);
   if (e.reversedCents > 0) parts.push(`devolución −${formatEur(e.reversedCents, { compact: true })}`);
   return parts.join(' · ');

@@ -498,6 +498,9 @@ export const EarningViewSchema = z.object({
   servedByName: z.string().optional(),
   /** Ya avisó «No es mío» de ese servicio (solo en las filas con servedByName). */
   notMineReported: z.boolean().optional(),
+  /** En esas filas: lo de Servicios que era suyo y su %, para «15 % de 150 €» aunque la cuenta lleve una copa. */
+  serviceBaseCents: z.number().int().optional(),
+  serviceBps: z.number().int().optional(),
   createdAt: z.string().datetime(),
 });
 export type EarningView = z.infer<typeof EarningViewSchema>;

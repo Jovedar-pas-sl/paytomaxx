@@ -207,6 +207,11 @@ describe('textos con su signo', () => {
     expect(earningDetail(e)).toBe(nb('37,5 % de 120 € · +5 € propina · devolución −12 €'));
     expect(earningDetail({ ...e, paymentId: null, tipCents: 0, reversedCents: 0 })).toBe(nb('37,5 % de 120 € del saldo'));
   });
+
+  it('un servicio cobrado a su nombre con una copa en la cuenta: su % de lo suyo, no del total', () => {
+    const e = earning({ id: 'y', createdAt: '2026-10-13T22:30:00Z', netCents: 3_850, paymentAmountCents: 16_200, commissionBps: 1_389, commissionCents: 2_250, serviceBaseCents: 15_000, serviceBps: 1_500, tipCents: 1_600 });
+    expect(earningDetail(e)).toBe(nb('15 % de 150 € · +16 € propina'));
+  });
 });
 
 describe('las listas del detalle', () => {

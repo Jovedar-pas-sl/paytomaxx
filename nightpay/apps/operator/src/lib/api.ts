@@ -201,6 +201,9 @@ export interface MyEarning {
   servedByName?: string;
   /** Ya avisó «No es mío» de ese servicio. */
   notMineReported?: boolean;
+  /** En esas filas: lo de Servicios que era suyo y su % (sin la copa de la misma cuenta). */
+  serviceBaseCents?: number;
+  serviceBps?: number;
   createdAt: string;
 }
 

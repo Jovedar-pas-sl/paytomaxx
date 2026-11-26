@@ -72,6 +72,13 @@ describe('las secciones que se le ofrecen', () => {
     expect(flow).toContain('<PracticeMenuItem onClose={() => setMenu(false)} canStart={!sinCarta} />');
     expect(read('../components/staff-menu.tsx')).toContain('canStart={canStart && !charges.open}');
   });
+
+  it('en «Hoy cobra el encargado» el menú no ofrece «Pantalla del cliente» (ella no cobra)', () => {
+    const flow = read('../components/cobrar/CobrarFlow.tsx');
+    const at = flow.indexOf('title="Pantalla del cliente"');
+    expect(at).toBeGreaterThan(0);
+    expect(flow.slice(at - 80, at)).toContain('{sinCarta ? null : (');
+  });
 });
 
 describe('«Hoy cobra el encargado»', () => {

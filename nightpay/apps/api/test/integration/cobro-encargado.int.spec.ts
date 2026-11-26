@@ -799,12 +799,14 @@ describe('El reparto: su parte y la propina entera (tarjeta, ficha y datáfono),
 
     it('Ganancias: «Lo cobró Carlos» en los servicios a su nombre; ni en lo suyo ni en la invitación', async () => {
       const rows = new Map((await inVenue(L.V, () => operators.getMyEarnings(L.nerea, L.V))).map((e) => [e.id, e]));
-      expect(rows.get(g.tarjeta)).toMatchObject({ servedByName: 'Carlos', notMineReported: false, commissionCents: 5400, tipCents: 500 });
-      expect(rows.get(g.ficha)).toMatchObject({ servedByName: 'Carlos', notMineReported: false, commissionCents: 5400, tipCents: 300 });
+      // Su % de lo suyo (Servicio 60 € al 90 %), no del total con la copa (70 €).
+      expect(rows.get(g.tarjeta)).toMatchObject({ servedByName: 'Carlos', notMineReported: false, commissionCents: 5400, tipCents: 500, serviceBaseCents: 6000, serviceBps: 9000 });
+      expect(rows.get(g.ficha)).toMatchObject({ servedByName: 'Carlos', notMineReported: false, commissionCents: 5400, tipCents: 300, serviceBaseCents: 6000, serviceBps: 9000 });
       for (const id of [g.invitacion, g.propio]) {
         expect(rows.get(id)).toBeDefined();
         expect(rows.get(id)).not.toHaveProperty('servedByName');
         expect(rows.get(id)).not.toHaveProperty('notMineReported');
+        expect(rows.get(id)).not.toHaveProperty('serviceBaseCents');
       }
     });
 
