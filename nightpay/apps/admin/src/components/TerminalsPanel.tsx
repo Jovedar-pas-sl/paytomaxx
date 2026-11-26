@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, type FormEvent, type JSX } from 'react';
-import { Button, Card, Input, Modal, Select } from '@nightpay/ui';
+import { Button, Card, Checkbox, Input, Modal, Select } from '@nightpay/ui';
 import {
   bulkCreateTerminals,
   createPairingCode,
@@ -15,7 +15,6 @@ import { formatDateTime } from '@/lib/dates';
 import { isPartyEdition } from '@/lib/edition';
 import { useVenueTimezone } from '@/lib/venue-context';
 import { Notice } from './Notice';
-import { SwitchLine } from './ToggleSwitch';
 
 interface Props {
   isOwner: boolean;
@@ -490,12 +489,8 @@ function EditTerminalModal({
             required
           />
         ) : null}
-        <SwitchLine checked={active} onChange={setActive}>Activo</SwitchLine>
-        {isOwner ? (
-          <SwitchLine checked={reception} onChange={setReception}>
-            Recepción (el único que cobra recargas en efectivo)
-          </SwitchLine>
-        ) : null}
+        <Checkbox label="Activo" checked={active} onChange={setActive} />
+        {isOwner ? <Checkbox label="Recepción (el único que cobra recargas en efectivo)" checked={reception} onChange={setReception} /> : null}
         {error ? (
           <p role="alert" style={{ color: 'var(--np-danger)', fontSize: '0.875rem' }}>
             {error}

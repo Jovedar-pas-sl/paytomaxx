@@ -152,7 +152,7 @@ export function Carta({
           </p>
         ) : null}
       </div>
-      <div className={`${styles.foot}${cuenta.length === 0 && !busy ? ` ${styles.footEmpty}` : ''}`} style={{ '--np-foot-bottom': STICKY_ACTION_BOTTOM } as CSSProperties}>
+      <div className={`${styles.foot}${cuenta.length === 0 && !busy ? ` ${styles.footEmpty}` : ''}`} style={{ '--np-foot-bottom': STICKY_ACTION_BOTTOM } as CSSProperties} data-np-foot="">
         {/* Lo que se acaba de añadir, para el lector de pantalla (la región existe siempre: así se anuncia). */}
         <span className="np-sr-only" aria-live="polite">
           {undo ? undo.spoken : ''}

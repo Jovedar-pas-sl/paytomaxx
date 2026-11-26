@@ -125,4 +125,20 @@ describe('botones de una fila de Cobros', () => {
     expect(byLabel.Devoluciones).toBe(COBRO_ACTION_TITLES.refunds);
     expect(byLabel.Reembolsar).toBe(COBRO_ACTION_TITLES.refund);
   });
+
+  // «Piezas II» (idea 54): un botón principal por pantalla; en una fila, ninguno.
+  it('ninguno es el botón principal: lo que anula o devuelve dinero, con filete rojo; mirar las devoluciones, discreto; «Resolver», secundario', () => {
+    const variants = (row: CobroRow, role: string): Record<string, string> => {
+      const html = renderToStaticMarkup(
+        <CobroRowActions row={row} role={role} onReverse={noop} onResolve={noop} onRefund={noop} onRefunds={noop} />,
+      );
+      return Object.fromEntries(
+        [...html.matchAll(/<button([^>]*)>[\s\S]*?<span[^>]*>([^<]*)<\/span><\/button>/g)].map((m) => [m[2]!, /data-variant="([^"]*)"/.exec(m[1]!)![1]!]),
+      );
+    };
+    expect(variants(saldo, 'OWNER')).toEqual({ 'Anular cobro': 'danger-outline' });
+    expect(variants(card({ status: 'ORPHAN' }), 'OWNER')).toEqual({ Resolver: 'ghost' });
+    expect(variants(card({ status: 'PARTIALLY_REFUNDED', available: 1000 }), 'OWNER')).toEqual({ 'Devolución BBVA': 'danger-outline', Devoluciones: 'quiet' });
+    expect(variants(card({ provider: 'PAYTEF' }), 'OWNER')).toEqual({ Reembolsar: 'danger-outline' });
+  });
 });

@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState, type CSSProperties, type FormEvent } from 'react';
-import { Button, Card, Input, Select } from '@nightpay/ui';
+import { Button, Card, Checkbox, Input, Select, Switch } from '@nightpay/ui';
 import { MAX_PACK_COMPONENTS, parseEuroCents, type SectionCode } from '@nightpay/contracts';
 import { createServiceItem, fetchCarta, setServiceSoldOut, updateServiceItem, type ServiceItem, type ServiceItemInput } from '@/lib/api';
 import { groupBySection, packFromDraft, packRemainder, type PartDraft } from '@/lib/carta-form';
@@ -13,7 +13,6 @@ import { useSections } from '@/lib/use-sections';
 import { SectionDot } from './fichas/SectionChip';
 import { Notice } from './Notice';
 import { DisplayMessageCard } from './settings/DisplayMessageCard';
-import { SwitchLine } from './ToggleSwitch';
 
 /**
  * Carta del local (Fase 1A; el mapa del dinero). Lo que el personal toca
@@ -160,11 +159,9 @@ export function CartaPanel() {
                     <span className="np-num" style={priceStyle}>
                       {formatEur(item.priceCents)}
                     </span>
-                    <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-                      <label style={{ display: 'flex', gap: '0.375rem', alignItems: 'center', fontSize: '0.875rem' }}>
-                        <input type="checkbox" role="switch" checked={item.soldOut === true} onChange={() => void toggleSoldOut(item)} />
-                        Agotado esta noche
-                      </label>
+                    <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                      {/* Se guarda al tocarlo (no espera a ningún «Guardar»): interruptor. */}
+                      <Switch label="Agotado esta noche" checked={item.soldOut === true} onChange={() => void toggleSoldOut(item)} />
                       <Button variant="ghost" size="sm" onClick={() => setEditing(item.id)} {...(gi === 0 && ii === 0 ? { 'data-tour': 'carta-editar' } : {})}>
                         Editar
                       </Button>
@@ -288,16 +285,14 @@ function ServiceForm({
         </Select>
       </div>
 
-      <SwitchLine checked={isPack} onChange={setIsPack}>
-        <b style={{ fontWeight: 600 }}>Es un pack (se reparte entre secciones)</b>
-      </SwitchLine>
+      <Checkbox label="Es un pack (se reparte entre secciones)" checked={isPack} onChange={setIsPack} />
 
       {canInvite ? (
-        <SwitchLine checked={isInvite} onChange={setIsInvite}>
-          <b style={{ fontWeight: 600 }}>
-            Es una copa con invitación (el cliente invita a una compañera: se escanea su QR y se reparte con el local según Ajustes → Invitaciones)
-          </b>
-        </SwitchLine>
+        <Checkbox
+          label="Es una copa con invitación (el cliente invita a una compañera: se escanea su QR y se reparte con el local según Ajustes → Invitaciones)"
+          checked={isInvite}
+          onChange={setIsInvite}
+        />
       ) : null}
 
       {isPack ? (

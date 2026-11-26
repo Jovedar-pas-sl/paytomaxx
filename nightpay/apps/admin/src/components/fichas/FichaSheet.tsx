@@ -93,7 +93,7 @@ export function FichaSheet({
         </header>
         <Stripe segments={segments} />
         <div className="np-sheet-body">{children}</div>
-        {footer ? <div className="np-sheet-foot">{footer}</div> : null}
+        {footer ? <div className="np-sheet-foot" data-np-foot="">{footer}</div> : null}
       </div>
     </div>
     {overlays}

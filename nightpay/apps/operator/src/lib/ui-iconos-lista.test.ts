@@ -114,9 +114,11 @@ describe('sueltos que ahora son la pieza', () => {
     expect(html).toContain('<span class="np-sr-only">(el cuadrado con la flecha hacia arriba)</span>');
   });
 
-  it('la ✕ de las ventanas sigue siendo .np-modal-close, con la pieza a 20 dentro', () => {
-    const modal = read('packages/ui/src/components/Modal.tsx');
-    expect(modal).toContain('className="np-modal-close"');
-    expect(modal).toContain('<Icon name="close" size={20} />');
+  // «Piezas II» (idea 50): Modal es ya una hoja (Sheet) y su ✕ es el IconButton común. Antes era un botón
+  // .np-modal-close con la pieza a 20 dentro; esa clase queda solo para la pantalla de cerrar la noche.
+  it('la ✕ de las ventanas es el IconButton «Cerrar» de la hoja; .np-modal-close sigue en el cierre de la noche', () => {
+    expect(read('packages/ui/src/components/Sheet.tsx')).toContain('<IconButton icon="close" label="Cerrar" className="np-hoja-cerrar" onClick={onClose} />');
+    expect(read('packages/ui/src/components/Modal.tsx')).not.toContain('np-modal-close');
+    expect(read('apps/admin/src/components/NightCloseScreen.tsx')).toContain('className="np-modal-close"');
   });
 });

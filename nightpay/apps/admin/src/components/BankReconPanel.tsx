@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState, type CSSProperties, type FormEvent } from 'react';
-import { Button, Card, Input } from '@nightpay/ui';
+import { Button, Card, Checkbox, Input } from '@nightpay/ui';
 import {
   fetchBankStatement,
   fetchBankStatements,
@@ -220,10 +220,7 @@ function UploadCard({ onDone }: { onDone: (s: BankStatementSummary) => void }) {
             onChange={(e) => setFile(e.target.files?.[0] ?? null)}
           />
         </label>
-        <label style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', fontSize: '0.875rem', minHeight: '2.75rem' }}>
-          <input type="checkbox" checked={withDays} onChange={(e) => setWithDays(e.target.checked)} />
-          El fichero no trae fechas (indicar los días)
-        </label>
+        <Checkbox label="El fichero no trae fechas (indicar los días)" checked={withDays} onChange={setWithDays} />
         {withDays ? (
           <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
             <div style={{ flex: '1 1 10rem' }}>
@@ -327,10 +324,7 @@ function StatementDetail({ id, onClose }: { id: string; onClose: () => void }) {
           Cerrar
         </Button>
       </div>
-      <label style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', fontSize: '0.875rem', minHeight: '2.75rem' }}>
-        <input type="checkbox" checked={showAll} onChange={(e) => setShowAll(e.target.checked)} />
-        Ver también lo que cuadra
-      </label>
+      <Checkbox label="Ver también lo que cuadra" checked={showAll} onChange={setShowAll} />
       {visible.length === 0 ? (
         <p style={{ ...mutedStyle, color: 'var(--np-success)' }}>No hay diferencias.</p>
       ) : (

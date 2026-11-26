@@ -44,14 +44,15 @@ export function MyProfileButton({ user, onLogout }: { user: User; onLogout: () =
       >
         <StaffAvatar userId={user.id} hash={profile?.photoHash ?? null} name={name} size={36} />
       </button>
-      <Modal open={open} onClose={() => setOpen(false)} width="min(36rem, 100%)">
+      <Modal open={open} onClose={() => setOpen(false)} title="Mi perfil" width="36rem">
+        <ScreenHelp {...TOURS.perfil} />
         <ProfileScreen
+          bare
           api={profileApi}
           onLogout={onLogout}
           device="theme"
           deviceTitle="Este equipo"
           themeFallback="system"
-          help={<ScreenHelp {...TOURS.perfil} />}
           onProfile={changed}
         />
       </Modal>

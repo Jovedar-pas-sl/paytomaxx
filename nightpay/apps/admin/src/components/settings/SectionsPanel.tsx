@@ -1,14 +1,14 @@
 'use client';
 
 import { useState, type CSSProperties } from 'react';
-import { Input } from '@nightpay/ui';
+import { Checkbox, Input } from '@nightpay/ui';
 import { LEGACY_SECTION_META, TIPS_SECTION_META, type SectionCode, type VenueSection } from '@nightpay/contracts';
 import { fetchSections, updateSections } from '@/lib/api';
 import { useSections } from '@/lib/use-sections';
 import { SectionChip } from '../fichas/SectionChip';
 import { InvitationRulesCard } from './InvitationRulesCard';
 import { PostRulesCard } from './PostRulesCard';
-import { LoadState, SaveRow, SettingsCard, Switch, useSavedFlash, useSettingsLoad } from './SettingsBits';
+import { LoadState, SaveRow, SettingsCard, useSavedFlash, useSettingsLoad } from './SettingsBits';
 
 /**
  * Ajustes → Secciones (dueño): cada cobro cae en su sección (Servicios,
@@ -79,7 +79,7 @@ export function SectionsPanel() {
                 disabled={busy}
                 onChange={(e) => edit(s.code, { label: e.target.value })}
               />
-              <Switch label="Se usa" checked={s.enabled} disabled={busy} onChange={(v) => edit(s.code, { enabled: v })} />
+              <Checkbox label="Se usa" checked={s.enabled} disabled={busy} onChange={(v) => edit(s.code, { enabled: v })} />
             </li>
           ))}
         </ul>

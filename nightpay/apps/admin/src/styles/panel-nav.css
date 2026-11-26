@@ -375,15 +375,20 @@
 
 /* ─── Diálogos por encima de la barra de abajo ───────────────────────
    <main> (z-index 2, styles.css) es una capa propia: un diálogo dentro
-   (Modal, cerrar la noche…) no podía pasar por encima de la barra de abajo
-   (z-index 50) y quedaba tapado en el móvil. Con uno abierto, <main> sube. */
+   (una hoja, cerrar la noche…) no podía pasar por encima de la barra de abajo
+   (z-index 50) y quedaba tapado en el móvil. Con uno abierto, <main> sube.
+   El alto de las hojas lo pone la propia hoja (pieces-2.css de @nightpay/ui). */
 .np-app-root:has(.np-modal-panel),
 .np-app-root:has([aria-modal='true']) {
   z-index: 60;
 }
 
-.np-modal-panel {
-  max-height: calc(100dvh - 2rem - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
+/* Lo mismo donde no hay :has() (un móvil viejo): con una hoja abierta el
+   fondo no se desplaza (la hoja pone overflow: hidden en <body>), y por ahí
+   se sabe. Sin esto, la barra de abajo taparía el final de la hoja, que en
+   el móvil sale justo ahí. */
+body[style*='overflow: hidden'] .np-app-root {
+  z-index: 60;
 }
 
 /* ─── Aviso del super-admin sin 2FA ──────────────────────────────── */

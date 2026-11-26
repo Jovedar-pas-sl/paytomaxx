@@ -28,6 +28,20 @@ export type { IconName } from './components/Icon';
 export { EmptyState } from './components/EmptyState';
 export { Skeleton } from './components/Skeleton';
 
+// Piezas comunes (Piezas II): la hoja (Modal la usa), la pregunta, el aviso flotante,
+// la franja, el error de un campo, el interruptor que guarda solo y la casilla.
+export { Sheet } from './components/Sheet';
+export { menuPosition, sheetDragEnd } from './lib/sheet';
+export { ConfirmDialog, useConfirm } from './components/ConfirmDialog';
+export type { ConfirmQuestion } from './components/ConfirmDialog';
+export { Toast, useToast } from './components/Toast';
+export { toastBottom } from './lib/toast';
+export type { ToastOptions } from './lib/toast';
+export { Banner } from './components/Banner';
+export { FieldError } from './components/FieldError';
+export { Switch } from './components/Switch';
+export { Checkbox } from './components/Checkbox';
+
 // Colores de las secciones (Copas, Servicios…): los mismos que --np-sec-* de styles.css.
 export {
   SECTION_BY_CODE,

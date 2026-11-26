@@ -25,12 +25,14 @@ interface Props {
  * Los botones de una fila de Cobros (además de «Ver detalle», que pone la
  * tabla): anular un cobro del saldo, resolver uno atascado, devolver (BBVA o
  * la pasarela) y ver las devoluciones. Quién ve cada uno, como lo explica
- * el tutorial del «?» de Cobros (lib/tours.ts).
+ * el tutorial del «?» de Cobros (lib/tours.ts). En una fila no hay botón
+ * principal: lo que anula o devuelve dinero va con filete rojo; mirar las
+ * devoluciones, discreto.
  */
 export function CobroRowActions({ row, role, onReverse, onResolve, onRefund, onRefunds, bitcoinCash = null, onCashRefund }: Props) {
   if (reversibleSaldoCharge(row, role)) {
     return (
-      <Button variant="ghost" onClick={() => onReverse(row)} size="sm" title={COBRO_ACTION_TITLES.reverse}>
+      <Button variant="danger-outline" onClick={() => onReverse(row)} size="sm" title={COBRO_ACTION_TITLES.reverse}>
         {COBRO_ACTION_LABELS.reverse}
       </Button>
     );
@@ -52,23 +54,23 @@ export function CobroRowActions({ row, role, onReverse, onResolve, onRefund, onR
   return (
     <>
       {canResolve ? (
-        <Button onClick={() => onResolve(p)} size="sm" title={COBRO_ACTION_TITLES.resolve}>
+        <Button variant="ghost" onClick={() => onResolve(p)} size="sm" title={COBRO_ACTION_TITLES.resolve}>
           {COBRO_ACTION_LABELS.resolve}
         </Button>
       ) : null}
       {canRefund ? (
-        <Button variant="ghost" onClick={() => onRefund(p)} size="sm" title={COBRO_ACTION_TITLES[refundKind]}>
+        <Button variant="danger-outline" onClick={() => onRefund(p)} size="sm" title={COBRO_ACTION_TITLES[refundKind]}>
           {COBRO_ACTION_LABELS[refundKind]}
         </Button>
       ) : null}
       {canCash ? (
-        <Button variant="ghost" onClick={() => onCashRefund?.(p)} size="sm" title="Devolver en euros de la caja lo pagado con bitcoin (el bitcoin se queda en la cartera)">
+        <Button variant="danger-outline" onClick={() => onCashRefund?.(p)} size="sm" title="Devolver en euros de la caja lo pagado con bitcoin (el bitcoin se queda en la cartera)">
           Devolver en efectivo
         </Button>
       ) : null}
       {/* Ya hay algo devuelto o reservado (p. ej. una devolución sin confirmar). */}
       {p.availableAmountCents < p.amountCents ? (
-        <Button variant="ghost" onClick={() => onRefunds(p)} size="sm" title={COBRO_ACTION_TITLES.refunds}>
+        <Button variant="quiet" onClick={() => onRefunds(p)} size="sm" title={COBRO_ACTION_TITLES.refunds}>
           {COBRO_ACTION_LABELS.refunds}
         </Button>
       ) : null}

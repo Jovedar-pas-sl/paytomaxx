@@ -1,6 +1,7 @@
 /* Panel (admin) · Grafito 3: escala de letra, lo elegido en crema, campos con
-   la etiqueta sobre el borde, interruptores Sí/No, siluetas de carga, la barra
-   de «Deshacer» y la tabla de Cobros con columnas fijas.
+   la etiqueta sobre el borde, siluetas de carga, la barra de «Deshacer» y la
+   tabla de Cobros con columnas fijas. El interruptor Sí / No es ya la pieza
+   común (Switch, en pieces-2.css de @nightpay/ui).
    Va la última (después de los estilos de @nightpay/ui y de los del panel).
    Solo se anima transform/opacity, y nada con prefers-reduced-motion. */
 
@@ -34,7 +35,6 @@
   --np-sel-bg-hover: #f6f1e9;
   --np-sel-ink: var(--np-ink);
   --np-focus: var(--np-cream);
-  --np-on-success: #0b2a17;
   --np-bar-track: var(--np-surface-3);
 }
 
@@ -43,7 +43,6 @@
   --np-sel-bg-hover: var(--np-accent-2);
   --np-sel-ink: var(--np-cream);
   --np-focus: var(--np-ink);
-  --np-on-success: #f7f5f0;
 }
 
 /* La letra de Input, Select, StatusPill y .np-chip ya sale a 14 de @nightpay/ui
@@ -86,76 +85,6 @@ textarea:focus {
 .np-cobros-filters input[data-active='true'] {
   border-color: var(--np-focus);
   box-shadow: inset 0 0 0 1px var(--np-focus);
-}
-
-/* ─── Interruptor Sí / No ────────────────────────────────────────────────
-   84 × 44: «Sí» o «No» escrito dentro y la bolita que se desliza. Verde
-   encendido, gris apagado: además del color, la palabra y el lado. */
-.np-switch {
-  position: relative;
-  flex: 0 0 auto;
-  display: inline-flex;
-  align-items: center;
-  width: 5.25rem;
-  height: 2.75rem;
-  padding: 0 0.875rem;
-  border: 1px solid var(--np-border-hi);
-  border-radius: 1.375rem;
-  background: var(--np-surface-3);
-  color: var(--np-text-mute);
-  font-family: inherit;
-  font-size: var(--gf-t-small);
-  font-weight: var(--gf-w-strong);
-  cursor: pointer;
-  transition: background var(--np-d-fast), color var(--np-d-fast), border-color var(--np-d-fast);
-}
-
-.np-switch-thumb {
-  position: absolute;
-  top: 50%;
-  left: 3px;
-  width: 2rem;
-  height: 2rem;
-  border-radius: 50%;
-  background: var(--np-text-dim);
-  transform: translateY(-50%);
-  transition: transform var(--np-d-base) var(--np-ease), background var(--np-d-fast);
-}
-
-.np-switch-text {
-  margin-left: auto;
-  margin-right: 0;
-  font-size: var(--gf-t-small);
-  font-weight: var(--gf-w-strong);
-}
-
-.np-switch[aria-checked='true'] {
-  border-color: var(--np-success);
-  background: var(--np-success);
-  color: var(--np-on-success);
-}
-
-.np-switch[aria-checked='true'] .np-switch-thumb {
-  background: var(--np-bg);
-  transform: translate(2.75rem, -50%);
-}
-
-.np-switch[aria-checked='true'] .np-switch-text {
-  margin-left: 0;
-  margin-right: auto;
-}
-
-/* Un interruptor suelto dentro de una frase (Terminales, Reglas…). */
-.np-switch-line {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  min-height: 2.75rem;
-}
-
-.np-switch-line > span:first-child {
-  flex: 1 1 auto;
-  min-width: 0;
 }
 
 /* ─── Campos con la etiqueta sobre el borde ──────────────────────────────
