@@ -146,6 +146,19 @@ describe('Modo práctica: solo la ficha y el código de práctica (los de verdad
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
+  it('recepción: recargar con tarjeta un saldo de verdad elegido antes de entrar en práctica → 422, sin «cargado»', async () => {
+    const realWallet = '3f6c1d2e-8a9b-4c7d-9e0f-1a2b3c4d5e6f';
+    const card = await post('/v1/payments', { amountCents: 2000, terminalExternalId: 'T1', idempotencyKey: 'k3', wallet: { walletId: realWallet } });
+    expect(card.status).toBe(422);
+    expect((await card.json()).detail).toMatch(/práctica/);
+    // Ni en efectivo con su id.
+    expect((await post('/v1/reception/cash', { amountCents: 500, idempotencyKey: 'k4', wallet: { walletId: realWallet } })).status).toBe(422);
+    // Un saldo nuevo o el de práctica, como siempre.
+    expect((await post('/v1/payments', { amountCents: 2000, idempotencyKey: 'k5', wallet: { create: true } })).status).toBe(201);
+    expect((await post('/v1/payments', { amountCents: 2000, idempotencyKey: 'k6', wallet: { walletId: 'PRACT-WALLET' } })).status).toBe(201);
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
   it('barra: un código de verdad con el PIN 1234 no da «PAGADO»', async () => {
     const created = await createCobro({ lines: LINES });
     const chargeId = created.saldo!.chargeId;

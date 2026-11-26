@@ -71,11 +71,14 @@ const sameCode = (a: string, b: string): boolean => a.replace(/[^a-z0-9]/gi, '')
  * ¿Es la ficha o el código de práctica? Una ficha, un código o un pase de
  * verdad, no: el simulador no les contesta como si fueran el de práctica (una
  * ficha real daba «Cargado» y el cliente se iba sin saldo). Sin ninguno (una
- * ficha nueva sin leer), nada de verdad que tocar.
+ * ficha nueva sin leer), nada de verdad que tocar. Tampoco el id de un saldo de verdad.
  */
 function isPracticeRef(ref: unknown): boolean {
   if (!ref || typeof ref !== 'object') return true;
-  const r = ref as { card?: unknown; code?: unknown; walletToken?: unknown };
+  const r = ref as { card?: unknown; code?: unknown; walletId?: unknown; walletToken?: unknown };
+  // Un saldo de verdad elegido antes de entrar en práctica (recarga con tarjeta a
+  // { walletId }): solo vale el de práctica; si no, daba «Cargado» sin cargar nada.
+  if (r.walletId !== undefined) return r.walletId === PRACTICE_WALLET_ID;
   if (typeof r.card === 'string') return r.card === PRACTICE_CARD;
   if (typeof r.code === 'string') return sameCode(r.code, PRACTICE_CODE);
   return r.walletToken === undefined;
