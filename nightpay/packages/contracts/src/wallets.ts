@@ -90,9 +90,12 @@ export type ReverseConsumptionDto = z.infer<typeof ReverseConsumptionSchema>;
 
 // ─── Métricas admin ─────────────────────────────────────────────────
 
+// Recargas, consumido y devuelto (los «today…»): desde donde cuenta la noche
+// (la abierta) o, sin noche abierta, desde el último cierre (como el mapa del dinero).
 export const WalletsAdminStatsSchema = z.object({
   activeCount: z.number().int().nonnegative(),
   totalBalanceCents: z.number().int().nonnegative(),
+  nightOpen: z.boolean(),
   todayTopUpsCents: z.number().int().nonnegative(),
   todayConsumptionsCents: z.number().int().nonnegative(),
   todayRefundsCents: z.number().int().nonnegative(),

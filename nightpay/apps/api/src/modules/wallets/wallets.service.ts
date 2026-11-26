@@ -1,7 +1,6 @@
 import { ConflictException, Inject, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
 import { Prisma } from '@nightpay/db';
 import { PrismaService } from '../../common/prisma/prisma.service';
-import { madridDay, madridStartOfDay } from '../../common/time/madrid';
 import { AuditService } from '../audit/audit.service';
 import { formatWalletCode, newWalletCode, newWalletToken, sameWalletGroup } from './wallet-rules';
 import { reopenData } from './wallet-activation';
@@ -406,12 +405,13 @@ export class WalletsService {
   }
 
   /**
-   * Stats agregadas para el panel. "Hoy" es el día de Madrid (desde sus 00:00).
+   * Stats agregadas para el panel, desde `window.from`: el inicio de la noche
+   * abierta o, sin ella, el último cierre (MoneyMapService.currentWindow).
    * Con el local en la sesión (client_wallets y wallet_consumptions tienen RLS
    * forzado) y, además, filtrado a mano.
    */
-  async getAdminStats(tenantId: string): Promise<WalletsAdminStats> {
-    const todayStart = madridStartOfDay(madridDay());
+  async getAdminStats(tenantId: string, window: { from: Date; open: boolean }): Promise<WalletsAdminStats> {
+    const since = window.from;
     return this.prisma.withTenant(tenantId, async (tx) => {
       const activeRows = await tx.$queryRaw<Array<{ count: bigint; totalBalance: bigint }>>`
         SELECT COUNT(*)::bigint AS count, COALESCE(SUM("balanceCents"),0)::bigint AS "totalBalance"
@@ -426,14 +426,14 @@ export class WalletsService {
          WHERE p."tenantId" = ${tenantId}::uuid
            AND p."walletId" IS NOT NULL
            AND p.status IN ${PAID_STATUSES_SQL}
-           AND ${paymentAt('p')} >= ${todayStart}
+           AND ${paymentAt('p')} >= ${since}
       `;
       // Y las de efectivo en la recepción (no pasan por el banco).
       const cashTopUpRows = await tx.$queryRaw<Array<{ total: bigint }>>`
         SELECT COALESCE(SUM("amountCents"),0)::bigint AS total
           FROM wallet_cash_topups
          WHERE "tenantId" = ${tenantId}::uuid
-           AND "createdAt" >= ${todayStart}
+           AND "createdAt" >= ${since}
       `;
       // Por línea, como el Z (period-reports): cada sección con lo suyo; lo que
       // no cubren las líneas (todo, en los consumos de antes), en la principal.
@@ -443,7 +443,7 @@ export class WalletsService {
             FROM wallet_consumptions
            WHERE "tenantId" = ${tenantId}::uuid
              AND "reversedAt" IS NULL
-             AND "createdAt" >= ${todayStart}
+             AND "createdAt" >= ${since}
         ), lined AS (
           SELECT c.id, l.category, l."amountCents"
             FROM consumed c
@@ -468,11 +468,12 @@ export class WalletsService {
           FROM wallet_payouts
          WHERE "tenantId" = ${tenantId}::uuid
            AND status = 'DONE'
-           AND "createdAt" >= ${todayStart}
+           AND "createdAt" >= ${since}
       `;
       return {
         activeCount: Number(activeRows[0]?.count ?? 0),
         totalBalanceCents: Number(activeRows[0]?.totalBalance ?? 0),
+        nightOpen: window.open,
         todayTopUpsCents: Number(topUpRows[0]?.total ?? 0) + Number(cashTopUpRows[0]?.total ?? 0),
         todayConsumptionsCents: consumptionRows.reduce((sum, r) => sum + Number(r.total), 0),
         todayRefundsCents: Number(refundRows[0]?.total ?? 0),

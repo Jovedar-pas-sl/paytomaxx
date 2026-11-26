@@ -340,10 +340,11 @@ describe('estadísticas del panel de saldos', () => {
 
   it('lo devuelto hoy son las devoluciones del saldo hechas en este local (tarjeta y efectivo), no 0', async () => {
     const { svc, calls } = statsService();
-    const stats = await svc.getAdminStats('t-1');
+    const stats = await svc.getAdminStats('t-1', { from: new Date('2026-10-15T22:00:00Z'), open: true });
     expect(stats).toEqual({
       activeCount: 3,
       totalBalanceCents: 12_000,
+      nightOpen: true,
       // Recargas de hoy: con tarjeta (200 €) y en efectivo en la recepción (50 €).
       todayTopUpsCents: 25_000,
       todayConsumptionsCents: 7_500,
@@ -364,7 +365,7 @@ describe('estadísticas del panel de saldos', () => {
 
   it('las recargas de hoy cuadran con el Z: pagadas (también las devueltas luego), por cuándo las autorizó el banco', async () => {
     const { svc, calls } = statsService();
-    await svc.getAdminStats('t-1');
+    await svc.getAdminStats('t-1', { from: new Date('2026-10-15T22:00:00Z'), open: true });
     const topUps = calls.find((c) => c.sql.includes('FROM payments'))!;
     expect(topUps.sql).not.toMatch(/'AUTHORIZED'/);
     expect(topUps.values).toContain(PAID_STATUSES_SQL);
@@ -372,21 +373,14 @@ describe('estadísticas del panel de saldos', () => {
     expect(sqlParts).toContain(paymentAt('p').sql);
   });
 
-  it('"hoy" es el día de Madrid (desde sus 00:00), no el del servidor', async () => {
-    vi.useFakeTimers();
-    try {
-      // 00:30 del 16 de octubre en Madrid (verano: UTC+2) = 22:30 UTC del 15.
-      vi.setSystemTime(new Date('2026-10-15T22:30:00Z'));
-      const { svc, calls, prisma } = statsService();
-      await svc.getAdminStats('t-1');
-      const since = calls.map((c) => c.values.at(-1)).filter((v): v is Date => v instanceof Date).map((d) => d.toISOString());
-      expect(since).toHaveLength(4);
-      expect(new Set(since)).toEqual(new Set(['2026-10-15T22:00:00.000Z']));
-      // Con el local en la sesión (las tablas del saldo tienen RLS forzado) y, además, filtrado a mano.
-      expect(prisma.withTenant).toHaveBeenCalledWith('t-1', expect.any(Function));
-    } finally {
-      vi.useRealTimers();
-    }
+  it('cuenta desde el inicio de la noche que le pasan (no desde las 00:00 del servidor)', async () => {
+    const { svc, calls, prisma } = statsService();
+    await svc.getAdminStats('t-1', { from: new Date('2026-10-15T20:30:00Z'), open: true });
+    const since = calls.map((c) => c.values.at(-1)).filter((v): v is Date => v instanceof Date).map((d) => d.toISOString());
+    expect(since).toHaveLength(4);
+    expect(new Set(since)).toEqual(new Set(['2026-10-15T20:30:00.000Z']));
+    // Con el local en la sesión (las tablas del saldo tienen RLS forzado) y, además, filtrado a mano.
+    expect(prisma.withTenant).toHaveBeenCalledWith('t-1', expect.any(Function));
   });
 });
 

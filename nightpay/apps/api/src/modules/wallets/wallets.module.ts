@@ -40,6 +40,7 @@ import { WalletEventsModule } from '../wallet-events/wallet-events.module';
 import { PublicWalletEventsController } from './public-wallet-events.controller';
 import { WalletWelcomeService } from '../home-topup/wallet-welcome.service';
 import { CobroDetailModule } from '../money-map/cobro-detail.module';
+import { MoneyMapModule } from '../money-map/money-map.module';
 import { ChargeAlertService } from './charge-alert/charge-alert.service';
 import { ChargeDisputeService } from './charge-alert/charge-dispute.service';
 import { PublicChargeAlertController } from './charge-alert/charge-alert.controller';
@@ -49,7 +50,8 @@ import { PartyRefundsService } from '../party/party-refunds.service';
   // AuthModule: TotpService (2FA del encargado al anular y al devolver en efectivo).
   // WalletEventsModule: los avisos del saldo al momento (GET /w/:token/events).
   // CobroDetailModule: el detalle de un pago en la página del saldo (GET /w/:token/movements/:kind/:id).
-  imports: [PrismaModule, AuditModule, AuthModule, WalletEventsModule, CobroDetailModule],
+  // MoneyMapModule: desde dónde cuenta «esta noche» el resumen de Saldos (currentWindow).
+  imports: [PrismaModule, AuditModule, AuthModule, WalletEventsModule, CobroDetailModule, MoneyMapModule],
   // WalletTopUpService: «Recargar» desde /w (usa PaymentsService con ModuleRef).
   providers: [
     WalletContactService,

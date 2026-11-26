@@ -6,11 +6,13 @@ import { randomUUID } from 'node:crypto';
 import { ClsService } from 'nestjs-cls';
 import { PrismaService } from '../../src/common/prisma/prisma.service';
 import { WalletsService } from '../../src/modules/wallets/wallets.service';
+import { MoneyMapService } from '../../src/modules/money-map/money-map.service';
 
 const cls = new ClsService(new AsyncLocalStorage());
 
 const prisma = new PrismaService(cls as any);
 const wallets = new WalletsService(prisma as never, { log: async () => undefined } as never, {} as never);
+const moneyMap = new MoneyMapService(prisma as never, {} as never);
 
 const r = randomUUID().slice(0, 6);
 let A: string;
@@ -53,17 +55,29 @@ afterAll(async () => {
   await prisma.$disconnect();
 });
 
-function stats() {
+function stats(window?: { from: Date; open: boolean }) {
   return cls.run(async () => {
     cls.set('ctx', { traceId: 't', tenantId: A });
-    return wallets.getAdminStats(A);
+    return wallets.getAdminStats(A, window ?? (await moneyMap.currentWindow(A)));
   });
 }
 
 describe('Clientes → Saldos: consumos por sección (Postgres real)', () => {
   it('un cobro del saldo con varias secciones cuenta cada línea en la suya, como el Z', async () => {
-    const s = await stats();
+    const s = await stats({ from: minutesAgo(120), open: false });
     expect(s.byCategory).toEqual({ VENUE_ENTRY: 1500, VENUE_BAR: 2000, VENUE_FOOD: 800 });
     expect(s.todayConsumptionsCents).toBe(4300);
+  });
+
+  it('con la noche abierta cuenta desde que empezó la noche, no desde las 00:00', async () => {
+    await cls.run(async () => {
+      cls.set('ctx', { traceId: 't' });
+      await prisma.asSystem((tx) => tx.venueNight.create({ data: { tenantId: A, openedAt: minutesAgo(15) } }));
+    });
+    const s = await stats();
+    expect(s.nightOpen).toBe(true);
+    // La entrada + copas de hace 20 min eran de antes de abrir la noche.
+    expect(s.byCategory).toEqual({ VENUE_FOOD: 800 });
+    expect(s.todayConsumptionsCents).toBe(800);
   });
 });

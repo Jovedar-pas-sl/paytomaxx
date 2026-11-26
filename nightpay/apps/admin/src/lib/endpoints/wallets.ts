@@ -94,6 +94,8 @@ export async function resetWalletPin(walletId: string, totpCode: string): Promis
 export interface WalletsAdminStats {
   activeCount: number;
   totalBalanceCents: number;
+  /** Las cifras de abajo: de la noche abierta (true) o desde el último cierre (false). */
+  nightOpen: boolean;
   todayTopUpsCents: number;
   todayConsumptionsCents: number;
   todayRefundsCents: number;

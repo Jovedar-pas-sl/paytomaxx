@@ -133,14 +133,14 @@ export function WalletsPanel({ isOwner }: Props) {
               value={String(stats.activeCount)}
               subtitle={`${formatEur(stats.totalBalanceCents)} en total`}
             />
-            <Tile title="Recargas hoy" value={formatEur(stats.todayTopUpsCents)} />
-            <Tile title="Consumido hoy" value={formatEur(stats.todayConsumptionsCents)} />
-            <Tile title="Reembolsos hoy" value={formatEur(stats.todayRefundsCents)} />
+            <Tile title={`Recargas ${periodOf(stats)}`} value={formatEur(stats.todayTopUpsCents)} />
+            <Tile title={`Consumido ${periodOf(stats)}`} value={formatEur(stats.todayConsumptionsCents)} />
+            <Tile title={`Reembolsos ${periodOf(stats)}`} value={formatEur(stats.todayRefundsCents)} />
           </section>
 
           {Object.keys(stats.byCategory).length > 0 ? (
             <Card style={{ padding: '1rem' }}>
-              <h3 style={sectionTitle}>Consumos por sección (hoy)</h3>
+              <h3 style={sectionTitle}>Consumos por sección ({periodOf(stats)})</h3>
               <ul style={categoryList}>
                 {/* Con el nombre y el color de cada sección en este local (nunca «CHICA_SERVICE»); la suma, por código. */}
                 {Object.entries(stats.byCategory).map(([cat, cents]) => {
@@ -338,6 +338,11 @@ export function WalletsPanel({ isOwner }: Props) {
       ) : null}
     </div>
   );
+}
+
+/** Las cifras cuentan desde que empezó la noche abierta o, sin ella, desde el último cierre. */
+function periodOf(stats: WalletsAdminStats): string {
+  return stats.nightOpen ? 'esta noche' : 'desde el último cierre';
 }
 
 function rowTarget(w: WalletAdminRow): PayoutTarget {
