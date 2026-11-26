@@ -173,12 +173,17 @@ export function bankHeldOnlyMessage(held: { cents: number; sales: number }): str
 
 /**
  * Lo pagable ya no es la cifra que vio quien paga (o quien lo pide): 409
- * PAYOUT_CHANGED. Lo usan el pago directo y la petición «Por aprobar».
+ * PAYOUT_CHANGED, con las dos cifras en el cuerpo. Lo usan el pago directo y la
+ * petición «Por aprobar».
  */
 export function payoutTotalChanged(totalCents: number, expectedTotalCents: number): ConflictException {
-  return payoutChanged(
-    `Lo que hay que pagar a la chica ha cambiado desde que lo abriste: ahora son ${eur(totalCents)}, no ${eur(expectedTotalCents)}.`,
-  );
+  return new ConflictException({
+    message: `Lo que hay que pagar a la chica ha cambiado desde que lo abriste: ahora son ${eur(totalCents)}, no ${eur(expectedTotalCents)}.`,
+    code: PAYOUT_CHANGED_CODE,
+    // Las dos cifras, para quien pinta la lista («Pagar» a varias a la vez).
+    totalCents,
+    expectedTotalCents,
+  });
 }
 
 /** Pago de siempre: lo que ya pasó los días de espera del local y toda la deuda abierta. */
