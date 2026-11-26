@@ -167,14 +167,18 @@ textarea:focus {
 }
 
 @media (min-width: 641px) {
-  :is(.np-notch, .np-set-card) label:has(> span:first-child + span input:not([type='checkbox']):not([type='radio'])),
-  :is(.np-notch, .np-set-card) label:has(> span:first-child + select) {
+  /* Los campos de Input y Select (.np-field, pieces.css) con su etiqueta. */
+  :is(.np-notch, .np-set-card) .np-field:has(> .np-field-label) {
     position: relative;
     margin-top: 0.5625rem;
   }
 
-  :is(.np-notch, .np-set-card) label:has(> span:first-child + span input:not([type='checkbox']):not([type='radio'])) > span:first-child,
-  :is(.np-notch, .np-set-card) label:has(> span:first-child + select) > span:first-child {
+  /* La etiqueta ya no ocupa sitio encima: el campo sube hasta arriba. */
+  :is(.np-notch, .np-set-card) .np-field:has(> .np-field-label) > .np-field-label + * {
+    margin-top: 0;
+  }
+
+  :is(.np-notch, .np-set-card) .np-field:has(> .np-field-label) > .np-field-label {
     position: absolute;
     top: -0.6875rem;
     left: 0.75rem;
@@ -192,7 +196,7 @@ textarea:focus {
     pointer-events: none;
   }
 
-  :is(.np-notch, .np-set-card) label:focus-within > span:first-child {
+  :is(.np-notch, .np-set-card) .np-field:focus-within > .np-field-label {
     color: var(--np-focus);
   }
 }
@@ -326,13 +330,13 @@ textarea:focus {
   margin: 0 0 0.75rem;
 }
 
-.np-fichas-bar > label:first-child {
+.np-fichas-bar > .np-field:first-child {
   flex: 1 1 16rem;
   width: auto;
   min-width: 0;
 }
 
-.np-fichas-bar > label:last-child {
+.np-fichas-bar > .np-field:last-child {
   flex: 0 0 10rem;
   width: auto;
 }
