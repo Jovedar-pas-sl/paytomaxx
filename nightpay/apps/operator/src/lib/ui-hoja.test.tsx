@@ -301,8 +301,12 @@ describe('pieces-2.css', () => {
     expect(code(STYLES)).not.toMatch(/\.np-modal-panel \{/);
     expect(code(read('../../../admin/src/styles/panel-nav.css'))).not.toMatch(/\.np-modal-panel \{/);
     expect(rule(STYLES, '.np-modal-close')).toContain('width: 2.75rem;');
-    // El panel sigue subiendo <main> por encima de su barra de abajo cuando hay una ventana.
-    expect(read('../../../admin/src/styles/panel-nav.css')).toContain('.np-app-root:has(.np-modal-panel),');
+    // El panel sigue subiendo <main> por encima de su barra de abajo cuando hay una ventana…
+    const nav = read('../../../admin/src/styles/panel-nav.css');
+    expect(nav).toContain('.np-app-root:has(.np-modal-panel),');
+    // …y también donde no hay :has() (la hoja sale abajo, justo donde está la barra): por el overflow: hidden que la hoja pone en <body>.
+    expect(nav).toMatch(/body\[style\*='overflow: hidden'\] \.np-app-root \{\s*z-index: 60;\s*\}/);
+    expect(read(`${UI}components/Sheet.tsx`)).toContain("document.body.style.overflow = 'hidden';");
     expect(read('../../../admin/src/components/NightCloseScreen.tsx')).toContain("document.querySelector('.np-modal-panel')");
   });
 });
@@ -670,11 +674,66 @@ describe('«atrás» cierra la hoja', () => {
     expect(sheetOf(history.entries()[1])).not.toBe(menu);
   });
 
+  it('si se abre otra hoja antes de que llegue el «atrás» de la que se cerró, espera: su entrada se pone cuando llega', async () => {
+    function OneAfterAnother() {
+      const [at, setAt] = useState<'detalle' | 'nada' | 'devolucion'>('detalle');
+      return (
+        <>
+          <Sheet open={at === 'detalle'} onClose={() => setAt('nada')} title="Detalle del cobro">
+            x
+          </Sheet>
+          <Sheet open={at === 'devolucion'} onClose={() => setAt('nada')} title="Registrar devolución">
+            x
+          </Sheet>
+          <button type="button" id="abrir" onClick={() => setAt('devolucion')}>
+            abrir
+          </button>
+        </>
+      );
+    }
+    await render(<OneAfterAnother />);
+    const first = sheetOf(history.entries()[1]);
+    await act(async () => closeButton().click());
+    await settle();
+    expect(history.back).toHaveBeenCalledTimes(1);
+    // El «atrás» aún no ha llegado y ya se abre la siguiente.
+    await act(async () => host.querySelector<HTMLButtonElement>('#abrir')!.click());
+    await settle();
+    expect(host.querySelector('.np-hoja-titulo')!.textContent).toBe('Registrar devolución');
+    expect(history.push).toHaveBeenCalledTimes(1);
+    await history.arrive();
+    await settle();
+    // Llega: no cierra la nueva, y ahora sí tiene su entrada (la de la primera ya no está).
+    expect(host.querySelector('.np-hoja-titulo')!.textContent).toBe('Registrar devolución');
+    expect(history.push).toHaveBeenCalledTimes(2);
+    expect(history.back).toHaveBeenCalledTimes(1);
+    expect(history.entries()).toHaveLength(2);
+    expect(sheetOf(history.entries()[1])).not.toBe(first);
+    // Y «atrás» la cierra.
+    await history.userBack();
+    expect(panel()).toBeNull();
+  });
+
   it('si encima hay ya otra entrada (se cambió de pestaña desde la hoja), cerrarla no vuelve atrás', async () => {
     await render(<Host />);
     history.foreign({ __NA: true });
     await act(async () => closeButton().click());
     await settle();
+    expect(history.back).not.toHaveBeenCalled();
+  });
+
+  it('si el navegador no deja escribir en el historial (Safari corta a las 100 entradas en 30 s), la hoja se abre y se cierra igual', async () => {
+    history.push.mockImplementation(() => {
+      throw new DOMException('Attempt to use history.pushState() more than 100 times per 30 seconds', 'SecurityError');
+    });
+    const onClose = vi.fn();
+    await render(<Host onClose={onClose} />);
+    expect(panel()).not.toBeNull();
+    await act(async () => closeButton().click());
+    await settle();
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(panel()).toBeNull();
+    // Sin entrada suya, nada que quitar.
     expect(history.back).not.toHaveBeenCalled();
   });
 
@@ -720,5 +779,45 @@ describe('«atrás» cierra la hoja', () => {
     expect(panel()!.getAttribute('aria-modal')).toBe('true');
     expect(panel()!.className).toBe('np-hoja np-modal-panel');
     expect(history.push).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('con el historial de verdad (el de jsdom: su «atrás» llega después, como en un navegador)', () => {
+  let pops = 0;
+  const onPop = (): void => {
+    pops += 1;
+  };
+  beforeEach(() => {
+    pops = 0;
+    window.addEventListener('popstate', onPop);
+  });
+  afterEach(() => window.removeEventListener('popstate', onPop));
+  /** Espera (2 s como mucho) a que llegue el «atrás» número `n`: jsdom lo reparte en varias vueltas del reloj y, con la máquina cargada, tarda. */
+  const arrived = (n: number) =>
+    act(async () => {
+      for (let i = 0; i < 200 && pops < n; i += 1) await new Promise<void>((done) => setTimeout(done, 10));
+    });
+
+  it('abrir deja la marca en la entrada nueva; cerrar la quita; y se puede volver a abrir', async () => {
+    vi.restoreAllMocks();
+    const entries = window.history.length;
+    const before = window.history.state;
+    await render(<Host />);
+    expect(typeof sheetOf(window.history.state)).toBe('string');
+    expect(window.history.length).toBe(entries + 1);
+    await act(async () => closeButton().click());
+    await arrived(1);
+    expect(window.history.state).toEqual(before);
+    // El «atrás» que quitó la entrada ya llegó: la siguiente hoja deja la suya al momento.
+    await render(<p>otra pantalla</p>);
+    await render(<Host title="Otra" />);
+    expect(typeof sheetOf(window.history.state)).toBe('string');
+    // «Atrás» del usuario: se cierra y no queda nada pendiente.
+    await act(async () => window.history.back());
+    await arrived(2);
+    expect(panel()).toBeNull();
+    expect(window.history.state).toEqual(before);
+    await settle();
+    expect(pops).toBe(2);
   });
 });
