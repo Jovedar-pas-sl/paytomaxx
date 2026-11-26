@@ -108,16 +108,9 @@ export default function Page() {
 
   if (view === 'loading') {
     return (
-      <main
-        className="np-screen"
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          color: 'var(--np-text-mute)',
-        }}
-      >
-        Cargando…
+      // La espera: el fondo de la entrada, sin texto a la vista.
+      <main className="np-screen np-login" aria-busy="true">
+        <span className="np-sr-only" role="status">Cargando…</span>
       </main>
     );
   }
@@ -151,7 +144,7 @@ function LoginScreen({
 }) {
   return (
     <main
-      className="np-screen"
+      className="np-screen np-login"
       style={{
         display: 'flex',
         flexDirection: 'column',
