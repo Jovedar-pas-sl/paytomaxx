@@ -82,11 +82,13 @@ describe('los tutoriales del panel', () => {
     expect(close).toContain('data-tour-host');
   });
 
-  it('el «?» de Cobros nombra los botones de la fila tal cual', () => {
-    const cobros = TOURS.payments.steps.find((s) => s.target === 'cobros-acciones')!;
-    for (const label of ['Ver detalle', 'Anular cobro', 'Resolver', 'Devolución BBVA', 'Reembolsar', 'Devoluciones']) {
-      expect(cobros.text).toContain(`«${label}»`);
-    }
+  // Entrega 9 (idea 16): los botones del cobro ya no van en la fila («Acciones» y
+  // «Ver detalle» se fueron): van al pie del detalle, que se abre tocando la fila.
+  it('el «?» de Cobros ya no tiene el paso de los botones de la fila: la tabla dice dónde están', () => {
+    expect(TOURS.payments.steps.map((s) => s.target)).toEqual(['cobros-resumen', 'cobros-filtros', 'cobros-tabla', 'cobros-estado']);
+    expect(TOURS.payments.steps.find((s) => s.target === 'cobros-tabla')!.text).toBe(
+      'Cada fila es un cobro, el más reciente arriba; la lista se actualiza sola. Toca uno para ver su detalle: abajo salen sus botones (devolver, anular, resolver).',
+    );
   });
 
   it('Compañeras enseña dónde están los RRPP, y Reservados nombra sus vistas tal cual', () => {

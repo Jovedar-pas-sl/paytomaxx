@@ -1,0 +1,653 @@
+/* Panel (admin) · Cobros: la tabla de seis columnas, el detalle al lado y la
+   barra de filtros con vistas, fichas, total y descarga (entrega 9, parte A).
+   Encima de @nightpay/ui/styles.css y de panel-tables.css, con sus tokens
+   --np-*. Móvil = hasta 640 px. «Táctil» = hasta 640 px o puntero grueso
+   (tablet): lo pequeño sube a 44 px. */
+
+/* ─── La tabla ───────────────────────────────────────────────────────────
+   Hora · Qué · Quién · Cómo pagó · Estado · Importe (más las columnas que se
+   elijan en «Columnas»). Los anchos van en las cabeceras: «Qué» no lleva y se
+   queda con lo que sobra, así la tabla cabe siempre sin desplazarse. La franja
+   del color de la sección sigue en panel-vivo.css. */
+.np-cobros-scroll {
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.np-cobros-table td[data-card='importe'],
+.np-cobros-table th[data-card='importe'] {
+  text-align: right;
+}
+
+.np-cobros-table td[data-card='hora'],
+.np-cobros-table td[data-card='ref'],
+.np-cobros-table td[data-card='codigo'],
+.np-cobros-table td[data-card='banco'],
+.np-cobros-table td[data-card='como'] {
+  color: var(--np-text-mute);
+}
+
+.np-cobros-table td[data-card='ref'],
+.np-cobros-table td[data-card='codigo'] {
+  white-space: nowrap;
+}
+
+.np-cobros-table td[data-card='banco'] {
+  overflow-wrap: anywhere;
+}
+
+/* Qué: la sección y, en gris, lo que se vendió (si no cabe, se corta con puntos). */
+.np-cobros-que {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.np-cobros-que > .np-chip {
+  flex: none;
+}
+
+.np-cobros-servicio {
+  flex: 1 1 0%;
+  min-width: 0;
+  margin-left: 0.5rem;
+  overflow: hidden;
+  color: var(--np-text-mute);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* La compañera y el saldo se tocan: enlace en el color del texto, subrayado
+   (la lima es para la acción principal). */
+.np-cobros-table .np-cell-link {
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--np-text);
+  font: inherit;
+  font-weight: 400;
+  text-align: inherit;
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.15em;
+  cursor: pointer;
+}
+
+/* Cobrado dos veces: debajo del estado, en rojo hasta que se devuelve. */
+.np-cobros-dos-veces {
+  display: block;
+  margin: 0.25rem 0;
+  font-size: 0.875rem;
+  font-weight: 400;
+  line-height: 1.3;
+  color: var(--np-danger);
+}
+
+.np-cobros-dos-veces[data-refunded] {
+  color: var(--np-text-mute);
+}
+
+/* La fila se abre: se nota al pasar, con el teclado y cuando es la abierta. */
+.np-cobros-table tbody tr[tabindex] {
+  cursor: pointer;
+}
+
+.np-cobros-table tbody tr[tabindex]:focus-visible {
+  outline: 2px solid var(--np-focus);
+  outline-offset: -2px;
+}
+
+.np-cobros-table tbody tr[aria-current='true'] {
+  background: var(--np-surface-2);
+}
+
+.np-cobros-table tbody tr[aria-current='true'] > td:first-child {
+  font-weight: 700;
+  color: var(--np-text);
+}
+
+/* Sin cobros: la frase, centrada, en lugar de la tabla. */
+.np-cobros-vacio {
+  padding: 2.5rem 1rem;
+}
+
+@media (min-width: 641px) {
+  .np-table.np-cobros-table {
+    table-layout: fixed;
+    width: 100%;
+  }
+
+  /* Filas de 48 px (una fila con dos líneas crece lo justo). */
+  .np-table.np-cobros-table tbody td {
+    height: 3rem;
+    padding-top: 0.25rem;
+    padding-bottom: 0.25rem;
+    overflow: hidden;
+    line-height: 1.25;
+  }
+
+  /* Un nombre o una forma de pago largos se cortan con puntos (enteros, en el detalle). */
+  .np-table.np-cobros-table tbody td[data-card='quien'],
+  .np-cobros-table .np-how-text {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .np-cobros-table .np-how {
+    display: flex;
+  }
+
+  .np-cobros-table th[data-card='hora'] { width: 5rem; }
+  .np-cobros-table th[data-card='ref'] { width: 5.5rem; }
+  .np-cobros-table th[data-card='quien'] { width: 8rem; }
+  .np-cobros-table th[data-card='como'] { width: 10.5rem; }
+  .np-cobros-table th[data-card='codigo'] { width: 4.5rem; }
+  .np-cobros-table th[data-card='banco'] { width: 9rem; }
+  .np-cobros-table th[data-card='estado'] { width: 10.5rem; }
+  .np-cobros-table th[data-card='importe'] { width: 7rem; }
+
+  /* Con columnas de más, «Qué» guarda su sitio: si no cabe todo, la tabla se desplaza. */
+  .np-cobros-table[data-extra] th[data-card='que'] { width: 12rem; }
+
+  /* Una etiqueta de estado larga («Devuelto en parte») pasa a dos líneas antes que salirse. */
+  .np-cobros-table td[data-card='estado'] .np-tag {
+    max-width: 100%;
+    white-space: normal;
+  }
+}
+
+/* De 641 a 899 no cabe «Cómo pagó» (está en el detalle). */
+@media (min-width: 641px) and (max-width: 899px) {
+  .np-cobros-table [data-card='como'] {
+    display: none;
+  }
+}
+
+/* Con sitio, «14 nov, 02:14» en una línea. */
+@media (min-width: 1100px) {
+  .np-cobros-table th[data-card='hora'] { width: 7.5rem; }
+}
+
+/* Hasta 640: cada cobro, una tarjeta de 72 px en dos líneas. Arriba, qué e
+   importe; abajo, hora, quién y estado. Lo demás está en el detalle. */
+@media (max-width: 640px) {
+  .np-table.np-cobros-table tbody tr {
+    align-content: center;
+    min-height: 4.5rem;
+    padding: 0.5625rem 1rem;
+  }
+
+  .np-table.np-cobros-table tbody tr::before {
+    order: 2;
+  }
+
+  .np-table.np-cobros-table tbody td {
+    flex: 0 1 auto;
+    align-items: center;
+    justify-content: flex-start;
+    min-width: 0;
+    min-height: 1.5rem;
+    padding: 0 !important;
+    font-size: 0.875rem;
+    text-align: left !important;
+    overflow-wrap: normal;
+  }
+
+  .np-table.np-cobros-table tbody td[data-card='que'] {
+    order: 1;
+    flex: 1 1 0%;
+    font-size: 1rem;
+  }
+
+  .np-table.np-cobros-table tbody td[data-card='que'] > .np-cobros-que {
+    flex: 1 1 0%;
+  }
+
+  .np-table.np-cobros-table tbody td[data-card='importe'] {
+    order: 1;
+    flex: none;
+  }
+
+  .np-table.np-cobros-table tbody td[data-card='importe'] .np-importe {
+    font-size: 1rem;
+  }
+
+  .np-table.np-cobros-table tbody td[data-card='hora'] {
+    order: 3;
+    flex: none;
+  }
+
+  .np-table.np-cobros-table tbody td[data-card='ref'] {
+    order: 3;
+    flex: none;
+  }
+
+  .np-table.np-cobros-table tbody td[data-card='quien'] {
+    order: 3;
+    flex: 1 1 0%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .np-table.np-cobros-table tbody td[data-card='estado'] {
+    order: 3;
+    flex: none;
+    flex-wrap: wrap;
+    margin-left: auto;
+  }
+
+  .np-table.np-cobros-table tbody td[data-card='como'] {
+    display: none;
+  }
+
+  .np-table.np-cobros-table tbody td[data-card='codigo'] {
+    display: none;
+  }
+
+  .np-table.np-cobros-table tbody td[data-card='banco'] {
+    display: none;
+  }
+
+  /* El aviso de «cobrado dos veces», en su línea bajo la tarjeta. */
+  .np-cobros-dos-veces {
+    flex-basis: 100%;
+    margin: 0.375rem 0 0;
+  }
+}
+
+/* Con el dedo, el nombre y el saldo se tocan en 44 px sin agrandar la fila. */
+@media (max-width: 640px), (pointer: coarse) {
+  .np-cobros-table .np-cell-link {
+    display: inline-flex;
+    align-items: center;
+    min-height: 2.75rem;
+    margin-top: -0.625rem;
+    margin-bottom: -0.625rem;
+  }
+}
+
+/* ─── Lista y detalle ────────────────────────────────────────────────────
+   Desde 1280 el detalle va al lado de la lista, pegado arriba y con su propio
+   desplazamiento. Por debajo es una hoja (Sheet): panel lateral desde 641,
+   pantalla entera en el móvil. */
+.np-cobros-split {
+  min-width: 0;
+}
+
+.np-cobros-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  min-width: 0;
+  scroll-margin-top: 0.75rem;
+}
+
+.np-cobros-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.np-cobros-head h2 {
+  margin: 0;
+  font-size: var(--np-t-h2);
+  font-weight: 600;
+}
+
+.np-cobros-more {
+  display: flex;
+  justify-content: center;
+}
+
+@media (min-width: 1280px) {
+  .np-cobros-split[data-open] {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 27.5rem;
+    gap: 1.5rem;
+    align-items: start;
+  }
+}
+
+.np-cobro-dock {
+  position: sticky;
+  top: 0;
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  height: 100dvh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border: 1px solid var(--np-card-edge);
+  border-radius: var(--np-r-card);
+  background: var(--np-surface);
+}
+
+.np-cobro-dock-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.75rem 0.75rem 0 1.25rem;
+}
+
+.np-cobro-dock-head h2 {
+  margin: 0;
+  font-size: 1.125rem;
+  font-weight: 600;
+}
+
+.np-cobro-dock > .np-cobro-detail {
+  flex: 1 0 auto;
+  padding: 0.75rem 1.25rem 0;
+}
+
+/* Con el detalle abierto en un portátil, las columnas se aprietan: «Qué», el resto. */
+@media (min-width: 1280px) and (max-width: 1439px) {
+  .np-cobros-split[data-open] .np-cobros-table th[data-card='hora'] { width: 5rem; }
+  .np-cobros-split[data-open] .np-cobros-table th[data-card='quien'] { width: 7rem; }
+  .np-cobros-split[data-open] .np-cobros-table th[data-card='como'] { width: 8rem; }
+  .np-cobros-split[data-open] .np-cobros-table th[data-card='estado'] { width: 9rem; }
+  .np-cobros-split[data-open] .np-cobros-table th[data-card='importe'] { width: 7rem; }
+}
+
+/* ─── El detalle de un cobro ─────────────────────────────────────────── */
+.np-cobro-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  min-width: 0;
+}
+
+.np-cobro-detail-top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.375rem 0.75rem;
+}
+
+.np-cobro-detail-top .np-importe {
+  font-family: var(--np-font-num);
+  font-size: 1.75rem;
+  font-weight: 600;
+}
+
+.np-cobro-detail-mute {
+  margin: 0;
+  font-size: 0.875rem;
+  color: var(--np-text-mute);
+}
+
+/* El pie: los botones del cobro (devolver, anular, resolver…) y «Compartir»,
+   siempre a la vista mientras se lee el detalle. */
+.np-cobro-pie {
+  position: sticky;
+  bottom: 0;
+  z-index: 1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: auto;
+  padding: 0.75rem 0;
+  border-top: 1px solid var(--np-border);
+  background: var(--np-surface);
+}
+
+/* Dentro de una hoja, sobre el fondo de la hoja. */
+.np-hoja .np-cobro-pie {
+  background: var(--np-surface-2);
+}
+
+.np-cobro-pie > [role='status'] {
+  flex-basis: 100%;
+}
+
+/* ─── La barra: vistas, buscador, filtros, fichas y total ────────────── */
+.np-cobros-toolbar {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  min-width: 0;
+}
+
+/* Vistas: pastillas en una línea que se desplaza (nunca se parten). */
+.np-cobros-views {
+  display: flex;
+  gap: 0.5rem;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.np-cobros-views::-webkit-scrollbar {
+  display: none;
+}
+
+.np-cobros-view {
+  flex: none;
+  min-height: 2.25rem;
+  padding: 0 0.875rem;
+  border: 1px solid var(--np-border-hi);
+  border-radius: var(--np-r-pill);
+  background: transparent;
+  color: var(--np-text-mute);
+  font: inherit;
+  font-size: 0.875rem;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.np-cobros-view:hover {
+  color: var(--np-text);
+}
+
+/* La elegida: un paso más clara y con el texto entero. Sin lima ni visto. */
+.np-cobros-view[aria-pressed='true'] {
+  border-color: transparent;
+  background: var(--np-surface-3);
+  color: var(--np-text);
+}
+
+.np-cobros-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.np-cobros-search {
+  flex: 1 1 12rem;
+  min-width: 0;
+  margin: 0;
+}
+
+.np-cobros-bar-end {
+  display: flex;
+  gap: 0.5rem;
+  margin-left: auto;
+}
+
+.np-cobros-anchor {
+  display: inline-flex;
+}
+
+/* De 641 a 1099, el buscador a lo ancho y el resto debajo. */
+@media (min-width: 641px) and (max-width: 1099px) {
+  .np-cobros-search {
+    flex-basis: 100%;
+  }
+}
+
+/* Desde 1100, todo en una línea. */
+@media (min-width: 1100px) {
+  .np-cobros-bar {
+    flex-wrap: nowrap;
+  }
+
+  .np-cobros-search {
+    max-width: 24rem;
+  }
+}
+
+/* Hasta 640: el buscador y «Filtros (N)», con todo lo demás dentro. */
+@media (max-width: 640px) {
+  .np-cobros-bar [data-wide-only] {
+    display: none;
+  }
+
+  .np-cobros-bar {
+    flex-wrap: nowrap;
+  }
+}
+
+@media (min-width: 641px) {
+  .np-cobros-bar [data-mobile-only] {
+    display: none;
+  }
+}
+
+/* Lo de dentro de un menú o de la hoja de filtros. */
+.np-cobros-menu {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.np-cobros-menu-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  width: 100%;
+  min-height: 2.75rem;
+  padding: 0 0.75rem;
+  border: none;
+  border-radius: var(--np-r-sm);
+  background: transparent;
+  color: var(--np-text);
+  font: inherit;
+  font-size: 0.875rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+.np-cobros-menu-item:hover,
+.np-cobros-menu-item[aria-pressed='true'] {
+  background: var(--np-surface-3);
+}
+
+.np-cobros-sheet {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.np-cobros-sheet fieldset {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin: 0;
+  padding: 0;
+  border: none;
+}
+
+.np-cobros-sheet legend {
+  margin-bottom: 0.375rem;
+  padding: 0;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--np-text-mute);
+}
+
+/* Fichas: lo que hay filtrado, cada una con su ✕. */
+.np-cobros-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.np-cobros-chip {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  min-height: 2rem;
+  padding: 0 0.5rem 0 0.75rem;
+  border: 1px solid var(--np-border-hi);
+  border-radius: var(--np-r-sm);
+  background: var(--np-surface-2);
+  color: var(--np-text);
+  font: inherit;
+  font-size: 0.875rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+.np-cobros-chip > svg {
+  flex: none;
+  margin-left: 0.375rem;
+  color: var(--np-text-mute);
+}
+
+.np-cobros-clear {
+  min-height: 2rem;
+  padding: 0 0.5rem;
+  border: none;
+  background: none;
+  color: var(--np-text);
+  font: inherit;
+  font-size: 0.875rem;
+  text-decoration: underline;
+  text-underline-offset: 0.15em;
+  cursor: pointer;
+}
+
+/* El total de lo cargado y lo que diga la descarga. */
+.np-cobros-total {
+  margin: 0;
+  font-size: 0.875rem;
+  color: var(--np-text-mute);
+}
+
+.np-cobros-total .np-importe {
+  color: var(--np-text);
+  font-weight: 600;
+}
+
+.np-cobros-download {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
+  margin: 0;
+  font-size: 0.875rem;
+  color: var(--np-text-mute);
+}
+
+/* Con el dedo (móvil y tablet), lo pequeño a 44 px. */
+@media (max-width: 640px), (pointer: coarse) {
+  .np-cobros-view {
+    min-height: 2.75rem;
+  }
+
+  .np-cobros-chip {
+    min-height: 2.75rem;
+  }
+
+  .np-cobros-clear {
+    min-height: 2.75rem;
+  }
+
+  .np-cobros-bar .np-btn[data-size='sm'] {
+    min-height: 2.75rem;
+  }
+}

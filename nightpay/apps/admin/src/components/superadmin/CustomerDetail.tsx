@@ -47,7 +47,7 @@ export function CustomerDetailView({ walletId, onOpenWallet, onBack }: Props) {
           const label = w.code ?? 'este saldo';
           return (
             <>
-              <Card variant="elevated">
+              <Card variant="elevated" className="np-sa-card">
                 <div className="np-sa-stack-sm">
                   <div className="np-sa-wallet-head">
                     <div>

@@ -78,7 +78,7 @@ export function withoutRef(search: string): string {
 
 /** El estado del cobro con las palabras únicas: un consumo del saldo deshecho sale «Devuelto». */
 export function detailStatus(d: Pick<CobroDetail, 'kind' | 'status'>): CobroStatusView {
-  if (d.kind === 'SALDO' && d.status === 'REVERSED') return { label: 'Devuelto', tone: 'neutral' };
+  if (d.kind === 'SALDO' && d.status === 'REVERSED') return { label: 'Devuelto', tone: 'refund' };
   return cobroStatus({ kind: d.kind, status: d.status as CobroRow['status'] });
 }
 

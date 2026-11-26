@@ -5,6 +5,7 @@ import '@nightpay/ui/styles.css';
 // Estilos del panel, después de los de @nightpay/ui (pueden ajustar .np-table).
 import '../styles/panel-nav.css';
 import '../styles/panel-tables.css';
+import '../styles/panel-cobros.css';
 import '../styles/panel-tonight.css';
 import '../styles/panel-inbox.css';
 import '../styles/panel-otp.css';

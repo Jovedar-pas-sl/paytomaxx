@@ -143,7 +143,7 @@ function ProfileCard({ venue, onSaved }: { venue: VenueDetail; onSaved: (v: Venu
   }
 
   return (
-    <Card>
+    <Card className="np-sa-card">
       <form className="np-sa-form" onSubmit={(e) => void handleSubmit(e)} noValidate>
         <SectionHead level={3} title="Perfil" sub="El IVA y el grupo del saldo cambian dinero: te pedirá el código 2FA." />
         <div className="np-sa-grid-2">
