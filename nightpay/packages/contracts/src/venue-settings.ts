@@ -361,7 +361,7 @@ export const STAFF_PERMISSION_DENIED_MESSAGES: Readonly<Record<StaffPermissionKe
   reports: 'El dueño del local no te deja ver los informes.',
   cashTopUp: 'El dueño del local no te deja cobrar recargas en efectivo.',
   cashPayout: 'El dueño del local no te deja devolver saldo en efectivo.',
-  chargeForOperator: 'El dueño del local no te deja cobrar servicios a nombre de una compañera: los cobra el encargado.',
+  chargeForOperator: 'El dueño del local no te deja cobrar servicios a nombre de una compañera. Habla con él.',
 };
 
 /** El datáfono de recepción sin permiso para el efectivo (Ajustes → Permisos → Datáfonos). */

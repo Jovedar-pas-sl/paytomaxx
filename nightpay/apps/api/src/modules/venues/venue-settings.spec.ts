@@ -7,6 +7,7 @@ import {
   DEFAULT_PAYMENT_METHODS,
   UpdateAlertSettingsSchema,
   UpdatePaymentMethodsSchema,
+  STAFF_PERMISSION_DENIED_MESSAGES,
   UpdateStaffPermissionsSchema,
   alertKindForIncident,
   alertSettingsOf,
@@ -162,6 +163,12 @@ describe('permisos del personal: por defecto, lo de hoy', () => {
     expect(staffCan(given, { role: 'OPERATOR', userId: WAITER_ID }, 'chargeForOperator')).toBe(false);
     // Al datáfono, nunca (no hay persona que escanee): ni guardándolo.
     expect(deviceCan(staffPermissionsOf({ roles: { DEVICE: { chargeForOperator: true } } }), 'chargeForOperator')).toBe(false);
+  });
+
+  it('sin ese permiso, un motivo que vale al encargado y a recepción (no «los cobra el encargado»)', () => {
+    expect(STAFF_PERMISSION_DENIED_MESSAGES.chargeForOperator).toBe(
+      'El dueño del local no te deja cobrar servicios a nombre de una compañera. Habla con él.',
+    );
   });
 
   it('devolver saldo: en efectivo pide «dar efectivo»; a la tarjeta, «devolver»', () => {
