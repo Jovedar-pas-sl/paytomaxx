@@ -192,7 +192,7 @@ describe('Yavin: abrir el cobro', () => {
     const payment = await paymentOf(p.id);
     expect(payment).toMatchObject({ status: 'AUTHORIZING', provider: 'YAVIN', providerTxId: cartId, gatewayPaymentUrl: `https://pay.yavin.simulado/${cartId}` });
     expect(redsysAuthorize).not.toHaveBeenCalled();
-    expect(calls[0]).toMatchObject({ path: '/api/v5/ecommerce/generate_link/', secret: FAKE_KEY, body: { amount: 2500, order_id: p.id } });
+    expect(calls[0]).toMatchObject({ path: '/api/v5/ecommerce/generate_link/', secret: FAKE_KEY, body: { amount: 2500 } });
     const attempt = await sys((tx) => tx.paymentAttempt.findFirstOrThrow({ where: { paymentId: p.id } }));
     expect(attempt.noticeTokenHash).toMatch(/^[0-9a-f]{64}$/);
     expect(attempt.noticeTokenHash).not.toBe(token);

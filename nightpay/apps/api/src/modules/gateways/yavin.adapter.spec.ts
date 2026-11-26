@@ -86,7 +86,7 @@ describe('YavinAdapter.authorize: crear el enlace', () => {
     expect(headersOf(call)['Yavin-Secret']).toBe(FAKE_KEY);
     const body = bodyOf(call);
     expect(body.amount).toBe(2500);
-    expect(body.order_id).toBe(PAYMENT);
+    expect(body.order_id).toBe(ATTEMPT);
     expect(body.return_url_success).toBe('https://api.ejemplo.test/pay/yavin/return?r=ok');
     expect(body.return_url_cancelled).toBe('https://api.ejemplo.test/pay/yavin/return?r=ko');
     const webhook = String(body.webhook_url);

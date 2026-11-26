@@ -212,7 +212,7 @@ export class YavinAdapter implements GatewayAdapter {
     const body = {
       amount: input.amountCents,
       currency: input.currency,
-      order_id: input.reference,
+      order_id: input.attemptId, // el id del intento (aleatorio), como Paytef: del id del pago sale el código de confirmación
       return_url_success: `${apiBase}/pay/yavin/return?r=ok${lang}`,
       return_url_cancelled: `${apiBase}/pay/yavin/return?r=ko${lang}`,
       webhook_url: `${apiBase}/v1/webhooks/yavin/${notice.token}`,
@@ -289,7 +289,7 @@ export class YavinAdapter implements GatewayAdapter {
     if (!found.ok) return { kind: 'unavailable', reason: found.reason };
     const { cart } = found;
     const ref = cart.order_id ?? cart.reference;
-    if (ref !== undefined && ref !== claim.paymentId) return { kind: 'rejected', reason: 'yavin-carrito-de-otro-cobro' };
+    if (ref !== undefined && ref !== claim.attemptId && ref !== claim.paymentId) return { kind: 'rejected', reason: 'yavin-carrito-de-otro-cobro' };
     if (!cartIsPaid(cart)) return { kind: 'rejected', reason: 'yavin-no-pagado' };
     if (typeof cart.amount !== 'number') return { kind: 'rejected', reason: 'yavin-sin-importe' };
     return { kind: 'confirmed', amountCents: cart.amount, currency: cart.currency?.toUpperCase() ?? null };
