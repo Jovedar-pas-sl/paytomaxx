@@ -5,6 +5,8 @@
 //    super-admin la cambia con su 2FA de verdad y queda en el registro con el antes y el después.
 //  - La compañera del servicio en la línea (payment_lines.serviceOperatorId): solo en Servicios
 //    (CHECK), y la migración que se puede repetir sin tocar lo guardado.
+//  - Con la casilla apagada, la compañera no crea cobros ni recargas por ningún canal (cobro único,
+//    datáfono, cobro del saldo y recarga con tarjeta), su carta sale vacía y /venues/me se lo dice.
 // Ver README.md.
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { AsyncLocalStorage } from 'node:async_hooks';
@@ -12,7 +14,7 @@ import { spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import { ClsService } from 'nestjs-cls';
-import type { JwtPayload } from '@nightpay/contracts';
+import { SALA_PHONE_OFF_MESSAGE, SECTION_NOT_ALLOWED_CODE, TOP_UP_RECEPTION_ONLY_CODE, type JwtPayload } from '@nightpay/contracts';
 import { PrismaService, type TransactionalClient } from '../../src/common/prisma/prisma.service';
 import { AdminController } from '../../src/modules/admin/admin.controller';
 import { AuditService } from '../../src/modules/audit/audit.service';
@@ -21,9 +23,13 @@ import { claimStepScript, createFakeRedis } from '../../src/modules/auth/testing
 import { totpCodeAt } from '../../src/modules/auth/testing/totp-kit';
 import { CLAIM_STEP_LUA, TotpAttemptsService } from '../../src/modules/auth/totp-attempts.service';
 import { TotpService } from '../../src/modules/auth/totp.service';
+import { CartaService } from '../../src/modules/carta/carta.service';
+import { PaymentsService } from '../../src/modules/payments/payments.service';
 import { SuperAdminStepUpService } from '../../src/modules/superadmin/step-up.service';
 import { SuperAdminAuditService } from '../../src/modules/superadmin/superadmin-audit.service';
 import { SuperAdminVenuesService } from '../../src/modules/superadmin/venues.service';
+import { VenuesController } from '../../src/modules/venues/venues.controller';
+import { WalletChargesService } from '../../src/modules/wallets/wallet-charges.service';
 
 const cls = new ClsService(new AsyncLocalStorage());
 const prisma = new PrismaService(cls as never);
@@ -35,6 +41,22 @@ const saAudit = new SuperAdminAuditService(audit);
 /** La consola con la 2FA de verdad (el código de la app contra el secreto cifrado del super-admin). */
 const venues = new SuperAdminVenuesService(prisma, new SuperAdminStepUpService(totp, saAudit), saAudit, { get: () => '7' } as never);
 const admin = new AdminController(prisma, {} as never, audit, {} as never, {} as never, cls as never, {} as never, {} as never);
+const noop = () => undefined;
+const queue = { add: async () => undefined };
+const payments = new PaymentsService(
+  prisma,
+  cls as never,
+  queue as never,
+  queue as never,
+  {} as never,
+  { emitPaymentUpdate: noop, emitPaymentCompleted: noop } as never,
+  { paymentsCreated: { inc: noop }, paymentsTransitioned: { inc: noop }, walletCreditSkipped: { inc: noop }, duplicateCharges: { inc: noop } } as never,
+  {} as never,
+  {} as never,
+);
+const charges = new WalletChargesService(prisma, audit, { get: () => ({}) } as never, {} as never);
+const carta = new CartaService(prisma, audit);
+const venuesMe = new VenuesController(prisma);
 
 const DB_PKG = join(__dirname, '../../../../packages/db');
 const MIGRATION = join(DB_PKG, 'prisma/migrations/20261125100000_cobro_encargado/migration.sql');
@@ -142,5 +164,76 @@ describe('La compañera del servicio en la línea (payment_lines.serviceOperator
     );
     expect(res.status, `${res.stdout}\n${res.stderr}`).toBe(0);
     expect(await casillaOf(V)).toBe(false);
+  });
+});
+
+describe('Casilla apagada: la compañera no crea cobros ni recargas por ningún canal', () => {
+  /** Un local con Sala que carga saldos y el datáfono encendido, Nerea (compañera) y un «Servicio 1 h». */
+  async function local(name: string, operatorsChargeFromPhone: boolean) {
+    const V = await newVenue(name, {
+      operatorsChargeFromPhone,
+      postRules: { SALA: { topUps: true } },
+      paymentMethods: { pos: true },
+      walletGroup: `genc-${name}-${r}`,
+    });
+    return sys(async (tx) => {
+      await tx.terminal.create({ data: { tenantId: V, externalId: `ENC-${name}-${r}`, label: 'Barra' } });
+      const nerea = await tx.user.create({
+        data: { tenantId: V, email: `nerea-${name.toLowerCase()}-${r}@x.es`, passwordHash: 'x', role: 'OPERATOR', displayName: 'Nerea' },
+      });
+      const servicio = await tx.serviceItem.create({ data: { tenantId: V, name: 'Servicio 1 h', priceCents: 6000, category: 'CHICA_SERVICE' } });
+      return { V, name, nerea: nerea.id, servicio: servicio.id };
+    });
+  }
+  let n = 0;
+  /** Lo que puede hacer ella desde su móvil: cada canal que crea un cobro o una recarga, su carta y /venues/me. */
+  function canales(l: Awaited<ReturnType<typeof local>>) {
+    const pay = (body: Record<string, unknown>) =>
+      inVenue(l.V, () =>
+        payments.create(l.V, `enc-${r}-${(n += 1)}`, { currency: 'EUR', terminalExternalId: `ENC-${l.name}-${r}`, ...body } as never, {
+          userId: l.nerea,
+          role: 'OPERATOR',
+        }),
+      );
+    return {
+      cobroUnico: () => pay({ lines: [{ serviceItemId: l.servicio, qty: 1 }], withSaldo: true }),
+      datafono: () => pay({ amountCents: 6000, captureMethod: 'POS_EXTERNAL' }),
+      saldo: () => inVenue(l.V, () => charges.createQrCharge({ userId: l.nerea, role: 'OPERATOR', tenantId: l.V }, { amountCents: 3000 })),
+      recarga: () => pay({ amountCents: 5000, wallet: { create: true } }),
+      carta: () => inVenue(l.V, () => carta.listForStaff(l.V, 'OPERATOR', l.nerea)),
+      me: () => inVenue(l.V, () => venuesMe.getMyVenue({ sub: l.nerea, role: 'OPERATOR', tenantId: l.V } as JwtPayload)),
+    };
+  }
+
+  it('apagada: «Hoy cobra el encargado» en el cobro único, el datáfono y el saldo; no recarga; carta vacía; y no se crea nada', async () => {
+    const l = await local('Apagado', false);
+    const c = canales(l);
+    const hoyCobraElEncargado = {
+      status: 403,
+      response: expect.objectContaining({ code: SECTION_NOT_ALLOWED_CODE, message: SALA_PHONE_OFF_MESSAGE }),
+    };
+    await expect(c.cobroUnico()).rejects.toMatchObject(hoyCobraElEncargado);
+    await expect(c.datafono()).rejects.toMatchObject(hoyCobraElEncargado);
+    await expect(c.saldo()).rejects.toMatchObject(hoyCobraElEncargado);
+    // Aunque Sala cargue saldos en este local.
+    await expect(c.recarga()).rejects.toMatchObject({ status: 403, response: expect.objectContaining({ code: TOP_UP_RECEPTION_ONLY_CODE }) });
+    expect(await c.carta()).toEqual([]);
+    expect((await c.me()).myRights).toEqual({ sections: [], tips: true, cash: false, topUps: false });
+    const made = await sys(async (tx) => [
+      await tx.payment.count({ where: { tenantId: l.V } }),
+      await tx.walletChargeRequest.count({ where: { tenantId: l.V } }),
+    ]);
+    expect(made).toEqual([0, 0]);
+  });
+
+  it('encendida: como hoy (cobra por los tres canales, recarga si Sala carga saldos y ve su carta)', async () => {
+    const l = await local('Encendido', true);
+    const c = canales(l);
+    await expect(c.cobroUnico()).resolves.toMatchObject({ amountCents: 6000 });
+    await expect(c.datafono()).resolves.toMatchObject({ amountCents: 6000 });
+    await expect(c.saldo()).resolves.toMatchObject({ amountCents: 3000 });
+    await expect(c.recarga()).resolves.toMatchObject({ amountCents: 5000 });
+    expect((await c.carta()).map((i) => i.id)).toEqual([l.servicio]);
+    expect((await c.me()).myRights).toEqual({ sections: ['CHICA_SERVICE'], tips: true, cash: false, topUps: true });
   });
 });

@@ -36,7 +36,10 @@ export class VenuesController {
   async getMyVenue(@CurrentUser() user: JwtPayload) {
     // Query directa sin filtro: Venue NO está en TENANT_SCOPED_MODELS (no tiene tenantId;
     // ES el tenant). Filtramos por id explícito desde el JWT.
-    const [{ paymentMethods, nightSettings, sections, postRules, serviceFeeEnabled, serviceFeeBps, topUpServiceFeeBps, ...venue }, me] = await Promise.all([
+    const [
+      { paymentMethods, nightSettings, sections, postRules, operatorsChargeFromPhone, serviceFeeEnabled, serviceFeeBps, topUpServiceFeeBps, ...venue },
+      me,
+    ] = await Promise.all([
       this.prisma.venue.findUniqueOrThrow({
         where: { id: user.tenantId },
         select: {
@@ -49,12 +52,14 @@ export class VenuesController {
           nightSettings: true,
           sections: true,
           postRules: true,
+          operatorsChargeFromPhone: true,
           ...VENUE_SERVICE_FEE_SELECT,
         },
       }),
       this.prisma.user.findFirst({ where: { id: user.sub }, select: { post: true } }),
     ]);
-    const rights = chargeRightsOf({ role: user.role, post: me?.post ?? null }, postRulesOf(postRules));
+    // Casilla apagada: la compañera sale sin secciones ni recargas (myRights), sin campos nuevos.
+    const rights = chargeRightsOf({ role: user.role, post: me?.post ?? null }, postRulesOf(postRules), { operatorsChargeFromPhone });
     const venueSections = sectionsOf(sections);
     // OxioParty: la caseta de quien llama (OxioPay: null sin mirar la base).
     const stall = await myStall(this.prisma, { tenantId: user.tenantId, userId: user.sub });
