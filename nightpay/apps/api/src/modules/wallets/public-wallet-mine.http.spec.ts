@@ -95,3 +95,54 @@ describe('«Ver mi saldo» con la llave del cliente', () => {
     expect(r.headers['set-cookie']).toBeUndefined();
   });
 });
+
+describe('GET /w/mine: la página de «Ver mi saldo» (idea 73, la puerta de la portada)', () => {
+  const get = (url: string, headers: Record<string, string> = {}) =>
+    app.getHttpAdapter().getInstance().inject({ method: 'GET', url, headers });
+
+  it('200 sin /v1, sin guardar, sin buscadores y sin decir de dónde viene', async () => {
+    const r = await get('/w/mine');
+    expect(r.statusCode).toBe(200);
+    expect(r.headers['content-type']).toContain('text/html');
+    expect(r.headers['cache-control']).toBe('no-store');
+    expect(r.headers['referrer-policy']).toBe('no-referrer');
+    expect(r.body).toContain('<meta name="robots" content="noindex">');
+    expect((await get('/v1/w/mine')).statusCode).toBe(404);
+  });
+
+  it('«Tu saldo», cómo se abre, el botón con su Face ID y qué hacer si no se abre', async () => {
+    const body = (await get('/w/mine')).body;
+    expect(body).toContain('<title>Tu saldo</title>');
+    expect(body).toContain('Desbloquea tu móvil para ver tu saldo.');
+    expect(body).toContain('id="npMine"');
+    expect(body).toContain('npMineShow(true);');
+    expect(body).toContain('pkPrepare');
+    expect(body).toContain('¿No se abre? Acerca tu ficha al móvil o abre el enlace de tu recarga.');
+  });
+
+  it('sin tokens ni datos de nadie: no lee ningún saldo ni la llave', async () => {
+    const body = (await get('/w/mine', { cookie: 'np_lang=en' })).body;
+    expect(body).toContain('<html lang="en"');
+    expect(body).not.toContain('privateWalletToken');
+    expect(body).not.toContain('oldWalletToken');
+    expect(lookups()).toEqual(0);
+    expect(noViewCookie(await get('/w/mine'))).toBe(true);
+  });
+
+  it('en los cuatro idiomas (?lang= o su cookie)', async () => {
+    expect((await get('/w/mine?lang=en')).body).toContain('Unlock your phone to see your balance.');
+    expect((await get('/w/mine?lang=fr')).body).toContain('<html lang="fr"');
+    expect((await get('/w/mine?lang=pt')).body).toContain('<html lang="pt"');
+  });
+});
+
+/** Ni la llave ni la base: la página no sabe de quién es el saldo. */
+function lookups(): number {
+  return keys.verify.mock.calls.length + keys.challenge.mock.calls.length + tx.clientWallet.findUnique.mock.calls.length + tx.$queryRaw.mock.calls.length;
+}
+
+/** Sin cookie de consulta: como mucho, la del idioma. */
+function noViewCookie(r: { headers: Record<string, unknown> }): boolean {
+  const cookies = ([] as string[]).concat((r.headers['set-cookie'] as string | string[] | undefined) ?? []);
+  return cookies.every((c) => !c.includes('Path=/w/'));
+}
