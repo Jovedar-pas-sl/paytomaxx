@@ -66,6 +66,8 @@ const SECRET_BODY_KEYS: ReadonlySet<string> = new Set([
   'qr',
   'nfc_uid',
   'description',
+  // …y el motivo de una anulación (solo en sus columnas y el panel).
+  'reason',
 ]);
 /**
  * Y cualquiera que lo parezca: newPassword, accessToken, pinConfirm,

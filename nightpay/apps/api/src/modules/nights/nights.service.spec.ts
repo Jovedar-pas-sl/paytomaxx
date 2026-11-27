@@ -744,3 +744,51 @@ describe('el Z con los nombres de sección del local (Ajustes → Secciones)', (
     expect(z.adjustments.summary.byType).toEqual([{ label: 'Cocina', count: 1, chargedCents: 900 }]);
   });
 });
+
+describe('lo pagado por horas (el minigráfico del Resumen)', () => {
+  /** Una copa de 10 € con 2 € de propina a las 22:30 de Madrid (20:30 UTC). */
+  const COPA = {
+    id: 'c-1',
+    paidAt: new Date('2026-10-13T20:30:00Z'),
+    status: 'AUTHORIZED',
+    amountCents: 1000,
+    tipCents: 200,
+    revenueCategory: 'VENUE_BAR',
+    lines: null,
+    captureMethod: 'QR',
+    walletId: null,
+    creatorName: 'Paula',
+    creatorEmail: 'paula@local.es',
+    earningOperatorName: null,
+    earningOperatorEmail: null,
+    refundedCents: 0,
+    commissionCents: null,
+    earningTipCents: null,
+    reversedCents: null,
+    reversedAfterPayoutCents: 0,
+  };
+
+  it('la noche abierta lo trae, de la primera hora con movimiento a la de ahora, con las filas del Z (una sola vez)', async () => {
+    const { svc, reports } = makeService();
+    reports.cobros.mockResolvedValue([COPA]);
+    const view = await svc.current('t-1');
+    expect(view!.hourly).toEqual([
+      { at: '2026-10-13T20:00:00.000Z', chargedCents: 1200, open: false },
+      { at: '2026-10-13T21:00:00.000Z', chargedCents: 0, open: false },
+      { at: '2026-10-13T22:00:00.000Z', chargedCents: 0, open: false },
+      { at: '2026-10-13T23:00:00.000Z', chargedCents: 0, open: true },
+    ]);
+    expect(view!.hourly!.reduce((s, h) => s + h.chargedCents, 0)).toBe(view!.z.summary.chargedCents);
+    expect(reports.cobros).toHaveBeenCalledTimes(1);
+  });
+
+  it('no entra en el Z que se congela al cerrar, ni en la noche ya cerrada', async () => {
+    const { svc, prisma, reports } = makeService();
+    reports.cobros.mockResolvedValue([COPA]);
+    await svc.close('t-1', { userId: 'u-1', role: 'MANAGER' }, 'night-1');
+    expect(closedData(prisma).zReport).not.toHaveProperty('hourly');
+    const frozen = { from: 'a', to: 'b', generatedAt: 'c', summary: { count: 1 }, pendingCount: 0 };
+    const done = makeService({ open: night({ closedAt: new Date('2026-10-14T03:00:00Z'), zReport: frozen }) });
+    expect(await done.svc.get('t-1', 'night-1')).not.toHaveProperty('hourly');
+  });
+});

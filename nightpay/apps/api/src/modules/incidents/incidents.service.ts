@@ -169,7 +169,9 @@ export class IncidentsService {
                              ${PROMOTER_COMMISSION_PAID_ACTION})
                 OR (a.action = ANY(${[...SENSITIVE_AUDIT_ACTIONS]}::text[])
                     -- «No se cobró» no sube ningún saldo: no hace falta avisar.
-                    AND COALESCE(a.payload ->> 'decision', 'AUTHORIZED') = 'AUTHORIZED'))
+                    AND COALESCE(a.payload ->> 'decision', 'AUTHORIZED') = 'AUTHORIZED'
+                    -- Un tope de los socios: solo el primero de cada conexión y noche (los demás, al registro).
+                    AND (a.action <> 'partner.limit_exceeded' OR a.payload ->> 'ownerAlert' = 'true')))
            AND NOT EXISTS (SELECT 1 FROM incident_acks k
                             WHERE k."tenantId" = a."tenantId"
                               AND k.kind IN ('earning_reverse_failed', 'wallet_credit_skipped', 'pos_reception_limit',

@@ -24,6 +24,7 @@ export type SectionKey = ClubSectionKey | PartySectionKey;
 
 /** Pestaña dentro de una sección. */
 export type TabKey =
+  | 'resumen'
   | 'payments'
   | 'money'
   | 'incidents'
@@ -46,6 +47,8 @@ export type TabKey =
   | 'alerts'
   | 'security'
   | 'superadmin'
+  // Otras plataformas (API de socios): solo si el API la contesta.
+  | 'partners'
   // OxioParty.
   | 'live'
   | 'stalls'
@@ -69,6 +72,8 @@ export interface PanelTab {
   access: TabAccess;
   /** Solo si el local cobra con datáfono (Ajustes → Formas de cobro → Datáfono). */
   needsPos?: true;
+  /** Solo si la API de socios está encendida (GET /v1/admin/partner-connections contesta). */
+  needsPartners?: true;
 }
 
 export interface PanelSection {
@@ -118,7 +123,9 @@ const SECTION_ORDER: readonly SectionKey[] = ['hoy', 'chicas', 'clientes', 'info
 const PARTY_SECTION_ORDER: readonly PartySectionKey[] = ['directo', 'casetas', 'pulseras', 'devoluciones', 'cierre', 'ajustes'];
 
 export const PANEL_TABS: readonly PanelTab[] = [
-  // Hoy: los cobros en vivo y una sola bandeja (incidencias + «Por aprobar»).
+  // Hoy: la portada (lo pagado, el dinero, lo que pide atención y los últimos cobros),
+  // los cobros en vivo y una sola bandeja (incidencias + «Por aprobar»). Solo OxioPay.
+  { key: 'resumen', label: 'Resumen', section: 'hoy', access: 'staff' },
   { key: 'payments', label: 'Cobros', section: 'hoy', access: 'staff' },
   // El mapa del dinero en directo (/v1/admin/money-map): como los informes.
   { key: 'money', label: 'Mapa del dinero', section: 'hoy', access: 'reports' },
@@ -145,6 +152,8 @@ export const PANEL_TABS: readonly PanelTab[] = [
   { key: 'terminals', label: 'Datáfonos', section: 'ajustes', access: 'staff', needsPos: true },
   { key: 'rules', label: 'Reglas del local', section: 'ajustes', access: 'owner' },
   { key: 'methods', label: 'Formas de cobro', section: 'ajustes', access: 'owner' },
+  // Las claves de otras plataformas (los cajeros…): el dueño conecta y cambia; el encargado pausa y anula.
+  { key: 'partners', label: 'Otras plataformas', section: 'ajustes', access: 'staff', needsPartners: true },
   // NFC sin PIN, teclado del PIN, recepción y avisos al cobrar (/v1/admin/venue/night).
   { key: 'night', label: 'Noche', section: 'ajustes', access: 'owner' },
   { key: 'permissions', label: 'Permisos', section: 'ajustes', access: 'owner' },
@@ -194,6 +203,8 @@ export interface PanelViewer {
   canSeeReports?: boolean;
   /** El local cobra con datáfono (Formas de cobro). Sin saberlo, sí: como antes. */
   posOn?: boolean;
+  /** La API de socios contesta (Otras plataformas). Sin saberlo, no: la pestaña no sale. */
+  partnersOn?: boolean;
 }
 
 export function visibleTabs(user: PanelViewer, edition: Edition = PANEL_EDITION): PanelTab[] {
@@ -201,6 +212,7 @@ export function visibleTabs(user: PanelViewer, edition: Edition = PANEL_EDITION)
   const isOwner = user.role === 'OWNER';
   return tabsOf(edition).filter((t) => {
     if (t.needsPos && user.posOn === false) return false;
+    if (t.needsPartners && user.partnersOn !== true) return false;
     if (t.access === 'owner') return isOwner;
     if (t.access === 'reports') return isOwner || Boolean(user.canSeeReports);
     if (t.access === 'superadmin') return Boolean(user.isSuperAdmin);

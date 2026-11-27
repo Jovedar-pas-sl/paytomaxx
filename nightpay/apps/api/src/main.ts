@@ -27,7 +27,7 @@ import { RealtimeGateway } from './modules/realtime/realtime.gateway';
 import { WalletStreamHub } from './modules/wallet-events/wallet-stream.hub';
 import { disconnectSocketIo, installGracefulShutdown } from './shutdown';
 import { ProblemDetailsFilter } from './common/filters/problem-details.filter';
-import { installPartnerBodyLimit, installPartnerUrlCheck } from './modules/partner/http/partner-hooks';
+import { installPartnerBodyLimit, installPartnerReceivedAt, installPartnerUrlCheck } from './modules/partner/http/partner-hooks';
 
 const logger = new Logger('Bootstrap');
 // Node 22 cierra el proceso ante una promesa rechazada sin recoger: el adaptador de Redis del tiempo
@@ -132,6 +132,7 @@ async function bootstrap() {
   // API de socios: una clave en la URL = 400 api_key_in_url antes que el resto
   // (también en rutas que no existen) y aviso al dueño. Detrás del corte de
   // Cloudflare: lo que llega directo ni se mira.
+  installPartnerReceivedAt(app);
   installPartnerUrlCheck(app);
 
   // Rate limit global: con la sesión del personal, por persona y por local;

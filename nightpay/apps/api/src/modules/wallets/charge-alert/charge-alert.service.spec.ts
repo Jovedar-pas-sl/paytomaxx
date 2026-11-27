@@ -104,7 +104,7 @@ describe('«Aviso en cada cobro»: mandar', () => {
     expect(options).toMatchObject({ ttlSeconds: 43_200, vapid: { subject: 'mailto:soporte@ejemplo.es' } });
     const payload = plain(JSON.parse(raw) as ChargePushPayload);
     expect(payload).toMatchObject({ title: 'Se han cobrado 12 €', body: 'En Sala Aurora · te quedan 38 €', tag: `cobro-${CHARGE}`, url: '/w/tokEnlaceDelSaldo1234', notMeLabel: 'No he sido yo' });
-    const token = payload.notMeUrl.replace('/w/no/', '');
+    const token = payload.notMeUrl!.replace('/w/no/', '');
     expect(notMeChargeId(token)).toBe(CHARGE);
     expect(verifyNotMeToken(token, WALLET, Date.now(), SECRET)).toBe('ok');
     // Nada del personal: no se lee quién cobró.
@@ -177,6 +177,33 @@ describe('«Aviso en cada cobro»: mandar', () => {
     broken.prisma.acrossVenues.mockRejectedValue(new Error('base caída'));
     expect(() => broken.svc.chargePaid(CHARGE)).not.toThrow();
     await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+});
+
+describe('«Carga anulada» (API de socios, PR 3)', () => {
+  it('a cada navegador en su idioma: el socio, el importe quitado y el saldo que queda; sin «No he sido yo»', async () => {
+    const { svc, sender } = harness({
+      subs: [sub(), sub({ id: 'sub-2', endpoint: 'https://push/en', lang: 'en' }), sub({ id: 'sub-3', endpoint: 'https://push/fr', lang: 'fr' }), sub({ id: 'sub-4', endpoint: 'https://push/pt', lang: 'pt' })],
+    });
+    expect(await svc.notifyLoadVoided({ walletId: WALLET, loadId: 'load-1', partnerName: 'Cajeros', amountCents: 2_000 })).toBe(4);
+    const payloads = vi.mocked(sender).mock.calls.map((c) => plain(JSON.parse(c[1]) as ChargePushPayload));
+    expect(payloads.map((p) => [p.title, p.body])).toEqual([
+      ['Carga anulada · Cajeros', 'Se han quitado 20 € de tu saldo · te quedan 38 €'],
+      ['Top-up cancelled · Cajeros', '€20 taken off your balance · €38 left'],
+      ['Recharge annulée · Cajeros', '20 € retirés de votre solde · il vous reste 38 €'],
+      ['Recarga anulada · Cajeros', 'Foram retirados 20 € do teu saldo · restam-te 38 €'],
+    ]);
+    for (const p of payloads) {
+      expect(p).toMatchObject({ tag: 'carga-anulada-load-1', url: '/w/tokEnlaceDelSaldo1234' });
+      expect(p.notMeUrl).toBeUndefined();
+    }
+  });
+
+  it('sin claves VAPID no manda nada; loadVoided no espera ni lanza', async () => {
+    const off = harness({ env: {} });
+    expect(await off.svc.notifyLoadVoided({ walletId: WALLET, loadId: 'l', partnerName: 'Cajeros', amountCents: 1 })).toBe(0);
+    const { svc } = harness({ sender: vi.fn<PushSender>(async () => { throw new Error('caído'); }) });
+    expect(() => svc.loadVoided({ walletId: WALLET, loadId: 'l', partnerName: 'Cajeros', amountCents: 1 })).not.toThrow();
   });
 });
 

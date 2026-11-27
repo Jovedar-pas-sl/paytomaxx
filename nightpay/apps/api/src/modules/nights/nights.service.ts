@@ -49,6 +49,7 @@ import { SERVED_EARNING_SQL } from '../operators/served-earning';
 import { CloseCheckService } from './close-check.service';
 import { blindCashDetail, blindCashStep, blindCloseRefusalDetail, blindsCash } from './blind-cash';
 import { settleWritesBefore } from './night-cutoff';
+import { nightHourly, type NightHour } from './night-hourly';
 import {
   autoCloseAt,
   buildAdjustments,
@@ -87,6 +88,8 @@ export interface NightView {
   pending: PendingPayment[];
   /** Cierre a ciegas: sin las cifras del efectivo (la encargada con la noche abierta, blind-cash.ts). */
   cashHidden?: boolean;
+  /** Lo pagado hora a hora, solo con la noche abierta (night-hourly). */
+  hourly?: NightHour[];
 }
 
 export interface NightListItem {
@@ -723,10 +726,12 @@ export class NightsService {
     const start = night.closedAt === null ? await this.zBounds(night.tenantId, night.openedAt) : null;
     const window = start ? { from: start.from, to: now } : null;
     const pending = window ? await this.pending(night.tenantId, window) : { items: [], count: 0 };
+    // La noche abierta: las filas del Z se leen una vez y dan el Z y lo pagado por horas.
+    const rows = window && start ? await this.zRows(night.tenantId, window, now, start.since) : null;
     // El mapa del dinero congelado al cerrar no sale con la noche: solo por /admin/money-map, que pide «Informes».
     const { moneyMap: _onlyWithReports, ...z } =
-      window && start
-        ? await this.buildZ(night.tenantId, window, pending.count, now, start.since)
+      rows && window && start
+        ? this.zFrom(window, rows, pending.count, now, start.since)
         : (night.zReport as unknown as NightZ);
     return {
       id: night.id,
@@ -738,6 +743,8 @@ export class NightsService {
       openingFloatCents: night.openingFloatCents,
       z,
       pending: pending.items,
+      // Solo con la noche abierta (el minigráfico del Resumen); no entra en el Z que se congela.
+      ...(rows ? { hourly: nightHourly(rows, now) } : {}),
     };
   }
 
@@ -765,22 +772,6 @@ export class NightsService {
     }
     await this.totp.assertForUser(actor.userId, opts.totpCode, action);
     return true;
-  }
-
-  /**
-   * Z de la noche tal como está en `now` (lo apuntado después irá como ajuste
-   * del Z siguiente), los ajustes de noches anteriores apuntados desde
-   * `since` y, al cerrar, la caja.
-   */
-  private async buildZ(
-    tenantId: string,
-    window: TimeWindow,
-    pendingCount: number,
-    now: Date,
-    since: Date,
-    caja?: NightCaja,
-  ): Promise<NightZ> {
-    return this.zFrom(window, await this.zRows(tenantId, window, now, since), pendingCount, now, since, caja);
   }
 
   /** El Z (puro) a partir de sus filas. */

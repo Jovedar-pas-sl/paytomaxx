@@ -1,7 +1,7 @@
 // La sección y la pestaña del panel viven en la URL (?s=ajustes&t=formas):
 // recargar, o volver a entrar tras caducar la sesión, deja al dueño donde
-// estaba, y «atrás» vuelve a la pestaña de antes. Hoy · Cobros (lo primero)
-// no lleva nada: la URL limpia de siempre. Solo nombres de sección y pestaña,
+// estaba, y «atrás» vuelve a la pestaña de antes. Hoy · Resumen (lo primero)
+// no lleva nada: la URL limpia de siempre; ?t=cobros sigue abriendo Cobros. Solo nombres de sección y pestaña,
 // nunca ids de cobros ni nada secreto; los otros parámetros no se tocan.
 
 import type { Edition } from '@nightpay/contracts';
@@ -11,8 +11,8 @@ import { sectionOf, SECTION_LABELS, type PanelSection, type SectionKey, type Tab
 export const SECTION_PARAM = 's';
 export const TAB_PARAM = 't';
 
-/** Donde se empieza: Hoy · Cobros. */
-export const DEFAULT_TAB: TabKey = 'payments';
+/** Donde se empieza: Hoy · Resumen. */
+export const DEFAULT_TAB: TabKey = 'resumen';
 /** OxioParty empieza en «En directo». */
 export const PARTY_DEFAULT_TAB: TabKey = 'live';
 
@@ -23,6 +23,7 @@ export function defaultTabOf(edition: Edition = PANEL_EDITION): TabKey {
 
 /** Cómo se escribe cada pestaña en la URL (en castellano, como se ve). */
 const TAB_SLUG: Readonly<Record<TabKey, string>> = {
+  resumen: 'resumen',
   payments: 'cobros',
   money: 'mapa',
   incidents: 'avisos',
@@ -40,6 +41,7 @@ const TAB_SLUG: Readonly<Record<TabKey, string>> = {
   terminals: 'datafonos',
   rules: 'reglas',
   methods: 'formas',
+  partners: 'plataformas',
   night: 'noche',
   permissions: 'permisos',
   alerts: 'telegram',
@@ -89,7 +91,7 @@ export function navRequestFor(tab: TabKey, edition: Edition = PANEL_EDITION): Na
  * La pestaña que se enseña con lo que ve este rol:
  *  - la pedida, si la ve (la sección sale de ella);
  *  - solo la sección (?s=ajustes): su primera pestaña;
- *  - otra cosa (no existe, o este rol o este local no la tienen): Hoy · Cobros
+ *  - otra cosa (no existe, o este rol o este local no la tienen): Hoy · Resumen
  *    (en OxioParty, En directo).
  */
 export function resolveNav(req: NavRequest, sections: readonly PanelSection[], edition: Edition = PANEL_EDITION): TabKey {
@@ -105,7 +107,7 @@ export function resolveNav(req: NavRequest, sections: readonly PanelSection[], e
 
 /**
  * La query con esa pestaña (?s=ajustes&t=formas), sin tocar los otros
- * parámetros. Hoy · Cobros los quita. Devuelve '' o '?…'.
+ * parámetros. Hoy · Resumen los quita. Devuelve '' o '?…'.
  */
 export function navSearch(search: string, tab: TabKey, edition: Edition = PANEL_EDITION): string {
   const params = new URLSearchParams(search);

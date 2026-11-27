@@ -30,6 +30,8 @@ const REDACT_PATHS = [
   '*.qr',
   '*.nfc_uid',
   '*.description',
+  // El motivo de una anulación (API de socios): solo en sus columnas y el panel.
+  '*.reason',
   '*.keyClaimSealed',
 ];
 

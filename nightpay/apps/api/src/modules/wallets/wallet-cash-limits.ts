@@ -27,7 +27,11 @@ const MAX_MERGE_HOPS = 10;
 export interface WalletCash {
   /** Entró en efectivo (recargas − anulaciones) desde siempre. */
   inCents: number;
-  /** …de eso, en las últimas 24 h. */
+  /**
+   * …de eso, en las últimas 24 h. Una anulación cuenta a la hora de su
+   * recarga (no a la suya): anular tarde una recarga que ya salió de la
+   * ventana no abre hueco de efectivo.
+   */
   inWindowCents: number;
   /**
    * Lo que PAGÓ el cliente en efectivo en las últimas 24 h: el saldo + la
@@ -62,9 +66,11 @@ export async function walletCash(tx: RawTx, walletId: string, now: Date = new Da
       (SELECT COALESCE(SUM(t."amountCents"), 0) FROM wallet_cash_topups t
         WHERE t."walletId" IN (SELECT id FROM chain))::bigint AS "inCents",
       (SELECT COALESCE(SUM(t."amountCents"), 0) FROM wallet_cash_topups t
-        WHERE t."walletId" IN (SELECT id FROM chain) AND t."createdAt" >= ${since})::bigint AS "inWindowCents",
+         LEFT JOIN wallet_cash_topups o ON o.id = t."voidOfId"
+        WHERE t."walletId" IN (SELECT id FROM chain) AND COALESCE(o."createdAt", t."createdAt") >= ${since})::bigint AS "inWindowCents",
       (SELECT COALESCE(SUM(t."amountCents" + t."serviceFeeCents"), 0) FROM wallet_cash_topups t
-        WHERE t."walletId" IN (SELECT id FROM chain) AND t."createdAt" >= ${since})::bigint AS "inWindowPaidCents",
+         LEFT JOIN wallet_cash_topups o ON o.id = t."voidOfId"
+        WHERE t."walletId" IN (SELECT id FROM chain) AND COALESCE(o."createdAt", t."createdAt") >= ${since})::bigint AS "inWindowPaidCents",
       (SELECT COALESCE(SUM(p."amountCents"), 0) FROM wallet_payouts p
         WHERE p."walletId" IN (SELECT id FROM chain) AND p.method = 'CASH' AND p.status = 'DONE')::bigint AS "outCents",
       (SELECT COALESCE(SUM(p."amountCents"), 0) FROM wallet_payouts p

@@ -35,6 +35,8 @@ const ALLOWED: Record<string, number> = {
   'apps/operator/src/components/reception/desk/QrBox.tsx': 1,
   'apps/tpv/src/components/ActivePayment.tsx': 1,
   'apps/admin/src/components/fichas/MethodMark.tsx': 1,
+  // El minigráfico de «Pagado esta noche» (entrega 9 B): un gráfico, no un icono.
+  'apps/admin/src/components/Sparkline.tsx': 1,
   'packages/ui/src/components/CartaIcon.tsx': 1,
   'packages/ui/src/components/DoneMark.tsx': 1,
   'packages/ui/src/components/PaymentOutcome.tsx': 2,

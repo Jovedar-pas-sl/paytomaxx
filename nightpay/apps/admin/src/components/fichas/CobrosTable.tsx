@@ -29,6 +29,8 @@ interface Props {
   onDetails?: (row: CobroRow) => void;
   /** El cobro abierto en el detalle: su fila va marcada. */
   current?: DockKey | null;
+  /** Los últimos del Resumen: solo hora, qué, estado e importe, sin cabecera. */
+  compact?: boolean;
 }
 
 const COLUMN_LABEL = Object.fromEntries(COBROS_COLUMNS.map((c) => [c.key, c.label])) as Record<CobrosColumn, string>;
@@ -41,13 +43,14 @@ const COLUMN_LABEL = Object.fromEntries(COBROS_COLUMNS.map((c) => [c.key, c.labe
  * (panel-cobros.css). Tocar la fila abre su detalle; tocar a la chica o el
  * saldo, su ficha.
  */
-export function CobrosTable({ rows, empty, hidePerson, columns = [], onDetails, current = null }: Props) {
+export function CobrosTable({ rows, empty, hidePerson, columns = [], onDetails, current = null, compact = false }: Props) {
   const tz = useVenueTimezone();
   const { sections } = useSections();
   const fichas = useFichas();
-  const has = (c: CobrosColumn) => columns.includes(c);
+  const has = (c: CobrosColumn) => !compact && columns.includes(c);
+  const showPerson = !hidePerson && !compact;
   // Las celdas de cada fila, en orden (también dan forma a las siluetas de carga).
-  const cells = ['hora', has('ref') ? 'ref' : null, 'que', hidePerson ? null : 'quien', 'como', has('codigo') ? 'codigo' : null, has('banco') ? 'banco' : null, 'estado', 'importe'].filter(
+  const cells = ['hora', has('ref') ? 'ref' : null, 'que', showPerson ? 'quien' : null, compact ? null : 'como', has('codigo') ? 'codigo' : null, has('banco') ? 'banco' : null, 'estado', 'importe'].filter(
     (c): c is string => c !== null,
   );
   const now = Date.now();
@@ -78,7 +81,14 @@ export function CobrosTable({ rows, empty, hidePerson, columns = [], onDetails, 
 
   return (
     <div className="np-cobros-scroll">
-    <table className="np-table np-cobros-table" aria-busy={rows === null} data-extra={columns.length > 0 ? '' : undefined}>
+    <table
+      className="np-table np-cobros-table"
+      aria-busy={rows === null}
+      data-extra={!compact && columns.length > 0 ? '' : undefined}
+      data-compact={compact ? '' : undefined}
+      aria-label={compact ? 'Últimos cobros' : undefined}
+    >
+      {compact ? null : (
       <thead>
         <tr>
           <th data-card="hora">Hora</th>
@@ -92,6 +102,7 @@ export function CobrosTable({ rows, empty, hidePerson, columns = [], onDetails, 
           <th data-card="importe">Importe</th>
         </tr>
       </thead>
+      )}
       <tbody>
         {(rows ?? []).map((row, i) => {
           const chip = sectionChip(row, sections, formatEur);
@@ -112,7 +123,7 @@ export function CobrosTable({ rows, empty, hidePerson, columns = [], onDetails, 
                   {row.service ? <span className="np-cobros-servicio">{row.service}</span> : null}
                 </span>
               </td>
-              {hidePerson ? null : (
+              {!showPerson ? null : (
                 <td data-card="quien">
                   {row.person ? (
                     fichas && row.person.role === 'OPERATOR' ? (
@@ -132,6 +143,7 @@ export function CobrosTable({ rows, empty, hidePerson, columns = [], onDetails, 
                   )}
                 </td>
               )}
+              {compact ? null : (
               <td data-card="como" title={row.methodLabel}>
                 <MethodMark method={row.method}>
                   {row.wallet && fichas ? (
@@ -143,6 +155,7 @@ export function CobrosTable({ rows, empty, hidePerson, columns = [], onDetails, 
                   )}
                 </MethodMark>
               </td>
+              )}
               {has('codigo') ? (
                 <td data-card="codigo" className="np-num">
                   {row.confirmationCode ?? '—'}
@@ -154,7 +167,7 @@ export function CobrosTable({ rows, empty, hidePerson, columns = [], onDetails, 
                   {row.payment?.authCode ? <span> · aut. {row.payment.authCode}</span> : null}
                 </td>
               ) : null}
-              <td data-card="estado" {...(i === 0 ? { 'data-tour': 'cobros-estado' } : {})}>
+              <td data-card="estado" {...(i === 0 && !compact ? { 'data-tour': 'cobros-estado' } : {})}>
                 {/* Una sola forma y una palabra por estado, con tarjeta o con el saldo. */}
                 <Etiqueta tone={status.tone} size="sm">
                   {status.label}
@@ -167,7 +180,7 @@ export function CobrosTable({ rows, empty, hidePerson, columns = [], onDetails, 
             </tr>
           );
         })}
-        {rows === null ? <SkelRows rows={8} cols={cells.length} cards={cells} /> : null}
+        {rows === null ? <SkelRows rows={compact ? 5 : 8} cols={cells.length} cards={cells} /> : null}
       </tbody>
     </table>
     </div>

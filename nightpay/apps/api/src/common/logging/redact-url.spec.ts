@@ -88,6 +88,11 @@ describe('todas las rutas públicas con un token (SEC-03)', () => {
     expect(redactSecretsInUrl('/pay/result')).toBe('/pay/result');
   });
 
+  it('el enlace de la ficha (?ficha=<código>) tampoco sale, y /w/<token>/live-code se tapa solo', () => {
+    expect(redactSecretsInUrl('https://operator.example.com/?ficha=demo-ficha-uid-0000001')).toBe('https://operator.example.com/?ficha=***');
+    expect(redactSecretsInUrl('/w/privateWalletToken0123456/live-code')).toBe('/w/***/live-code');
+  });
+
   it('el enlace a la app del personal desde el pase (?pase=<token>) tampoco sale', () => {
     expect(redactSecretsInUrl('https://operator.example.com/?pase=PaSe.abc_123')).toBe('https://operator.example.com/?pase=***');
   });

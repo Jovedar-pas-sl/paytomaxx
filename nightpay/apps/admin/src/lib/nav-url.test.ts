@@ -14,6 +14,7 @@ describe('el panel en la URL: leerla', () => {
     expect(parseNav('?s=ajustes&t=formas')).toEqual({ section: 'ajustes', tab: 'methods', hasTab: true });
     expect(parseNav('?s=hoy&t=avisos')).toEqual({ section: 'hoy', tab: 'incidents', hasTab: true });
     expect(parseNav('?s=hoy&t=mapa')).toEqual({ section: 'hoy', tab: 'money', hasTab: true });
+    expect(parseNav('?s=hoy&t=resumen')).toEqual({ section: 'hoy', tab: 'resumen', hasTab: true });
   });
 
   it('solo la sección', () => {
@@ -59,12 +60,28 @@ describe('el panel en la URL: qué se enseña', () => {
     expect(shown('?s=ajustes&t=datafonos', { ...owner, posOn: true })).toBe('terminals');
   });
 
+  it('«Otras plataformas» en la URL: solo con la API de socios encendida', () => {
+    expect(shown('?s=ajustes&t=plataformas', owner)).toBe(DEFAULT_TAB);
+    expect(shown('?s=ajustes&t=plataformas', { ...owner, partnersOn: true })).toBe('partners');
+  });
+
   it('una pestaña que no existe no abre su sección: a Hoy', () => {
     expect(shown('?s=ajustes&t=caja', owner)).toBe(DEFAULT_TAB);
   });
 
-  it('sin nada: Hoy · Cobros', () => {
-    expect(shown('', owner)).toBe('payments');
+  it('sin nada: Hoy · Resumen', () => {
+    expect(DEFAULT_TAB).toBe('resumen');
+    expect(shown('', owner)).toBe('resumen');
+    expect(shown('', manager)).toBe('resumen');
+  });
+
+  it('los enlaces de antes a Cobros (?t=cobros) siguen abriendo Cobros', () => {
+    expect(shown('?s=hoy&t=cobros', owner)).toBe('payments');
+    expect(shown('?s=hoy&t=cobros', manager)).toBe('payments');
+  });
+
+  it('solo la sección Hoy: su primera pestaña, el Resumen', () => {
+    expect(shown('?s=hoy', owner)).toBe('resumen');
   });
 });
 
@@ -75,13 +92,15 @@ describe('el panel en la URL: escribirla', () => {
     expect(navSearch('?s=ajustes&t=formas', 'operators')).toBe('?s=chicas&t=chicas');
   });
 
-  it('Hoy · Cobros deja la URL limpia; los otros parámetros se quedan', () => {
-    expect(navSearch('?s=ajustes&t=formas', 'payments')).toBe('');
-    expect(navSearch('?x=1&s=hoy&t=avisos', 'payments')).toBe('?x=1');
+  it('Hoy · Resumen deja la URL limpia; los otros parámetros se quedan; Cobros ya lleva la suya', () => {
+    expect(navSearch('?s=ajustes&t=formas', 'resumen')).toBe('');
+    expect(navSearch('?x=1&s=hoy&t=avisos', 'resumen')).toBe('?x=1');
+    expect(navSearch('', 'payments')).toBe('?s=hoy&t=cobros');
   });
 
   it('ida y vuelta: cada pestaña se lee igual que se escribe', () => {
-    const all = visibleSections({ role: 'OWNER', isSuperAdmin: true, canSeeReports: true, posOn: true });
+    // Con «Otras plataformas» encendida (sale solo si el API la contesta): así están todas.
+    const all = visibleSections({ role: 'OWNER', isSuperAdmin: true, canSeeReports: true, posOn: true, partnersOn: true });
     for (const tab of PANEL_TABS) {
       expect(resolveNav(parseNav(navSearch('', tab.key)), all)).toBe(tab.key);
     }
@@ -126,7 +145,7 @@ describe('el panel en la URL: el historial', () => {
     const history = fakeWindow('https://admin.paytomaxx.com/?s=ajustes&t=formas');
     writeNavToUrl('methods', 'push');
     expect(history.pushState).not.toHaveBeenCalled();
-    writeNavToUrl('payments', 'replace');
+    writeNavToUrl('resumen', 'replace');
     expect(history.replaceState).toHaveBeenCalledWith(null, '', '/');
   });
 

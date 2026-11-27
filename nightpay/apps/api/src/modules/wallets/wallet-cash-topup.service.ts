@@ -562,7 +562,8 @@ export class CashTopUpService {
     const since = new Date(Date.now() - CASH_TOP_UP_VOID_WINDOW_MINUTES * 60 * 1000);
     const rows = await this.prisma.withTenant(venueId, (tx) =>
       tx.walletCashTopUp.findMany({
-        where: { tenantId: venueId, voidOfId: null, createdAt: { gte: since } },
+        // Las cargas de los cajeros de otras plataformas no son de recepción: ni se ven ni se anulan aquí.
+        where: { tenantId: venueId, voidOfId: null, partnerConnectionId: null, createdAt: { gte: since } },
         orderBy: { createdAt: 'desc' },
         take: 50,
         select: { id: true, createdAt: true, amountCents: true, serviceFeeCents: true, walletId: true, voidedBy: { select: { id: true } } },
@@ -594,6 +595,7 @@ export class CashTopUpService {
       SELECT id::text AS id, "walletId"::text AS "walletId", "amountCents", "serviceFeeBps", "serviceFeeCents", "createdAt"
         FROM wallet_cash_topups
        WHERE id = ${topUpId}::uuid AND "tenantId" = ${actor.tenantId}::uuid AND "voidOfId" IS NULL
+         AND "partnerConnectionId" IS NULL
        FOR UPDATE
     `;
     const topUp = rows[0];

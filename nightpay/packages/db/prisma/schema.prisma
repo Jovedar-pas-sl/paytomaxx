@@ -165,6 +165,7 @@ model Venue {
   reservationSpends   ReservationSpend[]
   walletGifts         WalletGift[]
   partnerConnections  PartnerConnection[]
+  partnerWalletOperations PartnerWalletOperation[]
 
   @@index([businessId])
   @@map("venues")
@@ -877,6 +878,9 @@ model WalletCashTopUp {
   /// en la caja y se debe a OxioPay. En una anulación, negativa (la de la recarga).
   serviceFeeBps   Int?
   serviceFeeCents Int     @default(0)
+  /// API de socios (20261127100000): el efectivo que cogió el cajero de esta conexión
+  /// (sin persona ni datáfono, sin comisión del servicio ni saldo nuevo: CHECK en SQL).
+  partnerConnectionId String? @db.Uuid
 
   venue    Venue            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   wallet   ClientWallet     @relation(fields: [walletId], references: [id], onDelete: Cascade)
@@ -885,9 +889,12 @@ model WalletCashTopUp {
 
   // Reservados: el resto de una reserva pagado en efectivo.
   reservationPayment ReservationPayment?
+  partnerConnection  PartnerConnection?      @relation(fields: [partnerConnectionId], references: [id], onDelete: Restrict)
+  partnerOperation   PartnerWalletOperation?
   @@unique([tenantId, idempotencyKey])
   @@index([tenantId, createdAt(sort: Desc)])
   @@index([walletId, createdAt])
+  @@index([partnerConnectionId])
   @@map("wallet_cash_topups")
 }
 
@@ -1568,6 +1575,7 @@ model ClientWallet {
   // Reservados: el saldo del grupo de una reserva.
   reservations     Reservation[]
   pushSubscriptions WalletPushSubscription[]
+  partnerOperations PartnerWalletOperation[]
   // «Regala una noche»: el regalo con el que se pagó este saldo.
   gift              WalletGift?
 
@@ -2366,10 +2374,62 @@ model PartnerConnection {
 
   venue   Venue   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   partner Partner @relation(fields: [partnerId], references: [id], onDelete: Restrict)
+  cashTopUps WalletCashTopUp[]
+  operations PartnerWalletOperation[]
 
   @@index([tenantId])
   @@index([partnerId])
   @@map("partner_connections")
+}
+
+enum PartnerWalletOpKind {
+  LOAD
+  LOAD_VOID
+}
+
+/// El libro de las cargas de los socios (20261127100000): una LOAD por carga
+/// (su huella y la respuesta 201 guardada) y una LOAD_VOID por anulación.
+/// Solo de añadir (trigger) y FORCE RLS. Los CHECK (importe, saldos, campos
+/// de cada tipo, patrones del contrato) están en SQL.
+model PartnerWalletOperation {
+  id                 String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  /// El local de la conexión.
+  tenantId           String              @db.Uuid
+  connectionId       String              @db.Uuid
+  kind               PartnerWalletOpKind
+  reversesId         String?             @unique @db.Uuid
+  /// El saldo vivo en el que se cargó: nunca sale en una respuesta.
+  walletId           String              @db.Uuid
+  amountCents        Int
+  balanceBeforeCents Int
+  balanceAfterCents  Int
+  description        String?
+  reference          String?
+  device             String?
+  /// cash | card | transfer | bank_app (CHECK).
+  funding            String?
+  cashTopupId        String?             @unique @db.Uuid
+  /// live_code | ficha | ficha_nfc (CHECK).
+  refKind            String?
+  /// El motivo de una anulación: solo aquí y en el panel (nunca al registro ni al log).
+  reason             String?
+  voidedByUserId     String?             @db.Uuid
+  idempotencyKey     String
+  requestHash        String?
+  response           Json?
+  createdAt          DateTime            @db.Timestamptz
+
+  venue      Venue                   @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  connection PartnerConnection       @relation(fields: [connectionId], references: [id], onDelete: Restrict)
+  reverses   PartnerWalletOperation? @relation("PartnerLoadVoid", fields: [reversesId], references: [id], onDelete: Restrict)
+  reversedBy PartnerWalletOperation? @relation("PartnerLoadVoid")
+  wallet     ClientWallet            @relation(fields: [walletId], references: [id], onDelete: Restrict)
+  cashTopup  WalletCashTopUp?        @relation(fields: [cashTopupId], references: [id], onDelete: Restrict)
+
+  @@unique([connectionId, idempotencyKey])
+  @@index([connectionId, createdAt])
+  @@index([walletId, createdAt])
+  @@map("partner_wallet_operations")
 }
 
 /// La congelación de la API de socios (una fila, id = 1; RLS solo con bypass):

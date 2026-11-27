@@ -13,6 +13,14 @@ import { PartnerKeySweepService } from './connections/partner-key-sweep.service'
 import { PartnerKeyExposureService } from './http/partner-key-exposure.service';
 import { PartnerResponseInterceptor } from './http/partner-response.interceptor';
 import { PartnerController } from './partner.controller';
+import { ChargeAlertModule } from '../wallets/charge-alert/charge-alert.module';
+import { WalletLiveCodeModule } from '../wallets/wallet-live-code.module';
+import { PartnerLoadWatch } from './wallet/partner-load-watch';
+import { PartnerLoadsController } from './wallet/partner-loads.controller';
+import { PartnerLoadsService } from './wallet/partner-loads.service';
+import { PartnerWalletController } from './wallet/partner-wallet.controller';
+import { PartnerWalletLimits } from './wallet/partner-wallet-limits';
+import { PartnerWalletRefs } from './wallet/partner-wallet-ref';
 
 /**
  * API de socios (/v1/partner): otras plataformas con una clave por local.
@@ -21,8 +29,10 @@ import { PartnerController } from './partner.controller';
  * super-admin (socios, congelación) está en modules/superadmin/partners.*.
  */
 @Module({
-  imports: [AuthModule],
-  controllers: [PartnerController, OwnerPartnerConnectionsController, PartnerKeyClaimController],
+  // WalletLiveCodeModule: leer los códigos del móvil (no todo WalletsModule).
+  // ChargeAlertModule: «Carga anulada» al móvil del cliente.
+  imports: [AuthModule, WalletLiveCodeModule, ChargeAlertModule],
+  controllers: [PartnerController, PartnerWalletController, PartnerLoadsController, OwnerPartnerConnectionsController, PartnerKeyClaimController],
   providers: [
     PartnerAuthLimiter,
     PartnerRateLimiter,
@@ -34,6 +44,10 @@ import { PartnerController } from './partner.controller';
     PartnerConnectionsService,
     PartnerKeyClaimService,
     PartnerKeySweepService,
+    PartnerWalletLimits,
+    PartnerWalletRefs,
+    PartnerLoadWatch,
+    PartnerLoadsService,
   ],
   exports: [PartnerFreezeService, PartnerAuthLimiter, PartnerRateLimiter, PartnerForeignIpService, PartnerKeyExposureService],
 })

@@ -153,6 +153,8 @@ export interface NightView {
   pending: Array<{ id: string; status: string; amountCents: number; createdAt: string; captureMethod: string | null; provider?: string | null }>;
   /** Cierre a ciegas: la encargada, con la noche abierta, no recibe el fondo ni el efectivo de la caja. */
   cashHidden?: boolean;
+  /** Lo pagado hora a hora, solo con la noche abierta (`at` en UTC; la de ahora, `open`). Un API de antes no lo trae: sin gráfico. */
+  hourly?: Array<{ at: string; chargedCents: number; open: boolean }>;
 }
 
 export interface NightListItem {

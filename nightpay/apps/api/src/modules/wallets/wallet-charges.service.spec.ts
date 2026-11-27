@@ -134,8 +134,10 @@ function makeService(
   const moduleRef = { get: vi.fn().mockReturnValue(refunds) };
   const audit = { log: vi.fn().mockResolvedValue(undefined) };
   const totp = { assertForUser: vi.fn().mockResolvedValue(undefined), isEnabled: vi.fn().mockResolvedValue(true) };
-  const svc = new WalletChargesService(prisma as never, audit as never, moduleRef as never, totp as never);
-  return { svc, tx, prisma, refunds, audit, totp };
+  // Los códigos del móvil (OXC1:) del saldo: se anulan tras guardar.
+  const liveCodes = { dropWallet: vi.fn().mockResolvedValue(undefined) };
+  const svc = new WalletChargesService(prisma as never, audit as never, moduleRef as never, totp as never, undefined, undefined, liveCodes as never);
+  return { svc, tx, prisma, refunds, audit, totp, liveCodes };
 }
 
 const chica = { userId: 'op-1', role: 'OPERATOR' as const, tenantId: 'other' };
@@ -594,6 +596,28 @@ describe('sumar una recarga al saldo de su Face ID', () => {
     await svc.mergeInto('src', 'tgt');
     expect(sqlOf(tx.$queryRaw.mock.calls[1]!)).toMatch(/"blockedAt"[\s\S]*FROM client_wallets[\s\S]*FOR UPDATE/);
   });
+
+  it('juntado: anula los códigos del móvil de la recarga sumada (una vez, tras guardar)', async () => {
+    const { svc, liveCodes } = mergeService();
+    expect(await svc.mergeInto('src', 'tgt')).toEqual({ balanceCents: 8000 });
+    expect(liveCodes.dropWallet).toHaveBeenCalledTimes(1);
+    expect(liveCodes.dropWallet).toHaveBeenCalledWith('src');
+  });
+
+  it('si anular los códigos falla, se junta igual', async () => {
+    const { svc, liveCodes } = mergeService();
+    liveCodes.dropWallet.mockRejectedValueOnce(new Error('redis caído'));
+    await expect(svc.mergeInto('src', 'tgt')).resolves.toEqual({ balanceCents: 8000 });
+    expect(liveCodes.dropWallet).toHaveBeenCalledTimes(1);
+  });
+
+  it('si no se junta (pago a medias, saldo cerrado o bloqueado), no anula códigos', async () => {
+    for (const o of [{ open: [{ id: 'pay-1' }] }, { target: { mergedIntoId: 'otro' } }, { source: { blockedAt: new Date() } }]) {
+      const { svc, liveCodes } = mergeService(o);
+      await expect(svc.mergeInto('src', 'tgt')).rejects.toThrow();
+      expect(liveCodes.dropWallet).not.toHaveBeenCalled();
+    }
+  });
 });
 
 describe('juntar saldos desde la página del saldo: el enlace no prueba que sea suyo', () => {
@@ -700,6 +724,31 @@ describe('el cliente perdió el enlace de su saldo', () => {
     expect(JSON.stringify(audit.log.mock.calls)).not.toContain(out.path.slice(5));
   });
 
+  it('enlace nuevo: anula los códigos del móvil del saldo (una vez, tras guardar)', async () => {
+    const { svc, liveCodes } = makeService();
+    await svc.relink(owner, 'w-1');
+    expect(liveCodes.dropWallet).toHaveBeenCalledTimes(1);
+    expect(liveCodes.dropWallet).toHaveBeenCalledWith('w-1');
+  });
+
+  it('si anular los códigos falla, el enlace nuevo sale igual', async () => {
+    const { svc, liveCodes } = makeService();
+    liveCodes.dropWallet.mockRejectedValueOnce(new Error('redis caído'));
+    await expect(svc.relink(owner, 'w-1')).resolves.toMatchObject({ path: expect.stringContaining('/w/a/') });
+    expect(liveCodes.dropWallet).toHaveBeenCalledTimes(1);
+  });
+
+  it('sin enlace nuevo (no es el dueño, saldo cerrado o al guardar falla), no anula códigos', async () => {
+    const notOwner = makeService();
+    await expect(notOwner.svc.relink(manager, 'w-1')).rejects.toThrow(ForbiddenException);
+    const closed = makeService({ wallet: wallet({ status: 'REFUNDED' }) });
+    await expect(closed.svc.relink(owner, 'w-1')).rejects.toThrow(/cerrado/);
+    const broken = makeService();
+    broken.tx.walletPasskey.deleteMany.mockRejectedValueOnce(new Error('sin base de datos'));
+    await expect(broken.svc.relink(owner, 'w-1')).rejects.toThrow('sin base de datos');
+    for (const h of [notOwner, closed, broken]) expect(h.liveCodes.dropWallet).not.toHaveBeenCalled();
+  });
+
   it('solo el dueño, solo saldos abiertos de su grupo', async () => {
     await expect(makeService().svc.relink(manager, 'w-1')).rejects.toThrow(ForbiddenException);
     await expect(makeService({ wallet: wallet({ status: 'REFUNDED' }) }).svc.relink(owner, 'w-1')).rejects.toThrow(
@@ -708,6 +757,35 @@ describe('el cliente perdió el enlace de su saldo', () => {
     await expect(makeService({ venueGroup: 'otro' }).svc.relink({ ...owner, tenantId: 'ajeno' }, 'w-1')).rejects.toThrow(
       NotFoundException,
     );
+  });
+});
+
+describe('ficha perdida: el encargado la bloquea', () => {
+  it('bloqueada: anula los códigos del móvil del saldo (una vez, tras guardar)', async () => {
+    const { svc, tx, liveCodes } = makeService();
+    tx.walletCard.findMany.mockResolvedValueOnce([{ id: 'card-1' }]);
+    await expect(svc.blockCard(manager, 'w-1')).resolves.toEqual({ ok: true });
+    expect(tx.walletCard.updateMany).toHaveBeenCalledWith(expect.objectContaining({ data: { status: 'BLOCKED', blockedAt: expect.any(Date) } }));
+    expect(liveCodes.dropWallet).toHaveBeenCalledTimes(1);
+    expect(liveCodes.dropWallet).toHaveBeenCalledWith('w-1');
+  });
+
+  it('si anular los códigos falla, la ficha queda bloqueada igual', async () => {
+    const { svc, tx, liveCodes } = makeService();
+    tx.walletCard.findMany.mockResolvedValueOnce([{ id: 'card-1' }]);
+    liveCodes.dropWallet.mockRejectedValueOnce(new Error('redis caído'));
+    await expect(svc.blockCard(manager, 'w-1')).resolves.toEqual({ ok: true });
+    expect(liveCodes.dropWallet).toHaveBeenCalledTimes(1);
+  });
+
+  it('sin ficha (409), sin permiso o de otro grupo: no anula códigos', async () => {
+    const noCard = makeService();
+    await expect(noCard.svc.blockCard(manager, 'w-1')).rejects.toThrow(ConflictException);
+    const waiter = makeService();
+    await expect(waiter.svc.blockCard({ ...manager, role: 'WAITER' as never }, 'w-1')).rejects.toThrow(ForbiddenException);
+    const foreign = makeService({ venueGroup: 'otro' });
+    await expect(foreign.svc.blockCard({ ...manager, tenantId: 'ajeno' }, 'w-1')).rejects.toThrow(NotFoundException);
+    for (const h of [noCard, waiter, foreign]) expect(h.liveCodes.dropWallet).not.toHaveBeenCalled();
   });
 });
 

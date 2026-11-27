@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, type CSSProperties } from 'react';
-import { Button, Icon, Modal, PRINT_MODE_CHOICES, Segmented, testTicket, usePrintMode, usePrintTicket, writePrintMode } from '@nightpay/ui';
+import { Button, FormError, Icon, Modal, PRINT_MODE_CHOICES, Segmented, testTicket, usePrintMode, usePrintTicket, writePrintMode } from '@nightpay/ui';
 import { fichaPlace, READER_SPOT_CHOICES, useReaderSpot, writeReaderSpot } from '@/lib/lector-nfc';
 import { nfcSupported, readCard } from '@/lib/nfc';
 import { testReadResult, type TestRead as TestReadResult } from '@/lib/prueba-lectura';
@@ -63,12 +63,13 @@ function ReadTest() {
           {result ? 'Probar otra ficha' : 'Probar a leer una ficha'}
         </Button>
       )}
-      {result ? (
-        <p role="status" style={{ ...resultStyle, color: result.ok ? 'var(--np-text)' : 'var(--np-danger-text)' }}>
-          {result.ok ? <Icon name="check" size={20} className="np-icon-lead" /> : null}
+      {result?.ok ? (
+        <p role="status" style={resultStyle}>
+          <Icon name="check" size={20} className="np-icon-lead" />
           {result.text}
         </p>
       ) : null}
+      {result && !result.ok ? <FormError>{result.text}</FormError> : null}
     </section>
   );
 }
@@ -95,11 +96,7 @@ function PrintTest() {
       <Button variant="ghost" onClick={() => printer.print(testTicket(new Date(), window.location.origin, venue))}>
         Prueba de impresión
       </Button>
-      {printer.error ? (
-        <p role="alert" style={{ ...resultStyle, color: 'var(--np-danger-text)' }}>
-          {printer.error}
-        </p>
-      ) : null}
+      {printer.error ? <FormError>{printer.error}</FormError> : null}
       {printer.ticketNode}
     </section>
   );

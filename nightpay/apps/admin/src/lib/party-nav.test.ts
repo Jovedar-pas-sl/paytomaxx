@@ -52,7 +52,7 @@ describe('las secciones de OxioParty', () => {
 
   it('nada de lo que es solo de OxioPay: compañeras y sus pagos, saldos y fichas, informes, reglas, secciones, permisos, Telegram, liquidaciones', () => {
     const keys = PARTY_TABS.map((t) => t.key);
-    for (const k of ['operators', 'treasury', 'wallets', 'fichas', 'money', 'nights', 'reports', 'bank', 'oxiopay', 'carta', 'sections', 'rules', 'permissions', 'alerts'] as const) {
+    for (const k of ['resumen', 'operators', 'treasury', 'wallets', 'fichas', 'money', 'nights', 'reports', 'bank', 'oxiopay', 'carta', 'sections', 'rules', 'permissions', 'alerts'] as const) {
       expect(keys).not.toContain(k);
       expect(resolveTab(k, 'party')).toBeNull();
     }
@@ -105,11 +105,13 @@ describe('con OxioPay (club) nada cambia', () => {
     expect(PANEL_EDITION).toBe('club');
     expect(isPartyEdition()).toBe(false);
     expect(isPartyEdition('party')).toBe(true);
-    expect(DEFAULT_TAB).toBe('payments');
-    expect(defaultTabOf()).toBe('payments');
+    expect(DEFAULT_TAB).toBe('resumen');
+    expect(defaultTabOf()).toBe('resumen');
     expect(visibleSections({ role: 'OWNER' }).map((s) => s.key)).toEqual(['hoy', 'chicas', 'clientes', 'informes', 'ajustes']);
     expect(PANEL_TABS.some((t) => ['live', 'stalls', 'wristbands', 'partyRefunds', 'settlement', 'party'].includes(t.key))).toBe(false);
     expect(resolveTab('live')).toBeNull();
-    expect(navSearch('?s=ajustes&t=formas', 'payments')).toBe('');
+    expect(navSearch('?s=ajustes&t=formas', 'resumen')).toBe('');
+    // «Resumen», la primera de OxioPay; OxioParty no la tiene.
+    expect(PANEL_TABS[0]!.key).toBe('resumen');
   });
 });

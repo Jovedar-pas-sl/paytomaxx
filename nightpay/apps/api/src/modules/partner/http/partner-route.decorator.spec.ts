@@ -5,7 +5,7 @@ import { GUARDS_METADATA, INTERCEPTORS_METADATA, METHOD_METADATA, PATH_METADATA 
 import { PARTNER_ROUTES, type PartnerRouteDef } from '@nightpay/contracts';
 import { IS_PUBLIC_KEY } from '../../../common/decorators/public.decorator';
 import { PartnerKeyGuard } from '../auth/partner-key.guard';
-import { PARTNER_ROUTE, PartnerRoute } from './partner-route.decorator';
+import { PARTNER_ROUTE, PartnerRoute, nestPath } from './partner-route.decorator';
 import { PartnerResponseInterceptor } from './partner-response.interceptor';
 
 const POST_ROUTE: PartnerRouteDef = { ...PARTNER_ROUTES.getConnection, method: 'POST', path: '/prueba', operationId: 'prueba' };
@@ -16,6 +16,9 @@ class Prueba {
 
   @PartnerRoute(POST_ROUTE)
   post(): void {}
+
+  @PartnerRoute(PARTNER_ROUTES.voidWalletLoad)
+  voidLoad(): void {}
 }
 
 describe('@PartnerRoute(def)', () => {
@@ -33,5 +36,12 @@ describe('@PartnerRoute(def)', () => {
     expect(Reflect.getMetadata(METHOD_METADATA, Prueba.prototype.post)).toBe(RequestMethod.POST);
     expect(Reflect.getMetadata(PATH_METADATA, Prueba.prototype.post)).toBe('/prueba');
     expect(Reflect.getMetadata(PARTNER_ROUTE, Prueba.prototype.post)).toBe(POST_ROUTE);
+  });
+
+  it('`{id}` del contrato pasa a `:id` de Nest (y el código HTTP de la tabla)', () => {
+    const h = Prueba.prototype.voidLoad;
+    expect(Reflect.getMetadata(PATH_METADATA, h)).toBe('/wallet/loads/:id/void');
+    expect(Reflect.getMetadata(METHOD_METADATA, h)).toBe(RequestMethod.POST);
+    expect(nestPath('/wallet/loads/{id}')).toBe('/wallet/loads/:id');
   });
 });
