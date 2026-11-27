@@ -20,8 +20,6 @@ const ROOTS = ['apps/admin/src', 'apps/operator/src', 'apps/tpv/src', 'apps/web-
 const ALLOWED: Record<string, number> = {
   'packages/ui/src/components/Icon.tsx': 1,
   // Queda, con su entrega.
-  'apps/admin/src/components/NightCajaBlock.tsx': 1, // → 10
-  'apps/admin/src/components/NightCloseScreen.tsx': 4, // → 10
   'apps/operator/src/components/MyCobros.tsx': 1, // → 6
   'apps/operator/src/components/guia/CuentaBasica.tsx': 1, // → 5
   'apps/operator/src/components/guia/Guia.tsx': 1, // → 5
